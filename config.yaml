@@ -1,0 +1,9 @@
+# 应用配置
+app:
+  # 访问密钥 为空则不鉴权
+  access_token:
+
+# adb配置
+adb:
+  # adb连接地址
+  address: 127.0.0.1:5555
