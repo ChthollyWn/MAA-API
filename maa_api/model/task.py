@@ -9,6 +9,7 @@ from typing import Optional
 from maa_api.config.path_config import TEMP_PATH
 
 TASK_PIPELINE_FILE = TEMP_PATH / "task_pipeline.log"
+TASK_PIPELINE_FILE.touch(exist_ok=True)
 
 class TaskStatus(Enum):
     # 等待执行
