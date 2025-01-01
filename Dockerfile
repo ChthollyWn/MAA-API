@@ -8,8 +8,6 @@ RUN pip install --no-cache-dir poetry -i https://mirrors.aliyun.com/pypi/simple/
 
 RUN poetry install --no-root --no-dev
 
-COPY . .
+EXPOSE 8002
 
-EXPOSE 8000
-
-CMD ["poetry", "run", "uvicorn", "maa_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["poetry", "run", "uvicorn", "maa_api.main:app", "--host", "0.0.0.0", "--port", "8002"]
