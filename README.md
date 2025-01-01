@@ -9,6 +9,7 @@ sudo docker build -t maa-api .
 ```bash
 sudo docker run -d -p 8002:8002 --name maa-api \
   -v $(pwd):/app \
+  --network host \
   maa-api
 ```
 
