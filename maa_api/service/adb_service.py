@@ -4,6 +4,7 @@ from pathlib import Path
 from adbutils._device import AdbDevice
 
 from maa_api.config.path_config import IMAGE_PATH
+from maa_api.config.config import Config
 
 """adb连接"""
 def adb_connect(address: str) -> AdbDevice:
@@ -37,9 +38,11 @@ def adb_screenshot(address: str) -> Path:
     try:
         _dir = IMAGE_PATH / "screenshot"
         _dir.mkdir(parents=True, exist_ok=True)
-        _path = _dir / "screenshot.png"
+        _path = _dir / "screenshot.jpeg"
 
-        pil_image.save(_path)
+        screenshot_quality = Config.get_config("adb", "screenshot_quality")
+
+        pil_image.save(_path, quality=screenshot_quality)
         return _path
     except Exception as e:
         raise RuntimeError(f"ADB 截屏保存失败 Path={_path}", str(e))
