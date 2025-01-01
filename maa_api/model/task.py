@@ -124,11 +124,16 @@ class TaskPipeline(BaseModel):
         self.tasks = tasks
         self.status = TaskPipelineStatus.IDLE
     
-    def cancel(self):
-        if self._process:
-            self.status = TaskPipelineStatus.CANCELLED
-            self._process.terminate()
-            self._process = None
+    async def cancel(self):
+        if self._process and self._process.returncode is None:
+            try:
+                self.status = TaskPipelineStatus.CANCELLED
+                self._process.kill()
+                await self._process.wait()
+            except Exception as e:
+                raise RuntimeError(f"Error while kill process:: {e}")
+            finally:
+                self._process = None
 
     def get_logs(self) -> str:
         """获取当前日志文件的内容"""
