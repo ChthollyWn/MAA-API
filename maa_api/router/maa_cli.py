@@ -25,8 +25,8 @@ def get_tasks():
     return Response.success(data=TaskPipelineManager)
 
 @router.delete("/api/maa/pipeline", dependencies=[Depends(token_auth)])
-def delete_tasks():
-    TaskPipelineManager.cancel()
+async def delete_tasks():
+    await TaskPipelineManager.cancel()
     return Response.success(data=TaskPipelineManager)
 
 @router.get("/api/maa/pipeline/log", dependencies=[Depends(token_auth)])
