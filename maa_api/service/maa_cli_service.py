@@ -7,7 +7,7 @@ def switch_task(request: TaskRequest) -> Task:
         raise ResponseException(message="任务名不能为空")
     
     if request.name == "Ping":
-        return Task(name="ping", command="ping localhost")
+        return Task(task_name="ping", command="ping localhost")
     
     if request.name == "StartUp":
         return StartUpTask(
