@@ -1,9 +1,6 @@
 import json
-import subprocess
-import asyncio
 import pathlib
 
-from asyncio.subprocess import Process
 from pydantic import BaseModel, PrivateAttr
 from enum import Enum
 from typing import Optional, Any
@@ -12,6 +9,7 @@ from maa_core.asst import Asst
 from maa_core.utils import Message, InstanceOptionType
 from maa_api.config.config import Config
 from maa_api.config.path_config import TEMP_PATH
+from maa_api.exception.response_exception import ResponseException
 
 TASK_PIPELINE_FILE = TEMP_PATH / "task_pipeline.log"
 TASK_PIPELINE_FILE.touch(exist_ok=True)
@@ -32,12 +30,13 @@ class Task(BaseModel):
     task_name:str
     type_name: str
     params: dict[str, Any]
+    is_now: bool = True
     status: TaskStatus = TaskStatus.PENDING
 
     def __init__(self, **data):
         super().__init__(**data)
         if not self.task_name or not self.type_name:
-            raise ValueError("Task must have a name and a type")
+            raise ResponseException("任务名称或任务类型不能为空")
         
 class TaskPipelineStatus(str, Enum):
     # 命令尚未开始执行
@@ -50,35 +49,65 @@ class TaskPipelineStatus(str, Enum):
     FAILED = "failed"
     # 命令被取消
     CANCELLED = "cancelled"
+
+class TaskPipeline(BaseModel):
+    status: TaskPipelineStatus = TaskPipelineStatus.IDLE
+    tasks: list[Task] = []
+    _asst: Optional[Asst] = PrivateAttr(None)
+
+    def running(self) -> bool:
+        return self._asst.running() if self._asst else False
+    
+    def _check_runing(self) -> None:
+        if self.running():
+            raise ResponseException("流水线任务正在运行中，不允许多实例访问")
+
+    def append_task(self, task: Task) -> bool:
+        self._check_runing()
+
+        self.tasks.append(task)
+        return self._asst.append_task(task.type_name, task.params)
         
+    def start(self) -> bool:
+        self._check_runing()
+
+        # 任务执行前，标记所有旧批次任务
+        if self.tasks:
+            for task in self.tasks:
+                if task.status != TaskStatus.PENDING:
+                    task.is_now = False
+        
+        self.status = TaskPipelineStatus.RUNNING
+        return self._asst.start()
+    
+task_pipeline = TaskPipeline()
 
 @Asst.CallBackType
 def _callback(msg, details, arg):
     m = Message(msg)
     d = json.loads(details.decode('utf-8'))
-    # tasks = task_pipeline.tasks
+    tasks = task_pipeline.tasks
 
-    # # 任务开始
-    # if m == Message.TaskChainStart:
-    #     task = tasks[d['taskid']]
-    #     if task.type_name != d['taskchain']:
-    #         raise RuntimeError(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-    #     task_pipeline.tasks[d['taskid']].status = TaskStatus.RUNNING
-    #     print(f'开始任务 [{task.task_name}]')
+    # 开始任务
+    if m == Message.TaskChainStart:
+        task = tasks[d['taskid'] - 1]
+        if task.type_name != d['taskchain']:
+            raise ResponseException(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
+        task_pipeline.tasks[d['taskid'] - 1].status = TaskStatus.RUNNING
+        print(f'开始任务 [{task.task_name}]')
 
-    # # 任务结束
-    # if m == Message.TaskChainCompleted:
-    #     task = tasks[d['taskid']]
-    #     if task.type_name != d['taskchain']:
-    #         raise RuntimeError(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-    #     task_pipeline.tasks[d['taskid']].status = TaskStatus.COMPLETED
-    #     print(f'完成任务 [{task.task_name}]')
+    # 完成任务
+    if m == Message.TaskChainCompleted:
+        task = tasks[d['taskid'] - 1]
+        if task.type_name != d['taskchain']:
+            raise ResponseException(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
+        task_pipeline.tasks[d['taskid'] - 1].status = TaskStatus.COMPLETED
+        print(f'完成任务 [{task.task_name}]')
 
-    # if m == Message.AllTasksCompleted:
-    #     task_pipeline.status = TaskPipelineStatus.COMPLETED
-    #     print('已完成全部任务')
-
-    print(m, d, arg)
+    # 完成全部任务
+    if m == Message.AllTasksCompleted:
+        task_pipeline.status = TaskPipelineStatus.COMPLETED
+        print('已完成全部任务')
 
 def _init_asst():
     # 加载核心资源
@@ -99,71 +128,7 @@ def _init_asst():
         
     return asst
 
-class TaskPipeline(BaseModel):
-    status: TaskPipelineStatus = TaskPipelineStatus.IDLE
-    tasks: list[Task] = []
-    _asst: Optional[Asst] = PrivateAttr(None)
-
-    def __init__(self):
-        super().__init__()
-
-        # 加载核心资源
-        maa_core_path = Config.get_config('app', 'maa_core_path')
-        path = pathlib.Path(maa_core_path).resolve()
-        Asst.load(path=path)
-
-        # 配置回调函数
-        asst = Asst(callback=self._callback)
-        # 触控方案配置
-        asst.set_instance_option(InstanceOptionType.touch_type, 'maatouch')
-        # 暂停下干员
-        asst.set_instance_option(InstanceOptionType.deployment_with_pause, '1')
-
-        adb_address = Config.get_config('adb', 'address')
-        if not asst.connect('adb.exe', adb_address):
-            raise RuntimeError("MAA ADB 连接失败")
-        
-        self._asst = asst
-
-    @Asst.CallBackType
-    def _callback(self, msg, details, arg):
-        m = Message(msg)
-        d = json.loads(details.decode('utf-8'))
-
-        tasks = self.tasks
-
-        # 任务开始
-        if m == Message.TaskChainStart:
-            task = tasks[d['taskid']]
-            if task.type_name != d['taskchain']:
-                raise RuntimeError(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-            self.tasks[d['taskid']].status = TaskStatus.RUNNING
-            print(f'开始任务 [{task.task_name}]')
-
-        # 任务结束
-        if m == Message.TaskChainCompleted:
-            task = tasks[d['taskid']]
-            if task.type_name != d['taskchain']:
-                raise RuntimeError(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-            self.tasks[d['taskid']].status = TaskStatus.COMPLETED
-            print(f'完成任务 [{task.task_name}]')
-
-        if m == Message.AllTasksCompleted:
-            self.status = TaskPipelineStatus.COMPLETED
-            print('已完成全部任务')
-
-    def running(self) -> bool:
-        return self._asst.running() if self._asst else False
-
-    def append_task(self, task: Task) -> bool:
-        self.tasks.append(task)
-        return self._asst.append_task(task.type_name, task.params)
-        
-    def start(self) -> bool:
-        self.status = TaskPipelineStatus.RUNNING
-        return self._asst.start()
-    
-task_pipeline = TaskPipeline()
+task_pipeline._asst = _init_asst()
 
 """启动游戏客户端
 
