@@ -1,16 +1,14 @@
 from fastapi import FastAPI
 
-from maa_api.router import screenshot
+from maa_api.router import adb, maa
 
 from fastapi import FastAPI
-from maa_api.router import screenshot, maa_cli, maa
 from maa_api.exception import response_exception, excetpion_handler
 
 app = FastAPI()
 
 # 注册路由
-app.include_router(screenshot.router)
-app.include_router(maa_cli.router)
+app.include_router(adb.router)
 app.include_router(maa.router)
 
 # 异常处理
