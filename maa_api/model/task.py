@@ -35,6 +35,7 @@ class Task(BaseModel):
         super().__init__(**data)
         if not self.task_name or not self.type_name:
             raise ResponseException("任务名称或任务类型不能为空")
+        self.params = {k: v for k, v in self.params.items() if v is not None}
         
 class TaskPipelineStatus(str, Enum):
     # 命令尚未开始执行
@@ -78,9 +79,10 @@ class TaskPipeline(BaseModel):
         # 清除旧任务缓存日志
         self.logs = []
         
-        self.status = TaskPipelineStatus.RUNNING
         if not self._asst.start():
             raise ResponseException("执行任务失败")
+        self.status = TaskPipelineStatus.RUNNING
+
     
     def stop(self) -> bool:
         # 任务停止后，将当前批次所有非completed任务标记为cancelled
@@ -89,9 +91,9 @@ class TaskPipeline(BaseModel):
                 if task.is_now and task.status != TaskStatus.COMPLETED:
                     task.status = TaskStatus.CANCELLED
 
-        self.status = TaskPipelineStatus.CANCELLED
         if not self._asst.stop():
             raise ResponseException("停止任务失败")
+        self.status = TaskPipelineStatus.CANCELLED
     
 task_pipeline = TaskPipeline()
 
@@ -119,6 +121,29 @@ def _callback(msg, details, arg):
     tasks = task_pipeline.tasks
 
     log = None
+
+    # 连接信息
+    if m == Message.ConnectionInfo:
+        try:
+            con_what = d.get('what', '')
+            con_details = d.get('details', '')
+
+            con_what_infos = {
+                'ConnectFaild': f"模拟器连接失败 {con_details}",
+                'Connected': f"模拟器连接成功",
+                'UnsupportedResolution': f"模拟器分辨率不被支持 {con_details}",
+                'ResolutionError': f"分辨率获取错误 {con_details}",
+                'Reconnecting': f"模拟器连接断开(adb/模拟器异常) 正在重连 {con_details}",
+                'Reconnected': f"模拟器连接断开(adb/模拟器异常) 重连成功 {con_details}",
+                'Disconnect': f"模拟器连接断开(adb/模拟器异常) 重连失败 {con_details}",
+                'ScreencapFailed': f"截图失败(adb/模拟器异常) {con_details}",
+                'TouchModeNotAvailable': f"不支持的触控模式 {con_details}"
+            }
+
+            if con_what in con_what_infos:
+                log = con_what_infos[con_what]
+        except:
+            log = f"Error: {m} {d}"
 
     # 开始任务
     if m == Message.TaskChainStart:
@@ -156,51 +181,61 @@ def _callback(msg, details, arg):
 
     # 开始原子任务
     if m == Message.SubTaskStart:
-        sub_task = d['details']['task']
+        try:
+            sub_details = d.get('details', {})
+            sub_task = sub_details.get('task', '')
 
-        sub_task_info = {
-        'StartButton2': '开始战斗',
-        'MedicineConfirm': '使用理智药',
-        'ExpiringMedicineConfirm': '使用 48 小时内过期的理智药',
-        'StoneConfirm': '碎石',
-        'RecruitRefreshConfirm': '刷新标签',
-        'RecruitConfirm': '确认招募',
-        'RecruitNowConfirm': '使用加急许可',
-        'ReportToPenguinStats': '汇报到企鹅数据统计',
-        'ReportToYituliu': '汇报到一图流大数据',
-        'InfrastDormDoubleConfirmButton': '请进行基建宿舍的二次确认',
-        'StartExplore': '肉鸽开始探索',
-        'StageTraderInvestConfirm': '肉鸽投资了源石锭',
-        'StageTraderInvestSystemFull': '肉鸽投资达到了游戏上限',
-        'ExitThenAbandon': '肉鸽放弃了本次探索',
-        'MissionCompletedFlag': '肉鸽战斗完成',
-        'MissionFailedFlag': '肉鸽战斗失败',
-        'StageTraderEnter': '肉鸽关卡：诡异行商',
-        'StageSafeHouseEnter': '肉鸽关卡：安全的角落',
-        'StageEncounterEnter': '肉鸽关卡：不期而遇/古堡馈赠',
-        'StageCombatDpsEnter': '肉鸽关卡：普通作战',
-        'StageEmergencyDps': '肉鸽关卡：紧急作战',
-        'StageDreadfulFoe': '肉鸽关卡：险路恶敌'
-        }
+            sub_task_info = {
+                'StartButton2': '开始战斗',
+                'MedicineConfirm': '使用理智药',
+                'ExpiringMedicineConfirm': '使用 48 小时内过期的理智药',
+                'StoneConfirm': '碎石',
+                'RecruitRefreshConfirm': '刷新标签',
+                'RecruitConfirm': '确认招募',
+                'RecruitNowConfirm': '使用加急许可',
+                'ReportToPenguinStats': '汇报到企鹅数据统计',
+                'ReportToYituliu': '汇报到一图流大数据',
+                'InfrastDormDoubleConfirmButton': '请进行基建宿舍的二次确认',
+                'StartExplore': f"已开始探索 {sub_details.get('exec_times', '')} 次",
+                'StageTraderInvestConfirm': '已投资源石锭',
+                'StageTraderInvestSystemFull': '投资达到了游戏上限',
+                'ExitThenAbandon': '已放弃本次探索',
+                'MissionCompletedFlag': '战斗完成',
+                'MissionFailedFlag': '战斗失败',
+                'StageTraderEnter': '节点：诡异行商',
+                'StageSafeHouseEnter': '节点：安全的角落',
+                'StageEncounterEnter': '节点：不期而遇',
+                'StageCombatDpsEnter': '关卡：普通作战',
+                'StageEmergencyDps': '关卡：紧急作战',
+                'StageDreadfulFoe': '关卡：险路恶敌'
+            }
 
-        if sub_task in sub_task_info:
-            log = sub_task_info[sub_task]
+            if sub_task in sub_task_info:
+                log = sub_task_info[sub_task]
+        except:
+            log = f"Error: {m} {d}"
 
     # 原子任务额外信息
     if m == Message.SubTaskExtraInfo:
-        sub_what = d['what']
-        sub_details = d['details']
+        try:
+            sub_what = d.get('what', '')
+            sub_details = d.get('details', {})
 
-        sub_task_extra_info = {
-            'RecruitTagsDetected': f"公招识别结果 {sub_details['tags']}",
-            'ReCruitSpecialTag': f"识别到特殊Tag {sub_details['tag']}",
-            'RecruitResult': f"{sub_details['level']} ⭐ Tags",
-            'RecruitTagsRefreshed': "已刷新Tags",
-            'EnterFacility': f"当前设施 {sub_details['facility']} {sub_details['index']}"
-        }
+            sub_task_extra_info = {
+                'RecruitTagsDetected': f"公招识别结果：{sub_details.get('tags', '')}",
+                'ReCruitSpecialTag': f"识别到特殊Tag：{sub_details.get('tag', '')}",
+                'RecruitResult': f"{sub_details.get('level', '')} ⭐ Tags",
+                'RecruitTagsRefreshed': "已刷新Tags",
+                'EnterFacility': f"当前设施：{sub_details.get('facility', '')} {sub_details.get('index', '')}",
+                'StageInfo': f"开始战斗：{sub_details.get('name', '')}",
+                'StageInfoError': "关卡识别错误",
+                'RoguelikeEvent': f"事件：{sub_details.get('name', '')}"
+            }
 
-        if sub_what in sub_task_extra_info:
-            log = sub_task_extra_info[sub_what]
+            if sub_what in sub_task_extra_info:
+                log = sub_task_extra_info[sub_what]
+        except :
+            log = f"Error: {m} {d}"
 
     if log:
         task_pipeline.logs.append(f'{_current_time()} {log}')
@@ -210,6 +245,8 @@ def _callback(msg, details, arg):
 def _init_asst():
     # 加载核心资源
     maa_core_path = Config.get_config('app', 'maa_core_path')
+    if not maa_core_path:
+        maa_core_path = '/home/user/.local/share/maa/lib'
     path = pathlib.Path(maa_core_path).resolve()
     Asst.load(path=path)
 
@@ -220,9 +257,13 @@ def _init_asst():
     # 暂停下干员
     asst.set_instance_option(InstanceOptionType.deployment_with_pause, '1')
 
+    adb_path = Config.get_config('adb', 'path')
+    if not adb_path:
+        # 如果adb路径未设置，使用Path环境变量
+        adb_path = 'adb'
     adb_address = Config.get_config('adb', 'address')
-    # if not asst.connect('adb.exe', adb_address):
-    #     raise RuntimeError("MAA ADB 连接失败")
+    if not asst.connect(adb_path, adb_address):
+        raise RuntimeError(f"MAA ADB 连接失败 path={adb_path} address={adb_address}")
         
     return asst
 
@@ -690,4 +731,4 @@ class RoguelikeTask(Task):
             "expected_collapsal_paradigms": expected_collapsal_paradigms
         }
 
-        super().__init__(task_name="无限刷肉鸽", type_name="Roguelike", params=params)
+        super().__init__(task_name="自动肉鸽", type_name="Roguelike", params=params)

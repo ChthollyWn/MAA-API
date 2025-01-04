@@ -22,10 +22,6 @@ COPY pyproject.toml poetry.lock ./
 RUN pip install --no-cache-dir poetry -i https://mirrors.aliyun.com/pypi/simple/
 RUN poetry install --no-root --no-dev
 
-ENV MAA_CONFIG_DIR=/app/maa_config
-
-RUN mkdir -p $MAA_CONFIG_DIR
-
 EXPOSE 8002
 
 CMD ["poetry", "run", "uvicorn", "maa_api.main:app", "--host", "0.0.0.0", "--port", "8002"]
