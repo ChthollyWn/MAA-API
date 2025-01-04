@@ -247,7 +247,7 @@ def _init_asst():
     # 加载核心资源
     maa_core_path = Config.get_config('app', 'maa_core_path')
     if not maa_core_path:
-        maa_core_path = '~/.local/share/maa/lib'
+        maa_core_path = '~/.local/share/maa'
     maa_core_path = os.path.expanduser(maa_core_path)
     path = pathlib.Path(maa_core_path).resolve()
     Asst.load(path=path)
