@@ -3,11 +3,13 @@ app:
   # 访问密钥 为空则不鉴权
   access_token:
   # maa核心文件位置
-  maa_core_path: E:\Bot\MAA-v5.10.2-win-x64
+  maa_core_path: 
 
 # adb配置
 adb:
+  # adb路径
+  path: 
   # adb连接地址
-  address: 127.0.0.1:16384
+  address: 127.0.0.1:5555
   # 截屏质量 范围1-95 值越大质量越高
   screenshot_quality: 10
