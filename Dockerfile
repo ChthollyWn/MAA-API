@@ -3,21 +3,25 @@ FROM python:3.11.9-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
-    curl \
-    tar \
-    adb \
+    gcc-12 g++-12 cmake zlib1g-dev \
+    curl tar adb \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -L -o /tmp/maa_cli.tar.gz "https://github.com/MaaAssistantArknights/maa-cli/releases/latest/download/maa_cli-x86_64-unknown-linux-gnu.tar.gz" \
-    && tar -xzvf /tmp/maa_cli.tar.gz -C /tmp \
-    && mv /tmp/maa_cli-x86_64-unknown-linux-gnu/maa /usr/local/bin/maa \
-    && chmod +x /usr/local/bin/maa \
-    && rm -rf /tmp/maa_cli.tar.gz /tmp/maa_cli-x86_64-unknown-linux-gnu
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
 
-RUN maa install 
-RUN maa update
+COPY . .
 
-COPY pyproject.toml poetry.lock ./
+RUN python3 maadeps-download.py
+
+RUN CC=gcc-12 CXX=g++-12 cmake -B build \
+    -DINSTALL_THIRD_LIBS=ON \
+    -DINSTALL_RESOURCE=ON \
+    -DINSTALL_PYTHON=ON \
+    && cmake --build build
+
+# 可选：将编译结果安装到指定目录
+RUN cmake --install build --prefix /app/maa
 
 RUN pip install --no-cache-dir poetry -i https://mirrors.aliyun.com/pypi/simple/
 RUN poetry install --no-root --no-dev
