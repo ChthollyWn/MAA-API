@@ -21,7 +21,7 @@ async def post_tasks(request: list[TaskRequest]):
 
 @router.get("/api/maa/pipeline", dependencies=[Depends(token_auth)])
 def get_tasks():
-    return Response.success(data=task_pipeline)
+    return Response.success(data=task_pipeline.active_tasks())
 
 @router.delete("/api/maa/pipeline", dependencies=[Depends(token_auth)])
 async def delete_tasks():

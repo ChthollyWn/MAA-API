@@ -11,4 +11,5 @@ router = APIRouter()
 def get_screenshot():
     adb_address = Config.get_config("adb", "address")
     screenshot_path = adb_service.adb_screenshot(adb_address)
+    print(screenshot_path)
     return FileResponse(screenshot_path)
