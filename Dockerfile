@@ -23,7 +23,7 @@ ENV LD_LIBRARY_PATH=/root/.local/share/maa/lib
 COPY pyproject.toml poetry.lock ./
 
 RUN pip install --no-cache-dir poetry -i https://mirrors.aliyun.com/pypi/simple/
-RUN poetry install --no-root --no-dev
+RUN poetry install --no-root
 
 EXPOSE 8002
 
