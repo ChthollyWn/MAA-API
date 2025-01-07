@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
-from maa_api.model.task import Task, StartUpTask, CloseDownTask, FightTask, RecruitTask, InfrastTask, MallTask, AwardTask, RoguelikeTask
+from maa_api.model.task import Task, StartUpTask, CloseDownTask, FightTask, RecruitTask, InfrastTask, MallTask, AwardTask, RoguelikeTask, ReclamationTask
 from maa_api.exception.response_exception import ResponseException
 
 class TaskRequest(BaseModel):
@@ -65,14 +65,13 @@ class TaskRequest(BaseModel):
     # Award 参数
     award: Optional[bool] = None
     mail: Optional[bool] = None
-    recruit_award: Optional[bool] = None
+    recruit: Optional[bool] = None
     orundum: Optional[bool] = None
     mining: Optional[bool] = None
     specialaccess: Optional[bool] = None
 
     # Roguelike 参数
     theme: Optional[str] = None
-    mode_roguelike: Optional[int] = None
     squad: Optional[str] = None
     roles: Optional[str] = None
     core_char: Optional[str] = None
@@ -93,6 +92,11 @@ class TaskRequest(BaseModel):
     check_collapsal_paradigms: Optional[bool] = None
     double_check_collapsal_paradigms: Optional[bool] = None
     expected_collapsal_paradigms: Optional[list[str]] = None
+
+    # Reclamation 参数
+    tools_to_craft: Optional[list[str]] = None,
+    increment_mode: Optional[int] = None,
+    num_craft_batches: Optional[int] = None
 
     def to_task(self) -> Task:
         if not self.name:
@@ -180,7 +184,7 @@ class TaskRequest(BaseModel):
                 enable=self.enable,
                 award=self.award,
                 mail=self.mail,
-                recruit=self.recruit_award,
+                recruit=self.recruit,
                 orundum=self.orundum,
                 mining=self.mining,
                 specialaccess=self.specialaccess
@@ -190,7 +194,7 @@ class TaskRequest(BaseModel):
             return RoguelikeTask(
                 enable=self.enable,
                 theme=self.theme,
-                mode=self.mode_roguelike,
+                mode=self.mode,
                 squad=self.squad,
                 roles=self.roles,
                 core_char=self.core_char,
@@ -211,6 +215,16 @@ class TaskRequest(BaseModel):
                 check_collapsal_paradigms=self.check_collapsal_paradigms,
                 double_check_collapsal_paradigms=self.double_check_collapsal_paradigms,
                 expected_collapsal_paradigms=self.expected_collapsal_paradigms
+            )
+        
+        if self.name == "Reclamation":
+            return ReclamationTask(
+                enable=self.enable,
+                theme=self.theme,
+                mode=self.mode,
+                tools_to_craft=self.tools_to_craft,
+                increment_mode=self.increment_mode,
+                num_craft_batches=self.num_craft_batches
             )
 
         raise ResponseException(message=f"未知的任务名: {self.name}")

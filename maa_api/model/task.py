@@ -7,8 +7,8 @@ from enum import Enum
 from typing import Optional, Any
 from datetime import datetime
 
-from maa_core.asst import Asst
-from maa_core.utils import Message, InstanceOptionType
+from maa_api.model.asst import Asst
+from maa_api.model.utils import Message, InstanceOptionType
 from maa_api.config.config import Config
 from maa_api.config.path_config import LOG_PATH
 from maa_api.exception.response_exception import ResponseException
@@ -54,6 +54,7 @@ class TaskPipeline(BaseModel):
     status: TaskPipelineStatus = TaskPipelineStatus.IDLE
     tasks: list[Task] = []
     logs: list[str] = []
+    _task_dict: dict[str, Task] = {}
     _asst: Optional[Asst] = PrivateAttr(None)
 
     def running(self) -> bool:
@@ -66,15 +67,17 @@ class TaskPipeline(BaseModel):
     def append_task(self, task: Task) -> None:
         self._check_runing()
 
-        self.tasks.append(task)
-        self._asst.append_task(task.type_name, task.params)
+        task_id = self._asst.append_task(task.type_name, task.params)
+        if not task_id:
+            raise ResponseException("添加任务失败")
+        self._task_dict[task_id] = task
         
     def start(self) -> None:
         self._check_runing()
 
         # 任务执行前，将当前批次所有非pending任务标记为旧批次任务
-        if self.tasks:
-            for task in self.tasks:
+        if self._task_dict:
+            for task in self._task_dict.values():
                 if task.is_now and task.status != TaskStatus.PENDING:
                     task.is_now = False
         # 清除旧任务缓存日志
@@ -87,14 +90,18 @@ class TaskPipeline(BaseModel):
     
     def stop(self) -> bool:
         # 任务停止后，将当前批次所有非completed任务标记为cancelled
-        if self.tasks:
-            for task in self.tasks:
+        if self._task_dict:
+            for task in self._task_dict.values():
                 if task.is_now and task.status != TaskStatus.COMPLETED:
                     task.status = TaskStatus.CANCELLED
 
         if not self._asst.stop():
             raise ResponseException("停止任务失败")
         self.status = TaskPipelineStatus.CANCELLED
+
+    def active_tasks(self):
+        self.tasks = [task for task in self._task_dict.values() if task.is_now]
+        return self
     
 task_pipeline = TaskPipeline()
 
@@ -119,7 +126,7 @@ def _current_datetime() -> str:
 def _callback(msg, details, arg):
     m = Message(msg)
     d = json.loads(details.decode('utf-8'))
-    tasks = task_pipeline.tasks
+    task_dict = task_pipeline._task_dict
 
     log = None
 
@@ -148,31 +155,31 @@ def _callback(msg, details, arg):
 
     # 开始任务
     if m == Message.TaskChainStart:
-        task = tasks[d['taskid'] - 1]
+        task = task_dict[d['taskid']]
         if task.type_name != d['taskchain']:
             raise ResponseException(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-        task_pipeline.tasks[d['taskid'] - 1].status = TaskStatus.RUNNING
+        task_pipeline._task_dict[d['taskid']].status = TaskStatus.RUNNING
         log = f'开始任务 [{task.task_name}]'
 
     # 完成任务
     if m == Message.TaskChainCompleted:
-        task = tasks[d['taskid'] - 1]
+        task = task_dict[d['taskid']]
         if task.type_name != d['taskchain']:
             raise ResponseException(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-        task_pipeline.tasks[d['taskid'] - 1].status = TaskStatus.COMPLETED
+        task_pipeline._task_dict[d['taskid']].status = TaskStatus.COMPLETED
         log = f'完成任务 [{task.task_name}]'
 
     # 停止任务
     if m == Message.TaskChainStopped:
-        task = tasks[d['taskid'] - 1]
+        task = task_dict[d['taskid']]
         log = f'停止任务 [{task.task_name}]'
 
     # 异常任务
     if m == Message.TaskChainError:
-        task = tasks[d['taskid'] - 1]
+        task = task_dict[d['taskid']]
         if task.type_name != d['taskchain']:
             raise ResponseException(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-        task_pipeline.tasks[d['taskid'] - 1].status = TaskStatus.FAILED
+        task_pipeline._task_dict[d['taskid']].status = TaskStatus.FAILED
         log = f'任务失败 [{task.task_name}]'
 
     # 完成全部任务
@@ -474,7 +481,7 @@ class RecruitTask(Task):
             "server": server
         }
 
-        super().__init__(task_name="公开招募", type_name="Recruit", params=params)
+        super().__init__(task_name="自动公招", type_name="Recruit", params=params)
 
 class InfrastTask(Task):
     def __init__(self,
@@ -572,7 +579,7 @@ class MallTask(Task):
             "reserve_max_credit": reserve_max_credit
         }
 
-        super().__init__(task_name="获取信用及商店购物", type_name="Mall", params=params)
+        super().__init__(task_name="获取信用及购物", type_name="Mall", params=params)
 
 
 class AwardTask(Task):
@@ -734,3 +741,46 @@ class RoguelikeTask(Task):
         }
 
         super().__init__(task_name="自动肉鸽", type_name="Roguelike", params=params)
+
+class ReclamationTask(Task):
+    def __init__(self,
+                 enable: bool = None,
+                 theme: str = None,
+                 mode: int = None,
+                 tools_to_craft: list[str] = None,
+                 increment_mode: int = None,
+                 num_craft_batches: int = None):
+        """
+        初始化生息演算任务
+
+        参数:
+        enable (bool):
+
+        theme (str): 主题，可选项。默认为 1
+            - Fire  - *沙中之火*
+            - Tales - *沙洲遗闻*
+
+        mode (int): 模式，可选项。默认为 0
+            - 0: 刷分与建造点，进入战斗直接退出
+            - 1: 沙中之火：刷赤金，联络员买水后基地锻造；
+                沙洲遗闻：自动制造物品并读档刷货币
+
+        tools_to_craft (list[str]): 自动制造的物品，可选项，默认为荧光棒
+
+        increment_mode (int): 点击类型，可选项。默认为0
+            - 0: 连点
+            - 1: 长按
+        
+        num_craft_batches (int): 单次最大制造轮数，可选。默认为 16
+        """
+
+        params = {
+            enable: enable,
+            theme: theme,
+            mode: mode,
+            tools_to_craft: tools_to_craft,
+            increment_mode: increment_mode,
+            num_craft_batches: num_craft_batches
+        }
+
+        super().__init__(task_name="生息演算", type_name="Reclamation", params=params)
