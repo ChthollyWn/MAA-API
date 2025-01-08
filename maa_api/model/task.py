@@ -211,9 +211,10 @@ def _callback(msg, details, arg):
                 'ExitThenAbandon': '已放弃本次探索',
                 'MissionCompletedFlag': '战斗完成',
                 'MissionFailedFlag': '战斗失败',
+                'MissionFailedFlag2': '战斗失败',
                 'StageTraderEnter': '节点：诡异行商',
                 'StageSafeHouseEnter': '节点：安全的角落',
-                'StageEncounterEnter': '节点：不期而遇',
+                # 'StageEncounterEnter': '节点：不期而遇',
                 'StageCombatDpsEnter': '关卡：普通作战',
                 'StageEmergencyDps': '关卡：紧急作战',
                 'StageDreadfulFoe': '关卡：险路恶敌'
