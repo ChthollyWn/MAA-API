@@ -1,43 +1,33 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="zh">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>首页</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="icon" href="/favicon.ico">
+    <title>MAA-API管理页面</title>
+    
+    <!-- 默认情况下加载 Vue 3 -->
+    <script src="https://unpkg.com/vue@3.2.47/dist/vue.global.js"></script>
 </head>
+
 <body>
-    <div class="container">
-        <header>
-            <h1>首页设置</h1>
-        </header>
-        <main>
-            <div class="sidebar">
-                <form>
-                    <label>
-                        <input type="checkbox" name="task1">
-                        开始侦查
-                    </label><br>
-                    <label>
-                        <input type="checkbox" name="task2">
-                        自动公招
-                    </label><br>
-                    <label>
-                        <input type="checkbox" name="task3">
-                        逻辑设置
-                    </label><br>
-                    <button type="submit">保存设置</button>
-                </form>
-            </div>
-            <div class="log">
-                <h2>日志信息</h2>
-                <ul id="log-list">
-                    <li>13:57:43 正在连接模拟器...</li>
-                    <li>13:58:00 已开始索引 1 次</li>
-                    <li>14:01:00 战斗完成</li>
-                </ul>
-            </div>
-        </main>
-    </div>
+    <!-- Vue 渲染的目标元素 -->
+    <div id="app">{{ message }}</div>
+
+    <!-- Vue 3 初始化代码 -->
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    message: 'Hello Vue!'
+                }
+            }
+        }).mount('#app');
+    </script>
 </body>
+
 </html>
