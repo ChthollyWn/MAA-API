@@ -72,7 +72,7 @@ class TaskPipeline(BaseModel):
             raise ResponseException("添加任务失败")
         self._task_dict[task_id] = task
         
-    def start(self) -> None:
+    def start(self) -> bool:
         self._check_runing()
 
         # 任务执行前，将当前批次所有非pending任务标记为旧批次任务
@@ -86,7 +86,7 @@ class TaskPipeline(BaseModel):
         if not self._asst.start():
             raise ResponseException("执行任务失败")
         self.status = TaskPipelineStatus.RUNNING
-
+        return True
     
     def stop(self) -> bool:
         # 任务停止后，将当前批次所有非completed任务标记为cancelled
@@ -98,6 +98,7 @@ class TaskPipeline(BaseModel):
         if not self._asst.stop():
             raise ResponseException("停止任务失败")
         self.status = TaskPipelineStatus.CANCELLED
+        return True
 
     def active_tasks(self):
         self.tasks = [task for task in self._task_dict.values() if task.is_now]
