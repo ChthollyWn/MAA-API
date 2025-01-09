@@ -13,6 +13,9 @@ from maa_api.config.config import Config
 from maa_api.config.path_config import LOG_PATH
 from maa_api.exception.response_exception import ResponseException
 
+TASK_PIPELINE_LOG_DIR = LOG_PATH / "task_pipeline"
+TASK_PIPELINE_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 class TaskStatus(Enum):
     # 等待执行
     PENDING = "pending"
@@ -37,6 +40,11 @@ class Task(BaseModel):
         if not self.task_name or not self.type_name:
             raise ResponseException("任务名称或任务类型不能为空")
         self.params = {k: v for k, v in self.params.items() if v is not None}
+
+    def dict(self, *args, **kwargs):
+        result = super().dict(*args, **kwargs)
+        result['status'] = result['status'].value
+        return result
         
 class TaskPipelineStatus(str, Enum):
     # 命令尚未开始执行
@@ -63,6 +71,22 @@ class TaskPipeline(BaseModel):
     def _check_runing(self) -> None:
         if self.running():
             raise ResponseException("流水线任务正在运行中，不允许多实例访问")
+        
+    def _to_serializable_dict(self):
+        pipeline_dict = {
+            'status': self.status.value,
+            '_task_dict': {k: v.dict() for k, v in self._task_dict.items()},
+            'tasks': [task.dict() for task in self.tasks],
+            'logs': self.logs
+        }
+        return pipeline_dict
+    
+    def _save_pipeline(self):
+        file_path = TASK_PIPELINE_LOG_DIR / "pipeline.json"
+        task_pipeline_dict = self._to_serializable_dict()
+
+        with file_path.open('w', encoding='utf-8') as f:
+            json.dump(task_pipeline_dict, f, ensure_ascii=False, indent=4)
 
     def append_task(self, task: Task) -> None:
         self._check_runing()
@@ -71,6 +95,7 @@ class TaskPipeline(BaseModel):
         if not task_id:
             raise ResponseException("添加任务失败")
         self._task_dict[task_id] = task
+        self._save_pipeline()
         
     def start(self) -> bool:
         self._check_runing()
@@ -86,6 +111,7 @@ class TaskPipeline(BaseModel):
         if not self._asst.start():
             raise ResponseException("执行任务失败")
         self.status = TaskPipelineStatus.RUNNING
+        self._save_pipeline()
         return True
     
     def stop(self) -> bool:
@@ -98,16 +124,15 @@ class TaskPipeline(BaseModel):
         if not self._asst.stop():
             raise ResponseException("停止任务失败")
         self.status = TaskPipelineStatus.CANCELLED
+        self._save_pipeline()
         return True
 
     def active_tasks(self):
         self.tasks = [task for task in self._task_dict.values() if task.is_now]
+        self._save_pipeline()
         return self
     
 task_pipeline = TaskPipeline()
-
-TASK_PIPELINE_LOG_DIR = LOG_PATH / "task_pipeline"
-TASK_PIPELINE_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 def _task_log(msg: str):
     current_date = datetime.now().strftime('%Y-%m-%d')
@@ -250,7 +275,7 @@ def _callback(msg, details, arg):
     if log:
         task_pipeline.logs.append(f'{_current_time()} {log}')
         _task_log(f'{_current_datetime()} {log} \n')
-    _task_log(f'{m} {d} {arg} \n')
+    # _task_log(f'{m} {d} {arg} \n')
 
 def _init_asst():
     # 加载核心资源
