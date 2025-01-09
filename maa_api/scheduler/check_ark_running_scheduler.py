@@ -28,6 +28,8 @@ def check_ark_running_scheduler():
                     copy_task.is_now = True
                     old_tasks.append(copy_task)
 
+            logger.info(f"当前未完成的任务 {old_tasks}")
+
             # 中断任务
             logger.info("开始执行任务中断操作")
             if task_pipeline.stop():
