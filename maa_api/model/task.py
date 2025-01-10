@@ -34,8 +34,10 @@ class Task(BaseModel):
     params: dict[str, Any]
     is_now: bool = True
     status: TaskStatus = TaskStatus.PENDING
+    create_time: str
 
     def __init__(self, **data):
+        data.setdefault('create_time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         super().__init__(**data)
         if not self.task_name or not self.type_name:
             raise ResponseException("任务名称或任务类型不能为空")
@@ -220,7 +222,7 @@ def _callback(msg, details, arg):
             sub_task = sub_details.get('task', '')
 
             sub_task_info = {
-                'StartButton2': '开始战斗',
+                'StartButton2': f"已开始战斗 {sub_details.get('exec_times', '')} 次",
                 'MedicineConfirm': '使用理智药',
                 'ExpiringMedicineConfirm': '使用 48 小时内过期的理智药',
                 'StoneConfirm': '碎石',
@@ -256,6 +258,10 @@ def _callback(msg, details, arg):
             sub_what = d.get('what', '')
             sub_details = d.get('details', {})
 
+            drop_statistics = '\n'.join(
+                [f"{item.get('itemName', '')}: {item.get('quantity', '')}(+{item.get('addQuantity', '')})" for item in sub_details.get('stats', [])]    
+            )
+
             sub_task_extra_info = {
                 'RecruitTagsDetected': f"公招识别结果：{sub_details.get('tags', '')}",
                 'ReCruitSpecialTag': f"识别到特殊Tag：{sub_details.get('tag', '')}",
@@ -264,7 +270,9 @@ def _callback(msg, details, arg):
                 'EnterFacility': f"当前设施：{sub_details.get('facility', '')} {sub_details.get('index', '')}",
                 'StageInfo': f"开始战斗：{sub_details.get('name', '')}",
                 'StageInfoError': "关卡识别错误",
-                'RoguelikeEvent': f"事件：{sub_details.get('name', '')}"
+                'RoguelikeEvent': f"事件：{sub_details.get('name', '')}",
+                'SanityBeforeStage': f"当前理智：{sub_details.get('current_sanity', '')}/{sub_details.get('max_sanity', '')}",
+                'StageDrops': f"{sub_details.get('stars', '')}⭐通关{sub_details.get('stage', {}).get('stageCode', '')} \n掉落统计: \n{drop_statistics}"
             }
 
             if sub_what in sub_task_extra_info:
@@ -275,7 +283,7 @@ def _callback(msg, details, arg):
     if log:
         task_pipeline.logs.append(f'{_current_time()} {log}')
         _task_log(f'{_current_datetime()} {log} \n')
-    # _task_log(f'{m} {d} {arg} \n')
+    _task_log(f'{m} {d} {arg} \n')
 
 def _init_asst():
     # 加载核心资源
