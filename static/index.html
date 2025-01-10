@@ -8,26 +8,30 @@
     <link rel="icon" href="/favicon.ico">
     <title>MAA-API管理页面</title>
     
-    <!-- 默认情况下加载 Vue 3 -->
+    <!-- 引入 Vue 和 Element Plus -->
     <script src="https://unpkg.com/vue@3.2.47/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <script src="https://unpkg.com/element-plus"></script>
+    <script defer="defer" src="/static/js/app.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
 
 <body>
-    <!-- Vue 渲染的目标元素 -->
-    <div id="app">{{ message }}</div>
-
-    <!-- Vue 3 初始化代码 -->
-    <script>
-        const { createApp } = Vue;
-
-        createApp({
-            data() {
-                return {
-                    message: 'Hello Vue!'
-                }
-            }
-        }).mount('#app');
-    </script>
+    <div id="app">
+        <el-row :gutter="20">
+            <el-col :span="16">
+                图片
+            </el-col>
+            <el-col :span="8">
+                菜单
+            </el-col>
+        </el-row>
+        <el-row :gutter="20">
+            <el-col :span="8">
+               日志
+            </el-col>
+        </el-row>
+    </div>
 </body>
 
 </html>
