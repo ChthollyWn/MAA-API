@@ -4,6 +4,8 @@ from pathlib import Path
 CONFIG_PATH = Path() / "config.yaml"
 # 静态文件路径
 STATIC_PATH = Path() / "static"
+# 账号任务配置路径
+ACCOUNT_PATH = Path() / "account.json"
 # 图片路径
 IMAGE_PATH = Path() / "resource" / "image"
 # 日志路径
