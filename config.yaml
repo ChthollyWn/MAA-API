@@ -13,3 +13,10 @@ adb:
   address: 127.0.0.1:5555
   # 截屏质量 范围1-95 值越大质量越高
   screenshot_quality: 10
+
+# 邮箱配置
+smtp:
+  server:
+  port:
+  email:
+  password: 

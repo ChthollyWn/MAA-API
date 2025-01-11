@@ -1,0 +1,55 @@
+[
+    {
+        "email": "2010768120@qq.com",
+        "tasks": [
+            {
+                "name": "CloseDown",
+                "client_type": "Bilibili"
+            },
+            {
+                "name": "StartUp",
+                "account_name": "珂朵莉的夜风吖",
+                "client_type": "Bilibili",
+                "start_game_enabled": true
+            },
+            {
+                "name": "Recurit",
+                "refresh": true,
+                "select": [
+                    2,
+                    3,
+                    4,
+                    5
+                ],
+                "confirm": [
+                    2,
+                    3,
+                    4,
+                    5
+                ],
+                "times": 4
+            },
+            {
+                "name": "Infrast",
+                "facility": [
+                    "Mfg",
+                    "Trade",
+                    "Power",
+                    "Control",
+                    "Reception",
+                    "Office",
+                    "Dorm"
+                ],
+                "drones": "Money"
+            },
+            {
+                "name": "Fight",
+                "stage": "1-7"
+            },
+            {
+                "name": "CloseDown",
+                "client_type": "Bilibili"
+            }
+        ]
+    }
+]
