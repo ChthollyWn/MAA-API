@@ -20,7 +20,7 @@ def send_email(subject: str, body: str, receiver: str):
     msg['From'] =  stmp_email
     msg['To'] = receiver
 
-    with smtplib.SMTP(server, smtp_port) as server:
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
             server.login(stmp_email, smtp_password)
             server.sendmail(stmp_email, [msg['To']], msg.as_string())
