@@ -62,5 +62,5 @@ def wait_for_asst_stop(success_message):
 
 def start():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(check_ark_running_scheduler, 'interval', seconds=60)
+    scheduler.add_job(check_ark_running_scheduler, 'interval', seconds=300)
     scheduler.start()
