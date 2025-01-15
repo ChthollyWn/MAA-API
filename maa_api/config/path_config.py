@@ -5,7 +5,7 @@ CONFIG_PATH = Path() / "config.yaml"
 # 静态文件路径
 STATIC_PATH = Path() / "static"
 # 日常任务配置路径
-DAILY_TASK_PATH = Path() / "daily_tasks.json"
+DAILY_TASK_PATH = Path() / "daily_task.json"
 # 图片路径
 IMAGE_PATH = Path() / "resource" / "image"
 # 日志路径
