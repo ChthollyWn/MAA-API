@@ -7,31 +7,289 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <link rel="icon" href="/favicon.ico">
     <title>MAA-API管理页面</title>
-    
+
     <!-- 引入 Vue 和 Element Plus -->
     <script src="https://unpkg.com/vue@3.2.47/dist/vue.global.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
     <script src="https://unpkg.com/element-plus"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <script defer="defer" src="/static/js/app.js"></script>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 
 <body>
     <div id="app">
-        <el-row :gutter="20">
-            <el-col :span="16">
-                图片
-            </el-col>
-            <el-col :span="8">
-                菜单
-            </el-col>
-        </el-row>
-        <el-row :gutter="20">
-            <el-col :span="8">
-               日志
-            </el-col>
-        </el-row>
+        <h1>定时任务管理</h1>
+        <el-card class="box-card">
+            <el-row :gutter="20">
+                <el-col :span="24">
+                    <span>启用: </span>
+                    <el-switch v-model="dailyTasks.enable" active-color="#13ce66" inactive-color="#ff4949">
+                    </el-switch>
+                </el-col>
+                <el-col :span="24">
+                    <el-input v-model="dailyTasks.email" :disabled="true">
+                    </el-input>
+                </el-col>
+            </el-row>
+        </el-card>
+        <h2>任务组</h2>
+        <el-card class="box-card">
+            <el-collapse accordion>
+                <div v-for="(tasks, key) in dailyTasks.task_dict" :key="key">
+                    <el-collapse-item :title="key" :name="key">
+                        <div v-for="task in tasks" :key="task.name">
+                            <el-card class="box-card" shadow="hover">
+                                <div slot="header" class="clearfix">
+                                    <span>name: </span>
+                                    <el-input v-model="task.name" :disabled="true"></el-input>
+                                </div>
+
+                                <div v-if="task.name === 'StartUp'">
+                                    <el-row :gutter="20">
+                                        <el-col :span="24">
+                                            client_type:
+                                            <el-tooltip effect="dark" content="客户端类型" placement="bottom-start">
+                                                <el-input v-model="task.client_type"></el-input>
+                                            </el-tooltip>
+                                        </el-col>
+                                        <el-col :span="24">
+                                            start_game_enabled:
+                                            <el-tooltip effect="dark" content="是否自动启动客户端" placement="bottom-start">
+                                                <el-switch v-model="task.start_game_enabled" active-color="#13ce66"
+                                                    inactive-color="#ff4949">
+                                                </el-switch>
+                                            </el-tooltip>
+                                        </el-col>
+                                    </el-row>
+                                </div>
+
+                                <div v-if="task.name === 'Recruit'">
+                                    <el-row :gutter="20">
+                                        <el-col :span="24">
+                                            refresh:
+                                            <el-switch v-model="task.refresh" active-color="#13ce66"
+                                                inactive-color="#ff4949">
+                                            </el-switch>
+                                        </el-col>
+                                        <el-col :span="24">
+                                            select:
+                                            <el-select v-model="task.select" multiple>
+                                                <el-option label="1" :value="Number(1)"></el-option>
+                                                <el-option label="2" :value="Number(2)"></el-option>
+                                                <el-option label="3" :value="Number(3)"></el-option>
+                                                <el-option label="4" :value="Number(4)"></el-option>
+                                                <el-option label="5" :value="Number(5)"></el-option>
+                                            </el-select>
+                                        </el-col>
+                                        <el-col :span="24">
+                                            confirm:
+                                            <el-select v-model="task.confirm" multiple>
+                                                <el-option label="1" :value="Number(1)"></el-option>
+                                                <el-option label="2" :value="Number(2)"></el-option>
+                                                <el-option label="3" :value="Number(3)"></el-option>
+                                                <el-option label="4" :value="Number(4)"></el-option>
+                                                <el-option label="5" :value="Number(5)"></el-option>
+                                            </el-select>
+                                        </el-col>
+                                        <el-col :span="24">
+                                            times:
+                                            <el-input-number v-model="task.times" :min="0" :max="100"></el-input-number>
+                                        </el-col>
+                                    </el-row>
+                                </div>
+
+                                <div v-if="task.name === 'Infrast'">
+                                    <el-row :gutter="20">
+                                        <el-col :span="24">
+                                            facility:
+                                            <el-select v-model="task.facility" multiple>
+                                                <el-option label="Mfg" value="Mfg"></el-option>
+                                                <el-option label="Trade" value="Trade"></el-option>
+                                                <el-option label="Power" value="Power"></el-option>
+                                                <el-option label="Control" value="Control"></el-option>
+                                                <el-option label="Reception" value="Reception"></el-option>
+                                                <el-option label="Office" value="Office"></el-option>
+                                                <el-option label="Dorm" value="Dorm"></el-option>
+                                            </el-select>
+                                        </el-col>
+                                        <el-col :span="24">
+                                            drones:
+                                            <el-input v-model="task.drones" />
+                                        </el-col>
+                                    </el-row>
+                                </div>
+
+                                <div v-if="task.name === 'Fight'">
+                                    <el-row :gutter="20">
+                                        <el-col :span="24">
+                                            stage:
+                                            <el-input v-model="task.stage"></el-input>
+                                        </el-col>
+                                        <el-col :span="24">
+                                            medicine:
+                                            <el-input-number v-model="task.medicine" :min="0"
+                                                :max="100"></el-input-number>
+                                        </el-col>
+                                        <el-col :span="24">
+                                            expiring_medicine:
+                                            <el-input-number v-model="task.expiring_medicine" :min="0"
+                                                :max="100"></el-input-number>
+                                        </el-col>
+                                        <el-col :span="24">
+                                            client_type:
+                                            <el-input v-model="task.client_type"></el-input>
+                                        </el-col>
+                                    </el-row>
+                                </div>
+
+                                <div v-if="task.name === 'Mall'">
+                                    <el-row :gutter="20">
+                                        <el-col :span="24">
+                                            shopping:
+                                            <el-switch v-model="task.shopping" active-color="#13ce66"
+                                                inactive-color="#ff4949" />
+                                        </el-col>
+                                        <el-col :span="24">
+                                            buy_first:
+                                            <el-select v-model="task.buy_first" multiple>
+                                                <el-option label="招聘许可" value="招聘许可"></el-option>
+                                                <el-option label="龙门币" value="龙门币"></el-option>
+                                            </el-select>
+                                        </el-col>
+                                    </el-row>
+                                </div>
+
+                                <div v-if="task.name === 'CloseDown'">
+                                    <el-row :gutter="20">
+                                        <el-col :span="24">
+                                            client_type:
+                                            <el-input v-model="task.client_type" />
+                                        </el-col>
+                                    </el-row>
+                                </div>
+                            </el-card>
+                        </div>
+                    </el-collapse-item>
+                </div>
+            </el-collapse>
+        </el-card>
+        <h2>定时执行</h2>
+        <div v-if="dailyTasks && dailyTasks.weekday_task">
+            <el-card class="box-card">
+                <el-collapse accordion>
+                    <el-collapse-item title="周一">
+                        <el-card class="box-card" shadow="hover">
+                            <el-select v-model="dailyTasks.weekday_task['0']">
+                                <el-option v-for="(tasks, key) in dailyTasks.task_dict" :key="key" :label="key"
+                                    :value="key">
+                                </el-option>
+                            </el-select>
+                        </el-card>
+                    </el-collapse-item>
+                    <el-collapse-item title="周二">
+                        <el-card class="box-card" shadow="hover">
+                            <el-select v-model="dailyTasks.weekday_task['1']">
+                                <el-option v-for="(tasks, key) in dailyTasks.task_dict" :key="key" :label="key"
+                                    :value="key">
+                                </el-option>
+                            </el-select>
+                        </el-card>
+                    </el-collapse-item>
+                    <el-collapse-item title="周三">
+                        <el-card class="box-card" shadow="hover">
+                            <el-select v-model="dailyTasks.weekday_task['2']">
+                                <el-option v-for="(tasks, key) in dailyTasks.task_dict" :key="key" :label="key"
+                                    :value="key">
+                                </el-option>
+                            </el-select>
+                        </el-card>
+                    </el-collapse-item>
+                    <el-collapse-item title="周四">
+                        <el-card class="box-card" shadow="hover">
+                            <el-select v-model="dailyTasks.weekday_task['3']">
+                                <el-option v-for="(tasks, key) in dailyTasks.task_dict" :key="key" :label="key"
+                                    :value="key">
+                                </el-option>
+                            </el-select>
+                        </el-card>
+                    </el-collapse-item>
+                    <el-collapse-item title="周五">
+                        <el-card class="box-card" shadow="hover">
+                            <el-select v-model="dailyTasks.weekday_task['4']">
+                                <el-option v-for="(tasks, key) in dailyTasks.task_dict" :key="key" :label="key"
+                                    :value="key">
+                                </el-option>
+                            </el-select>
+                        </el-card>
+                    </el-collapse-item>
+                    <el-collapse-item title="周六">
+                        <el-card class="box-card" shadow="hover">
+                            <el-select v-model="dailyTasks.weekday_task['5']">
+                                <el-option v-for="(tasks, key) in dailyTasks.task_dict" :key="key" :label="key"
+                                    :value="key">
+                                </el-option>
+                            </el-select>
+                        </el-card>
+                    </el-collapse-item>
+                    <el-collapse-item title="周日">
+                        <el-card class="box-card" shadow="hover">
+                            <el-select v-model="dailyTasks.weekday_task['6']">
+                                <el-option v-for="(tasks, key) in dailyTasks.task_dict" :key="key" :label="key"
+                                    :value="key">
+                                </el-option>
+                            </el-select>
+                        </el-card>
+                    </el-collapse-item>
+                </el-collapse>
+            </el-card>
+        </div>
+        <el-button @click="executeDailyTaskData" type="primary">立即执行</el-button>
+        <el-button @click="updateDailyTaskData" type="primary">更新任务</el-button>
     </div>
 </body>
+
+<style>
+    body {
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background-color: #f0f2f5;
+        overflow-x: hidden;
+    }
+
+    #app {
+        width: 100%;
+        max-width: 80%;
+        box-sizing: border-box;
+        padding: 20px;
+    }
+
+    .text {
+        font-size: 14px;
+    }
+
+    .item {
+        margin-bottom: 18px;
+    }
+
+    .clearfix:before,
+    .clearfix:after {
+        display: table;
+        content: "";
+    }
+
+    .clearfix:after {
+        clear: both;
+    }
+
+    .box-card {
+        width: 100%;
+        margin-bottom: 20px;
+        box-sizing: border-box;
+    }
+</style>
 
 </html>

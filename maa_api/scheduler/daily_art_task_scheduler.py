@@ -1,6 +1,6 @@
 import json
 import time
-import time
+import datetime
 
 from jinja2 import Environment, FileSystemLoader
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -19,7 +19,12 @@ def daily_art_task():
 
     email = daily_task_data.get('email', '')
     enable = daily_task_data.get('enable', True)
-    tasks = daily_task_data.get('tasks', [])
+    weekday_task = daily_task_data.get('weekday_task', {})
+    today = datetime.date.today()
+    weekday = today.weekday()
+    today_tasks_key = weekday_task.get(str(weekday), '')
+    task_dict = daily_task_data.get('task_dict', {})
+    tasks = task_dict.get(today_tasks_key, [])
     task_requests = [TaskRequest(**task) for task in tasks]
 
     if not enable:
@@ -50,5 +55,4 @@ def daily_art_task():
 def start():
     scheduler = BackgroundScheduler()
     scheduler.add_job(daily_art_task, 'cron', hour='7,19', minute='0')
-    scheduler.add_job(daily_art_task, 'cron', hour='18', minute='37')
     scheduler.start()
