@@ -41,8 +41,7 @@
                 "name": "Fight",
                 "stage": "CE-6",
                 "medicine": 0,
-                "expiring_medicine": 0,
-                "client_type": "Bilibili"
+                "expiring_medicine": 0
             },
             {
                 "name": "Mall",
@@ -99,8 +98,7 @@
                 "name": "Fight",
                 "stage": "1-7",
                 "medicine": 0,
-                "expiring_medicine": 0,
-                "client_type": "Bilibili"
+                "expiring_medicine": 0
             },
             {
                 "name": "Mall",
@@ -157,8 +155,7 @@
                 "name": "Fight",
                 "stage": "1-7",
                 "medicine": 0,
-                "expiring_medicine": 0,
-                "client_type": "Bilibili"
+                "expiring_medicine": 0
             },
             {
                 "name": "Mall",

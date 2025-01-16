@@ -1,0 +1,46 @@
+body {
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: #f0f2f5;
+    overflow-x: hidden;
+}
+
+#app {
+    width: 100%;
+    max-width: 80%;
+    box-sizing: border-box;
+    padding: 20px;
+}
+
+.text {
+    font-size: 14px;
+}
+
+.item {
+    margin-bottom: 18px;
+}
+
+.clearfix:before,
+.clearfix:after {
+    display: table;
+    content: "";
+}
+
+.clearfix:after {
+    clear: both;
+}
+
+.box-card {
+    width: 100%;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+    line-height: 1.5;
+}
+
+.centered-row {
+    display: flex;
+    justify-content: center;
+}
