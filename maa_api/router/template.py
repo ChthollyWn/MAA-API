@@ -10,3 +10,7 @@ router = APIRouter()
 @router.get("/", dependencies=[Depends(token_auth)])
 async def index():
     return FileResponse(STATIC_PATH  / "index.html")
+
+@router.get("/daily", dependencies=[Depends(token_auth)])
+async def daily():
+    return FileResponse(STATIC_PATH  / "daily.html")
