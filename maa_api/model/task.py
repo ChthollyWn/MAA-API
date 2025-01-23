@@ -288,7 +288,6 @@ def _callback(msg, details, arg):
         task_pipeline.logs.append(f'{_current_time()} {log}')
         _task_log(f'{_current_datetime()} {log} \n')
     _task_log(f'{m} {d} {arg} \n')
-    print(f'{m} {d} {arg} \n')
 
 def _init_asst():
     maa_core_path = Config.get_config('app', 'maa_core_path')

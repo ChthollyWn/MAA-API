@@ -62,7 +62,9 @@ class Updater:
             i = retry_times % len(api_url)
             request_url = api_url[i] + version_summary
             try:
-                response_data = requests.get(request_url).json()
+                response_json = requests.get(request_url, timeout=10)
+                response_json.raise_for_status()
+                response_data = response_json.json()
                 """
                 解析JSON
                 e.g.
@@ -122,36 +124,43 @@ class Updater:
                 # Windows ARM64
                 system_platform = "win-arm64"
         # 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
-        detail_data = requests.get(detail).json()
-        assets_list = detail_data["details"]["assets"]     # 列表，子元素为字典
-        # 找到对应系统和架构的版本
-        for assets in assets_list:
-            """
-            结构示例
-            assets:
-            {
-                "name": "MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip",
-                "size": 145677836,
-                "browser_download_url": "https://github.com/MaaAssistantArknights/MaaRelease/releases/download/v4.24.0-beta.1.d006.g27dee653d/MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip",
-                "mirrors": [
-                  "https://s3.maa-org.net:25240/maa-release/MaaAssistantArknights/MaaRelease/releases/download/v4.24.0-beta.1.d006.g27dee653d/MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip",
-                  "https://agent.imgg.dev/MaaAssistantArknights/MaaRelease/releases/download/v4.24.0-beta.1.d006.g27dee653d/MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip",
-                  "https://maa.r2.imgg.dev/MaaAssistantArknights/MaaRelease/releases/download/v4.24.0-beta.1.d006.g27dee653d/MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip"
-                ]
-            }
-            """
-            assets_name = assets["name"]        # 示例值:MAA-v4.24.0-beta.1-win-arm64.zip
-            # 正则匹配（用于选择当前系统及架构的版本）
-            # 在线等一个不这么蠢的方法
-            pattern = r"^MAA-.*-" + re.escape(system_platform) + r"\.(zip|tar\.gz)$"
-            match = re.match(pattern, assets_name)
-            if match:
-                # Mirrors镜像列表
-                mirrors = assets["mirrors"]
-                github_url = assets["browser_download_url"]
-                # 加上GitHub的release链接
-                mirrors.append(github_url)
-                return mirrors, assets_name
+        retry = 3
+        for _ in range(retry):
+            try:
+                detail_json = requests.get(detail, timeout=10)
+                detail_json.raise_for_status()
+                detail_data = detail_json.json()
+                assets_list = detail_data["details"]["assets"]     # 列表，子元素为字典
+                # 找到对应系统和架构的版本
+                for assets in assets_list:
+                    """
+                    结构示例
+                    assets:
+                    {
+                        "name": "MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip",
+                        "size": 145677836,
+                        "browser_download_url": "https://github.com/MaaAssistantArknights/MaaRelease/releases/download/v4.24.0-beta.1.d006.g27dee653d/MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip",
+                        "mirrors": [
+                        "https://s3.maa-org.net:25240/maa-release/MaaAssistantArknights/MaaRelease/releases/download/v4.24.0-beta.1.d006.g27dee653d/MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip",
+                        "https://agent.imgg.dev/MaaAssistantArknights/MaaRelease/releases/download/v4.24.0-beta.1.d006.g27dee653d/MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip",
+                        "https://maa.r2.imgg.dev/MaaAssistantArknights/MaaRelease/releases/download/v4.24.0-beta.1.d006.g27dee653d/MAA-v4.24.0-beta.1.d006.g27dee653d-win-x64.zip"
+                        ]
+                    }
+                    """
+                    assets_name = assets["name"]        # 示例值:MAA-v4.24.0-beta.1-win-arm64.zip
+                    # 正则匹配（用于选择当前系统及架构的版本）
+                    # 在线等一个不这么蠢的方法
+                    pattern = r"^MAA-.*-" + re.escape(system_platform) + r"\.(zip|tar\.gz)$"
+                    match = re.match(pattern, assets_name)
+                    if match:
+                        # Mirrors镜像列表
+                        mirrors = assets["mirrors"]
+                        github_url = assets["browser_download_url"]
+                        # 加上GitHub的release链接
+                        mirrors.append(github_url)
+                        return mirrors, assets_name
+            except Exception:
+                continue
         return False, False
 
     def update(self):

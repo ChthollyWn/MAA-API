@@ -5,16 +5,16 @@ import datetime
 from jinja2 import Environment, FileSystemLoader
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from maa_api.config.path_config import DAILY_TASK_PATH, STATIC_PATH
+from maa_api.config.path_config import DAILY_TASK_FILE_PATH, STATIC_PATH
 from maa_api.model.request import TaskRequest
 from maa_api.model.task import task_pipeline
 from maa_api.service import smtp_service
 
 def daily_art_task():
-    if not DAILY_TASK_PATH.exists():
+    if not DAILY_TASK_FILE_PATH.exists():
         return
     
-    with DAILY_TASK_PATH.open('r', encoding='utf-8') as file:
+    with DAILY_TASK_FILE_PATH.open('r', encoding='utf-8') as file:
         daily_task_data = json.load(file)
 
     email = daily_task_data.get('email', '')

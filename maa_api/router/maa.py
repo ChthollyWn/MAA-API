@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from maa_api.model.response import Response
 from maa_api.model.request import TaskRequest
 from maa_api.model.task import task_pipeline
-from maa_api.config.path_config import DAILY_TASK_PATH
+from maa_api.config.path_config import DAILY_TASK_FILE_PATH
 from maa_api.dependence.auth import token_auth
 from maa_api.scheduler import daily_art_task_scheduler
 
@@ -34,16 +34,16 @@ async def delete_tasks():
 
 @router.get("/api/maa/daily", dependencies=[Depends(token_auth)])
 async def get_daily_tasks():
-    if not DAILY_TASK_PATH.exists():
+    if not DAILY_TASK_FILE_PATH.exists():
         return
     
-    with DAILY_TASK_PATH.open('r', encoding='utf-8') as file:
+    with DAILY_TASK_FILE_PATH.open('r', encoding='utf-8') as file:
         return Response.success(data=json.load(file))
     
 @router.put("/api/maa/daily", dependencies=[Depends(token_auth)])
 async def update_daily_tasks(request: dict):
     try:
-        with DAILY_TASK_PATH.open('w', encoding='utf-8') as file:
+        with DAILY_TASK_FILE_PATH.open('w', encoding='utf-8') as file:
             json.dump(request, file, ensure_ascii=False, indent=4)
         return Response.success()
     except Exception as e:
