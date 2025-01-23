@@ -1,6 +1,7 @@
 import os
 import json
 import pathlib
+import urllib.request
 
 from pydantic import BaseModel, PrivateAttr
 from enum import Enum
@@ -8,14 +9,17 @@ from typing import Optional, Any
 from datetime import datetime
 
 from maa_api.model.asst import Asst
-from maa_api.model.utils import Message, InstanceOptionType
+from maa_api.model.utils import Message, InstanceOptionType, Version
+from maa_api.model.updater import Updater
 from maa_api.config.config import Config
-from maa_api.config.path_config import LOG_PATH
+from maa_api.config.path_config import LOG_PATH, LIB_PATH
 from maa_api.exception.response_exception import ResponseException
+from maa_api.log import logger
 
 TASK_PIPELINE_LOG_DIR = LOG_PATH / "task_pipeline"
 TASK_PIPELINE_LOG_DIR.mkdir(parents=True, exist_ok=True)
-
+MAA_LIB_DIR = LIB_PATH / 'maa'
+MAA_LIB_DIR.mkdir(parents=True, exist_ok=True)
 class TaskStatus(Enum):
     # 等待执行
     PENDING = "pending"
@@ -284,15 +288,34 @@ def _callback(msg, details, arg):
         task_pipeline.logs.append(f'{_current_time()} {log}')
         _task_log(f'{_current_datetime()} {log} \n')
     _task_log(f'{m} {d} {arg} \n')
+    print(f'{m} {d} {arg} \n')
 
 def _init_asst():
-    # 加载核心资源
     maa_core_path = Config.get_config('app', 'maa_core_path')
     if not maa_core_path:
-        maa_core_path = '~/.local/share/maa'
+        maa_core_path = MAA_LIB_DIR
     maa_core_path = os.path.expanduser(maa_core_path)
     path = pathlib.Path(maa_core_path).resolve()
+
+    # 更新maa版本
+    logger.info("开始校验 MAA 版本")
+    Updater(path, Version.Stable).update()
+
+    # 加载核心资源
+    logger.info("开始加载 MAA 核心资源")
     Asst.load(path=path)
+    logger.info("MAA 核心资源加载成功")
+
+    # 加载活动资源
+    logger.info("开始加载版本活动资源")
+    ota_tasks_url = 'https://ota.maa.plus/MaaAssistantArknights/api/resource/tasks.json'
+    ota_tasks_path = path / 'cache' / 'resource' / 'tasks.json'
+    ota_tasks_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(ota_tasks_path, 'w', encoding='utf-8') as f:
+        with urllib.request.urlopen(ota_tasks_url) as u:
+            f.write(u.read().decode('utf-8'))
+    Asst.load(path=path, incremental_path=path / 'cache')
+    logger.info("版本活动资源加载成功")
 
     # 配置回调函数
     asst = Asst(callback=_callback)
