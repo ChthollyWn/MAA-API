@@ -3,12 +3,11 @@ import re
 import os
 import tarfile
 import zipfile
-import requests
 
 from urllib.error import HTTPError, URLError
 
 from .asst import Asst
-from .utils import Version
+from .utils import Version, HttpUtils
 from . import downloader
 
 from maa_api.log import logger
@@ -62,7 +61,7 @@ class Updater:
             i = retry_times % len(api_url)
             request_url = api_url[i] + version_summary
             try:
-                response_json = requests.get(request_url, timeout=10)
+                response_json = HttpUtils.get(request_url, timeout=10)
                 response_json.raise_for_status()
                 response_data = response_json.json()
                 """
@@ -127,7 +126,7 @@ class Updater:
         retry = 3
         for _ in range(retry):
             try:
-                detail_json = requests.get(detail, timeout=10)
+                detail_json = HttpUtils.get(detail, timeout=10)
                 detail_json.raise_for_status()
                 detail_data = detail_json.json()
                 assets_list = detail_data["details"]["assets"]     # 列表，子元素为字典
