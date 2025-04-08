@@ -1,6 +1,9 @@
 import requests
 from maa_api.config.config import Config
 
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from typing import Union, Dict, List, Any, Type
 from enum import Enum, IntEnum, unique, auto
 
@@ -76,7 +79,7 @@ class HttpUtils:
     """
     HTTP工具类，封装了常用的HTTP请求方法，并支持从参数发送请求。
     """
-    
+
     proxies = None
     proxy_path = Config.get_config('app', 'proxy')
     proxies = {
@@ -84,98 +87,62 @@ class HttpUtils:
         'https': proxy_path,
     }
 
+    # 统一的超时时间设置（秒）
+    TIMEOUT = 60
+
+    @staticmethod
+    def get_session_with_retries():
+        session = requests.Session()
+        retries = Retry(
+            total=5,
+            backoff_factor=0.1,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"]
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+        return session
+
     @staticmethod
     def get(url, params=None, headers=None, **kwargs):
-        """
-        发送GET请求。
-
-        :param url: 请求的URL
-        :param params: 请求参数，字典类型
-        :param headers: 请求头，字典类型
-        :param kwargs: 其他请求参数
-        :return: 响应对象
-        """
-        return requests.get(url, params=params, headers=headers, proxies=HttpUtils.proxies, **kwargs)
+        session = HttpUtils.get_session_with_retries()
+        return session.get(url, params=params, headers=headers, proxies=HttpUtils.proxies, timeout=HttpUtils.TIMEOUT, **kwargs)
 
     @staticmethod
     def post(url, data=None, json=None, headers=None, **kwargs):
-        """
-        发送POST请求。
-
-        :param url: 请求的URL
-        :param data: 请求体数据，字典类型
-        :param json: JSON格式的请求体数据，字典类型
-        :param headers: 请求头，字典类型
-        :param kwargs: 其他请求参数
-        :return: 响应对象
-        """
-        return requests.post(url, data=data, json=json, headers=headers, proxies=HttpUtils.proxies, **kwargs)
+        session = HttpUtils.get_session_with_retries()
+        return session.post(url, data=data, json=json, headers=headers, proxies=HttpUtils.proxies, timeout=HttpUtils.TIMEOUT, **kwargs)
 
     @staticmethod
     def put(url, data=None, headers=None, **kwargs):
-        """
-        发送PUT请求。
-
-        :param url: 请求的URL
-        :param data: 请求体数据，字典类型
-        :param headers: 请求头，字典类型
-        :param kwargs: 其他请求参数
-        :return: 响应对象
-        """
-        return requests.put(url, data=data, headers=headers, proxies=HttpUtils.proxies, **kwargs)
+        session = HttpUtils.get_session_with_retries()
+        return session.put(url, data=data, headers=headers, proxies=HttpUtils.proxies, timeout=HttpUtils.TIMEOUT, **kwargs)
 
     @staticmethod
     def delete(url, headers=None, **kwargs):
-        """
-        发送DELETE请求。
-
-        :param url: 请求的URL
-        :param headers: 请求头，字典类型
-        :param kwargs: 其他请求参数
-        :return: 响应对象
-        """
-        return requests.delete(url, headers=headers, proxies=HttpUtils.proxies, **kwargs)
+        session = HttpUtils.get_session_with_retries()
+        return session.delete(url, headers=headers, proxies=HttpUtils.proxies, timeout=HttpUtils.TIMEOUT, **kwargs)
 
     @staticmethod
     def patch(url, data=None, headers=None, **kwargs):
-        """
-        发送PATCH请求。
+        session = HttpUtils.get_session_with_retries()
+        return session.patch(url, data=data, headers=headers, proxies=HttpUtils.proxies, timeout=HttpUtils.TIMEOUT, **kwargs)
 
-        :param url: 请求的URL
-        :param data: 请求体数据，字典类型
-        :param headers: 请求头，字典类型
-        :param kwargs: 其他请求参数
-        :return: 响应对象
-        """
-        return requests.patch(url, data=data, headers=headers, proxies=HttpUtils.proxies, **kwargs)
-    
     @classmethod
     def head(cls, url, headers=None, **kwargs):
-        """
-        发送HEAD请求。
-        """
-        return requests.head(url, headers=headers, proxies=HttpUtils.proxies, **kwargs)
+        session = HttpUtils.get_session_with_retries()
+        return session.head(url, headers=headers, proxies=HttpUtils.proxies, timeout=HttpUtils.TIMEOUT, **kwargs)
 
     @staticmethod
     def send_request(method, url, params=None, data=None, json=None, headers=None, **kwargs):
-        """
-        根据参数发送HTTP请求。
-
-        :param method: 请求方法（'GET', 'POST', 'PUT', 'DELETE', 'PATCH'）
-        :param url: 请求的URL
-        :param params: 请求参数，字典类型（仅适用于GET请求）
-        :param data: 请求体数据，字典类型（适用于POST, PUT, PATCH请求）
-        :param json: JSON格式的请求体数据，字典类型（适用于POST, PUT, PATCH请求）
-        :param headers: 请求头，字典类型
-        :param kwargs: 其他请求参数
-        :return: 响应对象
-        """
         method = method.lower()
         if method not in ['get', 'post', 'put', 'delete', 'patch']:
             raise ValueError(f"Unsupported HTTP method: {method}")
         
-        func = getattr(requests, method)
-        return func(url, params=params, data=data, json=json, headers=headers, proxies=HttpUtils.proxies, **kwargs)
+        session = HttpUtils.get_session_with_retries()
+        func = getattr(session, method)
+        return func(url, params=params, data=data, json=json, headers=headers, proxies=HttpUtils.proxies, timeout=HttpUtils.TIMEOUT, **kwargs)
     
 
 if __name__ == "__main__":
