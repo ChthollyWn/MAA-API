@@ -13,6 +13,8 @@ jinja2 = "^3.0.0"
 adbutils = "^2.8.0"
 ruamel-yaml = "^0.18.7"
 apscheduler = "^3.11.0"
+requests = { version = "^2.31.0", extras = ["socks"] }
+tqdm = "^4.67.1"
 
 [[tool.poetry.source]]
 name = "aliyun"

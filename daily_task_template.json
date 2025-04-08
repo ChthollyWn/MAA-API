@@ -116,6 +116,63 @@
                 "client_type": "Bilibili"
             }
         ],
+        "daily": [
+            {
+                "name": "StartUp",
+                "client_type": "Bilibili",
+                "start_game_enabled": true
+            },
+            {
+                "name": "Recruit",
+                "refresh": true,
+                "select": [
+                    1,
+                    4,
+                    5
+                ],
+                "confirm": [
+                    2,
+                    3,
+                    4,
+                    5
+                ],
+                "times": 4
+            },
+            {
+                "name": "Infrast",
+                "facility": [
+                    "Mfg",
+                    "Trade",
+                    "Power",
+                    "Control",
+                    "Reception",
+                    "Office",
+                    "Dorm"
+                ],
+                "drones": "Money"
+            },
+            {
+                "name": "Fight",
+                "stage": "11-12",
+                "medicine": 0,
+                "expiring_medicine": 0
+            },
+            {
+                "name": "Mall",
+                "shopping": true,
+                "buy_first": [
+                    "招聘许可",
+                    "龙门币"
+                ]
+            },
+            {
+                "name": "Award"
+            },
+            {
+                "name": "CloseDown",
+                "client_type": "Bilibili"
+            }
+        ],
         "activity": [
             {
                 "name": "StartUp",

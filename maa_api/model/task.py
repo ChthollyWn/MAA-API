@@ -8,6 +8,8 @@ from enum import Enum
 from typing import Optional, Any
 from datetime import datetime
 
+from .utils import HttpUtils
+
 from maa_api.model.asst import Asst
 from maa_api.model.utils import Message, InstanceOptionType, Version
 from maa_api.model.updater import Updater
@@ -310,9 +312,9 @@ def _init_asst():
     ota_tasks_url = 'https://ota.maa.plus/MaaAssistantArknights/api/resource/tasks.json'
     ota_tasks_path = path / 'cache' / 'resource' / 'tasks.json'
     ota_tasks_path.parent.mkdir(parents=True, exist_ok=True)
+    resp = HttpUtils.get(ota_tasks_url)
     with open(ota_tasks_path, 'w', encoding='utf-8') as f:
-        with urllib.request.urlopen(ota_tasks_url) as u:
-            f.write(u.read().decode('utf-8'))
+        f.write(resp.text)
     Asst.load(path=path, incremental_path=path / 'cache')
     logger.info("版本活动资源加载成功")
 

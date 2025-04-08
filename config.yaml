@@ -3,7 +3,9 @@ app:
   # 访问密钥 为空则不鉴权
   access_token:
   # maa核心文件位置
-  maa_core_path: 
+  maa_core_path:
+  # 系统代理
+  proxy: http://localhost:1080
 
 # adb配置
 adb:
