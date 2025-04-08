@@ -129,5 +129,5 @@ def file_download(download_url_list, download_path):
     downloader = Downloader(download_url_list, chunksize, max_conn)
     # 下载文件
     total_size, download_url = length(download_url_list)
-    logger.info(f"文件大小已获取，共{total_size / (1024 * 1024)}MB，开始下载")
+    logger.info(f"下载地址为{download_url}，文件大小为{total_size / (1024 * 1024)}MB，开始下载")
     return downloader.download_file_no_chunk(download_url, download_path)
