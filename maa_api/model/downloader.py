@@ -49,10 +49,10 @@ class Downloader:
         retries = 10  # 设置重试次数
         while retries > 0 and self.chunk_status[chunk_id] != 2:
             try:
-                response = HttpUtils.get(url, headers=headers, timeout=5)
+                response = HttpUtils.get(url, headers=headers)
                 if response.status_code in (301, 302, 303, 307, 308):
                     redirect_url = response.headers['Location']
-                    response = HttpUtils.get(redirect_url, headers=headers, timeout=3)
+                    response = HttpUtils.get(redirect_url, headers=headers)
 
                 if response.status_code == 206:
                     self.failed_requests[url]['success'] += 1

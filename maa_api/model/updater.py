@@ -61,7 +61,7 @@ class Updater:
             i = retry_times % len(api_url)
             request_url = api_url[i] + version_summary
             try:
-                response_json = HttpUtils.get(request_url, timeout=10)
+                response_json = HttpUtils.get(request_url)
                 response_json.raise_for_status()
                 response_data = response_json.json()
                 """
@@ -126,7 +126,7 @@ class Updater:
         retry = 3
         for _ in range(retry):
             try:
-                detail_json = HttpUtils.get(detail, timeout=10)
+                detail_json = HttpUtils.get(detail)
                 detail_json.raise_for_status()
                 detail_data = detail_json.json()
                 assets_list = detail_data["details"]["assets"]     # 列表，子元素为字典
