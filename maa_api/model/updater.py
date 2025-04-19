@@ -153,7 +153,8 @@ class Updater:
                     match = re.match(pattern, assets_name)
                     if match:
                         # Mirrors镜像列表
-                        mirrors = assets["mirrors"]
+                        # mirrors = assets["mirrors"]
+                        mirrors = []
                         github_url = assets["browser_download_url"]
                         # 加上GitHub的release链接
                         mirrors.append(github_url)
