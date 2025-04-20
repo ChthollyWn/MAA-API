@@ -32,5 +32,4 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def scheduler():
-    check_ark_running_scheduler.start()
     daily_art_task_scheduler.start()
