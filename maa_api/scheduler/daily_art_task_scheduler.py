@@ -5,9 +5,9 @@ import datetime
 from jinja2 import Environment, FileSystemLoader
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from maa_api.config.path_config import DAILY_TASK_FILE_PATH, STATIC_PATH
-from maa_api.model.request import TaskRequest
-from maa_api.model.task import task_pipeline
+from maa_api.config.config import DAILY_TASK_FILE_PATH, STATIC_PATH
+from maa_api.model.request.request import TaskRequest
+from maa_api.model.core.pipeline import task_pipeline
 from maa_api.service import smtp_service
 
 def daily_art_task():

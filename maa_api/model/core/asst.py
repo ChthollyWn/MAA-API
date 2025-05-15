@@ -6,7 +6,7 @@ import pathlib
 import platform
 from typing import Union, Optional
 
-from .utils import InstanceOptionType, StaticOptionType, JSON
+from maa_api.model.util.utils import InstanceOptionType, StaticOptionType, JSON
 
 
 class Asst:

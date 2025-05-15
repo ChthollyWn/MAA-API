@@ -1,7 +1,7 @@
 from fastapi import Request
 from maa_api.log import logger
 from fastapi.responses import JSONResponse
-from maa_api.model.response import Response
+from maa_api.model.request.response import Response
 from maa_api.exception.response_exception import ResponseException
 
 """处理全局异常"""
