@@ -1,27 +1,13 @@
-import os
-import json
-import pathlib
-import urllib.request
+import uuid
 
-from pydantic import BaseModel, PrivateAttr
-from enum import Enum
-from typing import Optional, Any
 from datetime import datetime
+from enum import Enum
+from typing import Any
 
-from .utils import HttpUtils
+from pydantic import BaseModel
 
-from maa_api.model.asst import Asst
-from maa_api.model.utils import Message, InstanceOptionType, Version
-from maa_api.model.updater import Updater
-from maa_api.config.config import Config
-from maa_api.config.path_config import LOG_PATH, LIB_PATH
 from maa_api.exception.response_exception import ResponseException
-from maa_api.log import logger
 
-TASK_PIPELINE_LOG_DIR = LOG_PATH / "task_pipeline"
-TASK_PIPELINE_LOG_DIR.mkdir(parents=True, exist_ok=True)
-MAA_LIB_DIR = LIB_PATH / 'maa'
-MAA_LIB_DIR.mkdir(parents=True, exist_ok=True)
 class TaskStatus(Enum):
     # 等待执行
     PENDING = "pending"
@@ -35,314 +21,35 @@ class TaskStatus(Enum):
     CANCELLED = "cancelled"
 
 class Task(BaseModel):
+    id: int
     task_name:str
     type_name: str
     params: dict[str, Any]
-    is_now: bool = True
+    error_timeout: int = 0
     status: TaskStatus = TaskStatus.PENDING
     create_time: str
+    log: list[str] = []
 
     def __init__(self, **data):
+        data.setdefault('id', uuid.uuid4())
         data.setdefault('create_time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         super().__init__(**data)
         if not self.task_name or not self.type_name:
             raise ResponseException("任务名称或任务类型不能为空")
         self.params = {k: v for k, v in self.params.items() if v is not None}
 
-    def dict(self, *args, **kwargs):
+    def to_dict(self, *args, **kwargs):
         result = super().dict(*args, **kwargs)
         result['status'] = result['status'].value
         return result
-        
-class TaskPipelineStatus(str, Enum):
-    # 命令尚未开始执行
-    IDLE = "idle"
-    # 命令正在执行
-    RUNNING = "running"
-    # 命令执行成功
-    COMPLETED = "completed"
-    # 命令执行失败
-    FAILED = "failed"
-    # 命令被取消
-    CANCELLED = "cancelled"
 
-class TaskPipeline(BaseModel):
-    status: TaskPipelineStatus = TaskPipelineStatus.IDLE
-    tasks: list[Task] = []
-    logs: list[str] = []
-    _task_dict: dict[str, Task] = {}
-    _asst: Optional[Asst] = PrivateAttr(None)
-
-    def running(self) -> bool:
-        return self._asst.running() if self._asst else False
-    
-    def _check_runing(self) -> None:
-        if self.running():
-            raise ResponseException("流水线任务正在运行中，不允许多实例访问")
-        
-    def _to_serializable_dict(self):
-        pipeline_dict = {
-            'status': self.status.value,
-            '_task_dict': {k: v.dict() for k, v in self._task_dict.items()},
-            'tasks': [task.dict() for task in self.tasks],
-            'logs': self.logs
-        }
-        return pipeline_dict
-    
-    def _save_pipeline(self):
-        file_path = TASK_PIPELINE_LOG_DIR / "pipeline.json"
-        task_pipeline_dict = self._to_serializable_dict()
-
-        with file_path.open('w', encoding='utf-8') as f:
-            json.dump(task_pipeline_dict, f, ensure_ascii=False, indent=4)
-
-    def append_task(self, task: Task) -> None:
-        self._check_runing()
-
-        task_id = self._asst.append_task(task.type_name, task.params)
-        if not task_id:
-            raise ResponseException("添加任务失败")
-        self._task_dict[task_id] = task
-        self._save_pipeline()
-        
-    def start(self) -> bool:
-        self._check_runing()
-
-        # 任务执行前，将当前批次所有非pending任务标记为旧批次任务
-        if self._task_dict:
-            for task in self._task_dict.values():
-                if task.is_now and task.status != TaskStatus.PENDING:
-                    task.is_now = False
-        # 清除旧任务缓存日志
-        self.logs = []
-        
-        if not self._asst.start():
-            raise ResponseException("执行任务失败")
-        self.status = TaskPipelineStatus.RUNNING
-        self._save_pipeline()
-        return True
-    
-    def stop(self) -> bool:
-        # 任务停止后，将当前批次所有非completed任务标记为cancelled
-        if self._task_dict:
-            for task in self._task_dict.values():
-                if task.is_now and task.status != TaskStatus.COMPLETED:
-                    task.status = TaskStatus.CANCELLED
-
-        if not self._asst.stop():
-            raise ResponseException("停止任务失败")
-        self.status = TaskPipelineStatus.CANCELLED
-        self._save_pipeline()
-        return True
-
-    def active_tasks(self):
-        self.tasks = [task for task in self._task_dict.values() if task.is_now]
-        self._save_pipeline()
-        return self
-    
-task_pipeline = TaskPipeline()
-
-def _task_log(msg: str):
-    current_date = datetime.now().strftime('%Y-%m-%d')
-
-    file_path = TASK_PIPELINE_LOG_DIR / f'task_pipeline_{current_date}.log'
-
-    with file_path.open('a', encoding='utf-8') as f:
-        f.write(msg)
-
-def _current_time() -> str:
-    return datetime.now().strftime('%H:%M:%S')
-
-def _current_datetime() -> str:
-    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-@Asst.CallBackType
-def _callback(msg, details, arg):
-    m = Message(msg)
-    d = json.loads(details.decode('utf-8'))
-    task_dict = task_pipeline._task_dict
-
-    log = None
-
-    # 连接信息
-    if m == Message.ConnectionInfo:
-        try:
-            con_what = d.get('what', '')
-            con_details = d.get('details', '')
-
-            con_what_infos = {
-                'ConnectFaild': f"模拟器连接失败 {con_details}",
-                'Connected': f"模拟器连接成功",
-                'UnsupportedResolution': f"模拟器分辨率不被支持 {con_details}",
-                'ResolutionError': f"分辨率获取错误 {con_details}",
-                'Reconnecting': f"模拟器连接断开(adb/模拟器异常) 正在重连 {con_details}",
-                'Reconnected': f"模拟器连接断开(adb/模拟器异常) 重连成功 {con_details}",
-                'Disconnect': f"模拟器连接断开(adb/模拟器异常) 重连失败 {con_details}",
-                'ScreencapFailed': f"截图失败(adb/模拟器异常) {con_details}",
-                'TouchModeNotAvailable': f"不支持的触控模式 {con_details}"
-            }
-
-            if con_what in con_what_infos:
-                log = con_what_infos[con_what]
-        except:
-            log = f"Error: {m} {d}"
-
-    # 开始任务
-    if m == Message.TaskChainStart:
-        task = task_dict[d['taskid']]
-        if task.type_name != d['taskchain']:
-            raise ResponseException(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-        task_pipeline._task_dict[d['taskid']].status = TaskStatus.RUNNING
-        log = f'开始任务 [{task.task_name}]'
-
-    # 完成任务
-    if m == Message.TaskChainCompleted:
-        task = task_dict[d['taskid']]
-        if task.type_name != d['taskchain']:
-            raise ResponseException(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-        task_pipeline._task_dict[d['taskid']].status = TaskStatus.COMPLETED
-        log = f'完成任务 [{task.task_name}]'
-
-    # 停止任务
-    if m == Message.TaskChainStopped:
-        task = task_dict[d['taskid']]
-        log = f'停止任务 [{task.task_name}]'
-
-    # 异常任务
-    if m == Message.TaskChainError:
-        task = task_dict[d['taskid']]
-        if task.type_name != d['taskchain']:
-            raise ResponseException(f"任务链子任务不匹配 task_type={task.type_name} taskchain={d['taskchain']}")
-        task_pipeline._task_dict[d['taskid']].status = TaskStatus.FAILED
-        log = f'任务失败 [{task.task_name}]'
-
-    # 完成全部任务
-    if m == Message.AllTasksCompleted:
-        task_pipeline.status = TaskPipelineStatus.COMPLETED
-        log = '已完成全部任务'
-
-    # 开始原子任务
-    if m == Message.SubTaskStart:
-        try:
-            sub_details = d.get('details', {})
-            sub_task = sub_details.get('task', '')
-
-            sub_task_info = {
-                'StartButton2': f"已开始战斗 {sub_details.get('exec_times', '')} 次",
-                'MedicineConfirm': '使用理智药',
-                'ExpiringMedicineConfirm': '使用 48 小时内过期的理智药',
-                'StoneConfirm': '碎石',
-                'RecruitRefreshConfirm': '刷新标签',
-                'RecruitConfirm': '确认招募',
-                'RecruitNowConfirm': '使用加急许可',
-                'ReportToPenguinStats': '汇报到企鹅数据统计',
-                'ReportToYituliu': '汇报到一图流大数据',
-                'InfrastDormDoubleConfirmButton': '请进行基建宿舍的二次确认',
-                'StartExplore': f"已开始探索 {sub_details.get('exec_times', '')} 次",
-                'StageTraderInvestConfirm': '已投资源石锭',
-                'StageTraderInvestSystemFull': '投资达到了游戏上限',
-                'ExitThenAbandon': '已放弃本次探索',
-                'MissionCompletedFlag': '战斗完成',
-                'MissionFailedFlag': '战斗失败',
-                'MissionFailedFlag2': '战斗失败',
-                'StageTraderEnter': '节点：诡异行商',
-                'StageSafeHouseEnter': '节点：安全的角落',
-                # 'StageEncounterEnter': '节点：不期而遇',
-                'StageCombatDpsEnter': '关卡：普通作战',
-                'StageEmergencyDps': '关卡：紧急作战',
-                'StageDreadfulFoe': '关卡：险路恶敌'
-            }
-
-            if sub_task in sub_task_info:
-                log = sub_task_info[sub_task]
-        except:
-            log = f"Error: {m} {d}"
-
-    # 原子任务额外信息
-    if m == Message.SubTaskExtraInfo:
-        try:
-            sub_what = d.get('what', '')
-            sub_details = d.get('details', {})
-
-            drop_statistics = '\n'.join(
-                [f"{item.get('itemName', '')}: {item.get('quantity', '')}(+{item.get('addQuantity', '')})" for item in sub_details.get('stats', [])]    
-            )
-
-            sub_task_extra_info = {
-                'RecruitTagsDetected': f"公招识别结果：{sub_details.get('tags', '')}",
-                'ReCruitSpecialTag': f"识别到特殊Tag：{sub_details.get('tag', '')}",
-                'RecruitResult': f"{sub_details.get('level', '')} ⭐ Tags",
-                'RecruitTagsRefreshed': "已刷新Tags",
-                'EnterFacility': f"当前设施：{sub_details.get('facility', '')} {sub_details.get('index', '')}",
-                'StageInfo': f"开始战斗：{sub_details.get('name', '')}",
-                'StageInfoError': "关卡识别错误",
-                'RoguelikeEvent': f"事件：{sub_details.get('name', '')}",
-                'SanityBeforeStage': f"当前理智：{sub_details.get('current_sanity', '')}/{sub_details.get('max_sanity', '')}",
-                'StageDrops': f"{sub_details.get('stars', '')}⭐通关{sub_details.get('stage', {}).get('stageCode', '')} \n掉落统计: \n{drop_statistics}"
-            }
-
-            if sub_what in sub_task_extra_info:
-                log = sub_task_extra_info[sub_what]
-        except :
-            log = f"Error: {m} {d}"
-
-    if log:
-        task_pipeline.logs.append(f'{_current_time()} {log}')
-        _task_log(f'{_current_datetime()} {log} \n')
-    _task_log(f'{m} {d} {arg} \n')
-
-def _init_asst():
-    maa_core_path = Config.get_config('app', 'maa_core_path')
-    if not maa_core_path:
-        maa_core_path = MAA_LIB_DIR
-    maa_core_path = os.path.expanduser(maa_core_path)
-    path = pathlib.Path(maa_core_path).resolve()
-
-    # 更新maa版本
-    logger.info("开始校验 MAA 版本")
-    Updater(path, Version.Stable).update()
-
-    # 加载核心资源
-    logger.info("开始加载 MAA 核心资源")
-    Asst.load(path=path)
-    logger.info("MAA 核心资源加载成功")
-
-    # 加载活动资源
-    logger.info("开始加载版本活动资源")
-    ota_tasks_url = 'https://ota.maa.plus/MaaAssistantArknights/api/resource/tasks.json'
-    ota_tasks_path = path / 'cache' / 'resource' / 'tasks.json'
-    ota_tasks_path.parent.mkdir(parents=True, exist_ok=True)
-    resp = HttpUtils.get(ota_tasks_url)
-    with open(ota_tasks_path, 'w', encoding='utf-8') as f:
-        f.write(resp.text)
-    Asst.load(path=path, incremental_path=path / 'cache')
-    logger.info("版本活动资源加载成功")
-
-    # 配置回调函数
-    asst = Asst(callback=_callback)
-    # 触控方案配置
-    asst.set_instance_option(InstanceOptionType.touch_type, 'maatouch')
-    # 暂停下干员
-    asst.set_instance_option(InstanceOptionType.deployment_with_pause, '1')
-
-    adb_path = Config.get_config('adb', 'path')
-    if not adb_path:
-        # 如果adb路径未设置，使用Path环境变量
-        adb_path = 'adb'
-    adb_address = Config.get_config('adb', 'address')
-    if not asst.connect(adb_path, adb_address):
-        raise RuntimeError(f"MAA ADB 连接失败 path={adb_path} address={adb_address}")
-        
-    return asst
-
-task_pipeline._asst = _init_asst()
 
 class StartUpTask(Task):
     def __init__(self,
-                enable: bool = None,
-                client_type: str = None,
-                start_game_enabled: bool = None,
-                account_name: str = None):
+                 enable: bool = None,
+                 client_type: str = None,
+                 start_game_enabled: bool = None,
+                 account_name: str = None):
         """
         初始化开始唤醒任务。
 
@@ -358,7 +65,7 @@ class StartUpTask(Task):
             - 官服示例: 123****4567，可输入 123****4567、4567、123、3****4567。
             - B服示例: 张三，可输入 张三、张、三。
         """
-        
+
         params = {
             "enable": enable,
             "client_type": client_type,
@@ -366,13 +73,13 @@ class StartUpTask(Task):
             "account_name": account_name
         }
 
-        super().__init__(task_name="开始唤醒", type_name = "StartUp", params=params)
+        super().__init__(task_name="开始唤醒", type_name="StartUp", params=params)
+
 
 class CloseDownTask(Task):
     def __init__(self,
-                enable: bool = None,
-                client_type: str | None = None):
-        
+                 enable: bool = None,
+                 client_type: str | None = None):
         """
         初始化关闭游戏任务。
 
@@ -382,13 +89,14 @@ class CloseDownTask(Task):
         client_type (str): 客户端版本，必选，填空则不执行。
             - 可选值包括: "Official", "Bilibili", "txwy", "YoStarEN", "YoStarJP", "YoStarKR"。
         """
-        
+
         params = {
             "enable": enable,
             "client_type": client_type
         }
 
-        super().__init__(task_name="关闭游戏", type_name = "CloseDown", params=params)
+        super().__init__(task_name="关闭游戏", type_name="CloseDown", params=params)
+
 
 class FightTask(Task):
     def __init__(self,
@@ -421,7 +129,10 @@ class FightTask(Task):
         expiring_medicine (int): 最大使用 48 小时内过期理智药数量，可选，默认 0。
         stone (int): 最大吃石头数量，可选，默认 0。
         times (int): 指定次数，可选，默认无穷大。
-        series (int): 连战次数，可选，1~6。
+        series (int): 连战次数, 可选, -1~6
+            - -1  为禁用切换
+            - 0  为自动切换为当前可用的最大次数, 如当前理智不够6次, 则选择最低可用次数
+            - 1~6 为指定连战次数
         drops (dict): 指定掉落数量，可选，默认不指定。
             - key 为 item_id，value 为数量。key 可参考 resource/item_index.json 文件。
             - 是或的关系，即任一达到即停止任务。
@@ -437,7 +148,7 @@ class FightTask(Task):
         DrGrandet (bool): 节省理智碎石模式，可选，默认 False，仅在可能产生碎石效果时生效。
             - 在碎石确认界面等待，直到当前的 1 点理智恢复完成后再立刻碎石。
         """
-        
+
         params = {
             "enable": enable,
             "stage": stage,
@@ -519,7 +230,7 @@ class RecruitTask(Task):
         server (str): 服务器，可选，默认 "CN"，会影响上传。
             - 可选值包括: "CN", "US", "JP", "KR"。
         """
-        
+
         params = {
             "enable": enable,
             "refresh": refresh,
@@ -542,6 +253,7 @@ class RecruitTask(Task):
 
         super().__init__(task_name="自动公招", type_name="Recruit", params=params)
 
+
 class InfrastTask(Task):
     def __init__(self,
                  enable: bool = None,
@@ -562,6 +274,7 @@ class InfrastTask(Task):
         mode (int): 换班工作模式，可选，默认 0。
             - 0: 默认换班模式，单设施最优解。
             - 10000: 自定义换班模式，读取用户配置。
+            - 20000 - Rotation: 一键轮换模式，会跳过控制中枢、发电站、宿舍以及办公室，其余设施不进行换班但保留基本操作（如使用无人机、会客室逻辑）
 
         facility (list[str]): 要换班的设施（有序），必选。不支持运行中设置。
             设施名选项包括: "Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"。
@@ -582,7 +295,7 @@ class InfrastTask(Task):
         filename (str): 自定义配置路径，必选。不支持运行中设置。
         plan_index (int): 使用配置中的方案序号，必选。不支持运行中设置。
         """
-        
+
         params = {
             "enable": enable,
             "mode": mode,
@@ -597,6 +310,7 @@ class InfrastTask(Task):
         }
 
         super().__init__(task_name="基建换班", type_name="Infrast", params=params)
+
 
 class MallTask(Task):
     def __init__(self,
@@ -627,7 +341,7 @@ class MallTask(Task):
 
         reserve_max_credit (bool): 是否在信用点低于300时停止购买，只作用于第二轮购买，默认为 False。
         """
-        
+
         params = {
             "enable": enable,
             "shopping": shopping,
@@ -668,7 +382,7 @@ class AwardTask(Task):
 
         specialaccess (bool): 领取五周年赠送的月卡奖励，默认为 False。
         """
-        
+
         params = {
             "enable": enable,
             "award": award,
@@ -772,7 +486,7 @@ class RoguelikeTask(Task):
         expected_collapsal_paradigms (list[str]): 希望触发的坍缩范式，默认值 ["目空一些", "睁眼瞎", "图像损坏", "一抹黑"]；
             - 仅在主题为 Sami 且模式为 5 时有效。
         """
-        
+
         params = {
             "enable": enable,
             "theme": theme,
@@ -800,6 +514,7 @@ class RoguelikeTask(Task):
         }
 
         super().__init__(task_name="自动肉鸽", type_name="Roguelike", params=params)
+
 
 class ReclamationTask(Task):
     def __init__(self,
@@ -829,7 +544,7 @@ class ReclamationTask(Task):
         increment_mode (int): 点击类型，可选项。默认为0
             - 0: 连点
             - 1: 长按
-        
+
         num_craft_batches (int): 单次最大制造轮数，可选。默认为 16
         """
 

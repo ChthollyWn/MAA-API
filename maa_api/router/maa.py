@@ -2,10 +2,10 @@ import json
 
 from fastapi import APIRouter, Depends, BackgroundTasks
 
-from maa_api.model.response import Response
-from maa_api.model.request import TaskRequest
-from maa_api.model.task import task_pipeline
-from maa_api.config.path_config import DAILY_TASK_FILE_PATH
+from maa_api.model.request.response import Response
+from maa_api.model.request.request import TaskRequest
+from maa_api.model.core.pipeline import task_pipeline
+from maa_api.config.config import DAILY_TASK_FILE_PATH
 from maa_api.dependence.auth import token_auth
 from maa_api.scheduler import daily_art_task_scheduler
 

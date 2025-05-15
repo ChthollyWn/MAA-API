@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from maa_api.router import adb, maa, template
 from maa_api.exception import response_exception, excetpion_handler
-from maa_api.config.path_config import STATIC_PATH
+from maa_api.config.config import STATIC_PATH
 from maa_api.scheduler import check_ark_running_scheduler, daily_art_task_scheduler
 
 app = FastAPI()

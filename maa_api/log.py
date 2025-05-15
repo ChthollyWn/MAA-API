@@ -1,6 +1,6 @@
 import logging
 from logging.handlers import RotatingFileHandler
-from maa_api.config.path_config import LOG_PATH
+from maa_api.config.config import LOG_PATH
 from datetime import datetime
 
 log_dir = LOG_PATH

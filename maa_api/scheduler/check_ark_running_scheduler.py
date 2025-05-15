@@ -6,7 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from maa_api.log import logger
 from maa_api.service import adb_service
 from maa_api.config.config import Config
-from maa_api.model.task import TaskStatus, Task, StartUpTask, CloseDownTask, task_pipeline
+from maa_api.model.core.task import TaskStatus, Task, StartUpTask, CloseDownTask
 
 task_lock = threading.Lock()
 

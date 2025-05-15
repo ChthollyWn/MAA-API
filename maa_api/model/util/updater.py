@@ -1,14 +1,15 @@
 import platform
 import re
 import os
+import shutil
 import tarfile
 import zipfile
 
 from urllib.error import HTTPError, URLError
 
-from .asst import Asst
-from .utils import Version, HttpUtils
-from . import downloader
+from maa_api.model.core.asst import Asst
+from maa_api.model.util.utils import Version, HttpUtils
+from maa_api.model.util import downloader
 
 from maa_api.log import logger
 
@@ -122,6 +123,9 @@ class Updater:
             else:
                 # Windows ARM64
                 system_platform = "win-arm64"
+        elif system == 'Darwin':
+            system_platform = "macos-runtime-universal"
+
         # 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
         retry = 3
         for _ in range(retry):
@@ -167,7 +171,6 @@ class Updater:
         """
         主函数
         """
-        needs_update = False
         # 从API获取最新版本
         latest_version, version_detail = self.get_latest_version()
         
@@ -218,8 +221,21 @@ class Updater:
             except Exception as e:
                 self.custom_print(f"解压失败: {e}")
 
-            os.remove(file)
             if unzip:
+                extracted_items = os.listdir(self.path)
+
+                expected_folder_name: str = os.path.splitext(os.path.basename(filename))[0]
+                if expected_folder_name in extracted_items:
+                    expected_folder_path: str = os.path.join(self.path, expected_folder_name)
+
+                    for item in os.listdir(expected_folder_path):
+                        src_path = os.path.join(expected_folder_path, item)
+                        dst_path = os.path.join(self.path, item)
+                        shutil.move(src_path, dst_path)
+
+                    os.remove(file)
+                    os.rmdir(expected_folder_path)
+
                 self.custom_print('更新完成')
             else:
                 self.custom_print('更新未完成')

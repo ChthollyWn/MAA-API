@@ -7,9 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from tqdm import tqdm
 
-from maa_api.config.path_config import TEMP_PATH
+from maa_api.config.config import TEMP_PATH
 from maa_api.log import logger
-from .utils import HttpUtils
+from maa_api.model.util.utils import HttpUtils
 
 # 获取文件大小
 def length(url_list):

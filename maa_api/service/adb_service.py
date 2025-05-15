@@ -3,7 +3,7 @@ import adbutils
 from pathlib import Path
 from adbutils._device import AdbDevice
 
-from maa_api.config.path_config import IMAGE_PATH
+from maa_api.config.config import IMAGE_PATH
 from maa_api.config.config import Config
 
 """adb连接"""

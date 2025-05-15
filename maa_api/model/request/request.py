@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
-from maa_api.model.task import Task, StartUpTask, CloseDownTask, FightTask, RecruitTask, InfrastTask, MallTask, AwardTask, RoguelikeTask, ReclamationTask
+from maa_api.model.core.task import Task, StartUpTask, CloseDownTask, FightTask, RecruitTask, InfrastTask, MallTask, AwardTask, RoguelikeTask, ReclamationTask
 from maa_api.exception.response_exception import ResponseException
 
 class TaskRequest(BaseModel):
