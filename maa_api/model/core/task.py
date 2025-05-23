@@ -21,17 +21,17 @@ class TaskStatus(Enum):
     CANCELLED = "cancelled"
 
 class Task(BaseModel):
-    id: int
+    id: str
     task_name:str
     type_name: str
     params: dict[str, Any]
-    error_timeout: int = 0
+    max_retries: int = 3
+    retry_delay: int = 30
     status: TaskStatus = TaskStatus.PENDING
     create_time: str
-    log: list[str] = []
 
     def __init__(self, **data):
-        data.setdefault('id', uuid.uuid4())
+        data.setdefault('id', str(uuid.uuid4()))
         data.setdefault('create_time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         super().__init__(**data)
         if not self.task_name or not self.type_name:

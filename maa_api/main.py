@@ -30,6 +30,6 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有请求头
 )
 
-@app.on_event("startup")
-async def scheduler():
-    daily_art_task_scheduler.start()
+# @app.on_event("startup")
+# async def scheduler():
+    # daily_art_task_scheduler.start()

@@ -4,6 +4,7 @@ import pathlib
 from maa_api.config.config import LIB_PATH, Config
 from maa_api.log import logger
 from maa_api.model.core.asst import Asst
+from maa_api.model.core.callback_handler import CallbackHandler
 from maa_api.model.util.updater import Updater
 from maa_api.model.util.utils import HttpUtils
 from maa_api.model.util.utils import InstanceOptionType, Version
@@ -12,8 +13,8 @@ MAA_LIB_DIR = LIB_PATH / 'maa'
 MAA_LIB_DIR.mkdir(parents=True, exist_ok=True)
 
 class AssistManager:
-    def __init__(self, callback: 'Asst.CallBackType'):
-        self.callback = callback
+    def __init__(self, callback_handler: CallbackHandler):
+        self.callback_handler = callback_handler
 
     def load_asst(self):
         maa_core_path = Config.get_config('app', 'maa_core_path')
@@ -43,7 +44,7 @@ class AssistManager:
         logger.info("版本活动资源加载成功")
 
         # 配置回调函数
-        asst = Asst(callback=self.callback)
+        asst = Asst(callback=self.callback_handler.handle_message, arg=self.callback_handler)
         # 触控方案配置
         asst.set_instance_option(InstanceOptionType.touch_type, 'maatouch')
         # 暂停下干员
