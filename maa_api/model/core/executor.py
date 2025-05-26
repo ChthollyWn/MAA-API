@@ -53,13 +53,14 @@ class PipelineExecutor:
                 retry_count = 0
                 task_succeeded = False
 
-                while retry_count <= task.max_retries and not task_succeeded and self._running:
+                while retry_count < task.max_retries and not task_succeeded and self._running:
 
                     # 提交任务
                     task_id = self.asst.append_task(task.type_name, task.params)
                     if not task_id:
                         retry_count += 1
                         logger.warning(f"任务 [{task.task_name}] 提交失败（第 {retry_count}/{task.max_retries} 次重试）")
+                        self.task_pipeline.append_log(f"任务 [{task.task_name}] 提交失败（第 {retry_count}/{task.max_retries} 次重试）")
                         if retry_count <= task.max_retries:
                             time.sleep(task.retry_delay)
                         continue
