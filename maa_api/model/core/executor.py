@@ -54,8 +54,6 @@ class PipelineExecutor:
                 task_succeeded = False
 
                 while retry_count <= task.max_retries and not task_succeeded and self._running:
-                    task.running_times += 1
-                    self.task_pipeline.update_task(task)
 
                     # 提交任务
                     task_id = self.asst.append_task(task.type_name, task.params)
