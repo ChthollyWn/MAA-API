@@ -27,7 +27,6 @@ class Task(BaseModel):
     params: dict[str, Any]
     max_retries: int = 3
     retry_delay: int = 30
-    running_times: int = 0
     status: TaskStatus = TaskStatus.PENDING
     create_time: str
 
