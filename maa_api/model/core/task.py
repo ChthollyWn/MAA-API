@@ -27,6 +27,7 @@ class Task(BaseModel):
     params: dict[str, Any]
     max_retries: int = 3
     retry_delay: int = 30
+    running_times: int = 0
     status: TaskStatus = TaskStatus.PENDING
     create_time: str
 
@@ -260,7 +261,7 @@ class InfrastTask(Task):
                  mode: int = None,
                  facility: list[str] = None,
                  drones: str = None,
-                 threshold: float = None,
+                 threshold: float = 0.5,
                  replenish: bool = False,
                  dorm_notstationed_enabled: bool = None,
                  dorm_trust_enabled: bool = None,

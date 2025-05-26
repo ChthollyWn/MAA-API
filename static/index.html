@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <link rel="icon" href="/favicon.ico">
+    <link rel="icon" href="/static/favicon.ico">
     <title>MAA-API管理页面</title>
 
     <!-- 引入 Vue 和 Element Plus -->
@@ -91,6 +91,15 @@
                             </el-col>
                             <el-divider />
                         </el-row>
+                        <el-row class="centered-row">
+                            <el-col :span="4">
+                                <span>运行次数:</span>
+                            </el-col>
+                            <el-col :span="20">
+                                <el-input v-model="task.running_times" :disabled="true"></el-input>
+                            </el-col>
+                            <el-divider />
+                        </el-row>
                     </el-card>
                 </div>
 
@@ -163,6 +172,16 @@
                             </el-col>
                             <el-divider />
                         </el-row>
+
+                        <el-row class="centered-row">
+                            <el-col :span="4">
+                                <span>运行次数:</span>
+                            </el-col>
+                            <el-col :span="20">
+                                <el-input v-model="task.running_times" :disabled="true"></el-input>
+                            </el-col>
+                            <el-divider />
+                        </el-row>
                     </el-card>
                 </div>
 
@@ -195,6 +214,16 @@
                                     <el-option label="办公室" value="Office"></el-option>
                                     <el-option label="宿舍" value="Dorm"></el-option>
                                 </el-select>
+                            </el-col>
+                            <el-divider />
+                        </el-row>
+
+                        <el-row class="centered-row">
+                            <el-col :span="4">
+                                <span>运行次数:</span>
+                            </el-col>
+                            <el-col :span="20">
+                                <el-input v-model="task.running_times" :disabled="true"></el-input>
                             </el-col>
                             <el-divider />
                         </el-row>
@@ -247,6 +276,27 @@
                             </el-col>
                             <el-divider />
                         </el-row>
+
+                        <el-row class="centered-row">
+                            <el-col :span="4">
+                                <span>连战次数:</span>
+                            </el-col>
+                            <el-col :span="20">
+                                <el-input-number v-model="task.params.series" :min="-1" :max="6"
+                                    :disabled="true"></el-input-number>
+                            </el-col>
+                            <el-divider />
+                        </el-row>
+
+                        <el-row class="centered-row">
+                            <el-col :span="4">
+                                <span>运行次数:</span>
+                            </el-col>
+                            <el-col :span="20">
+                                <el-input v-model="task.running_times" :disabled="true"></el-input>
+                            </el-col>
+                            <el-divider />
+                        </el-row>
                     </el-card>
                 </div>
 
@@ -288,6 +338,16 @@
                             </el-col>
                             <el-divider />
                         </el-row>
+
+                        <el-row class="centered-row">
+                            <el-col :span="4">
+                                <span>运行次数:</span>
+                            </el-col>
+                            <el-col :span="20">
+                                <el-input v-model="task.running_times" :disabled="true"></el-input>
+                            </el-col>
+                            <el-divider />
+                        </el-row>
                     </el-card>
                 </div>
 
@@ -305,6 +365,17 @@
                                 </el-col>
                             </el-row>
                         </template>
+
+                            <el-row class="centered-row">
+                            <el-col :span="4">
+                                <span>运行次数:</span>
+                            </el-col>
+                            <el-col :span="20">
+                                <el-input v-model="task.running_times" :disabled="true"></el-input>
+                            </el-col>
+                            <el-divider />
+                        </el-row>
+
                     </el-card>
                 </div>
 
@@ -322,6 +393,7 @@
                                 </el-col>
                             </el-row>
                         </template>
+
                         <el-row>
                             <el-col :span="4">
                                 客户端类型:
@@ -329,6 +401,16 @@
                             <el-col :span="20">
                                 <el-input v-model="task.params.client_type" :disabled="true"></el-input>
                             </el-col>
+                        </el-row>
+
+                        <el-row class="centered-row">
+                            <el-col :span="4">
+                                <span>运行次数:</span>
+                            </el-col>
+                            <el-col :span="20">
+                                <el-input v-model="task.running_times" :disabled="true"></el-input>
+                            </el-col>
+                            <el-divider />
                         </el-row>
                     </el-card>
                 </div>
@@ -559,6 +641,16 @@
                                     <el-col :span="20">
                                         <el-input-number v-model="task.expiring_medicine" :min="0"
                                             :max="100"></el-input-number>
+                                    </el-col>
+                                    <el-divider />
+                                </el-row>
+
+                                <el-row class="centered-row">
+                                    <el-col :span="4">
+                                        <span>连战次数:</span>
+                                    </el-col>
+                                    <el-col :span="20">
+                                        <el-input-number v-model="task.series" :min="-1" :max="6"></el-input-number>
                                     </el-col>
                                     <el-divider />
                                 </el-row>

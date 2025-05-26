@@ -20,7 +20,7 @@ const app = createApp({
                     "enable": false,
                     "name": "StartUp",
                     "client_type": "Bilibili",
-                    "start_game_enabled": true
+                    "start_game_enabled": true,
                 },
                 {
                     "enable": false,
@@ -58,7 +58,8 @@ const app = createApp({
                     "name": "Fight",
                     "stage": "CE-6",
                     "medicine": 0,
-                    "expiring_medicine": 0
+                    "expiring_medicine": 0,
+                    "series": 0
                 },
                 {
                     "enable": false,

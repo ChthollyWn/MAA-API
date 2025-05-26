@@ -1,14 +1,15 @@
-import json
 import ctypes
+import json
 from datetime import datetime
 from typing import Any, Dict
 
 from maa_api.exception.response_exception import ResponseException
 from maa_api.log import logger
 from maa_api.model.core.asst import Asst
-from maa_api.model.core.pipeline import TaskPipelineStatus, TaskPipeline
+from maa_api.model.core.pipeline import TaskPipeline
 from maa_api.model.core.task import TaskStatus
 from maa_api.model.util.utils import Message
+
 
 def _current_datetime():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -104,7 +105,7 @@ class CallbackHandler:
         sub_details = d.get('details', {})
         sub_task = sub_details.get('task', '')
         sub_task_info = {
-            'StartButton2': f"已开始战斗 {sub_details.get('exec_times', '')} 欦",
+            'StartButton2': f"已开始战斗 {sub_details.get('exec_times', '')} 次",
             'MedicineConfirm': '使用理智药',
             'ExpiringMedicineConfirm': '使用 48 小时内过期的理智药',
             'StoneConfirm': '碎石',

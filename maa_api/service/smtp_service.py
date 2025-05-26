@@ -5,7 +5,7 @@ from email.header import Header
 
 from maa_api.config.config import Config
 
-def send_email(subject: str, body: str, receiver: str):
+def send_email(subject: str, body: str):
     smtp_server = Config.get_config('smtp', 'server')
     smtp_port = Config.get_config('smtp', 'port')
     stmp_email = Config.get_config('smtp', 'email')
@@ -15,10 +15,10 @@ def send_email(subject: str, body: str, receiver: str):
         raise RuntimeError("SMTP 配置错误")
 
     # 构建邮件
-    msg = MIMEText(body, 'plain', 'utf-8')
+    msg = MIMEText(body, 'html', 'utf-8')
     msg['Subject'] = Header(subject, 'utf-8')
     msg['From'] =  stmp_email
-    msg['To'] = receiver
+    msg['To'] = stmp_email
 
     with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()

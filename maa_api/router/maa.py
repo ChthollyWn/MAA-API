@@ -7,13 +7,13 @@ from maa_api.model.request.request import TaskRequest
 from maa_api.model.core.scheduler import task_scheduler
 from maa_api.config.config import DAILY_TASK_FILE_PATH
 from maa_api.dependence.auth import token_auth
-from maa_api.scheduler import daily_art_task_scheduler
+from maa_api.scheduler import daily_task_scheduler
 
 router = APIRouter()
 
 @router.post("/api/maa/pipeline", dependencies=[Depends(token_auth)])
 async def post_tasks(request: list[TaskRequest]):
-    if task_scheduler.is_asst_running():
+    if task_scheduler.is_running():
         return Response.bad_request(message='MAA任务队列正在运行中，不允许多实例访问')
 
     task_scheduler.clear()
@@ -53,5 +53,5 @@ async def update_daily_tasks(request: dict):
     
 @router.post("/api/maa/daily/execute")
 async def test(background_tasks: BackgroundTasks):
-    background_tasks.add_task(daily_art_task_scheduler.daily_art_task)
+    background_tasks.add_task(daily_task_scheduler.daily_art_task)
     return Response.success()
