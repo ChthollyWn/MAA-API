@@ -65,12 +65,12 @@ class CallbackHandler:
             'Disconnect': f"模拟器连接断开(adb/模拟器异常) 重连失败 {con_details}",
             'ScreencapFailed': f"截图失败(adb/模拟器异常) {con_details}",
             'FastestWayToScreencap': f"最快截图耗时 {con_details.get('cost', '')}ms",
-            'ScreencapCost': f"平均截图耗时 {con_details.get('avg', '')}ms",
             'TouchModeNotAvailable': f"不支持的触控模式 {con_details}"
         }
 
         log = connection_map.get(con_what)
-        self.pipeline.append_log(f'{_current_time()} {log}')
+        if log:
+            self.pipeline.append_log(f'{_current_time()} {log}')
 
     def handle_task_status(self, msg: Message, details: Dict[str, str]):
         """处理任务状态变化"""

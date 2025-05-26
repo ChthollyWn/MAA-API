@@ -44,7 +44,7 @@ class TaskRequest(BaseModel):
     yituliu_id: Optional[str] = None
 
     # InfrastTask 参数
-    mode: Optional[int] = None
+    mode: Optional[int] = 2000
     facility: Optional[list[str]] = None
     drones: Optional[str] = None
     threshold: Optional[float] = None
