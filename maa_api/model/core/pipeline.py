@@ -45,6 +45,12 @@ class TaskPipeline(BaseModel):
                 task.status = task_status
                 break
 
+    def stop(self):
+        self.status = TaskPipelineStatus.CANCELLED
+        for task in self.tasks:
+            if task.status == TaskStatus.RUNNING or task.status == TaskStatus.PENDING:
+                task.status = TaskStatus.CANCELLED
+
     def clear_task_list(self):
         self.tasks = []
         self.logs = []

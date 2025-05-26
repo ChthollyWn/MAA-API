@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <link rel="icon" href="/favicon.ico">
+    <link rel="icon" href="/static/favicon.ico">
     <title>MAA-API管理页面</title>
 
     <!-- 引入 Vue 和 Element Plus -->
@@ -37,16 +37,6 @@
                     </el-col>
                 </el-row>
             </template>
-            <el-row class="centered-row">
-                <el-col :span="4">
-                    <span>邮箱:</span>
-                </el-col>
-                <el-col :span="20">
-                    <el-input v-model="dailyTasks.email" :disabled="true">
-                    </el-input>
-                </el-col>
-                <el-divider />
-            </el-row>
         </el-card>
 
         <el-card class="box-card">

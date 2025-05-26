@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from maa_api.router import adb, maa, template
 from maa_api.exception import response_exception, excetpion_handler
 from maa_api.config.config import STATIC_PATH
-from maa_api.scheduler import check_ark_running_scheduler, daily_art_task_scheduler
+from maa_api.scheduler import daily_task_scheduler
 
 app = FastAPI()
 
@@ -30,6 +30,6 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有请求头
 )
 
-# @app.on_event("startup")
-# async def scheduler():
-    # daily_art_task_scheduler.start()
+@app.on_event("startup")
+async def scheduler():
+    daily_task_scheduler.start()

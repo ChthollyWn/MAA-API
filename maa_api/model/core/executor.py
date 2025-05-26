@@ -34,7 +34,7 @@ class PipelineExecutor:
         with self._condition:
             self.asst.stop()
             self._running = False
-            self.task_pipeline.status = TaskPipelineStatus.CANCELLED
+            self.task_pipeline.stop()
             self._condition.notify_all()
 
     def is_running(self):
@@ -54,7 +54,10 @@ class PipelineExecutor:
                 task_succeeded = False
 
                 while retry_count <= task.max_retries and not task_succeeded and self._running:
-                    # 1. 提交任务
+                    task.running_times += 1
+                    self.task_pipeline.update_task(task)
+
+                    # 提交任务
                     task_id = self.asst.append_task(task.type_name, task.params)
                     if not task_id:
                         retry_count += 1
@@ -63,10 +66,10 @@ class PipelineExecutor:
                             time.sleep(task.retry_delay)
                         continue
 
-                    # 2. 绑定回调
+                    # 绑定回调
                     self.callback_handler.register_task(task_id, task.id)
 
-                    # 3. 启动任务
+                    # 启动任务
                     logger.info(f"开始执行任务 [{task.task_name}]")
                     if not self.asst.start():
                         retry_count += 1
@@ -75,18 +78,19 @@ class PipelineExecutor:
                             time.sleep(task.retry_delay)
                         continue
 
-                    # 4. 等待当前任务完成
+                    # 等待当前任务完成
                     with self._condition:
                         while self._running and self.asst.running():
                             self._condition.wait(timeout=5)
 
-                    # 5. 检查任务状态
+                    # 检查任务状态
                     if task.status == TaskStatus.COMPLETED:
                         logger.info(f"任务 [{task.task_name}] 成功完成")
                         task_succeeded = True
                     elif task.status == TaskStatus.FAILED:
                         retry_count += 1
                         logger.warning(f"任务 [{task.task_name}] 执行失败（第 {retry_count}/{task.max_retries} 次重试）")
+                        self.task_pipeline.append_log(f"任务 [{task.task_name}] 执行失败（第 {retry_count}/{task.max_retries} 次重试）")
                         if retry_count <= task.max_retries:
                             time.sleep(task.retry_delay)
                     else:
@@ -94,11 +98,27 @@ class PipelineExecutor:
 
                 if not task_succeeded:
                     logger.error(f"任务 [{task.task_name}] 达到最大重试次数，跳过该任务")
+                    self.task_pipeline.append_log(f"任务 [{task.task_name}] 达到最大重试次数，跳过该任务")
 
-            # 6. 所有任务完成
-            self.task_pipeline.status = TaskPipelineStatus.COMPLETED
-            self.task_pipeline.append_log("已完成全部任务")
-            logger.info("任务队列已完成")
+            if self.task_pipeline.status == TaskPipelineStatus.CANCELLED:
+                self.task_pipeline.append_log("任务队列已手动中止")
+                logger.info("任务队列已手动中止")
+            else:
+                all_task_completed = True
+                for task in task_list:
+                    if task.status != TaskStatus.COMPLETED:
+                        all_task_completed = False
+                        break
+
+                if all_task_completed:
+                    self.task_pipeline.status = TaskPipelineStatus.COMPLETED
+                    self.task_pipeline.append_log("已完成全部任务")
+                    logger.info("任务队列已完成")
+                else:
+                    self.task_pipeline.status = TaskPipelineStatus.FAILED
+                    self.task_pipeline.append_log("任务队列执行异常")
+                    logger.error("任务队列执行异常")
+
         except Exception as e:
             self.task_pipeline.status = TaskPipelineStatus.FAILED
             logger.error(f"任务队列执行异常: {e}")

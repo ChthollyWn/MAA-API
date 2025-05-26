@@ -27,11 +27,10 @@ class TaskScheduler:
         self.pipeline_executor.start()
 
     def stop(self):
-        self._check_asst_running()
         self.pipeline_executor.stop()
 
-    def is_asst_running(self) -> bool:
-        return self.asst.running()
+    def is_running(self) -> bool:
+        return self.pipeline_executor.is_running()
 
     def _check_asst_running(self):
         if self.asst.running():
