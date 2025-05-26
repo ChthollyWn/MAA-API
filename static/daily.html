@@ -234,6 +234,16 @@
                                         </el-col>
                                         <el-divider />
                                     </el-row>
+
+                                    <el-row class="centered-row">
+                                    <el-col :span="4">
+                                        <span>连战次数:</span>
+                                    </el-col>
+                                    <el-col :span="20">
+                                        <el-input-number v-model="task.series" :min="-1" :max="6"></el-input-number>
+                                    </el-col>
+                                    <el-divider />
+                                </el-row>
                                 </el-card>
                             </div>
 
