@@ -12,7 +12,7 @@ from maa_api.model.core.asst import Asst
 from maa_api.model.core.callback_handler import CallbackHandler
 from maa_api.model.core.pipeline import TaskPipeline, TaskPipelineStatus
 from maa_api.model.core.task import TaskStatus
-from maa_api.service import smtp_service
+from maa_api.service import smtp_service, adb_service
 
 
 class PipelineExecutor:
@@ -89,6 +89,9 @@ class PipelineExecutor:
                         while self._running and self.asst.running():
                             self._condition.wait(timeout=5)
 
+                    # 保存任务完成快照
+                    self.task_pipeline.append_img_log(adb_service.adb_screenshot_base64())
+
                     # 检查任务状态
                     if task.status == TaskStatus.COMPLETED:
                         logger.info(f"任务 [{task.task_name}] 成功完成")
@@ -97,8 +100,6 @@ class PipelineExecutor:
                         retry_count += 1
                         logger.warning(f"任务 [{task.task_name}] 执行失败（第 {retry_count}/{task.max_retries} 次重试）")
                         self.task_pipeline.append_text_log(f"任务 [{task.task_name}] 执行失败（第 {retry_count}/{task.max_retries} 次重试）", "warning")
-                        img_bytes = self.asst.get_image(1280 * 720 * 3)
-                        self.task_pipeline.append_img_log(base64.b64encode(img_bytes).decode())
                         if retry_count <= task.max_retries:
                             time.sleep(task.retry_delay)
                     else:
