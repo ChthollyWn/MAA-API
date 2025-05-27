@@ -352,8 +352,29 @@
             <template #header>
                 <span>日志</span>
             </template>
-            <div v-for="(log, index) in pipeline.logs" :key="index">
-                {{ log }}
+            <div v-for="(log, index) in pipeline.logs" :key="index" class="log-entry">
+                <el-tag
+                    :type="getLogTagType(log.log_level)"
+                    effect="light"
+                    round
+                >
+                    {{ log.log_level }}
+                </el-tag>
+
+                <div v-if="log.log_type === 'text'" class="log-text">
+                    {{ log.content }}
+                </div>
+
+                <div v-else-if="log.log_type === 'img'" class="log-image">
+                    <el-image
+                        :src="`data:image/jpeg;base64,${log.content}`"
+                        fit="contain"                style="height: auto; width: auto;"
+                    >
+                        <template #error>
+                            <div class="image-slot">加载失败</div>
+                        </template>
+                    </el-image>
+                </div>
             </div>
         </el-card>
 

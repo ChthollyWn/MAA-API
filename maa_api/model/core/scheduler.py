@@ -12,7 +12,7 @@ class TaskScheduler:
         self.task_pipeline = TaskPipeline()
         self.callback_handler = CallbackHandler(self.task_pipeline)
         self.asst = AssistManager(self.callback_handler).load_asst()
-        self.pipeline_executor = PipelineExecutor(self.task_pipeline, self.asst, self.callback_handler)
+        self.pipeline_executor = PipelineExecutor(self.task_pipeline, self.asst, self.callback_handler, is_send_email=True)
 
     def append(self, task: Task):
         self._check_asst_running()

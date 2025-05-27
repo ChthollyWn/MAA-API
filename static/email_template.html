@@ -53,6 +53,13 @@
         .log-item:last-child {
             border-bottom: none;
         }
+        .log-img {
+            max-width: 100%;
+            height: auto;
+            margin: 8px 0;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
         .footer {
             background-color: #f1f5f9;
             text-align: center;
@@ -99,8 +106,33 @@
                                 <h3 style="margin-top: 0; color: #334155;">执行日志</h3>
                                 <ul style="list-style: none; padding: 0; margin: 0;">
                                     {%- for log in logs -%}
-                                    <li class="log-item" style="padding: 10px 15px; border-bottom: 1px solid #e2e8f0; font-family: monospace; {% if loop.index % 2 == 0 %}background-color: #f8fafc;{% endif %}">
-                                        {{ log }}
+                                    <li class="log-item" style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-family: monospace; {% if loop.index % 2 == 0 %}background-color: #f8fafc;{% endif %}">
+                                        <!-- 状态标签 -->
+                                        <div style="margin-bottom: 8px;">
+                                            <span style="padding: 2px 6px; border-radius: 4px;
+                                                {% if log.log_level == 'info' %}
+                                                    background-color: #dbeafe; color: #1e40af;
+                                                {% elif log.log_level == 'warning' %}
+                                                    background-color: #fef08a; color: #854d0e;
+                                                {% elif log.log_level == 'error' %}
+                                                    background-color: #fee2e2; color: #991b1b;
+                                                {% endif %}">
+                                                {{ log.log_level|upper }}
+                                            </span>
+                                        </div>
+
+                                        <!-- 内容区域 -->
+                                        {% if log.log_type == 'text' %}
+                                            <div style="white-space: pre-wrap; word-break: break-word;">
+                                                {{ log.content }}
+                                            </div>
+                                        {% elif log.log_type == 'img' %}
+                                            <div style="text-align: center; margin: 8px 0;">
+                                                <img src="data:image/png;base64,{{ log.content }}"
+                                                     alt="日志图片"
+                                                     class="log-img"                         style="max-width: 100%; height: auto; border-radius: 6px;">
+                                            </div>
+                                        {% endif %}
                                     </li>
                                     {%- endfor -%}
                                 </ul>

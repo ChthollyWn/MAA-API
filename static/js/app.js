@@ -83,6 +83,15 @@ const app = createApp({
         }
     },
     methods: {
+        getLogTagType(level) {
+            const typeMap = {
+                'info': 'info',
+                'warning': 'warning',
+                'error': 'danger'
+            };
+            return typeMap[level] || 'default';
+        },
+
         getToken() {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get('token');
