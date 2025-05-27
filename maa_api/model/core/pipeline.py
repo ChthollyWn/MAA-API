@@ -16,10 +16,21 @@ class TaskPipelineStatus(str, Enum):
     # 命令被取消
     CANCELLED = "cancelled"
 
+class TaskPipelineLog(BaseModel):
+    log_type: str = None
+    log_level: str = None
+    content: str = None
+
+    def __init__(self, log_type: str, log_level: str, content: str, **data):
+        super().__init__(**data)
+        self.log_type = log_type
+        self.log_level = log_level
+        self.content = content
+
 class TaskPipeline(BaseModel):
     tasks: list[Task] = []
     status: TaskPipelineStatus = TaskPipelineStatus.IDLE
-    logs: list[str] = []
+    logs: list[TaskPipelineLog] = []
 
     def get_task_list(self):
         return self.tasks
@@ -55,5 +66,9 @@ class TaskPipeline(BaseModel):
         self.tasks = []
         self.logs = []
 
-    def append_log(self, log: str):
-        self.logs.append(log)
+    def append_text_log(self, content: str, level: str = "info"):
+        self.logs.append(TaskPipelineLog("text", level, content))
+
+
+    def append_img_log(self, content: str):
+        self.logs.append(TaskPipelineLog("img", "info", content))

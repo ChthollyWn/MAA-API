@@ -1,19 +1,26 @@
+import base64
+import datetime
 import threading
 import time
 
+from jinja2 import Environment, FileSystemLoader
+
+from maa_api.config.config import STATIC_PATH
 from maa_api.exception.response_exception import ResponseException
 from maa_api.log import logger
 from maa_api.model.core.asst import Asst
-from maa_api.model.core.task import TaskStatus
 from maa_api.model.core.callback_handler import CallbackHandler
 from maa_api.model.core.pipeline import TaskPipeline, TaskPipelineStatus
+from maa_api.model.core.task import TaskStatus
+from maa_api.service import smtp_service
 
 
 class PipelineExecutor:
-    def __init__(self, task_pipeline: TaskPipeline, asst: Asst, callback_handler: CallbackHandler):
+    def __init__(self, task_pipeline: TaskPipeline, asst: Asst, callback_handler: CallbackHandler, is_send_email: bool = False):
         self.task_pipeline = task_pipeline
         self.asst = asst
         self.callback_handler = callback_handler
+        self.is_send_email = is_send_email
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
         self._current_task_index = 0
@@ -60,7 +67,7 @@ class PipelineExecutor:
                     if not task_id:
                         retry_count += 1
                         logger.warning(f"任务 [{task.task_name}] 提交失败（第 {retry_count}/{task.max_retries} 次重试）")
-                        self.task_pipeline.append_log(f"任务 [{task.task_name}] 提交失败（第 {retry_count}/{task.max_retries} 次重试）")
+                        self.task_pipeline.append_text_log(f"任务 [{task.task_name}] 提交失败（第 {retry_count}/{task.max_retries} 次重试）", "warning")
                         if retry_count <= task.max_retries:
                             time.sleep(task.retry_delay)
                         continue
@@ -89,7 +96,9 @@ class PipelineExecutor:
                     elif task.status == TaskStatus.FAILED:
                         retry_count += 1
                         logger.warning(f"任务 [{task.task_name}] 执行失败（第 {retry_count}/{task.max_retries} 次重试）")
-                        self.task_pipeline.append_log(f"任务 [{task.task_name}] 执行失败（第 {retry_count}/{task.max_retries} 次重试）")
+                        self.task_pipeline.append_text_log(f"任务 [{task.task_name}] 执行失败（第 {retry_count}/{task.max_retries} 次重试）", "warning")
+                        img_bytes = self.asst.get_image(1280 * 720 * 3)
+                        self.task_pipeline.append_img_log(base64.b64encode(img_bytes).decode())
                         if retry_count <= task.max_retries:
                             time.sleep(task.retry_delay)
                     else:
@@ -97,26 +106,40 @@ class PipelineExecutor:
 
                 if not task_succeeded:
                     logger.error(f"任务 [{task.task_name}] 达到最大重试次数，跳过该任务")
-                    self.task_pipeline.append_log(f"任务 [{task.task_name}] 达到最大重试次数，跳过该任务")
+                    self.task_pipeline.append_text_log(f"任务 [{task.task_name}] 达到最大重试次数，跳过该任务", "error")
 
             if self.task_pipeline.status == TaskPipelineStatus.CANCELLED:
-                self.task_pipeline.append_log("任务队列已手动中止")
+                self.task_pipeline.status = TaskPipelineStatus.CANCELLED
+                self.task_pipeline.append_text_log("任务队列已手动中止")
                 logger.info("任务队列已手动中止")
             else:
-                all_task_completed = True
-                for task in task_list:
-                    if task.status != TaskStatus.COMPLETED:
-                        all_task_completed = False
-                        break
+                all_task_completed = all(task.status == TaskStatus.COMPLETED for task in task_list)
 
                 if all_task_completed:
                     self.task_pipeline.status = TaskPipelineStatus.COMPLETED
-                    self.task_pipeline.append_log("已完成全部任务")
+                    self.task_pipeline.append_text_log("已完成全部任务")
                     logger.info("任务队列已完成")
                 else:
                     self.task_pipeline.status = TaskPipelineStatus.FAILED
-                    self.task_pipeline.append_log("任务队列执行异常")
+                    self.task_pipeline.append_text_log("任务队列执行异常")
                     logger.error("任务队列执行异常")
+
+            if self.is_send_email:
+                env = Environment(loader=FileSystemLoader(str(STATIC_PATH)))
+                template = env.get_template('email_template.html')
+
+                email_content = template.render(
+                    status=self.task_pipeline.status,
+                    today=datetime.datetime.now(),
+                    logs=self.task_pipeline.logs
+                )
+
+                if self.task_pipeline.status == TaskPipelineStatus.COMPLETED:
+                    smtp_service.send_email("MAA-API 任务全部完成通知", email_content)
+                else:
+                    smtp_service.send_email("MAA-API 任务执行失败通知", email_content)
+
+                self.task_pipeline.append_text_log("已发送邮件通知")
 
         except Exception as e:
             self.task_pipeline.status = TaskPipelineStatus.FAILED

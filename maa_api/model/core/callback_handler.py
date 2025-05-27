@@ -70,7 +70,7 @@ class CallbackHandler:
 
         log = connection_map.get(con_what)
         if log:
-            self.pipeline.append_log(f'{_current_time()} {log}')
+            self.pipeline.append_text_log(f'{_current_time()} {log}')
 
     def handle_task_status(self, msg: Message, details: Dict[str, str]):
         """处理任务状态变化"""
@@ -98,7 +98,7 @@ class CallbackHandler:
         else:
             return
 
-        self.pipeline.append_log(f'{_current_time()} {log}')
+        self.pipeline.append_text_log(f'{_current_time()} {log}')
 
     def handle_subtask_start(self, d: Dict[str, Any]):
         """处理子任务开始"""
@@ -131,7 +131,7 @@ class CallbackHandler:
 
         if sub_task in sub_task_info:
             log = sub_task_info[sub_task]
-            self.pipeline.append_log(f'{_current_time()} {log}')
+            self.pipeline.append_text_log(f'{_current_time()} {log}')
 
     def handle_subtask_extra_info(self, d: Dict[str, Any]):
         """处理子任务额外信息"""
@@ -158,4 +158,4 @@ class CallbackHandler:
 
         if sub_what in extra_info_map:
             log = extra_info_map[sub_what]
-            self.pipeline.append_log(f'{_current_time()} {log}')
+            self.pipeline.append_text_log(f'{_current_time()} {log}')

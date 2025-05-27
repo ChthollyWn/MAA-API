@@ -1,15 +1,11 @@
 import datetime
 import json
-import time
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from jinja2 import Environment, FileSystemLoader
 
-from maa_api.config.config import DAILY_TASK_FILE_PATH, STATIC_PATH
+from maa_api.config.config import DAILY_TASK_FILE_PATH
 from maa_api.model.core.scheduler import task_scheduler
-from maa_api.model.core.task import TaskStatus
 from maa_api.model.request.request import TaskRequest
-from maa_api.service import smtp_service
 
 
 def daily_art_task():
@@ -40,29 +36,6 @@ def daily_art_task():
         task_scheduler.append(req.to_task())
 
     task_scheduler.start()
-
-    while task_scheduler.is_running():
-        time.sleep(1)
-
-    env = Environment(loader=FileSystemLoader(str(STATIC_PATH)))
-    template = env.get_template('email_template.html')
-
-    email_content = template.render(
-         status = task_scheduler.task_pipeline.status,
-         today=datetime.datetime.now(),
-         logs=task_scheduler.task_pipeline.logs
-    )
-
-    all_task_completed = True
-    for task in task_scheduler.task_pipeline.get_task_list():
-        if task.status != TaskStatus.COMPLETED:
-            all_task_completed = False
-            break
-
-    if all_task_completed:
-        smtp_service.send_email("MAA-API 任务全部完成通知", email_content)
-    else:
-        smtp_service.send_email("MAA-API 任务执行失败通知", email_content)
 
 def start():
     scheduler = BackgroundScheduler()
