@@ -1,5 +1,6 @@
 import os
 import pathlib
+import platform
 
 from maa_api.config.config import LIB_PATH, Config
 from maa_api.log import logger
@@ -11,15 +12,22 @@ from maa_api.model.util.utils import InstanceOptionType, Version
 
 MAA_LIB_DIR = LIB_PATH / 'maa'
 MAA_LIB_DIR.mkdir(parents=True, exist_ok=True)
+MAA_LIB_DIR_LINUX = MAA_LIB_DIR / 'Linux'
+MAA_LIB_DIR_LINUX.mkdir(parents=True, exist_ok=True)
+MAA_LIB_DIR_WINDOWS = MAA_LIB_DIR / 'Windows'
+MAA_LIB_DIR_WINDOWS.mkdir(parents=True, exist_ok=True)
+MAA_LIB_DIR_DARWIN = MAA_LIB_DIR / 'Darwin'
+MAA_LIB_DIR_DARWIN.mkdir(parents=True, exist_ok=True)
 
 class AssistManager:
     def __init__(self, callback_handler: CallbackHandler):
         self.callback_handler = callback_handler
 
     def load_asst(self):
+        system = platform.system()
         maa_core_path = Config.get_config('app', 'maa_core_path')
         if not maa_core_path:
-            maa_core_path = MAA_LIB_DIR
+            maa_core_path = MAA_LIB_DIR / system
         maa_core_path = os.path.expanduser(maa_core_path)
         path = pathlib.Path(maa_core_path).resolve()
 
