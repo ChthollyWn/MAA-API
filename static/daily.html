@@ -186,7 +186,26 @@
                                             <span>无人机用途:</span>
                                         </el-col>
                                         <el-col :span="20">
-                                            <el-input v-model="task.drones" />
+                                            <el-select v-model="task.drones">
+                                                <el-option label="龙门币" value="Money"></el-option>
+                                                <el-option label="合成玉" value="SyntheticJade"></el-option>
+                                                <el-option label="作战记录" value="CombatRecord"></el-option>
+                                                <el-option label="赤金" value="PureGold"></el-option>
+                                                <el-option label="源石碎片" value="OriginStone"></el-option>
+                                                <el-option label="芯片" value="Chip"></el-option>
+                                            </el-select>
+                                        </el-col>
+                                        <el-divider />
+                                    </el-row>
+
+                                    <el-row class="centered-row">
+                                        <el-col :span="4">
+                                            <span>源石碎片是否自动补货:</span>
+                                        </el-col>
+                                        <el-col :span="20">
+                                            <el-switch v-model="task.replenish" active-color="#13ce66"
+                                                inactive-color="#ff4949">
+                                            </el-switch>
                                         </el-col>
                                         <el-divider />
                                     </el-row>

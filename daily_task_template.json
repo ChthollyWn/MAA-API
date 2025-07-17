@@ -34,7 +34,8 @@
                     "Office",
                     "Dorm"
                 ],
-                "drones": "Money"
+                "drones": "Money",
+                "replenish": false
             },
             {
                 "name": "Fight",
@@ -92,7 +93,8 @@
                     "Office",
                     "Dorm"
                 ],
-                "drones": "Money"
+                "drones": "Money",
+                "replenish": false
             },
             {
                 "name": "Fight",
@@ -150,7 +152,8 @@
                     "Office",
                     "Dorm"
                 ],
-                "drones": "Money"
+                "drones": "Money",
+                "replenish": false
             },
             {
                 "name": "Fight",
@@ -208,7 +211,8 @@
                     "Office",
                     "Dorm"
                 ],
-                "drones": "Money"
+                "drones": "Money",
+                "replenish": false
             },
             {
                 "name": "Fight",
