@@ -51,7 +51,8 @@ const app = createApp({
                         "Office",
                         "Dorm"
                     ],
-                    "drones": "Money"
+                    "drones": "Money",
+                    "replenish": false
                 },
                 {
                     "enable": false,
