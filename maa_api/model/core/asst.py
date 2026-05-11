@@ -6,7 +6,7 @@ import pathlib
 import platform
 from typing import Union, Optional
 
-from .utils import InstanceOptionType, StaticOptionType, JSON
+from maa_api.model.util.utils import InstanceOptionType, StaticOptionType, JSON
 
 
 class Asst:
@@ -88,7 +88,8 @@ class Asst:
         """
         self.__callback = callback
         if callback:
-            self.__ptr = Asst.__lib.AsstCreateEx(callback, arg)
+            c_arg = ctypes.c_void_p(id(arg)) if arg is not None else None
+            self.__ptr = Asst.__lib.AsstCreateEx(callback, c_arg)
         else:
             self.__ptr = Asst.__lib.AsstCreate()
 

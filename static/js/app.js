@@ -20,7 +20,7 @@ const app = createApp({
                     "enable": false,
                     "name": "StartUp",
                     "client_type": "Bilibili",
-                    "start_game_enabled": true
+                    "start_game_enabled": true,
                 },
                 {
                     "enable": false,
@@ -51,14 +51,16 @@ const app = createApp({
                         "Office",
                         "Dorm"
                     ],
-                    "drones": "Money"
+                    "drones": "Money",
+                    "replenish": false
                 },
                 {
                     "enable": false,
                     "name": "Fight",
                     "stage": "CE-6",
                     "medicine": 0,
-                    "expiring_medicine": 0
+                    "expiring_medicine": 0,
+                    "series": 0
                 },
                 {
                     "enable": false,
@@ -82,6 +84,15 @@ const app = createApp({
         }
     },
     methods: {
+        getLogTagType(level) {
+            const typeMap = {
+                'info': 'info',
+                'warning': 'warning',
+                'error': 'danger'
+            };
+            return typeMap[level] || 'default';
+        },
+
         getToken() {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get('token');

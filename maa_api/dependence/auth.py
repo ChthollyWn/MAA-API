@@ -1,5 +1,5 @@
 from maa_api.config.config import Config
-from maa_api.model.response import ResponseCode
+from maa_api.model.request.response import ResponseCode
 from maa_api.exception.response_exception import ResponseException
 
 def token_auth(token: str = ""):

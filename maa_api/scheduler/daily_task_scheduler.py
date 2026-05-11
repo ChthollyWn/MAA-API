@@ -1,23 +1,20 @@
-import json
-import time
 import datetime
+import json
 
-from jinja2 import Environment, FileSystemLoader
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from maa_api.config.path_config import DAILY_TASK_FILE_PATH, STATIC_PATH
-from maa_api.model.request import TaskRequest
-from maa_api.model.task import task_pipeline
-from maa_api.service import smtp_service
+from maa_api.config.config import DAILY_TASK_FILE_PATH
+from maa_api.model.core.scheduler import task_scheduler
+from maa_api.model.request.request import TaskRequest
+
 
 def daily_art_task():
     if not DAILY_TASK_FILE_PATH.exists():
         return
-    
+
     with DAILY_TASK_FILE_PATH.open('r', encoding='utf-8') as file:
         daily_task_data = json.load(file)
 
-    email = daily_task_data.get('email', '')
     enable = daily_task_data.get('enable', True)
     weekday_task = daily_task_data.get('weekday_task', {})
     today = datetime.date.today()
@@ -29,28 +26,16 @@ def daily_art_task():
 
     if not enable:
         return
-    
-    if task_pipeline.running():
+
+    if task_scheduler.is_running():
         return
-    
+
+    task_scheduler.clear()
+
     for req in task_requests:
-        task_pipeline.append_task(req.to_task())
+        task_scheduler.append(req.to_task())
 
-    task_pipeline.start()
-
-    while task_pipeline.running():
-            time.sleep(1)
-
-    env = Environment(loader=FileSystemLoader(str(STATIC_PATH)))
-    template = env.get_template('email_template.html')
-
-    email_content = template.render(
-         status = task_pipeline.status,
-         tasks=task_pipeline.active_tasks().tasks,
-         logs=task_pipeline.logs
-    )
-        
-    smtp_service.send_email("MAA-API 日志通知", email_content, email)
+    task_scheduler.start()
 
 def start():
     scheduler = BackgroundScheduler()

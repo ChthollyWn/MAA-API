@@ -1,5 +1,4 @@
 {
-    "email": "2010768120@qq.com",
     "enable": true,
     "task_dict": {
         "money": [
@@ -35,13 +34,15 @@
                     "Office",
                     "Dorm"
                 ],
-                "drones": "Money"
+                "drones": "Money",
+                "replenish": false
             },
             {
                 "name": "Fight",
                 "stage": "CE-6",
                 "medicine": 0,
-                "expiring_medicine": 0
+                "expiring_medicine": 0,
+                "series": 0
             },
             {
                 "name": "Mall",
@@ -92,13 +93,15 @@
                     "Office",
                     "Dorm"
                 ],
-                "drones": "Money"
+                "drones": "Money",
+                "replenish": false
             },
             {
                 "name": "Fight",
                 "stage": "1-7",
                 "medicine": 0,
-                "expiring_medicine": 0
+                "expiring_medicine": 0,
+                "series": 0
             },
             {
                 "name": "Mall",
@@ -149,13 +152,15 @@
                     "Office",
                     "Dorm"
                 ],
-                "drones": "Money"
+                "drones": "Money",
+                "replenish": false
             },
             {
                 "name": "Fight",
                 "stage": "11-12",
                 "medicine": 0,
-                "expiring_medicine": 0
+                "expiring_medicine": 0,
+                "series": 0
             },
             {
                 "name": "Mall",
@@ -206,13 +211,15 @@
                     "Office",
                     "Dorm"
                 ],
-                "drones": "Money"
+                "drones": "Money",
+                "replenish": false
             },
             {
                 "name": "Fight",
                 "stage": "1-7",
                 "medicine": 0,
-                "expiring_medicine": 0
+                "expiring_medicine": 0,
+                "series": 0
             },
             {
                 "name": "Mall",

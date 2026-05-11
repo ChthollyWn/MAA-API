@@ -44,3 +44,31 @@ body {
     display: flex;
     justify-content: center;
 }
+
+.log-entry {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+.log-text {
+    margin-top: 0.5rem;
+    white-space: pre-wrap;
+}
+
+.log-image {
+    margin-top: 0.5rem;
+    overflow: hidden;  /* 隐藏溢出内容 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.image-slot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    background: #f5f7fa;
+    color: #909399;
+}
