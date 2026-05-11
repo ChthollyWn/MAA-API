@@ -16,7 +16,7 @@ from maa_api.log import logger
 
 class Updater:
     # API的地址
-    Mirrors = ["https://ota.maa.plus"]
+    Mirrors = ["https://api.maa.plus"]
     Summary_json = "/MaaAssistantArknights/api/version/summary.json"
 
     @staticmethod
