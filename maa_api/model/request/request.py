@@ -63,12 +63,12 @@ class TaskRequest(BaseModel):
     reserve_max_credit: Optional[bool] = None
 
     # Award 参数
-    award: Optional[bool] = None
-    mail: Optional[bool] = None
-    recruit: Optional[bool] = None
-    orundum: Optional[bool] = None
-    mining: Optional[bool] = None
-    specialaccess: Optional[bool] = None
+    award: Optional[bool] = True
+    mail: Optional[bool] = True
+    recruit: Optional[bool] = True
+    orundum: Optional[bool] = True
+    mining: Optional[bool] = True
+    specialaccess: Optional[bool] = True
 
     # Roguelike 参数
     theme: Optional[str] = None

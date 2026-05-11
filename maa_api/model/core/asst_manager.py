@@ -42,7 +42,7 @@ class AssistManager:
 
         # 加载活动资源
         logger.info("开始加载版本活动资源")
-        ota_tasks_url = 'https://ota.maa.plus/MaaAssistantArknights/api/resource/tasks.json'
+        ota_tasks_url = 'https://api.maa.plus/MaaAssistantArknights/api/resource/tasks.json'
         ota_tasks_path = path / 'cache' / 'resource' / 'tasks.json'
         ota_tasks_path.parent.mkdir(parents=True, exist_ok=True)
         resp = HttpUtils.get(ota_tasks_url)

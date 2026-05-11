@@ -5,20 +5,20 @@ app:
   # maa核心文件位置
   maa_core_path:
   # 系统代理
-  proxy: http://localhost:1080
+  proxy: host.docker.internal:7897
 
 # adb配置
 adb:
   # adb路径
   path: 
   # adb连接地址
-  address: 127.0.0.1:5555
+  address: host.docker.internal:5555
   # 截屏质量 范围1-95 值越大质量越高
-  screenshot_quality: 10
+  screenshot_quality: 25
 
 # 邮箱配置
 smtp:
-  server:
-  port:
-  email:
-  password: 
+  server: smtp.qq.com
+  port: 587
+  email: 2010768120@qq.com
+  password: xeuanloxjzopfbeg
