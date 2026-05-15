@@ -264,7 +264,7 @@ class InfrastTask(Task):
                  replenish: bool = False,
                  dorm_notstationed_enabled: bool = None,
                  dorm_trust_enabled: bool = None,
-                 failename: str = None,
+                 filename: str = None,
                  plan_index: int = None):
         """
         初始化基建换班任务
@@ -305,7 +305,7 @@ class InfrastTask(Task):
             "replenish": replenish,
             "dorm_notstationed_enabled": dorm_notstationed_enabled,
             "dorm_trust_enabled": dorm_trust_enabled,
-            "failename": failename,
+            "filename": filename,
             "plan_index": plan_index
         }
 

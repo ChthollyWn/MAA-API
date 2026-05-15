@@ -51,7 +51,7 @@ class TaskRequest(BaseModel):
     replenish: Optional[bool] = None
     dorm_notstationed_enabled: Optional[bool] = None
     dorm_trust_enabled: Optional[bool] = None
-    failename: Optional[str] = None
+    filename: Optional[str] = None
     plan_index: Optional[int] = None
 
     # Mall 参数
@@ -164,7 +164,7 @@ class TaskRequest(BaseModel):
                 replenish=self.replenish,
                 dorm_notstationed_enabled=self.dorm_notstationed_enabled,
                 dorm_trust_enabled=self.dorm_trust_enabled,
-                failename=self.failename,
+                filename=self.filename,
                 plan_index=self.plan_index
             )
 

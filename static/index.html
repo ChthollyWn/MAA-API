@@ -1,734 +1,548 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh">
-
 <head>
     <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <link rel="icon" href="/static/favicon.ico">
-    <title>MAA-API管理页面</title>
-
+    <title>MAA 集成控制台</title>
     <!-- 引入 Vue 和 Element Plus -->
-    <script src="https://unpkg.com/vue@3.2.47/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/vue@3.2.47/dist/vue.global.prod.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/element-plus@2.9.7/dist/index.css" />
     <script src="https://unpkg.com/element-plus@2.9.7/dist/index.full.js"></script>
     <script src="https://unpkg.com/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js"></script>
     <script src="https://unpkg.com/axios@1.8.4/dist/axios.min.js"></script>
-    <script defer="defer" src="/static/js/app.js"></script>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=11">
 </head>
 
 <body>
-    <div id="app">
-        <el-tabs v-model=pageTabActiveName type="card" @tab-click="handleTabClick">
-            <el-tab-pane label="首页" name="Index"></el-tab-pane> 
-            <el-tab-pane label="日常" name="Daily"></el-tab-pane> 
-        </el-tabs>
+    <div id="app" v-cloak>
+        <el-container class="admin-layout">
+            <el-header class="admin-header">
+                <div class="logo">
+                    <el-icon :size="24" color="#409EFC"><component is="Platform"></component></el-icon>
+                    <span>MAA 控制台</span>
+                </div>
+                <div class="header-actions">
+                    <el-button type="primary" plain @click="authDialogVisible = true" size="small">
+                        <el-icon><component is="Key"></component></el-icon> 访问控制 (Token)
+                    </el-button>
+                </div>
+            </el-header>
 
-        <el-card class="box-card">
-            <template #header>
-                <el-row>
-                    <el-col :span="4">
-                        <span>流水线状态</span>
-                    </el-col>
-                    <el-col :span="19">
-                        <el-tag :type="getTagType(pipeline.status)" effect="light" round>
-                            {{ pipeline.status }}
-                        </el-tag>
-                    </el-col>
-                    <el-col :span="1">
-                        <el-button @click="refreshMaaPipelineDataAndScreenshot" circle>
-                            <el-icon>
-                                <Refresh />
-                            </el-icon>
-                        </el-button>
-                    </el-col>
-                </el-row>
-            </template>
-            <el-row :gutter="20">
-                <el-col :span="24">
-                    <el-image :src="adbScreenshot">
-                    </el-image>
-                </el-col>
-            </el-row>
-        </el-card>
+            <el-container class="admin-main">
+                <el-aside width="220px" class="admin-aside">
+                    <el-menu :default-active="activeMenu" @select="handleMenuSelect" class="sidebar-menu">
+                        <el-menu-item index="pipeline">
+                            <el-icon><component is="DataLine"></component></el-icon>
+                            <template #title>实况监控 & 队列</template>
+                        </el-menu-item>
+                        <el-menu-item index="daily">
+                            <el-icon><component is="DocumentChecked"></component></el-icon>
+                            <template #title>日常任务配置</template>
+                        </el-menu-item>
+                        <el-menu-item index="logs">
+                            <el-icon><component is="Monitor"></component></el-icon>
+                            <template #title>系统运行日志</template>
+                        </el-menu-item>
+                        <el-menu-item index="update">
+                            <el-icon><component is="Refresh"></component></el-icon>
+                            <template #title>热部署中心</template>
+                        </el-menu-item>
+                    </el-menu>
+                </el-aside>
 
-        <el-card class="box-card">
-            <template #header>
-                <span>任务列表</span>
-            </template>
-            <div v-for="(task, index) in pipeline.tasks" :key="index">
-                <div v-if="task.type_name === 'StartUp'">
-                    <el-card class="box-card">
-                        <template #header>
-                            <el-row>
-                                <el-col :span="4">
-                                    <span>开始唤醒</span>
+                <el-main class="admin-content">
+                    <!-- 面板1: 流水线状态 (监控 + 截图 + 任务队列逻辑日志) -->
+                    <div v-show="activeMenu === 'pipeline'" class="panel">
+                        <el-card shadow="hover">
+                            <template #header>
+                                <div class="card-header">
+                                    <span class="title">流水线控制台与监控</span>
+                                    <div>
+                                        <el-button type="success" size="small" @click="startTaskDialogVisible = true">
+                                            <el-icon><component is="VideoPlay"></component></el-icon> 启动新队列
+                                        </el-button>
+                                        <el-button type="danger" size="small" @click="stopPipeline">
+                                            <el-icon><component is="VideoPause"></component></el-icon> 终止控制
+                                        </el-button>
+                                        <el-button style="margin-left: 10px;" type="primary" circle @click="refreshMaaPipelineDataAndScreenshot(); fetchScreenshot();">
+                                            <el-icon><component is="RefreshRight"></component></el-icon>
+                                        </el-button>
+                                    </div>
+                                </div>
+                            </template>
+                            
+                            <el-row :gutter="20" class="pipeline-row" style="row-gap: 20px;">
+                                <!-- 显示实时屏幕截图 -->
+                                <el-col :xs="24" :md="12" class="pipeline-col">
+                                    <div class="screenshot-container">
+                                        <div style="font-weight: bold; margin-bottom: 10px; color: #303133;">最新捕获画面：</div>
+                                        <el-image :src="adbScreenshot" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 480px; object-fit: contain;">
+                                            <template #placeholder>
+                                                <div class="image-slot" style="min-height: 200px;">加载游戏截屏片段中...</div>
+                                            </template>
+                                            <template #error>
+                                                <div class="image-slot" style="min-height: 200px;">
+                                                    <el-icon><component is="PictureRounded"></component></el-icon> 设备未连接或屏幕抓取超时
+                                                </div>
+                                            </template>
+                                        </el-image>
+                                    </div>
                                 </el-col>
-                                <el-col :span="20">
-                                    <el-tag :type="getTagType(task.status)" effect="light" round>
-                                        {{ task.status }}
-                                    </el-tag>
+
+                                <!-- 展示任务状态信息 -->
+                                <el-col :xs="24" :md="12" class="pipeline-col">
+                                    <el-descriptions title="当前状态" border :column="1">
+                                        <el-descriptions-item label="任务全览器状态">
+                                            <el-tag :type="getTagType(pipeline.status)" effect="dark" round>
+                                                {{ pipeline.status }}
+                                            </el-tag>
+                                        </el-descriptions-item>
+                                    </el-descriptions>
+                                    
+                                    <div style="margin-top: 20px; font-weight: bold; margin-bottom: 10px; color: #303133;">模拟器上待执行的作业项：</div>
+                                    <el-collapse>
+                                        <el-collapse-item v-for="(task, index) in pipeline.tasks" :key="index" :title="`${task.task_name} - [${task.status}]`" :name="index">
+                                            <el-descriptions :column="1" border size="small">
+                                                <el-descriptions-item v-for="(val, key) in task.params" :key="key" :label="key">
+                                                    {{ val }}
+                                                </el-descriptions-item>
+                                            </el-descriptions>
+                                        </el-collapse-item>
+                                    </el-collapse>
+                                    <div v-if="!pipeline.tasks || pipeline.tasks.length === 0" style="color: #999; margin-top: 10px;">目前没有被放置的任务。点击右上角 "启动新队列" 来添加。</div>
+                                    
+                                    <el-divider content-position="left" v-if="pipeline.logs && pipeline.logs.length > 0" style="margin-top: 30px;">运行图片级日志</el-divider>
+                                    <div class="pipeline-logs-container" v-if="pipeline.logs && pipeline.logs.length > 0" style="max-height: 250px; overflow-y: auto;">
+                                        <div v-for="(log, idx) in pipeline.logs" :key="idx" class="log-entry">
+                                            <template v-if="log.log_type === 'text'">
+                                                <el-alert :type="getLogTagType(log.log_level)" :closable="false" class="log-text">
+                                                    {{ log.content }}
+                                                </el-alert>
+                                            </template>
+                                            <template v-else-if="log.log_type === 'img'">
+                                                <div class="log-image" style="margin-top:10px;">
+                                                    <el-image :src="'data:image/png;base64,' + log.content" :preview-src-list="['data:image/png;base64,' + log.content]" style="width: 100%; border-radius: 6px;"></el-image>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
                                 </el-col>
                             </el-row>
-                        </template>
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>客户端类型:</span>
+                        </el-card>
+                    </div>
+
+                    <!-- 面板2: 日常配置 -->
+                    <div v-show="activeMenu === 'daily'" class="panel">
+                        <el-card shadow="hover">
+                            <template #header>
+                                <div class="card-header">
+                                    <span class="title">日常排班可视化配置中心</span>
+                                    <div>
+                                        <el-button type="primary" size="small" @click="triggerDaily">🔥 模拟后台自动执行日常</el-button>
+                                        <el-button type="success" size="small" @click="updateDailyTaskData">💾 保存全局排班设置</el-button>
+                                    </div>
+                                </div>
+                            </template>
+                            
+                            <el-form label-width="120px" v-if="dailyDataObject" style="margin-top: 10px;">
+                                <el-form-item label="系统任务调度">
+                                    <div style="display: flex; align-items: flex-start; gap: 40px; flex-direction: column;">
+                                        <el-switch v-model="dailyDataObject.enable" active-text="开启定时日常" inactive-text="休眠"></el-switch>
+                                        
+                                        <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
+                                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                <span style="color: #606266; font-size: 14px; font-weight: bold;">每日执行时间点配置:</span>
+                                                <el-button type="primary" size="small" plain @click="dailyDataObject.time.push('12:00')">
+                                                    <el-icon><component is="Plus" /></el-icon> 新增时间点
+                                                </el-button>
+                                            </div>
+                                            <div v-for="(t, index) in dailyDataObject.time" :key="index" style="display: flex; align-items: center; gap: 10px;">
+                                                <el-time-picker
+                                                    v-model="dailyDataObject.time[index]"
+                                                    format="HH:mm"
+                                                    value-format="HH:mm"
+                                                    placeholder="选择执行时间"
+                                                    style="width: 140px;">
+                                                </el-time-picker>
+                                                <el-button type="danger" circle size="small" @click="dailyDataObject.time.splice(index, 1)" :disabled="dailyDataObject.time.length <= 1">
+                                                    <el-icon><component is="Minus" /></el-icon>
+                                                </el-button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </el-form-item>
+
+                                <el-divider content-position="left">每日班次安排表 (Weekday Definitions)</el-divider>
+                                <el-row :gutter="20" v-if="dailyDataObject.weekday_task">
+                                    <el-col :span="8" v-for="(val, key) in dailyDataObject.weekday_task" :key="key">
+                                        <el-form-item :label="getWeekdayName(key)">
+                                            <el-select v-model="dailyDataObject.weekday_task[key]" placeholder="请选择预设任务" style="width: 100%;">
+                                                <el-option
+                                                    v-for="taskKey in availableTaskKeys"
+                                                    :key="taskKey"
+                                                    :label="taskKey"
+                                                    :value="taskKey">
+                                                </el-option>
+                                                <!-- 当解析出来的字典数组为空或当前填的值不在里面时，容错允许自己手写 -->
+                                                <el-option v-if="!availableTaskKeys.includes(dailyDataObject.weekday_task[key])" 
+                                                           :key="dailyDataObject.weekday_task[key]" 
+                                                           :label="dailyDataObject.weekday_task[key]" 
+                                                           :value="dailyDataObject.weekday_task[key]">
+                                                </el-option>
+                                            </el-select>
+                                        </el-form-item>
+                                    </el-col>
+                                </el-row>
+
+                                <el-divider content-position="left">班次模板预设数据栈 (Task Dict Config)</el-divider>
+                                <div>
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                        <p style="color:#606266; font-size: 13px; margin: 0;">
+                                            在此可视化管理 Task Key 与各种内置任务队列。新增的队列组代号可供上方周班次下拉勾选。
+                                        </p>
+                                        <el-button type="success" plain size="small" @click="addTaskDictRow">
+                                            <el-icon><component is="Plus" /></el-icon> 新增配置组
+                                        </el-button>
+                                    </div>
+                                    
+                                    <div v-for="(taskArray, dictKey) in dailyDataObject.task_dict" :key="dictKey" style="margin-bottom: 15px; border: 1px solid #EBEEF5; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden;">
+                                        <!-- 队列级别的折叠头 -->
+                                        <div @click="toggleGroupState(dictKey)" style="background: #F2F6FC; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #EBEEF5; cursor: pointer; transition: background 0.3s;" :style="{ background: groupStates[dictKey] ? '#ECF5FF' : '#F2F6FC' }">
+                                            <div style="display: flex; align-items: center; gap: 12px;">
+                                                <el-icon style="transition: transform 0.3s; color: #409EFF;" :style="{ transform: groupStates[dictKey] ? 'rotate(90deg)' : 'rotate(0deg)' }">
+                                                    <component is="ArrowRight" />
+                                                </el-icon>
+                                                <span style="font-weight: bold; color: #303133; font-size: 15px;">队列代号: {{ dictKey }}</span>
+                                                <el-tag size="small" type="info" style="margin-left: 10px;">{{ taskArray.length }} 个串联任务</el-tag>
+                                            </div>
+                                            <el-button type="danger" size="small" plain @click.stop="deleteTaskDictRow(dictKey)">
+                                                <el-icon><component is="Delete" /></el-icon> 删除组
+                                            </el-button>
+                                        </div>
+
+                                        <el-collapse-transition>
+                                            <div v-show="groupStates[dictKey]" style="padding: 20px; background: #fafafa; position: relative;">
+                                                
+                                                <!-- 队列内容头部控制栏 -->
+                                                <div style="display: flex; align-items: center; margin-bottom: 20px; border-bottom: 1px dashed #dcdfe6; padding-bottom: 15px;">
+                                                    <div style="font-weight: bold; color: #606266; margin-right: 15px;">重命名队列代号：</div>
+                                                    <el-input 
+                                                        :model-value="dictKey" 
+                                                        @change="(newKey) => renameTaskDictKey(dictKey, newKey)"
+                                                        placeholder="输入组名 (Key)" 
+                                                        style="width: 200px;">
+                                                    </el-input>
+                                                    
+                                                    <el-button type="primary" @click="addTaskToDict(dictKey)" style="margin-left: auto;">
+                                                        <el-icon><component is="Plus" /></el-icon> 新增串联任务节点
+                                                    </el-button>
+                                                </div>
+
+                                                <div v-if="!taskArray || taskArray.length === 0" style="text-align: center; color: #aaa; padding: 20px 0;">该队列目前为空，空队列不会被执行。</div>
+
+                                                <div v-for="(task, tIndex) in taskArray" :key="tIndex" style="margin-bottom: 10px; border: 1px solid #ebeef5; border-radius: 4px; overflow: hidden; background: #fff;">
+                                                    <!-- 任务节点折叠头 -->
+                                            <div @click="task.isExpanded = !task.isExpanded" style="background: #fdfdfd; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ebeef5; cursor: pointer;">
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <el-icon style="transition: transform 0.3s;" :style="{ transform: task.isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }">
+                                                        <component is="ArrowRight" />
+                                                    </el-icon>
+                                                    <span style="font-weight: bold; color: #409EFF;">任务节点 {{ tIndex + 1 }}: {{ task.name || '未命名' }}</span>
+                                                </div>
+                                                <el-button type="danger" link @click.stop="removeTaskFromDict(dictKey, tIndex)">
+                                                    <el-icon><component is="Delete" /></el-icon> 删除
+                                                </el-button>
+                                            </div>
+                                            <!-- 卡片内容体 -->
+                                            <el-collapse-transition>
+                                                <div v-show="task.isExpanded" style="padding: 15px; background: #fff;">
+                                                    <el-form-item label="任务类型" label-width="100px" style="margin-bottom: 15px;">
+                                                    <el-select v-model="task.name" placeholder="选择 MAA 任务类型" style="width: 220px;">
+                                                        <el-option label="开始唤醒游戏 (StartUp)" value="StartUp"></el-option>
+                                                        <el-option label="公招识别 (Recruit)" value="Recruit"></el-option>
+                                                        <el-option label="基建换班 (Infrast)" value="Infrast"></el-option>
+                                                        <el-option label="自动战斗刷理智 (Fight)" value="Fight"></el-option>
+                                                        <el-option label="采购中心购买 (Mall)" value="Mall"></el-option>
+                                                        <el-option label="领取日常奖励 (Award)" value="Award"></el-option>
+                                                        <el-option label="肉鸽 (Roguelike)" value="Roguelike"></el-option>
+                                                        <el-option label="生息演算 (SSO)" value="SSO"></el-option>
+                                                        <el-option label="保全派驻 (Copilot)" value="Copilot"></el-option>
+                                                        <el-option label="停止游戏 (CloseDown)" value="CloseDown"></el-option>
+                                                        <el-option label="连接设备 (Connect)" value="Connect"></el-option>
+                                                    </el-select>
+                                                </el-form-item>
+
+                                                <!-- 动态表单项：如果选了 StartUp 或者是 CloseDown -->
+                                                <template v-if="task.name === 'StartUp' || task.name === 'CloseDown' || task.name === 'Connect'">
+                                                    <el-form-item label="客户端环境" label-width="100px" style="margin-bottom: 15px;">
+                                                        <el-select v-model="task.client_type" placeholder="默认留空" style="width: 220px;">
+                                                            <el-option label="官网渠道 (Official)" value="Official"></el-option>
+                                                            <el-option label="B服 (Bilibili)" value="Bilibili"></el-option>
+                                                        </el-select>
+                                                    </el-form-item>
+                                                </template>
+
+                                                <!-- 动态表单项：如果选了 Recruit -->
+                                                <template v-if="task.name === 'Recruit'">
+                                                    <el-form-item label="自动刷新" label-width="100px" style="margin-bottom: 15px;">
+                                                        <el-switch v-model="task.refresh" active-text="可用时刷新" inactive-text="不刷新"></el-switch>
+                                                    </el-form-item>
+                                                    <el-row :gutter="20">
+                                                        <el-col :span="12">
+                                                            <el-form-item label="招募优先级" label-width="100px" style="margin-bottom: 15px;">
+                                                                <el-select v-model="task.select" multiple placeholder="点选希望招募的星级" style="width: 100%;">
+                                                                    <el-option label="6★高级资深" :value="6"></el-option>
+                                                                    <el-option label="5★资深干员" :value="5"></el-option>
+                                                                    <el-option label="4★干员" :value="4"></el-option>
+                                                                    <el-option label="3★干员" :value="3"></el-option>
+                                                                    <el-option label="2★干员" :value="2"></el-option>
+                                                                    <el-option label="1★支援机械" :value="1"></el-option>
+                                                                </el-select>
+                                                            </el-form-item>
+                                                        </el-col>
+                                                        <el-col :span="12">
+                                                            <el-form-item label="一键聘用星级" label-width="100px" style="margin-bottom: 15px;">
+                                                                <el-select v-model="task.confirm" multiple placeholder="公招完毕后自动确认的星级" style="width: 100%;">
+                                                                    <el-option label="6★高级资深" :value="6"></el-option>
+                                                                    <el-option label="5★资深干员" :value="5"></el-option>
+                                                                    <el-option label="4★干员" :value="4"></el-option>
+                                                                    <el-option label="3★干员" :value="3"></el-option>
+                                                                    <el-option label="2★干员" :value="2"></el-option>
+                                                                    <el-option label="1★支援机械" :value="1"></el-option>
+                                                                </el-select>
+                                                            </el-form-item>
+                                                        </el-col>
+                                                    </el-row>
+                                                    <el-form-item label="单次扫描次数" label-width="100px" style="margin-bottom: 15px;">
+                                                        <el-input-number v-model="task.times" :min="0" :max="4" placeholder="默认 4"></el-input-number>
+                                                    </el-form-item>
+                                                </template>
+
+                                                <!-- 动态表单项：如果是 Fight -->
+                                                <template v-if="task.name === 'Fight'">
+                                                    <el-row :gutter="20">
+                                                        <el-col :span="12">
+                                                            <el-form-item label="关卡参数" label-width="100px" style="margin-bottom: 15px;">
+                                                                <el-input v-model="task.stage" placeholder="如 1-7" style="width: 100%;"></el-input>
+                                                            </el-form-item>
+                                                        </el-col>
+                                                        <el-col :span="12">
+                                                            <el-form-item label="刷取次数" label-width="100px" style="margin-bottom: 15px;">
+                                                                <el-input-number v-model="task.times" :min="0" :max="999" placeholder="不填默认清空理智"></el-input-number>
+                                                            </el-form-item>
+                                                        </el-col>
+                                                    </el-row>
+                                                </template>
+
+                                                <!-- 动态表单项：如果是 Infrast (基建) -->
+                                                <template v-if="task.name === 'Infrast'">
+                                                    <el-form-item label="换班设施" label-width="100px" style="margin-bottom: 15px;">
+                                                        <el-select v-model="task.facility" multiple placeholder="默认全部设施" style="width: 100%;">
+                                                            <el-option label="制造站 (Mfg)" value="Mfg"></el-option>
+                                                            <el-option label="贸易站 (Trade)" value="Trade"></el-option>
+                                                            <el-option label="发电站 (Power)" value="Power"></el-option>
+                                                            <el-option label="控制中枢 (Control)" value="Control"></el-option>
+                                                            <el-option label="会客室 (Reception)" value="Reception"></el-option>
+                                                            <el-option label="办公室 (Office)" value="Office"></el-option>
+                                                            <el-option label="宿舍 (Dorm)" value="Dorm"></el-option>
+                                                        </el-select>
+                                                    </el-form-item>
+                                                    <el-row :gutter="20">
+                                                        <el-col :span="12">
+                                                            <el-form-item label="无人机用途" label-width="100px" style="margin-bottom: 15px;">
+                                                                <el-select v-model="task.drones" placeholder="配置无人机用途" style="width: 100%;">
+                                                                    <el-option label="暂不使用 (_NotUse)" value="_NotUse"></el-option>
+                                                                    <el-option label="加速赤金 (Money)" value="Money"></el-option>
+                                                                    <el-option label="加速录像带 (SyntheticJade)" value="SyntheticJade"></el-option>
+                                                                    <el-option label="加速订单 (TradeOrder)" value="TradeOrder"></el-option>
+                                                                    <el-option label="加速源石碎片 (Orundum)" value="Orundum"></el-option>
+                                                                </el-select>
+                                                            </el-form-item>
+                                                        </el-col>
+                                                        <el-col :span="12">
+                                                            <el-form-item label="源石回智" label-width="100px" style="margin-bottom: 15px;">
+                                                                <el-switch v-model="task.replenish" active-text="允许搓玉" inactive-text="禁止碎石"></el-switch>
+                                                            </el-form-item>
+                                                        </el-col>
+                                                    </el-row>
+                                                </template>
+
+                                                <!-- 动态表单项：如果是 Mall (商店) -->
+                                                <template v-if="task.name === 'Mall'">
+                                                    <el-form-item label="信用购物" label-width="100px" style="margin-bottom: 15px;">
+                                                        <el-switch v-model="task.shopping" active-text="开启清空信用" inactive-text="不购物"></el-switch>
+                                                    </el-form-item>
+                                                    <el-form-item label="优先购买" label-width="100px" style="margin-bottom: 15px;">
+                                                        <!-- Mall 模块的物品是名字字符串，故允许自身随便写标签 -->
+                                                        <el-select v-model="task.buy_first" multiple filterable allow-create default-first-option placeholder="输入商品名后回车添加，如: 招聘许可" style="width: 100%;">
+                                                            <el-option label="招聘许可" value="招聘许可"></el-option>
+                                                            <el-option label="龙门币" value="龙门币"></el-option>
+                                                            <el-option label="碳素" value="碳素"></el-option>
+                                                            <el-option label="技巧概要" value="技巧概要"></el-option>
+                                                        </el-select>
+                                                    </el-form-item>
+                                                </template>
+
+                                                <!-- 动态表单项：高级JSON编排 -->
+                                                <el-form-item label="高级参数扩展" label-width="100px" style="margin-bottom: 0;">
+                                                    <el-input 
+                                                        type="textarea" 
+                                                        :rows="2" 
+                                                        :model-value="JSON.stringify(task, null, 4)" 
+                                                        @change="(val) => updateSingleTaskJson(dictKey, tIndex, val)"
+                                                        style="font-family: monospace;"
+                                                        placeholder="以 JSON 格式扩展当前任务的任意 MAA 原生参数">
+                                                    </el-input>
+                                                </el-form-item>
+                                                </div>
+                                            </el-collapse-transition>
+                                        </div>
+                                            </div>
+                                        </el-collapse-transition>
+                                    </div>
+                                </div>
+                            </el-form>
+                            <div v-else style="padding: 30px; text-align: center; color: #999;">正在载入自动化配置，或由于网络原因同步失败。</div>
+                        </el-card>
+                    </div>
+
+                    <!-- 面板3: 运行日志 -->
+                    <div v-show="activeMenu === 'logs'" class="panel logs-panel">
+                        <el-card shadow="hover">
+                            <template #header>
+                                <div class="card-header">
+                                    <span class="title">服务端实时日志探测 (Backend Fast-API Log)</span>
+                                    <el-button type="primary" circle @click="fetchSystemLogs">
+                                        <el-icon><component is="RefreshRight"></component></el-icon>
+                                    </el-button>
+                                </div>
+                            </template>
+                            <div class="terminal-box" ref="logContainer">
+                                <div v-if="systemLogs.length === 0" class="log-empty">暂无日志或系统后端正等待唤醒...</div>
+                                <div v-for="(log, idx) in systemLogs" :key="idx" class="log-line">
+                                    {{ log }}
+                                </div>
+                            </div>
+                        </el-card>
+                    </div>
+
+                    <!-- 面板4: 热部署中心 -->
+                    <div v-show="activeMenu === 'update'" class="panel update-panel">
+                        <el-row :gutter="20" class="pipeline-row" style="row-gap: 20px;">
+                            <el-col :xs="24" :md="8" style="display: flex;">
+                                <el-card shadow="hover" class="update-card" style="height: 100%; min-height: 260px; display: flex; flex-direction: column; width: 100%;">
+                                    <template #header><div class="title"><el-icon><component is="Cpu"></component></el-icon> 游戏本体客户端</div></template>
+                                    
+                                    <div style="flex: 1; display: flex; flex-direction: column;">
+                                        <!-- 新增：让用户自主在此处动态切换要对比更新的客户端渠道，默认优先 Bilibili -->
+                                        <el-select v-model="updateClientType" size="small" style="width: 100%; margin-bottom: 10px;" @change="fetchUpdateVersions">
+                                            <el-option label="B服客户端 (Bilibili)" value="Bilibili"></el-option>
+                                            <el-option label="官网渠道包 (Official)" value="Official"></el-option>
+                                        </el-select>
+
+                                        <p class="desc" style="margin-bottom: 10px;">通过 ADB 动态探测并覆盖装载最新版游戏。</p>
+                                        <div style="font-size: 13px; color: #5c6b77; margin-bottom: 15px; line-height: 1.8;">
+                                            <div>当前版本：<span style="color:#606266; font-weight:bold;">{{ updateVersions.game?.current || '未知' }}</span></div>
+                                            <div>最新版本：<span style="color:#606266; font-weight:bold;">{{ updateVersions.game?.latest || '未知' }}</span></div>
+                                            <div>更新时间：<span style="color:#606266;">{{ updateVersions.game?.update_time || '未知' }}</span></div>
+                                            <div v-if="updateVersions.game?.summary">摘要说明：<span style="color:#606266;">{{ updateVersions.game.summary }}</span></div>
+                                        </div>
+                                    </div>
+                                    <div style="margin-top: auto;">
+                                        <el-button type="primary" style="width: 100%;" @click="doUpdate('game')" :disabled="updateVersions.game?.can_update === false">
+                                            触发安全无损更新
+                                        </el-button>
+                                    </div>
+                                </el-card>
                             </el-col>
-                            <el-col :span="20">
-                                <el-input v-model="task.params.client_type" :disabled="true"></el-input>
+                            <el-col :xs="24" :md="8" style="display: flex;">
+                                <el-card shadow="hover" class="update-card" style="height: 100%; min-height: 260px; display: flex; flex-direction: column; width: 100%;">
+                                    <template #header><div class="title"><el-icon><component is="Setting"></component></el-icon> MAA 内核 (Core)</div></template>
+                                    
+                                    <div style="flex: 1; display: flex; flex-direction: column;">
+                                        <p class="desc" style="margin-bottom: 10px;">识别库与运行时环境底层动态热部署机制。</p>
+                                        <div style="font-size: 13px; color: #5c6b77; margin-bottom: 15px; line-height: 1.8;">
+                                            <div>当前版本：<el-tag size="small" type="info">{{ updateVersions.maa_core?.current || '探测中...' }}</el-tag></div>
+                                            <div>最新版本：<el-tag size="small" type="success">{{ updateVersions.maa_core?.latest || '探测中...' }}</el-tag></div>
+                                            <div>部署时间：<span style="color:#606266;">{{ updateVersions.maa_core?.update_time || '-' }}</span></div>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 10px; margin-top: auto;">
+                                        <el-button type="success" style="flex: 1;" @click="doUpdate('maa')" :disabled="updateVersions.maa_core?.can_update === false">
+                                            增量覆盖升级
+                                        </el-button>
+                                        <el-button type="danger" style="flex: 1;" @click="doUpdate('maa_reinstall')">
+                                            强制重装
+                                        </el-button>
+                                    </div>
+                                </el-card>
                             </el-col>
-                            <el-divider />
+                            <el-col :xs="24" :md="8" style="display: flex;">
+                                <el-card shadow="hover" class="update-card" style="height: 100%; min-height: 260px; display: flex; flex-direction: column; width: 100%;">
+                                    <template #header><div class="title"><el-icon><component is="TakeawayBox"></component></el-icon> 游戏活动资源 (Res)</div></template>
+                                    
+                                    <div style="flex: 1; display: flex; flex-direction: column;">
+                                        <p class="desc" style="margin-bottom: 10px;">关卡代号、最新的肉鸽/生息等地图规则剧本资源。</p>
+                                        <div style="font-size: 13px; color: #5c6b77; margin-bottom: 15px; line-height: 1.8;">
+                                            <div>当前版本：<span style="color:#606266; font-weight:bold;">{{ updateVersions.maa_resource?.current || '内置版本' }}</span></div>
+                                            <div>最新版本：<span style="color:#606266; font-weight:bold;">{{ updateVersions.maa_resource?.latest || '未知' }}</span></div>
+                                            <div>同步时间：<span style="color:#606266;">{{ updateVersions.maa_resource?.update_time || '暂无更新记录' }}</span></div>
+                                        </div>
+                                    </div>
+                                    <div style="margin-top: auto;">
+                                        <el-button type="warning" style="width: 100%;" @click="doUpdate('resource')" :disabled="updateVersions.maa_resource?.can_update === false">
+                                            热拉取资源规则
+                                        </el-button>
+                                    </div>
+                                </el-card>
+                            </el-col>
                         </el-row>
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>自动启动客户端:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-switch v-model="task.params.start_game_enabled" active-color="#13ce66"
-                                    inactive-color="#ff4949" :disabled="true"></el-switch>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-                    </el-card>
-                </div>
+                    </div>
+                </el-main>
+            </el-container>
+        </el-container>
 
-                <div v-if="task.type_name === 'Recruit'">
-                    <el-card class="box-card">
-                        <template #header>
-                            <el-row>
-                                <el-col :span="4">
-                                    <span>自动公招</span>
-                                </el-col>
-                                <el-col :span="20">
-                                    <el-tag :type="getTagType(task.status)" effect="light" round>
-                                        {{ task.status }}
-                                    </el-tag>
-                                </el-col>
-                            </el-row>
-                        </template>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>自动刷新三星Tags:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-switch v-model="task.params.refresh" active-color="#13ce66" :disabled="true"
-                                    inactive-color="#ff4949">
-                                </el-switch>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>允许选择的Tag等级:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-select v-model="task.params.select" multiple :disabled="true">
-                                    <el-option label="1" :value="Number(1)"></el-option>
-                                    <el-option label="2" :value="Number(2)"></el-option>
-                                    <el-option label="3" :value="Number(3)"></el-option>
-                                    <el-option label="4" :value="Number(4)"></el-option>
-                                    <el-option label="5" :value="Number(5)"></el-option>
-                                </el-select>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>允许确定的Tag等级:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-select v-model="task.params.confirm" multiple :disabled="true">
-                                    <el-option label="1" :value="Number(1)"></el-option>
-                                    <el-option label="2" :value="Number(2)"></el-option>
-                                    <el-option label="3" :value="Number(3)"></el-option>
-                                    <el-option label="4" :value="Number(4)"></el-option>
-                                    <el-option label="5" :value="Number(5)"></el-option>
-                                </el-select>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>公招次数:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-input-number v-model="task.params.times" :min="0" :max="100"
-                                    :disabled="true"></el-input-number>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-                    </el-card>
-                </div>
-
-                <div v-if="task.type_name === 'Infrast'">
-                    <el-card class="box-card">
-                        <template #header>
-                            <el-row>
-                                <el-col :span="4">
-                                    <span>基建换班</span>
-                                </el-col>
-                                <el-col :span="20">
-                                    <el-tag :type="getTagType(task.status)" effect="light" round>
-                                        {{ task.status }}
-                                    </el-tag>
-                                </el-col>
-                            </el-row>
-                        </template>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>换班设施:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-select v-model="task.params.facility" multiple :disabled="true">
-                                    <el-option label="制造站" value="Mfg"></el-option>
-                                    <el-option label="贸易站" value="Trade"></el-option>
-                                    <el-option label="发电站" value="Power"></el-option>
-                                    <el-option label="控制中枢" value="Control"></el-option>
-                                    <el-option label="会客室" value="Reception"></el-option>
-                                    <el-option label="办公室" value="Office"></el-option>
-                                    <el-option label="宿舍" value="Dorm"></el-option>
-                                </el-select>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-                    </el-card>
-                </div>
-
-                <div v-if="task.type_name === 'Fight'">
-                    <el-card class="box-card">
-                        <template #header>
-                            <el-row>
-                                <el-col :span="4">
-                                    <span>刷理智</span>
-                                </el-col>
-                                <el-col :span="20">
-                                    <el-tag :type="getTagType(task.status)" effect="light" round>
-                                        {{ task.status }}
-                                    </el-tag>
-                                </el-col>
-                            </el-row>
-                        </template>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>关卡:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-input v-model="task.params.stage" :disabled="true"></el-input>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>最大理智药使用数量:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-input-number v-model="task.params.medicine" :min="0" :max="100"
-                                    :disabled="true"></el-input-number>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>48小时内过期理智药使用数量:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-input-number v-model="task.params.expiring_medicine" :min="0" :max="100"
-                                    :disabled="true"></el-input-number>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>连战次数:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-input-number v-model="task.params.series" :min="-1" :max="6"
-                                    :disabled="true"></el-input-number>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-                    </el-card>
-                </div>
-
-                <div v-if="task.type_name === 'Mall'">
-                    <el-card class="box-card">
-                        <template #header>
-                            <el-row>
-                                <el-col :span="4">
-                                    <span>领取信用及购物</span>
-                                </el-col>
-                                <el-col :span="20">
-                                    <el-tag :type="getTagType(task.status)" effect="light" round>
-                                        {{ task.status }}
-                                    </el-tag>
-                                </el-col>
-                            </el-row>
-                        </template>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>是否购物:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-switch v-model="task.params.shopping" active-color="#13ce66"
-                                    inactive-color="#ff4949" :disabled="true" />
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-
-                        <el-row class="centered-row">
-                            <el-col :span="4">
-                                <span>优先购买:</span>
-                            </el-col>
-                            <el-col :span="20">
-                                <el-select v-model="task.params.buy_first" multiple :disabled="true">
-                                    <el-option label="招聘许可" value="招聘许可"></el-option>
-                                    <el-option label="龙门币" value="龙门币"></el-option>
-                                </el-select>
-                            </el-col>
-                            <el-divider />
-                        </el-row>
-                    </el-card>
-                </div>
-
-                <div v-if="task.type_name === 'Award'">
-                    <el-card class="box-card">
-                        <template #header>
-                            <el-row>
-                                <el-col :span="4">
-                                    <span>领取奖励</span>
-                                </el-col>
-                                <el-col :span="20">
-                                    <el-tag :type="getTagType(task.status)" effect="light" round>
-                                        {{ task.status }}
-                                    </el-tag>
-                                </el-col>
-                            </el-row>
-                        </template>
-                    </el-card>
-                </div>
-
-                <div v-if="task.type_name === 'CloseDown'">
-                    <el-card class="box-card">
-                        <template #header>
-                            <el-row>
-                                <el-col :span="4">
-                                    <span>关闭游戏</span>
-                                </el-col>
-                                <el-col :span="20">
-                                    <el-tag :type="getTagType(task.status)" effect="light" round>
-                                        {{ task.status }}
-                                    </el-tag>
-                                </el-col>
-                            </el-row>
-                        </template>
-
-                        <el-row>
-                            <el-col :span="4">
-                                客户端类型:
-                            </el-col>
-                            <el-col :span="20">
-                                <el-input v-model="task.params.client_type" :disabled="true"></el-input>
-                            </el-col>
-                        </el-row>
-
-                    </el-card>
-                </div>
-            </div>
-        </el-card>
-
-        <el-card class="box-card">
-            <template #header>
-                <span>日志</span>
-            </template>
-            <div v-for="(log, index) in pipeline.logs" :key="index" class="log-entry">
-                <el-tag
-                    :type="getLogTagType(log.log_level)"
-                    effect="light"
-                    round
-                >
-                    {{ log.log_level }}
-                </el-tag>
-
-                <div v-if="log.log_type === 'text'" class="log-text">
-                    {{ log.content }}
-                </div>
-
-                <div v-else-if="log.log_type === 'img'" class="log-image">
-                    <el-image
-                        :src="`data:image/jpeg;base64,${log.content}`"
-                        fit="contain"                style="height: auto; width: auto;"
-                    >
-                        <template #error>
-                            <div class="image-slot">加载失败</div>
-                        </template>
-                    </el-image>
-                </div>
-            </div>
-        </el-card>
-
-        <el-button type="success" @click="createTaskDialogVisible = true" :disabled="pipeline.status === 'running'">
-            创建任务
-        </el-button>
-        <el-button type="danger" @click="cancelMaaPipelineData">
-            终止任务
-        </el-button>
-
-        <el-dialog title="创建任务" :close-on-click-modal="false" v-model="createTaskDialogVisible">
+        <!-- 加入任务抽屉弹窗 -> 提供直接可改写的配置 -->
+        <el-dialog v-model="startTaskDialogVisible" title="下发 MAA 运行指令" width="70%" center>
+            <el-alert title="启用相应的任务阶段（修改具体参数）后，点击发送指令。系统将挂载它们到正在运行的监控管道中。" type="info" :closable="false" style="margin-bottom: 20px;"></el-alert>
+            
             <el-collapse accordion>
-                <div v-for="(task, index) in createTasks" :key="index">
-
-                    <div v-if="task.name === 'StartUp'">
-                        <el-collapse-item>
-                            <template #title>
-                                <el-row class="centered-row">
-                                    <el-col :span="20">
-                                        <span>开始唤醒</span>
-                                    </el-col>
-                                    <el-col :span="4">
-                                        <el-switch v-model="task.enable" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                </el-row>
-                            </template>
-                            <el-card class="box-card">
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>客户端类型:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-input v-model="task.client_type"></el-input>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>自动启动客户端:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-switch v-model="task.start_game_enabled" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-                            </el-card>
-                        </el-collapse-item>
+                <el-collapse-item v-for="(cfgTask, idx) in createTasks" :key="idx" :name="idx">
+                    <template #title>
+                        <el-switch v-model="cfgTask.enable" style="margin-right: 15px;" @click.stop></el-switch>
+                        <b style="font-size: 15px;">动作目标：{{ cfgTask.name }}</b>
+                    </template>
+                    <div style="padding: 10px; background-color: #fafafa; border-radius: 6px;">
+                        <p style="color:#606266; font-size:13px; margin: 0 0 10px 0;">该执行器的内部负载参数（可直接编辑内容生效）：</p>
+                        <el-input type="textarea" :rows="6" 
+                            :model-value="JSON.stringify(cfgTask, null, 4)" 
+                            @update:model-value="val => { try { const parsed = JSON.parse(val); Object.assign(cfgTask, parsed); } catch(e){} }" 
+                            style="font-family: monospace;">
+                        </el-input>
                     </div>
-
-                    <div v-if="task.name === 'Recruit'">
-                        <el-collapse-item>
-                            <template #title>
-                                <el-row class="centered-row">
-                                    <el-col :span="20">
-                                        <span>自动公招</span>
-                                    </el-col>
-                                    <el-col :span="4">
-                                        <el-switch v-model="task.enable" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                </el-row>
-                            </template>
-
-                            <el-card class="box-card">
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>自动刷新三星Tags:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-switch v-model="task.refresh" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>允许选择的Tag等级:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-select v-model="task.select" multiple>
-                                            <el-option label="1" :value="Number(1)"></el-option>
-                                            <el-option label="2" :value="Number(2)"></el-option>
-                                            <el-option label="3" :value="Number(3)"></el-option>
-                                            <el-option label="4" :value="Number(4)"></el-option>
-                                            <el-option label="5" :value="Number(5)"></el-option>
-                                        </el-select>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>允许确定的Tag等级:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-select v-model="task.confirm" multiple>
-                                            <el-option label="1" :value="Number(1)"></el-option>
-                                            <el-option label="2" :value="Number(2)"></el-option>
-                                            <el-option label="3" :value="Number(3)"></el-option>
-                                            <el-option label="4" :value="Number(4)"></el-option>
-                                            <el-option label="5" :value="Number(5)"></el-option>
-                                        </el-select>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>公招次数:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-input-number v-model="task.times" :min="0" :max="100"></el-input-number>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-                            </el-card>
-                        </el-collapse-item>
-                    </div>
-
-                    <div v-if="task.name === 'Infrast'">
-                        <el-collapse-item>
-                            <template #title>
-                                <el-row class="centered-row">
-                                    <el-col :span="20">
-                                        <span>基建换班</span>
-                                    </el-col>
-                                    <el-col :span="4">
-                                        <el-switch v-model="task.enable" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                </el-row>
-                            </template>
-
-                            <el-card class="box-card">
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>换班设施:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-select v-model="task.facility" multiple>
-                                            <el-option label="制造站" value="Mfg"></el-option>
-                                            <el-option label="贸易站" value="Trade"></el-option>
-                                            <el-option label="发电站" value="Power"></el-option>
-                                            <el-option label="控制中枢" value="Control"></el-option>
-                                            <el-option label="会客室" value="Reception"></el-option>
-                                            <el-option label="办公室" value="Office"></el-option>
-                                            <el-option label="宿舍" value="Dorm"></el-option>
-                                        </el-select>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>无人机用途:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-select v-model="task.drones">
-                                            <el-option label="龙门币" value="Money"></el-option>
-                                            <el-option label="合成玉" value="SyntheticJade"></el-option>
-                                            <el-option label="作战记录" value="CombatRecord"></el-option>
-                                            <el-option label="赤金" value="PureGold"></el-option>
-                                            <el-option label="源石碎片" value="OriginStone"></el-option>
-                                            <el-option label="芯片" value="Chip"></el-option>
-                                        </el-select>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>源石碎片是否自动补货:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-switch v-model="task.replenish" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-                            </el-card>
-                        </el-collapse-item>
-                    </div>
-
-                    <div v-if="task.name === 'Fight'">
-                        <el-collapse-item>
-                            <template #title>
-                                <el-row class="centered-row">
-                                    <el-col :span="20">
-                                        <span>刷理智</span>
-                                    </el-col>
-                                    <el-col :span="4">
-                                        <el-switch v-model="task.enable" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                </el-row>
-                            </template>
-
-                            <el-card class="box-card">
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>关卡:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-input v-model="task.stage"></el-input>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>最大理智药使用数量:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-input-number v-model="task.medicine" :min="0" :max="100"></el-input-number>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>48小时内过期理智药使用数量:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-input-number v-model="task.expiring_medicine" :min="0"
-                                            :max="100"></el-input-number>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>连战次数:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-input-number v-model="task.series" :min="-1" :max="6"></el-input-number>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-                            </el-card>
-                        </el-collapse-item>
-                    </div>
-
-                    <div v-if="task.name === 'Mall'">
-                        <el-collapse-item>
-                            <template #title>
-                                <el-row class="centered-row">
-                                    <el-col :span="20">
-                                        <span>领取信用及购物</span>
-                                    </el-col>
-                                    <el-col :span="4">
-                                        <el-switch v-model="task.enable" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                </el-row>
-                            </template>
-
-                            <el-card class="box-card">
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>是否购物:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-switch v-model="task.shopping" active-color="#13ce66"
-                                            inactive-color="#ff4949" />
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>优先购买:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-select v-model="task.buy_first" multiple>
-                                            <el-option label="招聘许可" value="招聘许可"></el-option>
-                                            <el-option label="龙门币" value="龙门币"></el-option>
-                                        </el-select>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-                            </el-card>
-                        </el-collapse-item>
-                    </div>
-
-                    <div v-if="task.name === 'Award'">
-                        <el-collapse-item>
-                            <template #title>
-                                <el-row class="centered-row">
-                                    <el-col :span="20">
-                                        <span>领取奖励</span>
-                                    </el-col>
-                                    <el-col :span="4">
-                                        <el-switch v-model="task.enable" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                </el-row>
-                            </template>
-                        </el-collapse-item>
-                    </div>
-
-                    <div v-if="task.name === 'CloseDown'">
-                        <el-collapse-item>
-                            <template #title>
-                                <el-row class="centered-row">
-                                    <el-col :span="20">
-                                        <span>关闭游戏</span>
-                                    </el-col>
-                                    <el-col :span="4">
-                                        <el-switch v-model="task.enable" active-color="#13ce66"
-                                            inactive-color="#ff4949">
-                                        </el-switch>
-                                    </el-col>
-                                </el-row>
-                            </template>
-                            <el-card class="box-card">
-                                <el-row class="centered-row">
-                                    <el-col :span="4">
-                                        <span>客户端类型:</span>
-                                    </el-col>
-                                    <el-col :span="20">
-                                        <el-input v-model="task.client_type"></el-input>
-                                    </el-col>
-                                    <el-divider />
-                                </el-row>
-                            </el-card>
-                        </el-collapse-item>
-                    </div>
-                </div>
+                </el-collapse-item>
             </el-collapse>
 
             <template #footer>
-                <div>
-                    <el-button @click="createTaskDialogVisible = false">取消</el-button>
-                    <el-button type="primary" @click="executeMaaPipelineData">
-                        执行任务
-                    </el-button>
-                </div>
+                <el-button @click="startTaskDialogVisible = false">暂不调度</el-button>
+                <el-button type="primary" @click="startPipeline" style="width: 200px;">🚀 执行所选</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 鉴权弹窗 -->
+        <el-dialog v-model="authDialogVisible" title="身份验证" width="400px" center>
+            <p style="margin-bottom: 10px; color: #666; font-size: 14px;">请输入 MAA-API 核心控制台的安全 <b>access_token</b></p>
+            <el-input v-model="tokenInput" type="password" placeholder="若系统未设置密钥放空即可" show-password @keyup.enter="saveToken">
+                <template #prefix>
+                    <el-icon><component is="Key"></component></el-icon>
+                </template>
+            </el-input>
+            <template #footer>
+                <el-button type="primary" @click="saveToken" style="width: 100%">确认保存并进入机房</el-button>
             </template>
         </el-dialog>
     </div>
+    <!-- 附加时间戳绕过浏览器对 Js 强缓存 -->
+    <script src="/static/js/app.js?v=11"></script>
 </body>
-
 </html>

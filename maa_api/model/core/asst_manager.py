@@ -23,7 +23,7 @@ class AssistManager:
     def __init__(self, callback_handler: CallbackHandler):
         self.callback_handler = callback_handler
 
-    def load_asst(self):
+    def load_asst(self, check_update=True):
         system = platform.system()
         maa_core_path = Config.get_config('app', 'maa_core_path')
         if not maa_core_path:
@@ -31,9 +31,10 @@ class AssistManager:
         maa_core_path = os.path.expanduser(maa_core_path)
         path = pathlib.Path(maa_core_path).resolve()
 
-        # 更新maa版本
-        logger.info("开始校验 MAA 版本")
-        Updater(path, Version.Stable).update()
+        if check_update:
+            # 更新maa版本
+            logger.info("开始校验 MAA 版本")
+            Updater(path, Version.Stable).update()
 
         # 加载核心资源
         logger.info("开始加载 MAA 核心资源")

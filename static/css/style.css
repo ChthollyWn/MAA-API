@@ -1,74 +1,163 @@
-body {
+:root {
+    --primary-color: #409EFC;
+    --bg-color: #f5f7fa;
+    --border-color: #ebeef5;
+}
+
+[v-cloak] {
+    display: none;
+}
+
+body, html {
     margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: var(--bg-color);
+}
+
+.admin-layout {
+    height: 100vh;
+}
+
+.admin-header {
+    background-color: #ffffff;
+    border-bottom: 1px solid var(--border-color);
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
     align-items: center;
-    min-height: 100vh;
-    background-color: #f0f2f5;
-    overflow-x: hidden;
+    padding: 0 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    z-index: 10;
 }
 
-#app {
-    width: 100%;
-    max-width: 80%;
-    box-sizing: border-box;
-    padding: 20px;
-}
-
-.text {
-    font-size: 14px;
-}
-
-.item {
-    margin-bottom: 18px;
-}
-
-.clearfix:before,
-.clearfix:after {
-    display: table;
-    content: "";
-}
-
-.clearfix:after {
-    clear: both;
-}
-
-.box-card {
-    width: 100%;
-    margin-bottom: 20px;
-    box-sizing: border-box;
-    line-height: 1.5;
-}
-
-.centered-row {
+.admin-header .logo {
     display: flex;
-    justify-content: center;
-}
-
-.log-entry {
-    margin-bottom: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid #eee;
-}
-
-.log-text {
-    margin-top: 0.5rem;
-    white-space: pre-wrap;
-}
-
-.log-image {
-    margin-top: 0.5rem;
-    overflow: hidden;  /* 隐藏溢出内容 */
-    display: flex;
-    justify-content: center;
     align-items: center;
+    font-size: 20px;
+    font-weight: 600;
+    color: #303133;
+}
+
+.admin-header .logo span {
+    margin-left: 10px;
+}
+
+.admin-aside {
+    background-color: #ffffff;
+    border-right: 1px solid var(--border-color);
+}
+
+.sidebar-menu {
+    border-right: none !important;
+}
+
+.admin-content {
+    padding: 24px;
+}
+
+.panel {
+    animation: fadeIn 0.3s ease;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.card-header .title {
+    font-size: 16px;
+    font-weight: bold;
+    color: #303133;
 }
 
 .image-slot {
     display: flex;
-    align-items: center;
     justify-content: center;
-    height: 100%;
+    align-items: center;
+    width: 100%;
+    height: 300px;
     background: #f5f7fa;
     color: #909399;
+    font-size: 14px;
+}
+
+.update-panel .update-card {
+    height: 240px;
+    display: flex;
+    flex-direction: column;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #ffffff 0%, #fcfcfc 100%);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.update-panel .update-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+}
+
+.update-panel .title {
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #2c3e50;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #ecf5ff;
+}
+
+.update-panel .desc {
+    font-size: 14px;
+    color: #5c6b77;
+    margin-top: 12px;
+    margin-bottom: auto;
+    line-height: 1.6;
+}
+
+/* 终端风格的日志容器 */
+.terminal-box {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    padding: 16px;
+    border-radius: 8px;
+    font-family: 'Consolas', 'Courier New', Courier, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    height: 500px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.terminal-box::-webkit-scrollbar {
+    width: 8px;
+}
+
+.terminal-box::-webkit-scrollbar-thumb {
+    background-color: #555;
+    border-radius: 4px;
+}
+
+.log-line {
+    margin-bottom: 2px;
+}
+
+.log-empty {
+    color: #888;
+    text-align: center;
+    margin-top: 40px;
+}
+
+.full-btn {
+    width: 100%;
+    margin-top: 16px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }

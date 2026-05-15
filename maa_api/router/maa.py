@@ -40,7 +40,10 @@ async def get_daily_tasks():
         return
     
     with DAILY_TASK_FILE_PATH.open('r', encoding='utf-8') as file:
-        return Response.success(data=json.load(file))
+        data = json.load(file)
+        if not data:
+            data = {"enable": False, "weekday_task": {}, "task_dict": {}}
+        return Response.success(data=data)
     
 @router.put("/api/maa/daily", dependencies=[Depends(token_auth)])
 async def update_daily_tasks(request: dict):

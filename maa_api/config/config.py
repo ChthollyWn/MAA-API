@@ -6,6 +6,8 @@ from ruamel.yaml.scanner import ScannerError
 
 # 配置文件路径
 CONFIG_PATH = Path() / "config.yaml"
+# 模板配置文件路径
+CONFIG_TEMPLATE_PATH = Path() / "config.template.yaml"
 # 静态文件路径
 STATIC_PATH = Path() / "static"
 # 日常任务配置路径
@@ -30,6 +32,20 @@ if not DAILY_TASK_FILE_PATH.exists():
         shutil.copy(daily_task_template_path, DAILY_TASK_FILE_PATH)
     else:
         raise RuntimeError("日常任务模板文件不存在")
+
+import sys
+
+if not CONFIG_PATH.exists():
+    if CONFIG_TEMPLATE_PATH.exists():
+        shutil.copy(CONFIG_TEMPLATE_PATH, CONFIG_PATH)
+        print("=========================================================================")
+        print("⚠️  警告: 没有找到 config.yaml 文件！")
+        print("已为您在项目根目录自动创建了根据 config.template.yaml 生成的 config.yaml。")
+        print("请先去填写相应的配置信息（如 adb 路径、access_token），然后再重新启动项目。")
+        print("=========================================================================")
+        sys.exit(1)
+    else:
+        raise RuntimeError("缺少 config.yaml 且找不到 config.template.yaml 模板文件")
 
 class ConfigManager:
     def __init__(self):

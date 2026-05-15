@@ -111,12 +111,22 @@ class Downloader:
 
             file_size = int(response.headers.get('Content-Length', 0))
             file_size_mb = file_size / (1024 * 1024)
+            logger.info(f"开始下载 {os.path.basename(file_path)}，总大小: {file_size_mb:.2f} MB")
 
-            with tqdm(total=file_size, unit='B', unit_scale=True, desc=f"{file_path} ({file_size_mb:.2f} MB)", ncols=100) as progress_bar:
-                with open(file_path, 'wb') as file:
-                    for chunk in response.iter_content(chunk_size=8192):
+            downloaded = 0
+            last_percent = -1
+
+            with open(file_path, 'wb') as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
                         file.write(chunk)
-                        progress_bar.update(len(chunk))
+                        downloaded += len(chunk)
+                        if file_size > 0:
+                            percent = int((downloaded / file_size) * 100)
+                            # 每 10% 打印一次日志
+                            if percent % 10 == 0 and percent != last_percent:
+                                logger.info(f"下载进度: {percent}% ({downloaded / (1024 * 1024):.2f} MB / {file_size_mb:.2f} MB)")
+                                last_percent = percent
 
             logger.info(f"下载成功，已保存到 {file_path}")
         except requests.RequestException as e:
