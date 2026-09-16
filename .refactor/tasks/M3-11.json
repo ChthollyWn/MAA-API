@@ -2,7 +2,9 @@
   "id": "M3-11",
   "milestone": "M3",
   "title": "让 AppError 与异常处理器支持响应头，使 429/503 能真的发出 Retry-After",
-  "depends": ["M3-04"],
+  "depends": [
+    "M3-04"
+  ],
   "reads": [
     "docs/05-API规范与路由清单.md#2-http-状态码使用规范",
     "docs/05-API规范与路由清单.md#41-错误码与-http-状态的绑定",
@@ -27,8 +29,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "背景：M3-06 实现鉴权失败限流时发现，429 需要的 Retry-After 响应头根本发不出去 —— AppError 没有携带 headers 的入口，处理器也不透传。这条缺陷归属 M3-04（api/errors.py 的作者），M3-04 已 done，所以由本卡修。\n\n要求：\n1. 先读 maa_api/domain/errors.py 的 AppError 与 maa_api/api/errors.py 的四个处理器，以及 docs/05 §2/§4.1 里对 Retry-After 的要求。\n2. 给 AppError 增加可选的 headers 通道，并让 _app_error_handler 真正把它们写进响应；同时让 error_responses() 能声明某个错误码会带哪些响应头（供 OpenAPI 文档表达）。\n3. **不要改变错误体 JSON 形状**，也不要动 ERROR_HTTP_STATUS 的既有绑定。\n4. 检查 M3-06 已实现的鉴权 429 路径：如果它当时是用绕过 AppError 的方式发 Retry-After 的，改成走统一通道，消除两套口径。\n5. 补测试覆盖：带 header 的 AppError、不带 header 的普通 AppError（回归）、以及 429 与 503 的 Retry-After 都能透出。\n6. 修好后把 .refactor/DEFECTS.md 里对应那条从 `- [ ]` 改成 `- [x]` 并在行尾补一句修法（只改这一行，不要 git add）。编排器在 M3 打 tag 前会检查该文件 —— 本次停机就是因为它。\n\n最后输出 200 字以内回执：改动点、是否统一了 M3-06 的口径、测试结果。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "b06a81b8f72cc66543771d00ab32bb066be38dae",
   "blocked_reason": null
 }
