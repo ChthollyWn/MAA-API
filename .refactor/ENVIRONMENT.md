@@ -640,3 +640,34 @@
 - 四条字面 verify 实测：#1 exit 0（无输出）；#2 `export ok`；#3 `tests/api/test_tasks_router.py` **27 passed**；
   #4 全仓 **826 passed / 4 skipped**（去掉命令行多余的 `-q` 才能看到汇总行，pytest.ini 已带 `-q`）。
 - 上一节「只能第三次修卡面」的结论已作废：修好后的卡面 + 恢复的实现即可过门禁，本轮实现提交见卡片 `commit` 字段。
+
+### M3-09 实测：CORSMiddleware 的 fullmatch / iter_route_contexts 两种对象 / lifespan 夹具顺序（第 25 次尝试追加）
+
+- **`fastapi.routing.iter_route_contexts(app.routes)` 返回两种对象**（fastapi 0.141.1 实测）：`include_router`
+  进来的 API 路由是 `_EffectiveRouteContext`（有 `.name` / `.tags` / `.path`），而内置的 `/openapi.json`、
+  `/docs`、`/docs/oauth2-redirect`、`/redoc` 是 `RouteContext` —— 它代理 Starlette 的 `Route`，**没有
+  `.tags`**，`context.tags` 直接抛 `AttributeError: 'Route' object has no attribute 'tags'`。遍历时必须
+  `getattr(context, "tags", None)`（内置路径也**不会**进 `app.openapi()['paths']`，所以 spec 侧的 operationId
+  集合恰好只含自建 API 路由）。另：`_EffectiveRouteContext.operation_id` 恒为 `None`，`generate_unique_id_function`
+  的结果只体现在 `app.openapi()` 里，断言 `operationId == {tag}_{name}` 要拿 spec 与 `custom_operation_id(ctx)` 对照。
+- **starlette 1.6.0 `CORSMiddleware.is_allowed_origin` 用 `allow_origin_regex.fullmatch(origin)`**（源码实测）：
+  正则是对**整条 origin**（含 scheme、host、`:`、port）做 fullmatch，所以局域网正则必须自己带 `(?::\d{1,5})?`；
+  `http://192.168.1.1.evil.com`、`http://172.32.0.1:8002` 这类都能被 fullmatch 正确拒掉。实测预检：
+  白名单 origin → 200 + 回显 `access-control-allow-origin: <origin>` + `access-control-allow-credentials: true`；
+  非白名单 → **400**（`Disallowed CORS origin`）且**完全没有** `access-control-allow-origin` 头（浏览器据此拒绝）。
+  `access-control-allow-methods` 是 `allow_methods` 的原文 join（请求方法必须字面在其中）；`allow_headers`
+  先与 SAFELISTED_HEADERS 求并集再 `sorted()` join，比较时两侧都 lower。显式 origin + credentials 下，
+  普通（非预检）响应也会回显具体 origin（不是 `*`）。
+- **lifespan 一旦接上真实启动步骤，`tests/api` 的每个 client 用例都要同时挂 `tmp_settings` 与 `isolated_db`**：
+  `set_settings(load_settings())` 会绕过夹具注入的缓存重新按 `DEFAULT_CONFIG_PATH` 读盘（只挂 `isolated_db`
+  时读的是仓库真实 `config.yaml`，开发机上的 `MAA_APP_ACCESS_TOKEN` 等环境变量会漏进来），`ensure_schema()`
+  会按 `session.SYNC_URL` 跑真迁移（只挂 `tmp_settings` 时会迁移真实的 `resource/maa_api.db`）。两者都要排在
+  `make_client` 之前（夹具按参数顺序初始化）。实测：临时 sqlite 上 19 条用例共 0.65s（每次进 TestClient 跑一遍
+  `alembic upgrade head`）；`import maa_api.main` 实测 0.22–0.31s，且不 import `maa_api.core/model/router/scheduler/
+  dependence/service./config/log/exception` 任何一个。
+- **`caplog` 能捕到 `TestClient` worker 线程里 lifespan 发出的 logging 记录**（`caplog.at_level(WARNING, logger="maa_api.main")`
+  包住 `make_client(app)`，实测捕到 `WARNING maa_api.main:main.py:214 未配置 access_token，API 处于免鉴权模式`）：
+  卡面担心的「线程里捕获不稳」在本机不成立，但把文案抽成 `warn_if_auth_disabled()` 直接调用仍是更快更稳的钉子。
+- **`tests/api/conftest.py` 与 `tests/api/__init__.py` 的「本目录用例不得 import `maa_api.main`」约定自 M3-09 起失效**
+  （新 main 已是无 import 期副作用的新装配；M3-09 的用例正是 import 它）。两处 docstring 未改（不在该卡 deliverables），
+  后续卡可直接更新。
