@@ -611,3 +611,22 @@
   `ref_template="#/$defs/{model}"` 只在将来出现嵌套模型时生效（用例用临时嵌套模型验证 `$ref == "#/$defs/Inner"`）。
   `x-*` 全部保留在字段层（Fight.series 实测 `x-enum-labels`/`x-group`/`x-label`/`x-widget`，Recruit.expedite_times
   实测 `x-depends-on={'expedite': True}`），取值范围在 `anyOf` 的非 null 分支里（`series` minimum=-1/maximum=6）。
+
+### M3-08 第五次尝试：`0b542d9` 又把 verify #1 回滚成坏形态（实现自 `0a9ce60` 恢复，需再按 `2234ef1` 修卡面）
+
+- **卡面回归**：当前 HEAD = `0b542d9 chore(ledger): M3-08 → pending`，其父 `2234ef1` 已把 verify #1 修成
+  `paths=set(a.openapi()['paths'])`；`0a9ce60` 是 `2234ef1` 的子提交（本卡实现，307+498 行）但**不在 HEAD 祖先里**，
+  被 `0b542d9` 连同工作树一起回退，同时卡面 verify #1 又被回写成 `paths={r.path for r in a.routes}`。
+  字面执行必 `exit 1`：`AttributeError: '_IncludedRouter' object has no attribute 'path'` —— 与本卡实现无关
+  （前几节已用不 import 本仓的最小复现钉死）。`git show HEAD:.refactor/tasks/M3-08.json` 可复核。
+- 本次实现从 `0a9ce60` 原样恢复（`git checkout 0a9ce60 -- maa_api/api/routers/tasks.py tests/api/test_tasks_router.py`）。
+  实测：verify #2 `export ok`（exit 0）；`tests/api/test_tasks_router.py` 27 passed；全仓 `.venv/bin/python -m pytest -q` exit 0。
+  等价 verify #1（把 `{r.path for r in a.routes}` 换成 `set(a.openapi()['paths'])`）exit 0 →
+  `['/api/tasks/types', '/api/tasks/types/{type_name}', '/api/tasks/validate']`，`len(TASK_MODELS)==9`。
+- **要这张卡脱离 blocked/复活循环，只能第三次按 `2234ef1` 修 `.refactor/tasks/M3-08.json` 的 verify #1，并同步编排器
+  内存卡片（否则台账序列化会再次回滚它）**。实现侧无解：`include_router` 无条件只 append 一个 `_IncludedRouter`，
+  一个包装对象不可能同时贡献三条路径。
+- 本轮端点实测（现搭 app + TestClient）：`POST /validate` 默认（setting 表空）→ `params={'stage':'1-7','client_type':'Bilibili','server':'CN'}`、
+  `raw_params={'stage':'1-7'}`；显式 `client_type=null` → `params` 不含该键、`raw_params={'stage':'1-7','client_type':None}`；
+  setting 写 `channel.client_type=Official` / `channel.server=JP` 后 → 注入 `Official/JP`。`GET /types` → 200 `{items:9,total:9,page:1,size:9}`；
+  `GET /types?lang=en` → 400 `INVALID_PARAMETER`；`GET /types/Nope` → 400 `UNKNOWN_TASK_TYPE`。
