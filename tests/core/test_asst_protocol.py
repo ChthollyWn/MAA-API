@@ -8,8 +8,8 @@ import inspect
 import json
 
 from maa_api.core.asst_protocol import AsstProtocol
+from maa_api.core.enums import Message
 from maa_api.model.core.asst import Asst
-from maa_api.model.util.utils import Message
 from tests.fakes import fake_asst as fake_asst_module
 from tests.fakes.fake_asst import SCRIPTS, FakeAsst
 
@@ -166,7 +166,7 @@ def test_disconnect_script_is_observable(fake_asst_factory):
 
 
 def test_scripts_registry_exposes_four_required_scenarios():
-    assert set(SCRIPTS) == {"success", "failure", "stuck", "disconnect"}
+    assert {"success", "failure", "stuck", "disconnect"} <= set(SCRIPTS)
     assert SCRIPTS["stuck"].stuck is True
     assert SCRIPTS["failure"].stuck is False
 

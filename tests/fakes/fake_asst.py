@@ -11,11 +11,16 @@
 - 事件在后台线程里按剧本顺序发出，因此调用方可以观察到：
   “任务成功”（完成 + 全部完成）、“任务失败”（TaskChainError）、
   “任务卡死”（只发出前缀事件、``running()`` 恒为 True、脚本线程已结束）、
-  “连接断开”（``ConnectionInfo:Disconnect`` 后 ``connected()`` 变 False）。
+  “连接断开”（``ConnectionInfo:Disconnect`` 后 ``connected()`` 变 False）；
+- 崩溃注入：``crash`` 剧本在 ``start()`` 里先发出首个事件、随即 ``os._exit(-11)``
+  （SIGSEGV 语义），供 M1-10 验证 CoreSupervisor 的检测、落库、退避与重启。
+  它只能在子进程里用：直接在测试进程里触发会杀掉 pytest。
+
+枚举取自 ``maa_api/core/enums.py``（唯一事实来源），不再引用待删的旧模块。
 
 名词：
 
-- ``FakeScript``：一次运行的剧本（事件序列 + 连接结果 + 是否卡死）；
+- ``FakeScript``：一次运行的剧本（事件序列 + 连接结果 + 是否卡死 + 崩溃退出码）；
 - ``CallbackRecord``：已经回调出去的一条消息，测试可直接断言；
 - ``FakeAsst.records``：全部回调记录；``FakeAsst.calls``：实例方法调用流水。
 """
@@ -24,18 +29,21 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, ClassVar, Sequence
+from typing import Any, Callable, ClassVar, Sequence, Union
 
-from maa_api.model.util.utils import InstanceOptionType, JSON, Message, StaticOptionType
+from maa_api.core.enums import InstanceOptionKey, Message, StaticOptionKey
 
 __all__ = [
+    "CRASH_SCRIPT",
     "CallbackFn",
     "CallbackRecord",
     "FakeAsst",
     "FakeScript",
+    "JSON",
     "ScriptedEvent",
     "SCRIPTS",
     "DISCONNECT_SCRIPT",
@@ -44,6 +52,12 @@ __all__ = [
     "SUCCESS_SCRIPT",
     "get_script",
 ]
+
+JSON = Union[dict[str, Any], list[Any], int, float, str, bool, None]
+"""可 JSON 序列化的纯数据（与 ``maa_api.core.asst_protocol.JSON`` 同形）。"""
+
+#: AsyncCallInfo 载荷里的 ``details.cost``：真机实测是毫秒数（M1-01），替身给个定值。
+_ASYNC_COST_MS = 1
 
 CallbackFn = Callable[[int, bytes, Any], None]
 """回调签名，与 ``Asst.CallBackType`` 对齐（message, details, arg）。"""
@@ -101,6 +115,12 @@ class FakeScript:
     stuck: bool = False
     """True 表示剧本放完后 ``running()`` 仍保持 True（任务卡死）。"""
 
+    crash_exitcode: int | None = None
+    """非 None 时 ``start()`` 先发首个事件、随即 ``os._exit(crash_exitcode)``。
+
+    ``-11`` 表示 SIGSEGV 语义（native 段错误）；None（默认）表示正常剧本。
+    """
+
 
 SUCCESS_SCRIPT = FakeScript(
     name="success",
@@ -139,11 +159,24 @@ DISCONNECT_SCRIPT = FakeScript(
     ),
 )
 
+CRASH_SCRIPT = FakeScript(
+    name="crash",
+    description="崩溃注入：发出首个事件后 os._exit(-11)，子进程以 SIGSEGV 语义死亡",
+    events=(ScriptedEvent(Message.TaskChainStart),),
+    crash_exitcode=-11,
+)
+
 SCRIPTS: dict[str, FakeScript] = {
     script.name: script
-    for script in (SUCCESS_SCRIPT, FAILURE_SCRIPT, STUCK_SCRIPT, DISCONNECT_SCRIPT)
+    for script in (
+        SUCCESS_SCRIPT,
+        FAILURE_SCRIPT,
+        STUCK_SCRIPT,
+        DISCONNECT_SCRIPT,
+        CRASH_SCRIPT,
+    )
 }
-"""内置剧本：success / failure / stuck / disconnect。"""
+"""内置剧本：success / failure / stuck / disconnect / crash。"""
 
 
 def get_script(script: FakeScript | str) -> FakeScript:
@@ -164,6 +197,9 @@ class FakeAsst:
     :param arg: 回调时原样回传的自定义参数
     :param delay_scale: 剧本中每个 delay 的缩放系数，便于测试调快调慢
     :param screenshot: ``get_image`` / ``get_image_bgr`` 返回的假截图字节
+    :param resolution: ``last_resolution()`` 的分辨率；None 表示「尚未收到
+        ResolutionGot」，此时 ``get_image`` 不显式给 size 就返回 None
+    :param map_level_keys: ``get_map_level_key`` 的假关卡索引，查不到返回 None
     """
 
     # ---- 类级（静态接口）状态，测试可用 reset_class_state() 复位 ----
@@ -181,12 +217,20 @@ class FakeAsst:
         *,
         delay_scale: float = 1.0,
         screenshot: bytes | None = None,
+        resolution: tuple[int, int] | None = (1280, 720),
+        map_level_keys: dict[str, dict[str, str | None]] | None = None,
     ) -> None:
         self.script = get_script(script)
         self.callback = callback
         self.arg = arg
         self.delay_scale = delay_scale
         self.screenshot = screenshot
+        self.resolution = (
+            None if resolution is None else (int(resolution[0]), int(resolution[1]))
+        )
+        self.map_level_keys: dict[str, dict[str, str | None]] = dict(
+            map_level_keys or {}
+        )
 
         self._lock = threading.RLock()
         self._thread: threading.Thread | None = None
@@ -227,12 +271,17 @@ class FakeAsst:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def load(path, incremental_path=None, user_dir=None) -> bool:
-        FakeAsst.resource_load_calls.append((path, incremental_path, user_dir))
+    def load(path, incremental=False, user_dir=None) -> bool:
+        """记录一次资源加载；不碰文件系统、不加载任何动态库。
+
+        参数名与 M1-04 的 ``Asst`` 的 ``load(path, incremental=False, user_dir=None)``
+        对齐；``incremental=True`` 在替身上同样只记录（语义由真实内核承担）。
+        """
+        FakeAsst.resource_load_calls.append((path, incremental, user_dir))
         return FakeAsst.resource_load_result
 
     @staticmethod
-    def set_static_option(option_type: StaticOptionType, option_value: str) -> bool:
+    def set_static_option(option_type: StaticOptionKey, option_value: str) -> bool:
         FakeAsst.static_option_calls.append((option_type, option_value))
         return True
 
@@ -252,7 +301,7 @@ class FakeAsst:
     # 实例接口
     # ------------------------------------------------------------------
 
-    def set_instance_option(self, option_type: InstanceOptionType, option_value: str) -> bool:
+    def set_instance_option(self, option_type: InstanceOptionKey, option_value: str) -> bool:
         self._record_call("set_instance_option", option_type, option_value)
         return True
 
@@ -265,9 +314,12 @@ class FakeAsst:
         self._record_call("connect_async", adb_path, address, config, block)
         call_id = next(self._async_ids)
         ok = self._connect_from_script()
-        # 真实内核的异步结果通过回调送达，不看返回值
-        self._emit(Message.AsyncCallInfo,
-                   {"async_call_id": call_id, "what": "Connect", "ret": ok})
+        # 复刻 M1-01 实测的回调顺序：msg=2 的 ConnectionInfo 会先报出
+        # what == "Connected"；它只是中间态，异步连接的最终结果只能认下面
+        # msg=4 的 AsyncCallInfo（details.details.ret）。
+        if ok:
+            self._emit(Message.ConnectionInfo, {"what": "Connected"}, connected=True)
+        self._emit(Message.AsyncCallInfo, self._async_payload(call_id, "Connect", ok))
         return call_id
 
     def connected(self) -> bool:
@@ -281,24 +333,33 @@ class FakeAsst:
     def click(self, x: int, y: int, block: bool = True) -> int:
         self._record_call("click", x, y, block)
         call_id = next(self._async_ids)
-        self._emit(Message.AsyncCallInfo,
-                   {"async_call_id": call_id, "what": "Click", "ret": True})
+        self._emit(Message.AsyncCallInfo, self._async_payload(call_id, "Click", True))
         return call_id
 
     def screencap(self, block: bool = True) -> int:
         self._record_call("screencap", block)
         call_id = next(self._async_ids)
-        self._emit(Message.AsyncCallInfo,
-                   {"async_call_id": call_id, "what": "Screencap", "ret": True})
+        self._emit(Message.AsyncCallInfo, self._async_payload(call_id, "Screencap", True))
         return call_id
 
-    def get_image(self, size: int) -> bytes | None:
-        self._record_call("get_image", size)
-        return None if self.screenshot is None else self.screenshot[:size]
+    def last_resolution(self) -> tuple[int, int] | None:
+        """最近一次 ResolutionGot 的分辨率；构造时传 ``resolution=None`` 表示未知。"""
+        self._record_call("last_resolution")
+        return self.resolution
 
-    def get_image_bgr(self, size: int) -> bytes | None:
+    def get_image(self, size: int | None = None,
+                  bgr: bool = False) -> bytes | None:
+        """返回假截图字节；``size`` 为 None 时用 ``resolution`` 推算 ``w*h*3``。
+
+        没有假截图或尺寸未知（``resolution=None``）时返回 None，对齐真实内核
+        「取图失败」的语义；``bgr=True`` 与 ``get_image_bgr`` 等价。
+        """
+        self._record_call("get_image", size, bgr)
+        return self._image_bytes(size)
+
+    def get_image_bgr(self, size: int | None = None) -> bytes | None:
         self._record_call("get_image_bgr", size)
-        return None if self.screenshot is None else self.screenshot[:size]
+        return self._image_bytes(size)
 
     def get_uuid(self) -> str | None:
         self._record_call("get_uuid")
@@ -308,6 +369,11 @@ class FakeAsst:
         self._record_call("get_tasks_list")
         with self._lock:
             return list(self._task_order)
+
+    def get_map_level_key(self, key: str) -> dict[str, str | None] | None:
+        """关卡互查替身：查 ``map_level_keys`` 表，查不到返回 None（降级语义）。"""
+        self._record_call("get_map_level_key", key)
+        return self.map_level_keys.get(key)
 
     def append_task(self, type_name: str, params: JSON = {}) -> TaskId:
         self._record_call("append_task", type_name, params)
@@ -330,6 +396,15 @@ class FakeAsst:
 
     def start(self) -> bool:
         self._record_call("start")
+        if self.script.crash_exitcode is not None:
+            # 崩溃注入（docs/03 §8）：先放首个事件，让父进程看到「命令循环已在跑、
+            # 回调已通」的现场，再以 -11 退出（SIGSEGV 语义）。os._exit 不跑清理、
+            # 不抛异常，进程立即消失——只能在子进程里触发，不要在 pytest 进程里用。
+            if self.script.events:
+                first = self.script.events[0]
+                self._emit(first.message, first.details,
+                           connected=first.connected, running=first.running)
+            os._exit(int(self.script.crash_exitcode))
         with self._lock:
             if self._running:
                 return False
@@ -460,6 +535,40 @@ class FakeAsst:
     def _record_call(self, name: str, *args: Any, **kwargs: Any) -> None:
         with self._lock:
             self._calls.append((name, args, kwargs))
+
+    def _async_payload(self, call_id: int, what: str, ok: bool) -> dict[str, Any]:
+        """AsyncCallInfo 载荷，键名与层级照 M1-01 真机实测的原始 JSON 复刻。
+
+        实测原文（``tests/fixtures/async_call_info_sample.json``）::
+
+            {"async_call_id":1,"details":{"cost":1632,"ret":true},
+             "uuid":"f7c1c4ced5e96a23","what":"Connect"}
+
+        即：关联键 ``async_call_id`` 与调用类型 ``what`` 在**顶层**，成功标志是
+        顶层 ``details`` 里的 ``ret``（从回调记录看就是 ``details.details.ret``
+        这条双层路径，与 docs/03 §8 的措辞一致）；文档原先「两者同在 details
+        里」的推测已被实测证伪，替身不得再发扁平 ``ret``。
+        """
+        return {
+            "async_call_id": call_id,
+            "details": {"cost": _ASYNC_COST_MS, "ret": bool(ok)},
+            "uuid": self._uuid,
+            "what": what,
+        }
+
+    def _expected_image_size(self) -> int:
+        """按构造时的 ``resolution`` 推算截图缓冲容量（RGB：``w*h*3``）。"""
+        if self.resolution is None:
+            return 0
+        return self.resolution[0] * self.resolution[1] * 3
+
+    def _image_bytes(self, size: int | None) -> bytes | None:
+        """假截图字节：``size`` 缺省时用分辨率推算，尺寸未知视为取图失败。"""
+        if size is None:
+            size = self._expected_image_size()
+        if size <= 0 or self.screenshot is None:
+            return None
+        return self.screenshot[:size]
 
     def _connect_from_script(self) -> bool:
         with self._lock:
