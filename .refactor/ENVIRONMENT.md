@@ -27,6 +27,11 @@
 - **`AsstGetTasksList(handle)`（`restype=c_char_p`）在本内核上直接段错误**：`<user_dir>/crash.log` 记 `SIGSEGV`，进程退出码是 **1**（不是 139/-11）。即 MaaCore 把 native 崩溃转成 exit 1 + crash.log，supervisor 不能靠「exitcode 为负」判崩溃。
 - **`import maa_api.model.core.asst` 有 import 期副作用**：连带 import `maa_api.config.config`，后者 mkdir `static/ resource/lib resource/log resource/temp` 并可能拷贝 `daily_task_template.json`（CWD 非仓库根时 RuntimeError）。子进程启动序列别走这条链。
 - **spawn 子进程 + `ctx.Queue()` 已验证可用**：入口必须是模块级函数、回调的 `event_queue` 靠子进程模块级全局持有（`ctypes.c_void_p(id(arg))` 指针法跨进程无效）；子进程继承父进程环境变量。实测 spawn→内核 READY 约 0.16–0.29s，SIGKILL→exitcode -9 约 0.05s。
+- **`AsstGetImage` 返回的是 PNG 编码字节，不是裸 RGB**（M1-04 真机实测，v6.17.5 + 127.0.0.1:5555，2560x1440）：magic `\x89PNG\r\n\x1a\n`、本次 637585 字节；`size` 只是缓冲区容量上界，`get_image` 必须按返回值截断，落盘方应把它当**已编码图像**直接写文件，不要再做 JPEG 编码。
+- **`AsstGetImageBgr` 返回裸 BGR，但长度不等于 `w*h*3`**：同一次连接（ResolutionGot=2560x1440，`_expected_image_size()=11059200`）实测返回 2764800 字节 = 1280x720x3（疑似内核内部缩放图），首字节 `\x1b\x1b\x1b`。任何消费方都不能假设返回长度等于分辨率推算值。
+- **`AsstGetTasksList` 用正确的三参签名 `(handle, int32* buff, size)` 调用是安全的**：M1-04 在未连接状态下实测返回 0（无段错误）；此前记录的段错误来自错误的 `restype=c_char_p` / 缺参数调用，不是该 API 本身的缺陷。
+- **`AsstGetMapLevelKey` 用 `ctypes.Structure` 作 restype 在 macOS 可用**（M1-04 实测）：`AsstGetMapLevelKey("1-7")` 返回 `{'stage_id': 'main_01-07#f#', 'code': '1-7', 'level_id': 'obt/main/level_main_01-07', 'name': '暴君'}`；查不到时四字段全 NULL。`_has_symbol` 探测 + 条件绑定在任何平台都不会因缺符号报错。
+- **异步连接回调序列实测**（M1-04 走 `maa_api/core/asst.py` 复现 M1-01）：`connect_async(...)` 返回 1，回调序列 `[2, 2, 2, 2, 2, 4]`，msg=4 载荷顶层 `async_call_id=1`、`details.details.ret=true`、顶层 `what="Connect"`；`ResolutionGot` 的 `what` 与 `width/height` 分别在载荷顶层与 `details` 里，缓存后 `last_resolution()==(2560,1440)` 成立。
 
 ## 验证命令的陷阱
 
