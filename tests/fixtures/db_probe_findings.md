@@ -1,6 +1,6 @@
 # M2-01 实测记录：SQLModel + Alembic 在本机 SQLite 上的 DDL 能力边界
 
-- 生成时间：2026-09-16T11:08:24.768929+00:00
+- 生成时间：2026-09-16T12:33:27.159634+00:00
 - 环境：Python 3.13.3 / SQLAlchemy 2.0.54 /
   SQLModel 0.0.42 / Alembic 1.20.0 /
   SQLite 3.49.1（macOS-15.4.1-arm64-arm-64bit-Mach-O）
@@ -8,6 +8,13 @@
   内完成，仓库里不会留下 `alembic.ini` / `migrations/` / `*.db`）
 
 > 本文件全部结论来自实测；与 docs/04 的写法冲突处以本文件为准，docs 的推断在下面逐条标注。
+>
+> **M2-14 修正（2026-09-16）**：§2 与 §6.5 原先记录的 `auto_vacuum`「唯一生效放置」只写了
+> `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`、漏了紧跟的 `conn.commit()`。
+> 该缺陷由 **M2-04** 实测发现（照抄后 `alembic_version` 行为空、第二次 `upgrade head` 报
+> `table already exists`，见 `.refactor/DEFECTS.md` 的 M2-01 条目）；M2-14 已按实测补全
+> 说明，并给探针补上「`alembic_version` 行 == 预期版本」断言与「不 commit」对照场景，
+> 使这类错误能被探针本身挡住。
 
 ## 结论速览
 
@@ -16,10 +23,10 @@
 | 命名约定 | 表定义**之前**设置才生效（`naming_convention_applied = 是`）；表定义之后才设置时，约定名**不跟随** |
 | `AUTOINCREMENT` | DDL 里确实落下了关键字；写法：`id: int \| None = Field(default=None, primary_key=True)` + `__table_args__ = {'sqlite_autoincrement': True}` |
 | 部分唯一索引 | `sqlite_where` 的 `WHERE` 子句进入了 DDL |
-| `auto_vacuum` | 生效的放置方式：`env_py_before_begin_transaction` |
+| `auto_vacuum` | 生效的放置方式：`env_py_before_begin_transaction`，且 pragma 之后**必须 `conn.commit()`**（漏了会让版本行被回滚，见第 2 节） |
 | autogenerate | 部分索引谓词被保留；产物直接 `upgrade` **跑不通**（`import sqlmodel` 缺失，见第 3 节） |
 | batch downgrade | `batch_downgrade_ok = 是`；注意 batch 重建会丢 `AUTOINCREMENT`（见第 4 节） |
-| greenlet | **缺失**（`async_engine_usable = 否`） |
+| greenlet | 已安装（`async_engine_usable = 是`） |
 
 ## 1. AUTOINCREMENT 的正确写法
 
@@ -52,27 +59,53 @@ CREATE TABLE probe_child (
 
 ## 2. `auto_vacuum`：哪种放置生效，哪种静默失效
 
-三种放置方式各自在**全新临时库**里真跑 `alembic upgrade head`，升级完成后用**新连接**读
-`PRAGMA auto_vacuum`（0 = NONE，1 = FULL，2 = INCREMENTAL）：
+四种放置方式各自在**全新临时库**里真跑 `alembic upgrade head`，升级完成后用**新连接**读
+`PRAGMA auto_vacuum`（0 = NONE，1 = FULL，2 = INCREMENTAL），并核对 `alembic_version`
+表里是否有且仅有 `0001` 这一行 —— 只查「表存在」挡不住版本行被回滚
+（M2-14 补，起因见下）：
 
-| 放置方式 | `PRAGMA auto_vacuum` 实测值 | 结论 |
-|---|---|---|
-| `migration_first_statement` | 0 | ❌ 未生效（0 = NONE，静默失效） |
-| `env_py_before_begin_transaction` | 2 | ✅ 生效 |
-| `migration_autocommit_block` | 0 | ❌ 未生效（0 = NONE，静默失效） |
+| 放置方式 | `PRAGMA auto_vacuum` 实测值 | `alembic_version` 实测行 | 结论 |
+|---|---|---|---|
+| `migration_first_statement` | 0 | `0001` | ❌ 未生效（0 = NONE，静默失效） |
+| `env_py_before_begin_transaction` | 2 | `0001` | ✅ 生效 |
+| `migration_autocommit_block` | 0 | `0001` | ❌ 未生效（0 = NONE，静默失效） |
+| `env_py_before_begin_transaction_no_commit` | 2 | **空（0 行）** | ⚠️ **不可用**：pragma 拿到 2，但 `alembic_version` 行被回滚 |
 
 - 生效写法：`env_py_before_begin_transaction`。
   对应的代码形态是在 `env.py` 的 `run_migrations_online()` 里、`context.begin_transaction()` **之前**，于 connection 上执行 `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`；此时库还是空的（`alembic_version` 尚未创建），pragma 被写进库头立即生效。
+- **`PRAGMA` 之后必须紧跟一次 `conn.commit()`（M2-04 实测发现，M2-14 补入本文件）**。
+  正确形态一共两行，缺第二行就会出上面那条坑：
+
+  ```python
+  conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")
+  conn.commit()  # ⚠️ 不能省：见下一条
+  ```
+
+  本场景（`env_py_before_begin_transaction`）实测 `PRAGMA auto_vacuum = 2`、
+  `alembic_version` 行 = `0001`；
+  紧接着的第二次 `upgrade head` 实测为无操作、无报错（幂等）。
+- **不 `commit()` 的具体现象（对照场景 `env_py_before_begin_transaction_no_commit`，M2-14 实测复现 M2-04 的发现）**：
+  只执行 pragma、不提交时，实测 `PRAGMA auto_vacuum = 2`、
+  `alembic_version` 行 = **空（0 行）**。原因是
+  `exec_driver_sql()` 会 autobegin 一个 SQLAlchemy 事务；Alembic 的 `MigrationContext`
+  只要发现连接上已有事务就把它当「外部事务」，于是 `begin_transaction()` 退化成 no-op、
+  迁移结束也不提交：DDL 因为 pysqlite 不把 DDL 包进事务而留在库里（**表建好了**），
+  但 `alembic_version` 的 INSERT 随连接关闭一起回滚（**版本行没了**）。
+  第二次 `upgrade head` 实测：`OperationalError: (sqlite3.OperationalError) table probe_min already exists [SQL: CREATE TABLE probe_min ( id INTEGER NOT NULL, name VARCHAR(16) NOT NULL, CONS…`
+  —— 版本行为空使 Alembic 从头重放 0001，撞上 `table ... already exists`。
+  2026-09-16 的 M2-14 探针跑出这条对照，正是 M2-04 写 `env.py` 初版时踩到的现象。
 - **docs/04 §2 原本的写法（0001 `upgrade()` 首行）实测无效**：值仍是 0，而且没有任何报错 ——
   典型的静默失效。原因是 Alembic 在跑第一个迁移之前已经建好了 `alembic_version` 表，
   库不再是空库，SQLite 只在「库为空」时立即接受 `auto_vacuum` 变更，否则要整库 `VACUUM` 才生效。
 - `op.get_context().autocommit_block()` 同样无效（值 0）：它只解决「事务里不能改」的问题，
   解决不了「库非空」，`alembic_version` 此时已经存在。
-- 三种都没拿到 2 时才需要兜底实验；本次兜底未触发，预留的兜底候选是「pragma + `VACUUM`」与「迁移前用裸 `sqlite3` 连接在空库上设置」。
+- 四种都没拿到 2 时才需要兜底实验；本次兜底未触发，预留的兜底候选是「pragma + `VACUUM`」与「迁移前用裸 `sqlite3` 连接在空库上设置」。
 - **给 M2-04 的落点**：把 `PRAGMA auto_vacuum=INCREMENTAL` 从初始迁移挪到
   `maa_api/db/migrations/env.py` 的 `run_migrations_online()` 开头（`context.configure` 之前），
-  并留一条注释说明「写在迁移里是静默无效的（M2-01 实测）」；`connect` 事件里同样不能写
-  （docs/04 §2 的判断正确，只是落点选错了）。
+  **紧跟一次 `conn.commit()`**，并留一条注释说明「写在迁移里是静默无效的、不 commit 会丢版本行」；
+  `connect` 事件里同样不能写（docs/04 §2 的判断正确，只是落点选错了）。
+  M2-04 的 `env.py` 现状即按此实现（pragma → `conn.commit()` → `context.configure`），
+  M2-14 的探针实测其成品（`env_py_before_begin_transaction`）版本行为 `0001`。
 
 ## 3. autogenerate 漏了什么、需要人工补什么
 
@@ -139,7 +172,7 @@ CREATE TABLE probe_child (
   实测 `batch_upgrade_preserved_autoincrement = 否`，
   `batch_downgrade_preserved_autoincrement = 否`；
   upgrade 前 DDL：`CREATE TABLE probe_child ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(16) NOT NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )`；
-  batch 重建后 DDL：`CREATE TABLE "probe_child" ( id INTEGER NOT NULL, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(24) NOT NULL, note VARCHAR(32), PRIMARY KEY (id), CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE )`；
+  batch 重建后 DDL：`CREATE TABLE "probe_child" ( id INTEGER NOT NULL, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(24) NOT NULL, note VARCHAR(32), PRIMARY KEY (id), CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )`；
   downgrade 后 DDL：`CREATE TABLE "probe_child" ( id INTEGER NOT NULL, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(16) NOT NULL, PRIMARY KEY (id), CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )`。
   原因：`batch_alter_table` 重建时靠 SQLAlchemy 反射拿旧表结构，而 SQLite 反射**不还原**
   `sqlite_autoincrement` 表选项，于是 `id INTEGER PRIMARY KEY AUTOINCREMENT` 变成
@@ -162,12 +195,8 @@ CREATE TABLE probe_child (
 
 ## 5. greenlet 缺失的原始报错与影响面
 
-- `greenlet_available = False`：`.venv` 里没有 greenlet。
-- 原始报错（`async_engine_error` 原样记录）：`the greenlet library is required to use this function. No module named 'greenlet'`
-- 异常类型：`builtins.ValueError`；`async_engine_usable = 否`。
-- **影响面**：只要 greenlet 缺失，`sqlite+aiosqlite:///...` 的 `create_async_engine` / `connect` / `execute` 全部不可用 —— 也就是 docs/04 §2 的 `maa_api/db/session.py`（异步引擎 + `async_sessionmaker`）以及将来所有异步仓储/路由都跑不起来；Alembic 走的同步 `sqlite:///` 引擎不受影响。
-- **处置（归 M2-02，本卡不装）**：把 `greenlet` 显式加入 `pyproject.toml` 依赖（SQLAlchemy 只把它放在 `sqlalchemy[asyncio]` extra 里，本项目是按 `sqlalchemy` 裸装的，所以它没有被带进来），然后 `poetry lock` / `pip install greenlet`。
-- 测试侧不需要新增 pytest 插件：用同步测试函数 + `asyncio.run(...)` 即可（本探针就是这么跑异步引擎的）。
+- `greenlet_available = True`（已安装），异步引擎可用性 = 是，`select 1` 返回值 = 1。
+- 本机当前**已能**创建异步引擎，M2-02 仍需把 greenlet 写进显式依赖（aiosqlite/SQLAlchemy async 的硬要求），不要依赖间接传递。
 
 ## 6. 给 M2-03 / M2-04 的具体写法建议
 
@@ -188,9 +217,15 @@ CREATE TABLE probe_child (
    备选方案是在 env.py 里用 `render_item` 把 `AutoString` 渲染成 `sa.String(length=...)`。
 5. **env.py**：`render_as_batch=True, compare_type=True, compare_server_default=True` 照抄，
    并在 `run_migrations_online()` 里 `context.begin_transaction()` 之前加
-   `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`；
+   `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`，**紧跟一次 `conn.commit()`**
+   （M2-14 修正：M2-01 原记录漏了这一行，M2-04 照抄后 `alembic_version` 行为空、第二次
+   `upgrade head` 报 `table already exists`；实测见第 2 节）；
    不要写进初始迁移的 `upgrade()`（实测静默无效）。
-6. **迁移 review 清单**：`import sqlmodel`、`sqlite_where` 谓词、`sqlite_autoincrement=True`、
+6. **迁移后的断言不能只看表**：每次 `upgrade head` 之后都要核对 `alembic_version` 有且仅有
+   预期 revision 这一行（M2-14 补，探针的 `auto_vacuum_version_row_ok` /
+   `auto_vacuum_no_commit_control_reproduced` 两条门禁即为此设）。表建好而版本行为空时，
+   下一次 `upgrade head` 会从头重放并撞 `table already exists`。
+7. **迁移 review 清单**：`import sqlmodel`、`sqlite_where` 谓词、`sqlite_autoincrement=True`、
    JSON `server_default`、`ondelete` 级联、约定名；涉及 rebuild 的迁移额外检查 `copy_from`
    与迁移后的 `AUTOINCREMENT`/`foreign_keys` 是否还在。
-7. **异步层（M2-02）**：greenlet 必须显式加依赖；在装上之前的 async 代码无法运行。
+8. **异步层（M2-02）**：greenlet 必须显式加依赖；在装上之前的 async 代码无法运行。

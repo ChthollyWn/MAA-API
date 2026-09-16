@@ -12,11 +12,15 @@
    （CASCADE / SET NULL）、JSON 列与 ``__table_args__={'sqlite_autoincrement': True}``
    的表，``create_all`` 到临时库后读 ``sqlite_master`` 的 DDL 原文逐项核对；
    另做两个对照：表定义之后才设置命名约定、以及去掉 ``sqlite_autoincrement``。
-2. **``auto_vacuum=INCREMENTAL`` 的三种放置方式**：每种都在全新临时库里真跑一次
-   ``alembic upgrade head``，升级后用**新连接**读 ``PRAGMA auto_vacuum`` 的整数值。
+2. **``auto_vacuum=INCREMENTAL`` 的四种放置方式**：每种都在全新临时库里真跑一次
+   ``alembic upgrade head``，升级后用**新连接**读 ``PRAGMA auto_vacuum`` 的整数值，
+   并核对 ``alembic_version`` 表里是否有且仅有预期 revision 这一行（M2-14 补：只查
+   「表存在」会放过「版本行被回滚」的坑）。
    (a) 0001 ``upgrade()`` 首行、(b) ``env.py`` 的 ``run_migrations_online()`` 里
-   ``context.begin_transaction()`` 之前、(c) 0001 的 ``op.get_context().autocommit_block()``。
-   三种都拿不到 2 时继续试可行做法（pragma+VACUUM / 迁移前裸 sqlite3 连接）。
+   ``context.begin_transaction()`` 之前（pragma + ``conn.commit()``，M2-14 修正后）、
+   (c) 0001 的 ``op.get_context().autocommit_block()``、
+   (d) 对照：同 (b) 但不 ``conn.commit()``（M2-04 实测踩到的缺陷形态）。
+   四种都拿不到 2 时继续试可行做法（pragma+VACUUM / 迁移前裸 sqlite3 连接）。
 3. **``--autogenerate`` 保真度**：用 docs/04 §8.2 的 env.py 配置
    （``render_as_batch=True, compare_type=True, compare_server_default=True``）
    分别对「空库」与「已由 create_all 建好的库」跑 autogenerate，逐条比生成物与模型。
@@ -405,11 +409,21 @@ else:
 '''
 
 PLACEMENT_NONE = "        pass  # 本场景不在 env.py 注入额外语句"
-PLACEMENT_ENV_PRAGMA = '        conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")'
+# M2-14 修正：M2-01 原记录只写了 pragma 那一行、漏了 commit；M2-04 照抄后真实踩到
+# 「表建好了但 alembic_version 行被回滚」。正确形态是 pragma 之后必须提交。
+PLACEMENT_ENV_PRAGMA = (
+    '        conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")\n'
+    '        conn.commit()  # 必须：不 commit 则 alembic_version 行被回滚（M2-04 实测）'
+)
+# 对照场景：M2-01 原记录里的不完整写法（pragma 后不 commit），用来实测出具体现象。
+PLACEMENT_ENV_PRAGMA_NO_COMMIT = '        conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")'
 PLACEMENT_ENV_PRAGMA_VACUUM = (
     '        conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")\n'
     '        conn.exec_driver_sql("VACUUM")'
 )
+
+# 每个 auto_vacuum 场景都会 upgrade 到这个 revision，并核对 alembic_version 行（M2-14 补）。
+EXPECTED_REVISION = "0001"
 
 REVISION_TEMPLATE = '''"""{doc}"""
 
@@ -513,7 +527,17 @@ AUTO_VACUUM_SCENARIOS = (
         "autocommit_block",
         "        pass  # placement c: pragma 写在 autocommit_block 里",
     ),
+    (
+        # M2-14 补的对照场景：M2-01 原记录漏了 commit，即这个形态。
+        "env_py_before_begin_transaction_no_commit",
+        None,
+        PLACEMENT_ENV_PRAGMA_NO_COMMIT,
+    ),
 )
+
+# 文档推荐的落点（M2-14 修正后带 commit），`auto_vacuum_placement` 优先取它。
+RECOMMENDED_PLACEMENT = "env_py_before_begin_transaction"
+NO_COMMIT_PLACEMENT = "env_py_before_begin_transaction_no_commit"
 
 AUTO_VACUUM_FALLBACKS = (
     (
@@ -566,7 +590,30 @@ def _run_auto_vacuum_scenario(
     value = _read_auto_vacuum(db) if db.exists() else 0
     note["tables_after_upgrade"] = tables
     note["alembic_version_present"] = "alembic_version" in tables
+    # M2-14 补：只查「表存在」挡不住版本行被回滚（M2-04 正是这样踩到坑的），
+    # 必须用新连接核对 alembic_version 里确实有且仅有预期版本这一行。
+    version_rows = (
+        [str(row["version_num"]) for row in _sqlite_rows(db, "select version_num from alembic_version")]
+        if note["alembic_version_present"]
+        else []
+    )
+    note["alembic_version_rows"] = version_rows
+    note["alembic_version_expected"] = EXPECTED_REVISION
+    note["alembic_version_ok"] = version_rows == [EXPECTED_REVISION]
     note["pragma_value"] = value
+
+    # 版本行丢失时，第二次 upgrade head 会从头重放并撞上 table already exists；
+    # 版本行正确时它应当是无操作。两种结果都实测记录（M2-14 补）。
+    if not note["error"]:
+        try:
+            command.upgrade(Config(str(ini)), "head")
+            note["second_upgrade_ok"] = True
+            note["second_upgrade_error"] = ""
+            note["second_upgrade_pragma_value"] = _read_auto_vacuum(db)
+        except Exception as exc:  # noqa: BLE001 - 失败现象就是这里的观测对象
+            note["second_upgrade_ok"] = False
+            note["second_upgrade_error"] = f"{type(exc).__name__}: {exc}"
+
     return value, note
 
 
@@ -589,11 +636,26 @@ def probe_auto_vacuum(root: Path) -> dict:
             fallbacks_tried.append(name)
 
     effective_names = [name for name, value in placements.items() if value == 2]
-    chosen = effective_names[0] if effective_names else ""
+    # 「生效」= pragma 拿到 2 **且** 版本行确实写进去了；只有前者会把 M2-04 的坑放过去。
+    version_row_ok = {name: bool(notes.get(name, {}).get("alembic_version_ok")) for name in placements}
+    usable_names = [name for name in effective_names if version_row_ok.get(name)]
+    if version_row_ok.get(RECOMMENDED_PLACEMENT):
+        chosen = RECOMMENDED_PLACEMENT
+    elif usable_names:
+        chosen = usable_names[0]
+    elif effective_names:
+        chosen = effective_names[0]
+    else:
+        chosen = ""
     return {
         "auto_vacuum_placements": placements,
         "auto_vacuum_placement": chosen,
         "auto_vacuum_effective": bool(effective_names),
+        "auto_vacuum_version_row_ok": version_row_ok,
+        "auto_vacuum_placement_usable": bool(usable_names),
+        "auto_vacuum_version_rows": {
+            name: notes.get(name, {}).get("alembic_version_rows") for name in placements
+        },
         "auto_vacuum_notes": notes,
         "auto_vacuum_fallbacks_tried": fallbacks_tried,
         "auto_vacuum_ineffective_names": [name for name, value in placements.items() if value != 2],
@@ -1137,6 +1199,9 @@ EXP2_DEFAULTS = {
     "auto_vacuum_placements": {name: 0 for name, _, _ in AUTO_VACUUM_SCENARIOS},
     "auto_vacuum_placement": "",
     "auto_vacuum_effective": False,
+    "auto_vacuum_version_row_ok": {name: False for name, _, _ in AUTO_VACUUM_SCENARIOS},
+    "auto_vacuum_placement_usable": False,
+    "auto_vacuum_version_rows": {name: [] for name, _, _ in AUTO_VACUUM_SCENARIOS},
     "auto_vacuum_notes": {},
     "auto_vacuum_fallbacks_tried": [],
     "auto_vacuum_ineffective_names": [],
@@ -1230,6 +1295,8 @@ def run_all_probes(workdir: Path) -> dict:
         isinstance(result.get(key), str) and result[key].strip()
         for key in ("alembic_version", "sqlmodel_version", "sqlalchemy_version", "sqlite_version")
     )
+    av_notes = result.get("auto_vacuum_notes", {}) or {}
+    no_commit_note = av_notes.get(NO_COMMIT_PLACEMENT, {}) or {}
     required_checks = {
         "naming_convention_applied": bool(result.get("naming_convention_applied")),
         "autoincrement_emitted": bool(result.get("autoincrement_emitted")),
@@ -1237,6 +1304,11 @@ def run_all_probes(workdir: Path) -> dict:
         "foreign_key_cascade_emitted": bool(result.get("foreign_key_cascade_emitted")),
         "json_server_default_emitted": bool(result.get("json_server_default_emitted")),
         "auto_vacuum_effective": bool(result.get("auto_vacuum_effective")),
+        # M2-14 补的两条门禁：推荐放置必须真的写下 alembic_version 行；不 commit 的
+        # 对照必须被本探针识别出来（否则文档里那条坑就等于没有门禁挡着）。
+        "auto_vacuum_version_row_ok": bool(result.get("auto_vacuum_placement_usable")),
+        "auto_vacuum_no_commit_control_reproduced": no_commit_note.get("alembic_version_ok") is False
+        and no_commit_note.get("second_upgrade_ok") is False,
         "autogenerate_ran": bool(result.get("autogenerate_ran")),
         "autogenerate_apply_recorded": bool(result.get("autogenerate_generated_migration_applies"))
         or bool(str(result.get("autogenerate_apply_error") or "").strip()),
@@ -1260,12 +1332,37 @@ def run_all_probes(workdir: Path) -> dict:
 
 def build_findings_md(result: dict) -> str:
     av = result.get("auto_vacuum_placements", {})
+    av_notes = result.get("auto_vacuum_notes", {}) or {}
+    av_version_ok = result.get("auto_vacuum_version_row_ok", {}) or {}
+
+    def _version_rows_text(name: str) -> str:
+        """把某场景升级后 alembic_version 表的实测内容渲染成表格单元（M2-14 补）。"""
+        if not av_notes.get(name):
+            return "（未采集到）"
+        rows = av_notes[name].get("alembic_version_rows") or []
+        if not rows:
+            return "**空（0 行）**"
+        return ", ".join(f"`{row}`" for row in rows)
+
+    def _oneline(value: Any, limit: int = 160) -> str:
+        """把可能带换行的报错压成单行，避免撑破 Markdown 的列表项。"""
+        collapsed = " ".join(str(value or "").split())
+        return collapsed if len(collapsed) <= limit else collapsed[: limit - 1] + "…"
+
+    def _verdict(name: str, value: int) -> str:
+        if value == 2 and av_version_ok.get(name):
+            return "✅ 生效"
+        if value == 2:
+            return "⚠️ **不可用**：pragma 拿到 2，但 `alembic_version` 行被回滚"
+        return "❌ 未生效（0 = NONE，静默失效）"
+
     av_rows = "\n".join(
-        f"| `{name}` | {value} | {'✅ 生效' if value == 2 else '❌ 未生效'}"
-        f"{'（0 = NONE，静默失效）' if value == 0 else ''} |"
+        f"| `{name}` | {value} | {_version_rows_text(name)} | {_verdict(name, value)} |"
         for name, value in av.items()
     )
     chosen = result.get("auto_vacuum_placement", "")
+    chosen_note = av_notes.get(chosen, {}) or {}
+    no_commit_note = av_notes.get(NO_COMMIT_PLACEMENT, {}) or {}
     late = result.get("naming_convention_late_control", {}) or {}
     no_flag = result.get("autoincrement_without_flag_control", {}) or {}
     diffs = result.get("autogenerate_diffs", []) or []
@@ -1311,6 +1408,13 @@ def build_findings_md(result: dict) -> str:
   内完成，仓库里不会留下 `alembic.ini` / `migrations/` / `*.db`）
 
 > 本文件全部结论来自实测；与 docs/04 的写法冲突处以本文件为准，docs 的推断在下面逐条标注。
+>
+> **M2-14 修正（2026-09-16）**：§2 与 §6.5 原先记录的 `auto_vacuum`「唯一生效放置」只写了
+> `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`、漏了紧跟的 `conn.commit()`。
+> 该缺陷由 **M2-04** 实测发现（照抄后 `alembic_version` 行为空、第二次 `upgrade head` 报
+> `table already exists`，见 `.refactor/DEFECTS.md` 的 M2-01 条目）；M2-14 已按实测补全
+> 说明，并给探针补上「`alembic_version` 行 == 预期版本」断言与「不 commit」对照场景，
+> 使这类错误能被探针本身挡住。
 
 ## 结论速览
 
@@ -1319,7 +1423,7 @@ def build_findings_md(result: dict) -> str:
 | 命名约定 | 表定义**之前**设置才生效（`naming_convention_applied = {_yn(result.get('naming_convention_applied'))}`）；表定义之后才设置时，约定名{'跟随' if late.get('applied') else '**不跟随**'} |
 | `AUTOINCREMENT` | {'DDL 里确实落下了关键字' if result.get('autoincrement_emitted') else '**没有**落下关键字'}；写法：`id: int \\| None = Field(default=None, primary_key=True)` + `__table_args__ = {{'sqlite_autoincrement': True}}` |
 | 部分唯一索引 | `sqlite_where` 的 `WHERE` 子句{'进入了 DDL' if result.get('partial_index_emitted') else '**没有**进入 DDL'} |
-| `auto_vacuum` | 生效的放置方式：`{chosen or '（三种都没拿到 2）'}` |
+| `auto_vacuum` | 生效的放置方式：`{chosen or '（四种都没拿到 2）'}`，且 pragma 之后**必须 `conn.commit()`**（漏了会让版本行被回滚，见第 2 节） |
 | autogenerate | 部分索引谓词{'被保留' if result.get('autogenerate_detected_partial_index') else '**被丢失**'}；产物直接 `upgrade` {'可跑通' if result.get('autogenerate_generated_migration_applies') else '**跑不通**（`import sqlmodel` 缺失，见第 3 节）'} |
 | batch downgrade | `batch_downgrade_ok = {_yn(result.get('batch_downgrade_ok'))}`；注意 batch 重建会丢 `AUTOINCREMENT`（见第 4 节） |
 | greenlet | {'已安装' if result.get('greenlet_available') else '**缺失**'}（`async_engine_usable = {_yn(result.get('async_engine_usable'))}`） |
@@ -1344,25 +1448,50 @@ def build_findings_md(result: dict) -> str:
 
 ## 2. `auto_vacuum`：哪种放置生效，哪种静默失效
 
-三种放置方式各自在**全新临时库**里真跑 `alembic upgrade head`，升级完成后用**新连接**读
-`PRAGMA auto_vacuum`（0 = NONE，1 = FULL，2 = INCREMENTAL）：
+四种放置方式各自在**全新临时库**里真跑 `alembic upgrade head`，升级完成后用**新连接**读
+`PRAGMA auto_vacuum`（0 = NONE，1 = FULL，2 = INCREMENTAL），并核对 `alembic_version`
+表里是否有且仅有 `{EXPECTED_REVISION}` 这一行 —— 只查「表存在」挡不住版本行被回滚
+（M2-14 补，起因见下）：
 
-| 放置方式 | `PRAGMA auto_vacuum` 实测值 | 结论 |
-|---|---|---|
+| 放置方式 | `PRAGMA auto_vacuum` 实测值 | `alembic_version` 实测行 | 结论 |
+|---|---|---|---|
 {av_rows}
 
 - 生效写法：`{chosen or '（无）'}`。
-  {f"对应的代码形态是在 `env.py` 的 `run_migrations_online()` 里、`context.begin_transaction()` **之前**，于 connection 上执行 `conn.exec_driver_sql(\"PRAGMA auto_vacuum=INCREMENTAL\")`；此时库还是空的（`alembic_version` 尚未创建），pragma 被写进库头立即生效。" if chosen == "env_py_before_begin_transaction" else ""}
+  {f"对应的代码形态是在 `env.py` 的 `run_migrations_online()` 里、`context.begin_transaction()` **之前**，于 connection 上执行 `conn.exec_driver_sql(\"PRAGMA auto_vacuum=INCREMENTAL\")`；此时库还是空的（`alembic_version` 尚未创建），pragma 被写进库头立即生效。" if chosen == RECOMMENDED_PLACEMENT else ""}
+- **`PRAGMA` 之后必须紧跟一次 `conn.commit()`（M2-04 实测发现，M2-14 补入本文件）**。
+  正确形态一共两行，缺第二行就会出上面那条坑：
+
+  ```python
+  conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")
+  conn.commit()  # ⚠️ 不能省：见下一条
+  ```
+
+  本场景（`{chosen}`）实测 `PRAGMA auto_vacuum = {av.get(chosen, '（无）')}`、
+  `alembic_version` 行 = {_version_rows_text(chosen) if chosen else '（无）'}；
+  紧接着的第二次 `upgrade head` 实测为{'无操作、无报错（幂等）' if chosen_note.get('second_upgrade_ok') else '**报错**：`' + _oneline(chosen_note.get('second_upgrade_error')) + '`'}。
+- **不 `commit()` 的具体现象（对照场景 `{NO_COMMIT_PLACEMENT}`，M2-14 实测复现 M2-04 的发现）**：
+  只执行 pragma、不提交时，实测 `PRAGMA auto_vacuum = {av.get(NO_COMMIT_PLACEMENT, '（无）')}`、
+  `alembic_version` 行 = {_version_rows_text(NO_COMMIT_PLACEMENT)}。原因是
+  `exec_driver_sql()` 会 autobegin 一个 SQLAlchemy 事务；Alembic 的 `MigrationContext`
+  只要发现连接上已有事务就把它当「外部事务」，于是 `begin_transaction()` 退化成 no-op、
+  迁移结束也不提交：DDL 因为 pysqlite 不把 DDL 包进事务而留在库里（**表建好了**），
+  但 `alembic_version` 的 INSERT 随连接关闭一起回滚（**版本行没了**）。
+  第二次 `upgrade head` 实测{'无报错' if no_commit_note.get('second_upgrade_ok') else '：`' + _oneline(no_commit_note.get('second_upgrade_error')) + '`'}
+  —— 版本行为空使 Alembic 从头重放 0001，撞上 `table ... already exists`。
+  2026-09-16 的 M2-14 探针跑出这条对照，正是 M2-04 写 `env.py` 初版时踩到的现象。
 - **docs/04 §2 原本的写法（0001 `upgrade()` 首行）实测无效**：值仍是 0，而且没有任何报错 ——
   典型的静默失效。原因是 Alembic 在跑第一个迁移之前已经建好了 `alembic_version` 表，
   库不再是空库，SQLite 只在「库为空」时立即接受 `auto_vacuum` 变更，否则要整库 `VACUUM` 才生效。
 - `op.get_context().autocommit_block()` 同样无效（值 0）：它只解决「事务里不能改」的问题，
   解决不了「库非空」，`alembic_version` 此时已经存在。
-- 三种都没拿到 2 时才需要兜底实验；本次兜底{f"已触发：{', '.join(result.get('auto_vacuum_fallbacks_tried') or [])}" if result.get('auto_vacuum_fallbacks_tried') else "未触发"}，预留的兜底候选是「pragma + `VACUUM`」与「迁移前用裸 `sqlite3` 连接在空库上设置」。
+- 四种都没拿到 2 时才需要兜底实验；本次兜底{f"已触发：{', '.join(result.get('auto_vacuum_fallbacks_tried') or [])}" if result.get('auto_vacuum_fallbacks_tried') else "未触发"}，预留的兜底候选是「pragma + `VACUUM`」与「迁移前用裸 `sqlite3` 连接在空库上设置」。
 - **给 M2-04 的落点**：把 `PRAGMA auto_vacuum=INCREMENTAL` 从初始迁移挪到
   `maa_api/db/migrations/env.py` 的 `run_migrations_online()` 开头（`context.configure` 之前），
-  并留一条注释说明「写在迁移里是静默无效的（M2-01 实测）」；`connect` 事件里同样不能写
-  （docs/04 §2 的判断正确，只是落点选错了）。
+  **紧跟一次 `conn.commit()`**，并留一条注释说明「写在迁移里是静默无效的、不 commit 会丢版本行」；
+  `connect` 事件里同样不能写（docs/04 §2 的判断正确，只是落点选错了）。
+  M2-04 的 `env.py` 现状即按此实现（pragma → `conn.commit()` → `context.configure`），
+  M2-14 的探针实测其成品（`{chosen}`）版本行为 {_version_rows_text(chosen) if chosen else '（无）'}。
 
 ## 3. autogenerate 漏了什么、需要人工补什么
 
@@ -1462,12 +1591,18 @@ def build_findings_md(result: dict) -> str:
    备选方案是在 env.py 里用 `render_item` 把 `AutoString` 渲染成 `sa.String(length=...)`。
 5. **env.py**：`render_as_batch=True, compare_type=True, compare_server_default=True` 照抄，
    并在 `run_migrations_online()` 里 `context.begin_transaction()` 之前加
-   `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`；
+   `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`，**紧跟一次 `conn.commit()`**
+   （M2-14 修正：M2-01 原记录漏了这一行，M2-04 照抄后 `alembic_version` 行为空、第二次
+   `upgrade head` 报 `table already exists`；实测见第 2 节）；
    不要写进初始迁移的 `upgrade()`（实测静默无效）。
-6. **迁移 review 清单**：`import sqlmodel`、`sqlite_where` 谓词、`sqlite_autoincrement=True`、
+6. **迁移后的断言不能只看表**：每次 `upgrade head` 之后都要核对 `alembic_version` 有且仅有
+   预期 revision 这一行（M2-14 补，探针的 `auto_vacuum_version_row_ok` /
+   `auto_vacuum_no_commit_control_reproduced` 两条门禁即为此设）。表建好而版本行为空时，
+   下一次 `upgrade head` 会从头重放并撞 `table already exists`。
+7. **迁移 review 清单**：`import sqlmodel`、`sqlite_where` 谓词、`sqlite_autoincrement=True`、
    JSON `server_default`、`ondelete` 级联、约定名；涉及 rebuild 的迁移额外检查 `copy_from`
    与迁移后的 `AUTOINCREMENT`/`foreign_keys` 是否还在。
-7. **异步层（M2-02）**：greenlet 必须显式加依赖；在装上之前的 async 代码无法运行。
+8. **异步层（M2-02）**：greenlet 必须显式加依赖；在装上之前的 async 代码无法运行。
 """
     return md
 
