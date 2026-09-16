@@ -34,8 +34,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【接口契约】`LogRepository`：`bulk_insert(entries) -> int`（自成事务）、`query(*, sources=None, levels=None, pipeline_id=None, after_id=None, since=None, until=None, page=1, size=100) -> Page[LogEntry]`（按 id DESC）、`purge(source, *, before, keep_max) -> int`（先按天删、再按 id 升序删到 `keep_max` 以内，内部每批 LIMIT 5000，见 docs/04 §10.4）。\n`ScreenshotRepository`：`create`、`get`、`list_by_pipeline`、`list_older_than(cutoff)`（只返回 `deleted_at IS NULL` 的记录，按 created_at 升序）、`total_size_active() -> int`（`deleted_at IS NULL` 的 `size_bytes` 之和）、`mark_deleted(ids) -> int`、`purge_before(cutoff) -> int`。M2-12 的保留策略直接调用后四个方法，名字请勿改。\n\n【SQLite 细节】`DELETE ... LIMIT` 默认不可用，写成子查询：`DELETE FROM log_entry WHERE id IN (SELECT id FROM log_entry WHERE source = :s AND created_at < :t ORDER BY id LIMIT 5000)`；用 docs/04 §6 的 `ix_log_entry_source_created_at` / `ix_log_entry_pipeline_id_id` 覆盖查询；不要给 `content` 建 FTS 索引。\n\n【测试】复用 `tests/db/conftest.py` 的 fixture（M2-07 已建，先读它）；同步测试 + `asyncio.run`。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "d68849c136452160b4df5a6f23a1d1982b4bdfbc",
   "blocked_reason": null
 }

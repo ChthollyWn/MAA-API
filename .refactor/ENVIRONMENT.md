@@ -249,3 +249,17 @@
   `values(retry_count=Task.retry_count + 1).returning(Task.retry_count)` 实测返回新值，身份映射里的同一实例
   的 `retry_count` 也随之更新（默认 `synchronize_session='auto'` 走 fetch）；条件更新的 `result.rowcount`
   同样可靠，可直接作「原子领取 / 状态机是否接受」的判据。
+
+### M2-08 实测：SQLite 无 DELETE LIMIT / synchronize_session=False 的陈旧实例（第 8 次尝试追加）
+
+- **本机 SQLite 3.49.1 没有 `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`**：`.venv/bin/python -c "import sqlite3;
+  c=sqlite3.connect(':memory:'); print([r for r in c.execute('pragma compile_options') if 'DELETE' in r[0] or 'UPDATE' in r[0]])"`
+  实测输出 `[]`，`DELETE ... LIMIT` 语法不可用。清理语句必须写成
+  `DELETE FROM log_entry WHERE id IN (SELECT id FROM log_entry WHERE source = :s AND created_at < :t ORDER BY id LIMIT 5000)`
+  （M2-08 实测在 aiosqlite 上可用；用 monkeypatch 把模块常量 `PURGE_BATCH_SIZE` 缩到 2 即可低成本逼出多批路径）。
+- **`synchronize_session=False` 的 Core UPDATE 不会刷新身份映射，`session.get()` 会返回陈旧实例**：会话是
+  `expire_on_commit=False` 时，UPDATE 之后同 id 实例的字段保持旧值、`session.get(Entity, pk)` 也直接返回它
+  （实测 `deleted_at` 仍是 `None`），必须 `populate_existing=True` 才读到库里的真值；改成默认
+  `synchronize_session`（条件是简单 `IN` 时走 evaluate）会同步会话内实例。若会话是 `expire_on_commit=True`，
+  提交后在 async 上下文外读字段直接 `MissingGreenlet`（与 M2-07 那条同源）。批量清理一律用
+  `synchronize_session=False` + 需要真值时 `populate_existing=True` 的组合。
