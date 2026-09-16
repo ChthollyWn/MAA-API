@@ -225,6 +225,12 @@ class CoreSupervisor:
         self._monitor_stop: Optional[threading.Event] = None
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._liveness_thread: Optional[threading.Thread] = None
+        # 子进程代际：每次 spawn 自增（见 :meth:`_spawn_process`）。监控线程绑定自己
+        # 启动时的代际，换代后旧线程的迟到判定一律作废——这是 M1-15 修复的伪崩溃根因：
+        # restart() 停掉旧进程时，旧 liveness 线程盯着的旧 ``Process`` 变成 dead，
+        # 它会把这**次主动停止**记成 ``process_exit`` 并调度伪重启。
+        self._generation = 0
+        self._monitor_generation: Optional[int] = None
 
         # 退避重启定时器与维护窗口。
         self._restart_cancel: Optional[threading.Event] = None
@@ -452,8 +458,11 @@ class CoreSupervisor:
         with self._lock:
             self._stop_requested = True
         self._cancel_restart_timer()
-        await self._stop_process(graceful=graceful, timeout=timeout)
+        # 先让监控线程确定性退出，再动子进程：stop_event 先于任何进程操作置位，监控
+        # 线程从 ``wait()`` 返回 True 就直接退出、不再进入判定体，因此主动停止不可能
+        # 被自己这一代的监控线程判成崩溃。
         self._stop_monitors()
+        await self._stop_process(graceful=graceful, timeout=timeout)
         self._set_state(CoreState.STOPPED)
         logger.info("内核已停止：pid=%s exitcode=%s", self.pid, self.exitcode)
 
@@ -475,6 +484,13 @@ class CoreSupervisor:
             self._stop_requested = False
             self._set_state_locked(CoreState.RESTARTING)
         self._cancel_restart_timer()
+        # 关键顺序（M1-15 修复）：先停上一代监控线程，再优雅停止旧进程。旧 liveness
+        # 线程持有旧 ``Process`` 引用，若它在旧进程退出（exitcode=0）后仍存活，就会把
+        # 这次主动停止记成 ``process_exit`` 并调度伪重启，``_reap_process()`` 进而
+        # terminate() 掉刚起来的新进程；包在维护窗口里也只是被推迟到窗口退出后补记。
+        # 这里不靠等待/sleep：stop_event 置位先于 SHUTDOWN 下发，线程一旦从 wait()
+        # 返回就不会再看 ``is_alive()``。
+        self._stop_monitors()
         await self._stop_process(graceful=True, timeout=STOP_TIMEOUT_SECONDS)
         try:
             await self._bring_up(restarting=True, wait_ready=True, timeout=START_TIMEOUT_SECONDS)
@@ -544,15 +560,34 @@ class CoreSupervisor:
     # 崩溃处理与退避重启
     # ------------------------------------------------------------------
 
-    def _handle_crash(self, *, reason: str, exitcode: Optional[int], detail: Any = None) -> bool:
+    def _handle_crash(
+        self,
+        *,
+        reason: str,
+        exitcode: Optional[int],
+        detail: Any = None,
+        generation: Optional[int] = None,
+    ) -> bool:
         """认定崩溃：置 ``CRASHED``、记现场、调钩子、按预算调度重启。
 
+        :param generation: 上报这条判定的监控线程所绑定的内核代际；``None`` 表示
+            「当前代际」（``handle_fatal`` 与维护窗口退出时的补记）。旧代际的迟到
+            判定直接作废：它盯着的 ``Process`` 已被换代回收，不代表当前生命周期。
         :return: ``True`` = 已按崩溃处理；``False`` = 被抑制（主动停止中 / 维护窗口 /
-            状态已经失效）。存活轮询线程据此决定是否继续轮询（维护窗口内要继续）。
+            状态已经失效 / 旧代际迟到判定）。存活轮询线程据此决定是否继续轮询
+            （维护窗口内要继续）。
         """
         record: Optional[dict] = None
         hook: Optional[Callable[[dict], None]] = None
         with self._lock:
+            if generation is not None and generation != self._generation:
+                logger.debug(
+                    "忽略第 %s 代监控线程的迟到崩溃判定（当前第 %s 代）：%s",
+                    generation,
+                    self._generation,
+                    reason,
+                )
+                return False
             if self._stop_requested:
                 return False
             if self._in_maintenance:
@@ -741,6 +776,11 @@ class CoreSupervisor:
 
     async def _spawn_process(self, *, restarting: bool, wait_ready: bool) -> Any:
         """换新一代队列、回收残留进程后 spawn 子进程，状态置 STARTING / RESTARTING。"""
+        # 换代的第一步：让上一代监控线程确定性退出。它们可能在 ``_reap_process()``
+        # 里看着残留进程被 terminate/kill；stop_event 先行置位保证它们不会把回收动作
+        # 判成崩溃（M1-15）。随后自增代际，让任何已经越过 stop_event 检查的迟到判定
+        # 在 ``_handle_crash`` 里被识别为旧代际并作废。
+        self._stop_monitors()
         await self._reap_process()
         previous = self._rotate_queues()
         self._discard_generation_queues(previous)
@@ -750,6 +790,7 @@ class CoreSupervisor:
         # （"ResourceTracker called reentrantly ... might leak"）。
         gc.collect()
         with self._lock:
+            self._generation += 1
             self._stop_requested = False
             self._startup_failure = None
             self._ready_payload = None
@@ -880,8 +921,10 @@ class CoreSupervisor:
     # ------------------------------------------------------------------
 
     def _start_monitors_locked(self) -> None:
+        generation = self._generation
         if (
-            self._monitor_stop is not None
+            self._monitor_generation == generation
+            and self._monitor_stop is not None
             and not self._monitor_stop.is_set()
             and self._heartbeat_thread is not None
             and self._heartbeat_thread.is_alive()
@@ -889,16 +932,18 @@ class CoreSupervisor:
             return
         stop_event = threading.Event()
         self._monitor_stop = stop_event
+        # 监控线程绑定启动时的代际：换代后它们必须自杀，绝不监控不属于自己的进程。
+        self._monitor_generation = generation
         process = self._process
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop,
-            args=(stop_event,),
+            args=(stop_event, generation),
             name="core-heartbeat",
             daemon=True,
         )
         self._liveness_thread = threading.Thread(
             target=self._liveness_loop,
-            args=(stop_event, process),
+            args=(stop_event, process, generation),
             name="core-liveness",
             daemon=True,
         )
@@ -913,10 +958,17 @@ class CoreSupervisor:
         with self._lock:
             self._stop_monitors_locked()
 
-    def _heartbeat_loop(self, stop_event: threading.Event) -> None:
-        """每 ``heartbeat_interval`` 发一条 ``PING(seq)``，连续失败阈值次判失联。"""
+    def _heartbeat_loop(self, stop_event: threading.Event, generation: int) -> None:
+        """每 ``heartbeat_interval`` 发一条 ``PING(seq)``，连续失败阈值次判失联。
+
+        ``generation`` 是线程启动时的内核代际；换代后本线程会往新代的 ``cmd_queue``
+        发 PING、用的却是旧代的 seq，必须直接退出。
+        """
         seq = 0
         while not stop_event.wait(self._heartbeat_interval):
+            if not self._is_current_generation(generation):
+                logger.debug("第 %s 代心跳线程退出：内核已换代", generation)
+                return
             if self._long_command_in_flight():
                 # 已知长命令期间临时放宽：跳过本轮且不累计失败（docs/03 §4.1）。
                 with self._lock:
@@ -937,6 +989,7 @@ class CoreSupervisor:
                     reason="heartbeat_timeout",
                     exitcode=None,
                     detail=f"连续 {failures} 次未收到同 seq 的 PONG（seq={ping}）",
+                    generation=generation,
                 )
                 if handled or not self._in_maintenance:
                     return
@@ -952,18 +1005,29 @@ class CoreSupervisor:
             except Exception:  # noqa: BLE001 - 队列坏掉等同于一次心跳失败
                 logger.exception("PING 入队失败（seq=%s）", seq)
 
-    def _liveness_loop(self, stop_event: threading.Event, process: Any) -> None:
-        """轮询 ``is_alive()`` 捕获不带事件的硬崩溃（段错误 / OOM kill）。"""
+    def _liveness_loop(self, stop_event: threading.Event, process: Any, generation: int) -> None:
+        """轮询 ``is_alive()`` 捕获不带事件的硬崩溃（段错误 / OOM kill）。
+
+        ``generation`` 是本线程启动时的内核代际。换代（``restart()`` / 自动重启 / 手动
+        ``start()``）后本线程盯着的 ``process`` 已被回收，它观测到的「退出」属于上一代、
+        不代表当前生命周期，必须直接退出——否则会把优雅停止（``exitcode=0``）记成
+        崩溃并调度伪重启，``_reap_process()`` 会 terminate 掉刚起来的新进程（M1-15）。
+        """
         if process is None:
             return
         reported = False
         while not stop_event.wait(LIVENESS_POLL_INTERVAL):
+            if not self._is_current_generation(generation):
+                logger.debug("第 %s 代存活监控线程退出：内核已换代", generation)
+                return
             if process.is_alive():
                 continue
             exitcode = process.exitcode
             if reported and self._in_maintenance:
                 continue
-            handled = self._handle_crash(reason="process_exit", exitcode=exitcode)
+            handled = self._handle_crash(
+                reason="process_exit", exitcode=exitcode, generation=generation
+            )
             if handled or not self._in_maintenance:
                 return
             reported = True  # 维护窗口内只提示一次，窗口退出后由 reconcile 补记
@@ -971,6 +1035,11 @@ class CoreSupervisor:
     # ------------------------------------------------------------------
     # 内部工具
     # ------------------------------------------------------------------
+
+    def _is_current_generation(self, generation: int) -> bool:
+        """本线程绑定的代际是否仍是当前代际（换代后旧监控线程必须自杀）。"""
+        with self._lock:
+            return generation == self._generation
 
     def _require_dispatcher(self) -> None:
         with self._lock:

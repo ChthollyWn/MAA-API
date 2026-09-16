@@ -22,16 +22,21 @@ CoreSupervisor 的检测、崩溃现场（``last_crash``）、退避重启、失
    CALLBACK」这条 docs/03 §4.2 契约由
    :func:`test_crash_scene_keeps_recent_callback_events` 用「先产出回调、再 SIGKILL」
    的确定性路径覆盖，而不是依赖 crash 剧本的时序。
-3. **M1-08 缺陷（实测，源文件归 M1-08，本卡不改）**：``restart()`` 在旧子进程仍存活时
-   不会停掉上一代的存活监控线程。旧 liveness 线程持有旧 ``Process`` 引用，把这次
-   **优雅停止**误判为崩溃（``process_exit`` / ``exitcode=0``）并调度自动重启；这个伪
-   重启会 ``terminate()`` 掉刚起来的新子进程（实测 ``CORE_START_FAILED: ... exitcode=-15``），
-   或至少多换一代进程并留下一条伪崩溃记录。包在 ``acquire_maintenance()`` 里也一样：
-   窗口内 ``_handle_crash`` 被抑制但旧线程只是 ``reported=True`` 继续轮询，窗口一退出
-   就补记伪崩溃。因此本文件的「恢复成功路径」（用例 ④）在 ``CRASHED`` 态手动
-   ``restart(boot_config=...)``（旧进程已死、旧 liveness 线程已退出，无竞态）；
-   该缺陷由 :func:`test_restart_from_ready_records_no_spurious_crash` 以非严格 xfail
-   钉住，等 M1-08 修复后转正。
+3. **restart 伪崩溃缺陷已在 M1-15 修复（M1-10 实测，源文件归 M1-08）**：``restart()``
+   在旧子进程仍存活时不会停掉上一代的存活监控线程。旧 liveness 线程持有旧 ``Process``
+   引用，把这次**优雅停止**误判为崩溃（``process_exit`` / ``exitcode=0``）并调度自动
+   重启；这个伪重启会 ``terminate()`` 掉刚起来的新子进程（实测
+   ``CORE_START_FAILED: ... exitcode=-15``），或至少多换一代进程并留下一条伪崩溃记录。
+   包在 ``acquire_maintenance()`` 里也一样：窗口内 ``_handle_crash`` 被抑制但旧线程只是
+   ``reported=True`` 继续轮询，窗口一退出就补记伪崩溃。M1-15 的修法：``restart()`` /
+   ``_spawn_process()`` 在动旧进程之前先置位监控 stop_event（让旧线程确定性地不再进入
+   判定体），并给每次 spawn 自增**代际**、监控线程绑定自己启动时的代际
+   （``_liveness_loop`` / ``_heartbeat_loop`` 换代即退出，``_handle_crash`` 作废旧代际的
+   迟到判定）。两条路径分别由 :func:`test_restart_from_ready_records_no_spurious_crash`
+   （维护窗口内）与 :func:`test_restart_from_ready_outside_maintenance_keeps_new_process`
+   （窗口外）钉住。
+4. 「恢复成功路径」（用例 ④）走的是 ``CRASHED`` 态手动 ``restart(boot_config=...)``
+   （旧进程已死），与第 3 条的「旧进程仍存活时 restart」是两条不同的路径，两者都保留。
 
 纪律：所有等待 ≤ :data:`WAIT_TIMEOUT`（5 秒），失败信息里打印已收到的事件与当前
 状态（:meth:`_Harness.diag`）；每个用例结束都 ``stop(graceful=False)`` 并在 autouse
@@ -378,8 +383,8 @@ def test_maintenance_window_suppresses_crash_then_recovers() -> None:
 def test_manual_restart_with_success_script_recovers_and_resets_budget() -> None:
     async def scenario() -> None:
         # backoff 第 1 档 0.05s：第一次崩溃由自动重启兜住；第 2 档 30s：第二次崩溃停在
-        # CRASHED 等手动 restart（旧进程已死、旧 liveness 线程已退出，避开 M1-08 的
-        # restart 竞态，见模块 docstring 第 3 条）。
+        # CRASHED 等手动 restart。这条路径的旧进程已死，与 M1-15 修的「旧进程仍存活时
+        # restart」不同，覆盖的是「崩溃后手动换 boot_config 恢复」。
         async with _Harness(
             script=SCRIPTS["crash"].name, backoff=(0.05, 30.0), max_restart_attempts=5
         ) as core:
@@ -472,25 +477,17 @@ def test_crash_scene_keeps_recent_callback_events() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ⑥ 缺陷钉住（xfail）：维护窗口内的 restart 不得留下伪崩溃
+# ⑥ 回归钉住：restart() 从 READY 出发时不得留下伪崩溃（M1-15 修复的缺陷）
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "M1-08 缺陷（M1-10 实测，源文件归 M1-08）：restart() 在旧进程存活时不停上一代"
-        "存活监控线程，旧 liveness 线程把优雅停止误判为 process_exit/exitcode=0 并调度"
-        "自动重启；即使包在 acquire_maintenance() 里，窗口退出后也会补记伪崩溃（并可能"
-        "terminate() 掉刚起来的新进程）。修复后本用例应转正（去掉 xfail）。"
-    ),
-)
 def test_restart_from_ready_records_no_spurious_crash() -> None:
     """docs/03 §4.3：维护窗口内的「停止」是预期行为 —— 不记崩溃、不触发重启。
 
     这是 ``restart()`` 的文档规定用法（热更新 / 重装内核 / 改 MAA 路径）。M1-10 实测
-    它仍会留下伪崩溃记录，故钉成非严格 xfail：现在是 xfailed，M1-08 修复后是 xpass，
-    两种情况都不会让套件变红。
+    旧代际的 liveness 线程会把这次优雅停止判成 ``process_exit/exitcode=0`` 并在窗口
+    退出后补记伪崩溃；M1-15 修复后本用例是常规用例（不再是预期失败）：旧代际监控线程
+    在动进程之前就收到 stop_event，且代际绑定让越过该检查的迟到判定作废。
     """
 
     async def scenario() -> None:
@@ -508,5 +505,43 @@ def test_restart_from_ready_records_no_spurious_crash() -> None:
             assert core.crashes == [], core.diag("退出窗口后出现伪崩溃记录")
             assert core.supervisor.pid == restarted_pid, core.diag("健康进程被伪崩溃重启")
             assert core.supervisor.state is CoreState.READY, core.diag("健康进程应为 READY")
+
+    asyncio.run(scenario())
+
+
+def test_restart_from_ready_outside_maintenance_keeps_new_process() -> None:
+    """窗口外从 READY 直接 ``restart()``：同样不得留伪崩溃、不得换掉新进程。
+
+    这是该缺陷最直接的复现路径（没有维护窗口的抑制）：旧 liveness 线程在旧进程以
+    ``exitcode=0`` 优雅退出后立刻 ``_handle_crash`` → 调度 0.05s 伪重启，伪重启的
+    ``_reap_process()`` 会 ``terminate()`` 掉刚 READY 的新进程。因此除了「无崩溃记录」，
+    还要断言新进程在超过一档退避的观察窗后仍活着、pid 未变。
+    """
+
+    async def scenario() -> None:
+        async with _Harness(script=SCRIPTS["crash"].name, backoff=(0.05,)) as core:
+            await core.supervisor.start(timeout=WAIT_TIMEOUT)
+            first_pid = core.supervisor.pid
+            assert isinstance(first_pid, int), core.diag("首启应有 pid")
+
+            await core.supervisor.restart(boot_config=_boot_config("success"))
+            assert core.supervisor.state is CoreState.READY, core.diag(
+                "从 READY 手动 restart 应回到 READY"
+            )
+            assert core.supervisor.pid != first_pid, core.diag("restart 必须换新进程")
+            restarted_pid = core.supervisor.pid
+
+            assert core.crashes == [], core.diag("手动 restart 的优雅停止不得记为崩溃")
+            assert core.supervisor.last_crash is None, core.diag("不得留下崩溃记录")
+            await asyncio.sleep(0.3)  # 6 倍退避档：伪重启若存在，此时已杀掉新进程
+            assert core.crashes == [], core.diag("出现伪崩溃记录（旧代际监控线程误报）")
+            assert core.supervisor.pid == restarted_pid, core.diag("健康进程被伪崩溃换掉")
+            assert core.supervisor.exitcode is None, core.diag("新进程不得被伪重启 terminate")
+            assert core.supervisor.state is CoreState.READY, core.diag("新进程应保持 READY")
+
+            # 新代际真的能干活：换队列后命令链路仍通。
+            task_id = await core.client.append_task("StartUp", {"client_type": "Official"})
+            assert task_id > 0, core.diag(f"restart 后 APPEND_TASK 返回 {task_id!r}")
+            assert await core.client.start() is True, core.diag("restart 后 START 应回执 True")
 
     asyncio.run(scenario())
