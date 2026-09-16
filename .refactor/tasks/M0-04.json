@@ -1,0 +1,37 @@
+{
+  "id": "M0-04",
+  "milestone": "M0",
+  "title": "修复模型层既有缺陷：TaskRequest 尾随逗号与重复 times、Award 默认值、InfrastTask failename、ReclamationTask 参数键",
+  "depends": [
+    "M0-01"
+  ],
+  "reads": [
+    "docs/01-重构总览与现状评估.md#23-代码缺陷清单",
+    "docs/13-决策记录.md#2-其余决策速记",
+    "docs/12-实施计划与里程碑.md#m0--基线准备m"
+  ],
+  "constraints": [
+    "生息演算修复后支持：ReclamationTask 因参数字典把变量当成键而从未可用，在 M0 一并修掉，9 种任务类型全部支持（docs/13 §2 其余决策速记）",
+    "M0 修复清单（docs/12 M0）：TaskRequest 的尾随逗号与重复字段、InfrastTask 的 failename 拼写、ReclamationTask 的字典键、Award 的默认值",
+    "Award 的默认值以 task.py 的文档字符串为准：award 默认 True，mail / recruit / orundum / mining / specialaccess 默认 False（docs/01 §2.3）",
+    "不复用 feat/0515 分支的代码与结构（docs/13 ADR-05）"
+  ],
+  "deliverables": [
+    "maa_api/model/core/task.py",
+    "maa_api/model/request/request.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"from maa_api.model.request.request import TaskRequest as T; bad=[n for n, f in T.model_fields.items() if isinstance(f.default, tuple)]; assert not bad, bad\"",
+    "python3 -c \"import re; s=open('maa_api/model/request/request.py').read(); assert len(re.findall(r'^\\s*times: Optional', s, re.M)) == 1, 'times 字段重复定义'\"",
+    ".venv/bin/python -c \"from maa_api.model.request.request import TaskRequest as T; m=T(name='Award'); assert m.award is True; assert (m.mail, m.recruit, m.orundum, m.mining, m.specialaccess) == (False, False, False, False, False), (m.mail, m.recruit, m.orundum, m.mining, m.specialaccess); r=T(name='Reclamation'); assert r.tools_to_craft is None and r.increment_mode is None and r.num_craft_batches is None, (r.tools_to_craft, r.increment_mode, r.num_craft_batches)\"",
+    ".venv/bin/python -c \"from maa_api.model.core.task import InfrastTask; p=InfrastTask(mode=10000, filename='plan.json').params; assert p.get('filename')=='plan.json', p; assert 'failename' not in p, sorted(p)\"",
+    ".venv/bin/python -c \"from maa_api.model.core.task import ReclamationTask; full=ReclamationTask(enable=True, theme='Fire', mode=0, tools_to_craft=['x'], increment_mode=0, num_craft_batches=16).params; assert set(full)=={'enable','theme','mode','tools_to_craft','increment_mode','num_craft_batches'}, full; assert all(isinstance(k, str) for k in full), full\"",
+    ".venv/bin/python -c \"from maa_api.model.request.request import TaskRequest as T; t=T(name='Infrast', mode=10000, filename='plan.json').to_task(); assert t.params.get('filename')=='plan.json' and 'failename' not in t.params, t.params; f=T(name='Fight', times=5, stage='1-7').to_task().params; assert f.get('times')==5, f\"",
+    "python3 -c \"import re, pathlib; bad=[(str(p), i+1) for p in pathlib.Path('maa_api').rglob('*.py') for i, l in enumerate(p.read_text().splitlines()) if re.search(r'\\.dict\\(|@validator|@root_validator|class Config\\b|parse_obj\\(', l)]; assert not bad, bad\""
+  ],
+  "prompt_extra": "本卡覆盖 docs/12 M0 清单里落在模型层的缺陷，两处文件必须同时改完：\n① TaskRequest 的尾随逗号：tools_to_craft / increment_mode 的默认值现在是元组 (None,) 而非 None，去掉逗号；num_craft_batches 同样检查。\n② TaskRequest.times 重复定义（通用参数区与 Fight 参数区各一次）：只保留一个。\n③ Award 系默认值：request.py 里 award 保持 True，mail / recruit / orundum / mining / specialaccess 从 True 改成 False（task.py 的 AwardTask 文档字符串是事实来源）。\n④ InfrastTask 的 failename 改名 filename：task.py 的形参与 params 键、request.py 的字段名与 to_task() 里的调用一起改（内核期望的键是 filename，且文档字符串写的也是 filename）。\n⑤ ReclamationTask 的参数字典键改成字符串字面量（现在键位置用的是变量本身，多个参数为 None 时字典会塌缩成 {None: ...}）。\n⑥ pydantic v2 写法收尾：Task.to_dict 里的 super().dict(*args, **kwargs) 改成 super().model_dump(*args, **kwargs)（全仓最后一处 v1 写法，另一处已由 M0-01 修掉）。\n不在本卡范围：threshold 默认值、recruitment_time 的 dict[int, int]、枚举硬编码取值——这些随重写或后续里程碑处理，M0 不动。\n只提交这两个文件，不要动 pyproject.toml / poetry.lock / asst.py。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}
