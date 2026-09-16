@@ -1,0 +1,33 @@
+{
+  "id": "M1-15",
+  "milestone": "M1",
+  "title": "修复 CoreSupervisor.restart() 的伪崩溃缺陷，并把 M1-10 的 xfail 转正",
+  "depends": ["M1-10"],
+  "reads": [
+    "docs/03-MaaCore内核层设计.md#42-崩溃恢复流程",
+    "docs/03-MaaCore内核层设计.md#43-与热更新的协作",
+    ".refactor/ENVIRONMENT.md"
+  ],
+  "constraints": [
+    "维护窗口与崩溃检测必须互斥（docs/12 M1 风险清单点名要求用测试固化）。维持 M1-08 已定语义：进入 acquire_maintenance() 后不取新流水线、不自动重启，退出窗口后也不得补记窗口期间的伪崩溃。",
+    "退避预算 _restart_attempts 跨自动重启累计，只在手动 start()/restart() 时复位；max_restart_attempts=5 表示允许 5 次自动重启，第 6 次崩溃才转 FAILED（M1-08 已定，不得改动语义）。",
+    "M1-10 实测缺陷（源文件归 M1-08）：restart() 在旧进程仍然存活时不停止上一代的存活监控线程。旧 liveness 线程把优雅停止误判为 process_exit/exitcode=0，进而调度一次自动重启；即使整个 restart() 包在 acquire_maintenance() 里，窗口退出后仍会补记这次伪崩溃，并可能 terminate() 掉刚刚启动的新进程。",
+    "修复必须让旧代际的监控线程在新代际启动前确定性地退出（或让判定逻辑绑定到代际标识），不得靠加长等待时间或 sleep 掩盖竞态。"
+  ],
+  "deliverables": [
+    "maa_api/core/supervisor.py",
+    "tests/core/test_crash_recovery.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"s=open('tests/core/test_crash_recovery.py').read(); assert 'xfail' not in s, 'xfail 未移除：缺陷必须真正修复而不是继续标记为预期失败'\"",
+    ".venv/bin/python -m pytest -q tests/core/test_crash_recovery.py",
+    ".venv/bin/python -m pytest -q tests/core/test_crash_recovery.py -k restart_from_ready",
+    ".venv/bin/python -m pytest -q tests/core",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "背景：M1-10 在做崩溃注入测试时发现 M1-08 的 CoreSupervisor 存在一个真实缺陷，当时以 xfail 如实标记（用例名 test_restart_from_ready_records_no_spurious_crash）。M1-08 的卡已经 done，所以由本卡承担修复。\n\n要求：\n1. 先读 maa_api/core/supervisor.py 与 tests/core/test_crash_recovery.py，重点看该 xfail 用例的 docstring（里面写明了复现路径与判定依据）与 supervisor 里 _rotate_queues / liveness 监控线程 / restart() / acquire_maintenance() 的交互。\n2. 定位真正的竞态：哪个线程在什么条件下把优雅停止判成了崩溃。修根因，不要靠 sleep 或重试掩盖。\n3. 把该用例的 xfail 标记去掉，让它作为常规用例通过。若修复过程中发现该用例的断言本身有问题，可以修正断言，但必须在回执里说明理由。\n4. 不得削弱 M1-08 已定的退避与状态机语义，也不得让其他 tests/core 用例失败。\n5. 修复后跑全量 pytest 确认无回归。\n6. 修好后把 .refactor/DEFECTS.md 里属于本缺陷的那一条从 `- [ ]` 改成 `- [x]`，并在行尾补一句修法。编排器在 M1 打 tag 前会检查该文件，未勾选就拒绝打 tag；这是 worker 被允许改动 .refactor/ 的例外之一（只改这一行的勾选状态与行尾说明，不要动其他内容，也不要 git add）。\n\n最后输出 200 字以内回执：根因是什么、怎么修的、为什么这个修法不会再出现同类竞态。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}
