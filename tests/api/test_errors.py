@@ -8,6 +8,10 @@
 
 - ``ValueError`` → 被 pydantic 包装成 ``type="value_error"`` → 422 ``VALIDATION_ERROR``
 - ``AppError``（非 ``ValueError`` 子类）→ 原样传播，直达 app 级处理器 → 接法 A
+
+M3-11 追加 ``AppError.headers`` 的覆盖：带头的抛法、不带头的回归、429 与 503 的
+``Retry-After`` 真的到达客户端、401 头的合并语义，以及 ``error_responses()`` 把
+``Retry-After`` 声明进 OpenAPI。
 """
 
 from __future__ import annotations
@@ -99,6 +103,16 @@ def _add_routes(app: FastAPI) -> None:
         elif details != "none":
             payload = {"hint": details}
         raise AppError(ErrorCode(code), message, payload)
+
+    @app.get("/app-error-headers/{code}")
+    async def raise_app_error_with_headers(
+        code: str,
+        message: str | None = None,
+        retry_after: str = "30",
+        header: str = "Retry-After",
+    ) -> None:
+        """M3-11 的响应头通道；``details`` 固定为 None 以便对照错误体形状。"""
+        raise AppError(ErrorCode(code), message, None, {header: retry_after})
 
     @app.post("/tasks")
     async def submit_task(task: TaskInput) -> dict[str, str]:
@@ -201,6 +215,84 @@ def test_error_detail_model_coerces_code_and_rejects_unknown() -> None:
     # 表外的码 fail loud，不被当成字符串发出去（处理器不自造码）。
     with pytest.raises(ValidationError):
         ErrorDetail(code="NOT_A_REAL_CODE", message="x")
+
+
+# ----------------------------------------------------------------------
+# AppError 的响应头通道（M3-11；docs/05 §2 的 Retry-After）
+# ----------------------------------------------------------------------
+
+
+def test_app_error_headers_are_emitted(make_client) -> None:
+    """带 headers 的 AppError：头真的进响应，错误体形状一个字节都不变。"""
+    client = make_client(build_app())
+    resp = client.get(
+        "/app-error-headers/RATE_LIMITED",
+        params={"message": "带响应头", "retry_after": "42"},
+    )
+    assert resp.status_code == 429
+    assert resp.headers["retry-after"] == "42"
+    assert resp.json() == {"error": {"code": "RATE_LIMITED", "message": "带响应头"}}
+
+
+def test_app_error_without_message_falls_back_to_status_text(make_client) -> None:
+    """``message`` 可省略（验收命令的构造形式）：兜底成状态码的中文说明，不是英文码。"""
+    client = make_client(build_app())
+    resp = client.get("/app-error-headers/QUEUE_FULL", params={"retry_after": "9"})
+    assert resp.status_code == 429
+    assert resp.headers["retry-after"] == "9"
+    err = resp.json()["error"]
+    assert err["code"] == "QUEUE_FULL"
+    assert _CJK.search(err["message"])
+
+
+def test_app_error_without_headers_emits_none(make_client) -> None:
+    """回归：普通 AppError（不带 headers）不会凭空多出任何响应头。"""
+    client = make_client(build_app())
+    resp = client.get("/app-error/QUEUE_FULL", params={"message": "队列已满"})
+    assert resp.status_code == 429
+    assert "retry-after" not in resp.headers
+    assert resp.json() == {"error": {"code": "QUEUE_FULL", "message": "队列已满"}}
+
+
+@pytest.mark.parametrize(
+    ("code", "status", "retry_after"),
+    [
+        ("RATE_LIMITED", 429, "42"),
+        ("QUEUE_FULL", 429, "30"),
+        ("LLM_RATE_LIMITED", 429, "5"),
+        ("SERVICE_UNAVAILABLE", 503, "10"),
+        ("CORE_NOT_READY", 503, "3"),
+        ("DEVICE_NOT_CONNECTED", 503, "15"),
+    ],
+)
+def test_retry_after_reaches_client_for_429_and_503(
+    make_client, code: str, status: int, retry_after: str
+) -> None:
+    """docs/05 §2：429 与 503 的 Retry-After 都要真的发得出去（整数秒）。"""
+    client = make_client(build_app())
+    resp = client.get(f"/app-error-headers/{code}", params={"retry_after": retry_after})
+    assert resp.status_code == status
+    assert resp.headers["retry-after"] == retry_after
+    assert resp.headers["retry-after"].isdigit()
+    assert resp.json()["error"]["code"] == code
+
+
+def test_app_error_401_keeps_explicit_www_authenticate(make_client) -> None:
+    """401 兜底用 setdefault：调用方显式给的头优先，缺失时才补 Bearer。"""
+    client = make_client(build_app())
+    override = client.get(
+        "/app-error-headers/UNAUTHORIZED",
+        params={"header": "WWW-Authenticate", "retry_after": "Bearer realm=maa"},
+    )
+    assert override.status_code == 401
+    assert override.headers["www-authenticate"] == "Bearer realm=maa"
+
+    defaulted = client.get(
+        "/app-error-headers/UNAUTHORIZED",
+        params={"header": "X-Other", "retry_after": "1"},
+    )
+    assert defaulted.headers["www-authenticate"] == "Bearer"
+    assert defaulted.headers["x-other"] == "1"
 
 
 # ----------------------------------------------------------------------
@@ -437,6 +529,39 @@ def test_error_responses_rejects_codes_outside_enum() -> None:
         error_responses("UPDATE_INTERRUPTED")
 
 
+def test_error_responses_declares_retry_after_headers() -> None:
+    """M3-11：429/503 的 Retry-After 进 OpenAPI 的 headers（整数秒口径）。"""
+    responses = error_responses("QUEUE_FULL", "CORE_NOT_READY", "PIPELINE_NOT_FOUND")
+    assert set(responses[429]) == {"description", "headers", "content"}
+    spec = responses[429]["headers"]["Retry-After"]
+    assert spec["schema"] == {"type": "integer", "minimum": 0}
+    assert spec["description"]
+    assert "Retry-After" in responses[503]["headers"]
+    # 没登记头的状态码条目形状与 M3-04 完全一致，不凭空长出 headers 键。
+    assert set(responses[404]) == {"description", "content"}
+
+
+def test_error_responses_merges_headers_within_one_status_bucket() -> None:
+    """429 的三个码都声明 Retry-After：同状态码下取并集，不重复、不冲突。"""
+    responses = error_responses("RATE_LIMITED", "QUEUE_FULL", "LLM_RATE_LIMITED")
+    assert set(responses[429]["headers"]) == {"Retry-After"}
+
+
+def test_error_responses_skips_retry_after_for_non_retryable_503() -> None:
+    """503 里重试无意义的码（缺符号 / 硬件不支持 / 模块未启用）不声明 Retry-After。"""
+    responses = error_responses(
+        "MAP_LEVEL_KEY_UNAVAILABLE", "DEVICE_RESOLUTION_UNSUPPORTED", "AGENT_DISABLED"
+    )
+    assert set(responses[503]) == {"description", "content"}
+
+
+def test_response_headers_table_keys_are_table_codes() -> None:
+    """声明表只允许 docs/05 §4 内的码，且都有 HTTP 表达（否则 error_responses 会炸）。"""
+    for code in errors_module.ERROR_RESPONSE_HEADERS:
+        assert isinstance(code, ErrorCode)
+        assert code in ERROR_HTTP_STATUS
+
+
 def test_error_responses_land_in_openapi(make_client) -> None:
     client = make_client(build_app())
     spec = client.get("/openapi.json").json()
@@ -445,6 +570,8 @@ def test_error_responses_land_in_openapi(make_client) -> None:
         "error": {"code": "PIPELINE_NOT_FOUND", "message": "资源不存在", "details": {}}
     }
     assert set(responses) >= {"401", "404", "429"}
+    # 声明的头要真的出现在 OpenAPI 里（/documented 传了 QUEUE_FULL）。
+    assert responses["429"]["headers"]["Retry-After"]["schema"]["type"] == "integer"
 
 
 # ----------------------------------------------------------------------
