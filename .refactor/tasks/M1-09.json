@@ -13,14 +13,16 @@
     "docs/02-系统架构设计.md#34-命令的同步语义",
     "docs/08-ADB连接与账号渠道.md#52-通过-asynccallinfo-获知结果",
     "docs/08-ADB连接与账号渠道.md#53-ipc-协议中的表达",
-    "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题"
+    "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题",
+    "tests/fixtures/core_probe_findings.md"
   ],
   "constraints": [
     "事件消费线程：multiprocessing.Queue.get() 是阻塞的同步调用，不能直接在 event loop 里用；开一个 threading.Thread 死循环 get()，拿到事件后用 loop.call_soon_threadsafe 投递回事件循环处理；不用 run_in_executor，因为长期占用的阻塞任务会污染默认 executor（docs/03 §5）",
     "cmd_id 到 Future 的映射：发命令时创建 asyncio.Future 存入 dict，收到 CMD_RESULT 时 pop 并 set_result；超时后 pop 并 set_exception，同时处理「超时后迟到的结果」——此时 cmd_id 已不在映射里，直接丢弃并记一条 warning（docs/03 §5）",
     "内核未就绪时的行为：子进程处于 STARTING / RESTARTING / CRASHED / FAILED 时所有业务命令直接抛领域异常（对应 CORE_NOT_READY / CORE_RESTARTING / CORE_CRASHED 错误码），不进队列等待（docs/03 §5）",
     "异步连接的结果经 Message.AsyncCallInfo 回调送达，用两级 Future：外层等 async_call_id 返回（CONNECT 命令受理 10 秒），内层等回调送达结果（默认 60 秒）；解析器要写得宽容，取不到字段则记录完整原文并回退到用 AsstConnected 轮询判定（docs/08 §5.2）",
-    "超时时长按命令类型区分：查询类 5 秒、CONNECT 60 秒、LOAD_RESOURCE 300 秒、START / STOP 30 秒；超时不代表子进程已死，仍由心跳判定（docs/02 §3.4）"
+    "超时时长按命令类型区分：查询类 5 秒、CONNECT 60 秒、LOAD_RESOURCE 300 秒、START / STOP 30 秒；超时不代表子进程已死，仍由心跳判定（docs/02 §3.4）",
+    "AsyncCallInfo 载荷已由 M1-01 真机实测（读 tests/fixtures/core_probe_findings.md，样本见 tests/fixtures/async_call_info_sample.json）：async_call_id 在回调 JSON **顶层**，成功标志在 **details.details.ret（双层嵌套）**，调用类型在顶层 what。文档原先「两者同在 details 里」的推测已被证伪，解析器按实测层级实现。另：msg=2 的 ConnectionInfo 会先于 AsyncCallInfo 报出 Connected，异步连接成败只能认 msg=4，不得用 ConnectionInfo 代替。"
   ],
   "deliverables": [
     "maa_api/core/client.py",

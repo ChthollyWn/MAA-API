@@ -9,14 +9,16 @@
     "docs/02-系统架构设计.md#6-模块划分",
     "docs/05-API规范与路由清单.md#4-错误码表",
     "docs/05-API规范与路由清单.md#44-内核状态",
-    "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码"
+    "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码",
+    "tests/fixtures/core_probe_findings.md"
   ],
   "constraints": [
     "`InstanceOptionType` 当前只有 4 项（touch_type=2、deployment_with_pause=3、adblite_enabled=4、kill_on_adb_exit=5），缺 ClientType；实测值为 `ClientType = 6`，注意不要按现有枚举的数值分布猜成 1（那个位置是已废弃的 MinitouchEnabled）（docs/03 §2.3）",
     "对本项目的常规 ADB 连接场景，ClientType 这个选项不需要设置；渠道的实际生效途径是各任务的 client_type 参数，而非实例级选项（docs/03 §2.3）",
     "错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；每个错误码在代码里绑定固定的 HTTP 状态码，路由层不再自行决定状态码（docs/05 §4）",
     "内核状态错误码与其 HTTP：CORE_NOT_READY 503、CORE_RESTARTING 503、CORE_CRASHED 503、CORE_START_FAILED 500、CORE_COMMAND_FAILED 502、CORE_COMMAND_TIMEOUT 504（docs/05 §4.4）",
-    "枚举整数值是内核 ABI：Message 必须与现有 `maa_api/model/util/utils.py` 的取值逐一对齐（AsyncCallInfo=4、TaskChainError=10000、SubTaskError=20000），不得重排或改值；本卡只做内核层最小集，API/鉴权/参数层的错误码（UNAUTHORIZED、VALIDATION_ERROR、NOT_FOUND 等）归 M3，不要实现"
+    "枚举整数值是内核 ABI：Message 必须与现有 `maa_api/model/util/utils.py` 的取值逐一对齐（AsyncCallInfo=4、TaskChainError=10000、SubTaskError=20000），不得重排或改值；本卡只做内核层最小集，API/鉴权/参数层的错误码（UNAUTHORIZED、VALIDATION_ERROR、NOT_FOUND 等）归 M3，不要实现",
+    "AsyncCallInfo 载荷已由 M1-01 真机实测（读 tests/fixtures/core_probe_findings.md，样本见 tests/fixtures/async_call_info_sample.json）：async_call_id 在回调 JSON **顶层**，成功标志在 **details.details.ret（双层嵌套）**，调用类型在顶层 what。文档原先「两者同在 details 里」的推测已被证伪，解析器按实测层级实现。另：msg=2 的 ConnectionInfo 会先于 AsyncCallInfo 报出 Connected，异步连接成败只能认 msg=4，不得用 ConnectionInfo 代替。"
   ],
   "deliverables": [
     "maa_api/core/enums.py",

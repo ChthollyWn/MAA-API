@@ -12,14 +12,16 @@
     "docs/03-MaaCore内核层设计.md#31-启动序列",
     "docs/03-MaaCore内核层设计.md#43-与热更新的协作",
     "docs/08-ADB连接与账号渠道.md#52-通过-asynccallinfo-获知结果",
-    "docs/02-系统架构设计.md#4-子进程生命周期"
+    "docs/02-系统架构设计.md#4-子进程生命周期",
+    "tests/fixtures/core_probe_findings.md"
   ],
   "constraints": [
     "M1 的可交付状态是：能用一个命令行脚本启动子进程、加载资源、连接设备、提交一个最短任务并收到回调；杀掉子进程能观察到自动重启；HTTP 服务尚未接入新内核层（docs/12 M1）",
     "MaaCore 用子进程隔离：内核更新只重启子进程、native 崩溃不再拖垮 API 服务、启动期不再被网络 IO 阻塞（docs/13 ADR-02）",
     "热更新、重装内核、修改 MAA 路径都在 acquire_maintenance() 维护窗口内执行（docs/03 §4.3）——脚本里凡主动停/杀子进程都要在维护窗口内，避免被误判为崩溃",
     "内部所有内核调用经 CoreRegistry.get(core_id) 取 CoreClient，首版 core_id 恒为 default（docs/02 §5.4）",
-    "本卡只产出脚本，不接入 HTTP 服务/路由/lifespan（那是 M3）；也不要实现设备重连与渠道（M6）"
+    "本卡只产出脚本，不接入 HTTP 服务/路由/lifespan（那是 M3）；也不要实现设备重连与渠道（M6）",
+    "AsyncCallInfo 载荷已由 M1-01 真机实测（读 tests/fixtures/core_probe_findings.md，样本见 tests/fixtures/async_call_info_sample.json）：async_call_id 在回调 JSON **顶层**，成功标志在 **details.details.ret（双层嵌套）**，调用类型在顶层 what。文档原先「两者同在 details 里」的推测已被证伪，解析器按实测层级实现。另：msg=2 的 ConnectionInfo 会先于 AsyncCallInfo 报出 Connected，异步连接成败只能认 msg=4，不得用 ConnectionInfo 代替。"
   ],
   "deliverables": [
     "scripts/core_smoke.py"

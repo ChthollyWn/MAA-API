@@ -9,13 +9,15 @@
     "docs/03-MaaCore内核层设计.md#8-测试策略",
     "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径",
     "docs/08-ADB连接与账号渠道.md#51-签名差异",
-    "docs/02-系统架构设计.md#33-截图数据的传递"
+    "docs/02-系统架构设计.md#33-截图数据的传递",
+    "tests/fixtures/core_probe_findings.md"
   ],
   "constraints": [
     "真机冒烟测试：少量必须连真实内核与设备的用例（加载资源、连接、截图、点击、提交一个最短任务），标记为需要硬件的测试，不进常规 CI（docs/03 §8）",
     "M1 的可交付状态：能用一个命令行脚本启动子进程、加载资源、连接设备、提交一个最短任务并收到回调；杀掉子进程能观察到自动重启（docs/12 M1）——脚本形态由 M1-13 交付，本卡把它固化成可重复执行的 pytest 用例",
     "本机事实：资源根 `resource/lib/maa/Darwin`、adb `/opt/homebrew/bin/adb`、设备 `127.0.0.1:5555` 已连接；macOS 加载内核需 DYLD_LIBRARY_PATH（docs/.refactor/ENVIRONMENT.md 已实测）",
-    "用例必须默认跳过：用环境变量闸门 + `@pytest.mark.hardware`（pytest.ini 已注册该 marker），保证 `.venv/bin/python -m pytest -q` 在没有真机/未显式开启时全绿"
+    "用例必须默认跳过：用环境变量闸门 + `@pytest.mark.hardware`（pytest.ini 已注册该 marker），保证 `.venv/bin/python -m pytest -q` 在没有真机/未显式开启时全绿",
+    "AsyncCallInfo 载荷已由 M1-01 真机实测（读 tests/fixtures/core_probe_findings.md，样本见 tests/fixtures/async_call_info_sample.json）：async_call_id 在回调 JSON **顶层**，成功标志在 **details.details.ret（双层嵌套）**，调用类型在顶层 what。文档原先「两者同在 details 里」的推测已被证伪，解析器按实测层级实现。另：msg=2 的 ConnectionInfo 会先于 AsyncCallInfo 报出 Connected，异步连接成败只能认 msg=4，不得用 ConnectionInfo 代替。"
   ],
   "deliverables": [
     "tests/core/test_hardware_smoke.py"

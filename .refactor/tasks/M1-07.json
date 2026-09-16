@@ -13,14 +13,16 @@
     "docs/02-系统架构设计.md#31-命令消息",
     "docs/02-系统架构设计.md#32-事件消息",
     "docs/02-系统架构设计.md#33-截图数据的传递",
-    "docs/13-决策记录.md#adr-03--ipc-用-multiprocessing-queue"
+    "docs/13-决策记录.md#adr-03--ipc-用-multiprocessing-queue",
+    "tests/fixtures/core_probe_findings.md"
   ],
   "constraints": [
     "worker 由 multiprocessing.Process 以 spawn 方式启动，只接收纯数据（路径字符串、配置 dict、两个 Queue），不接收任何服务对象（docs/03 §3）",
     "worker 不做版本检查与下载；版本检查与下载归主进程 UpdateService；设备连接也不在启动序列里，由主进程在 READY 之后显式下发 CONNECT（docs/03 §3.1）",
     "MaaCore 回调发生在内核自己的线程上，桥接函数只做最小工作：不解释、不 IO、绝不在回调线程里抛异常（异常穿过 C 调用边界是未定义行为）（docs/03 §3.2）",
     "增量资源层按有序列表逐层叠加，顺序即优先级；不存在 `Path(layer)/'resource'` 的层跳过而非报错，返回 false 的层是真实故障必须中断上报（docs/03 §7）",
-    "GET_IMAGE 的落盘处理在 _dispatch 内完成，返回文件路径与图像元信息而非字节（docs/02 §3.3、docs/03 §3.3）"
+    "GET_IMAGE 的落盘处理在 _dispatch 内完成，返回文件路径与图像元信息而非字节（docs/02 §3.3、docs/03 §3.3）",
+    "AsyncCallInfo 载荷已由 M1-01 真机实测（读 tests/fixtures/core_probe_findings.md，样本见 tests/fixtures/async_call_info_sample.json）：async_call_id 在回调 JSON **顶层**，成功标志在 **details.details.ret（双层嵌套）**，调用类型在顶层 what。文档原先「两者同在 details 里」的推测已被证伪，解析器按实测层级实现。另：msg=2 的 ConnectionInfo 会先于 AsyncCallInfo 报出 Connected，异步连接成败只能认 msg=4，不得用 ConnectionInfo 代替。"
   ],
   "deliverables": [
     "maa_api/core/worker.py",

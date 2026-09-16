@@ -9,14 +9,16 @@
     "docs/03-MaaCore内核层设计.md#8-测试策略",
     "docs/03-MaaCore内核层设计.md#21-新增方法签名",
     "docs/08-ADB连接与账号渠道.md#52-通过-asynccallinfo-获知结果",
-    "docs/13-决策记录.md#5-需要实测验证的假设"
+    "docs/13-决策记录.md#5-需要实测验证的假设",
+    "tests/fixtures/core_probe_findings.md"
   ],
   "constraints": [
     "定义 AsstProtocol（Python Protocol）描述全部方法，worker 依赖 protocol 而非具体类；测试时注入 FakeAsst，它按脚本产生回调事件（可模拟任务成功、失败、卡死、连接断开）（docs/03 §8）",
     "崩溃恢复的故障注入：让 FakeAsst 主动 `os._exit(-11)` 模拟段错误，验证 CoreSupervisor 的检测、落库、退避、重启全链路（docs/03 §8）——因此崩溃注入能力必须在本卡落到 FakeAsst 上，M1-10 只消费不修改",
     "FakeAsst 必须完全脱离真实内核：不引入 ctypes、不加载 Maacore（docs/03 §8）——现有测试 `tests/core/test_asst_protocol.py::test_fake_asst_stays_independent_of_real_core` 会检查源码里不出现 `ctypes` 与 `Asst.load` 字面量，新增代码不得违反",
     "worker 只接收纯数据（路径字符串、配置 dict、两个 Queue），不接收任何服务对象，因此替身必须能被 spawn 子进程按模块路径 import 构造（docs/03 §3）",
-    "枚举以 `maa_api/core/enums.py` 为唯一事实来源，`maa_api/model/util/utils.py` 是待删的旧模块，不得再在其中新增内容"
+    "枚举以 `maa_api/core/enums.py` 为唯一事实来源，`maa_api/model/util/utils.py` 是待删的旧模块，不得再在其中新增内容",
+    "AsyncCallInfo 载荷已由 M1-01 真机实测（读 tests/fixtures/core_probe_findings.md，样本见 tests/fixtures/async_call_info_sample.json）：async_call_id 在回调 JSON **顶层**，成功标志在 **details.details.ret（双层嵌套）**，调用类型在顶层 what。文档原先「两者同在 details 里」的推测已被证伪，解析器按实测层级实现。另：msg=2 的 ConnectionInfo 会先于 AsyncCallInfo 报出 Connected，异步连接成败只能认 msg=4，不得用 ConnectionInfo 代替。"
   ],
   "deliverables": [
     "maa_api/core/asst_protocol.py",

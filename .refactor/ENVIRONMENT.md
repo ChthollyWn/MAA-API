@@ -3,6 +3,10 @@
 > 本文件是**已实测确认**的环境事实，供拆卡者与 worker 共用。
 > 目的：不让每个全新上下文的 agent 重复发现同一件事。
 > 每条都必须来自实测，推测请标注「未验证」。
+>
+> **worker 可以在本文件对应小节末尾追加新发现的事实**（只追加、不改写既有条目、
+> 不 `git add`，编排器会随台账一起提交）。这是 worker 被允许触碰 `.refactor/` 的
+> 唯一例外 —— 踩过的坑如果不写下来，下一个里程碑的 worker 会再踩一次。
 
 ## 基础工具链
 
@@ -16,6 +20,13 @@
 - 本地库：`resource/lib/maa/Darwin/`（v6.17.5）与 `resource/lib/maa/Linux/`（v6.17.2）。
 - macOS 加载需 `DYLD_LIBRARY_PATH=/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin`。
 - 真机/模拟器已连接：`127.0.0.1:5555`（`adb devices` 可见）。
+- **`AsstMsg` 取值不是 1..12 连号**（v6.17.5 实测）：`InternalError=0`、`InitFailed=1`、`ConnectionInfo=2`、`AllTasksCompleted=3`、`AsyncCallInfo=4`、`Destroyed=5`、`TaskChain*=10000..10004`、`SubTask*=20000..20004`。照连号硬编码会把 `ConnectionInfo`(2) 当成 `TaskChainError`。
+- **`AsstAppendTask` 校验任务必填参数，缺参数时静默返回 0**（不抛异常、无回调）。实测：`("StartUp", {})`→0、`("StartUp", {"client_type":"Official"})`→1；`("Infrast", {})`→0、带 `{"facility":["Mfg"]}`→2；`("Recruit", {})`/`{"times":4}` 均→0；`Award`/`Fight`/`Mall`/`Roguelike`/`OperBox`/`Depot` 空参数即可。`task_id == 0` 必须当失败处理。
+- **`AsstSetUserDir` 要求目录已存在**，否则返回 False；旧封装 `Asst.load()` 把它 `&=` 进返回值，表现为「内核加载失败」。
+- **按绝对路径 `ctypes.CDLL(<dir>/libMaaCore.dylib)` 不依赖 `DYLD_LIBRARY_PATH`**：`env -u DYLD_LIBRARY_PATH` 实测也能 dlopen（依赖走 @loader_path/@rpath）。那条环境变量是冗余保险。
+- **`AsstGetTasksList(handle)`（`restype=c_char_p`）在本内核上直接段错误**：`<user_dir>/crash.log` 记 `SIGSEGV`，进程退出码是 **1**（不是 139/-11）。即 MaaCore 把 native 崩溃转成 exit 1 + crash.log，supervisor 不能靠「exitcode 为负」判崩溃。
+- **`import maa_api.model.core.asst` 有 import 期副作用**：连带 import `maa_api.config.config`，后者 mkdir `static/ resource/lib resource/log resource/temp` 并可能拷贝 `daily_task_template.json`（CWD 非仓库根时 RuntimeError）。子进程启动序列别走这条链。
+- **spawn 子进程 + `ctx.Queue()` 已验证可用**：入口必须是模块级函数、回调的 `event_queue` 靠子进程模块级全局持有（`ctypes.c_void_p(id(arg))` 指针法跨进程无效）；子进程继承父进程环境变量。实测 spawn→内核 READY 约 0.16–0.29s，SIGKILL→exitcode -9 约 0.05s。
 
 ## 验证命令的陷阱
 

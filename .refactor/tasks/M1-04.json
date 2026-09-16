@@ -11,14 +11,16 @@
     "docs/08-ADB连接与账号渠道.md#51-签名差异",
     "docs/08-ADB连接与账号渠道.md#52-通过-asynccallinfo-获知结果",
     "docs/13-决策记录.md#5-需要实测验证的假设",
-    "docs/03-MaaCore内核层设计.md#8-测试策略"
+    "docs/03-MaaCore内核层设计.md#8-测试策略",
+    "tests/fixtures/core_probe_findings.md"
   ],
   "constraints": [
     "补全 8 个缺失 C API：AsstConnected、AsstBackToHome、AsstAsyncClick、AsstAsyncScreencap、AsstGetImageBgr、AsstGetUUID、AsstGetTasksList、AsstGetNullSize（docs/03 §1.1）",
     "AsstAsyncConnect 返回 AsstAsyncCallId（int32），只表示「请求已受理」，非零不代表连接成功，结果经 Message.AsyncCallInfo 回调送达；block 参数是「内核内部是否串行化」而非 Python 侧阻塞（docs/08 §5.1、§5.2）",
     "AsstGetMapLevelKey 封装为能力探测 + 优雅降级：ctypes 在符号不存在时于首次属性访问抛 AttributeError，因此 __set_lib_properties 里给所有函数统一设置 restype/argtypes 的写法必须把实验性 API 包在条件分支里，不可用时返回 None，调用方回退本地索引（docs/03 §1.2）",
     "AsstGetItemName 不纳入首版：头文件没有声明，参数与返回语义只能靠逆向推测，编造签名会直接段错误（docs/03 §1.2）",
-    "get_image 重写为直接传数组并按返回长度截断；size 缺省时用 `_expected_image_size()` 从 ResolutionGot 回调缓存的分辨率推算（docs/03 §2.2）"
+    "get_image 重写为直接传数组并按返回长度截断；size 缺省时用 `_expected_image_size()` 从 ResolutionGot 回调缓存的分辨率推算（docs/03 §2.2）",
+    "AsyncCallInfo 载荷已由 M1-01 真机实测（读 tests/fixtures/core_probe_findings.md，样本见 tests/fixtures/async_call_info_sample.json）：async_call_id 在回调 JSON **顶层**，成功标志在 **details.details.ret（双层嵌套）**，调用类型在顶层 what。文档原先「两者同在 details 里」的推测已被证伪，解析器按实测层级实现。另：msg=2 的 ConnectionInfo 会先于 AsyncCallInfo 报出 Connected，异步连接成败只能认 msg=4，不得用 ConnectionInfo 代替。"
   ],
   "deliverables": [
     "maa_api/core/asst.py",

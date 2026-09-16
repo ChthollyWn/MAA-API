@@ -11,14 +11,16 @@
     "docs/03-MaaCore内核层设计.md#33-命令循环",
     "docs/03-MaaCore内核层设计.md#5-coreclient",
     "docs/02-系统架构设计.md#34-命令的同步语义",
-    "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径"
+    "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径",
+    "tests/fixtures/core_probe_findings.md"
   ],
   "constraints": [
     "IPC 协议的契约测试用真实 multiprocessing.Queue 测试，但两端都用替身，验证所有消息类型都能正确 pickle 往返（docs/03 §8）——本卡把「两端替身」升级为「真实 worker + FakeAsst + 真实 supervisor/client」，仍不碰内核与设备",
     "CALLBACK 事件刻意保持原始形态：子进程只做 json.loads 与 Message(msg) 枚举转换，不翻译语义；回调到中文日志的映射在主进程（M4）（docs/02 §3.2）",
     "GET_IMAGE 采用落盘传引用：CMD_RESULT 只返回文件路径与图像元信息，主进程按需读取（docs/02 §3.3）",
     "关机：先发 SHUTDOWN 等 10 秒，超时 terminate()，再超时 5 秒 kill()（docs/02 §4）",
-    "本卡只产出测试文件；发现源文件缺陷写进 blocked_reason，不要顺手改 maa_api/ 下的实现（归 M1-07/M1-08/M1-09）"
+    "本卡只产出测试文件；发现源文件缺陷写进 blocked_reason，不要顺手改 maa_api/ 下的实现（归 M1-07/M1-08/M1-09）",
+    "AsyncCallInfo 载荷已由 M1-01 真机实测（读 tests/fixtures/core_probe_findings.md，样本见 tests/fixtures/async_call_info_sample.json）：async_call_id 在回调 JSON **顶层**，成功标志在 **details.details.ret（双层嵌套）**，调用类型在顶层 what。文档原先「两者同在 details 里」的推测已被证伪，解析器按实测层级实现。另：msg=2 的 ConnectionInfo 会先于 AsyncCallInfo 报出 Connected，异步连接成败只能认 msg=4，不得用 ConnectionInfo 代替。"
   ],
   "deliverables": [
     "tests/core/test_core_pipeline.py"
