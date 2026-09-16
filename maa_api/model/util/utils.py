@@ -24,11 +24,15 @@ class StaticOptionType(IntEnum):
 
 
 @unique
-class Message(Enum):
+class Message(IntEnum):
     """
     回调消息
 
     请参考 docs/回调消息.md
+
+    注：M1-03 起与新的内核层枚举 maa_api.core.enums.Message 对齐为 IntEnum ——
+    内核回调给的是 int（``Message(msg)`` 已在用），成员本身也应可 int() 转换，
+    以便与 core/enums.py 做逐项 ABI 对照；取值一个未动。本模块 M3 删除。
     """
     InternalError = 0
 
