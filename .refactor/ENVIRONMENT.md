@@ -586,3 +586,9 @@
   `cookies={"maa_token": ...}`，紧接着发「不带凭据」的写请求，第二次会带上 jar 里的 cookie、
   命中 cookie 渠道 → **403 而不是 401**。断言「无凭据 → 401」必须用新 client（本卡用例每个
   test 各自 `make_client`，天然规避）。
+
+### M3-08 第三次尝试（门禁修复被台账提交回滚）：verify #1 又变回坏形态
+
+- **`5bf05f4`（fix(gate)）已把 M3-08 的 verify #1 改成 `set(a.openapi()['paths'])`，但紧接着的台账提交 `6289593`（chore(ledger): M3-08 → pending）把它回滚了**：该提交按编排器内存里的旧卡片重新序列化 `.refactor/tasks/M3-08.json`，落盘后 verify #1 又变回 `paths={r.path for r in a.routes}`（同一提交没碰 M3-07，因为 M3-07 当时已 done、内存卡片就是修正后的）。当前磁盘与内存里 M3-08 的 verify #1 仍是坏形态，字面执行必 `exit 1`（`AttributeError: '_IncludedRouter' object has no attribute 'path'`），与本卡实现无关。
+- 等价命令（只把 `{r.path for r in a.routes}` 换成 `set(a.openapi()['paths'])`）`exit 0` → `['/api/tasks/types', '/api/tasks/types/{type_name}', '/api/tasks/validate']`；pytest 门禁全绿（本文件 27 passed；全仓 826 passed / 4 skipped，均 exit 0）。
+- 建议：重新应用 `5bf05f4` 对 `.refactor/tasks/M3-08.json` 的 verify #1 改动（或先更新编排器内存卡片再写盘，避免台账序列化再次回滚）。
