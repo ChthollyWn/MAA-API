@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**10 / 21** 张卡完成
+- 进度：**11 / 21** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=0 workerRuns=0（启动于 2026-09-16T09:30:38.740Z）
-- 更新时间：2026-09-16T09:30:38.746Z
+- 进程内统计：cycle=1 workerRuns=0（启动于 2026-09-16T09:30:38.740Z）
+- 更新时间：2026-09-16T09:30:48.765Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -21,8 +21,8 @@
 | M1-01 | 方案前置实测：AsyncCallInfo 回调载荷结构 + 本地内核构建来源与导出符号能力 | done | 1 | 301c028 |  |
 | M1-02 | 方案前置实测：子进程隔离最小验证（spawn 子进程→真实内核加载→跨进程回调→杀进程→观察重启） | done | 1 | d71100b |  |
 | M1-03 | 内核基础契约：core/enums.py（Message/InstanceOptionKey/StaticOptionKey）+ domain/errors.py（内核层最小错误码） | done | 2 | 58c7dce |  |
-| M1-04 | 重写 core/asst.py：补齐 8 个缺失 C API、迁移 AsstAsyncConnect、实验性 API 能力探测与优雅降级 | running | 0 | — |  |
-| M1-05 | 对齐 AsstProtocol 与 FakeAsst：新方法签名、可注入替身、崩溃注入剧本与结构一致性契约测试 | pending | 0 | — |  |
+| M1-04 | 重写 core/asst.py：补齐 8 个缺失 C API、迁移 AsstAsyncConnect、实验性 API 能力探测与优雅降级 | done | 1 | e837006 |  |
+| M1-05 | 对齐 AsstProtocol 与 FakeAsst：新方法签名、可注入替身、崩溃注入剧本与结构一致性契约测试 | running | 0 | — |  |
 | M1-06 | IPC 协议定义：命令与事件的类型、payload 结构、超时表、序列化 + 真实 Queue 契约测试 | pending | 0 | — |  |
 | M1-07 | core/worker.py 子进程：启动序列、回调桥接、命令循环与 GET_IMAGE 落盘 | pending | 0 | — |  |
 | M1-08 | CoreSupervisor：状态机、心跳、崩溃检测、退避重启与维护窗口 | pending | 0 | — |  |

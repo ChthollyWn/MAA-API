@@ -93,3 +93,45 @@ worker 的提示词由编排器从卡片生成，固定包含：
 ## 里程碑 tag
 
 同一里程碑全部卡 done 后，编排器打 `v2-m<N>` tag。任何阶段都能回到上一个 tag；`dev` 分支始终保持重构前可用状态。
+
+## 运维
+
+### 控制
+
+| 动作 | 做法 |
+|---|---|
+| 急停 | `touch .refactor/PAUSE`（在途 worker 会跑完，之后不再认领新卡） |
+| 恢复 / 立即跑一轮 | `rm .refactor/PAUSE && touch .refactor/TRIGGER` |
+| 解除停机状态 | `touch .refactor/TRIGGER`（TRIGGER 会清掉 halted 并马上跑一轮） |
+| 看进度 | `.refactor/PROGRESS.md`（每次 tick 刷新）与 `.refactor/state.json` |
+| 看细节 | `.refactor/logs/orchestrator.log`；逐卡 `.refactor/logs/<卡号>.log`；拆卡 `.refactor/logs/decompose-<M>.log` |
+
+### 编排器自身
+
+- 插件包：`@dsh-external/dsh-refactor-orchestrator`，源码在 `.refactor/orchestrator-src/`（gitignored），
+  经 `~/Developer/WorkSpace/dsh-refactor-orchestrator` 符号链接部署。
+- 已写入 `web` profile 的 `bundles`，**宿主重启后会自动恢复装配**（常驻）。
+- 零运行时依赖（只用 node 内置模块）：本机没有 DSH 源码 checkout 可编译，profile 里也解析不到
+  cordis/schemastery，所以刻意不 import 任何 DSH 包。
+- worker 通过 `~/.local/bin/dsh-start.mjs` 启动（Node 23 下官方 bin 因 `import.meta.main`
+  为 undefined 而静默 no-op），并以 `DSH_PERMISSION_MODE=danger-full-access` 运行。
+
+### 会自动停机的情况
+
+停机时 `state.json.halted` 与 `PROGRESS.md` 顶部都会写明原因：
+
+- 分支不是 `refactor/v2`（防止污染其他分支）
+- 某里程碑连续两次拆解仍无产出
+- 阻塞卡复活额度用尽（每卡 2 次）
+- 出现依赖死锁（pending 卡的前置卡无法完成）
+
+### 重构收尾后
+
+编排器是重构期工具，不是产品的一部分。全部里程碑完成后应当移除：
+
+```
+dev_uninject_plugin  {"match": "dsh-refactor-orchestrator"}
+```
+
+并清掉 profile `package.json` 里的 `bundles` 与 `dependencies` 条目（`dev_uninject_plugin`
+会写 disabled 条目防止被加回）。`.refactor/` 目录本身可以保留 —— 它是这次重构的完整审计轨迹。
