@@ -1,0 +1,346 @@
+{
+  "alembic_version": "1.20.0",
+  "async_engine_error": "the greenlet library is required to use this function. No module named 'greenlet'",
+  "async_engine_error_type": "builtins.ValueError",
+  "async_engine_select1_value": null,
+  "async_engine_usable": false,
+  "auto_vacuum_effective": true,
+  "auto_vacuum_fallbacks_tried": [],
+  "auto_vacuum_ineffective_names": [
+    "migration_first_statement",
+    "migration_autocommit_block"
+  ],
+  "auto_vacuum_notes": {
+    "env_py_before_begin_transaction": {
+      "alembic_version_present": true,
+      "error": "",
+      "placement_block": "conn.exec_driver_sql(\"PRAGMA auto_vacuum=INCREMENTAL\")",
+      "pragma_mode": null,
+      "pragma_value": 2,
+      "tables_after_upgrade": [
+        "alembic_version",
+        "probe_min",
+        "sqlite_autoindex_alembic_version_1"
+      ]
+    },
+    "migration_autocommit_block": {
+      "alembic_version_present": true,
+      "error": "",
+      "placement_block": "pass  # placement c: pragma 写在 autocommit_block 里",
+      "pragma_mode": "autocommit_block",
+      "pragma_value": 0,
+      "tables_after_upgrade": [
+        "alembic_version",
+        "probe_min",
+        "sqlite_autoindex_alembic_version_1"
+      ]
+    },
+    "migration_first_statement": {
+      "alembic_version_present": true,
+      "error": "",
+      "placement_block": "pass  # placement a: pragma 写在 0001 upgrade() 首行",
+      "pragma_mode": "first_statement",
+      "pragma_value": 0,
+      "tables_after_upgrade": [
+        "alembic_version",
+        "probe_min",
+        "sqlite_autoindex_alembic_version_1"
+      ]
+    }
+  },
+  "auto_vacuum_placement": "env_py_before_begin_transaction",
+  "auto_vacuum_placements": {
+    "env_py_before_begin_transaction": 2,
+    "migration_autocommit_block": 0,
+    "migration_first_statement": 0
+  },
+  "autogenerate_applied_autoincrement": true,
+  "autogenerate_applied_partial_where": true,
+  "autogenerate_apply_error": "NameError: name 'sqlmodel' is not defined",
+  "autogenerate_detected_partial_index": true,
+  "autogenerate_diffs": [
+    "空库 autogenerate 的 upgrade() 操作序列：create_table, batch_alter_table, create_index, create_index, create_table",
+    "create_table 覆盖：probe_parent, probe_child；create_index 覆盖：ix_probe_parent_status_created_at, uq_probe_parent_running_status",
+    "部分唯一索引 uq_probe_parent_running_status：生成物**带** sqlite_where 谓词 —— docs/04 §8.2 说 autogenerate 检测不到部分索引，本次在 Alembic 1.20.0 上**未能复现**该结论（但仍需人工过一遍，见下）",
+    "probe_child 的 create_table：保留了 sqlite_autoincrement=True，AUTOINCREMENT 不丢",
+    "JSON 列的 server_default：生成物带 server_default=sa.text(\"'{}'\")",
+    "命名约定：生成物沿用了约定的索引/约束名（含 ix_probe_parent_status_created_at / fk_probe_child_parent_id_probe_parent / pk_probe_parent）",
+    "外键级联：生成物带 ondelete='CASCADE'（SET NULL 同理需人工核对）",
+    "**SQLModel 类型 import 缺失**：字符串列被渲染成 `sqlmodel.sql.sqltypes.AutoString(length=...)`，而生成文件只有 `import sqlalchemy as sa`，没有 `import sqlmodel`（生成物含 import sqlmodel = False）",
+    "把 autogenerate 产物直接 `upgrade head`：**失败**，原始报错 `NameError: name 'sqlmodel' is not defined` —— 产物开箱即用是不可行的，必须补 sqlmodel import 或改写类型渲染",
+    "修复验证：把 `import sqlmodel` 写进 `script.py.mako` 后重新 autogenerate，产物可以直接 `upgrade head`，且落库 DDL 里 AUTOINCREMENT = 在、部分索引 WHERE 谓词 = 在",
+    "已建库 autogenerate：生成物为空操作（无 server_default / JSON / 命名 / 类型噪声）"
+  ],
+  "autogenerate_generated_migration_applies": false,
+  "autogenerate_mako_fix_applies": true,
+  "autogenerate_mako_fix_error": "",
+  "autogenerate_matched_db_ops": [],
+  "autogenerate_notes": {
+    "definition": "autogenerate_detected_partial_index = 生成物里存在 sqlite_where 且带 谓词 \"status = 'running'\"",
+    "empty_db": {
+      "error": "",
+      "file": "6d81f0efc5ad_probe_empty_db.py",
+      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_dor_u3wa/exp3_autogenerate/empty_db/alembic.ini",
+      "ran": true,
+      "tag": "empty_db"
+    },
+    "empty_db_apply": {
+      "applied": false,
+      "error": "NameError: name 'sqlmodel' is not defined"
+    },
+    "empty_db_mako_fix": {
+      "error": "",
+      "file": "055c2a223a08_probe_empty_db_mako_fix.py",
+      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_dor_u3wa/exp3_autogenerate/empty_db_mako_fix/alembic.ini",
+      "ran": true,
+      "tag": "empty_db_mako_fix"
+    },
+    "empty_db_mako_fix_apply": {
+      "applied": true,
+      "error": ""
+    },
+    "empty_db_mako_fix_summary": {
+      "create_indexes": [
+        "ix_probe_parent_status_created_at",
+        "uq_probe_parent_running_status"
+      ],
+      "create_tables": [
+        "probe_parent",
+        "probe_child"
+      ],
+      "has_autostring": true,
+      "has_composite_index_name": true,
+      "has_fk_name": true,
+      "has_json_server_default": true,
+      "has_ondelete_cascade": true,
+      "has_partial_predicate": true,
+      "has_pk_name": true,
+      "has_sqlite_autoincrement": true,
+      "has_sqlite_where": true,
+      "has_sqlmodel_import": true,
+      "ops": [
+        "create_table",
+        "batch_alter_table",
+        "create_index",
+        "create_index",
+        "create_table"
+      ]
+    },
+    "empty_db_summary": {
+      "create_indexes": [
+        "ix_probe_parent_status_created_at",
+        "uq_probe_parent_running_status"
+      ],
+      "create_tables": [
+        "probe_parent",
+        "probe_child"
+      ],
+      "has_autostring": true,
+      "has_composite_index_name": true,
+      "has_fk_name": true,
+      "has_json_server_default": true,
+      "has_ondelete_cascade": true,
+      "has_partial_predicate": true,
+      "has_pk_name": true,
+      "has_sqlite_autoincrement": true,
+      "has_sqlite_where": true,
+      "has_sqlmodel_import": false,
+      "ops": [
+        "create_table",
+        "batch_alter_table",
+        "create_index",
+        "create_index",
+        "create_table"
+      ]
+    },
+    "matched_db": {
+      "error": "",
+      "file": "e62cfd7464c2_probe_matched_db.py",
+      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_dor_u3wa/exp3_autogenerate/matched_db/alembic.ini",
+      "ran": true,
+      "tag": "matched_db"
+    },
+    "matched_db_summary": {
+      "create_indexes": [],
+      "create_tables": [],
+      "has_autostring": false,
+      "has_composite_index_name": false,
+      "has_fk_name": false,
+      "has_json_server_default": false,
+      "has_ondelete_cascade": false,
+      "has_partial_predicate": false,
+      "has_pk_name": false,
+      "has_sqlite_autoincrement": false,
+      "has_sqlite_where": false,
+      "has_sqlmodel_import": false,
+      "ops": []
+    }
+  },
+  "autogenerate_ops": [
+    "create_table",
+    "batch_alter_table",
+    "create_index",
+    "create_index",
+    "create_table"
+  ],
+  "autogenerate_ran": true,
+  "autoincrement_emitted": true,
+  "autoincrement_without_flag_control": {
+    "ddl": "CREATE TABLE probe_no_autoinc (\n\tid INTEGER NOT NULL, \n\tlabel VARCHAR(16) NOT NULL, \n\tPRIMARY KEY (id)\n)",
+    "emitted": false
+  },
+  "autoincrement_writing": "id: int | None = Field(default=None, primary_key=True) + __table_args__ = {'sqlite_autoincrement': True}",
+  "batch_change_observed": true,
+  "batch_copy_from_downgrade_ok": true,
+  "batch_copy_from_downgrade_preserved_autoincrement": true,
+  "batch_copy_from_error": "",
+  "batch_copy_from_upgrade_ok": true,
+  "batch_copy_from_upgrade_preserved_autoincrement": true,
+  "batch_downgrade_ok": true,
+  "batch_downgrade_preserved_autoincrement": false,
+  "batch_notes": {
+    "copy_from_batch": {
+      "before_table_sql": "CREATE TABLE probe_child ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(16) NOT NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )",
+      "change_observed": true,
+      "columns_after_upgrade": [
+        "id",
+        "parent_id",
+        "auditor_id",
+        "label",
+        "note"
+      ],
+      "copy_from": true,
+      "downgrade_columns": [
+        "id",
+        "parent_id",
+        "auditor_id",
+        "label"
+      ],
+      "downgrade_ok": true,
+      "downgrade_preserved_autoincrement": true,
+      "downgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(16) NOT NULL, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE )",
+      "error": "",
+      "label_type_after_upgrade": "VARCHAR(24)",
+      "scenario": "copy_from_batch",
+      "structure_restored": true,
+      "upgrade_ok": true,
+      "upgrade_preserved_autoincrement": true,
+      "upgrade_preserved_fk_names": true,
+      "upgrade_preserved_rows": true,
+      "upgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(24) NOT NULL, note VARCHAR(32), CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE )"
+    },
+    "definition": "batch_downgrade_ok = 0002 upgrade head 出现结构变化，且 downgrade -1 后 列/外键/显式索引结构指纹与 0001 之后完全一致（表级 AUTOINCREMENT 选项单独记录，因为它会被 batch 重建影响）",
+    "reflection_batch": {
+      "before_table_sql": "CREATE TABLE probe_child ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(16) NOT NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )",
+      "change_observed": true,
+      "columns_after_upgrade": [
+        "id",
+        "parent_id",
+        "auditor_id",
+        "label",
+        "note"
+      ],
+      "copy_from": false,
+      "downgrade_columns": [
+        "id",
+        "parent_id",
+        "auditor_id",
+        "label"
+      ],
+      "downgrade_ok": true,
+      "downgrade_preserved_autoincrement": false,
+      "downgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(16) NOT NULL, PRIMARY KEY (id), CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )",
+      "error": "",
+      "label_type_after_upgrade": "VARCHAR(24)",
+      "scenario": "reflection_batch",
+      "structure_restored": true,
+      "upgrade_ok": true,
+      "upgrade_preserved_autoincrement": false,
+      "upgrade_preserved_fk_names": true,
+      "upgrade_preserved_rows": true,
+      "upgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(24) NOT NULL, note VARCHAR(32), PRIMARY KEY (id), CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE )"
+    }
+  },
+  "batch_upgrade_ok": true,
+  "batch_upgrade_preserved_autoincrement": false,
+  "batch_upgrade_preserved_fk_names": true,
+  "batch_upgrade_preserved_rows": true,
+  "errors": [],
+  "foreign_key_cascade_emitted": true,
+  "generated_at": "2026-09-16T11:08:24.768929+00:00",
+  "greenlet_available": false,
+  "greenlet_import_error": "ModuleNotFoundError: No module named 'greenlet'",
+  "greenlet_notes": "本卡不安装 greenlet（依赖变更归 M2-02）；AIOSQLITE_URL 的异步引擎在缺 greenlet 时的原始报错见 async_engine_error。",
+  "json_server_default_emitted": true,
+  "naming_convention": {
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "ix": "ix_%(table_name)s_%(column_0_N_name)s",
+    "pk": "pk_%(table_name)s",
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s"
+  },
+  "naming_convention_applied": true,
+  "naming_convention_late_control": {
+    "applied": false,
+    "ddl": {
+      "ix_probe_late_child_parent_id": "CREATE INDEX ix_probe_late_child_parent_id ON probe_late_child (parent_id, status)",
+      "probe_late_child": "CREATE TABLE probe_late_child (\n\tid INTEGER NOT NULL, \n\tparent_id VARCHAR(36) NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tPRIMARY KEY (id), \n\tUNIQUE (parent_id, status), \n\tFOREIGN KEY(parent_id) REFERENCES probe_late_parent (id) ON DELETE CASCADE\n)",
+      "probe_late_parent": "CREATE TABLE probe_late_parent (\n\tid VARCHAR(36) NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tPRIMARY KEY (id)\n)",
+      "sqlite_autoindex_probe_late_child_1": "",
+      "sqlite_autoindex_probe_late_parent_1": ""
+    },
+    "expected_names": [
+      "ix_probe_late_child_parent_id_status",
+      "uq_probe_late_child_parent_id_status",
+      "fk_probe_late_child_parent_id_probe_late_parent",
+      "pk_probe_late_parent"
+    ],
+    "missing": [
+      "ix_probe_late_child_parent_id_status",
+      "uq_probe_late_child_parent_id_status",
+      "fk_probe_late_child_parent_id_probe_late_parent",
+      "pk_probe_late_parent"
+    ]
+  },
+  "naming_convention_missing_names": [],
+  "partial_index_ddl": "CREATE UNIQUE INDEX uq_probe_parent_running_status ON probe_parent (status) WHERE status = 'running'",
+  "partial_index_emitted": true,
+  "partial_index_predicate": "status = 'running'",
+  "platform": "macOS-15.4.1-arm64-arm-64bit-Mach-O",
+  "probe": "M2-01",
+  "probe_command": ".venv/bin/python scripts/probe_sqlmodel_alembic.py",
+  "probe_ok": true,
+  "probe_title": "SQLModel + Alembic 在本机 SQLite 上的 DDL 能力边界",
+  "python_version": "3.13.3",
+  "repo_root": "/Users/chtholly/Developer/WorkSpace/MAA-API",
+  "required_checks": {
+    "async_probe_recorded": true,
+    "auto_vacuum_effective": true,
+    "autogenerate_apply_recorded": true,
+    "autogenerate_ran": true,
+    "autoincrement_emitted": true,
+    "batch_change_observed": true,
+    "batch_downgrade_ok": true,
+    "batch_upgrade_ok": true,
+    "foreign_key_cascade_emitted": true,
+    "json_server_default_emitted": true,
+    "naming_convention_applied": true,
+    "partial_index_emitted": true,
+    "versions_recorded": true
+  },
+  "schema_db_is_temp": true,
+  "schema_ddl": {
+    "ix_probe_parent_status_created_at": "CREATE INDEX ix_probe_parent_status_created_at ON probe_parent (status, created_at)",
+    "probe_child": "CREATE TABLE probe_child (\n\tid INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, \n\tparent_id VARCHAR(36) NOT NULL, \n\tauditor_id VARCHAR(36), \n\tlabel VARCHAR(16) NOT NULL, \n\tCONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, \n\tCONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL\n)",
+    "probe_parent": "CREATE TABLE probe_parent (\n\tid VARCHAR(36) NOT NULL, \n\tstatus VARCHAR(16) NOT NULL, \n\tpayload JSON DEFAULT '{}' NOT NULL, \n\tcreated_at DATETIME NOT NULL, \n\tCONSTRAINT pk_probe_parent PRIMARY KEY (id), \n\tCONSTRAINT uq_probe_parent_status_created_at UNIQUE (status, created_at)\n)",
+    "sqlite_autoindex_probe_parent_1": "",
+    "sqlite_autoindex_probe_parent_2": "",
+    "sqlite_sequence": "CREATE TABLE sqlite_sequence(name,seq)",
+    "uq_probe_parent_running_status": "CREATE UNIQUE INDEX uq_probe_parent_running_status ON probe_parent (status) WHERE status = 'running'"
+  },
+  "sqlalchemy_version": "2.0.54",
+  "sqlite_sequence_present": true,
+  "sqlite_version": "3.49.1",
+  "sqlmodel_version": "0.0.42",
+  "temp_workdir": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_dor_u3wa"
+}
