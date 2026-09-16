@@ -1,0 +1,12 @@
+{
+  "milestone": "M3",
+  "deliverable": "新的 API 骨架可访问，`/docs` 可用且文档完整，鉴权生效，任务参数校验生效。业务端点尚未接内核。",
+  "acceptance": [
+    ".venv/bin/python -m pytest -q",
+    ".venv/bin/python scripts/api_smoke.py"
+  ],
+  "advisory": [
+    ".venv/bin/python scripts/api_smoke.py --serve --port 8123"
+  ],
+  "_note": "acceptance 是硬门禁：全量 pytest 覆盖错误码表/任务模型/鉴权/路由/装配各卡的单测；api_smoke.py 用真实 app 装配（lifespan → Alembic 迁移 → 免鉴权与鉴权两种模式 → /docs 与 openapi 完整性 → 三渠道鉴权与 cookie 限制 → 任务 schema 导出与 /api/tasks/validate 的参数校验与默认值注入 → 统一错误体）证明 docs/12 给 M3 定的「可交付状态」整条链路在隔离临时库上跑得通，且必须打印末行 SMOKE OK。--serve 是 advisory：它起真实 uvicorn 与本地端口，验证 TestClient 之外的 HTTP 栈，端口占用等抖动不该卡 tag。本文件与 M3-10 卡配套；两者缺一，M3 就不能算交付。"
+}

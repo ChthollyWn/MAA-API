@@ -1,0 +1,43 @@
+{
+  "id": "M3-07",
+  "milestone": "M3",
+  "title": "api/routers/system.py：GET /api/system/health（免鉴权、带 auth_enabled）与 /api/system/auth/cookie 的换取与清除",
+  "depends": [
+    "M3-06"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m3--api-骨架l",
+    "docs/05-API规范与路由清单.md#61-system",
+    "docs/05-API规范与路由清单.md#3-响应体约定",
+    "docs/05-API规范与路由清单.md#52-未配置-token-时的行为",
+    "docs/05-API规范与路由清单.md#53-豁免鉴权的端点",
+    "docs/05-API规范与路由清单.md#54-websocket-的鉴权",
+    "docs/06-实时日志与WebSocket.md#71-端点与鉴权",
+    "docs/09-前端重构方案.md#104-websocket-与图片的特殊处理",
+    "docs/05-API规范与路由清单.md#111-tag-分组",
+    "docs/05-API规范与路由清单.md#112-summary-与-description-的中文规范",
+    "docs/13-决策记录.md#4-待补齐的契约缺口",
+    "docs/09-前端重构方案.md#101-token-的录入与存储"
+  ],
+  "constraints": [
+    "docs/05 §5.3：「GET /api/system/health —— 供外部监控与容器健康检查探测，且只返回状态不返回数据」，免鉴权；豁免由 api/deps.py 的豁免清单承担，路由侧不要再挂 require_auth。",
+    "docs/05 §5.2：「GET /api/system/health 的响应体带 \"auth_enabled\": false」（配置了 token 时为 true）。docs/09 §10.1 说明前端登录流程就是先读这个免鉴权端点拿 auth_enabled，为 false 直接跳过登录页，因此该字段是前端能否进入应用的判据，不能少。",
+    "docs/05 §5.4：「推荐前者：POST /api/system/auth/cookie 用头部 token 换一个 HttpOnly; SameSite=Lax 的 maa_token cookie，之后 WS 握手自动携带，token 不出现在 URL 里。这条端点归入 system 组。」该端点本身是写方法，必须经头部 token 鉴权（仅凭 cookie 调它应得 403，这是 cookie 渠道规则的直接后果）。",
+    "docs/13 §4：「缺少登出端点。……cookie 会被设为 HttpOnly（否则 XSS 可直接读取），而 HttpOnly cookie 前端 JavaScript 删不掉。结果是用户『登出』后 cookie 仍在，WebSocket 依然能连上。需要补一个由服务端清除 cookie 的端点（如 DELETE /api/system/auth/cookie）。」",
+    "docs/12 M3 可交付状态：「业务端点尚未接内核。」本卡的 health 只报服务自身状态（status / auth_enabled / version / started_at），内核状态、设备状态、队列长度字段归 M4–M6，**不要提前接**；保留清晰扩展位即可。"
+  ],
+  "deliverables": [
+    "maa_api/api/routers/system.py",
+    "tests/api/test_system_router.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"import maa_api.api.routers.system as s; from fastapi import FastAPI; a=FastAPI(); a.include_router(s.router); paths={r.path for r in a.routes}; assert '/api/system/health' in paths and '/api/system/auth/cookie' in paths, sorted(paths); print(sorted(p for p in paths if p.startswith('/api')))\"",
+    ".venv/bin/python -m pytest -q tests/api/test_system_router.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "公开契约：\n- `router = APIRouter(prefix=\"/api/system\", tags=[\"system\"])`（前缀写在模块里，M3-09 只 include_router，不再拼前缀；verify 依赖这一点）。\n- `GET /api/system/health`：200，响应体是 pydantic 模型（字段：status: str = \"ok\"、auth_enabled: bool、version: str、started_at: str | None = None），`started_at` 从 `request.app.state.started_at` 取、缺失时为 null（M3-09 的 lifespan 会写入）；模型要留注释说明 M4–M6 会追加 core/device/queue 字段。version 取 `importlib.metadata.version(\"maa-api\")`，失败回退 \"0.1.0\"（不要 import maa_api.main / 内核）。\n- `POST /api/system/auth/cookie`：依赖 require_auth；鉴权通过且 auth_enabled 为真 → 204 + `Set-Cookie: maa_token=<token>; HttpOnly; SameSite=Lax; Path=/`；auth_enabled 为假（免鉴权模式）→ 204 且**不下发** cookie（无秘密可发，WS 此时也不校验）；鉴权失败由 require_auth 抛 UNAUTHORIZED(401)。响应模型用 Response(status_code=204) 这类无体返回，不要造 JSON body。参数用 `response: Response` 注入后 set_cookie，注意 `secure=False`（HTTPS 判定归 M15）。\n- `DELETE /api/system/auth/cookie`：依赖 require_auth（写方法）→ 204 + 清除 cookie（`delete_cookie(\"maa_token\", path=\"/\")`，等价于 Max-Age=0）。\n- 每个端点按 docs/05 §11.2 写 summary（动宾短语 ≤12 字）与 description（做什么/副作用/可能错误码），并在 POST cookie 上用 error_responses(\"UNAUTHORIZED\",\"FORBIDDEN\") 填 responses。\n\ntests/api/test_system_router.py 覆盖：配置 token 后 health 不带 token 200 且 auth_enabled=true；空 token 时 false；版本字段非空；`started_at` 缺失为 null、app.state 设置后回显；POST cookie 带正确 Bearer → 204 + Set-Cookie 同时含 maa_token=、HttpOnly、SameSite=lax；带错误 token → 401（统一错误体）；带 cookie-only 调 POST → 403；空 token 模式下 POST → 204 且无 Set-Cookie；DELETE → 204 且清除（Max-Age=0 或 expires 过去时间）。用 tests/api 的夹具（tmp_settings + make_client），不要 import maa_api.main。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：端点清单、cookie 属性实测、免鉴权模式行为。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

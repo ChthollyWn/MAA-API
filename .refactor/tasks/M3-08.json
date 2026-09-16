@@ -1,0 +1,47 @@
+{
+  "id": "M3-08",
+  "milestone": "M3",
+  "title": "api/routers/tasks.py：GET /api/tasks/types（9 类 schema 导出）、/types/{type_name} 与 POST /api/tasks/validate（渠道默认值注入）",
+  "depends": [
+    "M3-02",
+    "M3-04",
+    "M3-05",
+    "M3-06"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m3--api-骨架l",
+    "docs/05-API规范与路由清单.md#67-tasks",
+    "docs/05-API规范与路由清单.md#8-get-apitaskstypes-的-schema-导出",
+    "docs/05-API规范与路由清单.md#82-中文标签与取值范围的承载方式",
+    "docs/05-API规范与路由清单.md#9-全局渠道默认值的注入位置",
+    "docs/05-API规范与路由清单.md#32-分页",
+    "docs/05-API规范与路由清单.md#47-流水线与任务",
+    "docs/05-API规范与路由清单.md#111-tag-分组",
+    "docs/05-API规范与路由清单.md#112-summary-与-description-的中文规范",
+    "docs/05-API规范与路由清单.md#113-示例值",
+    "docs/09-前端重构方案.md#72-schema-契约",
+    "docs/13-决策记录.md#4-待补齐的契约缺口"
+  ],
+  "constraints": [
+    "docs/05 §8.1：「schema: model.model_json_schema(ref_template=\"#/$defs/{model}\")」+ name/label/description/groups/runtime_immutable 五个字段；响应结构为 {items:[...], total: 9, page: 1, size: 9}。§8.2：「标准 JSON Schema 没有『显示标签』的概念……中文元信息走 x- 前缀的自定义关键字（JSON Schema 规范允许未知关键字，校验器会忽略它们，所以 schema 仍然是合法的）。」取值范围用原生关键字（minimum/maximum/enum/minItems/maxItems），跨字段依赖用 x-depends-on。",
+    "docs/05 §9：「注入发生在**校验之后、落库之前**的唯一一个函数里」；「为什么不在 Pydantic 的 validator 里做。默认值来自 setting 表，validator 里取不到异步数据库会话；更根本的是，模型必须能如实表达『用户没设这个字段』，一旦 validator 填了值，model_fields_set 就失去了区分能力，raw_params 也就记不准原始提交了。」—— 本卡只调用 M3-05 的 normalize()，不得在路由或模型里另写一套注入。",
+    "docs/05 §9：ChannelDefaults 从 SettingService 读取（channel.client_type、channel.server），带进程内缓存并在设置变更时失效。SettingService 与热生效属 M6：本卡按 setting 仓储读这两个 key（读不到就回退 ChannelDefaults 默认 Bilibili/CN），**不要实现缓存/失效**，并在代码注释里写明 M6 会用 SettingService 替换这处读取。",
+    "docs/05 §3.2：列表端点统一 {items, total, page, size}；page 从 1 开始、size 默认 20 上限 200，越界 400 INVALID_PAGINATION，不做静默钳制。/api/tasks/types 是固定 9 条的清单，返回 total=9/page=1/size=9。",
+    "docs/05 §6.5：「路由声明顺序有个实现约束：/api/pipelines/current 必须写在 /api/pipelines/{id} 之前……/api/tasks/types 与 /api/tasks/{task_id} 同理。」本卡只实现 /types、/types/{type_name} 与 /validate；GET /api/tasks/{task_id} 归 M5，不要提前实现，但模块里要留一行注释提醒将来把它声明在 /types 之后。"
+  ],
+  "deliverables": [
+    "maa_api/api/routers/tasks.py",
+    "tests/api/test_tasks_router.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"import maa_api.api.routers.tasks as t; from fastapi import FastAPI; a=FastAPI(); a.include_router(t.router); paths={r.path for r in a.routes}; assert {'/api/tasks/types','/api/tasks/types/{type_name}','/api/tasks/validate'} <= paths, sorted(paths); assert len(t.TASK_MODELS)==9, sorted(t.TASK_MODELS)\"",
+    ".venv/bin/python -c \"from maa_api.api.routers.tasks import export_type_schema, TASK_MODELS; s=export_type_schema(TASK_MODELS['Fight']); assert s['name']=='Fight' and s['label']=='刷理智' and s['runtime_immutable']==['stage'] and '基础' in s['groups'], s.keys(); props=s['schema']['properties']; assert props['stone']['x-risk']=='consume' and props['series']['x-widget']=='select' and props['drops']['x-widget']=='item-count-map' and props['series']['x-enum-labels']['-1'], props['series']; assert s['schema'].get('additionalProperties') is False; print('export ok')\"",
+    ".venv/bin/python -m pytest -q tests/api/test_tasks_router.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "公开契约：\n- `router = APIRouter(prefix=\"/api/tasks\", tags=[\"tasks\"])`；`TASK_MODELS: dict[str, type[BaseModel]]`（由 get_args(get_args(TaskInput)[0]) 生成，键为 name 的值）；`export_type_schema(model) -> dict`；`_collect_groups(schema) -> list[str]`（按字段声明顺序收集 x-group，未标注的归入最后一个分区「基础」要排在首位，顺序即渲染顺序，docs/09 §7.2）。\n- `GET /types`：query `lang`（默认 \"zh\"，当前仅支持 zh，其它值 400 INVALID_PARAMETER），200 返回 {items,total,page,size}；每个 item 的 groups 是去重后的有序中文数组，runtime_immutable 从 domain/task.py 的 RUNTIME_IMMUTABLE 取。\n- `GET /types/{type_name}`：未知类型 400 UNKNOWN_TASK_TYPE（错误码表里它就是 400，不是 404），200 直接返回单个 item（不套分页信封）。\n- `POST /validate`：请求体 `{\"tasks\": [...]}`（1..32，元素是 TaskInput 判别联合；建议在路由模块定义 TaskValidateRequest 而不是复用 PipelineCreate，避免接受 title/priority 等无关字段）；200 返回 {items:[NormalizedTask...], total, page:1, size:n}，其中每项含 type_name/task_name/params/raw_params——params 是投递给内核的最终形态（含注入的 client_type/server），raw_params 是用户原始提交（exclude_unset，显式 null 保留）。ChannelDefaults 由 setting 表读 channel.client_type/channel.server（SettingRepository + get_session），读不到回退默认值。\n- 三个端点都挂 require_auth（业务端点，不在豁免清单里）。\n- 每个端点按 §11.2 写 summary/description（description 要写清副作用与可能错误码），并用 error_responses() 填 responses。\n\ntests/api/test_tasks_router.py 覆盖：items==9 且 name 集合正确；每个 item 有非空 description 与合法 schema（type=object、additionalProperties false、properties 非空）；Fight 的 groups 顺序与成员、series 的 x-enum-labels 键为字符串、x-depends-on 出现在 expedite_times；GET /types/Fight 200、GET /types/Nope 400 UNKNOWN_TASK_TYPE；POST /validate：正常任务注入 client_type=Bilibili/server=CN、显式 null 不注入、显式值原样、raw_params 不含注入键且含显式 null、未知 name 400、Infrast mode=10000 缺 filename 422、Roguelike mode=2 400 TASK_PARAM_DEPRECATED、tasks 为空 422；未带 token（配置了 token 时）401；setting 表写入 channel.client_type=Official 后 validate 注入 Official（用 isolated_db 夹具，走真实仓储）。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：端点与响应形状、schema 导出实测（$defs 形态、x-* 是否保留）、默认值注入的两种来源验证结果。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

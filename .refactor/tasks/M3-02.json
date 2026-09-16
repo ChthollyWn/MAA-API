@@ -1,0 +1,37 @@
+{
+  "id": "M3-02",
+  "milestone": "M3",
+  "title": "domain/errors.py：全量 92 条错误码（docs/05 §4 十四张表）+ 固定 HTTP 状态绑定 + AppError",
+  "depends": [],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m3--api-骨架l",
+    "docs/05-API规范与路由清单.md#1-总则",
+    "docs/05-API规范与路由清单.md#2-http-状态码使用规范",
+    "docs/05-API规范与路由清单.md#4-错误码表",
+    "docs/05-API规范与路由清单.md#410-人工确认",
+    "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码",
+    "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题"
+  ],
+  "constraints": [
+    "docs/05 §4：「错误码定义在 maa_api/domain/errors.py 的 ErrorCode(StrEnum) 中，与领域异常一一对应；maa_api/api/errors.py 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 92 条，其中 UPDATE_INTERRUPTED 只落库不返回，不占 HTTP 表达。」—— 表外的码一个都不许加，表内的码一个都不许漏。",
+    "docs/05 §4：「每个错误码在代码里绑定固定的 HTTP 状态码，路由层不再自行决定状态码——这保证了同一个错误在不同端点上表现一致。」",
+    "docs/13 ADR-04：「错误体选自定义结构 {\"error\": {\"code\": ..., \"message\": ..., \"details\": {...}}} 而非 FastAPI 默认的 {\"detail\": ...} 或 RFC 9457 Problem Details。自定义结构的核心价值是那个可枚举的错误码字符串：agent 能据此做确定性分支。」",
+    "docs/13 §3：「内核命令超时返回 504 而非 502……同一规则应用到 LLM_TIMEOUT（同样是上游未在时限内响应），也改为 504；UPDATE_DOWNLOAD_FAILED 保持 502。判断依据统一为『有没有收到答复』。」",
+    "M1-03 已建立的契约（ErrorCode 成员名==取值、ERROR_HTTP_STATUS 绑定表、AppError 构造时查表 fail loud、异常可 pickle）只许扩充不许改形；内核层那 6 条的取值与状态码一个不动，tests/domain/test_errors.py 里断言『只有 6 条』的用例要改成新契约（92 条），但 fail loud / pickle / 字符串序列化三条既有断言必须保留。"
+  ],
+  "deliverables": [
+    "maa_api/domain/errors.py",
+    "tests/domain/test_errors.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"from maa_api.domain.errors import ErrorCode, ERROR_HTTP_STATUS; assert len(list(ErrorCode))==92, len(list(ErrorCode)); assert len(ERROR_HTTP_STATUS)==91, len(ERROR_HTTP_STATUS); assert ErrorCode.UPDATE_INTERRUPTED not in ERROR_HTTP_STATUS\"",
+    ".venv/bin/python -m pytest -q tests/domain/test_errors.py",
+    ".venv/bin/python -c \"from maa_api.domain.errors import ErrorCode as E, ERROR_HTTP_STATUS as M; cs={'CONFIRMATION_REQUIRED':202,'UNAUTHORIZED':401,'FORBIDDEN':403,'RATE_LIMITED':429,'ENDPOINT_REMOVED':410,'MALFORMED_JSON':400,'VALIDATION_ERROR':422,'NOT_FOUND':404,'SERVICE_UNAVAILABLE':503,'CORE_COMMAND_TIMEOUT':504,'LLM_TIMEOUT':504,'UPDATE_DOWNLOAD_FAILED':502,'CORE_NOT_READY':503,'QUEUE_FULL':429,'SETTING_READONLY':403,'CUSTOM_TASK_INVALID':422,'GAME_INSTALL_FAILED':502}; bad={k:(M[getattr(E,k)],v) for k,v in cs.items() if M[getattr(E,k)]!=v}; assert not bad, bad; assert all(getattr(E,n).value==n for n in cs)\"",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "做法建议：不要手抄，用脚本从 docs/05 §4 的十四张表里机械解析出 `| `CODE` | HTTP |` 行（表头与文字段落不匹配该形态），生成枚举成员与绑定表，再手工核对；测试里保留一条**文档一致性**断言：重新解析 docs/05 §4（路径按 tests/ 相对仓库根推导，不依赖 CWD）得到 code 集合与 状态码映射，断言与 ErrorCode / ERROR_HTTP_STATUS 完全一致（UPDATE_INTERRUPTED 的 HTTP 列是 `—`，必须落在例外里）。\n\n注意：\n1. 保持现有 AppError 的形态（code/message/details/http_status、__str__/__repr__、fail loud 的 KeyError、args 供 pickle）。需要的话可以加便捷构造（如 `AppError.not_found(...)`），但不得改变既有构造签名语义。\n2. tests/domain/test_errors.py 里 `test_only_kernel_codes_are_defined_in_this_card` 与 `_UnregisteredCode` 辅助类按新契约调整：前者改为断言 92 条且内核 6 条取值不变；后者继续用来验证未登记码 fail loud（用一个不在表里的 StrEnum 成员即可）。\n3. 每条错误码上方保留一行中文注释（含义与触发场景的那句话，从表里摘），后续里程碑（M4–M14）会直接按码取用；不要只写码不写含义。\n4. 本卡不写 maa_api/api/errors.py，也不写任何异常处理器——那是 M3-04。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：枚举条数、与 docs/05 §4 的一致性怎么验的、既有内核 6 条是否零改动。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

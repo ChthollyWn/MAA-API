@@ -1,0 +1,47 @@
+{
+  "id": "M3-04",
+  "milestone": "M3",
+  "title": "api/errors.py：统一错误体、AppError/校验错误/HTTP 异常/兜底异常处理器与 error_responses() 辅助，并建 tests/api 公共夹具",
+  "depends": [
+    "M3-01",
+    "M3-02"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m3--api-骨架l",
+    "docs/05-API规范与路由清单.md#1-总则",
+    "docs/05-API规范与路由清单.md#2-http-状态码使用规范",
+    "docs/05-API规范与路由清单.md#22-400-与-422-的分界",
+    "docs/05-API规范与路由清单.md#3-响应体约定",
+    "docs/05-API规范与路由清单.md#41-鉴权",
+    "docs/05-API规范与路由清单.md#42-参数与请求格式",
+    "docs/05-API规范与路由清单.md#43-通用",
+    "docs/05-API规范与路由清单.md#112-summary-与-description-的中文规范",
+    "docs/09-前端重构方案.md#103-错误状态码的前端处理",
+    "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码",
+    "tests/fixtures/api_probe_findings.md#必读结论"
+  ],
+  "constraints": [
+    "docs/05 §1：「错误体只有一种形状。任何非 2xx 响应的 body 都是 {\"error\": {\"code\": \"ADB_CONNECT_FAILED\", \"message\": \"…\", \"details\": {...}}}。code 是可枚举的大写下划线字符串……message 是中文，直接展示给用户；details 可选，放结构化上下文……**不返回堆栈**，服务端异常的细节进日志表。」",
+    "docs/05 §2.2：「界线是『Pydantic 能不能表达』。能被字段类型、ge/le、Literal、model_validator 拦住的，一律 422，错误码 VALIDATION_ERROR 或 TASK_PARAM_INVALID，details 里带 FastAPI 原生的字段级错误列表……discriminator 取值不在已知任务类型内……用 400（UNKNOWN_TASK_TYPE）。」",
+    "docs/05 §2（状态码表）：「401 Unauthorized | token 缺失或不匹配。响应带 WWW-Authenticate: Bearer」；「500 | 未捕获异常。details 只带一个 trace_id，堆栈进日志表」。",
+    "docs/13 ADR-04：「自定义结构的核心价值是那个可枚举的错误码字符串：agent 能据此做确定性分支（CORE_NOT_READY 该等待、DEVICE_NOT_CONNECTED 该重连、CONFIRMATION_REJECTED 不该重试），而人类可读的 message 做不到这一点。」—— 处理器**不得**自造码、不得把码降级成字符串常量表。",
+    "docs/05 §2.5：「405 Method Not Allowed、307 Temporary Redirect（尾斜杠重定向）由 Starlette 产生，不进错误码表。」—— 表内没有 405 的码，因此 405 不纳入本次统一体的强制转换范围（保持框架默认响应并在模块 docstring 里写明这一例外）；404/400/401/403/410/422/429/500/503 必须转换。"
+  ],
+  "deliverables": [
+    "maa_api/api/errors.py",
+    "tests/api/__init__.py",
+    "tests/api/conftest.py",
+    "tests/api/test_errors.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"from maa_api.api.errors import ErrorBody, ErrorDetail, error_responses, register_exception_handlers; r=error_responses('PIPELINE_NOT_FOUND','QUEUE_FULL','UNAUTHORIZED'); assert set(r)=={401,404,429}, sorted(r); ex=r[404]['content']['application/json']['example']; assert ex['error']['code']=='PIPELINE_NOT_FOUND' and 'message' in ex['error'], ex; print('error_responses ok', sorted(r))\"",
+    ".venv/bin/python -m pytest -q tests/api/test_errors.py",
+    ".venv/bin/python -c \"import ast; t=ast.parse(open('maa_api/api/errors.py',encoding='utf8').read()); mods=[n.module for n in ast.walk(t) if isinstance(n,ast.ImportFrom)]+[a.name for n in ast.walk(t) if isinstance(n,ast.Import) for a in n.names]; bad=[m for m in mods if m and (m.startswith('maa_api.model') or m.startswith('maa_api.router') or m.startswith('maa_api.exception') or m.startswith('maa_api.dependence') or m.startswith('maa_api.config') or m.startswith('maa_api.log'))]; assert not bad, bad\"",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "公开契约（M3-07/08/09 直接引用，名字不要改）：\n- pydantic 模型 `ErrorDetail(code: ErrorCode, message: str, details: dict | None = None)` 与 `ErrorBody(error: ErrorDetail)`；`details is None` 时响应体里**省略** details 键（docs/05 §1 写明 details 可选），测试钉住这条。\n- `register_exception_handlers(app: FastAPI) -> None`：一次性注册四类处理器（AppError / RequestValidationError / StarletteHTTPException / Exception），可重复调用幂等。\n- `error_responses(*codes: str | ErrorCode, description: str | None = None) -> dict[int, dict]`：按状态码归并，每项形如 `{\"description\": …, \"content\": {\"application/json\": {\"example\": {\"error\": {\"code\": …, \"message\": …, \"details\": …}}}}}`，供路由装饰器的 responses= 使用（docs/05 §11.2）。\n- 处理器行为：AppError → exc.http_status + 统一体（401 时补 `WWW-Authenticate: Bearer` 头）；RequestValidationError → 422，`details.fields` 为 `exc.errors()` 的原生列表（默认码 VALIDATION_ERROR）；StarletteHTTPException → 按状态码映射到表内通用码（400 INVALID_PARAMETER、401 UNAUTHORIZED、403 FORBIDDEN、404 NOT_FOUND、410 ENDPOINT_REMOVED、422 VALIDATION_ERROR、429 RATE_LIMITED、500 INTERNAL_ERROR、503 SERVICE_UNAVAILABLE）后输出统一体，保留原状态码；Exception → 500 INTERNAL_ERROR，`details.trace_id` 用 uuid4().hex，堆栈只进 logger.exception，绝不进响应体。\n\n**先读 tests/fixtures/api_probe_findings.md 的「必读结论」再动手**：`AppError 在 model_validator 里抛出后是否原样传播`（接法 A）还是必须从 `RequestValidationError.errors()[i]['ctx']['error']` 里捞（接法 B），按实测选一种；400 UNKNOWN_TASK_TYPE 的判据（未知 discriminator 的 error type 串）也按实测写，不要靠猜。若探针结论缺失或自相矛盾，直接在本卡测试里补一组最小实测再实现。\n\ntests/api/conftest.py 要提供后续四张卡共用的夹具（这是本卡交付的公共设施，别只写够自己用）：\n- `tmp_settings(tmp_path, monkeypatch)`：写一份临时 config.yaml（access_token 可参数化，默认空=免鉴权）并 `maa_api.settings.set_settings(load_settings(p))`，用例结束还原（还原为 None 即可）。\n- `isolated_db(tmp_path, monkeypatch)`：把 `maa_api.db.session` 的 DB_PATH / ASYNC_URL / SYNC_URL 指到 tmp_path，并**重建 engine 与 session_factory**（只改 URL 不够，模块级 engine/session_factory 是 import 期造好的，见 .refactor/ENVIRONMENT.md 的 M2-13 实测）；用例结束 dispose 掉临时 engine。绝不触碰仓库真实 resource/maa_api.db。\n- `make_client(app)`：返回 `TestClient(app, raise_server_exceptions=False)`（测 500 处理器必须关掉 re-raise），并负责上下文进入/退出。\n- 所有夹具与用例都不得 import maa_api.main（那时它还是旧装配）。\n\n测试至少覆盖：AppError 各状态码与统一体形状；details 省略；401 带 WWW-Authenticate；校验错误 422 的 details.fields；未知 discriminator → 400 UNKNOWN_TASK_TYPE；404 路径 → NOT_FOUND 统一体；RuntimeError → 500 且 details 只有 trace_id、响应体里不含 'Traceback'/文件路径；error_responses 的归并与示例；处理器注册幂等。测试里的模型必须是本文件内定义的小模型（判别联合的 2–3 个分支即可），不要 import maa_api.domain.task（那是 M3-05）。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：采用接法 A 还是 B 及依据、夹具清单、例外项（405）。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}
