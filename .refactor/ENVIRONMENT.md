@@ -263,3 +263,21 @@
   `synchronize_session`（条件是简单 `IN` 时走 evaluate）会同步会话内实例。若会话是 `expire_on_commit=True`，
   提交后在 async 上下文外读字段直接 `MissingGreenlet`（与 M2-07 那条同源）。批量清理一律用
   `synchronize_session=False` + 需要真值时 `populate_existing=True` 的组合。
+
+### M2-09 实测：JSON 列的类型保型 / 裸 text() 不套类型处理器（第 9 次尝试追加）
+
+- **走 SQLAlchemy 的 JSON 列时标量类型能原样读回，不要被 M2-06 那条「JSON 是 NUMERIC 亲和」误导**：
+  `setting.value` 写入 int `25` 后 `get()` 返回 `int`、写入 str `"25"` 后返回 `str`（M2-09 实测）。
+  机制有两条：①字符串被 `json.dumps` 序列化成**带引号**的 JSON 文本 `'"25"'`，不是合法数字，SQLite 的
+  NUMERIC 亲和不会把它改成数字；②纯数字的 JSON 文本会被 SQLite 存成 INTEGER/REAL，SQLAlchemy 的
+  SQLite 方言 `_SQliteJson.result_processor` 对 `numbers.Number` 原样返回，所以 int/float 不会在
+  `json.loads(int)` 上炸。要断言「库里到底存了什么」就用裸 `text("select value from setting")`：
+  实测 int 行返回 Python `int`、str 行返回带引号文本 `'"25"'`。
+- **裸 `text()` 查询不套 SQLAlchemy 的类型处理器**：`select updated_at from setting` 拿到的是 ISO
+  **字符串**（对字符串调 `.year` 抛 `AttributeError`），DATETIME/JSON 列要用 ORM 列表达式查、或在
+  测试里 `datetime.fromisoformat(...)`。M2-09 写 upsert 刷新 `updated_at` 的断言时踩到。
+- **SQLite 的 `INSERT ... ON CONFLICT(key) DO UPDATE` 在 aiosqlite 上可直接做 upsert**（M2-09 实测）：
+  `sqlalchemy.dialects.sqlite.insert(Setting).values(...).on_conflict_do_update(index_elements=[Setting.key],
+  set_={...: stmt.excluded.x})` 连续写同一 key 只有一行，JSON 绑定参数在 `excluded` 里同样按列类型序列化；
+  比「先查后写」少一次竞态。`schedule` / `setting` 的仓储事务纪律与 M2-07/M2-08 一致：不 commit，
+  由调用方决定边界。

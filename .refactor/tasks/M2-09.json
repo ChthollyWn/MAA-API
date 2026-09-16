@@ -36,8 +36,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【接口契约（M2-12 与后续里程碑按这个用）】\n`SettingRepository`：`get(key) -> Any | None`（返回 JSON 解出的原始类型）、`set(key, value, *, updated_by=None)`（upsert：存在则更新 value/updated_by/updated_at）、`all() -> dict[str, Any]`、`delete(key) -> bool`。不要在这里做脱敏/类型表。\n`ScheduleRepository`：`create(schedule)`、`get(id)`、`list_enabled()`、`set_enabled(id, enabled) -> bool`、`record_run(schedule_id, *, last_run_at, next_run_at, pipeline_id=None, result=None) -> bool`、`has_unfinished(schedule_id) -> bool`、`delete(id) -> bool`。`has_unfinished` 用 `pipeline.schedule_id == ?` 且 `status IN (pending, running)` 判定（docs/04 §5.5 的 `skip_if_running` 语义），不要用「系统是否忙」代替。\n\n【测试】复用 `tests/db/conftest.py` 的 fixture；同步测试 + `asyncio.run`。断言 JSON 类型保型（int 不是 str）、upsert 不产生第二行、`has_unfinished` 随流水线终态翻转、`record_run` 回写四列。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "0052d9dbb3ee87a58f3fb838822aa97a22fbb747",
   "blocked_reason": null
 }
