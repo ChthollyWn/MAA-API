@@ -592,3 +592,22 @@
 - **`5bf05f4`（fix(gate)）已把 M3-08 的 verify #1 改成 `set(a.openapi()['paths'])`，但紧接着的台账提交 `6289593`（chore(ledger): M3-08 → pending）把它回滚了**：该提交按编排器内存里的旧卡片重新序列化 `.refactor/tasks/M3-08.json`，落盘后 verify #1 又变回 `paths={r.path for r in a.routes}`（同一提交没碰 M3-07，因为 M3-07 当时已 done、内存卡片就是修正后的）。当前磁盘与内存里 M3-08 的 verify #1 仍是坏形态，字面执行必 `exit 1`（`AttributeError: '_IncludedRouter' object has no attribute 'path'`），与本卡实现无关。
 - 等价命令（只把 `{r.path for r in a.routes}` 换成 `set(a.openapi()['paths'])`）`exit 0` → `['/api/tasks/types', '/api/tasks/types/{type_name}', '/api/tasks/validate']`；pytest 门禁全绿（本文件 27 passed；全仓 826 passed / 4 skipped，均 exit 0）。
 - 建议：重新应用 `5bf05f4` 对 `.refactor/tasks/M3-08.json` 的 verify #1 改动（或先更新编排器内存卡片再写盘，避免台账序列化再次回滚）。
+
+### M3-08 第四次尝试（`2234ef1` 重修卡面后）：四条字面 verify 全绿，卡片完成（第 23 次尝试追加）
+
+- `2234ef1`（fix: saveCard 以磁盘作者字段为准；重修 M3-08）之后，卡面 verify #1 已是 `paths=set(a.openapi()['paths'])`。
+  直接按 `.refactor/tasks/M3-08.json` 的 `verify` 数组逐条 `bash -lc` 实测：**四条全部 exit 0**
+  （#1 无输出、#2 `export ok`、#3/#4 pytest 无失败）。
+- 实现自 `25935e9` 原样恢复（`git hash-object` 与 `25935e9:<path>` 逐字节一致），本卡实现提交 `0a9ce60`。
+  通过数：`tests/api/test_tasks_router.py` 27 passed；全仓 826 passed / 4 skipped。
+- 结论修正上一节：**坏门禁只在 `6289593` 回滚后、`2234ef1` 重修前成立**；卡面与实现现在都能过门禁，无需再改 verify。
+
+### M3-08 实测：setting 表脏值与非 zh lang 的回退行为（第 23 次尝试追加，可复用）
+
+- **`SettingRepository.get()` 返回的 `value` 是 JSON 列解出的原值**（本卡 setting 表写入字符串 `"Official"` 读回 `'Official'`）：
+  `load_channel_defaults` 用 `ChannelDefaults.model_validate({field: raw})` 单字段校验，`channel.client_type="Nope"`
+  这类脏值只回退该字段（Bilibili），不会让端点 500 —— 有用例 `test_validate_falls_back_when_setting_value_is_invalid` 钉住。
+- **`export_type_schema` 的 9 个模型当前 `$defs` 键不存在**（无嵌套模型），`schema.get("$defs", {}) == {}`；
+  `ref_template="#/$defs/{model}"` 只在将来出现嵌套模型时生效（用例用临时嵌套模型验证 `$ref == "#/$defs/Inner"`）。
+  `x-*` 全部保留在字段层（Fight.series 实测 `x-enum-labels`/`x-group`/`x-label`/`x-widget`，Recruit.expedite_times
+  实测 `x-depends-on={'expedite': True}`），取值范围在 `anyOf` 的非 null 分支里（`series` minimum=-1/maximum=6）。
