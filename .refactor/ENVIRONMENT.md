@@ -503,3 +503,16 @@
   `maa_token=<token>; HttpOnly; Path=/; SameSite=lax`（`secure=False` 归 M15），清除为 `Max-Age=0` 且
   `expires` 被 Python `http.cookies._getdate(0)` 渲染成**当前时刻**（不是 1970），断言清 cookie 只认
   `Max-Age=0`。
+
+### M3-07 重试实测：注入 Response 上的 Set-Cookie 会被「直接 return Response」丢掉（第 18 次尝试追加）
+
+- **`response: Response` 注入 + `response.set_cookie(...)` + `return Response(status_code=204)` 实测 `Set-Cookie` 完全丢失**：
+  fastapi 0.141.1 只在「端点返回值不是 `Response` 实例」时执行 `response.headers.raw.extend(solved_result.response.headers.raw)`
+  （`fastapi/routing.py` 的 `isinstance(raw_response, Response)` 分支直接 `response = raw_response`，不并注入响应的头）。
+  204 无体+带 cookie 的正确写法是 `status_code=204` + `response_class=Response` + `return None`（实测无 `Content-Type`、`Set-Cookie` 保留）；
+  卡片 prompt 的「用 Response(status_code=204) 这类无体返回」按语义理解为「无体」而非字面 `return Response(...)`。
+- M3-07 重试结论：字面 verify #1 仍是 `AttributeError: '_IncludedRouter' object has no attribute 'path'`（exit 1，与实现无关），
+  按上一节 openapi 等价命令 exit 0；`tests/api/test_system_router.py` 16 条、全仓 798 passed / 4 skipped（`pytest -q` exit 0）。
+  实测响应：health `{'status':'ok','auth_enabled':True,'version':'0.1.0','started_at':None}`；POST+`Authorization: Bearer` →
+  `maa_token=s3cret-token; HttpOnly; Path=/; SameSite=lax`（`Secure` 不在头里）；DELETE →
+  `maa_token=""; expires=<当前时刻>; Max-Age=0; Path=/; SameSite=lax`；仅 cookie 调 POST → 403；空 token 模式 POST → 204 且无 `Set-Cookie`。
