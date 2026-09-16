@@ -1,0 +1,43 @@
+{
+  "id": "M1-02",
+  "milestone": "M1",
+  "title": "方案前置实测：子进程隔离最小验证（spawn 子进程→真实内核加载→跨进程回调→杀进程→观察重启）",
+  "depends": [],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#5-阶段性风险控制",
+    "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径",
+    "docs/13-决策记录.md#adr-02--maacore-用子进程隔离而非同进程热替换",
+    "docs/13-决策记录.md#adr-03--ipc-用-multiprocessing-queue",
+    "docs/02-系统架构设计.md#2-为什么是子进程隔离",
+    "docs/02-系统架构设计.md#31-命令消息",
+    "docs/02-系统架构设计.md#32-事件消息",
+    "docs/03-MaaCore内核层设计.md#31-启动序列",
+    "docs/03-MaaCore内核层设计.md#32-回调桥接",
+    "docs/03-MaaCore内核层设计.md#8-测试策略"
+  ],
+  "constraints": [
+    "在投入完整实现前，先写一个最小验证脚本：启动子进程、加载真实 MaaCore、提交一个任务、收到回调、杀掉子进程、观察重启。这个脚本能在几小时内验证子进程隔离方案是否成立，避免在错误方向上投入 XL 的工作量（docs/12 §5）",
+    "MaaCore 用子进程隔离：内核更新只重启子进程、native 崩溃不拖垮 API 服务、启动期不再被网络 IO 阻塞（docs/13 ADR-02）",
+    "IPC 用 multiprocessing Queue：消息为纯 dict，只含可 pickle 的基础类型；spawn 模式下不可 pickle 的参数会在运行时才暴露（docs/13 ADR-03、docs/02 §3）",
+    "worker 不做版本检查与下载，启动不被网络 IO 阻塞（docs/03 §3.1）——验证脚本也不得把网络请求放进子进程启动序列",
+    "本卡是丢弃式探针：只产出 scripts/ 下的验证脚本与实测记录，不产出 maa_api/core/worker.py、supervisor.py 等生产模块（归 M1-07/M1-08）"
+  ],
+  "deliverables": [
+    "scripts/spike_subprocess_isolation.py",
+    "tests/fixtures/spike_subprocess_result.json",
+    "tests/fixtures/spike_subprocess_findings.md"
+  ],
+  "verify": [
+    "test -f scripts/spike_subprocess_isolation.py -a -f tests/fixtures/spike_subprocess_result.json -a -f tests/fixtures/spike_subprocess_findings.md",
+    "python3 -m py_compile scripts/spike_subprocess_isolation.py",
+    ".venv/bin/python scripts/spike_subprocess_isolation.py --help >/dev/null",
+    "python3 -c \"import json; d=json.load(open('tests/fixtures/spike_subprocess_result.json')); need=['spawn_child','kernel_loaded_in_child','callback_crossed_queue','task_accepted','kill_detected','restart_observed']; miss=[k for k in need if k not in d]; assert not miss, miss; bad=[k for k in ['spawn_child','kernel_loaded_in_child','callback_crossed_queue','kill_detected','restart_observed'] if d[k] is not True]; assert not bad, bad; obs=d.get('observations'); assert isinstance(obs, dict) and obs, obs; assert 'exitcode' in obs, sorted(obs)\"",
+    "python3 -c \"s=open('tests/fixtures/spike_subprocess_findings.md').read(); assert 'spawn' in s, '必须写明 spawn 上下文'; assert ('SIGKILL' in s or 'SIGSEGV' in s or '-9' in s or '-11' in s), '必须写明杀进程方式与观测到的 exitcode'; assert len(s) > 400, len(s)\"",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【环境事实（已实测）】`python` 不在 PATH，一律用 `.venv/bin/python`。macOS 加载内核需 `DYLD_LIBRARY_PATH=$PWD/resource/lib/maa/Darwin`；资源根为 `resource/lib/maa/Darwin`（内含 libMaaCore.dylib 与 `resource/`）；设备已连 `127.0.0.1:5555`，adb 在 `/opt/homebrew/bin/adb`。禁用 `import maa_api.main`。不要修改 `.refactor/`；只 `git add` 本卡 3 个 deliverables，commit message 用 `M1-02: <标题>`，不 push、不切分支。\n\n【目标】用一个丢弃式脚本验证「子进程隔离 + Queue IPC」这条技术路线成立，产出实测记录。这是 docs/12 §5 要求的方案验证前置，不做生产抽象。\n\n【脚本要求】`scripts/spike_subprocess_isolation.py`，argparse：`--maa-path`（默认 `resource/lib/maa/Darwin`）、`--adb`（默认 `/opt/homebrew/bin/adb`）、`--address`（默认 `127.0.0.1:5555`）、`--task`（默认 `StartUp`，最短任务）、`--timeout`（默认 90）、`--out`（默认 `tests/fixtures/spike_subprocess_result.json`）。`--help` 不得加载内核。实现要点：\n1) 必须用 `multiprocessing.get_context('spawn')`（禁用 fork：父进程持线程时 fork 复制状态易死锁），两个 `ctx.Queue()`：cmd_queue（主→子）、event_queue（子→主）。子进程 target 必须是本脚本内模块级函数（spawn 要求可 pickle 的入口）。\n2) 子进程：模块级全局持有 event_queue；`Asst.load(path=maa_path, user_dir=<临时目录>)`；用 `Asst.CallBackType` 回调把每一条原始回调 `event_queue.put({'type':'CALLBACK','ts':time.time(),'payload':{'msg':int(msg),'details':json.loads(details.decode('utf-8'))}})`；`AsstCreateEx` 后 put `{'type':'READY',...}`；进入命令循环，支持 APPEND_TASK / START / SHUTDOWN 三种命令，执行结果 put `CMD_RESULT`。回调里绝不抛异常（异常穿过 C 边界是未定义行为）。\n3) 主进程：等 READY（记录 kernel_loaded_in_child=True）→ 发 APPEND_TASK(最短任务) → 记录 task_accepted（任务 id 是否非零）→ 发 START → 等待至少一条 CALLBACK 跨队列到达（记录 callback_crossed_queue=True，ConnectionInfo/TaskChainStart 都算）→ 用 `os.kill(child.pid, signal.SIGKILL)` 杀子进程并记录 exitcode（kill_detected=True）→ 再 spawn 第二个子进程并等到 READY（restart_observed=True）→ 清理第二个子进程（发 SHUTDOWN，超时则 kill），最后写结果 JSON。\n4) 结果 JSON 键：spawn_child、kernel_loaded_in_child、callback_crossed_queue、task_accepted、kill_detected、restart_observed（bool），以及 observations（dict，至少含 exitcode、收到的回调 msg 列表、各阶段耗时）。\n5) `tests/fixtures/spike_subprocess_findings.md`：写清①spawn 是否可用、②内核在子进程内的加载耗时、③回调跨进程是否完整（列出 msg 序列）、④杀进程后 exitcode 与重启耗时、⑤结论：子进程隔离方案是否成立、对 M1-07/M1-08 的启示（尤其哪些参数必须可 pickle）。\n\n【必须真的跑一次】`cd 仓库根 && DYLD_LIBRARY_PATH=$PWD/resource/lib/maa/Darwin .venv/bin/python scripts/spike_subprocess_isolation.py`。verify 要求 spawn_child / kernel_loaded_in_child / callback_crossed_queue / kill_detected / restart_observed 全为 true；若某一项确实做不到（而不是「没写脚本」），不要伪造 true——在回执里说明并让本卡 blocked，这是这条卡存在的意义。脚本正常退出码为 0，失败为 1，且不得残留子进程。\n\n【收尾】逐条跑 verify；回执 200 字以内，报告 5 个检查点与总耗时。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

@@ -1,0 +1,38 @@
+{
+  "id": "M1-11",
+  "milestone": "M1",
+  "title": "无内核端到端联调：FakeAsst 子进程 + CoreSupervisor + CoreClient 全链路（READY/命令/回调/落盘/优雅关闭）",
+  "depends": [
+    "M1-05",
+    "M1-09"
+  ],
+  "reads": [
+    "docs/03-MaaCore内核层设计.md#8-测试策略",
+    "docs/03-MaaCore内核层设计.md#33-命令循环",
+    "docs/03-MaaCore内核层设计.md#5-coreclient",
+    "docs/02-系统架构设计.md#34-命令的同步语义",
+    "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径"
+  ],
+  "constraints": [
+    "IPC 协议的契约测试用真实 multiprocessing.Queue 测试，但两端都用替身，验证所有消息类型都能正确 pickle 往返（docs/03 §8）——本卡把「两端替身」升级为「真实 worker + FakeAsst + 真实 supervisor/client」，仍不碰内核与设备",
+    "CALLBACK 事件刻意保持原始形态：子进程只做 json.loads 与 Message(msg) 枚举转换，不翻译语义；回调到中文日志的映射在主进程（M4）（docs/02 §3.2）",
+    "GET_IMAGE 采用落盘传引用：CMD_RESULT 只返回文件路径与图像元信息，主进程按需读取（docs/02 §3.3）",
+    "关机：先发 SHUTDOWN 等 10 秒，超时 terminate()，再超时 5 秒 kill()（docs/02 §4）",
+    "本卡只产出测试文件；发现源文件缺陷写进 blocked_reason，不要顺手改 maa_api/ 下的实现（归 M1-07/M1-08/M1-09）"
+  ],
+  "deliverables": [
+    "tests/core/test_core_pipeline.py"
+  ],
+  "verify": [
+    "test -f tests/core/test_core_pipeline.py",
+    "python3 -c \"import ast; t=ast.parse(open('tests/core/test_core_pipeline.py').read()); fns=[n.name for n in ast.walk(t) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name.startswith('test_')]; assert len(fns)>=5, fns\"",
+    "python3 -c \"s=open('tests/core/test_core_pipeline.py').read(); need=['CoreSupervisor','CoreClient','FakeAsst','spawn','get_image','screencap']; miss=[n for n in need if n not in s]; assert not miss, miss\"",
+    ".venv/bin/python -m pytest -q tests/core/test_core_pipeline.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【环境事实】`python` 不在 PATH，一律用 `.venv/bin/python`。pytest 无 pytest-asyncio，异步用例用 `asyncio.run(...)` 包在同步 test 里。禁用 `import maa_api.main`。不要修改 `.refactor/`；只 `git add` 本卡 1 个 deliverable，commit message 用 `M1-11: <标题>`，不 push、不切分支。\n\n【本卡是 M1 的「不用真机也能跑通全链路」验收】只新增 `tests/core/test_core_pipeline.py`，不改 maa_api/ 与 tests/fakes/。\n\n【已交付契约】boot_config：`{'maa_path': '.', 'user_dir': <tmp>, 'incremental_paths': [], 'instance_options': {}, 'asst_factory': 'tests.fakes.fake_asst:FakeAsst', 'asst_factory_kwargs': {'script': 'success', 'screenshot': b'\\x00'*(4*4*3), 'resolution': (4,4)}}`；`CoreSupervisor` + `CoreClient(supervisor)`（消费线程 + 分派表，`on('READY'|'FATAL'|'PONG', sup.handle_*)`，`start_consumer()` 后 `await sup.start()`）。\n\n【至少 5 个用例，全部不碰真实内核与设备】\n1) 启动与就绪：start 后 READY 到达、`sup.state` 为 READY、`client.get_version()` 返回 FakeAsst 的版本字符串。\n2) 连接两级 Future：`await client.connect('adb', '127.0.0.1:5555')` 返回 True（FakeAsst 的 connect_async 会回 AsyncCallInfo），并断言 CONNECT 的 CMD_RESULT 先于 AsyncCallInfo 被处理（可用事件顺序记录）。\n3) 任务回调全链路：`append_task('Fight', {...})` 拿到内核 task id → `start()` → 注册的 CALLBACK 处理器依次收到 TaskChainStart/TaskChainCompleted/AllTasksCompleted（msg 整数值与 `maa_api.core.enums.Message` 一致，details 里的 taskid 与 append 返回一致）→ `running()` 变 False。\n4) GET_IMAGE 落盘：`await client.screencap(save_to=<tmp>/shot.jpg)` 返回存在的 Path 且文件非空；`await client.get_image(save_to=...)` 的 data 含 path/size/encoding；断言 CMD_RESULT 里没有图像字节（只有路径与元信息）。\n5) 优雅关闭与二次启动：`await sup.stop()` 后 state 为 STOPPED、子进程不再存活、消费线程已退出（`client.close()`）；再 `await sup.start()` 能再次 READY（重启计数/退避没有被误触发）。\n\n【纪律】所有等待必须有超时（≤5 秒）且失败信息里打印已收到的事件序列；不重复 M1-10 已覆盖的崩溃/退避/维护窗口断言（那是崩溃卡的范围）；用例结束确保无残留子进程。\n\n【收尾】逐条跑 verify；回执 200 字以内，报告 5 个用例结论与全链路耗时。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}
