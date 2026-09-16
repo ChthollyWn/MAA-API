@@ -28,5 +28,5 @@
   "status": "pending",
   "attempts": 0,
   "commit": null,
-  "blocked_reason": null
+  "blocked_reason": "编排器重启前遗留的 running，已自动重置"
 }
