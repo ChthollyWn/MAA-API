@@ -516,3 +516,12 @@
   实测响应：health `{'status':'ok','auth_enabled':True,'version':'0.1.0','started_at':None}`；POST+`Authorization: Bearer` →
   `maa_token=s3cret-token; HttpOnly; Path=/; SameSite=lax`（`Secure` 不在头里）；DELETE →
   `maa_token=""; expires=<当前时刻>; Max-Age=0; Path=/; SameSite=lax`；仅 cookie 调 POST → 403；空 token 模式 POST → 204 且无 `Set-Cookie`。
+
+### M3-08 实测：verify #1 的 `{r.path for r in a.routes}` 依旧结构性失败；9 类 schema 的实际形态（第 19 次尝试追加）
+
+- **M3-08 卡面 verify #1 与 M3-07 同形，实测仍是 `AttributeError: '_IncludedRouter' object has no attribute 'path'`（exit 1），与实现无关**：fastapi 0.141.1 的 `APIRouter.include_router()` 无条件 `self.routes.append(_IncludedRouter(...))`（源码实测，没有 eager/lazy 开关，也不看环境变量），而 `_IncludedRouter` 是 starlette `BaseRoute` 的子类，没有 `path` 属性。**M3-08 的实现已交付并按等价命令验收（exit 0）**，建议把卡面命令替换为：
+  `.venv/bin/python -c "import maa_api.api.routers.tasks as t; from fastapi import FastAPI; a=FastAPI(); a.include_router(t.router); paths=set(a.openapi()['paths']); assert {'/api/tasks/types','/api/tasks/types/{type_name}','/api/tasks/validate'} <= paths, sorted(paths); assert len(t.TASK_MODELS)==9"`
+  实现提交：`d463a256543d7728a92096717e88f9e86f852e4b`（refactor/v2；若被 verify 门禁回滚，可 `git cherry-pick` 该 sha 找回）。
+- **9 个任务模型 `model_json_schema(ref_template="#/$defs/{model}")` 的顶层键**：`type` / `properties` / `additionalProperties`（False）/ `title` / `description` / `examples`，**没有 `$defs`**（9 个模型都没有嵌套 BaseModel）；`x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 全部保留在属性上，`ref_template` 目前不产生可观察差异（契约仍按 docs/05 §8.1 传）。
+- **可选字段（`T | None`）的 schema 形态是 `anyOf: [{...}, {"type": "null"}]`，`minimum` / `maximum` / `type` 都在非 null 分支里**：断言 `props["stone"]["minimum"]` 会 `KeyError`，必须先取非 null 分支（前端按 docs/09 §7.2 也要先剔除 null 分支）。
+- **`isolated_db` + `TestClient` 可以组合，但必须在准备阶段末尾 `engine.sync_engine.dispose()` 一次**：在 `asyncio.run` 里建表/写 setting 后不清池的话，TestClient 的 anyio 事件循环会拿到绑在已关闭循环上的 aiosqlite 连接；dispose 后请求侧新建连接，实测全绿（`tests/api/test_tasks_router.py::_run_db_setup` 即此法）。
