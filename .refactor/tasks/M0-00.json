@@ -15,8 +15,8 @@
     "grep -q 'pipeline-ok' .refactor/SELFTEST.md"
   ],
   "prompt_extra": "这是编排流水线的自检卡。在仓库根创建 .refactor/SELFTEST.md，内容为：一行标题、一行包含 pipeline-ok 的标记、一行当前 ISO 时间、一行说明「本文件由 headless worker 在全新上下文中创建，用于验证任务卡流水线」。不要做任何其他修改，不要碰 maa_api/。",
-  "status": "running",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
-  "blocked_reason": "编排器重启前遗留的 running，已自动重置"
+  "commit": "59825d8857d29f6e2c9cec470da9c4691b9e83c9",
+  "blocked_reason": null
 }
