@@ -32,8 +32,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【现状】`resource/daily_task.json` 实际存在（6337 字节，结构与根目录 `daily_task_template.json` 相同）：顶层 `enable`/`task_dict`/`weekday_task`；实测 `weekday_task = {\"0\":\"earth\",\"1\":\"earth\",...,\"6\":\"earth\"}`，`task_dict` 有 money/earth/daily/activity/empty 五组。先读这个文件（它不在 docs/ 下，允许直接读）。\n\n【迁移脚本】文件名与 revision 序号按 docs/04 §8.1（`0002_migrate_daily_task_json.py`，`down_revision` 指向 0001，revision id 用四位序号 `0002`）。用 `op.get_bind()` 执行 SELECT/INSERT；`upgrade()` 里先判断文件是否存在（相对仓库根的 `resource/daily_task.json`，不存在就 return，不报错）；按 weekday 逐条插入 schedule：`name` 由你定但必须唯一且稳定（verify 只要求唯一），`cron = \"0 7,19 * * <weekday>\"`（docs/04 §5.5 的示例用数字星期，与现有配置「每天 7 点与 19 点」一致），`timezone` 用默认 `Asia/Shanghai`，`priority` 用 `Priority.SCHEDULED` 的值，`template` 用 `json.dumps(task_dict[group])` 原样入库，`enabled` 取文件里的 `enable`（缺失按 1）。`downgrade()` 必须删除本迁移插入的那些行（按 name 前缀或 id 均可），使 verify 的 `downgrade -1 → schedule 空 → 再 upgrade` 不重复。\n\n【测试】`tests/db/test_daily_task_migration.py` 用 tmp 库跑 `upgrade/downgrade/upgrade`；另需覆盖「文件不存在则跳过」：把脚本读文件的基准目录做成可注入的（例如模块级常量或用 `op.get_context().config` 传参），不要为了测试去删仓库里的真实文件。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "cbf2ad5714ff7e21694f5e609277a73347c3b269",
   "blocked_reason": null
 }

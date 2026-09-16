@@ -189,3 +189,21 @@
   即可拿到 SQL 文本，且不会创建库文件（env.py 的 `run_migrations_offline()` 分支即由此覆盖）。
 - **`Config("alembic.ini")` 的 `script_location` 相对 CWD 解析**：测试里不要依赖 cwd，直接把
   `script_location` 与 `sqlalchemy.url` 都 `set_main_option` 成绝对路径/临时库 URL。
+
+### M2-05 实测：head 前移 / Alembic 离线模式的执行参数与 SELECT
+
+- **新增一条迁移 = head 前移，硬编码 head 的断言必然失效**：0002 一出现，M2-04 的
+  `tests/db/test_initial_migration.py` 里 `HEAD_REVISION = "0001"` 就报
+  `assert [('0002',)] == [('0001',)]`。M2-05 已把它改成
+  `ScriptDirectory.from_config(cfg).get_current_head()`；后续涉及 head 的测试都走
+  ScriptDirectory，不要写死序号。
+- **离线模式（`alembic upgrade head --sql`）会丢弃 `execute()` 的执行参数**：
+  `MigrationContext._stdout_connection()` 造的 mock connection 只把 construct 交给
+  `impl._exec`；而 `DefaultImpl._exec` 在 `as_sql` 下对带参调用直接抛
+  `TypeError("SQL parameters not allowed with as_sql")`。数据迁移要把值内联进 Core 语句
+  （`sa.insert(t).values(...)`、表达式里的字面量），离线脚本才会渲染出可执行的字面量 SQL。
+- **离线模式下读表的 SELECT 拿不到结果**：mock connection 的 `execute()` 返回 `None`（不是
+  Result），`bind.execute(select(...)).fetchall()` 会 `AttributeError`。凡是 SELECT 做幂等
+  判断的迁移，都要用 `op.get_context().as_sql` 跳过（0002 的「同名记录已存在」检查即如此）。
+- **数据迁移不必手动 commit**：INSERT 随 Alembic 的迁移事务一起提交（env.py 已让 Alembic 自己
+  开事务）；`upgrade → downgrade -1 → upgrade` 跑完行数稳定、同名不重复（0002 实测）。
