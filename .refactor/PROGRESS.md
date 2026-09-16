@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**39 / 46** 张卡完成
+- 进度：**40 / 46** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=3 workerRuns=6（启动于 2026-09-16T12:24:18.733Z）
-- 更新时间：2026-09-16T13:01:18.856Z
+- 进程内统计：cycle=3 workerRuns=7（启动于 2026-09-16T12:24:18.733Z）
+- 更新时间：2026-09-16T13:08:33.562Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -50,8 +50,8 @@
 | M3-01 | 方案前置实测：pydantic v2 判别联合与 x-* schema 导出、FastAPI 400/422 分界、最小装配行为 | done | 1 | 456222f |  |
 | M3-02 | domain/errors.py：全量 92 条错误码（docs/05 §4 十四张表）+ 固定 HTTP 状态绑定 + AppError | done | 1 | 76bbf28 |  |
 | M3-03 | maa_api/settings.py：config.yaml 最小配置加载（pydantic 模型 + 进程内缓存），替代有 import 副作用的旧 config/config.py | done | 1 | 5825023 |  |
-| M3-04 | api/errors.py：统一错误体、AppError/校验错误/HTTP 异常/兜底异常处理器与 error_responses() 辅助，并建 tests/api 公共夹具 | running | 0 | — |  |
-| M3-05 | domain/task.py：9 种任务类型的 pydantic v2 模型、判别联合、x-* 参数元信息与 normalize（参数说明从 task.py 文档字符串逐字段迁移） | pending | 0 | — |  |
+| M3-04 | api/errors.py：统一错误体、AppError/校验错误/HTTP 异常/兜底异常处理器与 error_responses() 辅助，并建 tests/api 公共夹具 | done | 1 | 6e36bbd |  |
+| M3-05 | domain/task.py：9 种任务类型的 pydantic v2 模型、判别联合、x-* 参数元信息与 normalize（参数说明从 task.py 文档字符串逐字段迁移） | running | 0 | — |  |
 | M3-06 | api/deps.py：四渠道 token 鉴权（优先级、cookie 写限制、豁免清单、失败限流）与会话依赖 | pending | 0 | — |  |
 | M3-07 | api/routers/system.py：GET /api/system/health（免鉴权、带 auth_enabled）与 /api/system/auth/cookie 的换取与清除 | pending | 0 | — |  |
 | M3-08 | api/routers/tasks.py：GET /api/tasks/types（9 类 schema 导出）、/types/{type_name} 与 POST /api/tasks/validate（渠道默认值注入） | pending | 0 | — |  |

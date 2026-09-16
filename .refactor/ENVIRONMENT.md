@@ -451,3 +451,21 @@
 - **`TestClient.__enter__()` / `__exit__(None, None, None)` 可以手工配对**：夹具里用工厂函数
   `make_client(app)` 先 `__enter__` 再统一 `__exit__`，lifespan 照常进入/退出（M3-01 对照结论：
   不套 context manager 时 lifespan 完全不执行），`tests/api/conftest.py` 即此写法。
+
+### M3-05 实测：pydantic bool 宽松强转 / validate_assignment 会跑 model_validator（第 16 次尝试追加）
+
+- **pydantic 2.11.10 的 bool 字段在 lax 模式下接受一大批字符串**：`"yes"` / `"no"` / `"true"` /
+  `"false"` / `"on"` / `"off"` / `1` / `0` 全部通过，只有 `"maybe"`、`2` 这类才是
+  `bool_parsing`。写「类型错误 → ValidationError」的负向用例时不要拿 `"yes"` 当非法值
+  （M3-05 首轮 4 条用例因此 DID NOT RAISE）。
+- **`validate_assignment=True` 时 `@model_validator(mode="after")` 会在赋值时重跑**：
+  `recruit.expedite_times = 3` 实测抛出校验器里的 `AppError`（不是 ValidationError），
+  字段级约束则抛 `ValidationError`。M5「运行中改参数」可以依赖这条，不必绕过模型直接改
+  `__dict__`。
+- **`dict[str, int]` 在 lax 模式下拒绝整数键**：`{"recruitment_time": {3: 540}}` 实测
+  `type="string_type"`（不会把 `3` 强转成 `"3"`），所以 docs/05 §7.5 的「JSON 键必须是
+  字符串」不需要额外校验器。
+- **`AppError` 穿过判别联合与嵌套 list 的路径在 2.11 上同时成立**：`TypeAdapter(TaskInput)`
+  对未知 `name` 给 `union_tag_invalid`、对跨字段违规原样抛 `AppError`；
+  `PipelineCreate(tasks=[{...}])` 的嵌套校验同样原样抛出 `AppError`（未被包成
+  `ValidationError`），M3-04 的 `AppError` 处理器可以直接接住流水线提交路径。
