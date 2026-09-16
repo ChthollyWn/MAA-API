@@ -37,8 +37,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "① AsstProtocol 放 maa_api/core/asst_protocol.py（core/ 包由 M0-02 建好；不要动 core/ 下其他占位文件）。用 typing.Protocol + @runtime_checkable，方法签名对齐现有 maa_api/model/core/asst.py 的全部公开方法（load / connect / call / get_image / set_instance_option / set_static_option / set_connection_extras 等，staticmethod 照实标注），供 worker 依赖协议而非具体类。\n② FakeAsst 放 tests/fakes/fake_asst.py：纯 Python 替身，按脚本产生回调事件（成功 / 失败 / 卡死 / 断开各一种），禁止 import ctypes、禁止加载真实内核；它是 M1 崩溃注入与 IPC 契约测试的基座。\n③ pytest.ini 写 [pytest] testpaths = tests 与 addopts = -q；不要把 pytest 配置写进 pyproject.toml（那个文件归 M0-01）。\n④ tests/conftest.py 里放公共 fixture（例如 fake_asst），并把仓库根加入 sys.path；不要写需要内核或设备的 fixture。\n⑤ tests/core/test_asst_protocol.py 至少 3 个用例：FakeAsst 满足 AsstProtocol、按脚本吐出预期事件序列、失败/卡死脚本可被观察。\n⑥ 崩溃注入（os._exit(-11)）与 IPC 契约测试留给 M1，本卡不做。\n⑦ 提交 tests/ 下的文件（.gitignore 的 tests/ 规则已由 M0-05 移除）。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "e2ea70c99df759e515ee5cc51f78dac81c8c1e27",
   "blocked_reason": null
 }
