@@ -525,3 +525,16 @@
 - **9 个任务模型 `model_json_schema(ref_template="#/$defs/{model}")` 的顶层键**：`type` / `properties` / `additionalProperties`（False）/ `title` / `description` / `examples`，**没有 `$defs`**（9 个模型都没有嵌套 BaseModel）；`x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 全部保留在属性上，`ref_template` 目前不产生可观察差异（契约仍按 docs/05 §8.1 传）。
 - **可选字段（`T | None`）的 schema 形态是 `anyOf: [{...}, {"type": "null"}]`，`minimum` / `maximum` / `type` 都在非 null 分支里**：断言 `props["stone"]["minimum"]` 会 `KeyError`，必须先取非 null 分支（前端按 docs/09 §7.2 也要先剔除 null 分支）。
 - **`isolated_db` + `TestClient` 可以组合，但必须在准备阶段末尾 `engine.sync_engine.dispose()` 一次**：在 `asyncio.run` 里建表/写 setting 后不清池的话，TestClient 的 anyio 事件循环会拿到绑在已关闭循环上的 aiosqlite 连接；dispose 后请求侧新建连接，实测全绿（`tests/api/test_tasks_router.py::_run_db_setup` 即此法）。
+
+### M3-08 第二次尝试复核：verify #1 仍是结构性失败，实现与门禁意图已由 pytest 覆盖（第 20 次尝试追加）
+
+- **复核结论（与上一节一致，不是偶发）**：`.venv/bin/python -c "import maa_api.api.routers.tasks as t; ...; paths={r.path for r in a.routes}; ..."` 实测仍 `exit 1`，
+  `AttributeError: '_IncludedRouter' object has no attribute 'path'`（fastapi 0.141.1）；同一份实现下改用
+  `paths=set(a.openapi()['paths'])` 的等价命令 `exit 0`，实测打印 `['/api/tasks/types', '/api/tasks/types/{type_name}', '/api/tasks/validate']`。
+  **要这张卡过门禁，只能改卡面 verify（`.refactor/tasks/M3-08.json`），改实现无解**：`{r.path for r in a.routes}` 要求父 app 的 routes 拍平，而
+  `APIRouter.include_router()` 在 0.141.1 无条件 `self.routes.append(_IncludedRouter(...))`，一个包装对象也不可能同时给出三条路径。
+- 本次把该门禁的**意图**下沉进了 pytest：`tests/api/test_tasks_router.py::test_routes_are_registered_before_the_parametric_one`
+  同时断言 OpenAPI 路径集合与 `tasks.router.routes` 的声明顺序（`/types` 在 `/types/{type_name}` 之前），
+  所以 verify #3 / #4（pytest）覆盖了「三个端点都挂上且顺序正确」。实测：本文件 27 passed、全仓 **809 passed / 4 skipped**（`pytest` exit 0）。
+- 第二次尝试的实现提交：`25935e9`（refactor/v2；上一版的 `d463a256543d7728a92096717e88f9e86f852e4b` 仍在对象库里，两者内容等价、本次多一条路由顺序用例）。
+  worker 退出后若 verify 门禁回滚工作树，`git cherry-pick 25935e9` 即可找回。
