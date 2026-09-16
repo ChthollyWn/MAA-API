@@ -32,8 +32,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【环境事实】`python` 不在 PATH，一律用 `.venv/bin/python`。真机：资源根 `resource/lib/maa/Darwin`，adb `/opt/homebrew/bin/adb`，设备 `127.0.0.1:5555`。macOS 加载内核需 `DYLD_LIBRARY_PATH=$PWD/resource/lib/maa/Darwin`（先 `export` 再跑）。禁用 `import maa_api.main`。不要修改 `.refactor/`、不要改 pytest.ini（hardware marker 已注册）；只 `git add` 本卡 1 个 deliverable，commit message 用 `M1-14: <标题>`，不 push、不切分支。\n\n【范围】只新增 `tests/core/test_hardware_smoke.py`。用 M1-08/M1-09 的 CoreSupervisor/CoreClient，真实 boot_config（`asst_factory='maa_api.core.asst:Asst'`）。\n\n【闸门（必须）】模块级读取 `MAA_HW_TESTS`；每个用例同时标 `@pytest.mark.hardware` 与 `@pytest.mark.skipif(not os.environ.get('MAA_HW_TESTS'), reason='需要真实 MaaCore 与设备；设 MAA_HW_TESTS=1 开启')`。路径与地址可用环境变量覆盖并给出上面那组默认值（`MAA_PATH` / `ADB_PATH` / `ADB_ADDRESS` / `MAA_USER_DIR`）。模块 docstring 写清手动运行命令：`MAA_HW_TESTS=1 DYLD_LIBRARY_PATH=$PWD/resource/lib/maa/Darwin .venv/bin/python -m pytest -q -m hardware tests/core/test_hardware_smoke.py`。\n\n【至少 4 个用例（真机链路的每一环各一个，失败信息要带子进程事件与 state）】\n1) 启动与资源加载：`sup.start(wait_ready=True, timeout=180)` 成功、state==READY、`client.get_version()` 是非空字符串。\n2) 异步连接：`client.connect(ADB_PATH, ADB_ADDRESS)` 返回 True（两级 Future：CONNECT 受理 + AsyncCallInfo 结果；若 M1-01 实测表明需回退，这里也顺带验证 CONNECTED 为真）。\n3) 截图落盘：`client.screencap(save_to=<tmp>/shot.jpg)` 得到存在的非空文件，`client.get_image()` 返回的 data 含 path/size/encoding；断言全链路没有把图像字节塞进 CMD_RESULT。\n4) 原子操作与最短任务：`client.click(1, 1)`（异步 id 非零）→ `client.back_to_home()` → `append_task('StartUp')` → `start()` → 在超时（建议 120 秒）内收到 TaskChainStart 与 TaskChainCompleted/Error 中的终态回调；用例结束时 `client.stop()` 与 `sup.stop()`，不留子进程（finally 兜底）。\n\n【默认必须全绿且秒级】本卡交付后 `.venv/bin/python -m pytest -q` 会因为闸门关闭而全部 skip（exit 0）；不要在没有真机的情况下把 skip 改成 pass 或删掉闸门。真机执行是人工步骤：若你有条件在本机跑一次（设备已连），把实测结果（版本号、连接耗时、截图路径、任务终态）写进回执；跑不了就说明未执行，不要伪造。\n\n【收尾】逐条跑 verify；回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "220a72fd8c7df8290ed679ebeab15f42cc0e4d4a",
   "blocked_reason": null
 }
