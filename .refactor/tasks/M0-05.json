@@ -25,8 +25,8 @@
     "python3 -c \"s=open('config.template.yaml').read(); assert 'xeuanloxjzopfbeg' not in s, '模板里残留真实 SMTP 密码'; assert 'access_token' in s and 'password' in s and 'address' in s, s[:200]\""
   ],
   "prompt_extra": "① 用 git rm --cached config.yaml 停止跟踪（必须保留工作区文件，绝不能用 git rm），把该索引删除与本卡两个文件一起提交。\n② config.template.yaml 照 config.yaml 的结构写：app / adb / smtp 三段与全部键、注释都保留；敏感与本机专属值留空（access_token、proxy、maa_core_path、smtp.email、smtp.password），adb.path / adb.address / adb.screenshot_quality 保留示例默认值。verify 会检查模板里没有真实 SMTP 密码。\n③ 同时删掉 .gitignore 里的 `tests/` 规则：M0 要交付 pytest 骨架（M0-06），被忽略的 tests/ 会让 git add tests/... 直接失败。resource/ 继续忽略，其余规则不动。\n④ 不要试图清理 git 历史里的明文密码（ADR：仓库私有）。\n⑤ 本卡不需要 .venv，verify 只用 python3 与 git。",
-  "status": "running",
-  "attempts": 0,
-  "commit": null,
-  "blocked_reason": "编排器重启前遗留的 running，已自动重置"
+  "status": "done",
+  "attempts": 1,
+  "commit": "98f45c76baef333d91958d94d97178e87a78631e",
+  "blocked_reason": null
 }
