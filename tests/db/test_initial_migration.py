@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect
 from sqlmodel import SQLModel
 
@@ -37,7 +38,6 @@ from tests.db.test_models import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"
 MIGRATIONS_DIR = REPO_ROOT / "maa_api" / "db" / "migrations"
-HEAD_REVISION = "0001"
 
 
 # ---------------------------------------------------------------------------
@@ -223,15 +223,16 @@ def test_auto_vacuum_is_incremental(head_db):
 # ---------------------------------------------------------------------------
 # 版本链与 downgrade
 # ---------------------------------------------------------------------------
-def test_head_revision_is_0001_and_upgrade_is_idempotent(alembic_cfg, raw):
-    """版本表被真正写入（不是「建完表但版本为空」），重复 upgrade 是空操作。"""
-    assert raw.execute("select version_num from alembic_version").fetchall() == [
-        (HEAD_REVISION,)
-    ]
+def test_head_revision_is_recorded_and_upgrade_is_idempotent(alembic_cfg, raw):
+    """版本表被真正写入（不是「建完表但版本为空」），重复 upgrade 是空操作。
+
+    head 从 ``ScriptDirectory`` 取而不是硬编码：每加一条迁移 head 都会后移
+    （0002 数据迁移就是 M2-05 加的），硬编码序号会在每次加迁移时失效。
+    """
+    head = ScriptDirectory.from_config(alembic_cfg).get_current_head()
+    assert raw.execute("select version_num from alembic_version").fetchall() == [(head,)]
     command.upgrade(alembic_cfg, "head")  # 不应抛 table already exists
-    assert raw.execute("select version_num from alembic_version").fetchall() == [
-        (HEAD_REVISION,)
-    ]
+    assert raw.execute("select version_num from alembic_version").fetchall() == [(head,)]
 
 
 def test_downgrade_to_base_drops_every_table_then_upgrade_restores(alembic_cfg, head_db):
