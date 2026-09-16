@@ -43,9 +43,9 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "公开契约：\n- `router = APIRouter(prefix=\"/api/tasks\", tags=[\"tasks\"])`；`TASK_MODELS: dict[str, type[BaseModel]]`（由 get_args(get_args(TaskInput)[0]) 生成，键为 name 的值）；`export_type_schema(model) -> dict`；`_collect_groups(schema) -> list[str]`（按字段声明顺序收集 x-group，未标注的归入最后一个分区「基础」要排在首位，顺序即渲染顺序，docs/09 §7.2）。\n- `GET /types`：query `lang`（默认 \"zh\"，当前仅支持 zh，其它值 400 INVALID_PARAMETER），200 返回 {items,total,page,size}；每个 item 的 groups 是去重后的有序中文数组，runtime_immutable 从 domain/task.py 的 RUNTIME_IMMUTABLE 取。\n- `GET /types/{type_name}`：未知类型 400 UNKNOWN_TASK_TYPE（错误码表里它就是 400，不是 404），200 直接返回单个 item（不套分页信封）。\n- `POST /validate`：请求体 `{\"tasks\": [...]}`（1..32，元素是 TaskInput 判别联合；建议在路由模块定义 TaskValidateRequest 而不是复用 PipelineCreate，避免接受 title/priority 等无关字段）；200 返回 {items:[NormalizedTask...], total, page:1, size:n}，其中每项含 type_name/task_name/params/raw_params——params 是投递给内核的最终形态（含注入的 client_type/server），raw_params 是用户原始提交（exclude_unset，显式 null 保留）。ChannelDefaults 由 setting 表读 channel.client_type/channel.server（SettingRepository + get_session），读不到回退默认值。\n- 三个端点都挂 require_auth（业务端点，不在豁免清单里）。\n- 每个端点按 §11.2 写 summary/description（description 要写清副作用与可能错误码），并用 error_responses() 填 responses。\n\ntests/api/test_tasks_router.py 覆盖：items==9 且 name 集合正确；每个 item 有非空 description 与合法 schema（type=object、additionalProperties false、properties 非空）；Fight 的 groups 顺序与成员、series 的 x-enum-labels 键为字符串、x-depends-on 出现在 expedite_times；GET /types/Fight 200、GET /types/Nope 400 UNKNOWN_TASK_TYPE；POST /validate：正常任务注入 client_type=Bilibili/server=CN、显式 null 不注入、显式值原样、raw_params 不含注入键且含显式 null、未知 name 400、Infrast mode=10000 缺 filename 422、Roguelike mode=2 400 TASK_PARAM_DEPRECATED、tasks 为空 422；未带 token（配置了 token 时）401；setting 表写入 channel.client_type=Official 后 validate 注入 Official（用 isolated_db 夹具，走真实仓储）。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：端点与响应形状、schema 导出实测（$defs 形态、x-* 是否保留）、默认值注入的两种来源验证结果。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "79068f5a2d8acd858e4381a49cdbd46149325227",
   "blocked_reason": null,
   "revives": 0
 }

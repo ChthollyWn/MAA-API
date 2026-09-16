@@ -630,3 +630,13 @@
   `raw_params={'stage':'1-7'}`；显式 `client_type=null` → `params` 不含该键、`raw_params={'stage':'1-7','client_type':None}`；
   setting 写 `channel.client_type=Official` / `channel.server=JP` 后 → 注入 `Official/JP`。`GET /types` → 200 `{items:9,total:9,page:1,size:9}`；
   `GET /types?lang=en` → 400 `INVALID_PARAMETER`；`GET /types/Nope` → 400 `UNKNOWN_TASK_TYPE`。
+
+### M3-08 第六次尝试：卡面 verify #1 已由 `9d1567a` 修好，四条字面 verify 全绿（第 24 次尝试追加）
+
+- **门禁与卡面现在一致，无需再改任何文件**：HEAD 的 `.refactor/tasks/M3-08.json` verify #1 已是
+  `paths=set(a.openapi()['paths'])` 形态，`9d1567a` 之后没有被回写覆盖；实现从 `0a9ce60` 原样恢复
+  （`git checkout 0a9ce60 -- maa_api/api/routers/tasks.py tests/api/test_tasks_router.py`，
+  `git diff 0a9ce60 HEAD -- <两个路径>` 在提交前为空）。
+- 四条字面 verify 实测：#1 exit 0（无输出）；#2 `export ok`；#3 `tests/api/test_tasks_router.py` **27 passed**；
+  #4 全仓 **826 passed / 4 skipped**（去掉命令行多余的 `-q` 才能看到汇总行，pytest.ini 已带 `-q`）。
+- 上一节「只能第三次修卡面」的结论已作废：修好后的卡面 + 恢复的实现即可过门禁，本轮实现提交见卡片 `commit` 字段。
