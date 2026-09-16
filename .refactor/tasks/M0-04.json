@@ -30,8 +30,8 @@
     "python3 -c \"import re, pathlib; bad=[(str(p), i+1) for p in pathlib.Path('maa_api').rglob('*.py') for i, l in enumerate(p.read_text().splitlines()) if re.search(r'\\.dict\\(|@validator|@root_validator|class Config\\b|parse_obj\\(', l)]; assert not bad, bad\""
   ],
   "prompt_extra": "本卡覆盖 docs/12 M0 清单里落在模型层的缺陷，两处文件必须同时改完：\n① TaskRequest 的尾随逗号：tools_to_craft / increment_mode 的默认值现在是元组 (None,) 而非 None，去掉逗号；num_craft_batches 同样检查。\n② TaskRequest.times 重复定义（通用参数区与 Fight 参数区各一次）：只保留一个。\n③ Award 系默认值：request.py 里 award 保持 True，mail / recruit / orundum / mining / specialaccess 从 True 改成 False（task.py 的 AwardTask 文档字符串是事实来源）。\n④ InfrastTask 的 failename 改名 filename：task.py 的形参与 params 键、request.py 的字段名与 to_task() 里的调用一起改（内核期望的键是 filename，且文档字符串写的也是 filename）。\n⑤ ReclamationTask 的参数字典键改成字符串字面量（现在键位置用的是变量本身，多个参数为 None 时字典会塌缩成 {None: ...}）。\n⑥ pydantic v2 写法收尾：Task.to_dict 里的 super().dict(*args, **kwargs) 改成 super().model_dump(*args, **kwargs)（全仓最后一处 v1 写法，另一处已由 M0-01 修掉）。\n不在本卡范围：threshold 默认值、recruitment_time 的 dict[int, int]、枚举硬编码取值——这些随重写或后续里程碑处理，M0 不动。\n只提交这两个文件，不要动 pyproject.toml / poetry.lock / asst.py。",
-  "status": "running",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "6a54f0860b056321ba0f667b65d3de5651d95e99",
   "blocked_reason": null
 }
