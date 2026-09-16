@@ -13,7 +13,9 @@
     "docs/03-MaaCore内核层设计.md#43-与热更新的协作",
     "docs/08-ADB连接与账号渠道.md#52-通过-asynccallinfo-获知结果",
     "docs/02-系统架构设计.md#4-子进程生命周期",
-    "tests/fixtures/core_probe_findings.md"
+    "tests/fixtures/core_probe_findings.md",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "M1 的可交付状态是：能用一个命令行脚本启动子进程、加载资源、连接设备、提交一个最短任务并收到回调；杀掉子进程能观察到自动重启；HTTP 服务尚未接入新内核层（docs/12 M1）",

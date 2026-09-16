@@ -10,7 +10,9 @@
     "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径",
     "docs/08-ADB连接与账号渠道.md#51-签名差异",
     "docs/02-系统架构设计.md#33-截图数据的传递",
-    "tests/fixtures/core_probe_findings.md"
+    "tests/fixtures/core_probe_findings.md",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "真机冒烟测试：少量必须连真实内核与设备的用例（加载资源、连接、截图、点击、提交一个最短任务），标记为需要硬件的测试，不进常规 CI（docs/03 §8）",

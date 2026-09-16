@@ -12,7 +12,9 @@
     "docs/03-MaaCore内核层设计.md#5-coreclient",
     "docs/02-系统架构设计.md#34-命令的同步语义",
     "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径",
-    "tests/fixtures/core_probe_findings.md"
+    "tests/fixtures/core_probe_findings.md",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "IPC 协议的契约测试用真实 multiprocessing.Queue 测试，但两端都用替身，验证所有消息类型都能正确 pickle 往返（docs/03 §8）——本卡把「两端替身」升级为「真实 worker + FakeAsst + 真实 supervisor/client」，仍不碰内核与设备",

@@ -8,7 +8,9 @@
   "reads": [
     "docs/02-系统架构设计.md#54-为单子进程留多实例扩展口",
     "docs/02-系统架构设计.md#6-模块划分",
-    "docs/13-决策记录.md#adr-10--单子进程但按多实例设计接口"
+    "docs/13-决策记录.md#adr-10--单子进程但按多实例设计接口",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "内部所有内核调用经 `CoreRegistry.get(core_id)` 取 CoreClient，首版 core_id 恒为 `\"default\"`（docs/02 §5.4）",

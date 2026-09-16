@@ -11,7 +11,9 @@
     "docs/02-系统架构设计.md#4-子进程生命周期",
     "docs/05-API规范与路由清单.md#44-内核状态",
     "docs/13-决策记录.md#adr-02--maacore-用子进程隔离而非同进程热替换",
-    "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径"
+    "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "两条独立判据任一触发即认定崩溃：每 5 秒发 PING(seq)、连续 3 次未收到同 seq 的 PONG（约 15 秒）判定失联；同时轮询 Process.is_alive() 捕获段错误、OOM kill 这类硬崩溃，exitcode 能区分正常退出（0）、信号杀死（负值，如 -11 是 SIGSEGV）与异常退出（docs/03 §4.1）",

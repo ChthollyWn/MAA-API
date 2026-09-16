@@ -14,7 +14,9 @@
     "docs/02-系统架构设计.md#32-事件消息",
     "docs/02-系统架构设计.md#33-截图数据的传递",
     "docs/13-决策记录.md#adr-03--ipc-用-multiprocessing-queue",
-    "tests/fixtures/core_probe_findings.md"
+    "tests/fixtures/core_probe_findings.md",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "worker 由 multiprocessing.Process 以 spawn 方式启动，只接收纯数据（路径字符串、配置 dict、两个 Queue），不接收任何服务对象（docs/03 §3）",

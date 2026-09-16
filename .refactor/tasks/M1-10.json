@@ -12,7 +12,9 @@
     "docs/03-MaaCore内核层设计.md#42-崩溃恢复流程",
     "docs/03-MaaCore内核层设计.md#43-与热更新的协作",
     "docs/13-决策记录.md#2-其余决策速记",
-    "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径"
+    "docs/12-实施计划与里程碑.md#m1--maacore-内核层xl--关键路径",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "崩溃恢复的故障注入：让 FakeAsst 主动 `os._exit(-11)` 模拟段错误，验证 CoreSupervisor 的检测、落库、退避、重启全链路（docs/03 §8）——本卡只消费 M1-05 已交付的 crash 剧本，不修改 FakeAsst",

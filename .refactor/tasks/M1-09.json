@@ -14,7 +14,9 @@
     "docs/08-ADB连接与账号渠道.md#52-通过-asynccallinfo-获知结果",
     "docs/08-ADB连接与账号渠道.md#53-ipc-协议中的表达",
     "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题",
-    "tests/fixtures/core_probe_findings.md"
+    "tests/fixtures/core_probe_findings.md",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "事件消费线程：multiprocessing.Queue.get() 是阻塞的同步调用，不能直接在 event loop 里用；开一个 threading.Thread 死循环 get()，拿到事件后用 loop.call_soon_threadsafe 投递回事件循环处理；不用 run_in_executor，因为长期占用的阻塞任务会污染默认 executor（docs/03 §5）",
