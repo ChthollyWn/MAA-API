@@ -10,7 +10,9 @@
     "docs/05-API规范与路由清单.md#4-错误码表",
     "docs/05-API规范与路由清单.md#44-内核状态",
     "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码",
-    "tests/fixtures/core_probe_findings.md"
+    "tests/fixtures/core_probe_findings.md",
+    "tests/fixtures/spike_subprocess_findings.md",
+    "tests/fixtures/spike_subprocess_result.json"
   ],
   "constraints": [
     "`InstanceOptionType` 当前只有 4 项（touch_type=2、deployment_with_pause=3、adblite_enabled=4、kill_on_adb_exit=5），缺 ClientType；实测值为 `ClientType = 6`，注意不要按现有枚举的数值分布猜成 1（那个位置是已废弃的 MinitouchEnabled）（docs/03 §2.3）",
@@ -37,7 +39,7 @@
   ],
   "prompt_extra": "【环境事实】`python` 不在 PATH，一律用 `.venv/bin/python`（Python 3.13，`enum.StrEnum` 可用）。不要修改 `.refactor/`；只 `git add` 本卡 5 个 deliverables，commit message 用 `M1-03: <标题>`，不 push、不切分支。\n\n【本卡是两个被 M1 后续卡共同依赖的最小契约，只做内核层，不做 API 层】\n\n① `maa_api/core/enums.py`（占位文件，直接覆盖）：\n- `Message(IntEnum)`：取值与 `maa_api/model/util/utils.py` 现有 `Message` 逐一对齐（InternalError=0、InitFailed=1、ConnectionInfo=2、AllTasksCompleted=3、AsyncCallInfo=4、Destroyed=5、TaskChainError=10000、TaskChainStart=10001、TaskChainCompleted=10002、TaskChainExtraInfo=10003、TaskChainStopped=10004、SubTaskError=20000、SubTaskStart=20001、SubTaskCompleted=20002、SubTaskExtraInfo=20003、SubTaskStopped=20004）。不要用 auto() 之后改动取值，verify 会与旧枚举逐项比对。\n- `InstanceOptionKey(IntEnum)`：touch_type=2、deployment_with_pause=3、adblite_enabled=4、kill_on_adb_exit=5、ClientType=6。\n- `StaticOptionKey(IntEnum)`：invalid=0、cpu_ocr=1、gpu_ocr=2。\n- 提供兼容别名 `InstanceOptionType = InstanceOptionKey`、`StaticOptionType = StaticOptionKey`（M1-04 之前的代码仍这样引用）。\n- 旧的 `maa_api/model/util/utils.py` 一行都不要改（M3 才删旧模块）。\n\n② `maa_api/domain/errors.py`（占位文件，直接覆盖，按 docs/05 §4 的骨架）：\n- `class ErrorCode(StrEnum)`，本卡只定义内核层需要的 6 条：CORE_NOT_READY、CORE_RESTARTING、CORE_CRASHED、CORE_START_FAILED、CORE_COMMAND_FAILED、CORE_COMMAND_TIMEOUT。不要顺手把 docs/05 §4 里其余 86 条抄进来（那是 M3 的工作项）。\n- `ERROR_HTTP_STATUS: dict[ErrorCode, int]`：按 docs/05 §4.4 绑定固定状态码（503/503/503/500/502/504）。\n- `class AppError(Exception)`：`__init__(self, code: ErrorCode, message: str, details: dict | None = None)`，实例属性 `code`、`message`、`details`、`http_status`（由 ERROR_HTTP_STATUS 派生），`__str__` 形如 `\"CORE_NOT_READY: starting\"`。可被 pickle（不要持有不可序列化对象）。\n\n③ 测试：`tests/core/test_core_enums.py` 与 `tests/domain/test_errors.py`（新建 `tests/domain/__init__.py`，空文件即可）。用例至少覆盖：新旧 Message 取值一致、ClientType==6、StrEnum 的 name==value 不变式、六个内核码的 http_status、AppError 的 code/details/str、未登记的 code 取 http_status 时 fail loud（抛 KeyError 或返回明确默认——二选一并写清）。\n\n【收尾】逐条跑 verify；回执 200 字以内，报告 Message 成员数、ClientType 取值与新增错误码条数。",
   "status": "pending",
-  "attempts": 0,
+  "attempts": 1,
   "commit": null,
-  "blocked_reason": null
+  "blocked_reason": "verify 失败：.venv/bin/python -c \"from maa_api.core.enums import Message as New; from maa_api.model.util.utils import Message as Old; miss=sorted({m.name for m in Old}-{m.name for m in New}); assert not miss, miss; bad=[(m.name,int(m),int(New[m.name])) for m in Old if int(New[m.name])!=int(m)]; assert not bad, bad; assert int(New.AsyncCallInfo)==4 and int(New.AllTasksCompleted)==3 and int(New.TaskChainStopped)==10004\""
 }
