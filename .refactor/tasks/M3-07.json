@@ -34,13 +34,13 @@
     "tests/api/test_system_router.py"
   ],
   "verify": [
-    ".venv/bin/python -c \"import maa_api.api.routers.system as s; from fastapi import FastAPI; a=FastAPI(); a.include_router(s.router); paths={r.path for r in a.routes}; assert '/api/system/health' in paths and '/api/system/auth/cookie' in paths, sorted(paths); print(sorted(p for p in paths if p.startswith('/api')))\"",
+    ".venv/bin/python -c \"import maa_api.api.routers.system as s; from fastapi import FastAPI; a=FastAPI(); a.include_router(s.router); paths=set(a.openapi()['paths']); assert '/api/system/health' in paths and '/api/system/auth/cookie' in paths, sorted(paths); print(sorted(p for p in paths if p.startswith('/api')))\"",
     ".venv/bin/python -m pytest -q tests/api/test_system_router.py",
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "公开契约：\n- `router = APIRouter(prefix=\"/api/system\", tags=[\"system\"])`（前缀写在模块里，M3-09 只 include_router，不再拼前缀；verify 依赖这一点）。\n- `GET /api/system/health`：200，响应体是 pydantic 模型（字段：status: str = \"ok\"、auth_enabled: bool、version: str、started_at: str | None = None），`started_at` 从 `request.app.state.started_at` 取、缺失时为 null（M3-09 的 lifespan 会写入）；模型要留注释说明 M4–M6 会追加 core/device/queue 字段。version 取 `importlib.metadata.version(\"maa-api\")`，失败回退 \"0.1.0\"（不要 import maa_api.main / 内核）。\n- `POST /api/system/auth/cookie`：依赖 require_auth；鉴权通过且 auth_enabled 为真 → 204 + `Set-Cookie: maa_token=<token>; HttpOnly; SameSite=Lax; Path=/`；auth_enabled 为假（免鉴权模式）→ 204 且**不下发** cookie（无秘密可发，WS 此时也不校验）；鉴权失败由 require_auth 抛 UNAUTHORIZED(401)。响应模型用 Response(status_code=204) 这类无体返回，不要造 JSON body。参数用 `response: Response` 注入后 set_cookie，注意 `secure=False`（HTTPS 判定归 M15）。\n- `DELETE /api/system/auth/cookie`：依赖 require_auth（写方法）→ 204 + 清除 cookie（`delete_cookie(\"maa_token\", path=\"/\")`，等价于 Max-Age=0）。\n- 每个端点按 docs/05 §11.2 写 summary（动宾短语 ≤12 字）与 description（做什么/副作用/可能错误码），并在 POST cookie 上用 error_responses(\"UNAUTHORIZED\",\"FORBIDDEN\") 填 responses。\n\ntests/api/test_system_router.py 覆盖：配置 token 后 health 不带 token 200 且 auth_enabled=true；空 token 时 false；版本字段非空；`started_at` 缺失为 null、app.state 设置后回显；POST cookie 带正确 Bearer → 204 + Set-Cookie 同时含 maa_token=、HttpOnly、SameSite=lax；带错误 token → 401（统一错误体）；带 cookie-only 调 POST → 403；空 token 模式下 POST → 204 且无 Set-Cookie；DELETE → 204 且清除（Max-Age=0 或 expires 过去时间）。用 tests/api 的夹具（tmp_settings + make_client），不要 import maa_api.main。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：端点清单、cookie 属性实测、免鉴权模式行为。",
-  "status": "blocked",
-  "attempts": 2,
+  "status": "pending",
+  "attempts": 0,
   "commit": null,
-  "blocked_reason": "verify 失败：.venv/bin/python -c \"import maa_api.api.routers.system as s; from fastapi import FastAPI; a=FastAPI(); a.include_router(s.router); paths={r.path for r in a.routes}; assert '/api/system/health' in paths and '/api/system/auth/cookie' in paths, sorted(paths); print(sorted(p for p in paths if p.startswith('/api')))\""
+  "blocked_reason": null
 }

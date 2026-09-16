@@ -60,6 +60,8 @@
 - **pytest 测试模块可以直接当 spawn 子进程 target 的宿主模块**（M1-06 实测，Python 3.13.3）：`ctx.Process(target=<模块级函数>)` 时子进程按限定名重新 import `tests.core.test_ipc_contract`，`tests/` 是 package 且 `tests/conftest.py` 已把仓库根插进 `sys.path`（spawn 会继承 `sys.path`），因此无需额外 sys.path 设置即可跑通。代价是**测试模块顶层不能有副作用**（fixture 体内的才安全）。M1-10 做崩溃注入子进程测试可照抄这个形态。
 - **spawn 子进程里不要 `cancel_join_thread()`**：父进程侧关闭队列用 `close()+cancel_join_thread()` 防阻塞，但子进程写完必须让 feeder 线程自然 flush（默认退出时 join），否则入队消息可能丢失。
 
+- **FastAPI 0.141 的 `app.routes` 里，被 `include_router` 进来的路由是 `_IncludedRouter` 包装对象，没有 `.path` 属性**（M3-07/M3-08 实测）：`paths={r.path for r in a.routes}` 会抛 `AttributeError: '_IncludedRouter' object has no attribute 'path'`，对**任何实现**都失败 —— 这类门禁是坏的，不是被测代码有问题。要取路径请用 `set(app.openapi()['paths'])` 或 `TestClient` 发真实请求。M0-01 把 FastAPI 升到 0.141.1 之后语义变了，照旧版写法写的 verify 一律要改。
+
 ## 编排与执行环境
 
 - 分支 `refactor/v2`；`dev` 停在 `139c4bc`，是回滚锚点。
