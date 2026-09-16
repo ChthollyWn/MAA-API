@@ -1,0 +1,43 @@
+{
+  "id": "M2-04",
+  "milestone": "M2",
+  "title": "Alembic 装配与 0001 初始迁移：env.py（render_as_batch）+ 13 张表的建表与索引 + 可用 downgrade",
+  "depends": [
+    "M2-01",
+    "M2-02",
+    "M2-03"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m2--数据层l",
+    "docs/12-实施计划与里程碑.md#4-分支与回滚",
+    "docs/04-数据模型与持久化.md#2-引擎与连接配置",
+    "docs/04-数据模型与持久化.md#5-表设计",
+    "docs/04-数据模型与持久化.md#6-索引设计",
+    "docs/04-数据模型与持久化.md#8-alembic-配置与自动迁移"
+  ],
+  "constraints": [
+    "`alembic.ini` 放项目根，`script_location = maa_api/db/migrations`，版本文件名模板设为 `%%(rev)s_%%(slug)s` 并用四位序号手工递增，不用随机 hash——序号让「第几个迁移」一目了然，也避免 `down_revision` 链在 review 时难以核对（docs/04 §8.1）。",
+    "`render_as_batch=True` 是 SQLite 上最重要的一行：SQLite 的 `ALTER TABLE` 只支持加列、改表名、改列名，batch 模式会自动展开成「建临时表 → 拷数据 → 删旧表 → 改名」。`compare_type=True` 让自动生成能发现列类型变化，但不要盲信 `--autogenerate` 的产物：它检测不到索引重命名与 `sqlite_where` 的部分索引，每个迁移文件都要人工过一遍（docs/04 §8.2）。",
+    "`auto_vacuum=INCREMENTAL` 必须在建表之前生效（docs/04 §2）。M2-01 实测：把 `PRAGMA auto_vacuum=INCREMENTAL` 放在 `upgrade()` 首行会**静默失效**（读回 0），必须采用 M2-01 在 ENVIRONMENT.md / `db_probe_result.json` 里记录的那种真正生效的放置方式。",
+    "Alembic 用同步引擎（`sqlite:///`）而非 aiosqlite：迁移是一次性的串行操作，异步驱动只带来复杂度；`env.py` 必须 `import maa_api.db.models` 以注册全部表到 metadata，`target_metadata = SQLModel.metadata`（docs/04 §8.2）。",
+    "数据库变更全部经 Alembic，回滚有 downgrade 路径；涉及改列类型或加约束的迁移要在开发期就验证过 downgrade（docs/12 §4）。永远不要调用 `SQLModel.metadata.create_all()` 建库，混用两条建表路径会让 `alembic_version` 与实际 schema 漂移（docs/04 §8.3）。"
+  ],
+  "deliverables": [
+    "alembic.ini",
+    "maa_api/db/migrations/env.py",
+    "maa_api/db/migrations/script.py.mako",
+    "maa_api/db/migrations/versions/0001_initial_schema.py",
+    "tests/db/test_initial_migration.py"
+  ],
+  "verify": [
+    "test -f alembic.ini -a -f maa_api/db/migrations/env.py -a -f maa_api/db/migrations/script.py.mako -a -f maa_api/db/migrations/versions/0001_initial_schema.py",
+    ".venv/bin/python - <<'PY'\nimport pathlib, sqlite3, tempfile\nfrom alembic import command\nfrom alembic.config import Config\nfrom sqlalchemy import create_engine, inspect\nfrom sqlmodel import SQLModel\nimport maa_api.db.models  # noqa: F401\nimport maa_api.db.session as s\n\nd = pathlib.Path(tempfile.mkdtemp())\np = d / \"t.db\"\ns.DB_PATH = p\ns.SYNC_URL = f\"sqlite:///{p}\"\ns.ASYNC_URL = f\"sqlite+aiosqlite:///{p}\"\ncfg = Config(\"alembic.ini\")\ncfg.set_main_option(\"script_location\", \"maa_api/db/migrations\")\ncfg.set_main_option(\"sqlalchemy.url\", s.SYNC_URL)\n\ncommand.upgrade(cfg, \"head\")\nc = sqlite3.connect(p)\nnames = {r[0] for r in c.execute(\"select name from sqlite_master where type='table'\")}\nassert set(SQLModel.metadata.tables) <= names, sorted(set(SQLModel.metadata.tables) - names)\nassert \"alembic_version\" in names, sorted(names)\n\ninsp = inspect(create_engine(f\"sqlite:///{p}\"))\nfor tname, table in SQLModel.metadata.tables.items():\n    got = {col[\"name\"] for col in insp.get_columns(tname)}\n    want = {col.name for col in table.columns}\n    assert got == want, (tname, sorted(want - got), sorted(got - want))\n    db_names = {i[\"name\"] for i in insp.get_indexes(tname)} | {u[\"name\"] for u in insp.get_unique_constraints(tname)}\n    md_names = {i.name for i in table.indexes} | {cc.name for cc in table.constraints if cc.name and cc.name.startswith(\"uq_\")}\n    assert md_names <= db_names, (tname, sorted(md_names - db_names))\n\nix = {i[\"name\"]: i for i in insp.get_indexes(\"update_record\")}\nassert ix[\"uq_update_record_running_target\"][\"dialect_options\"].get(\"sqlite_where\") is not None, ix\n\ndef ddl(name):\n    row = c.execute(\"select sql from sqlite_master where name=?\", (name,)).fetchone()\n    assert row, name\n    return row[0].upper()\n\nfor tname in (\"log_entry\", \"agent_message\", \"agent_audit\"):\n    assert \"AUTOINCREMENT\" in ddl(tname), tname\nassert \"ON DELETE CASCADE\" in ddl(\"task\"), \"task 外键缺 CASCADE\"\nassert c.execute(\"PRAGMA auto_vacuum\").fetchone()[0] == 2, \"auto_vacuum 未生效（按 M2-01 实测的放置方式修）\"\nfks = c.execute(\"PRAGMA foreign_key_list('task')\").fetchall()\nassert any(r[2] == \"pipeline\" and (r[6] or \"\").upper() == \"CASCADE\" for r in fks), fks\nc.close()\n\ncommand.downgrade(cfg, \"base\")\nc = sqlite3.connect(p)\nleft = {r[0] for r in c.execute(\"select name from sqlite_master where type='table'\")}\nassert not (set(SQLModel.metadata.tables) & left), sorted(set(SQLModel.metadata.tables) & left)\nc.close()\nprint(\"MIGRATION 0001 OK\")\nPY",
+    ".venv/bin/python -m pytest -q tests/db/test_initial_migration.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【事实】已装 alembic 1.20.0 / SQLModel 0.0.42 / SQLAlchemy 2.0.54，`.venv/bin/alembic` 与 `python -m alembic` 都可用。M2-03 已交付 `maa_api/db/models.py`（先读它，索引名与列定义以它为准）。先读 M2-01 的 `tests/fixtures/db_probe_findings.md`，里面写了本机 `auto_vacuum` 哪种放置生效、autogenerate 漏了什么、batch downgrade 是否可用。\n\n【做法建议】可先用 `alembic revision --autogenerate` 生成骨架，然后**逐条人工核对**：13 张表全在、21 条索引名字与 §6 一致、`uq_update_record_running_target` 带 `sqlite_where`、三张高频表带 AUTOINCREMENT、JSON 列与 `server_default` 正确、外键 ondelete 正确。autogenerate 漏掉的（尤其部分唯一索引）必须手工补进 `op.create_index(..., sqlite_where=sa.text(\"...\"))`。`downgrade()` 必须真的把 13 张表与索引删干净（verify 会 `downgrade base` 后断言表全部消失）。\n\n【env.py】除 docs/04 §8.2 的 `run_migrations_online()` 外，补上 `run_migrations_offline()` 分支（`alembic upgrade head --sql` 需要），并让 `sqlalchemy.url` 优先取 `config.get_main_option(\"sqlalchemy.url\")`（M2-06 的 `ensure_schema` 会显式设置它），缺省回退到 `maa_api.db.session.SYNC_URL`。`auto_vacuum` 按 M2-01 的实测结论放在真正生效的位置。\n\n【测试】`tests/db/test_initial_migration.py` 用 `tmp_path` 的库跑 `command.upgrade/downgrade`（通过 `Config` 的 `sqlalchemy.url` 指向临时库，不要动仓库的 `resource/maa_api.db`），并断言本卡 verify 里那组 schema 事实；同步测试 + `asyncio.run`（本仓无 pytest-asyncio）。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

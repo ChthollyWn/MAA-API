@@ -1,0 +1,45 @@
+{
+  "id": "M2-02",
+  "milestone": "M2",
+  "title": "数据层底座：domain/enums.py 全量持久化枚举 + db/session.py 异步引擎与六个 PRAGMA（并补 greenlet 依赖）",
+  "depends": [
+    "M2-01"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m2--数据层l",
+    "docs/04-数据模型与持久化.md#1-选型与文件布局",
+    "docs/04-数据模型与持久化.md#2-引擎与连接配置",
+    "docs/04-数据模型与持久化.md#33-枚举的存储",
+    "docs/04-数据模型与持久化.md#4-状态枚举",
+    "docs/04-数据模型与持久化.md#与现有枚举的对应关系"
+  ],
+  "constraints": [
+    "枚举在 Python 侧是 `enum.StrEnum`（Python 3.11 起内置，项目已要求 `^3.11`），在数据库侧存为纯字符串列，不用 `sa.Enum`；列宽统一给 `VARCHAR(16)`（状态、来源、级别）或 `VARCHAR(24)`（阶段、角色），错误码给 `VARCHAR(48)`（docs/04 §3.3）。",
+    "状态枚举全部集中在 `maa_api/domain/enums.py`，不散落在各表文件里。除 `CoreStatus`（见 03）与 `DeviceStatus`（见 08）之外的枚举都参与持久化——那两个是运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。",
+    "`TaskStatus` 新增的 `SKIPPED` 填补表达空白：重试耗尽且流水线继续 → `SKIPPED`；因内核崩溃或取消而未能收尾 → `CANCELLED`；任务链明确报错且不再重试 → `FAILED`。`PipelineStatus` 的 `IDLE` 改名 `PENDING`，与 `TaskStatus.PENDING` 对齐（docs/04 §4 与现有枚举的对应关系）。",
+    "PRAGMA 必须挂在 `connect` 事件上，因为它们是连接级而非库级设置。`foreign_keys` 尤其容易漏：SQLite 默认关闭外键约束，不显式打开则所有 `ON DELETE CASCADE` 都是装饰；`busy_timeout=15000` 与 `connect_args.timeout=15` 两处都要设（docs/04 §2）。",
+    "`expire_on_commit=False` 是必须的：提交后仍要读取 ORM 对象的字段用于 WebSocket 广播；后台任务（PipelineRunner、LogHub 刷盘、清理任务）各自开新会话，绝不跨任务共享（docs/04 §2）。"
+  ],
+  "deliverables": [
+    "maa_api/domain/enums.py",
+    "maa_api/db/session.py",
+    "pyproject.toml",
+    "poetry.lock",
+    "tests/db/__init__.py",
+    "tests/db/test_session.py",
+    "tests/domain/test_enums.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"import enum, maa_api.domain.enums as e; names=['PipelineStatus','TaskStatus','PipelineSource','Priority','LogSource','LogLevel','ScreenshotTrigger','ScreenshotBackend','ConfirmationStatus','RiskLevel','CallerType','AuditStatus','UpdateTarget','UpdateStatus','ReleaseChannel','ResourceChannel','UpdatePhase','NotifyChannelType','NotifyEvent','AgentRole','AgentSessionStatus','ResourceAssetKind']; miss=[n for n in names if not hasattr(e,n)]; assert not miss, miss; assert not hasattr(e,'CoreStatus') and not hasattr(e,'DeviceStatus'), 'CoreStatus/DeviceStatus 是运行期内存状态，不参与持久化（docs/04 §4）'; assert e.PipelineStatus.PENDING == 'pending' and e.TaskStatus.SKIPPED == 'skipped' and e.LogSource.MAA_TASK == 'maa_task' and e.Priority.MANUAL == 0 and e.Priority.AGENT == 1 and e.Priority.SCHEDULED == 2; assert e.PipelineStatus.COMPLETED.is_terminal and e.PipelineStatus.FAILED.is_terminal and e.PipelineStatus.CANCELLED.is_terminal and not e.PipelineStatus.PENDING.is_terminal and not e.PipelineStatus.RUNNING.is_terminal; assert all(issubclass(getattr(e,n), enum.Enum) for n in names); assert isinstance(e.Priority(0), enum.IntEnum); print('ENUMS OK')\"",
+    ".venv/bin/python -c \"import greenlet; print('greenlet', greenlet.__version__)\"",
+    "python3 -c \"import tomllib; d=tomllib.load(open('pyproject.toml','rb'))['tool']['poetry']['dependencies']; sa=d.get('sqlalchemy'); ok=('greenlet' in d) or (isinstance(sa,dict) and 'asyncio' in (sa.get('extras') or [])); assert ok, 'greenlet（或 sqlalchemy[asyncio]）必须显式声明：macOS arm64 不满足 SQLAlchemy 的 greenlet 平台标记，异步引擎无法工作'; pk={p['name'] for p in tomllib.load(open('poetry.lock','rb'))['package']}; assert 'greenlet' in pk, sorted(pk); print('DEPS OK')\"",
+    "d=$(mktemp -d) && mkdir -p \"$d/resource\" && cd \"$d\" && \"$OLDPWD/.venv/bin/python\" - <<'PY'\nimport asyncio\nfrom sqlalchemy import text\nimport maa_api.db.session as s\n\nasync def main():\n    async with s.engine.connect() as conn:\n        vals = {}\n        for p in ['journal_mode', 'foreign_keys', 'busy_timeout', 'synchronous', 'temp_store', 'cache_size']:\n            vals[p] = (await conn.exec_driver_sql(f'PRAGMA {p}')).scalar()\n    await s.engine.dispose()\n    print('PRAGMAS', vals)\n    assert vals['journal_mode'] == 'wal', vals\n    assert vals['foreign_keys'] == 1, vals\n    assert vals['busy_timeout'] == 15000, vals\n    assert vals['synchronous'] == 1, vals\n    assert vals['temp_store'] == 2, vals\n    assert vals['cache_size'] == -16000, vals\n\nasyncio.run(main())\nPY\nrc=$?; cd \"$OLDPWD\"; rm -rf \"$d\"; exit $rc",
+    ".venv/bin/python -m pytest -q tests/db/test_session.py tests/domain/test_enums.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【已实测的环境事实】macOS arm64 下 SQLAlchemy 的 greenlet 平台标记不匹配，本仓 `.venv` 里没有 greenlet，直接 `create_async_engine(...).connect()` 会抛 `ValueError: the greenlet library is required to use this function. No module named 'greenlet'`（M2-01 的 `tests/fixtures/db_probe_result.json` / `.refactor/ENVIRONMENT.md` 有原始记录）。本卡负责让异步引擎真的能跑：在 `pyproject.toml` 里显式声明 greenlet（或 `sqlalchemy = {extras = [\"asyncio\"]}`），用 `POETRY_CACHE_DIR=$(mktemp -d) poetry lock` 重生成锁文件，再 `.venv/bin/python -m pip install --no-cache-dir greenlet`（或 `pip install -e .`）装进本仓 venv。**改 `pyproject.toml` 前必须先读当前内容，只做追加/局部替换，不要整文件重写**（ENVIRONMENT.md 记录过 M0-05 的同类事故）；除 greenlet 外不得顺手升级/新增其它依赖。若 poetry lock 因网络失败，把原始报错写进 blocked_reason 并让本卡 blocked，不要伪造锁文件。\n\n【domain/enums.py】按 docs/04 §4 的代码块**逐字**定义全部 21 个枚举与 `PipelineStatus.is_terminal`；不定义 `CoreStatus`/`DeviceStatus`，不与 `maa_api/core/enums.py` 的 `Message`/`InstanceOptionKey`/`StaticOptionKey` 重复；不新增 API 错误码（`domain/errors.py` 的扩展归 M3）。旧模块 `maa_api/model/util/utils.py` 里的同名枚举本次不动（M3 才删）。\n\n【db/session.py】按 docs/04 §2 给出 `DB_PATH`/`ASYNC_URL`/`SYNC_URL`/`engine`/`session_factory` 与挂在 `engine.sync_engine` 的 `connect` 事件上的六个 PRAGMA。两条可测性要求（M2-03~M2-12 的测试都依赖）：① PRAGMA 的挂接抽成一个可复用函数（名字自定，如 `_apply_pragmas`），模块级 engine 与测试都用它构造，测试用 `tmp_path` 的 URL 断言六个 PRAGMA 的真实取值；② `DB_PATH` 是相对的 `Path(\"resource\")/\"maa_api.db\"`（不要在这里 mkdir、不要在这里建表，目录创建归 `db/migrate.py` 的 `ensure_schema`，见 docs/04 §8.3）。测试不要往仓库的 `resource/maa_api.db` 写数据。\n\n【测试形态】本仓没有 pytest-asyncio：`tests/db/test_session.py` 用同步测试函数 + `asyncio.run(...)`，事件循环内建 engine 时用 `poolclass=NullPool`，避免跨循环复用连接。`tests/domain/test_enums.py` 断言取值、`is_terminal` 与 StrEnum 语义。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

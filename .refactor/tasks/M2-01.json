@@ -1,0 +1,42 @@
+{
+  "id": "M2-01",
+  "milestone": "M2",
+  "title": "方案前置实测：SQLModel+Alembic 在本机 SQLite 上的 DDL 能力边界（AUTOINCREMENT/部分唯一索引/命名约定/auto_vacuum/batch downgrade/greenlet）",
+  "depends": [],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m2--数据层l",
+    "docs/12-实施计划与里程碑.md#4-分支与回滚",
+    "docs/04-数据模型与持久化.md#2-引擎与连接配置",
+    "docs/04-数据模型与持久化.md#31-主键",
+    "docs/04-数据模型与持久化.md#34-外键与级联",
+    "docs/04-数据模型与持久化.md#6-索引设计",
+    "docs/04-数据模型与持久化.md#7-json-字段的写法",
+    "docs/04-数据模型与持久化.md#8-alembic-配置与自动迁移"
+  ],
+  "constraints": [
+    "`AUTOINCREMENT` 关键字在这里不能省。不带它时 SQLite 用「当前最大 rowid + 1」分配 id，删掉末尾若干行之后新插入的行会复用已被删除的 id；而日志表恰好有一个按天清理的保留策略……`AUTOINCREMENT` 用一张内部序列表保证 id 永不回退（docs/04 §3.1）——探针必须确认本机 SQLModel/SQLAlchemy 版本下让 DDL 真的落下 AUTOINCREMENT 的写法。",
+    "`auto_vacuum=INCREMENTAL` 必须在建表之前设置，之后再改需要整库 `VACUUM`。因此它写在初始迁移的第一条语句里，而不是 `connect` 事件里（docs/04 §2）——这条写法未经实测，本卡必须验证 `upgrade` 后 `PRAGMA auto_vacuum` 的真实取值，并定位真正生效的放置方式。",
+    "约束命名约定必须在任何模型被导入之前设置。SQLite 无法删除匿名约束，而 Alembic 的 batch 模式在重建表时需要按名字引用它们（docs/04 §8.1）；`--autogenerate` 检测不到索引重命名、检测不到 `sqlite_where` 的部分索引，产物必须人工过一遍（docs/04 §8.2）。",
+    "数据库变更全部经 Alembic，回滚有 downgrade 路径。但要注意 SQLite 对 `ALTER TABLE` 的支持有限，涉及改列类型或加约束时 Alembic 需要用 batch 模式重建表，这类迁移要在开发期就验证过 downgrade（docs/12 §4）。",
+    "本卡只产出探针脚本与实测记录，不产出 `maa_api/db/` 与 `maa_api/domain/enums.py` 的任何生产代码（归 M2-02/M2-03/M2-04）；依赖变更（greenlet）也归 M2-02，本卡不得改 `pyproject.toml`/`poetry.lock`。"
+  ],
+  "deliverables": [
+    "scripts/probe_sqlmodel_alembic.py",
+    "tests/fixtures/db_probe_result.json",
+    "tests/fixtures/db_probe_findings.md"
+  ],
+  "verify": [
+    "test -f scripts/probe_sqlmodel_alembic.py -a -f tests/fixtures/db_probe_result.json -a -f tests/fixtures/db_probe_findings.md",
+    "python3 -m py_compile scripts/probe_sqlmodel_alembic.py",
+    ".venv/bin/python scripts/probe_sqlmodel_alembic.py --help >/dev/null",
+    ".venv/bin/python scripts/probe_sqlmodel_alembic.py",
+    "python3 -c \"import json; d=json.load(open('tests/fixtures/db_probe_result.json')); req=['naming_convention_applied','autoincrement_emitted','partial_index_emitted','auto_vacuum_effective','batch_downgrade_ok']; assert all(d.get(k) is True for k in req), {k: d.get(k) for k in req}; vk=['alembic_version','sqlmodel_version','sqlalchemy_version','sqlite_version','auto_vacuum_placement']; assert all(isinstance(d.get(k), str) and d[k].strip() for k in vk), {k: d.get(k) for k in vk}; av=d.get('auto_vacuum_placements'); assert isinstance(av, dict) and len(av) >= 3, av; assert all(isinstance(v, int) for v in av.values()), av; assert av.get(d['auto_vacuum_placement']) == 2, (d['auto_vacuum_placement'], av); assert any(v == 2 for v in av.values()), av; assert isinstance(d.get('autogenerate_ran'), bool) and isinstance(d.get('autogenerate_detected_partial_index'), bool), '必须记录 autogenerate 的两项观测'; assert isinstance(d.get('autogenerate_diffs'), list), type(d.get('autogenerate_diffs')); assert isinstance(d.get('greenlet_available'), bool) and isinstance(d.get('async_engine_usable'), bool), '必须记录 greenlet/异步引擎观测'; assert d['greenlet_available'] or (isinstance(d.get('async_engine_error'), str) and d['async_engine_error'].strip()), 'greenlet 缺失时必须记录原始报错'; print('PROBE CONTRACT OK')\"",
+    "python3 -c \"s=open('tests/fixtures/db_probe_findings.md').read(); assert len(s) > 800, len(s); need=['auto_vacuum','AUTOINCREMENT','sqlite_where','render_as_batch','greenlet','batch']; assert all(k in s for k in need), [k for k in need if k not in s]; assert 'PRAGMA auto_vacuum' in s, '必须写明实测用的 pragma 与放置方式'; print('FINDINGS OK')\"",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【目标】在写 13 张表与迁移链之前，用丢弃式探针把 docs/04 里几条**未经实测**的 DDL 假设问清，把结论写进 ENVIRONMENT.md，供 M2-02/M2-03/M2-04 直接引用。只产出本卡 3 个 deliverables，不写生产代码、不装依赖。\n\n【实验要求】`scripts/probe_sqlmodel_alembic.py`，argparse 至少支持 `--out-json`（默认 tests/fixtures/db_probe_result.json）与 `--out-md`（默认 tests/fixtures/db_probe_findings.md）；`--help` 不得做任何实验、必须 exit 0；所有实验都在 `tempfile.mkdtemp()` 里做，**不得在仓库内生成 alembic.ini / migrations / *.db**。正常结束 exit 0 并打印 `PROBE OK`，任一必需项失败 exit 1。\n1) 命名约定 + 建表 DDL：按 docs/04 §8.1 在定义表**之前**设置 `SQLModel.metadata.naming_convention`，定义一张带复合索引、部分唯一索引（`sqlite_where=text(\"status = 'running'\")`）、外键（ondelete CASCADE / SET NULL）、JSON 列（`sa_column=Column(JSON, nullable=False, server_default=text(\"'{}'\"))`）与 `__table_args__={'sqlite_autoincrement': True}` 的表；用 sync engine `create_all` 到临时库，读 `sqlite_master` 的 DDL 文本，确认：索引/约束名符合约定、DDL 里有 `AUTOINCREMENT`、部分索引 DDL 带 `WHERE`、外键带 `ON DELETE CASCADE`。把三个 bool 写进 JSON。再补一个对照：在表定义**之后**才设置 naming_convention，记录生成的约束名是否跟随（结论写 findings，不进 JSON 契约）。\n2) auto_vacuum 三种放置方式（本卡核心，必须是三个全新临时库各跑一次真实 `alembic upgrade head`）：(a) `PRAGMA auto_vacuum=INCREMENTAL` 放在 0001 的 `upgrade()` 首行（docs/04 §2 的写法）；(b) 放在 env.py 的 `run_migrations_online()` 里、`context.begin_transaction()` **之前**（在 connection 上执行）；(c) 放在 0001 的 `with op.get_context().autocommit_block():` 里。每种都在 upgrade 完成后用**新连接**读 `PRAGMA auto_vacuum`，把三个整数写进 `auto_vacuum_placements`，把得到 2 的那个名字写进 `auto_vacuum_placement`，`auto_vacuum_effective` 只在确实有方式得到 2 时为 true。若三种都拿不到 2，要额外试出可行做法（并如实记录），拿不到就 exit 1 —— 这正是本卡存在的意义。\n3) autogenerate：用 docs/04 §8.2 的 env.py 配置（`render_as_batch=True, compare_type=True, compare_server_default=True`）对上述模型跑一次 `alembic revision --autogenerate`，把生成文件里的操作与模型逐条对比：是否漏掉 `sqlite_where` 部分索引、是否有其它噪声（server_default / JSON / AUTOINCREMENT / 命名），把 diff 摘要逐条写进 `autogenerate_diffs`（字符串列表），两个 bool 写进 autogenerate_ran / autogenerate_detected_partial_index。\n4) batch + downgrade：写第二个迁移用 `op.batch_alter_table(...)` 给已有表加一列（或改列类型），`upgrade head` 后再 `downgrade -1`，确认表结构回到上一版且无异常；`batch_downgrade_ok` 写这个结论。\n5) greenlet / 异步引擎：`create_async_engine('sqlite+aiosqlite:///<临时库>')` 后真跑一次 `connect + execute('select 1')`。记录 `greenlet_available` 与 `async_engine_usable`；失败时把原始异常字符串原样写进 `async_engine_error`。**本卡不安装 greenlet**（依赖变更归 M2-02），本次实测的结论供 M2-02 用来补依赖。\n6) 顺带记录版本号：alembic / sqlmodel / sqlalchemy / sqlite3 的 `__version__`（sqlite 用 `sqlite3.sqlite_version`）。\n\n【产物要求】`tests/fixtures/db_probe_result.json` 含上述全部字段；`tests/fixtures/db_probe_findings.md` 用人话写清①AUTOINCREMENT 的正确写法 ②auto_vacuum 哪种放置生效、哪种静默失效 ③autogenerate 漏了什么、需要人工补什么 ④batch downgrade 是否可用 ⑤greenlet 缺失的原始报错与影响面 ⑥给 M2-03/M2-04 的具体写法建议。\n\n【ENVIRONMENT.md】把实测结论追加到 `.refactor/ENVIRONMENT.md` 末尾（只追加、不改写既有条目、不 git add）。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

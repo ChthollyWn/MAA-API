@@ -1,0 +1,37 @@
+{
+  "id": "M2-05",
+  "milestone": "M2",
+  "title": "0002 数据迁移：resource/daily_task.json 逐日展开为 schedule 记录（文件不存在则跳过）",
+  "depends": [
+    "M2-04"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m2--数据层l",
+    "docs/04-数据模型与持久化.md#55-schedule--定时任务",
+    "docs/04-数据模型与持久化.md#5-表设计",
+    "docs/04-数据模型与持久化.md#11-从现有内存模型的迁移"
+  ],
+  "constraints": [
+    "现有 `resource/daily_task.json` 的迁移方式：它的 `weekday_task` 把星期几映射到 `task_dict` 里的一个任务组名，逐条展开成独立 schedule 记录——`{\"1\": \"workday\"}` 配合固定的 7 点与 19 点，生成 `cron = \"0 7,19 * * 1\"`、`template` 取 `task_dict[\"workday\"]`。迁移脚本放在初始迁移之后的一条数据迁移里，文件不存在则跳过（docs/04 §5.5）。",
+    "`template` 直接存提交请求体的 `tasks` 数组，不做任何预处理。这样定时触发时走的是和前端手动提交完全相同的校验与默认值注入路径，不会出现「手动能跑、定时报错」的分裂（docs/04 §5.5）。",
+    "`schedule` 的 `name` 有 UNIQUE 约束，`timezone` 默认 `Asia/Shanghai`，`priority` 默认 `Priority.SCHEDULED`，`last_pipeline_id` 是外键（docs/04 §5.5）——数据迁移只写数据，不改表结构（表结构归 M2-04）。",
+    "`resource/daily_task.json` → `schedule` 表，由 `0002_migrate_daily_task_json.py` 数据迁移完成，文件不存在则跳过。迁移后原文件保留不删，作为回滚依据（docs/04 §11）。",
+    "本卡不实现 `ScheduleService`、APScheduler 装载与 cron 解释（后续里程碑）；数据迁移必须可 `upgrade → downgrade → upgrade` 而不产生重复记录。"
+  ],
+  "deliverables": [
+    "maa_api/db/migrations/versions/0002_migrate_daily_task_json.py",
+    "tests/db/test_daily_task_migration.py"
+  ],
+  "verify": [
+    "test -f maa_api/db/migrations/versions/0002_migrate_daily_task_json.py",
+    "python3 -c \"import pathlib; fs=[p.name for p in pathlib.Path('maa_api/db/migrations/versions').glob('0002_migrate_daily_task_json.py')]; assert fs, fs; print(fs)\"",
+    ".venv/bin/python - <<'PY'\nimport hashlib, json, pathlib, sqlite3, tempfile\nfrom alembic import command\nfrom alembic.config import Config\nimport maa_api.db.session as s\n\nsrc = pathlib.Path(\"resource/daily_task.json\")\nbefore = hashlib.sha256(src.read_bytes()).hexdigest()\nraw = json.loads(src.read_text(\"utf-8\"))\nweekdays = list(raw[\"weekday_task\"].keys())\nexpected = sorted(json.dumps(raw[\"task_dict\"][g], ensure_ascii=False, sort_keys=True)\n                  for g in raw[\"weekday_task\"].values())\n\nd = pathlib.Path(tempfile.mkdtemp())\np = d / \"t.db\"\ns.DB_PATH = p\ns.SYNC_URL = f\"sqlite:///{p}\"\ns.ASYNC_URL = f\"sqlite+aiosqlite:///{p}\"\ncfg = Config(\"alembic.ini\")\ncfg.set_main_option(\"script_location\", \"maa_api/db/migrations\")\ncfg.set_main_option(\"sqlalchemy.url\", s.SYNC_URL)\n\ndef rows():\n    c = sqlite3.connect(p)\n    try:\n        return c.execute(\"select name, cron, template from schedule\").fetchall()\n    finally:\n        c.close()\n\ncommand.upgrade(cfg, \"head\")\nr1 = rows()\nassert len(r1) == len(weekdays), (len(r1), len(weekdays), weekdays)\nassert len({n for n, _, _ in r1}) == len(r1), \"schedule.name 必须唯一\"\ncrons = {cron for _, cron, _ in r1}\nassert len(crons) == len(set(weekdays)), (sorted(crons), weekdays)\nassert all(cron.startswith(\"0 7,19 * * \") and len(cron.split()) == 5 for _, cron, _ in r1), sorted(crons)\ngot = sorted(json.dumps(json.loads(t), ensure_ascii=False, sort_keys=True) for _, _, t in r1)\nassert got == expected, \"template 必须逐字等于 task_dict[weekday_task[...]]\"\n\ncommand.downgrade(cfg, \"-1\")\nassert rows() == [], rows()\ncommand.upgrade(cfg, \"head\")\nassert len(rows()) == len(weekdays), \"重复 upgrade 不得产生重复记录\"\nassert hashlib.sha256(src.read_bytes()).hexdigest() == before, \"resource/daily_task.json 不得被修改或删除\"\nprint(\"DATA MIGRATION 0002 OK\")\nPY",
+    ".venv/bin/python -m pytest -q tests/db/test_daily_task_migration.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【现状】`resource/daily_task.json` 实际存在（6337 字节，结构与根目录 `daily_task_template.json` 相同）：顶层 `enable`/`task_dict`/`weekday_task`；实测 `weekday_task = {\"0\":\"earth\",\"1\":\"earth\",...,\"6\":\"earth\"}`，`task_dict` 有 money/earth/daily/activity/empty 五组。先读这个文件（它不在 docs/ 下，允许直接读）。\n\n【迁移脚本】文件名与 revision 序号按 docs/04 §8.1（`0002_migrate_daily_task_json.py`，`down_revision` 指向 0001，revision id 用四位序号 `0002`）。用 `op.get_bind()` 执行 SELECT/INSERT；`upgrade()` 里先判断文件是否存在（相对仓库根的 `resource/daily_task.json`，不存在就 return，不报错）；按 weekday 逐条插入 schedule：`name` 由你定但必须唯一且稳定（verify 只要求唯一），`cron = \"0 7,19 * * <weekday>\"`（docs/04 §5.5 的示例用数字星期，与现有配置「每天 7 点与 19 点」一致），`timezone` 用默认 `Asia/Shanghai`，`priority` 用 `Priority.SCHEDULED` 的值，`template` 用 `json.dumps(task_dict[group])` 原样入库，`enabled` 取文件里的 `enable`（缺失按 1）。`downgrade()` 必须删除本迁移插入的那些行（按 name 前缀或 id 均可），使 verify 的 `downgrade -1 → schedule 空 → 再 upgrade` 不重复。\n\n【测试】`tests/db/test_daily_task_migration.py` 用 tmp 库跑 `upgrade/downgrade/upgrade`；另需覆盖「文件不存在则跳过」：把脚本读文件的基准目录做成可注入的（例如模块级常量或用 `op.get_context().config` 传参），不要为了测试去删仓库里的真实文件。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

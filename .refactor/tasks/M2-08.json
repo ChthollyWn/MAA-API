@@ -1,0 +1,39 @@
+{
+  "id": "M2-08",
+  "milestone": "M2",
+  "title": "仓储层（二）：LogRepository（攒批插入/游标查询/两维清理）+ ScreenshotRepository",
+  "depends": [
+    "M2-07"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m2--数据层l",
+    "docs/04-数据模型与持久化.md#53-log_entry--三路日志",
+    "docs/04-数据模型与持久化.md#54-screenshot--截图归档",
+    "docs/04-数据模型与持久化.md#6-索引设计",
+    "docs/04-数据模型与持久化.md#9-仓储层",
+    "docs/04-数据模型与持久化.md#104-清理任务的实现要点"
+  ],
+  "constraints": [
+    "`LogRepository.bulk_insert()` 与清理方法自成事务，因为日志落盘与业务事务的成败无关（业务回滚了也不该丢掉解释失败原因的日志）（docs/04 §9）。",
+    "`created_at` 取事件自身的时间戳而非 `INSERT` 时刻。`LogHub` 做批量刷盘，入库可能比事件晚几百毫秒；IPC 事件消息已经带了 `ts` 字段，直接用它（docs/04 §5.3）。",
+    "`content` 里绝不放 base64 图像。重构后截图走 `screenshot` 表，日志里只放 `meta.screenshot_id`（docs/04 §5.3）。",
+    "`screenshot.path` 存相对 `resource/` 的相对路径，按日期分目录；`deleted_at` 是文件被保留策略清理后打的时间戳，**记录保留**（docs/04 §5.4）。",
+    "`log_entry` 的 id 单调递增且兼作 WebSocket 续传游标：客户端带上最后收到的 `log_entry.id`，服务端补发之后的记录（docs/04 §3.1/§5.3）——`query(after_id=...)` 的语义必须是 `id > after_id`。"
+  ],
+  "deliverables": [
+    "maa_api/db/repositories/log.py",
+    "tests/db/test_repositories_log.py"
+  ],
+  "verify": [
+    "test -f maa_api/db/repositories/log.py",
+    ".venv/bin/python -c \"from maa_api.db.repositories.log import LogRepository, ScreenshotRepository; need={'LogRepository':['bulk_insert','query','purge'],'ScreenshotRepository':['create','get','list_by_pipeline','list_older_than','total_size_active','mark_deleted','purge_before']}; cls={'LogRepository':LogRepository,'ScreenshotRepository':ScreenshotRepository}; bad=[(c,n) for c,ms in need.items() for n in ms if not callable(getattr(cls[c],n,None))]; assert not bad, bad; print('REPO CONTRACT OK')\"",
+    ".venv/bin/python - <<'PY'\nimport asyncio, pathlib, tempfile\nfrom datetime import timedelta\nfrom sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine\nfrom sqlalchemy.pool import NullPool\nfrom sqlmodel import SQLModel\nimport maa_api.db.models  # noqa: F401\nfrom maa_api.db.models import LogEntry, Screenshot, utcnow\nfrom maa_api.db.repositories.log import LogRepository, ScreenshotRepository\nfrom maa_api.domain.enums import LogLevel, LogSource, ScreenshotBackend, ScreenshotTrigger\n\nd = pathlib.Path(tempfile.mkdtemp())\neng = create_async_engine(f\"sqlite+aiosqlite:///{d / 't.db'}\", poolclass=NullPool)\nsf = async_sessionmaker(eng, expire_on_commit=False)\nnow = utcnow()\n\n\nasync def main():\n    async with eng.begin() as conn:\n        await conn.run_sync(SQLModel.metadata.create_all)\n    async with sf() as s:\n        repo, srepo = LogRepository(s), ScreenshotRepository(s)\n        n = await repo.bulk_insert([\n            LogEntry(source=LogSource.SERVER, level=LogLevel.INFO, content=f\"line{i}\",\n                     created_at=now - timedelta(days=age))\n            for i, age in enumerate([40, 10, 10, 0, 0])\n        ])\n        assert n == 5, n\n        page = await repo.query(page=1, size=10)\n        assert (page.total, len(page.items), page.page, page.size) == (5, 5, 1, 10), page\n        assert [x.id for x in page.items] == sorted((x.id for x in page.items), reverse=True), \"日志分页按 id DESC\"\n        after = await repo.query(after_id=page.items[2].id, page=1, size=10)\n        assert after.total == 2, (\"续传游标语义：id > after_id\", after.total)\n\n        deleted = await repo.purge(LogSource.SERVER, before=now - timedelta(days=7), keep_max=1000)\n        assert deleted == 3, deleted\n        await repo.bulk_insert([LogEntry(source=LogSource.SERVER, level=LogLevel.INFO, content=f\"new{i}\", created_at=now)\n                                for i in range(5)])\n        deleted = await repo.purge(LogSource.SERVER, before=now - timedelta(days=7), keep_max=3)\n        assert deleted == 4, deleted\n        kept = await repo.query(sources=[LogSource.SERVER], page=1, size=10)\n        assert kept.total == 3, kept.total\n        assert {x.content for x in kept.items} == {\"new2\", \"new3\", \"new4\"}, [x.content for x in kept.items]\n\n        shot = await srepo.create(Screenshot(trigger=ScreenshotTrigger.MANUAL, backend=ScreenshotBackend.CORE,\n                                            path=\"image/screenshot/20200101/a.jpg\", format=\"jpeg\",\n                                            width=1, height=1, size_bytes=10, created_at=now))\n        assert (await srepo.list_older_than(now - timedelta(days=7))) == []\n        assert await srepo.total_size_active() == 10\n        assert await srepo.mark_deleted([shot.id]) == 1\n        await s.commit()\n        assert (await srepo.get(shot.id)).deleted_at is not None\n        assert (await srepo.list_older_than(now + timedelta(days=1))) == [], \"已打 deleted_at 的不再返回\"\n        assert await srepo.total_size_active() == 0\n    await eng.dispose()\n    print(\"LOG/SCREENSHOT REPO OK\")\n\n\nasyncio.run(main())\nPY",
+    ".venv/bin/python -m pytest -q tests/db/test_repositories_log.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【接口契约】`LogRepository`：`bulk_insert(entries) -> int`（自成事务）、`query(*, sources=None, levels=None, pipeline_id=None, after_id=None, since=None, until=None, page=1, size=100) -> Page[LogEntry]`（按 id DESC）、`purge(source, *, before, keep_max) -> int`（先按天删、再按 id 升序删到 `keep_max` 以内，内部每批 LIMIT 5000，见 docs/04 §10.4）。\n`ScreenshotRepository`：`create`、`get`、`list_by_pipeline`、`list_older_than(cutoff)`（只返回 `deleted_at IS NULL` 的记录，按 created_at 升序）、`total_size_active() -> int`（`deleted_at IS NULL` 的 `size_bytes` 之和）、`mark_deleted(ids) -> int`、`purge_before(cutoff) -> int`。M2-12 的保留策略直接调用后四个方法，名字请勿改。\n\n【SQLite 细节】`DELETE ... LIMIT` 默认不可用，写成子查询：`DELETE FROM log_entry WHERE id IN (SELECT id FROM log_entry WHERE source = :s AND created_at < :t ORDER BY id LIMIT 5000)`；用 docs/04 §6 的 `ix_log_entry_source_created_at` / `ix_log_entry_pipeline_id_id` 覆盖查询；不要给 `content` 建 FTS 索引。\n\n【测试】复用 `tests/db/conftest.py` 的 fixture（M2-07 已建，先读它）；同步测试 + `asyncio.run`。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

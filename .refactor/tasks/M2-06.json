@@ -1,0 +1,42 @@
+{
+  "id": "M2-06",
+  "milestone": "M2",
+  "title": "db/migrate.py：ensure_schema 自动迁移到 head（线程池 + 迁移前备份 + 失败中止启动）",
+  "depends": [
+    "M2-02",
+    "M2-04"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m2--数据层l",
+    "docs/12-实施计划与里程碑.md#4-分支与回滚",
+    "docs/02-系统架构设计.md#7-应用生命周期",
+    "docs/04-数据模型与持久化.md#1-选型与文件布局",
+    "docs/04-数据模型与持久化.md#2-引擎与连接配置",
+    "docs/04-数据模型与持久化.md#81-目录与命名约定",
+    "docs/04-数据模型与持久化.md#82-envpy-要点",
+    "docs/04-数据模型与持久化.md#83-lifespan-里的自动迁移"
+  ],
+  "constraints": [
+    "迁移跑在线程池里。`command.upgrade` 是同步阻塞调用，直接在 lifespan 的协程里跑会冻结事件循环；虽然此刻还没开始接受请求，但 uvicorn 的信号处理也会一起卡住，Ctrl-C 杀不掉（docs/04 §8.3）。",
+    "有待应用的迁移时先备份。用 `VACUUM INTO 'resource/backup/maa_api.db.{ts}.bak'` 而不是文件拷贝，前者能在 WAL 存在时拿到一致快照。只在确有待应用迁移时备份，否则每次重启都产生一份备份文件。备份保留最近 5 份（docs/04 §8.3）。",
+    "迁移失败必须中止启动。不要 `try/except` 后继续跑——schema 不匹配时服务能起来但每个请求都在报 `no such column`，比直接起不来更难排查。异常原样抛出，让 uvicorn 打印 traceback 后退出，同时在 stderr 打印备份文件路径（docs/04 §8.3）。",
+    "永远不要调用 `SQLModel.metadata.create_all()`。哪怕是首次启动建空库也走 `upgrade head`。混用两条建表路径会让 `alembic_version` 表与实际 schema 漂移（docs/04 §8.3）。",
+    "按 docs/02 §7 的启动顺序，迁移是第 2 步，早于 `LogHub` 与 `CoreSupervisor`；本卡只交付 `ensure_schema()` 机制与测试，lifespan/`app` 装配归 M3，不得改 `maa_api/main.py`。"
+  ],
+  "deliverables": [
+    "maa_api/db/migrate.py",
+    "tests/db/test_migrate.py"
+  ],
+  "verify": [
+    "test -f maa_api/db/migrate.py",
+    "python3 -c \"import inspect, maa_api.db.migrate as m; assert inspect.iscoroutinefunction(m.ensure_schema), 'ensure_schema 必须是 async'; src=inspect.getsource(m); assert 'to_thread' in src, 'command.upgrade 必须跑在线程池里（docs/04 §8.3）'; assert 'create_all' not in src, '不得使用 SQLModel.metadata.create_all()（docs/04 §8.3）'; print('MIGRATE CONTRACT OK')\"",
+    ".venv/bin/python - <<'PY'\nimport asyncio, sqlite3, pathlib, tempfile\nfrom alembic import command\nfrom alembic.config import Config\nfrom sqlmodel import SQLModel\nimport maa_api.db.migrate as m\nimport maa_api.db.models  # noqa: F401\nimport maa_api.db.session as s\n\nd = pathlib.Path(tempfile.mkdtemp())\np = d / \"maa_api.db\"\ns.DB_PATH = p\ns.SYNC_URL = f\"sqlite:///{p}\"\ns.ASYNC_URL = f\"sqlite+aiosqlite:///{p}\"\nbackup_dir = p.parent / \"backup\"\n\ndef tables():\n    c = sqlite3.connect(p)\n    try:\n        return {r[0] for r in c.execute(\"select name from sqlite_master where type='table'\")}\n    finally:\n        c.close()\n\ndef baks():\n    return sorted(backup_dir.glob(\"*.bak\")) if backup_dir.exists() else []\n\nassert not p.exists()\nasyncio.run(m.ensure_schema())\nassert p.exists(), \"ensure_schema 未建库\"\nassert set(SQLModel.metadata.tables) <= tables(), sorted(set(SQLModel.metadata.tables) - tables())\nassert not baks(), f\"首次建库不应产生备份：{baks()}\"\nasyncio.run(m.ensure_schema())\nassert not baks(), f\"无待应用迁移时不应产生备份：{baks()}\"\n\ncfg = Config(\"alembic.ini\")\ncfg.set_main_option(\"script_location\", \"maa_api/db/migrations\")\ncfg.set_main_option(\"sqlalchemy.url\", s.SYNC_URL)\ncommand.downgrade(cfg, \"-1\")\nasyncio.run(m.ensure_schema())\nfound = baks()\nassert found, f\"有待应用迁移时必须先备份（已找 {backup_dir}）\"\nassert set(SQLModel.metadata.tables) <= tables(), \"第二次 ensure_schema 未迁移到 head\"\nc = sqlite3.connect(found[-1])\nassert \"alembic_version\" in {r[0] for r in c.execute(\"select name from sqlite_master where type='table'\")}, \"备份必须是可用的 SQLite 库\"\nc.close()\nprint(\"ENSURE_SCHEMA OK\", [f.name for f in found])\nPY",
+    ".venv/bin/python -m pytest -q tests/db/test_migrate.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【可测性契约（M2-05 与后续里程碑依赖，务必照做）】\n① `db/migrate.py` 在**调用时**通过 `maa_api.db.session` 模块属性读取 `DB_PATH` / `SYNC_URL`（例如 `from maa_api.db import session` 后用 `session.DB_PATH`），不要 `from maa_api.db.session import DB_PATH` 固化取值——测试靠 monkeypatch 模块属性把库指到 tmp 目录；\n② 备份目录由 `session.DB_PATH.parent / \"backup\"` 推导（默认即 `resource/backup/`），不要硬编码 `resource/backup`；\n③ `alembic.ini` 与 `script_location` 目前按仓库根相对路径解析，保持这一点（调用方 cwd = 仓库根）。\n\n【要做的事】`ensure_schema()`：mkdir `DB_PATH.parent` → 若 `DB_PATH` 已存在且有待应用迁移则 `VACUUM INTO` 备份（保留最近 5 份）→ `await asyncio.to_thread(_upgrade_head)`；`_upgrade_head()` 用 `Config(\"alembic.ini\")` + `script_location=maa_api/db/migrations` + `sqlalchemy.url=SYNC_URL` 跑 `command.upgrade(cfg, \"head\")`。判断「有待应用迁移」用 Alembic 的 `ScriptDirectory` 与库里的 `alembic_version` 比对（`MigrationContext.configure(conn).get_current_revision()`），库不存在时视为首次建库（不备份）。迁移失败时异常原样抛出，并在 stderr 打印备份文件路径。\n\n【测试】`tests/db/test_migrate.py`（同步测试 + `asyncio.run`）覆盖：首次建库不备份、无待应用迁移不备份、有待应用迁移时先备份且备份可打开、失败路径（可 monkeypatch `_upgrade_head` 抛异常）异常向上传播且不吞掉。测试全部用 tmp 目录，不要动仓库 `resource/maa_api.db`。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

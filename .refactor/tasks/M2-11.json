@@ -1,0 +1,41 @@
+{
+  "id": "M2-11",
+  "milestone": "M2",
+  "title": "仓储层（五）：UpdateRepository + NotifyChannelRepository + ResourceAssetRepository（部分唯一索引与 CHECK 生效）",
+  "depends": [
+    "M2-07"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m2--数据层l",
+    "docs/04-数据模型与持久化.md#511-update_record--三种热更新的历史",
+    "docs/04-数据模型与持久化.md#512-notify_channel--多通道通知配置",
+    "docs/04-数据模型与持久化.md#513-resource_asset--自定义资源与远端资源的版本基准",
+    "docs/04-数据模型与持久化.md#6-索引设计",
+    "docs/04-数据模型与持久化.md#9-仓储层"
+  ],
+  "constraints": [
+    "同一 `target` 同时只允许一条进行中的记录，用部分唯一索引在数据库层强制：并发两个 `POST /api/updates/core` 时第二个会撞唯一约束，服务层捕获后转成 `409 UPDATE_ALREADY_RUNNING`（docs/04 §5.11）。",
+    "`progress` 与 `phase` 会被高频更新（下载进度），必须节流：下载阶段每 500 ms 或每 1% 才写一次库，其余时间只走 WebSocket 广播；节流是服务层（M7）的职责，本卡只提供写方法（docs/04 §5.11）。",
+    "`notify_channel.config` 的结构按 `type` 分支（email/webhook/bark/dingtalk/wecom），校验用按 `type` 分发的 Pydantic 模型在服务层做，不依赖数据库约束；`(type, name)` 唯一（docs/04 §5.12）。",
+    "`resource_asset` 的 `content` 与 `path` 二选一，用 CHECK 约束表达 `content IS NOT NULL OR path IS NOT NULL`；`checksum` 由 NOT NULL 放宽为 NULL；`(kind, name)` 唯一（docs/04 §5.13）。",
+    "远端两类行（`ota_resource` / `repo_resource`）由 `UpdateService` 独占写入，用户接口不允许增删改；`repo_resource` 这一行是通道 B 版本判定的唯一权威来源，不能改读磁盘上的 `version.json`（docs/04 §5.13）——本卡只提供仓储，不实现 UpdateService（M7）。"
+  ],
+  "deliverables": [
+    "maa_api/db/repositories/update.py",
+    "maa_api/db/repositories/notify.py",
+    "maa_api/db/repositories/resource.py",
+    "tests/db/test_repositories_update_notify_resource.py"
+  ],
+  "verify": [
+    "test -f maa_api/db/repositories/update.py -a -f maa_api/db/repositories/notify.py -a -f maa_api/db/repositories/resource.py",
+    ".venv/bin/python -c \"from maa_api.db.repositories.update import UpdateRepository; from maa_api.db.repositories.notify import NotifyChannelRepository; from maa_api.db.repositories.resource import ResourceAssetRepository; need={'UpdateRepository':['create','get','current','list','update_progress','mark_terminal'],'NotifyChannelRepository':['create','get','list','set_enabled','record_send','delete'],'ResourceAssetRepository':['create','get','get_by_kind_name','upsert_by_kind_name','list_by_kind','set_enabled','delete']}; cls={'UpdateRepository':UpdateRepository,'NotifyChannelRepository':NotifyChannelRepository,'ResourceAssetRepository':ResourceAssetRepository}; bad=[(c,n) for c,ms in need.items() for n in ms if not callable(getattr(cls[c],n,None))]; assert not bad, bad; print('REPO CONTRACT OK')\"",
+    ".venv/bin/python - <<'PY'\nimport asyncio, pathlib, tempfile\nfrom sqlalchemy.exc import IntegrityError\nfrom sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine\nfrom sqlalchemy.pool import NullPool\nfrom sqlmodel import SQLModel\nimport maa_api.db.models  # noqa: F401\nfrom maa_api.db.models import NotifyChannel, ResourceAsset, UpdateRecord, utcnow\nfrom maa_api.db.repositories.notify import NotifyChannelRepository\nfrom maa_api.db.repositories.resource import ResourceAssetRepository\nfrom maa_api.db.repositories.update import UpdateRepository\nfrom maa_api.domain.enums import (NotifyChannelType, NotifyEvent, ResourceAssetKind, UpdateStatus,\n                                  UpdateTarget)\n\nd = pathlib.Path(tempfile.mkdtemp())\neng = create_async_engine(f\"sqlite+aiosqlite:///{d / 't.db'}\", poolclass=NullPool)\nsf = async_sessionmaker(eng, expire_on_commit=False)\n\n\nasync def must_fail(coro):\n    try:\n        await coro\n    except IntegrityError:\n        return\n    raise AssertionError(\"数据库约束未生效（期望 IntegrityError）\")\n\n\nasync def main():\n    async with eng.begin() as conn:\n        await conn.run_sync(SQLModel.metadata.create_all)\n\n    async with sf() as s:\n        repo = UpdateRepository(s)\n        await repo.create(UpdateRecord(target=UpdateTarget.CORE, triggered_by=\"manual\", status=UpdateStatus.RUNNING))\n        await s.commit()\n    async with sf() as s:\n        await must_fail(UpdateRepository(s).create(\n            UpdateRecord(target=UpdateTarget.CORE, triggered_by=\"manual\", status=UpdateStatus.RUNNING)))\n        await s.rollback()\n    async with sf() as s:\n        repo = UpdateRepository(s)\n        await repo.create(UpdateRecord(target=UpdateTarget.CORE, triggered_by=\"manual\", status=UpdateStatus.SUCCESS))\n        await s.commit()\n        cur = await repo.current(UpdateTarget.CORE)\n        assert cur is not None and cur.status == UpdateStatus.RUNNING, cur\n\n    async with sf() as s:\n        nrepo = NotifyChannelRepository(s)\n        await nrepo.create(NotifyChannel(type=NotifyChannelType.EMAIL, name=\"主邮箱\", config={},\n                                         events=[NotifyEvent.PIPELINE_COMPLETED]))\n        await s.commit()\n    async with sf() as s:\n        await must_fail(NotifyChannelRepository(s).create(\n            NotifyChannel(type=NotifyChannelType.EMAIL, name=\"主邮箱\", config={}, events=[])))\n        await s.rollback()\n\n    async with sf() as s:\n        await must_fail(ResourceAssetRepository(s).create(\n            ResourceAsset(kind=ResourceAssetKind.CUSTOM_TASK, name=\"坏行\", content=None, path=None)))\n        await s.rollback()\n    async with sf() as s:\n        rrepo = ResourceAssetRepository(s)\n        row = await rrepo.create(ResourceAsset(kind=ResourceAssetKind.CUSTOM_TASK, name=\"好行\",\n                                               content={\"task\": \"Custom_X\"}))\n        await s.commit()\n        assert row.id and row.created_at is not None\n        assert (await rrepo.get_by_kind_name(ResourceAssetKind.CUSTOM_TASK, \"好行\")).id == row.id\n    await eng.dispose()\n    print(\"UPDATE/NOTIFY/RESOURCE REPO OK\")\n\n\nasyncio.run(main())\nPY",
+    ".venv/bin/python -m pytest -q tests/db/test_repositories_update_notify_resource.py",
+    ".venv/bin/python -m pytest -q"
+  ],
+  "prompt_extra": "【接口契约（M7 与 M4/M6 按这个用）】\n`UpdateRepository`：`create(record)`、`get(id)`、`current(target)`（返回该 target 的 running 记录或 None）、`list(*, target=None, page=1, size=20)`、`update_progress(id, *, phase=None, progress=None, bytes_total=None, bytes_done=None) -> bool`、`mark_terminal(id, status, *, error_code=None, error_message=None) -> bool`。第三条同 target 的 running 记录必须由数据库的部分唯一索引拒绝（IntegrityError），不要只在服务层查重。\n`NotifyChannelRepository`：`create`、`get`、`list`、`set_enabled(id, enabled) -> bool`、`record_send(id, *, status, error=None) -> bool`（回写 `last_sent_at`/`last_status`/`last_error`）、`delete(id) -> bool`。\n`ResourceAssetRepository`：`create`、`get`、`get_by_kind_name(kind, name)`、`upsert_by_kind_name(kind, name, **fields)`、`list_by_kind(kind, *, enabled=None)`、`set_enabled(id, enabled) -> bool`、`delete(id) -> bool`。\n\n【测试】复用 `tests/db/conftest.py` 的 fixture；同步测试 + `asyncio.run`；约束类用例每次用新 session 并 rollback（IntegrityError 后 session 不可复用）。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}
