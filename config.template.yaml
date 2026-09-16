@@ -1,0 +1,25 @@
+# 配置模板：复制为 config.yaml 后按需填写（config.yaml 不入库）
+# 应用配置
+app:
+  # 访问密钥 为空则不鉴权
+  access_token:
+  # maa核心文件位置
+  maa_core_path:
+  # 系统代理
+  proxy:
+
+# adb配置
+adb:
+  # adb路径
+  path: /opt/homebrew/bin/adb
+  # adb连接地址
+  address: 127.0.0.1:5555
+  # 截屏质量 范围1-95 值越大质量越高
+  screenshot_quality: 25
+
+# 邮箱配置
+smtp:
+  server: smtp.qq.com
+  port: 587
+  email:
+  password:
