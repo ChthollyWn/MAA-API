@@ -119,7 +119,14 @@ dmypy.json
 
 resource/
 
-tests/
+# 本地配置：不入库，模板见 config.template.yaml
+config.yaml
 
 # macOS
 .DS_Store
+# 重构编排台账（本地状态，不入库）
+.refactor/logs/
+.refactor/state.json
+.refactor/PAUSE
+.refactor/TRIGGER
+.refactor/orchestrator-src/
