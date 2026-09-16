@@ -123,3 +123,23 @@
   失败时只把**命令字符串**写进 `blocked_reason`，捕获到的 stdout/stderr（截尾 600 字符）既不落盘也不进
   `.refactor/logs/orchestrator.log`。所以看到「verify 失败：<命令>」时，第一动作是把该命令原样重跑并自己看输出，
   不要根据卡面描述猜失败原因。
+
+### M2-02 实测：greenlet 平台标记与异步引擎（第 3 次尝试追加）
+
+- **`platform.machine()` 在 macOS arm64 上是 `"arm64"`，不是 `"aarch64"`**（实测 Python 3.13.3）。SQLAlchemy 给
+  greenlet 的 marker 只列了 `aarch64 / ppc64le / x86_64 / amd64 / AMD64 / win32 / WIN32`，因此
+  `poetry.lock` 里**本来就有 greenlet 3.5.6，但它带 marker 且在本机不成立**，`poetry install` 不会装它。
+  修法：把 `greenlet` 写成 `[tool.poetry.dependencies]` 的直接依赖（本次 `greenlet = "^3.1"`），
+  `poetry lock` 后该条目的 marker 行被删除、`content-hash` 更新 —— **锁文件 diff 仅此两处**，其它 56 个包零变动。
+- **`POETRY_CACHE_DIR=$(mktemp -d) poetry lock` 在本机可用**（Poetry 2.1.3，走 aliyun 主源，Poetry 2.x 默认只锁新依赖、
+  不升级已锁包），无网络失败；重锁后 `poetry.lock` 未发生任何版本漂移。
+- **装 greenlet 用 `.venv/bin/python -m pip install --no-cache-dir greenlet==3.5.6` 即可**（与锁文件同版本），
+  不需要 `poetry install`（后者可能顺带同步/升级其它包）。
+- **六个 PRAGMA 在本机 SQLite 3.49.1 的真实取值**（M2-02 的 `db/session.py` + tmp cwd 实测）：
+  `journal_mode='wal'`、`foreign_keys=1`、`busy_timeout=15000`、`synchronous=1`、`temp_store=2`、`cache_size=-16000`。
+  注意 `synchronous` 的 NORMAL 是 **1**（FULL=2、OFF=0），`temp_store` 的 MEMORY 是 **2**（FILE=0）。
+- **`async_sessionmaker` 没有 `.bind` 属性**：取绑定引擎要读 `session_factory.kw["bind"]`，
+  会话类在 `session_factory.class_`。想在测试里复用模块级 `session_factory` 的配置（含 `expire_on_commit=False`）
+  但指向 tmp 库，直接 `session_factory(bind=<临时引擎>)` 即可 —— `__call__` 会把 local_kw 合并进 `kw`；
+  `sqlalchemy.inspect(obj).expired` 是验证 `expire_on_commit` 的有效信号（提交后 True = 被过期，
+  False = 仍可直接读字段做 WebSocket 广播）。

@@ -40,8 +40,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【已实测的环境事实】macOS arm64 下 SQLAlchemy 的 greenlet 平台标记不匹配，本仓 `.venv` 里没有 greenlet，直接 `create_async_engine(...).connect()` 会抛 `ValueError: the greenlet library is required to use this function. No module named 'greenlet'`（M2-01 的 `tests/fixtures/db_probe_result.json` / `.refactor/ENVIRONMENT.md` 有原始记录）。本卡负责让异步引擎真的能跑：在 `pyproject.toml` 里显式声明 greenlet（或 `sqlalchemy = {extras = [\"asyncio\"]}`），用 `POETRY_CACHE_DIR=$(mktemp -d) poetry lock` 重生成锁文件，再 `.venv/bin/python -m pip install --no-cache-dir greenlet`（或 `pip install -e .`）装进本仓 venv。**改 `pyproject.toml` 前必须先读当前内容，只做追加/局部替换，不要整文件重写**（ENVIRONMENT.md 记录过 M0-05 的同类事故）；除 greenlet 外不得顺手升级/新增其它依赖。若 poetry lock 因网络失败，把原始报错写进 blocked_reason 并让本卡 blocked，不要伪造锁文件。\n\n【domain/enums.py】按 docs/04 §4 的代码块**逐字**定义全部 21 个枚举与 `PipelineStatus.is_terminal`；不定义 `CoreStatus`/`DeviceStatus`，不与 `maa_api/core/enums.py` 的 `Message`/`InstanceOptionKey`/`StaticOptionKey` 重复；不新增 API 错误码（`domain/errors.py` 的扩展归 M3）。旧模块 `maa_api/model/util/utils.py` 里的同名枚举本次不动（M3 才删）。\n\n【db/session.py】按 docs/04 §2 给出 `DB_PATH`/`ASYNC_URL`/`SYNC_URL`/`engine`/`session_factory` 与挂在 `engine.sync_engine` 的 `connect` 事件上的六个 PRAGMA。两条可测性要求（M2-03~M2-12 的测试都依赖）：① PRAGMA 的挂接抽成一个可复用函数（名字自定，如 `_apply_pragmas`），模块级 engine 与测试都用它构造，测试用 `tmp_path` 的 URL 断言六个 PRAGMA 的真实取值；② `DB_PATH` 是相对的 `Path(\"resource\")/\"maa_api.db\"`（不要在这里 mkdir、不要在这里建表，目录创建归 `db/migrate.py` 的 `ensure_schema`，见 docs/04 §8.3）。测试不要往仓库的 `resource/maa_api.db` 写数据。\n\n【测试形态】本仓没有 pytest-asyncio：`tests/db/test_session.py` 用同步测试函数 + `asyncio.run(...)`，事件循环内建 engine 时用 `poolclass=NullPool`，避免跨循环复用连接。`tests/domain/test_enums.py` 断言取值、`is_terminal` 与 StrEnum 语义。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "db507600053cef1fa7e9a7ff72a4126ddf5373ce",
   "blocked_reason": null
 }

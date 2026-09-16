@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**22 / 34** 张卡完成
+- 进度：**23 / 34** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=1 workerRuns=0（启动于 2026-09-16T10:55:38.476Z）
-- 更新时间：2026-09-16T11:02:38.542Z
+- 进程内统计：cycle=1 workerRuns=1（启动于 2026-09-16T10:55:38.476Z）
+- 更新时间：2026-09-16T11:09:31.204Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -33,8 +33,8 @@
 | M1-13 | 命令行冒烟脚本 scripts/core_smoke.py：启动子进程→加载资源→连接→提交最短任务→收回调→杀进程观察重启 | done | 1 | b69a819 |  |
 | M1-14 | 真机冒烟测试：真实内核 + 真实设备的加载/连接/截图/原子操作/最短任务（标记 hardware，不进常规 CI） | done | 1 | 220a72f |  |
 | M1-15 | 修复 CoreSupervisor.restart() 的伪崩溃缺陷，并把 M1-10 的 xfail 转正 | done | 1 | 96cddac |  |
-| M2-01 | 方案前置实测：SQLModel+Alembic 在本机 SQLite 上的 DDL 能力边界（AUTOINCREMENT/部分唯一索引/命名约定/auto_vacuum/batch downgrade/greenlet） | running | 1 | — | verify 失败：.venv/bin/python -m pytest -q |
-| M2-02 | 数据层底座：domain/enums.py 全量持久化枚举 + db/session.py 异步引擎与六个 PRAGMA（并补 greenlet 依赖） | pending | 0 | — |  |
+| M2-01 | 方案前置实测：SQLModel+Alembic 在本机 SQLite 上的 DDL 能力边界（AUTOINCREMENT/部分唯一索引/命名约定/auto_vacuum/batch downgrade/greenlet） | done | 2 | 4927c1e |  |
+| M2-02 | 数据层底座：domain/enums.py 全量持久化枚举 + db/session.py 异步引擎与六个 PRAGMA（并补 greenlet 依赖） | running | 0 | — |  |
 | M2-03 | SQLModel 表定义：13 张业务表 + 命名约定 + §6 索引（db/models.py） | pending | 0 | — |  |
 | M2-04 | Alembic 装配与 0001 初始迁移：env.py（render_as_batch）+ 13 张表的建表与索引 + 可用 downgrade | pending | 0 | — |  |
 | M2-05 | 0002 数据迁移：resource/daily_task.json 逐日展开为 schedule 记录（文件不存在则跳过） | pending | 0 | — |  |
