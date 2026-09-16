@@ -1,9 +1,9 @@
 {
   "alembic_version": "1.20.0",
-  "async_engine_error": "the greenlet library is required to use this function. No module named 'greenlet'",
-  "async_engine_error_type": "builtins.ValueError",
-  "async_engine_select1_value": null,
-  "async_engine_usable": false,
+  "async_engine_error": "",
+  "async_engine_error_type": "",
+  "async_engine_select1_value": 1,
+  "async_engine_usable": true,
   "auto_vacuum_effective": true,
   "auto_vacuum_fallbacks_tried": [],
   "auto_vacuum_ineffective_names": [
@@ -12,11 +12,36 @@
   ],
   "auto_vacuum_notes": {
     "env_py_before_begin_transaction": {
+      "alembic_version_expected": "0001",
+      "alembic_version_ok": true,
       "alembic_version_present": true,
+      "alembic_version_rows": [
+        "0001"
+      ],
+      "error": "",
+      "placement_block": "conn.exec_driver_sql(\"PRAGMA auto_vacuum=INCREMENTAL\")\n        conn.commit()  # 必须：不 commit 则 alembic_version 行被回滚（M2-04 实测）",
+      "pragma_mode": null,
+      "pragma_value": 2,
+      "second_upgrade_error": "",
+      "second_upgrade_ok": true,
+      "second_upgrade_pragma_value": 2,
+      "tables_after_upgrade": [
+        "alembic_version",
+        "probe_min",
+        "sqlite_autoindex_alembic_version_1"
+      ]
+    },
+    "env_py_before_begin_transaction_no_commit": {
+      "alembic_version_expected": "0001",
+      "alembic_version_ok": false,
+      "alembic_version_present": true,
+      "alembic_version_rows": [],
       "error": "",
       "placement_block": "conn.exec_driver_sql(\"PRAGMA auto_vacuum=INCREMENTAL\")",
       "pragma_mode": null,
       "pragma_value": 2,
+      "second_upgrade_error": "OperationalError: (sqlite3.OperationalError) table probe_min already exists\n[SQL: \nCREATE TABLE probe_min (\n\tid INTEGER NOT NULL, \n\tname VARCHAR(16) NOT NULL, \n\tCONSTRAINT pk_probe_min PRIMARY KEY (id)\n)\n\n]\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+      "second_upgrade_ok": false,
       "tables_after_upgrade": [
         "alembic_version",
         "probe_min",
@@ -24,11 +49,19 @@
       ]
     },
     "migration_autocommit_block": {
+      "alembic_version_expected": "0001",
+      "alembic_version_ok": true,
       "alembic_version_present": true,
+      "alembic_version_rows": [
+        "0001"
+      ],
       "error": "",
       "placement_block": "pass  # placement c: pragma 写在 autocommit_block 里",
       "pragma_mode": "autocommit_block",
       "pragma_value": 0,
+      "second_upgrade_error": "",
+      "second_upgrade_ok": true,
+      "second_upgrade_pragma_value": 0,
       "tables_after_upgrade": [
         "alembic_version",
         "probe_min",
@@ -36,11 +69,19 @@
       ]
     },
     "migration_first_statement": {
+      "alembic_version_expected": "0001",
+      "alembic_version_ok": true,
       "alembic_version_present": true,
+      "alembic_version_rows": [
+        "0001"
+      ],
       "error": "",
       "placement_block": "pass  # placement a: pragma 写在 0001 upgrade() 首行",
       "pragma_mode": "first_statement",
       "pragma_value": 0,
+      "second_upgrade_error": "",
+      "second_upgrade_ok": true,
+      "second_upgrade_pragma_value": 0,
       "tables_after_upgrade": [
         "alembic_version",
         "probe_min",
@@ -49,10 +90,30 @@
     }
   },
   "auto_vacuum_placement": "env_py_before_begin_transaction",
+  "auto_vacuum_placement_usable": true,
   "auto_vacuum_placements": {
     "env_py_before_begin_transaction": 2,
+    "env_py_before_begin_transaction_no_commit": 2,
     "migration_autocommit_block": 0,
     "migration_first_statement": 0
+  },
+  "auto_vacuum_version_row_ok": {
+    "env_py_before_begin_transaction": true,
+    "env_py_before_begin_transaction_no_commit": false,
+    "migration_autocommit_block": true,
+    "migration_first_statement": true
+  },
+  "auto_vacuum_version_rows": {
+    "env_py_before_begin_transaction": [
+      "0001"
+    ],
+    "env_py_before_begin_transaction_no_commit": [],
+    "migration_autocommit_block": [
+      "0001"
+    ],
+    "migration_first_statement": [
+      "0001"
+    ]
   },
   "autogenerate_applied_autoincrement": true,
   "autogenerate_applied_partial_where": true,
@@ -79,8 +140,8 @@
     "definition": "autogenerate_detected_partial_index = 生成物里存在 sqlite_where 且带 谓词 \"status = 'running'\"",
     "empty_db": {
       "error": "",
-      "file": "6d81f0efc5ad_probe_empty_db.py",
-      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_dor_u3wa/exp3_autogenerate/empty_db/alembic.ini",
+      "file": "02d127506305_probe_empty_db.py",
+      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_d_r_zt7f/exp3_autogenerate/empty_db/alembic.ini",
       "ran": true,
       "tag": "empty_db"
     },
@@ -90,8 +151,8 @@
     },
     "empty_db_mako_fix": {
       "error": "",
-      "file": "055c2a223a08_probe_empty_db_mako_fix.py",
-      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_dor_u3wa/exp3_autogenerate/empty_db_mako_fix/alembic.ini",
+      "file": "e44c37f0d606_probe_empty_db_mako_fix.py",
+      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_d_r_zt7f/exp3_autogenerate/empty_db_mako_fix/alembic.ini",
       "ran": true,
       "tag": "empty_db_mako_fix"
     },
@@ -155,8 +216,8 @@
     },
     "matched_db": {
       "error": "",
-      "file": "e62cfd7464c2_probe_matched_db.py",
-      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_dor_u3wa/exp3_autogenerate/matched_db/alembic.ini",
+      "file": "9d3b8fa5ebec_probe_matched_db.py",
+      "ini": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_d_r_zt7f/exp3_autogenerate/matched_db/alembic.ini",
       "ran": true,
       "tag": "matched_db"
     },
@@ -218,7 +279,7 @@
       ],
       "downgrade_ok": true,
       "downgrade_preserved_autoincrement": true,
-      "downgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(16) NOT NULL, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE )",
+      "downgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(16) NOT NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )",
       "error": "",
       "label_type_after_upgrade": "VARCHAR(24)",
       "scenario": "copy_from_batch",
@@ -227,7 +288,7 @@
       "upgrade_preserved_autoincrement": true,
       "upgrade_preserved_fk_names": true,
       "upgrade_preserved_rows": true,
-      "upgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(24) NOT NULL, note VARCHAR(32), CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE )"
+      "upgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(24) NOT NULL, note VARCHAR(32), CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )"
     },
     "definition": "batch_downgrade_ok = 0002 upgrade head 出现结构变化，且 downgrade -1 后 列/外键/显式索引结构指纹与 0001 之后完全一致（表级 AUTOINCREMENT 选项单独记录，因为它会被 batch 重建影响）",
     "reflection_batch": {
@@ -258,7 +319,7 @@
       "upgrade_preserved_autoincrement": false,
       "upgrade_preserved_fk_names": true,
       "upgrade_preserved_rows": true,
-      "upgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(24) NOT NULL, note VARCHAR(32), PRIMARY KEY (id), CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL, CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE )"
+      "upgrade_table_sql": "CREATE TABLE \"probe_child\" ( id INTEGER NOT NULL, parent_id VARCHAR(36) NOT NULL, auditor_id VARCHAR(36), label VARCHAR(24) NOT NULL, note VARCHAR(32), PRIMARY KEY (id), CONSTRAINT fk_probe_child_parent_id_probe_parent FOREIGN KEY(parent_id) REFERENCES probe_parent (id) ON DELETE CASCADE, CONSTRAINT fk_probe_child_auditor_id_probe_parent FOREIGN KEY(auditor_id) REFERENCES probe_parent (id) ON DELETE SET NULL )"
     }
   },
   "batch_upgrade_ok": true,
@@ -267,9 +328,9 @@
   "batch_upgrade_preserved_rows": true,
   "errors": [],
   "foreign_key_cascade_emitted": true,
-  "generated_at": "2026-09-16T11:08:24.768929+00:00",
-  "greenlet_available": false,
-  "greenlet_import_error": "ModuleNotFoundError: No module named 'greenlet'",
+  "generated_at": "2026-09-16T12:33:27.159634+00:00",
+  "greenlet_available": true,
+  "greenlet_import_error": "",
   "greenlet_notes": "本卡不安装 greenlet（依赖变更归 M2-02）；AIOSQLITE_URL 的异步引擎在缺 greenlet 时的原始报错见 async_engine_error。",
   "json_server_default_emitted": true,
   "naming_convention": {
@@ -316,6 +377,8 @@
   "required_checks": {
     "async_probe_recorded": true,
     "auto_vacuum_effective": true,
+    "auto_vacuum_no_commit_control_reproduced": true,
+    "auto_vacuum_version_row_ok": true,
     "autogenerate_apply_recorded": true,
     "autogenerate_ran": true,
     "autoincrement_emitted": true,
@@ -342,5 +405,5 @@
   "sqlite_sequence_present": true,
   "sqlite_version": "3.49.1",
   "sqlmodel_version": "0.0.42",
-  "temp_workdir": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_dor_u3wa"
+  "temp_workdir": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa_api_db_probe_d_r_zt7f"
 }
