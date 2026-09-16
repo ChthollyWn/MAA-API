@@ -333,3 +333,21 @@
 - **`incremental_vacuum` 可以在 SQLAlchemy 异步会话的隐式事务里执行**：`await db.execute(text("PRAGMA incremental_vacuum(1000)"))`
   + `await db.commit()` 在 `sqlite+aiosqlite` 上实测无报错（与完整 `VACUUM` 不同，后者在事务里会失败）；
   清理服务因此可以复用同一个 `AsyncSession`，不必为 vacuum 另开连接。
+
+### M2-13 实测：整套数据层冒烟 0.5s / 只改三条路径不足以隔离临时库（第 13 次尝试追加）
+
+- **`scripts/db_smoke.py` 全链路实测 0.5s**（空库迁移 + upgrade/downgrade/upgrade + 7 族仓储写读改删 +
+  一轮 `run_retention`），12/12 项检查通过、末行 `SMOKE OK`、exit 0，不需要网络/内核/设备。
+  门禁把它放进 acceptance 的成本可以忽略。
+- **隔离临时库只改 `session.DB_PATH` / `SYNC_URL` / `ASYNC_URL` 不够（重要）**：
+  `session.engine` 与 `session.session_factory` 是 **import 期**用当时的 URL 造好的，之后改模块属性
+  不会重建它们 —— 实测 `session.session_factory.kw["bind"].url` 与 `session.engine.url` 仍指向
+  `sqlite+aiosqlite:///resource/maa_api.db`。`retention_service.run_retention(session_factory=None)`
+  取的正是这个模块级工厂，所以「只 patch 三条路径」的脚本/测试会让保留策略连上**真实库**
+  （SQLite 连库即建文件）。正确做法是把 `session.engine` / `session.session_factory` 也一并替换
+  （db_smoke 即如此）；`migrate.ensure_schema()` 不受影响，它每次调用都读 `session.SYNC_URL`
+  （M2-05/M2-06 的可测性契约）。
+- **全新迁移库上 `auto_vacuum=INCREMENTAL(2)` 在 `ensure_schema()` 之后立即成立**（env.py 的
+  pragma+commit 放置，M2-04）；且 `downgrade -1` 之后再调 `ensure_schema()` 会走「检测到待应用迁移 →
+  `VACUUM INTO` 备份 → `upgrade head`」，备份文件里的版本正是降级后的那一个（0001），
+  重放 0002 后 schedule 行数与首次 upgrade 相同。
