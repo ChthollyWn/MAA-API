@@ -397,3 +397,17 @@
   `TypeAdapter.validate_python` 与 FastAPI 请求体校验都原样抛出，可被
   `@app.exception_handler(AppError)` 直接接住；`ValueError` 才会变成 `type="value_error"` 的
   `ValidationError`（`ctx.error` 保留原实例）。
+
+### M3-02 实测：StrEnum 的 repr / docs/05 §4 的机器可解析性与一致性门禁
+
+- **`StrEnum` 成员的 `repr()` 是 `<ErrorCode.NOT_FOUND: 'NOT_FOUND'>`，不是 `'NOT_FOUND'`**（Python 3.13.3 实测）：
+  `str()` 与 `json.dumps()` 才是裸值（`"NOT_FOUND"`）。所以 `repr(AppError)` 里嵌的是尖括号形态
+  （`AppError(code=<ErrorCode.NOT_FOUND: 'NOT_FOUND'>, message=..., details=...)`），
+  M3-04 写错误体或任何 repr 快照断言时别按 `code='NOT_FOUND'` 写。
+- **docs/05 §4 可以机械解析**：从 `## 4. 错误码表` 到下一个 `## `，`### 4.x` 小节里形如
+  ``| `CODE` | 404 | 含义…… |`` 的行共 **92** 行 / 14 张表，HTTP 列为 `—` 的只有 `UPDATE_INTERRUPTED`。
+  表头（`错误码`）与分隔行都不匹配该形态，用「首列去反引号后 fullmatch `[A-Z][A-Z0-9_]*`」即可过滤。
+- **`tests/domain/test_errors.py` 现在带文档一致性门禁**（`test_*_match_docs_exactly` 等，路径由
+  `Path(__file__).resolve().parents[2]` 推导，不依赖 CWD）：只改 `docs/05 §4` 而不改
+  `maa_api/domain/errors.py`（或反之）会直接红；后续里程碑新增错误码必须先补文档表。另有
+  `test_every_code_has_a_chinese_meaning_comment` 用 AST 钉住「每条码上方一行中文注释」。

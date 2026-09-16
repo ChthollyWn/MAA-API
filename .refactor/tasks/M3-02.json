@@ -32,8 +32,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "做法建议：不要手抄，用脚本从 docs/05 §4 的十四张表里机械解析出 `| `CODE` | HTTP |` 行（表头与文字段落不匹配该形态），生成枚举成员与绑定表，再手工核对；测试里保留一条**文档一致性**断言：重新解析 docs/05 §4（路径按 tests/ 相对仓库根推导，不依赖 CWD）得到 code 集合与 状态码映射，断言与 ErrorCode / ERROR_HTTP_STATUS 完全一致（UPDATE_INTERRUPTED 的 HTTP 列是 `—`，必须落在例外里）。\n\n注意：\n1. 保持现有 AppError 的形态（code/message/details/http_status、__str__/__repr__、fail loud 的 KeyError、args 供 pickle）。需要的话可以加便捷构造（如 `AppError.not_found(...)`），但不得改变既有构造签名语义。\n2. tests/domain/test_errors.py 里 `test_only_kernel_codes_are_defined_in_this_card` 与 `_UnregisteredCode` 辅助类按新契约调整：前者改为断言 92 条且内核 6 条取值不变；后者继续用来验证未登记码 fail loud（用一个不在表里的 StrEnum 成员即可）。\n3. 每条错误码上方保留一行中文注释（含义与触发场景的那句话，从表里摘），后续里程碑（M4–M14）会直接按码取用；不要只写码不写含义。\n4. 本卡不写 maa_api/api/errors.py，也不写任何异常处理器——那是 M3-04。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：枚举条数、与 docs/05 §4 的一致性怎么验的、既有内核 6 条是否零改动。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "76bbf28d63b56355517f3ce430b6c92fdf7cccda",
   "blocked_reason": null
 }
