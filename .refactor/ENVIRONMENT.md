@@ -671,3 +671,28 @@
 - **`tests/api/conftest.py` 与 `tests/api/__init__.py` 的「本目录用例不得 import `maa_api.main`」约定自 M3-09 起失效**
   （新 main 已是无 import 期副作用的新装配；M3-09 的用例正是 import 它）。两处 docstring 未改（不在该卡 deliverables），
   后续卡可直接更新。
+
+### M3-10 实测：--serve 的 CWD 相对 alembic / 临时 config.yaml 不被读 / NullPool（第 26 次尝试追加）
+
+- **`--serve` 用「临时 cwd」会连坐 `ensure_schema()`**（实测；不是 fastapi 的问题，是 M2 已有的 CWD 契约）：
+  `maa_api/db/migrate.py` 的 `ALEMBIC_INI = "alembic.ini"` 与 `SCRIPT_LOCATION = "maa_api/db/migrations"`
+  都按 CWD 相对解析；`Config("alembic.ini")` 对不存在的文件**静默**（configparser.read 不报错），
+  紧接着 `ScriptDirectory.from_config` 抛 `CommandError: Path doesn't exist: maa_api/db/migrations.`，
+  lifespan 第 2 步失败 → uvicorn 启动失败退出（实测 exit=3，日志 `Application startup failed`）。
+  实测可行的桥接：临时 cwd 里 `ln -s <仓库>/maa_api <临时目录>/maa_api` —— `script_location` 相对可解析，
+  且 `env.py` 的 `Path(__file__).resolve().parents[3]` 经 resolve 仍回仓库根（同一份源码）。
+  `scripts/api_smoke.py` 的默认模式**不切 cwd**（`os.chdir(REPO_ROOT)`），只用绝对路径替换 session 模块属性。
+- **临时 cwd 里的 `config.yaml` 不会被 lifespan 读到**：`settings.DEFAULT_CONFIG_PATH` 锚在仓库根、与 CWD 无关
+  （M3-03 已记）。实测：临时 cwd 写 `app.access_token: from-config-yaml`、不设环境变量，`--serve` 起来后
+  `auth_enabled=false`；要让 token 生效只能用 `MAA_APP_ACCESS_TOKEN`（环境变量层优先级最高）。
+  M3-10 卡面「在临时目录生成带 token 的 config.yaml」单独一份不产生效果，脚本两份都写、以 env 为准。
+- **TestClient 退出后再 dispose「默认连接池」的异步引擎会打 MissingGreenlet 错误日志**：临时引擎用默认池时，
+  连接是在 TestClient 的事件循环里建的，`client.__exit__` 关掉该循环后 `engine.sync_engine.dispose()`
+  只能在同步上下文里关 aiosqlite 连接 → `sqlalchemy.exc.MissingGreenlet`，SQLAlchemy 的 pool logger 把
+  traceback 打到 stderr（`Exception closing connection ...`）；`contextlib.suppress` 挡不住这条日志。
+  `make_engine(url, poolclass=NullPool)` 让连接随请求会话在循环内关闭、dispose 变 no-op，实测 stderr 干净。
+- **`scripts/api_smoke.py` 实测**：默认模式 25/25 项 0.5s、`--serve` 31/31 项约 1.2s，均 exit 0 且末行
+  `SMOKE OK`；`-X importtime` 实测 `--help` 不 import 任何 `maa_api*` 模块。`--serve` 的 uvicorn 经
+  `terminate()` 后 exit=-15，库落在 `<临时 cwd>/resource/maa_api.db`（全新库不产生备份目录），
+  临时目录内容只剩 `config.yaml / maa_api 软链 / resource / server.log`。负向验证：8123 被占时
+  uvicorn exit=3，脚本打 `[FAIL] --serve 启动` 并 exit 1（快速失败，不会等满 30s 的内部超时）。

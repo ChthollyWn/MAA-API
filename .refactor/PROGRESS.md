@@ -4,11 +4,12 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 里程碑：✅ M0 7/7 基线准备　｜　✅ M1 15/15 MaaCore 内核层　｜　✅ M2 14/14 数据层　｜　🔧 M3 8/10 API 骨架　｜　· M4 未拆解　｜　· M5 未拆解　｜　· M6 未拆解　｜　· M7 未拆解　｜　· M8 未拆解　｜　· M9 未拆解　｜　· M10 未拆解　｜　· M11 未拆解　｜　· M12 未拆解　｜　· M13 未拆解　｜　· M14 未拆解　｜　· M15 未拆解
-- 进度：**44 / 46** 张卡完成
+- 里程碑：✅ M0 7/7 基线准备　｜　✅ M1 15/15 MaaCore 内核层　｜　✅ M2 14/14 数据层　｜　✅ M3 10/10 API 骨架　｜　· M4 未拆解　｜　· M5 未拆解　｜　· M6 未拆解　｜　· M7 未拆解　｜　· M8 未拆解　｜　· M9 未拆解　｜　· M10 未拆解　｜　· M11 未拆解　｜　· M12 未拆解　｜　· M13 未拆解　｜　· M14 未拆解　｜　· M15 未拆解
+- 进度：**46 / 46** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=10 workerRuns=6（启动于 2026-09-16T13:59:13.611Z）
-- 更新时间：2026-09-16T14:30:06.522Z
+- 进程内统计：cycle=10 workerRuns=8（启动于 2026-09-16T13:59:13.611Z）
+- 更新时间：2026-09-16T14:43:04.445Z
+- ⛔ **已停机**：里程碑 M3 的 10 张卡全部 done，但 .refactor/DEFECTS.md 里还有 1 条未修复缺陷，拒绝打 tag：- [ ] M3-04 | `AppError` 无法携带响应头、`api/errors.py::_app_error_handler` 也不透传 headers：docs/05 §2/§4.1 要求 429（`RATE_LIMITED` 
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -56,5 +57,5 @@
 | M3-06 | api/deps.py：四渠道 token 鉴权（优先级、cookie 写限制、豁免清单、失败限流）与会话依赖 | done | 1 | 0b7990d |  |
 | M3-07 | api/routers/system.py：GET /api/system/health（免鉴权、带 auth_enabled）与 /api/system/auth/cookie 的换取与清除 | done | 1 | 18efdb4 |  |
 | M3-08 | api/routers/tasks.py：GET /api/tasks/types（9 类 schema 导出）、/types/{type_name} 与 POST /api/tasks/validate（渠道默认值注入） | done | 1 | 79068f5 |  |
-| M3-09 | main.py 应用装配：lifespan（docs/02 §7 顺序）、CORS 白名单修正、OpenAPI 元数据/tag 分组/operation_id/redirect_slashes | running | 0 | — |  |
-| M3-10 | 端到端冒烟脚本 scripts/api_smoke.py：真实 app 装配 + lifespan 迁移 + 鉴权/校验/文档全链路（含 --serve 真实 uvicorn 模式） | pending | 0 | — |  |
+| M3-09 | main.py 应用装配：lifespan（docs/02 §7 顺序）、CORS 白名单修正、OpenAPI 元数据/tag 分组/operation_id/redirect_slashes | done | 1 | 7c076f0 |  |
+| M3-10 | 端到端冒烟脚本 scripts/api_smoke.py：真实 app 装配 + lifespan 迁移 + 鉴权/校验/文档全链路（含 --serve 真实 uvicorn 模式） | done | 1 | 5cc4836 |  |
