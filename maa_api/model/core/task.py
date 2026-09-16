@@ -39,7 +39,7 @@ class Task(BaseModel):
         self.params = {k: v for k, v in self.params.items() if v is not None}
 
     def to_dict(self, *args, **kwargs):
-        result = super().dict(*args, **kwargs)
+        result = super().model_dump(*args, **kwargs)
         result['status'] = result['status'].value
         return result
 
@@ -264,7 +264,7 @@ class InfrastTask(Task):
                  replenish: bool = False,
                  dorm_notstationed_enabled: bool = None,
                  dorm_trust_enabled: bool = None,
-                 failename: str = None,
+                 filename: str = None,
                  plan_index: int = None):
         """
         初始化基建换班任务
@@ -305,7 +305,7 @@ class InfrastTask(Task):
             "replenish": replenish,
             "dorm_notstationed_enabled": dorm_notstationed_enabled,
             "dorm_trust_enabled": dorm_trust_enabled,
-            "failename": failename,
+            "filename": filename,
             "plan_index": plan_index
         }
 
@@ -549,12 +549,12 @@ class ReclamationTask(Task):
         """
 
         params = {
-            enable: enable,
-            theme: theme,
-            mode: mode,
-            tools_to_craft: tools_to_craft,
-            increment_mode: increment_mode,
-            num_craft_batches: num_craft_batches
+            "enable": enable,
+            "theme": theme,
+            "mode": mode,
+            "tools_to_craft": tools_to_craft,
+            "increment_mode": increment_mode,
+            "num_craft_batches": num_craft_batches
         }
 
         super().__init__(task_name="生息演算", type_name="Reclamation", params=params)
