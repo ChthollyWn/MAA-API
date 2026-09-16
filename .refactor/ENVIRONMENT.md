@@ -570,3 +570,19 @@
 - 等价 verify（`set(a.openapi()['paths'])`）`exit 0` → `['/api/system/auth/cookie', '/api/system/health']`；卡内 17 passed；全仓 799 passed / 4 skipped（`pytest` exit 0）。
 - **要这张卡过门禁只能改卡面 verify #1**（`{r.path for r in a.routes}` → `set(a.openapi()['paths'])` 或 `{ctx.path for ctx in fastapi.routing.iter_route_contexts(a.routes)}`），实现侧无解。
   本次实现提交：`b1b37f0`（refactor/v2；verify 门禁若回滚工作树，`git cherry-pick b1b37f0` 找回）。
+
+### M3-07 第五次尝试（门禁 `5bf05f4` 修正后）：字面 verify 三条全绿，卡片完成（第 22 次尝试追加）
+
+- 门禁已把本卡 verify #1 换成 `set(a.openapi()['paths'])` 形态；实现从 `b1b37f0` 原样恢复
+  （`git hash-object` 与 `b1b37f0:<path>` 逐字节一致），**三条字面 verify 全部 exit 0**：
+  verify #1 打印 `['/api/system/auth/cookie', '/api/system/health']`；`tests/api/test_system_router.py`
+  17 passed；全仓 799 passed / 4 skipped（`pytest` exit 0）。上一节「worker 侧无解、只能改卡面」
+  的结论仅在门禁修正前成立。
+- **`pytest.ini` 的 addopts 已有 `-q`，命令行再写 `-q`（卡面 verify #2/#3 就是）等于 `-qq`：
+  pytest 8.4.2 实测连末尾的 `N passed` 汇总行一起省掉**（退出码仍正确），只有 warnings summary。
+  要看通过数就去掉命令行的 `-q`（或加 `-rA`）；别把「没有汇总行」当成收集失败。
+- **`TestClient` 的 per-request `cookies=` 会写进该 client 的 cookie jar**（httpx 0.27.2 的
+  DeprecationWarning 说的就是这件事）：同一个 client 上先发 `POST /api/system/auth/cookie` 带
+  `cookies={"maa_token": ...}`，紧接着发「不带凭据」的写请求，第二次会带上 jar 里的 cookie、
+  命中 cookie 渠道 → **403 而不是 401**。断言「无凭据 → 401」必须用新 client（本卡用例每个
+  test 各自 `make_client`，天然规避）。
