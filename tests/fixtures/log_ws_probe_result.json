@@ -1,0 +1,609 @@
+{
+  "env_guard": {
+    "after": {
+      "real_config": [
+        435,
+        1789525362475264922,
+        121789638
+      ],
+      "real_db": null,
+      "settings_cache_loaded": false
+    },
+    "before": {
+      "real_config": [
+        435,
+        1789525362475264922,
+        121789638
+      ],
+      "real_db": null,
+      "settings_cache_loaded": false
+    },
+    "maacore_dlopen": false,
+    "network_used": false,
+    "real_config_untouched": true,
+    "real_db_untouched": true,
+    "settings_cache_loaded": false
+  },
+  "environment": {
+    "fastapi": "0.141.1",
+    "httpx": "0.27.2",
+    "platform": "darwin",
+    "pydantic": "2.11.10",
+    "python": "3.13.3",
+    "sqlalchemy": "2.0.54",
+    "sqlmodel": "0.0.42",
+    "starlette": "1.6.0",
+    "uvicorn": "0.53.0"
+  },
+  "errors": [],
+  "generated_at": "2026-09-16T23:13:36+0800",
+  "probe": "M4-01",
+  "probe_ok": true,
+  "required_checks": {
+    "asst_log_tail_rotation_truncation_half_line_replace": true,
+    "bulk_insert_backfills_ids_after_commit": true,
+    "cross_thread_put_nowait_does_not_wake_loop": true,
+    "deque_maxlen_thread_appends_keep_length": true,
+    "extract_token_ws_query_precedes_cookie": true,
+    "handler_payload_lacks_envelope_ts": true,
+    "missing_ws_path_disconnect_code_1000": true,
+    "testclient_lifespan_needs_context_manager": true,
+    "ws_client_tooling_inventory_local": true,
+    "ws_close_4401_surfaces_as_disconnect_code": true,
+    "ws_route_hidden_from_openapi_and_route_contexts": true
+  },
+  "script": "scripts/probe_log_ws.py",
+  "sections": {
+    "probe_asst_log_tail": {
+      "append_visible": {
+        "consumed": [
+          "L3"
+        ],
+        "offset": 9
+      },
+      "doc_seekback_trap": {
+        "control_correct_seekback": {
+          "consumed": [
+            "xxxxxxxxxx�"
+          ],
+          "raised": null
+        },
+        "drift_case": {
+          "events": [
+            {
+              "event": "open",
+              "inode": 129332357,
+              "offset": 3,
+              "seek_to_end": true
+            },
+            {
+              "encoded_length": 13,
+              "event": "half_line",
+              "position_before_read": 3,
+              "seek_target": 1,
+              "tell_after_read": 14
+            }
+          ],
+          "position_after_poll": 1,
+          "raised": null,
+          "reread_next": "1\n"
+        },
+        "negative_seek_case": {
+          "events": [
+            {
+              "encoded_length": 6,
+              "event": "half_line",
+              "position_before_read": 0,
+              "seek_error": "ValueError: negative seek position -2",
+              "seek_target": -2,
+              "tell_after_read": 4
+            }
+          ],
+          "raised": "ValueError: negative seek position -2"
+        }
+      },
+      "first_open_skips_existing": {
+        "consumed": [],
+        "existing_lines": [
+          "L1",
+          "L2"
+        ],
+        "offset": 6
+      },
+      "half_line": {
+        "consumed_after_newline": [
+          "partial"
+        ],
+        "consumed_without_newline": [],
+        "file_size": 7,
+        "half_line_events": [
+          {
+            "event": "open",
+            "inode": 129332355,
+            "offset": 0,
+            "seek_to_end": true
+          },
+          {
+            "encoded_length": 7,
+            "event": "half_line",
+            "position_before_read": 0,
+            "seek_target": 0,
+            "tell_after_read": 7
+          }
+        ],
+        "offset_after_poll": 0
+      },
+      "non_utf8": {
+        "consumed_with_replace": [
+          "good",
+          "�� bad"
+        ],
+        "contains_replacement_char": true,
+        "strict_control_error": "UnicodeDecodeError: invalid start byte at byte 5"
+      },
+      "old_handle_after_rename": {
+        "read_after_rename": "B\n",
+        "second_read": ""
+      },
+      "rotation": {
+        "consumed": [
+          "L4",
+          "N1",
+          "N2"
+        ],
+        "inode_changed": true,
+        "new_file_consumed": [
+          "N1",
+          "N2"
+        ],
+        "new_inode": 129332351,
+        "old_inode": 129332350,
+        "tail_before_rotate_consumed": true
+      },
+      "truncation": {
+        "consumed_after_truncate": [
+          "T-after"
+        ],
+        "inode_unchanged": true,
+        "offset_before": 30,
+        "size_after": 8,
+        "size_lt_offset": true
+      }
+    },
+    "probe_bulk_insert": {
+      "batch1": {
+        "count": 3,
+        "ids": [
+          1,
+          2,
+          3
+        ]
+      },
+      "batch2": {
+        "count": 2,
+        "ids": [
+          4,
+          5
+        ]
+      },
+      "db_ids": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "empty_batch": 0,
+      "expire_on_commit": false,
+      "readable_after_commit": "a0",
+      "temp_db_removed_with_tempdir": true
+    },
+    "probe_core_client_dispatch": {
+      "callback_event_envelope": {
+        "details_keys": [
+          "async_call_id",
+          "details",
+          "uuid",
+          "what"
+        ],
+        "keys": [
+          "payload",
+          "ts",
+          "type"
+        ],
+        "payload_keys": [
+          "details",
+          "msg"
+        ],
+        "ts": 1789571620.279976
+      },
+      "handler_payload_is_envelope_payload": {
+        "CALLBACK": true,
+        "LOG": true
+      },
+      "handler_received": {
+        "CALLBACK": {
+          "has_ts_key": false,
+          "keys": [
+            "details",
+            "msg"
+          ]
+        },
+        "LOG": {
+          "has_ts_key": false,
+          "keys": [
+            "content",
+            "level"
+          ]
+        }
+      },
+      "implication": "handler 只收 payload，envelope ts 到不了 LogHub；LogRecord.ts 只能用 handler 内的到达时刻，除非 M4 改 CoreClient 的 on()/分派把 envelope 一并交给 handler",
+      "log_event_envelope": {
+        "keys": [
+          "payload",
+          "ts",
+          "type"
+        ],
+        "payload": {
+          "content": "probe.log_ws.subprocess: 子进程日志桥接样本",
+          "level": "INFO"
+        },
+        "ts": 1789571620.279822
+      },
+      "supervisor_note_event_has_ts": true,
+      "supervisor_note_event_keys": [
+        "payload",
+        "ts",
+        "type"
+      ]
+    },
+    "probe_cross_thread_queue": {
+      "call_soon_threadsafe": {
+        "delivered_after_explicit_wakeup": true,
+        "delivered_within_window": true,
+        "item_lost": false,
+        "latency_ms": 0.32,
+        "loop_debug": false,
+        "loop_exception_contexts": [],
+        "mode": "threadsafe",
+        "put_error": null,
+        "window_s": 0.5
+      },
+      "raw_put_nowait": {
+        "delivered_after_explicit_wakeup": true,
+        "delivered_within_window": false,
+        "item_lost": false,
+        "latency_ms": null,
+        "loop_debug": false,
+        "loop_exception_contexts": [],
+        "mode": "raw",
+        "put_error": null,
+        "window_s": 0.5
+      },
+      "raw_put_nowait_loop_debug": {
+        "delivered_after_explicit_wakeup": false,
+        "delivered_within_window": false,
+        "item_lost": true,
+        "latency_ms": null,
+        "loop_debug": true,
+        "loop_exception_contexts": [
+          "Task was destroyed but it is pending!"
+        ],
+        "mode": "raw",
+        "put_error": "RuntimeError: Non-thread-safe operation invoked on an event loop other than the current one",
+        "window_s": 0.5
+      },
+      "wait_for_control": {
+        "raw": {
+          "item": "item",
+          "mode": "raw",
+          "producer_put_at_ms": 150.0,
+          "timeout_s": 1.0,
+          "wait_elapsed_ms": 1002.3,
+          "woken_by_put": false
+        },
+        "threadsafe": {
+          "item": "item",
+          "mode": "threadsafe",
+          "producer_put_at_ms": 150.0,
+          "timeout_s": 1.0,
+          "wait_elapsed_ms": 158.8,
+          "woken_by_put": true
+        }
+      }
+    },
+    "probe_deque_maxlen": {
+      "appends_per_thread": 5000,
+      "elapsed_ms": 7.2,
+      "errors": [],
+      "final_length": 500,
+      "maxlen": 500,
+      "observed_over_length": [],
+      "threads": 8,
+      "total_appends": 40000,
+      "unsynchronized_id_counter_control": {
+        "duplicates": 0,
+        "final_value": 800000,
+        "per_thread": 200000,
+        "threads": 4,
+        "total": 800000,
+        "unique": 800000
+      }
+    },
+    "probe_extract_token": {
+      "cases": {
+        "client_cookie_jar_only": {
+          "channel": null,
+          "client_cookie": "cookie-token-value",
+          "cookies_kwarg": null,
+          "headers": null,
+          "url": "/api/ws-token",
+          "value": null
+        },
+        "cookie_via_cookies_kwarg": {
+          "channel": "cookie",
+          "client_cookie": null,
+          "cookies_kwarg": {
+            "maa_token": "cookie-token-value"
+          },
+          "headers": null,
+          "url": "/api/ws-token",
+          "value": "cookie-token-value"
+        },
+        "cookie_via_header": {
+          "channel": "cookie",
+          "client_cookie": null,
+          "cookies_kwarg": null,
+          "headers": {
+            "connection": "upgrade",
+            "cookie": "maa_token=cookie-token-value",
+            "sec-websocket-key": "testserver==",
+            "sec-websocket-version": "13"
+          },
+          "url": "/api/ws-token",
+          "value": "cookie-token-value"
+        },
+        "empty_query_falls_through_to_cookie": {
+          "channel": "cookie",
+          "client_cookie": null,
+          "cookies_kwarg": null,
+          "headers": {
+            "connection": "upgrade",
+            "cookie": "maa_token=cookie-token-value",
+            "sec-websocket-key": "testserver==",
+            "sec-websocket-version": "13"
+          },
+          "url": "/api/ws-token?token=",
+          "value": "cookie-token-value"
+        },
+        "no_credential": {
+          "channel": null,
+          "client_cookie": null,
+          "cookies_kwarg": null,
+          "headers": null,
+          "url": "/api/ws-token",
+          "value": null
+        },
+        "query_beats_cookie": {
+          "channel": "query",
+          "client_cookie": null,
+          "cookies_kwarg": null,
+          "headers": {
+            "connection": "upgrade",
+            "cookie": "maa_token=cookie-token-value",
+            "sec-websocket-key": "testserver==",
+            "sec-websocket-version": "13"
+          },
+          "url": "/api/ws-token?token=query-token-value",
+          "value": "query-token-value"
+        },
+        "query_only": {
+          "channel": "query",
+          "client_cookie": null,
+          "cookies_kwarg": null,
+          "headers": null,
+          "url": "/api/ws-token?token=query-token-value",
+          "value": "query-token-value"
+        }
+      },
+      "client_cookie_jar_reaches_ws_handshake": false,
+      "cookie_name": "maa_token",
+      "cookies_kwarg_reaches_ws_handshake": true
+    },
+    "probe_lifespan_context": {
+      "after_context": {
+        "lifespan_events": [
+          "enter",
+          "exit"
+        ]
+      },
+      "inside_context": {
+        "lifespan_events": [
+          "enter"
+        ],
+        "status": 200
+      },
+      "without_context": {
+        "lifespan_events": [],
+        "status": 200
+      }
+    },
+    "probe_ws_client_inventory": {
+      "executables": {
+        "curl": "/usr/bin/curl",
+        "nc": "/usr/bin/nc",
+        "socat": null,
+        "websocat": null,
+        "wscat": null,
+        "wsdump": "/Library/Frameworks/Python.framework/Versions/3.13/bin/wsdump"
+      },
+      "packages": {
+        "aiohttp": {
+          "available": false,
+          "error": "ModuleNotFoundError: No module named 'aiohttp'"
+        },
+        "httpx_ws": {
+          "available": false,
+          "error": "ModuleNotFoundError: No module named 'httpx_ws'"
+        },
+        "uvicorn": {
+          "available": true,
+          "version": "0.53.0"
+        },
+        "websocket": {
+          "available": false,
+          "error": "ModuleNotFoundError: No module named 'websocket'"
+        },
+        "websockets": {
+          "available": false,
+          "error": "ModuleNotFoundError: No module named 'websockets'"
+        },
+        "wsproto": {
+          "available": false,
+          "error": "ModuleNotFoundError: No module named 'wsproto'"
+        }
+      },
+      "smoke_advisory_mode": "标准库 socket 手写握手；本机 uvicorn 没有 WS 协议实现，真实 uvicorn 会拒绝升级，advisory 模式当前不可用（除非装 websockets 或 wsproto）",
+      "smoke_default_mode": "fastapi.testclient.TestClient（进程内 ASGI，无 socket）",
+      "stdlib_socket_available": true,
+      "testclient_available": true,
+      "uvicorn_websockets": {
+        "AutoWebSocketsProtocol": null,
+        "loopback_upgrade_probe": {
+          "port": 57630,
+          "request_path": "/api/ws",
+          "response_head": [
+            "HTTP/1.1 404 Not Found",
+            "date: Wed, 16 Sep 2026 15:13:40 GMT",
+            "server: uvicorn",
+            "content-length: 22",
+            "content-type: application/json"
+          ],
+          "sec_websocket_accept_present": false,
+          "status_line": "HTTP/1.1 404 Not Found",
+          "upgraded": false,
+          "uvicorn_output": [
+            "WARNING:  Unsupported upgrade request.",
+            "WARNING:  No supported WebSocket library detected. Please use \"pip install 'uvicorn[standard]'\", or install 'websockets' or 'wsproto' manually."
+          ]
+        },
+        "resolved": false
+      },
+      "wsdump_usable_from_venv": false
+    },
+    "probe_ws_close_code_4401": {
+      "accept_then_close_4401": {
+        "code": 4401,
+        "path": "/api/ws-auth-fail",
+        "raised": "WebSocketDisconnect",
+        "reason": ""
+      }
+    },
+    "probe_ws_missing_route": {
+      "http_route_used_as_ws_control": {
+        "code": 1000,
+        "path": "/api/http-only",
+        "raised": "WebSocketDisconnect",
+        "reason": ""
+      },
+      "missing_code_equals_http_route_control": true,
+      "missing_route": {
+        "code": 1000,
+        "path": "/api/ws-does-not-exist",
+        "raised": "WebSocketDisconnect",
+        "reason": ""
+      },
+      "reject_before_accept_code": 1008,
+      "reject_before_accept_control": {
+        "code": 1008,
+        "path": "/api/ws-reject-before-accept",
+        "raised": "WebSocketDisconnect",
+        "reason": ""
+      }
+    },
+    "probe_ws_routing": {
+      "app_route_types": [
+        "Route",
+        "Route",
+        "Route",
+        "Route",
+        "_IncludedRouter"
+      ],
+      "app_routes_path_attribute_errors": [
+        "_IncludedRouter: '_IncludedRouter' object has no attribute 'path'"
+      ],
+      "included_router_private_original_router_paths": [
+        "/api/ws",
+        "/api/ws-auth-fail",
+        "/api/probe-http"
+      ],
+      "iter_route_contexts": [
+        {
+          "has_tags": false,
+          "name": "openapi",
+          "path": "/openapi.json",
+          "type": "RouteContext"
+        },
+        {
+          "has_tags": false,
+          "name": "swagger_ui_html",
+          "path": "/docs",
+          "type": "RouteContext"
+        },
+        {
+          "has_tags": false,
+          "name": "swagger_ui_redirect",
+          "path": "/docs/oauth2-redirect",
+          "type": "RouteContext"
+        },
+        {
+          "has_tags": false,
+          "name": "redoc_html",
+          "path": "/redoc",
+          "type": "RouteContext"
+        },
+        {
+          "has_tags": true,
+          "name": "",
+          "path": "",
+          "type": "RouteContext"
+        },
+        {
+          "has_tags": true,
+          "name": "",
+          "path": "",
+          "type": "RouteContext"
+        },
+        {
+          "has_tags": true,
+          "name": "probe_http",
+          "path": "/api/probe-http",
+          "type": "RouteContext"
+        }
+      ],
+      "module_router_paths": [
+        "/api/ws",
+        "/api/ws-auth-fail",
+        "/api/probe-http"
+      ],
+      "module_router_route_types": [
+        "APIRoute",
+        "APIWebSocketRoute"
+      ],
+      "openapi_paths": [
+        "/api/probe-http"
+      ],
+      "recommended_verify_expression": "sorted(r.path for r in maa_api.api.ws.router.routes if isinstance(r, fastapi.routing.APIWebSocketRoute))",
+      "recommended_verify_result": [
+        "/api/ws",
+        "/api/ws-auth-fail"
+      ],
+      "ws_context_placeholder_count": 2,
+      "ws_context_placeholder_type": "RouteContext",
+      "ws_paths_hidden_from_iter_route_contexts": true,
+      "ws_paths_hidden_from_openapi": true,
+      "ws_paths_visible_on_module_router": true
+    }
+  },
+  "title": "M4 前置实测：WS 路由与关闭码、跨线程入队、IPC 事件载荷、asst.log tail 语义"
+}
