@@ -469,3 +469,10 @@
   对未知 `name` 给 `union_tag_invalid`、对跨字段违规原样抛 `AppError`；
   `PipelineCreate(tasks=[{...}])` 的嵌套校验同样原样抛出 `AppError`（未被包成
   `ValidationError`），M3-04 的 `AppError` 处理器可以直接接住流水线提交路径。
+
+### M3-06 实测：hmac 的 str 限制 / httpx 拒发非 ASCII 头 / FastAPI 依赖能收到路由异常（第 17 次尝试追加）
+
+- **`hmac.compare_digest` 对含非 ASCII 字符的 `str` 直接抛 `TypeError: comparing strings with non-ASCII characters is not supported`**（Python 3.13.3 实测）。token / cookie / 签名比较一律先 `encode("utf-8")` 再比（字节形态任意内容都安全）；把客户端可控字符串原样喂进去就是一个可触发的 500。M3-06 的 `token_matches` 即按字节比较。
+- **httpx（`TestClient` 底层）拒发非 ASCII 的请求头值**：`client.get(url, headers={"X-Token": "秘密令牌"})` 实测在 `httpx/_utils.py` 抛 `UnicodeEncodeError: 'ascii' codec can't encode characters...`（HTTP/1.1 头按 ascii 编码）。非 ASCII token 的端到端用例只能走 query 参数（httpx 会 percent-encode）。另：per-request 的 `cookies=` 会发 `DeprecationWarning: Setting per-request cookies=<...> is being deprecated`（httpx 0.27.2），将来给 pytest 加 `filterwarnings = error` 时这条要与 M3-01 记的两条一起处理。
+- **FastAPI 0.141.1 的 `yield` 依赖能收到路由抛出的异常**：在 `get_session` 的 `except Exception: await session.rollback()` 上挂 spy 实测，路由里 `raise AppError(...)` 会经 `AsyncExitStack` 的 `athrow` 进入依赖生成器（`rollbacks` 非空），所以「依赖里回滚、事务边界归调用方」的纪律可用；`AsyncSession.bind.url` 与 `get_bind().url` 都能读到绑定 URL，断言会话连的是哪个库用前者最直接。
+- **`AppError` 处理器不透传响应头（M3-04 缺口，已记 DEFECTS.md）**：429/503 的 `Retry-After` 用 AppError 表达不出来；M3-06 的鉴权限流 429 绕行 `StarletteHTTPException(429, headers={"Retry-After": ...})`（同一处理器保留 headers、body 仍是 `RATE_LIMITED` 统一体）。后续给 `QUEUE_FULL` / `CORE_NOT_READY` 之类补 Retry-After 时不要重复踩。

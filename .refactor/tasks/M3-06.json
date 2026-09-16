@@ -40,8 +40,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "公开契约（M3-07/08/09 与 M4 的 WS 握手都要用，名字不要改）：\n- `extract_token(request: Request) -> TokenHit | None`：按固定优先级返回第一个**存在**的渠道与原始值（Authorization 头存在但格式不是 Bearer 也视为『存在』，交给判定层拒绝），并保留『哪个渠道』的信息（渠道枚举/字符串常量，四个取值 bearer/x_token/query/cookie）。M4 的 WebSocket 握手复用这个函数。\n- `auth_enabled() -> bool`：读 settings.get_settings().access_token 是否非空。\n- `EXEMPT_PATH_PREFIXES: tuple[str, ...]`：豁免前缀清单（含 5.3 全部条目；SPA catch-all 与 /static/* 用前缀表达）。\n- `async def require_auth(request: Request) -> None`：FastAPI 依赖，可直接 `Depends(require_auth)`；豁免路径直接放行；免鉴权模式直接放行；命中 cookie-only 写操作 → AppError(FORBIDDEN)；token 不匹配 → AppError(UNAUTHORIZED)（WWW-Authenticate 头由 M3-04 的处理器统一补）；失败计数超阈值 → AppError(RATE_LIMITED)。\n- `async def get_session() -> AsyncIterator[AsyncSession]`：从 maa_api.db.session.session_factory 开会话，异常时 rollback，finally close；**不隐式 commit**（仓储层纪律：事务边界由调用方决定，见 M2 系列实测）。注意 session_factory 必须在**每次调用时**重新读模块属性，不要 import 期缓存绑定（M2-13 实测：测试替换模块级 engine/session_factory 后，缓存绑定会连上真实库）。\n\n实现要点：\n1. 限流计数器放进程内（dict[ip, deque[timestamp]] + 锁或简单单线程假设），默认 10 次/分钟，阈值与窗口写成模块常量便于测试 monkeypatch；成功鉴权后是否清零自定，但要在 docstring 说明。Retry-After 用剩余冷却秒数（整数）。\n2. token 比较用 hmac.compare_digest，不要用 ==（时间侧信道是免费能避开的）。\n3. cookie 名固定 maa_token（docs/05 §5.1）。写方法集合 = POST/PUT/PATCH/DELETE。\n4. 免鉴权模式下也要走优先级提取（保证 400/401 语义一致）但直接放行；auth_enabled() 为 False 时不得因为带了错误 token 而 401（与 §5.2『全部端点免鉴权』一致）。\n\ntests/api/test_auth.py 要覆盖：四渠道各自成功；优先级（错误的 Authorization 头 + 正确的 ?token= → 401，且不得回退）；X-Token 与 Bearer 同时存在时以 Bearer 为准；cookie-only 的 GET 放行、POST 403；缺失 token → 401；免鉴权模式（空 token）下带任意/不带 token 都放行；豁免路径在配置了 token 时仍放行；连续失败到阈值 → 429 + Retry-After，冷却窗口过后恢复；get_session 在 set 模块属性指向 tmp 引擎后拿到的是 tmp 库的会话（用 .refactor/ENVIRONMENT.md 的 M2-13 教训写，import 期绑定会被这条用例抓住）。测试用自建的最小 FastAPI app（不要 import maa_api.main），并注册 M3-04 的异常处理器以拿到统一错误体。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：渠道优先级怎么验的、限流阈值与清理策略、get_session 的隔离怎么验的。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "0b7990d6eeed8ff645b26fed4245ad2af968a13d",
   "blocked_reason": null
 }
