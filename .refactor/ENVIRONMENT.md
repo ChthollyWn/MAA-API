@@ -538,3 +538,22 @@
   所以 verify #3 / #4（pytest）覆盖了「三个端点都挂上且顺序正确」。实测：本文件 27 passed、全仓 **809 passed / 4 skipped**（`pytest` exit 0）。
 - 第二次尝试的实现提交：`25935e9`（refactor/v2；上一版的 `d463a256543d7728a92096717e88f9e86f852e4b` 仍在对象库里，两者内容等价、本次多一条路由顺序用例）。
   worker 退出后若 verify 门禁回滚工作树，`git cherry-pick 25935e9` 即可找回。
+
+### M3-07 第三次尝试：实现与测试完成、verify #1 仍结构性失败（与 M3-08 同因，只能改卡面）
+
+- **verify #1 逐字复核仍 `exit 1`**（fastapi 0.141.1 / starlette 1.6.0 / pydantic 2.11.10）：
+  `<卡内 verify #1 原文>` → `AttributeError: '_IncludedRouter' object has no attribute 'path'`。
+  对照实验（不 import 本仓任何模块）：
+  `.venv/bin/python -c "from fastapi import FastAPI, APIRouter; r=APIRouter(prefix='/api/system'); r.get('/health')(lambda: {}); a=FastAPI(); a.include_router(r); {x.path for x in a.routes}"`
+  抛**同一个**异常 → 与实现无关。根因见上一节：`include_router()` 在 0.141.1 无条件 append `_IncludedRouter`（`fastapi/routing.py:3310`），
+  拍平只发生在请求匹配 / OpenAPI 生成时。
+- **正确实现（前缀写在模块里：`APIRouter(prefix="/api/system", tags=["system"])`）下的等价 verify `exit 0`**：
+  `.venv/bin/python -c "import maa_api.api.routers.system as s; from fastapi import FastAPI; a=FastAPI(); a.include_router(s.router); paths=set(a.openapi()['paths']); assert '/api/system/health' in paths and '/api/system/auth/cookie' in paths, sorted(paths); print(sorted(p for p in paths if p.startswith('/api')))"`
+  → `['/api/system/auth/cookie', '/api/system/health']`。
+- 建议改卡：把 `.refactor/tasks/M3-07.json` 与 `M3-08.json` 的 verify #1 从 `{r.path for r in a.routes}` 换成 `set(a.openapi()['paths'])`
+  （或 `{ctx.path for ctx in fastapi.routing.iter_route_contexts(a.routes)}`）。worker 侧无解：编排器 `runVerify` 见第一条非 0 即 break，pytest 门禁根本不会执行。
+- 本卡最终代码实测：`tests/api/test_system_router.py` **17 passed**；全仓 **799 passed / 4 skipped**（`pytest` exit 0）。
+  health → `{'status':'ok','auth_enabled':True,'version':'0.1.0','started_at':None}`；POST 换取 → `maa_token=s3cret-token; HttpOnly; Path=/; SameSite=lax`
+  （无 `Secure`、会话 cookie）；DELETE → `maa_token=""; expires=<当前时刻>; Max-Age=0; Path=/; SameSite=lax`；仅 cookie 调 POST → 403；错误 token → 401；
+  空 token 模式 POST → 204 且无 `Set-Cookie`。`app.state.started_at` 为 `datetime` 时归一成 ISO 8601（健康检查不因写入方类型差异 500）。
+- 本卡实现提交：`50f507d`（refactor/v2）。verify 门禁若回滚工作树，`git cherry-pick 50f507d` 即可找回（与 M3-08 的 `25935e9` 同一处置方式）。
