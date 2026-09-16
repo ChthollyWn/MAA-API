@@ -36,8 +36,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "公开契约（M3 其余卡直接按这个用，名字不要改）：\n- `class AdbSettings(BaseModel)`：path / address / screenshot_quality（默认值与现 config.template.yaml 一致：/opt/homebrew/bin/adb、127.0.0.1:5555、25）。\n- `class Settings(BaseModel)`：access_token: str = \"\"、maa_core_path: str = \"\"、proxy: str = \"\"、adb: AdbSettings。未识别的 yaml 段/键一律忽略（后续里程碑会加段，不能让旧文件报错）。\n- `load_settings(path: str | Path | None = None) -> Settings`：读 yaml；文件不存在返回全默认值（不抛异常，但要能被调用方从字段值看出未配置）；yaml 解析失败要抛带文件名的可读异常，不要静默吞。\n- `get_settings() -> Settings`：进程内缓存（首次调用时加载默认路径）。\n- `set_settings(s: Settings | None) -> None`：注入/清空缓存，供测试与 M6 的热更新使用；传 None 表示下次重新加载。\n可选：环境变量覆盖（docs/02 §7 的第 3 层），若实现，命名统一 `MAA_` 前缀并把映射写进模块 docstring、用测试钉住；不实现也可以，但要在 docstring 里写明「环境变量层归 M6」。\n\n其他要求：\n1. 用 pydantic v2 模型承载（与 SQLModel 同源），yaml 读取用仓库已有的 ruamel.yaml，不要新增依赖。\n2. 先读现 config.template.yaml 与 maa_api/config/config.py 确认字段名，不要自创键名。\n3. tests/test_settings.py 里必须包含：临时 yaml 全字段读取、**缺文件时的默认值钉死**（access_token 为空串、adb.path=/opt/homebrew/bin/adb、adb.address=127.0.0.1:5555、adb.screenshot_quality=25，与 config.template.yaml 一致）、未识别键被忽略、`set_settings` 注入与清空、以及**无 import 副作用**（在 tmp_path 下用 monkeypatch.chdir + importlib.reload 或子进程验证，二选一，确保用例自身不污染仓库目录）。测试绝不读写仓库根的真实 config.yaml。\n\n完成后按 worker 契约：只 git add 本卡 deliverables 后 commit（不 push、不切分支）；不改 .refactor/ 下任何文件（新踩到的环境事实可**追加**到 .refactor/ENVIRONMENT.md 末尾，不 git add）；输出 200 字以内回执：公开 API、字段来源、无副作用怎么验的。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "582502341ac1ec67f09857abcbbc7f97f7438a9c",
   "blocked_reason": null
 }

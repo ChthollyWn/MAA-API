@@ -411,3 +411,22 @@
   `Path(__file__).resolve().parents[2]` 推导，不依赖 CWD）：只改 `docs/05 §4` 而不改
   `maa_api/domain/errors.py`（或反之）会直接红；后续里程碑新增错误码必须先补文档表。另有
   `test_every_code_has_a_chinese_meaning_comment` 用 AST 钉住「每条码上方一行中文注释」。
+
+### M3-03 实测：config.yaml 的 null 形态 / 默认路径锚点 / ruamel 空文件语义
+
+- **本机 `config.yaml`（与 `config.template.yaml` 同形）的 `app.access_token`、`app.maa_core_path`、
+  `app.proxy` 三项都是 `null`**（ruamel safe loader 读回 `None`），`adb` 三项有值。所以
+  `Settings.model_validate(yaml_dict)` 这种直连写法会因为 `None` 撞 `str` 字段而
+  `ValidationError`（`Input should be a valid string`），服务启动即挂。M3-03 的约定是
+  **值为 `None` 的键＝这层没配，跳过该键**（取下层/默认值）。后续卡（M3-06 鉴权、M3-07 health、
+  M3-09 lifespan）读 token 一律走 `maa_api.settings.get_settings()`，不要自己解析 yaml。
+- **`load_settings()` 的默认路径锚在仓库根**（`maa_api/settings.py` → `parents[1] / "config.yaml"`），
+  与 CWD 无关；旧 `config/config.py` 的 `Path() / "config.yaml"` 是 CWD 相对。测试要隔离真实配置
+  就 monkeypatch `maa_api.settings.DEFAULT_CONFIG_PATH`（M3-03 的 `tests/test_settings.py` 即此法，
+  从不读仓库根真实 config.yaml）。
+- **ruamel.yaml 实测**（0.18.17）：`YAML(typ="safe").load()` 对空文件/全注释文件返回 `None`（不是 `{}`）；
+  非法 yaml 抛 `YAMLError` 子类（`ScannerError` / `ParserError`）；`Path.open()` 对不存在的文件抛
+  `FileNotFoundError`。settings 把 `None` 当空配置、把 `YAMLError` 包成带文件路径的 `SettingsError`。
+- **`import maa_api.settings` 无 import 期副作用可通过子进程验证**：`cd $(mktemp -d)` +
+  `PYTHONPATH=$ROOT` 下 import 后 `os.listdir(os.getcwd()) == []`（`__pycache__` 落在源码目录、
+  不在 CWD）；子进程另断言未 import `maa_api.db` / `sqlalchemy` / `sqlmodel`。
