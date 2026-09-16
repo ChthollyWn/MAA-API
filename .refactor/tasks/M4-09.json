@@ -1,0 +1,40 @@
+{
+  "id": "M4-09",
+  "milestone": "M4",
+  "title": "api/routers/screenshots.py：截图归档列表/详情 + /api/images 内容寻址缩略图与原图",
+  "depends": [
+    "M4-06"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m4--日志与-websocketl",
+    "docs/05-API规范与路由清单.md#2-http-状态码使用规范",
+    "docs/05-API规范与路由清单.md#3-响应体约定",
+    "docs/05-API规范与路由清单.md#68-screenshots",
+    "docs/06-实时日志与WebSocket.md#82-新方案存文件--引用",
+    "docs/06-实时日志与WebSocket.md#83-缩略图策略",
+    "docs/06-实时日志与WebSocket.md#84-清理",
+    "docs/04-数据模型与持久化.md#54-screenshot--截图归档",
+    "docs/04-数据模型与持久化.md#103-流水线与截图"
+  ],
+  "constraints": [
+    "路由（约定，verify 直接断言）：模块自带 router = APIRouter(prefix=\"/api\")，四条路径用 docs 字面量 —— GET /api/screenshots、GET /api/screenshots/{id}、GET /api/images/{sha256}/thumb、GET /api/images/{sha256}/full；装配处只 include_router（M3-07/M3-08 的教训）。",
+    "错误语义：记录不存在 404 SCREENSHOT_NOT_FOUND；deleted_at 非空 410 SCREENSHOT_EXPIRED（docs/04 §5.4 的墓碑语义，接口据此返回 410 而不是含混 404）；sha256 非法或文件缺失一律 404（不得 500、不得目录穿越），文件名只用服务端拼出的路径，绝不接受请求里的任意路径。",
+    "base64 包装的键集（docs 未给全，本卡定死，verify 依赖）：{\"id\",\"format\",\"width\",\"height\",\"size_bytes\",\"captured_at\",\"data\"}，data 是标准 base64 字符串、不带 data: 前缀；不带 ?as=base64 时直接返回图像字节并带正确 Content-Type。",
+    "缓存头：/api/images/{sha256}/thumb 与 /full 都要带 Cache-Control: public, max-age=31536000, immutable（URL 含内容哈希、内容永不变化，docs/06 §8.3）；thumb 读 {sha}.thumb.jpg（长边 320），full 读 {sha}.jpg；?w= 缩放档首版不做，也不做 UA 嗅探。",
+    "本卡只读不写：截图记录由调用方经 ScreenshotRepository 建（store_screenshot 只落文件，见 M4-06）；清理沿用 M2-12 的 retention_service（按 screenshot 记录删文件并打 deleted_at），不新增 log_entry.attachment_sha256 列、不加迁移。"
+  ],
+  "deliverables": [
+    "maa_api/api/routers/screenshots.py",
+    "tests/api/test_screenshots_router.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"import maa_api.api.routers.screenshots as s; from fastapi import FastAPI; a=FastAPI(); a.include_router(s.router); paths=set(a.openapi()['paths']); need={'/api/screenshots','/api/screenshots/{id}','/api/images/{sha256}/thumb','/api/images/{sha256}/full'}; assert need <= paths, sorted(paths); assert s.router.prefix=='/api', s.router.prefix\"",
+    ".venv/bin/python -c \"import maa_api.api.routers.screenshots as s; from fastapi import FastAPI; a=FastAPI(); a.include_router(s.router); spec=a.openapi()['paths']; assert 'get' in spec['/api/screenshots/{id}'], sorted(spec['/api/screenshots/{id}']); assert 'get' in spec['/api/screenshots'], sorted(spec['/api/screenshots'])\"",
+    ".venv/bin/python -m pytest -q tests/api/test_screenshots_router.py"
+  ],
+  "prompt_extra": "用例用 tests/api 的 isolated_db + make_client 夹具：先用 M2 的 ScreenshotRepository 塞记录，再用 M4-06 的 store_screenshot 在隔离资源根下落真实图片文件（资源根从 session.DB_PATH 父目录推导，夹具已指到 tmp），断言：列表分页与 pipeline_id/trigger/since 过滤、详情返回图像字节与 Content-Type、?as=base64 的键集与可解码性、deleted_at 记录返回 410 SCREENSHOT_EXPIRED、未知 id 404 SCREENSHOT_NOT_FOUND、thumb/full 的字节与 Cache-Control: immutable、sha256 不匹配任何文件时 404、含 ../ 的 sha 段不越权（404 或路由不匹配）。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

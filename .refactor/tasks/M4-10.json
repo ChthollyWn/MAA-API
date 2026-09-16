@@ -1,0 +1,52 @@
+{
+  "id": "M4-10",
+  "milestone": "M4",
+  "title": "services/log_wiring.py + main.py：lifespan 起 LogHub 与三路接线、关闭 flush，并挂载 logs/ws/screenshots 路由",
+  "depends": [
+    "M4-03",
+    "M4-04",
+    "M4-05",
+    "M4-07",
+    "M4-08",
+    "M4-09"
+  ],
+  "reads": [
+    "docs/02-系统架构设计.md#7-应用生命周期",
+    "docs/12-实施计划与里程碑.md#m4--日志与-websocketl",
+    "docs/06-实时日志与WebSocket.md#41-自定义-handler",
+    "docs/06-实时日志与WebSocket.md#42-接住-uvicorn-的日志",
+    "docs/06-实时日志与WebSocket.md#43-子进程的-python-日志",
+    "docs/06-实时日志与WebSocket.md#55-与子进程的关系",
+    "docs/06-实时日志与WebSocket.md#61-三个出口",
+    "docs/06-实时日志与WebSocket.md#63-背压策略",
+    "docs/04-数据模型与持久化.md#83-lifespan-里的自动迁移",
+    "docs/04-数据模型与持久化.md#104-清理任务的实现要点",
+    ".refactor/ENVIRONMENT.md#验证命令的陷阱",
+    ".refactor/ENVIRONMENT.md#m3-09-实测corsmiddleware-的-fullmatch--iter_route_contexts-两种对象--lifespan-夹具顺序第-25-次尝试追加",
+    "tests/fixtures/log_ws_probe_findings.md"
+  ],
+  "constraints": [
+    "lifespan 只加 docs/02 §7 的第 3 步（启动 LogHub、接 Python logging handler 与 asst.log tail）：不得启动 CoreSupervisor / DeviceManager / PipelineRunner / APScheduler（docs/12 M4 的权威工作项清单不含它们，M5/M6 再接），CALLBACK/LOG 的接线以 install_core_logging(client, ...) 的形式留给后续里程碑显式调用；lifespan 里任何一步都不允许阻塞等待子进程（docs/02 §7 第 4 步的原话），新增的 LogHub/tailer 启动本身必须是常量级耗时。",
+    "对外 API（约定，verify 按名断言）：install_service_logging(hub=None, *, log_dir=None) -> None、install_core_logging(client, hub=None, translator=None) -> CallbackTranslator、start_core_debug_tailer(hub=None, *, path=None, interval=0.2) -> asyncio.Task、async stop_logging(tailer_task=None, hub=None) -> None。client 只要求有 on(event_type, handler)（CoreClient 契约），缺 on 时抛 TypeError；provider 缺省一律走 get_log_hub()。",
+    "asst.log 路径解析：settings.maa_core_path 非空用它，否则 REPO_ROOT/resource/lib/maa/{platform.system()}/debug/asst.log（沿用旧 asst_manager.py 的平台目录约定，REPO_ROOT 由 maa_api.settings 提供）；路径不存在时空转，绝不创建文件或目录。",
+    "关闭顺序按 docs/02 §7 尾段：先 manager.close_all(1001, \"server_shutdown\")，再取消 tailer 任务、await hub.aclose() 刷残留批次；退出段要幂等，未启动成功的组件不报错。",
+    "装配纪律：路由前缀写在各自模块里（system / tasks / logs / ws / screenshots），main.py 只 include_router(...) 不在挂载处拼前缀；hub 实例写进 app.state.log_hub 并 set_log_hub(hub)，关闭时清空，测试可据此替换。"
+  ],
+  "deliverables": [
+    "maa_api/services/log_wiring.py",
+    "maa_api/main.py",
+    "tests/api/test_app_log_wiring.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"import maa_api.services.log_wiring as w; missing=[n for n in ('install_service_logging','install_core_logging','start_core_debug_tailer','stop_logging') if not hasattr(w,n)]; assert not missing, missing\"",
+    ".venv/bin/python -c \"import maa_api.main as m; paths=set(m.app.openapi()['paths']); need={'/api/system/health','/api/tasks/types','/api/system/logs','/api/system/logs/export','/api/screenshots','/api/screenshots/{id}','/api/images/{sha256}/thumb','/api/images/{sha256}/full'}; assert need <= paths, sorted(paths)\"",
+    ".venv/bin/python -m pytest -q tests/api",
+    ".venv/bin/python -m pytest -q tests/services tests/test_log_module.py",
+    ".venv/bin/python scripts/api_smoke.py"
+  ],
+  "prompt_extra": "改 main.py 前先读当前内容：只动 lifespan 的第 3 步与 include_router 列表，保留 M3 的 CORS/OpenAPI 元数据/注释结构，别整文件重写。测试用 tests/api 的 tmp_settings + isolated_db + make_client（顺序不能反，M3-09 已实测）跑真实 lifespan：断言 hub 已 start 且 app.state.log_hub 存在、tailer 任务在跑且指向不存在的路径时空转不建文件、logger 打一条 WARNING 后能立刻在环形缓冲里取到（source=service）、关闭后 hub 的残留批次已落库且 WS 连接收到 server_shutdown/1001；再用 install_core_logging 接一个替身 client（有 on()）注入 LOG 与 CALLBACK，断言分别产出 service（logger 带 core_worker 前缀）与 task 源的日志。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

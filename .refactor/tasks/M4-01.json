@@ -1,0 +1,40 @@
+{
+  "id": "M4-01",
+  "milestone": "M4",
+  "title": "M4 前置实测：WS 路由与关闭码、跨线程入队、IPC 事件载荷、asst.log tail 语义",
+  "depends": [],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m4--日志与-websocketl",
+    "docs/06-实时日志与WebSocket.md#2-统一的日志记录结构",
+    "docs/06-实时日志与WebSocket.md#54-实现",
+    "docs/06-实时日志与WebSocket.md#61-三个出口",
+    "docs/06-实时日志与WebSocket.md#71-端点与鉴权",
+    "docs/06-实时日志与WebSocket.md#77-断线重连与日志补发",
+    "docs/05-API规范与路由清单.md#54-websocket-的鉴权",
+    "docs/13-决策记录.md#5-需要实测验证的假设",
+    ".refactor/ENVIRONMENT.md#验证命令的陷阱",
+    "tests/fixtures/api_probe_findings.md#必读结论"
+  ],
+  "constraints": [
+    "本卡只产出探针与结论，不改任何生产代码；探针不得 import 尚不存在的模块（maa_api.services.log_hub、maa_api.api.ws、maa_api.services.callback_translator、maa_api.util.image 等），只测框架行为与 M1–M3 已交付的契约。",
+    "结论必须是可判定的布尔值：写进 tests/fixtures/log_ws_probe_result.json 的 required_checks（键名 = 下面 11 条的名字，全 true 才算 probe_ok），每条同时在 tests/fixtures/log_ws_probe_findings.md 以同名小节写「结论 + 原始数据 + 对 M4 实现的影响」。",
+    "探针不得联网、不得 dlopen MaaCore、不得触碰真实 resource/maa_api.db 与 config.yaml、不得依赖真机；本机没有 websockets 包也没有 websocat（实测），WS 只能走 fastapi.testclient 或标准库 socket。",
+    "必测 11 条：① WS 路由不进 app.openapi()['paths']，fastapi.routing.iter_route_contexts 对被 include 的 WS 路由给不出路径，只有模块级 router.routes[*].path 可靠（决定 WS 卡 verify 的写法）；② accept() 后 close(4401) 在 TestClient 侧是 WebSocketDisconnect.code==4401；③ 连不存在的 WS 路径同样抛 WebSocketDisconnect，但 code 是 1000（不能用「连不上」断言路由缺失）；④ TestClient 必须用 with 上下文才跑 lifespan；⑤ maa_api.api.deps.extract_token(websocket) 能取 query 与 cookie 且 query 优先；⑥ 裸线程里 asyncio.Queue.put_nowait 能否唤醒事件循环消费者（记录实测延迟，决定 LogHub.offer 是否需要 loop.call_soon_threadsafe）；⑦ deque(maxlen=N) 多线程 append 后长度恒为 N；⑧ CoreClient 分派给 LOG / CALLBACK handler 的 payload 键集（是否含 envelope ts，决定 LogRecord.ts 取事件到达时刻还是 IPC ts）；⑨ asst.log tail 语义：rename 轮转后旧句柄可读到 EOF、新文件 st_ino 变化，截断时 st_size 小于上次 offset，半行（无换行符）不消费，errors=\"replace\" 读非 UTF-8 字节不抛；⑩ LogRepository.bulk_insert 提交后 LogEntry.id 已回填且单调（决定环形缓冲与补发游标的 id 来源）；⑪ 本机可用的 WS 客户端手段盘点（websockets 包与 websocat 均缺失 → 冒烟默认模式只能用 TestClient，advisory 用裸 socket）。",
+    "docs/13 §5 的纪律：这些假设不阻塞开工，但必须在动手前用最小脚本跑一次，否则会照着错误假设写实现；结论与卡面预期相反时照实记录并写明实现该怎么改，不许改探针迁就卡面。"
+  ],
+  "deliverables": [
+    "scripts/probe_log_ws.py",
+    "tests/fixtures/log_ws_probe_result.json",
+    "tests/fixtures/log_ws_probe_findings.md"
+  ],
+  "verify": [
+    ".venv/bin/python scripts/probe_log_ws.py",
+    ".venv/bin/python -c \"import json; d=json.load(open('tests/fixtures/log_ws_probe_result.json',encoding='utf8')); rc=d.get('required_checks'); assert isinstance(rc,dict) and len(rc)>=11, rc; bad=[k for k,v in rc.items() if not v]; assert not bad, bad; assert d.get('probe_ok') is True, d.get('probe_ok')\"",
+    ".venv/bin/python -c \"import json; d=json.load(open('tests/fixtures/log_ws_probe_result.json',encoding='utf8')); s=open('tests/fixtures/log_ws_probe_findings.md',encoding='utf8').read(); missing=[k for k in d['required_checks'] if k not in s]; assert not missing, missing\""
+  ],
+  "prompt_extra": "形态照 M3-01 的 scripts/probe_api_skeleton.py：脚本自带 required_checks 字典、结果写 JSON、结论文档写 md。第 ⑧ 条可用 tests.fakes 的替身 supervisor + CoreClient 的公开 on() 走真实分派，也可直接驱动其私有 _handle_event（探针允许）；关键是把「handler 实际收到哪些键」测出来。第 ⑥ 条要在事件循环里等消费者收到消息并记录毫秒级延迟，别只看 put 是否抛异常。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

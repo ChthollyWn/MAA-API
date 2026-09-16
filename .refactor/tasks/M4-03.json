@@ -1,0 +1,39 @@
+{
+  "id": "M4-03",
+  "milestone": "M4",
+  "title": "maa_api/log.py 改造：文件/控制台 handler 零 import 副作用 + token 脱敏 formatter + 幂等装配",
+  "depends": [
+    "M4-02"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m4--日志与-websocketl",
+    "docs/06-实时日志与WebSocket.md#4-第二路python-服务日志",
+    "docs/06-实时日志与WebSocket.md#71-端点与鉴权",
+    "docs/06-实时日志与WebSocket.md#11-待确认的开放问题",
+    "docs/13-决策记录.md#2-其余决策速记",
+    ".refactor/ENVIRONMENT.md#基础工具链",
+    ".refactor/ENVIRONMENT.md#验证命令的陷阱"
+  ],
+  "constraints": [
+    "对外 API（约定）：configure_file_logging(log_dir=None, *, level=logging.DEBUG) -> None，幂等（重复调用不重复挂 handler）；log_dir 缺省用 <resource>/log，resource 根在调用时从 maa_api.db.session.DB_PATH 的父目录推导（与 retention_service 同法，isolated_db 夹具因此同样生效），目录不存在时按需创建；文件名沿用 {date}.log 与 {date}.error.log 两个 RotatingFileHandler（maxBytes=10**6、backupCount=20、encoding=\"utf-8\"）。",
+    "import 期零副作用：不得 mkdir、不得开文件、不得读 config.yaml、不得 import 旧 maa_api.config.config（.refactor/ENVIRONMENT.md 已记：旧 log.py 在 import 期 mkdir + 开 RotatingFileHandler + import 旧 config，CWD 非仓库根时直接 RuntimeError；main.py 的注释明确它的 LogHub 改造是 M4 的工作）。",
+    "token 脱敏必须生效在控制台与两个文件 handler 的 formatter 上，脱敏函数复用 maa_api.services.log_hub.mask_token（query 里的 token 一律变 token=***；docs/06 §7.1：token 会出现在访问日志 URL 里）。",
+    "保留 docs/06 §4.1 的结论：文件日志是排障的最后防线，不能因为引入数据库就砍掉；LogHubHandler 由 services/log_hub.py 提供、在 lifespan 里 attach，本卡不重复实现，也不得在 import 期 attach。",
+    "handler 挂在 maa_api logger 与 uvicorn.access / uvicorn.error 上（照旧 log.py 的接线），但挂载只发生在 configure_file_logging 被显式调用之后。"
+  ],
+  "deliverables": [
+    "maa_api/log.py",
+    "tests/test_log_module.py"
+  ],
+  "verify": [
+    "ROOT=$PWD; cd \"$(mktemp -d)\" && PYTHONPATH=\"$ROOT\" \"$ROOT/.venv/bin/python\" -c \"import os, sys, maa_api.log; assert 'maa_api.config' not in sys.modules, 'imported legacy config'; assert os.listdir(os.getcwd())==[], os.listdir(os.getcwd()); print('no import side effects')\"",
+    "ROOT=$PWD; D=$(mktemp -d); \"$ROOT/.venv/bin/python\" -c \"import logging, pathlib, sys; from maa_api.log import configure_file_logging; d=pathlib.Path(sys.argv[1]); configure_file_logging(d); configure_file_logging(d); names=sorted(p.name for p in d.iterdir()); assert len(names)==2, names; logging.getLogger('maa_api.smoke').warning('GET /api/ws?token=secret123&x=1 HTTP/1.1'); [h.flush() for h in logging.getLogger('maa_api').handlers]; text=''.join(p.read_text(encoding='utf8') for p in d.iterdir()); assert 'secret123' not in text, text; assert 'token=***' in text, text; print('masked ok')\" \"$D\"; rc=$?; rm -rf \"$D\"; exit $rc",
+    ".venv/bin/python -c \"import maa_api.log as L; assert hasattr(L,'configure_file_logging'), dir(L)\"",
+    ".venv/bin/python -m pytest -q tests/test_log_module.py"
+  ],
+  "prompt_extra": "这是旧文件的重写，但交付纪律一样：读当前 maa_api/log.py 再写，保留可用的部分（formatter 形态、两个轮转文件、uvicorn logger 接线），去掉全部 import 期动作。verify 第 1 条会真的在空目录里 import 本模块并在仓库外运行；第 2 条检查两个文件都建出来且脱敏在文件里生效（日志走 maa_api logger 传播到 handler）。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

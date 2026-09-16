@@ -1,0 +1,41 @@
+{
+  "id": "M4-04",
+  "milestone": "M4",
+  "title": "services/callback_translator.py：三张回调映射表迁移 + 新增回调类型 + 未映射兜底",
+  "depends": [
+    "M4-02"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m4--日志与-websocketl",
+    "docs/06-实时日志与WebSocket.md#2-统一的日志记录结构",
+    "docs/06-实时日志与WebSocket.md#31-采集链路",
+    "docs/06-实时日志与WebSocket.md#32-连接信息映射表connectioninfo",
+    "docs/06-实时日志与WebSocket.md#33-子任务开始映射表subtaskstart",
+    "docs/06-实时日志与WebSocket.md#34-子任务额外信息映射表subtaskextrainfo",
+    "docs/06-实时日志与WebSocket.md#35-新增回调类型的处理",
+    "docs/03-MaaCore内核层设计.md#6-任务完成的判定",
+    ".refactor/ENVIRONMENT.md#maacore-内核"
+  ],
+  "constraints": [
+    "映射表逐字迁移 docs/06 §3.2/§3.3/§3.4：CONNECTION_MAP（12 条 + ResolutionInfo）、SUB_TASK_START_MAP（22 条）、EXTRA_INFO_MAP（10 条）；ConnectFailed 为准键、ConnectFaild 作兼容别名且两键同文案（实测内核 v6.17.5 发的是 ConnectFailed，旧代码的拼写错误让最关键那条从未命中）。",
+    "对外 API（约定）：CallbackTranslator 无参可构造，方法 translate(msg: Message, details: dict) -> list[LogRecord]；模块级表名 CONNECTION_MAP / SUB_TASK_START_MAP / EXTRA_INFO_MAP。产出的 LogRecord 一律 source=\"task\"、level 用大写、raw 原样保留 {msg, details}；ts 取事件到达主进程并进入 LogHub 的时刻（M4-01 第 ⑧ 条：CoreClient 分派给 handler 的是 payload，不含 envelope ts）。本卡只做翻译：不碰状态机、不写库、不 import 服务层以外的模块。",
+    "新增回调类型按 docs/06 §3.5：TaskChainStopped(10004) → WARNING「任务已中止 [{task_name}]」且语义是 CANCELLED、不进重试；AllTasksCompleted(3) → INFO「全部任务已完成」；InternalError(0) / InitFailed(1) → ERROR；Destroyed(5) → DEBUG；SubTaskError(20000) → WARNING，文案取 details.details.task 原文（无中文映射就直接展示英文）；TaskChainExtraInfo(10003) / SubTaskCompleted(20002) / SubTaskStopped(20004) 首版只记 DEBUG 并保留 raw；ResolutionInfo 默认 DEBUG（与 ResolutionGot 重复，避免前端两行几乎一样）。",
+    "未命中白名单的 what 不再静默丢弃：产 DEBUG 日志「未映射回调 {msg_name}.{what}」并完整保留 raw（三张表是白名单，MAA 升级新增回调时要能被发现）。",
+    "StageDrops 的掉落明细按 `{itemName}: {quantity}(+{addQuantity})` 逐项拼接、以换行连接（docs/06 §3.4 的实现片段照搬）；文案里的全角冒号、方括号、空格逐字保留，不得顺手改写文案。"
+  ],
+  "deliverables": [
+    "maa_api/services/callback_translator.py",
+    "tests/services/test_callback_translator.py"
+  ],
+  "verify": [
+    ".venv/bin/python -c \"import maa_api.services.callback_translator as m; assert len(m.SUB_TASK_START_MAP)==22, len(m.SUB_TASK_START_MAP); assert len(m.EXTRA_INFO_MAP)==10, len(m.EXTRA_INFO_MAP); assert {'ConnectFailed','ConnectFaild','ResolutionInfo','Connected','ResolutionGot','ScreencapFailed','Disconnect'} <= set(m.CONNECTION_MAP), sorted(m.CONNECTION_MAP); assert m.CONNECTION_MAP['ConnectFailed']==m.CONNECTION_MAP['ConnectFaild']\"",
+    ".venv/bin/python -c \"from maa_api.core.enums import Message; from maa_api.services.callback_translator import CallbackTranslator; t=CallbackTranslator(); rs=t.translate(Message.SubTaskExtraInfo, {'what':'SanityBeforeStage','details':{'current_sanity':120,'max_sanity':135}}); assert len(rs)==1, rs; r=rs[0]; assert r.content=='当前理智：120/135' and r.source=='task' and r.level=='INFO', (r.content, r.source, r.level); assert r.raw and r.raw.get('what')=='SanityBeforeStage', r.raw\"",
+    ".venv/bin/python -c \"from maa_api.core.enums import Message; from maa_api.services.callback_translator import CallbackTranslator; t=CallbackTranslator(); r=t.translate(Message.TaskChainStopped, {'taskchain':'Fight','details':{'task':'Fight'}})[0]; assert r.level=='WARNING' and r.content.startswith('任务已中止') and 'Fight' in r.content, (r.level, r.content); u=t.translate(Message.SubTaskStart, {'what':'SomethingBrandNew','details':{'task':'X'}})[0]; assert u.level=='DEBUG' and u.content.startswith('未映射回调') and u.raw, (u.level, u.content)\"",
+    ".venv/bin/python -m pytest -q tests/services/test_callback_translator.py"
+  ],
+  "prompt_extra": "三个映射表要与 docs/06 的表格逐行对照（行数用 verify 钉死），文案里的全角标点别改。新增回调类型的级别与文案在 docs/06 §3.5 都有原文，照抄。单测至少覆盖：三张表每一条都能命中（可用参数化）、StageDrops 多行拼接、SubTaskError 无映射时展示英文 task 名、未映射 what 的兜底、ConnectionInfo 的 details 子对象取值（如 ResolutionGot 的 height/width）。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}
