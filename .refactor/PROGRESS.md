@@ -4,10 +4,11 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**32 / 34** 张卡完成
+- 进度：**34 / 34** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=4 workerRuns=10（启动于 2026-09-16T10:55:38.476Z）
-- 更新时间：2026-09-16T12:05:14.481Z
+- 进程内统计：cycle=4 workerRuns=12（启动于 2026-09-16T10:55:38.476Z）
+- 更新时间：2026-09-16T12:16:39.446Z
+- ⛔ **已停机**：里程碑 M2 的 12 张卡全部 done，但 .refactor/DEFECTS.md 里还有 1 条未修复缺陷，拒绝打 tag：- [ ] M2-01 | `tests/fixtures/db_probe_findings.md` §2 与 §6.5 记录的 auto_vacuum「唯一生效放置」不完整：只 `conn.exec_driver_sql("PRAGMA
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -43,5 +44,5 @@
 | M2-08 | 仓储层（二）：LogRepository（攒批插入/游标查询/两维清理）+ ScreenshotRepository | done | 1 | d68849c |  |
 | M2-09 | 仓储层（三）：ScheduleRepository + SettingRepository（JSON 值保型与覆盖层语义） | done | 1 | 0052d9d |  |
 | M2-10 | 仓储层（四）：AgentSession/AgentMessage/Audit + Confirmation（审计裁剪与终态不可变） | done | 1 | b2f5926 |  |
-| M2-11 | 仓储层（五）：UpdateRepository + NotifyChannelRepository + ResourceAssetRepository（部分唯一索引与 CHECK 生效） | running | 0 | — |  |
-| M2-12 | 保留策略与后台清理：services/retention_service.py（分级日志/流水线/截图/临时图 + 增量 vacuum） | pending | 0 | — |  |
+| M2-11 | 仓储层（五）：UpdateRepository + NotifyChannelRepository + ResourceAssetRepository（部分唯一索引与 CHECK 生效） | done | 1 | 52593ad |  |
+| M2-12 | 保留策略与后台清理：services/retention_service.py（分级日志/流水线/截图/临时图 + 增量 vacuum） | done | 1 | ec1d368 |  |

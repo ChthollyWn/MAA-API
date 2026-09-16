@@ -320,3 +320,16 @@
 - **`upsert_by_kind_name` 的 `kind` / `name` 是位置参数，传不进 `**fields`**：`upsert(kind, name, kind="copilot")`
   在 Python 层就是 `TypeError: got multiple values for argument 'kind'`，仓储不需要（也无法）为业务键写 ValueError 分支；
   只有 `id` / `created_at` / 未知列名这类键能进 `**fields`，在那上面校验即可。
+
+### M2-12 实测：incremental_vacuum 在 auto_vacuum=NONE 的库上是静默 no-op（第 12 次尝试追加）
+
+- **`PRAGMA incremental_vacuum(1000)` 在没有 `auto_vacuum=INCREMENTAL` 的库上不报错、也不回收任何页**：
+  裸 `sqlite3`（SQLite 3.49.1）实测，删空 200 行后再执行该 pragma，
+  auto_vacuum=NONE 的库 `(page_count, freelist_count)` 从 `(52, 50)` 原地不动；
+  auto_vacuum=INCREMENTAL 的对照库从 `(53, 50)` 变成 `(52, 49)`（真的归还了页）。
+  意义：`create_all` 建的临时测试库全是 auto_vacuum=0（INCREMENTAL 由迁移 `env.py` 设置，M2-04），
+  所以 M2-12 的清理用例跑过、甚至断言「vacuum 不抛异常」，都**不能**证明生产库真在回收空间；
+  要验证回收必须比对 `page_count` / `freelist_count` 的差值，且库得先由 Alembic 迁移建出来。
+- **`incremental_vacuum` 可以在 SQLAlchemy 异步会话的隐式事务里执行**：`await db.execute(text("PRAGMA incremental_vacuum(1000)"))`
+  + `await db.commit()` 在 `sqlite+aiosqlite` 上实测无报错（与完整 `VACUUM` 不同，后者在事务里会失败）；
+  清理服务因此可以复用同一个 `AsyncSession`，不必为 vacuum 另开连接。

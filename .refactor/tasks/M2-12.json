@@ -43,8 +43,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【接口契约（M3 的 lifespan 会按这个接线）】`maa_api/services/retention_service.py` 导出：\n`RETENTION_CRON = \"0 4 * * *\"`、`STARTUP_DELAY_SECONDS = 30`、`async def run_retention(*, session_factory=None) -> dict`；`session_factory=None` 时通过 `maa_api.db.session` 模块属性取（`from maa_api.db import session` 后用 `session.session_factory`，便于测试注入）；返回 dict 至少含 `logs_deleted` / `pipelines_deleted` / `screenshots_deleted` / `temp_files_deleted` 四个 int。\n文件路径同样从 `session.DB_PATH.parent`（默认 `resource/`）推导：截图在 `<resource>/image/screenshot/`（DB 里存相对路径，见 docs/04 §5.4），IPC 中转图在 `<resource>/temp/screencap/`。不要硬编码 `resource/`，测试会把 `session.DB_PATH` 指到 tmp 目录。\n\n【默认值 vs 校准】docs/13 §6 的「日志保留期 14 天 / 200 万条」是旧的整表口径校准索引，本卡以 docs/04 §10.2 的分级表为准（30/7/3 天 + 300k/200k/50k），把天数与条数上限写成模块级常量（便于将来按运行数据回调），不要接 `setting` 表（SettingService 属后续里程碑）。\n\n【实现要点】顺序：日志（每个 source 各一轮，两维取严）→ 流水线（90 天/最近 500）→ 截图（7 天 + 512MB 上限，超限按 created_at 升序删文件并 `mark_deleted`）→ `<resource>/temp/screencap/` 里 mtime 超过 1 小时的文件（不进 DB）→ 每轮结束 `PRAGMA incremental_vacuum(1000)`；分批用 `LogRepository.purge` / `PipelineRepository.purge_before` / `ScreenshotRepository`（M2-07/M2-08 已交付，先读它们的签名）。日志用 logger 记录每轮摘要，异常不要吞（APScheduler 侧会记）。\n\n【测试】`tests/services/conftest.py` 自备临时库 fixture（本仓无 pytest-asyncio，同步测试 + `asyncio.run`，engine 用 `poolclass=NullPool`）；覆盖：按天删、按条数上限删、截图文件删除 + `deleted_at` 打标、临时图 1 小时阈值、未过期文件不受影响。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "ec1d3680b866f71179a4c314b15e5b993d348837",
   "blocked_reason": null
 }
