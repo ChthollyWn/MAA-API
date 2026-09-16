@@ -557,3 +557,14 @@
   （无 `Secure`、会话 cookie）；DELETE → `maa_token=""; expires=<当前时刻>; Max-Age=0; Path=/; SameSite=lax`；仅 cookie 调 POST → 403；错误 token → 401；
   空 token 模式 POST → 204 且无 `Set-Cookie`。`app.state.started_at` 为 `datetime` 时归一成 ISO 8601（健康检查不因写入方类型差异 500）。
 - 本卡实现提交：`50f507d`（refactor/v2）。verify 门禁若回滚工作树，`git cherry-pick 50f507d` 即可找回（与 M3-08 的 `25935e9` 同一处置方式）。
+
+### M3-07 第四次尝试（卡片重置后、前缀约定已写进卡面）：模块内前缀已就位，verify #1 仍结构性失败（第 21 次尝试追加）
+
+- **重置后重跑结论不变**：实现就是「前缀写在模块里」的 `APIRouter(prefix="/api/system", tags=["system"])`（从 `50f507d` 恢复，内容等价），
+  字面 verify #1 依旧 `exit 1` / `AttributeError: '_IncludedRouter' object has no attribute 'path'`。与「挂载处拼前缀」无关，前缀约定不是根因。
+- **不 import 本仓模块的最小复现**（证明与实现无关）：
+  `.venv/bin/python -c "from fastapi import FastAPI, APIRouter; r=APIRouter(prefix='/api/system'); r.get('/health')(lambda: {}); r.post('/auth/cookie')(lambda: {}); a=FastAPI(); a.include_router(r); {x.path for x in a.routes}"`
+  → 同一异常；`include_router` 只向 `a.routes` 追加**一个** `_IncludedRouter`，即便给它补 `.path` 也只可能贡献一条路径，不可能同时凑出 health 与 cookie 两条。
+- 等价 verify（`set(a.openapi()['paths'])`）`exit 0` → `['/api/system/auth/cookie', '/api/system/health']`；卡内 17 passed；全仓 799 passed / 4 skipped（`pytest` exit 0）。
+- **要这张卡过门禁只能改卡面 verify #1**（`{r.path for r in a.routes}` → `set(a.openapi()['paths'])` 或 `{ctx.path for ctx in fastapi.routing.iter_route_contexts(a.routes)}`），实现侧无解。
+  本次实现提交：`b1b37f0`（refactor/v2；verify 门禁若回滚工作树，`git cherry-pick b1b37f0` 找回）。
