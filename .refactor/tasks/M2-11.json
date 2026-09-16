@@ -36,8 +36,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【接口契约（M7 与 M4/M6 按这个用）】\n`UpdateRepository`：`create(record)`、`get(id)`、`current(target)`（返回该 target 的 running 记录或 None）、`list(*, target=None, page=1, size=20)`、`update_progress(id, *, phase=None, progress=None, bytes_total=None, bytes_done=None) -> bool`、`mark_terminal(id, status, *, error_code=None, error_message=None) -> bool`。第三条同 target 的 running 记录必须由数据库的部分唯一索引拒绝（IntegrityError），不要只在服务层查重。\n`NotifyChannelRepository`：`create`、`get`、`list`、`set_enabled(id, enabled) -> bool`、`record_send(id, *, status, error=None) -> bool`（回写 `last_sent_at`/`last_status`/`last_error`）、`delete(id) -> bool`。\n`ResourceAssetRepository`：`create`、`get`、`get_by_kind_name(kind, name)`、`upsert_by_kind_name(kind, name, **fields)`、`list_by_kind(kind, *, enabled=None)`、`set_enabled(id, enabled) -> bool`、`delete(id) -> bool`。\n\n【测试】复用 `tests/db/conftest.py` 的 fixture；同步测试 + `asyncio.run`；约束类用例每次用新 session 并 rollback（IntegrityError 后 session 不可复用）。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "52593addcab89f8e675bc05470bf9dcf16720ed1",
   "blocked_reason": null
 }

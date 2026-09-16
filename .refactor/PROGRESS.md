@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**31 / 34** 张卡完成
+- 进度：**32 / 34** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=4 workerRuns=9（启动于 2026-09-16T10:55:38.476Z）
-- 更新时间：2026-09-16T12:00:38.681Z
+- 进程内统计：cycle=4 workerRuns=10（启动于 2026-09-16T10:55:38.476Z）
+- 更新时间：2026-09-16T12:05:14.481Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -42,6 +42,6 @@
 | M2-07 | 仓储层（一）：BaseRepository + Page 分页 + PipelineRepository/TaskRepository（含 tests/db/conftest.py） | done | 1 | b6f5660 |  |
 | M2-08 | 仓储层（二）：LogRepository（攒批插入/游标查询/两维清理）+ ScreenshotRepository | done | 1 | d68849c |  |
 | M2-09 | 仓储层（三）：ScheduleRepository + SettingRepository（JSON 值保型与覆盖层语义） | done | 1 | 0052d9d |  |
-| M2-10 | 仓储层（四）：AgentSession/AgentMessage/Audit + Confirmation（审计裁剪与终态不可变） | running | 0 | — |  |
-| M2-11 | 仓储层（五）：UpdateRepository + NotifyChannelRepository + ResourceAssetRepository（部分唯一索引与 CHECK 生效） | pending | 0 | — |  |
+| M2-10 | 仓储层（四）：AgentSession/AgentMessage/Audit + Confirmation（审计裁剪与终态不可变） | done | 1 | b2f5926 |  |
+| M2-11 | 仓储层（五）：UpdateRepository + NotifyChannelRepository + ResourceAssetRepository（部分唯一索引与 CHECK 生效） | running | 0 | — |  |
 | M2-12 | 保留策略与后台清理：services/retention_service.py（分级日志/流水线/截图/临时图 + 增量 vacuum） | pending | 0 | — |  |

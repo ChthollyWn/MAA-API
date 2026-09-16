@@ -297,3 +297,26 @@
   `ConfirmationRepository.create()` 一条真实的 `grant_atomic_ops` 确认并 commit，再用它的 id。
 - **SQLModel `table=True` 实例支持 `model_copy(update={...})`**：`AuditRepository.create()` 用它生成「裁剪后的副本」
   再 `merge()`，入参保持原始 base64 不被修改（调用方还要拿原始参数回显/执行），实测副本落库、原对象字段不变。
+
+### M2-11 实测：SQLite 先判 upsert 候选行的 CHECK / sa_column 默认值只在实例构造时存在（第 11 次尝试追加）
+
+- **SQLite 3.49.1 对 `INSERT ... ON CONFLICT ... DO UPDATE` 先求值「插入候选行」的 CHECK，冲突判定在其后**：
+  `resource_asset` 带 `CHECK (content IS NOT NULL OR path IS NOT NULL)`，当目标行已存在、而 upsert 的插入列里既没有
+  `content` 也没有 `path`（例如只更新 `remote_version` / `etag` / `last_checked_at`）时，即使 `ON CONFLICT (kind, name)`
+  本会命中已有行，SQLite 仍直接抛 `IntegrityError: CHECK constraint failed: ck_resource_asset_content_or_path`，
+  `DO UPDATE` 根本不执行（对照：把 `content`/`path` 之一放进插入列后同一条语句正常走 UPDATE）。
+  复现：create_all 建好临时库后插入一行含 `path` 的记录，再执行
+  `INSERT INTO resource_asset (id,kind,name,checksum,enabled,remote_version,etag,created_at,updated_at) VALUES (...)
+  ON CONFLICT (kind, name) DO UPDATE SET remote_version = ?, ...`（省略 content/path）。
+  **结论：`resource_asset` 的 upsert 必须写成「先 UPDATE、`rowcount == 0` 再 INSERT」**，让 CHECK 在真实行上判定；
+  INSERT 路径的并发冲突仍由 `uq_resource_asset_kind_name` 兜底。`SettingRepository.set` 的 ON CONFLICT 写法不受影响
+  （`setting` 表没有 CHECK）。
+- **SQLModel `Field(default_factory=...)` 配 `sa_column` 时不会变成 Column 级默认值**：`ResourceAsset.created_at` /
+  `updated_at` 是 `Field(default_factory=utcnow, sa_column=datetime_column(...))`，ORM 路径（实例构造 + merge/flush）没问题
+  （pydantic 构造时已填好字段）；但 Core `sqlite_insert(ResourceAsset).values(kind=..., name=...)` 生成的 INSERT 列清单
+  里**没有** `created_at` / `updated_at`，直接 `NOT NULL constraint failed: resource_asset.created_at`
+  （实测 SQL：`INSERT INTO resource_asset (id, kind, name, enabled, remote_version) VALUES (...)`；不带 `sa_column` 的
+  `id` / `enabled` 两个 Field 默认值倒是有）。Core 插入这类表时必须显式带全 NOT NULL 的 sa_column 时间戳。
+- **`upsert_by_kind_name` 的 `kind` / `name` 是位置参数，传不进 `**fields`**：`upsert(kind, name, kind="copilot")`
+  在 Python 层就是 `TypeError: got multiple values for argument 'kind'`，仓储不需要（也无法）为业务键写 ValueError 分支；
+  只有 `id` / `created_at` / 未知列名这类键能进 `**fields`，在那上面校验即可。
