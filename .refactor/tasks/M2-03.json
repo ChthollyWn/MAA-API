@@ -33,8 +33,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【已实测的写法（M2-01，详见 ENVIRONMENT.md 与 tests/fixtures/db_probe_findings.md）】① 命名约定必须在**任何表类定义之前**设置：`SQLModel.metadata.naming_convention = {...}` 放在 `models.py` 顶部；② SQLite 的 `AUTOINCREMENT` 只能靠 `__table_args__` 里加 `{\"sqlite_autoincrement\": True}` 才会出现在 DDL；③ 部分唯一索引用 `Index(name, cols, unique=True, sqlite_where=text(\"...\"))` 放进 `__table_args__`。先读这份 findings 再动手。\n\n【范围】只写 `maa_api/db/models.py`（13 张表 + `utcnow()` + 命名约定），测试写 `tests/db/test_models.py`；不写迁移（M2-04）、不写仓储（M2-07~M2-11）、不写服务。列定义严格照 docs/04 §5 的字段表，缺列漏索引会在下游全部返工。\n\n【§7 的四个坑】`sa_column` 一旦使用，`Field()` 上的列级参数（nullable/index/unique/default/max_length）全部失效，必须写进 `Column(...)`；`Column` 实例不能被两个模型共用（需要工厂函数）；JSON 列的原地修改不被 ORM 追踪，本项目选整体赋值；JSON 内部字段可用 `json_extract` 但不常查。\n\n【索引清单】除 §6 表里的 21 条外不要多建：`log_entry`/`agent_message`/`agent_audit` 三张高频写表索引总数各不超过 3 条。注意 `uq_agent_message_session_seq(session_id, seq)`、`uq_task_pipeline_order`、`uq_task_pipeline_maa_task`、`uq_pipeline_idempotency_key`、`uq_resource_asset_kind_name` 这些名字与 §6 不一致时 verify 会失败。\n\n【测试】`tests/db/test_models.py` 用同步测试 + 临时库（`create_all` 只用于测试；生产建表永远走 Alembic，见 docs/04 §8.3），断言 DDL 与约束语义；不要往仓库 `resource/` 写测试库。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "ed1c5852aa1603254b6b399a4b6337d15ea99689",
   "blocked_reason": null
 }

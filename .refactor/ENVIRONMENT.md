@@ -143,3 +143,25 @@
   但指向 tmp 库，直接 `session_factory(bind=<临时引擎>)` 即可 —— `__call__` 会把 local_kw 合并进 `kw`；
   `sqlalchemy.inspect(obj).expired` 是验证 `expire_on_commit` 的有效信号（提交后 True = 被过期，
   False = 仍可直接读字段做 WebSocket 广播）。
+
+### M2-03 实测：AutoString / JSON none_as_null / 循环外键（第 4 次尝试追加）
+
+- **SQLModel 的字符串列是 `sqlmodel.sql.sqltypes.AutoString`（`TypeDecorator` 子类），不是 `sa.String` 子类**：
+  `isinstance(AutoString(length=16), sa.String)` 为 **False**，且 `AutoString.python_type` 抛
+  `NotImplementedError`。断言列类型别用 `isinstance`，用编译结果最稳：
+  `str(col.type.compile(dialect=sqlite.dialect()))` → `VARCHAR(16)` / `TEXT` / `JSON`（本卡测试的 `sql_type()` 即此写法）。
+- **`sa.JSON` 默认 `none_as_null=False`：Python `None` 会被序列化成 JSON 字面量字符串 `'null'`，不是 SQL NULL。**
+  后果是「可空 JSON 列」里躺的是非 NULL 的 `'null'`：`WHERE col IS NULL` 查不到，且
+  `resource_asset` 的 `CHECK (content IS NOT NULL OR path IS NOT NULL)` 被静默绕过（M2-03 实测：
+  ORM 插入 NULL content 不报错）。修法 `Column(name, JSON(none_as_null=True), ...)`。
+  **`none_as_null` 必须传给 `JSON(...)` 构造器**；传给 `Column(..., none_as_null=True)` 会被当成 dialect 参数
+  （按首个下划线拆成 dialect `none`），只发一条 `SAWarning: Can't validate argument 'none_as_null'; can't locate
+  any SQLAlchemy dialect named 'none'` 然后静默不生效 —— 本卡第一次就是这么写错的，靠测试输出的 warning 摘要注意到。
+- **命名约定不会改写显式约束名**：约定里没有 `%(constraint_name)s` 时，`UniqueConstraint(..., name="uq_x")`
+  原样保留；`ck` 约定 `ck_%(table_name)s_%(constraint_name)s` 会把显式名加上表名前缀
+  （`name="content_or_path"` → `ck_resource_asset_content_or_path`）。`Index(name, ...)` 显式命名时约定完全不介入。
+- **SQLite 上循环外键可以直接 `create_all`**：`pipeline↔schedule`、`confirmation↔agent_audit`、
+  `agent_session→confirmation→agent_audit→agent_session` 这些环在 SQLite 全部内联成
+  `CONSTRAINT ... FOREIGN KEY ... REFERENCES ...`，不报 `CircularDependencyError`，无需 `use_alter`。
+- **`screenshot.trigger` 与 `setting.key` 是 SQLite 保留字**，SQLAlchemy 会自动加引号（DDL 里是
+  `"trigger"` / `"key"`），能正常建表与读写；写 DDL 断言时要按带引号的形态匹配。
