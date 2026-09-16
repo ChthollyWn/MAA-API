@@ -59,3 +59,8 @@
 - `config.yaml` 已从跟踪中移除（本地保留），模板为 `config.template.yaml`。
 - `.refactor/logs/`、`.refactor/state.json`、`.refactor/PAUSE`、`.refactor/TRIGGER`、`.refactor/orchestrator.lock`、`.refactor/orchestrator-src/` 均已 gitignore。
 - **worker 只 `git add` 自己的 deliverables**，绝不 `git add -A`：`.refactor/` 下的台账由编排器负责提交。
+- **改动共享文件前必须重新读取当前内容，不要基于旧印象整文件重写。** 实测教训：M0-05 卡的
+  deliverables 含 `.gitignore`，它把编排器刚追加的 `.refactor/orchestrator.lock` 规则一起覆盖掉了。
+  那条规则失效后，失败回滚的 `git clean -fd` 会删掉锁文件，进而可能让两个编排器实例同时驱动同一个
+  仓库。凡 deliverables 含被多方改动的文件（`.gitignore`、`pyproject.toml`、`config*.yaml`），
+  一律「读当前内容 + 追加/局部替换」，不要整体重写。
