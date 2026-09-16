@@ -19,7 +19,8 @@
     "docs/04-数据模型与持久化.md#104-清理任务的实现要点",
     "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题",
     ".refactor/ENVIRONMENT.md#验证命令的陷阱",
-    "tests/fixtures/log_ws_probe_findings.md"
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "LogRecord 字段与 docs/06 §2 逐项一致：id、ts、source、level、content、pipeline_id、task_id、logger、raw、attachment；id 缺省 0，其余可选字段都有默认值，可用关键字构造（LogRecord(ts=..., source=..., level=..., content=...)）。source 用 wire 名 task|service|core，level 用大写 DEBUG|INFO|WARNING|ERROR|CRITICAL。",

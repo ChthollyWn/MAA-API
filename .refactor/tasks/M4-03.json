@@ -12,7 +12,9 @@
     "docs/06-实时日志与WebSocket.md#11-待确认的开放问题",
     "docs/13-决策记录.md#2-其余决策速记",
     ".refactor/ENVIRONMENT.md#基础工具链",
-    ".refactor/ENVIRONMENT.md#验证命令的陷阱"
+    ".refactor/ENVIRONMENT.md#验证命令的陷阱",
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "对外 API（约定）：configure_file_logging(log_dir=None, *, level=logging.DEBUG) -> None，幂等（重复调用不重复挂 handler）；log_dir 缺省用 <resource>/log，resource 根在调用时从 maa_api.db.session.DB_PATH 的父目录推导（与 retention_service 同法，isolated_db 夹具因此同样生效），目录不存在时按需创建；文件名沿用 {date}.log 与 {date}.error.log 两个 RotatingFileHandler（maxBytes=10**6、backupCount=20、encoding=\"utf-8\"）。",

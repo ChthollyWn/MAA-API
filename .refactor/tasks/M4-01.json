@@ -33,8 +33,8 @@
     ".venv/bin/python -c \"import json; d=json.load(open('tests/fixtures/log_ws_probe_result.json',encoding='utf8')); s=open('tests/fixtures/log_ws_probe_findings.md',encoding='utf8').read(); missing=[k for k in d['required_checks'] if k not in s]; assert not missing, missing\""
   ],
   "prompt_extra": "形态照 M3-01 的 scripts/probe_api_skeleton.py：脚本自带 required_checks 字典、结果写 JSON、结论文档写 md。第 ⑧ 条可用 tests.fakes 的替身 supervisor + CoreClient 的公开 on() 走真实分派，也可直接驱动其私有 _handle_event（探针允许）；关键是把「handler 实际收到哪些键」测出来。第 ⑥ 条要在事件循环里等消费者收到消息并记录毫秒级延迟，别只看 put 是否抛异常。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "e80a5b23fb9b8d6c065c8a305b9df164c002015a",
   "blocked_reason": null
 }

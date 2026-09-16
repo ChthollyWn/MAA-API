@@ -13,7 +13,9 @@
     "docs/04-数据模型与持久化.md#54-screenshot--截图归档",
     "docs/08-ADB连接与账号渠道.md#8-截图质量与性能",
     "docs/08-ADB连接与账号渠道.md#82-移动端的尺寸与压缩策略",
-    "docs/13-决策记录.md#adr-03--ipc-用-multiprocessing-queue"
+    "docs/13-决策记录.md#adr-03--ipc-用-multiprocessing-queue",
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "对外 API（约定）：store_screenshot(image, *, quality=None) -> dict；接受 PIL Image 或已编码图像 bytes / 路径。写盘位置 resource/image/screenshot/{sha256 前 2 位}/{sha256}.jpg，缩略图同目录 {sha256}.thumb.jpg（主文件布局来自 docs/06 §8.2，缩略图文件名是本地约定）。同一内容重复调用必须命中同一路径且不重复写盘（内容哈希天然去重）。",

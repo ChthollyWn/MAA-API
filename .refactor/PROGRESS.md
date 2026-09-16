@@ -4,11 +4,11 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 里程碑：✅ M0 7/7 基线准备　｜　✅ M1 15/15 MaaCore 内核层　｜　✅ M2 14/14 数据层　｜　🔧 M3 10/11 API 骨架　｜　· M4 未拆解　｜　· M5 未拆解　｜　· M6 未拆解　｜　· M7 未拆解　｜　· M8 未拆解　｜　· M9 未拆解　｜　· M10 未拆解　｜　· M11 未拆解　｜　· M12 未拆解　｜　· M13 未拆解　｜　· M14 未拆解　｜　· M15 未拆解
-- 进度：**46 / 47** 张卡完成
+- 里程碑：✅ M0 7/7 基线准备　｜　✅ M1 15/15 MaaCore 内核层　｜　✅ M2 14/14 数据层　｜　✅ M3 11/11 API 骨架　｜　🔧 M4 0/11 日志与 WebSocket　｜　· M5 未拆解　｜　· M6 未拆解　｜　· M7 未拆解　｜　· M8 未拆解　｜　· M9 未拆解　｜　· M10 未拆解　｜　· M11 未拆解　｜　· M12 未拆解　｜　· M13 未拆解　｜　· M14 未拆解　｜　· M15 未拆解
+- 进度：**47 / 58** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=11 workerRuns=8（启动于 2026-09-16T13:59:13.611Z）
-- 更新时间：2026-09-16T14:49:13.531Z
+- 进程内统计：cycle=11 workerRuns=10（启动于 2026-09-16T13:59:13.611Z）
+- 更新时间：2026-09-16T15:04:24.717Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -58,4 +58,15 @@
 | M3-08 | api/routers/tasks.py：GET /api/tasks/types（9 类 schema 导出）、/types/{type_name} 与 POST /api/tasks/validate（渠道默认值注入） | done | 1 | 79068f5 |  |
 | M3-09 | main.py 应用装配：lifespan（docs/02 §7 顺序）、CORS 白名单修正、OpenAPI 元数据/tag 分组/operation_id/redirect_slashes | done | 1 | 7c076f0 |  |
 | M3-10 | 端到端冒烟脚本 scripts/api_smoke.py：真实 app 装配 + lifespan 迁移 + 鉴权/校验/文档全链路（含 --serve 真实 uvicorn 模式） | done | 1 | 5cc4836 |  |
-| M3-11 | 让 AppError 与异常处理器支持响应头，使 429/503 能真的发出 Retry-After | running | 0 | — |  |
+| M3-11 | 让 AppError 与异常处理器支持响应头，使 429/503 能真的发出 Retry-After | done | 1 | b06a81b |  |
+| M4-01 | M4 前置实测：WS 路由与关闭码、跨线程入队、IPC 事件载荷、asst.log tail 语义 | running | 0 | — |  |
+| M4-02 | services/log_hub.py：LogRecord、环形缓冲、背压分级、攒批落库，以及 LogHubHandler 与三源/级别映射常量 | pending | 0 | — |  |
+| M4-03 | maa_api/log.py 改造：文件/控制台 handler 零 import 副作用 + token 脱敏 formatter + 幂等装配 | pending | 0 | — |  |
+| M4-04 | services/callback_translator.py：三张回调映射表迁移 + 新增回调类型 + 未映射兜底 | pending | 0 | — |  |
+| M4-05 | services/asst_log_tailer.py：asst.log 轮询 tail（inode/截断/续行/级别过滤） | pending | 0 | — |  |
+| M4-06 | util/image.py：store_screenshot 内容哈希落盘 + 同步缩略图 + attachment 结构 | pending | 0 | — |  |
+| M4-07 | api/ws.py：WebSocket 端点、消息协议、ConnectionManager、订阅过滤与断线补发 | pending | 0 | — |  |
+| M4-08 | 历史日志接口：扩展 LogRepository + api/routers/logs.py（查询/游标分页/导出/清理） | pending | 0 | — |  |
+| M4-09 | api/routers/screenshots.py：截图归档列表/详情 + /api/images 内容寻址缩略图与原图 | pending | 0 | — |  |
+| M4-10 | services/log_wiring.py + main.py：lifespan 起 LogHub 与三路接线、关闭 flush，并挂载 logs/ws/screenshots 路由 | pending | 0 | — |  |
+| M4-11 | scripts/log_ws_smoke.py：三路日志到 WS 的端到端冒烟（含补发、历史查询、附件） | pending | 0 | — |  |

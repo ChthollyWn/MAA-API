@@ -14,7 +14,9 @@
     "docs/06-实时日志与WebSocket.md#34-子任务额外信息映射表subtaskextrainfo",
     "docs/06-实时日志与WebSocket.md#35-新增回调类型的处理",
     "docs/03-MaaCore内核层设计.md#6-任务完成的判定",
-    ".refactor/ENVIRONMENT.md#maacore-内核"
+    ".refactor/ENVIRONMENT.md#maacore-内核",
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "映射表逐字迁移 docs/06 §3.2/§3.3/§3.4：CONNECTION_MAP（12 条 + ResolutionInfo）、SUB_TASK_START_MAP（22 条）、EXTRA_INFO_MAP（10 条）；ConnectFailed 为准键、ConnectFaild 作兼容别名且两键同文案（实测内核 v6.17.5 发的是 ConnectFailed，旧代码的拼写错误让最关键那条从未命中）。",

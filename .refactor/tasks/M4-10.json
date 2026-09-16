@@ -23,7 +23,8 @@
     "docs/04-数据模型与持久化.md#104-清理任务的实现要点",
     ".refactor/ENVIRONMENT.md#验证命令的陷阱",
     ".refactor/ENVIRONMENT.md#m3-09-实测corsmiddleware-的-fullmatch--iter_route_contexts-两种对象--lifespan-夹具顺序第-25-次尝试追加",
-    "tests/fixtures/log_ws_probe_findings.md"
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "lifespan 只加 docs/02 §7 的第 3 步（启动 LogHub、接 Python logging handler 与 asst.log tail）：不得启动 CoreSupervisor / DeviceManager / PipelineRunner / APScheduler（docs/12 M4 的权威工作项清单不含它们，M5/M6 再接），CALLBACK/LOG 的接线以 install_core_logging(client, ...) 的形式留给后续里程碑显式调用；lifespan 里任何一步都不允许阻塞等待子进程（docs/02 §7 第 4 步的原话），新增的 LogHub/tailer 启动本身必须是常量级耗时。",

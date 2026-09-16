@@ -15,7 +15,9 @@
     "docs/05-API规范与路由清单.md#61-system",
     "docs/04-数据模型与持久化.md#83-lifespan-里的自动迁移",
     ".refactor/ENVIRONMENT.md#m3-10-实测--serve-的-cwd-相对-alembic--临时-configyaml-不被读--nullpool第-26-次尝试追加",
-    ".refactor/ENVIRONMENT.md#验证命令的陷阱"
+    ".refactor/ENVIRONMENT.md#验证命令的陷阱",
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "task 源必须走真实链路：CoreSupervisor + FakeAsst（tests/fakes，spawn 子进程，M1-13 的既有形态）→ CoreClient → CallbackTranslator → LogHub → WS，不得直接调用 translator 伪造日志；core 源写临时 asst.log（含 TRC/INF/WRN、续行、轮转）由 AsstLogTailer 采集；service 源用真实 logging 调用。三路都必须在 TestClient 的 websocket_connect 里收到。",

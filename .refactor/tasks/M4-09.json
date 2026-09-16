@@ -14,7 +14,9 @@
     "docs/06-实时日志与WebSocket.md#83-缩略图策略",
     "docs/06-实时日志与WebSocket.md#84-清理",
     "docs/04-数据模型与持久化.md#54-screenshot--截图归档",
-    "docs/04-数据模型与持久化.md#103-流水线与截图"
+    "docs/04-数据模型与持久化.md#103-流水线与截图",
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "路由（约定，verify 直接断言）：模块自带 router = APIRouter(prefix=\"/api\")，四条路径用 docs 字面量 —— GET /api/screenshots、GET /api/screenshots/{id}、GET /api/images/{sha256}/thumb、GET /api/images/{sha256}/full；装配处只 include_router（M3-07/M3-08 的教训）。",

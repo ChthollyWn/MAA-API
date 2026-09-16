@@ -20,7 +20,8 @@
     "docs/05-API规范与路由清单.md#54-websocket-的鉴权",
     "docs/05-API规范与路由清单.md#62-ws",
     "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题",
-    "tests/fixtures/log_ws_probe_findings.md"
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "路由与前缀（约定，verify 直接断言）：模块自带 router = APIRouter(prefix=\"/api\")，端点为 @router.websocket(\"/ws\")，完整路径 /api/ws；装配处只 include_router(ws.router)，不在挂载处拼前缀（M3-07/M3-08 的实测教训：verify 用模块级 router.routes[*].path 取路径，WS 路由不进 openapi 也不被 iter_route_contexts 展开）。",

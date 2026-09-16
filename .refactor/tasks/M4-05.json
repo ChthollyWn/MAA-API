@@ -17,7 +17,8 @@
     "docs/06-实时日志与WebSocket.md#11-待确认的开放问题",
     "docs/13-决策记录.md#6-待运行数据校准的默认值",
     ".refactor/ENVIRONMENT.md#maacore-内核",
-    "tests/fixtures/log_ws_probe_findings.md"
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "对外 API（约定）：AsstLogTailer(path, hub, interval=0.2, min_level=\"INF\")，异步 run() 用 asyncio.to_thread 执行一次轮询后 await asyncio.sleep(interval)；模块级 LINE_RE 与 LEVEL_MAP 与 docs/06 §5.1 逐字一致（LINE_RE 四段 + msg，LEVEL_MAP：DBG/TRC→DEBUG、INF→INFO、WRN→WARNING、ERR→ERROR）。",

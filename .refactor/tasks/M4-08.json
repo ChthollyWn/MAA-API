@@ -17,7 +17,8 @@
     "docs/05-API规范与路由清单.md#61-system",
     "docs/04-数据模型与持久化.md#53-log_entry--三路日志",
     "docs/04-数据模型与持久化.md#6-索引设计",
-    "tests/fixtures/log_ws_probe_findings.md"
+    "tests/fixtures/log_ws_probe_findings.md",
+    "tests/fixtures/log_ws_probe_result.json"
   ],
   "constraints": [
     "路由与参数按 docs/05 §6.1 + docs/06 §9.1：GET /api/system/logs（source[]、level、pipeline_id、task_id、logger 前缀、q 子串、since/until、after_id/before_id、order、page、size）、GET /api/system/logs/export（format=txt|jsonl）、DELETE /api/system/logs（source[] 与 before 至少一个，204）。前缀写在模块的 router 上（APIRouter(prefix=\"/api/system\")），装配处只 include_router。size 默认 100、上限 1000；游标模式与 page 模式互斥，同时传返回 400 INVALID_PAGINATION。",
