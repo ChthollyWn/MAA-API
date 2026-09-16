@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**15 / 21** 张卡完成
+- 进度：**16 / 21** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=1 workerRuns=1（启动于 2026-09-16T09:40:48.186Z）
-- 更新时间：2026-09-16T09:55:57.871Z
+- 进程内统计：cycle=1 workerRuns=2（启动于 2026-09-16T09:40:48.186Z）
+- 更新时间：2026-09-16T10:04:25.060Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -26,8 +26,8 @@
 | M1-06 | IPC 协议定义：命令与事件的类型、payload 结构、超时表、序列化 + 真实 Queue 契约测试 | done | 1 | 6afc6d8 |  |
 | M1-07 | core/worker.py 子进程：启动序列、回调桥接、命令循环与 GET_IMAGE 落盘 | done | 1 | c5a0ff7 |  |
 | M1-08 | CoreSupervisor：状态机、心跳、崩溃检测、退避重启与维护窗口 | done | 1 | 9b26525 |  |
-| M1-09 | CoreClient：事件消费线程、cmd_id→Future 映射、差异化超时、两级 Future 与事件分派 | running | 0 | — |  |
-| M1-10 | 崩溃恢复故障注入测试：FakeAsst 段错误退出 → 检测、崩溃现场、退避重启、上限转 FAILED、维护窗口互斥 | pending | 0 | — |  |
+| M1-09 | CoreClient：事件消费线程、cmd_id→Future 映射、差异化超时、两级 Future 与事件分派 | done | 1 | d5072c8 |  |
+| M1-10 | 崩溃恢复故障注入测试：FakeAsst 段错误退出 → 检测、崩溃现场、退避重启、上限转 FAILED、维护窗口互斥 | running | 0 | — |  |
 | M1-11 | 无内核端到端联调：FakeAsst 子进程 + CoreSupervisor + CoreClient 全链路（READY/命令/回调/落盘/优雅关闭） | pending | 0 | — |  |
 | M1-12 | CoreRegistry：单实例实现与多实例扩展口（core_id 恒为 default） | pending | 0 | — |  |
 | M1-13 | 命令行冒烟脚本 scripts/core_smoke.py：启动子进程→加载资源→连接→提交最短任务→收回调→杀进程观察重启 | pending | 0 | — |  |

@@ -34,8 +34,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【环境事实】`python` 不在 PATH，一律用 `.venv/bin/python`。pytest 无 pytest-asyncio，异步用例用 `asyncio.run(...)` 包在同步 test 里。禁用 `import maa_api.main`。不要修改 `.refactor/`；只 `git add` 本卡 1 个 deliverable，commit message 用 `M1-10: <标题>`，不 push、不切分支。\n\n【本卡是 M1 的关键验收：docs/03 §8 要求的崩溃恢复全链路故障注入】只新增 `tests/core/test_crash_recovery.py`，不改 maa_api/ 与 tests/fakes/。\n\n【可用契约（前序卡已交付，直接用）】\n- `tests.fakes.fake_asst.CRASH_SCRIPT` / `SCRIPTS['crash']`：`FakeScript.crash_exitcode == -11`，`start()` 内发出首个事件后 `os._exit(-11)`，因此子进程在 READY 之后以 -11 退出。\n- `CoreSupervisor(boot_config, *, backoff=..., max_restart_attempts=..., heartbeat_interval=..., on_crash=...)`：`state`、`last_crash`、`handle_ready/handle_fatal/handle_pong`、`track_command/release_command`、`async start/stop/restart`、`acquire_maintenance()`；`start()` 前必须 `set_dispatcher`。\n- `CoreClient(supervisor)`：消费线程 + 分派表 + 未就绪门禁；把 `READY/FATAL/PONG` 处理器注册给 supervisor 的 handle_*。\n- boot_config 契约：`{'maa_path', 'user_dir', 'incremental_paths', 'instance_options', 'asst_factory': 'tests.fakes.fake_asst:FakeAsst', 'asst_factory_kwargs': {'script': 'crash'}}`。\n\n【至少 4 个用例】\n1) 段错误检测与现场：start→READY→APPEND_TASK+START 触发崩溃 → `state` 变为 CRASHED、`last_crash['exitcode'] == -11`、`last_crash` 里有 at/recent_events 且 `on_crash` 钩子被调用一次（钩子收到的 record 与 last_crash 一致）。\n2) 退避序列与上限：把 `backoff=(0.05, 0.1, 0.2)`、`max_restart_attempts=3` 注入 → 断言重启间隔按注入序列增长（记录每次重启的时间戳或用可注入的 sleep 钩子），连续 3 次失败后 `state` 停在 FAILED、不再 spawn 新进程（`pid` 不再变化）。\n3) 维护窗口互斥：`async with sup.acquire_maintenance():` 内 kill 掉子进程 → `state` 不进入 CRASHED、`on_crash` 不被调用、不重启；退出窗口后崩溃恢复逻辑重新生效（再制造一次崩溃能观察到重启）。\n4) 恢复成功路径：先用 crash 剧本跑失败若干次，再用 success 剧本 restart（或 `restart(boot_config=...)` 换 factory_kwargs）→ 断言 READY 回来、`state` 回到 READY、退避计数复位。\n\n【纪律】所有等待必须有超时（≤5 秒）并在失败信息里打印已收到的事件与当前状态；每个用例结束确保子进程被 stop()/kill() 清理干净，不留僵尸；不要把默认的 5/15/60 秒退避真实跑一遍（会拖慢整个套件）。\n\n【收尾】逐条跑 verify；回执 200 字以内，报告 4 个用例的结论与观测到的 exitcode。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "921b2fe9b91b819cd51ae053f61a85c3c99d7d89",
   "blocked_reason": null
 }
