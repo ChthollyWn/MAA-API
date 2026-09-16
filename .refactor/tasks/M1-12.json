@@ -32,8 +32,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【环境事实】`python` 不在 PATH，一律用 `.venv/bin/python`。不要修改 `.refactor/`；只 `git add` 本卡 2 个 deliverables，commit message 用 `M1-12: <标题>`，不 push、不切分支。\n\n【范围】`maa_api/core/registry.py`（现在是占位 docstring）。纯内存注册表：不启动进程、不碰数据库、不碰 Queue。\n\n【公开契约（M1-13 会用）】\n- `DEFAULT_CORE_ID = 'default'`。\n- `CoreRegistry(*, default_id=DEFAULT_CORE_ID)`：\n  - `register(core_id, client)`：重复注册同一个 id → `AppError(ErrorCode.CORE_NOT_READY, ...)`（用既有内核层错误码，不要新增错误码），message 写清冲突；返回 None。\n  - `get(core_id=None) -> CoreClient`：None 取 default；未注册 → `AppError(ErrorCode.CORE_NOT_READY, ...)`，details 带 `{'core_id': ...}`。\n  - `ids() -> list[str]`：稳定顺序（按插入序即可，docstring 写明）。\n  - `unregister(core_id) -> bool`：不存在时返回 False 而非抛。\n  - `default` 属性（property）：返回 default_id 对应的 client，未注册时按 get 的语义抛。\n- 类型标注用 `TYPE_CHECKING` 导入 `CoreClient`，运行期**不要** import client/supervisor（verify 会在运行期检查 `sys.modules` 里没有 `maa_api.core.client`/`maa_api.core.supervisor`）；docstring 写明「首版只有一个 default，多实例时在这里扩展」。\n\n【测试】`tests/core/test_registry.py` 至少 4 个用例：①默认 id 取回 ②显式 id 取回 ③未注册抛 AppError 且 `details['core_id']` 正确 ④重复注册抛 AppError、unregister 幂等 ⑤多个（假）client 并存时互不串（用 object() 或极简替身，不要起真实进程）。\n\n【收尾】逐条跑 verify；回执 200 字以内，报告注册表 API 与扩展口设计。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "d6a95415b7bee1c298f487b4c3de7f2069d32f9b",
   "blocked_reason": null
 }
