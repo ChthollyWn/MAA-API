@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**27 / 34** 张卡完成
+- 进度：**28 / 34** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=2 workerRuns=5（启动于 2026-09-16T10:55:38.476Z）
-- 更新时间：2026-09-16T11:31:03.051Z
+- 进程内统计：cycle=3 workerRuns=6（启动于 2026-09-16T10:55:38.476Z）
+- 更新时间：2026-09-16T11:40:38.632Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -38,8 +38,8 @@
 | M2-03 | SQLModel 表定义：13 张业务表 + 命名约定 + §6 索引（db/models.py） | done | 1 | ed1c585 |  |
 | M2-04 | Alembic 装配与 0001 初始迁移：env.py（render_as_batch）+ 13 张表的建表与索引 + 可用 downgrade | done | 1 | 2f74ee9 |  |
 | M2-05 | 0002 数据迁移：resource/daily_task.json 逐日展开为 schedule 记录（文件不存在则跳过） | done | 1 | cbf2ad5 |  |
-| M2-06 | db/migrate.py：ensure_schema 自动迁移到 head（线程池 + 迁移前备份 + 失败中止启动） | running | 0 | — |  |
-| M2-07 | 仓储层（一）：BaseRepository + Page 分页 + PipelineRepository/TaskRepository（含 tests/db/conftest.py） | pending | 0 | — |  |
+| M2-06 | db/migrate.py：ensure_schema 自动迁移到 head（线程池 + 迁移前备份 + 失败中止启动） | done | 1 | 4a7abcd |  |
+| M2-07 | 仓储层（一）：BaseRepository + Page 分页 + PipelineRepository/TaskRepository（含 tests/db/conftest.py） | running | 0 | — |  |
 | M2-08 | 仓储层（二）：LogRepository（攒批插入/游标查询/两维清理）+ ScreenshotRepository | pending | 0 | — |  |
 | M2-09 | 仓储层（三）：ScheduleRepository + SettingRepository（JSON 值保型与覆盖层语义） | pending | 0 | — |  |
 | M2-10 | 仓储层（四）：AgentSession/AgentMessage/Audit + Confirmation（审计裁剪与终态不可变） | pending | 0 | — |  |

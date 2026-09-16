@@ -228,3 +228,24 @@
 - **SQLite 的 `JSON` 声明类型是 NUMERIC 亲和**：类型名不含 INT/CHAR/TEXT/BLOB/REAL/FLOA/DOUB，
   于是用裸 `sqlite3` 往 JSON 列插字符串 `'1'` 会按数字存成整数 `1`（M2-06 写 `setting.value`
   测试时踩到）。测试若要断言原文，插非数字字符串（如 `wal-marker`）。
+
+### M2-07 实测：async ORM 过期实例 / merge / CASCADE / RETURNING（第 7 次尝试追加）
+
+- **`AsyncSession.expire_all()` 连主键一起作废**：之后在 async 上下文外读 ORM 实例的**任何**字段
+  （包括 `obj.id`）都抛 `MissingGreenlet`（SQLAlchemy 2.0.54 实测；traceback 落在
+  `attributes.py __get__ → _load_expired`，与仓储实现无关）。`session.get(Entity, pk, populate_existing=True)`
+  只能让 *get 的返回值* 刷新，救不了作为调用参数的 `obj.id`（参数先求值）。
+  M2-07 卡面 verify 正是 `s.expire_all(); await repo.get(high.id)`，所以 `PipelineRepository.create()`
+  用 `Session.merge()` 而不是 `session.add()`：merge 把状态复制进受会话管理的副本返回，**入参保持 transient**、
+  字段永远可读（代价：对入参的后续修改不会被提交，调用方要用返回值/仓储方法）。改成 `add()` 该 verify 必挂。
+- **裸 `create_async_engine("sqlite+aiosqlite:///...")` 的库 `PRAGMA foreign_keys=0`**，`ON DELETE CASCADE`
+  静默不生效（实测：删 pipeline 后 task 仍在）；只有 `db/session.py` 的 `make_engine` 才把它置 1。
+  清理方法不能假设调用方连接开了 PRAGMA（`PipelineRepository.purge_before` 因此显式删子表）；
+  写「级联删除」断言的测试要先确认自己用的是哪个引擎。
+- **SQLModel `table=True` 实例禁止 `setattr` 未声明字段**：`ValueError: "Pipeline" object has no field "tasks"`
+  （pydantic v2）。要把额外数据挂到 ORM 实例上（如 `get(with_tasks=True)` 的 `tasks`）只能
+  `object.__setattr__(obj, "tasks", ...)`。
+- **ORM 实体的 `update(...).returning(col)` 在 aiosqlite 上可用且会同步会话内对象**：
+  `values(retry_count=Task.retry_count + 1).returning(Task.retry_count)` 实测返回新值，身份映射里的同一实例
+  的 `retry_count` 也随之更新（默认 `synchronize_session='auto'` 走 fetch）；条件更新的 `result.rowcount`
+  同样可靠，可直接作「原子领取 / 状态机是否接受」的判据。

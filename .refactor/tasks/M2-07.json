@@ -36,8 +36,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【需要定义的接口（后续卡与 M3/M5 都按这个用，请照做）】\n① `BaseRepository(session: AsyncSession)`，子类继承构造函数；提供 `Page`（`items`/`total`/`page`/`size`，pydantic BaseModel 或 dataclass 均可）与分页封装；仓储方法一律不 `commit()`。\n② `PipelineRepository` 的方法名与签名照 docs/04 §9 的示例：`create(pipeline, tasks)`、`get(pipeline_id, *, with_tasks=False)`、`get_by_idempotency_key(key)`、`list(*, status=None, source=None, schedule_id=None, since=None, page=1, size=20)`、`claim_next(core_id=\"default\")`、`current(core_id=\"default\")`、`count_pending(core_id=\"default\")`、`mark_terminal(pipeline_id, status, *, error_code=None, error_message=None) -> bool`、`set_priority(pipeline_id, priority) -> bool`、`purge_before(cutoff, keep_latest) -> int`。\n③ `TaskRepository`：`list_by_pipeline(pipeline_id)`、`bind_maa_task_id(task_id, maa_task_id)`、`update_status(task_id, status, *, error_code=None)`、`increment_retry(task_id) -> int`。\n\n【tests/db/conftest.py 是共享设施】后续 M2-08~M2-12 的测试会直接用它，请在 docstring 里写清用法：提供一个**同步** fixture（本仓无 pytest-asyncio），用 `tmp_path` 建库 + `SQLModel.metadata.create_all`（create_all 只用于测试，生产建表永远走 Alembic），engine 必须 `poolclass=NullPool`（同一 engine 会被多个 `asyncio.run` 循环使用），并暴露 `async_sessionmaker`；用例写法是同步函数 + `asyncio.run(scenario())`。\n\n【行为要点】`claim_next` 的原子性用 `update(...).where(status=PENDING).values(status=RUNNING, started_at=utcnow(), core_epoch=?)` + `rowcount` 判定；`purge_before(cutoff, keep_latest)` 先按 `created_at < cutoff` 删、再保留最近 `keep_latest` 条（先触发者生效），删除 pipeline 时 task 由外键 CASCADE 自动清掉；`list` 的过滤条件与排序用 docs/04 §6 的索引覆盖。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "b6f566015d590bae30a2d0346a59bfb15aaec93e",
   "blocked_reason": null
 }
