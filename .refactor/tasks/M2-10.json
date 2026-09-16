@@ -35,8 +35,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【接口契约（M2-11/M12 与 M11 按这个用）】\n`AgentSessionRepository`：`create`、`get`、`list_recent(limit=20)`（按 `last_message_at` DESC，NULL 排最后）、`update_grant(session_id, *, confirmation_id, expires_at)`、`clear_grant(session_id)`（把两个字段一起置空，不是把时间改成过去，见 docs/04 §5.7）。\n`AgentMessageRepository`：`create(message)`、`list_by_session(session_id)`（按 seq 升序）。\n`AuditRepository`：`create(audit) -> AgentAudit`（在仓储内做 §5.9 的裁剪：递归处理 JSON 里的字符串值，>1KB 的替换为 `{\"__truncated__\": true, \"len\": n}`；`result_summary` 截断到 2048 字符）、`get(id)`、`list(*, caller=None, tool_name=None, page=1, size=20)`。\n`ConfirmationRepository`：`create`、`get`、`list_pending`、`resolve(id, status, *, resolved_by, reason=None) -> bool`、`expire_overdue(now) -> list[str]`。\n\n【实现要点】`resolve`/`expire_overdue` 用 `update(...).where(id == ?, status == PENDING)` + `rowcount`；`expire_overdue` 批量置 EXPIRED 后把 id 列表查出来返回。裁剪函数建议独立成模块级函数便于测试；`arguments` 与 `result_summary` 都是 JSON/TEXT 可序列化值。\n\n【测试】复用 `tests/db/conftest.py` 的 fixture；同步测试 + `asyncio.run`。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "b2f592619cf48b8fb44e3ee93d29e499c88034ce",
   "blocked_reason": null
 }

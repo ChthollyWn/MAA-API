@@ -281,3 +281,19 @@
   set_={...: stmt.excluded.x})` 连续写同一 key 只有一行，JSON 绑定参数在 `excluded` 里同样按列类型序列化；
   比「先查后写」少一次竞态。`schedule` / `setting` 的仓储事务纪律与 M2-07/M2-08 一致：不 commit，
   由调用方决定边界。
+
+### M2-10 实测：批量 UPDATE...RETURNING / FK 约束下的授权字段 / model_copy 裁剪（第 10 次尝试追加）
+
+- **ORM 批量 `UPDATE ... RETURNING id` 在 aiosqlite 上可用，且能同时完成「置终态」与「取回被翻转的 id」**：
+  `session.execute(update(Confirmation).where(status=='pending', expires_at < now).values(...).returning(Confirmation.id),
+  execution_options={"synchronize_session": False})` 实测返回的正是本次真正翻转的 id（`expire_overdue` 的实现形态），
+  第二次调用同一 `now` 返回 `[]`。注意 `synchronize_session=False` 不会刷新身份映射：同一会话里 `session.get()`
+  仍返回陈旧实例（status 还是 pending），仓储的 `get()` 必须带 `populate_existing=True` 才读到真值 —— M2-08 那条
+  在「批量 RETURNING + 仓储 get」组合下再次复现。`resolve()` 用 `UPDATE ... WHERE id=? AND status='pending'` 的
+  `rowcount` 判定流转是否被接受，默认 `synchronize_session`（条件为简单等值，走 evaluate）会同步会话内实例。
+- **`agent_session.atomic_grant_id` 有指向 `confirmation.id` 的外键，而 `tests/db/conftest.py` 的引擎开了
+  `PRAGMA foreign_keys=ON`**：仓储测试里给 `update_grant()` 传一个杜撰的 confirmation id 会抛
+  `IntegrityError: FOREIGN KEY constraint failed`（原始 SQL 是那条 UPDATE）。要让授权字段的用例通过，必须先
+  `ConfirmationRepository.create()` 一条真实的 `grant_atomic_ops` 确认并 commit，再用它的 id。
+- **SQLModel `table=True` 实例支持 `model_copy(update={...})`**：`AuditRepository.create()` 用它生成「裁剪后的副本」
+  再 `merge()`，入参保持原始 base64 不被修改（调用方还要拿原始参数回显/执行），实测副本落库、原对象字段不变。
