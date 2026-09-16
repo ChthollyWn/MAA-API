@@ -129,7 +129,6 @@ config.yaml
 .refactor/state.json
 .refactor/PAUSE
 .refactor/TRIGGER
-.refactor/orchestrator-src/
 
 # 重构编排器的运行时状态（本地，不入库）
 .refactor/orchestrator.lock
