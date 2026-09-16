@@ -111,6 +111,7 @@ class Asst:
         return Asst.__lib.AsstSetInstanceOption(self.__ptr,
                                                 int(option_type), option_value.encode('utf-8'))
 
+    @staticmethod
     def set_static_option(option_type: StaticOptionType, option_value: str):
         """
         设置进程级参数
@@ -146,15 +147,13 @@ class Asst:
 
         : return: 成功时图像的字节; 失败时 None
         """
-        buffer_type = ctypes.c_byte * size
-        buffer = buffer_type()
-        buffer.value = b'\000' * size
-        if (got := Asst.__lib.AsstGetImage(self.__ptr, buffer, size)) \
-                and got > 0:
-            return bytes(buffer)
-        else:
+        buffer = (ctypes.c_char * size)()
+        got = Asst.__lib.AsstGetImage(self.__ptr, buffer, size)
+        if got is None or got <= 0:
             return None
+        return buffer.raw[:got]
 
+    @staticmethod
     def set_connection_extras(name: str, extras: JSON):
         """
         连接模拟器端的Extras
