@@ -1,0 +1,10 @@
+{
+  "root": "/Users/chtholly/Developer/WorkSpace/MAA-API",
+  "intervalMs": 60000,
+  "firstDelayMs": 10000,
+  "maxAttempts": 2,
+  "workerTimeoutMs": 2700000,
+  "maxCardsPerTick": 3,
+  "maxCardsPerBoot": 400,
+  "workerPermissionMode": "danger-full-access"
+}
