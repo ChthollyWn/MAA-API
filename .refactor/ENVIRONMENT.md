@@ -430,3 +430,24 @@
 - **`import maa_api.settings` 无 import 期副作用可通过子进程验证**：`cd $(mktemp -d)` +
   `PYTHONPATH=$ROOT` 下 import 后 `os.listdir(os.getcwd()) == []`（`__pycache__` 落在源码目录、
   不在 CWD）；子进程另断言未 import `maa_api.db` / `sqlalchemy` / `sqlmodel`。
+
+### M3-04 实测：处理器注册时机 / 405 默认路径 / exclude_none 不递归 dict（第 15 次尝试追加）
+
+- **`app.add_exception_handler` 在 fastapi 0.141.1 与 starlette 1.6.0 里都只是字典赋值**
+  （`self.exception_handlers[key] = handler`，读了两处源码）：用同一批模块级函数重复注册天然幂等
+  （后一次覆盖的是同一个函数对象），`register_exception_handlers()` 可被多个装配入口重复调用。
+  但**注册必须发生在第一个请求之前**：middleware stack 在首个请求时才构建，实测「先发一次请求、
+  再注册 AppError 处理器」第二次请求仍是 `500 Internal Server Error`（裸文本，不走统一体）。
+- **405 的框架默认响应对映射表外的状态码可以直接复用** `fastapi.exception_handlers.http_exception_handler
+  (request, exc)`：Starlette 路由层对方法不匹配抛 `HTTPException(405, headers={"Allow": ...})`，
+  默认 body `{"detail": "Method Not Allowed"}` 且带 `Allow` 头（实测 `allow=GET`）。docs/05 §2.5 的
+  405 例外不必手写响应，把 `StarletteHTTPException` 处理器里"表外状态码"分支委托给这个官方函数即可
+  （它同时处理 204/304 的 no-body 语义）。另：`raise HTTPException(404)` 的默认 detail 是英文
+  `HTTPStatus.phrase`（"Not Found"），可直接用 `HTTPStatus(status).phrase` 判别"是否被抛错方自定义过"。
+- **pydantic `model_dump(mode="json", exclude_none=True)` 不递归删除普通 dict 里的 None**（2.11.10 实测）：
+  `ErrorDetail(details=None)` 的 `details` 键被省略，而 `details={"a": None}` 原样保留 `{"a": None}`。
+  统一错误体因此可以直接用它实现「details 可选、None 时省略」，不用手工 pop；后续卡若用
+  `exclude_none=True` 做默认值剔除，记住它只删模型字段，不删 dict 值里的 null。
+- **`TestClient.__enter__()` / `__exit__(None, None, None)` 可以手工配对**：夹具里用工厂函数
+  `make_client(app)` 先 `__enter__` 再统一 `__exit__`，lifespan 照常进入/退出（M3-01 对照结论：
+  不套 context manager 时 lifespan 完全不执行），`tests/api/conftest.py` 即此写法。
