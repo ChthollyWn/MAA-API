@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**20 / 22** 张卡完成
+- 进度：**21 / 22** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=3 workerRuns=6（启动于 2026-09-16T09:40:48.186Z）
-- 更新时间：2026-09-16T10:23:48.351Z
+- 进程内统计：cycle=3 workerRuns=7（启动于 2026-09-16T09:40:48.186Z）
+- 更新时间：2026-09-16T10:36:46.680Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -31,5 +31,5 @@
 | M1-11 | 无内核端到端联调：FakeAsst 子进程 + CoreSupervisor + CoreClient 全链路（READY/命令/回调/落盘/优雅关闭） | done | 1 | c7b8746 |  |
 | M1-12 | CoreRegistry：单实例实现与多实例扩展口（core_id 恒为 default） | done | 1 | d6a9541 |  |
 | M1-13 | 命令行冒烟脚本 scripts/core_smoke.py：启动子进程→加载资源→连接→提交最短任务→收回调→杀进程观察重启 | done | 1 | b69a819 |  |
-| M1-14 | 真机冒烟测试：真实内核 + 真实设备的加载/连接/截图/原子操作/最短任务（标记 hardware，不进常规 CI） | running | 0 | — |  |
-| M1-15 | 修复 CoreSupervisor.restart() 的伪崩溃缺陷，并把 M1-10 的 xfail 转正 | pending | 0 | — |  |
+| M1-14 | 真机冒烟测试：真实内核 + 真实设备的加载/连接/截图/原子操作/最短任务（标记 hardware，不进常规 CI） | done | 1 | 220a72f |  |
+| M1-15 | 修复 CoreSupervisor.restart() 的伪崩溃缺陷，并把 M1-10 的 xfail 转正 | running | 0 | — |  |
