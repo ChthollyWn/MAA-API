@@ -38,8 +38,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【事实】已装 alembic 1.20.0 / SQLModel 0.0.42 / SQLAlchemy 2.0.54，`.venv/bin/alembic` 与 `python -m alembic` 都可用。M2-03 已交付 `maa_api/db/models.py`（先读它，索引名与列定义以它为准）。先读 M2-01 的 `tests/fixtures/db_probe_findings.md`，里面写了本机 `auto_vacuum` 哪种放置生效、autogenerate 漏了什么、batch downgrade 是否可用。\n\n【做法建议】可先用 `alembic revision --autogenerate` 生成骨架，然后**逐条人工核对**：13 张表全在、21 条索引名字与 §6 一致、`uq_update_record_running_target` 带 `sqlite_where`、三张高频表带 AUTOINCREMENT、JSON 列与 `server_default` 正确、外键 ondelete 正确。autogenerate 漏掉的（尤其部分唯一索引）必须手工补进 `op.create_index(..., sqlite_where=sa.text(\"...\"))`。`downgrade()` 必须真的把 13 张表与索引删干净（verify 会 `downgrade base` 后断言表全部消失）。\n\n【env.py】除 docs/04 §8.2 的 `run_migrations_online()` 外，补上 `run_migrations_offline()` 分支（`alembic upgrade head --sql` 需要），并让 `sqlalchemy.url` 优先取 `config.get_main_option(\"sqlalchemy.url\")`（M2-06 的 `ensure_schema` 会显式设置它），缺省回退到 `maa_api.db.session.SYNC_URL`。`auto_vacuum` 按 M2-01 的实测结论放在真正生效的位置。\n\n【测试】`tests/db/test_initial_migration.py` 用 `tmp_path` 的库跑 `command.upgrade/downgrade`（通过 `Config` 的 `sqlalchemy.url` 指向临时库，不要动仓库的 `resource/maa_api.db`），并断言本卡 verify 里那组 schema 事实；同步测试 + `asyncio.run`（本仓无 pytest-asyncio）。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "2f74ee949089ef175bc3021bbaeecabc1afd8785",
   "blocked_reason": null
 }

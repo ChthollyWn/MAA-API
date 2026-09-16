@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**24 / 34** 张卡完成
+- 进度：**25 / 34** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=1 workerRuns=2（启动于 2026-09-16T10:55:38.476Z）
-- 更新时间：2026-09-16T11:14:06.848Z
+- 进程内统计：cycle=2 workerRuns=3（启动于 2026-09-16T10:55:38.476Z）
+- 更新时间：2026-09-16T11:20:38.569Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -35,8 +35,8 @@
 | M1-15 | 修复 CoreSupervisor.restart() 的伪崩溃缺陷，并把 M1-10 的 xfail 转正 | done | 1 | 96cddac |  |
 | M2-01 | 方案前置实测：SQLModel+Alembic 在本机 SQLite 上的 DDL 能力边界（AUTOINCREMENT/部分唯一索引/命名约定/auto_vacuum/batch downgrade/greenlet） | done | 2 | 4927c1e |  |
 | M2-02 | 数据层底座：domain/enums.py 全量持久化枚举 + db/session.py 异步引擎与六个 PRAGMA（并补 greenlet 依赖） | done | 1 | db50760 |  |
-| M2-03 | SQLModel 表定义：13 张业务表 + 命名约定 + §6 索引（db/models.py） | running | 0 | — |  |
-| M2-04 | Alembic 装配与 0001 初始迁移：env.py（render_as_batch）+ 13 张表的建表与索引 + 可用 downgrade | pending | 0 | — |  |
+| M2-03 | SQLModel 表定义：13 张业务表 + 命名约定 + §6 索引（db/models.py） | done | 1 | ed1c585 |  |
+| M2-04 | Alembic 装配与 0001 初始迁移：env.py（render_as_batch）+ 13 张表的建表与索引 + 可用 downgrade | running | 0 | — |  |
 | M2-05 | 0002 数据迁移：resource/daily_task.json 逐日展开为 schedule 记录（文件不存在则跳过） | pending | 0 | — |  |
 | M2-06 | db/migrate.py：ensure_schema 自动迁移到 head（线程池 + 迁移前备份 + 失败中止启动） | pending | 0 | — |  |
 | M2-07 | 仓储层（一）：BaseRepository + Page 分页 + PipelineRepository/TaskRepository（含 tests/db/conftest.py） | pending | 0 | — |  |

@@ -165,3 +165,27 @@
   `CONSTRAINT ... FOREIGN KEY ... REFERENCES ...`，不报 `CircularDependencyError`，无需 `use_alter`。
 - **`screenshot.trigger` 与 `setting.key` 是 SQLite 保留字**，SQLAlchemy 会自动加引号（DDL 里是
   `"trigger"` / `"key"`），能正常建表与读写；写 DDL 断言时要按带引号的形态匹配。
+
+### M2-04 实测：auto_vacuum 放置的必需补丁 / alembic.ini / 反射断言（第 5 次尝试追加）
+
+- **M2-01 的 auto_vacuum 放置「方向对但不完整」，直接照抄会丢 `alembic_version` 行（重要）**：
+  `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")` 会在连接上 **autobegin** 一个 SQLAlchemy
+  事务；`MigrationContext.configure(connection=conn)` 见到连接已有事务就把它当「外部事务」，
+  `context.begin_transaction()` 退化成 no-op、迁移结束也不 commit。结果：DDL 因 pysqlite 不把
+  DDL 包进事务而留在库里（表都建好了），但 `INSERT INTO alembic_version` 随连接关闭回滚 ——
+  **表在、版本为空**，下次 `upgrade head` 从 0001 重放并撞 `table already exists`。
+  M2-01 探针只查了 `"alembic_version" in tables`（probe 第 568 行），没查行，所以没暴露。
+  修法：pragma 之后、`context.configure` 之前补一句 `conn.commit()`（M2-04 env.py 实测：
+  `PRAGMA auto_vacuum` 仍是 2，`select * from alembic_version` 返回 `[('0001',)]`，`downgrade base` 正常）。
+- **`alembic.ini` 需要 `path_separator = os`**：Alembic 1.20 对 `prepend_sys_path` 的旧式分隔符解析
+  会发 `DeprecationWarning: No path_separator found in configuration`（每个 command 一条），显式写上即消失。
+- **手写迁移里 `op.create_table(..., sqlite_autoincrement=True)` 有效**：DDL 落下 `AUTOINCREMENT`，
+  与 autogenerate 产物一致；`downgrade base` 后 `sqlite_sequence` 会作为内部表留下（正常，不影响断言）。
+- **SQLite 反射断言的三个形态**：`inspect(engine).get_indexes(t)` 里
+  `dialect_options["sqlite_where"]` 是 **TextClause**（不是 str，要比 `str(...)`）；`get_indexes` **不返回**
+  唯一约束的隐式 autoindex，具名 UNIQUE 走 `get_unique_constraints(t)` —— 所以「索引全量清单」要取两者并集；
+  外键 `ondelete` 在 `get_foreign_keys(t)[i]["options"]["ondelete"]`。
+- **离线模式可在进程内验**：`contextlib.redirect_stdout` 包住 `command.upgrade(cfg, "head", sql=True)`
+  即可拿到 SQL 文本，且不会创建库文件（env.py 的 `run_migrations_offline()` 分支即由此覆盖）。
+- **`Config("alembic.ini")` 的 `script_location` 相对 CWD 解析**：测试里不要依赖 cwd，直接把
+  `script_location` 与 `sqlalchemy.url` 都 `set_main_option` 成绝对路径/临时库 URL。
