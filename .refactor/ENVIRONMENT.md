@@ -476,3 +476,30 @@
 - **httpx（`TestClient` 底层）拒发非 ASCII 的请求头值**：`client.get(url, headers={"X-Token": "秘密令牌"})` 实测在 `httpx/_utils.py` 抛 `UnicodeEncodeError: 'ascii' codec can't encode characters...`（HTTP/1.1 头按 ascii 编码）。非 ASCII token 的端到端用例只能走 query 参数（httpx 会 percent-encode）。另：per-request 的 `cookies=` 会发 `DeprecationWarning: Setting per-request cookies=<...> is being deprecated`（httpx 0.27.2），将来给 pytest 加 `filterwarnings = error` 时这条要与 M3-01 记的两条一起处理。
 - **FastAPI 0.141.1 的 `yield` 依赖能收到路由抛出的异常**：在 `get_session` 的 `except Exception: await session.rollback()` 上挂 spy 实测，路由里 `raise AppError(...)` 会经 `AsyncExitStack` 的 `athrow` 进入依赖生成器（`rollbacks` 非空），所以「依赖里回滚、事务边界归调用方」的纪律可用；`AsyncSession.bind.url` 与 `get_bind().url` 都能读到绑定 URL，断言会话连的是哪个库用前者最直接。
 - **`AppError` 处理器不透传响应头（M3-04 缺口，已记 DEFECTS.md）**：429/503 的 `Retry-After` 用 AppError 表达不出来；M3-06 的鉴权限流 429 绕行 `StarletteHTTPException(429, headers={"Retry-After": ...})`（同一处理器保留 headers、body 仍是 `RATE_LIMITED` 统一体）。后续给 `QUEUE_FULL` / `CORE_NOT_READY` 之类补 Retry-After 时不要重复踩。
+
+### M3-07 实测：fastapi 0.141 的 `include_router` 是惰性的（verify 命令陷阱，不是实现缺陷）
+
+- **`app.include_router(router)` 之后 `app.routes` 里没有拍平后的 `APIRoute`**：只有 4 条内置 `Route`
+  （openapi / docs / docs-oauth2-redirect / redoc）加**一个** `fastapi.routing._IncludedRouter` 包装对象；
+  该私有类**没有 `.path` 属性**（展开发生在请求匹配与 OpenAPI 生成时，内部走 `effective_candidates()`）。
+  因此 `{r.path for r in app.routes}` 形态的断言在 0.141.1 上对**任何**实现都必然抛
+  `AttributeError: '_IncludedRouter' object has no attribute 'path'` —— 与是否给 router 加 prefix、
+  是否 import 本仓无关。实测 exit 1。
+- 最小复现（不 import 本仓）：
+  `.venv/bin/python -c "from fastapi import FastAPI, APIRouter; r=APIRouter(prefix='/api/system'); r.get('/health')(lambda: {}); a=FastAPI(); a.include_router(r); print([type(x).__name__ for x in a.routes]); a.routes[-1].path"`
+  → 打印 `['Route', 'Route', 'Route', 'Route', '_IncludedRouter']`，随后 AttributeError。
+- 取有效路径的两条可靠通道（实测都给出 `/api/system/health` 与 `/api/system/auth/cookie`）：
+  `set(app.openapi()["paths"])`，或 `{ctx.path for ctx in fastapi.routing.iter_route_contexts(app.routes)}`
+  （后者还含 `/docs`、`/openapi.json` 等内置路径）。要断言「路由自身挂没挂依赖」，用模块级
+  `router.routes` 里的 `APIRoute`：它的 `.path` 仍是带前缀的完整路径（`/api/system/health`），
+  `.dependencies` 就是装饰器上那份。
+- 这是 M3-01 记的「`generate_unique_id_function` 收到 `_EffectiveRouteContext`」的另一面：0.141 起
+  include 全面惰性化，别再按旧版（`self.routes.extend(...)` 拍平）的语义写 verify。
+- **受影响卡片**：M3-07 verify #1 与 M3-08 verify #1 都是 `{r.path for r in a.routes}` 形态，需要替换。
+  M3-07 的等价命令（实测 exit 0）：
+  `.venv/bin/python -c "import maa_api.api.routers.system as s; from fastapi import FastAPI; a=FastAPI(); a.include_router(s.router); paths=set(a.openapi()['paths']); assert '/api/system/health' in paths and '/api/system/auth/cookie' in paths, sorted(paths); print(sorted(p for p in paths if p.startswith('/api')))"`
+  另：M3-07 的 `GET /api/system/health` 是豁免路径，**路由侧刻意不挂 `require_auth`**（挂了会把健康检查
+  挡在 401 外）；`POST`/`DELETE /api/system/auth/cookie` 才挂。cookie 实测属性：
+  `maa_token=<token>; HttpOnly; Path=/; SameSite=lax`（`secure=False` 归 M15），清除为 `Max-Age=0` 且
+  `expires` 被 Python `http.cookies._getdate(0)` 渲染成**当前时刻**（不是 1970），断言清 cookie 只认
+  `Max-Age=0`。
