@@ -207,3 +207,24 @@
   判断的迁移，都要用 `op.get_context().as_sql` 跳过（0002 的「同名记录已存在」检查即如此）。
 - **数据迁移不必手动 commit**：INSERT 随 Alembic 的迁移事务一起提交（env.py 已让 Alembic 自己
   开事务）；`upgrade → downgrade -1 → upgrade` 跑完行数稳定、同名不重复（0002 实测）。
+
+### M2-06 实测：编排器门禁环境没有 venv / VACUUM INTO 的判别性测法（第 6 次尝试追加）
+
+- **卡面 verify 里的裸 `python3` 跑在编排器门禁环境里，PATH 没有 `.venv/bin`。**
+  `.refactor/orchestrator-src/lib/index.js` 的 `runVerify` 走
+  `run('bash', ['-lc', cmd])`，而 `run()` 固定 `cwd = 仓库根` + `baseEnv()`（web 进程环境；
+  PATH 实测为 `/Users/chtholly/.local/bin:/opt/homebrew/bin:/usr/local/bin:...`，没有 venv、
+  没有 PYTHONPATH/VIRTUAL_ENV）。该环境下 `python3 = /usr/local/bin/python3`，
+  `import sqlalchemy` / `import alembic` / `import sqlmodel` 全是 ModuleNotFoundError。
+  **worker 自测时 `PATH=$PWD/.venv/bin:$PATH python3 -c ...` 能过，不等于门禁能过** ——
+  M2-06 实测同一条 verify 在门禁环境里死在 `from alembic import command`。
+  对策二选一：verify 写 `.venv/bin/python`；或让被 import 的模块顶层只依赖标准库
+  （M2-06 的 `db/migrate.py` 取后者：alembic / sqlalchemy / `maa_api.db.session` 全部延迟到
+  函数内 import，顺带避免 import 期 `make_engine()` 的副作用）。
+- **`VACUUM INTO` 与裸文件拷贝的差别可以做成判别性测试**（M2-06 实测，SQLite 3.49.1）：
+  库处于 WAL 且有一条连接保持打开时，刚提交的行只在 `-wal` 里 —— `shutil.copyfile` 出来的
+  副本读不到该行，原库与 `VACUUM INTO` 快照都能读到。注意最后一条连接关闭会触发 checkpoint，
+  所以「裸拷贝读不到」的对照断言必须让那条 WAL 连接活着。
+- **SQLite 的 `JSON` 声明类型是 NUMERIC 亲和**：类型名不含 INT/CHAR/TEXT/BLOB/REAL/FLOA/DOUB，
+  于是用裸 `sqlite3` 往 JSON 列插字符串 `'1'` 会按数字存成整数 `1`（M2-06 写 `setting.value`
+  测试时踩到）。测试若要断言原文，插非数字字符串（如 `wal-marker`）。

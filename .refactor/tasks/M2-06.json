@@ -37,8 +37,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【可测性契约（M2-05 与后续里程碑依赖，务必照做）】\n① `db/migrate.py` 在**调用时**通过 `maa_api.db.session` 模块属性读取 `DB_PATH` / `SYNC_URL`（例如 `from maa_api.db import session` 后用 `session.DB_PATH`），不要 `from maa_api.db.session import DB_PATH` 固化取值——测试靠 monkeypatch 模块属性把库指到 tmp 目录；\n② 备份目录由 `session.DB_PATH.parent / \"backup\"` 推导（默认即 `resource/backup/`），不要硬编码 `resource/backup`；\n③ `alembic.ini` 与 `script_location` 目前按仓库根相对路径解析，保持这一点（调用方 cwd = 仓库根）。\n\n【要做的事】`ensure_schema()`：mkdir `DB_PATH.parent` → 若 `DB_PATH` 已存在且有待应用迁移则 `VACUUM INTO` 备份（保留最近 5 份）→ `await asyncio.to_thread(_upgrade_head)`；`_upgrade_head()` 用 `Config(\"alembic.ini\")` + `script_location=maa_api/db/migrations` + `sqlalchemy.url=SYNC_URL` 跑 `command.upgrade(cfg, \"head\")`。判断「有待应用迁移」用 Alembic 的 `ScriptDirectory` 与库里的 `alembic_version` 比对（`MigrationContext.configure(conn).get_current_revision()`），库不存在时视为首次建库（不备份）。迁移失败时异常原样抛出，并在 stderr 打印备份文件路径。\n\n【测试】`tests/db/test_migrate.py`（同步测试 + `asyncio.run`）覆盖：首次建库不备份、无待应用迁移不备份、有待应用迁移时先备份且备份可打开、失败路径（可 monkeypatch `_upgrade_head` 抛异常）异常向上传播且不吞掉。测试全部用 tmp 目录，不要动仓库 `resource/maa_api.db`。\n\n【环境事实（已实测，勿重复踩）】`python` 不在 PATH，一律用 `.venv/bin/python`（只有 `python3` 3.13.3）；本仓没有 pytest-asyncio，异步用例请用同步测试函数 + `asyncio.run(...)` 包住，不要新增 pytest 插件依赖；禁用 `import maa_api.main` 做自检（import 期会走 Updater + dlopen，约 2.5 分钟）。【收尾】逐条跑 verify 全绿后再提交；只 `git add` 本卡 deliverables（绝不 `git add -A`），commit message 用 `M2-XX: <标题>`，不 push、不切分支；不改动 `.refactor/` 下任何文件（ENVIRONMENT.md 是唯一例外：只追加实测事实、不改写既有条目、不 git add）。回执 200 字以内。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "4a7abcd92920a56e0ec14fc182ebb4765a8a416b",
   "blocked_reason": null
 }
