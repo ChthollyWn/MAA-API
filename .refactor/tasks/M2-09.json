@@ -12,7 +12,9 @@
     "docs/04-数据模型与持久化.md#55-schedule--定时任务",
     "docs/04-数据模型与持久化.md#56-setting--可视化配置项",
     "docs/04-数据模型与持久化.md#6-索引设计",
-    "docs/04-数据模型与持久化.md#9-仓储层"
+    "docs/04-数据模型与持久化.md#9-仓储层",
+    "tests/fixtures/db_probe_findings.md",
+    "tests/fixtures/db_probe_result.json"
   ],
   "constraints": [
     "`setting` 只存被显式覆盖过的项。配置解析优先级为 环境变量 > `setting` 表 > `config.yaml` > 代码内默认值；表里没有某个 key 就意味着「用下层的值」，升级后新增的默认值会自动生效，不需要数据迁移（docs/04 §5.6）。",

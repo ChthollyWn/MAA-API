@@ -9,7 +9,9 @@
     "docs/12-实施计划与里程碑.md#m2--数据层l",
     "docs/04-数据模型与持久化.md#55-schedule--定时任务",
     "docs/04-数据模型与持久化.md#5-表设计",
-    "docs/04-数据模型与持久化.md#11-从现有内存模型的迁移"
+    "docs/04-数据模型与持久化.md#11-从现有内存模型的迁移",
+    "tests/fixtures/db_probe_findings.md",
+    "tests/fixtures/db_probe_result.json"
   ],
   "constraints": [
     "现有 `resource/daily_task.json` 的迁移方式：它的 `weekday_task` 把星期几映射到 `task_dict` 里的一个任务组名，逐条展开成独立 schedule 记录——`{\"1\": \"workday\"}` 配合固定的 7 点与 19 点，生成 `cron = \"0 7,19 * * 1\"`、`template` 取 `task_dict[\"workday\"]`。迁移脚本放在初始迁移之后的一条数据迁移里，文件不存在则跳过（docs/04 §5.5）。",

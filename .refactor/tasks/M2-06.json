@@ -14,7 +14,9 @@
     "docs/04-数据模型与持久化.md#2-引擎与连接配置",
     "docs/04-数据模型与持久化.md#81-目录与命名约定",
     "docs/04-数据模型与持久化.md#82-envpy-要点",
-    "docs/04-数据模型与持久化.md#83-lifespan-里的自动迁移"
+    "docs/04-数据模型与持久化.md#83-lifespan-里的自动迁移",
+    "tests/fixtures/db_probe_findings.md",
+    "tests/fixtures/db_probe_result.json"
   ],
   "constraints": [
     "迁移跑在线程池里。`command.upgrade` 是同步阻塞调用，直接在 lifespan 的协程里跑会冻结事件循环；虽然此刻还没开始接受请求，但 uvicorn 的信号处理也会一起卡住，Ctrl-C 杀不掉（docs/04 §8.3）。",

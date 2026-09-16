@@ -13,7 +13,9 @@
     "docs/04-数据模型与持久化.md#2-引擎与连接配置",
     "docs/04-数据模型与持久化.md#5-表设计",
     "docs/04-数据模型与持久化.md#6-索引设计",
-    "docs/04-数据模型与持久化.md#8-alembic-配置与自动迁移"
+    "docs/04-数据模型与持久化.md#8-alembic-配置与自动迁移",
+    "tests/fixtures/db_probe_findings.md",
+    "tests/fixtures/db_probe_result.json"
   ],
   "constraints": [
     "`alembic.ini` 放项目根，`script_location = maa_api/db/migrations`，版本文件名模板设为 `%%(rev)s_%%(slug)s` 并用四位序号手工递增，不用随机 hash——序号让「第几个迁移」一目了然，也避免 `down_revision` 链在 review 时难以核对（docs/04 §8.1）。",

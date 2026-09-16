@@ -18,7 +18,9 @@
     "docs/04-数据模型与持久化.md#102-分级保留策略",
     "docs/04-数据模型与持久化.md#103-流水线与截图",
     "docs/04-数据模型与持久化.md#104-清理任务的实现要点",
-    "docs/06-实时日志与WebSocket.md#84-清理"
+    "docs/06-实时日志与WebSocket.md#84-清理",
+    "tests/fixtures/db_probe_findings.md",
+    "tests/fixtures/db_probe_result.json"
   ],
   "constraints": [
     "分级保留：`maa_task` 全部落库、30 天 / 300,000 条；`server` `INFO` 及以上、7 天 / 200,000 条；`maacore_debug` `WARNING` 及以上、3 天 / 50,000 条。两个维度同时生效，取更严格的一方：先按天数删，删完若仍超条数上限，按 id 升序继续删到上限以内（docs/04 §10.2）。",

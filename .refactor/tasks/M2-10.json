@@ -11,7 +11,9 @@
     "docs/04-数据模型与持久化.md#58-agent_message--会话消息与工具调用轨迹",
     "docs/04-数据模型与持久化.md#59-agent_audit--全量工具调用审计",
     "docs/04-数据模型与持久化.md#510-confirmation--人工确认请求",
-    "docs/04-数据模型与持久化.md#9-仓储层"
+    "docs/04-数据模型与持久化.md#9-仓储层",
+    "tests/fixtures/db_probe_findings.md",
+    "tests/fixtures/db_probe_result.json"
   ],
   "constraints": [
     "入库前必须裁剪 `arguments` 与 `result_summary`：截图工具的返回值是 base64 字符串，约定任何超过 1 KB 的字符串值替换为 `{\"__truncated__\": true, \"len\": 412300, \"ref\": \"screenshot_id\"}`；`result_summary` 上限 2 KB（docs/04 §5.9）。",

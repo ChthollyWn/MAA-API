@@ -112,3 +112,14 @@
   「检测不到部分索引」在本环境未能复现；对已由 `create_all` 建好的库跑 autogenerate 无任何噪声操作。
 - **verify 命令里的探针会写 `tests/fixtures/` 两个产物**：`db_probe_result.json` 每次运行都会刷新
   （含时间戳与临时目录路径），需要稳定内容的场景不要直接 diff 该文件。
+
+### M2-01 复跑与「verify 失败但无输出」的排查（第 2 次尝试追加）
+
+- **复跑结论**：第 2 次尝试从 commit `030af1c` 恢复上一轮产物后，完整 verify 链（含 `.venv/bin/python -m pytest -q`）
+  全绿；pytest 另单跑 6/6 全绿，并在 10 个 `yes > /dev/null` 占满 CPU 的情况下再跑 1 次仍全绿（本机 10 核）。
+  上一轮编排器侧「verify 失败：`.venv/bin/python -m pytest -q`」**不可复现**，且没有失败用例细节留存，按瞬时抖动处置，
+  不是产物缺陷（未记入 DEFECTS.md）。
+- **编排器 verify 失败时不保留命令输出**：`runVerify()` 逐条以 `bash -lc <cmd>`（cwd=仓库根、无超时）执行，
+  失败时只把**命令字符串**写进 `blocked_reason`，捕获到的 stdout/stderr（截尾 600 字符）既不落盘也不进
+  `.refactor/logs/orchestrator.log`。所以看到「verify 失败：<命令>」时，第一动作是把该命令原样重跑并自己看输出，
+  不要根据卡面描述猜失败原因。

@@ -11,7 +11,9 @@
     "docs/04-数据模型与持久化.md#2-引擎与连接配置",
     "docs/04-数据模型与持久化.md#33-枚举的存储",
     "docs/04-数据模型与持久化.md#4-状态枚举",
-    "docs/04-数据模型与持久化.md#与现有枚举的对应关系"
+    "docs/04-数据模型与持久化.md#与现有枚举的对应关系",
+    "tests/fixtures/db_probe_findings.md",
+    "tests/fixtures/db_probe_result.json"
   ],
   "constraints": [
     "枚举在 Python 侧是 `enum.StrEnum`（Python 3.11 起内置，项目已要求 `^3.11`），在数据库侧存为纯字符串列，不用 `sa.Enum`；列宽统一给 `VARCHAR(16)`（状态、来源、级别）或 `VARCHAR(24)`（阶段、角色），错误码给 `VARCHAR(48)`（docs/04 §3.3）。",

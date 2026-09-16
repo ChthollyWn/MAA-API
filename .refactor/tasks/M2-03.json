@@ -11,7 +11,9 @@
     "docs/04-数据模型与持久化.md#3-通用约定",
     "docs/04-数据模型与持久化.md#5-表设计",
     "docs/04-数据模型与持久化.md#6-索引设计",
-    "docs/04-数据模型与持久化.md#7-json-字段的写法"
+    "docs/04-数据模型与持久化.md#7-json-字段的写法",
+    "tests/fixtures/db_probe_findings.md",
+    "tests/fixtures/db_probe_result.json"
   ],
   "constraints": [
     "共 13 张业务表：`pipeline`/`task`/`log_entry`/`screenshot`/`schedule`/`setting`/`agent_session`/`agent_message`/`agent_audit`/`confirmation`/`update_record`/`notify_channel`/`resource_asset`；`alembic_version` 由 Alembic 自行维护，不计入（docs/04 §5）。",
