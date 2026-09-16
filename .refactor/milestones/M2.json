@@ -1,0 +1,12 @@
+{
+  "milestone": "M2",
+  "deliverable": "数据库可创建、可迁移、可读写，仓储层有单元测试覆盖。",
+  "acceptance": [
+    ".venv/bin/python -m pytest -q",
+    ".venv/bin/python scripts/db_smoke.py"
+  ],
+  "advisory": [
+    ".venv/bin/python -m pytest -q tests/db"
+  ],
+  "_note": "acceptance 是硬门禁：全量 pytest 覆盖仓储层单测，db_smoke.py 证明「空库建库 → Alembic 迁移到 head → upgrade/downgrade/upgrade 往返 → 各仓储族读写往返 → 保留策略清理 → 清理临时目录」整条链路在真库上跑得通 —— 也就是 docs/12 给 M2 定的「可交付状态」的可执行形式。本文件与 M2-13 卡配套；两者缺一，M2 就不能算交付。"
+}
