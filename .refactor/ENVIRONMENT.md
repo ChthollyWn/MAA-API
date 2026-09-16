@@ -32,6 +32,7 @@
 - **`AsstGetTasksList` 用正确的三参签名 `(handle, int32* buff, size)` 调用是安全的**：M1-04 在未连接状态下实测返回 0（无段错误）；此前记录的段错误来自错误的 `restype=c_char_p` / 缺参数调用，不是该 API 本身的缺陷。
 - **`AsstGetMapLevelKey` 用 `ctypes.Structure` 作 restype 在 macOS 可用**（M1-04 实测）：`AsstGetMapLevelKey("1-7")` 返回 `{'stage_id': 'main_01-07#f#', 'code': '1-7', 'level_id': 'obt/main/level_main_01-07', 'name': '暴君'}`；查不到时四字段全 NULL。`_has_symbol` 探测 + 条件绑定在任何平台都不会因缺符号报错。
 - **异步连接回调序列实测**（M1-04 走 `maa_api/core/asst.py` 复现 M1-01）：`connect_async(...)` 返回 1，回调序列 `[2, 2, 2, 2, 2, 4]`，msg=4 载荷顶层 `async_call_id=1`、`details.details.ret=true`、顶层 `what="Connect"`；`ResolutionGot` 的 `what` 与 `width/height` 分别在载荷顶层与 `details` 里，缓存后 `last_resolution()==(2560,1440)` 成立。
+- **CFUNCTYPE 包装的回调桥接无法接受 Python 对象作 arg**（M1-07 实测，Python 3.13.3）：`Asst.CallBackType` 的第三参是 `c_void_p`，`wrapped(msg, b"...", event_queue)` 会在**进入函数体之前**抛 `ctypes.ArgumentError: 'Queue' object cannot be interpreted as ctypes.c_void_p`；而 `FakeAsst` 这类纯 Python 替身恰恰是直接把队列对象当 arg 调用桥接函数（`_emit` 里 `callback(raw_message, raw_details, self.arg)`）。所以 `maa_api/core/worker.py::_callback_bridge` 不能装饰 `@Asst.CallBackType`：真实 `Asst.__init__` 自带一层 CFUNCTYPE trampoline（回调最终拿到的是整数指针），替身则直接调裸函数。桥接内 `ctypes.cast(arg, ctypes.py_object).value` 对 `int` 与 `ctypes.c_void_p` 两种指针形态都可用（实测），对普通对象抛 `ArgumentError`，据此回退模块级 `_EVENT_QUEUE` 即可同时满足两条路径。
 
 ## 验证命令的陷阱
 
