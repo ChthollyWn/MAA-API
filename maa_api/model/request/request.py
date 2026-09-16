@@ -21,7 +21,6 @@ class TaskRequest(BaseModel):
     medicine: Optional[int] = None
     expiring_medicine: Optional[int] = None
     stone: Optional[int] = None
-    times: Optional[int] = None
     series: Optional[int] = None
     drops: Optional[dict[str, int]] = None
     report_to_penguin: Optional[bool] = None
@@ -51,7 +50,7 @@ class TaskRequest(BaseModel):
     replenish: Optional[bool] = None
     dorm_notstationed_enabled: Optional[bool] = None
     dorm_trust_enabled: Optional[bool] = None
-    failename: Optional[str] = None
+    filename: Optional[str] = None
     plan_index: Optional[int] = None
 
     # Mall 参数
@@ -64,11 +63,11 @@ class TaskRequest(BaseModel):
 
     # Award 参数
     award: Optional[bool] = True
-    mail: Optional[bool] = True
-    recruit: Optional[bool] = True
-    orundum: Optional[bool] = True
-    mining: Optional[bool] = True
-    specialaccess: Optional[bool] = True
+    mail: Optional[bool] = False
+    recruit: Optional[bool] = False
+    orundum: Optional[bool] = False
+    mining: Optional[bool] = False
+    specialaccess: Optional[bool] = False
 
     # Roguelike 参数
     theme: Optional[str] = None
@@ -94,8 +93,8 @@ class TaskRequest(BaseModel):
     expected_collapsal_paradigms: Optional[list[str]] = None
 
     # Reclamation 参数
-    tools_to_craft: Optional[list[str]] = None,
-    increment_mode: Optional[int] = None,
+    tools_to_craft: Optional[list[str]] = None
+    increment_mode: Optional[int] = None
     num_craft_batches: Optional[int] = None
 
     def to_task(self) -> Task:
@@ -164,7 +163,7 @@ class TaskRequest(BaseModel):
                 replenish=self.replenish,
                 dorm_notstationed_enabled=self.dorm_notstationed_enabled,
                 dorm_trust_enabled=self.dorm_trust_enabled,
-                failename=self.failename,
+                filename=self.filename,
                 plan_index=self.plan_index
             )
 
