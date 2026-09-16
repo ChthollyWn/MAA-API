@@ -11,7 +11,8 @@
    的机械门禁。
 3. **``AppError`` 既有契约**：构造签名（位置/关键字）、``__str__``/``__repr__``、
    未登记码 fail loud（抛 ``KeyError``，不返回"默认 500"）、可 pickle、``error.code``
-   序列化成纯字符串（ADR-04）。
+   序列化成纯字符串（ADR-04）；M3-11 追加可选的 ``headers`` 通道（默认 None、
+   复制、进 pickle 往返、非 str / 非 latin-1 值 fail loud）。
 
 选抛异常而不是默认值，是因为未登记属于编码缺陷，应当在与错误码定义同一次改动里暴露，
 而不是等线上把一个本该是 503 的场景伪装成 500。
@@ -272,6 +273,15 @@ def test_app_error_details_defaults_to_none():
     assert err.http_status == 503
 
 
+def test_app_error_message_defaults_to_none():
+    """M3-11 的构造形式允许省略 ``message``（只带 headers 抛）；``str`` 不打印 None，
+    错误体里的中文兜底文案由 api 层按状态码补。"""
+    err = AppError(ErrorCode.RATE_LIMITED, headers={"Retry-After": "42"})
+    assert err.message is None
+    assert err.headers == {"Retry-After": "42"}
+    assert str(err) == "RATE_LIMITED"
+
+
 def test_app_error_str_is_code_colon_message():
     err = AppError(ErrorCode.CORE_START_FAILED, "restart budget exhausted")
     assert str(err) == "CORE_START_FAILED: restart budget exhausted"
@@ -326,6 +336,56 @@ def test_app_error_pickle_roundtrip_for_every_registered_code():
         restored = pickle.loads(pickle.dumps(AppError(code, "m", {"k": code.value})))
         assert restored.code is code
         assert restored.http_status == ERROR_HTTP_STATUS[code]
+
+
+# ----------------------------------------------------------------------
+# AppError.headers（M3-11）
+# ----------------------------------------------------------------------
+
+
+def test_app_error_headers_default_to_none():
+    assert AppError(ErrorCode.RATE_LIMITED, "slow down").headers is None
+    # 空映射等价于"没有额外头"；这与 details={} 不同，后者在错误体里是有意义的形状。
+    assert AppError(ErrorCode.RATE_LIMITED, "slow down", headers={}).headers is None
+
+
+def test_app_error_headers_accept_mapping_and_copy_it():
+    headers = {"Retry-After": "42"}
+    err = AppError(ErrorCode.QUEUE_FULL, "队列已满", headers=headers)
+    headers["Retry-After"] = "1"
+    assert err.headers == {"Retry-After": "42"}  # 已复制，外部改动不影响异常
+    assert err.http_status == 429
+
+
+def test_app_error_repr_includes_headers_only_when_present():
+    err = AppError(ErrorCode.QUEUE_FULL, "满", None, {"Retry-After": "7"})
+    assert repr(err) == (
+        "AppError(code=<ErrorCode.QUEUE_FULL: 'QUEUE_FULL'>, message='满', "
+        "details=None, headers={'Retry-After': '7'})"
+    )
+
+
+def test_app_error_pickle_roundtrip_keeps_headers():
+    """头也要进 IPC / 队列往返（headers 是第 4 个位置参数，纯 dict 可序列化）。"""
+    original = AppError(
+        ErrorCode.RATE_LIMITED, "slow down", {"ip": "1.2.3.4"}, {"Retry-After": "42"}
+    )
+    restored = pickle.loads(pickle.dumps(original))
+    assert restored.headers == {"Retry-After": "42"}
+    assert restored.code is ErrorCode.RATE_LIMITED
+    assert restored.details == {"ip": "1.2.3.4"}
+    assert restored.http_status == 429
+
+
+def test_app_error_rejects_non_string_header_value():
+    """fail loud：头值不是 str 会在 Starlette 写响应时炸成 500，构造处就该拦住。"""
+    with pytest.raises(TypeError, match="str→str"):
+        AppError(ErrorCode.RATE_LIMITED, "x", headers={"Retry-After": 42})
+
+
+def test_app_error_rejects_non_latin1_header_value():
+    with pytest.raises(ValueError, match="latin-1"):
+        AppError(ErrorCode.RATE_LIMITED, "x", headers={"X-Note": "稍后重试"})
 
 
 # ----------------------------------------------------------------------

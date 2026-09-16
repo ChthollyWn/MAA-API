@@ -25,7 +25,8 @@
 ============================  ====================================================
 异常                           行为
 ============================  ====================================================
-``AppError``                  ``exc.http_status`` + 统一体；401 补
+``AppError``                  ``exc.http_status`` + 统一体；``exc.headers`` 原样
+                              透传（429/503 的 ``Retry-After`` 由此发出），401 补
                               ``WWW-Authenticate: Bearer``（docs/05 §2）
 ``RequestValidationError``    按下面的实测判据分 400 / 422；``details.fields`` 是
                               ``exc.errors()`` 的原生字段级列表（经
@@ -34,6 +35,19 @@
                               原 ``headers``；映射表外的状态码**保持框架默认响应**
 ``Exception``                 500 ``INTERNAL_ERROR``，``details`` 只有 ``trace_id``
 ============================  ====================================================
+
+响应头（M3-11）
+===============
+
+docs/05 §2 要求 429 与 503 带 ``Retry-After``。抛错方经
+:attr:`~maa_api.domain.errors.AppError.headers` 携带，:func:`_app_error_handler`
+原样写进响应（401 的 ``WWW-Authenticate`` 用 ``setdefault``，不覆盖调用方显式给的值）。
+**响应头与错误体是两条互不影响的通道**：``details`` 里不再需要塞 ``retry_after``
+这类本属于头的信息，统一体的 JSON 形状一个字节都不变。
+
+:func:`error_responses()` 按 :data:`ERROR_RESPONSE_HEADERS` 把"这个码可能带哪些头"
+写进 OpenAPI 的 ``headers`` 字段。声明只描述文档，不参与运行时 —— 头由抛错方决定；
+``Retry-After`` 一律声明为整数秒，与鉴权限流 429 的取值口径一致。
 
 400 与 422 的分界（依据 M3-01 实测，见 tests/fixtures/api_probe_findings.md §1）
 =============================================================================
@@ -89,6 +103,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from maa_api.domain.errors import ERROR_HTTP_STATUS, AppError, ErrorCode
 
 __all__ = [
+    "ERROR_RESPONSE_HEADERS",
     "ErrorBody",
     "ErrorDetail",
     "classify_validation_errors",
@@ -262,10 +277,22 @@ def _validation_message(code: ErrorCode, fields: Sequence[Mapping[str, Any]]) ->
 
 
 async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    """``AppError`` → ``exc.http_status`` + 统一体（接法 A，见模块文档字符串）。"""
+    """``AppError`` → ``exc.http_status`` + 统一体 + ``exc.headers``（接法 A）。
+
+    ``headers`` 走 :func:`_error_response` 的同一条合并逻辑：401 补
+    ``WWW-Authenticate: Bearer``，其余头原样透传。错误体只由 code/message/details
+    决定，与头无关。``message`` 省略（``None`` 或空串）时回落到状态码的中文说明，
+    与 ``_http_exception_handler`` 用同一份 :data:`_STATUS_MESSAGE`，不会出现英文码
+    当 message 的情况。
+    """
     return _error_response(
-        ErrorDetail(code=exc.code, message=exc.message, details=exc.details),
+        ErrorDetail(
+            code=exc.code,
+            message=exc.message or _status_message(exc.http_status),
+            details=exc.details,
+        ),
         status_code=exc.http_status,
+        headers=exc.headers,
     )
 
 
@@ -351,6 +378,58 @@ def _default_description(status_code: int, codes: Sequence[ErrorCode]) -> str:
     return f"{_status_message(status_code)}：{'、'.join(str(code) for code in codes)}"
 
 
+#: ``Retry-After`` 的 OpenAPI 描述。取值统一是整数秒：鉴权限流 429 用剩余冷却秒数
+#: （``api/deps.py`` 的 ``math.ceil``），因此同一状态码下不会出现第二种口径
+#: （HTTP-date 形式本 API 不使用）。
+_RETRY_AFTER_SPEC: dict[str, Any] = {
+    "description": "建议的重试等待秒数（整数）",
+    "schema": {"type": "integer", "minimum": 0},
+}
+
+#: 会带 ``Retry-After`` 的错误码：docs/05 §2 点名的 429 三类，加 503 里"依赖暂时
+#: 不可用、稍后可重试"的那些（内核未就绪/重启中/已崩溃、设备未连接、LLM 未配置、
+#: 服务启动或关闭中）。同为 503 但重试无意义的码（``MAP_LEVEL_KEY_UNAVAILABLE``
+#: 缺符号、``DEVICE_RESOLUTION_UNSUPPORTED`` 硬件不支持、``AGENT_DISABLED``
+#: 模块未启用）刻意不在其中 —— 它们要改配置或换设备，不是"等一等再来"。
+_RETRY_AFTER_CODES: frozenset[ErrorCode] = frozenset(
+    {
+        ErrorCode.RATE_LIMITED,
+        ErrorCode.QUEUE_FULL,
+        ErrorCode.LLM_RATE_LIMITED,
+        ErrorCode.SERVICE_UNAVAILABLE,
+        ErrorCode.CORE_NOT_READY,
+        ErrorCode.CORE_RESTARTING,
+        ErrorCode.CORE_CRASHED,
+        ErrorCode.DEVICE_NOT_CONNECTED,
+        ErrorCode.LLM_NOT_CONFIGURED,
+    }
+)
+
+#: 错误码 → 该码的响应可能带的头（OpenAPI ``headers`` 对象）。
+#: **只用于文档生成**：运行时响应头由抛错方经 ``AppError.headers`` 决定，本表不
+#: 自动补头。新增带头的错误码时改这一张表，:func:`error_responses()` 全同步。
+ERROR_RESPONSE_HEADERS: dict[ErrorCode, dict[str, dict[str, Any]]] = {
+    code: {"Retry-After": _RETRY_AFTER_SPEC} for code in sorted(_RETRY_AFTER_CODES)
+}
+
+
+def _merged_response_headers(codes: Sequence[ErrorCode]) -> dict[str, dict[str, Any]]:
+    """同一状态码下多个错误码声明的头取并集（OpenAPI 的 ``responses`` 按状态码分桶）。
+
+    同名头的声明必须一致（例如 429 的三个码共用同一份 ``Retry-After`` 规格）；
+    不一致说明 :data:`ERROR_RESPONSE_HEADERS` 写错了，fail loud 而不是悄悄取第一个。
+    """
+    merged: dict[str, dict[str, Any]] = {}
+    for code in codes:
+        for name, spec in ERROR_RESPONSE_HEADERS.get(code, {}).items():
+            if name in merged and merged[name] != spec:
+                raise ValueError(
+                    f"错误码 {code!r} 对响应头 {name!r} 的声明与同状态码下其它码冲突"
+                )
+            merged[name] = dict(spec)
+    return merged
+
+
 def error_responses(
     *codes: str | ErrorCode,
     description: str | None = None,
@@ -362,8 +441,12 @@ def error_responses(
     :param description: 自定义 description；``None`` 时按状态码生成
         ``"资源不存在：PIPELINE_NOT_FOUND"`` 形态。多个状态码分组共用同一段文本
         （通常一次只传同一状态码的码）。
-    :returns: ``{状态码: {"description": ..., "content": {"application/json":
-        {"example": {"error": {...}}}}}}``，按状态码升序；同一状态码内保持传入顺序。
+    :returns: ``{状态码: {"description": ..., ["headers": ...], "content":
+        {"application/json": {"example": {"error": {...}}}}}}``，按状态码升序；
+        同一状态码内保持传入顺序。``headers`` 只在桶里至少一个码登记在
+        :data:`ERROR_RESPONSE_HEADERS` 时出现（M3-11），描述该状态码可能带的响应头
+        （如 429/503 的 ``Retry-After``）；没有登记头的状态码条目形状与 M3-04 完全
+        一致。
 
     用法见 docs/05 §11.2::
 
@@ -391,26 +474,30 @@ def error_responses(
         if code not in bucket:
             bucket.append(code)
 
-    return {
-        status_code: {
+    responses: dict[int, dict[str, Any]] = {}
+    for status_code, bucket in sorted(grouped.items()):
+        entry: dict[str, Any] = {
             "description": (
                 description
                 if description is not None
                 else _default_description(status_code, bucket)
-            ),
-            "content": {
-                "application/json": {
-                    # 示例带上 details（哪怕是空对象），让文档读者看到统一体的完整形状；
-                    # 真实响应在 details is None 时会省略该键。
-                    "example": _dump_error_body(
-                        ErrorDetail(
-                            code=bucket[0],
-                            message=_status_message(status_code),
-                            details={},
-                        )
-                    )
-                }
-            },
+            )
         }
-        for status_code, bucket in sorted(grouped.items())
-    }
+        headers = _merged_response_headers(bucket)
+        if headers:
+            entry["headers"] = headers
+        entry["content"] = {
+            "application/json": {
+                # 示例带上 details（哪怕是空对象），让文档读者看到统一体的完整形状；
+                # 真实响应在 details is None 时会省略该键。
+                "example": _dump_error_body(
+                    ErrorDetail(
+                        code=bucket[0],
+                        message=_status_message(status_code),
+                        details={},
+                    )
+                )
+            }
+        }
+        responses[status_code] = entry
+    return responses

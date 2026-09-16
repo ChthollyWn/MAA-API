@@ -50,13 +50,12 @@ cookie 渠道收窄（docs/05 §5.1、docs/13 §3）：仅凭 cookie 的请求�
   ``X-Forwarded-For``：那等于给限流器一个客户端可随意伪造的键。
 - 时钟走 :func:`_now`（``time.monotonic``），是给测试 monkeypatch 用的接缝。
 
-429 用 :class:`~starlette.exceptions.HTTPException` 抛出而不是 ``AppError``：
-M3-04 的 ``AppError`` 处理器只从错误码派生状态码与响应体、**不透传响应头**，而
-docs/05 §2/§4.1 要求 429 带 ``Retry-After``。同一个处理器对
-``StarletteHTTPException`` 会保留 ``headers``，响应体仍是统一错误体、``code`` 仍是
-``RATE_LIMITED``（``api/errors.py`` 的 ``_HTTP_STATUS_CODE[429]``），因此对外
-行为与「AppError(RATE_LIMITED) + Retry-After」完全一致。这个绕行已记入
-``.refactor/DEFECTS.md``（M3-04 的缺口）。
+429 用 ``AppError(ErrorCode.RATE_LIMITED, ..., headers={"Retry-After": ...})`` 抛出。
+M3-11 起 ``AppError`` 能携带响应头、``api/errors.py`` 的处理器原样透传，所以这里不再
+需要 M3-06 当时的绕行（``StarletteHTTPException(429, headers=...)``，缺陷见
+``.refactor/DEFECTS.md`` 的 M3-04 条目，已随本卡修复）。取值一律是剩余冷却秒数
+（整数），与 :data:`COOLDOWN_SECONDS` 同口径；响应体仍由处理器渲染成统一错误体，
+``code`` 是 ``RATE_LIMITED``。
 """
 
 from __future__ import annotations
@@ -72,7 +71,6 @@ from typing import NamedTuple
 
 from fastapi import Request, WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import maa_api.db.session as db_session
 from maa_api.domain.errors import AppError, ErrorCode
@@ -295,11 +293,15 @@ def _client_ip(request: Request) -> str:
     return client.host if client is not None else "unknown"
 
 
-def _rate_limited(retry_after: int) -> StarletteHTTPException:
-    """429 + ``Retry-After``；响应体由 M3-04 的处理器渲染成统一错误体。"""
-    return StarletteHTTPException(
-        status_code=429,
-        detail=f"鉴权失败次数过多，请在 {retry_after} 秒后重试",
+def _rate_limited(retry_after: int) -> AppError:
+    """429 ``RATE_LIMITED`` + ``Retry-After``（剩余冷却秒数，整数）。
+
+    走 ``AppError`` 统一通道（M3-11）：处理器按 ``ERROR_HTTP_STATUS`` 取 429、渲染
+    统一错误体，并把 ``headers`` 原样写进响应。
+    """
+    return AppError(
+        ErrorCode.RATE_LIMITED,
+        f"鉴权失败次数过多，请在 {retry_after} 秒后重试",
         headers={"Retry-After": str(retry_after)},
     )
 

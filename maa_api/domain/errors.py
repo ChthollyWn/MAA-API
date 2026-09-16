@@ -15,10 +15,15 @@
 
 本模块保持 M1-03 建立的契约：成员名 == 取值、绑定表查表 fail loud、异常可 pickle、
 ``error.code`` 以纯字符串序列化。
+
+M3-11 起 ``AppError`` 还能携带可选的响应头（``headers``），供 429 / 503 这类
+docs/05 §2 要求带 ``Retry-After`` 的响应使用。领域层只负责携带与校验，把
+"头怎么进响应"留给 ``maa_api/api/errors.py`` 的处理器 —— 错误体 JSON 形状不受影响。
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any
 
@@ -420,14 +425,49 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
 }
 
 
+def _normalize_headers(headers: Mapping[str, str] | None) -> dict[str, str] | None:
+    """校验并复制响应头；``None`` 与空映射都归一成 ``None``。
+
+    两条 fail loud 的校验都是为了把错误暴露在构造处而不是响应构造期：Starlette
+    写响应头时用 ``.encode("latin-1")``，头名/值不是 ``str``（如误传整数 42）
+    或含非 latin-1 字符都会在那一刻炸成 500。空映射等价于"没有额外头"，与
+    ``details={}`` 不同 —— 后者在错误体里是有意义的形状，前者不是。
+    """
+    if headers is None:
+        return None
+    normalized: dict[str, str] = {}
+    for name, value in headers.items():
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise TypeError(f"AppError.headers 必须是 str→str：{name!r}={value!r}")
+        try:
+            name.encode("latin-1")
+            value.encode("latin-1")
+        except UnicodeEncodeError:
+            raise ValueError(
+                f"AppError.headers 的名与值都必须能编成 latin-1（HTTP 头约束）："
+                f"{name!r}={value!r}"
+            ) from None
+        normalized[name] = value
+    return normalized or None
+
+
 class AppError(Exception):
-    """领域异常：携带错误码、人类可读消息与固定 HTTP 状态码。
+    """领域异常：携带错误码、人类可读消息、固定 HTTP 状态码与可选响应头。
 
     ``http_status`` 在构造时由 :data:`ERROR_HTTP_STATUS` 派生。未登记的错误码
     **fail loud**：立即抛 ``KeyError``，不返回"默认 500" —— 未登记说明调用方用错了
     错误码，是编码缺陷，应当在与错误码定义同一次改动里暴露，而不是等线上把
     一个本该是 503 的场景伪装成 500。``UPDATE_INTERRUPTED`` 是唯一被刻意排除在
     绑定表外的码（它只落库），传入同样会 fail loud —— 落库路径请直接写字符串值。
+
+    ``headers``（M3-11）是可选的响应头通道，写法则与 ``details`` 无关：它**不参与
+    错误体**，只被 ``maa_api/api/errors.py`` 的处理器原样写进响应。docs/05 §2 的
+    429 / 503 用它携带 ``Retry-After``（整数秒，与鉴权限流 429 同口径）；
+    ``None``（或空映射）表示不带额外头。
+
+    ``message`` 同样可省略（``None``）：统一错误体里的中文兜底文案由
+    ``api/errors.py`` 按 HTTP 状态码补（与 ``StarletteHTTPException`` 的兜底同一份
+    文本），领域层不复制那张表。
 
     实例只持有 ``ErrorCode`` / ``str`` / ``dict``，因此可被 pickle
     （异常对象会进多进程 IPC 与任务队列，序列化往返必须保真）。
@@ -436,26 +476,38 @@ class AppError(Exception):
     def __init__(
         self,
         code: ErrorCode,
-        message: str,
+        message: str | None = None,
         details: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         try:
             http_status = ERROR_HTTP_STATUS[code]
         except KeyError:
             raise KeyError(f"未登记的 ErrorCode，无法派生 HTTP 状态码: {code!r}") from None
 
-        # args 保存完整的构造参数，Exception 默认的 __reduce__ 依赖它实现 pickle 往返。
-        super().__init__(code, message, details)
+        normalized_headers = _normalize_headers(headers)
+
+        # args 保存完整的构造参数，Exception 默认的 __reduce__ 依赖它实现 pickle 往返
+        # （headers 是第 4 个位置参数，归一后的纯 dict 保证往返可序列化）。
+        super().__init__(code, message, details, normalized_headers)
         self.code = code
         self.message = message
         self.details = details
+        self.headers = normalized_headers
         self.http_status = http_status
 
     def __str__(self) -> str:
+        # message 省略时只报码，不打印 "None"。
+        if self.message is None:
+            return str(self.code)
         return f"{self.code}: {self.message}"
 
     def __repr__(self) -> str:
-        return (
-            f"AppError(code={self.code!r}, message={self.message!r}, "
-            f"details={self.details!r})"
-        )
+        parts = [
+            f"code={self.code!r}",
+            f"message={self.message!r}",
+            f"details={self.details!r}",
+        ]
+        if self.headers is not None:
+            parts.append(f"headers={self.headers!r}")
+        return f"AppError({', '.join(parts)})"
