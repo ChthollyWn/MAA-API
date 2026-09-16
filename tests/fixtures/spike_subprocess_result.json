@@ -1,0 +1,311 @@
+{
+  "spawn_child": true,
+  "kernel_loaded_in_child": true,
+  "callback_crossed_queue": true,
+  "task_accepted": true,
+  "kill_detected": true,
+  "restart_observed": true,
+  "observations": {
+    "spike": "M1-02 子进程隔离最小验证",
+    "generated_at": "2026-09-16T09:18:46.936417+00:00",
+    "maa_path": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin",
+    "lib_path": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin/libMaaCore.dylib",
+    "user_dir": "/var/folders/gd/sjt2j1zj5gqd7pxj0tn5znf40000gn/T/maa-spike-user-v62k1wx0",
+    "adb": "/opt/homebrew/bin/adb",
+    "address": "127.0.0.1:5555",
+    "task": "StartUp",
+    "task_params": {
+      "client_type": "Official"
+    },
+    "timeout_sec": 90.0,
+    "python": "3.13.3",
+    "platform": "macOS-15.4.1-arm64-arm-64bit-Mach-O",
+    "start_method": "spawn",
+    "executable": "/Users/chtholly/Developer/WorkSpace/MAA-API/.venv/bin/python",
+    "dyld_library_path_at_parent_start": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin",
+    "exitcode": -9,
+    "exitcode_signal": "SIGKILL",
+    "task_id": 1,
+    "callbacks_after_start": true,
+    "taskchain_started": true,
+    "async_call_ret": true,
+    "callback_msgs": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      4,
+      10001,
+      20001,
+      20002,
+      2,
+      20003,
+      10002,
+      3
+    ],
+    "callback_msg_names": [
+      "ConnectionInfo",
+      "ConnectionInfo",
+      "ConnectionInfo",
+      "ConnectionInfo",
+      "ConnectionInfo",
+      "AsyncCallInfo",
+      "TaskChainStart",
+      "SubTaskStart",
+      "SubTaskCompleted",
+      "ConnectionInfo",
+      "SubTaskExtraInfo",
+      "TaskChainCompleted",
+      "AllTasksCompleted"
+    ],
+    "callback_digest": [
+      {
+        "msg": 2,
+        "name": "ConnectionInfo",
+        "brief": "{\"details\": {\"adb\": \"/opt/homebrew/bin/adb\", \"address\": \"127.0.0.1:5555\", \"config\": \"General\", \"uuid\": \"f7c1c4ced5e96a23\"}, \"uuid\": \"f7c1c4ced5e96a23\", \"what\":…"
+      },
+      {
+        "msg": 2,
+        "name": "ConnectionInfo",
+        "brief": "{\"details\": {\"adb\": \"/opt/homebrew/bin/adb\", \"address\": \"127.0.0.1:5555\", \"height\": 1440, \"width\": 2560}, \"uuid\": \"f7c1c4ced5e96a23\", \"what\": \"ResolutionGot\", …"
+      },
+      {
+        "msg": 2,
+        "name": "ConnectionInfo",
+        "brief": "{\"details\": {\"adb\": \"/opt/homebrew/bin/adb\", \"address\": \"127.0.0.1:5555\", \"config\": \"General\"}, \"uuid\": \"f7c1c4ced5e96a23\", \"what\": \"Connected\", \"why\": \"\"}"
+      },
+      {
+        "msg": 2,
+        "name": "ConnectionInfo",
+        "brief": "{\"details\": {\"alternatives\": [{\"cost\": \"151\", \"method\": \"RawByNc\"}, {\"cost\": \"161\", \"method\": \"RawWithGzip\"}, {\"cost\": \"351\", \"method\": \"Encode\"}], \"cost\": 151…"
+      },
+      {
+        "msg": 2,
+        "name": "ConnectionInfo",
+        "brief": "{\"details\": {\"height\": 1440, \"width\": 2560}, \"uuid\": \"f7c1c4ced5e96a23\", \"what\": \"ResolutionInfo\", \"why\": \"Normal\"}"
+      },
+      {
+        "msg": 4,
+        "name": "AsyncCallInfo",
+        "brief": "{\"async_call_id\": 1, \"details\": {\"cost\": 893, \"ret\": true}, \"uuid\": \"f7c1c4ced5e96a23\", \"what\": \"Connect\"}"
+      },
+      {
+        "msg": 10001,
+        "name": "TaskChainStart",
+        "brief": "{\"taskchain\": \"StartUp\", \"taskid\": 1, \"uuid\": \"f7c1c4ced5e96a23\"}"
+      },
+      {
+        "msg": 20001,
+        "name": "SubTaskStart",
+        "brief": "{\"class\": \"asst::ProcessTask\", \"details\": {\"action\": \"DoNothing\", \"algorithm\": \"JustReturn\", \"exec_times\": 1, \"max_times\": 2147483647, \"result\": {}, \"task\": \"S…"
+      },
+      {
+        "msg": 20002,
+        "name": "SubTaskCompleted",
+        "brief": "{\"class\": \"asst::ProcessTask\", \"details\": {\"action\": \"DoNothing\", \"algorithm\": \"JustReturn\", \"exec_times\": 1, \"max_times\": 2147483647, \"result\": {}, \"task\": \"S…"
+      },
+      {
+        "msg": 2,
+        "name": "ConnectionInfo",
+        "brief": "{\"details\": {\"fps\": 60, \"refresh_period_ns\": 16666666}, \"uuid\": \"f7c1c4ced5e96a23\", \"what\": \"EmulatorFPS\"}"
+      },
+      {
+        "msg": 20003,
+        "name": "SubTaskExtraInfo",
+        "brief": "{\"class\": \"asst::ProcessTask\", \"details\": {\"exec_times\": 0, \"max_times\": 0, \"task\": \"ReturnButton\"}, \"first\": [\"StartAtHome\", \"StartWithSanity\", \"SwitchTheme@T…"
+      },
+      {
+        "msg": 10002,
+        "name": "TaskChainCompleted",
+        "brief": "{\"taskchain\": \"StartUp\", \"taskid\": 1, \"uuid\": \"f7c1c4ced5e96a23\"}"
+      },
+      {
+        "msg": 3,
+        "name": "AllTasksCompleted",
+        "brief": "{\"finished_tasks\": [1], \"taskchain\": \"StartUp\", \"taskid\": 1, \"uuid\": \"f7c1c4ced5e96a23\"}"
+      }
+    ],
+    "callback_samples": [
+      {
+        "msg": 2,
+        "name": "ConnectionInfo",
+        "payload": {
+          "details": {
+            "adb": "/opt/homebrew/bin/adb",
+            "address": "127.0.0.1:5555",
+            "config": "General",
+            "uuid": "f7c1c4ced5e96a23"
+          },
+          "uuid": "f7c1c4ced5e96a23",
+          "what": "UuidGot",
+          "why": ""
+        }
+      },
+      {
+        "msg": 4,
+        "name": "AsyncCallInfo",
+        "payload": {
+          "async_call_id": 1,
+          "details": {
+            "cost": 893,
+            "ret": true
+          },
+          "uuid": "f7c1c4ced5e96a23",
+          "what": "Connect"
+        }
+      },
+      {
+        "msg": 10001,
+        "name": "TaskChainStart",
+        "payload": {
+          "taskchain": "StartUp",
+          "taskid": 1,
+          "uuid": "f7c1c4ced5e96a23"
+        }
+      },
+      {
+        "msg": 20001,
+        "name": "SubTaskStart",
+        "payload": {
+          "class": "asst::ProcessTask",
+          "details": {
+            "action": "DoNothing",
+            "algorithm": "JustReturn",
+            "exec_times": 1,
+            "max_times": 2147483647,
+            "result": {},
+            "task": "StartUpBegin"
+          },
+          "first": [
+            "StartAtHome",
+            "StartWithSanity",
+            "SwitchTheme@ToggleSettingsMenu",
+            "StartUpBegin"
+          ],
+          "pre_task": "",
+          "subtask": "ProcessTask",
+          "taskchain": "StartUp",
+          "taskid": 0,
+          "uuid": "f7c1c4ced5e96a23"
+        }
+      },
+      {
+        "msg": 20003,
+        "name": "SubTaskExtraInfo",
+        "payload": {
+          "class": "asst::ProcessTask",
+          "details": {
+            "exec_times": 0,
+            "max_times": 0,
+            "task": "ReturnButton"
+          },
+          "first": [
+            "StartAtHome",
+            "StartWithSanity",
+            "SwitchTheme@ToggleSettingsMenu",
+            "StartUpBegin"
+          ],
+          "pre_task": "StartUpBegin",
+          "subtask": "ProcessTask",
+          "taskchain": "StartUp",
+          "taskid": 0,
+          "uuid": "f7c1c4ced5e96a23",
+          "what": "ExceededLimit"
+        }
+      }
+    ],
+    "connection_info_whats": [
+      "UuidGot",
+      "ResolutionGot",
+      "Connected",
+      "FastestWayToScreencap",
+      "ResolutionInfo",
+      "EmulatorFPS"
+    ],
+    "timings_sec": {
+      "spawn_call_sec": 0.0065,
+      "spawn_to_first_event_sec": 0.0509,
+      "spawn_to_ready_sec": 0.2513,
+      "connect_result_sec": 0.0003,
+      "first_connection_info_sec": 0.0419,
+      "append_task_result_sec": 0.8522,
+      "first_callback_after_start_sec": 0.0002,
+      "kill_to_exitcode_sec": 0.0438,
+      "restart_spawn_to_ready_sec": 0.2407,
+      "total_sec": 9.4337
+    },
+    "child_reported": {
+      "pid": 62711,
+      "version": "v6.17.5",
+      "kernel_load_sec": 0.2002,
+      "asst_create_sec": 0.0001,
+      "child_startup_sec": 0.2004,
+      "python": "3.13.3",
+      "dyld_library_path": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin"
+    },
+    "restart_child_reported": {
+      "pid": 62739,
+      "version": "v6.17.5",
+      "kernel_load_sec": 0.1709,
+      "asst_create_sec": 0.0001,
+      "child_startup_sec": 0.1711,
+      "python": "3.13.3",
+      "dyld_library_path": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin"
+    },
+    "leftover_children": [
+      {
+        "name": "maa-core-spike-1",
+        "pid": 62711,
+        "alive": false
+      },
+      {
+        "name": "maa-core-spike-2",
+        "pid": 62739,
+        "alive": false
+      }
+    ],
+    "errors": [],
+    "notes": [
+      "子进程启动序列不含版本检查/下载/设备连接（docs/03 §3.1）",
+      "CONNECT 由主进程在 READY 之后显式下发，不在启动序列里（docs/03 §3.1）",
+      "内核 v6.17.5 校验任务必填参数：StartUp 不带 client_type 时 APPEND_TASK 返回 0",
+      "start_method=spawn：子进程按限定名重新 import 本模块，入口必须是模块级函数",
+      "第二条子进程用全新的 Queue，避免与第一条的残留事件混淆"
+    ],
+    "child_pid": 62711,
+    "kernel_version": "v6.17.5",
+    "async_call_id": 1,
+    "start_returned": true,
+    "callback_completeness": {
+      "child_enqueued": 13,
+      "child_put_failed": 0,
+      "parent_received_after_ping": 13,
+      "match": true
+    },
+    "restart_child_pid": 62739,
+    "restart_shutdown": "graceful",
+    "callback_counts_by_name": {
+      "ConnectionInfo": 6,
+      "AsyncCallInfo": 1,
+      "TaskChainStart": 1,
+      "SubTaskStart": 1,
+      "SubTaskCompleted": 1,
+      "SubTaskExtraInfo": 1,
+      "TaskChainCompleted": 1,
+      "AllTasksCompleted": 1
+    }
+  },
+  "generated_at": "2026-09-16T09:18:46.936417+00:00",
+  "args": {
+    "maa_path": "resource/lib/maa/Darwin",
+    "adb": "/opt/homebrew/bin/adb",
+    "address": "127.0.0.1:5555",
+    "task": "StartUp",
+    "task_params": {
+      "client_type": "Official"
+    },
+    "timeout": 90.0,
+    "out": "tests/fixtures/spike_subprocess_result.json"
+  }
+}
