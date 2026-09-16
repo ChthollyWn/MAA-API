@@ -120,3 +120,6 @@ dmypy.json
 resource/
 
 tests/
+
+# macOS
+.DS_Store
