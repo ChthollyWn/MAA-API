@@ -1,0 +1,167 @@
+{
+  "probe": "M1-01",
+  "generated_at": "2026-09-16T09:09:49.403512+00:00",
+  "platform": "macOS-15.4.1-arm64-arm-64bit-Mach-O",
+  "python_version": "3.13.3",
+  "maa_path": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin",
+  "lib_path": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin/libMaaCore.dylib",
+  "adb_path": "/opt/homebrew/bin/adb",
+  "address": "127.0.0.1:5555",
+  "kernel_version": "v6.17.5",
+  "exports": {
+    "AsstGetMapLevelKey": true,
+    "AsstGetItemName": true,
+    "AsstAsyncConnect": true,
+    "AsstAsyncClick": true,
+    "AsstAsyncScreencap": true,
+    "AsstGetImageBgr": true,
+    "AsstGetUUID": true,
+    "AsstGetTasksList": true,
+    "AsstGetNullSize": true,
+    "AsstConnected": true,
+    "AsstBackToHome": true
+  },
+  "build_clues": {
+    "maa_path": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin",
+    "lib_path": "/Users/chtholly/Developer/WorkSpace/MAA-API/resource/lib/maa/Darwin/libMaaCore.dylib",
+    "lib_size_bytes": 19313776,
+    "lib_mtime_utc": "2026-09-16T02:24:51.135235+00:00",
+    "sibling_files": [
+      {
+        "name": "MAA-v6.17.5-macos-runtime-universal.zip",
+        "size_bytes": 193765923,
+        "mtime_utc": "2026-09-16T02:24:47.180896+00:00"
+      },
+      {
+        "name": "adb",
+        "size_bytes": 14677904,
+        "mtime_utc": "2026-09-16T02:25:09.246519+00:00"
+      },
+      {
+        "name": "libMaaAdbControlUnit.dylib",
+        "size_bytes": 1454536,
+        "mtime_utc": "2026-09-16T02:24:51.252259+00:00"
+      },
+      {
+        "name": "libMaaCore.dylib",
+        "size_bytes": 19313776,
+        "mtime_utc": "2026-09-16T02:24:51.135235+00:00"
+      },
+      {
+        "name": "libMaaUtils.dylib",
+        "size_bytes": 1348912,
+        "mtime_utc": "2026-09-16T02:24:51.109503+00:00"
+      },
+      {
+        "name": "libfastdeploy_ppocr.dylib",
+        "size_bytes": 9187384,
+        "mtime_utc": "2026-09-16T02:24:51.107006+00:00"
+      },
+      {
+        "name": "libonnxruntime.1.19.2.dylib",
+        "size_bytes": 35138648,
+        "mtime_utc": "2026-09-16T02:24:51.247524+00:00"
+      },
+      {
+        "name": "libonnxruntime.dylib",
+        "size_bytes": 35138648,
+        "mtime_utc": "2026-09-16T02:24:51.247524+00:00"
+      },
+      {
+        "name": "libopencv_world4.4.12.0.dylib",
+        "size_bytes": 25072752,
+        "mtime_utc": "2026-09-16T02:24:51.179117+00:00"
+      },
+      {
+        "name": "libopencv_world4.dylib",
+        "size_bytes": 25072752,
+        "mtime_utc": "2026-09-16T02:24:51.179117+00:00"
+      }
+    ],
+    "packages": [
+      "MAA-v6.17.5-macos-runtime-universal.zip"
+    ],
+    "resource_version_json": {
+      "activity": {
+        "name": "月行水上",
+        "time": 1788476400
+      },
+      "gacha": {
+        "pool": "石白深蓝之夜",
+        "time": 1788476400
+      },
+      "last_updated": "2026-09-05 11:08:36.000"
+    },
+    "build_origin_hint": "运行库由发行包 ['MAA-v6.17.5-macos-runtime-universal.zip'] 解压而来，与 AsstGetVersion() 返回的 v6.17.5 版本号自洽；resource/version.json = {\"activity\": {\"name\": \"月行水上\", \"time\": 1788476400}, \"gacha\": {\"pool\": \"石白深蓝之夜\", \"time\": 1788476400}, \"last_updated\": \"2026-09-05 11:08:36.000\"}；但 `AsstGetItemName` 在本机 dylib 中导出、而 `AsstCaller.h` 并无声明（docs/03 §1.2），加上文档记录的 Linux 构建未导出 `AsstGetMapLevelKey`，说明导出面与头文件/平台并不一致；结论：即使包名与版本号看起来是发布线，也一律按 docs/13 §5 的要求走运行期 `hasattr` 能力探测，不要静态假设「某 API 可用」"
+  },
+  "async_call_info": {
+    "captured": true,
+    "msg": 4,
+    "details": {
+      "async_call_id": 1,
+      "details": {
+        "cost": 1632,
+        "ret": true
+      },
+      "uuid": "f7c1c4ced5e96a23",
+      "what": "Connect"
+    },
+    "details_raw": "{\"async_call_id\":1,\"details\":{\"cost\":1632,\"ret\":true},\"uuid\":\"f7c1c4ced5e96a23\",\"what\":\"Connect\"}",
+    "details_parsed": {
+      "async_call_id": 1,
+      "details": {
+        "cost": 1632,
+        "ret": true
+      },
+      "uuid": "f7c1c4ced5e96a23",
+      "what": "Connect"
+    },
+    "offset_sec": 1.7937,
+    "parser_advice": "关联键取**顶层** `async_call_id`（本次 1，等于 `AsstAsyncConnect` 返回值）；成功标志取 `details.details.ret`（本次 True）；用顶层 `what`（本次 'Connect'）过滤调用类型。两级 Future 的实现即：返回值入待决表 → 收到 msg=4 且顶层 async_call_id 命中时 set_result(ret)。"
+  },
+  "async_connect_return": 1,
+  "async_connect_return_note": "AsstAsyncCallId，仅表示请求已受理；非零不代表连接成功（docs/08 §5.1）",
+  "connected_after": true,
+  "resource_loaded": true,
+  "resource_load_sec": 0.16,
+  "wait_sec": 2.64,
+  "timed_out": false,
+  "errors": [],
+  "observed_callbacks": [
+    {
+      "msg": 2,
+      "details_raw": "{\"details\":{\"adb\":\"/opt/homebrew/bin/adb\",\"address\":\"127.0.0.1:5555\",\"config\":\"General\",\"uuid\":\"f7c1c4ced5e96a23\"},\"uuid\":\"f7c1c4ced5e96a23\",\"what\":\"UuidGot\",\"why\":\"\"}",
+      "offset_sec": 0.1958
+    },
+    {
+      "msg": 2,
+      "details_raw": "{\"details\":{\"adb\":\"/opt/homebrew/bin/adb\",\"address\":\"127.0.0.1:5555\",\"height\":1440,\"width\":2560},\"uuid\":\"f7c1c4ced5e96a23\",\"what\":\"ResolutionGot\",\"why\":\"\"}",
+      "offset_sec": 0.2318
+    },
+    {
+      "msg": 2,
+      "details_raw": "{\"details\":{\"adb\":\"/opt/homebrew/bin/adb\",\"address\":\"127.0.0.1:5555\",\"config\":\"General\"},\"uuid\":\"f7c1c4ced5e96a23\",\"what\":\"Connected\",\"why\":\"\"}",
+      "offset_sec": 0.2326
+    },
+    {
+      "msg": 2,
+      "details_raw": "{\"details\":{\"alternatives\":[{\"cost\":\"128\",\"method\":\"RawByNc\"},{\"cost\":\"346\",\"method\":\"RawWithGzip\"},{\"cost\":\"955\",\"method\":\"Encode\"}],\"cost\":128,\"method\":\"RawByNc\"},\"uuid\":\"f7c1c4ced5e96a23\",\"what\":\"FastestWayToScreencap\"}",
+      "offset_sec": 1.7937
+    },
+    {
+      "msg": 2,
+      "details_raw": "{\"details\":{\"height\":1440,\"width\":2560},\"uuid\":\"f7c1c4ced5e96a23\",\"what\":\"ResolutionInfo\",\"why\":\"Normal\"}",
+      "offset_sec": 1.7937
+    },
+    {
+      "msg": 4,
+      "details_raw": "{\"async_call_id\":1,\"details\":{\"cost\":1632,\"ret\":true},\"uuid\":\"f7c1c4ced5e96a23\",\"what\":\"Connect\"}",
+      "offset_sec": 1.7937
+    },
+    {
+      "msg": 5,
+      "details_raw": "{}",
+      "offset_sec": 3.3019
+    }
+  ]
+}
