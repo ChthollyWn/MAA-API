@@ -18,7 +18,9 @@
     "docs/05-API规范与路由清单.md#112-summary-与-description-的中文规范",
     "docs/09-前端重构方案.md#103-错误状态码的前端处理",
     "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码",
-    "tests/fixtures/api_probe_findings.md#必读结论"
+    "tests/fixtures/api_probe_findings.md#必读结论",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/05 §1：「错误体只有一种形状。任何非 2xx 响应的 body 都是 {\"error\": {\"code\": \"ADB_CONNECT_FAILED\", \"message\": \"…\", \"details\": {...}}}。code 是可枚举的大写下划线字符串……message 是中文，直接展示给用户；details 可选，放结构化上下文……**不返回堆栈**，服务端异常的细节进日志表。」",

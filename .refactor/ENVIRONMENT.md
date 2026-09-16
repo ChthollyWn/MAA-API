@@ -366,3 +366,34 @@
   必须被识别为「版本行缺失 + 第二次 upgrade 失败」）。负向验证：把 `PLACEMENT_ENV_PRAGMA` 临时换回
   不带 commit 的写法再跑 `probe_auto_vacuum()`，两条门禁都变红（`alembic_version_rows == []`），
   即旧文档写法今天会被探针直接挡住。
+
+## API 骨架（M3-01 实测）
+
+实测环境：pydantic 2.11.10 / fastapi 0.141.1 / starlette 1.6.0 / httpx 0.27.2 / Python 3.13.3。
+完整产物：`scripts/probe_api_skeleton.py`、`tests/fixtures/api_probe_result.json`、
+`tests/fixtures/api_probe_findings.md`（29 条 `required_checks`；脚本不 import `maa_api`、不碰仓库库文件）。
+
+- **`fastapi.testclient` 在本机 import 期就发两条弃用警告**（探针捕获原文）：
+  `StarletteDeprecationWarning: Using \`httpx\` with \`starlette.testclient\` is deprecated; install \`httpx2\` instead.`
+  与 `DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.`。
+  以后若要给 `pytest.ini` 加 `filterwarnings = error`，这两条必须先处理，否则任何用 `TestClient` 的测试都会红。
+- **`TestClient` 默认 `follow_redirects=True`**（httpx 本身默认 False，是 starlette 的 TestClient 改了默认值）：
+  断言「尾斜杠 307」必须显式 `follow_redirects=False`，否则拿到的是跟随后的 200，测不出重定向。
+- **`TestClient` 默认 `raise_server_exceptions=True`**：500 路径的测试必须显式传 `raise_server_exceptions=False`
+  才能拿到响应体；配 `@app.exception_handler(Exception)` 时默认值会把原异常直接抛进测试。
+- **FastAPI 对「非法 JSON 请求体」与「未知 discriminator」的出厂状态码都是 422**（`json_invalid` /
+  `union_tag_invalid`），而 docs/05 §2.2／§4.2 要求 400。两者都必须在 `RequestValidationError`
+  处理器里按 `errors()[i]["type"]` 特判；`json_invalid` 还要看 `loc` 形状（请求体解码失败是
+  `("body", <int>)`，字段级 JSON 解析失败是 `("body", "<字段名>")`）。
+- **`ValidationError.errors()` 里的 `ctx.error` 是异常实例**（`value_error` 情形），
+  `json.dumps(exc.errors())` 直接 `TypeError`；处理器里必须走 `fastapi.encoders.jsonable_encoder`
+  或只挑 `type/loc/msg`。
+- **`generate_unique_id_function` 收到的 route 对象不一定是 `APIRoute`**：`@app.get` 直挂的是 `APIRoute`，
+  经 `include_router` 进来的是 `_EffectiveRouteContext` 包装对象（fastapi 0.141 实测），两者都有
+  `.name` / `.tags`。所以 `isinstance(route, APIRoute)` 会 False，注解也别写死 `APIRoute`。
+- **`lifespan` + 同步 `TestClient` 可用**（`with TestClient(app) as c:` 里 enter/exit 都触发），
+  本仓不需要 `pytest-asyncio`；但不用 context manager 时 lifespan 不执行。
+- **`model_validator` 抛非 `ValueError` 的自定义异常时 pydantic 不做包装**（2.11 实测）：
+  `TypeAdapter.validate_python` 与 FastAPI 请求体校验都原样抛出，可被
+  `@app.exception_handler(AppError)` 直接接住；`ValueError` 才会变成 `type="value_error"` 的
+  `ValidationError`（`ctx.error` 保留原实例）。

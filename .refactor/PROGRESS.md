@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**35 / 36** 张卡完成
+- 进度：**36 / 46** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=1 workerRuns=1（启动于 2026-09-16T12:24:18.733Z）
-- 更新时间：2026-09-16T12:30:41.871Z
+- 进程内统计：cycle=2 workerRuns=3（启动于 2026-09-16T12:24:18.733Z）
+- 更新时间：2026-09-16T12:44:18.814Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -46,4 +46,14 @@
 | M2-11 | 仓储层（五）：UpdateRepository + NotifyChannelRepository + ResourceAssetRepository（部分唯一索引与 CHECK 生效） | done | 1 | 52593ad |  |
 | M2-12 | 保留策略与后台清理：services/retention_service.py（分级日志/流水线/截图/临时图 + 增量 vacuum） | done | 1 | ec1d368 |  |
 | M2-13 | 命令行冒烟脚本 scripts/db_smoke.py：空库建库→迁移到 head→各仓储族读写往返→保留策略清理→退出码即结论 | done | 1 | 1dcbd6e |  |
-| M2-14 | 修正 M2-01 实测文档里不完整的 auto_vacuum 放置说明（并补上探针漏掉的版本行断言） | running | 0 | — |  |
+| M2-14 | 修正 M2-01 实测文档里不完整的 auto_vacuum 放置说明（并补上探针漏掉的版本行断言） | done | 1 | 7789634 |  |
+| M3-01 | 方案前置实测：pydantic v2 判别联合与 x-* schema 导出、FastAPI 400/422 分界、最小装配行为 | running | 0 | — |  |
+| M3-02 | domain/errors.py：全量 92 条错误码（docs/05 §4 十四张表）+ 固定 HTTP 状态绑定 + AppError | pending | 0 | — |  |
+| M3-03 | maa_api/settings.py：config.yaml 最小配置加载（pydantic 模型 + 进程内缓存），替代有 import 副作用的旧 config/config.py | pending | 0 | — |  |
+| M3-04 | api/errors.py：统一错误体、AppError/校验错误/HTTP 异常/兜底异常处理器与 error_responses() 辅助，并建 tests/api 公共夹具 | pending | 0 | — |  |
+| M3-05 | domain/task.py：9 种任务类型的 pydantic v2 模型、判别联合、x-* 参数元信息与 normalize（参数说明从 task.py 文档字符串逐字段迁移） | pending | 0 | — |  |
+| M3-06 | api/deps.py：四渠道 token 鉴权（优先级、cookie 写限制、豁免清单、失败限流）与会话依赖 | pending | 0 | — |  |
+| M3-07 | api/routers/system.py：GET /api/system/health（免鉴权、带 auth_enabled）与 /api/system/auth/cookie 的换取与清除 | pending | 0 | — |  |
+| M3-08 | api/routers/tasks.py：GET /api/tasks/types（9 类 schema 导出）、/types/{type_name} 与 POST /api/tasks/validate（渠道默认值注入） | pending | 0 | — |  |
+| M3-09 | main.py 应用装配：lifespan（docs/02 §7 顺序）、CORS 白名单修正、OpenAPI 元数据/tag 分组/operation_id/redirect_slashes | pending | 0 | — |  |
+| M3-10 | 端到端冒烟脚本 scripts/api_smoke.py：真实 app 装配 + lifespan 迁移 + 鉴权/校验/文档全链路（含 --serve 真实 uvicorn 模式） | pending | 0 | — |  |

@@ -13,7 +13,9 @@
     "docs/05-API规范与路由清单.md#52-未配置-token-时的行为",
     "docs/05-API规范与路由清单.md#413-设置与通知",
     "docs/09-前端重构方案.md#101-token-的录入与存储",
-    "docs/13-决策记录.md#2-其余决策速记"
+    "docs/13-决策记录.md#2-其余决策速记",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/02 §9：「config/config.py | 重写为 settings.py，支持 DB 覆盖与写回」。本卡只做最下面两层（config.yaml + 环境变量）与进程内缓存；DB 覆盖项、写回、热生效动作是 M6 的工作，**不要提前实现**，但要为它留出清晰的接入点（单一取值函数 + 可替换的缓存），不要把解析链写死在 import 期。",

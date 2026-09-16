@@ -20,7 +20,9 @@
     "docs/05-API规范与路由清单.md#112-summary-与-description-的中文规范",
     "docs/05-API规范与路由清单.md#113-示例值",
     "docs/09-前端重构方案.md#72-schema-契约",
-    "docs/13-决策记录.md#4-待补齐的契约缺口"
+    "docs/13-决策记录.md#4-待补齐的契约缺口",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/05 §8.1：「schema: model.model_json_schema(ref_template=\"#/$defs/{model}\")」+ name/label/description/groups/runtime_immutable 五个字段；响应结构为 {items:[...], total: 9, page: 1, size: 9}。§8.2：「标准 JSON Schema 没有『显示标签』的概念……中文元信息走 x- 前缀的自定义关键字（JSON Schema 规范允许未知关键字，校验器会忽略它们，所以 schema 仍然是合法的）。」取值范围用原生关键字（minimum/maximum/enum/minItems/maxItems），跨字段依赖用 x-depends-on。",

@@ -10,7 +10,9 @@
     "docs/05-API规范与路由清单.md#4-错误码表",
     "docs/05-API规范与路由清单.md#410-人工确认",
     "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码",
-    "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题"
+    "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/05 §4：「错误码定义在 maa_api/domain/errors.py 的 ErrorCode(StrEnum) 中，与领域异常一一对应；maa_api/api/errors.py 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 92 条，其中 UPDATE_INTERRUPTED 只落库不返回，不占 HTTP 表达。」—— 表外的码一个都不许加，表内的码一个都不许漏。",

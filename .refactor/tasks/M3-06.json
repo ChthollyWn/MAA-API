@@ -18,7 +18,9 @@
     "docs/06-实时日志与WebSocket.md#71-端点与鉴权",
     "docs/13-决策记录.md#adr-06--鉴权维持单-token但这与-mcp-scope-存在张力",
     "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题",
-    "docs/02-系统架构设计.md#6-模块划分"
+    "docs/02-系统架构设计.md#6-模块划分",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/05 §5.1：「取值按固定优先级，取到第一个非空值即停止，**不做回退尝试**——若 Authorization 头存在但值错误，直接判 401，不再去看 query 参数，否则攻击者可以用正确的 query 掩盖错误的头，日志会记混。」优先级：Authorization: Bearer → X-Token → ?token= → cookie maa_token。",

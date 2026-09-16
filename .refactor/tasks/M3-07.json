@@ -17,7 +17,9 @@
     "docs/05-API规范与路由清单.md#111-tag-分组",
     "docs/05-API规范与路由清单.md#112-summary-与-description-的中文规范",
     "docs/13-决策记录.md#4-待补齐的契约缺口",
-    "docs/09-前端重构方案.md#101-token-的录入与存储"
+    "docs/09-前端重构方案.md#101-token-的录入与存储",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/05 §5.3：「GET /api/system/health —— 供外部监控与容器健康检查探测，且只返回状态不返回数据」，免鉴权；豁免由 api/deps.py 的豁免清单承担，路由侧不要再挂 require_auth。",

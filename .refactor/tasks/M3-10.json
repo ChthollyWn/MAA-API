@@ -14,7 +14,9 @@
     "docs/05-API规范与路由清单.md#5-鉴权设计",
     "docs/05-API规范与路由清单.md#2-http-状态码使用规范",
     "docs/04-数据模型与持久化.md#83-lifespan-里的自动迁移",
-    ".refactor/ENVIRONMENT.md#验证命令的陷阱"
+    ".refactor/ENVIRONMENT.md#验证命令的陷阱",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/12 M3 可交付状态：「新的 API 骨架可访问，/docs 可用且文档完整，鉴权生效，任务参数校验生效。业务端点尚未接内核。」脚本就是这句话的可执行形式：只断言 M3 已实现的端点（/docs、/openapi.json、/api/system/health、/api/system/auth/cookie、/api/tasks/types、/api/tasks/types/{name}、/api/tasks/validate），**不得**断言 pipelines/queue/device/core/updates 等后续里程碑端点存在——那会逼着实现卡去造后面的东西。",

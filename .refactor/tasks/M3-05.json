@@ -17,7 +17,9 @@
     "docs/09-前端重构方案.md#72-schema-契约",
     "docs/13-决策记录.md#4-待补齐的契约缺口",
     "docs/13-决策记录.md#7-全部决策已确认",
-    "tests/fixtures/api_probe_findings.md#必读结论"
+    "tests/fixtures/api_probe_findings.md#必读结论",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/12 M3：「任务模型的参数说明必须从 task.py 的文档字符串完整迁移。这些说明是前端表单提示与 agent 参数填写质量的共同来源，是这个阶段最有价值也最容易偷工的部分。」—— 每个字段都要有中文 label 与 description（内容摘自 maa_api/model/core/task.py 的 9 个类 docstring），description 为空视为未完成。",

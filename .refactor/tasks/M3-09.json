@@ -20,7 +20,9 @@
     "docs/05-API规范与路由清单.md#112-summary-与-description-的中文规范",
     "docs/05-API规范与路由清单.md#113-示例值",
     "docs/05-API规范与路由清单.md#114-operation_id-规范化",
-    "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码"
+    "docs/13-决策记录.md#adr-04--响应格式全面改标准-http-状态码",
+    "tests/fixtures/api_probe_findings.md",
+    "tests/fixtures/api_probe_result.json"
   ],
   "constraints": [
     "docs/02 §7：「用 lifespan 替代已废弃的 @app.on_event(\"startup\")」，启动顺序九步；「第 4 步是与现状最大的行为差异：服务进入可用状态不再依赖内核就绪。」",
