@@ -77,3 +77,38 @@
   那条规则失效后，失败回滚的 `git clean -fd` 会删掉锁文件，进而可能让两个编排器实例同时驱动同一个
   仓库。凡 deliverables 含被多方改动的文件（`.gitignore`、`pyproject.toml`、`config*.yaml`），
   一律「读当前内容 + 追加/局部替换」，不要整体重写。
+
+## 数据层（M2-01 实测）
+
+实测环境：SQLAlchemy 2.0.54 / SQLModel 0.0.42 / Alembic 1.20.0 / SQLite 3.49.1 / Python 3.13.3。
+完整产物：`scripts/probe_sqlmodel_alembic.py`、`tests/fixtures/db_probe_result.json`、
+`tests/fixtures/db_probe_findings.md`（全部实验在 `tempfile.mkdtemp()` 内完成，仓库不留 `alembic.ini` / `migrations/` / `*.db`）。
+
+- **`greenlet` 不在 `.venv` 里**（`sqlalchemy` 是裸装，greenlet 只在 `sqlalchemy[asyncio]` extra 里）：
+  `create_async_engine('sqlite+aiosqlite:///...')` 后真跑 `connect + execute('select 1')` 抛
+  `ValueError: the greenlet library is required to use this function. No module named 'greenlet'`。
+  补依赖归 M2-02（M2-01 未改 `pyproject.toml`）。异步测试用同步函数 + `asyncio.run(...)` 即可，无需新增 pytest 插件。
+- **`PRAGMA auto_vacuum=INCREMENTAL` 写在初始迁移 `upgrade()` 首行是静默无效的**（M2-01 实测 upgrade 后
+  `PRAGMA auto_vacuum` 仍为 0，无任何报错）：Alembic 在跑第一个迁移之前已建好 `alembic_version`，库已非空，
+  SQLite 只在空库上立即接受该变更，否则要整库 `VACUUM`。`op.get_context().autocommit_block()` 同样无效。
+  **唯一实测生效的放置**：`env.py` 的 `run_migrations_online()` 里、`context.begin_transaction()` 之前，
+  于 connection 上执行 `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`（实测值 2）。
+- **`sqlite_autoincrement` 必须显式写**：SQLModel 里只写 `id: int | None = Field(default=None, primary_key=True)`
+  不够，要加 `__table_args__ = {"sqlite_autoincrement": True}`，DDL 才是
+  `id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT`；不带时 DDL 没有 `AUTOINCREMENT`（末尾行被删后 id 会复用）。
+  带 AUTOINCREMENT 的库会多一张内部表 `sqlite_sequence`，可作生效旁证。
+- **命名约定必须在任何表定义之前设置**：`SQLModel.metadata.naming_convention = {...}` 若在 `table=True` 模型定义
+  之后才赋值，实测无名 `Index` / `UniqueConstraint` / 外键 / 主键全部不跟随约定名（缺失 `ix_`/`uq_`/`fk_`/`pk_`）。
+- **batch 重建会静默丢 `AUTOINCREMENT`（重要）**：`op.batch_alter_table(..., recreate="always")` 靠 SQLAlchemy 反射
+  重建表，而 SQLite 反射不还原 `sqlite_autoincrement` 表选项 —— upgrade 与 downgrade 之后表都退化成
+  `id INTEGER NOT NULL, PRIMARY KEY (id)`。实测解法：给 `batch_alter_table(..., copy_from=<Table>)`，且 `copy_from`
+  必须匹配**该方向的迁移前结构**（upgrade 用模型 Table；downgrade 用 `模型表.to_metadata(MetaData())` 再补上新增列），
+  两个方向都传才双向保住 AUTOINCREMENT。命名外键与数据在 rebuild 后都保留（匿名约束会丢名）。
+- **`alembic revision --autogenerate` 的产物开箱即用会炸**：SQLModel 的 `Field(max_length=...)` 被渲染成
+  `sqlmodel.sql.sqltypes.AutoString(length=...)`，但 Alembic 不会自动补 `import sqlmodel`，
+  生成的迁移一执行就 `NameError: name 'sqlmodel' is not defined`；把 `import sqlmodel` 写进 `script.py.mako`
+  后产物可直接 `upgrade head`（实测）。另：本环境实测 autogenerate **能**保留 `sqlite_where` 部分索引谓词、
+  `sqlite_autoincrement=True`、JSON `server_default`、`op.f()` 约定名与外键 `ondelete` —— docs/04 §8.2
+  「检测不到部分索引」在本环境未能复现；对已由 `create_all` 建好的库跑 autogenerate 无任何噪声操作。
+- **verify 命令里的探针会写 `tests/fixtures/` 两个产物**：`db_probe_result.json` 每次运行都会刷新
+  （含时间戳与临时目录路径），需要稳定内容的场景不要直接 diff 该文件。
