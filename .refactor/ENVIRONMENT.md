@@ -40,6 +40,8 @@
 - **旧 `maa_api/model/util/utils.py` 的 `Message` 原来是普通 `Enum`，`int(成员)` 抛 `TypeError`**（非 `IntEnum` 没有 `__int__`/`__index__`）。M1-03 的 verify 第 2 条用 `int(Old.成员)` 做 ABI 逐项比对，实测因此**永远无法通过**（第 1 次尝试即卡死在这条）。处置：M1-03 把该枚举改为 `IntEnum`（取值一个未动；`Message(msg)`、成员间比较、全量 pytest 语义不变）并随卡提交，M3 删除该模块时一并消失。**以后写涉及旧枚举的 verify 请用 `m.value` 而不是 `int(m)`**，除非确认它是 `IntEnum`。
 - **`typing.Protocol` 会在类创建时注入 `__init__ = _no_init_or_replace_init`（一个普通函数）**，`vars(协议类)` 因此天然多出一个「方法」；`@runtime_checkable` 还会把非 callable 的成员记进 `__non_callable_proto_members__`（使 `issubclass()` 抛 TypeError）。所以「协议方法集合 ⊆ 某实现类公开方法」这类按名检查（M1-05 verify 第 3 条）若要求通过，必须把 `__init__` 与只作声明用的成员（如 `call`）换成 **callable 占位对象**——非 function、非 staticmethod，但仍出现在 `vars()` 里、仍让 `callable()` 为真。M1-05 在 Python 3.13.3 实测。
 - **macOS 上没有 `timeout` 命令**（GNU coreutils 未装）：`timeout 600 .venv/bin/python -m pytest` 直接 `command not found`（exit 127）。限时请用工具侧超时参数。
+- **pytest 测试模块可以直接当 spawn 子进程 target 的宿主模块**（M1-06 实测，Python 3.13.3）：`ctx.Process(target=<模块级函数>)` 时子进程按限定名重新 import `tests.core.test_ipc_contract`，`tests/` 是 package 且 `tests/conftest.py` 已把仓库根插进 `sys.path`（spawn 会继承 `sys.path`），因此无需额外 sys.path 设置即可跑通。代价是**测试模块顶层不能有副作用**（fixture 体内的才安全）。M1-10 做崩溃注入子进程测试可照抄这个形态。
+- **spawn 子进程里不要 `cancel_join_thread()`**：父进程侧关闭队列用 `close()+cancel_join_thread()` 防阻塞，但子进程写完必须让 feeder 线程自然 flush（默认退出时 join），否则入队消息可能丢失。
 
 ## 编排与执行环境
 

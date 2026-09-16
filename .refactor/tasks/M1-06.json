@@ -35,8 +35,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "【环境事实】`python` 不在 PATH，一律用 `.venv/bin/python`。不要修改 `.refactor/`；只 `git add` 本卡 2 个 deliverables，commit message 用 `M1-06: <标题>`，不 push、不切分支。\n\n【范围】`maa_api/core/protocol.py` 现在是占位 docstring，直接覆盖。本卡只定义协议与序列化，不实现 worker/supervisor/client（M1-07/M1-08/M1-09）。\n\n【实现要点】\n1) 常量：`COMMAND_TYPES`（21 个，见 docs/02 §3.1 表，顺序不限）、`EVENT_TYPES`（READY/CMD_RESULT/CALLBACK/LOG/PONG/FATAL）、`CMD_TIMEOUTS`（LOAD_RESOURCE 300、CONNECT 60、START 30、STOP 30，其余按查询类 5 秒；PING 也给一个短超时）。`REQUIRED_PAYLOAD_KEYS`：按 docs/02 §3.1 的 payload 列，把每个命令的必填键编码成 `dict[str, tuple[str, ...]]`（无 payload 的命令为空元组，如 START/STOP/RUNNING/CONNECTED/BACK_TO_HOME/GET_UUID/GET_TASKS_LIST/GET_VERSION/SHUTDOWN）。\n2) 构造器：`make_command(type, **payload) -> dict`（生成 uuid4 字符串 cmd_id；type 不在 COMMAND_TYPES、或 payload 缺必填键时抛 ValueError，fail loud，不要静默补默认值）、`make_event(type, **payload) -> dict`（ts 用 time.time() 的 float）。\n3) 查询辅助：`command_timeout(type) -> float`（登记的按表，未登记的查询类命令返回 5.0，未知命令类型抛 KeyError）、`is_long_command(type) -> bool`（LOAD_RESOURCE/CONNECT，供 M1-08 放宽心跳用）、`event_payload(event) -> dict` 之类的薄封装可选。\n4) 模块 docstring 里写清「本模块只依赖标准库、只产出可 pickle 的纯 dict」；不要 import maa_api 的其他模块（保持零依赖，避免 spawn 子进程导入环）。\n5) `tests/core/test_ipc_contract.py`：用 `multiprocessing.get_context('spawn')` 的真实 `ctx.Queue()` 做 pickle 往返契约测试：\n- 全部 21 个命令类型各构造一条并经 Queue 往返（含中文与嵌套 dict/list 的 payload，如 APPEND_TASK 的 params），断言往返后等值；\n- 全部 6 个事件类型往返；READY 的 payload 含 version/pid；CMD_RESULT 的 error 子结构 `{code, message}` 往返；\n- 至少一个用例把 Queue 交给一个 spawn 子进程写、父进程读（证明 spawn 模式下可 pickle，子进程 target 必须是模块级函数）；\n- 断言 make_command('CONNECT') 缺 adb_path 时抛 ValueError、未知 type 抛 ValueError、command_timeout('NOT_A_COMMAND') 抛 KeyError。\n\n【收尾】逐条跑 verify；回执 200 字以内，报告命令/事件类型数、超时表与契约测试用例数。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "6afc6d8119d1626175022c45f3c091f357b9f66a",
   "blocked_reason": null
 }
