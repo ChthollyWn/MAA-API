@@ -351,3 +351,18 @@
   pragma+commit 放置，M2-04）；且 `downgrade -1` 之后再调 `ensure_schema()` 会走「检测到待应用迁移 →
   `VACUUM INTO` 备份 → `upgrade head`」，备份文件里的版本正是降级后的那一个（0001），
   重放 0002 后 schedule 行数与首次 upgrade 相同。
+
+### M2-14 实测：pragma 值生效 ≠ 迁移可用，只有版本行断言能挡住「不 commit」（第 14 次尝试追加）
+
+- **`PRAGMA auto_vacuum` 读回 2 不能证明该放置可用（重要，门禁设计用）**：M2-14 在 M2-01 探针里新增
+  `env_py_before_begin_transaction_no_commit` 对照场景（pragma 后不 `conn.commit()`）实测：
+  pragma 值仍是 **2**（`exec_driver_sql("PRAGMA ...")` 在 pysqlite 层不触发 BEGIN，空库上立即写入库头），
+  但 `alembic_version` 表 **0 行**，第二次 `upgrade head` 报
+  `OperationalError: (sqlite3.OperationalError) table probe_min already exists`；同一场景补一句
+  `conn.commit()` 后实测 2 / `['0001']` / 第二次 upgrade 无操作。**所以断言「表存在」或「pragma == 2」
+  都会放行这个缺陷，必须查 `alembic_version` 行。**
+- 探针现在有两条对应 `required_checks`：`auto_vacuum_version_row_ok`（推荐落点升级后
+  `alembic_version` 行 == 预期 revision）与 `auto_vacuum_no_commit_control_reproduced`（不 commit 的对照
+  必须被识别为「版本行缺失 + 第二次 upgrade 失败」）。负向验证：把 `PLACEMENT_ENV_PRAGMA` 临时换回
+  不带 commit 的写法再跑 `probe_auto_vacuum()`，两条门禁都变红（`alembic_version_rows == []`），
+  即旧文档写法今天会被探针直接挡住。

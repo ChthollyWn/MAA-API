@@ -2,7 +2,9 @@
   "id": "M2-14",
   "milestone": "M2",
   "title": "修正 M2-01 实测文档里不完整的 auto_vacuum 放置说明（并补上探针漏掉的版本行断言）",
-  "depends": ["M2-12"],
+  "depends": [
+    "M2-12"
+  ],
   "reads": [
     "docs/04-数据模型与持久化.md#1-sqlmodel-表设计",
     ".refactor/DEFECTS.md"
@@ -24,8 +26,8 @@
     ".venv/bin/python -m pytest -q"
   ],
   "prompt_extra": "这是 M2 的修复卡，对应 DEFECTS.md 里 M2-04 上报的那条缺陷。M2-01 的探针结论有一处不完备，而 M2-04 照抄时真实踩到了 —— 说明这条实测文档不能只当作参考，它会被人照着写。\n\n要求：\n1. 先读 tests/fixtures/db_probe_findings.md 的 §2 与 §6.5，以及 scripts/probe_sqlmodel_alembic.py 里对应的探针代码。\n2. 把 auto_vacuum 的放置说明补完整：明确指出 pragma 之后必须 conn.commit()，并说明不 commit 时的具体现象（alembic_version 行为空、第二次 upgrade head 报 table already exists）。标注该修正来自 M2-04 的实测发现。\n3. 在探针脚本里补上缺失的断言：迁移完成后不仅要查表存在，还要查 alembic_version 行存在且等于预期版本；让探针本身能挡住这类错误。\n4. 重跑探针，确认结果 JSON 里含版本行断言，且整体仍然全绿。\n5. 修好后把 .refactor/DEFECTS.md 里对应那一条从 `- [ ]` 改成 `- [x]` 并在行尾补一句修法。编排器在 M2 打 tag 前会检查该文件，未勾选就拒绝打 tag（这正是本次停机的原因）。只改这一行，不要动其他内容，也不要 git add。\n\n最后输出 200 字以内回执：文档改了哪几处、探针补了什么断言、实跑结果。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "7789634823b2191bbef34df57bee78b113d250bb",
   "blocked_reason": null
 }

@@ -4,10 +4,10 @@
 > 卡片协议见 [PROTOCOL.md](./PROTOCOL.md)。
 
 - 分支：`refactor/v2`
-- 进度：**34 / 36** 张卡完成
+- 进度：**35 / 36** 张卡完成
 - 阻塞：0 张
-- 进程内统计：cycle=1 workerRuns=0（启动于 2026-09-16T12:24:18.733Z）
-- 更新时间：2026-09-16T12:24:28.767Z
+- 进程内统计：cycle=1 workerRuns=1（启动于 2026-09-16T12:24:18.733Z）
+- 更新时间：2026-09-16T12:30:41.871Z
 
 | 卡 | 标题 | 状态 | 尝试 | commit | 阻塞原因 |
 |---|---|---|---|---|---|
@@ -45,5 +45,5 @@
 | M2-10 | 仓储层（四）：AgentSession/AgentMessage/Audit + Confirmation（审计裁剪与终态不可变） | done | 1 | b2f5926 |  |
 | M2-11 | 仓储层（五）：UpdateRepository + NotifyChannelRepository + ResourceAssetRepository（部分唯一索引与 CHECK 生效） | done | 1 | 52593ad |  |
 | M2-12 | 保留策略与后台清理：services/retention_service.py（分级日志/流水线/截图/临时图 + 增量 vacuum） | done | 1 | ec1d368 |  |
-| M2-13 | 命令行冒烟脚本 scripts/db_smoke.py：空库建库→迁移到 head→各仓储族读写往返→保留策略清理→退出码即结论 | running | 0 | — |  |
-| M2-14 | 修正 M2-01 实测文档里不完整的 auto_vacuum 放置说明（并补上探针漏掉的版本行断言） | pending | 0 | — |  |
+| M2-13 | 命令行冒烟脚本 scripts/db_smoke.py：空库建库→迁移到 head→各仓储族读写往返→保留策略清理→退出码即结论 | done | 1 | 1dcbd6e |  |
+| M2-14 | 修正 M2-01 实测文档里不完整的 auto_vacuum 放置说明（并补上探针漏掉的版本行断言） | running | 0 | — |  |
