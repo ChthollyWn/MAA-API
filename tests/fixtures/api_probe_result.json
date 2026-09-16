@@ -1,0 +1,1683 @@
+{
+  "errors": [],
+  "fastapi_version": "0.141.1",
+  "group_a": {
+    "app_error_class": {
+      "is_assertion_error_subclass": false,
+      "is_value_error_subclass": false,
+      "mro_minus_self": [
+        "Exception",
+        "BaseException",
+        "object"
+      ],
+      "name": "ProbeAppError"
+    },
+    "default_status": [
+      422,
+      "VALIDATION_ERROR"
+    ],
+    "extra_ignore_control": {
+      "config_extra": null,
+      "fastapi": {
+        "extra_field": {
+          "body": {
+            "name": "Alpha"
+          },
+          "path": "/api/probe/task",
+          "status_code": 200
+        },
+        "field_type_error": {
+          "body": {
+            "detail": [
+              {
+                "input": "abc",
+                "loc": [
+                  "body",
+                  "Alpha",
+                  "count"
+                ],
+                "msg": "Input should be a valid integer, unable to parse string as an integer",
+                "type": "int_parsing"
+              }
+            ]
+          },
+          "path": "/api/probe/task",
+          "status_code": 422
+        }
+      },
+      "type_adapter": {
+        "extra_field": {
+          "case": "ignore_extra_field",
+          "input": {
+            "name": "Alpha",
+            "nope": 1
+          },
+          "model": "ProbeIgnoreAlpha",
+          "outcome": "validated",
+          "path": "TypeAdapter.validate_python"
+        },
+        "field_type_error": {
+          "case": "ignore_type_error",
+          "error_types": [
+            "int_parsing"
+          ],
+          "errors": [
+            {
+              "ctx_error_type": null,
+              "ctx_keys": [],
+              "input_present": true,
+              "loc": [
+                "Alpha",
+                "count"
+              ],
+              "msg": "Input should be a valid integer, unable to parse string as an integer",
+              "type": "int_parsing",
+              "url_present": true
+            }
+          ],
+          "exception": "ValidationError",
+          "input": {
+            "count": "abc",
+            "name": "Alpha"
+          },
+          "json_serializable": true,
+          "outcome": "validation_error",
+          "path": "TypeAdapter.validate_python",
+          "raw_errors": [
+            {
+              "input": "abc",
+              "loc": [
+                "Alpha",
+                "count"
+              ],
+              "msg": "Input should be a valid integer, unable to parse string as an integer",
+              "type": "int_parsing"
+            }
+          ]
+        }
+      }
+    },
+    "fastapi_mapped_cases": {
+      "extra_field": {
+        "body": {
+          "code": "VALIDATION_ERROR",
+          "details": [
+            {
+              "input": 1,
+              "loc": [
+                "body",
+                "Alpha",
+                "nope"
+              ],
+              "msg": "Extra inputs are not permitted",
+              "type": "extra_forbidden"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      },
+      "field_type_error": {
+        "body": {
+          "code": "VALIDATION_ERROR",
+          "details": [
+            {
+              "input": "abc",
+              "loc": [
+                "body",
+                "Alpha",
+                "count"
+              ],
+              "msg": "Input should be a valid integer, unable to parse string as an integer",
+              "type": "int_parsing"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      },
+      "malformed_json": {
+        "body": {
+          "code": "MALFORMED_JSON",
+          "details": [
+            {
+              "ctx": {
+                "error": "Expecting property name enclosed in double quotes"
+              },
+              "input": {},
+              "loc": [
+                "body",
+                1
+              ],
+              "msg": "JSON decode error",
+              "type": "json_invalid"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 400
+      },
+      "missing_tag": {
+        "body": {
+          "code": "VALIDATION_ERROR",
+          "details": [
+            {
+              "ctx": {
+                "discriminator": "'name'"
+              },
+              "input": {},
+              "loc": [
+                "body"
+              ],
+              "msg": "Unable to extract tag using discriminator 'name'",
+              "type": "union_tag_not_found"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      },
+      "unknown_tag": {
+        "body": {
+          "code": "UNKNOWN_TASK_TYPE",
+          "details": [
+            {
+              "ctx": {
+                "discriminator": "'name'",
+                "expected_tags": "'Alpha', 'Beta', 'Gamma'",
+                "tag": "Nope"
+              },
+              "input": {
+                "name": "Nope"
+              },
+              "loc": [
+                "body"
+              ],
+              "msg": "Input tag 'Nope' found using 'name' does not match any of the expected tags: 'Alpha', 'Beta', 'Gamma'",
+              "type": "union_tag_invalid"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 400
+      },
+      "validator_app_error": {
+        "body": {
+          "code": "TASK_PARAM_INVALID",
+          "details": {
+            "risk": "consume"
+          },
+          "message": "mode=1 不允许（validator 抛非 ValueError）"
+        },
+        "path": "/api/probe/task",
+        "status_code": 400
+      },
+      "validator_value_error": {
+        "body": {
+          "code": "VALIDATION_ERROR",
+          "details": [
+            {
+              "ctx": {
+                "error": {}
+              },
+              "input": {
+                "mode": 0,
+                "name": "Gamma"
+              },
+              "loc": [
+                "body",
+                "Gamma"
+              ],
+              "msg": "Value error, mode=0 不允许（validator 抛 ValueError）",
+              "type": "value_error"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      }
+    },
+    "fastapi_mapped_pipeline_cases": {
+      "pipeline_empty_list": {
+        "body": {
+          "code": "VALIDATION_ERROR",
+          "details": [
+            {
+              "ctx": {
+                "actual_length": 0,
+                "field_type": "List",
+                "min_length": 1
+              },
+              "input": [],
+              "loc": [
+                "body",
+                "tasks"
+              ],
+              "msg": "List should have at least 1 item after validation, not 0",
+              "type": "too_short"
+            }
+          ]
+        },
+        "path": "/api/probe/pipeline",
+        "status_code": 422
+      },
+      "pipeline_extra_field_in_list": {
+        "body": {
+          "code": "VALIDATION_ERROR",
+          "details": [
+            {
+              "input": 1,
+              "loc": [
+                "body",
+                "tasks",
+                0,
+                "Alpha",
+                "nope"
+              ],
+              "msg": "Extra inputs are not permitted",
+              "type": "extra_forbidden"
+            }
+          ]
+        },
+        "path": "/api/probe/pipeline",
+        "status_code": 422
+      },
+      "pipeline_tasks_not_list": {
+        "body": {
+          "code": "VALIDATION_ERROR",
+          "details": [
+            {
+              "input": "x",
+              "loc": [
+                "body",
+                "tasks"
+              ],
+              "msg": "Input should be a valid list",
+              "type": "list_type"
+            }
+          ]
+        },
+        "path": "/api/probe/pipeline",
+        "status_code": 422
+      },
+      "pipeline_unknown_tag_in_list": {
+        "body": {
+          "code": "UNKNOWN_TASK_TYPE",
+          "details": [
+            {
+              "ctx": {
+                "discriminator": "'name'",
+                "expected_tags": "'Alpha', 'Beta', 'Gamma'",
+                "tag": "Nope"
+              },
+              "input": {
+                "name": "Nope"
+              },
+              "loc": [
+                "body",
+                "tasks",
+                0
+              ],
+              "msg": "Input tag 'Nope' found using 'name' does not match any of the expected tags: 'Alpha', 'Beta', 'Gamma'",
+              "type": "union_tag_invalid"
+            }
+          ]
+        },
+        "path": "/api/probe/pipeline",
+        "status_code": 400
+      }
+    },
+    "fastapi_raw_cases": {
+      "extra_field": {
+        "body": {
+          "detail": [
+            {
+              "input": 1,
+              "loc": [
+                "body",
+                "Alpha",
+                "nope"
+              ],
+              "msg": "Extra inputs are not permitted",
+              "type": "extra_forbidden"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      },
+      "field_type_error": {
+        "body": {
+          "detail": [
+            {
+              "input": "abc",
+              "loc": [
+                "body",
+                "Alpha",
+                "count"
+              ],
+              "msg": "Input should be a valid integer, unable to parse string as an integer",
+              "type": "int_parsing"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      },
+      "malformed_json": {
+        "body": {
+          "detail": [
+            {
+              "ctx": {
+                "error": "Expecting property name enclosed in double quotes"
+              },
+              "input": {},
+              "loc": [
+                "body",
+                1
+              ],
+              "msg": "JSON decode error",
+              "type": "json_invalid"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      },
+      "missing_tag": {
+        "body": {
+          "detail": [
+            {
+              "ctx": {
+                "discriminator": "'name'"
+              },
+              "input": {},
+              "loc": [
+                "body"
+              ],
+              "msg": "Unable to extract tag using discriminator 'name'",
+              "type": "union_tag_not_found"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      },
+      "unknown_tag": {
+        "body": {
+          "detail": [
+            {
+              "ctx": {
+                "discriminator": "'name'",
+                "expected_tags": "'Alpha', 'Beta', 'Gamma'",
+                "tag": "Nope"
+              },
+              "input": {
+                "name": "Nope"
+              },
+              "loc": [
+                "body"
+              ],
+              "msg": "Input tag 'Nope' found using 'name' does not match any of the expected tags: 'Alpha', 'Beta', 'Gamma'",
+              "type": "union_tag_invalid"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      },
+      "validator_app_error": {
+        "body_text": "Internal Server Error",
+        "path": "/api/probe/task",
+        "status_code": 500
+      },
+      "validator_value_error": {
+        "body": {
+          "detail": [
+            {
+              "ctx": {
+                "error": {}
+              },
+              "input": {
+                "mode": 0,
+                "name": "Gamma"
+              },
+              "loc": [
+                "body",
+                "Gamma"
+              ],
+              "msg": "Value error, mode=0 不允许（validator 抛 ValueError）",
+              "type": "value_error"
+            }
+          ]
+        },
+        "path": "/api/probe/task",
+        "status_code": 422
+      }
+    },
+    "fastapi_raw_pipeline_cases": {
+      "pipeline_empty_list": {
+        "body": {
+          "detail": [
+            {
+              "ctx": {
+                "actual_length": 0,
+                "field_type": "List",
+                "min_length": 1
+              },
+              "input": [],
+              "loc": [
+                "body",
+                "tasks"
+              ],
+              "msg": "List should have at least 1 item after validation, not 0",
+              "type": "too_short"
+            }
+          ]
+        },
+        "path": "/api/probe/pipeline",
+        "status_code": 422
+      },
+      "pipeline_extra_field_in_list": {
+        "body": {
+          "detail": [
+            {
+              "input": 1,
+              "loc": [
+                "body",
+                "tasks",
+                0,
+                "Alpha",
+                "nope"
+              ],
+              "msg": "Extra inputs are not permitted",
+              "type": "extra_forbidden"
+            }
+          ]
+        },
+        "path": "/api/probe/pipeline",
+        "status_code": 422
+      },
+      "pipeline_tasks_not_list": {
+        "body": {
+          "detail": [
+            {
+              "input": "x",
+              "loc": [
+                "body",
+                "tasks"
+              ],
+              "msg": "Input should be a valid list",
+              "type": "list_type"
+            }
+          ]
+        },
+        "path": "/api/probe/pipeline",
+        "status_code": 422
+      },
+      "pipeline_unknown_tag_in_list": {
+        "body": {
+          "detail": [
+            {
+              "ctx": {
+                "discriminator": "'name'",
+                "expected_tags": "'Alpha', 'Beta', 'Gamma'",
+                "tag": "Nope"
+              },
+              "input": {
+                "name": "Nope"
+              },
+              "loc": [
+                "body",
+                "tasks",
+                0
+              ],
+              "msg": "Input tag 'Nope' found using 'name' does not match any of the expected tags: 'Alpha', 'Beta', 'Gamma'",
+              "type": "union_tag_invalid"
+            }
+          ]
+        },
+        "path": "/api/probe/pipeline",
+        "status_code": 422
+      }
+    },
+    "fastapi_raw_raise_server_exceptions_default": {
+      "exception": "ProbeAppError",
+      "is_probe_app_error": true,
+      "message": "mode=1 不允许（validator 抛非 ValueError）",
+      "raised": true,
+      "wrapped_in_validation_error": false
+    },
+    "forbid_inherited_by_subclass": true,
+    "mapped_handler_state": {
+      "app_error_handler_calls": [
+        {
+          "code": "TASK_PARAM_INVALID",
+          "extra": {
+            "risk": "consume"
+          },
+          "is_validation_error": false,
+          "message": "mode=1 不允许（validator 抛非 ValueError）",
+          "type": "ProbeAppError"
+        }
+      ],
+      "request_validation_calls": [
+        {
+          "classified": [
+            400,
+            "UNKNOWN_TASK_TYPE"
+          ],
+          "ctx_error_types": [],
+          "error_types": [
+            "union_tag_invalid"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body"
+            ]
+          ]
+        },
+        {
+          "classified": [
+            422,
+            "VALIDATION_ERROR"
+          ],
+          "ctx_error_types": [],
+          "error_types": [
+            "union_tag_not_found"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body"
+            ]
+          ]
+        },
+        {
+          "classified": [
+            422,
+            "VALIDATION_ERROR"
+          ],
+          "ctx_error_types": [],
+          "error_types": [
+            "extra_forbidden"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body",
+              "Alpha",
+              "nope"
+            ]
+          ]
+        },
+        {
+          "classified": [
+            422,
+            "VALIDATION_ERROR"
+          ],
+          "ctx_error_types": [],
+          "error_types": [
+            "int_parsing"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body",
+              "Alpha",
+              "count"
+            ]
+          ]
+        },
+        {
+          "classified": [
+            422,
+            "VALIDATION_ERROR"
+          ],
+          "ctx_error_types": [
+            "ValueError"
+          ],
+          "error_types": [
+            "value_error"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body",
+              "Gamma"
+            ]
+          ]
+        },
+        {
+          "classified": [
+            400,
+            "MALFORMED_JSON"
+          ],
+          "ctx_error_types": [
+            "str"
+          ],
+          "error_types": [
+            "json_invalid"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body",
+              1
+            ]
+          ]
+        },
+        {
+          "classified": [
+            400,
+            "UNKNOWN_TASK_TYPE"
+          ],
+          "ctx_error_types": [],
+          "error_types": [
+            "union_tag_invalid"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body",
+              "tasks",
+              0
+            ]
+          ]
+        },
+        {
+          "classified": [
+            422,
+            "VALIDATION_ERROR"
+          ],
+          "ctx_error_types": [],
+          "error_types": [
+            "extra_forbidden"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body",
+              "tasks",
+              0,
+              "Alpha",
+              "nope"
+            ]
+          ]
+        },
+        {
+          "classified": [
+            422,
+            "VALIDATION_ERROR"
+          ],
+          "ctx_error_types": [],
+          "error_types": [
+            "too_short"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body",
+              "tasks"
+            ]
+          ]
+        },
+        {
+          "classified": [
+            422,
+            "VALIDATION_ERROR"
+          ],
+          "ctx_error_types": [],
+          "error_types": [
+            "list_type"
+          ],
+          "jsonable_encoder_ok": true,
+          "locs": [
+            [
+              "body",
+              "tasks"
+            ]
+          ]
+        }
+      ]
+    },
+    "status_map": {
+      "json_invalid": [
+        400,
+        "MALFORMED_JSON"
+      ],
+      "union_tag_invalid": [
+        400,
+        "UNKNOWN_TASK_TYPE"
+      ]
+    },
+    "type_adapter_cases": {
+      "extra_field": {
+        "case": "extra_field",
+        "error_types": [
+          "extra_forbidden"
+        ],
+        "errors": [
+          {
+            "ctx_error_type": null,
+            "ctx_keys": [],
+            "input_present": true,
+            "loc": [
+              "Alpha",
+              "nope"
+            ],
+            "msg": "Extra inputs are not permitted",
+            "type": "extra_forbidden",
+            "url_present": true
+          }
+        ],
+        "exception": "ValidationError",
+        "input": {
+          "name": "Alpha",
+          "nope": 1
+        },
+        "json_serializable": true,
+        "outcome": "validation_error",
+        "path": "TypeAdapter.validate_python",
+        "raw_errors": [
+          {
+            "input": 1,
+            "loc": [
+              "Alpha",
+              "nope"
+            ],
+            "msg": "Extra inputs are not permitted",
+            "type": "extra_forbidden"
+          }
+        ]
+      },
+      "field_type_error": {
+        "case": "field_type_error",
+        "error_types": [
+          "int_parsing"
+        ],
+        "errors": [
+          {
+            "ctx_error_type": null,
+            "ctx_keys": [],
+            "input_present": true,
+            "loc": [
+              "Alpha",
+              "count"
+            ],
+            "msg": "Input should be a valid integer, unable to parse string as an integer",
+            "type": "int_parsing",
+            "url_present": true
+          }
+        ],
+        "exception": "ValidationError",
+        "input": {
+          "count": "abc",
+          "name": "Alpha"
+        },
+        "json_serializable": true,
+        "outcome": "validation_error",
+        "path": "TypeAdapter.validate_python",
+        "raw_errors": [
+          {
+            "input": "abc",
+            "loc": [
+              "Alpha",
+              "count"
+            ],
+            "msg": "Input should be a valid integer, unable to parse string as an integer",
+            "type": "int_parsing"
+          }
+        ]
+      },
+      "malformed_json": {
+        "case": "malformed_json",
+        "error_types": [
+          "json_invalid"
+        ],
+        "errors": [
+          {
+            "ctx_error_type": "str",
+            "ctx_keys": [
+              "error"
+            ],
+            "input_present": true,
+            "loc": [],
+            "msg": "Invalid JSON: key must be a string at line 1 column 2",
+            "type": "json_invalid",
+            "url_present": true
+          }
+        ],
+        "exception": "ValidationError",
+        "outcome": "validation_error",
+        "path": "TypeAdapter.validate_json",
+        "raw_errors": [
+          {
+            "ctx": {
+              "error": "key must be a string at line 1 column 2"
+            },
+            "input": "{not json",
+            "loc": [],
+            "msg": "Invalid JSON: key must be a string at line 1 column 2",
+            "type": "json_invalid"
+          }
+        ]
+      },
+      "missing_tag": {
+        "case": "missing_tag",
+        "error_types": [
+          "union_tag_not_found"
+        ],
+        "errors": [
+          {
+            "ctx_error_type": null,
+            "ctx_keys": [
+              "discriminator"
+            ],
+            "input_present": true,
+            "loc": [],
+            "msg": "Unable to extract tag using discriminator 'name'",
+            "type": "union_tag_not_found",
+            "url_present": true
+          }
+        ],
+        "exception": "ValidationError",
+        "input": {},
+        "json_serializable": true,
+        "outcome": "validation_error",
+        "path": "TypeAdapter.validate_python",
+        "raw_errors": [
+          {
+            "ctx": {
+              "discriminator": "'name'"
+            },
+            "input": {},
+            "loc": [],
+            "msg": "Unable to extract tag using discriminator 'name'",
+            "type": "union_tag_not_found"
+          }
+        ]
+      },
+      "unknown_tag": {
+        "case": "unknown_tag",
+        "error_types": [
+          "union_tag_invalid"
+        ],
+        "errors": [
+          {
+            "ctx_error_type": null,
+            "ctx_keys": [
+              "discriminator",
+              "expected_tags",
+              "tag"
+            ],
+            "input_present": true,
+            "loc": [],
+            "msg": "Input tag 'Nope' found using 'name' does not match any of the expected tags: 'Alpha', 'Beta', 'Gamma'",
+            "type": "union_tag_invalid",
+            "url_present": true
+          }
+        ],
+        "exception": "ValidationError",
+        "input": {
+          "name": "Nope"
+        },
+        "json_serializable": true,
+        "outcome": "validation_error",
+        "path": "TypeAdapter.validate_python",
+        "raw_errors": [
+          {
+            "ctx": {
+              "discriminator": "'name'",
+              "expected_tags": "'Alpha', 'Beta', 'Gamma'",
+              "tag": "Nope"
+            },
+            "input": {
+              "name": "Nope"
+            },
+            "loc": [],
+            "msg": "Input tag 'Nope' found using 'name' does not match any of the expected tags: 'Alpha', 'Beta', 'Gamma'",
+            "type": "union_tag_invalid"
+          }
+        ]
+      },
+      "validator_app_error": {
+        "case": "validator_app_error",
+        "exception": "ProbeAppError",
+        "exception_module": "__main__",
+        "input": {
+          "mode": 1,
+          "name": "Gamma"
+        },
+        "is_probe_app_error": true,
+        "message": "mode=1 不允许（validator 抛非 ValueError）",
+        "outcome": "raised",
+        "path": "TypeAdapter.validate_python",
+        "probe_app_error_code": "TASK_PARAM_INVALID",
+        "probe_app_error_extra": {
+          "risk": "consume"
+        },
+        "wrapped_in_validation_error": false
+      },
+      "validator_value_error": {
+        "case": "validator_value_error",
+        "error_types": [
+          "value_error"
+        ],
+        "errors": [
+          {
+            "ctx_error_type": "ValueError",
+            "ctx_keys": [
+              "error"
+            ],
+            "input_present": true,
+            "loc": [
+              "Gamma"
+            ],
+            "msg": "Value error, mode=0 不允许（validator 抛 ValueError）",
+            "type": "value_error",
+            "url_present": true
+          }
+        ],
+        "exception": "ValidationError",
+        "input": {
+          "mode": 0,
+          "name": "Gamma"
+        },
+        "json_serializable": false,
+        "outcome": "validation_error",
+        "path": "TypeAdapter.validate_python",
+        "raw_errors": [
+          {
+            "ctx": {
+              "error": "<ValueError>"
+            },
+            "input": {
+              "mode": 0,
+              "name": "Gamma"
+            },
+            "loc": [
+              "Gamma"
+            ],
+            "msg": "Value error, mode=0 不允许（validator 抛 ValueError）",
+            "type": "value_error"
+          }
+        ]
+      }
+    }
+  },
+  "group_b": {
+    "alias": {
+      "dr_grandet_schema_property_exists": true,
+      "dump_by_alias_exclude_none_exclude_name": {
+        "DrGrandet": true,
+        "stage": "1-7",
+        "times": 3
+      },
+      "dump_by_alias_exclude_unset_exclude_name": {
+        "DrGrandet": true,
+        "stage": "1-7",
+        "times": 3
+      },
+      "dump_no_alias_exclude_unset": {
+        "dr_grandet": true,
+        "stage": "1-7",
+        "times": 3
+      },
+      "schema_by_alias_false_properties": [
+        "dr_grandet",
+        "drops",
+        "enable",
+        "medicine",
+        "name",
+        "series",
+        "stage",
+        "times"
+      ],
+      "schema_property_names": [
+        "DrGrandet",
+        "Times",
+        "drops",
+        "enable",
+        "medicine",
+        "name",
+        "series",
+        "stage"
+      ],
+      "times_python_property_exists": false,
+      "times_schema_property_exists": true,
+      "validation_both_spellings_ok": true
+    },
+    "cross_field_validator": {
+      "trigger": {
+        "case": "infrast_cross_field",
+        "error_types": [
+          "value_error"
+        ],
+        "errors": [
+          {
+            "ctx_error_type": "ValueError",
+            "ctx_keys": [
+              "error"
+            ],
+            "input_present": true,
+            "loc": [],
+            "msg": "Value error, 自定义换班模式（mode=10000）必须提供 threshold",
+            "type": "value_error",
+            "url_present": true
+          }
+        ],
+        "exception": "ValidationError",
+        "input": {
+          "mode": 10000,
+          "name": "Infrast"
+        },
+        "json_serializable": false,
+        "outcome": "validation_error",
+        "path": "TypeAdapter.validate_python",
+        "raw_errors": [
+          {
+            "ctx": {
+              "error": "<ValueError>"
+            },
+            "input": {
+              "mode": 10000,
+              "name": "Infrast"
+            },
+            "loc": [],
+            "msg": "Value error, 自定义换班模式（mode=10000）必须提供 threshold",
+            "type": "value_error"
+          }
+        ]
+      }
+    },
+    "docs_maafield_x_extra": {
+      "collision_message": "pydantic.fields.Field() got multiple values for keyword argument 'json_schema_extra'",
+      "collision_reproduced": true,
+      "path": "docs/05 §7.2 MaaField(**kwargs 里带 json_schema_extra)"
+    },
+    "fight_schema": {
+      "additional_properties": false,
+      "additional_properties_in_properties": false,
+      "drops_property": {
+        "anyOf": [
+          {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "key 为 item_id",
+        "title": "Drops",
+        "x-group": "高级",
+        "x-label": "指定掉落数量"
+      },
+      "has_defs": false,
+      "medicine_property": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Medicine",
+        "x-group": "资源消耗",
+        "x-label": "最大理智药数"
+      },
+      "name_property": {
+        "const": "Fight",
+        "default": "Fight",
+        "title": "Name",
+        "type": "string"
+      },
+      "properties": [
+        "DrGrandet",
+        "Times",
+        "drops",
+        "enable",
+        "medicine",
+        "name",
+        "series",
+        "stage"
+      ],
+      "series_property": {
+        "anyOf": [
+          {
+            "maximum": 6,
+            "minimum": -1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Series",
+        "x-enum-labels": {
+          "-1": "禁用切换",
+          "0": "自动选择最大可用次数",
+          "1": "1 次"
+        },
+        "x-group": "基础",
+        "x-label": "连战次数",
+        "x-risk": "consume",
+        "x-widget": "select"
+      },
+      "top_level_keys": [
+        "additionalProperties",
+        "properties",
+        "title",
+        "type"
+      ],
+      "x_keys_by_field": {
+        "DrGrandet": [
+          "x-group",
+          "x-label"
+        ],
+        "Times": [
+          "x-depends-on",
+          "x-group",
+          "x-label"
+        ],
+        "drops": [
+          "x-group",
+          "x-label"
+        ],
+        "enable": [
+          "x-group",
+          "x-label"
+        ],
+        "medicine": [
+          "x-group",
+          "x-label"
+        ],
+        "name": [],
+        "series": [
+          "x-enum-labels",
+          "x-group",
+          "x-label",
+          "x-risk",
+          "x-widget"
+        ],
+        "stage": [
+          "x-group",
+          "x-label"
+        ]
+      },
+      "x_labels_verbatim": {
+        "DrGrandet": "节省理智碎石模式",
+        "Times": "指定次数",
+        "drops": "指定掉落数量",
+        "enable": "启用本任务",
+        "medicine": "最大理智药数",
+        "name": null,
+        "series": "连战次数",
+        "stage": "关卡名"
+      }
+    },
+    "infrast_schema": {
+      "facility_property": {
+        "anyOf": [
+          {
+            "items": {
+              "enum": [
+                "Mfg",
+                "Trade",
+                "Power",
+                "Dorm"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Facility",
+        "x-group": "基础",
+        "x-label": "要换班的设施（有序）"
+      },
+      "mode_property": {
+        "anyOf": [
+          {
+            "enum": [
+              0,
+              10000,
+              20000
+            ],
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Mode",
+        "x-enum-labels": {
+          "0": "默认换班",
+          "10000": "自定义换班",
+          "20000": "一键轮换"
+        },
+        "x-group": "基础",
+        "x-label": "换班工作模式",
+        "x-widget": "select"
+      },
+      "threshold_property": {
+        "anyOf": [
+          {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Threshold",
+        "x-group": "基础",
+        "x-label": "工作心情阈值"
+      }
+    },
+    "model_fields_set": {
+      "explicit_null": {
+        "dump_default_by_alias": {
+          "DrGrandet": null,
+          "drops": null,
+          "enable": null,
+          "medicine": null,
+          "series": null,
+          "stage": null,
+          "times": null
+        },
+        "dump_exclude_none_by_alias": {},
+        "dump_exclude_unset_by_alias": {
+          "DrGrandet": null,
+          "stage": null
+        },
+        "model_fields_set": [
+          "dr_grandet",
+          "stage"
+        ],
+        "to_core_params_like": {}
+      },
+      "explicit_value": {
+        "dump_default_by_alias": {
+          "DrGrandet": false,
+          "drops": null,
+          "enable": null,
+          "medicine": null,
+          "series": null,
+          "stage": "CE-6",
+          "times": null
+        },
+        "dump_exclude_none_by_alias": {
+          "DrGrandet": false,
+          "stage": "CE-6"
+        },
+        "dump_exclude_unset_by_alias": {
+          "DrGrandet": false,
+          "stage": "CE-6"
+        },
+        "model_fields_set": [
+          "dr_grandet",
+          "stage"
+        ],
+        "to_core_params_like": {
+          "DrGrandet": false,
+          "stage": "CE-6"
+        }
+      },
+      "missing": {
+        "dump_default_by_alias": {
+          "DrGrandet": null,
+          "drops": null,
+          "enable": null,
+          "medicine": null,
+          "series": null,
+          "stage": "1-7",
+          "times": null
+        },
+        "dump_exclude_none_by_alias": {
+          "stage": "1-7"
+        },
+        "dump_exclude_unset_by_alias": {
+          "stage": "1-7"
+        },
+        "model_fields_set": [
+          "stage"
+        ],
+        "to_core_params_like": {
+          "stage": "1-7"
+        }
+      }
+    },
+    "startup_schema": {
+      "account_name_property": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "仅支持切换至已登录账号，按登录名模糊查找",
+        "examples": [
+          "123****4567",
+          "张三"
+        ],
+        "title": "Account Name",
+        "x-group": "账号",
+        "x-label": "切换账号"
+      },
+      "defs_keys": [
+        "ProbeNestedSettings"
+      ],
+      "nested_ref": "#/$defs/ProbeNestedSettings",
+      "top_level_keys": [
+        "$defs",
+        "additionalProperties",
+        "properties",
+        "title",
+        "type"
+      ]
+    },
+    "union_introspection": {
+      "branches": [
+        "ProbeStartUpInput",
+        "ProbeFightInput",
+        "ProbeInfrastInput"
+      ],
+      "default_ref_template_ref": "#/$defs/ProbeStartUpInput",
+      "default_ref_template_top_keys": [
+        "$defs",
+        "discriminator",
+        "oneOf"
+      ],
+      "get_args_get_args_first_len": 3,
+      "model_fields_name_default": "Fight",
+      "name_defaults": {
+        "ProbeFightInput": "Fight",
+        "ProbeInfrastInput": "Infrast",
+        "ProbeStartUpInput": "StartUp"
+      },
+      "per_model_has_discriminator": {
+        "ProbeFightInput": false,
+        "ProbeInfrastInput": false,
+        "ProbeStartUpInput": false
+      },
+      "per_model_top_keys": {
+        "ProbeFightInput": [
+          "additionalProperties",
+          "properties",
+          "title",
+          "type"
+        ],
+        "ProbeInfrastInput": [
+          "additionalProperties",
+          "properties",
+          "title",
+          "type"
+        ],
+        "ProbeStartUpInput": [
+          "$defs",
+          "additionalProperties",
+          "properties",
+          "title",
+          "type"
+        ]
+      },
+      "type_adapter_defs_keys": [
+        "ProbeFightInput",
+        "ProbeInfrastInput",
+        "ProbeNestedSettings",
+        "ProbeStartUpInput"
+      ],
+      "type_adapter_discriminator": {
+        "mapping": {
+          "Fight": "#/$defs/ProbeFightInput",
+          "Infrast": "#/$defs/ProbeInfrastInput",
+          "StartUp": "#/$defs/ProbeStartUpInput"
+        },
+        "propertyName": "name"
+      },
+      "type_adapter_has_top_level_properties": false,
+      "type_adapter_one_of_refs": [
+        "#/$defs/ProbeStartUpInput",
+        "#/$defs/ProbeFightInput",
+        "#/$defs/ProbeInfrastInput"
+      ],
+      "type_adapter_schema_top_keys": [
+        "$defs",
+        "discriminator",
+        "oneOf"
+      ]
+    },
+    "x_keys_under_test": [
+      "x-label",
+      "x-group",
+      "x-widget",
+      "x-enum-labels",
+      "x-risk",
+      "x-depends-on"
+    ]
+  },
+  "group_c": {
+    "exception_handler_500": {
+      "body": {
+        "code": "INTERNAL_ERROR",
+        "message": "kaboom",
+        "type": "RuntimeError"
+      },
+      "status_code": 500
+    },
+    "http_exception": {
+      "body": {
+        "detail": "token 缺失或不匹配"
+      },
+      "headers": {
+        "content-length": "37",
+        "content-type": "application/json",
+        "www-authenticate": "Bearer"
+      },
+      "status_code": 401,
+      "www_authenticate": "Bearer"
+    },
+    "lifespan": {
+      "entered": true,
+      "exited": true,
+      "inside_request_status": 200,
+      "log_after_context": [
+        "enter",
+        "exit"
+      ],
+      "log_inside_context": [
+        "enter"
+      ],
+      "no_context_manager": {
+        "entered": false,
+        "log": [],
+        "status_code": 200
+      },
+      "warnings_during_context": []
+    },
+    "openapi": {
+      "operation_ids": {
+        "/api/probe/boom": {
+          "get": "system_boom"
+        },
+        "/api/probe/no-slash": {
+          "get": "system_read_probe"
+        },
+        "/api/probe/unauthorized": {
+          "get": "system_unauthorized"
+        },
+        "/ping": {
+          "get": "default_ping"
+        }
+      },
+      "paths": [
+        "/api/probe/boom",
+        "/api/probe/no-slash",
+        "/api/probe/unauthorized",
+        "/ping"
+      ],
+      "route_observations": [
+        {
+          "has_name": true,
+          "has_tags": true,
+          "is_annotated_as_api_route_in_docs": true,
+          "is_api_route_instance": true,
+          "methods": [
+            "GET"
+          ],
+          "name": "ping",
+          "object_module": "fastapi.routing",
+          "object_type": "APIRoute",
+          "path": "/ping",
+          "tags": []
+        },
+        {
+          "has_name": true,
+          "has_tags": true,
+          "is_annotated_as_api_route_in_docs": true,
+          "is_api_route_instance": false,
+          "methods": [
+            "GET"
+          ],
+          "name": "read_probe",
+          "object_module": "fastapi.routing",
+          "object_type": "_EffectiveRouteContext",
+          "path": "/api/probe/no-slash",
+          "tags": [
+            "system"
+          ]
+        },
+        {
+          "has_name": true,
+          "has_tags": true,
+          "is_annotated_as_api_route_in_docs": true,
+          "is_api_route_instance": false,
+          "methods": [
+            "GET"
+          ],
+          "name": "unauthorized",
+          "object_module": "fastapi.routing",
+          "object_type": "_EffectiveRouteContext",
+          "path": "/api/probe/unauthorized",
+          "tags": [
+            "system"
+          ]
+        },
+        {
+          "has_name": true,
+          "has_tags": true,
+          "is_annotated_as_api_route_in_docs": true,
+          "is_api_route_instance": false,
+          "methods": [
+            "GET"
+          ],
+          "name": "boom",
+          "object_module": "fastapi.routing",
+          "object_type": "_EffectiveRouteContext",
+          "path": "/api/probe/boom",
+          "tags": [
+            "system"
+          ]
+        }
+      ],
+      "tag_descriptions": {
+        "pipelines": "流水线提交、查询与取消",
+        "system": "健康检查、服务信息、日志查询",
+        "tasks": "任务类型与参数 schema"
+      },
+      "tags_order": [
+        "system",
+        "tasks",
+        "pipelines"
+      ]
+    },
+    "raise_server_exceptions_default": {
+      "exception": "RuntimeError",
+      "message": "kaboom",
+      "raised": true
+    },
+    "redirect_slashes": {
+      "control_default_status": 307,
+      "control_followed_status": 200,
+      "control_location": "http://testserver/api/probe/no-slash",
+      "disabled_status": 404,
+      "no_slash_status": 200
+    },
+    "starlette_deprecations": {
+      "during_use": [],
+      "import_time": [
+        {
+          "category": "StarletteDeprecationWarning",
+          "filename": "/Users/chtholly/Developer/WorkSpace/MAA-API/.venv/lib/python3.13/site-packages/fastapi/testclient.py",
+          "lineno": 1,
+          "message": "Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead."
+        },
+        {
+          "category": "DeprecationWarning",
+          "filename": "/Users/chtholly/Developer/WorkSpace/MAA-API/.venv/lib/python3.13/site-packages/starlette/testclient.py",
+          "lineno": 53,
+          "message": "The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead."
+        }
+      ]
+    }
+  },
+  "httpx_version": "0.27.2",
+  "machine": "arm64",
+  "platform": "macOS-15.4.1-arm64-arm-64bit-Mach-O",
+  "probe_ok": true,
+  "probe_script": "scripts/probe_api_skeleton.py",
+  "pydantic_version": "2.11.10",
+  "python_version": "3.13.3",
+  "required_checks": {
+    "alias_schema_and_dump_keys_ok": true,
+    "app_error_propagates_unwrapped": true,
+    "ctx_error_not_json_serializable_recorded": true,
+    "docs_maafield_extra_collision_confirmed": true,
+    "exception_handler_500_body_ok": true,
+    "fastapi_422_for_model_level_errors": true,
+    "forbid_config_inherited_by_subclass": true,
+    "handler_maps_error_types_to_400_422": true,
+    "http_exception_headers_passthrough": true,
+    "legacy_extra_ignore_control": true,
+    "malformed_json_default_is_422_json_invalid": true,
+    "model_fields_set_three_states": true,
+    "operation_id_from_route_name_and_tag": true,
+    "pipeline_union_loc_records_index": true,
+    "raise_server_exceptions_default_reraises": true,
+    "redirect_slashes_disabled": true,
+    "route_object_type_recorded": true,
+    "schema_defs_and_ref_shape_ok": true,
+    "schema_nullable_and_numeric_enum_ok": true,
+    "schema_object_shape_ok": true,
+    "schema_x_extensions_preserved": true,
+    "starlette_httpx_deprecation_recorded": true,
+    "tags_metadata_order_preserved": true,
+    "testclient_lifespan_ok": true,
+    "type_branch_introspection_ok": true,
+    "union_tag_invalid_type_confirmed": true,
+    "union_tag_not_found_distinct_from_invalid": true,
+    "value_error_wrapped_with_ctx_error": true,
+    "versions_recorded": true
+  },
+  "starlette_version": "1.6.0"
+}
