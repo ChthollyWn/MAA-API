@@ -78,7 +78,7 @@
 8. 更新 `PROGRESS.md`、追加日志、提交台账变更。
 9. 睡到下一轮。
 
-## worker 契约
+## worker 契约（已卸载，留作参考）
 
 worker 的提示词由编排器从卡片生成，固定包含：
 
@@ -96,42 +96,61 @@ worker 的提示词由编排器从卡片生成，固定包含：
 
 ## 运维
 
-### 控制
+> **状态（2026-09-16）：自动编排器已卸载，后续由人工推进。**
+> `.refactor/` 保留为完整审计轨迹；下面的卡片协议与门禁约定仍然有效，只是执行者从
+> 编排器换成了人。
 
-| 动作 | 做法 |
+### 当前进度
+
+`PROGRESS.md` 是最后一次自动生成的快照，**之后不再刷新**，请以 `tasks/*.json` 的
+`status` 字段与 `git tag` 为准。
+
+| 里程碑 | 状态 |
 |---|---|
-| 急停 | `touch .refactor/PAUSE`（在途 worker 会跑完，之后不再认领新卡） |
-| 恢复 / 立即跑一轮 | `rm .refactor/PAUSE && touch .refactor/TRIGGER` |
-| 解除停机状态 | `touch .refactor/TRIGGER`（TRIGGER 会清掉 halted 并马上跑一轮） |
-| 看进度 | `.refactor/PROGRESS.md`（每次 tick 刷新）与 `.refactor/state.json` |
-| 看细节 | `.refactor/logs/orchestrator.log`；逐卡 `.refactor/logs/<卡号>.log`；拆卡 `.refactor/logs/decompose-<M>.log` |
+| M0 基线准备 | ✅ 完成 → `v2-m0` |
+| M1 MaaCore 内核层 | ✅ 完成 → `v2-m1` |
+| M2 数据层 | ✅ 完成 → `v2-m2` |
+| M3 API 骨架 | ✅ 完成 → `v2-m3` |
+| M4 日志与 WebSocket | 🔧 11 张卡中已完成 M4-01，其余 pending |
+| M5–M15 | 未拆解 |
 
-### 编排器自身
+### 人工推进一张卡的做法
 
-- 插件包：`@dsh-external/dsh-refactor-orchestrator`，源码在 `.refactor/orchestrator-src/`（gitignored），
-  经 `~/Developer/WorkSpace/dsh-refactor-orchestrator` 符号链接部署。
-- 已写入 `web` profile 的 `bundles`，**宿主重启后会自动恢复装配**（常驻）。
-- 零运行时依赖（只用 node 内置模块）：本机没有 DSH 源码 checkout 可编译，profile 里也解析不到
-  cordis/schemastery，所以刻意不 import 任何 DSH 包。
-- worker 通过 `~/.local/bin/dsh-start.mjs` 启动（Node 23 下官方 bin 因 `import.meta.main`
-  为 undefined 而静默 no-op），并以 `DSH_PERMISSION_MODE=danger-full-access` 运行。
+编排器做过的事，人照着做即可，顺序不能省：
 
-### 会自动停机的情况
+1. **选卡**：在 `tasks/*.json` 里找 `status == "pending"` 且 `depends` 全部为 `done` 的卡，
+   里程碑序号最小的优先。
+2. **读卡**：只读该卡 `reads` 列出的章节锚点（这是上下文预算的阀门，别通读 `docs/`）。
+3. **实现**：产出 `deliverables` 列出的文件，遵守 `constraints`。
+4. **自验**：逐条跑 `verify` 命令，必须全部 exit 0。
+5. **提交**：`git add` 只加自己的 deliverables，commit message 用 `<卡号>: <标题>`。
+6. **改台账**：把该卡 `status` 改成 `done`、填 `commit`（sha 前 7 位），并按需更新 `PROGRESS.md`。
 
-停机时 `state.json.halted` 与 `PROGRESS.md` 顶部都会写明原因：
+### 两道不能省的门禁
 
-- 分支不是 `refactor/v2`（防止污染其他分支）
-- 某里程碑连续两次拆解仍无产出
-- 阻塞卡复活额度用尽（每卡 2 次）
-- 出现依赖死锁（pending 卡的前置卡无法完成）
+自动编排器最有价值的部分不是"自动"，而是这两道门禁——人工推进时同样要过：
 
-### 重构收尾后
+- **里程碑级验收**：`milestones/<M>.json` 里的 `acceptance` 是硬门禁，全部卡 done 后必须逐条通过
+  才打 `v2-<m>` tag；`advisory` 只跑不阻塞（真机/联网类天然有抖动）。
+- **缺陷台账**：发现**已完成卡**的产物有真实缺陷、而当前卡范围外修不了时，记进 `DEFECTS.md`
+  （`- [ ]` 开头），**本里程碑有未勾选条目就不该打 tag**。修好后改 `- [x]` 并写明修法。
+  已复现的才记，推测写在别处。
 
-编排器是重构期工具，不是产品的一部分。全部里程碑完成后应当移除：
+### 已知的坑（都在 `ENVIRONMENT.md` 里，动手前先读）
 
-```
-dev_uninject_plugin  {"match": "dsh-refactor-orchestrator"}
-```
+其中最容易再次踩到的三条：
 
-并清掉 profile `package.json` 里的 `bundles` 与 `dependencies` 条目（`dev_uninject_plugin`
-会写 disabled 条目防止被加回）。`.refactor/` 目录本身可以保留 —— 它是这次重构的完整审计轨迹。
+- `python` 不在 PATH，只有 `python3`；内核相关脚本要用仓库内 `.venv/bin/python`。
+- `import maa_api.main` 会在 import 期触发内核加载与网络，约 2.5 分钟，**不能当门禁**。
+- FastAPI 0.141 下 `app.routes` 里 include 进来的是 `_IncludedRouter`、没有 `.path`，
+  取路径要用 `set(app.openapi()['paths'])`。
+
+### 编排器源码
+
+`.refactor/orchestrator-src/` 是已卸载的编排器源码（零运行时依赖，只用 node 内置模块），
+保留作为"这套流程当时是怎么跑的"的精确记录。它不再装配、不再运行。
+
+若要恢复自动推进，需要重新注入：`dev_inject_plugin` 指向该目录，并确认
+`dsh --profile headless` 可用（Node 23 下官方 `dsh` bin 因 `import.meta.main` 为 undefined
+而静默 no-op，需走 `~/.local/bin/dsh-start.mjs` 包装器），worker 以
+`DSH_PERMISSION_MODE=danger-full-access` 运行。
