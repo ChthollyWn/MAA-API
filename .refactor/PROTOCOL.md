@@ -118,13 +118,17 @@ worker 的提示词由编排器从卡片生成，固定包含：
 
 编排器做过的事，人照着做即可，顺序不能省：
 
-1. **选卡**：在 `tasks/*.json` 里找 `status == "pending"` 且 `depends` 全部为 `done` 的卡，
-   里程碑序号最小的优先。
-2. **读卡**：只读该卡 `reads` 列出的章节锚点（这是上下文预算的阀门，别通读 `docs/`）。
-3. **实现**：产出 `deliverables` 列出的文件，遵守 `constraints`。
-4. **自验**：逐条跑 `verify` 命令，必须全部 exit 0。
-5. **提交**：`git add` 只加自己的 deliverables，commit message 用 `<卡号>: <标题>`。
-6. **改台账**：把该卡 `status` 改成 `done`、填 `commit`（sha 前 7 位），并按需更新 `PROGRESS.md`。
+1. **开新会话**（一个会话只做一张卡），粘贴 `.refactor/prompts/card.md` 的模板并替换卡号。
+2. **agent 自跑 verify 并 commit** 后，**你自己复跑一遍 verify** —— 不要采信 agent 的回执
+   （实测教训：M2-01 的 worker 回执写着「7 条 verify 全绿」，独立复跑 pytest 直接失败）。
+3. **绿了**：把卡片 `status` 改成 `done`、填 `commit`（sha 前 7 位），提交台账。
+   **红了**：回退工作树，把这个会话丢掉，**开新会话重跑这张卡**——换个上下文往往就能过。
+4. 里程碑全部卡 done 后：跑 `milestones/<M>.json` 的 `acceptance`、查 `DEFECTS.md`
+   有无未勾选条目，两者都干净才打 `v2-<m>` tag。
+5. 卡用尽时：开拆卡会话，粘贴 `.refactor/prompts/decompose.md` 的模板生成下一里程碑的卡。
+
+选卡：在 `tasks/*.json` 里找 `status == "pending"` 且 `depends` 全部为 `done` 的，
+里程碑序号最小的优先。
 
 ### 两道不能省的门禁
 
