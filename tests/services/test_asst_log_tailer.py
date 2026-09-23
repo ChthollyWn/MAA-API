@@ -195,6 +195,23 @@ def test_missing_path_is_not_created(tmp_path: Path) -> None:
     assert not path.parent.exists()
 
 
+def test_file_created_after_initial_missing_probe_is_read_from_start(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "late" / "asst.log"
+    hub = CaptureHub()
+    tailer = AsstLogTailer(path, hub)
+
+    tailer._poll_once()  # service starts before MaaCore creates its debug folder
+    assert not path.exists() and not path.parent.exists()
+    path.parent.mkdir(parents=True)
+    path.write_text(_line("ERR", "first post-start core record"), encoding="utf-8")
+    tailer._poll_once()
+    tailer._close()
+
+    assert [record.content for record in hub.records] == ["first post-start core record"]
+
+
 def test_run_cancellation_closes_tail_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

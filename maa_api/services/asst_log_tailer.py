@@ -50,6 +50,7 @@ class AsstLogTailer:
         self._inode: int | None = None
         self._offset: int = 0
         self._pending: LogRecord | None = None
+        self._initial_probe_done = False
 
     async def run(self) -> None:
         """Poll on a worker thread until cancelled; report errors without logging."""
@@ -72,11 +73,16 @@ class AsstLogTailer:
         try:
             stat = self.path.stat()
         except FileNotFoundError:
+            # If MaaCore has not started yet, the first file it creates must be
+            # read from byte zero. Existing files on service boot still seek to
+            # EOF so historical native logs are not replayed as live events.
+            self._initial_probe_done = True
             self._close()
             return
 
         if self._fp is None:
-            self._open(seek_to_end=True)
+            self._open(seek_to_end=not self._initial_probe_done)
+            self._initial_probe_done = True
             self._drain()
             return
 
@@ -205,4 +211,3 @@ class AsstLogTailer:
         pending, self._pending = self._pending, None
         if pending is not None:
             self.hub.offer(pending)
-
