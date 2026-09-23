@@ -747,13 +747,14 @@ def test_pipeline_create_example_runs_through_the_discriminated_union() -> None:
 
 
 def test_pipeline_create_constraints() -> None:
-    with pytest.raises(ValidationError) as excinfo:
-        PipelineCreate(tasks=[])
-    assert excinfo.value.errors()[0]["type"] == "too_short"
+    tasks_schema = PipelineCreate.model_json_schema()["properties"]["tasks"]
+    assert tasks_schema["minItems"] == 1
+    assert tasks_schema["maxItems"] == 32
 
-    with pytest.raises(ValidationError) as excinfo:
-        PipelineCreate(tasks=[{"name": "Fight"}] * 33)
-    assert excinfo.value.errors()[0]["type"] == "too_long"
+    # Empty and oversized lists are valid domain objects; QueueService maps
+    # them to its stable PIPELINE_EMPTY / PIPELINE_TOO_MANY_TASKS errors.
+    assert PipelineCreate(tasks=[]).tasks == []
+    assert len(PipelineCreate(tasks=[{"name": "Fight"}] * 33).tasks) == 33
 
     with pytest.raises(ValidationError) as excinfo:
         PipelineCreate(tasks=[{"name": "Fight"}], title="x" * 65)

@@ -111,7 +111,7 @@ def test_upgrade_expands_every_weekday(tmp_path):
     """每个 weekday 一条记录：cron 带该星期，template 取对应任务组，其余列用默认值。"""
     source = write_source(tmp_path / "daily_task.json", SAMPLE)
     db = tmp_path / "m.db"
-    command.upgrade(make_config(db, source), "head")
+    command.upgrade(make_config(db, source), HEAD_REVISION)
 
     got = {row["name"]: row for row in rows(db)}
     assert set(got) == {
@@ -156,7 +156,7 @@ def test_enabled_follows_config_enable(tmp_path, enable, expected):
         payload["enable"] = enable
     source = write_source(tmp_path / "daily_task.json", payload)
     db = tmp_path / "m.db"
-    command.upgrade(make_config(db, source), "head")
+    command.upgrade(make_config(db, source), HEAD_REVISION)
 
     got = rows(db)
     assert len(got) == 3
@@ -172,7 +172,7 @@ def test_unknown_task_group_is_skipped(tmp_path):
     }
     source = write_source(tmp_path / "daily_task.json", payload)
     db = tmp_path / "m.db"
-    command.upgrade(make_config(db, source), "head")
+    command.upgrade(make_config(db, source), HEAD_REVISION)
 
     assert [row["name"] for row in rows(db)] == [
         f"{NAME_PREFIX}0",
@@ -189,19 +189,19 @@ def test_upgrade_downgrade_upgrade_does_not_duplicate(tmp_path):
     db = tmp_path / "m.db"
     cfg = make_config(db, source)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     first = rows(db)
     assert len(first) == 3
     assert version(db) == HEAD_REVISION
 
-    command.upgrade(cfg, "head")  # Alembic 层幂等
+    command.upgrade(cfg, HEAD_REVISION)  # Alembic 层幂等
     assert rows(db) == first
 
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, BASE_REVISION)
     assert rows(db) == []  # 表还在，行被删干净
     assert version(db) == BASE_REVISION
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     assert rows(db) == first  # 不产生重复记录，且 uuid5 派生 id 稳定
 
 
@@ -210,13 +210,13 @@ def test_downgrade_only_removes_migrated_rows(tmp_path):
     source = write_source(tmp_path / "daily_task.json", SAMPLE)
     db = tmp_path / "m.db"
     cfg = make_config(db, source)
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     insert_user_schedule(db, "morning-routine")
 
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, BASE_REVISION)
     assert [row["name"] for row in rows(db)] == ["morning-routine"]
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     assert [row["name"] for row in rows(db)] == [
         f"{NAME_PREFIX}0",
         f"{NAME_PREFIX}1",
@@ -233,7 +233,7 @@ def test_upgrade_skips_names_that_already_exist(tmp_path):
     command.upgrade(cfg, BASE_REVISION)
     insert_user_schedule(db, f"{NAME_PREFIX}0")
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     assert [row["name"] for row in rows(db)] == [
         f"{NAME_PREFIX}0",
         f"{NAME_PREFIX}1",
@@ -250,11 +250,11 @@ def test_missing_source_file_is_skipped(tmp_path):
     cfg = make_config(db, tmp_path / "not-there.json")
     assert not (tmp_path / "not-there.json").exists()
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     assert version(db) == HEAD_REVISION
     assert rows(db) == []
 
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, BASE_REVISION)
     assert version(db) == BASE_REVISION
 
 
@@ -266,7 +266,7 @@ def test_real_repo_source_is_migrated_and_left_untouched(tmp_path):
     raw = json.loads(REAL_SOURCE.read_text(encoding="utf-8"))
 
     db = tmp_path / "m.db"
-    command.upgrade(make_config(db, None), "head")  # 不注入 → 走默认路径
+    command.upgrade(make_config(db, None), HEAD_REVISION)  # 不注入 → 走默认路径
 
     got = {row["name"]: row for row in rows(db)}
     assert set(got) == {f"{NAME_PREFIX}{day}" for day in raw["weekday_task"]}
@@ -290,7 +290,7 @@ def test_offline_sql_carries_data_without_creating_db(tmp_path):
     db = tmp_path / "offline.db"
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        command.upgrade(make_config(db, source), "head", sql=True)
+        command.upgrade(make_config(db, source), HEAD_REVISION, sql=True)
     sql = buffer.getvalue()
 
     inserts = [line for line in sql.splitlines() if "INSERT INTO schedule" in line]

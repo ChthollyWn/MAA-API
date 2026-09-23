@@ -67,6 +67,17 @@ def head_revision() -> str:
     return ScriptDirectory.from_config(cfg).get_current_head()
 
 
+def pre_head_revision() -> str:
+    """当前 head 的直接前序版本；这些测试只覆盖单链迁移。"""
+    cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(REPO_ROOT / "maa_api" / "db" / "migrations"))
+    scripts = ScriptDirectory.from_config(cfg)
+    head = scripts.get_revision(scripts.get_current_head())
+    assert head is not None
+    assert isinstance(head.down_revision, str), head.down_revision
+    return head.down_revision
+
+
 def backups(db_path: Path) -> list[Path]:
     backup_dir = db_path.parent / "backup"
     return sorted(backup_dir.glob("*.bak")) if backup_dir.exists() else []
@@ -87,9 +98,9 @@ def version(path: Path) -> str | None:
 
 
 def make_pending(db_path: Path) -> None:
-    """建到 head 再退回一个版本：库存在、有待应用迁移，正是备份的触发条件。"""
-    command.downgrade(alembic_cfg(db_path), "-1")
-    assert version(db_path) != head_revision()
+    """建到 head 再退回其前序版本：库存在、有待应用迁移，正是备份的触发条件。"""
+    command.downgrade(alembic_cfg(db_path), pre_head_revision())
+    assert version(db_path) == pre_head_revision()
     assert migrate._has_pending_migrations() is True
 
 
@@ -131,7 +142,7 @@ def test_second_start_without_pending_migrations_backs_up_nothing(db_path):
 def test_pending_migration_backs_up_before_upgrade(db_path):
     """备份必须发生在 upgrade 之前：备份里是迁移前的版本，主库随后到 head。"""
     asyncio.run(migrate.ensure_schema())
-    make_pending(db_path)          # downgrade -1：版本回到 0001，head 是 0002
+    make_pending(db_path)
 
     asyncio.run(migrate.ensure_schema())
 
@@ -142,8 +153,8 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
         rf"{re.escape(db_path.name)}\.\d{{8}}-\d{{6}}-\d{{6}}\.bak", backup.name
     ), backup.name
 
-    # 备份是 upgrade 之前的快照（0001），且是完整可打开的 SQLite 库
-    assert version(backup) == "0001"
+    # 备份是 upgrade 之前的快照（当前 head 的前序版本），且是完整可打开的 SQLite 库
+    assert version(backup) == pre_head_revision()
     assert "alembic_version" in table_names(backup)
     assert set(SQLModel.metadata.tables) <= table_names(backup)
 
@@ -173,7 +184,7 @@ def test_backup_retention_keeps_latest_five(db_path):
     assert seeded[0] not in remaining, "最旧的一份必须被裁掉"
     assert remaining[:-1] == seeded[1:]
     assert remaining[-1] not in seeded, "刚创建的备份不能被裁掉"
-    assert version(remaining[-1]) == "0001"
+    assert version(remaining[-1]) == pre_head_revision()
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +209,7 @@ def test_migration_failure_propagates_and_names_backup(db_path, monkeypatch, cap
     assert str(found[0]) in stderr, stderr
     assert "启动中止" in stderr
     # 没有被吞掉后「继续跑」：主库停在迁移前版本
-    assert version(db_path) == "0001"
+    assert version(db_path) == pre_head_revision()
 
 
 def test_first_start_failure_raises_without_backup(db_path, monkeypatch, capsys):
