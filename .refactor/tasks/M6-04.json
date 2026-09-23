@@ -1,0 +1,53 @@
+{
+  "id": "M6-04",
+  "milestone": "M6",
+  "title": "装配设备与设置生命周期、移除启动脚本等待并建立集成冒烟",
+  "depends": ["M6-01", "M6-02", "M6-03", "M6-05"],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m6-设备与渠道m",
+    "docs/02-系统架构设计.md#7-应用启动顺序",
+    "docs/08-ADB连接与账号渠道.md#41-服务启动时的等待",
+    "docs/08-ADB连接与账号渠道.md#42-任务执行前预检",
+    "docs/08-ADB连接与账号渠道.md#43-运行中断线自动重连",
+    "docs/08-ADB连接与账号渠道.md#52-通过-asynccallinfo-获知结果",
+    "docs/05-API规范与路由清单.md#413-设置与通知",
+    "docs/05-API规范与路由清单.md#611-settings",
+    "maa_api/services/settings_schema.py#SETTINGS_SCHEMA",
+    "maa_api/services/setting_service.py#SettingService.refresh",
+    "maa_api/settings.py#resolve_settings_with_sources",
+    "docs/06-实时日志与WebSocket.md#73-服务端推送消息",
+    "tests/api/test_app_skeleton.py",
+    "maa_api/services/pipeline_runner.py#PipelineRunner._run_loop",
+    "maa_api/db/repositories/pipeline.py#PipelineRepository.claim_next",
+    "tests/core/test_core_pipeline.py#test_connect_two_level_future",
+    "tests/api/conftest.py",
+    "scripts/log_ws_smoke.py",
+    "scripts/start-maa-api.sh"
+  ],
+  "constraints": [
+    "设备不可用流水线失败沿用现有 `ErrorCode.DEVICE_NOT_CONNECTED`（docs/05 §4.5）；docs/08 §4.2/§4.3 的 DEVICE_UNAVAILABLE/DEVICE_DISCONNECTED 字样不在现有 92 条 ErrorCode 中，本里程碑不扩充错误码枚举。",
+    "DeviceManager 后台连接启动必须在 HTTP 服务可用后继续运行；模拟器未启动不能阻塞或失败化 API lifespan。",
+    "将 M5 main.py 每代一次连接临时代码替换为 DeviceManager；连接 READY、CoreClient CALLBACK、PipelineRunner 预检、WS device_status 与 shutdown 清理必须完整接线。PipelineRunner may gate before claim on CoreSupervisor READY only; it must not gate on `CoreClient.connected()` before device preflight, or it cannot auto-recover an offline device.",
+    "取消 DeviceManager 后必须先停止它，再关闭 PipelineRunner/CoreClient/CoreSupervisor；所有后台任务均需 await 清理。",
+    "`scripts/start-maa-api.sh` 删除 ADB 等待循环，只设置环境并 exec uvicorn。",
+    "不要改 `.refactor/`、DEFECTS、其他卡交付文件或提交 Git；脚本和集成测试通过 fake adapter 与临时数据库，不要求模拟器。"
+  ],
+  "deliverables": [
+    "maa_api/main.py",
+    "maa_api/services/pipeline_runner.py",
+    "scripts/start-maa-api.sh",
+    "scripts/device_settings_smoke.py",
+    "tests/api/test_device_lifecycle.py",
+    "tests/api/test_app_skeleton.py",
+    "tests/core/test_device_pipeline.py"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/api/test_device_lifecycle.py tests/api/test_app_skeleton.py tests/core/test_device_pipeline.py",
+    ".venv/bin/python scripts/device_settings_smoke.py"
+  ],
+  "prompt_extra": "只做应用组装、PipelineRunner 设备预检/定时延后集成、启动脚本与集成冒烟这张卡。依赖其他 M6 卡的最终公开 API，不要反向修改它们；如签名与本卡有差异，先向主控报告，不要越界改文件。Lifespan 在 ensure_schema 后创建 SettingService 并 refresh，再启动依赖服务；把它放到 app.state.setting_service。接线依赖可由 app.state 注入 factory 做测试替身，但生产默认仍使用真实 supervisor/client/device manager；smoke 不得启动真实 MaaCore。DeviceManager 在 CoreClient 已消费事件且 CoreSupervisor 启动后启动后台 connect_with_retry(attempts=60, interval=5, reason='startup')，READY 每代更新/连接失败由 supervisor hook 通知 manager，CALLBACK 同时送日志翻译器与 manager；关闭时先 manager.close，再 PipelineRunner、CoreSupervisor、CoreClient。PipelineRunner 在 CoreSupervisor READY 后先 claim pending row，再调用 DeviceManager.ensure_available(timeout=10)，预检不可用时：scheduled 按 M6-05 `defer_running(pipeline_id, utcnow()+timedelta(minutes=5))` 延后并持久化 defer_count，前 6 次重新排队，到第 7 次检查失败终结 FAILED；manual/agent 立即失败。两者都沿用 ErrorCode.DEVICE_NOT_CONNECTED（docs/05 §4.5），不新增临时错误码。_core_can_run_work 不能在 claim 前用 CoreClient.connected() gate，否则设备初始不可用时无法触发预检。每次最终设备不可用失败广播 pipeline/task 状态与 device_status/service 日志；通知通道能力不在 M6 装配范围内。不得丢失队列项。新增 core 测试覆盖这些分支。Smoke 必须证明设备不可用时 lifespan 正常服务，setting/device API 联通、改 ADB 地址触发重配，截图 archive 写入隔离 DB；独立临时目录/DB，结束输出 `M6 SMOKE OK`。不访问仓库真实 DB、不加载真实 MaaCore、不依赖真机。不要提交 Git。",
+  "status": "done",
+  "attempts": 0,
+  "commit": "a68e45e",
+  "blocked_reason": null
+}
