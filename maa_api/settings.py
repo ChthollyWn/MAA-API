@@ -114,6 +114,11 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "adb.path": ("adb", "path"),
     "adb.address": ("adb", "address"),
     "adb.screenshot_quality": ("adb", "screenshot_quality"),
+    "log.ring_size": ("log", "ring_size"),
+    "log.batch_size": ("log", "batch_size"),
+    "log.flush_interval": ("log", "flush_interval"),
+    "log.core_min_level": ("log", "core_min_level"),
+    "log.persist_maacore_debug_level": ("log", "persist_maacore_debug_level"),
 }
 
 #: 点分 key → 环境变量名（``MAA_`` + 大写、点换下划线）。
@@ -142,6 +147,18 @@ class AdbSettings(BaseModel):
     screenshot_quality: int = 25
 
 
+class LogSettings(BaseModel):
+    """日志采集与刷盘配置（docs/06 §5.4、§6）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ring_size: int = 2000
+    batch_size: int = 200
+    flush_interval: float = 1.0
+    core_min_level: str = "INF"
+    persist_maacore_debug_level: str = "WARNING"
+
+
 class Settings(BaseModel):
     """全量运行配置（本卡只有 ``config.yaml`` + 环境变量两层来源）。
 
@@ -155,6 +172,7 @@ class Settings(BaseModel):
     maa_core_path: str = ""
     proxy: str = ""
     adb: AdbSettings = Field(default_factory=AdbSettings)
+    log: LogSettings = Field(default_factory=LogSettings)
 
 
 def resolve_settings(
