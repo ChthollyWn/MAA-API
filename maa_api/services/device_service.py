@@ -5,8 +5,10 @@ import asyncio
 import io
 import json
 import logging
+import os
 import shlex
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from enum import StrEnum
@@ -14,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal, Mapping
 
 from PIL import Image
+import adbutils
 
 from maa_api.domain.errors import AppError, ErrorCode
 
@@ -34,6 +37,12 @@ RECONNECT_BACKOFF = (3.0, 6.0, 12.0, 24.0, 48.0)
 RECONNECT_WATCHDOG_SECONDS = 90.0
 UNAVAILABLE_PROBE_INTERVAL = 60.0
 ADB_HEALTH_TIMEOUT, CORE_CONNECT_TIMEOUT = 3.0, 60.0
+_ADBUTILS_PATH_KEY = "ADBUTILS_ADB_PATH"
+_ADBUTILS_PATH_LOCK = threading.RLock()
+_ADBUTILS_PATH_OWNERS: dict[object, str] = {}
+_ADBUTILS_PATH_ORIGINAL: str | None = None
+_ADBUTILS_PATH_ORIGINAL_SET = False
+_ADBUTILS_PATH_LAST_SET: str | None = None
 
 
 class DeviceState(StrEnum):
@@ -78,16 +87,50 @@ class _AdbFailure(Exception):
 
 
 class _AdbBackend:
-    """Synchronous command-line ADB adapter, invoked with asyncio.to_thread."""
+    """ADBUtils client adapter; the executable is used only to start adb server."""
 
-    def __init__(self, path_provider: Callable[[], str]) -> None:
+    def __init__(
+        self,
+        path_provider: Callable[[], str],
+        client: Any = None,
+    ) -> None:
         self._path_provider = path_provider
+        self._client = adbutils.adb if client is None else client
+        self._injected_client = client is not None
+        self._path_owner = object()
+        self._closed = False
+        self.configure_path(self._path_provider())
+
+    def configure_path(self, path: str) -> None:
+        """Publish the selected binary for adbutils without clobbering it at close."""
+        global _ADBUTILS_PATH_ORIGINAL, _ADBUTILS_PATH_ORIGINAL_SET
+        global _ADBUTILS_PATH_LAST_SET
+        resolved = str(path or "adb")
+        with _ADBUTILS_PATH_LOCK:
+            if not _ADBUTILS_PATH_OWNERS:
+                _ADBUTILS_PATH_ORIGINAL = os.environ.get(_ADBUTILS_PATH_KEY)
+                _ADBUTILS_PATH_ORIGINAL_SET = _ADBUTILS_PATH_KEY in os.environ
+            else:
+                _ADBUTILS_PATH_OWNERS.pop(self._path_owner, None)
+            _ADBUTILS_PATH_OWNERS[self._path_owner] = resolved
+            os.environ[_ADBUTILS_PATH_KEY] = resolved
+            _ADBUTILS_PATH_LAST_SET = resolved
+
+    def _sync_path(self) -> None:
+        self.configure_path(self._path_provider())
 
     def _run(self, *args: str, timeout: float = 10.0) -> str:
         command = [self._path_provider(), *map(str, args)]
+        environment = os.environ.copy()
+        environment[_ADBUTILS_PATH_KEY] = command[0]
         try:
             result = subprocess.run(
-                command, capture_output=True, text=True, timeout=timeout, check=False
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=environment,
             )
         except FileNotFoundError as exc:
             raise _AdbFailure("adb_binary", shlex.join(command), str(exc)) from exc
@@ -102,62 +145,71 @@ class _AdbBackend:
         return result.stdout.strip()
 
     def start_server(self) -> str:
+        self._sync_path()
+        # Injected clients are isolated test/integration transports. They must
+        # never cause a real adb executable to run as a side effect.
+        if self._injected_client:
+            start = getattr(self._client, "start_server", None)
+            return str(start()) if callable(start) else ""
         return self._run("start-server")
 
     def connect(self, address: str, timeout: float = 10.0) -> str:
-        output = self._run("connect", address, timeout=timeout)
+        self._sync_path()
+        output = str(self._client.connect(address, timeout=timeout))
         lowered = output.lower()
         if any(s in lowered for s in ("unable to connect", "failed to connect", "cannot connect")):
-            raise _AdbFailure("adb_connect", f"{self._path_provider()} connect {address}", output)
+            raise _AdbFailure(
+                "adb_connect",
+                f"{self._path_provider()} connect {address}",
+                output,
+            )
         return output
 
     def disconnect(self, address: str) -> str:
-        return self._run("disconnect", address)
+        self._sync_path()
+        try:
+            return str(self._client.disconnect(address, raise_error=False))
+        except TypeError:
+            # Test doubles and alternate supported adbutils clients may expose
+            # the one-argument form.
+            return str(self._client.disconnect(address))
 
     def shell(self, address: str, command: str, *, timeout: float = 10.0) -> str:
-        return self._run("-s", address, "shell", command, timeout=timeout)
-
-    def list_devices(self) -> list[dict[str, str]]:
-        output = self._run("devices", "-l")
-        result: list[dict[str, str]] = []
-        for line in output.splitlines()[1:]:
-            fields = line.split()
-            if len(fields) < 2:
-                continue
-            properties = dict(field.split(":", 1) for field in fields[2:] if ":" in field)
-            result.append({
-                "serial": fields[0], "state": fields[1],
-                "model": properties.get("model", ""),
-            })
-        return result
-
-    def screenshot(self, address: str) -> bytes:
-        command = [self._path_provider(), "-s", address, "exec-out", "screencap", "-p"]
-        try:
-            result = subprocess.run(
-                command, capture_output=True, timeout=10.0, check=False
+        self._sync_path()
+        return str(
+            self._client.device(address).shell(
+                command, timeout=timeout, encoding="utf-8"
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-            raise _AdbFailure("adb_shell", shlex.join(command), str(exc)) from exc
-        if result.returncode:
-            raise _AdbFailure(
-                "adb_shell", shlex.join(command),
-                result.stderr.decode("utf-8", "replace"),
-            )
-        return result.stdout
+        )
+
+    def list_devices(self) -> list[Any]:
+        self._sync_path()
+        return list(self._client.list())
+
+    def screenshot(self, address: str) -> Image.Image:
+        self._sync_path()
+        return self._client.device(address).screenshot(error_ok=False)
 
     def swipe(
         self, address: str, x1: int, y1: int, x2: int, y2: int, duration_ms: int
     ) -> str:
-        return self.shell(address, f"input swipe {x1} {y1} {x2} {y2} {duration_ms}")
+        self._sync_path()
+        self._client.device(address).swipe(
+            x1, y1, x2, y2, duration=max(int(duration_ms), 0) / 1000
+        )
+        return ""
 
     def long_press(self, address: str, x: int, y: int, duration_ms: int) -> str:
         return self.swipe(address, x, y, x, y, duration_ms)
 
     def input_text(self, address: str, text: str) -> str:
-        # Android's input tool uses %s to represent spaces.
+        self._sync_path()
+        # Android's input tool uses %s to represent spaces. Supplying argv
+        # through AdbDevice.shell avoids passing caller text to a host shell.
         encoded = text.replace("%", r"\%").replace(" ", "%s")
-        return self.shell(address, f"input text {shlex.quote(encoded)}")
+        return str(
+            self._client.device(address).shell(["input", "text", encoded])
+        )
 
     def key_event(self, address: str, key: str) -> str:
         codes = {
@@ -167,20 +219,55 @@ class _AdbBackend:
             "DEL": "KEYCODE_DEL",
             "APP_SWITCH": "KEYCODE_APP_SWITCH",
         }
-        return self.shell(address, f"input keyevent {codes[key]}")
+        self._sync_path()
+        self._client.device(address).keyevent(codes[key])
+        return ""
 
     def install_apk(self, address: str, path: Path, **options: Any) -> str:
-        args = ["-s", address, "install"]
+        self._sync_path()
+        flags = []
         if options.pop("replace", True):
-            args.append("-r")
-        for flag, option in (("-t", "allow_test"), ("-d", "allow_downgrade")):
-            if options.pop(option, False):
-                args.append(flag)
-        args.append(str(path))
-        return self._run(*args, timeout=float(options.pop("timeout", 300.0)))
+            flags.append("-r")
+        if options.pop("allow_test", True):
+            flags.append("-t")
+        if options.pop("allow_downgrade", False):
+            flags.append("-d")
+        self._client.device(address).install(
+            Path(path),
+            nolaunch=True,
+            silent=True,
+            flags=flags,
+        )
+        return "Success"
 
     def force_stop(self, address: str, package: str) -> str:
-        return self.shell(address, f"am force-stop {shlex.quote(package)}")
+        self._sync_path()
+        self._client.device(address).app_stop(package)
+        return ""
+
+    def close(self) -> None:
+        global _ADBUTILS_PATH_ORIGINAL, _ADBUTILS_PATH_ORIGINAL_SET
+        global _ADBUTILS_PATH_LAST_SET
+        if self._closed:
+            return
+        self._closed = True
+        with _ADBUTILS_PATH_LOCK:
+            owned_path = _ADBUTILS_PATH_OWNERS.pop(self._path_owner, None)
+            if owned_path is None:
+                return
+            if _ADBUTILS_PATH_OWNERS:
+                restore = next(reversed(_ADBUTILS_PATH_OWNERS.values()))
+                os.environ[_ADBUTILS_PATH_KEY] = restore
+                _ADBUTILS_PATH_LAST_SET = restore
+            else:
+                if os.environ.get(_ADBUTILS_PATH_KEY) == _ADBUTILS_PATH_LAST_SET:
+                    if _ADBUTILS_PATH_ORIGINAL_SET:
+                        os.environ[_ADBUTILS_PATH_KEY] = str(_ADBUTILS_PATH_ORIGINAL)
+                    else:
+                        os.environ.pop(_ADBUTILS_PATH_KEY, None)
+                _ADBUTILS_PATH_ORIGINAL = None
+                _ADBUTILS_PATH_ORIGINAL_SET = False
+                _ADBUTILS_PATH_LAST_SET = None
 
 
 def _stage_for_command(args: tuple[str, ...]) -> str:
@@ -202,6 +289,7 @@ class DeviceManager:
         core_client: Any,
         *,
         adb_backend: Any = None,
+        adb_client: Any = None,
         broadcast: Callable[[str, dict[str, Any]], None] | None = None,
         core_id: str = "default",
         common_ports: tuple[int, ...] | None = None,
@@ -216,7 +304,11 @@ class DeviceManager:
     ) -> None:
         self._settings_provider = settings_provider
         self._core_client = core_client
-        self._backend = adb_backend or _AdbBackend(lambda: self._adb_path)
+        self._address_override: str | None = None
+        self._adb_path_override: str | None = None
+        self._backend = adb_backend or _AdbBackend(
+            lambda: self._adb_path, client=adb_client
+        )
         self._broadcast = broadcast or (lambda _kind, _data: None)
         self.core_id = core_id
         self._common_ports_override = (
@@ -224,8 +316,6 @@ class DeviceManager:
             if common_ports is not None
             else None
         )
-        self._address_override: str | None = None
-        self._adb_path_override: str | None = None
         self._state = DeviceState.DISCONNECTED
         self._uuid: str | None = None
         self._resolution: dict[str, int] | None = None
@@ -666,6 +756,9 @@ class DeviceManager:
                     old_address,
                     exc,
                 )
+        configure_path = getattr(self._backend, "configure_path", None)
+        if callable(configure_path):
+            configure_path(self._adb_path)
         self._cancel_watchdog()
         self._cancel_probe()
         return await self.connect(reason="reconfigure")
@@ -683,6 +776,9 @@ class DeviceManager:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
         self._probe_task = None
+        close_backend = getattr(self._backend, "close", None)
+        if callable(close_backend):
+            close_backend()
 
     async def _connect_once(self) -> bool:
         address, adb_path = self.address, self._adb_path
@@ -974,6 +1070,10 @@ def _device_fields(raw: Any) -> tuple[str, str, str | None]:
         serial = str(getattr(raw, "serial", ""))
         state = str(getattr(raw, "state", "unknown"))
         model = getattr(raw, "model", None)
+        if not model:
+            tags = getattr(raw, "tags", None)
+            if isinstance(tags, Mapping):
+                model = tags.get("model")
     return serial, state, str(model).strip() if model else None
 
 
