@@ -40,6 +40,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
 import maa_api.main as main_module
+from maa_api.core.supervisor import CoreState
 from maa_api.api import deps
 from maa_api.db import session as db_session
 from maa_api.main import (
@@ -55,13 +56,16 @@ from maa_api.main import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "s3cret-token"
 
-#: M3 新骨架注册的全部 API 路径（旧 router/adb、router/maa、router/template 一个都不许在）。
+#: M6 路由注册的代表路径；旧 router/adb、router/maa、router/template 仍不许出现。
 EXPECTED_API_PATHS = {
     "/api/system/health",
     "/api/system/auth/cookie",
     "/api/tasks/types",
     "/api/tasks/types/{type_name}",
     "/api/tasks/validate",
+    "/api/device/status",
+    "/api/settings",
+    "/api/settings/schema",
 }
 #: 旧装配的端点前缀（docs/02 §9：这些路由不迁移，直接废弃）。
 RETIRED_PATH_PREFIXES = ("/api/adb", "/api/maa")
@@ -121,6 +125,108 @@ def _preflight(client: TestClient, origin: str):
     )
 
 
+class _LifecycleSupervisor:
+    def __init__(self, _config, *, on_crash, on_state_change) -> None:
+        self.state = CoreState.READY
+        self.generation = 1
+        self.pid = 123
+        self._on_state_change = on_state_change
+
+    async def start(self, **_kwargs) -> None:
+        self._on_state_change(self.state)
+
+    async def stop(self, **_kwargs) -> None:
+        return None
+
+
+class _LifecycleClient:
+    def __init__(self, _supervisor, **_kwargs) -> None:
+        self.handlers: dict[str, list] = {}
+
+    def on(self, event_type, handler) -> None:
+        self.handlers.setdefault(event_type, []).append(handler)
+
+    def start_consumer(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class _LifecycleDeviceManager:
+    def __init__(self, _settings, _client, *, broadcast, core_id) -> None:
+        self.broadcast = broadcast
+        self.core_id = core_id
+        self.state = "disconnected"
+        self.start_calls: list[dict] = []
+        self.closed = False
+        self.connection_events: list[tuple[str, dict]] = []
+
+    async def connect_with_retry(self, **kwargs) -> bool:
+        self.start_calls.append(kwargs)
+        return False
+
+    def on_core_connection_event(self, what, details) -> None:
+        self.connection_events.append((what, details))
+
+    def snapshot(self) -> dict:
+        return {"core_id": self.core_id, "state": self.state, "address": "offline:5555"}
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _LifecycleRunner:
+    def __init__(self, *_args, **_kwargs) -> None:
+        import asyncio
+
+        self.operation_lock = asyncio.Lock()
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    def wake(self) -> None:
+        return None
+
+    def notify_core_state(self, _state=None) -> None:
+        return None
+
+    def notify_core_crash(self, _record=None) -> None:
+        return None
+
+    def log_context(self, _msg, _details):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _fake_application_dependencies():
+    """Run app lifespan with deterministic adapters; never load real MaaCore/ADB."""
+    state = app.state
+    names = (
+        "core_supervisor_factory",
+        "core_client_factory",
+        "device_manager_factory",
+        "pipeline_runner_factory",
+    )
+    old = {name: getattr(state, name, None) for name in names}
+    state.core_supervisor_factory = _LifecycleSupervisor
+    state.core_client_factory = _LifecycleClient
+    state.device_manager_factory = _LifecycleDeviceManager
+    state.pipeline_runner_factory = _LifecycleRunner
+    try:
+        yield
+    finally:
+        for name in names:
+            if old[name] is None:
+                if hasattr(state, name):
+                    delattr(state, name)
+            else:
+                setattr(state, name, old[name])
+
+
 # ----------------------------------------------------------------------
 # 1. lifespan 真的跑了迁移
 # ----------------------------------------------------------------------
@@ -142,6 +248,21 @@ def test_lifespan_migrates_the_temp_db_to_head(
     rows = _alembic_version_rows()
     assert len(rows) == 1, rows
     assert rows[0] == _alembic_head()
+
+
+def test_lifespan_loads_setting_service_and_device_manager(
+    tmp_settings, isolated_db, make_client
+) -> None:
+    client = make_client(app)
+
+    settings = client.get("/api/settings")
+    device = client.get("/api/device/status")
+
+    assert settings.status_code == 200, settings.text
+    assert device.status_code == 200, device.text
+    assert device.json() == app.state.device_manager.snapshot()
+    assert app.state.setting_service._device_manager is app.state.device_manager
+    assert app.state.device_manager.start_calls == [{"reason": "startup"}]
 
 
 # ----------------------------------------------------------------------
@@ -187,10 +308,10 @@ def test_openapi_metadata_tags_and_operation_ids(
     assert all(operation_id.split("_")[0] in tag_names for operation_id in ids)
 
 
-def test_only_the_new_m3_routers_are_registered(
+def test_current_routers_are_registered(
     tmp_settings, isolated_db, make_client
 ) -> None:
-    """只注册 system / tasks 两个新 router：旧端点与旧 static 挂载都不在。"""
+    """新 device/settings routes 已装配，旧端点与旧 static 挂载仍不在。"""
     client = make_client(app)
     paths = set(client.get("/openapi.json").json()["paths"])
 

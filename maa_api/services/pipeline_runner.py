@@ -6,14 +6,14 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.core.enums import Message
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
-from maa_api.db.models import Pipeline, Task
+from maa_api.db.models import Pipeline, Task, utcnow
 from maa_api.db.repositories.pipeline import PipelineRepository, TaskRepository
 from maa_api.domain.enums import PipelineSource, PipelineStatus, TaskStatus
 from maa_api.domain.errors import AppError, ErrorCode
@@ -83,6 +83,7 @@ class PipelineRunner:
         *,
         core_id: str = DEFAULT_CORE_ID,
         queue_service: Any = None,
+        device_manager: Any = None,
         broadcast: Callable[[str, dict[str, Any]], None] | None = None,
         task_timeouts: dict[str, float] | None = None,
     ) -> None:
@@ -91,6 +92,7 @@ class PipelineRunner:
         self._session_factory = session_factory
         self.core_id = core_id
         self.queue_service = queue_service
+        self.device_manager = device_manager
         self._broadcast = broadcast or (lambda _kind, _data: None)
         self.task_timeouts = dict(TASK_TIMEOUT_SECONDS)
         if task_timeouts:
@@ -103,8 +105,6 @@ class PipelineRunner:
         self._active: _ActivePipeline | None = None
         self._cancel_requested_ids: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._next_core_check = 0.0
-        self._core_available = False
 
         client = self.registry.get(self.core_id)
         client.on("CALLBACK", self._on_callback)
@@ -119,8 +119,6 @@ class PipelineRunner:
         self._wake_event.set()
 
     def notify_core_state(self, _state: Any = None) -> None:
-        self._core_available = False
-        self._next_core_check = 0.0
         self.wake()
 
     def notify_core_crash(self, record: dict[str, Any] | None = None) -> None:
@@ -371,23 +369,15 @@ class PipelineRunner:
                 pass
 
     async def _core_can_run_work(self) -> bool:
+        """Only gate queue claims on CoreSupervisor readiness.
+
+        Device connectivity is deliberately checked after a row is claimed. If
+        CoreClient.connected() were checked here, an initially offline device
+        could never reach DeviceManager.ensure_available() and auto-recover.
+        """
         state = getattr(self.supervisor, "state", None)
         state_value = getattr(state, "value", state)
-        if state_value != "ready":
-            self._core_available = False
-            return False
-        loop = asyncio.get_running_loop()
-        if self._core_available and loop.time() < self._next_core_check:
-            return True
-        try:
-            self._core_available = bool(await self.registry.get(self.core_id).connected())
-        except AppError:
-            self._core_available = False
-        except Exception:  # noqa: BLE001 - a failed health probe must not stop the queue
-            logger.exception("检查 MaaCore 设备连接状态失败")
-            self._core_available = False
-        self._next_core_check = loop.time() + CORE_POLL_SECONDS
-        return self._core_available
+        return state_value == "ready"
 
     async def _claim_next(self) -> tuple[Pipeline | None, list[Task]]:
         async with self.operation_lock:
@@ -424,6 +414,21 @@ class PipelineRunner:
             if cancelled:
                 await self._cancel_pipeline_rows(pipeline.id)
                 return
+            if self.device_manager is not None:
+                try:
+                    available = await self.device_manager.ensure_available(timeout=10.0)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "流水线设备预检异常：pipeline_id=%s", pipeline.id
+                    )
+                    available = False
+                if not available:
+                    handled = await self._handle_device_unavailable(pipeline)
+                    if handled:
+                        return
+                    cancelled = True
             for task in tasks:
                 if active.cancel_requested or pipeline.id in self._cancel_requested_ids:
                     cancelled = True
@@ -695,6 +700,91 @@ class PipelineRunner:
             )
             return "skipped", error
 
+    async def _handle_device_unavailable(self, pipeline: Pipeline) -> bool:
+        """Defer scheduled work six times; fail manual/agent work immediately.
+
+        Return ``False`` when cancellation won the operation-lock race so the
+        normal cancellation path can persist its terminal state.
+        """
+        error = AppError(
+            ErrorCode.DEVICE_NOT_CONNECTED,
+            "设备当前不可用，流水线未执行",
+            {
+                "pipeline_id": pipeline.id,
+                "source": str(pipeline.source),
+                "device": self.device_manager.snapshot()
+                if self.device_manager is not None
+                else None,
+                "agent_action": "可先重连设备，再重新提交流水线"
+                if PipelineSource(pipeline.source) is PipelineSource.AGENT
+                else None,
+            },
+        )
+        if (
+            PipelineSource(pipeline.source) is PipelineSource.SCHEDULED
+            and int(getattr(pipeline, "defer_count", 0)) < 6
+        ):
+            async with self.operation_lock:
+                if self._active is not None and self._active.cancel_requested:
+                    return False
+                async with self._session_factory() as session:
+                    repo = PipelineRepository(session)
+                    deferred = await repo.defer_running(
+                        pipeline.id, utcnow() + timedelta(minutes=5)
+                    )
+                    if deferred:
+                        await session.commit()
+            if deferred:
+                logger.warning(
+                    "设备不可用，定时流水线延后 5 分钟：pipeline_id=%s defer_count=%s",
+                    pipeline.id,
+                    int(getattr(pipeline, "defer_count", 0)) + 1,
+                )
+                return True
+
+        changed_task_ids: list[str] = []
+        async with self.operation_lock:
+            if self._active is not None and self._active.cancel_requested:
+                return False
+            async with self._session_factory() as session:
+                pipeline_repo = PipelineRepository(session)
+                task_repo = TaskRepository(session)
+                current = await pipeline_repo.get(pipeline.id)
+                if current is None or PipelineStatus(current.status).is_terminal:
+                    return True
+                tasks = await task_repo.list_by_pipeline(pipeline.id)
+                for task in tasks:
+                    if TaskStatus(task.status) in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                        await task_repo.update_status(
+                            task.id,
+                            TaskStatus.FAILED,
+                            error_code=ErrorCode.DEVICE_NOT_CONNECTED,
+                            error_message=error.message,
+                        )
+                        changed_task_ids.append(task.id)
+                await pipeline_repo.mark_terminal(
+                    pipeline.id,
+                    PipelineStatus.FAILED,
+                    error_code=ErrorCode.DEVICE_NOT_CONNECTED,
+                    error_message=error.message,
+                )
+                await session.commit()
+        for task_id in changed_task_ids:
+            await self._publish_task(task_id)
+        snapshot = (
+            self.device_manager.snapshot()
+            if self.device_manager is not None
+            else {"core_id": self.core_id, "state": "unavailable"}
+        )
+        self._broadcast("device_status", snapshot)
+        logger.error(
+            "设备预检失败，流水线已终止：pipeline_id=%s source=%s code=%s",
+            pipeline.id,
+            pipeline.source,
+            ErrorCode.DEVICE_NOT_CONNECTED,
+        )
+        return True
+
     async def _await_core_command(self, active: _ActivePipeline, awaitable: Any) -> Any:
         """Race an IPC command against cancellation and child-process failure."""
         command_task = asyncio.create_task(awaitable)
@@ -831,8 +921,6 @@ class PipelineRunner:
                 future = active.attempt.future
                 if not future.done():
                     future.set_result("crashed")
-        self._core_available = False
-        self._next_core_check = 0.0
         self.wake()
 
     async def _set_task_status(

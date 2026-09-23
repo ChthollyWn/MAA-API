@@ -69,7 +69,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from maa_api.api.errors import register_exception_handlers
-from maa_api.api.routers import atomic, logs, pipelines, queue, screenshots, system, tasks
+from maa_api.api.routers import (
+    atomic,
+    device,
+    logs,
+    pipelines,
+    queue,
+    screenshots,
+    settings as settings_router,
+    system,
+    tasks,
+)
 from maa_api.api.ws import manager as ws_manager
 from maa_api.api.ws import router as ws_router
 from maa_api.db.migrate import ensure_schema
@@ -228,7 +238,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     启动（进入时）：
 
-    1. 加载配置 —— ``config.yaml`` → DB 覆盖项 → 环境变量（M6 才接 DB 层）
+    1. 加载配置 —— ``config.yaml`` → DB 覆盖项 → 环境变量
     2. 初始化数据库引擎并执行 Alembic 迁移到 head（:func:`ensure_schema`，失败即启动失败）
     3. 记录 ``app.state.started_at``（UTC ISO 8601 字符串，M3-07 的 health 读它）
     4. 启动 LogHub 与日志来源
@@ -239,12 +249,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 第 1 步：加载配置。整份配置的读侧入口是 maa_api.settings.get_settings()，
     # lifespan 只负责在启动时刷新一次进程内缓存（文件改动不会自动生效）。
     set_settings(load_settings())
-    # 免鉴权模式必须显式可见，不能静默（docs/05 §5.2）。
-    warn_if_auth_disabled()
-
     # 第 2 步：初始化数据库引擎并迁移到 head。ensure_schema 内部经 asyncio.to_thread
     # 执行阻塞的 alembic upgrade；失败原样抛出、中止启动（docs/04 §8.3）。
     await ensure_schema()
+
+    # M6: 设置服务在 schema 就绪后加载 DB 覆盖，并成为后续服务的配置提供者。
+    import maa_api.db.session as db_session
+    import maa_api.settings as settings_module
+    from maa_api.services.setting_service import SettingService
+
+    setting_service_factory = getattr(
+        app.state, "setting_service_factory", SettingService
+    )
+    setting_service = setting_service_factory(
+        db_session.session_factory,
+        settings_path=settings_module.DEFAULT_CONFIG_PATH,
+    )
+    await setting_service.refresh()
+    app.state.setting_service = setting_service
+    # 免鉴权模式必须显式可见，且应反映 DB 覆盖后的有效配置。
+    warn_if_auth_disabled()
 
     # 第 9 步的可见结果：进程启动时间写入 app.state，health 端点读取它。
     app.state.started_at = datetime.now(timezone.utc).isoformat()
@@ -264,18 +288,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         del app.state.log_hub
         raise
 
-    # M5 第 4–5 步：接入 MaaCore 子进程与单消费者流水线执行器。
+    # M5/M6 第 4–6 步：装配 MaaCore、设备管理与单消费者流水线执行器。
     core_supervisor = None
     core_client = None
+    device_manager = None
     pipeline_runner = None
-    connection_attempts: set[int] = set()
-    connection_tasks: set[asyncio.Task[Any]] = set()
-    connection_lock = asyncio.Lock()
+    device_start_task: asyncio.Task[Any] | None = None
+    device_start_generation: int | None = None
+    lifecycle_tasks: set[asyncio.Task[Any]] = set()
+    shutdown_started = False
     try:
-        import maa_api.db.session as db_session
         from maa_api.core.client import CoreClient
+        from maa_api.core.enums import Message
         from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
         from maa_api.core.supervisor import CoreState, CoreSupervisor
+        from maa_api.services.device_service import DeviceManager
         from maa_api.services.pipeline_runner import PipelineRunner
         from maa_api.services.queue_service import QueueService
 
@@ -327,6 +354,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 runner.notify_core_state(state)
             if value == CoreState.READY.value:
                 schedule_connection()
+            elif device_start_task is not None and not device_start_task.done():
+                device_start_task.cancel()
 
         def on_core_state_change(state: Any) -> None:
             try:
@@ -334,22 +363,62 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             except RuntimeError:
                 logger.debug("应用事件循环已关闭，忽略 MaaCore 状态更新")
 
-        core_supervisor = CoreSupervisor(
+        supervisor_factory = getattr(
+            app.state, "core_supervisor_factory", CoreSupervisor
+        )
+        core_supervisor = supervisor_factory(
             boot_config,
             on_crash=on_core_crash,
             on_state_change=on_core_state_change,
         )
         runtime["supervisor"] = core_supervisor
-        core_client = CoreClient(core_supervisor, screencap_dir=REPO_ROOT / "resource" / "temp" / "screencap")
+        client_factory = getattr(app.state, "core_client_factory", CoreClient)
+        core_client = client_factory(
+            core_supervisor,
+            screencap_dir=REPO_ROOT / "resource" / "temp" / "screencap",
+        )
         core_registry = CoreRegistry()
         core_registry.register(DEFAULT_CORE_ID, core_client)
 
+        def publish_device_status(_message_type: str, data: dict[str, Any]) -> None:
+            ws_manager.broadcast("device_status", data)
+
+        device_manager_factory = getattr(
+            app.state, "device_manager_factory", DeviceManager
+        )
+        device_manager = device_manager_factory(
+            lambda: get_settings(),
+            core_client,
+            broadcast=publish_device_status,
+            core_id=DEFAULT_CORE_ID,
+        )
+        setting_service.bind_device_manager(device_manager)
+
+        def on_core_callback(payload: dict[str, Any]) -> None:
+            if not isinstance(payload, dict):
+                return
+            details = payload.get("details")
+            if not isinstance(details, dict):
+                details = {}
+            try:
+                message = Message(int(payload.get("msg")))
+            except (TypeError, ValueError):
+                return
+            if message is Message.ConnectionInfo:
+                device_manager.on_core_connection_event(
+                    str(details.get("what", "")), details
+                )
+
+        core_client.on("CALLBACK", on_core_callback)
+
         queue_service = QueueService(db_session.session_factory)
-        pipeline_runner = PipelineRunner(
+        runner_factory = getattr(app.state, "pipeline_runner_factory", PipelineRunner)
+        pipeline_runner = runner_factory(
             core_registry,
             core_supervisor,
             db_session.session_factory,
             queue_service=queue_service,
+            device_manager=device_manager,
             broadcast=lambda message_type, data: ws_manager.broadcast(
                 message_type, data
             ),
@@ -367,46 +436,58 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.core_supervisor = core_supervisor
         app.state.core_client = core_client
         app.state.core_registry = core_registry
+        app.state.device_manager = device_manager
         app.state.pipeline_runner = pipeline_runner
         app.state.queue_service = queue_service
 
-        async def connect_for_generation() -> None:
-            """M5 bridge: connect once per CoreSupervisor generation.
-
-            M6 replaces this small boot/restart hook with DeviceManager's full
-            retry policy and user-controlled reconnect endpoint.
-            """
-            async with connection_lock:
-                if core_supervisor.state is not CoreState.READY:
-                    return
-                generation = core_supervisor.generation
-                if generation in connection_attempts:
-                    return
-                connection_attempts.add(generation)
-                try:
-                    if not await core_client.connected():
-                        await core_client.connect(
-                            current_settings.adb.path,
-                            current_settings.adb.address,
-                            "General",
-                        )
-                    logger.info(
-                        "MaaCore generation %s connected to %s",
-                        generation,
-                        current_settings.adb.address,
-                    )
-                except Exception:  # noqa: BLE001 - device availability must not block HTTP
-                    logger.exception(
-                        "MaaCore generation %s could not connect to %s",
-                        generation,
-                        current_settings.adb.address,
-                    )
-                pipeline_runner.notify_core_state(core_supervisor.state)
-
         def schedule_connection() -> None:
-            task = asyncio.create_task(connect_for_generation())
-            connection_tasks.add(task)
-            task.add_done_callback(connection_tasks.discard)
+            """Retry device connection asynchronously for each READY generation."""
+            nonlocal device_start_task, device_start_generation
+            if shutdown_started or core_supervisor.state is not CoreState.READY:
+                return
+            generation = core_supervisor.generation
+            if (
+                device_start_task is not None
+                and not device_start_task.done()
+                and device_start_generation == generation
+            ):
+                return
+            previous_task = device_start_task
+            is_initial_generation = device_start_generation is None
+
+            async def connect_on_startup() -> None:
+                try:
+                    if previous_task is not None and not previous_task.done():
+                        previous_task.cancel()
+                        await asyncio.gather(previous_task, return_exceptions=True)
+                    if is_initial_generation:
+                        # DeviceManager owns the documented 60 × 5 second
+                        # startup retry defaults; the API lifespan never waits.
+                        await device_manager.connect_with_retry(reason="startup")
+                    else:
+                        await device_manager.connect_with_retry(
+                            attempts=getattr(
+                                device_manager, "reconnect_retry_attempts", 5
+                            ),
+                            interval=0,
+                            reason="reconnect",
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "MaaCore generation %s startup device retries failed",
+                        generation,
+                    )
+                finally:
+                    pipeline_runner.notify_core_state(core_supervisor.state)
+
+            device_start_generation = generation
+            device_start_task = asyncio.create_task(
+                connect_on_startup(), name=f"maa-device-startup-{generation}"
+            )
+            lifecycle_tasks.add(device_start_task)
+            device_start_task.add_done_callback(lifecycle_tasks.discard)
 
         core_client.start_consumer()
         await pipeline_runner.start()
@@ -417,10 +498,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if core_supervisor.state is CoreState.READY:
             schedule_connection()
     except BaseException:
-        for task in tuple(connection_tasks):
+        shutdown_started = True
+        if device_start_task is not None and not device_start_task.done():
+            device_start_task.cancel()
+            await asyncio.gather(device_start_task, return_exceptions=True)
+        if device_manager is not None:
+            await device_manager.close()
+        for task in tuple(lifecycle_tasks):
             task.cancel()
-        if connection_tasks:
-            await asyncio.gather(*connection_tasks, return_exceptions=True)
+        if lifecycle_tasks:
+            await asyncio.gather(*lifecycle_tasks, return_exceptions=True)
         if pipeline_runner is not None:
             await pipeline_runner.stop()
         if core_supervisor is not None:
@@ -430,10 +517,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.exception("清理启动失败的 MaaCore 子进程时出错")
         if core_client is not None:
             core_client.close()
+        if hasattr(app.state, "setting_service"):
+            del app.state.setting_service
         await stop_logging(tailer_task, hub)
         raise
 
-    # M6+: 第 6 步 启动 DeviceManager 的连接监控
+    # M6 第 6 步通过 CoreSupervisor READY hook 异步启动 DeviceManager 的 startup retries。
     # M6+: 第 7 步 从 DB 装载定时任务，启动 APScheduler
     # M11+/M12+: 第 8 步 注册 ToolRegistry，挂载 MCP endpoint
 
@@ -443,10 +532,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         # 关闭顺序：停止消费 / 收尾当前任务 → 关闭子进程 → 关闭 WS/tailer → 刷盘。
-        for task in tuple(connection_tasks):
+        shutdown_started = True
+        if device_start_task is not None and not device_start_task.done():
+            device_start_task.cancel()
+            await asyncio.gather(device_start_task, return_exceptions=True)
+        if device_manager is not None:
+            await device_manager.close()
+        for task in tuple(lifecycle_tasks):
             task.cancel()
-        if connection_tasks:
-            await asyncio.gather(*connection_tasks, return_exceptions=True)
+        if lifecycle_tasks:
+            await asyncio.gather(*lifecycle_tasks, return_exceptions=True)
         if pipeline_runner is not None:
             await pipeline_runner.stop()
         if core_supervisor is not None:
@@ -464,8 +559,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "core_supervisor",
             "core_client",
             "core_registry",
+            "device_manager",
             "pipeline_runner",
             "queue_service",
+            "setting_service",
             "log_hub",
         ):
             if hasattr(app.state, attribute):
@@ -501,6 +598,8 @@ def create_app() -> FastAPI:
     # 旧 static 挂载也不做 —— SPA catch-all 归 M8。
     app.include_router(system.router)
     app.include_router(tasks.router)
+    app.include_router(device.router)
+    app.include_router(settings_router.router)
     app.include_router(pipelines.router)
     app.include_router(queue.router)
     app.include_router(atomic.router)
