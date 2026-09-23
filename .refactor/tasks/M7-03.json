@@ -1,0 +1,37 @@
+{
+  "id": "M7-03",
+  "milestone": "M7",
+  "title": "实现 MaaCore stable 发布资产解析与原子安装回滚组件",
+  "depends": [
+    "M7-02"
+  ],
+  "reads": [
+    "docs/07-热更新方案.md#21-版本查询",
+    "docs/07-热更新方案.md#22-平台与架构匹配",
+    "docs/07-热更新方案.md#24-完整流程",
+    "docs/07-热更新方案.md#25-原子性与回滚",
+    "docs/07-热更新方案.md#26-只使用-stable-通道",
+    "maa_api/core/supervisor.py#class-CoreSupervisor",
+    "maa_api/util/downloader.py"
+  ],
+  "constraints": [
+    "只消费 stable；平台资产按已定正则白名单选取，重名资产 size 冲突需 warning；主进程不得 dlopen MaaCore。",
+    "覆盖安装必须同文件系统 staged→target rename；包结构归一化、库/resource/tasks/template/config/version 校验都在触碰现有目录前完成；失败需恢复 backup。",
+    "组件通过显式注入 HTTP client、路径、下载器、supervisor/client 与进度回调保持可测；不得自行建立数据库/路由或重启全服务。",
+    "用 `before_start(target_path)` seam 在新目录就位后、子进程 start 前重新应用已同步的 MaaResource overlay；回调失败必须在维护窗口内恢复旧 core 并启动旧版。",
+    "经校验完成的发行包需在流程级失败后保留在 resource/temp/core-update 供 7 天内 retry 复用；成功/用户取消可清理；不得无条件在 finally 删除可复用归档。",
+    "只修改 core_update.py 和其专用测试；不改公共 orchestrator、路由、main.py、其他任务卡或提交 Git。"
+  ],
+  "deliverables": [
+    "maa_api/services/core_update.py",
+    "tests/services/test_core_update.py"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/services/test_core_update.py"
+  ],
+  "prompt_extra": "导出纯数据 CoreRelease 与可单测的平台匹配/包归一化/目录校验/原子替换/rollback 函数，并提供一个注入依赖的 core 工作流组件供 UpdateService 调用。回滚接口必须仅操作配置的 MaaCore 目录和唯一 backup。覆盖通道拒绝、未知当前版本仍可更新、磁盘预检、损坏归档不触碰现有目标、替换失败恢复、overlay 回调/重启/READY/版本校验失败恢复与已下载归档重试复用；测试不得下载发行包或启动真实 MaaCore。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

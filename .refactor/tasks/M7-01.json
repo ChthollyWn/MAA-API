@@ -1,0 +1,31 @@
+{
+  "id": "M7-01",
+  "milestone": "M7",
+  "title": "验证 MaaResource 增量加载并选择可证明的回退策略",
+  "depends": [],
+  "reads": [
+    "docs/07-热更新方案.md#33-方案两条通道首版都启用",
+    "docs/07-热更新方案.md#35-重载与内核更新的本质区别",
+    "docs/07-热更新方案.md#37-自定义资源的隔离",
+    "docs/13-决策记录.md#5-需要实测验证的假设",
+    ".refactor/ENVIRONMENT.md#MaaCore-内核"
+  ],
+  "constraints": [
+    "探针只使用临时目录作为 MaaCore user_dir 与增量目录；不得连接设备、执行游戏任务、修改 resource/lib/maa 下的发行资源或资源文件。",
+    "必须检查增量目录可缺项、MaaResource 独有 Tile 数据可见、仅存在于基础资源的模板仍可用、重复加载不会积累重复 Tile 记录、重载后模板匹配缓存会失效；每项记录实际观测和限制，不得把无法观测写成通过。",
+    "若 MaaCore 的公开接口无法直接观测某项，必须说明采用的间接可执行验证及其证据；无法验证 TilePack/模板缓存语义时，选择覆盖合并到 MaaCore resource/ 并要求资源包更新后重启子进程的保守策略。",
+    "只新增指定探针和 findings；不改生产代码、其他任务卡/里程碑台账，不提交 Git。"
+  ],
+  "deliverables": [
+    "scripts/probe_resource_merge.py",
+    "tests/fixtures/resource_merge_probe_findings.md"
+  ],
+  "verify": [
+    ".venv/bin/python scripts/probe_resource_merge.py --expect-fallback"
+  ],
+  "prompt_extra": "从 GitHub MaaResource main archive 临时下载或采用明确传入的 archive；脚本需校验 zip 并提取到系统临时目录，调用真实 MaaCore。`--expect-fallback` 仅在基础资源、归档、repo 层调用与可观测间接检查通过、且剩余假设明确不可观测时以退出码 0 和末行 PROBE FALLBACK REQUIRED 结束；真实调用失败必须非零。结果文档记录探针证据与覆盖合并+重启退路。禁止提交临时包或内核日志。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

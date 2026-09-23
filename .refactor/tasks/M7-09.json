@@ -1,0 +1,31 @@
+{
+  "id": "M7-09",
+  "milestone": "M7",
+  "title": "建立离线更新 API 端到端冒烟并完成集成收尾",
+  "depends": [
+    "M7-08"
+  ],
+  "reads": [
+    "docs/12-实施计划与里程碑.md#m7-热更新xl",
+    "docs/07-热更新方案.md#7-前端版本面板",
+    ".refactor/milestones/M7.json",
+    "scripts/device_settings_smoke.py",
+    "scripts/log_ws_smoke.py"
+  ],
+  "constraints": [
+    "默认冒烟必须离线、使用隔离临时数据库/目录以及 HTTP/Core/ADB 替身；不触碰真实数据库、config.yaml、内核目录、模拟器或用户资源。",
+    "覆盖 status refresh/cache、更新记录进度/互斥/终态、core/resource/game 的 API 受理与完成/失败路径、取消/重试、daily check 汇总去重和服务不中断；末行必须为 SMOKE OK。",
+    "只修改 scripts/updates_smoke.py；如发现产品实现缺陷，记录回执并交主控修复，不改其他交付文件、任务卡/里程碑、DEFECTS 或提交 Git。"
+  ],
+  "deliverables": [
+    "scripts/updates_smoke.py"
+  ],
+  "verify": [
+    ".venv/bin/python scripts/updates_smoke.py"
+  ],
+  "prompt_extra": "脚本用显式检查而不是 assert；每段输出可读 PASS/FAIL，失败非零退出。不要通过正式更新端点实际下载 190MB 内核/13MB资源/APK；fake transport 应覆盖其下载/安装分支。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

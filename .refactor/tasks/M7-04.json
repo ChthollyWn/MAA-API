@@ -1,0 +1,42 @@
+{
+  "id": "M7-04",
+  "milestone": "M7",
+  "title": "实现 OTA 与 MaaResource 两条活动资源更新通道",
+  "depends": [
+    "M7-01",
+    "M7-02"
+  ],
+  "reads": [
+    "docs/07-热更新方案.md#31-官方-OTA-清单的核实结果",
+    "docs/07-热更新方案.md#32-但存在第二条资源更新通道",
+    "docs/07-热更新方案.md#33-方案两条通道首版都启用",
+    "docs/07-热更新方案.md#34-条件请求与版本判定",
+    "docs/07-热更新方案.md#35-重载与内核更新的本质区别",
+    "docs/07-热更新方案.md#36-重载的时机约束",
+    "docs/07-热更新方案.md#37-自定义资源的隔离",
+    "maa_api/db/models.py#class-ResourceAsset",
+    "maa_api/db/repositories/resource.py",
+    "maa_api/util/downloader.py",
+    "docs/07-热更新方案.md#55-更新前的自动备份"
+  ],
+  "constraints": [
+    "通道 A 使用 ETag/Last-Modified 条件请求、JSON 校验、SHA256 对照和单文件原子落盘；不改写 <maa_path>/cache。",
+    "通道 B 以 resource_asset DB 版本为唯一基准，优先 Mirror 酱查询版本再回退 raw；codeload 不续传；解包只取 MaaResource-main/resource，校验 zip 和 version.json。",
+    "M7-01 无法验证 TilePack/模板缓存语义，必须按 docs/07 §3.3 fallback：repo 原始资源保存在 resource/maa-layers/repo，安装前复制 MaaCore resource 到同文件系统 staging、将 repo 文件覆盖合并后原子换入 MaaCore resource/；保留一个完整上一版 resource backup。",
+    "repo 通道成功后在流水线空闲时重启 MaaCore 子进程以清空不可观测缓存；内核更新完成后在 supervisor.start 前重新合并 repo overlay。基础资源首次加载后仅叠加 cache 与 custom，不再把 repo 当增量层。加载/启动失败必须恢复磁盘并还原旧进程资源。",
+    "只修改 resource_update.py 与其专用测试；不修改 core IPC、main.py、公共 UpdateService/API、其他任务卡或提交 Git。",
+    "OTA cache 至多保留 5 份快照；channel=all 的 staged OTA/repo 必须空闲时一起 apply 并且只重载/重启一次，repo 可选失败时仍允许 OTA 成功。"
+  ],
+  "deliverables": [
+    "maa_api/services/resource_update.py",
+    "tests/services/test_resource_update.py"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/services/test_resource_update.py"
+  ],
+  "prompt_extra": "ResourceUpdateWorkflow.install_all(staged_items) 必须等待空闲一次、OTA 后 repo apply 一次，最后恰好执行一次 runtime reload/restart；对任一 apply/runtime failure 全部按逆序回滚磁盘并恢复旧 runtime。stage_ota/apply_ota 保留 5 份 resource/maa-layers/cache.backup 快照，cache 永远不在 MaaCore lib 目录下。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

@@ -1,0 +1,41 @@
+{
+  "id": "M7-08",
+  "milestone": "M7",
+  "title": "挂载更新 API 并接入启动/关闭生命周期与每日检查",
+  "depends": [
+    "M7-06",
+    "M7-07",
+    "M7-10"
+  ],
+  "reads": [
+    "docs/05-API规范与路由清单.md#69-updates",
+    "docs/07-热更新方案.md#56-定时检查与手动检查",
+    "docs/07-热更新方案.md#6-与-Agent-的衔接",
+    "maa_api/main.py#lifespan",
+    "maa_api/settings.py#SETTING_KEYS",
+    "maa_api/services/settings_schema.py#SETTINGS_SCHEMA"
+  ],
+  "constraints": [
+    "提供 docs/05 §6.9 与 docs/07 §2.5/§5.4 列出的状态、历史、详情、core/resource/game 更新、内核回滚、失败重试与取消端点；core 仅 stable，resource 通道为 ota/repo/all，game 渠道为 Official/Bilibili。",
+    "更新 API 只返回受理的 202 与可轮询记录；任何 force 中断都必须走确认策略边界，不得静默中断正在运行的流水线。",
+    "每日检查默认本地 09:00、只检查不下载；检查异常只记日志，手动 refresh 则向调用方报告错误。通知汇总和同版本去重由 update_service/NotifyService 负责。",
+    "服务启动恢复中断记录、装配检查任务；关闭取消后台任务。新增下载加速前缀不得硬编码第三方服务地址。游戏工作流必须注入 M7-10 提供的 `DeviceManager.install_apk_safe`，不得调用可能自动卸载的高层 adbutils install。",
+    "只修改 maa_api/api/routers/updates.py、maa_api/main.py、maa_api/settings.py、maa_api/services/settings_schema.py、config.template.yaml 与 tests/api/test_updates_router.py；不修改其他卡交付文件/台账或提交 Git。"
+  ],
+  "deliverables": [
+    "maa_api/api/routers/updates.py",
+    "maa_api/main.py",
+    "maa_api/settings.py",
+    "maa_api/services/settings_schema.py",
+    "config.template.yaml",
+    "tests/api/test_updates_router.py"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/api/test_updates_router.py"
+  ],
+  "prompt_extra": "生命周期装配需 boot_config 增加依序的 resource/maa-layers/{repo,cache,custom} 层，并确保 MaaCore 基础资源先加载；不得在 import 期联网。API 路由走 app.state.update_service，未装配时返回 SERVICE_UNAVAILABLE。OpenAPI operationId/tag/错误响应符合现有 API 约定。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

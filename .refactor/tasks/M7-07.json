@@ -1,0 +1,36 @@
+{
+  "id": "M7-07",
+  "milestone": "M7",
+  "title": "补齐通知通道管理和更新可用通知发送",
+  "depends": [
+    "M7-06"
+  ],
+  "reads": [
+    "docs/05-API规范与路由清单.md#6.12-notifications",
+    "docs/05-API规范与路由清单.md#4.13-设置与通知",
+    "docs/04-数据模型与持久化.md#5.12-notify_channel",
+    "docs/07-热更新方案.md#56-定时检查与手动检查",
+    "maa_api/db/repositories/notify.py#class-NotifyChannelRepository",
+    "maa_api/domain/enums.py#class-NotifyChannelType"
+  ],
+  "constraints": [
+    "实现 email/webhook/bark/dingtalk/wecom 五种通道的按类型校验、敏感配置脱敏、订阅事件过滤、失败回写及可注入 HTTP/SMTP transport；发送失败不得自动停用通道。",
+    "提供 docs/05 §6.12 列出的通知通道 CRUD 与测试发送端点；update_available 只向启用且订阅此事件的通道发送。",
+    "批量 update_available 通知按一次检查合并为一条；HTTP 与 SMTP transport 都需有明确超时并便于离线替身。",
+    "只修改 maa_api/services/notify_service.py、maa_api/api/routers/notifications.py 及其服务/API 专用测试；不改 enums.py、main.py、任务台账或提交 Git。"
+  ],
+  "deliverables": [
+    "maa_api/services/notify_service.py",
+    "maa_api/api/routers/notifications.py",
+    "tests/services/test_notify_service.py",
+    "tests/api/test_notifications_router.py"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/services/test_notify_service.py tests/api/test_notifications_router.py"
+  ],
+  "prompt_extra": "通知服务不能在导入期做 IO；每个 transport 要接受注入 client/sender 以便离线测试，拒绝任意代码模板执行。路由保持现有 AppError 形状、auth 依赖、OpenAPI tag 与 operationId 约定。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

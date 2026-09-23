@@ -1,0 +1,11 @@
+{
+  "milestone": "M7",
+  "deliverable": "内核、活动资源（OTA 与 MaaResource）和游戏 APK 均可通过 API 查询与手动更新；内核/资源更新期间 HTTP 服务保持可用，OTA/custom 保存在 MaaCore 目录外；MaaResource 按已验证退路覆盖合并并经子进程重启生效；更新记录、进度、互斥和每日检查按方案工作。",
+  "acceptance": [
+    ".venv/bin/python -m pytest -q",
+    ".venv/bin/python scripts/probe_resource_merge.py --expect-fallback",
+    ".venv/bin/python scripts/updates_smoke.py"
+  ],
+  "advisory": [],
+  "_note": "前置资源语义探针使用本机 MaaCore 和官方 MaaResource 压缩包，在临时用户目录/资源层执行，不连接设备、不改写现有资源；TilePack/模板缓存行为无法由本地公开 FFI 观测，按 docs/07 §3.3 退路使用同盘暂存的 resource/ 覆盖合并，repo 更新重启子进程，内核更新重应用 repo overlay。updates_smoke.py 使用隔离临时数据库、注入 HTTP/Core/ADB 依赖验证 API 与工作流，不下载正式内核或 APK、不安装到真机。"
+}
