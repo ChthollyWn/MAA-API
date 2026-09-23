@@ -45,8 +45,8 @@
     ".venv/bin/python -m pytest -q tests/services/test_update_service.py tests/domain/test_enums.py tests/db/test_repositories_update_notify_resource.py"
   ],
   "prompt_extra": "提供稳定的构造注入契约给 API 路由使用：status(refresh)、start(target, options, caller)、get/list/cancel/retry、recover_interrupted、daily_check；更新组件经 progress callback 输出统一事件。该卡可添加轻量纯 Python DTO/协议到本文件内部，但不得新建与其他卡重叠的文件。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "54387d8",
   "blocked_reason": null
 }

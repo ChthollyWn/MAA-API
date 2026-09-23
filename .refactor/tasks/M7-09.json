@@ -24,8 +24,8 @@
     ".venv/bin/python scripts/updates_smoke.py"
   ],
   "prompt_extra": "脚本用显式检查而不是 assert；每段输出可读 PASS/FAIL，失败非零退出。不要通过正式更新端点实际下载 190MB 内核/13MB资源/APK；fake transport 应覆盖其下载/安装分支。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "54387d8",
   "blocked_reason": null
 }

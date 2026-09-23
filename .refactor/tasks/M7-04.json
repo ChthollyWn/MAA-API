@@ -35,8 +35,8 @@
     ".venv/bin/python -m pytest -q tests/services/test_resource_update.py"
   ],
   "prompt_extra": "ResourceUpdateWorkflow.install_all(staged_items) 必须等待空闲一次、OTA 后 repo apply 一次，最后恰好执行一次 runtime reload/restart；对任一 apply/runtime failure 全部按逆序回滚磁盘并恢复旧 runtime。stage_ota/apply_ota 保留 5 份 resource/maa-layers/cache.backup 快照，cache 永远不在 MaaCore lib 目录下。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "54387d8",
   "blocked_reason": null
 }

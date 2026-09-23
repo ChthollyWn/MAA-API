@@ -29,8 +29,8 @@
     ".venv/bin/python -m pytest -q tests/services/test_notify_service.py tests/api/test_notifications_router.py"
   ],
   "prompt_extra": "通知服务不能在导入期做 IO；每个 transport 要接受注入 client/sender 以便离线测试，拒绝任意代码模板执行。路由保持现有 AppError 形状、auth 依赖、OpenAPI tag 与 operationId 约定。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "54387d8",
   "blocked_reason": null
 }

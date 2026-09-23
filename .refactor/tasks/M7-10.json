@@ -27,8 +27,8 @@
     ".venv/bin/python -m pytest -q tests/services/test_device_service.py"
   ],
   "prompt_extra": "DeviceManager.install_apk_safe 暴露 GameUpdateService 需要的 async 签名 `(path, *, timeout=1200, flags=('-r','-d'))`，通过 asyncio.to_thread 执行同步传输。安装命令应是 adbutils `sync.push` + `device.shell('pm install ...', timeout=...)` 或其他可证明不会自动卸载的低层流程；远端临时 APK 无论安装成功/失败/超时都在 finally 清理。路径不能由用户输入拼成远端路径。`install_apk` 应归一化旧选项并委托安全 primitive，确保已知高层自动卸载路径从本服务删除。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "54387d8",
   "blocked_reason": null
 }

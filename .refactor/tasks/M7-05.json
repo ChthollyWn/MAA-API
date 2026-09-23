@@ -29,8 +29,8 @@
     ".venv/bin/python -m pytest -q tests/services/test_game_update.py"
   ],
   "prompt_extra": "导出渠道包名、版本解析、B 服 manifest 解析（含主/备用下载链接）、官服 Range 元信息解析、dumpsys package 解析、APK 校验与 adb install 错误映射，并提供依赖注入的 game 工作流组件。所有服务端请求、DeviceManager 操作与安全 installer 都需可 mock；测试使用小型合成 APK ZIP，不联网、不触及真机。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "54387d8",
   "blocked_reason": null
 }

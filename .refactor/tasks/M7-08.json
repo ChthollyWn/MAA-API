@@ -38,8 +38,8 @@
     ".venv/bin/python -m pytest -q tests/api/test_updates_router.py tests/test_settings.py"
   ],
   "prompt_extra": "生命周期装配需 boot_config 增加资源层路径 resource/maa-layers/{cache,custom}（repo 已合并进 MaaCore resource）并确保基础资源先加载；配置 MaaCore staging 在同一文件系统，外置 MAA 路径时转用其父目录 staging；不得在 import 期联网。绑定 update_service/notify_service/API router、每日 09:00 auto check 与 retention scheduler；shutdown 等待后台更新终态后再关 DB/clients。API 路由返回更新 history detail 的 log，OpenAPI operationId/tag/错误响应符合约定。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "54387d8",
   "blocked_reason": null
 }

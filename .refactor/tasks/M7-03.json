@@ -31,8 +31,8 @@
     ".venv/bin/python -m pytest -q tests/services/test_core_update.py"
   ],
   "prompt_extra": "导出纯数据 CoreRelease 与可单测的平台匹配/包归一化/目录校验/原子替换/rollback 函数，并提供注入依赖的 stable 更新和手动回滚 workflow 供 UpdateService 调用。回滚 API 必须执行维护窗口里的目录 swap、资源 overlay 重放、启动/重连/READY 复核；失败反向 swap 并尝试恢复活动版本。覆盖下载 prefix/mirror fallback、七天归档复用、异常恢复与手动 rollback success/failure；测试不得下载正式发行包或启动真实 MaaCore。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "54387d8",
   "blocked_reason": null
 }
