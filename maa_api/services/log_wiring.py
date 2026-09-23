@@ -137,6 +137,14 @@ def start_core_debug_tailer(
         interval=interval,
         min_level=get_settings().log.core_min_level,
     )
+    # Establish the initial EOF before lifespan yields. Otherwise an immediately
+    # created asst.log could be mistaken for an old file and silently skipped.
+    try:
+        tailer._poll_once()
+    except Exception:
+        # ``run`` owns ongoing diagnostics and retries; a transient initial I/O
+        # error must not make an otherwise usable API unavailable.
+        pass
     return asyncio.create_task(tailer.run(), name="maa-api-core-debug-tailer")
 
 
