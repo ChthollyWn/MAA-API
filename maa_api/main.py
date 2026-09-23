@@ -1,14 +1,13 @@
 """应用装配：生命周期、路由注册、CORS、OpenAPI 元数据（docs/02 §6–§7，docs/05 §11）。
 
 本模块是 :mod:`maa_api` 的唯一装配入口（``uvicorn maa_api.main:app``）。它只做
-「接线」，不含任何业务逻辑；M3 阶段可接的组件只有两个：配置加载（:mod:`maa_api.settings`）
-与数据库引擎 + Alembic 自动迁移（:mod:`maa_api.db.migrate`）。
+「接线」，不含任何业务逻辑；配置加载、数据库迁移与 M4 日志生命周期在此装配。
 
 启动顺序（docs/02 §7 的九步）
 =============================
 
 :func:`lifespan` 按文档顺序组织，M3 只落地第 1–2 步，其余步骤是**显式的带注释
-扩展位**：``# M4+:`` 之后的每一步都归属后续里程碑（LogHub / CoreSupervisor 归 M4，
+扩展位**：``# M4+:`` 之后的每一步都归属后续里程碑（LogHub 归 M4，CoreSupervisor 归 M5，
 PipelineRunner 归 M5，DeviceManager / APScheduler 归 M6，ToolRegistry / MCP 归 M11–M12），
 **本卡刻意不 import 尚不存在或还是空壳的模块** —— 提前接线只会让 M3 的「可交付状态」
 （docs/12 M3：业务端点尚未接内核）名不副实。
@@ -24,7 +23,7 @@ PipelineRunner 归 M5，DeviceManager / APScheduler 归 M6，ToolRegistry / MCP 
 「启动 / 关闭成对书写」的语义不匹配；docs/02 §7 明确要求改用
 ``@asynccontextmanager`` 的 lifespan。关闭顺序（docs/02 §7：停止接受新请求 → 停
 APScheduler → 取消 PipelineRunner → 关闭子进程 → 刷日志落库 → 关数据库）在 M3
-没有可关闭的组件，:func:`lifespan` 退出段只留注释与空实现。
+M4 起退出段会按依赖顺序关闭 WebSocket、日志 tailer 并刷新日志缓冲。
 
 CORS（docs/05 §5.1）
 ====================
@@ -52,9 +51,8 @@ OpenAPI（docs/05 §11）
 日志
 ====
 
-一律 stdlib :func:`logging.getLogger`。**不得** import 旧 ``maa_api/log.py``：它在
-import 期就 ``mkdir``、开 ``RotatingFileHandler`` 并 import 旧 config（CWD 不在仓库
-根时直接 RuntimeError，见 .refactor/ENVIRONMENT.md），它的 LogHub 改造是 M4 的工作。
+一律 stdlib :func:`logging.getLogger`。``maa_api.log`` 的 import 无副作用，lifespan
+中显式安装控制台、文件与 LogHub handler。
 """
 
 from __future__ import annotations
@@ -70,8 +68,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from maa_api.api.errors import register_exception_handlers
-from maa_api.api.routers import system, tasks
+from maa_api.api.routers import logs, screenshots, system, tasks
+from maa_api.api.ws import router as ws_router
 from maa_api.db.migrate import ensure_schema
+from maa_api.services.log_hub import LogHub, set_log_hub
+from maa_api.services.log_wiring import (
+    install_service_logging,
+    start_core_debug_tailer,
+    stop_logging,
+)
 from maa_api.settings import get_settings, load_settings, set_settings
 
 __all__ = [
@@ -240,20 +245,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 第 9 步的可见结果：进程启动时间写入 app.state，health 端点读取它。
     app.state.started_at = datetime.now(timezone.utc).isoformat()
 
-    # M4+: 第 3 步 启动 LogHub，接入 Python logging handler 与 MaaCore debug 日志 tail
-    # M4+: 第 4 步 启动 CoreSupervisor，**不阻塞等待**（子进程后台完成版本校验/资源加载/连设备）
+    # 第 3 步（M4）：启动 LogHub、Python logging handler 与 MaaCore debug 日志 tail。
+    # tailer 任务只建立任务，不等待子进程，也不要求 asst.log 已存在。
+    hub = LogHub()
+    await hub.start()
+    app.state.log_hub = hub
+    set_log_hub(hub)
+    tailer_task = None
+    try:
+        install_service_logging(hub)
+        tailer_task = start_core_debug_tailer(hub)
+    except BaseException:
+        await stop_logging(tailer_task, hub)
+        del app.state.log_hub
+        raise
+
+    # M5+: 第 4 步 启动 CoreSupervisor，**不阻塞等待**（后台完成资源加载与连接）
     # M5+: 第 5 步 启动 PipelineRunner 消费循环
     # M6+: 第 6 步 启动 DeviceManager 的连接监控
     # M6+: 第 7 步 从 DB 装载定时任务，启动 APScheduler
     # M11+/M12+: 第 8 步 注册 ToolRegistry，挂载 MCP endpoint
 
-    # 第 9 步：yield 之后 uvicorn 才开始接受 HTTP 请求。M3 的可交付状态是
-    # 「API 骨架可访问、业务端点尚未接内核」，所以这里不等任何内核状态。
-    yield
-
-    # M4+: 关闭顺序（docs/02 §7）：停止接受新请求 → 停止 APScheduler →
-    # M4+: 取消 PipelineRunner（运行中的流水线标 CANCELLED）→ 关闭子进程 →
-    # M4+: 刷新日志缓冲落库 → 关闭数据库。M3 无组件可关，保持空实现。
+    # 第 9 步：yield 之后 uvicorn 才开始接受 HTTP 请求。M4 不启动或等待内核进程。
+    try:
+        yield
+    finally:
+        # M4 关闭顺序：关闭 WS，取消 tailer，再刷新 LogHub 的落库批次。
+        await stop_logging(tailer_task, hub)
+        if hasattr(app.state, "log_hub"):
+            del app.state.log_hub
 
 
 # ----------------------------------------------------------------------
@@ -285,6 +305,9 @@ def create_app() -> FastAPI:
     # 旧 static 挂载也不做 —— SPA catch-all 归 M8。
     app.include_router(system.router)
     app.include_router(tasks.router)
+    app.include_router(logs.router)
+    app.include_router(screenshots.router)
+    app.include_router(ws_router)
 
     # CORS：显式白名单 + 局域网正则，保留 allow_credentials=True（docs/05 §5.1）。
     app.add_middleware(
