@@ -24,8 +24,8 @@
     ".venv/bin/python scripts/probe_resource_merge.py --expect-fallback"
   ],
   "prompt_extra": "从 GitHub MaaResource main archive 临时下载或采用明确传入的 archive；脚本需校验 zip 并提取到系统临时目录，调用真实 MaaCore。`--expect-fallback` 仅在基础资源、归档、repo 层调用与可观测间接检查通过、且剩余假设明确不可观测时以退出码 0 和末行 PROBE FALLBACK REQUIRED 结束；真实调用失败必须非零。结果文档记录探针证据与覆盖合并+重启退路。禁止提交临时包或内核日志。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 2,
+  "commit": "156e4fc",
   "blocked_reason": null
 }

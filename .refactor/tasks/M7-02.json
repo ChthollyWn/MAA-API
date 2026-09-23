@@ -24,8 +24,8 @@
     ".venv/bin/python -m pytest -q tests/util/test_downloader.py"
   ],
   "prompt_extra": "支持 expected_size、progress 回调、resume 标志、断点完成文件复用、下载流异常后保留/清理由调用者决定。测试用 httpx.MockTransport，不联网，覆盖 Range=206、Range 被忽略返回 200、尺寸错误、取消/异常和不续传。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "156e4fc",
   "blocked_reason": null
 }
