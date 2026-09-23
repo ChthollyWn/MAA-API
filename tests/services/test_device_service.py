@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -18,6 +19,7 @@ from maa_api.services.device_service import (
     DeviceManager,
     DeviceState,
 )
+import maa_api.services.device_service as device_service
 from maa_api.settings import AdbSettings, Settings
 
 
@@ -107,6 +109,68 @@ class FakeCore:
         if self.screencap_path is None:
             raise RuntimeError("no fallback screenshot")
         return self.screencap_path
+
+
+class FakeAdbUtilsDevice:
+    def __init__(self, client: "FakeAdbUtilsClient", serial: str) -> None:
+        self.client = client
+        self.serial = serial
+
+    def shell(self, command: Any, **kwargs: Any) -> str:
+        self.client.calls.append(
+            ("device.shell", self.serial, command, kwargs, os.environ.get("ADBUTILS_ADB_PATH"))
+        )
+        if command == "echo ok":
+            return "ok"
+        if command == "getprop ro.product.model":
+            return "adbutils emulator"
+        return ""
+
+    def screenshot(self, *, error_ok: bool = True) -> Image.Image:
+        self.client.calls.append(("device.screenshot", self.serial, error_ok))
+        return Image.new("RGB", (2, 3), "blue")
+
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, *, duration: float) -> None:
+        self.client.calls.append(
+            ("device.swipe", self.serial, x1, y1, x2, y2, duration)
+        )
+
+    def keyevent(self, key: str) -> None:
+        self.client.calls.append(("device.keyevent", self.serial, key))
+
+    def app_stop(self, package: str) -> None:
+        self.client.calls.append(("device.app_stop", self.serial, package))
+
+    def install(self, path: Path, **kwargs: Any) -> None:
+        self.client.calls.append(("device.install", self.serial, path, kwargs))
+
+
+class FakeAdbUtilsClient:
+    """adbutils.AdbClient-shaped fake; contains no socket/process implementation."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    def connect(self, address: str, *, timeout: float | None = None) -> str:
+        self.calls.append(
+            ("client.connect", address, timeout, os.environ.get("ADBUTILS_ADB_PATH"))
+        )
+        return f"connected to {address}"
+
+    def disconnect(self, address: str, *, raise_error: bool = False) -> str:
+        self.calls.append(("client.disconnect", address, raise_error))
+        return f"disconnected {address}"
+
+    def list(self) -> list[Any]:
+        self.calls.append(("client.list",))
+        return [
+            SimpleNamespace(serial="127.0.0.1:5555", state="device", tags={}),
+            SimpleNamespace(serial="127.0.0.1:7555", state="offline", tags={}),
+        ]
+
+    def device(self, serial: str) -> FakeAdbUtilsDevice:
+        self.calls.append(("client.device", serial))
+        return FakeAdbUtilsDevice(self, serial)
 
 
 def _settings(address: str = "127.0.0.1:5555") -> Settings:
@@ -461,3 +525,134 @@ def test_reconfigure_updates_address_disconnects_old_and_reconnects_once() -> No
         await manager.close()
 
     asyncio.run(scenario())
+
+
+def test_default_backend_uses_injected_adbutils_client_and_manages_binary_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    original = "/before/test/adb"
+    monkeypatch.setenv("ADBUTILS_ADB_PATH", original)
+    client = FakeAdbUtilsClient()
+    core = FakeCore()
+    settings = {"value": _settings()}
+    subprocess_calls: list[Any] = []
+    monkeypatch.setattr(
+        device_service.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess_calls.append((args, kwargs)),
+    )
+    manager = DeviceManager(
+        lambda: settings["value"],
+        core,
+        adb_client=client,
+        unavailable_probe_interval=0,
+    )
+    assert os.environ["ADBUTILS_ADB_PATH"] == "/fake/adb"
+
+    async def scenario() -> None:
+        assert await manager.connect()
+        assert os.environ["ADBUTILS_ADB_PATH"] == "/fake/adb"
+        candidates = await manager.list_devices()
+        assert candidates == [
+            {
+                "serial": "127.0.0.1:5555",
+                "state": "device",
+                "model": "adbutils emulator",
+                "is_current": True,
+                "label": "adbutils emulator (127.0.0.1:5555)",
+            },
+            {
+                "serial": "127.0.0.1:7555",
+                "state": "offline",
+                "model": None,
+                "is_current": False,
+                "label": "127.0.0.1:7555（离线）",
+            },
+        ]
+        screenshot = await manager.screenshot()
+        assert screenshot.backend == "adb"
+        assert screenshot.image.size == (2, 3)
+        await manager.swipe(1, 2, 3, 4, 500)
+        await manager.long_press(7, 8, 1000)
+        await manager.input_text("hello world")
+        await manager.key_event("BACK")
+        await manager.force_stop("com.example.game")
+        assert await manager.install_apk(tmp_path / "fake.apk") == "Success"
+
+        assert await manager.reconfigure(
+            address="127.0.0.1:7555", adb_path="/other/fake-adb"
+        )
+        assert os.environ["ADBUTILS_ADB_PATH"] == "/other/fake-adb"
+        assert core.calls[-1][:2] == ("/other/fake-adb", "127.0.0.1:7555")
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert os.environ["ADBUTILS_ADB_PATH"] == original
+    assert subprocess_calls == []
+    calls = [call[0] for call in client.calls]
+    assert "client.connect" in calls
+    assert "client.disconnect" in calls
+    assert "client.list" in calls
+    assert "device.screenshot" in calls
+    assert "device.swipe" in calls
+    assert "device.keyevent" in calls
+    assert "device.app_stop" in calls
+    assert "device.install" in calls
+    assert any(
+        call[0] == "device.shell" and call[2] == ["input", "text", "hello%sworld"]
+        for call in client.calls
+    )
+    assert all(
+        call[-1] in {"/fake/adb", "/other/fake-adb"}
+        for call in client.calls
+        if call[0] in {"client.connect", "device.shell"}
+    )
+
+
+def test_adbutils_common_port_probe_is_concurrent_and_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeAdbUtilsClient()
+    active = 0
+    max_active = 0
+    import threading
+
+    counter_lock = threading.Lock()
+
+    original_connect = client.connect
+
+    def delayed_connect(address: str, *, timeout: float | None = None) -> str:
+        nonlocal active, max_active
+        # This runs in concurrent worker threads; a tiny blocking delay makes
+        # overlap observable without contacting adb server or a device.
+        with counter_lock:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            import time
+
+            time.sleep(0.01)
+            return original_connect(address, timeout=timeout)
+        finally:
+            with counter_lock:
+                active -= 1
+
+    client.connect = delayed_connect  # type: ignore[method-assign]
+    manager = DeviceManager(
+        _settings,
+        FakeCore(),
+        adb_client=client,
+        common_ports=(5555, 7555, 16384),
+        unavailable_probe_interval=0,
+    )
+
+    async def scenario() -> None:
+        assert await manager.list_devices()  # passive visible-device scan
+        assert not [call for call in client.calls if call[0] == "client.connect"]
+        await manager.list_devices(include_common_ports=True)
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert max_active > 1
+    assert len([call for call in client.calls if call[0] == "client.connect"]) == 3
