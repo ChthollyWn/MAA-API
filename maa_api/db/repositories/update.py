@@ -107,17 +107,21 @@ class UpdateRepository(BaseRepository):
         self,
         *,
         target: UpdateTarget | str | None = None,
+        status: UpdateStatus | str | None = None,
         page: int = 1,
         size: int = 20,
     ) -> Page[UpdateRecord]:
-        """更新历史：可选 ``target`` 过滤，按 ``created_at DESC`` 分页。
+        """更新历史：可按 ``target`` / ``status`` 组合过滤后分页。
 
-        条件与排序贴着 ``ix_update_record_target_created_at(target, created_at)``
-        （docs/04 §6 的更新页形态）来写；同秒并列用 ``id DESC`` 兜稳定次序。
+        ``total`` 与列表共享同一组过滤条件；目标过滤贴着
+        ``ix_update_record_target_created_at(target, created_at)``（docs/04 §6），
+        同秒并列用 ``id DESC`` 兜稳定次序。
         """
         conditions = []
         if target is not None:
             conditions.append(UpdateRecord.target == target)
+        if status is not None:
+            conditions.append(UpdateRecord.status == UpdateStatus(status))
 
         items_stmt = (
             select(UpdateRecord)

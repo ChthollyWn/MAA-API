@@ -47,6 +47,8 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "app.access_token": dict(label="访问密钥", group="应用", type="string", sensitive=True, hot_action="restart_required"),
     "app.maa_core_path": dict(label="MaaCore 路径", group="应用", type="string", hot_action="restart_required"),
     "app.proxy": dict(label="系统代理", group="应用", type="string", hot_action="none"),
+    "updates.download_prefix": dict(label="更新下载前缀", group="更新", type="string", hot_action="restart_required"),
+    "updates.check_hour": dict(label="每日更新检查时间（小时）", group="更新", type="integer", minimum=0, maximum=23, hot_action="restart_required"),
     "adb.path": dict(label="ADB 路径", group="设备", type="string", hot_action="restart_required"),
     "adb.address": dict(label="设备地址", group="设备", type="string", hot_action="reconnect"),
     "adb.screenshot_quality": dict(label="截图质量", group="设备", type="integer", minimum=1, maximum=95, hot_action="none"),

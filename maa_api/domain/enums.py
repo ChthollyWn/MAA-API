@@ -132,10 +132,10 @@ class UpdatePhase(StrEnum):
     CHECKING = "checking"
     DOWNLOADING = "downloading"
     VERIFYING = "verifying"
-    STOPPING_CORE = "stopping_core"
-    EXTRACTING = "extracting"
-    INSTALLING = "installing"        # 仅 game：adb install
-    STARTING_CORE = "starting_core"
+    WAITING_IDLE = "waiting_idle"
+    APPLYING = "applying"
+    RESTARTING = "restarting"
+    FAILED = "failed"
     DONE = "done"
 
 
@@ -152,6 +152,7 @@ class NotifyEvent(StrEnum):
     PIPELINE_FAILED = "pipeline_failed"
     CORE_CRASHED = "core_crashed"
     DEVICE_DISCONNECTED = "device_disconnected"
+    UPDATE_AVAILABLE = "update_available"
     UPDATE_FINISHED = "update_finished"
     CONFIRMATION_REQUIRED = "confirmation_required"
 

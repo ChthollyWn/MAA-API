@@ -116,6 +116,8 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "app.access_token": ("access_token",),
     "app.maa_core_path": ("maa_core_path",),
     "app.proxy": ("proxy",),
+    "updates.download_prefix": ("updates", "download_prefix"),
+    "updates.check_hour": ("updates", "check_hour"),
     "adb.path": ("adb", "path"),
     "adb.address": ("adb", "address"),
     "adb.screenshot_quality": ("adb", "screenshot_quality"),
@@ -194,6 +196,15 @@ class LogSettings(BaseModel):
     persist_maacore_debug_level: str = "WARNING"
 
 
+class UpdateSettings(BaseModel):
+    """Update scheduling and optional archive mirror configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    download_prefix: str = ""
+    check_hour: int = Field(default=9, ge=0, le=23)
+
+
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -208,6 +219,7 @@ class Settings(BaseModel):
     proxy: str = ""
     adb: AdbSettings = Field(default_factory=AdbSettings)
     log: LogSettings = Field(default_factory=LogSettings)
+    updates: UpdateSettings = Field(default_factory=UpdateSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
 

@@ -20,7 +20,8 @@
     "组件通过显式注入 HTTP client、路径、下载器、supervisor/client 与进度回调保持可测；不得自行建立数据库/路由或重启全服务。",
     "用 `before_start(target_path)` seam 在新目录就位后、子进程 start 前重新应用已同步的 MaaResource overlay；回调失败必须在维护窗口内恢复旧 core 并启动旧版。",
     "经校验完成的发行包需在流程级失败后保留在 resource/temp/core-update 供 7 天内 retry 复用；成功/用户取消可清理；不得无条件在 finally 删除可复用归档。",
-    "只修改 core_update.py 和其专用测试；不改公共 orchestrator、路由、main.py、其他任务卡或提交 Git。"
+    "只修改 core_update.py 和其专用测试；不改公共 orchestrator、路由、main.py、其他任务卡或提交 Git。",
+    "MaaCore 手动 rollback 必须通过组件 lifecycle：维护窗口停旧进程、目录同盘 swap、before_start overlay、READY/version 复核；失败要 swap 回原来运行版本并重新启动，保留唯一 backup。"
   ],
   "deliverables": [
     "maa_api/services/core_update.py",
@@ -29,7 +30,7 @@
   "verify": [
     ".venv/bin/python -m pytest -q tests/services/test_core_update.py"
   ],
-  "prompt_extra": "导出纯数据 CoreRelease 与可单测的平台匹配/包归一化/目录校验/原子替换/rollback 函数，并提供一个注入依赖的 core 工作流组件供 UpdateService 调用。回滚接口必须仅操作配置的 MaaCore 目录和唯一 backup。覆盖通道拒绝、未知当前版本仍可更新、磁盘预检、损坏归档不触碰现有目标、替换失败恢复、overlay 回调/重启/READY/版本校验失败恢复与已下载归档重试复用；测试不得下载发行包或启动真实 MaaCore。",
+  "prompt_extra": "导出纯数据 CoreRelease 与可单测的平台匹配/包归一化/目录校验/原子替换/rollback 函数，并提供注入依赖的 stable 更新和手动回滚 workflow 供 UpdateService 调用。回滚 API 必须执行维护窗口里的目录 swap、资源 overlay 重放、启动/重连/READY 复核；失败反向 swap 并尝试恢复活动版本。覆盖下载 prefix/mirror fallback、七天归档复用、异常恢复与手动 rollback success/failure；测试不得下载正式发行包或启动真实 MaaCore。",
   "status": "pending",
   "attempts": 0,
   "commit": null,

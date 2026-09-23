@@ -120,11 +120,23 @@ class FakeAdbUtilsDevice:
         self.client.calls.append(
             ("device.shell", self.serial, command, kwargs, os.environ.get("ADBUTILS_ADB_PATH"))
         )
+        if isinstance(command, str) and command.startswith("pm install "):
+            if self.client.install_exception is not None:
+                raise self.client.install_exception
+            return self.client.install_output
+        if isinstance(command, str) and command.startswith("rm -f /data/local/tmp/"):
+            if self.client.cleanup_exception is not None:
+                raise self.client.cleanup_exception
+            return ""
         if command == "echo ok":
             return "ok"
         if command == "getprop ro.product.model":
             return "adbutils emulator"
         return ""
+
+    @property
+    def sync(self) -> "FakeAdbUtilsSync":
+        return FakeAdbUtilsSync(self.client, self.serial)
 
     def screenshot(self, *, error_ok: bool = True) -> Image.Image:
         self.client.calls.append(("device.screenshot", self.serial, error_ok))
@@ -144,12 +156,33 @@ class FakeAdbUtilsDevice:
     def install(self, path: Path, **kwargs: Any) -> None:
         self.client.calls.append(("device.install", self.serial, path, kwargs))
 
+    def uninstall(self, package: str) -> None:
+        self.client.calls.append(("device.uninstall", self.serial, package))
+
+
+class FakeAdbUtilsSync:
+    def __init__(self, client: "FakeAdbUtilsClient", serial: str) -> None:
+        self.client = client
+        self.serial = serial
+
+    def push(self, source: Path, destination: str, *, check: bool = False) -> int:
+        self.client.calls.append(
+            ("device.sync.push", self.serial, source, destination, check)
+        )
+        if self.client.push_exception is not None:
+            raise self.client.push_exception
+        return source.stat().st_size
+
 
 class FakeAdbUtilsClient:
     """adbutils.AdbClient-shaped fake; contains no socket/process implementation."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
+        self.install_output = "Success"
+        self.install_exception: Exception | None = None
+        self.push_exception: Exception | None = None
+        self.cleanup_exception: Exception | None = None
 
     def connect(self, address: str, *, timeout: float | None = None) -> str:
         self.calls.append(
@@ -537,6 +570,7 @@ def test_default_backend_uses_injected_adbutils_client_and_manages_binary_path(
     core = FakeCore()
     settings = {"value": _settings()}
     subprocess_calls: list[Any] = []
+    (tmp_path / "fake.apk").write_bytes(b"fake apk")
     monkeypatch.setattr(
         device_service.subprocess,
         "run",
@@ -598,7 +632,8 @@ def test_default_backend_uses_injected_adbutils_client_and_manages_binary_path(
     assert "device.swipe" in calls
     assert "device.keyevent" in calls
     assert "device.app_stop" in calls
-    assert "device.install" in calls
+    assert "device.install" not in calls
+    assert "device.sync.push" in calls
     assert any(
         call[0] == "device.shell" and call[2] == ["input", "text", "hello%sworld"]
         for call in client.calls
@@ -608,6 +643,97 @@ def test_default_backend_uses_injected_adbutils_client_and_manages_binary_path(
         for call in client.calls
         if call[0] in {"client.connect", "device.shell"}
     )
+
+
+def test_safe_apk_install_pushes_then_runs_pm_install_and_always_cleans_remote(
+    tmp_path: Path,
+) -> None:
+    client = FakeAdbUtilsClient()
+    manager = DeviceManager(_settings, FakeCore(), adb_client=client, unavailable_probe_interval=0)
+    apk = tmp_path / "update.apk"
+    apk.write_bytes(b"apk-data")
+
+    async def scenario() -> None:
+        assert await manager.install_apk_safe(apk) == "Success"
+        await manager.close()
+
+    asyncio.run(scenario())
+
+    push = next(call for call in client.calls if call[0] == "device.sync.push")
+    assert push[2] == apk
+    remote_path = push[3]
+    assert remote_path.startswith("/data/local/tmp/maa-api-")
+    assert remote_path.endswith(".apk")
+    assert push[4] is True
+    shell_calls = [call for call in client.calls if call[0] == "device.shell"]
+    assert shell_calls[0][2] == f"pm install -r -d {remote_path}"
+    assert shell_calls[0][3]["timeout"] == 1200
+    assert shell_calls[-1][2] == f"rm -f {remote_path}"
+    assert not {"device.install", "device.uninstall"} & {call[0] for call in client.calls}
+
+
+@pytest.mark.parametrize(
+    ("failure_kind", "message"),
+    [
+        ("install", "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]"),
+        ("push", "sync transport failed"),
+    ],
+)
+def test_safe_apk_install_cleans_remote_on_push_or_install_failure(
+    tmp_path: Path, failure_kind: str, message: str
+) -> None:
+    client = FakeAdbUtilsClient()
+    if failure_kind == "install":
+        client.install_output = message
+    else:
+        client.push_exception = RuntimeError(message)
+    manager = DeviceManager(_settings, FakeCore(), adb_client=client, unavailable_probe_interval=0)
+    apk = tmp_path / "update.apk"
+    apk.write_bytes(b"apk-data")
+
+    async def scenario() -> AppError:
+        try:
+            await manager.install_apk_safe(apk)
+        except AppError as exc:
+            return exc
+        raise AssertionError("safe install unexpectedly succeeded")
+
+    error = asyncio.run(scenario())
+    asyncio.run(manager.close())
+    assert error.code is ErrorCode.ADB_COMMAND_FAILED
+    assert message in error.details["output"]
+    push_calls = [call for call in client.calls if call[0] == "device.sync.push"]
+    assert len(push_calls) == 1
+    remote_path = push_calls[0][3]
+    assert any(
+        call[0] == "device.shell" and call[2] == f"rm -f {remote_path}"
+        for call in client.calls
+    )
+    assert not {"device.install", "device.uninstall"} & {call[0] for call in client.calls}
+
+
+def test_safe_apk_install_cleans_remote_after_install_timeout(tmp_path: Path) -> None:
+    client = FakeAdbUtilsClient()
+    client.install_exception = TimeoutError("pm install timed out")
+    manager = DeviceManager(_settings, FakeCore(), adb_client=client, unavailable_probe_interval=0)
+    apk = tmp_path / "update.apk"
+    apk.write_bytes(b"apk-data")
+
+    async def scenario() -> AppError:
+        try:
+            await manager.install_apk_safe(apk, timeout=1200)
+        except AppError as exc:
+            await manager.close()
+            return exc
+        raise AssertionError("safe install unexpectedly succeeded")
+
+    error = asyncio.run(scenario())
+    assert "timed out" in error.details["output"]
+    assert any(
+        call[0] == "device.shell" and call[2].startswith("rm -f /data/local/tmp/maa-api-")
+        for call in client.calls
+    )
+    assert not {"device.install", "device.uninstall"} & {call[0] for call in client.calls}
 
 
 def test_adbutils_common_port_probe_is_concurrent_and_opt_in(
