@@ -115,6 +115,109 @@ class LogRepository(BaseRepository):
         count_stmt = select(func.count()).select_from(LogEntry).where(*conditions)
         return await self.paginate(items_stmt, count_stmt, page=page, size=size)
 
+    async def query_cursor(
+        self,
+        *,
+        sources: Sequence[LogSource] | None = None,
+        minimum_level: LogLevel | None = None,
+        pipeline_id: str | None = None,
+        task_id: str | None = None,
+        logger_prefix: str | None = None,
+        query: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        after_id: int | None = None,
+        before_id: int | None = None,
+        order: str = "desc",
+        size: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[LogEntry], bool]:
+        """Fetch one cursor page plus a look-ahead row, without a table count.
+
+        ``after_id`` is an exclusive lower bound and ``before_id`` an exclusive
+        upper bound. The order is explicit because clients use the same bounds
+        for live catch-up (ascending) and older-history paging (descending).
+        """
+        if order not in {"asc", "desc"}:
+            raise ValueError("order must be asc or desc")
+        conditions: list[Any] = []
+        if sources is not None:
+            normalized_sources = [LogSource(source) for source in sources]
+            if not normalized_sources:
+                return [], False
+            conditions.append(LogEntry.source.in_(normalized_sources))
+        if minimum_level is not None:
+            ranks = {
+                LogLevel.DEBUG: 10,
+                LogLevel.INFO: 20,
+                LogLevel.WARNING: 30,
+                LogLevel.ERROR: 40,
+                LogLevel.CRITICAL: 50,
+            }
+            minimum_rank = ranks[LogLevel(minimum_level)]
+            conditions.append(
+                LogEntry.level.in_(
+                    [level for level, rank in ranks.items() if rank >= minimum_rank]
+                )
+            )
+        if pipeline_id is not None:
+            conditions.append(LogEntry.pipeline_id == pipeline_id)
+        if task_id is not None:
+            conditions.append(LogEntry.task_id == task_id)
+        if logger_prefix is not None:
+            conditions.append(LogEntry.meta["logger"].as_string().startswith(logger_prefix))
+        if query:
+            conditions.append(LogEntry.content.contains(query, autoescape=True))
+        if since is not None:
+            conditions.append(LogEntry.created_at >= since)
+        if until is not None:
+            conditions.append(LogEntry.created_at <= until)
+        if after_id is not None:
+            conditions.append(LogEntry.id > int(after_id))
+        if before_id is not None:
+            conditions.append(LogEntry.id < int(before_id))
+
+        sort = LogEntry.id.desc() if order == "desc" else LogEntry.id.asc()
+        statement = (
+            select(LogEntry)
+            .where(*conditions)
+            .order_by(sort)
+            .offset(max(int(offset), 0))
+            .limit(max(int(size), 1) + 1)
+        )
+        result = await self.session.execute(statement)
+        rows = list(result.scalars().all())
+        has_more = len(rows) > max(int(size), 1)
+        return rows[: max(int(size), 1)], has_more
+
+    async def delete_matching(
+        self,
+        *,
+        sources: Sequence[LogSource] | None = None,
+        before: datetime | None = None,
+    ) -> int:
+        """Delete matching history in its own transaction (M4 history endpoint)."""
+        if sources is None and before is None:
+            raise ValueError("at least one deletion condition is required")
+        conditions: list[Any] = []
+        if sources is not None:
+            normalized_sources = [LogSource(source) for source in sources]
+            if not normalized_sources:
+                return 0
+            conditions.append(LogEntry.source.in_(normalized_sources))
+        if before is not None:
+            conditions.append(LogEntry.created_at < before)
+        try:
+            result = await self.session.execute(
+                delete(LogEntry).where(*conditions),
+                execution_options={"synchronize_session": False},
+            )
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+        return int(result.rowcount or 0)
+
     async def purge(self, source: LogSource, *, before: datetime, keep_max: int) -> int:
         """两维清理单一来源的日志并**立即提交**，返回删除条数（docs/04 §10.2/§10.4）。
 
