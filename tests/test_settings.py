@@ -45,7 +45,7 @@ from maa_api.settings import (
 REPO_ROOT_FROM_TEST = Path(__file__).resolve().parents[1]
 TEMPLATE_PATH = REPO_ROOT_FROM_TEST / "config.template.yaml"
 
-#: 六个字段全给值的临时 yaml（与验收命令的样例一致）。
+#: 多层 settings 解析用的临时 yaml。
 FULL_YAML = """\
 app:
   access_token: sekret
@@ -55,6 +55,15 @@ adb:
   path: /opt/homebrew/bin/adb
   address: 1.2.3.4:5555
   screenshot_quality: 30
+  connection_config: General
+  common_ports: [6000, 6001]
+channel:
+  client_type: Official
+  server: JP
+llm:
+  base_url: https://example.test/v1
+  api_key: secret-key
+  model: example-model
 """
 
 
@@ -92,6 +101,12 @@ def test_load_full_yaml(tmp_path: Path) -> None:
     assert s.adb.path == "/opt/homebrew/bin/adb"
     assert s.adb.address == "1.2.3.4:5555"
     assert s.adb.screenshot_quality == 30
+    assert s.adb.connection_config == "General"
+    assert s.adb.common_ports == [6000, 6001]
+    assert s.channel.client_type == "Official"
+    assert s.channel.server == "JP"
+    assert s.llm.api_key == "secret-key"
+    assert s.llm.model == "example-model"
 
 
 def test_load_accepts_str_path(tmp_path: Path) -> None:
@@ -126,6 +141,8 @@ def test_missing_file_returns_pinned_defaults(tmp_path: Path) -> None:
     assert s.adb.path == "/opt/homebrew/bin/adb"
     assert s.adb.address == "127.0.0.1:5555"
     assert s.adb.screenshot_quality == 25
+    assert s.adb.connection_config == "General"
+    assert s.adb.common_ports == [5555, 5556, 7555, 16384, 21503, 62001]
     assert not missing.exists()  # 读一个不存在的路径不创建文件
 
 
@@ -138,6 +155,8 @@ def test_empty_file_returns_pinned_defaults(tmp_path: Path) -> None:
     assert s.adb.path == "/opt/homebrew/bin/adb"
     assert s.adb.address == "127.0.0.1:5555"
     assert s.adb.screenshot_quality == 25
+    assert s.adb.connection_config == "General"
+    assert s.adb.common_ports == [5555, 5556, 7555, 16384, 21503, 62001]
 
 
 def test_null_sections_and_fields_fall_back(tmp_path: Path) -> None:
@@ -167,6 +186,8 @@ def test_adb_defaults_match_config_template() -> None:
     assert defaults.path == template_adb["path"]
     assert defaults.address == template_adb["address"]
     assert defaults.screenshot_quality == template_adb["screenshot_quality"]
+    assert defaults.connection_config == template_adb["connection_config"]
+    assert defaults.common_ports == template_adb["common_ports"]
 
 
 # ----------------------------------------------------------------------
@@ -256,12 +277,20 @@ def test_env_vars_override_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("MAA_APP_ACCESS_TOKEN", "env-token")
     monkeypatch.setenv("MAA_ADB_PATH", "/env/adb")
     monkeypatch.setenv("MAA_ADB_SCREENSHOT_QUALITY", "42")
+    monkeypatch.setenv("MAA_ADB_COMMON_PORTS", "7000, 7001,7555")
+    monkeypatch.setenv("MAA_ADB_CONNECTION_CONFIG", "MuMuEmulator12")
+    monkeypatch.setenv("MAA_CHANNEL_CLIENT_TYPE", "Bilibili")
+    monkeypatch.setenv("MAA_LLM_API_KEY", "env-key")
 
     s = load_settings(path)
 
     assert s.access_token == "env-token"
     assert s.adb.path == "/env/adb"
     assert s.adb.screenshot_quality == 42
+    assert s.adb.common_ports == [7000, 7001, 7555]
+    assert s.adb.connection_config == "MuMuEmulator12"
+    assert s.channel.client_type == "Bilibili"
+    assert s.llm.api_key == "env-key"
     assert s.maa_core_path == "/tmp/maa"  # 没设环境变量的字段仍取 yaml
     assert s.adb.address == "1.2.3.4:5555"
 
@@ -289,6 +318,13 @@ def test_env_mapping_names_are_pinned() -> None:
         "log.flush_interval": "MAA_LOG_FLUSH_INTERVAL",
         "log.core_min_level": "MAA_LOG_CORE_MIN_LEVEL",
         "log.persist_maacore_debug_level": "MAA_LOG_PERSIST_MAACORE_DEBUG_LEVEL",
+        "adb.connection_config": "MAA_ADB_CONNECTION_CONFIG",
+        "adb.common_ports": "MAA_ADB_COMMON_PORTS",
+        "channel.client_type": "MAA_CHANNEL_CLIENT_TYPE",
+        "channel.server": "MAA_CHANNEL_SERVER",
+        "llm.base_url": "MAA_LLM_BASE_URL",
+        "llm.api_key": "MAA_LLM_API_KEY",
+        "llm.model": "MAA_LLM_MODEL",
     }
 
 
@@ -330,6 +366,7 @@ def test_resolve_settings_layer_priority() -> None:
         db_overrides={
             "app.proxy": "http://db",
             "adb.address": "db:5555",
+            "adb.common_ports": [6000],
             "nope.key": "ignored",
         },
         env={"MAA_APP_PROXY": "http://env"},
@@ -337,7 +374,17 @@ def test_resolve_settings_layer_priority() -> None:
 
     assert s.proxy == "http://env"  # 环境变量 > DB
     assert s.adb.address == "db:5555"  # DB > yaml
+    assert s.adb.common_ports == [6000]
     assert s.adb.path == "/opt/homebrew/bin/adb"  # 四层都没有 -> 模型默认值
+
+
+def test_common_ports_empty_env_keeps_lower_layer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _write(tmp_path, "adb:\n  common_ports: [6000, 6001]\n")
+    monkeypatch.setenv("MAA_ADB_COMMON_PORTS", ", ,")
+
+    settings = load_settings(path)
+
+    assert settings.adb.common_ports == [6000, 6001]
 
 
 def test_resolve_settings_without_env_layer_is_pure() -> None:

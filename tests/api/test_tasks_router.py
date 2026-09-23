@@ -273,20 +273,26 @@ def test_get_type_returns_single_item_without_envelope(
 
 
 def test_routes_are_registered_before_the_parametric_one(app: FastAPI) -> None:
-    """三个端点都挂上；``/types`` 必须声明在 ``/types/{type_name}`` 之前。
+    """四个端点都挂上；具体路径必须声明在 ``/{task_id}`` 通用详情路由之前。
 
-    docs/05 §6.5：将来 M5 的 ``GET /api/tasks/{task_id}`` 也必须声明在 ``/types``
-    之后，否则 ``types`` 会被当成 task_id 走进详情端点。本用例同时钉住声明顺序
+    docs/05 §6.5：``GET /api/tasks/{task_id}`` 必须声明在类型 schema 路由之后，
+    否则 ``types`` 会被当成 task_id 走进详情端点。本用例同时钉住声明顺序
     与「路由确实挂上」——fastapi 0.141 的 ``include_router`` 是惰性的，
     ``app.routes`` 里只有 ``_IncludedRouter`` 包装对象、没有拍平后的 ``.path``，
     所以路径集合取 OpenAPI，声明顺序取模块级 ``router.routes``。
     """
-    paths = {"/api/tasks/types", "/api/tasks/types/{type_name}", "/api/tasks/validate"}
+    paths = {
+        "/api/tasks/types",
+        "/api/tasks/types/{type_name}",
+        "/api/tasks/validate",
+        "/api/tasks/{task_id}",
+    }
     assert paths <= set(app.openapi()["paths"])
     assert [route.path for route in tasks.router.routes] == [
         "/api/tasks/types",
         "/api/tasks/types/{type_name}",
         "/api/tasks/validate",
+        "/api/tasks/{task_id}",
     ]
 
 

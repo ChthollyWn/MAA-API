@@ -13,10 +13,10 @@ CWD 不是仓库根时直接 ``RuntimeError``（见 .refactor/ENVIRONMENT.md）�
 
     环境变量 > setting 表 > config.yaml > 代码内默认值
 
-本卡只实现其中的 **config.yaml + 环境变量** 两层与进程内缓存；``setting`` 表的
-覆盖层、写回与热生效动作是 M6 的工作。为 M6 留的接入点是 :func:`resolve_settings`
-的 ``db_overrides`` 参数：把 ``setting`` 表读成 ``{"adb.address": ...}`` 这样的点分
-映射传进去，它会按优先级插在 yaml 与 env 之间；热更新时用 :func:`set_settings`
+本模块实现 YAML、setting 表覆盖、环境变量与进程内缓存的统一解析；设置元信息、
+校验、写入与热生效动作由 ``settings_schema.py`` / ``SettingService`` 提供。把
+``setting`` 表读成 ``{"adb.address": ...}`` 这样的点分映射传给
+:func:`resolve_settings`，便会按固定优先级合并；热更新时用 :func:`set_settings`
 替换缓存实例（读侧始终走 :func:`get_settings`，不自行解析文件）。
 
 配置文件路径固定为仓库根的 ``config.yaml``（:data:`DEFAULT_CONFIG_PATH`，
@@ -39,6 +39,13 @@ CWD 不是仓库根时直接 ``RuntimeError``（见 .refactor/ENVIRONMENT.md）�
 ``adb.path``                 ``MAA_ADB_PATH``
 ``adb.address``              ``MAA_ADB_ADDRESS``
 ``adb.screenshot_quality``   ``MAA_ADB_SCREENSHOT_QUALITY``
+``adb.connection_config``    ``MAA_ADB_CONNECTION_CONFIG``
+``adb.common_ports``         ``MAA_ADB_COMMON_PORTS``（逗号分隔整数）
+``channel.client_type``      ``MAA_CHANNEL_CLIENT_TYPE``
+``channel.server``           ``MAA_CHANNEL_SERVER``
+``llm.base_url``             ``MAA_LLM_BASE_URL``
+``llm.api_key``              ``MAA_LLM_API_KEY``
+``llm.model``                ``MAA_LLM_MODEL``
 ===========================  ===============================
 
 映射表在代码里是 :data:`ENV_OVERRIDES`。变量**存在但取值为空串**时按「未设置」
@@ -58,18 +65,15 @@ CWD 不是仓库根时直接 ``RuntimeError``（见 .refactor/ENVIRONMENT.md）�
 yaml 段/键的取舍
 ----------------
 
-只识别 :data:`SETTING_KEYS` 里的六个键；未识别的段（如 ``smtp``）与键一律
+只识别 :data:`SETTING_KEYS` 里的键；未识别的段（如 ``smtp``）与键一律
 忽略，后续里程碑往 ``config.yaml`` 加段时旧文件不会报错。已知段写成非映射
 （如 ``adb: 25``）抛 :class:`SettingsError` 而不是静默回落默认值——段名写对、
 形状写错时静默会让用户以为配置生效了。yaml 解析失败同样抛
 :class:`SettingsError`，消息里带文件路径，不静默吞。
 
-本卡不做的事（归属 M6）：``setting`` 表覆盖与写回、字段元信息
-（``settings_schema.py`` 的中文标签/取值范围/热生效动作）、敏感项的 ``"***"``
-脱敏、``app.access_token`` / ``app.maa_core_path`` / ``adb.path`` 三项的只读
-判定（docs/04 §5.6、docs/05 §4.13）。``screenshot_quality`` 这里只校验类型，
-不校验 1–95：范围属于设置页的 schema 校验，放在启动路径上会把一个能跑的旧
-配置变成起不来。
+``app.access_token`` / ``app.maa_core_path`` / ``adb.path`` 在设置 API 中只读
+（docs/04 §5.6、docs/05 §4.13）。配置解析校验字段类型；UI 范围和枚举由设置
+schema 与服务层执行，避免启动加载路径和设置 API 的验证责任混淆。
 """
 
 from __future__ import annotations
@@ -77,7 +81,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from ruamel.yaml import YAML
@@ -95,6 +99,7 @@ __all__ = [
     "get_settings",
     "load_settings",
     "resolve_settings",
+    "resolve_settings_with_sources",
     "set_settings",
 ]
 
@@ -119,6 +124,13 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "log.flush_interval": ("log", "flush_interval"),
     "log.core_min_level": ("log", "core_min_level"),
     "log.persist_maacore_debug_level": ("log", "persist_maacore_debug_level"),
+    "adb.connection_config": ("adb", "connection_config"),
+    "adb.common_ports": ("adb", "common_ports"),
+    "channel.client_type": ("channel", "client_type"),
+    "channel.server": ("channel", "server"),
+    "llm.base_url": ("llm", "base_url"),
+    "llm.api_key": ("llm", "api_key"),
+    "llm.model": ("llm", "model"),
 }
 
 #: 点分 key → 环境变量名（``MAA_`` + 大写、点换下划线）。
@@ -145,6 +157,29 @@ class AdbSettings(BaseModel):
     path: str = "/opt/homebrew/bin/adb"
     address: str = "127.0.0.1:5555"
     screenshot_quality: int = 25
+    connection_config: str = "General"
+    common_ports: list[int] = Field(
+        default_factory=lambda: [5555, 5556, 7555, 16384, 21503, 62001]
+    )
+
+
+class ChannelSettings(BaseModel):
+    """Task channel defaults, independently configurable from task submissions."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    client_type: Literal["Official", "Bilibili", "txwy", "YoStarEN", "YoStarJP", "YoStarKR"] = "Bilibili"
+    server: Literal["CN", "US", "JP", "KR"] = "CN"
+
+
+class LLMSettings(BaseModel):
+    """OpenAI-compatible endpoint settings (docs/05 §6.11)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
 
 
 class LogSettings(BaseModel):
@@ -160,7 +195,7 @@ class LogSettings(BaseModel):
 
 
 class Settings(BaseModel):
-    """全量运行配置（本卡只有 ``config.yaml`` + 环境变量两层来源）。
+    """全量运行配置（env > DB > YAML > code defaults）。
 
     ``access_token`` 为 ``""`` 即「未配置」，此时全部端点免鉴权（docs/05 §5.2）。
     """
@@ -173,6 +208,8 @@ class Settings(BaseModel):
     proxy: str = ""
     adb: AdbSettings = Field(default_factory=AdbSettings)
     log: LogSettings = Field(default_factory=LogSettings)
+    channel: ChannelSettings = Field(default_factory=ChannelSettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
 
 
 def resolve_settings(
@@ -186,17 +223,36 @@ def resolve_settings(
     :param file_data: ``config.yaml`` 解析出的嵌套映射，如
         ``{"app": {"access_token": "x"}, "adb": {"address": "1.2.3.4:5555"}}``。
     :param db_overrides: ``setting`` 表的覆盖项，点分 key 映射，如
-        ``{"adb.address": "1.2.3.4:5555"}``。**本卡只提供入口，M6 才接表。**
+        ``{"adb.address": "1.2.3.4:5555"}``。
     :param env: 环境变量映射；``None`` 表示不叠加环境变量层（便于测试与 M6
         显式传入），:func:`load_settings` 传 ``os.environ``。
     :returns: 合并后的配置；某一层里值为 ``None`` 的键表示「这层没配」，继续
         往下层取，四层都没有就用模型默认值。
     """
+    return resolve_settings_with_sources(
+        file_data, db_overrides=db_overrides, env=env
+    )[0]
+
+
+def resolve_settings_with_sources(
+    file_data: Mapping[str, Any] | None = None,
+    *,
+    db_overrides: Mapping[str, Any] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> tuple[Settings, dict[str, str]]:
+    """Resolve effective settings and identify the winning layer for each key."""
+    layers = (
+        ("yaml", _yaml_layer(file_data)),
+        ("db", _dotted_layer(db_overrides)),
+        ("env", _env_layer(env)),
+    )
     merged: dict[str, Any] = {}
-    for layer in (_yaml_layer(file_data), _dotted_layer(db_overrides), _env_layer(env)):
+    sources: dict[str, str] = {}
+    for source, layer in layers:
         for key, value in layer.items():
             if value is not None:
                 merged[key] = value
+                sources[key] = source
 
     payload: dict[str, Any] = {}
     for key, value in merged.items():
@@ -205,10 +261,18 @@ def resolve_settings(
         for part in parts[:-1]:
             node = node.setdefault(part, {})
         node[parts[-1]] = value
-    return Settings.model_validate(payload)
+    settings = Settings.model_validate(payload)
+    for key in SETTING_KEYS:
+        sources.setdefault(key, "default")
+    return settings, sources
 
 
-def load_settings(path: str | Path | None = None) -> Settings:
+def load_settings(
+    path: str | Path | None = None,
+    *,
+    db_overrides: Mapping[str, Any] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Settings:
     """读 ``path`` 处的 yaml 并叠加环境变量；文件不存在时返回全默认值。
 
     ``path`` 为 ``None`` 时用 :data:`DEFAULT_CONFIG_PATH`（仓库根 ``config.yaml``）。
@@ -217,7 +281,10 @@ def load_settings(path: str | Path | None = None) -> Settings:
     消息里带文件路径。
     """
     target = Path(path) if path is not None else DEFAULT_CONFIG_PATH
-    return resolve_settings(_read_yaml(target), env=os.environ)
+    return resolve_settings(
+        _read_yaml(target), db_overrides=db_overrides,
+        env=os.environ if env is None else env,
+    )
 
 
 #: 进程内缓存；``None`` 表示下次 :func:`get_settings` 重新加载。
@@ -303,8 +370,16 @@ def _env_layer(env: Mapping[str, str] | None) -> dict[str, Any]:
     """按 :data:`ENV_OVERRIDES` 取环境变量；空串视为未设置。"""
     if not env:
         return {}
-    return {
-        key: env[name]
-        for key, name in ENV_OVERRIDES.items()
-        if env.get(name)  # 空串（含变量存在但为空）＝未设置
-    }
+    result: dict[str, Any] = {}
+    for key, name in ENV_OVERRIDES.items():
+        raw = env.get(name)
+        if not raw:  # 空串（含变量存在但为空）＝未设置
+            continue
+        if key == "adb.common_ports":
+            # Comma separated integer list; an empty list means no override.
+            ports = [part.strip() for part in raw.split(",") if part.strip()]
+            if ports:
+                result[key] = ports
+        else:
+            result[key] = raw
+    return result

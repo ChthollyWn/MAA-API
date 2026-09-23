@@ -16,6 +16,21 @@ adb:
   address: 127.0.0.1:5555
   # 截屏质量 范围1-95 值越大质量越高
   screenshot_quality: 25
+  # MaaCore ADB 连接配置
+  connection_config: General
+  # 扫描模拟器常见端口
+  common_ports: [5555, 5556, 7555, 16384, 21503, 62001]
+
+# 任务全局默认渠道（单任务显式参数优先）
+channel:
+  client_type: Bilibili
+  server: CN
+
+# OpenAI 兼容模型（密钥建议通过环境变量或设置页录入）
+llm:
+  base_url:
+  api_key:
+  model:
 
 # 邮箱配置
 smtp:
