@@ -44,26 +44,27 @@ setting 仓储读 ``channel.client_type`` / ``channel.server`` 两个 key，读�
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from typing import Annotated, Any, get_args
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from maa_api.api.deps import get_session, require_auth
 from maa_api.api.errors import error_responses
-from maa_api.db.repositories.setting import SettingRepository
+from maa_api.db.models import Task
+from maa_api.db.repositories.pipeline import TaskRepository
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.task import (
     RUNTIME_IMMUTABLE,
     TASK_LABELS,
-    ChannelDefaults,
     TaskInput,
     TaskInputBase,
     normalize,
 )
+from maa_api.services.task_defaults import load_channel_defaults
 
 __all__ = [
     "BASE_GROUP",
@@ -74,8 +75,6 @@ __all__ = [
     "load_channel_defaults",
     "router",
 ]
-
-logger = logging.getLogger(__name__)
 
 #: 没有 ``x-group`` 的字段归入的分区名。与 :func:`~maa_api.domain.task.MaaField`
 #: 的 ``group`` 默认值一致，因此 9 个任务模型里的字段实际上都带 ``x-group``，
@@ -88,11 +87,6 @@ TASK_MODELS: dict[str, type[TaskInputBase]] = {
     model.model_fields["name"].default: model
     for model in get_args(get_args(TaskInput)[0])
 }
-
-#: setting 表里的两个渠道默认值 key（docs/05 §9）。
-_SETTING_CLIENT_TYPE = "channel.client_type"
-_SETTING_SERVER = "channel.server"
-
 
 def _collect_groups(schema: Mapping[str, Any]) -> list[str]:
     """按字段声明顺序收集 ``x-group``，去重后返回（顺序即前端渲染顺序）。
@@ -135,39 +129,6 @@ def export_type_schema(model: type[BaseModel]) -> dict[str, Any]:
         # 拷贝一份：调用方改到列表也不会污染 domain 层的注册表。
         "runtime_immutable": list(RUNTIME_IMMUTABLE[name]),
     }
-
-
-async def load_channel_defaults(session: AsyncSession) -> ChannelDefaults:
-    """从 setting 表读全局渠道默认值（docs/05 §9）。
-
-    读 ``channel.client_type`` / ``channel.server``；表里没有该 key、或值不是合法
-    枚举成员时回退 :class:`ChannelDefaults` 的默认值（Bilibili / CN）——设置表里的
-    脏值不应该让整个校验端点 500，单个字段非法只回退该字段。
-
-    **缓存与失效属 M6**：届时 ``SettingService`` 会替换本函数（读同一对 key），
-    本模块的调用点不用改。
-    """
-    repo = SettingRepository(session)
-    raw_values: dict[str, Any] = {
-        "client_type": await repo.get(_SETTING_CLIENT_TYPE),
-        "server": await repo.get(_SETTING_SERVER),
-    }
-
-    defaults = ChannelDefaults()
-    for field_name, raw in raw_values.items():
-        if raw is None:
-            continue
-        try:
-            parsed = ChannelDefaults.model_validate({field_name: raw})
-        except ValidationError:
-            logger.warning(
-                "setting %s 的值非法（%r），回退默认值",
-                f"channel.{field_name}",
-                raw,
-            )
-            continue
-        setattr(defaults, field_name, getattr(parsed, field_name))
-    return defaults
 
 
 class TaskValidateRequest(BaseModel):
@@ -305,3 +266,62 @@ async def validate(
         "page": 1,
         "size": len(items),
     }
+
+
+@router.get(
+    "/{task_id}",
+    summary="获取单任务详情",
+    responses=error_responses("TASK_NOT_FOUND", "UNAUTHORIZED"),
+)
+async def get_task(
+    task_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
+    task = await TaskRepository(session).get(task_id)
+    if task is None:
+        raise AppError(
+            ErrorCode.TASK_NOT_FOUND,
+            "任务不存在",
+            {"task_id": task_id},
+        )
+    return _task_detail(task)
+
+
+def _task_detail(task: Task) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    ended = task.finished_at or now
+    duration = (
+        max((ended - task.started_at).total_seconds(), 0.0)
+        if task.started_at is not None
+        else None
+    )
+    error = None
+    if task.error_code or task.error_message:
+        error = {"code": task.error_code, "message": task.error_message}
+    return {
+        "id": task.id,
+        "pipeline_id": task.pipeline_id,
+        "order_index": task.order_index,
+        "type_name": task.type_name,
+        "task_name": task.task_name,
+        "params": task.params,
+        "raw_params": task.raw_params,
+        "status": str(task.status),
+        "retry_count": task.retry_count,
+        "max_retries": task.max_retries,
+        "retry_delay": task.retry_delay,
+        "maa_task_id": task.maa_task_id,
+        "error": error,
+        "created_at": _to_utc(task.created_at),
+        "started_at": _to_utc(task.started_at),
+        "finished_at": _to_utc(task.finished_at),
+        "duration_seconds": duration,
+    }
+
+
+def _to_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

@@ -278,6 +278,12 @@ class CoreSupervisor:
         return process.exitcode if process is not None else None
 
     @property
+    def generation(self) -> int:
+        """Monotonic subprocess generation number (used as ``pipeline.core_epoch``)."""
+        with self._lock:
+            return self._generation
+
+    @property
     def last_crash(self) -> Optional[dict]:
         """最近一次崩溃记录（副本）或 ``None``。
 

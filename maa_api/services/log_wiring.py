@@ -7,7 +7,7 @@ import logging
 import platform
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from maa_api.services.asst_log_tailer import AsstLogTailer
 from maa_api.services.log_hub import (
@@ -59,8 +59,13 @@ def install_core_logging(
     client: Any,
     hub: LogHub | None = None,
     translator: CallbackTranslator | None = None,
+    context_provider: Callable[[Any, dict[str, Any]], tuple[str, str] | None] | None = None,
 ) -> CallbackTranslator:
-    """Forward CoreClient LOG and CALLBACK payloads into the shared hub."""
+    """Forward CoreClient LOG and CALLBACK payloads into the shared hub.
+
+    ``context_provider`` can associate task callbacks with the active pipeline
+    and task so the same persisted log row is queryable from both views.
+    """
     from maa_api.services.callback_translator import CallbackTranslator
 
     selected = _hub_or_current(hub)
@@ -104,7 +109,15 @@ def install_core_logging(
         details = payload.get("details")
         if not isinstance(details, dict):
             details = {}
+        context = None
+        if context_provider is not None:
+            try:
+                context = context_provider(msg, details)
+            except Exception:  # noqa: BLE001 - optional context must not drop logs
+                logger.exception("Core callback log context lookup failed")
         for record in callback_translator.translate(msg, details):
+            if context is not None:
+                record.pipeline_id, record.task_id = context
             selected.offer(record)
 
     on("LOG", on_log)

@@ -67,7 +67,7 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator
 from enum import StrEnum
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from fastapi import Request, WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,6 +90,9 @@ __all__ = [
     "auth_enabled",
     "extract_token",
     "get_session",
+    "get_core_registry",
+    "get_pipeline_runner",
+    "get_queue_service",
     "is_exempt_path",
     "require_auth",
     "reset_rate_limiter",
@@ -445,3 +448,30 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         raise
     finally:
         await session.close()
+
+
+def get_pipeline_runner(request: Request) -> Any:
+    """Return the lifespan-owned M5 runner or a stable service error."""
+    runner = getattr(request.app.state, "pipeline_runner", None)
+    if runner is None:
+        raise AppError(
+            ErrorCode.SERVICE_UNAVAILABLE,
+            "流水线执行服务尚未启动",
+        )
+    return runner
+
+
+def get_queue_service(request: Request) -> Any:
+    """Return the lifespan-owned persistent queue service."""
+    service = getattr(request.app.state, "queue_service", None)
+    if service is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "任务队列尚未启动")
+    return service
+
+
+def get_core_registry(request: Request) -> Any:
+    """Return the lifespan-owned MaaCore registry."""
+    registry = getattr(request.app.state, "core_registry", None)
+    if registry is None:
+        raise AppError(ErrorCode.CORE_NOT_READY, "MaaCore 尚未启动")
+    return registry

@@ -1357,7 +1357,12 @@ class PipelineCreate(BaseModel):
         },
     )
 
-    tasks: list[TaskInput] = Field(min_length=1, max_length=32)
+    # Keep request-level limits in JSON Schema for clients, while letting the
+    # service map empty/oversized submissions to PIPELINE_EMPTY and
+    # PIPELINE_TOO_MANY_TASKS instead of generic 422 validation errors.
+    tasks: list[TaskInput] = Field(
+        json_schema_extra={"minItems": 1, "maxItems": 32}
+    )
     title: str | None = Field(default=None, max_length=64)
     priority: int | None = Field(default=None, ge=0, le=2)
     notify_on_finish: bool = True
