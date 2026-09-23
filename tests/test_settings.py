@@ -284,7 +284,43 @@ def test_env_mapping_names_are_pinned() -> None:
         "adb.path": "MAA_ADB_PATH",
         "adb.address": "MAA_ADB_ADDRESS",
         "adb.screenshot_quality": "MAA_ADB_SCREENSHOT_QUALITY",
+        "log.ring_size": "MAA_LOG_RING_SIZE",
+        "log.batch_size": "MAA_LOG_BATCH_SIZE",
+        "log.flush_interval": "MAA_LOG_FLUSH_INTERVAL",
+        "log.core_min_level": "MAA_LOG_CORE_MIN_LEVEL",
+        "log.persist_maacore_debug_level": "MAA_LOG_PERSIST_MAACORE_DEBUG_LEVEL",
     }
+
+
+def test_log_settings_read_yaml_and_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _write(
+        tmp_path,
+        "log:\n"
+        "  ring_size: 64\n"
+        "  batch_size: 12\n"
+        "  flush_interval: 0.25\n"
+        "  core_min_level: TRC\n"
+        "  persist_maacore_debug_level: INFO\n",
+    )
+    monkeypatch.setenv("MAA_LOG_RING_SIZE", "128")
+
+    settings = load_settings(path)
+
+    assert settings.log.ring_size == 128
+    assert settings.log.batch_size == 12
+    assert settings.log.flush_interval == 0.25
+    assert settings.log.core_min_level == "TRC"
+    assert settings.log.persist_maacore_debug_level == "INFO"
+
+
+def test_log_settings_defaults_are_pinned() -> None:
+    settings = Settings().log
+
+    assert settings.ring_size == 2000
+    assert settings.batch_size == 200
+    assert settings.flush_interval == 1.0
+    assert settings.core_min_level == "INF"
+    assert settings.persist_maacore_debug_level == "WARNING"
 
 
 def test_resolve_settings_layer_priority() -> None:
