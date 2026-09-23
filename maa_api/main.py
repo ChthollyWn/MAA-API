@@ -57,32 +57,38 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import platform
 from pathlib import Path
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from importlib.metadata import version as distribution_version
 from typing import Any, Protocol
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import (
     atomic,
     device,
     logs,
+    notifications,
     pipelines,
     queue,
     screenshots,
     settings as settings_router,
     system,
     tasks,
+    updates,
 )
 from maa_api.api.ws import manager as ws_manager
 from maa_api.api.ws import router as ws_router
 from maa_api.db.migrate import ensure_schema
+from maa_api.db.repositories.pipeline import PipelineRepository
+from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.log_hub import LogHub, set_log_hub
 from maa_api.services.log_wiring import (
     install_core_logging,
@@ -109,6 +115,105 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+async def _wait_for_pipeline_idle(
+    queue_service: Any,
+    pipeline_runner: Any,
+    session_factory: Any,
+    core_id: str,
+    *,
+    target: Any = None,
+    options: dict[str, Any] | None = None,
+    confirmation_policy: Any = None,
+    timeout_seconds: float = 30 * 60,
+    poll_interval: float = 0.1,
+) -> bool:
+    """Drain queued work, then pause claims atomically before maintenance.
+
+    The return value tells the caller whether this function paused the queue,
+    so the caller can resume it after its update record reaches a terminal state.
+    """
+    opts = options or {}
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    cancel_requested = False
+    changed_pause = False
+    try:
+        while True:
+            if opts.get("force_interrupt") and not cancel_requested:
+                if confirmation_policy is None:
+                    raise AppError(
+                        ErrorCode.FORBIDDEN,
+                        "未配置强制中断确认策略",
+                    )
+                approved = confirmation_policy(target, dict(opts))
+                if asyncio.iscoroutine(approved):
+                    approved = await approved
+                if not approved:
+                    raise AppError(
+                        ErrorCode.FORBIDDEN,
+                        "强制中断未通过确认策略",
+                    )
+                async with session_factory() as session:
+                    active_record = await PipelineRepository(session).current(core_id)
+                if active_record is not None:
+                    await pipeline_runner.request_cancel(active_record.id)
+                cancel_requested = True
+
+            active = getattr(pipeline_runner, "_active", None)
+            op_locked = pipeline_runner.operation_lock.locked()
+            async with session_factory() as session:
+                repository = PipelineRepository(session)
+                running_pipeline = await repository.current(core_id)
+                pending_count = await repository.count_pending(core_id)
+            idle = (
+                active is None
+                and running_pipeline is None
+                and pending_count == 0
+                and not op_locked
+            )
+
+            if idle and not queue_service.paused:
+                changed_pause = await queue_service.pause()
+                active = getattr(pipeline_runner, "_active", None)
+                op_locked = pipeline_runner.operation_lock.locked()
+                async with session_factory() as session:
+                    repository = PipelineRepository(session)
+                    running_pipeline = await repository.current(core_id)
+                    pending_count = await repository.count_pending(core_id)
+                idle = (
+                    active is None
+                    and running_pipeline is None
+                    and pending_count == 0
+                    and not op_locked
+                )
+                if idle:
+                    return changed_pause
+                if changed_pause:
+                    await queue_service.resume()
+                    changed_pause = False
+            elif idle:
+                return changed_pause
+
+            if loop.time() >= deadline:
+                raise AppError(
+                    ErrorCode.UPDATE_QUEUE_BUSY_TIMEOUT,
+                    "等待流水线空闲超时",
+                )
+            await asyncio.sleep(poll_interval)
+    except BaseException:
+        if changed_pause:
+            await queue_service.resume()
+        raise
+
+
+def confirm_manual_interrupt(_target: Any, options: dict[str, Any]) -> bool:
+    """Treat explicit manual REST consent as confirmation; other callers fail closed.
+
+    Agent/internal callers require an injected confirmation-policy callback.
+    """
+    return options.get("_caller") == "manual"
 
 #: 服务标题与描述；描述会原样进入 ``/openapi.json`` 的 ``info``。
 TITLE = "MAA-API"
@@ -293,6 +398,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     core_client = None
     device_manager = None
     pipeline_runner = None
+    update_service = None
+    game_update_service = None
+    update_http_client = None
+    update_scheduler = None
     device_start_task: asyncio.Task[Any] | None = None
     device_start_generation: int | None = None
     lifecycle_tasks: set[asyncio.Task[Any]] = set()
@@ -320,10 +429,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if not maa_path.is_absolute():
             maa_path = (REPO_ROOT / maa_path).resolve()
         user_dir = REPO_ROOT / "resource" / "maa-api"
+        layers_root = REPO_ROOT / "resource" / "maa-layers"
+        layers_root.mkdir(parents=True, exist_ok=True)
         boot_config = {
             "maa_path": str(maa_path),
             "user_dir": str(user_dir),
-            "incremental_paths": [],
+            # MaaCore's packaged resource is loaded first by Asst.load(). The repo
+            # overlay is already copied into that tree; only OTA/custom remain additive.
+            "incremental_paths": [
+                str(layers_root / "cache"),
+                str(layers_root / "custom"),
+            ],
             "instance_options": {},
             "asst_factory": "maa_api.core.asst:Asst",
             "asst_factory_kwargs": {},
@@ -354,6 +470,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 runner.notify_core_state(state)
             if value == CoreState.READY.value:
                 schedule_connection()
+                confirm_loaded = runtime.get("confirm_resource_load")
+                if confirm_loaded is not None:
+                    task = asyncio.create_task(confirm_loaded())
+                    lifecycle_tasks.add(task)
+                    task.add_done_callback(lifecycle_tasks.discard)
             elif device_start_task is not None and not device_start_task.done():
                 device_start_task.cancel()
 
@@ -489,6 +610,165 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             lifecycle_tasks.add(device_start_task)
             device_start_task.add_done_callback(lifecycle_tasks.discard)
 
+        # M7 update workflows share a lifespan-owned HTTP client and the exact
+        # DeviceManager safe APK installer. Importing their modules is side-effect free.
+        from maa_api.services.core_update import CoreUpdateWorkflow
+        from maa_api.services.game_update import GameUpdateService
+        from maa_api.services.notify_service import NotifyService
+        from maa_api.services.resource_update import ResourceUpdateWorkflow
+        from maa_api.services.retention_service import (
+            RETENTION_CRON,
+            STARTUP_DELAY_SECONDS,
+            run_retention,
+        )
+        from maa_api.services.update_service import UpdateService
+
+        current_settings = get_settings()
+        update_http_client = httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=30.0,
+            proxy=current_settings.proxy or None,
+        )
+        update_temp = REPO_ROOT / "resource" / "temp" / "updates"
+        update_temp.mkdir(parents=True, exist_ok=True)
+
+        async def reconnect_after_core_change(client: Any) -> bool:
+            del client  # DeviceManager reconnects through the current CoreClient.
+            return await device_manager.connect_with_retry(
+                attempts=getattr(device_manager, "reconnect_retry_attempts", 5),
+                interval=0,
+                reason="reconnect",
+            )
+
+        async def wait_for_pipeline_idle(
+            target: Any = None, options: dict[str, Any] | None = None
+        ) -> None:
+            # Explicit force interruption converges on the injectable policy
+            # boundary; only a permitted action reaches PipelineRunner.
+            changed_pause = await _wait_for_pipeline_idle(
+                queue_service,
+                pipeline_runner,
+                db_session.session_factory,
+                DEFAULT_CORE_ID,
+                target=target,
+                options=options,
+                confirmation_policy=getattr(
+                    app.state,
+                    "update_interrupt_confirmation_policy",
+                    confirm_manual_interrupt,
+                ),
+            )
+            if changed_pause and update_service is not None:
+                async def resume_queue_after_update() -> None:
+                    try:
+                        while update_service._lock.locked():
+                            await asyncio.sleep(0.1)
+                    finally:
+                        await queue_service.resume()
+
+                task = asyncio.create_task(
+                    resume_queue_after_update(), name="maa-update-queue-resume"
+                )
+                lifecycle_tasks.add(task)
+                task.add_done_callback(lifecycle_tasks.discard)
+            elif changed_pause:
+                await queue_service.resume()
+
+        resource_workflow = ResourceUpdateWorkflow(
+            http_client=update_http_client,
+            maa_path=maa_path,
+            layers_root=layers_root,
+            temp_root=REPO_ROOT / "resource" / "temp" / "resource-update",
+            download_prefix=current_settings.updates.download_prefix or None,
+            restart_core=lambda: _restart_core_and_reconnect(),
+            reload_resources=lambda: core_client._send(
+                "LOAD_RESOURCE",
+                {
+                    "path": str(maa_path),
+                    "incremental_paths": boot_config["incremental_paths"],
+                },
+            ),
+            wait_for_idle=wait_for_pipeline_idle,
+        )
+
+        # The first MaaCore resource tree is the packaged baseline. If a repo
+        # layer exists, merge it before any process can load resources.
+        original_reapply = resource_workflow.reapply_overlay
+
+        def safe_reapply_overlay(core_path: Path | str | None = None) -> None:
+            repo_resource = layers_root / "repo" / "resource"
+            if repo_resource.is_dir():
+                original_reapply(core_path or maa_path)
+
+        resource_workflow.reapply_overlay = safe_reapply_overlay
+        safe_reapply_overlay(maa_path)
+
+        async def _restart_core_and_reconnect() -> None:
+            async with core_supervisor.acquire_maintenance():
+                await core_supervisor.restart()
+            await reconnect_after_core_change(core_client)
+
+        core_workflow = CoreUpdateWorkflow(
+            http_client=update_http_client,
+            target_path=maa_path,
+            temp_root=(
+                update_temp / "core"
+                if (update_temp / "core").parent.stat().st_dev
+                == maa_path.parent.stat().st_dev
+                else maa_path.parent / f".{maa_path.name}-maa-api-core-update"
+            ),
+            supervisor=core_supervisor,
+            core_client=core_client,
+            reconnect=reconnect_after_core_change,
+            ready_version=lambda client: client.get_version(),
+            current_version=lambda client: client.get_version(),
+            before_start=resource_workflow.reapply_overlay,
+            download_prefix=current_settings.updates.download_prefix or None,
+        )
+        game_update_service = GameUpdateService(
+            device_manager,
+            # Production DeviceManager always provides the safe installer;
+            # lifecycle tests may substitute a manager with no APK surface.
+            installer=getattr(device_manager, "install_apk_safe", None),
+            http_client=update_http_client,
+        )
+        notify_service = NotifyService(db_session.session_factory)
+
+        async def resource_layers_loaded() -> str | None:
+            if getattr(core_supervisor.state, "value", core_supervisor.state) != "ready":
+                return None
+            return f"{os.getpid()}:{core_supervisor.generation}"
+
+        async def authorize_preparation(target: Any, options: dict[str, Any]) -> None:
+            await wait_for_pipeline_idle(target, options)
+
+        update_service_factory = getattr(app.state, "update_service_factory", UpdateService)
+        update_service = update_service_factory(
+            db_session.session_factory,
+            core_workflow=core_workflow,
+            resource_workflow=resource_workflow,
+            game_workflow=game_update_service,
+            broadcast=lambda kind, data: ws_manager.broadcast(kind, data),
+            notify=notify_service,
+            prepare_update=authorize_preparation,
+            resource_layers_loaded=resource_layers_loaded,
+            temp_root=update_temp,
+        )
+        app.state.update_service = update_service
+        app.state.notify_service = notify_service
+        app.state.game_update_service = game_update_service
+        await update_service.recover_interrupted()
+
+        # A successful READY means the worker loaded the base and each present
+        # incremental layer. Let UpdateService clear a deferred reload marker.
+        async def confirm_resource_load() -> None:
+            service = runtime.get("update_service")
+            if service is not None:
+                await service._get_reload_pending()
+
+        runtime["update_service"] = update_service
+        runtime["confirm_resource_load"] = confirm_resource_load
+
         core_client.start_consumer()
         await pipeline_runner.start()
         try:
@@ -497,8 +777,62 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.exception("MaaCore 子进程启动失败；HTTP 服务继续启动")
         if core_supervisor.state is CoreState.READY:
             schedule_connection()
+            await confirm_resource_load()
+
+        # One local-time scheduler owns both daily availability checks and the
+        # existing retention jobs. Checks never download or block pipeline work.
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        async def check_updates_at_configured_hour() -> None:
+            # Poll the active setting each hour so changing updates.check_hour
+            # takes effect without requiring an application restart. The body
+            # still runs at most once daily for the selected local hour.
+            local_now = datetime.now().astimezone()
+            if local_now.hour == get_settings().updates.check_hour:
+                await update_service.daily_check()
+
+        update_scheduler = AsyncIOScheduler()
+        update_scheduler.add_job(
+            check_updates_at_configured_hour,
+            CronTrigger(minute=0),
+            id="maa-update-daily-check",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        update_scheduler.add_job(
+            run_retention,
+            CronTrigger.from_crontab(RETENTION_CRON),
+            kwargs={"session_factory": db_session.session_factory},
+            id="maa-retention-daily",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        update_scheduler.add_job(
+            run_retention,
+            "date",
+            run_date=datetime.now(timezone.utc)
+            + timedelta(seconds=STARTUP_DELAY_SECONDS),
+            kwargs={"session_factory": db_session.session_factory},
+            id="maa-retention-startup",
+            replace_existing=True,
+        )
+        update_scheduler.start()
+        app.state.update_scheduler = update_scheduler
     except BaseException:
         shutdown_started = True
+        if update_scheduler is not None and update_scheduler.running:
+            update_scheduler.shutdown(wait=False)
+        if update_service is not None:
+            pending_updates = list(getattr(update_service, "_tasks", {}).values())
+            if pending_updates:
+                await asyncio.gather(*pending_updates, return_exceptions=True)
+        if game_update_service is not None:
+            await game_update_service.aclose()
+        if update_http_client is not None:
+            await update_http_client.aclose()
         if device_start_task is not None and not device_start_task.done():
             device_start_task.cancel()
             await asyncio.gather(device_start_task, return_exceptions=True)
@@ -519,6 +853,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             core_client.close()
         if hasattr(app.state, "setting_service"):
             del app.state.setting_service
+        for attribute in ("update_service", "notify_service", "game_update_service", "update_scheduler"):
+            if hasattr(app.state, attribute):
+                delattr(app.state, attribute)
         await stop_logging(tailer_task, hub)
         raise
 
@@ -533,6 +870,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         # 关闭顺序：停止消费 / 收尾当前任务 → 关闭子进程 → 关闭 WS/tailer → 刷盘。
         shutdown_started = True
+        if update_scheduler is not None and update_scheduler.running:
+            update_scheduler.shutdown(wait=False)
+        if update_service is not None:
+            pending_updates = list(getattr(update_service, "_tasks", {}).values())
+            if pending_updates:
+                await asyncio.gather(*pending_updates, return_exceptions=True)
         if device_start_task is not None and not device_start_task.done():
             device_start_task.cancel()
             await asyncio.gather(device_start_task, return_exceptions=True)
@@ -551,6 +894,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.exception("关闭 MaaCore 子进程失败")
         if core_client is not None:
             core_client.close()
+        if game_update_service is not None:
+            await game_update_service.aclose()
+        if update_http_client is not None:
+            await update_http_client.aclose()
         await stop_logging(tailer_task, hub)
         import maa_api.db.session as db_session
 
@@ -564,6 +911,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "queue_service",
             "setting_service",
             "log_hub",
+            "update_service",
+            "notify_service",
+            "game_update_service",
+            "update_scheduler",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)
@@ -605,6 +956,8 @@ def create_app() -> FastAPI:
     app.include_router(atomic.router)
     app.include_router(logs.router)
     app.include_router(screenshots.router)
+    app.include_router(updates.router)
+    app.include_router(notifications.router)
     app.include_router(ws_router)
 
     # CORS：显式白名单 + 局域网正则，保留 allow_credentials=True（docs/05 §5.1）。

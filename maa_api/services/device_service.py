@@ -5,11 +5,13 @@ import asyncio
 import io
 import json
 import logging
+import math
 import os
 import shlex
 import subprocess
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -224,7 +226,6 @@ class _AdbBackend:
         return ""
 
     def install_apk(self, address: str, path: Path, **options: Any) -> str:
-        self._sync_path()
         flags = []
         if options.pop("replace", True):
             flags.append("-r")
@@ -232,13 +233,61 @@ class _AdbBackend:
             flags.append("-t")
         if options.pop("allow_downgrade", False):
             flags.append("-d")
-        self._client.device(address).install(
+        return self.install_apk_safe(
+            address,
             Path(path),
-            nolaunch=True,
-            silent=True,
-            flags=flags,
+            timeout=float(options.pop("timeout", 1200)),
+            flags=tuple(flags),
         )
-        return "Success"
+
+    def install_apk_safe(
+        self,
+        address: str,
+        path: Path,
+        *,
+        timeout: float = 1200,
+        flags: tuple[str, ...] = ("-r", "-d"),
+    ) -> str:
+        """Push and install an APK without adbutils' uninstall-and-retry path."""
+        self._sync_path()
+        timeout = float(timeout)
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be a positive finite number")
+
+        # Never derive a device path from caller-controlled input. A unique name
+        # also keeps simultaneous installs from overwriting one another.
+        remote_path = f"/data/local/tmp/maa-api-{uuid.uuid4().hex}.apk"
+        command = ["pm", "install", *map(str, flags), remote_path]
+        install_command = shlex.join(command)
+        device = self._client.device(address)
+        operation_error: BaseException | None = None
+        try:
+            device.sync.push(Path(path), remote_path, check=True)
+            output = str(
+                device.shell(install_command, timeout=timeout, encoding="utf-8")
+            )
+            if output.strip() != "Success":
+                raise _AdbFailure("adb_install", install_command, output)
+            return "Success"
+        except BaseException as exc:
+            operation_error = exc
+            raise
+        finally:
+            cleanup_command = shlex.join(["rm", "-f", remote_path])
+            try:
+                device.shell(cleanup_command, timeout=10.0, encoding="utf-8")
+            except Exception as cleanup_error:
+                if operation_error is None:
+                    raise _AdbFailure(
+                        "adb_install_cleanup",
+                        cleanup_command,
+                        str(cleanup_error),
+                    ) from cleanup_error
+                logger.warning(
+                    "清理远端临时 APK 失败 path=%s error=%s",
+                    remote_path,
+                    cleanup_error,
+                )
 
     def force_stop(self, address: str, package: str) -> str:
         self._sync_path()
@@ -726,6 +775,28 @@ class DeviceManager:
                 ErrorCode.ADB_COMMAND_FAILED,
                 "安装 APK 失败",
                 self._error_details("adb_command", exc),
+            ) from exc
+
+    async def install_apk_safe(
+        self,
+        path: Path,
+        *,
+        timeout: float = 1200,
+        flags: tuple[str, ...] = ("-r", "-d"),
+    ) -> str:
+        try:
+            return await asyncio.to_thread(
+                self._backend.install_apk_safe,
+                self.address,
+                Path(path),
+                timeout=timeout,
+                flags=flags,
+            )
+        except Exception as exc:
+            raise AppError(
+                ErrorCode.ADB_COMMAND_FAILED,
+                "安全安装 APK 失败",
+                self._error_details("adb_install", exc),
             ) from exc
 
     async def force_stop(self, package: str) -> None:

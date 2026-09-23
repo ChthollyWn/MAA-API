@@ -325,6 +325,8 @@ def test_env_mapping_names_are_pinned() -> None:
         "llm.base_url": "MAA_LLM_BASE_URL",
         "llm.api_key": "MAA_LLM_API_KEY",
         "llm.model": "MAA_LLM_MODEL",
+        "updates.download_prefix": "MAA_UPDATES_DOWNLOAD_PREFIX",
+        "updates.check_hour": "MAA_UPDATES_CHECK_HOUR",
     }
 
 

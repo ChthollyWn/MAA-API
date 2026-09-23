@@ -279,6 +279,29 @@ def test_update_list_filters_and_paginates(db_session_factory):
             ]
             assert all(row.target == UpdateTarget.CORE for row in core.items)
 
+            # Target + status compose identically in the items query and its
+            # count query; rows of other statuses do not inflate total.
+            core_success = await repo.list(
+                target=UpdateTarget.CORE,
+                status=UpdateStatus.SUCCESS,
+                page=1,
+                size=20,
+            )
+            assert core_success.total == 1
+            assert len(core_success.items) == 1
+            assert core_success.items[0].status == UpdateStatus.SUCCESS
+
+            no_second_page = await repo.list(
+                target=UpdateTarget.CORE,
+                status=UpdateStatus.SUCCESS,
+                page=2,
+                size=1,
+            )
+            assert no_second_page.total == 1 and no_second_page.items == []
+
+            failed = await repo.list(status="failed", page=1, size=20)
+            assert failed.total == 1 and failed.items[0].status == UpdateStatus.FAILED
+
             # 越界分页参数被夹到合法区间（负 offset 在 SQLite 上不报错但结果错）
             clamped = await repo.list(page=0, size=0)
             assert clamped.page == 1 and clamped.size == 1

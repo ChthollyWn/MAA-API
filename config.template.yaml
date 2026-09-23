@@ -8,6 +8,13 @@ app:
   # 系统代理
   proxy:
 
+# 更新检查与下载配置
+updates:
+  # 可选下载加速前缀；留空时使用官方地址
+  download_prefix:
+  # 每日更新检查的本地小时（0-23），默认 09:00
+  check_hour: 9
+
 # adb配置
 adb:
   # adb路径
