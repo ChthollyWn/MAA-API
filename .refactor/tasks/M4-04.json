@@ -36,8 +36,8 @@
     ".venv/bin/python -m pytest -q tests/services/test_callback_translator.py"
   ],
   "prompt_extra": "三个映射表要与 docs/06 的表格逐行对照（行数用 verify 钉死），文案里的全角标点别改。新增回调类型的级别与文案在 docs/06 §3.5 都有原文，照抄。单测至少覆盖：三张表每一条都能命中（可用参数化）、StageDrops 多行拼接、SubTaskError 无映射时展示英文 task 名、未映射 what 的兜底、ConnectionInfo 的 details 子对象取值（如 ResolutionGot 的 height/width）。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "cf2069f",
   "blocked_reason": null
 }
