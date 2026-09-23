@@ -43,8 +43,8 @@
     ".venv/bin/python -m pytest -q tests/test_settings.py"
   ],
   "prompt_extra": "单测必须覆盖：环形缓冲上界与淘汰顺序、id 单调且跨线程不重、snapshot_after 的 truncated 语义、四级背压降级、丢弃计数元日志（且不再进库）、攒批 flush（满批与超时两条路径）、aclose 刷残留、emit 不阻塞不抛、attach 幂等、级别过滤（maacore_debug 落库阈值与 uvicorn.access 阈值）、mask_token 对 query 与普通文本的处理。改 maa_api/settings.py 前先读现有内容，只在 Settings 里追加 log 段并沿用现有 env 前缀映射，不要重写文件。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "34b8497",
   "blocked_reason": null
 }
