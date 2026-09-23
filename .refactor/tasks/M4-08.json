@@ -38,8 +38,8 @@
     ".venv/bin/python -m pytest -q tests/api/test_logs_router.py"
   ],
   "prompt_extra": "改 maa_api/db/repositories/log.py 前先读现有实现：只能用追加新参数/新方法的方式扩展（before_id、task_id、logger 前缀、q 子串、order、最低级别、游标分页），purge/bulk_insert 与现有 query() 行为一个字都不能变。路由用例用 tests/api 的 isolated_db + make_client 夹具，自行 create_all 并塞入若干 log_entry（含不同 source/level/pipeline_id/时间戳），断言：过滤组合、最低级别语义、q 子串、logger 前缀、after_id/before_id 游标、order=asc、size 上限钳制、游标与 page 互斥的 400 INVALID_PAGINATION、export 的 txt/jsonl 形态与附件头、DELETE 的 204 与至少一个条件的 400。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "398c47c",
   "blocked_reason": null
 }

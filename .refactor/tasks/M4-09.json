@@ -26,6 +26,7 @@
     "本卡只读不写：截图记录由调用方经 ScreenshotRepository 建（store_screenshot 只落文件，见 M4-06）；清理沿用 M2-12 的 retention_service（按 screenshot 记录删文件并打 deleted_at），不新增 log_entry.attachment_sha256 列、不加迁移。"
   ],
   "deliverables": [
+    "maa_api/db/repositories/log.py",
     "maa_api/api/routers/screenshots.py",
     "tests/api/test_screenshots_router.py"
   ],
@@ -35,8 +36,8 @@
     ".venv/bin/python -m pytest -q tests/api/test_screenshots_router.py"
   ],
   "prompt_extra": "用例用 tests/api 的 isolated_db + make_client 夹具：先用 M2 的 ScreenshotRepository 塞记录，再用 M4-06 的 store_screenshot 在隔离资源根下落真实图片文件（资源根从 session.DB_PATH 父目录推导，夹具已指到 tmp），断言：列表分页与 pipeline_id/trigger/since 过滤、详情返回图像字节与 Content-Type、?as=base64 的键集与可解码性、deleted_at 记录返回 410 SCREENSHOT_EXPIRED、未知 id 404 SCREENSHOT_NOT_FOUND、thumb/full 的字节与 Cache-Control: immutable、sha256 不匹配任何文件时 404、含 ../ 的 sha 段不越权（404 或路由不匹配）。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "fbdf35f",
   "blocked_reason": null
 }

@@ -27,6 +27,8 @@
     "--serve（advisory）起真实 uvicorn + 真端口，用标准库 socket 完成一次 /api/ws 握手并读一帧（本机无 websockets/websocat）；--real-core（advisory，需真机与模拟器）用真实 MaaCore + 127.0.0.1:5555 验证 task 源。两个模式都不进默认路径。"
   ],
   "deliverables": [
+    "pyproject.toml",
+    "poetry.lock",
     "scripts/log_ws_smoke.py"
   ],
   "verify": [
@@ -35,8 +37,8 @@
     ".venv/bin/python -c \"import subprocess,sys; r=subprocess.run([sys.executable,'scripts/log_ws_smoke.py'],capture_output=True,text=True); assert r.returncode==0, (r.stdout[-2000:]+r.stderr[-2000:]); last=[l for l in r.stdout.strip().splitlines() if l.strip()][-1].strip(); assert last=='SMOKE OK', last\""
   ],
   "prompt_extra": "形态参考 scripts/api_smoke.py（只 grep 它的 docstring、ok/fail 辅助与收尾打印，别通读 1148 行）。core 源的做法：把 set_settings 的 maa_core_path 指到临时目录（start_core_debug_tailer 的缺省解析就是 <maa_core_path>/debug/asst.log），app/lifespan 起来之后再向该文件追加写行 —— tailer 首次打开 seek 到末尾、不回放历史，先写后起必然收不到，这条时序错了会白跑很久。FakeAsst 剧本用内置的 success/disconnect 即可满足 task 源；spawn 子进程要照 M1-13 的做法把仓库根插进 sys.path。写完后自己跑一遍默认模式与 --serve；--serve 的端口占用要快速失败（别等满内部超时）。脚本不要把自己写进仓库（只读，不改 resource/）。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "5011cd9",
   "blocked_reason": null
 }

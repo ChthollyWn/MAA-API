@@ -39,6 +39,6 @@
   "prompt_extra": "单测用 tmp_path 造假 asst.log，覆盖：首次打开不回放历史、追加后增量读取、rename 轮转（轮转前尾部要读干净、新文件 st_ino 变化、偏移重置）、截断（先读到较长前缀再截断）、半行回退、续行合并到上一条、非 UTF-8 字节不抛、min_level=INF 时 TRC 被丢弃而 WRN/ERR 保留、路径不存在时空转不建文件。run() 的循环用一次性注入或 monkeypatch sleep 收敛为有限步，别让用例挂住。",
   "status": "done",
   "attempts": 1,
-  "commit": "dd88bc2",
+  "commit": "8f0cd00",
   "blocked_reason": null
 }

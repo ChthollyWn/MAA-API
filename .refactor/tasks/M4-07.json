@@ -41,8 +41,8 @@
     ".venv/bin/python -m pytest -q tests/api/test_ws.py"
   ],
   "prompt_extra": "tests/api 已有夹具 tmp_settings / isolated_db / make_client（见 tests/api/conftest.py 的 docstring），WS 用例直接用；hub 用 set_log_hub(LogHub(...)) 注入，别依赖真实 lifespan。必须有用例覆盖：无 token 且配了 token 时连接以 4401 关闭（用 starlette.websockets.WebSocketDisconnect 捕 code，M4-01 第 ②/③ 条已实测 4401 与「路由缺失」的 1000 可区分）、query 与 cookie 两条渠道、ping→pong 回带 t、未知 type 回 error(WS_BAD_MESSAGE) 且不关连接、subscribe 整体替换与 last_seen_id 补发（log_batch 的 records 与 truncated 两种）、慢客户端 QueueFull 被 1011 断开且不影响其他连接。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "2c30ce9",
   "blocked_reason": null
 }
