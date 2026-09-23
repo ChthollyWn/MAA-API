@@ -9,6 +9,9 @@ readme = "README.md"
 python = "^3.11"
 fastapi = ">=0.115"
 uvicorn = ">=0.30"
+# Uvicorn's automatic WebSocket protocol selection needs a server implementation;
+# the default M4 deployment must support real /api/ws upgrades.
+websockets = ">=13.0"
 pydantic = "^2.7"
 sqlmodel = ">=0.0.22"
 alembic = "^1.13"
