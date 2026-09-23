@@ -34,8 +34,8 @@
     ".venv/bin/python -m pytest -q tests/test_log_module.py"
   ],
   "prompt_extra": "这是旧文件的重写，但交付纪律一样：读当前 maa_api/log.py 再写，保留可用的部分（formatter 形态、两个轮转文件、uvicorn logger 接线），去掉全部 import 期动作。verify 第 1 条会真的在空目录里 import 本模块并在仓库外运行；第 2 条检查两个文件都建出来且脱敏在文件里生效（日志走 maa_api logger 传播到 handler）。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "9136273",
   "blocked_reason": null
 }
