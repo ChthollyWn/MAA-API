@@ -1,0 +1,58 @@
+{
+  "id": "M6-02",
+  "milestone": "M6",
+  "title": "实现设置 schema、DB 覆盖层、脱敏与设置 API",
+  "depends": ["M6-01"],
+  "reads": [
+    "docs/04-数据模型与持久化.md#56-setting--可视化配置项",
+    "docs/04-数据模型与持久化.md#11-从现有内存模型的迁移",
+    "docs/05-API规范与路由清单.md#413-设置与通知",
+    "docs/05-API规范与路由清单.md#611-settings",
+    "docs/08-ADB连接与账号渠道.md#92-三层优先级",
+    "docs/08-ADB连接与账号渠道.md#93-哪些任务类型有-client_type",
+    "docs/08-ADB连接与账号渠道.md#11-渠道切换的联动影响",
+    "docs/13-决策记录.md#2-其余决策速记",
+    "maa_api/settings.py#SETTING_KEYS",
+    "maa_api/settings.py#resolve_settings",
+    "tests/test_settings.py#test_resolve_settings_layer_priority",
+    "tests/test_settings.py#test_env_vars_override_yaml",
+    "config.template.yaml",
+    "maa_api/db/repositories/setting.py",
+    "maa_api/services/task_defaults.py",
+    "maa_api/domain/task.py#ChannelDefaults",
+    "tests/api/test_tasks_router.py#test_validate_reads_channel_defaults_from_setting_table",
+    "tests/api/test_tasks_router.py#test_routes_are_registered_before_the_parametric_one",
+    "resource/lib/maa/Darwin/resource/config.json#connection",
+    "tests/api/conftest.py"
+  ],
+  "constraints": [
+    "配置优先级固定为环境变量 > setting 表 > config.yaml > 代码默认值；表中只保存显式覆盖，不把默认值灌入数据库。",
+    "字段元信息定义在 `settings_schema.py`，至少导出中文标签、分组、类型/范围、枚举、敏感、只读与热生效动作；schema 路由从代码导出。",
+    "`app.access_token`、`app.maa_core_path`、`adb.path` 只允许从 config.yaml/环境变量设定；设置 API 写入时返回 SETTING_READONLY。",
+    "敏感项读取返回 `***`；更新传 `***` 或空字符串视为不变更。配置写入使用 setting 表 JSON 原生类型并由调用方提交事务。",
+    "改 `adb.address` 时先持久化并更新生效配置，再调用 `DeviceManager.reconfigure(address=...)`；重连失败返回 SETTING_APPLY_FAILED 且 `details.applied=true`，不得把已保存数据伪报成未保存。",
+    "渠道默认的注入已在 M5 QueueService 提交前实现；保留单任务显式值优先、全局覆盖次之、硬编码 Bilibili 兜底，并保留 server 与 client_type 两个独立维度。"
+  ],
+  "deliverables": [
+    "maa_api/services/settings_schema.py",
+    "maa_api/services/setting_service.py",
+    "maa_api/services/task_defaults.py",
+    "maa_api/api/routers/settings.py",
+    "maa_api/settings.py",
+    "config.template.yaml",
+    "tests/test_settings.py",
+    "tests/services/test_setting_service.py",
+    "tests/services/test_task_defaults.py",
+    "tests/api/test_settings_router.py",
+    "tests/api/test_tasks_router.py"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/test_settings.py tests/services/test_setting_service.py tests/services/test_task_defaults.py tests/api/test_settings_router.py tests/api/test_tasks_router.py",
+    ".venv/bin/python -c \"from maa_api.services.settings_schema import SETTINGS_SCHEMA; from maa_api.services.setting_service import SettingService; from maa_api.api.routers.settings import router; assert SETTINGS_SCHEMA; assert router.prefix == '/api'; assert callable(getattr(SettingService, 'get', None)) and callable(getattr(SettingService, 'update', None)) and callable(getattr(SettingService, 'reset', None))\""
+  ],
+  "prompt_extra": "只修改此卡 deliverables，不改 main.py 或设备路由。Settings model/config loader 需要为 `adb.connection_config`（默认 General）与 `adb.common_ports`（默认 [5555,5556,7555,16384,21503,62001]）增加 YAML/DB schema 支持；环境变量列表取逗号分隔整数，不含端口项时沿用低层值。完整解析仍遵守 env > DB > yaml > default。SettingService 与 DeviceManager 的接线采用构造注入；按 M6-01 公共契约调用 `device_manager.reconfigure(address=...)`。在 app.state.setting_service 上提供路由所需服务。GET 返回生效值与来源；PUT 接受 `{items:{key:value}}`；POST reset 接受 `{keys:[...]}`。错误使用既有 ErrorCode，不增加错误码。MAA 路径冲突目前按本卡 constraints 只读执行。不要提交 Git。",
+  "status": "done",
+  "attempts": 0,
+  "commit": "d2f677a",
+  "blocked_reason": null
+}
