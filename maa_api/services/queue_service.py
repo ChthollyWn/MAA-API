@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.db.models import Pipeline, Task, utcnow
 from maa_api.db.repositories.pipeline import PipelineRepository
-from maa_api.domain.enums import PipelineSource, Priority
+from maa_api.domain.enums import PipelineSource, PipelineStatus, Priority
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.task import ChannelDefaults, PipelineCreate, normalize
 from maa_api.services.task_defaults import load_channel_defaults

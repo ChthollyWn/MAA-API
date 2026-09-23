@@ -12,6 +12,8 @@
 由服务层决定何时提交。
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any

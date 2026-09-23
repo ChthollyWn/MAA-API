@@ -49,6 +49,10 @@ class _Attempt:
     future: asyncio.Future[str]
 
 
+class _PipelineCancelled(Exception):
+    """Internal signal used to unwind an in-flight CoreClient command."""
+
+
 @dataclass(slots=True)
 class _ActivePipeline:
     pipeline_id: str
@@ -509,7 +513,11 @@ class PipelineRunner:
             await self._set_task_status(task.id, TaskStatus.RUNNING)
             attempt: _Attempt | None = None
             try:
-                maa_task_id = int(await client.append_task(task.type_name, task.params))
+                maa_task_id = int(
+                    await self._await_core_command(
+                        active, client.append_task(task.type_name, task.params)
+                    )
+                )
                 if maa_task_id <= 0:
                     raise AppError(
                         ErrorCode.CORE_COMMAND_FAILED,
@@ -520,7 +528,7 @@ class PipelineRunner:
                 future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
                 attempt = _Attempt(task.id, task.type_name, maa_task_id, future)
                 active.attempt = attempt
-                started = await client.start()
+                started = await self._await_core_command(active, client.start())
                 if not started:
                     raise AppError(
                         ErrorCode.CORE_COMMAND_FAILED,
@@ -572,6 +580,10 @@ class PipelineRunner:
                 )
             except asyncio.CancelledError:
                 raise
+            except _PipelineCancelled:
+                await active.stop_complete.wait()
+                await self._set_task_status(task.id, TaskStatus.CANCELLED)
+                return "cancelled", None
             except AppError as exc:
                 error = exc
                 if exc.code is ErrorCode.CORE_COMMAND_TIMEOUT:
@@ -615,6 +627,24 @@ class PipelineRunner:
                     await client.stop()
                 except AppError:
                     logger.warning("失败任务后的 MaaCore STOP 未确认：%s", task.id)
+
+            if active.cancel_requested:
+                await active.stop_complete.wait()
+                await self._set_task_status(task.id, TaskStatus.CANCELLED)
+                return "cancelled", None
+            if active.core_crashed:
+                crash_error = AppError(
+                    ErrorCode.CORE_CRASHED,
+                    "MaaCore 子进程中断，当前任务未完成",
+                    {"task_id": task.id},
+                )
+                await self._set_task_status(
+                    task.id,
+                    TaskStatus.FAILED,
+                    error_code=crash_error.code,
+                    error_message=crash_error.message,
+                )
+                return "crashed", crash_error
 
             if retry_count < max_retries:
                 retry_count = await self._increment_retry(task.id)
@@ -664,6 +694,37 @@ class PipelineRunner:
                 error_message=error.message if error else "任务达到最大重试次数，已跳过",
             )
             return "skipped", error
+
+    async def _await_core_command(self, active: _ActivePipeline, awaitable: Any) -> Any:
+        """Race an IPC command against cancellation and child-process failure."""
+        command_task = asyncio.create_task(awaitable)
+        cancel_waiter = asyncio.create_task(active.cancel_event.wait())
+        crash_waiter = asyncio.create_task(active.crash_event.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                {command_task, cancel_waiter, crash_waiter},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if crash_waiter in done or active.core_crashed:
+                raise AppError(
+                    ErrorCode.CORE_CRASHED,
+                    "MaaCore 子进程中断，当前任务未完成",
+                    {"pipeline_id": active.pipeline_id},
+                )
+            if cancel_waiter in done or active.cancel_requested:
+                await active.stop_complete.wait()
+                raise _PipelineCancelled
+            return await command_task
+        finally:
+            for waiter in (cancel_waiter, crash_waiter):
+                waiter.cancel()
+            if not command_task.done():
+                command_task.cancel()
+            for task in (command_task, cancel_waiter, crash_waiter):
+                try:
+                    await task
+                except BaseException:
+                    pass
 
     async def _wait_attempt(self, active: _ActivePipeline, attempt: _Attempt) -> str:
         timeout = max(
