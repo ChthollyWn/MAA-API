@@ -144,6 +144,7 @@ class PipelineRepository(BaseRepository):
             .where(
                 Pipeline.core_id == core_id,
                 Pipeline.status == PipelineStatus.PENDING,
+                (Pipeline.deferred_until.is_(None)) | (Pipeline.deferred_until <= utcnow()),
             )
             .order_by(Pipeline.priority.asc(), Pipeline.created_at.asc())
             .limit(1)
@@ -176,11 +177,13 @@ class PipelineRepository(BaseRepository):
             .where(
                 Pipeline.id == candidate_id,
                 Pipeline.status == PipelineStatus.PENDING,
+                (Pipeline.deferred_until.is_(None)) | (Pipeline.deferred_until <= utcnow()),
             )
             .values(
                 status=PipelineStatus.RUNNING,
                 started_at=utcnow(),
                 core_epoch=core_epoch,
+                deferred_until=None,
             )
         )
         if result.rowcount == 0:
@@ -190,6 +193,32 @@ class PipelineRepository(BaseRepository):
         return await self.session.get(
             Pipeline, candidate_id, populate_existing=True
         )
+
+    async def defer_running(
+        self, pipeline_id: str, deferred_until: datetime
+    ) -> bool:
+        """Return a scheduled RUNNING pipeline to PENDING until ``deferred_until``.
+
+        Device preflight runs after a claim. This conditional update makes the
+        handoff back to the queue atomic and persists the deferral count without
+        committing; only scheduled rows are eligible for this transition.
+        """
+        result = await self.session.execute(
+            update(Pipeline)
+            .where(
+                Pipeline.id == pipeline_id,
+                Pipeline.status == PipelineStatus.RUNNING,
+                Pipeline.source == PipelineSource.SCHEDULED,
+            )
+            .values(
+                status=PipelineStatus.PENDING,
+                started_at=None,
+                core_epoch=None,
+                deferred_until=deferred_until,
+                defer_count=Pipeline.defer_count + 1,
+            )
+        )
+        return result.rowcount > 0
 
     async def current(self, core_id: str = "default") -> Pipeline | None:
         """当前 ``RUNNING`` 的流水线（状态轮询与冲突判定用），没有返回 ``None``。"""

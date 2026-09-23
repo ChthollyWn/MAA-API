@@ -40,6 +40,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     Index,
+    Integer,
     Text,
     UniqueConstraint,
     text,
@@ -168,6 +169,13 @@ class Pipeline(SQLModel, table=True):
     )
     finished_at: datetime | None = Field(
         default=None, sa_column=datetime_column("finished_at", nullable=True)
+    )
+    deferred_until: datetime | None = Field(
+        default=None, sa_column=datetime_column("deferred_until", nullable=True)
+    )
+    defer_count: int = Field(
+        default=0,
+        sa_column=Column("defer_count", Integer, nullable=False, server_default=text("0")),
     )
 
     __table_args__ = (
