@@ -225,3 +225,37 @@ def test_client_inactivity_closes_session_even_without_log_traffic():
         assert not manager.sessions
 
     asyncio.run(run())
+
+
+def test_connection_limit_uses_4429_and_broadcast_channel_filter():
+    class FakeSocket:
+        def __init__(self):
+            self.closed_with = None
+            self.messages = []
+
+        async def accept(self):
+            return None
+
+        async def send_json(self, message):
+            self.messages.append(message)
+
+        async def close(self, *, code, reason=""):
+            self.closed_with = (code, reason)
+
+    async def run():
+        manager = ws_api.ConnectionManager(max_connections=1)
+        manager._loop = asyncio.get_running_loop()
+        first_socket, rejected_socket = FakeSocket(), FakeSocket()
+        session = await manager.connect(first_socket)
+        assert session is not None
+        assert await manager.connect(rejected_socket) is None
+        assert rejected_socket.closed_with[0] == 4429
+
+        session.channels = {"core_status"}
+        manager.broadcast("core_status", {"state": "ready"}, channels={"core_status"})
+        manager.broadcast("device_status", {"state": "connected"}, channels={"core_status"})
+        await asyncio.wait_for(session.send_queue.join(), timeout=0.2)
+        assert [message["type"] for message in first_socket.messages] == ["core_status"]
+        await manager.disconnect(session)
+
+    asyncio.run(run())
