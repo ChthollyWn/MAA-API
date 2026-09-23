@@ -1,0 +1,47 @@
+{
+  "id": "M6-03",
+  "milestone": "M6",
+  "title": "实现设备状态、扫描、手动重连与安全原子操作 API",
+  "depends": ["M6-01"],
+  "reads": [
+    "docs/05-API规范与路由清单.md#63-device",
+    "docs/08-ADB连接与账号渠道.md#44-前端手动重连",
+    "docs/08-ADB连接与账号渠道.md#7-设备扫描",
+    "docs/08-ADB连接与账号渠道.md#82-移动端的尺寸与压缩策略",
+    "docs/02-系统架构设计.md#53-核心服务之间的并发关系",
+    "maa_api/api/deps.py",
+    "maa_api/api/routers/atomic.py",
+    "maa_api/api/routers/screenshots.py",
+    "maa_api/db/repositories/log.py#ScreenshotRepository",
+    "maa_api/db/models.py#Screenshot",
+    "tests/api/test_screenshots_router.py",
+    "maa_api/services/device_service.py#DeviceManager.snapshot",
+    "maa_api/services/device_service.py#DeviceManager.list_devices",
+    "maa_api/services/device_service.py#DeviceManager.screenshot",
+    "maa_api/services/device_service.py#DeviceManager.click",
+    "maa_api/services/device_service.py#DeviceManager.reconfigure",
+    "tests/api/conftest.py"
+  ],
+  "constraints": [
+    "设备状态的唯一事实来源是 app.state.device_manager；路由不得直接创建或缓存 adbutils 客户端。候选项由 DeviceManager.list_devices(include_common_ports=...) 返回 dict；截图调用返回 ScreenshotResult(image, backend) 且 backend 表示实际来源（ADB fallback 到 Core 时为 core）。",
+    "按 docs/05 §6.3 实现 `/api/device/status`、`/reconnect`、`/list`、`/screenshot`、`/swipe`、`/long_press`、`/input_text`、`/key_event`；扫描可同时提供 docs/08 §7 使用的 `/candidates` 别名。M5 atomic.py 已注册 `/api/device/click`，不得重复注册；整个 app 必须最终恰好存在一份该路由。",
+    "点击走 MaaCore；滑动、长按、输入文本和按键走 ADB；不得开放任意 shell。key_event 必须使用 BACK/HOME/ENTER/DEL/APP_SWITCH 白名单。",
+    "原子操作沿用 PipelineRunner.operation_lock：运行流水线时返回 PIPELINE_ALREADY_RUNNING；仅显式 force=true 可绕过并保留强制介入语义。",
+    "手动重连冲突返回 409，失败保留执行阶段、命令、原始输出和针对性 hint；成功返回 202 及设备快照。",
+    "archive=true 除按内容哈希落盘外，必须创建 ScreenshotRepository 记录并回传 screenshot id/attachment；DB 与图片文件均基于测试隔离 root。",
+    "FastAPI 0.141 路径验收使用 openapi()['paths']，不从 app.routes 读取 .path。"
+  ],
+  "deliverables": [
+    "maa_api/api/routers/device.py",
+    "tests/api/test_device_router.py"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/api/test_device_router.py",
+    ".venv/bin/python -c \"from maa_api.api.routers.device import router; paths={getattr(route,'path',None) for route in router.routes}; required={'/api/device/status','/api/device/reconnect','/api/device/list','/api/device/screenshot','/api/device/swipe','/api/device/long_press','/api/device/input_text','/api/device/key_event'}; assert required <= paths, required-paths; assert '/api/device/candidates' in paths; assert router.prefix == '/api'\""
+  ],
+  "prompt_extra": "只写 device router 及对应测试，不改 main.py/DeviceManager/setting router/atomic.py。M5 atomic.py 已注册且覆盖了 POST /api/device/click；不要在本模块再次定义点击端点或做重复路径，主控会保持 atomic.router 装配且在集成验收确认 click 恰好一条。通过 request.app.state.device_manager 使用 M6-01 公共接口，通过 app.state.pipeline_runner.operation_lock 检查并发；必要的 request/app state 缺失时用现有 AppError 语义而非 AttributeError。使用既有异常与响应约定，不新增错误码。不提交 Git。",
+  "status": "done",
+  "attempts": 0,
+  "commit": "b869add",
+  "blocked_reason": null
+}
