@@ -23,6 +23,7 @@
     "启动等待 60 次 × 5 秒且在后台执行；任务前预检 3 次 × 2 秒；运行中接管重试最多 5 次，退避 3/6/12/24/48 秒；手动重连只试一次。",
     "收到 Reconnecting 时不主动执行 adb disconnect/connect；收到 Reconnected 取消看门狗并恢复 CONNECTED；收到 Disconnect 或 90 秒看门狗超时后才接管；ScreencapFailed 连续 3 次才升级。",
     "设备健康检查先用 adbutils/ADB 验证 adb connect 与 shell echo ok，再经 CoreClient.connect 的 AsyncCallInfo 结果确认 MaaCore 连接；不得把 CONNECT 命令受理当作连接成功。",
+    "所有设备侧扫描、connect/disconnect、shell、截图、滑动/长按/输入/按键及 force-stop 必须走 adbutils 客户端；仅启动 ADB server 与 APK 安装可执行显式配置的 adb binary 子进程。adbutils 选用的 ADB binary 必须与 MaaCore 的 `adb.path` 一致，并在热更路径配置时同步。",
     "支持的渠道 UI 仅 Official/Bilibili 且默认 Bilibili；task 参数 schema 对外服值的既有兼容约束不在本卡收窄。"
   ],
   "deliverables": [
@@ -35,7 +36,7 @@
   ],
   "prompt_extra": "只实现设备服务及其单元测试，不改路由、main.py、设置服务或台账，不提交 Git。用可注入 ADB/Core 替身测试；常规测试不能连接真实设备。公开构造和方法签名需稳定，供 M6-02/M6-03/M6-04 使用：`DeviceManager(settings_provider, core_client, *, adb_backend=None, broadcast=None, ...)`；`snapshot()` 返回 JSON 可序列化 dict；`async reconfigure(*, address=None, adb_path=None)`；`async close()`。按 docs/08 §2 暴露其余操作方法，避免路由直接持有 adbutils。状态变化必须发 device_status 并写 service 日志。不要新增数据库迁移；当前没有设备专表，持久历史经 LogHub 的 service 日志保存。",
   "status": "done",
-  "attempts": 0,
-  "commit": "086b953",
+  "attempts": 1,
+  "commit": "7550a27",
   "blocked_reason": null
 }
