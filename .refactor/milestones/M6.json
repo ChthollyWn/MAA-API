@@ -1,0 +1,10 @@
+{
+  "milestone": "M6",
+  "deliverable": "设备状态由 DeviceManager 统一管理；服务启动不等待模拟器，四时机连接与断线恢复按策略工作；设备扫描、手动重连与设备操作 API 可用；全局渠道默认按单任务显式值 > 可配置全局值 > Bilibili 生效；设置读写、来源/脱敏/schema 与约定的热生效动作可用。",
+  "acceptance": [
+    ".venv/bin/python -m pytest -q",
+    ".venv/bin/python scripts/device_settings_smoke.py"
+  ],
+  "advisory": [],
+  "_note": "硬验收不依赖真机：全量 pytest 覆盖状态机、四时机重试、设置优先级与 API、渠道固化、生命周期装配；device_settings_smoke.py 使用注入的 ADB/Core 替身与隔离数据库跑完整装配冒烟，并断言未连接设备不会阻塞服务启动。M6 计划中 MAA 路径在线修改与 docs/04 §11、docs/05 §4.13 的 app.maa_core_path 只读约束冲突，按详细 API/数据约束先保持只读，待用户对冲突作出选择后确认是否扩展范围。"
+}
