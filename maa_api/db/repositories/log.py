@@ -326,6 +326,33 @@ class ScreenshotRepository(BaseRepository):
             Screenshot, screenshot_id, populate_existing=True
         )
 
+    async def list_page(
+        self,
+        *,
+        pipeline_id: str | None = None,
+        trigger: str | None = None,
+        since: datetime | None = None,
+        page: int = 1,
+        size: int = 100,
+    ) -> Page[Screenshot]:
+        """List screenshots newest-first with the API's three supported filters."""
+        conditions: list[Any] = []
+        if pipeline_id is not None:
+            conditions.append(Screenshot.pipeline_id == pipeline_id)
+        if trigger is not None:
+            conditions.append(Screenshot.trigger == trigger)
+        if since is not None:
+            conditions.append(Screenshot.created_at >= since)
+        items_stmt = (
+            select(Screenshot)
+            .where(*conditions)
+            .order_by(Screenshot.created_at.desc(), Screenshot.id.desc())
+        )
+        count_stmt = (
+            select(func.count()).select_from(Screenshot).where(*conditions)
+        )
+        return await self.paginate(items_stmt, count_stmt, page=page, size=size)
+
     async def list_by_pipeline(self, pipeline_id: str) -> list[Screenshot]:
         """流水线的全部截图，按 ``created_at`` 升序（按任务发生顺序看现场）。
 
