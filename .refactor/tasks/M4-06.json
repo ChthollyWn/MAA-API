@@ -35,8 +35,8 @@
     ".venv/bin/python -m pytest -q tests/util/test_image.py"
   ],
   "prompt_extra": "单测在 tmp_path 上把 maa_api.db.session.DB_PATH 指过去（照 tests/db/conftest.py 的做法，用完还原），覆盖：文件落在 {sha 前2位}/{sha}.jpg、attachment 键集与 URL 形态、缩略图长边 320 且为 JPEG、同一内容两次调用只产生一个文件（去重）且 attachment 相同、不同内容产生不同 sha、quality 缺省时读 settings、bytes 与 PIL Image 两种入参等价。Pillow 已在 venv 里（M1 的 worker 也用它）。",
-  "status": "pending",
-  "attempts": 0,
-  "commit": null,
+  "status": "done",
+  "attempts": 1,
+  "commit": "f40867d",
   "blocked_reason": null
 }
