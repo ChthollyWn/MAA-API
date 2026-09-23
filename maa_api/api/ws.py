@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -73,17 +75,30 @@ class ClientSession:
     log_filter: LogFilter = field(default_factory=LogFilter)
     last_pong: float = field(default_factory=time.monotonic)
     sender_task: asyncio.Task[None] | None = None
+    heartbeat_task: asyncio.Task[None] | None = None
     invalid_messages: int = 0
     closed: bool = False
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    last_client_activity: float = field(default_factory=time.monotonic)
+    last_server_ping: float | None = None
+    missed_server_pings: int = 0
 
 
 class ConnectionManager:
     """Manage socket sessions and publish without blocking log producers."""
 
-    def __init__(self, *, queue_size: int = 500, max_connections: int = 8) -> None:
+    def __init__(
+        self,
+        *,
+        queue_size: int = 500,
+        max_connections: int = 8,
+        heartbeat_interval: float = 30.0,
+        inactivity_timeout: float = 90.0,
+    ) -> None:
         self.queue_size = max(int(queue_size), 1)
         self.max_connections = max(int(max_connections), 1)
+        self.heartbeat_interval = max(float(heartbeat_interval), 0.01)
+        self.inactivity_timeout = max(float(inactivity_timeout), self.heartbeat_interval)
         self._sessions: dict[str, ClientSession] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._hub: LogHub | None = None
@@ -115,6 +130,9 @@ class ConnectionManager:
         session.sender_task = asyncio.create_task(
             self._sender(session), name=f"maa-api-ws-sender-{session.id[:8]}"
         )
+        session.heartbeat_task = asyncio.create_task(
+            self._heartbeat(session), name=f"maa-api-ws-heartbeat-{session.id[:8]}"
+        )
         return session
 
     async def disconnect(self, session: ClientSession) -> None:
@@ -128,6 +146,14 @@ class ConnectionManager:
             task.cancel()
             try:
                 await task
+            except asyncio.CancelledError:
+                pass
+        heartbeat = session.heartbeat_task
+        session.heartbeat_task = None
+        if heartbeat is not None and heartbeat is not asyncio.current_task():
+            heartbeat.cancel()
+            try:
+                await heartbeat
             except asyncio.CancelledError:
                 pass
 
@@ -160,12 +186,51 @@ class ConnectionManager:
             if "log" in session.channels and session.log_filter.accept(record):
                 self._enqueue(session, payload)
 
-    def broadcast(self, message_type: str, data: Any, *, ts: float | None = None) -> None:
+    def broadcast(
+        self,
+        message_type: str,
+        data: Any,
+        channels: set[str] | None = None,
+        *,
+        ts: float | None = None,
+    ) -> None:
         """Publish another protocol event; channel filtering remains per session."""
         envelope = self._envelope(message_type, data, time.time() if ts is None else ts)
         for session in tuple(self._sessions.values()):
+            if channels is not None and message_type not in channels:
+                continue
             if message_type == "server_shutdown" or message_type in session.channels:
                 self._enqueue(session, envelope)
+
+    async def _heartbeat(self, session: ClientSession) -> None:
+        """Send application pings and expire inactive or unresponsive clients."""
+        try:
+            while not session.closed:
+                await asyncio.sleep(self.heartbeat_interval)
+                now = time.monotonic()
+                if now - session.last_client_activity >= self.inactivity_timeout:
+                    try:
+                        await session.ws.close(code=1001, reason="client_inactive")
+                    except Exception:
+                        pass
+                    await self.disconnect(session)
+                    return
+                if session.last_server_ping is not None:
+                    session.missed_server_pings += 1
+                    if session.missed_server_pings >= 2:
+                        try:
+                            await session.ws.close(code=1001, reason="heartbeat_timeout")
+                        except Exception:
+                            pass
+                        await self.disconnect(session)
+                        return
+                session.last_server_ping = now
+                self._enqueue(
+                    session,
+                    self._envelope("server_ping", {"t": time.time()}, time.time()),
+                )
+        except asyncio.CancelledError:
+            raise
 
     def _enqueue(self, session: ClientSession, envelope: dict[str, Any]) -> None:
         if session.closed:
@@ -244,6 +309,33 @@ def _record_wire(record: LogRecord) -> dict[str, Any]:
     return {"id": record.id, **manager._record_data(record)}
 
 
+def _trusted_cookie_origin(origin: str | None) -> bool:
+    """Accept configured local UI origins and RFC1918 LAN origins only."""
+    if not origin:
+        return False
+    try:
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+        ):
+            return False
+        if origin in {"http://localhost:8002", "http://127.0.0.1:8002"}:
+            return True
+        address = ipaddress.ip_address(parsed.hostname)
+        return any(
+            address in ipaddress.ip_network(network)
+            for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+        )
+    except ValueError:
+        return False
+
+
 async def _backfill(
     session: ClientSession, hub: LogHub | None, cursor: int | None
 ) -> tuple[int, bool]:
@@ -293,6 +385,7 @@ async def _handle_message(
     *,
     first_subscribe: list[bool],
 ) -> None:
+    session.last_client_activity = time.monotonic()
     if not isinstance(message, dict) or not isinstance(message.get("type"), str):
         await _send_direct(session, _error("WS_BAD_MESSAGE", "消息必须包含 type 字符串"))
         session.invalid_messages += 1
@@ -311,6 +404,12 @@ async def _handle_message(
             session,
             {"type": "pong", "req_id": req_id, "ts": time.time(), "data": {"t": data.get("t")}},
         )
+        return
+
+    if message_type == "pong":
+        session.last_pong = time.monotonic()
+        session.last_server_ping = None
+        session.missed_server_pings = 0
         return
 
     if message_type == "subscribe":
@@ -376,6 +475,16 @@ async def websocket_logs(websocket: WebSocket) -> None:
     hit = extract_token(websocket)
     configured = auth_enabled()
     allowed_channel = hit is None or hit.channel in {TokenChannel.QUERY, TokenChannel.COOKIE}
+    if (
+        configured
+        and hit is not None
+        and hit.channel == TokenChannel.COOKIE
+        and hit.value == get_settings().access_token
+        and not _trusted_cookie_origin(websocket.headers.get("origin"))
+    ):
+        await websocket.accept()
+        await websocket.close(code=4403, reason="untrusted_origin")
+        return
     if configured and (
         hit is None or not allowed_channel or hit.value != get_settings().access_token
     ):

@@ -68,10 +68,20 @@ def test_auth_close_code_query_cookie_ping_and_unknown_type(
         assert socket.receive_json()["type"] == "pong"
 
     with client.websocket_connect(
-        "/api/ws", cookies={"maa_token": "ws-secret"}
+        "/api/ws",
+        cookies={"maa_token": "ws-secret"},
+        headers={"origin": "http://localhost:8002"},
     ) as socket:
         socket.send_json({"type": "ping", "data": {"t": 4}})
         assert socket.receive_json()["data"]["t"] == 4
+
+    for headers in ({}, {"origin": "https://evil.example"}):
+        with pytest.raises(WebSocketDisconnect) as rejected:
+            with client.websocket_connect(
+                "/api/ws", cookies={"maa_token": "ws-secret"}, headers=headers
+            ) as socket:
+                socket.receive_json()
+        assert rejected.value.code == 4403
 
 
 def test_subscribe_replaces_filter_and_backfills_only_matching_records(
@@ -160,5 +170,58 @@ def test_slow_client_is_closed_without_affecting_other_sessions():
         assert slow_ws.closed_with[0] == 1011
         assert slow.id not in {item.id for item in manager.sessions}
         assert healthy.id in {item.id for item in manager.sessions}
+
+    asyncio.run(run())
+
+
+def test_server_heartbeat_closes_client_after_two_unanswered_pings():
+    class FakeSocket:
+        def __init__(self):
+            self.messages = []
+            self.closed_with = None
+
+        async def send_json(self, message):
+            self.messages.append(message)
+
+        async def close(self, *, code, reason=""):
+            self.closed_with = (code, reason)
+
+    async def run():
+        manager = ws_api.ConnectionManager(heartbeat_interval=0.01, inactivity_timeout=1)
+        manager._loop = asyncio.get_running_loop()
+        ws = FakeSocket()
+        session = ws_api.ClientSession(ws=ws)
+        manager._sessions[session.id] = session
+        sender = asyncio.create_task(manager._sender(session))
+        session.sender_task = sender
+        heartbeat = asyncio.create_task(manager._heartbeat(session))
+        session.heartbeat_task = heartbeat
+        await asyncio.wait_for(heartbeat, timeout=0.2)
+        assert [item["type"] for item in ws.messages] == ["server_ping", "server_ping"]
+        assert ws.closed_with == (1001, "heartbeat_timeout")
+        assert not manager.sessions
+
+    asyncio.run(run())
+
+
+def test_client_inactivity_closes_session_even_without_log_traffic():
+    class FakeSocket:
+        def __init__(self):
+            self.closed_with = None
+
+        async def close(self, *, code, reason=""):
+            self.closed_with = (code, reason)
+
+    async def run():
+        manager = ws_api.ConnectionManager(heartbeat_interval=0.01, inactivity_timeout=0.025)
+        manager._loop = asyncio.get_running_loop()
+        ws = FakeSocket()
+        session = ws_api.ClientSession(ws=ws)
+        manager._sessions[session.id] = session
+        heartbeat = asyncio.create_task(manager._heartbeat(session))
+        session.heartbeat_task = heartbeat
+        await asyncio.wait_for(heartbeat, timeout=0.2)
+        assert ws.closed_with == (1001, "client_inactive")
+        assert not manager.sessions
 
     asyncio.run(run())
