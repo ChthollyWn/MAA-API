@@ -81,8 +81,9 @@ class LogRepository(BaseRepository):
         until: datetime | None = None,
         page: int = 1,
         size: int = 100,
+        order: str = "desc",
     ) -> Page[LogEntry]:
-        """按 ``id DESC`` 分页查询日志，返回 :class:`Page`。
+        """按 id 分页查询日志，默认 ``DESC``，返回 :class:`Page`。
 
         ``sources`` / ``levels`` 传 ``None`` 表示不过滤；传**空序列**表示
         「没有任何来源/级别匹配」，返回空页（``IN ()`` 恒假），订阅了空集合的
@@ -96,6 +97,8 @@ class LogRepository(BaseRepository):
         （``ix_log_entry_pipeline_id_id``）、``id > ?`` 走主键，
         ``content`` 不做全文索引。
         """
+        if order not in {"asc", "desc"}:
+            raise ValueError("order must be 'asc' or 'desc'")
         conditions: list[Any] = []
         if sources is not None:
             conditions.append(LogEntry.source.in_([LogSource(s) for s in sources]))
@@ -111,7 +114,8 @@ class LogRepository(BaseRepository):
         if until is not None:
             conditions.append(LogEntry.created_at <= until)
 
-        items_stmt = select(LogEntry).where(*conditions).order_by(LogEntry.id.desc())
+        sort = LogEntry.id.asc() if order == "asc" else LogEntry.id.desc()
+        items_stmt = select(LogEntry).where(*conditions).order_by(sort)
         count_stmt = select(func.count()).select_from(LogEntry).where(*conditions)
         return await self.paginate(items_stmt, count_stmt, page=page, size=size)
 

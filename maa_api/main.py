@@ -1,29 +1,27 @@
 """应用装配：生命周期、路由注册、CORS、OpenAPI 元数据（docs/02 §6–§7，docs/05 §11）。
 
 本模块是 :mod:`maa_api` 的唯一装配入口（``uvicorn maa_api.main:app``）。它只做
-「接线」，不含任何业务逻辑；配置加载、数据库迁移与 M4 日志生命周期在此装配。
+「接线」，不含任何业务逻辑；配置加载、数据库迁移与 M4–M5 生命周期在此装配。
 
 启动顺序（docs/02 §7 的九步）
 =============================
 
-:func:`lifespan` 按文档顺序组织，M3 只落地第 1–2 步，其余步骤是**显式的带注释
-扩展位**：``# M4+:`` 之后的每一步都归属后续里程碑（LogHub 归 M4，CoreSupervisor 归 M5，
-PipelineRunner 归 M5，DeviceManager / APScheduler 归 M6，ToolRegistry / MCP 归 M11–M12），
-**本卡刻意不 import 尚不存在或还是空壳的模块** —— 提前接线只会让 M3 的「可交付状态」
-（docs/12 M3：业务端点尚未接内核）名不副实。
+:func:`lifespan` 按文档顺序组织。M5 接入 CoreSupervisor、CoreClient、SQLite 队列与
+PipelineRunner；M6 会把当前每代一次的连接钩子替换为 DeviceManager，并装载 APScheduler；
+ToolRegistry / MCP 仍归 M11–M12。
 
 第 4 步（启动 CoreSupervisor **不阻塞等待**）是与现状最大的行为差异：服务进入可用
 状态不再依赖内核就绪，因此 M3 起 ``/api/system/health`` 就必须能如实返回服务自身
-状态；lifespan 里任何一步都不允许阻塞等待子进程。
+状态；内核加载与设备连接都在后台进行，不阻塞 HTTP 服务启动。
 
 为什么是 ``lifespan``
 =====================
 
 废弃的启动事件钩子在 fastapi 0.141 上仍可用但会发 deprecation 警告，且与
 「启动 / 关闭成对书写」的语义不匹配；docs/02 §7 明确要求改用
-``@asynccontextmanager`` 的 lifespan。关闭顺序（docs/02 §7：停止接受新请求 → 停
-APScheduler → 取消 PipelineRunner → 关闭子进程 → 刷日志落库 → 关数据库）在 M3
-M4 起退出段会按依赖顺序关闭 WebSocket、日志 tailer 并刷新日志缓冲。
+``@asynccontextmanager`` 的 lifespan。关闭顺序按依赖关系执行：取消 PipelineRunner → 关闭
+子进程 → 关闭 WebSocket 与日志 tailer → 刷新日志缓冲；APScheduler 与数据库关闭在后续
+里程碑接入。
 
 CORS（docs/05 §5.1）
 ====================
@@ -57,27 +55,32 @@ OpenAPI（docs/05 §11）
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import platform
+from pathlib import Path
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from importlib.metadata import version as distribution_version
-from typing import Protocol
+from typing import Any, Protocol
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from maa_api.api.errors import register_exception_handlers
-from maa_api.api.routers import logs, screenshots, system, tasks
+from maa_api.api.routers import atomic, logs, pipelines, queue, screenshots, system, tasks
+from maa_api.api.ws import manager as ws_manager
 from maa_api.api.ws import router as ws_router
 from maa_api.db.migrate import ensure_schema
 from maa_api.services.log_hub import LogHub, set_log_hub
 from maa_api.services.log_wiring import (
+    install_core_logging,
     install_service_logging,
     start_core_debug_tailer,
     stop_logging,
 )
-from maa_api.settings import get_settings, load_settings, set_settings
+from maa_api.settings import REPO_ROOT, get_settings, load_settings, set_settings
 
 __all__ = [
     "CORS_HEADERS",
@@ -221,16 +224,17 @@ def warn_if_auth_disabled() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """启动 / 关闭序列（docs/02 §7 九步的 M3 落地版）。
+    """启动 / 关闭序列（docs/02 §7，当前落地到 M5）。
 
     启动（进入时）：
 
     1. 加载配置 —— ``config.yaml`` → DB 覆盖项 → 环境变量（M6 才接 DB 层）
     2. 初始化数据库引擎并执行 Alembic 迁移到 head（:func:`ensure_schema`，失败即启动失败）
     3. 记录 ``app.state.started_at``（UTC ISO 8601 字符串，M3-07 的 health 读它）
-    4. 其余步骤见下面的 ``# M4+:`` 扩展位
+    4. 启动 LogHub 与日志来源
+    5. 启动 MaaCore 子进程与 PipelineRunner；连接设备不阻塞启动
 
-    关闭（退出时）：M3 没有可关闭的组件，关闭顺序留给后续里程碑。
+    关闭（退出时）：先收尾流水线，再关闭 MaaCore，最后刷新并关闭日志服务。
     """
     # 第 1 步：加载配置。整份配置的读侧入口是 maa_api.settings.get_settings()，
     # lifespan 只负责在启动时刷新一次进程内缓存（文件改动不会自动生效）。
@@ -260,20 +264,212 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         del app.state.log_hub
         raise
 
-    # M5+: 第 4 步 启动 CoreSupervisor，**不阻塞等待**（后台完成资源加载与连接）
-    # M5+: 第 5 步 启动 PipelineRunner 消费循环
+    # M5 第 4–5 步：接入 MaaCore 子进程与单消费者流水线执行器。
+    core_supervisor = None
+    core_client = None
+    pipeline_runner = None
+    connection_attempts: set[int] = set()
+    connection_tasks: set[asyncio.Task[Any]] = set()
+    connection_lock = asyncio.Lock()
+    try:
+        import maa_api.db.session as db_session
+        from maa_api.core.client import CoreClient
+        from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
+        from maa_api.core.supervisor import CoreState, CoreSupervisor
+        from maa_api.services.pipeline_runner import PipelineRunner
+        from maa_api.services.queue_service import QueueService
+
+        current_settings = get_settings()
+        system_name = platform.system()
+        maa_folder = {"Darwin": "Darwin", "Linux": "Linux", "Windows": "Win32"}.get(
+            system_name, system_name
+        )
+        configured_core_path = Path(current_settings.maa_core_path).expanduser()
+        maa_path = (
+            configured_core_path
+            if current_settings.maa_core_path
+            else REPO_ROOT / "resource" / "lib" / "maa" / maa_folder
+        )
+        if not maa_path.is_absolute():
+            maa_path = (REPO_ROOT / maa_path).resolve()
+        user_dir = REPO_ROOT / "resource" / "maa-api"
+        boot_config = {
+            "maa_path": str(maa_path),
+            "user_dir": str(user_dir),
+            "incremental_paths": [],
+            "instance_options": {},
+            "asst_factory": "maa_api.core.asst:Asst",
+            "asst_factory_kwargs": {},
+        }
+        loop = asyncio.get_running_loop()
+        runtime: dict[str, Any] = {}
+
+        def on_core_crash(record: dict[str, Any]) -> None:
+            runner = runtime.get("runner")
+            if runner is not None:
+                runner.notify_core_crash(record)
+
+        def publish_core_state(state: Any) -> None:
+            core = runtime.get("supervisor")
+            value = getattr(state, "value", str(state))
+            if core is not None:
+                ws_manager.broadcast(
+                    "core_status",
+                    {
+                        "core_id": DEFAULT_CORE_ID,
+                        "state": value,
+                        "pid": core.pid,
+                        "generation": core.generation,
+                    },
+                )
+            runner = runtime.get("runner")
+            if runner is not None:
+                runner.notify_core_state(state)
+            if value == CoreState.READY.value:
+                schedule_connection()
+
+        def on_core_state_change(state: Any) -> None:
+            try:
+                loop.call_soon_threadsafe(publish_core_state, state)
+            except RuntimeError:
+                logger.debug("应用事件循环已关闭，忽略 MaaCore 状态更新")
+
+        core_supervisor = CoreSupervisor(
+            boot_config,
+            on_crash=on_core_crash,
+            on_state_change=on_core_state_change,
+        )
+        runtime["supervisor"] = core_supervisor
+        core_client = CoreClient(core_supervisor, screencap_dir=REPO_ROOT / "resource" / "temp" / "screencap")
+        core_registry = CoreRegistry()
+        core_registry.register(DEFAULT_CORE_ID, core_client)
+
+        queue_service = QueueService(db_session.session_factory)
+        pipeline_runner = PipelineRunner(
+            core_registry,
+            core_supervisor,
+            db_session.session_factory,
+            queue_service=queue_service,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+        )
+        runtime["runner"] = pipeline_runner
+        queue_service.bind_runner(
+            pipeline_runner.wake,
+            operation_lock=pipeline_runner.operation_lock,
+        )
+        install_core_logging(
+            core_client,
+            hub,
+            context_provider=pipeline_runner.log_context,
+        )
+        app.state.core_supervisor = core_supervisor
+        app.state.core_client = core_client
+        app.state.core_registry = core_registry
+        app.state.pipeline_runner = pipeline_runner
+        app.state.queue_service = queue_service
+
+        async def connect_for_generation() -> None:
+            """M5 bridge: connect once per CoreSupervisor generation.
+
+            M6 replaces this small boot/restart hook with DeviceManager's full
+            retry policy and user-controlled reconnect endpoint.
+            """
+            async with connection_lock:
+                if core_supervisor.state is not CoreState.READY:
+                    return
+                generation = core_supervisor.generation
+                if generation in connection_attempts:
+                    return
+                connection_attempts.add(generation)
+                try:
+                    if not await core_client.connected():
+                        await core_client.connect(
+                            current_settings.adb.path,
+                            current_settings.adb.address,
+                            "General",
+                        )
+                    logger.info(
+                        "MaaCore generation %s connected to %s",
+                        generation,
+                        current_settings.adb.address,
+                    )
+                except Exception:  # noqa: BLE001 - device availability must not block HTTP
+                    logger.exception(
+                        "MaaCore generation %s could not connect to %s",
+                        generation,
+                        current_settings.adb.address,
+                    )
+                pipeline_runner.notify_core_state(core_supervisor.state)
+
+        def schedule_connection() -> None:
+            task = asyncio.create_task(connect_for_generation())
+            connection_tasks.add(task)
+            task.add_done_callback(connection_tasks.discard)
+
+        core_client.start_consumer()
+        await pipeline_runner.start()
+        try:
+            await core_supervisor.start(wait_ready=False)
+        except Exception:  # noqa: BLE001 - service stays available while core recovers
+            logger.exception("MaaCore 子进程启动失败；HTTP 服务继续启动")
+        if core_supervisor.state is CoreState.READY:
+            schedule_connection()
+    except BaseException:
+        for task in tuple(connection_tasks):
+            task.cancel()
+        if connection_tasks:
+            await asyncio.gather(*connection_tasks, return_exceptions=True)
+        if pipeline_runner is not None:
+            await pipeline_runner.stop()
+        if core_supervisor is not None:
+            try:
+                await core_supervisor.stop()
+            except Exception:
+                logger.exception("清理启动失败的 MaaCore 子进程时出错")
+        if core_client is not None:
+            core_client.close()
+        await stop_logging(tailer_task, hub)
+        raise
+
     # M6+: 第 6 步 启动 DeviceManager 的连接监控
     # M6+: 第 7 步 从 DB 装载定时任务，启动 APScheduler
     # M11+/M12+: 第 8 步 注册 ToolRegistry，挂载 MCP endpoint
 
-    # 第 9 步：yield 之后 uvicorn 才开始接受 HTTP 请求。M4 不启动或等待内核进程。
+    # 第 9 步：yield 之后 uvicorn 才开始接受 HTTP 请求；子进程 READY 与设备连接
+    # 均在后台发生，不阻塞 HTTP 服务的启动。
     try:
         yield
     finally:
-        # M4 关闭顺序：关闭 WS，取消 tailer，再刷新 LogHub 的落库批次。
+        # 关闭顺序：停止消费 / 收尾当前任务 → 关闭子进程 → 关闭 WS/tailer → 刷盘。
+        for task in tuple(connection_tasks):
+            task.cancel()
+        if connection_tasks:
+            await asyncio.gather(*connection_tasks, return_exceptions=True)
+        if pipeline_runner is not None:
+            await pipeline_runner.stop()
+        if core_supervisor is not None:
+            try:
+                await core_supervisor.stop()
+            except Exception:
+                logger.exception("关闭 MaaCore 子进程失败")
+        if core_client is not None:
+            core_client.close()
         await stop_logging(tailer_task, hub)
-        if hasattr(app.state, "log_hub"):
-            del app.state.log_hub
+        import maa_api.db.session as db_session
+
+        await db_session.engine.dispose()
+        for attribute in (
+            "core_supervisor",
+            "core_client",
+            "core_registry",
+            "pipeline_runner",
+            "queue_service",
+            "log_hub",
+        ):
+            if hasattr(app.state, attribute):
+                delattr(app.state, attribute)
 
 
 # ----------------------------------------------------------------------
@@ -305,6 +501,9 @@ def create_app() -> FastAPI:
     # 旧 static 挂载也不做 —— SPA catch-all 归 M8。
     app.include_router(system.router)
     app.include_router(tasks.router)
+    app.include_router(pipelines.router)
+    app.include_router(queue.router)
+    app.include_router(atomic.router)
     app.include_router(logs.router)
     app.include_router(screenshots.router)
     app.include_router(ws_router)

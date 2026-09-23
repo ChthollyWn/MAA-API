@@ -202,6 +202,49 @@ class PipelineRepository(BaseRepository):
         )
         return result.scalars().first()
 
+    async def list_running(self, core_id: str = "default") -> list[Pipeline]:
+        """Return every running pipeline for recovery after a process restart."""
+        result = await self.session.execute(
+            select(Pipeline)
+            .where(
+                Pipeline.core_id == core_id,
+                Pipeline.status == PipelineStatus.RUNNING,
+            )
+            .order_by(Pipeline.started_at.asc(), Pipeline.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_pending(
+        self, core_id: str = "default", *, source: PipelineSource | None = None
+    ) -> list[Pipeline]:
+        """Return queued rows in dequeue order, optionally restricted by source."""
+        conditions: list[Any] = [
+            Pipeline.core_id == core_id,
+            Pipeline.status == PipelineStatus.PENDING,
+        ]
+        if source is not None:
+            conditions.append(Pipeline.source == source)
+        result = await self.session.execute(
+            select(Pipeline)
+            .where(*conditions)
+            .order_by(Pipeline.priority.asc(), Pipeline.created_at.asc(), Pipeline.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def release_expired_idempotency_key(
+        self, key: str, *, older_than: datetime
+    ) -> bool:
+        """Allow a key to be reused after its documented 24-hour window."""
+        result = await self.session.execute(
+            update(Pipeline)
+            .where(
+                Pipeline.idempotency_key == key,
+                Pipeline.created_at < older_than,
+            )
+            .values(idempotency_key=None)
+        )
+        return result.rowcount > 0
+
     async def count_pending(self, core_id: str = "default") -> int:
         """待执行队列长度（复用 ``ix_pipeline_dequeue`` 前缀）。"""
         return await self.count(
@@ -322,6 +365,10 @@ class TaskRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
+    async def get(self, task_id: str) -> Task | None:
+        """Get one task by its public UUID."""
+        return await self.session.get(Task, task_id, populate_existing=True)
+
     async def bind_maa_task_id(self, task_id: str, maa_task_id: int) -> None:
         """回写 ``AsstAppendTask`` 的返回值（内核 task id）。
 
@@ -339,6 +386,7 @@ class TaskRepository(BaseRepository):
         status: TaskStatus,
         *,
         error_code: str | None = None,
+        error_message: str | None = None,
     ) -> None:
         """更新任务状态，并按目标状态补时间戳。
 
@@ -347,7 +395,11 @@ class TaskRepository(BaseRepository):
         即清空，重试回到 ``RUNNING`` 时旧错误码不该留着）。
         """
         target = TaskStatus(status)
-        values: dict[str, Any] = {"status": target, "error_code": error_code}
+        values: dict[str, Any] = {
+            "status": target,
+            "error_code": error_code,
+            "error_message": error_message,
+        }
         if target is TaskStatus.RUNNING:
             values["started_at"] = utcnow()
         elif target in TERMINAL_TASK_STATUSES:
