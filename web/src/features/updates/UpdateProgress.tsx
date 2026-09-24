@@ -64,6 +64,7 @@ export function UpdateProgress({ record, busy = false, onCancel }: UpdateProgres
             type="button"
             variant="outline"
             size="sm"
+            className="min-h-11"
             disabled={!canCancel || busy}
             onClick={() => onCancel(record.id)}
           >
