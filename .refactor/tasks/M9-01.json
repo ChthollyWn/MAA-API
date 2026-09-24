@@ -1,0 +1,57 @@
+{
+  "id": "M9-01",
+  "milestone": "M9",
+  "title": "交付 schema 驱动的任务创建、队列与执行历史",
+  "depends": ["M8-01", "M8-02", "M8-03", "M8-04", "M8-09", "M9-06"],
+  "reads": [
+    "docs/09-前端重构方案.md#6.2-任务",
+    "docs/09-前端重构方案.md#7.1-为什么必须-schema-驱动",
+    "docs/09-前端重构方案.md#7.2-schema-契约",
+    "docs/09-前端重构方案.md#7.3-schema-到控件的映射规则",
+    "docs/09-前端重构方案.md#7.4-复杂参数的具体处理",
+    "docs/05-API规范与路由清单.md#3.2-分页",
+    "docs/05-API规范与路由清单.md#6.5-pipelines",
+    "docs/05-API规范与路由清单.md#6.6-queue",
+    "docs/05-API规范与路由清单.md#6.7-tasks",
+    "docs/05-API规范与路由清单.md#7-任务提交的请求体设计",
+    "docs/05-API规范与路由清单.md#8-get-apitasks-types-的-schema-导出",
+    "docs/02-系统架构设计.md#5.1-优先级",
+    "docs/02-系统架构设计.md#5.2-队列语义",
+    "docs/13-决策记录.md#4-待补齐的契约缺口",
+    "maa_api/domain/task.py#任务类型与x-widget/x-risk元数据",
+    "maa_api/api/routers/tasks.py#任务类型schema与校验",
+    "maa_api/api/routers/resources.py#item-catalog（M9-06）",
+    "maa_api/api/routers/pipelines.py#提交/分页/详情/取消/重试",
+    "maa_api/api/routers/queue.py#队列快照与控制",
+    "web/src/api/client.ts#api",
+    "web/src/api/keys.ts#keys",
+    "web/src/components/ui/button.tsx",
+    "web/src/components/ui/card.tsx",
+    "web/src/components/ui/badge.tsx",
+    "web/src/components/ui/input.tsx",
+    "web/src/components/ui/label.tsx",
+    "web/src/components/ui/tabs.tsx",
+    "web/src/routes/dashboard/dashboard.test.tsx#前端测试约定"
+  ],
+  "constraints": [
+    "任务类型、字段、默认值、范围、标签、分组、依赖关系、枚举和风险标记必须从 GET /api/tasks/types 动态读取；覆盖返回的全部 9 种类型与每个 schema 字段，不在 UI 中维护字段副本。导出可复用的 DynamicTaskForm({ taskType, value, onChange, disabled? }) 组件接口，供 M9-03 的定时模板编辑复用；taskType 是类型 schema item，value 是 params 对象。",
+    "实现 JSON Schema 可空分支归一化、依赖禁用与说明、x-enum-labels、x-risk 汇总确认、runtime_immutable、服务端 POST /api/tasks/validate 和 422 错误就地呈现；对未识别/联合/复杂 schema 提供可提交 JSON 值的明确兜底编辑器。支持 item-count-map、duration-map、ordered-list 等已导出的 x-widget，并保留类型语义。",
+    "任务可增删、配置和调整顺序；显式向上/下移动控件须可触屏及键盘操作。提交前校验，使用随机 Idempotency-Key，并在成功、错误、等待期间给用户清楚反馈。",
+    "队列显示服务端顺序、来源/优先级/当前项；暂停、恢复、单项取消、清空待执行条目均需显式确认或反馈。‘停止当前并执行此条’必须由用户明确点击并说明会取消当前流水线，不实现抢占。历史遵守 API 分页 total/page/size，详情显示任务状态和可用的重试/取消动作。",
+    "沿用当前 Tailwind token、React Query、API 客户端和 Lucide 图标；移动优先、常规交互至少 44px、表单有可见标签/错误、浅深色一致；不使用 emoji 图标、原始颜色、CDN 或新依赖。",
+    "只交付 web/src/features/tasks/** 与 web/src/routes/tasks/**；不得修改共享路由、导航、全局样式、其他卡交付文件、.refactor 台账或 Git 状态/提交。"
+  ],
+  "deliverables": [
+    "web/src/features/tasks",
+    "web/src/routes/tasks"
+  ],
+  "verify": [
+    "cd web && pnpm test --run src/features/tasks/tasks.test.tsx",
+    "cd web && pnpm typecheck"
+  ],
+  "prompt_extra": "实现默认导出的任务页面组件，保留在 web/src/routes/tasks/index.tsx；路由由后续 M9-05 接线。测试需构造真实格式的 9 类型 schema fixture，断言 schema 字段覆盖/风险确认/服务端校验错误/队列与分页交互。只写卡片交付目录。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

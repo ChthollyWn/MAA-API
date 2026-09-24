@@ -1,0 +1,42 @@
+{
+  "id": "M9-06",
+  "milestone": "M9",
+  "title": "补齐 Fight.drops 物品目录只读 API 与 OpenAPI 契约",
+  "depends": ["M8-01", "M8-09"],
+  "reads": [
+    "docs/09-前端重构方案.md#7.4-复杂参数的具体处理",
+    "docs/05-API规范与路由清单.md#6.13-resources",
+    "docs/03-MaaCore内核层设计.md#1.2-实验性API与能力探测",
+    "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题",
+    "maa_api/main.py#应用路由装配与MAA资源路径",
+    "maa_api/settings.py#Settings",
+    "maa_api/services/resource_update.py#repo资源层落点",
+    "tests/api/test_tasks_router.py#API测试夹具",
+    "web/openapi.json#OpenAPI生成快照",
+    "scripts/dump_openapi.py#快照生成与校验"
+  ],
+  "constraints": [
+    "实现 GET /api/resources/items，读取当前配置 MaaCore resource/item_index.json 并返回稳定的 [{item_id,name,icon_url}] 列表；item_id 来自 JSON 对象 key，icon_url 同源并指向该 item_index 记录的 template/items 图片。读取错误以统一 JSON API 错误返回，不能触发 MaaCore 加载或外部网络。",
+    "缓存结果并可因 item_index 文件更新而失效；item_id/icon 文件路径只能来自已解析的索引记录，避免用户可控路径拼接或越界读取。只暴露可用图片，未知物品图片给稳定占位 URL/空值，具体行为写入 OpenAPI。",
+    "更新 docs/05 §6.13 路由清单、生成的 web/openapi.json 与 web/src/types/api.d.ts；不手改生成类型。测试覆盖成功解析、缺失/无效索引、名称与图标映射及路径隔离。保持现有鉴权与统一错误约定。",
+    "只交付 maa_api/api/routers/resources.py、maa_api/main.py、tests/api/test_resources_router.py、docs/05-API规范与路由清单.md、web/openapi.json、web/src/types/api.d.ts；不得修改其他卡交付文件、其他台账、全局 UI 或提交 Git。"
+  ],
+  "deliverables": [
+    "maa_api/api/routers/resources.py",
+    "maa_api/main.py",
+    "tests/api/test_resources_router.py",
+    "docs/05-API规范与路由清单.md",
+    "web/openapi.json",
+    "web/src/types/api.d.ts"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/api/test_resources_router.py",
+    ".venv/bin/python scripts/dump_openapi.py --check",
+    "cd web && pnpm gen:api:check"
+  ],
+  "prompt_extra": "M9-01 的 DynamicTaskForm 会调用该 endpoint 搜索 Fight.drops 的 item_id；定义一条简单而稳定的响应契约，并确保 OpenAPI 在无真实 MaaCore 启动时仍能导出该路径。该资源文件可能不存在于最小安装；此时返回明确的 JSON API 错误。只修改卡片交付文件。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

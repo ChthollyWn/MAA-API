@@ -1,0 +1,15 @@
+{
+  "milestone": "M9",
+  "deliverable": "交付移动优先的前端功能页：任务 schema 驱动表单、任务队列和执行历史；内核/活动资源/游戏更新面板；可视化定时任务（保留旧版按星期与任务组逻辑）；完整设置与通知通道管理。所有页面通过已存在的 OpenAPI 契约访问后端，并保持桌面适配、离线同源构建、键盘可用和深色/浅色主题一致。旧版 static/daily.html、static/js/app.js 与 static/css/style.css 不再作为运行时入口。",
+  "acceptance": [
+    ".venv/bin/python scripts/dump_openapi.py --check",
+    "cd web && pnpm install --frozen-lockfile && pnpm gen:api:check && pnpm typecheck && pnpm test --run && pnpm build",
+    ".venv/bin/python -m pytest -q",
+    ".venv/bin/python scripts/frontend_smoke.py",
+    "test ! -e static/daily.html && test ! -e static/js/app.js && test ! -e static/css/style.css"
+  ],
+  "advisory": [
+    "在 375px、平板宽度、桌面宽度及横屏下手工检查任务配置、队列、定时任务和设置；分别检查浅色/深色主题、键盘操作与 prefers-reduced-motion。若可用真机，在手机浏览器和已安装 PWA 中检查触控目标与安全区。"
+  ],
+  "_note": "M9 前端页依赖的后端契约已在 M3/M6/M7 交付；为 Fight.drops 物品选择器补齐 docs/09 §7.4 指定的 GET /api/resources/items 契约。任务表单以 GET /api/tasks/types 导出的九种 JSON Schema 为唯一字段来源；时间/星期配置按 docs/09 §15.4 转换成 schedule cron。实现应沿用 M8 设计 token，不引入 CDN 或未锁定依赖。"
+}
