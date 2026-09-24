@@ -36,8 +36,8 @@
     "cd web && pnpm gen:api:check"
   ],
   "prompt_extra": "M9-01 的 DynamicTaskForm 会调用该 endpoint 搜索 Fight.drops 的 item_id；定义一条简单而稳定的响应契约，并确保 OpenAPI 在无真实 MaaCore 启动时仍能导出该路径。该资源文件可能不存在于最小安装；此时返回明确的 JSON API 错误。只修改卡片交付文件。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "9d9f245",
   "blocked_reason": null
 }
