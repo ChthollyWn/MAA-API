@@ -42,7 +42,20 @@ async def list_snippets(request: Request) -> ApiSnippetPage:
     response_model=ApiSnippetView,
     status_code=status.HTTP_201_CREATED,
     summary="创建 API 调试台收藏",
-    responses=error_responses("API_SNIPPET_NAME_CONFLICT", "VALIDATION_ERROR", "UNAUTHORIZED"),
+    responses={
+        **error_responses(
+            "API_SNIPPET_NAME_CONFLICT", "VALIDATION_ERROR", "UNAUTHORIZED"
+        ),
+        201: {
+            "description": "Created",
+            "headers": {
+                "Location": {
+                    "description": "URI of the created API snippet",
+                    "schema": {"type": "string"},
+                }
+            },
+        },
+    },
     dependencies=[Depends(require_auth)],
 )
 async def create_snippet(

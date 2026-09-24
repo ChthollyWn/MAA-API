@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import sqlite3
 
 import maa_api.db.models  # noqa: F401
 from fastapi import FastAPI
@@ -150,6 +152,85 @@ def test_snippet_name_validation_and_missing_update(isolated_db, make_client, tm
 
 
 @pytest.mark.parametrize("tmp_settings", ["snippet-secret"], indirect=True)
+@pytest.mark.parametrize("path", [r"/\evil.example/path", r"/\\evil.example/path"])
+def test_snippet_rejects_backslash_paths_that_can_become_cross_origin(
+    path, isolated_db, make_client, tmp_settings
+):
+    client = _snippet_client(isolated_db, make_client)
+
+    response = client.post(
+        "/api/snippets",
+        json={"name": "unsafe", "method": "GET", "path": path},
+        headers={"X-Token": "snippet-secret"},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("tmp_settings", ["snippet-secret"], indirect=True)
+def test_snippet_reads_sanitize_credentials_from_legacy_rows(
+    isolated_db, make_client, tmp_settings
+):
+    client = _snippet_client(isolated_db, make_client)
+    snippet_id = "legacy-snippet-with-secrets"
+    headers = {
+        "Authorization": "Bearer old-auth-secret",
+        "X-Token": "old-x-token-secret",
+        "Cookie": "session=old-cookie-secret",
+        "X-Api-Key": "old-api-key-secret",
+        "X-Secret": "old-secret-value",
+        "X-Debug": "keep",
+    }
+    query = {"stage": "keep", "token": "old-query-token-secret"}
+
+    with sqlite3.connect(db_session.DB_PATH) as connection:
+        connection.execute(
+            """
+            INSERT INTO api_snippet (
+                id, name, method, path, path_params, query, headers, body,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snippet_id,
+                "legacy",
+                "GET",
+                "/api/system/health",
+                "{}",
+                json.dumps(query),
+                json.dumps(headers),
+                "null",
+                "2026-09-25 00:00:00",
+                "2026-09-25 00:00:00",
+            ),
+        )
+
+    list_response = client.get(
+        "/api/snippets", headers={"X-Token": "snippet-secret"}
+    )
+    detail_response = client.get(
+        f"/api/snippets/{snippet_id}", headers={"X-Token": "snippet-secret"}
+    )
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    for item in [list_response.json()["items"][0], detail_response.json()]:
+        assert item["query"] == {"stage": "keep"}
+        assert item["headers"] == {"X-Debug": "keep"}
+        assert all(
+            secret not in json.dumps(item)
+            for secret in (
+                "old-auth-secret",
+                "old-x-token-secret",
+                "old-cookie-secret",
+                "old-api-key-secret",
+                "old-secret-value",
+                "old-query-token-secret",
+            )
+        )
+
+
+@pytest.mark.parametrize("tmp_settings", ["snippet-secret"], indirect=True)
 def test_snippet_openapi_keeps_timestamp_format(isolated_db, make_client, tmp_settings):
     client = _snippet_client(isolated_db, make_client)
     schema = client.get("/openapi.json").json()
@@ -157,3 +238,14 @@ def test_snippet_openapi_keeps_timestamp_format(isolated_db, make_client, tmp_se
 
     assert response["created_at"]["format"] == "date-time"
     assert response["updated_at"]["format"] == "date-time"
+
+
+@pytest.mark.parametrize("tmp_settings", ["snippet-secret"], indirect=True)
+def test_snippet_create_openapi_declares_location_header(
+    isolated_db, make_client, tmp_settings
+):
+    client = _snippet_client(isolated_db, make_client)
+    schema = client.get("/openapi.json").json()
+    response = schema["paths"]["/api/snippets"]["post"]["responses"]["201"]
+
+    assert response["headers"]["Location"]["schema"]["type"] == "string"

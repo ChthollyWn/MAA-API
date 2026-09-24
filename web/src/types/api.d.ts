@@ -5998,9 +5998,11 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Created */
             201: {
                 headers: {
+                    /** @description URI of the created API snippet */
+                    Location?: string;
                     [name: string]: unknown;
                 };
                 content: {

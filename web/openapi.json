@@ -7389,7 +7389,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Created",
+            "headers": {
+              "Location": {
+                "description": "URI of the created API snippet",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
