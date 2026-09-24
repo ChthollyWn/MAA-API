@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, BookOpen, ChevronDown, ChevronUp, Copy, Heart, Plus, RefreshCw, Send, Trash2, Wifi, WifiOff } from 'lucide-react'
-import { useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -332,6 +332,7 @@ function LogContents({ logs, timeline, requestId, connection }: {
 }
 
 function ApiConsolePage() {
+  const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const token = useAuth((state) => state.token)
@@ -361,6 +362,7 @@ function ApiConsolePage() {
   const [notice, setNotice] = useState('')
   const imageUrlRef = useRef<string | null>(null)
   const drawerTouchStart = useRef<number | null>(null)
+  const guideRoute = location.pathname.replace(/\/$/, '') === '/more/api-console/guide'
 
   const effectiveToken = tokenOverride ? temporaryToken.trim() || null : token
   const openApiQuery = useConsoleOpenApi(baseUrl, effectiveToken)
@@ -657,7 +659,8 @@ function ApiConsolePage() {
   </section>
 
   return <div className="min-h-[calc(100dvh-8rem)] space-y-3 px-3 pb-5 pt-4 sm:px-5">
-    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">更多 · OpenAPI</p><h1 className="text-2xl font-semibold tracking-tight">API 调试台</h1><p className="mt-1 text-sm text-muted-foreground">动态接口、请求追踪和命名收藏集中在一处。</p></div><details className="max-w-full"><summary className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border bg-card px-3 text-sm font-medium"><BookOpen aria-hidden="true" className="size-4" />接入指南<ChevronDown aria-hidden="true" className="size-4" /></summary><Card className="absolute right-3 z-30 mt-2 max-h-[75dvh] w-[min(42rem,calc(100vw-1.5rem))] overflow-y-auto shadow-lg"><CardHeader><CardTitle>指南预览</CardTitle></CardHeader><CardContent className="space-y-3"><GuideMarkdown /></CardContent></Card></details></header>
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">更多 · OpenAPI</p><h1 className="text-2xl font-semibold tracking-tight">API 调试台</h1><p className="mt-1 text-sm text-muted-foreground">动态接口、请求追踪和命名收藏集中在一处。</p></div>{guideRoute ? <Button asChild variant="outline"><Link to="/more/api-console">返回 API 调试台</Link></Button> : <details className="max-w-full"><summary className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border bg-card px-3 text-sm font-medium"><BookOpen aria-hidden="true" className="size-4" />接入指南<ChevronDown aria-hidden="true" className="size-4" /></summary><Card className="absolute right-3 z-30 mt-2 max-h-[75dvh] w-[min(42rem,calc(100vw-1.5rem))] overflow-y-auto shadow-lg"><CardHeader><CardTitle>指南预览</CardTitle></CardHeader><CardContent className="space-y-3"><GuideMarkdown /><Button asChild variant="outline" size="sm"><Link to="/more/api-console/guide">打开完整指南</Link></Button></CardContent></Card></details>}</header>
+    {guideRoute ? <section aria-label="开放 API 接入指南" className="rounded-xl border bg-card p-4 md:p-6"><GuideMarkdown /></section> : null}
     <div className="grid gap-2 rounded-xl border bg-muted/20 p-3 md:grid-cols-[minmax(12rem,1fr)_minmax(12rem,1fr)_auto] md:items-end"><div className="space-y-1"><Label htmlFor="console-global-base" className="text-xs">Base URL</Label><Input id="console-global-base" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="同源相对地址" /></div><div className="space-y-1"><Label htmlFor="console-global-token" className="text-xs">临时 token（当前页）</Label><Input id="console-global-token" type="password" value={temporaryToken} onChange={(event) => { setTemporaryToken(event.target.value); setTokenOverride(true) }} placeholder={token ? '默认使用登录 token' : '仅当前页有效'} /></div><div className="flex items-center gap-2 md:justify-end"><Badge variant={baseUrl.trim() || tokenOverride ? 'warning' : 'secondary'}>{baseUrl.trim() || tokenOverride ? '自定义环境' : '默认环境'}</Badge><Button type="button" variant="outline" size="sm" onClick={() => { setTokenOverride(false); setTemporaryToken('') }}>重置 token</Button></div></div>
     {openApiQuery.isLoading ? <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground" role="status">正在读取 `/openapi.json`…</p> : null}
     <div data-testid="api-console-grid" data-layout={narrow ? 'mobile' : 'desktop'} className="grid min-h-[calc(100dvh-14rem)] gap-3 md:grid-cols-[280px_minmax(22rem,1fr)_minmax(20rem,40%)] md:items-start">

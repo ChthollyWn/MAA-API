@@ -112,11 +112,24 @@ describe('API console route and request workspace', () => {
     expect(screen.getByRole('link', { name: 'OpenAPI 文档' })).toHaveAttribute('href', '/docs')
     expect(screen.getByRole('link', { name: 'ReDoc' })).toHaveAttribute('href', '/redoc')
     fireEvent.click(screen.getByText('接入指南'))
+    expect(screen.getByRole('link', { name: '打开完整指南' })).toHaveAttribute('href', '/more/api-console/guide')
     expect(await screen.findByRole('heading', { name: '开放 API 接入指南' })).toBeInTheDocument()
     expect(screen.getByText(/仅凭 cookie 的请求只允许/)).toBeInTheDocument()
     const routeGuideLink = screen.getAllByRole('link', { name: /05-API规范与路由清单/ })[0]
     expect(routeGuideLink).toHaveAttribute('href', '/docs')
     expect(routeGuideLink).toHaveTextContent('/docs')
+  })
+
+  it('opens the same API console with the shared guide visible at its direct route', async () => {
+    const network = installNetwork()
+    renderAt('/more/api-console/guide')
+
+    expect(await screen.findByRole('heading', { name: 'API 调试台' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '开放 API 接入指南' })).toBeInTheDocument()
+    expect(screen.getByText(/仅凭 cookie 的请求只允许/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '返回 API 调试台' })).toHaveAttribute('href', '/more/api-console')
+    expect(await screen.findByRole('button', { name: /回显一条消息/ })).toBeInTheDocument()
+    expect(network.requests.some((request) => new URL(request.url).pathname === '/openapi.json')).toBe(true)
   })
 
   it('shows the mobile request step at 375px and still sends a schema-invalid JSON body', async () => {
