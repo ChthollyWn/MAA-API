@@ -426,7 +426,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 
 ### 6.3 device
 
-设备相关操作分两条通道，`backend` 字段在响应中明示。**`click` 走 MaaCore 的 `AsstAsyncClick`；`swipe` / `long_press` / `input_text` / `key_event` 一律走 ADB**——MaaCore 的 C API 里只有点击，没有滑动、长按、输入文本与按键，这是内核的硬约束。所有原子操作**不入队列**，直接投递；流水线运行中调用返回 `409 PIPELINE_ALREADY_RUNNING`，除非带 `force=true`（会被审计标记为强制介入）。
+设备相关操作分两条通道，`backend` 字段在响应中明示。**`click` 走 MaaCore 的 `AsstAsyncClick`；`swipe` / `long_press` / `input_text` / `key_event` 一律走 ADB**——MaaCore 的 C API 里只有点击，没有滑动、长按、输入文本与按键，这是内核的硬约束。所有原子操作**不入队列**，直接投递；流水线运行中调用返回 `409 PIPELINE_ALREADY_RUNNING`，除非带 `force=true`。M10 手动 REST 路径用 `force=true` 时仅写强制介入警告日志，不创建 `agent_audit` 记录；Agent 工具调用的审计依照 M11 的 Agent 工作流契约。
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
@@ -1089,7 +1089,7 @@ def normalize(task: TaskInput, defaults: ChannelDefaults) -> NormalizedTask:
 
 **状态流转靠条件更新兜底。** 所有终态流转写成 `UPDATE ... WHERE id = ? AND status = ?`，用影响行数判断是否被接受，返回 0 行则转成 409。细节见 [04-数据模型与持久化](./04-数据模型与持久化.md) 的仓储层章节。
 
-**原子操作与流水线的冲突。** 流水线运行中调用 `POST /api/device/*` 或 `/api/core/back_to_home` 返回 `409 PIPELINE_ALREADY_RUNNING`；带 `force=true` 则执行，但 `agent_audit.forced` 记为真。agent 的"卡死救援"场景应遵循的序列是：先 `DELETE /api/pipelines/{id}` 停止流水线，再做原子操作——这条序列写进工具描述里，而不是靠 agent 自己推断。
+**原子操作与流水线的冲突。** 流水线运行中调用 `POST /api/device/*` 或 `/api/core/back_to_home` 返回 `409 PIPELINE_ALREADY_RUNNING`；M10 手动 REST 请求带 `force=true` 则执行，并写强制介入警告日志，但该 REST 路径不创建 `agent_audit` 记录。Agent 工具调用的审计按 M11 Agent 工作流契约处理。Agent 的"卡死救援"场景应遵循的序列是：先 `DELETE /api/pipelines/{id}` 停止流水线，再做原子操作——这条序列写进工具描述里，而不是靠 agent 自己推断。
 
 **WebSocket 与 REST 的一致性。** 两者读的是同一份数据库状态，WS 事件只是变更通知，不携带权威状态。前端收到 `pipeline_status_changed` 后若需完整数据应重新拉取，避免乱序的事件覆盖了较新的状态。
 

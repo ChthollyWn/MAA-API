@@ -21,6 +21,45 @@ def test_error_table_is_generated_from_status_and_authoritative_descriptions():
     assert "| `API_SNIPPET_NOT_FOUND` | 404 | 收藏不存在 |" in table
 
 
+def test_unreleased_error_families_have_neutral_descriptions():
+    reserved_description = "预留错误码；对应功能未交付（M11/M13）"
+    table = render_error_table(
+        codes=[
+            "CONFIRMATION_EXPIRED",
+            "AGENT_SESSION_BUSY",
+            "TOOL_EXECUTION_FAILED",
+            "LLM_TIMEOUT",
+            "PIPELINE_NOT_FOUND",
+        ],
+        statuses={
+            "CONFIRMATION_EXPIRED": 409,
+            "AGENT_SESSION_BUSY": 409,
+            "TOOL_EXECUTION_FAILED": 500,
+            "LLM_TIMEOUT": 504,
+            "PIPELINE_NOT_FOUND": 404,
+        },
+        source_rows={
+            "CONFIRMATION_EXPIRED": "超时未响应，已自动拒绝。默认超时 10 分钟",
+            "AGENT_SESSION_BUSY": "该会话上一轮 tool-calling 循环尚未结束",
+            "TOOL_EXECUTION_FAILED": "工具实现内部抛出未预期异常",
+            "LLM_TIMEOUT": "上游在超时内未返回",
+            "PIPELINE_NOT_FOUND": "id 不存在",
+        },
+    )
+
+    for code, status in (
+        ("CONFIRMATION_EXPIRED", 409),
+        ("AGENT_SESSION_BUSY", 409),
+        ("TOOL_EXECUTION_FAILED", 500),
+        ("LLM_TIMEOUT", 504),
+    ):
+        assert f"| `{code}` | {status} | {reserved_description} |" in table
+    assert "超时未响应" not in table
+    assert "tool-calling" not in table
+    assert "上游在超时内" not in table
+    assert "| `PIPELINE_NOT_FOUND` | 404 | id 不存在 |" in table
+
+
 def test_missing_authoritative_error_description_fails_loudly():
     with pytest.raises(ValueError, match="缺少错误码说明.*MISSING"):
         render_error_table(
