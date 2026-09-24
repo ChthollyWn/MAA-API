@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react'
-import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router'
+import { createBrowserRouter, Navigate, RouterProvider, useLocation, useNavigate, type RouteObject } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, LoaderCircle } from 'lucide-react'
 import { api } from '@/api/client'
@@ -15,7 +15,42 @@ import { useAuth } from '@/stores/auth'
 const DashboardPage = lazy(() => import('@/routes/dashboard'))
 const LogsPage = lazy(() => import('@/routes/logs'))
 const NotFoundPage = lazy(() => import('@/routes/not-found'))
+const TasksPage = lazy(() => import('@/routes/tasks'))
+const UpdatesPage = lazy(() => import('@/routes/updates'))
+const SchedulesPage = lazy(() => import('@/routes/schedules'))
+const SettingsPage = lazy(() => import('@/routes/settings'))
+const MorePage = lazy(() => import('@/routes/more'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
+const TASK_VIEW_PATHS = { create: '/tasks', queue: '/tasks/queue', history: '/tasks/history' } as const
+
+function taskViewForPath(pathname: string): keyof typeof TASK_VIEW_PATHS {
+  if (pathname === TASK_VIEW_PATHS.queue) return 'queue'
+  if (pathname === TASK_VIEW_PATHS.history || /^\/tasks\/history\/[^/]+\/?$/.test(pathname)) return 'history'
+  return 'create'
+}
+
+function taskPipelineIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/tasks\/history\/([^/]+)\/?$/)
+  if (!match?.[1]) return null
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
+}
+
+function TasksRoutePage() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const selectedView = taskViewForPath(location.pathname)
+  const pipelineId = taskPipelineIdFromPath(location.pathname)
+  return <Suspended><TasksPage
+    view={selectedView}
+    routePipelineId={pipelineId}
+    onViewChange={(view) => navigate(TASK_VIEW_PATHS[view])}
+    onPipelineChange={(id) => navigate(id ? `/tasks/history/${encodeURIComponent(id)}` : TASK_VIEW_PATHS.history)}
+  /></Suspended>
+}
 
 async function exchangeStoredCookie(token: string): Promise<true> {
   const { error, response } = await api.POST('/api/system/auth/cookie', {
@@ -95,7 +130,7 @@ function ShellLayout() {
 
 const Suspended = ({ children }: { children: ReactNode }) => <Suspense fallback={<LoadingPage />}>{children}</Suspense>
 
-export const router = createBrowserRouter([
+export const routeConfig: RouteObject[] = [
   {
     path: '/login',
     lazy: async () => {
@@ -108,14 +143,22 @@ export const router = createBrowserRouter([
     element: <ShellLayout />,
     children: [
       { index: true, element: <ProtectedRoute><Suspended><DashboardPage /></Suspended></ProtectedRoute> },
-      { path: 'tasks/*', element: <ProtectedRoute><RouteUnavailable title="任务" description="任务管理页面正在开发中，入口已保留，功能开放后会在此显示。" /></ProtectedRoute> },
+      { path: 'tasks', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
+      { path: 'tasks/queue', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
+      { path: 'tasks/history', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
+      { path: 'tasks/history/:pipelineId', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
       { path: 'logs/*', element: <ProtectedRoute><Suspended><LogsPage /></Suspended></ProtectedRoute> },
       { path: 'agent/*', element: <ProtectedRoute><RouteUnavailable title="Agent" description="Agent 对话与操作入口尚未开放。" /></ProtectedRoute> },
-      { path: 'more/*', element: <ProtectedRoute><RouteUnavailable title="更多" description="设置与扩展入口尚未开放。" /></ProtectedRoute> },
+      { path: 'more', element: <ProtectedRoute><Suspended><MorePage /></Suspended></ProtectedRoute> },
+      { path: 'more/updates', element: <ProtectedRoute><Suspended><UpdatesPage /></Suspended></ProtectedRoute> },
+      { path: 'more/schedules', element: <ProtectedRoute><Suspended><SchedulesPage /></Suspended></ProtectedRoute> },
+      { path: 'more/settings', element: <ProtectedRoute><Suspended><SettingsPage /></Suspended></ProtectedRoute> },
       { path: '*', element: <ProtectedRoute><Suspended><NotFoundPage /></Suspended></ProtectedRoute> },
     ],
   },
-])
+]
+
+export const router = createBrowserRouter(routeConfig)
 
 export function ApplicationRouter() {
   return <RouterProvider router={router} />
