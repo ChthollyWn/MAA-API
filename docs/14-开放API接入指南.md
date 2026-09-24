@@ -6,19 +6,33 @@
 
 默认 Base URL 为 `http://<host>:8002`。REST 路由在 `/api` 下，实时日志 WebSocket 为 `/api/ws`。调试台的 Base URL 留空时使用同源相对路径；填写其他地址时，专用 WebSocket 也使用该地址推导出的 `/api/ws`。
 
+PWA 的 Service Worker、Push API 与 Notification API 要求安全上下文。远程或局域网部署必须通过 HTTPS 提供页面；`localhost` / `127.0.0.1` 的 HTTP 开发访问是浏览器允许的特例。部署约束与路径见 [09 §12](./09-前端重构方案.md#12-pwa-的安全上下文约束与部署路径)。
+
 本项目处于 v2 重构阶段，接口允许破坏性变更。集成方应固定服务版本，并在升级时检查 `/openapi.json` 的差异。
 
 ## 2. 鉴权
 
-`access_token` 配置后，REST 请求按以下任一方式携带 token：
+`access_token` 配置后，按以下适用场景携带同一个 token。服务端按 `Authorization`、`X-Token`、query、cookie 的优先级取第一个非空值；无效值不会回退到后续渠道，因此不要同时发送多个渠道的凭据。
+
+| 渠道 | 请求形式 | 适用场景 |
+|---|---|---|
+| Bearer（首选） | `Authorization: Bearer <token>` | 脚本、curl、服务间 REST 调用 |
+| `X-Token` | `X-Token: <token>` | 客户端不能为此 API 使用 `Authorization` 头时（请求中不要同时带无效的 `Authorization`），以及浏览器 SPA 等集成 |
+| Query | `?token=<token>` | 仅作为不能带自定义头、也没有 cookie 的 WebSocket 握手兜底；token 会进入 URL 与服务端 access log |
+| Cookie | `maa_token=<token>` | 浏览器直接导航、文档/静态资源请求与 WebSocket 握手；仅凭 cookie 的 REST 请求限于 `GET` / `HEAD` |
 
 ```bash
+# 脚本与 REST 客户端优先使用 Bearer。
 curl -H 'Authorization: Bearer <token>' http://<host>:8002/api/system/health
+
+# 如果客户端不能为此 API 使用 Authorization，改用 X-Token；不要同时发送无效的 Authorization。
 curl -H 'X-Token: <token>' http://<host>:8002/api/system/health
-curl 'http://<host>:8002/api/system/health?token=<token>'
+
+# 模拟浏览器只读请求；cookie 由浏览器自动携带。写请求不能只靠此 cookie 鉴权。
+curl -b 'maa_token=<token>' http://<host>:8002/api/system/health
 ```
 
-也支持 `maa_token=<token>` cookie。仅凭 cookie 的请求只允许 `GET`、`HEAD` 和 WebSocket 升级；写请求应使用 `Authorization` 或 `X-Token`。query token 可能进入服务端 URL/access log；调试台历史会将其剔除，但仍不适合日常 REST 调用。
+仅凭 cookie 的请求只允许 `GET`、`HEAD` 和 WebSocket 升级；写请求应使用 `Authorization` 或 `X-Token`。query token 只为浏览器 WebSocket 无法带请求头、且没有 cookie 的情况保留；它可能进入服务端 URL/access log，调试台历史会将其剔除，但仍不适合日常 REST 调用。WebSocket 的 cookie 与 query 示例见 §6。
 
 未配置 `access_token` 时，服务处于免鉴权模式；可通过 `GET /api/system/health` 的 `auth_enabled` 判断。
 
@@ -136,22 +150,22 @@ curl -X POST http://<host>:8002/api/snippets \
 | `UPDATE_QUEUE_BUSY_TIMEOUT` | 409 | 等待队列空闲超时（默认 30 分钟）且请求未带 `force_interrupt=true` |
 | `GAME_INSTALL_FAILED` | 502 | `adb install` 返回失败，`details.adb_output` 带原始输出 |
 | `GAME_VERSION_UNKNOWN` | 502 | `dumpsys` 解析不出已安装版本，无法做版本对比 |
-| `CONFIRMATION_REQUIRED` | 202 | 操作命中消耗类或破坏类策略，已创建确认请求。**唯一出现在 2xx 响应中的码**，位于 202 的正常响应体而非错误体；MCP 同步调用时作为工具结果的 `code` 返回 |
-| `CONFIRMATION_NOT_FOUND` | 404 | 确认请求 id 不存在 |
-| `CONFIRMATION_EXPIRED` | 409 | 超时未响应，已自动拒绝。默认超时按风险分级：消耗类与破坏类 10 分钟，原子操作会话授权 120 秒 |
-| `CONFIRMATION_REJECTED` | 403 | 用户明确拒绝。`details.reason` 带拒绝原因 |
-| `CONFIRMATION_ALREADY_RESOLVED` | 409 | 重复批准或拒绝已进入终态的确认请求 |
-| `AGENT_DISABLED` | 503 | Agent 模块未启用 |
-| `AGENT_SESSION_NOT_FOUND` | 404 | 会话 id 不存在 |
-| `AGENT_SESSION_BUSY` | 409 | 该会话上一轮 tool-calling 循环尚未结束 |
-| `TOOL_NOT_FOUND` | 404 | `ToolRegistry` 中没有该工具名 |
-| `TOOL_ARGS_INVALID` | 422 | 工具参数不满足其 JSON Schema |
-| `TOOL_EXECUTION_FAILED` | 500 | 工具实现内部抛出未预期异常。被工具调用的下游错误（内核、设备）按其本身的码原样上抛，不包成这个码 |
-| `LLM_NOT_CONFIGURED` | 503 | `base_url` / `api_key` / `model` 三项未配齐 |
-| `LLM_REQUEST_FAILED` | 502 | 上游返回非 2xx。`details.upstream_status` 与 `details.upstream_code` 透传 |
-| `LLM_TIMEOUT` | 504 | 上游在超时内未返回 |
-| `LLM_RATE_LIMITED` | 429 | 上游 429 透传，`Retry-After` 沿用上游值 |
-| `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史超出模型上下文窗口，需新建会话或裁剪历史 |
+| `CONFIRMATION_REQUIRED` | 202 | 预留错误码；对应功能未交付（M11/M13） |
+| `CONFIRMATION_NOT_FOUND` | 404 | 预留错误码；对应功能未交付（M11/M13） |
+| `CONFIRMATION_EXPIRED` | 409 | 预留错误码；对应功能未交付（M11/M13） |
+| `CONFIRMATION_REJECTED` | 403 | 预留错误码；对应功能未交付（M11/M13） |
+| `CONFIRMATION_ALREADY_RESOLVED` | 409 | 预留错误码；对应功能未交付（M11/M13） |
+| `AGENT_DISABLED` | 503 | 预留错误码；对应功能未交付（M11/M13） |
+| `AGENT_SESSION_NOT_FOUND` | 404 | 预留错误码；对应功能未交付（M11/M13） |
+| `AGENT_SESSION_BUSY` | 409 | 预留错误码；对应功能未交付（M11/M13） |
+| `TOOL_NOT_FOUND` | 404 | 预留错误码；对应功能未交付（M11/M13） |
+| `TOOL_ARGS_INVALID` | 422 | 预留错误码；对应功能未交付（M11/M13） |
+| `TOOL_EXECUTION_FAILED` | 500 | 预留错误码；对应功能未交付（M11/M13） |
+| `LLM_NOT_CONFIGURED` | 503 | 预留错误码；对应功能未交付（M11/M13） |
+| `LLM_REQUEST_FAILED` | 502 | 预留错误码；对应功能未交付（M11/M13） |
+| `LLM_TIMEOUT` | 504 | 预留错误码；对应功能未交付（M11/M13） |
+| `LLM_RATE_LIMITED` | 429 | 预留错误码；对应功能未交付（M11/M13） |
+| `LLM_CONTEXT_OVERFLOW` | 400 | 预留错误码；对应功能未交付（M11/M13） |
 | `SCHEDULE_NOT_FOUND` | 404 | 定时任务 id 不存在 |
 | `SCHEDULE_CRON_INVALID` | 400 | cron 表达式 APScheduler 无法解析，或 `timezone` 不是合法 IANA 时区名 |
 | `SCHEDULE_NAME_CONFLICT` | 409 | 名称重复，撞 `schedule.name` 唯一约束 |
@@ -270,7 +284,7 @@ curl -i -X POST "$BASE_URL/api/device/click" \
   -d '{"x":500,"y":700}'
 ```
 
-原子操作也支持 `force: true`，它会越过流水线互斥检查；运行中的流水线仍继续，服务端会写强制介入警告日志。应只在明确需要并能接受并发触控冲突时使用。卡死救援也应先停止流水线，确认它已进入终态，再执行点击或其他原子操作（见 [02 §5.3](./02-系统架构设计.md#53-原子操作的并发)）。
+原子操作也支持 `force: true`，它会越过流水线互斥检查；运行中的流水线仍继续。当前手动 REST 路径会写强制介入警告日志，但不会创建 `agent_audit` 记录。此说明只针对手动 REST 请求；Agent 工具调用的审计按 M11 的 Agent 工作流契约处理。应只在明确需要并能接受并发触控冲突时使用。卡死救援也应先停止流水线，确认它已进入终态，再执行点击或其他原子操作（见 [02 §5.3](./02-系统架构设计.md#53-原子操作的并发)）。
 
 ## 6. WebSocket 实时通道
 
