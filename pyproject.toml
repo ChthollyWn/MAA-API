@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fastapi = ">=0.115"
+fastapi = ">=0.138,<1.0"
 uvicorn = ">=0.30"
 # Uvicorn's automatic WebSocket protocol selection needs a server implementation;
 # the default M4 deployment must support real /api/ws upgrades.

@@ -2,10 +2,10 @@ import base64
 import datetime
 import threading
 import time
+from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from maa_api.config.config import STATIC_PATH
 from maa_api.exception.response_exception import ResponseException
 from maa_api.log import logger
 from maa_api.model.core.asst import Asst
@@ -13,6 +13,16 @@ from maa_api.model.core.callback_handler import CallbackHandler
 from maa_api.model.core.pipeline import TaskPipeline, TaskPipelineStatus
 from maa_api.model.core.task import TaskStatus
 from maa_api.service import smtp_service, adb_service
+
+
+EMAIL_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "templates"
+
+
+def _render_email_template(*, status, today, logs) -> str:
+    """Load and render the packaged notification template, independent of CWD."""
+    env = Environment(loader=FileSystemLoader(str(EMAIL_TEMPLATE_PATH)))
+    template = env.get_template("email_template.html")
+    return template.render(status=status, today=today, logs=logs)
 
 
 class PipelineExecutor:
@@ -126,10 +136,7 @@ class PipelineExecutor:
                     logger.error("任务队列执行异常")
 
             if self.is_send_email:
-                env = Environment(loader=FileSystemLoader(str(STATIC_PATH)))
-                template = env.get_template('email_template.html')
-
-                email_content = template.render(
+                email_content = _render_email_template(
                     status=self.task_pipeline.status,
                     today=datetime.datetime.now(),
                     logs=self.task_pipeline.logs

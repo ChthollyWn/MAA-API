@@ -1,0 +1,57 @@
+{
+  "id": "M8-07",
+  "milestone": "M8",
+  "title": "接入 FastAPI SPA 静态托管并迁移仍在使用的邮件模板",
+  "depends": ["M8-01"],
+  "reads": [
+    "docs/09-前端重构方案.md#5-后端托管配置变更",
+    "docs/09-前端重构方案.md#14.1-Dockerfile-改多阶段构建",
+    "docs/09-前端重构方案.md#14.2-本地开发流程",
+    "docs/09-前端重构方案.md#14.3-static-加入-gitignore",
+    "README.md#docker-镜像",
+    "README.md#裸机启动",
+    "README.md#手机与-pwa",
+    "docs/05-API规范与路由清单.md#6.17-静态资源与文档",
+    "docs/13-决策记录.md#ADR-01-前端选-Vite-React-而非-Nextjs",
+    "maa_api/main.py#create_app",
+    "maa_api/model/core/executor.py#PipelineExecutor._execute_pipeline",
+    "static/email_template.html"
+  ],
+  "constraints": [
+    "使用 FastAPI app.frontend('/', directory=STATIC_PATH, fallback='index.html', check_dir=False)，确保 API/docs/OpenAPI 的已注册路由优先于 SPA fallback，未知 API、POST fallback 和缺失静态资产仍是 404。",
+    "为哈希 assets 设置一年 immutable，为根 HTML、sw.js 与 manifest 设置 no-cache；前端应用外壳免鉴权。",
+    "pyproject 与 lock 必须保证 FastAPI 至少 0.138；不改 API 路由、CORS 或 lifespan 的 MaaCore/设备装配。",
+    "Vite build 会清空 static；旧页面/JS/CSS/favicon 从 git 移除。email_template.html 仍是邮件通知运行依赖，必须迁入 maa_api/templates 并更新唯一调用，不可删除或由构建覆盖。",
+    "部署构建改为 Node 前端构建阶段 + Python 运行阶段；第二阶段只复制前端产物，不携带 Node/node_modules。仓库忽略本地的 config.yaml，因此容器用已提交 config.template.yaml 建立默认 config.yaml。",
+    "README 必须说明裸机运行前需 `cd web && pnpm install --frozen-lockfile && pnpm build`；Docker 多阶段构建已包含此步骤，运行容器不可用 `-v $(pwd):/app` 覆盖打包好的 static。",
+    "只修改 Dockerfile、.dockerignore、README.md、maa_api/main.py、maa_api/model/core/executor.py、maa_api/templates/email_template.html、pyproject.toml、poetry.lock、.gitignore、static/** 与 tests/api/test_frontend.py；不得改 web/**、其他后端文件、任务台账或提交 Git。"
+  ],
+  "deliverables": [
+    "Dockerfile",
+    ".dockerignore",
+    "README.md",
+    "maa_api/main.py",
+    "maa_api/model/core/executor.py",
+    "maa_api/templates/email_template.html",
+    "pyproject.toml",
+    "poetry.lock",
+    ".gitignore",
+    "static/index.html",
+    "static/daily.html",
+    "static/js/app.js",
+    "static/css/style.css",
+    "static/favicon.ico",
+    "static/email_template.html",
+    "maa_api/templates/__init__.py",
+    "tests/api/test_frontend.py"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/api/test_frontend.py",
+    "poetry check --lock"
+  ],
+  "prompt_extra": "FastAPI 已安装版本在当前环境为 0.141.1 且 app.frontend 存在；按 docs/09 的推荐原语实现。STATIC_PATH 必须锚定仓库根而非 CWD。保留邮件 template 原有呈现内容，并增加测试证明可从新目录加载。Dockerfile 按 docs/09 §14.1 用 node:22-slim + corepack/pnpm 多阶段构建，COPY config.template.yaml 为容器 config.yaml（不要 COPY 本机忽略的 config.yaml）；.dockerignore 排除 resource、.venv、node_modules、.pnpm-store、static、.git 与台账/测试。构建产物 static/** 忽略但源码不可入库；旧 static tracked 文件通过主控的最终 git add -A 删除。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

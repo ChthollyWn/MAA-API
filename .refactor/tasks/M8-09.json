@@ -1,0 +1,39 @@
+{
+  "id": "M8-09",
+  "milestone": "M8",
+  "title": "补齐首页依赖的 health 内核、设备与队列状态契约",
+  "depends": ["M8-01", "M8-02"],
+  "reads": [
+    "docs/05-API规范与路由清单.md#6.1-system",
+    "docs/05-API规范与路由清单.md#5-鉴权设计",
+    "docs/09-前端重构方案.md#6.1-首页-仪表盘",
+    "maa_api/api/routers/system.py#HealthResponse",
+    "maa_api/main.py#lifespan-app.state装配",
+    "maa_api/core/supervisor.py#CoreSupervisor.state",
+    "maa_api/services/device_service.py#DeviceManager.snapshot",
+    "maa_api/services/queue_service.py#QueueService.snapshot",
+    "tests/api/test_system_router.py#GET-api-system-health"
+  ],
+  "constraints": [
+    "按 docs/05 §6.1 返回 core、device、queue 与 auth_enabled；保持 health 豁免鉴权，且未进入 lifespan/依赖未装配时保持 200 并将运行态字段返回 null。",
+    "core 至少带 state、pid、generation；device 复用 DeviceManager.snapshot；queue 返回 pending/running 数量和 paused，不返回队列详细条目。运行态对象只能从 request.app.state 读取，不在 import 期初始化 MaaCore/设备/数据库。",
+    "更新 HealthResponse/OpenAPI 描述与本地快照；重新生成 openapi-typescript 类型，不能手工编辑生成的 api.d.ts。",
+    "只修改 maa_api/api/routers/system.py、tests/api/test_system_router.py、web/openapi.json、web/src/types/api.d.ts；不修改 main.py、前端应用逻辑、其他卡交付文件/台账，不提交 Git。"
+  ],
+  "deliverables": [
+    "maa_api/api/routers/system.py",
+    "tests/api/test_system_router.py",
+    "web/openapi.json",
+    "web/src/types/api.d.ts"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/api/test_system_router.py",
+    ".venv/bin/python scripts/dump_openapi.py --check",
+    "cd web && pnpm gen:api:check"
+  ],
+  "prompt_extra": "旧 HealthResponse 只有 status/auth_enabled/version/started_at，但 docs/05 §6.1 明确列出内核、设备与队列；Main lifespan 已在启动后写入 app.state.core_supervisor/device_manager/queue_service。扩展现有端点，不加新端点，不把 DB 或 MaaCore IO 放回 import 路径。测试在最小 FastAPI app.state 注入假对象并复用现有 tests/api 隔离夹具；还需断言无运行态对象时缺省响应。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

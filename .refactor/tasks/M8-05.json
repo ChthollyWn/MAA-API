@@ -1,0 +1,34 @@
+{
+  "id": "M8-05",
+  "milestone": "M8",
+  "title": "交付仪表盘设备截图、三层状态与流水线进度",
+  "depends": ["M8-01", "M8-02", "M8-03", "M8-04", "M8-09"],
+  "reads": [
+    "docs/09-前端重构方案.md#6.1-首页-仪表盘",
+    "docs/02-系统架构设计.md#4-内核生命周期状态机",
+    "docs/05-API规范与路由清单.md#6.1-system",
+    "docs/05-API规范与路由清单.md#6.3-device",
+    "docs/05-API规范与路由清单.md#6.5-pipelines",
+    "docs/08-ADB连接与账号渠道.md#3-连接状态机"
+  ],
+  "constraints": [
+    "仪表盘展示服务版本/运行时长、内核状态、设备连接状态与地址、队列/当前流水线进度；core_status/device_status/pipeline_status 事件更新对应数据。",
+    "设备截图使用 GET /api/device/screenshot?backend=adb&format=jpeg&size=mobile，通过同源 cookie 加载；默认不轮询，仅提供手动刷新，流水线 running 时 5 秒轮询。",
+    "断开设备、服务未启动、无流水线、加载中与 API 失败都需有清楚状态和可恢复操作；不能用颜色单独表达状态。",
+    "只修改 web/src/routes/dashboard/**、web/src/features/dashboard/** 与 dashboard 专项测试；不改 App Shell/API/realtime/后端/台账，不提交 Git。"
+  ],
+  "deliverables": [
+    "web/src/routes/dashboard/index.tsx",
+    "web/src/features/dashboard/use-dashboard.ts",
+    "web/src/features/dashboard/DeviceScreenshot.tsx",
+    "web/src/features/dashboard/RuntimeStatus.tsx",
+    "web/src/features/dashboard/PipelineProgress.tsx",
+    "web/src/routes/dashboard/dashboard.test.tsx"
+  ],
+  "verify": ["cd web && pnpm test --run src/routes/dashboard/dashboard.test.tsx"],
+  "prompt_extra": "依赖当前 M8 OpenAPI types 与 api/keys。查询函数必须按真实后端 response shape 消费，不手写不一致的数据模型。未连接设备应显示截图占位而非无限加载；running 结束后停止 5 秒轮询。保留截图纵横比并为图像预留布局尺寸。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

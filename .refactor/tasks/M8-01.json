@@ -1,0 +1,54 @@
+{
+  "id": "M8-01",
+  "milestone": "M8",
+  "title": "建立离线优先的 Vite React 工程与 OpenAPI 类型生成链",
+  "depends": [],
+  "reads": [
+    "docs/09-前端重构方案.md#1-范围与前提",
+    "docs/09-前端重构方案.md#2-工程结构",
+    "docs/09-前端重构方案.md#3-依赖清单与选型理由",
+    "docs/09-前端重构方案.md#4-vite-配置要点",
+    "docs/10-开放API与调试台.md#6-前端-typescript-类型的生成流程",
+    "docs/13-决策记录.md#ADR-01-前端选-Vite-React-而非-Nextjs"
+  ],
+  "constraints": [
+    "采用 Vite + React + TypeScript + Tailwind CSS v4 + shadcn/ui 约定；运行期依赖全部随 bundle 提供，不引用 CDN 或远端字体。",
+    "M8 shadcn/Radix primitives 所需运行依赖固定在 web/package.json/pnpm-lock.yaml：class-variance-authority/clsx/tailwind-merge/@radix-ui/react-slot/@radix-ui/react-tabs/@radix-ui/react-label/sonner/lucide-react。",
+    "Vite base 为 /，dev server 监听局域网，/api 代理支持 WebSocket；构建产物输出仓库 ../static，emptyOutDir 显式为 true。",
+    "将后端导出的排序稳定 OpenAPI JSON 与 openapi-typescript 生成的 api.d.ts 入库；类型由手动脚本生成，提供可失败的生成一致性检查，不在 build 时静默刷新。",
+    "实现 PWA 静态外壳所需 manifest、同源图标、静态预缓存和更新注册配置；Service Worker 不缓存 API、带 token 的请求或日志。推送订阅不属于 M8。",
+    "只修改 web 根工程/构建配置、web/openapi.json、web/src/types/api.d.ts、web/src/vite-env.d.ts、web/src/index.css、web/src/lib/utils.ts、web/scripts/gen-api.mjs 与 scripts/dump_openapi.py；不得修改其他卡交付文件、里程碑/任务台账或提交 Git。"
+  ],
+  "deliverables": [
+    ".gitattributes",
+    "web/index.html",
+    "web/package.json",
+    "web/pnpm-lock.yaml",
+    "web/tsconfig.json",
+    "web/tsconfig.node.json",
+    "web/vite.config.ts",
+    "web/vitest.config.ts",
+    "web/components.json",
+    "web/openapi.json",
+    "web/src/index.css",
+    "web/src/lib/utils.ts",
+    "web/public/favicon.svg",
+    "web/public/apple-touch-icon.png",
+    "web/public/pwa-192x192.png",
+    "web/public/pwa-512x512.png",
+    "web/public/pwa-maskable-512x512.png",
+    "web/src/types/api.d.ts",
+    "web/src/vite-env.d.ts",
+    "web/scripts/gen-api.mjs",
+    "scripts/dump_openapi.py"
+  ],
+  "verify": [
+    ".venv/bin/python scripts/dump_openapi.py --check",
+    "cd web && pnpm install --frozen-lockfile && pnpm gen:api:check"
+  ],
+  "prompt_extra": "遵循 docs/09 §4 的 Vite 8/Rolldown 配置要点和 docs/10 §6 的稳定快照流程。脚本需保持原有位置参数写文件的能力，并增加只读 --check 模式。PWA 只预缓存构建静态资产；本卡不创建 src/main.tsx、App.tsx、index.css 或页面，避免与后续卡交付重叠。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

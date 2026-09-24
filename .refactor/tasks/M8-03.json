@@ -1,0 +1,35 @@
+{
+  "id": "M8-03",
+  "milestone": "M8",
+  "title": "实现 WebSocket 实时客户端、事件桥接与有界日志缓冲",
+  "depends": ["M8-01", "M8-02"],
+  "reads": [
+    "docs/09-前端重构方案.md#9-WebSocket-客户端封装",
+    "docs/06-实时日志与WebSocket.md#7-WebSocket-协议",
+    "docs/06-实时日志与WebSocket.md#10-前端消费要点",
+    "docs/09-前端重构方案.md#10.4-WebSocket-与图片的特殊处理",
+    "web/src/api/keys.ts#keys"
+  ],
+  "constraints": [
+    "按 /api/ws 的服务端信封和频道名发送 subscribe/ping；同源先用 HttpOnly cookie，只有 4401 才回退 query token，4403 不回退且不得记录带 token 的 URL。",
+    "按方案实现 30 秒应用层心跳、90 秒死连接检测、指数退避及抖动、server_shutdown 快速重连、可见性恢复；十次失败进入 OFFLINE。",
+    "首次 subscribe 附上 localStorage 中的 last_seen_id，收到 log 与 log_batch 时按 id 去重并持久化游标；truncated 状态须显式暴露给 UI。",
+    "状态事件按类型桥接到精确 Query key；高频 log 不进 Query；每个 source 的 Zustand 环形缓冲上限 2000 行，并批量更新。",
+    "RealtimeProvider 常驻订阅状态频道但默认不订阅 log；日志页挂载时订阅 log 且离开时退订，来源标签切换只本地过滤。日志页进入时仍由 REST 历史查询补齐此前未订阅期间的记录。",
+    "只修改 web/src/realtime/**、web/src/stores/log-buffer.ts 与本卡 realtime 单测；不修改其他卡交付文件、任务台账或提交 Git。"
+  ],
+  "deliverables": [
+    "web/src/realtime/client.ts",
+    "web/src/realtime/events.ts",
+    "web/src/realtime/query-bridge.ts",
+    "web/src/realtime/RealtimeProvider.tsx",
+    "web/src/realtime/client.test.ts",
+    "web/src/stores/log-buffer.ts"
+  ],
+  "verify": ["cd web && pnpm test --run src/realtime/client.test.ts"],
+  "prompt_extra": "导出 RealtimeProvider 与 useRealtimeStatus。Provider 在应用层装配并为查询缓存提供 queryClient；状态至少覆盖 CONNECTING/CONNECTED/RECONNECTING/OFFLINE，并暴露 RTT 和 truncated backfill 信号。用可注入 WebSocket 与 fake timers 测试订阅、心跳、token 回退、去重与环形容量。",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}
