@@ -68,6 +68,7 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    fs: { allow: [path.resolve(WEB_ROOT, '..')] },
     proxy: {
       '/api': { target: API_TARGET, changeOrigin: true, ws: true },
       '/mcp': { target: API_TARGET, changeOrigin: true },

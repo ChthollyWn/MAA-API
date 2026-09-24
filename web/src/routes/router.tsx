@@ -20,6 +20,7 @@ const UpdatesPage = lazy(() => import('@/routes/updates'))
 const SchedulesPage = lazy(() => import('@/routes/schedules'))
 const SettingsPage = lazy(() => import('@/routes/settings'))
 const MorePage = lazy(() => import('@/routes/more'))
+const ApiConsolePage = lazy(() => import('@/features/api-console'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
 const TASK_VIEW_PATHS = { create: '/tasks', queue: '/tasks/queue', history: '/tasks/history' } as const
 
@@ -150,6 +151,7 @@ export const routeConfig: RouteObject[] = [
       { path: 'logs/*', element: <ProtectedRoute><Suspended><LogsPage /></Suspended></ProtectedRoute> },
       { path: 'agent/*', element: <ProtectedRoute><RouteUnavailable title="Agent" description="Agent 对话与操作入口尚未开放。" /></ProtectedRoute> },
       { path: 'more', element: <ProtectedRoute><Suspended><MorePage /></Suspended></ProtectedRoute> },
+      { path: 'more/api-console', element: <ProtectedRoute><Suspended><ApiConsolePage /></Suspended></ProtectedRoute> },
       { path: 'more/updates', element: <ProtectedRoute><Suspended><UpdatesPage /></Suspended></ProtectedRoute> },
       { path: 'more/schedules', element: <ProtectedRoute><Suspended><SchedulesPage /></Suspended></ProtectedRoute> },
       { path: 'more/settings', element: <ProtectedRoute><Suspended><SettingsPage /></Suspended></ProtectedRoute> },
