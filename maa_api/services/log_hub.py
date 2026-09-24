@@ -18,7 +18,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Coroutine, Protocol, TypeVar
 
 from sqlalchemy import func, select
 
@@ -37,6 +37,7 @@ __all__ = [
     "attach_log_hub",
     "current_pipeline_id",
     "current_request_id",
+    "create_task_without_request_id",
     "get_log_hub",
     "mask_token",
     "set_log_hub",
@@ -101,6 +102,16 @@ current_pipeline_id: contextvars.ContextVar[str | None] = contextvars.ContextVar
 current_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "maa_api_current_request_id", default=None
 )
+_TaskResult = TypeVar("_TaskResult")
+
+
+def create_task_without_request_id(
+    coroutine: Coroutine[Any, Any, _TaskResult], *, name: str | None = None
+) -> asyncio.Task[_TaskResult]:
+    """Create a task with the current context except for request correlation."""
+    context = contextvars.copy_context()
+    context.run(current_request_id.set, None)
+    return asyncio.create_task(coroutine, name=name, context=context)
 
 
 class LogHub:

@@ -14,6 +14,7 @@ import pytest
 from PIL import Image
 
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.log_hub import current_pipeline_id, current_request_id
 from maa_api.services.device_service import (
     COMMON_DEVICE_PORTS,
     DeviceManager,
@@ -244,6 +245,30 @@ def test_state_snapshot_and_public_contract_are_json_serializable() -> None:
     assert '"state": "disconnected"' in encoded
     assert manager.snapshot()["retry"] == {"attempt": 0, "max": 0, "next_at": None}
     asyncio.run(manager.close())
+
+
+def test_device_manager_background_task_does_not_inherit_request_id() -> None:
+    manager, _, _ = _manager()
+
+    async def scenario() -> None:
+        request_token = current_request_id.set("request-42")
+        pipeline_token = current_pipeline_id.set("pipeline-7")
+        try:
+            context = asyncio.get_running_loop().create_future()
+
+            async def capture_context() -> None:
+                context.set_result((current_request_id.get(), current_pipeline_id.get()))
+
+            task = manager._spawn(capture_context(), "test-device-background")
+            await asyncio.wait_for(task, timeout=2)
+            assert context.result() == (None, "pipeline-7")
+            assert current_request_id.get() == "request-42"
+        finally:
+            current_pipeline_id.reset(pipeline_token)
+            current_request_id.reset(request_token)
+            await manager.close()
+
+    asyncio.run(scenario())
 
 
 def test_connect_requires_adb_shell_and_maacore_async_result_and_broadcasts() -> None:
