@@ -274,6 +274,7 @@ class ConnectionManager:
             "content": record.content,
             "pipeline_id": record.pipeline_id,
             "task_id": record.task_id,
+            "request_id": record.request_id,
             "logger": record.logger,
             "attachment": record.attachment,
         }

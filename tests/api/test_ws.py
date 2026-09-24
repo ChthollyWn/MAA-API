@@ -24,8 +24,16 @@ def ws_app(monkeypatch):
     set_log_hub(None)
 
 
-def _record(source: str, content: str, *, level: str = "INFO") -> LogRecord:
-    return LogRecord(ts=1.0, source=source, level=level, content=content)
+def _record(
+    source: str, content: str, *, level: str = "INFO", request_id: str | None = None
+) -> LogRecord:
+    return LogRecord(
+        ts=1.0,
+        source=source,
+        level=level,
+        content=content,
+        request_id=request_id,
+    )
 
 
 def test_websocket_route_is_registered(ws_app):
@@ -144,6 +152,26 @@ def test_replay_marks_records_truncated_when_cursor_predates_ring(
         assert batch["data"]["truncated"] is True
         assert [r["content"] for r in batch["data"]["records"]] == ["row-1", "row-2"]
         assert socket.receive_json()["type"] == "subscribed"
+
+
+def test_log_websocket_payload_contains_request_id(ws_app, tmp_settings, make_client):
+    """A live log event exposes its HTTP request correlation id to the UI."""
+    app, _ = ws_app
+    hub = LogHub()
+    set_log_hub(hub)
+
+    with make_client(app).websocket_connect("/api/ws") as socket:
+        socket.send_json({"type": "subscribe", "data": {"channels": ["log"]}})
+        assert socket.receive_json()["type"] == "subscribed"
+        # ``LogHub`` calls its sink on its owning event loop. This isolated
+        # router app has no lifespan, so publish through its real sink boundary.
+        ws_api.manager.broadcast_log(
+            _record("service", "handled request", request_id="request-42")
+        )
+        event = socket.receive_json()
+
+    assert event["type"] == "log"
+    assert event["data"]["request_id"] == "request-42"
 
 
 def test_slow_client_is_closed_without_affecting_other_sessions():
