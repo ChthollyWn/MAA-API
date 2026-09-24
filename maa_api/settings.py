@@ -4,7 +4,7 @@
 **没有任何 import 期副作用** —— 不建目录、不读文件、不 dlopen，``import
 maa_api.settings`` 在任何 CWD 下都成功且不产生任何文件。旧实现在 import 期就
 ``mkdir static/ resource/{lib,log,temp}`` 并可能拷贝 ``daily_task_template.json``，
-CWD 不是仓库根时直接 ``RuntimeError``（见 .refactor/ENVIRONMENT.md），这对
+CWD 不是仓库根时直接 ``RuntimeError``（见 docs/ENVIRONMENT.md），这对
 「启动第 1 步先加载配置、第 2 步才初始化数据库」的顺序（docs/02 §7）是硬伤。
 旧模块暂不删除（``maa_api/main.py`` 与 ``model/core/asst.py`` 还在 import 它），
 调用方迁完后由后续卡清理；新代码一律用本模块。

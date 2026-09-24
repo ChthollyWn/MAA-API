@@ -404,7 +404,7 @@ class TaskRepository(BaseRepository):
         """回写 ``AsstAppendTask`` 的返回值（内核 task id）。
 
         注意 ``maa_task_id == 0`` 是内核「参数校验失败、静默拒绝」的信号
-        （见 .refactor/ENVIRONMENT.md），调用方应先判定失败再决定是否重试，
+        （见 docs/ENVIRONMENT.md），调用方应先判定失败再决定是否重试，
         仓储只负责落值。
         """
         await self.session.execute(

@@ -12,7 +12,7 @@
 > **M2-14 修正（2026-09-16）**：§2 与 §6.5 原先记录的 `auto_vacuum`「唯一生效放置」只写了
 > `conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")`、漏了紧跟的 `conn.commit()`。
 > 该缺陷由 **M2-04** 实测发现（照抄后 `alembic_version` 行为空、第二次 `upgrade head` 报
-> `table already exists`，见 `.refactor/DEFECTS.md` 的 M2-01 条目）；M2-14 已按实测补全
+> `table already exists`，见 `docs/DEFECTS.md` 的 M2-01 条目）；M2-14 已按实测补全
 > 说明，并给探针补上「`alembic_version` 行 == 预期版本」断言与「不 commit」对照场景，
 > 使这类错误能被探针本身挡住。
 

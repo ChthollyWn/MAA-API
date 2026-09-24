@@ -4,7 +4,7 @@
 :func:`~maa_api.api.errors.register_exception_handlers`），不 import ``maa_api.main``
 （M3-09 之前它还是旧装配）。配置走 ``tests/api`` 夹具的 ``tmp_settings``（默认空
 token ＝ 免鉴权模式，间接参数化传 token），数据库隔离走 ``isolated_db``（见
-``tests/api/conftest.py`` 与 .refactor/ENVIRONMENT.md 的 M2-13 实测）。
+``tests/api/conftest.py`` 与 docs/ENVIRONMENT.md 的 M2-13 实测）。
 
 三个自建 app
 ============

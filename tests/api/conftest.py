@@ -25,7 +25,7 @@
     把 ``maa_api.db.session`` 的 ``DB_PATH`` / ``ASYNC_URL`` / ``SYNC_URL`` 指到
     ``tmp_path``，并**重建** ``engine`` 与 ``session_factory`` —— M2-13 实测：只改
     三条路径不够，模块级 engine/session_factory 是 import 期用当时的 URL 造好的
-    （见 .refactor/ENVIRONMENT.md）。用例结束 ``dispose`` 临时引擎。
+    （见 docs/ENVIRONMENT.md）。用例结束 ``dispose`` 临时引擎。
     **绝不触碰仓库真实 ``resource/maa_api.db``。**
 
     夹具只隔离不建表（``yield`` 的是临时 :class:`~sqlalchemy.ext.asyncio.AsyncEngine`）：
@@ -38,7 +38,7 @@
     ``make_client(app)`` 返回 ``TestClient(app, raise_server_exceptions=False)``
     并已 ``__enter__``（lifespan 生效），用例结束由夹具统一 ``__exit__``。
     **必须关掉 re-raise**：否则 500 用例拿到的是异常而不是响应（M3-01 实测，
-    见 .refactor/ENVIRONMENT.md）。仍可传 ``headers=`` 等 TestClient 关键字参数
+    见 docs/ENVIRONMENT.md）。仍可传 ``headers=`` 等 TestClient 关键字参数
     （``raise_server_exceptions`` 也能显式覆盖，但一般不需要）。
 """
 

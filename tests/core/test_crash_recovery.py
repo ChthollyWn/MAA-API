@@ -10,7 +10,7 @@
 CoreSupervisor 的检测、崩溃现场（``last_crash``）、退避重启、失败上限转 FAILED、
 维护窗口互斥，以及换 success 剧本后的恢复成功路径。
 
-**实测口径（M1-10 实测，Python 3.13.3 / macOS；已记入 .refactor/ENVIRONMENT.md）**：
+**实测口径（M1-10 实测，Python 3.13.3 / macOS；已记入 docs/ENVIRONMENT.md）**：
 
 1. ``os._exit(-11)`` 的退出状态只保留低 8 位，父进程 ``Process.exitcode`` 观测到的
    是 **245**（``-11 & 0xFF``），既不是 -11，也不是信号杀死（负值）。docs/03 §8 与

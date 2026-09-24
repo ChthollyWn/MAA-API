@@ -114,7 +114,7 @@ class ResourceAssetRepository(BaseRepository):
         ON CONFLICT (kind, name) DO UPDATE ...`` 即使目标行已存在，候选行仍是
         ``content IS NULL AND path IS NULL``，直接撞
         ``ck_resource_asset_content_or_path``，DO UPDATE 根本没机会执行
-        （见 ``.refactor/ENVIRONMENT.md``）。UPDATE 先行则让 SQLite 在**真实行**
+        （见 ``docs/ENVIRONMENT.md``）。UPDATE 先行则让 SQLite 在**真实行**
         上判定 CHECK，语义也正好是「更新后的这一行必须仍有 content 或 path」。
 
         ``fields`` 之外的键（``id`` / ``created_at``）与未知列名一律

@@ -53,7 +53,7 @@ cookie 渠道收窄（docs/05 §5.1、docs/13 §3）：仅凭 cookie 的请求�
 429 用 ``AppError(ErrorCode.RATE_LIMITED, ..., headers={"Retry-After": ...})`` 抛出。
 M3-11 起 ``AppError`` 能携带响应头、``api/errors.py`` 的处理器原样透传，所以这里不再
 需要 M3-06 当时的绕行（``StarletteHTTPException(429, headers=...)``，缺陷见
-``.refactor/DEFECTS.md`` 的 M3-04 条目，已随本卡修复）。取值一律是剩余冷却秒数
+``docs/DEFECTS.md`` 的 M3-04 条目，已随本卡修复）。取值一律是剩余冷却秒数
 （整数），与 :data:`COOLDOWN_SECONDS` 同口径；响应体仍由处理器渲染成统一错误体，
 ``code`` 是 ``RATE_LIMITED``。
 """

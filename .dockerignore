@@ -1,6 +1,6 @@
-# Source control and local milestone orchestration state
+# Source control and local agent scratch space
 .git/
-.refactor/
+.superpowers/
 
 # Python virtual environments, caches, and test-only content
 .venv/

@@ -77,7 +77,7 @@ def test_openapi_paths_are_complete_after_plain_include() -> None:
 
     不按 ``{r.path for r in app.routes}`` 断言：fastapi 0.141 的 ``include_router``
     是惰性的，``app.routes`` 里只有没有 ``.path`` 的 ``_IncludedRouter`` 包装对象
-    （实测见 .refactor/ENVIRONMENT.md），有效路径要经 ``app.openapi()`` 取。
+    （实测见 docs/ENVIRONMENT.md），有效路径要经 ``app.openapi()`` 取。
     """
     app = FastAPI()
     app.include_router(system_module.router)
@@ -340,7 +340,7 @@ def test_post_cookie_is_noop_without_auth_enabled(tmp_settings, make_client) -> 
 def test_delete_cookie_clears_it(tmp_settings, make_client) -> None:
     """带头部 token → 204 + 清 cookie。
 
-    实测（.refactor/ENVIRONMENT.md）：``delete_cookie`` 的 ``expires`` 被
+    实测（docs/ENVIRONMENT.md）：``delete_cookie`` 的 ``expires`` 被
     ``http.cookies`` 渲染成**当前时刻**（不是 1970），因此删除语义只认
     ``Max-Age=0``，不要断言 expires 是过去时间。
     """
