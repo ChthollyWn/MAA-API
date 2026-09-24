@@ -153,10 +153,13 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
         rf"{re.escape(db_path.name)}\.\d{{8}}-\d{{6}}-\d{{6}}\.bak", backup.name
     ), backup.name
 
-    # 备份是 upgrade 之前的快照（当前 head 的前序版本），且是完整可打开的 SQLite 库
+    # 备份是 upgrade 之前的快照（当前 head 的前序版本），且是可打开的上一版 schema。
     assert version(backup) == pre_head_revision()
     assert "alembic_version" in table_names(backup)
-    assert set(SQLModel.metadata.tables) <= table_names(backup)
+    # M10 的 0005 在该前序版本中尚未创建收藏表；其余当时已有业务表须完整保留。
+    backup_tables = table_names(backup)
+    assert set(SQLModel.metadata.tables) - {"api_snippet"} <= backup_tables
+    assert "api_snippet" not in backup_tables
 
     # 主库已迁到 head，业务表仍齐全
     assert version(db_path) == head_revision()

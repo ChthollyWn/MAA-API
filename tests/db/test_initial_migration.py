@@ -136,6 +136,24 @@ def test_index_and_unique_constraint_inventory_matches_spec(inspector):
     assert actual == expected
 
 
+def test_snippet_migration_creates_expected_columns_and_name_constraint(inspector):
+    columns = {column["name"] for column in inspector.get_columns("api_snippet")}
+    assert columns == {
+        "id",
+        "name",
+        "method",
+        "path",
+        "path_params",
+        "query",
+        "headers",
+        "body",
+        "created_at",
+        "updated_at",
+    }
+    unique = inspector.get_unique_constraints("api_snippet")
+    assert unique == [{"name": "uq_api_snippet_name", "column_names": ["name"]}]
+
+
 def test_partial_unique_index_keeps_predicate(inspector, raw):
     """`uq_update_record_running_target` 是带 sqlite_where 的部分唯一索引。
 

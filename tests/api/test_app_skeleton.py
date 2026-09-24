@@ -70,6 +70,8 @@ EXPECTED_API_PATHS = {
     "/api/device/status",
     "/api/settings",
     "/api/settings/schema",
+    "/api/snippets",
+    "/api/snippets/{snippet_id}",
 }
 #: 旧装配的端点前缀（docs/02 §9：这些路由不迁移，直接废弃）。
 RETIRED_PATH_PREFIXES = ("/api/adb", "/api/maa")
@@ -290,7 +292,7 @@ def test_openapi_metadata_tags_and_operation_ids(
 
     tag_names = [entry["name"] for entry in spec["tags"]]
     assert tag_names == [entry["name"] for entry in TAGS]
-    assert len(tag_names) == 15
+    assert len(tag_names) == 16
     assert tag_names[0] == "system" and tag_names[-1] == "ws"
 
     ids = _operation_ids(spec)

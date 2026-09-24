@@ -5,7 +5,7 @@
 ``/docs`` 可用且文档完整，鉴权生效，任务参数校验生效，业务端点尚未接内核
 （docs/12 §M3）。脚本只断言 M3 已经实现的端点（docs/05 §6.1/§6.7）：
 
-- ``GET /docs``、``GET /openapi.json``：15 个 tag（首 system、末 ws）、
+- ``GET /docs``、``GET /openapi.json``：16 个 tag（首 system、末 ws）、
   operationId 形如 ``{tag}_{name}`` 且唯一（docs/05 §11.1/§11.4）
 - ``GET /api/system/health``：免鉴权、``auth_enabled`` 如实反映配置（docs/05 §5.3）
 - ``POST`` / ``DELETE /api/system/auth/cookie``：token ↔ cookie 换取与清除（docs/05 §5.4）
@@ -450,7 +450,7 @@ class ApiSmoke:
 
     def _check_tags(self) -> str:
         tags = [entry["name"] for entry in self._openapi_spec().get("tags", [])]
-        self.require(len(tags) == 15, f"tag 数量应为 15，实际 {len(tags)}：{tags!r}")
+        self.require(len(tags) == 16, f"tag 数量应为 16，实际 {len(tags)}：{tags!r}")
         self.require(tags[0] == "system", f"首个 tag 应为 system，实际 {tags[0]!r}")
         self.require(tags[-1] == "ws", f"末个 tag 应为 ws，实际 {tags[-1]!r}")
         return f"{len(tags)} 个 tag：{tags[0]!r} … {tags[-1]!r}"
@@ -560,6 +560,80 @@ class ApiSmoke:
             f"X-Token 渠道应为 200，实际 {response.status_code}: {response.text[:200]}",
         )
         return f"X-Token → 200（total={response.json().get('total')}）"
+
+    def _check_api_snippets(self) -> str:
+        payload = {
+            "name": "  smoke health  ",
+            "method": "get",
+            "path": "/api/system/health",
+            "query": {"ready": "true", "token": "query-secret"},
+            "headers": {
+                "X-Debug": "smoke",
+                "Authorization": "Bearer header-secret",
+                "X-Token": "header-secret",
+                "Cookie": "session=cookie-secret",
+                "X-Api-Key": "api-key-secret",
+            },
+        }
+        created = self.client.post(
+            "/api/snippets", json=payload, headers=self._auth_headers()
+        )
+        self.require(
+            created.status_code == 201,
+            f"POST /api/snippets 应 201，实际 {created.status_code}: {created.text[:200]}",
+        )
+        item = created.json()
+        snippet_id = item["id"]
+        self.require(item["name"] == "smoke health", f"name 未 trim：{item['name']!r}")
+        self.require(item["method"] == "GET", f"method 未规范化：{item['method']!r}")
+        self.require(item["query"] == {"ready": "true"}, "query token 未剔除")
+        self.require(item["headers"] == {"X-Debug": "smoke"}, "凭据 header 未完整剔除")
+        self.require(
+            all(secret not in created.text for secret in ("query-secret", "header-secret", "cookie-secret", "api-key-secret")),
+            "收藏响应泄漏了凭据",
+        )
+        self.require(
+            created.headers.get("location") == f"/api/snippets/{snippet_id}",
+            "创建响应 Location 不匹配",
+        )
+        duplicate = self.client.post(
+            "/api/snippets",
+            json={**payload, "name": "smoke health"},
+            headers=self._auth_headers(),
+        )
+        self.require(
+            duplicate.status_code == 409
+            and duplicate.json()["error"]["code"] == "API_SNIPPET_NAME_CONFLICT",
+            f"重名应 409 API_SNIPPET_NAME_CONFLICT：{duplicate.status_code} {duplicate.text[:200]}",
+        )
+        listed = self.client.get("/api/snippets", headers=self._auth_headers())
+        self.require(
+            listed.status_code == 200
+            and any(row["id"] == snippet_id for row in listed.json()["items"]),
+            f"收藏列表缺少新建项：{listed.status_code} {listed.text[:200]}",
+        )
+        updated = self.client.put(
+            f"/api/snippets/{snippet_id}",
+            json={**payload, "name": "smoke health updated"},
+            headers=self._auth_headers(),
+        )
+        self.require(
+            updated.status_code == 200 and updated.json()["name"] == "smoke health updated",
+            f"收藏更新失败：{updated.status_code} {updated.text[:200]}",
+        )
+        deleted = self.client.delete(
+            f"/api/snippets/{snippet_id}", headers=self._auth_headers()
+        )
+        missing = self.client.get(
+            f"/api/snippets/{snippet_id}", headers=self._auth_headers()
+        )
+        self.require(deleted.status_code == 204, f"删除应 204，实际 {deleted.status_code}")
+        self.require(
+            missing.status_code == 404
+            and missing.json()["error"]["code"] == "API_SNIPPET_NOT_FOUND",
+            f"删除后查询应 404 API_SNIPPET_NOT_FOUND：{missing.status_code} {missing.text[:200]}",
+        )
+        return "收藏 CRUD、认证、名称规范化/冲突与凭据过滤通过"
 
     def _check_query_token(self) -> str:
         response = self.client.get("/api/tasks/types", params={"token": TOKEN})
@@ -865,6 +939,7 @@ class ApiSmoke:
 
             self._check("无凭据 401", self._check_unauthorized)
             self._check("X-Token 渠道", self._check_x_token)
+            self._check("API 调试台收藏", self._check_api_snippets)
             self._check("query 渠道", self._check_query_token)
             self._check("cookie 渠道收窄", self._check_cookie_channel)
             self._check("鉴权模式 health 免鉴权", self._check_health_authenticated)
