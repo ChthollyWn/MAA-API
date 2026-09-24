@@ -1094,6 +1094,14 @@ export default function TasksFeature({ view, routePipelineId, onViewChange, onPi
   const history = historyQuery.data
   const historyNextAvailable = history ? history.page * history.size < history.total : false
   const detail = selectedPipelineQuery.data
+  const historyItems = history?.items ?? []
+  const deepLinkedPipelineIsOutsidePage = Boolean(
+    selectedPipelineId && detail && pipelineId(detail) === selectedPipelineId
+    && !historyItems.some((row) => pipelineId(row) === selectedPipelineId),
+  )
+  const visibleHistoryItems = deepLinkedPipelineIsOutsidePage && detail
+    ? [detail, ...historyItems]
+    : historyItems
 
   return <main className="mx-auto w-full max-w-5xl space-y-5 px-4 pb-24 pt-5 sm:px-6">
     <header className="space-y-2">
@@ -1189,9 +1197,10 @@ export default function TasksFeature({ view, routePipelineId, onViewChange, onPi
         <CardHeader className="flex-row items-start justify-between"><div><CardTitle>执行历史</CardTitle><CardDescription>按服务端 page、size、total 分页。</CardDescription></div><Button type="button" size="icon" variant="outline" aria-label="刷新历史" disabled={historyQuery.isFetching} onClick={() => void historyQuery.refetch()}><RefreshCw className={historyQuery.isFetching ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /></Button></CardHeader>
         <CardContent className="space-y-4">
           {historyQuery.error && <p className="text-sm text-destructive" role="alert">无法读取执行历史：{errorMessage(historyQuery.error)}</p>}
+          {deepLinkedPipelineIsOutsidePage && <p role="status" className="text-sm text-muted-foreground">此深链目标不在当前分页；已将它固定显示在列表顶部。</p>}
           {historyStatus && <p role={historyAction.isError ? 'alert' : 'status'} className={`text-sm ${historyAction.isError ? 'text-destructive' : 'text-muted-foreground'}`}>{historyStatus}</p>}
-          {historyQuery.isLoading ? <p role="status" className="text-sm text-muted-foreground">正在读取执行历史…</p> : (history?.items.length ?? 0) === 0 ? <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无流水线历史。</div> : <ol className="space-y-3">
-            {history?.items.map((row) => {
+          {historyQuery.isLoading ? <p role="status" className="text-sm text-muted-foreground">正在读取执行历史…</p> : visibleHistoryItems.length === 0 ? <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">暂无流水线历史。</div> : <ol className="space-y-3">
+            {visibleHistoryItems.map((row) => {
               const id = pipelineId(row)
               const selected = selectedPipelineId === id
               return <li key={id} className="rounded-xl border">
