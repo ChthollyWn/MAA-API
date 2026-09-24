@@ -35,8 +35,8 @@
     "cd web && pnpm typecheck"
   ],
   "prompt_extra": "实现默认导出的页面组件，保留在 web/src/routes/settings/index.tsx；路由由 M9-05 接线。设置值、来源及 secrets 的 fixture 使用脱敏响应，测试不填写真凭据。只修改卡片交付目录。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "22f7d4a",
   "blocked_reason": null
 }

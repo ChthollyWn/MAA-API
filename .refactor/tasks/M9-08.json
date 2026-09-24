@@ -1,0 +1,35 @@
+{
+  "id": "M9-08",
+  "milestone": "M9",
+  "title": "修正旧按星期配置迁移到 POSIX cron 时整体错一天的缺陷",
+  "depends": ["M9-07"],
+  "reads": [
+    "docs/09-前端重构方案.md#15.4-按星期配置的任务组合",
+    "docs/04-数据模型与持久化.md#5.5-schedule",
+    "docs/04-数据模型与持久化.md#11-从现有内存模型的迁移",
+    "docs/13-决策记录.md#2-其余决策速记",
+    "maa_api/db/migrations/versions/0002_migrate_daily_task_json.py#iter_rows weekday与cron字段",
+    "tests/db/test_daily_task_migration.py#旧日历口径与测试助手",
+    "maa_api/services/schedule_service.py#POSIX与APScheduler星期转换（M9-07）"
+  ],
+  "constraints": [
+    "旧执行器使用 Python `date.weekday()`：weekday_task 键 0=周一，…，6=周日；新前端表达为标准 POSIX cron：DOW 0=周日，1=周一，…，6=周六。当前 0002 直接复用键值会把星期整体错一天，须新增 Alembic 向前迁移，不改写/重编号已经发布的 `0002` 历史迁移。",
+    "新增 migration `0004`：只修复名字严格为 `daily_task_weekday_<0..6>` 且 cron 完全等于 M2-05 默认生成的 `0 7,19 * * <legacy-weekday>` 的行；映射 0..5→1..6、6→0。用户自建 schedule 和已经编辑过 cron 的 migrated schedule 必须原样保留。downgrade 仅将仍等于修正后默认 cron 的精确匹配行恢复成 0002 原值。",
+    "文档明确旧索引与新 POSIX 口径。由主控维护 DEFECTS 台账；agent 不得修改 `.refactor/` 下任何 ledger。此卡只交付迁移、测试和专题文档。修法须保留旧 name/template/enabled/timezone/priority，只改 cron 星期字段。",
+    "实现并运行升级、降级、再升级回归测试：覆盖周一、周六、周日的映射，非迁移 schedule、非默认 cron 和自定义内容不变；对返回的 cron 用 M9-07 `cron_trigger` 断言其下一触发日与旧 `weekday_task` 意图一致。只交付 `maa_api/db/migrations/versions/0004_correct_daily_schedule_weekday.py`、`tests/db/test_schedule_weekday_correction_migration.py`、`docs/04-数据模型与持久化.md`；不得修改 M9-07 已提交/待验收的后端文件或 M9-03 UI，不提交 Git。"
+  ],
+  "deliverables": [
+    "maa_api/db/migrations/versions/0004_correct_daily_schedule_weekday.py",
+    "tests/db/test_schedule_weekday_correction_migration.py",
+    "docs/04-数据模型与持久化.md"
+  ],
+  "verify": [
+    ".venv/bin/python -m pytest -q tests/db/test_schedule_weekday_correction_migration.py tests/db/test_daily_task_migration.py",
+    ".venv/bin/python -m pytest -q tests/db/test_migrate.py tests/db/test_initial_migration.py"
+  ],
+  "prompt_extra": "M9-07 now treats incoming cron weekdays as POSIX and translates to APScheduler's Monday-zero internal values. The data fix here must likewise store schedules in the new POSIX convention. Do not change the old migration's behavior or its tests: a fresh upgrade runs 0002 then 0003 then 0004, while a database already at 0003 runs 0004 against its old rows. The one-off source JSON remains read-only.",
+  "status": "pending",
+  "attempts": 0,
+  "commit": null,
+  "blocked_reason": null
+}

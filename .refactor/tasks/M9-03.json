@@ -2,7 +2,7 @@
   "id": "M9-03",
   "milestone": "M9",
   "title": "交付可视化定时任务与旧版按星期任务组迁移逻辑",
-  "depends": ["M8-01", "M8-02", "M8-04", "M9-01"],
+  "depends": ["M8-01", "M8-02", "M8-04", "M9-01", "M9-07", "M9-08"],
   "reads": [
     "docs/09-前端重构方案.md#6.5-更多",
     "docs/09-前端重构方案.md#15.4-按星期配置的任务组合",
@@ -11,17 +11,17 @@
     "docs/13-决策记录.md#2-其余决策速记",
     "docs/13-决策记录.md#7-全部决策已确认",
     "web/src/api/client.ts#api",
-    "web/src/features/tasks/DynamicTaskForm.tsx#DynamicTaskForm接口（M9-01）",
+    "web/src/features/tasks/index.tsx#DynamicTaskForm与TaskTypeSchema导出（M9-01）",
     "web/src/components/ui/button.tsx",
     "web/src/components/ui/card.tsx",
     "web/src/components/ui/input.tsx",
     "web/src/components/ui/label.tsx",
-    "maa_api/api/routers/schedules.py#定时任务CRUD与执行",
-    "maa_api/services/schedule_service.py#定时任务视图与模板",
+    "maa_api/api/routers/schedules.py#定时任务CRUD与执行（M9-07）",
+    "maa_api/services/schedule_service.py#定时任务视图与模板（M9-07）",
     "git show v2-m7:static/daily.html#旧版按星期任务组表单"
   ],
   "constraints": [
-    "使用 GET/POST/PUT/PATCH/DELETE /api/schedules 与 /{id}/run；保留名称、任务组合 template、启用开关、时区、cron、优先级、下次执行时间和近期结果；编辑/删除/立即运行前显示语义清楚的操作反馈。",
+    "使用 GET/POST/PUT/PATCH/DELETE /api/schedules 与 /{id}/run；保留名称、任务组合 template、启用开关、时区、cron、schedule priority 字段、下次执行时间和近期结果。按架构决策，流水线 source=scheduled 的实际入队优先级固定为 2，因此 UI 明示定时来源排在手动/Agent 后，不提供声称可提升顺序的设置；立即运行仍保留 schedule priority 请求字段。编辑/删除/立即运行前显示语义清楚的操作反馈。",
     "把旧日常配置的 7 天选择、按星期分配命名任务组与日常启停迁移为用户可见的工作流；新增/编辑的可视化星期与时间必须可逆转换为 cron，不以用户直接填写 cron 为唯一方式，cron 无法识别时展示原值并允许编辑。任务参数必须复用 M9-01 导出的 DynamicTaskForm 和后端 schema，不复制 schema 渲染器或硬编码字段。",
     "对星期与任务组的 cron 转换添加边界测试（周日、每日、多日、单日、时区）；写入前遵从后端 schema 校验和 409/422 错误。沿用主题 token，移动优先、触控/键盘可用，不使用 emoji、CDN 或新依赖。",
     "只交付 web/src/features/schedules/** 与 web/src/routes/schedules/**；不得修改共享路由/导航、全局样式、其他卡交付文件、.refactor 台账或 Git 状态/提交。"
