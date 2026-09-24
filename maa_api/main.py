@@ -116,6 +116,7 @@ __all__ = [
     "create_app",
     "custom_operation_id",
     "lifespan",
+    "request_trace_headers",
     "service_version",
     "warn_if_auth_disabled",
 ]
@@ -220,6 +221,35 @@ def confirm_manual_interrupt(_target: Any, options: dict[str, Any]) -> bool:
     Agent/internal callers require an injected confirmation-policy callback.
     """
     return options.get("_caller") == "manual"
+
+
+async def request_trace_headers(request: Request, call_next):
+    """Attach request correlation metadata for responses and service logs."""
+    request_id = request.headers.get("X-Request-Id", "").strip() or uuid.uuid4().hex
+    started = time.perf_counter()
+    token = current_request_id.set(request_id)
+    try:
+        failed = False
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # Starlette's ServerErrorMiddleware handles uncaught exceptions outside
+            # user middleware. Render its registered handler here while this request's
+            # context is still active, so both its error log and response retain tracing.
+            exception_handler = request.app.exception_handlers.get(Exception)
+            if exception_handler is None:
+                raise
+            response = await exception_handler(request, exc)
+            failed = True
+        response.headers["X-Request-Id"] = request_id
+        response.headers["X-Response-Time-Ms"] = (
+            f"{(time.perf_counter() - started) * 1000:.3f}"
+        )
+        if not failed:
+            logger.info("HTTP %s %s completed", request.method, request.url.path)
+        return response
+    finally:
+        current_request_id.reset(token)
 
 #: 服务标题与描述；描述会原样进入 ``/openapi.json`` 的 ``info``。
 TITLE = "MAA-API"
@@ -1053,19 +1083,7 @@ def create_app() -> FastAPI:
         expose_headers=CORS_EXPOSE_HEADERS,
     )
 
-    @app.middleware("http")
-    async def request_trace_headers(request: Request, call_next):
-        request_id = request.headers.get("X-Request-Id", "").strip() or uuid.uuid4().hex
-        started = time.perf_counter()
-        token = current_request_id.set(request_id)
-        try:
-            response = await call_next(request)
-            response.headers["X-Request-Id"] = request_id
-            response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.3f}"
-            logger.info("HTTP %s %s completed", request.method, request.url.path)
-            return response
-        finally:
-            current_request_id.reset(token)
+    app.middleware("http")(request_trace_headers)
     return app
 
 
