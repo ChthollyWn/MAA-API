@@ -349,7 +349,7 @@ tool-calling 循环达到步数上限**不是错误**：会话正常结束，最
 
 针对 cookie 的 CSRF 风险有一条额外限制：**仅凭 cookie 鉴权的请求只允许 `GET`、`HEAD` 与 WebSocket 升级**。写方法（`POST`/`PUT`/`PATCH`/`DELETE`）如果 token 只来自 cookie，返回 `403 FORBIDDEN`。前端 SPA 本来就走 `X-Token`，不受影响；这条限制只挡住"用户在别的网站上被诱导对本服务发起写请求"的场景。
 
-CORS 使用显式 loopback 白名单（`http://localhost:8002`、`http://127.0.0.1:8002`）加 RFC1918 局域网 origin 正则，保留 `allow_credentials=True`。M10 只在请求允许头中补入 `X-Request-Id`，并暴露响应头 `X-Request-Id` 与 `X-Response-Time-Ms`，供调试台关联日志和展示服务端耗时；任意 Tailscale FQDN 的白名单配置归 M15。
+CORS 使用显式 loopback 白名单（`http://localhost:8002`、`http://127.0.0.1:8002`）加 RFC1918 局域网 origin 正则，保留 `allow_credentials=True`。M10 在请求允许头中补入 `X-Request-Id`，并暴露 `X-Request-Id`、`X-Response-Time-Ms` 与 `Location`：前两者供调试台关联日志和展示服务端耗时，`Location` 让跨源浏览器调用方读取创建收藏的资源地址；任意 Tailscale FQDN 的白名单配置归 M15。
 
 ### 5.2 未配置 token 时的行为
 
