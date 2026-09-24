@@ -63,7 +63,17 @@ curl -X POST http://<host>:8002/api/snippets \
 
 客户端应先处理 HTTP 状态码，再按 `error.code` 决定是否提示、等待状态变化或修正参数。错误码与完整路由表见 [05-API规范与路由清单](./05-API规范与路由清单.md)。日志类需求请使用 WebSocket，避免高频轮询。
 
-## 4. WebSocket 日志
+## 4. 自动生成的契约摘要
+
+下列两个区块由后续文档工具从错误码枚举与 OpenAPI tag 元数据生成。M10 只预留稳定标记，当前权威来源分别是 [05-API规范与路由清单](./05-API规范与路由清单.md) 与同服务的 `/openapi.json`；不要手工编辑标记间内容。
+
+<!-- GENERATED:ERROR-CODES:START -->
+<!-- GENERATED:ERROR-CODES:END -->
+
+<!-- GENERATED:OPENAPI-TAGS:START -->
+<!-- GENERATED:OPENAPI-TAGS:END -->
+
+## 5. WebSocket 日志
 
 浏览器 WebSocket 不能设置 `Authorization` 或 `X-Token`，因此使用 cookie 或 query token：
 
@@ -86,6 +96,6 @@ ws.onopen = () => {
 
 请求日志可用 `X-Request-Id` 与调试台请求对应；服务会在响应头回显该值，并暴露 `X-Response-Time-Ms`。当响应体含 `pipeline_id` 时，调试台会继续筛选该流水线的日志。重连、订阅过滤、心跳和 `last_seen_id` 补发协议见 [06-实时日志与WebSocket](./06-实时日志与WebSocket.md)。
 
-## 5. 后续交付
+## 6. 后续交付
 
-M11 将提供 agent 读取 API 收藏的能力。M12 将交付 MCP Server；在此之前，本指南只覆盖已实现的 REST 与 WebSocket 接入。
+人工确认工作流和 agent 读取 API 收藏均留在 M11。M12 将交付 MCP Server；在此之前，本指南只覆盖已实现的 REST 与 WebSocket 接入。
