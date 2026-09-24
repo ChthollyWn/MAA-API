@@ -135,7 +135,7 @@
 **后端侧透传。** 一个中间件读取 `X-Request-Id`（缺失则自己生成），存入 `contextvars.ContextVar`，并在响应头回显同一个值。所有在这个请求上下文里产生的日志，由 `LogHub` 自动附上 `request_id` 字段：
 
 ```python
-# maa_api/api/middleware.py（概念示意）
+# maa_api/main.py（概念示意）
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 @app.middleware("http")
@@ -144,17 +144,23 @@ async def trace_request(request: Request, call_next):
     token = request_id_var.set(rid)
     started = time.perf_counter()
     try:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # 外层 ServerErrorMiddleware 会处理未捕获异常；须在上下文 reset 前
+            # 调用注册的 Exception handler，才能让 500 日志和响应头保留 request_id。
+            handler = request.app.exception_handlers[Exception]
+            response = await handler(request, exc)
+        response.headers["X-Request-Id"] = rid
+        response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
+        return response
     finally:
         request_id_var.reset(token)
-    response.headers["X-Request-Id"] = rid
-    response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
-    return response
 ```
 
 `LogHub` 的 handler 在 HTTP 请求日志中读 `request_id_var.get()`。因为用的是 `ContextVar` 而非 `threading.local`，asyncio 的任务切换不会串上下文；请求结束后不把该值传播给异步任务。
 
-**广播与筛选。** `LogHub` 把带 `request_id` 的请求日志正常广播到 WebSocket（[06-实时日志与WebSocket](./06-实时日志与WebSocket.md) 的既有通道，不新增协议）。调试台订阅日志事件，在本地按刚才那个 `request_id` 过滤，渲染成响应区下方的「服务端日志」列表。
+**广播与筛选。** `LogHub` 把带 `request_id` 的请求日志正常广播到 WebSocket（[06-实时日志与WebSocket](./06-实时日志与WebSocket.md) 的既有通道，不新增协议）。调试台有独立连接：空闲时仅从服务端订阅 `service` 日志，并在本地按当前 `request_id` 筛选，避免把高频 `core` debug 流量下载到手机。
 
 ### 3.2 跨越请求边界的追踪
 
@@ -164,7 +170,9 @@ async def trace_request(request: Request, call_next):
 
 **第一段是请求内日志**，按 `request_id` 过滤，回答「后端收到我的请求后做了什么、参数校验过了吗、落库成功了吗」。
 
-**第二段是关联流水线的后续日志。** 调试台只在响应体带 `pipeline_id` 时按该字段过滤日志，并在界面上分成两个折叠区：「本次请求」和「流水线 #abc123 的执行日志（进行中）」。第二段持续流入直到流水线到达终态。`confirmation_id` 与 `update_id` 不建立自动日志关联。
+**第二段是关联流水线的后续日志。** 调试台只在响应体带 `pipeline_id` 时，用同一 WebSocket 会话发送新的 `subscribe` 替换日志过滤器：来源扩至 `task/service/core`，设置 `pipeline_id` 并把最低级别设为 `INFO`。前端保留已收到的请求日志，再把后续实体日志按该字段筛选，并在界面上分成两个折叠区：「本次请求」和「流水线 #abc123 的执行日志（进行中）」。第二段持续流入直到流水线到达终态。`confirmation_id` 与 `update_id` 不建立自动日志关联。
+
+专用连接响应服务端 `server_ping` 为 `pong`，瞬时断线时有限次数退避重连并恢复当前订阅。远程 Base URL 会同时切换 REST、收藏 CRUD 与这个独立 WebSocket 的目标服务；它不改动前端全局实时连接或日志缓存。
 
 这就要求 `LogHub` 在广播流水线相关日志时带上 `pipeline_id` 字段 —— 这本来就是日志页按流水线筛选所需的，不是为调试台额外加的。
 
