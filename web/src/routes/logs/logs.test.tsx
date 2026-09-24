@@ -200,6 +200,9 @@ describe('logs page', () => {
     Object.defineProperty(scrollRegion, 'scrollHeight', { configurable: true, value: 1000 })
     Object.defineProperty(scrollRegion, 'clientHeight', { configurable: true, value: 400 })
     await waitFor(() => expect(document.querySelector('[data-index]')).toBeInTheDocument())
+    // LogList's first animation frame pins the initial view to the newest row;
+    // wait for that initialization before simulating the user scrolling upward.
+    await waitFor(() => expect(scrollRegion.scrollTop).toBe(scrollRegion.scrollHeight))
     scrollRegion.scrollTop = 100
     fireEvent.scroll(scrollRegion)
     const before = scrollRegion.scrollTop
