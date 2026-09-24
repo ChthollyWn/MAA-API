@@ -67,7 +67,7 @@ export function UpdateHistory({
           <CardTitle>最近更新记录</CardTitle>
           <CardDescription className="mt-1">保留最近的更新执行结果；检查版本不会生成历史记录。</CardDescription>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
+        <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={onRefresh} disabled={isLoading}>
           刷新记录
         </Button>
       </CardHeader>
@@ -106,6 +106,7 @@ export function UpdateHistory({
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="min-h-11"
                         aria-expanded={isOpen}
                         onClick={() => {
                           setExpanded(isOpen ? null : record.id)
@@ -115,7 +116,7 @@ export function UpdateHistory({
                         {isOpen ? '收起详情' : '查看详情'}
                       </Button>
                       {failed && (
-                        <Button type="button" size="sm" disabled={retryingId === record.id} onClick={() => onRetry(record.id)}>
+                        <Button type="button" size="sm" className="min-h-11" disabled={retryingId === record.id} onClick={() => onRetry(record.id)}>
                           {retryingId === record.id ? '正在重试…' : '重试更新'}
                         </Button>
                       )}
