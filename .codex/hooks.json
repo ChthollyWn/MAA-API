@@ -1,0 +1,19 @@
+{
+  "description": "MAA-API：上下文压缩后，把 superpowers 执行台账和 git 状态重新注入会话",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^compact$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/after_compact.py\"",
+            "statusMessage": "压缩后重新读取台账",
+            "timeout": 10,
+            "additionalContextLimit": 4000
+          }
+        ]
+      }
+    ]
+  }
+}
