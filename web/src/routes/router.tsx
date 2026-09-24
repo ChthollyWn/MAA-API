@@ -151,6 +151,7 @@ export const routeConfig: RouteObject[] = [
       { path: 'logs/*', element: <ProtectedRoute><Suspended><LogsPage /></Suspended></ProtectedRoute> },
       { path: 'agent/*', element: <ProtectedRoute><RouteUnavailable title="Agent" description="Agent 对话与操作入口尚未开放。" /></ProtectedRoute> },
       { path: 'more', element: <ProtectedRoute><Suspended><MorePage /></Suspended></ProtectedRoute> },
+      { path: 'more/api-console/guide', element: <ProtectedRoute><Suspended><ApiConsolePage /></Suspended></ProtectedRoute> },
       { path: 'more/api-console', element: <ProtectedRoute><Suspended><ApiConsolePage /></Suspended></ProtectedRoute> },
       { path: 'more/updates', element: <ProtectedRoute><Suspended><UpdatesPage /></Suspended></ProtectedRoute> },
       { path: 'more/schedules', element: <ProtectedRoute><Suspended><SchedulesPage /></Suspended></ProtectedRoute> },
