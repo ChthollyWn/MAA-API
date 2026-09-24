@@ -9,6 +9,7 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(WEB_ROOT, 'src') },
   },
+  server: { fs: { allow: [path.resolve(WEB_ROOT, '..')] } },
   test: {
     environment: 'jsdom',
     restoreMocks: true,
