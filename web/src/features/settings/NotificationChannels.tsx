@@ -272,7 +272,7 @@ export function NotificationChannels() {
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button type="button" variant="outline" onClick={() => setEditor(null)}>取消</Button>
               <Button type="submit" disabled={saving}>
-                {saving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                {saving ? <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus aria-hidden="true" />}
                 {saving ? '正在保存…' : '保存通道'}
               </Button>
             </div>
@@ -280,7 +280,7 @@ export function NotificationChannels() {
         )}
 
         {loading ? (
-          <div className="flex min-h-20 items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />正在读取通道…</div>
+          <div className="flex min-h-20 items-center justify-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />正在读取通道…</div>
         ) : channels.length ? (
           <ul className="space-y-3" aria-label="通知通道列表">
             {channels.map((channel) => (
@@ -303,12 +303,12 @@ export function NotificationChannels() {
                     </details>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" size="sm" disabled={busyId !== null} onClick={() => editChannel(channel)}><Pencil aria-hidden="true" />编辑</Button>
-                    <Button type="button" variant="outline" size="sm" disabled={busyId !== null} onClick={() => void testChannel(channel)}>
-                      {busyId === channel.id ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <FlaskConical aria-hidden="true" />}
+                    <Button type="button" variant="outline" size="sm" className="min-h-11" disabled={busyId !== null} onClick={() => editChannel(channel)}><Pencil aria-hidden="true" />编辑</Button>
+                    <Button type="button" variant="outline" size="sm" className="min-h-11" disabled={busyId !== null} onClick={() => void testChannel(channel)}>
+                      {busyId === channel.id ? <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FlaskConical aria-hidden="true" />}
                       测试
                     </Button>
-                    <Button type="button" variant="outline" size="sm" disabled={busyId !== null} onClick={() => void deleteChannel(channel)}><Trash2 aria-hidden="true" />删除</Button>
+                    <Button type="button" variant="outline" size="sm" className="min-h-11" disabled={busyId !== null} onClick={() => void deleteChannel(channel)}><Trash2 aria-hidden="true" />删除</Button>
                   </div>
                 </div>
               </li>
