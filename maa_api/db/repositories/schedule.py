@@ -26,6 +26,8 @@
 事务纪律（docs/04 §9）：所有方法都不 ``commit()``，由服务层决定事务边界。
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from sqlalchemy import delete, exists, select, update
@@ -47,6 +49,26 @@ class ScheduleRepository(BaseRepository):
         拿 ``schedule.id`` 再 await 一次刷新；``merge()`` 的返回副本才是会话管理
         的对象，对入参的后续修改不会被提交。
         """
+        stored = await self.session.merge(schedule)
+        await self.session.flush()
+        return stored
+
+    async def list(
+        self, *, enabled: bool | None = None
+    ) -> list[Schedule]:
+        """按创建时间倒序列出所有 schedule，可选按启用状态筛选。"""
+        conditions = []
+        if enabled is not None:
+            conditions.append(Schedule.enabled.is_(enabled))
+        result = await self.session.execute(
+            select(Schedule)
+            .where(*conditions)
+            .order_by(Schedule.created_at.desc(), Schedule.id.desc())
+        )
+        return list(result.scalars().all())
+
+    async def update(self, schedule: Schedule) -> Schedule:
+        """全量替换一条 schedule；不提交事务。"""
         stored = await self.session.merge(schedule)
         await self.session.flush()
         return stored
@@ -89,6 +111,17 @@ class ScheduleRepository(BaseRepository):
         )
         return result.rowcount > 0
 
+    async def set_next_run_at(
+        self, schedule_id: str, next_run_at: datetime | None
+    ) -> bool:
+        """Persist the next occurrence computed by APScheduler (UTC naive)."""
+        result = await self.session.execute(
+            update(Schedule)
+            .where(Schedule.id == schedule_id)
+            .values(next_run_at=next_run_at, updated_at=utcnow())
+        )
+        return result.rowcount > 0
+
     async def record_run(
         self,
         schedule_id: str,
@@ -105,7 +138,13 @@ class ScheduleRepository(BaseRepository):
         （``schedule.last_result`` 列宽 16）。``None`` 是合法的清空值：例如本次
         触发只做了「跳过」判定，没有对应流水线。
         """
-        result_value = PipelineStatus(result) if result is not None else None
+        if result is None:
+            result_value = None
+        elif str(result) == "skipped":
+            # Skipped is a schedule trigger result, not a pipeline status.
+            result_value = "skipped"
+        else:
+            result_value = PipelineStatus(result)
         stmt = (
             update(Schedule)
             .where(Schedule.id == schedule_id)
