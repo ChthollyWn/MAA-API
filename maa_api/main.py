@@ -327,7 +327,7 @@ CORS_HEADERS: list[str] = [
 
 #: Browser clients need to read the request correlation and elapsed time from
 #: cross-origin responses; neither header is CORS-safelisted by default.
-CORS_EXPOSE_HEADERS: list[str] = ["X-Request-Id", "X-Response-Time-Ms"]
+CORS_EXPOSE_HEADERS: list[str] = ["X-Request-Id", "X-Response-Time-Ms", "Location"]
 
 
 class OperationIdRoute(Protocol):
