@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable, Mapping
 import re
 import sys
 from pathlib import Path
@@ -26,6 +27,25 @@ def parse_error_descriptions(markdown: str) -> dict[str, str]:
         if match:
             descriptions[match.group(1)] = match.group(2).replace("|", r"\|")
     return descriptions
+
+
+def error_codes_and_statuses(
+    codes: Iterable[ErrorCode], statuses: Mapping[ErrorCode, int]
+) -> tuple[list[str], dict[str, int]]:
+    """Require a status mapping for every HTTP error code before rendering."""
+    exposed_codes = [code for code in codes if code is not ErrorCode.UPDATE_INTERRUPTED]
+    missing = [code for code in exposed_codes if code not in statuses]
+    if missing:
+        names = ", ".join(code.value for code in missing)
+        raise ValueError(f"错误码缺少 HTTP 状态码映射：{names}")
+    unexpected = [code for code in statuses if code not in exposed_codes]
+    if unexpected:
+        names = ", ".join(code.value for code in unexpected)
+        raise ValueError(f"存在未对应 HTTP 错误码的状态映射：{names}")
+    return (
+        [code.value for code in exposed_codes],
+        {code.value: statuses[code] for code in exposed_codes},
+    )
 
 
 def render_error_table(
@@ -67,8 +87,7 @@ def replace_generated_section(source: str, name: str, content: str) -> str:
 
 def generated_guide(source: str, error_spec: str) -> str:
     descriptions = parse_error_descriptions(error_spec)
-    codes = [code.value for code in ErrorCode if code in ERROR_HTTP_STATUS]
-    statuses = {code.value: status for code, status in ERROR_HTTP_STATUS.items()}
+    codes, statuses = error_codes_and_statuses(ErrorCode, ERROR_HTTP_STATUS)
     updated = replace_generated_section(
         source,
         "ERROR-CODES",

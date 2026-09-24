@@ -55,6 +55,8 @@ class ApiSnippetWrite(BaseModel):
     @field_validator("path")
     @classmethod
     def require_relative_api_path(cls, value: str) -> str:
+        if "\\" in value:
+            raise ValueError("path 不得包含反斜杠")
         if not value.startswith("/") or value.startswith("//"):
             raise ValueError("path 必须是以 / 开头的同源路径")
         if "?" in value or "#" in value:
@@ -110,7 +112,7 @@ class ApiSnippetService:
         async with self._session_factory() as session:
             items = await ApiSnippetRepository(session).list()
         return ApiSnippetPage(
-            items=[ApiSnippetView.model_validate(item) for item in items],
+            items=[_to_view(item) for item in items],
             total=len(items),
         )
 
@@ -119,7 +121,7 @@ class ApiSnippetService:
             item = await ApiSnippetRepository(session).get(snippet_id)
         if item is None:
             raise _not_found(snippet_id)
-        return ApiSnippetView.model_validate(item)
+        return _to_view(item)
 
     async def create(self, payload: ApiSnippetWrite) -> ApiSnippetView:
         clean_name = payload.name
@@ -139,7 +141,7 @@ class ApiSnippetService:
             except IntegrityError as exc:
                 await session.rollback()
                 raise _name_conflict(clean_name) from exc
-        return ApiSnippetView.model_validate(item)
+        return _to_view(item)
 
     async def update(self, snippet_id: str, payload: ApiSnippetWrite) -> ApiSnippetView:
         async with self._session_factory() as session:
@@ -162,7 +164,7 @@ class ApiSnippetService:
             except IntegrityError as exc:
                 await session.rollback()
                 raise _name_conflict(clean_name) from exc
-        return ApiSnippetView.model_validate(item)
+        return _to_view(item)
 
     async def delete(self, snippet_id: str) -> None:
         async with self._session_factory() as session:
@@ -177,6 +179,14 @@ def _not_found(snippet_id: str) -> AppError:
         "API 调试台收藏不存在",
         {"snippet_id": snippet_id},
     )
+
+
+def _to_view(item: ApiSnippet) -> ApiSnippetView:
+    """Sanitize persisted values on every read before exposing a snippet."""
+    data = item.model_dump()
+    data["query"] = sanitize_query(item.query)
+    data["headers"] = sanitize_headers(item.headers)
+    return ApiSnippetView.model_validate(data)
 
 
 def _name_conflict(name: str) -> AppError:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from maa_api.domain.errors import ERROR_HTTP_STATUS, ErrorCode
+import scripts.generate_api_guide as api_guide
 from scripts.generate_api_guide import replace_generated_section, render_error_table
 
 
@@ -26,6 +28,23 @@ def test_missing_authoritative_error_description_fails_loudly():
             statuses={"MISSING": 400},
             source_rows={},
         )
+
+
+def test_missing_http_status_mapping_fails_loudly(monkeypatch):
+    status_map = dict(ERROR_HTTP_STATUS)
+    del status_map[ErrorCode.API_SNIPPET_NOT_FOUND]
+    monkeypatch.setattr(api_guide, "ERROR_HTTP_STATUS", status_map)
+    source = "\n".join(
+        [
+            "<!-- GENERATED:ERROR-CODES:START -->",
+            "<!-- GENERATED:ERROR-CODES:END -->",
+            "<!-- GENERATED:OPENAPI-TAGS:START -->",
+            "<!-- GENERATED:OPENAPI-TAGS:END -->",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="缺少 HTTP 状态码映射.*API_SNIPPET_NOT_FOUND"):
+        api_guide.generated_guide(source, api_guide.ERROR_SPEC_PATH.read_text())
 
 
 def test_replace_generated_section_changes_only_marked_content():
