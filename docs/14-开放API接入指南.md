@@ -63,9 +63,17 @@ curl -X POST http://<host>:8002/api/snippets \
 
 客户端应先处理 HTTP 状态码，再按 `error.code` 决定是否提示、等待状态变化或修正参数。错误码与完整路由表见 [05-API规范与路由清单](./05-API规范与路由清单.md)。日志类需求请使用 WebSocket，避免高频轮询。
 
+### 3.1 限流与轮询
+
+当前没有针对正常业务流量的通用请求限流。现有 `RATE_LIMITED` 只保护鉴权：同一来源 IP 在 60 秒内连续鉴权失败达到默认 10 次后进入 60 秒冷却期；冷却期内该 IP 对非豁免端点的请求均返回 `429` 和 `Retry-After`。一次成功鉴权会清除该 IP 的失败计数。队列已满等业务错误也可能返回 `429`，应结合 `error.code` 区分。
+
+轮询流水线或设备等状态时，建议间隔至少 2 秒，并在重试时加入退避；日志使用 WebSocket 实时订阅，需要补历史时使用日志查询接口，不要高频轮询日志。
+
 ## 4. 自动生成的契约摘要
 
 下列两个区块由 `scripts/generate_api_guide.py` 从错误码枚举/状态映射、[05-API规范与路由清单](./05-API规范与路由清单.md) 的权威错误说明和同服务的 `/openapi.json` tag 元数据生成。不要手工编辑标记间内容。
+
+这些表是错误码与 tag 元数据摘要，不是已交付路由清单；错误码枚举与 tag 列表含 agent、人工确认及 MCP 的预留项，不代表这些模块已有可调用 endpoint。M10 当前可调用的 REST 路由以同服务 `/openapi.json` 的 `paths` 为准；此版本没有人工确认 REST 工作流或 MCP Server。
 
 <!-- GENERATED:ERROR-CODES:START -->
 | 错误码 | HTTP | 含义与触发场景 |
@@ -186,7 +194,85 @@ curl -X POST http://<host>:8002/api/snippets \
 | `ws` | WebSocket 实时通道（仅文档说明，不可在此调试） |
 <!-- GENERATED:OPENAPI-TAGS:END -->
 
-## 5. WebSocket 日志
+## 5. REST 端到端调用
+
+下面的 shell 示例使用 Bash、`curl` 与 Python 3。设置 `BASE_URL`；鉴权已启用时再设置 `TOKEN`。示例会实际执行一场 1-7 战斗，请在已连接且可接受执行任务的设备上运行。
+
+### 5.1 提交流水线并等待完成
+
+`POST /api/pipelines` 返回 `202` 与 `pipeline_id`；随后按该 id 读取详情。状态值为小写的 `pending`、`running`、`completed`、`failed`、`cancelled`；终态是后三者。这里每 2 秒轮询一次。客户端也可改为订阅下方的 `pipeline_status` WebSocket 事件。
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL="${BASE_URL:-http://localhost:8002}"
+auth_header="Authorization: Bearer ${TOKEN:-}"
+
+accepted=$(curl -sS -X POST "$BASE_URL/api/pipelines" \
+  -H "$auth_header" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"API 接入示例","tasks":[{"name":"Fight","stage":"1-7","times":1,"medicine":0,"stone":0}]}')
+pipeline_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["pipeline_id"])' <<<"$accepted")
+printf 'pipeline_id=%s\n' "$pipeline_id"
+
+for ((attempt = 0; attempt < 1800; attempt++)); do
+  detail=$(curl -sS "$BASE_URL/api/pipelines/$pipeline_id" -H "$auth_header")
+  status=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$detail")
+  printf 'status=%s\n' "$status"
+  case "$status" in
+    completed) break ;;
+    failed|cancelled) printf '%s\n' "$detail"; exit 1 ;;
+  esac
+  sleep 2
+done
+if [[ "$status" == pending || "$status" == running ]]; then
+  printf '流水线仍在运行，停止本地轮询：%s\n' "$pipeline_id" >&2
+  exit 1
+fi
+```
+
+若客户端可能因超时重发提交请求，可为首次请求增加稳定的 `Idempotency-Key` 头；相同 key 与相同内容会复用原流水线，不同内容会返回 `409 IDEMPOTENCY_KEY_CONFLICT`。
+
+### 5.2 执行点击；遇到流水线时先取消并等待
+
+点击使用 MaaCore 通道，不进入队列。流水线运行中默认拒绝，返回 `409 PIPELINE_ALREADY_RUNNING`，`details.pipeline_id` 标明冲突的流水线。建议先读取当前流水线，发起取消并轮询至终态，再重试点击：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL="${BASE_URL:-http://localhost:8002}"
+auth_header="Authorization: Bearer ${TOKEN:-}"
+
+current=$(curl -sS "$BASE_URL/api/pipelines/current" -H "$auth_header")
+pipeline_id=$(python3 -c 'import json,sys; p=json.load(sys.stdin).get("pipeline"); print(p["id"] if p else "")' <<<"$current")
+if [[ -n "$pipeline_id" ]]; then
+  curl -sS -X DELETE "$BASE_URL/api/pipelines/$pipeline_id" -H "$auth_header"
+  for ((attempt = 0; attempt < 1800; attempt++)); do
+    detail=$(curl -sS "$BASE_URL/api/pipelines/$pipeline_id" -H "$auth_header")
+    status=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$detail")
+    printf 'pipeline status=%s\n' "$status"
+    case "$status" in
+      completed|failed|cancelled) break ;;
+    esac
+    sleep 2
+  done
+  if [[ "$status" == pending || "$status" == running ]]; then
+    printf '取消尚未进入终态；未执行点击。流水线：%s\n' "$pipeline_id" >&2
+    exit 1
+  fi
+fi
+
+curl -i -X POST "$BASE_URL/api/device/click" \
+  -H "$auth_header" \
+  -H 'Content-Type: application/json' \
+  -d '{"x":500,"y":700}'
+```
+
+原子操作也支持 `force: true`，它会越过流水线互斥检查；运行中的流水线仍继续，服务端会写强制介入警告日志。应只在明确需要并能接受并发触控冲突时使用。卡死救援也应先停止流水线，确认它已进入终态，再执行点击或其他原子操作（见 [02 §5.3](./02-系统架构设计.md#53-原子操作的并发)）。
+
+## 6. WebSocket 实时通道
 
 浏览器 WebSocket 不能设置 `Authorization` 或 `X-Token`，因此使用 cookie 或 query token：
 
@@ -195,20 +281,59 @@ const ws = new WebSocket('ws://<host>:8002/api/ws?token=<token>')
 
 ws.onmessage = (event) => {
   const message = JSON.parse(event.data)
-  if (message.type === 'log') console.log(message.data)
+  if (message.type === 'log') {
+    console.log(message.data)
+    // 持久化已处理的最大 id，重连时作为 last_seen_id 续传。
+  } else if (message.type === 'log_batch') {
+    console.log('补发日志', message.data.records, 'truncated:', message.data.truncated)
+  } else if (message.type === 'pipeline_status') {
+    console.log('流水线状态', message.data)
+  } else if (message.type === 'subscribed') {
+    console.log('订阅已生效', message.data)
+  } else if (message.type === 'server_ping') {
+    ws.send(JSON.stringify({ type: 'pong', data: { t: message.data.t } }))
+  }
 }
 
 ws.onopen = () => {
   ws.send(JSON.stringify({
     type: 'subscribe',
     req_id: 'logs-1',
-    data: { channels: ['log'] }
+    data: {
+      channels: ['log', 'pipeline_status', 'task_status', 'queue_changed', 'core_status', 'device_status', 'update_progress', 'update_available'],
+      log_filter: { sources: ['task', 'service'], min_level: 'INFO', pipeline_id: null }
+    }
   }))
 }
 ```
 
-请求日志可用 `X-Request-Id` 与调试台请求对应；服务会在响应头回显该值，并暴露 `X-Response-Time-Ms`。当响应体含 `pipeline_id` 时，调试台会继续筛选该流水线的日志。重连、订阅过滤、心跳和 `last_seen_id` 补发协议见 [06-实时日志与WebSocket](./06-实时日志与WebSocket.md)。
+WebSocket URL 也可带 `last_seen_id=<最大已处理日志 id>`。查询游标会立即订阅 `log` 并补发 id 更大的日志；之后仍可发送 `subscribe` 设置期望频道。也可省略 URL 游标、改在首次 `subscribe.data.last_seen_id` 中传游标。若未提供游标，只接收新消息。使用 query token 时，token 可能进入访问日志；同源浏览器可先用头部 token 调用 `POST /api/system/auth/cookie` 建立 HttpOnly cookie，再通过 cookie 握手。
 
-## 6. 后续交付
+所有服务端消息使用 `{type, ts, data}` 信封；请求/应答还可能带 `req_id`。客户端 `subscribe` 的频道名单会整体替换旧订阅；`unsubscribe` 移除指定频道。`log_filter` 可设 `sources`（`task` / `service` / `core`）、`min_level`（`DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`，也接受 `WARN`）与 `pipeline_id`。订阅确认 `subscribed.data` 含实际 `channels`、补发条数 `backfilled` 与截断标记 `truncated`。
 
-人工确认工作流和 agent 读取 API 收藏均留在 M11。M12 将交付 MCP Server；在此之前，本指南只覆盖已实现的 REST 与 WebSocket 接入。
+M10 当前会发送以下事件：
+
+| `type` | `data` 摘要 |
+|---|---|
+| `log` | 单条日志：`id`、`source`、`level`、`content`、`pipeline_id`、`task_id`、`request_id`、`logger`、`attachment`。日志来源为 `task`、`service`、`core`。 |
+| `log_batch` | 连接补发日志：`records` 为上述日志记录数组，`truncated` 表示环形缓冲是否不足以覆盖游标到当前的整个缺口。 |
+| `pipeline_status` | `pipeline_id`、小写 `status`、`source`、`priority`、`progress {total, completed, failed}`、Unix 秒 `started_at` / `finished_at`、`error {code, message}` 或 `null`。 |
+| `task_status` | `pipeline_id`、`task_id`、`task_name`、`type_name`、小写 `status`、`retry_count`、`max_retries`、`error`。 |
+| `queue_changed` | `running`（当前执行项或 `null`）、`pending`（排队项数组）、`counts {pending, running}` 与 `paused`。每个队列项含 `pipeline_id`、`name`、`source`、`priority`、`status`、`created_at`。 |
+| `core_status` | `core_id`、`state`、`pid`、`generation`。 |
+| `device_status` | `core_id`、`state`、`address`、`uuid`、`resolution`、`last_connected_at`、`retry`、`last_error`。 |
+| `update_progress` | `update_id`、`target`（`core` / `resource` / `game`）、`phase`（`checking` / `downloading` / `verifying` / `waiting_idle` / `applying` / `restarting` / `failed` / `done`）、`percent`、`downloaded`、`total`、`speed`、`eta`、`message`、`error`；部分进度字段可为 `null`。 |
+| `update_available` | `targets` 数组，列出有更新的目标及其 `target`、`current`、`latest`；资源/游戏目标可能含 `channel`。没有可用更新时不会发该事件。 |
+| `server_shutdown` | 服务关闭通知，`data` 为空对象；随后以 close code `1001` 关闭连接。 |
+
+协议控制帧不需要订阅频道：`server_ping` 的 `data` 为 `{t}`；`subscribed` 回应 `subscribe` / `unsubscribe`，`data` 为 `{channels, backfilled, truncated}`；服务端收到客户端 `ping` 后回 `pong` 并原样回带 `data.t`；格式或频道错误以 `error` 应答，`data` 为 `{code, message}`，若请求带 `req_id` 则应答也带回。客户端每 30 秒发送 `ping` 可检测 RTT；服务端也每 30 秒发 `server_ping`，客户端应如示例回送 `pong` 并原样带回 `data.t`。90 秒无客户端消息或连续两次未响应服务端心跳会关闭连接。鉴权失败 close code 为 `4401`，超过连接数上限为 `4429`；协议连续 10 条非法消息以 `1008` 关闭，慢客户端可能以 `1011` 关闭。
+
+`confirm_request`、`confirm_resolved`、`agent_event` 目前虽被服务端频道校验接受，但 M10 不会发布它们；人工确认和 agent 工作流属于 M11，调用方不能依赖这些事件。
+
+将最新处理的 `log.data.id` 持久化，并在重连时作为 `last_seen_id` 传回。服务端默认的内存环形缓冲为最近 2,000 条日志；若返回 `truncated: true`，用 `GET /api/system/logs?after_id=<旧游标>&before_id=<缓冲最早 id>&order=asc&size=1000` 从数据库补齐，再继续流式接收。`log` 实时事件中的 `id` 单调递增，补发条件为 `id > last_seen_id`。重连退避建议 1、2、4、8 秒递增至 30 秒，并加入抖动。更完整的消息定义见 [06-实时日志与WebSocket §7](./06-实时日志与WebSocket.md#7-websocket-协议)。
+
+请求日志可用 `X-Request-Id` 与调试台请求对应；服务会在响应头回显该值，并暴露 `X-Response-Time-Ms`。当响应体含 `pipeline_id` 时，调试台会继续筛选该流水线的日志。
+
+## 7. 交付范围
+
+本指南只描述 M10 已交付的 REST 与 WebSocket。人工确认 REST 接口/前端工作流和 agent 读取 API 收藏留在 M11；MCP Server 留在 M12。当前版本没有可用的人工确认接口或 MCP 接口；请勿将预留错误码、OpenAPI tag 或 WebSocket 频道名当作功能已交付的证据。
