@@ -36,12 +36,17 @@ function installNetwork(initialSnippets: Array<Record<string, unknown>> = []) {
   const requests: Request[] = []
   const snippets: Array<Record<string, unknown>> = [...initialSnippets]
   let failNextEcho = false
+  let failNextRemoteSnippetFetch = false
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init)
     requests.push(request.clone())
     const url = new URL(request.url)
     if (url.pathname === '/api/system/health') return json({ auth_enabled: false, status: 'ok', version: 'test' })
     if (url.pathname === '/openapi.json') return json(openApi)
+    if (url.pathname === '/api/snippets' && url.origin !== window.location.origin && failNextRemoteSnippetFetch) {
+      failNextRemoteSnippetFetch = false
+      throw new TypeError('Failed to fetch: CORS blocked the remote response')
+    }
     if (url.pathname === '/api/snippets' && request.method === 'GET') return json({ items: snippets, total: snippets.length })
     if (url.pathname === '/api/snippets' && request.method === 'POST') {
       const payload = JSON.parse(await request.clone().text()) as Record<string, unknown>
@@ -65,7 +70,11 @@ function installNetwork(initialSnippets: Array<Record<string, unknown>> = []) {
     return json({ error: { code: 'NOT_FOUND', message: 'not found' } }, 404)
   })
   vi.stubGlobal('fetch', fetchMock)
-  return { requests, fetchMock, failNextEcho: () => { failNextEcho = true } }
+  return {
+    requests, fetchMock,
+    failNextEcho: () => { failNextEcho = true },
+    failNextRemoteSnippetFetch: () => { failNextRemoteSnippetFetch = true },
+  }
 }
 
 function renderAt(path: string) {
@@ -105,6 +114,9 @@ describe('API console route and request workspace', () => {
     fireEvent.click(screen.getByText('接入指南'))
     expect(await screen.findByRole('heading', { name: '开放 API 接入指南' })).toBeInTheDocument()
     expect(screen.getByText(/仅凭 cookie 的请求只允许/)).toBeInTheDocument()
+    const routeGuideLink = screen.getAllByRole('link', { name: /05-API规范与路由清单/ })[0]
+    expect(routeGuideLink).toHaveAttribute('href', '/docs')
+    expect(routeGuideLink).toHaveTextContent('/docs')
   })
 
   it('shows the mobile request step at 375px and still sends a schema-invalid JSON body', async () => {
@@ -128,6 +140,10 @@ describe('API console route and request workspace', () => {
     expect(await sent.clone().text()).toContain('"message"')
     expect(await screen.findByRole('region', { name: '响应抽屉' })).toHaveTextContent('200 OK')
     expect(localStorage.getItem('one-page-secret')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: '请求' }))
+    expect(screen.queryByRole('region', { name: '响应抽屉' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送请求' })).toBeVisible()
   })
 
   it('keeps the three desktop columns available at a wide viewport', async () => {
@@ -169,6 +185,53 @@ describe('API console route and request workspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '删除收藏 回显调试改名' }))
     await waitFor(() => expect(network.requests.some((request) => request.method === 'DELETE' && new URL(request.url).pathname === '/api/snippets/favorite-1')).toBe(true))
+  })
+
+  it('loads and mutates snippets on the selected remote service with the temporary console token', async () => {
+    const network = installNetwork()
+    vi.stubGlobal('WebSocket', undefined)
+    renderAt('/more/api-console')
+    await screen.findByRole('heading', { name: 'API 调试台' })
+    fireEvent.change(screen.getByLabelText('临时 token（当前页）'), { target: { value: 'remote-temp-secret' } })
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'http://remote-maa.local:8002/base' } })
+
+    await waitFor(() => expect(network.requests.some((request) => new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets')).toBe(true))
+    const remoteList = network.requests.find((request) => new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets' && request.method === 'GET')!
+    expect(remoteList.headers.get('X-Token')).toBe('remote-temp-secret')
+
+    fireEvent.click(await screen.findByRole('button', { name: /回显一条消息/ }))
+    fireEvent.change(screen.getByLabelText('收藏名称'), { target: { value: '远程收藏' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(network.requests.some((request) => request.method === 'POST' && new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets')).toBe(true))
+    const remoteCreate = network.requests.find((request) => request.method === 'POST' && new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets')!
+    expect(remoteCreate.headers.get('X-Token')).toBe('remote-temp-secret')
+
+    fireEvent.change(screen.getByLabelText('收藏名称'), { target: { value: '远程收藏已改名' } })
+    fireEvent.click(screen.getByRole('button', { name: '更新' }))
+    await waitFor(() => expect(network.requests.some((request) => request.method === 'PUT' && new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets/favorite-1')).toBe(true))
+    const remoteUpdate = network.requests.find((request) => request.method === 'PUT' && new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets/favorite-1')!
+    expect(remoteUpdate.headers.get('X-Token')).toBe('remote-temp-secret')
+
+    fireEvent.click(screen.getByRole('tab', { name: '收藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '删除收藏 远程收藏已改名' }))
+    await waitFor(() => expect(network.requests.some((request) => request.method === 'DELETE' && new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets/favorite-1')).toBe(true))
+    const remoteDelete = network.requests.find((request) => request.method === 'DELETE' && new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets/favorite-1')!
+    expect(remoteDelete.headers.get('X-Token')).toBe('remote-temp-secret')
+    expect(network.requests.filter((request) => new URL(request.url).pathname.startsWith('/api/snippets') && request.method !== 'GET').every((request) => new URL(request.url).origin === 'http://remote-maa.local:8002')).toBe(true)
+  })
+
+  it('shows remote snippet CORS failures instead of hiding them', async () => {
+    const network = installNetwork()
+    vi.stubGlobal('WebSocket', undefined)
+    renderAt('/more/api-console')
+    await screen.findByRole('heading', { name: 'API 调试台' })
+    fireEvent.change(screen.getByLabelText('临时 token（当前页）'), { target: { value: 'remote-temp-secret' } })
+    network.failNextRemoteSnippetFetch()
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'http://remote-maa.local:8002/base' } })
+    await waitFor(() => expect(network.requests.some((request) => new URL(request.url).origin === 'http://remote-maa.local:8002' && new URL(request.url).pathname === '/api/snippets')).toBe(true))
+
+    fireEvent.click(screen.getByRole('tab', { name: '收藏' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('CORS blocked')
   })
 
   it('opens a remote console WebSocket from Base URL without changing shared realtime state or logs', async () => {

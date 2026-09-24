@@ -7,7 +7,12 @@ function inline(text: string): ReactNode[] {
     if (part.startsWith('`') && part.endsWith('`')) return <code key={index} className="rounded bg-muted px-1 py-0.5">{part.slice(1, -1)}</code>
     if (part.startsWith('**') && part.endsWith('**')) return <strong key={index}>{part.slice(2, -2)}</strong>
     const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
-    if (link) return <a key={index} href={link[2]} className="text-primary underline underline-offset-2">{link[1]}</a>
+    if (link) {
+      const localMarkdown = /^(?:\.\.?\/)+[^?#]+\.md(?:[?#].*)?$/i.test(link[2])
+      return <a key={index} href={localMarkdown ? '/docs' : link[2]} className="text-primary underline underline-offset-2">
+        {link[1]}{localMarkdown && <span className="ml-1 text-[10px] text-muted-foreground">（/docs）</span>}
+      </a>
+    }
     return <Fragment key={index}>{part}</Fragment>
   })
 }

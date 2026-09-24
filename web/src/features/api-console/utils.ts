@@ -2,6 +2,7 @@ export type ConsoleRecord = Record<string, unknown> & { truncated?: boolean }
 export const HISTORY_STORAGE_KEY = 'maa.api-console.history'
 export const HISTORY_MAX_ENTRIES = 100
 export const HISTORY_MAX_BYTES = 16 * 1024
+const HISTORY_MAX_ID_BYTES = 256
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'] as const
 
@@ -72,6 +73,17 @@ export function operationParameters(operation: Record<string, unknown>, document
 
 function encodedBytes(value: string): number {
   return new TextEncoder().encode(value).length
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (encodedBytes(value) <= maxBytes) return value
+  const suffix = '…'
+  let result = ''
+  for (const character of value) {
+    if (encodedBytes(result + character + suffix) > maxBytes) break
+    result += character
+  }
+  return `${result}${suffix}`
 }
 
 export function buildOperationTree(document: unknown): ConsoleOperationGroup[] {
@@ -344,6 +356,13 @@ export function filterSensitive<T extends { path?: string; headers?: Record<stri
 export function trimHistory<T extends ConsoleRecord>(records: T[]): T[] {
   return records.slice(-HISTORY_MAX_ENTRIES).reverse().map((record) => {
     const clean = filterSensitive(record as T & { path?: string; headers?: Record<string, string> }) as T
+    const cleanRecord = clean as Record<string, unknown>
+    if ('id' in cleanRecord && encodedBytes(JSON.stringify(cleanRecord.id) ?? '') > HISTORY_MAX_ID_BYTES) {
+      cleanRecord.id = typeof cleanRecord.id === 'string'
+        ? truncateUtf8(cleanRecord.id, HISTORY_MAX_ID_BYTES)
+        : '[已截断]'
+      clean.truncated = true
+    }
     if (encodedBytes(JSON.stringify(clean)) <= HISTORY_MAX_BYTES) return clean
     const trimmed = { ...clean, truncated: true } as T
     for (const field of ['body', 'response', 'headers'] as const) {
@@ -358,7 +377,7 @@ export function trimHistory<T extends ConsoleRecord>(records: T[]): T[] {
       if (typeof value === 'string' && value.length > 64) {
         ;(trimmed as Record<string, unknown>)[key] = value.slice(0, Math.floor(value.length / 2)) + '…'
       } else {
-        ;(trimmed as Record<string, unknown>)[key] = '[已截断]'
+        delete (trimmed as Record<string, unknown>)[key]
       }
     }
     return trimmed
