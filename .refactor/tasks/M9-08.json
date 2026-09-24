@@ -28,8 +28,8 @@
     ".venv/bin/python -m pytest -q tests/db/test_migrate.py tests/db/test_initial_migration.py"
   ],
   "prompt_extra": "M9-07 now treats incoming cron weekdays as POSIX and translates to APScheduler's Monday-zero internal values. The data fix here must likewise store schedules in the new POSIX convention. Do not change the old migration's behavior or its tests: a fresh upgrade runs 0002 then 0003 then 0004, while a database already at 0003 runs 0004 against its old rows. The one-off source JSON remains read-only.",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "c229a75",
   "blocked_reason": null
 }
