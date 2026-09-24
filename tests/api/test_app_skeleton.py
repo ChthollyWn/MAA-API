@@ -34,6 +34,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.routing import iter_route_contexts
@@ -43,6 +44,7 @@ from sqlalchemy import create_engine, text
 import maa_api.main as main_module
 from maa_api.core.supervisor import CoreState
 from maa_api.api import deps
+from maa_api.api.errors import register_exception_handlers
 from maa_api.db import session as db_session
 from maa_api.main import (
     AUTH_DISABLED_WARNING,
@@ -52,6 +54,7 @@ from maa_api.main import (
     app,
     warn_if_auth_disabled,
 )
+from maa_api.services.log_hub import LogHub, LogHubHandler
 
 #: 仓库根：tests/api/test_app_skeleton.py → parents[2]。不依赖 CWD。
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -405,22 +408,83 @@ def test_cors_simple_response_echoes_allowed_origin(
 def test_request_trace_headers_are_echoed_generated_and_isolated(
     tmp_settings, isolated_db, make_client
 ) -> None:
-    """Each concurrent HTTP request gets its own visible correlation and timing headers."""
+    """Concurrent response headers and WebSocket log payloads retain each request id."""
     client = make_client(app)
-    supplied = ["trace-a", "trace-b"]
-
-    def get_with_id(request_id: str):
-        return client.get("/api/system/health", headers={"X-Request-Id": request_id})
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        responses = list(executor.map(get_with_id, supplied))
     generated = client.get("/api/system/health")
+    requests = [
+        ("/api/system/health", "trace-a"),
+        ("/api/tasks/types", "trace-b"),
+    ]
 
-    assert [response.headers["x-request-id"] for response in responses] == supplied
-    assert generated.headers["x-request-id"]
-    assert generated.headers["x-request-id"] not in supplied
-    assert all(float(response.headers["x-response-time-ms"]) >= 0 for response in responses)
-    assert float(generated.headers["x-response-time-ms"]) >= 0
+    def get_with_id(item: tuple[str, str]):
+        path, request_id = item
+        return client.get(path, headers={"X-Request-Id": request_id})
+
+    expected_by_content = {
+        f"HTTP GET {path} completed": request_id
+        for path, request_id in requests
+    }
+    with client.websocket_connect("/api/ws") as socket:
+        socket.send_json({"type": "subscribe", "data": {"channels": ["log"]}})
+        assert socket.receive_json()["type"] == "subscribed"
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(get_with_id, requests))
+
+        assert [response.status_code for response in responses] == [200, 200]
+        assert [response.headers["x-request-id"] for response in responses] == [
+            request_id for _, request_id in requests
+        ]
+        assert generated.headers["x-request-id"]
+        assert generated.headers["x-request-id"] not in {
+            request_id for _, request_id in requests
+        }
+        assert all(
+            float(response.headers["x-response-time-ms"]) >= 0
+            for response in responses
+        )
+        assert float(generated.headers["x-response-time-ms"]) >= 0
+
+        events = [socket.receive_json(), socket.receive_json()]
+        assert all(event["type"] == "log" for event in events)
+        request_events = {
+            event["data"]["content"]: event["data"]["request_id"]
+            for event in events
+        }
+        assert request_events == expected_by_content
+
+
+def test_unhandled_500_keeps_request_trace_in_response_and_error_log(
+    tmp_settings, make_client
+) -> None:
+    """An exception handled outside middleware still retains its request correlation."""
+    trace_app = FastAPI()
+    register_exception_handlers(trace_app)
+    trace_app.middleware("http")(main_module.request_trace_headers)
+
+    @trace_app.get("/kaboom")
+    async def kaboom() -> None:
+        raise RuntimeError("expected trace test failure")
+
+    hub = LogHub()
+    handler = LogHubHandler(hub)
+    error_logger = logging.getLogger("maa_api.api.errors")
+    error_logger.addHandler(handler)
+    try:
+        response = make_client(trace_app).get(
+            "/kaboom", headers={"X-Request-Id": "error-trace"}
+        )
+    finally:
+        error_logger.removeHandler(handler)
+
+    assert response.status_code == 500
+    assert response.headers["x-request-id"] == "error-trace"
+    assert float(response.headers["x-response-time-ms"]) >= 0
+    records, _ = hub.snapshot_after(0)
+    error_record = next(
+        record for record in records if record.content.startswith("未捕获异常 trace_id=")
+    )
+    assert error_record.request_id == "error-trace"
 
 
 def test_cors_allows_request_id_and_exposes_trace_response_headers(
