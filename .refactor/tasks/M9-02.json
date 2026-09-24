@@ -39,6 +39,6 @@
   "prompt_extra": "实现默认导出的页面组件，保留在 web/src/routes/updates/index.tsx；路由由 M9-05 接线。只修改卡片交付目录。不要在 UI 测试中访问真实外部更新源，使用 mocked API/WS 事件。",
   "status": "done",
   "attempts": 0,
-  "commit": "1e196ea",
+  "commit": "c2c87ed",
   "blocked_reason": null
 }

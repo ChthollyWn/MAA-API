@@ -35,8 +35,8 @@
     "cd web && pnpm typecheck"
   ],
   "prompt_extra": "实现默认导出的页面组件，保留在 web/src/routes/schedules/index.tsx；路由由 M9-05 接线。历史文件必须只读，禁止恢复 legacy HTML 或继续依赖旧前端。只修改卡片交付目录。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "534df67",
   "blocked_reason": null
 }

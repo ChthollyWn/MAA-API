@@ -31,8 +31,8 @@
     "cd web && pnpm typecheck"
   ],
   "prompt_extra": "只接入路由和导航，不重写 feature 业务页。路由页面应使用 M9-01 至 M9-04 的默认导出；各 feature agent 只改各自路径。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "be5e090",
   "blocked_reason": null
 }
