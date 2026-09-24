@@ -134,6 +134,66 @@ describe('API console WebSocket lifecycle and subscriptions', () => {
     expect(FakeSocket.instances).toHaveLength(6)
   })
 
+  it('reconnects from the highest processed log id and deduplicates replayed records', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const { result } = renderHook(() => useConsoleRealtime('http://maa.example:8002', 'socket-secret', 'request-7', 'pipeline-7'))
+    const first = FakeSocket.instances[0]
+    act(() => first.open())
+    act(() => first.message({ type: 'log', data: { id: 7, source: 'service', request_id: 'request-7', pipeline_id: 'pipeline-7', content: 'before disconnect' } }))
+    act(() => first.closeWith(1011))
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    const second = FakeSocket.instances[1]
+    const reconnectUrl = new URL(second.url)
+    expect(reconnectUrl.searchParams.get('token')).toBe('socket-secret')
+    expect(reconnectUrl.searchParams.has('last_seen_id')).toBe(false)
+
+    act(() => second.open())
+    expect(lastMessage(second)).toMatchObject({
+      type: 'subscribe',
+      data: {
+        log_filter: { sources: ['task', 'service', 'core'], min_level: 'INFO', pipeline_id: 'pipeline-7' },
+        last_seen_id: 7,
+      },
+    })
+    act(() => second.message({ type: 'log_batch', data: { truncated: false, records: [
+      { id: 7, source: 'service', request_id: 'request-7', pipeline_id: 'pipeline-7', content: 'replayed duplicate' },
+      { id: 8, source: 'service', request_id: 'request-7', pipeline_id: 'pipeline-7', content: 'after reconnect' },
+    ] } }))
+    act(() => second.message({ type: 'log', data: { id: 9, source: 'service', request_id: 'request-7', pipeline_id: 'pipeline-7', content: 'live after replay' } }))
+    expect(result.current.logs.map((record) => record.id)).toEqual([7, 8, 9])
+
+    act(() => second.closeWith(1011))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000) })
+    const third = FakeSocket.instances[2]
+    expect(new URL(third.url).searchParams.has('last_seen_id')).toBe(false)
+    act(() => third.open())
+    expect(lastMessage(third)).toMatchObject({ type: 'subscribe', data: {
+      log_filter: { sources: ['task', 'service', 'core'], min_level: 'INFO', pipeline_id: 'pipeline-7' },
+      last_seen_id: 9,
+    } })
+    act(() => third.message({ type: 'log_batch', data: { truncated: false, records: [
+      { id: 8, source: 'service', request_id: 'request-7', pipeline_id: 'pipeline-7', content: 'old duplicate from replay' },
+      { id: 10, source: 'service', request_id: 'request-7', pipeline_id: 'pipeline-7', content: 'next after reconnect' },
+    ] } }))
+
+    expect(result.current.logs.map((record) => record.id)).toEqual([7, 8, 9, 10])
+  })
+
+  it('exposes log history truncation when the server reports an incomplete replay', () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const { result } = renderHook(() => useConsoleRealtime('http://maa.example:8002', null, 'request-1', null))
+    const socket = FakeSocket.instances[0]
+    act(() => socket.open())
+    act(() => socket.message({ type: 'log_batch', data: { truncated: true, records: [
+      { id: 11, source: 'service', request_id: 'request-1', content: 'available record' },
+    ] } }))
+
+    expect(result.current.historyTruncated).toBe(true)
+    expect(result.current.logs.map((record) => record.id)).toEqual([11])
+  })
+
   it('does not retry permanent policy closes and clears retries when credentials change or the hook unmounts', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('WebSocket', FakeSocket)

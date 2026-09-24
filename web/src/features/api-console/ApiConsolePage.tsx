@@ -317,15 +317,17 @@ function ResponseContents({ response, openApi }: { response: ResponseView | null
   </div>
 }
 
-function LogContents({ logs, timeline, requestId, connection }: {
+function LogContents({ logs, timeline, requestId, connection, historyTruncated }: {
   logs: Record<string, unknown>[]
   timeline: Array<{ type: string; data: Record<string, unknown>; at: number }>
   requestId: string | null
   connection: string
+  historyTruncated: boolean
 }) {
   const label: Record<string, string> = { core_status: '内核状态', device_status: '设备状态', pipeline_status: '流水线状态' }
   return <div className="space-y-3">
     <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 text-xs">{connection === 'CONNECTED' ? <Wifi aria-hidden="true" className="size-4 text-positive" /> : <WifiOff aria-hidden="true" className="size-4 text-muted-foreground" />}<span>专用 WebSocket：{connection === 'CONNECTED' ? '已连接' : connection === 'CONNECTING' ? '连接中' : '离线'}</span></div><span className="font-mono text-[10px] text-muted-foreground">request_id {requestId ?? '等待发送请求'}</span></div>
+    {historyTruncated ? <p role="alert" className="rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-warning">日志历史不完整，服务器保留的回放范围不足；部分较早日志可能缺失。</p> : null}
     <section className="space-y-2" aria-label="状态时间线"><h3 className="text-xs font-semibold">状态时间线</h3>{timeline.length === 0 ? <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">暂无状态变化；这条时间线仅在本调试台显示。</p> : <ol className="space-y-1 border-l pl-3">{timeline.slice(-6).map((item, index) => <li key={`${item.at}-${index}`} className="relative rounded bg-muted/40 p-2 text-xs"><span className="absolute -left-[1.05rem] top-3 size-2 rounded-full bg-primary" /><span className="font-medium">{label[item.type] ?? item.type}</span><code className="ml-2 break-all text-muted-foreground">{JSON.stringify(item.data)}</code></li>)}</ol>}</section>
     <section className="space-y-2" aria-label="服务端日志"><h3 className="text-xs font-semibold">服务端日志 <span className="font-normal text-muted-foreground">{logs.length}</span></h3>{logs.length === 0 ? <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">暂未收到 request_id 或关联 pipeline_id 的日志。</p> : <ol className="max-h-[40dvh] space-y-1 overflow-y-auto">{logs.map((record, index) => <li key={String(record.id ?? index)} className="rounded-lg border p-2 text-xs"><div className="flex flex-wrap justify-between gap-2"><span className="font-mono font-medium">{String(record.level ?? 'INFO')} · {String(record.source ?? 'server')}</span><span className="text-muted-foreground">{record.request_id ? 'request' : ''}{record.pipeline_id ? `pipeline ${record.pipeline_id}` : ''}</span></div><p className="mt-1 break-words">{String(record.content ?? record.message ?? JSON.stringify(record))}</p></li>)}</ol>}</section>
   </div>
@@ -619,7 +621,7 @@ function ApiConsolePage() {
     navigate('/more/schedules', { state: { apiConsolePrefill: { template } } })
   }
 
-  const logContent = <LogContents logs={realtime.logs} timeline={realtime.timeline} requestId={requestId} connection={realtime.connection} />
+  const logContent = <LogContents logs={realtime.logs} timeline={realtime.timeline} requestId={requestId} connection={realtime.connection} historyTruncated={realtime.historyTruncated} />
   const responseContent = <ResponseContents response={response} openApi={openApiQuery.data} />
 
   const treePanel = <aside aria-label="接口列表" className="flex min-h-[30rem] min-w-0 flex-col overflow-hidden rounded-xl border bg-card">

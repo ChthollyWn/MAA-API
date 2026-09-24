@@ -273,6 +273,8 @@ describe('API console route and request workspace', () => {
     remote.onopen?.(new Event('open'))
     expect(JSON.parse(remote.sent[0])).toMatchObject({ type: 'subscribe', data: { channels: expect.arrayContaining(['log', 'pipeline_status']) } })
     remote.onmessage?.({ data: JSON.stringify({ type: 'log', data: { id: 900, source: 'service', content: 'isolated' } }) } as MessageEvent<string>)
+    remote.onmessage?.({ data: JSON.stringify({ type: 'log_batch', data: { records: [], truncated: true } }) } as MessageEvent<string>)
+    expect(await screen.findByText('日志历史不完整，服务器保留的回放范围不足；部分较早日志可能缺失。')).toBeInTheDocument()
     expect(useRealtimeStatusStore.getState().status).toBe(previousStatus)
     expect(useLogBuffer.getState().bySource).toEqual({})
     expect(network.requests.some((request) => new URL(request.url).origin === 'http://maa-box.local:8002')).toBe(true)

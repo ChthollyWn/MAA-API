@@ -14,7 +14,7 @@ function randomId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `console-${Date.now()}`
 }
 
-function subscribe(socket: WebSocket, pipelineId: string | null): void {
+function subscribe(socket: WebSocket, pipelineId: string | null, lastSeenId: number | null): void {
   if (socket.readyState !== WebSocket.OPEN) return
   const hasPipeline = Boolean(pipelineId)
   socket.send(JSON.stringify({
@@ -27,8 +27,16 @@ function subscribe(socket: WebSocket, pipelineId: string | null): void {
         min_level: hasPipeline ? 'INFO' : 'DEBUG',
         pipeline_id: pipelineId,
       },
+      ...(lastSeenId !== null ? { last_seen_id: lastSeenId } : {}),
     },
   }))
+}
+
+type LogContinuation = {
+  scope: string
+  lastSeenId: number | null
+  seenIds: Set<number>
+  seenIdOrder: number[]
 }
 
 function isPermanentClose(code: number | undefined): boolean {
@@ -46,9 +54,16 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
   const [connection, setConnection] = useState<ConsoleRealtimeState>('CONNECTING')
   const [logs, setLogs] = useState<Record<string, unknown>[]>([])
   const [timeline, setTimeline] = useState<Array<{ type: string; data: Record<string, unknown>; at: number }>>([])
+  const [historyTruncated, setHistoryTruncated] = useState(false)
   const socketUrl = useMemo(() => consoleWebSocketUrl(baseUrl, token), [baseUrl, token])
+  const continuationScope = useMemo(() => {
+    const url = new URL(socketUrl)
+    url.searchParams.delete('token')
+    return url.toString()
+  }, [socketUrl])
   const currentPipelineId = useRef(pipelineId)
   const activeSocket = useRef<WebSocket | null>(null)
+  const logContinuation = useRef<LogContinuation>({ scope: continuationScope, lastSeenId: null, seenIds: new Set(), seenIdOrder: [] })
   currentPipelineId.current = pipelineId
 
   useEffect(() => {
@@ -62,6 +77,26 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     let stableTimer: ReturnType<typeof setTimeout> | null = null
     let attempts = 0
+    if (logContinuation.current.scope !== continuationScope) {
+      logContinuation.current = { scope: continuationScope, lastSeenId: null, seenIds: new Set(), seenIdOrder: [] }
+      setHistoryTruncated(false)
+    }
+    const continuation = logContinuation.current
+
+    const appendLogs = (entries: unknown[]) => {
+      const accepted = entries.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)))
+        .filter((entry) => {
+          const id = entry.id
+          if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 0) return true
+          if (continuation.seenIds.has(id)) return false
+          continuation.seenIds.add(id)
+          continuation.seenIdOrder.push(id)
+          if (continuation.lastSeenId === null || id > continuation.lastSeenId) continuation.lastSeenId = id
+          if (continuation.seenIdOrder.length > 600) continuation.seenIds.delete(continuation.seenIdOrder.shift()!)
+          return true
+        })
+      if (accepted.length > 0) setLogs((current) => [...current, ...accepted as LogRecord[]].slice(-300))
+    }
 
     const clearRetryTimer = () => {
       if (retryTimer !== null) clearTimeout(retryTimer)
@@ -87,7 +122,7 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
       thisSocket.onopen = () => {
         if (stopped || socket !== thisSocket) return
         setConnection('CONNECTED')
-        subscribe(thisSocket, currentPipelineId.current)
+        subscribe(thisSocket, currentPipelineId.current, continuation.lastSeenId)
         clearStableTimer()
         stableTimer = setTimeout(() => {
           attempts = 0
@@ -105,10 +140,13 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
               data: { t: ping.t },
             }))
           } else if (event.type === 'log' && event.data && typeof event.data === 'object') {
-            setLogs((current) => [...current, event.data as LogRecord].slice(-300))
+            appendLogs([event.data])
           } else if (event.type === 'log_batch' && event.data && typeof event.data === 'object') {
-            const batch = event.data as { records?: unknown[] }
-            setLogs((current) => [...current, ...(batch.records ?? []).filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))].slice(-300))
+            const batch = event.data as { records?: unknown[]; truncated?: unknown }
+            if (batch.truncated === true) setHistoryTruncated(true)
+            appendLogs(Array.isArray(batch.records) ? batch.records : [])
+          } else if (event.type === 'subscribed' && objectOf(event.data).truncated === true) {
+            setHistoryTruncated(true)
           } else if (event.type === 'core_status' || event.type === 'device_status' || event.type === 'pipeline_status') {
             const data = event.data && typeof event.data === 'object' ? event.data as Record<string, unknown> : {}
             setTimeline((current) => [...current, { type: event.type!, data, at: Date.now() }].slice(-8))
@@ -157,16 +195,17 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
         socket.close(1000, 'api_console_unmount')
       }
     }
-  }, [socketUrl])
+  }, [socketUrl, continuationScope])
 
   useEffect(() => {
     const socket = activeSocket.current
-    if (socket && typeof WebSocket !== 'undefined') subscribe(socket, pipelineId)
+    if (socket && typeof WebSocket !== 'undefined') subscribe(socket, pipelineId, null)
   }, [requestId, pipelineId])
 
   return {
     connection,
     logs: requestId ? selectLogs(logs, requestId, pipelineId) : [],
     timeline,
+    historyTruncated,
   }
 }
