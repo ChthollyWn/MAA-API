@@ -161,6 +161,7 @@ async def delete_schedule(schedule_id: str, request: Request) -> None:
         "QUEUE_FULL",
         "QUEUE_PAUSED",
         "PIPELINE_EMPTY",
+        "PIPELINE_ALREADY_RUNNING",
         "TASK_PARAM_INVALID",
         "UNKNOWN_TASK_TYPE",
         "UNAUTHORIZED",

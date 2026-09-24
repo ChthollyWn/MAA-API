@@ -153,6 +153,22 @@ def test_schedule_routes_cover_crud_run_auth_and_error_codes(tmp_settings):
         assert accepted.headers["location"] == "/api/pipelines/" + accepted.json()["pipeline_id"]
         assert accepted.json()["schedule_id"] == schedule_id
 
+        duplicate_run = client.post(
+            "/api/schedules/" + schedule_id + "/run",
+            json={},
+            headers=headers,
+        )
+        assert duplicate_run.status_code == 409
+        assert duplicate_run.json()["error"]["code"] == "PIPELINE_ALREADY_RUNNING"
+
+        no_skip_body = {**body, "enabled": True, "cron": "30 8 * * 6", "skip_if_running": False}
+        no_skip = client.put(
+            "/api/schedules/" + schedule_id,
+            json=no_skip_body,
+            headers=headers,
+        )
+        assert no_skip.status_code == 200
+
         async def queue_full(*_args, **_kwargs):
             raise AppError(ErrorCode.QUEUE_FULL, "queue full")
 

@@ -567,7 +567,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 | PUT | `/api/schedules/{id}` | 全量替换 | 同 POST | 200 | `SCHEDULE_NOT_FOUND`、`SCHEDULE_CRON_INVALID` |
 | PATCH | `/api/schedules/{id}` | 局部更新，主要用于启用开关 | `{enabled?, cron?, priority?}` | 200 | `SCHEDULE_NOT_FOUND` |
 | DELETE | `/api/schedules/{id}` | 删除 | | 204 | `SCHEDULE_NOT_FOUND` |
-| POST | `/api/schedules/{id}/run` | 立即执行一次，按 `template` 提交流水线 | `{priority?}`：默认沿用 schedule 的优先级 | 202 | `SCHEDULE_NOT_FOUND`、`QUEUE_FULL` |
+| POST | `/api/schedules/{id}/run` | 立即执行一次，按 `template` 提交流水线 | `{priority?}`：默认沿用 schedule 的优先级 | 202 | `SCHEDULE_NOT_FOUND`、`QUEUE_FULL`、`PIPELINE_ALREADY_RUNNING` |
 
 `template` 在创建与更新时就走一遍完整的任务校验，不等到触发时才报错——定时任务的失败最难被发现，配置阶段拦住是唯一有效的时机。
 
@@ -1047,7 +1047,7 @@ def normalize(task: TaskInput, defaults: ChannelDefaults) -> NormalizedTask:
 | `POST /api/pipelines/{id}/retry` | 同上 |
 | `POST /api/agent/tools/{name}/invoke` | 可选 `Idempotency-Key`，命中则返回首次的审计结果 |
 | `POST /api/updates/{target}` | 不用 header，靠 `update_record` 的部分唯一索引（同 target 只允许一条 `running`） |
-| `POST /api/schedules/{id}/run` | 该 schedule 已有 `PENDING`/`RUNNING` 实例时返回 409（`skip_if_running` 为真时） |
+| `POST /api/schedules/{id}/run` | 该 schedule 已有 `PENDING`/`RUNNING` 实例且 `skip_if_running` 为真时返回 409 `PIPELINE_ALREADY_RUNNING` |
 | `POST /api/confirmations/{id}` | 状态机保证，重复处理返回 `409 CONFIRMATION_ALREADY_RESOLVED` |
 | `POST /api/core/restart` | 已处于 `RESTARTING` 时返回 409 |
 | `POST /api/resources/reload` | `checksum` 未变化时返回 202 但不实际重载 |
