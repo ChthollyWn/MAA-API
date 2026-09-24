@@ -5415,7 +5415,7 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description 与当前状态冲突：QUEUE_PAUSED */
+            /** @description 与当前状态冲突：QUEUE_PAUSED、PIPELINE_ALREADY_RUNNING */
             409: {
                 headers: {
                     [name: string]: unknown;

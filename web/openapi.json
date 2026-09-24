@@ -6683,7 +6683,7 @@
                 }
               }
             },
-            "description": "与当前状态冲突：QUEUE_PAUSED"
+            "description": "与当前状态冲突：QUEUE_PAUSED、PIPELINE_ALREADY_RUNNING"
           },
           "422": {
             "content": {

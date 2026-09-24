@@ -385,6 +385,14 @@ class ScheduleService:
         self, schedule_id: str, *, priority: int | None = None
     ) -> Pipeline:
         schedule = await self._load(schedule_id)
+        if schedule.skip_if_running:
+            async with self.session_factory() as session:
+                if await ScheduleRepository(session).has_unfinished(schedule.id):
+                    raise AppError(
+                        ErrorCode.PIPELINE_ALREADY_RUNNING,
+                        "该定时任务仍有未完成流水线，完成后再立即运行",
+                        {"schedule_id": schedule.id},
+                    )
         selected_priority = schedule.priority if priority is None else priority
         return await self._submit_schedule(
             schedule,
