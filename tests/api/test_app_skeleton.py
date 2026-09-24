@@ -513,6 +513,20 @@ def test_cors_allows_request_id_and_exposes_trace_response_headers(
     assert "x-response-time-ms" in exposed
 
 
+def test_cors_exposes_location_header_to_allowed_origin(
+    tmp_settings, isolated_db, make_client
+) -> None:
+    """Allowed browser origins can read the Location of a created resource."""
+    client = make_client(app)
+    response = client.get(
+        "/api/system/health", headers={"Origin": "http://localhost:8002"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:8002"
+    assert "location" in response.headers["access-control-expose-headers"].lower()
+
+
 def test_http_request_trace_is_attached_to_its_service_log(
     tmp_settings, isolated_db, make_client
 ) -> None:
