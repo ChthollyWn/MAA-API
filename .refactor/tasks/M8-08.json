@@ -2,7 +2,16 @@
   "id": "M8-08",
   "milestone": "M8",
   "title": "建立可离线执行的前端静态托管集成冒烟",
-  "depends": ["M8-01", "M8-02", "M8-03", "M8-04", "M8-05", "M8-06", "M8-07", "M8-09"],
+  "depends": [
+    "M8-01",
+    "M8-02",
+    "M8-03",
+    "M8-04",
+    "M8-05",
+    "M8-06",
+    "M8-07",
+    "M8-09"
+  ],
   "reads": [
     ".refactor/milestones/M8.json",
     "docs/09-前端重构方案.md#1-范围与前提",
@@ -17,11 +26,15 @@
     "所有检查使用显式错误和 exit status，成功末行必须为 SMOKE OK；失败打印 FAIL 并非零退出。",
     "只新增 scripts/frontend_smoke.py，不得修改其他交付文件、测试/任务台账或提交 Git。"
   ],
-  "deliverables": ["scripts/frontend_smoke.py"],
-  "verify": [".venv/bin/python scripts/frontend_smoke.py"],
+  "deliverables": [
+    "scripts/frontend_smoke.py"
+  ],
+  "verify": [
+    ".venv/bin/python scripts/frontend_smoke.py"
+  ],
   "prompt_extra": "冒烟假定 acceptance 已先完成 `cd web && pnpm build`。用 Starlette TestClient 但不要进入上下文管理器（避免 lifespan）；产物核验不要依赖 Vite 私有文件名或时间戳，解析 index.html/manifest 即可。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "8823ef9",
   "blocked_reason": null
 }

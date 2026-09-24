@@ -2,7 +2,11 @@
   "id": "M8-04",
   "milestone": "M8",
   "title": "搭建移动端 App Shell、底部导航、鉴权页与主题切换",
-  "depends": ["M8-01", "M8-02", "M8-03"],
+  "depends": [
+    "M8-01",
+    "M8-02",
+    "M8-03"
+  ],
   "reads": [
     "docs/09-前端重构方案.md#6-页面与路由规划",
     "docs/09-前端重构方案.md#8-移动优先的设计规范",
@@ -40,10 +44,12 @@
     "web/src/stores/ui.ts",
     "web/src/components/layout/layout.test.tsx"
   ],
-  "verify": ["cd web && pnpm test --run src/components/layout/layout.test.tsx"],
+  "verify": [
+    "cd web && pnpm test --run src/components/layout/layout.test.tsx"
+  ],
   "prompt_extra": "约定 App 从 routes/router.tsx 导入 dashboard 与 logs 路由模块，主入口包 QueryClientProvider 与 RealtimeProvider；登录页输入需有 label、密码显隐和 inline 错误。theme store 导出 useUiStore({theme,setTheme})。页面视觉按移动运维控制台、密集但清晰、低动效实现；不加载远端字体或装饰图。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "8823ef9",
   "blocked_reason": null
 }

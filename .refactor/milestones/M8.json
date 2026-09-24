@@ -11,5 +11,5 @@
     "使用真实 iOS/Android 手机经 Tailscale Serve 打开服务，核对安全区、安装提示、截图、设备/内核状态和实时日志；推送通知由 M14 验收。若本机没有可用设备或 tailnet，记录证据，不以本地浏览器模拟结果替代真机结论。",
     "本机 Docker Engine 不可用：`docker buildx build --check -f Dockerfile .` 无法连接 Docker socket；提权重试仍报 daemon 未运行，已装 `/Applications/Docker.app` 启动时报缺可执行文件 `kLSNoExecutableErr`。容器文件由 pytest 静态契约覆盖；恢复 Docker Engine 后仍需实际构建镜像。"
   ],
-  "_note": "M8 不实现 M9 的任务表单/热更新/定时任务/设置功能，不实现 M14 Web Push；PWA 只交付 manifest、静态资源预缓存与更新提示。历史日志使用 REST，实时日志使用 WebSocket；Service Worker 不缓存 API、鉴权或日志数据。M7 已完成且工作区初始干净，M3 的 API/OpenAPI 骨架可复用。"
+  "_note": "M8 实现提交为 8823ef9；九张任务卡均由主控独立复核并运行卡面验证。Dockerfile/README 结构由离线测试覆盖，但本机 Docker Engine 不可用，无法进行实际镜像构建。已用已连接的 SM-G998B Android Chrome 经 ADB reverse 打开 production build；本地 mock API/图像/WS 驱动设备截图、三层状态和日志，验证安全上下文、PWA service worker、深链与移动布局。Tailscale Serve 未验证：本机 tailscale wrapper 指向缺失的 /Applications/Tailscale.app executable；真 MAA Core 数据未接入预览。硬验收全通过后再由主控提交验收台账并创建 v2-m8。"
 }

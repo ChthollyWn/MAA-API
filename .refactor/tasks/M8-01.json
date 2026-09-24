@@ -47,8 +47,8 @@
     "cd web && pnpm install --frozen-lockfile && pnpm gen:api:check"
   ],
   "prompt_extra": "遵循 docs/09 §4 的 Vite 8/Rolldown 配置要点和 docs/10 §6 的稳定快照流程。脚本需保持原有位置参数写文件的能力，并增加只读 --check 模式。PWA 只预缓存构建静态资产；本卡不创建 src/main.tsx、App.tsx、index.css 或页面，避免与后续卡交付重叠。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "8823ef9",
   "blocked_reason": null
 }

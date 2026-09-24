@@ -2,7 +2,9 @@
   "id": "M8-02",
   "milestone": "M8",
   "title": "封装 OpenAPI fetch、鉴权状态、错误处理与查询缓存",
-  "depends": ["M8-01"],
+  "depends": [
+    "M8-01"
+  ],
   "reads": [
     "docs/09-前端重构方案.md#10-鉴权在前端的处理",
     "docs/05-API规范与路由清单.md#3-响应体约定",
@@ -25,10 +27,12 @@
     "web/src/lib/query-client.ts",
     "web/src/api/client.test.ts"
   ],
-  "verify": ["cd web && pnpm test --run src/api/client.test.ts"],
+  "verify": [
+    "cd web && pnpm test --run src/api/client.test.ts"
+  ],
   "prompt_extra": "导出稳定 API：api、useAuth、queryClient 与 keys。useAuth 至少包含 token、setToken、clearToken、onUnauthorized；401 导航由 app shell 订阅窗口事件，不要在 API 层 import router。单测替换 fetch，断言 header、204 与 401/403/504 行为。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "8823ef9",
   "blocked_reason": null
 }

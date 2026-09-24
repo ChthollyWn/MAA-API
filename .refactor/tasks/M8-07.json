@@ -2,7 +2,9 @@
   "id": "M8-07",
   "milestone": "M8",
   "title": "接入 FastAPI SPA 静态托管并迁移仍在使用的邮件模板",
-  "depends": ["M8-01"],
+  "depends": [
+    "M8-01"
+  ],
   "reads": [
     "docs/09-前端重构方案.md#5-后端托管配置变更",
     "docs/09-前端重构方案.md#14.1-Dockerfile-改多阶段构建",
@@ -50,8 +52,8 @@
     "poetry check --lock"
   ],
   "prompt_extra": "FastAPI 已安装版本在当前环境为 0.141.1 且 app.frontend 存在；按 docs/09 的推荐原语实现。STATIC_PATH 必须锚定仓库根而非 CWD。保留邮件 template 原有呈现内容，并增加测试证明可从新目录加载。Dockerfile 按 docs/09 §14.1 用 node:22-slim + corepack/pnpm 多阶段构建，COPY config.template.yaml 为容器 config.yaml（不要 COPY 本机忽略的 config.yaml）；.dockerignore 排除 resource、.venv、node_modules、.pnpm-store、static、.git 与台账/测试。构建产物 static/** 忽略但源码不可入库；旧 static tracked 文件通过主控的最终 git add -A 删除。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "8823ef9",
   "blocked_reason": null
 }

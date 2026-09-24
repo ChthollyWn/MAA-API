@@ -2,7 +2,10 @@
   "id": "M8-09",
   "milestone": "M8",
   "title": "补齐首页依赖的 health 内核、设备与队列状态契约",
-  "depends": ["M8-01", "M8-02"],
+  "depends": [
+    "M8-01",
+    "M8-02"
+  ],
   "reads": [
     "docs/05-API规范与路由清单.md#6.1-system",
     "docs/05-API规范与路由清单.md#5-鉴权设计",
@@ -32,8 +35,8 @@
     "cd web && pnpm gen:api:check"
   ],
   "prompt_extra": "旧 HealthResponse 只有 status/auth_enabled/version/started_at，但 docs/05 §6.1 明确列出内核、设备与队列；Main lifespan 已在启动后写入 app.state.core_supervisor/device_manager/queue_service。扩展现有端点，不加新端点，不把 DB 或 MaaCore IO 放回 import 路径。测试在最小 FastAPI app.state 注入假对象并复用现有 tests/api 隔离夹具；还需断言无运行态对象时缺省响应。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "8823ef9",
   "blocked_reason": null
 }

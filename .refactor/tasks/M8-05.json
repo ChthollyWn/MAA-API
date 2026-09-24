@@ -2,7 +2,13 @@
   "id": "M8-05",
   "milestone": "M8",
   "title": "交付仪表盘设备截图、三层状态与流水线进度",
-  "depends": ["M8-01", "M8-02", "M8-03", "M8-04", "M8-09"],
+  "depends": [
+    "M8-01",
+    "M8-02",
+    "M8-03",
+    "M8-04",
+    "M8-09"
+  ],
   "reads": [
     "docs/09-前端重构方案.md#6.1-首页-仪表盘",
     "docs/02-系统架构设计.md#4-内核生命周期状态机",
@@ -25,10 +31,12 @@
     "web/src/features/dashboard/PipelineProgress.tsx",
     "web/src/routes/dashboard/dashboard.test.tsx"
   ],
-  "verify": ["cd web && pnpm test --run src/routes/dashboard/dashboard.test.tsx"],
+  "verify": [
+    "cd web && pnpm test --run src/routes/dashboard/dashboard.test.tsx"
+  ],
   "prompt_extra": "依赖当前 M8 OpenAPI types 与 api/keys。查询函数必须按真实后端 response shape 消费，不手写不一致的数据模型。未连接设备应显示截图占位而非无限加载；running 结束后停止 5 秒轮询。保留截图纵横比并为图像预留布局尺寸。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "8823ef9",
   "blocked_reason": null
 }

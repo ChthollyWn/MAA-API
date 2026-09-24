@@ -2,7 +2,12 @@
   "id": "M8-06",
   "milestone": "M8",
   "title": "交付三来源历史与实时日志页及虚拟滚动",
-  "depends": ["M8-01", "M8-02", "M8-03", "M8-04"],
+  "depends": [
+    "M8-01",
+    "M8-02",
+    "M8-03",
+    "M8-04"
+  ],
   "reads": [
     "docs/09-前端重构方案.md#6.3-日志",
     "docs/09-前端重构方案.md#9.4-断线期间的消息补偿",
@@ -31,10 +36,12 @@
     "web/src/features/logs/LogEntry.tsx",
     "web/src/routes/logs/logs.test.tsx"
   ],
-  "verify": ["cd web && pnpm test --run src/routes/logs/logs.test.tsx"],
+  "verify": [
+    "cd web && pnpm test --run src/routes/logs/logs.test.tsx"
+  ],
   "prompt_extra": "检查 server 实际 log_frame 与 log_batch data shape；历史接口在服务端默认 desc，界面时间序需明确处理顺序。服务端过滤首次订阅后按标签做轻量本地过滤，不因每次 tab 点击重复订阅。页面必须限制 DOM 节点数并测量长文本/图片行。",
-  "status": "pending",
+  "status": "done",
   "attempts": 0,
-  "commit": null,
+  "commit": "8823ef9",
   "blocked_reason": null
 }
