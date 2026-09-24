@@ -1,4 +1,4 @@
-"""M2-03 表定义验收：13 张业务表、命名约定、§6 索引、约束语义（docs/04 §3/§5/§6/§7）。
+"""表定义验收：业务表、命名约定、§6 索引、约束语义（docs/04 §3/§5/§6/§7）。
 
 测试纪律：
 
@@ -49,6 +49,7 @@ BUSINESS_TABLES = {
     "update_record",
     "notify_channel",
     "resource_asset",
+    "api_snippet",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -60,6 +61,7 @@ UUID_PK_TABLES = [
     "notify_channel",
     "agent_session",
     "resource_asset",
+    "api_snippet",
 ]
 AUTOINCREMENT_TABLES = ["log_entry", "agent_message", "agent_audit"]
 
@@ -120,6 +122,7 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_agent_message_session_seq": ("agent_message", ("session_id", "seq")),
     "uq_notify_channel_type_name": ("notify_channel", ("type", "name")),
     "uq_resource_asset_kind_name": ("resource_asset", ("kind", "name")),
+    "uq_api_snippet_name": ("api_snippet", ("name",)),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -172,6 +175,10 @@ EXPECTED_JSON_COLUMNS = {
     ("notify_channel", "events"),
     ("resource_asset", "content"),
     ("resource_asset", "meta"),
+    ("api_snippet", "path_params"),
+    ("api_snippet", "query"),
+    ("api_snippet", "headers"),
+    ("api_snippet", "body"),
 }
 
 
@@ -235,8 +242,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_13_business_tables():
-    """13 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+def test_metadata_has_exactly_14_business_tables():
+    """14 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 

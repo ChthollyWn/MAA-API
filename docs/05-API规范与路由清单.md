@@ -148,7 +148,7 @@ MCP 的同步阻塞式调用不会看到这个 202——它在服务端内部等
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 92 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 94 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
 
 ```python
 # maa_api/domain/errors.py
@@ -324,6 +324,13 @@ tool-calling 循环达到步数上限**不是错误**：会话正常结束，最
 | `INFRAST_PLAN_INVALID` | 422 | 基建方案 JSON 结构不符，或引用了不存在的设施名 |
 | `CUSTOM_TASK_INVALID` | 422 | 自定义 task 定义不符合内核 `tasks.json` 的结构约定 |
 | `ASSET_TOO_LARGE` | 400 | 单个资源超过 2 MB 上限 |
+
+### 4.15 API 调试台收藏
+
+| 错误码 | HTTP | 含义与触发场景 |
+|---|---|---|
+| `API_SNIPPET_NOT_FOUND` | 404 | API 调试台收藏 id 不存在 |
+| `API_SNIPPET_NAME_CONFLICT` | 409 | API 调试台收藏名称重复 |
 
 ## 5. 鉴权设计
 
@@ -1106,6 +1113,7 @@ TAGS = [
     {"name": "settings", "description": "可视化配置"},
     {"name": "notifications", "description": "多通道通知"},
     {"name": "resources", "description": "Copilot 作业、基建方案、自定义 task"},
+    {"name": "snippets", "description": "API 调试台收藏请求"},
     {"name": "agent", "description": "工具清单、会话与审计"},
     {"name": "confirmations", "description": "高风险操作的人工确认"},
     {"name": "ws", "description": "WebSocket 实时通道（仅文档说明，不可在此调试）"},

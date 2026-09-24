@@ -530,7 +530,7 @@ async def redoc():
 | Query | `?token=<token>` | WebSocket 兜底；**会进服务端 access log，慎用** |
 | Cookie | `maa_token=<token>` | 浏览器直接导航的页面 |
 
-**错误码表。** 完整的可枚举错误码、对应 HTTP 状态码、`details` 里会出现什么字段。权威定义在 [05-API规范与路由清单](./05-API规范与路由清单.md)，接入说明里应当是从同一份枚举生成的表格而非手抄 —— 手抄的表格三个月后必然与代码不符。生成方式：`domain/errors.py` 的错误码枚举带中文描述与 HTTP 状态码映射，用一个脚本渲染成 Markdown 表格插入文档。
+**错误码表。** 完整的可枚举错误码、对应 HTTP 状态码、`details` 里会出现什么字段。错误码与状态映射来自 `domain/errors.py`，中文含义来自本文件中的 [05-API规范与路由清单](./05-API规范与路由清单.md) 权威表；接入说明从这两个来源生成而非手抄，避免文案与契约漂移。
 
 **限流说明。** 现在没有限流。但**必须明确写出「当前无限流」并说明后果**，这比不提更有用：外部 agent 在轮询状态时如果不知道没有限流，可能会用 100ms 的间隔猛打 `GET /api/pipelines/current`。所以要给出建议的轮询间隔（状态类 ≥ 2 秒，日志走 WebSocket 而非轮询），并说明如果将来加限流会以 `429` + `Retry-After` 的标准形式返回。
 
@@ -556,7 +556,7 @@ async def redoc():
 
 需要注意 Vite 的 `?raw` 导入路径在 `web/` 之外，得把 `docs/` 加入 `server.fs.allow`（开发期）；构建时因为是编译期内联，不受此限制。如果觉得这个跨目录引用别扭，替代方案是在 `pnpm build` 的 `prebuild` 步骤里把该文件拷进 `web/src/content/`。
 
-两件配套事项：`docs/README.md` 的文档索引表增加 14 号文档条目；M10 在 14 号文档中预留错误码与 tag 表的生成标记，正文仍链接到当前权威来源。生成脚本尚未交付，因此 M10 不在标记间手写或假称已生成表格；后续文档工具补齐后，脚本须从错误码枚举和 OpenAPI tag 元数据写入这两个标记之间。
+两件配套事项：`docs/README.md` 的文档索引表增加 14 号文档条目；`scripts/generate_api_guide.py` 从错误码枚举/状态映射、05 号文档错误说明和 OpenAPI tag 元数据生成标记区块。执行 `python scripts/generate_api_guide.py --check` 可发现生成内容过期，禁止手工编辑标记间内容。
 
 ## 9. 与 Agent 模块的边界
 
