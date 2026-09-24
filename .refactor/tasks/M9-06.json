@@ -5,6 +5,7 @@
   "depends": ["M8-01", "M8-09"],
   "reads": [
     "docs/09-前端重构方案.md#7.4-复杂参数的具体处理",
+    "maa_api/api/deps.py#require_auth",
     "docs/05-API规范与路由清单.md#6.13-resources",
     "docs/03-MaaCore内核层设计.md#1.2-实验性API与能力探测",
     "docs/13-决策记录.md#3-细化过程中浮现并已拍板的问题",

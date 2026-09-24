@@ -79,6 +79,7 @@ from maa_api.api.routers import (
     notifications,
     pipelines,
     queue,
+    resources,
     screenshots,
     settings as settings_router,
     system,
@@ -958,6 +959,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router.router)
     app.include_router(pipelines.router)
     app.include_router(queue.router)
+    app.include_router(resources.router)
     app.include_router(atomic.router)
     app.include_router(logs.router)
     app.include_router(screenshots.router)

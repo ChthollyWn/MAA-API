@@ -483,6 +483,46 @@ export interface paths {
         patch: operations["queue_reprioritize_pipeline"];
         trace?: never;
     };
+    "/api/resources/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出 Fight.drops 可用物品
+         * @description 读取当前 MaaCore `resource/item_index.json` 并按名称、物品 ID 稳定排序。`icon_url` 指向同源图片端点；对应图片不可用时为 `null`。索引缺失或无效时返回统一 API 错误。
+         */
+        get: operations["resources_list_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/resources/items/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取索引中物品的图标
+         * @description 只返回 item_index.json 中登记且位于 `resource/template/items` 的 PNG 图标。
+         */
+        get: operations["resources_get_item_icon"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/screenshots": {
         parameters: {
             query?: never;
@@ -1334,6 +1374,18 @@ export interface components {
             force: boolean;
             /** Text */
             text: string;
+        };
+        /**
+         * ItemOut
+         * @description An item that can be selected for ``Fight.drops``.
+         */
+        ItemOut: {
+            /** Icon Url */
+            icon_url: string | null;
+            /** Item Id */
+            item_id: string;
+            /** Name */
+            name: string;
         };
         /** KeyEventRequest */
         KeyEventRequest: {
@@ -4512,6 +4564,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resources_list_items: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemOut"][];
+                };
+            };
+            /** @description 服务端内部错误：RESOURCE_LOAD_FAILED */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RESOURCE_LOAD_FAILED",
+                     *         "details": {},
+                     *         "message": "服务端内部错误"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    resources_get_item_icon: {
+        parameters: {
+            query: {
+                item_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description 资源不存在：RESOURCE_ASSET_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RESOURCE_ASSET_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务端内部错误：RESOURCE_LOAD_FAILED */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RESOURCE_LOAD_FAILED",
+                     *         "details": {},
+                     *         "message": "服务端内部错误"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

@@ -604,6 +604,8 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
+| GET | `/api/resources/items` | 读取当前 MaaCore `resource/item_index.json`，供 `Fight.drops` 按名称搜索 | | `200 [{item_id, name, icon_url}]` | `RESOURCE_LOAD_FAILED` |
+| GET | `/api/resources/items/icon` | 返回物品索引中登记的图标 | `item_id` | `200 image/png` | `RESOURCE_ASSET_NOT_FOUND`、`RESOURCE_LOAD_FAILED` |
 | GET | `/api/resources/copilots` | Copilot 作业列表 | `page`、`size`、`q` | 200 | — |
 | POST | `/api/resources/copilots` | 上传作业 JSON。校验结构并解析出关卡名存入 `meta` | `{name, description?, content}` | 201 | `COPILOT_JSON_INVALID`、`RESOURCE_ASSET_CONFLICT`、`ASSET_TOO_LARGE` |
 | GET | `/api/resources/copilots/{id}` | 作业详情，含完整内容 | | 200 | `RESOURCE_ASSET_NOT_FOUND` |
@@ -617,6 +619,8 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 | GET | `/api/resources/custom-tasks/{id}` | 详情 | | 200 | `RESOURCE_ASSET_NOT_FOUND` |
 | DELETE | `/api/resources/custom-tasks/{id}` | 删除 | | 204 | `RESOURCE_ASSET_NOT_FOUND` |
 | POST | `/api/resources/reload` | 把启用中的自定义 task 合并为增量资源目录，投递 `LOAD_RESOURCE` 命令重载内核资源 | `{force?}` | 202 | `RESOURCE_LOAD_FAILED`、`CORE_NOT_READY`、`UPDATE_BLOCKED_BY_PIPELINE` |
+
+`GET /api/resources/items` 返回按名称（忽略大小写）与 `item_id` 排序的完整数组；`item_id` 是索引对象的 key，`name` 来自对应记录。`icon_url` 是同源 `/api/resources/items/icon?item_id=...` URL；索引记录的 `icon` 所指 PNG 不存在、不可读或路径不在 `resource/template/items/` 内时返回 `null`。图标端点仅允许读取索引中登记且解析后仍位于该目录的 PNG。索引缺失、不可读或结构无效时返回统一 JSON 错误 `RESOURCE_LOAD_FAILED`（500）。响应缓存按索引文件元信息失效；端点仅读本地文件，不加载 MaaCore，也不访问网络。
 
 `POST /api/resources/reload` 是自定义任务能力的落地点：内核只认磁盘上的资源文件，增量注入必须经由 `LOAD_RESOURCE` 生效。`checksum` 没变时非 `force` 请求直接返回 202 且不实际重载，避免无谓的资源重加载（重载要把整条加载链从头走一遍，命令超时预算 300 秒，见 [02-系统架构设计 §3.4](./02-系统架构设计.md)）。
 

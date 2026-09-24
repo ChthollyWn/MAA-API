@@ -14,11 +14,13 @@
     "web/src/api/keys.ts#keys.updates",
     "web/src/realtime/events.ts#update_progress",
     "web/src/realtime/RealtimeProvider.tsx#服务端事件与查询缓存接线",
+    "web/src/realtime/query-bridge.ts#update_progress事件分支",
     "web/src/components/ui/button.tsx",
     "web/src/components/ui/card.tsx",
     "web/src/components/ui/badge.tsx",
     "web/src/routes/logs/logs.test.tsx#前端测试约定",
-    "maa_api/api/routers/updates.py#状态/触发/记录/重试/取消"
+    "maa_api/api/routers/updates.py#状态/触发/记录/重试/取消",
+    "maa_api/services/update_service.py#status/_public_state（状态响应结构）"
   ],
   "constraints": [
     "读 GET /api/updates/status 与其 resource.channels.ota/repo 的实际响应；区分检查与下载，只有用户操作才触发下载/安装。内核仅 stable；资源支持 ota/repo/all；游戏渠道只用 Official/Bilibili。",

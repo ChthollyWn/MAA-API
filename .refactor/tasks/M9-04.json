@@ -17,7 +17,8 @@
     "web/src/components/ui/tabs.tsx",
     "maa_api/api/routers/settings.py#配置schema/读写/重置",
     "maa_api/services/settings_schema.py#setting元数据",
-    "maa_api/api/routers/notifications.py#通知通道CRUD与测试"
+    "maa_api/api/routers/notifications.py#通知通道CRUD与测试",
+    "maa_api/services/notify_service.py#update_channel/channel_wire（脱敏配置回写）"
   ],
   "constraints": [
     "设置字段由 GET /api/settings/schema 动态生成，GET /api/settings 的生效值、来源与敏感字段脱敏状态要准确呈现；支持分组、类型/范围/枚举输入、批量保存与 POST /api/settings/reset 回落。不要要求用户重新输入已有密钥来保存其它项。",
