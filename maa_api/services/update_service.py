@@ -42,6 +42,7 @@ from maa_api.services.core_update import (
     resolve_core_release,
 )
 from maa_api.services.game_update import validate_apk
+from maa_api.services.log_hub import create_task_without_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +257,7 @@ class UpdateService:
                 record = stored
             self._current_id = record.id
             self._options[record.id] = opts
-            task = asyncio.create_task(self._run(record.id, opts))
+            task = create_task_without_request_id(self._run(record.id, opts))
             self._tasks[record.id] = task
             return record
         except IntegrityError as exc:

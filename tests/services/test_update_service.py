@@ -23,6 +23,7 @@ from maa_api.db.repositories.update import UpdateRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import ResourceChannel, UpdatePhase, UpdateStatus, UpdateTarget
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.log_hub import current_pipeline_id, current_request_id
 from maa_api.services.update_service import UpdateService
 
 
@@ -221,6 +222,38 @@ def test_shared_lock_records_progress_and_completes_workflow(update_db_factory):
         assert stored.phase == UpdatePhase.DONE
         assert any(kind == "update_progress" and data["phase"] == "downloading" for kind, data in events)
         assert any(kind == "update_progress" and data["phase"] == "restarting" for kind, data in events)
+
+    asyncio.run(scenario())
+
+
+def test_update_workflow_does_not_inherit_request_id(update_db_factory):
+    class ContextWorkflow:
+        def __init__(self):
+            self.context = None
+
+        async def check(self):
+            return {"current": "v1", "latest": "v2", "available": True}
+
+        async def update(self, *, channel: str, force: bool = False):
+            self.context = (current_request_id.get(), current_pipeline_id.get())
+            return SimpleNamespace(version="v2")
+
+    workflow = ContextWorkflow()
+    service = UpdateService(update_db_factory, core_workflow=workflow)
+
+    async def scenario():
+        request_token = current_request_id.set("request-42")
+        pipeline_token = current_pipeline_id.set("pipeline-7")
+        try:
+            record = await service.start(UpdateTarget.CORE, {"channel": "stable"})
+            assert current_request_id.get() == "request-42"
+            task = service._tasks[record.id]
+            await asyncio.wait_for(task, timeout=2)
+            assert workflow.context == (None, "pipeline-7")
+            assert current_request_id.get() == "request-42"
+        finally:
+            current_pipeline_id.reset(pipeline_token)
+            current_request_id.reset(request_token)
 
     asyncio.run(scenario())
 
