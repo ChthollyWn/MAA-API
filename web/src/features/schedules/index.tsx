@@ -229,14 +229,14 @@ export default function SchedulesPage() {
     <header className="space-y-2">
       <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">更多 · 定时任务</p>
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">定时任务</h1>
-      <p className="max-w-2xl text-sm text-muted-foreground">按星期、时间和命名任务模板创建 schedule。一个命名组合可被不同星期与时段重复复用。</p>
+      <p className="max-w-2xl text-sm text-muted-foreground">按星期、时间和命名任务组合创建 schedule。一个组合可覆盖多个星期；不同任务组合分别建立 schedule。</p>
     </header>
     <Card className="border-primary/20 bg-primary/5">
       <CardHeader className="flex-row items-start gap-3">
         <CalendarClock className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
-        <div className="space-y-1"><CardTitle>从旧版星期任务组开始</CardTitle><CardDescription>新建一条 schedule，勾选要运行的星期，选择运行时刻和时区，再给任务组起名并配置任务模板。对周一到周日重复创建即可重建旧的按星期分配方式。</CardDescription></div>
+        <div className="space-y-1"><CardTitle>从旧版星期任务组开始</CardTitle><CardDescription>服务启动时，数据库迁移会读取旧 `resource/daily_task.json`，把按星期配置展开为 schedule；旧星期索引也会自动校正。新建时，勾选该任务组运行的星期，设置时刻、时区并配置任务模板。</CardDescription></div>
       </CardHeader>
-      <CardContent className="pt-0"><p className="text-xs text-muted-foreground">旧版配置没有可用的读取或迁移接口；此页只创建新的 schedule，不会读取或改写旧配置文件。</p></CardContent>
+      <CardContent className="pt-0"><p className="text-xs text-muted-foreground">页面通过 schedule API 管理迁移后的记录；它不会直接读取或写回旧配置文件。</p></CardContent>
     </Card>
     {notice && <p role={noticeIsError ? 'alert' : 'status'} className={'rounded-lg border px-4 py-3 text-sm ' + (noticeIsError ? 'border-destructive/40 text-destructive' : 'text-muted-foreground')}>{notice}</p>}
 
@@ -301,7 +301,7 @@ export default function SchedulesPage() {
         </div>
     </CardContent></Card> : <div className="flex justify-end"><Button type="button" onClick={beginCreate}><Plus aria-hidden="true" />新建定时任务</Button></div>}
     <section className="space-y-3" aria-labelledby="schedule-list-heading">
-      <div className="flex items-center justify-between gap-3"><div><h2 id="schedule-list-heading" className="text-lg font-semibold">已配置的定时任务</h2><p className="mt-1 text-sm text-muted-foreground">启停、编辑、删除或立即运行，近期结果保留在每张卡片上。</p></div><Button type="button" size="icon" variant="outline" aria-label="刷新定时任务" disabled={schedulesQuery.isFetching} onClick={() => void schedulesQuery.refetch()}><RefreshCw aria-hidden="true" className={schedulesQuery.isFetching ? 'animate-spin' : ''} /></Button></div>
+      <div className="flex items-center justify-between gap-3"><div><h2 id="schedule-list-heading" className="text-lg font-semibold">已配置的定时任务</h2><p className="mt-1 text-sm text-muted-foreground">启停、编辑、删除或立即运行，近期结果保留在每张卡片上。</p></div><Button type="button" size="icon" variant="outline" aria-label="刷新定时任务" disabled={schedulesQuery.isFetching} onClick={() => void schedulesQuery.refetch()}><RefreshCw aria-hidden="true" className={schedulesQuery.isFetching ? 'animate-spin motion-reduce:animate-none' : ''} /></Button></div>
       {schedulesQuery.error && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">定时任务列表读取失败：{messageOf(schedulesQuery.error)}</p>}
       {schedulesQuery.isLoading ? <p role="status" className="rounded-xl border p-6 text-center text-sm text-muted-foreground">正在读取定时任务…</p> : schedules.length === 0 ? <Card><CardContent className="py-10 text-center"><Clock3 className="mx-auto size-8 text-muted-foreground" aria-hidden="true" /><p className="mt-3 font-medium">还没有定时任务</p><p className="mt-1 text-sm text-muted-foreground">按星期新建一条 schedule，即可开始重建旧版日常任务组流程。</p><div className="mt-4"><Button type="button" onClick={beginCreate}><Plus aria-hidden="true" />创建第一条</Button></div></CardContent></Card> : <ul className="space-y-3">{schedules.map((schedule) => {
         const description = weeklyDescription(schedule.cron, schedule.timezone)
