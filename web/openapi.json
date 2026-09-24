@@ -1045,6 +1045,37 @@
         "title": "InputTextRequest",
         "type": "object"
       },
+      "ItemOut": {
+        "description": "An item that can be selected for ``Fight.drops``.",
+        "properties": {
+          "icon_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Url"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "name",
+          "icon_url"
+        ],
+        "title": "ItemOut",
+        "type": "object"
+      },
       "KeyEventRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5585,6 +5616,114 @@
         "summary": "调整待执行流水线优先级",
         "tags": [
           "queue"
+        ]
+      }
+    },
+    "/api/resources/items": {
+      "get": {
+        "description": "读取当前 MaaCore `resource/item_index.json` 并按名称、物品 ID 稳定排序。`icon_url` 指向同源图片端点；对应图片不可用时为 `null`。索引缺失或无效时返回统一 API 错误。",
+        "operationId": "resources_list_items",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ItemOut"
+                  },
+                  "title": "Response Resources List Items",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RESOURCE_LOAD_FAILED",
+                    "details": {},
+                    "message": "服务端内部错误"
+                  }
+                }
+              }
+            },
+            "description": "服务端内部错误：RESOURCE_LOAD_FAILED"
+          }
+        },
+        "summary": "列出 Fight.drops 可用物品",
+        "tags": [
+          "resources"
+        ]
+      }
+    },
+    "/api/resources/items/icon": {
+      "get": {
+        "description": "只返回 item_index.json 中登记且位于 `resource/template/items` 的 PNG 图标。",
+        "operationId": "resources_get_item_icon",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RESOURCE_ASSET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：RESOURCE_ASSET_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RESOURCE_LOAD_FAILED",
+                    "details": {},
+                    "message": "服务端内部错误"
+                  }
+                }
+              }
+            },
+            "description": "服务端内部错误：RESOURCE_LOAD_FAILED"
+          }
+        },
+        "summary": "读取索引中物品的图标",
+        "tags": [
+          "resources"
         ]
       }
     },
