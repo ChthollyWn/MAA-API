@@ -41,7 +41,9 @@ def test_fresh_upgrade_adds_deferral_columns_and_repeat_is_safe(tmp_path):
     db = tmp_path / "fresh.db"
     cfg = config(db)
 
-    command.upgrade(cfg, "head")
+    # This card verifies revision 0003 itself; later revisions have their own
+    # migration-chain coverage.
+    command.upgrade(cfg, REVISION)
     assert version(db) == REVISION
     assert {"deferred_until", "defer_count"} <= columns(db)
 
@@ -55,7 +57,7 @@ def test_fresh_upgrade_adds_deferral_columns_and_repeat_is_safe(tmp_path):
             "select deferred_until, defer_count from pipeline where id='p1'"
         ).fetchone() == (None, 0)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, REVISION)
     assert version(db) == REVISION
 
 
@@ -71,14 +73,14 @@ def test_existing_m2_rows_survive_upgrade_downgrade_and_reupgrade(tmp_path):
         )
         conn.commit()
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, REVISION)
     assert version(db) == REVISION
     with contextlib.closing(sqlite3.connect(db)) as conn:
         assert conn.execute(
             "select deferred_until, defer_count from pipeline where id='existing'"
         ).fetchone() == (None, 0)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, REVISION)
     command.downgrade(cfg, PREVIOUS)
     assert version(db) == PREVIOUS
     assert not ({"deferred_until", "defer_count"} & columns(db))
@@ -87,7 +89,7 @@ def test_existing_m2_rows_survive_upgrade_downgrade_and_reupgrade(tmp_path):
             "existing",
         )
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, REVISION)
     assert version(db) == REVISION
     with contextlib.closing(sqlite3.connect(db)) as conn:
         assert conn.execute(
