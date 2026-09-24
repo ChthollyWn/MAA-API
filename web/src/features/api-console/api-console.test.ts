@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { ModuleKind, ScriptTarget, transpileModule } from 'typescript'
 import * as consoleHelpers from './utils'
 import { validateJsonBody } from './json-validation'
-import { filterSensitive, makeCurl, responseTone, selectLogs, trimHistory } from './utils'
+import { filterSensitive, HISTORY_MAX_BYTES, makeCurl, responseTone, selectLogs, trimHistory } from './utils'
 
 const future = consoleHelpers as unknown as Record<string, (...args: unknown[]) => unknown>
 
@@ -18,6 +21,20 @@ describe('API console safety and presentation helpers', () => {
     expect(entries[0].id).toBe('100')
     expect(JSON.stringify(entries[0]).length).toBeLessThanOrEqual(16_400)
     expect((entries[0] as { truncated?: boolean }).truncated).toBe(true)
+  })
+
+  it('bounds UTF-8 history size even when an old id and payload contain huge multibyte strings', () => {
+    const source = readFileSync('src/features/api-console/utils.ts', 'utf8')
+    const compiled = transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 } }).outputText
+    const script = `const module = { exports: {} }; const exports = module.exports; ${compiled}\nconst rows = module.exports.trimHistory([{ id: '🧪'.repeat(20_000) }, { id: 'small', body: '漢'.repeat(20_000) }]); process.stdout.write(JSON.stringify(rows));`
+    const run = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 3000 })
+    expect((run.error as NodeJS.ErrnoException | undefined)?.code).not.toBe('ETIMEDOUT')
+    const entries = JSON.parse(run.stdout) as Array<Record<string, unknown>>
+    expect(entries.every((entry) => new TextEncoder().encode(JSON.stringify(entry)).length <= HISTORY_MAX_BYTES)).toBe(true)
+    const hugeIdEntry = entries.find((entry) => (entry.id as string).startsWith('🧪'))!
+    expect((hugeIdEntry.id as string).length).toBeLessThan(20_000)
+    expect(hugeIdEntry.truncated).toBe(true)
+    expect(entries.find((entry) => entry.id === 'small')?.truncated).toBe(true)
   })
 
   it('uses a shell token placeholder in exported cURL by default', () => {

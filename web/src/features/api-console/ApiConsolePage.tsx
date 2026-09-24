@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { api } from '@/api/client'
+import createClient from 'openapi-fetch'
 import { toApiError } from '@/api/errors'
-import type { components } from '@/types/api'
+import type { components, paths } from '@/types/api'
 import { useAuth } from '@/stores/auth'
 import { GuideMarkdown } from './GuideMarkdown'
 import { useConsoleRealtime } from './use-console-realtime'
@@ -80,6 +80,14 @@ function apiBase(baseUrl: string): string {
   const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin
   return baseUrl.trim() || origin
 }
+
+function snippetsBase(baseUrl: string): string {
+  const pageOrigin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin
+  try { return new URL(apiBase(baseUrl), pageOrigin).origin }
+  catch { return 'invalid-base-url://invalid' }
+}
+
+const fetchThroughGlobal: typeof fetch = (input, init) => globalThis.fetch(input, init)
 
 function responseLabel(response: ResponseView): string {
   return `${response.status} ${response.statusText || STATUS_LABELS[response.status] || 'HTTP Response'}`
@@ -357,16 +365,27 @@ function ApiConsolePage() {
   const effectiveToken = tokenOverride ? temporaryToken.trim() || null : token
   const openApiQuery = useConsoleOpenApi(baseUrl, effectiveToken)
   const groups = useMemo(() => openApiQuery.data ? buildOperationTree(openApiQuery.data) : [], [openApiQuery.data])
+  const snippetApi = useMemo(() => createClient<paths>({ baseUrl: snippetsBase(baseUrl), fetch: fetchThroughGlobal }), [baseUrl])
+  const snippetHeaders = effectiveToken ? { 'X-Token': effectiveToken } : undefined
+  const previousSnippetToken = useRef(effectiveToken)
   const snippetQuery = useQuery({
-    queryKey: ['api-console', 'snippets'],
+    queryKey: ['api-console', 'snippets', snippetsBase(baseUrl)],
     queryFn: async () => {
-      const { data, error, response: resultResponse } = await api.GET('/api/snippets')
+      const { data, error, response: resultResponse } = await snippetApi.GET('/api/snippets', {
+        headers: snippetHeaders,
+        credentials: 'same-origin',
+      })
       if (error) throw toApiError(error, resultResponse)
       return data?.items ?? []
     },
     retry: false,
     staleTime: 30_000,
   })
+  useEffect(() => {
+    if (previousSnippetToken.current === effectiveToken) return
+    previousSnippetToken.current = effectiveToken
+    void snippetQuery.refetch()
+  }, [effectiveToken, snippetQuery.refetch])
   const favorites = snippetQuery.data ?? []
   const selectedSchema = bodySchema(selected, openApiQuery.data)
   const optionalFields = useMemo(() => selectedSchema ? optionalFieldDescriptions(selectedSchema, openApiQuery.data) : [], [selectedSchema, openApiQuery.data])
@@ -505,11 +524,16 @@ function ApiConsolePage() {
   const favoriteMutation = useMutation({
     mutationFn: async (input: { payload: ApiSnippetWrite; id: string | null }) => {
       if (input.id) {
-        const result = await api.PUT('/api/snippets/{snippet_id}', { params: { path: { snippet_id: input.id } }, body: input.payload })
+        const result = await snippetApi.PUT('/api/snippets/{snippet_id}', {
+          params: { path: { snippet_id: input.id } }, body: input.payload,
+          headers: snippetHeaders, credentials: 'same-origin',
+        })
         if (result.error) throw toApiError(result.error, result.response)
         return result.data
       }
-      const result = await api.POST('/api/snippets', { body: input.payload })
+      const result = await snippetApi.POST('/api/snippets', {
+        body: input.payload, headers: snippetHeaders, credentials: 'same-origin',
+      })
       if (result.error) throw toApiError(result.error, result.response)
       return result.data
     },
@@ -523,7 +547,9 @@ function ApiConsolePage() {
   })
   const deleteFavoriteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const result = await api.DELETE('/api/snippets/{snippet_id}', { params: { path: { snippet_id: id } } })
+      const result = await snippetApi.DELETE('/api/snippets/{snippet_id}', {
+        params: { path: { snippet_id: id } }, headers: snippetHeaders, credentials: 'same-origin',
+      })
       if (result.error) throw toApiError(result.error, result.response)
     },
     onSuccess: async () => {
@@ -642,7 +668,7 @@ function ApiConsolePage() {
       </div> : null}
       {!narrow ? responsePanel : null}
     </div>
-    {narrow && response ? <section aria-label="响应抽屉" onTouchStart={(event) => { drawerTouchStart.current = event.touches[0]?.clientY ?? null }} onTouchEnd={(event) => {
+    {narrow && response && mobileTab !== 'request' ? <section aria-label="响应抽屉" onTouchStart={(event) => { drawerTouchStart.current = event.touches[0]?.clientY ?? null }} onTouchEnd={(event) => {
       const from = drawerTouchStart.current
       const to = event.changedTouches[0]?.clientY
       drawerTouchStart.current = null
@@ -651,7 +677,7 @@ function ApiConsolePage() {
       else setDrawerSize((current) => current === 'full' ? 'half' : 'peek')
     }} className={`fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] z-20 overflow-hidden rounded-t-2xl border bg-card shadow-[0_-12px_40px_rgba(0,0,0,0.18)] transition-[height] ${drawerSize === 'peek' ? 'h-12' : drawerSize === 'full' ? 'h-[calc(100dvh-3.5rem-env(safe-area-inset-bottom,0px))]' : 'h-[60dvh]'}`}>
       <div className="flex min-h-12 items-center justify-between gap-2 border-b px-4"><span className="truncate font-mono text-sm font-semibold">{responseLabel(response)} <span className="font-sans text-xs font-normal text-muted-foreground">· {Number(response.elapsedMs).toFixed(1)} ms</span></span><Button type="button" variant="ghost" size="icon" aria-label={drawerSize === 'peek' ? '展开响应' : drawerSize === 'full' ? '收回响应' : '全屏响应'} onClick={() => setDrawerSize(drawerSize === 'peek' ? 'half' : drawerSize === 'half' ? 'full' : 'half')}>{drawerSize === 'peek' ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}</Button></div>
-      {drawerSize !== 'peek' && mobileTab !== 'request' && <div className={`overflow-y-auto p-3 ${drawerSize === 'full' ? 'h-[calc(100%-3rem)]' : 'h-[calc(60dvh-3rem)]'}`}>{mobileTab === 'response' ? responseContent : logContent}</div>}
+      {drawerSize !== 'peek' && <div className={`overflow-y-auto p-3 ${drawerSize === 'full' ? 'h-[calc(100%-3rem)]' : 'h-[calc(60dvh-3rem)]'}`}>{mobileTab === 'response' ? responseContent : logContent}</div>}
     </section> : null}
     {narrow && selected && mobileTab === 'request' && <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] z-10 border-t bg-card/95 p-2 backdrop-blur"><Button type="button" className="min-h-12 w-full" onClick={() => void sendRequest()} disabled={sending}>{sending ? '发送中…' : '发送请求'}</Button></div>}
   </div>
