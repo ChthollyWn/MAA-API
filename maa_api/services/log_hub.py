@@ -36,6 +36,7 @@ __all__ = [
     "LogRecord",
     "attach_log_hub",
     "current_pipeline_id",
+    "current_request_id",
     "get_log_hub",
     "mask_token",
     "set_log_hub",
@@ -76,6 +77,7 @@ class LogRecord:
     content: str
     pipeline_id: str | None = None
     task_id: str | None = None
+    request_id: str | None = None
     logger: str | None = None
     raw: dict[str, Any] | None = None
     attachment: dict[str, Any] | None = None
@@ -95,6 +97,9 @@ def mask_token(text: str) -> str:
 
 current_pipeline_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "maa_api_current_pipeline_id", default=None
+)
+current_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "maa_api_current_request_id", default=None
 )
 
 
@@ -221,6 +226,8 @@ class LogHub:
             record.content = mask_token(record.content)
             if record.pipeline_id is None:
                 record.pipeline_id = current_pipeline_id.get()
+            if record.request_id is None:
+                record.request_id = current_request_id.get()
             self._ring.append(record)
 
         if loop is None or loop.is_closed() or not self._started or self._closing:
@@ -396,6 +403,7 @@ class LogHubHandler(logging.Handler):
                         record, "pipeline_id", current_pipeline_id.get()
                     ),
                     task_id=getattr(record, "task_id", None),
+                    request_id=getattr(record, "request_id", current_request_id.get()),
                     logger=record.name,
                 )
             )

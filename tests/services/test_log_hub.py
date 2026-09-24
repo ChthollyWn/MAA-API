@@ -22,6 +22,7 @@ from maa_api.services.log_hub import (
     LogRecord,
     attach_log_hub,
     current_pipeline_id,
+    current_request_id,
     get_log_hub,
     mask_token,
     set_log_hub,
@@ -103,6 +104,19 @@ def test_current_pipeline_context_is_attached_to_offered_record() -> None:
         current_pipeline_id.reset(token)
 
     assert record.pipeline_id == "pipeline-1"
+
+
+def test_current_request_context_is_attached_to_offered_record() -> None:
+    """A service log emitted while handling a request keeps that request's id."""
+    hub = LogHub()
+    token = current_request_id.set("request-42")
+    try:
+        record = _record("work")
+        hub.offer(record)
+    finally:
+        current_request_id.reset(token)
+
+    assert record.request_id == "request-42"
 
 
 def test_backpressure_drops_by_queue_usage_and_reports_without_requeueing() -> None:

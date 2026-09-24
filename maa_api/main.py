@@ -59,6 +59,8 @@ import asyncio
 import logging
 import os
 import platform
+import time
+import uuid
 from pathlib import Path
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -92,7 +94,7 @@ from maa_api.api.ws import router as ws_router
 from maa_api.db.migrate import ensure_schema
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.services.log_hub import LogHub, set_log_hub
+from maa_api.services.log_hub import LogHub, current_request_id, set_log_hub
 from maa_api.services.log_wiring import (
     install_core_logging,
     install_service_logging,
@@ -103,6 +105,7 @@ from maa_api.settings import REPO_ROOT, get_settings, load_settings, set_setting
 
 __all__ = [
     "CORS_HEADERS",
+    "CORS_EXPOSE_HEADERS",
     "CORS_METHODS",
     "CORS_ORIGIN_REGEX",
     "CORS_ORIGINS",
@@ -284,9 +287,14 @@ CORS_METHODS: list[str] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPT
 CORS_HEADERS: list[str] = [
     "Authorization",
     "X-Token",
+    "X-Request-Id",
     "Content-Type",
     "Idempotency-Key",
 ]
+
+#: Browser clients need to read the request correlation and elapsed time from
+#: cross-origin responses; neither header is CORS-safelisted by default.
+CORS_EXPOSE_HEADERS: list[str] = ["X-Request-Id", "X-Response-Time-Ms"]
 
 
 class OperationIdRoute(Protocol):
@@ -1042,7 +1050,22 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=CORS_METHODS,
         allow_headers=CORS_HEADERS,
+        expose_headers=CORS_EXPOSE_HEADERS,
     )
+
+    @app.middleware("http")
+    async def request_trace_headers(request: Request, call_next):
+        request_id = request.headers.get("X-Request-Id", "").strip() or uuid.uuid4().hex
+        started = time.perf_counter()
+        token = current_request_id.set(request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-Id"] = request_id
+            response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.3f}"
+            logger.info("HTTP %s %s completed", request.method, request.url.path)
+            return response
+        finally:
+            current_request_id.reset(token)
     return app
 
 

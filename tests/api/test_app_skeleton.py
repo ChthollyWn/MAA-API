@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -399,6 +400,66 @@ def test_cors_simple_response_echoes_allowed_origin(
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:8002"
     assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_request_trace_headers_are_echoed_generated_and_isolated(
+    tmp_settings, isolated_db, make_client
+) -> None:
+    """Each concurrent HTTP request gets its own visible correlation and timing headers."""
+    client = make_client(app)
+    supplied = ["trace-a", "trace-b"]
+
+    def get_with_id(request_id: str):
+        return client.get("/api/system/health", headers={"X-Request-Id": request_id})
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(get_with_id, supplied))
+    generated = client.get("/api/system/health")
+
+    assert [response.headers["x-request-id"] for response in responses] == supplied
+    assert generated.headers["x-request-id"]
+    assert generated.headers["x-request-id"] not in supplied
+    assert all(float(response.headers["x-response-time-ms"]) >= 0 for response in responses)
+    assert float(generated.headers["x-response-time-ms"]) >= 0
+
+
+def test_cors_allows_request_id_and_exposes_trace_response_headers(
+    tmp_settings, isolated_db, make_client
+) -> None:
+    """Browser clients may send the correlation id and read both trace response headers."""
+    client = make_client(app)
+    response = client.options(
+        "/api/system/health",
+        headers={
+            "Origin": "http://localhost:8002",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "X-Request-Id",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert "x-request-id" in response.headers["access-control-allow-headers"].lower()
+    simple = client.get(
+        "/api/system/health", headers={"Origin": "http://localhost:8002"}
+    )
+    exposed = simple.headers["access-control-expose-headers"].lower()
+    assert "x-request-id" in exposed
+    assert "x-response-time-ms" in exposed
+
+
+def test_http_request_trace_is_attached_to_its_service_log(
+    tmp_settings, isolated_db, make_client
+) -> None:
+    """The id returned by HTTP is stored on the corresponding live log record."""
+    client = make_client(app)
+    response = client.get(
+        "/api/system/health", headers={"X-Request-Id": "http-ws-trace"}
+    )
+    records, _ = app.state.log_hub.snapshot_after(0)
+    event = next(record for record in reversed(records) if record.content.startswith("HTTP GET"))
+
+    assert response.headers["x-request-id"] == "http-ws-trace"
+    assert event.request_id == "http-ws-trace"
 
 
 # ----------------------------------------------------------------------
