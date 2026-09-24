@@ -3,9 +3,8 @@
 本模块只装配三条路由，不承载业务：
 
 ``GET /api/system/health``（**免鉴权**，docs/05 §5.3）
-    只报服务自身状态 —— ``status`` / ``auth_enabled`` / ``version`` / ``started_at``。
-    内核状态、设备状态、队列长度归 M4–M6，本卡**刻意不接**（docs/12 M3「业务端点尚未
-    接内核」）；:class:`HealthResponse` 已留好追加字段的扩展位。
+    返回服务自身状态，以及从 ``app.state`` 读取的内核、设备和队列状态。运行时尚未
+    装配时仍返回 200，未就绪的运行态对象为 ``null``。
 
 ``POST /api/system/auth/cookie``
     用头部 token 换 ``HttpOnly; SameSite=Lax`` 的 ``maa_token`` cookie，供浏览器
@@ -74,12 +73,49 @@ def _service_version() -> str:
         return _FALLBACK_VERSION
 
 
+class CoreHealth(BaseModel):
+    """内核监督器的最小首页状态。"""
+
+    state: str
+    pid: int | None
+    generation: int
+
+
+class DeviceRetryHealth(BaseModel):
+    """复用 ``DeviceManager.snapshot()`` 的重试状态。"""
+
+    attempt: int
+    max: int
+    next_at: float | None
+
+
+class DeviceHealth(BaseModel):
+    """复用 ``DeviceManager.snapshot()`` 的设备状态。"""
+
+    core_id: str = "default"
+    state: str = "disconnected"
+    address: str | None = None
+    uuid: str | None = None
+    resolution: dict[str, int] | None = None
+    last_connected_at: float | None = None
+    retry: DeviceRetryHealth
+    last_error: dict[str, object] | None = None
+
+
+class QueueHealth(BaseModel):
+    """队列概览，不暴露流水线或任务条目。"""
+
+    pending: int
+    running: int
+    paused: bool
+
+
 class HealthResponse(BaseModel):
     """``GET /api/system/health`` 的响应体（docs/05 §6.1、§3.3）。
 
-    本卡只报服务自身状态。**M4–M6 会在这里追加字段**：内核状态（``core``）、设备
-    状态（``device``）、队列长度（``queue``）等；追加保持向后兼容（只增字段、不改
-    已有字段的语义），前端按可选字段消费。
+    内核（``core``）、设备（``device``）与队列（``queue``）只读取 lifespan 装配到
+    ``app.state`` 的运行时对象。lifespan 尚未完成或没有装配对象时，这些字段为
+    ``null``，健康探测仍返回 200。队列只包含计数与暂停状态，不暴露队列详情。
 
     ``started_at`` 按 docs/05 §3.3「尚未发生的字段返回 ``null`` 而不是省略键」，
     类型是 ``str | None``、默认 ``None``，响应里始终出现该键；写入方是 M3-09 的
@@ -90,6 +126,9 @@ class HealthResponse(BaseModel):
     auth_enabled: bool
     version: str
     started_at: str | None = None
+    core: CoreHealth | None = None
+    device: DeviceHealth | None = None
+    queue: QueueHealth | None = None
 
 
 def _started_at_text(value: object) -> str | None:
@@ -115,18 +154,52 @@ def _started_at_text(value: object) -> str | None:
         "- `auth_enabled` 由配置的 `access_token` 是否为空决定（docs/05 §5.2）\n"
         "- `version` 取已安装分发包元数据，读不到时回退 `0.1.0`\n"
         "- `started_at` 是进程启动时间（ISO 8601 字符串），尚未写入时为 `null`（docs/05 §3.3）\n"
-        "- 本响应体后续会追加内核 / 设备 / 队列字段（M4–M6），现有字段不变\n"
-        "- 不校验 token、不访问数据库，因此没有错误码"
+        "- `core` 含内核状态、pid 和代际；`device` 复用设备快照；`queue` 只含待处理/运行数和暂停状态\n"
+        "- lifespan 尚未装配运行态对象时，`core` / `device` / `queue` 为 `null`，仍返回 200\n"
+        "- 不校验 token；队列概览只执行只读查询，不返回队列条目"
     ),
     response_model=HealthResponse,
 )
-def health(request: Request) -> HealthResponse:
-    """健康检查：只读服务自身状态，不碰内核与数据库。"""
+async def health(request: Request) -> HealthResponse:
+    """健康检查：从 app.state 读取运行态快照，不初始化运行时依赖。"""
+    state = request.app.state
+    core_supervisor = getattr(state, "core_supervisor", None)
+    core = None
+    if core_supervisor is not None:
+        core_state = core_supervisor.state
+        core = CoreHealth(
+            state=str(getattr(core_state, "value", core_state)),
+            pid=core_supervisor.pid,
+            generation=core_supervisor.generation,
+        )
+
+    device_manager = getattr(state, "device_manager", None)
+    if device_manager is not None:
+        device_snapshot = device_manager.snapshot()
+        device_snapshot.setdefault("retry", {"attempt": 0, "max": 0, "next_at": None})
+        device = DeviceHealth.model_validate(device_snapshot)
+    else:
+        device = None
+
+    queue_service = getattr(state, "queue_service", None)
+    queue = None
+    if queue_service is not None:
+        snapshot = await queue_service.snapshot()
+        counts = snapshot.get("counts", {})
+        queue = QueueHealth(
+            pending=counts.get("pending", 0),
+            running=counts.get("running", 0),
+            paused=snapshot.get("paused", False),
+        )
+
     return HealthResponse(
         status="ok",
         auth_enabled=auth_enabled(),
         version=_service_version(),
-        started_at=_started_at_text(getattr(request.app.state, "started_at", None)),
+        started_at=_started_at_text(getattr(state, "started_at", None)),
+        core=core,
+        device=device,
+        queue=queue,
     )
 
 

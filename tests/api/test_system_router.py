@@ -101,6 +101,9 @@ def test_endpoint_metadata_follows_doc_style() -> None:
     health = routes[(HEALTH, "GET")]
     assert "免鉴权" in health.description
     assert "auth_enabled" in health.description
+    assert "core" in health.description
+    assert "device" in health.description
+    assert "queue" in health.description
 
     exchange = routes[(COOKIE, "POST")]
     assert "HttpOnly" in exchange.description
@@ -139,6 +142,72 @@ def test_health_reports_auth_disabled_without_token(tmp_settings, make_client) -
     resp = client.get(HEALTH)
     assert resp.status_code == 200
     assert resp.json()["auth_enabled"] is False
+
+
+def test_health_runtime_fields_are_null_before_lifespan(tmp_settings, make_client) -> None:
+    """未进入 lifespan 时仍健康可探测，且未装配的运行态字段显式为 null。"""
+    resp = make_client(build_app()).get(HEALTH)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["core"] is None
+    assert body["device"] is None
+    assert body["queue"] is None
+
+
+def test_health_reports_injected_runtime_snapshots_without_queue_entries(
+    tmp_settings, make_client
+) -> None:
+    """读取 app.state 的运行态快照，队列仅暴露计数与暂停状态。"""
+
+    class FakeCoreSupervisor:
+        state = "ready"
+        pid = 4321
+        generation = 3
+
+    class FakeDeviceManager:
+        def snapshot(self) -> dict:
+            return {
+                "core_id": "default",
+                "state": "connected",
+                "address": "127.0.0.1:5555",
+                "uuid": "emulator-5554",
+                "resolution": {"width": 1280, "height": 720},
+                "last_connected_at": 1_758_000_000.0,
+                "retry": {"attempt": 1, "max": 5, "next_at": None},
+                "last_error": None,
+            }
+
+    class FakeQueueService:
+        async def snapshot(self) -> dict:
+            return {
+                "running": {"id": "private-running-item"},
+                "pending": [{"id": "private-pending-item"}],
+                "counts": {"pending": 4, "running": 1},
+                "paused": True,
+            }
+
+    app = build_app()
+    app.state.core_supervisor = FakeCoreSupervisor()
+    app.state.device_manager = FakeDeviceManager()
+    app.state.queue_service = FakeQueueService()
+
+    resp = make_client(app).get(HEALTH)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["core"] == {"state": "ready", "pid": 4321, "generation": 3}
+    assert body["device"] == {
+        "core_id": "default",
+        "state": "connected",
+        "address": "127.0.0.1:5555",
+        "uuid": "emulator-5554",
+        "resolution": {"width": 1280, "height": 720},
+        "last_connected_at": 1_758_000_000.0,
+        "retry": {"attempt": 1, "max": 5, "next_at": None},
+        "last_error": None,
+    }
+    assert body["queue"] == {"pending": 4, "running": 1, "paused": True}
+    assert "private-running-item" not in resp.text
+    assert "private-pending-item" not in resp.text
 
 
 def test_health_version_is_non_empty(tmp_settings, make_client) -> None:

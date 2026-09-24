@@ -1,0 +1,29 @@
+# Source control and local milestone orchestration state
+.git/
+.refactor/
+
+# Python virtual environments, caches, and test-only content
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+**/tests/
+
+# Local MaaCore binaries, runtime data, and secrets
+/resource/
+/config.yaml
+
+# Frontend dependencies and generated build output
+node_modules/
+**/node_modules/
+.pnpm-store/
+**/.pnpm-store/
+/static/
+
+# Editor and OS noise
+.DS_Store
+**/.DS_Store
