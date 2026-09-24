@@ -1,12 +1,13 @@
 # 环境事实（跨会话共享）
 
-> 本文件是**已实测确认**的环境事实，供拆卡者与 worker 共用。
-> 目的：不让每个全新上下文的 agent 重复发现同一件事。
+> 本文件是**已实测确认**的环境事实，目的是不让每个全新上下文的 agent 重复发现同一件事。
 > 每条都必须来自实测，推测请标注「未验证」。
 >
-> **worker 可以在本文件对应小节末尾追加新发现的事实**（只追加、不改写既有条目、
-> 不 `git add`，编排器会随台账一起提交）。这是 worker 被允许触碰 `.refactor/` 的
-> 唯一例外 —— 踩过的坑如果不写下来，下一个里程碑的 worker 会再踩一次。
+> 新发现的事实追加到对应小节末尾，注明来自哪个里程碑或计划，随所在任务一起提交。
+>
+> M0–M9 期间由卡片协议（`.refactor/`，已于 M9 后退役，原貌见 git tag `pre-superpowers`）的
+> worker 逐卡追加，文中的「卡」「worker」「编排器」「verify」均指当时的流程。条目按时间追加，
+> 后面的实测可能推翻前面的结论，引用前请看完同主题的后续条目。
 
 ## 基础工具链
 
@@ -52,7 +53,7 @@
 ## 验证命令的陷阱
 
 - **`scripts/core_smoke.py --help` 不加载内核**：内核层 import（`maa_api.core.*`）全部延迟到 `main()` 解析参数之后，`python -X importtime scripts/core_smoke.py --help` 实测没有任何 `maa_api` / `tests.fakes` 模块被 import。`--fake` 子进程能 import 到 `tests.fakes.fake_asst` 靠的是脚本模块顶层把仓库根插入 `sys.path`（spawn 子进程继承父进程 `sys.path`），直接执行脚本时 `sys.path[0]` 是 `scripts/` 而不是仓库根。
-- **`import maa_api.main` 不能当门禁。** 它在 import 期就走 `Updater().update()` 与内核 `dlopen`，实测约 2.5 分钟且依赖网络与本地资源。verify 请用轻量 import（如 `import maa_api.domain.task`）。
+- **（已过时）`import maa_api.main` 不能当门禁。** M0 时期它在 import 期就走 `Updater().update()` 与内核 `dlopen`，实测约 2.5 分钟且依赖网络与本地资源。M3-09 重写装配后已不成立：实测 import 只需 0.22–0.31s，且不再 import 内核与旧模块（见本文「M3-09 实测」小节）；重活移到了 lifespan 里，测试中用 `TestClient` 时不进入上下文管理器即可避开 lifespan。
 - verify 必须能在「改动前失败、改动后通过」两个方向上真正区分，否则是无意义的门禁。
 - **旧 `maa_api/model/util/utils.py` 的 `Message` 原来是普通 `Enum`，`int(成员)` 抛 `TypeError`**（非 `IntEnum` 没有 `__int__`/`__index__`）。M1-03 的 verify 第 2 条用 `int(Old.成员)` 做 ABI 逐项比对，实测因此**永远无法通过**（第 1 次尝试即卡死在这条）。处置：M1-03 把该枚举改为 `IntEnum`（取值一个未动；`Message(msg)`、成员间比较、全量 pytest 语义不变）并随卡提交，M3 删除该模块时一并消失。**以后写涉及旧枚举的 verify 请用 `m.value` 而不是 `int(m)`**，除非确认它是 `IntEnum`。
 - **`typing.Protocol` 会在类创建时注入 `__init__ = _no_init_or_replace_init`（一个普通函数）**，`vars(协议类)` 因此天然多出一个「方法」；`@runtime_checkable` 还会把非 callable 的成员记进 `__non_callable_proto_members__`（使 `issubclass()` 抛 TypeError）。所以「协议方法集合 ⊆ 某实现类公开方法」这类按名检查（M1-05 verify 第 3 条）若要求通过，必须把 `__init__` 与只作声明用的成员（如 `call`）换成 **callable 占位对象**——非 function、非 staticmethod，但仍出现在 `vars()` 里、仍让 `callable()` 为真。M1-05 在 Python 3.13.3 实测。

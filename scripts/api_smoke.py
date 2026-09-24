@@ -44,7 +44,7 @@
 带 ``X-Token`` 200，最后 ``terminate()`` + ``wait()``。默认只跑默认模式，``--serve``
 = 默认模式 + 真实进程两段都跑。
 
-隔离纪律（照 M2-13 的实测结论，见 .refactor/ENVIRONMENT.md）
+隔离纪律（照 M2-13 的实测结论，见 docs/ENVIRONMENT.md）
 ==========================================================
 
 - **只改** ``maa_api.db.session`` 的 ``DB_PATH`` / ``SYNC_URL`` / ``ASYNC_URL``

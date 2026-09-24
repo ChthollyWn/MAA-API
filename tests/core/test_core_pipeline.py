@@ -18,7 +18,7 @@ TaskChainCompleted / AllTasksCompleted → ``running()`` 变假；④ ``SCREENCA
 落盘传引用（``CMD_RESULT`` 里没有任何图像字节）；⑤ 优雅关闭（退出码 0）+ 消费线程退出 +
 二次启动仍 READY 且未误触发退避。
 
-**实测口径（实测优先于任务卡措辞，已记入 ``.refactor/ENVIRONMENT.md``）**：
+**实测口径（实测优先于任务卡措辞，已记入 ``docs/ENVIRONMENT.md``）**：
 
 1. ``FakeAsst.connect_async`` 在 worker 的 ``_dispatch`` 内**同步**发回调，``CMD_RESULT``
    要等 ``_dispatch`` 返回后才入队（M1-07 代码事实 / M1-09 实测），因此父进程先处理

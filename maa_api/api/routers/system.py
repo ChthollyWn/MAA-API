@@ -30,7 +30,7 @@
 仅凭 cookie 调它们会由 :func:`~maa_api.api.deps.require_auth` 判 403（cookie 渠道
 收窄，docs/05 §5.1）。
 
-204 响应的写法（实测，见 .refactor/ENVIRONMENT.md）
+204 响应的写法（实测，见 docs/ENVIRONMENT.md）
 ==================================================
 
 **不能**在注入的 ``response: Response`` 上 ``set_cookie()`` 之后

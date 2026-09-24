@@ -133,11 +133,6 @@ config.yaml
 
 # macOS
 .DS_Store
-# 重构编排台账（本地状态，不入库）
-.refactor/logs/
-.refactor/state.json
-.refactor/PAUSE
-.refactor/TRIGGER
 
-# 重构编排器的运行时状态（本地，不入库）
-.refactor/orchestrator.lock
+# superpowers 的临时工作区（执行台账、任务简报、审核材料）；需要留存的台账复制到 docs/superpowers/ledgers/
+.superpowers/

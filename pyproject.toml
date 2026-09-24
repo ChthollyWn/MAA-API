@@ -19,7 +19,7 @@ aiosqlite = "^0.20"
 # greenlet 必须显式声明：SQLAlchemy 只把它放进 sqlalchemy[asyncio] extra，且其平台
 # 标记不覆盖 macOS arm64（标记里是 aarch64/x86_64/...，本机 platform.machine() 为
 # "arm64"），导致异步引擎在 .venv 里抛 ValueError: the greenlet library is required。
-# 实测见 .refactor/ENVIRONMENT.md 与 tests/fixtures/db_probe_findings.md §5。
+# 实测见 docs/ENVIRONMENT.md 与 tests/fixtures/db_probe_findings.md §5。
 greenlet = "^3.1"
 httpx = "^0.27"
 # jinja2 仍在使用（maa_api/model/core/executor.py 的邮件模板），

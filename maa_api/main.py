@@ -294,7 +294,7 @@ class OperationIdRoute(Protocol):
 
     fastapi 0.141 的 ``generate_unique_id_function`` 对 ``@app.get`` 直挂的路由收到
     ``APIRoute``，对 ``include_router`` 进来的路由收到 ``_EffectiveRouteContext``
-    包装对象（实测见 .refactor/ENVIRONMENT.md）：两者都有 ``name`` / ``tags``。
+    包装对象（实测见 docs/ENVIRONMENT.md）：两者都有 ``name`` / ``tags``。
     因此这里按结构取属性，**不做 isinstance 判断、注解也不写死 ``APIRoute``**。
     """
 
