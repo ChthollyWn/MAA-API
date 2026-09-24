@@ -464,7 +464,7 @@ export default function SettingsPage() {
 
       <form className="space-y-5" onSubmit={saveSettings}>
         {loading ? (
-          <Card><CardContent className="flex min-h-28 items-center justify-center gap-2 pt-5 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />正在读取设置…</CardContent></Card>
+          <Card><CardContent className="flex min-h-28 items-center justify-center gap-2 pt-5 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />正在读取设置…</CardContent></Card>
         ) : groups.length ? groups.map(([group, groupFields]) => (
           <Card key={group} id={`settings-group-${group}`}>
             <CardHeader className="flex-row items-start justify-between gap-3">
@@ -476,10 +476,11 @@ export default function SettingsPage() {
                 type="button"
                 variant="outline"
                 size="sm"
+                className="min-h-11"
                 disabled={saving || resettingGroup !== null || !groupFields.some((field) => !field.readonly)}
                 onClick={() => void resetGroup(group, groupFields)}
               >
-                {resettingGroup === group ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+                {resettingGroup === group ? <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
                 重置分组
               </Button>
             </CardHeader>
@@ -490,9 +491,9 @@ export default function SettingsPage() {
         )) : (
           <Card><CardContent className="pt-5 text-sm text-muted-foreground">服务端没有返回设置 schema。</CardContent></Card>
         )}
-        <div className="sticky bottom-2 z-10 flex justify-end rounded-xl border bg-background/95 p-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <div className="sticky z-10 flex justify-end rounded-xl border bg-background/95 p-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px) + 0.5rem)' }}>
           <Button type="submit" disabled={loading || saving || resettingGroup !== null || dirty.size === 0}>
-            {saving ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
+            {saving ? <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Save aria-hidden="true" />}
             {saving ? '正在保存…' : '保存设置'}
           </Button>
         </div>
