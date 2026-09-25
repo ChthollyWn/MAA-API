@@ -122,7 +122,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | `set_task_params` | CONDITIONAL | 运行中修改任务参数 |
 | `cancel_queued` | SAFE | 取消排队中未开始的条目 |
 
-**原子操作组（`raw`）** —— 全部 `DANGEROUS`
+**原子操作组（`raw`）** —— 除安全白名单外需会话级授权；REST/MCP 调用逐次确认
 
 | 工具 | 实现 |
 |---|---|
@@ -132,7 +132,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | `input_text` | ADB |
 | `key_event` | ADB，限定白名单键值（BACK / HOME / ENTER 等） |
 | `back_to_home` | MaaCore `AsstBackToHome`。风险降为 `SAFE`，因为它是幂等的复位动作 |
-| `trigger_screencap` | MaaCore `AsstAsyncScreencap` |
+| `trigger_screencap` | MaaCore `AsstAsyncScreencap`，`SAFE` |
 
 **设备组（`device`）**
 
@@ -147,8 +147,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | 工具 | risk | 用途 |
 |---|---|---|
 | `list_copilots` | SAFE | 已保存的 Copilot 作业 |
-| `upload_copilot` | CONDITIONAL | 上传作业 JSON，需 schema 校验 |
-| `run_copilot` | CONDITIONAL | 执行作业 |
+| `upload_copilot` | SAFE | 校验并保存作业，不执行 |
 | `list_custom_tasks` | SAFE | 已注入的自定义 task 定义 |
 | `register_custom_task` | DANGEROUS | 注入自定义 `tasks.json` task，见 §7 |
 | `remove_custom_task` | DANGEROUS | 移除并重载资源 |
@@ -239,13 +238,19 @@ Scope 同时写进审计记录，便于事后追查某次调用来自哪种配�
 
 **审计不因免确认而降级。** 窗口内每次原子操作照常写 `agent_audit`，并额外记录它是凭哪次授权执行的（`authorized_by` 指向那条 `confirmation` 记录）。这样事后复盘"agent 到底点了什么"时，能完整还原整个授权窗口内的操作序列，以及是谁在什么时候批准了这个窗口。
 
+只有受信任的 `internal` 调用可以使用会话授权。REST 调用没有内置会话，MCP 调用也不继承内部会话；两者的原子操作都逐次确认。`internal` 调用必须带有效且处于 active 状态的会话，缺少、已结束或不存在的会话一律拒绝，不降级为逐次确认。服务启动时清除所有既有授权；会话关闭、切换或删除时撤销授权。M11 先交付会话授权与撤销 API，授权状态提示条归 M13。
+
 ### 4.4 免确认的白名单
 
-有两个动作刻意设为免确认，因为它们是止损而非造成损失：
+以下非只读动作刻意设为免确认：
 
-`stop_pipeline` —— 停止当前流水线。如果连停止都要确认，agent 发现异常时无法及时刹车。
+- `stop_pipeline`：停止当前流水线。如果连停止都要确认，agent 发现异常时无法及时刹车。
+- `trigger_screencap`：只请求截图，不改游戏状态。
+- `back_to_home`：回游戏主界面。幂等，无消耗，是从未知状态复位的标准动作。
+- `upload_copilot`：完成作业 schema 校验并保存，不启动战斗。
+- `delete_schedule`：删除定时任务定义，不立即运行或消耗资源。
 
-`back_to_home` —— 回游戏主界面。幂等，无消耗，是从未知状态复位的标准动作。
+其他只读工具同样不需确认。所有屏幕原子操作均受会话授权或逐次确认约束，截图触发例外。
 
 ## 5. 人工确认机制
 
@@ -298,10 +303,10 @@ MCP tool call
         "hint": "用户尚未确认。请用 check_confirmation 查询结果，或稍后重试。"
       }
   → agent 调 check_confirmation 轮询
-  → 获批后 confirmation 记录里带着原始参数，由 check_confirmation 触发实际执行
+  → 在原服务进程中，批准事件唤醒原请求 worker 执行；check_confirmation 只读取确认与审计状态
 ```
 
-这样 confirmation 记录既是审批凭据也是待执行的操作快照。`check_confirmation` 返回 `approved` 时附带操作的实际执行结果。
+这样 confirmation 记录既是审批凭据也是待执行的操作快照。`check_confirmation` 返回状态和关联审计结果，不会重新执行已批准的 payload。若服务在批准和审计终态提交之间重启，审计会标记为执行结果不确定的 `FAILED`，不自动重放，避免重复副作用。
 
 ### 5.3 关于 MCP elicitation
 
@@ -378,9 +383,11 @@ Claude Desktop ──stdio──► mcp_stdio.py ──HTTP──► FastAPI 主
 
 ### 7.2 Copilot 作业
 
-Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技能释放时机。agent 可以上传作业并执行。
+Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技能释放时机。agent 可以上传已校验的作业并列出已保存作业。
 
 作业 JSON 上传前必须做 schema 校验。格式错误的作业不会让内核崩溃（它作为任务参数传入，内核自己会校验），但会导致战斗失败并浪费理智，所以前置校验有实际价值。
+
+执行已保存作业的 `run_copilot` 暂缓：当前 MAA-API 没有把 Copilot JSON 交给 MaaCore 的应用服务，也没有 `FightInput` 作业引用字段。接入真实运行器前必须明确调用 API 和参数契约；不得用普通 Fight 关卡替代，这会使作业内容被忽略。
 
 ### 7.3 注入自定义 tasks.json task 定义
 

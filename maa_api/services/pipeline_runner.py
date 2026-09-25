@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.core.enums import Message
@@ -17,6 +18,7 @@ from maa_api.db.models import Pipeline, Task, utcnow
 from maa_api.db.repositories.pipeline import PipelineRepository, TaskRepository
 from maa_api.domain.enums import PipelineSource, PipelineStatus, TaskStatus
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.domain.task import RUNTIME_IMMUTABLE, TASK_MODELS
 from maa_api.services.log_hub import current_pipeline_id
 
 __all__ = ["TASK_TIMEOUT_SECONDS", "PipelineRunner"]
@@ -62,6 +64,7 @@ class _ActivePipeline:
     core_crashed: bool = False
     stop_complete: asyncio.Event = field(default_factory=asyncio.Event)
     attempt: _Attempt | None = None
+    task: Task | None = None
 
     def __post_init__(self) -> None:
         self.stop_complete.set()
@@ -268,6 +271,115 @@ class PipelineRunner:
                     active.cancel_event.set()
                     active.stop_complete.set()
                 self.wake()
+
+    async def set_task_params(self, task_id: str, params: dict[str, Any]) -> Task:
+        """Validate and apply a supported live task parameter patch.
+
+        Persist only after MaaCore acknowledges the patch. The operation lock
+        prevents a cancellation or new queue claim from changing the active
+        attempt between validation and the native command.
+        """
+        if not params or "name" in params:
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                "参数更新必须包含字段且不能修改任务类型 name",
+            )
+        if any(value is None for value in params.values()):
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                "运行中参数更新不能使用 null 值",
+            )
+        async with self.operation_lock:
+            active = self._active
+            if active is None or active.attempt is None or active.attempt.task_id != task_id:
+                raise AppError(
+                    ErrorCode.INVALID_PARAMETER,
+                    "任务当前没有运行中的 MaaCore 执行",
+                    {"task_id": task_id},
+                )
+
+            async with self._session_factory() as session:
+                repository = TaskRepository(session)
+                task = await repository.get(task_id)
+                if task is None:
+                    raise AppError(
+                        ErrorCode.TASK_NOT_FOUND,
+                        "任务不存在",
+                        {"task_id": task_id},
+                    )
+                if TaskStatus(task.status) is not TaskStatus.RUNNING:
+                    raise AppError(
+                        ErrorCode.INVALID_PARAMETER,
+                        "只有运行中的任务可以修改参数",
+                        {"task_id": task_id, "status": str(task.status)},
+                    )
+                model = TASK_MODELS.get(task.type_name)
+                if model is None:
+                    raise AppError(
+                        ErrorCode.UNKNOWN_TASK_TYPE,
+                        f"未知任务类型：{task.type_name}",
+                    )
+
+                supplied_fields = _task_patch_field_names(model, params)
+                immutable = set(RUNTIME_IMMUTABLE.get(task.type_name, ()))
+                changed_immutable = supplied_fields.intersection(immutable)
+                if changed_immutable:
+                    raise AppError(
+                        ErrorCode.TASK_NOT_RUNTIME_MUTABLE,
+                        "运行中任务包含不可修改参数",
+                        {"fields": sorted(changed_immutable)},
+                    )
+
+                normalized_existing = _normalize_task_params(model, task.params or {})
+                normalized_patch = _normalize_task_params(model, params)
+                try:
+                    validated = model.model_validate(
+                        {**normalized_existing, **normalized_patch, "name": task.type_name}
+                    )
+                except ValidationError as exc:
+                    raise AppError(
+                        ErrorCode.TASK_PARAM_INVALID,
+                        "运行中任务参数不符合任务 schema",
+                        {"issues": exc.errors(include_input=False, include_context=False)},
+                    ) from exc
+
+                normalized_patch = validated.model_dump(
+                    include=supplied_fields,
+                    exclude={"name"}, exclude_unset=True, by_alias=True
+                )
+                accepted = await self.registry.get(self.core_id).set_task_params(
+                    int(active.attempt.maa_task_id), normalized_patch
+                )
+                if not accepted:
+                    raise AppError(
+                        ErrorCode.CORE_COMMAND_FAILED,
+                        "MaaCore 拒绝修改运行中任务参数",
+                        {"task_id": task_id, "maa_task_id": active.attempt.maa_task_id},
+                    )
+                stored_params = {**dict(task.params or {}), **normalized_patch}
+                stored_raw_params = {
+                    **dict(task.raw_params or {}),
+                    **normalized_patch,
+                }
+                if not await repository.update_params(
+                    task_id,
+                    params=stored_params,
+                    raw_params=stored_raw_params,
+                ):
+                    raise AppError(
+                        ErrorCode.INVALID_PARAMETER,
+                        "任务已结束，不再接受参数更新",
+                        {"task_id": task_id},
+                    )
+                await session.commit()
+                updated = await repository.get(task_id)
+                if active.task is not None:
+                    active.task.params = dict(stored_params)
+
+        if updated is None:
+            raise AppError(ErrorCode.TASK_NOT_FOUND, "任务不存在", {"task_id": task_id})
+        await self._publish_task(task_id)
+        return updated
 
     async def cancel_pending(self, *, source: str | None = None) -> int:
         """Cancel queued rows only; a running pipeline is never preempted."""
@@ -492,6 +604,7 @@ class PipelineRunner:
     async def _execute_task(
         self, active: _ActivePipeline, task: Task
     ) -> tuple[str, AppError | None]:
+        active.task = task
         client = self.registry.get(self.core_id)
         max_retries = max(int(task.max_retries), 0)
         retry_count = int(task.retry_count)
@@ -1081,6 +1194,43 @@ class PipelineRunner:
         self._broadcast(
             "queue_changed", await self.queue_service.snapshot(self.core_id)
         )
+
+
+def _task_patch_field_names(model: type, params: dict[str, Any]) -> set[str]:
+    """Translate Pydantic field aliases in a partial patch to Python names."""
+    return {
+        name
+        for name in model.model_fields
+        if set(params).intersection(_task_field_aliases(model, name))
+    }
+
+
+def _normalize_task_params(model: type, params: dict[str, Any]) -> dict[str, Any]:
+    """Map accepted validation aliases to the model's Python field names."""
+    normalized: dict[str, Any] = {}
+    for key, value in params.items():
+        field_name = next(
+            (
+                name
+                for name in model.model_fields
+                if key in _task_field_aliases(model, name)
+            ),
+            key,
+        )
+        normalized[field_name] = value
+    return normalized
+
+
+def _task_field_aliases(model: type, name: str) -> set[str]:
+    field = model.model_fields[name]
+    aliases = {name}
+    for alias in (field.alias, field.serialization_alias, field.validation_alias):
+        if isinstance(alias, str):
+            aliases.add(alias)
+        for choice in getattr(alias, "choices", ()):
+            if isinstance(choice, str):
+                aliases.add(choice)
+    return aliases
 
 
 def _epoch(value: datetime | None) -> float | None:

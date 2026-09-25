@@ -175,6 +175,24 @@ describe('RealtimeClient', () => {
     queryClient.clear()
   })
 
+  it('dispatches the subscription acknowledgement after reconnect for stale query recovery', () => {
+    const { client, sockets } = makeClient()
+    const queryClient = new QueryClient()
+    const received: string[] = []
+    client.setEventHandler((event) => {
+      received.push(event.type)
+      handleServerEvent(event, queryClient)
+    })
+    client.connect()
+    sockets[0].open()
+    sockets[0].receive({ type: 'subscribed', data: { channels: ['agent'], backfilled: 0 } })
+
+    expect(received).toContain('subscribed')
+
+    client.disconnect()
+    queryClient.clear()
+  })
+
   it('subscribes to logs only on demand, unsubscribes on exit, and retains the filter across reconnects', () => {
     const { client, sockets } = makeClient()
     client.connect()

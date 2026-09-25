@@ -64,6 +64,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "llm.base_url": dict(label="LLM API 地址", group="LLM", type="string", hot_action="none"),
     "llm.api_key": dict(label="LLM API 密钥", group="LLM", type="string", sensitive=True, hot_action="none"),
     "llm.model": dict(label="LLM 模型", group="LLM", type="string", hot_action="none"),
+    "agent.confirmation_timeout_seconds": dict(label="Agent 确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
+    "agent.grant_confirmation_timeout_seconds": dict(label="原子操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
+    "agent.atomic_grant_minutes": dict(label="原子操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
 }
 
 SETTINGS_SCHEMA: tuple[dict[str, Any], ...] = tuple(

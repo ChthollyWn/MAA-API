@@ -400,6 +400,24 @@ class TaskRepository(BaseRepository):
         """Get one task by its public UUID."""
         return await self.session.get(Task, task_id, populate_existing=True)
 
+    async def update_params(
+        self,
+        task_id: str,
+        *,
+        params: dict[str, Any],
+        raw_params: dict[str, Any] | None = None,
+    ) -> bool:
+        """Replace the persisted core parameters after a live update succeeds."""
+        values: dict[str, Any] = {"params": dict(params)}
+        if raw_params is not None:
+            values["raw_params"] = dict(raw_params)
+        result = await self.session.execute(
+            update(Task)
+            .where(Task.id == task_id, Task.status == TaskStatus.RUNNING)
+            .values(**values)
+        )
+        return result.rowcount > 0
+
     async def bind_maa_task_id(self, task_id: str, maa_task_id: int) -> None:
         """回写 ``AsstAppendTask`` 的返回值（内核 task id）。
 
