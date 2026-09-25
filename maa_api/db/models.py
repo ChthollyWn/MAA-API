@@ -1,4 +1,4 @@
-"""SQLModel 表定义：14 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：16 张业务表（docs/04 §3、§5、§6、§7）。
 
 纪律（每条都对应一次实测或一次返工）：
 
@@ -245,6 +245,68 @@ class Task(SQLModel, table=True):
 
 
 # ---------------------------------------------------------------------------
+# Structured MaaCore callback statistics (docs/06 §3.4)
+# ---------------------------------------------------------------------------
+class StageDrop(SQLModel, table=True):
+    """One item from a structured ``StageDrops`` callback."""
+
+    __tablename__ = "stage_drop"
+
+    id: int | None = Field(default=None, primary_key=True)
+    callback_id: str = Field(max_length=36)
+    pipeline_id: str | None = Field(
+        default=None,
+        foreign_key="pipeline.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    task_id: str | None = Field(
+        default=None, foreign_key="task.id", ondelete="SET NULL", max_length=36
+    )
+    stage_code: str | None = Field(default=None, max_length=24)
+    stars: int | None = Field(default=None)
+    item_id: str | None = Field(default=None, max_length=64)
+    item_name: str | None = Field(default=None, sa_column=text_column("item_name"))
+    quantity: int
+    add_quantity: int
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_stage_drop_stage_created_at", "stage_code", "created_at"),
+        Index("ix_stage_drop_callback_id", "callback_id"),
+    )
+
+
+class SanityObservation(SQLModel, table=True):
+    """One structured ``SanityBeforeStage`` callback sample."""
+
+    __tablename__ = "sanity_observation"
+
+    id: int | None = Field(default=None, primary_key=True)
+    pipeline_id: str | None = Field(
+        default=None,
+        foreign_key="pipeline.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    task_id: str | None = Field(
+        default=None, foreign_key="task.id", ondelete="SET NULL", max_length=36
+    )
+    stage_code: str | None = Field(default=None, max_length=24)
+    current_sanity: int
+    max_sanity: int
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_sanity_observation_stage_created_at", "stage_code", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # 5.3 log_entry — 三路日志
 # ---------------------------------------------------------------------------
 class LogEntry(SQLModel, table=True):
@@ -481,6 +543,7 @@ class AgentAudit(SQLModel, table=True):
     caller: str = Field(max_length=16)
     caller_detail: str | None = Field(default=None, max_length=128)
     tool_name: str = Field(max_length=64)
+    request_id: str | None = Field(default=None, max_length=128)
     # 入库前已裁剪（超过 1 KB 的字符串值替换为 __truncated__ 结构）
     arguments: dict[str, Any] = Field(
         default_factory=dict, sa_column=json_column("arguments", nullable=False)
@@ -523,6 +586,34 @@ class AgentAudit(SQLModel, table=True):
         # 审计查询：可选 caller / tool_name 过滤，按 created_at DESC
         Index("ix_agent_audit_caller_created_at", "caller", "created_at"),
         Index("ix_agent_audit_tool_name_created_at", "tool_name", "created_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+class AgentIdempotency(SQLModel, table=True):
+    """24-hour REST invoke replay keys, scoped to a caller and linked audit."""
+
+    __tablename__ = "agent_idempotency"
+
+    id: int | None = Field(default=None, primary_key=True)
+    caller: str = Field(max_length=16)
+    key: str = Field(max_length=64)
+    request_hash: str = Field(max_length=64)
+    request_mode: str | None = Field(default=None, max_length=8)
+    audit_id: int | None = Field(
+        default=None, foreign_key="agent_audit.id", ondelete="CASCADE"
+    )
+    response_status: int | None = Field(default=None)
+    response_body: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("response_body")
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("caller", "key", name="uq_agent_idempotency_caller_key"),
+        Index("ix_agent_idempotency_created_at", "created_at"),
         {"sqlite_autoincrement": True},
     )
 

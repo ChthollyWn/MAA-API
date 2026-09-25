@@ -28,8 +28,10 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+import pytest
 
 from maa_api.db.models import (
+    AgentIdempotency,
     AgentAudit,
     AgentMessage,
     AgentSession,
@@ -37,6 +39,7 @@ from maa_api.db.models import (
     utcnow,
 )
 from maa_api.db.repositories.agent import (
+    AgentIdempotencyRepository,
     AgentMessageRepository,
     AgentSessionRepository,
 )
@@ -278,6 +281,74 @@ def test_audit_get_and_list_filters_paginate(db_session_factory):
     asyncio.run(scenario())
 
 
+def test_agent_audit_persists_request_id(db_session_factory):
+    async def scenario():
+        async with db_session_factory() as session:
+            row = await AuditRepository(session).create(
+                _audit(request_id="request-correlation-1")
+            )
+            await session.commit()
+            stored = await AuditRepository(session).get(row.id)
+            assert stored.request_id == "request-correlation-1"
+
+    asyncio.run(scenario())
+
+
+def test_agent_idempotency_repository_expires_and_uniquely_scopes_keys(db_session_factory):
+    from sqlalchemy.exc import IntegrityError
+
+    async def scenario():
+        async with db_session_factory() as session:
+            audit = await AuditRepository(session).create(_audit(status=AuditStatus.PENDING))
+            old = await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="retry-key",
+                    request_hash="a" * 64,
+                    audit_id=audit.id,
+                    created_at=utcnow() - timedelta(hours=25),
+                )
+            )
+            new = await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="live-key",
+                    request_hash="b" * 64,
+                    audit_id=audit.id,
+                )
+            )
+            await session.commit()
+            repo = AgentIdempotencyRepository(session)
+            assert (await repo.get(CallerType.REST, "live-key")).id == new.id
+            assert await repo.delete_expired(utcnow() - timedelta(hours=24)) == 1
+            assert await repo.get(CallerType.REST, "retry-key") is None
+            assert await repo.get(CallerType.REST, "live-key") is not None
+            duplicate = AgentIdempotency(
+                caller=CallerType.REST,
+                key="live-key",
+                request_hash="c" * 64,
+                audit_id=audit.id,
+            )
+            with pytest.raises(IntegrityError):
+                await repo.create(duplicate)
+            await session.rollback()
+
+            await repo.create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="orphan-reservation",
+                    request_hash="d" * 64,
+                    audit_id=None,
+                )
+            )
+            await session.commit()
+            assert await repo.delete_unlinked() == 1
+            await session.commit()
+            assert await repo.get(CallerType.REST, "orphan-reservation") is None
+
+    asyncio.run(scenario())
+
+
 # ---------------------------------------------------------------------------
 # agent_session / agent_message
 # ---------------------------------------------------------------------------
@@ -318,6 +389,34 @@ def test_agent_session_create_get_and_list_recent_nulls_last(db_session_factory)
                 newest.id,
                 older.id,
             ]
+
+    asyncio.run(scenario())
+
+
+def test_agent_session_pages_include_message_cursor_and_delete_cascades(db_session_factory):
+    """REST session/message pages retain stable ordering and deleting removes messages."""
+
+    async def scenario():
+        async with db_session_factory() as session:
+            sessions = AgentSessionRepository(session)
+            messages = AgentMessageRepository(session)
+            first = await sessions.create(_session(title="first"))
+            second = await sessions.create(_session(title="second"))
+            for seq in range(4):
+                await messages.create(_message(first.id, seq, content=f"m{seq}"))
+            await session.commit()
+
+            page = await sessions.list_page(page=1, size=1)
+            assert page.total == 2 and len(page.items) == 1
+            assert page.items[0].id == second.id
+            after = await messages.list_page(first.id, after_seq=1, page=1, size=2)
+            assert after.total == 2
+            assert [message.seq for message in after.items] == [2, 3]
+
+            assert await sessions.delete(first.id)
+            await session.commit()
+            assert await messages.list_by_session(first.id) == []
+            assert not await sessions.delete("missing")
 
     asyncio.run(scenario())
 
@@ -606,6 +705,32 @@ def test_confirmation_expire_overdue_returns_ids_and_is_idempotent(db_session_fa
             # 幂等：第二次没有可翻转的记录
             assert await repo.expire_overdue(now) == []
             assert [c.id for c in await repo.list_pending()] == [future.id]
+
+    asyncio.run(scenario())
+
+
+def test_confirmation_expire_all_pending_includes_far_future_rows(db_session_factory):
+    """Restart cleanup must expire every pending row regardless of expiry horizon."""
+    now = utcnow()
+
+    async def scenario():
+        async with db_session_factory() as session:
+            repo = ConfirmationRepository(session)
+            near = await repo.create(_confirmation(expires_at=now + timedelta(minutes=2)))
+            far = await repo.create(_confirmation(expires_at=now + timedelta(days=40000)))
+            resolved = await repo.create(_confirmation())
+            await session.commit()
+            assert await repo.resolve(
+                resolved.id, ConfirmationStatus.APPROVED, resolved_by="web"
+            )
+            await session.commit()
+
+            assert set(await repo.expire_all_pending(now)) == {near.id, far.id}
+            await session.commit()
+            assert (await repo.get(near.id)).status == ConfirmationStatus.EXPIRED
+            assert (await repo.get(far.id)).status == ConfirmationStatus.EXPIRED
+            assert (await repo.get(resolved.id)).status == ConfirmationStatus.APPROVED
+            assert await repo.expire_all_pending(now) == []
 
     asyncio.run(scenario())
 

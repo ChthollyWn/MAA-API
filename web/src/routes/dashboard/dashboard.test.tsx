@@ -85,6 +85,11 @@ function installFetch(options: MockOptions = {}) {
       }
       return new Response(JSON.stringify(queue), { headers: { 'Content-Type': 'application/json' } })
     }
+    if (url.pathname === '/api/confirmations' && request.method === 'GET') {
+      return new Response(JSON.stringify({ items: [], total: 0, page: 1, size: 20 }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     if (url.pathname === '/api/device/reconnect') {
       health = {
         ...connectedHealth,

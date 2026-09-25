@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarClock, CodeXml, Settings2, Upload } from 'lucide-react'
+import { ArrowRight, CalendarClock, ClipboardList, CodeXml, Settings2, Upload } from 'lucide-react'
 import { Link } from 'react-router'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card, CardContent } from '@/components/ui/card'
@@ -24,6 +24,12 @@ const groups = [
         title: '定时任务',
         description: '按星期与时间配置可重复运行的任务组合。',
         Icon: CalendarClock,
+      },
+      {
+        to: '/more/audit',
+        title: 'Agent 审计',
+        description: '筛选工具调用、确认结果，并查看关联流水线与日志。',
+        Icon: ClipboardList,
       },
     ],
   },

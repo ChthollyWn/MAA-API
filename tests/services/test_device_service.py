@@ -93,6 +93,8 @@ class FakeCore:
         self.calls: list[tuple[Any, ...]] = []
         self.screencap_path: Path | None = None
         self.click_calls: list[tuple[int, int]] = []
+        self.back_to_home_result = True
+        self.back_to_home_calls = 0
 
     async def click(self, x: int, y: int) -> None:
         self.click_calls.append((x, y))
@@ -110,6 +112,10 @@ class FakeCore:
         if self.screencap_path is None:
             raise RuntimeError("no fallback screenshot")
         return self.screencap_path
+
+    async def back_to_home(self) -> bool:
+        self.back_to_home_calls += 1
+        return self.back_to_home_result
 
 
 class FakeAdbUtilsDevice:
@@ -540,6 +546,17 @@ def test_operations_are_delegated_to_adb_and_core_substitutes(tmp_path: Path) ->
     assert ("key_event", "127.0.0.1:5555", "BACK") in adb.calls
     assert core.click_calls == [(9, 10)]
     assert ("force_stop", "127.0.0.1:5555", "com.example.game") in adb.calls
+
+
+def test_back_to_home_is_delegated_through_core_application_service() -> None:
+    manager, _, core = _manager()
+
+    async def scenario() -> None:
+        assert await manager.back_to_home() is True
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert core.back_to_home_calls == 1
 
 
 def test_adb_screenshot_falls_back_to_core_and_reports_actual_backend(
