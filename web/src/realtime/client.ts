@@ -320,6 +320,7 @@ export class RealtimeClient {
         }
       } else if (event.type === 'subscribed') {
         useRealtimeStatusStore.getState().setStatus({ truncated: event.data.truncated === true })
+        this.eventHandler?.(event)
       } else if (event.type === 'server_shutdown') {
         this.fastRestart = true
         useRealtimeStatusStore.getState().setStatus({ status: 'RECONNECTING' })
