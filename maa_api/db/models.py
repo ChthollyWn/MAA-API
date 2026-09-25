@@ -730,4 +730,7 @@ class ApiSnippet(SQLModel, table=True):
         default_factory=utcnow, sa_column=datetime_column("updated_at")
     )
 
-    __table_args__ = (UniqueConstraint("name", name="uq_api_snippet_name"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_api_snippet_name"),
+        Index("ix_api_snippet_updated_at", "updated_at"),
+    )

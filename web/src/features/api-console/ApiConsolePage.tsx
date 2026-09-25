@@ -174,7 +174,7 @@ function operationFromSnippet(groups: ConsoleOperationGroup[], snippet: ApiSnipp
 }
 
 function normalizeStoredHeaders(headers: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(headers).filter(([key, value]) => key.trim() && value.trim()))
+  return Object.fromEntries(Object.entries(headers).filter(([key, value]) => key.trim() && value.trim()).map(([key, value]) => [key.trim(), value]))
 }
 
 function responseBodyText(body: unknown): string {
@@ -184,9 +184,9 @@ function responseBodyText(body: unknown): string {
 }
 
 function useNarrowViewport() {
-  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1024)
   useEffect(() => {
-    const update = () => setNarrow(window.innerWidth < 768)
+    const update = () => setNarrow(window.innerWidth < 1024)
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
   }, [])
@@ -665,7 +665,7 @@ function ApiConsolePage() {
     {guideRoute ? <section aria-label="开放 API 接入指南" className="rounded-xl border bg-card p-4 md:p-6"><GuideMarkdown /></section> : null}
     <div className="grid gap-2 rounded-xl border bg-muted/20 p-3 md:grid-cols-[minmax(12rem,1fr)_minmax(12rem,1fr)_auto] md:items-end"><div className="space-y-1"><Label htmlFor="console-global-base" className="text-xs">Base URL</Label><Input id="console-global-base" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="同源相对地址" /></div><div className="space-y-1"><Label htmlFor="console-global-token" className="text-xs">临时 token（当前页）</Label><Input id="console-global-token" type="password" value={temporaryToken} onChange={(event) => { setTemporaryToken(event.target.value); setTokenOverride(true) }} placeholder={token ? '默认使用登录 token' : '仅当前页有效'} /></div><div className="flex items-center gap-2 md:justify-end"><Badge variant={baseUrl.trim() || tokenOverride ? 'warning' : 'secondary'}>{baseUrl.trim() || tokenOverride ? '自定义环境' : '默认环境'}</Badge><Button type="button" variant="outline" size="sm" onClick={() => { setTokenOverride(false); setTemporaryToken('') }}>重置 token</Button></div></div>
     {openApiQuery.isLoading ? <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground" role="status">正在读取 `/openapi.json`…</p> : null}
-    <div data-testid="api-console-grid" data-layout={narrow ? 'mobile' : 'desktop'} className="grid min-h-[calc(100dvh-14rem)] gap-3 md:grid-cols-[280px_minmax(22rem,1fr)_minmax(20rem,40%)] md:items-start">
+    <div data-testid="api-console-grid" data-layout={narrow ? 'mobile' : 'desktop'} className="grid min-h-[calc(100dvh-14rem)] gap-3 lg:grid-cols-[280px_minmax(22rem,1fr)_minmax(20rem,40%)] lg:items-start">
       {!narrow || mobileStep === 'tree' ? treePanel : null}
       {!narrow || mobileStep === 'request' ? <div className={narrow ? 'min-h-0' : 'min-w-0'}>
         {narrow && selected && <div className="mb-2 grid grid-cols-3 gap-1 rounded-lg border bg-muted/40 p-1" role="tablist" aria-label="请求、响应、日志">{([['request', '请求'], ['response', '响应'], ['logs', '日志']] as const).map(([tab, label]) => <Button key={tab} type="button" role="tab" aria-selected={mobileTab === tab} variant={mobileTab === tab ? 'secondary' : 'ghost'} onClick={() => { setMobileTab(tab); setDrawerSize(tab === 'request' ? 'peek' : 'half') }}>{label}{tab === 'logs' && realtime.logs.length > 0 ? <Badge className="ml-1 px-1">{realtime.logs.length}</Badge> : null}</Button>)}</div>}

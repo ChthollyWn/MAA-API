@@ -16,7 +16,7 @@ from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import snippets as snippets_router
 from maa_api.db import session as db_session
 from maa_api.domain.errors import ErrorCode
-from maa_api.services.api_snippet_service import ApiSnippetService
+from maa_api.services.api_snippet_service import ApiSnippetService, sanitize_headers
 
 
 def _snippet_client(isolated_db: AsyncEngine, make_client):
@@ -114,6 +114,14 @@ def test_snippet_crud_normalizes_names_and_never_persists_credentials(
     missing = client.get(f"/api/snippets/{snippet_id}", headers=headers)
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == ErrorCode.API_SNIPPET_NOT_FOUND
+
+
+def test_sanitize_headers_trims_names_before_credential_detection():
+    assert sanitize_headers({
+        "X-Token ": "padded-token-secret",
+        " X-Api-Key": "padded-api-key-secret",
+        "Accept": "application/json",
+    }) == {"Accept": "application/json"}
 
 
 @pytest.mark.parametrize("tmp_settings", ["snippet-secret"], indirect=True)

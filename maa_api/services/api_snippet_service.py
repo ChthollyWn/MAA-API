@@ -92,11 +92,12 @@ class ApiSnippetPage(BaseModel):
 
 def sanitize_headers(headers: Mapping[str, str]) -> dict[str, str]:
     """Remove credential-bearing standard headers case-insensitively."""
-    return {
-        key: value
-        for key, value in headers.items()
-        if not _CREDENTIAL_HEADER.search(key)
-    }
+    clean: dict[str, str] = {}
+    for key, value in headers.items():
+        normalized_key = key.strip()
+        if normalized_key and not _CREDENTIAL_HEADER.search(normalized_key):
+            clean[normalized_key] = value
+    return clean
 
 
 def sanitize_query(query: Mapping[str, Any]) -> dict[str, Any]:

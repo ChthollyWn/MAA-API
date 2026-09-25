@@ -61,7 +61,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | PUT | `/api/snippets/{snippet_id}` | 更新 |
 | DELETE | `/api/snippets/{snippet_id}` | 删除，204 |
 
-收藏名称会先 trim，随后按 1–64 字符校验，并区分大小写唯一。不存在返回 404，重名返回 409。收藏及调试历史不会保存 `Authorization`、`X-Token`、`Cookie` 或 query 的 `token`。
+收藏名称会先 trim，随后按 1–64 字符校验，并区分大小写唯一。不存在返回 404，重名返回 409。收藏、调试历史与导出的 cURL 不会保存 `Authorization`、`X-Token`、`Cookie`、API key、password、secret 类凭据头或 query 的 `token`。JSON request body 保持原值供重放及导出，不会递归脱敏；不要在 body 中放入不希望写入收藏/历史或复制到 cURL 的业务密钥。
 
 非 2xx 响应统一使用以下结构：
 
@@ -297,7 +297,7 @@ ws.onmessage = (event) => {
   const message = JSON.parse(event.data)
   if (message.type === 'log') {
     console.log(message.data)
-    // 持久化已处理的最大 id，重连时作为 last_seen_id 续传。
+    // 持久化 id 与 stream_id，重连时作为 last_seen_id / last_seen_stream_id 续传。
   } else if (message.type === 'log_batch') {
     console.log('补发日志', message.data.records, 'truncated:', message.data.truncated)
   } else if (message.type === 'pipeline_status') {
@@ -321,16 +321,16 @@ ws.onopen = () => {
 }
 ```
 
-WebSocket URL 也可带 `last_seen_id=<最大已处理日志 id>`。查询游标会立即订阅 `log` 并补发 id 更大的日志；之后仍可发送 `subscribe` 设置期望频道。也可省略 URL 游标、改在首次 `subscribe.data.last_seen_id` 中传游标。若未提供游标，只接收新消息。使用 query token 时，token 可能进入访问日志；同源浏览器可先用头部 token 调用 `POST /api/system/auth/cookie` 建立 HttpOnly cookie，再通过 cookie 握手。
+WebSocket URL 也可带 `last_seen_id=<最大已处理日志 id>&last_seen_stream_id=<对应实例标识>`。查询游标会立即订阅 `log` 并补发该实例中 id 更大的日志；之后仍可发送 `subscribe` 设置期望频道。也可省略 URL 游标、改在首次 `subscribe.data.last_seen_id` 与 `subscribe.data.last_seen_stream_id` 中传游标。服务实例标识改变时服务端忽略旧 id 并从当前缓冲补发；未提供实例标识的旧客户端若游标高于当前缓冲也会收到现有缓冲及截断提示。上一实例未持久化的日志无法恢复。若未提供游标，只接收新消息。使用 query token 时，token 可能进入访问日志；同源浏览器可先用头部 token 调用 `POST /api/system/auth/cookie` 建立 HttpOnly cookie，再通过 cookie 握手。
 
-所有服务端消息使用 `{type, ts, data}` 信封；请求/应答还可能带 `req_id`。客户端 `subscribe` 的频道名单会整体替换旧订阅；`unsubscribe` 移除指定频道。`log_filter` 可设 `sources`（`task` / `service` / `core`）、`min_level`（`DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`，也接受 `WARN`）与 `pipeline_id`。订阅确认 `subscribed.data` 含实际 `channels`、补发条数 `backfilled` 与截断标记 `truncated`。
+所有服务端消息使用 `{type, ts, data}` 信封；请求/应答还可能带 `req_id`。客户端 `subscribe` 的频道名单会整体替换旧订阅；`unsubscribe` 移除指定频道。`log_filter` 可设 `sources`（`task` / `service` / `core`）、`min_level`（`DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`，也接受 `WARN`）与 `pipeline_id`。订阅确认 `subscribed.data` 含实际 `channels`、补发条数 `backfilled`、截断标记 `truncated` 与当前 `stream_id`。
 
 M10 当前会发送以下事件：
 
 | `type` | `data` 摘要 |
 |---|---|
-| `log` | 单条日志：`id`、`source`、`level`、`content`、`pipeline_id`、`task_id`、`request_id`、`logger`、`attachment`。日志来源为 `task`、`service`、`core`。 |
-| `log_batch` | 连接补发日志：`records` 为上述日志记录数组，`truncated` 表示环形缓冲是否不足以覆盖游标到当前的整个缺口。 |
+| `log` | 单条日志：`id`、`stream_id`、`source`、`level`、`content`、`pipeline_id`、`task_id`、`request_id`、`logger`、`attachment`。日志来源为 `task`、`service`、`core`。 |
+| `log_batch` | 连接补发日志：`records` 为上述日志记录数组，`stream_id` 标识服务进程实例，`truncated` 表示环形缓冲是否不足以覆盖游标到当前的整个缺口。 |
 | `pipeline_status` | `pipeline_id`、小写 `status`、`source`、`priority`、`progress {total, completed, failed}`、Unix 秒 `started_at` / `finished_at`、`error {code, message}` 或 `null`。 |
 | `task_status` | `pipeline_id`、`task_id`、`task_name`、`type_name`、小写 `status`、`retry_count`、`max_retries`、`error`。 |
 | `queue_changed` | `running`（当前执行项或 `null`）、`pending`（排队项数组）、`counts {pending, running}` 与 `paused`。每个队列项含 `pipeline_id`、`name`、`source`、`priority`、`status`、`created_at`。 |
@@ -340,14 +340,14 @@ M10 当前会发送以下事件：
 | `update_available` | `targets` 数组，列出有更新的目标及其 `target`、`current`、`latest`；资源/游戏目标可能含 `channel`。没有可用更新时不会发该事件。 |
 | `server_shutdown` | 服务关闭通知，`data` 为空对象；随后以 close code `1001` 关闭连接。 |
 
-协议控制帧不需要订阅频道：`server_ping` 的 `data` 为 `{t}`；`subscribed` 回应 `subscribe` / `unsubscribe`，`data` 为 `{channels, backfilled, truncated}`；服务端收到客户端 `ping` 后回 `pong` 并原样回带 `data.t`；格式或频道错误以 `error` 应答，`data` 为 `{code, message}`，若请求带 `req_id` 则应答也带回。客户端每 30 秒发送 `ping` 可检测 RTT；服务端也每 30 秒发 `server_ping`，客户端应如示例回送 `pong` 并原样带回 `data.t`。90 秒无客户端消息或连续两次未响应服务端心跳会关闭连接。鉴权失败 close code 为 `4401`，超过连接数上限为 `4429`；协议连续 10 条非法消息以 `1008` 关闭，慢客户端可能以 `1011` 关闭。
+协议控制帧不需要订阅频道：`server_ping` 的 `data` 为 `{t}`；`subscribed` 回应 `subscribe` / `unsubscribe`，`data` 为 `{channels, backfilled, truncated, stream_id}`；服务端收到客户端 `ping` 后回 `pong` 并原样回带 `data.t`；格式或频道错误以 `error` 应答，`data` 为 `{code, message}`，若请求带 `req_id` 则应答也带回。客户端每 30 秒发送 `ping` 可检测 RTT；服务端也每 30 秒发 `server_ping`，客户端应如示例回送 `pong` 并原样带回 `data.t`。90 秒无客户端消息或连续两次未响应服务端心跳会关闭连接。鉴权失败 close code 为 `4401`，超过连接数上限为 `4429`；协议连续 10 条非法消息以 `1008` 关闭，慢客户端可能以 `1011` 关闭。
 
 `confirm_request`、`confirm_resolved`、`agent_event` 目前虽被服务端频道校验接受，但 M10 不会发布它们；人工确认和 agent 工作流属于 M11，调用方不能依赖这些事件。
 
-将最新处理的 `log.data.id` 持久化，并在重连时作为 `last_seen_id` 传回。服务端默认的内存环形缓冲为最近 2,000 条日志；若返回 `truncated: true`，用 `GET /api/system/logs?after_id=<旧游标>&before_id=<缓冲最早 id>&order=asc&size=1000` 从数据库补齐，再继续流式接收。`log` 实时事件中的 `id` 单调递增，补发条件为 `id > last_seen_id`。重连退避建议 1、2、4、8 秒递增至 30 秒，并加入抖动。更完整的消息定义见 [06-实时日志与WebSocket §7](./06-实时日志与WebSocket.md#7-websocket-协议)。
+将最新处理的 `log.data.id` 与对应的 `stream_id` 一起持久化，并在重连时作为 `last_seen_id`、`last_seen_stream_id` 传回。服务端默认的内存环形缓冲为最近 2,000 条日志；若返回 `truncated: true`，用 `GET /api/system/logs?after_id=<旧游标>&before_id=<缓冲最早 id>&order=asc&size=1000` 从数据库补齐，再继续流式接收。`log` 实时事件中的 `id` 在同一 `stream_id` 内单调递增，补发条件为 `id > last_seen_id`。服务重启后 `stream_id` 会变化，服务端会忽略旧实例游标并从当前缓冲补发；上一实例内存中未持久化的日志无法恢复，调用方应提示存在跨实例历史缺口。重连退避建议 1、2、4、8 秒递增至 30 秒，并加入抖动。更完整的消息定义见 [06-实时日志与WebSocket §7](./06-实时日志与WebSocket.md#7-websocket-协议)。
 
 请求日志可用 `X-Request-Id` 与调试台请求对应；服务会在响应头回显该值，并暴露 `X-Response-Time-Ms`。当响应体含 `pipeline_id` 时，调试台会继续筛选该流水线的日志。
 
 ## 7. 交付范围
 
-本指南只描述 M10 已交付的 REST 与 WebSocket。人工确认 REST 接口/前端工作流和 agent 读取 API 收藏留在 M11；MCP Server 留在 M12。当前版本没有可用的人工确认接口或 MCP 接口；请勿将预留错误码、OpenAPI tag 或 WebSocket 频道名当作功能已交付的证据。
+本指南只描述 M10 已交付的 REST 与 WebSocket。人工确认 REST 接口/前端工作流和 agent 读取 API 收藏留在 M11；MCP Server 留在 M12；PWA 安装、离线缓存和 Web Push 留在 M14。当前版本没有可用的人工确认接口、MCP 接口或 M14 推送能力；请勿将预留错误码、OpenAPI tag 或 WebSocket 频道名当作功能已交付的证据。

@@ -170,6 +170,17 @@ describe('API console route and request workspace', () => {
     expect(screen.getByRole('region', { name: '响应与日志' })).toBeInTheDocument()
   })
 
+  it('keeps tablet widths in the single-column mobile workbench before three columns fit', async () => {
+    installNetwork()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 800 })
+    renderAt('/more/api-console')
+    await screen.findByRole('heading', { name: 'API 调试台' })
+
+    expect(screen.getByTestId('api-console-grid').getAttribute('data-layout')).toBe('mobile')
+    expect(screen.getByRole('complementary', { name: '接口列表' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '响应与日志' })).not.toBeInTheDocument()
+  })
+
   it('saves, renames, replays with the current session token, and deletes typed API snippets', async () => {
     const network = installNetwork()
     useAuth.getState().setToken('session-auth-secret')
