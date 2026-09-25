@@ -722,6 +722,10 @@ class DeviceManager:
         """Click through MaaCore's native asynchronous click API."""
         await self._core_client.click(int(x), int(y))
 
+    async def back_to_home(self) -> bool:
+        """Return to the game home screen through the MaaCore application service."""
+        return bool(await self._core_client.back_to_home())
+
     async def long_press(self, x: int, y: int, duration_ms: int) -> None:
         try:
             await asyncio.to_thread(
