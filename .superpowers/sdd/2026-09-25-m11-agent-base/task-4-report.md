@@ -54,4 +54,4 @@ Python 编译检查和 `git diff --check` 均通过。
 
 ## 提交
 
-- Task 4 实现提交 SHA：待提交后补录。
+- Task 4 实现提交 SHA：`35965c7193f2a578f118d069ff4ffddf8b0e0f48`。
