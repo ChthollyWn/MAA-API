@@ -87,13 +87,13 @@ curl -X POST http://<host>:8002/api/snippets \
 
 下列两个区块由 `scripts/generate_api_guide.py` 从错误码枚举/状态映射、[05-API规范与路由清单](./05-API规范与路由清单.md) 的权威错误说明和同服务的 `/openapi.json` tag 元数据生成。不要手工编辑标记间内容。
 
-这些表是错误码与 tag 元数据摘要，不是已交付路由清单；错误码枚举与 tag 列表含 agent、人工确认及 MCP 的预留项，不代表这些模块已有可调用 endpoint。M10 当前可调用的 REST 路由以同服务 `/openapi.json` 的 `paths` 为准；此版本没有人工确认 REST 工作流或 MCP Server。
+这些表是错误码与 tag 元数据摘要，不是已交付路由清单；错误码枚举与 tag 列表含 Agent 与人工确认相关项，不代表这些模块已有可调用 endpoint。M10 当前可调用的 REST 路由以同服务 `/openapi.json` 的 `paths` 为准；Agent 工具接口与人工确认接口以当前服务 OpenAPI 为准。
 
 <!-- GENERATED:ERROR-CODES:START -->
 | 错误码 | HTTP | 含义与触发场景 |
 |---|---:|---|
 | `UNAUTHORIZED` | 401 | token 缺失或与 `access_token` 不匹配。四个渠道都没取到有效 token 时返回 |
-| `FORBIDDEN` | 403 | 身份有效但动作被策略拒绝：MCP 只读工具集调用了写操作；非同源请求试图仅凭 cookie 执行写操作 |
+| `FORBIDDEN` | 403 | 身份有效但动作被策略拒绝：非同源请求试图仅凭 cookie 执行写操作 |
 | `RATE_LIMITED` | 429 | 同一来源 IP 连续鉴权失败超过阈值（默认 10 次/分钟）后的冷却期 |
 | `MALFORMED_JSON` | 400 | 请求体不是合法 JSON，或 `Content-Type` 与实际内容不符 |
 | `VALIDATION_ERROR` | 422 | Pydantic 字段校验失败。`details.fields` 为 FastAPI 原生的字段级错误数组 |
@@ -350,4 +350,4 @@ M10 当前会发送以下事件：
 
 ## 7. 交付范围
 
-本指南只描述 M10 已交付的 REST 与 WebSocket。人工确认 REST 接口/前端工作流和 agent 读取 API 收藏留在 M11；MCP Server 留在 M12；PWA 安装、离线缓存和 Web Push 留在 M14。当前版本没有可用的人工确认接口、MCP 接口或 M14 推送能力；请勿将预留错误码、OpenAPI tag 或 WebSocket 频道名当作功能已交付的证据。
+本指南只描述 M10 已交付的 REST 与 WebSocket。人工确认 REST 接口/前端工作流和 agent 读取 API 收藏留在 M11；PWA 安装、离线缓存和 Web Push 留在 M14。当前指南以 M10 接口范围为准；请勿将预留错误码、OpenAPI tag 或 WebSocket 频道名当作功能已交付的证据。

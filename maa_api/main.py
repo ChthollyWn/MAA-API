@@ -8,7 +8,7 @@
 
 :func:`lifespan` 按文档顺序组织。M5 接入 CoreSupervisor、CoreClient、SQLite 队列与
 PipelineRunner；M6 会把当前每代一次的连接钩子替换为 DeviceManager，并装载 APScheduler；
-ToolRegistry / MCP 仍归 M11–M12。
+Agent ToolRegistry 由 M11 提供，内置 Agent 对话循环归 M13。
 
 第 4 步（启动 CoreSupervisor **不阻塞等待**）是与现状最大的行为差异：服务进入可用
 状态不再依赖内核就绪，因此 M3 起 ``/api/system/health`` 就必须能如实返回服务自身
@@ -40,11 +40,11 @@ OpenAPI（docs/05 §11）
 ======================
 
 - ``openapi_tags=TAGS``：16 条分组，顺序即 ``/docs`` 展示顺序；``ws`` 与将来的
-  ``mcp`` 不能在 Swagger UI 里调试，但必须保留条目说明协议与鉴权方式。
+  ``ws`` 不能在 Swagger UI 里调试，但必须保留条目说明协议与鉴权方式。
 - ``generate_unique_id_function=custom_operation_id``：operationId 统一成
   ``{tag}_{函数名}``（typescript 客户端方法名依赖这条约定）。
 - ``redirect_slashes=False``：所有路由不带尾斜杠，尾斜杠一律 404，避免 307 干扰
-  前端与 MCP 客户端（docs/05 §2.5）。
+  前端（docs/05 §2.5）。
 
 日志
 ====
@@ -74,11 +74,6 @@ from fastapi.responses import JSONResponse
 import httpx
 
 from maa_api.api.errors import register_exception_handlers
-from maa_api.agent.mcp_server import (
-    MCPHostASGIApp,
-    create_mcp_session_manager,
-    mount_mcp_http,
-)
 from maa_api.api.routers import (
     agent,
     atomic,
@@ -235,7 +230,6 @@ def confirm_manual_interrupt(_target: Any, options: dict[str, Any]) -> bool:
 async def request_trace_headers(request: Request, call_next):
     """Attach request correlation metadata for responses and service logs."""
     request_id = request.headers.get("X-Request-Id", "").strip() or uuid.uuid4().hex
-    request.scope["maa_request_id"] = request_id
     started = time.perf_counter()
     token = current_request_id.set(request_id)
     try:
@@ -271,7 +265,7 @@ DESCRIPTION = (
     "- **错误体**：所有非 2xx 响应都是 "
     '`{"error": {"code", "message", "details"}}`，`code` 是可枚举的错误码\n'
     "- **尾斜杠**：全部路由不带尾斜杠，带尾斜杠一律 404（`redirect_slashes=False`）\n"
-    "- `ws` 与 `mcp` 分组只在本文档占位说明协议与鉴权方式，不能在 Swagger UI 中调试"
+    "- `ws` 分组只在本文档占位说明协议与鉴权方式，不能在 Swagger UI 中调试"
 )
 
 #: 读不到分发元数据时的回退版本（与 pyproject.toml 一致）；与
@@ -456,12 +450,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     update_scheduler = None
     schedule_service = None
     confirmation_service = None
-    mcp_session_manager = None
-    mcp_session_manager_context = None
-    mcp_session_manager_entered = False
-    mcp_http_mount: MCPHostASGIApp | None = getattr(
-        app.state, "mcp_http_mount", None
-    )
     device_start_task: asyncio.Task[Any] | None = None
     device_start_generation: int | None = None
     lifecycle_tasks: set[asyncio.Task[Any]] = set()
@@ -946,25 +934,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         await schedule_service.load_enabled()
         app.state.schedule_service = schedule_service
-        mcp_session_manager = create_mcp_session_manager(app)
-        mcp_session_manager_context = mcp_session_manager.run()
-        await mcp_session_manager_context.__aenter__()
-        mcp_session_manager_entered = True
-        app.state.mcp_session_manager = mcp_session_manager
-        if mcp_http_mount is not None:
-            mcp_http_mount.bind_session_manager(mcp_session_manager)
-    except BaseException as startup_error:
+    except BaseException:
         shutdown_started = True
-        if mcp_session_manager_entered and mcp_session_manager_context is not None:
-            try:
-                await mcp_session_manager_context.__aexit__(
-                    type(startup_error), startup_error, startup_error.__traceback__
-                )
-            except Exception:
-                logger.exception("清理启动失败的 MCP HTTP session manager 时出错")
-            mcp_session_manager_entered = False
-        if mcp_http_mount is not None:
-            mcp_http_mount.bind_session_manager(None)
         if confirmation_service is not None:
             await confirmation_service.close()
         if schedule_service is not None:
@@ -1009,7 +980,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "confirmation_service",
             "agent_ops_service",
             "resource_service",
-            "mcp_session_manager",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)
@@ -1018,7 +988,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # M6 第 6 步通过 CoreSupervisor READY hook 异步启动 DeviceManager 的 startup retries。
     # M6+: 第 7 步 从 DB 装载定时任务，启动 APScheduler
-    # M11+/M12+: 第 8 步 注册 ToolRegistry，挂载 MCP endpoint
+    # M11: 第 8 步注册 ToolRegistry，并装配 Agent 工具服务。
 
     # 第 9 步：yield 之后 uvicorn 才开始接受 HTTP 请求；子进程 READY 与设备连接
     # 均在后台发生，不阻塞 HTTP 服务的启动。
@@ -1027,11 +997,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         # 关闭顺序：停止消费 / 收尾当前任务 → 关闭子进程 → 关闭 WS/tailer → 刷盘。
         shutdown_started = True
-        if mcp_session_manager_entered and mcp_session_manager_context is not None:
-            await mcp_session_manager_context.__aexit__(None, None, None)
-            mcp_session_manager_entered = False
-        if mcp_http_mount is not None:
-            mcp_http_mount.bind_session_manager(None)
         if confirmation_service is not None:
             await confirmation_service.close()
         if schedule_service is not None:
@@ -1085,7 +1050,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "confirmation_service",
             "agent_ops_service",
             "resource_service",
-            "mcp_session_manager",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)
@@ -1140,12 +1104,6 @@ def create_app() -> FastAPI:
     app.include_router(confirmations.router)
     app.include_router(ws_router)
 
-    # Streamable HTTP is mounted after API/WebSocket routes and before the SPA
-    # fallback. The adapter restores scope['app'] to this FastAPI host for tools.
-    mcp_http_mount = MCPHostASGIApp(app)
-    app.state.mcp_http_mount = mcp_http_mount
-    mount_mcp_http(app, mcp_http_mount)
-
     # Frontend assets are generated by ``vite build``. Keep this low-priority
     # route group after the API/WebSocket routes, and permit app construction
     # before the frontend build has populated ``static/``.
@@ -1158,14 +1116,12 @@ def create_app() -> FastAPI:
         if (
             path == "/api"
             or path.startswith("/api/")
-            or path == "/mcp"
-            or path.startswith("/mcp/")
         ) and response.status_code < 400 and response.headers.get(
             "content-type", ""
         ).startswith("text/html"):
             # app.frontend is intentionally a low-priority route, but browser navigation
             # accepts HTML and can therefore reach the SPA fallback for an unknown API
-            # path. Reserved prefixes must remain API/protocol 404s even with that Accept.
+            # path. Reserved API paths must remain JSON 404s even with that Accept.
             return JSONResponse(
                 status_code=404,
                 content={

@@ -53,7 +53,6 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [
           /^\/api(?:\/|$)/,
-          /^\/mcp(?:\/|$)/,
           /^\/docs(?:\/|$)/,
           /^\/redoc(?:\/|$)/,
           /^\/openapi\.json$/,
@@ -71,7 +70,6 @@ export default defineConfig({
     fs: { allow: [path.resolve(WEB_ROOT, '..')] },
     proxy: {
       '/api': { target: API_TARGET, changeOrigin: true, ws: true },
-      '/mcp': { target: API_TARGET, changeOrigin: true },
       '/openapi.json': { target: API_TARGET, changeOrigin: true },
       '/docs': { target: API_TARGET, changeOrigin: true },
       '/redoc': { target: API_TARGET, changeOrigin: true },

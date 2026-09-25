@@ -1619,7 +1619,7 @@ class UpdateService:
     def _caller(caller: str) -> str:
         mapping = {
             "manual": "manual", "rest": "manual", "user": "manual",
-            "agent": "agent", "mcp": "agent", "internal": "agent",
+            "agent": "agent", "internal": "agent",
             "scheduled": "scheduled", "schedule": "scheduled",
         }
         return mapping.get(str(caller).lower(), "manual")

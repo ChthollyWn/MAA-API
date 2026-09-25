@@ -640,43 +640,9 @@ def test_lifespan_logs_the_auth_disabled_warning(
     assert AUTH_DISABLED_WARNING in caplog.text
 
 
-def test_lifespan_enters_and_exits_mcp_session_manager(
-    tmp_settings, isolated_db, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The host lifespan owns MCP transport startup and shutdown."""
-    from contextlib import asynccontextmanager
-
-    class RecordingManager:
-        active = False
-        entered = 0
-        exited = 0
-
-        @asynccontextmanager
-        async def run(self):
-            self.active = True
-            self.entered += 1
-            try:
-                yield
-            finally:
-                self.active = False
-                self.exited += 1
-
-    manager = RecordingManager()
-    monkeypatch.setattr(
-        main_module,
-        "create_mcp_session_manager",
-        lambda _app: manager,
-        raising=False,
-    )
-
-    with TestClient(app) as client:
-        assert manager.active is True
-        assert manager.entered == 1
-        assert app.state.mcp_session_manager is manager
-        assert client.get("/api/system/health").status_code == 200
-
-    assert manager.active is False
-    assert manager.exited == 1
+def test_app_does_not_mount_mcp_endpoint() -> None:
+    """The application exposes the built-in Agent APIs without MCP transport."""
+    assert not any(getattr(route, "path", None) == "/mcp" for route in app.routes)
 
 
 # ----------------------------------------------------------------------

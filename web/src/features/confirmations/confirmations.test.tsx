@@ -20,7 +20,7 @@ const pendingConfirmation = {
   status: 'pending',
   requested_by: 'rest',
   audit_id: 91,
-  expires_at: '2026-09-25T12:30:00Z',
+  expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   created_at: '2026-09-25T12:20:00Z',
   resolved_at: null,
   resolved_by: null,

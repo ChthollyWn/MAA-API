@@ -207,7 +207,6 @@ def audit_wire(audit: AgentAudit) -> dict[str, Any]:
         "caller": str(audit.caller),
         "caller_detail": audit.caller_detail,
         "request_id": audit.request_id,
-        "scopes": audit.scopes,
         "session_id": audit.session_id,
         "tool_name": audit.tool_name,
         "arguments": audit.arguments,

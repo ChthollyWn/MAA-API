@@ -1,37 +1,20 @@
-> 本文档定义 Agent 模块：对外的 MCP Server、统一工具层、高风险操作的人工确认、以及前端内置的对话式 agent。决策依据见 [README 决策速查表](./README.md#决策速查表)，架构位置见 [02-系统架构设计](./02-系统架构设计.md)。
+> 本文档定义内置 Agent、REST 工具层、高风险操作的人工确认与审计。决策依据见 [README 决策速查表](./README.md#决策速查表)，架构位置见 [02-系统架构设计](./02-系统架构设计.md)。
 
 # Agent 模块设计
 
-## 1. 定位与双模式
+## 1. 定位与调用模式
 
-按决策，agent 能力同时向两个方向开放：
+Agent 以**前端内置对话**为主要入口，用户用自然语言提出任务，由项目配置的 LLM 规划并调用工具。M11 已先交付 REST 工具 API，供前端、脚本和人工调试使用；M13 再补齐 LLM 循环与对话 UI。
 
-**对外（工具提供方）**：MAA-API 暴露 MCP Server，Claude Desktop、Cursor、Claude Code 等外部 agent 直接接入，把这台服务当工具用。项目本身不需要 LLM，不存 API key。
+两种入口共享同一套工具实现：工具逻辑放在 `agent/tools/`，由 `ToolRegistry` 统一注册，内置 Agent 与 REST 接口都从它读取 schema 并执行调用。REST 调用没有内置会话授权，原子操作每次都需确认；内置 Agent 只有携带有效会话时才能使用该会话的短时授权。
 
-**对内（调用方）**：前端内置对话界面，用户用自然语言指挥，项目自己调 LLM 并执行 tool-calling 循环。
-
-两条路径**共享同一套工具实现**。这是整个设计的核心约束：工具逻辑只写一遍，放在 `agent/tools/`，由 `ToolRegistry` 统一注册，MCP Server、内置 agent runtime、以及给人用的 REST 接口三者都从它取。
-
-```
-                    ┌──────────────────────────────────┐
-   外部 agent ──MCP─┤                                  │
-   (Claude/Cursor)  │         ToolRegistry             │
-                    │  schema 导出 + 执行分发 + 审计    │
-   内置 agent ──────┤                                  │
-   (AgentRuntime)   └────────────┬─────────────────────┘
-                                 │
-                    ┌────────────▼─────────────────────┐
-                    │        PolicyEngine              │
-                    │  风险判定 → 需要确认则挂起        │
-                    └────────────┬─────────────────────┘
-                                 │
-        ┌────────────────────────┼────────────────────────┐
-        ▼                        ▼                        ▼
-   CoreClient              DeviceManager            应用服务层
-   (MaaCore 命令)          (ADB 原子操作)         (队列/更新/日志/查询)
+```text
+REST 工具 API ─────┐
+                   ├──► ToolRegistry ──► PolicyEngine ──► 应用服务层
+内置 AgentRuntime ─┘       schema / 执行      风险与确认       队列、设备、更新
 ```
 
-工具**不直接碰 MaaCore 子进程**，一律经应用服务层。这保证了 agent 的操作与前端手动操作走完全相同的代码路径，包括队列优先级、状态落库、日志广播 —— agent 提交的流水线在前端看起来和手动提交的没有区别，只是 `source` 字段不同。
+工具**不直接碰 MaaCore 子进程**，一律经应用服务层。这保证了 Agent 操作与前端手动操作走相同代码路径，包括队列优先级、状态落库和日志广播。
 
 ## 2. 三层能力模型
 
@@ -92,7 +75,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 
 `risk` 有三档：`SAFE`（只读，永不需要确认）、`CONDITIONAL`（按参数内容判定）、`DANGEROUS`（总是需要确认）。
 
-`ToolContext` 携带调用方身份（`mcp` / `internal` / `rest`）、会话 id、请求 id，用于审计与确认归属。
+`ToolContext` 携带调用方身份（`internal` / `rest`）、会话 id、请求 id，用于审计与确认归属。
 
 ### 3.2 完整工具清单
 
@@ -122,7 +105,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | `set_task_params` | CONDITIONAL | 运行中修改任务参数 |
 | `cancel_queued` | SAFE | 取消排队中未开始的条目 |
 
-**原子操作组（`raw`）** —— 除安全白名单外需会话级授权；REST/MCP 调用逐次确认
+**原子操作组** —— 除安全白名单外，内置 Agent 需会话级授权，REST 调用逐次确认
 
 | 工具 | 实现 |
 |---|---|
@@ -176,23 +159,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 
 | 工具 | risk | 用途 |
 |---|---|---|
-| `check_confirmation` | SAFE | 查询某个待确认请求的状态，超时兜底用，见 §5.3 |
-
-### 3.3 工具数量对 MCP 的影响
-
-上表共约 38 个工具。这个规模对 MCP 客户端是个实际问题：全部 schema 注入 agent 上下文会占用可观的 token，且选项过多会降低模型的选择准确率。
-
-处理方式是**按组的 scope 控制**。MCP 端点接受 scope 参数，只暴露选中组的工具：
-
-```
-https://host:8002/mcp?scopes=status,pipeline,device
-```
-
-默认 scope 为 `status,pipeline,device,schedule`，约 20 个工具，覆盖绝大多数使用场景。`raw`、`resource`、`ops` 三组默认不暴露，需要显式开启 —— 这既控制了上下文体积，也构成了一道纵深防御：默认接入的外部 agent 拿不到点击坐标与运维能力。
-
-Scope 同时写进审计记录，便于事后追查某次调用来自哪种配置。
-
-已拍板维持这个设计：scope 由客户端 URL 指定，作用是"展示多少工具"而非限权，任何持有 token 的客户端都能自行开启全部 scope。升级为 API Key 加权限范围被否，因为它与"单 access_token"的决策冲突，且真实的访问边界已由 Tailscale 提供 —— 不在 tailnet 内的设备连端口都摸不到（见 [13-决策记录](./13-决策记录.md) ADR-13），这比应用层的 scope 检查更靠前也更可靠。
+| `check_confirmation` | SAFE | 查询某个待确认请求的状态与结果 |
 
 ## 4. PolicyEngine
 
@@ -238,7 +205,7 @@ Scope 同时写进审计记录，便于事后追查某次调用来自哪种配�
 
 **审计不因免确认而降级。** 窗口内每次原子操作照常写 `agent_audit`，并额外记录它是凭哪次授权执行的（`authorized_by` 指向那条 `confirmation` 记录）。这样事后复盘"agent 到底点了什么"时，能完整还原整个授权窗口内的操作序列，以及是谁在什么时候批准了这个窗口。
 
-只有受信任的 `internal` 调用可以使用会话授权。REST 调用没有内置会话，MCP 调用也不继承内部会话；两者的原子操作都逐次确认。`internal` 调用必须带有效且处于 active 状态的会话，缺少、已结束或不存在的会话一律拒绝，不降级为逐次确认。服务启动时清除所有既有授权；会话关闭、切换或删除时撤销授权。M11 先交付会话授权与撤销 API，授权状态提示条归 M13。
+只有受信任的 `internal` 调用可以使用会话授权。REST 调用没有内置会话，原子操作逐次确认。`internal` 调用必须带有效且处于 active 状态的会话，缺少、已结束或不存在的会话一律拒绝，不降级为逐次确认。服务启动时清除所有既有授权；会话关闭、切换或删除时撤销授权。M11 先交付会话授权与撤销 API，授权状态提示条归 M13。
 
 ### 4.4 免确认的白名单
 
@@ -256,7 +223,7 @@ Scope 同时写进审计记录，便于事后追查某次调用来自哪种配�
 
 按决策，确认请求经 WebSocket 推到前端，弹卡片让用户批准或拒绝，超时自动拒绝。
 
-### 5.1 完整时序
+### 5.1 确认时序
 
 ```
 工具调用进入 ToolRegistry
@@ -277,99 +244,6 @@ Scope 同时写进审计记录，便于事后追查某次调用来自哪种配�
 ```
 
 确认记录落库而非仅存内存，这样服务重启后前端仍能看到遗留的待确认项（重启时统一置为 `EXPIRED`，避免僵尸记录）。
-
-### 5.2 内置 agent 与 MCP 的超时差异
-
-这两条路径对"挂起等待"的容忍度完全不同，必须分别处理。
-
-先说超时时长本身：**消耗类与破坏类的确认默认 10 分钟，原子操作的会话授权默认 120 秒**，两者都可配置。分级的理由是等待场景不同 —— 高风险操作靠推送触达，用户要听见、解锁、点开应用、读完卡片再决定；而请求原子操作授权时用户正在对话界面前主动让 agent 动手，此刻就在看屏幕。相关的平台约束（WebKit 忽略 `requireInteraction`，通知不常驻）见 [09-前端重构方案 §13.2](./09-前端重构方案.md)。
-
-**内置 agent**：tool-calling 循环跑在服务端自己的 asyncio 任务里，挂起 10 分钟也毫无问题 —— 它只是一个 `await`，不占线程也不占连接。前端的对话界面显示"等待你确认"的状态，用户在同一个界面上批准，体验连贯。
-
-**MCP**：MCP 的 tool call 是同步请求-响应，客户端有自己的超时（Claude Desktop 等客户端的默认值通常是秒级到一分钟，远小于 10 分钟，且不受我们控制）。挂起太久会让客户端先超时断开，而服务端还在等确认，产生状态不一致。超时放长到 10 分钟后这个矛盾更尖锐，所以下面的短阻塞加轮询对 MCP 路径不是优化而是必需。
-
-因此 MCP 路径采用**短阻塞 + 轮询兜底**：
-
-```
-MCP tool call
-  → 创建 confirmation，WS 广播
-  → 短阻塞等待（默认 25 秒）
-  → 25 秒内获批 → 正常执行并返回结果（最常见的情况，用户就在手机前）
-  → 25 秒未响应 → 不报错，返回结构化的 pending 结果：
-      {
-        "status": "awaiting_confirmation",
-        "confirmation_id": "...",
-        "expires_at": "...",
-        "hint": "用户尚未确认。请用 check_confirmation 查询结果，或稍后重试。"
-      }
-  → agent 调 check_confirmation 轮询
-  → 在原服务进程中，批准事件唤醒原请求 worker 执行；check_confirmation 只读取确认与审计状态
-```
-
-这样 confirmation 记录既是审批凭据也是待执行的操作快照。`check_confirmation` 返回状态和关联审计结果，不会重新执行已批准的 payload。若服务在批准和审计终态提交之间重启，审计会标记为执行结果不确定的 `FAILED`，不自动重放，避免重复副作用。
-
-### 5.3 关于 MCP elicitation
-
-MCP 规范提供了 elicitation（`ctx.elicit()`），服务端可以主动向客户端索要用户输入，看起来正好适合确认场景。但核实 MCP Python SDK 后确认它**不足以作为主方案**：
-
-它需要一条服务端到客户端的 back-channel，而这条通道在几种常见配置下都不存在 —— `stateless_http=True` 会移除它，`json_response=True` 会移除 request-scoped 通道，较新协议版本的连接本身就没有 legacy 通道。此外客户端必须显式声明 elicitation capability（传 `elicitation_callback`），否则服务端会收到 "Client did not declare the form elicitation capability" 而失败。
-
-因为支持度取决于客户端实现与协议版本，都不在我们掌控范围内，所以 elicitation 只作为**可选增强**：检测到当前连接支持时用它提供更好的交互（直接在 agent 客户端里弹确认），不支持时静默回落到 §5.2 的短阻塞加轮询。前端的 WebSocket 确认卡片在两种情况下都可用，是唯一保证可达的渠道。
-
-## 6. MCP Server 实现
-
-### 6.1 SDK 版本注意事项
-
-MCP Python SDK v2 已将高层服务类从 `FastMCP` 改名为 `MCPServer`：
-
-```python
-from mcp.server import MCPServer   # v1 是 from mcp.server.fastmcp import FastMCP
-
-mcp = MCPServer("maa-api")
-
-@mcp.tool()      # 注意必须带括号，@mcp.tool 不带括号会报错
-def ...
-```
-
-实现时以安装版本的文档为准，不要沿用 v1 写法。
-
-### 6.2 挂载到 FastAPI
-
-MCP 的 Streamable HTTP 应用挂在主进程的 FastAPI 上，同端口 8002 的 `/mcp` 路径：
-
-```python
-mcp_app = mcp.streamable_http_app(streamable_http_path="/")
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with mcp.session_manager.run():   # 关键：必须在宿主 lifespan 里进入
-        await _startup()
-        yield
-        await _shutdown()
-
-app = FastAPI(lifespan=lifespan)
-app.mount("/mcp", mcp_app)
-```
-
-**宿主 app 的 lifespan 必须显式进入 `mcp.session_manager.run()`。** Starlette 不会运行 `Mount` 下子应用的 lifespan，遗漏这一步的症状是运行时报 "Task group is not initialized"，且只在实际发起 MCP 调用时才暴露。这是该集成方式最容易踩的坑。
-
-另外需要配置 `transport_security` 的 `allowed_hosts`。默认的 DNS rebinding 防护会拒绝非预期 Host 头，而本项目要通过局域网 IP 访问（手机连 `192.168.x.x:8002`），不配置会得到 421 Misdirected Request。允许的 host 列表应从配置读取，默认包含 `localhost`、`127.0.0.1` 与当前机器的局域网地址。
-
-### 6.3 stdio 入口的架构约束
-
-按决策要额外提供 stdio 入口供本机 Claude Desktop 使用。这里有一个必须讲清楚的约束：
-
-**stdio MCP server 是由 Claude Desktop 拉起的独立进程，它无法访问主进程的内存。** MaaCore 子进程归属于 FastAPI 主进程，`CoreClient`、`ToolRegistry`、数据库连接都在那里。stdio 进程直接 import 并调用工具实现会创建第二套内核实例，与主进程争抢同一台设备。
-
-因此 `scripts/mcp_stdio.py` 是一个**瘦代理**：它是完整的 MCP stdio server，但每个工具的实现都是转发一次 HTTP 请求到主进程的 REST API。
-
-```
-Claude Desktop ──stdio──► mcp_stdio.py ──HTTP──► FastAPI 主进程 ──IPC──► MaaCore 子进程
-```
-
-工具 schema 由 stdio 进程启动时从主进程的 `GET /api/agent/tools` 拉取并动态注册，这样新增工具不需要改 stdio 脚本。它需要从环境变量读取主进程地址与 `access_token`。
-
-代价是多一跳 HTTP 与一个常驻进程。收益是 Claude Desktop 的零配置本地接入（不需要用户自己填 URL 与 token，配在 MCP 配置文件里即可）。若使用者能接受手填远程 URL，直接用 Streamable HTTP 更高效。
 
 ## 7. 自定义任务
 
@@ -454,7 +328,7 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 
 ## 9. 审计
 
-按决策全量落库。每次工具调用（无论来自 MCP、内置 agent 还是 REST）写一条 `agent_audit` 记录：调用方类型与身份、会话 id、工具名、完整入参、风险判定结果、是否需要确认与确认结果、执行状态、结果摘要、耗时、错误码。
+按决策全量落库。每次工具调用（无论来自内置 Agent 还是 REST）写一条 `agent_audit` 记录：调用方类型与身份、会话 id、工具名、完整入参、风险判定结果、是否需要确认与确认结果、执行状态、结果摘要、耗时、错误码。
 
 入参可能含大对象（Copilot 作业 JSON、自定义 task 定义），存储时对超过阈值的字段做截断并保留哈希，完整内容另存到文件。
 
@@ -474,8 +348,6 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 
 **应对新活动。** 最重的场景。主路径：截图观察界面 → 用原子操作试探性操作 → 若能总结出稳定规律，则 `register_custom_task` 注入 task 定义把它固化下来 → 之后用 `submit_pipeline` 调用该自定义 task。这条路径依赖 §7.3 的全部安全机制。
 
-**外部编排。** 在 Claude Desktop 或 Cursor 里接入 MCP，不经前端对话界面。依赖 §6 的 MCP Server 与 stdio 入口。
-
 **数据总结。** 主路径：`list_pipelines` 加 `get_drop_stats` 拉历史 → 聚合分析 → 输出报告。这个场景不碰设备，纯读，风险最低，可以作为 agent 功能的首个验证场景。
 
 ## 11. 已知风险
@@ -487,5 +359,3 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 **与内核的控制权冲突。** agent 的原子操作和 MaaCore 的自动化会互相干扰。§4.3 把 `stop_pipeline` 设为免确认、提示词要求先停流水线再操作、以及 [02-系统架构设计 §5.3](./02-系统架构设计.md) 的 409 拒绝共同构成防护，但无法完全排除人为绕过（`force=true`）。
 
 **成本失控。** tool-calling 循环的迭代次数、每轮的截图 token 都会放大成本。`max_iterations`、单会话 token 上限、截图只留最近一张三项措施共同控制，但仍建议初期配置较便宜的模型观察实际消耗。
-
-**MCP 客户端行为不可控。** 客户端的超时、重试、并发策略都不在我们掌控内。同一个 tool call 被客户端重试可能导致重复提交，因此 `submit_pipeline` 需要幂等保护（见 [05-API规范与路由清单](./05-API规范与路由清单.md) 的幂等性设计）。

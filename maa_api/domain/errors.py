@@ -37,7 +37,7 @@ class ErrorCode(StrEnum):
     # token 缺失或与 `access_token` 不匹配。四个渠道都没取到有效 token 时返回
     UNAUTHORIZED = "UNAUTHORIZED"
 
-    # 身份有效但动作被策略拒绝：MCP 只读工具集调用了写操作；非同源请求试图仅凭 cookie 执行写操作
+    # 身份有效但动作被策略拒绝：非同源请求试图仅凭 cookie 执行写操作
     FORBIDDEN = "FORBIDDEN"
 
     # 同一来源 IP 连续鉴权失败超过阈值（默认 10 次/分钟）后的冷却期
@@ -220,7 +220,7 @@ class ErrorCode(StrEnum):
     GAME_VERSION_UNKNOWN = "GAME_VERSION_UNKNOWN"
 
     # ---- docs/05 §4.10 人工确认 ----
-    # 操作命中消耗类或破坏类策略，已创建确认请求。**唯一出现在 2xx 响应中的码**，位于 202 的正常响应体而非错误体；MCP 同步调用时作为工具结果的 `code` 返回
+    # 操作命中消耗类或破坏类策略，已创建确认请求。**唯一出现在 2xx 响应中的码**，位于 202 的正常响应体而非错误体
     CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"
 
     # 确认请求 id 不存在

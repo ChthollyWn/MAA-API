@@ -75,9 +75,6 @@ def test_unknown_api_post_fallback_and_missing_asset_return_404(
     unknown_api = frontend_client.get(
         "/api/not-a-route", headers={"Accept": "text/html"}
     )
-    unknown_mcp = frontend_client.get(
-        "/mcp/not-a-route", headers={"Accept": "text/html"}
-    )
     post_fallback = frontend_client.post(
         "/tasks/new", headers={"Accept": "text/html"}
     )
@@ -87,8 +84,6 @@ def test_unknown_api_post_fallback_and_missing_asset_return_404(
 
     assert unknown_api.status_code == 404
     assert unknown_api.json()["error"]["code"] == "NOT_FOUND"
-    assert unknown_mcp.status_code == 404
-    assert unknown_mcp.headers["content-type"].startswith("application/json")
     assert post_fallback.status_code == 404
     assert missing_asset.status_code == 404
     assert not missing_asset.headers.get("content-type", "").startswith("text/html")

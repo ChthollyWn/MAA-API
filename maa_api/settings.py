@@ -46,7 +46,6 @@ CWD 不是仓库根时直接 ``RuntimeError``（见 docs/ENVIRONMENT.md），这
 ``llm.base_url``             ``MAA_LLM_BASE_URL``
 ``llm.api_key``              ``MAA_LLM_API_KEY``
 ``llm.model``                ``MAA_LLM_MODEL``
-``mcp.allowed_hosts``        ``MAA_MCP_ALLOWED_HOSTS``（逗号分隔 Host）
 ===========================  ===============================
 
 映射表在代码里是 :data:`ENV_OVERRIDES`。变量**存在但取值为空串**时按「未设置」
@@ -80,12 +79,11 @@ schema 与服务层执行，避免启动加载路径和设置 API 的验证责�
 from __future__ import annotations
 
 import os
-import ipaddress
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
@@ -123,7 +121,6 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "agent.confirmation_timeout_seconds": ("agent", "confirmation_timeout_seconds"),
     "agent.grant_confirmation_timeout_seconds": ("agent", "grant_confirmation_timeout_seconds"),
     "agent.atomic_grant_minutes": ("agent", "atomic_grant_minutes"),
-    "mcp.allowed_hosts": ("mcp", "allowed_hosts"),
     "adb.path": ("adb", "path"),
     "adb.address": ("adb", "address"),
     "adb.screenshot_quality": ("adb", "screenshot_quality"),
@@ -221,53 +218,6 @@ class AgentSettings(BaseModel):
     atomic_grant_minutes: int = Field(default=15, ge=1, le=60)
 
 
-class MCPSettings(BaseModel):
-    """Read-only DNS-rebinding Host additions for the MCP HTTP endpoint."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    allowed_hosts: list[str] = Field(default_factory=list)
-
-    @field_validator("allowed_hosts", mode="before")
-    @classmethod
-    def validate_allowed_hosts(cls, value: Any) -> list[str]:
-        if value is None:
-            return []
-        if not isinstance(value, (list, tuple)):
-            raise ValueError("mcp.allowed_hosts must be a list of LAN IPv4 hosts")
-
-        private_networks = (
-            ipaddress.ip_network("10.0.0.0/8"),
-            ipaddress.ip_network("172.16.0.0/12"),
-            ipaddress.ip_network("192.168.0.0/16"),
-        )
-        hosts: list[str] = []
-        for raw_host in value:
-            if not isinstance(raw_host, str) or not raw_host.strip():
-                raise ValueError("mcp.allowed_hosts entries must be non-empty strings")
-            host = raw_host.strip()
-            if host.lower() == "localhost":
-                normalized = "localhost"
-            else:
-                try:
-                    address = ipaddress.ip_address(host)
-                except ValueError as exc:
-                    raise ValueError(
-                        "mcp.allowed_hosts accepts localhost or loopback/RFC1918 IPv4 addresses only"
-                    ) from exc
-                if not isinstance(address, ipaddress.IPv4Address) or not (
-                    address.is_loopback
-                    or any(address in network for network in private_networks)
-                ):
-                    raise ValueError(
-                        "mcp.allowed_hosts accepts localhost or loopback/RFC1918 IPv4 addresses only"
-                    )
-                normalized = str(address)
-            if normalized not in hosts:
-                hosts.append(normalized)
-        return hosts
-
-
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -284,7 +234,6 @@ class Settings(BaseModel):
     log: LogSettings = Field(default_factory=LogSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
-    mcp: MCPSettings = Field(default_factory=MCPSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
@@ -457,10 +406,6 @@ def _env_layer(env: Mapping[str, str] | None) -> dict[str, Any]:
             ports = [part.strip() for part in raw.split(",") if part.strip()]
             if ports:
                 result[key] = ports
-        elif key == "mcp.allowed_hosts":
-            hosts = [part.strip() for part in raw.split(",") if part.strip()]
-            if hosts:
-                result[key] = hosts
         else:
             result[key] = raw
     return result

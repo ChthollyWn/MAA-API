@@ -80,7 +80,7 @@ def _message(session_id: str, seq: int, **overrides) -> AgentMessage:
 
 def _audit(**overrides) -> AgentAudit:
     fields: dict[str, Any] = {
-        "caller": CallerType.MCP,
+        "caller": CallerType.REST,
         "tool_name": "click",
         "arguments": {},
         "status": AuditStatus.SUCCESS,
@@ -96,7 +96,7 @@ def _confirmation(**overrides) -> Confirmation:
         "risk_level": RiskLevel.CONSUME,
         "reason": "消耗类操作",
         "payload": {"a": 1},
-        "requested_by": CallerType.MCP,
+        "requested_by": CallerType.REST,
         "expires_at": utcnow() + timedelta(minutes=10),
     }
     fields.update(overrides)
@@ -220,31 +220,6 @@ def test_audit_create_keeps_short_payload_and_none_summary(db_session_factory):
     asyncio.run(scenario())
 
 
-def test_audit_scopes_round_trip_in_order_and_legacy_rows_remain_null(db_session_factory):
-    """审计 scope 按给定顺序持久化，未带 scope 的旧式记录仍为 NULL。"""
-
-    async def scenario():
-        async with db_session_factory() as session:
-            repo = AuditRepository(session)
-            scoped = await repo.create(
-                _audit(scopes=["status", "ops", "raw"])
-            )
-            legacy = await repo.create(_audit())
-            await session.commit()
-            scoped_id = scoped.id
-            legacy_id = legacy.id
-
-        async with db_session_factory() as session:
-            scoped = await AuditRepository(session).get(scoped_id)
-            legacy = await AuditRepository(session).get(legacy_id)
-            assert scoped is not None
-            assert scoped.scopes == ["status", "ops", "raw"]
-            assert legacy is not None
-            assert legacy.scopes is None
-
-    asyncio.run(scenario())
-
-
 def test_audit_get_and_list_filters_paginate(db_session_factory):
     """``list`` 按 ``created_at DESC`` 分页，``caller`` / ``tool_name`` 过滤生效。"""
     now = utcnow()
@@ -255,7 +230,7 @@ def test_audit_get_and_list_filters_paginate(db_session_factory):
             # 故意乱序写入，靠显式 created_at 让顺序可判别
             await repo.create(
                 _audit(
-                    caller=CallerType.MCP,
+                    caller=CallerType.INTERNAL,
                     tool_name="click",
                     created_at=now - timedelta(minutes=3),
                 )
@@ -269,7 +244,7 @@ def test_audit_get_and_list_filters_paginate(db_session_factory):
             )
             await repo.create(
                 _audit(
-                    caller=CallerType.MCP,
+                    caller=CallerType.INTERNAL,
                     tool_name="screenshot",
                     created_at=now - timedelta(minutes=1),
                 )
@@ -279,15 +254,15 @@ def test_audit_get_and_list_filters_paginate(db_session_factory):
             page = await repo.list()
             assert page.total == 3 and page.page == 1 and page.size == 20
             assert [a.tool_name for a in page.items] == ["screenshot", "click", "click"]
-            assert page.items[0].caller == CallerType.MCP
+            assert page.items[0].caller == CallerType.INTERNAL
 
-            only_mcp = await repo.list(caller=CallerType.MCP)
-            assert only_mcp.total == 2
-            assert all(a.caller == CallerType.MCP for a in only_mcp.items)
+            only_rest = await repo.list(caller=CallerType.REST)
+            assert only_rest.total == 1
+            assert all(a.caller == CallerType.REST for a in only_rest.items)
 
             only_click = await repo.list(tool_name="click")
             assert only_click.total == 2
-            both = await repo.list(caller=CallerType.MCP, tool_name="click")
+            both = await repo.list(caller=CallerType.REST, tool_name="click")
             assert both.total == 1
 
             # 分页：Page.total 是过滤后的总数，不是当前页条数

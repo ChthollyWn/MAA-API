@@ -27,7 +27,6 @@ cookie 渠道收窄（docs/05 §5.1、docs/13 §3）：仅凭 cookie 的请求�
 仍然照常执行，保证「先提取、后判定」的语义在两种模式下一致。
 
 豁免清单（docs/05 §5.3）：见 :data:`EXEMPT_PATH_PREFIXES` 与 :func:`is_exempt_path`。
-``/mcp`` 不豁免。
 
 失败限流（docs/05 §4.1）
 ========================
@@ -136,7 +135,7 @@ BEARER_SCHEME = "bearer"
 #: 仅凭 cookie 时不允许的写方法（docs/05 §5.1）；其余方法（GET/HEAD/OPTIONS）放行。
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
-#: 即使配置了 token 也不校验的路径前缀（docs/05 §5.3），``/mcp`` 刻意不在其中。
+#: 即使配置了 token 也不校验的路径前缀（docs/05 §5.3）。
 #:
 #: - 不带尾斜杠的条目按**路径段**匹配：``/docs`` 命中 ``/docs`` 与
 #:   ``/docs/oauth2-redirect``，但不命中 ``/docsx``。
@@ -156,8 +155,8 @@ EXEMPT_PATH_PREFIXES: tuple[str, ...] = (
 )
 
 #: SPA catch-all 明确排除的三个命名空间（docs/05 §6.17）：这些前缀下的路径由 API
-#: 或 MCP 接管，**不**享受前端兜底的豁免；其余路径一律由 SPA catch-all 服务，豁免。
-SPA_EXCLUDED_PREFIXES: tuple[str, ...] = ("/api", "/mcp", "/static")
+#: 或静态文件服务，**不**享受前端兜底的豁免；其余路径一律由 SPA catch-all 服务，豁免。
+SPA_EXCLUDED_PREFIXES: tuple[str, ...] = ("/api", "/static")
 
 #: 同一 IP 在 :data:`FAILURE_WINDOW_SECONDS` 内的失败次数达到该值即进入冷却期。
 FAILURE_THRESHOLD = 10
@@ -257,7 +256,7 @@ def is_exempt_path(path: str) -> bool:
     两条规则任一成立即豁免：
 
     1. 命中 :data:`EXEMPT_PATH_PREFIXES` 的条目；
-    2. **SPA catch-all**：不在 :data:`SPA_EXCLUDED_PREFIXES`（``/api``、``/mcp``、
+    2. **SPA catch-all**：不在 :data:`SPA_EXCLUDED_PREFIXES`（``/api``、
        ``/static``）任一命名空间下 —— 这些路径由前端兜底返回 ``index.html``，
        用户得先看到页面才有地方填 token。
     """
@@ -426,38 +425,6 @@ async def require_auth(request: Request) -> None:
             {"channel": hit.channel.value, "method": request.method.upper()},
         )
 
-    _clear_failures(ip)
-
-
-async def require_mcp_auth(request: Request) -> None:
-    """Require the Bearer channel for MCP while sharing normal auth limiting.
-
-    MCP session IDs are protocol state only. X-Token, query, and cookie channels
-    remain valid for existing REST routes but are deliberately rejected here.
-    """
-    if not auth_enabled():
-        return
-
-    ip = _client_ip(request)
-    _raise_if_cooling_down(ip)
-    hit = extract_token(request)
-    if hit is None:
-        _record_failure(ip)
-        raise AppError(ErrorCode.UNAUTHORIZED, "缺少 access token")
-    if hit.channel is not TokenChannel.BEARER:
-        _record_failure(ip)
-        raise AppError(
-            ErrorCode.UNAUTHORIZED,
-            "MCP 仅接受 Authorization: Bearer access token",
-            {"channel": hit.channel.value},
-        )
-    if not token_matches(hit.value):
-        _record_failure(ip)
-        raise AppError(
-            ErrorCode.UNAUTHORIZED,
-            "access token 不匹配",
-            {"channel": hit.channel.value},
-        )
     _clear_failures(ip)
 
 

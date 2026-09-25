@@ -87,8 +87,8 @@ def main() -> int:
 
     sw_text = sw_path.read_text(encoding="utf-8") if sw_path.is_file() else ""
     check(
-        all(re.search(pattern, sw_text) for pattern in (r"api", r"mcp", r"docs", r"redoc", r"openapi")),
-        "service worker excludes API, MCP, and API documentation navigations",
+        all(re.search(pattern, sw_text) for pattern in (r"api", r"docs", r"redoc", r"openapi")),
+        "service worker excludes API and API documentation navigations",
     )
 
     try:

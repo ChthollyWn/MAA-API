@@ -81,7 +81,7 @@ class PolicyEngine:
         """Return whether a tool call needs confirmation and why.
 
         Only an INTERNAL caller can reuse the time-bounded grant attached to its
-        persisted agent session. External REST/MCP requests are always evaluated
+        persisted agent session. REST requests are always evaluated
         per call and do not load or inherit internal session authorization.
         """
         name = definition.name
@@ -132,7 +132,7 @@ class PolicyEngine:
         self, definition: ToolDefinition, context: ToolContext
     ) -> PolicyDecision:
         caller = _caller(context.caller)
-        if caller in {CallerType.REST, CallerType.MCP}:
+        if caller is CallerType.REST:
             return _atomic_confirmation(definition.name)
         if caller is not CallerType.INTERNAL:
             raise AppError(ErrorCode.FORBIDDEN, "原子操作调用方身份无效")

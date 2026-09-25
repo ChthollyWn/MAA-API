@@ -13,7 +13,7 @@ token ＝ 免鉴权模式，间接参数化传 token），数据库隔离走 ``i
     一条受保护的 ``/api/ping``（GET/HEAD/POST/PUT/PATCH/DELETE 六个方法）、
     身份探针 ``/api/whoami``、受保护的 ``/api/system/health``，最后注册
     ``GET /{full_path:path}`` 当 SPA catch-all —— ``/docs``、``/static/*``、
-    ``/daily``、``/`` 与 ``/mcp/*``、``/api/unknown`` 都会落到它身上，正好用来
+    ``/daily``、``/`` 与 ``/api/unknown`` 都会落到它身上，正好用来
     端到端验证豁免清单与命名空间边界。
 
 ``build_probe_app()``
@@ -68,10 +68,8 @@ EXEMPT_PATHS = (
     "/",                # SPA 入口
 )
 
-#: 配置了 token 时必须 401 的路径（/mcp 刻意不豁免）。
+#: 配置了 token 时必须 401 的路径。
 PROTECTED_PATHS = (
-    "/mcp",
-    "/mcp/ping",
     "/api",
     "/api/unknown",
     "/api/pipelines",
@@ -140,7 +138,7 @@ def build_guarded_app() -> FastAPI:
         return {"auth_enabled": auth_enabled()}
 
     # 必须最后注册（docs/05 §6.17）：/docs、/static/*、/daily、/ 都落到这里，
-    # /api/unknown 与 /mcp/* 也落到这里 —— 后者用来验证命名空间不被 SPA 规则豁免。
+    # /api/unknown 也落到这里，用来验证 API 命名空间不被 SPA 规则豁免。
     @app.get("/{full_path:path}", dependencies=guarded)
     async def spa(full_path: str) -> dict[str, str]:
         return {"spa": full_path}
@@ -479,7 +477,7 @@ def test_exempt_path_prefixes_cover_docs_05_section_5_3() -> None:
     assert "/sw.js" in EXEMPT_PATH_PREFIXES
     # "/" 绝不能进清单：它会豁免一切，SPA catch-all 改由 SPA_EXCLUDED_PREFIXES 表达。
     assert "/" not in EXEMPT_PATH_PREFIXES
-    assert deps.SPA_EXCLUDED_PREFIXES == ("/api", "/mcp", "/static")
+    assert deps.SPA_EXCLUDED_PREFIXES == ("/api", "/static")
 
 
 @pytest.mark.parametrize("tmp_settings", [TOKEN], indirect=True)

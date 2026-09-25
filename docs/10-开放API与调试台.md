@@ -208,7 +208,7 @@ M10 的移动端验收以浏览器模拟视口覆盖窄屏布局、编辑器、�
 
 ## 5. OpenAPI 文档的质量要求
 
-契约要同时给三类消费者用：人（调试台与 `/docs`）、代码生成器（`openapi-typescript`）、agent（MCP tool 描述可以直接引用接口描述）。任何一处缺失都会在下游放大。
+契约要同时给人（调试台与 `/docs`）、代码生成器（`openapi-typescript`）和内置 Agent 工具定义使用。任何一处缺失都会在下游放大。
 
 现有代码在这方面基本是空白 —— 路由上没有 `summary`、没有 `response_model`、没有 `responses`，错误体是自定义的 `{code: 10200}` 结构而非标准状态码。以下是重构时的强制规范。
 
@@ -235,7 +235,7 @@ OPENAPI_TAGS = [
 app = FastAPI(
     title="MAA-API",
     version=__version__,
-    summary="MaaAssistantArknights 内核的 HTTP / WebSocket / MCP 封装",
+    summary="MaaAssistantArknights 内核的 HTTP / WebSocket 封装",
     description=API_DESCRIPTION,     # 一段 Markdown，见 §8
     openapi_tags=OPENAPI_TAGS,
     lifespan=lifespan,
@@ -368,8 +368,6 @@ app = FastAPI(generate_unique_id_function=custom_operation_id, ...)
 必须明确记录下来，否则「看 `/openapi.json` 就够了」会是错的：
 
 **WebSocket 端点不在 OpenAPI 里。** OpenAPI 3.x 规范不描述 WebSocket，FastAPI 也不会把 `@app.websocket()` 的路由放进 schema。`/api/ws` 的握手方式、鉴权渠道、订阅消息、事件类型全部要手写文档，权威处是 [06-实时日志与WebSocket](./06-实时日志与WebSocket.md)，接入说明里要摘录关键部分。可以在 `app.description` 里加一段指向它，让只看 `/docs` 的人不至于以为没有实时接口。
-
-**MCP 端点不在 OpenAPI 里。** `/mcp` 是 `app.mount()` 挂上的 ASGI 子应用，不产生 path operation。它的契约是 MCP 协议自身的 tool 列表（通过 MCP 的 `tools/list` 发现），权威处是 [11-Agent模块设计](./11-Agent模块设计.md)。
 
 ## 6. 前端 TypeScript 类型的生成流程
 
@@ -527,7 +525,7 @@ async def redoc():
 
 给外部调用者（人类开发者与外部 agent）的接入说明，必须覆盖以下内容。每一项都对应一个「不写就会被问」的问题：
 
-**Base URL 与部署形态。** 默认 `http://<host>:8002`。M10 已交付 REST 与 WebSocket，共用同一服务端口；MCP 仍待 M12，不得描述为当前可用入口。另需说明 HTTPS 部署下 PWA 能力才完整（指向 [09 §12](./09-前端重构方案.md#12-pwa-的安全上下文约束与部署路径)）。
+**Base URL 与部署形态。** 默认 `http://<host>:8002`。REST 与 WebSocket 共用同一服务端口。另需说明 HTTPS 部署下 PWA 能力才完整（指向 [09 §12](./09-前端重构方案.md#12-pwa-的安全上下文约束与部署路径)）。
 
 **鉴权。** 单 `access_token`，四种传递方式各自的写法与适用场景：
 
@@ -547,11 +545,9 @@ async def redoc():
 1. **提交流水线并等待结果。** `POST /api/pipelines` → `202` + `pipeline_id` → 轮询 `GET /api/pipelines/{id}` 直到状态进入终态。要写明线上状态值为小写 `completed` / `failed` / `cancelled`、建议的轮询间隔、以及「更好的做法是订阅 WebSocket」。
 2. **执行原子操作。** 说明流水线运行中调用会得到 `409 PIPELINE_ALREADY_RUNNING`、`force=true` 的语义与审计后果、以及「卡死救援」的正确顺序是先停流水线再操作（[02 §5.3](./02-系统架构设计.md)）。
 
-人工确认的 REST 接口 / 前端工作流留到 M11。M10 指南只能明确此功能尚未交付；不得描述 MCP 内部等待行为、确认超时或给出确认接口示例。
+人工确认的 REST 接口与前端工作流已由 M11 交付；接入指南应以当前服务的 OpenAPI 与实际能力为准。
 
 **WebSocket 接入方式。** 因为它不在 OpenAPI 里（[§5.6](#56-openapi-覆盖不到的两块)），必须完整写 M10 已发送的事件类型与载荷、端点 `/api/ws`、鉴权只能走 cookie 或 query、订阅消息的格式、心跳约定、`last_seen_id` 的断线补偿机制。`confirm_request`、`confirm_resolved` 与 `agent_event` 归 M11 工作流，本阶段即使协议预留了频道也不可描述为已交付。摘录自 [06-实时日志与WebSocket](./06-实时日志与WebSocket.md)，正文指向那篇。
-
-**MCP 接入方式。** 这部分等 M12 交付后补入指南；M10 的指南只描述已实现的 REST 与 WebSocket。
 
 **版本与兼容性声明。** 必须明说：当前版本允许破坏性变更，接口不保证向后兼容（这是决策表定下的），外部集成方应当锁定服务版本或做好跟随升级的准备。不写这一条会让接入方产生错误的稳定性预期。
 
@@ -567,34 +563,16 @@ async def redoc():
 
 两件配套事项：`docs/README.md` 的文档索引表增加 14 号文档条目；`scripts/generate_api_guide.py` 从错误码枚举/状态映射、05 号文档错误说明和 OpenAPI tag 元数据生成标记区块。执行 `python scripts/generate_api_guide.py --check` 可发现生成内容过期，禁止手工编辑标记间内容。
 
-## 9. 与 Agent 模块的边界
+## 9. 与内置 Agent 模块的边界
 
-调试台与 MCP 是同一套能力的两个前端，服务两类不同的消费者。这个分层关系必须清晰，否则会出现「给 agent 单独做一套接口」的重复建设。
+API 调试台面向人工检查和调用 REST 接口；内置 Agent 面向自然语言任务编排。两者共享后端应用服务、错误码和持久化流水线，但 Agent 工具会额外经过 `ToolRegistry` 与 `PolicyEngine`，执行风险判定、确认和审计。
 
-```
-                   ┌──────────────┐        ┌──────────────┐
-        人 ────────►│  API 调试台  │        │  MCP Server  │◄──────── 外部 agent
-                   │  (前端页面)  │        │    /mcp      │      (Claude / Cursor)
-                   └──────┬───────┘        └──────┬───────┘
-                          │                        │
-                          │   ToolRegistry / PolicyEngine（agent 侧额外经过）
-                          │                        │
-                          ▼                        ▼
-                   ┌────────────────────────────────────────┐
-                   │   同一套 REST API + 同一套错误码       │
-                   │   /api/**  ·  ErrorResponse  ·  审计   │
-                   └────────────────────────────────────────┘
-                                      │
-                                      ▼
-                        应用服务层 → MaaCore 子进程
+```text
+人 ──► API 调试台 ──► REST API ──► 应用服务层 ──► MaaCore 子进程
+
+用户 ──► 内置 Agent ──► ToolRegistry / PolicyEngine ──► 应用服务层
+                                │
+                                └── 确认与审计
 ```
 
-**共享的部分。** REST API 的路由与语义、`{"error": {"code", "message", "details"}}` 错误体与错误码枚举、参数 schema（`GET /api/tasks/types` 返回的同一份东西，既驱动调试台的请求构造器，也驱动 MCP tool 的 JSON Schema）、审计落库（两条路径的调用都记 `caller` / `params` / `result` / `duration`，在 `/more/audit` 同一个页面里能看到）。
-
-**调试台独有的。** 面向人的交互：接口树的浏览与搜索、请求历史与收藏、cURL 导出、与实时日志的同屏联动、错误码的可点击跳转。这些对 agent 毫无意义 —— agent 不需要「浏览」接口，它拿到 tool 列表就够了。
-
-**MCP 独有的。** 面向模型的封装：tool 的自然语言描述（让模型知道什么时候该调用它）、`PolicyEngine` 的风险判定与人工确认编排、tool 调用的结果摘要（把冗长的 JSON 压成模型友好的文本）、以及「组合多个 REST 调用成一个语义完整的 tool」这层编排。详见 [11-Agent模块设计](./11-Agent模块设计.md)。
-
-**一条不能破的规则：MCP 的 tool 不绕过 REST 层自己去碰服务层。** 所有 tool 的实现都应当等价于一次 REST 调用（内部可以直接调用同一个服务方法而不真的发 HTTP 请求，但业务语义、参数校验、错误码、审计必须完全一致）。这条规则的价值在两个方向：调试台里测通的东西，agent 调用时行为一定相同；agent 报的错，人可以在调试台里精确复现。如果两条路径有各自的实现分支，「agent 说它失败了但我手动调是好的」这类问题会变得无法排查。
-
-反过来，这也意味着**给 agent 加能力的正确顺序是先加 REST 接口，再包 tool**，而不是直接在 agent 模块里写一个新逻辑。新接口加完后调试台自动可见（因为接口树从 `/openapi.json` 动态加载），可以先用人工调试验证正确性，再包装成 tool 交给模型 —— 这个顺序让每个新能力都有一个可手工验证的中间状态。
+调试台独有的能力包括接口树、请求历史与收藏、cURL 导出、服务端日志联动和错误码跳转。内置 Agent 独有的能力包括 LLM 规划、工具选择、上下文管理和对话式交互。扩展 Agent 能力时，应优先复用 REST 与应用服务契约，保持人工调用与 Agent 操作的参数校验及业务效果一致。

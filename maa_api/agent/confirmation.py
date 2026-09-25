@@ -37,7 +37,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIRMATION_TIMEOUT_SECONDS = 10 * 60
 DEFAULT_GRANT_CONFIRMATION_TIMEOUT_SECONDS = 120
-MCP_CONFIRMATION_WAIT_SECONDS = 25
 AuditTerminalCallback = Callable[[AsyncSession, int, int, dict[str, Any]], Any]
 
 
@@ -97,17 +96,6 @@ class ConfirmationService:
             on_audit_terminal=on_audit_terminal,
         )
 
-    async def invoke_mcp(
-        self,
-        name: str,
-        arguments: Mapping[str, Any],
-        context: ToolContext,
-    ) -> dict[str, Any]:
-        """Invoke from MCP, returning pending after its short synchronous wait."""
-        return await self._invoke(
-            name, arguments, context, mode="sync", mcp_short_wait=True
-        )
-
     async def _invoke(
         self,
         name: str,
@@ -115,7 +103,6 @@ class ConfirmationService:
         context: ToolContext,
         *,
         mode: str,
-        mcp_short_wait: bool = False,
         on_audit_created: Callable[[int], Any] | None = None,
         on_audit_terminal: AuditTerminalCallback | None = None,
     ) -> dict[str, Any]:
@@ -159,24 +146,7 @@ class ConfirmationService:
                         decision.confirmation_action
                     ).replace(tzinfo=UTC).isoformat().replace("+00:00", "Z"),
                 }
-            if mcp_short_wait:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.shield(worker), timeout=MCP_CONFIRMATION_WAIT_SECONDS
-                    )
-                except TimeoutError:
-                    return {
-                        "code": str(ErrorCode.CONFIRMATION_REQUIRED),
-                        "status": "awaiting_confirmation",
-                        "confirmation_id": confirmation_id,
-                        "audit_id": audit_id,
-                        "expires_at": self._confirmation_expiry(
-                            decision.confirmation_action
-                        ).replace(tzinfo=UTC).isoformat().replace("+00:00", "Z"),
-                        "hint": "用户尚未确认。请用 check_confirmation 查询结果，或稍后重试。",
-                    }
-            else:
-                await asyncio.shield(worker)
+            await asyncio.shield(worker)
             detail = await self.get(confirmation_id)
             status = detail["status"]
             if status == ConfirmationStatus.REJECTED.value:
@@ -675,11 +645,6 @@ class ConfirmationService:
             caller_detail=_caller_detail(context),
             tool_name=name,
             request_id=context.request_id,
-            scopes=(
-                list(context.scopes)
-                if context.caller == CallerType.MCP and context.scopes is not None
-                else None
-            ),
             arguments=dict(arguments),
             status=AuditStatus.PENDING,
             risk_level=decision.risk,
@@ -940,11 +905,6 @@ class ConfirmationService:
                     caller_detail=_caller_detail(context),
                     tool_name=name,
                     request_id=context.request_id,
-                    scopes=(
-                        list(context.scopes)
-                        if context.caller == CallerType.MCP and context.scopes is not None
-                        else None
-                    ),
                     arguments=dict(arguments),
                     status=AuditStatus.PENDING,
                     risk_level=decision.risk,
