@@ -278,33 +278,48 @@ def test_external_atomic_calls_always_require_per_call_confirmation(caller) -> N
     assert decision.confirmation_action == "click"
 
 
-def test_internal_atomic_call_without_a_session_requires_per_call_confirmation() -> None:
-    decision = _evaluate(_definition("click"), {"x": 10}, _context())
+def test_internal_atomic_call_without_a_session_fails_closed() -> None:
+    with pytest.raises(AppError) as exc_info:
+        _evaluate(_definition("click"), {"x": 10}, _context())
 
-    assert decision.requires_confirmation is True
-    assert decision.confirmation_action == "click"
+    assert exc_info.value.code == ErrorCode.AGENT_SESSION_NOT_FOUND
 
 
-def test_internal_atomic_authorization_uses_default_and_configurable_window() -> None:
-    # The confirmation decision carries the grant window for the integration layer.
-    default = asyncio.run(
-        PolicyEngine().evaluate(
-            _definition("click"),
-            {"x": 10},
-            _context(CallerType.INTERNAL, session_id="session-new"),
-        )
-    )
-    configured = asyncio.run(
-        PolicyEngine(atomic_grant_minutes=60).evaluate(
-            _definition("click"),
-            {"x": 10},
-            _context(CallerType.INTERNAL, session_id="session-new"),
-        )
+def test_internal_atomic_authorization_uses_default_and_configurable_window(tmp_path) -> None:
+    engine = make_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'agent-policy-window.db'}",
+        poolclass=NullPool,
     )
 
-    assert default.confirmation_action == "grant_atomic_ops"
-    assert default.window_seconds == 900
-    assert configured.window_seconds == 3600
+    async def scenario():
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with factory() as session:
+            agent_session = await AgentSessionRepository(session).create(
+                AgentSession(id="session-window", model="model-test")
+            )
+            await session.commit()
+            arguments = {"x": 10}
+            default = await PolicyEngine().evaluate(
+                _definition("click"),
+                arguments,
+                _context(CallerType.INTERNAL, session_id=agent_session.id, db_session=session),
+            )
+            configured = await PolicyEngine(atomic_grant_minutes=60).evaluate(
+                _definition("click"),
+                arguments,
+                _context(CallerType.INTERNAL, session_id=agent_session.id, db_session=session),
+            )
+        assert default.confirmation_action == "grant_atomic_ops"
+        assert default.window_seconds == 900
+        assert configured.window_seconds == 3600
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        engine.sync_engine.dispose()
+
 
 
 @pytest.mark.parametrize("minutes", [0, 61, True, 1.5])
@@ -403,11 +418,22 @@ def test_internal_atomic_grant_is_validated_from_persisted_session(tmp_path) -> 
                 {"x1": 1, "y1": 1, "x2": 4, "y2": 4},
                 _context(CallerType.INTERNAL, session_id=revoked.id, db_session=session),
             )
-            finished_decision = await policy.evaluate(
-                _definition("swipe"),
-                {"x1": 1, "y1": 1, "x2": 4, "y2": 4},
-                _context(CallerType.INTERNAL, session_id=finished.id, db_session=session),
-            )
+            with pytest.raises(AppError) as missing_error:
+                await policy.evaluate(
+                    _definition("swipe"),
+                    {"x1": 1, "y1": 1, "x2": 4, "y2": 4},
+                    _context(
+                        CallerType.INTERNAL,
+                        session_id="session-missing",
+                        db_session=session,
+                    ),
+                )
+            with pytest.raises(AppError) as finished_error:
+                await policy.evaluate(
+                    _definition("swipe"),
+                    {"x1": 1, "y1": 1, "x2": 4, "y2": 4},
+                    _context(CallerType.INTERNAL, session_id=finished.id, db_session=session),
+                )
             pending_decision = await policy.evaluate(
                 _definition("swipe"),
                 {"x1": 1, "y1": 1, "x2": 4, "y2": 4},
@@ -430,8 +456,8 @@ def test_internal_atomic_grant_is_validated_from_persisted_session(tmp_path) -> 
         assert expired_decision.confirmation_action == "grant_atomic_ops"
         assert revoked_decision.requires_confirmation is True
         assert revoked_decision.confirmation_action == "grant_atomic_ops"
-        assert finished_decision.requires_confirmation is True
-        assert finished_decision.confirmation_action == "swipe"
+        assert missing_error.value.code == ErrorCode.AGENT_SESSION_NOT_FOUND
+        assert finished_error.value.code == ErrorCode.AGENT_SESSION_NOT_FOUND
         assert pending_decision.requires_confirmation is True
         assert pending_decision.confirmation_action == "grant_atomic_ops"
         assert external_rest_decision.requires_confirmation is True
