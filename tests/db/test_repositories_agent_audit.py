@@ -220,6 +220,31 @@ def test_audit_create_keeps_short_payload_and_none_summary(db_session_factory):
     asyncio.run(scenario())
 
 
+def test_audit_scopes_round_trip_in_order_and_legacy_rows_remain_null(db_session_factory):
+    """审计 scope 按给定顺序持久化，未带 scope 的旧式记录仍为 NULL。"""
+
+    async def scenario():
+        async with db_session_factory() as session:
+            repo = AuditRepository(session)
+            scoped = await repo.create(
+                _audit(scopes=["status", "ops", "raw"])
+            )
+            legacy = await repo.create(_audit())
+            await session.commit()
+            scoped_id = scoped.id
+            legacy_id = legacy.id
+
+        async with db_session_factory() as session:
+            scoped = await AuditRepository(session).get(scoped_id)
+            legacy = await AuditRepository(session).get(legacy_id)
+            assert scoped is not None
+            assert scoped.scopes == ["status", "ops", "raw"]
+            assert legacy is not None
+            assert legacy.scopes is None
+
+    asyncio.run(scenario())
+
+
 def test_audit_get_and_list_filters_paginate(db_session_factory):
     """``list`` 按 ``created_at DESC`` 分页，``caller`` / ``tool_name`` 过滤生效。"""
     now = utcnow()
