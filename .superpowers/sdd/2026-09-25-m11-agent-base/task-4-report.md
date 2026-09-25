@@ -55,3 +55,48 @@ Python 编译检查和 `git diff --check` 均通过。
 ## 提交
 
 - Task 4 实现提交 SHA：`35965c7193f2a578f118d069ff4ffddf8b0e0f48`。
+
+## Scoped review fix wave
+
+### 修正
+
+- `update_core` 的 schema 与参数校验现只接受 `stable`，符合 README 已确认的不暴露 beta/alpha 决策。
+- Copilot 校验覆盖普通作业与 SSS 作业的必需字段、干员/分组、部署坐标/方向、策略与 stage 结构，并拒绝未知顶层字段及错误嵌套类型。
+- 自定义 task 校验按本地 `tasks.json` 字段结构检查标量、数组、坐标与嵌套 JSON；支持 MAA 现有继承型空对象定义、`colorScales` 的数值与区间两种形态。基建方案校验房间、设施、无人机与旧版方案字段。
+- Copilot、自定义 task、基建方案非法结构都通过对应领域错误码拒绝。
+- `ResourceService` 使用服务级异步锁串行化自定义 task 的读改写、资源 reload 与失败回滚，避免并行的失败操作覆盖已成功变更。
+- `AgentOpsService` 在 await 队列 pause 之前记录暂停所有权；pause 抛错或调用取消时，外层 `finally` 会恢复队列。
+
+### RED / GREEN 实际命令
+
+RED：
+
+```text
+.venv/bin/python -m pytest -q -o addopts= tests/agent/test_resource_ops_schedule_tools.py::test_update_core_schema_exposes_only_the_confirmed_stable_channel tests/services/test_agent_resource_service.py tests/services/test_agent_ops_service.py -k 'stable_channel or nested_schema or wrong_core_field or invalid_nested_room or concurrent_custom_task or owned_pause'
+14 failed, 3 passed, 8 deselected
+```
+
+失败对应 beta 仍出现在 schema、错误嵌套结构被接受、reload 并发回滚抹掉成功文件、以及 pause 抛错/取消后队列未恢复。
+
+最终 Task 4 GREEN：
+
+```text
+.venv/bin/python -m pytest -q -o addopts= tests/agent/test_resource_ops_schedule_tools.py tests/services/test_agent_resource_service.py tests/services/test_agent_ops_service.py
+32 passed in 0.44s
+```
+
+编译与差异检查：
+
+```text
+.venv/bin/python -m compileall -q maa_api/agent/tools/ops.py maa_api/services/resource_service.py maa_api/services/agent_ops_service.py tests/agent/test_resource_ops_schedule_tools.py tests/services/test_agent_resource_service.py tests/services/test_agent_ops_service.py
+git diff --check -- maa_api/agent/tools/ops.py maa_api/services/resource_service.py maa_api/services/agent_ops_service.py tests/agent/test_resource_ops_schedule_tools.py tests/services/test_agent_ops_service.py tests/services/test_agent_resource_service.py
+两项均退出码 0
+```
+
+用资源仓库现有 JSON 做额外结构检查：Copilot 接受 **74/76**、基建方案 **21/21**、内核 tasks.json 中的对象定义 **3659/3659**。两份被拒绝的 Copilot 文件包含无效方向字符串：`SSS_日达诺夫园区_圣聆初雪+遥+斩业星熊_可充能督战音响.json` 的 `Dowm`，以及 `SSS_玉门市集_YumenMarket_1.json` 的 `Right'`。
+
+较宽回归命令 `.venv/bin/python -m pytest -q -o addopts= tests/agent tests/services/test_update_service.py tests/services/test_schedule_service.py tests/services/test_agent_resource_service.py tests/services/test_agent_ops_service.py` 得到 **162 passed, 1 failed**。唯一失败位于并行 Task 5 文件 `tests/agent/test_confirmation_service.py::test_expiry_cas_loser_does_not_overwrite_or_broadcast_over_concurrent_approval`，该确认 CAS 测试预期 `approved`、实际仍为 `pending`；本轮未改该测试或确认服务。
+
+### 本轮提交
+
+- 待提交后补录。
