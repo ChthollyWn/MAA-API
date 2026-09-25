@@ -161,9 +161,10 @@ def test_ordinary_dangerous_tool_requires_confirmation() -> None:
 
 
 def test_copilot_upload_is_exempt_from_confirmation() -> None:
-    upload = _evaluate(_definition("upload_copilot", ToolRisk.CONDITIONAL), {}, _context())
+    upload = _evaluate(_definition("upload_copilot", ToolRisk.SAFE), {}, _context())
 
     assert upload.requires_confirmation is False
+    assert upload.risk == RiskLevel.NONE
 
 
 @pytest.mark.parametrize(

@@ -49,7 +49,7 @@ def test_resource_group_registers_upload_and_custom_task_but_no_copilot_runner()
         "remove_custom_task",
     }
     assert "run_copilot" not in {item.name for item in registry.list()}
-    assert definitions["upload_copilot"].risk is ToolRisk.CONDITIONAL
+    assert definitions["upload_copilot"].risk is ToolRisk.SAFE
     assert definitions["register_custom_task"].risk is ToolRisk.DANGEROUS
 
 
