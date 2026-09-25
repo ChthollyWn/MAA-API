@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import SchedulesPage from '@/routes/schedules'
 import type { components } from '@/types/api'
 import type { TaskTypeSchema } from '@/features/tasks'
@@ -96,7 +97,12 @@ function installFetch(initial: ScheduleView[] = [], options: { createStatus?: nu
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={client}><SchedulesPage /></QueryClientProvider>)
+  return render(<QueryClientProvider client={client}><MemoryRouter><SchedulesPage /></MemoryRouter></QueryClientProvider>)
+}
+
+function renderPageWithNavigationState(state: unknown) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } })
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[{ pathname: '/more/schedules', state }]}><Routes><Route path="/more/schedules" element={<SchedulesPage />} /></Routes></MemoryRouter></QueryClientProvider>)
 }
 
 describe('schedule editor and API integration', () => {
@@ -161,6 +167,15 @@ describe('schedule editor and API integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建 schedule' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('名称已被使用')
     expect(screen.getByRole('heading', { name: '新建定时任务' })).toBeInTheDocument()
+  })
+
+  it('opens the schedule editor with a pipeline template passed through router state', async () => {
+    installFetch()
+    renderPageWithNavigationState({ apiConsolePrefill: { template: [{ name: 'Fight', stage: '1-7' }] } })
+
+    expect(await screen.findByRole('heading', { name: '新建定时任务' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '刷理智' })).toBeInTheDocument()
+    expect(localStorage.getItem('maa.api-console.schedule-template')).toBeNull()
   })
 
   it('keeps an unrecognized existing cron visible and saves it unchanged until the user edits it', async () => {

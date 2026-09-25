@@ -15,10 +15,11 @@ import re
 import sys
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Coroutine, Protocol, TypeVar
 
 from sqlalchemy import func, select
 
@@ -36,6 +37,8 @@ __all__ = [
     "LogRecord",
     "attach_log_hub",
     "current_pipeline_id",
+    "current_request_id",
+    "create_task_without_request_id",
     "get_log_hub",
     "mask_token",
     "set_log_hub",
@@ -70,12 +73,14 @@ class LogRecord:
     """A normalized log event shared by the hub, WebSocket, and REST APIs."""
 
     id: int = 0
+    stream_id: str | None = None
     ts: float
     source: str
     level: str
     content: str
     pipeline_id: str | None = None
     task_id: str | None = None
+    request_id: str | None = None
     logger: str | None = None
     raw: dict[str, Any] | None = None
     attachment: dict[str, Any] | None = None
@@ -96,6 +101,19 @@ def mask_token(text: str) -> str:
 current_pipeline_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "maa_api_current_pipeline_id", default=None
 )
+current_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "maa_api_current_request_id", default=None
+)
+_TaskResult = TypeVar("_TaskResult")
+
+
+def create_task_without_request_id(
+    coroutine: Coroutine[Any, Any, _TaskResult], *, name: str | None = None
+) -> asyncio.Task[_TaskResult]:
+    """Create a task with the current context except for request correlation."""
+    context = contextvars.copy_context()
+    context.run(current_request_id.set, None)
+    return asyncio.create_task(coroutine, name=name, context=context)
 
 
 class LogHub:
@@ -116,6 +134,7 @@ class LogHub:
             float(flush_interval or configured.flush_interval), 0.001
         )
         self._ring: deque[LogRecord] = deque(maxlen=self.ring_size)
+        self.stream_id = uuid.uuid4().hex
         self._db_queue: asyncio.Queue[LogRecord | object] = asyncio.Queue(
             maxsize=max(int(db_queue_size), 1)
         )
@@ -193,6 +212,11 @@ class LogHub:
         if not records:
             return [], False
         oldest_id = records[0].id
+        if cursor > records[-1].id:
+            # A cursor beyond this stream can only come from an older/reused id
+            # space or a malformed client checkpoint. Replay what remains and
+            # signal the gap instead of silently suppressing every current row.
+            return records, True
         truncated = cursor < oldest_id - 1
         return [record for record in records if record.id > cursor], truncated
 
@@ -214,6 +238,7 @@ class LogHub:
         loop = self._loop
         with self._sequence_lock:
             record.id = self._next_id
+            record.stream_id = self.stream_id
             self._next_id += 1
             if record.ts <= 0:
                 record.ts = time.time()
@@ -221,6 +246,8 @@ class LogHub:
             record.content = mask_token(record.content)
             if record.pipeline_id is None:
                 record.pipeline_id = current_pipeline_id.get()
+            if record.request_id is None:
+                record.request_id = current_request_id.get()
             self._ring.append(record)
 
         if loop is None or loop.is_closed() or not self._started or self._closing:
@@ -396,6 +423,7 @@ class LogHubHandler(logging.Handler):
                         record, "pipeline_id", current_pipeline_id.get()
                     ),
                     task_id=getattr(record, "task_id", None),
+                    request_id=getattr(record, "request_id", current_request_id.get()),
                     logger=record.name,
                 )
             )

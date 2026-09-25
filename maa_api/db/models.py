@@ -1,4 +1,4 @@
-"""SQLModel 表定义：13 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：14 张业务表（docs/04 §3、§5、§6、§7）。
 
 纪律（每条都对应一次实测或一次返工）：
 
@@ -695,4 +695,42 @@ class ResourceAsset(SQLModel, table=True):
         ),
         # 资源查询：kind=? AND enabled=1
         Index("ix_resource_asset_kind_enabled", "kind", "enabled"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5.14 api_snippet — named API-console requests
+# ---------------------------------------------------------------------------
+class ApiSnippet(SQLModel, table=True):
+    """A reusable API-console request with credentials removed (docs/04 §5.14)."""
+
+    __tablename__ = "api_snippet"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    name: str = Field(min_length=1, max_length=64)
+    method: str = Field(max_length=8)
+    path: str = Field(max_length=2048)
+    path_params: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("path_params", nullable=False),
+    )
+    query: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("query", nullable=False),
+    )
+    headers: dict[str, str] = Field(
+        default_factory=dict,
+        sa_column=json_column("headers", nullable=False),
+    )
+    body: Any | None = Field(default=None, sa_column=json_column("body"))
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_api_snippet_name"),
+        Index("ix_api_snippet_updated_at", "updated_at"),
     )

@@ -39,7 +39,7 @@ CORS（docs/05 §5.1）
 OpenAPI（docs/05 §11）
 ======================
 
-- ``openapi_tags=TAGS``：15 条占位分组，顺序即 ``/docs`` 展示顺序；``ws`` 与将来的
+- ``openapi_tags=TAGS``：16 条分组，顺序即 ``/docs`` 展示顺序；``ws`` 与将来的
   ``mcp`` 不能在 Swagger UI 里调试，但必须保留条目说明协议与鉴权方式。
 - ``generate_unique_id_function=custom_operation_id``：operationId 统一成
   ``{tag}_{函数名}``（typescript 客户端方法名依赖这条约定）。
@@ -59,6 +59,8 @@ import asyncio
 import logging
 import os
 import platform
+import time
+import uuid
 from pathlib import Path
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -81,6 +83,7 @@ from maa_api.api.routers import (
     queue,
     resources,
     screenshots,
+    snippets,
     settings as settings_router,
     schedules,
     system,
@@ -92,7 +95,8 @@ from maa_api.api.ws import router as ws_router
 from maa_api.db.migrate import ensure_schema
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.services.log_hub import LogHub, set_log_hub
+from maa_api.services.log_hub import LogHub, current_request_id, set_log_hub
+from maa_api.services.api_snippet_service import ApiSnippetService
 from maa_api.services.log_wiring import (
     install_core_logging,
     install_service_logging,
@@ -103,6 +107,7 @@ from maa_api.settings import REPO_ROOT, get_settings, load_settings, set_setting
 
 __all__ = [
     "CORS_HEADERS",
+    "CORS_EXPOSE_HEADERS",
     "CORS_METHODS",
     "CORS_ORIGIN_REGEX",
     "CORS_ORIGINS",
@@ -113,6 +118,7 @@ __all__ = [
     "create_app",
     "custom_operation_id",
     "lifespan",
+    "request_trace_headers",
     "service_version",
     "warn_if_auth_disabled",
 ]
@@ -218,6 +224,35 @@ def confirm_manual_interrupt(_target: Any, options: dict[str, Any]) -> bool:
     """
     return options.get("_caller") == "manual"
 
+
+async def request_trace_headers(request: Request, call_next):
+    """Attach request correlation metadata for responses and service logs."""
+    request_id = request.headers.get("X-Request-Id", "").strip() or uuid.uuid4().hex
+    started = time.perf_counter()
+    token = current_request_id.set(request_id)
+    try:
+        failed = False
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # Starlette's ServerErrorMiddleware handles uncaught exceptions outside
+            # user middleware. Render its registered handler here while this request's
+            # context is still active, so both its error log and response retain tracing.
+            exception_handler = request.app.exception_handlers.get(Exception)
+            if exception_handler is None:
+                raise
+            response = await exception_handler(request, exc)
+            failed = True
+        response.headers["X-Request-Id"] = request_id
+        response.headers["X-Response-Time-Ms"] = (
+            f"{(time.perf_counter() - started) * 1000:.3f}"
+        )
+        if not failed:
+            logger.info("HTTP %s %s completed", request.method, request.url.path)
+        return response
+    finally:
+        current_request_id.reset(token)
+
 #: 服务标题与描述；描述会原样进入 ``/openapi.json`` 的 ``info``。
 TITLE = "MAA-API"
 DESCRIPTION = (
@@ -250,6 +285,7 @@ TAGS: list[dict[str, str]] = [
     {"name": "settings", "description": "可视化配置"},
     {"name": "notifications", "description": "多通道通知"},
     {"name": "resources", "description": "Copilot 作业、基建方案、自定义 task"},
+    {"name": "snippets", "description": "API 调试台收藏请求"},
     {"name": "agent", "description": "工具清单、会话与审计"},
     {"name": "confirmations", "description": "高风险操作的人工确认"},
     {"name": "ws", "description": "WebSocket 实时通道（仅文档说明，不可在此调试）"},
@@ -284,9 +320,14 @@ CORS_METHODS: list[str] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPT
 CORS_HEADERS: list[str] = [
     "Authorization",
     "X-Token",
+    "X-Request-Id",
     "Content-Type",
     "Idempotency-Key",
 ]
+
+#: Browser clients need to read the request correlation and elapsed time from
+#: cross-origin responses; neither header is CORS-safelisted by default.
+CORS_EXPOSE_HEADERS: list[str] = ["X-Request-Id", "X-Response-Time-Ms", "Location"]
 
 
 class OperationIdRoute(Protocol):
@@ -737,6 +778,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             http_client=update_http_client,
         )
         notify_service = NotifyService(db_session.session_factory)
+        api_snippet_service = ApiSnippetService(db_session.session_factory)
 
         async def resource_layers_loaded() -> str | None:
             if getattr(core_supervisor.state, "value", core_supervisor.state) != "ready":
@@ -760,6 +802,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.update_service = update_service
         app.state.notify_service = notify_service
+        app.state.api_snippet_service = api_snippet_service
         app.state.game_update_service = game_update_service
         await update_service.recover_interrupted()
 
@@ -875,6 +918,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         for attribute in (
             "update_service",
             "notify_service",
+            "api_snippet_service",
             "game_update_service",
             "schedule_service",
             "update_scheduler",
@@ -992,6 +1036,7 @@ def create_app() -> FastAPI:
     app.include_router(updates.router)
     app.include_router(notifications.router)
     app.include_router(schedules.router)
+    app.include_router(snippets.router)
     app.include_router(ws_router)
 
     # Frontend assets are generated by ``vite build``. Keep this low-priority
@@ -1042,7 +1087,10 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=CORS_METHODS,
         allow_headers=CORS_HEADERS,
+        expose_headers=CORS_EXPOSE_HEADERS,
     )
+
+    app.middleware("http")(request_trace_headers)
     return app
 
 

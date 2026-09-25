@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarClock, Clock3, Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '@/api/client'
@@ -127,11 +128,28 @@ function toDraft(record: ScheduleRecord): ScheduleDraft {
 }
 
 export default function SchedulesPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<ScheduleDraft>(EMPTY_DRAFT)
   const [editing, setEditing] = useState(false)
   const [notice, setNotice] = useState('')
   const [noticeIsError, setNoticeIsError] = useState(false)
+  useEffect(() => {
+    const navigationState = location.state && typeof location.state === 'object'
+      ? location.state as { apiConsolePrefill?: { template?: unknown } }
+      : null
+    const template = navigationState?.apiConsolePrefill?.template
+    if (!Array.isArray(template)) return
+    const validTasks = template.filter((task): task is ScheduleTask =>
+      Boolean(task && typeof task === 'object' && !Array.isArray(task) && typeof (task as Record<string, unknown>).name === 'string'))
+    if (validTasks.length === 0) return
+    setDraft({ ...EMPTY_DRAFT, tasks: validTasks.map((task) => ({ ...task })) })
+    setEditing(true)
+    setNotice('已载入 API 调试台收藏的流水线模板；设置星期与时间后即可保存。')
+    setNoticeIsError(false)
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, [location.key, location.pathname, location.search, location.state, navigate])
   const schedulesQuery = useQuery({
     queryKey: ['schedules'],
     queryFn: async () => {

@@ -68,7 +68,15 @@ describe('more routes and task deep links', () => {
     expect(screen.getByRole('link', { name: /热更新/ })).toHaveAttribute('href', '/more/updates')
     expect(screen.getByRole('link', { name: /定时任务/ })).toHaveAttribute('href', '/more/schedules')
     expect(screen.getByRole('link', { name: /设置/ })).toHaveAttribute('href', '/more/settings')
-    expect(screen.getAllByRole('link')).toHaveLength(3)
+    expect(screen.getAllByRole('link')).toHaveLength(4)
+  })
+
+  it('adds the API console destination and a protected direct route', () => {
+    render(<MemoryRouter><MorePage /></MemoryRouter>)
+
+    expect(screen.getByRole('link', { name: /API 调试台/ })).toHaveAttribute('href', '/more/api-console')
+    const children = routeConfig.find((route) => route.path === '/')?.children ?? []
+    expect(children.some((route) => route.path === 'more/api-console')).toBe(true)
   })
 
   it('opens a child page directly and supports browser back and forward', async () => {

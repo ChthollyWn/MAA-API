@@ -31,14 +31,14 @@
 | 状态码 | 使用场景 |
 |---|---|
 | `200 OK` | 读取成功；同步执行完成的写操作（原子点击、发测试通知、批准确认） |
-| `201 Created` | 创建了一个可寻址的持久实体（定时任务、通知通道、agent 会话、资源文件），必须带 `Location` 头 |
+| `201 Created` | 创建了一个可寻址的持久实体（定时任务、通知通道、agent 会话、资源文件、API 收藏），必须带 `Location` 头 |
 | `202 Accepted` | 请求已受理但未完成：提交流水线、取消流水线、重启内核、触发更新、重连设备、发送 agent 消息、等待人工确认 |
 | `204 No Content` | 删除成功、批量清理成功，无响应体 |
 | `400 Bad Request` | 请求在语义上不成立但不是字段类型问题：JSON 解析失败、未知任务类型、未知设置项、cron 表达式非法、使用了已弃用的参数值 |
 | `401 Unauthorized` | token 缺失或不匹配。响应带 `WWW-Authenticate: Bearer` |
 | `403 Forbidden` | 身份有效但动作被拒：调用方无权使用该工具、修改只读配置项、人工确认被用户拒绝 |
 | `404 Not Found` | 资源不存在，含已被保留策略清理掉的历史记录 |
-| `409 Conflict` | 与当前状态冲突：流水线正在运行、更新正在进行、待确认项已处理过、修改不支持运行时变更的参数 |
+| `409 Conflict` | 与当前状态冲突：流水线正在运行、更新正在进行、待确认项已处理过、API 收藏名称重复、修改不支持运行时变更的参数 |
 | `410 Gone` | 确定曾存在但已永久移除：旧版端点、文件已被清理但记录仍在的截图 |
 | `422 Unprocessable Entity` | 结构正确但字段值不合法：Pydantic 校验失败、参数越界、跨字段规则不满足 |
 | `429 Too Many Requests` | 队列已满、上游 LLM 限流透传、鉴权失败频率限流。带 `Retry-After` 头 |
@@ -148,7 +148,7 @@ MCP 的同步阻塞式调用不会看到这个 202——它在服务端内部等
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 92 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 94 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
 
 ```python
 # maa_api/domain/errors.py
@@ -325,6 +325,13 @@ tool-calling 循环达到步数上限**不是错误**：会话正常结束，最
 | `CUSTOM_TASK_INVALID` | 422 | 自定义 task 定义不符合内核 `tasks.json` 的结构约定 |
 | `ASSET_TOO_LARGE` | 400 | 单个资源超过 2 MB 上限 |
 
+### 4.15 API 调试台收藏
+
+| 错误码 | HTTP | 含义与触发场景 |
+|---|---|---|
+| `API_SNIPPET_NOT_FOUND` | 404 | API 调试台收藏 id 不存在 |
+| `API_SNIPPET_NAME_CONFLICT` | 409 | API 调试台收藏名称重复 |
+
 ## 5. 鉴权设计
 
 ### 5.1 四个渠道与优先级
@@ -342,7 +349,7 @@ tool-calling 循环达到步数上限**不是错误**：会话正常结束，最
 
 针对 cookie 的 CSRF 风险有一条额外限制：**仅凭 cookie 鉴权的请求只允许 `GET`、`HEAD` 与 WebSocket 升级**。写方法（`POST`/`PUT`/`PATCH`/`DELETE`）如果 token 只来自 cookie，返回 `403 FORBIDDEN`。前端 SPA 本来就走 `X-Token`，不受影响；这条限制只挡住"用户在别的网站上被诱导对本服务发起写请求"的场景。
 
-CORS 配置必须同步收紧。现有 `main.py` 里 `allow_origins=["*"]` 与 `allow_credentials=True` 并存，这个组合浏览器会直接拒绝（通配符不允许携带凭据），等于现在的 CORS 配置实际上是失效的。新配置改为显式 origin 白名单（默认 `http://localhost:8002` 加局域网地址，可在设置页添加），保留 `allow_credentials=True`。
+CORS 使用显式 loopback 白名单（`http://localhost:8002`、`http://127.0.0.1:8002`）加 RFC1918 局域网 origin 正则，保留 `allow_credentials=True`。M10 在请求允许头中补入 `X-Request-Id`，并暴露 `X-Request-Id`、`X-Response-Time-Ms` 与 `Location`：前两者供调试台关联日志和展示服务端耗时，`Location` 让跨源浏览器调用方读取创建收藏的资源地址；任意 Tailscale FQDN 的白名单配置归 M15。
 
 ### 5.2 未配置 token 时的行为
 
@@ -419,7 +426,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 
 ### 6.3 device
 
-设备相关操作分两条通道，`backend` 字段在响应中明示。**`click` 走 MaaCore 的 `AsstAsyncClick`；`swipe` / `long_press` / `input_text` / `key_event` 一律走 ADB**——MaaCore 的 C API 里只有点击，没有滑动、长按、输入文本与按键，这是内核的硬约束。所有原子操作**不入队列**，直接投递；流水线运行中调用返回 `409 PIPELINE_ALREADY_RUNNING`，除非带 `force=true`（会被审计标记为强制介入）。
+设备相关操作分两条通道，`backend` 字段在响应中明示。**`click` 走 MaaCore 的 `AsstAsyncClick`；`swipe` / `long_press` / `input_text` / `key_event` 一律走 ADB**——MaaCore 的 C API 里只有点击，没有滑动、长按、输入文本与按键，这是内核的硬约束。所有原子操作**不入队列**，直接投递；流水线运行中调用返回 `409 PIPELINE_ALREADY_RUNNING`，除非带 `force=true`。M10 手动 REST 路径用 `force=true` 时仅写强制介入警告日志，不创建 `agent_audit` 记录；Agent 工具调用的审计依照 M11 的 Agent 工作流契约。
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
@@ -586,7 +593,21 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 
 （4 条）
 
-### 6.12 notifications
+### 6.12 API 调试台收藏
+
+| 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
+|---|---|---|---|---|---|
+| GET | `/api/snippets` | 收藏列表，按 `updated_at` 倒序 | | 200 | — |
+| POST | `/api/snippets` | 创建收藏 | `{name, method, path, path_params?, query?, headers?, body?}`；名称 trim 后 1–64 字符 | 201 | 409（名称重复）、422 |
+| GET | `/api/snippets/{snippet_id}` | 读取单个收藏 | | 200 | 404 |
+| PUT | `/api/snippets/{snippet_id}` | 全量更新收藏 | 同 POST | 200 | 404、409（名称重复）、422 |
+| DELETE | `/api/snippets/{snippet_id}` | 删除收藏 | | 204 | 404 |
+
+`headers` 不能包含 `Authorization`、`Cookie`、token、API key、password 或 secret 类凭据，`query` 不能包含 `token`；服务端写入和读取时再次过滤，避免调用方绕过前端或读取历史脏数据。名称唯一性区分大小写。创建响应带 `Location: /api/snippets/{snippet_id}`。
+
+（5 条）
+
+### 6.13 notifications
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
@@ -600,7 +621,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 
 （5 条）
 
-### 6.13 resources
+### 6.14 resources
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
@@ -626,7 +647,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 
 （13 条）
 
-### 6.14 agent
+### 6.15 agent
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
@@ -646,7 +667,7 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 （10 条）
 
-### 6.15 confirmations
+### 6.16 confirmations
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
@@ -662,7 +683,7 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 （3 条）
 
-### 6.16 mcp
+### 6.17 mcp
 
 MCP 采用 Streamable HTTP 传输，在同一个路径上用三个方法承载不同职责，这是协议规定的形状。
 
@@ -676,7 +697,7 @@ MCP 层的错误有两种表达：协议级错误（鉴权失败、会话无效�
 
 （3 条）
 
-### 6.17 静态资源与文档
+### 6.18 静态资源与文档
 
 | 方法 | 路径 | 用途 | 鉴权 |
 |---|---|---|---|
@@ -1068,7 +1089,7 @@ def normalize(task: TaskInput, defaults: ChannelDefaults) -> NormalizedTask:
 
 **状态流转靠条件更新兜底。** 所有终态流转写成 `UPDATE ... WHERE id = ? AND status = ?`，用影响行数判断是否被接受，返回 0 行则转成 409。细节见 [04-数据模型与持久化](./04-数据模型与持久化.md) 的仓储层章节。
 
-**原子操作与流水线的冲突。** 流水线运行中调用 `POST /api/device/*` 或 `/api/core/back_to_home` 返回 `409 PIPELINE_ALREADY_RUNNING`；带 `force=true` 则执行，但 `agent_audit.forced` 记为真。agent 的"卡死救援"场景应遵循的序列是：先 `DELETE /api/pipelines/{id}` 停止流水线，再做原子操作——这条序列写进工具描述里，而不是靠 agent 自己推断。
+**原子操作与流水线的冲突。** 流水线运行中调用 `POST /api/device/*` 或 `/api/core/back_to_home` 返回 `409 PIPELINE_ALREADY_RUNNING`；M10 手动 REST 请求带 `force=true` 则执行，并写强制介入警告日志，但该 REST 路径不创建 `agent_audit` 记录。Agent 工具调用的审计按 M11 Agent 工作流契约处理。Agent 的"卡死救援"场景应遵循的序列是：先 `DELETE /api/pipelines/{id}` 停止流水线，再做原子操作——这条序列写进工具描述里，而不是靠 agent 自己推断。
 
 **WebSocket 与 REST 的一致性。** 两者读的是同一份数据库状态，WS 事件只是变更通知，不携带权威状态。前端收到 `pipeline_status_changed` 后若需完整数据应重新拉取，避免乱序的事件覆盖了较新的状态。
 
@@ -1092,6 +1113,7 @@ TAGS = [
     {"name": "settings", "description": "可视化配置"},
     {"name": "notifications", "description": "多通道通知"},
     {"name": "resources", "description": "Copilot 作业、基建方案、自定义 task"},
+    {"name": "snippets", "description": "API 调试台收藏请求"},
     {"name": "agent", "description": "工具清单、会话与审计"},
     {"name": "confirmations", "description": "高风险操作的人工确认"},
     {"name": "ws", "description": "WebSocket 实时通道（仅文档说明，不可在此调试）"},

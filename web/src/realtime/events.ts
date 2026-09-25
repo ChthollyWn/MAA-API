@@ -8,6 +8,7 @@ export type WsEnvelope<TType extends string = string, TData = unknown> = {
 
 export interface LogRecord {
   id: number
+  stream_id?: string
   source: string
   level?: string
   content?: string
@@ -17,6 +18,7 @@ export interface LogRecord {
 export interface LogBatch {
   records: LogRecord[]
   truncated: boolean
+  stream_id?: string
 }
 
 export interface PipelineStatus {
@@ -46,7 +48,7 @@ export type ServerEvent =
   | WsEnvelope<'update_available', Record<string, unknown>>
   | WsEnvelope<'agent_event', Record<string, unknown>>
   | WsEnvelope<'server_shutdown', Record<string, unknown>>
-  | WsEnvelope<'subscribed', { channels?: string[]; backfilled?: number; truncated?: boolean }>
+  | WsEnvelope<'subscribed', { channels?: string[]; backfilled?: number; truncated?: boolean; stream_id?: string | null }>
   | WsEnvelope<'pong', { t?: number }>
   | WsEnvelope<'error', { code?: string; message?: string }>
 

@@ -21,6 +21,7 @@ from PIL import Image
 import adbutils
 
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.log_hub import create_task_without_request_id
 
 __all__ = [
     "COMMON_DEVICE_PORTS",
@@ -1084,7 +1085,7 @@ class DeviceManager:
                 self._probe_task = None
 
     def _spawn(self, coroutine: Any, name: str) -> asyncio.Task[Any]:
-        task = asyncio.create_task(coroutine, name=name)
+        task = create_task_without_request_id(coroutine, name=name)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task

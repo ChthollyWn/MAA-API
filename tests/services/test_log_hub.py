@@ -22,6 +22,7 @@ from maa_api.services.log_hub import (
     LogRecord,
     attach_log_hub,
     current_pipeline_id,
+    current_request_id,
     get_log_hub,
     mask_token,
     set_log_hub,
@@ -74,6 +75,17 @@ def test_ring_is_bounded_and_snapshot_reports_truncation() -> None:
     assert [record.id for record in hub.snapshot_after(3)[0]] == [4, 5]
 
 
+def test_snapshot_after_future_cursor_replays_current_ring_as_truncated() -> None:
+    hub = LogHub(ring_size=3)
+    for index in range(2):
+        hub.offer(_record(f"new-stream-{index}"))
+
+    records, truncated = hub.snapshot_after(999)
+
+    assert [record.content for record in records] == ["new-stream-0", "new-stream-1"]
+    assert truncated is True
+
+
 def test_concurrent_offer_assigns_unique_ordered_ids() -> None:
     hub = LogHub(ring_size=800)
     threads = [
@@ -103,6 +115,19 @@ def test_current_pipeline_context_is_attached_to_offered_record() -> None:
         current_pipeline_id.reset(token)
 
     assert record.pipeline_id == "pipeline-1"
+
+
+def test_current_request_context_is_attached_to_offered_record() -> None:
+    """A service log emitted while handling a request keeps that request's id."""
+    hub = LogHub()
+    token = current_request_id.set("request-42")
+    try:
+        record = _record("work")
+        hub.offer(record)
+    finally:
+        current_request_id.reset(token)
+
+    assert record.request_id == "request-42"
 
 
 def test_backpressure_drops_by_queue_usage_and_reports_without_requeueing() -> None:
