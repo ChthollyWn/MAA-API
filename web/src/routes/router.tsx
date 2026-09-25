@@ -21,6 +21,7 @@ const SchedulesPage = lazy(() => import('@/routes/schedules'))
 const SettingsPage = lazy(() => import('@/routes/settings'))
 const MorePage = lazy(() => import('@/routes/more'))
 const ApiConsolePage = lazy(() => import('@/features/api-console'))
+const AuditPage = lazy(() => import('@/features/audit/AuditPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
 const TASK_VIEW_PATHS = { create: '/tasks', queue: '/tasks/queue', history: '/tasks/history' } as const
 
@@ -153,6 +154,7 @@ export const routeConfig: RouteObject[] = [
       { path: 'more', element: <ProtectedRoute><Suspended><MorePage /></Suspended></ProtectedRoute> },
       { path: 'more/api-console/guide', element: <ProtectedRoute><Suspended><ApiConsolePage /></Suspended></ProtectedRoute> },
       { path: 'more/api-console', element: <ProtectedRoute><Suspended><ApiConsolePage /></Suspended></ProtectedRoute> },
+      { path: 'more/audit', element: <ProtectedRoute><Suspended><AuditPage /></Suspended></ProtectedRoute> },
       { path: 'more/updates', element: <ProtectedRoute><Suspended><UpdatesPage /></Suspended></ProtectedRoute> },
       { path: 'more/schedules', element: <ProtectedRoute><Suspended><SchedulesPage /></Suspended></ProtectedRoute> },
       { path: 'more/settings', element: <ProtectedRoute><Suspended><SettingsPage /></Suspended></ProtectedRoute> },

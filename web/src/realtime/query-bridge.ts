@@ -80,15 +80,25 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
       break
     case 'confirm_request':
     case 'confirm_resolved':
-      // Confirmation UI owns this transient state; there is no confirmation query key.
+      invalidateBatched(queryClient, keys.agent.pendingConfirmations())
+      invalidateBatched(queryClient, keys.agent.audits())
       break
     case 'update_progress':
     case 'update_available':
       invalidateBatched(queryClient, keys.updates.status())
       break
     case 'agent_event':
-    case 'server_shutdown':
+      if (event.data.event === 'atomic_grant_changed') {
+        queryClient.invalidateQueries({ queryKey: keys.agent.all(), refetchType: 'active' })
+      }
+      break
     case 'subscribed':
+      // Reconnect acknowledgement follows a possible WS gap; reload persisted
+      // approval/audit state so missed terminal events cannot leave stale cards.
+      invalidateBatched(queryClient, keys.agent.pendingConfirmations())
+      invalidateBatched(queryClient, keys.agent.audits())
+      break
+    case 'server_shutdown':
     case 'pong':
     case 'error':
       break

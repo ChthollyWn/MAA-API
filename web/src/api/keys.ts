@@ -37,4 +37,14 @@ export const keys = {
     all: () => [...root, 'updates'] as const,
     status: () => [...root, 'updates', 'status'] as const,
   },
+  agent: {
+    all: () => [...root, 'agent'] as const,
+    tools: () => [...root, 'agent', 'tools'] as const,
+    audits: () => [...root, 'agent', 'audits'] as const,
+    auditList: (filters?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'audits', filters ?? {}] as const,
+    auditDetail: (id: number) => [...root, 'agent', 'audits', 'detail', id] as const,
+    confirmations: () => [...root, 'confirmations'] as const,
+    pendingConfirmations: () => [...root, 'confirmations', 'pending'] as const,
+  },
 } as const
