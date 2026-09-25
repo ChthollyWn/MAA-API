@@ -75,7 +75,9 @@ import httpx
 
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import (
+    agent,
     atomic,
+    confirmations,
     device,
     logs,
     notifications,
@@ -447,6 +449,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     update_http_client = None
     update_scheduler = None
     schedule_service = None
+    confirmation_service = None
     device_start_task: asyncio.Task[Any] | None = None
     device_start_generation: int | None = None
     lifecycle_tasks: set[asyncio.Task[Any]] = set()
@@ -806,6 +809,56 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.game_update_service = game_update_service
         await update_service.recover_interrupted()
 
+        from maa_api.agent.confirmation import ConfirmationService
+        from maa_api.agent.policy import PolicyEngine
+        from maa_api.agent.tools import build_registry
+        from maa_api.services.agent_ops_service import AgentOpsService
+        from maa_api.services.resource_service import ResourceService
+
+        agent_ops_service = AgentOpsService(
+            core_supervisor=core_supervisor,
+            update_service=update_service,
+            queue_service=queue_service,
+            pipeline_runner=pipeline_runner,
+            session_factory=db_session.session_factory,
+            reconnect=lambda: device_manager.connect_with_retry(
+                attempts=getattr(device_manager, "reconnect_retry_attempts", 5),
+                interval=0,
+                reason="reconnect",
+            ),
+        )
+        resource_service = ResourceService(
+            db_session.session_factory,
+            resource_root=REPO_ROOT / "resource",
+            reload_resources=lambda: core_client._send(
+                "LOAD_RESOURCE",
+                {
+                    "path": str(maa_path),
+                    "incremental_paths": boot_config["incremental_paths"],
+                },
+            ),
+        )
+        app.state.agent_ops_service = agent_ops_service
+        app.state.resource_service = resource_service
+        confirmation_factory = getattr(
+            app.state, "confirmation_service_factory", ConfirmationService
+        )
+        confirmation_service = confirmation_factory(
+            db_session.session_factory,
+            build_registry(),
+            policy=PolicyEngine(
+                atomic_grant_minutes=current_settings.agent.atomic_grant_minutes
+            ),
+            broadcast=lambda message_type, data: ws_manager.broadcast(message_type, data),
+            notify=notify_service,
+            confirmation_timeout_seconds=current_settings.agent.confirmation_timeout_seconds,
+            grant_confirmation_timeout_seconds=(
+                current_settings.agent.grant_confirmation_timeout_seconds
+            ),
+        )
+        app.state.confirmation_service = confirmation_service
+        await confirmation_service.start()
+
         # A successful READY means the worker loaded the base and each present
         # incremental layer. Let UpdateService clear a deferred reload marker.
         async def confirm_resource_load() -> None:
@@ -883,6 +936,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.schedule_service = schedule_service
     except BaseException:
         shutdown_started = True
+        if confirmation_service is not None:
+            await confirmation_service.close()
         if schedule_service is not None:
             await schedule_service.close()
         if update_scheduler is not None and update_scheduler.running:
@@ -922,6 +977,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "game_update_service",
             "schedule_service",
             "update_scheduler",
+            "confirmation_service",
+            "agent_ops_service",
+            "resource_service",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)
@@ -939,6 +997,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         # 关闭顺序：停止消费 / 收尾当前任务 → 关闭子进程 → 关闭 WS/tailer → 刷盘。
         shutdown_started = True
+        if confirmation_service is not None:
+            await confirmation_service.close()
         if schedule_service is not None:
             await schedule_service.close()
         if update_scheduler is not None and update_scheduler.running:
@@ -987,6 +1047,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "game_update_service",
             "schedule_service",
             "update_scheduler",
+            "confirmation_service",
+            "agent_ops_service",
+            "resource_service",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)
@@ -1037,6 +1100,8 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router)
     app.include_router(schedules.router)
     app.include_router(snippets.router)
+    app.include_router(agent.router)
+    app.include_router(confirmations.router)
     app.include_router(ws_router)
 
     # Frontend assets are generated by ``vite build``. Keep this low-priority

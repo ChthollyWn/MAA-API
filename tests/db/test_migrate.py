@@ -156,20 +156,23 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
     # 备份是 upgrade 之前的快照（当前 head 的前序版本），且是可打开的上一版 schema。
     assert version(backup) == pre_head_revision()
     assert "alembic_version" in table_names(backup)
-    # 当前前序版本 0006 包含当时全部模型与收藏排序索引；本次待迁移只新增
-    # StageDrops / SanityBeforeStage 两张结构化统计表。
+    # 当前前序版本 0007 包含结构化统计表与收藏排序索引；0008 新增 Agent
+    # invoke 幂等表和 audit request_id 字段。
     backup_tables = table_names(backup)
-    new_statistic_tables = {"stage_drop", "sanity_observation"}
-    assert set(SQLModel.metadata.tables) - new_statistic_tables <= backup_tables
-    assert new_statistic_tables.isdisjoint(backup_tables)
+    new_tables = {"agent_idempotency"}
+    assert set(SQLModel.metadata.tables) - new_tables <= backup_tables
+    assert new_tables.isdisjoint(backup_tables)
     with contextlib.closing(sqlite3.connect(backup)) as conn:
         snippet_indexes = {row[1] for row in conn.execute("pragma index_list('api_snippet')")}
-        stage_indexes = {row[1] for row in conn.execute("pragma index_list('stage_drop')")}
-        sanity_indexes = {
-            row[1] for row in conn.execute("pragma index_list('sanity_observation')")
-        }
+        backup_audit_columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}
     assert "ix_api_snippet_updated_at" in snippet_indexes
-    assert stage_indexes == sanity_indexes == set()
+    assert "request_id" not in backup_audit_columns
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        live_audit_columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}
+        live_indexes = list(conn.execute("pragma index_list('agent_idempotency')"))
+    assert "request_id" in live_audit_columns
+    assert any(row[1] == "ix_agent_idempotency_created_at" for row in live_indexes)
+    assert sum(row[2] for row in live_indexes) == 1
 
     # 主库已迁到 head，业务表仍齐全
     assert version(db_path) == head_revision()

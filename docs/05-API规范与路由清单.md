@@ -1073,7 +1073,7 @@ def normalize(task: TaskInput, defaults: ChannelDefaults) -> NormalizedTask:
 | `POST /api/core/restart` | 已处于 `RESTARTING` 时返回 409 |
 | `POST /api/resources/reload` | `checksum` 未变化时返回 202 但不实际重载 |
 
-`Idempotency-Key` 的处理规则：客户端生成（推荐 UUID），服务端在 24 小时窗口内有效。命中已有记录时，**比对请求体哈希**——一致则返回原次的 202 与原 `pipeline_id`，不一致则返回 `409 IDEMPOTENCY_KEY_CONFLICT`。后一种情况通常意味着客户端的 key 生成有 bug，静默接受会掩盖问题。
+`Idempotency-Key` 的处理规则：客户端生成（推荐 UUID，长度 1–64 字符），服务端在 24 小时窗口内有效。命中已有记录时，**比对请求体哈希**——一致则返回首次响应（Agent 调用关联首次 `audit_id`），不一致则返回 `409 IDEMPOTENCY_KEY_CONFLICT`。流水线 key 落在 pipeline 唯一列；Agent key 与首次响应快照落 `agent_idempotency`，并以 `(caller, key)` 唯一约束兜底并发写入。后一种情况通常意味着客户端的 key 生成有 bug，静默接受会掩盖问题。
 
 为什么流水线提交需要这道保护：移动端是首要目标设备，弱网下用户点"开始"没有立即反馈会重复点击；PWA 的离线重放也可能重发同一请求。没有幂等保护的后果是队列里出现两条一模一样的日常任务，第二条跑起来会在已经做完的关卡上浪费理智。
 

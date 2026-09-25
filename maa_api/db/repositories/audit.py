@@ -31,6 +31,8 @@
 事务纪律（docs/04 §9）：本模块所有方法都**不 commit**，由调用方决定事务边界。
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 
@@ -38,7 +40,7 @@ from sqlalchemy import func, select, update
 
 from maa_api.db.models import AgentAudit, Confirmation, utcnow
 from maa_api.db.repositories.base import BaseRepository, Page
-from maa_api.domain.enums import CallerType, ConfirmationStatus
+from maa_api.domain.enums import AuditStatus, CallerType, ConfirmationStatus, RiskLevel
 
 # 单个字符串值的上限：超过 1 KB 的字符串值替换为 __truncated__ 结构（docs/04 §5.9）。
 # 按字符数而不是 UTF-8 字节数计：裁剪的直接目的是不让几十万字符的 base64 落库，
@@ -129,11 +131,52 @@ class AuditRepository(BaseRepository):
         """
         return await self.session.get(AgentAudit, audit_id)
 
+    async def set_terminal(
+        self,
+        audit_id: int,
+        status: AuditStatus | str,
+        *,
+        result_summary: str | None = None,
+        result_ref: dict[str, Any] | None = None,
+        error_code: str | None = None,
+        duration_ms: int | None = None,
+        confirmation_id: str | None = None,
+        authorized_by_id: str | None = None,
+    ) -> bool:
+        """Transition a pending call audit once after its async work resolves.
+
+        Tool invocations can remain pending through human approval. This is the
+        only permitted update path for `agent_audit`; terminal rows stay immutable.
+        """
+        target = AuditStatus(status)
+        if target is AuditStatus.PENDING:
+            return False
+        values: dict[str, Any] = {
+            "status": target,
+            "result_summary": truncate_result_summary(result_summary),
+            "result_ref": result_ref,
+            "error_code": error_code,
+        }
+        if duration_ms is not None:
+            values["duration_ms"] = max(int(duration_ms), 0)
+        if confirmation_id is not None or authorized_by_id is not None:
+            values["confirmation_id"] = confirmation_id
+            values["authorized_by_id"] = authorized_by_id
+        result = await self.session.execute(
+            update(AgentAudit)
+            .where(AgentAudit.id == audit_id, AgentAudit.status == AuditStatus.PENDING)
+            .values(**values)
+        )
+        return result.rowcount > 0
+
     async def list(
         self,
         *,
         caller: CallerType | str | None = None,
         tool_name: str | None = None,
+        status: AuditStatus | str | None = None,
+        risk_level: RiskLevel | str | None = None,
+        since: datetime | None = None,
         page: int = 1,
         size: int = 20,
     ) -> Page[AgentAudit]:
@@ -148,6 +191,12 @@ class AuditRepository(BaseRepository):
             conditions.append(AgentAudit.caller == caller)
         if tool_name is not None:
             conditions.append(AgentAudit.tool_name == tool_name)
+        if status is not None:
+            conditions.append(AgentAudit.status == AuditStatus(status))
+        if risk_level is not None:
+            conditions.append(AgentAudit.risk_level == RiskLevel(risk_level))
+        if since is not None:
+            conditions.append(AgentAudit.created_at >= since)
 
         items_stmt = (
             select(AgentAudit)
@@ -199,6 +248,22 @@ class ConfirmationRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
+    async def list(
+        self,
+        *,
+        status: ConfirmationStatus | str | None = ConfirmationStatus.PENDING,
+        page: int = 1,
+        size: int = 20,
+    ) -> Page[Confirmation]:
+        conditions = [] if status is None else [Confirmation.status == ConfirmationStatus(status)]
+        items_stmt = (
+            select(Confirmation)
+            .where(*conditions)
+            .order_by(Confirmation.created_at.desc(), Confirmation.id.desc())
+        )
+        count_stmt = select(func.count()).select_from(Confirmation).where(*conditions)
+        return await self.paginate(items_stmt, count_stmt, page=page, size=size)
+
     async def resolve(
         self,
         confirmation_id: str,
@@ -206,6 +271,7 @@ class ConfirmationRepository(BaseRepository):
         *,
         resolved_by: str,
         reason: str | None = None,
+        resolved_at: datetime | None = None,
     ) -> bool:
         """把待确认记录置入终态，返回状态机是否接受了这次流转（docs/04 §9）。
 
@@ -230,7 +296,7 @@ class ConfirmationRepository(BaseRepository):
                 status=target,
                 resolved_by=resolved_by,
                 resolved_reason=reason,
-                resolved_at=utcnow(),
+                resolved_at=resolved_at or utcnow(),
             )
         )
         return result.rowcount > 0
@@ -264,3 +330,47 @@ class ConfirmationRepository(BaseRepository):
             execution_options={"synchronize_session": False},
         )
         return list(result.scalars().all())
+
+    async def expire_all_pending(self, now: datetime) -> list[str]:
+        """Expire every pending confirmation for process-restart recovery."""
+        result = await self.session.execute(
+            update(Confirmation)
+            .where(Confirmation.status == ConfirmationStatus.PENDING)
+            .values(
+                status=ConfirmationStatus.EXPIRED,
+                resolved_by="system",
+                resolved_reason="服务重启，未完成的确认已失效",
+                resolved_at=now,
+            )
+            .returning(Confirmation.id),
+            execution_options={"synchronize_session": False},
+        )
+        return list(result.scalars().all())
+
+    async def reject_pending_grants_for_session(
+        self, session_id: str, *, resolved_by: str, reason: str, now: datetime
+    ) -> list[Confirmation]:
+        """Reject outstanding grant confirmations for one internal session."""
+        rows = (
+            await self.session.execute(
+                select(Confirmation)
+                .where(
+                    Confirmation.status == ConfirmationStatus.PENDING,
+                    Confirmation.action == "grant_atomic_ops",
+                )
+                .order_by(Confirmation.created_at.asc(), Confirmation.id.asc())
+            )
+        ).scalars().all()
+        resolved: list[Confirmation] = []
+        for row in rows:
+            if row.payload.get("session_id") != session_id:
+                continue
+            if await self.resolve(
+                row.id,
+                ConfirmationStatus.REJECTED,
+                resolved_by=resolved_by,
+                reason=reason,
+                resolved_at=now,
+            ):
+                resolved.append(row)
+        return resolved
