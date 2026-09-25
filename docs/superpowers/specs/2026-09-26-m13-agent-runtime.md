@@ -7,7 +7,7 @@
 ## 已确认的产品行为
 
 - 默认端点为 `https://api.deepseek.com`，默认模型标识为 `deepseek-v4.1-flash`；用户仍可通过现有 `llm.base_url`、`llm.model` 设置改用兼容端点。API Key 留空，须由用户配置。
-- 通过设置 API 写入 SQLite 的 LLM API Key 使用 Fernet 加密，主密钥取自 `MAA_LLM_ENCRYPTION_KEY`。响应继续脱敏。YAML / 环境变量来源仍由部署者管理。缺少主密钥时拒绝写入数据库；已有明文数据库值可在主密钥配置后迁移。错误或丢失的主密钥不会阻止 FastAPI 启动，但会使该密钥不可用于 LLM 请求并返回 `LLM_ENCRYPTION_KEY_INVALID`（503）。
+- 通过设置 API 写入 SQLite 的 LLM API Key 使用 Fernet 加密，主密钥取自 `MAA_LLM_ENCRYPTION_KEY`。响应继续脱敏。YAML / 环境变量来源仍由部署者管理。缺少主密钥时拒绝写入数据库；已有明文数据库值可在主密钥配置后迁移。错误或丢失的主密钥不会阻止 FastAPI 启动；该数据库密钥被禁用并记录状态错误。如果 YAML 或环境变量提供了有效的更高优先级 key，LLM 仍可使用它；只有没有任何有效配置 key 时，LLM 请求才返回 `LLM_ENCRYPTION_KEY_INVALID`（503）。
 - `POST /api/agent/sessions/{session_id}/messages` 接受 `{ "content": "..." }` 并返回 SSE。事件为 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`message_end`、`error`。用户消息、assistant/tool 轨迹、审计关联与 token 用量继续写入 `agent_message` / `agent_audit`。
 - 单会话同时只允许一个对话轮次；每轮最多 12 次模型响应。只读工具批次可并发，含写操作的批次按模型给出的顺序串行执行。历史裁剪保留完整工具调用轮次，只向模型发送最新一张截图，并注入服务端状态摘要。
 - `POST /api/agent/capabilities/check` 以一个无副作用工具调用和小型测试图片检查工具调用及视觉输入能力。缺少工具调用能力时阻止 Agent 对话；缺少视觉能力时停止依赖截图的分析/操作能力，并返回可显示的原因。
@@ -28,6 +28,7 @@
 ## 错误与兼容
 
 - 上游非 2xx、超时、无效 SSE / tool-call JSON、上下文溢出、模型能力缺失使用稳定 Agent 错误，不把 API Key、授权头、绝对本地文件内容写入日志或模型上下文。
+- 上游错误体只透传 HTTP 状态与经过安全校验的符号错误码；设置 API 对敏感值校验错误不返回输入值；新错误码必须出现在 endpoint 的 OpenAPI response 声明。
 - Copilot 资产不存在、kind 不符、文件超出资源根目录、文件无法物化时任务在投递 MaaCore 前失败，并保留稳定错误码和 task/pipeline 状态。
 - 既有 Agent 会话不设 incident key，可正常读取；迁移为 nullable 列与唯一索引，不改写 M11 历史记录。
 - 自动诊断关闭时不调用 LLM；故障和日志仍按既有日志/事件路径留存。

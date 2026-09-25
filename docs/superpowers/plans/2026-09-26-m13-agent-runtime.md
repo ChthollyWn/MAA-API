@@ -26,7 +26,7 @@
 
 ### Task 1：LLM 密钥加密与 OpenAI-compatible 客户端
 
-**文件：** `maa_api/agent/secrets.py`（新）、`maa_api/agent/llm.py`、`maa_api/settings.py`、`maa_api/services/setting_service.py`、`maa_api/services/settings_schema.py`、`maa_api/domain/errors.py`、`config.template.yaml`、`tests/agent/test_llm.py`（新）、`tests/services/test_setting_service.py`。
+**文件：** `maa_api/agent/secrets.py`（新）、`maa_api/agent/llm.py`、`maa_api/settings.py`、`maa_api/services/setting_service.py`、`maa_api/services/settings_schema.py`、`maa_api/domain/errors.py`、`maa_api/api/routers/settings.py`、`pyproject.toml` / `poetry.lock`、`config.template.yaml`、`docs/05-API规范与路由清单.md`、`web/openapi.json`、`web/src/types/api.d.ts`（生成）、`tests/agent/test_llm.py`（新）、`tests/services/test_setting_service.py`、`tests/domain/test_errors.py`、`tests/api/test_settings_router.py`。
 
 **接口：** `OpenAICompatibleClient(*, base_url: str, api_key: str, http_client: httpx.AsyncClient | None = None, timeout_seconds: float = 120.0)`；`stream_chat_completion(model, messages, tools)` 输出原始 OpenAI SSE chunk dict。`encrypt_api_key(api_key, key)` / `decrypt_api_key(value, key)` 使用字符串 Fernet key，数据库密文前缀为 `enc:v1:`。
 
@@ -51,13 +51,15 @@ def test_api_key_ciphertext_round_trips_and_rejects_wrong_key():
 
 - [ ] 用 Fernet 实现版本化密文存储；Settings API 对敏感值继续只返回 `***`；缺 key 时拒绝新增 DB 密钥；遇到旧明文在 key 已配置时改写密文；错 key 保持服务启动但清空可用 key 并记录状态错误。
 - [ ] 为错 key 定义 `LLM_ENCRYPTION_KEY_INVALID`，HTTP 映射为 503；实现 httpx SSE 行解析，识别 `data: [DONE]`，不把请求认证头/响应原始密文写日志；设置默认 endpoint/model，保留三个 OpenAI-compatible 设置项。
+- [ ] 将 `cryptography` 明确列为项目直接依赖并更新 lockfile，不升级无关包；在 docs/05 的规范错误码表加入密钥错误及可操作说明。
+- [ ] 设置 `PUT /api/settings` 的声明错误列表加入 `LLM_ENCRYPTION_KEY_INVALID`；按 AGENTS.md 先运行 `.venv/bin/python scripts/dump_openapi.py`，再运行 `cd web && pnpm gen:api`，提交生成的 OpenAPI/TS 契约。
 - [ ] 运行 `.venv/bin/python -m pytest -q tests/agent/test_llm.py tests/services/test_setting_service.py tests/api/test_settings_router.py`，再提交 `feat(agent): add encrypted DeepSeek-compatible client`。
 
 ### Task 2：AgentRuntime、会话 SSE 与能力自检
 
 **文件：** `maa_api/agent/runtime.py`、`maa_api/agent/registry.py`、`maa_api/agent/tools/*.py`（只补只读元数据）、`maa_api/api/routers/agent.py`、`maa_api/db/repositories/agent.py`（如需会话 seq 辅助）、`tests/agent/test_runtime.py`（新）、`tests/api/test_agent_router.py`。
 
-**接口：** `AgentRuntime.stream_message(session_id, content, request)` 产生具名 SSE 事件；`acquire_session(session_id) -> bool` 与 `release_session(session_id)` 管理单会话锁。`POST /api/agent/capabilities/check` 返回 model/tool_calling/vision/ready/status；消息入参维持 `{content}`。
+**接口：** `AgentRuntime.stream_message(session_id, content, request)` 产生具名 SSE 事件；`acquire_session(session_id) -> bool` 与 `release_session(session_id)` 管理单会话锁。`SettingService.llm_encryption_error` 表示不可解密的遗留 DB key；当有效设置解析没有产出 API Key 时返回 `LLM_ENCRYPTION_KEY_INVALID`，有效 YAML/env key 仍按既有优先级可用。`POST /api/agent/capabilities/check` 返回 model/tool_calling/vision/ready/status；消息入参维持 `{content}`。
 
 - [ ] 添加假 LLM 传输下单轮文本、多轮 tool call、异常 JSON、并发第二条消息 409、token usage、消息顺序的测试；确认 RED。
 
