@@ -39,9 +39,22 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             await connection.run_sync(SQLModel.metadata.create_all)
 
         invoked = []
+        sync_invoked = []
 
         async def handler(params, _context):
             invoked.append(params.value)
+            return {"value": params.value}
+
+        async def safe_handler(params, _context):
+            sync_invoked.append(params.value)
+            if params.value == 12:
+                from maa_api.domain.errors import AppError, ErrorCode
+
+                raise AppError(
+                    ErrorCode.CORE_COMMAND_FAILED,
+                    "test synchronous tool failure",
+                    {"attempt": 1},
+                )
             return {"value": params.value}
 
         registry = ToolRegistry()
@@ -53,6 +66,16 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
                 description="dangerous test action",
                 params_model=Args,
                 handler=handler,
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="safe_action",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="safe test action",
+                params_model=Args,
+                handler=safe_handler,
             )
         )
         service = ConfirmationService(factory, registry, policy=PolicyEngine())
@@ -76,10 +99,10 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
         client.__enter__()
         try:
             listed = client.get("/api/agent/tools").json()
-            assert listed["total"] == 1
+            assert listed["total"] == 2
             assert listed["items"][0]["name"] == "dangerous_action"
             assert client.get("/api/agent/tools?risk_level=destructive").json()["total"] == 1
-            assert client.get("/api/agent/tools?risk_level=none").json()["total"] == 0
+            assert client.get("/api/agent/tools?risk_level=none").json()["total"] == 1
 
             created = client.post("/api/agent/sessions", json={"title": "test"})
             assert created.status_code == 201
@@ -105,6 +128,9 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
                     CallerType.REST, "invoke-key-1"
                 )
                 assert key_record.audit_id == audit_id
+                assert key_record.request_mode == "async"
+                assert key_record.response_status == 202
+                assert key_record.response_body == accepted.json()
             replayed = client.post(
                 "/api/agent/tools/dangerous_action/invoke",
                 json={"arguments": {"value": 8}, "mode": "async"},
@@ -174,6 +200,75 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             assert client.delete(f"/api/agent/sessions/{session_id}/atomic-grant").status_code == 204
             assert client.delete(f"/api/agent/sessions/{session_id}").status_code == 204
             assert client.get(f"/api/agent/sessions/{session_id}").status_code == 404
+
+            sync_first = client.post(
+                "/api/agent/tools/safe_action/invoke",
+                json={"arguments": {"value": 11}, "mode": "sync"},
+                headers={"Idempotency-Key": "sync-crash-recovery"},
+            )
+            assert sync_first.status_code == 200
+            assert sync_first.json()["result"] == {"value": 11}
+            async with factory() as db:
+                sync_record = await AgentIdempotencyRepository(db).get(
+                    CallerType.REST, "sync-crash-recovery"
+                )
+                sync_audit_id = sync_record.audit_id
+                sync_record.response_body = None
+                await db.commit()
+            await service.reset_after_restart()
+            sync_retry = client.post(
+                "/api/agent/tools/safe_action/invoke",
+                json={"arguments": {"value": 11}, "mode": "sync"},
+                headers={"Idempotency-Key": "sync-crash-recovery"},
+            )
+            assert sync_retry.status_code == 200
+            assert sync_retry.json() == sync_first.json()
+            assert sync_invoked == [11]
+            sync_audit = client.get(f"/api/agent/audits/{sync_audit_id}").json()
+            assert sync_audit["status"] == "success"
+
+            failed_first = client.post(
+                "/api/agent/tools/safe_action/invoke",
+                json={"arguments": {"value": 12}, "mode": "sync"},
+                headers={"Idempotency-Key": "sync-error-replay"},
+            )
+            assert failed_first.status_code == 502
+            failed_replay = client.post(
+                "/api/agent/tools/safe_action/invoke",
+                json={"arguments": {"value": 12}, "mode": "sync"},
+                headers={"Idempotency-Key": "sync-error-replay"},
+            )
+            assert failed_replay.status_code == failed_first.status_code
+            assert failed_replay.json() == failed_first.json()
+            assert sync_invoked == [11, 12]
+
+            original_idempotency_get = AgentIdempotencyRepository.get
+            snapshot_write_reads = 0
+
+            async def fail_after_terminal_snapshot(repository, caller, key):
+                nonlocal snapshot_write_reads
+                if key == "sync-final-snapshot-write-fails":
+                    snapshot_write_reads += 1
+                    if snapshot_write_reads == 3:
+                        raise RuntimeError("injected redundant response write failure")
+                return await original_idempotency_get(repository, caller, key)
+
+            monkeypatch.setattr(AgentIdempotencyRepository, "get", fail_after_terminal_snapshot)
+            interrupted_response = client.post(
+                "/api/agent/tools/safe_action/invoke",
+                json={"arguments": {"value": 13}, "mode": "sync"},
+                headers={"Idempotency-Key": "sync-final-snapshot-write-fails"},
+            )
+            assert interrupted_response.status_code == 500
+            assert sync_invoked == [11, 12, 13]
+            replay_after_error = client.post(
+                "/api/agent/tools/safe_action/invoke",
+                json={"arguments": {"value": 13}, "mode": "sync"},
+                headers={"Idempotency-Key": "sync-final-snapshot-write-fails"},
+            )
+            assert replay_after_error.status_code == 200
+            assert replay_after_error.json()["result"] == {"value": 13}
+            assert sync_invoked == [11, 12, 13]
         finally:
             client.__exit__(None, None, None)
             set_settings(None)
@@ -208,6 +303,7 @@ def test_idempotency_loser_returns_explicit_in_progress_with_linked_audit(monkey
                     key="in-progress",
                     request_hash="a" * 64,
                     audit_id=audit.id,
+                    request_mode="async",
                 )
             )
             await session.commit()

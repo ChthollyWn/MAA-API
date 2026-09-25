@@ -17,13 +17,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from maa_api.agent.registry import ToolContext
 from maa_api.api.deps import get_session, require_auth
 from maa_api.api.errors import error_responses
-from maa_api.db.models import AgentAudit, AgentIdempotency, AgentMessage, AgentSession, utcnow
+from maa_api.db.models import (
+    AgentAudit,
+    AgentIdempotency,
+    AgentMessage,
+    AgentSession,
+    utcnow,
+)
 from maa_api.db.repositories.agent import (
     AgentIdempotencyRepository,
     AgentMessageRepository,
     AgentSessionRepository,
 )
-from maa_api.db.repositories.audit import AuditRepository
+from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepository
 from maa_api.domain.enums import AuditStatus, CallerType, RiskLevel
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import get_settings
@@ -320,6 +326,7 @@ async def invoke_tool(
                     caller=CallerType.REST,
                     key=key,
                     request_hash=request_hash,
+                    request_mode=payload.mode,
                     created_at=utcnow(),
                 )
                 try:
@@ -348,7 +355,48 @@ async def invoke_tool(
                         "相同 Idempotency-Key 已用于不同的工具请求",
                     )
                 record.audit_id = audit_id
+                record.request_mode = payload.mode
+                if payload.mode == "async":
+                    audit = await AuditRepository(db).get(audit_id)
+                    if audit is not None and audit.confirmation_id:
+                        confirmation = await ConfirmationRepository(db).get(
+                            audit.confirmation_id
+                        )
+                        if confirmation is None:
+                            raise AppError(
+                                ErrorCode.SERVICE_UNAVAILABLE,
+                                "确认记录未能关联到幂等请求",
+                                {"audit_id": audit_id},
+                            )
+                        record.response_body = {
+                            "code": str(ErrorCode.CONFIRMATION_REQUIRED),
+                            "status": "awaiting_confirmation",
+                            "confirmation_id": confirmation.id,
+                            "audit_id": audit_id,
+                            "expires_at": _iso(confirmation.expires_at),
+                        }
+                    else:
+                        record.response_body = {"status": "accepted", "audit_id": audit_id}
+                    record.response_status = status.HTTP_202_ACCEPTED
                 await db.commit()
+
+        async def persist_audit_terminal(
+            db: AsyncSession,
+            audit_id: int,
+            response_status: int,
+            response_body: dict[str, Any],
+        ) -> None:
+            record = await AgentIdempotencyRepository(db).get_by_audit_id(audit_id)
+            if (
+                record is None
+                or record.request_mode != "sync"
+                or record.response_body is not None
+            ):
+                return
+            record.response_status = response_status
+            record.response_body = json.loads(
+                json.dumps(response_body, ensure_ascii=False, default=str)
+            )
 
         try:
             result = await service.invoke(
@@ -357,22 +405,29 @@ async def invoke_tool(
                 context,
                 mode=payload.mode,
                 on_audit_created=persist_audit_link,
+                on_audit_terminal=persist_audit_terminal,
             )
         except AppError as exc:
             audit_id = (exc.details or {}).get("audit_id")
             async with repository_factory() as db:
                 repository = AgentIdempotencyRepository(db)
                 record = await repository.get(CallerType.REST, key)
+                if audit_id is None and record is not None:
+                    audit_id = record.audit_id
                 if record is not None and audit_id is not None:
                     record.audit_id = int(audit_id)
-                    record.response_status = exc.http_status
-                    record.response_body = {
-                        "__idempotency_error__": {
-                            "code": str(exc.code),
-                            "message": exc.message,
-                            "details": exc.details,
+                    if record.response_body is None:
+                        record.response_status = exc.http_status
+                        record.response_body = {
+                            "__idempotency_error__": {
+                                "code": str(exc.code),
+                                "message": exc.message,
+                                "details": {
+                                    **(exc.details or {}),
+                                    "audit_id": int(audit_id),
+                                },
+                            }
                         }
-                    }
                 elif record is not None:
                     await repository.delete(CallerType.REST, key)
                 await db.commit()
@@ -384,7 +439,24 @@ async def invoke_tool(
             ) from exc
         except Exception:
             async with repository_factory() as db:
-                await AgentIdempotencyRepository(db).delete(CallerType.REST, key)
+                repository = AgentIdempotencyRepository(db)
+                record = await repository.get(CallerType.REST, key)
+                if record is not None and record.audit_id is None:
+                    await repository.delete(CallerType.REST, key)
+                elif record is not None and record.response_body is None:
+                    error = AppError(
+                        ErrorCode.SERVICE_UNAVAILABLE,
+                        "工具调用中断，执行结果不确定；为避免重复副作用，请先查询审计记录",
+                        {"audit_id": record.audit_id},
+                    )
+                    record.response_status = error.http_status
+                    record.response_body = {
+                        "__idempotency_error__": {
+                            "code": str(error.code),
+                            "message": error.message,
+                            "details": error.details,
+                        }
+                    }
                 await db.commit()
             raise
 
@@ -403,9 +475,9 @@ async def invoke_tool(
                     record.response_body = stored_body
                 await db.commit()
         except Exception:
-            async with repository_factory() as db:
-                await AgentIdempotencyRepository(db).delete(CallerType.REST, key)
-                await db.commit()
+            # The handler/audit transaction may already have committed a durable
+            # response snapshot. Never delete a linked reservation here: a retry
+            # could otherwise execute the side effect again with the same key.
             raise
         return result
 

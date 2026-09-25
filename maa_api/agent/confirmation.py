@@ -19,7 +19,11 @@ from maa_api.db.repositories.agent import (
     AgentIdempotencyRepository,
     AgentSessionRepository,
 )
-from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepository
+from maa_api.db.repositories.audit import (
+    MAX_RESULT_SUMMARY_CHARS,
+    AuditRepository,
+    ConfirmationRepository,
+)
 from maa_api.domain.enums import (
     AgentSessionStatus,
     AuditStatus,
@@ -34,6 +38,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIRMATION_TIMEOUT_SECONDS = 10 * 60
 DEFAULT_GRANT_CONFIRMATION_TIMEOUT_SECONDS = 120
 MCP_CONFIRMATION_WAIT_SECONDS = 25
+AuditTerminalCallback = Callable[[AsyncSession, int, int, dict[str, Any]], Any]
 
 
 class ConfirmationService:
@@ -81,6 +86,7 @@ class ConfirmationService:
         *,
         mode: str = "sync",
         on_audit_created: Callable[[int], Any] | None = None,
+        on_audit_terminal: AuditTerminalCallback | None = None,
     ) -> dict[str, Any]:
         return await self._invoke(
             name,
@@ -88,6 +94,7 @@ class ConfirmationService:
             context,
             mode=mode,
             on_audit_created=on_audit_created,
+            on_audit_terminal=on_audit_terminal,
         )
 
     async def invoke_mcp(
@@ -110,6 +117,7 @@ class ConfirmationService:
         mode: str,
         mcp_short_wait: bool = False,
         on_audit_created: Callable[[int], Any] | None = None,
+        on_audit_terminal: AuditTerminalCallback | None = None,
     ) -> dict[str, Any]:
         if mode not in {"sync", "async"}:
             raise AppError(ErrorCode.INVALID_PARAMETER, "mode 必须为 sync 或 async")
@@ -133,6 +141,7 @@ class ConfirmationService:
                     decision,
                     event,
                     self._grant_revocation_epochs.get(context.session_id or "", 0),
+                    on_audit_terminal,
                 ),
                 name=f"agent-confirm-{confirmation_id}",
             )
@@ -217,6 +226,7 @@ class ConfirmationService:
                     dict(arguments),
                     context,
                     authorized_by=decision.authorized_by,
+                    on_audit_terminal=on_audit_terminal,
                 ),
                 name=f"agent-tool-{audit_id}",
             )
@@ -233,6 +243,7 @@ class ConfirmationService:
                 dict(arguments),
                 context,
                 authorized_by=decision.authorized_by,
+                on_audit_terminal=on_audit_terminal,
             )
         except AppError as exc:
             exc.details = {**(exc.details or {}), "audit_id": audit_id}
@@ -276,6 +287,13 @@ class ConfirmationService:
                             error_code=str(ErrorCode.CONFIRMATION_EXPIRED),
                             result_summary="确认超时，已自动拒绝",
                         )
+                        await self._complete_sync_idempotency_error(
+                            session,
+                            row.audit_id,
+                            ErrorCode.CONFIRMATION_EXPIRED,
+                            "确认请求已过期",
+                            {"audit_id": row.audit_id, "confirmation_id": confirmation_id},
+                        )
                     await session.commit()
                     expired_row = await repo.get(confirmation_id)
                 else:
@@ -318,6 +336,13 @@ class ConfirmationService:
                     AuditStatus.REJECTED,
                     error_code=str(ErrorCode.CONFIRMATION_REJECTED),
                     result_summary=reason or "用户拒绝操作",
+                )
+                await self._complete_sync_idempotency_error(
+                    session,
+                    row.audit_id,
+                    ErrorCode.CONFIRMATION_REJECTED,
+                    "确认请求已被拒绝",
+                    {"audit_id": row.audit_id, "confirmation_id": confirmation_id},
                 )
             await session.commit()
 
@@ -417,6 +442,7 @@ class ConfirmationService:
                 .values(atomic_grant_id=None, atomic_grant_expires_at=None, updated_at=now)
             )
             await AgentIdempotencyRepository(session).delete_unlinked()
+            await self._recover_unanswered_idempotency(session)
             await session.commit()
         for confirmation_id in result:
             self.broadcast(
@@ -496,6 +522,7 @@ class ConfirmationService:
                             "为避免重复副作用，不会自动重试"
                         ),
                     )
+            await self._recover_unanswered_idempotency(session)
             await session.commit()
         for confirmation_id in expired_ids:
             self.broadcast(
@@ -537,6 +564,13 @@ class ConfirmationService:
                             AuditStatus.EXPIRED,
                             error_code=str(ErrorCode.CONFIRMATION_EXPIRED),
                             result_summary="确认超时，已自动拒绝",
+                        )
+                        await self._complete_sync_idempotency_error(
+                            session,
+                            row.audit_id,
+                            ErrorCode.CONFIRMATION_EXPIRED,
+                            "确认请求已过期",
+                            {"audit_id": row.audit_id, "confirmation_id": row.id},
                         )
             expired_grants = await AgentSessionRepository(session).clear_expired_grants(now)
             await session.commit()
@@ -586,6 +620,16 @@ class ConfirmationService:
                             AuditStatus.REJECTED,
                             error_code=str(ErrorCode.CONFIRMATION_REJECTED),
                             result_summary="用户撤销了会话授权",
+                        )
+                        await self._complete_sync_idempotency_error(
+                            session,
+                            confirmation.audit_id,
+                            ErrorCode.CONFIRMATION_REJECTED,
+                            "确认请求已被拒绝",
+                            {
+                                "audit_id": confirmation.audit_id,
+                                "confirmation_id": confirmation.id,
+                            },
                         )
                 await session.commit()
         for confirmation in pending:
@@ -704,6 +748,7 @@ class ConfirmationService:
         decision: PolicyDecision,
         event: asyncio.Event,
         revocation_epoch: int = 0,
+        on_audit_terminal: AuditTerminalCallback | None = None,
     ) -> None:
         expires_at = self._confirmation_expiry(decision.confirmation_action)
         remaining = max((expires_at - self.clock()).total_seconds(), 0)
@@ -716,25 +761,33 @@ class ConfirmationService:
         if confirmation["status"] != ConfirmationStatus.APPROVED.value:
             return
         grant_id = None
-        if decision.confirmation_action == "grant_atomic_ops":
-            grant_id = confirmation_id
-            session_id = context.session_id or ""
-            lock = self._grant_locks.setdefault(session_id, asyncio.Lock())
-            async with lock:
-                if self._grant_revocation_epochs.get(session_id, 0) != revocation_epoch:
-                    await self._complete_audit(
-                        audit_id,
-                        AuditStatus.REJECTED,
-                        error_code=str(ErrorCode.CONFIRMATION_REJECTED),
-                        result_summary="用户撤销了会话授权",
-                    )
-                    return
-                await self._grant_session(
-                    context.session_id,
-                    confirmation_id,
-                    int(decision.window_seconds or 900),
-                )
         try:
+            if decision.confirmation_action == "grant_atomic_ops":
+                grant_id = confirmation_id
+                session_id = context.session_id or ""
+                lock = self._grant_locks.setdefault(session_id, asyncio.Lock())
+                async with lock:
+                    if self._grant_revocation_epochs.get(session_id, 0) != revocation_epoch:
+                        error = AppError(
+                            ErrorCode.CONFIRMATION_REJECTED,
+                            "用户撤销了会话授权",
+                            {"audit_id": audit_id, "confirmation_id": confirmation_id},
+                        )
+                        await self._complete_audit(
+                            audit_id,
+                            AuditStatus.REJECTED,
+                            error_code=str(error.code),
+                            result_summary=error.message,
+                            response_status=error.http_status,
+                            response_body=_idempotency_error_body(error),
+                            on_audit_terminal=on_audit_terminal,
+                        )
+                        return
+                    await self._grant_session(
+                        context.session_id,
+                        confirmation_id,
+                        int(decision.window_seconds or 900),
+                    )
             await self._execute_and_record(
                 audit_id,
                 name,
@@ -742,11 +795,28 @@ class ConfirmationService:
                 context,
                 confirmation_id=confirmation_id,
                 authorized_by=grant_id,
+                on_audit_terminal=on_audit_terminal,
             )
-        except AppError:
+        except AppError as exc:
             # Detached confirmation workers persist failures on the audit row;
             # they must not leave unobserved task exceptions on the event loop.
-            pass
+            details = {
+                **(exc.details or {}),
+                "audit_id": audit_id,
+                "confirmation_id": confirmation_id,
+            }
+            error = AppError(exc.code, exc.message, details, exc.headers)
+            await self._complete_audit(
+                audit_id,
+                AuditStatus.FAILED,
+                error_code=str(error.code),
+                result_summary=error.message,
+                confirmation_id=(None if grant_id else confirmation_id),
+                authorized_by=grant_id,
+                response_status=error.http_status,
+                response_body=_idempotency_error_body(error),
+                on_audit_terminal=on_audit_terminal,
+            )
         self.broadcast(
             "confirm_resolved",
             {
@@ -765,6 +835,7 @@ class ConfirmationService:
         *,
         confirmation_id: str | None = None,
         authorized_by: str | None = None,
+        on_audit_terminal: AuditTerminalCallback | None = None,
     ) -> Any:
         started = time.monotonic()
         definition = self.registry.get(name)
@@ -785,9 +856,22 @@ class ConfirmationService:
                 duration_ms=int((time.monotonic() - started) * 1000),
                 confirmation_id=(None if authorized_by else confirmation_id),
                 authorized_by=authorized_by,
+                response_status=200,
+                response_body={
+                    "status": "success",
+                    **({"confirmation_id": confirmation_id} if confirmation_id else {}),
+                    "audit_id": audit_id,
+                    "result": result,
+                },
+                on_audit_terminal=on_audit_terminal,
             )
             return result
         except AppError as exc:
+            details = {
+                **(exc.details or {}),
+                "audit_id": audit_id,
+                **({"confirmation_id": confirmation_id} if confirmation_id else {}),
+            }
             await self._complete_audit(
                 audit_id,
                 AuditStatus.FAILED,
@@ -796,10 +880,27 @@ class ConfirmationService:
                 duration_ms=int((time.monotonic() - started) * 1000),
                 confirmation_id=(None if authorized_by else confirmation_id),
                 authorized_by=authorized_by,
+                response_status=exc.http_status,
+                response_body={
+                    "__idempotency_error__": {
+                        "code": str(exc.code),
+                        "message": exc.message,
+                        "details": details,
+                    }
+                },
+                on_audit_terminal=on_audit_terminal,
             )
             raise
         except Exception as exc:
             logger.exception("Agent 工具执行失败：%s", name)
+            error = AppError(
+                ErrorCode.TOOL_EXECUTION_FAILED,
+                "工具执行失败",
+                {
+                    "audit_id": audit_id,
+                    **({"confirmation_id": confirmation_id} if confirmation_id else {}),
+                },
+            )
             await self._complete_audit(
                 audit_id,
                 AuditStatus.FAILED,
@@ -808,8 +909,17 @@ class ConfirmationService:
                 duration_ms=int((time.monotonic() - started) * 1000),
                 confirmation_id=(None if authorized_by else confirmation_id),
                 authorized_by=authorized_by,
+                response_status=error.http_status,
+                response_body={
+                    "__idempotency_error__": {
+                        "code": str(error.code),
+                        "message": error.message,
+                        "details": error.details,
+                    }
+                },
+                on_audit_terminal=on_audit_terminal,
             )
-            raise AppError(ErrorCode.TOOL_EXECUTION_FAILED, "工具执行失败") from exc
+            raise error from exc
 
     async def _create_audit(
         self,
@@ -835,6 +945,142 @@ class ConfirmationService:
             await session.commit()
             return int(row.id)
 
+    async def _complete_sync_idempotency_error(
+        self,
+        session: AsyncSession,
+        audit_id: int,
+        code: ErrorCode,
+        message: str,
+        details: dict[str, Any],
+    ) -> None:
+        record = await AgentIdempotencyRepository(session).get_by_audit_id(audit_id)
+        if (
+            record is None
+            or record.request_mode != "sync"
+            or record.response_body is not None
+        ):
+            return
+        error = AppError(code, message, details)
+        record.response_status = error.http_status
+        record.response_body = {
+            "__idempotency_error__": {
+                "code": str(error.code),
+                "message": error.message,
+                "details": error.details,
+            }
+        }
+
+    async def _recover_unanswered_idempotency(self, session: AsyncSession) -> None:
+        """Converge linked reservations before accepting retries after restart/close."""
+        from sqlalchemy import select
+
+        records = await AgentIdempotencyRepository(session).list_unanswered()
+        for record in records:
+            if record.audit_id is None:
+                continue
+            audit = (
+                await session.execute(
+                    select(AgentAudit)
+                    .where(AgentAudit.id == record.audit_id)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
+            if audit is None:
+                error = AppError(
+                    ErrorCode.SERVICE_UNAVAILABLE,
+                    "幂等请求的审计记录不存在；为避免重复执行，请勿自动重试",
+                    {"audit_id": record.audit_id},
+                )
+                record.response_status = error.http_status
+                record.response_body = _idempotency_error_body(error)
+                continue
+
+            if record.request_mode not in {"sync", "async"}:
+                error = AppError(
+                    ErrorCode.SERVICE_UNAVAILABLE,
+                    "幂等记录缺少原调用模式，无法完整重放首次响应；请通过 audit_id 查询执行结果",
+                    {"audit_id": audit.id},
+                )
+                record.response_status = error.http_status
+                record.response_body = _idempotency_error_body(error)
+                continue
+
+            if record.request_mode == "async":
+                if audit.confirmation_id:
+                    confirmation = await ConfirmationRepository(session).get(
+                        audit.confirmation_id
+                    )
+                    if confirmation is None:
+                        error = AppError(
+                            ErrorCode.SERVICE_UNAVAILABLE,
+                            "确认记录不存在；请通过审计编号检查操作状态",
+                            {"audit_id": audit.id},
+                        )
+                        record.response_status = error.http_status
+                        record.response_body = _idempotency_error_body(error)
+                    else:
+                        record.response_status = 202
+                        record.response_body = {
+                            "code": str(ErrorCode.CONFIRMATION_REQUIRED),
+                            "status": "awaiting_confirmation",
+                            "confirmation_id": confirmation.id,
+                            "audit_id": audit.id,
+                            "expires_at": _wire_time(confirmation.expires_at),
+                        }
+                else:
+                    record.response_status = 202
+                    record.response_body = {"status": "accepted", "audit_id": audit.id}
+                continue
+
+            if audit.status == AuditStatus.SUCCESS:
+                summary = audit.result_summary
+                if summary is not None and len(summary) < MAX_RESULT_SUMMARY_CHARS:
+                    try:
+                        result = json.loads(summary)
+                    except (TypeError, ValueError):
+                        result = None
+                        complete_result = False
+                    else:
+                        complete_result = True
+                else:
+                    result = None
+                    complete_result = summary is None
+                if complete_result:
+                    confirmation_id = audit.confirmation_id or audit.authorized_by_id
+                    record.response_status = 200
+                    record.response_body = {
+                        "status": "success",
+                        **({"confirmation_id": confirmation_id} if confirmation_id else {}),
+                        "audit_id": audit.id,
+                        "result": result,
+                    }
+                    continue
+                error = AppError(
+                    ErrorCode.SERVICE_UNAVAILABLE,
+                    "工具已结束，但完整响应快照不可用；请通过 audit_id 查询已保存的结果摘要",
+                    {"audit_id": audit.id},
+                )
+                record.response_status = error.http_status
+                record.response_body = _idempotency_error_body(error)
+                continue
+
+            try:
+                code = ErrorCode(audit.error_code) if audit.error_code else None
+            except ValueError:
+                code = None
+            if code is None:
+                code = {
+                    AuditStatus.REJECTED: ErrorCode.CONFIRMATION_REJECTED,
+                    AuditStatus.EXPIRED: ErrorCode.CONFIRMATION_EXPIRED,
+                }.get(audit.status, ErrorCode.SERVICE_UNAVAILABLE)
+            message = audit.result_summary or _uncertain_audit_message(audit.status)
+            details: dict[str, Any] = {"audit_id": audit.id}
+            if audit.confirmation_id:
+                details["confirmation_id"] = audit.confirmation_id
+            error = AppError(code, message, details)
+            record.response_status = error.http_status
+            record.response_body = _idempotency_error_body(error)
+
     async def _complete_audit(
         self,
         audit_id: int,
@@ -846,12 +1092,15 @@ class ConfirmationService:
         duration_ms: int = 0,
         confirmation_id: str | None = None,
         authorized_by: str | None = None,
+        response_status: int | None = None,
+        response_body: dict[str, Any] | None = None,
+        on_audit_terminal: AuditTerminalCallback | None = None,
     ) -> None:
         if result is not None:
             result_summary = json.dumps(result, ensure_ascii=False, default=str)
         result_ref = _result_refs(result)
         async with self.session_factory() as session:
-            await AuditRepository(session).set_terminal(
+            changed = await AuditRepository(session).set_terminal(
                 audit_id,
                 status,
                 result_summary=result_summary,
@@ -861,6 +1110,14 @@ class ConfirmationService:
                 confirmation_id=confirmation_id,
                 authorized_by_id=authorized_by,
             )
+            if changed and response_status is not None and response_body is not None:
+                await _notify_audit_terminal(
+                    on_audit_terminal,
+                    session,
+                    audit_id,
+                    response_status,
+                    response_body,
+                )
             await session.commit()
 
     async def _grant_session(
@@ -906,6 +1163,13 @@ class ConfirmationService:
                     AuditStatus.EXPIRED,
                     error_code=str(ErrorCode.CONFIRMATION_EXPIRED),
                     result_summary="确认超时，已自动拒绝",
+                )
+                await self._complete_sync_idempotency_error(
+                    session,
+                    audit_id,
+                    ErrorCode.CONFIRMATION_EXPIRED,
+                    "确认请求已过期",
+                    {"audit_id": audit_id, "confirmation_id": confirmation_id},
                 )
             await session.commit()
         if changed:
@@ -996,6 +1260,20 @@ async def _notify_audit_created(
         await result
 
 
+async def _notify_audit_terminal(
+    callback: AuditTerminalCallback | None,
+    session: AsyncSession,
+    audit_id: int,
+    response_status: int,
+    response_body: dict[str, Any],
+) -> None:
+    if callback is None:
+        return
+    result = callback(session, audit_id, response_status, response_body)
+    if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+        await result
+
+
 def _caller_detail(context: ToolContext) -> str | None:
     if context.request is None:
         return None
@@ -1011,6 +1289,22 @@ def _wire_time(value: datetime | None) -> str | None:
     if value is None:
         return None
     return _as_utc(value).isoformat().replace("+00:00", "Z")
+
+
+def _idempotency_error_body(error: AppError) -> dict[str, Any]:
+    return {
+        "__idempotency_error__": {
+            "code": str(error.code),
+            "message": error.message,
+            "details": error.details,
+        }
+    }
+
+
+def _uncertain_audit_message(status: AuditStatus) -> str:
+    if status == AuditStatus.FAILED:
+        return "工具执行结果不确定；为避免重复副作用，请先查询审计记录"
+    return "Agent 工具调用未能完成"
 
 
 def _result_refs(result: Any) -> dict[str, Any] | None:

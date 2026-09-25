@@ -161,6 +161,23 @@ class AgentIdempotencyRepository(BaseRepository):
         )
         return result.scalar_one_or_none()
 
+    async def get_by_audit_id(self, audit_id: int) -> AgentIdempotency | None:
+        result = await self.session.execute(
+            select(AgentIdempotency).where(AgentIdempotency.audit_id == audit_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_unanswered(self) -> list[AgentIdempotency]:
+        result = await self.session.execute(
+            select(AgentIdempotency)
+            .where(
+                AgentIdempotency.audit_id.is_not(None),
+                AgentIdempotency.response_body.is_(None),
+            )
+            .order_by(AgentIdempotency.id.asc())
+        )
+        return list(result.scalars().all())
+
     async def delete_expired(self, cutoff: datetime) -> int:
         result = await self.session.execute(
             delete(AgentIdempotency).where(AgentIdempotency.created_at < cutoff)
