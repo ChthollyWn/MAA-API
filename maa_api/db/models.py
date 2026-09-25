@@ -1,4 +1,4 @@
-"""SQLModel 表定义：14 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：16 张业务表（docs/04 §3、§5、§6、§7）。
 
 纪律（每条都对应一次实测或一次返工）：
 
@@ -241,6 +241,68 @@ class Task(SQLModel, table=True):
         UniqueConstraint(
             "pipeline_id", "maa_task_id", name="uq_task_pipeline_maa_task"
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Structured MaaCore callback statistics (docs/06 §3.4)
+# ---------------------------------------------------------------------------
+class StageDrop(SQLModel, table=True):
+    """One item from a structured ``StageDrops`` callback."""
+
+    __tablename__ = "stage_drop"
+
+    id: int | None = Field(default=None, primary_key=True)
+    callback_id: str = Field(max_length=36)
+    pipeline_id: str | None = Field(
+        default=None,
+        foreign_key="pipeline.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    task_id: str | None = Field(
+        default=None, foreign_key="task.id", ondelete="SET NULL", max_length=36
+    )
+    stage_code: str | None = Field(default=None, max_length=24)
+    stars: int | None = Field(default=None)
+    item_id: str | None = Field(default=None, max_length=64)
+    item_name: str | None = Field(default=None, sa_column=text_column("item_name"))
+    quantity: int
+    add_quantity: int
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_stage_drop_stage_created_at", "stage_code", "created_at"),
+        Index("ix_stage_drop_callback_id", "callback_id"),
+    )
+
+
+class SanityObservation(SQLModel, table=True):
+    """One structured ``SanityBeforeStage`` callback sample."""
+
+    __tablename__ = "sanity_observation"
+
+    id: int | None = Field(default=None, primary_key=True)
+    pipeline_id: str | None = Field(
+        default=None,
+        foreign_key="pipeline.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    task_id: str | None = Field(
+        default=None, foreign_key="task.id", ondelete="SET NULL", max_length=36
+    )
+    stage_code: str | None = Field(default=None, max_length=24)
+    current_sanity: int
+    max_sanity: int
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_sanity_observation_stage_created_at", "stage_code", "created_at"),
     )
 
 
