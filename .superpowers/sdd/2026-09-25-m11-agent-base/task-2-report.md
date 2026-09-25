@@ -92,4 +92,4 @@
 
 我也重跑了原来的 DB inventory 一揽子命令。它在 Task 5 已并入 `agent_idempotency` 模型后报告 424 passed、4 failed；失败都来自 `tests/db/test_models.py` 对任务表/index/unique/JSON 总清单尚未包含 Task 5 新表。按 reviewer 明确的范围，我没有改 Task 5 的模型/测试文件。
 
-Reviewer follow-up 修复尚待单独提交；此次只涉及 `pipeline_runner.py`、本测试文件与本报告。
+Reviewer follow-up 修复已于 `7b77849` 提交；本次只修正此报告的提交状态描述。
