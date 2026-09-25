@@ -48,7 +48,7 @@
 
 **Body。** 用 CodeMirror 6（`@uiw/react-codemirror` + `@codemirror/lang-json`）做 JSON 编辑器，不用裸 textarea。需要的能力有三项：
 
-- **按 schema 预填骨架。** 打开一个 `POST` 接口时，从 `requestBody` 的 JSON Schema 递归生成一份带全部字段的示例 body（必填字段填 `example` 或类型默认值，可选字段以注释形式列出）。这一步让「提交一条流水线」从「翻文档拼 JSON」变成「改几个值」。
+- **按 schema 预填骨架。** 打开一个 `POST` 接口时，从 `requestBody` 的 JSON Schema 递归生成一份合法的 JSON 示例 body（必填字段填 `example` 或类型默认值）。可选字段说明显示在编辑器外的字段说明区，不能用 JSON 注释混入 body。这一步让「提交一条流水线」从「翻文档拼 JSON」变成「改几个值」。
 - **补全与校验。** 用 `@codemirror/autocomplete` 基于 schema 的 `properties` 提供键名补全；用 `ajv` 或复用前端已有的 Zod 转换（`lib/schema-to-zod.ts`）做实时校验，错误以下划线标出并在编辑器下方列出。发送前若校验不通过，给警告但**不阻止发送** —— 调试台的一个正当用途就是故意发非法请求看后端的错误处理。
 - **格式化与折叠。** 格式化快捷键、大对象折叠。MAA 的流水线 body 嵌套三层（pipeline → tasks[] → params{}），没有折叠时在手机上根本看不清结构。
 
@@ -86,7 +86,7 @@
 
 具体参数：环形缓冲上限 100 条，超出丢弃最早的；单条记录裁剪到 16KB（超长的 body 与 response 截断并标注「已截断」）；key 为 `maa.api-console.history`。这两个限制是为了避开 localStorage 的 5MB 配额 —— 截图接口的响应如果不截断，几条就能把配额吃光，而 localStorage 写满时抛的是 `QuotaExceededError`，会让整个页面的持久化逻辑连带失效。
 
-历史记录的字段：`method`、`path`、路径/query/header/body 参数、状态码、耗时、时间戳、`X-Request-Id`。列表按时间倒序，每条显示「方法 + path + 状态码 + 相对时间」，点击回填到构造器。
+历史记录的字段：`method`、`path`、过滤后的 query/header 参数、原始 JSON request body、状态码、耗时、时间戳、`X-Request-Id`。历史不得保存 `Authorization`、`X-Token`、`Cookie`、API key、password、secret 类凭据头或 query 的 `token`。body 为保持重放语义不做递归脱敏；若 body 含业务密钥，该值会进入本地历史。
 
 ### 2.5 收藏与命名
 
@@ -104,21 +104,21 @@
 
 **不存 token。** 收藏里绝不能包含 `Authorization` 或任何 header 里的凭据。保存时过滤掉鉴权相关 header，发送时由拦截器重新注入。否则换了 token 之后所有收藏失效，更糟的是 token 会以明文躺在数据库里。
 
-**落库就意味着 agent 能读。** 既然在数据库里，就应该顺带暴露为 agent 的可读资源 —— 「按上次那套配置再跑一次」这类自然语言指令可以映射到一条收藏。这也是选择落库而非 localStorage 的一个额外理由。
+**agent 读取收藏留到 M11。** 收藏落库为后续「按上次那套配置再跑一次」提供基础，但 M10 不暴露 agent 读取能力；待 M11 的 `ToolRegistry` 与策略边界就位后再接入。
 
-**「存为定时任务」是收藏的一个特化出口。** 对 `POST /api/pipelines` 这类接口，收藏面板上额外提供「转为定时任务」按钮，跳到 `/more/schedules/new` 并把 body 预填进去。这是调试台价值的最直接体现：调通的请求一键变成长期运行的配置。
+**「存为定时任务」是收藏的一个特化出口。** 对 `POST /api/pipelines` 这类接口，收藏面板上额外提供「转为定时任务」按钮，导航到 `/more/schedules` 并通过导航 state 把 body 预填到定时任务编辑器。这是调试台价值的最直接体现：调通的请求一键变成长期运行的配置。
 
 ### 2.6 cURL 导出
 
 一键复制等价的 `curl` 命令。用于把问题贴给别人、或在没有浏览器的机器上复现。
 
-导出时 token 默认替换为 `$MAA_TOKEN` 占位符而非明文，并在命令前加一行注释提示先 `export MAA_TOKEN=...`。提供一个「包含真实 token」的开关给自用场景，但默认关闭 —— 因为 cURL 命令最常见的用途就是贴给别人看。
+导出时 token 默认替换为 `$MAA_TOKEN` 占位符而非明文，并在命令前加一行注释提示先 `export MAA_TOKEN=...`。`Authorization`、`Cookie`、token、API key、password、secret 类凭据头以及 query 的 `token` 都不会写入导出的命令。JSON body 按原值导出、不做递归脱敏；复制前应检查 body 是否含业务密钥。提供一个「包含真实 token」的开关给自用场景，但默认关闭 —— 因为 cURL 命令最常见的用途就是贴给别人看。
 
 ### 2.7 环境变量
 
 两个变量：
 
-**Base URL。** 默认空（同源相对路径）。允许填入其他地址，用于从一台机器的调试台去打另一台机器的 API（比如在电脑上调试树莓派上跑的实例）。切换 base URL 时会触发跨域，需要后端 CORS 允许 —— 现有 `main.py` 的 CORS 是 `allow_origins=["*"]`，重构后应收紧为可配置白名单，这个调试场景是白名单需要保留的少数理由之一。
+**Base URL。** 默认空（同源相对路径）。允许填入其他地址，用于从一台机器的调试台去打另一台机器的 API（比如在电脑上调试树莓派上跑的实例）。专用 WebSocket 也从该 URL 推导为对应的 `/api/ws`。跨域调用受现有 loopback/RFC1918 CORS policy 约束；任意 Tailscale FQDN 的可配置白名单留到 M15。
 
 **Token。** 默认复用登录态的 token。允许临时覆盖，用于验证「错误的 token 是否正确返回 401」这类测试。覆盖只在当前会话内有效，不写 localStorage，避免把测试用的坏 token 持久化进去。
 
@@ -135,7 +135,7 @@
 **后端侧透传。** 一个中间件读取 `X-Request-Id`（缺失则自己生成），存入 `contextvars.ContextVar`，并在响应头回显同一个值。所有在这个请求上下文里产生的日志，由 `LogHub` 自动附上 `request_id` 字段：
 
 ```python
-# maa_api/api/middleware.py（概念示意）
+# maa_api/main.py（概念示意）
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 @app.middleware("http")
@@ -144,17 +144,23 @@ async def trace_request(request: Request, call_next):
     token = request_id_var.set(rid)
     started = time.perf_counter()
     try:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # 外层 ServerErrorMiddleware 会处理未捕获异常；须在上下文 reset 前
+            # 调用注册的 Exception handler，才能让 500 日志和响应头保留 request_id。
+            handler = request.app.exception_handlers[Exception]
+            response = await handler(request, exc)
+        response.headers["X-Request-Id"] = rid
+        response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
+        return response
     finally:
         request_id_var.reset(token)
-    response.headers["X-Request-Id"] = rid
-    response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
-    return response
 ```
 
-`LogHub` 的 handler 在构造日志记录时读 `request_id_var.get()`。因为用的是 `ContextVar` 而非 `threading.local`，asyncio 的任务切换不会串上下文。
+`LogHub` 的 handler 在 HTTP 请求日志中读 `request_id_var.get()`。因为用的是 `ContextVar` 而非 `threading.local`，asyncio 的任务切换不会串上下文；请求结束后不把该值传播给异步任务。
 
-**广播与筛选。** `LogHub` 把带 `request_id` 的日志正常广播到 WebSocket（[06-实时日志与WebSocket](./06-实时日志与WebSocket.md) 的既有通道，不新增协议）。调试台订阅日志事件，在本地按刚才那个 `request_id` 过滤，渲染成响应区下方的「服务端日志」列表。
+**广播与筛选。** `LogHub` 把带 `request_id` 的请求日志正常广播到 WebSocket（[06-实时日志与WebSocket](./06-实时日志与WebSocket.md) 的既有通道，不新增协议）。调试台有独立连接：空闲时仅从服务端订阅 `service` 日志，并在本地按当前 `request_id` 筛选，避免把高频 `core` debug 流量下载到手机。
 
 ### 3.2 跨越请求边界的追踪
 
@@ -164,7 +170,9 @@ async def trace_request(request: Request, call_next):
 
 **第一段是请求内日志**，按 `request_id` 过滤，回答「后端收到我的请求后做了什么、参数校验过了吗、落库成功了吗」。
 
-**第二段是关联实体的后续日志。** 调试台解析响应体，如果发现 `pipeline_id` / `confirmation_id` / `update_id` 这类实体标识，就自动追加一条对该实体的日志订阅（按 `pipeline_id` 过滤日志），并在界面上分成两个折叠区：「本次请求」和「流水线 #abc123 的执行日志（进行中）」。第二段是持续流入的，直到实体到达终态。
+**第二段是关联流水线的后续日志。** 调试台只在响应体带 `pipeline_id` 时，用同一 WebSocket 会话发送新的 `subscribe` 替换日志过滤器：来源扩至 `task/service/core`，设置 `pipeline_id` 并把最低级别设为 `INFO`。前端保留已收到的请求日志，再把后续实体日志按该字段筛选，并在界面上分成两个折叠区：「本次请求」和「流水线 #abc123 的执行日志（进行中）」。第二段持续流入直到流水线到达终态。`confirmation_id` 与 `update_id` 不建立自动日志关联。
+
+专用连接响应服务端 `server_ping` 为 `pong`，瞬时断线时有限次数退避重连；首个 `subscribe` 带上次收到的最大日志 id，服务端按当前过滤器补发缺口。客户端按日志 id 去重；若服务端通知缓冲已截断，面板要显示缺口提示。远程 Base URL 会同时切换 REST、收藏 CRUD 与这个独立 WebSocket 的目标服务；它不改动前端全局实时连接或日志缓存。
 
 这就要求 `LogHub` 在广播流水线相关日志时带上 `pipeline_id` 字段 —— 这本来就是日志页按流水线筛选所需的，不是为调试台额外加的。
 
@@ -180,19 +188,23 @@ async def trace_request(request: Request, call_next):
 
 **第一屏是接口树。** 全屏的搜索框 + 分组折叠列表。这是调试台的入口页。
 
-**选中接口后全屏推入「请求」页**（React Router 的路由跳转，不是抽屉）。用全屏页而不是抽屉的原因：body 编辑需要尽可能多的垂直空间，而软键盘弹出后抽屉的可用高度只剩一两百像素，没法编辑 JSON。页面顶部是返回按钮 + 方法徽标 + path，底部固定一个「发送」按钮（带 `pb-safe`）。
+**选中接口后全屏切换到「请求」工作区。** 当前实现用页面内状态完成列表/请求两步切换，并显示返回按钮；该步骤本身不写入浏览器路由历史。用全屏工作区而不是编辑抽屉的原因：body 编辑需要尽可能多的垂直空间，而软键盘弹出后抽屉的可用高度只剩一两百像素，没法编辑 JSON。页面顶部是返回按钮 + 方法徽标 + path，底部固定一个「发送」按钮（带 `pb-safe`）。指南页面另有可直达路由 `/more/api-console/guide`。
 
-**响应从底部推起为抽屉。** 发送后自动弹出，初始高度约 `60dvh`，可上拉到全屏、下拉收回到只剩一条状态条（显示状态码与耗时）。收回状态下仍能看到结果是否成功，又能继续改请求重发。这个「可折叠但不消失」的形态正是 `vaul` 的 snap points 能力适合的场景。
+**响应从底部推起为抽屉。** 发送后自动弹出，初始高度约 `60dvh`，可上拉到全屏、下拉收回到只剩一条状态条（显示状态码与耗时）。收回状态下仍能看到结果是否成功，又能继续改请求重发。抽屉有 peek、半屏和全屏三种状态，并为底部导航与安全区留出空间。
 
 **「请求 / 响应 / 日志」三态用顶部 segmented control 切换**，发送后自动切到「响应」。日志页签在有服务端日志流入时显示未读数徽标。
 
-面包屑保留在顶部（`接口树 / 流水线 / POST /api/pipelines`），点击可快速回到树。
+请求页顶部保留方法与 path；返回按钮可回到接口树。
 
 ### 4.2 桌面：三栏
 
-`md` 断点以上切换为经典三栏：左侧接口树（固定 280px，可折叠）、中间请求构造器（自适应）、右侧响应与日志（固定 40%，上下分割）。同一批组件，只换外层布局容器，不写两套业务逻辑。
+`lg` 断点（1024px）以上切换为经典三栏：左侧接口树（固定 280px，可折叠）、中间请求构造器（最小 352px）、右侧响应与日志（最小 320px、约 40%，上下分割）。平板宽度保留移动工作区，避免三栏最小列宽加间距造成横向溢出。同一批组件，只换外层布局容器，不写两套业务逻辑。
 
-这个响应式切换用 [09 §7.3](./09-前端重构方案.md#73-schema-到控件的映射规则) 提到的 `ResponsiveSheet` 思路的同一个 `useMediaQuery` hook 驱动，保持整站一致。
+响应式断点与 [09 §7.3](./09-前端重构方案.md#73-schema-到控件的映射规则) 的移动端布局约定保持一致。
+
+### 4.3 M10 验收边界
+
+M10 的移动端验收以浏览器模拟视口覆盖窄屏布局、编辑器、底部发送按钮与响应抽屉为准；真机触控、安全区与软键盘检查作为补充记录。经 Tailscale 的实际访问与任意 Tailscale FQDN 的 CORS 配置属于 M15 验收，不能据此宣称 M10 已完成。
 
 ## 5. OpenAPI 文档的质量要求
 
@@ -515,7 +527,7 @@ async def redoc():
 
 给外部调用者（人类开发者与外部 agent）的接入说明，必须覆盖以下内容。每一项都对应一个「不写就会被问」的问题：
 
-**Base URL 与部署形态。** 默认 `http://<host>:8002`，说明这是单端口单进程、REST 与 WebSocket 与 MCP 共享同一端口、前端也在同一端口。另需说明 HTTPS 部署下 PWA 能力才完整（指向 [09 §12](./09-前端重构方案.md#12-pwa-的安全上下文约束与部署路径)）。
+**Base URL 与部署形态。** 默认 `http://<host>:8002`。M10 已交付 REST 与 WebSocket，共用同一服务端口；MCP 仍待 M12，不得描述为当前可用入口。另需说明 HTTPS 部署下 PWA 能力才完整（指向 [09 §12](./09-前端重构方案.md#12-pwa-的安全上下文约束与部署路径)）。
 
 **鉴权。** 单 `access_token`，四种传递方式各自的写法与适用场景：
 
@@ -526,19 +538,20 @@ async def redoc():
 | Query | `?token=<token>` | WebSocket 兜底；**会进服务端 access log，慎用** |
 | Cookie | `maa_token=<token>` | 浏览器直接导航的页面 |
 
-**错误码表。** 完整的可枚举错误码、对应 HTTP 状态码、`details` 里会出现什么字段。权威定义在 [05-API规范与路由清单](./05-API规范与路由清单.md)，接入说明里应当是从同一份枚举生成的表格而非手抄 —— 手抄的表格三个月后必然与代码不符。生成方式：`domain/errors.py` 的错误码枚举带中文描述与 HTTP 状态码映射，用一个脚本渲染成 Markdown 表格插入文档。
+**错误码表。** 完整的可枚举错误码、对应 HTTP 状态码、`details` 里会出现什么字段。错误码与状态映射来自 `domain/errors.py`，中文含义来自本文件中的 [05-API规范与路由清单](./05-API规范与路由清单.md) 权威表；接入说明从这两个来源生成而非手抄，避免文案与契约漂移。
 
-**限流说明。** 现在没有限流。但**必须明确写出「当前无限流」并说明后果**，这比不提更有用：外部 agent 在轮询状态时如果不知道没有限流，可能会用 100ms 的间隔猛打 `GET /api/pipelines/current`。所以要给出建议的轮询间隔（状态类 ≥ 2 秒，日志走 WebSocket 而非轮询），并说明如果将来加限流会以 `429` + `Retry-After` 的标准形式返回。
+**限流说明。** 当前没有通用业务请求限流；只对同一来源 IP 连续鉴权失败实施限流，达到默认 10 次/分钟后返回 `429 RATE_LIMITED` 与 `Retry-After`，进入默认 60 秒冷却。指南需给出建议的状态轮询间隔（≥ 2 秒），日志走 WebSocket 而非轮询，并说明队列满等业务条件也可能以 `429` 返回。
 
-**典型调用序列。** 至少三条完整的端到端流程，每条给出可直接运行的代码：
+**典型调用序列。** 至少两条完整的端到端流程，每条给出可直接运行的代码：
 
-1. **提交流水线并等待结果。** `POST /api/pipelines` → `202` + `pipeline_id` → 轮询 `GET /api/pipelines/{id}` 直到状态进入终态。要写明终态有哪些（`COMPLETED` / `FAILED` / `CANCELLED`）、建议的轮询间隔、以及「更好的做法是订阅 WebSocket」。
+1. **提交流水线并等待结果。** `POST /api/pipelines` → `202` + `pipeline_id` → 轮询 `GET /api/pipelines/{id}` 直到状态进入终态。要写明线上状态值为小写 `completed` / `failed` / `cancelled`、建议的轮询间隔、以及「更好的做法是订阅 WebSocket」。
 2. **执行原子操作。** 说明流水线运行中调用会得到 `409 PIPELINE_ALREADY_RUNNING`、`force=true` 的语义与审计后果、以及「卡死救援」的正确顺序是先停流水线再操作（[02 §5.3](./02-系统架构设计.md)）。
-3. **处理需要人工确认的操作。** 同步调用会阻塞等待、默认超时、超时后返回 `CONFIRMATION_EXPIRED`，调用方应当如何处理（不要立即重试，那只会再触发一次确认请求）。
 
-**WebSocket 接入方式。** 因为它不在 OpenAPI 里（[§5.6](#56-openapi-覆盖不到的两块)），必须完整写：端点 `/api/ws`、鉴权只能走 cookie 或 query、订阅消息的格式、全部事件类型及载荷、心跳约定、`last_seen_id` 的断线补偿机制。摘录自 [06-实时日志与WebSocket](./06-实时日志与WebSocket.md)，正文指向那篇。
+人工确认的 REST 接口 / 前端工作流留到 M11。M10 指南只能明确此功能尚未交付；不得描述 MCP 内部等待行为、确认超时或给出确认接口示例。
 
-**MCP 接入方式。** Streamable HTTP 端点 `/mcp` 的 URL 与鉴权、stdio 入口 `scripts/mcp_stdio.py` 的用法、在 Claude Desktop 与 Cursor 里的配置片段（这是最常被问的部分，直接给可复制的 JSON）。指向 [11-Agent模块设计](./11-Agent模块设计.md)。
+**WebSocket 接入方式。** 因为它不在 OpenAPI 里（[§5.6](#56-openapi-覆盖不到的两块)），必须完整写 M10 已发送的事件类型与载荷、端点 `/api/ws`、鉴权只能走 cookie 或 query、订阅消息的格式、心跳约定、`last_seen_id` 的断线补偿机制。`confirm_request`、`confirm_resolved` 与 `agent_event` 归 M11 工作流，本阶段即使协议预留了频道也不可描述为已交付。摘录自 [06-实时日志与WebSocket](./06-实时日志与WebSocket.md)，正文指向那篇。
+
+**MCP 接入方式。** 这部分等 M12 交付后补入指南；M10 的指南只描述已实现的 REST 与 WebSocket。
 
 **版本与兼容性声明。** 必须明说：当前版本允许破坏性变更，接口不保证向后兼容（这是决策表定下的），外部集成方应当锁定服务版本或做好跟随升级的准备。不写这一条会让接入方产生错误的稳定性预期。
 
@@ -552,7 +565,7 @@ async def redoc():
 
 需要注意 Vite 的 `?raw` 导入路径在 `web/` 之外，得把 `docs/` 加入 `server.fs.allow`（开发期）；构建时因为是编译期内联，不受此限制。如果觉得这个跨目录引用别扭，替代方案是在 `pnpm build` 的 `prebuild` 步骤里把该文件拷进 `web/src/content/`。
 
-两件配套事项：`docs/README.md` 的文档索引表需要加一行 14 号文档的条目（本文档不修改 README，需要人工补）；错误码表与 tag 列表这两块应当由脚本从代码生成后插入 14 号文档的占位标记之间，而不是手写。
+两件配套事项：`docs/README.md` 的文档索引表增加 14 号文档条目；`scripts/generate_api_guide.py` 从错误码枚举/状态映射、05 号文档错误说明和 OpenAPI tag 元数据生成标记区块。执行 `python scripts/generate_api_guide.py --check` 可发现生成内容过期，禁止手工编辑标记间内容。
 
 ## 9. 与 Agent 模块的边界
 

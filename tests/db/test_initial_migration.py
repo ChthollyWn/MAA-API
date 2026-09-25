@@ -92,10 +92,10 @@ def table_names(db_path: Path) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# 建表：13 张表、列、索引
+# 建表：14 张表、列、索引
 # ---------------------------------------------------------------------------
 def test_upgrade_creates_all_business_tables(head_db):
-    """13 张业务表全部建出，外加 Alembic 自己的版本表。"""
+    """14 张业务表全部建出，外加 Alembic 自己的版本表。"""
     names = table_names(head_db)
     assert BUSINESS_TABLES <= names, sorted(BUSINESS_TABLES - names)
     assert "alembic_version" in names
@@ -134,6 +134,24 @@ def test_index_and_unique_constraint_inventory_matches_spec(inspector):
             actual[uq["name"]] = (tname, tuple(uq["column_names"]), True)
 
     assert actual == expected
+
+
+def test_snippet_migration_creates_expected_columns_and_name_constraint(inspector):
+    columns = {column["name"] for column in inspector.get_columns("api_snippet")}
+    assert columns == {
+        "id",
+        "name",
+        "method",
+        "path",
+        "path_params",
+        "query",
+        "headers",
+        "body",
+        "created_at",
+        "updated_at",
+    }
+    unique = inspector.get_unique_constraints("api_snippet")
+    assert unique == [{"name": "uq_api_snippet_name", "column_names": ["name"]}]
 
 
 def test_partial_unique_index_keeps_predicate(inspector, raw):
@@ -236,7 +254,7 @@ def test_head_revision_is_recorded_and_upgrade_is_idempotent(alembic_cfg, raw):
 
 
 def test_downgrade_to_base_drops_every_table_then_upgrade_restores(alembic_cfg, head_db):
-    """downgrade base 把 13 张表删干净，且能再次 upgrade（docs/12 §4）。"""
+    """downgrade base 把 14 张表删干净，且能再次 upgrade（docs/12 §4）。"""
     command.downgrade(alembic_cfg, "base")
     left = table_names(head_db)
     assert not (BUSINESS_TABLES & left), sorted(BUSINESS_TABLES & left)

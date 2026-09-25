@@ -1,6 +1,162 @@
 {
   "components": {
     "schemas": {
+      "ApiSnippetPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApiSnippetView"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ApiSnippetPage",
+        "type": "object"
+      },
+      "ApiSnippetView": {
+        "properties": {
+          "body": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": true,
+            "title": "Path Params",
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": true,
+            "title": "Query",
+            "type": "object"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "method",
+          "path",
+          "path_params",
+          "query",
+          "headers",
+          "body",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ApiSnippetView",
+        "type": "object"
+      },
+      "ApiSnippetWrite": {
+        "additionalProperties": false,
+        "description": "Validated full snippet payload; credential fields are stripped by the service.",
+        "properties": {
+          "body": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE",
+              "HEAD",
+              "OPTIONS",
+              "TRACE"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "path_params": {
+            "additionalProperties": true,
+            "title": "Path Params",
+            "type": "object"
+          },
+          "query": {
+            "additionalProperties": true,
+            "title": "Query",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "method",
+          "path"
+        ],
+        "title": "ApiSnippetWrite",
+        "type": "object"
+      },
       "AwardInput": {
         "additionalProperties": false,
         "description": "领取各种奖励。\n\n按 docs/05 §7.6：``mail``/``recruit``/``orundum``/``mining``/``specialaccess``\n一律 ``default=None``，不预设 True/False —— 旧 ``TaskRequest`` 把它们写成 True\n与 docstring 冲突，且服务端预设默认值会在内核调整默认行为时产生偏差。",
@@ -7178,6 +7334,347 @@
         ]
       }
     },
+    "/api/snippets": {
+      "get": {
+        "operationId": "snippets_list_snippets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSnippetPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          }
+        },
+        "summary": "读取 API 调试台收藏",
+        "tags": [
+          "snippets"
+        ]
+      },
+      "post": {
+        "operationId": "snippets_create_snippet",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiSnippetWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSnippetView"
+                }
+              }
+            },
+            "description": "Created",
+            "headers": {
+              "Location": {
+                "description": "URI of the created API snippet",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "API_SNIPPET_NAME_CONFLICT",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：API_SNIPPET_NAME_CONFLICT"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          }
+        },
+        "summary": "创建 API 调试台收藏",
+        "tags": [
+          "snippets"
+        ]
+      }
+    },
+    "/api/snippets/{snippet_id}": {
+      "delete": {
+        "operationId": "snippets_delete_snippet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snippet_id",
+            "required": true,
+            "schema": {
+              "title": "Snippet Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "API_SNIPPET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：API_SNIPPET_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "删除 API 调试台收藏",
+        "tags": [
+          "snippets"
+        ]
+      },
+      "get": {
+        "operationId": "snippets_get_snippet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snippet_id",
+            "required": true,
+            "schema": {
+              "title": "Snippet Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSnippetView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "API_SNIPPET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：API_SNIPPET_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "读取 API 调试台收藏",
+        "tags": [
+          "snippets"
+        ]
+      },
+      "put": {
+        "operationId": "snippets_update_snippet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snippet_id",
+            "required": true,
+            "schema": {
+              "title": "Snippet Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiSnippetWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSnippetView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "API_SNIPPET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：API_SNIPPET_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "API_SNIPPET_NAME_CONFLICT",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：API_SNIPPET_NAME_CONFLICT"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          }
+        },
+        "summary": "更新 API 调试台收藏",
+        "tags": [
+          "snippets"
+        ]
+      }
+    },
     "/api/system/auth/cookie": {
       "delete": {
         "description": "清除 `maa_token` cookie，供前端「登出」时调用。\n\n- 为什么需要服务端端点：cookie 是 `HttpOnly`，前端 JavaScript 删不掉（docs/13 §4），不清理则登出后 WebSocket 仍能连上\n- 副作用：下发 `Set-Cookie`（空值 + `Max-Age=0`），浏览器随后删除该 cookie\n- 写方法，必须经头部 token 鉴权；仅凭 cookie 调用会 403\n- 免鉴权模式下无需凭据（本就没有 cookie 可清时调用也无害）\n- `401 UNAUTHORIZED`：缺少 token 或 token 不匹配；`403 FORBIDDEN`：token 仅来自 cookie\n- 响应无体（`204`）",
@@ -9180,6 +9677,10 @@
     {
       "description": "Copilot 作业、基建方案、自定义 task",
       "name": "resources"
+    },
+    {
+      "description": "API 调试台收藏请求",
+      "name": "snippets"
     },
     {
       "description": "工具清单、会话与审计",

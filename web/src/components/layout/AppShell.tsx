@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Outlet, useNavigate } from 'react-router'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import { LogOut, Moon, Sun, SunMoon } from 'lucide-react'
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
@@ -19,6 +19,7 @@ const themeLabels: Record<ThemePreference, string> = {
 }
 
 export function AppShell() {
+  const location = useLocation()
   const navigate = useNavigate()
   const token = useAuth((state) => state.token)
   const clearToken = useAuth((state) => state.clearToken)
@@ -27,6 +28,7 @@ export function AppShell() {
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
   const realtime = useRealtimeStatus()
+  const isApiConsoleRoute = location.pathname === '/more/api-console' || location.pathname === '/more/api-console/guide'
 
   const logout = async () => {
     if (!token || loggingOut) return
@@ -87,7 +89,7 @@ export function AppShell() {
           <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{logoutError}</p>
         </div>
       ) : null}
-      <main className="mx-auto min-h-[calc(100dvh-3.5rem)] max-w-3xl px-4 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px)+1rem)] sm:px-6">
+      <main className={`mx-auto min-h-[calc(100dvh-3.5rem)] ${isApiConsoleRoute ? 'max-w-none px-0' : 'max-w-3xl px-4 sm:px-6'} pb-[calc(3.5rem+env(safe-area-inset-bottom,0px)+1rem)]`}>
         <Outlet />
       </main>
       <BottomTabBar />

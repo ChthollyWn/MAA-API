@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarClock, Settings2, Upload } from 'lucide-react'
+import { ArrowRight, CalendarClock, CodeXml, Settings2, Upload } from 'lucide-react'
 import { Link } from 'react-router'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card, CardContent } from '@/components/ui/card'
@@ -7,6 +7,12 @@ const groups = [
   {
     title: '运行与维护',
     items: [
+      {
+        to: '/more/api-console',
+        title: 'API 调试台',
+        description: '从 OpenAPI 契约选接口、编辑请求并查看服务端日志。',
+        Icon: CodeXml,
+      },
       {
         to: '/more/updates',
         title: '热更新',
