@@ -429,6 +429,38 @@ async def require_auth(request: Request) -> None:
     _clear_failures(ip)
 
 
+async def require_mcp_auth(request: Request) -> None:
+    """Require the Bearer channel for MCP while sharing normal auth limiting.
+
+    MCP session IDs are protocol state only. X-Token, query, and cookie channels
+    remain valid for existing REST routes but are deliberately rejected here.
+    """
+    if not auth_enabled():
+        return
+
+    ip = _client_ip(request)
+    _raise_if_cooling_down(ip)
+    hit = extract_token(request)
+    if hit is None:
+        _record_failure(ip)
+        raise AppError(ErrorCode.UNAUTHORIZED, "缺少 access token")
+    if hit.channel is not TokenChannel.BEARER:
+        _record_failure(ip)
+        raise AppError(
+            ErrorCode.UNAUTHORIZED,
+            "MCP 仅接受 Authorization: Bearer access token",
+            {"channel": hit.channel.value},
+        )
+    if not token_matches(hit.value):
+        _record_failure(ip)
+        raise AppError(
+            ErrorCode.UNAUTHORIZED,
+            "access token 不匹配",
+            {"channel": hit.channel.value},
+        )
+    _clear_failures(ip)
+
+
 async def get_session() -> AsyncIterator[AsyncSession]:
     """FastAPI 会话依赖：从 ``maa_api.db.session.session_factory`` 开一个会话。
 
