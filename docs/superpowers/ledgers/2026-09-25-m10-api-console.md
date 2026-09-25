@@ -52,13 +52,13 @@
 - Task 2: implementation `4283446`, hardening `0ee8afd`, Location CORS `bb60741`; scoped reviews approved. Snippet/generator tests, OpenAPI snapshot, API smoke pass.
 - Task 3: implementation `5bdf925`, review fixes `782e87e`, guide route `ce6d981`, WS cursor `14ea485`; review findings addressed. Final frontend gate: 13 files / 98 tests, typecheck, build all exit 0.
 - Task 4: docs commits `65bfec9`, `36219ee`, guide completion `199eedb`, scope cleanup `8481932`; scoped docs review now updated against final guide. `generate_api_guide.py --check`, links and Bash examples pass.
-- Task 5: final backend `.venv/bin/python -m pytest -q` exit 0; final frontend full gate exit 0; `dump_openapi --check`, guide `--check`, `api_smoke.py` and `frontend_smoke.py` all exit 0 / SMOKE OK. `git diff --check` clean.
+- Task 5: after the no-ff integration into `refactor/v2`, reran the full acceptance chain: backend pytest, OpenAPI and guide checks, frontend install/gen/typecheck/test (13 files / 104 tests)/build, API smoke and frontend smoke all exit 0 / `SMOKE OK`.
 - Supplemental hardware check not run: Codex CUA reports Mac GUI locked; `xcrun simctl` is not installed. ADB enumerated Samsung SM-G998B at `127.0.0.1:5555`, but no visible Android browser/screen check was performed. Tailscale remains M15.
 - Scoped re-reviews: docs Task 4 approved; trace fix Task 1 approved; snippet hardening Task 2 approved; frontend Task 3 approved with no residual finding.
 - Final frontend acceptance command was re-run as one chain: `pnpm install --frozen-lockfile && pnpm gen:api:check && pnpm typecheck && pnpm test --run && pnpm build`, exit 0 (13 files / 95 tests); build split `api-console`, `ajv`, and `JsonEditor` without the prior chunk warning.
 - Final backend `.venv/bin/python -m pytest -q` exit 0; output summary is suppressed by repo pytest `-qq` config and showed 4 expected hardware skips. Existing Starlette/httpx deprecation warnings remain.
 - `scripts/api_smoke.py`: 26/26, `SMOKE OK`; `scripts/frontend_smoke.py`: `SMOKE OK`; OpenAPI snapshot and generated-guide `--check` exit 0; seven affected documentation files' relative links all resolve.
-- Pending: incorporate Location CORS/docs and test-stability records into final docs commit; run final whole-branch review, ledger archival/commit, `--no-ff` merge to `refactor/v2`, tag `v2-m10`.
+- Integration: merge commit `434470750ad3422361c5fa802f3a8c0d362ea5df` is on `refactor/v2`; post-merge hard gate is green. Next create `v2-m10` at the final integration record commit and push branch plus tag.
 
 ## Final review follow-up (2026-09-25)
 - Fresh Luna/max review found local-history/cURL custom credential header leaks (`X-Api-Key`, password, secret): added regression coverage first (3 RED cases) and aligned frontend filter with server credential-header matcher; focused utility tests now 19 passed.
@@ -71,6 +71,7 @@
 - Current final evidence after all implementation fixes: OpenAPI snapshot generation, frontend API type generation, backend `.venv/bin/python -m pytest -q`, OpenAPI `--check`, guide `--check`, full frontend chain (13 files / 104 tests, typecheck and build), `scripts/api_smoke.py`, and `scripts/frontend_smoke.py` all exit 0 / `SMOKE OK`. One full-chain attempt found an omitted TS annotation for `log_batch.data.stream_id`; added the type and reran the frontend chain successfully. A prior backend run also hit the deliberately added legacy future-cursor regression and one existing supervisor timing assertion (150ms threshold); fixed the log cursor case, reran that supervisor test in isolation (pass), and the full backend suite then passed.
 - Review also found the migration-backup test assumed the direct pre-head schema lacked the snippet table. With new head 0006, pre-head is 0005 and the table is present; reproduced the failure, then corrected the backup assertion to verify the table exists while the new index does not. Focused migration test now passes.
 - A fresh final Luna/max review reported no remaining Critical/Important/Minor implementation findings after these fixes; it identified body-secret persistence as an explicit boundary to decide/document. Per the user's merge/push direction, we preserve JSON body and record the behavior in docs and ledger.
+- Merged to `refactor/v2` using `git merge --no-ff`: `434470750ad3422361c5fa802f3a8c0d362ea5df`. The same hard gate was rerun on the merged checkout and passed; the final release tag/push follows the integration record commit.
 
 ## Rulings I made
 - See confirmed implementation rulings above; all are implementation details inside user-approved behavior.
