@@ -49,3 +49,7 @@ cd web && pnpm gen:api:check                                # OpenAPI types are 
 - `risk_level` 工具清单标注采用 PolicyDecision 的 none/consume/destructive 档位；同时保留 `risk` 静态 ToolRisk 字段，过滤器接受 safe/conditional/dangerous 别名。
 - invoke 幂等哈希覆盖工具名、完整 arguments 与 mode；同一 key 的不同执行模式视为不同请求。
 - 重启时 approved 但 audit 仍 pending 的确认保留为可由 `check_confirmation` 恢复；pending 确认统一失效。
+
+## 评审后文档补齐
+
+Task 2 最终集成评审发现 docs/06 已引用结构化统计表，但 docs/04 尚无 `stage_drop` / `sanity_observation` 表结构与索引说明。按评审意见补齐 docs/04 §5.3a 与 §6 索引行，并在 docs/13 §8.2 记录 migration 0007 的既有实现契约与 Task 2 验证证据；没有更改 Task 2 代码。
