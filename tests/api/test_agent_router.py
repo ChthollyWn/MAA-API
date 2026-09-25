@@ -174,23 +174,6 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             assert first.json() == second.json()
             audit_before_approval = client.get(f"/api/agent/audits/{audit_id}").json()
             assert audit_before_approval["request_id"] == "trace-123"
-            assert audit_before_approval["scopes"] is None
-            async with factory() as db:
-                mcp_audit = await AuditRepository(db).create(
-                    AgentAudit(
-                        caller=CallerType.MCP,
-                        tool_name="mcp_tool",
-                        arguments={},
-                        status="success",
-                        risk_level="none",
-                        scopes=["status", "ops"],
-                    )
-                )
-                await db.commit()
-            mcp_detail = client.get(f"/api/agent/audits/{mcp_audit.id}").json()
-            assert mcp_detail["scopes"] == ["status", "ops"]
-            mcp_list = client.get("/api/agent/audits?caller=mcp").json()
-            assert mcp_list["items"][0]["scopes"] == ["status", "ops"]
             detail = client.get(f"/api/confirmations/{confirmation_id}")
             assert detail.status_code == 200
             assert detail.json()["audit_id"] == audit_id

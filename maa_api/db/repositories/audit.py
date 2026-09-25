@@ -1,6 +1,6 @@
 """``agent_audit`` 与 ``confirmation`` 两个仓储（docs/04 §5.9、§5.10、§9）。
 
-``agent_audit`` 是 REST / MCP / 内置 agent 三个调用方的共同审计落点，因此写入侧
+``agent_audit`` 是 REST / 内置 Agent 调用方的共同审计落点，因此写入侧
 有一条**不可下放给调用方**的硬约束：**入库前必须裁剪** ``arguments`` 与
 ``result_summary``（docs/04 §5.9）。截图工具的返回值是 base64 字符串，一张
 1280×720 的 JPEG 编码后有几十万字符，原样落库会让审计表比日志表更早爆掉。

@@ -534,7 +534,7 @@ class AgentMessage(SQLModel, table=True):
 # 5.9 agent_audit — 全量工具调用审计
 # ---------------------------------------------------------------------------
 class AgentAudit(SQLModel, table=True):
-    """三个调用方（REST / MCP / 内置 agent）的共同审计落点（docs/04 §5.9）。"""
+    """REST 与内置 Agent 共用的工具调用审计落点（docs/04 §5.9）。"""
 
     __tablename__ = "agent_audit"
 
@@ -544,6 +544,8 @@ class AgentAudit(SQLModel, table=True):
     caller_detail: str | None = Field(default=None, max_length=128)
     tool_name: str = Field(max_length=64)
     request_id: str | None = Field(default=None, max_length=128)
+    # Retained for schema compatibility with already-applied migration 0010.
+    # New Agent calls do not populate or expose this legacy audit metadata.
     scopes: list[str] | None = Field(
         default=None, sa_column=json_column("scopes", nullable=True)
     )

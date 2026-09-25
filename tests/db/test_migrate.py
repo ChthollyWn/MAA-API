@@ -24,10 +24,11 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlmodel import SQLModel
+from sqlmodel import Session as SyncSession, SQLModel, create_engine
 
 import maa_api.db.migrate as migrate
 import maa_api.db.models  # noqa: F401  必须 import 才能注册全部表供比对
+from maa_api.db.models import AgentAudit
 from maa_api.db import session
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -216,6 +217,25 @@ def test_mcp_audit_scopes_migration_preserves_legacy_rows_and_downgrades(db_path
         assert conn.execute(
             "select scopes from agent_audit where id = ?", (legacy_id,)
         ).fetchone()[0] is None
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with SyncSession(engine) as orm_session:
+        legacy_audit = orm_session.get(AgentAudit, legacy_id)
+        assert legacy_audit is not None
+        assert legacy_audit.scopes is None
+        legacy_audit.scopes = ["status", "ops"]
+        new_audit = AgentAudit(
+            caller="rest",
+            tool_name="new_agent_call",
+            arguments={},
+            status="success",
+            risk_level="none",
+        )
+        orm_session.add(new_audit)
+        orm_session.commit()
+        assert orm_session.get(AgentAudit, legacy_id).scopes == ["status", "ops"]
+        assert new_audit.scopes is None
+    engine.dispose()
 
     command.downgrade(cfg, "0009_agent_idempotency_mode")
     with contextlib.closing(sqlite3.connect(db_path)) as conn:

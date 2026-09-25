@@ -12,7 +12,7 @@ from maa_api.settings import REPO_ROOT, SETTING_KEYS
 __all__ = ["SETTINGS_SCHEMA", "SETTING_READONLY_KEYS"]
 
 SETTING_READONLY_KEYS = frozenset(
-    {"app.access_token", "app.maa_core_path", "adb.path", "mcp.allowed_hosts"}
+    {"app.access_token", "app.maa_core_path", "adb.path"}
 )
 
 
@@ -67,7 +67,6 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "agent.confirmation_timeout_seconds": dict(label="Agent 确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.grant_confirmation_timeout_seconds": dict(label="原子操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.atomic_grant_minutes": dict(label="原子操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
-    "mcp.allowed_hosts": dict(label="MCP 允许的局域网 Host", group="MCP", type="string[]", hot_action="restart_required"),
 }
 
 SETTINGS_SCHEMA: tuple[dict[str, Any], ...] = tuple(

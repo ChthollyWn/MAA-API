@@ -293,7 +293,6 @@
       "CallerType": {
         "enum": [
           "rest",
-          "mcp",
           "internal"
         ],
         "title": "CallerType",
@@ -3467,7 +3466,7 @@
     }
   },
   "info": {
-    "description": "MaaAssistantArknights 的 Web 服务（重构版）。\n\n- **鉴权**：单一 `access_token`，四渠道按优先级取值 —— `Authorization: Bearer` → `X-Token` → `?token=` → cookie `maa_token`；未配置 `access_token` 时全部端点免鉴权\n- **错误体**：所有非 2xx 响应都是 `{\"error\": {\"code\", \"message\", \"details\"}}`，`code` 是可枚举的错误码\n- **尾斜杠**：全部路由不带尾斜杠，带尾斜杠一律 404（`redirect_slashes=False`）\n- `ws` 与 `mcp` 分组只在本文档占位说明协议与鉴权方式，不能在 Swagger UI 中调试",
+    "description": "MaaAssistantArknights 的 Web 服务（重构版）。\n\n- **鉴权**：单一 `access_token`，四渠道按优先级取值 —— `Authorization: Bearer` → `X-Token` → `?token=` → cookie `maa_token`；未配置 `access_token` 时全部端点免鉴权\n- **错误体**：所有非 2xx 响应都是 `{\"error\": {\"code\", \"message\", \"details\"}}`，`code` 是可枚举的错误码\n- **尾斜杠**：全部路由不带尾斜杠，带尾斜杠一律 404（`redirect_slashes=False`）\n- `ws` 分组只在本文档占位说明协议与鉴权方式，不能在 Swagger UI 中调试",
     "title": "MAA-API",
     "version": "0.1.0"
   },

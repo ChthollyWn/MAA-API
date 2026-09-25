@@ -176,7 +176,7 @@ export function AuditPage() {
               <label className="space-y-1.5 text-sm font-medium">
                 <span>调用方</span>
                 <select className="min-h-11 w-full rounded-lg border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="调用方" value={filters.caller} onChange={(event) => setFilters({ ...filters, caller: event.target.value })}>
-                  <option value="">全部</option><option value="rest">REST</option><option value="internal">内置 Agent</option><option value="mcp">MCP</option>
+                  <option value="">全部</option><option value="rest">REST</option><option value="internal">内置 Agent</option>
                 </select>
               </label>
               <label className="space-y-1.5 text-sm font-medium">

@@ -74,7 +74,6 @@ EXPECTED_VALUES = {
     },
     "CallerType": {
         "REST": "rest",
-        "MCP": "mcp",
         "INTERNAL": "internal",
     },
     "AuditStatus": {

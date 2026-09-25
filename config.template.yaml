@@ -8,10 +8,6 @@ app:
   # 系统代理
   proxy:
 
-# MCP HTTP Host 校验（只读；只接受 localhost、loopback 或 RFC1918 IPv4）
-mcp:
-  allowed_hosts: []
-
 # 更新检查与下载配置
 updates:
   # 可选下载加速前缀；留空时使用官方地址

@@ -1358,7 +1358,7 @@ export interface components {
          * CallerType
          * @enum {string}
          */
-        CallerType: "rest" | "mcp" | "internal";
+        CallerType: "rest" | "internal";
         /** ClickRequest */
         ClickRequest: {
             /**

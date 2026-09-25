@@ -6,7 +6,7 @@
 
 重构后的 API 遵循四条硬规则，它们共同废弃了现有 `maa_api/model/request/response.py` 那套 `{code: 10200}` 体系。
 
-**语义由 HTTP 状态码承担。** 现有实现无论成败都返回 HTTP 200，真实结果藏在响应体的 `code` 字段里。这让所有中间层——浏览器、`fetch` 的 `response.ok`、反向代理的日志、OpenAPI 生成的客户端、MCP 客户端的重试策略——全部失效，每一处都必须先解析 body 才知道发生了什么。新规范下状态码是第一现场。
+**语义由 HTTP 状态码承担。** 现有实现无论成败都返回 HTTP 200，真实结果藏在响应体的 `code` 字段里。这让所有中间层——浏览器、`fetch` 的 `response.ok`、反向代理的日志、OpenAPI 生成的客户端、调用方的重试策略——全部失效，每一处都必须先解析 body 才知道发生了什么。新规范下状态码是第一现场。
 
 **错误体只有一种形状。** 任何非 2xx 响应的 body 都是：
 
@@ -24,7 +24,7 @@
 
 **成功响应裸返回资源体，不包封套。** 理由见 §3.1。
 
-**路径前缀统一 `/api`，MCP 端点为 `/mcp`。** 前端 SPA 占用其余全部路径。
+**路径前缀统一 `/api`，Agent 工具调用通过 `/api/agent` 路由提供。** 前端 SPA 占用其余全部路径。
 
 ## 2. HTTP 状态码使用规范
 
@@ -81,7 +81,7 @@ Content-Type: application/json
 }
 ```
 
-REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 并由确认详情 API 轮询。M12 接入后的 MCP helper 最多短等 25 秒，未获批准时以工具结果返回 pending，由 `check_confirmation` 读取状态；批准后原请求 worker 继续执行。重启后不重放仍为 pending 的副作用操作。
+REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 并由确认详情 API 轮询。内置 Agent 调用等待完整确认期限；REST `mode=sync` 阻塞等待，`mode=async` 返回 202 并由确认详情 API 轮询。重启后不重放仍为 pending 的副作用操作。
 
 ### 2.2 400 与 422 的分界
 
@@ -111,7 +111,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ### 2.5 框架自动产生的状态码
 
-`405 Method Not Allowed`、`307 Temporary Redirect`（尾斜杠重定向）由 Starlette 产生，不进错误码表。为避免 307 干扰前端与 MCP 客户端，所有路由**不带尾斜杠**，并设 `redirect_slashes=False`。
+`405 Method Not Allowed`、`307 Temporary Redirect`（尾斜杠重定向）由 Starlette 产生，不进错误码表。为避免 307 干扰前端与脚本调用方，所有路由**不带尾斜杠**，并设 `redirect_slashes=False`。
 
 ## 3. 响应体约定
 
@@ -121,7 +121,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 理由有三。既然状态码已经承担了成败语义，`code` 字段就是纯冗余，`message` 在成功时永远是 `"success"` 这种无信息量的占位，`data` 则让每一处消费都要多写一次 `.data`。
 
-更实际的理由是生态。FastAPI 的 `response_model` 直接映射资源模型，封套会迫使每个模型都套一层泛型 `Response[T]`，而 OpenAPI 的泛型展开在客户端代码生成器里支持得很差——[10-开放API与调试台](./10-开放API与调试台.md) 要从 OpenAPI 生成 TypeScript 类型，裸模型生成出来就是 `Pipeline`，封套模型生成出来是 `ResponseWrapper_Pipeline_` 且 `data` 是可空的，每处都要断言。MCP 的 tool 返回值同理：工具的结构化输出直接就是资源体，多一层封套要么传给模型造成 token 浪费，要么在工具实现里手工剥掉。
+更实际的理由是生态。FastAPI 的 `response_model` 直接映射资源模型，封套会迫使每个模型都套一层泛型 `Response[T]`，而 OpenAPI 的泛型展开在客户端代码生成器里支持得很差——[10-开放API与调试台](./10-开放API与调试台.md) 要从 OpenAPI 生成 TypeScript 类型，裸模型生成出来就是 `Pipeline`，封套模型生成出来是 `ResponseWrapper_Pipeline_` 且 `data` 是可空的，每处都要断言。工具响应直接使用资源体，多一层封套会增加客户端解析与模型上下文开销。
 
 第三个理由是错误体已经**有**封套（`{"error": {...}}`）。成功裸返回、失败带 `error` 键，两者形状不同反而是好事：`if ("error" in body)` 之外还有状态码可判，不存在歧义。
 
@@ -163,7 +163,7 @@ class AppError(Exception):
 | 错误码 | HTTP | 含义与触发场景 |
 |---|---|---|
 | `UNAUTHORIZED` | 401 | token 缺失或与 `access_token` 不匹配。四个渠道都没取到有效 token 时返回 |
-| `FORBIDDEN` | 403 | 身份有效但动作被策略拒绝：MCP 只读工具集调用了写操作；非同源请求试图仅凭 cookie 执行写操作 |
+| `FORBIDDEN` | 403 | 身份有效但动作被策略拒绝：非同源请求试图仅凭 cookie 执行写操作 |
 | `RATE_LIMITED` | 429 | 同一来源 IP 连续鉴权失败超过阈值（默认 10 次/分钟）后的冷却期 |
 
 ### 4.2 参数与请求格式
@@ -266,7 +266,7 @@ class AppError(Exception):
 
 | 错误码 | HTTP | 含义与触发场景 |
 |---|---|---|
-| `CONFIRMATION_REQUIRED` | 202 | 操作命中消耗类或破坏类策略，已创建确认请求。**唯一出现在 2xx 响应中的码**，位于 202 的正常响应体而非错误体；MCP 同步调用时作为工具结果的 `code` 返回 |
+| `CONFIRMATION_REQUIRED` | 202 | 操作命中消耗类或破坏类策略，已创建确认请求。**唯一出现在 2xx 响应中的码**，位于 202 的正常响应体而非错误体；操作等待确认时作为 202 正常响应返回 |
 | `CONFIRMATION_NOT_FOUND` | 404 | 确认请求 id 不存在 |
 | `CONFIRMATION_EXPIRED` | 409 | 超时未响应，已自动拒绝。默认超时按风险分级：消耗类与破坏类 10 分钟，原子操作会话授权 120 秒 |
 | `CONFIRMATION_REJECTED` | 403 | 用户明确拒绝。`details.reason` 带拒绝原因 |
@@ -337,7 +337,7 @@ tool-calling 循环达到步数上限**不是错误**：会话正常结束，最
 
 | 顺序 | 渠道 | 形式 | 主要使用者 |
 |---|---|---|---|
-| 1 | `Authorization` 头 | `Authorization: Bearer <token>` | MCP 客户端、脚本、curl |
+| 1 | `Authorization` 头 | `Authorization: Bearer <token>` | 脚本、curl |
 | 2 | `X-Token` 头 | `X-Token: <token>` | 前端 SPA 的 `fetch` 封装 |
 | 3 | query 参数 | `?token=<token>` | WebSocket、可分享的调试链接 |
 | 4 | cookie | `maa_token=<token>` | WebSocket、PWA 场景下的静态资源 |
@@ -362,7 +362,6 @@ CORS 使用显式 loopback 白名单（`http://localhost:8002`、`http://127.0.0
 - `GET /docs`、`GET /redoc`、`GET /openapi.json` —— 只暴露接口结构，不暴露业务数据。"Try it out" 发出的实际请求仍需 token；自研调试台会自动带上 token，这是它相对原生 `/docs` 的主要优势
 - `/static/*`、SPA catch-all、`/manifest.webmanifest`、`/sw.js` —— 前端资源必须先加载出来，用户才有地方填 token。这是对现有行为的**有意修正**：现在 `GET /` 与 `GET /daily` 都挂了 `token_auth`，意味着没有 token 连页面都打不开，只能靠 URL 带 `?token=` 访问
 
-`/mcp` 不豁免。
 
 ### 5.4 WebSocket 的鉴权
 
@@ -389,15 +388,9 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 协议细节与事件格式见 [06-实时日志与WebSocket](./06-实时日志与WebSocket.md)。
 
-### 5.5 MCP 的鉴权
-
-Streamable HTTP 传输走标准 `Authorization: Bearer`，与 REST 完全一致。MCP 客户端（Claude Desktop、Cursor）都支持在服务器配置里声明请求头。会话通过 `Mcp-Session-Id` 头维持，该 id 只做会话关联，**不作为凭据**——每个请求都要独立校验 token。
-
-stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` 或环境变量读取后在进程内直接调用服务层，跳过 HTTP 鉴权。它的安全边界是操作系统的进程与文件权限：能运行这个脚本的人本来就能读 `config.yaml`。
-
 ## 6. 全量路由清单
 
-共 96 条 API 端点，加 4 条静态与文档入口。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 93 条 API 端点，加 4 条静态与文档入口。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -508,7 +501,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/screenshots` | 截图列表，分页 | `pipeline_id`、`trigger`、`since`、`page`、`size` | 200 | `INVALID_PAGINATION` |
-| GET | `/api/screenshots/{id}` | 返回图像本体。`?as=base64` 时返回 JSON 包装，供 agent 与 MCP 使用 | | 200 | `SCREENSHOT_NOT_FOUND`、`SCREENSHOT_EXPIRED` |
+| GET | `/api/screenshots/{id}` | 返回图像本体。`?as=base64` 时返回 JSON 包装，供 Agent 使用 | | 200 | `SCREENSHOT_NOT_FOUND`、`SCREENSHOT_EXPIRED` |
 
 （2 条）
 
@@ -524,7 +517,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 | GET | `/api/updates/{id}` | 单条更新的进度与日志，供轮询 | | 200 | `UPDATE_NOT_FOUND` |
 | DELETE | `/api/updates/{id}` | 取消进行中的更新。已进入覆盖/重启阶段则拒绝 | | 202 | `UPDATE_NOT_FOUND`、`UPDATE_NOT_CANCELLABLE` |
 
-进度不靠轮询也能拿：更新过程的 `phase` 与 `progress` 同时经 WebSocket 广播，`GET /api/updates/{id}` 是给不方便用 WS 的调用方（脚本、MCP）留的。
+进度不靠轮询也能拿：更新过程的 `phase` 与 `progress` 同时经 WebSocket 广播，`GET /api/updates/{id}` 是给不方便用 WS 的调用方（脚本）留的。
 
 活动资源有两条来源不同的通道（见 [07-热更新方案 §3](./07-热更新方案.md)），**但没有为它们拆出独立端点**。`POST /api/updates/resource` 用 `channel` 参数区分，取值对应 `ResourceChannel` 枚举（见 [04-数据模型与持久化 §4](./04-数据模型与持久化.md)）：
 
@@ -649,7 +642,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/agent/tools` | 工具清单与 JSON Schema，含 `risk_level` 标注 | `risk_level` 可选过滤 | 200 | `AGENT_DISABLED` |
-| POST | `/api/agent/tools/{name}/invoke` | REST 调用方直接执行工具，与 MCP 共用 `ToolRegistry` | `{arguments, mode?}`：`mode=sync` 阻塞等结果，`mode=async` 立即返回 | 200 / 202 | `TOOL_NOT_FOUND`、`TOOL_ARGS_INVALID`、`CONFIRMATION_REQUIRED`（202） |
+| POST | `/api/agent/tools/{name}/invoke` | REST 调用方直接执行工具，使用共享 `ToolRegistry` | `{arguments, mode?}`：`mode=sync` 阻塞等结果，`mode=async` 立即返回 | 200 / 202 | `TOOL_NOT_FOUND`、`TOOL_ARGS_INVALID`、`CONFIRMATION_REQUIRED`（202） |
 | GET | `/api/agent/sessions` | 会话列表，按 `last_message_at` 倒序 | `page`、`size` | 200 | — |
 | POST | `/api/agent/sessions` | 新建会话，快照当前 `model` 与 `base_url` | `{title?}` | 201 | `LLM_NOT_CONFIGURED` |
 | GET | `/api/agent/sessions/{id}` | 会话详情与 token 消耗统计 | | 200 | `AGENT_SESSION_NOT_FOUND` |
@@ -680,30 +673,16 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 （3 条）
 
-### 6.17 mcp
-
-MCP 采用 Streamable HTTP 传输，在同一个路径上用三个方法承载不同职责，这是协议规定的形状。
-
-| 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
-|---|---|---|---|---|---|
-| POST | `/mcp` | 发送 JSON-RPC 请求/通知。含 `initialize`、`tools/list`、`tools/call` | `Authorization: Bearer`；`Mcp-Session-Id` 头（初始化后） | 200 | `UNAUTHORIZED`、`TOOL_NOT_FOUND` |
-| GET | `/mcp` | 打开 SSE 流接收服务端主动推送的消息 | 同上 | 200 | `UNAUTHORIZED` |
-| DELETE | `/mcp` | 显式终止 MCP 会话 | `Mcp-Session-Id` 必填 | 204 | `UNAUTHORIZED` |
-
-MCP 层的错误有两种表达：协议级错误（鉴权失败、会话无效）走 HTTP 状态码与 JSON-RPC error；工具执行错误作为 tool 结果的结构化内容返回，`isError=true` 且 body 带本文的 `code` / `message` / `details`，因为工具失败对模型而言是需要读懂并调整策略的信息，而不是传输层故障。stdio 入口不占用 HTTP 路由。
-
-（3 条）
-
-### 6.18 静态资源与文档
+### 6.17 静态资源与文档
 
 | 方法 | 路径 | 用途 | 鉴权 |
 |---|---|---|---|
 | GET | `/docs` · `/redoc` · `/openapi.json` | FastAPI 原生文档，作为自研调试台的备用 | 豁免 |
 | GET | `/static/{path:path}` | Vite 构建产物的静态挂载 | 豁免 |
 | GET | `/` | SPA 入口，返回 `static/index.html` | 豁免 |
-| GET | `/{path:path}` | SPA catch-all，非 `/api`、`/mcp`、`/static` 前缀的路径一律回落到 `index.html`，由前端路由接管 | 豁免 |
+| GET | `/{path:path}` | SPA catch-all，非 `/api`、`/static` 前缀的路径一律回落到 `index.html`，由前端路由接管 | 豁免 |
 
-catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/mcp`、`/static` 三个前缀，否则拼错的 API 路径会返回一份 HTML 而不是 404 JSON——这种错误在前端调试时极难定位。
+catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static` 两个前缀，否则拼错的 API 路径会返回一份 HTML 而不是 404 JSON——这种错误在前端调试时极难定位。
 
 （4 条）
 
@@ -896,7 +875,7 @@ class PipelineCreate(BaseModel):
     notify_on_finish: bool = True
 ```
 
-`source` **不在请求体里**，由服务端按调用入口判定：REST 路由 → `manual`，MCP 与内置 agent → `agent`，`ScheduleService` → `scheduled`。让客户端自报来源等于让 agent 可以伪装成手动操作抢到最高优先级，优先级体系就失效了。
+`source` **不在请求体里**，由服务端按调用入口判定：REST 路由 → `manual`，内置 Agent → `agent`，`ScheduleService` → `scheduled`。让客户端自报来源等于让 agent 可以伪装成手动操作抢到最高优先级，优先级体系就失效了。
 
 `priority` 允许显式指定，但只能调低不能调高到超出来源的默认值——agent 不能把自己提到 0。越权时不报错，静默钳制到来源默认值并在审计里记录，因为这是一个 agent 可能因不理解规则而反复触发的边界。
 
@@ -1043,13 +1022,13 @@ def normalize(task: TaskInput, defaults: ChannelDefaults) -> NormalizedTask:
     )
 ```
 
-调用点在 `services/queue_service.submit()`，三条提交路径（REST、定时任务、agent/MCP）全部经过它。
+调用点在 `services/queue_service.submit()`，三条提交路径（REST、定时任务、Agent）全部经过它。
 
 **为什么不在 Pydantic 的 validator 里做。** 默认值来自 `setting` 表，validator 里取不到异步数据库会话；更根本的是，模型必须能如实表达"用户没设这个字段"，一旦 validator 填了值，`model_fields_set` 就失去了区分能力，`raw_params` 也就记不准原始提交了。
 
 **为什么不在 `core/worker.py` 里做。** 子进程不应该知道任何业务默认值，它的职责只是把参数转成 JSON 投给 `AsstAppendTask`。更要紧的是，落库的 `task.params` 必须与内核实际收到的完全一致，如果注入发生在子进程里，数据库里存的就是一份不完整的记录，排查"为什么跑的是官服"时会查无实据。
 
-**为什么不在路由层做。** 路由层做就得做三遍，定时任务与 MCP 迟早会漏一处。
+**为什么不在路由层做。** 路由层做就得做三遍，定时任务与 Agent 迟早会漏一处。
 
 `model_fields_set` 是这段逻辑的关键，它区分了三种情况：字段未出现在请求 JSON 里（注入默认值）、显式传 `null`（不注入，不下发该参数，由内核决定）、显式传具体值（原样使用）。第二种情况对 `Fight.client_type` 有实际意义——文档明确说该字段留空则关闭"崩溃后重启续刷"功能，用户可能就是想关掉它。
 
@@ -1117,7 +1096,7 @@ TAGS = [
 ]
 ```
 
-`ws` 与 `mcp` 无法在 Swagger UI 中调试，但仍在文档里保留占位条目说明协议与鉴权方式，否则读文档的人会以为服务没有实时通道。
+`ws` 无法在 Swagger UI 中调试，但仍在文档里保留占位条目说明协议与鉴权方式，否则读文档的人会以为服务没有实时通道。
 
 ### 11.2 summary 与 description 的中文规范
 

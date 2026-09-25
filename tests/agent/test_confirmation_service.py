@@ -530,11 +530,8 @@ def test_revoking_session_rejects_pending_grant_and_clears_persisted_authorizati
     asyncio.run(scenario())
 
 
-def test_rest_sync_invocation_waits_for_resolution_and_broadcasts_approval_once(monkeypatch):
+def test_rest_sync_invocation_waits_for_resolution_and_broadcasts_approval_once():
     async def scenario():
-        import maa_api.agent.confirmation as confirmation_module
-
-        monkeypatch.setattr(confirmation_module, "MCP_CONFIRMATION_WAIT_SECONDS", 0.01)
         engine, factory = _database()
         async with engine.begin() as connection:
             await connection.run_sync(SQLModel.metadata.create_all)
@@ -575,7 +572,7 @@ def test_rest_sync_invocation_waits_for_resolution_and_broadcasts_approval_once(
             await asyncio.sleep(0.001)
         assert pending
         await asyncio.sleep(0.03)
-        assert not invoke_task.done(), "REST sync must wait for confirmation past MCP's short wait"
+        assert not invoke_task.done(), "REST sync must wait for confirmation resolution"
 
         await service.resolve(pending[0].id, approved=True, resolved_by="web")
         result = await invoke_task
@@ -584,113 +581,6 @@ def test_rest_sync_invocation_waits_for_resolution_and_broadcasts_approval_once(
         assert calls == [9]
         resolved = [event for event in events if event[0] == "confirm_resolved"]
         assert len(resolved) == 1
-        await engine.dispose()
-
-    asyncio.run(scenario())
-
-
-def test_mcp_confirmation_helper_returns_pending_after_short_wait(monkeypatch):
-    async def scenario():
-        import maa_api.agent.confirmation as confirmation_module
-
-        monkeypatch.setattr(confirmation_module, "MCP_CONFIRMATION_WAIT_SECONDS", 0.01)
-        engine, factory = _database()
-        async with engine.begin() as connection:
-            await connection.run_sync(SQLModel.metadata.create_all)
-        registry = ToolRegistry()
-        registry.register(
-            ToolDefinition(
-                name="dangerous_action",
-                group="ops",
-                risk=ToolRisk.DANGEROUS,
-                description="test action",
-                params_model=Params,
-                handler=lambda _params, _context: None,
-            )
-        )
-        service = ConfirmationService(
-            factory,
-            registry,
-            clock=lambda: datetime(2026, 9, 25, 0, 0, 0),
-        )
-        context = ToolContext(CallerType.MCP, None, None, _request(), None)
-        result = await service.invoke_mcp(
-            "dangerous_action", {"value": 1}, context
-        )
-        assert result["status"] == "awaiting_confirmation"
-        assert result["hint"]
-        assert (await service.get(result["confirmation_id"]))["status"] == "pending"
-        await engine.dispose()
-
-    asyncio.run(scenario())
-
-
-def test_confirmation_service_persists_mcp_scopes_for_immediate_and_pending_audits():
-    async def scenario():
-        engine, factory = _database()
-        async with engine.begin() as connection:
-            await connection.run_sync(SQLModel.metadata.create_all)
-
-        registry = ToolRegistry()
-        registry.register(
-            ToolDefinition(
-                name="safe_action",
-                group="status",
-                risk=ToolRisk.SAFE,
-                description="safe test action",
-                params_model=Params,
-                handler=lambda params, _context: {"value": params.value},
-            )
-        )
-        registry.register(
-            ToolDefinition(
-                name="dangerous_action",
-                group="ops",
-                risk=ToolRisk.DANGEROUS,
-                description="dangerous test action",
-                params_model=Params,
-                handler=lambda params, _context: {"value": params.value},
-            )
-        )
-        service = ConfirmationService(factory, registry, policy=PolicyEngine())
-        mcp_context = ToolContext(
-            CallerType.MCP,
-            None,
-            "mcp-request",
-            _request(),
-            None,
-            scopes=("status", "ops"),
-        )
-
-        immediate = await service.invoke(
-            "safe_action", {"value": 1}, mcp_context
-        )
-        rest = await service.invoke(
-            "safe_action",
-            {"value": 2},
-            ToolContext(CallerType.REST, None, None, _request(), None),
-        )
-        internal = await service.invoke(
-            "safe_action",
-            {"value": 3},
-            ToolContext(CallerType.INTERNAL, None, None, _request(), None),
-        )
-        pending = await service.invoke(
-            "dangerous_action", {"value": 4}, mcp_context, mode="async"
-        )
-
-        async with factory() as session:
-            repo = AuditRepository(session)
-            immediate_audit = await repo.get(immediate["audit_id"])
-            rest_audit = await repo.get(rest["audit_id"])
-            internal_audit = await repo.get(internal["audit_id"])
-            pending_audit = await repo.get(pending["audit_id"])
-            assert immediate_audit.scopes == ["status", "ops"]
-            assert pending_audit.scopes == ["status", "ops"]
-            assert rest_audit.scopes is None
-            assert internal_audit.scopes is None
-
-        await service.close()
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -777,18 +667,18 @@ def test_check_confirmation_never_reexecutes_approved_pending_audit():
                     payload={
                         "tool_name": "dangerous_action",
                         "arguments": {"value": 12},
-                        "caller": "mcp",
-                        "request_id": "mcp-request-1",
+                        "caller": "rest",
+                        "request_id": "rest-request-1",
                     },
                     status=ConfirmationStatus.APPROVED,
-                    requested_by=CallerType.MCP,
+                    requested_by=CallerType.REST,
                     resolved_by="web",
                     expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5),
                 )
             )
             audit = await AuditRepository(session).create(
                 AgentAudit(
-                    caller=CallerType.MCP,
+                    caller=CallerType.REST,
                     tool_name="dangerous_action",
                     arguments={"value": 12},
                     status=AuditStatus.PENDING,
@@ -807,7 +697,7 @@ def test_check_confirmation_never_reexecutes_approved_pending_audit():
         await service.start(scan_interval_seconds=0.05)
         result = await service.check_confirmation(
             "approved-recovery",
-            context=ToolContext(CallerType.MCP, None, "mcp-request-1", _request(), None),
+            context=ToolContext(CallerType.REST, None, "rest-request-1", _request(), None),
         )
         assert result["execution"]["status"] == "failed"
         assert result["execution"]["error_code"] == "SERVICE_UNAVAILABLE"

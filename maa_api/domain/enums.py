@@ -89,7 +89,6 @@ class RiskLevel(StrEnum):
 
 class CallerType(StrEnum):
     REST = "rest"
-    MCP = "mcp"
     INTERNAL = "internal"            # 内置 agent
 
 

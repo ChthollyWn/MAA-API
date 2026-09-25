@@ -146,7 +146,7 @@ def _evaluate(
 
 @pytest.mark.parametrize("name", ["trigger_screencap", "back_to_home", "stop_pipeline"])
 def test_safe_allowlist_never_requires_confirmation(name: str) -> None:
-    decision = _evaluate(_definition(name), {}, _context(CallerType.MCP))
+    decision = _evaluate(_definition(name), {}, _context(CallerType.REST))
 
     assert decision.requires_confirmation is False
     assert decision.risk == RiskLevel.NONE
@@ -184,7 +184,7 @@ def test_submit_pipeline_checks_consumption_parameters(task, requires_confirmati
     decision = _evaluate(
         _definition("submit_pipeline", ToolRisk.CONDITIONAL, group="pipeline"),
         {"tasks": [task]},
-        _context(CallerType.MCP),
+        _context(CallerType.REST),
     )
 
     assert decision.requires_confirmation is requires_confirmation
@@ -197,7 +197,7 @@ def test_consumption_reasons_include_each_triggered_risk_field() -> None:
     decision = _evaluate(
         _definition("submit_pipeline", ToolRisk.CONDITIONAL, group="pipeline"),
         {"tasks": [{"name": "Fight", "stone": 2, "medicine": 1}]},
-        _context(CallerType.MCP),
+        _context(CallerType.REST),
     )
 
     assert decision.reasons == ("Fight.stone=2", "Fight.medicine=1")
@@ -212,7 +212,7 @@ def test_set_task_params_checks_nested_task_parameters() -> None:
                 "params": {"name": "Recruit", "expedite": True},
             }
         },
-        _context(CallerType.MCP),
+        _context(CallerType.REST),
     )
 
     assert decision.requires_confirmation is True
@@ -224,7 +224,7 @@ def test_set_task_params_checks_risk_fields_without_task_type_name() -> None:
     decision = _evaluate(
         _definition("set_task_params", ToolRisk.CONDITIONAL, group="pipeline"),
         {"task_id": 7, "params": {"stone": 2}},
-        _context(CallerType.MCP),
+        _context(CallerType.REST),
     )
 
     assert decision.requires_confirmation is True
@@ -247,7 +247,7 @@ def test_schedule_confirmation_depends_on_template_consumption(
     decision = _evaluate(
         _definition(name, ToolRisk.CONDITIONAL, group="schedule"),
         arguments,
-        _context(CallerType.MCP),
+        _context(CallerType.REST),
     )
 
     assert decision.requires_confirmation is requires_confirmation
@@ -264,16 +264,15 @@ def test_schedule_write_model_consumption_detection_reads_task_input_models() ->
     decision = _evaluate(
         _definition("create_schedule", ToolRisk.CONDITIONAL, group="schedule"),
         schedule,
-        _context(CallerType.MCP),
+        _context(CallerType.REST),
     )
 
     assert decision.requires_confirmation is True
     assert decision.reasons == ("Fight.stone=1",)
 
 
-@pytest.mark.parametrize("caller", [CallerType.REST, CallerType.MCP])
-def test_external_atomic_calls_always_require_per_call_confirmation(caller) -> None:
-    decision = _evaluate(_definition("click"), {"x": 10}, _context(caller))
+def test_rest_atomic_calls_always_require_per_call_confirmation() -> None:
+    decision = _evaluate(_definition("click"), {"x": 10}, _context(CallerType.REST))
 
     assert decision.requires_confirmation is True
     assert decision.confirmation_action == "click"
@@ -470,10 +469,10 @@ def test_internal_atomic_grant_is_validated_from_persisted_session(tmp_path) -> 
                 {"x1": 1, "y1": 1, "x2": 4, "y2": 4},
                 _context(CallerType.REST, session_id=active.id, db_session=session),
             )
-            external_mcp_decision = await policy.evaluate(
+            external_rest_decision = await policy.evaluate(
                 _definition("swipe"),
                 {"x1": 1, "y1": 1, "x2": 4, "y2": 4},
-                _context(CallerType.MCP, session_id=active.id, db_session=session),
+                _context(CallerType.REST, session_id=active.id, db_session=session),
             )
 
         assert active_decision.requires_confirmation is False
@@ -488,8 +487,8 @@ def test_internal_atomic_grant_is_validated_from_persisted_session(tmp_path) -> 
         assert pending_decision.confirmation_action == "grant_atomic_ops"
         assert external_rest_decision.requires_confirmation is True
         assert external_rest_decision.confirmation_action == "swipe"
-        assert external_mcp_decision.requires_confirmation is True
-        assert external_mcp_decision.confirmation_action == "swipe"
+        assert external_rest_decision.requires_confirmation is True
+        assert external_rest_decision.confirmation_action == "swipe"
 
     try:
         asyncio.run(scenario())
@@ -497,12 +496,11 @@ def test_internal_atomic_grant_is_validated_from_persisted_session(tmp_path) -> 
         engine.sync_engine.dispose()
 
 
-@pytest.mark.parametrize("caller", [CallerType.REST, CallerType.MCP])
-def test_external_callers_cannot_reuse_internal_session_grants(caller) -> None:
+def test_rest_caller_cannot_reuse_internal_session_grants() -> None:
     decision = _evaluate(
         _definition("click"),
         {"x": 10},
-        _context(caller, session_id="session-valid"),
+        _context(CallerType.REST, session_id="session-valid"),
     )
 
     assert decision.requires_confirmation is True
