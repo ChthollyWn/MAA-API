@@ -285,6 +285,22 @@ def test_internal_atomic_call_without_a_session_fails_closed() -> None:
     assert exc_info.value.code == ErrorCode.AGENT_SESSION_NOT_FOUND
 
 
+def test_unknown_caller_cannot_fall_through_to_per_call_confirmation() -> None:
+    context = _context()
+    invalid_context = ToolContext(
+        caller="unknown",  # type: ignore[arg-type]
+        session_id=None,
+        request_id=context.request_id,
+        request=context.request,
+        db_session=context.db_session,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        _evaluate(_definition("click"), {"x": 10}, invalid_context)
+
+    assert exc_info.value.code == ErrorCode.FORBIDDEN
+
+
 def test_internal_atomic_authorization_uses_default_and_configurable_window(tmp_path) -> None:
     engine = make_engine(
         f"sqlite+aiosqlite:///{tmp_path / 'agent-policy-window.db'}",

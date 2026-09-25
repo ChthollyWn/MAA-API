@@ -131,8 +131,11 @@ class PolicyEngine:
     async def _evaluate_atomic(
         self, definition: ToolDefinition, context: ToolContext
     ) -> PolicyDecision:
-        if _caller(context.caller) is not CallerType.INTERNAL:
+        caller = _caller(context.caller)
+        if caller in {CallerType.REST, CallerType.MCP}:
             return _atomic_confirmation(definition.name)
+        if caller is not CallerType.INTERNAL:
+            raise AppError(ErrorCode.FORBIDDEN, "原子操作调用方身份无效")
 
         if not context.session_id or context.db_session is None:
             raise AppError(
