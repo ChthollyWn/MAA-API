@@ -109,6 +109,33 @@ def test_load_full_yaml(tmp_path: Path) -> None:
     assert s.llm.model == "example-model"
 
 
+def test_mcp_allowed_hosts_load_yaml_and_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write(
+        tmp_path,
+        "mcp:\n  allowed_hosts: [192.168.1.10, 10.0.0.8]\n",
+    )
+    monkeypatch.setenv("MAA_MCP_ALLOWED_HOSTS", "172.16.0.4, 127.0.0.2")
+
+    settings = load_settings(path)
+
+    assert settings.mcp.allowed_hosts == ["172.16.0.4", "127.0.0.2"]
+
+
+def test_mcp_allowed_hosts_config_rejects_fqdn(tmp_path: Path) -> None:
+    path = _write(tmp_path, "mcp:\n  allowed_hosts: [api.example.com]\n")
+
+    with pytest.raises(ValidationError):
+        load_settings(path)
+
+
+def test_mcp_allowed_hosts_is_readonly_in_settings_schema() -> None:
+    from maa_api.services.settings_schema import schema_for
+
+    assert schema_for("mcp.allowed_hosts")["readonly"] is True
+
+
 def test_load_accepts_str_path(tmp_path: Path) -> None:
     path = _write(tmp_path, FULL_YAML)
 
@@ -330,6 +357,7 @@ def test_env_mapping_names_are_pinned() -> None:
         "agent.confirmation_timeout_seconds": "MAA_AGENT_CONFIRMATION_TIMEOUT_SECONDS",
         "agent.grant_confirmation_timeout_seconds": "MAA_AGENT_GRANT_CONFIRMATION_TIMEOUT_SECONDS",
         "agent.atomic_grant_minutes": "MAA_AGENT_ATOMIC_GRANT_MINUTES",
+        "mcp.allowed_hosts": "MAA_MCP_ALLOWED_HOSTS",
     }
 
 
