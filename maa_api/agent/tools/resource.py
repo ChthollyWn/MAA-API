@@ -56,7 +56,7 @@ def register_tools(registry: ToolRegistry) -> None:
         ToolDefinition(
             name="upload_copilot",
             group="resource",
-            risk=ToolRisk.CONDITIONAL,
+            risk=ToolRisk.SAFE,
             description="校验并保存 Copilot 自动战斗 JSON；本工具只上传，不执行作业。",
             params_model=UploadAssetParams,
             handler=upload_copilot,

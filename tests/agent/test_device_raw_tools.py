@@ -197,9 +197,16 @@ def test_raw_schemas_reject_arbitrary_adb_and_invalid_key_values() -> None:
     ]
 
 
-def test_only_five_raw_actions_require_session_level_authorization() -> None:
+def test_external_raw_actions_require_per_call_confirmation() -> None:
     registry = _registry()
-    context = _context()
+    internal_context = _context()
+    context = ToolContext(
+        caller=CallerType.REST,
+        session_id=None,
+        request_id=internal_context.request_id,
+        request=internal_context.request,
+        db_session=None,
+    )
 
     async def scenario() -> None:
         policy = PolicyEngine()
@@ -219,10 +226,12 @@ def test_only_five_raw_actions_require_session_level_authorization() -> None:
         }
 
         assert all(item.requires_confirmation for item in decisions.values())
-        assert all(
-            item.confirmation_action == "grant_atomic_ops"
-            for item in decisions.values()
-        )
+        assert {
+            name: item.confirmation_action for name, item in decisions.items()
+        } == {
+            name: name
+            for name in ("click", "swipe", "long_press", "input_text", "key_event")
+        }
         assert all(not item.requires_confirmation for item in safe_decisions.values())
 
     asyncio.run(scenario())
