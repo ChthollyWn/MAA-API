@@ -156,8 +156,7 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
     # 备份是 upgrade 之前的快照（当前 head 的前序版本），且是可打开的上一版 schema。
     assert version(backup) == pre_head_revision()
     assert "alembic_version" in table_names(backup)
-    # 当前前序版本 0008 包含结构化统计表、Agent invoke 幂等表与 audit request_id；
-    # 0009 再为幂等预约增加 request_mode。
+    # 当前前序版本 0009 包含 request_id 与幂等预约的 request_mode；0010 再增加审计 scopes。
     backup_tables = table_names(backup)
     assert set(SQLModel.metadata.tables) <= backup_tables
     with contextlib.closing(sqlite3.connect(backup)) as conn:
@@ -167,7 +166,7 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
     assert "ix_api_snippet_updated_at" in snippet_indexes
     assert "request_id" in backup_audit_columns
     assert {"audit_id", "response_body"} <= backup_idempotency_columns
-    assert "request_mode" not in backup_idempotency_columns
+    assert "request_mode" in backup_idempotency_columns
     with contextlib.closing(sqlite3.connect(db_path)) as conn:
         live_audit_columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}
         live_idempotency_columns = {row[1] for row in conn.execute("pragma table_info('agent_idempotency')")}
@@ -180,6 +179,51 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
     # 主库已迁到 head，业务表仍齐全
     assert version(db_path) == head_revision()
     assert set(SQLModel.metadata.tables) <= table_names(db_path)
+
+
+def test_mcp_audit_scopes_migration_preserves_legacy_rows_and_downgrades(db_path):
+    """0010 给旧审计行保留 NULL，降级只删除新增的 scopes 列。"""
+    cfg = alembic_cfg(db_path)
+    command.upgrade(cfg, "0009_agent_idempotency_mode")
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        conn.execute(
+            """
+            insert into agent_audit (
+                caller, tool_name, arguments, status, risk_level, forced,
+                duration_ms, created_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "rest",
+                "legacy_tool",
+                "{}",
+                "success",
+                "none",
+                0,
+                0,
+                "2026-09-25 00:00:00",
+            ),
+        )
+        conn.commit()
+        legacy_id = conn.execute(
+            "select id from agent_audit where tool_name = 'legacy_tool'"
+        ).fetchone()[0]
+
+    command.upgrade(cfg, "0010_agent_audit_mcp_scopes")
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}
+        assert "scopes" in columns
+        assert conn.execute(
+            "select scopes from agent_audit where id = ?", (legacy_id,)
+        ).fetchone()[0] is None
+
+    command.downgrade(cfg, "0009_agent_idempotency_mode")
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}
+        assert "scopes" not in columns
+        assert conn.execute(
+            "select tool_name from agent_audit where id = ?", (legacy_id,)
+        ).fetchone()[0] == "legacy_tool"
 
 
 def test_backup_retention_keeps_latest_five(db_path):

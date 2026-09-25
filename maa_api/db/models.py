@@ -544,6 +544,9 @@ class AgentAudit(SQLModel, table=True):
     caller_detail: str | None = Field(default=None, max_length=128)
     tool_name: str = Field(max_length=64)
     request_id: str | None = Field(default=None, max_length=128)
+    scopes: list[str] | None = Field(
+        default=None, sa_column=json_column("scopes", nullable=True)
+    )
     # 入库前已裁剪（超过 1 KB 的字符串值替换为 __truncated__ 结构）
     arguments: dict[str, Any] = Field(
         default_factory=dict, sa_column=json_column("arguments", nullable=False)

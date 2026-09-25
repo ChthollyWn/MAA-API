@@ -625,6 +625,77 @@ def test_mcp_confirmation_helper_returns_pending_after_short_wait(monkeypatch):
     asyncio.run(scenario())
 
 
+def test_confirmation_service_persists_mcp_scopes_for_immediate_and_pending_audits():
+    async def scenario():
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="safe_action",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="safe test action",
+                params_model=Params,
+                handler=lambda params, _context: {"value": params.value},
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="dangerous_action",
+                group="ops",
+                risk=ToolRisk.DANGEROUS,
+                description="dangerous test action",
+                params_model=Params,
+                handler=lambda params, _context: {"value": params.value},
+            )
+        )
+        service = ConfirmationService(factory, registry, policy=PolicyEngine())
+        mcp_context = ToolContext(
+            CallerType.MCP,
+            None,
+            "mcp-request",
+            _request(),
+            None,
+            scopes=("status", "ops"),
+        )
+
+        immediate = await service.invoke(
+            "safe_action", {"value": 1}, mcp_context
+        )
+        rest = await service.invoke(
+            "safe_action",
+            {"value": 2},
+            ToolContext(CallerType.REST, None, None, _request(), None),
+        )
+        internal = await service.invoke(
+            "safe_action",
+            {"value": 3},
+            ToolContext(CallerType.INTERNAL, None, None, _request(), None),
+        )
+        pending = await service.invoke(
+            "dangerous_action", {"value": 4}, mcp_context, mode="async"
+        )
+
+        async with factory() as session:
+            repo = AuditRepository(session)
+            immediate_audit = await repo.get(immediate["audit_id"])
+            rest_audit = await repo.get(rest["audit_id"])
+            internal_audit = await repo.get(internal["audit_id"])
+            pending_audit = await repo.get(pending["audit_id"])
+            assert immediate_audit.scopes == ["status", "ops"]
+            assert pending_audit.scopes == ["status", "ops"]
+            assert rest_audit.scopes is None
+            assert internal_audit.scopes is None
+
+        await service.close()
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_approved_confirmation_retains_execution_failure_and_resolved_event():
     async def scenario():
         from maa_api.domain.errors import AppError, ErrorCode
