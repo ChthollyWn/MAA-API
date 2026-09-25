@@ -675,6 +675,11 @@ class ConfirmationService:
             caller_detail=_caller_detail(context),
             tool_name=name,
             request_id=context.request_id,
+            scopes=(
+                list(context.scopes)
+                if context.caller == CallerType.MCP and context.scopes is not None
+                else None
+            ),
             arguments=dict(arguments),
             status=AuditStatus.PENDING,
             risk_level=decision.risk,
@@ -935,6 +940,11 @@ class ConfirmationService:
                     caller_detail=_caller_detail(context),
                     tool_name=name,
                     request_id=context.request_id,
+                    scopes=(
+                        list(context.scopes)
+                        if context.caller == CallerType.MCP and context.scopes is not None
+                        else None
+                    ),
                     arguments=dict(arguments),
                     status=AuditStatus.PENDING,
                     risk_level=decision.risk,

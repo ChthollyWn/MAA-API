@@ -196,6 +196,7 @@ EXPECTED_JSON_COLUMNS = {
     ("setting", "value"),
     ("agent_message", "tool_calls"),
     ("agent_audit", "arguments"),
+    ("agent_audit", "scopes"),
     ("agent_audit", "result_ref"),
     ("agent_idempotency", "response_body"),
     ("confirmation", "payload"),

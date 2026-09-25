@@ -31,6 +31,7 @@ class ToolContext:
     request_id: str | None
     request: Any
     db_session: Any
+    scopes: tuple[str, ...] | None = None
 
 
 ToolHandler = Callable[[BaseModel, ToolContext], Any]
