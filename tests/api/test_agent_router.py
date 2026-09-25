@@ -12,12 +12,15 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
+from maa_api.db.models import AgentAudit, AgentIdempotency
 from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.deps import get_session
 from maa_api.db import session as db_session
+from maa_api.db.repositories.agent import AgentIdempotencyRepository
+from maa_api.db.repositories.audit import AuditRepository
 from maa_api.domain.enums import CallerType
 from maa_api.settings import LLMSettings, Settings, set_settings
 
@@ -97,6 +100,11 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             assert accepted.status_code == 202
             confirmation_id = accepted.json()["confirmation_id"]
             audit_id = accepted.json()["audit_id"]
+            async with factory() as db:
+                key_record = await AgentIdempotencyRepository(db).get(
+                    CallerType.REST, "invoke-key-1"
+                )
+                assert key_record.audit_id == audit_id
             replayed = client.post(
                 "/api/agent/tools/dangerous_action/invoke",
                 json={"arguments": {"value": 8}, "mode": "async"},
@@ -111,6 +119,13 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             )
             assert conflict.status_code == 409
             assert conflict.json()["error"]["code"] == "IDEMPOTENCY_KEY_CONFLICT"
+            whitespace_key = client.post(
+                "/api/agent/tools/dangerous_action/invoke",
+                json={"arguments": {"value": 10}, "mode": "async"},
+                headers={"Idempotency-Key": "   "},
+            )
+            assert whitespace_key.status_code == 400
+            assert whitespace_key.json()["error"]["code"] == "INVALID_PARAMETER"
             concurrent_request = {
                 "arguments": {"value": 6},
                 "mode": "async",
@@ -130,6 +145,7 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
                 )
             assert first.status_code == second.status_code == 202
             assert first.json()["audit_id"] == second.json()["audit_id"]
+            assert first.json() == second.json()
             audit_before_approval = client.get(f"/api/agent/audits/{audit_id}").json()
             assert audit_before_approval["request_id"] == "trace-123"
             detail = client.get(f"/api/confirmations/{confirmation_id}")
@@ -141,6 +157,7 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
                 json={"approved": True},
             )
             assert approved.status_code == 200
+            assert approved.json()["status"] == "approved"
             for _ in range(20):
                 audit = client.get(f"/api/agent/audits/{audit_id}").json()
                 if audit.get("status") == "success":
@@ -161,5 +178,56 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             client.__exit__(None, None, None)
             set_settings(None)
             await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_idempotency_loser_returns_explicit_in_progress_with_linked_audit(monkeypatch):
+    async def scenario():
+        from fastapi import Response
+        from maa_api.api.routers import agent
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="dangerous_action",
+                    arguments={"value": 4},
+                    status="pending",
+                    risk_level="destructive",
+                )
+            )
+            await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="in-progress",
+                    request_hash="a" * 64,
+                    audit_id=audit.id,
+                )
+            )
+            await session.commit()
+
+        monkeypatch.setattr(agent, "IDEMPOTENCY_WAIT_POLLS", 2)
+        monkeypatch.setattr(agent, "IDEMPOTENCY_POLL_SECONDS", 0.001)
+        response = Response()
+        body = await agent._replay_or_in_progress(
+            factory,
+            key="in-progress",
+            request_hash="a" * 64,
+            response=response,
+        )
+        assert response.status_code == 202
+        assert body == {
+            "status": "in_progress",
+            "audit_id": audit.id,
+            "idempotency_key": "in-progress",
+            "retry_after_seconds": 1,
+        }
+        await engine.dispose()
 
     asyncio.run(scenario())

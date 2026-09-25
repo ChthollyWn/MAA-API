@@ -31,6 +31,8 @@ from maa_api.services.log_hub import current_request_id
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 _IDEMPOTENCY_LOCKS: dict[tuple[int, str], tuple[asyncio.Lock, int]] = {}
+IDEMPOTENCY_WAIT_POLLS = 200
+IDEMPOTENCY_POLL_SECONDS = 0.05
 
 
 class InvokeRequest(BaseModel):
@@ -83,6 +85,44 @@ def _idempotency_error(error: dict[str, Any]) -> AppError:
         error.get("message"),
         error.get("details"),
     )
+
+
+async def _replay_or_in_progress(
+    repository_factory: Any,
+    *,
+    key: str,
+    request_hash: str,
+    response: Response,
+) -> dict[str, Any]:
+    audit_id = None
+    for _ in range(IDEMPOTENCY_WAIT_POLLS):
+        async with repository_factory() as db:
+            record = await AgentIdempotencyRepository(db).get(CallerType.REST, key)
+            if record is None:
+                raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "幂等请求预约已失效，请重试")
+            if record.request_hash != request_hash:
+                raise AppError(
+                    ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
+                    "相同 Idempotency-Key 已用于不同的工具请求",
+                )
+            audit_id = record.audit_id
+            body = record.response_body
+            response_status = record.response_status
+            await db.commit()
+        if body is not None:
+            if response_status is not None:
+                response.status_code = response_status
+            if "__idempotency_error__" in body:
+                raise _idempotency_error(body["__idempotency_error__"])
+            return body
+        await asyncio.sleep(IDEMPOTENCY_POLL_SECONDS)
+    response.status_code = status.HTTP_202_ACCEPTED
+    return {
+        "status": "in_progress",
+        "audit_id": audit_id,
+        "idempotency_key": key,
+        "retry_after_seconds": 1,
+    }
 
 
 def _confirmation_service(request: Request):
@@ -239,18 +279,21 @@ async def invoke_tool(
 ) -> dict[str, Any]:
     service = _confirmation_service(request)
     context = ToolContext(CallerType.REST, None, current_request_id.get(), request, session)
-    key = (idempotency_key or "").strip()
-    if not key:
+    if idempotency_key is None:
         result = await service.invoke(name, payload.arguments, context, mode=payload.mode)
         if payload.mode == "async" or result.get("status") == "awaiting_confirmation":
             response.status_code = status.HTTP_202_ACCEPTED
         return result
+    key = idempotency_key.strip()
+    if not key:
+        raise AppError(ErrorCode.INVALID_PARAMETER, "Idempotency-Key 不能为空")
     if len(key) > 64:
         raise AppError(ErrorCode.INVALID_PARAMETER, "Idempotency-Key 最长为 64 个字符")
 
     request_hash = _invoke_hash(name, payload)
     async with _idempotency_lock(f"rest:{key}"):
         repository_factory = service.session_factory
+        replay_pending = False
         async with repository_factory() as db:
             repository = AgentIdempotencyRepository(db)
             await repository.delete_expired(utcnow() - timedelta(hours=24))
@@ -270,43 +313,51 @@ async def invoke_tool(
                             existing.response_body["__idempotency_error__"]
                         )
                     return existing.response_body
-                response.status_code = status.HTTP_202_ACCEPTED
-                return {
-                    "status": "accepted",
-                    "audit_id": existing.audit_id,
-                    "idempotency_key": key,
-                    "replayed": True,
-                }
+                replay_pending = True
 
-            reservation = AgentIdempotency(
-                caller=CallerType.REST,
+            if not replay_pending:
+                reservation = AgentIdempotency(
+                    caller=CallerType.REST,
+                    key=key,
+                    request_hash=request_hash,
+                    created_at=utcnow(),
+                )
+                try:
+                    await repository.create(reservation)
+                    await db.commit()
+                except IntegrityError:
+                    await db.rollback()
+                    replay_pending = True
+
+        if replay_pending:
+            return await _replay_or_in_progress(
+                repository_factory,
                 key=key,
                 request_hash=request_hash,
-                created_at=utcnow(),
+                response=response,
             )
-            try:
-                await repository.create(reservation)
-                await db.commit()
-            except IntegrityError:
-                await db.rollback()
-                raced = await repository.get(CallerType.REST, key)
-                if raced is None:
-                    raise
-                if raced.request_hash != request_hash:
+
+        async def persist_audit_link(audit_id: int) -> None:
+            async with repository_factory() as db:
+                record = await AgentIdempotencyRepository(db).get(CallerType.REST, key)
+                if record is None:
+                    raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "幂等请求预约已失效")
+                if record.request_hash != request_hash:
                     raise AppError(
                         ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
                         "相同 Idempotency-Key 已用于不同的工具请求",
                     )
-                response.status_code = status.HTTP_202_ACCEPTED
-                return {
-                    "status": "accepted",
-                    "audit_id": raced.audit_id,
-                    "idempotency_key": key,
-                    "replayed": True,
-                }
+                record.audit_id = audit_id
+                await db.commit()
 
         try:
-            result = await service.invoke(name, payload.arguments, context, mode=payload.mode)
+            result = await service.invoke(
+                name,
+                payload.arguments,
+                context,
+                mode=payload.mode,
+                on_audit_created=persist_audit_link,
+            )
         except AppError as exc:
             audit_id = (exc.details or {}).get("audit_id")
             async with repository_factory() as db:

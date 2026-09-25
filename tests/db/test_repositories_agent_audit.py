@@ -331,6 +331,20 @@ def test_agent_idempotency_repository_expires_and_uniquely_scopes_keys(db_sessio
             )
             with pytest.raises(IntegrityError):
                 await repo.create(duplicate)
+            await session.rollback()
+
+            await repo.create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="orphan-reservation",
+                    request_hash="d" * 64,
+                    audit_id=None,
+                )
+            )
+            await session.commit()
+            assert await repo.delete_unlinked() == 1
+            await session.commit()
+            assert await repo.get(CallerType.REST, "orphan-reservation") is None
 
     asyncio.run(scenario())
 

@@ -167,6 +167,13 @@ class AgentIdempotencyRepository(BaseRepository):
         )
         return max(int(result.rowcount or 0), 0)
 
+    async def delete_unlinked(self) -> int:
+        """Remove abandoned reservations created before an audit was linked."""
+        result = await self.session.execute(
+            delete(AgentIdempotency).where(AgentIdempotency.audit_id.is_(None))
+        )
+        return max(int(result.rowcount or 0), 0)
+
     async def create(self, record: AgentIdempotency) -> AgentIdempotency:
         stored = await self.session.merge(record)
         await self.session.flush()
