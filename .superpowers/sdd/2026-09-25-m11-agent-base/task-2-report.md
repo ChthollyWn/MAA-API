@@ -62,3 +62,34 @@
 - 提交：8b68fd05fdee6735151195d0f15f439d2a34c5ae — feat: add M11 status and pipeline agent tools
 - 实现提交前的自审和 git diff --check 均通过；本报告随后写入本路径。
 
+## Reviewer follow-up：部分参数更新与交叉字段
+
+审查发现 Roguelike 的 partial patch 被额外单独实例化校验：既有 `theme=Sami` 时，只更新 `mode=5` 却被当成默认 `theme=Phantom` 拒绝。修复后只对「持久化参数 + patch」合并态执行完整 Pydantic 校验（保留交叉字段、类型、约束与 extra=forbid）；再从该已验证实例仅导出本次 patch 字段发给内核，既不对 patch-only 执行交叉字段校验，也不把旧字段重复发送。`RUNTIME_IMMUTABLE` 的预检以及提交和 set_task_params 的消耗风险输入形状未变。
+
+### RED
+
+新增真实临时 SQLite、RUNNING Roguelike Task、活动 attempt 与 Core ack fixture 测试，初始记录为 `theme=Sami, mode=1` 并 patch `mode=5`。先运行：
+
+    .venv/bin/python -m pytest -q tests/agent/test_pipeline_runner_set_params.py::test_runtime_roguelike_patch_validates_cross_fields_against_persisted_state
+
+退出码 1，按预期收到 `TASK_PARAM_INVALID: Roguelike.mode=5 仅适用于 Sami 主题（当前 theme="Phantom"）`；失败栈指向对 patch-only 的 `model.model_validate`。
+
+原始输出：`/tmp/maa-m11-task2-cross-field-red.log`。
+
+### GREEN 与回归
+
+部分更新测试全组 GREEN：
+
+    .venv/bin/python -m pytest -q tests/agent/test_pipeline_runner_set_params.py
+
+实际输出 `........ [100%]`，退出码 0。
+
+另外执行覆盖流水线 / 状态工具、策略、结构化回调、关卡解析、核心流水线和任务 schema 的相关回归：
+
+    .venv/bin/python -m pytest -o addopts='' -q tests/agent/test_pipeline_runner_set_params.py tests/agent/test_pipeline_tools.py tests/agent/test_registry_policy.py tests/agent/test_status_tools.py tests/services/test_callback_statistics.py tests/services/test_stage_resolver.py tests/core/test_core_pipeline.py tests/domain/test_task_models.py
+
+实际输出 `232 passed in 3.89s`，退出码 0。日志为 `/tmp/maa-m11-task2-review-focused.log`。
+
+我也重跑了原来的 DB inventory 一揽子命令。它在 Task 5 已并入 `agent_idempotency` 模型后报告 424 passed、4 failed；失败都来自 `tests/db/test_models.py` 对任务表/index/unique/JSON 总清单尚未包含 Task 5 新表。按 reviewer 明确的范围，我没有改 Task 5 的模型/测试文件。
+
+Reviewer follow-up 修复尚待单独提交；此次只涉及 `pipeline_runner.py`、本测试文件与本报告。

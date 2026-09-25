@@ -333,11 +333,8 @@ class PipelineRunner:
                 normalized_existing = _normalize_task_params(model, task.params or {})
                 normalized_patch = _normalize_task_params(model, params)
                 try:
-                    model.model_validate(
+                    validated = model.model_validate(
                         {**normalized_existing, **normalized_patch, "name": task.type_name}
-                    )
-                    patch_model = model.model_validate(
-                        {**normalized_patch, "name": task.type_name}
                     )
                 except ValidationError as exc:
                     raise AppError(
@@ -346,7 +343,8 @@ class PipelineRunner:
                         {"issues": exc.errors(include_input=False, include_context=False)},
                     ) from exc
 
-                normalized_patch = patch_model.model_dump(
+                normalized_patch = validated.model_dump(
+                    include=supplied_fields,
                     exclude={"name"}, exclude_unset=True, by_alias=True
                 )
                 accepted = await self.registry.get(self.core_id).set_task_params(

@@ -225,6 +225,52 @@ def test_runtime_update_rejects_null_patch_values_before_core(runner_env) -> Non
     asyncio.run(scenario())
 
 
+def test_runtime_roguelike_patch_validates_cross_fields_against_persisted_state(runner_env) -> None:
+    runner, factory, core = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            pipeline = Pipeline(
+                id="pipeline-roguelike",
+                source=PipelineSource.AGENT,
+                priority=Priority.AGENT,
+                status=PipelineStatus.RUNNING,
+                task_count=1,
+            )
+            task = Task(
+                id="task-roguelike",
+                pipeline_id=pipeline.id,
+                order_index=0,
+                type_name="Roguelike",
+                task_name="自动肉鸽",
+                params={"theme": "Sami", "mode": 1},
+                status=TaskStatus.RUNNING,
+                maa_task_id=42,
+            )
+            session.add(pipeline)
+            session.add(task)
+            await session.commit()
+
+        loop = asyncio.get_running_loop()
+        runner._active = _ActivePipeline(pipeline_id="pipeline-roguelike")
+        runner._active.attempt = _Attempt(
+            task_id="task-roguelike",
+            type_name="Roguelike",
+            maa_task_id=42,
+            future=loop.create_future(),
+        )
+
+        updated = await runner.set_task_params("task-roguelike", {"mode": 5})
+
+        assert core.calls == [(42, {"mode": 5})]
+        assert updated.params == {"theme": "Sami", "mode": 5}
+        async with factory() as session:
+            stored = await session.get(Task, "task-roguelike")
+            assert stored.params == {"theme": "Sami", "mode": 5}
+
+    asyncio.run(scenario())
+
+
 def test_task_repository_does_not_change_completed_task_params(runner_env) -> None:
     _runner, factory, _core = runner_env
 
