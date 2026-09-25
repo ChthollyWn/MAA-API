@@ -58,4 +58,4 @@
 
 - [x] 主 agent 运行 `.venv/bin/python -m pytest -q`、`.venv/bin/python scripts/dump_openapi.py --check`、`.venv/bin/python scripts/generate_api_guide.py --check`、完整前端安装/生成检查/typecheck/test/build、`.venv/bin/python scripts/api_smoke.py`、`.venv/bin/python scripts/frontend_smoke.py`，均通过。
 - [x] 真机补充检查记为未执行：Mac GUI 当前锁定、`simctl` 不可用；Android 可由 ADB 枚举但无法做可见页面检查。Tailscale 验收留到 M15。
-- [ ] 通过审查后提交实现与 ledger，使用 `git merge --no-ff` 合回 `refactor/v2` 并打 `v2-m10`。
+- [x] 通过审查后提交实现与 ledger，使用 `git merge --no-ff` 合回 `refactor/v2` 并打 `v2-m10`；M10 合并提交为 `434470750ad3422361c5fa802f3a8c0d362ea5df`，合并后硬验收通过。
