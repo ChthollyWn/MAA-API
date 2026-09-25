@@ -44,6 +44,7 @@ class AgentOpsService:
         self.reconnect = reconnect
         self.idle_timeout_seconds = max(float(idle_timeout_seconds), 0.0)
         self.poll_interval = max(float(poll_interval), 0.01)
+        self._owns_queue_pause = False
 
     async def restart_core(self, *, caller: str = "agent") -> dict[str, Any]:
         """Restart the core after the queue drains, returning a stable summary."""
@@ -55,12 +56,11 @@ class AgentOpsService:
         # With asyncio.Lock, this acquisition does not yield while the lock is
         # free. The locked check therefore fails fast if an update owns it.
         await update_lock.acquire()
-        changed_pause = False
         try:
             running_update = await self.update_service._running_record()
             if running_update is not None:
                 raise self.update_service._busy_error(running_update)
-            changed_pause = await self._drain_and_pause_queue()
+            await self._drain_and_pause_queue()
             async with self.core_supervisor.acquire_maintenance():
                 await self.core_supervisor.restart()
             if self.reconnect is not None:
@@ -75,8 +75,9 @@ class AgentOpsService:
             }
         finally:
             try:
-                if changed_pause:
+                if self._owns_queue_pause:
                     await self.queue_service.resume()
+                    self._owns_queue_pause = False
             finally:
                 if update_lock.locked():
                     update_lock.release()
@@ -94,7 +95,12 @@ class AgentOpsService:
             if idle:
                 if self.queue_service.paused:
                     return False
+                # Record ownership before awaiting. QueueService.pause() can
+                # mutate the paused flag and then raise or be cancelled before
+                # returning its ``changed`` result.
+                self._owns_queue_pause = True
                 changed_pause = await self.queue_service.pause()
+                self._owns_queue_pause = changed_pause
                 active = getattr(self.pipeline_runner, "_active", None)
                 operation_busy = bool(operation_lock is not None and operation_lock.locked())
                 running, pending = await self._pipeline_counts()
@@ -102,6 +108,7 @@ class AgentOpsService:
                     return changed_pause
                 if changed_pause:
                     await self.queue_service.resume()
+                    self._owns_queue_pause = False
                     changed_pause = False
             elif self.queue_service.paused and pending:
                 raise AppError(

@@ -22,7 +22,7 @@ class CheckUpdatesParams(BaseModel):
 class UpdateCoreParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    channel: Literal["stable", "beta", "alpha"] = "stable"
+    channel: Literal["stable"] = "stable"
     force: bool = False
     version: str | None = Field(default=None, min_length=1, max_length=64)
 

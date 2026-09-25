@@ -132,6 +132,19 @@ def test_ops_tools_delegate_update_targets_and_expose_no_core_client() -> None:
     ]
 
 
+def test_update_core_schema_exposes_only_the_confirmed_stable_channel() -> None:
+    module = _module("ops")
+    registry = ToolRegistry()
+    module.register_tools(registry)
+
+    schema = registry.export_schema("ops")
+    core_schema = next(item["inputSchema"] for item in schema if item["name"] == "update_core")
+    channel_schema = core_schema["properties"]["channel"]
+    assert channel_schema.get("enum", [channel_schema.get("const")]) == ["stable"]
+    with pytest.raises(AppError):
+        registry.validate("update_core", {"channel": "beta"})
+
+
 def test_restart_core_tool_uses_maintenance_service_and_returns_summary() -> None:
     module = _module("ops")
     registry = ToolRegistry()
