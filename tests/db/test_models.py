@@ -47,6 +47,7 @@ BUSINESS_TABLES = {
     "agent_session",
     "agent_message",
     "agent_audit",
+    "agent_idempotency",
     "confirmation",
     "update_record",
     "notify_channel",
@@ -65,7 +66,7 @@ UUID_PK_TABLES = [
     "resource_asset",
     "api_snippet",
 ]
-AUTOINCREMENT_TABLES = ["log_entry", "agent_message", "agent_audit"]
+AUTOINCREMENT_TABLES = ["log_entry", "agent_message", "agent_audit", "agent_idempotency"]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
 EXPECTED_INDEXES = {
@@ -112,6 +113,11 @@ EXPECTED_INDEXES = {
         ("tool_name", "created_at"),
         False,
     ),
+    "ix_agent_idempotency_created_at": (
+        "agent_idempotency",
+        ("created_at",),
+        False,
+    ),
     "ix_agent_session_last_message_at": (
         "agent_session",
         ("last_message_at",),
@@ -134,6 +140,7 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_task_pipeline_maa_task": ("task", ("pipeline_id", "maa_task_id")),
     "uq_schedule_name": ("schedule", ("name",)),
     "uq_agent_message_session_seq": ("agent_message", ("session_id", "seq")),
+    "uq_agent_idempotency_caller_key": ("agent_idempotency", ("caller", "key")),
     "uq_notify_channel_type_name": ("notify_channel", ("type", "name")),
     "uq_resource_asset_kind_name": ("resource_asset", ("kind", "name")),
     "uq_api_snippet_name": ("api_snippet", ("name",)),
@@ -143,6 +150,7 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
 EXPECTED_FK_CASCADE = {
     ("task", "pipeline_id"),
     ("agent_message", "session_id"),
+    ("agent_idempotency", "audit_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -189,6 +197,7 @@ EXPECTED_JSON_COLUMNS = {
     ("agent_message", "tool_calls"),
     ("agent_audit", "arguments"),
     ("agent_audit", "result_ref"),
+    ("agent_idempotency", "response_body"),
     ("confirmation", "payload"),
     ("notify_channel", "config"),
     ("notify_channel", "events"),
@@ -261,9 +270,15 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_14_business_tables():
-    """16 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+def test_metadata_has_exactly_17_business_tables():
+    """17 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
+
+
+def test_agent_idempotency_request_mode_is_nullable_for_legacy_rows():
+    column = MD.tables["agent_idempotency"].c.request_mode
+    assert column.nullable is True
+    assert sql_type(column) == "VARCHAR(8)"
 
 
 @pytest.mark.parametrize("table", UUID_PK_TABLES)

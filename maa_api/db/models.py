@@ -599,6 +599,7 @@ class AgentIdempotency(SQLModel, table=True):
     caller: str = Field(max_length=16)
     key: str = Field(max_length=64)
     request_hash: str = Field(max_length=64)
+    request_mode: str | None = Field(default=None, max_length=8)
     audit_id: int | None = Field(
         default=None, foreign_key="agent_audit.id", ondelete="CASCADE"
     )

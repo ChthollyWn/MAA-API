@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -917,6 +918,287 @@ def test_audit_created_callback_finishes_before_direct_tool_handler_runs():
         await service._workers[str(accepted["audit_id"])]
         assert callback_audit_ids == [accepted["audit_id"]]
         assert handler_saw_link == [True]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_startup_recovers_complete_successful_sync_idempotency_result():
+    async def scenario():
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="get_status",
+                    arguments={},
+                    status=AuditStatus.SUCCESS,
+                    risk_level=RiskLevel.NONE,
+                    result_summary='{"ok": true}',
+                )
+            )
+            record = await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="crash-after-sync-success",
+                    request_hash="a" * 64,
+                    audit_id=audit.id,
+                    response_status=200,
+                    request_mode="sync",
+                )
+            )
+            await session.commit()
+            record_id = record.id
+            audit_id = audit.id
+
+        await ConfirmationService(factory, ToolRegistry()).reset_after_restart()
+        async with factory() as session:
+            recovered = await session.get(AgentIdempotency, record_id)
+            assert recovered.response_status == 200
+            assert recovered.response_body == {
+                "status": "success",
+                "audit_id": audit_id,
+                "result": {"ok": True},
+            }
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_startup_does_not_replay_unanswered_truncated_sync_success():
+    async def scenario():
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="get_screenshot",
+                    arguments={},
+                    status=AuditStatus.SUCCESS,
+                    risk_level=RiskLevel.NONE,
+                    result_summary=json.dumps({"image": "x" * 3000}),
+                )
+            )
+            record = await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="crash-after-truncated-result",
+                    request_hash="e" * 64,
+                    audit_id=audit.id,
+                    request_mode="sync",
+                )
+            )
+            await session.commit()
+            record_id, audit_id = record.id, audit.id
+
+        await ConfirmationService(factory, ToolRegistry()).reset_after_restart()
+        async with factory() as session:
+            recovered = await session.get(AgentIdempotency, record_id)
+            assert recovered.response_status == AppError(ErrorCode.SERVICE_UNAVAILABLE).http_status
+            error = recovered.response_body["__idempotency_error__"]
+            assert error["code"] == ErrorCode.SERVICE_UNAVAILABLE.value
+            assert error["details"]["audit_id"] == audit_id
+            assert "完整响应快照不可用" in error["message"]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_startup_fails_closed_for_legacy_idempotency_without_request_mode():
+    async def scenario():
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="safe_tool",
+                    arguments={},
+                    status=AuditStatus.SUCCESS,
+                    risk_level=RiskLevel.NONE,
+                    result_summary='{"status": "success", "result": 1}',
+                )
+            )
+            record = await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="legacy-no-mode",
+                    request_hash="f" * 64,
+                    audit_id=audit.id,
+                    request_mode=None,
+                )
+            )
+            await session.commit()
+            record_id, audit_id = record.id, audit.id
+
+        await ConfirmationService(factory, ToolRegistry()).reset_after_restart()
+        async with factory() as session:
+            recovered = await session.get(AgentIdempotency, record_id)
+            assert recovered.response_status == AppError(ErrorCode.SERVICE_UNAVAILABLE).http_status
+            error = recovered.response_body["__idempotency_error__"]
+            assert error["code"] == ErrorCode.SERVICE_UNAVAILABLE.value
+            assert error["details"]["audit_id"] == audit_id
+            assert "缺少原调用模式" in error["message"]
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_startup_recovers_async_confirmation_as_original_202_snapshot():
+    async def scenario():
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        now = datetime(2026, 9, 25, 0, 0, 0)
+        async with factory() as session:
+            confirmation = await ConfirmationRepository(session).create(
+                Confirmation(
+                    id="awaiting-before-crash",
+                    action="dangerous_action",
+                    risk_level=RiskLevel.DESTRUCTIVE,
+                    reason="需用户确认",
+                    payload={"tool_name": "dangerous_action", "arguments": {"value": 5}},
+                    requested_by=CallerType.REST,
+                    expires_at=now + timedelta(minutes=10),
+                )
+            )
+            audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="dangerous_action",
+                    arguments={"value": 5},
+                    status=AuditStatus.PENDING,
+                    risk_level=RiskLevel.DESTRUCTIVE,
+                    confirmation_id=confirmation.id,
+                )
+            )
+            confirmation.audit_id = audit.id
+            idem = await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="crash-after-async-accept",
+                    request_hash="b" * 64,
+                    audit_id=audit.id,
+                    response_status=202,
+                    request_mode="async",
+                )
+            )
+            await session.commit()
+            record_id = idem.id
+
+        service = ConfirmationService(
+            factory,
+            ToolRegistry(),
+            clock=lambda: now,
+        )
+        await service.reset_after_restart()
+        async with factory() as session:
+            recovered = await session.get(AgentIdempotency, record_id)
+            assert recovered.response_status == 202
+            assert recovered.response_body == {
+                "code": "CONFIRMATION_REQUIRED",
+                "status": "awaiting_confirmation",
+                "confirmation_id": confirmation.id,
+                "audit_id": audit.id,
+                "expires_at": confirmation.expires_at.replace(tzinfo=UTC)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            }
+            final_confirmation = await ConfirmationRepository(session).get(confirmation.id)
+            assert final_confirmation.status == ConfirmationStatus.EXPIRED
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_startup_recovers_unanswered_sync_rejection_and_indeterminate_error_statuses():
+    async def scenario():
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            rejected_confirmation = await ConfirmationRepository(session).create(
+                Confirmation(
+                    id="rejected-before-crash",
+                    action="dangerous_action",
+                    risk_level=RiskLevel.DESTRUCTIVE,
+                    reason="拒绝",
+                    payload={"tool_name": "dangerous_action", "arguments": {}},
+                    status=ConfirmationStatus.REJECTED,
+                    requested_by=CallerType.REST,
+                    resolved_by="web",
+                    expires_at=utcnow() + timedelta(minutes=1),
+                )
+            )
+            rejected_audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="dangerous_action",
+                    arguments={},
+                    status=AuditStatus.REJECTED,
+                    risk_level=RiskLevel.DESTRUCTIVE,
+                    confirmation_id=rejected_confirmation.id,
+                    error_code=ErrorCode.CONFIRMATION_REJECTED,
+                )
+            )
+            rejected_confirmation.audit_id = rejected_audit.id
+            rejected_idem = await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="crash-after-reject",
+                    request_hash="c" * 64,
+                    audit_id=rejected_audit.id,
+                    response_status=200,
+                    request_mode="sync",
+                )
+            )
+            indeterminate_audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="click",
+                    arguments={"x": 1},
+                    status=AuditStatus.FAILED,
+                    risk_level=RiskLevel.NONE,
+                    error_code=ErrorCode.SERVICE_UNAVAILABLE,
+                    result_summary="结果不确定",
+                )
+            )
+            indeterminate_idem = await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="crash-after-click",
+                    request_hash="d" * 64,
+                    audit_id=indeterminate_audit.id,
+                    response_status=200,
+                    request_mode="sync",
+                )
+            )
+            await session.commit()
+            rejected_id, indeterminate_id = rejected_idem.id, indeterminate_idem.id
+
+        await ConfirmationService(factory, ToolRegistry()).reset_after_restart()
+        async with factory() as session:
+            rejected = await session.get(AgentIdempotency, rejected_id)
+            indeterminate = await session.get(AgentIdempotency, indeterminate_id)
+            rejected_error = rejected.response_body["__idempotency_error__"]
+            indeterminate_error = indeterminate.response_body["__idempotency_error__"]
+            assert rejected.response_status == AppError(ErrorCode.CONFIRMATION_REJECTED).http_status
+            assert rejected_error["code"] == "CONFIRMATION_REJECTED"
+            assert rejected_error["details"]["confirmation_id"] == rejected_confirmation.id
+            assert indeterminate.response_status == AppError(ErrorCode.SERVICE_UNAVAILABLE).http_status
+            assert indeterminate_error["code"] == "SERVICE_UNAVAILABLE"
+            assert "不确定" in indeterminate_error["message"]
         await engine.dispose()
 
     asyncio.run(scenario())

@@ -156,21 +156,24 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
     # 备份是 upgrade 之前的快照（当前 head 的前序版本），且是可打开的上一版 schema。
     assert version(backup) == pre_head_revision()
     assert "alembic_version" in table_names(backup)
-    # 当前前序版本 0007 包含结构化统计表与收藏排序索引；0008 新增 Agent
-    # invoke 幂等表和 audit request_id 字段。
+    # 当前前序版本 0008 包含结构化统计表、Agent invoke 幂等表与 audit request_id；
+    # 0009 再为幂等预约增加 request_mode。
     backup_tables = table_names(backup)
-    new_tables = {"agent_idempotency"}
-    assert set(SQLModel.metadata.tables) - new_tables <= backup_tables
-    assert new_tables.isdisjoint(backup_tables)
+    assert set(SQLModel.metadata.tables) <= backup_tables
     with contextlib.closing(sqlite3.connect(backup)) as conn:
         snippet_indexes = {row[1] for row in conn.execute("pragma index_list('api_snippet')")}
         backup_audit_columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}
+        backup_idempotency_columns = {row[1] for row in conn.execute("pragma table_info('agent_idempotency')")}
     assert "ix_api_snippet_updated_at" in snippet_indexes
-    assert "request_id" not in backup_audit_columns
+    assert "request_id" in backup_audit_columns
+    assert {"audit_id", "response_body"} <= backup_idempotency_columns
+    assert "request_mode" not in backup_idempotency_columns
     with contextlib.closing(sqlite3.connect(db_path)) as conn:
         live_audit_columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}
+        live_idempotency_columns = {row[1] for row in conn.execute("pragma table_info('agent_idempotency')")}
         live_indexes = list(conn.execute("pragma index_list('agent_idempotency')"))
     assert "request_id" in live_audit_columns
+    assert "request_mode" in live_idempotency_columns
     assert any(row[1] == "ix_agent_idempotency_created_at" for row in live_indexes)
     assert sum(row[2] for row in live_indexes) == 1
 

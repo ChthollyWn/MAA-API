@@ -63,3 +63,14 @@ Task 2 最终集成评审发现 docs/06 已引用结构化统计表，但 docs/0
 - 关闭时先取消 worker，再将未决确认过期、将其他 pending audit 标为执行结果不确定的失败。幂等 reservation 在副作用前由 invoke service callback 持久化 audit_id；启动时清理无 audit_id 的预约。
 - 空白 `Idempotency-Key` 返回 `INVALID_PARAMETER`；数据库唯一冲突输家轮询有限次数，仍处理中返回显式 `202 in_progress` 和 audit_id（若已关联）。
 - RED/GREEN 命令与结果见本修复轮交付摘要。
+
+## Final review fix：重启后幂等响应收敛
+
+Task 5 定向终审发现：审计 id 已经链接到幂等记录、但首次响应快照尚未提交时进程重启，原实现会在 24 小时内一直返回 `202 in_progress`。修复如下：
+
+- migration `0009_agent_idempotency_mode` 持久化首次调用 `sync` / `async` 模式；旧行可为空。
+- async 首次响应（直接受理或等待确认的 202）由 `on_audit_created` 在创建 worker 之前写入幂等记录。
+- sync 完整成功/错误响应通过 `on_audit_terminal` 与审计终态在同一 SQLAlchemy session 事务落库。
+- 拒绝、过期、会话授权撤销、服务启动/关闭时的 fail-closed 终态都收敛相关同步幂等响应。启动时对已关联但无快照的旧行：async 根据审计/确认重建首次 202；sync 依据终态恢复错误响应；完整成功摘要不可用或历史行缺少 mode 时返回稳定的 `SERVICE_UNAVAILABLE` 与 `audit_id`，不伪造完整结果，也不重放副作用。
+- 验证覆盖 sync success/error 的相同响应重放及 handler 只执行一次；启动恢复 confirmed async 202、拒绝/不确定错误、截断结果与 legacy mode 缺失；migration backup 保留 0008 schema、升级后出现 `request_mode`。
+- 终审后追加用例注入冗余首次响应写失败，证明成功审计已有快照时不会删除链接预约、同 key 重试不会再次运行 handler。主 agent 定向回归：`.venv/bin/python -m pytest -q -o addopts= tests/agent/test_confirmation_service.py tests/agent/test_registry_policy.py tests/agent/test_resource_ops_schedule_tools.py tests/agent/test_device_raw_tools.py tests/api/test_agent_router.py tests/db/test_models.py tests/db/test_migrate.py tests/db/test_repositories_agent_audit.py` — **198 passed**，随后全套 pytest 重跑退出码 0。
