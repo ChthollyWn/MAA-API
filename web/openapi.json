@@ -8485,6 +8485,20 @@
               }
             },
             "description": "服务端内部错误：SETTING_APPLY_FAILED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "LLM_ENCRYPTION_KEY_INVALID",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：LLM_ENCRYPTION_KEY_INVALID"
           }
         },
         "summary": "批量写入并热生效配置",

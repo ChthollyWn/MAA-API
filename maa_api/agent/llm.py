@@ -12,6 +12,17 @@ from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = ["OpenAICompatibleClient"]
 
+_KNOWN_UPSTREAM_ERROR_CODES = frozenset(
+    {
+        "context_length_exceeded",
+        "insufficient_quota",
+        "invalid_api_key",
+        "model_not_found",
+        "rate_limit_exceeded",
+        "server_error",
+    }
+)
+
 
 class OpenAICompatibleClient:
     """Yield raw OpenAI SSE chunk dictionaries without executing tool calls."""
@@ -154,7 +165,9 @@ class OpenAICompatibleClient:
         if not isinstance(error, dict):
             return None
         code = error.get("code")
-        return code if isinstance(code, str) and code else None
+        if isinstance(code, str) and code in _KNOWN_UPSTREAM_ERROR_CODES:
+            return code
+        return None
 
     @staticmethod
     def _parse_chunk(data: str) -> dict[str, Any]:

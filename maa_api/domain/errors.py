@@ -257,7 +257,7 @@ class ErrorCode(StrEnum):
     # `base_url` / `api_key` / `model` 三项未配齐
     LLM_NOT_CONFIGURED = "LLM_NOT_CONFIGURED"
 
-    # 上游返回非 2xx。`details.upstream_status` 与 `details.upstream_code` 透传
+    # 上游返回非 2xx。`details.upstream_status` 与已知白名单 `upstream_code` 返回
     LLM_REQUEST_FAILED = "LLM_REQUEST_FAILED"
 
     # 上游在超时内未返回

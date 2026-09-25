@@ -283,7 +283,7 @@ class AppError(Exception):
 | `TOOL_ARGS_INVALID` | 422 | 工具参数不满足其 JSON Schema |
 | `TOOL_EXECUTION_FAILED` | 500 | 工具实现内部抛出未预期异常。被工具调用的下游错误（内核、设备）按其本身的码原样上抛，不包成这个码 |
 | `LLM_NOT_CONFIGURED` | 503 | `base_url` / `api_key` / `model` 三项未配齐 |
-| `LLM_REQUEST_FAILED` | 502 | 上游返回非 2xx。`details.upstream_status` 与 `details.upstream_code` 透传 |
+| `LLM_REQUEST_FAILED` | 502 | 上游返回非 2xx。`details.upstream_status` 保留；`details.upstream_code` 仅包含已知白名单码 |
 | `LLM_TIMEOUT` | 504 | 上游在超时内未返回 |
 | `LLM_RATE_LIMITED` | 429 | 上游 429 透传，`Retry-After` 沿用上游值 |
 | `LLM_ENCRYPTION_KEY_INVALID` | 503 | 缺少或配置错误的 `MAA_LLM_ENCRYPTION_KEY`，无法解密数据库里的 LLM API 密钥；设置正确的主密钥，或在设置页重新录入 API 密钥 |
@@ -576,7 +576,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/settings` | 读取生效中的全部配置，敏感项脱敏为 `"***"`，并标注每项来自哪一层（env/db/yaml/default） | `group` 可选 | 200 | — |
-| PUT | `/api/settings` | 批量写入并热生效。敏感项传 `"***"` 或空串视为不变更 | `{items: {key: value}}` | 200 | `SETTING_KEY_UNKNOWN`、`SETTING_VALUE_INVALID`、`SETTING_READONLY`、`SETTING_APPLY_FAILED` |
+| PUT | `/api/settings` | 批量写入并热生效。敏感项传 `"***"` 或空串视为不变更 | `{items: {key: value}}` | 200 | `SETTING_KEY_UNKNOWN`、`SETTING_VALUE_INVALID`、`SETTING_READONLY`、`SETTING_APPLY_FAILED`、`LLM_ENCRYPTION_KEY_INVALID` |
 | GET | `/api/settings/schema` | 配置项元信息：中文标签、分组、类型、取值范围、枚举可选值、是否敏感、热生效动作 | | 200 | — |
 | POST | `/api/settings/reset` | 清除指定项的数据库覆盖，回落到 `config.yaml` 或默认值 | `{keys[]}` | 200 | `SETTING_KEY_UNKNOWN` |
 

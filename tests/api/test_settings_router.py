@@ -104,3 +104,29 @@ def test_failed_hot_apply_keeps_saved_setting(setting_client):
     address = next(item for item in current["items"] if item["key"] == "adb.address")
     assert address["value"] == "offline:5555"
     assert address["source"] == "db"
+
+
+def test_invalid_sensitive_llm_key_is_redacted_from_serialized_error(setting_client):
+    client, _manager = setting_client
+    sentinel = "sk-sensitive-validation-sentinel"
+
+    response = client.put(
+        "/api/settings",
+        json={"items": {"llm.api_key": [sentinel]}},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == ErrorCode.SETTING_VALUE_INVALID
+    assert sentinel not in response.text
+
+
+def test_put_settings_openapi_declares_llm_encryption_error(setting_client):
+    client, _manager = setting_client
+
+    schema = client.get("/openapi.json").json()
+    response = schema["paths"]["/api/settings"]["put"]["responses"]["503"]
+
+    assert (
+        response["content"]["application/json"]["example"]["error"]["code"]
+        == ErrorCode.LLM_ENCRYPTION_KEY_INVALID
+    )

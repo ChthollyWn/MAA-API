@@ -238,7 +238,8 @@ class SettingService:
         details: dict[str, Any] = {}
         if key is not None:
             details["key"] = key
-        if value is not None:
+        sensitive = key is not None and _SCHEMA_BY_KEY.get(key, {}).get("sensitive")
+        if value is not None and not sensitive:
             details["value"] = repr(value)
         return AppError(ErrorCode.SETTING_VALUE_INVALID, message, details or None)
 

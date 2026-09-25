@@ -194,7 +194,7 @@ def test_non_success_response_maps_to_stable_llm_request_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             500,
-            json={"error": {"code": "upstream_unavailable", "message": "private body"}},
+            json={"error": {"code": "server_error", "message": "private body"}},
         )
 
     async def scenario() -> None:
@@ -207,10 +207,37 @@ def test_non_success_response_maps_to_stable_llm_request_error() -> None:
         assert exc_info.value.code == ErrorCode.LLM_REQUEST_FAILED
         assert exc_info.value.details == {
             "upstream_status": 500,
-            "upstream_code": "upstream_unavailable",
+            "upstream_code": "server_error",
         }
         assert "private body" not in str(exc_info.value)
         assert "sk-hidden" not in repr(exc_info.value)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "upstream_code",
+    ["sk-upstream-secret", "invalid-sk-upstream-secret"],
+)
+def test_unknown_upstream_error_code_cannot_echo_api_key(upstream_code: str) -> None:
+    api_key = "sk-upstream-secret"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401,
+            json={"error": {"code": upstream_code, "message": "unauthorized"}},
+        )
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1", api_key=api_key, http_client=http
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("m", [], []))
+        assert exc_info.value.code == ErrorCode.LLM_REQUEST_FAILED
+        assert exc_info.value.details == {"upstream_status": 401}
+        assert api_key not in repr(exc_info.value)
 
     asyncio.run(scenario())
 

@@ -7012,6 +7012,24 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description 服务暂时不可用：LLM_ENCRYPTION_KEY_INVALID */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "LLM_ENCRYPTION_KEY_INVALID",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
         };
     };
     settings_reset_settings: {
