@@ -110,6 +110,7 @@ EXPECTED_INDEXES = {
         False,
     ),
     "ix_resource_asset_kind_enabled": ("resource_asset", ("kind", "enabled"), False),
+    "ix_api_snippet_updated_at": ("api_snippet", ("updated_at",), False),
     "uq_update_record_running_target": ("update_record", ("target",), True),
 }
 
@@ -332,7 +333,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """21 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """17 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:

@@ -14,7 +14,7 @@ function randomId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `console-${Date.now()}`
 }
 
-function subscribe(socket: WebSocket, pipelineId: string | null, lastSeenId: number | null): void {
+function subscribe(socket: WebSocket, pipelineId: string | null, lastSeenId: number | null, lastSeenStreamId: string | null): void {
   if (socket.readyState !== WebSocket.OPEN) return
   const hasPipeline = Boolean(pipelineId)
   socket.send(JSON.stringify({
@@ -28,6 +28,7 @@ function subscribe(socket: WebSocket, pipelineId: string | null, lastSeenId: num
         pipeline_id: pipelineId,
       },
       ...(lastSeenId !== null ? { last_seen_id: lastSeenId } : {}),
+      ...(lastSeenStreamId !== null ? { last_seen_stream_id: lastSeenStreamId } : {}),
     },
   }))
 }
@@ -35,6 +36,7 @@ function subscribe(socket: WebSocket, pipelineId: string | null, lastSeenId: num
 type LogContinuation = {
   scope: string
   lastSeenId: number | null
+  streamId: string | null
   seenIds: Set<number>
   seenIdOrder: number[]
 }
@@ -63,7 +65,7 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
   }, [socketUrl])
   const currentPipelineId = useRef(pipelineId)
   const activeSocket = useRef<WebSocket | null>(null)
-  const logContinuation = useRef<LogContinuation>({ scope: continuationScope, lastSeenId: null, seenIds: new Set(), seenIdOrder: [] })
+  const logContinuation = useRef<LogContinuation>({ scope: continuationScope, lastSeenId: null, streamId: null, seenIds: new Set(), seenIdOrder: [] })
   currentPipelineId.current = pipelineId
 
   useEffect(() => {
@@ -78,12 +80,24 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
     let stableTimer: ReturnType<typeof setTimeout> | null = null
     let attempts = 0
     if (logContinuation.current.scope !== continuationScope) {
-      logContinuation.current = { scope: continuationScope, lastSeenId: null, seenIds: new Set(), seenIdOrder: [] }
+      logContinuation.current = { scope: continuationScope, lastSeenId: null, streamId: null, seenIds: new Set(), seenIdOrder: [] }
       setHistoryTruncated(false)
     }
     const continuation = logContinuation.current
 
+    const acceptStream = (streamId: unknown) => {
+      if (typeof streamId !== 'string' || !streamId) return
+      if (continuation.streamId && continuation.streamId !== streamId) {
+        continuation.lastSeenId = null
+        continuation.seenIds.clear()
+        continuation.seenIdOrder = []
+        setHistoryTruncated(true)
+      }
+      continuation.streamId = streamId
+    }
+
     const appendLogs = (entries: unknown[]) => {
+      for (const entry of entries) acceptStream(objectOf(entry).stream_id)
       const accepted = entries.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)))
         .filter((entry) => {
           const id = entry.id
@@ -122,7 +136,7 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
       thisSocket.onopen = () => {
         if (stopped || socket !== thisSocket) return
         setConnection('CONNECTED')
-        subscribe(thisSocket, currentPipelineId.current, continuation.lastSeenId)
+        subscribe(thisSocket, currentPipelineId.current, continuation.lastSeenId, continuation.streamId)
         clearStableTimer()
         stableTimer = setTimeout(() => {
           attempts = 0
@@ -142,11 +156,15 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
           } else if (event.type === 'log' && event.data && typeof event.data === 'object') {
             appendLogs([event.data])
           } else if (event.type === 'log_batch' && event.data && typeof event.data === 'object') {
-            const batch = event.data as { records?: unknown[]; truncated?: unknown }
+            const batch = event.data as { records?: unknown[]; truncated?: unknown; stream_id?: unknown }
+            acceptStream(batch.stream_id)
             if (batch.truncated === true) setHistoryTruncated(true)
             appendLogs(Array.isArray(batch.records) ? batch.records : [])
           } else if (event.type === 'subscribed' && objectOf(event.data).truncated === true) {
             setHistoryTruncated(true)
+            acceptStream(objectOf(event.data).stream_id)
+          } else if (event.type === 'subscribed') {
+            acceptStream(objectOf(event.data).stream_id)
           } else if (event.type === 'core_status' || event.type === 'device_status' || event.type === 'pipeline_status') {
             const data = event.data && typeof event.data === 'object' ? event.data as Record<string, unknown> : {}
             setTimeline((current) => [...current, { type: event.type!, data, at: Date.now() }].slice(-8))
@@ -199,7 +217,7 @@ export function useConsoleRealtime(baseUrl: string, token: string | null, reques
 
   useEffect(() => {
     const socket = activeSocket.current
-    if (socket && typeof WebSocket !== 'undefined') subscribe(socket, pipelineId, null)
+    if (socket && typeof WebSocket !== 'undefined') subscribe(socket, pipelineId, null, null)
   }, [requestId, pipelineId])
 
   return {

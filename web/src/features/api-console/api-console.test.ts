@@ -10,9 +10,22 @@ const future = consoleHelpers as unknown as Record<string, (...args: unknown[]) 
 
 describe('API console safety and presentation helpers', () => {
   it('removes credential headers and query tokens before persistence', () => {
-    expect(filterSensitive({ path: '/api/x?token=secret&stage=1', headers: { Authorization: 'secret', 'X-Token': 'secret', Cookie: 'secret', Accept: 'application/json' } })).toEqual({
+    expect(filterSensitive({ path: '/api/x?token=secret&stage=1', headers: {
+      Authorization: 'secret', 'X-Token': 'secret', Cookie: 'secret', 'X-Api-Key': 'api-key-secret',
+      'X-Password': 'password-secret', 'X-Secret': 'secret-value', Accept: 'application/json',
+    } })).toEqual({
       path: '/api/x?stage=1', headers: { Accept: 'application/json' },
     })
+  })
+
+  it('detects credential header names even when users typed surrounding spaces', () => {
+    expect(filterSensitive({ headers: { 'X-Token ': 'padded-secret', ' X-Api-Key': 'padded-key', Accept: 'application/json' } })).toEqual({
+      headers: { Accept: 'application/json' },
+    })
+    const curl = makeCurl({ baseUrl: '', method: 'GET', path: '/api/x', headers: { 'X-Token ': 'padded-secret' }, token: 'session-token' })
+    expect(curl).toContain('"X-Token: $MAA_TOKEN"')
+    expect(curl).not.toContain('padded-secret')
+    expect(curl).not.toContain('session-token')
   })
 
   it('keeps at most 100 history entries and marks entries truncated to 16KB', () => {
@@ -42,6 +55,30 @@ describe('API console safety and presentation helpers', () => {
     expect(makeCurl({ baseUrl: '', method: 'GET', path: '/api/system/health', token: 'abc' })).not.toContain('abc')
     expect(makeCurl({ baseUrl: '', method: 'GET', path: '/api/system/health', token: 'abc' })).toContain('"Authorization: Bearer $MAA_TOKEN"')
     expect(makeCurl({ baseUrl: '', method: 'GET', path: '/api/system/health', token: "it's-secret", includeToken: true })).toContain("'Authorization: Bearer it'\\''s-secret'")
+  })
+
+  it('preserves the selected auth channel when exporting redacted or explicit-token cURL', () => {
+    const redacted = makeCurl({ baseUrl: '', method: 'GET', path: '/api/tasks/types', headers: { 'X-Token': 'bad-token' }, token: 'session-token' })
+    expect(redacted).toContain('"X-Token: $MAA_TOKEN"')
+    expect(redacted).not.toContain('bad-token')
+    expect(redacted).not.toContain('session-token')
+
+    const explicit = makeCurl({ baseUrl: '', method: 'GET', path: '/api/tasks/types', headers: { 'X-Token': 'bad-token' }, token: 'session-token', includeToken: true })
+    expect(explicit).toContain("'X-Token: bad-token'")
+    expect(explicit).not.toContain('session-token')
+    expect(explicit).not.toContain('Authorization:')
+  })
+
+  it('omits API keys and other credential-like custom headers from exported cURL', () => {
+    const curl = makeCurl({
+      baseUrl: '', method: 'GET', path: '/api/x?token=url-secret',
+      headers: { 'X-Api-Key': 'api-key-secret', 'X-Password': 'password-secret', 'X-Secret': 'secret-value', 'X-Trace-Id': 'trace-1' },
+    })
+    expect(curl).toContain('X-Trace-Id: trace-1')
+    expect(curl).not.toContain('api-key-secret')
+    expect(curl).not.toContain('password-secret')
+    expect(curl).not.toContain('secret-value')
+    expect(curl).not.toContain('url-secret')
   })
 
   it('classifies HTTP responses and scopes logs to request or pipeline ids', () => {
@@ -134,7 +171,7 @@ describe('API console safety and presentation helpers', () => {
     }
     const input = Array.from({ length: 101 }, (_, index) => ({
       id: String(index), method: 'GET', path: `/api/x?token=secret-${index}&stage=${index}`,
-      headers: { Authorization: 'bearer secret', 'X-Token': 'secret', Cookie: 'secret', Accept: 'application/json' },
+      headers: { Authorization: 'bearer secret', 'X-Token': 'secret', Cookie: 'secret', 'X-Api-Key': 'api-key-secret', Accept: 'application/json' },
       body: 'payload-' + index,
     }))
     future.saveHistory?.(storage, input)

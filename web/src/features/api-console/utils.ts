@@ -3,6 +3,7 @@ export const HISTORY_STORAGE_KEY = 'maa.api-console.history'
 export const HISTORY_MAX_ENTRIES = 100
 export const HISTORY_MAX_BYTES = 16 * 1024
 const HISTORY_MAX_ID_BYTES = 256
+const CREDENTIAL_HEADER = /authorization|cookie|(?:^|[-_])token(?:$|[-_])|api[-_]?key|password|(?:^|[-_])secret(?:$|[-_])/i
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'] as const
 
@@ -346,7 +347,7 @@ export function filterSensitive<T extends { path?: string; headers?: Record<stri
       path = /^https?:\/\//i.test(path) ? url.toString() : `${url.pathname}${url.search}${url.hash}`
     } catch { /* retain malformed paths; request validation will explain them */ }
   }
-  const headers = Object.fromEntries(Object.entries(value.headers ?? {}).filter(([key]) => !/^(authorization|x-token|cookie)$/i.test(key)))
+  const headers = Object.fromEntries(Object.entries(value.headers ?? {}).filter(([key]) => !CREDENTIAL_HEADER.test(key.trim())))
   const query = value.query
     ? Object.fromEntries(Object.entries(value.query).filter(([key]) => key.toLowerCase() !== 'token'))
     : undefined
@@ -411,12 +412,17 @@ export function makeCurl(request: { baseUrl: string; method: string; path: strin
   const url = /^https?:\/\//i.test(cleanPath)
     ? cleanPath
     : `${request.baseUrl.replace(/\/$/, '')}${cleanPath}` || cleanPath
-  const headers = Object.entries(request.headers ?? {}).filter(([key]) => !/^(authorization|x-token|cookie)$/i.test(key))
+  const explicitAuth = Object.entries(request.headers ?? {}).find(([key]) => /^(authorization|x-token)$/i.test(key.trim()))
+  const headers = Object.entries(request.headers ?? {}).filter(([key]) => !CREDENTIAL_HEADER.test(key.trim()))
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
-  const auth = request.token
+  const authName = explicitAuth?.[0].trim() ?? (request.token ? 'Authorization' : '')
+  const authValue = explicitAuth?.[1] ?? (request.token ? `Bearer ${request.token}` : '')
+  const authScheme = authName.toLowerCase() === 'authorization' ? authValue.match(/^(\S+)\s+/)?.[1] : undefined
+  const exportedAuthValue = request.includeToken ? authValue : authScheme ? `${authScheme} $MAA_TOKEN` : '$MAA_TOKEN'
+  const auth = authName
     ? request.includeToken
-      ? `-H ${quote(`Authorization: Bearer ${request.token}`)}`
-      : '-H "Authorization: Bearer $MAA_TOKEN"'
+      ? `-H ${quote(`${authName}: ${exportedAuthValue}`)}`
+      : `-H "${authName}: ${exportedAuthValue}"`
     : ''
   const body = request.body ? `--data-raw ${quote(request.body)}` : ''
   const contentType = request.body && !headers.some(([key]) => key.toLowerCase() === 'content-type') ? '-H "Content-Type: application/json"' : ''

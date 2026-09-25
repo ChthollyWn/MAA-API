@@ -20,8 +20,9 @@ function renderWithRouter(element: React.ReactNode, initialEntries = ['/']) {
       <MemoryRouter initialEntries={initialEntries}>
         <Routes>
           <Route element={element} path="/">
-            <Route element={<LocationProbe />} path="login" />
-          </Route>
+          <Route element={<LocationProbe />} path="login" />
+          <Route element={<LocationProbe />} path="more/api-console/*" />
+        </Route>
           <Route element={<div>Application page <LocationProbe /></div>} path="/dashboard" />
         </Routes>
       </MemoryRouter>
@@ -54,6 +55,13 @@ describe('App shell and entry routes', () => {
     expect(navigation.className).toContain('pb-safe')
     expect(document.querySelector('main')?.className).toContain('3.5rem+env(safe-area-inset-bottom')
     expect(screen.getByText(/Service Worker 离线缓存/)).toBeTruthy()
+  })
+
+  it('gives the API console guide route the same full-width shell as the workbench', () => {
+    renderWithRouter(<AppShell />, ['/more/api-console/guide'])
+
+    expect(screen.getByRole('main').className).toContain('max-w-none')
+    expect(screen.getByTestId('location')).toHaveTextContent('/more/api-console/guide')
   })
 
   it('persists theme selection and synchronizes the document theme and browser chrome color', () => {

@@ -108,7 +108,7 @@ def make_pending(db_path: Path) -> None:
 # 首次建库 / 无待应用迁移
 # ---------------------------------------------------------------------------
 def test_first_start_creates_schema_without_backup(db_path):
-    """新库直接 upgrade head：13 张表 + 版本行都在，且不产生备份。"""
+    """新库直接 upgrade head：14 张表 + 版本行都在，且不产生备份。"""
     assert not db_path.exists()
 
     asyncio.run(migrate.ensure_schema())
@@ -156,10 +156,12 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
     # 备份是 upgrade 之前的快照（当前 head 的前序版本），且是可打开的上一版 schema。
     assert version(backup) == pre_head_revision()
     assert "alembic_version" in table_names(backup)
-    # M10 的 0005 在该前序版本中尚未创建收藏表；其余当时已有业务表须完整保留。
+    # 当前前序版本 0005 已建收藏表；待迁移只为其补列表排序索引。
     backup_tables = table_names(backup)
-    assert set(SQLModel.metadata.tables) - {"api_snippet"} <= backup_tables
-    assert "api_snippet" not in backup_tables
+    assert set(SQLModel.metadata.tables) <= backup_tables
+    with contextlib.closing(sqlite3.connect(backup)) as conn:
+        snippet_indexes = {row[1] for row in conn.execute("pragma index_list('api_snippet')")}
+    assert "ix_api_snippet_updated_at" not in snippet_indexes
 
     # 主库已迁到 head，业务表仍齐全
     assert version(db_path) == head_revision()

@@ -154,6 +154,52 @@ def test_replay_marks_records_truncated_when_cursor_predates_ring(
         assert socket.receive_json()["type"] == "subscribed"
 
 
+def test_subscribe_replays_current_stream_when_client_cursor_belongs_to_old_stream(
+    ws_app, tmp_settings, make_client
+):
+    app, _ = ws_app
+    hub = LogHub(ring_size=5)
+    hub.offer(_record("task", "new stream row"))
+    set_log_hub(hub)
+
+    with make_client(app).websocket_connect("/api/ws") as socket:
+        socket.send_json({
+            "type": "subscribe",
+            "data": {
+                "channels": ["log"],
+                "log_filter": {"sources": ["task"], "min_level": "INFO"},
+                "last_seen_id": 999,
+                "last_seen_stream_id": "previous-server-instance",
+            },
+        })
+        batch = socket.receive_json()
+
+    assert batch["type"] == "log_batch"
+    assert batch["data"]["stream_id"] == hub.stream_id
+    assert [record["content"] for record in batch["data"]["records"]] == ["new stream row"]
+
+
+def test_legacy_subscribe_cursor_without_stream_id_replays_current_ring(
+    ws_app, tmp_settings, make_client
+):
+    app, _ = ws_app
+    hub = LogHub(ring_size=5)
+    hub.offer(_record("task", "legacy client row"))
+    set_log_hub(hub)
+
+    with make_client(app).websocket_connect("/api/ws") as socket:
+        socket.send_json({"type": "subscribe", "data": {
+            "channels": ["log"],
+            "log_filter": {"sources": ["task"], "min_level": "INFO"},
+            "last_seen_id": 999,
+        }})
+        batch = socket.receive_json()
+
+    assert batch["type"] == "log_batch"
+    assert batch["data"]["truncated"] is True
+    assert [record["content"] for record in batch["data"]["records"]] == ["legacy client row"]
+
+
 def test_log_websocket_payload_contains_request_id(ws_app, tmp_settings, make_client):
     """A live log event exposes its HTTP request correlation id to the UI."""
     app, _ = ws_app
@@ -165,13 +211,14 @@ def test_log_websocket_payload_contains_request_id(ws_app, tmp_settings, make_cl
         assert socket.receive_json()["type"] == "subscribed"
         # ``LogHub`` calls its sink on its owning event loop. This isolated
         # router app has no lifespan, so publish through its real sink boundary.
-        ws_api.manager.broadcast_log(
-            _record("service", "handled request", request_id="request-42")
-        )
+        record = _record("service", "handled request", request_id="request-42")
+        hub.offer(record)  # assign the current process id and stream identity
+        ws_api.manager.broadcast_log(record)
         event = socket.receive_json()
 
     assert event["type"] == "log"
     assert event["data"]["request_id"] == "request-42"
+    assert event["data"]["stream_id"] == hub.stream_id
 
 
 def test_slow_client_is_closed_without_affecting_other_sessions():

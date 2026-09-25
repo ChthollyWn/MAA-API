@@ -181,6 +181,28 @@ describe('API console WebSocket lifecycle and subscriptions', () => {
     expect(result.current.logs.map((record) => record.id)).toEqual([7, 8, 9, 10])
   })
 
+  it('resets replay deduplication when the server instance changes', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const { result } = renderHook(() => useConsoleRealtime('http://maa.example:8002', null, 'request-1', null))
+    const first = FakeSocket.instances[0]
+    act(() => first.open())
+    act(() => first.message({ type: 'log', data: { id: 700, stream_id: 'instance-a', source: 'service', request_id: 'request-1', content: 'before restart' } }))
+    act(() => first.closeWith(1011))
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+
+    const second = FakeSocket.instances[1]
+    act(() => second.open())
+    expect(lastMessage(second).data).toMatchObject({ last_seen_id: 700, last_seen_stream_id: 'instance-a' })
+    act(() => second.message({ type: 'log_batch', data: {
+      stream_id: 'instance-b', truncated: false,
+      records: [{ id: 1, stream_id: 'instance-b', source: 'service', request_id: 'request-1', content: 'after restart' }],
+    } }))
+
+    expect(result.current.logs.map((record) => record.content)).toEqual(['before restart', 'after restart'])
+    expect(result.current.historyTruncated).toBe(true)
+  })
+
   it('exposes log history truncation when the server reports an incomplete replay', () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     const { result } = renderHook(() => useConsoleRealtime('http://maa.example:8002', null, 'request-1', null))

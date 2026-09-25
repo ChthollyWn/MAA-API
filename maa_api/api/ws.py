@@ -269,6 +269,7 @@ class ConnectionManager:
     def _record_data(record: LogRecord) -> dict[str, Any]:
         return {
             "id": record.id,
+            "stream_id": record.stream_id,
             "source": record.source,
             "level": record.level,
             "content": record.content,
@@ -350,6 +351,7 @@ async def _backfill(
             {"type": "log_batch", "ts": time.time(), "data": {
                 "records": [_record_wire(record) for record in records],
                 "truncated": truncated,
+                "stream_id": hub.stream_id,
             }},
         )
     return len(records), truncated
@@ -440,6 +442,9 @@ async def _handle_message(
                     await _send_direct(session, _error("WS_BAD_MESSAGE", "last_seen_id 必须为整数", req_id))
                     session.invalid_messages += 1
                     return
+                raw_stream_id = data.get("last_seen_stream_id")
+                if hub is not None and isinstance(raw_stream_id, str) and raw_stream_id != hub.stream_id:
+                    cursor = 0
         backfilled, truncated = await _backfill(session, hub, cursor)
         await _send_direct(
             session,
@@ -447,6 +452,7 @@ async def _handle_message(
                 "channels": sorted(session.channels),
                 "backfilled": backfilled,
                 "truncated": truncated,
+                "stream_id": hub.stream_id if hub is not None else None,
             }},
         )
         return
@@ -501,15 +507,20 @@ async def websocket_logs(websocket: WebSocket) -> None:
         return
     first_subscribe = [True]
     query_cursor = websocket.query_params.get("last_seen_id")
+    query_stream_id = websocket.query_params.get("last_seen_stream_id")
     if query_cursor is not None:
         session.channels = {"log"}
         try:
-            backfilled, truncated = await _backfill(session, hub, max(int(query_cursor), 0))
+            cursor = max(int(query_cursor), 0)
+            if hub is not None and query_stream_id and query_stream_id != hub.stream_id:
+                cursor = 0
+            backfilled, truncated = await _backfill(session, hub, cursor)
         except ValueError:
             await _send_direct(session, _error("WS_BAD_MESSAGE", "last_seen_id 必须为整数"))
         else:
             await _send_direct(session, {"type": "subscribed", "ts": time.time(), "data": {
                 "channels": ["log"], "backfilled": backfilled, "truncated": truncated,
+                "stream_id": hub.stream_id if hub is not None else None,
             }})
         first_subscribe[0] = False
 

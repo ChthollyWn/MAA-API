@@ -28,6 +28,7 @@ export function AppShell() {
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
   const realtime = useRealtimeStatus()
+  const isApiConsoleRoute = location.pathname === '/more/api-console' || location.pathname === '/more/api-console/guide'
 
   const logout = async () => {
     if (!token || loggingOut) return
@@ -88,7 +89,7 @@ export function AppShell() {
           <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{logoutError}</p>
         </div>
       ) : null}
-      <main className={`mx-auto min-h-[calc(100dvh-3.5rem)] ${location.pathname === '/more/api-console' ? 'max-w-none px-0' : 'max-w-3xl px-4 sm:px-6'} pb-[calc(3.5rem+env(safe-area-inset-bottom,0px)+1rem)]`}>
+      <main className={`mx-auto min-h-[calc(100dvh-3.5rem)] ${isApiConsoleRoute ? 'max-w-none px-0' : 'max-w-3xl px-4 sm:px-6'} pb-[calc(3.5rem+env(safe-area-inset-bottom,0px)+1rem)]`}>
         <Outlet />
       </main>
       <BottomTabBar />

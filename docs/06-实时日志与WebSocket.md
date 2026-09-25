@@ -26,7 +26,8 @@
 ```python
 @dataclass
 class LogRecord:
-    id: int                 # 自增，全局单调，前端断线重连补发的游标
+    id: int                 # 单个 stream_id 内单调递增，前端断线重连补发的游标
+    stream_id: str           # 服务进程实例标识；进程重启后改变，不能跨实例复用 id 游标
     ts: float               # Unix 时间戳（秒，带小数）
     source: str             # "task" | "service" | "core"
     level: str              # "DEBUG" | "INFO" | "WARNING" | "ERROR"
@@ -736,12 +737,13 @@ Cookie 作为备选，供前端在已通过 HTTP 登录接口设置 cookie 后�
       "min_level": "INFO",
       "pipeline_id": null
     },
-    "last_seen_id": 10199
+    "last_seen_id": 10199,
+    "last_seen_stream_id": "当前已连接的 stream_id"
   }
 }
 ```
 
-`last_seen_id` 只在首次 `subscribe` 时生效，服务端据此从环形缓冲补发 `id > last_seen_id` 的记录。
+`last_seen_id` 与 `last_seen_stream_id` 只在首次 `subscribe` 时生效。客户端应从日志记录或 `subscribed.data.stream_id` 记住实例标识，并在重连时连同最大 `id` 一起发送。实例标识相同时服务端补发 `id > last_seen_id`；不同时忽略旧游标并从当前环形缓冲补发。进程切换期间的日志无法从上一实例的内存环形缓冲恢复，客户端需提示历史可能不完整；当前实例回放超过缓冲时仍由 `truncated` 标记。
 
 服务端应答：
 
@@ -750,9 +752,11 @@ Cookie 作为备选，供前端在已通过 HTTP 登录接口设置 cookie 后�
   "type": "subscribed",
   "req_id": "r-1",
   "ts": 1758000000.0,
-  "data": { "channels": ["log", "pipeline_status"], "backfilled": 32, "truncated": false }
+  "data": { "channels": ["log", "pipeline_status"], "backfilled": 32, "truncated": false, "stream_id": "process-instance-id" }
 }
 ```
+
+实时 `log.data` 与 `log_batch.data` 也带当前 `stream_id`。
 
 **`unsubscribe`** — 退订部分频道。移动端切到后台或用户离开日志页时用它降低流量。
 
@@ -861,12 +865,13 @@ def broadcast_log(self, record: LogRecord) -> None:
 
 ### 7.7 断线重连与日志补发
 
-客户端在本地持久化 `last_seen_id`（最后收到的日志 `id`），重连时通过 query 参数或首个 `subscribe` 消息带上。服务端的补发逻辑：
+客户端在本地保留 `last_seen_id`（最后收到的日志 `id`）及对应的 `stream_id`，重连时通过 query 参数或首个 `subscribe` 消息带上。WebSocket 实时事件为每个服务进程生成 `stream_id`；服务重启后标识变化，服务端忽略旧实例游标并从新实例的缓冲补发，客户端清空旧实例的去重集合并提示跨实例历史可能不完整。服务端在实例内的补发逻辑：
 
 ```
 收到 last_seen_id = L
   → 环形缓冲中最小 id 记为 M
-  → L >= 缓冲最大 id：无缺口，不补发
+  → L 高于当前缓冲最大 id：视为旧实例/无效游标，回放当前缓冲并标记 truncated
+  → L 等于或接近当前缓冲最大 id：无缺口，不补发
   → L >= M - 1：缺口完全在缓冲内，直接发 log_batch（应用订阅过滤）
   → L <  M - 1：缺口超出缓冲，发缓冲全量 + truncated=true
                  客户端据此调用 GET /api/system/logs?after_id=L&before_id=M 补齐

@@ -603,7 +603,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 | PUT | `/api/snippets/{snippet_id}` | 全量更新收藏 | 同 POST | 200 | 404、409（名称重复）、422 |
 | DELETE | `/api/snippets/{snippet_id}` | 删除收藏 | | 204 | 404 |
 
-`headers` 不能包含 `Authorization`、`X-Token` 或 `Cookie`，`query` 不能包含 `token`；服务端保存时再次过滤，避免调用方绕过前端。名称唯一性区分大小写。创建响应带 `Location: /api/snippets/{snippet_id}`。
+`headers` 不能包含 `Authorization`、`Cookie`、token、API key、password 或 secret 类凭据，`query` 不能包含 `token`；服务端写入和读取时再次过滤，避免调用方绕过前端或读取历史脏数据。名称唯一性区分大小写。创建响应带 `Location: /api/snippets/{snippet_id}`。
 
 （5 条）
 

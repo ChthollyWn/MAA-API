@@ -15,6 +15,7 @@ import re
 import sys
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -72,6 +73,7 @@ class LogRecord:
     """A normalized log event shared by the hub, WebSocket, and REST APIs."""
 
     id: int = 0
+    stream_id: str | None = None
     ts: float
     source: str
     level: str
@@ -132,6 +134,7 @@ class LogHub:
             float(flush_interval or configured.flush_interval), 0.001
         )
         self._ring: deque[LogRecord] = deque(maxlen=self.ring_size)
+        self.stream_id = uuid.uuid4().hex
         self._db_queue: asyncio.Queue[LogRecord | object] = asyncio.Queue(
             maxsize=max(int(db_queue_size), 1)
         )
@@ -209,6 +212,11 @@ class LogHub:
         if not records:
             return [], False
         oldest_id = records[0].id
+        if cursor > records[-1].id:
+            # A cursor beyond this stream can only come from an older/reused id
+            # space or a malformed client checkpoint. Replay what remains and
+            # signal the gap instead of silently suppressing every current row.
+            return records, True
         truncated = cursor < oldest_id - 1
         return [record for record in records if record.id > cursor], truncated
 
@@ -230,6 +238,7 @@ class LogHub:
         loop = self._loop
         with self._sequence_lock:
             record.id = self._next_id
+            record.stream_id = self.stream_id
             self._next_id += 1
             if record.ts <= 0:
                 record.ts = time.time()
