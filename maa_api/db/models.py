@@ -543,6 +543,7 @@ class AgentAudit(SQLModel, table=True):
     caller: str = Field(max_length=16)
     caller_detail: str | None = Field(default=None, max_length=128)
     tool_name: str = Field(max_length=64)
+    request_id: str | None = Field(default=None, max_length=128)
     # 入库前已裁剪（超过 1 KB 的字符串值替换为 __truncated__ 结构）
     arguments: dict[str, Any] = Field(
         default_factory=dict, sa_column=json_column("arguments", nullable=False)
@@ -585,6 +586,33 @@ class AgentAudit(SQLModel, table=True):
         # 审计查询：可选 caller / tool_name 过滤，按 created_at DESC
         Index("ix_agent_audit_caller_created_at", "caller", "created_at"),
         Index("ix_agent_audit_tool_name_created_at", "tool_name", "created_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+class AgentIdempotency(SQLModel, table=True):
+    """24-hour REST invoke replay keys, scoped to a caller and linked audit."""
+
+    __tablename__ = "agent_idempotency"
+
+    id: int | None = Field(default=None, primary_key=True)
+    caller: str = Field(max_length=16)
+    key: str = Field(max_length=64)
+    request_hash: str = Field(max_length=64)
+    audit_id: int | None = Field(
+        default=None, foreign_key="agent_audit.id", ondelete="CASCADE"
+    )
+    response_status: int | None = Field(default=None)
+    response_body: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("response_body")
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("caller", "key", name="uq_agent_idempotency_caller_key"),
+        Index("ix_agent_idempotency_created_at", "created_at"),
         {"sqlite_autoincrement": True},
     )
 

@@ -23,10 +23,10 @@ Chat Completions（docs/04 §5.8），重建上下文只需要 ``SELECT`` 后改
 
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 
-from maa_api.db.models import AgentMessage, AgentSession, utcnow
-from maa_api.db.repositories.base import BaseRepository
+from maa_api.db.models import AgentIdempotency, AgentMessage, AgentSession, utcnow
+from maa_api.db.repositories.base import BaseRepository, Page
 
 
 class AgentSessionRepository(BaseRepository):
@@ -77,16 +77,53 @@ class AgentSessionRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
+    async def list_page(self, *, page: int = 1, size: int = 20) -> Page[AgentSession]:
+        stmt = select(AgentSession).order_by(
+            AgentSession.last_message_at.is_(None).asc(),
+            AgentSession.last_message_at.desc(),
+            AgentSession.created_at.desc(),
+            AgentSession.id.desc(),
+        )
+        count_stmt = select(func.count()).select_from(AgentSession)
+        return await self.paginate(stmt, count_stmt, page=page, size=size)
+
+    async def delete(self, session_id: str) -> bool:
+        result = await self.session.execute(
+            delete(AgentSession).where(AgentSession.id == session_id)
+        )
+        return result.rowcount > 0
+
+    async def clear_expired_grants(self, now: datetime) -> list[tuple[str, str]]:
+        rows = (
+            await self.session.execute(
+                select(AgentSession.id, AgentSession.atomic_grant_id).where(
+                    AgentSession.atomic_grant_id.is_not(None),
+                    AgentSession.atomic_grant_expires_at.is_not(None),
+                    AgentSession.atomic_grant_expires_at <= now,
+                )
+            )
+        ).all()
+        if not rows:
+            return []
+        for session_id, grant_id in rows:
+            await self.session.execute(
+                update(AgentSession)
+                .where(
+                    AgentSession.id == session_id,
+                    AgentSession.atomic_grant_id == grant_id,
+                )
+                .values(
+                    atomic_grant_id=None,
+                    atomic_grant_expires_at=None,
+                    updated_at=now,
+                )
+            )
+        return [(str(session_id), str(grant_id)) for session_id, grant_id in rows]
+
     async def update_grant(
         self, session_id: str, *, confirmation_id: str, expires_at: datetime
     ) -> bool:
-        """写入/延续会话级原子操作授权，返回会话是否存在（``bool``）。
-
-        两个字段一起写（docs/04 §5.7）：``confirmation_id`` 指向用户批准的那条
-        ``grant_atomic_ops`` 确认，``expires_at`` 是窗口到期时刻。**判定「现在是否
-        有效」的两个条件（两字段非空且 ``expires_at > now()``）、窗口时长与撤销
-        时机都归 M11**，本方法只负责落库。
-        """
+        """Write both persisted fields that represent a session grant."""
         result = await self.session.execute(
             update(AgentSession)
             .where(AgentSession.id == session_id)
@@ -99,13 +136,7 @@ class AgentSessionRepository(BaseRepository):
         return result.rowcount > 0
 
     async def clear_grant(self, session_id: str) -> bool:
-        """撤销会话级授权：两个字段**一起置空**，返回会话是否存在。
-
-        不把 ``expires_at`` 改成过去时刻 —— 见模块 docstring 与 docs/04 §5.7：
-        撤销后的数据形态等同于「从未授权」。审计轨迹在 ``confirmation`` 与
-        ``agent_audit`` 里已经完整（``agent_audit.authorized_by_id`` 指向授权那条
-        确认），这张表只需要回答「现在是否有效」。
-        """
+        """Revoke a session grant by clearing both persisted fields."""
         result = await self.session.execute(
             update(AgentSession)
             .where(AgentSession.id == session_id)
@@ -117,6 +148,38 @@ class AgentSessionRepository(BaseRepository):
         )
         return result.rowcount > 0
 
+
+class AgentIdempotencyRepository(BaseRepository):
+    """Persistent 24-hour REST invoke key lookup and retention."""
+
+    async def get(self, caller: str, key: str) -> AgentIdempotency | None:
+        result = await self.session.execute(
+            select(AgentIdempotency).where(
+                AgentIdempotency.caller == caller,
+                AgentIdempotency.key == key,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_expired(self, cutoff: datetime) -> int:
+        result = await self.session.execute(
+            delete(AgentIdempotency).where(AgentIdempotency.created_at < cutoff)
+        )
+        return max(int(result.rowcount or 0), 0)
+
+    async def create(self, record: AgentIdempotency) -> AgentIdempotency:
+        stored = await self.session.merge(record)
+        await self.session.flush()
+        return stored
+
+    async def delete(self, caller: str, key: str) -> bool:
+        result = await self.session.execute(
+            delete(AgentIdempotency).where(
+                AgentIdempotency.caller == caller,
+                AgentIdempotency.key == key,
+            )
+        )
+        return result.rowcount > 0
 
 class AgentMessageRepository(BaseRepository):
     """会话消息的追加与按序读取（docs/04 §5.8）。"""
@@ -151,3 +214,26 @@ class AgentMessageRepository(BaseRepository):
             .order_by(AgentMessage.seq.asc())
         )
         return list(result.scalars().all())
+
+    async def list_page(
+        self,
+        session_id: str,
+        *,
+        after_seq: int | None = None,
+        page: int = 1,
+        size: int = 20,
+    ) -> Page[AgentMessage]:
+        conditions = [AgentMessage.session_id == session_id]
+        if after_seq is not None:
+            conditions.append(AgentMessage.seq > after_seq)
+        stmt = (
+            select(AgentMessage)
+            .where(*conditions)
+            .order_by(AgentMessage.seq.asc())
+        )
+        count_stmt = (
+            select(func.count())
+            .select_from(AgentMessage)
+            .where(*conditions)
+        )
+        return await self.paginate(stmt, count_stmt, page=page, size=size)

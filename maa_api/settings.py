@@ -118,6 +118,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "app.proxy": ("proxy",),
     "updates.download_prefix": ("updates", "download_prefix"),
     "updates.check_hour": ("updates", "check_hour"),
+    "agent.confirmation_timeout_seconds": ("agent", "confirmation_timeout_seconds"),
+    "agent.grant_confirmation_timeout_seconds": ("agent", "grant_confirmation_timeout_seconds"),
+    "agent.atomic_grant_minutes": ("agent", "atomic_grant_minutes"),
     "adb.path": ("adb", "path"),
     "adb.address": ("adb", "address"),
     "adb.screenshot_quality": ("adb", "screenshot_quality"),
@@ -205,6 +208,16 @@ class UpdateSettings(BaseModel):
     check_hour: int = Field(default=9, ge=0, le=23)
 
 
+class AgentSettings(BaseModel):
+    """Confirmation timeouts and the bounded internal atomic-operation grant."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    confirmation_timeout_seconds: int = Field(default=600, ge=1)
+    grant_confirmation_timeout_seconds: int = Field(default=120, ge=1)
+    atomic_grant_minutes: int = Field(default=15, ge=1, le=60)
+
+
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -220,6 +233,7 @@ class Settings(BaseModel):
     adb: AdbSettings = Field(default_factory=AdbSettings)
     log: LogSettings = Field(default_factory=LogSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
+    agent: AgentSettings = Field(default_factory=AgentSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
