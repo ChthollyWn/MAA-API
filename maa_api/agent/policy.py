@@ -13,6 +13,7 @@ from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRisk
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.repositories.audit import ConfirmationRepository
 from maa_api.domain.enums import AgentSessionStatus, CallerType, RiskLevel
+from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.task import RISK_FIELDS
 
 DEFAULT_ATOMIC_GRANT_MINUTES = 15
@@ -130,22 +131,28 @@ class PolicyEngine:
     async def _evaluate_atomic(
         self, definition: ToolDefinition, context: ToolContext
     ) -> PolicyDecision:
-        if _caller(context.caller) is not CallerType.INTERNAL or not context.session_id:
+        if _caller(context.caller) is not CallerType.INTERNAL:
             return _atomic_confirmation(definition.name)
 
-        session = None
-        if context.db_session is not None:
-            session = await AgentSessionRepository(context.db_session).get(
-                context.session_id
+        if not context.session_id or context.db_session is None:
+            raise AppError(
+                ErrorCode.AGENT_SESSION_NOT_FOUND,
+                "内部 Agent 原子操作必须属于有效会话",
             )
+
+        session = await AgentSessionRepository(context.db_session).get(
+            context.session_id
+        )
+        if session is None or str(session.status) != AgentSessionStatus.ACTIVE.value:
+            raise AppError(
+                ErrorCode.AGENT_SESSION_NOT_FOUND,
+                "内部 Agent 会话不存在或已结束，不能授权原子操作",
+            )
+
         grant_id = getattr(session, "atomic_grant_id", None)
         expires_at = getattr(session, "atomic_grant_expires_at", None)
-        session_active = (
-            str(getattr(session, "status", "")) == AgentSessionStatus.ACTIVE.value
-        )
         if (
-            session_active
-            and grant_id
+            grant_id
             and expires_at is not None
             and _is_future(expires_at)
             and await self._is_approved_grant(grant_id, context)
@@ -156,15 +163,13 @@ class PolicyEngine:
                 authorized_by=grant_id,
             )
 
-        if session_active or context.db_session is None:
-            return PolicyDecision(
-                True,
-                RiskLevel.NONE,
-                reasons=("当前会话尚未获得有效的原子操作授权",),
-                confirmation_action="grant_atomic_ops",
-                window_seconds=self.atomic_grant_minutes * 60,
-            )
-        return _atomic_confirmation(definition.name)
+        return PolicyDecision(
+            True,
+            RiskLevel.NONE,
+            reasons=("当前会话尚未获得有效的原子操作授权",),
+            confirmation_action="grant_atomic_ops",
+            window_seconds=self.atomic_grant_minutes * 60,
+        )
 
     async def _is_approved_grant(
         self, grant_id: str, context: ToolContext
