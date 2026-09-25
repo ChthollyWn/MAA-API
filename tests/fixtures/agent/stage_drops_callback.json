@@ -1,0 +1,11 @@
+{
+  "what": "StageDrops",
+  "details": {
+    "stars": 3,
+    "stage": {"stageCode": "1-7"},
+    "stats": [
+      {"itemId": "4001", "itemName": "龙门币", "quantity": 10, "addQuantity": 2},
+      {"itemId": "30012", "itemName": "作战记录", "quantity": 3, "addQuantity": 0}
+    ]
+  }
+}

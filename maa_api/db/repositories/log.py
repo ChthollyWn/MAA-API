@@ -32,7 +32,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, select, update
 
-from maa_api.db.models import LogEntry, Screenshot, utcnow
+from maa_api.db.models import LogEntry, SanityObservation, Screenshot, StageDrop, utcnow
 from maa_api.db.repositories.base import BaseRepository, Page
 from maa_api.domain.enums import LogLevel, LogSource
 
@@ -44,14 +44,21 @@ PURGE_BATCH_SIZE = 5000
 class LogRepository(BaseRepository):
     """三路日志的落盘、分页/游标查询与两维清理。"""
 
-    async def bulk_insert(self, entries: Sequence[LogEntry]) -> int:
+    async def bulk_insert(
+        self,
+        entries: Sequence[LogEntry],
+        *,
+        statistic_rows: Sequence[StageDrop | SanityObservation] = (),
+    ) -> int:
         """攒批写入日志并**立即提交**，返回写入条数。
 
         ``LogHub`` 攒够 200 条或超过 500 ms 调一次（docs/04 §10.4），因此这里
-        用 ``add_all()`` 而不是逐条 ``add()``。提交是必须的：日志与业务事务无关，
-        业务回滚不该带走日志；同时提交后 ``entries`` 的 ``id`` 已由 flush 填好，
-        可直接作为 WebSocket 广播的游标（会话若配了 ``expire_on_commit=True``，
-        提交后读 ``id`` 会触发过期刷新，生产会话是 ``expire_on_commit=False``）。
+        用 ``add_all()`` 而不是逐条 ``add()``。结构化 callback rows 与相应日志
+        在同一事务提交，避免统计记录与原始展示事件部分缺失。提交是必须的：日志
+        与业务事务无关，业务回滚不该带走日志；同时提交后 ``entries`` 的 ``id``
+        已由 flush 填好，可直接作为 WebSocket 广播游标（会话若配了
+        ``expire_on_commit=True``，提交后读 ``id`` 会触发过期刷新，生产会话是
+        ``expire_on_commit=False``）。
         ``created_at`` 原样使用入参（事件时间），缺省才由模型 ``default_factory``
         补 ``utcnow()``。
 
@@ -60,10 +67,11 @@ class LogRepository(BaseRepository):
         （外键失效等），会话保持可用，由 ``LogHub`` 决定丢弃还是重试。
         """
         rows = list(entries)
-        if not rows:
+        all_rows = [*rows, *statistic_rows]
+        if not all_rows:
             return 0
         try:
-            self.session.add_all(rows)
+            self.session.add_all(all_rows)
             await self.session.commit()
         except Exception:
             await self.session.rollback()

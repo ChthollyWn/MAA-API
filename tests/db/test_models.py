@@ -38,6 +38,8 @@ SQLITE_DIALECT = sqlite_dialect.dialect()
 BUSINESS_TABLES = {
     "pipeline",
     "task",
+    "stage_drop",
+    "sanity_observation",
     "log_entry",
     "screenshot",
     "schedule",
@@ -77,6 +79,17 @@ EXPECTED_INDEXES = {
     "ix_pipeline_schedule_id_created_at": (
         "pipeline",
         ("schedule_id", "created_at"),
+        False,
+    ),
+    "ix_stage_drop_stage_created_at": (
+        "stage_drop",
+        ("stage_code", "created_at"),
+        False,
+    ),
+    "ix_stage_drop_callback_id": ("stage_drop", ("callback_id",), False),
+    "ix_sanity_observation_stage_created_at": (
+        "sanity_observation",
+        ("stage_code", "created_at"),
         False,
     ),
     "ix_log_entry_source_created_at": ("log_entry", ("source", "created_at"), False),
@@ -137,6 +150,10 @@ EXPECTED_FK_SET_NULL = {
     ("pipeline", "retry_of_id"),
     ("log_entry", "pipeline_id"),
     ("log_entry", "task_id"),
+    ("stage_drop", "pipeline_id"),
+    ("stage_drop", "task_id"),
+    ("sanity_observation", "pipeline_id"),
+    ("sanity_observation", "task_id"),
     ("screenshot", "pipeline_id"),
     ("screenshot", "task_id"),
     ("schedule", "last_pipeline_id"),
@@ -151,6 +168,7 @@ EXPECTED_FK_SET_NULL = {
 EXPECTED_TEXT_COLUMNS = {
     ("pipeline", "error_message"),
     ("task", "error_message"),
+    ("stage_drop", "item_name"),
     ("log_entry", "content"),
     ("agent_message", "content"),
     ("agent_audit", "result_summary"),
@@ -244,7 +262,7 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
 def test_metadata_has_exactly_14_business_tables():
-    """14 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+    """16 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 

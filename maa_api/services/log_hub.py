@@ -356,11 +356,47 @@ class LogHub:
 
     async def _flush(self, records: list[LogRecord]) -> None:
         from maa_api.db import session as db_session
+        from maa_api.db.models import Task
         from maa_api.db.repositories.log import LogRepository
+        from maa_api.services.callback_statistics import CallbackStatisticsService
 
         entries = [_to_entry(record) for record in records]
+        statistic_service = CallbackStatisticsService()
         async with db_session.session_factory() as session:
-            await LogRepository(session).bulk_insert(entries)
+            statistic_rows = []
+            for record in records:
+                callback = (record.raw or {}).get("details")
+                if not isinstance(callback, dict):
+                    continue
+                callback_data = callback.get("details")
+                callback_data = callback_data if isinstance(callback_data, dict) else {}
+                stage_data = callback_data.get("stage")
+                stage_data = stage_data if isinstance(stage_data, dict) else {}
+                stage_code = stage_data.get("stageCode")
+                if (
+                    callback.get("what") == "SanityBeforeStage"
+                    and not stage_code
+                    and record.task_id is not None
+                ):
+                    task = await session.get(Task, record.task_id)
+                    if task is not None:
+                        stage_code = (task.params or {}).get("stage")
+                event_time = datetime.fromtimestamp(record.ts, timezone.utc).replace(
+                    tzinfo=None
+                )
+                drops, sanity = statistic_service.rows_for(
+                    callback,
+                    message=(record.raw or {}).get("msg"),
+                    created_at=event_time,
+                    pipeline_id=record.pipeline_id,
+                    task_id=record.task_id,
+                    stage_code_fallback=(str(stage_code) if stage_code else None),
+                )
+                statistic_rows.extend(drops)
+                statistic_rows.extend(sanity)
+            await LogRepository(session).bulk_insert(
+                entries, statistic_rows=statistic_rows
+            )
         # Keep the in-memory cursor and SQLite's AUTOINCREMENT cursor aligned.
         # The writer is the only producer of log_entry rows in this service.
         for record, entry in zip(records, entries, strict=True):

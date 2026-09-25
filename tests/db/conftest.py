@@ -51,7 +51,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
-import maa_api.db.models  # noqa: F401  # 注册 14 张表到 SQLModel.metadata
+import maa_api.db.models  # noqa: F401  # 注册 16 张表到 SQLModel.metadata
 from maa_api.db.session import make_engine
 
 
