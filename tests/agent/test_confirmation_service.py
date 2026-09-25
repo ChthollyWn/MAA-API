@@ -14,9 +14,9 @@ import maa_api.db.models  # noqa: F401
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.db import session as db_session
-from maa_api.db.repositories.agent import AgentSessionRepository
+from maa_api.db.repositories.agent import AgentIdempotencyRepository, AgentSessionRepository
 from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepository
-from maa_api.db.models import AgentAudit, AgentSession, Confirmation, utcnow
+from maa_api.db.models import AgentAudit, AgentIdempotency, AgentSession, Confirmation, utcnow
 from maa_api.domain.enums import (
     AgentSessionStatus,
     AuditStatus,
@@ -254,7 +254,7 @@ def test_existing_session_grant_is_written_to_authorized_by_audit_column():
     asyncio.run(scenario())
 
 
-def test_startup_expires_all_pending_confirmations_and_clears_session_grants():
+def test_startup_expires_pending_fails_approved_orphans_and_clears_session_grants():
     async def scenario():
         engine, factory = _database()
         async with engine.begin() as connection:
@@ -282,6 +282,79 @@ def test_startup_expires_all_pending_confirmations_and_clears_session_grants():
             )
             await session.commit()
             session_id = session_row.id
+            await AgentIdempotencyRepository(session).create(
+                AgentIdempotency(
+                    caller=CallerType.REST,
+                    key="unlinked-after-crash",
+                    request_hash="e" * 64,
+                    audit_id=None,
+                )
+            )
+            await session.commit()
+            approved_orphan = await ConfirmationRepository(session).create(
+                Confirmation(
+                    id="approved-orphan",
+                    action="dangerous_action",
+                    risk_level=RiskLevel.DESTRUCTIVE,
+                    reason="approved but tool not durably complete",
+                    payload={"tool_name": "dangerous_action", "arguments": {"value": 6}},
+                    status=ConfirmationStatus.APPROVED,
+                    requested_by=CallerType.REST,
+                    expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5),
+                )
+            )
+            orphan_audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="dangerous_action",
+                    arguments={"value": 6},
+                    status=AuditStatus.PENDING,
+                    risk_level=RiskLevel.DESTRUCTIVE,
+                    confirmation_id=approved_orphan.id,
+                )
+            )
+            approved_orphan.audit_id = orphan_audit.id
+            await session.commit()
+            approved_grant = await ConfirmationRepository(session).create(
+                Confirmation(
+                    id="approved-grant-orphan",
+                    action="grant_atomic_ops",
+                    risk_level=RiskLevel.NONE,
+                    reason="grant was approved before restart",
+                    payload={
+                        "tool_name": "click",
+                        "arguments": {"value": 7},
+                        "caller": "internal",
+                        "session_id": "grant-orphan-session",
+                        "window_seconds": 900,
+                    },
+                    status=ConfirmationStatus.APPROVED,
+                    requested_by=CallerType.INTERNAL,
+                    expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5),
+                )
+            )
+            grant_orphan_audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.INTERNAL,
+                    tool_name="click",
+                    arguments={"value": 7},
+                    status=AuditStatus.PENDING,
+                    risk_level=RiskLevel.NONE,
+                    confirmation_id=approved_grant.id,
+                )
+            )
+            approved_grant.audit_id = grant_orphan_audit.id
+            await session.commit()
+            await AgentSessionRepository(session).create(
+                AgentSession(
+                    id="grant-orphan-session",
+                    model="model-test",
+                    atomic_grant_id=approved_grant.id,
+                    atomic_grant_expires_at=datetime.now(UTC).replace(tzinfo=None)
+                    + timedelta(minutes=10),
+                )
+            )
+            await session.commit()
 
         await service.start(scan_interval_seconds=0.05)
         assert service._expiry_task is not None
@@ -290,9 +363,28 @@ def test_startup_expires_all_pending_confirmations_and_clears_session_grants():
         async with factory() as session:
             pending = await ConfirmationRepository(session).get(grant.id)
             stored_session = await AgentSessionRepository(session).get(session_id)
+            stored_orphan = await ConfirmationRepository(session).get(approved_orphan.id)
+            stored_orphan_audit = await AuditRepository(session).get(orphan_audit.id)
+            stored_grant_orphan = await ConfirmationRepository(session).get(approved_grant.id)
+            stored_grant_audit = await AuditRepository(session).get(grant_orphan_audit.id)
+            grant_orphan_session = await AgentSessionRepository(session).get(
+                "grant-orphan-session"
+            )
             assert pending.status == ConfirmationStatus.EXPIRED
             assert stored_session.atomic_grant_id is None
             assert stored_session.atomic_grant_expires_at is None
+            assert stored_orphan.status == ConfirmationStatus.APPROVED
+            assert stored_orphan_audit.status == AuditStatus.FAILED
+            assert stored_orphan_audit.error_code == "SERVICE_UNAVAILABLE"
+            assert "不确定" in stored_orphan_audit.result_summary
+            assert stored_grant_orphan.status == ConfirmationStatus.APPROVED
+            assert stored_grant_audit.status == AuditStatus.FAILED
+            assert stored_grant_audit.error_code == "SERVICE_UNAVAILABLE"
+            assert grant_orphan_session.atomic_grant_id is None
+            assert grant_orphan_session.atomic_grant_expires_at is None
+            assert await AgentIdempotencyRepository(session).get(
+                CallerType.REST, "unlinked-after-crash"
+            ) is None
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -586,7 +678,7 @@ def test_approved_confirmation_retains_execution_failure_and_resolved_event():
     asyncio.run(scenario())
 
 
-def test_check_confirmation_resumes_approved_pending_audit_with_saved_payload():
+def test_check_confirmation_never_reexecutes_approved_pending_audit():
     async def scenario():
         engine, factory = _database()
         async with engine.begin() as connection:
@@ -640,13 +732,191 @@ def test_check_confirmation_resumes_approved_pending_audit_with_saved_payload():
             registry,
             clock=lambda: datetime(2026, 9, 25, 0, 0, 0),
         )
+        await service.start(scan_interval_seconds=0.05)
         result = await service.check_confirmation(
             "approved-recovery",
             context=ToolContext(CallerType.MCP, None, "mcp-request-1", _request(), None),
         )
-        assert result["execution"]["status"] == "success"
-        assert '"ran": 12' in result["execution"]["result"]
-        assert calls == [12]
+        assert result["execution"]["status"] == "failed"
+        assert result["execution"]["error_code"] == "SERVICE_UNAVAILABLE"
+        assert calls == []
+        await service.close()
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_expiry_cas_loser_does_not_overwrite_or_broadcast_over_concurrent_approval(monkeypatch):
+    async def scenario():
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            confirmation = await ConfirmationRepository(session).create(
+                Confirmation(
+                    id="cas-confirmation",
+                    action="dangerous_action",
+                    risk_level=RiskLevel.DESTRUCTIVE,
+                    reason="needs confirmation",
+                    payload={"tool_name": "dangerous_action", "arguments": {}},
+                    requested_by=CallerType.REST,
+                    expires_at=datetime(2026, 9, 25, 0, 0, 0),
+                )
+            )
+            audit = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="dangerous_action",
+                    arguments={},
+                    status=AuditStatus.PENDING,
+                    risk_level=RiskLevel.DESTRUCTIVE,
+                    confirmation_id=confirmation.id,
+                )
+            )
+            confirmation.audit_id = audit.id
+            await session.commit()
+
+        original_resolve = ConfirmationRepository.resolve
+
+        async def race_with_approval(self, confirmation_id, target, **kwargs):
+            if target is ConfirmationStatus.EXPIRED:
+                changed = await original_resolve(
+                    self,
+                    confirmation_id,
+                    ConfirmationStatus.APPROVED,
+                    resolved_by="web",
+                )
+                await self.session.commit()
+                assert changed
+                return False
+            return await original_resolve(self, confirmation_id, target, **kwargs)
+
+        monkeypatch.setattr(ConfirmationRepository, "resolve", race_with_approval)
+        events = []
+        service = ConfirmationService(
+            factory,
+            ToolRegistry(),
+            broadcast=lambda kind, data: events.append((kind, data)),
+            clock=lambda: datetime(2026, 9, 25, 0, 0, 1),
+        )
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        try:
+            await service.resolve(
+                confirmation.id,
+                approved=True,
+                resolved_by="web",
+            )
+        except AppError as exc:
+            assert exc.code == ErrorCode.CONFIRMATION_ALREADY_RESOLVED
+        else:
+            raise AssertionError("CAS loser must report the winning terminal state")
+
+        async with factory() as session:
+            stored = await ConfirmationRepository(session).get(confirmation.id)
+            stored_audit = await AuditRepository(session).get(audit.id)
+        assert stored.status == ConfirmationStatus.APPROVED
+        assert stored_audit.status == AuditStatus.PENDING
+        assert events == []
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_close_terminalizes_interrupted_direct_and_pending_confirmation_audits():
+    async def scenario():
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        started = asyncio.Event()
+
+        async def slow_handler(_params, _context):
+            started.set()
+            await asyncio.Event().wait()
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="slow_safe",
+                group="ops",
+                risk=ToolRisk.SAFE,
+                description="waits until service shutdown",
+                params_model=Params,
+                handler=slow_handler,
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="dangerous_action",
+                group="ops",
+                risk=ToolRisk.DANGEROUS,
+                description="requires confirmation",
+                params_model=Params,
+                handler=lambda params, _context: params.value,
+            )
+        )
+        service = ConfirmationService(factory, registry)
+        direct = await service.invoke(
+            "slow_safe",
+            {"value": 1},
+            ToolContext(CallerType.REST, None, None, _request(), None),
+            mode="async",
+        )
+        pending = await service.invoke(
+            "dangerous_action",
+            {"value": 2},
+            ToolContext(CallerType.REST, None, None, _request(), None),
+            mode="async",
+        )
+        await started.wait()
+        await service.close()
+
+        async with factory() as session:
+            direct_audit = await AuditRepository(session).get(direct["audit_id"])
+        confirmation = await service.get(pending["confirmation_id"])
+        assert direct_audit.status == AuditStatus.FAILED
+        assert direct_audit.error_code == "SERVICE_UNAVAILABLE"
+        assert confirmation["status"] == ConfirmationStatus.EXPIRED.value
+        assert confirmation["execution"]["status"] == AuditStatus.EXPIRED.value
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_audit_created_callback_finishes_before_direct_tool_handler_runs():
+    async def scenario():
+        engine, factory = _database()
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        callback_audit_ids = []
+        handler_saw_link = []
+
+        async def handler(params, _context):
+            handler_saw_link.append(bool(callback_audit_ids))
+            return params.value
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="safe_action",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="safe test action",
+                params_model=Params,
+                handler=handler,
+            )
+        )
+        service = ConfirmationService(factory, registry)
+        accepted = await service.invoke(
+            "safe_action",
+            {"value": 3},
+            ToolContext(CallerType.REST, None, None, _request(), None),
+            mode="async",
+            on_audit_created=lambda audit_id: callback_audit_ids.append(audit_id),
+        )
+        await service._workers[str(accepted["audit_id"])]
+        assert callback_audit_ids == [accepted["audit_id"]]
+        assert handler_saw_link == [True]
         await engine.dispose()
 
     asyncio.run(scenario())

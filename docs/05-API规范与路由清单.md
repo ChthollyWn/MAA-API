@@ -32,7 +32,7 @@
 |---|---|
 | `200 OK` | 读取成功；同步执行完成的写操作（原子点击、发测试通知、批准确认） |
 | `201 Created` | 创建了一个可寻址的持久实体（定时任务、通知通道、agent 会话、资源文件、API 收藏），必须带 `Location` 头 |
-| `202 Accepted` | 请求已受理但未完成：提交流水线、取消流水线、重启内核、触发更新、重连设备、发送 agent 消息、等待人工确认 |
+| `202 Accepted` | 请求已受理但未完成：提交流水线、取消流水线、重启内核、触发更新、重连设备、等待人工确认；发送 Agent 消息规划归 M13 |
 | `204 No Content` | 删除成功、批量清理成功，无响应体 |
 | `400 Bad Request` | 请求在语义上不成立但不是字段类型问题：JSON 解析失败、未知任务类型、未知设置项、cron 表达式非法、使用了已弃用的参数值 |
 | `401 Unauthorized` | token 缺失或不匹配。响应带 `WWW-Authenticate: Bearer` |
@@ -49,7 +49,7 @@
 
 ### 2.1 关于 202
 
-202 在本 API 里出现得比多数项目频繁，因为核心操作天然是异步的：流水线要排队，内核重启要几秒，更新要下载几十兆。202 的响应体是**受理凭据**，带上可供轮询的资源 id 和 `Location`：
+202 在本 API 里出现得比多数项目频繁，因为核心操作天然是异步的：流水线要排队，内核重启要几秒，更新要下载几十兆。202 的响应体是**受理凭据**，通常带上可供轮询的资源 id 和 `Location`：
 
 ```http
 HTTP/1.1 202 Accepted
@@ -66,25 +66,22 @@ Content-Type: application/json
 
 调用方拿到 202 之后有两条路：轮询 `Location`，或订阅 WebSocket 等状态事件（推荐，见 [06-实时日志与WebSocket](./06-实时日志与WebSocket.md)）。
 
-**需要人工确认的 agent 操作同样返回 202。** 这是一个刻意的选择：确认请求已经被创建、已经推给前端、正在等人点按钮，这是标准的"已受理，尚未完成"，用 403 或 409 都会让调用方误以为请求被否决了。响应体形状不同，用 `status` 区分：
+**需要人工确认的 Agent REST 操作同样返回 202。** 确认请求已经创建并正在等人点按钮，这是标准的"已受理，尚未完成"。调用方按 `confirmation_id` 轮询 `/api/confirmations/{id}`，终态详情带执行结果、错误与 `audit_id`。Agent 响应不带 `Location` 头，示例：
 
 ```http
 HTTP/1.1 202 Accepted
-Location: /api/confirmations/2b7d...
+Content-Type: application/json
 
 {
-  "status": "pending_confirmation",
-  "confirmation": {
-    "id": "2b7d...",
-    "action": "submit_pipeline",
-    "risk_level": "consume",
-    "reason": "任务参数 stone=3 命中消耗类操作，需人工确认",
-    "expires_at": "2026-09-16T06:32:00Z"
-  }
+  "code": "CONFIRMATION_REQUIRED",
+  "status": "awaiting_confirmation",
+  "confirmation_id": "2b7d...",
+  "audit_id": 123,
+  "expires_at": "2026-09-16T06:32:00Z"
 }
 ```
 
-MCP 的同步阻塞式调用不会看到这个 202——它在服务端内部等待确认结果，超时后收到 `CONFIRMATION_EXPIRED`，被拒后收到 `CONFIRMATION_REJECTED`。两种语义（异步受理 / 同步阻塞）都提供，是既定决策。
+REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 并由确认详情 API 轮询。M12 接入后的 MCP helper 最多短等 25 秒，未获批准时以工具结果返回 pending，由 `check_confirmation` 读取状态；批准后原请求 worker 继续执行。重启后不重放仍为 pending 的副作用操作。
 
 ### 2.2 400 与 422 的分界
 
@@ -658,7 +655,7 @@ stdio 入口（`scripts/mcp_stdio.py`）不经网络，token 从 `config.yaml` �
 | GET | `/api/agent/sessions/{id}` | 会话详情与 token 消耗统计 | | 200 | `AGENT_SESSION_NOT_FOUND` |
 | DELETE | `/api/agent/sessions/{id}` | 删除会话，消息级联删除 | | 204 | `AGENT_SESSION_NOT_FOUND` |
 | GET | `/api/agent/sessions/{id}/messages` | 消息与工具调用轨迹，按 `seq` 升序 | `after_seq`、`page`、`size` | 200 | `AGENT_SESSION_NOT_FOUND` |
-| POST | `/api/agent/sessions/{id}/messages` | 发送用户消息，触发 tool-calling 循环。增量结果经 WebSocket 流式推送 | `{content}` | 202 | `AGENT_SESSION_BUSY`、`LLM_NOT_CONFIGURED`、`LLM_CONTEXT_OVERFLOW` |
+| POST | `/api/agent/sessions/{id}/messages` | M13 规划的发送消息与 tool-calling 循环；M11 不挂载 | `{content}` | M13 | `AGENT_SESSION_BUSY`、`LLM_NOT_CONFIGURED`、`LLM_CONTEXT_OVERFLOW` |
 | DELETE | `/api/agent/sessions/{id}/atomic-grant` | 撤销该会话的原子操作授权，挂起中的调用按拒绝处理 | | 204 | `AGENT_SESSION_NOT_FOUND` |
 | GET | `/api/agent/audits` | 审计列表 | `caller`、`tool_name`、`status`、`risk_level`、`since`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/agent/audits/{id}` | 单条审计详情，含完整参数与结果摘要 | | 200 | `NOT_FOUND` |
@@ -679,7 +676,7 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 **会话级原子操作授权复用这同一套确认流程**，不另起端点。授权请求是一条 `action` 为 `grant_atomic_ops` 的确认记录，`payload` 为 `{"session_id": "...", "window_seconds": 900}`；批准它的"执行"就是在 `agent_session` 上写入授权窗口。撤销走上面的 `DELETE /api/agent/sessions/{id}/atomic-grant`，不是再发一条确认。这样前端只需实现一种确认卡片，只是文案按 `action` 区分（机制见 [11-Agent模块设计 §4.3](./11-Agent模块设计.md)）。
 
-`GET /api/agent/sessions/{id}` 的响应带 `atomic_grant: {granted, expires_at, grant_id} | null`，供前端在页面刷新后恢复授权提示条——WebSocket 的 `atomic_grant_changed` 事件只能通知变化，刷新后的初始状态必须能从 REST 拿到。
+`GET /api/agent/sessions/{id}` 的响应带 `atomic_grant: {granted, expires_at, grant_id} | null`，供 M13 前端在页面刷新后恢复授权提示——WebSocket 的 `atomic_grant_changed` 事件只能通知变化，刷新后的初始状态必须能从 REST 拿到。M11 有授权撤销 API 和确认卡片，但不挂载 `POST /messages`，也不显示常驻授权提示条。
 
 （3 条）
 

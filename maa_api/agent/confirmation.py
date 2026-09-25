@@ -15,7 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from maa_api.agent.policy import PolicyDecision, PolicyEngine
 from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.db.models import AgentAudit, AgentSession, Confirmation, utcnow
-from maa_api.db.repositories.agent import AgentSessionRepository
+from maa_api.db.repositories.agent import (
+    AgentIdempotencyRepository,
+    AgentSessionRepository,
+)
 from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepository
 from maa_api.domain.enums import (
     AgentSessionStatus,
@@ -69,7 +72,6 @@ class ConfirmationService:
         self._expiry_task: asyncio.Task[None] | None = None
         self._grant_locks: dict[str, asyncio.Lock] = {}
         self._grant_revocation_epochs: dict[str, int] = {}
-        self._recovery_locks: dict[str, asyncio.Lock] = {}
 
     async def invoke(
         self,
@@ -78,8 +80,15 @@ class ConfirmationService:
         context: ToolContext,
         *,
         mode: str = "sync",
+        on_audit_created: Callable[[int], Any] | None = None,
     ) -> dict[str, Any]:
-        return await self._invoke(name, arguments, context, mode=mode)
+        return await self._invoke(
+            name,
+            arguments,
+            context,
+            mode=mode,
+            on_audit_created=on_audit_created,
+        )
 
     async def invoke_mcp(
         self,
@@ -100,6 +109,7 @@ class ConfirmationService:
         *,
         mode: str,
         mcp_short_wait: bool = False,
+        on_audit_created: Callable[[int], Any] | None = None,
     ) -> dict[str, Any]:
         if mode not in {"sync", "async"}:
             raise AppError(ErrorCode.INVALID_PARAMETER, "mode 必须为 sync 或 async")
@@ -110,6 +120,7 @@ class ConfirmationService:
             confirmation_id, audit_id = await self._create_confirmation(
                 definition.name, arguments, context, decision
             )
+            await _notify_audit_created(on_audit_created, audit_id)
             event = asyncio.Event()
             self._resolution_events[confirmation_id] = event
             worker = asyncio.create_task(
@@ -127,7 +138,7 @@ class ConfirmationService:
             )
             self._workers[confirmation_id] = worker
             worker.add_done_callback(
-                lambda _task, key=confirmation_id: self._forget_worker(key)
+                lambda task, key=confirmation_id: self._worker_done(key, task)
             )
             if mode == "async":
                 return {
@@ -197,6 +208,7 @@ class ConfirmationService:
             }
 
         audit_id = await self._create_audit(name, arguments, context, decision)
+        await _notify_audit_created(on_audit_created, audit_id)
         if mode == "async":
             worker = asyncio.create_task(
                 self._execute_and_record(
@@ -210,7 +222,7 @@ class ConfirmationService:
             )
             self._workers[str(audit_id)] = worker
             worker.add_done_callback(
-                lambda _task, key=str(audit_id): self._forget_worker(key)
+                lambda task, key=str(audit_id): self._worker_done(key, task)
             )
             return {"status": "accepted", "audit_id": audit_id}
 
@@ -249,23 +261,50 @@ class ConfirmationService:
                 )
                 raise AppError(code, "确认请求已经处理")
             if _as_utc(row.expires_at) <= _as_utc(self.clock()):
-                await repo.resolve(
+                changed = await repo.resolve(
                     row.id,
                     ConfirmationStatus.EXPIRED,
                     resolved_by="system",
                     reason="确认超时",
+                    resolved_at=self.clock(),
                 )
-                if row.audit_id is not None:
-                    await AuditRepository(session).set_terminal(
-                        row.audit_id, AuditStatus.EXPIRED, error_code=str(ErrorCode.CONFIRMATION_EXPIRED)
+                if changed:
+                    if row.audit_id is not None:
+                        await AuditRepository(session).set_terminal(
+                            row.audit_id,
+                            AuditStatus.EXPIRED,
+                            error_code=str(ErrorCode.CONFIRMATION_EXPIRED),
+                            result_summary="确认超时，已自动拒绝",
+                        )
+                    await session.commit()
+                    expired_row = await repo.get(confirmation_id)
+                else:
+                    await session.rollback()
+                    async with self.session_factory() as reread_session:
+                        expired_row = await ConfirmationRepository(reread_session).get(
+                            confirmation_id
+                        )
+                if expired_row is None:
+                    raise AppError(ErrorCode.CONFIRMATION_NOT_FOUND, "确认请求不存在")
+                if changed:
+                    self.broadcast(
+                        "confirm_resolved",
+                        self._resolved_event(expired_row, "expired"),
                     )
-                await session.commit()
-                payload = self._resolved_event(row, "expired")
-                self.broadcast("confirm_resolved", payload)
-                event = self._resolution_events.get(confirmation_id)
-                if event is not None:
-                    event.set()
-                raise AppError(ErrorCode.CONFIRMATION_EXPIRED, "确认请求已过期")
+                    event = self._resolution_events.get(confirmation_id)
+                    if event is not None:
+                        event.set()
+                    raise AppError(
+                        ErrorCode.CONFIRMATION_EXPIRED,
+                        "确认请求已过期",
+                        {"audit_id": row.audit_id, "confirmation_id": confirmation_id},
+                    )
+                code = (
+                    ErrorCode.CONFIRMATION_EXPIRED
+                    if expired_row.status == ConfirmationStatus.EXPIRED
+                    else ErrorCode.CONFIRMATION_ALREADY_RESOLVED
+                )
+                raise AppError(code, "确认请求已经处理")
 
             target = ConfirmationStatus.APPROVED if approved else ConfirmationStatus.REJECTED
             changed = await repo.resolve(
@@ -317,7 +356,7 @@ class ConfirmationService:
             }
 
     async def reset_after_restart(self) -> None:
-        """Expire all pending confirmations and revoke every persisted grant."""
+        """Fail closed on every nonterminal invocation before accepting traffic."""
         from sqlalchemy import select, update
 
         from maa_api.db.models import AgentSession
@@ -326,6 +365,39 @@ class ConfirmationService:
         async with self.session_factory() as session:
             repo = ConfirmationRepository(session)
             result = await repo.expire_all_pending(now)
+            expired_rows = (
+                await session.execute(
+                    select(Confirmation).where(Confirmation.id.in_(result))
+                )
+            ).scalars().all() if result else []
+            expired_audit_ids = {row.audit_id for row in expired_rows if row.audit_id is not None}
+            audits = AuditRepository(session)
+            for row in expired_rows:
+                if row.audit_id is not None:
+                    await audits.set_terminal(
+                        row.audit_id,
+                        AuditStatus.EXPIRED,
+                        error_code=str(ErrorCode.CONFIRMATION_EXPIRED),
+                        result_summary="服务重启，待确认操作已失效，未执行",
+                    )
+
+            pending_audits = (
+                await session.execute(
+                    select(AgentAudit).where(AgentAudit.status == AuditStatus.PENDING)
+                )
+            ).scalars().all()
+            for audit in pending_audits:
+                if audit.id not in expired_audit_ids:
+                    await audits.set_terminal(
+                        audit.id,
+                        AuditStatus.FAILED,
+                        error_code=str(ErrorCode.SERVICE_UNAVAILABLE),
+                        result_summary=(
+                            "服务重启时调用仍处于 pending，执行结果不确定；"
+                            "为避免重复副作用，不会自动重试"
+                        ),
+                    )
+
             grant_sessions = list(
                 (
                     await session.execute(
@@ -344,20 +416,7 @@ class ConfirmationService:
                 )
                 .values(atomic_grant_id=None, atomic_grant_expires_at=None, updated_at=now)
             )
-            if result:
-                rows = (
-                    await session.execute(
-                        select(Confirmation).where(Confirmation.id.in_(result))
-                    )
-                ).scalars().all()
-                for row in rows:
-                    if row.audit_id is not None:
-                        await AuditRepository(session).set_terminal(
-                            row.audit_id,
-                            AuditStatus.EXPIRED,
-                            error_code=str(ErrorCode.CONFIRMATION_EXPIRED),
-                            result_summary="服务重启，未完成的确认已失效",
-                        )
+            await AgentIdempotencyRepository(session).delete_unlinked()
             await session.commit()
         for confirmation_id in result:
             self.broadcast(
@@ -389,6 +448,8 @@ class ConfirmationService:
 
     async def close(self) -> None:
         """Stop expiry work and cancel process-local waiters during shutdown."""
+        from sqlalchemy import select
+
         if self._expiry_task is not None:
             self._expiry_task.cancel()
             await asyncio.gather(self._expiry_task, return_exceptions=True)
@@ -398,6 +459,52 @@ class ConfirmationService:
             worker.cancel()
         if workers:
             await asyncio.gather(*workers, return_exceptions=True)
+        now = self.clock()
+        async with self.session_factory() as session:
+            repo = ConfirmationRepository(session)
+            expired_ids = await repo.expire_all_pending(now)
+            expired_rows = (
+                await session.execute(
+                    select(Confirmation).where(Confirmation.id.in_(expired_ids))
+                )
+            ).scalars().all() if expired_ids else []
+            expired_audit_ids = {
+                row.audit_id for row in expired_rows if row.audit_id is not None
+            }
+            audit_repo = AuditRepository(session)
+            for row in expired_rows:
+                if row.audit_id is not None:
+                    await audit_repo.set_terminal(
+                        row.audit_id,
+                        AuditStatus.EXPIRED,
+                        error_code=str(ErrorCode.CONFIRMATION_EXPIRED),
+                        result_summary="服务关闭，待确认操作已失效，未执行",
+                    )
+            pending_audits = (
+                await session.execute(
+                    select(AgentAudit).where(AgentAudit.status == AuditStatus.PENDING)
+                )
+            ).scalars().all()
+            for audit in pending_audits:
+                if audit.id not in expired_audit_ids:
+                    await audit_repo.set_terminal(
+                        audit.id,
+                        AuditStatus.FAILED,
+                        error_code=str(ErrorCode.SERVICE_UNAVAILABLE),
+                        result_summary=(
+                            "服务关闭时调用仍处于 pending，执行结果不确定；"
+                            "为避免重复副作用，不会自动重试"
+                        ),
+                    )
+            await session.commit()
+        for confirmation_id in expired_ids:
+            self.broadcast(
+                "confirm_resolved",
+                {"confirmation_id": confirmation_id, "resolution": "expired"},
+            )
+            event = self._resolution_events.get(confirmation_id)
+            if event is not None:
+                event.set()
 
     async def _expiry_loop(self, interval: float) -> None:
         while True:
@@ -501,93 +608,8 @@ class ConfirmationService:
     async def check_confirmation(
         self, confirmation_id: str, *, context: ToolContext | None = None
     ) -> dict[str, Any]:
-        """Return confirmation status and resume an approved orphaned audit once."""
-        detail = await self.get(confirmation_id)
-        execution = detail.get("execution") or {}
-        if (
-            detail["status"] != ConfirmationStatus.APPROVED.value
-            or execution.get("status") != AuditStatus.PENDING.value
-        ):
-            return detail
-        running = self._workers.get(confirmation_id)
-        if running is not None:
-            await asyncio.shield(running)
-            return await self.get(confirmation_id)
-
-        lock = self._recovery_locks.setdefault(confirmation_id, asyncio.Lock())
-        async with lock:
-            running = self._workers.get(confirmation_id)
-            if running is not None:
-                await asyncio.shield(running)
-                return await self.get(confirmation_id)
-            async with self.session_factory() as session:
-                row = await ConfirmationRepository(session).get(confirmation_id)
-                if row is None:
-                    raise AppError(ErrorCode.CONFIRMATION_NOT_FOUND, "确认请求不存在")
-                audit = await AuditRepository(session).get(row.audit_id) if row.audit_id else None
-                if (
-                    row.status != ConfirmationStatus.APPROVED
-                    or audit is None
-                    or audit.status != AuditStatus.PENDING
-                ):
-                    return self._confirmation_wire(row, audit)
-                payload = dict(row.payload)
-                name = payload.get("tool_name")
-                arguments = payload.get("arguments")
-                if not isinstance(name, str) or not isinstance(arguments, Mapping):
-                    raise AppError(
-                        ErrorCode.TOOL_EXECUTION_FAILED,
-                        "已批准的确认记录缺少可执行参数",
-                        {"confirmation_id": confirmation_id},
-                    )
-                # Reject corrupt persisted snapshots before running any handler.
-                self.registry.validate(name, arguments)
-                caller = CallerType(payload.get("caller", row.requested_by))
-                session_id = payload.get("session_id")
-                request_id = payload.get("request_id")
-                audit_id = audit.id
-                grant = row.action == "grant_atomic_ops"
-                window_seconds = int(payload.get("window_seconds") or 900)
-            execution_context = ToolContext(
-                caller,
-                session_id,
-                request_id,
-                context.request if context is not None else None,
-                context.db_session if context is not None else None,
-            )
-
-            async def resume() -> None:
-                grant_id = confirmation_id if grant else None
-                if grant:
-                    await self._grant_session(session_id, confirmation_id, window_seconds)
-                try:
-                    await self._execute_and_record(
-                        audit_id,
-                        name,
-                        dict(arguments),
-                        execution_context,
-                        confirmation_id=None if grant else confirmation_id,
-                        authorized_by=grant_id,
-                    )
-                except AppError:
-                    pass
-                self.broadcast(
-                    "confirm_resolved",
-                    {
-                        "confirmation_id": confirmation_id,
-                        "resolution": "approved",
-                        "audit_id": audit_id,
-                    },
-                )
-
-            worker = asyncio.create_task(
-                resume(), name=f"agent-confirm-recover-{confirmation_id}"
-            )
-            self._workers[confirmation_id] = worker
-            worker.add_done_callback(
-                lambda _task, key=confirmation_id: self._forget_worker(key)
-            )
-        await asyncio.shield(worker)
+        """Return persisted status/result without executing any stored action."""
+        del context
         return await self.get(confirmation_id)
 
     async def _create_confirmation(
@@ -907,6 +929,17 @@ class ConfirmationService:
         self._workers.pop(key, None)
         self._resolution_events.pop(key, None)
 
+    def _worker_done(self, key: str, task: asyncio.Task[Any]) -> None:
+        if not task.cancelled():
+            error = task.exception()
+            if error is not None:
+                logger.error(
+                    "Agent 调用 worker 异常结束 key=%s",
+                    key,
+                    exc_info=(type(error), error, error.__traceback__),
+                )
+        self._forget_worker(key)
+
     @staticmethod
     def _resolved_event(row: Confirmation, resolution: str) -> dict[str, Any]:
         return {
@@ -951,6 +984,16 @@ class ConfirmationService:
 
 def _caller(value: CallerType | str) -> CallerType:
     return CallerType(value)
+
+
+async def _notify_audit_created(
+    callback: Callable[[int], Any] | None, audit_id: int
+) -> None:
+    if callback is None:
+        return
+    result = callback(audit_id)
+    if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+        await result
 
 
 def _caller_detail(context: ToolContext) -> str | None:
