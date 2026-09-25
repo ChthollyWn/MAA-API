@@ -35,9 +35,9 @@ channel:
 
 # OpenAI 兼容模型（密钥建议通过环境变量或设置页录入）
 llm:
-  base_url:
+  base_url: https://api.deepseek.com
   api_key:
-  model:
+  model: deepseek-v4.1-flash
 
 # 邮箱配置
 smtp:

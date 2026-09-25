@@ -182,9 +182,9 @@ class LLMSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    base_url: str = ""
+    base_url: str = "https://api.deepseek.com"
     api_key: str = ""
-    model: str = ""
+    model: str = "deepseek-v4.1-flash"
 
 
 class LogSettings(BaseModel):
