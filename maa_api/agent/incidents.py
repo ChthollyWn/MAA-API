@@ -73,6 +73,16 @@ def _safe_crash_value(value: Any) -> Any:
     return value
 
 
+def _parse_json_object(value: str | None) -> dict[str, Any] | None:
+    if not value:
+        return None
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 @dataclass(frozen=True, slots=True)
 class IncidentResult:
     """Outcome of processing an event; session_id is null when disabled/suppressed."""
@@ -116,6 +126,9 @@ class AgentIncidentService:
         async with self._key_lock(pipeline_key):
             existing = await self._existing(pipeline_key)
             if existing is not None:
+                await self._refresh_existing_pipeline_context(
+                    existing.id, pipeline_id
+                )
                 return IncidentResult(existing.id, False, pipeline_key, "existing")
             if not await self._enabled():
                 return IncidentResult(None, False, pipeline_key, "disabled")
@@ -129,6 +142,112 @@ class AgentIncidentService:
                 title=f"[自动诊断] 流水线失败：{title}",
                 request_content=incident,
             )
+
+    async def _refresh_existing_pipeline_context(
+        self, session_id: str, pipeline_id: str
+    ) -> None:
+        """Append one same-key context update if a claim failure later becomes CORE_CRASHED."""
+        acquire = getattr(self.runtime, "acquire_session", None)
+        release = getattr(self.runtime, "release_session", None)
+        owns_runtime_lock = False
+        if callable(acquire):
+            while not owns_runtime_lock:
+                owns_runtime_lock = bool(await acquire(session_id))
+                if owns_runtime_lock:
+                    break
+                await asyncio.sleep(0.05)
+        try:
+            incident = await self._pipeline_context(pipeline_id)
+            if incident is None:
+                return
+            failure = incident.get("failure_object")
+            if not isinstance(failure, dict) or failure.get("error_code") != ErrorCode.CORE_CRASHED.value:
+                return
+            generation = failure.get("core_generation")
+            update_key = f"pipeline:{pipeline_id}:core:{generation}"
+            async with self.session_factory() as session:
+                sessions = AgentSessionRepository(session)
+                stored_session = await sessions.get(session_id)
+                if stored_session is None:
+                    return
+                messages = AgentMessageRepository(session)
+                history = await messages.list_by_session(session_id)
+                if any(
+                    message.role == "user"
+                    and isinstance(parsed := _parse_json_object(message.content), dict)
+                    and parsed.get("incident_update_key") == update_key
+                    for message in history
+                ):
+                    return
+                initial_context = next(
+                    (
+                        _parse_json_object(message.content)
+                        for message in history
+                        if message.role == "user"
+                    ),
+                    None,
+                )
+                initial_failure = (
+                    initial_context.get("failure_object")
+                    if isinstance(initial_context, dict)
+                    else None
+                )
+                if (
+                    isinstance(initial_failure, dict)
+                    and initial_failure.get("error_code")
+                    == ErrorCode.CORE_CRASHED.value
+                ):
+                    return
+                update_context = {
+                    "incident_type": "pipeline_core_crash_update",
+                    "incident_update_key": update_key,
+                    "failure_object": failure,
+                    "task_status": incident.get("task_status", []),
+                    "error_log_index": incident.get("error_log_index", {}),
+                    "crash_screenshot_snapshots": incident.get(
+                        "crash_screenshot_snapshots", []
+                    ),
+                    "next_step": incident.get("next_step"),
+                }
+                now = utcnow()
+                await messages.create(
+                    AgentMessage(
+                        session_id=session_id,
+                        seq=await messages.next_seq(session_id),
+                        role="user",
+                        content=json.dumps(
+                            update_context,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
+                        created_at=now,
+                    )
+                )
+                await messages.create(
+                    AgentMessage(
+                        session_id=session_id,
+                        seq=await messages.next_seq(session_id),
+                        role="assistant",
+                        content=(
+                            "诊断期间流水线关联到 MaaCore 崩溃，最新状态和日志已补入本会话。"
+                            "如需重新分析，请继续提问。"
+                        ),
+                        finish_reason="incident_context_update",
+                        created_at=now,
+                    )
+                )
+                stored_session.message_count += 2
+                stored_session.updated_at = now
+                stored_session.last_message_at = now
+                await session.commit()
+            self._emit(
+                session_id,
+                "incident_context_updated",
+                {"incident_key": f"pipeline:{pipeline_id}"},
+            )
+        finally:
+            if owns_runtime_lock and callable(release):
+                release(session_id)
 
     async def core_crashed(
         self, generation: int, record: dict[str, Any] | None
@@ -148,6 +267,23 @@ class AgentIncidentService:
             # PipelineRunner stages this crash and will either attach it to the
             # claimed pipeline or emit an idle-core incident if no claim wins.
             return IncidentResult(None, False, None, "coalesced_with_pipeline_claim")
+        failed_claim_provider = getattr(
+            self.pipeline_runner, "claim_failure_pipeline_id", None
+        )
+        failed_claim_pipeline = (
+            failed_claim_provider(int(generation))
+            if callable(failed_claim_provider)
+            else None
+        )
+        if failed_claim_pipeline is not None:
+            # A failed claim keeps the pipeline incident key reserved while its
+            # terminal snapshot settles; do not create a second core key.
+            return IncidentResult(
+                None,
+                False,
+                f"pipeline:{failed_claim_pipeline}",
+                "coalesced_with_failed_pipeline_claim",
+            )
 
         crashed_pipeline = await self._failed_pipeline_for_generation(generation)
         if crashed_pipeline is not None:

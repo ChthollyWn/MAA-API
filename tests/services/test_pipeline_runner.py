@@ -16,7 +16,7 @@ import maa_api.db.models  # noqa: F401
 from maa_api.agent.incidents import AgentIncidentService
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
 from maa_api.db.models import AgentSession, Pipeline, ResourceAsset, Task
-from maa_api.db.repositories.agent import AgentSessionRepository
+from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import (
@@ -469,6 +469,8 @@ def test_pending_core_crash_takes_precedence_over_cancelled_claim(runner_env) ->
         runner, asst, _core = make()
         runner._loop = asyncio.get_running_loop()
         runner._claimed_pipeline = pipeline
+        runner._claimed_pipeline_id = pipeline.id
+        runner._claimed_pipeline_epoch = pipeline.core_epoch
         runner._cancel_requested_ids.add(pipeline.id)
         runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
 
@@ -529,6 +531,384 @@ def test_core_crash_staged_during_empty_claim_becomes_idle_incident(
             "core:default:11111111-1111-4111-8111-111111111111:1"
         )
         assert len(incident_runtime.calls) == 1
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_core_crash_during_failed_claim_is_scheduled_after_claim_marker_clears(
+    runner_env,
+) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.status = PipelineStatus.PENDING
+            stored.started_at = None
+            await session.commit()
+
+        state = {"armed": False}
+
+        class FailingCommitSession(AsyncSession):
+            async def commit(self):
+                if state["armed"]:
+                    state["armed"] = False
+                    await self.rollback()
+                    state["runner"].notify_core_crash(
+                        {"generation": 1, "reason": "process_exit"}
+                    )
+                    state["core_result"] = await state["incidents"].core_crashed(
+                        1, {"generation": 1, "reason": "process_exit"}
+                    )
+                    raise RuntimeError("claim commit failed")
+                await super().commit()
+
+        session_factory = async_sessionmaker(
+            bind=factory.kw["bind"],
+            class_=FailingCommitSession,
+            expire_on_commit=False,
+        )
+        runner, asst, _core = make(session_factory_override=session_factory)
+        runner._loop = asyncio.get_running_loop()
+        incident_runtime = FakeIncidentRuntime()
+        incidents = AgentIncidentService(
+            factory,
+            incident_runtime,
+            settings_provider=lambda: Settings(),
+            pipeline_runner=runner,
+            boot_id="11111111-1111-4111-8111-111111111111",
+        )
+        runner.bind_incident_service(incidents)
+        state.update(runner=runner, incidents=incidents, armed=True)
+
+        with pytest.raises(RuntimeError, match="claim commit failed"):
+            await runner._claim_next()
+        await asyncio.gather(*tuple(runner._incident_tasks))
+
+        assert runner.is_claiming_core_generation(1) is False
+        assert state["core_result"].session_id is None
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            sessions = await AgentSessionRepository(session).list_recent()
+        assert stored.status == PipelineStatus.PENDING
+        assert len(sessions) == 1
+        assert sessions[0].incident_key == (
+            "core:default:11111111-1111-4111-8111-111111111111:1"
+        )
+        assert len(incident_runtime.calls) == 1
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_claim_commit_applied_before_error_uses_pipeline_incident_if_release_fails(
+    runner_env, monkeypatch
+) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, _task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.status = PipelineStatus.PENDING
+            stored.started_at = None
+            await session.commit()
+
+        state = {"armed": False}
+
+        class CommitThenRaiseSession(AsyncSession):
+            async def commit(self):
+                if state["armed"]:
+                    state["armed"] = False
+                    await super().commit()
+                    raise RuntimeError("commit response lost")
+                await super().commit()
+
+        session_factory = async_sessionmaker(
+            bind=factory.kw["bind"],
+            class_=CommitThenRaiseSession,
+            expire_on_commit=False,
+        )
+        runner, asst, _core = make(session_factory_override=session_factory)
+        runner._loop = asyncio.get_running_loop()
+        class ContextRuntime(FakeIncidentRuntime):
+            async def run_incident(self, session_id, request, allowed_tools):
+                async with factory() as session:
+                    messages = await AgentMessageRepository(session).list_by_session(
+                        session_id
+                    )
+                self.initial_context = json.loads(messages[0].content or "{}")
+                return await super().run_incident(session_id, request, allowed_tools)
+
+        incidents_runtime = ContextRuntime()
+        incidents = AgentIncidentService(
+            factory,
+            incidents_runtime,
+            settings_provider=lambda: Settings(),
+            pipeline_runner=runner,
+            boot_id="11111111-1111-4111-8111-111111111111",
+        )
+        runner.bind_incident_service(incidents)
+        state.update(runner=runner, incidents=incidents, armed=True)
+
+        async def fail_release(*_args, **_kwargs):
+            state["runner"].notify_core_crash(
+                {"generation": 1, "reason": "process_exit"}
+            )
+            state["coalesced"] = await state["incidents"].core_crashed(
+                1, {"generation": 1, "reason": "process_exit"}
+            )
+            raise OSError("queue release unavailable")
+
+        monkeypatch.setattr(PipelineRepository, "release_failed_claim", fail_release)
+
+        with pytest.raises(RuntimeError, match="commit response lost"):
+            await runner._claim_next()
+        await asyncio.gather(*tuple(runner._incident_tasks))
+        late_core = await incidents.core_crashed(
+            1, {"generation": 1, "reason": "process_exit"}
+        )
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            sessions = await AgentSessionRepository(session).list_recent()
+        assert stored.status == PipelineStatus.FAILED
+        assert stored.error_code == ErrorCode.CORE_CRASHED
+        assert incidents_runtime.initial_context["failure_object"]["error_code"] == (
+            ErrorCode.CORE_CRASHED.value
+        )
+        assert state["coalesced"].session_id is None
+        assert late_core.session_id is None
+        assert late_core.status == "coalesced_with_failed_pipeline_claim"
+        assert len(sessions) == 1
+        assert sessions[0].incident_key == f"pipeline:{pipeline.id}"
+        assert len(incidents_runtime.calls) == 1
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_unreleased_failed_claim_without_core_crash_is_terminalized(
+    runner_env, monkeypatch
+) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, _task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.status = PipelineStatus.PENDING
+            stored.started_at = None
+            await session.commit()
+
+        state = {"armed": False}
+
+        class CommitThenRaiseSession(AsyncSession):
+            async def commit(self):
+                if state["armed"]:
+                    state["armed"] = False
+                    await super().commit()
+                    raise RuntimeError("claim commit response lost")
+                await super().commit()
+
+        session_factory = async_sessionmaker(
+            bind=factory.kw["bind"],
+            class_=CommitThenRaiseSession,
+            expire_on_commit=False,
+        )
+        runner, asst, _core = make(session_factory_override=session_factory)
+        runner._loop = asyncio.get_running_loop()
+        state["armed"] = True
+
+        async def fail_release(*_args, **_kwargs):
+            raise OSError("queue release unavailable")
+
+        monkeypatch.setattr(PipelineRepository, "release_failed_claim", fail_release)
+        with pytest.raises(RuntimeError, match="claim commit response lost"):
+            await runner._claim_next()
+
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+        assert stored.status == PipelineStatus.FAILED
+        assert stored.error_code == ErrorCode.INTERNAL_ERROR
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_late_failed_claim_crash_updates_its_pipeline_during_newer_active_generation(
+    runner_env,
+) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, _task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.status = PipelineStatus.FAILED
+            stored.error_code = ErrorCode.INTERNAL_ERROR
+            stored.error_message = "claim 释放失败"
+            await session.commit()
+
+        runner, asst, _core = make()
+        runner._loop = asyncio.get_running_loop()
+        runner._active = type(
+            "NewGenerationPipeline",
+            (),
+            {"pipeline_id": "new-pipeline", "core_epoch": 2, "core_crashed": False, "task": None},
+        )()
+        runner._claim_failure_pipeline_by_generation[1] = pipeline.id
+        incident_runtime = FakeIncidentRuntime()
+        incidents = AgentIncidentService(
+            factory,
+            incident_runtime,
+            settings_provider=lambda: Settings(),
+            pipeline_runner=runner,
+            boot_id="11111111-1111-4111-8111-111111111111",
+        )
+        runner.bind_incident_service(incidents)
+
+        runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
+        await asyncio.gather(*tuple(runner._incident_tasks))
+        await incidents.pipeline_failed(pipeline.id)
+        coalesced = await incidents.core_crashed(
+            1, {"generation": 1, "reason": "process_exit"}
+        )
+
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            sessions = await AgentSessionRepository(session).list_recent()
+        assert stored.status == PipelineStatus.FAILED
+        assert stored.error_code == ErrorCode.CORE_CRASHED
+        assert runner._active.core_crashed is False
+        assert coalesced.session_id is None
+        assert len(sessions) == 1
+        assert sessions[0].incident_key == f"pipeline:{pipeline.id}"
+        assert len(incident_runtime.calls) == 1
+        runner._active = None
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_core_crash_during_cancel_commit_promotes_cancelled_pipeline(
+    runner_env, monkeypatch
+) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        runner, asst, _core = make()
+        runner._loop = asyncio.get_running_loop()
+        runner._claimed_pipeline = pipeline
+        runner._cancel_requested_ids.add(pipeline.id)
+        cancel_rows = runner._cancel_pipeline_rows
+
+        async def cancel_then_crash(pipeline_id: str) -> None:
+            await cancel_rows(pipeline_id)
+            runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
+
+        monkeypatch.setattr(runner, "_cancel_pipeline_rows", cancel_then_crash)
+        await runner._execute_pipeline(pipeline, [task])
+
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+            stored_task = await session.get(Task, task.id)
+        assert stored_pipeline.status == PipelineStatus.FAILED
+        assert stored_pipeline.error_code == ErrorCode.CORE_CRASHED
+        assert stored_task.status == TaskStatus.FAILED
+        assert stored_task.error_code == ErrorCode.CORE_CRASHED
+        assert runner.core_crashed_pipeline_ids(1) == (pipeline.id,)
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_core_crash_during_schedule_defer_commit_promotes_failed_pipeline(
+    runner_env, monkeypatch
+) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.source = PipelineSource.SCHEDULED
+            await session.commit()
+        pipeline.source = PipelineSource.SCHEDULED
+
+        class UnavailableDevice:
+            async def ensure_available(self, *, timeout: float):
+                return False
+
+            def snapshot(self):
+                return {"state": "unavailable"}
+
+        runner, asst, _core = make()
+        runner._loop = asyncio.get_running_loop()
+        runner.device_manager = UnavailableDevice()
+        runner._claimed_pipeline = pipeline
+        original_defer = PipelineRepository.defer_running
+
+        async def defer_then_crash(repo, pipeline_id, deferred_until):
+            deferred = await original_defer(repo, pipeline_id, deferred_until)
+            runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
+            return deferred
+
+        monkeypatch.setattr(PipelineRepository, "defer_running", defer_then_crash)
+        await runner._execute_pipeline(pipeline, [task])
+
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+            stored_task = await session.get(Task, task.id)
+        assert stored_pipeline.status == PipelineStatus.FAILED
+        assert stored_pipeline.error_code == ErrorCode.CORE_CRASHED
+        assert stored_task.status == TaskStatus.FAILED
+        assert stored_task.error_code == ErrorCode.CORE_CRASHED
+        assert runner.core_crashed_pipeline_ids(1) == (pipeline.id,)
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_existing_core_crashed_row_still_schedules_pipeline_incident(runner_env, monkeypatch) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.status = PipelineStatus.FAILED
+            stored.error_code = ErrorCode.CORE_CRASHED
+            stored.error_message = "MaaCore 子进程中断，流水线已停止"
+            await session.commit()
+        runner, asst, _core = make()
+        runner._active = type(
+            "ActiveCrash",
+            (),
+            {"pipeline_id": pipeline.id, "core_epoch": 1, "core_crashed": True, "task": None},
+        )()
+        calls = []
+        monkeypatch.setattr(runner, "schedule_pipeline_incident", calls.append)
+
+        await runner._record_core_crash_terminal(pipeline.id)
+
+        assert calls == [pipeline.id]
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+            stored_task = await session.get(Task, task.id)
+        assert stored_pipeline.status == PipelineStatus.FAILED
+        assert stored_pipeline.error_code == ErrorCode.CORE_CRASHED
+        assert stored_task.status == TaskStatus.FAILED
+        assert stored_task.error_code == ErrorCode.CORE_CRASHED
         await runner.stop()
         asst.stop()
 

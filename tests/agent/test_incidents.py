@@ -254,6 +254,72 @@ def test_pipeline_failure_replay_reuses_persisted_incident_and_does_not_recall_l
     asyncio.run(scenario())
 
 
+def test_late_core_crash_updates_the_existing_pipeline_incident_context(tmp_path):
+    async def scenario():
+        service, factory, default_runtime, engine = await _incident_harness(tmp_path)
+        runtime = default_runtime
+        runtime.acquire_attempts = 0
+        runtime.releases = 0
+        async def acquire_session(_session_id):
+            runtime.acquire_attempts += 1
+            return runtime.acquire_attempts >= 3
+        runtime.acquire_session = acquire_session
+        runtime.release_session = lambda _session_id: setattr(
+            runtime, "releases", runtime.releases + 1
+        )
+        events = []
+        service.broadcast = lambda kind, payload: events.append((kind, payload))
+        try:
+            async with factory() as session:
+                session.add(
+                    _make_pipeline(
+                        "pipeline-late-core",
+                        core_epoch=4,
+                        error_code=ErrorCode.INTERNAL_ERROR.value,
+                    )
+                )
+                await session.commit()
+
+            first = await service.pipeline_failed("pipeline-late-core")
+            async with factory() as session:
+                pipeline = await session.get(Pipeline, "pipeline-late-core")
+                pipeline.error_code = ErrorCode.CORE_CRASHED.value
+                pipeline.error_message = "MaaCore 子进程在 claim 清理期间崩溃"
+                await session.commit()
+
+            replay = await service.pipeline_failed("pipeline-late-core")
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(
+                    first.session_id
+                )
+                sessions = await AgentSessionRepository(session).list_recent()
+
+            assert replay.session_id == first.session_id
+            assert replay.created is False
+            assert [message.role for message in messages] == [
+                "user", "assistant", "user", "assistant"
+            ]
+            update = json.loads(messages[2].content)
+            assert update["incident_type"] == "pipeline_core_crash_update"
+            assert update["failure_object"]["error_code"] == ErrorCode.CORE_CRASHED.value
+            assert update["incident_update_key"] == (
+                "pipeline:pipeline-late-core:core:4"
+            )
+            assert len(sessions) == 1
+            assert len(runtime.calls) == 1
+            assert runtime.acquire_attempts == 3
+            assert runtime.releases == 1
+            assert [event[1]["event"] for event in events] == [
+                "incident_created",
+                "incident_finished",
+                "incident_context_updated",
+            ]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_idle_core_generation_is_deduplicated_and_active_pipeline_is_coalesced(tmp_path):
     async def scenario():
         service, factory, runtime, engine = await _incident_harness(tmp_path)
