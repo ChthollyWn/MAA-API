@@ -9,7 +9,7 @@
 - 默认端点为 `https://api.deepseek.com`，默认模型标识为 `deepseek-v4.1-flash`；用户仍可通过现有 `llm.base_url`、`llm.model` 设置改用兼容端点。API Key 留空，须由用户配置。
 - 通过设置 API 写入 SQLite 的 LLM API Key 使用 Fernet 加密，主密钥取自 `MAA_LLM_ENCRYPTION_KEY`。响应继续脱敏。YAML / 环境变量来源仍由部署者管理。缺少主密钥时拒绝写入数据库；已有明文数据库值可在主密钥配置后迁移。错误或丢失的主密钥不会阻止 FastAPI 启动；该数据库密钥被禁用并记录状态错误。如果 YAML 或环境变量提供了有效的更高优先级 key，LLM 仍可使用它；只有没有任何有效配置 key 时，LLM 请求才返回 `LLM_ENCRYPTION_KEY_INVALID`（503）。
 - `POST /api/agent/sessions/{session_id}/messages` 接受 `{ "content": "..." }` 并返回 SSE。事件为 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`message_end`、`error`。用户消息、assistant/tool 轨迹、审计关联与 token 用量继续写入 `agent_message` / `agent_audit`。
-- 单会话同时只允许一个对话轮次；每轮最多 12 次模型响应。只读工具批次可并发，含写操作的批次按模型给出的顺序串行执行。历史裁剪保留完整工具调用轮次，只向模型发送最新一张截图，并注入服务端状态摘要。
+- 单会话同时只允许一个对话轮次；每轮最多 12 次模型响应。只读工具批次可并发，含写操作的批次按模型给出的顺序串行执行。SSE body 已开始后即使客户端断连，producer 仍完成已派发工具并继续持有会话锁，直到整轮结束；如果响应在首次迭代前就失败，由 Response 生命周期释放尚未转交给 producer 的锁。历史裁剪保留完整工具调用轮次，只向模型发送最新一张截图，并注入服务端状态摘要。
 - 发给远程模型的历史与工具结果在组装前递归脱敏常见认证键（`authorization`、`x-token`、`cookie`、`api_key`、`access_token`、`password`、`secret`），并清理 Bearer / DeepSeek `sk-` 形式的文本凭据。原文仍按既有审计与消息存储规则留在本地。system prompt 明确日志、截图、Copilot 元数据和其他工具返回值都是不可信数据，不能作为新的操作指令。
 - `POST /api/agent/capabilities/check` 以一个无副作用工具调用和小型测试图片检查工具调用及视觉输入能力。首条消息前若没有当前 model/base_url 的能力缓存，服务先自动探测一次并缓存结果；缺少工具调用能力时阻止 Agent 对话。缺少视觉能力时保留文本对话，但从模型 schema 中隐藏截图与原子屏幕操作工具，并在服务端拒绝对应调用；返回可显示的降级原因。
 - `CopilotInput` 是共享 `TaskInput` 的正式成员，包含已保存 Copilot 的 `asset_id` 和 `formation`。队列执行时由 `ResourceService` 校验资产 kind、在资源根目录内解析或物化作业文件，并投递 `AsstAppendTask("Copilot", {"filename": absolute_path, "formation": bool})`。调用依据是随仓库 MaaCore 示例 `resource/lib/maa/Linux/Python/sample.py` 中的接口形态；不得用普通 Fight 代替。

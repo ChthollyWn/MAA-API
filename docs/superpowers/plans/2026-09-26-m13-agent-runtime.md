@@ -79,7 +79,7 @@ async def test_agent_session_lock_allows_only_one_active_turn(runtime):
 - [ ] SSE 发 `message_start/text_delta/tool_start/tool_result/confirmation_required/message_end/error`；断连取消只停止发送，不回滚已提交的工具副作用；确认等待期间保持 SSE 活跃。
 - [ ] capability check 用本地常量小图、一个无副作用 schema/function probe 检查 tool calling 和 image 输入；当前 model/base_url 未探测时，首条消息自动探测并缓存。tool calling 不可用时拒绝对话；vision 不可用时保留文本能力、隐藏并服务端拦截 `get_screenshot` 与原子屏幕操作。
 - [ ] 在审计终态 callback 后先确认对应 `agent_audit` 已提交，再持久化 tool reply/推进下一轮。截图档案 DB 写入用 savepoint 隔离；归档失败时保留稳定错误与失败审计，不留 base64，也不污染外层事务。
-- [ ] StreamingResponse 用一个在 `__call__` 的 `finally` 中释放已获会话锁的响应包装，确保 response-start 发送失败或 body 首次迭代前断开也不遗留锁；producer 终结时重复释放保持幂等。
+- [ ] StreamingResponse 用一个跟踪 body iterator 是否已启动的响应包装：在首次 body iteration 前 response-start 失败时，Response `__call__ finally` 释放仍由路由持有的会话锁；body 已启动后即使发送失败/客户端断连也不释放该锁，让 detached producer 继续持锁直至自身终结并释放。增加 response-start 失败锁释放与 body 中途断连/慢工具保持锁两类 ASGI 测试。
 - [ ] 达到 12 轮工具调用时持久化 `finish_reason="max_steps"`，与 docs/04 §5.8、docs/05 §4.11 对齐。
 - [ ] 增加基于文件 SQLite 的原子 `click` / 会话授权测试，覆盖 runtime 带 policy db session 调用 ConfirmationService 后的真实确认与审计，不用共享 `StaticPool` 单连接制造并发。
 - [ ] 扩展 `ConfirmationService.invoke` 可选事务 callbacks：`on_audit_prepare(session, audit_id, result)` 在同一终态事务中把大结果转为安全持久化结果；它可抛 `AppError` 将审计改记为 `FAILED`。既有 `on_audit_terminal` 仍在 commit 前写幂等快照；新增 `on_audit_committed(audit_id, status, response_body)` 只在 commit 成功后通知 runtime。为这三种顺序/失败语义增加 ConfirmationService contract tests。
