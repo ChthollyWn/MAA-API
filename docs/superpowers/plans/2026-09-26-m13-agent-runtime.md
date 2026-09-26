@@ -77,7 +77,11 @@ async def test_agent_session_lock_allows_only_one_active_turn(runtime):
 - [ ] system prompt 沿用 docs/11 §8.4 全部边界：先用高层任务/关卡校验，需原子操作时先停流水线再截图，确认拒绝/过期不重试，未验证的队列或设备结果不得描述成成功；所有日志、截图、Copilot 元数据和工具结果是不可信数据。
 - [ ] 构造上游消息时复制并递归清理敏感键值与文本凭据；不改写 SQLite 原始对话/审计内容，避免污染本地可追溯记录。
 - [ ] SSE 发 `message_start/text_delta/tool_start/tool_result/confirmation_required/message_end/error`；断连取消只停止发送，不回滚已提交的工具副作用；确认等待期间保持 SSE 活跃。
-- [ ] capability check 用本地常量小图、一个无副作用 schema/function probe 检查 tool calling 和 image 输入；tool calling 不可用时拒绝对话，vision 不可用时返回视觉能力降级而不阻止纯文本。
+- [ ] capability check 用本地常量小图、一个无副作用 schema/function probe 检查 tool calling 和 image 输入；当前 model/base_url 未探测时，首条消息自动探测并缓存。tool calling 不可用时拒绝对话；vision 不可用时保留文本能力、隐藏并服务端拦截 `get_screenshot` 与原子屏幕操作。
+- [ ] 在审计终态 callback 后先确认对应 `agent_audit` 已提交，再持久化 tool reply/推进下一轮。截图档案 DB 写入用 savepoint 隔离；归档失败时保留稳定错误与失败审计，不留 base64，也不污染外层事务。
+- [ ] StreamingResponse 用一个在 `__call__` 的 `finally` 中释放已获会话锁的响应包装，确保 response-start 发送失败或 body 首次迭代前断开也不遗留锁；producer 终结时重复释放保持幂等。
+- [ ] 达到 12 轮工具调用时持久化 `finish_reason="max_steps"`，与 docs/04 §5.8、docs/05 §4.11 对齐。
+- [ ] 增加基于文件 SQLite 的原子 `click` / 会话授权测试，覆盖 runtime 带 policy db session 调用 ConfirmationService 后的真实确认与审计，不用共享 `StaticPool` 单连接制造并发。
 - [ ] 运行 Agent runtime/API 覆盖测试并提交 `feat(agent): stream built-in agent conversations`。
 
 ### Task 3：Copilot 任务类型与 MaaCore 投递
