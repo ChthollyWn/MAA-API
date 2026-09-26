@@ -128,7 +128,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `PIPELINE_EMPTY` | 400 | 提交的 `tasks` 数组为空 |
 | `PIPELINE_TOO_MANY_TASKS` | 400 | 单条流水线任务数超过 32 |
 | `TASK_NOT_FOUND` | 404 | 任务 id 不存在 |
-| `UNKNOWN_TASK_TYPE` | 400 | `name` 字段不在 9 种任务类型内，discriminated union 匹配失败 |
+| `UNKNOWN_TASK_TYPE` | 400 | `name` 字段不在 9 种 MaaCore 内置任务或 `Copilot` 类型内，discriminated union 匹配失败 |
 | `TASK_PARAM_INVALID` | 422 | 跨字段规则不满足：`mode=10000` 缺 `filename`、`mode=5` 但 `theme != "Sami"`、`series` 越界 |
 | `TASK_PARAM_DEPRECATED` | 400 | 使用了内核已弃用的参数值，如 `Roguelike.mode=2` |
 | `TASK_NOT_RUNTIME_MUTABLE` | 409 | 对运行中的任务修改了标注"不支持运行中设置"的参数（`stage`、`facility`、`shopping` 等） |

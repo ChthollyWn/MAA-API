@@ -504,8 +504,15 @@ class ApiSmoke:
         body = response.json()
         items = body.get("items")
         self.require(
-            isinstance(items, list) and len(items) == 9,
-            f"items 应为 9 项，实际 {len(items) if isinstance(items, list) else items!r}",
+            isinstance(items, list) and len(items) == 10,
+            f"items 应为 10 项，实际 {len(items) if isinstance(items, list) else items!r}",
+        )
+        self.require(
+            any(
+                isinstance(item, dict) and item.get("name") == "Copilot"
+                for item in items
+            ),
+            "任务类型清单缺少 CopilotInput",
         )
         required_keys = {
             "name",
@@ -530,8 +537,8 @@ class ApiSmoke:
                 f"类型 {item.get('name')!r} 的 schema/groups/runtime_immutable 类型不对",
             )
             names.append(item["name"])
-        self.require(len(set(names)) == 9, f"9 个类型名应互不相同：{names!r}")
-        return f"9 类：{', '.join(names)}"
+        self.require(len(set(names)) == 10, f"10 个类型名应互不相同：{names!r}")
+        return f"10 类：{', '.join(names)}"
 
     # ---- 4. 鉴权模式 ----
 
@@ -1082,9 +1089,9 @@ class ApiSmoke:
         )
         self.require(status == 200, f"X-Token 应为 200，实际 {status}: {body[:200]!r}")
         self.require(
-            json.loads(body).get("total") == 9, "带 token 的 /api/tasks/types 应返回 9 个类型"
+            json.loads(body).get("total") == 10, "带 token 的 /api/tasks/types 应返回 10 个类型"
         )
-        return "X-Token → 200（total=9）"
+        return "X-Token → 200（total=10）"
 
     def _serve_temp_artifacts(self) -> str:
         assert self.serve_dir is not None

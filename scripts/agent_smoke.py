@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""M11 Agent 端到端硬验收：真实 app / REST 路由、确认、授权与资源回滚。
+"""Agent 端到端硬验收：REST、安全确认、授权、SSE 与资源回滚。
 
 使用生产 ``create_app()`` 装配与应用 lifespan、真实 REST routers、ToolRegistry、
 ConfirmationService、ResourceService 和临时 SQLite。MaaCore、ADB 与外部网络不启动；
-测试用生命周期适配器只替代它们的边界。一个仅在本脚本注册且不进入 OpenAPI 的路由，
-用于模拟 M13 内置 Agent 已有但当前尚未开放为 REST API 的 INTERNAL 调用上下文。
+测试用生命周期适配器只替代 MaaCore 与设备边界。一个仅在本脚本注册且不进入 OpenAPI 的路由，
+用于验证内部原子工具授权；内置 LLM 会话由 Fake LLM 驱动。
 
 成功时最后一行严格为 ``SMOKE OK``；失败返回非零并输出 ``[FAIL]``。
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import shutil
 import sys
@@ -21,6 +22,10 @@ import time
 import traceback
 from pathlib import Path
 from typing import Any
+
+from maa_api.core.enums import Message
+from maa_api.services.pipeline_runner import PipelineRunner
+from tests.fakes.fake_asst import FakeAsst, SUCCESS_SCRIPT
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -32,6 +37,86 @@ TEMP_PREFIX = "maa-api-agent-smoke-"
 
 class SmokeFailure(RuntimeError):
     """An acceptance assertion failed."""
+
+
+class _SmokeLLM:
+    """Small OpenAI-compatible stream for capability probes and a final reply."""
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]] = []
+        self.responses = [
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "smoke-capability-probe",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "capability_probe",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "visual probe ok"},
+                            "finish_reason": None,
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "Fake LLM 已完成本轮 smoke 对话。"},
+                            "finish_reason": None,
+                        }
+                    ]
+                },
+                {
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 11, "completion_tokens": 6},
+                },
+            ],
+            [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "作业未找到，已停止执行并保留诊断现场。"},
+                            "finish_reason": None,
+                        }
+                    ]
+                },
+                {
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 19, "completion_tokens": 10},
+                },
+            ],
+        ]
+
+    async def stream_chat_completion(self, model, messages, tools):
+        self.requests.append((model, list(messages), list(tools)))
+        if not self.responses:
+            raise SmokeFailure("Fake LLM response budget exhausted")
+        for chunk in self.responses.pop(0):
+            yield chunk
 
 
 def _snapshot_repo_artifacts() -> dict[str, tuple[int, int]]:
@@ -89,9 +174,19 @@ class _SmokeCoreSupervisor:
 class _SmokeCoreClient:
     def __init__(self, _supervisor: Any, **_kwargs: Any) -> None:
         self.handlers: dict[str, list[Any]] = {}
+        self.loop = asyncio.get_running_loop()
+        self.asst = FakeAsst(script=SUCCESS_SCRIPT, delay_scale=0)
+        self.copilot_call: dict[str, Any] | None = None
+        self.copilot_calls: list[dict[str, Any]] = []
+        self.asst.set_callback(self._on_asst_callback)
 
     def on(self, event: str, handler: Any) -> None:
         self.handlers.setdefault(event, []).append(handler)
+
+    def _on_asst_callback(self, message: int, details: bytes, _arg: Any) -> None:
+        payload = {"msg": message, "details": json.loads(details)}
+        for handler in self.handlers.get("CALLBACK", []):
+            self.loop.call_soon_threadsafe(handler, payload)
 
     def start_consumer(self) -> None:
         return None
@@ -99,8 +194,30 @@ class _SmokeCoreClient:
     async def _send(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {"ret": 0}
 
+    async def append_task(self, type_name: str, params: dict[str, Any]) -> int:
+        if type_name == "Copilot":
+            filename = Path(params["filename"])
+            self.copilot_call = {
+                "type_name": type_name,
+                "params": dict(params),
+                "path": filename,
+                "content": json.loads(filename.read_text(encoding="utf-8")),
+                "existed_at_append": filename.is_file(),
+            }
+            self.copilot_calls.append(self.copilot_call)
+        task_id = self.asst.append_task(type_name, params)
+        if task_id <= 0:
+            raise RuntimeError("FakeAsst rejected task")
+        return task_id
+
+    async def start(self) -> bool:
+        return self.asst.start()
+
+    async def stop(self) -> bool:
+        return self.asst.stop()
+
     def close(self) -> None:
-        return None
+        self.asst.stop()
 
 
 class _SmokeDeviceManager:
@@ -116,6 +233,10 @@ class _SmokeDeviceManager:
     async def connect_with_retry(self, **_kwargs: Any) -> bool:
         return False
 
+    async def ensure_available(self, *, timeout: float = 10.0) -> bool:
+        del timeout
+        return True
+
     def on_core_connection_event(self, _what: str, _details: dict[str, Any]) -> None:
         return None
 
@@ -129,27 +250,13 @@ class _SmokeDeviceManager:
         self.closed = True
 
 
-class _SmokePipelineRunner:
-    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-        self.operation_lock = asyncio.Lock()
-        self.core_id = "default"
+class _SmokePipelineRunner(PipelineRunner):
+    """Production queue/runner path backed by FakeAsst instead of MaaCore."""
 
-    async def start(self) -> None:
+    async def publish_pipeline(self, _pipeline_id: str) -> None:
         return None
 
-    async def stop(self) -> None:
-        return None
-
-    def wake(self) -> None:
-        return None
-
-    def notify_core_state(self, _state: Any = None) -> None:
-        return None
-
-    def notify_core_crash(self, _record: Any = None) -> None:
-        return None
-
-    def log_context(self, _message: Any, _details: Any) -> None:
+    async def publish_queue_changed(self) -> None:
         return None
 
 
@@ -234,6 +341,261 @@ def _check_response(response: Any, status_code: int, label: str) -> dict[str, An
         f"{label} 应返回 {status_code}，实际 {response.status_code}: {response.text[:400]}",
     )
     return response.json() if response.content else {}
+
+
+def _wait_for_pipeline(client: Any, pipeline_id: str, headers: dict[str, str]) -> dict[str, Any]:
+    deadline = time.monotonic() + 12.0
+    last: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/pipelines/{pipeline_id}", headers=headers)
+        _require(response.status_code == 200, f"流水线回查失败：{response.status_code} {response.text[:240]}")
+        last = response.json()
+        if str(last.get("status", "")).lower() in {"completed", "failed", "cancelled"}:
+            return last
+        time.sleep(0.1)
+    raise SmokeFailure(f"流水线未在 12s 内进入终态：{last!r}")
+
+
+def _check_builtin_conversation(client: Any, headers: dict[str, str], fake_llm: _SmokeLLM) -> None:
+    capability = _check_response(
+        client.post("/api/agent/capabilities/check", headers=headers),
+        200,
+        "内置 Agent 模型能力自检",
+    )
+    _require(
+        capability.get("tool_calling") is True and capability.get("vision") is True,
+        f"Fake LLM 能力自检结果不匹配：{capability!r}",
+    )
+    session = _check_response(
+        client.post(
+            "/api/agent/sessions",
+            json={"title": "M13 built-in Agent smoke"},
+            headers=headers,
+        ),
+        201,
+        "内置 Agent 会话创建",
+    )
+    session_id = session["session_id"]
+    response = client.post(
+        f"/api/agent/sessions/{session_id}/messages",
+        json={"content": "请简短确认本轮 smoke 对话。"},
+        headers=headers,
+    )
+    _require(
+        response.status_code == 200
+        and response.headers.get("content-type", "").startswith("text/event-stream"),
+        f"内置 Agent 消息应返回 SSE：{response.status_code} {response.text[:400]}",
+    )
+    stream = response.text
+    for event_name in ("message_start", "text_delta", "message_end"):
+        _require(f"event: {event_name}\n" in stream, f"Agent SSE 缺少 {event_name}")
+    _require("Fake LLM 已完成本轮 smoke 对话。" in stream, "Agent SSE 未返回 Fake LLM 文本")
+
+    messages = _check_response(
+        client.get(
+            f"/api/agent/sessions/{session_id}/messages",
+            params={"page": 1, "size": 20},
+            headers=headers,
+        ),
+        200,
+        "内置 Agent 消息历史",
+    )
+    _require(
+        [item.get("role") for item in messages.get("items", [])]
+        == ["user", "assistant"],
+        f"Agent 消息历史顺序不正确：{messages!r}",
+    )
+    stored = _check_response(
+        client.get(f"/api/agent/sessions/{session_id}", headers=headers),
+        200,
+        "内置 Agent token 用量回查",
+    )
+    _require(
+        stored.get("prompt_tokens") == 11
+        and stored.get("completion_tokens") == 6
+        and len(fake_llm.requests) == 3,
+        f"Agent token 用量或 Fake LLM 往返次数错误：{stored!r}",
+    )
+
+
+def _check_copilot_pipeline_and_schedule(client: Any, headers: dict[str, str]) -> None:
+    operation = {
+        "minimum_required": "v4.0.0",
+        "stage_name": "1-7",
+        "doc": {"title": "M13 smoke", "details": "safe queue contract"},
+        "opers": [{"name": "阿米娅", "skill": 1}],
+        "actions": [
+            {"type": "Deploy", "name": "阿米娅", "location": [3, 4], "direction": "Left"}
+        ],
+    }
+    uploaded = _check_response(
+        client.post(
+            "/api/agent/tools/upload_copilot/invoke",
+            json={
+                "arguments": {"name": "smoke-copilot", "content": operation},
+                "mode": "sync",
+            },
+            headers=headers,
+        ),
+        200,
+        "Copilot 作业验证并上传",
+    )
+    asset_id = uploaded.get("result", {}).get("id")
+    _require(isinstance(asset_id, str) and asset_id, f"上传结果缺少 asset id：{uploaded!r}")
+    catalog = _check_response(
+        client.get("/api/resources/copilots", headers=headers),
+        200,
+        "Copilot 作业列表",
+    )
+    _require(
+        any(item.get("id") == asset_id for item in catalog.get("items", [])),
+        "已保存 Copilot 未出现在资源列表",
+    )
+
+    submitted = _check_response(
+        client.post(
+            "/api/pipelines",
+            json={
+                "title": "M13 Copilot smoke",
+                "tasks": [{"name": "Copilot", "asset_id": asset_id, "formation": False}],
+            },
+            headers=headers,
+        ),
+        202,
+        "Copilot 共享流水线入队",
+    )
+    detail = _wait_for_pipeline(client, submitted["pipeline_id"], headers)
+    task = detail.get("tasks", [{}])[0]
+    _require(
+        str(detail.get("status", "")).lower() == "completed"
+        and task.get("status") == "completed"
+        and task.get("type_name") == "Copilot"
+        and task.get("params", {}).get("asset_id") == asset_id
+        and task.get("params", {}).get("formation") is False,
+        f"FakeAsst Copilot 执行或 asset_id/formation 不匹配：{detail!r}",
+    )
+    schedule = _check_response(
+        client.post(
+            "/api/schedules",
+            json={
+                "name": "M13 Copilot smoke schedule",
+                "cron": "0 7 * * *",
+                "timezone": "UTC",
+                "enabled": False,
+                "template": [
+                    {"name": "Copilot", "asset_id": asset_id, "formation": False}
+                ],
+            },
+            headers=headers,
+        ),
+        201,
+        "Copilot schedule 模板持久化",
+    )
+    _require(
+        schedule.get("template", [{}])[0].get("name") == "Copilot"
+        and schedule["template"][0].get("asset_id") == asset_id,
+        f"schedule 未保存 Copilot asset_id：{schedule!r}",
+    )
+    scheduled_run = _check_response(
+        client.post(
+            f"/api/schedules/{schedule['id']}/run",
+            json={},
+            headers=headers,
+        ),
+        202,
+        "Copilot schedule 队列执行",
+    )
+    scheduled_pipeline = _wait_for_pipeline(
+        client, scheduled_run["pipeline_id"], headers
+    )
+    _require(
+        str(scheduled_pipeline.get("status", "")).lower() == "completed"
+        and scheduled_pipeline.get("tasks", [{}])[0].get("status") == "completed",
+        f"schedule Copilot 流水线没有成功完成：{scheduled_pipeline!r}",
+    )
+    core_client = client.app.state.core_client
+    _require(
+        len(core_client.copilot_calls) == 2
+        and all(
+            call.get("type_name") == "Copilot"
+            and call.get("params", {}).get("formation") is False
+            and call.get("path").name == "operation.json"
+            and call.get("existed_at_append") is True
+            and call.get("content") == operation
+            and not call.get("path").exists()
+            for call in core_client.copilot_calls
+        )
+        and core_client.copilot_calls[0]["path"]
+        != core_client.copilot_calls[1]["path"],
+        f"FakeAsst 未收到流水线/schedule 各自独立的短暂 Copilot 快照：{core_client.copilot_calls!r}",
+    )
+
+
+def _check_failure_incident(client: Any, headers: dict[str, str], fake_llm: _SmokeLLM) -> None:
+    failed = _check_response(
+        client.post(
+            "/api/pipelines",
+            json={
+                "title": "M13 missing Copilot smoke",
+                "tasks": [
+                    {"name": "Copilot", "asset_id": "f" * 32, "formation": False}
+                ],
+            },
+            headers=headers,
+        ),
+        202,
+        "缺失 Copilot 故障流水线入队",
+    )
+    pipeline = _wait_for_pipeline(client, failed["pipeline_id"], headers)
+    _require(
+        str(pipeline.get("status", "")).lower() == "failed"
+        and pipeline.get("error", {}).get("code") == "RESOURCE_ASSET_NOT_FOUND",
+        f"缺失 Copilot 未产生稳定失败状态：{pipeline!r}",
+    )
+    deadline = time.monotonic() + 8.0
+    incident_session: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        sessions = _check_response(
+            client.get("/api/agent/sessions", params={"page": 1, "size": 50}, headers=headers),
+            200,
+            "自动诊断会话列表",
+        )
+        incident_session = next(
+            (
+                item
+                for item in sessions.get("items", [])
+                if item.get("incident_key") == f"pipeline:{failed['pipeline_id']}"
+            ),
+            None,
+        )
+        if incident_session is not None and incident_session.get("message_count", 0) >= 3:
+            break
+        time.sleep(0.05)
+    _require(incident_session is not None, "流水线失败没有创建自动诊断会话")
+    history = _check_response(
+        client.get(
+            f"/api/agent/sessions/{incident_session['session_id']}/messages",
+            params={"page": 1, "size": 20},
+            headers=headers,
+        ),
+        200,
+        "自动诊断消息回查",
+    )
+    initial = json.loads(history.get("items", [{}])[0].get("content") or "{}")
+    _require(
+        initial.get("failure_object", {}).get("error_code") == "RESOURCE_ASSET_NOT_FOUND",
+        f"自动诊断现场未包含稳定错误码：{initial!r}",
+    )
+    _require(
+        len(fake_llm.requests) == 4
+        and bool(fake_llm.requests[-1][2])
+        and all(
+            item["function"]["name"] not in {"submit_pipeline", "create_schedule", "update_core"}
+            for item in fake_llm.requests[-1][2]
+        ),
+        "自动诊断没有调用受限安全工具集的 Fake LLM 往返",
+    )
+    print("[ok] 流水线失败自动诊断、稳定错误上下文与安全工具 schema")
 
 
 def run(*, keep_temp: bool = False) -> None:
@@ -331,6 +693,16 @@ def run(*, keep_temp: bool = False) -> None:
         client = TestClient(main_module.app, raise_server_exceptions=False)
         client.__enter__()
 
+        # Exercise the production SSE router/runtime with an offline model; no
+        # external endpoint or MaaCore is contacted by this smoke path.
+        fake_llm = _SmokeLLM()
+        main_module.app.state.agent_runtime.client_factory = lambda _settings: fake_llm
+        _check_builtin_conversation(client, {"X-Token": TOKEN}, fake_llm)
+        print("[ok] 内置 Agent Fake LLM 能力自检、SSE 对话、消息持久化与 token 用量")
+        _check_copilot_pipeline_and_schedule(client, {"X-Token": TOKEN})
+        print("[ok] Copilot 验证上传、资源列表、共享流水线入队与 schedule 持久化")
+        _check_failure_incident(client, {"X-Token": TOKEN}, fake_llm)
+
         # 1. Real REST tool catalog and a SAFE tool invocation, with auth contract.
         catalog_response = client.get("/api/agent/tools")
         _require(
@@ -345,6 +717,13 @@ def run(*, keep_temp: bool = False) -> None:
         tool_names = {item["name"] for item in catalog.get("items", [])}
         _require("run_copilot" not in tool_names, "工具清单错误发布了未实现的 run_copilot")
         _require("get_device_status" in tool_names, "真实工具清单缺少 get_device_status")
+        task_catalog = _check_response(
+            client.get("/api/tasks/types", headers=headers), 200, "共享任务类型"
+        )
+        _require(
+            any(item.get("name") == "Copilot" for item in task_catalog.get("items", [])),
+            "共享任务类型缺少 Copilot",
+        )
 
         unauthenticated_invoke = client.post(
             "/api/agent/tools/get_device_status/invoke", json={"arguments": {}}
