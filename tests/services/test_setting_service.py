@@ -163,6 +163,32 @@ def test_update_rejects_invalid_and_readonly_values(db_session_factory, items, c
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("value", [0, 1, "true", "false", None])
+def test_boolean_settings_reject_non_boolean_values(db_session_factory, value):
+    async def scenario():
+        service = SettingService(db_session_factory, env={})
+        with pytest.raises(AppError) as exc:
+            await service.update({"agent.auto_diagnose_failures": value})
+        assert exc.value.code == ErrorCode.SETTING_VALUE_INVALID
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_auto_diagnosis_setting_accepts_real_booleans(db_session_factory, value):
+    async def scenario():
+        service = SettingService(db_session_factory, env={})
+        result = await service.update({"agent.auto_diagnose_failures": value})
+        saved = next(
+            item for item in result["items"]
+            if item["key"] == "agent.auto_diagnose_failures"
+        )
+        assert saved["value"] is value
+        assert saved["source"] == "db"
+
+    asyncio.run(scenario())
+
+
 def test_readonly_access_token_is_not_exposed_or_writable(db_session_factory):
     async def scenario():
         service = SettingService(db_session_factory, env={})

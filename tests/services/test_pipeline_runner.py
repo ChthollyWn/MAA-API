@@ -248,6 +248,77 @@ def test_runner_fails_pipeline_when_copilot_asset_was_removed(runner_env) -> Non
     asyncio.run(scenario())
 
 
+def test_terminal_and_startup_recovered_failures_notify_incidents_once(runner_env) -> None:
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-recovered-failure",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.RUNNING,
+                    task_count=0,
+                )
+            )
+            await session.commit()
+        runner, asst, _core = make()
+
+        # Startup recovery happens before the incident service is bound.
+        await runner._recover_interrupted()
+        assert runner.recovered_pipeline_ids == ("pipeline-recovered-failure",)
+
+        calls = []
+
+        class FakeIncidents:
+            async def pipeline_failed(self, pipeline_id):
+                calls.append(pipeline_id)
+
+        runner.bind_incident_service(FakeIncidents())
+        for pipeline_id in runner.recovered_pipeline_ids:
+            runner.schedule_pipeline_incident(pipeline_id)
+
+        # A normally completed failure is reported after its commit only once.
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-terminal-failure",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.RUNNING,
+                    task_count=0,
+                )
+            )
+            await session.commit()
+        await runner._finish_pipeline(
+            "pipeline-terminal-failure",
+            PipelineStatus.FAILED,
+            error_code=ErrorCode.INTERNAL_ERROR,
+            error_message="worker failed",
+        )
+        await runner._finish_pipeline(
+            "pipeline-terminal-failure",
+            PipelineStatus.FAILED,
+            error_code=ErrorCode.INTERNAL_ERROR,
+            error_message="duplicate terminal attempt",
+        )
+        await asyncio.gather(*tuple(runner._incident_tasks))
+
+        assert sorted(calls) == [
+            "pipeline-recovered-failure",
+            "pipeline-terminal-failure",
+        ]
+        async with factory() as session:
+            recovered = await session.get(Pipeline, "pipeline-recovered-failure")
+        assert recovered.status == PipelineStatus.FAILED
+        assert recovered.error_code == ErrorCode.CORE_CRASHED
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
 def test_runner_does_not_append_when_inline_copilot_cannot_be_written(
     runner_env, monkeypatch
 ) -> None:

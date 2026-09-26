@@ -112,6 +112,9 @@ class PipelineRunner:
         self._active: _ActivePipeline | None = None
         self._cancel_requested_ids: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self.incident_service: Any = None
+        self._recovered_pipeline_ids: list[str] = []
+        self._incident_tasks: set[asyncio.Task[Any]] = set()
 
         client = self.registry.get(self.core_id)
         client.on("CALLBACK", self._on_callback)
@@ -120,6 +123,40 @@ class PipelineRunner:
     @property
     def running(self) -> bool:
         return self._running
+
+    @property
+    def active_pipeline_id(self) -> str | None:
+        """Current pipeline identity for crash coalescing."""
+        return self._active.pipeline_id if self._active is not None else None
+
+    @property
+    def recovered_pipeline_ids(self) -> tuple[str, ...]:
+        """Interrupted failures recovered by the most recent start call."""
+        return tuple(self._recovered_pipeline_ids)
+
+    def bind_incident_service(self, service: Any) -> None:
+        """Bind failure diagnosis after confirmation/runtime services are ready."""
+        self.incident_service = service
+
+    def schedule_pipeline_incident(self, pipeline_id: str) -> None:
+        """Queue a committed terminal failure diagnosis without blocking the runner."""
+        service = self.incident_service
+        if service is None:
+            return
+        task = asyncio.create_task(
+            service.pipeline_failed(pipeline_id),
+            name=f"agent-pipeline-incident-{pipeline_id}",
+        )
+        self._incident_tasks.add(task)
+        task.add_done_callback(self._forget_incident_task)
+
+    def _forget_incident_task(self, task: asyncio.Task[Any]) -> None:
+        self._incident_tasks.discard(task)
+        if not task.cancelled():
+            try:
+                task.exception()
+            except Exception:  # noqa: BLE001
+                logger.exception("流水线自动诊断后台任务失败")
 
     def wake(self) -> None:
         """Wake the consumer after a queue or core state change."""
@@ -174,6 +211,11 @@ class PipelineRunner:
                     await worker
                 except asyncio.CancelledError:
                     pass
+        pending_incidents = tuple(self._incident_tasks)
+        for task in pending_incidents:
+            task.cancel()
+        if pending_incidents:
+            await asyncio.gather(*pending_incidents, return_exceptions=True)
 
     def log_context(self, msg: Any, details: dict[str, Any]) -> tuple[str, str] | None:
         """Return pipeline/task ids for task callback logs while a task is active."""
@@ -460,6 +502,7 @@ class PipelineRunner:
                 await session.commit()
         for pipeline_id in recovered:
             await self.publish_pipeline(pipeline_id)
+        self._recovered_pipeline_ids = recovered
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -954,6 +997,7 @@ class PipelineRunner:
                 return True
 
         changed_task_ids: list[str] = []
+        pipeline_failed = False
         async with self.operation_lock:
             if self._active is not None and self._active.cancel_requested:
                 return False
@@ -973,13 +1017,15 @@ class PipelineRunner:
                             error_message=error.message,
                         )
                         changed_task_ids.append(task.id)
-                await pipeline_repo.mark_terminal(
+                pipeline_failed = await pipeline_repo.mark_terminal(
                     pipeline.id,
                     PipelineStatus.FAILED,
                     error_code=ErrorCode.DEVICE_NOT_CONNECTED,
                     error_message=error.message,
                 )
                 await session.commit()
+        if pipeline_failed:
+            self.schedule_pipeline_incident(pipeline.id)
         for task_id in changed_task_ids:
             await self._publish_task(task_id)
         snapshot = (
@@ -1215,15 +1261,18 @@ class PipelineRunner:
         error_code: ErrorCode | str | None = None,
         error_message: str | None = None,
     ) -> None:
+        changed = False
         async with self._session_factory() as session:
             repo = PipelineRepository(session)
-            await repo.mark_terminal(
+            changed = await repo.mark_terminal(
                 pipeline_id,
                 status,
                 error_code=error_code,
                 error_message=error_message,
             )
             await session.commit()
+        if changed and PipelineStatus(status) is PipelineStatus.FAILED:
+            self.schedule_pipeline_incident(pipeline_id)
 
     async def _publish_task(self, task_id: str) -> None:
         async with self._session_factory() as session:

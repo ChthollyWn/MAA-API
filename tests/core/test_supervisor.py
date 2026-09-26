@@ -308,6 +308,7 @@ def test_heartbeat_timeout_marks_crashed_with_scene() -> None:
             record = supervisor.last_crash
             assert record is not None
             assert record["reason"] == "heartbeat_timeout"
+            assert record["generation"] == supervisor.generation
             assert "exitcode" in record and record["exitcode"] is None  # 进程还活着
             assert record["at"] > 0
             assert record["recent_events"], record

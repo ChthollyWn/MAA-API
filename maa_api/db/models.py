@@ -462,6 +462,7 @@ class AgentSession(SQLModel, table=True):
     status: str = Field(default=AgentSessionStatus.ACTIVE, max_length=16)
     model: str = Field(max_length=64)
     base_url: str | None = Field(default=None, max_length=255)
+    incident_key: str | None = Field(default=None, max_length=160)
     message_count: int = Field(default=0)
     prompt_tokens: int = Field(default=0)
     completion_tokens: int = Field(default=0)
@@ -487,6 +488,9 @@ class AgentSession(SQLModel, table=True):
     __table_args__ = (
         # 会话列表：ORDER BY last_message_at DESC
         Index("ix_agent_session_last_message_at", "last_message_at"),
+        # An incident event is durable across process restarts; multiple normal
+        # conversations keep NULL and remain unrestricted by SQLite uniqueness.
+        Index("uq_agent_session_incident_key", "incident_key", unique=True),
     )
 
 

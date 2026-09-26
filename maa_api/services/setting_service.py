@@ -253,6 +253,7 @@ class SettingService:
             "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
             "integer[]": lambda v: isinstance(v, list)
             and all(isinstance(n, int) and not isinstance(n, bool) for n in v),
+            "boolean": lambda v: isinstance(v, bool),
         }[kind](value)
         if not is_valid_type:
             raise self._invalid("设置项类型不正确", key=key, value=value)

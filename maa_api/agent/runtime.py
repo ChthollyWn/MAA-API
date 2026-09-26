@@ -9,7 +9,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from maa_api.settings import Settings, get_settings
 
 __all__ = [
     "AgentRuntime",
+    "INCIDENT_ALLOWED_TOOLS",
     "SYSTEM_PROMPT",
     "build_model_context",
     "merge_tool_call_deltas",
@@ -38,6 +39,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_ITERATIONS = 12
 DEFAULT_MAX_CONTEXT_CHARS = 1_000_000
 DEFAULT_CONFIRMATION_POLL_SECONDS = 0.25
+INCIDENT_ALLOWED_TOOLS = frozenset(
+    {
+        "get_system_status",
+        "get_device_status",
+        "get_logs",
+        "get_screenshot",
+        "get_pipeline",
+        "get_queue",
+        "list_pipelines",
+        "get_drop_stats",
+        "stop_pipeline",
+        "reconnect_device",
+        "back_to_home",
+        "trigger_screencap",
+    }
+)
 SSE_KEEPALIVE_SECONDS = 10.0
 SCREEN_TOOL_NAMES = frozenset(
     {"get_screenshot", "click", "swipe", "long_press", "input_text", "key_event"}
@@ -340,6 +357,85 @@ class AgentRuntime:
                 return
             yield item
 
+    async def run_incident(
+        self,
+        session_id: str,
+        request: Any,
+        allowed_tools: Collection[str],
+    ) -> dict[str, Any]:
+        """Run the already-persisted incident user message in a restricted turn.
+
+        The incident service commits the session and initial user message before
+        entering here. This method therefore resumes that stored turn without
+        appending a duplicate user row, and keeps the ordinary policy/audit path
+        for every allowed tool.
+        """
+        # The caller can narrow recovery, but cannot expand this process-owned
+        # safety boundary by passing additional tool names.
+        allowed = frozenset(allowed_tools) & INCIDENT_ALLOWED_TOOLS
+        if not await self.acquire_session(session_id):
+            raise AppError(ErrorCode.AGENT_SESSION_BUSY, "自动诊断会话正在处理中")
+
+        async def ignore_event(_event: str, _data: Any) -> None:
+            return None
+
+        try:
+            async with self.session_factory() as session:
+                history = await AgentMessageRepository(session).list_by_session(session_id)
+            last_user = next(
+                (message for message in reversed(history) if message.role == "user"),
+                None,
+            )
+            if last_user is None:
+                raise AppError(
+                    ErrorCode.AGENT_SESSION_NOT_FOUND,
+                    "自动诊断会话没有可继续的用户消息",
+                )
+            await self._run_turn(
+                session_id,
+                last_user.content or "",
+                request,
+                ignore_event,
+                persist_user=False,
+                allowed_tools=allowed,
+            )
+            return {"status": "completed"}
+        except AppError as exc:
+            explanation = (
+                f"自动诊断暂不可用（{exc.code}）：{exc.message}。"
+                "故障记录已保存；修复 LLM 配置或能力后，可以继续在本会话中询问。"
+            )
+            await self._save_incident_failure(session_id, explanation)
+            return {"status": "failed", "code": str(exc.code)}
+        except asyncio.CancelledError:
+            await self._save_incident_failure(
+                session_id,
+                "自动诊断在服务关闭时中断；故障记录已保存。你可以在本会话继续询问，"
+                "系统不会自动重放已经派发的操作。",
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 - preserve the durable incident conversation
+            logger.warning("自动诊断执行失败：%s", type(exc).__name__)
+            explanation = (
+                "自动诊断暂不可用（LLM_REQUEST_FAILED）：检查 LLM 配置和服务日志后，"
+                "可以继续在本会话中询问。故障记录已保存。"
+            )
+            await self._save_incident_failure(session_id, explanation)
+            return {"status": "failed", "code": str(ErrorCode.LLM_REQUEST_FAILED)}
+        finally:
+            self.release_session(session_id)
+
+    async def _save_incident_failure(self, session_id: str, explanation: str) -> None:
+        try:
+            await self._persist_message(
+                session_id,
+                role="assistant",
+                content=explanation,
+                finish_reason="incident_error",
+            )
+        except Exception as exc:  # noqa: BLE001 - don't replace the original diagnostic result
+            logger.warning("无法保存自动诊断说明：%s", type(exc).__name__)
+
     def _forget_turn_task(self, task: asyncio.Task[None]) -> None:
         self._turn_tasks.discard(task)
         if not task.cancelled():
@@ -502,6 +598,9 @@ class AgentRuntime:
         content: str,
         request: Any,
         emit: Callable[[str, Any], Any],
+        *,
+        persist_user: bool = True,
+        allowed_tools: Collection[str] | None = None,
     ) -> None:
         settings = await self.ensure_configured(request, session_id)
         async with self.session_factory() as session:
@@ -509,7 +608,20 @@ class AgentRuntime:
             assert stored_session is not None
             model = stored_session.model
             base_url = stored_session.base_url or settings.llm.base_url
-        user_message = await self._persist_message(session_id, role="user", content=content)
+        if persist_user:
+            user_message = await self._persist_message(session_id, role="user", content=content)
+        else:
+            async with self.session_factory() as session:
+                history = await AgentMessageRepository(session).list_by_session(session_id)
+            user_message = next(
+                (message for message in reversed(history) if message.role == "user"),
+                None,
+            )
+            if user_message is None:
+                raise AppError(
+                    ErrorCode.AGENT_SESSION_NOT_FOUND,
+                    "自动诊断会话没有可继续的用户消息",
+                )
         capability_key = (model, base_url)
         capabilities = self._capability_cache.get(capability_key)
         if capabilities is None:
@@ -566,6 +678,7 @@ class AgentRuntime:
                 tools = self._tool_schemas(
                     self.confirmation_service.registry,
                     vision_enabled=bool(capabilities["vision"]),
+                    allowed_tools=allowed_tools,
                 )
                 text, call_deltas, usage, finish_reason, latency_ms = await self._complete(
                     client, model, messages, tools, emit
@@ -605,6 +718,7 @@ class AgentRuntime:
                             request=request,
                             emit=emit,
                             vision_enabled=bool(capabilities["vision"]),
+                            allowed_tools=allowed_tools,
                         )
                     except AppError as exc:
                         # A bad argument in any member aborts the whole batch. Add
@@ -734,6 +848,7 @@ class AgentRuntime:
         request: Any,
         emit: Callable[[str, Any], Any],
         vision_enabled: bool,
+        allowed_tools: Collection[str] | None = None,
     ) -> list[dict[str, Any]]:
         # Parse all arguments before dispatch so malformed JSON never leaves a
         # partially executed batch.
@@ -754,6 +869,16 @@ class AgentRuntime:
                 "tool_start",
                 {"tool_call_id": call["id"], "name": call["name"], "arguments": arguments},
             )
+            if allowed_tools is not None and call["name"] not in allowed_tools:
+                return {
+                    "audit_id": None,
+                    "body": {
+                        "error": {
+                            "code": ErrorCode.TOOL_NOT_FOUND.value,
+                            "message": "此自动诊断会话不允许调用该工具",
+                        }
+                    },
+                }
             if not vision_enabled and call["name"] in SCREEN_TOOL_NAMES:
                 return {
                     "audit_id": None,
@@ -993,7 +1118,11 @@ class AgentRuntime:
         )
 
     def _tool_schemas(
-        self, registry: ToolRegistry, *, vision_enabled: bool = True
+        self,
+        registry: ToolRegistry,
+        *,
+        vision_enabled: bool = True,
+        allowed_tools: Collection[str] | None = None,
     ) -> list[dict[str, Any]]:
         return [
             {
@@ -1008,6 +1137,7 @@ class AgentRuntime:
             }
             for definition in registry.list()
             if vision_enabled or definition.name not in SCREEN_TOOL_NAMES
+            if allowed_tools is None or definition.name in allowed_tools
         ]
 
     async def _status_summary(self, request: Any) -> Any:

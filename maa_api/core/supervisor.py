@@ -673,6 +673,7 @@ class CoreSupervisor:
     ) -> dict:
         return {
             "reason": reason,
+            "generation": self._generation,
             "exitcode": exitcode,
             "at": time.time(),
             "recent_events": list(self._crash_events),

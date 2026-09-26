@@ -66,6 +66,29 @@ def test_get_settings_and_schema(setting_client):
     assert fields["app.access_token"]["readonly"] is True
     assert fields["adb.path"]["readonly"] is True
     assert "BlueStacks" in fields["adb.connection_config"]["enum"]
+    assert fields["agent.auto_diagnose_failures"]["type"] == "boolean"
+    assert items["agent.auto_diagnose_failures"]["value"] is True
+
+
+def test_auto_diagnosis_setting_can_be_enabled_and_disabled(setting_client):
+    client, _manager = setting_client
+    disabled = client.put(
+        "/api/settings", json={"items": {"agent.auto_diagnose_failures": False}}
+    )
+    assert disabled.status_code == 200
+    assert next(
+        item["value"] for item in disabled.json()["items"]
+        if item["key"] == "agent.auto_diagnose_failures"
+    ) is False
+
+    enabled = client.put(
+        "/api/settings", json={"items": {"agent.auto_diagnose_failures": True}}
+    )
+    assert enabled.status_code == 200
+    assert next(
+        item["value"] for item in enabled.json()["items"]
+        if item["key"] == "agent.auto_diagnose_failures"
+    ) is True
 
 
 def test_put_reset_and_readonly(setting_client):

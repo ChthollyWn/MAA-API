@@ -59,6 +59,13 @@ class AgentSessionRepository(BaseRepository):
             AgentSession, session_id, populate_existing=True
         )
 
+    async def get_by_incident_key(self, incident_key: str) -> AgentSession | None:
+        """Find the durable conversation that already handled an incident key."""
+        result = await self.session.execute(
+            select(AgentSession).where(AgentSession.incident_key == incident_key)
+        )
+        return result.scalar_one_or_none()
+
     async def list_recent(self, limit: int = 20) -> list[AgentSession]:
         """侧栏会话列表：``last_message_at DESC``，从未发过消息的（NULL）排最后。
 
