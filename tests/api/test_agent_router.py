@@ -516,6 +516,107 @@ def test_session_message_response_releases_lock_if_response_start_send_fails():
     asyncio.run(scenario())
 
 
+def test_session_message_keeps_lock_until_detached_turn_finishes_after_midstream_disconnect():
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            session.add(
+                AgentSession(id="body-disconnect", model="m", base_url="https://llm.test/v1")
+            )
+            await session.commit()
+
+        class DetachedTurnRuntime:
+            session_factory = factory
+
+            def __init__(self):
+                self.locked = False
+                self.body_started = asyncio.Event()
+                self.tool_finished = asyncio.Event()
+                self.producer = None
+                self.release_count = 0
+
+            async def acquire_session(self, _session_id):
+                if self.locked:
+                    return False
+                self.locked = True
+                return True
+
+            def release_session(self, _session_id):
+                self.release_count += 1
+                self.locked = False
+
+            async def ensure_configured(self, _request, _session_id):
+                return None
+
+            async def _complete_dispatched_turn(self):
+                await self.body_started.wait()
+                await self.tool_finished.wait()
+                self.release_session("body-disconnect")
+
+            async def stream_message(self, _session_id, _content, _request):
+                self.producer = asyncio.create_task(self._complete_dispatched_turn())
+                self.body_started.set()
+                yield "event: tool_start\ndata: {}\n\n"
+                await self.producer
+
+        runtime = DetachedTurnRuntime()
+        app = FastAPI()
+        app.state.agent_runtime = runtime
+        app.state.session_factory = factory
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/agent/sessions/body-disconnect/messages",
+            "raw_path": b"/api/agent/sessions/body-disconnect/messages",
+            "query_string": b"",
+            "headers": [],
+            "server": ("testserver", 80),
+            "client": ("testclient", 12345),
+            "app": app,
+        }
+        request = Request(scope)
+        from maa_api.api.routers.agent import SessionMessageRequest, stream_session_message
+
+        response = await stream_session_message(
+            "body-disconnect", SessionMessageRequest(content="write"), request
+        )
+
+        async def receive():
+            await asyncio.Future()
+
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body"):
+                raise RuntimeError("client disconnected after stream started")
+
+        try:
+            with pytest.raises(RuntimeError, match="client disconnected"):
+                await response(scope, receive, send)
+            assert runtime.body_started.is_set()
+            assert runtime.locked is True
+            assert runtime.release_count == 0
+            assert await runtime.acquire_session("body-disconnect") is False
+            runtime.tool_finished.set()
+            await runtime.producer
+            assert runtime.locked is False
+            assert runtime.release_count == 1
+            assert await runtime.acquire_session("body-disconnect") is True
+        finally:
+            if runtime.producer is not None and not runtime.producer.done():
+                runtime.tool_finished.set()
+                await runtime.producer
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_session_message_route_releases_lock_when_configuration_check_is_cancelled():
     async def scenario():
         engine = db_session.make_engine(

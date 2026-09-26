@@ -139,6 +139,7 @@ def build_model_context(
     system_prompt: str = SYSTEM_PROMPT,
     status_summary: Any = None,
     max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+    vision_enabled: bool = True,
 ) -> list[dict[str, Any]]:
     """Build a safe OpenAI message copy, keeping screenshots and turns intact."""
     raw_history = [_message_dict(message) for message in history]
@@ -182,7 +183,11 @@ def build_model_context(
                         text = json.dumps(text, ensure_ascii=False, default=str)
                     text = redact_remote_data(text)
                     image_data = screenshot.get("data") or screenshot.get("image") or screenshot.get("base64")
-                    data_url = _screenshot_data_url(screenshot, image_data)
+                    data_url = (
+                        _screenshot_data_url(screenshot, image_data)
+                        if vision_enabled
+                        else None
+                    )
                     if data_url is None:
                         text += "\n[截图图像当前不可用，请重新获取截图后再判断画面]"
                     model_history.append(
@@ -547,11 +552,16 @@ class AgentRuntime:
             for iteration in range(1, self.max_iterations + 1):
                 async with self.session_factory() as session:
                     history = await AgentMessageRepository(session).list_by_session(session_id)
-                history_for_model = await self._hydrate_latest_screenshot(history)
+                history_for_model = (
+                    await self._hydrate_latest_screenshot(history)
+                    if capabilities["vision"]
+                    else history
+                )
                 messages = build_model_context(
                     history_for_model,
                     status_summary=summary,
                     max_context_chars=self.max_context_chars,
+                    vision_enabled=bool(capabilities["vision"]),
                 )
                 tools = self._tool_schemas(
                     self.confirmation_service.registry,

@@ -171,18 +171,30 @@ async def _effective_llm_settings(request: Request):
 
 
 class _LockedSessionStreamingResponse(StreamingResponse):
-    """Release the claimed session after the complete ASGI response lifecycle."""
+    """Transfer lock ownership to the turn producer when SSE body iteration starts."""
 
     def __init__(self, content: Any, *, runtime: Any, session_id: str, **kwargs: Any):
-        super().__init__(content, **kwargs)
         self._runtime = runtime
         self._session_id = session_id
+        self._producer_owns_lock = False
+
+        async def transfer_lock_when_iteration_starts():
+            # AgentRuntime starts its detached producer synchronously when its
+            # async generator is first advanced. From then on that producer
+            # releases the lock after the whole turn, even if this response is
+            # cancelled while sending a later chunk.
+            self._producer_owns_lock = True
+            async for chunk in content:
+                yield chunk
+
+        super().__init__(transfer_lock_when_iteration_starts(), **kwargs)
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         try:
             await super().__call__(scope, receive, send)
         finally:
-            self._runtime.release_session(self._session_id)
+            if not self._producer_owns_lock:
+                self._runtime.release_session(self._session_id)
 
 
 def _page(page: int, size: int) -> None:

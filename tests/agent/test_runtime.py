@@ -856,6 +856,97 @@ def test_first_turn_auto_probes_and_vision_degradation_filters_and_rejects_scree
     asyncio.run(scenario())
 
 
+def test_vision_degraded_session_sends_text_only_for_archived_screenshot_history(tmp_path, monkeypatch):
+    async def scenario():
+        from maa_api.db import session as session_module
+        from maa_api.db.models import Screenshot
+        from maa_api.db.repositories.log import ScreenshotRepository
+        from maa_api.domain.enums import ScreenshotBackend, ScreenshotTrigger
+
+        archive_root = tmp_path
+        db_path = archive_root / "vision-history.sqlite3"
+        screenshot_relative_path = "image/screenshot/old.jpg"
+        screenshot_path = archive_root / screenshot_relative_path
+        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+        screenshot_path.write_bytes(b"jpeg bytes from an archived image")
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [
+                _tool_response(
+                    {
+                        "index": 0,
+                        "id": "probe-history",
+                        "type": "function",
+                        "function": {"name": "capability_probe", "arguments": "{}"},
+                    }
+                ),
+                AppError(ErrorCode.LLM_REQUEST_FAILED, "vision unsupported"),
+                _text_response("旧截图历史保持为文本。"),
+            ],
+            prime_capabilities=False,
+            database_url=f"sqlite+aiosqlite:///{db_path}",
+        )
+        monkeypatch.setattr(session_module, "DB_PATH", db_path)
+        try:
+            async with factory() as session:
+                screenshot = await ScreenshotRepository(session).create(
+                    Screenshot(
+                        trigger=ScreenshotTrigger.AGENT,
+                        backend=ScreenshotBackend.ADB,
+                        path=screenshot_relative_path,
+                        format="jpg",
+                        width=2,
+                        height=2,
+                        size_bytes=screenshot_path.stat().st_size,
+                    )
+                )
+                session.add(
+                    AgentMessage(
+                        session_id=session_id,
+                        seq=0,
+                        role="tool",
+                        content=json.dumps(
+                            {
+                                "result": {
+                                    "screenshot_id": screenshot.id,
+                                    "format": "jpg",
+                                    "captured_at": "2026-09-26T00:00:00Z",
+                                }
+                            }
+                        ),
+                        tool_call_id="old-screenshot-call",
+                        tool_name="get_screenshot",
+                    )
+                )
+                await session.commit()
+
+            capability = await runtime.check_capabilities(None)
+            assert capability["vision"] is False
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [
+                chunk async for chunk in runtime.stream_message(session_id, "继续看历史", None)
+            ]
+            assert _events(_event_stream(chunks))[-1][0] == "message_end"
+            conversation_messages = llm.requests[-1][1]
+            assert not any(
+                part.get("type") == "image_url"
+                for message in conversation_messages
+                if isinstance(message.get("content"), list)
+                for part in message["content"]
+            )
+            archived_tool = next(
+                message
+                for message in conversation_messages
+                if message.get("role") == "tool"
+                and message.get("tool_call_id") == "old-screenshot-call"
+            )
+            assert "screenshot_id" in archived_tool["content"]
+            assert "截图图像当前不可用" in archived_tool["content"]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_tool_reply_and_next_round_wait_until_audit_terminal_transaction_commits(tmp_path):
     async def scenario():
         class EmptyParams(BaseModel):
