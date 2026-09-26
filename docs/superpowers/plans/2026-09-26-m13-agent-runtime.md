@@ -117,6 +117,8 @@ assert schedule.template[0].name == "Copilot"
 
 **Incident 对话：** 创建 `[自动诊断] ...` active session，持久化一条描述失败对象/error code/安全现场摘要的 user message，再调用 `AgentRuntime.run_incident(session_id, request, allowed_tools)`；该入口必须在 `AgentRuntime` schema 构造和实际 dispatch 两处 enforce allowlist：`get_system_status`、`get_device_status`、`get_logs`、`get_screenshot`、`get_pipeline`、`get_queue`、`list_pipelines`、`get_drop_stats`、`stop_pipeline`、`reconnect_device`、`back_to_home`、`trigger_screencap`。其余工具不传给模型，即便模型伪造调用也在 ConfirmationService 前拒绝。允许列表内仍调用正常 ConfirmationService/PolicyEngine；若未来操作需确认，照常等待用户。配置/能力失败保留 incident session，落一条带稳定错误说明的 assistant message 并广播事件，不吞为“未触发”。
 
+若 incident 创建时没有有效模型配置，保存 `model="unconfigured"` 占位和清晰的 assistant 说明。用户修复配置后继续此 incident session 时，如果 stored model 是该占位或为空，就使用当前有效 model/base_url 并持久化更新；正常 incident 的有效模型快照保持不变。
+
 - [ ] 增加 migration/model/repository 测试：旧 session 为 NULL，新 incident key 唯一可读，upgrade/downgrade 保留旧数据；确认 RED。
 - [ ] 增加设置测试：`agent.auto_diagnose_failures` 默认 true，可经 `/api/settings` 更新 true/false；`SettingService._validate` 将 metadata type `boolean` 限定为真正 Python bool，不接受 `0/1` 或字符串。config.template.yaml 显示默认开启项。
 - [ ] 增加 fake runtime 测试：pipeline 失败同 key 重放只建立一次 session；core idle generation 建立一次；有 active pipeline 时 core crash 归并到 pipeline；关闭开关不调用 client；确认 RED。
