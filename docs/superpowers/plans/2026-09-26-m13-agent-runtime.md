@@ -88,9 +88,9 @@ async def test_agent_session_lock_allows_only_one_active_turn(runtime):
 
 ### Task 3：Copilot 任务类型与 MaaCore 投递
 
-**文件：** `maa_api/domain/task.py`、`maa_api/services/resource_service.py`、`maa_api/services/pipeline_runner.py`、`maa_api/main.py`（注入资源解析器）、`tests/services/test_agent_resource_service.py`、`tests/services/test_pipeline_runner.py`、`tests/domain/test_task_schema.py`（新或现有任务 schema 测试）。
+**文件：** `maa_api/domain/task.py`、`maa_api/services/resource_service.py`、`maa_api/services/pipeline_runner.py`、`maa_api/main.py`（注入资源解析器）、`maa_api/api/routers/tasks.py`、`web/openapi.json` / `web/src/types/api.d.ts`（生成）、`README.md`、`docs/README.md`、`docs/11-Agent模块设计.md`、`docs/13-决策记录.md` §8、`tests/services/test_agent_resource_service.py`、`tests/services/test_pipeline_runner.py`、`tests/api/test_tasks_router.py`、`tests/domain/test_task_schema.py`。
 
-**接口：** `CopilotInput(name="Copilot", asset_id: str, formation: bool = False)` 加入 `TaskInput` union 和任务 schema；`ResourceService.resolve_copilot_path(asset_id) -> Path` 校验 kind 与资源根目录并返回存在文件。
+**接口：** `CopilotInput(name="Copilot", asset_id: str, formation: bool = False)` 加入 `TaskInput` union 和任务 schema；`ResourceService.resolve_copilot_path(asset_id) -> Path` 校验 kind/schema/checksum 与源路径后生成唯一受控 snapshot；`release_copilot_path(path)` 在执行终态清理 snapshot。snapshot 位于 `resource/agent-assets/copilot/runs/<uuid>/operation.json`，run 目录 mode `0700`；读取源资产时不得跟随任何路径组件上的 symlink。
 
 - [ ] 添加 TaskInput union、API task schema、schedule template 接受 CopilotInput 的测试；确认 RED。
 
@@ -100,11 +100,12 @@ schedule = ScheduleWrite(name="copilot", cron="0 9 * * *", template=payload.task
 assert schedule.template[0].name == "Copilot"
 ```
 
-- [ ] 添加 resolver 测试覆盖外置文件、数据库 inline 内容物化、缺失 id、非 Copilot kind 与路径穿越/symlink；确认 RED。
+- [ ] 添加 resolver 测试覆盖外置文件与数据库 inline 内容的 per-run snapshot、缺失 id、非 Copilot kind、格式错误 id、路径穿越、任一路径祖先 symlink；确认 RED。
 - [ ] FakeAsst runner 测试断言 CoreClient 收到 type `Copilot` 与 `{filename: str(absolute_path), formation: bool}`，并覆盖 core 拒绝/资产删除错误进入稳定 FAILED 状态；确认 RED。
 - [ ] 实现新 Pydantic task 类型；持久化 params 保留 asset_id；只在向 CoreClient append 边界通过注入 ResourceService 解析参数；使用原 Task/Pipeline/Queue/schedule 顺序与优先级。
-- [ ] 保证临时物化文件位于资源根 `agent-assets/copilot/`、原子写入、resolve 后必须在 root 内；作业移除/写失败不可投递 MaaCore。
+- [ ] 所有 inline/外置作业均复制为每次运行独立 snapshot，禁止 Core 直接读取可变 asset 文件。snapshot 父目录使用 `0700`；PipelineRunner 在任务/流水线 terminal、失败、取消及 shutdown finally 中释放 snapshot。根目录或路径组件 symlink、复制失败、checksum 变更均在 MaaCore append 前失败。
 - [ ] 扩充任务标签与 schema 示例，运行三组目标测试并提交 `feat(agent): queue validated Copilot tasks`。
+- [ ] 按 AGENTS.md 先运行 `.venv/bin/python scripts/dump_openapi.py`，再 `cd web && pnpm gen:api`；更新 README 决策速查表、docs/11 Copilot 章节和 docs/13 §8 M13 实施记录，不得留下“Copilot runner 暂缓”的现行文案。
 
 ### Task 4：失败事件自动诊断与安全恢复
 
