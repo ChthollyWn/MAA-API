@@ -57,7 +57,7 @@ def test_api_key_ciphertext_round_trips_and_rejects_wrong_key():
 
 ### Task 2：AgentRuntime、会话 SSE 与能力自检
 
-**文件：** `maa_api/agent/runtime.py`、`maa_api/agent/registry.py`、`maa_api/agent/tools/*.py`（只补只读元数据）、`maa_api/api/routers/agent.py`、`maa_api/db/repositories/agent.py`（如需会话 seq 辅助）、`tests/agent/test_runtime.py`（新）、`tests/api/test_agent_router.py`。
+**文件：** `maa_api/agent/runtime.py`、`maa_api/agent/confirmation.py`（事务回调扩展）、`maa_api/agent/registry.py`、`maa_api/agent/tools/*.py`（只补只读元数据）、`maa_api/api/routers/agent.py`、`maa_api/db/repositories/agent.py`（如需会话 seq 辅助）、`tests/agent/test_runtime.py`、`tests/agent/test_confirmation_service.py`、`tests/api/test_agent_router.py`。
 
 **接口：** `AgentRuntime.stream_message(session_id, content, request)` 产生具名 SSE 事件；`acquire_session(session_id) -> bool` 与 `release_session(session_id)` 管理单会话锁。`SettingService.llm_encryption_error` 表示不可解密的遗留 DB key；当有效设置解析没有产出 API Key 时返回 `LLM_ENCRYPTION_KEY_INVALID`，有效 YAML/env key 仍按既有优先级可用。`POST /api/agent/capabilities/check` 返回 model/tool_calling/vision/ready/status；消息入参维持 `{content}`。
 
@@ -82,6 +82,7 @@ async def test_agent_session_lock_allows_only_one_active_turn(runtime):
 - [ ] StreamingResponse 用一个在 `__call__` 的 `finally` 中释放已获会话锁的响应包装，确保 response-start 发送失败或 body 首次迭代前断开也不遗留锁；producer 终结时重复释放保持幂等。
 - [ ] 达到 12 轮工具调用时持久化 `finish_reason="max_steps"`，与 docs/04 §5.8、docs/05 §4.11 对齐。
 - [ ] 增加基于文件 SQLite 的原子 `click` / 会话授权测试，覆盖 runtime 带 policy db session 调用 ConfirmationService 后的真实确认与审计，不用共享 `StaticPool` 单连接制造并发。
+- [ ] 扩展 `ConfirmationService.invoke` 可选事务 callbacks：`on_audit_prepare(session, audit_id, result)` 在同一终态事务中把大结果转为安全持久化结果；它可抛 `AppError` 将审计改记为 `FAILED`。既有 `on_audit_terminal` 仍在 commit 前写幂等快照；新增 `on_audit_committed(audit_id, status, response_body)` 只在 commit 成功后通知 runtime。为这三种顺序/失败语义增加 ConfirmationService contract tests。
 - [ ] 运行 Agent runtime/API 覆盖测试并提交 `feat(agent): stream built-in agent conversations`。
 
 ### Task 3：Copilot 任务类型与 MaaCore 投递
