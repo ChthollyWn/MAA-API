@@ -111,7 +111,11 @@ assert schedule.template[0].name == "Copilot"
 
 **文件：** `maa_api/agent/incidents.py`（新）、`maa_api/agent/runtime.py`（受限入口）、`maa_api/agent/confirmation.py`（只在需要 incident caller metadata 时）、`maa_api/services/pipeline_runner.py`、`maa_api/core/supervisor.py` / `maa_api/main.py`、`maa_api/settings.py`、`maa_api/services/settings_schema.py`、`maa_api/db/models.py`、`maa_api/db/repositories/agent.py`、新 Alembic migration、`tests/agent/test_incidents.py`（新）、`tests/db/test_agent_incident_migration.py`（新）。
 
-**接口：** `AgentIncidentService.pipeline_failed(pipeline_id)` 和 `core_crashed(generation, record)`；`AgentSession.incident_key` 可空唯一字段；`agent.auto_diagnose_failures` 为默认 true 布尔设置。
+**接口：** `AgentIncidentService.pipeline_failed(pipeline_id)` 使用持久 key `pipeline:<pipeline_id>`；`core_crashed(generation, record)` 使用 `core:<core_id>:<generation>`；`AgentSession.incident_key` 为 nullable unique；`agent.auto_diagnose_failures` 默认 true。
+
+**并发/关联决策：** runtime 内用 per-key asyncio lock 降低同进程重复 LLM 请求，DB 唯一键处理重启/并发竞态；唯一键冲突读取并返回既有诊断 session。Core crash 回调发现 PipelineRunner 有 active pipeline 时只标记 pipeline core-crashed，不建 core incident；idle 事件若追赶到同 generation 已终态 CORE_CRASHED pipeline，归并/抑制为该 pipeline incident。
+
+**Incident 对话：** 创建 `[自动诊断] ...` active session，持久化一条描述失败对象/error code/安全现场摘要的 user message，再调用 `AgentRuntime.run_incident(session_id, request, allowed_tools)`；该入口必须在 `AgentRuntime` schema 构造和实际 dispatch 两处 enforce allowlist：`get_system_status`、`get_device_status`、`get_logs`、`get_screenshot`、`get_pipeline`、`get_queue`、`list_pipelines`、`get_drop_stats`、`stop_pipeline`、`reconnect_device`、`back_to_home`、`trigger_screencap`。其余工具不传给模型，即便模型伪造调用也在 ConfirmationService 前拒绝。允许列表内仍调用正常 ConfirmationService/PolicyEngine；若未来操作需确认，照常等待用户。配置/能力失败保留 incident session，落一条带稳定错误说明的 assistant message 并广播事件，不吞为“未触发”。
 
 - [ ] 增加 migration/model/repository 测试：旧 session 为 NULL，新 incident key 唯一可读，upgrade/downgrade 保留旧数据；确认 RED。
 - [ ] 增加 fake runtime 测试：pipeline 失败同 key 重放只建立一次 session；core idle generation 建立一次；有 active pipeline 时 core crash 归并到 pipeline；关闭开关不调用 client；确认 RED。
@@ -125,8 +129,8 @@ assert fake_llm.calls == 1
 
 - [ ] 增加 auto-recovery tool allowlist 测试：`get_logs/get_screenshot/get_system_status/stop_pipeline/reconnect_device/back_to_home/trigger_screencap` 可提供；submit/update/restart/click/swipe/resource mutation 不可执行；原子授权与高风险确认继续经过 ConfirmationService；确认 RED。
 - [ ] 实现 `agent_session.incident_key` 和 forward-only Alembic migration；创建标题为 `[自动诊断] ...` 的可续聊会话并落 user/assistant/tool messages。
-- [ ] 在 PipelineRunner 唯一终态失败路径通知 incident service；core generation 崩溃若无 active pipeline 才单独通知；唯一键冲突作为已处理事件；广播 `agent_event` 让前端刷新。
-- [ ] 为自动诊断拼接关联 pipeline/task 状态、三路日志和已有 crash screenshot；图像仅保留本次最新图；LLM 不可用时仍保留错误会话并说明配置/能力原因。
+- [ ] 在 PipelineRunner 唯一终态失败路径通知 incident service；core generation 崩溃若无 active pipeline 且无同 generation 的已失败 CORE_CRASHED pipeline 才单独通知；唯一键冲突作为已处理事件；广播 `agent_event` 让前端刷新。
+- [ ] 为自动诊断 user message 加入 pipeline/task status、error code 与 summary；注入当前三路错误日志索引摘要，剩余明细使用 get_logs 拉取；已有 crash screenshot 通过 get_screenshot snapshot 引用提供，不重复落 base64。LLM 不可用时仍保留错误会话并说明配置/能力原因。
 - [ ] 运行 incident、migration、pipeline 回归测试并提交 `feat(agent): diagnose MAA failures safely`。
 
 ### Task 5：Agent 与 Copilot 前端
