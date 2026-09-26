@@ -17,6 +17,7 @@ from maa_api.agent.incidents import AgentIncidentService
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
 from maa_api.db.models import AgentSession, Pipeline, ResourceAsset, Task
 from maa_api.db.repositories.agent import AgentSessionRepository
+from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import (
     PipelineSource,
@@ -181,7 +182,11 @@ def runner_env(tmp_path: Path):
     resource_root = tmp_path / "resource"
     resource_root.mkdir()
 
-    def make(script: FakeScript = SUCCESS_SCRIPT):
+    def make(
+        script: FakeScript = SUCCESS_SCRIPT,
+        *,
+        session_factory_override=None,
+    ):
         asst = FakeAsst(script=script, delay_scale=0)
         core = FakeCoreClient(asst)
         registry = CoreRegistry()
@@ -190,7 +195,7 @@ def runner_env(tmp_path: Path):
         runner = PipelineRunner(
             registry,
             SimpleSupervisor(),
-            factory,
+            session_factory_override or factory,
             resource_service=resource_service,
         )
         runner._running = True
@@ -345,7 +350,7 @@ def test_terminal_and_startup_recovered_failures_notify_incidents_once(runner_en
 
 
 def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline(
-    runner_env,
+    runner_env, monkeypatch
 ) -> None:
     factory, _resource_root, make = runner_env
 
@@ -373,7 +378,47 @@ def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline
             )
             await session.commit()
 
-        runner, asst, core = make()
+        event_state = {"commit_armed": False, "claim_armed": False}
+
+        class CommitInterleaveSession(AsyncSession):
+            async def commit(self):
+                await super().commit()
+                if not event_state["commit_armed"]:
+                    return
+                event_state["commit_armed"] = False
+                event_state["runner"].notify_core_crash(
+                    {"generation": 1, "reason": "process_exit"}
+                )
+                event_state["core_result"] = await event_state[
+                    "incidents"
+                ].core_crashed(1, {"generation": 1, "reason": "process_exit"})
+
+        original_claim_next = PipelineRepository.claim_next
+
+        async def claim_next_with_interleaved_crash(repo, *args, **kwargs):
+            result = await original_claim_next(repo, *args, **kwargs)
+            if event_state["claim_armed"]:
+                event_state["claim_armed"] = False
+                event_state["runner"].notify_core_crash(
+                    {"generation": 1, "reason": "process_exit"}
+                )
+                event_state["claim_result"] = await event_state[
+                    "incidents"
+                ].core_crashed(1, {"generation": 1, "reason": "process_exit"})
+            return result
+
+        monkeypatch.setattr(
+            PipelineRepository,
+            "claim_next",
+            claim_next_with_interleaved_crash,
+        )
+
+        interleave_factory = async_sessionmaker(
+            bind=factory.kw["bind"],
+            class_=CommitInterleaveSession,
+            expire_on_commit=False,
+        )
+        runner, asst, core = make(session_factory_override=interleave_factory)
         runner._loop = asyncio.get_running_loop()
         incident_runtime = FakeIncidentRuntime()
         incidents = AgentIncidentService(
@@ -384,15 +429,17 @@ def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline
             boot_id="11111111-1111-4111-8111-111111111111",
         )
         runner.bind_incident_service(incidents)
+        event_state.update(
+            runner=runner,
+            incidents=incidents,
+            claim_armed=True,
+            commit_armed=True,
+        )
         claimed, tasks = await runner._claim_next()
         assert claimed is not None and claimed.id == "pipeline-claimed-crash"
         assert runner.active_pipeline_id == claimed.id
-
-        runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
-        coalesced = await incidents.core_crashed(
-            1, {"generation": 1, "reason": "process_exit"}
-        )
-        assert coalesced.session_id is None
+        assert event_state["claim_result"].session_id is None
+        assert event_state["core_result"].session_id is None
         await runner._execute_pipeline(claimed, tasks)
         await asyncio.gather(*tuple(runner._incident_tasks))
 
@@ -408,6 +455,80 @@ def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline
         assert stored_task.status == TaskStatus.FAILED
         assert len(sessions) == 1
         assert sessions[0].incident_key == "pipeline:pipeline-claimed-crash"
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_pending_core_crash_takes_precedence_over_cancelled_claim(runner_env) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        runner, asst, _core = make()
+        runner._loop = asyncio.get_running_loop()
+        runner._claimed_pipeline = pipeline
+        runner._cancel_requested_ids.add(pipeline.id)
+        runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
+
+        await runner._execute_pipeline(pipeline, [task])
+
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+            stored_task = await session.get(Task, task.id)
+        assert stored_pipeline.status == PipelineStatus.FAILED
+        assert stored_pipeline.error_code == ErrorCode.CORE_CRASHED
+        assert stored_task.status == TaskStatus.FAILED
+        assert stored_task.error_code == ErrorCode.CORE_CRASHED
+        assert asst.calls_of("append_task") == []
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_core_crash_staged_during_empty_claim_becomes_idle_incident(
+    runner_env, monkeypatch
+) -> None:
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        runner, asst, _core = make()
+        runner._loop = asyncio.get_running_loop()
+        incident_runtime = FakeIncidentRuntime()
+        incidents = AgentIncidentService(
+            factory,
+            incident_runtime,
+            settings_provider=lambda: Settings(),
+            pipeline_runner=runner,
+            boot_id="11111111-1111-4111-8111-111111111111",
+        )
+        runner.bind_incident_service(incidents)
+        result_state = {}
+
+        original_claim_next = PipelineRepository.claim_next
+
+        async def intercepted_empty_claim(repo, *args, **kwargs):
+            claimed = await original_claim_next(repo, *args, **kwargs)
+            runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
+            result_state["coalesced"] = await incidents.core_crashed(
+                1, {"generation": 1, "reason": "process_exit"}
+            )
+            return claimed
+
+        monkeypatch.setattr(PipelineRepository, "claim_next", intercepted_empty_claim)
+        assert await runner._claim_next() == (None, [])
+        assert result_state["coalesced"].session_id is None
+        await asyncio.gather(*tuple(runner._incident_tasks))
+
+        async with factory() as session:
+            sessions = await AgentSessionRepository(session).list_recent()
+        assert len(sessions) == 1
+        assert sessions[0].incident_key == (
+            "core:default:11111111-1111-4111-8111-111111111111:1"
+        )
+        assert len(incident_runtime.calls) == 1
         await runner.stop()
         asst.stop()
 

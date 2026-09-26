@@ -113,7 +113,7 @@ assert schedule.template[0].name == "Copilot"
 
 **接口：** `AgentIncidentService.pipeline_failed(pipeline_id)` 使用持久 key `pipeline:<pipeline_id>`；`core_crashed(generation, record)` 使用 `core:<core_id>:<boot_uuid>:<generation>`，boot UUID 在每次服务启动时新建且整个 lifespan 固定；`AgentSession.incident_key` 为 nullable unique；`agent.auto_diagnose_failures` 默认 true。
 
-**并发/关联决策：** runtime 内用 per-key asyncio lock 降低同进程重复 LLM 请求，DB 唯一键处理重启/并发竞态；唯一键冲突读取并返回既有诊断 session。Core crash 回调发现 PipelineRunner 有 active/currently-claimed pipeline 时只标记 pipeline core-crashed，不建 core incident；回调迟到时，仅对本次 boot 内由该 Runner claim 且以相同 core epoch 失败的 pipeline 归并。旧服务遗留的 RUNNING 行在启动恢复时形成 pipeline incident；不得因 generation 数字重用而吞掉新 core crash。
+**并发/关联决策：** runtime 内用 per-key asyncio lock 降低同进程重复 LLM 请求，DB 唯一键处理重启/并发竞态；唯一键冲突读取并返回既有诊断 session。Core crash 回调发现 PipelineRunner 有 active、claimed 或相同代际的 claim 正在进行时不建 idle core incident；claim 前登记代际，成功后将暂存 crash 归并到本次 pipeline，无可领取流水线或 claim 失败则转为 idle core incident。回调迟到时，仅对本次 boot 内由该 Runner claim 且以相同 core epoch 失败的 pipeline 归并。旧服务遗留的 RUNNING 行在启动恢复时形成 pipeline incident；不得因 generation 数字重用而吞掉新 core crash。收到的 core crash 优先于同时到达的取消请求。
 
 **Incident 对话：** 创建 `[自动诊断] ...` active session，持久化一条描述失败对象/error code/安全现场摘要的 user message，再调用 `AgentRuntime.run_incident(session_id, request, allowed_tools)`；该入口必须在 `AgentRuntime` schema 构造和实际 dispatch 两处 enforce allowlist：`get_system_status`、`get_device_status`、`get_logs`、`get_screenshot`、`get_pipeline`、`get_queue`、`list_pipelines`、`get_drop_stats`、`stop_pipeline`、`reconnect_device`、`back_to_home`、`trigger_screencap`。其余工具不传给模型，即便模型伪造调用也在 ConfirmationService 前拒绝。允许列表内仍调用正常 ConfirmationService/PolicyEngine；若未来操作需确认，照常等待用户。配置/能力失败保留 incident session，落一条带稳定错误说明的 assistant message 并广播事件，不吞为“未触发”。
 

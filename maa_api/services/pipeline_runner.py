@@ -113,6 +113,8 @@ class PipelineRunner:
         self._active: _ActivePipeline | None = None
         self._claimed_pipeline: Pipeline | None = None
         self._claimed_core_crashes: dict[str, dict[str, Any]] = {}
+        self._claiming_core_epoch: int | None = None
+        self._core_crashes_during_claim: dict[int, dict[str, Any]] = {}
         self._core_crash_pipeline_ids: dict[int, set[str]] = {}
         self._cancel_requested_ids: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -150,6 +152,10 @@ class PipelineRunner:
         """Return current-boot pipelines known to have crashed in this generation."""
         return tuple(sorted(self._core_crash_pipeline_ids.get(int(generation), ())))
 
+    def is_claiming_core_generation(self, generation: int) -> bool:
+        """Whether a queue claim is in flight for this core generation."""
+        return self._claiming_core_epoch == int(generation)
+
     @property
     def recovered_pipeline_ids(self) -> tuple[str, ...]:
         """Interrupted failures recovered by the most recent start call."""
@@ -167,6 +173,19 @@ class PipelineRunner:
         task = asyncio.create_task(
             service.pipeline_failed(pipeline_id),
             name=f"agent-pipeline-incident-{pipeline_id}",
+        )
+        self._incident_tasks.add(task)
+        task.add_done_callback(self._forget_incident_task)
+
+    def _schedule_core_incident(
+        self, generation: int, record: dict[str, Any]
+    ) -> None:
+        service = self.incident_service
+        if service is None:
+            return
+        task = asyncio.create_task(
+            service.core_crashed(generation, record),
+            name=f"agent-core-incident-{self.core_id}-{generation}",
         )
         self._incident_tasks.add(task)
         task.add_done_callback(self._forget_incident_task)
@@ -565,20 +584,82 @@ class PipelineRunner:
                 return None, []
             if self.queue_service is not None and self.queue_service.paused:
                 return None, []
-            async with self._session_factory() as session:
-                repo = PipelineRepository(session)
-                generation = getattr(self.supervisor, "generation", None)
-                pipeline = await repo.claim_next(
-                    self.core_id,
-                    core_epoch=generation,
-                )
-                if pipeline is None:
-                    self._claimed_pipeline = None
-                    return None, []
-                tasks = await TaskRepository(session).list_by_pipeline(pipeline.id)
-                await session.commit()
-                self._claimed_pipeline = pipeline
-                return pipeline, tasks
+            generation = getattr(self.supervisor, "generation", None)
+            self._claiming_core_epoch = (
+                int(generation) if generation is not None else None
+            )
+            try:
+                async with self._session_factory() as session:
+                    repo = PipelineRepository(session)
+                    pipeline = await repo.claim_next(
+                        self.core_id,
+                        core_epoch=generation,
+                    )
+                    if pipeline is None:
+                        self._claimed_pipeline = None
+                        return None, []
+                    # Publish the claim before the next await. Core callbacks
+                    # arriving during task loading or COMMIT must coalesce here.
+                    self._claimed_pipeline = pipeline
+                    claimed_epoch = getattr(pipeline, "core_epoch", None)
+                    if claimed_epoch is not None:
+                        staged_crash = self._core_crashes_during_claim.pop(
+                            int(claimed_epoch), None
+                        )
+                        if staged_crash is not None:
+                            self._attach_claimed_core_crash(
+                                pipeline, int(claimed_epoch), staged_crash
+                            )
+                    try:
+                        tasks = await TaskRepository(session).list_by_pipeline(
+                            pipeline.id
+                        )
+                        await session.commit()
+                    except BaseException:
+                        if self._claimed_pipeline is pipeline:
+                            self._claimed_pipeline = None
+                        pending_crash = self._claimed_core_crashes.pop(
+                            pipeline.id, None
+                        )
+                        if pending_crash is not None:
+                            raw_generation = pending_crash.get(
+                                "generation", generation
+                            )
+                            try:
+                                crash_generation = int(raw_generation)
+                            except (TypeError, ValueError):
+                                crash_generation = None
+                            if crash_generation is not None:
+                                crashed_ids = self._core_crash_pipeline_ids.get(
+                                    crash_generation
+                                )
+                                if crashed_ids is not None:
+                                    crashed_ids.discard(pipeline.id)
+                                    if not crashed_ids:
+                                        self._core_crash_pipeline_ids.pop(
+                                            crash_generation, None
+                                        )
+                                self._schedule_core_incident(
+                                    crash_generation, pending_crash
+                                )
+                        raise
+                    return pipeline, tasks
+            finally:
+                self._claiming_core_epoch = None
+                if generation is not None:
+                    staged_crash = self._core_crashes_during_claim.pop(
+                        int(generation), None
+                    )
+                    if staged_crash is not None:
+                        raw_generation = staged_crash.get("generation", generation)
+                        try:
+                            crash_generation = int(raw_generation)
+                        except (TypeError, ValueError):
+                            crash_generation = None
+                        if crash_generation is not None:
+                            self._schedule_core_incident(
+                                crash_generation, staged_crash
+                            )
 
     async def _execute_pipeline(
         self, pipeline: Pipeline, tasks: list[Task]
@@ -596,7 +677,7 @@ class PipelineRunner:
         had_failures = False
         last_task_error: AppError | None = None
         fatal_error: AppError | None = None
-        cancelled = (
+        cancelled = not active.core_crashed and (
             not self._running or pipeline.id in self._cancel_requested_ids
         )
         self._cancel_requested_ids.discard(pipeline.id)
@@ -664,7 +745,16 @@ class PipelineRunner:
                     had_failures = True
                     last_task_error = error
 
-            if cancelled or active.cancel_requested:
+            if active.core_crashed:
+                # A recorded core crash owns the terminal result even if a
+                # concurrent cancellation request arrived in the same window.
+                fatal_error = AppError(
+                    ErrorCode.CORE_CRASHED,
+                    "MaaCore 子进程中断，流水线已停止",
+                    {"pipeline_id": pipeline.id},
+                )
+                cancelled = False
+            if cancelled or (active.cancel_requested and not active.core_crashed):
                 await self._cancel_pipeline_rows(pipeline.id)
             elif fatal_error is not None:
                 await self._cancel_unstarted_tasks(pipeline.id, fatal_error)
@@ -1227,6 +1317,15 @@ class PipelineRunner:
     def _on_fatal(self, payload: dict[str, Any]) -> None:
         self._apply_core_crash(payload if isinstance(payload, dict) else None)
 
+    def _attach_claimed_core_crash(
+        self,
+        pipeline: Pipeline,
+        generation: int,
+        record: dict[str, Any],
+    ) -> None:
+        self._core_crash_pipeline_ids.setdefault(generation, set()).add(pipeline.id)
+        self._claimed_core_crashes[pipeline.id] = dict(record)
+
     def _apply_core_crash(self, record: dict[str, Any] | None) -> None:
         active = self._active
         generation = record.get("generation") if isinstance(record, dict) else None
@@ -1265,10 +1364,19 @@ class PipelineRunner:
                     generation if generation is not None else claimed.core_epoch
                 )
                 if crashed_generation is not None:
-                    self._core_crash_pipeline_ids.setdefault(
-                        int(crashed_generation), set()
-                    ).add(claimed.id)
-                self._claimed_core_crashes[claimed.id] = dict(record or {})
+                    self._attach_claimed_core_crash(
+                        claimed,
+                        int(crashed_generation),
+                        dict(record or {}, generation=int(crashed_generation)),
+                    )
+            else:
+                claim_generation = self._claiming_core_epoch
+                if claim_generation is not None and (
+                    generation is None or generation == claim_generation
+                ):
+                    self._core_crashes_during_claim[claim_generation] = dict(
+                        record or {}, generation=claim_generation
+                    )
         self.wake()
 
     async def _set_task_status(

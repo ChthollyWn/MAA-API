@@ -140,6 +140,14 @@ class AgentIncidentService:
             # PipelineRunner already receives the crash notification and will
             # persist CORE_CRASHED on its one active pipeline's terminal path.
             return IncidentResult(None, False, None, "coalesced_with_active_pipeline")
+        claim_check = getattr(
+            self.pipeline_runner, "is_claiming_core_generation", None
+        )
+        if callable(claim_check) and claim_check(int(generation)):
+            # A claim transaction can yield before its pipeline ID is known.
+            # PipelineRunner stages this crash and will either attach it to the
+            # claimed pipeline or emit an idle-core incident if no claim wins.
+            return IncidentResult(None, False, None, "coalesced_with_pipeline_claim")
 
         crashed_pipeline = await self._failed_pipeline_for_generation(generation)
         if crashed_pipeline is not None:
