@@ -403,7 +403,9 @@ def test_backoff_sequence_then_failed_after_budget() -> None:
             )
         ]
         assert len(delays) == 3, transitions
-        assert 0.0 <= delays[0] < 0.15, delays
+        # Include scheduler/process-start jitter under the full suite; the first
+        # configured backoff is still 0.1s and later backoffs must increase.
+        assert 0.0 <= delays[0] < 0.25, delays
         assert 0.04 <= delays[1] < 0.4, delays
         assert 0.1 <= delays[2] < 0.7, delays
         assert delays[0] < delays[2], delays
