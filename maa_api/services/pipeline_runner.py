@@ -7,6 +7,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from pydantic import ValidationError
@@ -65,6 +66,7 @@ class _ActivePipeline:
     stop_complete: asyncio.Event = field(default_factory=asyncio.Event)
     attempt: _Attempt | None = None
     task: Task | None = None
+    copilot_snapshots: list[Path] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.stop_complete.set()
@@ -603,6 +605,17 @@ class PipelineRunner:
                 error_message=str(exc),
             )
         finally:
+            if self.resource_service is not None:
+                for snapshot_path in active.copilot_snapshots:
+                    try:
+                        await self.resource_service.release_copilot_path(snapshot_path)
+                    except Exception:  # noqa: BLE001 - cleanup must not rewrite pipeline result
+                        logger.exception(
+                            "清理 Copilot snapshot 失败：pipeline_id=%s path=%s",
+                            pipeline.id,
+                            snapshot_path,
+                        )
+            active.copilot_snapshots.clear()
             self._active = None
             self._cancel_requested_ids.discard(pipeline.id)
             current_pipeline_id.reset(log_context)
@@ -654,6 +667,7 @@ class PipelineRunner:
                             {"task_id": task.id},
                         )
                     filename = await self.resource_service.resolve_copilot_path(asset_id)
+                    active.copilot_snapshots.append(filename)
                 except AppError as exc:
                     await self._set_task_status(
                         task.id,

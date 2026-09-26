@@ -261,7 +261,9 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 
 作业 JSON 上传前必须做 schema 校验。格式错误的作业不会让内核崩溃（它作为任务参数传入，内核自己会校验），但会导致战斗失败并浪费理智，所以前置校验有实际价值。
 
-执行已保存作业的 `run_copilot` 暂缓：当前 MAA-API 没有把 Copilot JSON 交给 MaaCore 的应用服务，也没有 `FightInput` 作业引用字段。接入真实运行器前必须明确调用 API 和参数契约；不得用普通 Fight 关卡替代，这会使作业内容被忽略。
+执行沿用现有流水线和定时任务，而不单独注册 `run_copilot` 工具。`CopilotInput` 使用已保存作业的 `asset_id` 与 `formation`，Agent 通过 `upload_copilot` 保存并校验后，再用 `submit_pipeline` 把它和其他任务一起排队；任务与 schedule template 共用同一 `TaskInput` 联合。
+
+执行前由 `ResourceService` 重新校验资产 kind、schema、checksum 和源文件。外置作业不得有 symlink 路径组件；inline 和外置作业都复制到 `resource/agent-assets/copilot/runs/<uuid>/operation.json`，每个 run 目录权限为 `0700`。MaaCore 只收到该私有快照的绝对路径；流水线结束、失败、取消或内核崩溃后，`PipelineRunner` 清理快照。解析或快照写入失败时任务以稳定错误状态失败，不会调用 MaaCore；不以普通 Fight 关卡替代 Copilot。
 
 ### 7.3 注入自定义 tasks.json task 定义
 

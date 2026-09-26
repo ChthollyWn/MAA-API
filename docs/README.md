@@ -106,7 +106,7 @@
 | 审计 | 全量落库（调用方、时间、参数、结果、耗时），前端有审计页可回溯 |
 | LLM 接入 | 统一 OpenAI 兼容端点（`base_url` + `api_key` + `model` 三字段自填），兼容 DeepSeek / 智谱 / Ollama / 中转站 |
 | 会话存储 | 落 SQLite：多轮历史、工具调用轨迹、token 消耗 |
-| 里程碑边界 | M11 交付 REST 工具基座、确认与审计、会话只读 API；LLM 循环、消息写入与授权状态常驻 UI 归 M13。Copilot 作业可校验上传和列出；运行器因缺少 MaaCore 调用契约暂缓，不以普通 Fight 替代 |
+| 里程碑边界 | M11 交付 REST 工具基座、确认与审计、会话只读 API；LLM 循环、消息写入与授权状态常驻 UI 归 M13。M13 Task 3 已把 Copilot 纳入共享任务队列与 schedule 模板，按每次运行的私有快照交给 MaaCore；Agent 通过 `upload_copilot` 保存作业，再用 `submit_pipeline` 提交，不以普通 Fight 替代 |
 
 Agent 的目标场景（全选）：自然语言变任务、出错自动诊断、卡死脉救援、应对 MAA 未适配的新活动、读历史数据生成报告。
 

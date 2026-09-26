@@ -27,7 +27,7 @@ from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.pipeline_runner import PipelineRunner
 from maa_api.services.resource_service import ResourceService
 from maa_api.services import resource_service as resource_service_module
-from tests.fakes.fake_asst import FakeAsst, FakeScript, SUCCESS_SCRIPT
+from tests.fakes.fake_asst import FakeAsst, FakeScript, STUCK_SCRIPT, SUCCESS_SCRIPT
 
 ASSET_ID = "a" * 32
 
@@ -51,6 +51,11 @@ class FakeCoreClient:
         self.asst = asst
         self.handlers = {}
         self.loop = asyncio.get_running_loop()
+        self.snapshot_path: Path | None = None
+        self.snapshot_content: dict | None = None
+        self.snapshot_existed_at_append = False
+        self.append_event = asyncio.Event()
+        self.started_event = asyncio.Event()
         asst.set_callback(self._on_callback)
 
     def on(self, event_type, handler) -> None:
@@ -63,6 +68,13 @@ class FakeCoreClient:
             self.loop.call_soon_threadsafe(handler, payload)
 
     async def append_task(self, type_name: str, params: dict) -> int:
+        if type_name == "Copilot":
+            self.snapshot_path = Path(params["filename"])
+            self.snapshot_existed_at_append = self.snapshot_path.is_file()
+            self.snapshot_content = json.loads(
+                self.snapshot_path.read_text(encoding="utf-8")
+            )
+            self.append_event.set()
         task_id = self.asst.append_task(type_name, params)
         if not task_id:
             raise AppError(
@@ -73,7 +85,9 @@ class FakeCoreClient:
         return task_id
 
     async def start(self) -> bool:
-        return self.asst.start()
+        started = self.asst.start()
+        self.started_event.set()
+        return started
 
     async def stop(self) -> bool:
         return self.asst.stop()
@@ -89,7 +103,13 @@ async def _create_schema(engine) -> None:
         await connection.run_sync(SQLModel.metadata.create_all)
 
 
-async def _seed_copilot(factory, resource_root: Path, *, deleted: bool = False):
+async def _seed_copilot(
+    factory,
+    resource_root: Path,
+    *,
+    deleted: bool = False,
+    external: bool = False,
+):
     pipeline = Pipeline(
         id="pipeline-copilot",
         source=PipelineSource.AGENT,
@@ -111,7 +131,8 @@ async def _seed_copilot(factory, resource_root: Path, *, deleted: bool = False):
         id=ASSET_ID,
         kind=ResourceAssetKind.COPILOT,
         name="test operation",
-        content=asset_content,
+        content=None if external else asset_content,
+        path=f"agent-assets/copilot/{ASSET_ID}.json" if external else None,
         checksum=hashlib.sha256(
             json.dumps(
                 asset_content,
@@ -126,6 +147,10 @@ async def _seed_copilot(factory, resource_root: Path, *, deleted: bool = False):
         session.add(task)
         session.add(asset)
         await session.commit()
+    if external:
+        external_path = resource_root / "agent-assets" / "copilot" / f"{ASSET_ID}.json"
+        external_path.parent.mkdir(parents=True, exist_ok=True)
+        external_path.write_text(json.dumps(asset_content), encoding="utf-8")
     if deleted:
         async with factory() as session:
             current = await session.get(ResourceAsset, asset.id)
@@ -157,7 +182,7 @@ def runner_env(tmp_path: Path):
             resource_service=resource_service,
         )
         runner._running = True
-        return runner, asst
+        return runner, asst, core
 
     yield factory, resource_root, make
     engine.sync_engine.dispose()
@@ -168,12 +193,18 @@ def test_runner_resolves_copilot_path_only_for_core_append(runner_env) -> None:
 
     async def scenario() -> None:
         pipeline, task = await _seed_copilot(factory, resource_root)
-        runner, asst = make()
+        runner, asst, core = make()
         await runner._execute_pipeline(pipeline, [task])
 
-        expected_path = (
-            resource_root / "agent-assets" / "copilot" / f"{ASSET_ID}.json"
-        ).resolve()
+        assert core.snapshot_path is not None
+        expected_path = core.snapshot_path
+        assert expected_path.relative_to(resource_root).parts[:3] == (
+            "agent-assets",
+            "copilot",
+            "runs",
+        )
+        assert core.snapshot_existed_at_append is True
+        assert core.snapshot_content == _copilot()
         assert asst.calls_of("append_task")[0][1] == (
             "Copilot",
             {"filename": str(expected_path), "formation": False},
@@ -184,7 +215,8 @@ def test_runner_resolves_copilot_path_only_for_core_append(runner_env) -> None:
             assert stored_task.params == {"asset_id": ASSET_ID, "formation": False}
             assert stored_task.status == TaskStatus.COMPLETED
             assert stored_pipeline.status == PipelineStatus.COMPLETED
-        assert (resource_root / "agent-assets/copilot" / f"{ASSET_ID}.json").is_file()
+        assert not expected_path.exists()
+        assert not expected_path.parent.exists()
         await runner.stop()
         asst.stop()
 
@@ -198,7 +230,7 @@ def test_runner_fails_pipeline_when_copilot_asset_was_removed(runner_env) -> Non
         pipeline, task = await _seed_copilot(
             factory, resource_root, deleted=True
         )
-        runner, asst = make()
+        runner, asst, _core = make()
         await runner._execute_pipeline(pipeline, [task])
 
         assert asst.calls_of("append_task") == []
@@ -228,7 +260,7 @@ def test_runner_does_not_append_when_inline_copilot_cannot_be_written(
 
     async def scenario() -> None:
         pipeline, task = await _seed_copilot(factory, resource_root)
-        runner, asst = make()
+        runner, asst, _core = make()
         await runner._execute_pipeline(pipeline, [task])
 
         assert asst.calls_of("append_task") == []
@@ -255,10 +287,13 @@ def test_runner_persists_copilot_core_rejection_as_failed(runner_env) -> None:
 
     async def scenario() -> None:
         pipeline, task = await _seed_copilot(factory, resource_root)
-        runner, asst = make(rejected)
+        runner, asst, core = make(rejected)
         await runner._execute_pipeline(pipeline, [task])
 
         assert asst.calls_of("append_task")[0][1][0] == "Copilot"
+        assert core.snapshot_existed_at_append is True
+        assert core.snapshot_path is not None
+        assert not core.snapshot_path.exists()
         async with factory() as session:
             stored_task = await session.get(Task, task.id)
             stored_pipeline = await session.get(Pipeline, pipeline.id)
@@ -267,6 +302,125 @@ def test_runner_persists_copilot_core_rejection_as_failed(runner_env) -> None:
             assert stored_pipeline.status == PipelineStatus.FAILED
             assert stored_pipeline.error_code == ErrorCode.CORE_COMMAND_FAILED
         await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("source_change", ["mutate", "remove"])
+def test_runner_uses_snapshot_if_external_source_changes_after_resolution(
+    runner_env, monkeypatch, source_change
+) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(
+            factory, resource_root, external=True
+        )
+        runner, asst, core = make()
+        source = resource_root / "agent-assets" / "copilot" / f"{ASSET_ID}.json"
+        original_resolve = runner.resource_service.resolve_copilot_path
+
+        async def resolve_then_change(asset_id: str) -> Path:
+            snapshot = await original_resolve(asset_id)
+            if source_change == "remove":
+                source.unlink()
+            else:
+                changed = _copilot() | {"stage_name": "changed-after-resolution"}
+                source.write_text(json.dumps(changed), encoding="utf-8")
+            return snapshot
+
+        monkeypatch.setattr(
+            runner.resource_service, "resolve_copilot_path", resolve_then_change
+        )
+        await runner._execute_pipeline(pipeline, [task])
+
+        assert core.snapshot_existed_at_append is True
+        assert core.snapshot_content == _copilot()
+        assert core.snapshot_path is not None
+        assert not core.snapshot_path.exists()
+        if source_change == "remove":
+            assert not source.exists()
+        else:
+            assert json.loads(source.read_text(encoding="utf-8"))["stage_name"] == (
+                "changed-after-resolution"
+            )
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+            assert stored_pipeline.status == PipelineStatus.COMPLETED
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runner_release_failure_does_not_rewrite_terminal_result(
+    runner_env, monkeypatch, caplog
+) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        runner, asst, core = make()
+        calls = []
+
+        async def fail_release(path: Path) -> None:
+            calls.append(path)
+            raise OSError("simulated cleanup failure")
+
+        monkeypatch.setattr(
+            runner.resource_service,
+            "release_copilot_path",
+            fail_release,
+            raising=False,
+        )
+        await runner._execute_pipeline(pipeline, [task])
+
+        assert len(calls) == 1
+        assert core.snapshot_path == calls[0]
+        assert core.snapshot_path.exists()
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+            assert stored_pipeline.status == PipelineStatus.COMPLETED
+        assert "清理 Copilot snapshot 失败" in caplog.text
+        core.snapshot_path.unlink(missing_ok=True)
+        core.snapshot_path.parent.rmdir()
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("terminal", ["shutdown", "crash"])
+def test_runner_releases_snapshot_on_shutdown_and_core_crash(runner_env, terminal) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        runner, asst, core = make(STUCK_SCRIPT)
+        job = asyncio.create_task(runner._execute_pipeline(pipeline, [task]))
+        await asyncio.wait_for(core.started_event.wait(), timeout=2)
+        assert core.snapshot_path is not None
+        assert core.snapshot_path.is_file()
+
+        if terminal == "shutdown":
+            await runner.stop()
+        else:
+            runner._apply_core_crash({"reason": "test crash"})
+        await asyncio.wait_for(job, timeout=2)
+
+        assert not core.snapshot_path.exists()
+        assert not core.snapshot_path.parent.exists()
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+            expected = (
+                PipelineStatus.CANCELLED
+                if terminal == "shutdown"
+                else PipelineStatus.FAILED
+            )
+            assert stored_pipeline.status == expected
+        if terminal == "crash":
+            await runner.stop()
         asst.stop()
 
     asyncio.run(scenario())
