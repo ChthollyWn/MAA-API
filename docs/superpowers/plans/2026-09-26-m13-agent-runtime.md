@@ -109,7 +109,7 @@ assert schedule.template[0].name == "Copilot"
 
 ### Task 4：失败事件自动诊断与安全恢复
 
-**文件：** `maa_api/agent/incidents.py`（新）、`maa_api/agent/runtime.py`（受限入口）、`maa_api/agent/confirmation.py`（只在需要 incident caller metadata 时）、`maa_api/services/pipeline_runner.py`、`maa_api/core/supervisor.py` / `maa_api/main.py`、`maa_api/settings.py`、`maa_api/services/settings_schema.py`、`maa_api/db/models.py`、`maa_api/db/repositories/agent.py`、新 Alembic migration、`tests/agent/test_incidents.py`（新）、`tests/db/test_agent_incident_migration.py`（新）。
+**文件：** `maa_api/agent/incidents.py`（新）、`maa_api/agent/runtime.py`（受限入口）、`maa_api/agent/confirmation.py`（只在需要 incident caller metadata 时）、`maa_api/services/pipeline_runner.py`、`maa_api/core/supervisor.py` / `maa_api/main.py`、`maa_api/settings.py`、`maa_api/services/settings_schema.py`、`maa_api/services/setting_service.py`（boolean validation）、`config.template.yaml`、`maa_api/db/models.py`、`maa_api/db/repositories/agent.py`、新 Alembic migration、`tests/agent/test_incidents.py`（新）、`tests/db/test_agent_incident_migration.py`（新）、`tests/services/test_setting_service.py`。
 
 **接口：** `AgentIncidentService.pipeline_failed(pipeline_id)` 使用持久 key `pipeline:<pipeline_id>`；`core_crashed(generation, record)` 使用 `core:<core_id>:<generation>`；`AgentSession.incident_key` 为 nullable unique；`agent.auto_diagnose_failures` 默认 true。
 
@@ -118,6 +118,7 @@ assert schedule.template[0].name == "Copilot"
 **Incident 对话：** 创建 `[自动诊断] ...` active session，持久化一条描述失败对象/error code/安全现场摘要的 user message，再调用 `AgentRuntime.run_incident(session_id, request, allowed_tools)`；该入口必须在 `AgentRuntime` schema 构造和实际 dispatch 两处 enforce allowlist：`get_system_status`、`get_device_status`、`get_logs`、`get_screenshot`、`get_pipeline`、`get_queue`、`list_pipelines`、`get_drop_stats`、`stop_pipeline`、`reconnect_device`、`back_to_home`、`trigger_screencap`。其余工具不传给模型，即便模型伪造调用也在 ConfirmationService 前拒绝。允许列表内仍调用正常 ConfirmationService/PolicyEngine；若未来操作需确认，照常等待用户。配置/能力失败保留 incident session，落一条带稳定错误说明的 assistant message 并广播事件，不吞为“未触发”。
 
 - [ ] 增加 migration/model/repository 测试：旧 session 为 NULL，新 incident key 唯一可读，upgrade/downgrade 保留旧数据；确认 RED。
+- [ ] 增加设置测试：`agent.auto_diagnose_failures` 默认 true，可经 `/api/settings` 更新 true/false；`SettingService._validate` 将 metadata type `boolean` 限定为真正 Python bool，不接受 `0/1` 或字符串。config.template.yaml 显示默认开启项。
 - [ ] 增加 fake runtime 测试：pipeline 失败同 key 重放只建立一次 session；core idle generation 建立一次；有 active pipeline 时 core crash 归并到 pipeline；关闭开关不调用 client；确认 RED。
 
 ```python
