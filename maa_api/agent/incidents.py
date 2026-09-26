@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -95,6 +96,7 @@ class AgentIncidentService:
         broadcast: Callable[[str, dict[str, Any]], None] | None = None,
         request: Any = None,
         core_id: str = "default",
+        boot_id: str | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.runtime = runtime
@@ -103,6 +105,9 @@ class AgentIncidentService:
         self.broadcast = broadcast or (lambda _event, _payload: None)
         self.request = request
         self.core_id = core_id
+        # The service is lifespan-scoped, so this UUID distinguishes generation
+        # counters that restart from zero after an application process restart.
+        self.boot_id = boot_id or str(uuid4())
         self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
 
     async def pipeline_failed(self, pipeline_id: str) -> IncidentResult:
@@ -128,9 +133,10 @@ class AgentIncidentService:
     async def core_crashed(
         self, generation: int, record: dict[str, Any] | None
     ) -> IncidentResult:
-        """Diagnose idle core crashes once per core ID and worker generation."""
+        """Diagnose idle core crashes once per service boot, core ID and generation."""
         active_id = getattr(self.pipeline_runner, "active_pipeline_id", None)
-        if active_id is not None:
+        active_epoch = getattr(self.pipeline_runner, "active_pipeline_epoch", None)
+        if active_id is not None and active_epoch == int(generation):
             # PipelineRunner already receives the crash notification and will
             # persist CORE_CRASHED on its one active pipeline's terminal path.
             return IncidentResult(None, False, None, "coalesced_with_active_pipeline")
@@ -139,7 +145,7 @@ class AgentIncidentService:
         if crashed_pipeline is not None:
             return await self.pipeline_failed(crashed_pipeline)
 
-        core_key = f"core:{self.core_id}:{int(generation)}"
+        core_key = f"core:{self.core_id}:{self.boot_id}:{int(generation)}"
         async with self._key_lock(core_key):
             existing = await self._existing(core_key)
             if existing is not None:
@@ -198,6 +204,9 @@ class AgentIncidentService:
         request_content: dict[str, Any],
     ) -> IncidentResult:
         settings = await self._settings_for_snapshot()
+        llm_configured = bool(
+            settings.llm.base_url and settings.llm.api_key and settings.llm.model
+        )
         session_id: str | None = None
         try:
             async with self.session_factory() as session:
@@ -206,8 +215,12 @@ class AgentIncidentService:
                     AgentSession(
                         title=title[:64],
                         status="active",
-                        model=str(settings.llm.model or "unconfigured"),
-                        base_url=settings.llm.base_url or None,
+                        model=(
+                            str(settings.llm.model)
+                            if llm_configured
+                            else "unconfigured"
+                        ),
+                        base_url=(settings.llm.base_url if llm_configured else None),
                         incident_key=key,
                     )
                 )
@@ -481,10 +494,23 @@ class AgentIncidentService:
         return result
 
     async def _failed_pipeline_for_generation(self, generation: int) -> str | None:
+        # `core_epoch` is a process-local counter and is reused after restart.
+        # Only IDs recorded by the lifespan's current PipelineRunner can coalesce.
+        candidate_provider = getattr(
+            self.pipeline_runner, "core_crashed_pipeline_ids", None
+        )
+        candidate_ids = (
+            tuple(candidate_provider(int(generation)))
+            if callable(candidate_provider)
+            else ()
+        )
+        if not candidate_ids:
+            return None
         async with self.session_factory() as session:
             result = await session.execute(
                 select(Pipeline.id)
                 .where(
+                    Pipeline.id.in_(candidate_ids),
                     Pipeline.core_id == self.core_id,
                     Pipeline.core_epoch == int(generation),
                     Pipeline.status == PipelineStatus.FAILED,

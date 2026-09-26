@@ -13,8 +13,10 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
+from maa_api.agent.incidents import AgentIncidentService
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
-from maa_api.db.models import Pipeline, ResourceAsset, Task
+from maa_api.db.models import AgentSession, Pipeline, ResourceAsset, Task
+from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import (
     PipelineSource,
@@ -26,6 +28,7 @@ from maa_api.domain.enums import (
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.pipeline_runner import PipelineRunner
 from maa_api.services.resource_service import ResourceService
+from maa_api.settings import Settings
 from maa_api.services import resource_service as resource_service_module
 from tests.fakes.fake_asst import FakeAsst, FakeScript, STUCK_SCRIPT, SUCCESS_SCRIPT
 
@@ -96,6 +99,15 @@ class FakeCoreClient:
 class SimpleSupervisor:
     state = "ready"
     generation = 1
+
+
+class FakeIncidentRuntime:
+    def __init__(self):
+        self.calls = []
+
+    async def run_incident(self, session_id, request, allowed_tools):
+        self.calls.append((session_id, request, frozenset(allowed_tools)))
+        return {"status": "completed"}
 
 
 async def _create_schema(engine) -> None:
@@ -262,12 +274,25 @@ def test_terminal_and_startup_recovered_failures_notify_incidents_once(runner_en
                     task_count=0,
                 )
             )
+            session.add(
+                Pipeline(
+                    id="pipeline-old-core-epoch",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.FAILED,
+                    task_count=0,
+                    core_epoch=1,
+                    error_code=ErrorCode.CORE_CRASHED,
+                    error_message="old service generation 1 crashed",
+                )
+            )
             await session.commit()
         runner, asst, _core = make()
 
         # Startup recovery happens before the incident service is bound.
         await runner._recover_interrupted()
         assert runner.recovered_pipeline_ids == ("pipeline-recovered-failure",)
+        assert runner.core_crashed_pipeline_ids(1) == ()
 
         calls = []
 
@@ -313,6 +338,76 @@ def test_terminal_and_startup_recovered_failures_notify_incidents_once(runner_en
             recovered = await session.get(Pipeline, "pipeline-recovered-failure")
         assert recovered.status == PipelineStatus.FAILED
         assert recovered.error_code == ErrorCode.CORE_CRASHED
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline(
+    runner_env,
+) -> None:
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            pipeline = Pipeline(
+                id="pipeline-claimed-crash",
+                source=PipelineSource.MANUAL,
+                priority=Priority.MANUAL,
+                status=PipelineStatus.PENDING,
+                task_count=1,
+            )
+            session.add(pipeline)
+            await session.flush()
+            session.add(
+                Task(
+                    id="task-claimed-crash",
+                    pipeline_id=pipeline.id,
+                    order_index=0,
+                    type_name="Fight",
+                    task_name="Fight",
+                    params={},
+                    status=TaskStatus.PENDING,
+                )
+            )
+            await session.commit()
+
+        runner, asst, core = make()
+        runner._loop = asyncio.get_running_loop()
+        incident_runtime = FakeIncidentRuntime()
+        incidents = AgentIncidentService(
+            factory,
+            incident_runtime,
+            settings_provider=lambda: Settings(),
+            pipeline_runner=runner,
+            boot_id="11111111-1111-4111-8111-111111111111",
+        )
+        runner.bind_incident_service(incidents)
+        claimed, tasks = await runner._claim_next()
+        assert claimed is not None and claimed.id == "pipeline-claimed-crash"
+        assert runner.active_pipeline_id == claimed.id
+
+        runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
+        coalesced = await incidents.core_crashed(
+            1, {"generation": 1, "reason": "process_exit"}
+        )
+        assert coalesced.session_id is None
+        await runner._execute_pipeline(claimed, tasks)
+        await asyncio.gather(*tuple(runner._incident_tasks))
+
+        assert asst.calls_of("append_task") == []
+        assert runner.core_crashed_pipeline_ids(1) == (claimed.id,)
+        assert len(incident_runtime.calls) == 1
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, claimed.id)
+            stored_task = await session.get(Task, "task-claimed-crash")
+            sessions = await AgentSessionRepository(session).list_recent()
+        assert stored_pipeline.status == PipelineStatus.FAILED
+        assert stored_pipeline.error_code == ErrorCode.CORE_CRASHED
+        assert stored_task.status == TaskStatus.FAILED
+        assert len(sessions) == 1
+        assert sessions[0].incident_key == "pipeline:pipeline-claimed-crash"
         await runner.stop()
         asst.stop()
 

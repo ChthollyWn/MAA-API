@@ -92,6 +92,7 @@ class _Runner:
         self.operation_lock = asyncio.Lock()
         self.stopped = False
         self.active_pipeline_id = None
+        self.active_pipeline_epoch = None
         self.start_thread_id = None
         self.crash_records = []
         self.crash_notified = threading.Event()
@@ -231,6 +232,7 @@ def test_core_crash_monitor_callback_is_marshaled_and_cancelled_at_shutdown(
         assert runner.crash_records == [incident.record]
 
         runner.active_pipeline_id = "pipeline-active"
+        runner.active_pipeline_epoch = 1
         runner.crash_notified.clear()
         active_crash_thread = threading.Thread(
             target=supervisor._on_crash,

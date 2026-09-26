@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Iterable
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -49,14 +50,21 @@ class FakeRuntime:
 class ActiveRunner:
     def __init__(self, active_pipeline_id=None):
         self.active_pipeline_id = active_pipeline_id
+        self.active_pipeline_epoch = None
+        self.crashed_pipeline_ids: dict[int, set[str]] = {}
+
+    def core_crashed_pipeline_ids(self, generation):
+        return tuple(self.crashed_pipeline_ids.get(generation, ()))
 
 
 class FakeLLM:
     def __init__(self, responses: Iterable[list[dict[str, Any]]]):
         self.responses = list(responses)
+        self.models: list[str] = []
         self.requests: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
 
-    async def stream_chat_completion(self, _model, messages, tools):
+    async def stream_chat_completion(self, model, messages, tools):
+        self.models.append(model)
         self.requests.append((list(messages), list(tools)))
         for chunk in self.responses.pop(0):
             yield chunk
@@ -258,9 +266,10 @@ def test_idle_core_generation_is_deduplicated_and_active_pipeline_is_coalesced(t
             assert len(runtime.calls) == 1
             async with factory() as session:
                 stored = await AgentSessionRepository(session).get(first.session_id)
-            assert stored.incident_key == "core:default:17"
+            assert stored.incident_key == f"core:default:{service.boot_id}:17"
 
             service.pipeline_runner.active_pipeline_id = "pipeline-active"
+            service.pipeline_runner.active_pipeline_epoch = 18
             coalesced = await service.core_crashed(18, {"reason": "process_exit"})
             assert coalesced.session_id is None
             assert len(runtime.calls) == 1
@@ -319,7 +328,7 @@ def test_unique_key_resolves_cross_service_creation_race_before_second_llm_call(
     asyncio.run(scenario())
 
 
-def test_idle_core_crash_uses_same_generation_crashed_pipeline_incident(tmp_path):
+def test_idle_core_crash_uses_current_boot_same_generation_pipeline_incident(tmp_path):
     async def scenario():
         service, factory, runtime, engine = await _incident_harness(tmp_path)
         try:
@@ -338,6 +347,7 @@ def test_idle_core_crash_uses_same_generation_crashed_pipeline_incident(tmp_path
                     )
                 )
                 await session.commit()
+            service.pipeline_runner.crashed_pipeline_ids[23] = {"pipeline-crashed"}
 
             result = await service.core_crashed(23, {"reason": "process_exit"})
             assert result.session_id is not None
@@ -345,6 +355,79 @@ def test_idle_core_crash_uses_same_generation_crashed_pipeline_incident(tmp_path
             async with factory() as session:
                 stored = await AgentSessionRepository(session).get(result.session_id)
             assert stored.incident_key == "pipeline:pipeline-crashed"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_core_incident_key_separates_service_boots_but_replays_within_one_boot(tmp_path):
+    async def scenario():
+        _unused_service, factory, _unused_runtime, engine = await _incident_harness(tmp_path)
+        runtime_one = FakeRuntime(factory)
+        runtime_two = FakeRuntime(factory)
+        service_one = AgentIncidentService(
+            factory,
+            runtime_one,
+            settings_provider=lambda: Settings(),
+            pipeline_runner=ActiveRunner(),
+        )
+        service_two = AgentIncidentService(
+            factory,
+            runtime_two,
+            settings_provider=lambda: Settings(),
+            pipeline_runner=ActiveRunner(),
+        )
+        try:
+            assert UUID(service_one.boot_id) != UUID(service_two.boot_id)
+            first = await service_one.core_crashed(17, {"reason": "process_exit"})
+            replay = await service_one.core_crashed(17, {"reason": "process_exit"})
+            after_restart = await service_two.core_crashed(17, {"reason": "process_exit"})
+
+            assert first.session_id == replay.session_id
+            assert after_restart.session_id != first.session_id
+            assert first.incident_key == (
+                f"core:default:{service_one.boot_id}:17"
+            )
+            assert after_restart.incident_key == (
+                f"core:default:{service_two.boot_id}:17"
+            )
+            assert len(runtime_one.calls) == 1
+            assert len(runtime_two.calls) == 1
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_new_boot_does_not_coalesce_old_core_epoch_pipeline(tmp_path):
+    async def scenario():
+        service, factory, runtime, engine = await _incident_harness(tmp_path)
+        try:
+            async with factory() as session:
+                session.add(_make_pipeline("pipeline-old-boot", core_epoch=17))
+                session.add(
+                    Task(
+                        id="task-old-boot",
+                        pipeline_id="pipeline-old-boot",
+                        order_index=0,
+                        type_name="Fight",
+                        task_name="Fight",
+                        params={},
+                        status="failed",
+                        error_code="CORE_CRASHED",
+                    )
+                )
+                await session.commit()
+
+            result = await service.core_crashed(17, {"reason": "process_exit"})
+
+            assert result.session_id is not None
+            assert result.incident_key == f"core:default:{service.boot_id}:17"
+            assert len(runtime.calls) == 1
+            async with factory() as session:
+                stored = await AgentSessionRepository(session).get(result.session_id)
+            assert stored.incident_key != "pipeline:pipeline-old-boot"
         finally:
             await engine.dispose()
 
@@ -368,9 +451,15 @@ def test_disabled_auto_diagnosis_does_not_create_session_or_call_runtime(tmp_pat
 
 def test_incident_configuration_failure_is_saved_as_assistant_explanation(tmp_path):
     async def scenario():
-        settings = Settings(
-            llm=LLMSettings(base_url="", api_key="", model="")
-        )
+        settings_state = {
+            "value": Settings(
+                llm=LLMSettings(
+                    base_url="https://llm.initial/v1",
+                    api_key="",
+                    model="initial-model",
+                )
+            )
+        }
         engine = db_session.make_engine(
             f"sqlite+aiosqlite:///{tmp_path / 'runtime-failure.db'}", poolclass=StaticPool
         )
@@ -381,12 +470,12 @@ def test_incident_configuration_failure_is_saved_as_assistant_explanation(tmp_pa
         runtime = AgentRuntime(
             factory,
             confirmations,
-            settings_provider=lambda _request: settings,
+            settings_provider=lambda _request: settings_state["value"],
         )
         service = AgentIncidentService(
             factory,
             runtime,
-            settings_provider=lambda: Settings(),
+            settings_provider=lambda: settings_state["value"],
         )
         try:
             async with factory() as session:
@@ -398,6 +487,39 @@ def test_incident_configuration_failure_is_saved_as_assistant_explanation(tmp_pa
             assert [message.role for message in messages] == ["user", "assistant"]
             assert "LLM" in messages[1].content
             assert "api_key" in messages[1].content
+            async with factory() as session:
+                stored = await AgentSessionRepository(session).get(result.session_id)
+            assert stored.model == "unconfigured"
+            assert stored.base_url is None
+
+            settings_state["value"] = Settings(
+                llm=LLMSettings(
+                    base_url="https://llm.test/v1",
+                    api_key="repaired-secret",
+                    model="test-model",
+                )
+            )
+            llm = FakeLLM([_text_response("可以继续检查。")])
+            runtime.client_factory = lambda _settings: llm
+            runtime._capability_cache[("test-model", "https://llm.test/v1")] = {
+                "tool_calling": True,
+                "vision": True,
+                "status": "ready",
+                "degraded_reason": None,
+            }
+            assert await runtime.acquire_session(result.session_id)
+            chunks = [
+                chunk
+                async for chunk in runtime.stream_message(
+                    result.session_id, "继续诊断", None
+                )
+            ]
+            assert llm.models == ["test-model"]
+            assert "event: message_end" in "".join(chunks)
+            async with factory() as session:
+                stored = await AgentSessionRepository(session).get(result.session_id)
+            assert stored.model == "test-model"
+            assert stored.base_url == "https://llm.test/v1"
         finally:
             await engine.dispose()
 

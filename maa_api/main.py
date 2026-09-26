@@ -534,7 +534,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 runner = runtime.get("runner")
                 if runner is not None:
                     runner.notify_core_crash(crash_record)
-                    if getattr(runner, "active_pipeline_id", None) is not None:
+                    if (
+                        getattr(runner, "active_pipeline_id", None) is not None
+                        and getattr(runner, "active_pipeline_epoch", None)
+                        == int(generation)
+                    ):
                         return
                 incidents = runtime.get("incidents")
                 if incidents is not None:

@@ -608,6 +608,17 @@ class AgentRuntime:
             assert stored_session is not None
             model = stored_session.model
             base_url = stored_session.base_url or settings.llm.base_url
+            if stored_session.incident_key is not None and (
+                not model
+                or model.strip().casefold() == "unconfigured"
+                or not stored_session.base_url
+            ):
+                model = settings.llm.model
+                base_url = settings.llm.base_url
+                stored_session.model = model
+                stored_session.base_url = base_url or None
+                stored_session.updated_at = utcnow()
+                await session.commit()
         if persist_user:
             user_message = await self._persist_message(session_id, role="user", content=content)
         else:
