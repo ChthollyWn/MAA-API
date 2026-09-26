@@ -46,6 +46,7 @@ class ToolDefinition:
     description: str
     params_model: type[BaseModel]
     handler: ToolHandler
+    read_only: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.risk, ToolRisk):
@@ -53,6 +54,8 @@ class ToolDefinition:
                 object.__setattr__(self, "risk", ToolRisk(str(self.risk).upper()))
             except ValueError as exc:
                 raise ValueError(f"unsupported risk tier: {self.risk!r}") from exc
+        if not isinstance(self.read_only, bool):
+            raise TypeError("read_only must be a bool")
 
 
 class ToolRegistry:

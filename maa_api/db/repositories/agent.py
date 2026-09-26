@@ -225,6 +225,15 @@ class AgentMessageRepository(BaseRepository):
         await self.session.flush()
         return stored
 
+    async def next_seq(self, session_id: str) -> int:
+        """Return the next per-session sequence number for a locked Agent turn."""
+        result = await self.session.execute(
+            select(func.coalesce(func.max(AgentMessage.seq), -1)).where(
+                AgentMessage.session_id == session_id
+            )
+        )
+        return int(result.scalar_one()) + 1
+
     async def list_by_session(self, session_id: str) -> list[AgentMessage]:
         """取一个会话的全部消息，**按 ``seq`` 升序**（上下文重建的输入）。
 

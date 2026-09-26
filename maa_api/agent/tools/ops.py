@@ -55,6 +55,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="检查 MaaCore、活动资源与游戏本体是否有可用更新。",
             params_model=CheckUpdatesParams,
             handler=check_updates,
+            read_only=True,
         ),
         ToolDefinition(
             name="update_core",

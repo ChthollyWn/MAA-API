@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
-from maa_api.db.models import AgentAudit, AgentIdempotency
+from maa_api.db.models import AgentAudit, AgentIdempotency, AgentSession
 from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolDefinition, ToolRegistry, ToolRisk
@@ -95,6 +95,24 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
 
         app.dependency_overrides[get_session] = get_test_session
         set_settings(Settings(llm=LLMSettings(base_url="https://llm.test/v1", api_key="k", model="m")))
+
+        class LockedRuntime:
+            async def acquire_session(self, _session_id):
+                return False
+
+            def release_session(self, _session_id):
+                raise AssertionError("busy turns must not release a lock they did not acquire")
+
+            async def check_capabilities(self, _request):
+                return {
+                    "model": "m",
+                    "tool_calling": True,
+                    "vision": False,
+                    "ready": True,
+                    "status": "vision_degraded",
+                }
+
+        app.state.agent_runtime = LockedRuntime()
         client = TestClient(app, raise_server_exceptions=False)
         client.__enter__()
         try:
@@ -111,9 +129,20 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             assert client.get(f"/api/agent/sessions/{session_id}").status_code == 200
             messages = client.get(f"/api/agent/sessions/{session_id}/messages")
             assert messages.status_code == 200 and messages.json()["items"] == []
-            assert client.post(
+            second_turn = client.post(
                 f"/api/agent/sessions/{session_id}/messages", json={"content": "hi"}
-            ).status_code == 405
+            )
+            assert second_turn.status_code == 409
+            assert second_turn.json()["error"]["code"] == "AGENT_SESSION_BUSY"
+            capabilities = client.post("/api/agent/capabilities/check")
+            assert capabilities.status_code == 200
+            assert capabilities.json() == {
+                "model": "m",
+                "tool_calling": True,
+                "vision": False,
+                "ready": True,
+                "status": "vision_degraded",
+            }
 
             accepted = client.post(
                 "/api/agent/tools/dangerous_action/invoke",
@@ -325,5 +354,73 @@ def test_idempotency_loser_returns_explicit_in_progress_with_linked_audit(monkey
             "retry_after_seconds": 1,
         }
         await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_message_endpoint_streams_named_sse_events():
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            stored = AgentSession(id="stream-session", model="m", base_url="https://llm.test/v1")
+            session.add(stored)
+            await session.commit()
+
+        class StreamingRuntime:
+            session_factory = factory
+
+            def __init__(self):
+                self.locked = False
+                self.received = None
+
+            async def acquire_session(self, _session_id):
+                if self.locked:
+                    return False
+                self.locked = True
+                return True
+
+            def release_session(self, _session_id):
+                self.locked = False
+
+            async def ensure_configured(self, _request, _session_id):
+                return None
+
+            async def stream_message(self, session_id, content, _request):
+                self.received = (session_id, content)
+                yield 'event: message_start\ndata: {"session_id":"stream-session"}\n\n'
+                yield 'event: text_delta\ndata: {"text":"hello"}\n\n'
+                yield 'event: message_end\ndata: {"finish_reason":"stop"}\n\n'
+
+        runtime = StreamingRuntime()
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.api.routers import agent
+
+        app.include_router(agent.router)
+        app.state.agent_runtime = runtime
+        app.state.session_factory = factory
+        set_settings(Settings())
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            response = client.post(
+                "/api/agent/sessions/stream-session/messages",
+                json={"content": "hello"},
+            )
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/event-stream")
+            assert "event: message_start" in response.text
+            assert "event: text_delta" in response.text
+            assert "event: message_end" in response.text
+            assert runtime.received == ("stream-session", "hello")
+        finally:
+            client.__exit__(None, None, None)
+            set_settings(None)
+            await engine.dispose()
 
     asyncio.run(scenario())

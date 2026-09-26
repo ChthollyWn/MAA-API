@@ -52,6 +52,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="分页列出已保存的 Copilot 作业，不包含完整作业 JSON。",
             params_model=ListAssetsParams,
             handler=list_copilots,
+            read_only=True,
         ),
         ToolDefinition(
             name="upload_copilot",
@@ -76,6 +77,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="分页列出已注入的自定义 tasks.json task 定义。",
             params_model=ListAssetsParams,
             handler=list_custom_tasks,
+            read_only=True,
         ),
         ToolDefinition(
             name="register_custom_task",

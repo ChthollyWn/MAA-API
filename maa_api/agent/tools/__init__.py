@@ -41,6 +41,7 @@ def build_registry() -> ToolRegistry:
             description="查询人工确认的状态和已完成工具调用的结果。",
             params_model=CheckConfirmationParams,
             handler=check_confirmation,
+            read_only=True,
         )
     )
     return registry
