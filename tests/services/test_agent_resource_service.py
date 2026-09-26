@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import importlib.util
 import json
+from pathlib import Path
 
 import pytest
 
 from maa_api.domain.errors import AppError
+from maa_api.domain.enums import ResourceAssetKind
+from maa_api.db.models import ResourceAsset
 
 
 def _service_type():
@@ -30,6 +34,15 @@ def _copilot():
             {"type": "Deploy", "name": "阿米娅", "location": [3, 4], "direction": "Left"}
         ],
     }
+
+
+def _insert_asset(factory, asset: ResourceAsset) -> None:
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(asset)
+            await session.commit()
+
+    asyncio.run(scenario())
 
 
 def test_upload_copilot_validates_structure_and_persists_search_metadata(
@@ -65,6 +78,146 @@ def test_upload_copilot_validates_structure_and_persists_search_metadata(
             )
         )
     assert exc_info.value.code == "COPILOT_JSON_INVALID"
+
+
+def test_resolve_copilot_path_materializes_inline_asset_atomically(
+    resource_root, retention_session_factory
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    saved = asyncio.run(
+        service.upload_copilot(name="inline", description=None, content=_copilot())
+    )
+
+    path = asyncio.run(service.resolve_copilot_path(saved["id"]))
+
+    assert path.is_file()
+    assert path.resolve().is_relative_to(Path(resource_root).resolve())
+    assert path.relative_to(resource_root).as_posix() == (
+        f"agent-assets/copilot/{saved['id']}.json"
+    )
+    assert json.loads(path.read_text(encoding="utf-8")) == _copilot()
+
+
+def test_resolve_copilot_path_returns_existing_external_asset(
+    resource_root, retention_session_factory
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    content = _copilot() | {
+        "doc": {"title": "large", "details": "x" * (70 * 1024)}
+    }
+    saved = asyncio.run(
+        service.upload_copilot(name="external", description=None, content=content)
+    )
+
+    path = asyncio.run(service.resolve_copilot_path(saved["id"]))
+
+    assert path.is_file()
+    assert path.relative_to(resource_root).as_posix() == (
+        f"agent-assets/copilot/{saved['id']}.json"
+    )
+    assert json.loads(path.read_text(encoding="utf-8")) == content
+
+
+def test_resolve_copilot_path_rejects_missing_and_non_copilot_assets(
+    resource_root, retention_session_factory
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    _insert_asset(
+        retention_session_factory,
+        ResourceAsset(
+            id="b" * 32,
+            kind=ResourceAssetKind.CUSTOM_TASK,
+            name="Custom_example",
+            content={"algorithm": "OcrDetect"},
+        ),
+    )
+
+    for asset_id in ("c" * 32, "b" * 32):
+        with pytest.raises(AppError) as exc_info:
+            asyncio.run(service.resolve_copilot_path(asset_id))
+        assert exc_info.value.code == "RESOURCE_ASSET_NOT_FOUND"
+
+
+def test_resolve_copilot_path_rejects_path_traversal_and_escaping_symlinks(
+    resource_root, retention_session_factory, tmp_path
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps(_copilot()), encoding="utf-8")
+    _insert_asset(
+        retention_session_factory,
+        ResourceAsset(
+            id="c" * 32,
+            kind=ResourceAssetKind.COPILOT,
+            name="traversal",
+            content=None,
+            path="../outside.json",
+        ),
+    )
+    link = Path(resource_root) / "agent-assets" / "copilot" / f"{'d' * 32}.json"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside)
+    _insert_asset(
+        retention_session_factory,
+        ResourceAsset(
+            id="d" * 32,
+            kind=ResourceAssetKind.COPILOT,
+            name="symlink",
+            content=None,
+            path=f"agent-assets/copilot/{'d' * 32}.json",
+        ),
+    )
+
+    for asset_id in ("c" * 32, "d" * 32):
+        with pytest.raises(AppError) as exc_info:
+            asyncio.run(service.resolve_copilot_path(asset_id))
+        assert exc_info.value.code == "RESOURCE_LOAD_FAILED"
+
+
+def test_resolve_copilot_path_rejects_asset_id_path_injection(
+    resource_root, retention_session_factory
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    content = _copilot()
+    checksum = hashlib.sha256(
+        json.dumps(
+            content,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    _insert_asset(
+        retention_session_factory,
+        ResourceAsset(
+            id="../escape",
+            kind=ResourceAssetKind.COPILOT,
+            name="path injection",
+            content=content,
+            checksum=checksum,
+        ),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(service.resolve_copilot_path("../escape"))
+
+    assert exc_info.value.code == "RESOURCE_ASSET_NOT_FOUND"
+    assert not (Path(resource_root) / "agent-assets" / "escape.json").exists()
 
 
 def test_upload_copilot_accepts_sss_stage_and_strategy_schema(

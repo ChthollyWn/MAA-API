@@ -402,6 +402,50 @@
         "title": "ConfirmationStatus",
         "type": "string"
       },
+      "CopilotInput": {
+        "additionalProperties": false,
+        "description": "执行已校验并上传的 Copilot 作业。",
+        "examples": [
+          {
+            "asset_id": "asset-1",
+            "formation": false,
+            "name": "Copilot"
+          }
+        ],
+        "properties": {
+          "asset_id": {
+            "description": "已上传并通过结构校验的 Copilot 作业 ID；执行时由服务端解析为资源文件路径。不支持运行中设置",
+            "maxLength": 36,
+            "minLength": 1,
+            "title": "Asset Id",
+            "type": "string",
+            "x-group": "基础",
+            "x-label": "Copilot 作业"
+          },
+          "formation": {
+            "default": false,
+            "description": "执行作业前是否重新编队；默认关闭",
+            "title": "Formation",
+            "type": "boolean",
+            "x-group": "基础",
+            "x-label": "重新编队"
+          },
+          "name": {
+            "const": "Copilot",
+            "default": "Copilot",
+            "description": "判别联合 discriminator，固定为 Copilot；由任务类型选择器决定，用户不需要填写",
+            "title": "Name",
+            "type": "string",
+            "x-group": "基础",
+            "x-label": "任务类型"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "title": "CopilotInput",
+        "type": "object"
+      },
       "CoreHealth": {
         "description": "内核监督器的最小首页状态。",
         "properties": {
@@ -1629,6 +1673,7 @@
                 "mapping": {
                   "Award": "#/components/schemas/AwardInput",
                   "CloseDown": "#/components/schemas/CloseDownInput",
+                  "Copilot": "#/components/schemas/CopilotInput",
                   "Fight": "#/components/schemas/FightInput",
                   "Infrast": "#/components/schemas/InfrastInput",
                   "Mall": "#/components/schemas/MallInput",
@@ -1666,6 +1711,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ReclamationInput"
+                },
+                {
+                  "$ref": "#/components/schemas/CopilotInput"
                 }
               ]
             },
@@ -3074,6 +3122,7 @@
                 "mapping": {
                   "Award": "#/components/schemas/AwardInput",
                   "CloseDown": "#/components/schemas/CloseDownInput",
+                  "Copilot": "#/components/schemas/CopilotInput",
                   "Fight": "#/components/schemas/FightInput",
                   "Infrast": "#/components/schemas/InfrastInput",
                   "Mall": "#/components/schemas/MallInput",
@@ -3111,6 +3160,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ReclamationInput"
+                },
+                {
+                  "$ref": "#/components/schemas/CopilotInput"
                 }
               ]
             },
@@ -3152,6 +3204,22 @@
           }
         },
         "title": "SessionCreateRequest",
+        "type": "object"
+      },
+      "SessionMessageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "SessionMessageRequest",
         "type": "object"
       },
       "SettingResetRequest": {
@@ -3371,6 +3439,7 @@
                 "mapping": {
                   "Award": "#/components/schemas/AwardInput",
                   "CloseDown": "#/components/schemas/CloseDownInput",
+                  "Copilot": "#/components/schemas/CopilotInput",
                   "Fight": "#/components/schemas/FightInput",
                   "Infrast": "#/components/schemas/InfrastInput",
                   "Mall": "#/components/schemas/MallInput",
@@ -3408,6 +3477,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ReclamationInput"
+                },
+                {
+                  "$ref": "#/components/schemas/CopilotInput"
                 }
               ]
             },
@@ -3708,6 +3780,66 @@
         ]
       }
     },
+    "/api/agent/capabilities/check": {
+      "post": {
+        "operationId": "agent_check_capabilities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Agent Check Capabilities",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "检查 Agent 模型能力",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/agent/sessions": {
       "get": {
         "operationId": "agent_list_sessions",
@@ -3823,7 +3955,7 @@
                 }
               }
             },
-            "description": "服务暂时不可用：LLM_NOT_CONFIGURED",
+            "description": "服务暂时不可用：LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID",
             "headers": {
               "Retry-After": {
                 "description": "建议的重试等待秒数（整数）",
@@ -4141,6 +4273,119 @@
           }
         },
         "summary": "按序读取 Agent 会话消息",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "operationId": "agent_stream_session_message",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SESSION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：AGENT_SESSION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SESSION_BUSY",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：AGENT_SESSION_BUSY"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "发送 Agent 消息并接收 SSE 事件",
         "tags": [
           "agent"
         ]
@@ -9610,7 +9855,7 @@
     },
     "/api/tasks/types": {
       "get": {
-        "description": "返回全部 9 种任务类型的完整参数 schema，供前端动态生成表单、agent 了解可用参数。\n\n- 只读端点，**无副作用**\n- `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字\n- 清单固定 9 条，响应固定 `total=9, page=1, size=9`（不接受分页参数）\n- `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`",
+        "description": "返回全部任务类型的完整参数 schema，供前端动态生成表单、agent 了解可用参数。\n\n- 只读端点，**无副作用**\n- `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字\n- 清单返回当前支持的全部任务类型，不接受分页参数\n- `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`",
         "operationId": "tasks_list_types",
         "parameters": [
           {
@@ -9686,7 +9931,7 @@
     },
     "/api/tasks/types/{type_name}": {
       "get": {
-        "description": "按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封）。\n\n- 只读端点，**无副作用**\n- `type_name` 不在 9 种任务类型内时返回 400 `UNKNOWN_TASK_TYPE`（错误码表里它就是 400，不是 404）",
+        "description": "按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封）。\n\n- 只读端点，**无副作用**\n- `type_name` 不在支持的任务类型内时返回 400 `UNKNOWN_TASK_TYPE`（错误码表里它就是 400，不是 404）",
         "operationId": "tasks_get_type",
         "parameters": [
           {

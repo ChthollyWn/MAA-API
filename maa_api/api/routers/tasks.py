@@ -2,7 +2,7 @@
 
 三个端点共用同一份判别联合 :data:`~maa_api.domain.task.TaskInput`：
 
-- ``GET /api/tasks/types``：9 种任务类型的完整参数 schema，供前端动态生成表单、
+- ``GET /api/tasks/types``：任务类型的完整参数 schema，供前端动态生成表单、
   agent 了解可用参数；
 - ``GET /api/tasks/types/{type_name}``：单个类型的 schema；
 - ``POST /api/tasks/validate``：只校验不提交，返回规范化后的参数与将被注入的默认值。
@@ -61,7 +61,6 @@ from maa_api.domain.task import (
     RUNTIME_IMMUTABLE,
     TASK_LABELS,
     TaskInput,
-    TaskInputBase,
     normalize,
 )
 from maa_api.services.task_defaults import load_channel_defaults
@@ -77,13 +76,13 @@ __all__ = [
 ]
 
 #: 没有 ``x-group`` 的字段归入的分区名。与 :func:`~maa_api.domain.task.MaaField`
-#: 的 ``group`` 默认值一致，因此 9 个任务模型里的字段实际上都带 ``x-group``，
+#: 的 ``group`` 默认值一致，因此任务模型里的字段实际上都带 ``x-group``，
 #: 只有将来新增的、忘了标注的字段才会走到这个兜底。
 BASE_GROUP = "基础"
 
 #: ``name`` → 模型：按 docs/05 §8.1 的写法直接从判别联合推导，保证「联合是唯一真源」。
 #: 顺序即 ``TaskInput`` 的定义顺序（docs/05 §7.4），也是 /types 的清单顺序。
-TASK_MODELS: dict[str, type[TaskInputBase]] = {
+TASK_MODELS: dict[str, type[BaseModel]] = {
     model.model_fields["name"].default: model
     for model in get_args(get_args(TaskInput)[0])
 }
@@ -93,7 +92,7 @@ def _collect_groups(schema: Mapping[str, Any]) -> list[str]:
 
     docs/09 §7.2 的契约：``groups`` 是有序的中文字符串数组，直接作为折叠面板的
     分区标题，前端不要重排；没有 ``x-group`` 的字段归入兜底分区
-    :data:`BASE_GROUP`。9 个模型的首字段 ``name`` 一定带 ``x-group: 基础``，
+    :data:`BASE_GROUP`。模型的首字段 ``name`` 一定带 ``x-group: 基础``，
     所以「基础」天然排在首位；这里再显式把它移到队首，防止将来某个模型调整字段
     声明顺序后基础分区被挤到中间。
     """
@@ -111,7 +110,7 @@ def _collect_groups(schema: Mapping[str, Any]) -> list[str]:
 def export_type_schema(model: type[BaseModel]) -> dict[str, Any]:
     """导出一个任务类型的对外 schema（docs/05 §8.1）。
 
-    :param model: 9 个 ``TaskInputBase`` 子类之一。
+    :param model: task union 中的 pydantic 模型。
     :returns: ``{name, label, description, schema, groups, runtime_immutable}``；
         ``schema`` 是 ``model_json_schema(ref_template="#/$defs/{model}")`` 的原样
         输出（``x-*`` 关键字保留，``$defs`` 里的模型引用指向 ``#/$defs/<Name>``，
@@ -178,14 +177,14 @@ router = APIRouter(
     "/types",
     summary="获取任务类型 schema",
     description=(
-        "返回全部 9 种任务类型的完整参数 schema，供前端动态生成表单、"
+        "返回全部任务类型的完整参数 schema，供前端动态生成表单、"
         "agent 了解可用参数。\n\n"
         "- 只读端点，**无副作用**\n"
         "- `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示"
         "与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / "
         "`x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` "
         "等原生关键字\n"
-        "- 清单固定 9 条，响应固定 `total=9, page=1, size=9`（不接受分页参数）\n"
+        "- 清单返回当前支持的全部任务类型，不接受分页参数\n"
         "- `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`\n"
     ),
     responses=error_responses("INVALID_PARAMETER", "UNAUTHORIZED"),
@@ -193,7 +192,7 @@ router = APIRouter(
 async def list_types(
     lang: Annotated[str, Query(description="中文标签语言；当前仅支持 zh")] = "zh",
 ) -> dict[str, Any]:
-    """9 种任务类型的 schema 清单（docs/05 §6.7、§8.1）。"""
+    """任务类型的 schema 清单（docs/05 §6.7、§8.1）。"""
     if lang != "zh":
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
@@ -211,7 +210,7 @@ async def list_types(
         "按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 "
         "`items` 元素一致（不套分页信封）。\n\n"
         "- 只读端点，**无副作用**\n"
-        "- `type_name` 不在 9 种任务类型内时返回 400 `UNKNOWN_TASK_TYPE`"
+        "- `type_name` 不在支持的任务类型内时返回 400 `UNKNOWN_TASK_TYPE`"
         "（错误码表里它就是 400，不是 404）\n"
     ),
     responses=error_responses("UNKNOWN_TASK_TYPE", "UNAUTHORIZED"),

@@ -141,6 +141,97 @@ class ResourceService:
     ) -> dict[str, Any]:
         return await self._list_assets(ResourceAssetKind.COPILOT, page=page, size=size, q=q)
 
+    async def resolve_copilot_path(self, asset_id: str) -> Path:
+        """Return a present, contained file for one validated Copilot asset.
+
+        Small assets are stored in SQLite; materialize them atomically under
+        ``agent-assets/copilot`` immediately before a pipeline appends them to
+        MaaCore. Larger assets already live at the same controlled relative
+        path. The checksum and structural schema are rechecked so editing the
+        file after upload cannot turn an approved asset into different input.
+        """
+        valid_asset_id = isinstance(asset_id, str) and re.fullmatch(
+            r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})",
+            asset_id,
+        )
+        if not valid_asset_id:
+            raise AppError(
+                ErrorCode.RESOURCE_ASSET_NOT_FOUND,
+                "Copilot 作业不存在",
+                {"asset_id": asset_id},
+            )
+        async with self.session_factory() as session:
+            asset = await ResourceAssetRepository(session).get(asset_id)
+        if asset is None or str(asset.kind) != ResourceAssetKind.COPILOT.value:
+            raise AppError(
+                ErrorCode.RESOURCE_ASSET_NOT_FOUND,
+                "Copilot 作业不存在",
+                {"asset_id": asset_id},
+            )
+
+        relative_path = Path("agent-assets") / "copilot" / f"{asset_id}.json"
+        if (
+            asset.path is not None
+            and Path(asset.path).as_posix() != relative_path.as_posix()
+        ):
+            raise _copilot_asset_file_error(asset_id)
+        if asset.content is not None:
+            try:
+                content = dict(asset.content)
+                self._validate_copilot(content)
+                if asset.checksum != _checksum(content):
+                    raise ValueError("Copilot checksum mismatch")
+                target = self._copilot_materialization_target(relative_path, asset_id)
+                _atomic_write_json(target, content)
+                return self._existing_resource_file(target, asset_id)
+            except AppError:
+                raise
+            except (OSError, TypeError, ValueError) as exc:
+                raise _copilot_asset_file_error(asset_id) from exc
+
+        if not asset.path:
+            raise _copilot_asset_file_error(asset_id)
+        target = self.resource_root / asset.path
+        path = self._existing_resource_file(target, asset_id)
+        try:
+            content = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(content, dict):
+                raise ValueError("Copilot content is not a JSON object")
+            self._validate_copilot(content)
+            if asset.checksum != _checksum(content):
+                raise ValueError("Copilot checksum mismatch")
+        except AppError:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise _copilot_asset_file_error(asset_id) from exc
+        return path
+
+    def _copilot_materialization_target(self, relative_path: Path, asset_id: str) -> Path:
+        """Create and resolve the controlled parent before writing inline JSON."""
+        try:
+            parent = self.resource_root / relative_path.parent
+            parent.mkdir(parents=True, exist_ok=True)
+            resolved_parent = parent.resolve(strict=True)
+            resolved_parent.relative_to(self.resource_root)
+            target = resolved_parent / relative_path.name
+            if target.exists() or target.is_symlink():
+                self._existing_resource_file(target, asset_id)
+            return target
+        except AppError:
+            raise
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise _copilot_asset_file_error(asset_id) from exc
+
+    def _existing_resource_file(self, path: Path, asset_id: str) -> Path:
+        try:
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(self.resource_root)
+            if not resolved.is_file():
+                raise ValueError("Copilot asset is not a file")
+            return resolved
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise _copilot_asset_file_error(asset_id) from exc
+
     async def set_infrast_plan(
         self,
         *,
@@ -668,6 +759,14 @@ def _invalid_json(code: ErrorCode, message: str) -> AppError:
 
 def _asset_conflict(name: str) -> AppError:
     return AppError(ErrorCode.RESOURCE_ASSET_CONFLICT, "已存在同名资源", {"name": name})
+
+
+def _copilot_asset_file_error(asset_id: str) -> AppError:
+    return AppError(
+        ErrorCode.RESOURCE_LOAD_FAILED,
+        "Copilot 作业文件缺失、损坏或路径无效",
+        {"asset_id": asset_id},
+    )
 
 
 def _asset_wire(

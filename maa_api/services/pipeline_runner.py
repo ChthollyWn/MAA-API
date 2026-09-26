@@ -87,6 +87,7 @@ class PipelineRunner:
         core_id: str = DEFAULT_CORE_ID,
         queue_service: Any = None,
         device_manager: Any = None,
+        resource_service: Any = None,
         broadcast: Callable[[str, dict[str, Any]], None] | None = None,
         task_timeouts: dict[str, float] | None = None,
     ) -> None:
@@ -96,6 +97,7 @@ class PipelineRunner:
         self.core_id = core_id
         self.queue_service = queue_service
         self.device_manager = device_manager
+        self.resource_service = resource_service
         self._broadcast = broadcast or (lambda _kind, _data: None)
         self.task_timeouts = dict(TASK_TIMEOUT_SECONDS)
         if task_timeouts:
@@ -555,6 +557,12 @@ class PipelineRunner:
                         "MaaCore 子进程中断，流水线已停止",
                     )
                     break
+                if outcome == "failed":
+                    fatal_error = error or AppError(
+                        ErrorCode.INTERNAL_ERROR,
+                        "任务执行失败，流水线已停止",
+                    )
+                    break
                 if outcome == "skipped":
                     had_failures = True
                     last_task_error = error
@@ -629,19 +637,84 @@ class PipelineRunner:
                 )
                 return "crashed", error
             await self._set_task_status(task.id, TaskStatus.RUNNING)
+            core_params = dict(task.params or {})
+            if task.type_name == "Copilot":
+                try:
+                    asset_id = core_params.get("asset_id")
+                    if not isinstance(asset_id, str) or not asset_id:
+                        raise AppError(
+                            ErrorCode.RESOURCE_ASSET_NOT_FOUND,
+                            "Copilot 作业不存在",
+                            {"task_id": task.id},
+                        )
+                    if self.resource_service is None:
+                        raise AppError(
+                            ErrorCode.SERVICE_UNAVAILABLE,
+                            "Copilot 资源解析服务尚未装配",
+                            {"task_id": task.id},
+                        )
+                    filename = await self.resource_service.resolve_copilot_path(asset_id)
+                except AppError as exc:
+                    await self._set_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=exc.code,
+                        error_message=exc.message,
+                    )
+                    return "failed", exc
+                except Exception as exc:  # noqa: BLE001 - fail closed before append
+                    error = AppError(
+                        ErrorCode.RESOURCE_LOAD_FAILED,
+                        "Copilot 作业文件解析失败",
+                        {"task_id": task.id},
+                    )
+                    logger.warning("Copilot 作业文件解析失败：%s：%s", task.id, exc)
+                    await self._set_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=error.code,
+                        error_message=error.message,
+                    )
+                    return "failed", error
+                core_params = {
+                    "filename": str(filename),
+                    "formation": core_params.get("formation", False),
+                }
             attempt: _Attempt | None = None
             try:
-                maa_task_id = int(
-                    await self._await_core_command(
-                        active, client.append_task(task.type_name, task.params)
+                try:
+                    append_result = await self._await_core_command(
+                        active, client.append_task(task.type_name, core_params)
                     )
-                )
+                except AppError as exc:
+                    if (
+                        task.type_name == "Copilot"
+                        and exc.code is ErrorCode.CORE_COMMAND_FAILED
+                    ):
+                        await self._set_task_status(
+                            task.id,
+                            TaskStatus.FAILED,
+                            error_code=exc.code,
+                            error_message=exc.message,
+                        )
+                        return "failed", exc
+                    raise
+                maa_task_id = int(append_result)
                 if maa_task_id <= 0:
-                    raise AppError(
+                    rejection = AppError(
                         ErrorCode.CORE_COMMAND_FAILED,
                         f"MaaCore 未接受任务 {task.type_name}",
                         {"cmd": "APPEND_TASK", "task_id": task.id},
                     )
+                    if task.type_name == "Copilot":
+                        await self._set_task_status(
+                            task.id,
+                            TaskStatus.FAILED,
+                            error_code=rejection.code,
+                            error_message=rejection.message,
+                        )
+                        return "failed", rejection
+                    raise rejection
                 await self._bind_maa_task_id(task.id, maa_task_id)
                 future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
                 attempt = _Attempt(task.id, task.type_name, maa_task_id, future)
@@ -704,6 +777,17 @@ class PipelineRunner:
                 return "cancelled", None
             except AppError as exc:
                 error = exc
+                if (
+                    task.type_name == "Copilot"
+                    and (exc.details or {}).get("cmd") == "APPEND_TASK"
+                ):
+                    await self._set_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=exc.code,
+                        error_message=exc.message,
+                    )
+                    return "failed", exc
                 if exc.code is ErrorCode.CORE_COMMAND_TIMEOUT:
                     # A timed-out IPC command may still have reached MaaCore.
                     # Stop the chain before any internal retry to avoid running

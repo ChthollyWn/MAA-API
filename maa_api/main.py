@@ -449,6 +449,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     update_http_client = None
     update_scheduler = None
     schedule_service = None
+    resource_service = None
     confirmation_service = None
     device_start_task: asyncio.Task[Any] | None = None
     device_start_generation: int | None = None
@@ -462,6 +463,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.services.device_service import DeviceManager
         from maa_api.services.pipeline_runner import PipelineRunner
         from maa_api.services.queue_service import QueueService
+        from maa_api.services.resource_service import ResourceService
 
         current_settings = get_settings()
         system_name = platform.system()
@@ -581,6 +583,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         core_client.on("CALLBACK", on_core_callback)
 
         queue_service = QueueService(db_session.session_factory)
+        resource_service = ResourceService(
+            db_session.session_factory,
+            resource_root=REPO_ROOT / "resource",
+            reload_resources=lambda: core_client._send(
+                "LOAD_RESOURCE",
+                {
+                    "path": str(maa_path),
+                    "incremental_paths": boot_config["incremental_paths"],
+                },
+            ),
+        )
+        app.state.resource_service = resource_service
         runner_factory = getattr(app.state, "pipeline_runner_factory", PipelineRunner)
         pipeline_runner = runner_factory(
             core_registry,
@@ -588,6 +602,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             db_session.session_factory,
             queue_service=queue_service,
             device_manager=device_manager,
+            resource_service=resource_service,
             broadcast=lambda message_type, data: ws_manager.broadcast(
                 message_type, data
             ),
@@ -813,7 +828,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.agent.policy import PolicyEngine
         from maa_api.agent.tools import build_registry
         from maa_api.services.agent_ops_service import AgentOpsService
-        from maa_api.services.resource_service import ResourceService
 
         agent_ops_service = AgentOpsService(
             core_supervisor=core_supervisor,
@@ -827,19 +841,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 reason="reconnect",
             ),
         )
-        resource_service = ResourceService(
-            db_session.session_factory,
-            resource_root=REPO_ROOT / "resource",
-            reload_resources=lambda: core_client._send(
-                "LOAD_RESOURCE",
-                {
-                    "path": str(maa_path),
-                    "incremental_paths": boot_config["incremental_paths"],
-                },
-            ),
-        )
         app.state.agent_ops_service = agent_ops_service
-        app.state.resource_service = resource_service
         confirmation_factory = getattr(
             app.state, "confirmation_service_factory", ConfirmationService
         )

@@ -42,6 +42,7 @@ EXPECTED_TYPES = [
     "Award",
     "Roguelike",
     "Reclamation",
+    "Copilot",
 ]
 
 
@@ -98,9 +99,9 @@ def prepared_db(isolated_db: AsyncEngine, tmp_settings: Settings) -> AsyncEngine
 # ----------------------------------------------------------------------
 
 
-def test_task_models_cover_exactly_nine_types() -> None:
-    """TASK_MODELS 由判别联合推导，键与顺序都是 docs/05 §7.4 的 9 类。"""
-    assert len(tasks.TASK_MODELS) == 9
+def test_task_models_cover_core_and_copilot_types() -> None:
+    """TASK_MODELS 由共享判别联合推导，Copilot 紧随九种内置类型。"""
+    assert len(tasks.TASK_MODELS) == 10
     assert list(tasks.TASK_MODELS) == EXPECTED_TYPES
 
 
@@ -213,8 +214,8 @@ def test_export_uses_ref_template_for_nested_models(
     assert schema["properties"]["inner"]["$ref"] == "#/$defs/Inner"
 
 
-def test_nine_task_schemas_have_no_nested_defs_today() -> None:
-    """当前 9 个模型没有嵌套模型，$defs 为空（ref_template 是给将来留的契约）。"""
+def test_task_schemas_have_no_nested_defs_today() -> None:
+    """当前模型没有嵌套模型，$defs 为空（ref_template 是给将来留的契约）。"""
     for name, model in tasks.TASK_MODELS.items():
         schema = tasks.export_type_schema(model)["schema"]
         assert schema.get("$defs", {}) == {}, name
@@ -233,7 +234,7 @@ def test_list_types_returns_fixed_pagination_envelope(
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == {"items", "total", "page", "size"}
-    assert (body["total"], body["page"], body["size"]) == (9, 1, 9)
+    assert (body["total"], body["page"], body["size"]) == (10, 1, 10)
     assert [item["name"] for item in body["items"]] == EXPECTED_TYPES
 
 
