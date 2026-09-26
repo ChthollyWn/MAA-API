@@ -165,6 +165,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `LLM_REQUEST_FAILED` | 502 | 预留错误码；对应功能未交付（M11/M13） |
 | `LLM_TIMEOUT` | 504 | 预留错误码；对应功能未交付（M11/M13） |
 | `LLM_RATE_LIMITED` | 429 | 预留错误码；对应功能未交付（M11/M13） |
+| `LLM_ENCRYPTION_KEY_INVALID` | 503 | 预留错误码；对应功能未交付（M11/M13） |
 | `LLM_CONTEXT_OVERFLOW` | 400 | 预留错误码；对应功能未交付（M11/M13） |
 | `SCHEDULE_NOT_FOUND` | 404 | 定时任务 id 不存在 |
 | `SCHEDULE_CRON_INVALID` | 400 | cron 表达式 APScheduler 无法解析，或 `timezone` 不是合法 IANA 时区名 |
