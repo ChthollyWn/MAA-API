@@ -29,6 +29,8 @@ export function AppShell() {
   const [loggingOut, setLoggingOut] = useState(false)
   const realtime = useRealtimeStatus()
   const isApiConsoleRoute = location.pathname === '/more/api-console' || location.pathname === '/more/api-console/guide'
+  const isAgentRoute = location.pathname.startsWith('/agent')
+  const shellWidth = isApiConsoleRoute || isAgentRoute ? 'max-w-6xl' : 'max-w-3xl'
 
   const logout = async () => {
     if (!token || loggingOut) return
@@ -48,7 +50,7 @@ export function AppShell() {
   return (
     <div className="min-h-dvh bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b bg-background/95 pt-safe backdrop-blur supports-[backdrop-filter]:bg-background/85">
-        <div className="mx-auto flex min-h-14 max-w-3xl items-center justify-between gap-3 px-4 py-2 sm:px-6">
+        <div className={`mx-auto flex min-h-14 ${shellWidth} items-center justify-between gap-3 px-4 py-2 sm:px-6`}>
           <Link className="inline-flex min-h-11 items-center gap-2 rounded-md font-semibold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" to="/" aria-label="MAA-API 控制台首页">
             <span aria-hidden="true" className="grid size-8 place-items-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">M</span>
             <span>MAA-API</span>
@@ -71,7 +73,7 @@ export function AppShell() {
       </header>
       <PwaSecurityNotice className="mx-auto mt-3 max-w-3xl px-4 sm:px-6" />
       {realtime.status !== 'CONNECTED' ? (
-        <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-2 text-xs text-muted-foreground sm:px-6" role="status">
+        <div className={`mx-auto flex ${shellWidth} items-center gap-2 px-4 py-2 text-xs text-muted-foreground sm:px-6`} role="status">
           <Badge variant={realtime.status === 'OFFLINE' ? 'destructive' : 'warning'}>
             {realtime.status === 'OFFLINE' ? '离线' : '实时连接'}
           </Badge>
@@ -85,11 +87,11 @@ export function AppShell() {
         </div>
       ) : null}
       {logoutError ? (
-        <div className="mx-auto max-w-3xl px-4 pt-3 sm:px-6" role="alert">
+        <div className={`mx-auto ${shellWidth} px-4 pt-3 sm:px-6`} role="alert">
           <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{logoutError}</p>
         </div>
       ) : null}
-      <main className={`mx-auto min-h-[calc(100dvh-3.5rem)] ${isApiConsoleRoute ? 'max-w-none px-0' : 'max-w-3xl px-4 sm:px-6'} pb-[calc(3.5rem+env(safe-area-inset-bottom,0px)+1rem)]`}>
+      <main className={`mx-auto min-h-[calc(100dvh-3.5rem)] ${isApiConsoleRoute || isAgentRoute ? 'max-w-none px-0' : 'max-w-3xl px-4 sm:px-6'} pb-[calc(3.5rem+env(safe-area-inset-bottom,0px)+1rem)]`}>
         <Outlet />
       </main>
       <BottomTabBar />

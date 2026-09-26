@@ -46,6 +46,11 @@ type PipelineRow = Record<string, unknown> & {
 type PageEnvelope<T> = { items: T[]; total: number; page: number; size: number }
 type TaskTypesEnvelope = PageEnvelope<TaskTypeSchema>
 type ItemCatalogEntry = { item_id: string; name: string; icon_url: string | null }
+type CopilotAsset = {
+  id: string
+  name: string
+  meta?: { stage_name?: string | null; title?: string | null } | null
+}
 type QueueSnapshot = {
   running?: PipelineRow | null
   pending?: PipelineRow[]
@@ -248,6 +253,10 @@ interface ValueEditorProps {
   items?: ItemCatalogEntry[]
   itemCatalogLoading?: boolean
   itemCatalogError?: string | null
+  copilots?: CopilotAsset[]
+  copilotsLoading?: boolean
+  copilotsError?: string | null
+  onRetryCopilots?: () => void
   error?: string
 }
 
@@ -262,6 +271,10 @@ function ValueEditor({
   items = [],
   itemCatalogLoading = false,
   itemCatalogError = null,
+  copilots = [],
+  copilotsLoading = false,
+  copilotsError = null,
+  onRetryCopilots,
   error,
 }: ValueEditorProps) {
   const normalized = normalizeSchema(inputSchema, root)
@@ -286,7 +299,6 @@ function ValueEditor({
   const options = Array.isArray(schema.enum) ? schema.enum : []
   const id = errorId(path)
   const ariaError = error ? { 'aria-invalid': true as const, 'aria-describedby': `${id}-error` } : {}
-
   const stateSelector = isNullable ? (
     <div className="mb-2 flex flex-wrap gap-2">
       <Button type="button" size="sm" variant={value === undefined ? 'secondary' : 'outline'} className="min-h-11" disabled={disabled} onClick={() => onChange(UNSET)}>
@@ -297,6 +309,37 @@ function ValueEditor({
       </Button>
     </div>
   ) : null
+
+  if (path[0] === 'Copilot' && path.at(-1) === 'asset_id') {
+    return <div className="space-y-2">
+      {stateSelector}
+      <Label className="sr-only" htmlFor={id}>Copilot 作业</Label>
+      <select
+        id={id}
+        className="min-h-11 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50"
+        value={typeof value === 'string' ? value : ''}
+        disabled={disabled || copilotsLoading || copilots.length === 0}
+        {...ariaError}
+        onChange={(event) => onChange(event.target.value || UNSET)}
+      >
+        <option value="">{copilotsLoading ? '正在读取已保存作业…' : copilots.length ? '选择已保存的 Copilot 作业' : '没有已保存的 Copilot 作业'}</option>
+        {copilots.map((asset) => {
+          const stage = asset.meta?.stage_name
+          return <option key={asset.id} value={asset.id}>{asset.name}{stage ? ` · ${stage}` : ''}</option>
+        })}
+      </select>
+      <p className="text-xs leading-5 text-muted-foreground">
+        {copilots.length === 0 && !copilotsLoading && !copilotsError
+          ? '先在 Agent 对话中上传并保存 Copilot 作业，再回来选择。'
+          : '队列只保存作业 ID；运行时服务会重新校验并创建受控文件快照。'}
+      </p>
+      {copilotsError ? <div className="flex flex-wrap items-center gap-2 text-sm text-destructive" role="alert">
+        <span>读取 Copilot 作业失败：{copilotsError}</span>
+        {onRetryCopilots ? <Button type="button" size="sm" variant="outline" onClick={onRetryCopilots}>重试</Button> : null}
+      </div> : null}
+      {error && <p id={`${id}-error`} className="text-sm text-destructive" role="alert">{error}</p>}
+    </div>
+  }
 
   if (normalized.complex || !type) {
     return (
@@ -597,10 +640,14 @@ interface FieldEditorProps {
   items?: ItemCatalogEntry[]
   itemCatalogLoading?: boolean
   itemCatalogError?: string | null
+  copilots?: CopilotAsset[]
+  copilotsLoading?: boolean
+  copilotsError?: string | null
+  onRetryCopilots?: () => void
   error?: string
 }
 
-function FieldEditor({ name, schema: inputSchema, root, value, path, formValues, disabled, immutable = false, onChange, items, itemCatalogLoading, itemCatalogError, error }: FieldEditorProps) {
+function FieldEditor({ name, schema: inputSchema, root, value, path, formValues, disabled, immutable = false, onChange, items, itemCatalogLoading, itemCatalogError, copilots, copilotsLoading, copilotsError, onRetryCopilots, error }: FieldEditorProps) {
   const normalized = normalizeSchema(inputSchema, root)
   const schema = normalized.schema
   const label = fieldLabel(schema, name)
@@ -615,7 +662,7 @@ function FieldEditor({ name, schema: inputSchema, root, value, path, formValues,
     {immutable && <p className="text-xs text-muted-foreground">此参数在运行中的流水线里不可修改。</p>}
     {dependencyFailed && <p className="text-xs text-muted-foreground">该参数已禁用；满足依赖条件后即可编辑。</p>}
     {typeof schema.description === 'string' && <p className="text-xs leading-5 text-muted-foreground">{schema.description}</p>}
-    <ValueEditor schema={schema} root={root} value={value} nullable={normalized.nullable} disabled={disabled || immutable || dependencyFailed} path={path} onChange={onChange} items={items} itemCatalogLoading={itemCatalogLoading} itemCatalogError={itemCatalogError} error={error} />
+    <ValueEditor schema={schema} root={root} value={value} nullable={normalized.nullable} disabled={disabled || immutable || dependencyFailed} path={path} onChange={onChange} items={items} itemCatalogLoading={itemCatalogLoading} itemCatalogError={itemCatalogError} copilots={copilots} copilotsLoading={copilotsLoading} copilotsError={copilotsError} onRetryCopilots={onRetryCopilots} error={error} />
   </fieldset>
 }
 
@@ -629,6 +676,23 @@ export function DynamicTaskForm({ taskType, value, onChange, disabled = false, e
     },
     enabled: Object.values(schemaProperties(taskType.schema)).some((field) => field['x-widget'] === 'item-count-map'),
     staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  const copilotAssets = useQuery({
+    queryKey: [...keys.all, 'resources', 'copilots'],
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/resources/copilots', {
+        params: { query: { page: 1, size: 200 } },
+      })
+      if (error) throw toApiError(error, response)
+      return (data?.items ?? []).map((item): CopilotAsset => ({
+        id: item.id,
+        name: item.name,
+        meta: item.meta,
+      }))
+    },
+    enabled: taskType.name === 'Copilot',
+    staleTime: 30_000,
     retry: false,
   })
   const properties = schemaProperties(taskType.schema)
@@ -647,7 +711,7 @@ export function DynamicTaskForm({ taskType, value, onChange, disabled = false, e
         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 font-medium [&::-webkit-details-marker]:hidden">
           {group}<ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
         </summary>
-        <div className="grid gap-4 border-t p-4 sm:grid-cols-2">{groupFields.map(([name, schema]) => <FieldEditor key={name} name={name} schema={schema} root={taskType.schema} value={value[name]} path={[taskType.name, name]} formValues={value} disabled={disabled} immutable={runtimeEditing && taskType.runtime_immutable.includes(name)} onChange={(next) => onChange(setObjectValue(value, [name], next))} items={itemCatalog.data} itemCatalogLoading={itemCatalog.isLoading} itemCatalogError={errorText} error={errors[name]} />)}</div>
+        <div className="grid gap-4 border-t p-4 sm:grid-cols-2">{groupFields.map(([name, schema]) => <FieldEditor key={name} name={name} schema={schema} root={taskType.schema} value={value[name]} path={[taskType.name, name]} formValues={value} disabled={disabled} immutable={runtimeEditing && taskType.runtime_immutable.includes(name)} onChange={(next) => onChange(setObjectValue(value, [name], next))} items={itemCatalog.data} itemCatalogLoading={itemCatalog.isLoading} itemCatalogError={errorText} copilots={copilotAssets.data} copilotsLoading={copilotAssets.isLoading} copilotsError={copilotAssets.error ? toApiError(copilotAssets.error).message : null} onRetryCopilots={() => void copilotAssets.refetch()} error={errors[name]} />)}</div>
       </details>
     })}
   </div>

@@ -90,6 +90,17 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
     case 'agent_event':
       if (event.data.event === 'atomic_grant_changed') {
         queryClient.invalidateQueries({ queryKey: keys.agent.all(), refetchType: 'active' })
+      } else if (
+        event.data.event === 'incident_created'
+        || event.data.event === 'incident_finished'
+        || event.data.event === 'incident_context_updated'
+      ) {
+        invalidateBatched(queryClient, keys.agent.sessions())
+        const sessionId = event.data.session_id
+        if (typeof sessionId === 'string' && sessionId) {
+          invalidateBatched(queryClient, keys.agent.session(sessionId))
+          invalidateBatched(queryClient, keys.agent.messages(sessionId))
+        }
       }
       break
     case 'subscribed':

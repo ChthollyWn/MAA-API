@@ -2032,9 +2032,44 @@
         "制造"
       ],
       "runtime_immutable": []
+    },
+    {
+      "name": "Copilot",
+      "label": "Copilot 作业",
+      "description": "执行已校验并上传的 Copilot 自动战斗作业。",
+      "schema": {
+        "additionalProperties": false,
+        "description": "执行已校验并上传的 Copilot 作业。",
+        "properties": {
+          "name": {
+            "const": "Copilot",
+            "default": "Copilot",
+            "type": "string",
+            "x-group": "基础",
+            "x-label": "任务类型"
+          },
+          "asset_id": {
+            "maxLength": 36,
+            "minLength": 1,
+            "type": "string",
+            "x-group": "基础",
+            "x-label": "Copilot 作业"
+          },
+          "formation": {
+            "default": false,
+            "type": "boolean",
+            "x-group": "基础",
+            "x-label": "重新编队"
+          }
+        },
+        "title": "CopilotInput",
+        "type": "object"
+      },
+      "groups": ["基础"],
+      "runtime_immutable": []
     }
   ],
-  "total": 9,
+  "total": 10,
   "page": 1,
-  "size": 9
+  "size": 10
 }

@@ -402,6 +402,123 @@
         "title": "ConfirmationStatus",
         "type": "string"
       },
+      "CopilotAssetOut": {
+        "description": "Saved, validated Copilot metadata for queue editors.",
+        "properties": {
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "description",
+          "meta",
+          "enabled",
+          "checksum",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CopilotAssetOut",
+        "type": "object"
+      },
+      "CopilotAssetPageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CopilotAssetOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "CopilotAssetPageOut",
+        "type": "object"
+      },
       "CopilotInput": {
         "additionalProperties": false,
         "description": "执行已校验并上传的 Copilot 作业。",
@@ -7652,6 +7769,117 @@
         "summary": "调整待执行流水线优先级",
         "tags": [
           "queue"
+        ]
+      }
+    },
+    "/api/resources/copilots": {
+      "get": {
+        "description": "返回已校验作业的元数据，不包含作业 JSON 内容；供流水线和 schedule 编辑器选择 asset_id。",
+        "operationId": "resources_list_copilot_assets",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotAssetPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "列出已保存的 Copilot 作业",
+        "tags": [
+          "resources"
         ]
       }
     },

@@ -37,7 +37,7 @@ channel:
 agent:
   auto_diagnose_failures: true
 
-# OpenAI 兼容模型（密钥建议通过环境变量或设置页录入）
+# OpenAI 兼容模型（密钥建议通过环境变量或设置页录入；数据库密钥由 MAA_LLM_ENCRYPTION_KEY 加密）
 llm:
   base_url: https://api.deepseek.com
   api_key:

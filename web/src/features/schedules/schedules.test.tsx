@@ -63,6 +63,12 @@ function installFetch(initial: ScheduleView[] = [], options: { createStatus?: nu
     const url = new URL(request.url)
     if (url.pathname === '/api/schedules' && request.method === 'GET') return jsonResponse({ items: schedules, total: schedules.length })
     if (url.pathname === '/api/tasks/types') return jsonResponse(taskTypes)
+    if (url.pathname === '/api/resources/copilots') return jsonResponse({
+      items: [{ id: 'copilot-1', name: '主线 1-7', meta: { stage_name: '1-7' } }],
+      total: 1,
+      page: 1,
+      size: 200,
+    })
     if (url.pathname === '/api/schedules' && request.method === 'POST') {
       if (options.createStatus && options.createStatus >= 400) {
         return jsonResponse({ error: { code: 'SCHEDULE_NAME_CONFLICT', message: '已存在同名定时任务' } }, options.createStatus)
@@ -137,6 +143,26 @@ describe('schedule editor and API integration', () => {
     })
     expect(await screen.findByText('定时任务已创建。')).toBeInTheDocument()
     expect(network.requests.filter((item) => item.method === 'GET' && new URL(item.url).pathname.startsWith('/api/schedules/'))).toHaveLength(0)
+  })
+
+  it('adds a saved Copilot asset to a scheduled template by asset id', async () => {
+    const network = installFetch()
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '创建第一条' }))
+    fireEvent.change(screen.getByLabelText('命名任务组名称'), { target: { value: '每日剿灭' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '要添加的任务类型' }), { target: { value: 'Copilot' } })
+
+    const picker = await screen.findByLabelText('Copilot 作业')
+    await screen.findByRole('option', { name: '主线 1-7 · 1-7' })
+    fireEvent.change(picker, { target: { value: 'copilot-1' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建 schedule' }))
+
+    await waitFor(() => expect(network.requests.some((request) => request.method === 'POST' && new URL(request.url).pathname === '/api/schedules')).toBe(true))
+    const request = network.requests.find((item) => item.method === 'POST' && new URL(item.url).pathname === '/api/schedules')!
+    expect(JSON.parse(await request.clone().text())).toMatchObject({
+      name: '每日剿灭',
+      template: [{ name: 'Copilot', asset_id: 'copilot-1' }],
+    })
   })
 
   it('renders API recent results directly, handles skipped status, and runs/deletes with confirmation', async () => {

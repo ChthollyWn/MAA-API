@@ -102,6 +102,12 @@ function toScheduleTemplate(tasks: ScheduleTask[]): ScheduleTemplate {
       case 'Award': return { ...task, name: 'Award' }
       case 'Roguelike': return { ...task, name: 'Roguelike' }
       case 'Reclamation': return { ...task, name: 'Reclamation' }
+      case 'Copilot': {
+        if (typeof task.asset_id !== 'string' || !task.asset_id) {
+          throw new Error('请选择一个已保存的 Copilot 作业。')
+        }
+        return { name: 'Copilot', asset_id: task.asset_id, formation: task.formation === true }
+      }
       default: throw new Error(`服务端不接受任务类型「${task.name}」的 schedule 模板。请移除该任务或刷新任务类型。`)
     }
   })

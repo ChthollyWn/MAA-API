@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import SettingsPage from './SettingsPage'
 
@@ -31,12 +32,14 @@ describe('SettingsPage', () => {
         return Promise.resolve({ data: { items: [
           { key: 'adb.address', label: '设备地址', group: '设备', type: 'string', hot_action: 'reconnect' },
           { key: 'llm.api_key', label: 'LLM API 密钥', group: 'LLM', type: 'string', sensitive: true, hot_action: 'none' },
+          { key: 'agent.auto_diagnose_failures', label: '失败时自动诊断', group: 'Agent', type: 'boolean', hot_action: 'none' },
         ] } })
       }
       if (path === '/api/settings') {
         return Promise.resolve({ data: { items: {
           'adb.address': { value: '127.0.0.1:5555', source: 'db' },
           'llm.api_key': { value: '***', source: 'env' },
+          'agent.auto_diagnose_failures': { value: true, source: 'default' },
         } } })
       }
       if (path === '/api/notifications/channels') return Promise.resolve({ data: { items: [] } })
@@ -68,5 +71,39 @@ describe('SettingsPage', () => {
 
     await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1))
     expect(mocks.put.mock.calls[0]?.[1]?.body).toEqual({ items: { 'adb.address': '127.0.0.1:5556' } })
+  })
+
+  it('allows the default-on automatic failure diagnosis setting to be disabled', async () => {
+    mocks.put.mockResolvedValue({ data: { items: {} } })
+    render(<SettingsPage />)
+
+    const toggle = await screen.findByLabelText('失败时自动诊断')
+    expect((toggle as HTMLSelectElement).value).toBe('true')
+    fireEvent.change(toggle, { target: { value: 'false' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+
+    await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1))
+    expect(mocks.put.mock.calls[0]?.[1]?.body).toEqual({
+      items: { 'agent.auto_diagnose_failures': false },
+    })
+  })
+
+  it('checks tool-calling and vision capabilities from Settings', async () => {
+    mocks.post.mockResolvedValue({ data: {
+      model: 'deepseek-v4.1-flash',
+      tool_calling: true,
+      vision: false,
+      ready: true,
+      status: 'vision_degraded',
+      degraded_reason: '模型暂不支持图片输入',
+    } })
+    render(<SettingsPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '检查模型能力' }))
+
+    expect(await screen.findByText('工具调用：可用')).toBeInTheDocument()
+    expect(screen.getByText('视觉输入：不可用')).toBeInTheDocument()
+    expect(screen.getByText('模型暂不支持图片输入')).toBeInTheDocument()
+    expect(mocks.post).toHaveBeenCalledWith('/api/agent/capabilities/check')
   })
 })

@@ -674,6 +674,26 @@ export interface paths {
         patch: operations["queue_reprioritize_pipeline"];
         trace?: never;
     };
+    "/api/resources/copilots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出已保存的 Copilot 作业
+         * @description 返回已校验作业的元数据，不包含作业 JSON 内容；供流水线和 schedule 编辑器选择 asset_id。
+         */
+        get: operations["resources_list_copilot_assets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/resources/items": {
         parameters: {
             query?: never;
@@ -1419,6 +1439,43 @@ export interface components {
          * @enum {string}
          */
         ConfirmationStatus: "pending" | "approved" | "rejected" | "expired";
+        /**
+         * CopilotAssetOut
+         * @description Saved, validated Copilot metadata for queue editors.
+         */
+        CopilotAssetOut: {
+            /** Checksum */
+            checksum: string;
+            /** Created At */
+            created_at: string | null;
+            /** Description */
+            description: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Meta */
+            meta: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name: string;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /** CopilotAssetPageOut */
+        CopilotAssetPageOut: {
+            /** Items */
+            items: components["schemas"]["CopilotAssetOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
         /**
          * CopilotInput
          * @description 执行已校验并上传的 Copilot 作业。
@@ -6224,6 +6281,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resources_list_copilot_assets: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotAssetPageOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

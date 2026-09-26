@@ -220,6 +220,7 @@ def session_wire(session: AgentSession) -> dict[str, Any]:
         "session_id": session.id,
         "title": session.title,
         "status": str(session.status),
+        "incident_key": session.incident_key,
         "model": session.model,
         "base_url": session.base_url,
         "message_count": session.message_count,

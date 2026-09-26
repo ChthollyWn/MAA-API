@@ -128,7 +128,9 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             assert created.status_code == 201
             session_id = created.json()["session_id"]
             assert client.get("/api/agent/sessions").json()["total"] == 1
-            assert client.get(f"/api/agent/sessions/{session_id}").status_code == 200
+            session_detail = client.get(f"/api/agent/sessions/{session_id}")
+            assert session_detail.status_code == 200
+            assert session_detail.json()["incident_key"] is None
             messages = client.get(f"/api/agent/sessions/{session_id}/messages")
             assert messages.status_code == 200 and messages.json()["items"] == []
             second_turn = client.post(

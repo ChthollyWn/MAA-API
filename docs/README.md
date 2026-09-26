@@ -97,6 +97,7 @@
 | 自定义任务 | 最大范围：组合现有任务类型 + Copilot 作业 JSON + 自定义基建方案 + 增量资源注入自定义 `tasks.json` task 定义 |
 | 需人工确认 | 消耗类（碎石、理智药、加急许可、商店购物、源石锭投资）+ 破坏类（清空基建方案、卸载重装游戏、重装内核、修改全局配置） |
 | 原子操作确认 | **会话级授权**：首次弹一次确认，批准后该会话 15 分钟内免确认（时长可配，上限 60 分钟）。只覆盖原子操作，消耗类与破坏类仍逐次确认；可随时撤销，审计不降级 |
+| 故障自动诊断 | M13 默认开启；流水线终态失败和空闲内核崩溃按持久 incident key 各至多诊断一次，可在设置页关闭。运行中内核崩溃合并到该流水线诊断会话 |
 | 会话授权适用范围 | 只有带有效会话的内置 `internal` 调用可复用授权；REST 调用没有内置会话，原子操作逐次确认。服务重启或会话关闭、切换、删除时撤销 |
 | 明确免确认的操作 | `stop_pipeline`、`trigger_screencap`、`back_to_home`、已校验并保存的 `upload_copilot`、`delete_schedule`；其余原子操作走上述授权/逐次确认规则 |
 | 确认渠道 | 前端经 WebSocket 收到待确认事件并弹卡片，超时自动拒绝 |
@@ -104,9 +105,9 @@
 | 并发策略 | 统一任务队列 + 优先级排序（前端手动 > agent > 定时），不抢占，前端可见排队情况 |
 | 调用语义 | 异步提交返回 `task_id` 与同步阻塞等结果两种都提供 |
 | 审计 | 全量落库（调用方、时间、参数、结果、耗时），前端有审计页可回溯 |
-| LLM 接入 | 统一 OpenAI 兼容端点（`base_url` + `api_key` + `model` 三字段自填），兼容 DeepSeek / 智谱 / Ollama / 中转站 |
+| LLM 接入 | 统一 OpenAI 兼容端点（`base_url` + `api_key` + `model`），默认 DeepSeek V4.1 Flash；API Key 由 `MAA_LLM_ENCRYPTION_KEY` 加密存储，兼容其他 OpenAI 兼容服务 |
 | 会话存储 | 落 SQLite：多轮历史、工具调用轨迹、token 消耗 |
-| 里程碑边界 | M11 交付 REST 工具基座、确认与审计、会话只读 API；LLM 循环、消息写入与授权状态常驻 UI 归 M13。M13 Task 3 已把 Copilot 纳入共享任务队列与 schedule 模板，按每次运行的私有快照交给 MaaCore；Agent 通过 `upload_copilot` 保存作业，再用 `submit_pipeline` 提交，不以普通 Fight 替代 |
+| 里程碑边界 | M11 交付 REST 工具基座、确认与审计、会话只读 API；M13 已交付 LLM 循环、SSE 消息、Agent UI 与自动诊断。Copilot 通过共享任务队列和 schedule template，以每次运行的私有快照传给 MaaCore；Agent 上传后经 `submit_pipeline` 提交，不以普通 Fight 替代 |
 
 Agent 的目标场景（全选）：自然语言变任务、出错自动诊断、卡死脉救援、应对 MAA 未适配的新活动、读历史数据生成报告。
 
