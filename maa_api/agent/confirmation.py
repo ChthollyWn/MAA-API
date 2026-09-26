@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIRMATION_TIMEOUT_SECONDS = 10 * 60
 DEFAULT_GRANT_CONFIRMATION_TIMEOUT_SECONDS = 120
 AuditTerminalCallback = Callable[[AsyncSession, int, int, dict[str, Any]], Any]
+AuditPrepareCallback = Callable[[AsyncSession, int, Any], Any]
+AuditCommittedCallback = Callable[[int, int, dict[str, Any]], Any]
 
 
 class ConfirmationService:
@@ -86,6 +88,8 @@ class ConfirmationService:
         mode: str = "sync",
         on_audit_created: Callable[[int], Any] | None = None,
         on_audit_terminal: AuditTerminalCallback | None = None,
+        on_audit_prepare: AuditPrepareCallback | None = None,
+        on_audit_committed: AuditCommittedCallback | None = None,
     ) -> dict[str, Any]:
         return await self._invoke(
             name,
@@ -94,6 +98,8 @@ class ConfirmationService:
             mode=mode,
             on_audit_created=on_audit_created,
             on_audit_terminal=on_audit_terminal,
+            on_audit_prepare=on_audit_prepare,
+            on_audit_committed=on_audit_committed,
         )
 
     async def _invoke(
@@ -105,6 +111,8 @@ class ConfirmationService:
         mode: str,
         on_audit_created: Callable[[int], Any] | None = None,
         on_audit_terminal: AuditTerminalCallback | None = None,
+        on_audit_prepare: AuditPrepareCallback | None = None,
+        on_audit_committed: AuditCommittedCallback | None = None,
     ) -> dict[str, Any]:
         if mode not in {"sync", "async"}:
             raise AppError(ErrorCode.INVALID_PARAMETER, "mode 必须为 sync 或 async")
@@ -129,6 +137,8 @@ class ConfirmationService:
                     event,
                     self._grant_revocation_epochs.get(context.session_id or "", 0),
                     on_audit_terminal,
+                    on_audit_prepare,
+                    on_audit_committed,
                 ),
                 name=f"agent-confirm-{confirmation_id}",
             )
@@ -197,6 +207,8 @@ class ConfirmationService:
                     context,
                     authorized_by=decision.authorized_by,
                     on_audit_terminal=on_audit_terminal,
+                    on_audit_prepare=on_audit_prepare,
+                    on_audit_committed=on_audit_committed,
                 ),
                 name=f"agent-tool-{audit_id}",
             )
@@ -214,6 +226,8 @@ class ConfirmationService:
                 context,
                 authorized_by=decision.authorized_by,
                 on_audit_terminal=on_audit_terminal,
+                on_audit_prepare=on_audit_prepare,
+                on_audit_committed=on_audit_committed,
             )
         except AppError as exc:
             exc.details = {**(exc.details or {}), "audit_id": audit_id}
@@ -719,6 +733,8 @@ class ConfirmationService:
         event: asyncio.Event,
         revocation_epoch: int = 0,
         on_audit_terminal: AuditTerminalCallback | None = None,
+        on_audit_prepare: AuditPrepareCallback | None = None,
+        on_audit_committed: AuditCommittedCallback | None = None,
     ) -> None:
         expires_at = self._confirmation_expiry(decision.confirmation_action)
         remaining = max((expires_at - self.clock()).total_seconds(), 0)
@@ -751,6 +767,7 @@ class ConfirmationService:
                             response_status=error.http_status,
                             response_body=_idempotency_error_body(error),
                             on_audit_terminal=on_audit_terminal,
+                            on_audit_committed=on_audit_committed,
                         )
                         return
                     await self._grant_session(
@@ -766,6 +783,8 @@ class ConfirmationService:
                 confirmation_id=confirmation_id,
                 authorized_by=grant_id,
                 on_audit_terminal=on_audit_terminal,
+                on_audit_prepare=on_audit_prepare,
+                on_audit_committed=on_audit_committed,
             )
         except AppError as exc:
             # Detached confirmation workers persist failures on the audit row;
@@ -786,6 +805,7 @@ class ConfirmationService:
                 response_status=error.http_status,
                 response_body=_idempotency_error_body(error),
                 on_audit_terminal=on_audit_terminal,
+                on_audit_committed=on_audit_committed,
             )
         self.broadcast(
             "confirm_resolved",
@@ -806,6 +826,8 @@ class ConfirmationService:
         confirmation_id: str | None = None,
         authorized_by: str | None = None,
         on_audit_terminal: AuditTerminalCallback | None = None,
+        on_audit_prepare: AuditPrepareCallback | None = None,
+        on_audit_committed: AuditCommittedCallback | None = None,
     ) -> Any:
         started = time.monotonic()
         definition = self.registry.get(name)
@@ -834,6 +856,8 @@ class ConfirmationService:
                     "result": result,
                 },
                 on_audit_terminal=on_audit_terminal,
+                on_audit_prepare=on_audit_prepare,
+                on_audit_committed=on_audit_committed,
             )
             return result
         except AppError as exc:
@@ -859,6 +883,7 @@ class ConfirmationService:
                     }
                 },
                 on_audit_terminal=on_audit_terminal,
+                on_audit_committed=on_audit_committed,
             )
             raise
         except Exception as exc:
@@ -888,6 +913,7 @@ class ConfirmationService:
                     }
                 },
                 on_audit_terminal=on_audit_terminal,
+                on_audit_committed=on_audit_committed,
             )
             raise error from exc
 
@@ -1065,11 +1091,33 @@ class ConfirmationService:
         response_status: int | None = None,
         response_body: dict[str, Any] | None = None,
         on_audit_terminal: AuditTerminalCallback | None = None,
+        on_audit_prepare: AuditPrepareCallback | None = None,
+        on_audit_committed: AuditCommittedCallback | None = None,
     ) -> None:
-        if result is not None:
-            result_summary = json.dumps(result, ensure_ascii=False, default=str)
-        result_ref = _result_refs(result)
+        changed = False
         async with self.session_factory() as session:
+            if result is not None and on_audit_prepare is not None:
+                try:
+                    result = await _prepare_audit_result(
+                        on_audit_prepare, session, audit_id, result
+                    )
+                    if response_body is not None:
+                        response_body["result"] = result
+                except AppError as exc:
+                    error = AppError(
+                        exc.code,
+                        exc.message,
+                        {**(exc.details or {}), "audit_id": audit_id},
+                        exc.headers,
+                    )
+                    status = AuditStatus.FAILED
+                    error_code = str(error.code)
+                    result_summary = error.message
+                    response_status = error.http_status
+                    response_body = _idempotency_error_body(error)
+            if result is not None and status is not AuditStatus.FAILED:
+                result_summary = json.dumps(result, ensure_ascii=False, default=str)
+            result_ref = _result_refs(result) if status is not AuditStatus.FAILED else None
             changed = await AuditRepository(session).set_terminal(
                 audit_id,
                 status,
@@ -1089,6 +1137,13 @@ class ConfirmationService:
                     response_body,
                 )
             await session.commit()
+        if changed and response_status is not None and response_body is not None:
+            await _notify_audit_committed(
+                on_audit_committed,
+                audit_id,
+                response_status,
+                response_body,
+            )
 
     async def _grant_session(
         self, session_id: str | None, confirmation_id: str, window_seconds: int
@@ -1240,6 +1295,31 @@ async def _notify_audit_terminal(
     if callback is None:
         return
     result = callback(session, audit_id, response_status, response_body)
+    if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+        await result
+
+
+async def _prepare_audit_result(
+    callback: AuditPrepareCallback,
+    session: AsyncSession,
+    audit_id: int,
+    result: Any,
+) -> Any:
+    prepared = callback(session, audit_id, result)
+    if asyncio.iscoroutine(prepared) or isinstance(prepared, asyncio.Future):
+        return await prepared
+    return prepared
+
+
+async def _notify_audit_committed(
+    callback: AuditCommittedCallback | None,
+    audit_id: int,
+    response_status: int,
+    response_body: dict[str, Any],
+) -> None:
+    if callback is None:
+        return
+    result = callback(audit_id, response_status, response_body)
     if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
         await result
 

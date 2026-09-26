@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
@@ -110,6 +111,7 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
                     "vision": False,
                     "ready": True,
                     "status": "vision_degraded",
+                    "degraded_reason": "当前模型不支持图片输入；截图和原子屏幕操作已禁用",
                 }
 
         app.state.agent_runtime = LockedRuntime()
@@ -142,6 +144,7 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
                 "vision": False,
                 "ready": True,
                 "status": "vision_degraded",
+                "degraded_reason": "当前模型不支持图片输入；截图和原子屏幕操作已禁用",
             }
 
             accepted = client.post(
@@ -421,6 +424,159 @@ def test_session_message_endpoint_streams_named_sse_events():
         finally:
             client.__exit__(None, None, None)
             set_settings(None)
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_message_response_releases_lock_if_response_start_send_fails():
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            session.add(
+                AgentSession(id="send-fails", model="m", base_url="https://llm.test/v1")
+            )
+            await session.commit()
+
+        class LockedRuntime:
+            session_factory = factory
+
+            def __init__(self):
+                self.locked = False
+                self.release_count = 0
+                self.body_started = False
+
+            async def acquire_session(self, _session_id):
+                if self.locked:
+                    return False
+                self.locked = True
+                return True
+
+            def release_session(self, _session_id):
+                self.release_count += 1
+                self.locked = False
+
+            async def ensure_configured(self, _request, _session_id):
+                return None
+
+            async def stream_message(self, _session_id, _content, _request):
+                self.body_started = True
+                yield 'event: message_start\ndata: {}\n\n'
+
+        runtime = LockedRuntime()
+        app = FastAPI()
+        app.state.agent_runtime = runtime
+        app.state.session_factory = factory
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/agent/sessions/send-fails/messages",
+            "raw_path": b"/api/agent/sessions/send-fails/messages",
+            "query_string": b"",
+            "headers": [],
+            "server": ("testserver", 80),
+            "client": ("testclient", 12345),
+            "app": app,
+        }
+        request = Request(scope)
+        from maa_api.api.routers.agent import SessionMessageRequest, stream_session_message
+
+        response = await stream_session_message(
+            "send-fails", SessionMessageRequest(content="hello"), request
+        )
+
+        async def receive():
+            await asyncio.Future()
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                raise RuntimeError("client disconnected before response body")
+
+        try:
+            try:
+                await response(scope, receive, send)
+            except RuntimeError as exc:
+                assert "client disconnected" in str(exc)
+            else:
+                raise AssertionError("ASGI send failure should escape the response")
+            assert runtime.body_started is False
+            assert runtime.locked is False
+            assert runtime.release_count == 1
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_message_route_releases_lock_when_configuration_check_is_cancelled():
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            session.add(
+                AgentSession(id="cancelled-config", model="m", base_url="https://llm.test/v1")
+            )
+            await session.commit()
+
+        class LockedRuntime:
+            session_factory = factory
+
+            def __init__(self):
+                self.locked = False
+                self.release_count = 0
+
+            async def acquire_session(self, _session_id):
+                self.locked = True
+                return True
+
+            def release_session(self, _session_id):
+                self.release_count += 1
+                self.locked = False
+
+            async def ensure_configured(self, _request, _session_id):
+                raise asyncio.CancelledError
+
+        runtime = LockedRuntime()
+        app = FastAPI()
+        app.state.agent_runtime = runtime
+        app.state.session_factory = factory
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/agent/sessions/cancelled-config/messages",
+            "raw_path": b"/api/agent/sessions/cancelled-config/messages",
+            "query_string": b"",
+            "headers": [],
+            "server": ("testserver", 80),
+            "client": ("testclient", 12345),
+            "app": app,
+        }
+        request = Request(scope)
+        from maa_api.api.routers.agent import SessionMessageRequest, stream_session_message
+
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await stream_session_message(
+                    "cancelled-config", SessionMessageRequest(content="hello"), request
+                )
+            assert runtime.locked is False
+            assert runtime.release_count == 1
+        finally:
             await engine.dispose()
 
     asyncio.run(scenario())

@@ -21,9 +21,10 @@ from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.db import session as db_session
-from maa_api.db.models import AgentMessage, AgentSession
+from maa_api.db.models import AgentAudit, AgentMessage, AgentSession
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
-from maa_api.db.repositories.audit import AuditRepository
+from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepository
+from maa_api.domain.enums import CallerType
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import LLMSettings, Settings
 
@@ -95,6 +96,7 @@ async def _runtime(
     registry: ToolRegistry | None = None,
     context_provider=None,
     database_url: str | None = None,
+    prime_capabilities: bool = True,
     **runtime_options,
 ):
     from maa_api.agent.runtime import AgentRuntime
@@ -120,6 +122,15 @@ async def _runtime(
         context_provider=context_provider,
         **runtime_options,
     )
+    if prime_capabilities:
+        runtime._capability_cache[("test-model", "https://llm.test/v1")] = {
+            "model": "test-model",
+            "tool_calling": True,
+            "vision": True,
+            "ready": True,
+            "status": "ready",
+            "degraded_reason": None,
+        }
     async with factory() as session:
         stored = await AgentSessionRepository(session).create(
             AgentSession(id="session-1", model="test-model", base_url="https://llm.test/v1")
@@ -550,12 +561,12 @@ def test_tool_loop_stops_after_the_default_twelve_iterations():
             assert len(llm.requests) == 12
             assert invoked == [1] * 12
             assert events[-1][0] == "message_end"
-            assert events[-1][1]["finish_reason"] == "iteration_limit"
+            assert events[-1][1]["finish_reason"] == "max_steps"
             assert any("12 次工具调用上限" in data.get("text", "") for event, data in events if event == "text_delta")
             async with factory() as session:
                 messages = await AgentMessageRepository(session).list_by_session(session_id)
             assert messages[-1].role == "assistant"
-            assert messages[-1].finish_reason == "iteration_limit"
+            assert messages[-1].finish_reason == "max_steps"
         finally:
             await engine.dispose()
 
@@ -664,6 +675,7 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
                 "vision": True,
                 "ready": True,
                 "status": "ready",
+                "degraded_reason": None,
             }
             assert llm.requests[0][2][0]["function"]["name"] == "capability_probe"
             image = llm.requests[1][1][0]["content"][1]
@@ -683,11 +695,13 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
             assert result["vision"] is True
             assert result["ready"] is False
             assert result["status"] == "tool_calling_unavailable"
+            assert result["degraded_reason"] == "当前模型未通过 function calling 能力检查，无法进行 Agent 对话"
             assert await no_tools.acquire_session(session_id) is True
             chunks = [chunk async for chunk in no_tools.stream_message(session_id, "hi", None)]
             error_event = _events(_event_stream(chunks))[-1]
             assert error_event[0] == "error"
             assert error_event[1]["code"] == "LLM_REQUEST_FAILED"
+            assert len(_llm.requests) == 2
         finally:
             await engine.dispose()
 
@@ -704,6 +718,7 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
             assert result["vision"] is False
             assert result["ready"] is True
             assert result["status"] == "vision_degraded"
+            assert result["degraded_reason"] == "当前模型不支持图片输入；截图和原子屏幕操作已禁用"
             assert await vision_degraded.acquire_session(session_id) is True
             chunks = [
                 chunk
@@ -713,6 +728,267 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
             assert events[-1][0] == "message_end"
             assert any(event == "text_delta" for event, _data in events)
         finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_first_turn_auto_probes_and_vision_degradation_filters_and_rejects_screen_tools():
+    async def scenario():
+        from maa_api.agent.tools.raw import ClickParams
+
+        class EmptyParams(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+        invoked: list[str] = []
+
+        async def capture(_params, _context):
+            invoked.append("get_screenshot")
+            return {"format": "jpeg", "captured_at": "now", "data": "ZmFrZQ=="}
+
+        async def click(_params, _context):
+            invoked.append("click")
+            return {"clicked": True}
+
+        async def lookup(_params, _context):
+            invoked.append("lookup")
+            return {"ok": True}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="get_screenshot",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Read the current screen.",
+                params_model=EmptyParams,
+                handler=capture,
+                read_only=True,
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="click",
+                group="raw",
+                risk=ToolRisk.DANGEROUS,
+                description="Click the current screen.",
+                params_model=ClickParams,
+                handler=click,
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="lookup_status",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Read a status value.",
+                params_model=EmptyParams,
+                handler=lookup,
+                read_only=True,
+            )
+        )
+        probe = _tool_response(
+            {
+                "index": 0,
+                "id": "probe-1",
+                "type": "function",
+                "function": {"name": "capability_probe", "arguments": "{}"},
+            }
+        )
+        forced_click = _tool_response(
+            {
+                "index": 0,
+                "id": "forced-click",
+                "type": "function",
+                "function": {"name": "click", "arguments": '{"x":1,"y":2}'},
+            }
+        )
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [
+                probe,
+                AppError(ErrorCode.LLM_REQUEST_FAILED, "vision unsupported"),
+                forced_click,
+                _text_response("视觉能力不可用，点击请求已拦截。"),
+                _text_response("第二轮文本仍然可用。"),
+            ],
+            registry=registry,
+            prime_capabilities=False,
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            first_chunks = [
+                chunk async for chunk in runtime.stream_message(session_id, "请看屏幕", None)
+            ]
+            first_events = _events(_event_stream(first_chunks))
+            assert len(llm.requests) == 4
+            assert llm.requests[0][2][0]["function"]["name"] == "capability_probe"
+            assert llm.requests[1][1][0]["content"][1]["type"] == "image_url"
+            chat_schemas = llm.requests[2][2]
+            chat_names = {tool["function"]["name"] for tool in chat_schemas}
+            assert "lookup_status" in chat_names
+            assert "get_screenshot" not in chat_names
+            assert "click" not in chat_names
+            start = next(data for event, data in first_events if event == "message_start")
+            assert start["degraded_reason"] == "当前模型不支持图片输入；截图和原子屏幕操作已禁用"
+            assert any(
+                event == "tool_result"
+                and data.get("error", {}).get("code") == "LLM_REQUEST_FAILED"
+                for event, data in first_events
+            )
+            assert invoked == []
+
+            assert await runtime.acquire_session(session_id) is True
+            second_chunks = [
+                chunk async for chunk in runtime.stream_message(session_id, "继续聊文本", None)
+            ]
+            assert _events(_event_stream(second_chunks))[-1][0] == "message_end"
+            assert len(llm.requests) == 5
+            assert llm.requests[4][0] == "test-model"
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [(message.role, message.content) for message in messages if message.role == "user"] == [
+                ("user", "请看屏幕"),
+                ("user", "继续聊文本"),
+            ]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_tool_reply_and_next_round_wait_until_audit_terminal_transaction_commits(tmp_path):
+    async def scenario():
+        class EmptyParams(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+        async def lookup(_params, _context):
+            return {"status": "ready"}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="lookup_status",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Read one status value.",
+                params_model=EmptyParams,
+                handler=lookup,
+                read_only=True,
+            )
+        )
+        call = _tool_response(
+            {
+                "index": 0,
+                "id": "lookup-1",
+                "type": "function",
+                "function": {"name": "lookup_status", "arguments": "{}"},
+            }
+        )
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [call, _text_response("状态已读取。")],
+            registry=registry,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'audit-order.sqlite3'}",
+        )
+        callback_finished = asyncio.Event()
+        allow_commit = asyncio.Event()
+        background_tasks: list[asyncio.Task[None]] = []
+
+        class DelayedAuditConfirmationService:
+            def __init__(self):
+                self.registry = registry
+                self.session_factory = factory
+
+            async def invoke(
+                self,
+                name,
+                arguments,
+                context,
+                *,
+                mode,
+                on_audit_prepare=None,
+                on_audit_terminal=None,
+                on_audit_committed=None,
+            ):
+                async with factory() as session:
+                    audit = await AuditRepository(session).create(
+                        AgentAudit(
+                            caller=CallerType.INTERNAL,
+                            tool_name=name,
+                            request_id=context.request_id,
+                            arguments=dict(arguments),
+                            status="pending",
+                            risk_level="none",
+                            session_id=session_id,
+                        )
+                    )
+                    await session.commit()
+                    audit_id = audit.id
+
+                async def finish_audit_later():
+                    async with factory() as callback_session:
+                        result = await on_audit_prepare(
+                            callback_session, audit_id, {"status": "ready"}
+                        )
+                        body = {
+                            "status": "success",
+                            "audit_id": audit_id,
+                            "result": result,
+                        }
+                        if on_audit_terminal is not None:
+                            await on_audit_terminal(callback_session, audit_id, 200, body)
+                    callback_finished.set()
+                    await allow_commit.wait()
+                    async with factory() as session:
+                        await AuditRepository(session).set_terminal(
+                            audit_id,
+                            "success",
+                            result_summary='{"status":"ready"}',
+                            duration_ms=1,
+                        )
+                        await session.commit()
+                    if on_audit_committed is not None:
+                        await on_audit_committed(audit_id, 200, body)
+
+                background_tasks.append(asyncio.create_task(finish_audit_later()))
+                return {"status": "accepted", "audit_id": audit_id}
+
+        runtime.confirmation_service = DelayedAuditConfirmationService()
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "状态如何？", None)
+            first = await stream.__anext__()
+            assert "event: message_start" in first
+
+            async def drain():
+                return [chunk async for chunk in stream]
+
+            drain_task = asyncio.create_task(drain())
+            await asyncio.wait_for(callback_finished.wait(), timeout=2)
+            await asyncio.sleep(0.02)
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in messages] == ["user", "assistant"]
+            assert len(llm.requests) == 1
+
+            allow_commit.set()
+            chunks = await asyncio.wait_for(drain_task, timeout=2)
+            events = _events(_event_stream(chunks))
+            assert events[-1][0] == "message_end"
+            assert len(llm.requests) == 2
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+                audit = await AuditRepository(session).get(messages[2].audit_id)
+            assert [message.role for message in messages] == [
+                "user",
+                "assistant",
+                "tool",
+                "assistant",
+            ]
+            assert str(audit.status) == "success"
+        finally:
+            allow_commit.set()
+            if background_tasks:
+                await asyncio.gather(*background_tasks, return_exceptions=True)
             await engine.dispose()
 
     asyncio.run(scenario())
@@ -851,6 +1127,89 @@ def test_confirmation_wait_keeps_sse_alive_and_rejection_does_not_retry_tool():
             monkeypatch.undo()
             await engine.dispose()
             Path(db_path).unlink(missing_ok=True)
+
+    asyncio.run(scenario())
+
+
+def test_file_sqlite_internal_click_approval_persists_policy_grant_and_audit_attribution(tmp_path):
+    async def scenario():
+        from maa_api.agent.tools.raw import ClickParams
+
+        calls: list[tuple[int, int]] = []
+
+        async def click(params, _context):
+            calls.append((params.x, params.y))
+            return {"clicked": True, "x": params.x, "y": params.y}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="click",
+                group="raw",
+                risk=ToolRisk.DANGEROUS,
+                description="Click one screen coordinate.",
+                params_model=ClickParams,
+                handler=click,
+            )
+        )
+        response = _tool_response(
+            {
+                "index": 0,
+                "id": "atomic-click-1",
+                "type": "function",
+                "function": {"name": "click", "arguments": '{"x":31,"y":42}'},
+            }
+        )
+        runtime, factory, confirmations, _llm, session_id, engine = await _runtime(
+            [response, _text_response("点击操作已完成。")],
+            registry=registry,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'atomic-click.sqlite3'}",
+            confirmation_poll_seconds=0.01,
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "点击确认按钮", None)
+            received: list[str] = []
+            confirmation = None
+            while confirmation is None:
+                chunk = await stream.__anext__()
+                received.append(chunk)
+                if "event: confirmation_required" in chunk:
+                    data = _events(chunk)[0][1]
+                    confirmation = data
+            assert confirmation["name"] == "click"
+            detail = await confirmations.get(confirmation["confirmation_id"])
+            assert detail["action"] == "grant_atomic_ops"
+            assert detail["status"] == "pending"
+
+            await confirmations.resolve(
+                confirmation["confirmation_id"],
+                approved=True,
+                resolved_by="test",
+            )
+            received.extend([chunk async for chunk in stream])
+            events = _events(_event_stream(received))
+            assert events[-1][0] == "message_end"
+            assert calls == [(31, 42)]
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+                audit = await AuditRepository(session).get(messages[2].audit_id)
+                stored_session = await AgentSessionRepository(session).get(session_id)
+                confirmation_row = await ConfirmationRepository(session).get(
+                    confirmation["confirmation_id"]
+                )
+            assert audit is not None
+            assert str(audit.status) == "success"
+            assert audit.authorized_by_id == confirmation["confirmation_id"]
+            assert stored_session.atomic_grant_id == confirmation["confirmation_id"]
+            assert str(confirmation_row.status) == "approved"
+            assert json.loads(messages[2].content)["result"] == {
+                "clicked": True,
+                "x": 31,
+                "y": 42,
+            }
+        finally:
+            await engine.dispose()
 
     asyncio.run(scenario())
 
@@ -1018,6 +1377,97 @@ def test_screenshot_tool_result_is_archived_by_id_and_only_latest_image_goes_ups
             assert base64.b64decode(image_url.partition(",")[2]) == (
                 tmp_path / screenshot_record.path
             ).read_bytes()
+        finally:
+            monkeypatch.undo()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_screenshot_archive_insert_failure_isolated_and_persists_failed_audit_without_image(tmp_path):
+    async def scenario():
+        import base64
+        import io
+
+        from PIL import Image
+
+        from maa_api.db import session as session_module
+        from maa_api.db.repositories.log import ScreenshotRepository
+
+        class EmptyParams(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+        output = io.BytesIO()
+        Image.new("RGB", (4, 3), color=(20, 160, 40)).save(output, format="JPEG")
+        screenshot_data = base64.b64encode(output.getvalue()).decode("ascii")
+
+        async def screenshot(_params, _context):
+            return {
+                "format": "jpeg",
+                "backend": "adb",
+                "width": 4,
+                "height": 3,
+                "captured_at": "2026-09-26T00:00:00Z",
+                "data": screenshot_data,
+            }
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="get_screenshot",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Capture an image for inspection.",
+                params_model=EmptyParams,
+                handler=screenshot,
+                read_only=True,
+            )
+        )
+        call = _tool_response(
+            {
+                "index": 0,
+                "id": "failed-screenshot",
+                "type": "function",
+                "function": {"name": "get_screenshot", "arguments": "{}"},
+            }
+        )
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [call, _text_response("截图归档失败，无法查看画面。")],
+            registry=registry,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'screenshot-failure.sqlite3'}",
+        )
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(session_module, "DB_PATH", tmp_path / "resource-root" / "agent.sqlite3")
+        original_create = ScreenshotRepository.create
+
+        async def flush_then_fail(repository, screenshot_row):
+            await original_create(repository, screenshot_row)
+            raise RuntimeError("injected failure after screenshot row flush")
+
+        monkeypatch.setattr(ScreenshotRepository, "create", flush_then_fail)
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [
+                chunk async for chunk in runtime.stream_message(session_id, "看看屏幕", None)
+            ]
+            events = _events(_event_stream(chunks))
+            assert events[-1][0] == "message_end"
+            assert any(
+                event == "tool_result"
+                and data.get("error", {}).get("code") == "SCREENSHOT_FAILED"
+                for event, data in events
+            )
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+                audit = await AuditRepository(session).get(messages[2].audit_id)
+                screenshots = await ScreenshotRepository(session).list_page(size=10)
+            assert str(audit.status) == "failed"
+            assert audit.error_code == "SCREENSHOT_FAILED"
+            assert audit.result_ref is None
+            assert screenshot_data not in audit.result_summary
+            assert screenshots.total == 0
+            assert screenshot_data not in messages[2].content
+            assert screenshot_data not in json.dumps(llm.requests, ensure_ascii=False)
         finally:
             monkeypatch.undo()
             await engine.dispose()

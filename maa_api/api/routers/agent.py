@@ -170,6 +170,21 @@ async def _effective_llm_settings(request: Request):
     return get_settings(), None
 
 
+class _LockedSessionStreamingResponse(StreamingResponse):
+    """Release the claimed session after the complete ASGI response lifecycle."""
+
+    def __init__(self, content: Any, *, runtime: Any, session_id: str, **kwargs: Any):
+        super().__init__(content, **kwargs)
+        self._runtime = runtime
+        self._session_id = session_id
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._runtime.release_session(self._session_id)
+
+
 def _page(page: int, size: int) -> None:
     if page < 1 or size < 1 or size > 200:
         raise AppError(ErrorCode.INVALID_PAGINATION, "page 必须大于 0，size 必须为 1–200")
@@ -611,12 +626,14 @@ async def stream_session_message(
         raise AppError(ErrorCode.AGENT_SESSION_BUSY, "该会话已有一轮消息正在处理")
     try:
         await runtime.ensure_configured(request, session_id)
-    except Exception:
+    except BaseException:
         runtime.release_session(session_id)
         raise
 
-    return StreamingResponse(
+    return _LockedSessionStreamingResponse(
         runtime.stream_message(session_id, payload.content, request),
+        runtime=runtime,
+        session_id=session_id,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

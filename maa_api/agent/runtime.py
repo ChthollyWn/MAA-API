@@ -39,6 +39,9 @@ DEFAULT_MAX_ITERATIONS = 12
 DEFAULT_MAX_CONTEXT_CHARS = 1_000_000
 DEFAULT_CONFIRMATION_POLL_SECONDS = 0.25
 SSE_KEEPALIVE_SECONDS = 10.0
+SCREEN_TOOL_NAMES = frozenset(
+    {"get_screenshot", "click", "swipe", "long_press", "input_text", "key_event"}
+)
 _SSE_END = object()
 _SMALL_PNG = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/x0cAAAAASUVORK5CYII="
@@ -278,7 +281,7 @@ class AgentRuntime:
         self._locked_sessions: set[str] = set()
         self._turn_tasks: set[asyncio.Task[None]] = set()
         self._queue_waiters: set[asyncio.Task[Any]] = set()
-        self._capability_cache: dict[str, tuple[str, str, bool]] = {}
+        self._capability_cache: dict[tuple[str, str], dict[str, Any]] = {}
 
     async def acquire_session(self, session_id: str) -> bool:
         """Claim a single in-process turn slot for one persisted session."""
@@ -346,28 +349,50 @@ class AgentRuntime:
         try:
             settings = await self._effective_settings(request)
         except AppError as exc:
+            reason = (
+                "数据库中的 LLM API Key 无法解密；请配置有效的 YAML/env API Key"
+                if exc.code == ErrorCode.LLM_ENCRYPTION_KEY_INVALID
+                else "当前 LLM 配置不可用，无法检查模型能力"
+            )
             return {
                 "model": model,
                 "tool_calling": False,
                 "vision": False,
                 "ready": False,
                 "status": _capability_status(exc.code),
+                "degraded_reason": reason,
             }
         model = settings.llm.model
         if not settings.llm.base_url or not settings.llm.api_key or not model:
-            self._capability_cache[model] = (settings.llm.base_url, model, False)
-            return {
+            result = {
                 "model": model,
                 "tool_calling": False,
                 "vision": False,
                 "ready": False,
                 "status": "llm_not_configured",
+                "degraded_reason": "请先配置 LLM base_url、api_key 和 model",
             }
+            self._capability_cache[(model, settings.llm.base_url)] = result
+            return result
 
+        return await self._probe_capabilities(settings, model=model, base_url=settings.llm.base_url)
+
+    async def _probe_capabilities(
+        self, settings: Settings, *, model: str, base_url: str
+    ) -> dict[str, Any]:
+        """Probe one effective model/endpoint pair and cache both capabilities."""
+        key = (model, base_url)
+        probe_settings = settings.model_copy(
+            update={
+                "llm": settings.llm.model_copy(
+                    update={"model": model, "base_url": base_url}
+                )
+            }
+        )
         tool_calling = False
         vision = False
         tool_error: AppError | None = None
-        client, owned = self._make_client(settings)
+        client, owned = self._make_client(probe_settings)
         try:
             probe_tool = {
                 "type": "function",
@@ -422,14 +447,21 @@ class AgentRuntime:
         )
         if tool_error is not None and not tool_calling:
             status = _capability_status(tool_error.code)
-        self._capability_cache[model] = (settings.llm.base_url, model, tool_calling)
-        return {
+        degraded_reason = None
+        if not tool_calling:
+            degraded_reason = "当前模型未通过 function calling 能力检查，无法进行 Agent 对话"
+        elif not vision:
+            degraded_reason = "当前模型不支持图片输入；截图和原子屏幕操作已禁用"
+        result = {
             "model": model,
             "tool_calling": tool_calling,
             "vision": vision,
             "ready": ready,
             "status": status,
+            "degraded_reason": degraded_reason,
         }
+        self._capability_cache[key] = result
+        return result
 
     async def _produce_turn(
         self, queue: asyncio.Queue[Any], session_id: str, content: str, request: Any
@@ -472,12 +504,36 @@ class AgentRuntime:
             assert stored_session is not None
             model = stored_session.model
             base_url = stored_session.base_url or settings.llm.base_url
-        cache = self._capability_cache.get(model)
-        if cache is not None and cache[0] == base_url and not cache[2]:
-            raise AppError(ErrorCode.LLM_REQUEST_FAILED, "当前模型未通过 tool calling 能力检查，无法开始 Agent 对话")
-
         user_message = await self._persist_message(session_id, role="user", content=content)
-        await emit("message_start", {"session_id": session_id, "message_id": user_message.id, "seq": user_message.seq})
+        capability_key = (model, base_url)
+        capabilities = self._capability_cache.get(capability_key)
+        if capabilities is None:
+            capability_settings = settings.model_copy(
+                update={
+                    "llm": settings.llm.model_copy(
+                        update={"model": model, "base_url": base_url}
+                    )
+                }
+            )
+            capabilities = await self._probe_capabilities(
+                capability_settings, model=model, base_url=base_url
+            )
+        if not capabilities["tool_calling"]:
+            raise AppError(
+                ErrorCode.LLM_REQUEST_FAILED,
+                capabilities["degraded_reason"]
+                or "当前模型未通过 function calling 能力检查，无法进行 Agent 对话",
+            )
+        await emit(
+            "message_start",
+            {
+                "session_id": session_id,
+                "message_id": user_message.id,
+                "seq": user_message.seq,
+                "capability_status": capabilities["status"],
+                "degraded_reason": capabilities["degraded_reason"],
+            },
+        )
         summary = await self._status_summary(request)
         client_settings = settings.model_copy(
             update={
@@ -497,7 +553,10 @@ class AgentRuntime:
                     status_summary=summary,
                     max_context_chars=self.max_context_chars,
                 )
-                tools = self._tool_schemas(self.confirmation_service.registry)
+                tools = self._tool_schemas(
+                    self.confirmation_service.registry,
+                    vision_enabled=bool(capabilities["vision"]),
+                )
                 text, call_deltas, usage, finish_reason, latency_ms = await self._complete(
                     client, model, messages, tools, emit
                 )
@@ -535,6 +594,7 @@ class AgentRuntime:
                             session_id=session_id,
                             request=request,
                             emit=emit,
+                            vision_enabled=bool(capabilities["vision"]),
                         )
                     except AppError as exc:
                         # A bad argument in any member aborts the whole batch. Add
@@ -598,7 +658,7 @@ class AgentRuntime:
                             session_id,
                             f"本轮已达到 {self.max_iterations} 次工具调用上限。我先停止继续操作；如需继续，请告诉我下一步。",
                             emit,
-                            "iteration_limit",
+                            "max_steps",
                         )
                         return
                     continue
@@ -663,6 +723,7 @@ class AgentRuntime:
         session_id: str,
         request: Any,
         emit: Callable[[str, Any], Any],
+        vision_enabled: bool,
     ) -> list[dict[str, Any]]:
         # Parse all arguments before dispatch so malformed JSON never leaves a
         # partially executed batch.
@@ -683,6 +744,16 @@ class AgentRuntime:
                 "tool_start",
                 {"tool_call_id": call["id"], "name": call["name"], "arguments": arguments},
             )
+            if not vision_enabled and call["name"] in SCREEN_TOOL_NAMES:
+                return {
+                    "audit_id": None,
+                    "body": {
+                        "error": {
+                            "code": ErrorCode.LLM_REQUEST_FAILED.value,
+                            "message": "当前模型不支持视觉输入；截图和原子屏幕操作已禁用",
+                        }
+                    },
+                }
             context = ToolContext(
                 caller=CallerType.INTERNAL,
                 session_id=session_id,
@@ -693,23 +764,27 @@ class AgentRuntime:
             loop = asyncio.get_running_loop()
             terminal: asyncio.Future[dict[str, Any]] = loop.create_future()
 
-            async def on_terminal(_db: AsyncSession, audit_id: int, _status: int, body: dict[str, Any]) -> None:
-                if call["name"] == "get_screenshot" and isinstance(body.get("result"), Mapping):
+            async def on_prepare(
+                _db: AsyncSession, audit_id: int, result: Any
+            ) -> Any:
+                if call["name"] == "get_screenshot" and isinstance(result, Mapping):
                     try:
-                        archived = await self._archive_screenshot_result(body["result"], _db)
+                        async with _db.begin_nested():
+                            return await self._archive_screenshot_result(result, _db)
+                    except AppError:
+                        raise
                     except Exception as exc:  # noqa: BLE001 - never persist inline image bytes
                         logger.warning("Agent screenshot archive failed: %s", type(exc).__name__)
-                        archived = _screenshot_archive_failure(body["result"])
-                    body["result"] = archived
-                    from maa_api.db.repositories.audit import AuditRepository
+                        raise AppError(
+                            ErrorCode.SCREENSHOT_FAILED,
+                            "截图归档失败；图片未写入审计记录",
+                            {"audit_id": audit_id, "cause": type(exc).__name__},
+                        ) from None
+                return result
 
-                    audit = await AuditRepository(_db).get(audit_id)
-                    if audit is not None:
-                        screenshot_id = archived.get("screenshot_id")
-                        audit.result_ref = (
-                            {"screenshot_id": screenshot_id} if screenshot_id else None
-                        )
-                        audit.result_summary = _json_text(archived)
+            async def on_committed(
+                _audit_id: int, _response_status: int, body: dict[str, Any]
+            ) -> None:
                 if not terminal.done():
                     terminal.set_result(body)
 
@@ -727,7 +802,8 @@ class AgentRuntime:
                         arguments,
                         policy_context,
                         mode="async",
-                        on_audit_terminal=on_terminal,
+                        on_audit_prepare=on_prepare,
+                        on_audit_committed=on_committed,
                     )
             except AppError as exc:
                 return {
@@ -906,7 +982,9 @@ class AgentRuntime:
             True,
         )
 
-    def _tool_schemas(self, registry: ToolRegistry) -> list[dict[str, Any]]:
+    def _tool_schemas(
+        self, registry: ToolRegistry, *, vision_enabled: bool = True
+    ) -> list[dict[str, Any]]:
         return [
             {
                 "type": "function",
@@ -919,6 +997,7 @@ class AgentRuntime:
                 },
             }
             for definition in registry.list()
+            if vision_enabled or definition.name not in SCREEN_TOOL_NAMES
         ]
 
     async def _status_summary(self, request: Any) -> Any:
@@ -1012,13 +1091,13 @@ class AgentRuntime:
         """Store screenshot bytes as an archive and keep only its id in messages."""
         image_data = result.get("data") or result.get("image") or result.get("base64")
         if not isinstance(image_data, str) or not image_data:
-            return dict(result)
+            raise AppError(ErrorCode.SCREENSHOT_FAILED, "截图结果不包含图像数据")
         if image_data.startswith("data:image/"):
             image_data = image_data.partition(",")[2]
         try:
             image_bytes = base64.b64decode(image_data, validate=True)
         except (ValueError, TypeError):
-            return _screenshot_archive_failure(result)
+            raise AppError(ErrorCode.SCREENSHOT_FAILED, "截图数据格式无效") from None
 
         from maa_api.util.image import store_screenshot
 
@@ -1220,14 +1299,6 @@ def _parse_arguments(value: Any) -> dict[str, Any]:
 
 def _json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
-
-
-def _screenshot_archive_failure(result: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        **{key: value for key, value in result.items() if key not in {"data", "image", "base64"}},
-        "image_available": False,
-        "archive_error": "SCREENSHOT_ARCHIVE_FAILED",
-    }
 
 
 def _app_error_wire(error: AppError) -> dict[str, Any]:
