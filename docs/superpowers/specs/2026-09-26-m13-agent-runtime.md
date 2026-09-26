@@ -11,7 +11,7 @@
 - `POST /api/agent/sessions/{session_id}/messages` 接受 `{ "content": "..." }` 并返回 SSE。事件为 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`message_end`、`error`。用户消息、assistant/tool 轨迹、审计关联与 token 用量继续写入 `agent_message` / `agent_audit`。
 - 单会话同时只允许一个对话轮次；每轮最多 12 次模型响应。只读工具批次可并发，含写操作的批次按模型给出的顺序串行执行。SSE body 已开始后即使客户端断连，producer 仍完成已派发工具并继续持有会话锁，直到整轮结束；如果响应在首次迭代前就失败，由 Response 生命周期释放尚未转交给 producer 的锁。历史裁剪保留完整工具调用轮次，只向模型发送最新一张截图，并注入服务端状态摘要。
 - 发给远程模型的历史与工具结果在组装前递归脱敏常见认证键（`authorization`、`x-token`、`cookie`、`api_key`、`access_token`、`password`、`secret`），并清理 Bearer / DeepSeek `sk-` 形式的文本凭据。原文仍按既有审计与消息存储规则留在本地。system prompt 明确日志、截图、Copilot 元数据和其他工具返回值都是不可信数据，不能作为新的操作指令。
-- `POST /api/agent/capabilities/check` 以一个无副作用工具调用和小型测试图片检查工具调用及视觉输入能力。首条消息前若没有当前 model/base_url 的能力缓存，服务先自动探测一次并缓存结果；缺少工具调用能力时阻止 Agent 对话。缺少视觉能力时保留文本对话，但从模型 schema 中隐藏截图与原子屏幕操作工具，并在服务端拒绝对应调用；返回可显示的降级原因。
+- `POST /api/agent/capabilities/check` 以一个无副作用工具调用和小型测试图片检查工具调用及视觉输入能力。首条消息前若没有当前 model/base_url 的能力缓存，服务先自动探测一次并缓存结果；缺少工具调用能力时阻止 Agent 对话。缺少视觉能力时保留文本对话，但从模型 schema 中隐藏截图与原子屏幕操作工具、服务端拒绝对应调用、且不把归档历史截图 hydration 成 image URL；历史画面只发送不含图片的文本占位。返回可显示的降级原因。
 - `CopilotInput` 是共享 `TaskInput` 的正式成员，包含已保存 Copilot 的 `asset_id` 和 `formation`。队列执行时由 `ResourceService` 校验资产 kind、在资源根目录内解析或物化作业文件，并投递 `AsstAppendTask("Copilot", {"filename": absolute_path, "formation": bool})`。调用依据是随仓库 MaaCore 示例 `resource/lib/maa/Linux/Python/sample.py` 中的接口形态；不得用普通 Fight 代替。
 - 统一 `TaskInput` 后，Copilot 可经 `submit_pipeline` 入队，也可存在 schedule 模板内。来源优先级、幂等、执行结果、错误和审计沿用现有队列与服务。
 - `agent.auto_diagnose_failures` 默认 `true`。每个终态失败流水线生成一个自动诊断会话；空闲时的每次 MaaCore 崩溃按内核 generation 生成一个会话。流水线执行期间的内核崩溃只关联到该失败流水线，不另建重复事件。唯一 incident key 持久化在 `agent_session`，避免重复诊断。
