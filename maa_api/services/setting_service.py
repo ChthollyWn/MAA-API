@@ -24,11 +24,20 @@ from maa_api.services.settings_schema import (
     schema_for,
 )
 import maa_api.settings as settings_module
-from maa_api.settings import SETTING_KEYS, Settings, resolve_settings_with_sources, set_settings
+from maa_api.settings import (
+    CONFIG_ONLY_SETTING_KEYS,
+    SETTING_KEYS,
+    Settings,
+    resolve_settings_with_sources,
+    set_settings,
+)
 
 __all__ = ["SettingService"]
 
 _SCHEMA_BY_KEY = {entry["key"]: entry for entry in SETTINGS_SCHEMA}
+
+#: 设置 API 读写的 key：排除只从 config.yaml 提供的项（见 CONFIG_ONLY_SETTING_KEYS）。
+_API_KEYS = tuple(key for key in SETTING_KEYS if key not in CONFIG_ONLY_SETTING_KEYS)
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -117,7 +126,7 @@ class SettingService:
         """Return every effective value and its winning layer, with secrets masked."""
         settings = await self.refresh()
         items: list[dict[str, Any]] = []
-        for key in SETTING_KEYS:
+        for key in _API_KEYS:
             metadata = _SCHEMA_BY_KEY[key]
             if group is not None and metadata["group"] != group:
                 continue
@@ -141,6 +150,15 @@ class SettingService:
         """Validate a batch, commit DB overrides, refresh, then run hot-apply actions."""
         if not isinstance(items, Mapping):
             raise self._invalid("items 必须是对象")
+        config_only = [key for key in items if key in CONFIG_ONLY_SETTING_KEYS]
+        if config_only:
+            # 明确拒绝而不是含糊地报「未知 key」：这两个键确实存在，只是只能从
+            # config.yaml 改（理由见 CONFIG_ONLY_SETTING_KEYS 的说明）。
+            raise AppError(
+                ErrorCode.SETTING_READONLY,
+                "该设置项只能通过 config.yaml 或环境变量修改",
+                {"keys": config_only},
+            )
         unknown = [key for key in items if key not in SETTING_KEYS]
         if unknown:
             raise AppError(

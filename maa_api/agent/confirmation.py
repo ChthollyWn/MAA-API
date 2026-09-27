@@ -718,7 +718,7 @@ class ConfirmationService:
             "expires_at": expires_at.replace(tzinfo=UTC).timestamp(),
         }
         self.broadcast("confirm_request", event)
-        await self._push_confirmation(confirmation, name)
+        await self._push_confirmation(confirmation, name, dict(arguments))
         if self.notify is not None:
             try:
                 await self.notify.send_event(
@@ -733,7 +733,9 @@ class ConfirmationService:
                 logger.exception("发送人工确认通知失败：%s", confirmation.id)
         return confirmation.id, audit.id
 
-    async def _push_confirmation(self, confirmation: Any, name: str) -> None:
+    async def _push_confirmation(
+        self, confirmation: Any, name: str, arguments: dict[str, Any]
+    ) -> None:
         """没有活跃前端连接时补一条 Web Push。
 
         推送失败**不得**影响确认本身：确认已经落库并进入等待，超时机制照常运行。
@@ -746,6 +748,7 @@ class ConfirmationService:
                 confirmation_id=confirmation.id,
                 title=name,
                 summary=confirmation.reason or "",
+                arguments=arguments,
                 url=self.push_url_builder(confirmation.id),
                 has_active_client=self.has_active_client(),
             )

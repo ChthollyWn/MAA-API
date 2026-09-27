@@ -5420,6 +5420,13 @@ export interface operations {
             };
         };
         responses: {
+            /** @description 该 endpoint 已登记，本次为幂等更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Successful Response */
             201: {
                 headers: {

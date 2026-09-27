@@ -194,7 +194,11 @@ async def list_push_subscriptions(
         "- `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 未压缩 "
         "P-256 点（实际校验点在曲线上）；`keys.auth` 必须是 16 octet\n"
     ),
-    responses=error_responses("PUSH_SUBSCRIPTION_INVALID"),
+    # 幂等重放返回 200 而不是 201：契约里必须显式声明，否则生成的类型缺这一档。
+    responses={
+        200: {"description": "该 endpoint 已登记，本次为幂等更新"},
+        **error_responses("PUSH_SUBSCRIPTION_INVALID"),
+    },
     dependencies=[Depends(require_auth)],
 )
 async def create_push_subscription(

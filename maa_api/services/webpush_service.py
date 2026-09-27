@@ -13,14 +13,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.domain.task import RISK_FIELDS, TASK_LABELS
 from maa_api.services import webpush_crypto as crypto
 from maa_api.services import webpush_vapid as vapid
 from maa_api.services.push_subscription_service import PushSubscriptionService
@@ -38,6 +41,9 @@ _BODY_LIMIT = 400
 
 #: 单次投递的超时。确认有时效（消耗类 10 分钟），卡在一次投递上没有意义。
 _DEFAULT_TIMEOUT = 10.0
+
+#: 一次广播的总预算（并发下的上界）。确认的创建路径会 await 这里。
+_DEFAULT_BUDGET = 12.0
 
 
 @dataclass
@@ -60,6 +66,106 @@ def _truncate(value: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
+
+
+#: 原子操作与工具名 → 用户看得懂的动作描述。
+#: 推送标题里**不能**出现 ``click`` / ``submit_pipeline`` 这类内部标识符：用户收到
+#: 的是锁屏通知，看不懂就等于没通知（docs/09 §13.1 要求标题写清操作内容）。
+_TOOL_LABELS: dict[str, str] = {
+    "click": "在游戏画面点击",
+    "swipe": "在游戏画面滑动",
+    "long_press": "在游戏画面长按",
+    "input_text": "向游戏输入文本",
+    "key_event": "发送按键事件",
+    "submit_pipeline": "提交任务流水线",
+    "create_schedule": "创建定时任务",
+    "update_schedule": "修改定时任务",
+    "delete_schedule": "删除定时任务",
+    "restart_core": "重启 MaaCore 内核",
+    "update_core": "更新 MaaCore 内核",
+    "reconnect_device": "重连设备",
+    "stop_pipeline": "停止流水线",
+    "back_to_home": "返回游戏主界面",
+    "trigger_screencap": "截取游戏画面",
+    "run_task": "执行任务",
+}
+
+#: 消耗类字段 → 用户看得懂的资源名。
+_FIELD_LABELS: dict[str, str] = {
+    "stone": "源石",
+    "medicine": "理智药",
+    "expiring_medicine": "48 小时内过期的理智药",
+    "expedite": "加急许可",
+    "times": "次数",
+    "count": "数量",
+    "buy_first": "优先购买",
+}
+
+
+def _resource_phrase(task_name: str, field: str, value: Any) -> str:
+    """把 ``Fight.stone=3`` 变成「刷理智 · 源石 ×3」。"""
+    task_label = TASK_LABELS.get(task_name, task_name)
+    field_label = _FIELD_LABELS.get(field, field)
+    if isinstance(value, bool):
+        return f"{task_label} · {field_label}"
+    return f"{task_label} · {field_label} ×{value}"
+
+
+def confirmation_title(tool_name: str, arguments: Any) -> str:
+    """通知标题：动作 + 影响，都用人话。
+
+    用户是从锁屏点进来的，``run_task`` / ``Fight.stone=3`` 这种内部标识符对他没有
+    意义。无法归类时退回工具名，但**不编造**影响范围——误报消耗比不报更糟。
+    """
+    action = _TOOL_LABELS.get(tool_name, tool_name)
+    phrase = _consumption_phrase(arguments)
+    return f"{action}（{phrase}）" if phrase else action
+
+
+def _consumption_phrase(arguments: Any) -> str:
+    """从参数里摘出最相关的一条消耗/影响描述，没有就返回空串。"""
+    value = arguments if isinstance(arguments, Mapping) else {}
+    tasks = value.get("tasks", value.get("template"))
+    candidates: list[Any] = []
+    if isinstance(tasks, (list, tuple)):
+        candidates.extend(tasks)
+    elif tasks is not None:
+        candidates.append(tasks)
+    task = value.get("task")
+    if task is not None:
+        candidates.append(task)
+    if not candidates:
+        candidates.append(value)
+
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        task_name = next(
+            (
+                candidate[key]
+                for key in ("name", "task_name", "type", "type_name")
+                if isinstance(candidate.get(key), str)
+                and candidate[key] in RISK_FIELDS
+            ),
+            None,
+        )
+        if task_name is None:
+            continue
+        params = candidate.get("params", candidate.get("raw_params", candidate))
+        if not isinstance(params, Mapping):
+            continue
+        for field in RISK_FIELDS.get(task_name, ()):
+            if field not in params:
+                continue
+            raw = params[field]
+            triggered = (
+                isinstance(raw, (int, float))
+                and not isinstance(raw, bool)
+                and raw > 0
+            ) or raw is True
+            if triggered:
+                return _resource_phrase(task_name, field, raw)
+    return ""
 
 
 def build_confirmation_payload(
@@ -104,11 +210,14 @@ class WebPushService:
         *,
         http_client: Any = None,
         timeout: float = _DEFAULT_TIMEOUT,
+        budget: float = _DEFAULT_BUDGET,
         settings_provider=None,
     ) -> None:
         self._subscriptions = subscriptions
         self._http = http_client
         self._timeout = timeout
+        #: 一次广播的总预算：确认在等这条路径，不能让它随订阅数线性增长。
+        self._budget = budget
         self._settings_provider = settings_provider
 
     # -- 配置 ---------------------------------------------------------------
@@ -214,7 +323,12 @@ class WebPushService:
         return False
 
     async def broadcast(self, payload: dict[str, Any]) -> PushDeliveryResult:
-        """向全部未失效订阅投递，返回结果摘要。任何异常都不向上抛。"""
+        """向全部未失效订阅并发投递，返回结果摘要。任何异常都不向上抛。
+
+        **并发 + 总预算**：确认的创建路径会 ``await`` 这里，而每个订阅各有 10 秒超时；
+        串行投递 N 个不可达订阅会把 agent 的确认调用拖成 10 秒 × N。确认本身已经
+        落库并广播完毕，所以这里只值得花一个有界的总时长。
+        """
         result = PushDeliveryResult()
         if self._private_key() is None:
             result.skipped_reason = "vapid_not_configured"
@@ -225,22 +339,39 @@ class WebPushService:
             result.skipped_reason = "no_subscription"
             return result
 
-        for subscription in subscriptions:
-            result.attempted += 1
+        async def deliver(subscription: Any) -> tuple[Any, bool]:
             try:
-                if await self.send_to_subscription(subscription, payload):
-                    result.delivered += 1
-                else:
-                    # 失败原因已在 send_to_subscription 里记录；这里只区分
-                    # 「被停用」与「可重试的失败」，供调用方判断是否需要告警。
-                    refreshed = await self._subscriptions.get(subscription.id)
-                    if refreshed.disabled_at is not None:
-                        result.disabled.append(subscription.id)
-                    else:
-                        result.failed += 1
+                return subscription, await self.send_to_subscription(subscription, payload)
             except Exception:
-                result.failed += 1
                 logger.exception("推送投递异常（订阅 %s）", subscription.id)
+                return subscription, False
+
+        tasks = [asyncio.create_task(deliver(item)) for item in subscriptions]
+        done, pending = await asyncio.wait(tasks, timeout=self._budget)
+        for task in pending:
+            # 超出总预算的投递被放弃：确认的时效比这条通知更重要。
+            task.cancel()
+        if pending:
+            logger.warning("推送超出总预算 %.1fs，放弃 %d 条投递", self._budget, len(pending))
+
+        outcomes: list[tuple[Any, bool]] = []
+        for task in done:
+            outcomes.append(task.result())
+
+        for subscription, delivered in outcomes:
+            result.attempted += 1
+            if delivered:
+                result.delivered += 1
+                continue
+            # 失败原因已在 send_to_subscription 里记录；这里只区分「被停用」与
+            # 「可重试的失败」，供调用方判断是否需要告警。
+            refreshed = await self._subscriptions.get(subscription.id)
+            if refreshed.disabled_at is not None:
+                result.disabled.append(subscription.id)
+            else:
+                result.failed += 1
+        result.attempted += len(pending)
+        result.failed += len(pending)
         return result
 
     async def notify_confirmation(
@@ -251,17 +382,19 @@ class WebPushService:
         summary: str,
         url: str,
         has_active_client: bool,
+        arguments: Mapping[str, Any] | None = None,
     ) -> PushDeliveryResult:
         """确认请求的推送入口。
 
-        只有在**没有活跃前端连接**时才推送：用户正看着页面时不缺这条通知，
-        重复触达只会造成干扰（docs/09 §13.1 的第 2 步）。
+        只有在**用户没在看页面**时才推送：他正看着页面时不缺这条通知，重复触达
+        只会造成干扰（docs/09 §13.1 的第 2 步）。``title`` 是内部工具名，通知标题
+        会经 :func:`confirmation_title` 换成用户看得懂的动作与影响。
         """
         if has_active_client:
             return PushDeliveryResult(skipped_reason="client_connected")
         payload = build_confirmation_payload(
             confirmation_id=confirmation_id,
-            title=title,
+            title=confirmation_title(title, arguments or {}),
             summary=summary,
             url=url,
         )

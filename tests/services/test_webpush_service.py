@@ -384,3 +384,84 @@ def test_push_when_no_client_is_connected(factory) -> None:
     )
     assert result.delivered == 1
     assert len(http.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# 通知文案：用户从锁屏点进来，标题里不能出现内部标识符
+# ---------------------------------------------------------------------------
+
+
+def test_confirmation_title_maps_tool_names_to_readable_actions() -> None:
+    from maa_api.services.webpush_service import confirmation_title
+
+    assert confirmation_title("click", {}) == "在游戏画面点击"
+    assert confirmation_title("submit_pipeline", {}) == "提交任务流水线"
+    # 认不出来的工具名直接退回原值，不编造动作
+    assert confirmation_title("some_new_tool", {}) == "some_new_tool"
+
+
+def test_confirmation_title_reports_consumption_in_plain_chinese() -> None:
+    """``Fight.stone=3`` 这种内部形态对用户没有意义，必须换成资源名。"""
+    from maa_api.services.webpush_service import confirmation_title
+
+    title = confirmation_title(
+        "run_task",
+        {"task": {"name": "Fight", "params": {"stage": "1-7", "stone": 3}}},
+    )
+    assert "刷理智" in title
+    assert "源石" in title
+    assert "3" in title
+    assert "stone" not in title and "Fight" not in title
+
+
+def test_confirmation_title_handles_pipeline_task_lists() -> None:
+    from maa_api.services.webpush_service import confirmation_title
+
+    title = confirmation_title(
+        "submit_pipeline",
+        {"tasks": [{"name": "Fight", "params": {"medicine": 2}}]},
+    )
+    assert "理智药" in title and "×2" in title
+
+
+def test_confirmation_title_omits_impact_when_nothing_is_consumed() -> None:
+    from maa_api.services.webpush_service import confirmation_title
+
+    # 没有消耗就不写影响范围：误报消耗比不报更糟
+    assert confirmation_title("run_task", {"task": {"name": "Award", "params": {}}}) == (
+        "执行任务"
+    )
+
+
+def test_confirmation_title_tolerates_malformed_arguments() -> None:
+    from maa_api.services.webpush_service import confirmation_title
+
+    for arguments in (None, "not-a-mapping", 42, {"tasks": "not-a-list"}, {"task": []}):
+        assert confirmation_title("click", arguments) == "在游戏画面点击"
+
+
+def test_notify_confirmation_sends_the_readable_title_to_the_browser(factory) -> None:
+    """端到端确认标题：解密收到的载荷，里面必须是中文动作而不是内部工具名。"""
+    http = _Recorder([_Response(201)])
+    service, subscriptions, _ = _build(factory, http)
+    p256dh, auth, browser_private = _browser_keys()
+    asyncio.run(subscriptions.subscribe(endpoint=ENDPOINT, p256dh=p256dh, auth=auth))
+
+    asyncio.run(
+        service.notify_confirmation(
+            confirmation_id="c-1",
+            title="run_task",
+            summary="该操作会消耗资源",
+            url="/?confirm=c-1",
+            has_active_client=False,
+            arguments={"task": {"name": "Fight", "params": {"stone": 3}}},
+        )
+    )
+
+    plaintext = _decrypt(
+        http.calls[0][2]["content"], browser_private, crypto.b64url_decode(auth)
+    )
+    payload = json.loads(plaintext)
+    assert "刷理智" in payload["title"] and "源石" in payload["title"]
+    assert "run_task" not in payload["title"]
+    assert payload["data"]["confirmationId"] == "c-1"

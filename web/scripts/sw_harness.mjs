@@ -30,6 +30,15 @@ function createCacheStore() {
   return {
     entries,
     async addAll(urls) {
+      // 真实现会去 fetch 每个 URL，任何一个 404 都会让 install 整体失败。
+      // 替身至少校验文件确实存在于构建产物里，否则「清单里有、磁盘上没有」这种
+      // 会让线上安装直接失败的组合在这里是测不出来的。
+      const missing = urls.filter(
+        (url) => !existsSync(path.join(STATIC_ROOT, url.replace(/^\//, ''))),
+      )
+      if (missing.length > 0) {
+        throw new Error(`预缓存清单里有 ${missing.length} 个 URL 在构建产物中不存在：${missing.slice(0, 5)}`)
+      }
       for (const url of urls) entries.set(url, { url, body: `precached:${url}` })
     },
     async match(url) {
@@ -41,9 +50,14 @@ function createCacheStore() {
   }
 }
 
-function buildEnvironment({ online = true } = {}) {
+function buildEnvironment({ online = true, token = 'harness-token', clients = [] } = {}) {
   const listeners = new Map()
   const caches = new Map()
+  const notifications = []
+  const fetches = []
+  const opened = []
+  const focused = []
+  const navigated = []
   const serverFiles = new Set(
     ['/index.html', '/assets/index-abc.js', '/manifest.webmanifest'].filter((relative) =>
       existsSync(path.join(STATIC_ROOT, relative.replace(/^\//, ''))),
@@ -51,14 +65,48 @@ function buildEnvironment({ online = true } = {}) {
   )
   serverFiles.add('/index.html')
 
+  // 最小 IndexedDB 替身：只服务 Service Worker 取 token 的那条路径，
+  // 用来验证它确实从 IndexedDB（而不是别处）拿凭据。
+  const idbStore = new Map()
+  if (token !== null) idbStore.set('token', token)
+  const indexedDBStub = {
+    open() {
+      const request = {}
+      queueMicrotask(() => {
+        request.result = {
+          objectStoreNames: { contains: () => true },
+          transaction: () => ({
+            objectStore: () => ({
+              get(key) {
+                const get = {}
+                queueMicrotask(() => {
+                  get.result = idbStore.get(key)
+                  get.onsuccess?.()
+                })
+                return get
+              },
+            }),
+          }),
+          close() {},
+        }
+        request.onsuccess?.()
+      })
+      return request
+    },
+  }
+
   const context = {
     console,
     URL,
-    indexedDB: undefined,
-    fetch: async (input) => {
-      if (!online) throw new Error('offline')
+    indexedDB: indexedDBStub,
+    fetch: async (input, init) => {
       const url = typeof input === 'string' ? input : input.url
       const pathname = new URL(url, 'https://example.test').pathname
+      fetches.push({ url, method: init?.method, headers: init?.headers, body: init?.body })
+      if (!online) throw new Error('offline')
+      if (pathname.startsWith('/api/')) {
+        return { ok: true, status: 200, clone() { return this }, body: 'api' }
+      }
       if (!serverFiles.has(pathname)) return { ok: false, status: 404 }
       return { ok: true, status: 200, clone() { return this }, body: `network:${pathname}` }
     },
@@ -80,8 +128,18 @@ function buildEnvironment({ online = true } = {}) {
         listeners.get(type).push(handler)
       },
       location: { origin: 'https://example.test' },
-      registration: { showNotification: async () => {} },
-      clients: { matchAll: async () => [], openWindow: async () => {} },
+      registration: {
+        showNotification: async (title, options) => {
+          notifications.push({ title, options })
+        },
+      },
+      clients: {
+        matchAll: async () => clients,
+        openWindow: async (url) => {
+          opened.push(url)
+          return null
+        },
+      },
       skipWaiting: async () => {},
     },
   }
@@ -90,10 +148,40 @@ function buildEnvironment({ online = true } = {}) {
 
   vm.createContext(context)
   vm.runInContext(readFileSync(SW_PATH, 'utf8'), context, { filename: 'sw.js' })
-  return { context, listeners, caches }
+  return { context, listeners, caches, notifications, fetches, opened, focused, navigated }
 }
 
-/** 触发一个事件并等待 waitUntil 链完成。 */
+/**
+ * 调用一次 `fetch` 监听器并取回它的 `respondWith` 结果。
+ *
+ * 守卫在这里而不是散落在调用点：任何一个 respondWith 被拒绝（例如离线且没有
+ * 缓存外壳）都不该让整份报告在打印前中断 —— 那会只剩一句原始堆栈、一条标签都看不到。
+ */
+async function dispatchFetch(listeners, event) {
+  let responded
+  let intercepted = false
+  await dispatch(listeners, 'fetch', {
+    ...event,
+    respondWith(promise) {
+      intercepted = true
+      responded = promise
+    },
+  })
+  if (!intercepted) return { intercepted: false, response: undefined, error: undefined }
+  try {
+    return { intercepted: true, response: await responded, error: undefined }
+  } catch (error) {
+    return { intercepted: true, response: undefined, error }
+  }
+}
+
+/**
+ * 触发一个事件并等待 waitUntil 链完成。
+ *
+ * 拒绝**不向上抛**：抛出去会让整份报告在打印前中断（曾经表现为只看到一句
+ * `offline and no cached shell`、20 项标签一条都不打印）。这里把它记成一条失败
+ * 检查，让后面的用例继续跑完。
+ */
 async function dispatch(listeners, type, event = {}) {
   const pending = []
   const wrapped = {
@@ -103,7 +191,12 @@ async function dispatch(listeners, type, event = {}) {
     },
   }
   for (const handler of listeners.get(type) ?? []) handler(wrapped)
-  await Promise.all(pending)
+  const settled = await Promise.allSettled(pending)
+  for (const item of settled) {
+    if (item.status === 'rejected') {
+      check(false, `${type} 的 waitUntil 被拒绝：${item.reason?.message ?? item.reason}`)
+    }
+  }
 }
 
 const { listeners, caches } = buildEnvironment()
@@ -130,56 +223,207 @@ check(
 await dispatch(listeners, 'activate')
 
 // 预缓存资源：缓存优先
-let responded
-await dispatch(listeners, 'fetch', {
+const precached = await dispatchFetch(listeners, {
   request: { method: 'GET', mode: 'cors', url: 'https://example.test/index.html' },
-  respondWith(promise) {
-    responded = promise
-  },
 })
-check(responded !== undefined, '预缓存资源的 fetch 被接管')
-check((await responded)?.body === 'precached:/index.html', '预缓存资源由缓存应答')
+check(precached.intercepted, '预缓存资源的 fetch 被接管')
+check(precached.response?.body === 'precached:/index.html', '预缓存资源由缓存应答')
 
-// 导航请求：API 路径不接管
-let apiIntercepted = false
-await dispatch(listeners, 'fetch', {
+// 导航请求：API 文档路径不接管
+const api = await dispatchFetch(listeners, {
   request: { method: 'GET', mode: 'navigate', url: 'https://example.test/api/system/health' },
-  respondWith() {
-    apiIntercepted = true
-  },
 })
-check(!apiIntercepted, '/api 导航不被 Service Worker 接管')
+check(!api.intercepted, '/api 导航不被 Service Worker 接管')
 
-let docsIntercepted = false
-await dispatch(listeners, 'fetch', {
+const docs = await dispatchFetch(listeners, {
   request: { method: 'GET', mode: 'navigate', url: 'https://example.test/docs' },
-  respondWith() {
-    docsIntercepted = true
-  },
 })
-check(!docsIntercepted, '/docs 导航不被 Service Worker 接管')
+check(!docs.intercepted, '/docs 导航不被 Service Worker 接管')
 
 // 非预缓存路径不接管
-let otherIntercepted = false
-await dispatch(listeners, 'fetch', {
+const other = await dispatchFetch(listeners, {
   request: { method: 'GET', mode: 'cors', url: 'https://example.test/api/logs' },
-  respondWith() {
-    otherIntercepted = true
-  },
 })
-check(!otherIntercepted, '未预缓存路径不被接管')
+check(!other.intercepted, '未预缓存路径不被接管')
 
 // 离线导航回退到外壳
 const offline = buildEnvironment({ online: false })
 await dispatch(offline.listeners, 'install')
-let shell
-await dispatch(offline.listeners, 'fetch', {
+const shell = await dispatchFetch(offline.listeners, {
   request: { method: 'GET', mode: 'navigate', url: 'https://example.test/tasks' },
-  respondWith(promise) {
-    shell = promise
-  },
 })
-check((await shell)?.body === 'precached:/index.html', '断网导航回退到缓存的外壳')
+check(shell.error === undefined, `离线导航没有抛错（${shell.error?.message}）`)
+check(shell.response?.body === 'precached:/index.html', '断网导航回退到缓存的外壳')
+
+// ---------------------------------------------------------------------------
+// notificationclick：三种入口（approve / reject / 点通知体）
+// ---------------------------------------------------------------------------
+
+/** 造一个已打开的窗口替身，记录 focus 与 navigate。 */
+function windowClient({ url = 'https://example.test/agent', navigateRejects = false } = {}) {
+  const record = { focused: false, navigated: [] }
+  return {
+    url,
+    record,
+    async focus() {
+      record.focused = true
+    },
+    async navigate(target) {
+      if (navigateRejects) throw new TypeError('not controlled by this worker')
+      record.navigated.push(target)
+    },
+  }
+}
+
+function clickEvent({ action = '', data = {} }) {
+  return {
+    action,
+    notification: { data, close() {} },
+  }
+}
+
+async function runNotificationClickChecks() {
+  const confirmationId = 'confirm-abc'
+  const notificationData = {
+    confirmationId,
+    url: `/?confirm=${confirmationId}`,
+  }
+
+  // (a) action=approve：必须带 X-Token，且 approved 必须是 true
+  {
+    const env = buildEnvironment({ token: 'harness-token' })
+    await dispatch(env.listeners, 'install')
+    await dispatch(env.listeners, 'notificationclick', clickEvent({
+      action: 'approve',
+      data: notificationData,
+    }))
+    const call = env.fetches.find((item) => item.url.includes('/api/confirmations/'))
+    check(call !== undefined, 'notificationclick approve 提交了确认')
+    check(
+      call?.url.endsWith(`/api/confirmations/${confirmationId}`),
+      `approve 提交到正确的确认端点（实际 ${call?.url}）`,
+    )
+    check(call?.method === 'POST', 'approve 用 POST 提交')
+    check(
+      call?.headers?.['X-Token'] === 'harness-token',
+      'approve 从 IndexedDB 取 token 注入 X-Token（写操作不能只靠 cookie）',
+    )
+    check(
+      JSON.parse(call?.body ?? '{}').approved === true,
+      'approve 的 approved 必须是 true',
+    )
+    check(env.notifications.length === 1, 'approve 后回了一条结果通知')
+  }
+
+  // (b) action=reject：approved 必须是 false
+  {
+    const env = buildEnvironment({ token: 'harness-token' })
+    await dispatch(env.listeners, 'install')
+    await dispatch(env.listeners, 'notificationclick', clickEvent({
+      action: 'reject',
+      data: notificationData,
+    }))
+    const call = env.fetches.find((item) => item.url.includes('/api/confirmations/'))
+    check(
+      JSON.parse(call?.body ?? '{}').approved === false,
+      'reject 的 approved 必须是 false（极性不能反）',
+    )
+  }
+
+  // (c) 没有 token 时不带 X-Token，但仍然提交
+  {
+    const env = buildEnvironment({ token: null })
+    await dispatch(env.listeners, 'install')
+    await dispatch(env.listeners, 'notificationclick', clickEvent({
+      action: 'approve',
+      data: notificationData,
+    }))
+    const call = env.fetches.find((item) => item.url.includes('/api/confirmations/'))
+    check(call !== undefined, '缺少 token 时仍提交确认（由服务端判定鉴权）')
+    check(
+      call?.headers?.['X-Token'] === undefined,
+      '缺少 token 时不应注入空的 X-Token',
+    )
+  }
+
+  // (d) 点击通知体（action 为空字符串）：复用已打开窗口并导航，不开新窗口
+  {
+    const existing = windowClient()
+    const env = buildEnvironment({ clients: [existing] })
+    await dispatch(env.listeners, 'install')
+    await dispatch(env.listeners, 'notificationclick', clickEvent({ data: notificationData }))
+    check(existing.record.focused, '点通知体时聚焦已打开的窗口')
+    check(
+      existing.record.navigated.includes(`https://example.test/?confirm=${confirmationId}`),
+      '点通知体时在已打开窗口里导航到深链',
+    )
+    check(env.opened.length === 0, '已有窗口时不再开新窗口')
+    check(
+      env.fetches.every((item) => !item.url.includes('/api/confirmations/')),
+      '点通知体只做深链，不代为处置确认',
+    )
+  }
+
+  // (e) 没有已打开窗口：开新窗口
+  {
+    const env = buildEnvironment({ clients: [] })
+    await dispatch(env.listeners, 'install')
+    await dispatch(env.listeners, 'notificationclick', clickEvent({ data: notificationData }))
+    check(
+      env.opened.includes(`https://example.test/?confirm=${confirmationId}`),
+      '没有已打开窗口时开新窗口到深链',
+    )
+  }
+
+  // (f) 未受控窗口拒绝 navigate：必须退回开新窗口，而不是静默失败
+  {
+    const uncontrolled = windowClient({ navigateRejects: true })
+    const env = buildEnvironment({ clients: [uncontrolled] })
+    await dispatch(env.listeners, 'install')
+    await dispatch(env.listeners, 'notificationclick', clickEvent({ data: notificationData }))
+    check(
+      env.opened.includes(`https://example.test/?confirm=${confirmationId}`),
+      '未受控窗口无法导航时退回 openWindow（否则点通知毫无反应）',
+    )
+  }
+
+  // (g) 处置失败（409 已过期）要有结果通知，不能静默
+  {
+    const env = buildEnvironment({ token: 'harness-token' })
+    env.context.self.registration.showNotification = async (title, options) => {
+      env.notifications.push({ title, options })
+    }
+    const originalFetch = env.context.fetch
+    env.context.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input.url
+      if (url.includes('/api/confirmations/')) {
+        return { ok: false, status: 409, clone() { return this }, body: '' }
+      }
+      return originalFetch(input, init)
+    }
+    await dispatch(env.listeners, 'install')
+    await dispatch(env.listeners, 'notificationclick', clickEvent({
+      action: 'approve',
+      data: notificationData,
+    }))
+    const result = env.notifications.at(-1)
+    check(
+      result?.title?.includes('过期') === true,
+      `确认已过期时回一条说明结果的通知（实际 ${result?.title}）`,
+    )
+  }
+
+  // (h) 通知上没有 actions 时（iOS）仍能靠点击通知体走深链
+  {
+    const existing = windowClient()
+    const env = buildEnvironment({ clients: [existing] })
+    await dispatch(env.listeners, 'install')
+    await dispatch(env.listeners, 'notificationclick', clickEvent({ action: '', data: notificationData }))
+    check(existing.record.focused, 'iOS 路径（无 action）仍然走深链')
+  }
+}
+
+await runNotificationClickChecks()
 
 // push 必须显示通知（userVisibleOnly 的硬性要求）
 const notifications = []

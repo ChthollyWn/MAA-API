@@ -6667,6 +6667,9 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "description": "该 endpoint 已登记，本次为幂等更新"
+          },
           "201": {
             "content": {
               "application/json": {

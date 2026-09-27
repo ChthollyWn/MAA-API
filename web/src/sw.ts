@@ -218,7 +218,14 @@ function readToken(): Promise<string | null> {
   })
 }
 
-/** 打开应用已存在的窗口并导航，找不到才新开一个。 */
+/**
+ * 打开应用已存在的窗口并导航，找不到才新开一个。
+ *
+ * 复用窗口必须能失败：``includeUncontrolled: true`` 会返回**不受本 Worker 控制**的
+ * 窗口（``clientsClaim`` 保持 false，安装/更新后第一次点通知就是这种情况），而按
+ * 规范 ``navigate()`` 对这类窗口会以 ``TypeError`` 拒绝。不接住它，深链既打不开
+ * 也不会退回 ``openWindow`` —— 用户点了通知什么都不会发生。
+ */
 async function focusOrOpen(url: string): Promise<void> {
   const target = new URL(url, self.location.origin).href
   const windows = await self.clients.matchAll({
@@ -227,10 +234,15 @@ async function focusOrOpen(url: string): Promise<void> {
   })
   for (const client of windows) {
     if (new URL(client.url).origin !== self.location.origin) continue
-    await client.focus()
-    const navigable = client as WindowClient
-    if (typeof navigable.navigate === 'function') await navigable.navigate(target)
-    return
+    try {
+      await client.focus()
+      const navigable = client as WindowClient
+      if (typeof navigable.navigate === 'function') await navigable.navigate(target)
+      return
+    } catch {
+      // 未受控窗口或导航被拒：继续尝试下一个，最后退回开新窗口。
+      continue
+    }
   }
   await self.clients.openWindow(target)
 }

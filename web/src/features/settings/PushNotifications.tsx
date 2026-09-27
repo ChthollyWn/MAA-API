@@ -10,6 +10,7 @@ import {
   currentPermission,
   disablePush,
   enablePush,
+  hasActiveSubscription,
   type PushPermission,
 } from '@/pwa/push'
 
@@ -43,6 +44,7 @@ function formatTime(value?: string | null): string {
  */
 export function PushNotifications() {
   const [permission, setPermission] = useState<PushPermission>(() => currentPermission())
+  const [subscribedHere, setSubscribedHere] = useState(false)
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,10 +58,15 @@ export function PushNotifications() {
     setSubscriptions(items)
   }, [])
 
+  const refreshLocalState = useCallback(async () => {
+    setSubscribedHere(await hasActiveSubscription())
+  }, [])
+
   useEffect(() => {
     if (!PUSH_AVAILABLE) return
     void load()
-  }, [load])
+    void refreshLocalState()
+  }, [load, refreshLocalState])
 
   // 权限可能在浏览器设置里被改动，回到页面时以浏览器为准重读一次。
   useEffect(() => {
@@ -77,7 +84,7 @@ export function PushNotifications() {
       await enablePush()
       setPermission(currentPermission())
       setStatus('推送已启用：没有打开页面时，需要你确认的操作会推送到这台设备。')
-      await load()
+      await Promise.all([load(), refreshLocalState()])
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '启用推送失败。')
       setPermission(currentPermission())
@@ -93,7 +100,7 @@ export function PushNotifications() {
     try {
       await disablePush()
       setStatus('已在本机注销推送订阅。')
-      await load()
+      await Promise.all([load(), refreshLocalState()])
     } catch {
       setError('注销推送订阅失败，请稍后重试。')
     } finally {
@@ -142,6 +149,9 @@ export function PushNotifications() {
               <Badge variant={permission === 'granted' ? 'positive' : 'outline'}>
                 通知权限：{PERMISSION_LABEL[permission]}
               </Badge>
+              <Badge variant={subscribedHere ? 'positive' : 'outline'}>
+                {subscribedHere ? '本机已订阅' : '本机未订阅'}
+              </Badge>
               <Button
                 type="button"
                 onClick={() => void onEnable()}
@@ -164,7 +174,6 @@ export function PushNotifications() {
                 浏览器已拒绝通知权限，只能先在浏览器设置里重新允许，再回到这里启用。
               </p>
             ) : null}
-            {permission === 'unsupported' ? <PwaSecurityNotice /> : null}
 
             {error ? (
               <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
