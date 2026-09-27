@@ -91,3 +91,12 @@
 - Task 4: implementer complete (`6172da4`), full backend suite exit 0; task review pending. Report `task-4-report.md`; review package `task-4-review.diff`.
 - Task 4 fix round 1 opened: independent review found core generation uniqueness is only process-local, so persistent keys can collide after service restart; review also found a core callback may land after DB claim but before `_active`, creating a duplicate core+pipeline diagnosis, and an `unconfigured` incident model snapshot cannot resume after settings are fixed. Fix plan: boot UUID + current-boot claimed/active pipeline coalescing and crash handoff; placeholder snapshot repair on first valid resumed message.
 - Task 3 fix-round re-review PASS: per-run snapshots isolate validated Copilot content and are cleaned at all pipeline terminal paths. Task 3 complete at `e820ee2` plus required guide/test stabilization commits.
+
+## 最终复审与合入（收尾）
+
+- 最终独立复审（范围 `34ab248..be80179`，不看开发上下文的第三方复审）结论 **NEEDS-FIX**：1 条 P2（`/agent` 每轮消息与工具轨迹重复渲染，100% 复现）、9 条 P3。后端 incident 代际隔离、claim 失败收尾、晚到 FATAL 同 key 现场补充经代码走查 + 变异测试 + 新增测试三重核对，未发现可复现的重复会话或丢现场；契约与 docs/04–06 一致，三个生成物门与三个 smoke 全绿。
+- 修复提交 `3c9a874`：P2 修复（invalidate 完成后丢弃实时副本，仍挂待确认的那一轮除外，失败信息独立存放）；F7 claim 失败崩溃现场写入失败不再跳过诊断会话；F2 `docs/04` 补 `incident_error` / `incident_context_update`；F3 新增 `scripts/generate_task_types_fixture.py` 从后端 schema 生成任务类型 fixture；F4–F6 agent smoke 断言改为可达的诊断完成条件、精确工具集合与 SSE 事件顺序；另修复既有 flaky 用例（基线 6 次失败 5 次 → 连跑 8 次全绿）。
+- 每项修复都用变异验证过测试确实会变红：去掉 P2 修复 → agent 页测试失败；去掉 F7 的 try/except → 新回归用例抛出 `OSError`。
+- 合入：`git merge --no-ff m13-agent` 进 `refactor/v2`（合并提交 `46ca95a`），打 tag `v2-m13`。合并后复跑：`pytest` tests=1499 failures=0 errors=0 skipped=4；`agent_smoke` / `api_smoke` / `frontend_smoke` 均 `SMOKE OK`；`dump_openapi --check`、`generate_api_guide --check`、`generate_task_types_fixture --check`、`tsc`、vitest 16 文件 124 项、production build、`git diff --check` 全部退出码 0。
+- 遗留 F8–F12 与 M12 范围移除后的产物说明记入 docs/13 §8.7 / §8.8；`app.maa_core_path` 保持只读由用户拍板，记入 §8.1。
+- 未验证（补充实测，见 docs/13 §8.3）：真实 DeepSeek 凭据、真实 MaaCore/ADB 设备、真实浏览器尺寸与主题手工巡检、`pnpm install --frozen-lockfile`（本机用等价的 node/tsc/vitest/vite 直跑替代）。
