@@ -32,4 +32,7 @@ COPY --from=web /static ./static
 
 EXPOSE 8002
 
-CMD ["poetry", "run", "uvicorn", "maa_api.main:app", "--host", "0.0.0.0", "--port", "8002"]
+# --forwarded-allow-ips 默认只信任回环：容器通常由反向代理（tailscale serve、Caddy）
+# 从本机转发进来。设为 "*" 会让任何客户端都能伪造 X-Forwarded-For / X-Forwarded-Proto，
+# 既绕过按来源限流，也让 cookie 的 Secure 判定失真。多跳代理时按需追加地址。
+CMD ["poetry", "run", "uvicorn", "maa_api.main:app", "--host", "0.0.0.0", "--port", "8002", "--forwarded-allow-ips", "127.0.0.1"]

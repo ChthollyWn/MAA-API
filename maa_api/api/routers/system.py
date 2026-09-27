@@ -48,6 +48,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
 from maa_api.api.deps import COOKIE_NAME, auth_enabled, require_auth
+from maa_api.util.http import request_is_https
 from maa_api.api.errors import error_responses
 from maa_api.settings import get_settings
 
@@ -224,8 +225,14 @@ async def health(request: Request) -> HealthResponse:
     responses=error_responses("UNAUTHORIZED", "FORBIDDEN"),
     dependencies=[Depends(require_auth)],
 )
-def exchange_cookie(response: Response) -> None:
-    """下发 ``maa_token`` cookie；免鉴权模式下无秘密可发，直接 204。"""
+def exchange_cookie(request: Request, response: Response) -> None:
+    """下发 ``maa_token`` cookie；免鉴权模式下无秘密可发，直接 204。
+
+    ``Secure`` 按 ``X-Forwarded-Proto`` 判定而不是按连接本身：``tailscale serve``
+    是反向代理，浏览器到它是 HTTPS，而它到 uvicorn 是到 ``127.0.0.1`` 的明文 HTTP。
+    只看连接就会永远不加 ``Secure``（cookie 在 HTTPS 站点上失去保护）；反过来无条件
+    加 ``Secure`` 又会让局域网 HTTP 直连的场景拿不到 cookie、WebSocket 握手失败。
+    """
     token = get_settings().access_token
     if not token:
         return
@@ -235,7 +242,7 @@ def exchange_cookie(response: Response) -> None:
         path="/",
         httponly=True,
         samesite="lax",
-        secure=False,  # HTTPS 判定归 M15（docs/13 的 Tailscale Serve）
+        secure=request_is_https(request),
     )
 
 

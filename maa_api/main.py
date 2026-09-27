@@ -315,6 +315,39 @@ CORS_ORIGIN_REGEX = (
     r")(?::\d{1,5})?"
 )
 
+def effective_cors_origins(configured: list[str] | None = None) -> list[str]:
+    """默认白名单 + ``deployment.cors_origins`` 追加项（去重、保持顺序）。
+
+    部署到 ``tailscale serve`` 后前端来源是 ``https://<host>.<tailnet>.ts.net``，
+    它取决于 tailnet 名与主机名，只能由部署者配置，不能硬编码。
+    """
+    merged = list(CORS_ORIGINS)
+    for origin in configured or []:
+        candidate = origin.strip().rstrip("/")
+        if not candidate or candidate in merged:
+            continue
+        merged.append(candidate)
+    return merged
+
+
+def effective_cors_origin_regex(configured: str = "") -> str:
+    """局域网正则 + 可选的 ``deployment.cors_origin_regex``（两者取并集）。"""
+    extra = (configured or "").strip()
+    if not extra:
+        return CORS_ORIGIN_REGEX
+    return f"(?:{CORS_ORIGIN_REGEX})|(?:{extra})"
+
+
+def resolve_forwarded_allow_ips(value: str | None = None) -> str:
+    """uvicorn ``--forwarded-allow-ips`` 的取值。
+
+    缺省只信任回环：``*`` 会让任何客户端都能伪造 ``X-Forwarded-For`` 与
+    ``X-Forwarded-Proto``，既绕过按来源限流，也让 cookie 的 ``Secure`` 判定失真。
+    """
+    candidate = (value or "").strip()
+    return candidate or "127.0.0.1"
+
+
 #: 显式方法白名单（含 ``OPTIONS``：浏览器预检本身就是 OPTIONS）。
 CORS_METHODS: list[str] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
@@ -917,8 +950,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             broadcast=lambda message_type, data: ws_manager.broadcast(message_type, data),
             notify=notify_service,
             push=webpush_service,
-            # 只有「用户没开着页面」时才值得推送（docs/09 §13.1 第 2 步）。
-            has_active_client=lambda: bool(ws_manager.sessions),
+            # 只有「用户没在看页面」时才值得推送（docs/09 §13.1 第 2 步）。
+            # 用 has_visible_client 而不是「有没有连接」：后台标签页的 WebSocket
+            # 往往还活着，按连接判断会导致该推送的时候不推送。
+            has_active_client=ws_manager.has_visible_client,
             confirmation_timeout_seconds=current_settings.agent.confirmation_timeout_seconds,
             grant_confirmation_timeout_seconds=(
                 current_settings.agent.grant_confirmation_timeout_seconds
@@ -1258,11 +1293,14 @@ def create_app() -> FastAPI:
             response.headers["Cache-Control"] = "no-cache"
         return response
 
-    # CORS：显式白名单 + 局域网正则，保留 allow_credentials=True（docs/05 §5.1）。
+    # CORS：显式白名单 + 局域网正则 + 部署附加项，保留 allow_credentials=True
+    # （docs/05 §5.1）。部署项来自 settings，`tailscale serve` 的 *.ts.net 域名
+    # 只能在部署时确定。
+    cors_settings = get_settings().deployment
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
-        allow_origin_regex=CORS_ORIGIN_REGEX,
+        allow_origins=effective_cors_origins(cors_settings.cors_origins),
+        allow_origin_regex=effective_cors_origin_regex(cors_settings.cors_origin_regex),
         allow_credentials=True,
         allow_methods=CORS_METHODS,
         allow_headers=CORS_HEADERS,

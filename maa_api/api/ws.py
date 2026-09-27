@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import re
 import logging
 import time
 import uuid
@@ -82,6 +83,10 @@ class ClientSession:
     last_client_activity: float = field(default_factory=time.monotonic)
     last_server_ping: float | None = None
     missed_server_pings: int = 0
+    #: 页面是否可见。默认 True：刚连上时用户就在页面上。
+    #: 后台标签页/已安装 PWA 被切走时页面被冻结，WebSocket 往往还活着，
+    #: 所以「有连接」不等于「用户在看」，人工确认的推送必须按这个字段判断。
+    visible: bool = True
 
 
 class ConnectionManager:
@@ -106,6 +111,15 @@ class ConnectionManager:
     @property
     def sessions(self) -> tuple[ClientSession, ...]:
         return tuple(self._sessions.values())
+
+    def has_visible_client(self) -> bool:
+        """是否有**正在看着页面**的客户端。
+
+        人工确认的推送用它判断，而不是用「有没有连接」：移动端切到后台时页面被冻结，
+        WebSocket 常常仍然连着，此时按连接判断会认为「用户在看」而**不推送** ——
+        而用户恰恰看不到任何东西，确认只能等到超时自动拒绝。见 docs/09 §13.1。
+        """
+        return any(not session.closed and session.visible for session in self._sessions.values())
 
     def bind_hub(self, hub: LogHub | None) -> None:
         if hub is self._hub:
@@ -311,8 +325,30 @@ def _record_wire(record: LogRecord) -> dict[str, Any]:
     return {"id": record.id, **manager._record_data(record)}
 
 
+def _configured_origin_entries() -> tuple[list[str], str]:
+    """``deployment.cors_origins`` / ``deployment.cors_origin_regex``（读失败则空）。"""
+    try:
+        from maa_api.settings import get_settings
+
+        deployment = get_settings().deployment
+        return list(deployment.cors_origins), (deployment.cors_origin_regex or "")
+    except Exception:  # noqa: BLE001 - 配置读取失败不能把 WS 握手整个打挂
+        return [], ""
+
+
 def _trusted_cookie_origin(origin: str | None) -> bool:
-    """Accept configured local UI origins and RFC1918 LAN origins only."""
+    """Accept configured UI origins, RFC1918 LAN origins, and deployment extras.
+
+    ``tailscale serve`` 下前端来源是 ``https://<host>.<tailnet>.ts.net``，其中没有
+    可用的 IP 字面量，所以必须由 ``deployment.cors_origins`` /
+    ``deployment.cors_origin_regex`` 显式放行 —— 与 HTTP CORS 用的是同一份配置，
+    否则会出现「REST 能用、WebSocket 被 4403 拒绝」这种半通状态。
+    """
+    if not origin:
+        return False
+    # 合法 origin 不带结尾斜杠，但配置项里很常见；先归一化再校验，
+    # 否则会被下面的 `parsed.path` 检查判成「带路径」而拒掉。
+    origin = origin.rstrip("/")
     if not origin:
         return False
     try:
@@ -327,6 +363,11 @@ def _trusted_cookie_origin(origin: str | None) -> bool:
             or parsed.fragment
         ):
             return False
+        explicit, pattern = _configured_origin_entries()
+        if origin in {entry.strip().rstrip("/") for entry in explicit}:
+            return True
+        if pattern and re.fullmatch(pattern, origin):
+            return True
         if origin in {"http://localhost:8002", "http://127.0.0.1:8002"}:
             return True
         address = ipaddress.ip_address(parsed.hostname)
@@ -413,6 +454,12 @@ async def _handle_message(
         session.last_pong = time.monotonic()
         session.last_server_ping = None
         session.missed_server_pings = 0
+        return
+
+    if message_type == "visibility":
+        # 客户端报告页面是否可见（visibilitychange）。这是服务端判断「用户是不是
+        # 正在看」的唯一可靠来源：后台标签页的 WebSocket 可能仍然连着。
+        session.visible = bool(data.get("visible", True))
         return
 
     if message_type == "subscribe":

@@ -72,6 +72,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     # 这里保留元数据是为了让这张表覆盖全部 key，加 key 时不会漏掉归属与说明。
     "notify.vapid_private_key": dict(label="Web Push VAPID 私钥", group="通知", type="string", sensitive=True, hot_action="restart_required"),
     "notify.vapid_subject": dict(label="Web Push 联络邮箱", group="通知", type="string", hot_action="restart_required"),
+    # 只在有反向代理（tailscale serve / Caddy）时才有意义；改完必须重启 uvicorn。
+    "deployment.forwarded_allow_ips": dict(label="信任的代理来源", group="部署", type="string", hot_action="restart_required"),
+    "deployment.cors_origins": dict(label="附加浏览器来源白名单", group="部署", type="string[]", hot_action="restart_required"),
+    "deployment.cors_origin_regex": dict(label="附加来源正则", group="部署", type="string", hot_action="restart_required"),
 }
 
 #: 只从 ``config.yaml`` / 环境变量提供的 key 不出现在设置 API 里（见 settings.py 的说明）。

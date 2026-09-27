@@ -181,7 +181,11 @@ export class RealtimeClient {
     this.useQueryToken = false
     this.baseUrl = websocketUrl()
     this.cursor = this.readCursor()
-    if (typeof window !== 'undefined') window.addEventListener(UNAUTHORIZED_EVENT, this.onUnauthorizedEvent)
+    if (typeof window !== 'undefined') {
+      window.addEventListener(UNAUTHORIZED_EVENT, this.onUnauthorizedEvent)
+      // 页面切到后台/回到前台都要如实上报：服务端据此决定人工确认要不要推送。
+      document.addEventListener('visibilitychange', this.onVisibilityChange)
+    }
     this.openSocket()
   }
 
@@ -195,7 +199,10 @@ export class RealtimeClient {
     const socket = this.socket
     this.socket = null
     if (socket && socket.readyState < 2) socket.close(1000, 'client_disconnect')
-    if (typeof window !== 'undefined') window.removeEventListener(UNAUTHORIZED_EVENT, this.onUnauthorizedEvent)
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(UNAUTHORIZED_EVENT, this.onUnauthorizedEvent)
+      document.removeEventListener('visibilitychange', this.onVisibilityChange)
+    }
   }
 
   retryNow(): void {
@@ -304,6 +311,7 @@ export class RealtimeClient {
           last_seen_id: this.cursor,
         },
       })
+      this.reportVisibility()
       this.startLivenessTimers()
     }
 
@@ -380,6 +388,22 @@ export class RealtimeClient {
       useRealtimeStatusStore.getState().setStatus({ closeCode: event.code })
       this.scheduleReconnect()
     }
+  }
+
+  /**
+   * 把当前页面可见性告诉服务端。
+   *
+   * 服务端用它决定「人工确认要不要推送」：移动端切到后台时页面被冻结，WebSocket
+   * 往往仍然连着，只按连接判断会认为用户在看而**不推送**，确认只能等到超时自动
+   * 拒绝。见 docs/09 §13.1。
+   */
+  private reportVisibility(): void {
+    this.send({ type: 'visibility', data: { visible: this.getVisibility() === 'visible' } })
+  }
+
+  private readonly onVisibilityChange = (): void => {
+    if (this.stopped) return
+    this.reportVisibility()
   }
 
   private send(value: unknown): void {

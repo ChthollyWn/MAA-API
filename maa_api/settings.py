@@ -95,6 +95,7 @@ __all__ = [
     "REPO_ROOT",
     "SETTING_KEYS",
     "AdbSettings",
+    "DeploymentSettings",
     "NotifySettings",
     "Settings",
     "SettingsError",
@@ -144,6 +145,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     # 它们被 CONFIG_ONLY_SETTING_KEYS 排除在设置 API 之外。
     "notify.vapid_private_key": ("notify", "vapid_private_key"),
     "notify.vapid_subject": ("notify", "vapid_subject"),
+    "deployment.forwarded_allow_ips": ("deployment", "forwarded_allow_ips"),
+    "deployment.cors_origins": ("deployment", "cors_origins"),
+    "deployment.cors_origin_regex": ("deployment", "cors_origin_regex"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -236,6 +240,29 @@ class AgentSettings(BaseModel):
     auto_diagnose_failures: bool = True
 
 
+class DeploymentSettings(BaseModel):
+    """反向代理与浏览器来源白名单（M15，docs/09 §12.4）。
+
+    首版 HTTPS 入口是 ``tailscale serve``：它是反向代理，请求到达 FastAPI 时
+    ``X-Forwarded-Proto`` 为 ``https`` 而连接本身是到 ``127.0.0.1`` 的 HTTP。
+    因此需要两件事，缺一不可：
+
+    - 信任来自回环的代理头（``forwarded_allow_ips``，喂给 uvicorn 的
+      ``--forwarded-allow-ips``）。**默认只信任 127.0.0.1**：信任 ``*`` 等于允许
+      任何客户端伪造来源地址与协议，会同时绕过限流与 cookie 的 Secure 判定。
+    - 把 ``*.ts.net`` 域名加进 origin 白名单。该域名取决于 tailnet 名与主机名，
+      部署时才知道，所以必须是配置项而不是硬编码。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    forwarded_allow_ips: str = "127.0.0.1"
+    #: 追加的显式 origin（精确匹配），如 ``https://host.tailnet.ts.net``。
+    cors_origins: list[str] = Field(default_factory=list)
+    #: 追加的 origin 正则（整条匹配），用于 ``*.ts.net`` 这类通配域名。
+    cors_origin_regex: str = ""
+
+
 class NotifySettings(BaseModel):
     """Web Push 的 VAPID 密钥与联络地址（docs/09 §13.1）。
 
@@ -277,6 +304,7 @@ class Settings(BaseModel):
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)
+    deployment: DeploymentSettings = Field(default_factory=DeploymentSettings)
 
 
 def resolve_settings(
