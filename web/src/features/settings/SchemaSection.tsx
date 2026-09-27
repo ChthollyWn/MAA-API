@@ -18,7 +18,7 @@ import { asRecord, fieldDomId, initialInputValue, isFieldChanged, parseFieldValu
 import { SETTINGS_INDEX_PATH, fieldsForSection, groupFields, sectionPath, type SettingsSection } from './sections'
 import { SettingFieldRow } from './SettingFieldRow'
 import { settingsQueryOptions } from './use-settings'
-import { useUnsavedChangesGuard } from './use-unsaved-changes'
+import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes'
 
 type Action = 'save' | 'reset'
 
