@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 
 export function PwaUpdatePrompt() {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null)
@@ -56,14 +55,16 @@ export function PwaUpdatePrompt() {
   }
 
   return (
-    <Card className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-50 mx-auto max-w-lg border-primary/40 shadow-lg">
-      <CardContent className="flex items-center justify-between gap-3 p-3">
-        <p className="text-sm font-medium">MAA-API 有新版本可用</p>
-        <Button size="sm" onClick={update}>
-          <RefreshCw aria-hidden="true" />
-          立即更新
-        </Button>
-      </CardContent>
-    </Card>
+    <div
+      role="status"
+      className="fixed inset-x-3 z-50 mx-auto flex max-w-md items-center gap-3 rounded-xl border bg-surface-raised py-2.5 pl-4 pr-2.5 shadow-float lg:left-auto lg:right-6 lg:mx-0"
+      style={{ bottom: 'calc(var(--nav-offset) + var(--keyboard-inset) + 0.75rem)' }}
+    >
+      <p className="min-w-0 flex-1 text-sm font-medium">MAA-API 有新版本可用</p>
+      <Button size="sm" onClick={update}>
+        <RefreshCw aria-hidden="true" />
+        立即更新
+      </Button>
+    </div>
   )
 }

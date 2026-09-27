@@ -1,16 +1,18 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, KeyRound, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, KeyRound } from 'lucide-react'
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { BrandMark } from '@/components/layout/BrandMark'
+import { PwaSecurityNotice } from '@/components/pwa/PwaSecurityNotice'
 import { Button } from '@/components/ui/button'
+import { InlineAlert } from '@/components/ui/inline-alert'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PwaSecurityNotice } from '@/components/pwa/PwaSecurityNotice'
-import { keys } from '@/api/keys'
+import { ErrorState } from '@/components/ui/states'
+import { healthQueryOptions } from '@/lib/health'
 import { useAuth } from '@/stores/auth'
 
 export const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
@@ -28,21 +30,27 @@ function safeReturnTo(value: string | null): string {
   return value
 }
 
+function LoginFrame({ children }: { children: ReactNode }) {
+  return (
+    <main className="flex min-h-dvh flex-col items-center justify-center bg-background px-5 pt-safe pb-safe">
+      <div className="w-full max-w-sm py-10">
+        <div className="mb-8 flex flex-col items-center gap-3 text-center">
+          <BrandMark className="size-14 shadow-float" />
+          <p className="text-[0.9375rem] font-semibold tracking-tight">MAA-API</p>
+        </div>
+        {children}
+      </div>
+    </main>
+  )
+}
+
 export default function LoginPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const token = useAuth((state) => state.token)
   const setToken = useAuth((state) => state.setToken)
-  const health = useQuery({
-    queryKey: keys.system.health(),
-    queryFn: async () => {
-      const { data, error, response } = await api.GET('/api/system/health')
-      if (error) throw toApiError(error, response)
-      return data
-    },
-    staleTime: 30_000,
-  })
+  const health = useQuery(healthQueryOptions)
   const storedTokenCheck = useQuery({
     queryKey: COOKIE_AUTH_KEY(token ?? ''),
     queryFn: () => exchangeCookie(token!),
@@ -99,77 +107,76 @@ export default function LoginPage() {
 
   if (health.isPending) {
     return (
-      <main className="grid min-h-dvh place-items-center px-4 pt-safe pb-safe">
-        <Card className="w-full max-w-sm"><CardContent className="space-y-4 p-5"><Skeleton className="h-6 w-36" /><Skeleton className="h-11 w-full" /><Skeleton className="h-11 w-full" /></CardContent></Card>
-      </main>
+      <LoginFrame>
+        <div className="space-y-4 rounded-2xl border bg-card p-6 shadow-card">
+          <Skeleton className="h-6 w-36" />
+          <Skeleton className="h-11 w-full" />
+          <Skeleton className="h-11 w-full" />
+        </div>
+      </LoginFrame>
     )
   }
 
   if (health.error) {
     return (
-      <main className="grid min-h-dvh place-items-center px-4 pt-safe pb-safe">
-        <Card className="w-full max-w-sm">
-          <CardHeader><CardTitle>无法连接到 MAA-API</CardTitle><CardDescription>请检查服务是否运行后重试。</CardDescription></CardHeader>
-          <CardContent><Button className="w-full" variant="outline" onClick={() => void health.refetch()}>重试连接</Button></CardContent>
-        </Card>
-      </main>
+      <LoginFrame>
+        <div className="rounded-2xl border bg-card shadow-card">
+          <ErrorState title="无法连接到 MAA-API" message="请检查服务是否运行后重试。" onRetry={() => void health.refetch()} retryLabel="重试连接" retrying={health.isFetching} />
+        </div>
+      </LoginFrame>
     )
   }
 
   if (health.data?.auth_enabled === false || storedTokenCheck.data) return null
 
   return (
-    <main className="grid min-h-dvh place-items-center px-4 pt-safe pb-safe">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="space-y-3">
-          <div className="grid size-11 place-items-center rounded-xl bg-primary/15 text-primary"><ShieldCheck aria-hidden="true" /></div>
-          <div className="space-y-1.5">
-            <CardTitle className="text-xl">连接到 MAA-API</CardTitle>
-            <CardDescription>输入服务访问 token 以继续。token 仅保存在此设备。</CardDescription>
-          </div>
-        </CardHeader>
-        <PwaSecurityNotice className="mx-4 mb-4" />
-        <CardContent>
-          <form className="space-y-4" onSubmit={(event) => void submit(event)}>
-            <div className="space-y-2">
-              <Label htmlFor="access-token">访问 token</Label>
-              <div className="relative">
-                <KeyRound aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="access-token"
-                  name="token"
-                  type={showToken ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  value={value}
-                  onChange={(event) => setValue(event.target.value)}
-                  className="pr-12 pl-10"
-                  placeholder="输入访问 token"
-                  aria-describedby={visibleError ? 'login-error' : undefined}
-                  required
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0"
-                  aria-label={showToken ? '隐藏 token' : '显示 token'}
-                  onClick={() => setShowToken((shown) => !shown)}
-                >
-                  {showToken ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-                </Button>
-              </div>
+    <LoginFrame>
+      <div className="rounded-2xl border bg-card p-6 shadow-card">
+        <div className="space-y-1.5">
+          <h1 className="text-title font-semibold tracking-tight">连接到 MAA-API</h1>
+          <p className="text-sm text-muted-foreground">输入服务访问 token 以继续。token 仅保存在此设备。</p>
+        </div>
+        <form className="mt-6 space-y-4" onSubmit={(event) => void submit(event)}>
+          <div className="space-y-2">
+            <Label htmlFor="access-token">访问 token</Label>
+            <div className="relative">
+              <KeyRound aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="access-token"
+                name="token"
+                type={showToken ? 'text' : 'password'}
+                autoComplete="current-password"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                className="pl-10 pr-12 font-mono placeholder:font-sans"
+                placeholder="输入访问 token"
+                aria-describedby={visibleError ? 'login-error' : undefined}
+                aria-invalid={visibleError ? true : undefined}
+                required
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-0 top-0 text-muted-foreground"
+                aria-label={showToken ? '隐藏 token' : '显示 token'}
+                onClick={() => setShowToken((shown) => !shown)}
+              >
+                {showToken ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+              </Button>
             </div>
-            {visibleError ? <p id="login-error" role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{visibleError}</p> : null}
-            <Button className="w-full" disabled={!value.trim() || submitting} type="submit">
-              {submitting ? '正在验证…' : '登录'}
-            </Button>
-          </form>
-          <p className="mt-5 text-center text-xs text-muted-foreground">认证后会创建用于实时连接的安全 Cookie。</p>
-        </CardContent>
-      </Card>
+          </div>
+          {visibleError ? <div id="login-error"><InlineAlert tone="danger" role="alert">{visibleError}</InlineAlert></div> : null}
+          <Button className="w-full" size="lg" disabled={!value.trim()} loading={submitting} type="submit">
+            {submitting ? '正在验证…' : '登录'}
+          </Button>
+        </form>
+        <p className="mt-5 text-center text-footnote text-muted-foreground">认证后会创建用于实时连接的安全 Cookie。</p>
+        <PwaSecurityNotice className="mt-5" />
+      </div>
       <Link to="/" className="sr-only">返回首页</Link>
-    </main>
+    </LoginFrame>
   )
 }
