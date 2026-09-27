@@ -1,35 +1,30 @@
 import { NavLink } from 'react-router'
-import { Bot, Gauge, Grid2X2, ListTodo, ScrollText } from 'lucide-react'
+import { primaryNav } from '@/components/layout/nav'
 import { cn } from '@/lib/utils'
 
-const tabs = [
-  { to: '/', label: '首页', Icon: Gauge, end: true },
-  { to: '/tasks', label: '任务', Icon: ListTodo },
-  { to: '/logs', label: '日志', Icon: ScrollText },
-  { to: '/agent', label: 'Agent', Icon: Bot },
-  { to: '/more', label: '更多', Icon: Grid2X2 },
-] as const
-
+/** 手机与平板的底部主导航；虚拟键盘弹出时由外壳隐藏。 */
 export function BottomTabBar() {
   return (
-    <nav aria-label="主导航" className="fixed inset-x-0 bottom-0 z-40 h-[calc(3.5rem+env(safe-area-inset-bottom,0px))] border-t bg-background/95 pb-safe px-safe backdrop-blur supports-[backdrop-filter]:bg-background/85">
-      <div className="mx-auto grid h-14 max-w-3xl grid-cols-5">
-        {tabs.map(({ to, label, Icon, ...linkProps }) => (
+    <nav
+      aria-label="主导航"
+      className="fixed inset-x-0 bottom-0 z-40 border-t bg-surface/90 pb-safe px-safe backdrop-blur-xl supports-[backdrop-filter]:bg-surface/75"
+    >
+      <div className="mx-auto grid h-[var(--tabbar-height)] max-w-xl grid-cols-5">
+        {primaryNav.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
-            end={'end' in linkProps ? linkProps.end : false}
-            aria-label={label}
+            end={end}
             className={({ isActive }) =>
               cn(
-                'mx-0.5 flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg text-[10px] font-medium leading-none text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                isActive && 'text-primary',
+                'relative flex flex-col items-center justify-center gap-1 text-[0.6875rem] font-medium leading-none text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                isActive && 'text-primary-text',
               )
             }
           >
             {({ isActive }) => (
               <>
-                <Icon aria-hidden="true" className={cn('size-5', isActive && 'stroke-[2.4]')} />
+                <Icon aria-hidden="true" className="size-[1.375rem]" strokeWidth={isActive ? 2.2 : 1.75} />
                 <span>{label}</span>
               </>
             )}

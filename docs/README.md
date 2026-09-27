@@ -1,6 +1,6 @@
 # MAA-API 重构方案
 
-本目录是 MAA-API 全面重构的执行方案。**M0–M11、M13、M14、M15 已完成并合并进 `refactor/v2`**（M12 的 MCP Server 按 [13 §8.4](./13-决策记录.md) 移出范围，不交付）。
+本目录是 MAA-API 全面重构的执行方案。**M0–M11、M13、M14、M15、M16 已完成并合并进 `refactor/v2`**（M12 的 MCP Server 按 [13 §8.4](./13-决策记录.md) 移出范围，不交付）。
 
 内核仍然是 [MaaAssistantArknights](https://github.com/MaaAssistantArknights/MaaAssistantArknights)（本地为 v6.17.x），重构范围覆盖后端架构、前端、热更新、开放 API 与新增的 Agent 模块。
 
@@ -39,7 +39,7 @@
 | 设备优先级 | **移动端优先**，桌面自适应 |
 | 应用形态 | Web + PWA（添加到主屏、资源缓存、推送通知） |
 | HTTPS 入口 | **首版即上 Tailscale Serve**，PWA 全部能力在首版可用。非安全上下文的分级降级仍要实现，作为客户端未连通时的兜底 |
-| 导航结构 | 底部 Tab 栏，主入口 4-5 个，次级页面收进"更多" |
+| 导航结构 | 手机与平板用底部 Tab（首页、任务、日志、Agent、更多），宽度 ≥1024px 改为左侧栏；定时任务并入任务区，次级页面收进「更多」。**M16 实施，见 [13-决策记录 §8.12](./13-决策记录.md)** |
 | 旧页面 | `static/index.html`、`static/daily.html`、`static/js/app.js`、`static/css/style.css` 全部废弃 |
 
 ### 需求 2 · 实时日志

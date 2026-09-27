@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 
 export function PwaUpdatePrompt() {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null)
+  const [dismissed, setDismissed] = useState(false)
   const refreshing = useRef(false)
 
   useEffect(() => {
@@ -48,22 +48,25 @@ export function PwaUpdatePrompt() {
     }
   }, [])
 
-  if (!waitingWorker) return null
+  if (!waitingWorker || dismissed) return null
 
   const update = () => {
     refreshing.current = true
     waitingWorker.postMessage({ type: 'SKIP_WAITING' })
   }
 
+  // 放在顶部：底部是 Tab 栏与页面主操作栏，提示条不能挡住「开始执行」「保存」。
   return (
-    <Card className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-50 mx-auto max-w-lg border-primary/40 shadow-lg">
-      <CardContent className="flex items-center justify-between gap-3 p-3">
-        <p className="text-sm font-medium">MAA-API 有新版本可用</p>
-        <Button size="sm" onClick={update}>
-          <RefreshCw aria-hidden="true" />
-          立即更新
-        </Button>
-      </CardContent>
-    </Card>
+    <div
+      role="status"
+      className="fixed inset-x-3 top-[calc(env(safe-area-inset-top,0px)+0.5rem)] z-50 mx-auto flex max-w-md items-center gap-2 rounded-xl border bg-surface-raised py-2 pl-4 pr-2 shadow-float lg:left-auto lg:right-6 lg:top-4 lg:mx-0"
+    >
+      <p className="min-w-0 flex-1 text-sm font-medium">MAA-API 有新版本可用</p>
+      <Button size="sm" variant="ghost" onClick={() => setDismissed(true)}>稍后</Button>
+      <Button size="sm" onClick={update}>
+        <RefreshCw aria-hidden="true" />
+        立即更新
+      </Button>
+    </div>
   )
 }

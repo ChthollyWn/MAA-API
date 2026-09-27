@@ -1,17 +1,41 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, LoaderCircle, Wifi, WifiOff } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ScrollText, SearchX } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router'
-import { PageHeader } from '@/components/layout/PageHeader'
-import { Badge } from '@/components/ui/badge'
+import { Page } from '@/components/layout/Page'
+import { StatusDot, type StatusTone } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { LogFilters, type LogSourceFilter } from '@/features/logs/LogFilters'
+import { InlineAlert } from '@/components/ui/inline-alert'
+import { EmptyState, ErrorState } from '@/components/ui/states'
+import { LogFilterSheet } from '@/features/logs/LogFilterSheet'
 import { LogList } from '@/features/logs/LogList'
-import { useLogHistory, type LogLevelFilter } from '@/features/logs/use-log-history'
-import { LAST_SEEN_ID_STORAGE_KEY, realtimeClient } from '@/realtime/client'
-import type { LogRecord } from '@/realtime/events'
+import { LogToolbar } from '@/features/logs/LogToolbar'
+import {
+  NO_FILTERS,
+  asEpoch,
+  filterConditions,
+  removeCondition,
+  sourceFromPath,
+  sourcePath,
+  visibleRecords,
+  type LogFilters,
+  type LogSourceFilter,
+} from '@/features/logs/filters'
+import { useDebouncedValue } from '@/features/logs/use-debounced-value'
+import { useLogHistory } from '@/features/logs/use-log-history'
+import { LAST_SEEN_ID_STORAGE_KEY, realtimeClient, type RealtimeConnectionState } from '@/realtime/client'
 import { useRealtimeStatus } from '@/realtime/RealtimeProvider'
 import { useLogBuffer } from '@/stores/log-buffer'
+
+const KEYWORD_QUERY_DELAY_MS = 300
+/** 外壳 main 的底部留白是 --nav-offset + 1.5rem；页面刚好占满其余高度，只让列表滚动。 */
+const FULL_HEIGHT_CLASS = 'h-[calc(100dvh_-_var(--nav-offset)_-_1.5rem)] min-h-[28rem]'
+
+const connectionText: Record<RealtimeConnectionState, { label: string; tone: StatusTone }> = {
+  CONNECTED: { label: '实时', tone: 'success' },
+  CONNECTING: { label: '连接中', tone: 'warning' },
+  RECONNECTING: { label: '重连中', tone: 'warning' },
+  OFFLINE: { label: '离线', tone: 'danger' },
+}
 
 function readLastSeenId(): number {
   try {
@@ -22,33 +46,16 @@ function readLastSeenId(): number {
   }
 }
 
-function sourceFromPath(pathname: string): LogSourceFilter {
-  const source = pathname.replace(/\/+$/, '').split('/').at(-1)
-  return source === 'task' || source === 'service' || source === 'core' ? source : 'all'
-}
-
-function asEpoch(value: string): number | undefined {
-  if (!value) return undefined
-  const timestamp = new Date(value).getTime()
-  return Number.isFinite(timestamp) ? timestamp / 1000 : undefined
-}
-
-function matchesLevels(record: LogRecord, levels: LogLevelFilter[]): boolean {
-  if (levels.length === 0) return true
-  const level = String(record.level ?? 'INFO').toUpperCase()
-  return levels.includes((level === 'WARN' ? 'WARNING' : level) as LogLevelFilter)
-}
-
 export default function LogsPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const source = sourceFromPath(location.pathname)
   const realtime = useRealtimeStatus()
   const bySource = useLogBuffer((state) => state.bySource)
-  const [levels, setLevels] = useState<LogLevelFilter[]>([])
+  const [filters, setFilters] = useState<LogFilters>(NO_FILTERS)
   const [keyword, setKeyword] = useState('')
-  const [since, setSince] = useState('')
-  const [until, setUntil] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const queryKeyword = useDebouncedValue(keyword, KEYWORD_QUERY_DELAY_MS)
   const lastSeenIdRef = useRef<number | null>(null)
   if (lastSeenIdRef.current === null) lastSeenIdRef.current = readLastSeenId()
 
@@ -57,119 +64,110 @@ export default function LogsPage() {
     return () => realtimeClient.setLogSubscription(false)
   }, [])
 
-  const filters = useMemo(() => ({
-    levels,
-    keyword,
-    since: asEpoch(since),
-    until: asEpoch(until),
-  }), [keyword, levels, since, until])
-  const history = useLogHistory(filters, lastSeenIdRef.current)
+  const { levels, range } = filters
+  const since = asEpoch(range.since)
+  const until = asEpoch(range.until)
+  const historyFilters = useMemo(
+    () => ({ levels, keyword: queryKeyword, since, until }),
+    [levels, queryKeyword, since, until],
+  )
+  const history = useLogHistory(historyFilters, lastSeenIdRef.current)
   const liveRecords = useMemo(() => Object.values(bySource).flat(), [bySource])
-  const records = useMemo(() => {
-    const byId = new Map<number, LogRecord>()
-    for (const record of history.records) byId.set(record.id, record)
-    for (const record of liveRecords) byId.set(record.id, record)
-    const query = keyword.trim().toLocaleLowerCase()
-    return [...byId.values()]
-      .filter((record) => source === 'all' || record.source === source)
-      .filter((record) => matchesLevels(record, levels))
-      .filter((record) => !query || String(record.content ?? '').toLocaleLowerCase().includes(query))
-      .filter((record) => filters.since === undefined || (typeof record.ts === 'number' && record.ts >= filters.since))
-      .filter((record) => filters.until === undefined || (typeof record.ts === 'number' && record.ts <= filters.until))
-      .sort((left, right) => left.id - right.id)
-  }, [filters.since, filters.until, history.records, keyword, levels, liveRecords, source])
+  const records = useMemo(
+    () => visibleRecords(history.records, liveRecords, { source, levels, keyword, since, until }),
+    [history.records, keyword, levels, liveRecords, since, source, until],
+  )
+  const conditions = useMemo(() => filterConditions(filters), [filters])
+  const narrowed = conditions.length > 0 || keyword.trim() !== ''
+  // 筛选或来源一变就重建列表：回到最新一条，不把筛选结果的变化误算成「新日志」。
+  const viewKey = JSON.stringify([source, levels, keyword.trim(), range.since, range.until])
 
-  const changeSource = (nextSource: LogSourceFilter) => {
-    navigate(nextSource === 'all' ? '/logs' : `/logs/${nextSource}`)
-  }
-
-  const connectionLabel = realtime.status === 'CONNECTED'
-    ? '实时连接正常'
-    : realtime.status === 'OFFLINE'
-      ? '实时离线'
-      : realtime.status === 'RECONNECTING'
-        ? `正在重连（第 ${realtime.reconnectAttempt} 次）`
-        : '正在连接实时服务'
-  const connectionVariant = realtime.status === 'CONNECTED'
-    ? 'positive'
-    : realtime.status === 'OFFLINE'
-      ? 'destructive'
-      : 'warning'
+  const changeSource = (next: LogSourceFilter) => navigate(sourcePath(next))
+  const clearFilters = useCallback(() => setFilters(NO_FILTERS), [])
+  const connection = connectionText[realtime.status]
 
   return (
-    <>
-      <PageHeader title="日志" description="历史日志与实时消息" />
-      <Card className="mt-4 overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-2">
-            <Badge variant={connectionVariant}>
-              {realtime.status === 'CONNECTED'
-                ? <Wifi aria-hidden="true" className="mr-1 size-3" />
-                : <WifiOff aria-hidden="true" className="mr-1 size-3" />}
-              {connectionLabel}
-            </Badge>
-            <span className="text-xs text-muted-foreground">{records.length.toLocaleString()} 条匹配日志</span>
-          </div>
-          {realtime.error ? <span className="text-xs text-negative">{realtime.error}</span> : null}
-        </div>
-
-        <LogFilters
+    <Page
+      title="日志"
+      width="wide"
+      className={FULL_HEIGHT_CLASS}
+      contentClassName="flex min-h-0 flex-col gap-3 pt-3"
+      actions={(
+        <span className="mr-2 flex items-center gap-1.5 whitespace-nowrap text-footnote text-muted-foreground tabular-nums">
+          <StatusDot tone={connection.tone} />
+          <span>{connection.label}</span>
+          <span aria-hidden="true">·</span>
+          <span>{records.length.toLocaleString()} 条</span>
+        </span>
+      )}
+      toolbar={(
+        <LogToolbar
           source={source}
           onSourceChange={changeSource}
-          levels={levels}
-          onLevelsChange={setLevels}
           keyword={keyword}
           onKeywordChange={setKeyword}
-          since={since}
-          onSinceChange={setSince}
-          until={until}
-          onUntilChange={setUntil}
+          conditions={conditions}
+          onOpenFilters={() => setFiltersOpen(true)}
+          onRemoveCondition={(id) => setFilters((current) => removeCondition(current, id))}
+          onClearConditions={clearFilters}
         />
+      )}
+    >
+      {history.error && records.length > 0 ? (
+        <InlineAlert tone="danger" action={<Button variant="outline" size="sm" onClick={history.retry}>重试</Button>}>
+          历史日志加载失败：{history.error}
+        </InlineAlert>
+      ) : null}
 
-        {history.error ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/5 px-4 py-3" role="alert">
-            <p className="flex items-center gap-2 text-sm text-destructive"><AlertTriangle className="size-4 shrink-0" aria-hidden="true" />历史日志加载失败：{history.error}</p>
-            <Button variant="outline" size="sm" onClick={history.retry}>重试</Button>
-          </div>
-        ) : null}
-
-        {realtime.truncated && !history.backfillResolved ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-3" role="alert">
-            <p className="text-sm">断线期间的日志超出实时缓冲，可能存在未加载的历史日志。</p>
+      {realtime.truncated && !history.backfillResolved ? (
+        <InlineAlert
+          tone="warning"
+          action={(
             <Button
               variant="outline"
               size="sm"
-              disabled={history.backfillLoading}
+              loading={history.backfillLoading}
               onClick={() => void history.loadTruncatedHistory(liveRecords)}
             >
-              {history.backfillLoading ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : null}
               {history.backfillLoading ? '正在补齐' : '加载缺失历史日志'}
             </Button>
-          </div>
-        ) : realtime.truncated && history.backfillResolved ? (
-          <div className="border-b border-positive/30 bg-positive/5 px-4 py-2 text-sm text-positive" role="status">
-            已从历史记录补齐 {history.recoveredCount.toLocaleString()} 条缺失日志
-          </div>
-        ) : null}
-        {history.backfillError ? (
-          <p className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-sm text-destructive" role="alert">
-            历史补齐失败：{history.backfillError}
-          </p>
-        ) : null}
-
-        <CardContent className="p-0">
-          <LogList
-            records={records}
-            loading={history.loading}
-            hasMore={history.hasMore}
-            loadingMore={history.loadingMore}
-            onLoadOlder={history.loadOlder}
-          />
-        </CardContent>
-      </Card>
-      {realtime.status === 'OFFLINE' && !history.error ? (
-        <p className="mt-3 text-xs text-muted-foreground" role="status">目前显示已加载的历史记录；重新连接后实时日志会继续追加。</p>
+          )}
+        >
+          断线期间的日志超出实时缓冲，可能存在未加载的历史日志。
+        </InlineAlert>
+      ) : realtime.truncated && history.backfillResolved ? (
+        <InlineAlert tone="success">已从历史记录补齐 {history.recoveredCount.toLocaleString()} 条缺失日志</InlineAlert>
       ) : null}
-    </>
+      {history.backfillError ? <InlineAlert tone="danger">历史补齐失败：{history.backfillError}</InlineAlert> : null}
+
+      {realtime.status === 'OFFLINE' && !history.error ? (
+        <InlineAlert tone="info">
+          目前显示已加载的历史记录；重新连接后实时日志会继续追加。
+          {realtime.error ? <span className="mt-0.5 block text-footnote text-muted-foreground">连接错误：{realtime.error}</span> : null}
+        </InlineAlert>
+      ) : null}
+
+      <LogList
+        key={viewKey}
+        className="flex-1"
+        records={records}
+        loading={history.loading}
+        hasMore={history.hasMore}
+        loadingMore={history.loadingMore}
+        onLoadOlder={history.loadOlder}
+        placeholder={history.error ? (
+          <ErrorState message={`历史日志加载失败：${history.error}`} onRetry={history.retry} />
+        ) : (
+          <EmptyState
+            icon={narrowed ? SearchX : ScrollText}
+            title="暂无匹配的历史或实时日志"
+            description={narrowed ? '换个关键词或放宽筛选条件试试。' : '新的日志会实时出现在这里。'}
+            action={conditions.length ? <Button variant="outline" size="sm" onClick={clearFilters}>清除筛选</Button> : null}
+          />
+        )}
+      />
+
+      <LogFilterSheet open={filtersOpen} onOpenChange={setFiltersOpen} filters={filters} onFiltersChange={setFilters} />
+    </Page>
   )
 }

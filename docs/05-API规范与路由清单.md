@@ -356,7 +356,7 @@ CORS 使用显式 loopback 白名单（`http://localhost:8002`、`http://127.0.0
 
 `access_token` 为空或未配置时**全部端点免鉴权**，这是对现有行为的完整保留（现有 `token_auth` 就是 `if access_token and access_token != token` 才拒绝）。本项目主要跑在家庭局域网，强制鉴权会显著劣化初次使用体验。
 
-但要把这个状态说清楚，不能让它静默：启动日志打印一行醒目的 `未配置 access_token，API 处于免鉴权模式`；`GET /api/system/health` 的响应体带 `"auth_enabled": false`；前端读到该字段后在设置页顶部常驻一条警告，并在设置页提供一键生成随机 token 的入口。
+但要把这个状态说清楚，不能让它静默：启动日志打印一行醒目的 `未配置 access_token，API 处于免鉴权模式`；`GET /api/system/health` 的响应体带 `"auth_enabled": false`；前端读到该字段后跳过登录页直接进入应用。原方案还要求在设置页顶部常驻一条警告、并提供一键生成随机 token 的入口，这两项尚未实现（见 [13 §8.12](./13-决策记录.md)）。
 
 ### 5.3 豁免鉴权的端点
 
@@ -385,7 +385,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 | close code | 含义 | 前端处置 |
 |---|---|---|
-| `4401` | token 缺失或无效 | 跳到设置页要求填 token，不重连 |
+| `4401` | token 缺失或无效 | 清除本机 token 并跳到登录页（`/login?returnTo=…`）重新填写，不重连 |
 | `4403` | 仅凭 cookie 鉴权但来源不可信 | 不重连 |
 | `4429` | 连接数超限（默认 8 条） | 指数退避后重连 |
 | `1012` | 服务端重启 | 立即重连 |

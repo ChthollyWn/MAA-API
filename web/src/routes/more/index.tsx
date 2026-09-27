@@ -1,83 +1,112 @@
-import { ArrowRight, CalendarClock, ClipboardList, CodeXml, Settings2, Upload } from 'lucide-react'
-import { Link } from 'react-router'
-import { PageHeader } from '@/components/layout/PageHeader'
-import { Card, CardContent } from '@/components/ui/card'
+import { useState } from 'react'
+import { useNavigate } from 'react-router'
+import { useQuery } from '@tanstack/react-query'
+import { LogOut, Monitor, Moon, Sun } from 'lucide-react'
+import { api } from '@/api/client'
+import { toApiError } from '@/api/errors'
+import { secondaryNav } from '@/components/layout/nav'
+import { Page } from '@/components/layout/Page'
+import { PwaSecurityNotice } from '@/components/pwa/PwaSecurityNotice'
+import { StatusDot } from '@/components/ui/badge'
+import { useConfirm } from '@/components/ui/confirm-dialog'
+import { InlineAlert } from '@/components/ui/inline-alert'
+import { ListGroup, ListItem } from '@/components/ui/list'
+import { SegmentedControl } from '@/components/ui/segmented-control'
+import { healthQueryOptions } from '@/lib/health'
+import { useRealtimeStatus } from '@/realtime/RealtimeProvider'
+import { useAuth } from '@/stores/auth'
+import { useUiStore, type ThemePreference } from '@/stores/ui'
 
-const groups = [
-  {
-    title: '运行与维护',
-    items: [
-      {
-        to: '/more/api-console',
-        title: 'API 调试台',
-        description: '从 OpenAPI 契约选接口、编辑请求并查看服务端日志。',
-        Icon: CodeXml,
-      },
-      {
-        to: '/more/updates',
-        title: '热更新',
-        description: '检查并管理内核、活动资源与游戏更新。',
-        Icon: Upload,
-      },
-      {
-        to: '/more/schedules',
-        title: '定时任务',
-        description: '按星期与时间配置可重复运行的任务组合。',
-        Icon: CalendarClock,
-      },
-      {
-        to: '/more/audit',
-        title: 'Agent 审计',
-        description: '筛选工具调用、确认结果，并查看关联流水线与日志。',
-        Icon: ClipboardList,
-      },
-    ],
-  },
-  {
-    title: '管理',
-    items: [
-      {
-        to: '/more/settings',
-        title: '设置',
-        description: '配置设备、账号默认值、通知通道与服务接入。',
-        Icon: Settings2,
-      },
-    ],
-  },
-] as const
+const themeOptions = [
+  { value: 'light', label: '浅色', icon: Sun },
+  { value: 'dark', label: '深色', icon: Moon },
+  { value: 'system', label: '跟随系统', icon: Monitor },
+] as const satisfies readonly { value: ThemePreference; label: string; icon: typeof Sun }[]
+
+const realtimeText = {
+  CONNECTED: { label: '已连接', tone: 'success' },
+  CONNECTING: { label: '正在连接', tone: 'warning' },
+  RECONNECTING: { label: '重连中', tone: 'warning' },
+  OFFLINE: { label: '已断开', tone: 'danger' },
+} as const
+
+const operations = secondaryNav.filter((item) => item.to !== '/more/settings')
+const system = secondaryNav.filter((item) => item.to === '/more/settings')
 
 export default function MorePage() {
+  const navigate = useNavigate()
+  const token = useAuth((state) => state.token)
+  const clearToken = useAuth((state) => state.clearToken)
+  const theme = useUiStore((state) => state.theme)
+  const setTheme = useUiStore((state) => state.setTheme)
+  const realtime = useRealtimeStatus()
+  const health = useQuery(healthQueryOptions)
+  const [confirm, confirmElement] = useConfirm()
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  const logout = async () => {
+    if (!token || loggingOut) return
+    const ok = await confirm({
+      title: '退出登录？',
+      description: '会清除此设备保存的访问 token，需要重新输入才能继续使用。',
+      confirmText: '退出登录',
+      tone: 'danger',
+    })
+    if (!ok) return
+    setLogoutError(null)
+    setLoggingOut(true)
+    const { error, response } = await api.DELETE('/api/system/auth/cookie')
+    setLoggingOut(false)
+    if (error) {
+      const apiError = toApiError(error, response)
+      setLogoutError(apiError.status === 403 ? '服务拒绝了登出请求，请检查凭据后重试。' : apiError.message)
+      return
+    }
+    clearToken()
+    navigate('/login', { replace: true })
+  }
+
+  const realtimeState = realtimeText[realtime.status]
+
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
-      <PageHeader title="更多" description="维护服务与管理常用配置" />
-      {groups.map(({ title, items }) => (
-        <section key={title} className="space-y-2" aria-labelledby={`more-${title}`}>
-          <h2 id={`more-${title}`} className="px-1 text-sm font-semibold text-muted-foreground">{title}</h2>
-          <Card>
-            <CardContent className="p-0">
-              <ul className="divide-y">
-                {items.map(({ to, title: itemTitle, description, Icon }) => (
-                  <li key={to}>
-                    <Link
-                      to={to}
-                      className="flex min-h-16 items-center gap-3 rounded-xl p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    >
-                      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-foreground">
-                        <Icon aria-hidden="true" className="size-5" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-medium">{itemTitle}</span>
-                        <span className="mt-1 block text-sm text-muted-foreground">{description}</span>
-                      </span>
-                      <ArrowRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        </section>
-      ))}
-    </div>
+    <Page title="更多" width="narrow">
+      <div className="space-y-6 pb-4">
+        <ListGroup title="运维">
+          {operations.map(({ to, label, icon, description }) => (
+            <ListItem key={to} to={to} icon={icon} iconTone="primary" title={label} description={description} />
+          ))}
+        </ListGroup>
+
+        <ListGroup title="系统">
+          {system.map(({ to, label, icon, description }) => (
+            <ListItem key={to} to={to} icon={icon} iconTone="primary" title={label} description={description} />
+          ))}
+        </ListGroup>
+
+        <ListGroup title="外观">
+          <div className="p-3">
+            <SegmentedControl ariaLabel="外观" value={theme} onValueChange={setTheme} options={themeOptions} fullWidth />
+          </div>
+        </ListGroup>
+
+        {token ? (
+          <ListGroup title="账户">
+            <ListItem icon={LogOut} iconTone="danger" tone="danger" title={loggingOut ? '正在退出…' : '退出登录'} chevron={false} onClick={() => void logout()} disabled={loggingOut} />
+          </ListGroup>
+        ) : null}
+        {logoutError ? <InlineAlert tone="danger">{logoutError}</InlineAlert> : null}
+
+        <ListGroup title="关于">
+          <ListItem title="服务版本" trailing={<span className="font-mono tabular-nums">{health.data?.version ?? '—'}</span>} />
+          <ListItem
+            title="实时连接"
+            trailing={<span className="inline-flex items-center gap-2"><StatusDot tone={realtimeState.tone} />{realtimeState.label}</span>}
+          />
+        </ListGroup>
+        <PwaSecurityNotice />
+      </div>
+      {confirmElement}
+    </Page>
   )
 }

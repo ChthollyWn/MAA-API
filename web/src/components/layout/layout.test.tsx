@@ -1,16 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppShell } from '@/components/layout/AppShell'
 import LoginPage from '@/routes/login'
 import { useAuth } from '@/stores/auth'
-import { THEME_STORAGE_KEY, useUiStore } from '@/stores/ui'
 
 function LocationProbe() {
   const location = useLocation()
   return <output data-testid="location">{location.pathname}{location.search}</output>
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+}
+
+function stubMedia(matches: (query: string) => boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: matches(query),
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }))
 }
 
 function renderWithRouter(element: React.ReactNode, initialEntries = ['/']) {
@@ -20,9 +36,9 @@ function renderWithRouter(element: React.ReactNode, initialEntries = ['/']) {
       <MemoryRouter initialEntries={initialEntries}>
         <Routes>
           <Route element={element} path="/">
-          <Route element={<LocationProbe />} path="login" />
-          <Route element={<LocationProbe />} path="more/api-console/*" />
-        </Route>
+            <Route index element={<label>搜索日志<input type="search" /></label>} />
+            <Route element={<LocationProbe />} path="login" />
+          </Route>
           <Route element={<div>Application page <LocationProbe /></div>} path="/dashboard" />
         </Routes>
       </MemoryRouter>
@@ -30,59 +46,87 @@ function renderWithRouter(element: React.ReactNode, initialEntries = ['/']) {
   )
 }
 
-describe('App shell and entry routes', () => {
+describe('App shell navigation', () => {
   beforeEach(() => {
-    document.head.innerHTML = '<meta name="theme-color" content="#101411" />'
     localStorage.clear()
     useAuth.getState().clearToken()
-    useUiStore.getState().setTheme('dark')
+    vi.stubGlobal('fetch', vi.fn(async () => json({ auth_enabled: true, status: 'ok', version: '1' })))
   })
 
   afterEach(() => {
     cleanup()
-    document.head.replaceChildren()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    delete document.documentElement.dataset.tabbar
   })
 
-  it('renders all five labeled primary navigation destinations with safe-area padding', () => {
+  it('shows five labelled destinations in the bottom tab bar on phones', () => {
     renderWithRouter(<AppShell />)
 
-    for (const label of ['首页', '任务', '日志', 'Agent', '更多']) {
-      expect(screen.getByRole('link', { name: label })).toBeTruthy()
-    }
     const navigation = screen.getByRole('navigation', { name: '主导航' })
+    const expected = { 首页: '/', 任务: '/tasks', 日志: '/logs', Agent: '/agent', 更多: '/more' }
+    for (const [label, href] of Object.entries(expected)) {
+      expect(within(navigation).getByRole('link', { name: label })).toHaveAttribute('href', href)
+    }
+    expect(within(navigation).getAllByRole('link')).toHaveLength(5)
     expect(navigation.className).toContain('pb-safe')
-    expect(document.querySelector('main')?.className).toContain('3.5rem+env(safe-area-inset-bottom')
-    expect(screen.getByText(/Service Worker 离线缓存/)).toBeTruthy()
+    expect(screen.getByRole('main').className).toContain('var(--nav-offset)')
+    expect(within(navigation).getByRole('link', { name: '首页' })).toHaveAttribute('aria-current', 'page')
   })
 
-  it('gives the API console guide route the same full-width shell as the workbench', () => {
-    renderWithRouter(<AppShell />, ['/more/api-console/guide'])
-
-    expect(screen.getByRole('main').className).toContain('max-w-none')
-    expect(screen.getByTestId('location')).toHaveTextContent('/more/api-console/guide')
-  })
-
-  it('persists theme selection and synchronizes the document theme and browser chrome color', () => {
+  it('switches to a sidebar that also lists the secondary destinations on desktop', () => {
+    stubMedia((query) => query.includes('min-width: 1024px'))
     renderWithRouter(<AppShell />)
-    fireEvent.mouseDown(screen.getByRole('tab', { name: '浅色主题' }), { button: 0, ctrlKey: false })
 
-    expect(useUiStore.getState().theme).toBe('light')
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
-    expect(document.documentElement.classList.contains('dark')).toBe(false)
-    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe('#f4f6f3')
+    const navigations = screen.getAllByRole('navigation', { name: '主导航' })
+    expect(navigations).toHaveLength(1)
+    const sidebar = navigations[0]!
+    for (const label of ['首页', '任务', '日志', 'Agent', '更多', '热更新', 'Agent 审计', 'API 调试台', '设置']) {
+      expect(within(sidebar).getByRole('link', { name: label })).toBeInTheDocument()
+    }
+    expect(screen.getByRole('link', { name: 'MAA-API 首页' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('main').className).toContain('pl-60')
+  })
+
+  it('hides the tab bar while a text field is focused on a touch device', async () => {
+    stubMedia((query) => query.includes('pointer: coarse'))
+    renderWithRouter(<AppShell />)
+    const input = screen.getByLabelText('搜索日志')
+
+    act(() => input.focus())
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: '主导航' })).not.toBeInTheDocument())
+    expect(document.documentElement.dataset.tabbar).toBe('hidden')
+
+    act(() => input.blur())
+    expect(await screen.findByRole('navigation', { name: '主导航' })).toBeInTheDocument()
+    expect(document.documentElement.dataset.tabbar).toBe('visible')
+  })
+
+  it('keeps the tab bar when a field is focused with a mouse and keyboard', () => {
+    renderWithRouter(<AppShell />)
+
+    act(() => screen.getByLabelText('搜索日志').focus())
+
+    expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument()
+  })
+})
+
+describe('Login page', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useAuth.getState().clearToken()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it('sends the returnTo path for an unauthenticated login and masks the entered token by default', async () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
       const request = input instanceof Request ? input : new Request(input)
-      if (request.url.endsWith('/api/system/health')) {
-        return new Response(JSON.stringify({ auth_enabled: true, status: 'ok', version: '1' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
+      if (request.url.endsWith('/api/system/health')) return json({ auth_enabled: true, status: 'ok', version: '1' })
       return new Response(null, { status: 204 })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -96,50 +140,24 @@ describe('App shell and entry routes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '登录' }))
     await waitFor(() => {
-      expect(fetchMock.mock.calls.some(([input]) =>
-        input instanceof Request &&
-        input.url.endsWith('/api/system/auth/cookie') &&
-        input.method === 'POST' &&
-        input.headers.get('X-Token') === 'secret',
+      expect(fetchMock.mock.calls.some(([request]) =>
+        request instanceof Request &&
+        request.url.endsWith('/api/system/auth/cookie') &&
+        request.method === 'POST' &&
+        request.headers.get('X-Token') === 'secret',
       )).toBe(true)
     })
     expect(await screen.findByTestId('location')).toHaveTextContent('/dashboard?tab=queue')
     expect(useAuth.getState().token).toBe('secret')
   })
 
-  it('clears auth cookie and navigates to login when the user logs out', async () => {
-    useAuth.getState().setToken('saved-token')
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(null, { status: 204 }))
-    vi.stubGlobal('fetch', fetchMock)
-    renderWithRouter(<AppShell />)
-
-    fireEvent.click(screen.getByRole('button', { name: '登出' }))
-    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) =>
-      input instanceof Request &&
-      input.url.endsWith('/api/system/auth/cookie') &&
-      input.method === 'DELETE' &&
-      input.headers.get('X-Token') === 'saved-token',
-    )).toBe(true))
-    expect(useAuth.getState().token).toBeNull()
-    expect(await screen.findByTestId('location')).toHaveTextContent('/login')
-  })
-
   it('shows a 403 inline and preserves the saved token', async () => {
     useAuth.getState().setToken('existing-token')
-    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input)
-      if (url.includes('/api/system/health')) {
-        return new Response(JSON.stringify({ auth_enabled: true, status: 'ok', version: '1' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      return new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'forbidden' } }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    })
-    vi.stubGlobal('fetch', fetchMock)
+      if (url.includes('/api/system/health')) return json({ auth_enabled: true, status: 'ok', version: '1' })
+      return json({ error: { code: 'FORBIDDEN', message: 'forbidden' } }, 403)
+    }))
     renderWithRouter(<LoginPage />)
 
     const input = await screen.findByLabelText('访问 token')
@@ -148,5 +166,25 @@ describe('App shell and entry routes', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('服务拒绝了此认证请求')
     expect(useAuth.getState().token).toBe('existing-token')
+  })
+
+  it('explains that offline caching and push need HTTPS when served over plain HTTP', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ auth_enabled: true, status: 'ok', version: '1' })))
+    renderWithRouter(<LoginPage />, ['/login'])
+
+    expect(await screen.findByText(/Service Worker 离线缓存/)).toBeInTheDocument()
+  })
+
+  it('offers a retry when the service cannot be reached', async () => {
+    let healthy = false
+    vi.stubGlobal('fetch', vi.fn(async () => (healthy
+      ? json({ auth_enabled: true, status: 'ok', version: '1' })
+      : json({ error: { code: 'SERVICE_UNAVAILABLE', message: 'down' } }, 503))))
+    renderWithRouter(<LoginPage />, ['/login'])
+
+    expect(await screen.findByText('无法连接到 MAA-API')).toBeInTheDocument()
+    healthy = true
+    fireEvent.click(screen.getByRole('button', { name: '重试连接' }))
+    expect(await screen.findByLabelText('访问 token')).toBeInTheDocument()
   })
 })

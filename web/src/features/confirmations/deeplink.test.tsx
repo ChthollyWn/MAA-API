@@ -99,6 +99,14 @@ describe('confirmation deep link', () => {
     ).toBeInTheDocument()
   })
 
+  it('explains a missing deep-link target even while other confirmations are pending', async () => {
+    vi.stubGlobal('fetch', respondWith([{ ...pending, confirmation_id: 'confirm-other', reason: '另一项操作。' }]))
+    renderPanel('/?confirm=confirm-42')
+
+    expect(await screen.findByText(/另一项操作。/)).toBeInTheDocument()
+    expect(screen.getByText(/这条待确认操作已经处理或已过期/)).toBeInTheDocument()
+  })
+
   it('renders nothing when there is no pending confirmation and no deep link', async () => {
     vi.stubGlobal('fetch', respondWith([]))
     renderPanel('/')

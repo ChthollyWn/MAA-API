@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BellRing, LoaderCircle, Smartphone } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { BellRing, Smartphone, Trash2 } from 'lucide-react'
 import { api } from '@/api/client'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { toApiError } from '@/api/errors'
+import { keys } from '@/api/keys'
 import { PwaSecurityNotice } from '@/components/pwa/PwaSecurityNotice'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { useConfirm } from '@/components/ui/confirm-dialog'
+import { InlineAlert } from '@/components/ui/inline-alert'
+import { ListGroup, ListItem } from '@/components/ui/list'
+import { Section } from '@/components/ui/section'
+import { ErrorState, LoadingState, Spinner } from '@/components/ui/states'
+import { toast } from '@/components/ui/toaster'
 import {
   PUSH_AVAILABLE,
   currentPermission,
@@ -13,8 +21,12 @@ import {
   hasActiveSubscription,
   type PushPermission,
 } from '@/pwa/push'
+import { describeUserAgent, errorText, formatTime } from './format'
 
-interface Subscription {
+const PUSH_SUBSCRIPTIONS_KEY = [...keys.all, 'notifications', 'push-subscriptions'] as const
+const LOCAL_STATE_TIMEOUT_MS = 3000
+
+interface PushSubscriptionItem {
   id: string
   endpoint_host: string
   user_agent?: string | null
@@ -23,209 +35,206 @@ interface Subscription {
   disabled: boolean
 }
 
-const PERMISSION_LABEL: Record<PushPermission, string> = {
-  unsupported: '当前环境不支持',
-  default: '尚未授权',
-  granted: '已授权',
-  denied: '已被浏览器拒绝',
+const PERMISSION: Record<PushPermission, { label: string; tone: NonNullable<BadgeProps['variant']> }> = {
+  unsupported: { label: '当前环境不支持', tone: 'neutral' },
+  default: { label: '尚未授权', tone: 'neutral' },
+  granted: { label: '已授权', tone: 'success' },
+  denied: { label: '已被浏览器拒绝', tone: 'danger' },
 }
 
-function formatTime(value?: string | null): string {
-  if (!value) return '—'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleString()
+async function fetchSubscriptions(): Promise<PushSubscriptionItem[]> {
+  const { data, error, response } = await api.GET('/api/notifications/push-subscriptions', {
+    params: { query: { include_disabled: true } },
+  })
+  if (error) throw toApiError(error, response)
+  return (data as { items?: PushSubscriptionItem[] } | undefined)?.items ?? []
+}
+
+function deviceName(item: PushSubscriptionItem): string {
+  return `${item.endpoint_host}（${describeUserAgent(item.user_agent)}）`
 }
 
 /**
- * Web Push 设置（M14，docs/09 §13.1）。
- *
- * 非安全上下文下整块隐藏推送配置并给出说明：Service Worker 与 Push API 在局域网
- * HTTP 地址下必然不可用，这是浏览器约束，把按钮渲染出来只会让用户以为坏了。
+ * Web 推送（docs/09 §13.1）。非安全上下文里 Service Worker 与 Push API 必然不可用，
+ * 这时只给出说明、不渲染订阅控件：点不动的按钮只会让人以为坏了。
  */
 export function PushNotifications() {
+  return (
+    <Section title="Web 推送" description="页面没打开时，需要你确认的操作会以系统通知送到这台设备，点通知即可回到确认卡片。">
+      {PUSH_AVAILABLE ? <PushControls /> : <PushUnavailable />}
+    </Section>
+  )
+}
+
+function PushUnavailable() {
+  return (
+    <div className="space-y-3">
+      <PwaSecurityNotice />
+      <InlineAlert tone="info">
+        推送需要通过 HTTPS 访问（例如 Tailscale Serve 提供的 <code className="font-mono text-[0.8125rem]">*.ts.net</code> 地址）；在 iPhone、iPad 上还需要先把应用添加到主屏幕，再从主屏幕打开。
+      </InlineAlert>
+    </div>
+  )
+}
+
+function PushControls() {
+  const queryClient = useQueryClient()
+  const subscriptions = useQuery({ queryKey: PUSH_SUBSCRIPTIONS_KEY, queryFn: fetchSubscriptions })
   const [permission, setPermission] = useState<PushPermission>(() => currentPermission())
-  const [subscribedHere, setSubscribedHere] = useState(false)
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
-  const [busy, setBusy] = useState(false)
+  const [subscribedHere, setSubscribedHere] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState<'enable' | 'disable' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [status, setStatus] = useState<string | null>(null)
+  const [confirm, confirmElement] = useConfirm()
 
-  const load = useCallback(async () => {
-    const { data } = await api.GET('/api/notifications/push-subscriptions', {
-      params: { query: { include_disabled: true } },
-    })
-    const items = (data as { items?: Subscription[] } | undefined)?.items ?? []
-    setSubscriptions(items)
-  }, [])
-
-  const refreshLocalState = useCallback(async () => {
-    setSubscribedHere(await hasActiveSubscription())
+  const refreshLocal = useCallback(async () => {
+    try {
+      setSubscribedHere(await hasActiveSubscription())
+    } catch {
+      setSubscribedHere(false)
+    }
   }, [])
 
   useEffect(() => {
-    if (!PUSH_AVAILABLE) return
-    void load()
-    void refreshLocalState()
-  }, [load, refreshLocalState])
+    // Service Worker 迟迟没有就绪时 hasActiveSubscription 会一直挂起；先按未订阅显示，结果回来再更新。
+    const fallback = window.setTimeout(() => setSubscribedHere((current) => current ?? false), LOCAL_STATE_TIMEOUT_MS)
+    void refreshLocal().finally(() => window.clearTimeout(fallback))
+    return () => window.clearTimeout(fallback)
+  }, [refreshLocal])
 
   // 权限可能在浏览器设置里被改动，回到页面时以浏览器为准重读一次。
   useEffect(() => {
-    if (!PUSH_AVAILABLE) return
     const onFocus = () => setPermission(currentPermission())
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
-  const onEnable = async () => {
-    setBusy(true)
+  const reload = () => Promise.all([queryClient.invalidateQueries({ queryKey: PUSH_SUBSCRIPTIONS_KEY }), refreshLocal()])
+
+  // 权限申请必须由这个按钮的点击触发：iOS 会忽略非手势触发的请求。
+  const enable = async () => {
+    setBusy('enable')
     setError(null)
-    setStatus(null)
     try {
       await enablePush()
       setPermission(currentPermission())
-      setStatus('推送已启用：没有打开页面时，需要你确认的操作会推送到这台设备。')
-      await Promise.all([load(), refreshLocalState()])
+      toast.success('推送已启用，需要你确认的操作会推送到这台设备')
+      await reload()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '启用推送失败。')
       setPermission(currentPermission())
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
-  const onDisable = async () => {
-    setBusy(true)
+  const disable = async () => {
+    setBusy('disable')
     setError(null)
-    setStatus(null)
     try {
       await disablePush()
-      setStatus('已在本机注销推送订阅。')
-      await Promise.all([load(), refreshLocalState()])
+      toast.success('已在本机注销推送订阅')
+      await reload()
     } catch {
       setError('注销推送订阅失败，请稍后重试。')
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
-  const removeSubscription = async (id: string) => {
-    setBusy(true)
+  const remove = async (item: PushSubscriptionItem) => {
+    const ok = await confirm({
+      title: '删除这台设备的推送订阅？',
+      description: `${deviceName(item)}将不再收到推送通知；需要时可以在那台设备上重新启用。`,
+      confirmText: '删除订阅',
+      tone: 'danger',
+    })
+    if (!ok) return
     setError(null)
     try {
-      await api.DELETE('/api/notifications/push-subscriptions/{subscription_id}', {
-        params: { path: { subscription_id: id } },
+      const { error: failure, response } = await api.DELETE('/api/notifications/push-subscriptions/{subscription_id}', {
+        params: { path: { subscription_id: item.id } },
       })
-      await load()
-    } catch {
-      setError('删除订阅失败，请稍后重试。')
-    } finally {
-      setBusy(false)
+      if (failure) throw toApiError(failure, response)
+      toast.success('已删除推送订阅')
+      await reload()
+    } catch (caught) {
+      setError(`删除订阅失败：${errorText(caught)}`)
     }
   }
 
+  const status = PERMISSION[permission]
+  const items = subscriptions.data ?? []
+
   return (
-    <Card>
-      <CardHeader className="space-y-1.5">
-        <CardTitle className="flex items-center gap-2">
-          <BellRing className="size-4" aria-hidden="true" />推送通知
-        </CardTitle>
-        <CardDescription>
-          页面没打开时，需要人工确认的操作会以系统通知送达；通知里带深链，点击即回到确认卡片。
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!PUSH_AVAILABLE ? (
-          <>
-            <PwaSecurityNotice />
-            <p className="text-sm text-muted-foreground">
-              推送需要 HTTPS 访问（例如 Tailscale Serve 提供的
-              <code className="mx-1 rounded bg-muted px-1">*.ts.net</code>
-              地址）并把应用安装到主屏；当前环境下该入口整体隐藏。
-            </p>
-          </>
+    <div className="space-y-4">
+      <ListGroup>
+        <ListItem icon={BellRing} iconTone="primary" title="通知权限" trailing={<Badge variant={status.tone}>{status.label}</Badge>} />
+        <ListItem
+          icon={Smartphone}
+          iconTone="primary"
+          title="此设备"
+          trailing={subscribedHere === null ? <Spinner /> : <Badge variant={subscribedHere ? 'success' : 'neutral'}>{subscribedHere ? '已订阅' : '未订阅'}</Badge>}
+        />
+      </ListGroup>
+
+      {permission === 'denied' ? (
+        <InlineAlert tone="warning" title="通知权限已被拒绝">
+          浏览器已拒绝通知权限。请在浏览器的网站设置里把「通知」改为允许，再回到这里启用。
+        </InlineAlert>
+      ) : null}
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button type="button" loading={busy === 'enable'} disabled={busy !== null || permission === 'denied'} onClick={() => void enable()}>
+          {busy === 'enable' ? null : <BellRing aria-hidden="true" />}
+          启用推送通知
+        </Button>
+        <Button type="button" variant="outline" loading={busy === 'disable'} disabled={busy !== null} onClick={() => void disable()}>
+          注销本机订阅
+        </Button>
+      </div>
+
+      {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
+
+      <ListGroup title="已登记的设备" headingLevel="h3" footer="每个启用过推送的浏览器都会出现在这里；删除后那台设备不再收到推送。">
+        {subscriptions.isPending ? (
+          <LoadingState label="正在读取设备…" className="min-h-16" />
+        ) : subscriptions.isError ? (
+          <ErrorState message={`设备列表读取失败：${errorText(subscriptions.error)}`} onRetry={() => void subscriptions.refetch()} retrying={subscriptions.isFetching} />
+        ) : items.length === 0 ? (
+          <p className="px-4 py-3.5 text-sm text-muted-foreground">还没有设备登记推送订阅。</p>
         ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={permission === 'granted' ? 'positive' : 'outline'}>
-                通知权限：{PERMISSION_LABEL[permission]}
-              </Badge>
-              <Badge variant={subscribedHere ? 'positive' : 'outline'}>
-                {subscribedHere ? '本机已订阅' : '本机未订阅'}
-              </Badge>
-              <Button
-                type="button"
-                onClick={() => void onEnable()}
-                disabled={busy || permission === 'denied'}
-              >
-                {busy ? (
-                  <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                ) : (
-                  <BellRing aria-hidden="true" />
-                )}
-                启用推送通知
-              </Button>
-              <Button type="button" variant="outline" onClick={() => void onDisable()} disabled={busy}>
-                注销本机订阅
-              </Button>
-            </div>
-
-            {permission === 'denied' ? (
-              <p className="text-sm text-muted-foreground">
-                浏览器已拒绝通知权限，只能先在浏览器设置里重新允许，再回到这里启用。
-              </p>
-            ) : null}
-
-            {error ? (
-              <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
-            {status ? (
-              <p role="status" className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
-                {status}
-              </p>
-            ) : null}
-
-            <div className="space-y-2">
-              <h3 className="flex items-center gap-2 text-sm font-medium">
-                <Smartphone className="size-4" aria-hidden="true" />已登记的设备
-              </h3>
-              {subscriptions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">还没有设备登记推送订阅。</p>
-              ) : (
-                <ul className="space-y-2">
-                  {subscriptions.map((item) => (
-                    <li
-                      key={item.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">{item.endpoint_host}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {item.user_agent || '未知浏览器'} · 登记于 {formatTime(item.created_at)} · 最近送达{' '}
-                          {formatTime(item.last_success_at)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {item.disabled ? <Badge variant="outline">已失效</Badge> : null}
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => void removeSubscription(item.id)}
-                        >
-                          删除
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </>
+          items.map((item) => {
+            const registered = formatTime(item.created_at)
+            const delivered = formatTime(item.last_success_at)
+            return (
+              <div key={item.id} className="flex min-h-14 items-center gap-3 py-2.5 pl-4 pr-2">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-foreground">
+                  <Smartphone aria-hidden="true" className="size-[1.125rem]" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[0.9375rem] font-medium leading-5">{item.endpoint_host}</p>
+                  <p className="truncate text-footnote text-muted-foreground" title={item.user_agent ?? undefined}>
+                    {describeUserAgent(item.user_agent)}{registered ? ` · 登记于 ${registered}` : ''}
+                  </p>
+                  <p className="text-footnote text-muted-foreground">{delivered ? `最近送达 ${delivered}` : '还没有送达记录'}</p>
+                </div>
+                {item.disabled ? <Badge variant="warning">已失效</Badge> : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground"
+                  aria-label={`删除推送订阅：${deviceName(item)}${registered ? `，登记于 ${registered}` : ''}`}
+                  onClick={() => void remove(item)}
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </div>
+            )
+          })
         )}
-      </CardContent>
-    </Card>
+      </ListGroup>
+      {confirmElement}
+    </div>
   )
 }
