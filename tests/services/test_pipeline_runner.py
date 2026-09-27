@@ -692,6 +692,77 @@ def test_claim_commit_applied_before_error_uses_pipeline_incident_if_release_fai
     asyncio.run(scenario())
 
 
+def test_failed_claim_crash_record_error_still_creates_diagnosis_session(
+    runner_env, monkeypatch
+) -> None:
+    """崩溃现场写入失败不能连带跳过诊断会话（否则开着自动诊断却毫无记录）。"""
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, _task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.status = PipelineStatus.PENDING
+            stored.started_at = None
+            await session.commit()
+
+        state = {"armed": False}
+
+        class CommitThenRaiseSession(AsyncSession):
+            async def commit(self):
+                if state["armed"]:
+                    state["armed"] = False
+                    await super().commit()
+                    raise RuntimeError("claim commit response lost")
+                await super().commit()
+
+        session_factory = async_sessionmaker(
+            bind=factory.kw["bind"],
+            class_=CommitThenRaiseSession,
+            expire_on_commit=False,
+        )
+        runner, asst, _core = make(session_factory_override=session_factory)
+        runner._loop = asyncio.get_running_loop()
+        incident_runtime = FakeIncidentRuntime()
+        incidents = AgentIncidentService(
+            factory,
+            incident_runtime,
+            settings_provider=lambda: Settings(),
+            pipeline_runner=runner,
+            boot_id="11111111-1111-4111-8111-111111111111",
+        )
+        runner.bind_incident_service(incidents)
+        state["armed"] = True
+
+        async def fail_release(*_args, **_kwargs):
+            runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
+            raise OSError("queue release unavailable")
+
+        async def fail_crash_record(*_args, **_kwargs):
+            raise OSError("crash record write unavailable")
+
+        monkeypatch.setattr(PipelineRepository, "release_failed_claim", fail_release)
+        monkeypatch.setattr(
+            PipelineRepository, "mark_core_crashed", fail_crash_record
+        )
+
+        with pytest.raises(RuntimeError, match="claim commit response lost"):
+            await runner._claim_next()
+        await asyncio.gather(*tuple(runner._incident_tasks))
+
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            sessions = await AgentSessionRepository(session).list_recent()
+        assert stored.status == PipelineStatus.FAILED
+        assert len(sessions) == 1, "崩溃现场写入失败时仍必须创建诊断会话"
+        assert sessions[0].incident_key == f"pipeline:{pipeline.id}"
+        assert len(incident_runtime.calls) == 1
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
 def test_unreleased_failed_claim_without_core_crash_is_terminalized(
     runner_env, monkeypatch
 ) -> None:

@@ -123,21 +123,11 @@ describe('tasks schema forms, queue and history', () => {
   it('loads saved Copilot assets and stores only the selected asset id', async () => {
     installFetch()
     const onChange = vi.fn()
-    const copilotType: TaskTypeSchema = {
-      name: 'Copilot',
-      label: 'Copilot 作业',
-      description: '执行已保存作业',
-      schema: {
-        type: 'object',
-        properties: {
-          name: { const: 'Copilot', type: 'string', 'x-label': '任务类型' },
-          asset_id: { type: 'string', 'x-label': 'Copilot 作业' },
-          formation: { type: 'boolean', 'x-label': '重新编队' },
-        },
-      },
-      groups: ['基础'],
-      runtime_immutable: [],
-    }
+    // 直接用与生产同源的 fixture 条目：Copilot 的 required / runtime_immutable /
+    // per-field 描述必须与 GET /api/tasks/types 一致，手写副本曾漏掉这些字段。
+    const copilotType = types.find((type) => type.name === 'Copilot')!
+    expect(copilotType.schema.required).toEqual(['asset_id'])
+    expect(copilotType.runtime_immutable).toEqual(['asset_id'])
     renderTaskForm(copilotType, onChange)
 
     const picker = await screen.findByLabelText('Copilot 作业')

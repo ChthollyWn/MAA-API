@@ -1796,12 +1796,26 @@ class PipelineRunner:
                 if generation is not None:
                     record = self._claim_failure_core_records.pop(generation, None)
                     if record is not None:
-                        await self._record_failed_claim_core_crash(
-                            pipeline_id,
-                            generation=generation,
-                            schedule_incident=False,
-                        )
+                        # 这次写入没有重试路径，失败必须只影响「崩溃现场」的保真度，
+                        # 不能连带跳过下面的诊断会话创建 —— 否则一次 DB 抖动会让
+                        # 开着自动诊断的失败流水线完全没有诊断记录。
+                        try:
+                            await self._record_failed_claim_core_crash(
+                                pipeline_id,
+                                generation=generation,
+                                schedule_incident=False,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "记录 claim 失败期间的内核崩溃现场失败，仍继续创建诊断会话 pipeline_id=%s generation=%s",
+                                pipeline_id,
+                                generation,
+                            )
                 await service.pipeline_failed(pipeline_id)
+            except Exception:
+                logger.exception(
+                    "claim 失败流水线的诊断调度失败 pipeline_id=%s", pipeline_id
+                )
             finally:
                 # Keep the generation-to-pipeline association until a new claim
                 # starts or the process exits. A delayed monitor-thread FATAL

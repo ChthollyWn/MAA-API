@@ -109,6 +109,8 @@ describe('Agent conversation page', () => {
 
   it('keeps the assistant turn waiting until an inline confirmation is resolved', async () => {
     let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
+    let streamFinished = false
+    let persisted: unknown[] = []
     const confirmation = {
       confirmation_id: 'confirm-1',
       action: 'consume_resource',
@@ -145,11 +147,19 @@ describe('Agent conversation page', () => {
           event('message_end', { session_id: 'session-1', finish_reason: 'stop' }),
         ].join('')))
         streamController?.close()
+        // 服务端在这一轮落库后，历史接口就会返回同样的两句话。
+        persisted = [
+          { id: 11, session_id: 'session-1', seq: 1, role: 'user', content: '刷一次 1-7', created_at: '2026-09-27T10:01:00Z' },
+          { id: 12, session_id: 'session-1', seq: 2, role: 'assistant', content: '已提交流水线，当前状态为排队中。', created_at: '2026-09-27T10:01:01Z' },
+        ]
+        streamFinished = true
         return json({ confirmation_id: 'confirm-1', status: 'approved' })
       }
       if (url.pathname === '/api/agent/sessions' && request.method === 'GET') return json({ items: [session], total: 1, page: 1, size: 20 })
       if (url.pathname === '/api/agent/sessions/session-1' && request.method === 'GET') return json(session)
-      if (url.pathname === '/api/agent/sessions/session-1/messages' && request.method === 'GET') return json({ items: [], total: 0, page: 1, size: 200 })
+      if (url.pathname === '/api/agent/sessions/session-1/messages' && request.method === 'GET') {
+        return json({ items: persisted, total: persisted.length, page: 1, size: 200 })
+      }
       if (url.pathname === '/api/confirmations' && request.method === 'GET') return json({ items: [], total: 0, page: 1, size: 20 })
       return json({ error: { message: `Unexpected request ${request.method} ${url.pathname}` } }, 404)
     })
@@ -170,5 +180,11 @@ describe('Agent conversation page', () => {
       const request = input instanceof Request ? input : null
       return request?.method === 'POST' && request.url.includes('/api/confirmations/confirm-1')
     })).toBe(true)
+
+    // 回归：流结束后本轮内容已回到历史，实时副本必须消失，否则同一句话出现两遍。
+    await waitFor(() => expect(streamFinished).toBe(true))
+    await waitFor(() => expect(screen.queryByText('你 · 本轮')).not.toBeInTheDocument())
+    expect(screen.getAllByText('刷一次 1-7')).toHaveLength(1)
+    expect(screen.getAllByText('已提交流水线，当前状态为排队中。')).toHaveLength(1)
   })
 })

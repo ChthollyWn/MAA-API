@@ -348,6 +348,8 @@ export default function AgentPage() {
   const selectedId = searchParams.get('session_id')
   const [draft, setDraft] = useState('')
   const [turn, setTurn] = useState<StreamingTurn | null>(null)
+  // 本轮失败信息独立于 turn：成功收尾时会清空 turn，错误必须能在历史之外继续显示。
+  const [turnError, setTurnError] = useState<string | null>(null)
   const [capability, setCapability] = useState<CapabilityResult | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false)
@@ -495,7 +497,7 @@ export default function AgentPage() {
     if (!transcript || typeof transcript.scrollTo !== 'function') return
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
     transcript.scrollTo({ top: transcript.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
-  }, [history.length, turn?.assistantText, turn?.tools.length])
+  }, [history.length, turn?.assistantText, turn?.tools.length, turnError])
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
@@ -521,6 +523,7 @@ export default function AgentPage() {
     setActionError(null)
     const controller = new AbortController()
     abortRef.current = controller
+    setTurnError(null)
     setTurn({ userText: content, assistantText: '', tools: [], pendingConfirmation: null, running: true, error: null })
     const handleEvent = (name: string, rawData: unknown) => {
       const data = isRecord(rawData) ? rawData : {}
@@ -567,10 +570,15 @@ export default function AgentPage() {
         queryClient.invalidateQueries({ queryKey: keys.agent.sessions() }),
         queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingConfirmations(), selectedId] }),
       ])
+      // 本轮内容已落库并回到 history，必须丢弃实时副本，否则同一句话会同时以
+      // 「你 · 本轮」和历史气泡出现两遍（工具轨迹同理）。清空时机只能是
+      // invalidate 完成之后 —— 提前清会让界面在历史到达前闪空。
+      setTurn((current) => (current?.pendingConfirmation ? current : null))
     } catch (error) {
       if (controller.signal.aborted) return
       const message = error instanceof Error ? error.message : 'Agent 对话失败。'
       setDraft((current) => current || content)
+      setTurnError(message)
       setTurn((current) => current ? { ...current, running: false, error: message } : current)
     } finally {
       if (abortRef.current === controller) abortRef.current = null
@@ -678,6 +686,7 @@ export default function AgentPage() {
             busy={resolveConfirmation.isPending && resolveConfirmation.variables?.id === confirmation.confirmation_id}
             onResolve={(id, approved) => resolveConfirmation.mutate({ id, approved })}
           />)}
+          {turnError ? <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{turnError}</p> : null}
           {turn ? <div className="space-y-3">
             <article className="ml-auto max-w-[92%] rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 sm:max-w-[82%]">
               <p className="whitespace-pre-wrap break-words text-sm leading-6">{turn.userText}</p>
@@ -694,7 +703,6 @@ export default function AgentPage() {
               /> : null}
             </> : null}
             {turn.running && !turn.pendingConfirmation ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Agent 正在处理…</p> : null}
-            {turn.error ? <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{turn.error}</p> : null}
           </div> : null}
         </div>
 

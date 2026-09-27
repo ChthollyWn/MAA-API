@@ -23,6 +23,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from maa_api.agent.runtime import INCIDENT_ALLOWED_TOOLS
 from maa_api.core.enums import Message
 from maa_api.services.pipeline_runner import PipelineRunner
 from tests.fakes.fake_asst import FakeAsst, SUCCESS_SCRIPT
@@ -389,6 +390,12 @@ def _check_builtin_conversation(client: Any, headers: dict[str, str], fake_llm: 
     stream = response.text
     for event_name in ("message_start", "text_delta", "message_end"):
         _require(f"event: {event_name}\n" in stream, f"Agent SSE 缺少 {event_name}")
+    # 计划要求验证 SSE 事件顺序，而不只是成员存在：断言三个事件的首次出现位置递增。
+    positions = [stream.index(f"event: {name}\n") for name in ("message_start", "text_delta", "message_end")]
+    _require(
+        positions == sorted(positions) and len(set(positions)) == 3,
+        f"Agent SSE 事件顺序不正确：{positions}",
+    )
     _require("Fake LLM 已完成本轮 smoke 对话。" in stream, "Agent SSE 未返回 Fake LLM 文本")
 
     messages = _check_response(
@@ -568,7 +575,14 @@ def _check_failure_incident(client: Any, headers: dict[str, str], fake_llm: _Smo
             ),
             None,
         )
-        if incident_session is not None and incident_session.get("message_count", 0) >= 3:
+        if (
+            incident_session is not None
+            and incident_session.get("message_count", 0) >= 2
+            and len(fake_llm.requests) >= 4
+        ):
+            # 诊断轮次以 assistant 结论结束；Fake LLM 已收到第 4 次请求说明该轮
+            # 已跑完。此前这里等的是 message_count >= 3，普通文本回复的会话只有
+            # 「user 现场 + assistant 结论」两条，永远达不到，白等满 8 秒。
             break
         time.sleep(0.05)
     _require(incident_session is not None, "流水线失败没有创建自动诊断会话")
@@ -587,13 +601,19 @@ def _check_failure_incident(client: Any, headers: dict[str, str], fake_llm: _Smo
         f"自动诊断现场未包含稳定错误码：{initial!r}",
     )
     _require(
-        len(fake_llm.requests) == 4
-        and bool(fake_llm.requests[-1][2])
-        and all(
-            item["function"]["name"] not in {"submit_pipeline", "create_schedule", "update_core"}
-            for item in fake_llm.requests[-1][2]
-        ),
+        len(fake_llm.requests) == 4 and bool(fake_llm.requests[-1][2]),
         "自动诊断没有调用受限安全工具集的 Fake LLM 往返",
+    )
+    # 断言精确集合而不是「排除三个危险工具」：只排除几个名字的话，click / swipe /
+    # restart_core / delete_schedule 之类的工具即使泄漏进诊断 schema 也测不出来。
+    incident_tool_names = {
+        item["function"]["name"] for item in fake_llm.requests[-1][2]
+    }
+    _require(
+        incident_tool_names == set(INCIDENT_ALLOWED_TOOLS),
+        "自动诊断工具集与 INCIDENT_ALLOWED_TOOLS 不一致："
+        f"缺少={sorted(set(INCIDENT_ALLOWED_TOOLS) - incident_tool_names)} "
+        f"多出={sorted(incident_tool_names - set(INCIDENT_ALLOWED_TOOLS))}",
     )
     print("[ok] 流水线失败自动诊断、稳定错误上下文与安全工具 schema")
 
