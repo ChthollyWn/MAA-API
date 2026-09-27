@@ -657,7 +657,7 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 | GET | `/api/agent/tools` | 工具清单与 JSON Schema，含 `risk_level` 标注 | `risk_level` 可选过滤 | 200 | `AGENT_DISABLED` |
 | POST | `/api/agent/tools/{name}/invoke` | REST 调用方直接执行工具，使用共享 `ToolRegistry` | `{arguments, mode?}`：`mode=sync` 阻塞等结果，`mode=async` 立即返回 | 200 / 202 | `TOOL_NOT_FOUND`、`TOOL_ARGS_INVALID`、`CONFIRMATION_REQUIRED`（202） |
 | GET | `/api/agent/sessions` | 会话列表，按 `last_message_at` 倒序 | `page`、`size` | 200 | — |
-| POST | `/api/agent/sessions` | 新建会话，快照当前 `model` 与 `base_url`；默认模型 `deepseek-v4.1-flash` | `{title?}` | 201 | `LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID` |
+| POST | `/api/agent/sessions` | 新建会话，快照当前 `model` 与 `base_url`；默认模型 `deepseek-flash` | `{title?}` | 201 | `LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID` |
 | POST | `/api/agent/capabilities/check` | 检查当前模型的 function calling 与视觉输入能力并缓存结果 | 无 body | 200 | `LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID` |
 | GET | `/api/agent/sessions/{id}` | 会话详情与 token 消耗统计 | | 200 | `AGENT_SESSION_NOT_FOUND` |
 | DELETE | `/api/agent/sessions/{id}` | 删除会话，消息级联删除 | | 204 | `AGENT_SESSION_NOT_FOUND` |
@@ -667,9 +667,9 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 | GET | `/api/agent/audits` | 审计列表 | `caller`、`tool_name`、`status`、`risk_level`、`since`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/agent/audits/{id}` | 单条审计详情，含完整参数与结果摘要 | | 200 | `NOT_FOUND` |
 
-LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端点，它是 `setting` 表的三个 key，走 `/api/settings`。默认模型为 DeepSeek V4.1 Flash，API Key 由服务端用部署环境变量 `MAA_LLM_ENCRYPTION_KEY` 加密后写入 SQLite；端点仍可由用户配置覆盖。
+LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端点，它是 `setting` 表的三个 key，走 `/api/settings`。默认模型为 DeepSeek Flash（`deepseek-flash`），API Key 由服务端用部署环境变量 `MAA_LLM_ENCRYPTION_KEY` 加密后写入 SQLite；端点仍可由用户配置覆盖。
 
-`POST /api/agent/capabilities/check` 以小型工具调用和测试图片分别检查 function calling 与视觉输入。首次发送消息前会自动补做一次缓存检查；工具调用失败则停止对话，视觉失败只禁用截图和原子屏幕操作，并保留文本对话。
+`POST /api/agent/capabilities/check` 以小型工具调用和测试图片分别检查 function calling 与视觉输入。首次发送消息前会自动补做一次缓存检查；工具调用失败则停止对话，视觉失败只禁用截图和原子屏幕操作，并保留文本对话。`degraded_reason` 直接说明失败原因：能力确实缺失时说明缺哪项，上游拒绝探查请求（模型标识不存在、鉴权失败等）时带上已脱敏、截断的上游 `error.message`、HTTP 状态与上游错误码，见 [13 §8.13](./13-决策记录.md)。
 
 `POST /api/agent/sessions/{id}/messages` 以 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`message_end` 和 `error` 事件流式返回结果。每个会话同一时间只运行一轮；客户端断开不会回滚已提交的工具副作用。
 

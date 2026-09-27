@@ -16,7 +16,7 @@ function makeSession(overrides: Json = {}): Json {
     title: '自动诊断 · 关卡失败',
     status: 'active',
     incident_key: null,
-    model: 'deepseek-v4.1-flash',
+    model: 'deepseek-flash',
     message_count: 3,
     prompt_tokens: 20,
     completion_tokens: 12,
@@ -154,7 +154,7 @@ function createAgentApi(options: ApiOptions = {}) {
       }
     }
     if (url.pathname === '/api/agent/capabilities/check' && request.method === 'POST') {
-      return json(options.capability ?? { model: 'deepseek-v4.1-flash', ready: true, tool_calling: true, vision: false, status: 'vision_degraded', degraded_reason: '模型暂不支持图片输入' })
+      return json(options.capability ?? { model: 'deepseek-flash', ready: true, tool_calling: true, vision: false, status: 'vision_degraded', degraded_reason: '模型暂不支持图片输入' })
     }
     return json({ error: { message: `Unexpected request ${request.method} ${url.pathname}` } }, 404)
   })

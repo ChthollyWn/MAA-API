@@ -4,7 +4,7 @@
 
 ## 内置 Agent
 
-`/agent` 支持自然语言对话、流水线和定时任务编排、日志分析、自动故障诊断与安全恢复。默认模型为 DeepSeek V4.1 Flash（`https://api.deepseek.com`）；base URL、API Key 和模型可在设置页修改。数据库中保存的 API Key 由 `MAA_LLM_ENCRYPTION_KEY` Fernet 主密钥加密，因此要使用设置页保存 LLM 密钥时必须配置并持久保管该环境变量。流水线与 schedule 编辑器可从已保存资源中选择 Copilot 作业。
+`/agent` 支持自然语言对话、流水线和定时任务编排、日志分析、自动故障诊断与安全恢复。默认模型为 DeepSeek Flash（`deepseek-flash`，`https://api.deepseek.com`）；base URL、API Key 和模型可在设置页修改。`api.deepseek.com` 目前只接受 `deepseek-flash` 与 `deepseek-v4-pro`，模型标识写错会被上游以 400 拒绝。数据库中保存的 API Key 由 `MAA_LLM_ENCRYPTION_KEY` Fernet 主密钥加密，因此要使用设置页保存 LLM 密钥时必须配置并持久保管该环境变量。流水线与 schedule 编辑器可从已保存资源中选择 Copilot 作业。
 
 ## Docker 镜像
 

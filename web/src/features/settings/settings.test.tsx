@@ -65,7 +65,7 @@ const VALUES: ValueItem[] = [
   { key: 'channel.client_type', value: 'Bilibili', source: 'default' },
   { key: 'llm.base_url', value: 'https://api.deepseek.com', source: 'default' },
   { key: 'llm.api_key', value: '***', source: 'env' },
-  { key: 'llm.model', value: 'deepseek-v4.1-flash', source: 'default' },
+  { key: 'llm.model', value: 'deepseek-flash', source: 'default' },
   { key: 'agent.auto_diagnose_failures', value: true, source: 'default' },
   { key: 'deployment.cors_origins', value: [], source: 'default' },
 ]
@@ -125,7 +125,7 @@ function installApi(options: ApiOptions = {}) {
     }
     if (url.pathname === '/api/agent/capabilities/check') {
       return json({
-        model: 'deepseek-v4.1-flash',
+        model: 'deepseek-flash',
         tool_calling: true,
         vision: false,
         ready: true,

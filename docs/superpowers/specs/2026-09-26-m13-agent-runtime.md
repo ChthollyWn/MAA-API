@@ -6,7 +6,7 @@
 
 ## 已确认的产品行为
 
-- 默认端点为 `https://api.deepseek.com`，默认模型标识为 `deepseek-v4.1-flash`；用户仍可通过现有 `llm.base_url`、`llm.model` 设置改用兼容端点。API Key 留空，须由用户配置。
+- 默认端点为 `https://api.deepseek.com`，默认模型标识为 `deepseek-v4.1-flash`；用户仍可通过现有 `llm.base_url`、`llm.model` 设置改用兼容端点。API Key 留空，须由用户配置。**实施后的更正（2026-09-27）：该标识不是 `api.deepseek.com` 的合法模型名，上游以 400 拒绝，默认值已改为 `deepseek-flash`，见 [13 §8.13](../../13-决策记录.md)。**
 - 通过设置 API 写入 SQLite 的 LLM API Key 使用 Fernet 加密，主密钥取自 `MAA_LLM_ENCRYPTION_KEY`。响应继续脱敏。YAML / 环境变量来源仍由部署者管理。缺少主密钥时拒绝写入数据库；已有明文数据库值可在主密钥配置后迁移。错误或丢失的主密钥不会阻止 FastAPI 启动；该数据库密钥被禁用并记录状态错误。如果 YAML 或环境变量提供了有效的更高优先级 key，LLM 仍可使用它；只有没有任何有效配置 key 时，LLM 请求才返回 `LLM_ENCRYPTION_KEY_INVALID`（503）。
 - `POST /api/agent/sessions/{session_id}/messages` 接受 `{ "content": "..." }` 并返回 SSE。事件为 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`message_end`、`error`。用户消息、assistant/tool 轨迹、审计关联与 token 用量继续写入 `agent_message` / `agent_audit`。
 - 单会话同时只允许一个对话轮次；每轮最多 12 次模型响应。只读工具批次可并发，含写操作的批次按模型给出的顺序串行执行。SSE body 已开始后即使客户端断连，producer 仍完成已派发工具并继续持有会话锁，直到整轮结束；如果响应在首次迭代前就失败，由 Response 生命周期释放尚未转交给 producer 的锁。历史裁剪保留完整工具调用轮次，只向模型发送最新一张截图，并注入服务端状态摘要。

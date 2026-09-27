@@ -665,7 +665,7 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
             },
         ]
         runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(
-            [probe_call, _text_response("a tiny image"), _text_response("done")]
+            [probe_call, _text_response("blue"), _text_response("done")]
         )
         try:
             result = await runtime.check_capabilities(None)
@@ -687,7 +687,7 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
             await engine.dispose()
 
         no_tools, _factory, _confirmations, _llm, session_id, engine = await _runtime(
-            [_text_response("plain text"), _text_response("image accepted")]
+            [_text_response("plain text"), _text_response("blue")]
         )
         try:
             result = await no_tools.check_capabilities(None)
@@ -1564,3 +1564,155 @@ def test_screenshot_archive_insert_failure_isolated_and_persists_failed_audit_wi
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_probe_failure_reports_the_upstream_reason_instead_of_a_generic_capability_verdict():
+    """模型名写错时不能只说「未通过能力检查」，要把上游原话带给用户。"""
+
+    async def scenario():
+        upstream = AppError(
+            ErrorCode.LLM_REQUEST_FAILED,
+            "LLM 上游请求失败",
+            {
+                "upstream_status": 400,
+                "upstream_code": "invalid_request_error",
+                "upstream_message": (
+                    "The supported API model names are deepseek-flash, deepseek-v4-pro, "
+                    "but you passed deepseek-v4.1-flash."
+                ),
+            },
+        )
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [upstream, _text_response("image accepted")],
+            prime_capabilities=False,
+        )
+        try:
+            result = await runtime.check_capabilities(None)
+            assert result["tool_calling"] is False
+            assert result["ready"] is False
+            assert result["status"] == "llm_unavailable"
+            reason = result["degraded_reason"]
+            assert "未通过 function calling 能力检查" not in reason
+            assert "HTTP 400" in reason
+            assert "invalid_request_error" in reason
+            assert "deepseek-v4.1-flash" in reason
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_probe_reason_never_echoes_credentials_and_falls_back_without_upstream_details():
+    async def scenario():
+        leaked_key = "sk-do-not-leak-this"
+        leaking = AppError(
+            ErrorCode.LLM_REQUEST_FAILED,
+            "LLM 上游请求失败",
+            {
+                "upstream_status": 401,
+                "upstream_message": f"invalid key {leaked_key}",
+            },
+        )
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [leaking, _text_response("image accepted")],
+            prime_capabilities=False,
+        )
+        try:
+            result = await runtime.check_capabilities(None)
+            assert leaked_key not in result["degraded_reason"]
+            assert "[REDACTED]" in result["degraded_reason"]
+        finally:
+            await engine.dispose()
+
+        timeout = AppError(ErrorCode.LLM_TIMEOUT, "LLM 上游请求超时")
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [timeout, _text_response("image accepted")],
+            prime_capabilities=False,
+        )
+        try:
+            result = await runtime.check_capabilities(None)
+            assert result["status"] == "llm_unavailable"
+            assert result["degraded_reason"] == "当前模型无法进行 Agent 对话：能力探查请求失败；LLM 上游请求超时"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+def test_vision_probe_requires_the_model_to_actually_read_the_image():
+    """不接受图片的模型会回「我看不到图片」，不能因为有文本就算支持视觉。"""
+    probe_call = [
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "probe",
+                                "type": "function",
+                                "function": {"name": "capability_probe", "arguments": "{}"},
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+    ]
+
+    async def scenario():
+        # deepseek-v4-pro 的真实反应：接受图片但答不出内容。
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [probe_call, _text_response("Unable to view image content")],
+            prime_capabilities=False,
+        )
+        try:
+            result = await runtime.check_capabilities(None)
+            assert result["tool_calling"] is True
+            assert result["vision"] is False
+            assert result["ready"] is True
+            assert result["status"] == "vision_degraded"
+        finally:
+            await engine.dispose()
+
+        # 探查请求本身失败（图片被拒、鉴权失败等）同样不能算支持视觉。
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [
+                probe_call,
+                AppError(
+                    ErrorCode.LLM_REQUEST_FAILED,
+                    "LLM 上游请求失败",
+                    {
+                        "upstream_status": 400,
+                        "upstream_code": "invalid_request_error",
+                        "upstream_message": "You have uploaded an unsupported image.",
+                    },
+                ),
+            ],
+            prime_capabilities=False,
+        )
+        try:
+            result = await runtime.check_capabilities(None)
+            assert result["vision"] is False
+            assert result["status"] == "vision_degraded"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_vision_probe_image_is_large_enough_for_the_upstream_to_accept():
+    """1×1 的 PNG 会被上游当无效图片拒收，把支持视觉的模型误判成不支持。"""
+    import base64
+    import struct
+
+    from maa_api.agent.runtime import _VISION_PROBE_MARKER, _VISION_PROBE_PNG
+
+    png = base64.b64decode(_VISION_PROBE_PNG)
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert png[12:16] == b"IHDR"
+    width, height = struct.unpack(">II", png[16:24])
+    assert (width, height) == (64, 64)
+    assert _VISION_PROBE_MARKER == "blue"
+
