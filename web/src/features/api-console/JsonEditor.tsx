@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
 import { json } from '@codemirror/lang-json'
 import { linter } from '@codemirror/lint'
 import { EditorView, keymap } from '@codemirror/view'
-import CodeMirror, { basicSetup } from '@uiw/react-codemirror'
+import CodeMirror, { basicSetup, Prec } from '@uiw/react-codemirror'
+import { InlineAlert } from '@/components/ui/inline-alert'
+import { cn } from '@/lib/utils'
+import { formatJson } from './console-model'
 import { bodyDiagnosticRanges, type JsonSchema } from './utils'
 import { validateJsonBody, type JsonValidationResult } from './json-validation'
 
@@ -29,6 +32,36 @@ function schemaKeys(schema: JsonSchema | undefined): string[] {
   return [...new Set(keys)]
 }
 
+function subscribeToThemeClass(notify: () => void): () => void {
+  if (typeof MutationObserver === 'undefined') return () => {}
+  const observer = new MutationObserver(notify)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  return () => observer.disconnect()
+}
+
+/** 跟随 `<html>` 上实际生效的 dark class（含「跟随系统」时的切换）。 */
+function useDocumentDark(): boolean {
+  return useSyncExternalStore(subscribeToThemeClass, () => document.documentElement.classList.contains('dark'), () => false)
+}
+
+/** 编辑器外观取自设计令牌；语法高亮沿用明暗两套内置配色，只覆盖底色、行号栏、选区与浮层。 */
+const editorChrome = Prec.highest(EditorView.theme({
+  '&': { backgroundColor: 'var(--surface)', color: 'var(--foreground)' },
+  '&.cm-focused': { outline: 'none' },
+  '.cm-scroller': { fontFamily: 'var(--app-font-mono)', lineHeight: '1.6' },
+  '.cm-content': { caretColor: 'var(--foreground)' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
+  '.cm-gutters': { backgroundColor: 'var(--surface-2)', color: 'var(--muted-foreground)', borderRight: '1px solid var(--border)' },
+  '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--surface-2) 60%, transparent)' },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--foreground)' },
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
+    backgroundColor: 'color-mix(in srgb, var(--primary) 26%, transparent)',
+  },
+  '.cm-foldPlaceholder': { backgroundColor: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--muted-foreground)' },
+  '.cm-tooltip': { backgroundColor: 'var(--surface-raised)', color: 'var(--foreground)', border: '1px solid var(--border)', borderRadius: '0.5rem', overflow: 'hidden' },
+  '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--primary-soft)', color: 'var(--primary-text)' },
+}))
+
 export interface JsonEditorProps {
   value: string
   onChange?: (value: string) => void
@@ -46,6 +79,7 @@ function syntaxState(value: string): JsonValidationResult {
 }
 
 export function JsonEditor({ value, onChange, schema, openApi, readOnly = false, ariaLabel }: JsonEditorProps) {
+  const dark = useDocumentDark()
   const [validation, setValidation] = useState<JsonValidationResult>(() => syntaxState(value))
   useEffect(() => {
     let active = true
@@ -69,11 +103,10 @@ export function JsonEditor({ value, onChange, schema, openApi, readOnly = false,
     const formatKey = {
       key: 'Mod-Shift-f',
       run(view: EditorView) {
-        try {
-          const formatted = JSON.stringify(JSON.parse(view.state.doc.toString()), null, 2)
-          view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: formatted } })
-          return true
-        } catch { return false }
+        const formatted = formatJson(view.state.doc.toString())
+        if (formatted === null) return false
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: formatted } })
+        return true
       },
     }
     const validationLint = linter(async (view) => {
@@ -89,24 +122,38 @@ export function JsonEditor({ value, onChange, schema, openApi, readOnly = false,
       return bodyDiagnosticRanges(source, result.diagnostics ?? []).map((diagnostic) => ({ ...diagnostic, severity: 'error' as const }))
     }, { delay: 250 })
     return [
-      basicSetup({ foldGutter: true }),
+      basicSetup({ foldGutter: true, highlightActiveLine: !readOnly, highlightActiveLineGutter: !readOnly }),
       json(),
       autocompletion({ override: [completion] }),
       validationLint,
       EditorView.lineWrapping,
       keymap.of([formatKey]),
+      editorChrome,
       ...(readOnly ? [EditorView.editable.of(false)] : []),
     ]
   }, [schema, openApi, readOnly])
 
   return <div className="space-y-2">
-    <div aria-label={ariaLabel} data-testid={ariaLabel.replaceAll(' ', '-')} className="overflow-hidden rounded-lg border bg-background text-sm [&_.cm-editor]:max-h-[34rem] [&_.cm-editor]:min-h-44 [&_.cm-editor]:text-sm [&_.cm-scroller]:overflow-auto">
-      <CodeMirror value={value} height="auto" extensions={extensions} onChange={readOnly ? undefined : onChange} basicSetup={false} aria-label={ariaLabel} />
+    <div
+      aria-label={ariaLabel}
+      data-testid={ariaLabel.replaceAll(' ', '-')}
+      className={cn(
+        'overflow-hidden rounded-lg border border-border-strong bg-surface [&_.cm-editor]:max-h-[34rem] [&_.cm-scroller]:overflow-auto',
+        readOnly
+          ? 'text-[0.8125rem] [&_.cm-editor]:min-h-16'
+          // 可编辑时手机上用 16px，避免 iOS 聚焦时整页放大。
+          : 'text-base transition-[border-color,box-shadow] focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/20 lg:text-[0.8125rem] [&_.cm-editor]:min-h-44',
+      )}
+    >
+      <CodeMirror value={value} height="auto" theme={dark ? 'dark' : 'light'} extensions={extensions} onChange={readOnly ? undefined : onChange} basicSetup={false} aria-label={ariaLabel} />
     </div>
-    {!readOnly && validation.errors.length > 0 && <div className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning" role="status">
-      <p className="font-medium">请求体校验警告；仍可发送</p>
-      {validation.errors.slice(0, 8).map((message, index) => <p key={index} className="mt-1 break-words">{message}</p>)}
-      {validation.errors.length > 8 && <p className="mt-1">另有 {validation.errors.length - 8} 个问题</p>}
-    </div>}
+    {!readOnly && validation.errors.length > 0 ? (
+      <InlineAlert tone="warning" role="status" title="请求体校验警告；仍可发送">
+        <ul className="space-y-0.5">
+          {validation.errors.slice(0, 8).map((message, index) => <li key={index} className="font-mono text-footnote [overflow-wrap:anywhere]">{message}</li>)}
+          {validation.errors.length > 8 ? <li className="text-footnote">另有 {validation.errors.length - 8} 个问题</li> : null}
+        </ul>
+      </InlineAlert>
+    ) : null}
   </div>
 }
