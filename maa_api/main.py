@@ -731,6 +731,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.services.core_update import CoreUpdateWorkflow
         from maa_api.services.game_update import GameUpdateService
         from maa_api.services.notify_service import NotifyService
+        from maa_api.services.push_subscription_service import (
+            PushSubscriptionService,
+        )
+        from maa_api.services.webpush_service import WebPushService
         from maa_api.services.resource_update import ResourceUpdateWorkflow
         from maa_api.services.retention_service import (
             RETENTION_CRON,
@@ -850,6 +854,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         notify_service = NotifyService(db_session.session_factory)
         api_snippet_service = ApiSnippetService(db_session.session_factory)
+        push_subscription_service = PushSubscriptionService(
+            db_session.session_factory
+        )
+        webpush_service = WebPushService(push_subscription_service)
 
         async def resource_layers_loaded() -> str | None:
             if getattr(core_supervisor.state, "value", core_supervisor.state) != "ready":
@@ -873,6 +881,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.update_service = update_service
         app.state.notify_service = notify_service
+        app.state.push_subscription_service = push_subscription_service
+        app.state.webpush_service = webpush_service
         app.state.api_snippet_service = api_snippet_service
         app.state.game_update_service = game_update_service
         await update_service.recover_interrupted()
@@ -906,6 +916,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ),
             broadcast=lambda message_type, data: ws_manager.broadcast(message_type, data),
             notify=notify_service,
+            push=webpush_service,
+            # 只有「用户没开着页面」时才值得推送（docs/09 §13.1 第 2 步）。
+            has_active_client=lambda: bool(ws_manager.sessions),
             confirmation_timeout_seconds=current_settings.agent.confirmation_timeout_seconds,
             grant_confirmation_timeout_seconds=(
                 current_settings.agent.grant_confirmation_timeout_seconds

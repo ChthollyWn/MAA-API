@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { AlertTriangle, Check, Clock3, LoaderCircle, X } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
@@ -60,6 +61,10 @@ export function ConfirmationsPanel() {
   const queryClient = useQueryClient()
   const [now, setNow] = useState(() => Date.now())
   const [actionError, setActionError] = useState<string | null>(null)
+  // 推送通知的深链入口是 /?confirm=<id>：打开应用后要直接定位到那张卡片。
+  const [searchParams, setSearchParams] = useSearchParams()
+  const targetConfirmationId = searchParams.get('confirm')
+  const targetRef = useRef<HTMLDivElement | null>(null)
   const pending = useQuery({
     queryKey: keys.agent.pendingConfirmations(),
     queryFn: async () => {
@@ -79,6 +84,21 @@ export function ConfirmationsPanel() {
     return () => window.clearInterval(timer)
   }, [pending.data?.items.length])
 
+  useEffect(() => {
+    if (!targetConfirmationId) return
+    const node = targetRef.current
+    if (!node || typeof node.scrollIntoView !== 'function') return
+    node.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [targetConfirmationId, pending.data?.items.length])
+
+  /** 处置完深链指向的确认后清掉查询参数，避免刷新时再次高亮一个已处理的卡片。 */
+  const clearTargetParam = () => {
+    if (!targetConfirmationId) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('confirm')
+    setSearchParams(next, { replace: true })
+  }
+
   const resolve = useMutation({
     mutationFn: async (input: { confirmationId: string; approved: boolean }) => {
       const { data, error, response } = await api.POST('/api/confirmations/{confirmation_id}', {
@@ -92,6 +112,7 @@ export function ConfirmationsPanel() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.agent.pendingConfirmations() })
       void queryClient.invalidateQueries({ queryKey: keys.agent.audits() })
+      clearTargetParam()
     },
     onError: (error) => {
       setActionError(confirmationError(error))
@@ -119,7 +140,25 @@ export function ConfirmationsPanel() {
   }
 
   const items = pending.data?.items ?? []
-  if (items.length === 0) return null
+  if (items.length === 0) {
+    // 深链指向的确认已经不在待处理列表里（已处置或已过期）：提示一次并把参数清掉，
+    // 否则用户会停在一个看起来什么都没发生的页面上。
+    if (targetConfirmationId) {
+      return (
+        <Card className="border-warning/50">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <p className="text-sm" role="status">
+              这条待确认操作已经处理或已过期，无需再操作。
+            </p>
+            <Button type="button" variant="outline" onClick={clearTargetParam}>
+              知道了
+            </Button>
+          </CardContent>
+        </Card>
+      )
+    }
+    return null
+  }
 
   return (
     <section className="space-y-3 py-4" aria-labelledby="pending-confirmations-title">
@@ -136,8 +175,14 @@ export function ConfirmationsPanel() {
         const grantSessionId = typeof item.payload.session_id === 'string' ? item.payload.session_id : null
         const callerName = item.caller?.name ? ` · ${item.caller.name}` : ''
         const busy = resolve.isPending && resolve.variables?.confirmationId === item.confirmation_id
+        const isTarget = item.confirmation_id === targetConfirmationId
         return (
-          <Card key={item.confirmation_id} className="overflow-hidden border-warning/50 border-l-4 border-l-warning">
+          <div
+            key={item.confirmation_id}
+            ref={isTarget ? targetRef : undefined}
+            className={isTarget ? 'rounded-xl ring-2 ring-primary ring-offset-2 ring-offset-background' : undefined}
+          >
+          <Card className="overflow-hidden border-warning/50 border-l-4 border-l-warning">
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -179,6 +224,7 @@ export function ConfirmationsPanel() {
               </div>
             </CardContent>
           </Card>
+          </div>
         )
       })}
     </section>

@@ -178,6 +178,9 @@ curl -X POST http://<host>:8002/api/snippets \
 | `NOTIFY_CHANNEL_CONFLICT` | 409 | `(type, name)` 重复 |
 | `NOTIFY_CONFIG_INVALID` | 422 | 通道配置不满足该类型的 schema，如 webhook 缺 `url`、bark 缺 `device_key` |
 | `NOTIFY_SEND_FAILED` | 502 | 测试发送或实际推送失败。`details` 带上游响应 |
+| `PUSH_NOT_CONFIGURED` | 503 | 未配置 VAPID 私钥，或配置的私钥不可解析。Web Push 端点与投递都不可用 |
+| `PUSH_SUBSCRIPTION_INVALID` | 422 | 订阅形状不合法：`endpoint` 不是 https 绝对 URL、`keys.p256dh` 不是 65 octet 未压缩 P-256 点或不在曲线上、`keys.auth` 不是 16 octet |
+| `PUSH_SUBSCRIPTION_NOT_FOUND` | 404 | 订阅 id 不存在 |
 | `RESOURCE_ASSET_NOT_FOUND` | 404 | Copilot 作业 / 基建方案 / 自定义 task 不存在 |
 | `RESOURCE_ASSET_CONFLICT` | 409 | `(kind, name)` 重复 |
 | `API_SNIPPET_NOT_FOUND` | 404 | API 调试台收藏 id 不存在 |

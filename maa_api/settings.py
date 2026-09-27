@@ -88,12 +88,14 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 __all__ = [
+    "CONFIG_ONLY_SETTING_KEYS",
     "DEFAULT_CONFIG_PATH",
     "ENV_OVERRIDES",
     "ENV_PREFIX",
     "REPO_ROOT",
     "SETTING_KEYS",
     "AdbSettings",
+    "NotifySettings",
     "Settings",
     "SettingsError",
     "get_settings",
@@ -137,7 +139,21 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "llm.base_url": ("llm", "base_url"),
     "llm.api_key": ("llm", "api_key"),
     "llm.model": ("llm", "model"),
+    # VAPID 密钥仍需登记在这张表里：`config.yaml` 与环境变量两层都靠它驱动解析，
+    # 表里没有的段会被整个忽略（notify 段曾因此静默读不到值）。
+    # 它们被 CONFIG_ONLY_SETTING_KEYS 排除在设置 API 之外。
+    "notify.vapid_private_key": ("notify", "vapid_private_key"),
+    "notify.vapid_subject": ("notify", "vapid_subject"),
 }
+
+#: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
+#:
+#: 当前只有 VAPID 密钥：多行 PEM 在设置页的单行输入框里回写会丢换行，而
+#: ``sensitive`` 项读取只回 ``***``，用户保存任意其它字段时前端会把 ``***`` 当新值
+#: 提交、静默覆盖真实私钥。它还必须与已签发的订阅保持一致，只能由部署者显式编辑。
+CONFIG_ONLY_SETTING_KEYS: frozenset[str] = frozenset(
+    {"notify.vapid_private_key", "notify.vapid_subject"}
+)
 
 #: 点分 key → 环境变量名（``MAA_`` + 大写、点换下划线）。
 ENV_OVERRIDES: dict[str, str] = {
@@ -220,6 +236,28 @@ class AgentSettings(BaseModel):
     auto_diagnose_failures: bool = True
 
 
+class NotifySettings(BaseModel):
+    """Web Push 的 VAPID 密钥与联络地址（docs/09 §13.1）。
+
+    私钥只从 ``config.yaml`` 取，**不在服务启动时自动生成**：每次启动换密钥会让所有
+    既有订阅静默失效。生成入口是 ``scripts/generate_vapid_keys.py``。
+
+    **刻意不登记在** :data:`SETTING_KEYS` **里**，因此设置 API 无法读写它：
+
+    - 它是多行 PEM，设置页的单行输入框回写会把换行压掉，得到一个不可解析的密钥；
+    - 它是 ``sensitive`` 项，读取时只回 ``***``；一旦经由设置 API 落库，用户在设置页
+      保存任意**其它**字段时，前端会把 ``***`` 当新值提交，从而静默覆盖真实私钥；
+    - 它必须与公钥严格对应。让它只来自部署者显式编辑的 ``config.yaml``，与
+      "VAPID 密钥必须稳定" 这条要求是同一个约束的两面。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    vapid_private_key: str = ""
+    #: JWT 的 ``sub``，必须是 ``mailto:`` 或站点 URL。推送服务用它联系站点管理员。
+    vapid_subject: str = "mailto:admin@example.com"
+
+
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -238,6 +276,7 @@ class Settings(BaseModel):
     agent: AgentSettings = Field(default_factory=AgentSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    notify: NotifySettings = Field(default_factory=NotifySettings)
 
 
 def resolve_settings(

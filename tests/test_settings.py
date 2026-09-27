@@ -336,6 +336,8 @@ def test_env_mapping_names_are_pinned() -> None:
         "llm.base_url": "MAA_LLM_BASE_URL",
         "llm.api_key": "MAA_LLM_API_KEY",
         "llm.model": "MAA_LLM_MODEL",
+        "notify.vapid_private_key": "MAA_NOTIFY_VAPID_PRIVATE_KEY",
+        "notify.vapid_subject": "MAA_NOTIFY_VAPID_SUBJECT",
         "updates.download_prefix": "MAA_UPDATES_DOWNLOAD_PREFIX",
         "updates.check_hour": "MAA_UPDATES_CHECK_HOUR",
         "agent.confirmation_timeout_seconds": "MAA_AGENT_CONFIRMATION_TIMEOUT_SECONDS",

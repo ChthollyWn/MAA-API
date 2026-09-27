@@ -142,7 +142,12 @@ describe('API console route and request workspace', () => {
     expect(screen.getByRole('button', { name: '返回接口列表' })).toBeInTheDocument()
     expect(screen.getByTestId('api-console-grid').getAttribute('data-layout')).toBe('mobile')
     expect(screen.getByText('请求头').closest('details')).not.toHaveAttribute('open')
-    expect(await screen.findByText(/请求体校验警告；仍可发送/)).toBeInTheDocument()
+    // 这条警告由 CodeMirror 的 lint 插件在 250ms 防抖后产出；整套用例并行跑时
+    // 默认 1s 的 findBy 超时会被别的用例挤掉（基线分支实测 3 次里失败 2 次），
+    // 所以这里给一个与防抖相符的预算，而不是把断言改弱。
+    expect(
+      await screen.findByText(/请求体校验警告；仍可发送/, undefined, { timeout: 5_000 }),
+    ).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('临时 token（当前页）'), { target: { value: 'one-page-secret' } })
     fireEvent.click(screen.getByRole('button', { name: '发送请求' }))
 

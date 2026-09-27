@@ -307,6 +307,15 @@ class ErrorCode(StrEnum):
     # 测试发送或实际推送失败。`details` 带上游响应
     NOTIFY_SEND_FAILED = "NOTIFY_SEND_FAILED"
 
+    # 未配置 VAPID 密钥对，Web Push 无法签名发送
+    PUSH_NOT_CONFIGURED = "PUSH_NOT_CONFIGURED"
+
+    # 订阅形状不合法：非 https endpoint、p256dh 不是 65 字节 P-256 点、auth 非 16 字节
+    PUSH_SUBSCRIPTION_INVALID = "PUSH_SUBSCRIPTION_INVALID"
+
+    # 订阅不存在或已被清理
+    PUSH_SUBSCRIPTION_NOT_FOUND = "PUSH_SUBSCRIPTION_NOT_FOUND"
+
     # ---- docs/05 §4.14 资源 ----
     # Copilot 作业 / 基建方案 / 自定义 task 不存在
     RESOURCE_ASSET_NOT_FOUND = "RESOURCE_ASSET_NOT_FOUND"
@@ -425,6 +434,10 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.NOTIFY_CHANNEL_CONFLICT: 409,
     ErrorCode.NOTIFY_CONFIG_INVALID: 422,
     ErrorCode.NOTIFY_SEND_FAILED: 502,
+    # VAPID 密钥未配置属服务端配置缺失，503 而非 500；推送服务拒绝订阅用 422
+    ErrorCode.PUSH_NOT_CONFIGURED: 503,
+    ErrorCode.PUSH_SUBSCRIPTION_INVALID: 422,
+    ErrorCode.PUSH_SUBSCRIPTION_NOT_FOUND: 404,
     ErrorCode.RESOURCE_ASSET_NOT_FOUND: 404,
     ErrorCode.RESOURCE_ASSET_CONFLICT: 409,
     ErrorCode.API_SNIPPET_NOT_FOUND: 404,

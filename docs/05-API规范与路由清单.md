@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 95 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 98 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
 
 ```python
 # maa_api/domain/errors.py
@@ -311,6 +311,9 @@ tool-calling 循环达到步数上限**不是错误**：会话正常结束，最
 | `NOTIFY_CHANNEL_CONFLICT` | 409 | `(type, name)` 重复 |
 | `NOTIFY_CONFIG_INVALID` | 422 | 通道配置不满足该类型的 schema，如 webhook 缺 `url`、bark 缺 `device_key` |
 | `NOTIFY_SEND_FAILED` | 502 | 测试发送或实际推送失败。`details` 带上游响应 |
+| `PUSH_NOT_CONFIGURED` | 503 | 未配置 VAPID 私钥，或配置的私钥不可解析。Web Push 端点与投递都不可用 |
+| `PUSH_SUBSCRIPTION_INVALID` | 422 | 订阅形状不合法：`endpoint` 不是 https 绝对 URL、`keys.p256dh` 不是 65 octet 未压缩 P-256 点或不在曲线上、`keys.auth` 不是 16 octet |
+| `PUSH_SUBSCRIPTION_NOT_FOUND` | 404 | 订阅 id 不存在 |
 
 ### 4.14 资源
 
@@ -609,10 +612,17 @@ Agent 设置包含 `agent.auto_diagnose_failures`，true/false 控制流水线�
 | PUT | `/api/notifications/channels/{id}` | 更新通道 | 同 POST | 200 | `NOTIFY_CHANNEL_NOT_FOUND`、`NOTIFY_CONFIG_INVALID` |
 | DELETE | `/api/notifications/channels/{id}` | 删除通道 | | 204 | `NOTIFY_CHANNEL_NOT_FOUND` |
 | POST | `/api/notifications/channels/{id}/test` | 发送测试消息，同步等结果（超时 10 秒） | `{event?}`：默认用 `pipeline_completed` 的样例数据 | 200 | `NOTIFY_SEND_FAILED`、`NOTIFY_CHANNEL_NOT_FOUND` |
+| GET | `/api/notifications/vapid-public-key` | 取 Web Push 的 VAPID 公钥，作为前端 `applicationServerKey` | | 200 | `PUSH_NOT_CONFIGURED` |
+| GET | `/api/notifications/push-subscriptions` | 订阅列表，**不回显** `endpoint` 全文与 `p256dh`/`auth` | `include_disabled`（默认 false） | 200 | — |
+| POST | `/api/notifications/push-subscriptions` | 登记订阅，请求体为 `PushSubscription.toJSON()` 的形状 | `{endpoint, keys:{p256dh, auth}}` | 201（同 endpoint 重放为 200） | `PUSH_SUBSCRIPTION_INVALID` |
+| DELETE | `/api/notifications/push-subscriptions/{id}` | 删除订阅 | | 204 | `PUSH_SUBSCRIPTION_NOT_FOUND` |
+| POST | `/api/notifications/push-subscriptions/delete` | 按 `endpoint` 注销当前浏览器的订阅（浏览器注销时手上只有 endpoint，而列表不回显它） | `{endpoint}` | 204 | — |
 
 测试发送用 200 同步返回而不是 202，因为用户点"测试"就是要立刻知道配置对不对；异步受理会让他还得去别处查结果。
 
-（5 条）
+Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重复订阅拿到的是同一个 endpoint，重放注册更新既有行并返回 200 而不是新增一条。列表只返回 `id`、`endpoint_host`、`user_agent`、时间与失效状态 —— `endpoint` 全文本身就是投递凭据，`p256dh`/`auth` 更是解密推送所必需，三者与凭据同级。推送服务返回 404/410 时订阅被标记失效（保留行供设置页展示），重新订阅会清除该标记。注销提供了两个入口：按 id，以及按 endpoint（`endpoint` 放在请求体里而不是 URL，避免它进入访问日志；找不到对应订阅同样返回 204，因为注销是幂等操作）。
+
+（10 条）
 
 ### 6.14 resources
 

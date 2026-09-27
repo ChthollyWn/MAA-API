@@ -834,3 +834,42 @@ class ApiSnippet(SQLModel, table=True):
         UniqueConstraint("name", name="uq_api_snippet_name"),
         Index("ix_api_snippet_updated_at", "updated_at"),
     )
+
+
+class PushSubscription(SQLModel, table=True):
+    """Web Push 订阅（M14，docs/09 §13.1）。
+
+    ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一
+    Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新增行。
+    ``endpoint_host`` 单独存一份，供列表接口展示设备来源 —— 列表**不回显**
+    ``endpoint`` 全文与两个密钥字段，它们与凭据同级。
+
+    失效订阅保留行并置 ``disabled_at`` 而不是删除：用户需要看到「某台设备的
+    订阅已失效」并有机会重新启用，静默删行会让通知无声无息地消失。
+    """
+
+    __tablename__ = "push_subscription"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    endpoint: str = Field(max_length=2048)
+    endpoint_host: str = Field(max_length=255)
+    p256dh: str = Field(max_length=255)
+    auth: str = Field(max_length=255)
+    user_agent: str | None = Field(default=None, max_length=255)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+    last_success_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("last_success_at", nullable=True)
+    )
+    disabled_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("disabled_at", nullable=True)
+    )
+
+    __table_args__ = (
+        UniqueConstraint("endpoint", name="uq_push_subscription_endpoint"),
+        Index("ix_push_subscription_disabled_at", "disabled_at"),
+    )

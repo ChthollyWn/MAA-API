@@ -20,6 +20,16 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
+      // generateSW 没有 push 事件处理，而 Web Push 的通知完全依赖它（M14）。
+      // 改用 injectManifest + 自己的 src/sw.ts：预缓存仍走 Workbox，push 与
+      // notificationclick 由我们实现。
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        globPatterns: ['**/*.{css,html,ico,png,svg,webmanifest,js}'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+      },
       includeAssets: [
         'favicon.svg',
         'apple-touch-icon.png',
@@ -47,20 +57,6 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{css,html,ico,png,svg,webmanifest,js}'],
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [
-          /^\/api(?:\/|$)/,
-          /^\/docs(?:\/|$)/,
-          /^\/redoc(?:\/|$)/,
-          /^\/openapi\.json$/,
-        ],
-        cleanupOutdatedCaches: true,
-        clientsClaim: false,
-        skipWaiting: false,
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
     }),
   ],

@@ -7,7 +7,7 @@ import platform
 from typing import Any
 from pathlib import Path
 
-from maa_api.settings import REPO_ROOT, SETTING_KEYS
+from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, REPO_ROOT, SETTING_KEYS
 
 __all__ = ["SETTINGS_SCHEMA", "SETTING_READONLY_KEYS"]
 
@@ -68,7 +68,14 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "agent.grant_confirmation_timeout_seconds": dict(label="原子操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.atomic_grant_minutes": dict(label="原子操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
     "agent.auto_diagnose_failures": dict(label="自动诊断流水线与内核故障", group="Agent", type="boolean", hot_action="none"),
+    # 下面两项只从 config.yaml 提供，不出现在设置 API 的响应里（见 CONFIG_ONLY_SETTING_KEYS）。
+    # 这里保留元数据是为了让这张表覆盖全部 key，加 key 时不会漏掉归属与说明。
+    "notify.vapid_private_key": dict(label="Web Push VAPID 私钥", group="通知", type="string", sensitive=True, hot_action="restart_required"),
+    "notify.vapid_subject": dict(label="Web Push 联络邮箱", group="通知", type="string", hot_action="restart_required"),
 }
+
+#: 只从 ``config.yaml`` / 环境变量提供的 key 不出现在设置 API 里（见 settings.py 的说明）。
+_SCHEMA_KEYS = tuple(key for key in SETTING_KEYS if key not in CONFIG_ONLY_SETTING_KEYS)
 
 SETTINGS_SCHEMA: tuple[dict[str, Any], ...] = tuple(
     {
@@ -76,7 +83,7 @@ SETTINGS_SCHEMA: tuple[dict[str, Any], ...] = tuple(
         **_FIELDS[key],
         "readonly": key in SETTING_READONLY_KEYS,
     }
-    for key in SETTING_KEYS
+    for key in _SCHEMA_KEYS
 )
 
 
