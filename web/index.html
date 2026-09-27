@@ -1,16 +1,32 @@
 <!doctype html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="theme-color" content="#101411" />
-    <meta name="description" content="MAA-API 移动端控制台" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="MAA-API" />
+    <meta name="theme-color" content="#0e1014" />
+    <meta name="description" content="MAA-API 控制台" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>MAA-API 控制台</title>
+    <script>
+      // 首帧前按已保存的选择或系统偏好设置主题，避免闪烁。颜色与 src/stores/ui.ts 一致。
+      (function () {
+        var stored = null
+        try { stored = localStorage.getItem('maa-api-theme') } catch (e) {}
+        var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+        var dark = stored === 'dark' || (stored !== 'light' && !prefersLight)
+        var root = document.documentElement
+        if (dark) root.classList.add('dark')
+        root.style.colorScheme = dark ? 'dark' : 'light'
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute('content', dark ? '#0e1014' : '#f6f7f9')
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -71,7 +71,7 @@ describe('App shell and entry routes', () => {
     expect(useUiStore.getState().theme).toBe('light')
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
-    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe('#f4f6f3')
+    expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe('#f6f7f9')
   })
 
   it('sends the returnTo path for an unauthenticated login and masks the entered token by default', async () => {

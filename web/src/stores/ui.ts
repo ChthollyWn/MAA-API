@@ -2,20 +2,21 @@ import { create } from 'zustand'
 
 export type ThemePreference = 'dark' | 'light' | 'system'
 export const THEME_STORAGE_KEY = 'maa-api-theme'
-const THEME_COLOR = { dark: '#101411', light: '#f4f6f3' } as const
+// index.html 的首帧脚本写死了同一组颜色，改这里要同步改那里。
+export const THEME_COLOR = { dark: '#0e1014', light: '#f6f7f9' } as const
 
 function readTheme(): ThemePreference {
-  if (typeof window === 'undefined') return 'dark'
+  if (typeof window === 'undefined') return 'system'
   try {
     const value = window.localStorage.getItem(THEME_STORAGE_KEY)
     if (value === 'dark' || value === 'light' || value === 'system') return value
   } catch {
-    // Keep the dark default when browser storage is unavailable.
+    // Fall back to the system preference when browser storage is unavailable.
   }
-  return 'dark'
+  return 'system'
 }
 
-function resolvedTheme(theme: ThemePreference): 'dark' | 'light' {
+export function resolveTheme(theme: ThemePreference): 'dark' | 'light' {
   if (theme !== 'system') return theme
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches
     ? 'light'
@@ -24,7 +25,7 @@ function resolvedTheme(theme: ThemePreference): 'dark' | 'light' {
 
 export function applyTheme(theme: ThemePreference): void {
   if (typeof document === 'undefined') return
-  const colorTheme = resolvedTheme(theme)
+  const colorTheme = resolveTheme(theme)
   document.documentElement.classList.toggle('dark', colorTheme === 'dark')
   document.documentElement.style.colorScheme = colorTheme
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[colorTheme])
