@@ -18,6 +18,7 @@ const TasksPage = lazy(() => import('@/routes/tasks'))
 const PipelineDetailPage = lazy(() => import('@/routes/tasks/detail'))
 const UpdatesPage = lazy(() => import('@/routes/updates'))
 const SchedulesPage = lazy(() => import('@/routes/schedules'))
+const ScheduleEditorPage = lazy(() => import('@/routes/schedules/editor'))
 const SettingsPage = lazy(() => import('@/routes/settings'))
 const MorePage = lazy(() => import('@/routes/more'))
 const ApiConsolePage = lazy(() => import('@/features/api-console'))
@@ -118,9 +119,9 @@ export const routeConfig: RouteObject[] = [
       { path: 'tasks/queue', element: page(<TasksPage />) },
       { path: 'tasks/history', element: page(<TasksPage />) },
       { path: 'tasks/history/:pipelineId', element: page(<PipelineDetailPage />) },
-      { path: 'tasks/schedules', element: legacy(<SchedulesPage />) },
-      { path: 'tasks/schedules/new', element: legacy(<SchedulesPage />) },
-      { path: 'tasks/schedules/:scheduleId', element: legacy(<SchedulesPage />) },
+      { path: 'tasks/schedules', element: page(<SchedulesPage />) },
+      { path: 'tasks/schedules/new', element: page(<ScheduleEditorPage />) },
+      { path: 'tasks/schedules/:scheduleId', element: page(<ScheduleEditorPage />) },
       { path: 'logs/*', element: page(<LogsPage />) },
       { path: 'agent/*', element: page(<AgentPage />) },
       { path: 'more', element: page(<MorePage />) },

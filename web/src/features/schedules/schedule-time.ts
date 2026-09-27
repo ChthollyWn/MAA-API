@@ -49,8 +49,20 @@ export function buildWeeklyCron(weekdays: number[], time: string): string | null
   return minute + ' ' + hour + ' * * ' + weekdayField
 }
 
-const MONDAY_FIRST = [1, 2, 3, 4, 5, 6, 0]
-const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+export const MONDAY_FIRST: readonly number[] = [1, 2, 3, 4, 5, 6, 0]
+/** 按 cron 星期编号取名：0 为周日。 */
+export const WEEKDAY_NAMES: readonly string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+export const WEEKDAY_SHORT_NAMES: readonly string[] = ['日', '一', '二', '三', '四', '五', '六']
+
+export const WEEKDAY_PRESETS: ReadonlyArray<{ label: string; weekdays: readonly number[] }> = [
+  { label: '每天', weekdays: WEEKDAYS },
+  { label: '工作日', weekdays: [1, 2, 3, 4, 5] },
+  { label: '周末', weekdays: [0, 6] },
+]
+
+export function sameWeekdays(left: readonly number[], right: readonly number[]): boolean {
+  return uniqueSortedDays([...left]).join(',') === uniqueSortedDays([...right]).join(',')
+}
 
 /** 把星期集合写成人话：每天、工作日、周末、周一至周三、周一、周三、周五。 */
 export function describeWeekdays(weekdays: number[]): string {
