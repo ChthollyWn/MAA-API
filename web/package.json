@@ -9,12 +9,13 @@
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "pnpm typecheck && vite build",
+    "build": "pnpm typecheck && vite build && node scripts/sw_harness.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest",
     "gen:api": "node scripts/gen-api.mjs",
-    "gen:api:check": "node scripts/gen-api.mjs --check"
+    "gen:api:check": "node scripts/gen-api.mjs --check",
+    "sw:check": "node scripts/sw_harness.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

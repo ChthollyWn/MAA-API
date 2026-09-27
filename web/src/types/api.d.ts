@@ -511,6 +511,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notifications/push-subscriptions/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 按 endpoint 注销当前浏览器的订阅
+         * @description 浏览器注销时手上只有 `PushSubscription.endpoint`，而列表接口出于凭据保护不回显它（同一推送服务下的多台设备主机名相同，按主机名删除会误伤别人），因此提供这个按 endpoint 精确注销的入口。
+         *
+         *     - `endpoint` 放在请求体而不是 URL，避免它进入访问日志与浏览器历史
+         *     - 找不到对应订阅同样返回 204：注销是幂等操作
+         */
+        post: operations["notifications_delete_push_subscription_by_endpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notifications/push-subscriptions/{subscription_id}": {
         parameters: {
             query?: never;
@@ -2120,6 +2143,14 @@ export interface components {
             keys: {
                 [key: string]: string;
             };
+        };
+        /**
+         * PushUnsubscribeRequest
+         * @description 按 endpoint 注销订阅（注册接口的请求形状里 endpoint 是必填，这里同理）。
+         */
+        PushUnsubscribeRequest: {
+            /** Endpoint */
+            endpoint: string;
         };
         /**
          * QueueHealth
@@ -5414,6 +5445,37 @@ export interface operations {
                      *     }
                      */
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    notifications_delete_push_subscription_by_endpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushUnsubscribeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

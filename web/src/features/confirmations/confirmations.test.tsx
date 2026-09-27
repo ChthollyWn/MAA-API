@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router'
 import { ConfirmationsPanel } from '@/features/confirmations/ConfirmationsPanel'
 import { handleServerEvent } from '@/realtime/query-bridge'
 import type { ServerEvent } from '@/realtime/events'
@@ -31,7 +32,14 @@ const pendingConfirmation = {
 function renderPanel(fetchMock: typeof fetch) {
   vi.stubGlobal('fetch', fetchMock)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  const view = render(<QueryClientProvider client={queryClient}><ConfirmationsPanel /></QueryClientProvider>)
+  // 面板用 useSearchParams 支持推送深链（/?confirm=<id>），所以需要 Router 上下文。
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/']}>
+        <ConfirmationsPanel />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
   return { ...view, queryClient }
 }
 

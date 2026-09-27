@@ -132,6 +132,14 @@ class PushSubscribeRequest(BaseModel):
     keys: dict[str, str]
 
 
+class PushUnsubscribeRequest(BaseModel):
+    """按 endpoint 注销订阅（注册接口的请求形状里 endpoint 是必填，这里同理）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    endpoint: str = Field(min_length=1, max_length=2048)
+
+
 def _push_service(request: Request) -> PushSubscriptionService:
     service = getattr(request.app.state, "push_subscription_service", None)
     if service is None:
@@ -215,4 +223,24 @@ async def create_push_subscription(
 )
 async def delete_push_subscription(subscription_id: str, request: Request) -> Response:
     await _push_service(request).delete(subscription_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/notifications/push-subscriptions/delete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="按 endpoint 注销当前浏览器的订阅",
+    description=(
+        "浏览器注销时手上只有 `PushSubscription.endpoint`，而列表接口出于凭据保护"
+        "不回显它（同一推送服务下的多台设备主机名相同，按主机名删除会误伤别人），"
+        "因此提供这个按 endpoint 精确注销的入口。\n\n"
+        "- `endpoint` 放在请求体而不是 URL，避免它进入访问日志与浏览器历史\n"
+        "- 找不到对应订阅同样返回 204：注销是幂等操作\n"
+    ),
+    dependencies=[Depends(require_auth)],
+)
+async def delete_push_subscription_by_endpoint(
+    payload: PushUnsubscribeRequest, request: Request
+) -> Response:
+    await _push_service(request).delete_by_endpoint(payload.endpoint)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

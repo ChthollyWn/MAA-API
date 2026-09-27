@@ -1898,6 +1898,22 @@
         "title": "PushSubscribeRequest",
         "type": "object"
       },
+      "PushUnsubscribeRequest": {
+        "description": "按 endpoint 注销订阅（注册接口的请求形状里 endpoint 是必填，这里同理）。",
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "PushUnsubscribeRequest",
+        "type": "object"
+      },
       "QueueHealth": {
         "description": "队列概览，不暴露流水线或任务条目。",
         "properties": {
@@ -6677,6 +6693,41 @@
           }
         },
         "summary": "登记 Web Push 订阅",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/notifications/push-subscriptions/delete": {
+      "post": {
+        "description": "浏览器注销时手上只有 `PushSubscription.endpoint`，而列表接口出于凭据保护不回显它（同一推送服务下的多台设备主机名相同，按主机名删除会误伤别人），因此提供这个按 endpoint 精确注销的入口。\n\n- `endpoint` 放在请求体而不是 URL，避免它进入访问日志与浏览器历史\n- 找不到对应订阅同样返回 204：注销是幂等操作",
+        "operationId": "notifications_delete_push_subscription_by_endpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushUnsubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "按 endpoint 注销当前浏览器的订阅",
         "tags": [
           "notifications"
         ]

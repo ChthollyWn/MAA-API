@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NotificationChannels } from './NotificationChannels'
+import { PushNotifications } from './PushNotifications'
 
 type JsonRecord = Record<string, unknown>
 
@@ -550,6 +551,7 @@ export default function SettingsPage() {
         </div>
       </form>
 
+      <PushNotifications />
       <NotificationChannels />
     </main>
   )

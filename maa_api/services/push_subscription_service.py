@@ -219,6 +219,22 @@ class PushSubscriptionService:
                 )
             await session.commit()
 
+    async def delete_by_endpoint(self, endpoint: str) -> bool:
+        """按 endpoint 注销订阅，返回是否确实删掉了一行。
+
+        浏览器注销时手上只有 endpoint；列表出于凭据保护不回显它，所以需要一个按
+        endpoint 精确删除的入口（同一推送服务下多台设备主机名相同，按主机名删除
+        会误伤别人的订阅）。找不到也算成功 —— 注销是幂等操作。
+        """
+        async with self._session_factory() as session:
+            repository = PushSubscriptionRepository(session)
+            existing = await repository.get_by_endpoint(endpoint)
+            if existing is None:
+                return False
+            await repository.delete(existing.id)
+            await session.commit()
+            return True
+
     async def mark_sent(self, subscription_id: str) -> None:
         async with self._session_factory() as session:
             await PushSubscriptionRepository(session).mark_sent(subscription_id)

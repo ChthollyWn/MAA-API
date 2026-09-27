@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { writeAuthTokenToIdb } from '@/lib/idb'
 
 export const AUTH_TOKEN_STORAGE_KEY = 'maa-api-token'
 export const UNAUTHORIZED_EVENT = 'maa:unauthorized'
@@ -21,6 +22,12 @@ function readStoredToken(): string | null {
 }
 
 function writeStoredToken(token: string | null): void {
+  // Three stores must stay in sync: localStorage (page), Zustand memory, and
+  // IndexedDB (Service Worker). The Worker is not a window context, so it cannot
+  // read localStorage, and it needs the token to submit a confirmation straight
+  // from a notification action. Clearing must therefore clear both places too,
+  // otherwise a stale token keeps working after logout.
+  void writeAuthTokenToIdb(token)
   if (typeof window === 'undefined') return
 
   try {

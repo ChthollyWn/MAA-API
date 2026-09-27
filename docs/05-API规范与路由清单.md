@@ -616,12 +616,13 @@ Agent 设置包含 `agent.auto_diagnose_failures`，true/false 控制流水线�
 | GET | `/api/notifications/push-subscriptions` | 订阅列表，**不回显** `endpoint` 全文与 `p256dh`/`auth` | `include_disabled`（默认 false） | 200 | — |
 | POST | `/api/notifications/push-subscriptions` | 登记订阅，请求体为 `PushSubscription.toJSON()` 的形状 | `{endpoint, keys:{p256dh, auth}}` | 201（同 endpoint 重放为 200） | `PUSH_SUBSCRIPTION_INVALID` |
 | DELETE | `/api/notifications/push-subscriptions/{id}` | 删除订阅 | | 204 | `PUSH_SUBSCRIPTION_NOT_FOUND` |
+| POST | `/api/notifications/push-subscriptions/delete` | 按 `endpoint` 注销当前浏览器的订阅（浏览器注销时手上只有 endpoint，而列表不回显它） | `{endpoint}` | 204 | — |
 
 测试发送用 200 同步返回而不是 202，因为用户点"测试"就是要立刻知道配置对不对；异步受理会让他还得去别处查结果。
 
-Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重复订阅拿到的是同一个 endpoint，重放注册更新既有行并返回 200 而不是新增一条。列表只返回 `id`、`endpoint_host`、`user_agent`、时间与失效状态 —— `endpoint` 全文本身就是投递凭据，`p256dh`/`auth` 更是解密推送所必需，三者与凭据同级。推送服务返回 404/410 时订阅被标记失效（保留行供设置页展示），重新订阅会清除该标记。
+Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重复订阅拿到的是同一个 endpoint，重放注册更新既有行并返回 200 而不是新增一条。列表只返回 `id`、`endpoint_host`、`user_agent`、时间与失效状态 —— `endpoint` 全文本身就是投递凭据，`p256dh`/`auth` 更是解密推送所必需，三者与凭据同级。推送服务返回 404/410 时订阅被标记失效（保留行供设置页展示），重新订阅会清除该标记。注销提供了两个入口：按 id，以及按 endpoint（`endpoint` 放在请求体里而不是 URL，避免它进入访问日志；找不到对应订阅同样返回 204，因为注销是幂等操作）。
 
-（9 条）
+（10 条）
 
 ### 6.14 resources
 
