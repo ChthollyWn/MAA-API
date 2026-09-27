@@ -1,337 +1,209 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { RefreshCw } from 'lucide-react'
+import { Page } from '@/components/layout/Page'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { api } from '@/api/client'
-import { keys } from '@/api/keys'
-import { useRealtimeStatus } from '@/realtime/RealtimeProvider'
+import { useConfirm } from '@/components/ui/confirm-dialog'
+import { InlineAlert } from '@/components/ui/inline-alert'
+import { ErrorState, LoadingState } from '@/components/ui/states'
+import { toast } from '@/components/ui/toaster'
 import { UpdateHistory } from '@/features/updates/UpdateHistory'
+import { UpdateOptionsSheet } from '@/features/updates/UpdateOptionsSheet'
+import { UpdateProgress } from '@/features/updates/UpdateProgress'
+import { UpdateRecordSheet } from '@/features/updates/UpdateRecordSheet'
 import { UpdateTargetCard } from '@/features/updates/UpdateTargetCard'
-import type {
-  GameChannel, ResourceChannel, UpdateHistoryResponse, UpdateRecord, UpdateStatusResponse,
-  UpdateTarget,
-} from '@/features/updates/types'
-import { errorMessage, recordIsActive } from '@/features/updates/types'
+import type { GameChannel, UpdateOptions, UpdateTarget } from '@/features/updates/types'
+import { errorMessage, formatDate, targetLabels, withLeadingSpace } from '@/features/updates/types'
+import { useUpdates } from '@/features/updates/use-updates'
 
-function apiError(error: unknown): Error {
-  return new Error(errorMessage(error))
+const TARGETS = ['core', 'resource', 'game'] as const satisfies readonly UpdateTarget[]
+
+interface OptionsSheetState {
+  target: UpdateTarget
+  open: boolean
+  /** 每次打开换一个 key，让面板里的选择回到默认值；关闭时保留，收起动画里内容不跳变。 */
+  key: number
 }
 
 export default function UpdatesPage() {
-  const queryClient = useQueryClient()
-  const realtime = useRealtimeStatus()
-  const [resourceChannel, setResourceChannel] = useState<ResourceChannel>('all')
-  const [reloadMode, setReloadMode] = useState<'wait' | 'force' | 'defer'>('wait')
+  const {
+    statusQuery, historyQuery, detailQuery, historyDetailQuery, historyDetailId, setHistoryDetailId,
+    activeRecord, check, submit, cancel, retry,
+  } = useUpdates()
+  const [confirm, confirmElement] = useConfirm()
   const [gameChannel, setGameChannel] = useState<GameChannel>('Official')
-  const [historyDetailId, setHistoryDetailId] = useState<string | null>(null)
-  const [forceInterrupt, setForceInterrupt] = useState(false)
-  const [manualCheckError, setManualCheckError] = useState<unknown>(null)
-  const [isChecking, setIsChecking] = useState(false)
-  const [acceptingRecord, setAcceptingRecord] = useState<UpdateRecord | null>(null)
-  const [actionError, setActionError] = useState<unknown>(null)
-  const [busyTarget, setBusyTarget] = useState<UpdateTarget | null>(null)
-  const [cancelBusy, setCancelBusy] = useState(false)
-  const [retryingId, setRetryingId] = useState<string | null>(null)
-  const previousRunningId = useRef<string | null>(null)
-
-  const statusQuery = useQuery({
-    queryKey: keys.updates.status(),
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/updates/status')
-      if (error) throw apiError(error)
-      if (!data) throw new Error('更新状态接口没有返回数据。')
-      return data as unknown as UpdateStatusResponse
-    },
-    // update_progress invalidates this query while WS is live; poll cached status
-    // during connect/offline windows so updates started elsewhere are discovered.
-    refetchInterval: realtime.status === 'CONNECTED' ? false : 5000,
-  })
-
-  const historyQuery = useQuery({
-    queryKey: [...keys.updates.all(), { page: 1, size: 20 }],
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/updates', { params: { query: { page: 1, size: 20 } } })
-      if (error) throw apiError(error)
-      if (!data) throw new Error('更新记录接口没有返回数据。')
-      return data as unknown as UpdateHistoryResponse
-    },
-  })
+  const [optionsSheet, setOptionsSheet] = useState<OptionsSheetState | null>(null)
+  const [recordOpen, setRecordOpen] = useState(false)
 
   const status = statusQuery.data
-  const candidate = status?.running ?? acceptingRecord
-  const activeCandidate = recordIsActive(candidate) ? candidate : null
-  const activeId = activeCandidate?.id ?? null
-  const detailQuery = useQuery({
-    queryKey: [...keys.updates.all(), 'detail', activeId],
-    enabled: activeId !== null,
-    queryFn: async () => {
-      if (!activeId) return null
-      const { data, error } = await api.GET('/api/updates/{update_id}', { params: { path: { update_id: activeId } } })
-      if (error) throw apiError(error)
-      if (!data) throw new Error('更新进度接口没有返回数据。')
-      return data as unknown as UpdateRecord
-    },
-    refetchInterval: activeId ? 2000 : false,
-  })
-  const historyDetailQuery = useQuery({
-    queryKey: [...keys.updates.all(), 'detail', historyDetailId],
-    enabled: historyDetailId !== null,
-    queryFn: async () => {
-      if (!historyDetailId) return null
-      const { data, error } = await api.GET('/api/updates/{update_id}', { params: { path: { update_id: historyDetailId } } })
-      if (error) throw apiError(error)
-      if (!data) throw new Error('更新详情接口没有返回数据。')
-      return data as unknown as UpdateRecord
-    },
-  })
-
-  useEffect(() => {
-    const running = status?.running
-    if (!running?.id) return
-    queryClient.setQueryData<UpdateRecord>([...keys.updates.all(), 'detail', running.id], (previous) => ({
-      ...previous,
-      ...running,
-    }))
-  }, [queryClient, status?.running])
-
-  useEffect(() => {
-    const runningId = status?.running?.id ?? null
-    if (previousRunningId.current && !runningId) {
-      void queryClient.invalidateQueries({ queryKey: keys.updates.all() })
-    }
-    previousRunningId.current = runningId
-  }, [queryClient, status?.running?.id])
-
-  const activeRecord = useMemo(() => {
-    if (!activeId) return null
-    const detail = detailQuery.data
-    if (detail?.id === activeId) return detail
-    return activeCandidate?.id === activeId ? activeCandidate : null
-  }, [activeCandidate, activeId, detailQuery.data])
-
-  useEffect(() => {
-    if (acceptingRecord && !recordIsActive(acceptingRecord)) setAcceptingRecord(null)
-  }, [acceptingRecord])
-
-  useEffect(() => {
-    if (detailQuery.data && !recordIsActive(detailQuery.data)) {
-      setAcceptingRecord((current) => current?.id === detailQuery.data?.id ? null : current)
-    }
-  }, [detailQuery.data])
-
-  async function checkNow() {
-    setManualCheckError(null)
-    setIsChecking(true)
-    try {
-      const { data, error } = await api.GET('/api/updates/status', { params: { query: { refresh: true } } })
-      if (error) throw apiError(error)
-      if (!data) throw new Error('更新状态接口没有返回数据。')
-      queryClient.setQueryData(keys.updates.status(), data as unknown as UpdateStatusResponse)
-    } catch (error) {
-      setManualCheckError(error)
-    } finally {
-      setIsChecking(false)
-    }
-  }
-
-  async function submitUpdate(target: UpdateTarget) {
-    const interrupt = forceInterrupt || (target === 'resource' && reloadMode === 'force')
-
-    if (interrupt) {
-      const confirmed = window.confirm('强制更新会取消正在执行的流水线。继续后，当前任务可能被中断。是否继续？')
-      if (!confirmed) return
-    }
-
-    setActionError(null)
-    setBusyTarget(target)
-    try {
-      const result = target === 'core'
-        ? await api.POST('/api/updates/core', { body: { channel: 'stable', force: false, force_interrupt: interrupt } })
-        : target === 'resource'
-          ? await api.POST('/api/updates/resource', {
-            body: {
-              channel: resourceChannel,
-              force: false,
-              force_interrupt: interrupt,
-              reload_mode: reloadMode,
-            },
-          })
-          : await api.POST('/api/updates/game', {
-            body: { channel: gameChannel, force: false, force_interrupt: interrupt },
-          })
-      if (result.error) throw apiError(result.error)
-      const record = result.data as unknown as UpdateRecord | undefined
-      if (!record) throw new Error('更新请求已提交，但接口没有返回记录编号。')
-      setAcceptingRecord(record)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.updates.status() }),
-        queryClient.invalidateQueries({ queryKey: keys.updates.all() }),
-      ])
-      if (!recordIsActive(record)) setAcceptingRecord(null)
-    } catch (error) {
-      setActionError(error)
-      await queryClient.invalidateQueries({ queryKey: keys.updates.status() })
-    } finally {
-      setBusyTarget(null)
-    }
-  }
-
-  async function cancelUpdate(id: string) {
-    setActionError(null)
-    setCancelBusy(true)
-    try {
-      const { error } = await api.DELETE('/api/updates/{update_id}', { params: { path: { update_id: id } } })
-      if (error) throw apiError(error)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.updates.status() }),
-        queryClient.invalidateQueries({ queryKey: [...keys.updates.all(), 'detail', id] }),
-        queryClient.invalidateQueries({ queryKey: keys.updates.all() }),
-      ])
-    } catch (error) {
-      setActionError(error)
-    } finally {
-      setCancelBusy(false)
-    }
-  }
-
-  async function retryUpdate(id: string) {
-    setActionError(null)
-    setRetryingId(id)
-    try {
-      const { data, error } = await api.POST('/api/updates/{update_id}/retry', { params: { path: { update_id: id } } })
-      if (error) throw apiError(error)
-      const record = data as unknown as UpdateRecord | undefined
-      if (!record) throw new Error('重试请求已提交，但接口没有返回记录编号。')
-      setAcceptingRecord(record)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.updates.status() }),
-        queryClient.invalidateQueries({ queryKey: keys.updates.all() }),
-      ])
-    } catch (error) {
-      setActionError(error)
-    } finally {
-      setRetryingId(null)
-    }
-  }
-
-  const updates = status?.updates ?? {}
   const records = historyQuery.data?.items ?? []
-  const globalActive = Boolean(activeRecord)
+  const shownRecord = historyDetailId
+    ? historyDetailQuery.data?.id === historyDetailId
+      ? historyDetailQuery.data
+      : records.find((record) => record.id === historyDetailId) ?? null
+    : null
+
+  const openOptions = (target: UpdateTarget) => {
+    submit.reset()
+    setOptionsSheet((current) => ({ target, open: true, key: (current?.key ?? 0) + 1 }))
+  }
+  const setOptionsOpen = (open: boolean) => {
+    // 面板里已经看过的失败不再搬到页面上；只有关掉面板之后才返回的失败才在页面上提示。
+    if (!open && !submit.isPending) submit.reset()
+    setOptionsSheet((current) => current && { ...current, open })
+  }
+  const setRecordSheetOpen = (open: boolean) => {
+    if (!open && !retry.isPending) retry.reset()
+    setRecordOpen(open)
+  }
+
+  const startUpdate = (target: UpdateTarget, options: UpdateOptions) => {
+    submit.mutate({ target, options }, {
+      onSuccess: () => {
+        setOptionsOpen(false)
+        toast.success(`已开始更新${withLeadingSpace(targetLabels[target])}`)
+      },
+    })
+  }
+
+  const cancelUpdate = async (id: string) => {
+    const ok = await confirm({
+      title: '取消这次更新？',
+      description: '已下载的部分会被丢弃，之后可以重新开始。',
+      confirmText: '取消更新',
+      cancelText: '继续更新',
+      tone: 'danger',
+    })
+    if (ok) cancel.mutate(id, { onSuccess: () => toast.success('已取消更新') })
+  }
+
+  const openRecord = (id: string) => {
+    retry.reset()
+    if (id === historyDetailId) void historyDetailQuery.refetch()
+    else setHistoryDetailId(id)
+    setRecordOpen(true)
+  }
+
+  const retryRecord = (id: string) => {
+    retry.mutate(id, {
+      onSuccess: () => {
+        setRecordOpen(false)
+        toast.success('已重新开始更新')
+      },
+    })
+  }
 
   return (
-    <main className="mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="max-w-2xl space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">系统维护</p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">热更新</h1>
-          <p className="text-sm leading-6 text-muted-foreground">
-            检查内核、活动资源和游戏版本。检查只读取版本信息；下载与安装由你手动开始。
-          </p>
+    <Page title="热更新" back="/more">
+      <div className="space-y-5 pb-4">
+        <div className="space-y-1.5 px-1">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1" aria-live="polite">
+              <p className="flex items-center gap-2 text-footnote text-muted-foreground">
+                上次检查
+                {status?.cached ? <Badge variant="neutral">缓存结果</Badge> : null}
+              </p>
+              <p className="mt-0.5 text-[0.9375rem] font-medium tabular-nums">
+                {status?.checked_at
+                  ? formatDate(status.checked_at)
+                  : statusQuery.isPending ? '正在读取…' : '还没有检查过'}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" className="shrink-0" loading={check.isPending} onClick={() => check.mutate()}>
+              {check.isPending ? null : <RefreshCw aria-hidden="true" />}
+              {check.isPending ? '正在检查…' : '立即检查'}
+            </Button>
+          </div>
+          <p className="text-footnote text-muted-foreground">检查只读取版本信息，下载与安装由你手动开始。</p>
         </div>
-        <Button type="button" onClick={checkNow} disabled={isChecking} className="w-full sm:w-auto">
-          {isChecking ? '正在检查…' : '立即检查更新'}
-        </Button>
-      </header>
 
-      <div className="space-y-3">
-        {manualCheckError !== null && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm" role="alert">
-            立即检查失败：{errorMessage(manualCheckError)}
-          </div>
-        )}
-        {actionError !== null && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm" role="alert">
-            更新操作失败：{errorMessage(actionError)}
-          </div>
-        )}
-        {statusQuery.error && status && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm" role="alert">
+        {check.error ? (
+          <InlineAlert tone="danger" title="立即检查失败">
+            {errorMessage(check.error)}
+            {status ? <span className="mt-0.5 block">下方仍是上次的检查结果。</span> : null}
+          </InlineAlert>
+        ) : null}
+        {submit.error && !optionsSheet?.open ? <InlineAlert tone="danger">更新操作失败：{errorMessage(submit.error)}</InlineAlert> : null}
+        {retry.error && !recordOpen ? <InlineAlert tone="danger">重试失败：{errorMessage(retry.error)}</InlineAlert> : null}
+        {statusQuery.error && status ? (
+          <InlineAlert
+            tone="warning"
+            action={<Button variant="outline" size="sm" loading={statusQuery.isFetching} onClick={() => void statusQuery.refetch()}>重试</Button>}
+          >
             状态刷新失败，正在显示上次成功的状态：{errorMessage(statusQuery.error)}
+          </InlineAlert>
+        ) : null}
+
+        {activeRecord ? (
+          <UpdateProgress record={activeRecord} busy={cancel.isPending} onCancel={(id) => void cancelUpdate(id)}>
+            <p className="text-footnote text-muted-foreground">内核、活动资源与游戏共用一条更新队列，当前更新结束后才能开始下一个。</p>
+            {detailQuery.error ? <InlineAlert tone="warning">更新进度读取失败，将继续尝试恢复：{errorMessage(detailQuery.error)}</InlineAlert> : null}
+            {cancel.error ? <InlineAlert tone="danger">取消失败：{errorMessage(cancel.error)}</InlineAlert> : null}
+          </UpdateProgress>
+        ) : null}
+
+        {status ? (
+          <section aria-label="更新目标" className="space-y-3">
+            {TARGETS.map((target) => (
+              <UpdateTargetCard
+                key={target}
+                target={target}
+                state={status.updates?.[target]}
+                gameChannel={gameChannel}
+                onGameChannelChange={setGameChannel}
+                updating={activeRecord?.target === target}
+                locked={activeRecord !== null}
+                onAction={() => openOptions(target)}
+              />
+            ))}
+          </section>
+        ) : statusQuery.error ? (
+          <div className="rounded-xl border bg-card shadow-card">
+            <ErrorState
+              message={`无法读取更新状态：${errorMessage(statusQuery.error)}`}
+              onRetry={() => void statusQuery.refetch()}
+              retrying={statusQuery.isFetching}
+            />
           </div>
+        ) : (
+          <div className="rounded-xl border bg-card shadow-card"><LoadingState label="正在读取更新状态…" /></div>
         )}
-        {statusQuery.error && !status && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm" role="alert">
-            无法读取更新状态：{errorMessage(statusQuery.error)}
-          </div>
-        )}
-        {statusQuery.isLoading && !status && (
-          <Card className="p-4 text-sm text-muted-foreground" role="status">正在读取更新状态…</Card>
-        )}
-        {status?.checked_at && (
-          <p className="text-xs text-muted-foreground" aria-live="polite">
-            上次检查：{new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(status.checked_at))}
-            {status.cached ? ' · 显示缓存结果' : ''}
-          </p>
-        )}
-        {status?.running && (
-          <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm" role="status">
-            当前有一个更新任务正在执行；内核、资源与游戏更新共用同一条更新队列。
-          </p>
-        )}
+
+        <UpdateHistory
+          records={records}
+          total={historyQuery.data?.total}
+          isLoading={historyQuery.isPending}
+          isFetching={historyQuery.isFetching}
+          error={historyQuery.error}
+          onRefresh={() => void historyQuery.refetch()}
+          onSelect={openRecord}
+        />
       </div>
 
-      <Card className="p-4 sm:p-5">
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            className="mt-1 size-4 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            checked={forceInterrupt}
-            onChange={(event) => setForceInterrupt(event.target.checked)}
-            aria-describedby="force-interrupt-description"
-          />
-          <span>
-            <span className="block text-sm font-medium">允许强制中断流水线</span>
-            <span id="force-interrupt-description" className="mt-1 block text-sm text-muted-foreground">
-              仅在更新请求被流水线阻塞时使用。启用后会取消正在执行的流水线，并在提交前再次确认。
-            </span>
-          </span>
-        </label>
-      </Card>
-
-      <section aria-label="更新目标" className="grid gap-4 lg:grid-cols-3">
-        {(['core', 'resource', 'game'] as const).map((target) => (
-          <UpdateTargetCard
-            key={target}
-            target={target}
-            state={updates[target]}
-            activeRecord={activeRecord?.target === target ? activeRecord : null}
-            resourceChannel={resourceChannel}
-            reloadMode={reloadMode}
-            gameChannel={gameChannel}
-            onResourceChannelChange={setResourceChannel}
-            onReloadModeChange={setReloadMode}
-            onGameChannelChange={setGameChannel}
-            forceInterrupt={forceInterrupt}
-            busy={busyTarget === target || (globalActive && !activeRecord?.target) || (globalActive && activeRecord?.target !== target)}
-            cancelBusy={cancelBusy}
-            error={actionError && !activeRecord?.target ? actionError : null}
-            onUpdate={submitUpdate}
-            onCancel={cancelUpdate}
-            errorText={errorMessage}
-          />
-        ))}
-      </section>
-
-      {detailQuery.error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm" role="alert">
-          更新进度读取失败，将继续尝试恢复：{errorMessage(detailQuery.error)}
-        </div>
-      )}
-
-      <UpdateHistory
-        records={records}
-        total={historyQuery.data?.total}
-        isLoading={historyQuery.isLoading}
-        error={historyQuery.error}
-        retryingId={retryingId}
-        detailId={historyDetailId}
-        detail={historyDetailQuery.data}
-        detailError={historyDetailQuery.error}
-        detailLoading={historyDetailQuery.isLoading}
-        onRetry={retryUpdate}
-        onDetailRequested={setHistoryDetailId}
-        onRefresh={() => void historyQuery.refetch()}
+      {optionsSheet ? (
+        <UpdateOptionsSheet
+          key={optionsSheet.key}
+          open={optionsSheet.open}
+          onOpenChange={setOptionsOpen}
+          target={optionsSheet.target}
+          state={status?.updates?.[optionsSheet.target]}
+          gameChannel={gameChannel}
+          submitting={submit.isPending}
+          error={submit.error}
+          onSubmit={(options) => startUpdate(optionsSheet.target, options)}
+        />
+      ) : null}
+      <UpdateRecordSheet
+        open={recordOpen}
+        onOpenChange={setRecordSheetOpen}
+        record={shownRecord}
+        loading={historyDetailQuery.isFetching && historyDetailQuery.data?.id !== historyDetailId}
+        error={historyDetailQuery.error}
+        retrying={retry.isPending}
+        retryError={retry.error}
+        onRetry={retryRecord}
       />
-    </main>
+      {confirmElement}
+    </Page>
   )
 }
