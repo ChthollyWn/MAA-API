@@ -34,6 +34,9 @@ BILIBILI_INFO_URL = (
     "https://line1-h5-pc-api.biligame.com/game/detail/gameinfo"
     "?game_base_id=101772"
 )
+#: B 站接口必须带非 httpx 默认值的 ``User-Agent``：``python-httpx/<版本>`` 会被
+#: 其 WAF 以 HTTP 412 直接拒绝，表现为「该渠道检查失败：412 Precondition Failed」。
+BILIBILI_HEADERS = {"User-Agent": downloader.BROWSER_USER_AGENT}
 OFFICIAL_DOWNLOAD_URL = "https://ak.hypergryph.com/downloads/android_lastest"
 INSTALL_TIMEOUT_SECONDS = 20 * 60
 
@@ -423,7 +426,7 @@ class GameUpdateService:
         """Fetch channel metadata and combine it with the installed package state."""
         installed = await self._installed(channel)
         if channel == BILIBILI_CHANNEL:
-            response = await self._client.get(BILIBILI_INFO_URL)
+            response = await self._client.get(BILIBILI_INFO_URL, headers=BILIBILI_HEADERS)
             response.raise_for_status()
             manifest = parse_bilibili_manifest(response.json())
             return GameUpdateInfo(
@@ -495,7 +498,7 @@ class GameUpdateService:
         expected_size: int | None
         expected_md5: str | None = None
         if channel == BILIBILI_CHANNEL:
-            response = await self._client.get(BILIBILI_INFO_URL)
+            response = await self._client.get(BILIBILI_INFO_URL, headers=BILIBILI_HEADERS)
             response.raise_for_status()
             manifest = parse_bilibili_manifest(response.json())
             url, expected_size, expected_md5 = (
@@ -715,6 +718,7 @@ class GameUpdateService:
 
 __all__ = [
     "BILIBILI_CHANNEL",
+    "BILIBILI_HEADERS",
     "BILIBILI_INFO_URL",
     "BILIBILI_PACKAGE",
     "BILI_APK_VER_RE",

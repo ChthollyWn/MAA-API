@@ -31,6 +31,7 @@ from maa_api.services.game_update import (
     validate_apk,
 )
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.util import downloader
 
 
 def synthetic_apk(*, manifest: bool = True) -> bytes:
@@ -594,3 +595,41 @@ def test_install_refuses_to_run_without_explicit_safe_installer(tmp_path: Path) 
             await service.aclose()
 
     asyncio.run(run())
+
+
+def test_bilibili_requests_send_a_user_agent_the_waf_accepts(tmp_path: Path) -> None:
+    """B 站 WAF 会以 412 拒绝 httpx 的默认 UA，两次 B 服请求都必须自带浏览器 UA。
+
+    MockTransport 能观察到实际发出的请求头，而 httpx 默认的
+    ``python-httpx/<版本>`` 与显式传入的 UA 在头里是不同的值，因此这条断言能
+    区分「接了 UA」和「没接」——只断言「请求成功」是测不出这个回归的。
+    """
+    apk = synthetic_apk()
+    payload = bili_payload(apk)
+    seen: list[str | None] = []
+
+    async def run() -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.headers.get("user-agent"))
+            if request.url == httpx.URL(BILIBILI_INFO_URL):
+                return httpx.Response(200, json=payload)
+            return httpx.Response(200, content=apk)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        service = GameUpdateService(
+            FakeDeviceManager([f"Package [{BILIBILI_PACKAGE}]\nversionName=2.7.70"]),
+            http_client=client,
+            disk_usage=lambda _path: SimpleNamespace(free=len(apk) * 4),
+        )
+        try:
+            await service.inspect(BILIBILI_CHANNEL)
+            await service.download_latest(BILIBILI_CHANNEL, tmp_path / "game.apk")
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())
+
+    assert seen, "没有捕获到任何请求"
+    assert all(agent == downloader.BROWSER_USER_AGENT for agent in seen), seen
+    assert not any(agent and agent.startswith("python-httpx") for agent in seen)
+

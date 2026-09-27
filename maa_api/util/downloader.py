@@ -12,7 +12,10 @@ from typing import Any
 import httpx
 
 _CHUNK_SIZE = 1024 * 1024
-_BROWSER_USER_AGENT = (
+#: 对第三方站点发请求时统一使用的浏览器 UA。**不能省**：httpx 默认发
+#: ``python-httpx/<版本>``，B 站 WAF 会以 412 直接拒绝该 UA（``game_update`` 的
+#: 渠道检查曾因此失败），其它 CDN 也可能有同类规则。
+BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
@@ -120,7 +123,7 @@ async def download(
         follow_redirects=True,
         timeout=None,
     )
-    headers = {"User-Agent": _BROWSER_USER_AGENT}
+    headers = {"User-Agent": BROWSER_USER_AGENT}
     if offset:
         headers["Range"] = f"bytes={offset}-"
 
