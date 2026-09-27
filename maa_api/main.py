@@ -731,6 +731,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.services.core_update import CoreUpdateWorkflow
         from maa_api.services.game_update import GameUpdateService
         from maa_api.services.notify_service import NotifyService
+        from maa_api.services.push_subscription_service import (
+            PushSubscriptionService,
+        )
         from maa_api.services.resource_update import ResourceUpdateWorkflow
         from maa_api.services.retention_service import (
             RETENTION_CRON,
@@ -850,6 +853,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         notify_service = NotifyService(db_session.session_factory)
         api_snippet_service = ApiSnippetService(db_session.session_factory)
+        push_subscription_service = PushSubscriptionService(
+            db_session.session_factory
+        )
 
         async def resource_layers_loaded() -> str | None:
             if getattr(core_supervisor.state, "value", core_supervisor.state) != "ready":
@@ -873,6 +879,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.update_service = update_service
         app.state.notify_service = notify_service
+        app.state.push_subscription_service = push_subscription_service
         app.state.api_snippet_service = api_snippet_service
         app.state.game_update_service = game_update_service
         await update_service.recover_interrupted()

@@ -1874,6 +1874,30 @@
         "title": "PriorityRequest",
         "type": "object"
       },
+      "PushSubscribeRequest": {
+        "description": "浏览器 ``PushSubscription.toJSON()`` 的子集（``expirationTime`` 忽略）。",
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "keys": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Keys",
+            "type": "object"
+          }
+        },
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "title": "PushSubscribeRequest",
+        "type": "object"
+      },
       "QueueHealth": {
         "description": "队列概览，不暴露流水线或任务条目。",
         "properties": {
@@ -6563,6 +6587,183 @@
           }
         },
         "summary": "发送通知测试消息",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/notifications/push-subscriptions": {
+      "get": {
+        "description": "只返回设备来源、时间与失效状态，**不回显** `endpoint` 全文与 `p256dh` / `auth` 两个密钥字段：它们与凭据同级。",
+        "operationId": "notifications_list_push_subscriptions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_disabled",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Disabled",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Notifications List Push Subscriptions",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "列出 Web Push 订阅",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "post": {
+        "description": "接受浏览器 `PushSubscription.toJSON()` 的形状。\n\n- 同一 `endpoint` 重复登记是**幂等更新**，返回 200 与既有资源，不新增行\n- `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 未压缩 P-256 点（实际校验点在曲线上）；`keys.auth` 必须是 16 octet",
+        "operationId": "notifications_create_push_subscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Notifications Create Push Subscription"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "PUSH_SUBSCRIPTION_INVALID",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：PUSH_SUBSCRIPTION_INVALID"
+          }
+        },
+        "summary": "登记 Web Push 订阅",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/notifications/push-subscriptions/{subscription_id}": {
+      "delete": {
+        "operationId": "notifications_delete_push_subscription",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subscription_id",
+            "required": true,
+            "schema": {
+              "title": "Subscription Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "PUSH_SUBSCRIPTION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：PUSH_SUBSCRIPTION_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "删除 Web Push 订阅",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/notifications/vapid-public-key": {
+      "get": {
+        "description": "前端用它作为 `pushManager.subscribe` 的 `applicationServerKey`。\n\n- 公钥由配置的 VAPID 私钥导出，不单独存储，避免两份配置漂移\n- 未配置或私钥不可用时返回 503 `PUSH_NOT_CONFIGURED`",
+        "operationId": "notifications_get_vapid_public_key",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Notifications Get Vapid Public Key",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "PUSH_NOT_CONFIGURED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：PUSH_NOT_CONFIGURED"
+          }
+        },
+        "summary": "读取 Web Push 的 VAPID 公钥",
         "tags": [
           "notifications"
         ]

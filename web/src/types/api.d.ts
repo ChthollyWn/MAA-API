@@ -484,6 +484,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notifications/push-subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出 Web Push 订阅
+         * @description 只返回设备来源、时间与失效状态，**不回显** `endpoint` 全文与 `p256dh` / `auth` 两个密钥字段：它们与凭据同级。
+         */
+        get: operations["notifications_list_push_subscriptions"];
+        put?: never;
+        /**
+         * 登记 Web Push 订阅
+         * @description 接受浏览器 `PushSubscription.toJSON()` 的形状。
+         *
+         *     - 同一 `endpoint` 重复登记是**幂等更新**，返回 200 与既有资源，不新增行
+         *     - `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 未压缩 P-256 点（实际校验点在曲线上）；`keys.auth` 必须是 16 octet
+         */
+        post: operations["notifications_create_push_subscription"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/push-subscriptions/{subscription_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 删除 Web Push 订阅 */
+        delete: operations["notifications_delete_push_subscription"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/vapid-public-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取 Web Push 的 VAPID 公钥
+         * @description 前端用它作为 `pushManager.subscribe` 的 `applicationServerKey`。
+         *
+         *     - 公钥由配置的 VAPID 私钥导出，不单独存储，避免两份配置漂移
+         *     - 未配置或私钥不可用时返回 503 `PUSH_NOT_CONFIGURED`
+         */
+        get: operations["notifications_get_vapid_public_key"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/pipelines": {
         parameters: {
             query?: never;
@@ -2041,6 +2108,18 @@ export interface components {
         PriorityRequest: {
             /** Priority */
             priority: number;
+        };
+        /**
+         * PushSubscribeRequest
+         * @description 浏览器 ``PushSubscription.toJSON()`` 的子集（``expirationTime`` 忽略）。
+         */
+        PushSubscribeRequest: {
+            /** Endpoint */
+            endpoint: string;
+            /** Keys */
+            keys: {
+                [key: string]: string;
+            };
         };
         /**
          * QueueHealth
@@ -5256,6 +5335,168 @@ export interface operations {
                      *         "code": "NOTIFY_SEND_FAILED",
                      *         "details": {},
                      *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    notifications_list_push_subscriptions: {
+        parameters: {
+            query?: {
+                include_disabled?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notifications_create_push_subscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushSubscribeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：PUSH_SUBSCRIPTION_INVALID */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "PUSH_SUBSCRIPTION_INVALID",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    notifications_delete_push_subscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 资源不存在：PUSH_SUBSCRIPTION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "PUSH_SUBSCRIPTION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notifications_get_vapid_public_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description 服务暂时不可用：PUSH_NOT_CONFIGURED */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "PUSH_NOT_CONFIGURED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
                      *       }
                      *     }
                      */

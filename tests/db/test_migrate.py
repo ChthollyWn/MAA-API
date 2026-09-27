@@ -61,6 +61,11 @@ def alembic_cfg(db_path: Path) -> Config:
     return cfg
 
 
+#: head 迁移自己新建的表：备份是 head 之前的快照，因此这些表不该出现在备份里。
+#: 新增迁移建表时同步这里，测试才能继续区分「备份早于 upgrade」与「备份晚于 upgrade」。
+TABLES_ADDED_BY_HEAD: set[str] = {"push_subscription"}
+
+
 def head_revision() -> str:
     """脚本目录里的 head（只读 alembic.ini 与 versions/，不连库）。"""
     cfg = Config(str(REPO_ROOT / "alembic.ini"))
@@ -157,9 +162,12 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
     # 备份是 upgrade 之前的快照（当前 head 的前序版本），且是可打开的上一版 schema。
     assert version(backup) == pre_head_revision()
     assert "alembic_version" in table_names(backup)
-    # 当前前序版本 0009 包含 request_id 与幂等预约的 request_mode；0010 再增加审计 scopes。
+    # 备份是「head 之前」的快照，所以它包含除 head 自己新建的表以外的全部 ORM 表。
+    # 例如 0012 新建 push_subscription，它就不该出现在 0011 的备份里 —— 出现反而
+    # 说明备份是 upgrade 之后拍的，那正是这些测试要拦住的事。
     backup_tables = table_names(backup)
-    assert set(SQLModel.metadata.tables) <= backup_tables
+    assert set(SQLModel.metadata.tables) - TABLES_ADDED_BY_HEAD <= backup_tables
+    assert TABLES_ADDED_BY_HEAD.isdisjoint(backup_tables)
     with contextlib.closing(sqlite3.connect(backup)) as conn:
         snippet_indexes = {row[1] for row in conn.execute("pragma index_list('api_snippet')")}
         backup_audit_columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}

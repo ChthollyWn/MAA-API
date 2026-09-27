@@ -49,3 +49,10 @@ smtp:
   port: 587
   email:
   password:
+
+# Web Push（PWA 推送通知）：用 scripts/generate_vapid_keys.py 生成密钥对后粘贴到这里
+# 私钥必须保持稳定：换密钥会让所有已建立的浏览器订阅静默失效
+notify:
+  vapid_private_key:
+  # JWT 的 sub，推送服务用它联系站点管理员；改成你自己的邮箱
+  vapid_subject: mailto:admin@example.com

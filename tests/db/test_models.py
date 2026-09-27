@@ -53,6 +53,7 @@ BUSINESS_TABLES = {
     "notify_channel",
     "resource_asset",
     "api_snippet",
+    "push_subscription",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -65,6 +66,7 @@ UUID_PK_TABLES = [
     "agent_session",
     "resource_asset",
     "api_snippet",
+    "push_subscription",
 ]
 AUTOINCREMENT_TABLES = ["log_entry", "agent_message", "agent_audit", "agent_idempotency"]
 
@@ -96,6 +98,7 @@ EXPECTED_INDEXES = {
     "ix_log_entry_source_created_at": ("log_entry", ("source", "created_at"), False),
     "ix_log_entry_pipeline_id_id": ("log_entry", ("pipeline_id", "id"), False),
     "ix_screenshot_created_at": ("screenshot", ("created_at",), False),
+    "ix_push_subscription_disabled_at": ("push_subscription", ("disabled_at",), False),
     "ix_screenshot_pipeline_id_created_at": (
         "screenshot",
         ("pipeline_id", "created_at"),
@@ -149,6 +152,7 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_notify_channel_type_name": ("notify_channel", ("type", "name")),
     "uq_resource_asset_kind_name": ("resource_asset", ("kind", "name")),
     "uq_api_snippet_name": ("api_snippet", ("name",)),
+    "uq_push_subscription_endpoint": ("push_subscription", ("endpoint",)),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -276,8 +280,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_17_business_tables():
-    """17 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+def test_metadata_has_exactly_18_business_tables():
+    """18 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 

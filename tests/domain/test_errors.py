@@ -2,7 +2,7 @@
 
 三组断言：
 
-1. **形状**：``ErrorCode`` 是 StrEnum 且成员名 == 取值；全量 95 条；``ERROR_HTTP_STATUS``
+1. **形状**：``ErrorCode`` 是 StrEnum 且成员名 == 取值；全量 98 条；``ERROR_HTTP_STATUS``
    94 条且 ``UPDATE_INTERRUPTED`` 是唯一没有 HTTP 表达的例外。M1-03 建立的内核层 6 条
    取值与状态码在这一卡里零改动（``KERNEL_HTTP_STATUS`` 是那 6 条的原始硬编码）。
 2. **文档一致性**：重新解析 docs/05 §4 的十五张表（路径从本文件推导，不依赖 CWD），
@@ -48,9 +48,9 @@ _DOC_NO_HTTP = "—"
 _SOURCE_MEMBER_RE = re.compile(r'^\s*([A-Z][A-Z0-9_]*) = "\1"\s*$')
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
-#: 总数与绑定数（docs/05 §4 正文：「共 95 条，其中 UPDATE_INTERRUPTED 只落库不返回」）。
-ALL_CODE_COUNT = 95
-HTTP_BOUND_CODE_COUNT = 94
+#: 总数与绑定数（docs/05 §4 正文：「共 98 条，其中 UPDATE_INTERRUPTED 只落库不返回」）。
+ALL_CODE_COUNT = 98
+HTTP_BOUND_CODE_COUNT = 97
 SECTION_COUNT = 15
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。
@@ -121,7 +121,7 @@ def test_error_code_is_strenum_with_name_equal_value():
 
 
 def test_all_95_documented_codes_are_defined():
-    """docs/05 §4 共 95 条：表外的码一个都不许加，表内的码一个都不许漏。"""
+    """docs/05 §4 共 98 条：表外的码一个都不许加，表内的码一个都不许漏。"""
     assert len(list(ErrorCode)) == ALL_CODE_COUNT
     assert len({c.value for c in ErrorCode}) == ALL_CODE_COUNT
 
@@ -179,7 +179,7 @@ def test_http_status_table_covers_every_code_except_the_documented_exception():
 
 
 def test_only_update_interrupted_has_no_http_status():
-    """UPDATE_INTERRUPTED 只落库不返回，是 95 条里唯一的例外。"""
+    """UPDATE_INTERRUPTED 只落库不返回，是 98 条里唯一的例外。"""
     assert ErrorCode.UPDATE_INTERRUPTED.value == NO_HTTP_CODE
     assert ErrorCode.UPDATE_INTERRUPTED not in ERROR_HTTP_STATUS
     no_http = {code for code, http, _ in DOC_ROWS if http == _DOC_NO_HTTP}
@@ -238,7 +238,7 @@ def test_fixed_status_bindings_spot_check(code, status):
 # ----------------------------------------------------------------------
 
 def test_docs_section_4_parses_into_fifteen_tables():
-    """解析器本身的门禁：十五条分节、95 行、无重复码。"""
+    """解析器本身的门禁：十五条分节、98 行、无重复码。"""
     assert len(DOC_ROWS) == ALL_CODE_COUNT
     assert len({code for code, _, _ in DOC_ROWS}) == ALL_CODE_COUNT
     assert len({section for _, _, section in DOC_ROWS}) == SECTION_COUNT
@@ -330,7 +330,7 @@ def test_app_error_pickle_roundtrip():
 
 
 def test_app_error_pickle_roundtrip_for_every_registered_code():
-    """95 条里除例外外每一条都能走完 pickle 往返，状态码不丢。"""
+    """98 条里除例外外每一条都能走完 pickle 往返，状态码不丢。"""
     for code in ErrorCode:
         if code not in ERROR_HTTP_STATUS:
             continue

@@ -68,6 +68,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "agent.grant_confirmation_timeout_seconds": dict(label="原子操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.atomic_grant_minutes": dict(label="原子操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
     "agent.auto_diagnose_failures": dict(label="自动诊断流水线与内核故障", group="Agent", type="boolean", hot_action="none"),
+    # VAPID 私钥是多行 PEM；标成 sensitive 让设置接口只回 ***，前端也不回填。
+    # 改它必须重启服务：已签发的订阅绑定旧公钥，热换会让推送全部静默失败。
+    "notify.vapid_private_key": dict(label="Web Push VAPID 私钥", group="通知", type="string", sensitive=True, hot_action="restart_required"),
+    "notify.vapid_subject": dict(label="Web Push 联络邮箱", group="通知", type="string", hot_action="restart_required"),
 }
 
 SETTINGS_SCHEMA: tuple[dict[str, Any], ...] = tuple(

@@ -94,6 +94,7 @@ __all__ = [
     "REPO_ROOT",
     "SETTING_KEYS",
     "AdbSettings",
+    "NotifySettings",
     "Settings",
     "SettingsError",
     "get_settings",
@@ -137,6 +138,8 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "llm.base_url": ("llm", "base_url"),
     "llm.api_key": ("llm", "api_key"),
     "llm.model": ("llm", "model"),
+    "notify.vapid_private_key": ("notify", "vapid_private_key"),
+    "notify.vapid_subject": ("notify", "vapid_subject"),
 }
 
 #: 点分 key → 环境变量名（``MAA_`` + 大写、点换下划线）。
@@ -220,6 +223,21 @@ class AgentSettings(BaseModel):
     auto_diagnose_failures: bool = True
 
 
+class NotifySettings(BaseModel):
+    """Web Push 的 VAPID 密钥与联络地址（docs/09 §13.1）。
+
+    私钥只从 ``config.yaml`` 或 ``MAA_NOTIFY_VAPID_PRIVATE_KEY`` 取，**不在服务
+    启动时自动生成**：每次启动换密钥会让所有既有订阅静默失效。生成入口是
+    ``scripts/generate_vapid_keys.py``。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    vapid_private_key: str = ""
+    #: JWT 的 ``sub``，必须是 ``mailto:`` 或站点 URL。推送服务用它联系站点管理员。
+    vapid_subject: str = "mailto:admin@example.com"
+
+
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -238,6 +256,7 @@ class Settings(BaseModel):
     agent: AgentSettings = Field(default_factory=AgentSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    notify: NotifySettings = Field(default_factory=NotifySettings)
 
 
 def resolve_settings(
