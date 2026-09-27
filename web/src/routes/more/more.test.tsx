@@ -190,43 +190,4 @@ describe('more routes and task deep links', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/schedules'))
     expect(router.state.location.state).toEqual(state)
   })
-
-  it('maps a task history deep link to the history tab and expands its matching item', async () => {
-    installApiMock({ includeDeepLinkInHistory: false })
-    renderAt('/tasks/history/pipeline-42')
-
-    const historyTab = await screen.findByRole('tab', { name: '历史' })
-    await waitFor(() => expect(historyTab).toHaveAttribute('aria-selected', 'true'))
-    expect(await screen.findByRole('button', { name: /深链任务/ })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('此深链目标不在当前分页；已将它固定显示在列表顶部。')).toHaveAttribute('role', 'status')
-  })
-
-  it('keeps task tab selection in browser history', async () => {
-    const { router } = renderAt('/tasks')
-
-    const queueTab = await screen.findByRole('tab', { name: '队列' })
-    fireEvent.click(queueTab)
-    await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/queue'))
-    await waitFor(() => expect(queueTab).toHaveAttribute('aria-selected', 'true'))
-
-    await act(async () => router.navigate(-1))
-    await waitFor(() => expect(router.state.location.pathname).toBe('/tasks'))
-    expect(await screen.findByRole('tab', { name: '创建' })).toHaveAttribute('aria-selected', 'true')
-    await act(async () => router.navigate(1))
-    await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/queue'))
-    expect(await screen.findByRole('tab', { name: '队列' })).toHaveAttribute('aria-selected', 'true')
-  })
-
-  it('writes an expanded task row to the deep-link route and clears it when collapsed', async () => {
-    const { router } = renderAt('/tasks/history')
-    const row = await screen.findByRole('button', { name: /深链任务/ })
-
-    fireEvent.click(row)
-    await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/history/pipeline-42'))
-    expect(await screen.findByRole('button', { name: /深链任务/ })).toHaveAttribute('aria-expanded', 'true')
-
-    fireEvent.click(screen.getByRole('button', { name: /深链任务/ }))
-    await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/history'))
-    expect(screen.getByRole('button', { name: /深链任务/ })).toHaveAttribute('aria-expanded', 'false')
-  })
 })

@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react'
-import { createBrowserRouter, Link, Navigate, RouterProvider, useLocation, useNavigate, type RouteObject } from 'react-router'
+import { createBrowserRouter, Link, Navigate, RouterProvider, useLocation, type RouteObject } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
@@ -15,6 +15,7 @@ const DashboardPage = lazy(() => import('@/routes/dashboard'))
 const LogsPage = lazy(() => import('@/routes/logs'))
 const NotFoundPage = lazy(() => import('@/routes/not-found'))
 const TasksPage = lazy(() => import('@/routes/tasks'))
+const PipelineDetailPage = lazy(() => import('@/routes/tasks/detail'))
 const UpdatesPage = lazy(() => import('@/routes/updates'))
 const SchedulesPage = lazy(() => import('@/routes/schedules'))
 const SettingsPage = lazy(() => import('@/routes/settings'))
@@ -23,36 +24,6 @@ const ApiConsolePage = lazy(() => import('@/features/api-console'))
 const AuditPage = lazy(() => import('@/features/audit/AuditPage'))
 const AgentPage = lazy(() => import('@/features/agent/AgentPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
-const TASK_VIEW_PATHS = { create: '/tasks', queue: '/tasks/queue', history: '/tasks/history' } as const
-
-function taskViewForPath(pathname: string): keyof typeof TASK_VIEW_PATHS {
-  if (pathname === TASK_VIEW_PATHS.queue) return 'queue'
-  if (pathname === TASK_VIEW_PATHS.history || /^\/tasks\/history\/[^/]+\/?$/.test(pathname)) return 'history'
-  return 'create'
-}
-
-function taskPipelineIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/^\/tasks\/history\/([^/]+)\/?$/)
-  if (!match?.[1]) return null
-  try {
-    return decodeURIComponent(match[1])
-  } catch {
-    return match[1]
-  }
-}
-
-function TasksRoutePage() {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const selectedView = taskViewForPath(location.pathname)
-  const pipelineId = taskPipelineIdFromPath(location.pathname)
-  return <Suspended><LegacyPage width="wide"><TasksPage
-    view={selectedView}
-    routePipelineId={pipelineId}
-    onViewChange={(view) => navigate(TASK_VIEW_PATHS[view])}
-    onPipelineChange={(id) => navigate(id ? `/tasks/history/${encodeURIComponent(id)}` : TASK_VIEW_PATHS.history)}
-  /></LegacyPage></Suspended>
-}
 
 /** 定时任务从「更多」迁到了「任务」下；旧地址重定向，并保留 API 调试台带来的预填 state。 */
 function SchedulesRedirect() {
@@ -143,10 +114,10 @@ export const routeConfig: RouteObject[] = [
     element: <ShellLayout />,
     children: [
       { index: true, element: page(<DashboardPage />) },
-      { path: 'tasks', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
-      { path: 'tasks/queue', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
-      { path: 'tasks/history', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
-      { path: 'tasks/history/:pipelineId', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
+      { path: 'tasks', element: page(<TasksPage />) },
+      { path: 'tasks/queue', element: page(<TasksPage />) },
+      { path: 'tasks/history', element: page(<TasksPage />) },
+      { path: 'tasks/history/:pipelineId', element: page(<PipelineDetailPage />) },
       { path: 'tasks/schedules', element: legacy(<SchedulesPage />) },
       { path: 'tasks/schedules/new', element: legacy(<SchedulesPage />) },
       { path: 'tasks/schedules/:scheduleId', element: legacy(<SchedulesPage />) },
