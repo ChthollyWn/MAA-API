@@ -59,6 +59,9 @@ class ConfirmationService:
         policy: PolicyEngine | None = None,
         broadcast: Callable[[str, dict[str, Any]], None] | None = None,
         notify: Any = None,
+        push: Any = None,
+        has_active_client: Callable[[], bool] | None = None,
+        push_url_builder: Callable[[str], str] | None = None,
         confirmation_timeout_seconds: int = DEFAULT_CONFIRMATION_TIMEOUT_SECONDS,
         grant_confirmation_timeout_seconds: int = DEFAULT_GRANT_CONFIRMATION_TIMEOUT_SECONDS,
         clock: Callable[[], datetime] = utcnow,
@@ -70,6 +73,13 @@ class ConfirmationService:
         self.policy = policy or PolicyEngine()
         self.broadcast = broadcast or (lambda _kind, _data: None)
         self.notify = notify
+        # Web Push 是「用户没开着页面」时的触达手段（docs/09 §13.1 第 2 步）。
+        # 两者都可为空：没有推送配置时确认流程必须照常工作。
+        self.push = push
+        self.has_active_client = has_active_client or (lambda: False)
+        self.push_url_builder = push_url_builder or (
+            lambda confirmation_id: f"/?confirm={confirmation_id}"
+        )
         self.confirmation_timeout_seconds = int(confirmation_timeout_seconds)
         self.grant_confirmation_timeout_seconds = int(grant_confirmation_timeout_seconds)
         self.clock = clock
@@ -708,6 +718,7 @@ class ConfirmationService:
             "expires_at": expires_at.replace(tzinfo=UTC).timestamp(),
         }
         self.broadcast("confirm_request", event)
+        await self._push_confirmation(confirmation, name)
         if self.notify is not None:
             try:
                 await self.notify.send_event(
@@ -721,6 +732,25 @@ class ConfirmationService:
             except Exception:
                 logger.exception("发送人工确认通知失败：%s", confirmation.id)
         return confirmation.id, audit.id
+
+    async def _push_confirmation(self, confirmation: Any, name: str) -> None:
+        """没有活跃前端连接时补一条 Web Push。
+
+        推送失败**不得**影响确认本身：确认已经落库并进入等待，超时机制照常运行。
+        所以这里吞掉全部异常，只记日志。
+        """
+        if self.push is None:
+            return
+        try:
+            await self.push.notify_confirmation(
+                confirmation_id=confirmation.id,
+                title=name,
+                summary=confirmation.reason or "",
+                url=self.push_url_builder(confirmation.id),
+                has_active_client=self.has_active_client(),
+            )
+        except Exception:
+            logger.exception("推送人工确认失败：%s", confirmation.id)
 
     async def _wait_and_execute(
         self,
