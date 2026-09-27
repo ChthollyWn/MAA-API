@@ -12,6 +12,7 @@
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-surface-raised: var(--surface-raised);
+  --color-surface-active: var(--surface-active);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-input: var(--border-strong);
@@ -49,8 +50,8 @@
   --shadow-card: var(--card-shadow);
   --shadow-float: var(--float-shadow);
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
 
   --text-footnote: 0.8125rem;
   --text-footnote--line-height: 1.125rem;
@@ -94,13 +95,14 @@
     from { transform: translate3d(0, 0, 0); }
     to { transform: translate3d(100%, 0, 0); }
   }
+  /* 居中定位用的是独立的 translate 属性，这里只动 transform，两者不会叠加。 */
   @keyframes dialog-in {
-    from { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
-    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: none; }
   }
   @keyframes dialog-out {
-    from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-    to { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
+    from { opacity: 1; transform: none; }
+    to { opacity: 0; transform: translateY(8px) scale(0.98); }
   }
 }
 
@@ -110,6 +112,7 @@
   --surface: #ffffff;
   --surface-2: #eef0f3;
   --surface-raised: #ffffff;
+  --surface-active: #ffffff;
   --border: #e2e5ea;
   --border-strong: #cdd1d8;
   --foreground: #14161b;
@@ -131,10 +134,19 @@
   --float-shadow: 0 16px 40px -16px rgb(16 18 24 / 0.28), 0 2px 6px rgb(16 18 24 / 0.06);
   --overlay: rgb(14 16 20 / 0.36);
 
+  --app-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --app-font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+
   --topbar-height: 3.5rem;
   --tabbar-height: 3.5rem;
+  /* 底部 Tab 栏上沿到视口底部的距离；外壳在虚拟键盘弹出时把 data-tabbar 设为 hidden。 */
+  --nav-offset: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+  /* Tab 栏不显示时，贴底元素需要自己让出的安全区。 */
+  --nav-safe: 0px;
+  /* iOS 虚拟键盘遮住的高度，由外壳根据 visualViewport 写入。 */
+  --keyboard-inset: 0px;
 
-  font-family: var(--font-sans);
+  font-family: var(--app-font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -147,6 +159,7 @@
   --surface: #15181d;
   --surface-2: #1c2027;
   --surface-raised: #1a1d23;
+  --surface-active: #2b303a;
   --border: #272c35;
   --border-strong: #363c47;
   --foreground: #e7e9ee;
@@ -167,6 +180,19 @@
   --card-shadow: none;
   --float-shadow: 0 20px 48px -16px rgb(0 0 0 / 0.7);
   --overlay: rgb(0 0 0 / 0.56);
+}
+
+:root[data-tabbar="hidden"] {
+  --nav-offset: 0px;
+  --nav-safe: env(safe-area-inset-bottom, 0px);
+}
+
+@media (min-width: 1024px) {
+  :root,
+  :root[data-tabbar="hidden"] {
+    --nav-offset: 0px;
+    --nav-safe: 0px;
+  }
 }
 
 @utility pt-safe {
