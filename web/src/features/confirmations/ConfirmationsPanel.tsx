@@ -154,25 +154,24 @@ export function ConfirmationsPanel({ showHeading = true, emptyFallback = null }:
   }
 
   const items = pending.data?.items ?? []
-  if (items.length === 0) {
-    // 深链指向的确认已经不在待处理列表里（已处置或已过期）：提示一次并把参数清掉，
-    // 否则用户会停在一个看起来什么都没发生的页面上。
-    if (targetConfirmationId) {
-      return (
-        <InlineAlert
-          tone="info"
-          role="status"
-          action={<Button type="button" variant="outline" size="sm" onClick={clearTargetParam}>知道了</Button>}
-        >
-          这条待确认操作已经处理或已过期，无需再操作。
-        </InlineAlert>
-      )
-    }
-    return <>{emptyFallback}</>
-  }
+  // 深链指向的确认已经不在待处理列表里（已处置或已过期）：提示一次并把参数清掉，
+  // 否则用户会停在一个看起来什么都没发生的页面上。列表里还有别的待确认时也要提示，
+  // 免得用户把看到的第一条误认成通知里的那一条。
+  const missingTarget = Boolean(targetConfirmationId) && !items.some((item) => item.confirmation_id === targetConfirmationId)
+  const missingNotice = missingTarget ? (
+    <InlineAlert
+      tone="info"
+      role="status"
+      action={<Button type="button" variant="outline" size="sm" onClick={clearTargetParam}>知道了</Button>}
+    >
+      这条待确认操作已经处理或已过期，无需再操作。
+    </InlineAlert>
+  ) : null
+  if (items.length === 0) return missingNotice ?? <>{emptyFallback}</>
 
   return (
     <section className="space-y-3" aria-labelledby={showHeading ? 'pending-confirmations-title' : undefined}>
+      {missingNotice}
       {showHeading ? (
         <header className="flex items-center gap-2 px-1">
           <h2 id="pending-confirmations-title" className="text-headline font-semibold">需要人工确认</h2>

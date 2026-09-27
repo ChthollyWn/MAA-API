@@ -306,14 +306,19 @@ export function formatConfig(config: JsonRecord): string {
 
 const SECRET_KEY = /(authorization|password|passwd|secret|token|api[_-]?key|device[_-]?key|(?:^|[_-])key(?:$|[_-]))/i
 
-/** 服务端已经脱敏；这里再按同样的规则兜底一次，页面状态里不留凭据原文。 */
+/**
+ * 服务端已经脱敏；这里再按同样的规则兜底一次，页面状态里不留凭据原文。
+ * 范围必须与服务端 `notify_service._mask_config` 一致：敏感键名、`url` / `server` /
+ * `webhook` 的查询参数、`headers`。列表上的启停会把这份配置原样写回，超出这个范围的
+ * 改写（例如消息模板里的 `&token=`）服务端不会还原，会让之后的发送全部失败。
+ */
 export function redactConfig(value: unknown, key = ''): unknown {
   if (SECRET_KEY.test(key)) return value ? MASK : value
   if (Array.isArray(value)) return value.map((item) => redactConfig(item))
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value as JsonRecord).map(([childKey, child]) => [childKey, redactConfig(child, childKey)]))
   }
-  if (typeof value === 'string' && /(?:token|secret|key|password)=/i.test(value)) {
+  if (typeof value === 'string' && /^(url|server|webhook)$/i.test(key)) {
     try {
       const url = new URL(value)
       for (const [queryKey, queryValue] of url.searchParams.entries()) {
@@ -321,7 +326,7 @@ export function redactConfig(value: unknown, key = ''): unknown {
       }
       return url.toString()
     } catch {
-      return value.replace(/([?&](?:token|secret|key|password)=)[^&]*/gi, `$1${MASK}`)
+      return value
     }
   }
   return value

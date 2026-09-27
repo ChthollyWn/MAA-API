@@ -288,7 +288,7 @@
 ### 外壳、登录与路由
 
 - L1 主导航有五个带文字的入口：首页、任务、日志、Agent、更多；手机底部导航适配 safe-area。
-- L2 API 调试台与接入指南路由使用全宽布局。
+- L2 API 调试台在 ≥1280px 时使用全宽三栏布局；接入指南使用阅读宽度（`max-w-3xl`）。（实施后调整，见 docs/13 §8.12）
 - L3 主题选择写入 localStorage `maa-api-theme`，同步 `<html>` 的 `dark` class 与 `theme-color`；默认跟随系统（新增）。
 - L4 受保护页未登录时跳 `/login?returnTo=…`；token 输入默认掩码、可切换显示；登录 `POST /api/system/auth/cookie` 带 `X-Token`，成功后跳回 `returnTo` 并保存 token。
 - L5 退出登录 `DELETE /api/system/auth/cookie` 带 `X-Token`，清除 token 并跳 `/login`。

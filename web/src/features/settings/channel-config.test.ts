@@ -119,4 +119,15 @@ describe('normalizeChannels', () => {
     expect(channel).toMatchObject({ id: 'channel-1', type: 'webhook', name: '告警', enabled: false, events: ['pipeline_failed'], lastStatus: 'failed', lastError: 'HTTP 500' })
     expect(JSON.stringify(channel?.config)).not.toContain('plain-secret')
   })
+
+  it('leaves message templates untouched so a list toggle can round-trip them', () => {
+    const template = 'chat_id=1&token=abc&text={body}'
+    const [channel] = normalizeChannels({ items: [{
+      id: 'channel-2',
+      type: 'webhook',
+      name: '机器人',
+      config: { url: 'https://example.com/hook', body_template: template },
+    }] })
+    expect(channel?.config.body_template).toBe(template)
+  })
 })

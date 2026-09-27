@@ -20,7 +20,7 @@ export function ConfirmationDock() {
   // 未登录时不读，避免 401 触发全局登出流程。
   const canRead = Boolean(token) || health.data?.auth_enabled === false
   const pending = useQuery({ ...pendingConfirmationsQuery, enabled: canRead })
-  const count = pending.data?.items.length ?? 0
+  const count = pending.data?.total ?? pending.data?.items.length ?? 0
 
   const open = useConfirmationUi((state) => state.open)
   const setOpen = useConfirmationUi((state) => state.setOpen)
