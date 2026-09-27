@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from maa_api.agent.redaction import redact_remote_data
 from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = ["OpenAICompatibleClient"]
@@ -17,11 +18,16 @@ _KNOWN_UPSTREAM_ERROR_CODES = frozenset(
         "context_length_exceeded",
         "insufficient_quota",
         "invalid_api_key",
+        "invalid_request_error",
         "model_not_found",
         "rate_limit_exceeded",
         "server_error",
     }
 )
+
+#: ``details.upstream_message`` 的长度上限：够定位「模型名不存在」「图片格式不支持」
+#: 这类 400，又不至于让一段上游正文塞满错误响应。
+MAX_UPSTREAM_MESSAGE_CHARS = 300
 
 
 class OpenAICompatibleClient:
@@ -97,6 +103,9 @@ class OpenAICompatibleClient:
                     details: dict[str, Any] = {"upstream_status": response.status_code}
                     if error_code is not None:
                         details["upstream_code"] = error_code
+                    upstream_message = self._upstream_error_message(response)
+                    if upstream_message is not None:
+                        details["upstream_message"] = upstream_message
                     if response.status_code == 429:
                         retry_after = response.headers.get("Retry-After")
                         raise AppError(
@@ -168,6 +177,27 @@ class OpenAICompatibleClient:
         if isinstance(code, str) and code in _KNOWN_UPSTREAM_ERROR_CODES:
             return code
         return None
+
+    @staticmethod
+    def _upstream_error_message(response: httpx.Response) -> str | None:
+        """取上游 ``error.message`` 作为可读原因，已脱敏且截断。
+
+        ``AppError.details`` 会经 ``app_error`` 原样出接口，所以这里必须沿用与
+        发往模型的上下文相同的脱敏规则。上游正文可以任意长，也可能为空。
+        """
+        try:
+            payload = response.json()
+        except (ValueError, UnicodeDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        error = payload.get("error")
+        if not isinstance(error, dict):
+            return None
+        message = error.get("message")
+        if not isinstance(message, str) or not message.strip():
+            return None
+        return str(redact_remote_data(message.strip()))[:MAX_UPSTREAM_MESSAGE_CHARS]
 
     @staticmethod
     def _parse_chunk(data: str) -> dict[str, Any]:

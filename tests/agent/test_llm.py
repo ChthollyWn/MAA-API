@@ -59,12 +59,12 @@ def test_api_key_encryption_rejects_missing_or_invalid_fernet_key() -> None:
         decrypt_api_key("enc:v1:not-a-fernet-token", "not-a-fernet-key")
 
 
-def test_llm_settings_default_to_deepseek_v41_flash() -> None:
+def test_llm_settings_default_to_deepseek_flash() -> None:
     settings = Settings()
 
     assert settings.llm.base_url == "https://api.deepseek.com"
     assert settings.llm.api_key == ""
-    assert settings.llm.model == "deepseek-v4.1-flash"
+    assert settings.llm.model == "deepseek-flash"
 
 
 def _chunk(data: dict[str, Any]) -> bytes:
@@ -208,11 +208,79 @@ def test_non_success_response_maps_to_stable_llm_request_error() -> None:
         assert exc_info.value.details == {
             "upstream_status": 500,
             "upstream_code": "server_error",
+            "upstream_message": "private body",
         }
         assert "private body" not in str(exc_info.value)
         assert "sk-hidden" not in repr(exc_info.value)
 
     asyncio.run(scenario())
+
+
+def test_invalid_model_name_surfaces_upstream_message_without_credentials() -> None:
+    """模型名写错时要能在 details 里看到上游原话，且凭据不得回显。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "code": "invalid_request_error",
+                    "message": (
+                        "The supported API model names are deepseek-flash, deepseek-v4-pro, "
+                        "but you passed deepseek-v4.1-flash. Authorization: Bearer sk-live-secret"
+                    ),
+                }
+            },
+        )
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1",
+                api_key="sk-live-secret",
+                http_client=http,
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("deepseek-v4.1-flash", [], []))
+        assert exc_info.value.details == {
+            "upstream_status": 400,
+            "upstream_code": "invalid_request_error",
+            "upstream_message": (
+                "The supported API model names are deepseek-flash, deepseek-v4-pro, "
+                "but you passed deepseek-v4.1-flash. Authorization: Bearer [REDACTED]"
+            ),
+        }
+        assert "sk-live-secret" not in repr(exc_info.value)
+
+    asyncio.run(scenario())
+
+
+def test_upstream_message_is_truncated_and_absent_when_empty() -> None:
+    long_message = "x" * 1000
+
+    def long_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400, json={"error": {"code": "invalid_request_error", "message": long_message}}
+        )
+
+    def empty_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"code": "invalid_request_error", "message": "  "}})
+
+    async def scenario(handler) -> dict[str, Any]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("m", [], []))
+        return exc_info.value.details
+
+    details = asyncio.run(scenario(long_handler))
+    assert len(details["upstream_message"]) == 300
+    assert asyncio.run(scenario(empty_handler)) == {
+        "upstream_status": 400,
+        "upstream_code": "invalid_request_error",
+    }
 
 
 @pytest.mark.parametrize(
@@ -236,7 +304,10 @@ def test_unknown_upstream_error_code_cannot_echo_api_key(upstream_code: str) -> 
             with pytest.raises(AppError) as exc_info:
                 await _collect(client.stream_chat_completion("m", [], []))
         assert exc_info.value.code == ErrorCode.LLM_REQUEST_FAILED
-        assert exc_info.value.details == {"upstream_status": 401}
+        assert exc_info.value.details == {
+            "upstream_status": 401,
+            "upstream_message": "unauthorized",
+        }
         assert api_key not in repr(exc_info.value)
 
     asyncio.run(scenario())

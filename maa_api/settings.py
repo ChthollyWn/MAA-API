@@ -205,7 +205,9 @@ class LLMSettings(BaseModel):
 
     base_url: str = "https://api.deepseek.com"
     api_key: str = ""
-    model: str = "deepseek-v4.1-flash"
+    # 上游只接受 deepseek-flash 与 deepseek-v4-pro；deepseek-flash 同时支持
+    # function calling 与图片输入，因此作为默认值。模型名写错会被上游 400 拒绝。
+    model: str = "deepseek-flash"
 
 
 class LogSettings(BaseModel):

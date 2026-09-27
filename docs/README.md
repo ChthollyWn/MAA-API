@@ -108,7 +108,7 @@
 | 并发策略 | 统一任务队列 + 优先级排序（前端手动 > agent > 定时），不抢占，前端可见排队情况 |
 | 调用语义 | 异步提交返回 `task_id` 与同步阻塞等结果两种都提供 |
 | 审计 | 全量落库（调用方、时间、参数、结果、耗时），前端有审计页可回溯 |
-| LLM 接入 | 统一 OpenAI 兼容端点（`base_url` + `api_key` + `model`），默认 DeepSeek V4.1 Flash；API Key 由 `MAA_LLM_ENCRYPTION_KEY` 加密存储，兼容其他 OpenAI 兼容服务 |
+| LLM 接入 | 统一 OpenAI 兼容端点（`base_url` + `api_key` + `model`），默认 DeepSeek Flash（`deepseek-flash`）；API Key 由 `MAA_LLM_ENCRYPTION_KEY` 加密存储，兼容其他 OpenAI 兼容服务 |
 | 会话存储 | 落 SQLite：多轮历史、工具调用轨迹、token 消耗 |
 | 里程碑边界 | M11 交付 REST 工具基座、确认与审计、会话只读 API；M13 已交付 LLM 循环、SSE 消息、Agent UI 与自动诊断。Copilot 通过共享任务队列和 schedule template，以每次运行的私有快照传给 MaaCore；Agent 上传后经 `submit_pipeline` 提交，不以普通 Fight 替代 |
 

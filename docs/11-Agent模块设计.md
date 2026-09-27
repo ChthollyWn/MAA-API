@@ -292,11 +292,11 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 
 ### 8.1 LLM 接入
 
-按决策统一走 OpenAI 兼容端点，配置三个字段：`base_url`、`api_key`、`model`。默认模型为 `deepseek-v4.1-flash`，base URL 默认 `https://api.deepseek.com`；用户仍可改为 OpenAI、智谱、Ollama（`http://localhost:11434/v1`）或中转站。
+按决策统一走 OpenAI 兼容端点，配置三个字段：`base_url`、`api_key`、`model`。默认模型为 `deepseek-flash`（`api.deepseek.com` 当前可用标识之一），base URL 默认 `https://api.deepseek.com`；用户仍可改为 OpenAI、智谱、Ollama（`http://localhost:11434/v1`）或中转站。写错模型标识会被上游以 400 拒绝，表现为 Agent 不可用，见 [13 §8.13](./13-决策记录.md)。
 
 配置落 `setting` 表，在「设置 › LLM 与 Agent」（`/more/settings/agent`）可改。`api_key` 属于敏感项，使用部署环境变量 `MAA_LLM_ENCRYPTION_KEY` 提供的主密钥加密写入 SQLite，接口返回时脱敏。主密钥缺失或不可解密时拒绝对应写入/模型调用，并返回稳定错误码，不把明文密钥写日志。
 
-发送首条消息前自动检查当前模型的 function calling 能力；「设置 › LLM 与 Agent」分区顶部与 Agent 页的「Agent 操作」菜单也提供能力自检。检查分别发送小型工具调用和测试图片。缺少工具调用能力时停止 Agent 消息；视觉能力不足时保留文本任务编排和日志分析，并隐藏/拒绝截图与原子屏幕操作工具。
+发送首条消息前自动检查当前模型的 function calling 能力；「设置 › LLM 与 Agent」分区顶部与 Agent 页的「Agent 操作」菜单也提供能力自检。检查分别发送一个无副作用工具调用与一张 64×64 纯蓝测试图，并要求模型答出图片颜色才算具备视觉输入。缺少工具调用能力时停止 Agent 消息；视觉能力不足时保留文本任务编排和日志分析，并隐藏/拒绝截图与原子屏幕操作工具。探查失败时错误里带上已脱敏的上游原因，见 [13 §8.13](./13-决策记录.md)。
 
 ### 8.2 tool-calling 循环
 
@@ -376,4 +376,4 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 
 **与内核的控制权冲突。** agent 的原子操作和 MaaCore 的自动化会互相干扰。§4.3 把 `stop_pipeline` 设为免确认、提示词要求先停流水线再操作、以及 [02-系统架构设计 §5.3](./02-系统架构设计.md) 的 409 拒绝共同构成防护，但无法完全排除人为绕过（`force=true`）。
 
-**成本失控。** tool-calling 循环的迭代次数、每轮的截图 token 都会放大成本。12 次响应迭代上限、上下文裁剪、截图只留最近一张和会话 token 用量记录共同控制；首选默认模型 DeepSeek V4.1 Flash。
+**成本失控。** tool-calling 循环的迭代次数、每轮的截图 token 都会放大成本。12 次响应迭代上限、上下文裁剪、截图只留最近一张和会话 token 用量记录共同控制；首选默认模型 DeepSeek Flash。
