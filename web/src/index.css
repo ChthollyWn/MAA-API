@@ -36,12 +36,6 @@
   --color-danger-soft: var(--danger-soft);
   --color-danger-foreground: var(--danger-foreground);
 
-  /* 过渡期别名：尚未重写的页面仍在用这些颜色名。 */
-  --color-positive: var(--success);
-  --color-negative: var(--danger);
-  --color-destructive: var(--danger);
-  --color-destructive-foreground: var(--danger-foreground);
-
   --radius-md: 0.5rem;
   --radius-lg: 0.625rem;
   --radius-xl: 0.75rem;

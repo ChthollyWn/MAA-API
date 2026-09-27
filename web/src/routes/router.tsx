@@ -4,8 +4,6 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
 import { AppShell } from '@/components/layout/AppShell'
-import { LegacyPage } from '@/components/layout/LegacyPage'
-import type { PageWidth } from '@/components/layout/Page'
 import { Button } from '@/components/ui/button'
 import { ErrorState, LoadingState } from '@/components/ui/states'
 import { healthQueryOptions } from '@/lib/health'
@@ -99,8 +97,6 @@ const Suspended = ({ children }: { children: ReactNode }) => <Suspense fallback=
 
 /** 受保护的懒加载页面。 */
 const page = (element: ReactNode) => <ProtectedRoute><Suspended>{element}</Suspended></ProtectedRoute>
-/** 尚未按新设计重写的页面：补上安全区与内边距。 */
-const legacy = (element: ReactNode, width?: PageWidth) => page(<LegacyPage width={width}>{element}</LegacyPage>)
 
 export const routeConfig: RouteObject[] = [
   {
@@ -126,8 +122,8 @@ export const routeConfig: RouteObject[] = [
       { path: 'agent/*', element: page(<AgentPage />) },
       { path: 'more', element: page(<MorePage />) },
       { path: 'more/schedules/*', element: <SchedulesRedirect /> },
-      { path: 'more/api-console/guide', element: legacy(<ApiConsolePage />, 'full') },
-      { path: 'more/api-console', element: legacy(<ApiConsolePage />, 'full') },
+      { path: 'more/api-console/guide', element: page(<ApiConsolePage />) },
+      { path: 'more/api-console', element: page(<ApiConsolePage />) },
       { path: 'more/audit', element: page(<AuditPage />) },
       { path: 'more/updates', element: page(<UpdatesPage />) },
       { path: 'more/settings', element: page(<SettingsPage />) },

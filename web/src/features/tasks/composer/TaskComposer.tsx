@@ -142,7 +142,7 @@ export function TaskComposer() {
           )}
         </Section>
 
-        <div ref={feedbackRef} className="space-y-3 empty:hidden">
+        <div ref={feedbackRef} className="scroll-mt-28 scroll-mb-[calc(var(--nav-offset)+var(--keyboard-inset)+var(--nav-safe)+5.5rem)] space-y-3 empty:hidden">
           {fieldErrors ? (
             <InlineAlert
               tone="danger"
