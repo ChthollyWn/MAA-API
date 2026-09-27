@@ -917,8 +917,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             broadcast=lambda message_type, data: ws_manager.broadcast(message_type, data),
             notify=notify_service,
             push=webpush_service,
-            # 只有「用户没开着页面」时才值得推送（docs/09 §13.1 第 2 步）。
-            has_active_client=lambda: bool(ws_manager.sessions),
+            # 只有「用户没在看页面」时才值得推送（docs/09 §13.1 第 2 步）。
+            # 用 has_visible_client 而不是「有没有连接」：后台标签页的 WebSocket
+            # 往往还活着，按连接判断会导致该推送的时候不推送。
+            has_active_client=ws_manager.has_visible_client,
             confirmation_timeout_seconds=current_settings.agent.confirmation_timeout_seconds,
             grant_confirmation_timeout_seconds=(
                 current_settings.agent.grant_confirmation_timeout_seconds

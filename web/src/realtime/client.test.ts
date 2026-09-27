@@ -40,6 +40,11 @@ class FakeSocket implements SocketLike {
   sentFrames(): Array<Record<string, any>> {
     return this.sent.map((frame) => JSON.parse(frame) as Record<string, any>)
   }
+
+  /** 订阅/退订这类控制帧；排除每次订阅都会附带上报的 visibility。 */
+  controlFrames(): Array<Record<string, any>> {
+    return this.sentFrames().filter((frame) => frame.type !== 'visibility')
+  }
 }
 
 function makeClient(options: ConstructorParameters<typeof RealtimeClient>[0] = {}) {
@@ -197,29 +202,29 @@ describe('RealtimeClient', () => {
     const { client, sockets } = makeClient()
     client.connect()
     sockets[0].open()
-    const firstSubscribe = sockets[0].sentFrames()[0]
+    const firstSubscribe = sockets[0].controlFrames()[0]
     expect(firstSubscribe.type).toBe('subscribe')
     expect(firstSubscribe.data.channels).not.toContain('log')
-    expect(sockets[0].sentFrames()).toHaveLength(1)
+    expect(sockets[0].controlFrames()).toHaveLength(1)
 
     client.setLogSubscription(true, { sources: ['task'], min_level: 'INFO' })
-    const enabled = sockets[0].sentFrames()[1]
+    const enabled = sockets[0].controlFrames()[1]
     expect(enabled).toMatchObject({
       type: 'subscribe',
       data: { channels: expect.arrayContaining(['log']), log_filter: { sources: ['task'], min_level: 'INFO' } },
     })
     client.setLogSubscription(false)
-    expect(sockets[0].sentFrames()[2]).toMatchObject({ type: 'unsubscribe', data: { channels: ['log'] } })
+    expect(sockets[0].controlFrames()[2]).toMatchObject({ type: 'unsubscribe', data: { channels: ['log'] } })
 
     sockets[0].close(1006, '')
     vi.advanceTimersByTime(1_000)
     sockets[1].open()
-    const frames = sockets[1].sentFrames()
+    const frames = sockets[1].controlFrames()
     expect(frames[0].data.channels).not.toContain('log')
     expect(frames).toHaveLength(1)
 
     client.setLogSubscription(true)
-    expect(sockets[1].sentFrames()[1].data.log_filter).toMatchObject({
+    expect(sockets[1].controlFrames()[1].data.log_filter).toMatchObject({
       sources: ['task'], min_level: 'INFO',
     })
     client.disconnect()
@@ -232,8 +237,8 @@ describe('RealtimeClient', () => {
     client.connect()
     sockets[0].open()
 
-    expect(sockets[0].sentFrames()).toHaveLength(1)
-    expect(sockets[0].sentFrames()[0]).toMatchObject({
+    expect(sockets[0].controlFrames()).toHaveLength(1)
+    expect(sockets[0].controlFrames()[0]).toMatchObject({
       type: 'subscribe',
       data: {
         channels: expect.arrayContaining(['log', 'pipeline_status', 'core_status']),
@@ -245,7 +250,7 @@ describe('RealtimeClient', () => {
     sockets[0].close(1006, '')
     vi.advanceTimersByTime(1_000)
     sockets[1].open()
-    const reconnectFrames = sockets[1].sentFrames()
+    const reconnectFrames = sockets[1].controlFrames()
     expect(reconnectFrames).toHaveLength(1)
     expect(reconnectFrames[0]).toMatchObject({
       type: 'subscribe',
@@ -366,5 +371,43 @@ describe('RealtimeClient', () => {
     expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: keys.agent.session('incident-1') }))
     expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: keys.agent.messages('incident-1') }))
     queryClient.clear()
+  })
+})
+
+describe('page visibility reporting', () => {
+  it('reports visibility on connect so the server can decide about push', () => {
+    const { client, sockets } = makeClient({ getVisibility: () => 'hidden' })
+    client.connect()
+    sockets[0].open()
+
+    const visibility = sockets[0]
+      .sentFrames()
+      .filter((frame) => frame.type === 'visibility')
+    expect(visibility).toHaveLength(1)
+    expect(visibility[0].data).toEqual({ visible: false })
+  })
+
+  it('reports visibility again when the page is hidden or shown', () => {
+    let state: DocumentVisibilityState = 'visible'
+    const { client, sockets } = makeClient({ getVisibility: () => state })
+    client.connect()
+    sockets[0].open()
+
+    state = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+    state = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    const frames = sockets[0]
+      .sentFrames()
+      .filter((frame) => frame.type === 'visibility')
+      .map((frame) => frame.data.visible)
+    expect(frames).toEqual([true, false, true])
+
+    client.disconnect()
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(
+      sockets[0].sentFrames().filter((frame) => frame.type === 'visibility'),
+    ).toHaveLength(3)
   })
 })

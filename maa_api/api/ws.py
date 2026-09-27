@@ -82,6 +82,10 @@ class ClientSession:
     last_client_activity: float = field(default_factory=time.monotonic)
     last_server_ping: float | None = None
     missed_server_pings: int = 0
+    #: 页面是否可见。默认 True：刚连上时用户就在页面上。
+    #: 后台标签页/已安装 PWA 被切走时页面被冻结，WebSocket 往往还活着，
+    #: 所以「有连接」不等于「用户在看」，人工确认的推送必须按这个字段判断。
+    visible: bool = True
 
 
 class ConnectionManager:
@@ -106,6 +110,15 @@ class ConnectionManager:
     @property
     def sessions(self) -> tuple[ClientSession, ...]:
         return tuple(self._sessions.values())
+
+    def has_visible_client(self) -> bool:
+        """是否有**正在看着页面**的客户端。
+
+        人工确认的推送用它判断，而不是用「有没有连接」：移动端切到后台时页面被冻结，
+        WebSocket 常常仍然连着，此时按连接判断会认为「用户在看」而**不推送** ——
+        而用户恰恰看不到任何东西，确认只能等到超时自动拒绝。见 docs/09 §13.1。
+        """
+        return any(not session.closed and session.visible for session in self._sessions.values())
 
     def bind_hub(self, hub: LogHub | None) -> None:
         if hub is self._hub:
@@ -413,6 +426,12 @@ async def _handle_message(
         session.last_pong = time.monotonic()
         session.last_server_ping = None
         session.missed_server_pings = 0
+        return
+
+    if message_type == "visibility":
+        # 客户端报告页面是否可见（visibilitychange）。这是服务端判断「用户是不是
+        # 正在看」的唯一可靠来源：后台标签页的 WebSocket 可能仍然连着。
+        session.visible = bool(data.get("visible", True))
         return
 
     if message_type == "subscribe":
