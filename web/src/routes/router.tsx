@@ -9,7 +9,6 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Link } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { PageHeader } from '@/components/layout/PageHeader'
 import { useAuth } from '@/stores/auth'
 
 const DashboardPage = lazy(() => import('@/routes/dashboard'))
@@ -22,6 +21,7 @@ const SettingsPage = lazy(() => import('@/routes/settings'))
 const MorePage = lazy(() => import('@/routes/more'))
 const ApiConsolePage = lazy(() => import('@/features/api-console'))
 const AuditPage = lazy(() => import('@/features/audit/AuditPage'))
+const AgentPage = lazy(() => import('@/features/agent/AgentPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
 const TASK_VIEW_PATHS = { create: '/tasks', queue: '/tasks/queue', history: '/tasks/history' } as const
 
@@ -64,17 +64,6 @@ async function exchangeStoredCookie(token: string): Promise<true> {
 
 function LoadingPage() {
   return <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted-foreground" role="status"><LoaderCircle className="size-4 animate-spin" />正在载入页面</div>
-}
-
-function RouteUnavailable({ title, description }: { title: string; description: string }) {
-  return (
-    <>
-      <PageHeader title={title} />
-      <Card className="mt-5 border-dashed">
-        <CardHeader><CardTitle className="text-base">暂未开放</CardTitle><CardDescription>{description}</CardDescription></CardHeader>
-      </Card>
-    </>
-  )
 }
 
 function AccessError({ message, onRetry, returnTo }: { message: string; onRetry: () => void; returnTo: string }) {
@@ -150,7 +139,7 @@ export const routeConfig: RouteObject[] = [
       { path: 'tasks/history', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
       { path: 'tasks/history/:pipelineId', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
       { path: 'logs/*', element: <ProtectedRoute><Suspended><LogsPage /></Suspended></ProtectedRoute> },
-      { path: 'agent/*', element: <ProtectedRoute><RouteUnavailable title="Agent" description="Agent 对话与操作入口尚未开放。" /></ProtectedRoute> },
+      { path: 'agent/*', element: <ProtectedRoute><Suspended><AgentPage /></Suspended></ProtectedRoute> },
       { path: 'more', element: <ProtectedRoute><Suspended><MorePage /></Suspended></ProtectedRoute> },
       { path: 'more/api-console/guide', element: <ProtectedRoute><Suspended><ApiConsolePage /></Suspended></ProtectedRoute> },
       { path: 'more/api-console', element: <ProtectedRoute><Suspended><ApiConsolePage /></Suspended></ProtectedRoute> },

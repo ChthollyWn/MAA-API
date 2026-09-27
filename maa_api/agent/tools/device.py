@@ -135,6 +135,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="读取当前设备连接状态、地址、分辨率与 UUID。",
             params_model=EmptyParams,
             handler=_get_device_status,
+            read_only=True,
         )
     )
     registry.register(
@@ -145,6 +146,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="扫描 ADB 可见设备；可选探测常见模拟器端口。",
             params_model=ListDevicesParams,
             handler=_list_devices,
+            read_only=True,
         )
     )
     registry.register(

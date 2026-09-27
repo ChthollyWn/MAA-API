@@ -63,6 +63,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="读取服务、MaaCore、设备和队列状态。",
             params_model=EmptyParams,
             handler=get_system_status,
+            read_only=True,
         ),
         ToolDefinition(
             name="get_screenshot",
@@ -71,6 +72,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="获取当前设备画面，返回 JPEG base64、分辨率与 UTC 时间。",
             params_model=EmptyParams,
             handler=get_screenshot,
+            read_only=True,
         ),
         ToolDefinition(
             name="get_versions",
@@ -79,6 +81,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="读取内核、资源和游戏版本状态及最近一次检查结果。",
             params_model=EmptyParams,
             handler=get_versions,
+            read_only=True,
         ),
         ToolDefinition(
             name="get_logs",
@@ -87,6 +90,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="按来源、最低级别、时间范围和流水线查询历史日志。",
             params_model=GetLogsParams,
             handler=get_logs,
+            read_only=True,
         ),
         ToolDefinition(
             name="resolve_stage",
@@ -95,6 +99,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="互查关卡 code 与 stageId，并说明使用内核或本地资源索引。",
             params_model=ResolveStageParams,
             handler=resolve_stage,
+            read_only=True,
         ),
         ToolDefinition(
             name="get_drop_stats",
@@ -103,6 +108,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="按关卡和 UTC 时间范围聚合历史掉落，并返回理智观测曲线。",
             params_model=GetDropStatsParams,
             handler=get_drop_stats,
+            read_only=True,
         ),
     )
     for definition in definitions:

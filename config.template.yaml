@@ -33,11 +33,15 @@ channel:
   client_type: Bilibili
   server: CN
 
-# OpenAI 兼容模型（密钥建议通过环境变量或设置页录入）
+# 故障后创建可继续对话的自动诊断会话
+agent:
+  auto_diagnose_failures: true
+
+# OpenAI 兼容模型（密钥建议通过环境变量或设置页录入；数据库密钥由 MAA_LLM_ENCRYPTION_KEY 加密）
 llm:
-  base_url:
+  base_url: https://api.deepseek.com
   api_key:
-  model:
+  model: deepseek-v4.1-flash
 
 # 邮箱配置
 smtp:

@@ -19,6 +19,7 @@ class _Supervisor:
         self.state = CoreState.READY
         self.generation = 1
         self.pid = 71
+        self._on_crash = on_crash
         self._on_state_change = on_state_change
 
     async def start(self, **_kwargs) -> None:
@@ -90,8 +91,14 @@ class _Runner:
     def __init__(self, *_args, **_kwargs) -> None:
         self.operation_lock = asyncio.Lock()
         self.stopped = False
+        self.active_pipeline_id = None
+        self.active_pipeline_epoch = None
+        self.start_thread_id = None
+        self.crash_records = []
+        self.crash_notified = threading.Event()
 
     async def start(self) -> None:
+        self.start_thread_id = threading.get_ident()
         return None
 
     async def stop(self) -> None:
@@ -104,7 +111,8 @@ class _Runner:
         return None
 
     def notify_core_crash(self, _record=None) -> None:
-        return None
+        self.crash_records.append(_record)
+        self.crash_notified.set()
 
     def log_context(self, _msg, _details):
         return None
@@ -178,3 +186,62 @@ def test_setting_route_hot_applies_address_but_keeps_core_path_readonly(
     )
     assert readonly.status_code == 403
     assert readonly.json()["error"]["code"] == "SETTING_READONLY"
+
+
+def test_core_crash_monitor_callback_is_marshaled_and_cancelled_at_shutdown(
+    tmp_settings, isolated_db, make_client
+):
+    class RecordingIncidents:
+        def __init__(self):
+            self.started = threading.Event()
+            self.cancelled = threading.Event()
+            self.generation = None
+            self.record = None
+            self.thread_id = None
+            self.calls = []
+
+        async def core_crashed(self, generation, record):
+            self.calls.append((generation, record))
+            self.generation = generation
+            self.record = record
+            self.thread_id = threading.get_ident()
+            self.started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+                raise
+
+    app = _make_app()
+    incident = RecordingIncidents()
+    app.state.agent_incident_service_factory = lambda *_args, **_kwargs: incident
+    with TestClient(app):
+        supervisor = app.state.core_supervisor
+        runner = app.state.pipeline_runner
+        monitor_thread = threading.Thread(
+            target=supervisor._on_crash,
+            args=({"reason": "process_exit", "exitcode": -9},),
+        )
+        monitor_thread.start()
+        monitor_thread.join(timeout=1)
+
+        assert incident.started.wait(timeout=1)
+        assert incident.generation == 1
+        assert incident.record["generation"] == 1
+        assert incident.thread_id == runner.start_thread_id
+        assert runner.crash_records == [incident.record]
+
+        runner.active_pipeline_id = "pipeline-active"
+        runner.active_pipeline_epoch = 1
+        runner.crash_notified.clear()
+        active_crash_thread = threading.Thread(
+            target=supervisor._on_crash,
+            args=({"reason": "process_exit", "exitcode": -9},),
+        )
+        active_crash_thread.start()
+        active_crash_thread.join(timeout=1)
+        assert runner.crash_notified.wait(timeout=1)
+        assert len(runner.crash_records) == 2
+        assert len(incident.calls) == 1
+
+    assert incident.cancelled.wait(timeout=1)

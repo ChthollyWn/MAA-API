@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 94 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 95 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
 
 ```python
 # maa_api/domain/errors.py
@@ -228,7 +228,7 @@ class AppError(Exception):
 | `PIPELINE_EMPTY` | 400 | 提交的 `tasks` 数组为空 |
 | `PIPELINE_TOO_MANY_TASKS` | 400 | 单条流水线任务数超过 32 |
 | `TASK_NOT_FOUND` | 404 | 任务 id 不存在 |
-| `UNKNOWN_TASK_TYPE` | 400 | `name` 字段不在 9 种任务类型内，discriminated union 匹配失败 |
+| `UNKNOWN_TASK_TYPE` | 400 | `name` 字段不在 9 种 MaaCore 内置任务或 `Copilot` 类型内，discriminated union 匹配失败 |
 | `TASK_PARAM_INVALID` | 422 | 跨字段规则不满足：`mode=10000` 缺 `filename`、`mode=5` 但 `theme != "Sami"`、`series` 越界 |
 | `TASK_PARAM_DEPRECATED` | 400 | 使用了内核已弃用的参数值，如 `Roguelike.mode=2` |
 | `TASK_NOT_RUNTIME_MUTABLE` | 409 | 对运行中的任务修改了标注"不支持运行中设置"的参数（`stage`、`facility`、`shopping` 等） |
@@ -283,9 +283,10 @@ class AppError(Exception):
 | `TOOL_ARGS_INVALID` | 422 | 工具参数不满足其 JSON Schema |
 | `TOOL_EXECUTION_FAILED` | 500 | 工具实现内部抛出未预期异常。被工具调用的下游错误（内核、设备）按其本身的码原样上抛，不包成这个码 |
 | `LLM_NOT_CONFIGURED` | 503 | `base_url` / `api_key` / `model` 三项未配齐 |
-| `LLM_REQUEST_FAILED` | 502 | 上游返回非 2xx。`details.upstream_status` 与 `details.upstream_code` 透传 |
+| `LLM_REQUEST_FAILED` | 502 | 上游返回非 2xx。`details.upstream_status` 保留；`details.upstream_code` 仅包含已知白名单码 |
 | `LLM_TIMEOUT` | 504 | 上游在超时内未返回 |
 | `LLM_RATE_LIMITED` | 429 | 上游 429 透传，`Retry-After` 沿用上游值 |
+| `LLM_ENCRYPTION_KEY_INVALID` | 503 | 缺少或配置错误的 `MAA_LLM_ENCRYPTION_KEY`，无法解密数据库里的 LLM API 密钥；设置正确的主密钥，或在设置页重新录入 API 密钥 |
 | `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史超出模型上下文窗口，需新建会话或裁剪历史 |
 
 tool-calling 循环达到步数上限**不是错误**：会话正常结束，最后一条 `agent_message.finish_reason` 记为 `max_steps`，接口返回 200。把它做成错误码会让前端丢掉模型已经产出的中间结论。
@@ -487,7 +488,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
-| GET | `/api/tasks/types` | 9 种任务类型的完整参数 schema，供前端生成表单、agent 了解可用参数 | `lang` 默认 `zh` | 200 | — |
+| GET | `/api/tasks/types` | 9 种 MaaCore 内置任务与 `Copilot` 的完整参数 schema，供前端生成表单、agent 了解可用参数 | `lang` 默认 `zh` | 200 | — |
 | GET | `/api/tasks/types/{type_name}` | 单个类型的 schema | | 200 | `UNKNOWN_TASK_TYPE` |
 | POST | `/api/tasks/validate` | 只校验不提交，返回规范化后的参数与将被注入的默认值 | `{tasks[]}` | 200 | `UNKNOWN_TASK_TYPE`、`TASK_PARAM_INVALID` |
 | GET | `/api/tasks/{task_id}` | 单任务详情（状态、重试次数、`params` 与 `raw_params`、耗时） | | 200 | `TASK_NOT_FOUND` |
@@ -575,11 +576,13 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/settings` | 读取生效中的全部配置，敏感项脱敏为 `"***"`，并标注每项来自哪一层（env/db/yaml/default） | `group` 可选 | 200 | — |
-| PUT | `/api/settings` | 批量写入并热生效。敏感项传 `"***"` 或空串视为不变更 | `{items: {key: value}}` | 200 | `SETTING_KEY_UNKNOWN`、`SETTING_VALUE_INVALID`、`SETTING_READONLY`、`SETTING_APPLY_FAILED` |
+| PUT | `/api/settings` | 批量写入并热生效。敏感项传 `"***"` 或空串视为不变更 | `{items: {key: value}}` | 200 | `SETTING_KEY_UNKNOWN`、`SETTING_VALUE_INVALID`、`SETTING_READONLY`、`SETTING_APPLY_FAILED`、`LLM_ENCRYPTION_KEY_INVALID` |
 | GET | `/api/settings/schema` | 配置项元信息：中文标签、分组、类型、取值范围、枚举可选值、是否敏感、热生效动作 | | 200 | — |
 | POST | `/api/settings/reset` | 清除指定项的数据库覆盖，回落到 `config.yaml` 或默认值 | `{keys[]}` | 200 | `SETTING_KEY_UNKNOWN` |
 
 `PUT` 的部分成功要处理明确：值已入库但热生效失败时返回 `500 SETTING_APPLY_FAILED`，`details.applied = true` 告诉前端"配置已保存，但重连设备失败"，前端提示用户手动重连而不是让他以为没保存上。
+
+Agent 设置包含 `agent.auto_diagnose_failures`，true/false 控制流水线与空闲内核故障的自动诊断；默认 true，更新值必须为 JSON boolean。
 
 （4 条）
 
@@ -617,7 +620,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 |---|---|---|---|---|---|
 | GET | `/api/resources/items` | 读取当前 MaaCore `resource/item_index.json`，供 `Fight.drops` 按名称搜索 | | `200 [{item_id, name, icon_url}]` | `RESOURCE_LOAD_FAILED` |
 | GET | `/api/resources/items/icon` | 返回物品索引中登记的图标 | `item_id` | `200 image/png` | `RESOURCE_ASSET_NOT_FOUND`、`RESOURCE_LOAD_FAILED` |
-| GET | `/api/resources/copilots` | Copilot 作业列表 | `page`、`size`、`q` | 200 | — |
+| GET | `/api/resources/copilots` | Copilot 作业元数据列表（不含作业 JSON），供流水线和 schedule 编辑器选择 `asset_id` | `page`、`size`、`q` | `200 {items:[{id,name,meta,...}],total,page,size}` | `SERVICE_UNAVAILABLE` |
 | POST | `/api/resources/copilots` | 上传作业 JSON。校验结构并解析出关卡名存入 `meta` | `{name, description?, content}` | 201 | `COPILOT_JSON_INVALID`、`RESOURCE_ASSET_CONFLICT`、`ASSET_TOO_LARGE` |
 | GET | `/api/resources/copilots/{id}` | 作业详情，含完整内容 | | 200 | `RESOURCE_ASSET_NOT_FOUND` |
 | DELETE | `/api/resources/copilots/{id}` | 删除 | | 204 | `RESOURCE_ASSET_NOT_FOUND` |
@@ -644,16 +647,23 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 | GET | `/api/agent/tools` | 工具清单与 JSON Schema，含 `risk_level` 标注 | `risk_level` 可选过滤 | 200 | `AGENT_DISABLED` |
 | POST | `/api/agent/tools/{name}/invoke` | REST 调用方直接执行工具，使用共享 `ToolRegistry` | `{arguments, mode?}`：`mode=sync` 阻塞等结果，`mode=async` 立即返回 | 200 / 202 | `TOOL_NOT_FOUND`、`TOOL_ARGS_INVALID`、`CONFIRMATION_REQUIRED`（202） |
 | GET | `/api/agent/sessions` | 会话列表，按 `last_message_at` 倒序 | `page`、`size` | 200 | — |
-| POST | `/api/agent/sessions` | 新建会话，快照当前 `model` 与 `base_url` | `{title?}` | 201 | `LLM_NOT_CONFIGURED` |
+| POST | `/api/agent/sessions` | 新建会话，快照当前 `model` 与 `base_url`；默认模型 `deepseek-v4.1-flash` | `{title?}` | 201 | `LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID` |
+| POST | `/api/agent/capabilities/check` | 检查当前模型的 function calling 与视觉输入能力并缓存结果 | 无 body | 200 | `LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID` |
 | GET | `/api/agent/sessions/{id}` | 会话详情与 token 消耗统计 | | 200 | `AGENT_SESSION_NOT_FOUND` |
 | DELETE | `/api/agent/sessions/{id}` | 删除会话，消息级联删除 | | 204 | `AGENT_SESSION_NOT_FOUND` |
 | GET | `/api/agent/sessions/{id}/messages` | 消息与工具调用轨迹，按 `seq` 升序 | `after_seq`、`page`、`size` | 200 | `AGENT_SESSION_NOT_FOUND` |
-| POST | `/api/agent/sessions/{id}/messages` | M13 规划的发送消息与 tool-calling 循环；M11 不挂载 | `{content}` | M13 | `AGENT_SESSION_BUSY`、`LLM_NOT_CONFIGURED`、`LLM_CONTEXT_OVERFLOW` |
+| POST | `/api/agent/sessions/{id}/messages` | 发送自然语言消息，执行 tool-calling 循环并以 SSE 返回轨迹 | `{content}` | 200 `text/event-stream` | `AGENT_SESSION_BUSY`、`LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID`、`LLM_CONTEXT_OVERFLOW` |
 | DELETE | `/api/agent/sessions/{id}/atomic-grant` | 撤销该会话的原子操作授权，挂起中的调用按拒绝处理 | | 204 | `AGENT_SESSION_NOT_FOUND` |
 | GET | `/api/agent/audits` | 审计列表 | `caller`、`tool_name`、`status`、`risk_level`、`since`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/agent/audits/{id}` | 单条审计详情，含完整参数与结果摘要 | | 200 | `NOT_FOUND` |
 
-LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端点，它是 `setting` 表的三个 key，走 `/api/settings`。这样设置页只有一处配置入口。
+LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端点，它是 `setting` 表的三个 key，走 `/api/settings`。默认模型为 DeepSeek V4.1 Flash，API Key 由服务端用部署环境变量 `MAA_LLM_ENCRYPTION_KEY` 加密后写入 SQLite；端点仍可由用户配置覆盖。
+
+`POST /api/agent/capabilities/check` 以小型工具调用和测试图片分别检查 function calling 与视觉输入。首次发送消息前会自动补做一次缓存检查；工具调用失败则停止对话，视觉失败只禁用截图和原子屏幕操作，并保留文本对话。
+
+`POST /api/agent/sessions/{id}/messages` 以 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`message_end` 和 `error` 事件流式返回结果。每个会话同一时间只运行一轮；客户端断开不会回滚已提交的工具副作用。
+
+`agent.auto_diagnose_failures` 默认开启。流水线终态失败和内核崩溃各按持久 incident key 最多创建一个可继续对话的诊断会话；关闭设置后不自动调用模型。自动诊断只暴露安全查询与恢复工具，仍遵循原子操作会话授权和资源消耗/破坏操作逐次确认策略。
 
 （10 条）
 
@@ -669,7 +679,7 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 **会话级原子操作授权复用这同一套确认流程**，不另起端点。授权请求是一条 `action` 为 `grant_atomic_ops` 的确认记录，`payload` 为 `{"session_id": "...", "window_seconds": 900}`；批准它的"执行"就是在 `agent_session` 上写入授权窗口。撤销走上面的 `DELETE /api/agent/sessions/{id}/atomic-grant`，不是再发一条确认。这样前端只需实现一种确认卡片，只是文案按 `action` 区分（机制见 [11-Agent模块设计 §4.3](./11-Agent模块设计.md)）。
 
-`GET /api/agent/sessions/{id}` 的响应带 `atomic_grant: {granted, expires_at, grant_id} | null`，供 M13 前端在页面刷新后恢复授权提示——WebSocket 的 `atomic_grant_changed` 事件只能通知变化，刷新后的初始状态必须能从 REST 拿到。M11 有授权撤销 API 和确认卡片，但不挂载 `POST /messages`，也不显示常驻授权提示条。
+`GET /api/agent/sessions/{id}` 的响应带 `atomic_grant: {granted, expires_at, grant_id} | null`，供前端在页面刷新后恢复授权提示；WebSocket 的 `atomic_grant_changed` 事件用于刷新会话详情。
 
 （3 条）
 

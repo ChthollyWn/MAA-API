@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from maa_api.agent.registry import ToolContext
 from maa_api.api.deps import get_session, require_auth
@@ -52,6 +53,12 @@ class SessionCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = Field(default=None, max_length=64)
+
+
+class SessionMessageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=32_000)
 
 
 @asynccontextmanager
@@ -138,6 +145,58 @@ def _confirmation_service(request: Request):
     return service
 
 
+def _agent_runtime(request: Request):
+    state = request.app.state
+    runtime = getattr(state, "agent_runtime", None)
+    if runtime is not None:
+        return runtime
+    service = _confirmation_service(request)
+    factory = getattr(state, "agent_runtime_factory", None)
+    if factory is not None:
+        runtime = factory(service)
+    else:
+        from maa_api.agent.runtime import AgentRuntime
+
+        runtime = AgentRuntime(service.session_factory, service)
+    state.agent_runtime = runtime
+    return runtime
+
+
+async def _effective_llm_settings(request: Request):
+    service = getattr(request.app.state, "setting_service", None)
+    if service is not None:
+        settings = await service.refresh()
+        return settings, getattr(service, "llm_encryption_error", None)
+    return get_settings(), None
+
+
+class _LockedSessionStreamingResponse(StreamingResponse):
+    """Transfer lock ownership to the turn producer when SSE body iteration starts."""
+
+    def __init__(self, content: Any, *, runtime: Any, session_id: str, **kwargs: Any):
+        self._runtime = runtime
+        self._session_id = session_id
+        self._producer_owns_lock = False
+
+        async def transfer_lock_when_iteration_starts():
+            # AgentRuntime starts its detached producer synchronously when its
+            # async generator is first advanced. From then on that producer
+            # releases the lock after the whole turn, even if this response is
+            # cancelled while sending a later chunk.
+            self._producer_owns_lock = True
+            async for chunk in content:
+                yield chunk
+
+        super().__init__(transfer_lock_when_iteration_starts(), **kwargs)
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            if not self._producer_owns_lock:
+                self._runtime.release_session(self._session_id)
+
+
 def _page(page: int, size: int) -> None:
     if page < 1 or size < 1 or size > 200:
         raise AppError(ErrorCode.INVALID_PAGINATION, "page 必须大于 0，size 必须为 1–200")
@@ -161,6 +220,7 @@ def session_wire(session: AgentSession) -> dict[str, Any]:
         "session_id": session.id,
         "title": session.title,
         "status": str(session.status),
+        "incident_key": session.incident_key,
         "model": session.model,
         "base_url": session.base_url,
         "message_count": session.message_count,
@@ -246,6 +306,7 @@ async def list_tools(
             }[definition.risk.value],
             "risk": definition.risk.value.lower(),
             "description": definition.description,
+            "read_only": definition.read_only,
             "input_schema": definition.params_model.model_json_schema(
                 by_alias=True, mode="validation"
             ),
@@ -506,15 +567,24 @@ async def list_sessions(
     "/sessions",
     status_code=status.HTTP_201_CREATED,
     summary="创建 Agent 会话",
-    responses=error_responses("LLM_NOT_CONFIGURED", "UNAUTHORIZED"),
+    responses=error_responses(
+        "LLM_NOT_CONFIGURED", "LLM_ENCRYPTION_KEY_INVALID", "UNAUTHORIZED"
+    ),
     dependencies=[Depends(require_auth)],
 )
 async def create_session(
     payload: SessionCreateRequest,
     response: Response,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    settings = get_settings().llm
+    resolved, encryption_error = await _effective_llm_settings(request)
+    settings = resolved.llm
+    if not settings.api_key and encryption_error is not None:
+        raise AppError(
+            ErrorCode.LLM_ENCRYPTION_KEY_INVALID,
+            "数据库中的 LLM API Key 无法解密；请修复加密密钥或配置有效的 YAML/env API Key",
+        )
     if not settings.base_url or not settings.api_key or not settings.model:
         raise AppError(ErrorCode.LLM_NOT_CONFIGURED, "请先配置 LLM base_url、api_key 和 model")
     stored = await AgentSessionRepository(session).create(
@@ -523,6 +593,63 @@ async def create_session(
     await session.commit()
     response.headers["Location"] = f"/api/agent/sessions/{stored.id}"
     return session_wire(stored)
+
+
+@router.post(
+    "/capabilities/check",
+    summary="检查 Agent 模型能力",
+    responses=error_responses(
+        "AGENT_DISABLED", "LLM_NOT_CONFIGURED", "LLM_ENCRYPTION_KEY_INVALID", "UNAUTHORIZED"
+    ),
+    dependencies=[Depends(require_auth)],
+)
+async def check_capabilities(request: Request) -> dict[str, Any]:
+    return await _agent_runtime(request).check_capabilities(request)
+
+
+@router.post(
+    "/sessions/{session_id}/messages",
+    summary="发送 Agent 消息并接收 SSE 事件",
+    responses=error_responses(
+        "AGENT_DISABLED",
+        "AGENT_SESSION_NOT_FOUND",
+        "AGENT_SESSION_BUSY",
+        "LLM_NOT_CONFIGURED",
+        "LLM_ENCRYPTION_KEY_INVALID",
+        "UNAUTHORIZED",
+    ),
+    dependencies=[Depends(require_auth)],
+)
+async def stream_session_message(
+    session_id: str,
+    payload: SessionMessageRequest,
+    request: Request,
+) -> StreamingResponse:
+    runtime = _agent_runtime(request)
+    factory = getattr(runtime, "session_factory", None) or getattr(
+        request.app.state, "session_factory", None
+    )
+    if factory is None:
+        factory = _confirmation_service(request).session_factory
+    async with factory() as db_session:
+        exists = await AgentSessionRepository(db_session).get(session_id)
+    if exists is None:
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在")
+    if not await runtime.acquire_session(session_id):
+        raise AppError(ErrorCode.AGENT_SESSION_BUSY, "该会话已有一轮消息正在处理")
+    try:
+        await runtime.ensure_configured(request, session_id)
+    except BaseException:
+        runtime.release_session(session_id)
+        raise
+
+    return _LockedSessionStreamingResponse(
+        runtime.stream_message(session_id, payload.content, request),
+        runtime=runtime,
+        session_id=session_id,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get(

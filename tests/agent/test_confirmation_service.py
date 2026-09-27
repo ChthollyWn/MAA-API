@@ -537,6 +537,10 @@ def test_rest_sync_invocation_waits_for_resolution_and_broadcasts_approval_once(
             await connection.run_sync(SQLModel.metadata.create_all)
         events = []
         calls = []
+        # 用 confirmation 落库后必然触发的广播事件来同步，而不是轮询共享
+        # StaticPool 单连接：轮询会在同步 invoke 持锁期间反复开关会话，既慢又把
+        # 「确认行已出现」变成概率事件（此前该用例约一半概率失败）。
+        created = asyncio.Event()
 
         async def handler(params, _context):
             calls.append(params.value)
@@ -553,10 +557,16 @@ def test_rest_sync_invocation_waits_for_resolution_and_broadcasts_approval_once(
                 handler=handler,
             )
         )
+
+        def broadcast(kind, data):
+            events.append((kind, data))
+            if kind == "confirm_request":
+                created.set()
+
         service = ConfirmationService(
             factory,
             registry,
-            broadcast=lambda kind, data: events.append((kind, data)),
+            broadcast=broadcast,
             clock=lambda: datetime(2026, 9, 25, 0, 0, 0),
         )
         context = ToolContext(CallerType.REST, None, "sync-request", _request(), None)
@@ -564,13 +574,11 @@ def test_rest_sync_invocation_waits_for_resolution_and_broadcasts_approval_once(
             service.invoke("dangerous_action", {"value": 9}, context, mode="sync")
         )
 
-        for _ in range(20):
-            async with factory() as session:
-                pending = await ConfirmationRepository(session).list_pending()
-            if pending:
-                break
-            await asyncio.sleep(0.001)
-        assert pending
+        await asyncio.wait_for(created.wait(), timeout=5)
+        async with factory() as session:
+            pending = await ConfirmationRepository(session).list_pending()
+        assert pending, "confirm_request 广播后确认行必须已经提交"
+
         await asyncio.sleep(0.03)
         assert not invoke_task.done(), "REST sync must wait for confirmation resolution"
 
@@ -581,6 +589,147 @@ def test_rest_sync_invocation_waits_for_resolution_and_broadcasts_approval_once(
         assert calls == [9]
         resolved = [event for event in events if event[0] == "confirm_resolved"]
         assert len(resolved) == 1
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_result_callbacks_prepare_safe_result_before_terminal_and_notify_after_commit(tmp_path):
+    async def scenario():
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        engine = db_session.make_engine(f"sqlite+aiosqlite:///{tmp_path / 'callback-order.sqlite3'}")
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        events = []
+
+        async def handler(_params, _context):
+            return {"data": "inline-secret"}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="get_screenshot",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Returns an image for the runtime to archive.",
+                params_model=Params,
+                handler=handler,
+                read_only=True,
+            )
+        )
+        service = ConfirmationService(factory, registry)
+
+        async def prepare(session, audit_id, result):
+            audit = await AuditRepository(session).get(audit_id)
+            assert str(audit.status) == AuditStatus.PENDING.value
+            assert result == {"data": "inline-secret"}
+            events.append("prepare")
+            return {"screenshot_id": "archived-id"}
+
+        async def terminal(session, audit_id, response_status, response_body):
+            audit = await AuditRepository(session).get(audit_id)
+            assert str(audit.status) == AuditStatus.SUCCESS.value
+            assert response_status == 200
+            assert response_body["result"] == {"screenshot_id": "archived-id"}
+            events.append("terminal")
+
+        async def committed(audit_id, response_status, response_body):
+            async with factory() as session:
+                audit = await AuditRepository(session).get(audit_id)
+            assert str(audit.status) == AuditStatus.SUCCESS.value
+            assert response_status == 200
+            assert response_body["result"] == {"screenshot_id": "archived-id"}
+            events.append("committed")
+
+        accepted = await service.invoke(
+            "get_screenshot",
+            {},
+            ToolContext(CallerType.INTERNAL, None, "test", _request(), None),
+            mode="async",
+            on_audit_prepare=prepare,
+            on_audit_terminal=terminal,
+            on_audit_committed=committed,
+        )
+        audit_id = accepted["audit_id"]
+        await service._workers[str(audit_id)]
+        async with factory() as session:
+            audit = await AuditRepository(session).get(audit_id)
+        assert events == ["prepare", "terminal", "committed"]
+        assert audit.result_summary == '{"screenshot_id": "archived-id"}'
+        assert "inline-secret" not in audit.result_summary
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_result_prepare_error_commits_failed_audit_then_notifies_runtime(tmp_path):
+    async def scenario():
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        engine = db_session.make_engine(f"sqlite+aiosqlite:///{tmp_path / 'callback-failure.sqlite3'}")
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        terminal_results = []
+        committed_results = []
+
+        async def handler(_params, _context):
+            return {"data": "inline-secret"}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="get_screenshot",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Returns an image for the runtime to archive.",
+                params_model=Params,
+                handler=handler,
+                read_only=True,
+            )
+        )
+        service = ConfirmationService(factory, registry)
+
+        async def prepare(_session, _audit_id, _result):
+            raise AppError(ErrorCode.SCREENSHOT_FAILED, "截图归档失败")
+
+        async def terminal(session, audit_id, response_status, response_body):
+            audit = await AuditRepository(session).get(audit_id)
+            terminal_results.append(
+                (str(audit.status), response_status, response_body.copy())
+            )
+
+        async def committed(audit_id, response_status, response_body):
+            async with factory() as session:
+                audit = await AuditRepository(session).get(audit_id)
+            committed_results.append(
+                (str(audit.status), audit.error_code, response_status, response_body.copy())
+            )
+
+        accepted = await service.invoke(
+            "get_screenshot",
+            {},
+            ToolContext(CallerType.INTERNAL, None, "test", _request(), None),
+            mode="async",
+            on_audit_prepare=prepare,
+            on_audit_terminal=terminal,
+            on_audit_committed=committed,
+        )
+        audit_id = accepted["audit_id"]
+        await service._workers[str(audit_id)]
+        async with factory() as session:
+            audit = await AuditRepository(session).get(audit_id)
+        assert terminal_results[0][0:2] == (AuditStatus.FAILED.value, 502)
+        assert terminal_results[0][2]["__idempotency_error__"]["code"] == ErrorCode.SCREENSHOT_FAILED.value
+        assert committed_results[0][0:3] == (
+            AuditStatus.FAILED.value,
+            ErrorCode.SCREENSHOT_FAILED.value,
+            502,
+        )
+        assert audit.result_summary == "截图归档失败"
+        assert "inline-secret" not in audit.result_summary
         await engine.dispose()
 
     asyncio.run(scenario())

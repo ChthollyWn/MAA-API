@@ -194,6 +194,25 @@ class PipelineRepository(BaseRepository):
             Pipeline, candidate_id, populate_existing=True
         )
 
+    async def release_failed_claim(
+        self, pipeline_id: str, *, core_epoch: int | None
+    ) -> bool:
+        """Return a claim to PENDING after the runner failed before execution."""
+        result = await self.session.execute(
+            update(Pipeline)
+            .where(
+                Pipeline.id == pipeline_id,
+                Pipeline.status == PipelineStatus.RUNNING,
+                Pipeline.core_epoch == core_epoch,
+            )
+            .values(
+                status=PipelineStatus.PENDING,
+                started_at=None,
+                core_epoch=None,
+            )
+        )
+        return result.rowcount > 0
+
     async def defer_running(
         self, pipeline_id: str, deferred_until: datetime
     ) -> bool:
@@ -316,6 +335,31 @@ class PipelineRepository(BaseRepository):
                 status=target,
                 finished_at=utcnow(),
                 error_code=error_code,
+                error_message=error_message,
+            )
+        )
+        return result.rowcount > 0
+
+    async def mark_core_crashed(
+        self, pipeline_id: str, *, error_message: str
+    ) -> bool:
+        """Promote a just-terminalized in-flight pipeline when its core crashed.
+
+        This narrow correction is used only while PipelineRunner still owns the
+        active pipeline. It closes the window where a cancel/defer/completion
+        transaction commits after the supervisor has already delivered FATAL.
+        """
+        result = await self.session.execute(
+            update(Pipeline)
+            .where(
+                Pipeline.id == pipeline_id,
+                (Pipeline.status != PipelineStatus.FAILED)
+                | Pipeline.error_code.is_distinct_from("CORE_CRASHED"),
+            )
+            .values(
+                status=PipelineStatus.FAILED,
+                finished_at=utcnow(),
+                error_code="CORE_CRASHED",
                 error_message=error_message,
             )
         )

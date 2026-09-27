@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
@@ -17,6 +18,11 @@ from maa_api.db.repositories.setting import SettingRepository
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.setting_service import SettingService
 from maa_api.settings import get_settings, set_settings
+
+
+def _fernet_db_value(plaintext: str, key: str) -> str:
+    token = Fernet(key.encode("ascii")).encrypt(plaintext.encode("utf8")).decode("ascii")
+    return f"enc:v1:{token}"
 
 
 @pytest.fixture
@@ -157,6 +163,32 @@ def test_update_rejects_invalid_and_readonly_values(db_session_factory, items, c
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("value", [0, 1, "true", "false", None])
+def test_boolean_settings_reject_non_boolean_values(db_session_factory, value):
+    async def scenario():
+        service = SettingService(db_session_factory, env={})
+        with pytest.raises(AppError) as exc:
+            await service.update({"agent.auto_diagnose_failures": value})
+        assert exc.value.code == ErrorCode.SETTING_VALUE_INVALID
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_auto_diagnosis_setting_accepts_real_booleans(db_session_factory, value):
+    async def scenario():
+        service = SettingService(db_session_factory, env={})
+        result = await service.update({"agent.auto_diagnose_failures": value})
+        saved = next(
+            item for item in result["items"]
+            if item["key"] == "agent.auto_diagnose_failures"
+        )
+        assert saved["value"] is value
+        assert saved["source"] == "db"
+
+    asyncio.run(scenario())
+
+
 def test_readonly_access_token_is_not_exposed_or_writable(db_session_factory):
     async def scenario():
         service = SettingService(db_session_factory, env={})
@@ -173,8 +205,12 @@ def test_readonly_access_token_is_not_exposed_or_writable(db_session_factory):
 
 
 def test_sensitive_llm_key_masks_and_empty_or_masked_input_is_unchanged(db_session_factory):
+    encryption_key = Fernet.generate_key().decode("ascii")
+
     async def scenario():
-        service = SettingService(db_session_factory, env={})
+        service = SettingService(
+            db_session_factory, env={"MAA_LLM_ENCRYPTION_KEY": encryption_key}
+        )
         await service.update({"llm.api_key": "my-secret"})
         before = await service.get()
         key = next(item for item in before["items"] if item["key"] == "llm.api_key")
@@ -182,7 +218,184 @@ def test_sensitive_llm_key_masks_and_empty_or_masked_input_is_unchanged(db_sessi
         await service.update({"llm.api_key": "***"})
         await service.update({"llm.api_key": ""})
         async with db_session_factory() as session:
-            assert await SettingRepository(session).get("llm.api_key") == "my-secret"
+            stored = await SettingRepository(session).get("llm.api_key")
+            assert stored.startswith("enc:v1:")
+            assert "my-secret" not in stored
+            raw_token = stored.removeprefix("enc:v1:").encode("ascii")
+            assert Fernet(encryption_key.encode("ascii")).decrypt(raw_token) == b"my-secret"
+
+    asyncio.run(scenario())
+
+
+def test_llm_key_write_is_rejected_without_master_key(db_session_factory):
+    async def scenario():
+        service = SettingService(db_session_factory, env={})
+        with pytest.raises(AppError) as exc:
+            await service.update({"llm.api_key": "my-secret"})
+        assert exc.value.code == ErrorCode.LLM_ENCRYPTION_KEY_INVALID
+        async with db_session_factory() as session:
+            assert await SettingRepository(session).get("llm.api_key") is None
+
+    asyncio.run(scenario())
+
+
+def test_refresh_decrypts_database_llm_key_before_precedence_resolution(db_session_factory):
+    encryption_key = Fernet.generate_key().decode("ascii")
+
+    async def scenario():
+        async with db_session_factory() as session:
+            await SettingRepository(session).set(
+                "llm.api_key", _fernet_db_value("db-secret", encryption_key)
+            )
+            await session.commit()
+        service = SettingService(
+            db_session_factory, env={"MAA_LLM_ENCRYPTION_KEY": encryption_key}
+        )
+
+        settings = await service.refresh()
+
+        assert settings.llm.api_key == "db-secret"
+        assert service.llm_encryption_error is None
+
+        environment_service = SettingService(
+            db_session_factory,
+            env={
+                "MAA_LLM_ENCRYPTION_KEY": encryption_key,
+                "MAA_LLM_API_KEY": "environment-secret",
+            },
+        )
+        environment_settings = await environment_service.refresh()
+        assert environment_settings.llm.api_key == "environment-secret"
+
+    asyncio.run(scenario())
+
+
+def test_refresh_migrates_legacy_plaintext_database_llm_key(db_session_factory):
+    encryption_key = Fernet.generate_key().decode("ascii")
+
+    async def scenario():
+        async with db_session_factory() as session:
+            await SettingRepository(session).set("llm.api_key", "legacy-secret")
+            await session.commit()
+        service = SettingService(
+            db_session_factory, env={"MAA_LLM_ENCRYPTION_KEY": encryption_key}
+        )
+
+        settings = await service.refresh()
+
+        assert settings.llm.api_key == "legacy-secret"
+        assert service.llm_encryption_error is None
+        async with db_session_factory() as session:
+            stored = await SettingRepository(session).get("llm.api_key")
+            assert stored.startswith("enc:v1:")
+            assert "legacy-secret" not in stored
+            raw_token = stored.removeprefix("enc:v1:").encode("ascii")
+            assert Fernet(encryption_key.encode("ascii")).decrypt(raw_token) == b"legacy-secret"
+
+    asyncio.run(scenario())
+
+
+def test_refresh_disables_unreadable_database_llm_key_without_failing_startup(
+    db_session_factory,
+):
+    original_key = Fernet.generate_key().decode("ascii")
+    wrong_key = Fernet.generate_key().decode("ascii")
+
+    async def scenario():
+        async with db_session_factory() as session:
+            await SettingRepository(session).set(
+                "llm.api_key", _fernet_db_value("secret-key", original_key)
+            )
+            await session.commit()
+        service = SettingService(
+            db_session_factory, env={"MAA_LLM_ENCRYPTION_KEY": wrong_key}
+        )
+
+        settings = await service.refresh()
+
+        assert settings.llm.api_key == ""
+        assert type(service.llm_encryption_error).__name__ == "LLMEncryptionKeyInvalid"
+        assert "secret-key" not in str(service.llm_encryption_error)
+        async with db_session_factory() as session:
+            assert (await SettingRepository(session).get("llm.api_key")).startswith(
+                "enc:v1:"
+            )
+
+    asyncio.run(scenario())
+
+
+def test_environment_key_overrides_unreadable_db_key_without_clearing_db_error(
+    db_session_factory,
+):
+    stored_key = Fernet.generate_key().decode("ascii")
+    wrong_key = Fernet.generate_key().decode("ascii")
+
+    async def scenario():
+        async with db_session_factory() as session:
+            await SettingRepository(session).set(
+                "llm.api_key", _fernet_db_value("stored-secret", stored_key)
+            )
+            await session.commit()
+        service = SettingService(
+            db_session_factory,
+            env={
+                "MAA_LLM_ENCRYPTION_KEY": wrong_key,
+                "MAA_LLM_API_KEY": "environment-secret",
+            },
+        )
+
+        settings = await service.refresh()
+
+        assert settings.llm.api_key == "environment-secret"
+        assert type(service.llm_encryption_error).__name__ == "LLMEncryptionKeyInvalid"
+
+    asyncio.run(scenario())
+
+
+def test_replacing_unreadable_database_llm_key_clears_error_after_refresh(
+    db_session_factory,
+):
+    stored_key = Fernet.generate_key().decode("ascii")
+    encryption_key = Fernet.generate_key().decode("ascii")
+    env = {"MAA_LLM_ENCRYPTION_KEY": encryption_key}
+
+    async def scenario():
+        async with db_session_factory() as session:
+            await SettingRepository(session).set(
+                "llm.api_key", _fernet_db_value("stored-secret", stored_key)
+            )
+            await session.commit()
+        service = SettingService(db_session_factory, env=env)
+        initial = await service.refresh()
+        assert initial.llm.api_key == ""
+        assert type(service.llm_encryption_error).__name__ == "LLMEncryptionKeyInvalid"
+
+        await service.update({"llm.api_key": "replacement-secret"})
+
+        assert service.llm_encryption_error is None
+        async with db_session_factory() as session:
+            stored = await SettingRepository(session).get("llm.api_key")
+            raw_token = stored.removeprefix("enc:v1:").encode("ascii")
+            assert Fernet(encryption_key.encode("ascii")).decrypt(raw_token) == b"replacement-secret"
+
+    asyncio.run(scenario())
+
+
+def test_refresh_disables_legacy_database_llm_key_until_master_key_is_configured(
+    db_session_factory,
+):
+    async def scenario():
+        async with db_session_factory() as session:
+            await SettingRepository(session).set("llm.api_key", "legacy-secret")
+            await session.commit()
+        service = SettingService(db_session_factory, env={})
+
+        settings = await service.refresh()
+
+        assert settings.llm.api_key == ""
+        assert type(service.llm_encryption_error).__name__ == "LLMEncryptionKeyInvalid"
+        async with db_session_factory() as session:
+            assert await SettingRepository(session).get("llm.api_key") == "legacy-secret"
 
     asyncio.run(scenario())
 

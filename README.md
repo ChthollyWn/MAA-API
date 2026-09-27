@@ -1,3 +1,11 @@
+## Copilot 作业
+
+通过 Agent 的 `upload_copilot` 保存并校验作业 JSON，再把返回的资产 ID 作为 `Copilot` 任务提交到流水线或定时任务。每次执行都会从已校验的资产生成独立私有快照；MaaCore 读取这份快照，源文件在解析后被修改或删除不影响当前运行。资源路径任一组件是 symlink 时会拒绝执行，快照在流水线结束后清理。Copilot 使用自己的任务类型，不会被替换成普通 Fight 关卡。
+
+## 内置 Agent
+
+`/agent` 支持自然语言对话、流水线和定时任务编排、日志分析、自动故障诊断与安全恢复。默认模型为 DeepSeek V4.1 Flash（`https://api.deepseek.com`）；base URL、API Key 和模型可在设置页修改。数据库中保存的 API Key 由 `MAA_LLM_ENCRYPTION_KEY` Fernet 主密钥加密，因此要使用设置页保存 LLM 密钥时必须配置并持久保管该环境变量。流水线与 schedule 编辑器可从已保存资源中选择 Copilot 作业。
+
 ## Docker 镜像
 
 镜像构建会自动执行 Vite 前端构建，再把产物复制到 Python 运行镜像：
@@ -16,10 +24,11 @@ sudo docker run -d -p 8002:8002 --name maa-api \
   --restart unless-stopped \
   -e TZ=Asia/Shanghai \
   -e MAA_APP_ACCESS_TOKEN="替换为自己的访问令牌" \
+  -e MAA_LLM_ENCRYPTION_KEY="设置页加密 API Key 用的稳定主密钥" \
   maa-api
 ```
 
-镜像从 `config.template.yaml` 创建默认 `/app/config.yaml`。可用 `MAA_APP_ACCESS_TOKEN` 设置 API 访问令牌；运行数据与 MaaCore 下载内容保存在挂载的 `resource/` 中。
+镜像从 `config.template.yaml` 创建默认 `/app/config.yaml`。可用 `MAA_APP_ACCESS_TOKEN` 设置 API 访问令牌；配置 `MAA_LLM_ENCRYPTION_KEY` 后可在设置页加密保存 DeepSeek API Key。更换该主密钥会导致旧数据库密钥无法解密；运行数据与 MaaCore 下载内容保存在挂载的 `resource/` 中。
 
 ## 裸机启动
 

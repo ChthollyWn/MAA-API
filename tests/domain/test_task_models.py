@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, get_args
 
 import pytest
-from pydantic import AliasChoices, TypeAdapter, ValidationError
+from pydantic import AliasChoices, BaseModel, TypeAdapter, ValidationError
 
 from maa_api.domain.enums import RiskLevel
 from maa_api.domain.errors import AppError, ErrorCode
@@ -40,6 +40,7 @@ from maa_api.domain.task import (
     AwardInput,
     ChannelDefaults,
     CloseDownInput,
+    CopilotInput,
     FightInput,
     InfrastInput,
     MaaField,
@@ -58,7 +59,7 @@ from maa_api.domain.task import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_TASK_PATH = REPO_ROOT / "maa_api" / "model" / "core" / "task.py"
 
-MODEL_TYPES: tuple[type[TaskInputBase], ...] = (
+MODEL_TYPES: tuple[type[BaseModel], ...] = (
     StartUpInput,
     CloseDownInput,
     FightInput,
@@ -68,6 +69,7 @@ MODEL_TYPES: tuple[type[TaskInputBase], ...] = (
     AwardInput,
     RoguelikeInput,
     ReclamationInput,
+    CopilotInput,
 )
 TYPE_NAMES: tuple[str, ...] = tuple(TASK_LABELS)
 MODEL_IDS = [model.__name__ for model in MODEL_TYPES]
@@ -86,6 +88,7 @@ CORE_CLASS_BY_TYPE: dict[str, str] = {
     "Roguelike": "RoguelikeTask",
     "Reclamation": "ReclamationTask",
 }
+CORE_TYPE_NAMES: tuple[str, ...] = tuple(CORE_CLASS_BY_TYPE)
 
 #: 每类 docstring 至少应解析出的参数条数（卡面给出的下限；实际 docstring 只会更多）。
 #: 它是「正则失效导致 parity 测试空转」的哨兵，不是精确断言。
@@ -156,7 +159,7 @@ def _core_task_names() -> dict[str, str]:
     return names
 
 
-def _submittable_names(model: type[TaskInputBase]) -> set[str]:
+def _submittable_names(model: type[BaseModel]) -> set[str]:
     """模型接受的字段名集合：Python 字段名 + ``validation_alias`` 别名。"""
     names: set[str] = set()
     for field_name, field in model.model_fields.items():
@@ -169,7 +172,7 @@ def _submittable_names(model: type[TaskInputBase]) -> set[str]:
     return names
 
 
-def _schema(model: type[TaskInputBase]) -> dict[str, Any]:
+def _schema(model: type[BaseModel]) -> dict[str, Any]:
     return model.model_json_schema(ref_template="#/$defs/{model}")
 
 
@@ -192,7 +195,7 @@ def _case_id(value: Any) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_task_input_union_has_exactly_nine_ordered_types() -> None:
+def test_task_input_union_has_nine_core_and_one_resource_task_in_order() -> None:
     models = get_args(get_args(TaskInput)[0])
     assert [model.model_fields["name"].default for model in models] == list(TYPE_NAMES)
     assert set(TASK_MODELS) == set(TYPE_NAMES)
@@ -201,12 +204,12 @@ def test_task_input_union_has_exactly_nine_ordered_types() -> None:
 def test_task_labels_are_exactly_the_core_task_names() -> None:
     expected = _core_task_names()
     assert expected, "旧 task.py 的 task_name 解析为空，正则可能失效"
-    assert TASK_LABELS == expected
+    assert TASK_LABELS == expected | {"Copilot": "Copilot 作业"}
     assert TASK_LABELS["Fight"] == "刷理智"
     assert TASK_LABELS["Reclamation"] == "生息演算"
 
 
-def test_field_metadata_maps_cover_exactly_the_nine_types() -> None:
+def test_field_metadata_maps_cover_every_task_type() -> None:
     assert set(RUNTIME_IMMUTABLE) == set(TYPE_NAMES)
     assert set(RISK_FIELDS) == set(TYPE_NAMES)
 
@@ -282,7 +285,7 @@ def test_channel_defaults_and_normalized_task_shape() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("type_name", TYPE_NAMES)
+@pytest.mark.parametrize("type_name", CORE_TYPE_NAMES)
 def test_model_is_superset_of_docstring_params(type_name: str) -> None:
     parsed = _docstring_params()[type_name]
     assert parsed, f"{type_name} 的 docstring 未解析出任何参数，正则可能失效"
@@ -294,7 +297,7 @@ def test_model_is_superset_of_docstring_params(type_name: str) -> None:
 
 
 @pytest.mark.parametrize("model", MODEL_TYPES, ids=MODEL_IDS)
-def test_every_field_has_label_and_description(model: type[TaskInputBase]) -> None:
+def test_every_field_has_label_and_description(model: type[BaseModel]) -> None:
     for field_name, field in model.model_fields.items():
         extra = field.json_schema_extra or {}
         assert extra.get("x-label"), f"{model.__name__}.{field_name} 缺 x-label"
@@ -310,7 +313,7 @@ def test_docstring_parity_covers_the_expected_total() -> None:
     assert expected_total == 89, {k: len(v) for k, v in parsed.items()}
 
 
-@pytest.mark.parametrize("type_name", TYPE_NAMES)
+@pytest.mark.parametrize("type_name", CORE_TYPE_NAMES)
 def test_to_core_params_only_exports_keys_the_kernel_knows(type_name: str) -> None:
     """导出的每个键都必须是旧 docstring 记录过的参数名。
 
@@ -378,8 +381,11 @@ def test_extra_field_is_forbidden_not_silently_dropped() -> None:
 
 def test_extra_field_error_is_inherited_by_every_model() -> None:
     for type_name, model in TASK_MODELS.items():
+        payload = {"name": type_name, "definitely_not_a_param": 1}
+        if type_name == "Copilot":
+            payload["asset_id"] = "asset-1"
         with pytest.raises(ValidationError) as excinfo:
-            model.model_validate({"name": type_name, "definitely_not_a_param": 1})
+            model.model_validate(payload)
         assert excinfo.value.errors()[0]["type"] == "extra_forbidden"
 
 
@@ -631,7 +637,7 @@ def test_normalize_raw_params_uses_alias_keys() -> None:
 
 
 @pytest.mark.parametrize("model", MODEL_TYPES, ids=MODEL_IDS)
-def test_every_model_forbids_extra_in_schema(model: type[TaskInputBase]) -> None:
+def test_every_model_forbids_extra_in_schema(model: type[BaseModel]) -> None:
     assert _schema(model).get("additionalProperties") is False
 
 
@@ -721,7 +727,11 @@ def test_range_constraints_are_carried_by_json_schema() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("model", MODEL_TYPES + (PipelineCreate,), ids=MODEL_IDS + ["PipelineCreate"])
+@pytest.mark.parametrize(
+    "model",
+    MODEL_TYPES + (PipelineCreate,),
+    ids=MODEL_IDS + ["PipelineCreate"],
+)
 def test_examples_are_present_and_self_validating(model: type[Any]) -> None:
     examples = (model.model_config.get("json_schema_extra") or {}).get("examples")
     assert examples, f"{model.__name__} 缺 json_schema_extra['examples']"

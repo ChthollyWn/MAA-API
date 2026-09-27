@@ -2032,9 +2032,64 @@
         "制造"
       ],
       "runtime_immutable": []
+    },
+    {
+      "name": "Copilot",
+      "label": "Copilot 作业",
+      "description": "执行已校验并上传的 Copilot 作业。",
+      "schema": {
+        "additionalProperties": false,
+        "description": "执行已校验并上传的 Copilot 作业。",
+        "examples": [
+          {
+            "asset_id": "asset-1",
+            "formation": false,
+            "name": "Copilot"
+          }
+        ],
+        "properties": {
+          "name": {
+            "const": "Copilot",
+            "default": "Copilot",
+            "description": "判别联合 discriminator，固定为 Copilot；由任务类型选择器决定，用户不需要填写",
+            "title": "Name",
+            "type": "string",
+            "x-group": "基础",
+            "x-label": "任务类型"
+          },
+          "asset_id": {
+            "description": "已上传并通过结构校验的 Copilot 作业 ID；执行时由服务端解析为资源文件路径。不支持运行中设置",
+            "maxLength": 36,
+            "minLength": 1,
+            "title": "Asset Id",
+            "type": "string",
+            "x-group": "基础",
+            "x-label": "Copilot 作业"
+          },
+          "formation": {
+            "default": false,
+            "description": "执行作业前是否重新编队；默认关闭",
+            "title": "Formation",
+            "type": "boolean",
+            "x-group": "基础",
+            "x-label": "重新编队"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "title": "CopilotInput",
+        "type": "object"
+      },
+      "groups": [
+        "基础"
+      ],
+      "runtime_immutable": [
+        "asset_id"
+      ]
     }
   ],
-  "total": 9,
+  "total": 10,
   "page": 1,
-  "size": 9
+  "size": 10
 }

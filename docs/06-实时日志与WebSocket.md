@@ -700,7 +700,7 @@ Cookie 作为备选，供前端在已通过 HTTP 登录接口设置 cookie 后�
 
 **一次检查只发一条，`targets` 汇总全部有更新的目标**，不是每个目标发一条。无更新时不发这个事件（前端据此撤下红点要靠 `GET /api/updates/status` 的响应，而不是等一条"没有更新"的消息）。这与 `update_progress` 的关系是：前者说"有新版本"，后者说"正在装"，两者之间隔着用户的一次手动确认 —— 自动检查不会自动触发下载。
 
-**`agent_event`** — 内置 agent 的运行轨迹，前端对话界面据此渲染流式输出与工具调用。
+**`agent_event`** — 内置 Agent 的持久会话/授权状态通知。消息流文本与当前轮次的工具轨迹由 `POST /api/agent/sessions/{id}/messages` 的 SSE 返回，不经 WebSocket 重播。
 
 ```json
 {
@@ -708,19 +708,15 @@ Cookie 作为备选，供前端在已通过 HTTP 登录接口设置 cookie 后�
   "ts": 1758000008.000,
   "data": {
     "session_id": "s-991",
-    "event": "tool_call",
-    "payload": {
-      "call_id": "tc-3",
-      "tool": "get_pipeline_status",
-      "arguments": { "pipeline_id": "3f2a..." }
-    }
+    "event": "incident_created",
+    "payload": { "incident_key": "pipeline:3f2a..." }
   }
 }
 ```
 
-`event` 取值：`message_delta`（LLM 流式 token）、`message_done`、`tool_call`、`tool_result`、`error`、`usage`（token 消耗统计）、`atomic_grant_changed`（原子操作会话级授权生效、撤销或到期）。
+`event` 取值：`incident_created`、`incident_finished`（自动诊断 session 建立/完成或失败）、`incident_context_updated`（同一 pipeline incident 收到晚到的内核崩溃现场并补入会话），以及 `atomic_grant_changed`（原子操作会话级授权生效、撤销或到期）。
 
-`atomic_grant_changed` 的 `payload` 为 `{"granted": bool, "expires_at": float | null, "grant_id": str | null}`。前端据此显示或撤下顶部的授权提示条（机制见 [11-Agent模块设计 §4.3](./11-Agent模块设计.md)）。**到期也要发这个事件**，不能只靠前端本地倒计时——前端算出的到期时刻与服务端的判定可能有偏差，让服务端主动通知才能保证提示条消失的时机与授权真正失效的时机一致。
+`atomic_grant_changed` 的 `payload` 为 `{"granted": bool, "expires_at": float | null, "grant_id": str | null}`。前端据此刷新授权详情和提示条（机制见 [11-Agent模块设计 §4.3](./11-Agent模块设计.md)）。`incident_*` 事件至少带 `session_id`；前端刷新会话列表和该会话的消息历史。
 
 ### 7.4 客户端发送消息
 

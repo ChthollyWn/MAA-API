@@ -66,6 +66,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from importlib.metadata import version as distribution_version
+from types import SimpleNamespace
 from typing import Any, Protocol
 
 from fastapi import FastAPI, Request
@@ -449,11 +450,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     update_http_client = None
     update_scheduler = None
     schedule_service = None
+    resource_service = None
     confirmation_service = None
+    agent_runtime = None
+    incident_service = None
     device_start_task: asyncio.Task[Any] | None = None
     device_start_generation: int | None = None
     lifecycle_tasks: set[asyncio.Task[Any]] = set()
     shutdown_started = False
+
+    def track_lifecycle_task(coroutine: Any, *, name: str) -> asyncio.Task[Any]:
+        task = asyncio.create_task(coroutine, name=name)
+        lifecycle_tasks.add(task)
+
+        def forget(completed: asyncio.Task[Any]) -> None:
+            lifecycle_tasks.discard(completed)
+            if not completed.cancelled():
+                error = completed.exception()
+                if error is not None:
+                    logger.warning(
+                        "生命周期后台任务失败：%s：%s",
+                        completed.get_name(),
+                        type(error).__name__,
+                    )
+
+        task.add_done_callback(forget)
+        return task
     try:
         from maa_api.core.client import CoreClient
         from maa_api.core.enums import Message
@@ -462,6 +484,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.services.device_service import DeviceManager
         from maa_api.services.pipeline_runner import PipelineRunner
         from maa_api.services.queue_service import QueueService
+        from maa_api.services.resource_service import ResourceService
 
         current_settings = get_settings()
         system_name = platform.system()
@@ -496,9 +519,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         runtime: dict[str, Any] = {}
 
         def on_core_crash(record: dict[str, Any]) -> None:
-            runner = runtime.get("runner")
-            if runner is not None:
-                runner.notify_core_crash(record)
+            supervisor = runtime.get("supervisor")
+            generation = record.get("generation")
+            if not isinstance(generation, int):
+                generation = getattr(supervisor, "generation", None)
+            if generation is None:
+                return
+            crash_record = dict(record)
+            crash_record["generation"] = int(generation)
+
+            def dispatch_core_crash() -> None:
+                if shutdown_started:
+                    return
+                runner = runtime.get("runner")
+                if runner is not None:
+                    runner.notify_core_crash(crash_record)
+                    if (
+                        getattr(runner, "active_pipeline_id", None) is not None
+                        and getattr(runner, "active_pipeline_epoch", None)
+                        == int(generation)
+                    ):
+                        return
+                incidents = runtime.get("incidents")
+                if incidents is not None:
+                    track_lifecycle_task(
+                        incidents.core_crashed(int(generation), crash_record),
+                        name=f"agent-core-incident-{DEFAULT_CORE_ID}-{generation}",
+                    )
+
+            try:
+                # CoreSupervisor invokes this synchronous hook from monitor
+                # threads. Marshal all state/DB work to the app loop and track
+                # the task so lifespan shutdown can close it deterministically.
+                loop.call_soon_threadsafe(dispatch_core_crash)
+            except RuntimeError:
+                logger.debug("应用事件循环已关闭，忽略 MaaCore 崩溃事件")
 
         def publish_core_state(state: Any) -> None:
             core = runtime.get("supervisor")
@@ -581,6 +636,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         core_client.on("CALLBACK", on_core_callback)
 
         queue_service = QueueService(db_session.session_factory)
+        resource_service = ResourceService(
+            db_session.session_factory,
+            resource_root=REPO_ROOT / "resource",
+            reload_resources=lambda: core_client._send(
+                "LOAD_RESOURCE",
+                {
+                    "path": str(maa_path),
+                    "incremental_paths": boot_config["incremental_paths"],
+                },
+            ),
+        )
+        app.state.resource_service = resource_service
         runner_factory = getattr(app.state, "pipeline_runner_factory", PipelineRunner)
         pipeline_runner = runner_factory(
             core_registry,
@@ -588,6 +655,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             db_session.session_factory,
             queue_service=queue_service,
             device_manager=device_manager,
+            resource_service=resource_service,
             broadcast=lambda message_type, data: ws_manager.broadcast(
                 message_type, data
             ),
@@ -813,7 +881,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.agent.policy import PolicyEngine
         from maa_api.agent.tools import build_registry
         from maa_api.services.agent_ops_service import AgentOpsService
-        from maa_api.services.resource_service import ResourceService
 
         agent_ops_service = AgentOpsService(
             core_supervisor=core_supervisor,
@@ -827,19 +894,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 reason="reconnect",
             ),
         )
-        resource_service = ResourceService(
-            db_session.session_factory,
-            resource_root=REPO_ROOT / "resource",
-            reload_resources=lambda: core_client._send(
-                "LOAD_RESOURCE",
-                {
-                    "path": str(maa_path),
-                    "incremental_paths": boot_config["incremental_paths"],
-                },
-            ),
-        )
         app.state.agent_ops_service = agent_ops_service
-        app.state.resource_service = resource_service
         confirmation_factory = getattr(
             app.state, "confirmation_service_factory", ConfirmationService
         )
@@ -859,6 +914,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.confirmation_service = confirmation_service
         await confirmation_service.start()
 
+        from maa_api.agent.incidents import AgentIncidentService
+        from maa_api.agent.runtime import AgentRuntime
+
+        agent_runtime_factory = getattr(app.state, "agent_runtime_factory", None)
+        agent_runtime = (
+            agent_runtime_factory(confirmation_service)
+            if agent_runtime_factory is not None
+            else AgentRuntime(db_session.session_factory, confirmation_service)
+        )
+        app.state.agent_runtime = agent_runtime
+        incident_factory = getattr(app.state, "agent_incident_service_factory", None)
+        incident_options = {
+            "settings_provider": setting_service.refresh,
+            "pipeline_runner": pipeline_runner,
+            "broadcast": lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+            "request": SimpleNamespace(app=app),
+            "core_id": DEFAULT_CORE_ID,
+        }
+        incident_service = (
+            incident_factory(db_session.session_factory, agent_runtime, **incident_options)
+            if incident_factory is not None
+            else AgentIncidentService(
+                db_session.session_factory, agent_runtime, **incident_options
+            )
+        )
+        app.state.agent_incident_service = incident_service
+        runtime["incidents"] = incident_service
+        bind_incident_service = getattr(pipeline_runner, "bind_incident_service", None)
+        if callable(bind_incident_service):
+            bind_incident_service(incident_service)
+
         # A successful READY means the worker loaded the base and each present
         # incremental layer. Let UpdateService clear a deferred reload marker.
         async def confirm_resource_load() -> None:
@@ -871,6 +959,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         core_client.start_consumer()
         await pipeline_runner.start()
+        for recovered_pipeline_id in getattr(
+            pipeline_runner, "recovered_pipeline_ids", ()
+        ):
+            schedule_incident = getattr(pipeline_runner, "schedule_pipeline_incident", None)
+            if callable(schedule_incident):
+                schedule_incident(recovered_pipeline_id)
+            else:
+                track_lifecycle_task(
+                    incident_service.pipeline_failed(recovered_pipeline_id),
+                    name=f"agent-recovered-pipeline-incident-{recovered_pipeline_id}",
+                )
         try:
             await core_supervisor.start(wait_ready=False)
         except Exception:  # noqa: BLE001 - service stays available while core recovers
@@ -978,6 +1077,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "schedule_service",
             "update_scheduler",
             "confirmation_service",
+            "agent_runtime",
+            "agent_incident_service",
             "agent_ops_service",
             "resource_service",
         ):
@@ -1048,6 +1149,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "schedule_service",
             "update_scheduler",
             "confirmation_service",
+            "agent_runtime",
+            "agent_incident_service",
             "agent_ops_service",
             "resource_service",
         ):

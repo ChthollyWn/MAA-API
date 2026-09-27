@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import stat
 import tempfile
 import uuid
 from pathlib import Path
@@ -102,7 +103,8 @@ class ResourceService:
         reload_resources: Callable[[], Any] | None = None,
     ) -> None:
         self.session_factory = session_factory
-        self.resource_root = Path(resource_root).resolve()
+        self._resource_root_path = Path(os.path.abspath(resource_root))
+        self.resource_root = self._resource_root_path.resolve()
         self.reload_resources = reload_resources
         self._custom_task_lock = asyncio.Lock()
 
@@ -140,6 +142,201 @@ class ResourceService:
         self, *, page: int = 1, size: int = 20, q: str | None = None
     ) -> dict[str, Any]:
         return await self._list_assets(ResourceAssetKind.COPILOT, page=page, size=size, q=q)
+
+    async def resolve_copilot_path(self, asset_id: str) -> Path:
+        """Create and return a unique, private snapshot of one validated asset."""
+        valid_asset_id = isinstance(asset_id, str) and re.fullmatch(
+            r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})",
+            asset_id,
+        )
+        if not valid_asset_id:
+            raise AppError(
+                ErrorCode.RESOURCE_ASSET_NOT_FOUND,
+                "Copilot 作业不存在",
+                {"asset_id": asset_id},
+            )
+        async with self.session_factory() as session:
+            asset = await ResourceAssetRepository(session).get(asset_id)
+        if asset is None or str(asset.kind) != ResourceAssetKind.COPILOT.value:
+            raise AppError(
+                ErrorCode.RESOURCE_ASSET_NOT_FOUND,
+                "Copilot 作业不存在",
+                {"asset_id": asset_id},
+            )
+
+        relative_path = Path("agent-assets") / "copilot" / f"{asset_id}.json"
+        if (
+            asset.path is not None
+            and Path(asset.path).as_posix() != relative_path.as_posix()
+        ):
+            raise _copilot_asset_file_error(asset_id)
+        try:
+            root = self._checked_copilot_resource_root(asset_id)
+            if asset.content is not None:
+                content = dict(asset.content)
+            else:
+                if not asset.path:
+                    raise ValueError("Copilot asset has no content or source path")
+                source_path = self._checked_copilot_source_path(asset.path, asset_id, root)
+                content = self._read_copilot_source(source_path, asset_id)
+            if not isinstance(content, dict):
+                raise ValueError("Copilot content is not a JSON object")
+            self._validate_copilot(content)
+            if asset.checksum != _checksum(content):
+                raise ValueError("Copilot checksum mismatch")
+            return self._write_copilot_snapshot(content, asset_id, root)
+        except AppError:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise _copilot_asset_file_error(asset_id) from exc
+
+    async def release_copilot_path(self, path: Path) -> None:
+        """Remove a snapshot created by :meth:`resolve_copilot_path`.
+
+        The strict path shape prevents a caller from using this cleanup method
+        to remove an arbitrary resource file. Missing snapshots are already
+        released and are treated idempotently.
+        """
+        snapshot = Path(path)
+        try:
+            root = self._checked_copilot_resource_root(str(snapshot))
+            relative = snapshot.relative_to(root)
+            parts = relative.parts
+            if (
+                len(parts) != 5
+                or parts[:3] != ("agent-assets", "copilot", "runs")
+                or not re.fullmatch(r"[0-9a-f]{32}", parts[3])
+                or parts[4] != "operation.json"
+            ):
+                raise ValueError("Invalid Copilot snapshot path")
+            self._assert_no_symlink_components(snapshot, str(snapshot))
+            run_directory = snapshot.parent
+            if not run_directory.exists():
+                return
+            snapshot.unlink(missing_ok=True)
+            run_directory.rmdir()
+        except AppError:
+            raise
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise _copilot_snapshot_error(snapshot) from exc
+
+    def _checked_copilot_resource_root(self, asset_id: str) -> Path:
+        try:
+            self._assert_no_symlink_components(self._resource_root_path, asset_id)
+            root = self._resource_root_path.resolve(strict=True)
+            if root != self.resource_root or not root.is_dir():
+                raise ValueError("Copilot resource root is invalid")
+            return root
+        except AppError:
+            raise
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise _copilot_asset_file_error(asset_id) from exc
+
+    def _checked_copilot_source_path(
+        self, relative_path: str, asset_id: str, root: Path
+    ) -> Path:
+        try:
+            path = self._resource_root_path / relative_path
+            self._assert_no_symlink_components(path, asset_id)
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(root)
+            if resolved != path or not resolved.is_file():
+                raise ValueError("Copilot source path is not a regular contained file")
+            return path
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise _copilot_asset_file_error(asset_id) from exc
+
+    def _read_copilot_source(self, path: Path, asset_id: str) -> Any:
+        """Open the source without following a leaf symlink, then decode JSON."""
+        try:
+            self._assert_no_symlink_components(path, asset_id)
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(path, flags)
+            with os.fdopen(descriptor, "r", encoding="utf-8") as file:
+                return json.load(file)
+        except AppError:
+            raise
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise _copilot_asset_file_error(asset_id) from exc
+
+    def _write_copilot_snapshot(
+        self, content: Mapping[str, Any], asset_id: str, root: Path
+    ) -> Path:
+        """Write validated content to a new mode-0700 per-run directory."""
+        runs_directory = self._ensure_copilot_directories(
+            ("agent-assets", "copilot", "runs"), asset_id
+        )
+        for _attempt in range(3):
+            run_directory = runs_directory / uuid.uuid4().hex
+            try:
+                run_directory.mkdir(mode=0o700)
+            except FileExistsError:  # practically impossible UUID collision
+                continue
+            try:
+                self._assert_no_symlink_components(run_directory, asset_id)
+                if hasattr(os, "O_DIRECTORY") and hasattr(os, "fchmod"):
+                    directory_flags = os.O_RDONLY | os.O_DIRECTORY
+                    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+                    directory_descriptor = os.open(run_directory, directory_flags)
+                    try:
+                        os.fchmod(directory_descriptor, 0o700)
+                    finally:
+                        os.close(directory_descriptor)
+                else:  # pragma: no cover - Windows has no O_DIRECTORY/fchmod
+                    run_directory.chmod(0o700)
+                self._assert_no_symlink_components(run_directory, asset_id)
+                target = run_directory / "operation.json"
+                _atomic_write_json(target, content)
+                self._assert_no_symlink_components(target, asset_id)
+                resolved = target.resolve(strict=True)
+                resolved.relative_to(root)
+                if resolved != target or not resolved.is_file():
+                    raise ValueError("Copilot snapshot path is invalid")
+                return resolved
+            except Exception:
+                try:
+                    if not run_directory.is_symlink():
+                        (run_directory / "operation.json").unlink(missing_ok=True)
+                        run_directory.rmdir()
+                except OSError:
+                    logger.exception("清理未完成的 Copilot snapshot 失败：asset_id=%s", asset_id)
+                raise
+        raise _copilot_asset_file_error(asset_id)
+
+    def _ensure_copilot_directories(
+        self, relative_parts: tuple[str, ...], asset_id: str
+    ) -> Path:
+        root = self._checked_copilot_resource_root(asset_id)
+        current = self._resource_root_path
+        for part in relative_parts:
+            current = current / part
+            try:
+                current.mkdir(mode=0o755)
+            except FileExistsError:
+                pass
+            self._assert_no_symlink_components(current, asset_id)
+            if not current.is_dir():
+                raise _copilot_asset_file_error(asset_id)
+        resolved = current.resolve(strict=True)
+        if resolved != current:
+            raise _copilot_asset_file_error(asset_id)
+        resolved.relative_to(root)
+        return current
+
+    def _assert_no_symlink_components(self, path: Path, asset_id: str) -> None:
+        absolute_path = Path(os.path.abspath(path))
+        current = Path(absolute_path.anchor)
+        try:
+            for component in absolute_path.parts[1:]:
+                current = current / component
+                try:
+                    mode = current.lstat().st_mode
+                except FileNotFoundError:
+                    return
+                if stat.S_ISLNK(mode):
+                    raise ValueError(f"Symlink path component: {current}")
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise _copilot_asset_file_error(asset_id) from exc
 
     async def set_infrast_plan(
         self,
@@ -668,6 +865,14 @@ def _invalid_json(code: ErrorCode, message: str) -> AppError:
 
 def _asset_conflict(name: str) -> AppError:
     return AppError(ErrorCode.RESOURCE_ASSET_CONFLICT, "已存在同名资源", {"name": name})
+
+
+def _copilot_asset_file_error(asset_id: str) -> AppError:
+    return AppError(
+        ErrorCode.RESOURCE_LOAD_FAILED,
+        "Copilot 作业文件缺失、损坏或路径无效",
+        {"asset_id": asset_id},
+    )
 
 
 def _asset_wire(

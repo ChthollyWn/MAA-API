@@ -59,6 +59,13 @@ class AgentSessionRepository(BaseRepository):
             AgentSession, session_id, populate_existing=True
         )
 
+    async def get_by_incident_key(self, incident_key: str) -> AgentSession | None:
+        """Find the durable conversation that already handled an incident key."""
+        result = await self.session.execute(
+            select(AgentSession).where(AgentSession.incident_key == incident_key)
+        )
+        return result.scalar_one_or_none()
+
     async def list_recent(self, limit: int = 20) -> list[AgentSession]:
         """侧栏会话列表：``last_message_at DESC``，从未发过消息的（NULL）排最后。
 
@@ -224,6 +231,15 @@ class AgentMessageRepository(BaseRepository):
         stored = await self.session.merge(message)
         await self.session.flush()
         return stored
+
+    async def next_seq(self, session_id: str) -> int:
+        """Return the next per-session sequence number for a locked Agent turn."""
+        result = await self.session.execute(
+            select(func.coalesce(func.max(AgentMessage.seq), -1)).where(
+                AgentMessage.session_id == session_id
+            )
+        )
+        return int(result.scalar_one()) + 1
 
     async def list_by_session(self, session_id: str) -> list[AgentMessage]:
         """取一个会话的全部消息，**按 ``seq`` 升序**（上下文重建的输入）。

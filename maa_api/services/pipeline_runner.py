@@ -7,6 +7,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from pydantic import ValidationError
@@ -58,6 +59,7 @@ class _PipelineCancelled(Exception):
 @dataclass(slots=True)
 class _ActivePipeline:
     pipeline_id: str
+    core_epoch: int | None = None
     cancel_requested: bool = False
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     crash_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -65,6 +67,7 @@ class _ActivePipeline:
     stop_complete: asyncio.Event = field(default_factory=asyncio.Event)
     attempt: _Attempt | None = None
     task: Task | None = None
+    copilot_snapshots: list[Path] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.stop_complete.set()
@@ -87,6 +90,7 @@ class PipelineRunner:
         core_id: str = DEFAULT_CORE_ID,
         queue_service: Any = None,
         device_manager: Any = None,
+        resource_service: Any = None,
         broadcast: Callable[[str, dict[str, Any]], None] | None = None,
         task_timeouts: dict[str, float] | None = None,
     ) -> None:
@@ -96,6 +100,7 @@ class PipelineRunner:
         self.core_id = core_id
         self.queue_service = queue_service
         self.device_manager = device_manager
+        self.resource_service = resource_service
         self._broadcast = broadcast or (lambda _kind, _data: None)
         self.task_timeouts = dict(TASK_TIMEOUT_SECONDS)
         if task_timeouts:
@@ -106,8 +111,20 @@ class PipelineRunner:
         self._worker: asyncio.Task[None] | None = None
         self._running = False
         self._active: _ActivePipeline | None = None
+        self._claimed_pipeline: Pipeline | None = None
+        self._claimed_pipeline_id: str | None = None
+        self._claimed_pipeline_epoch: int | None = None
+        self._claimed_core_crashes: dict[str, dict[str, Any]] = {}
+        self._claiming_core_epoch: int | None = None
+        self._core_crashes_during_claim: dict[int, dict[str, Any]] = {}
+        self._claim_failure_pipeline_by_generation: dict[int, str] = {}
+        self._claim_failure_core_records: dict[int, dict[str, Any]] = {}
+        self._core_crash_pipeline_ids: dict[int, set[str]] = {}
         self._cancel_requested_ids: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self.incident_service: Any = None
+        self._recovered_pipeline_ids: list[str] = []
+        self._incident_tasks: set[asyncio.Task[Any]] = set()
 
         client = self.registry.get(self.core_id)
         client.on("CALLBACK", self._on_callback)
@@ -116,6 +133,74 @@ class PipelineRunner:
     @property
     def running(self) -> bool:
         return self._running
+
+    @property
+    def active_pipeline_id(self) -> str | None:
+        """Current or just-claimed pipeline identity for crash coalescing."""
+        if self._active is not None:
+            return self._active.pipeline_id
+        return self._claimed_pipeline_id
+
+    @property
+    def active_pipeline_epoch(self) -> int | None:
+        """Core generation assigned to the active or just-claimed pipeline."""
+        if self._active is not None:
+            return self._active.core_epoch
+        return self._claimed_pipeline_epoch
+
+    def core_crashed_pipeline_ids(self, generation: int) -> tuple[str, ...]:
+        """Return current-boot pipelines known to have crashed in this generation."""
+        return tuple(sorted(self._core_crash_pipeline_ids.get(int(generation), ())))
+
+    def is_claiming_core_generation(self, generation: int) -> bool:
+        """Whether a queue claim is in flight for this core generation."""
+        return self._claiming_core_epoch == int(generation)
+
+    def claim_failure_pipeline_id(self, generation: int) -> str | None:
+        """Return the pipeline key reserved for an unreleased failed claim."""
+        return self._claim_failure_pipeline_by_generation.get(int(generation))
+
+    @property
+    def recovered_pipeline_ids(self) -> tuple[str, ...]:
+        """Interrupted failures recovered by the most recent start call."""
+        return tuple(self._recovered_pipeline_ids)
+
+    def bind_incident_service(self, service: Any) -> None:
+        """Bind failure diagnosis after confirmation/runtime services are ready."""
+        self.incident_service = service
+
+    def schedule_pipeline_incident(self, pipeline_id: str) -> None:
+        """Queue a committed terminal failure diagnosis without blocking the runner."""
+        service = self.incident_service
+        if service is None:
+            return
+        task = asyncio.create_task(
+            service.pipeline_failed(pipeline_id),
+            name=f"agent-pipeline-incident-{pipeline_id}",
+        )
+        self._incident_tasks.add(task)
+        task.add_done_callback(self._forget_incident_task)
+
+    def _schedule_core_incident(
+        self, generation: int, record: dict[str, Any]
+    ) -> None:
+        service = self.incident_service
+        if service is None:
+            return
+        task = asyncio.create_task(
+            service.core_crashed(generation, record),
+            name=f"agent-core-incident-{self.core_id}-{generation}",
+        )
+        self._incident_tasks.add(task)
+        task.add_done_callback(self._forget_incident_task)
+
+    def _forget_incident_task(self, task: asyncio.Task[Any]) -> None:
+        self._incident_tasks.discard(task)
+        if not task.cancelled():
+            try:
+                task.exception()
+            except Exception:  # noqa: BLE001
+                logger.exception("流水线自动诊断后台任务失败")
 
     def wake(self) -> None:
         """Wake the consumer after a queue or core state change."""
@@ -170,6 +255,11 @@ class PipelineRunner:
                     await worker
                 except asyncio.CancelledError:
                     pass
+        pending_incidents = tuple(self._incident_tasks)
+        for task in pending_incidents:
+            task.cancel()
+        if pending_incidents:
+            await asyncio.gather(*pending_incidents, return_exceptions=True)
 
     def log_context(self, msg: Any, details: dict[str, Any]) -> tuple[str, str] | None:
         """Return pipeline/task ids for task callback logs while a task is active."""
@@ -456,6 +546,7 @@ class PipelineRunner:
                 await session.commit()
         for pipeline_id in recovered:
             await self.publish_pipeline(pipeline_id)
+        self._recovered_pipeline_ids = recovered
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -497,36 +588,174 @@ class PipelineRunner:
                 return None, []
             if self.queue_service is not None and self.queue_service.paused:
                 return None, []
-            async with self._session_factory() as session:
-                repo = PipelineRepository(session)
-                pipeline = await repo.claim_next(
-                    self.core_id,
-                    core_epoch=getattr(self.supervisor, "generation", None),
+            generation = getattr(self.supervisor, "generation", None)
+            self._claiming_core_epoch = (
+                int(generation) if generation is not None else None
+            )
+            if generation is not None:
+                self._claim_failure_pipeline_by_generation.pop(
+                    int(generation), None
                 )
-                if pipeline is None:
-                    return None, []
-                tasks = await TaskRepository(session).list_by_pipeline(pipeline.id)
-                await session.commit()
-                return pipeline, tasks
+                self._claim_failure_core_records.pop(int(generation), None)
+            pipeline: Pipeline | None = None
+            pipeline_id: str | None = None
+            claimed_epoch: int | None = None
+            claim_completed = False
+            release_succeeded = True
+            tasks: list[Task] = []
+            try:
+                async with self._session_factory() as session:
+                    repo = PipelineRepository(session)
+                    pipeline = await repo.claim_next(
+                        self.core_id,
+                        core_epoch=generation,
+                    )
+                    if pipeline is None:
+                        self._claimed_pipeline = None
+                        self._claimed_pipeline_id = None
+                        self._claimed_pipeline_epoch = None
+                    else:
+                        # Publish the claim before the next await. Core callbacks
+                        # arriving during task loading or COMMIT must coalesce here.
+                        self._claimed_pipeline = pipeline
+                        pipeline_id = pipeline.id
+                        raw_claimed_epoch = getattr(pipeline, "core_epoch", None)
+                        claimed_epoch = (
+                            int(raw_claimed_epoch)
+                            if raw_claimed_epoch is not None
+                            else None
+                        )
+                        self._claimed_pipeline_id = pipeline_id
+                        self._claimed_pipeline_epoch = claimed_epoch
+                        if claimed_epoch is not None:
+                            staged_crash = self._core_crashes_during_claim.pop(
+                                int(claimed_epoch), None
+                            )
+                            if staged_crash is not None:
+                                self._attach_claimed_core_crash(
+                                    pipeline_id, claimed_epoch, staged_crash
+                                )
+                        tasks = await TaskRepository(session).list_by_pipeline(
+                            pipeline_id
+                        )
+                        await session.commit()
+                # Count the claim as complete only after the session context
+                # exits successfully; __aexit__ can itself fail.
+                claim_completed = True
+                return (pipeline, tasks) if pipeline is not None else (None, [])
+            except BaseException:
+                if pipeline is not None and self._claimed_pipeline is pipeline:
+                    self._claimed_pipeline = None
+                    self._claimed_pipeline_id = None
+                    self._claimed_pipeline_epoch = None
+                if pipeline_id is not None:
+                    pending_crash = self._claimed_core_crashes.pop(
+                        pipeline_id, None
+                    )
+                    if pending_crash is not None:
+                        raw_generation = pending_crash.get(
+                            "generation", generation or claimed_epoch
+                        )
+                        try:
+                            pending_generation = int(raw_generation)
+                        except (TypeError, ValueError):
+                            pending_generation = None
+                        if pending_generation is not None:
+                            self._core_crashes_during_claim[
+                                pending_generation
+                            ] = pending_crash
+                    release_succeeded = False
+                    for cleanup_attempt in range(2):
+                        try:
+                            async with self._session_factory() as cleanup_session:
+                                await PipelineRepository(
+                                    cleanup_session
+                                ).release_failed_claim(
+                                    pipeline_id, core_epoch=claimed_epoch
+                                )
+                                await cleanup_session.commit()
+                            release_succeeded = True
+                            break
+                        except Exception:  # noqa: BLE001 - startup recovery remains the final fallback
+                            logger.exception(
+                                "claim 失败后释放流水线失败：pipeline_id=%s attempt=%s",
+                                pipeline_id,
+                                cleanup_attempt + 1,
+                            )
+                    if not release_succeeded:
+                        if generation is not None:
+                            self._claim_failure_pipeline_by_generation[
+                                int(generation)
+                            ] = pipeline_id
+                        try:
+                            await self._record_failed_claim_error(pipeline_id)
+                        except Exception:  # noqa: BLE001 - leave startup recovery as final fallback
+                            logger.exception(
+                                "claim 失败后无法终结流水线：pipeline_id=%s",
+                                pipeline_id,
+                            )
+                raise
+            finally:
+                try:
+                    if generation is not None and (
+                        not claim_completed or pipeline is None
+                    ):
+                        while True:
+                            staged_crash = self._core_crashes_during_claim.pop(
+                                int(generation), None
+                            )
+                            if staged_crash is None:
+                                break
+                            raw_generation = staged_crash.get(
+                                "generation", generation
+                            )
+                            try:
+                                crash_generation = int(raw_generation)
+                            except (TypeError, ValueError):
+                                crash_generation = int(generation)
+                            if pipeline_id is None or release_succeeded:
+                                self._schedule_core_incident(
+                                    crash_generation, staged_crash
+                                )
+                            else:
+                                self._claim_failure_core_records[
+                                    crash_generation
+                                ] = staged_crash
+                    if pipeline_id is not None and not release_succeeded:
+                        self._schedule_failed_claim_pipeline_incident(
+                            pipeline_id,
+                            int(generation) if generation is not None else None,
+                        )
+                finally:
+                    self._claiming_core_epoch = None
 
     async def _execute_pipeline(
         self, pipeline: Pipeline, tasks: list[Task]
     ) -> None:
-        active = _ActivePipeline(pipeline_id=pipeline.id)
+        pending_crash = self._claimed_core_crashes.pop(pipeline.id, None)
+        active = _ActivePipeline(
+            pipeline_id=pipeline.id,
+            core_epoch=pipeline.core_epoch,
+            core_crashed=pending_crash is not None,
+        )
+        if pending_crash is not None:
+            active.crash_event.set()
         self._active = active
         log_context = current_pipeline_id.set(pipeline.id)
         had_failures = False
         last_task_error: AppError | None = None
         fatal_error: AppError | None = None
-        cancelled = (
+        cancelled = not active.core_crashed and (
             not self._running or pipeline.id in self._cancel_requested_ids
         )
         self._cancel_requested_ids.discard(pipeline.id)
         try:
             if cancelled:
                 await self._cancel_pipeline_rows(pipeline.id)
+                if active.core_crashed:
+                    await self._record_core_crash_terminal(pipeline.id)
                 return
-            if self.device_manager is not None:
+            if self.device_manager is not None and not active.core_crashed:
                 try:
                     available = await self.device_manager.ensure_available(timeout=10.0)
                 except asyncio.CancelledError:
@@ -536,11 +765,34 @@ class PipelineRunner:
                         "流水线设备预检异常：pipeline_id=%s", pipeline.id
                     )
                     available = False
-                if not available:
+                if not available and not active.core_crashed:
                     handled = await self._handle_device_unavailable(pipeline)
                     if handled:
+                        if active.core_crashed:
+                            await self._record_core_crash_terminal(pipeline.id)
                         return
                     cancelled = True
+            if active.core_crashed:
+                crash_error = AppError(
+                    ErrorCode.CORE_CRASHED,
+                    "MaaCore 子进程在任务执行前中断",
+                    {"pipeline_id": pipeline.id},
+                )
+                if tasks:
+                    await self._set_task_status(
+                        tasks[0].id,
+                        TaskStatus.FAILED,
+                        error_code=crash_error.code,
+                        error_message=crash_error.message,
+                    )
+                await self._cancel_unstarted_tasks(pipeline.id, crash_error)
+                await self._finish_pipeline(
+                    pipeline.id,
+                    PipelineStatus.FAILED,
+                    error_code=crash_error.code,
+                    error_message=crash_error.message,
+                )
+                return
             for task in tasks:
                 if active.cancel_requested or pipeline.id in self._cancel_requested_ids:
                     cancelled = True
@@ -555,11 +807,26 @@ class PipelineRunner:
                         "MaaCore 子进程中断，流水线已停止",
                     )
                     break
+                if outcome == "failed":
+                    fatal_error = error or AppError(
+                        ErrorCode.INTERNAL_ERROR,
+                        "任务执行失败，流水线已停止",
+                    )
+                    break
                 if outcome == "skipped":
                     had_failures = True
                     last_task_error = error
 
-            if cancelled or active.cancel_requested:
+            if active.core_crashed:
+                # A recorded core crash owns the terminal result even if a
+                # concurrent cancellation request arrived in the same window.
+                fatal_error = AppError(
+                    ErrorCode.CORE_CRASHED,
+                    "MaaCore 子进程中断，流水线已停止",
+                    {"pipeline_id": pipeline.id},
+                )
+                cancelled = False
+            if cancelled or (active.cancel_requested and not active.core_crashed):
                 await self._cancel_pipeline_rows(pipeline.id)
             elif fatal_error is not None:
                 await self._cancel_unstarted_tasks(pipeline.id, fatal_error)
@@ -595,7 +862,28 @@ class PipelineRunner:
                 error_message=str(exc),
             )
         finally:
+            if self.resource_service is not None:
+                for snapshot_path in active.copilot_snapshots:
+                    try:
+                        await self.resource_service.release_copilot_path(snapshot_path)
+                    except Exception:  # noqa: BLE001 - cleanup must not rewrite pipeline result
+                        logger.exception(
+                            "清理 Copilot snapshot 失败：pipeline_id=%s path=%s",
+                            pipeline.id,
+                            snapshot_path,
+                        )
+            active.copilot_snapshots.clear()
+            if active.core_crashed:
+                await self._record_core_crash_terminal(pipeline.id)
             self._active = None
+            if (
+                self._claimed_pipeline is not None
+                and self._claimed_pipeline.id == pipeline.id
+            ):
+                self._claimed_pipeline = None
+                self._claimed_pipeline_id = None
+                self._claimed_pipeline_epoch = None
+            self._claimed_core_crashes.pop(pipeline.id, None)
             self._cancel_requested_ids.discard(pipeline.id)
             current_pipeline_id.reset(log_context)
             await self.publish_pipeline(pipeline.id)
@@ -629,19 +917,85 @@ class PipelineRunner:
                 )
                 return "crashed", error
             await self._set_task_status(task.id, TaskStatus.RUNNING)
+            core_params = dict(task.params or {})
+            if task.type_name == "Copilot":
+                try:
+                    asset_id = core_params.get("asset_id")
+                    if not isinstance(asset_id, str) or not asset_id:
+                        raise AppError(
+                            ErrorCode.RESOURCE_ASSET_NOT_FOUND,
+                            "Copilot 作业不存在",
+                            {"task_id": task.id},
+                        )
+                    if self.resource_service is None:
+                        raise AppError(
+                            ErrorCode.SERVICE_UNAVAILABLE,
+                            "Copilot 资源解析服务尚未装配",
+                            {"task_id": task.id},
+                        )
+                    filename = await self.resource_service.resolve_copilot_path(asset_id)
+                    active.copilot_snapshots.append(filename)
+                except AppError as exc:
+                    await self._set_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=exc.code,
+                        error_message=exc.message,
+                    )
+                    return "failed", exc
+                except Exception as exc:  # noqa: BLE001 - fail closed before append
+                    error = AppError(
+                        ErrorCode.RESOURCE_LOAD_FAILED,
+                        "Copilot 作业文件解析失败",
+                        {"task_id": task.id},
+                    )
+                    logger.warning("Copilot 作业文件解析失败：%s：%s", task.id, exc)
+                    await self._set_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=error.code,
+                        error_message=error.message,
+                    )
+                    return "failed", error
+                core_params = {
+                    "filename": str(filename),
+                    "formation": core_params.get("formation", False),
+                }
             attempt: _Attempt | None = None
             try:
-                maa_task_id = int(
-                    await self._await_core_command(
-                        active, client.append_task(task.type_name, task.params)
+                try:
+                    append_result = await self._await_core_command(
+                        active, client.append_task(task.type_name, core_params)
                     )
-                )
+                except AppError as exc:
+                    if (
+                        task.type_name == "Copilot"
+                        and exc.code is ErrorCode.CORE_COMMAND_FAILED
+                    ):
+                        await self._set_task_status(
+                            task.id,
+                            TaskStatus.FAILED,
+                            error_code=exc.code,
+                            error_message=exc.message,
+                        )
+                        return "failed", exc
+                    raise
+                maa_task_id = int(append_result)
                 if maa_task_id <= 0:
-                    raise AppError(
+                    rejection = AppError(
                         ErrorCode.CORE_COMMAND_FAILED,
                         f"MaaCore 未接受任务 {task.type_name}",
                         {"cmd": "APPEND_TASK", "task_id": task.id},
                     )
+                    if task.type_name == "Copilot":
+                        await self._set_task_status(
+                            task.id,
+                            TaskStatus.FAILED,
+                            error_code=rejection.code,
+                            error_message=rejection.message,
+                        )
+                        return "failed", rejection
+                    raise rejection
                 await self._bind_maa_task_id(task.id, maa_task_id)
                 future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
                 attempt = _Attempt(task.id, task.type_name, maa_task_id, future)
@@ -704,6 +1058,17 @@ class PipelineRunner:
                 return "cancelled", None
             except AppError as exc:
                 error = exc
+                if (
+                    task.type_name == "Copilot"
+                    and (exc.details or {}).get("cmd") == "APPEND_TASK"
+                ):
+                    await self._set_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=exc.code,
+                        error_message=exc.message,
+                    )
+                    return "failed", exc
                 if exc.code is ErrorCode.CORE_COMMAND_TIMEOUT:
                     # A timed-out IPC command may still have reached MaaCore.
                     # Stop the chain before any internal retry to avoid running
@@ -856,6 +1221,7 @@ class PipelineRunner:
                 return True
 
         changed_task_ids: list[str] = []
+        pipeline_failed = False
         async with self.operation_lock:
             if self._active is not None and self._active.cancel_requested:
                 return False
@@ -875,13 +1241,15 @@ class PipelineRunner:
                             error_message=error.message,
                         )
                         changed_task_ids.append(task.id)
-                await pipeline_repo.mark_terminal(
+                pipeline_failed = await pipeline_repo.mark_terminal(
                     pipeline.id,
                     PipelineStatus.FAILED,
                     error_code=ErrorCode.DEVICE_NOT_CONNECTED,
                     error_message=error.message,
                 )
                 await session.commit()
+        if pipeline_failed:
+            self.schedule_pipeline_incident(pipeline.id)
         for task_id in changed_task_ids:
             await self._publish_task(task_id)
         snapshot = (
@@ -1025,16 +1393,88 @@ class PipelineRunner:
     def _on_fatal(self, payload: dict[str, Any]) -> None:
         self._apply_core_crash(payload if isinstance(payload, dict) else None)
 
+    def _attach_claimed_core_crash(
+        self, pipeline_id: str, generation: int, record: dict[str, Any]
+    ) -> None:
+        self._core_crash_pipeline_ids.setdefault(generation, set()).add(pipeline_id)
+        self._claimed_core_crashes[pipeline_id] = dict(record)
+
     def _apply_core_crash(self, record: dict[str, Any] | None) -> None:
         active = self._active
+        generation = record.get("generation") if isinstance(record, dict) else None
+        if not isinstance(generation, int):
+            generation = None
         if active is not None:
+            if (
+                generation is not None
+                and active.core_epoch is not None
+                and generation != active.core_epoch
+            ):
+                if generation is not None:
+                    self._schedule_claim_failure_crash(int(generation), record)
+                return
+            crashed_generation = (
+                generation if generation is not None else active.core_epoch
+            )
+            if crashed_generation is not None:
+                self._core_crash_pipeline_ids.setdefault(
+                    int(crashed_generation), set()
+                ).add(active.pipeline_id)
             active.core_crashed = True
             active.crash_event.set()
             if active.attempt is not None:
                 future = active.attempt.future
                 if not future.done():
                     future.set_result("crashed")
+        else:
+            claimed_id = self._claimed_pipeline_id
+            claimed_epoch = self._claimed_pipeline_epoch
+            if claimed_id is not None:
+                if (
+                    generation is not None
+                    and claimed_epoch is not None
+                    and generation != claimed_epoch
+                ):
+                    return
+                crashed_generation = (
+                    generation if generation is not None else claimed_epoch
+                )
+                if crashed_generation is not None:
+                    self._attach_claimed_core_crash(
+                        claimed_id,
+                        int(crashed_generation),
+                        dict(record or {}, generation=int(crashed_generation)),
+                    )
+            else:
+                claim_generation = self._claiming_core_epoch
+                if claim_generation is not None and (
+                    generation is None or generation == claim_generation
+                ):
+                    self._core_crashes_during_claim[claim_generation] = dict(
+                        record or {}, generation=claim_generation
+                    )
+                elif generation is not None:
+                    self._schedule_claim_failure_crash(generation, record)
         self.wake()
+
+    def _schedule_claim_failure_crash(
+        self, generation: int, record: dict[str, Any] | None
+    ) -> bool:
+        pipeline_id = self._claim_failure_pipeline_by_generation.get(generation)
+        if pipeline_id is None:
+            return False
+        crash_record = dict(record or {}, generation=generation)
+        self._claim_failure_core_records[generation] = crash_record
+        task = asyncio.create_task(
+            self._record_failed_claim_core_crash(
+                pipeline_id,
+                generation=generation,
+            ),
+            name=f"agent-claim-core-crash-{pipeline_id}",
+        )
+        self._incident_tasks.add(task)
+        task.add_done_callback(self._forget_incident_task)
+        return True
 
     async def _set_task_status(
         self,
@@ -1117,15 +1557,277 @@ class PipelineRunner:
         error_code: ErrorCode | str | None = None,
         error_message: str | None = None,
     ) -> None:
+        changed = False
+        active = self._active
+        if (
+            active is not None
+            and active.pipeline_id == pipeline_id
+            and active.core_crashed
+        ):
+            status = PipelineStatus.FAILED
+            error_code = ErrorCode.CORE_CRASHED
+            error_message = "MaaCore 子进程中断，流水线已停止"
         async with self._session_factory() as session:
             repo = PipelineRepository(session)
-            await repo.mark_terminal(
+            changed = await repo.mark_terminal(
                 pipeline_id,
                 status,
                 error_code=error_code,
                 error_message=error_message,
             )
             await session.commit()
+        active = self._active
+        if (
+            active is not None
+            and active.pipeline_id == pipeline_id
+            and active.core_crashed
+            and (
+                PipelineStatus(status) is not PipelineStatus.FAILED
+                or str(error_code) != ErrorCode.CORE_CRASHED.value
+            )
+        ):
+            await self._record_core_crash_terminal(pipeline_id)
+            return
+        if changed and PipelineStatus(status) is PipelineStatus.FAILED:
+            if str(error_code) == ErrorCode.CORE_CRASHED.value:
+                active = self._active
+                current_id = (
+                    active.pipeline_id
+                    if active is not None
+                    else self._claimed_pipeline_id
+                )
+                if current_id == pipeline_id:
+                    core_epoch = (
+                        active.core_epoch
+                        if active is not None
+                        else self._claimed_pipeline_epoch
+                    )
+                    if core_epoch is not None:
+                        self._core_crash_pipeline_ids.setdefault(
+                            int(core_epoch), set()
+                        ).add(pipeline_id)
+            self.schedule_pipeline_incident(pipeline_id)
+
+    async def _record_core_crash_terminal(self, pipeline_id: str) -> None:
+        """Persist CORE_CRASHED after an in-flight terminal write raced FATAL."""
+        active = self._active
+        if active is None or active.pipeline_id != pipeline_id or not active.core_crashed:
+            return
+        error_message = "MaaCore 子进程中断，流水线已停止"
+        changed_task_ids: set[str] = set()
+        persisted = False
+        last_error: Exception | None = None
+        for _attempt in range(2):
+            try:
+                async with self._session_factory() as session:
+                    pipeline_repo = PipelineRepository(session)
+                    task_repo = TaskRepository(session)
+                    await pipeline_repo.mark_core_crashed(
+                        pipeline_id, error_message=error_message
+                    )
+                    tasks = await task_repo.list_by_pipeline(pipeline_id)
+                    active_task_id = active.task.id if active.task is not None else None
+                    candidate = next(
+                        (
+                            task
+                            for task in tasks
+                            if task.id == active_task_id
+                            and TaskStatus(task.status) is not TaskStatus.COMPLETED
+                        ),
+                        None,
+                    )
+                    if candidate is None:
+                        candidate = next(
+                            (
+                                task
+                                for task in tasks
+                                if TaskStatus(task.status) is not TaskStatus.COMPLETED
+                            ),
+                            None,
+                        )
+                    for task in tasks:
+                        current_status = TaskStatus(task.status)
+                        if current_status is TaskStatus.COMPLETED:
+                            continue
+                        if candidate is not None and task.id == candidate.id:
+                            await task_repo.update_status(
+                                task.id,
+                                TaskStatus.FAILED,
+                                error_code=ErrorCode.CORE_CRASHED,
+                                error_message=error_message,
+                            )
+                            changed_task_ids.add(task.id)
+                        elif current_status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                            await task_repo.update_status(
+                                task.id,
+                                TaskStatus.CANCELLED,
+                                error_code=ErrorCode.CORE_CRASHED,
+                                error_message=error_message,
+                            )
+                            changed_task_ids.add(task.id)
+                    await session.commit()
+                persisted = True
+                break
+            except Exception as exc:  # noqa: BLE001 - retry context-exit/commit ambiguity once
+                last_error = exc
+                logger.warning(
+                    "写入 core crash 流水线终态失败，将重试：pipeline_id=%s attempt=%s error=%s",
+                    pipeline_id,
+                    _attempt + 1,
+                    type(exc).__name__,
+                )
+        if not persisted:
+            assert last_error is not None
+            raise last_error
+        if active.core_epoch is not None:
+            self._core_crash_pipeline_ids.setdefault(
+                int(active.core_epoch), set()
+            ).add(pipeline_id)
+        # The key is unique in storage, so schedule even when a prior commit
+        # already wrote CORE_CRASHED but failed before queuing its incident.
+        self.schedule_pipeline_incident(pipeline_id)
+        for task_id in sorted(changed_task_ids):
+            await self._publish_task(task_id)
+
+    async def _record_failed_claim_core_crash(
+        self,
+        pipeline_id: str,
+        *,
+        generation: int | None,
+        schedule_incident: bool = True,
+    ) -> None:
+        """Persist a core crash on a committed claim whose transaction then failed."""
+        error_message = "MaaCore 子进程在任务开始前中断，流水线已停止"
+        async with self._session_factory() as session:
+            pipeline_repo = PipelineRepository(session)
+            task_repo = TaskRepository(session)
+            await pipeline_repo.mark_core_crashed(
+                pipeline_id, error_message=error_message
+            )
+            tasks = await task_repo.list_by_pipeline(pipeline_id)
+            candidate = next(
+                (
+                    task
+                    for task in tasks
+                    if TaskStatus(task.status) is not TaskStatus.COMPLETED
+                ),
+                None,
+            )
+            for task in tasks:
+                current_status = TaskStatus(task.status)
+                if current_status is TaskStatus.COMPLETED:
+                    continue
+                if candidate is not None and task.id == candidate.id:
+                    await task_repo.update_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=ErrorCode.CORE_CRASHED,
+                        error_message=error_message,
+                    )
+                elif current_status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                    await task_repo.update_status(
+                        task.id,
+                        TaskStatus.CANCELLED,
+                        error_code=ErrorCode.CORE_CRASHED,
+                        error_message=error_message,
+                    )
+            await session.commit()
+        if generation is not None:
+            self._core_crash_pipeline_ids.setdefault(generation, set()).add(
+                pipeline_id
+            )
+            self._claim_failure_core_records.pop(generation, None)
+        if schedule_incident:
+            self.schedule_pipeline_incident(pipeline_id)
+
+    async def _record_failed_claim_error(self, pipeline_id: str) -> None:
+        """Fail a claim that cannot be released, so it cannot stick RUNNING."""
+        error_message = "流水线领取失败，服务未能开始执行"
+        async with self._session_factory() as session:
+            pipeline_repo = PipelineRepository(session)
+            task_repo = TaskRepository(session)
+            await pipeline_repo.mark_terminal(
+                pipeline_id,
+                PipelineStatus.FAILED,
+                error_code=ErrorCode.INTERNAL_ERROR,
+                error_message=error_message,
+            )
+            tasks = await task_repo.list_by_pipeline(pipeline_id)
+            candidate = next(
+                (
+                    task
+                    for task in tasks
+                    if TaskStatus(task.status) is not TaskStatus.COMPLETED
+                ),
+                None,
+            )
+            for task in tasks:
+                current_status = TaskStatus(task.status)
+                if current_status is TaskStatus.COMPLETED:
+                    continue
+                if candidate is not None and task.id == candidate.id:
+                    await task_repo.update_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=ErrorCode.INTERNAL_ERROR,
+                        error_message=error_message,
+                    )
+                elif current_status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                    await task_repo.update_status(
+                        task.id,
+                        TaskStatus.CANCELLED,
+                        error_code=ErrorCode.INTERNAL_ERROR,
+                        error_message=error_message,
+                    )
+            await session.commit()
+        # The finalizer gives a core monitor callback already queued with
+        # call_soon_threadsafe one event-loop turn to coalesce before snapshotting.
+
+    def _schedule_failed_claim_pipeline_incident(
+        self, pipeline_id: str, generation: int | None
+    ) -> None:
+        service = self.incident_service
+        if service is None:
+            return
+
+        async def finalize() -> None:
+            try:
+                await asyncio.sleep(0.05)
+                if generation is not None:
+                    record = self._claim_failure_core_records.pop(generation, None)
+                    if record is not None:
+                        # 这次写入没有重试路径，失败必须只影响「崩溃现场」的保真度，
+                        # 不能连带跳过下面的诊断会话创建 —— 否则一次 DB 抖动会让
+                        # 开着自动诊断的失败流水线完全没有诊断记录。
+                        try:
+                            await self._record_failed_claim_core_crash(
+                                pipeline_id,
+                                generation=generation,
+                                schedule_incident=False,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "记录 claim 失败期间的内核崩溃现场失败，仍继续创建诊断会话 pipeline_id=%s generation=%s",
+                                pipeline_id,
+                                generation,
+                            )
+                await service.pipeline_failed(pipeline_id)
+            except Exception:
+                logger.exception(
+                    "claim 失败流水线的诊断调度失败 pipeline_id=%s", pipeline_id
+                )
+            finally:
+                # Keep the generation-to-pipeline association until a new claim
+                # starts or the process exits. A delayed monitor-thread FATAL
+                # must still reuse this pipeline incident key after diagnosis.
+                if generation is not None:
+                    self._claim_failure_core_records.pop(generation, None)
+
+        task = asyncio.create_task(
+            finalize(), name=f"agent-claim-failure-incident-{pipeline_id}"
+        )
+        self._incident_tasks.add(task)
+        task.add_done_callback(self._forget_incident_task)
 
     async def _publish_task(self, task_id: str) -> None:
         async with self._session_factory() as session:

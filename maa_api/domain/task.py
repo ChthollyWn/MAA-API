@@ -1,4 +1,4 @@
-"""9 种任务类型的 pydantic v2 模型、判别联合、``x-*`` 参数元信息与 ``normalize``。
+"""MaaCore 任务与 Copilot 任务的 pydantic v2 模型、判别联合及参数元信息。
 
 权威来源与取舍
 --------------
@@ -51,6 +51,7 @@ __all__ = [
     "CLIENT_TYPES",
     "ChannelDefaults",
     "CloseDownInput",
+    "CopilotInput",
     "FightInput",
     "InfrastInput",
     "MaaField",
@@ -147,7 +148,7 @@ def _task_config(*examples: dict[str, Any]) -> ConfigDict:
 
 
 class TaskInputBase(BaseModel):
-    """9 种任务输入模型的公共基类。
+    """任务输入模型的公共基类。
 
     ``extra="forbid"`` 是这次重构最重要的一处收紧：参数写错（拼错、写错任务类型）
     时不再静默丢弃，而是立刻可见的 422 ``extra_forbidden``。``populate_by_name=True``
@@ -1241,8 +1242,44 @@ class ReclamationInput(TaskInputBase):
     )
 
 
-#: 9 个任务输入模型，顺序即 docs/05 §7.4 判别联合的定义顺序。
-_TASK_MODEL_TYPES: tuple[type[TaskInputBase], ...] = (
+class CopilotInput(BaseModel):
+    """执行已校验并上传的 Copilot 作业。"""
+
+    model_config = _task_config(
+        {"name": "Copilot", "asset_id": "asset-1", "formation": False}
+    )
+
+    name: Literal["Copilot"] = MaaField(
+        default="Copilot",
+        label="任务类型",
+        description="判别联合 discriminator，固定为 Copilot；由任务类型选择器决定，用户不需要填写",
+    )
+    asset_id: str = MaaField(
+        label="Copilot 作业",
+        min_length=1,
+        max_length=36,
+        description=(
+            "已上传并通过结构校验的 Copilot 作业 ID；执行时由服务端解析为资源文件路径。"
+            "不支持运行中设置"
+        ),
+    )
+    formation: bool = MaaField(
+        default=False,
+        label="重新编队",
+        description="执行作业前是否重新编队；默认关闭",
+    )
+
+    def to_core_params(self) -> dict[str, Any]:
+        """Keep the uploaded id in persisted input params; runner resolves it at append."""
+        return self.model_dump(
+            exclude={"name"},
+            exclude_none=True,
+            by_alias=True,
+        )
+
+
+#: MaaCore 内置任务与 Copilot 任务输入顺序，共用同一判别联合。
+_TASK_MODEL_TYPES: tuple[type[BaseModel], ...] = (
     StartUpInput,
     CloseDownInput,
     FightInput,
@@ -1252,6 +1289,7 @@ _TASK_MODEL_TYPES: tuple[type[TaskInputBase], ...] = (
     AwardInput,
     RoguelikeInput,
     ReclamationInput,
+    CopilotInput,
 )
 
 #: 判别联合：discriminator 沿用现有 ``name`` 字段，前端请求体结构基本不变。
@@ -1264,16 +1302,17 @@ TaskInput = Annotated[
     | MallInput
     | AwardInput
     | RoguelikeInput
-    | ReclamationInput,
+    | ReclamationInput
+    | CopilotInput,
     Field(discriminator="name"),
 ]
 
 #: ``name`` → 模型，供 schema 导出与按类型取模型使用（M3-08）。
-TASK_MODELS: dict[str, type[TaskInputBase]] = {
+TASK_MODELS: dict[str, type[BaseModel]] = {
     model.model_fields["name"].default: model for model in _TASK_MODEL_TYPES
 }
 
-#: ``name`` → 中文任务名，与 ``maa_api/model/core/task.py`` 各类的 ``task_name`` 一致。
+#: ``name`` → UI 展示标签；内置任务沿用 MaaCore 的中文任务名。
 TASK_LABELS: dict[str, str] = {
     "StartUp": "开始唤醒",
     "CloseDown": "关闭游戏",
@@ -1284,6 +1323,7 @@ TASK_LABELS: dict[str, str] = {
     "Award": "领取奖励",
     "Roguelike": "自动肉鸽",
     "Reclamation": "生息演算",
+    "Copilot": "Copilot 作业",
 }
 
 #: 标注「不支持运行中设置」的参数字段：编辑运行中的流水线时前端置灰（docs/09 §7.2）。
@@ -1297,6 +1337,7 @@ RUNTIME_IMMUTABLE: dict[str, list[str]] = {
     "Award": [],
     "Roguelike": [],
     "Reclamation": [],
+    "Copilot": ["asset_id"],
 }
 
 #: 消耗类参数清单（docs/13 §4 + docs/09 §7.2）。
@@ -1314,6 +1355,7 @@ RISK_FIELDS: dict[str, frozenset[str]] = {
     "Award": frozenset(),
     "Roguelike": frozenset({"investment_enabled"}),
     "Reclamation": frozenset(),
+    "Copilot": frozenset(),
 }
 
 

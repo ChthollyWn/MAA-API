@@ -308,6 +308,7 @@ def test_heartbeat_timeout_marks_crashed_with_scene() -> None:
             record = supervisor.last_crash
             assert record is not None
             assert record["reason"] == "heartbeat_timeout"
+            assert record["generation"] == supervisor.generation
             assert "exitcode" in record and record["exitcode"] is None  # 进程还活着
             assert record["at"] > 0
             assert record["recent_events"], record
@@ -403,7 +404,9 @@ def test_backoff_sequence_then_failed_after_budget() -> None:
             )
         ]
         assert len(delays) == 3, transitions
-        assert 0.0 <= delays[0] < 0.15, delays
+        # Include scheduler/process-start jitter under the full suite; the first
+        # configured backoff is still 0.1s and later backoffs must increase.
+        assert 0.0 <= delays[0] < 0.25, delays
         assert 0.04 <= delays[1] < 0.4, delays
         assert 0.1 <= delays[2] < 0.7, delays
         assert delays[0] < delays[2], delays

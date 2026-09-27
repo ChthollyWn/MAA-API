@@ -123,6 +123,11 @@ EXPECTED_INDEXES = {
         ("last_message_at",),
         False,
     ),
+    "uq_agent_session_incident_key": (
+        "agent_session",
+        ("incident_key",),
+        True,
+    ),
     "ix_update_record_target_created_at": (
         "update_record",
         ("target", "created_at"),

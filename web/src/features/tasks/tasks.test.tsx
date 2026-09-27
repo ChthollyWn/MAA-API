@@ -45,6 +45,12 @@ function installFetch(options: MockOptions = {}) {
 
     if (url.pathname === '/api/tasks/types') return jsonResponse(taskTypeEnvelope)
     if (url.pathname === '/api/resources/items') return jsonResponse([{ item_id: '30013', name: '固源岩', icon_url: null }])
+    if (url.pathname === '/api/resources/copilots') return jsonResponse({
+      items: [{ id: 'copilot-1', name: '主线 1-7', meta: { stage_name: '1-7', title: '剿灭行动' } }],
+      total: 1,
+      page: 1,
+      size: 200,
+    })
     if (url.pathname === '/api/tasks/validate') return jsonResponse(options.validateBody ?? { items: [], total: 0, page: 1, size: 0 }, options.validateStatus ?? 200)
     if (url.pathname === '/api/pipelines' && request.method === 'POST') {
       const status = options.submitStatuses?.[submitCount++] ?? 202
@@ -100,8 +106,9 @@ describe('tasks schema forms, queue and history', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders every property from the complete nine-type schema fixture', () => {
-    expect(taskTypeEnvelope.items).toHaveLength(9)
+  it('renders every property from the complete ten-type schema fixture', () => {
+    installFetch()
+    expect(taskTypeEnvelope.items).toHaveLength(10)
     for (const taskType of taskTypeEnvelope.items) {
       const { container } = renderTaskForm(taskType)
       const properties = (taskType.schema.properties ?? {}) as Record<string, JsonSchema>
@@ -111,6 +118,23 @@ describe('tasks schema forms, queue and history', () => {
       }
       cleanup()
     }
+  })
+
+  it('loads saved Copilot assets and stores only the selected asset id', async () => {
+    installFetch()
+    const onChange = vi.fn()
+    // 直接用与生产同源的 fixture 条目：Copilot 的 required / runtime_immutable /
+    // per-field 描述必须与 GET /api/tasks/types 一致，手写副本曾漏掉这些字段。
+    const copilotType = types.find((type) => type.name === 'Copilot')!
+    expect(copilotType.schema.required).toEqual(['asset_id'])
+    expect(copilotType.runtime_immutable).toEqual(['asset_id'])
+    renderTaskForm(copilotType, onChange)
+
+    const picker = await screen.findByLabelText('Copilot 作业')
+    expect(await screen.findByRole('option', { name: '主线 1-7 · 1-7' })).toBeInTheDocument()
+    fireEvent.change(picker, { target: { value: 'copilot-1' } })
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ asset_id: 'copilot-1' }))
+    expect(screen.getByLabelText('重新编队')).toBeInTheDocument()
   })
 
   it('filters Fight item catalog by Chinese name and stores the selected item ID', async () => {

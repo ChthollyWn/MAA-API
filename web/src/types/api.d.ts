@@ -47,6 +47,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/capabilities/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 检查 Agent 模型能力 */
+        post: operations["agent_check_capabilities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/sessions": {
         parameters: {
             query?: never;
@@ -110,7 +127,8 @@ export interface paths {
         /** 按序读取 Agent 会话消息 */
         get: operations["agent_list_session_messages"];
         put?: never;
-        post?: never;
+        /** 发送 Agent 消息并接收 SSE 事件 */
+        post: operations["agent_stream_session_message"];
         delete?: never;
         options?: never;
         head?: never;
@@ -656,6 +674,26 @@ export interface paths {
         patch: operations["queue_reprioritize_pipeline"];
         trace?: never;
     };
+    "/api/resources/copilots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出已保存的 Copilot 作业
+         * @description 返回已校验作业的元数据，不包含作业 JSON 内容；供流水线和 schedule 编辑器选择 asset_id。
+         */
+        get: operations["resources_list_copilot_assets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/resources/items": {
         parameters: {
             query?: never;
@@ -1001,11 +1039,11 @@ export interface paths {
         };
         /**
          * 获取任务类型 schema
-         * @description 返回全部 9 种任务类型的完整参数 schema，供前端动态生成表单、agent 了解可用参数。
+         * @description 返回全部任务类型的完整参数 schema，供前端动态生成表单、agent 了解可用参数。
          *
          *     - 只读端点，**无副作用**
          *     - `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字
-         *     - 清单固定 9 条，响应固定 `total=9, page=1, size=9`（不接受分页参数）
+         *     - 清单返回当前支持的全部任务类型，不接受分页参数
          *     - `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`
          */
         get: operations["tasks_list_types"];
@@ -1029,7 +1067,7 @@ export interface paths {
          * @description 按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封）。
          *
          *     - 只读端点，**无副作用**
-         *     - `type_name` 不在 9 种任务类型内时返回 400 `UNKNOWN_TASK_TYPE`（错误码表里它就是 400，不是 404）
+         *     - `type_name` 不在支持的任务类型内时返回 400 `UNKNOWN_TASK_TYPE`（错误码表里它就是 400，不是 404）
          */
         get: operations["tasks_get_type"];
         put?: never;
@@ -1401,6 +1439,70 @@ export interface components {
          * @enum {string}
          */
         ConfirmationStatus: "pending" | "approved" | "rejected" | "expired";
+        /**
+         * CopilotAssetOut
+         * @description Saved, validated Copilot metadata for queue editors.
+         */
+        CopilotAssetOut: {
+            /** Checksum */
+            checksum: string;
+            /** Created At */
+            created_at: string | null;
+            /** Description */
+            description: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Meta */
+            meta: {
+                [key: string]: unknown;
+            } | null;
+            /** Name */
+            name: string;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /** CopilotAssetPageOut */
+        CopilotAssetPageOut: {
+            /** Items */
+            items: components["schemas"]["CopilotAssetOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * CopilotInput
+         * @description 执行已校验并上传的 Copilot 作业。
+         * @example {
+         *       "asset_id": "asset-1",
+         *       "formation": false,
+         *       "name": "Copilot"
+         *     }
+         */
+        CopilotInput: {
+            /**
+             * Asset Id
+             * @description 已上传并通过结构校验的 Copilot 作业 ID；执行时由服务端解析为资源文件路径。不支持运行中设置
+             */
+            asset_id: string;
+            /**
+             * Formation
+             * @description 执行作业前是否重新编队；默认关闭
+             * @default false
+             */
+            formation: boolean;
+            /**
+             * @description 判别联合 discriminator，固定为 Copilot；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            name: "Copilot";
+        };
         /**
          * CoreHealth
          * @description 内核监督器的最小首页状态。
@@ -1931,7 +2033,7 @@ export interface components {
             /** Priority */
             priority?: number | null;
             /** Tasks */
-            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"])[];
+            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["CopilotInput"])[];
             /** Title */
             title?: string | null;
         };
@@ -2422,7 +2524,7 @@ export interface components {
              */
             skip_if_running: boolean;
             /** Template */
-            template: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"])[];
+            template: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["CopilotInput"])[];
             /**
              * Timezone
              * @default Asia/Shanghai
@@ -2433,6 +2535,11 @@ export interface components {
         SessionCreateRequest: {
             /** Title */
             title?: string | null;
+        };
+        /** SessionMessageRequest */
+        SessionMessageRequest: {
+            /** Content */
+            content: string;
         };
         /** SettingResetRequest */
         SettingResetRequest: {
@@ -2543,7 +2650,7 @@ export interface components {
          */
         TaskValidateRequest: {
             /** Tasks */
-            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"])[];
+            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["CopilotInput"])[];
         };
         /** ValidationError */
         ValidationError: {
@@ -2711,6 +2818,66 @@ export interface operations {
             };
         };
     };
+    agent_check_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     agent_list_sessions: {
         parameters: {
             query?: {
@@ -2796,7 +2963,7 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description 服务暂时不可用：LLM_NOT_CONFIGURED */
+            /** @description 服务暂时不可用：LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID */
             503: {
                 headers: {
                     /** @description 建议的重试等待秒数（整数） */
@@ -3086,6 +3253,115 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_stream_session_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：AGENT_SESSION_BUSY */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_BUSY",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };
@@ -6009,6 +6285,77 @@ export interface operations {
             };
         };
     };
+    resources_list_copilot_assets: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotAssetPageOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     resources_list_items: {
         parameters: {
             query?: never;
@@ -7006,6 +7353,24 @@ export interface operations {
                      *         "code": "SETTING_APPLY_FAILED",
                      *         "details": {},
                      *         "message": "服务端内部错误"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：LLM_ENCRYPTION_KEY_INVALID */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "LLM_ENCRYPTION_KEY_INVALID",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
                      *       }
                      *     }
                      */

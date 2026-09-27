@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from maa_api.api.deps import require_auth
 from maa_api.api.errors import error_responses
@@ -38,6 +38,27 @@ class ItemOut(BaseModel):
     item_id: str
     name: str
     icon_url: str | None
+
+
+class CopilotAssetOut(BaseModel):
+    """Saved, validated Copilot metadata for queue editors."""
+
+    id: str
+    kind: str
+    name: str
+    description: str | None
+    meta: dict[str, Any] | None
+    enabled: bool
+    checksum: str
+    created_at: str | None
+    updated_at: str | None
+
+
+class CopilotAssetPageOut(BaseModel):
+    items: list[CopilotAssetOut]
+    total: int
+    page: int = Field(ge=1)
+    size: int = Field(ge=1, le=200)
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +218,27 @@ async def list_items() -> list[ItemOut]:
         )
         for item in items
     ]
+
+
+@router.get(
+    "/copilots",
+    response_model=CopilotAssetPageOut,
+    summary="列出已保存的 Copilot 作业",
+    description=(
+        "返回已校验作业的元数据，不包含作业 JSON 内容；供流水线和 schedule 编辑器选择 asset_id。"
+    ),
+    responses=error_responses("SERVICE_UNAVAILABLE", "UNAUTHORIZED"),
+)
+async def list_copilot_assets(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+    q: str | None = Query(default=None, max_length=128),
+) -> dict[str, Any]:
+    service = getattr(request.app.state, "resource_service", None)
+    if service is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "资源服务尚未启动")
+    return await service.list_copilots(page=page, size=size, q=q)
 
 
 @router.get(

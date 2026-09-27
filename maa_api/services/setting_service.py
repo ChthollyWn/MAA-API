@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -10,6 +11,11 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.secrets import (
+    LLMEncryptionKeyInvalid,
+    decrypt_api_key,
+    encrypt_api_key,
+)
 from maa_api.db.repositories.setting import SettingRepository
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.settings_schema import (
@@ -23,6 +29,7 @@ from maa_api.settings import SETTING_KEYS, Settings, resolve_settings_with_sourc
 __all__ = ["SettingService"]
 
 _SCHEMA_BY_KEY = {entry["key"]: entry for entry in SETTINGS_SCHEMA}
+_LOGGER = logging.getLogger(__name__)
 
 
 class SettingService:
@@ -47,6 +54,8 @@ class SettingService:
         self._settings: Settings | None = None
         self._sources: dict[str, str] = {}
         self._db_overrides: dict[str, Any] = {}
+        # Tracks the persisted DB ciphertext; an env key can override it without repairing it.
+        self.llm_encryption_error: LLMEncryptionKeyInvalid | None = None
 
     def bind_device_manager(self, device_manager: Any) -> None:
         """Bind the lifespan-created device manager for hot-apply actions."""
@@ -54,12 +63,50 @@ class SettingService:
 
     async def refresh(self) -> Settings:
         """Resolve YAML + setting table + environment and replace the process cache."""
+        env = os.environ if self._env is None else self._env
+        encryption_key = env.get("MAA_LLM_ENCRYPTION_KEY")
+        self.llm_encryption_error = None
         async with self._session_factory() as session:
-            self._db_overrides = await SettingRepository(session).all()
+            repository = SettingRepository(session)
+            self._db_overrides = await repository.all()
+            stored_api_key = self._db_overrides.get("llm.api_key")
+            if stored_api_key not in (None, ""):
+                try:
+                    if not encryption_key:
+                        raise LLMEncryptionKeyInvalid(
+                            "LLM encryption key is missing or invalid"
+                        )
+                    api_key = decrypt_api_key(stored_api_key, encryption_key)
+                    if not stored_api_key.startswith("enc:v1:"):
+                        # Migrate legacy plaintext at the first refresh with a master key.
+                        await repository.set(
+                            "llm.api_key",
+                            encrypt_api_key(api_key, encryption_key),
+                            updated_by="system",
+                        )
+                        await session.commit()
+                    self._db_overrides["llm.api_key"] = api_key
+                except (LLMEncryptionKeyInvalid, TypeError) as exc:
+                    # Keep the unusable DB value above YAML, while an explicit env key
+                    # remains the highest-priority source.
+                    self._db_overrides["llm.api_key"] = ""
+                    # This status describes the stored ciphertext and remains even if
+                    # MAA_LLM_API_KEY supplies a usable request credential.
+                    self.llm_encryption_error = (
+                        exc
+                        if isinstance(exc, LLMEncryptionKeyInvalid)
+                        else LLMEncryptionKeyInvalid(
+                            "Stored LLM API key is invalid"
+                        )
+                    )
+                    _LOGGER.error(
+                        "Stored LLM API key is unreadable: %s",
+                        ErrorCode.LLM_ENCRYPTION_KEY_INVALID.value,
+                    )
         settings, sources = resolve_settings_with_sources(
             settings_module._read_yaml(self._settings_path),
             db_overrides=self._db_overrides,
-            env=os.environ if self._env is None else self._env,
+            env=env,
         )
         self._settings = settings
         self._sources = sources
@@ -126,9 +173,22 @@ class SettingService:
             changes[key] = self._validate(key, value)
 
         if changes:
+            encrypted_changes = dict(changes)
+            if "llm.api_key" in encrypted_changes:
+                env = os.environ if self._env is None else self._env
+                encryption_key = env.get("MAA_LLM_ENCRYPTION_KEY")
+                try:
+                    encrypted_changes["llm.api_key"] = encrypt_api_key(
+                        encrypted_changes["llm.api_key"], encryption_key or ""
+                    )
+                except LLMEncryptionKeyInvalid as exc:
+                    raise AppError(
+                        ErrorCode.LLM_ENCRYPTION_KEY_INVALID,
+                        "缺少或无效的 LLM 加密密钥",
+                    ) from exc
             async with self._session_factory() as session:
                 repository = SettingRepository(session)
-                for key, value in changes.items():
+                for key, value in encrypted_changes.items():
                     await repository.set(key, value, updated_by="manual")
                 await session.commit()
 
@@ -178,7 +238,8 @@ class SettingService:
         details: dict[str, Any] = {}
         if key is not None:
             details["key"] = key
-        if value is not None:
+        sensitive = key is not None and _SCHEMA_BY_KEY.get(key, {}).get("sensitive")
+        if value is not None and not sensitive:
             details["value"] = repr(value)
         return AppError(ErrorCode.SETTING_VALUE_INVALID, message, details or None)
 
@@ -192,6 +253,7 @@ class SettingService:
             "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
             "integer[]": lambda v: isinstance(v, list)
             and all(isinstance(n, int) and not isinstance(n, bool) for n in v),
+            "boolean": lambda v: isinstance(v, bool),
         }[kind](value)
         if not is_valid_type:
             raise self._invalid("设置项类型不正确", key=key, value=value)

@@ -80,7 +80,7 @@ def test_pipeline_group_registers_the_documented_status_and_control_tools() -> N
     )
 
 
-def test_list_task_types_exports_all_nine_real_task_schemas() -> None:
+def test_list_task_types_exports_core_and_copilot_task_schemas() -> None:
     registry = _register_pipeline()
 
     result = asyncio.run(
@@ -97,6 +97,7 @@ def test_list_task_types_exports_all_nine_real_task_schemas() -> None:
         "Award",
         "Roguelike",
         "Reclamation",
+        "Copilot",
     ]
     assert result["items"][2]["schema"]["properties"]["stage"]["anyOf"][0]["type"] == "string"
     assert "runtime_immutable" in result["items"][2]

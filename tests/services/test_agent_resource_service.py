@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import importlib.util
 import json
+from pathlib import Path
+import stat
 
 import pytest
 
 from maa_api.domain.errors import AppError
+from maa_api.domain.enums import ResourceAssetKind
+from maa_api.db.models import ResourceAsset
 
 
 def _service_type():
@@ -30,6 +35,15 @@ def _copilot():
             {"type": "Deploy", "name": "阿米娅", "location": [3, 4], "direction": "Left"}
         ],
     }
+
+
+def _insert_asset(factory, asset: ResourceAsset) -> None:
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(asset)
+            await session.commit()
+
+    asyncio.run(scenario())
 
 
 def test_upload_copilot_validates_structure_and_persists_search_metadata(
@@ -65,6 +79,250 @@ def test_upload_copilot_validates_structure_and_persists_search_metadata(
             )
         )
     assert exc_info.value.code == "COPILOT_JSON_INVALID"
+
+
+def test_resolve_copilot_path_materializes_unique_private_inline_snapshots(
+    resource_root, retention_session_factory
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    saved = asyncio.run(
+        service.upload_copilot(name="inline", description=None, content=_copilot())
+    )
+
+    first_path = asyncio.run(service.resolve_copilot_path(saved["id"]))
+    second_path = asyncio.run(service.resolve_copilot_path(saved["id"]))
+
+    assert first_path.is_file()
+    assert first_path.resolve().is_relative_to(Path(resource_root).resolve())
+    assert first_path.relative_to(resource_root).parts[:3] == (
+        "agent-assets",
+        "copilot",
+        "runs",
+    )
+    assert first_path.name == "operation.json"
+    assert first_path.parent.name != second_path.parent.name
+    assert stat.S_IMODE(first_path.parent.stat().st_mode) == 0o700
+    assert json.loads(first_path.read_text(encoding="utf-8")) == _copilot()
+    assert json.loads(second_path.read_text(encoding="utf-8")) == _copilot()
+
+    asyncio.run(service.release_copilot_path(first_path))
+    asyncio.run(service.release_copilot_path(second_path))
+
+    assert not first_path.exists()
+    assert not second_path.exists()
+
+
+def test_resolve_copilot_path_returns_existing_external_asset(
+    resource_root, retention_session_factory
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    content = _copilot() | {
+        "doc": {"title": "large", "details": "x" * (70 * 1024)}
+    }
+    saved = asyncio.run(
+        service.upload_copilot(name="external", description=None, content=content)
+    )
+
+    source_path = Path(resource_root) / "agent-assets" / "copilot" / f"{saved['id']}.json"
+    path = asyncio.run(service.resolve_copilot_path(saved["id"]))
+
+    assert path.is_file()
+    assert path != source_path
+    assert path.relative_to(resource_root).parts[:3] == (
+        "agent-assets",
+        "copilot",
+        "runs",
+    )
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert json.loads(path.read_text(encoding="utf-8")) == content
+
+    source_path.unlink()
+
+    assert json.loads(path.read_text(encoding="utf-8")) == content
+    asyncio.run(service.release_copilot_path(path))
+    assert not path.exists()
+
+
+def test_resolve_copilot_path_rejects_missing_and_non_copilot_assets(
+    resource_root, retention_session_factory
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    _insert_asset(
+        retention_session_factory,
+        ResourceAsset(
+            id="b" * 32,
+            kind=ResourceAssetKind.CUSTOM_TASK,
+            name="Custom_example",
+            content={"algorithm": "OcrDetect"},
+        ),
+    )
+
+    for asset_id in ("c" * 32, "b" * 32):
+        with pytest.raises(AppError) as exc_info:
+            asyncio.run(service.resolve_copilot_path(asset_id))
+        assert exc_info.value.code == "RESOURCE_ASSET_NOT_FOUND"
+
+
+def test_resolve_copilot_path_rejects_path_traversal_and_escaping_symlinks(
+    resource_root, retention_session_factory, tmp_path
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps(_copilot()), encoding="utf-8")
+    _insert_asset(
+        retention_session_factory,
+        ResourceAsset(
+            id="c" * 32,
+            kind=ResourceAssetKind.COPILOT,
+            name="traversal",
+            content=None,
+            path="../outside.json",
+        ),
+    )
+    link = Path(resource_root) / "agent-assets" / "copilot" / f"{'d' * 32}.json"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside)
+    _insert_asset(
+        retention_session_factory,
+        ResourceAsset(
+            id="d" * 32,
+            kind=ResourceAssetKind.COPILOT,
+            name="symlink",
+            content=None,
+            path=f"agent-assets/copilot/{'d' * 32}.json",
+        ),
+    )
+
+    for asset_id in ("c" * 32, "d" * 32):
+        with pytest.raises(AppError) as exc_info:
+            asyncio.run(service.resolve_copilot_path(asset_id))
+        assert exc_info.value.code == "RESOURCE_LOAD_FAILED"
+
+
+def test_resolve_copilot_path_rejects_asset_id_path_injection(
+    resource_root, retention_session_factory
+):
+    service = _service_type()(
+        retention_session_factory,
+        resource_root=resource_root,
+    )
+    content = _copilot()
+    checksum = hashlib.sha256(
+        json.dumps(
+            content,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    _insert_asset(
+        retention_session_factory,
+        ResourceAsset(
+            id="../escape",
+            kind=ResourceAssetKind.COPILOT,
+            name="path injection",
+            content=content,
+            checksum=checksum,
+        ),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(service.resolve_copilot_path("../escape"))
+
+    assert exc_info.value.code == "RESOURCE_ASSET_NOT_FOUND"
+    assert not (Path(resource_root) / "agent-assets" / "escape.json").exists()
+
+
+@pytest.mark.parametrize("component", ["resource_root", "agent-assets", "copilot", "runs"])
+def test_resolve_inline_copilot_rejects_in_root_symlink_ancestors(
+    resource_root, retention_session_factory, component
+):
+    Service = _service_type()
+    service = Service(retention_session_factory, resource_root=resource_root)
+    saved = asyncio.run(
+        service.upload_copilot(name="inline", description=None, content=_copilot())
+    )
+    root = Path(resource_root)
+    if component == "resource_root":
+        alias_root = root.with_name(f"{root.name}-alias")
+        alias_root.symlink_to(root, target_is_directory=True)
+        service = Service(retention_session_factory, resource_root=alias_root)
+        elsewhere = root / "agent-assets" / "copilot" / "runs"
+    elif component == "agent-assets":
+        alias = root / "agent-assets-alias"
+        alias.mkdir()
+        (root / "agent-assets").symlink_to(alias, target_is_directory=True)
+        elsewhere = alias / "copilot" / "runs"
+    elif component == "copilot":
+        parent = root / "agent-assets"
+        parent.mkdir()
+        alias = parent / "copilot-alias"
+        alias.mkdir()
+        (parent / "copilot").symlink_to(alias, target_is_directory=True)
+        elsewhere = alias / "runs"
+    else:
+        parent = root / "agent-assets" / "copilot"
+        parent.mkdir(parents=True)
+        alias = parent / "runs-alias"
+        alias.mkdir()
+        (parent / "runs").symlink_to(alias, target_is_directory=True)
+        elsewhere = alias
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(service.resolve_copilot_path(saved["id"]))
+
+    assert exc_info.value.code == "RESOURCE_LOAD_FAILED"
+    assert not elsewhere.exists() or not list(elsewhere.glob("*/operation.json"))
+
+
+@pytest.mark.parametrize("component", ["resource_root", "agent-assets", "copilot", "source"])
+def test_resolve_external_copilot_rejects_in_root_symlink_components(
+    resource_root, retention_session_factory, component
+):
+    Service = _service_type()
+    service = Service(retention_session_factory, resource_root=resource_root)
+    content = _copilot() | {
+        "doc": {"title": "large", "details": "x" * (70 * 1024)}
+    }
+    saved = asyncio.run(
+        service.upload_copilot(name="external", description=None, content=content)
+    )
+    root = Path(resource_root)
+    source = root / "agent-assets" / "copilot" / f"{saved['id']}.json"
+    if component == "resource_root":
+        alias_root = root.with_name(f"{root.name}-alias")
+        alias_root.symlink_to(root, target_is_directory=True)
+        service = Service(retention_session_factory, resource_root=alias_root)
+    elif component == "agent-assets":
+        alias = root / "agent-assets-alias"
+        (root / "agent-assets").rename(alias)
+        (root / "agent-assets").symlink_to(alias, target_is_directory=True)
+    elif component == "copilot":
+        alias = root / "agent-assets" / "copilot-alias"
+        (root / "agent-assets" / "copilot").rename(alias)
+        (root / "agent-assets" / "copilot").symlink_to(alias, target_is_directory=True)
+    else:
+        alias = source.with_name("source-alias.json")
+        source.rename(alias)
+        source.symlink_to(alias)
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(service.resolve_copilot_path(saved["id"]))
+
+    assert exc_info.value.code == "RESOURCE_LOAD_FAILED"
+    assert not (root / "agent-assets" / "copilot" / "runs").exists()
 
 
 def test_upload_copilot_accepts_sss_stage_and_strategy_schema(

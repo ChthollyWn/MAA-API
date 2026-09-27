@@ -32,6 +32,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="列出定时任务与最近执行情况。",
             params_model=ListSchedulesParams,
             handler=list_schedules,
+            read_only=True,
         ),
         ToolDefinition(
             name="create_schedule",

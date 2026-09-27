@@ -581,7 +581,7 @@ def test_auth_is_enforced_on_business_endpoints(
 
     authorized = client.get("/api/tasks/types", headers={"X-Token": TOKEN})
     assert authorized.status_code == 200
-    assert authorized.json()["total"] == 9
+    assert authorized.json()["total"] == 10
 
     health = client.get("/api/system/health")
     assert health.status_code == 200

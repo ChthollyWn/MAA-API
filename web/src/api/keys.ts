@@ -39,6 +39,13 @@ export const keys = {
   },
   agent: {
     all: () => [...root, 'agent'] as const,
+    sessions: (filters?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'sessions', filters ?? {}] as const,
+    session: (sessionId: string) =>
+      [...root, 'agent', 'sessions', 'detail', sessionId] as const,
+    messages: (sessionId: string) =>
+      [...root, 'agent', 'sessions', sessionId, 'messages'] as const,
+    capabilities: () => [...root, 'agent', 'capabilities'] as const,
     tools: () => [...root, 'agent', 'tools'] as const,
     audits: () => [...root, 'agent', 'audits'] as const,
     auditList: (filters?: Readonly<Record<string, unknown>>) =>

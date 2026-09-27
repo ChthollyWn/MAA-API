@@ -82,6 +82,40 @@ def test_lists_items_with_mapped_available_icons(
     assert refreshed.json()[1]["icon_url"] is None
 
 
+def test_lists_saved_copilot_metadata_for_queue_editors(app: FastAPI, make_client: Any) -> None:
+    class FakeResourceService:
+        async def list_copilots(self, *, page: int, size: int, q: str | None):
+            assert (page, size, q) == (1, 100, "1-7")
+            return {
+                "items": [
+                    {
+                        "id": "a" * 32,
+                        "kind": "copilot",
+                        "name": "主线 1-7",
+                        "description": None,
+                        "meta": {"stage_name": "1-7", "title": "作业"},
+                        "enabled": True,
+                        "checksum": "b" * 64,
+                        "created_at": "2026-09-27T00:00:00",
+                        "updated_at": "2026-09-27T00:00:00",
+                    }
+                ],
+                "total": 1,
+                "page": page,
+                "size": size,
+            }
+
+    app.state.resource_service = FakeResourceService()
+    response = make_client(app).get(
+        "/api/resources/copilots", params={"page": 1, "size": 100, "q": "1-7"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["items"][0]["id"] == "a" * 32
+    assert "content" not in response.json()["items"][0]
+    assert response.json()["total"] == 1
+
+
 @pytest.mark.parametrize("index_contents", [None, "not-json", "[]", '{"30013":{"name":42}}'])
 def test_missing_or_invalid_index_returns_unified_api_error(
     app: FastAPI, make_client: Any, index_contents: str | None

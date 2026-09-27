@@ -1,6 +1,6 @@
 """领域错误码与领域异常。
 
-错误码来自 docs/05 §4.1–§4.14 的十四张表，全量 92 条，**与那份表一一对应**：
+错误码来自 docs/05 §4.1–§4.15 的十五张表，全量 95 条，**与那份表一一对应**：
 ``ErrorCode`` 的成员名即响应体 ``error.code`` 的线上取值（ADR-04 选自定义错误体的
 核心价值就是这个可枚举字符串，agent 据此做确定性分支）；每个错误码在
 :data:`ERROR_HTTP_STATUS` 里绑定**固定**的 HTTP 状态码，路由层不再自行决定状态码——
@@ -257,7 +257,7 @@ class ErrorCode(StrEnum):
     # `base_url` / `api_key` / `model` 三项未配齐
     LLM_NOT_CONFIGURED = "LLM_NOT_CONFIGURED"
 
-    # 上游返回非 2xx。`details.upstream_status` 与 `details.upstream_code` 透传
+    # 上游返回非 2xx。`details.upstream_status` 与已知白名单 `upstream_code` 返回
     LLM_REQUEST_FAILED = "LLM_REQUEST_FAILED"
 
     # 上游在超时内未返回
@@ -265,6 +265,9 @@ class ErrorCode(StrEnum):
 
     # 上游 429 透传，`Retry-After` 沿用上游值
     LLM_RATE_LIMITED = "LLM_RATE_LIMITED"
+
+    # 数据库 API 密钥无法用配置的主密钥解密，或缺少主密钥
+    LLM_ENCRYPTION_KEY_INVALID = "LLM_ENCRYPTION_KEY_INVALID"
 
     # 会话历史超出模型上下文窗口，需新建会话或裁剪历史
     LLM_CONTEXT_OVERFLOW = "LLM_CONTEXT_OVERFLOW"
@@ -409,6 +412,7 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.LLM_REQUEST_FAILED: 502,
     ErrorCode.LLM_TIMEOUT: 504,
     ErrorCode.LLM_RATE_LIMITED: 429,
+    ErrorCode.LLM_ENCRYPTION_KEY_INVALID: 503,
     ErrorCode.LLM_CONTEXT_OVERFLOW: 400,
     ErrorCode.SCHEDULE_NOT_FOUND: 404,
     ErrorCode.SCHEDULE_CRON_INVALID: 400,

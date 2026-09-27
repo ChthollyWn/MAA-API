@@ -57,6 +57,7 @@ async def get_settings(
         "SETTING_VALUE_INVALID",
         "SETTING_READONLY",
         "SETTING_APPLY_FAILED",
+        "LLM_ENCRYPTION_KEY_INVALID",
     ),
     dependencies=[Depends(require_auth)],
 )

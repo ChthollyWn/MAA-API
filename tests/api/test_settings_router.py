@@ -66,6 +66,29 @@ def test_get_settings_and_schema(setting_client):
     assert fields["app.access_token"]["readonly"] is True
     assert fields["adb.path"]["readonly"] is True
     assert "BlueStacks" in fields["adb.connection_config"]["enum"]
+    assert fields["agent.auto_diagnose_failures"]["type"] == "boolean"
+    assert items["agent.auto_diagnose_failures"]["value"] is True
+
+
+def test_auto_diagnosis_setting_can_be_enabled_and_disabled(setting_client):
+    client, _manager = setting_client
+    disabled = client.put(
+        "/api/settings", json={"items": {"agent.auto_diagnose_failures": False}}
+    )
+    assert disabled.status_code == 200
+    assert next(
+        item["value"] for item in disabled.json()["items"]
+        if item["key"] == "agent.auto_diagnose_failures"
+    ) is False
+
+    enabled = client.put(
+        "/api/settings", json={"items": {"agent.auto_diagnose_failures": True}}
+    )
+    assert enabled.status_code == 200
+    assert next(
+        item["value"] for item in enabled.json()["items"]
+        if item["key"] == "agent.auto_diagnose_failures"
+    ) is True
 
 
 def test_put_reset_and_readonly(setting_client):
@@ -104,3 +127,29 @@ def test_failed_hot_apply_keeps_saved_setting(setting_client):
     address = next(item for item in current["items"] if item["key"] == "adb.address")
     assert address["value"] == "offline:5555"
     assert address["source"] == "db"
+
+
+def test_invalid_sensitive_llm_key_is_redacted_from_serialized_error(setting_client):
+    client, _manager = setting_client
+    sentinel = "sk-sensitive-validation-sentinel"
+
+    response = client.put(
+        "/api/settings",
+        json={"items": {"llm.api_key": [sentinel]}},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == ErrorCode.SETTING_VALUE_INVALID
+    assert sentinel not in response.text
+
+
+def test_put_settings_openapi_declares_llm_encryption_error(setting_client):
+    client, _manager = setting_client
+
+    schema = client.get("/openapi.json").json()
+    response = schema["paths"]["/api/settings"]["put"]["responses"]["503"]
+
+    assert (
+        response["content"]["application/json"]["example"]["error"]["code"]
+        == ErrorCode.LLM_ENCRYPTION_KEY_INVALID
+    )

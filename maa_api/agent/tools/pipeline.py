@@ -70,6 +70,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="列出 MAA 支持的任务类型、参数 schema 和运行中不可修改字段。",
             params_model=EmptyParams,
             handler=list_task_types,
+            read_only=True,
         ),
         ToolDefinition(
             name="get_pipeline",
@@ -78,6 +79,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="读取流水线详情与任务级状态。",
             params_model=GetPipelineParams,
             handler=get_pipeline,
+            read_only=True,
         ),
         ToolDefinition(
             name="list_pipelines",
@@ -86,6 +88,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="分页查询流水线执行历史。",
             params_model=ListPipelinesParams,
             handler=list_pipelines,
+            read_only=True,
         ),
         ToolDefinition(
             name="get_queue",
@@ -94,6 +97,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="读取当前流水线和待执行队列，包含实际优先级。",
             params_model=EmptyParams,
             handler=get_queue,
+            read_only=True,
         ),
         ToolDefinition(
             name="submit_pipeline",

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/stores/auth'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -38,6 +39,14 @@ type SettingState = {
 }
 
 type RequestResult = { data?: unknown; error?: unknown }
+type CapabilityCheck = {
+  model?: string
+  tool_calling?: boolean
+  vision?: boolean
+  ready?: boolean
+  status?: string
+  degraded_reason?: string | null
+}
 
 const MASK = '***'
 
@@ -180,6 +189,25 @@ export default function SettingsPage() {
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string; repair: boolean } | null>(null)
   const [localToken, setLocalToken] = useState('')
   const [tokenSaved, setTokenSaved] = useState(false)
+  const [capability, setCapability] = useState<CapabilityCheck | null>(null)
+  const [checkingCapability, setCheckingCapability] = useState(false)
+  const [capabilityError, setCapabilityError] = useState<string | null>(null)
+
+  const checkCapability = async () => {
+    setCheckingCapability(true)
+    setCapabilityError(null)
+    setCapability(null)
+    try {
+      const result = await api.POST('/api/agent/capabilities/check')
+      const response = result as unknown as RequestResult
+      if (response.error) throw response.error
+      setCapability(response.data as CapabilityCheck)
+    } catch (error) {
+      setCapabilityError(requestError(error).message)
+    } finally {
+      setCheckingCapability(false)
+    }
+  }
 
   const loadSettings = useCallback(async () => {
     setLoading(true)
@@ -398,6 +426,7 @@ export default function SettingsPage() {
             {field.readonly && <span>由服务端管理</span>}
           </div>
           <p className="text-xs text-muted-foreground">{displayHotAction(field.hotAction)}</p>
+          {field.key === 'agent.auto_diagnose_failures' ? <p className="text-xs leading-5 text-muted-foreground">默认开启。流水线失败或 MaaCore 崩溃后，Agent 会保存诊断会话并分析关联日志；关闭后只保留原有故障记录，不自动调用模型。</p> : null}
           {errors[field.key] && <p id={errorId} role="alert" className="text-sm text-destructive">{errors[field.key]}</p>}
         </div>
       </div>
@@ -459,6 +488,28 @@ export default function SettingsPage() {
               </Button>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1.5">
+            <CardTitle>LLM 能力自检</CardTitle>
+            <CardDescription>验证当前模型能否调用工具和读取截图；视觉能力不足时仍可使用文本任务编排与日志分析。</CardDescription>
+          </div>
+          <Button type="button" variant="outline" className="min-h-11" disabled={checkingCapability} onClick={() => void checkCapability()}>
+            {checkingCapability ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <RotateCcw aria-hidden="true" />}
+            检查模型能力
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {capabilityError ? <p role="alert" className="text-sm text-destructive">能力检查失败：{capabilityError}。请确认 base URL、API Key 和模型名称后重试。</p> : null}
+          {capability ? <div className="flex flex-wrap items-center gap-2 text-sm" role="status">
+            <Badge variant={capability.tool_calling ? 'positive' : 'destructive'}>工具调用：{capability.tool_calling ? '可用' : '不可用'}</Badge>
+            <Badge variant={capability.vision ? 'positive' : 'warning'}>视觉输入：{capability.vision ? '可用' : '不可用'}</Badge>
+            {capability.model ? <span className="text-xs text-muted-foreground">模型：{capability.model}</span> : null}
+            {capability.degraded_reason ? <p className="basis-full text-xs text-muted-foreground">{capability.degraded_reason}</p> : null}
+          </div> : <p className="text-xs text-muted-foreground">自检不执行设备操作；结果按当前模型与端点缓存。</p>}
         </CardContent>
       </Card>
 

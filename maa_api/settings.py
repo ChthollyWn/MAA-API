@@ -121,6 +121,7 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "agent.confirmation_timeout_seconds": ("agent", "confirmation_timeout_seconds"),
     "agent.grant_confirmation_timeout_seconds": ("agent", "grant_confirmation_timeout_seconds"),
     "agent.atomic_grant_minutes": ("agent", "atomic_grant_minutes"),
+    "agent.auto_diagnose_failures": ("agent", "auto_diagnose_failures"),
     "adb.path": ("adb", "path"),
     "adb.address": ("adb", "address"),
     "adb.screenshot_quality": ("adb", "screenshot_quality"),
@@ -182,9 +183,9 @@ class LLMSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    base_url: str = ""
+    base_url: str = "https://api.deepseek.com"
     api_key: str = ""
-    model: str = ""
+    model: str = "deepseek-v4.1-flash"
 
 
 class LogSettings(BaseModel):
@@ -216,6 +217,7 @@ class AgentSettings(BaseModel):
     confirmation_timeout_seconds: int = Field(default=600, ge=1)
     grant_confirmation_timeout_seconds: int = Field(default=120, ge=1)
     atomic_grant_minutes: int = Field(default=15, ge=1, le=60)
+    auto_diagnose_failures: bool = True
 
 
 class Settings(BaseModel):
