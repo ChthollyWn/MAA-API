@@ -142,7 +142,7 @@ export const routeConfig: RouteObject[] = [
     path: '/',
     element: <ShellLayout />,
     children: [
-      { index: true, element: legacy(<DashboardPage />) },
+      { index: true, element: page(<DashboardPage />) },
       { path: 'tasks', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
       { path: 'tasks/queue', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },
       { path: 'tasks/history', element: <ProtectedRoute><TasksRoutePage /></ProtectedRoute> },

@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
 import { keys } from '@/api/keys'
 import DashboardPage from '@/routes/dashboard'
 import { useAuth } from '@/stores/auth'
+import { useConfirmationUi } from '@/stores/confirmations-ui'
 
 const connectedHealth = {
   status: 'ok',
@@ -40,12 +41,25 @@ const runningPipeline = {
   },
 }
 
+const dailySchedule = {
+  id: 'schedule-1',
+  name: '日常',
+  cron: '0 4 * * 1-5',
+  timezone: 'Asia/Shanghai',
+  enabled: true,
+  priority: 2,
+  template: [{ name: 'StartUp' }, { name: 'Fight' }],
+  last_run_at: null,
+  last_run_result: null,
+  next_run_at: null,
+  recent_runs: [],
+}
+
 interface MockOptions {
   health?: unknown
   pipeline?: unknown
   queue?: unknown
   healthStatus?: number
-  pipelineStatus?: number
   screenshotStatus?: number
 }
 
@@ -55,83 +69,50 @@ function installFetch(options: MockOptions = {}) {
   let healthStatus = options.healthStatus ?? 200
   const requests: Request[] = []
   let screenshotCalls = 0
-  let pipelineCalls = 0
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init)
     requests.push(request)
     const url = new URL(request.url)
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
     if (url.pathname === '/api/system/health') {
-      if (healthStatus >= 400) {
-        return new Response(JSON.stringify({ error: { code: 'SERVICE_UNAVAILABLE', message: '服务暂不可用' } }), {
-          status: healthStatus,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      return new Response(JSON.stringify(health), { headers: { 'Content-Type': 'application/json' } })
+      if (healthStatus >= 400) return json({ error: { code: 'SERVICE_UNAVAILABLE', message: '服务暂不可用' } }, healthStatus)
+      return json(health)
     }
-    if (url.pathname === '/api/pipelines/current') {
-      pipelineCalls += 1
-      return new Response(JSON.stringify(typeof pipeline === 'function' ? pipeline(pipelineCalls) : pipeline), {
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
+    if (url.pathname === '/api/pipelines/current') return json(pipeline)
+    if (url.pathname === '/api/pipelines/pipeline-1' && request.method === 'DELETE') return json({ id: 'pipeline-1', status: 'cancelled' })
     if (url.pathname === '/api/queue') {
-      const queue = options.queue ?? {
+      return json(options.queue ?? {
         running: { pipeline_id: 'pipeline-1' },
         pending: [{ pipeline_id: 'pipeline-2' }, { pipeline_id: 'pipeline-3' }],
         counts: { pending: 2, running: 1 },
         paused: false,
-      }
-      return new Response(JSON.stringify(queue), { headers: { 'Content-Type': 'application/json' } })
-    }
-    if (url.pathname === '/api/confirmations' && request.method === 'GET') {
-      return new Response(JSON.stringify({ items: [], total: 0, page: 1, size: 20 }), {
-        headers: { 'Content-Type': 'application/json' },
       })
     }
+    if (url.pathname === '/api/schedules') return json({ items: [dailySchedule], total: 1 })
+    if (url.pathname === '/api/schedules/schedule-1/run' && request.method === 'POST') return json({ pipeline_id: 'pipeline-9' }, 202)
     if (url.pathname === '/api/device/reconnect') {
-      health = {
-        ...connectedHealth,
-        ...(typeof health === 'object' && health !== null ? health : {}),
-        device: {
-          ...(typeof health === 'object' && health !== null && 'device' in health
-            ? (health as { device: object }).device
-            : {}),
-          state: 'connecting',
-        },
-      }
-      return new Response(JSON.stringify({ state: 'connecting' }), { status: 202, headers: { 'Content-Type': 'application/json' } })
+      health = { ...connectedHealth, device: { ...connectedHealth.device, state: 'connecting' } }
+      return json({ state: 'connecting' }, 202)
     }
     if (url.pathname === '/api/device/screenshot') {
       screenshotCalls += 1
-      if ((options.screenshotStatus ?? 200) >= 400) {
-        return new Response(JSON.stringify({ error: { code: 'DEVICE_NOT_CONNECTED', message: '设备未连接' } }), {
-          status: options.screenshotStatus,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      return new Response(new Blob(['jpeg-bytes'], { type: 'image/jpeg' }), {
-        headers: { 'Content-Type': 'image/jpeg' },
-      })
+      if ((options.screenshotStatus ?? 200) >= 400) return json({ error: { code: 'DEVICE_NOT_CONNECTED', message: '设备未连接' } }, options.screenshotStatus)
+      return new Response(new Blob(['jpeg-bytes'], { type: 'image/jpeg' }), { headers: { 'Content-Type': 'image/jpeg' } })
     }
     return new Response(null, { status: 404 })
   })
   vi.stubGlobal('fetch', fetchMock)
   return {
     requests,
-    fetchMock,
     screenshotCount: () => screenshotCalls,
-    setHealth(value: unknown) { health = value },
     setHealthStatus(value: number) { healthStatus = value },
     setPipeline(value: unknown) { pipeline = value },
   }
 }
 
 function renderDashboard(initial?: { health: unknown; pipeline: unknown; queue: unknown }) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  })
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   if (initial) {
     queryClient.setQueryData<unknown>(keys.system.health(), initial.health)
     queryClient.setQueryData<unknown>(keys.pipelines.current(), initial.pipeline)
@@ -146,9 +127,10 @@ function renderDashboard(initial?: { health: unknown; pipeline: unknown; queue: 
   )
 }
 
-describe('dashboard route', () => {
+describe('home page', () => {
   beforeEach(() => {
     useAuth.getState().clearToken()
+    useConfirmationUi.setState({ open: false, pendingCount: 0 })
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:device-shot')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
   })
@@ -160,7 +142,7 @@ describe('dashboard route', () => {
     vi.restoreAllMocks()
   })
 
-  it('shows service, core, device and queue details and allows a manual screenshot refresh while idle', async () => {
+  it('shows device, core, service and queue status and refreshes the screenshot on demand while idle', async () => {
     const network = installFetch()
     renderDashboard()
 
@@ -168,11 +150,13 @@ describe('dashboard route', () => {
     expect(screen.getByText('PID 73 · 世代 4')).toBeInTheDocument()
     expect(screen.getByText('127.0.0.1:5555')).toBeInTheDocument()
     expect(screen.getByText('待处理 2 条 · 正在运行 1 条')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /队列/ })).toHaveAttribute('href', '/tasks/queue')
     expect(await screen.findByRole('img', { name: '当前设备画面' })).toBeInTheDocument()
     expect(network.screenshotCount()).toBe(1)
+
     fireEvent.click(screen.getByRole('button', { name: '刷新设备截图' }))
     expect(await screen.findByRole('img', { name: '当前设备画面' })).toHaveAttribute('src', 'blob:device-shot')
-    expect(network.screenshotCount()).toBe(2)
+    await waitFor(() => expect(network.screenshotCount()).toBe(2))
     const screenshotRequest = network.requests.find((request) => new URL(request.url).pathname === '/api/device/screenshot')
     expect(screenshotRequest?.url).toContain('backend=adb&format=jpeg&size=mobile')
     expect(screenshotRequest?.credentials).toBe('same-origin')
@@ -181,39 +165,62 @@ describe('dashboard route', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalled()
   })
 
-  it('renders pipeline steps and an explicit empty state when no pipeline is active', async () => {
+  it('opens the device picture full screen', async () => {
+    installFetch()
+    renderDashboard()
+
+    fireEvent.click(await screen.findByRole('button', { name: '全屏查看设备画面' }))
+
+    const viewer = await screen.findByRole('dialog', { name: '设备画面（全屏）' })
+    expect(within(viewer).getByRole('img', { name: '设备画面（全屏）' })).toHaveAttribute('src', 'blob:device-shot')
+  })
+
+  it('renders the running pipeline with its steps and progress, and an empty state when idle', async () => {
     installFetch({ pipeline: runningPipeline })
     renderDashboard()
 
     expect(await screen.findByText('日常任务')).toBeInTheDocument()
     expect(screen.getByText('启动')).toBeInTheDocument()
-    expect(screen.getByText('刷图')).toBeInTheDocument()
-    expect(screen.getByRole('progressbar', { name: '流水线任务进度' })).toHaveAttribute('aria-valuenow', '1')
+    expect(screen.getAllByText('刷图').length).toBeGreaterThan(0)
+    expect(screen.getByText('正在执行：').textContent).toContain('刷图')
+    const progress = screen.getByRole('progressbar', { name: '流水线任务进度' })
+    expect(progress).toHaveAttribute('aria-valuenow', '1')
+    expect(progress).toHaveAttribute('aria-valuemax', '2')
+    expect(screen.getByRole('link', { name: '查看详情' })).toHaveAttribute('href', '/tasks/history/pipeline-1')
 
     cleanup()
     installFetch({ pipeline: { pipeline: null } })
     renderDashboard()
-    expect(await screen.findByText('当前没有运行中的流水线')).toBeInTheDocument()
+    expect(await screen.findByText('当前没有运行中的任务')).toBeInTheDocument()
   })
 
-  it('shows a disconnected screenshot placeholder and lets the user retry device connection', async () => {
-    const disconnected = {
-      ...connectedHealth,
-      device: { ...connectedHealth.device, state: 'disconnected' },
-    }
+  it('stops the running pipeline only after confirmation', async () => {
+    const network = installFetch({ pipeline: runningPipeline })
+    renderDashboard()
+
+    fireEvent.click(await screen.findByRole('button', { name: '停止任务' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '停止当前任务？' })
+    expect(network.requests.some((request) => request.method === 'DELETE')).toBe(false)
+    fireEvent.click(within(dialog).getByRole('button', { name: '停止任务' }))
+
+    await waitFor(() => expect(network.requests.some((request) => request.method === 'DELETE' && request.url.endsWith('/api/pipelines/pipeline-1'))).toBe(true))
+  })
+
+  it('shows a disconnected placeholder and lets the user retry the device connection', async () => {
+    const disconnected = { ...connectedHealth, device: { ...connectedHealth.device, state: 'disconnected' } }
     const network = installFetch({ health: disconnected })
     useAuth.getState().setToken('test-token')
     renderDashboard()
 
     expect(await screen.findByText('设备尚未连接')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: '重新连接设备' })).toBeInTheDocument()
     expect(network.screenshotCount()).toBe(0)
-    fireEvent.click(screen.getByRole('button', { name: '重新连接设备' }))
+    fireEvent.click(await screen.findByRole('button', { name: '重新连接设备' }))
+
     await waitFor(() => expect(network.requests.some((request) => request.url.endsWith('/api/device/reconnect'))).toBe(true))
     const reconnectRequest = network.requests.find((request) => request.url.endsWith('/api/device/reconnect'))
     expect(reconnectRequest?.method).toBe('POST')
     expect(reconnectRequest?.headers.get('X-Token')).toBe('test-token')
-    expect(await screen.findByRole('status')).toHaveTextContent('已发送重连请求')
+    expect(await screen.findByText(/已发送重连请求/)).toBeInTheDocument()
   })
 
   it('shows a service error with a retry action and recovers when health becomes available', async () => {
@@ -226,6 +233,37 @@ describe('dashboard route', () => {
 
     await waitFor(() => expect(network.requests.filter((request) => request.url.endsWith('/api/system/health'))).toHaveLength(2))
     expect(await screen.findByText('版本 2.4.0')).toBeInTheDocument()
+  })
+
+  it('runs a saved schedule from the quick action after confirmation', async () => {
+    const network = installFetch()
+    renderDashboard()
+
+    fireEvent.click(screen.getByRole('button', { name: /运行定时任务/ }))
+    const sheet = await screen.findByRole('dialog', { name: '运行定时任务' })
+    expect(await within(sheet).findByText('工作日 04:00 · 2 个任务')).toBeInTheDocument()
+    fireEvent.click(within(sheet).getByRole('button', { name: /日常/ }))
+    const dialog = await screen.findByRole('alertdialog', { name: '立即运行「日常」？' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '立即运行' }))
+
+    await waitFor(() => expect(network.requests.some((request) => request.method === 'POST' && request.url.endsWith('/api/schedules/schedule-1/run'))).toBe(true))
+  })
+
+  it('links to the task composer from the quick actions', () => {
+    installFetch()
+    renderDashboard()
+
+    expect(screen.getByRole('link', { name: /新建任务/ })).toHaveAttribute('href', '/tasks')
+  })
+
+  it('surfaces pending confirmations counted by the shell and opens the shared sheet', () => {
+    installFetch()
+    useConfirmationUi.setState({ pendingCount: 2 })
+    renderDashboard()
+
+    fireEvent.click(screen.getByRole('button', { name: /2 项操作等待你确认/ }))
+
+    expect(useConfirmationUi.getState().open).toBe(true)
   })
 
   it('refreshes screenshots at five second intervals only while the current pipeline is running', async () => {
@@ -242,7 +280,7 @@ describe('dashboard route', () => {
       for (let index = 0; index < 30; index += 1) await Promise.resolve()
     })
     expect(network.screenshotCount()).toBe(1)
-    expect(screen.getByText('流水线运行中，每 5 秒更新')).toBeInTheDocument()
+    expect(screen.getByText('任务运行中，每 5 秒自动刷新')).toBeInTheDocument()
 
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
     expect(network.screenshotCount()).toBe(2)
@@ -252,7 +290,7 @@ describe('dashboard route', () => {
     expect(network.screenshotCount()).toBe(3)
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
     expect(network.screenshotCount()).toBe(3)
-    expect(screen.getByText('手动刷新以获取当前画面')).toBeInTheDocument()
+    expect(screen.getByText('点右侧按钮获取当前画面')).toBeInTheDocument()
   })
 
   it('takes one initial screenshot while idle and does not poll it every five seconds', async () => {

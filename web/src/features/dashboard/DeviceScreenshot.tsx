@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Camera, LoaderCircle, RefreshCw } from 'lucide-react'
+import { Camera, Expand, RefreshCw } from 'lucide-react'
 import { ApiError, apiErrorFromResponse, toApiError } from '@/api/errors'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ImageViewer } from '@/components/ui/image-viewer'
+import { Spinner } from '@/components/ui/states'
 import { useAuth } from '@/stores/auth'
+import { cn } from '@/lib/utils'
 
 const SCREENSHOT_URL = '/api/device/screenshot?backend=adb&format=jpeg&size=mobile'
 
@@ -48,6 +50,16 @@ function useObjectUrl(blob: Blob | undefined): string | null {
   return url
 }
 
+function Placeholder({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="px-6 text-center">
+      <Camera aria-hidden="true" className="mx-auto mb-2 size-6 text-muted-foreground" />
+      <p className="text-sm font-medium">{title}</p>
+      <p className="mt-1 text-footnote text-muted-foreground">{description}</p>
+    </div>
+  )
+}
+
 export interface DeviceScreenshotProps {
   connected: boolean
   deviceKnown: boolean
@@ -55,7 +67,9 @@ export interface DeviceScreenshotProps {
   pipelineRunning: boolean
 }
 
+/** 设备画面：运行中每 5 秒自动刷新，空闲时手动刷新；点图片全屏查看。 */
 export function DeviceScreenshot({ connected, deviceKnown, loading, pipelineRunning }: DeviceScreenshotProps) {
+  const [viewerOpen, setViewerOpen] = useState(false)
   const screenshot = useQuery({
     queryKey: ['dashboard', 'device-screenshot'],
     queryFn: fetchScreenshot,
@@ -67,66 +81,61 @@ export function DeviceScreenshot({ connected, deviceKnown, loading, pipelineRunn
   const message = screenshot.error ? toApiError(screenshot.error).message : null
 
   return (
-    <Card aria-labelledby="device-screenshot-title">
-      <CardHeader className="flex-row items-center justify-between gap-3">
-        <div>
-          <CardTitle id="device-screenshot-title">设备截图</CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {pipelineRunning ? '流水线运行中，每 5 秒更新' : '手动刷新以获取当前画面'}
+    <section aria-labelledby="device-screenshot-title" className="rounded-xl border bg-card p-4 shadow-card">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 id="device-screenshot-title" className="text-[0.9375rem] font-semibold">设备画面</h2>
+          <p className="mt-0.5 text-footnote text-muted-foreground">
+            {pipelineRunning ? '任务运行中，每 5 秒自动刷新' : '点右侧按钮获取当前画面'}
           </p>
         </div>
         <Button
           aria-label="刷新设备截图"
           disabled={!connected || screenshot.isFetching}
           onClick={() => void screenshot.refetch()}
-          size="sm"
+          size="icon-sm"
           variant="outline"
         >
-          {screenshot.isFetching
-            ? <LoaderCircle aria-hidden="true" className="animate-spin" />
-            : <RefreshCw aria-hidden="true" />}
-          刷新
+          {screenshot.isFetching ? <Spinner /> : <RefreshCw aria-hidden="true" />}
         </Button>
-      </CardHeader>
-      <CardContent>
-        <div className="relative grid aspect-video place-items-center overflow-hidden rounded-lg border bg-muted" aria-live="polite">
-          {loading ? (
-            <p className="text-sm text-muted-foreground" role="status">正在读取设备状态</p>
-          ) : !deviceKnown ? (
-            <div className="px-5 text-center">
-              <Camera aria-hidden="true" className="mx-auto mb-2 size-6 text-muted-foreground" />
-              <p className="text-sm font-medium">设备状态暂不可用</p>
-              <p className="mt-1 text-xs text-muted-foreground">请刷新服务状态后重试。</p>
-            </div>
-          ) : !connected ? (
-            <div className="px-5 text-center">
-              <Camera aria-hidden="true" className="mx-auto mb-2 size-6 text-muted-foreground" />
-              <p className="text-sm font-medium">设备尚未连接</p>
-              <p className="mt-1 text-xs text-muted-foreground">连接设备后可在此查看实时画面。</p>
-            </div>
-          ) : imageUrl ? (
-            <img alt="当前设备画面" className="absolute inset-0 size-full object-contain" src={imageUrl} />
-          ) : screenshot.isPending ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-              <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />正在获取截图
-            </p>
-          ) : message ? (
-            <div className="px-5 text-center">
-              <Camera aria-hidden="true" className="mx-auto mb-2 size-6 text-muted-foreground" />
-              <p className="text-sm font-medium">截图获取失败</p>
-              <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">暂无截图</p>
-          )}
+      </div>
+      <div
+        className={cn('relative mt-3 grid aspect-video place-items-center overflow-hidden rounded-lg bg-surface-2', imageUrl && 'bg-black')}
+        aria-live="polite"
+      >
+        {loading ? (
+          <p className="text-sm text-muted-foreground" role="status">正在读取设备状态</p>
+        ) : !deviceKnown ? (
+          <Placeholder title="设备状态暂不可用" description="请刷新服务状态后重试。" />
+        ) : !connected ? (
+          <Placeholder title="设备尚未连接" description="连接设备后可在此查看实时画面。" />
+        ) : imageUrl ? (
+          <button
+            type="button"
+            className="group absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            aria-label="全屏查看设备画面"
+            onClick={() => setViewerOpen(true)}
+          >
+            <img alt="当前设备画面" className="size-full object-contain" src={imageUrl} />
+            <span aria-hidden="true" className="absolute bottom-2 right-2 grid size-8 place-items-center rounded-full bg-black/45 text-white opacity-80 transition-opacity group-hover:opacity-100">
+              <Expand className="size-4" />
+            </span>
+          </button>
+        ) : screenshot.isPending ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status"><Spinner />正在获取截图</p>
+        ) : message ? (
+          <Placeholder title="截图获取失败" description={message} />
+        ) : (
+          <p className="text-sm text-muted-foreground">暂无截图</p>
+        )}
+      </div>
+      {message ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2" role="alert">
+          <p className="min-w-0 text-sm text-danger">{message}</p>
+          <Button disabled={!connected || screenshot.isFetching} onClick={() => void screenshot.refetch()} size="sm" variant="outline">重试截图</Button>
         </div>
-        {message ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2" role="alert">
-            <p className="text-sm text-destructive">{message}</p>
-            <Button disabled={!connected || screenshot.isFetching} onClick={() => void screenshot.refetch()} size="sm" variant="outline">重试截图</Button>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+      ) : null}
+      <ImageViewer open={viewerOpen} onOpenChange={setViewerOpen} src={imageUrl} alt="设备画面（全屏）" caption="设备画面" />
+    </section>
   )
 }

@@ -49,6 +49,31 @@ export function buildWeeklyCron(weekdays: number[], time: string): string | null
   return minute + ' ' + hour + ' * * ' + weekdayField
 }
 
+const MONDAY_FIRST = [1, 2, 3, 4, 5, 6, 0]
+const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+/** 把星期集合写成人话：每天、工作日、周末、周一至周三、周一、周三、周五。 */
+export function describeWeekdays(weekdays: number[]): string {
+  const days = uniqueSortedDays(weekdays)
+  if (days.length === 7) return '每天'
+  const key = days.join(',')
+  if (key === '1,2,3,4,5') return '工作日'
+  if (key === '0,6') return '周末'
+  const ordered = MONDAY_FIRST.filter((day) => days.includes(day))
+  const positions = ordered.map((day) => MONDAY_FIRST.indexOf(day))
+  const consecutive = positions.every((position, index) => index === 0 || position === positions[index - 1]! + 1)
+  if (ordered.length >= 3 && consecutive) {
+    return `${WEEKDAY_NAMES[ordered[0]!]}至${WEEKDAY_NAMES[ordered[ordered.length - 1]!]}`
+  }
+  return ordered.map((day) => WEEKDAY_NAMES[day]).join('、')
+}
+
+/** 可视化范围内的 cron 返回「工作日 04:00」，其余返回 null，由调用方显示原始表达式。 */
+export function describeSchedule(cron: string): string | null {
+  const parsed = parseWeeklyCron(cron)
+  return parsed ? `${describeWeekdays(parsed.weekdays)} ${parsed.time}` : null
+}
+
 /**
  * Parse the supported weekly cron subset. Expressions outside this subset are
  * intentionally returned as unknown so the UI can preserve and edit the raw
