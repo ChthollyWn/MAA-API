@@ -47,7 +47,14 @@ function patchTaskStatus(queryClient: QueryClient, task: Record<string, unknown>
 export function handleServerEvent(event: ServerEvent, queryClient: QueryClient): void {
   switch (event.type) {
     case 'log':
-      useLogBuffer.getState().append(event.data)
+      // 实时 log 事件的 ts 在信封上，data 里没有（见 maa_api/api/ws.py 的
+      // broadcast_log）。日志列表只读 data，所以要把信封时间并进记录，否则新到的行
+      // 渲染成「时间未知」；记录自带 ts 时以记录为准，与 log_batch 的口径一致。
+      useLogBuffer.getState().append(
+        event.data.ts === undefined && event.ts !== undefined
+          ? { ...event.data, ts: event.ts }
+          : event.data,
+      )
       break
     case 'log_batch':
       useLogBuffer.getState().appendMany(event.data.records)

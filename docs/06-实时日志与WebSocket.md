@@ -546,6 +546,8 @@ Cookie 作为备选，供前端在已通过 HTTP 登录接口设置 cookie 后�
 
 `truncated` 为 `true` 表示补发量超过了环形缓冲的容量，客户端需改走 §7.7 的历史查询接口补齐更早的部分。
 
+**时间戳读哪一层。** `log` 的消息时间只在信封 `ts` 上，`data` 里没有该字段；`log_batch` 的每条记录自带 `ts`（与信封同源），信封的 `ts` 只是这条消息的发送时间；REST 的 `GET /api/system/logs` 与 `format=jsonl` 导出同样逐条带 `ts`。客户端因此必须按「记录自带 `ts` 优先，缺失时回落信封 `ts`」读取——只读 `data.ts` 会让实时 `log` 行显示成「时间未知」（`web/src/realtime/query-bridge.ts` 的 `log` 分支即此口径，回归测试见 `web/src/realtime/query-bridge.test.ts`）。
+
 **`pipeline_status`** — 流水线状态变更。
 
 ```json
