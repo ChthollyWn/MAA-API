@@ -1,6 +1,8 @@
 # MAA-API 重构方案
 
-本目录是 MAA-API 全面重构的执行方案。内核仍然是 [MaaAssistantArknights](https://github.com/MaaAssistantArknights/MaaAssistantArknights)（本地为 v6.17.x），重构范围覆盖后端架构、前端、热更新、开放 API 与新增的 Agent 模块。
+本目录是 MAA-API 全面重构的执行方案。**M0–M11、M13、M14、M15 已完成并合并进 `refactor/v2`**（M12 的 MCP Server 按 [13 §8.4](./13-决策记录.md) 移出范围，不交付）。
+
+内核仍然是 [MaaAssistantArknights](https://github.com/MaaAssistantArknights/MaaAssistantArknights)（本地为 v6.17.x），重构范围覆盖后端架构、前端、热更新、开放 API 与新增的 Agent 模块。
 
 本方案是**破坏性重构**而非渐进改造：后端执行层重写、`static/` 整体废弃、响应格式全面改标准 HTTP 状态码、引入 SQLite 持久化。基线为 `dev` 分支（`139c4bc`），不复用 `feat/0515` 的代码。
 
