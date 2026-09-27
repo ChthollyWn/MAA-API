@@ -106,7 +106,8 @@ describe('API console route and request workspace', () => {
     const network = installNetwork()
     renderAt('/more/api-console')
 
-    expect(await screen.findByRole('heading', { name: 'API 调试台' })).toBeInTheDocument()
+    // 首个用例要冷加载调试台的懒加载分块（含 CodeMirror），全量并发时会超过默认的 1 秒。
+    expect(await screen.findByRole('heading', { name: 'API 调试台' }, { timeout: 4000 })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: /回显一条消息/ })).toBeInTheDocument()
     expect(network.requests.some((request) => new URL(request.url).pathname === '/openapi.json')).toBe(true)
     expect(screen.getByRole('link', { name: 'OpenAPI 文档' })).toHaveAttribute('href', '/docs')
@@ -146,7 +147,7 @@ describe('API console route and request workspace', () => {
     // 默认 1s 的 findBy 超时会被别的用例挤掉（基线分支实测 3 次里失败 2 次），
     // 所以这里给一个与防抖相符的预算，而不是把断言改弱。
     expect(
-      await screen.findByText(/请求体校验警告；仍可发送/, undefined, { timeout: 5_000 }),
+      await screen.findByText(/请求体校验警告；仍可发送/, undefined, { timeout: 10_000 }),
     ).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('临时 token（当前页）'), { target: { value: 'one-page-secret' } })
     fireEvent.click(screen.getByRole('button', { name: '发送请求' }))
