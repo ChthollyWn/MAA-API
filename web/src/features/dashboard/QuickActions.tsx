@@ -11,6 +11,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { ResponsiveSheet } from '@/components/ui/sheet'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states'
 import { toast } from '@/components/ui/toaster'
+import { schedulesQuery } from '@/features/schedules/queries'
 import { describeSchedule } from '@/features/schedules/schedule-time'
 import type { components } from '@/types/api'
 
@@ -22,15 +23,7 @@ const tileClassName =
 function RunScheduleSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const queryClient = useQueryClient()
   const [confirm, confirmElement] = useConfirm()
-  const schedules = useQuery({
-    queryKey: ['schedules'],
-    queryFn: async () => {
-      const { data, error, response } = await api.GET('/api/schedules')
-      if (error) throw toApiError(error, response)
-      return data
-    },
-    enabled: open,
-  })
+  const schedules = useQuery({ ...schedulesQuery, enabled: open })
   const run = useMutation({
     mutationFn: async (schedule: Schedule) => {
       const { error, response } = await api.POST('/api/schedules/{schedule_id}/run', { params: { path: { schedule_id: schedule.id } }, body: {} })
@@ -49,7 +42,7 @@ function RunScheduleSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
     onError: (error) => toast.error(`运行失败：${toApiError(error).message}`),
   })
 
-  const items = [...(schedules.data?.items ?? [])].sort((left, right) => Number(right.enabled) - Number(left.enabled))
+  const items = [...(schedules.data ?? [])].sort((left, right) => Number(right.enabled) - Number(left.enabled))
 
   const choose = async (schedule: Schedule) => {
     const ok = await confirm({

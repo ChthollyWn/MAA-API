@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 
 export function PwaUpdatePrompt() {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null)
+  const [dismissed, setDismissed] = useState(false)
   const refreshing = useRef(false)
 
   useEffect(() => {
@@ -47,20 +48,21 @@ export function PwaUpdatePrompt() {
     }
   }, [])
 
-  if (!waitingWorker) return null
+  if (!waitingWorker || dismissed) return null
 
   const update = () => {
     refreshing.current = true
     waitingWorker.postMessage({ type: 'SKIP_WAITING' })
   }
 
+  // 放在顶部：底部是 Tab 栏与页面主操作栏，提示条不能挡住「开始执行」「保存」。
   return (
     <div
       role="status"
-      className="fixed inset-x-3 z-50 mx-auto flex max-w-md items-center gap-3 rounded-xl border bg-surface-raised py-2.5 pl-4 pr-2.5 shadow-float lg:left-auto lg:right-6 lg:mx-0"
-      style={{ bottom: 'calc(var(--nav-offset) + var(--keyboard-inset) + 0.75rem)' }}
+      className="fixed inset-x-3 top-[calc(env(safe-area-inset-top,0px)+0.5rem)] z-50 mx-auto flex max-w-md items-center gap-2 rounded-xl border bg-surface-raised py-2 pl-4 pr-2 shadow-float lg:left-auto lg:right-6 lg:top-4 lg:mx-0"
     >
       <p className="min-w-0 flex-1 text-sm font-medium">MAA-API 有新版本可用</p>
+      <Button size="sm" variant="ghost" onClick={() => setDismissed(true)}>稍后</Button>
       <Button size="sm" onClick={update}>
         <RefreshCw aria-hidden="true" />
         立即更新

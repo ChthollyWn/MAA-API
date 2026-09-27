@@ -29,7 +29,7 @@ export function StickyActionBar({ children, summary, className }: StickyActionBa
       >
         <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
           {summary ? <div className="mr-auto min-w-0 truncate text-sm text-muted-foreground">{summary}</div> : null}
-          <div className={cn('flex min-w-0 items-center gap-2', summary ? 'shrink-0' : 'flex-1 [&>*]:flex-1 lg:flex-none lg:justify-end lg:[&>*]:flex-none')}>
+          <div className={cn('flex min-w-0 items-center gap-2', summary ? 'shrink-0' : 'flex-1 [&>*]:flex-1 lg:ml-auto lg:flex-none lg:[&>*]:flex-none')}>
             {children}
           </div>
         </div>

@@ -38,22 +38,29 @@ describe('task history', () => {
     expect(pages.every((request) => new URL(request.url).searchParams.get('size') === '20')).toBe(true)
   })
 
-  it('names untitled pipelines after their task types', async () => {
-    installTaskApi({
-      historyPages: { 1: { items: [{ id: 'history-3', title: null, source: 'scheduled', priority: 2, status: 'completed', task_count: 2 }], total: 1, page: 1, size: 20 } },
-      details: {
-        'history-3': {
-          id: 'history-3', title: null, source: 'scheduled', priority: 2, status: 'completed', task_count: 2,
-          tasks: [
-            { id: 'task-a', type_name: 'StartUp', task_name: '开始唤醒', status: 'completed' },
-            { id: 'task-b', type_name: 'Fight', task_name: '刷理智', status: 'completed' },
+  it('names untitled pipelines after their schedule or source without reading each detail', async () => {
+    const network = installTaskApi({
+      historyPages: {
+        1: {
+          items: [
+            { id: 'history-3', title: null, source: 'scheduled', schedule_id: 'schedule-1', priority: 2, status: 'completed', task_count: 2 },
+            { id: 'history-4', title: null, source: 'manual', schedule_id: null, priority: 1, status: 'completed', task_count: 3 },
+            { id: 'history-5', title: null, source: 'agent', schedule_id: null, priority: 1, status: 'failed', task_count: 1 },
           ],
+          total: 3,
+          page: 1,
+          size: 20,
         },
       },
+      schedules: [{ id: 'schedule-1', name: '日常', cron: '0 4 * * *', timezone: 'Asia/Shanghai', enabled: true, priority: 2, template: [] }],
     })
     renderTaskArea('/tasks/history')
 
-    expect(await screen.findByRole('link', { name: /开始唤醒、刷理智/ })).toHaveAttribute('href', '/tasks/history/history-3')
+    expect(await screen.findByRole('link', { name: /定时 · 日常/ })).toHaveAttribute('href', '/tasks/history/history-3')
+    expect(screen.getByRole('link', { name: /手动任务 · 3 项/ })).toHaveAttribute('href', '/tasks/history/history-4')
+    expect(screen.getByRole('link', { name: /Agent 任务 · 1 项/ })).toHaveAttribute('href', '/tasks/history/history-5')
+    expect(network.find('GET', '/api/pipelines/history-3')).toHaveLength(0)
+    expect(network.find('GET', '/api/pipelines/history-4')).toHaveLength(0)
   })
 
   it('shows an empty history with a way to create a task', async () => {

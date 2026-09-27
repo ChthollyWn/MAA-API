@@ -42,6 +42,7 @@ export interface TaskApiOptions {
   historyPages?: Record<number, PageEnvelope>
   details?: Record<string, Row>
   retryStatus?: number
+  schedules?: Row[]
 }
 
 export function installTaskApi(options: TaskApiOptions = {}) {
@@ -61,6 +62,7 @@ export function installTaskApi(options: TaskApiOptions = {}) {
     const method = request.method
 
     if (pathname === '/api/tasks/types') return jsonResponse(taskTypeEnvelope)
+    if (pathname === '/api/schedules' && method === 'GET') return jsonResponse({ items: options.schedules ?? [], total: options.schedules?.length ?? 0 })
     if (pathname === '/api/resources/items') return jsonResponse([{ item_id: '30013', name: '固源岩', icon_url: null }])
     if (pathname === '/api/resources/copilots') {
       return jsonResponse({ items: [{ id: 'copilot-1', name: '主线 1-7', meta: { stage_name: '1-7', title: '剿灭行动' } }], total: 1, page: 1, size: 200 })

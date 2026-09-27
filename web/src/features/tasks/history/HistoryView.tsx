@@ -13,17 +13,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState, ErrorState, Spinner } from '@/components/ui/states'
 import { errorMessage } from '../form'
 import {
-  explicitTitle,
   formatTime,
   normalizeStatus,
   pipelineElapsed,
   pipelineIdOf,
   statusLabel,
   statusTone,
-  UNTITLED,
   type PipelineRow,
 } from '../pipeline-format'
-import { useUntitledPipelineNames } from '../pipeline-queries'
+import { usePipelineTitle } from '../pipeline-queries'
 
 export const HISTORY_PAGE_SIZE = 20
 
@@ -61,7 +59,7 @@ export function HistoryView() {
     return true
   })
   const total = history.data?.pages.at(-1)?.total ?? rows.length
-  const names = useUntitledPipelineNames(rows)
+  const titleOf = usePipelineTitle(rows)
 
   if (history.isPending) {
     return (
@@ -113,7 +111,7 @@ export function HistoryView() {
             <ListItem
               key={id}
               to={`/tasks/history/${encodeURIComponent(id)}`}
-              title={explicitTitle(row) ?? names.get(id) ?? UNTITLED}
+              title={titleOf(row)}
               description={<span className="tabular-nums">{rowMeta(row)}</span>}
               trailing={<Badge variant={statusTone(status)}>{statusLabel(status)}</Badge>}
             />

@@ -15,17 +15,15 @@ import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/ui/s
 import { toast } from '@/components/ui/toaster'
 import { errorMessage, isObject } from '../form'
 import {
-  explicitTitle,
   formatTime,
   normalizeStatus,
   pipelineIdOf,
   priorityLabel,
   sourceLabel,
   statusLabel,
-  UNTITLED,
   type PipelineRow,
 } from '../pipeline-format'
-import { cancelPipeline, useUntitledPipelineNames } from '../pipeline-queries'
+import { cancelPipeline, usePipelineTitle } from '../pipeline-queries'
 
 interface QueueSnapshot {
   running?: PipelineRow | null
@@ -81,8 +79,7 @@ export function QueueView() {
   const pendingCount = snapshot?.counts?.pending ?? pending.length
   const currentRow = currentPipeline(current.data)
   const currentId = currentRow ? pipelineIdOf(currentRow) : ''
-  const names = useUntitledPipelineNames(running ? [running, ...pending] : pending)
-  const titleOf = (row: PipelineRow) => explicitTitle(row) ?? names.get(pipelineIdOf(row)) ?? UNTITLED
+  const titleOf = usePipelineTitle(running ? [running, ...pending] : pending)
 
   // 运行项换了而当前流水线的缓存还没跟上时，补读一次开始时间。
   const refetchCurrent = current.refetch
