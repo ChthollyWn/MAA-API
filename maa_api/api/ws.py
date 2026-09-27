@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import re
 import logging
 import time
 import uuid
@@ -324,8 +325,30 @@ def _record_wire(record: LogRecord) -> dict[str, Any]:
     return {"id": record.id, **manager._record_data(record)}
 
 
+def _configured_origin_entries() -> tuple[list[str], str]:
+    """``deployment.cors_origins`` / ``deployment.cors_origin_regex``（读失败则空）。"""
+    try:
+        from maa_api.settings import get_settings
+
+        deployment = get_settings().deployment
+        return list(deployment.cors_origins), (deployment.cors_origin_regex or "")
+    except Exception:  # noqa: BLE001 - 配置读取失败不能把 WS 握手整个打挂
+        return [], ""
+
+
 def _trusted_cookie_origin(origin: str | None) -> bool:
-    """Accept configured local UI origins and RFC1918 LAN origins only."""
+    """Accept configured UI origins, RFC1918 LAN origins, and deployment extras.
+
+    ``tailscale serve`` 下前端来源是 ``https://<host>.<tailnet>.ts.net``，其中没有
+    可用的 IP 字面量，所以必须由 ``deployment.cors_origins`` /
+    ``deployment.cors_origin_regex`` 显式放行 —— 与 HTTP CORS 用的是同一份配置，
+    否则会出现「REST 能用、WebSocket 被 4403 拒绝」这种半通状态。
+    """
+    if not origin:
+        return False
+    # 合法 origin 不带结尾斜杠，但配置项里很常见；先归一化再校验，
+    # 否则会被下面的 `parsed.path` 检查判成「带路径」而拒掉。
+    origin = origin.rstrip("/")
     if not origin:
         return False
     try:
@@ -340,6 +363,11 @@ def _trusted_cookie_origin(origin: str | None) -> bool:
             or parsed.fragment
         ):
             return False
+        explicit, pattern = _configured_origin_entries()
+        if origin in {entry.strip().rstrip("/") for entry in explicit}:
+            return True
+        if pattern and re.fullmatch(pattern, origin):
+            return True
         if origin in {"http://localhost:8002", "http://127.0.0.1:8002"}:
             return True
         address = ipaddress.ip_address(parsed.hostname)

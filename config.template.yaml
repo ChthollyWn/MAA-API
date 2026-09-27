@@ -56,3 +56,13 @@ notify:
   vapid_private_key:
   # JWT 的 sub，推送服务用它联系站点管理员；改成你自己的邮箱
   vapid_subject: mailto:admin@example.com
+
+# 部署：反向代理与浏览器来源（tailscale serve / Caddy 等）
+deployment:
+  # 信任来自哪些地址的代理头；默认只信任回环。
+  # 不要写 "*"：那等于允许任何客户端伪造来源与协议，绕过限流并使 cookie 的 Secure 判定失真。
+  forwarded_allow_ips: 127.0.0.1
+  # 追加的浏览器来源白名单，例如 tailscale serve 分配的域名
+  cors_origins: []
+  # 追加的来源正则（整条匹配），用于 *.ts.net 这类通配域名
+  cors_origin_regex: ""
