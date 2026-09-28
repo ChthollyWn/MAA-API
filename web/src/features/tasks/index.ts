@@ -1,5 +1,5 @@
 export { TaskEditor, type TaskEditorProps } from './editor'
 export type { JsonSchema, TaskDraft, TaskTypeSchema } from './form'
-export { createDraft, draftsFromTemplate, MAX_TASKS, templateFromDrafts, TaskListEditor, type TaskListEditorProps } from './composer'
+export { createDraft, draftsFromTemplate, materializeDrafts, MAX_TASKS, templateFromDrafts, TaskListEditor, type TaskListEditorProps } from './composer'
 export { TASK_AREA_PATHS, TaskAreaNav, taskAreaView, type TaskAreaView } from './TaskAreaNav'
 export { taskTypeIcon, taskTypesKey, typeDescription, useTaskTypes } from './task-types'

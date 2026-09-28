@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router'
 import SettingsPage from '@/routes/settings'
+import { taskTypesKey } from '@/features/tasks'
 import { useAuth } from '@/stores/auth'
 import { THEME_STORAGE_KEY, useUiStore } from '@/stores/ui'
 
@@ -165,7 +166,7 @@ function renderSettings(entries: string[] = ['/more/settings']) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
-  return { router }
+  return { router, queryClient }
 }
 
 /** jsdom 没有 ResizeObserver；表单里的 Radix 开关会用它量尺寸。 */
@@ -291,6 +292,19 @@ describe('schema-driven sections', () => {
     await waitFor(() => expect(api.puts()).toHaveLength(2))
     expect(api.puts()[1]?.body).toEqual({ items: { 'adb.screenshot_quality': 40 } })
     await waitFor(() => expect(screen.getAllByText('来源：数据库覆盖')).toHaveLength(2))
+  })
+
+  it('invalidates the task type catalog after saving so new tasks prefill the new channel (M17)', async () => {
+    const api = installApi()
+    const { queryClient } = renderSettings(['/more/settings/device'])
+    // 任务类型目录缓存着渠道默认值 overlay 的结果（5 分钟 staleTime），保存渠道设置后必须失效它。
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+
+    fireEvent.change(await screen.findByLabelText('设备地址'), { target: { value: '127.0.0.1:5556' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(api.puts()).toHaveLength(1))
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: taskTypesKey }))
   })
 
   it('turns the default-on automatic diagnosis off and saves false on its own (P4)', async () => {

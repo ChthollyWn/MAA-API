@@ -15,7 +15,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states'
 import { StickyActionBar } from '@/components/ui/sticky-action-bar'
 import { SwitchRow } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toaster'
-import { draftsFromTemplate, templateFromDrafts, TaskListEditor, useTaskTypes, type TaskDraft } from '@/features/tasks'
+import { draftsFromTemplate, materializeDrafts, templateFromDrafts, TaskListEditor, useTaskTypes, type TaskDraft } from '@/features/tasks'
 import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes'
 import { deleteSchedule, refreshAfterRun, runSchedule, saveSchedule, SCHEDULES_PATH, updateScheduleCache } from './api'
 import { describeSaveFailure, pruneTaskErrors, type SaveFailureContext, type TaskErrors } from './errors'
@@ -118,9 +118,9 @@ function ScheduleEditor({ schedule, prefill, onLeave }: ScheduleEditorProps) {
   const types = useTaskTypes()
   const taskTypes = types.data ?? []
   const [initial] = useState(() => (schedule
-    ? { form: scheduleFormFromView(schedule), drafts: draftsFromTemplate(schedule.template) }
-    : { form: emptyScheduleForm(prefill?.name), drafts: draftsFromTemplate(prefill?.template ?? []) }))
-  const [baseline] = useState(() => scheduleSnapshot(initial.form, templateFromDrafts(initial.drafts)))
+    ? { form: scheduleFormFromView(schedule), drafts: draftsFromTemplate(schedule.template, taskTypes) }
+    : { form: emptyScheduleForm(prefill?.name), drafts: draftsFromTemplate(prefill?.template ?? [], taskTypes) }))
+  const [baseline, setBaseline] = useState(() => scheduleSnapshot(initial.form, templateFromDrafts(initial.drafts)))
   const [form, setForm] = useState(initial.form)
   const [drafts, setDrafts] = useState(initial.drafts)
   const [fieldErrors, setFieldErrors] = useState<ScheduleFieldErrors>({})
@@ -147,6 +147,18 @@ function ScheduleEditor({ schedule, prefill, onLeave }: ScheduleEditorProps) {
   useEffect(() => {
     if (focusRequest) focusField(focusRequest.field)
   }, [focusRequest])
+
+  // 任务类型目录可能晚于首次渲染才到达（例如从 API 调试台收藏新建）；到了再补一次物化，
+  // 基线一起更新，否则物化本身会被当成「有未保存的更改」。
+  const materialized = useRef(taskTypes.length > 0)
+  useEffect(() => {
+    if (materialized.current || taskTypes.length === 0) return
+    materialized.current = true
+    const next = materializeDrafts(drafts, taskTypes)
+    if (next.every((draft, index) => draft === drafts[index])) return
+    setDrafts(next)
+    setBaseline(scheduleSnapshot(initial.form, templateFromDrafts(next)))
+  }, [taskTypes, drafts, initial.form])
 
   const showFeedback = (next: Notice | null) => {
     setNotice(next)

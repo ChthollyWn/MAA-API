@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import taskTypesFixture from '../task-types.fixture.json'
-import type { TaskTypeSchema } from './schema'
+import { materializeDefaults, type TaskTypeSchema } from './schema'
 import { DEFAULT_PARAMS_SUMMARY, summarizeTaskParams } from './summary'
 
 const types = (taskTypesFixture as unknown as { items: TaskTypeSchema[] }).items
@@ -17,18 +17,32 @@ describe('summarizeTaskParams', () => {
     expect(summarizeTaskParams(typeByName('Fight'), { stage: undefined })).toBe('使用默认参数')
   })
 
+  it('lists only the fields that differ from the schema default (物化后的草稿)', () => {
+    // 物化过的草稿带一整套默认值，摘要仍然只说「使用默认参数」。
+    expect(summarizeTaskParams(typeByName('Fight'), materializeDefaults(typeByName('Fight'), {}))).toBe('使用默认参数')
+    expect(summarizeTaskParams(typeByName('Infrast'), materializeDefaults(typeByName('Infrast'), {}))).toBe('使用默认参数')
+    // 显式写回默认值不算改动；没有默认值的字段仍然照旧。
+    expect(summarizeTaskParams(typeByName('Fight'), { medicine: 0, series: 1, server: 'CN', drops: {} })).toBe('使用默认参数')
+    expect(summarizeTaskParams(typeByName('Award'), { award: true, mail: false })).toBe('使用默认参数')
+    expect(summarizeTaskParams(typeByName('Fight'), { medicine: 0, series: 1, stage: '1-7' })).toBe('1-7')
+  })
+
   it('shows the stage value and compact numeric labels (Fight 1-7 · 理智药 2)', () => {
     expect(summarizeTaskParams(typeByName('Fight'), { medicine: 2, stage: '1-7' })).toBe('1-7 · 理智药 2')
     expect(summarizeTaskParams(typeByName('Fight'), { stone: 1 })).toBe('碎石 1')
     expect(summarizeTaskParams(typeByName('Fight'), { times: 3 })).toBe('指定次数 3')
+    expect(summarizeTaskParams(typeByName('Fight'), materializeDefaults(typeByName('Fight'), { medicine: 2 }))).toBe('理智药 2')
   })
 
   it('uses Chinese enum labels, 开/关 for booleans and item counts for arrays and maps', () => {
     expect(summarizeTaskParams(typeByName('Roguelike'), { theme: 'Mizuki', mode: 1 })).toBe('水月与深蓝之树 · 刷源石锭')
     expect(summarizeTaskParams(typeByName('Fight'), { series: -1 })).toBe('禁用切换')
-    expect(summarizeTaskParams(typeByName('Award'), { mail: true, recruit: false })).toBe('领取邮件奖励 开 · 领取每日免费单抽 关')
+    expect(summarizeTaskParams(typeByName('Award'), { mail: true, recruit: false })).toBe('领取邮件奖励 开')
+    expect(summarizeTaskParams(typeByName('Award'), { award: false, mail: true })).toBe('领取每日/每周任务奖励 关 · 领取邮件奖励 开')
     expect(summarizeTaskParams(typeByName('Infrast'), { facility: ['Mfg', 'Trade'] })).toBe('要换班的设施 2 项')
     expect(summarizeTaskParams(typeByName('Fight'), { drops: { '30013': 5 } })).toBe('指定掉落数量 1 项')
+    // 明确留空是用户动作，即使 schema 默认值也是 null 也要列出来。
+    expect(summarizeTaskParams(typeByName('Fight'), materializeDefaults(typeByName('Fight'), { stage: null }))).toBe('关卡名 留空')
     expect(summarizeTaskParams(typeByName('Fight'), { stage: null })).toBe('关卡名 留空')
   })
 

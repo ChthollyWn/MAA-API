@@ -63,7 +63,7 @@ function TaskEditorBody({ taskType, value, onChange, disabled = false, errors = 
         </InlineAlert>
       ) : null}
       {groups.map((group) => {
-        const modified = countModified(value, group.fields.map(([name]) => name))
+        const modified = countModified(value, Object.fromEntries(group.fields))
         return (
           <Disclosure key={group.name} title={group.name} badge={modified > 0 ? `已修改 ${modified} 项` : undefined} defaultOpen={openGroups.has(group.name)}>
             <div className="divide-y [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">

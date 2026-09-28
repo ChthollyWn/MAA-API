@@ -257,6 +257,38 @@ export function schemaDefault(schema: JsonSchema): { value: unknown } | undefine
   return { value: schema.default }
 }
 
+/** 默认值的深拷贝：数组与映射不能与 schema（或查询缓存）共享引用。 */
+function copyDefault(value: unknown): unknown {
+  return isObject(value) || Array.isArray(value) ? structuredClone(value) : value
+}
+
+/**
+ * M17 的预填：把「schema 有非 null `default` 且草稿里没有该键」的字段填成默认值，返回新对象。
+ * 没有默认值的字段（`default` 缺失或为 null，见 docs/09 §7.5 的四类）一个都不碰；判别字段 `name`
+ * 由草稿的 `name` 承载，不写进参数；嵌套对象只在草稿里已有该对象时递归。
+ */
+export function materializeDefaults(taskType: TaskTypeSchema, params: Record<string, unknown> = {}): Record<string, unknown> {
+  return materializeObject(taskType.schema, taskType.schema, params)
+}
+
+function materializeObject(root: JsonSchema, schema: JsonSchema, params: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...params }
+  for (const [name, input] of Object.entries(schemaProperties(schema))) {
+    if (name === 'name') continue
+    const normalized = normalizeSchema(input, root).schema
+    // 显式 undefined 与缺键等效（与 fieldState 一致）；显式 null 是「明确留空」，保留。
+    if (result[name] === undefined) {
+      const fallback = schemaDefault(normalized)
+      if (fallback) result[name] = copyDefault(fallback.value)
+      continue
+    }
+    const value = result[name]
+    if (!isObject(value) || Object.keys(schemaProperties(normalized)).length === 0) continue
+    result[name] = materializeObject(root, normalized, value)
+  }
+  return result
+}
+
 export type FieldEntry = [name: string, schema: JsonSchema]
 
 /** 可编辑字段（schema 顺序），去掉由任务类型决定的判别字段 `name`。 */

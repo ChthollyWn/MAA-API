@@ -88,7 +88,7 @@ function TaskRow({ draft, position, count, taskType, summary, errorCount, disabl
 
 /**
  * 可编排的任务列表：每行显示类型、参数摘要与错误数，点行打开参数编辑器；行内菜单可上移、下移、复制、删除。
- * 编排器与定时任务编辑器共用；草稿结构见 `TaskDraft`（参数只含用户改过的字段）。
+ * 编排器与定时任务编辑器共用；草稿结构见 `TaskDraft`（新建与复制时按 schema 预填默认值，提交即下发）。
  */
 export function TaskListEditor({
   taskTypes,
@@ -128,7 +128,7 @@ export function TaskListEditor({
 
   const add = (taskType: TaskTypeSchema) => {
     if (full) return
-    const draft = createDraft(taskType.name)
+    const draft = createDraft(taskType)
     onChange([...drafts, draft])
     setTypeSheetOpen(false)
     setEditingId(draft.id)
@@ -137,7 +137,7 @@ export function TaskListEditor({
   const duplicate = (index: number) => {
     if (full) return
     const next = [...drafts]
-    next.splice(index + 1, 0, duplicateDraft(drafts[index]))
+    next.splice(index + 1, 0, duplicateDraft(drafts[index], typeOf(drafts[index].name)))
     onChange(next)
   }
 

@@ -31,21 +31,31 @@ export class ScheduleTemplateError extends Error {
 }
 
 /**
+ * 白名单内的一条任务：参数原样透传，只固定判别字段 `name`。
+ *
+ * 生成类型 `api.d.ts` 把带 `default` 的参数标成了必填（openapi-typescript 对 `default` 的已知行为），
+ * 而模板本来就允许只写改过的字段——省略的参数由服务端按默认值补齐，所以这里显式断言一次。
+ */
+function templateTask(task: TemplateTask, name: ScheduleTemplateTask['name']): ScheduleTemplateTask {
+  return { ...task, name } as ScheduleTemplateTask
+}
+
+/**
  * 定时任务模板白名单：只放行服务端可定时的十种任务，Copilot 只保留 `asset_id` 与 `formation`。
  * 不合格的任务抛出 `ScheduleTemplateError`，带上它的序号。
  */
 export function toScheduleTemplate(tasks: readonly TemplateTask[]): ScheduleTemplate {
   return tasks.map((task, index): ScheduleTemplateTask => {
     switch (task.name) {
-      case 'StartUp': return { ...task, name: 'StartUp' }
-      case 'CloseDown': return { ...task, name: 'CloseDown' }
-      case 'Fight': return { ...task, name: 'Fight' }
-      case 'Recruit': return { ...task, name: 'Recruit' }
-      case 'Infrast': return { ...task, name: 'Infrast' }
-      case 'Mall': return { ...task, name: 'Mall' }
-      case 'Award': return { ...task, name: 'Award' }
-      case 'Roguelike': return { ...task, name: 'Roguelike' }
-      case 'Reclamation': return { ...task, name: 'Reclamation' }
+      case 'StartUp': return templateTask(task, 'StartUp')
+      case 'CloseDown': return templateTask(task, 'CloseDown')
+      case 'Fight': return templateTask(task, 'Fight')
+      case 'Recruit': return templateTask(task, 'Recruit')
+      case 'Infrast': return templateTask(task, 'Infrast')
+      case 'Mall': return templateTask(task, 'Mall')
+      case 'Award': return templateTask(task, 'Award')
+      case 'Roguelike': return templateTask(task, 'Roguelike')
+      case 'Reclamation': return templateTask(task, 'Reclamation')
       case 'Copilot': {
         if (typeof task.asset_id !== 'string' || !task.asset_id) {
           throw new ScheduleTemplateError('请选择一个已保存的 Copilot 作业。', index, 'asset_id')

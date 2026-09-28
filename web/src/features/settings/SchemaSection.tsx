@@ -18,6 +18,7 @@ import { asRecord, fieldDomId, initialInputValue, isFieldChanged, parseFieldValu
 import { SETTINGS_INDEX_PATH, fieldsForSection, groupFields, sectionPath, type SettingsSection } from './sections'
 import { SettingFieldRow } from './SettingFieldRow'
 import { settingsQueryOptions } from './use-settings'
+import { taskTypesKey } from '@/features/tasks'
 import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes'
 
 type Action = 'save' | 'reset'
@@ -85,7 +86,14 @@ export function SchemaSection({ section, intro }: SchemaSectionProps) {
     if (notice) noticeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [notice])
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: keys.settings.all() })
+  // 渠道默认值会 overlay 进任务类型 schema（client_type / server 的 default），保存或恢复默认后必须失效它，
+  // 否则 5 分钟 staleTime 内新建的任务会预填旧渠道。
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: keys.settings.all() }),
+      queryClient.invalidateQueries({ queryKey: taskTypesKey }),
+    ])
+  }
 
   const change = (key: string, value: unknown) => {
     setDraft((current) => ({ ...current, [key]: value }))
