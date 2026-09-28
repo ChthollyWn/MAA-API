@@ -67,11 +67,17 @@ def _client(
     if private_pem is None:
         private_pem, _ = vapid.generate_vapid_key_pair()
     settings = SimpleNamespace(
+        # 空串＝免鉴权（docs/05 §5.2）：本文件只挂 notifications 路由，不测鉴权本身。
+        access_token="",
         notify=SimpleNamespace(
             vapid_private_key=private_pem, vapid_subject="mailto:t@example.com"
-        )
+        ),
     )
+    # 鉴权依赖在 import 期就把 ``get_settings`` 绑进了 ``maa_api.api.deps``，只打
+    # ``maa_api.settings`` 那个入口没用：本机 ``config.yaml`` 一旦配了 access_token，
+    # 这些用例会以 401 全红（与代码无关的环境性失败，M17 复现并修复）。
     monkeypatch.setattr("maa_api.settings.get_settings", lambda: settings)
+    monkeypatch.setattr("maa_api.api.deps.get_settings", lambda: settings)
 
     app = FastAPI()
     register_exception_handlers(app)
