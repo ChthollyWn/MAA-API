@@ -23,6 +23,7 @@
 - 真机/模拟器已连接：`127.0.0.1:5555`（`adb devices` 可见）。
 - **`AsstMsg` 取值不是 1..12 连号**（v6.17.5 实测）：`InternalError=0`、`InitFailed=1`、`ConnectionInfo=2`、`AllTasksCompleted=3`、`AsyncCallInfo=4`、`Destroyed=5`、`TaskChain*=10000..10004`、`SubTask*=20000..20004`。照连号硬编码会把 `ConnectionInfo`(2) 当成 `TaskChainError`。
 - **`AsstAppendTask` 校验任务必填参数，缺参数时静默返回 0**（不抛异常、无回调）。实测：`("StartUp", {})`→0、`("StartUp", {"client_type":"Official"})`→1；`("Infrast", {})`→0、带 `{"facility":["Mfg"]}`→2；`("Recruit", {})`/`{"times":4}` 均→0；`Award`/`Fight`/`Mall`/`Roguelike`/`OperBox`/`Depot` 空参数即可。`task_id == 0` 必须当失败处理。
+- **M17 复测（v6.17.5，2026-09-28）：append 不需要连设备，可以拿它当「全默认参数能不能被内核接受」的验收入口。** 用 `scripts/probe_task_defaults.py` 实测：`StartUp` 必须给 `client_type`（`StartUpTask.cpp` 里 `Config.get_package_name("")` 失败）；`Recruit` 必须**同时**给 `select` 与 `confirm`（只给 `times` 也是 0）；`Infrast` 必须给 `facility`（`{"facility":[]}` 能过，未知设施名不能）；`Copilot` 需要能被解析的 `filename`（服务层由 `asset_id` 映射）；`CloseDown`/`Fight`/`Mall`/`Award`/`Roguelike`/`Reclamation` 空参数即可。这解释了「用户什么都不改就提交公招/基建任务会拿到 502 CORE_COMMAND_FAILED」的旧现象——M17 起这三个参数由本服务给出默认值。
 - **`AsstSetUserDir` 要求目录已存在**，否则返回 False；旧封装 `Asst.load()` 把它 `&=` 进返回值，表现为「内核加载失败」。
 - **按绝对路径 `ctypes.CDLL(<dir>/libMaaCore.dylib)` 不依赖 `DYLD_LIBRARY_PATH`**：`env -u DYLD_LIBRARY_PATH` 实测也能 dlopen（依赖走 @loader_path/@rpath）。那条环境变量是冗余保险。
 - **`AsstGetTasksList(handle)`（`restype=c_char_p`）在本内核上直接段错误**：`<user_dir>/crash.log` 记 `SIGSEGV`，进程退出码是 **1**（不是 139/-11）。即 MaaCore 把 native 崩溃转成 exit 1 + crash.log，supervisor 不能靠「exitcode 为负」判崩溃。

@@ -1,6 +1,6 @@
 # MAA-API 重构方案
 
-本目录是 MAA-API 全面重构的执行方案。**M0–M11、M13、M14、M15、M16 已完成并合并进 `refactor/v2`**（M12 的 MCP Server 按 [13 §8.4](./13-决策记录.md) 移出范围，不交付）。
+本目录是 MAA-API 全面重构的执行方案。**M0–M11、M13、M14、M15、M16、M17 已完成并合并进 `refactor/v2`**（M12 的 MCP Server 按 [13 §8.4](./13-决策记录.md) 移出范围，不交付）。
 
 内核仍然是 [MaaAssistantArknights](https://github.com/MaaAssistantArknights/MaaAssistantArknights)（本地为 v6.17.x），重构范围覆盖后端架构、前端、热更新、开放 API 与新增的 Agent 模块。
 
@@ -88,6 +88,7 @@
 | 鉴权 | 单 `access_token`，支持 Bearer / `X-Token` / query / cookie 四种传递方式 |
 | 状态码 | **全面改用标准 HTTP 状态码**，废弃 `{code: 10200}` 业务码体系 |
 | 错误体 | `{"error": {"code": "ADB_CONNECT_FAILED", "message": "...", "details": {...}}}`，错误码为可枚举字符串 |
+| 任务参数默认值 | 字段带**真实内核默认值**（MAA v6.17.5，M17 取证后写进 JSON Schema `default`），默认值随下发快照显式下发；显式传 `null` 仍是「不下发、由内核决定」。逐字段依据与代价见 [13 §8.17](./13-决策记录.md) |
 
 ### 需求 7 · Agent 模块
 
