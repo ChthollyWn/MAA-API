@@ -1,4 +1,7 @@
-import { Fragment, useMemo } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Check, Copy } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { copyText } from '@/lib/clipboard'
 
 /**
  * 自研的、流式安全的 Markdown 解析与渲染（不依赖任何第三方库）。
@@ -662,16 +665,53 @@ function renderBlock(block: MarkdownBlock, key: number) {
       )
 
     case 'code':
-      return (
-        <div key={key} className="space-y-1">
-          {block.language ? <div className="text-footnote text-muted-foreground">{block.language}</div> : null}
-          {/* 语言名放在 <pre> 外面，<pre> 的 textContent 必须与代码原文逐字一致。 */}
-          <pre className="overflow-x-auto rounded-md bg-muted px-3 py-2">
-            <code className="font-mono text-footnote whitespace-pre-wrap break-words">{block.text}</code>
-          </pre>
-        </div>
-      )
+      return <CodeBlockView key={key} language={block.language} text={block.text} />
   }
+}
+
+type CopyState = 'idle' | 'copied' | 'failed'
+
+const COPY_LABEL: Record<CopyState, string> = { idle: '复制', copied: '已复制', failed: '复制失败' }
+
+/**
+ * 围栏代码块 + 一键复制。
+ *
+ * 复制沿用日志页的口径：`copyText`（在局域网 HTTP 下没有 `navigator.clipboard`，
+ * 它会退回 execCommand），2 秒后回落图标，失败时明确显示「复制失败」而不是静默。
+ * 语言名与按钮放在 `<pre>` 外面，`<pre>` 的 textContent 必须与代码原文逐字一致。
+ */
+function CodeBlockView({ language, text }: { language: string | null; text: string }) {
+  const [copyState, setCopyState] = useState<CopyState>('idle')
+
+  useEffect(() => {
+    if (copyState === 'idle') return
+    const timer = window.setTimeout(() => setCopyState('idle'), 2_000)
+    return () => window.clearTimeout(timer)
+  }, [copyState])
+
+  const copy = async () => setCopyState((await copyText(text)) ? 'copied' : 'failed')
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-footnote text-muted-foreground">{language ?? ''}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="shrink-0 text-footnote"
+          aria-label={copyState === 'idle' ? '复制代码' : COPY_LABEL[copyState]}
+          onClick={() => void copy()}
+        >
+          {copyState === 'copied' ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          {COPY_LABEL[copyState]}
+        </Button>
+      </div>
+      <pre className="overflow-x-auto rounded-md bg-muted px-3 py-2">
+        <code className="font-mono text-footnote whitespace-pre-wrap break-words">{text}</code>
+      </pre>
+    </div>
+  )
 }
 
 function renderInline(nodes: MarkdownInline[], prefix: string) {

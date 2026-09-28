@@ -1,9 +1,19 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { copyText } from '@/lib/clipboard'
 import { Markdown } from './markdown.tsx'
 
-afterEach(cleanup)
+// 与 api-console 的测试同一口径：剪贴板在 jsdom 里没有实现，直接替身掉。
+vi.mock('@/lib/clipboard', () => ({ copyText: vi.fn(async () => true) }))
+
+const mockedCopy = vi.mocked(copyText)
+
+afterEach(() => {
+  cleanup()
+  mockedCopy.mockClear()
+  mockedCopy.mockResolvedValue(true)
+})
 
 describe('Markdown component', () => {
   it('renders emphasis, code and lists as real elements, not literal markers', () => {
@@ -40,5 +50,45 @@ describe('Markdown component', () => {
     const { container } = render(<Markdown text={'<img src=x onerror=alert(1)>'} />)
     expect(container.querySelector('img')).toBeNull()
     expect(container.textContent).toContain('<img src=x onerror=alert(1)>')
+  })
+})
+
+describe('code block copy button', () => {
+  it('copies the fenced code verbatim and confirms visibly', async () => {
+    const code = '# 演示\nadb devices\necho "示例输出"'
+    render(<Markdown text={`\`\`\`bash\n${code}\n\`\`\``} />)
+
+    // 只复制代码本身，不含语言标签与多余空行。
+    const button = screen.getByRole('button', { name: '复制代码' })
+    fireEvent.click(button)
+
+    await waitFor(() => expect(mockedCopy).toHaveBeenCalledWith(code))
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeInTheDocument()
+    expect(screen.getByText('已复制')).toBeInTheDocument()
+  })
+
+  it('reports a failed copy instead of pretending it worked', async () => {
+    mockedCopy.mockResolvedValueOnce(false)
+    render(<Markdown text={'```\nadb devices\n```'} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '复制代码' }))
+
+    expect(await screen.findByRole('button', { name: '复制失败' })).toBeInTheDocument()
+    expect(screen.getByText('复制失败')).toBeInTheDocument()
+  })
+
+  it('offers one button per code block and none for inline code', () => {
+    const { container } = render(
+      <Markdown text={'行内 `MaaCore`\n\n```bash\nls\n```\n\n```json\n{}\n```'} />,
+    )
+
+    expect(screen.getAllByRole('button', { name: '复制代码' })).toHaveLength(2)
+    expect(container.querySelectorAll('pre')).toHaveLength(2)
+  })
+
+  it('keeps the language label outside the copied body', () => {
+    const { container } = render(<Markdown text={'```python\nprint(1)\n```'} />)
+    expect(container.querySelector('pre')?.textContent).toBe('print(1)')
+    expect(screen.getByText('python')).toBeInTheDocument()
   })
 })
