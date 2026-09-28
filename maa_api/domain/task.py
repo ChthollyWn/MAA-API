@@ -6,22 +6,40 @@
 字段名、类型与说明文字逐字段迁移自 ``maa_api/model/core/task.py`` 中 9 个任务类
 ``__init__`` docstring 的「参数:」段。docstring 是参数的权威来源，但它只把取值范围、
 枚举域与跨字段规则记在注释里；凡是 docstring 与 docs/05 §7.5／§7.6 冲突或过时之处，
-**一律以 docs/05 为准**。本模块落实的五处修正：
+**一律以 docs/05 为准**。本模块落实的四处修正：
 
 1. ``Reclamation`` 的参数键由 :meth:`TaskInputBase.to_core_params` 的 ``model_dump``
    生成，不再出现旧实现里「变量当键」（``{enable: enable, ...}``）；
 2. 统一使用 ``filename``，不为旧实现的 ``failename`` 拼写错误保留兼容别名；
-3. ``Award`` 的 ``mail``/``recruit``/``orundum``/``mining``/``specialaccess`` 一律
-   ``default=None``，不预设 True/False —— 不下发则由内核用自己的默认值；
-4. ``Infrast.threshold`` 同样不设服务端默认值（``default=None``），内核当前默认值
-   ``0.3`` 只出现在 ``description`` 文案里（docs/13 §7）；
-5. ``Fight.times`` 与 ``Recruit.times`` 是两个独立字段，语义（战斗次数／招募次数）
+3. ``Award`` 的 ``mail``/``recruit``/``orundum``/``mining``/``specialaccess`` 与
+   ``Infrast.threshold`` 原先一律 ``default=None``（服务端不预设，由内核用自己的默认值）；
+   M17 起这两组字段都写标准 JSON Schema ``default``，见下文「默认值（M17）」；
+4. ``Fight.times`` 与 ``Recruit.times`` 是两个独立字段，语义（战斗次数／招募次数）
    不混用；旧 ``TaskRequest`` 里重复声明的 ``times`` 问题结构性消失。
 
 docstring 中其它与 docs/05 有出入、按 05 处理的点：``Recruit.recruitment_time`` 声明为
 ``dict[str, int]``（JSON 对象键只能是字符串，旧签名 ``dict[int, int]`` 在 JSON 层面不
-成立）；``Roguelike.theme``/``mode``、``Infrast.threshold`` 等「内核默认值」一律不进模型
-默认值，而由内核在收到缺省参数时自行决定。
+成立）。
+
+默认值（M17）
+-------------
+
+有内核默认值、能用 JSON 字面量表达、且任何上下文下都能显式下发的字段，一律写标准
+JSON Schema ``default``——前端据此预填，``to_core_params()`` 的 ``exclude_none=True``
+让默认值随下发快照显式下发（``raw_params`` 仍是 ``exclude_unset=True``，只记客户端
+显式提交的字段）。可变默认值必须写字面量（``default=[...]`` / ``default={...}``）：
+pydantic v2 的 ``default_factory`` 不会在 JSON Schema 里输出 ``default``，而字面量由
+pydantic 按实例深拷贝，不存在共享可变对象问题。
+
+保持 ``default=None`` 的四类：语义是「无限」（``Fight.times`` /
+``Roguelike.starts_count`` / ``Roguelike.investments_count``）、语义是「空 = 不启用」
+（``Fight.stage`` / ``Roguelike.squad`` / ``Roguelike.roles`` 等）、随主题／模式变的
+条件默认值（``Roguelike.difficulty`` / ``use_foldartal`` /
+``expected_collapsal_paradigms`` 等）、以及本服务校验器禁止「设了但不生效」的
+``Recruit.expedite_times``。渠道字段 ``client_type`` / ``server`` 同样保持 ``None``：
+服务端按 ``model_fields_set`` 注入全局渠道默认值，三态语义不变（docs/05 §9）。
+逐字段依据与内核证据见
+docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md §4。
 
 跨字段规则与抛码
 ----------------
@@ -94,6 +112,18 @@ RECLAMATION_THEMES = Literal["Fire", "Tales"]
 #: 基建换班设施枚举（7 值，顺序即换班顺序）。
 INFRAST_FACILITIES = Literal["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"]
 
+#: 设施枚举的中文标签（M17）。挂在 ``facility`` 的**元素**注解上走 ``x-enum-labels``：
+#: 前端 ``arrayItemOptions()`` 读的是 items 的标签，字段级标签对数组不生效。
+INFRAST_FACILITY_LABELS: dict[str, str] = {
+    "Mfg": "制造站",
+    "Trade": "贸易站",
+    "Power": "发电站",
+    "Control": "控制中枢",
+    "Reception": "会客室",
+    "Office": "办公室",
+    "Dorm": "宿舍",
+}
+
 #: 无人机用途枚举（7 值）。
 INFRAST_DRONES = Literal[
     "_NotUse", "Money", "SyntheticJade", "CombatRecord", "PureGold", "OriginStone", "Chip"
@@ -163,9 +193,9 @@ class TaskInputBase(BaseModel):
     )
 
     enable: bool | None = MaaField(
-        default=None,
+        default=True,
         label="启用本任务",
-        description="是否启用本任务；不传则由内核使用默认值（True）",
+        description="是否启用本任务；内核默认值 True（启用）",
     )
 
     def to_core_params(self) -> dict[str, Any]:
@@ -218,10 +248,14 @@ class StartUpInput(TaskInputBase):
         ),
     )
     start_game_enabled: bool | None = MaaField(
-        default=None,
+        default=False,
         label="自动启动客户端",
         group="账号",
-        description="是否自动启动客户端；不传则由内核使用默认值（True，即自动启动）",
+        description=(
+            "是否自动启动客户端；内核默认值 False（即不自动启动，"
+            "源码 StartUpTask.cpp 的 params.get(\"start_game_enabled\", false)）。"
+            "需要自动启动客户端时请显式设为 True"
+        ),
     )
     account_name: str | None = MaaField(
         default=None,
@@ -305,7 +339,7 @@ class FightInput(TaskInputBase):
         description="指定战斗次数；不传则由内核使用默认值（无穷大）",
     )
     series: int | None = MaaField(
-        default=None,
+        default=1,
         label="连战次数",
         ge=-1,
         le=6,
@@ -322,40 +356,45 @@ class FightInput(TaskInputBase):
         },
         description=(
             "连战次数；-1 为禁用切换，0 为自动切换为当前可用的最大次数"
-            "（如当前理智不够 6 次，则选择最低可用次数），1~6 为指定连战次数"
+            "（如当前理智不够 6 次，则选择最低可用次数），1~6 为指定连战次数。"
+            "内核默认值 1"
         ),
     )
     medicine: int | None = MaaField(
-        default=None,
+        default=0,
         label="最大理智药数",
         group="资源消耗",
         ge=0,
         risk=RISK_CONSUME,
-        description="最大使用理智药数量；不传则由内核使用默认值（0，即不吃药）",
+        description="最大使用理智药数量；内核默认值 0（即不吃药）",
     )
     expiring_medicine: int | None = MaaField(
-        default=None,
+        default=0,
         label="最大 48 小时内过期理智药数",
         group="资源消耗",
         ge=0,
         risk=RISK_CONSUME,
-        description="最大使用 48 小时内过期理智药数量；不传则由内核使用默认值（0）",
+        description=(
+            "最大使用 48 小时内过期理智药数量；内核默认值 0。"
+            "该参数自内核 v6.8.0 起已弃用，内核改用 medicine_expire_days"
+            "（理智药过期天数，非 0 即视为 2 天）；本服务的字段仅为兼容旧提交保留"
+        ),
     )
     stone: int | None = MaaField(
-        default=None,
+        default=0,
         label="最大碎石数",
         group="资源消耗",
         ge=0,
         risk=RISK_CONSUME,
-        description="最大吃石头（源石）数量；不传则由内核使用默认值（0，即不碎石）",
+        description="最大吃石头（源石）数量；内核默认值 0（即不碎石）",
     )
     dr_grandet: bool | None = MaaField(
-        default=None,
+        default=False,
         label="节省理智碎石模式",
         group="资源消耗",
         description=(
             "节省理智碎石模式；仅在可能产生碎石效果时生效：在碎石确认界面等待，"
-            "直到当前的 1 点理智恢复完成后再立刻碎石。不传则由内核使用默认值（False）"
+            "直到当前的 1 点理智恢复完成后再立刻碎石。内核默认值 False"
         ),
         validation_alias=AliasChoices("DrGrandet", "dr_grandet"),
         serialization_alias="DrGrandet",
@@ -390,10 +429,10 @@ class FightInput(TaskInputBase):
         ),
     )
     report_to_penguin: bool | None = MaaField(
-        default=None,
+        default=False,
         label="汇报企鹅数据",
         group="数据上报",
-        description="是否汇报企鹅数据；不传则由内核使用默认值（False）",
+        description="是否汇报企鹅数据；内核默认值 False",
     )
     penguin_id: str | None = MaaField(
         default=None,
@@ -403,13 +442,13 @@ class FightInput(TaskInputBase):
         description="企鹅数据汇报 id；仅在 report_to_penguin 为 True 时有效",
     )
     drops: dict[str, int] | None = MaaField(
-        default=None,
+        default={},
         label="指定掉落数量",
         group="高级",
         widget="item-count-map",
         description=(
             "指定掉落数量；key 为 item_id（见 resource/item_index.json），value 为数量。"
-            "是或的关系，即任一达到即停止任务"
+            "是或的关系，即任一达到即停止任务；默认空对象表示不指定掉落目标"
         ),
     )
 
@@ -434,24 +473,32 @@ class RecruitInput(TaskInputBase):
         description="判别联合 discriminator，固定为 Recruit；由任务类型选择器决定，用户不需要填写",
     )
     refresh: bool | None = MaaField(
-        default=None,
+        default=False,
         label="刷新三星 Tags",
-        description="是否刷新三星 Tags；不传则由内核使用默认值（False）",
+        description="是否刷新三星 Tags；内核默认值 False",
     )
     select: list[Annotated[int, Field(ge=1, le=6)]] | None = MaaField(
-        default=None,
+        default=[1, 4, 5],
         label="点击的 Tag 等级",
         widget="tags",
-        description="会去点击标签的 Tag 等级，必选；元素取值范围 1~6",
+        description=(
+            "会去点击标签的 Tag 等级，内核必填；元素取值范围 1~6。"
+            "默认值 [1, 4, 5] 由本服务约定（内核没有默认值），沿用旧前端日常预设"
+        ),
     )
     confirm: list[Annotated[int, Field(ge=1, le=6)]] | None = MaaField(
-        default=None,
+        default=[2, 3, 4, 5],
         label="确认的 Tag 等级",
         widget="tags",
-        description="会去点击确认的 Tag 等级，必选；元素取值范围 1~6。若仅公招计算，可设置为空数组",
+        description=(
+            "会去点击确认的 Tag 等级，内核必填；元素取值范围 1~6。"
+            "默认值 [2, 3, 4, 5] 由本服务约定（内核没有默认值）。"
+            "内核以「confirm 含 -1」表示仅公招计算（只计算 Tag 组合、不点击确认），"
+            "本服务的元素约束 1~6 不接受 -1"
+        ),
     )
     first_tags: list[str] | None = MaaField(
-        default=None,
+        default=[],
         label="首选 Tags",
         group="公招标签",
         widget="tags",
@@ -461,7 +508,7 @@ class RecruitInput(TaskInputBase):
         ),
     )
     extra_tags_mode: Literal[0, 1, 2] | None = MaaField(
-        default=None,
+        default=0,
         label="选择更多的 Tags",
         widget="select",
         enum_labels={
@@ -472,27 +519,34 @@ class RecruitInput(TaskInputBase):
         description=(
             "选择更多的 Tags；0 为默认行为，1 为选 3 个 Tags（即使可能冲突），"
             "2 为如果可能则同时选择更多的高星 Tag 组合（即使可能冲突）。"
-            "不传则由内核使用默认值（0）"
+            "内核默认值 0"
         ),
     )
     times: int | None = MaaField(
-        default=None,
+        default=0,
         label="招募次数",
         ge=0,
-        description="招募多少次；不传则由内核使用默认值（0）。若仅公招计算，可设置为 0",
+        description=(
+            "招募多少次；内核默认值 0（主循环不执行，只进公招页而不招募）。"
+            "要真正招募请设置为大于 0 的次数"
+        ),
     )
     set_time: bool | None = MaaField(
-        default=None,
+        default=True,
         label="设置招募时限",
         depends_on={"times": 0},
-        description="是否设置招募时限；仅在 times 为 0 时生效。不传则由内核使用默认值（True）",
+        description=(
+            "是否设置招募时限（按 recruitment_time 的对应值把游戏内计时器点到位）；"
+            "内核默认值 True。该设置只在真正执行招募时用得上——内核在 times=0 时"
+            "主循环不执行，旧文案「仅在 times 为 0 时生效」与源码相反"
+        ),
     )
     expedite: bool | None = MaaField(
-        default=None,
+        default=False,
         label="使用加急许可",
         group="加急与跳过",
         risk=RISK_CONSUME,
-        description="是否使用加急许可；不传则由内核使用默认值（False）",
+        description="是否使用加急许可；内核默认值 False",
     )
     expedite_times: int | None = MaaField(
         default=None,
@@ -501,18 +555,23 @@ class RecruitInput(TaskInputBase):
         ge=0,
         depends_on={"expedite": True},
         description=(
-            "加急次数；仅在 expedite 为 True 时有效。可选，不传则由内核使用默认值"
-            "（无限使用，直到 times 达到上限）"
+            "加急次数；仅在 expedite 为 True 时有效。"
+            "内核 v6.17.5 已不再使用该值（RecruitTask.cpp 取到后以 [[maybe_unused]] 丢弃，"
+            "加急次数实际由 times 上限决定），本字段仅为兼容旧提交保留，因此没有默认值"
         ),
     )
     skip_robot: bool | None = MaaField(
-        default=None,
+        default=False,
         label="跳过小车词条",
         group="加急与跳过",
-        description="是否在识别到小车词条时跳过；不传则由内核使用默认值（True，即跳过）",
+        description=(
+            "是否在识别到小车词条时跳过；内核默认值 False。"
+            '内核源码用 params.find("skip_robot")——键缺省即不跳过，'
+            "旧文案「默认 True」与源码相反（官方文档的 @default true 与源码冲突，以源码为准）"
+        ),
     )
     recruitment_time: dict[str, int] | None = MaaField(
-        default=None,
+        default={"3": 540, "4": 540, "5": 540, "6": 540},
         label="招募时限映射",
         group="公招标签",
         widget="duration-map",
@@ -522,10 +581,10 @@ class RecruitInput(TaskInputBase):
         ),
     )
     report_to_penguin: bool | None = MaaField(
-        default=None,
+        default=False,
         label="汇报企鹅数据",
         group="数据上报",
-        description="是否汇报企鹅数据；不传则由内核使用默认值（False）",
+        description="是否汇报企鹅数据；内核默认值 False",
     )
     penguin_id: str | None = MaaField(
         default=None,
@@ -535,10 +594,10 @@ class RecruitInput(TaskInputBase):
         description="企鹅数据汇报 id；仅在 report_to_penguin 为 True 时有效",
     )
     report_to_yituliu: bool | None = MaaField(
-        default=None,
+        default=False,
         label="汇报一图流数据",
         group="数据上报",
-        description="是否汇报一图流数据；不传则由内核使用默认值（False）",
+        description="是否汇报一图流数据；内核默认值 False",
     )
     yituliu_id: str | None = MaaField(
         default=None,
@@ -598,7 +657,7 @@ class InfrastInput(TaskInputBase):
         description="判别联合 discriminator，固定为 Infrast；由任务类型选择器决定，用户不需要填写",
     )
     mode: Literal[0, 10000, 20000] | None = MaaField(
-        default=None,
+        default=0,
         label="换班工作模式",
         widget="select",
         enum_labels={
@@ -610,21 +669,27 @@ class InfrastInput(TaskInputBase):
             "换班工作模式；0 为默认换班模式（单设施最优解），10000 为自定义换班模式"
             "（读取用户配置），20000 为一键轮换模式（会跳过控制中枢、发电站、宿舍以及"
             "办公室，其余设施不进行换班但保留基本操作，如使用无人机、会客室逻辑）。"
-            "不传则由内核使用默认值（0）"
+            "内核默认值 0"
         ),
     )
-    facility: list[INFRAST_FACILITIES] | None = MaaField(
-        default=None,
+    facility: list[
+        Annotated[
+            INFRAST_FACILITIES,
+            Field(json_schema_extra={"x-enum-labels": INFRAST_FACILITY_LABELS}),
+        ]
+    ] | None = MaaField(
+        default=["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"],
         label="要换班的设施（有序）",
         widget="ordered-list",
         description=(
-            "要换班的设施（有序，顺序即换班顺序），必选；"
+            "要换班的设施（有序，顺序即换班顺序），内核必填；"
+            "默认值（全部七个设施，按标准换班顺序）由本服务约定，内核没有默认值。"
             '设施名选项包括 "Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"。'
             "不支持运行中设置"
         ),
     )
     drones: INFRAST_DRONES | None = MaaField(
-        default=None,
+        default="_NotUse",
         label="无人机用途",
         widget="select",
         enum_labels={
@@ -639,33 +704,33 @@ class InfrastInput(TaskInputBase):
         description=(
             "无人机用途；mode == 10000 时该字段无效（会被忽略）。"
             '可选值包括 "_NotUse", "Money", "SyntheticJade", "CombatRecord", '
-            '"PureGold", "OriginStone", "Chip"；不传则由内核使用默认值（_NotUse）'
+            '"PureGold", "OriginStone", "Chip"；内核默认值 _NotUse'
         ),
     )
     threshold: float | None = MaaField(
-        default=None,
+        default=0.3,
         label="工作心情阈值",
         ge=0.0,
         le=1.0,
         description=(
-            "工作心情阈值，取值范围 [0, 1.0]；内核当前默认值为 0.3（服务端不预设，"
-            "不传则由内核决定）。mode == 10000 时该字段仅针对 autofill 有效"
+            "工作心情阈值，取值范围 [0, 1.0]；内核默认值 0.3。"
+            "mode == 10000 时该字段仅针对 autofill 有效"
         ),
     )
     replenish: bool | None = MaaField(
-        default=None,
+        default=False,
         label="源石碎片自动补货",
-        description='贸易站「源石碎片」是否自动补货；不传则由内核使用默认值（False）',
+        description='贸易站「源石碎片」是否自动补货；内核默认值 False',
     )
     dorm_notstationed_enabled: bool | None = MaaField(
-        default=None,
+        default=False,
         label='启用宿舍「未进驻」选项',
-        description='是否启用宿舍「未进驻」选项；不传则由内核使用默认值（False）',
+        description='是否启用宿舍「未进驻」选项；内核默认值 False',
     )
     dorm_trust_enabled: bool | None = MaaField(
-        default=None,
+        default=False,
         label="剩余位置填入信赖未满干员",
-        description="是否将宿舍剩余位置填入信赖未满干员；不传则由内核使用默认值（False）",
+        description="是否将宿舍剩余位置填入信赖未满干员；内核默认值 False",
     )
     filename: str | None = MaaField(
         default=None,
@@ -677,13 +742,13 @@ class InfrastInput(TaskInputBase):
         ),
     )
     plan_index: int | None = MaaField(
-        default=None,
+        default=0,
         label="方案序号",
         group="自定义换班",
         ge=0,
         description=(
             "使用配置中的方案序号，仅 mode == 10000 时生效且必填，否则会被忽略。"
-            "不支持运行中设置"
+            "内核默认值 0；不支持运行中设置"
         ),
     )
 
@@ -717,49 +782,46 @@ class MallInput(TaskInputBase):
         description="判别联合 discriminator，固定为 Mall；由任务类型选择器决定，用户不需要填写",
     )
     shopping: bool | None = MaaField(
-        default=None,
+        default=True,
         label="是否购物",
         risk=RISK_CONSUME,
-        description="是否购物；不支持运行中设置。不传则由内核使用默认值（False）",
+        description="是否购物；内核默认值 True。不支持运行中设置",
     )
     buy_first: list[str] | None = MaaField(
-        default=None,
+        default=[],
         label="优先购买列表",
         group="购买清单",
         widget="tags",
         description=(
             "优先购买列表（商品名，如「招聘许可」「龙门币」等）；"
-            "不支持运行中设置，可选"
+            "默认空列表（无优先项），不支持运行中设置，可选"
         ),
     )
     blacklist: list[str] | None = MaaField(
-        default=None,
+        default=[],
         label="黑名单列表",
         group="购买清单",
         widget="tags",
         description=(
             "黑名单列表（商品名，如「加急许可」「家具零件」等）；"
-            "不支持运行中设置，可选"
+            "默认空列表（无黑名单），不支持运行中设置，可选"
         ),
     )
     force_shopping_if_credit_full: bool | None = MaaField(
-        default=None,
+        default=False,
         label="信用溢出时无视黑名单",
-        description="是否在信用溢出时无视黑名单；不传则由内核使用默认值（True）",
+        description="是否在信用溢出时无视黑名单；内核默认值 False",
     )
     only_buy_discount: bool | None = MaaField(
-        default=None,
+        default=False,
         label="只购买折扣物品",
-        description=(
-            "是否只购买折扣物品，只作用于第二轮购买；不传则由内核使用默认值（False）"
-        ),
+        description="是否只购买折扣物品，只作用于第二轮购买；内核默认值 False",
     )
     reserve_max_credit: bool | None = MaaField(
-        default=None,
+        default=False,
         label="信用点低于 300 时停止购买",
         description=(
-            "是否在信用点低于 300 时停止购买，只作用于第二轮购买；"
-            "不传则由内核使用默认值（False）"
+            "是否在信用点低于 300 时停止购买，只作用于第二轮购买；内核默认值 False"
         ),
     )
 
@@ -767,9 +829,11 @@ class MallInput(TaskInputBase):
 class AwardInput(TaskInputBase):
     """领取各种奖励。
 
-    按 docs/05 §7.6：``mail``/``recruit``/``orundum``/``mining``/``specialaccess``
-    一律 ``default=None``，不预设 True/False —— 旧 ``TaskRequest`` 把它们写成 True
-    与 docstring 冲突，且服务端预设默认值会在内核调整默认行为时产生偏差。
+    M17 起 ``award`` 与 ``mail``/``recruit``/``orundum``/``mining``/``specialaccess``
+    都写 schema ``default``（内核默认值：``award=true``，其余 ``false``）。
+    旧 ``TaskRequest`` 曾把它们一律写成 True 与 docstring 冲突；现在以内核源码的
+    实际默认值为准，逐字段见
+    docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md §4。
     """
 
     model_config = _task_config({"name": "Award", "award": True, "mail": True})
@@ -780,39 +844,39 @@ class AwardInput(TaskInputBase):
         description="判别联合 discriminator，固定为 Award；由任务类型选择器决定，用户不需要填写",
     )
     award: bool | None = MaaField(
-        default=None,
+        default=True,
         label="领取每日/每周任务奖励",
-        description="领取每日/每周任务奖励；不传则由内核使用默认值（True）",
+        description="领取每日/每周任务奖励；内核默认值 True",
     )
     mail: bool | None = MaaField(
-        default=None,
+        default=False,
         label="领取邮件奖励",
         group="奖励项",
-        description="领取所有邮件奖励；不传则由内核使用默认值（False）",
+        description="领取所有邮件奖励；内核默认值 False",
     )
     recruit: bool | None = MaaField(
-        default=None,
+        default=False,
         label="领取每日免费单抽",
         group="奖励项",
-        description="领取限定池子赠送的每日免费单抽；不传则由内核使用默认值（False）",
+        description="领取限定池子赠送的每日免费单抽；内核默认值 False",
     )
     orundum: bool | None = MaaField(
-        default=None,
+        default=False,
         label="领取幸运墙合成玉",
         group="奖励项",
-        description="领取幸运墙的合成玉奖励；不传则由内核使用默认值（False）",
+        description="领取幸运墙的合成玉奖励；内核默认值 False",
     )
     mining: bool | None = MaaField(
-        default=None,
+        default=False,
         label="领取限时开采许可奖励",
         group="奖励项",
-        description="领取限时开采许可的合成玉奖励；不传则由内核使用默认值（False）",
+        description="领取限时开采许可的合成玉奖励；内核默认值 False",
     )
     specialaccess: bool | None = MaaField(
-        default=None,
+        default=False,
         label="领取五周年月卡奖励",
         group="奖励项",
-        description="领取五周年赠送的月卡奖励；不传则由内核使用默认值（False）",
+        description="领取五周年赠送的月卡奖励；内核默认值 False",
     )
 
 
@@ -847,7 +911,7 @@ class RoguelikeInput(TaskInputBase):
         description="判别联合 discriminator，固定为 Roguelike；由任务类型选择器决定，用户不需要填写",
     )
     theme: ROGUELIKE_THEMES | None = MaaField(
-        default=None,
+        default="Phantom",
         label="主题",
         widget="select",
         enum_labels={
@@ -858,11 +922,11 @@ class RoguelikeInput(TaskInputBase):
         },
         description=(
             '主题；可选值包括 "Phantom", "Mizuki", "Sami", "Sarkaz"。'
-            "不传则由内核使用默认值（Phantom）"
+            "内核默认值 Phantom"
         ),
     )
     mode: Literal[0, 1, 2, 3, 4, 5] | None = MaaField(
-        default=None,
+        default=0,
         label="模式",
         widget="select",
         enum_labels={
@@ -878,42 +942,42 @@ class RoguelikeInput(TaskInputBase):
             "（第一层投资完就退出），2 已弃用（兼顾模式 0 与 1，投资过后再退出，"
             "没有投资就继续往后打），3 开发中，4 为凹开局（先在 0 难度下到达第三层后"
             "重开，再到指定难度下凹开局奖励；Phantom 主题下不切换难度），"
-            "5 为刷坍缩范式（仅适用于 Sami 主题）。不传则由内核使用默认值（0）"
+            "5 为刷坍缩范式（仅适用于 Sami 主题）。内核默认值 0"
         ),
     )
     squad: str | None = MaaField(
         default=None,
         label="开局分队名",
-        description='开局分队名；不传则由内核使用默认值（"指挥分队"）',
+        description="开局分队名；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「指挥分队」）",
     )
     roles: str | None = MaaField(
         default=None,
         label="开局职业组",
-        description='开局职业组；不传则由内核使用默认值（"取长补短"）',
+        description="开局职业组；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「取长补短」）",
     )
     core_char: str | None = MaaField(
         default=None,
         label="开局干员名",
         group="开局",
         description=(
-            "开局干员名；仅支持单个干员中文名（无论区服）；"
-            '若留空或设置为空字符串 "" 则根据练度自动选择'
+            "开局干员名；仅支持单个干员中文名（无论区服）；留空 = 内核自动选择"
+            "（根据练度自动选，传空字符串 \"\" 等效）"
         ),
     )
     use_support: bool | None = MaaField(
-        default=None,
+        default=False,
         label="开局干员为助战干员",
         group="开局",
-        description="开局干员是否为助战干员；不传则由内核使用默认值（False）",
+        description="开局干员是否为助战干员；内核默认值 False",
     )
     use_nonfriend_support: bool | None = MaaField(
-        default=None,
+        default=False,
         label="允许非好友助战",
         group="开局",
         depends_on={"use_support": True},
         description=(
             "是否可以是非好友助战干员；仅在 use_support 为 True 时有效。"
-            "不传则由内核使用默认值（False）"
+            "内核默认值 False"
         ),
     )
     starts_count: int | None = MaaField(
@@ -932,27 +996,26 @@ class RoguelikeInput(TaskInputBase):
         ge=0,
         description=(
             "指定难度等级；仅适用于除 Phantom 以外的主题，若未解锁难度则会选择"
-            "当前已解锁的最高难度。不传则由内核使用默认值（0）"
+            "当前已解锁的最高难度。内核默认值为 -1（未指定），但 Phantom 主题下"
+            "不允许非空，所以这里保持「未设置」三态而不写静态默认值"
         ),
     )
     start_with_elite_two: bool | None = MaaField(
-        default=None,
+        default=False,
         label="凹干员精二直升",
         group="开局",
         description=(
-            "是否在凹开局的同时凹干员精二直升；仅适用于模式 4。"
-            "不传则由内核使用默认值（False）"
+            "是否在凹开局的同时凹干员精二直升；仅适用于模式 4。内核默认值 False"
         ),
     )
     only_start_with_elite_two: bool | None = MaaField(
-        default=None,
+        default=False,
         label="只凹精二直升",
         group="开局",
         depends_on={"mode": 4, "start_with_elite_two": True},
         description=(
             "是否只凹开局干员精二直升而忽视其他开局条件；"
-            "仅在模式为 4 且 start_with_elite_two 为 True 时有效。"
-            "不传则由内核使用默认值（False）"
+            "仅在模式为 4 且 start_with_elite_two 为 True 时有效。内核默认值 False"
         ),
     )
     first_floor_foldartal: str | None = MaaField(
@@ -988,20 +1051,20 @@ class RoguelikeInput(TaskInputBase):
         ),
     )
     stop_at_final_boss: bool | None = MaaField(
-        default=None,
+        default=False,
         label="第 5 层险路恶敌前停止",
         group="主题专属",
         description=(
             "是否在第 5 层险路恶敌节点前停止任务；仅适用于除 Phantom 以外的主题。"
-            "不传则由内核使用默认值（False）"
+            "内核默认值 False"
         ),
     )
     investment_enabled: bool | None = MaaField(
-        default=None,
+        default=True,
         label="投资源石锭",
         group="投资",
         risk=RISK_CONSUME,
-        description="是否投资源石锭；不传则由内核使用默认值（True）",
+        description="是否投资源石锭；内核默认值 True",
     )
     investments_count: int | None = MaaField(
         default=None,
@@ -1013,21 +1076,19 @@ class RoguelikeInput(TaskInputBase):
         ),
     )
     stop_when_investment_full: bool | None = MaaField(
-        default=None,
+        default=False,
         label="投资满后停止任务",
         group="投资",
-        description=(
-            "是否在投资到达上限后自动停止任务；不传则由内核使用默认值（False）"
-        ),
+        description="是否在投资到达上限后自动停止任务；内核默认值 False",
     )
     refresh_trader_with_dice: bool | None = MaaField(
-        default=None,
+        default=False,
         label="用骰子刷新商店",
         group="主题专属",
         depends_on={"theme": "Mizuki"},
         description=(
             "是否用骰子刷新商店购买特殊商品；仅适用于 Mizuki 主题，用于刷指路鳞。"
-            "不传则由内核使用默认值（False）"
+            "内核默认值 False"
         ),
     )
     check_collapsal_paradigms: bool | None = MaaField(
@@ -1198,14 +1259,17 @@ class ReclamationInput(TaskInputBase):
         description="判别联合 discriminator，固定为 Reclamation；由任务类型选择器决定，用户不需要填写",
     )
     theme: RECLAMATION_THEMES | None = MaaField(
-        default=None,
+        default="Tales",
         label="主题",
         widget="select",
         enum_labels={"Fire": "沙中之火", "Tales": "沙洲遗闻"},
-        description='主题；Fire 为「沙中之火」，Tales 为「沙洲遗闻」',
+        description=(
+            "主题；Fire 为「沙中之火」，Tales 为「沙洲遗闻」。内核默认值 Tales"
+            "（Fire 主题已下线，内核会直接停止任务）"
+        ),
     )
     mode: Literal[0, 1] | None = MaaField(
-        default=None,
+        default=0,
         label="模式",
         widget="select",
         enum_labels={
@@ -1215,30 +1279,34 @@ class ReclamationInput(TaskInputBase):
         description=(
             "模式；0 为刷分与建造点（进入战斗直接退出），1 为沙中之火刷赤金、"
             "联络员买水后基地锻造／沙洲遗闻自动制造物品并读档刷货币。"
-            "不传则由内核使用默认值（0）"
+            "内核默认值 0"
         ),
     )
     tools_to_craft: list[str] | None = MaaField(
-        default=None,
+        default=[],
         label="自动制造的物品",
         group="制造",
         widget="tags",
-        description="自动制造的物品；不传则由内核使用默认值（荧光棒）",
+        description=(
+            "自动制造的物品；默认空列表表示不组装任何物品。"
+            "内核对该键没做缺省判空（ReclamationCraftTaskPlugin 直接取 find(...).value()），"
+            "所以必须显式下发——这也是它需要默认值的原因；要组装请自行填入物品名"
+        ),
     )
     increment_mode: Literal[0, 1] | None = MaaField(
-        default=None,
+        default=0,
         label="点击类型",
         group="制造",
         widget="select",
         enum_labels={"0": "连点", "1": "长按"},
-        description="点击类型；0 为连点，1 为长按。不传则由内核使用默认值（0）",
+        description="点击类型；0 为连点，1 为长按。内核默认值 0",
     )
     num_craft_batches: int | None = MaaField(
-        default=None,
+        default=16,
         label="单次最大制造轮数",
         group="制造",
         ge=1,
-        description="单次最大制造轮数；不传则由内核使用默认值（16）",
+        description="单次最大制造轮数；内核默认值 16（按组装荧光棒至少消耗 3000 木头推算）",
     )
 
 

@@ -458,13 +458,11 @@ def test_missing_task_type_is_union_tag_not_found() -> None:
         ({"name": "Recruit", "expedite": False, "expedite_times": 3}, ErrorCode.TASK_PARAM_INVALID),
         ({"name": "Infrast", "mode": 10000}, ErrorCode.TASK_PARAM_INVALID),
         (
-            {"name": "Infrast", "mode": 10000, "filename": "plan.json"},
-            ErrorCode.TASK_PARAM_INVALID,
-        ),
-        (
             {"name": "Infrast", "mode": 10000, "plan_index": 0},
             ErrorCode.TASK_PARAM_INVALID,
         ),
+        # M17 后 plan_index 有默认值 0，`mode=10000 + filename` 不再算违规（见下方 VALID 清单）；
+        # 但 filename 仍是必填，缺它照样 TASK_PARAM_INVALID。
     ],
     ids=_case_id,
 )
@@ -499,6 +497,8 @@ VALID_CROSS_FIELD_PAYLOADS: list[dict[str, Any]] = [
     {"name": "Roguelike", "theme": "Sami", "mode": 1, "double_check_collapsal_paradigms": False},
     {"name": "Recruit", "expedite": True, "expedite_times": 3},
     {"name": "Infrast", "mode": 10000, "filename": "plan.json", "plan_index": 0},
+    # M17：plan_index 默认 0，所以只给 filename 也合法
+    {"name": "Infrast", "mode": 10000, "filename": "plan.json"},
     {"name": "Infrast", "mode": 0},
 ]
 
@@ -530,39 +530,68 @@ def test_model_fields_set_distinguishes_the_three_states() -> None:
 # --------------------------------------------------------------------------- #
 
 
+#: M17 起任务参数带 schema ``default``，``to_core_params()`` 仍是 ``exclude_none=True``，
+#: 所以默认值会随下发快照**显式下发**（规格 §5.3 「预填即下发」的服务端对应物）。
+#: 这里只列 ``Fight`` 里非 ``None`` 的默认值；``stage`` / ``times`` / ``penguin_id``
+#: 保持 ``None``，依旧被剔除。
+FIGHT_DEFAULT_PARAMS: dict[str, Any] = {
+    "enable": True,
+    "series": 1,
+    "medicine": 0,
+    "expiring_medicine": 0,
+    "stone": 0,
+    "DrGrandet": False,
+    "report_to_penguin": False,
+    "drops": {},
+}
+
+
 def test_to_core_params_uses_maa_alias_and_drops_none() -> None:
     fight = FightInput(name="Fight", dr_grandet=True, stage="1-7")
-    assert fight.to_core_params() == {"DrGrandet": True, "stage": "1-7"}
-    assert FightInput(name="Fight").to_core_params() == {}
-    assert FightInput(name="Fight", stage=None, series=None).to_core_params() == {}
-    assert FightInput(name="Fight", enable=False).to_core_params() == {"enable": False}
+    assert fight.to_core_params() == {**FIGHT_DEFAULT_PARAMS, "DrGrandet": True, "stage": "1-7"}
+    assert FightInput(name="Fight").to_core_params() == FIGHT_DEFAULT_PARAMS
+    # None 依旧被剔除：显式传 None 与不传等价（这里把 series 的默认值显式抹成 None）。
+    assert FightInput(name="Fight", stage=None, series=None).to_core_params() == {
+        key: value for key, value in FIGHT_DEFAULT_PARAMS.items() if key != "series"
+    }
+    assert FightInput(name="Fight", enable=False).to_core_params() == {
+        **FIGHT_DEFAULT_PARAMS,
+        "enable": False,
+    }
 
 
 def test_to_core_params_accepts_both_alias_spellings() -> None:
-    assert FightInput(name="Fight", DrGrandet=True).to_core_params() == {"DrGrandet": True}
-    assert FightInput(name="Fight", dr_grandet=True).to_core_params() == {"DrGrandet": True}
+    assert FightInput(name="Fight", DrGrandet=True).to_core_params()["DrGrandet"] is True
+    assert FightInput(name="Fight", dr_grandet=True).to_core_params()["DrGrandet"] is True
+    assert FightInput(name="Fight").to_core_params()["DrGrandet"] is False
 
 
-def test_award_does_not_preset_true_defaults() -> None:
-    assert AwardInput(name="Award").to_core_params() == {}
-    assert AwardInput(name="Award", award=True).to_core_params() == {"award": True}
-    for field_name in ("mail", "recruit", "orundum", "mining", "specialaccess"):
-        assert AwardInput.model_fields[field_name].default is None
+def test_award_params_use_kernel_defaults() -> None:
+    expected = {
+        "enable": True,
+        "award": True,
+        "mail": False,
+        "recruit": False,
+        "orundum": False,
+        "mining": False,
+        "specialaccess": False,
+    }
+    assert AwardInput(name="Award").to_core_params() == expected
+    assert AwardInput(name="Award", mail=True).to_core_params() == {**expected, "mail": True}
 
 
-def test_infrast_has_no_server_side_defaults_and_uses_filename() -> None:
-    assert InfrastInput.model_fields["threshold"].default is None
+def test_infrast_uses_filename_and_kernel_defaults() -> None:
     assert "0.3" in (InfrastInput.model_fields["threshold"].description or "")
-    assert InfrastInput(name="Infrast", threshold=0.3).to_core_params() == {"threshold": 0.3}
+    assert InfrastInput(name="Infrast", threshold=0.5).to_core_params()["threshold"] == 0.5
     params = InfrastInput(
         name="Infrast", mode=10000, filename="plans/custom.json", plan_index=1, threshold=0.3
     ).to_core_params()
-    assert params == {
-        "mode": 10000,
-        "filename": "plans/custom.json",
-        "plan_index": 1,
-        "threshold": 0.3,
-    }
+    assert params["mode"] == 10000
+    assert params["filename"] == "plans/custom.json"
+    assert params["plan_index"] == 1
+    assert params["threshold"] == 0.3
+    assert params["enable"] is True
+    assert params["facility"] == ["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"]
     assert "failename" not in params
     assert "failename" not in _submittable_names(InfrastInput)
 
@@ -571,14 +600,20 @@ def test_reclamation_params_are_string_keys() -> None:
     params = ReclamationInput(
         name="Reclamation", theme="Fire", mode=1, num_craft_batches=16
     ).to_core_params()
-    assert params == {"theme": "Fire", "mode": 1, "num_craft_batches": 16}
+    assert params == {
+        "enable": True,
+        "theme": "Fire",
+        "mode": 1,
+        "tools_to_craft": [],
+        "increment_mode": 0,
+        "num_craft_batches": 16,
+    }
     assert all(isinstance(key, str) for key in params)
-    assert ReclamationInput(name="Reclamation").to_core_params() == {}
 
 
 def test_fight_and_recruit_times_are_independent_fields() -> None:
-    assert FightInput(name="Fight", times=3).to_core_params() == {"times": 3}
-    assert RecruitInput(name="Recruit", times=5).to_core_params() == {"times": 5}
+    assert FightInput(name="Fight", times=3).to_core_params()["times"] == 3
+    assert RecruitInput(name="Recruit", times=5).to_core_params()["times"] == 5
     assert FightInput.model_fields["times"] is not RecruitInput.model_fields["times"]
 
 
@@ -620,7 +655,17 @@ def test_normalize_uses_custom_channel_defaults() -> None:
 
 def test_normalize_only_touches_fields_the_model_declares() -> None:
     normalized = normalize(MallInput(name="Mall", shopping=True), ChannelDefaults())
-    assert normalized.params == {"shopping": True}
+    # M17：``Mall`` 自己没有 client_type/server 字段，渠道注入不会碰它；
+    # 参数里带的是该模型自己的默认值。
+    assert normalized.params == {
+        "enable": True,
+        "shopping": True,
+        "buy_first": [],
+        "blacklist": [],
+        "force_shopping_if_credit_full": False,
+        "only_buy_discount": False,
+        "reserve_max_credit": False,
+    }
     assert "client_type" not in normalized.params
     assert "server" not in normalized.params
 
