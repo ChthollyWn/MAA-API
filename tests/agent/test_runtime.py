@@ -76,6 +76,19 @@ def _tool_response(*calls: dict[str, Any]):
     ]
 
 
+def _content_text(content: object) -> str:
+    """把消息 content 归一成文本：多模态数组取其中的 text 部分拼起来。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
 def _event_stream(chunks: list[str]) -> str:
     return "".join(chunks)
 
@@ -1448,26 +1461,33 @@ def test_screenshot_tool_result_is_archived_by_id_and_only_latest_image_goes_ups
                 for message in llm.requests[1][1]
                 if message.get("role") == "tool" and message.get("tool_call_id") == "screenshot-1"
             )
-            assert "screenshot_id" in sent_screenshot["content"]
-            assert screenshot_data not in sent_screenshot["content"]
-            image_messages = [
-                message
-                for message in llm.requests[1][1]
-                if message.get("role") == "user"
-                and isinstance(message.get("content"), list)
-                and any(part.get("type") == "image_url" for part in message["content"])
-            ]
-            assert len(image_messages) == 1
-            image = next(
+            # 带图的 tool 消息 content 是多模态数组（文本 + image_url），文本要拼起来看。
+            sent_text = _content_text(sent_screenshot["content"])
+            assert "screenshot_id" in sent_text
+            assert screenshot_data not in sent_text
+            image_parts = [
                 part
-                for part in image_messages[0]["content"]
-                if part["type"] == "image_url"
-            )
-            image_url = image["image_url"]["url"]
+                for part in sent_screenshot["content"]
+                if isinstance(part, dict) and part.get("type") == "image_url"
+            ]
+            assert len(image_parts) == 1, "截图必须作为 tool 消息的图片部分，而不是另起一条 user 消息"
+            image_url = image_parts[0]["image_url"]["url"]
             assert image_url.startswith("data:image/jpeg;base64,")
             assert base64.b64decode(image_url.partition(",")[2]) == (
                 tmp_path / screenshot_record.path
             ).read_bytes()
+            # 截图的 tool 消息必须紧跟其 tool_calls，中间不能再插消息（上游会 400）。
+            conversation = llm.requests[1][1]
+            calls_index = next(
+                index
+                for index, message in enumerate(conversation)
+                if message.get("tool_calls")
+            )
+            call_ids = [call["id"] for call in conversation[calls_index]["tool_calls"]]
+            assert [
+                message.get("tool_call_id")
+                for message in conversation[calls_index + 1 : calls_index + 1 + len(call_ids)]
+            ] == call_ids
         finally:
             monkeypatch.undo()
             await engine.dispose()
@@ -1715,4 +1735,168 @@ def test_vision_probe_image_is_large_enough_for_the_upstream_to_accept():
     width, height = struct.unpack(">II", png[16:24])
     assert (width, height) == (64, 64)
     assert _VISION_PROBE_MARKER == "blue"
+
+def test_model_context_keeps_tool_replies_immediately_after_their_tool_calls():
+    """OpenAI 协议要求 assistant 的 tool_calls 后面**紧跟**同样数量的 tool 消息。
+
+    这里曾经插入一条带截图的 `user` 消息（把画面作为图片输入），于是
+    「assistant(tool_calls) → user(图片) → tool」这种顺序被上游以 400 拒绝：
+    ``An assistant message with 'tool_calls' must be followed by tool messages``，
+    表现为整个 Agent 回合失败、自动诊断只留一句「LLM 上游请求失败」。
+    """
+    from maa_api.agent.runtime import build_model_context
+
+    shot = {"format": "jpeg", "captured_at": "t1", "data": "Zmlyc3Q="}
+    history = [
+        AgentMessage(session_id="s", seq=0, role="user", content="诊断这次失败"),
+        AgentMessage(
+            session_id="s",
+            seq=1,
+            role="assistant",
+            content="我先收集证据。",
+            tool_calls=[
+                {"id": "shot-1", "type": "function", "function": {"name": "get_screenshot", "arguments": "{}"}},
+                {"id": "logs-1", "type": "function", "function": {"name": "get_logs", "arguments": "{}"}},
+            ],
+        ),
+        AgentMessage(session_id="s", seq=2, role="tool", content=json.dumps(shot), tool_call_id="shot-1", tool_name="get_screenshot"),
+        AgentMessage(session_id="s", seq=3, role="tool", content='{"result":{"items":[]}}', tool_call_id="logs-1", tool_name="get_logs"),
+    ]
+
+    context = build_model_context(history, system_prompt="sys", vision_enabled=True)
+
+    index = 0
+    checked = 0
+    while index < len(context):
+        message = context[index]
+        calls = message.get("tool_calls") or []
+        if calls:
+            answers = [item.get("tool_call_id") for item in context[index + 1 : index + 1 + len(calls)]]
+            assert answers == [call["id"] for call in calls], (
+                f"tool_calls {[call['id'] for call in calls]} 后面紧跟的是 {answers}"
+            )
+            checked += 1
+            index += 1 + len(calls)
+            continue
+        index += 1
+    assert checked == 1
+
+    # 最新截图的图片仍然要送到模型（作为 tool 消息的多模态 content）。
+    tool_message = next(item for item in context if item.get("tool_call_id") == "shot-1")
+    parts = tool_message.get("content")
+    assert isinstance(parts, list), "截图应当作为 tool 消息的多模态 content，而不是另起一条 user 消息"
+    assert any(part.get("type") == "image_url" for part in parts if isinstance(part, dict))
+    assert any(part.get("type") == "text" for part in parts if isinstance(part, dict))
+
+def test_thinking_mode_reasoning_is_persisted_and_sent_back_on_the_next_request():
+    """思考模式下 assistant 的 reasoning_content 必须落库并在下一轮回传。
+
+    上游对「后面不跟 user 消息的 assistant 消息」强制要求回传思考内容，缺了就 400：
+    ``The `reasoning_content` in the thinking mode must be passed back to the API.``
+    自动诊断每一轮都以工具结果结尾，正好命中这条，此前整个回合会因此失败。
+    """
+    class LookupParams(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        key: str
+
+    async def lookup(_params, _context):
+        return {"value": "found"}
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolDefinition(
+            name="lookup_status",
+            group="status",
+            risk=ToolRisk.SAFE,
+            description="Read one status value.",
+            params_model=LookupParams,
+            handler=lookup,
+            read_only=True,
+        )
+    )
+    # 能力探查用掉两次响应：工具探查要返回 capability_probe 调用，视觉探查要答出
+    # `blue`（见 runtime 的 _VISION_PROBE_MARKER），否则会被判成能力不足。
+    probe_call = [
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "probe",
+                                "type": "function",
+                                "function": {"name": "capability_probe", "arguments": "{}"},
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+    ]
+    # 思考内容按增量分两片到达，必须拼起来。
+    tool_call = [
+        {"choices": [{"index": 0, "delta": {"reasoning_content": "先看看"}, "finish_reason": None}]},
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "reasoning_content": "日志再决定",
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call-1",
+                                "type": "function",
+                                "function": {"name": "lookup_status", "arguments": '{"key":"stage"}'},
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+    ]
+
+    async def scenario():
+        from maa_api.db.repositories.agent import AgentMessageRepository
+
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [
+                probe_call,
+                _text_response("blue"),
+                tool_call,
+                _text_response("看完了", prompt_tokens=5, completion_tokens=3),
+            ],
+            registry=registry,
+            prime_capabilities=False,
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [chunk async for chunk in runtime.stream_message(session_id, "查日志", None)]
+            assert _events(_event_stream(chunks))[-1][0] == "message_end"
+
+            # 1) 思考内容随 assistant 消息落库，且不污染正文。
+            async with factory() as session:
+                history = await AgentMessageRepository(session).list_by_session(session_id)
+            assistant = next(m for m in history if m.role == "assistant")
+            assert assistant.content is None
+            assert assistant.reasoning_content == "先看看日志再决定"
+
+            # 2) 下一轮请求把带 tool_calls 的 assistant 消息连同思考内容一起回传。
+            second_request = llm.requests[-1][1]
+            replayed = next(m for m in second_request if m.get("tool_calls"))
+            assert replayed.get("reasoning_content") == "先看看日志再决定"
+            assert replayed["tool_calls"][0]["id"] == "call-1"
+            # 工具结果必须紧跟其后，中间不能插别的消息。
+            index = second_request.index(replayed)
+            assert second_request[index + 1]["role"] == "tool"
+            assert second_request[index + 1]["tool_call_id"] == "call-1"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
 

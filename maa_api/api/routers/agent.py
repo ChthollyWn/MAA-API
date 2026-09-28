@@ -249,6 +249,9 @@ def message_wire(message: AgentMessage) -> dict[str, Any]:
         "seq": message.seq,
         "role": str(message.role),
         "content": message.content,
+        # 思考模式模型的思考内容。不展示给用户，但必须持久化并在下一轮回传，
+        # 否则上游以 400 拒绝；这里一并读出，便于排查与审计。
+        "reasoning_content": message.reasoning_content,
         "tool_calls": message.tool_calls,
         "tool_call_id": message.tool_call_id,
         "tool_name": message.tool_name,

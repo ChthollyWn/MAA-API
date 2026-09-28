@@ -188,6 +188,7 @@ EXPECTED_TEXT_COLUMNS = {
     ("stage_drop", "item_name"),
     ("log_entry", "content"),
     ("agent_message", "content"),
+    ("agent_message", "reasoning_content"),
     ("agent_audit", "result_summary"),
     ("confirmation", "reason"),
     ("confirmation", "resolved_reason"),

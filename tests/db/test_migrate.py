@@ -11,6 +11,7 @@
 - ``ensure_schema`` 按仓库根相对路径解析 ``alembic.ini``，autouse fixture 固定 cwd。
 """
 
+import ast
 import asyncio
 import contextlib
 import inspect
@@ -61,9 +62,30 @@ def alembic_cfg(db_path: Path) -> Config:
     return cfg
 
 
-#: head 迁移自己新建的表：备份是 head 之前的快照，因此这些表不该出现在备份里。
-#: 新增迁移建表时同步这里，测试才能继续区分「备份早于 upgrade」与「备份晚于 upgrade」。
-TABLES_ADDED_BY_HEAD: set[str] = {"push_subscription"}
+def tables_created_by_head() -> set[str]:
+    """head 迁移自己新建的表：备份是 head 之前的快照，因此这些表不该出现在备份里。
+
+    从 head 的迁移脚本里读 ``op.create_table`` 调用，而不是手写一个常量：head 换一版
+    （例如 0013 只加列、不建表）时手写的集合就会失真 —— 0012 建的
+    ``push_subscription`` 到了 0013 已经属于「备份里本来就有」，硬编码会让这条断言
+    反过来误报。用 AST 解析脚本，既不执行迁移也不连库。
+    """
+    cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(REPO_ROOT / "maa_api" / "db" / "migrations"))
+    scripts = ScriptDirectory.from_config(cfg)
+    head = scripts.get_current_head()
+    path = Path(scripts.get_revision(head).path)
+    tree = ast.parse(path.read_text(encoding="utf8"))
+    created: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "create_table"):
+            continue
+        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            created.add(node.args[0].value)
+    return created
 
 
 def head_revision() -> str:
@@ -166,8 +188,9 @@ def test_pending_migration_backs_up_before_upgrade(db_path):
     # 例如 0012 新建 push_subscription，它就不该出现在 0011 的备份里 —— 出现反而
     # 说明备份是 upgrade 之后拍的，那正是这些测试要拦住的事。
     backup_tables = table_names(backup)
-    assert set(SQLModel.metadata.tables) - TABLES_ADDED_BY_HEAD <= backup_tables
-    assert TABLES_ADDED_BY_HEAD.isdisjoint(backup_tables)
+    added_by_head = tables_created_by_head()
+    assert set(SQLModel.metadata.tables) - added_by_head <= backup_tables
+    assert added_by_head.isdisjoint(backup_tables), sorted(added_by_head & backup_tables)
     with contextlib.closing(sqlite3.connect(backup)) as conn:
         snippet_indexes = {row[1] for row in conn.execute("pragma index_list('api_snippet')")}
         backup_audit_columns = {row[1] for row in conn.execute("pragma table_info('agent_audit')")}

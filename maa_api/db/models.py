@@ -511,6 +511,11 @@ class AgentMessage(SQLModel, table=True):
     role: str = Field(max_length=16)
     # 纯 tool_calls 的 assistant 消息此列为 NULL
     content: str | None = Field(default=None, sa_column=text_column("content"))
+    # 思考模式模型的 `delta.reasoning_content`。必须原样回传：历史里后面不跟 user
+    # 消息的 assistant 消息缺了它，上游会以 400 拒绝（见 migration 0013）。
+    reasoning_content: str | None = Field(
+        default=None, sa_column=text_column("reasoning_content")
+    )
     tool_calls: list[Any] | None = Field(
         default=None, sa_column=json_column("tool_calls")
     )
