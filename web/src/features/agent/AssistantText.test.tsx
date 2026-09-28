@@ -67,3 +67,30 @@ describe('AssistantText renders an agent reply as markdown', () => {
     expect(container.querySelector('pre')?.textContent).toBe('adb devi')
   })
 })
+
+/**
+ * 第二条真实回复（deepseek-flash 生成，只截取表格部分）：Agent 经常用 Markdown 表格
+ * 汇总状态，以前会被原样渲染成一堆竖线与分隔行。这里锁住「表格 → 真实 table 元素」。
+ */
+const LIVE_TABLE_REPLY = "以下内容仅依据当前已知的状态摘要整理，未调用任何工具核验：\n\n| 项目 | 状态 | 说明 |\n| --- | --- | --- |\n| MaaCore 内核 | `ready` | 内核已就绪，可接受任务提交 |\n| 设备连接 | 已连接 | 地址 `127.0.0.1:5555`，分辨率 2560×1440，重试次数 0，无最近连接错误 |\n| 流水线 / 队列 | **空闲（无运行中任务，待执行 0 项）** | `current_pipeline` 为空，队列未暂停 |\n| 最近错误 | error | 记录为「任务失败 [StartUp]」（2026-09-28 06:20:46 UTC），原因未明，需查日志确认 |\n\n补充说明：\n\n- “已连接”“空闲”等均为状态快照中的描述性字段，不代表我实际执行过任何设备操作或任务提交。\n- 那条 `StartUp` 失败记录与当前空闲状态并不矛盾，但为何失败、是否需要处理，需进一步查询日志才能判断；如果你希望，我可以再去读取日志或截图确认。"
+
+describe('AssistantText renders a table reply as a table', () => {
+  it('turns pipes and the delimiter row into table elements', () => {
+    const { container } = render(<AssistantText text={LIVE_TABLE_REPLY} />)
+
+    expect(container.querySelectorAll('table')).toHaveLength(1)
+    expect([...container.querySelectorAll('th')].map((cell) => cell.textContent)).toEqual([
+      '项目',
+      '状态',
+      '说明',
+    ])
+    // 表头 1 行 + 4 行数据。
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(4)
+    // 单元格里的行内格式仍然生效。
+    expect(container.querySelectorAll('strong').length).toBeGreaterThan(0)
+    expect(container.querySelectorAll('code').length).toBeGreaterThan(0)
+    // 分隔行与竖线不再作为原文出现。
+    expect(container.textContent).not.toContain('| --- |')
+  })
+})
+

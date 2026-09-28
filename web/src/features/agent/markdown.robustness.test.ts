@@ -24,6 +24,8 @@ function visibleText(blocks: readonly MarkdownBlock[]): string {
           return block.items.map(inline).join('\n')
         case 'code':
           return block.text
+        case 'table':
+          return [...block.header, ...block.rows.flat()].map(inline).join('\n')
       }
     })
     .join('\n')

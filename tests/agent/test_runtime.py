@@ -530,15 +530,19 @@ def test_query_tool_metadata_is_explicit_and_write_tools_keep_default_false():
     assert not registry.get("stop_pipeline").read_only
 
 
-def test_tool_loop_stops_after_the_default_twelve_iterations():
+def test_tool_loop_has_no_step_limit_and_finishes_the_model_answer():
+    """默认不设步数上限：一次故障排查可能要读几十轮工具，按 12 次截断会切在半路。"""
+
     async def scenario():
-        class EmptyParams(BaseModel):
+        class RoundParams(BaseModel):
             model_config = ConfigDict(extra="forbid")
+
+            round: int
 
         invoked: list[int] = []
 
-        async def query(_params, _context):
-            invoked.append(1)
+        async def query(params, _context):
+            invoked.append(params.round)
             return {"ok": True}
 
         registry = ToolRegistry()
@@ -548,38 +552,102 @@ def test_tool_loop_stops_after_the_default_twelve_iterations():
                 group="status",
                 risk=ToolRisk.SAFE,
                 description="Return one test result.",
-                params_model=EmptyParams,
+                params_model=RoundParams,
                 handler=query,
                 read_only=True,
             )
         )
+        # 每轮换一个调用 id 与参数，避免命中「原地打转」检测；20 轮远超原来的 12 次上限。
+        rounds = 20
         responses = [
             _tool_response(
                 {
                     "index": 0,
                     "id": f"call-{index}",
                     "type": "function",
-                    "function": {"name": "query", "arguments": "{}"},
+                    "function": {"name": "query", "arguments": json.dumps({"round": index})},
                 }
             )
-            for index in range(12)
+            for index in range(rounds)
         ]
-        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+        responses.append(_text_response("排查完成。"))
+        runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(
             responses, registry=registry
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "continue", None)]
+            chunks = [chunk async for chunk in runtime.stream_message(session_id, "继续", None)]
             events = _events(_event_stream(chunks))
-            assert len(llm.requests) == 12
-            assert invoked == [1] * 12
+            assert len(llm.requests) == rounds + 1, "20 轮工具调用之后仍应继续请求模型"
+            assert invoked == list(range(rounds))
             assert events[-1][0] == "message_end"
-            assert events[-1][1]["finish_reason"] == "max_steps"
-            assert any("12 次工具调用上限" in data.get("text", "") for event, data in events if event == "text_delta")
+            assert events[-1][1]["finish_reason"] == "stop"
+            assert not any("上限" in data.get("text", "") for event, data in events if event == "text_delta")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_tool_loop_stops_when_the_model_repeats_the_same_calls():
+    """没有步数上限，就必须认得出模型在原地打转，否则会一直烧 token。"""
+
+    async def scenario():
+        class RoundParams(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+            round: int
+
+        invoked: list[int] = []
+
+        async def query(params, _context):
+            invoked.append(params.round)
+            return {"ok": True}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="query",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Return one test result.",
+                params_model=RoundParams,
+                handler=query,
+                read_only=True,
+            )
+        )
+        # 完全相同的调用与参数（只有 id 不同，不该影响判定）连续出现。
+        identical = [
+            _tool_response(
+                {
+                    "index": 0,
+                    "id": f"call-{index}",
+                    "type": "function",
+                    "function": {"name": "query", "arguments": json.dumps({"round": 1})},
+                }
+            )
+            for index in range(10)
+        ]
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            identical, registry=registry
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [chunk async for chunk in runtime.stream_message(session_id, "继续", None)]
+            events = _events(_event_stream(chunks))
+            assert events[-1][0] == "message_end"
+            assert events[-1][1]["finish_reason"] == "stuck_loop"
+            assert any(
+                "完全相同的工具调用" in data.get("text", "")
+                for event, data in events
+                if event == "text_delta"
+            )
+            # 三次：第一次出现 + 连续两次重复。
+            assert len(llm.requests) == 3, len(llm.requests)
+            assert invoked == [1, 1, 1]
             async with factory() as session:
                 messages = await AgentMessageRepository(session).list_by_session(session_id)
-            assert messages[-1].role == "assistant"
-            assert messages[-1].finish_reason == "max_steps"
+            assert messages[-1].finish_reason == "stuck_loop"
         finally:
             await engine.dispose()
 

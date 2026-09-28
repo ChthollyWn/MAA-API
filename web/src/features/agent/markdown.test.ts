@@ -3,6 +3,9 @@ import { parseMarkdown, type MarkdownBlock, type MarkdownInline } from './markdo
 
 /** 把行内节点压成便于断言的形状：`**粗**` → `['bold', '粗']`。 */
 function inlineOf(block: MarkdownBlock): unknown {
+  if (block.kind === 'table') {
+    return [...block.header, ...block.rows.flat()].map((cell) => cell.map(compact))
+  }
   return 'children' in block ? block.children.map(compact) : null
 }
 
@@ -126,3 +129,63 @@ describe('safety', () => {
     expect(inlineOf(paragraph)).toEqual([['link', 'javascript:alert(1)', ['点我']]])
   })
 })
+
+describe('tables', () => {
+  it('parses a pipe table into header and rows', () => {
+    const blocks = parseMarkdown(
+      [
+        '| 项 | 值 |',
+        '|---|---|',
+        '| 流水线 ID | 57da7202 |',
+        '| 状态 | failed |',
+      ].join('\n'),
+    )
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({ kind: 'table' })
+    const table = blocks[0] as Extract<MarkdownBlock, { kind: 'table' }>
+    expect(table.header.map((cell) => cell.map((node) => (node.kind === 'text' ? node.text : '')))).toEqual([
+      ['项'],
+      ['值'],
+    ])
+    expect(table.rows).toHaveLength(2)
+  })
+
+  it('keeps inline formatting inside cells', () => {
+    const blocks = parseMarkdown(
+      ['| 项 | 值 |', '|:--|--:|', '| **状态** | `failed` |', '| 耗时 | [日志](https://example.com) |'].join('\n'),
+    )
+    const table = blocks[0] as Extract<MarkdownBlock, { kind: 'table' }>
+    // 单元格是行内节点：粗体与行内代码都要保留结构，而不是变成字面标记。
+    expect(table.rows[0].map((cell) => (cell[0] ? compact(cell[0]) : null))).toEqual([
+      ['bold', ['状态']],
+      ['code', 'failed'],
+    ])
+    expect(table.rows[1].map((cell) => (cell[0] ? compact(cell[0]) : null))).toEqual([
+      '耗时',
+      ['link', 'https://example.com', ['日志']],
+    ])
+  })
+
+  it('accepts tables without outer pipes and pads short rows', () => {
+    const blocks = parseMarkdown(['项 | 值', '--- | ---', 'a | b', 'c'].join('\n'))
+    const table = blocks[0] as Extract<MarkdownBlock, { kind: 'table' }>
+    expect(table.header).toHaveLength(2)
+    expect(table.rows).toHaveLength(2)
+    // 缺列的行补空单元格，渲染时不会错位。
+    expect(table.rows[1]).toHaveLength(2)
+  })
+
+  it('does not treat a lone pipe line as a table', () => {
+    expect(parseMarkdown('| 只是一条竖线 |').map((block) => block.kind)).toEqual(['paragraph'])
+    expect(parseMarkdown('| a | b |\n| c | d |').map((block) => block.kind)).toEqual(['paragraph'])
+  })
+
+  it('still renders a table that is only half streamed', () => {
+    // 流式中途：表头与分隔行到了、数据行还没到，不该丢内容也不该抛异常。
+    const blocks = parseMarkdown('| 项 | 值 |\n|---|---|')
+    expect(blocks[0]).toMatchObject({ kind: 'table' })
+    const table = blocks[0] as Extract<MarkdownBlock, { kind: 'table' }>
+    expect(table.rows).toEqual([])
+  })
+})
+

@@ -41,6 +41,8 @@ export type MarkdownBlock =
   | { kind: 'list'; ordered: boolean; start: number; items: MarkdownInline[][] }
   | { kind: 'blockquote'; children: MarkdownInline[] }
   | { kind: 'code'; language: string | null; text: string }
+  // 表格：单元格是行内节点数组，便于继续渲染 `**粗体**`、行内代码与链接。
+  | { kind: 'table'; header: MarkdownInline[][]; rows: MarkdownInline[][][] }
 
 /** ASCII 标点：CommonMark 里反斜杠只能转义这些字符，也是「标点」判定的一部分。 */
 const ASCII_PUNCTUATION = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
@@ -444,6 +446,14 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
       continue
     }
 
+    // 表格要在列表之后判定：`|` 开头的行也可能是列表项的一部分。
+    const table = matchTable(lines, index)
+    if (table) {
+      blocks.push(table.block)
+      index = table.next
+      continue
+    }
+
     const paragraph: string[] = []
     let cursor = index
     while (cursor < lines.length && !BLANK_LINE.test(lines[cursor]) && !startsBlock(lines[cursor])) {
@@ -579,6 +589,57 @@ function startsBlock(line: string): boolean {
   )
 }
 
+/** 分隔行：`|---|:--:|` 这类只由 `-`、`:`、`|` 与空白组成的行。 */
+const TABLE_DELIMITER = /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/
+
+function splitTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '')
+  return trimmed.split('|').map((cell) => cell.trim())
+}
+
+function isDelimiterRow(line: string): boolean {
+  if (!TABLE_DELIMITER.test(line)) return false
+  const cells = splitTableRow(line)
+  // 至少一列，且每列都得是 `---` / `:--` / `--:` 这类形状，否则 `| a | b |` 里的
+  // 普通文本行会被误判成分隔行。
+  return cells.length > 0 && cells.every((cell) => /^:?-{1,}:?$/.test(cell))
+}
+
+/**
+ * 识别管道表格：表头行 + 分隔行 + 若干数据行。
+ *
+ * 行首行尾的 `|` 可省；数据行缺列补空、多列截断，渲染时不会错位。只有表头与分隔行
+ * 也成立（流式中途常见），此时 `rows` 为空——内容不丢，等后续行到达再补齐。
+ */
+function matchTable(lines: readonly string[], start: number): { block: MarkdownBlock; next: number } | null {
+  const headerLine = lines[start]
+  if (!headerLine.includes('|')) return null
+  // 表头本身不能是别的块（列表项、引用等），否则会把它们吞进表格。
+  if (startsBlock(headerLine)) return null
+  const delimiterLine = lines[start + 1]
+  if (delimiterLine === undefined || !delimiterLine.includes('|') || !isDelimiterRow(delimiterLine)) {
+    return null
+  }
+  const header = splitTableRow(headerLine).map((cell) => parseInline(cell))
+  const columns = header.length
+  const rows: MarkdownInline[][][] = []
+  let cursor = start + 2
+  while (cursor < lines.length) {
+    const line = lines[cursor]
+    if (BLANK_LINE.test(line)) break
+    // 分隔行形状（`--- | ---`）会被列表匹配器认成 `- ` 列表项，必须放行。
+    if (startsBlock(line) && !isDelimiterRow(line)) break
+    const cells = splitTableRow(line)
+    // 无外框写法里最后一行可能没有 `|`（`a | b` 之后单独一行 `c`）：只要它还没被
+    // 认成别的块，就当成这一行的单元格。普通段落多收一行也无害——它就是表格数据。
+    rows.push(
+      Array.from({ length: columns }, (_, column) => parseInline(cells[column] ?? '')),
+    )
+    cursor += 1
+  }
+  return { block: { kind: 'table', header, rows }, next: cursor }
+}
+
 function trimBlankEdges(lines: string[]): void {
   while (lines.length > 0 && BLANK_LINE.test(lines[0])) lines.shift()
   while (lines.length > 0 && BLANK_LINE.test(lines[lines.length - 1])) lines.pop()
@@ -637,6 +698,36 @@ function renderBlock(block: MarkdownBlock, key: number) {
         <Tag key={key} className={`break-words ${HEADING_CLASS[level] ?? 'text-body font-semibold'}`}>
           {renderInline(block.children, `${key}`)}
         </Tag>
+      )
+    }
+
+    case 'table': {
+      // 表格宽时整体横向滚动，而不是把页面撑宽（Agent 页的布局是固定高度 + 内部滚动）。
+      return (
+        <div key={key} className="overflow-x-auto rounded-md border">
+          <table className="w-full border-collapse text-footnote">
+            <thead className="bg-muted">
+              <tr>
+                {block.header.map((cell, column) => (
+                  <th key={column} scope="col" className="whitespace-nowrap border-b px-3 py-1.5 text-left font-semibold">
+                    {renderInline(cell, `${key}-h-${column}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="border-b last:border-b-0">
+                  {row.map((cell, column) => (
+                    <td key={column} className="align-top break-words border-r px-3 py-1.5 last:border-r-0">
+                      {renderInline(cell, `${key}-${rowIndex}-${column}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )
     }
 

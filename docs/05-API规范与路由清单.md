@@ -289,7 +289,7 @@ class AppError(Exception):
 | `LLM_ENCRYPTION_KEY_INVALID` | 503 | 缺少或配置错误的 `MAA_LLM_ENCRYPTION_KEY`，无法解密数据库里的 LLM API 密钥；设置正确的主密钥，或在设置页重新录入 API 密钥 |
 | `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史超出模型上下文窗口，需新建会话或裁剪历史 |
 
-tool-calling 循环达到步数上限**不是错误**：会话正常结束，最后一条 `agent_message.finish_reason` 记为 `max_steps`，接口返回 200。把它做成错误码会让前端丢掉模型已经产出的中间结论。
+tool-calling 循环的非错误终态**不是错误**：会话正常结束并返回 200，最后一条 `agent_message.finish_reason` 记为 `stuck_loop`（连续三轮发出完全相同的工具调用，判定为原地打转）或 `max_steps`（调用方显式设了步数上限；默认不设上限）。把它们做成错误码会让前端丢掉模型已经产出的中间结论。
 
 ### 4.12 定时任务
 

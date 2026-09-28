@@ -503,7 +503,16 @@ export default function AgentPage() {
 
   if (desktop) {
     return (
-      <Page title={title} width="full" actions={actions} className="h-[calc(100dvh-1.5rem)]" contentClassName="flex min-h-0 flex-col">
+      <Page
+        title={title}
+        width="full"
+        actions={actions}
+        // 与日志页同一口径：外壳 main 的底部留白是 --nav-offset + 1.5rem，这里刚好占满
+        // 其余高度（原来漏了 --nav-offset，比视口高出约 24px，于是整个页面多出一根
+        // 纵向滚动条，而对话区自己也在滚动）。只让会话列表与对话区内部滚动。
+        className="h-[calc(100dvh_-_var(--nav-offset)_-_1.5rem)] min-h-[28rem]"
+        contentClassName="flex min-h-0 flex-col"
+      >
         <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)] gap-6">
           <aside aria-label="Agent 会话" className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-card">
             <div className="flex shrink-0 items-center justify-between gap-2 border-b py-1.5 pl-4 pr-1.5">

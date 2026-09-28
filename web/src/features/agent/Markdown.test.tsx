@@ -92,3 +92,38 @@ describe('code block copy button', () => {
     expect(screen.getByText('python')).toBeInTheDocument()
   })
 })
+
+describe('tables', () => {
+  it('renders a pipe table as real table elements', () => {
+    const { container } = render(
+      <Markdown
+        text={[
+          '| 项 | 值 |',
+          '|---|---|',
+          '| 流水线 ID | 57da7202 |',
+          '| 状态 | **failed** |',
+        ].join('\n')}
+      />,
+    )
+
+    const table = container.querySelector('table')
+    expect(table).not.toBeNull()
+    expect(container.querySelectorAll('th')).toHaveLength(2)
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(screen.getByRole('columnheader', { name: '项' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '57da7202' })).toBeInTheDocument()
+    expect(screen.getByText('failed').tagName).toBe('STRONG')
+    // 竖线与分隔行不该再以原文出现。
+    expect(container.textContent).not.toContain('|---|')
+    expect(container.textContent).not.toContain('| 项 |')
+  })
+
+  it('wraps a wide table so the page itself does not scroll sideways', () => {
+    const { container } = render(
+      <Markdown text={'| a | b |\n|---|---|\n| 1 | 2 |'} />,
+    )
+    const wrapper = container.querySelector('table')?.parentElement
+    expect(wrapper?.className).toContain('overflow-x-auto')
+  })
+})
+

@@ -36,9 +36,12 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_ITERATIONS = 12
+DEFAULT_MAX_ITERATIONS: int | None = None
 DEFAULT_MAX_CONTEXT_CHARS = 1_000_000
 DEFAULT_CONFIRMATION_POLL_SECONDS = 0.25
+#: 连续多少轮出现完全相同的工具调用就判定为原地打转。设为 2 表示「同一批调用连着
+#: 出现三次」：模型偶尔重复一次是正常重试，连着三次说明它已经拿不到新信息了。
+STUCK_REPEAT_LIMIT = 2
 INCIDENT_ALLOWED_TOOLS = frozenset(
     {
         "get_system_status",
@@ -248,12 +251,13 @@ class AgentRuntime:
         settings_provider: Callable[[Any], Any] | None = None,
         client_factory: Callable[[Settings], Any] | None = None,
         context_provider: Callable[[Any], Any] | None = None,
-        max_iterations: int = DEFAULT_MAX_ITERATIONS,
+        max_iterations: int | None = DEFAULT_MAX_ITERATIONS,
         max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
         confirmation_poll_seconds: float = DEFAULT_CONFIRMATION_POLL_SECONDS,
     ) -> None:
-        if max_iterations < 1:
-            raise ValueError("max_iterations must be positive")
+        # None 表示不设步数上限（默认）；正整数只用于测试与需要受限的调用方。
+        if max_iterations is not None and max_iterations < 1:
+            raise ValueError("max_iterations must be positive or None")
         if max_context_chars < 1 or confirmation_poll_seconds <= 0:
             raise ValueError("context and confirmation limits must be positive")
         self.session_factory = session_factory
@@ -642,7 +646,14 @@ class AgentRuntime:
         )
         client, owned = self._make_client(client_settings)
         try:
-            for iteration in range(1, self.max_iterations + 1):
+            # 迭代次数默认不设上限：一次故障排查可能要读几十次日志与截图，按次数截断会
+            # 把一个本该跑完的诊断硬切在中间。真正兜底的是上下文裁剪（max_context_chars）
+            # 与下面的「重复调用」检测，而不是一个拍脑袋的步数。
+            iteration = 0
+            last_signature: str | None = None
+            repeats = 0
+            while True:
+                iteration += 1
                 async with self.session_factory() as session:
                     history = await AgentMessageRepository(session).list_by_session(session_id)
                 history_for_model = (
@@ -765,12 +776,18 @@ class AgentRuntime:
                         explanation = "确认请求已被拒绝或过期，我不会重试该操作。请告诉我是否改用其他方案。"
                         await self._finish_with_text(session_id, explanation, emit, "confirmation_resolved")
                         return
-                    if iteration == self.max_iterations:
+                    # 没有步数上限，就必须认得出「模型在原地打转」：连续三轮发出完全相同的
+                    # 工具调用说明它没有获得新信息，再跑下去只是烧 token。
+                    signature = _calls_signature(parsed_calls)
+                    repeats = repeats + 1 if signature == last_signature else 0
+                    last_signature = signature
+                    if repeats >= STUCK_REPEAT_LIMIT:
                         await self._finish_with_text(
                             session_id,
-                            f"本轮已达到 {self.max_iterations} 次工具调用上限。我先停止继续操作；如需继续，请告诉我下一步。",
+                            "连续多轮发出了完全相同的工具调用，看起来已经拿不到新信息了。"
+                            "我先停下；如需继续，请告诉我下一步该查什么。",
                             emit,
-                            "max_steps",
+                            "stuck_loop",
                         )
                         return
                     continue
@@ -1445,6 +1462,20 @@ def _parse_arguments(value: Any) -> dict[str, Any]:
 
 def _json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _calls_signature(calls: Sequence[Mapping[str, Any]]) -> str:
+    """一批工具调用的指纹：只看名字与参数，用于识别「模型在原地打转」。
+
+    不看调用 id —— 同一批调用每轮都会拿到新的 id，用 id 会让指纹永远不同。
+    """
+    return json.dumps(
+        sorted(
+            [str(call.get("name", "")), json.dumps(call.get("arguments"), sort_keys=True, default=str)]
+            for call in calls
+        ),
+        ensure_ascii=False,
+    )
 
 
 def _app_error_wire(error: AppError) -> dict[str, Any]:
