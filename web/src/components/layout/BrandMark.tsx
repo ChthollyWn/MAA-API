@@ -1,11 +1,22 @@
 import { cn } from '@/lib/utils'
 
-/** 品牌标，与 scripts/generate_pwa_icons.py 生成的图标同一几何。 */
+/** 品牌插画（`web/public/logo.webp`）。图标与它同源，见 scripts/generate_pwa_icons.py。 */
+export const LOGO_SRC = '/logo.webp'
+
+/**
+ * 品牌标：直接用插画本身，不再自己画几何。
+ *
+ * 插画自带画框与透明留白，所以这里不加圆角容器与内边距，只保留尺寸类；调用方
+ * 传进来的类（如登录页的 `shadow-float`）落在 `<img>` 上。
+ */
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 64 64" aria-hidden="true" className={cn('size-8 shrink-0', className)}>
-      <rect width="64" height="64" rx="14" fill="#15181D" />
-      <path d="M19 45V19l13 16 13-16v26" fill="none" stroke="#8B95F6" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <img
+      src={LOGO_SRC}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      className={cn('size-8 shrink-0 select-none', className)}
+    />
   )
 }

@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppShell } from '@/components/layout/AppShell'
 import LoginPage from '@/routes/login'
+import { BrandMark } from '@/components/layout/BrandMark'
 import { useAuth } from '@/stores/auth'
 
 function LocationProbe() {
@@ -188,3 +189,19 @@ describe('Login page', () => {
     expect(await screen.findByLabelText('访问 token')).toBeInTheDocument()
   })
 })
+
+describe('BrandMark', () => {
+  it('renders the brand artwork and keeps the caller size classes', () => {
+    const { container } = render(<BrandMark className="size-14 shadow-float" />)
+
+    // 品牌标现在直接读插画；换成自己画几何会让图标与品牌标再次分叉。
+    const image = container.querySelector('img')
+    expect(image).not.toBeNull()
+    expect(image).toHaveAttribute('src', '/logo.webp')
+    expect(image?.className).toContain('size-14')
+    expect(image?.className).toContain('shadow-float')
+    // 装饰性元素：读屏不该念出它。
+    expect(image).toHaveAttribute('aria-hidden', 'true')
+  })
+})
+

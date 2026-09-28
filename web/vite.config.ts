@@ -31,11 +31,13 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       includeAssets: [
-        'favicon.svg',
+        'favicon.png',
         'apple-touch-icon.png',
         'pwa-192x192.png',
         'pwa-512x512.png',
         'pwa-maskable-512x512.png',
+        // 应用内品牌标（BrandMark 渲染它）；不进预缓存的话离线打开会是缺图。
+        'logo.webp',
       ],
       manifest: {
         name: 'MAA-API 控制台',

@@ -1,7 +1,13 @@
-"""生成前端的 favicon 与 PWA 图标。
+"""从品牌插画生成 favicon 与 PWA 图标。
 
-品牌标是石墨底上的一笔靛蓝单线「M」。几何只在这里定义一次：SVG 直接写出路径，
-PNG 用 Pillow 以 8 倍超采样绘制后缩小，得到平滑边缘。
+品牌标是 ``web/public/logo.webp``（512×512、带透明通道的插画，几何只存在于这一个
+文件里）。本脚本把它合成到品牌底色上，再按各平台需要导出：
+
+- ``pwa-192x192.png`` / ``pwa-512x512.png``：圆角，供 manifest 的普通图标使用。
+- ``pwa-maskable-512x512.png``：满幅方块，四周多留安全区，供 Android 裁切。
+- ``apple-touch-icon.png``：满幅方块（iOS 自己加圆角；透明角会被它填成黑色，
+  所以底色必须画满）。
+- ``favicon.png``：浏览器标签页的小图标。
 
 用法：``.venv/bin/python scripts/generate_pwa_icons.py``（写入 ``web/public/``）。
 ``--check`` 只比较生成结果与已提交文件是否一致，不写盘。
@@ -14,65 +20,93 @@ import io
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "web" / "public"
+LOGO = PUBLIC / "logo.webp"
 
-BACKGROUND = "#15181D"
-MARK = "#8B95F6"
-# 64×64 设计网格中的折线与线宽。
-MARK_POINTS = [(19.0, 45.0), (19.0, 19.0), (32.0, 35.0), (45.0, 19.0), (45.0, 45.0)]
-STROKE = 5.5
-SUPERSAMPLE = 8
+#: 品牌底色：取自插画里画框内部的暖白（框内背景实测 #EBE8DC 一档）。
+#: 只出现在四个角与 maskable 的安全区里，选暖色比原来的石墨黑更贴合这幅插画。
+BACKGROUND = (241, 236, 225)
+#: 圆角半径，按 512 画布计（与旧的 64 网格 rx=14 同比例）。
+CORNER_RATIO = 14 / 64
+#: maskable 的安全区缩放：内容缩到 90%，四周留出被系统裁掉的余量。
+#: 实测对比 0.8 / 0.9 / 1.0 三档并套圆形遮罩：0.8 画面明显偏小且四周空太多，
+#: 1.0 会把画框四角与玫瑰切掉，0.9 能让脸、双角与玫瑰都落在圆形安全区内。
+MASKABLE_SCALE = 0.9
 
 
-def svg_icon() -> str:
-    return (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">\n'
-        f'  <rect width="64" height="64" rx="14" fill="{BACKGROUND}"/>\n'
-        f'  <path d="M19 45V19l13 16 13-16v26" fill="none" stroke="{MARK}" '
-        f'stroke-width="{STROKE}" stroke-linecap="round" stroke-linejoin="round"/>\n'
-        "</svg>\n"
+def _load_logo() -> Image.Image:
+    if not LOGO.is_file():
+        raise SystemExit(f"缺少品牌插画：{LOGO}")
+    return Image.open(LOGO).convert("RGBA")
+
+
+def _rounded_mask(size: int) -> Image.Image:
+    """圆角矩形遮罩；用 4 倍超采样画圆角，避免锯齿边。"""
+    from PIL import ImageDraw
+
+    scale = 4
+    big = size * scale
+    mask = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, big - 1, big - 1), radius=round(big * CORNER_RATIO), fill=255
     )
+    return mask.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def _draw_mark(draw: ImageDraw.ImageDraw, size: int, scale: float) -> None:
-    """在 ``size`` 像素的画布中央绘制品牌标，``scale`` 为相对 64 网格的缩放。"""
+def _flatten(size: int, *, corner: str) -> Image.Image:
+    """把插画合成到 ``size`` 见方的品牌底上；``corner`` 为 ``round`` / ``square``。"""
+    logo = _load_logo()
+    if logo.size != (size, size):
+        logo = logo.resize((size, size), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (*BACKGROUND, 255))
+    canvas.alpha_composite(logo)
+    if corner == "round":
+        flattened = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        flattened.paste(canvas, (0, 0), _rounded_mask(size))
+        return flattened
+    return canvas
 
-    unit = size / 64 * scale
-    offset = (size - 64 * unit) / 2
-    points = [(offset + x * unit, offset + y * unit) for x, y in MARK_POINTS]
-    width = STROKE * unit
-    draw.line(points, fill=MARK, width=round(width), joint="curve")
-    radius = width / 2
-    for x, y in (points[0], points[-1]):
-        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=MARK)
 
+def _encode(image: Image.Image) -> bytes:
+    """量化为 256 色调色板后再存 PNG。
 
-def png_icon(size: int, *, rounded: bool, mark_scale: float = 1.0) -> bytes:
-    big = size * SUPERSAMPLE
-    mode = "RGBA" if rounded else "RGB"
-    canvas = Image.new(mode, (big, big), (0, 0, 0, 0) if rounded else BACKGROUND)
-    draw = ImageDraw.Draw(canvas)
-    if rounded:
-        draw.rounded_rectangle((0, 0, big - 1, big - 1), radius=round(big * 14 / 64), fill=BACKGROUND)
-    _draw_mark(draw, big, mark_scale)
-    image = canvas.resize((size, size), Image.Resampling.LANCZOS)
+    插画类图像直接存真彩 PNG 会让 512 图标涨到 200KB 以上，而它会被 Service
+    Worker 预缓存、被设备存成桌面图标。256 色的平均色差实测约 2.7/255，肉眼不可辨，
+    体积降到约 1/5。底色是不透明的，量化不会碰到透明度问题。
+    """
+    quantized = image.convert("RGBA").quantize(
+        colors=256, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE
+    )
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
+    quantized.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
+
+
+def png_icon(size: int, *, rounded: bool) -> bytes:
+    return _encode(_flatten(size, corner="round" if rounded else "square"))
+
+
+def maskable_icon(size: int) -> bytes:
+    """内容缩到安全区内居中，底色铺满，剩余部分交给系统裁切。"""
+    inner = round(size * MASKABLE_SCALE)
+    logo = _load_logo().resize((inner, inner), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (*BACKGROUND, 255))
+    offset = (size - inner) // 2
+    canvas.alpha_composite(logo, (offset, offset))
+    return _encode(canvas)
 
 
 def outputs() -> dict[str, bytes]:
     return {
-        "favicon.svg": svg_icon().encode("utf-8"),
-        # iOS 自己加圆角，透明角会被填成黑色，所以用满幅方块。
+        "favicon.png": png_icon(64, rounded=False),
+        # iOS 自己加圆角，这里用满幅方块。
         "apple-touch-icon.png": png_icon(180, rounded=False),
         "pwa-192x192.png": png_icon(192, rounded=True),
         "pwa-512x512.png": png_icon(512, rounded=True),
-        # maskable 由系统裁成任意形状，标志缩进 80% 安全区。
-        "pwa-maskable-512x512.png": png_icon(512, rounded=False, mark_scale=0.82),
+        "pwa-maskable-512x512.png": maskable_icon(512),
     }
 
 
