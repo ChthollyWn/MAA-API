@@ -22,6 +22,13 @@ setting 仓储读 ``channel.client_type`` / ``channel.server`` 两个 key，读�
 （或值非法）时回退 :class:`~maa_api.domain.task.ChannelDefaults` 的默认值
 （Bilibili / CN）。
 
+两个 types 端点还用同一份默认值做**另一件事**（spec §3.4）：把当前生效的渠道
+默认值注入**响应 schema** 里 ``client_type`` / ``server`` 的 ``default``，供前端
+按生效值预填。这只是导出层的 overlay —— 模型里两个字段仍是 ``default=None``，
+``POST /validate`` 与提交路径的 ``model_fields_set`` 注入语义一个字都没变；
+OpenAPI 快照（这两个端点没有响应模型）也不受影响。overlay 写在
+:func:`_overlay_channel_defaults` 的深拷贝上，不污染 ``model_json_schema()``。
+
 **这里刻意不做进程内缓存、不监听设置变更**：带缓存与失效的 SettingService 属 M6，
 届时用 SettingService 替换 :func:`load_channel_defaults` 这一处读取即可，本模块
 其余代码不需要动。每次请求两个主键点查的代价可以接受。
@@ -44,6 +51,7 @@ setting 仓储读 ``channel.client_type`` / ``channel.server`` 两个 key，读�
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Annotated, Any, get_args
@@ -60,6 +68,7 @@ from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.task import (
     RUNTIME_IMMUTABLE,
     TASK_LABELS,
+    ChannelDefaults,
     TaskInput,
     normalize,
 )
@@ -70,6 +79,7 @@ __all__ = [
     "TASK_MODELS",
     "TaskValidateRequest",
     "_collect_groups",
+    "_overlay_channel_defaults",
     "export_type_schema",
     "load_channel_defaults",
     "router",
@@ -107,17 +117,64 @@ def _collect_groups(schema: Mapping[str, Any]) -> list[str]:
     return groups
 
 
-def export_type_schema(model: type[BaseModel]) -> dict[str, Any]:
+#: :func:`export_type_schema` 的默认渠道默认值，供**不走 HTTP** 的调用方使用：
+#: ``scripts/generate_task_types_fixture.py`` 直接调它生成前端 fixture，而该
+#: fixture 必须与 ``GET /api/tasks/types`` 返回的结构完全一致（含渠道 overlay）。
+#: 端点一律传入 ``await load_channel_defaults(session)`` 的生效值。只读常量，
+#: 任何调用方都不得改写它。
+_BUILTIN_CHANNEL_DEFAULTS = ChannelDefaults()
+
+#: overlay 的字段名 → :class:`~maa_api.domain.task.ChannelDefaults` 属性名。
+#: 当前一一对应，显式写成映射可以挡住「将来 schema 字段改名、overlay 静默失效」。
+_CHANNEL_DEFAULT_FIELDS: Mapping[str, str] = {
+    "client_type": "client_type",
+    "server": "server",
+}
+
+
+def _overlay_channel_defaults(
+    schema: dict[str, Any], channel_defaults: ChannelDefaults
+) -> dict[str, Any]:
+    """在 schema 的**副本**上给渠道字段注入当前生效的 ``default``（spec §3.4）。
+
+    ``client_type`` / ``server`` 在模型里刻意保持 ``default=None``（服务端按
+    ``model_fields_set`` 注入，docs/05 §9），但前端要按生效值预填，所以导出时
+    覆盖这一处 ``default``：只动副本，模型、OpenAPI 快照与 ``POST /validate``
+    的语义都不受影响。
+
+    pydantic 2.11 实测 ``model_json_schema()`` 每次返回新 dict，但那是实现细节；
+    这里一律 :func:`copy.deepcopy` 后再改，杜绝「就地改写共享/缓存结果」。
+    """
+    copied = copy.deepcopy(schema)
+    properties = copied.get("properties")
+    if not isinstance(properties, dict):
+        return copied
+    for field_name, attribute in _CHANNEL_DEFAULT_FIELDS.items():
+        field = properties.get(field_name)
+        if isinstance(field, dict):
+            field["default"] = getattr(channel_defaults, attribute)
+    return copied
+
+
+def export_type_schema(
+    model: type[BaseModel],
+    channel_defaults: ChannelDefaults = _BUILTIN_CHANNEL_DEFAULTS,
+) -> dict[str, Any]:
     """导出一个任务类型的对外 schema（docs/05 §8.1）。
 
     :param model: task union 中的 pydantic 模型。
+    :param channel_defaults: 注入 ``client_type`` / ``server`` ``default`` 的生效
+        渠道默认值；默认取内置默认值（Bilibili / CN），端点传设置表里的值。
     :returns: ``{name, label, description, schema, groups, runtime_immutable}``；
-        ``schema`` 是 ``model_json_schema(ref_template="#/$defs/{model}")`` 的原样
-        输出（``x-*`` 关键字保留，``$defs`` 里的模型引用指向 ``#/$defs/<Name>``，
-        方便前端在同一份文档内解析引用）。
+        ``schema`` 是 ``model_json_schema(ref_template="#/$defs/{model}")`` 的
+        **深拷贝**（``x-*`` 关键字保留，``$defs`` 里的模型引用指向
+        ``#/$defs/<Name>``，方便前端在同一份文档内解析引用），渠道字段的
+        ``default`` 已替换为 ``channel_defaults`` 里的生效值。
     """
     name = model.model_fields["name"].default
-    schema = model.model_json_schema(ref_template="#/$defs/{model}")
+    schema = _overlay_channel_defaults(
+        model.model_json_schema(ref_template="#/$defs/{model}"), channel_defaults
+    )
     return {
         "name": name,
         "label": TASK_LABELS[name],
@@ -179,27 +236,38 @@ router = APIRouter(
     description=(
         "返回全部任务类型的完整参数 schema，供前端动态生成表单、"
         "agent 了解可用参数。\n\n"
-        "- 只读端点，**无副作用**\n"
+        "- 只读端点，**无副作用**（只读 setting 表以取渠道默认值）\n"
         "- `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示"
         "与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / "
         "`x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` "
         "等原生关键字\n"
+        "- `client_type` / `server` 的 `default` 是**当前生效**的全局渠道默认值"
+        "（来自设置表，默认 Bilibili / CN）：前端按它预填并随提交显式下发即可；"
+        "提交时不传这两个字段仍由服务端按同一份默认值注入，显式传 `null` 仍是"
+        "刻意留空\n"
         "- 清单返回当前支持的全部任务类型，不接受分页参数\n"
         "- `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`\n"
     ),
     responses=error_responses("INVALID_PARAMETER", "UNAUTHORIZED"),
 )
 async def list_types(
+    session: Annotated[AsyncSession, Depends(get_session)],
     lang: Annotated[str, Query(description="中文标签语言；当前仅支持 zh")] = "zh",
 ) -> dict[str, Any]:
-    """任务类型的 schema 清单（docs/05 §6.7、§8.1）。"""
+    """任务类型的 schema 清单（docs/05 §6.7、§8.1）。
+
+    渠道默认值每请求现读（不缓存，见模块文档），overlay 只作用于响应副本。
+    """
     if lang != "zh":
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
             f"暂不支持的语言：{lang}；当前仅支持 zh",
             {"lang": lang, "supported": ["zh"]},
         )
-    items = [export_type_schema(model) for model in TASK_MODELS.values()]
+    channel_defaults = await load_channel_defaults(session)
+    items = [
+        export_type_schema(model, channel_defaults) for model in TASK_MODELS.values()
+    ]
     return {"items": items, "total": len(items), "page": 1, "size": len(items)}
 
 
@@ -208,14 +276,18 @@ async def list_types(
     summary="获取单个任务类型 schema",
     description=(
         "按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 "
-        "`items` 元素一致（不套分页信封）。\n\n"
-        "- 只读端点，**无副作用**\n"
+        "`items` 元素一致（不套分页信封），渠道字段的 `default` 同样是当前生效的"
+        "全局渠道默认值。\n\n"
+        "- 只读端点，**无副作用**（只读 setting 表以取渠道默认值）\n"
         "- `type_name` 不在支持的任务类型内时返回 400 `UNKNOWN_TASK_TYPE`"
         "（错误码表里它就是 400，不是 404）\n"
     ),
     responses=error_responses("UNKNOWN_TASK_TYPE", "UNAUTHORIZED"),
 )
-async def get_type(type_name: str) -> dict[str, Any]:
+async def get_type(
+    type_name: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, Any]:
     """单个任务类型的 schema（docs/05 §6.7）。"""
     model = TASK_MODELS.get(type_name)
     if model is None:
@@ -224,7 +296,9 @@ async def get_type(type_name: str) -> dict[str, Any]:
             f"未知的任务类型：{type_name}",
             {"type_name": type_name, "expected": list(TASK_MODELS)},
         )
-    return export_type_schema(model)
+    # 未知类型在点查设置**之前**就返回 400（错误路径不依赖库表）。
+    channel_defaults = await load_channel_defaults(session)
+    return export_type_schema(model, channel_defaults)
 
 
 @router.post(
