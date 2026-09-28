@@ -1,0 +1,128 @@
+import { describe, expect, it } from 'vitest'
+import { parseMarkdown, type MarkdownBlock, type MarkdownInline } from './markdown.tsx'
+
+/** 把行内节点压成便于断言的形状：`**粗**` → `['bold', '粗']`。 */
+function inlineOf(block: MarkdownBlock): unknown {
+  return 'children' in block ? block.children.map(compact) : null
+}
+
+function compact(node: MarkdownInline): unknown {
+  switch (node.kind) {
+    case 'text':
+      return node.text
+    case 'code':
+      return ['code', node.text]
+    case 'strong':
+      return ['bold', node.children.map(compact)]
+    case 'em':
+      return ['italic', node.children.map(compact)]
+    case 'del':
+      return ['strike', node.children.map(compact)]
+    case 'link':
+      return ['link', node.href, node.children.map(compact)]
+  }
+}
+
+describe('block structure', () => {
+  it('parses paragraphs, headings, fenced code, lists and quotes', () => {
+    const blocks = parseMarkdown(
+      [
+        '# 标题一',
+        '',
+        '第一段**加粗**文字。',
+        '第二行还是同一段。',
+        '',
+        '- 列表项 A',
+        '- 列表项 B',
+        '',
+        '1. 第一步',
+        '2. 第二步',
+        '',
+        '> 引用一行',
+        '',
+        '```python',
+        'print("hi")',
+        '```',
+      ].join('\n'),
+    )
+
+    expect(blocks.map((block) => block.kind)).toEqual([
+      'heading', 'paragraph', 'list', 'list', 'blockquote', 'code',
+    ])
+    expect(blocks[0]).toMatchObject({ kind: 'heading', level: 1 })
+    expect(inlineOf(blocks[1])).toEqual(['第一段', ['bold', ['加粗']], '文字。\n第二行还是同一段。'])
+    expect(blocks[2]).toMatchObject({ kind: 'list', ordered: false })
+    expect(blocks[3]).toMatchObject({ kind: 'list', ordered: true, start: 1 })
+    expect(blocks[5]).toMatchObject({ kind: 'code', language: 'python', text: 'print("hi")' })
+  })
+
+  it('treats a single newline inside a paragraph as a line break, matching pre-wrap today', () => {
+    const [paragraph] = parseMarkdown('第一行\n第二行')
+    expect(inlineOf(paragraph)).toEqual(['第一行\n第二行'])
+  })
+})
+
+describe('inline structure', () => {
+  it('parses inline code before emphasis so asterisks inside code stay literal', () => {
+    const [paragraph] = parseMarkdown('用 `a ** b` 表示，**重点**，*斜体*，~~删除~~。')
+    expect(inlineOf(paragraph)).toEqual([
+      '用 ',
+      ['code', 'a ** b'],
+      ' 表示，',
+      ['bold', ['重点']],
+      '，',
+      ['italic', ['斜体']],
+      '，',
+      ['strike', ['删除']],
+      '。',
+    ])
+  })
+
+  it('keeps the underscore form of emphasis working', () => {
+    const [paragraph] = parseMarkdown('__粗__ 与 _斜_')
+    expect(inlineOf(paragraph)).toEqual([['bold', ['粗']], ' 与 ', ['italic', ['斜']]])
+  })
+
+  it('parses links and keeps the label', () => {
+    const [paragraph] = parseMarkdown('见 [文档](https://example.com/a?b=1)。')
+    expect(inlineOf(paragraph)).toEqual(['见 ', ['link', 'https://example.com/a?b=1', ['文档']], '。'])
+  })
+
+  it('keeps unknown or partial markers as literal text', () => {
+    const [paragraph] = parseMarkdown('价格 3 * 4 = 12，a_b_c 不是斜体。')
+    expect(inlineOf(paragraph)).toEqual(['价格 3 * 4 = 12，a_b_c 不是斜体。'])
+  })
+})
+
+describe('streaming safety', () => {
+  it('renders an unterminated code fence as a code block instead of dropping it', () => {
+    const blocks = parseMarkdown('说明：\n\n```bash\ngit status')
+    expect(blocks.map((block) => block.kind)).toEqual(['paragraph', 'code'])
+    expect(blocks[1]).toMatchObject({ kind: 'code', language: 'bash', text: 'git status' })
+  })
+
+  it('keeps a dangling emphasis marker visible while the reply is still streaming', () => {
+    const [paragraph] = parseMarkdown('正在**处理')
+    expect(inlineOf(paragraph)).toEqual(['正在**处理'])
+  })
+
+  it('does not crash or drop content on partial inline code and links', () => {
+    expect(inlineOf(parseMarkdown('看 `git sta')[0])).toEqual(['看 ', ['code', 'git sta']])
+    expect(inlineOf(parseMarkdown('见 [文档](https://exa')[0])).toEqual([
+      '见 ',
+      ['link', 'https://exa', ['文档']],
+    ])
+  })
+})
+
+describe('safety', () => {
+  it('never emits raw html nodes for html in the reply', () => {
+    const [paragraph] = parseMarkdown('<img src=x onerror=alert(1)> 纯文本')
+    expect(inlineOf(paragraph)).toEqual(['<img src=x onerror=alert(1)> 纯文本'])
+  })
+
+  it('flags links whose scheme is not http, https or mailto', () => {
+    const [paragraph] = parseMarkdown('[点我](javascript:alert(1))')
+    expect(inlineOf(paragraph)).toEqual([['link', 'javascript:alert(1)', ['点我']]])
+  })
+})

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Markdown } from './markdown.tsx'
 import { ToolCallBar } from './ToolCallBar'
 import { liveToolView, type TranscriptEntry } from './transcript'
 import type { StreamingTurn } from './types'
@@ -22,7 +23,9 @@ export function AssistantText({ text, messageId }: { text: string; messageId?: n
   return (
     <div className="pr-4 sm:pr-10" data-message-id={messageId}>
       <span className="sr-only">Agent：</span>
-      <p className="whitespace-pre-wrap break-words text-body leading-relaxed">{text}</p>
+      {/* Agent 回复用 Markdown 渲染（列表、加粗、代码块、链接）。流式中间态由
+          Markdown 内部按「不丢内容」处理，见 markdown.ts 与 markdown.robustness.test.ts。 */}
+      <Markdown text={text} />
     </div>
   )
 }
