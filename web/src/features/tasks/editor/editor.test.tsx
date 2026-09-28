@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import taskTypesFixture from '../task-types.fixture.json'
-import type { JsonSchema, TaskTypeSchema } from '../form'
+import { materializeDefaults, type JsonSchema, type TaskTypeSchema } from '../form'
 import { DynamicTaskForm, TaskEditor, type TaskEditorProps } from '.'
 
 const types = (taskTypesFixture as unknown as { items: TaskTypeSchema[] }).items
@@ -87,6 +87,14 @@ const synthetic: TaskTypeSchema = {
       payload: { anyOf: [{ type: 'string' }, { type: 'integer' }], 'x-label': '原始参数', 'x-group': '基础' },
       aliases: { type: 'object', additionalProperties: { type: 'string' }, 'x-label': '别名映射', 'x-group': '基础' },
       window: { type: 'object', properties: { start: { type: 'integer', 'x-label': '开始' } }, 'x-label': '时间窗口', 'x-group': '基础' },
+      note: { type: 'string', default: 'auto', 'x-label': '备注', 'x-group': '基础' },
+      flag: { type: 'boolean', 'x-label': '无默认开关', 'x-group': '基础' },
+      lane: {
+        anyOf: [{ enum: ['alpha', 'beta', 'gamma', 'delta'], type: 'string' }, { type: 'null' }],
+        'x-label': '无默认下拉',
+        'x-widget': 'select',
+        'x-enum-labels': { alpha: '阿尔法', beta: '贝塔', gamma: '伽马', delta: '德尔塔' },
+      },
     },
   },
 }
@@ -207,6 +215,14 @@ describe('TaskEditor', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByLabelText('关卡名')).toHaveAttribute('placeholder', '已设为空')
     expect(screen.getByRole('button', { name: '恢复默认：关卡名' })).toBeInTheDocument()
+
+    // 有默认值的字段：改动后「恢复默认」写回默认值而不是删键。
+    fireEvent.change(screen.getByLabelText('最大理智药数'), { target: { value: '2' } })
+    expect(onChange).toHaveBeenLastCalledWith({ stage: null, medicine: 2 })
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认：最大理智药数' }))
+    expect(onChange).toHaveBeenLastCalledWith({ stage: null, medicine: 0 })
+    expect(screen.getByLabelText('最大理智药数')).toHaveValue(0)
+    expect(screen.queryByRole('button', { name: '恢复默认：最大理智药数' })).not.toBeInTheDocument()
   })
 
   it('only offers 明确留空 for fields whose schema allows null', () => {
@@ -222,22 +238,24 @@ describe('TaskEditor', () => {
 
   it('writes booleans from switches and enum values from segmented controls and selects', () => {
     const onChange = vi.fn()
-    renderEditor({ taskType: typeByName('Reclamation'), onChange })
+    const defaults = materializeDefaults(typeByName('Reclamation'), {})
+    renderEditor({ taskType: typeByName('Reclamation'), initial: defaults, onChange })
 
+    // 有默认值的开关显示开/关本身：开着的开关点一下就是关。
     fireEvent.click(screen.getByRole('switch', { name: '启用本任务' }))
-    expect(onChange).toHaveBeenLastCalledWith({ enable: true })
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaults, enable: false })
     fireEvent.click(screen.getByRole('switch', { name: '启用本任务' }))
-    expect(onChange).toHaveBeenLastCalledWith({ enable: false })
+    expect(onChange).toHaveBeenLastCalledWith(defaults)
 
-    fireEvent.click(within(screen.getByRole('radiogroup', { name: '主题' })).getByRole('radio', { name: '沙洲遗闻' }))
-    expect(onChange).toHaveBeenLastCalledWith({ enable: false, theme: 'Tales' })
-    expect(within(screen.getByRole('radiogroup', { name: '主题' })).getByRole('radio', { name: '沙洲遗闻' })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: '主题' })).getByRole('radio', { name: '沙中之火' }))
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaults, theme: 'Fire' })
+    expect(within(screen.getByRole('radiogroup', { name: '主题' })).getByRole('radio', { name: '沙中之火' })).toHaveAttribute('aria-checked', 'true')
 
     fireEvent.change(screen.getByLabelText('模式'), { target: { value: '1' } })
-    expect(onChange).toHaveBeenLastCalledWith({ enable: false, theme: 'Tales', mode: 1 })
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaults, theme: 'Fire', mode: 1 })
 
     fireEvent.click(within(screen.getByRole('radiogroup', { name: '点击类型' })).getByRole('radio', { name: '长按' }))
-    expect(onChange).toHaveBeenLastCalledWith({ enable: false, theme: 'Tales', mode: 1, increment_mode: 1 })
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaults, theme: 'Fire', mode: 1, increment_mode: 1 })
   })
 
   it('offers Fight.series choices derived from its labels', () => {
@@ -321,32 +339,131 @@ describe('TaskEditor', () => {
     expect(within(groups[0]).queryByText(/已修改 \d+ 项/)).not.toBeInTheDocument()
   })
 
-  it('steps numbers within the schema range and clears them when emptied', () => {
+  it('steps numbers within the schema range', () => {
     const onChange = vi.fn()
-    renderEditor({ taskType: typeByName('Infrast'), onChange })
+    renderEditor({ taskType: typeByName('Infrast'), initial: { threshold: 0 }, onChange })
 
     expect(screen.getByText('范围 0 ~ 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '减少工作心情阈值' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '增加工作心情阈值' }))
     expect(onChange).toHaveBeenLastCalledWith({ threshold: 0.05 })
     fireEvent.click(screen.getByRole('button', { name: '减少工作心情阈值' }))
     expect(onChange).toHaveBeenLastCalledWith({ threshold: 0 })
     expect(screen.getByRole('button', { name: '减少工作心情阈值' })).toBeDisabled()
-    fireEvent.change(screen.getByLabelText('工作心情阈值'), { target: { value: '' } })
-    expect(onChange).toHaveBeenLastCalledWith({})
   })
 
-  it('orders Infrast facilities with add, move and remove buttons', () => {
+  it('clears an input back to the schema default, or to unset when there is none', () => {
+    const onChange = vi.fn()
+    renderEditor({ taskType: typeByName('Infrast'), initial: { threshold: 0.5, filename: 'plan.json' }, onChange })
+
+    // 有默认值：清空 = 写回默认值（0.3），键留在草稿里。
+    fireEvent.change(screen.getByLabelText('工作心情阈值'), { target: { value: '' } })
+    expect(onChange).toHaveBeenLastCalledWith({ threshold: 0.3, filename: 'plan.json' })
+    // 没有默认值：清空 = 删键，回到「未设置」。文件名没有默认值，placeholder 才有意义。
+    expect(screen.getByLabelText('自定义配置路径')).toHaveAttribute('placeholder', '未设置')
+    fireEvent.change(screen.getByLabelText('自定义配置路径'), { target: { value: '' } })
+    expect(onChange).toHaveBeenLastCalledWith({ threshold: 0.3 })
+  })
+
+  it('clears a text input with a default back to that default', () => {
+    const onChange = vi.fn()
+    renderEditor({ taskType: synthetic, initial: materializeDefaults(synthetic, {}), onChange })
+
+    expect(screen.getByLabelText('备注')).toHaveValue('auto')
+    expect(screen.getByLabelText('备注')).not.toHaveAttribute('placeholder')
+    fireEvent.change(screen.getByLabelText('备注'), { target: { value: '手写' } })
+    expect(onChange).toHaveBeenLastCalledWith({ note: '手写' })
+    fireEvent.change(screen.getByLabelText('备注'), { target: { value: '' } })
+    expect(onChange).toHaveBeenLastCalledWith({ note: 'auto' })
+  })
+
+  it('prefills switches, numbers, selects and segmented controls from the materialized defaults', () => {
+    const fight = typeByName('Fight')
+    renderEditor({ taskType: fight, initial: materializeDefaults(fight, {}) })
+
+    expect(screen.getByRole('switch', { name: '汇报企鹅数据' })).not.toBeChecked()
+    expect(screen.getByRole('switch', { name: '汇报企鹅数据' })).not.toHaveAttribute('data-unset')
+    expect(screen.getByLabelText('最大理智药数')).toHaveValue(0)
+    expect(screen.getByLabelText('连战次数')).toHaveValue('1')
+    expect(screen.getByLabelText('服务器')).toHaveValue('"CN"')
+    expect(screen.getByLabelText('客户端版本')).toHaveValue('"Bilibili"')
+    // 有默认值的下拉不再渲染空选项（值总在草稿里）。
+    expect(within(screen.getByLabelText('服务器')).queryByRole('option', { name: '未设置' })).not.toBeInTheDocument()
+    cleanup()
+
+    renderEditor({ taskType: synthetic, initial: materializeDefaults(synthetic, {}) })
+    expect(screen.getByLabelText('无默认下拉')).toHaveValue('')
+    expect(within(screen.getByLabelText('无默认下拉')).getByRole('option', { name: '未设置' })).toBeInTheDocument()
+  })
+
+  it('centers the switch only for boolean fields without a default', () => {
+    const roguelike = typeByName('Roguelike')
+    renderEditor({ taskType: roguelike, initial: materializeDefaults(roguelike, {}) })
+
+    // Roguelike.use_foldartal 是条件默认值，保持居中表示交给内核。
+    const foldartal = screen.getByRole('switch', { name: '使用密文板' })
+    expect(foldartal).not.toBeChecked()
+    expect(foldartal).toHaveAttribute('data-unset', 'true')
+    // 有默认值的开关直接显示开/关。
+    expect(screen.getByRole('switch', { name: '投资源石锭' })).toBeChecked()
+    expect(screen.getByRole('switch', { name: '投资源石锭' })).not.toHaveAttribute('data-unset')
+    cleanup()
+
+    const onChange = vi.fn()
+    renderEditor({ taskType: synthetic, onChange })
+    const flag = screen.getByRole('switch', { name: '无默认开关' })
+    expect(flag).toHaveAttribute('data-unset', 'true')
+    fireEvent.click(flag)
+    expect(onChange).toHaveBeenLastCalledWith({ flag: true })
+  })
+
+  it('marks the five field states and only offers 恢复默认 once a field is modified', () => {
+    const fight = typeByName('Fight')
+    renderEditor({ taskType: fight, initial: materializeDefaults(fight, {}) })
+
+    expect(screen.getAllByText('默认').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('未设置').length).toBeGreaterThan(0)
+    expect(screen.queryByText('已修改')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '恢复默认：最大理智药数' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('switch', { name: '汇报企鹅数据' }))
+    expect(screen.getByText('已修改')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认：汇报企鹅数据' }))
+    expect(screen.getByRole('switch', { name: '汇报企鹅数据' })).not.toBeChecked()
+    expect(screen.queryByText('已修改')).not.toBeInTheDocument()
+  })
+
+  it('adds, reorders and removes facilities from scratch, in Chinese', () => {
     const onChange = vi.fn()
     renderEditor({ taskType: typeByName('Infrast'), onChange })
 
-    fireEvent.click(screen.getByRole('button', { name: '添加 Mfg' }))
-    fireEvent.click(screen.getByRole('button', { name: '添加 Trade' }))
+    expect(screen.getByText('尚未添加，点下方选项按顺序加入。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '添加 制造站' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加 贸易站' }))
     expect(onChange).toHaveBeenLastCalledWith({ facility: ['Mfg', 'Trade'] })
-    fireEvent.click(screen.getByRole('button', { name: '上移 Trade' }))
+    fireEvent.click(screen.getByRole('button', { name: '上移 贸易站' }))
     expect(onChange).toHaveBeenLastCalledWith({ facility: ['Trade', 'Mfg'] })
-    expect(screen.getByRole('button', { name: '上移 Trade' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '移除 Mfg' }))
+    expect(screen.getByRole('button', { name: '上移 贸易站' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '移除 制造站' }))
     expect(onChange).toHaveBeenLastCalledWith({ facility: ['Trade'] })
+  })
+
+  it('renders the materialized facility default with Chinese labels and lets the user reorder it', () => {
+    const infrast = typeByName('Infrast')
+    const defaults = materializeDefaults(infrast, {})
+    const onChange = vi.fn()
+    renderEditor({ taskType: infrast, initial: defaults, onChange })
+
+    // 七个设施按标准换班顺序预填，显示中文而不是 Mfg / Trade。
+    const group = screen.getByRole('group', { name: '要换班的设施（有序）' })
+    const rows = within(group).getAllByRole('listitem')
+    expect(rows.map((row) => row.textContent)).toEqual(['1制造站', '2贸易站', '3发电站', '4控制中枢', '5会客室', '6办公室', '7宿舍'])
+    const reordered = { ...defaults, facility: ['Trade', 'Mfg', 'Power', 'Control', 'Reception', 'Office', 'Dorm'] }
+    fireEvent.click(within(group).getByRole('button', { name: '上移 贸易站' }))
+    expect(onChange).toHaveBeenLastCalledWith(reordered)
+    fireEvent.click(within(group).getByRole('button', { name: '移除 发电站' }))
+    expect(onChange).toHaveBeenLastCalledWith({ ...reordered, facility: ['Trade', 'Mfg', 'Control', 'Reception', 'Office', 'Dorm'] })
+    expect(within(group).getByRole('button', { name: '添加 发电站' })).toBeInTheDocument()
   })
 
   it('toggles integer tag chips and adds free-form tags with Enter', () => {

@@ -4,6 +4,7 @@ import { ApiError, toApiError } from '@/api/errors'
 import { keys } from '@/api/keys'
 import { toast } from '@/components/ui/toaster'
 import { collectFieldIssues, errorMessage, mapFieldIssues, serializeTask, type TaskDraft, type TaskTypeSchema } from '../form'
+import { materializeDrafts } from './drafts'
 import { useComposerStore } from './store'
 
 export const composerSubmitKey = ['tasks', 'composer', 'submit'] as const
@@ -37,7 +38,8 @@ export function useSubmitPipeline(taskTypes: readonly TaskTypeSchema[], callback
   return useMutation({
     mutationKey: composerSubmitKey,
     mutationFn: async ({ idempotencyKey, drafts, title }: SubmitVariables) => {
-      const tasks = drafts.map(serializeTask)
+      // 兜底再物化一次：草稿可能来自旧缓存或直接写进 store 的调用方。
+      const tasks = materializeDrafts(drafts, taskTypes).map(serializeTask)
       const validation = await api.POST('/api/tasks/validate', { body: { tasks } as never })
       if (validation.error) throw toApiError(validation.error, validation.response)
       const submitted = await api.POST('/api/pipelines', {

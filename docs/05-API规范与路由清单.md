@@ -491,8 +491,8 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
-| GET | `/api/tasks/types` | 9 种 MaaCore 内置任务与 `Copilot` 的完整参数 schema，供前端生成表单、agent 了解可用参数 | `lang` 默认 `zh` | 200 | — |
-| GET | `/api/tasks/types/{type_name}` | 单个类型的 schema | | 200 | `UNKNOWN_TASK_TYPE` |
+| GET | `/api/tasks/types` | 9 种 MaaCore 内置任务与 `Copilot` 的完整参数 schema，供前端生成表单、agent 了解可用参数。M17 起还会读 setting 表，把「当前生效」的渠道默认值写进 `client_type` / `server` 的 `default`（见 §9） | `lang` 默认 `zh` | 200 | — |
+| GET | `/api/tasks/types/{type_name}` | 单个类型的 schema（同样带渠道默认值 overlay，不套分页信封） | | 200 | `UNKNOWN_TASK_TYPE` |
 | POST | `/api/tasks/validate` | 只校验不提交，返回规范化后的参数与将被注入的默认值 | `{tasks[]}` | 200 | `UNKNOWN_TASK_TYPE`、`TASK_PARAM_INVALID` |
 | GET | `/api/tasks/{task_id}` | 单任务详情（状态、重试次数、`params` 与 `raw_params`、耗时） | | 200 | `TASK_NOT_FOUND` |
 
@@ -752,13 +752,13 @@ class TaskInputBase(BaseModel):
         validate_assignment=True,
     )
 
-    enable: bool | None = MaaField(default=None, label="启用本任务")
+    enable: bool | None = MaaField(default=True, label="启用本任务")
 
     def to_core_params(self) -> dict[str, Any]:
         """导出为投递给 AsstAppendTask 的参数字典。"""
         return self.model_dump(
             exclude={"name"},
-            exclude_none=True,      # 未设置的参数不下发，由内核用自己的默认值
+            exclude_none=True,      # 显式 null 与「没有已知默认值且未设置」的字段不下发
             by_alias=True,          # DrGrandet 等非 snake_case 字段用 MAA 原名
         )
 ```
@@ -766,6 +766,12 @@ class TaskInputBase(BaseModel):
 `extra="forbid"` 是这次重构最重要的一处收紧：它把"参数写错了但没人告诉我"变成一个立刻可见的 422。
 
 `exclude_none=True` 保留了现有 `Task.__init__` 里 `{k: v for k, v in params.items() if v is not None}` 的行为，但位置更合理——放在导出环节而不是构造环节，模型本身仍能区分"没设置"与"设为 null"。
+
+**M17 起字段带的是真实内核默认值。** `maa_api/domain/task.py` 里 56 个字段写了 `default=`（`enable` 在基类上声明一次、覆盖 9 种任务类型），取值逐字段来自 MAA v6.17.5 的内核源码、官方文档与真内核实测三条独立证据链（逐字段表见 `docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md` §4），不再一律 `default=None`。因为默认值不再是 `None`，`exclude_none=True` 的**语义随之改变**：默认值会**显式出现在下发快照里**——这正是"预填即下发"的服务端对应物，代价是 MAA 以后调整默认值时我们不再自动跟随。显式传 `null` 仍然表示"不下发该参数，由内核决定"，这条三态语义一个字没改。
+
+**但不是所有字段都有默认值。** 四类字段刻意保持 `default is None`，行为与 M17 之前完全一样（界面仍按三态显示、提交时不下发）：语义是"无限"的（`Fight.times`、`Roguelike.starts_count` / `investments_count`）、语义是"空 = 不启用"的（`Fight.stage`、`StartUp.account_name`、`Roguelike.squad` / `roles` / `core_char`、`Infrast.filename` 等）、条件默认值随 `mode` / `theme` 变化的（`Roguelike.use_foldartal`、`check_collapsal_paradigms`、`difficulty`、`expected_collapsal_paradigms`）、本服务校验器禁止"设了但不生效"的（`Recruit.expedite_times`）。
+
+**其中三个默认值是本服务的约定，不是内核默认值。** `Recruit.select` = `[1, 4, 5]`、`Recruit.confirm` = `[2, 3, 4, 5]`、`Infrast.facility` = 七个设施，这三个字段内核**必填但无默认值**，缺任何一个 `AsstAppendTask` 都返回 0；取值沿用旧前端 `createTasks` 的日常预设与 `resource/daily_task_template.json`。真内核实测（`scripts/probe_task_defaults.py`，append 不需要连设备）的结论是：`StartUp` 必须给 `client_type`、`Recruit` 必须同时给 `select` 与 `confirm`、`Infrast` 必须给 `facility`。这三个字段的 `description` 里必须注明"本服务约定"。
 
 ### 7.3 三个代表性模型
 
@@ -776,14 +782,15 @@ class StartUpInput(TaskInputBase):
     name: Literal["StartUp"] = "StartUp"
 
     client_type: CLIENT_TYPES | None = MaaField(
-        default=None, label="客户端版本", group="账号",
+        default=None,   # 渠道字段：模型里保持 None，生效值由端点 overlay 写进 schema（§9）
+        label="客户端版本", group="账号",
         description="未指定时套用全局渠道默认值（默认 Bilibili）",
     )
     start_game_enabled: bool | None = MaaField(
-        default=None, label="自动启动客户端", group="账号",
+        default=False, label="自动启动客户端", group="账号",
     )
     account_name: str | None = MaaField(
-        default=None, label="切换账号", group="账号",
+        default=None, label="切换账号", group="账号",   # 空 = 内核自动，不设默认值
         description="仅支持切换至已登录账号，按登录名模糊查找，需在已登录账号中唯一",
         examples=["123****4567", "4567", "张三"],
     )
@@ -796,38 +803,40 @@ class FightInput(TaskInputBase):
     name: Literal["Fight"] = "Fight"
 
     stage: str | None = MaaField(
-        default=None, label="关卡名",
+        default=None, label="关卡名",   # 空 = 打当前/上次关卡，不设默认值
         description="留空则识别当前/上次关卡。剿灭作战须填 Annihilation；"
                     "可在结尾加 Normal/Hard 切换标准与磨难难度。不支持运行中设置",
         examples=["1-7", "S3-2", "Annihilation", "CE-6Hard"],
     )
-    medicine: int | None = MaaField(default=None, label="最大理智药数", group="资源消耗", ge=0)
+    medicine: int | None = MaaField(default=0, label="最大理智药数", group="资源消耗", ge=0)
     expiring_medicine: int | None = MaaField(
-        default=None, label="最大48小时内过期理智药数", group="资源消耗", ge=0,
+        default=0, label="最大48小时内过期理智药数", group="资源消耗", ge=0,
     )
-    stone: int | None = MaaField(default=None, label="最大碎石数", group="资源消耗", ge=0)
-    times: int | None = MaaField(default=None, label="指定次数", ge=1)
+    stone: int | None = MaaField(default=0, label="最大碎石数", group="资源消耗", ge=0)
+    times: int | None = MaaField(default=None, label="指定次数", ge=1)   # 语义是"无限"，不设默认值
     series: int | None = MaaField(
-        default=None, label="连战次数", ge=-1, le=6, widget="select",
+        default=1, label="连战次数", ge=-1, le=6, widget="select",
         enum_labels={"-1": "禁用切换", "0": "自动选择最大可用次数",
                      "1": "1 次", "2": "2 次", "3": "3 次", "4": "4 次", "5": "5 次", "6": "6 次"},
     )
     drops: dict[str, int] | None = MaaField(
-        default=None, label="指定掉落数量", group="高级",
+        default={}, label="指定掉落数量", group="高级",
         description="key 为 item_id（见 resource/item_index.json），任一达到即停止",
     )
-    report_to_penguin: bool | None = MaaField(default=None, label="汇报企鹅数据", group="数据上报")
-    penguin_id: str | None = MaaField(default=None, label="企鹅数据 ID", group="数据上报")
+    report_to_penguin: bool | None = MaaField(default=False, label="汇报企鹅数据", group="数据上报")
+    penguin_id: str | None = MaaField(default=None, label="企鹅数据 ID", group="数据上报")   # 空 = 不启用，不设默认值
     server: SERVERS | None = MaaField(
-        default=None, label="服务器", group="账号",
+        default=None,   # 渠道字段：模型里保持 None，生效值由端点 overlay 写进 schema（§9）
+        label="服务器", group="账号",
         description="影响掉落识别与上传，未指定时套用全局默认值（CN）",
     )
     client_type: CLIENT_TYPES | None = MaaField(
-        default=None, label="客户端版本", group="账号",
+        default=None,   # 渠道字段：同上；显式留空则关闭崩溃后重启续刷
+        label="客户端版本", group="账号",
         description="用于游戏崩溃后重启并连回继续刷；留空则不启用该功能",
     )
     dr_grandet: bool | None = MaaField(
-        default=None, label="节省理智碎石模式", group="资源消耗",
+        default=False, label="节省理智碎石模式", group="资源消耗",
         description="在碎石确认界面等待，直到当前 1 点理智恢复完成后再碎石",
         validation_alias=AliasChoices("DrGrandet", "dr_grandet"),
         serialization_alias="DrGrandet",
@@ -843,29 +852,31 @@ class InfrastInput(TaskInputBase):
     name: Literal["Infrast"] = "Infrast"
 
     mode: Literal[0, 10000, 20000] | None = MaaField(
-        default=None, label="换班工作模式", widget="select",
+        default=0, label="换班工作模式", widget="select",
         enum_labels={"0": "默认换班（单设施最优解）",
                      "10000": "自定义换班（读取用户配置）",
                      "20000": "一键轮换"},
     )
     facility: list[Literal["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"]] | None = (
-        MaaField(default=None, label="要换班的设施（有序）",
-                 description="不支持运行中设置")
+        MaaField(default=["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"],
+                 label="要换班的设施（有序）",
+                 description="不支持运行中设置。内核必填且无默认值，"
+                             "这里的默认值是本服务的约定（七个设施按标准顺序）")
     )
     drones: Literal["_NotUse", "Money", "SyntheticJade", "CombatRecord",
                     "PureGold", "OriginStone", "Chip"] | None = MaaField(
-        default=None, label="无人机用途", description="mode=10000 时该字段被忽略",
+        default="_NotUse", label="无人机用途", description="mode=10000 时该字段被忽略",
     )
-    threshold: float | None = MaaField(default=None, label="工作心情阈值", ge=0.0, le=1.0)
-    replenish: bool | None = MaaField(default=None, label="源石碎片自动补货")
-    dorm_notstationed_enabled: bool | None = MaaField(default=None, label='启用宿舍"未进驻"选项')
-    dorm_trust_enabled: bool | None = MaaField(default=None, label="剩余位置填入信赖未满干员")
+    threshold: float | None = MaaField(default=0.3, label="工作心情阈值", ge=0.0, le=1.0)
+    replenish: bool | None = MaaField(default=False, label="源石碎片自动补货")
+    dorm_notstationed_enabled: bool | None = MaaField(default=False, label='启用宿舍"未进驻"选项')
+    dorm_trust_enabled: bool | None = MaaField(default=False, label="剩余位置填入信赖未满干员")
     filename: str | None = MaaField(
-        default=None, label="自定义配置路径", group="自定义换班",
+        default=None, label="自定义配置路径", group="自定义换班",   # 仅 mode=10000 必填，不设默认值
         description="仅 mode=10000 时生效且必填。不支持运行中设置",
     )
     plan_index: int | None = MaaField(
-        default=None, label="方案序号", group="自定义换班", ge=0,
+        default=0, label="方案序号", group="自定义换班", ge=0,
         description="仅 mode=10000 时生效且必填。不支持运行中设置",
     )
 
@@ -875,6 +886,8 @@ class InfrastInput(TaskInputBase):
             raise ValueError("自定义换班模式（mode=10000）必须同时提供 filename 与 plan_index")
         return self
 ```
+
+三个示例里带 `default=` 的字段都取自 M17 的逐字段默认值表；仍是 `default=None` 的只有两类——刻意不设默认值的字段（`account_name`、`stage`、`times`、`penguin_id`、`filename`）与渠道字段（`client_type` / `server`，模型里保持 `None`，生效值由 §9 的 overlay 写进 schema）。
 
 ### 7.4 联合类型与提交请求体
 
@@ -908,7 +921,7 @@ class PipelineCreate(BaseModel):
 | `StartUp` | `client_type` 枚举（6 值） |
 | `CloseDown` | `client_type` 枚举；文档标注"必选，填空则不执行"，实际由全局默认值注入保证非空 |
 | `Fight` | `series` 取 `[-1, 6]`；`medicine`/`expiring_medicine`/`stone`/`times` 非负；`server` 枚举 4 值；`client_type` 枚举；`drops` 为 `dict[str, int]`；`DrGrandet` 别名 |
-| `Recruit` | `select`/`confirm` 为 `list[int]`，元素取 `[1, 6]`；`extra_tags_mode` 取 `{0, 1, 2}`；`recruitment_time` 为 `dict[str, int]`（**键是字符串**，JSON 对象键不能是整数，现有 `dict[int, int]` 的声明在 JSON 层面不成立）；`expedite_times` 仅 `expedite=true` 时有意义；`set_time` 仅 `times=0` 时生效 |
+| `Recruit` | `select`/`confirm` 为 `list[int]`，元素取 `[1, 6]`；`extra_tags_mode` 取 `{0, 1, 2}`；`recruitment_time` 为 `dict[str, int]`（**键是字符串**，JSON 对象键不能是整数，现有 `dict[int, int]` 的声明在 JSON 层面不成立）；`expedite_times` 仅 `expedite=true` 时有意义；`set_time` 在 `times>0` 的招募与仅计算两条路径都会用到（文档写"仅 `times=0` 时生效"，与源码不符） |
 | `Infrast` | `mode` 取 `{0, 10000, 20000}`；`facility` 元素为 7 值枚举；`drones` 为 7 值枚举；`threshold` 取 `[0, 1]`；`mode=10000` 时 `filename` 与 `plan_index` 必填 |
 | `Mall` | 无数值范围约束；`buy_first`/`blacklist` 为商品中文名字符串列表，不做枚举（商店商品会随活动变化，枚举会过期） |
 | `Award` | 全为布尔，无范围约束 |
@@ -921,19 +934,23 @@ class PipelineCreate(BaseModel):
 
 这些不是设计偏好，是现有代码里的实际缺陷，新模型必须修正。
 
+**默认值的口径在 M17 改过。** M17 起，凡内核有默认值的字段都在模型里写真实的 `default`，并随 JSON Schema 暴露给前端预填（来源是 MAA v6.17.5 源码、官方文档与真内核实测三条独立证据链，逐字段见 `docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md` §4）；只有四类字段刻意保持 `None`——语义是"无限"的、语义是"空 = 不启用"的、条件默认值随主题/模式变化的、本服务校验器禁止"设了但不生效"的（见 §7.2）。用户 2026-09-28 的裁决与代价见 [13 §8.17](./13-决策记录.md)。下面与默认值有关的两条修正按这个新口径收尾。
+
 **`ReclamationTask` 的 params 字典用变量当键。** 现有代码写的是 `params = {enable: enable, theme: theme, ...}`，键是变量的**值**而不是字符串字面量。实际效果是：全部参数为 `None` 时，字典退化成 `{None: None}` 这一个条目；有值时键变成参数值本身（`{"Fire": "Fire"}`）。这个任务类型目前实际上完全不可用。新模型通过 `model_dump()` 生成参数字典，结构性地消除了这类错误。
 
 **`InfrastTask` 的 `failename` 拼写错误。** 参数名与 params 键都是 `failename`，而文档字符串写的是 `filename`，MaaCore 认的也是 `filename`。自定义换班模式因此从未生效过。新模型统一用 `filename`，不为拼写错误保留兼容别名。
 
-**`AwardTask` 的默认值与文档冲突。** `TaskRequest` 里 `mail`/`recruit`/`orundum`/`mining`/`specialaccess` 的默认值都是 `True`，而 `task.py` 文档字符串明确写"默认为 False"（只有 `award` 默认 True）。文档字符串是权威来源，新模型这些字段一律 `default=None`，不下发则由内核用自己的默认值，服务端不预设。
+**`AwardTask` 的默认值与文档冲突。** `TaskRequest` 里 `mail`/`recruit`/`orundum`/`mining`/`specialaccess` 的默认值都是 `True`，而 `task.py` 文档字符串明确写"默认为 False"（只有 `award` 默认 True）。文档字符串是对的：内核默认值就是 `award=true`、其余五项 `false`，新模型照此逐个写 `default=`（`award` 为 `True`，五项为 `False`）。M17 之前这一段给出的处置是"这些字段一律 `default=None`，不下发则由内核用自己的默认值，服务端不预设"，这条已被用户 2026-09-28 的裁决取代（见 [13 §8.17](./13-决策记录.md)）。
 
-**`InfrastTask.threshold` 的默认值不一致。** 函数签名写 `threshold: float = 0.5`，文档字符串写"默认 0.3"。**已确认以 0.3 为准**，签名里的 0.5 是错的。但新模型仍不设服务端默认值（`default=None`），把默认值的决定权交还内核——服务端预设默认值会在内核调整默认行为时产生偏差。0.3 这个值只出现在 OpenAPI 的 `description` 与前端占位提示里，作为"内核当前默认值"的说明，不作为请求体的实际默认。
+**`InfrastTask.threshold` 的默认值不一致。** 函数签名写 `threshold: float = 0.5`，文档字符串写"默认 0.3"。**已确认以 0.3 为准**，签名里的 0.5 是错的，新模型写 `default=0.3`。M17 之前这一段给出的处置是"仍不设服务端默认值（`default=None`），把默认值的决定权交还内核"，理由是服务端预设默认值会在内核调整默认行为时产生偏差；这条理由被 2026-09-28 的裁决覆盖——预填即下发，接受"内核改默认值我们不再自动跟随"的代价，0.3 现在既写在 `description` 里，也是请求体的实际默认（见 [13 §8.17](./13-决策记录.md)）。
 
 **`times` 字段在 `TaskRequest` 中重复声明。** 第 12 行与第 24 行各有一个 `times: Optional[int] = None`，Python 类定义里后者覆盖前者。按类型分离后这个问题自然消失：`Fight` 与 `Recruit` 各有独立的 `times`，语义也不同（战斗次数 vs 招募次数），共用一个字段本身就是错的。
 
 ## 8. `GET /api/tasks/types` 的 schema 导出
 
 这个端点有两类消费者，需求恰好一致：前端用它动态生成任务配置表单，agent 用它了解某个任务类型有哪些参数可用。共用一份 schema 保证两边永远不会看到不同的参数集。
+
+schema 里的 `default` 有两种来源：绝大多数字段是**静态**的内核默认值（MAA v6.17.5，逐字段依据见 §7.2）；`client_type` 与 `server` 的 `default` 是**动态**的——每次请求用 `load_channel_defaults` 从 `setting` 表读**当前生效**的渠道默认值（默认 `Bilibili` / `CN`）注入响应，因为前端要按生效值预填并显式下发。overlay 只改这两个端点响应里的 schema 副本，pydantic 模型与提交流程的默认语义不变（见 §9）。
 
 ### 8.1 导出实现
 
@@ -944,8 +961,13 @@ from pydantic import TypeAdapter
 _ADAPTERS = {m.model_fields["name"].default: m for m in get_args(get_args(TaskInput)[0])}
 
 
-def export_type_schema(model: type[BaseModel]) -> dict[str, Any]:
-    schema = model.model_json_schema(ref_template="#/$defs/{model}")
+def export_type_schema(
+    model: type[BaseModel],
+    channel_defaults: ChannelDefaults = _BUILTIN_CHANNEL_DEFAULTS,
+) -> dict[str, Any]:
+    schema = _overlay_channel_defaults(     # client_type / server 的 default 换成当前生效值
+        model.model_json_schema(ref_template="#/$defs/{model}"), channel_defaults
+    )
     return {
         "name": model.model_fields["name"].default,
         "label": TASK_LABELS[model.model_fields["name"].default],   # "刷理智"
@@ -972,7 +994,7 @@ def export_type_schema(model: type[BaseModel]) -> dict[str, Any]:
         "properties": {
           "series": {
             "anyOf": [{ "type": "integer", "maximum": 6, "minimum": -1 }, { "type": "null" }],
-            "default": null,
+            "default": 1,
             "x-label": "连战次数",
             "x-group": "基础",
             "x-widget": "select",
@@ -983,7 +1005,7 @@ def export_type_schema(model: type[BaseModel]) -> dict[str, Any]:
       }
     }
   ],
-  "total": 9,
+  "total": 10,
   "page": 1,
   "size": 9
 }
@@ -999,6 +1021,8 @@ def export_type_schema(model: type[BaseModel]) -> dict[str, Any]:
 | `x-group` | 分组名 | 折叠面板分区，避免 23 个参数平铺 |
 | `x-widget` | 控件提示（`select` / `stepper` / `switch` / `tags` / `textarea`） | 选择渲染组件 |
 | `x-enum-labels` | 枚举值到中文的映射 | 下拉选项的显示文案 |
+
+`x-enum-labels` 也挂在**数组元素**的子 schema 上。`Infrast.facility` 的中文设施名（制造站 / 贸易站 / 发电站 / 控制中枢 / 会客室 / 办公室 / 宿舍）写在 `properties.facility.items` 里，而不是 `properties.facility` 顶层——前端渲染多选类字段时要下钻一层取这张映射表。
 
 取值范围直接用 JSON Schema 原生关键字承载：`minimum` / `maximum`（来自 `ge` / `le`）、`enum`（来自 `Literal`）、`minItems` / `maxItems`。这样前端可以直接把它喂给 `react-hook-form` 之类的库做客户端校验，不必解析自定义字段。
 
@@ -1019,6 +1043,8 @@ def export_type_schema(model: type[BaseModel]) -> dict[str, Any]:
 ## 9. 全局渠道默认值的注入位置
 
 按决策，渠道默认 **Bilibili（B 服）**，任务未显式指定 `client_type` 时自动套用，允许单任务覆盖。`Fight` 与 `Recruit` 的 `server` 字段同理（默认 `CN`）。
+
+注意区分**模型里的默认值**与**schema 里的默认值**：`client_type` / `server` 在 pydantic 模型里仍是 `default=None`，上面这条注入语义完全不变；`GET /api/tasks/types` 与 `/api/tasks/types/{type_name}` 响应里那个"当前生效"的 `default` 只是给前端预填用的 overlay（见 §8）。
 
 注入发生在**校验之后、落库之前**的唯一一个函数里：
 
@@ -1052,7 +1078,11 @@ def normalize(task: TaskInput, defaults: ChannelDefaults) -> NormalizedTask:
 
 `model_fields_set` 是这段逻辑的关键，它区分了三种情况：字段未出现在请求 JSON 里（注入默认值）、显式传 `null`（不注入，不下发该参数，由内核决定）、显式传具体值（原样使用）。第二种情况对 `Fight.client_type` 有实际意义——文档明确说该字段留空则关闭"崩溃后重启续刷"功能，用户可能就是想关掉它。
 
-`ChannelDefaults` 从 `SettingService` 读取（`channel.client_type`、`channel.server`），带进程内缓存并在设置变更时失效。定时任务在**触发时**读取当前默认值而不是创建时快照，这样改了渠道之后所有定时任务自动跟随。
+`raw_params` 走 `exclude_unset=True`，记录的正是 `model_fields_set` 里的字段，所以"显式 `null`"与"没提这个字段"在库里长得不一样。M17 之后默认值会进 `params` 快照，`raw_params` 的这条口径没有变——它只记客户端真的提交过什么（前端把默认值物化进提交体后，通常也就一并提交了）。
+
+`ChannelDefaults` 从 `SettingService` 读取（`channel.client_type`、`channel.server`），带进程内缓存并在设置变更时失效。定时任务在**触发时**读取当前默认值而不是创建时快照，**未显式带这两个字段**的流水线/定时任务因此会跟随后续渠道设置变更。
+
+M17 之后这条跟随有了限定：前端会把当时生效的渠道值预填并显式下发，所以**新建**的流水线/定时任务在提交那一刻就冻结了渠道值，之后改渠道设置不会再影响它们——这是"预填即下发"已知且用户确认的代价（见 [13 §8.17](./13-决策记录.md)）。M17 之前创建、请求体里没有这两个字段的旧流水线不受影响，仍然跟随。
 
 ## 10. 幂等性与并发
 

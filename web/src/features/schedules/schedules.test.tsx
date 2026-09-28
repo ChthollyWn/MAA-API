@@ -6,6 +6,7 @@ import { createMemoryRouter, RouterProvider, useLocation } from 'react-router'
 import SchedulesPage from '@/routes/schedules'
 import ScheduleEditorPage from '@/routes/schedules/editor'
 import taskTypesFixture from '@/features/tasks/task-types.fixture.json'
+import { materializeDefaults, type TaskTypeSchema } from '@/features/tasks/form'
 import type { components } from '@/types/api'
 
 // 全量并行时 jsdom 很忙，默认 1 秒的 findBy / waitFor 会偶发超时。
@@ -13,6 +14,14 @@ configure({ asyncUtilTimeout: 5_000 })
 
 type ScheduleView = components['schemas']['ScheduleView']
 type Entry = string | { pathname: string; state?: unknown }
+
+const typeByName = (name: string) => {
+  const found = (taskTypesFixture as unknown as { items: TaskTypeSchema[] }).items.find((type) => type.name === name)
+  if (!found) throw new Error(`fixture 缺少任务类型 ${name}`)
+  return found
+}
+/** M17 起定时任务模板也按 schema 预填默认值：读取、编辑、保存都会带上它们。 */
+const withDefaults = (name: string, params: Record<string, unknown> = {}) => ({ name, ...materializeDefaults(typeByName(name), params) })
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -300,7 +309,7 @@ describe('schedule editor', () => {
       name: '每周日启动',
       cron: '30 19 * * 0',
       timezone: 'Asia/Shanghai',
-      template: [{ name: 'StartUp' }],
+      template: [withDefaults('StartUp')],
       enabled: true,
       priority: 2,
       misfire_grace_seconds: 300,
@@ -401,7 +410,7 @@ describe('schedule editor', () => {
     fireEvent.change(screen.getByLabelText('名称'), { target: { value: '调试台刷图' } })
     fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
     await waitFor(() => expect(network.find('POST', '/api/schedules')).toHaveLength(1))
-    expect((await json(network.find('POST', '/api/schedules')[0])).template).toEqual([{ name: 'Fight', stage: '1-7' }])
+    expect((await json(network.find('POST', '/api/schedules')[0])).template).toEqual([withDefaults('Fight', { stage: '1-7' })])
   })
 
   it('carries the composer tasks and name from the list into a new schedule (T13)', async () => {
@@ -456,7 +465,7 @@ describe('schedule editor', () => {
       name: '周末日常',
       cron: '30 8 * * 0,1,6',
       timezone: 'Asia/Shanghai',
-      template: [{ name: 'StartUp', client_type: 'Official' }],
+      template: [withDefaults('StartUp', { client_type: 'Official' })],
       enabled: true,
       priority: 2,
       misfire_grace_seconds: 300,

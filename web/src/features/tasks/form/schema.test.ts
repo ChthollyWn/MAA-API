@@ -10,6 +10,7 @@ import {
   getType,
   groupTaskFields,
   isRuntimeImmutable,
+  materializeDefaults,
   normalizeSchema,
   requiredFields,
   resolveReference,
@@ -176,7 +177,11 @@ describe('schema helpers', () => {
     expect(requiredFields(typeByName('Copilot').schema)).toEqual(new Set(['asset_id']))
     expect(requiredFields(typeByName('Fight').schema)).toEqual(new Set())
     expect(schemaDefault(property('Copilot', 'formation'))).toEqual({ value: false })
-    expect(schemaDefault(property('Fight', 'medicine'))).toBeUndefined()
+    expect(schemaDefault(property('Fight', 'medicine'))).toEqual({ value: 0 })
+    expect(schemaDefault(property('StartUp', 'client_type'))).toEqual({ value: 'Bilibili' })
+    // 条件默认值与「空 = 不启用」的字段保持 null：视为没有已知默认值。
+    expect(schemaDefault(property('Fight', 'stage'))).toBeUndefined()
+    expect(schemaDefault(property('Roguelike', 'use_foldartal'))).toBeUndefined()
     expect(schemaDefault({ type: 'integer' })).toBeUndefined()
   })
 
@@ -184,6 +189,78 @@ describe('schema helpers', () => {
     expect(taskTypeSummary(typeByName('Award'))).toBe('领取各种奖励。')
     expect(taskTypeSummary(typeByName('Roguelike'))).toBe('无限刷肉鸽（集成战略）。')
     expect(taskTypeSummary(typeByName('Fight'))).toBe('刷理智：刷指定关卡，支持理智药、碎石与连战。')
+  })
+})
+
+describe('materializeDefaults', () => {
+  it('fills every field with a non-null default and leaves the rest out (Fight / Infrast)', () => {
+    expect(materializeDefaults(typeByName('Fight'), {})).toEqual({
+      enable: true,
+      series: 1,
+      medicine: 0,
+      expiring_medicine: 0,
+      stone: 0,
+      DrGrandet: false,
+      server: 'CN',
+      client_type: 'Bilibili',
+      report_to_penguin: false,
+      drops: {},
+    })
+    const infrast = materializeDefaults(typeByName('Infrast'), {})
+    expect(infrast).toMatchObject({ enable: true, mode: 0, threshold: 0.3, drones: '_NotUse', plan_index: 0 })
+    expect(infrast.facility).toEqual(['Mfg', 'Trade', 'Power', 'Control', 'Reception', 'Office', 'Dorm'])
+  })
+
+  it('treats a missing or null default as no default at all', () => {
+    const params = materializeDefaults(typeByName('Fight'), {})
+    for (const name of ['stage', 'times', 'penguin_id']) expect(name in params).toBe(false)
+    for (const name of ['use_foldartal', 'squad', 'difficulty']) expect(name in materializeDefaults(typeByName('Roguelike'), {})).toBe(false)
+    // Recruit.expedite_times 的默认值会违反服务端校验器，schema 里保持 null。
+    expect('expedite_times' in materializeDefaults(typeByName('Recruit'), {})).toBe(false)
+    // 有默认值的字段显式留空时保持 null，不被默认值覆盖。
+    expect(materializeDefaults(typeByName('Fight'), { server: null })).toMatchObject({ server: null })
+    // 缺键与显式 undefined 等效。
+    expect(materializeDefaults(typeByName('Fight'), { times: undefined })).toEqual(materializeDefaults(typeByName('Fight'), {}))
+  })
+
+  it('keeps the values the caller already set, including falsy ones', () => {
+    const params = materializeDefaults(typeByName('Fight'), { medicine: 0, stone: 0, drops: { '30013': 5 }, stage: '1-7' })
+    expect(params).toMatchObject({ medicine: 0, stone: 0, drops: { '30013': 5 }, stage: '1-7' })
+    expect(materializeDefaults(typeByName('Mall'), { shopping: false }).shopping).toBe(false)
+  })
+
+  it('returns a copy and deep-copies array and object defaults', () => {
+    const input = { stage: '1-7' }
+    const params = materializeDefaults(typeByName('Fight'), input)
+    expect(input).toEqual({ stage: '1-7' })
+    ;(params.drops as Record<string, number>)['30013'] = 5
+    ;(params.select as number[] | undefined)?.push(6)
+    expect(materializeDefaults(typeByName('Fight'), {}).drops).toEqual({})
+    const recruit = materializeDefaults(typeByName('Recruit'), {})
+    expect(recruit.select).toEqual([1, 4, 5])
+    expect(schemaDefault(property('Recruit', 'select'))).toEqual({ value: [1, 4, 5] })
+  })
+
+  it('keeps the name discriminator out of the params', () => {
+    // 判别字段由草稿的 name 承载，物化不会凭空加上它（模板里的 name 由 draftsFromTemplate 剥掉）。
+    expect('name' in materializeDefaults(typeByName('StartUp'), {})).toBe(false)
+    expect(Object.keys(materializeDefaults(typeByName('Recruit'), {}))).not.toContain('name')
+  })
+
+  it('recurses into nested objects that are already in the draft', () => {
+    const taskType = syntheticType({
+      window: {
+        type: 'object',
+        'x-label': '时间窗口',
+        properties: { start: { type: 'integer', default: 8 }, end: { type: 'integer' } },
+      },
+      plain: { type: 'object', properties: { start: { type: 'integer', default: 8 } } },
+      map: { type: 'object', additionalProperties: { type: 'integer' }, default: {} },
+    })
+    expect(materializeDefaults(taskType, { window: { end: 20 } })).toEqual({ window: { end: 20, start: 8 }, map: {} })
+    // 没有默认值的对象自身不会被凭空创建。
+    expect(materializeDefaults(taskType, {})).toEqual({ map: {} })
+    expect(materializeDefaults(taskType, { window: { start: 9, end: 20 } })).toEqual({ window: { start: 9, end: 20 }, map: {} })
   })
 })
 

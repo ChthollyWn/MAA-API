@@ -1,8 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { materializeDefaults } from './form'
 import { useComposerStore } from './composer'
 import { installTaskApi, renderTaskArea, taskTypeEnvelope } from './test-utils'
+
+const typeByName = (name: string) => {
+  const found = taskTypeEnvelope.items.find((type) => type.name === name)
+  if (!found) throw new Error(`fixture 缺少任务类型 ${name}`)
+  return found
+}
+/** M17 起新建/复制/从模板加载都会预填 schema 默认值，提交体也带着它们。 */
+const withDefaults = (name: string, params: Record<string, unknown> = {}) => ({ name, ...materializeDefaults(typeByName(name), params) })
 
 async function openTypeSheet() {
   fireEvent.click(await screen.findByRole('button', { name: '添加任务' }))
@@ -120,10 +129,10 @@ describe('task composer', () => {
     expect(success.closest('[role="status"]')).not.toBeNull()
     expect(screen.getByRole('link', { name: '查看队列' })).toHaveAttribute('href', '/tasks/queue')
     const [validation] = network.find('POST', '/api/tasks/validate')
-    expect(await validation.clone().json()).toEqual({ tasks: [{ name: 'Fight', medicine: 2 }] })
+    expect(await validation.clone().json()).toEqual({ tasks: [withDefaults('Fight', { medicine: 2 })] })
     const [submission] = network.find('POST', '/api/pipelines')
     expect(submission.headers.get('Idempotency-Key')).toBeTruthy()
-    expect(await submission.clone().json()).toEqual({ tasks: [{ name: 'Fight', medicine: 2 }] })
+    expect(await submission.clone().json()).toEqual({ tasks: [withDefaults('Fight', { medicine: 2 })] })
     expect(network.requests.indexOf(validation)).toBeLessThan(network.requests.indexOf(submission))
     expect(useComposerStore.getState().drafts).toHaveLength(0)
     expect(screen.queryByRole('button', { name: /^第 1 项：/ })).not.toBeInTheDocument()
@@ -139,7 +148,7 @@ describe('task composer', () => {
 
     expect(await screen.findByText('流水线已加入队列。')).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(await network.find('POST', '/api/pipelines')[0].clone().json()).toEqual({ tasks: [{ name: 'StartUp' }], title: '早间日常' })
+    expect(await network.find('POST', '/api/pipelines')[0].clone().json()).toEqual({ tasks: [withDefaults('StartUp')], title: '早间日常' })
     expect(screen.getByLabelText('流水线名称（可选）')).toHaveValue('')
   })
 
@@ -255,7 +264,33 @@ describe('task composer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '开始执行（2 项）' }))
     await waitFor(() => expect(network.find('POST', '/api/pipelines')).toHaveLength(1))
-    expect(await network.find('POST', '/api/pipelines')[0].clone().json()).toEqual({ tasks: [{ name: 'Fight', stage: '1-7' }, { name: 'Fight', stage: '1-7' }] })
+    expect(await network.find('POST', '/api/pipelines')[0].clone().json()).toEqual({ tasks: [withDefaults('Fight', { stage: '1-7' }), withDefaults('Fight', { stage: '1-7' })] })
+  })
+
+  it('prefills the schema defaults on add and duplicate and sends them with the submission (M17)', async () => {
+    const network = installTaskApi()
+    renderTaskArea()
+
+    const editor = await addTask('刷理智')
+    // 新建即预填：控件里显示的是具体值，而不是空白加「默认」。
+    expect(within(editor).getByLabelText('服务器')).toHaveValue('"CN"')
+    expect(within(editor).getByLabelText('连战次数')).toHaveValue('1')
+    expect(within(editor).getByLabelText('最大理智药数')).toHaveValue(0)
+    expect(within(editor).getByRole('switch', { name: '汇报企鹅数据' })).not.toBeChecked()
+    await closeEditor(editor)
+    // 参数摘要只在改过时才变化。
+    expect(screen.getByRole('button', { name: /^第 1 项：/ })).toHaveTextContent('使用默认参数')
+    expect(useComposerStore.getState().drafts[0]?.params).toEqual(materializeDefaults(typeByName('Fight'), {}))
+
+    fireEvent.click(within(await openRowMenu(1, '刷理智')).getByRole('button', { name: '复制' }))
+    await waitFor(() => expect(taskRows()).toHaveLength(2))
+    expect(useComposerStore.getState().drafts[1]?.params).toEqual(materializeDefaults(typeByName('Fight'), {}))
+
+    fireEvent.click(screen.getByRole('button', { name: '开始执行（2 项）' }))
+    await waitFor(() => expect(network.find('POST', '/api/pipelines')).toHaveLength(1))
+    const sent = { tasks: [withDefaults('Fight'), withDefaults('Fight')] }
+    expect(await network.find('POST', '/api/tasks/validate')[0].clone().json()).toEqual(sent)
+    expect(await network.find('POST', '/api/pipelines')[0].clone().json()).toEqual(sent)
   })
 
   it('keeps the draft while switching to the queue and back', async () => {
@@ -290,7 +325,7 @@ describe('task composer', () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/schedules/new'))
     expect(router.state.location.state).toEqual({
-      composerPrefill: { name: '每日刷图', template: [{ name: 'Fight', stage: '1-7', medicine: 2 }] },
+      composerPrefill: { name: '每日刷图', template: [withDefaults('Fight', { stage: '1-7', medicine: 2 })] },
     })
     expect(network.find('POST', '/api/tasks/validate')).toHaveLength(0)
   })

@@ -1131,8 +1131,9 @@ export interface paths {
          * 获取任务类型 schema
          * @description 返回全部任务类型的完整参数 schema，供前端动态生成表单、agent 了解可用参数。
          *
-         *     - 只读端点，**无副作用**
+         *     - 只读端点，**无副作用**（只读 setting 表以取渠道默认值）
          *     - `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字
+         *     - `client_type` / `server` 的 `default` 是**当前生效**的全局渠道默认值（来自设置表，默认 Bilibili / CN）：前端按它预填并随提交显式下发即可；提交时不传这两个字段仍由服务端按同一份默认值注入，显式传 `null` 仍是刻意留空
          *     - 清单返回当前支持的全部任务类型，不接受分页参数
          *     - `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`
          */
@@ -1154,9 +1155,9 @@ export interface paths {
         };
         /**
          * 获取单个任务类型 schema
-         * @description 按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封）。
+         * @description 按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封），渠道字段的 `default` 同样是当前生效的全局渠道默认值。
          *
-         *     - 只读端点，**无副作用**
+         *     - 只读端点，**无副作用**（只读 setting 表以取渠道默认值）
          *     - `type_name` 不在支持的任务类型内时返回 400 `UNKNOWN_TASK_TYPE`（错误码表里它就是 400，不是 404）
          */
         get: operations["tasks_get_type"];
@@ -1431,9 +1432,11 @@ export interface components {
          * AwardInput
          * @description 领取各种奖励。
          *
-         *     按 docs/05 §7.6：``mail``/``recruit``/``orundum``/``mining``/``specialaccess``
-         *     一律 ``default=None``，不预设 True/False —— 旧 ``TaskRequest`` 把它们写成 True
-         *     与 docstring 冲突，且服务端预设默认值会在内核调整默认行为时产生偏差。
+         *     M17 起 ``award`` 与 ``mail``/``recruit``/``orundum``/``mining``/``specialaccess``
+         *     都写 schema ``default``（内核默认值：``award=true``，其余 ``false``）。
+         *     旧 ``TaskRequest`` 曾把它们一律写成 True 与 docstring 冲突；现在以内核源码的
+         *     实际默认值为准，逐字段见
+         *     docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md §4。
          * @example {
          *       "award": true,
          *       "mail": true,
@@ -1443,24 +1446,28 @@ export interface components {
         AwardInput: {
             /**
              * Award
-             * @description 领取每日/每周任务奖励；不传则由内核使用默认值（True）
+             * @description 领取每日/每周任务奖励；内核默认值 True
+             * @default true
              */
-            award?: boolean | null;
+            award: boolean | null;
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * Mail
-             * @description 领取所有邮件奖励；不传则由内核使用默认值（False）
+             * @description 领取所有邮件奖励；内核默认值 False
+             * @default false
              */
-            mail?: boolean | null;
+            mail: boolean | null;
             /**
              * Mining
-             * @description 领取限时开采许可的合成玉奖励；不传则由内核使用默认值（False）
+             * @description 领取限时开采许可的合成玉奖励；内核默认值 False
+             * @default false
              */
-            mining?: boolean | null;
+            mining: boolean | null;
             /**
              * @description 判别联合 discriminator，固定为 Award；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1468,19 +1475,22 @@ export interface components {
             name: "Award";
             /**
              * Orundum
-             * @description 领取幸运墙的合成玉奖励；不传则由内核使用默认值（False）
+             * @description 领取幸运墙的合成玉奖励；内核默认值 False
+             * @default false
              */
-            orundum?: boolean | null;
+            orundum: boolean | null;
             /**
              * Recruit
-             * @description 领取限定池子赠送的每日免费单抽；不传则由内核使用默认值（False）
+             * @description 领取限定池子赠送的每日免费单抽；内核默认值 False
+             * @default false
              */
-            recruit?: boolean | null;
+            recruit: boolean | null;
             /**
              * Specialaccess
-             * @description 领取五周年赠送的月卡奖励；不传则由内核使用默认值（False）
+             * @description 领取五周年赠送的月卡奖励；内核默认值 False
+             * @default false
              */
-            specialaccess?: boolean | null;
+            specialaccess: boolean | null;
         };
         /**
          * CallerType
@@ -1515,9 +1525,10 @@ export interface components {
             client_type?: ("Official" | "Bilibili" | "txwy" | "YoStarEN" | "YoStarJP" | "YoStarKR") | null;
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * @description 判别联合 discriminator，固定为 CloseDown；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1691,9 +1702,10 @@ export interface components {
         FightInput: {
             /**
              * Drgrandet
-             * @description 节省理智碎石模式；仅在可能产生碎石效果时生效：在碎石确认界面等待，直到当前的 1 点理智恢复完成后再立刻碎石。不传则由内核使用默认值（False）
+             * @description 节省理智碎石模式；仅在可能产生碎石效果时生效：在碎石确认界面等待，直到当前的 1 点理智恢复完成后再立刻碎石。内核默认值 False
+             * @default false
              */
-            DrGrandet?: boolean | null;
+            DrGrandet: boolean | null;
             /**
              * Client Type
              * @description 客户端版本；用于游戏崩溃时重启并连回去继续刷，若为空则不启用该功能。未指定时套用全局渠道默认值（默认 Bilibili）
@@ -1701,26 +1713,30 @@ export interface components {
             client_type?: ("Official" | "Bilibili" | "txwy" | "YoStarEN" | "YoStarJP" | "YoStarKR") | null;
             /**
              * Drops
-             * @description 指定掉落数量；key 为 item_id（见 resource/item_index.json），value 为数量。是或的关系，即任一达到即停止任务
+             * @description 指定掉落数量；key 为 item_id（见 resource/item_index.json），value 为数量。是或的关系，即任一达到即停止任务；默认空对象表示不指定掉落目标
+             * @default {}
              */
-            drops?: {
+            drops: {
                 [key: string]: number;
             } | null;
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * Expiring Medicine
-             * @description 最大使用 48 小时内过期理智药数量；不传则由内核使用默认值（0）
+             * @description 最大使用 48 小时内过期理智药数量；内核默认值 0。该参数自内核 v6.8.0 起已弃用，内核改用 medicine_expire_days（理智药过期天数，非 0 即视为 2 天）；本服务的字段仅为兼容旧提交保留
+             * @default 0
              */
-            expiring_medicine?: number | null;
+            expiring_medicine: number | null;
             /**
              * Medicine
-             * @description 最大使用理智药数量；不传则由内核使用默认值（0，即不吃药）
+             * @description 最大使用理智药数量；内核默认值 0（即不吃药）
+             * @default 0
              */
-            medicine?: number | null;
+            medicine: number | null;
             /**
              * @description 判别联合 discriminator，固定为 Fight；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1733,14 +1749,16 @@ export interface components {
             penguin_id?: string | null;
             /**
              * Report To Penguin
-             * @description 是否汇报企鹅数据；不传则由内核使用默认值（False）
+             * @description 是否汇报企鹅数据；内核默认值 False
+             * @default false
              */
-            report_to_penguin?: boolean | null;
+            report_to_penguin: boolean | null;
             /**
              * Series
-             * @description 连战次数；-1 为禁用切换，0 为自动切换为当前可用的最大次数（如当前理智不够 6 次，则选择最低可用次数），1~6 为指定连战次数
+             * @description 连战次数；-1 为禁用切换，0 为自动切换为当前可用的最大次数（如当前理智不够 6 次，则选择最低可用次数），1~6 为指定连战次数。内核默认值 1
+             * @default 1
              */
-            series?: number | null;
+            series: number | null;
             /**
              * Server
              * @description 服务器，会影响掉落识别及上传；未指定时套用全局默认值（CN）。可选值：CN / US / JP / KR
@@ -1757,9 +1775,10 @@ export interface components {
             stage?: string | null;
             /**
              * Stone
-             * @description 最大吃石头（源石）数量；不传则由内核使用默认值（0，即不碎石）
+             * @description 最大吃石头（源石）数量；内核默认值 0（即不碎石）
+             * @default 0
              */
-            stone?: number | null;
+            stone: number | null;
             /**
              * Times
              * @description 指定战斗次数；不传则由内核使用默认值（无穷大）
@@ -1854,29 +1873,42 @@ export interface components {
         InfrastInput: {
             /**
              * Dorm Notstationed Enabled
-             * @description 是否启用宿舍「未进驻」选项；不传则由内核使用默认值（False）
+             * @description 是否启用宿舍「未进驻」选项；内核默认值 False
+             * @default false
              */
-            dorm_notstationed_enabled?: boolean | null;
+            dorm_notstationed_enabled: boolean | null;
             /**
              * Dorm Trust Enabled
-             * @description 是否将宿舍剩余位置填入信赖未满干员；不传则由内核使用默认值（False）
+             * @description 是否将宿舍剩余位置填入信赖未满干员；内核默认值 False
+             * @default false
              */
-            dorm_trust_enabled?: boolean | null;
+            dorm_trust_enabled: boolean | null;
             /**
              * Drones
-             * @description 无人机用途；mode == 10000 时该字段无效（会被忽略）。可选值包括 "_NotUse", "Money", "SyntheticJade", "CombatRecord", "PureGold", "OriginStone", "Chip"；不传则由内核使用默认值（_NotUse）
+             * @description 无人机用途；mode == 10000 时该字段无效（会被忽略）。可选值包括 "_NotUse", "Money", "SyntheticJade", "CombatRecord", "PureGold", "OriginStone", "Chip"；内核默认值 _NotUse
+             * @default _NotUse
              */
-            drones?: ("_NotUse" | "Money" | "SyntheticJade" | "CombatRecord" | "PureGold" | "OriginStone" | "Chip") | null;
+            drones: ("_NotUse" | "Money" | "SyntheticJade" | "CombatRecord" | "PureGold" | "OriginStone" | "Chip") | null;
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * Facility
-             * @description 要换班的设施（有序，顺序即换班顺序），必选；设施名选项包括 "Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"。不支持运行中设置
+             * @description 要换班的设施（有序，顺序即换班顺序），内核必填；默认值（全部七个设施，按标准换班顺序）由本服务约定，内核没有默认值。设施名选项包括 "Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"。不支持运行中设置
+             * @default [
+             *       "Mfg",
+             *       "Trade",
+             *       "Power",
+             *       "Control",
+             *       "Reception",
+             *       "Office",
+             *       "Dorm"
+             *     ]
              */
-            facility?: ("Mfg" | "Trade" | "Power" | "Control" | "Reception" | "Office" | "Dorm")[] | null;
+            facility: ("Mfg" | "Trade" | "Power" | "Control" | "Reception" | "Office" | "Dorm")[] | null;
             /**
              * Filename
              * @description 自定义配置路径，仅 mode == 10000 时生效且必填，否则会被忽略。不支持运行中设置
@@ -1884,9 +1916,10 @@ export interface components {
             filename?: string | null;
             /**
              * Mode
-             * @description 换班工作模式；0 为默认换班模式（单设施最优解），10000 为自定义换班模式（读取用户配置），20000 为一键轮换模式（会跳过控制中枢、发电站、宿舍以及办公室，其余设施不进行换班但保留基本操作，如使用无人机、会客室逻辑）。不传则由内核使用默认值（0）
+             * @description 换班工作模式；0 为默认换班模式（单设施最优解），10000 为自定义换班模式（读取用户配置），20000 为一键轮换模式（会跳过控制中枢、发电站、宿舍以及办公室，其余设施不进行换班但保留基本操作，如使用无人机、会客室逻辑）。内核默认值 0
+             * @default 0
              */
-            mode?: (0 | 10000 | 20000) | null;
+            mode: (0 | 10000 | 20000) | null;
             /**
              * @description 判别联合 discriminator，固定为 Infrast；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -1894,19 +1927,22 @@ export interface components {
             name: "Infrast";
             /**
              * Plan Index
-             * @description 使用配置中的方案序号，仅 mode == 10000 时生效且必填，否则会被忽略。不支持运行中设置
+             * @description 使用配置中的方案序号，仅 mode == 10000 时生效且必填，否则会被忽略。内核默认值 0；不支持运行中设置
+             * @default 0
              */
-            plan_index?: number | null;
+            plan_index: number | null;
             /**
              * Replenish
-             * @description 贸易站「源石碎片」是否自动补货；不传则由内核使用默认值（False）
+             * @description 贸易站「源石碎片」是否自动补货；内核默认值 False
+             * @default false
              */
-            replenish?: boolean | null;
+            replenish: boolean | null;
             /**
              * Threshold
-             * @description 工作心情阈值，取值范围 [0, 1.0]；内核当前默认值为 0.3（服务端不预设，不传则由内核决定）。mode == 10000 时该字段仅针对 autofill 有效
+             * @description 工作心情阈值，取值范围 [0, 1.0]；内核默认值 0.3。mode == 10000 时该字段仅针对 autofill 有效
+             * @default 0.3
              */
-            threshold?: number | null;
+            threshold: number | null;
         };
         /** InputTextRequest */
         InputTextRequest: {
@@ -1984,24 +2020,28 @@ export interface components {
         MallInput: {
             /**
              * Blacklist
-             * @description 黑名单列表（商品名，如「加急许可」「家具零件」等）；不支持运行中设置，可选
+             * @description 黑名单列表（商品名，如「加急许可」「家具零件」等）；默认空列表（无黑名单），不支持运行中设置，可选
+             * @default []
              */
-            blacklist?: string[] | null;
+            blacklist: string[] | null;
             /**
              * Buy First
-             * @description 优先购买列表（商品名，如「招聘许可」「龙门币」等）；不支持运行中设置，可选
+             * @description 优先购买列表（商品名，如「招聘许可」「龙门币」等）；默认空列表（无优先项），不支持运行中设置，可选
+             * @default []
              */
-            buy_first?: string[] | null;
+            buy_first: string[] | null;
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * Force Shopping If Credit Full
-             * @description 是否在信用溢出时无视黑名单；不传则由内核使用默认值（True）
+             * @description 是否在信用溢出时无视黑名单；内核默认值 False
+             * @default false
              */
-            force_shopping_if_credit_full?: boolean | null;
+            force_shopping_if_credit_full: boolean | null;
             /**
              * @description 判别联合 discriminator，固定为 Mall；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -2009,19 +2049,22 @@ export interface components {
             name: "Mall";
             /**
              * Only Buy Discount
-             * @description 是否只购买折扣物品，只作用于第二轮购买；不传则由内核使用默认值（False）
+             * @description 是否只购买折扣物品，只作用于第二轮购买；内核默认值 False
+             * @default false
              */
-            only_buy_discount?: boolean | null;
+            only_buy_discount: boolean | null;
             /**
              * Reserve Max Credit
-             * @description 是否在信用点低于 300 时停止购买，只作用于第二轮购买；不传则由内核使用默认值（False）
+             * @description 是否在信用点低于 300 时停止购买，只作用于第二轮购买；内核默认值 False
+             * @default false
              */
-            reserve_max_credit?: boolean | null;
+            reserve_max_credit: boolean | null;
             /**
              * Shopping
-             * @description 是否购物；不支持运行中设置。不传则由内核使用默认值（False）
+             * @description 是否购物；内核默认值 True。不支持运行中设置
+             * @default true
              */
-            shopping?: boolean | null;
+            shopping: boolean | null;
         };
         /** NotifyChannelRequest */
         NotifyChannelRequest: {
@@ -2181,19 +2224,22 @@ export interface components {
         ReclamationInput: {
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * Increment Mode
-             * @description 点击类型；0 为连点，1 为长按。不传则由内核使用默认值（0）
+             * @description 点击类型；0 为连点，1 为长按。内核默认值 0
+             * @default 0
              */
-            increment_mode?: (0 | 1) | null;
+            increment_mode: (0 | 1) | null;
             /**
              * Mode
-             * @description 模式；0 为刷分与建造点（进入战斗直接退出），1 为沙中之火刷赤金、联络员买水后基地锻造／沙洲遗闻自动制造物品并读档刷货币。不传则由内核使用默认值（0）
+             * @description 模式；0 为刷分与建造点（进入战斗直接退出），1 为沙中之火刷赤金、联络员买水后基地锻造／沙洲遗闻自动制造物品并读档刷货币。内核默认值 0
+             * @default 0
              */
-            mode?: (0 | 1) | null;
+            mode: (0 | 1) | null;
             /**
              * @description 判别联合 discriminator，固定为 Reclamation；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -2201,19 +2247,22 @@ export interface components {
             name: "Reclamation";
             /**
              * Num Craft Batches
-             * @description 单次最大制造轮数；不传则由内核使用默认值（16）
+             * @description 单次最大制造轮数；内核默认值 16（按组装荧光棒至少消耗 3000 木头推算）
+             * @default 16
              */
-            num_craft_batches?: number | null;
+            num_craft_batches: number | null;
             /**
              * Theme
-             * @description 主题；Fire 为「沙中之火」，Tales 为「沙洲遗闻」
+             * @description 主题；Fire 为「沙中之火」，Tales 为「沙洲遗闻」。内核默认值 Tales（Fire 主题已下线，内核会直接停止任务）
+             * @default Tales
              */
-            theme?: ("Fire" | "Tales") | null;
+            theme: ("Fire" | "Tales") | null;
             /**
              * Tools To Craft
-             * @description 自动制造的物品；不传则由内核使用默认值（荧光棒）
+             * @description 自动制造的物品；默认空列表表示不组装任何物品。内核对该键没做缺省判空（ReclamationCraftTaskPlugin 直接取 find(...).value()），所以必须显式下发——这也是它需要默认值的原因；要组装请自行填入物品名
+             * @default []
              */
-            tools_to_craft?: string[] | null;
+            tools_to_craft: string[] | null;
         };
         /** ReconnectRequest */
         ReconnectRequest: {
@@ -2244,34 +2293,44 @@ export interface components {
         RecruitInput: {
             /**
              * Confirm
-             * @description 会去点击确认的 Tag 等级，必选；元素取值范围 1~6。若仅公招计算，可设置为空数组
+             * @description 会去点击确认的 Tag 等级，内核必填；元素取值范围 1~6。默认值 [2, 3, 4, 5] 由本服务约定（内核没有默认值）。内核以「confirm 含 -1」表示仅公招计算（只计算 Tag 组合、不点击确认），本服务的元素约束 1~6 不接受 -1
+             * @default [
+             *       2,
+             *       3,
+             *       4,
+             *       5
+             *     ]
              */
-            confirm?: number[] | null;
+            confirm: number[] | null;
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * Expedite
-             * @description 是否使用加急许可；不传则由内核使用默认值（False）
+             * @description 是否使用加急许可；内核默认值 False
+             * @default false
              */
-            expedite?: boolean | null;
+            expedite: boolean | null;
             /**
              * Expedite Times
-             * @description 加急次数；仅在 expedite 为 True 时有效。可选，不传则由内核使用默认值（无限使用，直到 times 达到上限）
+             * @description 加急次数；仅在 expedite 为 True 时有效。内核 v6.17.5 已不再使用该值（RecruitTask.cpp 取到后以 [[maybe_unused]] 丢弃，加急次数实际由 times 上限决定），本字段仅为兼容旧提交保留，因此没有默认值
              */
             expedite_times?: number | null;
             /**
              * Extra Tags Mode
-             * @description 选择更多的 Tags；0 为默认行为，1 为选 3 个 Tags（即使可能冲突），2 为如果可能则同时选择更多的高星 Tag 组合（即使可能冲突）。不传则由内核使用默认值（0）
+             * @description 选择更多的 Tags；0 为默认行为，1 为选 3 个 Tags（即使可能冲突），2 为如果可能则同时选择更多的高星 Tag 组合（即使可能冲突）。内核默认值 0
+             * @default 0
              */
-            extra_tags_mode?: (0 | 1 | 2) | null;
+            extra_tags_mode: (0 | 1 | 2) | null;
             /**
              * First Tags
              * @description 首选 Tags，仅在 Tag 等级为 3 时有效；会尽可能多地选择这里的 Tags（如果有）。属于强制选择，会忽略所有「让 3 星 Tag 不被选择」的设置
+             * @default []
              */
-            first_tags?: string[] | null;
+            first_tags: string[] | null;
             /**
              * @description 判别联合 discriminator，固定为 Recruit；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -2285,30 +2344,44 @@ export interface components {
             /**
              * Recruitment Time
              * @description Tag 等级（大于等于 3，JSON 键为字符串）和对应的希望招募时限，单位为分钟；内核默认值都为 540（即 09:00:00）
+             * @default {
+             *       "3": 540,
+             *       "4": 540,
+             *       "5": 540,
+             *       "6": 540
+             *     }
              */
-            recruitment_time?: {
+            recruitment_time: {
                 [key: string]: number;
             } | null;
             /**
              * Refresh
-             * @description 是否刷新三星 Tags；不传则由内核使用默认值（False）
+             * @description 是否刷新三星 Tags；内核默认值 False
+             * @default false
              */
-            refresh?: boolean | null;
+            refresh: boolean | null;
             /**
              * Report To Penguin
-             * @description 是否汇报企鹅数据；不传则由内核使用默认值（False）
+             * @description 是否汇报企鹅数据；内核默认值 False
+             * @default false
              */
-            report_to_penguin?: boolean | null;
+            report_to_penguin: boolean | null;
             /**
              * Report To Yituliu
-             * @description 是否汇报一图流数据；不传则由内核使用默认值（False）
+             * @description 是否汇报一图流数据；内核默认值 False
+             * @default false
              */
-            report_to_yituliu?: boolean | null;
+            report_to_yituliu: boolean | null;
             /**
              * Select
-             * @description 会去点击标签的 Tag 等级，必选；元素取值范围 1~6
+             * @description 会去点击标签的 Tag 等级，内核必填；元素取值范围 1~6。默认值 [1, 4, 5] 由本服务约定（内核没有默认值），沿用旧前端日常预设
+             * @default [
+             *       1,
+             *       4,
+             *       5
+             *     ]
              */
-            select?: number[] | null;
+            select: number[] | null;
             /**
              * Server
              * @description 服务器，会影响上传；未指定时套用全局默认值（CN）。可选值：CN / US / JP / KR
@@ -2316,19 +2389,22 @@ export interface components {
             server?: ("CN" | "US" | "JP" | "KR") | null;
             /**
              * Set Time
-             * @description 是否设置招募时限；仅在 times 为 0 时生效。不传则由内核使用默认值（True）
+             * @description 是否设置招募时限（按 recruitment_time 的对应值把游戏内计时器点到位）；内核默认值 True。该设置只在真正执行招募时用得上——内核在 times=0 时主循环不执行，旧文案「仅在 times 为 0 时生效」与源码相反
+             * @default true
              */
-            set_time?: boolean | null;
+            set_time: boolean | null;
             /**
              * Skip Robot
-             * @description 是否在识别到小车词条时跳过；不传则由内核使用默认值（True，即跳过）
+             * @description 是否在识别到小车词条时跳过；内核默认值 False。内核源码用 params.find("skip_robot")——键缺省即不跳过，旧文案「默认 True」与源码相反（官方文档的 @default true 与源码冲突，以源码为准）
+             * @default false
              */
-            skip_robot?: boolean | null;
+            skip_robot: boolean | null;
             /**
              * Times
-             * @description 招募多少次；不传则由内核使用默认值（0）。若仅公招计算，可设置为 0
+             * @description 招募多少次；内核默认值 0（主循环不执行，只进公招页而不招募）。要真正招募请设置为大于 0 的次数
+             * @default 0
              */
-            times?: number | null;
+            times: number | null;
             /**
              * Yituliu Id
              * @description 一图流汇报 id；仅在 report_to_yituliu 为 True 时有效
@@ -2409,12 +2485,12 @@ export interface components {
             check_collapsal_paradigms?: boolean | null;
             /**
              * Core Char
-             * @description 开局干员名；仅支持单个干员中文名（无论区服）；若留空或设置为空字符串 "" 则根据练度自动选择
+             * @description 开局干员名；仅支持单个干员中文名（无论区服）；留空 = 内核自动选择（根据练度自动选，传空字符串 "" 等效）
              */
             core_char?: string | null;
             /**
              * Difficulty
-             * @description 指定难度等级；仅适用于除 Phantom 以外的主题，若未解锁难度则会选择当前已解锁的最高难度。不传则由内核使用默认值（0）
+             * @description 指定难度等级；仅适用于除 Phantom 以外的主题，若未解锁难度则会选择当前已解锁的最高难度。内核默认值为 -1（未指定），但 Phantom 主题下不允许非空，所以这里保持「未设置」三态而不写静态默认值
              */
             difficulty?: number | null;
             /**
@@ -2424,9 +2500,10 @@ export interface components {
             double_check_collapsal_paradigms?: boolean | null;
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * Expected Collapsal Paradigms
              * @description 希望触发的坍缩范式；仅在主题为 Sami 且模式为 5 时有效。内核默认值为 ["目空一些", "睁眼瞎", "图像损坏", "一抹黑"]
@@ -2439,9 +2516,10 @@ export interface components {
             first_floor_foldartal?: string | null;
             /**
              * Investment Enabled
-             * @description 是否投资源石锭；不传则由内核使用默认值（True）
+             * @description 是否投资源石锭；内核默认值 True
+             * @default true
              */
-            investment_enabled?: boolean | null;
+            investment_enabled: boolean | null;
             /**
              * Investments Count
              * @description 投资源石锭的次数；达到后自动停止任务。不传则由内核使用默认值（INT_MAX，即不限制）
@@ -2449,9 +2527,10 @@ export interface components {
             investments_count?: number | null;
             /**
              * Mode
-             * @description 模式；0 为刷分/奖励点数（尽可能稳定地打更多层数），1 为刷源石锭（第一层投资完就退出），2 已弃用（兼顾模式 0 与 1，投资过后再退出，没有投资就继续往后打），3 开发中，4 为凹开局（先在 0 难度下到达第三层后重开，再到指定难度下凹开局奖励；Phantom 主题下不切换难度），5 为刷坍缩范式（仅适用于 Sami 主题）。不传则由内核使用默认值（0）
+             * @description 模式；0 为刷分/奖励点数（尽可能稳定地打更多层数），1 为刷源石锭（第一层投资完就退出），2 已弃用（兼顾模式 0 与 1，投资过后再退出，没有投资就继续往后打），3 开发中，4 为凹开局（先在 0 难度下到达第三层后重开，再到指定难度下凹开局奖励；Phantom 主题下不切换难度），5 为刷坍缩范式（仅适用于 Sami 主题）。内核默认值 0
+             * @default 0
              */
-            mode?: (0 | 1 | 2 | 3 | 4 | 5) | null;
+            mode: (0 | 1 | 2 | 3 | 4 | 5) | null;
             /**
              * @description 判别联合 discriminator，固定为 Roguelike；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -2459,22 +2538,24 @@ export interface components {
             name: "Roguelike";
             /**
              * Only Start With Elite Two
-             * @description 是否只凹开局干员精二直升而忽视其他开局条件；仅在模式为 4 且 start_with_elite_two 为 True 时有效。不传则由内核使用默认值（False）
+             * @description 是否只凹开局干员精二直升而忽视其他开局条件；仅在模式为 4 且 start_with_elite_two 为 True 时有效。内核默认值 False
+             * @default false
              */
-            only_start_with_elite_two?: boolean | null;
+            only_start_with_elite_two: boolean | null;
             /**
              * Refresh Trader With Dice
-             * @description 是否用骰子刷新商店购买特殊商品；仅适用于 Mizuki 主题，用于刷指路鳞。不传则由内核使用默认值（False）
+             * @description 是否用骰子刷新商店购买特殊商品；仅适用于 Mizuki 主题，用于刷指路鳞。内核默认值 False
+             * @default false
              */
-            refresh_trader_with_dice?: boolean | null;
+            refresh_trader_with_dice: boolean | null;
             /**
              * Roles
-             * @description 开局职业组；不传则由内核使用默认值（"取长补短"）
+             * @description 开局职业组；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「取长补短」）
              */
             roles?: string | null;
             /**
              * Squad
-             * @description 开局分队名；不传则由内核使用默认值（"指挥分队"）
+             * @description 开局分队名；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「指挥分队」）
              */
             squad?: string | null;
             /**
@@ -2484,9 +2565,10 @@ export interface components {
             start_foldartal_list?: string[] | null;
             /**
              * Start With Elite Two
-             * @description 是否在凹开局的同时凹干员精二直升；仅适用于模式 4。不传则由内核使用默认值（False）
+             * @description 是否在凹开局的同时凹干员精二直升；仅适用于模式 4。内核默认值 False
+             * @default false
              */
-            start_with_elite_two?: boolean | null;
+            start_with_elite_two: boolean | null;
             /**
              * Starts Count
              * @description 开始探索的次数；达到后自动停止任务。不传则由内核使用默认值（INT_MAX，即不限制）
@@ -2494,19 +2576,22 @@ export interface components {
             starts_count?: number | null;
             /**
              * Stop At Final Boss
-             * @description 是否在第 5 层险路恶敌节点前停止任务；仅适用于除 Phantom 以外的主题。不传则由内核使用默认值（False）
+             * @description 是否在第 5 层险路恶敌节点前停止任务；仅适用于除 Phantom 以外的主题。内核默认值 False
+             * @default false
              */
-            stop_at_final_boss?: boolean | null;
+            stop_at_final_boss: boolean | null;
             /**
              * Stop When Investment Full
-             * @description 是否在投资到达上限后自动停止任务；不传则由内核使用默认值（False）
+             * @description 是否在投资到达上限后自动停止任务；内核默认值 False
+             * @default false
              */
-            stop_when_investment_full?: boolean | null;
+            stop_when_investment_full: boolean | null;
             /**
              * Theme
-             * @description 主题；可选值包括 "Phantom", "Mizuki", "Sami", "Sarkaz"。不传则由内核使用默认值（Phantom）
+             * @description 主题；可选值包括 "Phantom", "Mizuki", "Sami", "Sarkaz"。内核默认值 Phantom
+             * @default Phantom
              */
-            theme?: ("Phantom" | "Mizuki" | "Sami" | "Sarkaz") | null;
+            theme: ("Phantom" | "Mizuki" | "Sami" | "Sarkaz") | null;
             /**
              * Use Foldartal
              * @description 是否使用密文板；仅适用于 Sami 主题。模式 5 下内核默认值为 False，其他模式下为 True；不传则由内核决定
@@ -2514,14 +2599,16 @@ export interface components {
             use_foldartal?: boolean | null;
             /**
              * Use Nonfriend Support
-             * @description 是否可以是非好友助战干员；仅在 use_support 为 True 时有效。不传则由内核使用默认值（False）
+             * @description 是否可以是非好友助战干员；仅在 use_support 为 True 时有效。内核默认值 False
+             * @default false
              */
-            use_nonfriend_support?: boolean | null;
+            use_nonfriend_support: boolean | null;
             /**
              * Use Support
-             * @description 开局干员是否为助战干员；不传则由内核使用默认值（False）
+             * @description 开局干员是否为助战干员；内核默认值 False
+             * @default false
              */
-            use_support?: boolean | null;
+            use_support: boolean | null;
         };
         /** SchedulePage */
         SchedulePage: {
@@ -2688,9 +2775,10 @@ export interface components {
             client_type?: ("Official" | "Bilibili" | "txwy" | "YoStarEN" | "YoStarJP" | "YoStarKR") | null;
             /**
              * Enable
-             * @description 是否启用本任务；不传则由内核使用默认值（True）
+             * @description 是否启用本任务；内核默认值 True（启用）
+             * @default true
              */
-            enable?: boolean | null;
+            enable: boolean | null;
             /**
              * @description 判别联合 discriminator，固定为 StartUp；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -2698,9 +2786,10 @@ export interface components {
             name: "StartUp";
             /**
              * Start Game Enabled
-             * @description 是否自动启动客户端；不传则由内核使用默认值（True，即自动启动）
+             * @description 是否自动启动客户端；内核默认值 False（即不自动启动，源码 StartUpTask.cpp 的 params.get("start_game_enabled", false)）。需要自动启动客户端时请显式设为 True
+             * @default false
              */
-            start_game_enabled?: boolean | null;
+            start_game_enabled: boolean | null;
         };
         /** SwipeRequest */
         SwipeRequest: {

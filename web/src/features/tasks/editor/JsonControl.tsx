@@ -46,7 +46,7 @@ export function JsonControl({ id, value, isNull, disabled, invalid, describedBy,
         className="min-h-28 font-mono"
         spellCheck={false}
         value={draft}
-        placeholder={isNull ? '已设为空' : '使用默认'}
+        placeholder={isNull ? '已设为空' : '未设置'}
         disabled={disabled}
         {...ariaProps({ invalid, describedBy })}
         onChange={(event) => {

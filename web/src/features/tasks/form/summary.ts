@@ -1,4 +1,5 @@
 import { enumOptions, fieldLabel, isObject, normalizeSchema, taskFields, type JsonSchema, type TaskTypeSchema } from './schema'
+import { isFieldModified } from './values'
 
 export const DEFAULT_PARAMS_SUMMARY = '使用默认参数'
 
@@ -51,7 +52,8 @@ function describeField(name: string, schema: JsonSchema | undefined, root: JsonS
 }
 
 /**
- * 任务行的参数摘要：按 schema 字段顺序取用户改动过的前几个字段，例如 Fight 改了关卡与理智药 →「1-7 · 理智药 2」。
+ * 任务行的参数摘要：只列与 schema 默认值不同的字段（用户改过的，含明确留空），按 schema 字段顺序取前几个，
+ * 例如 Fight 改了关卡与理智药 →「1-7 · 理智药 2」；全是默认值（物化后的草稿）时显示「使用默认参数」。
  * 字符串直接显示值，枚举显示中文标签，布尔为「标签 开/关」，数组与映射为「标签 N 项」；放不下的字段以「+N」计数。
  */
 export function summarizeTaskParams(taskType: TaskTypeSchema, params: Readonly<Record<string, unknown>>, options: SummaryOptions = {}): string {
@@ -62,7 +64,7 @@ export function summarizeTaskParams(taskType: TaskTypeSchema, params: Readonly<R
     if (name !== 'name' && !known.has(name)) fields.push([name, undefined])
   }
   const parts = fields
-    .filter(([name]) => params[name] !== undefined)
+    .filter(([name, schema]) => (schema ? isFieldModified(params, name, schema) : params[name] !== undefined))
     .map(([name, schema]) => truncate(formatField?.(name, params[name]) ?? describeField(name, schema, taskType.schema, params[name]), PART_MAX_LENGTH))
   if (parts.length === 0) return DEFAULT_PARAMS_SUMMARY
   for (let count = Math.min(maxFields, parts.length); count >= 1; count -= 1) {

@@ -8,14 +8,17 @@ import {
   dependencyHint,
   dependencyState,
   fieldLabel,
+  fieldState,
   normalizeSchema,
   objectValue,
   requiredFields,
+  resetValueFor,
   resolveWidget,
   riskKind,
   riskLabel,
   schemaProperties,
   setObjectValue,
+  type FieldState,
   type JsonSchema,
   type Unset,
   type WidgetKind,
@@ -38,16 +41,21 @@ export function fieldDomId(idPrefix: string, path: readonly string[]): string {
   return `${idPrefix}-${path.map((part) => part.replace(/[^a-zA-Z0-9_-]/g, '-')).join('-')}`
 }
 
-function StateTag({ id, present, required }: { id: string; present: boolean; required: boolean }) {
-  if (present) {
+/**
+ * 五档状态标签（docs/09 §7.5）：已修改（带圆点）/ 已设为空 / 必填 / 默认 / 未设置。
+ * 「必填」优先于「未设置」——没有默认值的必填字段提示用户必须填，而不是「可以留空」。
+ */
+function StateTag({ id, state, required }: { id: string; state: FieldState; required: boolean }) {
+  if (state === 'modified' || state === 'null') {
     return (
       <span id={id} className="inline-flex items-center gap-1 text-footnote font-medium text-primary-text">
-        <StatusDot tone="primary" />
-        已修改
+        {state === 'modified' ? <StatusDot tone="primary" /> : null}
+        {state === 'modified' ? '已修改' : '已设为空'}
       </span>
     )
   }
-  return <span id={id} className={required ? 'text-footnote font-medium text-warning' : 'text-footnote text-muted-foreground'}>{required ? '必填' : '默认'}</span>
+  if (required) return <span id={id} className="text-footnote font-medium text-warning">必填</span>
+  return <span id={id} className="text-footnote text-muted-foreground">{state === 'default' ? '默认' : '未设置'}</span>
 }
 
 function FieldNote({ id, icon: Icon, children }: { id: string; icon: LucideIcon; children: ReactNode }) {
@@ -203,15 +211,16 @@ export function FieldEditor({ name, schema: inputSchema, root, path, idPrefix, v
   const dependencyText = dependency.satisfied ? '' : dependencyHint(dependency.unmet, siblings, root)
   const locked = disabled || immutable
   const controlDisabled = locked || !dependency.satisfied
-  const present = value !== undefined
+  const state = fieldState(formValues, name, schema)
   const isNull = value === null
+  const resettable = state === 'modified' || state === 'null'
   const risk = riskKind(schema)
   const description = typeof schema.description === 'string' ? schema.description : ''
   const hasNote = immutable || Boolean(dependencyText)
   const describedBy = [error ? ids.error : '', ids.state, risk ? ids.risk : '', hasNote ? ids.note : '', description ? ids.description : ''].filter(Boolean).join(' ')
   const control = renderControl(
     widget,
-    { id: baseId, labelId: ids.label, label, schema, root, value, present, isNull, disabled: controlDisabled, invalid: Boolean(error), describedBy, onChange },
+    { id: baseId, labelId: ids.label, label, schema, root, value, present: value !== undefined, isNull, disabled: controlDisabled, invalid: Boolean(error), describedBy, onChange },
     { path, idPrefix },
   )
   const inline = widget === 'switch'
@@ -227,9 +236,9 @@ export function FieldEditor({ name, schema: inputSchema, root, path, idPrefix, v
               {riskLabel(risk)}
             </Badge>
           ) : null}
-          <StateTag id={ids.state} present={present} required={required} />
-          {present ? (
-            <button type="button" className={INLINE_ACTION_CLASS} aria-label={`恢复默认：${label}`} disabled={locked} onClick={() => onChange(UNSET)}>
+          <StateTag id={ids.state} state={state} required={required} />
+          {resettable ? (
+            <button type="button" className={INLINE_ACTION_CLASS} aria-label={`恢复默认：${label}`} disabled={locked} onClick={() => onChange(resetValueFor(schema))}>
               恢复默认
             </button>
           ) : null}

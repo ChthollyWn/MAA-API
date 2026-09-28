@@ -1,4 +1,4 @@
-export { createDraft, draftsFromTemplate, duplicateDraft, MAX_TASKS, moveDraft, templateFromDrafts } from './drafts'
+export { createDraft, draftsFromTemplate, duplicateDraft, materializeDrafts, MAX_TASKS, moveDraft, templateFromDrafts } from './drafts'
 export { useComposerStore, type TaskErrors } from './store'
 export { TaskComposer } from './TaskComposer'
 export { TaskEditorSheet, type TaskEditorSheetProps } from './TaskEditorSheet'

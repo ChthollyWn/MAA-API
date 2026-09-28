@@ -4,11 +4,12 @@
 异常处理器用 M3-04 的 :func:`~maa_api.api.errors.register_exception_handlers`，
 这样 ``AppError`` 的状态码与请求体校验的 400/422 分界才与生产一致。
 
-``POST /validate`` 依赖 ``get_session``，相关用例一律挂 ``isolated_db``：既不碰
-仓库真实 ``resource/maa_api.db``，也让「setting 表写 Official → 注入 Official」
-走真实仓储。:func:`_run_db_setup` 在 ``asyncio.run`` 里建表/写入后显式
-``dispose()``：``isolated_db`` 的 engine 带连接池，不清掉的话 TestClient 的
-事件循环会拿到绑在已关闭循环上的连接（M2-13 实测，``tests/db`` 用 NullPool 规避）。
+``POST /validate`` 与两个 types 端点都依赖 ``get_session``（M17 起 types 端点为
+了读渠道默认值 overlay 也开会话），相关用例一律挂 ``isolated_db`` / ``prepared_db``：
+既不碰仓库真实 ``resource/maa_api.db``，也让「setting 表写 Official → 注入 /
+overlay 成 Official」走真实仓储。:func:`_run_db_setup` 在 ``asyncio.run`` 里建表/
+写入后显式 ``dispose()``：``isolated_db`` 的 engine 带连接池，不清掉的话 TestClient
+的事件循环会拿到绑在已关闭循环上的连接（M2-13 实测，``tests/db`` 用 NullPool 规避）。
 """
 
 from __future__ import annotations
@@ -227,7 +228,7 @@ def test_task_schemas_have_no_nested_defs_today() -> None:
 
 
 def test_list_types_returns_fixed_pagination_envelope(
-    app: FastAPI, make_client: Any
+    app: FastAPI, make_client: Any, prepared_db: AsyncEngine
 ) -> None:
     client = make_client(app)
     response = client.get("/api/tasks/types")
@@ -239,7 +240,7 @@ def test_list_types_returns_fixed_pagination_envelope(
 
 
 def test_list_types_accepts_zh_and_rejects_other_languages(
-    app: FastAPI, make_client: Any
+    app: FastAPI, make_client: Any, prepared_db: AsyncEngine
 ) -> None:
     client = make_client(app)
     assert client.get("/api/tasks/types", params={"lang": "zh"}).status_code == 200
@@ -254,7 +255,7 @@ def test_list_types_accepts_zh_and_rejects_other_languages(
 
 
 def test_get_type_returns_single_item_without_envelope(
-    app: FastAPI, make_client: Any
+    app: FastAPI, make_client: Any, prepared_db: AsyncEngine
 ) -> None:
     client = make_client(app)
     response = client.get("/api/tasks/types/Fight")
@@ -298,7 +299,7 @@ def test_routes_are_registered_before_the_parametric_one(app: FastAPI) -> None:
 
 
 def test_get_unknown_type_is_400_unknown_task_type(
-    app: FastAPI, make_client: Any
+    app: FastAPI, make_client: Any, prepared_db: AsyncEngine
 ) -> None:
     client = make_client(app)
     response = client.get("/api/tasks/types/Nope")
@@ -315,7 +316,7 @@ def test_get_unknown_type_is_400_unknown_task_type(
 
 @pytest.mark.parametrize("tmp_settings", ["s3cret"], indirect=True)
 def test_business_endpoints_require_token_when_configured(
-    app: FastAPI, make_client: Any
+    app: FastAPI, make_client: Any, prepared_db: AsyncEngine
 ) -> None:
     client = make_client(app)
     assert client.get("/api/tasks/types").status_code == 401
@@ -350,12 +351,22 @@ def test_validate_injects_channel_defaults(
     assert set(item) == {"type_name", "task_name", "params", "raw_params"}
     assert item["type_name"] == "Fight"
     assert item["task_name"] == "刷理智"
+    # M17：params 里既有 schema 默认值（exclude_none=True 让它们显式下发），
+    # 也有注入的渠道默认值。
     assert item["params"] == {
+        "enable": True,
+        "series": 1,
+        "medicine": 0,
+        "expiring_medicine": 0,
+        "stone": 0,
+        "DrGrandet": False,
+        "report_to_penguin": False,
+        "drops": {},
         "stage": "1-7",
         "client_type": "Bilibili",
         "server": "CN",
     }
-    # raw_params 是原始提交快照：不含注入键
+    # raw_params 是原始提交快照（exclude_unset=True）：不含默认值、也不含注入键
     assert item["raw_params"] == {"stage": "1-7"}
 
 
@@ -395,7 +406,19 @@ def test_validate_does_not_inject_fields_the_model_lacks(
     client = make_client(app)
     response = client.post("/api/tasks/validate", json={"tasks": [{"name": "Infrast"}]})
     item = response.json()["items"][0]
-    assert item["params"] == {}
+    assert item["params"] == {
+        "enable": True,
+        "mode": 0,
+        "facility": ["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"],
+        "drones": "_NotUse",
+        "threshold": 0.3,
+        "replenish": False,
+        "dorm_notstationed_enabled": False,
+        "dorm_trust_enabled": False,
+        "plan_index": 0,
+    }
+    assert "client_type" not in item["params"]
+    assert "server" not in item["params"]
     assert item["raw_params"] == {}
 
 
@@ -488,7 +511,10 @@ def test_validate_reads_channel_defaults_from_setting_table(
     response = client.post("/api/tasks/validate", json={"tasks": [{"name": "Fight"}]})
     assert response.status_code == 200, response.text
     item = response.json()["items"][0]
-    assert item["params"] == {"client_type": "Official", "server": "JP"}
+    # 只看渠道字段：本条用例验证的是「注入值来自 setting 表」，
+    # 默认值部分的完整形状由 test_validate_injects_channel_defaults 覆盖。
+    assert item["params"]["client_type"] == "Official"
+    assert item["params"]["server"] == "JP"
     assert item["raw_params"] == {}
 
 
