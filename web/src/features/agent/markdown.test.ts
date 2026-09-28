@@ -187,5 +187,21 @@ describe('tables', () => {
     const table = blocks[0] as Extract<MarkdownBlock, { kind: 'table' }>
     expect(table.rows).toEqual([])
   })
+
+  it('parses a leading-pipe header even when the delimiter row is compact', () => {
+    // 真实回复的两种写法混在一起：表头带外框（`| a | b |` 同时符合 `|` 列表项的形状），
+    // 分隔行却是紧凑的 `|---|---|`。两种都不能让表格退化成原文。
+    for (const delimiter of ['|---|---|', '| --- | --- |']) {
+      const blocks = parseMarkdown(['| 项 | 值 |', delimiter, '| a | b |'].join('\n'))
+      expect(blocks.map((block) => block.kind), delimiter).toEqual(['table'])
+    }
+  })
+
+  it('starts a table that directly follows a paragraph without a blank line', () => {
+    // 模型常在 `**小标题**` 后紧接表头、不空行；表格必须自成一块，正文不能把它吞掉。
+    const blocks = parseMarkdown(['**结果**', '| 项 | 值 |', '|---|---|', '| a | b |'].join('\n'))
+    expect(blocks.map((block) => block.kind)).toEqual(['paragraph', 'table'])
+    expect(inlineOf(blocks[0])).toEqual([['bold', ['结果']]])
+  })
 })
 

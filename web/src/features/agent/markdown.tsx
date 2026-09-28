@@ -18,7 +18,7 @@ import { copyText } from '@/lib/clipboard'
  *    （`<img onerror=...>` 一律当文本）。
  *
  * 只覆盖 Agent 实际会输出的子集：段落、ATX 标题、无序/有序列表、围栏代码块、
- * 引用块、行内代码、粗体、斜体、删除线、链接。表格、嵌套列表、图片、HTML 块
+ * 引用块、管道表格、行内代码、粗体、斜体、删除线、链接。嵌套列表、图片、HTML 块
  * 都不在范围内。
  *
  * 解析器与组件放在同一个文件里，是为了绕开 macOS「大小写不敏感文件系统」的坑：
@@ -457,6 +457,10 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
     const paragraph: string[] = []
     let cursor = index
     while (cursor < lines.length && !BLANK_LINE.test(lines[cursor]) && !startsBlock(lines[cursor])) {
+      // 表格可以紧贴上一段、中间不空行（模型常在 `**小标题**` 后直接写表头），
+      // 而 `startsBlock` 只看当前这一行、认不出表格，所以这里单独断一次。
+      // 先看有没有竖线再问 `matchTable`：段落里绝大多数行连竖线都没有。
+      if (cursor > index && lines[cursor].includes('|') && matchTable(lines, cursor)) break
       paragraph.push(lines[cursor])
       cursor += 1
     }
@@ -593,8 +597,18 @@ function startsBlock(line: string): boolean {
 const TABLE_DELIMITER = /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/
 
 function splitTableRow(line: string): string[] {
-  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '')
-  return trimmed.split('|').map((cell) => cell.trim())
+  return stripTableFrame(line).split('|').map((cell) => cell.trim())
+}
+
+/**
+ * 去掉表格行两侧的外框竖线：`| 字段 | 值 |` → `字段 | 值`。
+ *
+ * 判定「这一行是不是别的块」时必须先去掉**行首**那根竖线：`| a | b |` 的形状完全
+ * 符合 `LIST_ITEM`（`|` 是合法的无序列表标记），拿原文去问 `startsBlock` 一律得到
+ * 「是列表」，表格会被整个吞掉。行尾的竖线留着无害，一并去掉只是为了统一。
+ */
+function stripTableFrame(line: string): string {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '')
 }
 
 function isDelimiterRow(line: string): boolean {
@@ -614,8 +628,9 @@ function isDelimiterRow(line: string): boolean {
 function matchTable(lines: readonly string[], start: number): { block: MarkdownBlock; next: number } | null {
   const headerLine = lines[start]
   if (!headerLine.includes('|')) return null
-  // 表头本身不能是别的块（列表项、引用等），否则会把它们吞进表格。
-  if (startsBlock(headerLine)) return null
+  // 表头本身不能是别的块（列表项、引用等），否则会把它们吞进表格。带外框的表头
+  // `| 字段 | 值 |` 会被 `LIST_ITEM` 认成 `|` 列表项，所以先去掉外框再判定。
+  if (startsBlock(stripTableFrame(headerLine))) return null
   const delimiterLine = lines[start + 1]
   if (delimiterLine === undefined || !delimiterLine.includes('|') || !isDelimiterRow(delimiterLine)) {
     return null
@@ -628,7 +643,7 @@ function matchTable(lines: readonly string[], start: number): { block: MarkdownB
     const line = lines[cursor]
     if (BLANK_LINE.test(line)) break
     // 分隔行形状（`--- | ---`）会被列表匹配器认成 `- ` 列表项，必须放行。
-    if (startsBlock(line) && !isDelimiterRow(line)) break
+    if (startsBlock(stripTableFrame(line)) && !isDelimiterRow(line)) break
     const cells = splitTableRow(line)
     // 无外框写法里最后一行可能没有 `|`（`a | b` 之后单独一行 `c`）：只要它还没被
     // 认成别的块，就当成这一行的单元格。普通段落多收一行也无害——它就是表格数据。

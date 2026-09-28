@@ -1,4 +1,8 @@
-"""会话级 LLM 对话循环、上下文保护与具名 SSE 事件。"""
+"""会话级 LLM 对话循环、上下文保护与具名 SSE 事件。
+
+事件：``message_start`` / ``text_delta`` / ``tool_start`` / ``tool_result`` /
+``confirmation_required`` / ``session_title`` / ``message_end`` / ``error``。
+"""
 
 from __future__ import annotations
 
@@ -39,6 +43,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_ITERATIONS: int | None = None
 DEFAULT_MAX_CONTEXT_CHARS = 1_000_000
 DEFAULT_CONFIRMATION_POLL_SECONDS = 0.25
+#: 会话标题的长度上限。数据库列是 64，这里取 24：一屏的会话行放得下，也不必依赖
+#: 截断兜底——真被截断说明模型没听话，标题已经不好看了。
+TITLE_MAX_CHARS = 24
+#: 生成标题时喂给模型的用户消息上限。标题只需要「问的是什么」，整段日志摘要没有用，
+#: 还会白花 token。
+TITLE_SEED_MAX_CHARS = 300
+#: 生成标题的固定指令。要求「只输出标题」是必须的：模型很爱补一句「好的，这是标题：」。
+TITLE_PROMPT = (
+    "用不超过 12 个字概括用户这次要解决的问题，作为会话标题。"
+    "只输出标题本身：不要引号、不要句末标点、不要任何解释或前后缀。"
+)
+#: 标题调用的超时。它卡在收流前，必须比一次正常对话短得多：默认 120 秒的超时意味着
+#: 上游卡住时这一轮的「完成」也会跟着卡两分钟，那不叫快速总结。
+TITLE_TIMEOUT_SECONDS = 20.0
 #: 连续多少轮出现完全相同的工具调用就判定为原地打转。设为 2 表示「同一批调用连着
 #: 出现三次」：模型偶尔重复一次是正常重试，连着三次说明它已经拿不到新信息了。
 STUCK_REPEAT_LIMIT = 2
@@ -546,6 +564,9 @@ class AgentRuntime:
 
         try:
             await self._run_turn(session_id, content, request, emit)
+            # 首轮回答完成后补标题，位置在 message_end 之后、收流之前：前端拿到
+            # session_title 就能立刻回填，不用为标题再轮询一次。
+            await self._generate_session_title(session_id, request, emit)
         except AppError as exc:
             await emit(
                 "error",
@@ -1103,6 +1124,86 @@ class AgentRuntime:
         await emit("text_delta", {"text": content})
         await emit("message_end", {"session_id": session_id, "finish_reason": finish_reason})
 
+    async def _generate_session_title(
+        self,
+        session_id: str,
+        request: Any,
+        emit: Callable[[str, Any], Any],
+    ) -> str | None:
+        """给还没有标题的会话补一个标题，按「首轮回答结束后、收流前」的时机。
+
+        时机是刻意的：标题落库后紧跟着推 ``session_title`` 再结束 SSE，前端一次往返
+        就能回填，不需要为标题额外轮询。代价是这一轮「完成」得等这次调用结束——所以
+        它是独立的一次短调用（``TITLE_MAX_CHARS`` 个字的输出），失败一律吞掉、只记
+        日志：标题只是导航用的装饰，绝不能因为上游抖动让一轮已经成功的回答变成报错。
+        """
+        try:
+            async with self.session_factory() as session:
+                stored = await AgentSessionRepository(session).get(session_id)
+                if stored is None or (stored.title or "").strip():
+                    return None
+                model = stored.model
+                base_url = stored.base_url
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            seed = next(
+                (message.content or "" for message in messages if message.role == "user"),
+                "",
+            ).strip()
+            if not seed:
+                return None
+            # 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
+            # 创建时的快照（docs/04 §5.7），换过设置的老会话仍要用它当初的那个端点。
+            settings = await self._effective_settings(request)
+            model = model or settings.llm.model
+            client, owned = self._make_client(
+                settings.model_copy(
+                    update={
+                        "llm": settings.llm.model_copy(
+                            update={"model": model, "base_url": base_url or settings.llm.base_url}
+                        )
+                    }
+                ),
+                # 自定义 client_factory（测试替身）不认这个参数，只透给真实客户端。
+                timeout_seconds=TITLE_TIMEOUT_SECONDS if self.client_factory is None else None,
+            )
+            try:
+                title = await self._read_title(client, model, seed[:TITLE_SEED_MAX_CHARS])
+            finally:
+                if owned:
+                    await client.aclose()
+            if not title:
+                return None
+            async with self.session_factory() as session:
+                stored = await AgentSessionRepository(session).get(session_id)
+                if stored is None or (stored.title or "").strip():
+                    return None
+                stored.title = title
+                stored.updated_at = utcnow()
+                await session.commit()
+        except Exception:  # noqa: BLE001 - 标题失败绝不能影响这一轮的结论
+            logger.warning("Agent session %s title generation failed", session_id, exc_info=True)
+            return None
+        await emit("session_title", {"session_id": session_id, "title": title})
+        return title
+
+    async def _read_title(self, client: Any, model: str, seed: str) -> str | None:
+        """跑一次「只取文本」的补全，返回清洗后的标题；空输出返回 None。"""
+        parts: list[str] = []
+        async for chunk in client.stream_chat_completion(
+            model,
+            [{"role": "user", "content": f"{TITLE_PROMPT}\n\n用户的问题：\n{seed}"}],
+            [],
+        ):
+            if not isinstance(chunk, Mapping):
+                continue
+            for choice in chunk.get("choices") or []:
+                if not isinstance(choice, Mapping):
+                    continue
+                delta = choice.get("delta") or {}
+                if isinstance(delta, Mapping) and isinstance(delta.get("content"), str):
+                    parts.append(delta["content"])
+        return _clean_title("".join(parts))
+
     async def _effective_settings(self, request: Any) -> Settings:
         if self.settings_provider is not None:
             settings = self.settings_provider(request)
@@ -1127,13 +1228,14 @@ class AgentRuntime:
             )
         return settings
 
-    def _make_client(self, settings: Settings) -> tuple[Any, bool]:
+    def _make_client(self, settings: Settings, *, timeout_seconds: float | None = None) -> tuple[Any, bool]:
         if self.client_factory is not None:
             return self.client_factory(settings), False
         return (
             OpenAICompatibleClient(
                 base_url=settings.llm.base_url,
                 api_key=settings.llm.api_key,
+                **({"timeout_seconds": timeout_seconds} if timeout_seconds is not None else {}),
             ),
             True,
         )
@@ -1398,6 +1500,26 @@ def _screenshot_data_url(value: Mapping[str, Any], image_data: Any) -> str | Non
     image_format = str(value.get("format", "jpeg")).lower()
     mime = "png" if image_format == "png" else "jpeg"
     return f"data:image/{mime};base64,{image_data}"
+
+
+def _clean_title(raw: str) -> str | None:
+    """把模型输出收成一个标题：去掉换行、包裹的引号与句末标点，超长按字符截断。
+
+    模型被要求「只输出标题」，但仍然可能给成 ``「日常刷剿灭」`` 或 ``标题：日常刷剿灭。``。
+    这里不做语义判断，只做保守清洗：只剥**成对**包裹的引号/书名号，只去句末标点，
+    免得把标题里正常出现的引号也啃掉。
+    """
+    text = " ".join(raw.split())
+    wrappers = {('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’"), ("「", "」"), ("《", "》")}
+    while len(text) >= 2 and (text[0], text[-1]) in wrappers:
+        text = text[1:-1].strip()
+    # 前缀「标题：」「会话标题 -」这类噪声：只在冒号/连字符后面还有内容时剥。
+    for prefix in ("会话标题", "标题"):
+        if text.startswith(prefix) and text[len(prefix) : len(prefix) + 1] in (":", "：", "-", "—"):
+            text = text[len(prefix) + 1 :].strip()
+            break
+    text = text.rstrip("。.!！?？,，;；:：")
+    return text[:TITLE_MAX_CHARS].strip() or None
 
 
 def _turn_groups(messages: Sequence[dict[str, Any]]) -> list[list[dict[str, Any]]]:

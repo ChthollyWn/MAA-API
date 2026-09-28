@@ -686,6 +686,55 @@ describe('Agent conversation page', () => {
     expect(within(row).getByText(/2 条消息/)).toBeInTheDocument()
   })
 
+  it('fills the agent-generated session title before the stream ends (no manual refresh)', async () => {
+    // 新会话在标题生成完成前用「新会话」占位；服务端在收流前把总结好的标题随
+    // session_title 推来，标题栏与会话列表要立刻回填。
+    //
+    // 这里刻意让流停在 session_title 之后不关（也还没到回合结束的 invalidate），
+    // 并且列表接口的数据里**始终没有标题**：标题只可能来自事件载荷本身——真去
+    // 依赖刷新的话这条用例就会红。
+    let held: ReturnType<typeof heldStream> | null = null
+    const api = createAgentApi({
+      sessions: [makeSession()],
+      messages: { 'session-1': toolHistory },
+      stream: () => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-new', capability_status: 'ready' }),
+          event('text_delta', { text: '已创建。' }),
+          event('message_end', { session_id: 'session-new', finish_reason: 'stop' }),
+          event('session_title', { session_id: 'session-new', title: '创建剿灭定时任务' }),
+        ])
+        return held.response
+      },
+    })
+    renderPage()
+
+    await screen.findByText('分析刚才的失败')
+    fireEvent.click(screen.getByRole('button', { name: 'Agent 操作' }))
+    const menu = await screen.findByRole('dialog', { name: 'Agent 操作' })
+    fireEvent.click(within(menu).getByRole('button', { name: '新建会话' }))
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('?session_id=session-new'))
+
+    // 还没有标题：标题栏先占位。
+    expect(await screen.findByRole('heading', { level: 1, name: '新会话' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: composerName }), { target: { value: '帮我加一个剿灭任务' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(api.sentMessages()).toHaveLength(1))
+
+    expect(await screen.findByRole('heading', { level: 1, name: '创建剿灭定时任务' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: '新会话' })).not.toBeInTheDocument()
+    // 正在生成的提示已经消失：回合本身在 message_end 就结束了。
+    expect(screen.queryByText('正在生成回复')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '会话列表' }))
+    const sheet = await screen.findByRole('dialog', { name: '会话' })
+    expect(within(sheet).getByRole('button', { name: /^创建剿灭定时任务/ })).toBeInTheDocument()
+    expect(within(sheet).queryByRole('button', { name: /^新会话/ })).not.toBeInTheDocument()
+
+    await act(async () => { held?.close() })
+  })
+
   it('refreshes the header token count after a turn without a manual reload', async () => {
     const api = createAgentApi({
       sessions: [makeSession({ message_count: 0, total_tokens: 0 })],

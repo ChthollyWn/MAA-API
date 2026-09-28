@@ -94,3 +94,45 @@ describe('AssistantText renders a table reply as a table', () => {
   })
 })
 
+/**
+ * 第三条真实回复（deepseek-flash，2026-09-28 会话 `e1ba2b83`，原文取自库里落库的
+ * assistant 消息）：模型写的表格**带外框**，而分隔行是紧凑写法 `|---|---|`。
+ *
+ * 这一格以前整块渲染成原文——`| 字段 | 值 |` 同时符合列表项的形状（`|` 是合法的
+ * 无序列表标记），列表匹配器先一步把表头吃掉，表格判定根本没轮到。这里锁住
+ * 「带外框 + 紧凑分隔行」也算表格，且不再出现竖线与分隔行。
+ */
+const LIVE_FRAMED_TABLE_REPLY = [
+  '已创建成功。以下是确认结果（均来自工具返回，非推测）：',
+  '',
+  '**新定时任务**',
+  '| 字段 | 值 |',
+  '|---|---|',
+  '| 名称 | 日常刷剿灭（周一早） |',
+  '| ID | `0b042900-5e8f-485d-8717-5e7594dc07d0` |',
+  '| cron | `0 7 * * 1`（周一 07:00） |',
+  '| 时区 | Asia/Shanghai |',
+  '| 状态 | enabled=true，priority=2 |',
+  '| 下次执行 | 2026-10-04T23:00:00Z，即北京时间 2026-10-05（周一）07:00 |',
+  '',
+  '**任务链**',
+  '1. StartUp（B 服，自动启动客户端）',
+  '2. Recruit（公招 4 次）',
+].join('\n')
+
+describe('AssistantText renders a framed compact table reply as a table', () => {
+  it('turns a leading-pipe header and |---|---| delimiter into table elements', () => {
+    const { container } = render(<AssistantText text={LIVE_FRAMED_TABLE_REPLY} />)
+
+    expect(container.querySelectorAll('table')).toHaveLength(1)
+    expect([...container.querySelectorAll('th')].map((cell) => cell.textContent)).toEqual(['字段', '值'])
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(6)
+    // 单元格里的行内代码仍然生效，且表格后面的有序列表没有被表格吞掉。
+    expect(container.querySelectorAll('code').length).toBeGreaterThan(0)
+    expect(container.querySelectorAll('ol li')).toHaveLength(2)
+    // 表头、分隔行与正文里的竖线都不再作为原文出现。
+    expect(container.textContent).not.toContain('|')
+    expect(container.textContent).not.toContain('---')
+  })
+})
+

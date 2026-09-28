@@ -317,6 +317,17 @@ export default function AgentPage() {
             ...(data.capability_status === 'vision_degraded' ? { vision: false } : {}),
           }))
         }
+      } else if (name === 'session_title') {
+        // 标题在收流前由服务端补好并随流推来。直接改缓存，标题栏与会话列表立刻从
+        // 「新会话」变成真标题；回合结束时的 invalidate 只是兜底重取同一份数据。
+        const nextTitle = stringValue(data.title)
+        if (!nextTitle) return
+        queryClient.setQueryData(keys.agent.session(sessionId), (current: unknown) =>
+          isRecord(current) ? { ...current, title: nextTitle } : current)
+        queryClient.setQueryData(keys.agent.sessions({ page: 1, size: 50 }), (current: unknown) =>
+          isRecord(current) && Array.isArray(current.items)
+            ? { ...current, items: current.items.map((item) => (isRecord(item) && item.session_id === sessionId ? { ...item, title: nextTitle } : item)) }
+            : current)
       }
     }
     try {
