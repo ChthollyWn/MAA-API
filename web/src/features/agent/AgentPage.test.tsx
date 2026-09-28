@@ -636,4 +636,132 @@ describe('Agent conversation page', () => {
     expect(screen.getByRole('textbox', { name: composerName })).toHaveValue('分析最近一次失败的流水线')
     expect(api.sentMessages()).toHaveLength(0)
   })
+
+  it('lists a brand-new session after the first message without a manual refresh', async () => {
+    // 服务端新建会话时 message_count 为 0、last_message_at 为 null，发出第一条消息后
+    // 列表必须以刷新后的数据出现，不能要求用户手动刷新。
+    const api = createAgentApi({
+      sessions: [makeSession()],
+      messages: { 'session-1': toolHistory },
+      stream: (content) => {
+        // 服务端在流结束前把两条消息落库；列表刷新后 message_count 才会变成 2。
+        api.state.messages['session-new'] = [
+          { id: 91, session_id: 'session-new', seq: 0, role: 'user', content, created_at: '2026-09-28T02:00:00Z' },
+          { id: 92, session_id: 'session-new', seq: 1, role: 'assistant', content: '收到。', created_at: '2026-09-28T02:00:01Z' },
+        ]
+        api.state.sessions = api.state.sessions.map((item) => (
+          item.session_id === 'session-new'
+            ? { ...item, message_count: 2, last_message_at: '2026-09-28T02:00:01Z' }
+            : item
+        ))
+        return sse([
+          event('message_start', { session_id: 'session-new', capability_status: 'ready' }),
+          event('text_delta', { text: '收到。' }),
+          event('message_end', { session_id: 'session-new', finish_reason: 'stop' }),
+        ])
+      },
+    })
+    renderPage()
+
+    await screen.findByText('分析刚才的失败')
+    fireEvent.click(screen.getByRole('button', { name: 'Agent 操作' }))
+    const menu = await screen.findByRole('dialog', { name: 'Agent 操作' })
+    fireEvent.click(within(menu).getByRole('button', { name: '新建会话' }))
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('?session_id=session-new'))
+
+    fireEvent.change(screen.getByRole('textbox', { name: composerName }), { target: { value: '你好' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(api.sentMessages()).toHaveLength(1))
+    expect(await screen.findByText('收到。')).toBeInTheDocument()
+
+    const listCalls = () => api.requests.filter(
+      (item) => item.method === 'GET' && item.path === '/api/agent/sessions',
+    ).length
+    await waitFor(() => expect(listCalls()).toBeGreaterThan(1), { timeout: 3000 })
+
+    fireEvent.click(screen.getByRole('button', { name: '会话列表' }))
+    const sheet = await screen.findByRole('dialog', { name: '会话' })
+    const row = within(sheet).getByRole('button', { name: /^新会话/ })
+    expect(row).toBeInTheDocument()
+    expect(within(row).getByText(/2 条消息/)).toBeInTheDocument()
+  })
+
+  it('refreshes the header token count after a turn without a manual reload', async () => {
+    const api = createAgentApi({
+      sessions: [makeSession({ message_count: 0, total_tokens: 0 })],
+      messages: { 'session-1': [] },
+      stream: (content) => {
+        // 服务端在流结束前把这一轮的用量累加进会话。
+        api.state.sessions = api.state.sessions.map((item) => (
+          item.session_id === 'session-1'
+            ? { ...item, message_count: 2, total_tokens: 510_195, last_message_at: '2026-09-28T03:00:00Z' }
+            : item
+        ))
+        api.state.messages['session-1'] = [
+          { id: 61, session_id: 'session-1', seq: 0, role: 'user', content, created_at: '2026-09-28T03:00:00Z' },
+          { id: 62, session_id: 'session-1', seq: 1, role: 'assistant', content: '收到。', created_at: '2026-09-28T03:00:01Z' },
+        ]
+        return sse([
+          event('message_start', { session_id: 'session-1', capability_status: 'ready' }),
+          event('text_delta', { text: '收到。' }),
+          event('message_end', { session_id: 'session-1', finish_reason: 'stop' }),
+        ])
+      },
+    })
+    renderPage()
+
+    // 初始是 0，且按用户要求换成百万单位。
+    expect(await screen.findByText(/deepseek-flash · 0 Token/)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: composerName }), { target: { value: '你好' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    // 不需要刷新：回合结束后标题应显示 0.5M，原始数字不再出现。
+    expect(await screen.findByText(/deepseek-flash · 0\.5M Token/, {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.queryByText(/510195 Token/)).not.toBeInTheDocument()
+  })
+
+  it('still refreshes the list and the token count when the turn fails', async () => {
+    // 失败的回合同样会落库（服务端把错误写成 assistant 消息），所以刷新不能只在
+    // 成功路径上做 —— 否则标题的累计 token 与会话列表会停在旧数据，用户必须手动刷新。
+    const api = createAgentApi({
+      sessions: [makeSession({ message_count: 0, total_tokens: 0 })],
+      messages: { 'session-1': [] },
+      stream: (content) => {
+        api.state.sessions = api.state.sessions.map((item) => (
+          item.session_id === 'session-1'
+            ? { ...item, message_count: 2, total_tokens: 128_000, last_message_at: '2026-09-28T04:00:00Z' }
+            : item
+        ))
+        api.state.messages['session-1'] = [
+          { id: 71, session_id: 'session-1', seq: 0, role: 'user', content, created_at: '2026-09-28T04:00:00Z' },
+          { id: 72, session_id: 'session-1', seq: 1, role: 'assistant', content: 'LLM 上游请求失败', finish_reason: 'error', created_at: '2026-09-28T04:00:01Z' },
+        ]
+        return sse([
+          event('message_start', { session_id: 'session-1', capability_status: 'ready' }),
+          event('error', { code: 'LLM_REQUEST_FAILED', message: 'LLM 上游请求失败' }),
+        ])
+      },
+    })
+    const listCalls = () => api.requests.filter(
+      (item) => item.method === 'GET' && item.path === '/api/agent/sessions',
+    ).length
+    renderPage()
+
+    expect(await screen.findByText(/deepseek-flash · 0 Token/)).toBeInTheDocument()
+    const before = listCalls()
+
+    fireEvent.change(screen.getByRole('textbox', { name: composerName }), { target: { value: '你好' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    // 错误横幅与落库的 assistant 消息都会出现这句话，断言存在即可。
+    await waitFor(() => expect(screen.getAllByText('LLM 上游请求失败').length).toBeGreaterThan(0))
+    await waitFor(() => expect(listCalls()).toBeGreaterThan(before), { timeout: 3000 })
+    const detailCalls = () => api.requests.filter(
+      (item) => item.method === 'GET' && item.path === '/api/agent/sessions/session-1',
+    ).length
+    await waitFor(() => expect(detailCalls()).toBeGreaterThan(1), { timeout: 3000 })
+    expect(await screen.findByText(/deepseek-flash · 0\.1M Token/)).toBeInTheDocument()
+  })
 })
+

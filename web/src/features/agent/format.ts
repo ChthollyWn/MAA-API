@@ -26,6 +26,28 @@ export function sessionTitle(session: Pick<AgentSession, 'title' | 'incident_key
   return session.incident_key ? '自动诊断会话' : '新会话'
 }
 
+/**
+ * 会话累计 token 的展示：**大于等于 0.1M 一律按百万读**（用户要求的统一单位），
+ * 小于 0.1M 用 K，再小就原样显示，避免出现 `0.001M` 这种读不出量级的写法。
+ *
+ * 每个量级最多两位有效数字并去掉多余的 `.0`：`510195` → `0.5M`、`1240000` → `1.2M`、
+ * `240000000` → `240M`。换算会损失精度，所以只用于概览；精确值仍可从会话详情的
+ * `total_tokens` 读到。
+ */
+export function formatTokenCount(value: unknown): string {
+  const tokens = typeof value === 'number' && Number.isFinite(value) ? Math.max(value, 0) : 0
+  const scaled = (divisor: number, suffix: string) => {
+    const amount = tokens / divisor
+    // 两位有效数字：0.51M 与 240M 都读得出量级。只在小数形式下去尾零，
+    // 否则 240 会被当成「末尾多余的 0」削成 24。
+    const text = amount >= 10 ? amount.toFixed(0) : amount.toFixed(1).replace(/\.0$/, '')
+    return `${text}${suffix}`
+  }
+  if (tokens >= 100_000) return scaled(1_000_000, 'M')
+  if (tokens >= 1_000) return scaled(1_000, 'K')
+  return String(Math.trunc(tokens))
+}
+
 export function expiryLabel(value?: string | null): string {
   if (!value) return '有效期未知'
   const date = new Date(value)

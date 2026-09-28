@@ -19,7 +19,7 @@ import { ConfirmationCard } from './ConfirmationCard'
 import { LiveTurn, QuickPrompts, TranscriptEntryView } from './MessageViews'
 import { SessionList } from './SessionList'
 import { CapabilityAlert, ErrorAlert, GrantBar } from './StatusAlerts'
-import { grantRemainingLabel, isRecord, sessionTitle, stringValue, toShownError } from './format'
+import { formatTokenCount, grantRemainingLabel, isRecord, sessionTitle, stringValue, toShownError } from './format'
 import { requestId, streamMessage } from './stream'
 import { buildTranscript } from './transcript'
 import type {
@@ -322,16 +322,6 @@ export default function AgentPage() {
     try {
       await streamMessage(sessionId, content, controller.signal, handleEvent)
       setTurn((current) => current ? { ...current, running: false } : current)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.agent.messages(sessionId) }),
-        queryClient.invalidateQueries({ queryKey: keys.agent.session(sessionId) }),
-        queryClient.invalidateQueries({ queryKey: keys.agent.sessions() }),
-        queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingConfirmations(), sessionId] }),
-      ])
-      // 本轮内容已落库并回到 history，必须丢弃实时副本，否则同一句话会同时以
-      // 本轮气泡和历史气泡出现两遍（工具轨迹同理）。清空时机只能是
-      // invalidate 完成之后 —— 提前清会让界面在历史到达前闪空。
-      setTurn((current) => (current?.pendingConfirmation ? current : null))
     } catch (error) {
       if (controller.signal.aborted) return
       const message = error instanceof Error ? error.message : 'Agent 对话失败。'
@@ -340,6 +330,23 @@ export default function AgentPage() {
       setTurn((current) => current ? { ...current, running: false, error: message } : current)
     } finally {
       if (abortRef.current === controller) abortRef.current = null
+      // 无论成功还是失败都要刷新：失败的回合同样会落库（服务端把错误写成 assistant
+      // 消息、工具结果和 token 用量也都写了），而失败路径此前什么都不刷新 —— 于是标题
+      // 的累计 token 与会话列表停在旧数据，用户必须手动刷新页面才看到，新会话也因此
+      // 一直不出现在列表里（新建的会话 last_message_at 为空，排在列表末尾）。
+      const settled = controller.signal.aborted
+        ? Promise.resolve()
+        : Promise.all([
+            queryClient.invalidateQueries({ queryKey: keys.agent.messages(sessionId) }),
+            queryClient.invalidateQueries({ queryKey: keys.agent.session(sessionId) }),
+            queryClient.invalidateQueries({ queryKey: keys.agent.sessions() }),
+            queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingConfirmations(), sessionId] }),
+          ])
+      // 本轮内容已落库并回到 history，必须丢弃实时副本，否则同一句话会同时以
+      // 本轮气泡和历史气泡出现两遍（工具轨迹同理）。清空时机只能是
+      // invalidate 完成之后 —— 提前清会让界面在历史到达前闪空。
+      await settled
+      setTurn((current) => (current?.pendingConfirmation ? current : null))
     }
   }
 
@@ -426,7 +433,7 @@ export default function AgentPage() {
   const transcript = !selectedId ? noSession : (
     <div className="space-y-4">
       {conversation ? (
-        <p className="text-center text-xs text-muted-foreground tabular-nums">{conversation.model || '模型未配置'} · {conversation.total_tokens ?? 0} Token</p>
+        <p className="text-center text-xs text-muted-foreground tabular-nums">{conversation.model || '模型未配置'} · {formatTokenCount(conversation.total_tokens)} Token</p>
       ) : null}
       {selectedSession.error ? <InlineAlert tone="danger">会话读取失败：{toApiError(selectedSession.error).message}</InlineAlert> : null}
       {messages.query.isPending ? <LoadingState label="正在载入对话历史…" /> : null}
