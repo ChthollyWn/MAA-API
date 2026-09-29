@@ -113,6 +113,8 @@ interface ApiOptions {
   onResolve?: (confirmationId: string, approved: boolean) => void
   /** 提问被提交或跳过时回调，用例在这里推后续事件。 */
   onQuestion?: (questionId: string, action: 'answer' | 'skip', selected: string[]) => void
+  /** 中断端点被调用时回调：用例在这里改服务端状态并给出幂等的响应体（M22）。 */
+  onInterrupt?: (sessionId: string) => Json
   /** 返回 Promise 时，消息读取要等它完成才响应。 */
   holdMessages?: () => Promise<void> | undefined
 }
@@ -143,7 +145,7 @@ function createAgentApi(options: ApiOptions = {}) {
         return json(created, 201)
       }
     }
-    const sessionMatch = /^\/api\/agent\/sessions\/([^/]+)(?:\/(messages|atomic-grant))?$/.exec(url.pathname)
+    const sessionMatch = /^\/api\/agent\/sessions\/([^/]+)(?:\/(messages|atomic-grant|interrupt))?$/.exec(url.pathname)
     if (sessionMatch) {
       const [, id, sub] = sessionMatch
       const found = state.sessions.find((item) => item.session_id === id)
@@ -155,6 +157,10 @@ function createAgentApi(options: ApiOptions = {}) {
         return new Response(null, { status: 204 })
       }
       if (sub === 'atomic-grant' && request.method === 'DELETE') return new Response(null, { status: 204 })
+      if (sub === 'interrupt' && request.method === 'POST') {
+        // 后端幂等：没有活动轮次时也是 200，只是 interrupted=false（M22 规格 §3.4）。
+        return json(options.onInterrupt?.(id!) ?? { session_id: id, interrupted: true, turn_running: false })
+      }
       if (sub === 'messages' && request.method === 'GET') {
         await options.holdMessages?.()
         const all = state.messages[id!] ?? []
@@ -381,7 +387,9 @@ describe('Agent conversation page', () => {
     expect(within(liveTurn).getByText('submit_pipeline')).toBeInTheDocument()
     expect(within(liveTurn).getByText('等待确认')).toBeInTheDocument()
     fireEvent.change(composer, { target: { value: '顺便看看队列' } })
-    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    // 本轮还在跑（等确认也算）：发送按钮原地是「停止」，草稿留着也发不出去。
+    expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '停止本轮' })).toBeInTheDocument()
     fireEvent.change(composer, { target: { value: '' } })
 
     fireEvent.click(await screen.findByRole('button', { name: '批准并继续' }))
@@ -509,11 +517,11 @@ describe('Agent conversation page', () => {
     fireEvent.change(composer, { target: { value: '刷一次 1-7' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
 
-    // 卡片挂在本轮工具条下方，输入栏提示先回答，发送被禁用。
+    // 卡片挂在本轮工具条下方，输入栏提示先回答；本轮还在跑，发送按钮是「停止」。
     expect(await screen.findByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
     expect(screen.getByText('用哪个渠道刷 1-7？')).toBeInTheDocument()
     expect(screen.getByText('请先回答上方的问题')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '停止本轮' })).toBeInTheDocument()
     const liveTurn = screen.getByRole('region', { name: '本轮对话' })
     expect(within(liveTurn).getByText('向你提问')).toBeInTheDocument()
     expect(within(liveTurn).getByText('ask_user')).toBeInTheDocument()
@@ -773,9 +781,10 @@ describe('Agent conversation page', () => {
     expect(api.sentMessages()[0]!.body).toEqual({ content: '查看队列' })
     expect(await screen.findByText('Agent 正在处理…')).toBeInTheDocument()
 
-    // 流式进行中：发送按钮禁用，Enter 也不会再发一条。
+    // 流式进行中：发送按钮原地变「停止」，Enter 也不会再发一条。
     fireEvent.change(composer, { target: { value: '再来一条' } })
-    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '停止本轮' })).toBeInTheDocument()
     fireEvent.keyDown(composer, { key: 'Enter' })
     expect(api.sentMessages()).toHaveLength(1)
 
@@ -790,6 +799,8 @@ describe('Agent conversation page', () => {
     await waitFor(() => expect(screen.queryByText('Agent 正在处理…')).not.toBeInTheDocument())
     await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
     expect(screen.getAllByText('队列为空。')).toHaveLength(1)
+    // 回合结束后发送按钮回来（草稿还在，所以是可用的）。
+    expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
   })
 
   it('treats Enter as a new line on touch devices and sends only from the button (AG4)', async () => {
@@ -1079,6 +1090,177 @@ describe('Agent conversation page', () => {
     ).length
     await waitFor(() => expect(detailCalls()).toBeGreaterThan(1), { timeout: 3000 })
     expect(await screen.findByText(/deepseek-flash · 0\.1M Token/)).toBeInTheDocument()
+  })
+
+  it('turns the send button into a stop button during a turn and wraps the turn up after stopping (M22)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    let holdHistory = false
+    const releases: Array<() => void> = []
+    const releaseHistory = () => {
+      holdHistory = false
+      for (const release of releases.splice(0)) release()
+    }
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      // 停止后的历史刷新被挂住：这中间的界面状态才看得见。
+      holdMessages: () => (holdHistory ? new Promise<void>((resolve) => { releases.push(resolve) }) : undefined),
+      stream: () => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', capability_status: 'ready' }),
+          event('text_delta', { text: '正在查询…' }),
+          // 这一轮正挂在等流水线：中断后它不该继续显示「执行中」。
+          event('tool_start', { tool_call_id: 'call-wait', name: 'wait_pipeline', arguments: { pipeline_id: 'p1' } }),
+        ])
+        return held.response
+      },
+      onInterrupt: (sessionId) => {
+        // 服务端的中断收尾：已经流出去的部分文本、tool 桩消息（结构硬要求）与中断标记
+        // 一起落库，SSE 随后也收尾。本地已经 abort，收不到那些事件 —— 这正是要测的：
+        // 界面不能因此卡住。
+        api.state.messages['session-1'] = [
+          { id: 201, session_id: sessionId, seq: 0, role: 'user', content: '查一下队列', created_at: '2026-09-29T11:00:00Z' },
+          { id: 202, session_id: sessionId, seq: 1, role: 'assistant', content: '正在查询…', tool_calls: [{ id: 'call-wait', function: { name: 'wait_pipeline', arguments: '{"pipeline_id":"p1"}' } }], created_at: '2026-09-29T11:00:01Z' },
+          { id: 203, session_id: sessionId, seq: 2, role: 'tool', tool_name: 'wait_pipeline', tool_call_id: 'call-wait', content: '{"error":{"code":"AGENT_TURN_INTERRUPTED","message":"本轮已被中断，该调用未完成"}}', created_at: '2026-09-29T11:00:02Z' },
+          { id: 204, session_id: sessionId, seq: 3, role: 'assistant', content: '本轮已被你中断。', finish_reason: 'interrupted', created_at: '2026-09-29T11:00:03Z' },
+        ]
+        holdHistory = true
+        return { session_id: sessionId, interrupted: true, turn_running: false }
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '查一下队列' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    // 执行期间发送按钮原地变「停止」，不新增按钮位置。
+    expect(await screen.findByText('Agent 正在处理…')).toBeInTheDocument()
+    expect(screen.getByText('执行中')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '停止本轮' }))
+
+    await waitFor(() => expect(api.requests.some(
+      (item) => item.method === 'POST' && item.path === '/api/agent/sessions/session-1/interrupt',
+    )).toBe(true))
+
+    // 历史还没回来也一样：abort 之后 running 必须显式归位，否则「Agent 正在处理…」与
+    // 「执行中」会永久挂着（既有 bug）。停止期间按钮禁用，实时副本留到历史到达才让位。
+    await waitFor(() => expect(screen.queryByText('Agent 正在处理…')).not.toBeInTheDocument())
+    expect(screen.getByText('正在停止本轮…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '停止本轮' })).toBeDisabled()
+    expect(screen.queryByText('执行中')).not.toBeInTheDocument()
+    expect(screen.getByText('未返回结果')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '本轮对话' })).toBeInTheDocument()
+
+    act(() => releaseHistory())
+
+    // 本轮收尾：实时副本让位给历史、部分文本只出现一次、不报错。
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    expect(await screen.findByText('本轮已被你中断。')).toBeInTheDocument()
+    expect(screen.getAllByText('正在查询…')).toHaveLength(1)
+    expect(screen.getByText('失败')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    // 输入栏立刻可用：abort 不再把 running 永久留在 true。
+    fireEvent.change(composer, { target: { value: '再看一眼' } })
+    expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
+  })
+
+  it('restores the stop entry from turn_running when the page is reopened (M22)', async () => {
+    const api = createAgentApi({
+      sessions: [makeSession({ turn_running: true })],
+      messages: { 'session-1': [] },
+      onInterrupt: (sessionId) => {
+        api.state.sessions = api.state.sessions.map((item) => (
+          item.session_id === sessionId ? { ...item, turn_running: false } : item
+        ))
+        return { session_id: sessionId, interrupted: true, turn_running: false }
+      },
+    })
+    renderPage()
+
+    // 本地没有那条流，但后端说这一轮还在跑：状态行与停止入口都要回来，也发不出消息。
+    expect(await screen.findByText('本轮仍在后台执行')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '停止本轮' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '发送' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '停止本轮' }))
+
+    await waitFor(() => expect(api.requests.some(
+      (item) => item.method === 'POST' && item.path === '/api/agent/sessions/session-1/interrupt',
+    )).toBe(true))
+    // 停止后重新取回 turn_running=false，输入栏回到可发送。
+    await waitFor(() => expect(screen.queryByText('本轮仍在后台执行')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument()
+  })
+
+  it('points at the stop entry when the session is busy (409 AGENT_SESSION_BUSY, M22)', async () => {
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      stream: () => {
+        // 本地以为空闲，服务端说还有一轮在跑；会话详情刷新后就会带回 turn_running。
+        api.state.sessions = api.state.sessions.map((item) => (
+          item.session_id === 'session-1' ? { ...item, turn_running: true } : item
+        ))
+        return json({ error: { code: 'AGENT_SESSION_BUSY', message: '该会话上一轮还在执行' } }, 409)
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '查一下队列' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(await screen.findByText('该会话仍有一轮在跑，可先停止它')).toBeInTheDocument()
+    // 草稿还给用户，停完就能直接发。
+    expect(composer).toHaveValue('查一下队列')
+    expect(await screen.findByText('本轮仍在后台执行')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '停止本轮' })).toBeInTheDocument()
+    expect(api.sentMessages()).toHaveLength(1)
+  })
+
+  it('ends the turn without an error when another client interrupts it (SSE interrupted, M22)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      stream: () => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', capability_status: 'ready' }),
+          event('text_delta', { text: '正在查询…' }),
+        ])
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '查一下队列' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('Agent 正在处理…')).toBeInTheDocument()
+
+    // 别的标签页/设备点了停止：服务端推 interrupted，随后是 message_end 与关流。
+    act(() => {
+      held?.push([
+        event('interrupted', { session_id: 'session-1', finish_reason: 'interrupted' }),
+        event('message_end', { session_id: 'session-1', finish_reason: 'interrupted' }),
+      ])
+    })
+
+    // 不当错误，也不再挂着「正在处理」。
+    await waitFor(() => expect(screen.queryByText('Agent 正在处理…')).not.toBeInTheDocument())
+    expect(screen.getByText('本轮已停止')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(api.sentMessages()).toHaveLength(1)
+
+    api.state.messages['session-1'] = [
+      { id: 301, session_id: 'session-1', seq: 0, role: 'user', content: '查一下队列', created_at: '2026-09-29T11:10:00Z' },
+      { id: 302, session_id: 'session-1', seq: 1, role: 'assistant', content: '正在查询…\n\n本轮已被你中断。', finish_reason: 'interrupted', created_at: '2026-09-29T11:10:01Z' },
+    ]
+    await act(async () => { held?.close() })
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    expect(await screen.findByText('本轮已被你中断。')).toBeInTheDocument()
+    expect(screen.getAllByText('正在查询…')).toHaveLength(1)
   })
 })
 
