@@ -74,7 +74,10 @@ class _SmokeLLM:
                     "choices": [
                         {
                             "index": 0,
-                            "delta": {"content": "visual probe ok"},
+                            # 视觉探查问的是「这张图是什么颜色」，探针图是纯蓝 64×64 PNG；
+                            # 运行时按回复里有没有 `blue` 判定模型是否真能读图
+                            # （maa_api/agent/runtime.py 的 `_VISION_PROBE_MARKER`）。
+                            "delta": {"content": "blue"},
                             "finish_reason": None,
                         }
                     ]

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +39,14 @@ class ForceRequest(BaseModel):
     force: bool = False
 
 
+def _device_manager(request: Request) -> Any:
+    """设备管理器取值与 ``device.py`` 同契约（SERVICE_UNAVAILABLE 而非 500）。"""
+    manager = getattr(request.app.state, "device_manager", None)
+    if manager is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "设备管理服务尚未启动")
+    return manager
+
+
 async def _ensure_atomic_allowed(
     *,
     operation: str,
@@ -64,24 +73,32 @@ async def _ensure_atomic_allowed(
 
 @router.post(
     "/api/device/click",
-    summary="执行单点点击",
+    summary="执行单点点击（坐标为设备像素，与截图一致）",
     responses=error_responses(
-        "CORE_NOT_READY", "PIPELINE_ALREADY_RUNNING", "UNAUTHORIZED"
+        "CORE_NOT_READY",
+        "DEVICE_NOT_CONNECTED",
+        "INVALID_PARAMETER",
+        "PIPELINE_ALREADY_RUNNING",
+        "SERVICE_UNAVAILABLE",
+        "UNAUTHORIZED",
     ),
     dependencies=[Depends(require_auth)],
     tags=["device"],
 )
 async def click_device(
     payload: ClickRequest,
+    request: Request,
     runner=Depends(get_pipeline_runner),
-    registry=Depends(get_core_registry),
     session: AsyncSession = Depends(get_session),
 ):
+    # 设备像素经 DeviceManager.click 换算成 MaaCore 基准坐标：不再直接调用内核
+    # 客户端，坐标系与越界校验的唯一归属是设备管理器。
+    manager = _device_manager(request)
     async with runner.operation_lock:
         await _ensure_atomic_allowed(
             operation="click", force=payload.force, session=session
         )
-        await registry.get().click(payload.x, payload.y, block=True)
+        await manager.click(payload.x, payload.y)
     return {"ok": True, "backend": "core", "x": payload.x, "y": payload.y}
 
 

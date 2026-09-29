@@ -263,6 +263,26 @@ describe('Agent conversation page', () => {
     expect(within(bar).getByText(/"total": 0/)).toBeInTheDocument()
   })
 
+  it('names the knowledge and pipeline tools in Chinese in the transcript (M18)', async () => {
+    createAgentApi({
+      messages: {
+        'session-1': [
+          { id: 1, session_id: 'session-1', seq: 1, role: 'assistant', content: '先查知识库。', tool_calls: [{ id: 'call-knowledge', function: { name: 'read_knowledge', arguments: '{"entry_id":"glossary"}' } }], created_at: '2026-09-27T10:00:01Z' },
+          { id: 2, session_id: 'session-1', seq: 2, role: 'tool', tool_name: 'read_knowledge', tool_call_id: 'call-knowledge', audit_id: 30, content: '{"id":"glossary"}', created_at: '2026-09-27T10:00:02Z' },
+          { id: 3, session_id: 'session-1', seq: 3, role: 'assistant', content: '等流水线结束。', tool_calls: [{ id: 'call-wait', function: { name: 'wait_pipeline', arguments: '{"pipeline_id":"p1"}' } }], created_at: '2026-09-27T10:00:03Z' },
+          { id: 4, session_id: 'session-1', seq: 4, role: 'tool', tool_name: 'wait_pipeline', tool_call_id: 'call-wait', audit_id: 31, content: '{"finished":true}', created_at: '2026-09-27T10:00:04Z' },
+        ],
+      },
+    })
+    renderPage()
+
+    // 中文名与原始工具名同时显示，认得出也搜得到。
+    expect(await screen.findByText('查阅知识库')).toBeInTheDocument()
+    expect(screen.getByText('等待流水线结束')).toBeInTheDocument()
+    expect(screen.getByText('read_knowledge')).toBeInTheDocument()
+    expect(screen.getByText('wait_pipeline')).toBeInTheDocument()
+  })
+
   it('waits for an inline confirmation, then shows the reply exactly once after the live copy is dropped (AG2)', async () => {
     let held: ReturnType<typeof heldStream> | null = null
     let streamFinished = false

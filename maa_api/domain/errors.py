@@ -1,6 +1,6 @@
 """领域错误码与领域异常。
 
-错误码来自 docs/05 §4.1–§4.15 的十五张表，全量 95 条，**与那份表一一对应**：
+错误码来自 docs/05 §4.1–§4.15 的十五张表，全量 101 条，**与那份表一一对应**：
 ``ErrorCode`` 的成员名即响应体 ``error.code`` 的线上取值（ADR-04 选自定义错误体的
 核心价值就是这个可枚举字符串，agent 据此做确定性分支）；每个错误码在
 :data:`ERROR_HTTP_STATUS` 里绑定**固定**的 HTTP 状态码，路由层不再自行决定状态码——
@@ -272,6 +272,16 @@ class ErrorCode(StrEnum):
     # 会话历史超出模型上下文窗口，需新建会话或裁剪历史
     LLM_CONTEXT_OVERFLOW = "LLM_CONTEXT_OVERFLOW"
 
+    # ---- M18 知识库 ----
+    # 知识条目 id 不存在，或（read_knowledge）已被停用
+    KNOWLEDGE_NOT_FOUND = "KNOWLEDGE_NOT_FOUND"
+
+    # 删除未修改过的内置条目，或修改内置条目的 kind
+    KNOWLEDGE_BUILTIN_READONLY = "KNOWLEDGE_BUILTIN_READONLY"
+
+    # 启用的条目数或术语表与用户档案的正文合计超出上限，details 指明是哪条限制
+    KNOWLEDGE_LIMIT_EXCEEDED = "KNOWLEDGE_LIMIT_EXCEEDED"
+
     # ---- docs/05 §4.12 定时任务 ----
     # 定时任务 id 不存在
     SCHEDULE_NOT_FOUND = "SCHEDULE_NOT_FOUND"
@@ -343,7 +353,7 @@ class ErrorCode(StrEnum):
 
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 91 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 100 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -423,6 +433,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.LLM_RATE_LIMITED: 429,
     ErrorCode.LLM_ENCRYPTION_KEY_INVALID: 503,
     ErrorCode.LLM_CONTEXT_OVERFLOW: 400,
+    ErrorCode.KNOWLEDGE_NOT_FOUND: 404,
+    ErrorCode.KNOWLEDGE_BUILTIN_READONLY: 409,
+    ErrorCode.KNOWLEDGE_LIMIT_EXCEEDED: 409,
     ErrorCode.SCHEDULE_NOT_FOUND: 404,
     ErrorCode.SCHEDULE_CRON_INVALID: 400,
     ErrorCode.SCHEDULE_NAME_CONFLICT: 409,

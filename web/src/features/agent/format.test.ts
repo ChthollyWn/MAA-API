@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { formatTokenCount } from './format'
+import { formatTokenCount, toolLabel } from './format'
+
+describe('toolLabel', () => {
+  it('names the tools M18 added in Chinese', () => {
+    expect(toolLabel('read_knowledge')).toBe('查阅知识库')
+    expect(toolLabel('wait_pipeline')).toBe('等待流水线结束')
+  })
+
+  it('leaves unknown tools to the raw name', () => {
+    expect(toolLabel('some_future_tool')).toBeUndefined()
+  })
+})
 
 describe('formatTokenCount', () => {
   it('switches to the million unit from 0.1M up, as the header asks for', () => {

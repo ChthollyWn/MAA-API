@@ -5,14 +5,35 @@ from __future__ import annotations
 import asyncio
 import importlib
 import importlib.util
+import time
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
+from sqlmodel import SQLModel
+
+from maa_api.agent.confirmation import ConfirmationService
+from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolContext, ToolRegistry, ToolRisk
-from maa_api.domain.enums import CallerType, PipelineSource, PipelineStatus, Priority
+from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
+from maa_api.db.repositories.pipeline import PipelineRepository, TaskRepository
+from maa_api.db.session import make_engine
+from maa_api.domain.enums import (
+    CallerType,
+    PipelineSource,
+    PipelineStatus,
+    Priority,
+    TaskStatus,
+)
 from maa_api.db.models import Pipeline, Task, utcnow
 from maa_api.db.repositories.base import Page
+from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.task import PipelineCreate, StartUpInput
+from maa_api.services.pipeline_runner import PipelineRunner
 
 
 def _register_pipeline() -> ToolRegistry:
@@ -57,6 +78,7 @@ def test_pipeline_group_registers_the_documented_status_and_control_tools() -> N
     assert [definition.name for definition in definitions] == [
         "list_task_types",
         "get_pipeline",
+        "wait_pipeline",
         "list_pipelines",
         "get_queue",
         "submit_pipeline",
@@ -72,6 +94,7 @@ def test_pipeline_group_registers_the_documented_status_and_control_tools() -> N
         for name in {
             "list_task_types",
             "get_pipeline",
+            "wait_pipeline",
             "list_pipelines",
             "get_queue",
             "stop_pipeline",
@@ -317,3 +340,370 @@ def test_cancel_queued_cancels_pending_work_only() -> None:
     )
 
     assert result == {"cancelled": 2, "source": "agent"}
+
+
+# ---------------------------------------------------------------------------
+# wait_pipeline（规格 §4.2）
+# ---------------------------------------------------------------------------
+
+
+async def _invoke_wait(
+    runner: object, arguments: dict[str, Any], *, db_session: object | None = None
+) -> dict[str, Any]:
+    return await _register_pipeline().execute(
+        "wait_pipeline",
+        arguments,
+        _context(
+            state=SimpleNamespace(pipeline_runner=runner), db_session=db_session
+        ),
+    )
+
+
+class _ExplodingSession:
+    """属性一碰就炸的会话替身：用来证明 handler 没有用调用方会话等待。"""
+
+    def __getattr__(self, name: str) -> Any:
+        raise AssertionError(f"wait_pipeline 不应访问 ctx.db_session（.{name}）")
+
+
+class _WaitCore:
+    """最小 CoreClient 替身：PipelineRunner 构造时只订阅事件。"""
+
+    def __init__(self) -> None:
+        self.handlers: dict[str, Any] = {}
+
+    def on(self, event_type: str, handler: Any) -> None:
+        self.handlers[event_type] = handler
+
+
+class _WaitSupervisor:
+    state = "ready"
+    generation = 1
+
+
+async def _create_wait_schema(engine: Any) -> None:
+    async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
+
+
+@pytest.fixture
+def wait_runner(tmp_path: Path):
+    """真实 PipelineRunner + SQLite：等待语义必须落在短会话轮询上。"""
+
+    engine = make_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'wait-pipeline.db'}", poolclass=NullPool
+    )
+    asyncio.run(_create_wait_schema(engine))
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    registry = CoreRegistry()
+    registry.register(DEFAULT_CORE_ID, _WaitCore())
+    yield PipelineRunner(registry, _WaitSupervisor(), factory), factory
+    engine.sync_engine.dispose()
+
+
+async def _seed_wait_pipeline(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    status: PipelineStatus,
+    task_status: TaskStatus,
+) -> None:
+    async with factory() as session:
+        session.add(
+            Pipeline(
+                id="pipeline-wait",
+                source=PipelineSource.AGENT,
+                priority=Priority.AGENT,
+                status=status,
+                task_count=1,
+                title="等待测试",
+            )
+        )
+        session.add(
+            Task(
+                id="task-wait",
+                pipeline_id="pipeline-wait",
+                order_index=0,
+                type_name="StartUp",
+                task_name="开始唤醒",
+                params={"start_game_enabled": True},
+                status=task_status,
+            )
+        )
+        await session.commit()
+
+
+def test_wait_pipeline_is_a_bounded_safe_read_only_tool() -> None:
+    registry = _register_pipeline()
+    definition = registry.get("wait_pipeline")
+
+    assert definition.group == "pipeline"
+    assert definition.risk is ToolRisk.SAFE
+    assert definition.read_only is True
+    assert definition.description == (
+        "等待指定流水线结束（完成、失败或取消）或超时，返回终态与各任务状态。"
+        "提交流水线后需要等结果时使用，不要反复调用 get_pipeline。"
+    )
+
+    assert registry.validate("wait_pipeline", {"pipeline_id": "pipeline-1"}).timeout_seconds == 300
+    for timeout in (4, 601):
+        with pytest.raises(AppError) as excinfo:
+            registry.validate(
+                "wait_pipeline",
+                {"pipeline_id": "pipeline-1", "timeout_seconds": timeout},
+            )
+        assert excinfo.value.code is ErrorCode.TOOL_ARGS_INVALID
+    with pytest.raises(AppError) as excinfo:
+        registry.validate("wait_pipeline", {"pipeline_id": "x" * 37})
+    assert excinfo.value.code is ErrorCode.TOOL_ARGS_INVALID
+
+
+def test_wait_pipeline_returns_the_terminal_pipeline_with_its_tasks() -> None:
+    row = _pipeline(status=PipelineStatus.COMPLETED)
+    task = Task(
+        id="task-1",
+        pipeline_id=row.id,
+        order_index=0,
+        type_name="StartUp",
+        task_name="开始唤醒",
+        status="completed",
+    )
+    object.__setattr__(row, "tasks", [task])
+    seen: dict[str, Any] = {}
+
+    class Runner:
+        async def wait_terminal(self, pipeline_id: str, timeout_seconds: float, **_kwargs):
+            seen["pipeline_id"] = pipeline_id
+            seen["timeout_seconds"] = timeout_seconds
+            return row, True
+
+    result = asyncio.run(
+        _invoke_wait(
+            Runner(), {"pipeline_id": "pipeline-1", "timeout_seconds": 30}
+        )
+    )
+
+    assert seen == {"pipeline_id": "pipeline-1", "timeout_seconds": 30}
+    assert result["finished"] is True
+    assert result["waited_seconds"] >= 0
+    assert result["pipeline"]["id"] == "pipeline-1"
+    assert result["pipeline"]["status"] == "completed"
+    assert [item["id"] for item in result["pipeline"]["tasks"]] == ["task-1"]
+
+
+def test_wait_pipeline_timeout_is_a_normal_result_not_an_error() -> None:
+    row = _pipeline(status=PipelineStatus.RUNNING)
+    object.__setattr__(row, "tasks", [])
+
+    class Runner:
+        async def wait_terminal(self, pipeline_id: str, timeout_seconds: float, **_kwargs):
+            return row, False
+
+    result = asyncio.run(
+        _invoke_wait(Runner(), {"pipeline_id": "pipeline-1", "timeout_seconds": 5})
+    )
+
+    assert result["finished"] is False
+    assert result["pipeline"]["status"] == "running"
+    assert "error" not in result
+
+
+def test_wait_pipeline_never_touches_the_tool_database_session() -> None:
+    row = _pipeline(status=PipelineStatus.COMPLETED)
+    object.__setattr__(row, "tasks", [])
+
+    class Runner:
+        async def wait_terminal(self, pipeline_id: str, timeout_seconds: float, **_kwargs):
+            return row, True
+
+    # 拆台替身：handler 若把 ctx.db_session 传给仓储就会在这里炸。
+    alive = asyncio.run(
+        _invoke_wait(
+            Runner(), {"pipeline_id": "pipeline-1"}, db_session=_ExplodingSession()
+        )
+    )
+    none_session = asyncio.run(
+        _invoke_wait(Runner(), {"pipeline_id": "pipeline-1"}, db_session=None)
+    )
+
+    assert alive["finished"] is True
+    assert none_session["finished"] is True
+
+
+def test_wait_pipeline_returns_immediately_when_the_pipeline_is_already_terminal(
+    wait_runner,
+) -> None:
+    runner, factory = wait_runner
+
+    async def scenario() -> None:
+        await _seed_wait_pipeline(
+            factory, status=PipelineStatus.COMPLETED, task_status=TaskStatus.COMPLETED
+        )
+        started = time.monotonic()
+        result = await _invoke_wait(
+            runner, {"pipeline_id": "pipeline-wait", "timeout_seconds": 300}
+        )
+        elapsed = time.monotonic() - started
+
+        assert result["finished"] is True
+        assert result["pipeline"]["status"] == "completed"
+        assert result["pipeline"]["progress"] == {"total": 1, "completed": 1, "failed": 0}
+        assert [item["status"] for item in result["pipeline"]["tasks"]] == ["completed"]
+        assert elapsed < 0.5
+        assert result["waited_seconds"] < 0.5
+
+    asyncio.run(scenario())
+
+
+def test_wait_terminal_returns_once_the_pipeline_finishes_in_the_background(
+    wait_runner,
+) -> None:
+    runner, factory = wait_runner
+
+    async def scenario() -> None:
+        await _seed_wait_pipeline(
+            factory, status=PipelineStatus.RUNNING, task_status=TaskStatus.RUNNING
+        )
+
+        async def finish_later() -> None:
+            await asyncio.sleep(0.05)
+            async with factory() as session:
+                await PipelineRepository(session).mark_terminal(
+                    "pipeline-wait",
+                    PipelineStatus.FAILED,
+                    error_code=ErrorCode.CORE_CRASHED,
+                    error_message="内核中断",
+                )
+                await TaskRepository(session).update_status(
+                    "task-wait",
+                    TaskStatus.FAILED,
+                    error_code=ErrorCode.CORE_CRASHED,
+                    error_message="内核中断",
+                )
+                await session.commit()
+
+        finisher = asyncio.create_task(finish_later())
+        try:
+            pipeline, finished = await runner.wait_terminal(
+                "pipeline-wait", 5.0, poll_seconds=0.02
+            )
+        finally:
+            await finisher
+
+        assert finished is True
+        assert PipelineStatus(pipeline.status) is PipelineStatus.FAILED
+        assert pipeline.error_code == ErrorCode.CORE_CRASHED
+        assert [task.status for task in pipeline.tasks] == ["failed"]
+
+    asyncio.run(scenario())
+
+
+def test_wait_terminal_returns_the_current_state_on_timeout(wait_runner) -> None:
+    runner, factory = wait_runner
+
+    async def scenario() -> None:
+        await _seed_wait_pipeline(
+            factory, status=PipelineStatus.RUNNING, task_status=TaskStatus.RUNNING
+        )
+        started = time.monotonic()
+        pipeline, finished = await runner.wait_terminal(
+            "pipeline-wait", 0.2, poll_seconds=0.05
+        )
+        elapsed = time.monotonic() - started
+
+        assert finished is False
+        assert PipelineStatus(pipeline.status) is PipelineStatus.RUNNING
+        assert [task.status for task in pipeline.tasks] == ["running"]
+        assert 0.15 <= elapsed < 2.0
+
+    asyncio.run(scenario())
+
+
+def test_wait_pipeline_rejects_an_unknown_pipeline_id_without_waiting(
+    wait_runner,
+) -> None:
+    runner, _factory = wait_runner
+
+    async def scenario() -> None:
+        started = time.monotonic()
+        with pytest.raises(AppError) as excinfo:
+            await _invoke_wait(runner, {"pipeline_id": "missing-pipeline"})
+        elapsed = time.monotonic() - started
+
+        assert excinfo.value.code is ErrorCode.PIPELINE_NOT_FOUND
+        assert excinfo.value.details == {"pipeline_id": "missing-pipeline"}
+        # 默认 timeout 是 300 秒：未知 id 必须立刻失败，不能等满超时。
+        assert elapsed < 0.5
+
+    asyncio.run(scenario())
+
+
+def test_wait_pipeline_propagates_cancellation_instead_of_swallowing_it(
+    wait_runner,
+) -> None:
+    runner, factory = wait_runner
+
+    async def scenario() -> None:
+        await _seed_wait_pipeline(
+            factory, status=PipelineStatus.RUNNING, task_status=TaskStatus.RUNNING
+        )
+        task = asyncio.create_task(
+            _invoke_wait(
+                runner, {"pipeline_id": "pipeline-wait", "timeout_seconds": 300}
+            )
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert task.cancelled() is True
+
+    asyncio.run(scenario())
+
+
+def test_wait_pipeline_is_cancelled_with_its_confirmation_worker(wait_runner) -> None:
+    """服务关闭时 handler 随 ConfirmationService 的 worker 一起被取消（规格 §4.2）。"""
+
+    runner, factory = wait_runner
+
+    async def scenario() -> None:
+        await _seed_wait_pipeline(
+            factory, status=PipelineStatus.RUNNING, task_status=TaskStatus.RUNNING
+        )
+        service = ConfirmationService(
+            factory, _register_pipeline(), policy=PolicyEngine()
+        )
+        context = ToolContext(
+            caller=CallerType.INTERNAL,
+            session_id=None,
+            request_id="wait-shutdown-test",
+            request=SimpleNamespace(
+                app=SimpleNamespace(
+                    state=SimpleNamespace(pipeline_runner=runner)
+                )
+            ),
+            db_session=None,
+        )
+
+        accepted = await service.invoke(
+            "wait_pipeline",
+            {"pipeline_id": "pipeline-wait", "timeout_seconds": 300},
+            context,
+            mode="async",
+        )
+        assert accepted["status"] == "accepted", accepted
+        await asyncio.sleep(0.05)
+        assert [
+            task for task in asyncio.all_tasks() if task.get_name().startswith("agent-tool-")
+        ], "等待应当在 ConfirmationService 的 worker 里跑"
+
+        started = time.monotonic()
+        await asyncio.wait_for(service.close(), timeout=5.0)
+        elapsed = time.monotonic() - started
+
+        # 取消真生效时 close() 立刻返回；被吞掉的话这里会等满 300 秒超时。
+        assert elapsed < 1.0
+        assert [
+            task for task in asyncio.all_tasks() if task.get_name().startswith("agent-tool-")
+        ] == []
+
+    asyncio.run(scenario())

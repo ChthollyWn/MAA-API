@@ -54,6 +54,7 @@ BUSINESS_TABLES = {
     "resource_asset",
     "api_snippet",
     "push_subscription",
+    "agent_knowledge",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -196,6 +197,7 @@ EXPECTED_TEXT_COLUMNS = {
     ("update_record", "log"),
     ("notify_channel", "last_error"),
     ("resource_asset", "description"),
+    ("agent_knowledge", "body"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -281,8 +283,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_18_business_tables():
-    """18 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+def test_metadata_has_exactly_19_business_tables():
+    """19 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
@@ -765,6 +767,21 @@ def test_schedule_and_agent_session_defaults(engine):
         assert agent_session.completion_tokens == 0
         assert agent_session.atomic_grant_id is None
         assert agent_session.last_message_at is None
+
+
+def test_agent_knowledge_orm_defaults(engine):
+    """覆盖行可以只写一列；``enabled`` 非空、默认真（M18 规格 §4.1）。"""
+    with Session(engine) as session:
+        row = models.AgentKnowledge(id="screen-home")
+        session.add(row)
+        session.commit()
+        assert row.kind is None
+        assert row.title is None
+        assert row.when_to_use is None
+        assert row.body is None
+        assert row.enabled is True
+        assert row.created_at.tzinfo is None
+        assert row.updated_at.tzinfo is None
 
 
 def test_screenshot_trigger_column_is_quoted_in_ddl(conn):

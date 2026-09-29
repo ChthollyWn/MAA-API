@@ -496,6 +496,24 @@ def test_internal_atomic_grant_is_validated_from_persisted_session(tmp_path) -> 
         engine.sync_engine.dispose()
 
 
+def test_tool_definition_defaults_to_model_visible_and_rejects_non_bool_metadata() -> None:
+    """`model_visible` 是工具元数据的一部分，类型校验与 `read_only` 同一风格（规格 §4.4）。"""
+
+    definition = _definition("count_runs")
+
+    assert definition.model_visible is True
+    with pytest.raises(TypeError, match="model_visible must be a bool"):
+        ToolDefinition(
+            name="hidden_action",
+            group="raw",
+            risk=ToolRisk.SAFE,
+            description="hidden action",
+            params_model=ExampleParams,
+            handler=_handler,
+            model_visible="no",  # type: ignore[arg-type]
+        )
+
+
 def test_rest_caller_cannot_reuse_internal_session_grants() -> None:
     decision = _evaluate(
         _definition("click"),

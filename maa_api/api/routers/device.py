@@ -359,9 +359,10 @@ async def _run_atomic(
 
 @router.post(
     "/device/swipe",
-    summary="执行滑动操作",
+    summary="执行滑动操作（坐标为设备像素，与截图一致）",
     responses=error_responses(
-        "ADB_COMMAND_FAILED", "PIPELINE_ALREADY_RUNNING", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+        "ADB_COMMAND_FAILED", "INVALID_PARAMETER", "PIPELINE_ALREADY_RUNNING",
+        "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
     ),
     dependencies=[Depends(require_auth)],
 )
@@ -393,9 +394,10 @@ async def swipe_device(
 
 @router.post(
     "/device/long_press",
-    summary="执行长按操作",
+    summary="执行长按操作（坐标为设备像素，与截图一致）",
     responses=error_responses(
-        "ADB_COMMAND_FAILED", "PIPELINE_ALREADY_RUNNING", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+        "ADB_COMMAND_FAILED", "INVALID_PARAMETER", "PIPELINE_ALREADY_RUNNING",
+        "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
     ),
     dependencies=[Depends(require_auth)],
 )

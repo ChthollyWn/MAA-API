@@ -520,6 +520,7 @@ def test_configured_connection_config_and_common_ports_are_read_from_settings() 
 
 def test_operations_are_delegated_to_adb_and_core_substitutes(tmp_path: Path) -> None:
     manager, adb, core = _manager()
+    manager.on_core_connection_event("ResolutionGot", {"width": 1280, "height": 720})
     core.screencap_path = tmp_path / "core.png"
     core.screencap_path.write_bytes(_png())
 
@@ -546,6 +547,88 @@ def test_operations_are_delegated_to_adb_and_core_substitutes(tmp_path: Path) ->
     assert ("key_event", "127.0.0.1:5555", "BACK") in adb.calls
     assert core.click_calls == [(9, 10)]
     assert ("force_stop", "127.0.0.1:5555", "com.example.game") in adb.calls
+
+
+def test_click_takes_device_pixels_and_scales_them_to_the_maacore_base() -> None:
+    manager, _, core = _manager()
+    manager.on_core_connection_event("ResolutionGot", {"width": 2560, "height": 1440})
+
+    async def scenario() -> None:
+        await manager.click(2388, 1280)
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert core.click_calls == [(1194, 640)]
+
+
+def test_click_keeps_720p_device_pixels_unchanged() -> None:
+    manager, _, core = _manager()
+    manager.on_core_connection_event("ResolutionGot", {"width": 1280, "height": 720})
+
+    async def scenario() -> None:
+        await manager.click(1194, 640)
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert core.click_calls == [(1194, 640)]
+
+
+def test_click_requires_a_known_resolution() -> None:
+    manager, _, core = _manager()
+
+    async def scenario() -> None:
+        with pytest.raises(AppError) as exc_info:
+            await manager.click(10, 20)
+        assert exc_info.value.code == ErrorCode.DEVICE_NOT_CONNECTED
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert core.click_calls == []
+
+
+@pytest.mark.parametrize(("x", "y"), [(2560, 100), (100, 1440), (2560, 1440)])
+def test_click_rejects_pixels_outside_the_frame(x: int, y: int) -> None:
+    manager, _, core = _manager()
+    manager.on_core_connection_event("ResolutionGot", {"width": 2560, "height": 1440})
+
+    async def scenario() -> None:
+        with pytest.raises(AppError) as exc_info:
+            await manager.click(x, y)
+        assert exc_info.value.code == ErrorCode.INVALID_PARAMETER
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert core.click_calls == []
+
+
+def test_swipe_and_long_press_validate_against_the_known_resolution() -> None:
+    manager, adb, _ = _manager()
+    manager.on_core_connection_event("ResolutionGot", {"width": 2560, "height": 1440})
+
+    async def scenario() -> None:
+        with pytest.raises(AppError) as swipe_error:
+            await manager.swipe(2560, 10, 20, 30, 300)
+        assert swipe_error.value.code == ErrorCode.INVALID_PARAMETER
+        with pytest.raises(AppError) as press_error:
+            await manager.long_press(20, 1440, 500)
+        assert press_error.value.code == ErrorCode.INVALID_PARAMETER
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert [call for call in adb.calls if call[0] in {"swipe", "long_press"}] == []
+
+
+def test_swipe_and_long_press_run_when_the_resolution_is_unknown() -> None:
+    manager, adb, _ = _manager()
+
+    async def scenario() -> None:
+        await manager.swipe(5000, 5000, 6000, 6000, 300)
+        await manager.long_press(7000, 7000, 500)
+        await manager.close()
+
+    asyncio.run(scenario())
+    assert ("swipe", "127.0.0.1:5555", 5000, 5000, 6000, 6000, 300) in adb.calls
+    assert ("long_press", "127.0.0.1:5555", 7000, 7000, 500) in adb.calls
 
 
 def test_back_to_home_is_delegated_through_core_application_service() -> None:

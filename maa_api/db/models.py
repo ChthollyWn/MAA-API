@@ -1,4 +1,4 @@
-"""SQLModel 表定义：16 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：19 张业务表（docs/04 §3、§5、§6、§7）。
 
 纪律（每条都对应一次实测或一次返工）：
 
@@ -877,4 +877,38 @@ class PushSubscription(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("endpoint", name="uq_push_subscription_endpoint"),
         Index("ix_push_subscription_disabled_at", "disabled_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5.16 agent_knowledge — Agent 知识库的用户改动（M18，规格 §4.1）
+# ---------------------------------------------------------------------------
+class AgentKnowledge(SQLModel, table=True):
+    """Agent 知识库的覆盖层：只存与内置条目**不同**的字段。
+
+    内置条目随代码发布（``maa_api/agent/knowledge/builtin/*.md``），这张表里
+    没有某一行就意味着「用内置的原文」。``id`` 与内置条目相同时是覆盖行：
+
+    - 只写与内置不同的列，其余列为 NULL，读取时继承内置值；
+    - ``kind`` 不可覆盖，覆盖行里恒为 NULL；
+    - 与内置完全一致且启用时不留行（「恢复默认」＝删行）；停用内置条目就是写
+      一行只有 ``enabled = false`` 的覆盖行。
+
+    其余行是自定义条目，所有列必填。读侧合并算法见
+    :mod:`maa_api.agent.knowledge`；本表最多几十行、每轮全量读，因此不建索引。
+    """
+
+    __tablename__ = "agent_knowledge"
+
+    id: str = Field(primary_key=True, max_length=48)
+    kind: str | None = Field(default=None, max_length=16)
+    title: str | None = Field(default=None, max_length=32)
+    when_to_use: str | None = Field(default=None, max_length=120)
+    body: str | None = Field(default=None, sa_column=text_column("body"))
+    enabled: bool = Field(default=True)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
     )

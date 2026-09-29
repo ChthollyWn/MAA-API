@@ -1,7 +1,7 @@
-import { Bell, Bot, KeyRound, Palette, Server, SlidersHorizontal, Smartphone, Wrench, type LucideIcon } from 'lucide-react'
+import { Bell, BookOpen, Bot, KeyRound, Palette, Server, SlidersHorizontal, Smartphone, Wrench, type LucideIcon } from 'lucide-react'
 import type { SettingField } from './schema'
 
-export type SettingsSectionId = 'appearance' | 'access' | 'device' | 'agent' | 'notifications' | 'maintenance' | 'system' | 'other'
+export type SettingsSectionId = 'appearance' | 'access' | 'device' | 'agent' | 'knowledge' | 'notifications' | 'maintenance' | 'system' | 'other'
 
 export interface SettingsSection {
   id: SettingsSectionId
@@ -17,6 +17,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'access', title: '访问令牌', summary: '替换或清除保存的 token', icon: KeyRound, scope: 'local' },
   { id: 'device', title: '设备与渠道', summary: '设备地址、连接方式与默认渠道', icon: Smartphone, scope: 'server' },
   { id: 'agent', title: 'LLM 与 Agent', summary: '模型接口、确认时限与自动诊断', icon: Bot, scope: 'server' },
+  { id: 'knowledge', title: 'Agent 知识库', summary: '操作剧本、游戏知识与用户档案', icon: BookOpen, scope: 'server' },
   { id: 'notifications', title: '通知', summary: 'Web 推送与通知通道', icon: Bell, scope: 'server' },
   { id: 'maintenance', title: '更新与日志', summary: '更新检查、下载前缀与日志级别', icon: Wrench, scope: 'server' },
   { id: 'system', title: '应用与部署', summary: '代理、内核路径与反向代理', icon: Server, scope: 'server' },

@@ -94,7 +94,9 @@ def back_to_home(self) -> bool:
     """回到游戏主界面。agent 的卡死救援动作，比自己找返回按钮可靠。"""
 
 def click(self, x: int, y: int, block: bool = True) -> int:
-    """点击指定坐标，返回 async_call_id。坐标系为设备原始分辨率。"""
+    """点击指定坐标，返回 async_call_id。坐标是 MaaCore 基准坐标，
+    内核按「高 / 720」缩放成设备像素（ControlScaleProxy::click），
+    调用方不要直接给设备原始像素（M18 起由设备管理器负责换算）。"""
 
 def screencap(self, block: bool = True) -> int:
     """触发一次截图，返回 async_call_id。

@@ -21,7 +21,8 @@ from maa_api.db.models import Pipeline, utcnow
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import CallerType, PipelineSource, PipelineStatus
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.services.device_service import ScreenshotResult
+from maa_api.services.device_service import DeviceManager, ScreenshotResult
+from maa_api.settings import AdbSettings, Settings
 
 
 class FakeDeviceManager:
@@ -87,6 +88,48 @@ class FakePipelineRunner:
 
     def __init__(self) -> None:
         self.operation_lock = asyncio.Lock()
+
+
+class FakeCoreClickClient:
+    """MaaCore substitute: records the base coordinates handed to the kernel."""
+
+    def __init__(self) -> None:
+        self.click_calls: list[tuple[int, int]] = []
+
+    async def click(self, x: int, y: int) -> None:
+        self.click_calls.append((x, y))
+
+
+class FakeRawAdbBackend:
+    """ADB substitute for a real DeviceManager; only swipe/long_press matter here."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    def swipe(self, address: str, *coordinates: int) -> None:
+        self.calls.append(("swipe", address, *coordinates))
+
+    def long_press(self, address: str, x: int, y: int, duration_ms: int) -> None:
+        self.calls.append(("long_press", address, x, y, duration_ms))
+
+
+def _real_device_manager(
+    resolution: tuple[int, int] | None = None,
+) -> tuple[DeviceManager, FakeCoreClickClient, FakeRawAdbBackend]:
+    """Real DeviceManager (the layer that owns the coordinate frame) plus substitutes."""
+    core = FakeCoreClickClient()
+    adb = FakeRawAdbBackend()
+    manager = DeviceManager(
+        lambda: Settings(adb=AdbSettings(path="/fake/adb", address="127.0.0.1:5555")),
+        core,
+        adb_backend=adb,
+        unavailable_probe_interval=0,
+    )
+    if resolution is not None:
+        manager.on_core_connection_event(
+            "ResolutionGot", {"width": resolution[0], "height": resolution[1]}
+        )
+    return manager, core, adb
 
 
 def _context(
@@ -453,3 +496,100 @@ def test_trigger_screencap_requires_a_connected_device() -> None:
         assert device.calls == []
 
     asyncio.run(scenario())
+
+
+def test_raw_coordinate_tools_document_the_screenshot_pixel_frame() -> None:
+    registry = _registry()
+    descriptions = {item.name: item.description for item in registry.list()}
+
+    for name in ("click", "swipe", "long_press"):
+        assert "get_screenshot" in descriptions[name]
+        assert "像素坐标" in descriptions[name]
+
+
+@pytest.mark.parametrize(
+    ("resolution", "arguments", "expected_core_call"),
+    [
+        ((2560, 1440), {"x": 2388, "y": 1280}, (1194, 640)),
+        ((1280, 720), {"x": 1194, "y": 640}, (1194, 640)),
+    ],
+)
+def test_click_tool_feeds_maacore_scaled_device_pixels(
+    resolution, arguments, expected_core_call, db_factory
+) -> None:
+    registry = _registry()
+    device, core, _ = _real_device_manager(resolution)
+    runner = FakePipelineRunner()
+
+    async def scenario() -> None:
+        async with db_factory() as session:
+            result = await registry.execute(
+                "click", arguments, _context(device, runner, session)
+            )
+        await device.close()
+        assert result == {"ok": True, "backend": "core", **arguments}
+        assert core.click_calls == [expected_core_call]
+
+    asyncio.run(scenario())
+
+
+def test_click_tool_requires_a_known_resolution(db_factory) -> None:
+    registry = _registry()
+    device, core, _ = _real_device_manager()
+    runner = FakePipelineRunner()
+
+    async def scenario() -> None:
+        async with db_factory() as session:
+            with pytest.raises(AppError) as exc_info:
+                await registry.execute(
+                    "click", {"x": 10, "y": 20}, _context(device, runner, session)
+                )
+        await device.close()
+        assert exc_info.value.code == ErrorCode.DEVICE_NOT_CONNECTED
+
+    asyncio.run(scenario())
+    assert core.click_calls == []
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("click", {"x": 2560, "y": 10}),
+        ("swipe", {"x1": 0, "y1": 0, "x2": 2560, "y2": 10, "duration_ms": 300}),
+        ("long_press", {"x": 10, "y": 1440, "duration_ms": 600}),
+    ],
+)
+def test_raw_tools_reject_device_pixels_outside_the_frame(name, arguments, db_factory) -> None:
+    registry = _registry()
+    device, core, adb = _real_device_manager((2560, 1440))
+    runner = FakePipelineRunner()
+
+    async def scenario() -> None:
+        async with db_factory() as session:
+            with pytest.raises(AppError) as exc_info:
+                await registry.execute(name, arguments, _context(device, runner, session))
+        await device.close()
+        assert exc_info.value.code == ErrorCode.INVALID_PARAMETER
+
+    asyncio.run(scenario())
+    assert core.click_calls == []
+    assert adb.calls == []
+
+
+def test_swipe_tool_runs_without_a_known_resolution(db_factory) -> None:
+    registry = _registry()
+    device, _, adb = _real_device_manager()
+    runner = FakePipelineRunner()
+
+    async def scenario() -> None:
+        async with db_factory() as session:
+            result = await registry.execute(
+                "swipe",
+                {"x1": 5000, "y1": 5000, "x2": 6000, "y2": 6000, "duration_ms": 300},
+                _context(device, runner, session),
+            )
+        await device.close()
+        assert result["ok"] is True
+
+    asyncio.run(scenario())
+    assert adb.calls == [("swipe", "127.0.0.1:5555", 5000, 5000, 6000, 6000, 300)]

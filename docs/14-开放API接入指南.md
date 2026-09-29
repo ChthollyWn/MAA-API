@@ -167,6 +167,9 @@ curl -X POST http://<host>:8002/api/snippets \
 | `LLM_RATE_LIMITED` | 429 | 预留错误码；对应功能未交付（M11/M13） |
 | `LLM_ENCRYPTION_KEY_INVALID` | 503 | 预留错误码；对应功能未交付（M11/M13） |
 | `LLM_CONTEXT_OVERFLOW` | 400 | 预留错误码；对应功能未交付（M11/M13） |
+| `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
+| `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
+| `KNOWLEDGE_LIMIT_EXCEEDED` | 409 | 启用的条目数或术语表与用户档案的正文合计超出上限，`details` 指明是哪条限制 |
 | `SCHEDULE_NOT_FOUND` | 404 | 定时任务 id 不存在 |
 | `SCHEDULE_CRON_INVALID` | 400 | cron 表达式 APScheduler 无法解析，或 `timezone` 不是合法 IANA 时区名 |
 | `SCHEDULE_NAME_CONFLICT` | 409 | 名称重复，撞 `schedule.name` 唯一约束 |
@@ -253,6 +256,8 @@ fi
 若客户端可能因超时重发提交请求，可为首次请求增加稳定的 `Idempotency-Key` 头；相同 key 与相同内容会复用原流水线，不同内容会返回 `409 IDEMPOTENCY_KEY_CONFLICT`。
 
 ### 5.2 执行点击；遇到流水线时先取消并等待
+
+点击、滑动与长按的坐标都是**设备原始像素**，与 `GET /api/device/screenshot` 原图（以及 Agent 的 `get_screenshot`）的 `width` / `height` 同一坐标系。服务端只在设备管理器里换算一次：点击按「高 / 720」换成 MaaCore 基准坐标，1280×720 设备上两者相同，其他分辨率下，按旧语义（MaaCore 基准坐标）编写的调用方需要把坐标乘以「高 / 720」。分辨率未知时点击返回 `503 DEVICE_NOT_CONNECTED`，坐标超出画面返回 `400 INVALID_PARAMETER`。
 
 点击使用 MaaCore 通道，不进入队列。流水线运行中默认拒绝，返回 `409 PIPELINE_ALREADY_RUNNING`，`details.pipeline_id` 标明冲突的流水线。建议先读取当前流水线，发起取消并轮询至终态，再重试点击：
 
