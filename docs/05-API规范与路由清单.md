@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 105 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 105 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
 
 ```python
 # maa_api/domain/errors.py
@@ -180,7 +180,7 @@ class AppError(Exception):
 | 错误码 | HTTP | 含义与触发场景 |
 |---|---|---|
 | `NOT_FOUND` | 404 | 未被更具体的码覆盖的资源缺失，兜底用 |
-| `ENDPOINT_REMOVED` | 410 | 访问了重构前的旧端点，见 §12 |
+| `ENDPOINT_REMOVED` | 410 | 重构前旧端点的错误码；实现不注册旧端点存根，当前没有路径会抛出它（见 §12） |
 | `INTERNAL_ERROR` | 500 | 未捕获异常。`details` 只带一个 `trace_id`，堆栈进日志表 |
 | `DATABASE_ERROR` | 500 | SQLite 写锁超时、磁盘写满、schema 不匹配 |
 | `SERVICE_UNAVAILABLE` | 503 | 服务处于启动中或关闭中，尚未/不再接受业务请求 |
@@ -403,19 +403,18 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 93 条 API 端点，加 4 条静态与文档入口。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 101 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/system/health` | 健康检查。返回内核状态、设备状态、队列长度、`auth_enabled` | 免鉴权 | 200 | — |
-| GET | `/api/system/info` | 服务版本、内核版本、平台、启动时间、数据库大小 | | 200 | — |
-| GET | `/api/system/stats` | 首页概览：今日流水线数、成功率、待确认数、最近失败原因 Top N | `days` 默认 7 | 200 | `INVALID_PARAMETER` |
 | GET | `/api/system/logs` | 历史日志查询 | `source[]`、`level[]`、`pipeline_id`、`task_id`、`logger`、`q`、`since`、`until`、`after_id`、`before_id`、`order`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/system/logs/export` | 导出为附件下载 | `format`（`txt` / `jsonl`）、其余过滤参数同上 | 200 | `INVALID_PARAMETER` |
 | DELETE | `/api/system/logs` | 按条件清理日志 | `source[]`、`before` 必填其一 | 204 | `INVALID_PARAMETER` |
 | POST | `/api/system/auth/cookie` | 用头部 token 换取 `HttpOnly` cookie，供 WebSocket 使用 | 无请求体 | 204 | `UNAUTHORIZED` |
+| DELETE | `/api/system/auth/cookie` | 服务端清除该 cookie，供前端「登出」时调用（cookie 是 `HttpOnly`，JS 删不掉） | 无请求体；仅凭 cookie 调用返回 403 | 204 | `UNAUTHORIZED`、`FORBIDDEN` |
 
 （6 条）
 
@@ -437,7 +436,8 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 |---|---|---|---|---|---|
 | GET | `/api/device/status` | 设备状态机当前状态、地址、分辨率、UUID、最近连接时间 | | 200 | — |
 | POST | `/api/device/reconnect` | 手动触发重连（四时机之一） | `address` 可选，覆盖配置 | 202 | `ADB_CONNECT_FAILED`、`ADB_NOT_FOUND` |
-| GET | `/api/device/list` | 扫描 `adb devices` 可见设备，供设置页下拉选择 | | 200 | `DEVICE_SCAN_FAILED`、`ADB_NOT_FOUND` |
+| GET | `/api/device/list` | 扫描 `adb devices` 可见设备，供设置页下拉选择 | `include_common_ports` 默认 false | 200 | `DEVICE_SCAN_FAILED`、`ADB_NOT_FOUND` |
+| GET | `/api/device/candidates` | 设备扫描候选清单，与 `/api/device/list` 同源：`current` 当前地址 + `devices[]` 设备列表 + `common_ports[]` 常用端口（docs/08 §7），供设置页做下拉选择 + 手动输入的组合 | `include_common_ports` 默认 false | 200 | `DEVICE_SCAN_FAILED`、`ADB_NOT_FOUND` |
 | GET | `/api/device/screenshot` | 取一张实时截图 | `backend`（`core`/`adb`，默认 `adb`）、`format`、`quality`、`archive`（默认 false） | 200 | `SCREENSHOT_FAILED`、`DEVICE_NOT_CONNECTED` |
 | POST | `/api/device/click` | 单点点击，MaaCore 通道，坐标为设备像素 | `{x, y, force?}` | 200 | `CORE_NOT_READY`、`DEVICE_NOT_CONNECTED`、`INVALID_PARAMETER`、`PIPELINE_ALREADY_RUNNING`、`SERVICE_UNAVAILABLE` |
 | POST | `/api/device/swipe` | 滑动，ADB 通道，坐标为设备像素 | `{x1, y1, x2, y2, duration_ms?, force?}` | 200 | `ADB_COMMAND_FAILED`、`INVALID_PARAMETER`、`PIPELINE_ALREADY_RUNNING`、`SERVICE_UNAVAILABLE` |
@@ -447,24 +447,17 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 **不开放任意 `adb shell`。** 按键用枚举白名单而非透传字符串，是为了守住这条边界——透传 keycode 字符串等价于开放一个受限的 shell。
 
-（9 条）
+（10 条）
 
 ### 6.4 core
 
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
-| GET | `/api/cores` | 内核实例列表。首版固定返回一条 `default` | | 200 | — |
-| GET | `/api/core/status` | 子进程状态机状态、pid、启动世代号、连续崩溃次数、心跳延迟 | | 200 | `CORE_NOT_FOUND` |
-| POST | `/api/core/restart` | 重启子进程 | `{force?}`：非 force 时队列非空则拒绝 | 202 | `UPDATE_BLOCKED_BY_PIPELINE`、`CORE_START_FAILED` |
-| GET | `/api/core/version` | 内核版本号（`AsstGetVersion`），带缓存 | | 200 | `CORE_NOT_READY` |
 | POST | `/api/core/back_to_home` | 回游戏主界面，MaaCore 原生能力 | `{force?}` | 200 | `CORE_NOT_READY`、`PIPELINE_ALREADY_RUNNING` |
-| POST | `/api/core/screencap` | 触发内核截图并归档，返回 `screenshot` 资源 | `{pipeline_id?, trigger?}` | 201 | `SCREENSHOT_FAILED`、`CORE_NOT_READY` |
-| GET | `/api/core/tasks` | 内核队列中的 task id 列表（`AsstGetTasksList`），调试用 | | 200 | `CORE_NOT_READY` |
-| GET | `/api/core/map_level_key` | 关卡名互查。**实验性 API**，不可用时降级 | `key` 必填 | 200 | `MAP_LEVEL_KEY_UNAVAILABLE` |
 
-`GET /api/core/map_level_key` 包装的 `AsstGetMapLevelKey` 位于 `AsstCallerExtra.h`，官方明确标注不属于受支持的公共 API、可能随时变更或移除。封装层必须在符号缺失时返回 `503 MAP_LEVEL_KEY_UNAVAILABLE` 而不是崩溃，前端把该功能做成可选增强而非必需依赖。
+内核子进程没有独立的 HTTP 端点：状态（`state` / `pid` / `generation`）读 `GET /api/system/health` 的 `core` 段（§6.1），内核与资源版本读 `get_versions` 工具、重启子进程走 `restart_core` 工具，都只在 Agent 侧提供（§6.15）；当前只有一条 `default` 内核，因此也没有内核实例列表端点。关卡互查同理，只剩 `resolve_stage` 工具：优先用 `AsstGetMapLevelKey`，查不到或符号缺失时降级到本地资源索引，而不是报错——该函数位于 `AsstCallerExtra.h`，官方明确标注不属于受支持的公共 API、可能随时变更或移除。
 
-（8 条）
+（1 条）
 
 ### 6.5 pipelines
 
@@ -517,8 +510,10 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 |---|---|---|---|---|---|
 | GET | `/api/screenshots` | 截图列表，分页 | `pipeline_id`、`trigger`、`since`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/screenshots/{id}` | 返回图像本体。`?as=base64` 时返回 JSON 包装，供 Agent 使用 | | 200 | `SCREENSHOT_NOT_FOUND`、`SCREENSHOT_EXPIRED` |
+| GET | `/api/images/{sha256}/thumb` | 长边 320px 的 JPEG 缩略图，日志附件与截图网格用；按内容哈希寻址 | 路径是截图内容的 sha256；响应可长期缓存（`Cache-Control: immutable`） | `200 image/jpeg` | `SCREENSHOT_NOT_FOUND` |
+| GET | `/api/images/{sha256}/full` | 原图 JPEG，点开大图时用；按内容哈希寻址 | 同上 | `200 image/jpeg` | `SCREENSHOT_NOT_FOUND` |
 
-（2 条）
+（4 条）
 
 ### 6.9 updates
 
@@ -526,10 +521,12 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 |---|---|---|---|---|---|
 | GET | `/api/updates/status` | 三个目标的当前版本 vs 最新版本对比，带 `has_update`；`resource` 下按两条通道分别给出 | `refresh` 默认 false（用缓存）；`refresh=true` 即「立即检查更新」，绕过 5 分钟缓存 | 200 | `UPDATE_MANIFEST_UNAVAILABLE`、`GAME_VERSION_UNKNOWN` |
 | POST | `/api/updates/core` | 更新 MaaCore。下载后停子进程、覆盖、重启，HTTP 服务不中断 | `{channel?, force?, version?}` | 202 | `UPDATE_ALREADY_RUNNING`、`ALREADY_LATEST_VERSION`、`UPDATE_BLOCKED_BY_PIPELINE` |
+| POST | `/api/updates/core/rollback` | 回滚 MaaCore：在维护窗口内把当前目录与 `<target>.backup` 对调，重启并验证 READY，任一步失败就对调回来 | `{force_interrupt?}`：默认等队列排空（30 分钟），`true` 打断运行中的流水线、需确认策略放行 | 202 | `UPDATE_ALREADY_RUNNING`、`UPDATE_ROLLBACK_FAILED`、`UPDATE_BLOCKED_BY_PIPELINE`、`UPDATE_QUEUE_BUSY_TIMEOUT`、`SERVICE_UNAVAILABLE`、`FORBIDDEN` |
 | POST | `/api/updates/resource` | 更新活动资源。`channel` 选通道，默认两条都更 | `{channel?, force?}`：`channel` 取 `ota` / `repo` / `all`，默认 `all` | 202 | `UPDATE_ALREADY_RUNNING`、`UPDATE_MANIFEST_UNAVAILABLE`、`UPDATE_DISK_INSUFFICIENT`、`INVALID_PARAMETER` |
 | POST | `/api/updates/game` | 更新游戏本体：下载 APK + `adb install` 覆盖安装 | `{channel?, force?}`（`channel` 区分官服/B 服包） | 202 | `GAME_INSTALL_FAILED`、`DEVICE_NOT_CONNECTED` |
 | GET | `/api/updates` | 更新历史，分页 | `target`、`status`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/updates/{id}` | 单条更新的进度与日志，供轮询 | | 200 | `UPDATE_NOT_FOUND` |
+| POST | `/api/updates/{id}/retry` | 重放一条失败的更新：沿用原记录的 `target` 与参数（含已下载的暂存文件），新记录带 `_retry_of` 指回原条目 | 无请求体；只受理 `FAILED` 状态，其余状态一律按 `UPDATE_NOT_CANCELLABLE` 拒绝 | 202 | `UPDATE_NOT_FOUND`、`UPDATE_NOT_CANCELLABLE`、`UPDATE_ALREADY_RUNNING` |
 | DELETE | `/api/updates/{id}` | 取消进行中的更新。已进入覆盖/重启阶段则拒绝 | | 202 | `UPDATE_NOT_FOUND`、`UPDATE_NOT_CANCELLABLE` |
 
 进度不靠轮询也能拿：更新过程的 `phase` 与 `progress` 同时经 WebSocket 广播，`GET /api/updates/{id}` 是给不方便用 WS 的调用方（脚本）留的。
@@ -567,7 +564,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 通道 A 不给 `current` / `latest`，因为它的版本基准是 HTTP `ETag`，对用户没有展示价值，能回答"有没有更新"和"上次同步于何时"就够了；通道 B 给的是 `version.json` 的 `last_updated` 原值。外层 `has_update` 是两条通道的或，前端的"一键更新"按钮据此点亮。两条通道各自的数据来源是 `resource_asset` 表里对应的行（见 [04-数据模型与持久化 §5.13](./04-数据模型与持久化.md)），不读 MAA 目录里的 `version.json`。
 
-（7 条）
+（9 条）
 
 ### 6.10 schedules
 
@@ -642,24 +639,12 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 | GET | `/api/resources/items` | 读取当前 MaaCore `resource/item_index.json`，供 `Fight.drops` 按名称搜索 | | `200 [{item_id, name, icon_url}]` | `RESOURCE_LOAD_FAILED` |
 | GET | `/api/resources/items/icon` | 返回物品索引中登记的图标 | `item_id` | `200 image/png` | `RESOURCE_ASSET_NOT_FOUND`、`RESOURCE_LOAD_FAILED` |
 | GET | `/api/resources/copilots` | Copilot 作业元数据列表（不含作业 JSON），供流水线和 schedule 编辑器选择 `asset_id` | `page`、`size`、`q` | `200 {items:[{id,name,meta,...}],total,page,size}` | `SERVICE_UNAVAILABLE` |
-| POST | `/api/resources/copilots` | 上传作业 JSON。校验结构并解析出关卡名存入 `meta` | `{name, description?, content}` | 201 | `COPILOT_JSON_INVALID`、`RESOURCE_ASSET_CONFLICT`、`ASSET_TOO_LARGE` |
-| GET | `/api/resources/copilots/{id}` | 作业详情，含完整内容 | | 200 | `RESOURCE_ASSET_NOT_FOUND` |
-| DELETE | `/api/resources/copilots/{id}` | 删除 | | 204 | `RESOURCE_ASSET_NOT_FOUND` |
-| GET | `/api/resources/infrast-plans` | 自定义基建方案列表 | | 200 | — |
-| POST | `/api/resources/infrast-plans` | 上传基建方案。解析方案数量供 `Infrast.plan_index` 校验 | `{name, description?, content}` | 201 | `INFRAST_PLAN_INVALID`、`RESOURCE_ASSET_CONFLICT` |
-| GET | `/api/resources/infrast-plans/{id}` | 方案详情 | | 200 | `RESOURCE_ASSET_NOT_FOUND` |
-| DELETE | `/api/resources/infrast-plans/{id}` | 删除 | | 204 | `RESOURCE_ASSET_NOT_FOUND` |
-| GET | `/api/resources/custom-tasks` | 自定义 task 定义列表 | | 200 | — |
-| POST | `/api/resources/custom-tasks` | 新增增量注入的 `tasks.json` task 定义 | `{name, description?, content, enabled?}` | 201 | `CUSTOM_TASK_INVALID`、`RESOURCE_ASSET_CONFLICT` |
-| GET | `/api/resources/custom-tasks/{id}` | 详情 | | 200 | `RESOURCE_ASSET_NOT_FOUND` |
-| DELETE | `/api/resources/custom-tasks/{id}` | 删除 | | 204 | `RESOURCE_ASSET_NOT_FOUND` |
-| POST | `/api/resources/reload` | 把启用中的自定义 task 合并为增量资源目录，投递 `LOAD_RESOURCE` 命令重载内核资源 | `{force?}` | 202 | `RESOURCE_LOAD_FAILED`、`CORE_NOT_READY`、`UPDATE_BLOCKED_BY_PIPELINE` |
 
 `GET /api/resources/items` 返回按名称（忽略大小写）与 `item_id` 排序的完整数组；`item_id` 是索引对象的 key，`name` 来自对应记录。`icon_url` 是同源 `/api/resources/items/icon?item_id=...` URL；索引记录的 `icon` 所指 PNG 不存在、不可读或路径不在 `resource/template/items/` 内时返回 `null`。图标端点仅允许读取索引中登记且解析后仍位于该目录的 PNG。索引缺失、不可读或结构无效时返回统一 JSON 错误 `RESOURCE_LOAD_FAILED`（500）。响应缓存按索引文件元信息失效；端点仅读本地文件，不加载 MaaCore，也不访问网络。
 
-`POST /api/resources/reload` 是自定义任务能力的落地点：内核只认磁盘上的资源文件，增量注入必须经由 `LOAD_RESOURCE` 生效。`checksum` 没变时非 `force` 请求直接返回 202 且不实际重载，避免无谓的资源重加载（重载要把整条加载链从头走一遍，命令超时预算 300 秒，见 [02-系统架构设计 §3.4](./02-系统架构设计.md)）。
+资源的写入侧没有 HTTP 端点，只在 Agent 侧以工具形式提供：`upload_copilot`（校验并保存作业 JSON）、`set_infrast_plan`、`list_custom_tasks` / `register_custom_task` / `remove_custom_task`（增量注入 `tasks.json`），经 `POST /api/agent/tools/{name}/invoke` 调用（§6.15）。内核只认磁盘上的资源文件：自定义 task 的注入必须经由 `LOAD_RESOURCE` 生效，因此这一层在 `ResourceService` 内部完成「合并启用中的增量目录 + 重载」，注册与移除由服务级锁串行化，重载失败时回滚改动并返回 `RESOURCE_LOAD_FAILED`（重载要把整条加载链从头走一遍，命令超时预算 300 秒，见 [02-系统架构设计 §3.4](./02-系统架构设计.md)）；基建方案与作业 JSON 是任务执行时读取的数据文件，写盘即生效，不触发重载。
 
-（13 条）
+（3 条）
 
 ### 6.15 agent
 
@@ -1264,7 +1249,9 @@ app = FastAPI(generate_unique_id_function=custom_operation_id, redirect_slashes=
 
 ## 12. 废弃端点与迁移
 
-旧端点全部保留路由存根，返回 `410 ENDPOINT_REMOVED`，`details.replaced_by` 指向新端点。这比直接删掉（返回 404）强得多：404 让调用方以为自己拼错了路径，410 则明确告知"这个接口没了，去这里"。存根在下一个大版本移除。
+旧端点**不保留任何存根**：`maa_api/main.py` 自 M3 起一律不注册 `router/adb`、`router/maa`、`router/template`，`tests/api/test_app_skeleton.py` 还断言这些路径必须不存在。所以访问旧端点拿到的是**统一错误体的 404**（`/api` 前缀）或 SPA catch-all 的 `index.html`（非 `/api` 前缀），不是 410。下表只是**迁移对照**：告诉从旧版本升级的调用方，每个旧能力搬到了哪里。
+
+> 早期设计曾打算用 410 `ENDPOINT_REMOVED` 存根区分「接口没了」与「路径拼错了」，实现时否掉了：留一批只返回错误的路由会让路由表与鉴权面长期背着一层历史包袱，而旧前端已随 `static/` 一起废弃，没有需要过渡的调用方。`ENDPOINT_REMOVED` 因此是一个没有任何路径能抛出的错误码。
 
 | 旧端点 | 新端点 |
 |---|---|
