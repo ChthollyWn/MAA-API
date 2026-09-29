@@ -18,6 +18,7 @@ const UpdatesPage = lazy(() => import('@/routes/updates'))
 const SchedulesPage = lazy(() => import('@/routes/schedules'))
 const ScheduleEditorPage = lazy(() => import('@/routes/schedules/editor'))
 const SettingsPage = lazy(() => import('@/routes/settings'))
+const KnowledgeEditorPage = lazy(() => import('@/routes/settings/knowledge-editor'))
 const MorePage = lazy(() => import('@/routes/more'))
 const ApiConsolePage = lazy(() => import('@/features/api-console'))
 const AuditPage = lazy(() => import('@/features/audit/AuditPage'))
@@ -127,6 +128,8 @@ export const routeConfig: RouteObject[] = [
       { path: 'more/audit', element: page(<AuditPage />) },
       { path: 'more/updates', element: page(<UpdatesPage />) },
       { path: 'more/settings', element: page(<SettingsPage />) },
+      { path: 'more/settings/knowledge/new', element: page(<KnowledgeEditorPage />) },
+      { path: 'more/settings/knowledge/:entryId', element: page(<KnowledgeEditorPage />) },
       { path: 'more/settings/:section', element: page(<SettingsPage />) },
       { path: '*', element: page(<NotFoundPage />) },
     ],

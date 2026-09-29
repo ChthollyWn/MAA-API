@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/ui/states'
 import { useAuth } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { AgentCapabilityCheck } from './AgentCapabilityCheck'
+import { KnowledgeSection } from './knowledge/KnowledgeSection'
 import { AccessSection, AppearanceSection, themeLabel } from './LocalSections'
 import { NotificationChannels } from './NotificationChannels'
 import { PushNotifications } from './PushNotifications'
@@ -81,6 +82,13 @@ function SectionPage({ section }: { section: SettingsSection }) {
       )
     case 'agent':
       return <SchemaSection section={section} intro={<AgentCapabilityCheck />} />
+    case 'knowledge':
+      // 知识库不是设置项：它有自己的列表与整页编辑器，不走设置 schema。
+      return (
+        <Page title={section.title} back={SETTINGS_INDEX_PATH} width="narrow">
+          <KnowledgeSection />
+        </Page>
+      )
     default:
       return <SchemaSection section={section} />
   }
