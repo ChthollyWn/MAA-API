@@ -110,6 +110,20 @@ export interface ChartCardData {
 
 export type MediaCard = ImageCardData | ItemIconsCardData | StageMapCardData | ChartCardData
 
+/**
+ * 工具调用卡里的附件（`get_screenshot` 归档后的结果）。
+ *
+ * 与 `MediaCard` 分开：附件渲染在工具条 `<details>` 的展开区里，不占会话级卡片位。
+ */
+export interface ToolAttachment {
+  screenshotId: string | null
+  /** 缩略图来源；地址缺失时用 sha256 / 截图 id 拼，拼不出来为 null。 */
+  thumb: MediaImageSource | null
+  /** 原图来源；点击放大时用它。 */
+  full: MediaImageSource | null
+  alt: string
+}
+
 // ---------------------------------------------------------------------------
 // 白名单：只认本服务的三种图片地址（规格 §3.1；延续 features/logs/format.ts 的做法）。
 // 外域、`data:`、相对路径、大小写不符一律不认。
@@ -118,6 +132,8 @@ export type MediaCard = ImageCardData | ItemIconsCardData | StageMapCardData | C
 const IMAGE_URL = /^\/api\/images\/([0-9a-f]{64})\/(thumb|full)$/
 const SCREENSHOT_URL = /^\/api\/screenshots\/([0-9A-Za-z_-]{1,64})$/
 const ITEM_ICON_URL = /^\/api\/resources\/items\/icon\?item_id=([^&?#]{1,256})$/
+/** 截图记录 id 的形状：与上面那条地址里 `<id>` 的路径段一致。 */
+const SCREENSHOT_ID = /^[0-9A-Za-z_-]{1,64}$/
 
 /**
  * 把一条图片地址收敛成取图来源；不在白名单里的地址返回 null。
@@ -175,6 +191,11 @@ function sha256Of(value: unknown): string | null {
   return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? value : null
 }
 
+/** 只有形状合法的截图 id 才拿得去拼 `/api/screenshots/<id>`（形状之外的一律当没有）。 */
+function screenshotIdOf(value: unknown): string | null {
+  return typeof value === 'string' && SCREENSHOT_ID.test(value) ? value : null
+}
+
 // ---------------------------------------------------------------------------
 // 四种卡
 // ---------------------------------------------------------------------------
@@ -191,7 +212,7 @@ function canonicalSource(
 }
 
 /**
- * `image` 卡（含 M23 之前 `get_screenshot` 的旧形态：`full_url` + `thumb_url`）。
+ * `image` 卡：缩略图与原图两个来源。
  *
  * 规则：卡里**给了地址就必须过白名单**，给了外域/`data:` 地址整卡丢弃；地址为空时才
  * 用 sha256 / screenshot_id 拼规范地址。
@@ -359,7 +380,7 @@ function parseChartCard(card: Record<string, unknown>): ChartCardData | null {
 // 入口
 // ---------------------------------------------------------------------------
 
-function parseCard(value: unknown, toolName?: string | null): MediaCard | null {
+function parseCard(value: unknown): MediaCard | null {
   if (!isRecord(value)) return null
   switch (value.type) {
     case 'image':
@@ -371,12 +392,12 @@ function parseCard(value: unknown, toolName?: string | null): MediaCard | null {
     case 'chart':
       return parseChartCard(value)
     default:
-      // 旧形态：`get_screenshot` 的结果没有 `type`，靠工具名认。
-      return toolName === 'get_screenshot' ? parseImageCard(value) : null
+      // 只认带 `type` 的卡；`get_screenshot` 的归档结果靠工具卡内的附件显示，不在这里。
+      return null
   }
 }
 
-/** 工具结果体里的卡片数组：`{result: {...}}` / `{error: {...}}`（实时事件经 liveToolView 后形状一致）。 */
+/** 工具结果体：`{result: {...}}` / `{error: {...}}`（实时事件经 liveToolView 后形状一致）。 */
 function resultBody(input: unknown): Record<string, unknown> | null {
   if (!isRecord(input)) return null
   if ('result' in input) return isRecord(input.result) ? input.result : null
@@ -387,31 +408,50 @@ function resultBody(input: unknown): Record<string, unknown> | null {
  * 解析一次工具结果里的媒体卡。
  *
  * 入参是工具结果体（历史消息里的 `{result: {...}}` / `{error: {...}}`，实时事件经
- * `liveToolView` 后形状一致），只读其中的 `media` 键；`get_screenshot` 的旧形态
- * （没有 `media`，只有 `screenshot_id` / `sha256` / `thumb_url` / `full_url`）合成一张
- * image 卡。未知类型、缺字段、类型不符、超上限的卡一律忽略，不抛异常。
+ * `liveToolView` 后形状一致），只读其中的 `media` 键——它只由五个 `send_*` 媒体工具
+ * 产生，是「发给用户看」的内容。`get_screenshot` 的归档结果走工具卡内的附件
+ * （`toolScreenshotAttachment`），不再是会话级卡片。未知类型、缺字段、类型不符、
+ * 超上限的卡一律忽略，不抛异常。
  */
-export function parseMediaCards(result: unknown, toolName?: string | null): MediaCard[] {
+export function parseMediaCards(result: unknown): MediaCard[] {
   const body = resultBody(result)
   if (!body) return []
   const raw = body.media
-  // 老会话里 `get_screenshot` 的结果没有 media 键（新格式则一定有）；两种都当「缺失」处理，
-  // 按 §3.1 的兼容规则合成一张 image 卡。
-  if (raw === undefined || raw === null) {
-    const legacy = toolName === 'get_screenshot' ? parseImageCard(body) : null
-    return legacy ? [legacy] : []
-  }
   if (!Array.isArray(raw)) return []
   const cards: MediaCard[] = []
   for (const entry of raw) {
     if (cards.length >= MEDIA_LIMITS.cards) break
-    const card = parseCard(entry, toolName)
+    const card = parseCard(entry)
     if (card) cards.push(card)
   }
   return cards
 }
 
+/**
+ * 工具调用卡内的截图附件（规格 §3.1 的 `get_screenshot` 归档结果）。
+ *
+ * `get_screenshot` 的结果归档后只剩 `screenshot_id` / `sha256` / `full_url` / `thumb_url`
+ * 这些字段；它渲染在工具条 `<details>` 的展开区里，**不**产生会话级图片卡（用户裁决：
+ * 只有明确的 `send_*` 命令才把图片发到会话里）。
+ *
+ * 地址一律过白名单：外域 / `data:` 当作没给，按 `sha256` / `screenshot_id` 拼规范地址
+ * （与图片卡同一套 `mediaImageSource` 判断）；两个来源都拿不到时返回 null——最差的结果
+ * 是没有附件，而不是白屏或跟着外域地址取图。
+ */
+export function toolScreenshotAttachment(result: unknown): ToolAttachment | null {
+  // 失败的工具调用只显示错误，不解释它的结果体。
+  if (isRecord(result) && 'error' in result) return null
+  const body = resultBody(result)
+  if (!body) return null
+  const screenshotId = screenshotIdOf(body.screenshot_id)
+  const sha256 = sha256Of(body.sha256)
+  const thumb = mediaImageSource(body.thumb_url) ?? canonicalSource(sha256, screenshotId, 'thumb')
+  const full = mediaImageSource(body.full_url) ?? canonicalSource(sha256, screenshotId, 'full')
+  if (!thumb && !full) return null
+  return { screenshotId, thumb, full, alt: '游戏截图' }
+}
+
 /** `ToolCallBar` 用的便捷入口：从一次工具调用视图里取出可渲染的卡片。 */
-export function mediaCardsOf(tool: Pick<ToolView, 'name' | 'result'>): MediaCard[] {
-  return parseMediaCards(tool.result, tool.name)
+export function mediaCardsOf(tool: Pick<ToolView, 'result'>): MediaCard[] {
+  return parseMediaCards(tool.result)
 }

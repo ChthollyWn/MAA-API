@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MEDIA_LIMITS, mediaCardsOf, mediaImageSource, parseMediaCards } from './media'
+import { MEDIA_LIMITS, mediaCardsOf, mediaImageSource, parseMediaCards, toolScreenshotAttachment } from './media'
 import type { ChartCardData, ImageCardData, ItemIconsCardData, StageMapCardData } from './media'
 
 const SHA = 'a'.repeat(64)
@@ -246,8 +246,10 @@ describe('parseMediaCards', () => {
     ])
   })
 
-  it('synthesises an image card for the pre-M23 get_screenshot payload', () => {
-    const legacy = {
+  it('never turns a screenshot archive into a session card', () => {
+    // M23 起 `get_screenshot` 的归档结果只有截图字段、没有 `media`：它是工具卡内的附件
+    // （`toolScreenshotAttachment`），不再往会话里放大图。
+    const archived = {
       result: {
         screenshot_id: 'shot-9',
         sha256: SHA,
@@ -258,28 +260,80 @@ describe('parseMediaCards', () => {
         format: 'jpeg',
       },
     }
-    const cards = parseMediaCards(legacy, 'get_screenshot')
-    expect(cards).toHaveLength(1)
-    const image = cards[0] as ImageCardData
-    expect(image.type).toBe('image')
-    expect(image.screenshotId).toBe('shot-9')
-    expect(image.full).toEqual({ kind: 'image', sha256: SHA, size: 'full' })
-    // `media` 为 null 也按缺失处理，同样合成图片卡。
-    expect(parseMediaCards({ result: { ...legacy.result, media: null } }, 'get_screenshot')).toHaveLength(1)
-    // 其他工具的同形状结果不会被误认成图片卡。
-    expect(parseMediaCards(legacy, 'get_logs')).toEqual([])
-    expect(parseMediaCards(legacy)).toEqual([])
-  })
-
-  it('prefers media over the legacy payload when both exist', () => {
-    const cards = parseMediaCards({ result: { screenshot_id: 'shot-9', sha256: SHA, media: [chartCard()] } }, 'get_screenshot')
-    expect(cards.map((card) => card.type)).toEqual(['chart'])
+    expect(parseMediaCards(archived)).toEqual([])
+    expect(parseMediaCards({ result: { ...archived.result, media: null } })).toEqual([])
   })
 
   it('reads cards through mediaCardsOf for both live and historical tool views', () => {
-    expect(mediaCardsOf({ name: 'send_chart', result: envelope([chartCard()]) })).toHaveLength(1)
-    expect(mediaCardsOf({ name: 'send_chart', result: undefined })).toEqual([])
+    expect(mediaCardsOf({ result: envelope([chartCard()]) })).toHaveLength(1)
+    expect(mediaCardsOf({ result: undefined })).toEqual([])
     // 实时事件经 liveToolView 后的形状与历史一致：{result: {media: [...]}}。
-    expect(mediaCardsOf({ name: 'send_chart', result: { result: { media: [imageCard()] } } })).toHaveLength(1)
+    expect(mediaCardsOf({ result: { result: { media: [imageCard()] } } })).toHaveLength(1)
+  })
+})
+
+describe('toolScreenshotAttachment', () => {
+  const archived = {
+    screenshot_id: 'shot-9',
+    sha256: SHA,
+    full_url: `/api/images/${SHA}/full`,
+    thumb_url: `/api/images/${SHA}/thumb`,
+    width: 1280,
+    height: 720,
+    format: 'jpeg',
+  }
+
+  it('parses the archived get_screenshot result into an attachment', () => {
+    expect(toolScreenshotAttachment({ result: archived })).toEqual({
+      screenshotId: 'shot-9',
+      thumb: { kind: 'image', sha256: SHA, size: 'thumb' },
+      full: { kind: 'image', sha256: SHA, size: 'full' },
+      alt: '游戏截图',
+    })
+  })
+
+  it('falls back to canonical addresses when a URL is missing', () => {
+    // 只有 sha256：两张图都按内容寻址地址拼。
+    expect(toolScreenshotAttachment({ result: { screenshot_id: 'shot-9', sha256: SHA } })).toEqual({
+      screenshotId: 'shot-9',
+      thumb: { kind: 'image', sha256: SHA, size: 'thumb' },
+      full: { kind: 'image', sha256: SHA, size: 'full' },
+      alt: '游戏截图',
+    })
+    // 只有截图 id（更老的归档）：两张图都走截图记录端点。
+    expect(toolScreenshotAttachment({ result: { screenshot_id: 'shot-9' } })).toEqual({
+      screenshotId: 'shot-9',
+      thumb: { kind: 'screenshot', id: 'shot-9', size: 'thumb' },
+      full: { kind: 'screenshot', id: 'shot-9', size: 'full' },
+      alt: '游戏截图',
+    })
+  })
+
+  it('drops foreign and data URLs, falling back to the canonical address', () => {
+    // 外域 / `data:` 一律不跟，回落到用 sha256 拼出来的本服务地址。
+    expect(toolScreenshotAttachment({
+      result: { ...archived, full_url: 'https://evil.example/x.png', thumb_url: 'data:image/png;base64,AAAA' },
+    })).toEqual({
+      screenshotId: 'shot-9',
+      thumb: { kind: 'image', sha256: SHA, size: 'thumb' },
+      full: { kind: 'image', sha256: SHA, size: 'full' },
+      alt: '游戏截图',
+    })
+  })
+
+  it('returns null when there is neither a screenshot id nor a usable address', () => {
+    expect(toolScreenshotAttachment({ result: { width: 1280, height: 720, format: 'jpeg' } })).toBeNull()
+    expect(toolScreenshotAttachment({
+      result: { screenshot_id: '', sha256: 'nope', full_url: 'https://evil.example/x.png', thumb_url: 'data:image/png;base64,AAAA' },
+    })).toBeNull()
+    // 形状不对的截图 id 不拿去拼地址（拼出来就是一条别处的路径）。
+    expect(toolScreenshotAttachment({ result: { screenshot_id: '../../etc/passwd' } })).toBeNull()
+    expect(toolScreenshotAttachment(undefined)).toBeNull()
+    expect(toolScreenshotAttachment({ result: 'nope' })).toBeNull()
+  })
+
+  it('returns null for a failed tool call', () => {
+    expect(toolScreenshotAttachment({ error: { code: 'SCREENSHOT_FAILED', message: '截图失败' } })).toBeNull()
+    expect(toolScreenshotAttachment({ result: archived, error: { code: 'SCREENSHOT_FAILED' } })).toBeNull()
   })
 })

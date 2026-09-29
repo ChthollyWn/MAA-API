@@ -1364,10 +1364,10 @@ describe('Agent conversation page', () => {
     expect(screen.getAllByText('这是当前的画面与掉落统计。')).toHaveLength(1)
   })
 
-  it('renders a pre-M23 get_screenshot result from history as an image card (M23)', async () => {
+  it('shows a get_screenshot archive from history as an attachment inside its tool card (M23)', async () => {
     const sha = 'e'.repeat(64)
-    // M23 之前落库的老消息：没有 media 键，只有归档后的截图字段。
-    const legacy = {
+    // 后端归档后的形状：没有 media 键，只有截图 id / 内容哈希 / 两个地址。
+    const archived = {
       result: {
         screenshot_id: 'shot-legacy',
         sha256: sha,
@@ -1383,17 +1383,25 @@ describe('Agent conversation page', () => {
         'session-1': [
           { id: 1, session_id: 'session-1', seq: 0, role: 'user', content: '看看现在什么情况', created_at: '2026-09-25T10:00:00Z' },
           { id: 2, session_id: 'session-1', seq: 1, role: 'assistant', content: '画面如下。', tool_calls: [{ id: 'call-legacy', function: { name: 'get_screenshot', arguments: '{}' } }], created_at: '2026-09-25T10:00:01Z' },
-          { id: 3, session_id: 'session-1', seq: 2, role: 'tool', tool_name: 'get_screenshot', tool_call_id: 'call-legacy', audit_id: 7, content: JSON.stringify(legacy), created_at: '2026-09-25T10:00:02Z' },
+          { id: 3, session_id: 'session-1', seq: 2, role: 'tool', tool_name: 'get_screenshot', tool_call_id: 'call-legacy', audit_id: 7, content: JSON.stringify(archived), created_at: '2026-09-25T10:00:02Z' },
         ],
       },
     })
     const { container } = renderPage()
 
-    expect(await screen.findByRole('img', { name: 'Agent 发来的图片' })).toBeInTheDocument()
-    expect(container.querySelectorAll('[data-testid="media-cards"]')).toHaveLength(1)
-    // 卡片在折叠块之外；JSON 仍在里面（审计与调试用）。
+    // 会话里**没有**图片卡：截图只是工具卡内的附件（用户裁决）。
+    expect(await screen.findByText('画面如下。')).toBeInTheDocument()
+    expect(container.querySelectorAll('[data-testid="media-cards"]')).toHaveLength(0)
+
     const details = container.querySelector('details')!
-    expect(details.querySelector('[data-testid="media-cards"]')).toBeNull()
+    const attachment = details.querySelector('[data-testid="tool-attachment"]')
+    expect(attachment).not.toBeNull()
+    expect(within(attachment as HTMLElement).getByText('附件')).toBeInTheDocument()
+
+    // 展开工具卡：附件在里面，JSON 与审计信息也在里面（审计与调试用）。
+    fireEvent.click(within(details).getByText('截取设备画面'))
+    expect(details).toHaveAttribute('open')
+    expect(await within(details).findByRole('img', { name: '游戏截图' })).toBeInTheDocument()
     expect(details).toHaveTextContent('shot-legacy')
     expect(screen.getByText('截取设备画面')).toBeInTheDocument()
   })
