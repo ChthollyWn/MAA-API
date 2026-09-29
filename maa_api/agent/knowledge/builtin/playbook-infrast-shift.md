@@ -34,7 +34,7 @@ Infrast 的 `mode`：
 5. 用户从别处拿到的方案 JSON（MAA 社区方案等），先 set_infrast_plan 存一遍再引用；不要手改文件名或路径。
 
 ## 提交与核对
-1. 状态摘要显示已有流水线在跑：不要打断，也不要并发提交；先问用户是等还是稍后。
+1. 状态摘要显示已有流水线在跑：不要打断，也不要并发提交；用 ask_user 发卡问用户是等它跑完还是稍后再来。
 2. 设备未连接就说明情况并征得同意后 reconnect_device；当前模型不支持视觉输入时说明看不到心情与进驻情况。
 3. submit_pipeline 提交 `[{"name": "Infrast", "mode": 0, "facility": [...], ...}]`；Infrast 没有消耗类参数，不会因为消耗品触发确认，但 set_infrast_plan 会。
 4. wait_pipeline 等终态，不要反复 get_pipeline。

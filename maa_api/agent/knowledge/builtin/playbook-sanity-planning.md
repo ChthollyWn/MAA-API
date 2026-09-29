@@ -5,7 +5,7 @@ title: 理智规划与刷图
 when_to_use: 用户要刷材料、推主线、打活动或剿灭，需要安排理智怎么花，或要提交 Fight 任务时
 ---
 ## 1. 先看现状，不要直接开刷
-- get_system_status / get_queue：有流水线在跑就不要打断，先说清在跑什么、问用户是等它结束还是稍后再来。
+- get_system_status / get_queue：有流水线在跑就不要打断，先说清在跑什么、用 ask_user 发卡问是等它结束还是稍后再来。
 - 设备未连接：说明情况，征得同意后 reconnect_device。
 - 读理智：back_to_home → get_screenshot，按 screen-home 读「终端 TERMINAL」里的「当前理智/上限」。把这两个数先写在回复里，再决定下一步。
 
@@ -41,4 +41,4 @@ when_to_use: 用户要刷材料、推主线、打活动或剿灭，需要安排�
   2. get_drop_stats 看这关累计样本（runs）与各项材料数量。
   3. 需要看剩余理智就 back_to_home 后再 get_screenshot 读一次。
 - 回复里写清「打了几次、消耗多少理智、拿到什么、还剩多少理智」；没读到的数字就说没读到，不要推算后当成观测值。
-- 理智不够导致任务停在补充理智界面（`medicine`/`stone` 为 0 时）要如实说明，并问用户是吃药、碎石还是等自然恢复。
+- 理智不够导致任务停在补充理智界面（`medicine`/`stone` 为 0 时）要如实说明，并用 ask_user 发卡让用户在吃药、碎石、等自然恢复之间选。
