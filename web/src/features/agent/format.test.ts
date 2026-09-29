@@ -10,6 +10,14 @@ describe('toolLabel', () => {
   it('leaves unknown tools to the raw name', () => {
     expect(toolLabel('some_future_tool')).toBeUndefined()
   })
+
+  it('names the five media tools M23 added in Chinese', () => {
+    expect(toolLabel('send_screenshot')).toBe('发送截图')
+    expect(toolLabel('annotate_screenshot')).toBe('圈选截图')
+    expect(toolLabel('send_item_icons')).toBe('发送物品图标')
+    expect(toolLabel('send_stage_map')).toBe('发送关卡示意图')
+    expect(toolLabel('send_chart')).toBe('发送图表')
+  })
 })
 
 describe('formatTokenCount', () => {

@@ -208,6 +208,10 @@ function createAgentApi(options: ApiOptions = {}) {
     if (url.pathname === '/api/agent/capabilities/check' && request.method === 'POST') {
       return json(options.capability ?? { model: 'deepseek-flash', ready: true, tool_calling: true, vision: false, status: 'vision_degraded', degraded_reason: '模型暂不支持图片输入' })
     }
+    // 媒体卡：三种白名单图片地址各返回一个最小 blob，前端据此拿到 objectURL（M23）。
+    if (url.pathname.startsWith('/api/images/') || url.pathname.startsWith('/api/screenshots/') || url.pathname === '/api/resources/items/icon') {
+      return new Response(new Blob(['jpeg'], { type: 'image/jpeg' }), { headers: { 'Content-Type': 'image/jpeg' } })
+    }
     return json({ error: { message: `Unexpected request ${request.method} ${url.pathname}` } }, 404)
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -1261,6 +1265,137 @@ describe('Agent conversation page', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
     expect(await screen.findByText('本轮已被你中断。')).toBeInTheDocument()
     expect(screen.getAllByText('正在查询…')).toHaveLength(1)
+  })
+
+  it('shows the media cards a live turn produced, then the same cards rebuilt from history (M23)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    const sha = 'd'.repeat(64)
+    const imageCard = {
+      type: 'image',
+      screenshot_id: 'shot-media-1',
+      sha256: sha,
+      url: `/api/images/${sha}/full`,
+      thumb_url: `/api/images/${sha}/thumb`,
+      alt: '当前的游戏画面',
+      caption: '现在长这样',
+      width: 1920,
+      height: 1080,
+    }
+    const chartCard = {
+      type: 'chart',
+      caption: '最近的掉落',
+      chart: {
+        chart_type: 'bar',
+        title: '1-7 掉落',
+        categories: ['固源岩'],
+        series: [{ name: '数量', values: [12] }],
+        stacked: false,
+        x_label: '物品',
+        y_label: '个数',
+        unit: '个',
+        source: 'get_drop_stats(stage=1-7)',
+      },
+    }
+    const historyMessages: Json[] = [
+      { id: 201, session_id: 'session-1', seq: 0, role: 'user', content: '给我看看画面和掉落', created_at: '2026-09-29T12:00:00Z' },
+      {
+        id: 202,
+        session_id: 'session-1',
+        seq: 1,
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          { id: 'call-shot', function: { name: 'send_screenshot', arguments: '{}' } },
+          { id: 'call-chart', function: { name: 'send_chart', arguments: '{"chart_type":"bar"}' } },
+        ],
+        created_at: '2026-09-29T12:00:01Z',
+      },
+      { id: 203, session_id: 'session-1', seq: 2, role: 'tool', tool_name: 'send_screenshot', tool_call_id: 'call-shot', audit_id: 41, content: JSON.stringify({ result: { media: [imageCard] } }), created_at: '2026-09-29T12:00:02Z' },
+      { id: 204, session_id: 'session-1', seq: 3, role: 'tool', tool_name: 'send_chart', tool_call_id: 'call-chart', audit_id: 42, content: JSON.stringify({ result: { media: [chartCard] } }), created_at: '2026-09-29T12:00:03Z' },
+      { id: 205, session_id: 'session-1', seq: 4, role: 'assistant', content: '这是当前的画面与掉落统计。', created_at: '2026-09-29T12:00:04Z' },
+    ]
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      stream: () => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', capability_status: 'ready' }),
+          event('tool_start', { tool_call_id: 'call-shot', name: 'send_screenshot', arguments: {} }),
+          event('tool_result', { tool_call_id: 'call-shot', name: 'send_screenshot', audit_id: 41, result: { media: [imageCard] } }),
+        ])
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '给我看看画面和掉落' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    // 实时：卡片随 tool_result 到达就出现（工具条本身是折叠的，卡片在外面）。
+    expect(await screen.findByRole('img', { name: '当前的游戏画面' })).toBeInTheDocument()
+    const liveTurn = screen.getByRole('region', { name: '本轮对话' })
+    expect(within(liveTurn).getAllByTestId('media-cards')).toHaveLength(1)
+    expect(within(liveTurn).getByText('发送截图')).toBeInTheDocument()
+    expect(liveTurn.querySelectorAll('details[open]')).toHaveLength(0)
+
+    // 同一轮里再来一张图表卡。
+    await act(async () => {
+      held?.push([
+        event('tool_start', { tool_call_id: 'call-chart', name: 'send_chart', arguments: { chart_type: 'bar' } }),
+        event('tool_result', { tool_call_id: 'call-chart', name: 'send_chart', audit_id: 42, result: { media: [chartCard] } }),
+        event('text_delta', { text: '这是当前的画面与掉落统计。' }),
+      ])
+    })
+    expect(within(liveTurn).getAllByTestId('media-cards')).toHaveLength(2)
+    expect(within(liveTurn).getByText('1-7 掉落')).toBeInTheDocument()
+
+    // 服务端在这一轮落库后，历史接口返回的正是同一批 tool 消息；结束后实时副本让位给历史。
+    api.state.messages['session-1'] = historyMessages
+    await act(async () => {
+      held?.push([event('message_end', { session_id: 'session-1', finish_reason: 'stop' })])
+      held?.close()
+    })
+
+    // 历史回来、实时副本丢弃后，卡片仍然在（同一条 tool 消息重建），且不重复。
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    expect(screen.getAllByTestId('media-cards')).toHaveLength(2)
+    expect(screen.getAllByRole('img', { name: '当前的游戏画面' })).toHaveLength(1)
+    expect(screen.getByText('1-7 掉落')).toBeInTheDocument()
+    expect(screen.getAllByText('这是当前的画面与掉落统计。')).toHaveLength(1)
+  })
+
+  it('renders a pre-M23 get_screenshot result from history as an image card (M23)', async () => {
+    const sha = 'e'.repeat(64)
+    // M23 之前落库的老消息：没有 media 键，只有归档后的截图字段。
+    const legacy = {
+      result: {
+        screenshot_id: 'shot-legacy',
+        sha256: sha,
+        full_url: `/api/images/${sha}/full`,
+        thumb_url: `/api/images/${sha}/thumb`,
+        width: 1280,
+        height: 720,
+        format: 'jpeg',
+      },
+    }
+    createAgentApi({
+      messages: {
+        'session-1': [
+          { id: 1, session_id: 'session-1', seq: 0, role: 'user', content: '看看现在什么情况', created_at: '2026-09-25T10:00:00Z' },
+          { id: 2, session_id: 'session-1', seq: 1, role: 'assistant', content: '画面如下。', tool_calls: [{ id: 'call-legacy', function: { name: 'get_screenshot', arguments: '{}' } }], created_at: '2026-09-25T10:00:01Z' },
+          { id: 3, session_id: 'session-1', seq: 2, role: 'tool', tool_name: 'get_screenshot', tool_call_id: 'call-legacy', audit_id: 7, content: JSON.stringify(legacy), created_at: '2026-09-25T10:00:02Z' },
+        ],
+      },
+    })
+    const { container } = renderPage()
+
+    expect(await screen.findByRole('img', { name: 'Agent 发来的图片' })).toBeInTheDocument()
+    expect(container.querySelectorAll('[data-testid="media-cards"]')).toHaveLength(1)
+    // 卡片在折叠块之外；JSON 仍在里面（审计与调试用）。
+    const details = container.querySelector('details')!
+    expect(details.querySelector('[data-testid="media-cards"]')).toBeNull()
+    expect(details).toHaveTextContent('shot-legacy')
+    expect(screen.getByText('截取设备画面')).toBeInTheDocument()
   })
 })
 
