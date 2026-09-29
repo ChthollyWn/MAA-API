@@ -64,6 +64,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/knowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取 Agent 知识库条目 */
+        get: operations["agent_list_knowledge"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/knowledge/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取 Agent 知识条目详情 */
+        get: operations["agent_get_knowledge_entry"];
+        /**
+         * 写入 Agent 知识条目
+         * @description 写入完整的生效内容：新建自定义条目，或修改、停用内置条目。
+         */
+        put: operations["agent_put_knowledge_entry"];
+        post?: never;
+        /**
+         * 删除 Agent 知识条目
+         * @description 删除自定义条目，或撤销对内置条目的修改（恢复默认）。
+         */
+        delete: operations["agent_delete_knowledge_entry"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/sessions": {
         parameters: {
             query?: never;
@@ -1988,6 +2030,106 @@ export interface components {
             /** Key */
             key: string;
         };
+        /**
+         * KnowledgeBuiltinView
+         * @description 内置条目的原文快照，供界面对比与恢复。
+         */
+        KnowledgeBuiltinView: {
+            /** Body */
+            body: string;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /** When To Use */
+            when_to_use: string;
+        };
+        /**
+         * KnowledgeDetail
+         * @description 详情：内置条目另附原文快照（``builtin``），自定义条目为 ``None``。
+         */
+        KnowledgeDetail: {
+            /** Body */
+            body: string;
+            builtin?: components["schemas"]["KnowledgeBuiltinView"] | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Modified */
+            modified: boolean;
+            /** Source */
+            source: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** When To Use */
+            when_to_use: string;
+        };
+        /**
+         * KnowledgePage
+         * @description 列表响应：不含正文（规格 §4.1 的 REST 表）。
+         */
+        KnowledgePage: {
+            /** Items */
+            items: components["schemas"]["KnowledgeSummary"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * KnowledgeSummary
+         * @description 列表项：不含正文，只给字数（规格 §4.1 的 REST 列表）。
+         */
+        KnowledgeSummary: {
+            /** Body Chars */
+            body_chars: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Modified */
+            modified: boolean;
+            /** Source */
+            source: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** When To Use */
+            when_to_use: string;
+        };
+        /**
+         * KnowledgeWriteRequest
+         * @description ``PUT`` 的入参：完整的生效内容。
+         *
+         *     继承服务层的 :class:`~maa_api.agent.knowledge.KnowledgeWrite`（字段名一致），
+         *     在这里补上 REST 层的格式与长度约束；服务层的同名校验保留作兜底。
+         */
+        KnowledgeWriteRequest: {
+            /** Body */
+            body: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "playbook" | "screen" | "rule" | "glossary" | "profile";
+            /** Title */
+            title: string;
+            /** When To Use */
+            when_to_use: string;
+        };
         /** LongPressRequest */
         LongPressRequest: {
             /** Duration Ms */
@@ -3069,6 +3211,295 @@ export interface operations {
                      *         "code": "AGENT_DISABLED",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_knowledge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgePage"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_knowledge_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 知识条目 id */
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeDetail"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：KNOWLEDGE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "KNOWLEDGE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_put_knowledge_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 知识条目 id */
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeDetail"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：KNOWLEDGE_BUILTIN_READONLY、KNOWLEDGE_LIMIT_EXCEEDED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "KNOWLEDGE_BUILTIN_READONLY",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_delete_knowledge_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 知识条目 id */
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：KNOWLEDGE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "KNOWLEDGE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：KNOWLEDGE_BUILTIN_READONLY */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "KNOWLEDGE_BUILTIN_READONLY",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
                      *       }
                      *     }
                      */

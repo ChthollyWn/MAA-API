@@ -1504,6 +1504,242 @@
         "title": "KeyEventRequest",
         "type": "object"
       },
+      "KnowledgeBuiltinView": {
+        "description": "内置条目的原文快照，供界面对比与恢复。",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "when_to_use": {
+            "title": "When To Use",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "when_to_use",
+          "body"
+        ],
+        "title": "KnowledgeBuiltinView",
+        "type": "object"
+      },
+      "KnowledgeDetail": {
+        "description": "详情：内置条目另附原文快照（``builtin``），自定义条目为 ``None``。",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "builtin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeBuiltinView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "modified": {
+            "title": "Modified",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "when_to_use": {
+            "title": "When To Use",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "when_to_use",
+          "body",
+          "enabled",
+          "source",
+          "modified"
+        ],
+        "title": "KnowledgeDetail",
+        "type": "object"
+      },
+      "KnowledgePage": {
+        "description": "列表响应：不含正文（规格 §4.1 的 REST 表）。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "KnowledgePage",
+        "type": "object"
+      },
+      "KnowledgeSummary": {
+        "description": "列表项：不含正文，只给字数（规格 §4.1 的 REST 列表）。",
+        "properties": {
+          "body_chars": {
+            "title": "Body Chars",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "modified": {
+            "title": "Modified",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "when_to_use": {
+            "title": "When To Use",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "when_to_use",
+          "enabled",
+          "source",
+          "modified",
+          "body_chars"
+        ],
+        "title": "KnowledgeSummary",
+        "type": "object"
+      },
+      "KnowledgeWriteRequest": {
+        "additionalProperties": false,
+        "description": "``PUT`` 的入参：完整的生效内容。\n\n继承服务层的 :class:`~maa_api.agent.knowledge.KnowledgeWrite`（字段名一致），\n在这里补上 REST 层的格式与长度约束；服务层的同名校验保留作兜底。",
+        "properties": {
+          "body": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "playbook",
+              "screen",
+              "rule",
+              "glossary",
+              "profile"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "when_to_use": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "When To Use",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "when_to_use",
+          "body"
+        ],
+        "title": "KnowledgeWriteRequest",
+        "type": "object"
+      },
       "LongPressRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4088,6 +4324,287 @@
           }
         },
         "summary": "检查 Agent 模型能力",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/knowledge": {
+      "get": {
+        "operationId": "agent_list_knowledge",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          }
+        },
+        "summary": "读取 Agent 知识库条目",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/knowledge/{entry_id}": {
+      "delete": {
+        "description": "删除自定义条目，或撤销对内置条目的修改（恢复默认）。",
+        "operationId": "agent_delete_knowledge_entry",
+        "parameters": [
+          {
+            "description": "知识条目 id",
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "description": "知识条目 id",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,47}$",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "KNOWLEDGE_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：KNOWLEDGE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "KNOWLEDGE_BUILTIN_READONLY",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：KNOWLEDGE_BUILTIN_READONLY"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          }
+        },
+        "summary": "删除 Agent 知识条目",
+        "tags": [
+          "agent"
+        ]
+      },
+      "get": {
+        "operationId": "agent_get_knowledge_entry",
+        "parameters": [
+          {
+            "description": "知识条目 id",
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "description": "知识条目 id",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,47}$",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "KNOWLEDGE_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：KNOWLEDGE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          }
+        },
+        "summary": "读取 Agent 知识条目详情",
+        "tags": [
+          "agent"
+        ]
+      },
+      "put": {
+        "description": "写入完整的生效内容：新建自定义条目，或修改、停用内置条目。",
+        "operationId": "agent_put_knowledge_entry",
+        "parameters": [
+          {
+            "description": "知识条目 id",
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "description": "知识条目 id",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,47}$",
+              "title": "Entry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "KNOWLEDGE_BUILTIN_READONLY",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：KNOWLEDGE_BUILTIN_READONLY、KNOWLEDGE_LIMIT_EXCEEDED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          }
+        },
+        "summary": "写入 Agent 知识条目",
         "tags": [
           "agent"
         ]

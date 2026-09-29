@@ -768,3 +768,125 @@ def test_incident_allowed_action_still_uses_confirmation_service(tmp_path):
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# M18：诊断会话同样注入知识库段，且可以调用 read_knowledge（规格 §4.1）
+# ---------------------------------------------------------------------------
+def _read_knowledge_response(entry_id: str):
+    return [
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call-knowledge",
+                                "type": "function",
+                                "function": {
+                                    "name": "read_knowledge",
+                                    "arguments": json.dumps({"entry_id": entry_id}),
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+    ]
+
+
+def test_recovery_allowlist_includes_read_knowledge_and_exposes_its_schema():
+    from maa_api.agent.knowledge import ENTRY_ID_PATTERN
+
+    assert "read_knowledge" in INCIDENT_ALLOWED_TOOLS
+
+    runtime = object.__new__(AgentRuntime)
+    schemas = runtime._tool_schemas(
+        build_registry(), vision_enabled=True, allowed_tools=INCIDENT_ALLOWED_TOOLS
+    )
+    by_name = {item["function"]["name"]: item for item in schemas}
+    assert "read_knowledge" in by_name
+    assert (
+        by_name["read_knowledge"]["function"]["parameters"]["properties"]["entry_id"][
+            "pattern"
+        ]
+        == ENTRY_ID_PATTERN.pattern
+    )
+
+
+def test_diagnosis_turn_injects_the_knowledge_index_and_can_read_an_entry(tmp_path):
+    from types import SimpleNamespace
+
+    from maa_api.agent.knowledge import KnowledgeService
+
+    async def scenario():
+        engine = db_session.make_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'incident-knowledge.db'}",
+            poolclass=StaticPool,
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+
+        knowledge = KnowledgeService(factory)
+        confirmations = ConfirmationService(factory, build_registry(), policy=PolicyEngine())
+        llm = FakeLLM(
+            [_read_knowledge_response("account-resources"), _text_response("已按剧本检查。")]
+        )
+        settings = Settings(
+            llm=LLMSettings(base_url="https://llm.test/v1", api_key="secret", model="test")
+        )
+        runtime = AgentRuntime(
+            factory,
+            confirmations,
+            settings_provider=lambda _request: settings,
+            client_factory=lambda _settings: llm,
+        )
+        runtime._capability_cache[("test", "https://llm.test/v1")] = {
+            "tool_calling": True,
+            "vision": True,
+            "status": "ready",
+            "degraded_reason": None,
+        }
+        # 生产装配里知识库挂在 app.state 上；诊断会话的请求对象由事件服务提供。
+        request = SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(knowledge_service=knowledge))
+        )
+        async with factory() as session:
+            await AgentSessionRepository(session).create(
+                AgentSession(id="diagnosed", model="test", base_url="https://llm.test/v1")
+            )
+            await AgentMessageRepository(session).create(
+                AgentMessage(session_id="diagnosed", seq=0, role="user", content="核心崩溃了")
+            )
+            await session.commit()
+
+        try:
+            result = await runtime.run_incident("diagnosed", request, INCIDENT_ALLOWED_TOOLS)
+            assert result == {"status": "completed"}
+
+            system = llm.requests[0][0][0]["content"]
+            assert llm.requests[0][0][0]["role"] == "system"
+            assert "知识库索引（开发者与用户维护" in system
+            assert "- account-resources｜查询账号资源" in system
+            assert system.index("你是 MAA-API 内置 Agent") < system.index("知识库索引（")
+            assert system.index("知识库索引（") < system.index("当前服务状态摘要")
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session("diagnosed")
+            tool_messages = [message for message in messages if message.role == "tool"]
+            assert len(tool_messages) == 1
+            payload = json.loads(tool_messages[0].content)["result"]
+            assert payload["id"] == "account-resources"
+            assert payload["kind"] == "playbook"
+            assert payload["source"] == "builtin"
+            assert payload["body"].startswith("## 前置判断")
+            assert payload["updated_at"] is None
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())

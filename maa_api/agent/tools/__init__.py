@@ -15,6 +15,7 @@ def build_registry() -> ToolRegistry:
     # Imports stay inside the factory so each domain module may import its own
     # parameter/context helpers without creating a package initialization cycle.
     from maa_api.agent.tools.device import register_tools as register_device_tools
+    from maa_api.agent.tools.knowledge import register_tools as register_knowledge_tools
     from maa_api.agent.tools.ops import register_tools as register_ops_tools
     from maa_api.agent.tools.pipeline import register_tools as register_pipeline_tools
     from maa_api.agent.tools.raw import register_tools as register_raw_tools
@@ -31,6 +32,7 @@ def build_registry() -> ToolRegistry:
         register_resource_tools,
         register_ops_tools,
         register_schedule_tools,
+        register_knowledge_tools,
     ):
         register(registry)
     registry.register(

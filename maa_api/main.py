@@ -80,6 +80,7 @@ from maa_api.api.routers import (
     atomic,
     confirmations,
     device,
+    knowledge,
     logs,
     notifications,
     pipelines,
@@ -932,6 +933,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await update_service.recover_interrupted()
 
         from maa_api.agent.confirmation import ConfirmationService
+        from maa_api.agent.knowledge import KnowledgeService
         from maa_api.agent.policy import PolicyEngine
         from maa_api.agent.tools import build_registry
         from maa_api.services.agent_ops_service import AgentOpsService
@@ -949,6 +951,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ),
         )
         app.state.agent_ops_service = agent_ops_service
+        # 知识库：构造时把随代码发布的内置条目加载一次（文件坏了要在启动处就炸），
+        # 用户改动存在 agent_knowledge 表里。runtime 与本路由共用这一个实例。
+        app.state.knowledge_service = KnowledgeService(db_session.session_factory)
         confirmation_factory = getattr(
             app.state, "confirmation_service_factory", ConfirmationService
         )
@@ -1263,6 +1268,7 @@ def create_app() -> FastAPI:
     app.include_router(schedules.router)
     app.include_router(snippets.router)
     app.include_router(agent.router)
+    app.include_router(knowledge.router)
     app.include_router(confirmations.router)
     app.include_router(ws_router)
 

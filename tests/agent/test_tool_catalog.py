@@ -2,6 +2,8 @@
 
 import asyncio
 
+import pytest
+
 from maa_api.agent.tools import build_registry
 
 
@@ -16,7 +18,7 @@ EXPECTED_TOOLS = {
     "remove_custom_task", "set_infrast_plan", "check_updates", "update_core",
     "update_resource", "update_game", "restart_core", "list_schedules",
     "create_schedule", "update_schedule", "delete_schedule",
-    "check_confirmation",
+    "check_confirmation", "read_knowledge",
 }
 
 
@@ -25,8 +27,111 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 41
+    assert len(actual) == 42
+    assert "knowledge" in {definition.group for definition in registry.list()}
     assert "run_copilot" not in actual
+
+
+def test_read_knowledge_is_registered_as_a_safe_read_only_knowledge_tool():
+    """规格 §4.1：新工具组 knowledge，SAFE、只读，参数是条目 id。"""
+
+    from maa_api.agent.knowledge import ENTRY_ID_PATTERN
+
+    definition = build_registry().get("read_knowledge")
+
+    assert definition.group == "knowledge"
+    assert definition.risk.value == "SAFE"
+    assert definition.read_only is True
+    assert definition.model_visible is True
+    assert (
+        definition.params_model.model_json_schema(mode="validation")["properties"][
+            "entry_id"
+        ]["pattern"]
+        == ENTRY_ID_PATTERN.pattern
+    )
+
+
+def test_read_knowledge_returns_the_entry_and_maps_missing_entries_to_the_service():
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from pydantic import ValidationError
+
+    from maa_api.agent.knowledge import KnowledgeEntry
+    from maa_api.agent.registry import ToolContext
+    from maa_api.domain.enums import CallerType
+    from maa_api.domain.errors import AppError, ErrorCode
+
+    entry = KnowledgeEntry(
+        id="demo",
+        kind="rule",
+        title="演示规则",
+        when_to_use="演示时",
+        body="正文",
+        enabled=True,
+        source="builtin",
+        modified=True,
+        updated_at=datetime(2026, 9, 29, 3, 4, 5),
+    )
+
+    class Service:
+        def __init__(self, *, enabled=True):
+            self.enabled = enabled
+            self.reads: list[str] = []
+
+        async def read_for_agent(self, entry_id):
+            self.reads.append(entry_id)
+            if entry_id != "demo" or not self.enabled:
+                raise AppError(
+                    ErrorCode.KNOWLEDGE_NOT_FOUND,
+                    "知识条目不存在或已停用",
+                    {"entry_id": entry_id},
+                )
+            return entry
+
+    def context_for(service):
+        state = SimpleNamespace(knowledge_service=service)
+        return ToolContext(
+            CallerType.INTERNAL,
+            None,
+            None,
+            SimpleNamespace(app=SimpleNamespace(state=state)),
+            None,
+        )
+
+    async def scenario():
+        definition = build_registry().get("read_knowledge")
+        params = definition.params_model.model_validate({"entry_id": "demo"})
+
+        service = Service()
+        assert await definition.handler(params, context_for(service)) == {
+            "id": "demo",
+            "kind": "rule",
+            "title": "演示规则",
+            "body": "正文",
+            "source": "builtin",
+            "modified": True,
+            # 工具结果里的时间统一带 UTC 偏移（与其它工具一致）。
+            "updated_at": "2026-09-29T03:04:05Z",
+        }
+        assert service.reads == ["demo"]
+
+        disabled = Service(enabled=False)
+        with pytest.raises(AppError) as disabled_error:
+            await definition.handler(params, context_for(disabled))
+        assert disabled_error.value.code == ErrorCode.KNOWLEDGE_NOT_FOUND
+
+        unknown = definition.params_model.model_validate({"entry_id": "other"})
+        with pytest.raises(AppError) as unknown_error:
+            await definition.handler(unknown, context_for(service))
+        assert unknown_error.value.code == ErrorCode.KNOWLEDGE_NOT_FOUND
+        assert unknown_error.value.details == {"entry_id": "other"}
+
+        # 非法 id 在进服务之前就被参数模型拦下（与 REST 同一套约束）。
+        with pytest.raises(ValidationError):
+            definition.params_model.model_validate({"entry_id": "Bad_ID"})
+
+    asyncio.run(scenario())
 
 
 def test_wait_pipeline_is_registered_as_a_safe_read_only_pipeline_tool():
