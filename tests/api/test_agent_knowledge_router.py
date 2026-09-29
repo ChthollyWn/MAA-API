@@ -29,20 +29,78 @@ from maa_api.db import session as db_session
 from maa_api.db.models import AgentAudit
 
 BUILTIN_IDS = {
+    # M18 的 5 条
     "account-resources",
     "screen-home",
     "screen-depot",
     "gacha-conversion",
     "glossary",
+    # M19 新增的 26 条
+    "annihilation-weekly",
+    "certificate-shops",
+    "currency-sources",
+    "drop-efficiency",
+    "event-and-rerun",
+    "glossary-terms",
+    "headhunt-rules",
+    "infrast-mechanics",
+    "operator-classes",
+    "operator-progression",
+    "playbook-daily-weekly",
+    "playbook-drop-lookup",
+    "playbook-infrast-shift",
+    "playbook-promotion-planning",
+    "playbook-recruit",
+    "playbook-sanity-planning",
+    "recruit-tags",
+    "sanity-system",
+    "screen-headhunt",
+    "screen-infrast",
+    "screen-operator",
+    "screen-recruit",
+    "screen-store",
+    "screen-terminal",
+    "stage-rules",
+    "trust-and-potential",
 }
-#: 五条内置条目在列表里的顺序：先 kind（playbook/screen/rule/glossary），同 kind 按 id。
+#: 31 条内置条目在列表里的顺序：先 kind（playbook/screen/rule/glossary/profile），
+#: 同 kind 按 id。
 BUILTIN_LIST_ORDER = [
     "account-resources",
+    "playbook-daily-weekly",
+    "playbook-drop-lookup",
+    "playbook-infrast-shift",
+    "playbook-promotion-planning",
+    "playbook-recruit",
+    "playbook-sanity-planning",
     "screen-depot",
+    "screen-headhunt",
     "screen-home",
+    "screen-infrast",
+    "screen-operator",
+    "screen-recruit",
+    "screen-store",
+    "screen-terminal",
+    "annihilation-weekly",
+    "certificate-shops",
+    "currency-sources",
+    "drop-efficiency",
+    "event-and-rerun",
     "gacha-conversion",
+    "headhunt-rules",
+    "infrast-mechanics",
+    "operator-classes",
+    "operator-progression",
+    "recruit-tags",
+    "sanity-system",
+    "stage-rules",
+    "trust-and-potential",
     "glossary",
+    "glossary-terms",
 ]
+#: 注入段的 kind 分组（规格 §4.1）：索引三项在前，全文两项在后。
+INDEX_KINDS = ("playbook", "screen", "rule")
+FULLTEXT_KINDS = ("glossary", "profile")
 LIST_FIELDS = {
     "id",
     "kind",
@@ -154,8 +212,13 @@ def test_knowledge_custom_entry_round_trip(isolated_db, make_client, tmp_setting
 
     listed = client.get("/api/agent/knowledge").json()
     assert listed["total"] == len(BUILTIN_IDS) + 1
-    # profile 排在内置的 glossary 之后（kind 顺序，规格 §4.1）。
-    assert [item["id"] for item in listed["items"]][-2:] == ["glossary", "my-profile"]
+    # profile 排在内置的全部 glossary 之后（kind 顺序，规格 §4.1）。
+    glossary_ids = sorted(
+        item["id"] for item in listed["items"] if item["kind"] == "glossary"
+    )
+    assert listed["items"][-1]["kind"] == "profile"
+    assert listed["items"][-1]["id"] == "my-profile"
+    assert listed["items"][-2]["id"] == glossary_ids[-1]
     assert listed["items"][-1]["body_chars"] == len(CUSTOM_PAYLOAD["body"])
 
     deleted = client.delete("/api/agent/knowledge/my-profile")
@@ -197,7 +260,8 @@ def test_knowledge_override_then_restore_a_builtin_entry(
     assert modified["body"] == original["body"]
     assert modified["updated_at"] is not None
     assert modified["builtin"]["title"] == original["title"]
-    assert client.get("/api/agent/knowledge").json()["items"][2]["modified"] is True
+    items = client.get("/api/agent/knowledge").json()["items"]
+    assert items[BUILTIN_LIST_ORDER.index("screen-home")]["modified"] is True
 
     disabled = client.put(
         "/api/agent/knowledge/screen-home", json={**original, "enabled": False}
@@ -336,13 +400,20 @@ def test_knowledge_fulltext_budget_limit_is_a_conflict(
     isolated_db, make_client, tmp_settings
 ):
     client = _knowledge_client(isolated_db, make_client)
-    glossary_chars = len(client.get("/api/agent/knowledge/glossary").json()["body"])
+    # 预算被全部启用的内置全文条目先占掉一部分：内置的 glossary + glossary-terms
+    # 合计 2,438 字，用列表的 body_chars 现算，别写死。
+    builtin_fulltext = sum(
+        item["body_chars"]
+        for item in client.get("/api/agent/knowledge").json()["items"]
+        if item["kind"] in FULLTEXT_KINDS and item["enabled"]
+    )
+    assert 0 < builtin_fulltext < MAX_FULLTEXT_CHARS
 
     exact = client.put(
         "/api/agent/knowledge/my-profile",
         json={
             **CUSTOM_PAYLOAD,
-            "body": "字" * (MAX_FULLTEXT_CHARS - glossary_chars),
+            "body": "字" * (MAX_FULLTEXT_CHARS - builtin_fulltext),
         },
     )
     assert exact.status_code == 200, exact.text

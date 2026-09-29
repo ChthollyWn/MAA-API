@@ -111,7 +111,7 @@
 | 审计 | 全量落库（调用方、时间、参数、结果、耗时），前端有审计页可回溯 |
 | LLM 接入 | 统一 OpenAI 兼容端点（`base_url` + `api_key` + `model`），默认 DeepSeek Flash（`deepseek-flash`）；API Key 由 `MAA_LLM_ENCRYPTION_KEY` 加密存储，兼容其他 OpenAI 兼容服务 |
 | 会话存储 | 落 SQLite：多轮历史、工具调用轨迹、token 消耗 |
-| Agent 知识库 | 内置只读条目随代码发布（`maa_api/agent/knowledge/builtin/`），数据库只存用户改动与自定义条目；索引、术语表与用户档案按 kind 注入 system 消息，`read_knowledge` 读全文，设置页「Agent 知识库」可编辑、停用与恢复默认。见 [13 §8.23](./13-决策记录.md) |
+| Agent 知识库 | 内置只读条目随代码发布（`maa_api/agent/knowledge/builtin/`，M19 起 31 条，事实以 PRTS 为准并随代码离线可用），数据库只存用户改动与自定义条目；索引、术语表与用户档案按 kind 注入 system 消息（每轮约 4 千字），`read_knowledge` 读全文，设置页「Agent 知识库」可编辑、停用与恢复默认。见 [13 §8.23](./13-决策记录.md)、[13 §8.24](./13-决策记录.md) |
 | 里程碑边界 | M11 交付 REST 工具基座、确认与审计、会话只读 API；M13 已交付 LLM 循环、SSE 消息、Agent UI 与自动诊断。Copilot 通过共享任务队列和 schedule template，以每次运行的私有快照传给 MaaCore；Agent 上传后经 `submit_pipeline` 提交，不以普通 Fight 替代 |
 
 Agent 的目标场景（全选）：自然语言变任务、出错自动诊断、卡死脉救援、应对 MAA 未适配的新活动、账号资源查询、读历史数据生成报告。
