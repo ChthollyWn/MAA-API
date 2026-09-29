@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 98 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 101 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
 
 ```python
 # maa_api/domain/errors.py
@@ -288,6 +288,9 @@ class AppError(Exception):
 | `LLM_RATE_LIMITED` | 429 | 上游 429 透传，`Retry-After` 沿用上游值 |
 | `LLM_ENCRYPTION_KEY_INVALID` | 503 | 缺少或配置错误的 `MAA_LLM_ENCRYPTION_KEY`，无法解密数据库里的 LLM API 密钥；设置正确的主密钥，或在设置页重新录入 API 密钥 |
 | `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史超出模型上下文窗口，需新建会话或裁剪历史 |
+| `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
+| `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
+| `KNOWLEDGE_LIMIT_EXCEEDED` | 409 | 启用的条目数或术语表与用户档案的正文合计超出上限，`details` 指明是哪条限制 |
 
 tool-calling 循环的非错误终态**不是错误**：会话正常结束并返回 200，最后一条 `agent_message.finish_reason` 记为 `stuck_loop`（连续三轮发出完全相同的工具调用，判定为原地打转）或 `max_steps`（调用方显式设了步数上限；默认不设上限）。把它们做成错误码会让前端丢掉模型已经产出的中间结论。
 
