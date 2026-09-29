@@ -100,7 +100,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `INVALID_PARAMETER` | 400 | 结构合法但语义不成立：未知的设置项 key、互斥参数同时出现、枚举字符串不在取值域 |
 | `INVALID_PAGINATION` | 400 | `page < 1`、`size` 超过 200，或同时传了 `page` 与 `after_id` |
 | `NOT_FOUND` | 404 | 未被更具体的码覆盖的资源缺失，兜底用 |
-| `ENDPOINT_REMOVED` | 410 | 访问了重构前的旧端点，见 §12 |
+| `ENDPOINT_REMOVED` | 410 | 重构前旧端点的错误码；实现不注册旧端点存根，当前没有路径会抛出它（见 §12） |
 | `INTERNAL_ERROR` | 500 | 未捕获异常。`details` 只带一个 `trace_id`，堆栈进日志表 |
 | `DATABASE_ERROR` | 500 | SQLite 写锁超时、磁盘写满、schema 不匹配 |
 | `SERVICE_UNAVAILABLE` | 503 | 服务处于启动中或关闭中，尚未/不再接受业务请求 |
@@ -150,24 +150,24 @@ curl -X POST http://<host>:8002/api/snippets \
 | `UPDATE_QUEUE_BUSY_TIMEOUT` | 409 | 等待队列空闲超时（默认 30 分钟）且请求未带 `force_interrupt=true` |
 | `GAME_INSTALL_FAILED` | 502 | `adb install` 返回失败，`details.adb_output` 带原始输出 |
 | `GAME_VERSION_UNKNOWN` | 502 | `dumpsys` 解析不出已安装版本，无法做版本对比 |
-| `CONFIRMATION_REQUIRED` | 202 | 预留错误码；对应功能未交付（M11/M13） |
-| `CONFIRMATION_NOT_FOUND` | 404 | 预留错误码；对应功能未交付（M11/M13） |
-| `CONFIRMATION_EXPIRED` | 409 | 预留错误码；对应功能未交付（M11/M13） |
-| `CONFIRMATION_REJECTED` | 403 | 预留错误码；对应功能未交付（M11/M13） |
-| `CONFIRMATION_ALREADY_RESOLVED` | 409 | 预留错误码；对应功能未交付（M11/M13） |
-| `AGENT_DISABLED` | 503 | 预留错误码；对应功能未交付（M11/M13） |
-| `AGENT_SESSION_NOT_FOUND` | 404 | 预留错误码；对应功能未交付（M11/M13） |
-| `AGENT_SESSION_BUSY` | 409 | 预留错误码；对应功能未交付（M11/M13） |
-| `AGENT_TURN_INTERRUPTED` | 409 | 预留错误码；对应功能未交付（M11/M13） |
-| `TOOL_NOT_FOUND` | 404 | 预留错误码；对应功能未交付（M11/M13） |
-| `TOOL_ARGS_INVALID` | 422 | 预留错误码；对应功能未交付（M11/M13） |
-| `TOOL_EXECUTION_FAILED` | 500 | 预留错误码；对应功能未交付（M11/M13） |
-| `LLM_NOT_CONFIGURED` | 503 | 预留错误码；对应功能未交付（M11/M13） |
-| `LLM_REQUEST_FAILED` | 502 | 预留错误码；对应功能未交付（M11/M13） |
-| `LLM_TIMEOUT` | 504 | 预留错误码；对应功能未交付（M11/M13） |
-| `LLM_RATE_LIMITED` | 429 | 预留错误码；对应功能未交付（M11/M13） |
-| `LLM_ENCRYPTION_KEY_INVALID` | 503 | 预留错误码；对应功能未交付（M11/M13） |
-| `LLM_CONTEXT_OVERFLOW` | 400 | 预留错误码；对应功能未交付（M11/M13） |
+| `CONFIRMATION_REQUIRED` | 202 | 操作命中消耗类或破坏类策略，已创建确认请求。**唯一出现在 2xx 响应中的码**，位于 202 的正常响应体而非错误体；操作等待确认时作为 202 正常响应返回 |
+| `CONFIRMATION_NOT_FOUND` | 404 | 确认请求 id 不存在 |
+| `CONFIRMATION_EXPIRED` | 409 | 超时未响应，已自动拒绝。默认超时按风险分级：消耗类与破坏类 10 分钟，原子操作会话授权 120 秒 |
+| `CONFIRMATION_REJECTED` | 403 | 用户明确拒绝。`details.reason` 带拒绝原因 |
+| `CONFIRMATION_ALREADY_RESOLVED` | 409 | 重复批准或拒绝已进入终态的确认请求 |
+| `AGENT_DISABLED` | 503 | Agent 模块未启用 |
+| `AGENT_SESSION_NOT_FOUND` | 404 | 会话 id 不存在 |
+| `AGENT_SESSION_BUSY` | 409 | 该会话上一轮 tool-calling 循环尚未结束 |
+| `AGENT_TURN_INTERRUPTED` | 409 | 本轮被用户中断，该工具调用被取消、未完成（M22）。只落在审计的 `error_code` 上，中断端点本身返回 200 + `interrupted` |
+| `TOOL_NOT_FOUND` | 404 | `ToolRegistry` 中没有该工具名 |
+| `TOOL_ARGS_INVALID` | 422 | 工具参数不满足其 JSON Schema |
+| `TOOL_EXECUTION_FAILED` | 500 | 工具实现内部抛出未预期异常。被工具调用的下游错误（内核、设备）按其本身的码原样上抛，不包成这个码 |
+| `LLM_NOT_CONFIGURED` | 503 | `base_url` / `api_key` / `model` 三项未配齐 |
+| `LLM_REQUEST_FAILED` | 502 | 上游返回非 2xx。`details.upstream_status` 保留；`details.upstream_code` 仅包含已知白名单码 |
+| `LLM_TIMEOUT` | 504 | 上游在超时内未返回 |
+| `LLM_RATE_LIMITED` | 429 | 上游 429 透传，`Retry-After` 沿用上游值 |
+| `LLM_ENCRYPTION_KEY_INVALID` | 503 | 缺少或配置错误的 `MAA_LLM_ENCRYPTION_KEY`，无法解密数据库里的 LLM API 密钥；设置正确的主密钥，或在设置页重新录入 API 密钥 |
+| `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史或知识库内容超出模型自身的上下文长度（本地不按字符数预裁剪），需开启新会话或缩短内容 |
 | `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
 | `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
 | `QUESTION_NOT_FOUND` | 404 | 提问 id 不存在 |
@@ -355,12 +355,14 @@ M10 当前会发送以下事件：
 
 协议控制帧不需要订阅频道：`server_ping` 的 `data` 为 `{t}`；`subscribed` 回应 `subscribe` / `unsubscribe`，`data` 为 `{channels, backfilled, truncated, stream_id}`；服务端收到客户端 `ping` 后回 `pong` 并原样回带 `data.t`；格式或频道错误以 `error` 应答，`data` 为 `{code, message}`，若请求带 `req_id` 则应答也带回。客户端每 30 秒发送 `ping` 可检测 RTT；服务端也每 30 秒发 `server_ping`，客户端应如示例回送 `pong` 并原样带回 `data.t`。90 秒无客户端消息或连续两次未响应服务端心跳会关闭连接。鉴权失败 close code 为 `4401`，超过连接数上限为 `4429`；协议连续 10 条非法消息以 `1008` 关闭，慢客户端可能以 `1011` 关闭。
 
-`confirm_request`、`confirm_resolved`、`agent_event` 目前虽被服务端频道校验接受，但 M10 不会发布它们；人工确认和 agent 工作流属于 M11，调用方不能依赖这些事件。
+`confirm_request`、`confirm_resolved`、`agent_event`、`question_request`、`question_resolved` 都是**已交付**的业务频道：人工确认在创建与处置时发布前两者，Agent 的会话授权与自动诊断发布 `agent_event`，Agent 提问在发卡与终结时发布后两者。载荷与语义见 [06-实时日志与WebSocket §7.3](./06-实时日志与WebSocket.md#73-业务事件) 与 [11-Agent模块设计 §5](./11-Agent模块设计.md)。
 
 将最新处理的 `log.data.id` 与对应的 `stream_id` 一起持久化，并在重连时作为 `last_seen_id`、`last_seen_stream_id` 传回。服务端默认的内存环形缓冲为最近 2,000 条日志；若返回 `truncated: true`，用 `GET /api/system/logs?after_id=<旧游标>&before_id=<缓冲最早 id>&order=asc&size=1000` 从数据库补齐，再继续流式接收。`log` 实时事件中的 `id` 在同一 `stream_id` 内单调递增，补发条件为 `id > last_seen_id`。服务重启后 `stream_id` 会变化，服务端会忽略旧实例游标并从当前缓冲补发；上一实例内存中未持久化的日志无法恢复，调用方应提示存在跨实例历史缺口。重连退避建议 1、2、4、8 秒递增至 30 秒，并加入抖动。更完整的消息定义见 [06-实时日志与WebSocket §7](./06-实时日志与WebSocket.md#7-websocket-协议)。
 
 请求日志可用 `X-Request-Id` 与调试台请求对应；服务会在响应头回显该值，并暴露 `X-Response-Time-Ms`。当响应体含 `pipeline_id` 时，调试台会继续筛选该流水线的日志。
 
-## 7. 交付范围
+## 7. 交付范围与维护方式
 
-本指南只描述 M10 已交付的 REST 与 WebSocket。人工确认 REST 接口/前端工作流和 agent 读取 API 收藏留在 M11；PWA 安装、离线缓存和 Web Push 留在 M14。当前指南以 M10 接口范围为准；请勿将预留错误码、OpenAPI tag 或 WebSocket 频道名当作功能已交付的证据。
+本指南描述**当前已交付**的 REST 与 WebSocket 接口，覆盖到 M22（Agent 主动提问与中断本轮）。全量路由清单以 [05-API规范与路由清单 §6](./05-API规范与路由清单.md) 为准，那份清单与 `web/openapi.json` 的 operation 集合由 `tests/domain/test_route_inventory.py` 逐一守住。
+
+本指南里的错误码表与 OpenAPI tag 表是**生成物**：由 `scripts/generate_api_guide.py` 从 `docs/05` 的错误码表与 `maa_api.main.TAGS` 生成，说明文字逐字取自 docs/05，不在这里另行改写或加注。改动实现后依次跑 `scripts/dump_openapi.py`、`scripts/generate_api_guide.py`，两个 `--check` 与 `tests/domain/test_route_inventory.py` 都必须退出码 0。
