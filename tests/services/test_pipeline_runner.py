@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
@@ -16,8 +17,10 @@ from sqlmodel import SQLModel
 import maa_api.db.models  # noqa: F401
 from maa_api.agent.incidents import AgentIncidentService
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
+from maa_api.db import session as db_session
 from maa_api.db.models import AgentSession, Pipeline, ResourceAsset, Task, utcnow
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
+from maa_api.db.repositories.log import ScreenshotRepository
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import (
@@ -25,18 +28,28 @@ from maa_api.domain.enums import (
     PipelineStatus,
     Priority,
     ResourceAssetKind,
+    ScreenshotTrigger,
     TaskStatus,
 )
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services import pipeline_runner as pipeline_runner_module
+from maa_api.services.device_service import ScreenshotResult
+from maa_api.services.log_hub import LogRecord, _to_entry
 from maa_api.services.pipeline_runner import (
     PipelineRunner,
     _ActivePipeline,
     build_pipeline_notification,
 )
 from maa_api.services.resource_service import ResourceService
-from maa_api.settings import Settings
+from maa_api.settings import Settings, set_settings
 from maa_api.services import resource_service as resource_service_module
-from tests.fakes.fake_asst import FakeAsst, FakeScript, STUCK_SCRIPT, SUCCESS_SCRIPT
+from tests.fakes.fake_asst import (
+    FAILURE_SCRIPT,
+    FakeAsst,
+    FakeScript,
+    STUCK_SCRIPT,
+    SUCCESS_SCRIPT,
+)
 
 ASSET_ID = "a" * 32
 
@@ -1604,6 +1617,409 @@ def test_device_precheck_failure_notifies_failed_pipeline(runner_env) -> None:
         _event, payload = notify.events[0]
         assert payload["error_code"] == ErrorCode.DEVICE_NOT_CONNECTED.value
         assert "设备当前不可用" in payload["message"]
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# M23 §3.9/§3.10：任务终态留档截图与失败日志附件
+# ---------------------------------------------------------------------------
+class SnapshotDevice:
+    """只看截图这一面的 device_manager 替身（adapter 由 ``ScreenshotResult`` 表达）。"""
+
+    def __init__(
+        self,
+        image: Image.Image | None = None,
+        *,
+        backend: str = "adb",
+        error: Exception | None = None,
+        delay: float = 0.0,
+    ) -> None:
+        self.image = (
+            image if image is not None else Image.new("RGB", (96, 48), (12, 34, 56))
+        )
+        self.backend = backend
+        self.error = error
+        self.delay = delay
+        self.calls: list[str] = []
+
+    async def ensure_available(self, *, timeout: float) -> bool:
+        return True
+
+    def snapshot(self) -> dict:
+        return {"state": "available"}
+
+    async def screenshot(self, backend: str = "adb") -> ScreenshotResult:
+        self.calls.append(backend)
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.error is not None:
+            raise self.error
+        return ScreenshotResult(image=self.image, backend=self.backend)
+
+
+class SnapshotHub:
+    """收集 ``LogHub.offer`` 的替身；附件字段必须是真的 :class:`LogRecord`。"""
+
+    def __init__(self) -> None:
+        self.records: list[LogRecord] = []
+
+    def offer(self, record: LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.fixture
+def snapshot_env(runner_env, monkeypatch):
+    """``runner_env`` + 截图落盘目录与设置缓存隔离。
+
+    ``store_screenshot`` 按 ``db_session.DB_PATH`` 的父目录落盘、按
+    ``adb.screenshot_quality`` 编码，两者都必须钉在 tmp_path 上，
+    否则用例会往仓库的 ``resource/`` 里写图、结果还会随本机 config.yaml 漂移。
+    """
+
+    factory, resource_root, make = runner_env
+    monkeypatch.setattr(db_session, "DB_PATH", resource_root / "maa_api.db")
+    set_settings(Settings())
+    try:
+        yield factory, resource_root, make
+    finally:
+        set_settings(None)
+
+
+async def _screenshots(factory, pipeline_id: str):
+    async with factory() as session:
+        return await ScreenshotRepository(session).list_by_pipeline(pipeline_id)
+
+
+def test_task_snapshot_archives_completed_task(snapshot_env) -> None:
+    """§3.9：``completed`` 留一张，字段与磁盘上的文件一致，且不挂失败日志。"""
+
+    factory, resource_root, make = snapshot_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        runner, asst, _core = make()
+        device = SnapshotDevice()
+        hub = SnapshotHub()
+        runner.device_manager = device
+        runner.bind_log_hub(hub)
+
+        await runner._execute_pipeline(pipeline, [task])
+
+        assert device.calls == ["adb"]
+        async with factory() as session:
+            stored_task = await session.get(Task, task.id)
+        assert stored_task.status == TaskStatus.COMPLETED
+
+        rows = await _screenshots(factory, pipeline.id)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.trigger == ScreenshotTrigger.TASK_SNAPSHOT
+        assert row.pipeline_id == pipeline.id
+        assert row.task_id == task.id
+        assert row.backend == "adb"
+        assert row.format == "jpg"
+        assert row.path.startswith("image/screenshot/")
+        full_path = resource_root / row.path
+        assert full_path.is_file()
+        assert full_path.with_name(f"{full_path.stem}.thumb.jpg").is_file()
+        assert (row.width, row.height) == (96, 48)
+        assert row.size_bytes == full_path.stat().st_size
+        # 内容寻址：目录名是 sha256 的前两位，文件名就是完整的 sha256。
+        assert full_path.parent.name == full_path.stem[:2]
+        assert len(full_path.stem) == 64
+        # ``completed`` 不挂日志附件（§3.10）。
+        assert hub.records == []
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_failed_task_snapshot_is_attached_to_a_task_log(snapshot_env) -> None:
+    """§3.10：失败任务的留档同时挂一条 ``source=task`` 的 ERROR 日志。"""
+
+    factory, resource_root, make = snapshot_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root, deleted=True)
+        runner, asst, _core = make()
+        device = SnapshotDevice()
+        hub = SnapshotHub()
+        runner.device_manager = device
+        runner.bind_log_hub(hub)
+
+        await runner._execute_pipeline(pipeline, [task])
+
+        async with factory() as session:
+            stored_task = await session.get(Task, task.id)
+        assert stored_task.status == TaskStatus.FAILED
+        assert stored_task.error_code == ErrorCode.RESOURCE_ASSET_NOT_FOUND
+
+        rows = await _screenshots(factory, pipeline.id)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.trigger == ScreenshotTrigger.TASK_SNAPSHOT
+
+        assert len(hub.records) == 1
+        record = hub.records[0]
+        assert isinstance(record, LogRecord)
+        assert record.source == "task"
+        assert record.level == "ERROR"
+        assert record.content == f"任务失败 [{task.task_name}]，已保存现场截图"
+        assert record.pipeline_id == pipeline.id
+        assert record.task_id == task.id
+
+        sha256 = Path(row.path).stem
+        attachment = record.attachment
+        assert attachment is not None
+        assert attachment["kind"] == "screenshot"
+        # 与留档是同一张图：日志附件引用留档行的 sha256 / id，不再抓第二次。
+        assert attachment["sha256"] == sha256
+        assert attachment["screenshot_id"] == row.id
+        assert attachment["thumb_url"] == f"/api/images/{sha256}/thumb"
+        assert attachment["full_url"] == f"/api/images/{sha256}/full"
+        assert attachment["width"] == row.width
+        assert attachment["height"] == row.height
+        assert attachment["bytes"] == row.size_bytes
+        assert "captured_at" in attachment
+        assert device.calls == ["adb"]
+
+        # 读侧拼装（``meta.attachment`` + 提升的 ``meta.screenshot_id``）照旧可用。
+        entry = _to_entry(record)
+        assert entry.meta is not None
+        assert entry.meta["attachment"]["sha256"] == sha256
+        assert entry.meta["screenshot_id"] == row.id
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_skipped_task_snapshot_is_attached_with_warning_level(snapshot_env) -> None:
+    """§3.9/§3.10：重试耗尽后的 ``skipped`` 也留档，日志级别是 WARNING。"""
+
+    factory, resource_root, make = snapshot_env
+
+    async def scenario() -> None:
+        pipeline = Pipeline(
+            id="pipeline-skip",
+            source=PipelineSource.MANUAL,
+            priority=Priority.MANUAL,
+            status=PipelineStatus.RUNNING,
+            task_count=1,
+        )
+        task = Task(
+            id="task-skip",
+            pipeline_id=pipeline.id,
+            order_index=0,
+            type_name="Fight",
+            task_name="刷理智",
+            params={"stage": "1-7"},
+            status=TaskStatus.PENDING,
+            max_retries=0,
+            retry_delay=0,
+        )
+        async with factory() as session:
+            session.add(pipeline)
+            session.add(task)
+            await session.commit()
+
+        runner, asst, _core = make(FAILURE_SCRIPT)
+        device = SnapshotDevice()
+        hub = SnapshotHub()
+        runner.device_manager = device
+        runner.bind_log_hub(hub)
+
+        await runner._execute_pipeline(pipeline, [task])
+
+        async with factory() as session:
+            stored_task = await session.get(Task, task.id)
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+        # 既有的「跳过 → 流水线失败」语义原样保留。
+        assert stored_task.status == TaskStatus.SKIPPED
+        assert stored_pipeline.status == PipelineStatus.FAILED
+
+        rows = await _screenshots(factory, pipeline.id)
+        assert len(rows) == 1
+        assert rows[0].task_id == task.id
+        # 一次终态只抓一次图（附件复用同一张，不重复抓）。
+        assert device.calls == ["adb"]
+
+        assert len(hub.records) == 1
+        record = hub.records[0]
+        assert record.source == "task"
+        assert record.level == "WARNING"
+        assert record.content == "任务多次失败已跳过 [刷理智]，已保存现场截图"
+        assert record.task_id == task.id
+        assert record.attachment is not None
+        assert record.attachment["sha256"] == Path(rows[0].path).stem
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_task_keeps_no_snapshot(snapshot_env, monkeypatch) -> None:
+    """§3.9：``cancelled`` 不留档、不写附件日志（直接调用与循环调用点各验一次）。"""
+
+    factory, resource_root, make = snapshot_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        runner, asst, _core = make()
+        device = SnapshotDevice()
+        hub = SnapshotHub()
+        runner.device_manager = device
+        runner.bind_log_hub(hub)
+        active = _ActivePipeline(pipeline_id=pipeline.id)
+
+        await runner._capture_task_snapshot(active, task, "cancelled")
+        assert device.calls == []
+        assert hub.records == []
+        assert await _screenshots(factory, pipeline.id) == []
+
+        # 循环里的调用点同样不为取消留档。
+        async def cancelled_task(_active, _task):
+            return "cancelled", None
+
+        monkeypatch.setattr(runner, "_execute_task", cancelled_task)
+        await runner._execute_pipeline(pipeline, [task])
+
+        async with factory() as session:
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+        assert stored_pipeline.status == PipelineStatus.CANCELLED
+        assert device.calls == []
+        assert hub.records == []
+        assert await _screenshots(factory, pipeline.id) == []
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("mode", ["raises", "timeout", "missing"])
+def test_snapshot_failure_leaves_task_terminal_state_untouched(
+    snapshot_env, monkeypatch, caplog, mode: str
+) -> None:
+    """硬要求：抓图失败/超时/没有 screenshot() 都不许改写任务终态。"""
+
+    factory, resource_root, make = snapshot_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root, deleted=True)
+        runner, asst, _core = make()
+        hub = SnapshotHub()
+        runner.bind_log_hub(hub)
+        if mode == "raises":
+            runner.device_manager = SnapshotDevice(error=RuntimeError("adb 断开"))
+        elif mode == "timeout":
+            runner.device_manager = SnapshotDevice(delay=0.5)
+            monkeypatch.setattr(
+                pipeline_runner_module, "TASK_SNAPSHOT_TIMEOUT_SECONDS", 0.01
+            )
+        else:
+
+            class UnavailableDevice:
+                """既有手写替身的形态：只有 ensure_available + snapshot。"""
+
+                async def ensure_available(self, *, timeout: float) -> bool:
+                    return True
+
+                def snapshot(self) -> dict:
+                    return {"state": "available"}
+
+            runner.device_manager = UnavailableDevice()
+
+        await runner._execute_pipeline(pipeline, [task])
+
+        # 终态与 test_runner_fails_pipeline_when_copilot_asset_was_removed 完全一致。
+        async with factory() as session:
+            stored_task = await session.get(Task, task.id)
+            stored_pipeline = await session.get(Pipeline, pipeline.id)
+        assert stored_task.status == TaskStatus.FAILED
+        assert stored_task.error_code == ErrorCode.RESOURCE_ASSET_NOT_FOUND
+        assert stored_pipeline.status == PipelineStatus.FAILED
+        assert stored_pipeline.error_code == ErrorCode.RESOURCE_ASSET_NOT_FOUND
+        # 降级：不留行，也不写附件日志。
+        assert await _screenshots(factory, pipeline.id) == []
+        assert hub.records == []
+
+        await runner.stop()
+        asst.stop()
+
+    with caplog.at_level("WARNING", logger="maa_api.services.pipeline_runner"):
+        asyncio.run(scenario())
+
+    warned = [
+        r.getMessage() for r in caplog.records if "任务留档截图失败" in r.getMessage()
+    ]
+    if mode == "missing":
+        # 缺方法走 debug（既有替身的正常形态），不是失败。
+        assert warned == []
+    else:
+        assert len(warned) == 1
+
+
+def test_snapshot_without_log_hub_still_archives(snapshot_env) -> None:
+    """§3.10：没绑定 hub 时只跳过日志，留档照做。"""
+
+    factory, resource_root, make = snapshot_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root, deleted=True)
+        runner, asst, _core = make()
+        runner.device_manager = SnapshotDevice()
+
+        await runner._execute_pipeline(pipeline, [task])
+
+        rows = await _screenshots(factory, pipeline.id)
+        assert len(rows) == 1
+        assert rows[0].task_id == task.id
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_crashed_task_snapshot_is_archived_with_error_log(snapshot_env) -> None:
+    """实现裁决（规格 §3.9 只写了三种）：``crashed`` 也留档，并按 ERROR 挂附件。"""
+
+    factory, resource_root, make = snapshot_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        runner, asst, _core = make()
+        device = SnapshotDevice()
+        hub = SnapshotHub()
+        runner.device_manager = device
+        runner.bind_log_hub(hub)
+        active = _ActivePipeline(pipeline_id=pipeline.id)
+
+        await runner._capture_task_snapshot(active, task, "crashed")
+
+        rows = await _screenshots(factory, pipeline.id)
+        assert len(rows) == 1
+        assert rows[0].trigger == ScreenshotTrigger.TASK_SNAPSHOT
+        assert rows[0].task_id == task.id
+        assert device.calls == ["adb"]
+
+        assert len(hub.records) == 1
+        record = hub.records[0]
+        assert record.source == "task"
+        assert record.level == "ERROR"
+        assert record.content == f"任务因内核崩溃中断 [{task.task_name}]，已保存现场截图"
+        assert record.task_id == task.id
+        assert record.attachment is not None
+        assert record.attachment["sha256"] == Path(rows[0].path).stem
 
         await runner.stop()
         asst.stop()

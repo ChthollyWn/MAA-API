@@ -973,6 +973,18 @@ def broadcast_log(self, record: LogRecord) -> None:
 
 截图的产生有两条路径，都汇到同一套存储：MaaCore 的 `GET_IMAGE` 命令（子进程落盘后返回路径，见 [02-系统架构设计 §3.3](./02-系统架构设计.md)）与 adbutils 的 `device.screenshot()`（见 [08-ADB连接与账号渠道](./08-ADB连接与账号渠道.md)）。两者拿到图像后统一交给 `util/image.py` 的 `store_screenshot()` 计算哈希、生成缩略图、写盘、返回 `attachment` 结构。
 
+**附件直到 M23 才有了写入侧。** 上面这套结构在 M23 之前**只有读侧**：WebSocket 推送（`api/ws.py` 的 `_record_data`）、日志列表接口与流水线详情接口各自从 `log_entry.meta` 里把它取出来，没有任何代码往 `LogRecord.attachment` 里写。M23 起流水线任务落到失败类终态时会写第一条带附件的记录，执行器直接给 `LogHub.offer` 一条 `source=task` 的记录：
+
+| 任务终态 | 级别 | 文案 |
+|---|---|---|
+| `failed` | ERROR | 任务失败 [{任务名}]，已保存现场截图 |
+| `skipped` | WARNING | 任务多次失败已跳过 [{任务名}]，已保存现场截图 |
+| `crashed` | ERROR | 任务因内核崩溃中断 [{任务名}]，已保存现场截图 |
+
+`completed` **不写**（成功任务的日志里没有可附着的失败语义），`cancelled` 既不写日志也不留档。附件内容是 `store_screenshot()` 的返回字段再补一个 `screenshot_id`，与同一任务留档的 `screenshot` 记录**复用同一张图**（内容寻址去重，见 [04 §5.4](./04-数据模型与持久化.md#54-screenshot--截图归档)）；前端 `logImage()` 只认其中的 `sha256` 与 `/api/images/<sha256>/(thumb|full)` 两种地址，其余字段（`width` / `height` / `bytes` / `captured_at`）只作展示，地址不合格就整卡丢弃。
+
+**附件只能走 hub，不能走 stdlib 日志渠道。** `LogHubHandler` 只搬运 `pipeline` / `task` / `request` 三个上下文变量，`attachment` 不在其中，用 `logger.error(...)` 发这条记录附件会静默丢失；所以执行器拿的是 `LogHub` 实例本身，而这个实例由 `main.py` 在构造完 `PipelineRunner` 之后用 `bind_log_hub()` **后置注入**（与 `bind_notify_service` 同一范式，因为 `app.state.pipeline_runner_factory` 是可替换的钩子，改构造签名会波及测试与冒烟脚本）。没注入 hub 时执行器只跳过日志，留档照做。
+
 ### 8.3 缩略图策略
 
 写盘时**同步生成**一张缩略图，而不是等前端请求时再生成。原因是按需生成会在日志列表首次滚动时集中触发几十次图像解码，反而更卡；而生成一张缩略图只需几毫秒。
@@ -990,9 +1002,14 @@ def broadcast_log(self, record: LogRecord) -> None:
 
 ### 8.4 清理
 
-截图会持续累积，需要与日志保留期联动清理。清理任务每天执行，删除**没有任何日志记录引用**且创建时间超过保留期的图片文件。
+截图会持续累积，清理沿用 [04-数据模型与持久化 §10.3](./04-数据模型与持久化.md) 的统一保留策略，由 `services/retention_service.py` 每天 04:00 跑一轮（另在启动后 30 秒补跑一次）：
 
-不能只按时间删：一条被用户收藏或关联到未关闭故障单的日志，其截图应当保留。实现上在日志清理完成后，扫描图片目录，对每个文件查询 `attachment_sha256` 索引，无引用者删除。这个反向查询需要在日志表上建 `attachment_sha256` 的索引，见 [04-数据模型与持久化](./04-数据模型与持久化.md)。
+- **文件保留 7 天**（`SCREENSHOT_RETENTION_DAYS`），删除时给对应的 `screenshot` 记录打 `deleted_at`，记录本身按 90 天随流水线历史清理。
+- **总大小上限 512 MB**（`SCREENSHOT_MAX_TOTAL_BYTES`），删完 7 天的之后若总量仍超上限，按 `created_at` 升序继续删最旧的，直到降到上限以内。
+
+两个维度都只看时间与体积，**不做引用计数**：清理不会检查某张图是否仍被日志、会话或审计引用（`screenshot` 表上也没有 `attachment_sha256` 索引），因此引用它的日志行仍会保留，而图片已经没了——前端点开会拿到 `410 SCREENSHOT_EXPIRED`，这正是 [`deleted_at`](./04-数据模型与持久化.md#54-screenshot--截图归档) 这一列存在的意义。
+
+> **这是 M23 核对附件写入侧时发现的既有漂移，不是 M23 引入的。** 本节原先写的是「删除没有任何日志记录引用且创建时间超过保留期的图片文件」——日志清理完成后扫图片目录、对每个文件查 `attachment_sha256` 索引、无引用者删除，并要求在日志表上建这个索引。实现从一开始就不是这样：`retention_service.py` 只按 `SCREENSHOT_RETENTION_DAYS` 与 `SCREENSHOT_MAX_TOTAL_BYTES` 清理，`log_entry` 既没有 `attachment_sha256` 列也没有对应索引（附件整块存在 `meta` JSON 里，M23 之前甚至没有任何写入侧）。上面这段按实现改写了口径；「保护被引用的截图不被删」如果确实需要，那是一条新决策，而不是「按文档补实现」。
 
 ## 9. 历史日志查询接口
 

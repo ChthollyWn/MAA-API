@@ -17,6 +17,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.device import register_tools as register_device_tools
     from maa_api.agent.tools.interaction import register_tools as register_interaction_tools
     from maa_api.agent.tools.knowledge import register_tools as register_knowledge_tools
+    from maa_api.agent.tools.media import register_tools as register_media_tools
     from maa_api.agent.tools.ops import register_tools as register_ops_tools
     from maa_api.agent.tools.pipeline import register_tools as register_pipeline_tools
     from maa_api.agent.tools.raw import register_tools as register_raw_tools
@@ -27,6 +28,7 @@ def build_registry() -> ToolRegistry:
     registry = ToolRegistry()
     for register in (
         register_status_tools,
+        register_media_tools,
         register_pipeline_tools,
         register_device_tools,
         register_raw_tools,

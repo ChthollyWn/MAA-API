@@ -124,6 +124,14 @@
   --danger-soft: #fbeae9;
   --danger-foreground: #ffffff;
   --ring: #4f5bd5;
+  /* 图表色板（规格 §3.8）：最多 6 个系列，浅色一套、深色一套，图表只从这里取色。
+     由既有语义色推导：主色 / 琥珀 / 石板灰 / 青蓝 / 紫 / 青绿，六个都互相可辨。 */
+  --chart-1: #4f5bd5;
+  --chart-2: #d98c1f;
+  --chart-3: #8b93a1;
+  --chart-4: #2f9bd6;
+  --chart-5: #a55bd6;
+  --chart-6: #2fa87a;
   --card-shadow: 0 1px 2px rgb(16 18 24 / 0.05);
   --float-shadow: 0 16px 40px -16px rgb(16 18 24 / 0.28), 0 2px 6px rgb(16 18 24 / 0.06);
   --overlay: rgb(14 16 20 / 0.36);
@@ -171,6 +179,13 @@
   --danger-soft: #2e1818;
   --danger-foreground: #1b0909;
   --ring: #9aa3f7;
+  /* 深色一套要更亮、饱和度略低，才能在 #15181d 上互相可辨。 */
+  --chart-1: #7b86f0;
+  --chart-2: #e8b256;
+  --chart-3: #a8b0bd;
+  --chart-4: #5cc0f0;
+  --chart-5: #c98cf0;
+  --chart-6: #54d3a0;
   --card-shadow: none;
   --float-shadow: 0 20px 48px -16px rgb(0 0 0 / 0.7);
   --overlay: rgb(0 0 0 / 0.56);

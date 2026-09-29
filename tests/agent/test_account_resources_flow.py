@@ -42,7 +42,7 @@ from maa_api.db.models import AgentSession, Pipeline, Screenshot
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.repositories.log import ScreenshotRepository
 from maa_api.db.repositories.pipeline import PipelineRepository
-from maa_api.domain.enums import PipelineSource
+from maa_api.domain.enums import PipelineSource, ScreenshotTrigger
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.device_service import ScreenshotResult
 from maa_api.services.pipeline_runner import PipelineRunner
@@ -151,6 +151,8 @@ class _Flow:
     session_id: str
     pipeline: Pipeline | None
     screenshot: Screenshot | None
+    #: 该流水线的留档截图（M23 §3.9：任务终态各留一张，本条场景只有一个 StartUp）。
+    task_snapshots: list[Screenshot]
 
 
 def _tool_result_value(
@@ -299,6 +301,9 @@ async def _run_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Flow:
         # 回归（例如多出一次确认）应该在断言处给出明确原因，而不是在这里迷路。
         pipeline = await _load_pipeline(factory, events)
         screenshot = await _load_screenshot(factory, events)
+        snapshots = (
+            await _load_task_snapshots(factory, pipeline.id) if pipeline else []
+        )
         return _Flow(
             chunks=chunks,
             llm=llm,
@@ -307,6 +312,7 @@ async def _run_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Flow:
             session_id=SESSION_ID,
             pipeline=pipeline,
             screenshot=screenshot,
+            task_snapshots=snapshots,
         )
     finally:
         if runner is not None:
@@ -357,6 +363,15 @@ async def _load_screenshot(
         return None
     async with factory() as session:
         return await ScreenshotRepository(session).get(screenshot_id)
+
+
+async def _load_task_snapshots(
+    factory: async_sessionmaker[AsyncSession], pipeline_id: str
+) -> list[Screenshot]:
+    """该流水线的留档截图；M23 §3.9 起任务终态会自动留一张，不需要 agent 开口。"""
+    async with factory() as session:
+        rows = await ScreenshotRepository(session).list_by_pipeline(pipeline_id)
+    return [row for row in rows if str(row.trigger) == ScreenshotTrigger.TASK_SNAPSHOT.value]
 
 
 def _image_urls(messages: list[dict[str, Any]]) -> list[str]:
@@ -439,7 +454,14 @@ def test_account_resources_flow_reads_the_playbook_then_reports_home_currencies(
     assert "screenshot_id" in screenshot_text
     assert flow.screenshot is not None
     assert (flow.screenshot.width, flow.screenshot.height) == IMAGE_SIZE
-    assert flow.device.screenshots == 1
+    # 设备被抓了两次：agent 自己的 get_screenshot 一次，加上 §3.9 的任务终态留档一次
+    # ——留档对 agent 来源的流水线没有豁免（docs/13 §8.29）。
+    assert flow.device.screenshots == 2
+    assert len(flow.task_snapshots) == 1
+    snapshot = flow.task_snapshots[0]
+    assert snapshot.trigger == ScreenshotTrigger.TASK_SNAPSHOT.value
+    assert snapshot.pipeline_id == flow.pipeline.id
+    assert [task.id for task in flow.pipeline.tasks] == [snapshot.task_id]
     assert flow.device.back_to_home_calls == 1
 
     # 8. 最后给出文字回答并正常收流。

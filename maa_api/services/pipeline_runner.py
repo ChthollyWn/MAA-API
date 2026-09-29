@@ -16,19 +16,23 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.core.enums import Message
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
-from maa_api.db.models import Pipeline, Task, utcnow
+from maa_api.db.models import Pipeline, Screenshot, Task, utcnow
+from maa_api.db.repositories.log import ScreenshotRepository
 from maa_api.db.repositories.pipeline import PipelineRepository, TaskRepository
 from maa_api.domain.enums import (
     NotifyEvent,
     PipelineSource,
     PipelineStatus,
+    ScreenshotTrigger,
     TaskStatus,
 )
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.task import RUNTIME_IMMUTABLE, TASK_LABELS, TASK_MODELS
-from maa_api.services.log_hub import current_pipeline_id
+from maa_api.services.log_hub import LogRecord, current_pipeline_id
+from maa_api.util.image import store_screenshot
 
 __all__ = [
+    "TASK_SNAPSHOT_TIMEOUT_SECONDS",
     "TASK_TIMEOUT_SECONDS",
     "WAIT_POLL_SECONDS",
     "PipelineRunner",
@@ -57,6 +61,30 @@ CORE_POLL_SECONDS = 2.0
 WAIT_POLL_SECONDS = 1.0
 # 轮询间隔下限，防止调用方传 0 变成忙等。
 MIN_WAIT_POLL_SECONDS = 0.01
+# 任务终态留档截图的硬超时：截图只是留现场，绝不能拖慢任务收尾（docs/12 M23 §3.9）。
+TASK_SNAPSHOT_TIMEOUT_SECONDS = 10.0
+# 需要留档的任务终态。``cancelled`` 不在其中：用户主动取消或服务重启回收，
+# 语义上不需要现场。
+SNAPSHOT_OUTCOMES: frozenset[str] = frozenset(
+    {"completed", "failed", "skipped", "crashed"}
+)
+# 需要把留档截图挂到日志上的终态 → (级别, 文案模板)。``completed`` 不挂：成功
+# 任务的日志里没有可附着的失败语义（docs/12 M23 §3.10）。
+SNAPSHOT_LOG_MESSAGES: dict[str, tuple[str, str]] = {
+    "failed": ("ERROR", "任务失败 [{name}]，已保存现场截图"),
+    "skipped": ("WARNING", "任务多次失败已跳过 [{name}]，已保存现场截图"),
+    "crashed": ("ERROR", "任务因内核崩溃中断 [{name}]，已保存现场截图"),
+}
+
+
+def _task_display_name(task: Task) -> str:
+    """日志文案里的任务名：优先用户起的 ``task_name``，否则回落任务类型。"""
+
+    name = str(getattr(task, "task_name", "") or "").strip()
+    if name:
+        return name
+    type_name = str(getattr(task, "type_name", "") or "")
+    return TASK_LABELS.get(type_name, type_name)
 
 
 @dataclass(slots=True)
@@ -139,6 +167,9 @@ class PipelineRunner:
         self._loop: asyncio.AbstractEventLoop | None = None
         self.incident_service: Any = None
         self.notify_service: Any = None
+        # 留档截图的日志附件只能走 ``LogHub.offer``：stdlib 日志渠道不搬运
+        # ``attachment``。绑定是后置且可选的（同 ``bind_notify_service``）。
+        self._log_hub: Any = None
         self._recovered_pipeline_ids: list[str] = []
         self._incident_tasks: set[asyncio.Task[Any]] = set()
         self._notify_tasks: set[asyncio.Task[Any]] = set()
@@ -229,6 +260,15 @@ class PipelineRunner:
         database session factory, and tests substitute runners without it.
         """
         self.notify_service = service
+
+    def bind_log_hub(self, hub: Any) -> None:
+        """Bind the log hub so task snapshots can carry log attachments.
+
+        ``LogHubHandler`` only carries the pipeline/task/request context; the
+        ``attachment`` field reaches the frontend exclusively through
+        ``LogHub.offer``, so the runner needs the hub itself.
+        """
+        self._log_hub = hub
 
     def _schedule_pipeline_notification(
         self, pipeline_id: str, status: PipelineStatus
@@ -943,6 +983,9 @@ class PipelineRunner:
                     cancelled = True
                     break
                 outcome, error = await self._execute_task(active, task)
+                # 留档是纯附加动作：自身吞掉所有异常（除取消），不参与下面这些
+                # 分支的判定，也不改变任务终态语义。
+                await self._capture_task_snapshot(active, task, outcome)
                 if outcome == "cancelled":
                     cancelled = True
                     break
@@ -1033,6 +1076,107 @@ class PipelineRunner:
             current_pipeline_id.reset(log_context)
             await self.publish_pipeline(pipeline.id)
             await self.publish_queue_changed()
+
+    async def _capture_task_snapshot(
+        self, active: _ActivePipeline, task: Task, outcome: str
+    ) -> None:
+        """任务进入终态后留一张现场截图（docs/12 M23 §3.9/§3.10）。
+
+        ``completed`` / ``failed`` / ``skipped`` / ``crashed`` 都留：用户要看的
+        正是「跑成什么样 / 卡在哪」，内核崩在任务里更是最需要现场的情况；
+        ``cancelled`` 不留。失败与跳过（以及崩溃）额外把这张图挂到一条日志上。
+
+        整段保持「失败即降级」：设备缺失、抓图异常、超时、落盘/落库失败都只记
+        一条 WARNING，**绝不改写任务终态、不重试、不拖慢收尾**。
+        """
+        if outcome not in SNAPSHOT_OUTCOMES:
+            return
+        manager = self.device_manager
+        if manager is None:
+            # 未装配设备管理器是精简装配与既有测试替身的正常形态。
+            logger.debug(
+                "任务留档截图跳过：未装配 device_manager（pipeline_id=%s）",
+                active.pipeline_id,
+            )
+            return
+        capture = getattr(manager, "screenshot", None)
+        if not callable(capture):
+            logger.debug(
+                "任务留档截图跳过：device_manager 未提供 screenshot()（pipeline_id=%s）",
+                active.pipeline_id,
+            )
+            return
+
+        try:
+            result = await asyncio.wait_for(
+                capture(backend="adb"), timeout=TASK_SNAPSHOT_TIMEOUT_SECONDS
+            )
+            # 不传 quality：与手动存档共用 ``adb.screenshot_quality``（25）的默认值，
+            # 避免留档把磁盘吃满。``store_screenshot`` 是同步阻塞的 PIL + 写盘。
+            stored = await asyncio.to_thread(store_screenshot, result.image)
+            sha256 = str(stored["sha256"])
+            relative_path = f"image/screenshot/{sha256[:2]}/{sha256}.jpg"
+            async with self._session_factory() as session:
+                screenshot = await ScreenshotRepository(session).create(
+                    Screenshot(
+                        trigger=ScreenshotTrigger.TASK_SNAPSHOT,
+                        pipeline_id=active.pipeline_id,
+                        task_id=task.id,
+                        backend=str(result.backend),
+                        path=relative_path,
+                        format="jpg",
+                        width=int(stored["width"]),
+                        height=int(stored["height"]),
+                        size_bytes=int(stored["bytes"]),
+                    )
+                )
+                # 提交前取 id：会话若为 expire_on_commit=True，提交后再读会触发
+                # 异步上下文里的懒加载。
+                screenshot_id = screenshot.id
+                await session.commit()
+            self._offer_snapshot_log(active, task, outcome, stored, screenshot_id)
+        except asyncio.CancelledError:
+            # 取消照常传播：``_execute_pipeline`` 的取消处理必须照旧收尾。
+            raise
+        except Exception as exc:  # noqa: BLE001 - 留档失败不得改写任务终态
+            logger.warning(
+                "任务留档截图失败：pipeline_id=%s task_id=%s outcome=%s：%s",
+                active.pipeline_id,
+                task.id,
+                outcome,
+                exc,
+            )
+
+    def _offer_snapshot_log(
+        self,
+        active: _ActivePipeline,
+        task: Task,
+        outcome: str,
+        stored: dict[str, Any],
+        screenshot_id: str | None,
+    ) -> None:
+        """把留档截图作为附件挂到一条 ``source=task`` 的日志上。
+
+        ``completed`` 不挂；``self._log_hub is None`` 时只跳过日志，留档照做。
+        """
+        message = SNAPSHOT_LOG_MESSAGES.get(outcome)
+        hub = self._log_hub
+        if message is None or hub is None:
+            return
+        level, template = message
+        hub.offer(
+            LogRecord(
+                ts=time.time(),
+                source="task",
+                level=level,
+                content=template.format(name=_task_display_name(task)),
+                pipeline_id=active.pipeline_id,
+                task_id=task.id,
+                # 附件形状与前端的 ``logImage()`` 对齐：它只认 ``sha256`` 与
+                # ``/api/images/<sha>/(thumb|full)`` 两种地址。
+                attachment={**stored, "screenshot_id": screenshot_id},
+            )
+        )
 
     async def _execute_task(
         self, active: _ActivePipeline, task: Task

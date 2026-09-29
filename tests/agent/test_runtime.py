@@ -1764,6 +1764,21 @@ def test_screenshot_tool_result_is_archived_by_id_and_only_latest_image_goes_ups
                 )
             stored_result = json.loads(messages[2].content)["result"]
             assert "data" not in stored_result
+            # M23 规格 §3.1：既有键一个都不能少，**额外**补一个 media 信封。
+            assert {
+                "screenshot_id",
+                "sha256",
+                "thumb_url",
+                "full_url",
+                "media",
+            } <= set(stored_result)
+            card = stored_result["media"][0]
+            assert card["type"] == "image"
+            assert card["screenshot_id"] == screenshot_record.id
+            assert card["sha256"] == stored_result["sha256"]
+            assert card["url"] == stored_result["full_url"]
+            assert card["thumb_url"] == stored_result["thumb_url"]
+            assert (card["width"], card["height"]) == (3, 2)
             assert screenshot_record is not None
             assert screenshot_data not in audit.result_summary
             assert audit.result_ref == {"screenshot_id": screenshot_record.id}
@@ -3379,6 +3394,307 @@ def test_passive_disconnect_leaves_the_turn_running_until_an_explicit_interrupt(
                 messages = await AgentMessageRepository(session).list_by_session(session_id)
             assert [message.role for message in messages] == ["user", "assistant"]
             assert messages[1].finish_reason == "interrupted"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# M23 媒体卡：免确认、视觉降级、上下文占位、get_screenshot 信封
+# ----------------------------------------------------------------------
+
+
+def _minimal_media_arguments(name: str) -> dict[str, Any]:
+    if name == "send_item_icons":
+        return {"items": ["2001"]}
+    if name == "send_stage_map":
+        return {"stage": "1-7"}
+    if name == "send_chart":
+        return {
+            "chart_type": "bar",
+            "title": "1-7 掉落",
+            "categories": ["固源岩"],
+            "series": [{"name": "数量", "values": [12]}],
+            "source": "get_drop_stats(stage=1-7)",
+        }
+    return {}
+
+
+def test_media_tools_never_require_confirmation():
+    """规格 §3.2：五个媒体工具都声明 SAFE，策略引擎直接放行、不弹确认。"""
+
+    from maa_api.agent.media import MEDIA_TOOL_NAMES
+    from maa_api.agent.policy import PolicyEngine
+    from maa_api.agent.registry import ToolContext
+    from maa_api.agent.tools import build_registry
+    from maa_api.domain.enums import RiskLevel
+
+    async def scenario():
+        registry = build_registry()
+        engine = PolicyEngine()
+        for name in sorted(MEDIA_TOOL_NAMES):
+            definition = registry.get(name)
+            arguments = definition.params_model.model_validate(
+                _minimal_media_arguments(name)
+            )
+            for caller in (CallerType.INTERNAL, CallerType.REST):
+                decision = await engine.evaluate(
+                    definition,
+                    arguments,
+                    ToolContext(
+                        caller=caller,
+                        session_id="session-1" if caller is CallerType.INTERNAL else None,
+                        request_id="media-policy",
+                        request=None,
+                        db_session=None,
+                    ),
+                )
+                assert decision.requires_confirmation is False, name
+                assert decision.risk is RiskLevel.NONE, name
+
+    asyncio.run(scenario())
+
+
+def test_vision_degradation_hides_and_blocks_annotate_screenshot_by_tool_name():
+    """规格 §3.2：圈选进 SCREEN_TOOL_NAMES，拦截文案按工具名生成。"""
+
+    async def scenario():
+        from maa_api.agent.tools import build_registry
+
+        registry = build_registry()
+        probe = _tool_response(
+            {
+                "index": 0,
+                "id": "probe-1",
+                "type": "function",
+                "function": {"name": "capability_probe", "arguments": "{}"},
+            }
+        )
+        forced_annotate = _tool_response(
+            {
+                "index": 0,
+                "id": "annotate-1",
+                "type": "function",
+                "function": {
+                    "name": "annotate_screenshot",
+                    "arguments": '{"zoom":2}',
+                },
+            }
+        )
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [
+                probe,
+                AppError(ErrorCode.LLM_REQUEST_FAILED, "vision unsupported"),
+                forced_annotate,
+                _text_response("圈选已禁用，其余媒体工具仍可用。"),
+            ],
+            registry=registry,
+            prime_capabilities=False,
+        )
+        try:
+            capability = await runtime.check_capabilities(None)
+            assert capability["vision"] is False
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [
+                chunk async for chunk in runtime.stream_message(session_id, "圈一下理智条", None)
+            ]
+            events = _events(_event_stream(chunks))
+
+            names = {tool["function"]["name"] for tool in llm.turns[0][2]}
+            assert "annotate_screenshot" not in names
+            # 其余四个服务的是用户的眼睛，视觉降级时仍应可用。
+            assert {
+                "send_screenshot",
+                "send_item_icons",
+                "send_stage_map",
+                "send_chart",
+            } <= names
+
+            tool_result = next(data for event, data in events if event == "tool_result")
+            assert tool_result["name"] == "annotate_screenshot"
+            assert tool_result["error"]["code"] == "LLM_REQUEST_FAILED"
+            assert "圈选截图已禁用" in tool_result["error"]["message"]
+            # 不能把圈选说成「原子屏幕操作」。
+            assert "原子屏幕操作" not in tool_result["error"]["message"]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_model_context_compacts_media_results_but_keeps_tool_call_ids():
+    """规格 §3.6：媒体结果回灌模型时只留一行占位，tool 消息与 tool_call_id 保留。"""
+
+    from maa_api.agent.runtime import build_model_context
+
+    chart_body = {
+        "result": {
+            "media": [
+                {
+                    "type": "chart",
+                    "caption": "最近一次统计",
+                    "chart": {
+                        "chart_type": "bar",
+                        "title": "1-7 掉落",
+                        "categories": ["固源岩"],
+                        "series": [{"name": "数量", "values": [12]}],
+                        "source": "get_drop_stats(stage=1-7)",
+                    },
+                }
+            ]
+        }
+    }
+    history: list[dict[str, Any]] = [
+        {"role": "user", "content": "先看一眼旧截图"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call-old-shot",
+                    "type": "function",
+                    "function": {"name": "get_screenshot", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-old-shot",
+            "tool_name": "get_screenshot",
+            "content": json.dumps(
+                {
+                    "result": {
+                        "screenshot_id": "shot-0",
+                        "sha256": "d" * 64,
+                        "thumb_url": f"/api/images/{'d' * 64}/thumb",
+                        "full_url": f"/api/images/{'d' * 64}/full",
+                    }
+                }
+            ),
+        },
+        {"role": "user", "content": "发个掉落图"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call-chart",
+                    "type": "function",
+                    "function": {"name": "send_chart", "arguments": "{}"},
+                },
+                {
+                    "id": "call-shot",
+                    "type": "function",
+                    "function": {"name": "get_screenshot", "arguments": "{}"},
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-chart",
+            "tool_name": "send_chart",
+            "content": json.dumps(chart_body, ensure_ascii=False),
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-shot",
+            "tool_name": "get_screenshot",
+            "content": json.dumps(
+                {
+                    "result": {
+                        "screenshot_id": "shot-1",
+                        "sha256": "c" * 64,
+                        "thumb_url": f"/api/images/{'c' * 64}/thumb",
+                        "full_url": f"/api/images/{'c' * 64}/full",
+                    }
+                }
+            ),
+        },
+    ]
+
+    context = build_model_context(history, system_prompt="sys")
+
+    tools = [message for message in context if message.get("role") == "tool"]
+    assert [message["tool_call_id"] for message in tools] == [
+        "call-old-shot",
+        "call-chart",
+        "call-shot",
+    ]
+    chart_message = tools[1]
+    payload = json.loads(chart_message["content"])
+    assert payload["result"]["media_sent"] == [{"type": "chart", "title": "1-7 掉落"}]
+    assert "note" in payload["result"]
+    # 图表规格本身（类目、系列、source）不再每轮重复占 token。
+    assert "categories" not in chart_message["content"]
+    assert "get_drop_stats" not in chart_message["content"]
+    # get_screenshot 保持既有语义：更早的截图是纯文本占位，最新一张仍走它的老路径。
+    assert "历史截图已省略" in tools[0]["content"]
+    assert "截图图像当前不可用" in tools[2]["content"]
+
+
+def test_media_tool_result_reaches_sse_and_the_stored_message():
+    """M23：媒体卡的 ``media`` 信封同时出现在 SSE 与落库内容里，回灌时变占位。"""
+
+    async def scenario():
+        from maa_api.agent.tools.media import register_tools as register_media_tools
+
+        registry = ToolRegistry()
+        register_media_tools(registry)
+        call = _tool_response(
+            {
+                "index": 0,
+                "id": "chart-1",
+                "type": "function",
+                "function": {
+                    "name": "send_chart",
+                    "arguments": json.dumps(
+                        {
+                            "chart_type": "bar",
+                            "title": "1-7 掉落",
+                            "categories": ["固源岩"],
+                            "series": [{"name": "数量", "values": [12]}],
+                            "source": "get_drop_stats(stage=1-7)",
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            }
+        )
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [call, _text_response("图表已发送。")], registry=registry
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [
+                chunk async for chunk in runtime.stream_message(session_id, "发个掉落图", None)
+            ]
+            events = _events(_event_stream(chunks))
+            result_event = next(data for event, data in events if event == "tool_result")
+            assert result_event["name"] == "send_chart"
+            card = result_event["result"]["media"][0]
+            assert card["type"] == "chart"
+            assert card["chart"]["title"] == "1-7 掉落"
+            assert result_event["result"]["media"][0]["chart"]["series"] == [
+                {"name": "数量", "values": [12]}
+            ]
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            tool_message = next(message for message in messages if message.role == "tool")
+            stored = json.loads(tool_message.content)
+            assert tool_message.tool_name == "send_chart"
+            assert stored["result"]["media"][0]["chart"]["source"] == (
+                "get_drop_stats(stage=1-7)"
+            )
+
+            sent_tool = next(
+                message for message in llm.turns[-1][1] if message.get("role") == "tool"
+            )
+            assert sent_tool["tool_call_id"] == tool_message.tool_call_id
+            assert json.loads(sent_tool["content"])["result"]["media_sent"] == [
+                {"type": "chart", "title": "1-7 掉落"}
+            ]
         finally:
             await engine.dispose()
 

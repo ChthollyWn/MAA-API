@@ -86,7 +86,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | 工具 | 用途 |
 |---|---|
 | `get_system_status` | 服务、内核、设备三层状态一次性返回 |
-| `get_screenshot` | 当前画面。返回临时 URL 或 base64，含分辨率与时间戳 |
+| `get_screenshot` | 当前画面。返回临时 URL 或 base64，含分辨率与时间戳；M23 起归档结果**额外**带一个 `media` 图片卡信封，既有键一个没少（§5.5） |
 | `get_versions` | 内核 / 活动资源 / 游戏本体的当前与最新版本 |
 | `get_logs` | 查日志，按来源、级别、时间范围、关联流水线过滤 |
 | `resolve_stage` | 关卡名 / code / stageId 互查，见 §2.2 |
@@ -176,6 +176,20 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 |---|---|---|
 | `ask_user` | SAFE | 需要用户在若干候选之间做决定时（走哪个渠道、刷哪个关卡、次数与吃药策略）发一张带选项的选择卡，本轮挂起等待，选择以工具结果的形式回到模型。参数 `question`（1–500 字）、`options[{label, description}]`（2–6 个，label ≤ 80 字）、`multiple`（默认 `false`）。`model_visible=True`；**`read_only=False`**：提问必须与写操作串行，批次里出现它就整批走串行路径，排在它后面的 `submit_pipeline` 一定等到用户答完才执行（§5.3）。`risk=SAFE` 是因为它不授权任何操作。**仅内置 Agent 可用**：REST 调用一律 `400 INVALID_PARAMETER`（HTTP 请求无法等待用户选择），也不在诊断白名单里 |
 
+**媒体组（`media`，M23）** —— 全部 `SAFE`，把画面与数据递给用户看，见 §5.5。加入这五个后工具总数 43 → **48**
+
+| 工具 | risk | 用途 |
+|---|---|---|
+| `send_screenshot` | SAFE | 把一张已有截图作为图片卡发给用户。`screenshot_id` 指定；只给 `pipeline_id` 时取该流水线最新一张（`trigger` 可在 `agent` / `manual` / `task_snapshot` / `crash` / `update` 里过滤）；都不给＝本会话最近一张 agent 截图。REST 调用没有会话，必须显式给 `screenshot_id` 或 `pipeline_id`，否则 `INVALID_PARAMETER` |
+| `annotate_screenshot` | SAFE | 服务端加工截图后发卡，固定顺序**先画框 → 再裁剪 → 再放大**（放大图里框仍在原位）：`crop` 是原图归一化矩形（0–1，原点左上）、`zoom` 1–8、`boxes` ≤ 16（`label` ≤ 32 字）。输出长边 ≤ 2048（裁剪块本身超限时有效倍数可以小于 1）。产物按质量 90 落内容寻址存储并新建一条 `Screenshot(trigger=agent)`。`read_only=False`，见 §4.4 |
+| `send_item_icons` | SAFE | 材料图标卡：`items[]` 1–8 个（item_id 或中文名），只认 `item_index.json` 里已登记且有图标的物品，否则 `RESOURCE_ASSET_NOT_FOUND` |
+| `send_stage_map` | SAFE | 关卡布局示意图卡，数据来自本地 `Arknights-Tile-Pos`，见下段 |
+| `send_chart` | SAFE | 图表卡（前端 ECharts 渲染）：`chart_type`（`line` / `bar` / `pie`）、`title` ≤ 80 字、`categories` 1–200、`series` 1–6（每个 `values` ≤ 200 点，`null` 表示断点）、`stacked`、`x_label` / `y_label` / `unit` / `caption` / `source` |
+
+**关卡示意图的数据（`send_stage_map`）。** 索引 `Arknights-Tile-Pos/overview.json` 是一个 4186 键的 dict，键为 `f"{stageId}-{levelId.replace('/', '-')}"`，值含 `code` / `stageId` / `levelId` / `filename` / `width` / `height` / `name`（`filename` 恒等于 `<键>.json`）。`code` 并不唯一（2133 个 code 里 944 个对应多关，`ISW-NO` 一个 code 对应 554 关），所以定位规则是：`stageId` / `levelId` 精确匹配优先 → 否则按 `code` → 多命中按 `stageId` 字典序取第一，并在结果里回报候选数 `candidates`。资源根按内核真实加载链查找：`<maa_path>/resource` 加 `maa-layers/{cache,custom}/resource`（后者覆盖前层；`maa-layers/repo/` **不是**运行时增量层，它在资源更新时就被合并进 `<maa_path>/resource`）。单格是 3 字符码 `<地形><可部署><高度>`：地形 5 类（`#` 阻挡 / `~` 坑洞 / `w` 水域 / `!` 特殊机制 / `.` 普通地面，107 个 `tileKey` 全部显式成表并有夹具测试保证零遗漏），可部署与高度直接取 `buildableType` / `heightType`；**起点与终点不来自 `tileKey` 而来自 `isStart` / `isEnd` 布尔**，单独出坐标数组。`legend` 是**片段码**（1 字符只讲地形、2 字符只讲「可部署 + 高度」），前端按长度分派渲染；tile 行序原样输出不翻转，画面方向由前端一个常量负责（自上而下还是自下而上待真机核对）。
+
+**图表的校验分两级。** 字段级超限（类目 / 系列 / 点数 / 长度 / 枚举 / 额外字段）走标准 `422 TOOL_ARGS_INVALID`；语义级越界（总点数 > 600、序列化 > 24 KB、`NaN` / `Inf`、`line` 与 `bar` 的 `len(values) != len(categories)`）返回 `400 INVALID_PARAMETER`，并在 message 里指明哪一项、实际多大。两级都要守是因为 docs/04 §5.8 的 32 KB tool content 纪律在代码里没有强制截断，产出方必须自我约束。
+
 ## 4. PolicyEngine
 
 `agent/policy.py` 判定一次工具调用是否需要人工确认。判定依据是工具的 `risk` 档位加上参数内容。
@@ -233,6 +247,8 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 - `delete_schedule`：删除定时任务定义，不立即运行或消耗资源。
 
 其他只读工具同样不需确认。所有屏幕原子操作均受会话授权或逐次确认约束，截图触发例外。
+
+**M23 的五个媒体工具（§3.2）不在上面的白名单里。** 白名单（`policy.py` 的 `SAFE_TOOL_NAMES`）针对的是「声明风险与实际风险不一致、需要点名放行」的工具；媒体工具声明的就是 `ToolRisk.SAFE`，因此走 PolicyEngine 里 `declared_risk is ToolRisk.SAFE` 那条既有分支直接放行——**不弹确认，但调用照常进审计**。其中只有 `annotate_screenshot` 是 `read_only=False`：它写文件与数据库行，所以与写操作串行；其余四个只读，可与其他只读工具并发。
 
 ## 5. 人工确认机制
 
@@ -309,6 +325,18 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 - **挂起的提问置 `cancelled`**（[04 §5.17](./04-数据模型与持久化.md)）：CAS `pending → cancelled`、审计置 `REJECTED` 并带摘要「本轮已被中断，提问已取消」、广播 `question_resolved(reason="cancelled")`、唤醒等待方；卡片随即从待答列表消失，迟到的回答返回 409。它与「跳过」（用户主动不答）、「过期」（没人来答）是三个不同的终态，不能互相顶替。
 
 两条链路的状态口径以 [04 §5.9](./04-数据模型与持久化.md) 与 [04 §5.17](./04-数据模型与持久化.md) 为准：审计页要能看出「这一轮是被停掉的」，而不是留下一串永远不会完成的 pending 行。
+
+### 5.5 媒体卡（M23）
+
+确认问的是「准不准」、提问问的是「选哪个」、中断是「停下」，媒体卡则是 Agent 把**看得到的东西**递给用户：截图、材料图标、关卡示意图与图表。它不改变任何授权语义——五个工具全部声明 `SAFE`（§3.2、§4.4），不弹确认、也不写 `confirmation`。
+
+**契约是 `result.media[]`，不新增任何结构。** 四种卡型 `image` / `item_icons` / `stage_map` / `chart` 的字段由 `maa_api/agent/media.py` 一处定义（构造器 `image_card` / `item_icons_card` / `stage_map_card` / `chart_card`，信封 `media_result`）。卡片挂在 **tool 消息**上，而不是消息表的新列上：实时路径（SSE `tool_result` 事件里展开的 `result.media`）与刷新后（历史 tool 消息的 `content`）拿到的是同一份工具结果 JSON，因此走**同一条渲染路径**。**没有新表、新端点、新错误码**（错误码仍 105）；工具调用照常进审计，「agent 给用户看过什么」天然可回溯。代价是卡片不能独立于工具调用存在——位置本来就该由调用顺序决定。
+
+**前端只认三种同源地址**：`/api/images/<sha256>/(thumb|full)`、`/api/screenshots/<id>`、`/api/resources/items/icon?item_id=<id>`。卡里给了地址就必须过这份白名单，**外域地址与 `data:` 一律丢整张卡**（不静默改成按 sha256 拼一个），未知卡型直接忽略。
+
+**旧会话兼容。** M23 之前落库的 `get_screenshot` 结果没有 `media` 键，前端按「工具名 + `screenshot_id` / `sha256` / `thumb_url` / `full_url`」合成一张 `image` 卡；M23 起 `get_screenshot` 的归档结果**额外**带一个 `media` 信封，既有键一个都没少（`runtime.py:1934-1957`）。
+
+**兜底。** 图表卡永远带一张「数据」折叠表格，它既是无障碍替代，也是 ECharts chunk 加载失败时的回退；图片加载失败时卡片显示失败态与重试。界面细节见 §8.5。
 
 ## 6. 知识库（M18、M19）
 
@@ -454,6 +482,8 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 
 流式输出经 SSE 推给前端，事件为 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`question_required`、`session_title`、`interrupted`（本轮被用户中断，见 §8.5）、`message_end`、`error`。前端据此把文字与工具调用按到达顺序渲染（工具调用是可折叠的紧凑条），而不是只显示最终文本；会话历史、确认、授权状态与撤销也在 `/agent` 对话页提供，界面见 §8.5。
 
+**媒体工具结果怎么进 SSE 与落库（M23）。** `send_screenshot` / `annotate_screenshot` / `send_item_icons` / `send_stage_map` / `send_chart` 与别的工具走完全相同的两步：结果的 `{"result": {...}}` 整体序列化落成一条 tool 消息（含 `screenshot_id`、`media`、图表规格等全部字段），`tool_result` 事件把同一个 body 展开推给前端（`tool_call_id`、`name`、`message_id`、`audit_id` 加 body）。**两条路径共用同一份 JSON**，所以卡片在实时渲染与刷新后长得一样；`get_screenshot` 的归档结果只多一个 `media` 信封，其余照旧。媒体工具**不改任何错误路径**：失败仍是常规的 `error` 结果，只是前端据工具名决定要不要沿用旧版兼容合成（§5.5）。
+
 **会话标题。** 没有标题的会话在**首轮回答收尾时**（`message_end` 之后、收流之前）补一个：只拿首条用户消息的前 300 字做输入、不带工具、要求模型只输出不超过 12 个字的标题，清洗掉包裹引号与句末标点后按 24 字截断，落库 `agent_session.title` 并紧跟着推一条 `session_title` 事件。放在收流前是刻意的——前端拿到事件就即时回填，不必为标题再轮询一次；代价是这一轮「完成」要多等一次短调用。标题跟着会话自己的 `model` / `base_url` 快照走；**失败一律吞掉、只记日志**：标题只是导航装饰，不能因为上游抖动把一轮已经成功的回答变成报错。已经有标题的会话（用户自己建的、自动诊断写的）不再调用，所以每个会话最多一次；自动诊断会话创建时就带标题，永远走不到这条路径。标题生成完成前，界面统一显示占位名「新会话」（`sessionTitle` 的兜底）。
 
 只读工具并发、写工具串行是必要的：agent 常常一次请求多个状态查询（截图加设备状态加日志），并发能显著降低延迟；而写操作并发会产生竞态（两个 `submit_pipeline` 同时进队列，顺序不确定）。
@@ -463,6 +493,8 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 游戏截图是 base64 大块内容，多轮对话里累积极快，必须主动管理：
 
 **截图只保留最近一张。** 历史消息中的图像内容在构造请求时替换为文本占位，只有最新一张保留实际图像。若模型不支持视觉输入，历史图片不会 hydration 为 image URL；截图与原子屏幕操作工具同时从模型 schema 隐藏且在 dispatch 再次拦截。agent 需要回看旧画面时可以重新截图。
+
+**媒体结果回灌压成占位（M23）。** 媒体工具（`MEDIA_TOOL_NAMES`）的结果**落库不变**，但回灌模型时压成一行占位（`media_sent`，保留卡片类型与标题），否则图表规格与 tile 网格每轮重复占 token。两条细节是硬要求：**失败结果保留 `error` 原文**——模型看不到越界原因就没法自愈，`INVALID_PARAMETER`（例如「总点数 812 超过 600」）本来指望模型据此改参数再来一次；**tool 消息本身与 `tool_call_id` 必须保留**，否则带 `tool_calls` 的 assistant 消息结构不完整、上游直接 400。`get_screenshot` 的视觉回灌语义一行未改：仍然只把最新一张喂给多模态模型，媒体卡只影响给用户看的路径。
 
 **状态摘要注入。** 每次请求在 system prompt（以及 §6.5 的知识库段）后追加一段当前状态摘要（内核状态、设备状态、当前流水线与进度、队列长度、最近一次错误），避免 agent 为了知道"现在在干什么"而反复调工具。摘要由服务端生成，成本远低于工具往返。M18 起摘要的**第一项是 `now`**：服务端本地时间，ISO 8601 带时区偏移 —— 模型必须知道「现在」才能把截图时间与问题对齐。
 
@@ -482,11 +514,14 @@ M18 起另有一段「工作方法」：系统消息后面附有知识库索引�
 
 M21 起多一条硬规则：**需要用户在若干候选之间裁决时（渠道、关卡、次数与吃药策略这类有明确选项的参数）必须用 `ask_user` 发卡**，不得在正文里写「请确认走哪个渠道」让用户打字回复——把候选写成 `options` 的 label 是最省事、也最不容易被误解的问法。卡片返回值里 `status=answered` 的 `selected` 就是用户的裁决，拿到即照做，不要再确认一遍；`expired` / `skipped` 表示这一轮已经结束，不要重试同一个提问。没有候选可列的开放式问题（例如「你想要什么风格的自定义任务」）仍允许用正文提问；提示词里原先「不确定时宁可询问用户而不要猜测参数」那句因此有了机制支撑，而不只是一句倡议。
 
+M23 起另有一段「给用户看东西」：要让用户看到当前画面用 `send_screenshot`；只靠文字说不清位置时用 `annotate_screenshot` 把关键区域放大并画框，坐标用原图归一化值（0–1，原点左上）；数据分布与趋势用 `send_chart`，**数据必须来自工具真实返回**（`get_drop_stats`、`list_pipelines`、`get_logs`、`list_schedules` 等）并在 `source` 里写明出处，没有数据就说没有、不许编；材料图标用 `send_item_icons`，关卡布局用 `send_stage_map`。**不要用 markdown 图片语法**（前端不渲染），也不要在正文里贴图片 URL；一次最多发 8 张图、一张图最多 6 个系列，同一张图不要重复发。
+
 ### 8.5 对话界面（M16）
 
 - **布局。** 手机上是全高对话，整页滚动，输入栏固定在底部；桌面（≥1024px）是左侧会话栏 + 右侧对话区的固定高度两栏，对话在右侧卡片内滚动。当前会话用 `?session_id=` 表示。标题栏显示当前会话标题，右侧是「会话列表」按钮（手机上打开会话面板）与「Agent 操作」菜单（检查模型能力、新建会话）。会话列表每行显示标题、自动诊断徽章、消息数、模型与更新时间；删除收在行内「更多操作」里并需确认，确认文案写明消息会一起删除、这个会话的屏幕操作授权会被撤销。没有会话时显示「新建会话」空状态；空会话显示三条快捷提示，点选只填入输入框、不直接发送。当前会话的模型与 token 累计显示在对话顶部。
 - **状态区。** 会话授权条（§4.3）、能力自检结果与本轮错误集中在对话区顶部：手机上放在标题栏下方的工具条里，随标题栏吸顶，不会被实时断线提示盖住；桌面在对话卡片顶部；没有内容时不占位。「检查模型能力」显示工具调用、视觉输入是否可用与降级原因，成功时也给出「模型能力正常」；提示可以关闭，关闭后之后每轮 `message_start` 带回的同一降级原因不再弹出。LLM 配置相关的错误（`LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID`、`LLM_REQUEST_FAILED`，或消息明显指向模型配置）附「前往设置检查 LLM 配置」，链接 `/more/settings/agent`。
 - **消息。** 用户消息是右侧气泡，助手消息是左侧无边框的正文；工具调用是可折叠的紧凑条（中文动作名、工具原名、状态、展开后的参数与结果），历史里的调用与它的结果合成一条，结果对应的调用不在已加载窗口里时单独显示为「工具结果 · 名称」。本轮的文字与工具调用按到达顺序排列；SSE 的 `error` 事件写入独立存放的本轮错误，实时副本清空后仍然可见。
+- **媒体卡（M23）。** 工具结果里的 `result.media[]` 渲染成四种卡：图片、材料图标、关卡示意图、图表。卡片**渲染在工具条折叠区之外**——折叠的是参数与结果 JSON，卡片始终可见。大图（截图、图标、关卡示意图）点击走既有的 `ImageViewer`；图表用 ECharts（canvas，动态 import），按主题色板 `--chart-1…--chart-6` 绘制并跟随主题重建，交互（tooltip、图例开关）由 ECharts 自带；图表卡永远带一张「数据」折叠表格作为无障碍替代与 ECharts 加载失败时的回退，图片加载失败时显示失败态与重试。地址白名单与旧消息兼容规则见 §5.5。
 - **输入栏。** 固定在底部，随内容增高到约 6 行后内部滚动；靠 `visualViewport` 与外壳写入的 `--keyboard-inset` 避让虚拟键盘（[09 §8.4](./09-前端重构方案.md#84-触摸目标布局与虚拟键盘)）。桌面 Enter 发送、Shift+Enter 换行；触屏设备 Enter 换行，只用发送按钮发送；输入法组字时的 Enter 不发送。流式进行中输入框保持可编辑（手机上禁用输入框会让键盘收起），发送按钮原地变成「停止本轮」（M22，见下条），状态行显示「Agent 正在处理…」；等待确认时改为「请先处理上方的确认」。
 - **中断本轮（M22）。** 执行期间用户可以真的停掉这一轮：输入栏的发送按钮**原地**变成「停止本轮」（`CircleStop`，stopping 态），点它调 `POST /api/agent/sessions/{id}/interrupt`（幂等，见 [05 §6.15](./05-API规范与路由清单.md)）。语义是**中断**而不是「断开显示」：① 停掉 LLM 流；② 撤回本轮在等与在跑的工具——还在等批准的确认直接撤掉（之后批准也不再执行）、已批准或免确认的工具取消它的 worker（审计落 `failed` + `AGENT_TURN_INTERRUPTED`）、挂起的提问置 `cancelled`（[§5.4](#54-本轮被中断时m22)）；③ 为这一批里尚未落库的调用补写 tool 桩消息，保证历史与下一轮请求的结构完整（M20 起历史不再裁剪，带 `tool_calls` 的 assistant 消息缺对应的 tool 消息会被上游 400 拒绝）；④ 把已经流出去的那段部分文本连同「本轮已被你中断。」落一条 `finish_reason="interrupted"` 的助手消息，推 SSE `interrupted` 再走既有的 `message_end`；⑤ 释放会话锁，所以紧接着就能发下一条消息。被取消的调用**不重试**——中断之后模型没有发言机会。自动诊断的一轮同样登记在活动轮次里，同一个端点也能停它（收尾文案是「自动诊断已被你中断」，不沿用服务关闭那套）。
 - **中断的两条边界。** **只停这一轮，不碰流水线与队列**：游戏里已经跑起来的流水线继续跑（要停它仍走显式的停止流水线 / `DELETE /api/pipelines/{id}`），已经入队的任务一律保留。**已批准并已在执行的工具可能已经产生副作用且无法回滚**：中断只保证不再继续等它、不再有后续工具，早于取消发生的操作留在游戏里；文档与界面都不自称「可回滚」。

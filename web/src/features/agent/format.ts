@@ -151,6 +151,11 @@ const TOOL_LABELS: Record<string, string> = {
   check_confirmation: '查询确认状态',
   ask_user: '向你提问',
   run_task: '执行任务',
+  send_screenshot: '发送截图',
+  annotate_screenshot: '圈选截图',
+  send_item_icons: '发送物品图标',
+  send_stage_map: '发送关卡示意图',
+  send_chart: '发送图表',
 }
 
 export function toolLabel(name: string): string | undefined {

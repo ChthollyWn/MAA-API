@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Expand, ImageOff } from 'lucide-react'
 import { api } from '@/api/client'
@@ -9,6 +9,7 @@ import { InlineAlert } from '@/components/ui/inline-alert'
 import { Button } from '@/components/ui/button'
 import { Section } from '@/components/ui/section'
 import { LoadingState, Spinner } from '@/components/ui/states'
+import { useAuthedImage, type AuthedImageSource } from '@/components/ui/use-authed-image'
 import { errorMessage } from '../form'
 import { formatTime } from '../pipeline-format'
 
@@ -43,32 +44,21 @@ function triggerLabel(trigger: string): string {
 function imageSource(shot: ScreenshotRecord): { kind: 'hashed'; sha256: string } | { kind: 'record'; id: string } {
   const basename = shot.path.split('/').at(-1) ?? ''
   const match = /^([0-9a-f]{64})(?:\.[a-zA-Z0-9.]+)?$/.exec(basename)
-  return match ? { kind: 'hashed', sha256: match[1] } : { kind: 'record', id: shot.id }
+  return match ? { kind: 'hashed', sha256: match[1]! } : { kind: 'record', id: shot.id }
 }
 
-async function fetchImage(shot: ScreenshotRecord, size: 'thumb' | 'full'): Promise<Blob> {
+/** 缩略图来源：内容寻址的走 `/api/images/<sha>/thumb`，其余走截图记录。 */
+function thumbSource(shot: ScreenshotRecord): AuthedImageSource {
   const source = imageSource(shot)
-  const result = source.kind === 'record'
-    ? await api.GET('/api/screenshots/{id}', { params: { path: { id: source.id } }, parseAs: 'blob' })
-    : size === 'thumb'
-      ? await api.GET('/api/images/{sha256}/thumb', { params: { path: { sha256: source.sha256 } }, parseAs: 'blob' })
-      : await api.GET('/api/images/{sha256}/full', { params: { path: { sha256: source.sha256 } }, parseAs: 'blob' })
-  if (result.error) throw toApiError(result.error, result.response)
-  return result.data as unknown as Blob
+  return source.kind === 'hashed'
+    ? { kind: 'image', sha256: source.sha256, size: 'thumb' }
+    : { kind: 'screenshot', id: source.id, size: 'thumb' }
 }
 
-function useObjectUrl(blob: Blob | undefined): string | null {
-  const [url, setUrl] = useState<string | null>(null)
-  useEffect(() => {
-    if (!blob) {
-      setUrl(null)
-      return
-    }
-    const next = URL.createObjectURL(blob)
-    setUrl(next)
-    return () => URL.revokeObjectURL(next)
-  }, [blob])
-  return url
+/** 原图来源：只有内容寻址的截图才有第二个地址，截图记录本身就是原图。 */
+function fullSource(shot: ScreenshotRecord): AuthedImageSource {
+  const source = imageSource(shot)
+  return source.kind === 'hashed' ? { kind: 'image', sha256: source.sha256, size: 'full' } : null
 }
 
 function altText(shot: ScreenshotRecord, index: number): string {
@@ -82,29 +72,8 @@ interface Viewing {
 }
 
 function ScreenshotTile({ shot, index, onOpen }: { shot: ScreenshotRecord; index: number; onOpen: (viewing: Viewing) => void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [nearViewport, setNearViewport] = useState(typeof IntersectionObserver === 'undefined')
-  useEffect(() => {
-    const node = ref.current
-    if (!node || typeof IntersectionObserver === 'undefined') return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        setNearViewport(true)
-        observer.disconnect()
-      }
-    }, { rootMargin: '200px' })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
   const expired = shot.deleted_at !== null
-  const image = useQuery({
-    queryKey: [...keys.pipelines.detail(shot.pipeline_id), 'screenshot-image', shot.id],
-    queryFn: () => fetchImage(shot, 'thumb'),
-    enabled: !expired && nearViewport,
-    staleTime: Infinity,
-    retry: false,
-  })
-  const url = useObjectUrl(image.data)
+  const image = useAuthedImage(expired ? null : thumbSource(shot))
   const alt = altText(shot, index)
   const placeholder = expired
     ? '截图已过期清理'
@@ -113,15 +82,15 @@ function ScreenshotTile({ shot, index, onOpen }: { shot: ScreenshotRecord; index
       : null
 
   return (
-    <div ref={ref} className="min-w-0">
-      {url ? (
+    <div ref={image.ref} className="min-w-0">
+      {image.url ? (
         <button
           type="button"
           aria-label={`查看${alt}`}
-          onClick={() => onOpen({ shot, index, thumbUrl: url })}
+          onClick={() => onOpen({ shot, index, thumbUrl: image.url! })}
           className="group relative block aspect-video w-full overflow-hidden rounded-lg border bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <img src={url} alt={alt} loading="lazy" decoding="async" className="size-full object-contain" />
+          <img src={image.url} alt={alt} loading="lazy" decoding="async" className="size-full object-contain" />
           <span aria-hidden="true" className="absolute bottom-1.5 right-1.5 grid size-7 place-items-center rounded-full bg-black/50 text-white opacity-85 transition-opacity group-hover:opacity-100">
             <Expand className="size-3.5" />
           </span>
@@ -145,15 +114,8 @@ function ScreenshotViewer({ viewing, onClose }: { viewing: Viewing | null; onClo
   const [shown, setShown] = useState<Viewing | null>(viewing)
   if (viewing && viewing !== shown) setShown(viewing)
   const shot = shown?.shot
-  const hashed = shot ? imageSource(shot).kind === 'hashed' : false
-  const full = useQuery({
-    queryKey: [...keys.pipelines.detail(shot?.pipeline_id ?? ''), 'screenshot-full', shot?.id ?? ''],
-    queryFn: () => fetchImage(shot!, 'full'),
-    enabled: viewing !== null && hashed,
-    staleTime: Infinity,
-    retry: false,
-  })
-  const fullUrl = useObjectUrl(full.data)
+  // 内容寻址的截图点开后才取原图；截图记录只有一个地址，直接复用缩略图。
+  const full = useAuthedImage(viewing !== null && shot ? fullSource(shot) : null, { lazy: false })
   const kilobytes = shot ? Math.max(1, Math.round(shot.size_bytes / 1024)) : 0
   return (
     <ImageViewer
@@ -161,7 +123,7 @@ function ScreenshotViewer({ viewing, onClose }: { viewing: Viewing | null; onClo
       onOpenChange={(open) => {
         if (!open) onClose()
       }}
-      src={fullUrl ?? shown?.thumbUrl ?? null}
+      src={full.url ?? shown?.thumbUrl ?? null}
       alt={shot && shown ? `${altText(shot, shown.index)}（原图）` : '流水线截图'}
       caption={shot ? `${triggerLabel(shot.trigger)} · ${shot.width}×${shot.height} · ${kilobytes} KB · ${formatTime(shot.created_at, { seconds: true })}` : undefined}
     />

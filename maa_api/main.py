@@ -928,6 +928,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bind_notify_service = getattr(pipeline_runner, "bind_notify_service", None)
         if callable(bind_notify_service):
             bind_notify_service(notify_service)
+        # 任务终态留档截图的日志附件（docs/12 M23 §3.10）：stdlib 日志渠道只搬运
+        # pipeline/task/request 上下文，**不搬运 attachment**，附件只能走 hub 的
+        # ``offer``，所以这里把 hub 后置注入给 runner（同 bind_notify_service）。
+        bind_log_hub = getattr(pipeline_runner, "bind_log_hub", None)
+        if callable(bind_log_hub):
+            bind_log_hub(hub)
         app.state.push_subscription_service = push_subscription_service
         app.state.webpush_service = webpush_service
         app.state.api_snippet_service = api_snippet_service
