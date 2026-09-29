@@ -16,13 +16,41 @@ __all__ = ["OpenAICompatibleClient"]
 _KNOWN_UPSTREAM_ERROR_CODES = frozenset(
     {
         "context_length_exceeded",
+        "context_window_exceeded",
         "insufficient_quota",
         "invalid_api_key",
         "invalid_request_error",
         "model_not_found",
         "rate_limit_exceeded",
         "server_error",
+        "string_above_max_length",
     }
+)
+
+#: 上游「上下文/输入过长」的已知错误码。本地不再预先按字符数裁剪会话历史（M20），
+#: 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
+_CONTEXT_OVERFLOW_CODES = frozenset(
+    {
+        "context_length_exceeded",
+        "context_window_exceeded",
+        "string_above_max_length",
+    }
+)
+
+#: 上游没给已知错误码时，按消息措辞兜底判定「上下文过长」。只匹配明确的措辞，
+#: 避免把「模型名太长」这类无关 400 误判成上下文溢出。
+_CONTEXT_OVERFLOW_MESSAGE_PATTERNS = (
+    "context length",
+    "context window",
+    "context_length",
+    "maximum context",
+    "max context",
+    "too many tokens",
+    "token limit",
+    "too long",
+    "上下文长度",
+    "上下文窗口",
+    "超出上下文",
 )
 
 #: ``details.upstream_message`` 的长度上限：够定位「模型名不存在」「图片格式不支持」
@@ -114,6 +142,14 @@ class OpenAICompatibleClient:
                             details,
                             {"Retry-After": retry_after} if retry_after else None,
                         )
+                    if self._is_context_overflow(error_code, upstream_message):
+                        # 本地不再按字符数预裁剪会话历史（M20），上下文装不下时只能靠这里
+                        # 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
+                        raise AppError(
+                            ErrorCode.LLM_CONTEXT_OVERFLOW,
+                            "会话历史或知识库内容超出模型上下文长度，请开启新会话或缩短内容",
+                            details,
+                        )
                     raise AppError(
                         ErrorCode.LLM_REQUEST_FAILED,
                         "LLM 上游请求失败",
@@ -198,6 +234,22 @@ class OpenAICompatibleClient:
         if not isinstance(message, str) or not message.strip():
             return None
         return str(redact_remote_data(message.strip()))[:MAX_UPSTREAM_MESSAGE_CHARS]
+
+    @staticmethod
+    def _is_context_overflow(
+        error_code: str | None, upstream_message: str | None
+    ) -> bool:
+        """上游是否因上下文/输入过长而拒绝，需要映射成 ``LLM_CONTEXT_OVERFLOW``。
+
+        先认已知错误码；上游没给（或给的是 ``invalid_request_error`` 这类通用码）时，
+        再按消息措辞兜底。``upstream_message`` 已经过脱敏与截断。
+        """
+        if error_code in _CONTEXT_OVERFLOW_CODES:
+            return True
+        if not upstream_message:
+            return False
+        haystack = upstream_message.casefold()
+        return any(pattern in haystack for pattern in _CONTEXT_OVERFLOW_MESSAGE_PATTERNS)
 
     @staticmethod
     def _parse_chunk(data: str) -> dict[str, Any]:

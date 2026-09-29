@@ -216,6 +216,122 @@ def test_non_success_response_maps_to_stable_llm_request_error() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    ("payload", "expected_code"),
+    [
+        (
+            {
+                "code": "context_length_exceeded",
+                "message": (
+                    "This model's maximum context length is 65536 tokens, "
+                    "however you requested 70000 tokens"
+                ),
+            },
+            "context_length_exceeded",
+        ),
+        (
+            {
+                "code": "context_window_exceeded",
+                "message": "the request exceeds the model's context window",
+            },
+            "context_window_exceeded",
+        ),
+        (
+            {
+                "code": "string_above_max_length",
+                "message": "the input string is above the maximum length",
+            },
+            "string_above_max_length",
+        ),
+        # 上游只给通用码时按消息措辞兜底（本地不再预裁剪，这条是唯一能看出窗口装不下的地方）。
+        (
+            {
+                "code": "invalid_request_error",
+                "message": "This model's maximum context length is 65536 tokens",
+            },
+            "invalid_request_error",
+        ),
+        ({"message": "prompt is too long for this model"}, None),
+    ],
+    ids=[
+        "context_length_exceeded",
+        "context_window_exceeded",
+        "string_above_max_length",
+        "generic-code-with-context-message",
+        "no-code-too-long-message",
+    ],
+)
+def test_upstream_context_overflow_maps_to_llm_context_overflow(
+    payload: dict[str, Any], expected_code: str | None
+) -> None:
+    """上游因上下文过长拒绝时给可读的 400 LLM_CONTEXT_OVERFLOW，details 保留原话。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": payload})
+
+    async def scenario() -> AppError:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("m", [], []))
+        return exc_info.value
+
+    error = asyncio.run(scenario())
+    assert error.code == ErrorCode.LLM_CONTEXT_OVERFLOW
+    assert error.http_status == 400
+    assert "超出模型上下文长度" in (error.message or "")
+    assert error.details["upstream_status"] == 400
+    assert error.details["upstream_message"] == payload["message"]
+    assert error.details.get("upstream_code") == expected_code
+
+
+def test_rate_limit_and_unrelated_upstream_errors_keep_their_mapping() -> None:
+    """429 与「非上下文」的 4xx/5xx 行为不变：只有上下文过长才变成 400。"""
+
+    def rate_limited(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "7"},
+            json={
+                "error": {
+                    "code": "rate_limit_exceeded",
+                    "message": "Too many requests; retry later.",
+                }
+            },
+        )
+
+    def unrelated(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "code": "invalid_request_error",
+                    "message": "You have uploaded an unsupported image",
+                }
+            },
+        )
+
+    async def scenario(handler) -> AppError:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("m", [], []))
+        return exc_info.value
+
+    limited = asyncio.run(scenario(rate_limited))
+    assert limited.code == ErrorCode.LLM_RATE_LIMITED
+    assert limited.http_status == 429
+    assert limited.headers == {"Retry-After": "7"}
+
+    unrelated_error = asyncio.run(scenario(unrelated))
+    assert unrelated_error.code == ErrorCode.LLM_REQUEST_FAILED
+    assert unrelated_error.http_status == 502
+
+
 def test_invalid_model_name_surfaces_upstream_message_without_credentials() -> None:
     """模型名写错时要能在 details 里看到上游原话，且凭据不得回显。"""
 

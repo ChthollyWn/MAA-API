@@ -13,10 +13,9 @@
   文本：索引（playbook / screen / rule，先按 kind 再按 id 排序）+ 术语表全文 +
   用户档案全文。
 
-上限在写入时按**写入后的生效状态**判定（不是按请求体）：启用条目 ≤ 50、
-启用的 glossary + profile 正文合计 ≤ 3,000 字。违反的返回
-``KNOWLEDGE_LIMIT_EXCEEDED``（409），``details`` 写明是哪条限制；字段格式与长度
-在请求模型里拦成 422，这里的同名校验是兜底。
+写入只做**字段校验**（格式与长度在请求模型里拦成 422，这里的同名校验是兜底）与
+内置 ``kind`` 的覆盖保护（409 ``KNOWLEDGE_BUILTIN_READONLY``）。条目数与全文段
+字数**不设上限**（M20 用户裁决：注入多少知识以模型自身的上下文窗口为准）。
 
 信任边界（规格 §4.1「信任边界」）：知识库内容由持有访问令牌的人编写，当作操作
 指引；截图、日志和其他工具结果仍是不可信数据。本模块不给 Agent 任何写入通道。
@@ -52,8 +51,6 @@ __all__ = [
     "PROFILE_HEADER",
     "KNOWLEDGE_KINDS",
     "MAX_BODY_CHARS",
-    "MAX_ENABLED_ENTRIES",
-    "MAX_FULLTEXT_CHARS",
     "MAX_TITLE_CHARS",
     "MAX_WHEN_TO_USE_CHARS",
     "BuiltinEntry",
@@ -80,11 +77,10 @@ FULLTEXT_KINDS = ("glossary", "profile")
 #: ``id`` 是 URL 路径段，只允许小写字母、数字与中划线，2–48 个字符。
 ENTRY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,47}$")
 
+#: 单条字段的长度上限：列宽与表单的约束，不是上下文预算，M20 保留不动。
 MAX_TITLE_CHARS = 32
 MAX_WHEN_TO_USE_CHARS = 120
 MAX_BODY_CHARS = 20_000
-MAX_ENABLED_ENTRIES = 50
-MAX_FULLTEXT_CHARS = 3_000
 
 #: 注入段的三行标题，照抄规格 §4.1 的示例。
 INDEX_HEADER = (
@@ -424,34 +420,6 @@ def _not_found(entry_id: str) -> AppError:
     )
 
 
-def _check_limits(entries: Mapping[str, _EffectiveEntry]) -> None:
-    """按写入后的生效状态判上限；违反哪条就在 ``details`` 里写哪条。"""
-    enabled = [entry for entry in entries.values() if entry.enabled]
-    if len(enabled) > MAX_ENABLED_ENTRIES:
-        raise AppError(
-            ErrorCode.KNOWLEDGE_LIMIT_EXCEEDED,
-            f"启用的知识条目不能超过 {MAX_ENABLED_ENTRIES} 条",
-            {
-                "limit": "enabled_entries",
-                "max": MAX_ENABLED_ENTRIES,
-                "actual": len(enabled),
-            },
-        )
-    fulltext_chars = sum(
-        len(entry.body) for entry in enabled if entry.kind in FULLTEXT_KINDS
-    )
-    if fulltext_chars > MAX_FULLTEXT_CHARS:
-        raise AppError(
-            ErrorCode.KNOWLEDGE_LIMIT_EXCEEDED,
-            f"术语表与用户档案的正文合计不能超过 {MAX_FULLTEXT_CHARS} 字",
-            {
-                "limit": "fulltext_chars",
-                "max": MAX_FULLTEXT_CHARS,
-                "actual": fulltext_chars,
-            },
-        )
-
-
 def _override_row(
     entry_id: str, payload: KnowledgeWrite, builtin: BuiltinEntry, now: datetime
 ) -> AgentKnowledge | None:
@@ -527,8 +495,8 @@ class KnowledgeService:
         """拼进 system 消息的知识库段（格式见规格 §4.1）。
 
         索引与全文都取生效值；``glossary`` / ``profile`` 有多条启用时按 id 顺序
-        全部注入（字数上限正是按它们的正文合计算的，只注入一条会让上限算到看不见
-        的内容上）。空段落写「暂无」。
+        全部注入（M20 起不再有全文预算，注入多少以模型自身的上下文窗口为准）。
+        空段落写「暂无」。
         """
         async with self._session_factory() as session:
             rows = await AgentKnowledgeRepository(session).all()
@@ -596,13 +564,13 @@ class KnowledgeService:
                     updated_at=now,
                 )
 
-            # 上限按写入后的生效状态判定：先把这一行换成本次的结果，再看全表
+            # 读全表是为了返回**写入后的生效内容**（合并内置值），不再有上限判定：
+            # 条目数与全文段字数交给模型自身的上下文窗口。
             rows = await repository.all()
             others = [item for item in rows if item.id != entry_id]
             effective = _merge(
                 [*others, proposed] if proposed is not None else others, self._builtins
             )
-            _check_limits(effective)
 
             if proposed is None:
                 await repository.delete(entry_id)

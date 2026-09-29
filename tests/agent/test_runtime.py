@@ -486,6 +486,75 @@ def test_model_context_redacts_credentials_preserves_only_latest_screenshot_and_
     asyncio.run(scenario())
 
 
+def test_model_context_keeps_every_turn_by_default_even_beyond_the_removed_cap():
+    """M20 用户裁决：不设本地上限，默认参数下历史整段发给模型，一轮都不丢。
+
+    历史总长刻意超过被删掉的旧默认上限（1,000,000 字符）：旧实现会从这里开始丢掉
+    最早的完整轮次，现在必须一条不少地保留。
+    """
+    from maa_api.agent.runtime import DEFAULT_MAX_CONTEXT_CHARS, build_model_context
+
+    assert DEFAULT_MAX_CONTEXT_CHARS is None
+    old_default_cap = 1_000_000
+    history = [
+        AgentMessage(
+            session_id="s",
+            seq=index,
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"第 {index} 条消息：" + "史" * 30_000,
+        )
+        for index in range(40)
+    ]
+
+    context = build_model_context(history, system_prompt="sys")
+
+    # system + 全部历史，一条都不许少
+    assert len(context) == 1 + len(history)
+    assert context[0]["role"] == "system"
+    for index, message in enumerate(history):
+        assert context[index + 1]["role"] == message.role
+        assert context[index + 1]["content"] == message.content
+    # 真的超过了旧上限：证明「没丢轮次」不是因为历史本来就不够长
+    assert len(json.dumps(context, ensure_ascii=False)) > old_default_cap
+
+
+def test_explicit_max_context_chars_still_trims_and_overflows():
+    """显式传正整数时保持老语义：先丢最早的完整轮次，连最后一轮都装不下就报 400。"""
+    from maa_api.agent.runtime import build_model_context
+
+    history = [
+        AgentMessage(session_id="s", seq=0, role="user", content="最早的问题 " + "旧" * 400),
+        AgentMessage(session_id="s", seq=1, role="assistant", content="最早的答复 " + "旧" * 400),
+        AgentMessage(session_id="s", seq=2, role="user", content="现在的问题"),
+    ]
+
+    trimmed = build_model_context(history, system_prompt="sys", max_context_chars=300)
+    serialized = json.dumps(trimmed, ensure_ascii=False)
+    assert "最早的问题" not in serialized
+    assert "最早的答复" not in serialized
+    assert "现在的问题" in serialized
+    assert [message["role"] for message in trimmed] == ["system", "user"]
+
+    with pytest.raises(AppError) as info:
+        build_model_context(history, system_prompt="sys", max_context_chars=1)
+    assert info.value.code is ErrorCode.LLM_CONTEXT_OVERFLOW
+    assert info.value.http_status == 400
+
+
+def test_agent_runtime_context_cap_validation_accepts_none_and_rejects_zero():
+    """``max_context_chars`` 要么 None（默认不裁），要么 ≥ 1。"""
+    from maa_api.agent.runtime import AgentRuntime
+
+    # 只验证构造参数：非法值在碰到 session_factory / confirmation_service 之前就抛出。
+    default_runtime = AgentRuntime(None, None)  # type: ignore[arg-type]
+    assert default_runtime.max_context_chars is None
+    capped = AgentRuntime(None, None, max_context_chars=1)  # type: ignore[arg-type]
+    assert capped.max_context_chars == 1
+    for invalid in (0, -1):
+        with pytest.raises(ValueError, match="max_context_chars"):
+            AgentRuntime(None, None, max_context_chars=invalid)  # type: ignore[arg-type]
+
+
 def test_status_summary_and_log_instructions_are_remote_data_not_tool_commands():
     async def scenario():
         runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(

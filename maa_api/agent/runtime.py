@@ -43,7 +43,10 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERATIONS: int | None = None
-DEFAULT_MAX_CONTEXT_CHARS = 1_000_000
+#: 会话上下文长度上限。``None``＝**不设本地上限**（默认）：注入多少历史以模型自身的
+#: 上下文窗口为准，装不下时由上游拒绝，再映射成 ``LLM_CONTEXT_OVERFLOW``（见 ``llm.py``）。
+#: 正整数只用于测试与需要受限的调用方，语义是「按字符数丢掉最早的完整轮次」。
+DEFAULT_MAX_CONTEXT_CHARS: int | None = None
 DEFAULT_CONFIRMATION_POLL_SECONDS = 0.25
 #: 会话标题的长度上限。数据库列是 64，这里取 24：一屏的会话行放得下，也不必依赖
 #: 截断兜底——真被截断说明模型没听话，标题已经不好看了。
@@ -147,7 +150,7 @@ def build_model_context(
     system_prompt: str = SYSTEM_PROMPT,
     knowledge_context: str | None = None,
     status_summary: Any = None,
-    max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+    max_context_chars: int | None = DEFAULT_MAX_CONTEXT_CHARS,
     vision_enabled: bool = True,
 ) -> list[dict[str, Any]]:
     """Build a safe OpenAI message copy, keeping screenshots and turns intact.
@@ -155,6 +158,11 @@ def build_model_context(
     system 消息按「提示词 → 知识库段 → 状态摘要」拼接（规格 §4.1）：稳定内容在
     前、易变内容在后，整段照旧先经 :func:`redact_remote_data`。``knowledge_context``
     为 ``None`` 时不插这一段（调用方没有知识库可注入）。
+
+    ``max_context_chars`` 为 ``None``（默认）时**不裁剪**：历史整段保留，长度以模型
+    自身的上下文窗口为准。显式传正整数时才进入裁剪循环——按字符数从最早的非保护轮次
+    开始丢，最近一个完整工具轮次与最后一轮受保护；连它们都装不下就抛
+    ``LLM_CONTEXT_OVERFLOW``。
     """
     raw_history = [_message_dict(message) for message in history]
     newest_screenshot = next(
@@ -252,6 +260,11 @@ def build_model_context(
     fixed = [{"role": "system", "content": redact_remote_data(system_content)}]
     if not model_history:
         return fixed
+    if max_context_chars is None:
+        # 不设本地上限（默认）：整段历史原样发给模型，由它自己的上下文窗口决定装不装得下。
+        # 真的超长时上游会拒绝，由 llm.py 映射成可读的 LLM_CONTEXT_OVERFLOW；
+        # 这里绝不悄悄丢掉最早的轮次。
+        return fixed + model_history
 
     groups = _turn_groups(model_history)
     protected: set[int] = set()
@@ -287,14 +300,17 @@ class AgentRuntime:
         context_provider: Callable[[Any], Any] | None = None,
         knowledge_service: Any = None,
         max_iterations: int | None = DEFAULT_MAX_ITERATIONS,
-        max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+        max_context_chars: int | None = DEFAULT_MAX_CONTEXT_CHARS,
         confirmation_poll_seconds: float = DEFAULT_CONFIRMATION_POLL_SECONDS,
     ) -> None:
         # None 表示不设步数上限（默认）；正整数只用于测试与需要受限的调用方。
         if max_iterations is not None and max_iterations < 1:
             raise ValueError("max_iterations must be positive or None")
-        if max_context_chars < 1 or confirmation_poll_seconds <= 0:
-            raise ValueError("context and confirmation limits must be positive")
+        # None 表示不设上下文上限（默认，交给模型自身的窗口）；正整数才启用本地裁剪。
+        if max_context_chars is not None and max_context_chars < 1:
+            raise ValueError("max_context_chars must be positive or None")
+        if confirmation_poll_seconds <= 0:
+            raise ValueError("confirmation_poll_seconds must be positive")
         self.session_factory = session_factory
         self.confirmation_service = confirmation_service
         self.settings_provider = settings_provider
@@ -688,8 +704,9 @@ class AgentRuntime:
         client, owned = self._make_client(client_settings)
         try:
             # 迭代次数默认不设上限：一次故障排查可能要读几十次日志与截图，按次数截断会
-            # 把一个本该跑完的诊断硬切在中间。真正兜底的是上下文裁剪（max_context_chars）
-            # 与下面的「重复调用」检测，而不是一个拍脑袋的步数。
+            # 把一个本该跑完的诊断硬切在中间。上下文长度同样交给模型自身的窗口
+            # （max_context_chars 默认 None，装不下时由上游拒绝并映射成
+            # LLM_CONTEXT_OVERFLOW），本地真正的兜底只有下面的「重复调用」检测。
             iteration = 0
             last_signature: str | None = None
             repeats = 0
