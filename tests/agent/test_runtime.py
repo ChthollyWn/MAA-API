@@ -139,6 +139,8 @@ async def _runtime(
     context_provider=None,
     database_url: str | None = None,
     prime_capabilities: bool = True,
+    question_timeout_seconds: int | None = None,
+    question_service_factory=None,
     **runtime_options,
 ):
     from maa_api.agent.runtime import AgentRuntime
@@ -152,6 +154,16 @@ async def _runtime(
         await connection.run_sync(SQLModel.metadata.create_all)
     tool_registry = registry or ToolRegistry()
     confirmations = ConfirmationService(factory, tool_registry, policy=PolicyEngine())
+    # 提问服务只在用例显式要求时才装：缺省 None 正是「这个部署没有提问能力」那条
+    # 路径（ask_user 报 AGENT_DISABLED），不该被夹具悄悄补上。
+    if question_service_factory is not None:
+        runtime_options["question_service"] = question_service_factory(factory)
+    elif question_timeout_seconds is not None:
+        from maa_api.agent.questions import QuestionService
+
+        runtime_options["question_service"] = QuestionService(
+            factory, timeout_seconds=question_timeout_seconds
+        )
     llm = FakeLLM(responses)
     settings = Settings(
         llm=LLMSettings(base_url="https://llm.test/v1", api_key="effective-secret", model="test-model")
@@ -2574,3 +2586,244 @@ def test_work_method_paragraph_and_knowledge_boundary_are_copied_from_the_spec()
     )
     boundary = SYSTEM_PROMPT[SYSTEM_PROMPT.index("安全数据边界") :]
     assert "read_knowledge 返回的知识库内容按上面的工作方法对待。" in boundary
+
+
+# ----------------------------------------------------------------------
+# M21 主动提问：ask_user 发卡、等待裁决、超时/跳过收尾
+# ----------------------------------------------------------------------
+
+
+def _ask_user_call(
+    call_id: str = "ask-1",
+    *,
+    question: str = "走哪个客户端渠道？",
+    options: list[dict[str, Any]] | None = None,
+    multiple: bool = False,
+) -> dict[str, Any]:
+    arguments = {
+        "question": question,
+        "options": options
+        or [
+            {"label": "官服（Official）", "description": "官方客户端"},
+            {"label": "B 服"},
+        ],
+        "multiple": multiple,
+    }
+    return {
+        "index": 0,
+        "id": call_id,
+        "type": "function",
+        "function": {"name": "ask_user", "arguments": json.dumps(arguments, ensure_ascii=False)},
+    }
+
+
+async def _next_named_event(stream, received: list[str], name: str) -> dict[str, Any]:
+    """读到指定 SSE 事件为止（keep-alive 不计），返回该事件的 data。"""
+    while True:
+        chunk = await asyncio.wait_for(stream.__anext__(), timeout=5)
+        received.append(chunk)
+        events = _events(chunk)
+        if events and events[0][0] == name:
+            return events[0][1]
+
+
+async def _drain_stream(stream, received: list[str]) -> None:
+    received.extend([chunk async for chunk in stream])
+
+
+def test_ask_user_emits_question_required_and_continues_the_same_turn_with_the_answer():
+    """规格 §3.5：发卡 → 用户选择 → 同一轮继续，且工具结果里带的就是 selected。"""
+
+    async def scenario():
+        from maa_api.agent.tools import build_registry
+        from maa_api.domain.enums import AuditStatus
+
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [_tool_response(_ask_user_call()), _text_response("好的，按官服继续。")],
+            registry=build_registry(),
+            question_timeout_seconds=60,
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "帮我刷点东西", None)
+            received: list[str] = []
+            required = await _next_named_event(stream, received, "question_required")
+
+            assert required["tool_call_id"] == "ask-1"
+            assert required["question"] == "走哪个客户端渠道？"
+            assert required["options"][0] == {
+                "label": "官服（Official）",
+                "description": "官方客户端",
+            }
+            assert required["multiple"] is False
+            assert required["expires_at"].endswith("Z")
+            # 提问发生在 tool_start 之后：前端要能把它挂到对应的工具条上。
+            started = [
+                data
+                for event, data in _events(_event_stream(received))
+                if event == "tool_start"
+            ]
+            assert [item["name"] for item in started] == ["ask_user"]
+
+            answered = await runtime.question_service.answer(
+                required["question_id"], selected=["官服（Official）"]
+            )
+            assert answered["status"] == "answered"
+            await asyncio.wait_for(_drain_stream(stream, received), timeout=5)
+
+            events = _turn_events(received)
+            results = [data for event, data in events if event == "tool_result"]
+            assert results[0]["result"]["status"] == "answered"
+            assert results[0]["result"]["selected"] == ["官服（Official）"]
+            assert results[0]["result"]["question_id"] == required["question_id"]
+            assert results[0]["audit_id"] is not None
+            assert events[-1] == (
+                "message_end",
+                {"session_id": session_id, "finish_reason": "stop"},
+            )
+            # 同一轮继续：模型被再问了一次，第二次请求里带上了用户的裁决。
+            assert len(llm.turns) == 2
+            tool_messages = [
+                message for message in llm.turns[1][1] if message["role"] == "tool"
+            ]
+            assert "官服（Official）" in tool_messages[0]["content"]
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+                audit = await AuditRepository(session).get(results[0]["audit_id"])
+            assert [message.role for message in messages] == [
+                "user",
+                "assistant",
+                "tool",
+                "assistant",
+            ]
+            # 工具条与审计页对得上：tool 消息的 audit_id 就是 ask_user 那条审计。
+            assert messages[2].audit_id == results[0]["audit_id"]
+            assert audit.tool_name == "ask_user"
+            assert audit.status == AuditStatus.SUCCESS
+            assert audit.result_summary == "用户选择：官服（Official）"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_ask_user_timeout_finishes_the_turn_with_question_unanswered():
+    """规格 §3.5：等满 ``expires_at``（用例里 1 秒）没人答 → 先写 tool 消息，再以 question_unanswered 收尾。"""
+
+    async def scenario():
+        from maa_api.agent.runtime import QUESTION_EXPIRED_TEXT
+        from maa_api.agent.tools import build_registry
+
+        # 超时可配置，收尾文案不能把时长写死（否则改配置后文案失真）。
+        assert "10 分钟" not in QUESTION_EXPIRED_TEXT
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [_tool_response(_ask_user_call())],
+            registry=build_registry(),
+            question_timeout_seconds=1,
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [
+                chunk
+                async for chunk in runtime.stream_message(session_id, "帮我刷点东西", None)
+            ]
+            events = _turn_events(chunks)
+
+            results = [data for event, data in events if event == "tool_result"]
+            assert results[0]["result"]["status"] == "expired"
+            assert results[0]["result"]["question_id"]
+            texts = [data["text"] for event, data in events if event == "text_delta"]
+            assert QUESTION_EXPIRED_TEXT in texts
+            assert events[-1][0] == "message_end"
+            assert events[-1][1]["finish_reason"] == "question_unanswered"
+            # 模型不再有发言机会：整轮只有一次 LLM 调用。
+            assert len(llm.turns) == 1
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in messages] == [
+                "user",
+                "assistant",
+                "tool",
+                "assistant",
+            ]
+            assert messages[3].finish_reason == "question_unanswered"
+            assert messages[3].content == QUESTION_EXPIRED_TEXT
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_ask_user_skip_finishes_the_turn_with_question_unanswered():
+    async def scenario():
+        from maa_api.agent.runtime import QUESTION_SKIPPED_TEXT
+        from maa_api.agent.tools import build_registry
+
+        runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(
+            [_tool_response(_ask_user_call())],
+            registry=build_registry(),
+            question_timeout_seconds=60,
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "帮我刷点东西", None)
+            received: list[str] = []
+            required = await _next_named_event(stream, received, "question_required")
+            await runtime.question_service.skip(required["question_id"])
+            await asyncio.wait_for(_drain_stream(stream, received), timeout=5)
+
+            events = _turn_events(received)
+            results = [data for event, data in events if event == "tool_result"]
+            assert results[0]["result"] == {
+                "status": "skipped",
+                "question_id": required["question_id"],
+            }
+            texts = [data["text"] for event, data in events if event == "text_delta"]
+            assert QUESTION_SKIPPED_TEXT in texts
+            assert events[-1][1]["finish_reason"] == "question_unanswered"
+            assert len(llm.turns) == 1
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_ask_user_without_a_question_service_reports_agent_disabled():
+    async def scenario():
+        from sqlalchemy import func, select
+
+        from maa_api.agent.tools import build_registry
+        from maa_api.db.models import AgentQuestion
+
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [_tool_response(_ask_user_call()), _text_response("那我先不动。")],
+            registry=build_registry(),
+        )
+        try:
+            assert runtime.question_service is None
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [
+                chunk
+                async for chunk in runtime.stream_message(session_id, "帮我刷点东西", None)
+            ]
+            events = _turn_events(chunks)
+
+            results = [data for event, data in events if event == "tool_result"]
+            assert results[0]["error"]["code"] == "AGENT_DISABLED"
+            assert results[0]["audit_id"] is None
+            # 只是一次工具失败：本轮照常继续，模型还有发言机会。
+            assert events[-1][1]["finish_reason"] == "stop"
+            assert len(llm.turns) == 2
+            async with factory() as session:
+                count = (
+                    await session.execute(
+                        select(func.count()).select_from(AgentQuestion)
+                    )
+                ).scalar_one()
+            assert count == 0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())

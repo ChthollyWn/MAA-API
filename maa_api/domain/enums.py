@@ -81,6 +81,19 @@ class ConfirmationStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class QuestionStatus(StrEnum):
+    """Agent 主动提问的状态机（M21，规格 §3.2）。
+
+    与 ``ConfirmationStatus`` 分开：确认的终态是「批准/拒绝/过期」，提问的终态是
+    「已答/已跳过/过期」——「跳过」在确认链路里没有对应物，批准也没有。
+    """
+
+    PENDING = "pending"
+    ANSWERED = "answered"
+    SKIPPED = "skipped"          # 用户点了「跳过」，本轮结束
+    EXPIRED = "expired"          # 超时未回答，本轮结束
+
+
 class RiskLevel(StrEnum):
     NONE = "none"
     CONSUME = "consume"              # 碎石、理智药、加急许可、购物、投资

@@ -33,6 +33,8 @@ CHANNELS = frozenset(
         "device_status",
         "confirm_request",
         "confirm_resolved",
+        "question_request",
+        "question_resolved",
         "update_progress",
         "update_available",
         "agent_event",

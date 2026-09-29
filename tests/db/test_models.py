@@ -55,6 +55,7 @@ BUSINESS_TABLES = {
     "api_snippet",
     "push_subscription",
     "agent_knowledge",
+    "agent_question",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -68,6 +69,7 @@ UUID_PK_TABLES = [
     "resource_asset",
     "api_snippet",
     "push_subscription",
+    "agent_question",
 ]
 AUTOINCREMENT_TABLES = ["log_entry", "agent_message", "agent_audit", "agent_idempotency"]
 
@@ -139,6 +141,16 @@ EXPECTED_INDEXES = {
     ),
     "ix_resource_asset_kind_enabled": ("resource_asset", ("kind", "enabled"), False),
     "ix_api_snippet_updated_at": ("api_snippet", ("updated_at",), False),
+    "ix_agent_question_status_expires_at": (
+        "agent_question",
+        ("status", "expires_at"),
+        False,
+    ),
+    "ix_agent_question_session_status_created_at": (
+        "agent_question",
+        ("session_id", "status", "created_at"),
+        False,
+    ),
     "uq_update_record_running_target": ("update_record", ("target",), True),
 }
 
@@ -161,6 +173,7 @@ EXPECTED_FK_CASCADE = {
     ("task", "pipeline_id"),
     ("agent_message", "session_id"),
     ("agent_idempotency", "audit_id"),
+    ("agent_question", "session_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -178,6 +191,7 @@ EXPECTED_FK_SET_NULL = {
     ("agent_session", "atomic_grant_id"),
     ("agent_message", "audit_id"),
     ("agent_audit", "confirmation_id"),
+    ("agent_question", "audit_id"),
     ("agent_audit", "authorized_by_id"),
     ("agent_audit", "session_id"),
     ("confirmation", "audit_id"),
@@ -198,6 +212,7 @@ EXPECTED_TEXT_COLUMNS = {
     ("notify_channel", "last_error"),
     ("resource_asset", "description"),
     ("agent_knowledge", "body"),
+    ("agent_question", "question"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -220,6 +235,8 @@ EXPECTED_JSON_COLUMNS = {
     ("api_snippet", "query"),
     ("api_snippet", "headers"),
     ("api_snippet", "body"),
+    ("agent_question", "options"),
+    ("agent_question", "selection"),
 }
 
 
@@ -283,8 +300,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_19_business_tables():
-    """19 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+def test_metadata_has_exactly_20_business_tables():
+    """20 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
@@ -379,7 +396,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """17 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """19 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
