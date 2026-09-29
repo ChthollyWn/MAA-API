@@ -54,3 +54,14 @@
   - `docs/05 §6` 的「共 93 条 API 端点」自 M11 起从未维护（真实 operation 101，小节和 117），与 M18/M21 一样未动。
   - 标题生成窗口内 `turn_running=false`；assistant 文本消息在「取消正好落在其落库中途」时理论上去重不覆盖（不影响请求结构合法性）。
 
+
+## 收尾（tag `v2-m22` 之后，分支 `m22-doc-followups`）
+
+用户裁决：「这两个遗留都修复。」第二条比记录里写的严重，另发现第三条同类问题。详见 docs/13 §8.28。
+
+1. **`scripts/generate_api_guide.py`**：删掉 M10 的「未交付家族统一改写」（`CONFIRMATION_`/`AGENT_`/`TOOL_`/`LLM_` 四前缀一律写成「预留错误码；对应功能未交付（M11/M13）」，19 行），错误码说明逐字取自 docs/05；`tests/test_api_guide_generator.py` 里断言该改写的那条测试改成反向钉住「四族必须保留 docs/05 原文」；连带修 docs/14 两处过期陈述（「`confirm_request` 等 M10 不会发布」、「§7 交付范围停在 M10」）。
+2. **`docs/05 §6`**：实测不是数字漂移而是清单失真——21 条行描述不存在的端点、6 个已实现端点没被记录、6 处计数错。已改写成真实清单（删 21 / 补 6 / 总数 93 → 101），新增门禁 `tests/domain/test_route_inventory.py`（8 条断言，纯文件读取 docs/05 §6 + `web/openapi.json`）。
+3. **`docs/05 §12`**：旧端点「保留 410 存根」是假陈述（M3 起一律不注册旧 router），改成不保留存根 + 迁移对照表，并如实标注 `ENDPOINT_REMOVED` 没有路径会抛出。
+4. **遗留（待用户裁决）**：`ENDPOINT_REMOVED` 按本仓标准应删除（连带 `ERROR_HTTP_STATUS`、docs/05 §4 一行、总数 105 → 104、docs/14 与两处计数门禁）；本次只在文档加注。
+
+验证（主 agent 复跑）：`tests/domain/test_route_inventory.py` 8 passed；`tests/domain tests/api tests/test_api_guide_generator.py` 714 passed；全量 `1954 passed, 4 skipped` 退出码 0；`dump_openapi.py --check`、`generate_api_guide.py --check` 退出码 0；docs/14 的「预留错误码」从 19 行降到 0；`maa_api/**` 与 `web/**` diff 为空。
