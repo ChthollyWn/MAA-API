@@ -17,8 +17,6 @@ ERROR_SPEC_PATH = REPO_ROOT / "docs" / "05-API规范与路由清单.md"
 _ERROR_ROW = re.compile(
     r"^\|\s*`([A-Z0-9_]+)`\s*\|\s*\d{3}\s*\|\s*(.+?)\s*\|\s*$"
 )
-_RESERVED_ERROR_PREFIXES = ("CONFIRMATION_", "AGENT_", "TOOL_", "LLM_")
-_RESERVED_ERROR_DESCRIPTION = "预留错误码；对应功能未交付（M11/M13）"
 
 
 def parse_error_descriptions(markdown: str) -> dict[str, str]:
@@ -56,15 +54,19 @@ def render_error_table(
     statuses: dict[str, int],
     source_rows: dict[str, str],
 ) -> str:
-    """Render every exposed HTTP error with its contract description."""
+    """Render every exposed HTTP error with its contract description.
+
+    docs/05 §4 是错误码说明的单一事实来源，**逐字**搬进指南。M10 时期这里对所有
+    ``CONFIRMATION_`` / ``AGENT_`` / ``TOOL_`` / ``LLM_`` 前缀的码统一改写成
+    「预留错误码；对应功能未交付」——那些功能在 M11/M13 就交付了，这段替换之后
+    只剩误导（19 行指南说自家已上线的错误码「未交付」），M22 收尾时删掉。
+    """
     missing = [code for code in codes if code not in source_rows]
     if missing:
         raise ValueError(f"缺少错误码说明（docs/05）：{', '.join(missing)}")
     lines = ["| 错误码 | HTTP | 含义与触发场景 |", "|---|---:|---|"]
     for code in codes:
         description = source_rows[code]
-        if code.startswith(_RESERVED_ERROR_PREFIXES):
-            description = _RESERVED_ERROR_DESCRIPTION
         lines.append(f"| `{code}` | {statuses[code]} | {description} |")
     return "\n".join(lines)
 

@@ -21,8 +21,11 @@ def test_error_table_is_generated_from_status_and_authoritative_descriptions():
     assert "| `API_SNIPPET_NOT_FOUND` | 404 | 收藏不存在 |" in table
 
 
-def test_unreleased_error_families_have_neutral_descriptions():
-    reserved_description = "预留错误码；对应功能未交付（M11/M13）"
+def test_agent_and_confirmation_families_keep_their_authoritative_descriptions():
+    """M10 的「未交付家族统一改写」已删除（M22 收尾）：那些功能早已交付。
+
+    这条用例防的是它复活：Agent / 工具 / LLM / 确认四族的说明必须逐字来自 docs/05。
+    """
     table = render_error_table(
         codes=[
             "CONFIRMATION_EXPIRED",
@@ -39,7 +42,7 @@ def test_unreleased_error_families_have_neutral_descriptions():
             "PIPELINE_NOT_FOUND": 404,
         },
         source_rows={
-            "CONFIRMATION_EXPIRED": "超时未响应，已自动拒绝。默认超时 10 分钟",
+            "CONFIRMATION_EXPIRED": "超时未响应，已自动拒绝",
             "AGENT_SESSION_BUSY": "该会话上一轮 tool-calling 循环尚未结束",
             "TOOL_EXECUTION_FAILED": "工具实现内部抛出未预期异常",
             "LLM_TIMEOUT": "上游在超时内未返回",
@@ -47,17 +50,14 @@ def test_unreleased_error_families_have_neutral_descriptions():
         },
     )
 
-    for code, status in (
-        ("CONFIRMATION_EXPIRED", 409),
-        ("AGENT_SESSION_BUSY", 409),
-        ("TOOL_EXECUTION_FAILED", 500),
-        ("LLM_TIMEOUT", 504),
-    ):
-        assert f"| `{code}` | {status} | {reserved_description} |" in table
-    assert "超时未响应" not in table
-    assert "tool-calling" not in table
-    assert "上游在超时内" not in table
+    assert "| `CONFIRMATION_EXPIRED` | 409 | 超时未响应，已自动拒绝 |" in table
+    assert "| `AGENT_SESSION_BUSY` | 409 | 该会话上一轮 tool-calling 循环尚未结束 |" in table
+    assert "| `TOOL_EXECUTION_FAILED` | 500 | 工具实现内部抛出未预期异常 |" in table
+    assert "| `LLM_TIMEOUT` | 504 | 上游在超时内未返回 |" in table
     assert "| `PIPELINE_NOT_FOUND` | 404 | id 不存在 |" in table
+    assert "预留错误码" not in table
+    assert "未交付" not in table
+
 
 
 def test_missing_authoritative_error_description_fails_loudly():
