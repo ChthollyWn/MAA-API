@@ -47,6 +47,9 @@ class ToolDefinition:
     params_model: type[BaseModel]
     handler: ToolHandler
     read_only: bool = False
+    #: 是否把工具暴露给内置 Agent 的模型。注册表、REST 目录与调用入口不受影响，
+    #: 只有 runtime 生成 tools schema 与派发模型调用时会看这个标记（规格 §4.4）。
+    model_visible: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.risk, ToolRisk):
@@ -56,6 +59,8 @@ class ToolDefinition:
                 raise ValueError(f"unsupported risk tier: {self.risk!r}") from exc
         if not isinstance(self.read_only, bool):
             raise TypeError("read_only must be a bool")
+        if not isinstance(self.model_visible, bool):
+            raise TypeError("model_visible must be a bool")
 
 
 class ToolRegistry:

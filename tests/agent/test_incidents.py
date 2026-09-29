@@ -600,6 +600,20 @@ def test_incident_schema_exposes_every_registered_recovery_tool():
     assert {item["function"]["name"] for item in schemas} == INCIDENT_ALLOWED_TOOLS
 
 
+def test_recovery_allowlist_excludes_trigger_screencap_and_its_schema():
+    """整帧 PNG 会把上下文撑爆并让会话失效，诊断白名单不再包含它（规格 §4.4）。"""
+
+    assert "trigger_screencap" not in INCIDENT_ALLOWED_TOOLS
+
+    runtime = object.__new__(AgentRuntime)
+    schemas = runtime._tool_schemas(
+        build_registry(), vision_enabled=True, allowed_tools=INCIDENT_ALLOWED_TOOLS
+    )
+    names = {item["function"]["name"] for item in schemas}
+    assert names == INCIDENT_ALLOWED_TOOLS
+    assert "trigger_screencap" not in names
+
+
 def test_incident_schema_and_dispatch_both_enforce_the_recovery_allowlist(tmp_path):
     async def scenario():
         registry = ToolRegistry()

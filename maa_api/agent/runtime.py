@@ -13,6 +13,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +76,6 @@ INCIDENT_ALLOWED_TOOLS = frozenset(
         "stop_pipeline",
         "reconnect_device",
         "back_to_home",
-        "trigger_screencap",
     }
 )
 SSE_KEEPALIVE_SECONDS = 10.0
@@ -915,6 +915,23 @@ class AgentRuntime:
                 "tool_start",
                 {"tool_call_id": call["id"], "name": call["name"], "arguments": arguments},
             )
+            hidden_tool = False
+            try:
+                hidden_tool = not registry.get(call["name"]).model_visible
+            except AppError:
+                # 未注册的工具仍走原有路径，保持「未知工具」的报错文案。
+                pass
+            if hidden_tool:
+                # 模型看不见的工具只留给 REST；拒绝时不进确认服务，也不落审计。
+                return {
+                    "audit_id": None,
+                    "body": {
+                        "error": {
+                            "code": ErrorCode.TOOL_NOT_FOUND.value,
+                            "message": "内置 Agent 不提供该工具，请用 get_screenshot",
+                        }
+                    },
+                }
             if allowed_tools is not None and call["name"] not in allowed_tools:
                 return {
                     "audit_id": None,
@@ -1265,20 +1282,34 @@ class AgentRuntime:
                 },
             }
             for definition in registry.list()
+            if definition.model_visible
             if vision_enabled or definition.name not in SCREEN_TOOL_NAMES
             if allowed_tools is None or definition.name in allowed_tools
         ]
 
     async def _status_summary(self, request: Any) -> Any:
+        # 服务端本地时间，ISO 8601 带时区偏移：模型必须知道「现在」才能把截图时间和
+        # 问题对齐（规格 §4.3）。无论走默认分支还是自定义分支，它都是第一项。
+        now = datetime.now().astimezone().isoformat()
         provider = self.context_provider
         state = getattr(getattr(request, "app", None), "state", None)
         if provider is None:
             provider = getattr(state, "agent_context_provider", None)
         if provider is not None:
             result = provider(request)
-            return await result if inspect.isawaitable(result) else result
+            summary = await result if inspect.isawaitable(result) else result
+            if isinstance(summary, Mapping):
+                # 保留 provider 的键序与内容，只在最前面补 now；provider 自带的 now
+                # 不作数，但位置仍留在第一项。
+                merged = {"now": now}
+                merged.update(summary)
+                merged["now"] = now
+                return merged
+            # 非 Mapping 的 provider 结果没法就地补字段，包一层并原样保留。
+            return {"now": now, "context": summary}
 
         summary: dict[str, Any] = {
+            "now": now,
             "core": None,
             "device": None,
             "current_pipeline": getattr(state, "current_pipeline", None),

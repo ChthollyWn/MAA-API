@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 from collections.abc import Iterable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -2229,6 +2230,114 @@ def test_title_failure_does_not_break_the_finished_turn():
             async with factory() as session:
                 stored = await AgentSessionRepository(session).get(session_id)
             assert stored.title is None
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_model_tool_schemas_omit_tools_hidden_from_the_builtin_agent():
+    """规格 §4.4：`trigger_screencap` 仍在注册表里，但不进模型 schema。"""
+
+    from maa_api.agent.runtime import AgentRuntime
+    from maa_api.agent.tools import build_registry
+
+    registry = build_registry()
+    runtime = object.__new__(AgentRuntime)
+    names = {
+        item["function"]["name"]
+        for item in runtime._tool_schemas(registry, vision_enabled=True)
+    }
+
+    assert registry.get("trigger_screencap").model_visible is False
+    assert "trigger_screencap" not in names
+    assert "get_screenshot" in names
+    assert names == {
+        definition.name for definition in registry.list() if definition.model_visible
+    }
+
+
+def test_forged_hidden_tool_call_is_rejected_without_confirmation_or_audit():
+    """模型硬造一个隐藏工具时：TOOL_NOT_FOUND、不进确认服务、不落审计。"""
+
+    async def scenario():
+        from maa_api.agent.tools import build_registry
+        from sqlmodel import select
+
+        forged = _tool_response(
+            {
+                "index": 0,
+                "id": "call-hidden",
+                "type": "function",
+                "function": {"name": "trigger_screencap", "arguments": "{}"},
+            }
+        )
+        runtime, factory, confirmations, llm, session_id, engine = await _runtime(
+            [forged, _text_response("我改用 get_screenshot 获取画面。")],
+            registry=build_registry(),
+        )
+        invoked: list[str] = []
+        original_invoke = confirmations.invoke
+
+        async def tracked_invoke(name, *args, **kwargs):
+            invoked.append(name)
+            return await original_invoke(name, *args, **kwargs)
+
+        confirmations.invoke = tracked_invoke
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [
+                chunk
+                async for chunk in runtime.stream_message(session_id, "截一张图", None)
+            ]
+            assert invoked == []
+            tool_results = [
+                data for event, data in _turn_events(chunks) if event == "tool_result"
+            ]
+            assert len(tool_results) == 1
+            assert tool_results[0]["audit_id"] is None
+            assert tool_results[0]["error"]["code"] == ErrorCode.TOOL_NOT_FOUND.value
+            assert "请用 get_screenshot" in tool_results[0]["error"]["message"]
+            async with factory() as session:
+                audits = list((await session.execute(select(AgentAudit))).scalars().all())
+            assert audits == []
+            # 拒绝之后照常把答复交回模型，不重试该工具。
+            assert len(llm.turns) == 2
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_status_summary_starts_with_local_now_carrying_a_utc_offset():
+    async def scenario():
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [_text_response("好了")]
+        )
+        try:
+            summary = await runtime._status_summary(None)
+            assert list(summary)[0] == "now"
+            parsed = datetime.fromisoformat(summary["now"])
+            assert parsed.utcoffset() is not None
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_status_summary_prepends_now_to_a_custom_context_provider_payload():
+    async def scenario():
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [_text_response("好了")],
+            context_provider=lambda _request: {"device": "connected", "queue": 3},
+        )
+        try:
+            summary = await runtime._status_summary(None)
+            assert list(summary)[0] == "now"
+            assert summary["device"] == "connected"
+            assert summary["queue"] == 3
+            parsed = datetime.fromisoformat(summary["now"])
+            assert parsed.utcoffset() is not None
         finally:
             await engine.dispose()
 

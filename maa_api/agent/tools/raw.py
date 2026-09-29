@@ -196,6 +196,10 @@ async def _back_to_home(_params: EmptyParams, context: ToolContext) -> dict[str,
 
 def register_tools(registry: ToolRegistry) -> None:
     """Register safe screenshot/reset tools and authorized raw game actions."""
+    # 整帧 PNG 以 base64 文本进入上下文，会把内置 Agent 的会话撑爆；它只留给 REST
+    # 调用（`GET /api/agent/tools`、`POST /api/agent/tools/trigger_screencap/invoke`），
+    # 模型改用 get_screenshot（规格 §4.4）。
+    hidden_tools = {"trigger_screencap"}
     tools = (
         (
             "trigger_screencap",
@@ -259,5 +263,6 @@ def register_tools(registry: ToolRegistry) -> None:
                 description=description,
                 params_model=params_model,
                 handler=handler,
+                model_visible=name not in hidden_tools,
             )
         )
