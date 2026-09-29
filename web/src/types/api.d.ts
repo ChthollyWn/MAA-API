@@ -3377,7 +3377,7 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description 与当前状态冲突：KNOWLEDGE_BUILTIN_READONLY、KNOWLEDGE_LIMIT_EXCEEDED */
+            /** @description 与当前状态冲突：KNOWLEDGE_BUILTIN_READONLY */
             409: {
                 headers: {
                     [name: string]: unknown;

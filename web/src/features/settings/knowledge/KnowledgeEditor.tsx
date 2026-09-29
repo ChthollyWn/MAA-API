@@ -19,7 +19,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/toaster'
 import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes'
 import type { components } from '@/types/api'
-import { deleteKnowledgeEntry, invalidateKnowledge, knowledgeDetailQuery, knowledgeListQuery, saveKnowledgeEntry, type KnowledgeWrite } from './api'
+import { deleteKnowledgeEntry, invalidateKnowledge, knowledgeDetailQuery, saveKnowledgeEntry, type KnowledgeWrite } from './api'
 import {
   KIND_LABELS,
   KNOWLEDGE_KINDS,
@@ -30,10 +30,8 @@ import {
   describeKnowledgeError,
   emptyKnowledgeForm,
   formatUpdatedAt,
-  fulltextTotal,
   indexLine,
   knowledgeFormFromDetail,
-  knowledgeLimits,
   knowledgeSnapshot,
   lengthHint,
   serverFieldErrors,
@@ -78,10 +76,8 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
   const isNew = entry === null
   const builtin = entry?.source === 'builtin'
 
-  // 上限判断要看别的条目：列表只给正文字数，够用，也不必把所有正文都拉下来。
-  const list = useQuery(knowledgeListQuery)
-  const limits = knowledgeLimits(list.data ?? [], entry?.id ?? null)
-  const errors = validateKnowledgeForm(form, limits, { isNew })
+  // 只有字段级校验：条目数与术语表/档案正文合计都不设上限（注入多少由模型上下文决定）。
+  const errors = validateKnowledgeForm(form, { isNew })
   const dirty = knowledgeSnapshot(form) !== baseline
   const guard = useUnsavedChangesGuard(dirty, isNew ? '新的知识条目还没有创建，离开后填写的内容会丢失。' : `「${entry.title}」有未保存的更改，离开后这些更改会丢失。`)
 
@@ -130,7 +126,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
   const submit = () => {
     if (busy) return
     if (Object.keys(errors).length > 0) {
-      setNotice('还有字段没有填好或超出上限，照着下面的提示改。')
+      setNotice('还有字段没有填好或超出字数，照着下面的提示改。')
       return
     }
     setFieldErrors({})
@@ -212,7 +208,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
         <Field
           label="类型"
           htmlFor="knowledge-kind"
-          description={builtin ? '内置条目的类型不可修改。' : '术语表与用户档案会整段注入，正文合计另有上限。'}
+          description={builtin ? '内置条目的类型不可修改。' : '术语表与用户档案会整段注入 system 消息。'}
           error={fieldErrors.kind ?? errors.kind}
           errorId="knowledge-kind-error"
         >
@@ -304,10 +300,6 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
 
         <Section title="索引预览" description="Agent 的系统消息里会这样列出这一条。">
           <pre className="overflow-x-auto overscroll-x-contain rounded-xl border bg-card px-3.5 py-3 font-mono text-footnote leading-6 shadow-card">{preview}</pre>
-          <p className="px-1 text-footnote tabular-nums text-muted-foreground">
-            术语表与用户档案正文合计 {fulltextTotal(form, limits)} / 3000 字
-          </p>
-          {errors.fulltext ? <p className="px-1 text-footnote font-medium text-danger">{errors.fulltext}</p> : null}
         </Section>
 
         {updatedAt ? <p className="px-1 text-footnote text-muted-foreground">上次更新：{updatedAt}</p> : null}

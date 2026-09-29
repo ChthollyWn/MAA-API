@@ -13,8 +13,6 @@ import { toast } from '@/components/ui/toaster'
 import { invalidateKnowledge, knowledgeListQuery, setKnowledgeEnabled, type KnowledgeSummary } from './api'
 import {
   FULLTEXT_KINDS,
-  MAX_ENABLED_ENTRIES,
-  MAX_FULLTEXT_CHARS,
   NEW_KNOWLEDGE_PATH,
   describeKnowledgeError,
   groupByKind,
@@ -151,7 +149,7 @@ export function KnowledgeSection() {
       </Section>
       {entries.length > 0 ? (
         <p className="px-1 text-footnote text-muted-foreground">
-          已启用 {enabledCount} / {MAX_ENABLED_ENTRIES} 条 · 术语表与用户档案正文合计 {fulltextChars} / {MAX_FULLTEXT_CHARS} 字
+          已启用 {enabledCount} 条 · 术语表与用户档案正文合计 {fulltextChars} 字
         </p>
       ) : null}
     </div>

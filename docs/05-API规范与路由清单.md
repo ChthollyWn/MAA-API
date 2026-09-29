@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 101 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 100 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
 
 ```python
 # maa_api/domain/errors.py
@@ -287,10 +287,9 @@ class AppError(Exception):
 | `LLM_TIMEOUT` | 504 | 上游在超时内未返回 |
 | `LLM_RATE_LIMITED` | 429 | 上游 429 透传，`Retry-After` 沿用上游值 |
 | `LLM_ENCRYPTION_KEY_INVALID` | 503 | 缺少或配置错误的 `MAA_LLM_ENCRYPTION_KEY`，无法解密数据库里的 LLM API 密钥；设置正确的主密钥，或在设置页重新录入 API 密钥 |
-| `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史超出模型上下文窗口，需新建会话或裁剪历史 |
+| `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史或知识库内容超出模型自身的上下文长度（本地不按字符数预裁剪），需开启新会话或缩短内容 |
 | `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
 | `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
-| `KNOWLEDGE_LIMIT_EXCEEDED` | 409 | 启用的条目数或术语表与用户档案的正文合计超出上限，`details` 指明是哪条限制 |
 
 tool-calling 循环的非错误终态**不是错误**：会话正常结束并返回 200，最后一条 `agent_message.finish_reason` 记为 `stuck_loop`（连续三轮发出完全相同的工具调用，判定为原地打转）或 `max_steps`（调用方显式设了步数上限；默认不设上限）。把它们做成错误码会让前端丢掉模型已经产出的中间结论。
 
@@ -673,7 +672,7 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 | GET | `/api/agent/audits/{id}` | 单条审计详情，含完整参数与结果摘要 | | 200 | `NOT_FOUND` |
 | GET | `/api/agent/knowledge` | Agent 知识库条目列表（`items` + `total`），不含正文 | | 200 | — |
 | GET | `/api/agent/knowledge/{entry_id}` | 条目详情，含 `body`；内置条目另附 `builtin` 原文 | `entry_id` 匹配 `^[a-z0-9][a-z0-9-]{1,47}$` | 200 | `KNOWLEDGE_NOT_FOUND`、`VALIDATION_ERROR` |
-| PUT | `/api/agent/knowledge/{entry_id}` | 写入完整的生效内容：新建自定义条目，或修改 / 停用内置条目 | `{kind, title, when_to_use, body, enabled?}`（`title` ≤ 32 字、`when_to_use` ≤ 120 字、`body` ≤ 20,000 字） | 200 | `KNOWLEDGE_BUILTIN_READONLY`、`KNOWLEDGE_LIMIT_EXCEEDED`、`VALIDATION_ERROR` |
+| PUT | `/api/agent/knowledge/{entry_id}` | 写入完整的生效内容：新建自定义条目，或修改 / 停用内置条目 | `{kind, title, when_to_use, body, enabled?}`（`title` ≤ 32 字、`when_to_use` ≤ 120 字、`body` ≤ 20,000 字） | 200 | `KNOWLEDGE_BUILTIN_READONLY`、`VALIDATION_ERROR` |
 | DELETE | `/api/agent/knowledge/{entry_id}` | 删除自定义条目，或撤销对内置条目的修改（恢复默认） | | 204 | `KNOWLEDGE_NOT_FOUND`、`KNOWLEDGE_BUILTIN_READONLY`、`VALIDATION_ERROR` |
 
 LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端点，它是 `setting` 表的三个 key，走 `/api/settings`。默认模型为 DeepSeek Flash（`deepseek-flash`），API Key 由服务端用部署环境变量 `MAA_LLM_ENCRYPTION_KEY` 加密后写入 SQLite；端点仍可由用户配置覆盖。
@@ -684,7 +683,7 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 `agent.auto_diagnose_failures` 默认开启。流水线终态失败和内核崩溃各按持久 incident key 最多创建一个可继续对话的诊断会话；关闭设置后不自动调用模型。自动诊断只暴露安全查询与恢复工具，仍遵循原子操作会话授权和资源消耗/破坏操作逐次确认策略。
 
-**知识库端点**（M18）由独立的路由文件实现，但沿用 `agent` tag（`operationId` 仍是 `agent_*`），因此列在本节。内置条目是随代码发布的只读 Markdown，数据库只存用户的改动与自定义条目；`source`（`builtin` / `custom`）与 `modified` 由读侧的合并结果给出，供设置页显示「内置 / 已修改 / 自定义」徽标。`PUT` 收的是**完整的生效内容**而不是增量，与内置完全一致时等价于「恢复默认」；字段格式与长度不合法是 `422 VALIDATION_ERROR`，条目数（启用上限 50）与术语表加档案的字数合计（3,000 字）越界是 `409 KNOWLEDGE_LIMIT_EXCEEDED`，删除未修改过的内置条目或修改内置条目的 `kind` 是 `409 KNOWLEDGE_BUILTIN_READONLY`。写操作记一条服务日志，不进 Agent 审计；Agent 侧只有只读的 `read_knowledge` 工具，没有任何写通道。
+**知识库端点**（M18）由独立的路由文件实现，但沿用 `agent` tag（`operationId` 仍是 `agent_*`），因此列在本节。内置条目是随代码发布的只读 Markdown，数据库只存用户的改动与自定义条目；`source`（`builtin` / `custom`）与 `modified` 由读侧的合并结果给出，供设置页显示「内置 / 已修改 / 自定义」徽标。`PUT` 收的是**完整的生效内容**而不是增量，与内置完全一致时等价于「恢复默认」；字段格式与长度不合法是 `422 VALIDATION_ERROR`，删除未修改过的内置条目或修改内置条目的 `kind` 是 `409 KNOWLEDGE_BUILTIN_READONLY`。启用条目数与术语表加档案的正文合计数不设上限（M20 用户裁决：注入多少以模型自身的上下文窗口为准，装不下时由上游拒绝并返回 `400 LLM_CONTEXT_OVERFLOW`）。写操作记一条服务日志，不进 Agent 审计；Agent 侧只有只读的 `read_knowledge` 工具，没有任何写通道。
 
 （16 条）
 

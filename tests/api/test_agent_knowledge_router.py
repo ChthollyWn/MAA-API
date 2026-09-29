@@ -16,8 +16,6 @@ from maa_api.agent.knowledge import (
     ENTRY_ID_PATTERN,
     KNOWLEDGE_KINDS,
     MAX_BODY_CHARS,
-    MAX_ENABLED_ENTRIES,
-    MAX_FULLTEXT_CHARS,
     MAX_TITLE_CHARS,
     MAX_WHEN_TO_USE_CHARS,
     KnowledgeService,
@@ -369,64 +367,72 @@ def test_knowledge_rejects_ids_that_are_not_url_segments(
         assert _error(response)["code"] == "VALIDATION_ERROR"
 
 
-def test_knowledge_entry_count_limit_is_a_conflict(
+#: 被删掉的旧启用条目数上限（M20）：写满它再多写一条，过去是 409，现在必须成功。
+REMOVED_ENABLED_ENTRIES_CAP = 50
+#: 被删掉的旧全文预算（字）。
+REMOVED_FULLTEXT_CHARS_CAP = 3_000
+
+
+def test_the_51st_enabled_entry_is_accepted_now(
     isolated_db, make_client, tmp_settings
 ):
+    """第 51 条启用条目不再 409（旧实现抛 KNOWLEDGE_LIMIT_EXCEEDED）。"""
     client = _knowledge_client(isolated_db, make_client)
     payload = {
         "kind": "rule",
         "title": "自定义条目",
-        "when_to_use": "测试条目数上限",
+        "when_to_use": "测试条目数上限已去掉",
         "body": "正文",
         "enabled": True,
     }
-    for index in range(MAX_ENABLED_ENTRIES - len(BUILTIN_IDS)):
+    for index in range(REMOVED_ENABLED_ENTRIES_CAP - len(BUILTIN_IDS)):
         response = client.put(f"/api/agent/knowledge/custom-{index:02d}", json=payload)
         assert response.status_code == 200, response.text
 
-    overflow = client.put("/api/agent/knowledge/custom-overflow", json=payload)
-    assert overflow.status_code == 409
-    error = _error(overflow)
-    assert error["code"] == "KNOWLEDGE_LIMIT_EXCEEDED"
-    assert error["details"] == {
-        "limit": "enabled_entries",
-        "max": MAX_ENABLED_ENTRIES,
-        "actual": MAX_ENABLED_ENTRIES + 1,
-    }
-    assert client.get("/api/agent/knowledge/custom-overflow").status_code == 404
+    items = client.get("/api/agent/knowledge").json()["items"]
+    assert sum(item["enabled"] for item in items) == REMOVED_ENABLED_ENTRIES_CAP
+
+    written = client.put("/api/agent/knowledge/custom-overflow", json=payload)
+    assert written.status_code == 200, written.text
+    assert written.json()["enabled"] is True
+    assert client.get("/api/agent/knowledge/custom-overflow").status_code == 200
+    items = client.get("/api/agent/knowledge").json()["items"]
+    assert sum(item["enabled"] for item in items) == REMOVED_ENABLED_ENTRIES_CAP + 1
 
 
-def test_knowledge_fulltext_budget_limit_is_a_conflict(
+def test_glossary_bodies_may_exceed_the_removed_fulltext_budget(
     isolated_db, make_client, tmp_settings
 ):
+    """术语表正文超过旧预算（3,000 字）不再 409，整段写入并计入列表字数。"""
     client = _knowledge_client(isolated_db, make_client)
-    # 预算被全部启用的内置全文条目先占掉一部分：内置的 glossary + glossary-terms
-    # 合计 2,438 字，用列表的 body_chars 现算，别写死。
+    # 内置的 glossary + glossary-terms 默认全部启用，用列表的 body_chars 现算。
     builtin_fulltext = sum(
         item["body_chars"]
         for item in client.get("/api/agent/knowledge").json()["items"]
         if item["kind"] in FULLTEXT_KINDS and item["enabled"]
     )
-    assert 0 < builtin_fulltext < MAX_FULLTEXT_CHARS
+    assert builtin_fulltext > 0
 
-    exact = client.put(
-        "/api/agent/knowledge/my-profile",
+    body = "字" * REMOVED_FULLTEXT_CHARS_CAP
+    written = client.put(
+        "/api/agent/knowledge/custom-glossary",
         json={
-            **CUSTOM_PAYLOAD,
-            "body": "字" * (MAX_FULLTEXT_CHARS - builtin_fulltext),
+            "kind": "glossary",
+            "title": "自建术语表",
+            "when_to_use": "术语表",
+            "body": body,
+            "enabled": True,
         },
     )
-    assert exact.status_code == 200, exact.text
+    assert written.status_code == 200, written.text
+    assert written.json()["body"] == body
 
-    overflow = client.put(
-        "/api/agent/knowledge/another-profile",
-        json={**CUSTOM_PAYLOAD, "title": "另一个档案", "body": "字"},
+    fulltext = sum(
+        item["body_chars"]
+        for item in client.get("/api/agent/knowledge").json()["items"]
+        if item["kind"] in FULLTEXT_KINDS and item["enabled"]
     )
-    assert overflow.status_code == 409
-    error = _error(overflow)
-    assert error["code"] == "KNOWLEDGE_LIMIT_EXCEEDED"
-    assert error["details"]["limit"] == "fulltext_chars"
-    assert error["details"]["max"] == MAX_FULLTEXT_CHARS
+    assert fulltext == builtin_fulltext + len(body) > REMOVED_FULLTEXT_CHARS_CAP
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +515,8 @@ def test_knowledge_openapi_declares_paths_error_codes_and_constraints(
 
     put_conflict = declared("/api/agent/knowledge/{entry_id}", "put", 409)
     assert "KNOWLEDGE_BUILTIN_READONLY" in put_conflict
-    assert "KNOWLEDGE_LIMIT_EXCEEDED" in put_conflict
+    # M20：条目数与全文段字数不再有上限，这个错误码已从代码与 OpenAPI 中消失。
+    assert "KNOWLEDGE_LIMIT_EXCEEDED" not in put_conflict
     assert "VALIDATION_ERROR" in declared(
         "/api/agent/knowledge/{entry_id}", "put", 422
     )

@@ -4587,7 +4587,7 @@
                 }
               }
             },
-            "description": "与当前状态冲突：KNOWLEDGE_BUILTIN_READONLY、KNOWLEDGE_LIMIT_EXCEEDED"
+            "description": "与当前状态冲突：KNOWLEDGE_BUILTIN_READONLY"
           },
           "422": {
             "content": {

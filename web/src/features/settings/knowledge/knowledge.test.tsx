@@ -7,7 +7,7 @@ import SettingsPage from '@/routes/settings'
 import KnowledgeEditorPage from '@/routes/settings/knowledge-editor'
 import { routeConfig } from '@/routes/router'
 import { useAuth } from '@/stores/auth'
-import { MAX_ENABLED_ENTRIES, MAX_TITLE_CHARS, NEW_KNOWLEDGE_PATH, knowledgeEntryPath } from './format'
+import { MAX_TITLE_CHARS, NEW_KNOWLEDGE_PATH, knowledgeEntryPath } from './format'
 
 interface RecordedRequest {
   method: string
@@ -208,7 +208,7 @@ describe('knowledge settings section', () => {
     // 开关按当前启用状态显示，标题与 id 都能看到。
     expect(screen.getByRole('switch', { name: '启用「查询账号资源」' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByRole('switch', { name: '启用「抽卡换算」' })).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByText('已启用 4 / 50 条 · 术语表与用户档案正文合计 1300 / 3000 字')).toBeInTheDocument()
+    expect(screen.getByText('已启用 4 条 · 术语表与用户档案正文合计 1300 字')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '新建' })).toHaveAttribute('href', NEW_KNOWLEDGE_PATH)
   })
 
@@ -230,17 +230,17 @@ describe('knowledge settings section', () => {
     await waitFor(() => expect(screen.getByRole('switch', { name: '启用「抽卡换算」' })).toHaveAttribute('aria-checked', 'true'))
   })
 
-  it('shows a readable line for a 409 limit error from the switch', async () => {
+  it('shows a readable line for a 409 from the switch', async () => {
     const api = installApi({
-      put: { status: 409, body: { error: { code: 'KNOWLEDGE_LIMIT_EXCEEDED', message: '与当前状态冲突' } } },
+      put: { status: 409, body: { error: { code: 'KNOWLEDGE_BUILTIN_READONLY', message: '与当前状态冲突' } } },
     })
     renderKnowledge()
 
     fireEvent.click(await screen.findByRole('switch', { name: '启用「抽卡换算」' }))
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('启用的条目最多 50 条')
-    expect(alert).toHaveTextContent('3000 字')
+    expect(alert).toHaveTextContent('内置条目不能这样改')
+    expect(alert).toHaveTextContent('类型不可修改')
     expect(api.puts()).toHaveLength(1)
     // 失败后回到原状态，不留下假的成功界面。
     await waitFor(() => expect(screen.getByRole('switch', { name: '启用「抽卡换算」' })).toHaveAttribute('aria-checked', 'false'))
@@ -266,7 +266,7 @@ describe('knowledge settings section', () => {
 })
 
 describe('knowledge editor', () => {
-  it('creates a custom entry, counting the characters against the limits', async () => {
+  it('creates a custom entry with per-field character counters', async () => {
     const api = installApi()
     const { router } = renderKnowledge([NEW_KNOWLEDGE_PATH])
 
@@ -304,8 +304,8 @@ describe('knowledge editor', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/more/settings/knowledge'))
   })
 
-  it('refuses to enable more entries than the server allows', async () => {
-    const many = Array.from({ length: MAX_ENABLED_ENTRIES }, (_, index) => entry({
+  it('creates another entry even when many are already enabled (M20)', async () => {
+    const many = Array.from({ length: 50 }, (_, index) => entry({
       id: `rule-${index}`,
       kind: 'rule',
       title: `规则 ${index}`,
@@ -319,12 +319,22 @@ describe('knowledge editor', () => {
     fireEvent.change(screen.getByLabelText('正文'), { target: { value: '正文' } })
     fireEvent.change(screen.getByLabelText('标识'), { target: { value: 'rule-51' } })
 
-    expect(await screen.findByText(`启用的知识条目不能超过 ${MAX_ENABLED_ENTRIES} 条；先停用一条再启用。`)).toBeInTheDocument()
+    // 条目数不再有上限：没有拦截提示，点创建就发请求。
+    expect(screen.queryByText(/不能超过/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '创建条目' }))
-    expect(api.puts()).toHaveLength(0)
+
+    await waitFor(() => expect(api.puts()).toHaveLength(1))
+    expect(api.puts()[0]?.path).toBe('/api/agent/knowledge/rule-51')
+    expect(api.puts()[0]?.body).toEqual({
+      kind: 'playbook',
+      title: '第 51 条',
+      when_to_use: '需要时',
+      body: '正文',
+      enabled: true,
+    })
   })
 
-  it('counts glossary and profile bodies together and blocks going over', async () => {
+  it('saves a glossary entry even when the other glossary bodies are long (M20)', async () => {
     const entries = [entry({ id: 'glossary', kind: 'glossary', title: '术语表', body: 'x'.repeat(2900), source: 'builtin' })]
     const api = installApi({ entries })
     renderKnowledge([NEW_KNOWLEDGE_PATH])
@@ -335,9 +345,19 @@ describe('knowledge editor', () => {
     fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'glossary' } })
     fireEvent.change(screen.getByLabelText('正文'), { target: { value: 'y'.repeat(200) } })
 
-    expect(await screen.findByText('术语表与用户档案的正文合计最多 3000 字，现在 3100 字。')).toBeInTheDocument()
+    // 全文合计不再有上限，编辑器里也没有合计计数器。
+    expect(screen.queryByText(/正文合计/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '创建条目' }))
-    expect(api.puts()).toHaveLength(0)
+
+    await waitFor(() => expect(api.puts()).toHaveLength(1))
+    expect(api.puts()[0]?.path).toBe('/api/agent/knowledge/my-glossary')
+    expect(api.puts()[0]?.body).toEqual({
+      kind: 'glossary',
+      title: '补充术语',
+      when_to_use: '用户说俗称时',
+      body: 'y'.repeat(200),
+      enabled: true,
+    })
   })
 
   it('saves an edited entry without changing its kind or body', async () => {

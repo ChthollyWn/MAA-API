@@ -2,8 +2,8 @@
 
 四个操作对应服务层的四个方法，路由里不做合并或上限判断 —— 唯一属于 REST 层的
 判断是**字段格式与长度**：约束写在下面的请求模型里，违反时走 FastAPI 原生的
-``422 VALIDATION_ERROR``（``details.fields`` 逐字段列表）；条目数与字数合计上限
-取决于已有条目，由服务层抛 ``409 KNOWLEDGE_LIMIT_EXCEEDED``。
+``422 VALIDATION_ERROR``（``details.fields`` 逐字段列表）。条目数与全文段字数
+不设上限（M20 用户裁决），因此没有对应的错误码。
 
 写操作各记一条服务日志（条目 id、动作）。知识库不是 Agent 工具调用，不进 Agent
 审计（规格 §4.1「写操作记一条服务日志，不进 Agent 审计」）。
@@ -107,7 +107,6 @@ async def get_knowledge_entry(
     summary="写入 Agent 知识条目",
     responses=error_responses(
         "KNOWLEDGE_BUILTIN_READONLY",
-        "KNOWLEDGE_LIMIT_EXCEEDED",
         "VALIDATION_ERROR",
         "UNAUTHORIZED",
     ),

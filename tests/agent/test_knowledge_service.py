@@ -4,8 +4,8 @@
 
 - 内置条目随代码发布，``agent_knowledge`` 表只存用户的改动；覆盖行只保存与内置
   **不同**的字段，其余列为 NULL，读取时继承内置值。
-- 各项上限按**写入后的生效状态**判定（不是按请求体）：启用条目 ≤ 50、启用的
-  glossary + profile 正文合计 ≤ 3,000 字。
+- 写入只做字段校验（格式与长度）与内置 ``kind`` 的覆盖保护；条目数与全文段字数
+  **不设上限**（M20 用户裁决：注入多少知识以模型自身的上下文窗口为准）。
 - 内置文件解析失败要 fail loud，不能静默跳过某一条。
 
 本目录没有 pytest-asyncio（不要为此加插件），异步用例统一写成「同步测试函数 +
@@ -127,8 +127,6 @@ BUILTIN_LIST_ORDER = [
     "glossary-terms",
 ]
 
-MAX_ENABLED_ENTRIES = 50
-MAX_FULLTEXT_CHARS = 3_000
 FIELD_PAYLOAD = {"kind": "rule", "title": "一", "when_to_use": "一", "body": "正文"}
 
 
@@ -252,15 +250,13 @@ def test_builtin_entries_are_loaded_once_with_the_documented_ids():
         assert entry.body == entry.body.strip()
 
 
-def test_builtin_files_stay_within_the_fulltext_budget():
+def test_builtin_fulltext_entries_carry_bodies():
+    """不再有全文预算（M20），但内置的 glossary / profile 必须有正文可注入。"""
     entries = builtin_entries()
-    fulltext = sum(
-        len(entry.body)
-        for entry in entries.values()
-        if entry.kind in {"glossary", "profile"}
-    )
-    assert fulltext <= MAX_FULLTEXT_CHARS
-    assert len(entries) <= MAX_ENABLED_ENTRIES
+    assert _builtin_fulltext_chars() > 0
+    for entry in entries.values():
+        if entry.kind in FULLTEXT_KINDS:
+            assert entry.body.strip()
 
 
 @pytest.mark.parametrize(
@@ -829,8 +825,14 @@ def test_put_entry_accepts_the_exact_field_limits(harness):
 
 
 # ---------------------------------------------------------------------------
-# 上限：条目数与 glossary + profile 正文合计
+# 不再有上限：条目数与 glossary + profile 正文合计（M20 用户裁决）
 # ---------------------------------------------------------------------------
+#: 被删掉的旧启用条目数上限：填到这个数再多写一条，过去是 409，现在必须成功。
+REMOVED_ENABLED_ENTRIES_CAP = 50
+#: 被删掉的旧全文预算（字）：单条 glossary 正文超过它就足以越过旧上限。
+REMOVED_FULLTEXT_CHARS_CAP = 3_000
+
+
 async def _fill(service, count: int) -> None:
     for index in range(count):
         await service.put_entry(
@@ -841,84 +843,67 @@ async def _fill(service, count: int) -> None:
         )
 
 
-def test_the_51st_enabled_entry_is_rejected(harness):
+def test_the_51st_enabled_entry_is_accepted(harness):
+    """第 51 条启用条目不再被拒（旧实现抛 409 KNOWLEDGE_LIMIT_EXCEEDED）。"""
     service, factory = harness
 
     async def scenario():
-        await _fill(service, MAX_ENABLED_ENTRIES - await _enabled(service))
-        assert await _enabled(service) == MAX_ENABLED_ENTRIES
+        await _fill(service, REMOVED_ENABLED_ENTRIES_CAP - await _enabled(service))
+        assert await _enabled(service) == REMOVED_ENABLED_ENTRIES_CAP
 
         payload = KnowledgeWrite(kind="rule", title="第 51 条", when_to_use="需要时", body="正文")
-        with pytest.raises(AppError) as info:
-            await service.put_entry("custom-99", payload)
-        assert info.value.code is ErrorCode.KNOWLEDGE_LIMIT_EXCEEDED
-        assert info.value.http_status == 409
-        assert info.value.details["limit"] == "enabled_entries"
-        assert info.value.details["max"] == MAX_ENABLED_ENTRIES
-        assert info.value.details["actual"] == MAX_ENABLED_ENTRIES + 1
-        assert "custom-99" not in await _rows(factory)
+        written = await service.put_entry("custom-99", payload)
+        assert written.enabled is True
+        assert written.title == "第 51 条"
+        assert "custom-99" in await _rows(factory)
+        assert await _enabled(service) == REMOVED_ENABLED_ENTRIES_CAP + 1
 
-        # 停用的条目不占名额，也不写入正文
+        # 停用仍然只影响启用状态，与上限无关
         disabled = payload.model_copy(update={"enabled": False})
         assert (await service.put_entry("custom-99", disabled)).enabled is False
-        assert await _enabled(service) == MAX_ENABLED_ENTRIES
+        assert await _enabled(service) == REMOVED_ENABLED_ENTRIES_CAP
 
-        # 删掉一条腾出的名额可以用
+        # 删除照旧
         await service.delete_entry("custom-00")
-        assert (await service.put_entry("custom-99", payload)).enabled is True
-        assert await _enabled(service) == MAX_ENABLED_ENTRIES
+        assert "custom-00" not in await _rows(factory)
 
     asyncio.run(scenario())
 
 
-def test_fulltext_budget_covers_enabled_glossary_and_profile_bodies(harness):
+def test_glossary_and_profile_bodies_are_no_longer_capped(harness):
+    """术语表与档案正文合计越过旧预算也不再被拒，且全文都进注入段。"""
     service, _ = harness
-    # 内置的 glossary 与 glossary-terms 默认都启用，预算先把它们的正文扣掉
-    budget = MAX_FULLTEXT_CHARS - _builtin_fulltext_chars()
-    assert budget > 0
+    assert _builtin_fulltext_chars() > 0  # 内置全文条目本来就在注入段里
+    body = "甲" * (REMOVED_FULLTEXT_CHARS_CAP + 1_000)
 
     async def scenario():
         profile = KnowledgeWrite(
-            kind="profile",
-            title="我的档案",
-            when_to_use="回答账号问题时",
-            body="甲" * budget,
+            kind="profile", title="我的档案", when_to_use="回答账号问题时", body=body
         )
         assert (await service.put_entry("profile", profile)).enabled is True
 
-        with pytest.raises(AppError) as info:
-            await service.put_entry(
-                "profile", profile.model_copy(update={"body": "甲" * (budget + 1)})
-            )
-        assert info.value.code is ErrorCode.KNOWLEDGE_LIMIT_EXCEEDED
-        assert info.value.http_status == 409
-        assert info.value.details["limit"] == "fulltext_chars"
-        assert info.value.details["max"] == MAX_FULLTEXT_CHARS
-        assert info.value.details["actual"] == MAX_FULLTEXT_CHARS + 1
-
-        # 停用的条目不计入字数合计
-        disabled = profile.model_copy(
-            update={"body": "甲" * (budget + 1), "enabled": False}
+        glossary = KnowledgeWrite(
+            kind="glossary", title="临时术语", when_to_use="需要时", body=body
         )
-        assert (await service.put_entry("profile", disabled)).enabled is False
+        assert (await service.put_entry("custom-glossary", glossary)).enabled is True
 
-        # 另一条启用的 glossary 与 profile 共享同一份预算
+        rendered = await service.render_context()
+        assert _builtin_fulltext_chars() + 2 * len(body) > REMOVED_FULLTEXT_CHARS_CAP
+        assert rendered.count(body) == 2  # 两段 4,000 字全文全部注入
+
+        # 停用与上限无关，但必须仍然生效
         await service.put_entry(
-            "custom-glossary",
-            KnowledgeWrite(kind="glossary", title="临时术语", when_to_use="需要时", body="乙"),
+            "custom-glossary", glossary.model_copy(update={"enabled": False})
         )
-        with pytest.raises(AppError) as info:
-            await service.put_entry("profile", profile)
-        assert info.value.code is ErrorCode.KNOWLEDGE_LIMIT_EXCEEDED
-        assert info.value.details["limit"] == "fulltext_chars"
+        assert (await service.render_context()).count(body) == 1
 
     asyncio.run(scenario())
 
 
-def test_fulltext_budget_ignores_other_kinds(harness):
+def test_large_bodies_of_every_kind_are_stored_without_a_budget(harness):
+    """字段长度上限（body 20,000）仍然生效；它与全文预算无关，也不受其影响。"""
     service, factory = harness
-    budget = MAX_FULLTEXT_CHARS - _builtin_fulltext_chars()
-    assert budget > 0
+    body = "乙" * (REMOVED_FULLTEXT_CHARS_CAP + 1_000)
 
     async def scenario():
         await service.put_entry(
@@ -927,9 +912,10 @@ def test_fulltext_budget_ignores_other_kinds(harness):
         )
         await service.put_entry(
             "profile",
-            KnowledgeWrite(kind="profile", title="我的档案", when_to_use="需要时", body="甲" * budget),
+            KnowledgeWrite(kind="profile", title="我的档案", when_to_use="需要时", body=body),
         )
         assert len((await _rows(factory))["big-rule"].body) == 20_000
+        assert body in await service.render_context()
 
     asyncio.run(scenario())
 
