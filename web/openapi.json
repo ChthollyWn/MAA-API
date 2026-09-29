@@ -2219,12 +2219,13 @@
         "type": "object"
       },
       "QuestionStatus": {
-        "description": "Agent 主动提问的状态机（M21，规格 §3.2）。\n\n与 ``ConfirmationStatus`` 分开：确认的终态是「批准/拒绝/过期」，提问的终态是\n「已答/已跳过/过期」——「跳过」在确认链路里没有对应物，批准也没有。",
+        "description": "Agent 主动提问的状态机（M21，规格 §3.2）。\n\n与 ``ConfirmationStatus`` 分开：确认的终态是「批准/拒绝/过期」，提问的终态是\n「已答/已跳过/过期」——「跳过」在确认链路里没有对应物，批准也没有。\n``CANCELLED``（M22）是「用户中断了这一轮」：提问没有获得裁决就被撤回，与\n「跳过」（用户主动不答）和「过期」（没人管）都不同，不能合并进任何一个既有终态。",
         "enum": [
           "pending",
           "answered",
           "skipped",
-          "expired"
+          "expired",
+          "cancelled"
         ],
         "title": "QuestionStatus",
         "type": "string"
@@ -5345,6 +5346,93 @@
           }
         },
         "summary": "撤销 Agent 会话的原子操作授权",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/sessions/{session_id}/interrupt": {
+      "post": {
+        "description": "中断该会话当前一轮（M22 规格 §3.4）。\n\n幂等：没有活动轮次时返回 200 + ``interrupted=false``，不是错误——「已经停了」\n与「刚刚停掉」对调用方是同一个结果。只停 Agent 这一轮，不碰流水线与队列。",
+        "operationId": "agent_interrupt_session_turn",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Agent Interrupt Session Turn",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SESSION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：AGENT_SESSION_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "中断该会话正在执行的一轮",
         "tags": [
           "agent"
         ]

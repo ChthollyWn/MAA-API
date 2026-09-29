@@ -3,7 +3,7 @@
 Agent 主动提问的写入、待答列表与终态流转。三条纪律与 ``ConfirmationRepository``
 同源，理由也一样（docs/04 §5.17 的提问与确认是并列的一等交互，只是语义不同）：
 
-- **状态流转只允许 ``PENDING → ANSWERED / SKIPPED / EXPIRED``，终态不可再变。**
+- **状态流转只允许 ``PENDING → ANSWERED / SKIPPED / EXPIRED / CANCELLED``，终态不可再变。**
   :meth:`AgentQuestionRepository.resolve` 用 ``UPDATE ... WHERE id=? AND
   status='pending'`` 的 ``rowcount`` 判定「状态机是否接受了这次流转」，返回
   ``False`` 由服务层转 ``409``（已答再答、答一条已过期的提问都在数据库层被拒）。
@@ -33,6 +33,7 @@ RESOLVABLE_STATUSES = (
     QuestionStatus.ANSWERED,
     QuestionStatus.SKIPPED,
     QuestionStatus.EXPIRED,
+    QuestionStatus.CANCELLED,
 )
 
 
@@ -161,6 +162,32 @@ class AgentQuestionRepository(BaseRepository):
             .where(AgentQuestion.status == QuestionStatus.PENDING)
             .values(
                 status=QuestionStatus.EXPIRED,
+                answered_by="system",
+                answered_at=now,
+            )
+            .returning(AgentQuestion.id),
+            execution_options={"synchronize_session": False},
+        )
+        return list(result.scalars().all())
+
+    async def cancel_pending_for_session(
+        self, session_id: str, now: datetime
+    ) -> list[str]:
+        """把某个会话仍待答的提问批量置 ``CANCELLED``，返回其 id 列表（M22）。
+
+        与 :meth:`expire_all_pending` 同一条骨架（``UPDATE ... RETURNING id`` 一条
+        语句同时翻状态与取回 id），区别只在过滤条件与目标状态：这里按 ``session_id``
+        限定，因为「用户中断了某一轮」只该撤回那一轮挂起的提问，别的会话的卡片
+        与它无关。``answered_by`` 记 ``system``——撤回不是任何人的裁决。
+        """
+        result = await self.session.execute(
+            update(AgentQuestion)
+            .where(
+                AgentQuestion.session_id == session_id,
+                AgentQuestion.status == QuestionStatus.PENDING,
+            )
+            .values(
+                status=QuestionStatus.CANCELLED,
                 answered_by="system",
                 answered_at=now,
             )

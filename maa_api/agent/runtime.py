@@ -44,6 +44,22 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+
+class _TurnDraft:
+    """一轮里「模型已经生成、但还没落库」的内容（M22 中断收尾要用）。
+
+    为什么不能等 ``_complete`` 返回再拿文本：中断就发生在它返回之前。部分文本必须
+    和别的消息一样持久化，否则前端已经看到的那些字在刷新后消失，下一轮的历史也与
+    用户看到的对话不一致。``pending_tool_calls`` 记的是这一批里**还没有**对应 tool
+    消息的调用，中断时据此补桩。
+    """
+
+    def __init__(self) -> None:
+        self.text: list[str] = []
+        self.reasoning: list[str] = []
+        self.pending_tool_calls: list[dict[str, Any]] = []
+
+
 DEFAULT_MAX_ITERATIONS: int | None = None
 #: 会话上下文长度上限。``None``＝**不设本地上限**（默认）：注入多少历史以模型自身的
 #: 上下文窗口为准，装不下时由上游拒绝，再映射成 ``LLM_CONTEXT_OVERFLOW``（见 ``llm.py``）。
@@ -98,6 +114,22 @@ INCIDENT_ALLOWED_TOOLS = frozenset(
     }
 )
 SSE_KEEPALIVE_SECONDS = 10.0
+#: 用户主动中断一轮时的收尾（M22 规格 §3.1）。
+#: ``finish_reason`` 的新取值；落库列宽 24 够用，且该列没有枚举约束。
+INTERRUPTED_FINISH_REASON = "interrupted"
+#: 中断时追加到部分文本之后的标记；没有部分文本时它就是全部内容。
+INTERRUPTED_NOTICE = "本轮已被你中断。"
+#: 等 producer 收尾的宽限时长：收尾要写库、发 SSE，得给够时间；但一次「停止」的
+#: HTTP 请求不能被一个卡住的收尾永久挂住，所以仍要设上限。
+INTERRUPT_GRACE_SECONDS = 5.0
+#: 中断在历史里补的 tool 桩消息。**硬要求**：assistant 的 ``tool_calls`` 缺对应
+#: tool 消息会让下一轮请求结构不完整，上游直接 400（M20 起历史不再裁剪）。
+INTERRUPTED_TOOL_STUB = {
+    "error": {
+        "code": str(ErrorCode.AGENT_TURN_INTERRUPTED),
+        "message": "本轮已被中断，该调用未完成",
+    }
+}
 SCREEN_TOOL_NAMES = frozenset(
     {"get_screenshot", "click", "swipe", "long_press", "input_text", "key_event"}
 )
@@ -368,6 +400,16 @@ class AgentRuntime:
         self._locked_sessions: set[str] = set()
         self._turn_tasks: set[asyncio.Task[None]] = set()
         self._queue_waiters: set[asyncio.Task[Any]] = set()
+        #: 会话 → 正在跑这一轮的 task（M22）。进程内的真相源：``acquire_session``
+        #: 只说明「有一轮占着锁」，刷新后的前端要的是「现在还有东西在跑」。
+        self._active_turns: dict[str, asyncio.Task[Any]] = {}
+        #: 被用户**主动**中断的会话。只有在这里的会话，取消才会走「中断收尾」；
+        #: 别的 CancelledError（服务关闭、上层取消）原样抛出，两种语义不能混。
+        self._interrupted: set[str] = set()
+        #: 已经进入中断收尾的会话。``interrupt_turn`` 靠它避免再 cancel 一次：
+        #: 第二次 cancel 会打在收尾自己的 ``await`` 上（写库、发事件），把「补历史」
+        #: 打断成半截。
+        self._interrupt_settling: set[str] = set()
         self._capability_cache: dict[tuple[str, str], dict[str, Any]] = {}
 
     async def acquire_session(self, session_id: str) -> bool:
@@ -380,6 +422,87 @@ class AgentRuntime:
     def release_session(self, session_id: str) -> None:
         """Release a turn slot; duplicate release is safe for response cleanup."""
         self._locked_sessions.discard(session_id)
+
+    def turn_running(self, session_id: str) -> bool:
+        """该会话此刻是否真有一轮在跑（M22 规格 §3.1）。
+
+        「锁还在」不等于「有人在跑」：REST 已经 ``acquire_session`` 而 producer 还没
+        登记的那一小段里，锁在但没有任何执行。刷新后的前端要据此恢复停止入口，所以
+        只认活动 task。
+        """
+        task = self._active_turns.get(session_id)
+        return task is not None and not task.done()
+
+    async def interrupt_turn(self, session_id: str) -> bool:
+        """中断该会话正在跑的一轮，返回是否真的中断了什么（M22 规格 §3.1）。
+
+        只停这一轮，**不碰流水线与队列**：已经提交进队列的任务继续跑，要停它仍走
+        显式的 ``stop_pipeline``（用户裁决 §1.1）。被动断开（断网/关页面）不走这里，
+        那条语义不变。
+
+        顺序是刻意的：先撤确认，再取消本轮。``_wait_and_execute`` 醒来只认状态，
+        用户批准就会执行，与本轮是否还在等无关——先取消本轮会让「取消期间被批准」
+        变成一个真的副作用。取消之后再撤一次：这一小段窗口里刚创建的确认/审计
+        （比如刚派发出去的工具）也要一起撤回。
+        """
+        task = self._active_turns.get(session_id)
+        if task is None or task.done():
+            # 没有活动轮次：锁还在只可能是「REST 已拿锁、producer 还没登记」。释放它，
+            # 否则这个会话会一直 409，而实际上没有任何东西在跑。仍然撤一次在飞调用：
+            # 上一轮如果异常收场，挂着的确认/提问不该在这次「停止」之后还能复活。
+            self.release_session(session_id)
+            await self._abort_in_flight_calls(session_id)
+            return False
+        # 重复点「停止」时不重复 cancel：第二次 cancel 会打在收尾协程自己的 await 上，
+        # 把「落库 + 发事件」的收尾打断，反而留下半截历史。
+        already_interrupting = session_id in self._interrupted
+        self._interrupted.add(session_id)
+        try:
+            await self._abort_in_flight_calls(session_id)
+            if not already_interrupting and session_id not in self._interrupt_settling:
+                task.cancel()
+            await asyncio.wait({task}, timeout=INTERRUPT_GRACE_SECONDS)
+            await self._abort_in_flight_calls(session_id)
+        finally:
+            # 收尾期间标记必须一直有效（收尾协程靠它判断这是主动中断）；task 结束后
+            # 再清，避免把它留给下一个同会话的轮次。
+            if task.done():
+                self._clear_interrupt(session_id)
+        return True
+
+    def _interrupted_now(self, session_id: str) -> bool:
+        """本轮是否已被请求中断；为真时同时登记「收尾即将开始」。
+
+        登记与返回在同一段同步代码里，所以 ``interrupt_turn`` 不可能在收尾已经启动
+        之后再插进来 cancel 一次（它先查这个集合再决定要不要 cancel）。
+        """
+        if session_id not in self._interrupted:
+            return False
+        self._interrupt_settling.add(session_id)
+        return True
+
+    def _clear_interrupt(self, session_id: str) -> None:
+        """一轮结束后清掉中断标记：留着会让下一个同会话轮次把自己也当成被中断。"""
+        self._interrupted.discard(session_id)
+        self._interrupt_settling.discard(session_id)
+
+    async def _abort_in_flight_calls(self, session_id: str) -> None:
+        """撤回该会话本轮在等/在跑的工具与挂起的提问。
+
+        失败只记日志：撤回是尽力而为的收尾，不能因为一次数据库抖动就让「停止」本身
+        失败（本轮该被取消的部分仍会被取消）。
+        """
+        try:
+            await self.confirmation_service.abort_session_calls(session_id)
+        except Exception:  # noqa: BLE001 - 见 docstring
+            logger.exception("中断时撤回工具调用失败：%s", session_id)
+        service = self.question_service
+        if service is None:
+            return
+        try:
+            await service.cancel_pending_for_session(session_id)
+        except Exception:  # noqa: BLE001 - 见 docstring
+            logger.exception("中断时撤回提问失败：%s", session_id)
 
     async def ensure_configured(self, request: Any, session_id: str | None = None) -> Settings:
         settings = await self._effective_settings(request)
@@ -473,11 +596,16 @@ class AgentRuntime:
             await self._save_incident_failure(session_id, explanation)
             return {"status": "failed", "code": str(exc.code)}
         except asyncio.CancelledError:
-            await self._save_incident_failure(
-                session_id,
-                "自动诊断在服务关闭时中断；故障记录已保存。你可以在本会话继续询问，"
-                "系统不会自动重放已经派发的操作。",
+            # 同一个中断端点也能停自动诊断，但它的话术不能沿用「服务关闭」那套：
+            # 用户按的是停止，不是我们关机（M22 规格 §2.2）。
+            explanation = (
+                "自动诊断已被你中断；故障记录已保存。你可以在本会话继续询问，"
+                "系统不会自动重放已经派发的操作。"
+                if session_id in self._interrupted
+                else "自动诊断在服务关闭时中断；故障记录已保存。你可以在本会话继续询问，"
+                "系统不会自动重放已经派发的操作。"
             )
+            await self._save_incident_failure(session_id, explanation)
             raise
         except Exception as exc:  # noqa: BLE001 - preserve the durable incident conversation
             logger.warning("自动诊断执行失败：%s", type(exc).__name__)
@@ -489,6 +617,7 @@ class AgentRuntime:
             return {"status": "failed", "code": str(ErrorCode.LLM_REQUEST_FAILED)}
         finally:
             self.release_session(session_id)
+            self._clear_interrupt(session_id)
 
     async def _save_incident_failure(self, session_id: str, explanation: str) -> None:
         try:
@@ -656,17 +785,52 @@ class AgentRuntime:
                 },
             )
         except asyncio.CancelledError:
-            # The producer is detached from the SSE consumer, so this only runs on
-            # application shutdown. Persisted tool effects are owned by the service.
+            # 主动中断（M22）的收尾已经在 ``_run_turn`` 里做完，这里只把取消继续抛出；
+            # 被动断开（客户端断网/关页面）不会走到这里——producer 是 detached 的，
+            # SSE 消费端的取消与它无关（M16 语义，未改）。
             raise
         except Exception as exc:  # noqa: BLE001 - keep an SSE stream from leaking details
             logger.error("Agent turn failed: %s", type(exc).__name__)
             await emit("error", {"code": str(ErrorCode.LLM_REQUEST_FAILED), "message": "Agent 对话处理失败"})
         finally:
             self.release_session(session_id)
+            # 中断标记随这一轮一起结束：留着会让下一个同会话轮次把自己也当成被中断。
+            self._clear_interrupt(session_id)
             await queue.put(_SSE_END)
 
     async def _run_turn(
+        self,
+        session_id: str,
+        content: str,
+        request: Any,
+        emit: Callable[[str, Any], Any],
+        *,
+        persist_user: bool = True,
+        allowed_tools: Collection[str] | None = None,
+    ) -> None:
+        """登记本轮的 task，然后交给 :meth:`_run_turn_body`（M22 规格 §3.1）。
+
+        登记放在这里而不是 ``_produce_turn``：自动诊断（``run_incident``）直接调用
+        本方法、没有 producer，同一个中断端点也要能停它。注销只认自己那把 task，
+        避免把同一会话下一轮的登记抹掉。
+        """
+        task = asyncio.current_task()
+        if task is not None:
+            self._active_turns[session_id] = task
+        try:
+            await self._run_turn_body(
+                session_id,
+                content,
+                request,
+                emit,
+                persist_user=persist_user,
+                allowed_tools=allowed_tools,
+            )
+        finally:
+            if self._active_turns.get(session_id) is task:
+                self._active_turns.pop(session_id, None)
+
+    async def _run_turn_body(
         self,
         session_id: str,
         content: str,
@@ -746,6 +910,9 @@ class AgentRuntime:
             }
         )
         client, owned = self._make_client(client_settings)
+        # 本轮「已生成未落库」的内容：中断收尾要靠它把部分文本补进历史、给批次里
+        # 还没落库的调用补 tool 桩消息（M22 规格 §3.1）。
+        draft = _TurnDraft()
         try:
             # 迭代次数默认不设上限：一次故障排查可能要读几十次日志与截图，按次数截断会
             # 把一个本该跑完的诊断硬切在中间。上下文长度同样交给模型自身的窗口
@@ -782,7 +949,7 @@ class AgentRuntime:
                     usage,
                     finish_reason,
                     latency_ms,
-                ) = await self._complete(client, model, messages, tools, emit)
+                ) = await self._complete(client, model, messages, tools, emit, draft)
                 calls = merge_tool_call_deltas(call_deltas)
                 if calls:
                     try:
@@ -813,6 +980,9 @@ class AgentRuntime:
                         finish_reason=finish_reason,
                         latency_ms=latency_ms,
                     )
+                    # 批次从这里开始「在飞」：tool 消息要等整批跑完才逐条落库，
+                    # 中断发生时 draft 里剩下的就是需要补桩的调用。
+                    draft.pending_tool_calls = list(parsed_calls)
                     try:
                         batch_results = await self._execute_tool_batch(
                             parsed_calls,
@@ -843,10 +1013,13 @@ class AgentRuntime:
                                     "error": _app_error_wire(exc),
                                 },
                             )
+                        draft.pending_tool_calls = []
                         raise
                     confirmation_terminal: AppError | None = None
                     unanswered: str | None = None
-                    for call, result in zip(parsed_calls, batch_results, strict=True):
+                    for index, (call, result) in enumerate(
+                        zip(parsed_calls, batch_results, strict=True)
+                    ):
                         result_message = _json_text(result["body"])
                         tool_message = await self._persist_message(
                             session_id,
@@ -856,6 +1029,9 @@ class AgentRuntime:
                             tool_name=call["name"],
                             audit_id=result.get("audit_id"),
                         )
+                        # 这一条已经落库，从「待补桩」里去掉：中断正好落在这一条与下
+                        # 一条之间时，只补还没写的那几条，历史不会出现重复的 tool 消息。
+                        draft.pending_tool_calls = list(parsed_calls[index + 1 :])
                         await emit(
                             "tool_result",
                             {
@@ -926,9 +1102,92 @@ class AgentRuntime:
                 )
                 await emit("message_end", {"session_id": session_id, "finish_reason": finish_reason or "stop"})
                 return
+        except asyncio.CancelledError:
+            # 只有本会话被标记为「用户主动中断」时才做收尾；别的取消（服务关闭、
+            # 上层任务被取消）原样抛出，绝不在关闭路径上多写一条对话消息。
+            if not self._interrupted_now(session_id):
+                raise
+            await self._finish_interrupted_turn(session_id, emit, draft)
+            raise
         finally:
             if owned:
                 await client.aclose()
+
+    async def _finish_interrupted_turn(
+        self, session_id: str, emit: Callable[[str, Any], Any], draft: _TurnDraft
+    ) -> None:
+        """用户中断后的收尾：补历史 → 发 SSE（M22 规格 §3.1）。
+
+        三件事，缺一不可：
+
+        1. 给这一批里还没落库的工具调用补 tool 桩消息。**顺序在标记消息之前**：
+           assistant 的 ``tool_calls`` 与对应 tool 消息必须相邻，隔一条普通 assistant
+           消息就是结构不合法，上游会 400。
+        2. 把**已经流出去**的部分文本连同中断标记落成一条 assistant 消息
+           （``finish_reason="interrupted"``）。不重复 emit 那段文本：前端已经逐字
+           收到过，再发一遍会在界面上出现两遍。
+        3. 发 ``interrupted`` 再发 ``message_end``，让 SSE 正常收尾（锁与
+           ``_SSE_END`` 由 ``_produce_turn`` 的 finally 照旧处理）。
+
+        每一步都吞异常只记日志：收尾失败也不能让取消变成一次「对话失败」，否则
+        ``_produce_turn`` 会走 error 分支，把一次主动中断显示成错误。
+        """
+        persisted = await self._persisted_tool_call_ids(session_id)
+        for call in draft.pending_tool_calls:
+            if call["id"] in persisted:
+                # 取消正好落在这一条的落库过程中：它可能已经写进去了，补桩前先回库
+                # 确认，避免同一个 tool_call_id 出现两条 tool 消息。
+                continue
+            try:
+                await self._persist_message(
+                    session_id,
+                    role="tool",
+                    content=_json_text(INTERRUPTED_TOOL_STUB),
+                    tool_call_id=call["id"],
+                    tool_name=call["name"],
+                )
+            except Exception:  # noqa: BLE001 - 见 docstring
+                logger.warning(
+                    "中断收尾：补 tool 桩消息失败 session=%s call=%s",
+                    session_id,
+                    call.get("id"),
+                    exc_info=True,
+                )
+        draft.pending_tool_calls.clear()
+        partial = "".join(draft.text).strip()
+        content = f"{partial}\n\n{INTERRUPTED_NOTICE}" if partial else INTERRUPTED_NOTICE
+        try:
+            await self._persist_message(
+                session_id,
+                role="assistant",
+                content=content,
+                reasoning_content="".join(draft.reasoning) or None,
+                finish_reason=INTERRUPTED_FINISH_REASON,
+            )
+        except Exception:  # noqa: BLE001 - 见 docstring
+            logger.warning("中断收尾：写入中断消息失败 session=%s", session_id, exc_info=True)
+        await emit(
+            "interrupted",
+            {"session_id": session_id, "finish_reason": INTERRUPTED_FINISH_REASON},
+        )
+        await emit(
+            "message_end",
+            {"session_id": session_id, "finish_reason": INTERRUPTED_FINISH_REASON},
+        )
+
+    async def _persisted_tool_call_ids(self, session_id: str) -> set[str]:
+        """已经落库的 tool 消息对应的 ``tool_call_id`` 集合。"""
+        try:
+            async with self.session_factory() as session:
+                history = await AgentMessageRepository(session).list_by_session(session_id)
+        except Exception:  # noqa: BLE001 - 读不到就按「都没写进去」补桩，宁多勿缺
+            logger.warning("中断收尾：读取历史失败 session=%s", session_id, exc_info=True)
+            return set()
+        return {
+            str(message.tool_call_id)
+            for message in history
+            if message.role == "tool" and message.tool_call_id
+        }
 
     async def _complete(
         self,
@@ -937,10 +1196,13 @@ class AgentRuntime:
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
         emit: Callable[[str, Any], Any],
+        draft: _TurnDraft | None = None,
     ) -> tuple[str, str, list[dict[str, Any]], dict[str, int], str | None, int]:
         fragments: list[dict[str, Any]] = []
-        text_parts: list[str] = []
-        reasoning_parts: list[str] = []
+        # 文本与思考内容直接攒在 draft 上（同一批 list）：中断就发生在这个 async for
+        # 里面，等本方法返回再取文本已经来不及了（M22 规格 §3.1）。
+        text_parts: list[str] = draft.text if draft is not None else []
+        reasoning_parts: list[str] = draft.reasoning if draft is not None else []
         usage: dict[str, int] = {}
         finish_reason: str | None = None
         started = time.monotonic()
@@ -1124,8 +1386,19 @@ class AgentRuntime:
                 )
 
             while not terminal.done():
+                if self._interrupted_now(session_id):
+                    # 本轮已被用户中断。这里必须**自己**抛 CancelledError：中断会同时
+                    # 把待确认撤回（状态变 rejected），若让下面的分支先读到它，这一批
+                    # 会被当成「用户拒绝」，本轮以「我不会重试该操作」正常收尾——那与
+                    # 「用户按了停止」是两回事。真实的 task.cancel() 也会落到同一个
+                    # 取消分支里收尾。
+                    raise asyncio.CancelledError()
                 if confirmation_id:
                     state = await self.confirmation_service.get(confirmation_id)
+                    # 撤确认与取消本轮之间有一小段并发窗口：如果读到的正是中断造成的
+                    # 「已拒绝」，本轮的结局仍然是中断；这里再判一次就覆盖了这个窗口。
+                    if self._interrupted_now(session_id):
+                        raise asyncio.CancelledError()
                     status = state.get("status")
                     if status == "rejected":
                         error = AppError(
@@ -1235,6 +1508,10 @@ class AgentRuntime:
             },
         )
         answer = await service.wait(question_id)
+        if self._interrupted_now(session_id):
+            # 撤回提问会把等待方唤醒到终态 ``cancelled``，但本轮的结局是中断，不是
+            # 「提问没答成」——按后者收尾会让用户按了停止却收到一句「提问超时」。
+            raise asyncio.CancelledError()
         status = str(answer.get("status") or "")
         if status == "answered":
             return {

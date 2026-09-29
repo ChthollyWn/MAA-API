@@ -72,6 +72,7 @@ EXPECTED_VALUES = {
         "ANSWERED": "answered",
         "SKIPPED": "skipped",
         "EXPIRED": "expired",
+        "CANCELLED": "cancelled",
     },
     "RiskLevel": {
         "NONE": "none",

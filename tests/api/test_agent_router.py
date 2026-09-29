@@ -104,6 +104,9 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             def release_session(self, _session_id):
                 raise AssertionError("busy turns must not release a lock they did not acquire")
 
+            def turn_running(self, _session_id):
+                return False
+
             async def check_capabilities(self, _request):
                 return {
                     "model": "m",
@@ -680,6 +683,251 @@ def test_session_message_route_releases_lock_when_configuration_check_is_cancell
             assert runtime.locked is False
             assert runtime.release_count == 1
         finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_interrupt_endpoint_is_idempotent_and_reports_turn_running(tmp_path):
+    """规格 §3.4：中断端点幂等，返回 ``interrupted`` 与 ``turn_running``。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'interrupt-api.sqlite3'}"
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            session.add(
+                AgentSession(id="interrupt-session", model="m", base_url="https://llm.test/v1")
+            )
+            await session.commit()
+
+        class InterruptibleRuntime:
+            session_factory = factory
+
+            def __init__(self):
+                self.calls: list[str] = []
+                self.running = True
+
+            async def acquire_session(self, _session_id):
+                return True
+
+            def release_session(self, _session_id):
+                return None
+
+            def turn_running(self, _session_id):
+                return self.running
+
+            async def interrupt_turn(self, session_id):
+                self.calls.append(session_id)
+                if not self.running:
+                    return False
+                self.running = False
+                return True
+
+            async def check_capabilities(self, _request):
+                return {}
+
+        runtime = InterruptibleRuntime()
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.api.routers import agent
+
+        app.include_router(agent.router)
+        app.state.agent_runtime = runtime
+        app.state.session_factory = factory
+        async def get_test_session():
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = get_test_session
+        set_settings(Settings())
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            detail = client.get("/api/agent/sessions/interrupt-session")
+            assert detail.status_code == 200
+            assert detail.json()["turn_running"] is True
+
+            stopped = client.post("/api/agent/sessions/interrupt-session/interrupt")
+            assert stopped.status_code == 200
+            assert stopped.json() == {
+                "session_id": "interrupt-session",
+                "interrupted": True,
+                "turn_running": False,
+            }
+            # 幂等：再按一次不是错误，只是什么都没停。
+            again = client.post("/api/agent/sessions/interrupt-session/interrupt")
+            assert again.status_code == 200
+            assert again.json()["interrupted"] is False
+            assert again.json()["turn_running"] is False
+            assert runtime.calls == ["interrupt-session", "interrupt-session"]
+
+            assert client.get("/api/agent/sessions/interrupt-session").json()[
+                "turn_running"
+            ] is False
+
+            missing = client.post("/api/agent/sessions/missing/interrupt")
+            assert missing.status_code == 404
+            assert missing.json()["error"]["code"] == "AGENT_SESSION_NOT_FOUND"
+        finally:
+            client.__exit__(None, None, None)
+            set_settings(None)
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_detail_reports_false_turn_running_without_a_mounted_runtime(tmp_path):
+    """没装配 runtime 的部署里详情照样可用：``turn_running`` 只报 false。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'no-runtime.sqlite3'}"
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            session.add(AgentSession(id="plain", model="m", base_url="https://llm.test/v1"))
+            await session.commit()
+
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.api.routers import agent
+
+        app.include_router(agent.router)
+        app.state.session_factory = factory
+        async def get_test_session():
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = get_test_session
+        set_settings(Settings())
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            detail = client.get("/api/agent/sessions/plain")
+            assert detail.status_code == 200
+            assert detail.json()["turn_running"] is False
+        finally:
+            client.__exit__(None, None, None)
+            set_settings(None)
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_interrupt_route_stops_a_real_runtime_turn(tmp_path):
+    """真 runtime 走一遍：中断端点停掉本轮，详情里的 ``turn_running`` 随之翻转。"""
+
+    async def scenario():
+        from maa_api.agent.runtime import AgentRuntime
+        from maa_api.api.routers.agent import get_session_detail, interrupt_session_turn
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        engine = db_session.make_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'real-interrupt.sqlite3'}"
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            session.add(AgentSession(id="live", model="m", base_url="https://llm.test/v1"))
+            await session.commit()
+
+        class GatedClient:
+            def __init__(self):
+                self.blocked = asyncio.Event()
+
+            async def stream_chat_completion(self, _model, _messages, _tools):
+                yield {
+                    "choices": [
+                        {"index": 0, "delta": {"content": "半句"}, "finish_reason": None}
+                    ]
+                }
+                self.blocked.set()
+                await asyncio.Event().wait()
+
+        client = GatedClient()
+        registry = ToolRegistry()
+        service = ConfirmationService(factory, registry, policy=PolicyEngine())
+        runtime = AgentRuntime(
+            factory,
+            service,
+            settings_provider=lambda _request: Settings(
+                llm=LLMSettings(
+                    base_url="https://llm.test/v1", api_key="k", model="m"
+                )
+            ),
+            client_factory=lambda _settings: client,
+        )
+        runtime._capability_cache[("m", "https://llm.test/v1")] = {
+            "model": "m",
+            "tool_calling": True,
+            "vision": False,
+            "ready": True,
+            "status": "vision_degraded",
+            "degraded_reason": None,
+        }
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.api.routers import agent
+
+        app.include_router(agent.router)
+        app.state.agent_runtime = runtime
+        app.state.confirmation_service = service
+        app.state.session_factory = factory
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/agent/sessions/live/interrupt",
+            "raw_path": b"/api/agent/sessions/live/interrupt",
+            "query_string": b"",
+            "headers": [],
+            "server": ("testserver", 80),
+            "client": ("testclient", 12345),
+            "app": app,
+        }
+        request = Request(scope)
+        set_settings(Settings())
+        try:
+            assert await runtime.acquire_session("live") is True
+            stream = runtime.stream_message("live", "长问题", request)
+            first = await stream.__anext__()
+            assert "event: message_start" in first
+            await asyncio.wait_for(client.blocked.wait(), timeout=5)
+
+            async with factory() as session:
+                running = await get_session_detail("live", request, session=session)
+            assert running["turn_running"] is True
+
+            async with factory() as session:
+                body = await interrupt_session_turn("live", request, session=session)
+            assert body == {
+                "session_id": "live",
+                "interrupted": True,
+                "turn_running": False,
+            }
+            assert runtime.turn_running("live") is False
+            assert "live" not in runtime._locked_sessions
+            await asyncio.wait_for(stream.aclose(), timeout=5)
+
+            async with factory() as session:
+                after = await get_session_detail("live", request, session=session)
+            assert after["turn_running"] is False
+
+            async with factory() as session:
+                with pytest.raises(AppError) as excinfo:
+                    await interrupt_session_turn("missing", request, session=session)
+            assert excinfo.value.code is ErrorCode.AGENT_SESSION_NOT_FOUND
+        finally:
+            set_settings(None)
             await engine.dispose()
 
     asyncio.run(scenario())

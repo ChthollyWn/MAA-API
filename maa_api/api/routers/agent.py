@@ -670,12 +670,49 @@ async def stream_session_message(
 )
 async def get_session_detail(
     session_id: str,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     stored = await AgentSessionRepository(session).get(session_id)
     if stored is None:
         raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在")
-    return session_wire(stored)
+    wire = session_wire(stored)
+    # ``turn_running`` 是「刷新后仍能停」的真相源（M22 规格 §3.4）。刻意直接读
+    # ``app.state.agent_runtime``：为了一个只读字段去现场构造 runtime 会在没装配
+    # runtime 的部署里凭空造出一个空运行时（那不是这个端点该做的事）。列表接口不带
+    # 这个字段，省得为每一行都去问一次进程内状态。
+    runtime = getattr(request.app.state, "agent_runtime", None)
+    wire["turn_running"] = bool(runtime is not None and runtime.turn_running(session_id))
+    return wire
+
+
+@router.post(
+    "/sessions/{session_id}/interrupt",
+    summary="中断该会话正在执行的一轮",
+    responses=error_responses(
+        "AGENT_DISABLED", "AGENT_SESSION_NOT_FOUND", "UNAUTHORIZED"
+    ),
+    dependencies=[Depends(require_auth)],
+)
+async def interrupt_session_turn(
+    session_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """中断该会话当前一轮（M22 规格 §3.4）。
+
+    幂等：没有活动轮次时返回 200 + ``interrupted=false``，不是错误——「已经停了」
+    与「刚刚停掉」对调用方是同一个结果。只停 Agent 这一轮，不碰流水线与队列。
+    """
+    runtime = _agent_runtime(request)
+    if await AgentSessionRepository(session).get(session_id) is None:
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在")
+    interrupted = await runtime.interrupt_turn(session_id)
+    return {
+        "session_id": session_id,
+        "interrupted": interrupted,
+        "turn_running": runtime.turn_running(session_id),
+    }
 
 
 @router.delete(

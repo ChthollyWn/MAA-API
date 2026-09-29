@@ -1312,3 +1312,150 @@ def test_startup_recovers_unanswered_sync_rejection_and_indeterminate_error_stat
         await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_abort_session_calls_rejects_pending_and_cancels_running_workers(tmp_path):
+    """M22 规格 §3.2：撤回一个会话在等的确认与在跑的 worker。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'abort-session.sqlite3'}"
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            # agent_audit.session_id 有外键，先落会话行。
+            for session_id in ("session-A", "session-B"):
+                await AgentSessionRepository(session).create(
+                    AgentSession(id=session_id, model="m")
+                )
+            await session.commit()
+        events: list[tuple[str, dict]] = []
+        handler_started = asyncio.Event()
+        finished: list[int] = []
+
+        async def slow_handler(params, _context):
+            handler_started.set()
+            await asyncio.Event().wait()  # 只有被取消才会离开
+            finished.append(params.value)  # pragma: no cover - 取消后不会走到
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="dangerous_action",
+                group="ops",
+                risk=ToolRisk.DANGEROUS,
+                description="needs approval",
+                params_model=Params,
+                handler=lambda params, _context: {"value": params.value},
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="slow_safe",
+                group="ops",
+                risk=ToolRisk.SAFE,
+                description="runs until cancelled",
+                params_model=Params,
+                handler=slow_handler,
+                read_only=False,
+            )
+        )
+        service = ConfirmationService(
+            factory, registry, policy=PolicyEngine(), broadcast=lambda k, d: events.append((k, d))
+        )
+        ours = ToolContext(CallerType.INTERNAL, "session-A", "req-1", _request(), None)
+        other = ToolContext(CallerType.INTERNAL, "session-B", "req-2", _request(), None)
+
+        waiting = await service.invoke("dangerous_action", {"value": 1}, ours, mode="async")
+        pending_worker = service._workers[waiting["confirmation_id"]]
+        running = await service.invoke("slow_safe", {"value": 2}, ours, mode="async")
+        untouched = await service.invoke("dangerous_action", {"value": 3}, other, mode="async")
+        await asyncio.wait_for(handler_started.wait(), timeout=5)
+        assert waiting["status"] == "awaiting_confirmation"
+
+        assert await service.abort_session_calls("session-A") == 2
+
+        # 待确认的走「拒绝」：用户之后批准也执行不了。
+        detail = await service.get(waiting["confirmation_id"])
+        assert detail["status"] == ConfirmationStatus.REJECTED.value
+        assert detail["resolved_reason"] == "本轮已被中断"
+        async with factory() as session:
+            confirmed_audit = await AuditRepository(session).get(waiting["audit_id"])
+            running_audit = await AuditRepository(session).get(running["audit_id"])
+            other_audit = await AuditRepository(session).get(untouched["audit_id"])
+        assert confirmed_audit.status == AuditStatus.REJECTED
+        # 在跑的 worker 被取消，审计落终态而不是永久 pending。
+        assert running_audit.status == AuditStatus.FAILED
+        assert running_audit.error_code == "AGENT_TURN_INTERRUPTED"
+        assert finished == []
+        # 别的会话不受影响：中断只停这一轮。
+        assert other_audit.status == AuditStatus.PENDING
+        assert (await service.get(untouched["confirmation_id"]))["status"] == (
+            ConfirmationStatus.PENDING.value
+        )
+        assert any(
+            kind == "confirm_resolved" and data["confirmation_id"] == waiting["confirmation_id"]
+            for kind, data in events
+        )
+        # 幂等：再撤一次没有可处理的了。
+        assert await service.abort_session_calls("session-A") == 0
+
+        # 等被唤醒的确认 worker 收尾（会话 B 那条还在等它自己的确认，不能一起 gather）。
+        await asyncio.gather(pending_worker, return_exceptions=True)
+        async with factory() as session:
+            other_audit = await AuditRepository(session).get(untouched["audit_id"])
+        assert other_audit.status == AuditStatus.PENDING
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_close_keeps_the_service_shutdown_wording_for_running_workers(tmp_path):
+    """服务关闭取消 worker 不能被误写成「本轮已被中断」（两条语义各归各的）。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'close-wording.sqlite3'}"
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            await AgentSessionRepository(session).create(
+                AgentSession(id="session-A", model="m")
+            )
+            await session.commit()
+        started = asyncio.Event()
+
+        async def slow_handler(_params, _context):
+            started.set()
+            await asyncio.Event().wait()
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="slow_safe",
+                group="ops",
+                risk=ToolRisk.SAFE,
+                description="runs until shutdown",
+                params_model=Params,
+                handler=slow_handler,
+                read_only=False,
+            )
+        )
+        service = ConfirmationService(factory, registry, policy=PolicyEngine())
+        context = ToolContext(CallerType.INTERNAL, "session-A", "req-1", _request(), None)
+        accepted = await service.invoke("slow_safe", {"value": 1}, context, mode="async")
+        await asyncio.wait_for(started.wait(), timeout=5)
+
+        await service.close()
+
+        async with factory() as session:
+            audit = await AuditRepository(session).get(accepted["audit_id"])
+        assert audit.status == AuditStatus.FAILED
+        assert audit.error_code == "SERVICE_UNAVAILABLE"
+        await engine.dispose()
+
+    asyncio.run(scenario())
