@@ -1,4 +1,12 @@
-"""MaaCore callback translation is pure, exhaustive for known values, and lossless."""
+"""MaaCore callback translation is pure, exhaustive for known values, and lossless.
+
+The payloads here mirror what MaaCore v6.17.5 actually sends (sampled from
+``resource/maa-api/debug/asst.log`` and ``tests/fixtures/spike_subprocess_findings.md``):
+``details`` is flat, the task name lives in ``details.task``, and a ProcessTask
+step additionally carries ``details.action``. ``details.details`` never holds a
+``task`` key on this kernel, which is exactly what the first implementation got
+wrong — it read the name from there and labelled every subtask "未映射回调".
+"""
 
 from __future__ import annotations
 
@@ -20,32 +28,98 @@ def translator() -> CallbackTranslator:
     return CallbackTranslator()
 
 
-def _payload(what: str) -> dict:
+def _confirmation(task: str) -> dict:
+    """具名确认回调：真正的任务名在内层 ``details.details.task``。
+
+    真实日志里的 ``StartButton2`` 就是这种形状：``details`` 里没有 ``action``，
+    只有内层 ``details.details`` 带任务名与 ``exec_times``。
+    """
+
     return {
-        "what": what,
-        "uuid": "device-uuid",
-        "why": "Normal",
+        "class": "asst::ProcessTask",
         "details": {
-            "task": what,
-            "exec_times": 3,
+            "algorithm": "JustReturn",
+            "details": {"task": task, "exec_times": 3},
+        },
+        "first": ["StartAtHome"],
+        "subtask": "ProcessTask",
+        "taskchain": "Fight",
+        "taskid": 5,
+        "uuid": "device-uuid",
+    }
+
+
+def _step(action: str = "ClickSelf") -> dict:
+    """动作级步骤：ProcessTask 的每一次匹配与点击，带 ``details.action``。"""
+
+    return {
+        "class": "asst::ProcessTask",
+        "details": {
+            "action": action,
+            "algorithm": "MatchTemplate",
+            "exec_times": 1,
+            "max_times": 2147483647,
+            "result": {"rect": [434, 655, 148, 45], "score": 0.999959},
+            "task": "InfrastClearButton",
+        },
+        "first": ["StartAtHome"],
+        "subtask": "ProcessTask",
+        "taskchain": "Infrast",
+        "taskid": 5,
+        "uuid": "device-uuid",
+    }
+
+
+def _payload(what: str) -> dict:
+    """按 ``what`` 归属的消息类型构造一份形状正确的载荷。"""
+
+    if what in CONNECTION_MAP:
+        flat = {
+            "reason": "offline",
             "height": 1440,
             "width": 2560,
             "cost": 42,
-            "current_sanity": 120,
-            "max_sanity": 135,
-            "tags": "先锋, 近卫",
-            "tag": "高级资深干员",
-            "level": 5,
-            "facility": "贸易站",
-            "index": 2,
-            "name": "1-7",
-            "stage": {"stageCode": "1-7"},
-            "stars": 3,
-            "stats": [
-                {"itemName": "龙门币", "quantity": 10, "addQuantity": 2},
-                {"itemName": "作战记录", "quantity": 4, "addQuantity": 0},
-            ],
-        },
+            "avg": 670,
+            "max": 1686,
+            "min": 148,
+            "fps": 60,
+            "refresh_period_ns": 16666666,
+        }
+        if what == "FastestWayToScreencap":
+            flat.pop("height"), flat.pop("width")
+        return {"what": what, "uuid": "device-uuid", "why": "Normal", "details": flat}
+
+    flat = {
+        "task": "StartUpBegin",
+        "exec_times": 3,
+        "max_times": 5,
+        "facility": "Power",
+        "index": 2,
+        "product": "Drone",
+        "name": "1-7",
+        "tags": ["削弱", "生存"],
+        "tag": "高级资深干员",
+        "level": 5,
+        "current_sanity": 120,
+        "max_sanity": 135,
+        "series": 10,
+        "times_finished": 0,
+        "sanity_cost": 60,
+        "stage": {"stageCode": "1-7"},
+        "stars": 3,
+        "stats": [
+            {"itemName": "龙门币", "quantity": 10, "addQuantity": 2},
+            {"itemName": "作战记录", "quantity": 4, "addQuantity": 0},
+        ],
+    }
+    return {
+        "class": "asst::ProcessTask",
+        "what": what,
+        "details": flat,
+        "subtask": "ProcessTask",
+        "taskchain": "Fight",
+        "taskid": 5,
+        "uuid": "device-uuid",
     }
 
 
@@ -59,24 +133,12 @@ def test_every_connection_mapping_is_reachable(
 
     assert len(records) == 1
     assert records[0].content
+    assert "{details}" not in records[0].content
     assert records[0].source == "task"
     assert records[0].level in {"DEBUG", "INFO", "WARNING"}
     assert records[0].raw["msg"] == int(Message.ConnectionInfo)
     assert records[0].raw["details"] == payload
     assert records[0].raw.get("what") == what
-
-
-@pytest.mark.parametrize("task", sorted(SUB_TASK_START_MAP))
-def test_every_subtask_start_mapping_is_reachable(
-    translator: CallbackTranslator, task: str
-) -> None:
-    payload = {"what": "SubTaskStart", "details": {"task": task, "exec_times": 3}}
-
-    records = translator.translate(Message.SubTaskStart, payload)
-
-    assert len(records) == 1
-    assert records[0].content == SUB_TASK_START_MAP[task].format(exec_times=3)
-    assert records[0].level == "INFO"
 
 
 @pytest.mark.parametrize("what", sorted(EXTRA_INFO_MAP))
@@ -89,10 +151,92 @@ def test_every_extra_info_mapping_is_reachable(
 
     assert len(records) == 1
     assert records[0].content
+    assert not any(f"{{{key}}}" in records[0].content for key in ("task", "tags", "product"))
     assert records[0].source == "task"
     assert records[0].raw["msg"] == int(Message.SubTaskExtraInfo)
     assert records[0].raw["details"] == payload
     assert records[0].raw.get("what") == what
+
+
+@pytest.mark.parametrize("task", sorted(SUB_TASK_START_MAP))
+def test_every_subtask_start_mapping_is_reachable(
+    translator: CallbackTranslator, task: str
+) -> None:
+    records = translator.translate(Message.SubTaskStart, _confirmation(task))
+
+    assert len(records) == 1
+    assert records[0].content == SUB_TASK_START_MAP[task].format(exec_times=3)
+    assert records[0].level == "INFO"
+
+
+def test_confirmations_read_the_flat_details_task_key(
+    translator: CallbackTranslator,
+) -> None:
+    """真实载荷里任务名在 ``details.task``；读 ``details.details.task`` 会全表落空。"""
+
+    payload = {
+        "class": "asst::ProcessTask",
+        "details": {"task": "InfrastDormDoubleConfirmButton", "exec_times": 1},
+        "subtask": "ProcessTask",
+        "uuid": "device-uuid",
+    }
+
+    record = translator.translate(Message.SubTaskStart, payload)[0]
+
+    assert record.content == "请进行基建宿舍的二次确认"
+    assert record.level == "INFO"
+
+
+def test_process_task_steps_are_silent(translator: CallbackTranslator) -> None:
+    """动作级步骤不产记录：一遍日常流水线有数千条，且对使用者没有语义。"""
+
+    for action in ("ClickSelf", "Stop", "DoNothing", "Swipe", "ClickRect"):
+        assert translator.translate(Message.SubTaskStart, _step(action)) == []
+        assert translator.translate(Message.SubTaskCompleted, _step(action)) == []
+
+
+def test_named_subtasks_keep_their_name_and_level(
+    translator: CallbackTranslator,
+) -> None:
+    start = translator.translate(
+        Message.SubTaskStart,
+        {
+            "class": "asst::StartGameTaskPlugin",
+            "details": {},
+            "subtask": "StartGameTask",
+            "taskchain": "StartUp",
+            "uuid": "device-uuid",
+        },
+    )[0]
+    completed = translator.translate(Message.SubTaskCompleted, _confirmation("FightTimesTask"))[0]
+
+    assert start.content == "子任务开始：StartGameTask"
+    assert start.level == "DEBUG"
+    assert completed.content == "子任务完成：FightTimesTask"
+    assert completed.level == "DEBUG"
+
+
+def test_subtask_error_names_the_failed_task_from_first(
+    translator: CallbackTranslator,
+) -> None:
+    """SubTaskError 的载荷里 ``details`` 是空的，失败步骤在顶层 ``first``。"""
+
+    payload = {
+        "class": "asst::ProcessTask",
+        "details": {},
+        "first": ["InfrastOperListTabSkillUnClicked"],
+        "pre_task": "",
+        "subtask": "ProcessTask",
+        "taskchain": "Infrast",
+        "taskid": 5,
+        "uuid": "device-uuid",
+    }
+
+    record = translator.translate(Message.SubTaskError, payload)[0]
+
+    assert record.content == "子任务出错 [InfrastOperListTabSkillUnClicked]"
+    assert record.level == "WARNING"
+    assert record.raw["details"] == payload
 
 
 def test_connect_failed_aliases_share_the_correct_mapping(
@@ -135,6 +279,38 @@ def test_connection_resolution_uses_nested_height_and_width(
     assert resolution_info.level == "DEBUG"
 
 
+def test_screencap_cost_and_emulator_fps_are_mapped(
+    translator: CallbackTranslator,
+) -> None:
+    cost = translator.translate(
+        Message.ConnectionInfo,
+        {"what": "ScreencapCost", "details": {"avg": 670, "max": 1686, "min": 148}},
+    )[0]
+    fps = translator.translate(
+        Message.ConnectionInfo,
+        {"what": "EmulatorFPS", "details": {"fps": 60, "refresh_period_ns": 16666666}},
+    )[0]
+
+    assert cost.content == "截图耗时 670ms（148/1686）"
+    assert cost.level == "INFO"
+    assert fps.content == "模拟器帧率 60"
+    assert fps.level == "INFO"
+
+
+def test_recruit_tags_render_from_a_list(
+    translator: CallbackTranslator,
+) -> None:
+    """v6.17.5 的 ``RecruitTagsSelected`` 发数组，模板不能把 list 直接格式化进去。"""
+
+    record = translator.translate(
+        Message.SubTaskExtraInfo,
+        {"what": "RecruitTagsSelected", "details": {"tags": ["削弱"]}},
+    )[0]
+
+    assert record.content == "已选择Tags：削弱"
+    assert record.level == "INFO"
+
+
 def test_stage_drops_formatting_and_sanity_mapping(
     translator: CallbackTranslator,
 ) -> None:
@@ -149,23 +325,24 @@ def test_stage_drops_formatting_and_sanity_mapping(
     assert sanity.source == "task" and sanity.level == "INFO"
 
 
-def test_unknown_callback_names_and_subtask_error_keep_raw_payload(
+def test_unknown_subtask_names_stay_identifiable(
     translator: CallbackTranslator,
 ) -> None:
-    unknown = {"what": "NewTaskAddedByMaa", "details": {"task": "unknown"}}
-    fallback = translator.translate(Message.SubTaskStart, unknown)[0]
-    error = translator.translate(
-        Message.SubTaskError,
-        {"what": "SubTaskError", "details": {"task": "AnnihilationTask"}},
-    )[0]
+    """未见过的具名子任务要能看出叫什么，而不是退化成一条「未映射回调」。"""
 
-    assert fallback.content == "未映射回调 SubTaskStart.unknown"
+    unknown = {
+        "class": "asst::NewTaskPlugin",
+        "details": {"task": "NewTaskAddedByMaa"},
+        "subtask": "NewTaskPlugin",
+        "uuid": "device-uuid",
+    }
+
+    fallback = translator.translate(Message.SubTaskStart, unknown)[0]
+
+    assert fallback.content == "子任务开始：NewTaskAddedByMaa"
     assert fallback.level == "DEBUG"
     assert fallback.raw["msg"] == int(Message.SubTaskStart)
     assert fallback.raw["details"] == unknown
-    assert fallback.raw.get("what") == "NewTaskAddedByMaa"
-    assert error.content == "子任务出错 [AnnihilationTask]"
-    assert error.level == "WARNING"
 
 
 @pytest.mark.parametrize(
@@ -180,8 +357,8 @@ def test_unknown_callback_names_and_subtask_error_keep_raw_payload(
         (Message.InitFailed, {}, "MaaCore 初始化失败", "ERROR"),
         (Message.Destroyed, {}, "MaaCore 实例已销毁", "DEBUG"),
         (Message.TaskChainExtraInfo, {"what": "ignored"}, "TaskChainExtraInfo ignored", "DEBUG"),
-        (Message.SubTaskCompleted, {}, "SubTaskCompleted", "DEBUG"),
-        (Message.SubTaskStopped, {}, "SubTaskStopped", "DEBUG"),
+        (Message.SubTaskCompleted, {}, "SubTaskCompleted 完成", "DEBUG"),
+        (Message.SubTaskStopped, {}, "SubTaskStopped 完成", "DEBUG"),
         (Message.AsyncCallInfo, {"what": "AsstAsyncConnect"}, "异步调用完成 AsstAsyncConnect", "DEBUG"),
     ],
 )
@@ -218,3 +395,12 @@ def test_translation_uses_event_arrival_time_and_unknown_what_is_visible(
         "details": {"opaque": 1},
     }
     assert record.raw.get("what") == "NewExtra"
+
+
+def test_unknown_message_id_keeps_raw_payload(translator: CallbackTranslator) -> None:
+    record = translator.translate(999, {"what": "FromTheFuture"})[0]
+
+    assert record.content == "未映射回调 Message.999"
+    assert record.level == "DEBUG"
+    assert record.raw["msg"] == 999
+    assert record.raw["details"] == {"what": "FromTheFuture"}

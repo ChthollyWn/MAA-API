@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import platform
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -19,7 +18,7 @@ from maa_api.services.log_hub import (
     get_log_hub,
     set_log_hub,
 )
-from maa_api.settings import REPO_ROOT, get_settings
+from maa_api.settings import core_user_dir, get_settings
 
 if TYPE_CHECKING:
     from maa_api.services.callback_translator import CallbackTranslator
@@ -126,14 +125,18 @@ def install_core_logging(
 
 
 def resolve_core_log_path(path: str | Path | None = None) -> Path:
-    """Resolve configured or platform-default MaaCore debug log location."""
+    """Resolve configured or default MaaCore debug log location.
+
+    MaaCore writes ``<user_dir>/debug/asst.log`` (docs/06 §5.1). The core
+    directory under ``resource/lib/maa/<platform>`` only holds the kernel and
+    its packaged resource — deriving the log path from it silently tails a
+    file nothing writes any more. ``AsstSetUserDir`` receives the same
+    :func:`~maa_api.settings.core_user_dir`, so both sides stay in sync by
+    construction rather than by convention.
+    """
     if path is not None:
         return Path(path)
-    settings = get_settings()
-    core_root = Path(settings.maa_core_path) if settings.maa_core_path else (
-        REPO_ROOT / "resource" / "lib" / "maa" / platform.system()
-    )
-    return core_root / "debug" / "asst.log"
+    return core_user_dir() / "debug" / "asst.log"
 
 
 def start_core_debug_tailer(

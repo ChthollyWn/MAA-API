@@ -99,6 +99,7 @@ __all__ = [
     "NotifySettings",
     "Settings",
     "SettingsError",
+    "core_user_dir",
     "get_settings",
     "load_settings",
     "resolve_settings",
@@ -220,6 +221,16 @@ class LogSettings(BaseModel):
     flush_interval: float = 1.0
     core_min_level: str = "INF"
     persist_maacore_debug_level: str = "WARNING"
+
+
+def core_user_dir() -> Path:
+    """MaaCore 的用户数据目录：日志、调试图片与 ``crash.log`` 都落在这里。
+
+    ``AsstSetUserDir`` 收到的就是这个路径（docs/06 §5.1），内核固定写
+    ``<user_dir>/debug/asst.log``。启动装配与日志 tail 必须用**同一个**推导结果：
+    这两处各自推导过一次不同答案，导致 tailer 长期盯着一份没人写的旧文件。
+    """
+    return REPO_ROOT / "resource" / "maa-api"
 
 
 class UpdateSettings(BaseModel):

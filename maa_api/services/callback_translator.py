@@ -32,6 +32,8 @@ CONNECTION_MAP: dict[str, str] = {
     "Disconnect": "模拟器连接断开(adb/模拟器异常) 重连失败 {details}",
     "ScreencapFailed": "截图失败(adb/模拟器异常) {details}",
     "FastestWayToScreencap": "最快截图耗时 {cost}ms",
+    "ScreencapCost": "截图耗时 {average}ms（{minimum}/{maximum}）",
+    "EmulatorFPS": "模拟器帧率 {fps}",
     "TouchModeNotAvailable": "不支持的触控模式 {details}",
 }
 
@@ -46,6 +48,7 @@ SUB_TASK_START_MAP: dict[str, str] = {
     "ReportToPenguinStats": "汇报到企鹅数据统计",
     "ReportToYituliu": "汇报到一图流大数据",
     "InfrastDormDoubleConfirmButton": "请进行基建宿舍的二次确认",
+    "InfrastDormConfirmButton": "基建宿舍确认",
     "StartExplore": "已开始探索 {exec_times} 次",
     "StageTraderInvestConfirm": "已投资源石锭",
     "StageTraderInvestSystemFull": "投资达到了游戏上限",
@@ -65,11 +68,18 @@ EXTRA_INFO_MAP: dict[str, str] = {
     "ReCruitSpecialTag": "识别到特殊Tag：{tag}",
     "RecruitResult": "{level} ⭐ Tags",
     "RecruitTagsRefreshed": "已刷新Tags",
+    "RecruitTagsSelected": "已选择Tags：{tags}",
+    "RecruitNoPermit": "公招无招募许可",
+    "NotEnoughStaff": "干员不足",
     "EnterFacility": "当前设施：{facility} {index}",
+    "InfrastConfirmButton": "基建确认按钮：{facility} {index}",
+    "ProductOfFacility": "基建产物：{product}（{facility} {index}）",
     "StageInfo": "开始战斗：{name}",
     "StageInfoError": "关卡识别错误",
     "RoguelikeEvent": "事件：{name}",
     "SanityBeforeStage": "当前理智：{current_sanity}/{max_sanity}",
+    "FightTimes": "已战斗 {times_finished}/{series} 次，消耗理智 {sanity_cost}",
+    "ExceededLimit": "已达到次数上限：{task} {exec_times}/{max_times}",
     "StageDrops": "{stars}⭐通关{stage_code} \n掉落统计: \n{drop_statistics}",
 }
 
@@ -82,6 +92,59 @@ _CONNECTION_WARNING = {
     "ScreencapFailed",
     "TouchModeNotAvailable",
 }
+
+#: ``details`` 里带这个键，说明回调来自 ProcessTask 的**动作级步骤**（``ClickSelf`` /
+#: ``DoNothing`` / ``Swipe`` …），是内核内部的每一次点击与匹配。一条日常流水线里
+#: 这类回调数以千计，且对使用者没有语义（docs/04 §10.1 的预算是一条流水线
+#: 1000–3000 条 ``maa_task`` 记录）。只保留具名子任务与插件回调，步骤级事件不产记录。
+_STEP_MARKER = "action"
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _first_string(value: Any) -> str:
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, str) and item:
+                return item
+        return ""
+    return str(value) if isinstance(value, str) else ""
+
+
+def _flatten(envelope: Mapping[str, Any]) -> dict[str, Any]:
+    """把信封（``details`` / ``subtask`` / ``class`` 那一层）压成可读映射。
+
+    内核把数据放在两层中的任意一层：内层 ``details.details.task`` 是任务名，
+    外层 ``details.task`` 是 ProcessTask 的类型名，插件回调两层都没有 ``task``、
+    只有信封上的 ``subtask``。内层同键优先——它才是本次事件自己的数据。
+    """
+
+    outer = _mapping(envelope.get("details"))
+    inner = _mapping(outer.get("details"))
+    merged = {**envelope, **outer, **inner}
+    # 两层都有 task 时取内层（任务名），否则外层的 ProcessTask 会顶掉它。
+    name = inner.get("task") or outer.get("task")
+    if name:
+        merged["task"] = name
+    return merged
+
+
+def _subtask_name(payload: Mapping[str, Any]) -> str:
+    """子任务名：``task`` 优先，插件回调回退顶层 ``subtask``。"""
+
+    for key in ("task", "subtask"):
+        name = str(payload.get(key, "") or "")
+        if name:
+            return name
+    return ""
+
+
+def _is_process_step(details: Mapping[str, Any]) -> bool:
+    """ProcessTask 的动作级步骤：有 ``action`` 就说明这不是一条具名业务回调。"""
+
+    return bool(details.get(_STEP_MARKER))
 
 
 class CallbackTranslator:
@@ -137,22 +200,30 @@ class CallbackTranslator:
             content = f"异步调用完成 {what}".rstrip()
             return [self._record(message, details, content, "DEBUG")]
         if message == Message.SubTaskError:
-            sub_details = _mapping(details.get("details"))
-            task = str(sub_details.get("task", ""))
-            return [self._record(message, details, f"子任务出错 [{task}]", "WARNING")]
+            return self._subtask_error(message, details)
         if message in (
             Message.TaskChainExtraInfo,
             Message.SubTaskCompleted,
             Message.SubTaskStopped,
         ):
-            return [
-                self._record(
-                    message,
-                    details,
-                    f"{message.name} {details.get('what', '')}".rstrip(),
-                    "DEBUG",
-                )
-            ]
+            if message is Message.TaskChainExtraInfo:
+                what = str(details.get("what", ""))
+                return [
+                    self._record(
+                        message,
+                        details,
+                        f"TaskChainExtraInfo {what}".rstrip(),
+                        "DEBUG",
+                    )
+                ]
+            payload = _flatten(details)
+            name = _subtask_name(payload) or str(details.get("what", ""))
+            if not name:
+                return [self._record(message, details, f"{message.name} 完成", "DEBUG")]
+            # 动作级步骤（ProcessTask 的每一次点击）不产记录，见 _STEP_MARKER。
+            if _is_process_step(payload):
+                return []
+            return [self._record(message, details, f"子任务完成：{name}", "DEBUG")]
         return [
             self._record(
                 message,
@@ -184,6 +255,10 @@ class CallbackTranslator:
             "width": nested.get("width", ""),
             "cost": nested.get("cost", ""),
             "why": details.get("why", ""),
+            "fps": nested.get("fps", ""),
+            "average": nested.get("avg", ""),
+            "minimum": nested.get("min", ""),
+            "maximum": nested.get("max", ""),
         }
         level = "DEBUG" if what == "ResolutionInfo" else (
             "WARNING" if what in _CONNECTION_WARNING else "INFO"
@@ -193,26 +268,24 @@ class CallbackTranslator:
     def _subtask_start(
         self, message: Message, details: dict[str, Any]
     ) -> list[LogRecord]:
-        nested = _mapping(details.get("details"))
-        task = str(nested.get("task", ""))
-        template = SUB_TASK_START_MAP.get(task)
-        if template is None:
+        payload = _flatten(details)
+        # 具名确认动作（``InfrastDormConfirmButton`` …）在读到的任务名里；动作级步骤
+        # 另有 ``details.action``（见 _STEP_MARKER）。模板命中优先于静音判定。
+        name = _subtask_name(payload)
+        template = SUB_TASK_START_MAP.get(name)
+        if template is not None:
             return [
                 self._record(
                     message,
                     details,
-                    f"未映射回调 {message.name}.{task}",
-                    "DEBUG",
+                    template.format_map(_SafeValues(payload)),
+                    "INFO",
                 )
             ]
-        return [
-            self._record(
-                message,
-                details,
-                template.format_map(_SafeValues(nested)),
-                "INFO",
-            )
-        ]
+        if _is_process_step(payload):
+            return []
+        content = f"子任务开始：{name}" if name else "子任务开始"
+        return [self._record(message, details, content, "DEBUG")]
 
     def _subtask_extra_info(
         self, message: Message, details: dict[str, Any]
@@ -229,7 +302,8 @@ class CallbackTranslator:
                 )
             ]
         nested = _mapping(details.get("details"))
-        values: dict[str, Any] = dict(nested)
+        values = _flatten(details)
+        values["tags"] = _join(nested.get("tags") or details.get("tags"))
         values["stage_code"] = _mapping(nested.get("stage")).get("stageCode", "")
         values["drop_statistics"] = "\n".join(
             f"{item.get('itemName', '')}: {item.get('quantity', '')}(+{item.get('addQuantity', '')})"
@@ -243,6 +317,20 @@ class CallbackTranslator:
                 "INFO",
             )
         ]
+
+    def _subtask_error(
+        self, message: Message, details: dict[str, Any]
+    ) -> list[LogRecord]:
+        """子任务出错：任务名可能在任何一层，逐层回退直到取到非空值。"""
+
+        payload = _flatten(details)
+        name = (
+            str(payload.get("task", ""))
+            or _first_string(details.get("first"))
+            or str(details.get("subtask", ""))
+        )
+        content = f"子任务出错 [{name}]" if name else "子任务出错"
+        return [self._record(message, details, content, "WARNING")]
 
     @staticmethod
     def _record(
@@ -271,14 +359,18 @@ class _SafeValues(dict[str, Any]):
         return ""
 
 
-def _mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
-
-
 def _mapping_items(value: Any) -> list[Mapping[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, Mapping)]
+
+
+def _join(value: Any) -> str:
+    """公招标签：内核发数组，旧载荷发字符串，两种都要能渲染进模板。"""
+
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    return str(value) if value is not None else ""
 
 
 def _first(details: Mapping[str, Any], *keys: str) -> str:

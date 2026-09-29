@@ -109,7 +109,11 @@ class CallbackTranslator:
 | `Disconnect` | 模拟器连接断开(adb/模拟器异常) 重连失败 `{details}` |
 | `ScreencapFailed` | 截图失败(adb/模拟器异常) `{details}` |
 | `FastestWayToScreencap` | 最快截图耗时 `{details.cost}ms` |
+| `ScreencapCost` | 截图耗时 `{details.avg}ms`（`{details.min}`/`{details.max}`） |
+| `EmulatorFPS` | 模拟器帧率 `{details.fps}` |
 | `TouchModeNotAvailable` | 不支持的触控模式 `{details}` |
+
+`ScreencapCost` 与 `EmulatorFPS` 是 M4 落地后按实测补的两条：一次会话里分别出现 413 与 128 次，原先全部落进"未映射回调"兜底。载荷形如 `{"avg":670,"max":1686,"min":148}` 与 `{"fps":60,"refresh_period_ns":16666666}`，级别 `INFO`。
 
 **这张表里有一个必须修掉的键名错误。** 对本地 `resource/lib/maa/Darwin/debug/asst.log` 做统计，MaaCore v6.17.5 实际发出的 `what` 值是 `ConnectFailed`，而现有代码写的是 `ConnectFaild`（少一个 `e`）。实测样本里 `ConnectFailed` 出现 68 次，也就是说整张表里最关键的那条"连接失败"日志**从未匹配成功过**——这正是连接问题难以排查的原因之一。
 
@@ -127,7 +131,18 @@ class CallbackTranslator:
 
 ### 3.3 子任务开始映射表（`SubTaskStart`）
 
-以 `details.details.task` 为键，从 `sub_task_info` 完整迁移的 22 条。`{exec_times}` 取自 `details.details.exec_times`。
+**先纠正一处载荷形状的错误假设（M4 落地后发现）。** 本节原写"以 `details.details.task` 为键"，实测 MaaCore v6.17.5 的 `details.details` 在 `SubTask*` 上**从来没有** `task` 键（该消息上 6815/6815 全为空），真实位置是：
+
+| 键 | 内容 | 实测样例 |
+|---|---|---|
+| `details.task` | 任务名 | `StartButton2` / `InfrastDormConfirmButton` / `ClickSelf` 的目标名 |
+| `details.action` | 动作级步骤的动作名；只有 ProcessTask 的步骤才有 | `ClickSelf` / `Stop` / `Swipe` / `DoNothing` |
+| 顶层 `subtask` | 子任务类型 | `ProcessTask` / `AutoRecruitTask` |
+| `details.details` | 额外数据；本内核在 `SubTask*` 上恒为空 | — |
+
+实现按 `details.details.task` → `details.task` → 顶层 `subtask` 逐层回退取名（`callback_translator._flatten`），以兼容新旧内核。按原写法取键，整张表 22 条**一次都不会命中**，而每条 `SubTaskStart` 都会退化成一条 `未映射回调 SubTaskStart.`——这正是"任务日志里大量未映射回调"的来源之一。
+
+表本身是从 `sub_task_info` 迁移的 22 条，`{exec_times}` 取自 `details.exec_times`；按实测补入 `InfrastDormConfirmButton`（普通的基建宿舍确认，一次会话 99 次，与"二次确认"是两条不同的任务定义）。
 
 | `task` | 日志文案 |
 |---|---|
@@ -199,11 +214,19 @@ def _format_drops(stats: list[dict]) -> str:
 
 **`Destroyed`（5）** 是实例销毁回执，只在子进程关闭流程里出现，记 `DEBUG` 日志。
 
-**`SubTaskError`（20000）** 单个子任务出错，但任务链可能会自行重试并继续。它不改变任务状态，只产 `WARNING` 日志，文案取 `details.details.task` 原文（无中文映射时直接展示英文 task 名）。这一条的价值在于排查"任务最终成功了但中间反复出错"的情况。
+**`SubTaskError`（20000）** 单个子任务出错，但任务链可能会自行重试并继续。它不改变任务状态，只产 `WARNING` 日志，文案取任务名原文（无中文映射时直接展示英文 task 名）。取值逐层回退：`details.details.task` → `details.task` → 顶层 `first[0]` → 顶层 `subtask`。最后那个 `first` 回退是实测补的——v6.17.5 的 `SubTaskError` 载荷里 `details` 是空对象，失败的那一步只在 `first` 数组里（如 `{"details":{},"first":["InfrastOperListTabSkillUnClicked"],"subtask":"ProcessTask"}`），按原写法只能产出一条空名字的 `子任务出错 []`。这一条的价值在于排查"任务最终成功了但中间反复出错"的情况。
 
-**`TaskChainExtraInfo`（10003）/ `SubTaskCompleted`（20002）/ `SubTaskStopped`（20004）** 首版只记 `DEBUG` 日志、保留 `raw` 原文，不做文案翻译。等实际使用中发现有价值的字段再逐步补映射。
+**`TaskChainExtraInfo`（10003）/ `SubTaskCompleted`（20002）/ `SubTaskStopped`（20004）** 只记 `DEBUG` 日志、保留 `raw` 原文，不做文案翻译。等实际使用中发现有价值的字段再逐步补映射。
+
+**步骤级事件不产记录（降噪约定）。** `details` 带 `action` 键即表明这是 ProcessTask 的**动作级步骤**——内核内部的每一次匹配与点击（`ClickSelf` / `Stop` / `DoNothing` / `Swipe` / `ClickRect`），实测占 `SubTask*` 回调的 6467/6815。它们对使用者没有语义，却会以数千条的规模挤满 `log.ring_size`（默认 2000）的环形缓冲，把真正的业务日志冲掉；docs/04 §10.1 给一条完整日常流水线的预算是 1000–3000 条 `maa_task` 记录。因此这类事件既不产 `SubTaskStart` 也不产 `SubTaskCompleted` 记录。判定放在**白名单命中之后**：`StartButton2` 这类确认动作同样带 `action`，仍按 `INFO` 正常产出。
+
+保留下来的是两类：具名子任务与插件回调（无 `action`，产 `DEBUG` 记录，文案 `子任务开始：{task}` / `子任务完成：{task}`），以及确认动作与 `SubTaskExtraInfo`（产 `INFO`）。
+
+**未知名字不再等于"未映射"。** 未见过的具名子任务直接展示内核原名（`子任务开始：NewTaskAddedByMaa`），仍然是可检索、可定位的，只有**未知的消息类型**与**未知的 `what`** 才落"未映射回调"兜底。
 
 **未知 `what` 的兜底。** 三张映射表都是白名单，未命中的 `what` 现在是静默丢弃。新实现改为产一条 `DEBUG` 级日志，内容为 `未映射回调 {msg_name}.{what}`，并完整保留 `raw`。这样 MAA 升级新增回调时能被发现，而不是悄无声息地丢掉。
+
+**实测口径（一次完整会话，8221 条回调）。** 旧实现产 7923 条记录、其中 4426 条是"未映射回调"；按上述约定产 1880 条（`INFO` 1362 / `DEBUG` 384 / `WARNING` 124 / `ERROR` 10），未映射 0 条。
 
 ## 4. 第二路：Python 服务日志
 
@@ -280,7 +303,11 @@ class QueueLogHandler(logging.Handler):
 
 ### 5.1 文件位置与格式
 
-MaaCore 通过 `AsstSetUserDir` 指定的目录写日志，路径固定为 `<user_dir>/debug/asst.log`。本地已存在 `resource/lib/maa/Darwin/debug/asst.log`。
+MaaCore 通过 `AsstSetUserDir` 指定的目录写日志，路径固定为 `<user_dir>/debug/asst.log`。装配阶段把 `user_dir` 定为 `resource/maa-api`（`maa_api.settings.core_user_dir`），所以这一路日志的落点是 **`resource/maa-api/debug/asst.log`**。
+
+> **这一句最初写错过，代价是核心日志长期为空。** 原文写的是"本地已存在 `resource/lib/maa/Darwin/debug/asst.log`"——那只是升级前遗留的一份旧文件，而 `resolve_core_log_path()` 照此把 tailer 指向了内核目录。真实情况是内核往 `user_dir` 写、tailer 读内核目录，两侧各自推导路径、结论不同：2026-09-29 实测 API 进程持有的读句柄是 `resource/lib/maa/Darwin/debug/asst.log`（mtime 停在 9-25），内核子进程写的却是 `resource/maa-api/debug/asst.log`（当时 40 MB 且在增长）。于是 `source="core"` 一路从未产生过任何记录。
+>
+> 现在两个调用点共用 `core_user_dir()` 这一个推导（`main.py` 的 `boot_config["user_dir"]` 与 `log_wiring.resolve_core_log_path()`），内核目录只用于定位内核与自带资源，不再参与日志路径推导。回归用例见 `tests/services/test_log_paths.py`。
 
 实测格式为单行结构化文本：
 

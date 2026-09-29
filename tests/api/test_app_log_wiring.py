@@ -46,7 +46,10 @@ def test_app_lifespan_starts_collectors_flushes_and_closes_ws(
     hub = application.state.log_hub
     assert hub is get_log_hub()
     assert hub._started is True
-    # Lifespan starts the tailer without creating a missing asst.log path.
+    # ``app.maa_core_path`` 是内核目录，与 MaaCore 写日志的 user_dir 无关；
+    # tailer 的对象始终是 ``<core_user_dir>/debug/asst.log``（见
+    # tests/services/test_log_paths.py）。这里用不存在的内核目录启动，确认
+    # lifespan 不会因为缺少 asst.log 而失败。
     assert not (tail_root / "debug" / "asst.log").exists()
 
     logging.getLogger("maa_api.m4_lifespan_test").warning(

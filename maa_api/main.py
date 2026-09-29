@@ -106,7 +106,13 @@ from maa_api.services.log_wiring import (
     start_core_debug_tailer,
     stop_logging,
 )
-from maa_api.settings import REPO_ROOT, get_settings, load_settings, set_settings
+from maa_api.settings import (
+    REPO_ROOT,
+    core_user_dir,
+    get_settings,
+    load_settings,
+    set_settings,
+)
 
 __all__ = [
     "CORS_HEADERS",
@@ -532,7 +538,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         if not maa_path.is_absolute():
             maa_path = (REPO_ROOT / maa_path).resolve()
-        user_dir = REPO_ROOT / "resource" / "maa-api"
+        user_dir = core_user_dir()
         layers_root = REPO_ROOT / "resource" / "maa-layers"
         layers_root.mkdir(parents=True, exist_ok=True)
         boot_config = {

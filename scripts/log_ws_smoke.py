@@ -109,8 +109,10 @@ class LogWsSmoke:
         resource = self.temp_root / "resource"
         resource.mkdir(parents=True)
         db_path = resource / "maa_api.db"
+        # 内核目录（maa_core_path）与 user_dir 是两回事：前者只放内核与自带资源，
+        # 后者的 debug/asst.log 才是这一路要 tail 的文件（由 app 装配阶段按需建立）。
         core_root = self.temp_root / "core"
-        (core_root / "debug").mkdir(parents=True)
+        core_root.mkdir(parents=True)
         config_path = self.temp_root / "config.yaml"
         config_path.write_text(
             "app:\n"
@@ -158,6 +160,12 @@ class LogWsSmoke:
         db_session.session_factory = self.session_factory
         settings_module.DEFAULT_CONFIG_PATH = config_path
         settings_module.set_settings(settings_module.load_settings(config_path))
+        # MaaCore 的日志落点是 <user_dir>/debug/asst.log，user_dir 由
+        # maa_api.settings.core_user_dir() 推导（docs/06 §5.1）。把它指到隔离目录，
+        # 这一路 smoke 才既不会读到、也不会写脏仓库里真实的
+        # resource/maa-api/debug/asst.log。只换这一个函数，不动 REPO_ROOT ——
+        # 装配阶段还有别处按 REPO_ROOT 定位资源，整体替换会波及其它步骤。
+        settings_module.core_user_dir = lambda: self.temp_root / "resource" / "maa-api"
 
         import maa_api.main as main_module
 
@@ -367,7 +375,9 @@ class LogWsSmoke:
         return screenshot_id, attachment
 
     def _core_file_write(self) -> str:
-        path = self.temp_root / "core" / "debug" / "asst.log"
+        # 内核按 AsstSetUserDir 指向的 user_dir 写日志，不是 maa_core_path。
+        path = self.temp_root / "resource" / "maa-api" / "debug" / "asst.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
         self.client_portal.call(asyncio.sleep, 0.3)  # allow tailer to open at EOF first
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         lines = [
