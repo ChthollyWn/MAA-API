@@ -19,6 +19,9 @@ EXPECTED_TOOLS = {
     "update_resource", "update_game", "restart_core", "list_schedules",
     "create_schedule", "update_schedule", "delete_schedule",
     "check_confirmation", "read_knowledge", "ask_user",
+    # M23 媒体组（规格 §3.2）。
+    "send_screenshot", "annotate_screenshot", "send_item_icons",
+    "send_stage_map", "send_chart",
 }
 
 
@@ -27,9 +30,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 43
+    assert len(actual) == 48
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
+    assert "media" in {definition.group for definition in registry.list()}
     assert "run_copilot" not in actual
 
 
