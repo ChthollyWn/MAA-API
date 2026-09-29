@@ -425,15 +425,17 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 设备相关操作分两条通道，`backend` 字段在响应中明示。**`click` 走 MaaCore 的 `AsstAsyncClick`；`swipe` / `long_press` / `input_text` / `key_event` 一律走 ADB**——MaaCore 的 C API 里只有点击，没有滑动、长按、输入文本与按键，这是内核的硬约束。所有原子操作**不入队列**，直接投递；流水线运行中调用返回 `409 PIPELINE_ALREADY_RUNNING`，除非带 `force=true`。M10 手动 REST 路径用 `force=true` 时仅写强制介入警告日志，不创建 `agent_audit` 记录；Agent 工具调用的审计依照 M11 的 Agent 工作流契约。
 
+**坐标统一用设备原始像素（M18）。** `click` / `swipe` / `long_press` 的入参坐标与截图（`GET /api/device/screenshot` 原图、Agent 的 `get_screenshot`）的 `width` / `height` 同一坐标系，响应里回显的也是调用方传入的设备像素。换算只在设备管理器做一次：`click` 调 `AsstAsyncClick` 前按「高 / 720」折成 MaaCore 基准坐标（`core = round(px × 720 / 高)`），`swipe` / `long_press` 本来就走 ADB 设备像素。分辨率取设备快照的 `resolution`：未知时 `click` 返回 `503 DEVICE_NOT_CONNECTED`（提示先重连设备），`swipe` / `long_press` 跳过越界校验、照常执行；坐标超出画面一律 `400 INVALID_PARAMETER`。按旧语义（MaaCore 基准坐标）写的调用方要先按「高 / 720」换算，1280×720 设备上两者相同。
+
 | 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
 |---|---|---|---|---|---|
 | GET | `/api/device/status` | 设备状态机当前状态、地址、分辨率、UUID、最近连接时间 | | 200 | — |
 | POST | `/api/device/reconnect` | 手动触发重连（四时机之一） | `address` 可选，覆盖配置 | 202 | `ADB_CONNECT_FAILED`、`ADB_NOT_FOUND` |
 | GET | `/api/device/list` | 扫描 `adb devices` 可见设备，供设置页下拉选择 | | 200 | `DEVICE_SCAN_FAILED`、`ADB_NOT_FOUND` |
 | GET | `/api/device/screenshot` | 取一张实时截图 | `backend`（`core`/`adb`，默认 `adb`）、`format`、`quality`、`archive`（默认 false） | 200 | `SCREENSHOT_FAILED`、`DEVICE_NOT_CONNECTED` |
-| POST | `/api/device/click` | 单点点击，MaaCore 通道 | `{x, y, force?}` | 200 | `CORE_NOT_READY`、`PIPELINE_ALREADY_RUNNING` |
-| POST | `/api/device/swipe` | 滑动，ADB 通道 | `{x1, y1, x2, y2, duration_ms?, force?}` | 200 | `ADB_COMMAND_FAILED`、`PIPELINE_ALREADY_RUNNING` |
-| POST | `/api/device/long_press` | 长按，ADB 通道（实现为 duration 较长的 swipe 原地操作） | `{x, y, duration_ms, force?}` | 200 | `ADB_COMMAND_FAILED` |
+| POST | `/api/device/click` | 单点点击，MaaCore 通道，坐标为设备像素 | `{x, y, force?}` | 200 | `CORE_NOT_READY`、`DEVICE_NOT_CONNECTED`、`INVALID_PARAMETER`、`PIPELINE_ALREADY_RUNNING`、`SERVICE_UNAVAILABLE` |
+| POST | `/api/device/swipe` | 滑动，ADB 通道，坐标为设备像素 | `{x1, y1, x2, y2, duration_ms?, force?}` | 200 | `ADB_COMMAND_FAILED`、`INVALID_PARAMETER`、`PIPELINE_ALREADY_RUNNING`、`SERVICE_UNAVAILABLE` |
+| POST | `/api/device/long_press` | 长按，ADB 通道（实现为 duration 较长的 swipe 原地操作），坐标为设备像素 | `{x, y, duration_ms, force?}` | 200 | `ADB_COMMAND_FAILED`、`INVALID_PARAMETER`、`PIPELINE_ALREADY_RUNNING`、`SERVICE_UNAVAILABLE` |
 | POST | `/api/device/input_text` | 输入文本，ADB 通道 | `{text, force?}` | 200 | `ADB_COMMAND_FAILED` |
 | POST | `/api/device/key_event` | 按键事件，ADB 通道。`key` 为白名单枚举（`BACK`/`HOME`/`ENTER`/`DEL`/`APP_SWITCH`） | `{key, force?}` | 200 | `INVALID_PARAMETER`、`ADB_COMMAND_FAILED` |
 
@@ -669,6 +671,10 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 | DELETE | `/api/agent/sessions/{id}/atomic-grant` | 撤销该会话的原子操作授权，挂起中的调用按拒绝处理 | | 204 | `AGENT_SESSION_NOT_FOUND` |
 | GET | `/api/agent/audits` | 审计列表 | `caller`、`tool_name`、`status`、`risk_level`、`since`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/agent/audits/{id}` | 单条审计详情，含完整参数与结果摘要 | | 200 | `NOT_FOUND` |
+| GET | `/api/agent/knowledge` | Agent 知识库条目列表（`items` + `total`），不含正文 | | 200 | — |
+| GET | `/api/agent/knowledge/{entry_id}` | 条目详情，含 `body`；内置条目另附 `builtin` 原文 | `entry_id` 匹配 `^[a-z0-9][a-z0-9-]{1,47}$` | 200 | `KNOWLEDGE_NOT_FOUND`、`VALIDATION_ERROR` |
+| PUT | `/api/agent/knowledge/{entry_id}` | 写入完整的生效内容：新建自定义条目，或修改 / 停用内置条目 | `{kind, title, when_to_use, body, enabled?}`（`title` ≤ 32 字、`when_to_use` ≤ 120 字、`body` ≤ 20,000 字） | 200 | `KNOWLEDGE_BUILTIN_READONLY`、`KNOWLEDGE_LIMIT_EXCEEDED`、`VALIDATION_ERROR` |
+| DELETE | `/api/agent/knowledge/{entry_id}` | 删除自定义条目，或撤销对内置条目的修改（恢复默认） | | 204 | `KNOWLEDGE_NOT_FOUND`、`KNOWLEDGE_BUILTIN_READONLY`、`VALIDATION_ERROR` |
 
 LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端点，它是 `setting` 表的三个 key，走 `/api/settings`。默认模型为 DeepSeek Flash（`deepseek-flash`），API Key 由服务端用部署环境变量 `MAA_LLM_ENCRYPTION_KEY` 加密后写入 SQLite；端点仍可由用户配置覆盖。
 
@@ -678,7 +684,9 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 `agent.auto_diagnose_failures` 默认开启。流水线终态失败和内核崩溃各按持久 incident key 最多创建一个可继续对话的诊断会话；关闭设置后不自动调用模型。自动诊断只暴露安全查询与恢复工具，仍遵循原子操作会话授权和资源消耗/破坏操作逐次确认策略。
 
-（10 条）
+**知识库端点**（M18）由独立的路由文件实现，但沿用 `agent` tag（`operationId` 仍是 `agent_*`），因此列在本节。内置条目是随代码发布的只读 Markdown，数据库只存用户的改动与自定义条目；`source`（`builtin` / `custom`）与 `modified` 由读侧的合并结果给出，供设置页显示「内置 / 已修改 / 自定义」徽标。`PUT` 收的是**完整的生效内容**而不是增量，与内置完全一致时等价于「恢复默认」；字段格式与长度不合法是 `422 VALIDATION_ERROR`，条目数（启用上限 50）与术语表加档案的字数合计（3,000 字）越界是 `409 KNOWLEDGE_LIMIT_EXCEEDED`，删除未修改过的内置条目或修改内置条目的 `kind` 是 `409 KNOWLEDGE_BUILTIN_READONLY`。写操作记一条服务日志，不进 Agent 审计；Agent 侧只有只读的 `read_knowledge` 工具，没有任何写通道。
+
+（16 条）
 
 ### 6.16 confirmations
 
