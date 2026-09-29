@@ -28,7 +28,12 @@ from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.task import RUNTIME_IMMUTABLE, TASK_LABELS, TASK_MODELS
 from maa_api.services.log_hub import current_pipeline_id
 
-__all__ = ["TASK_TIMEOUT_SECONDS", "PipelineRunner", "build_pipeline_notification"]
+__all__ = [
+    "TASK_TIMEOUT_SECONDS",
+    "WAIT_POLL_SECONDS",
+    "PipelineRunner",
+    "build_pipeline_notification",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +53,10 @@ TASK_TIMEOUT_SECONDS: dict[str, float] = {
 }
 DEFAULT_TASK_TIMEOUT_SECONDS = 60 * 60
 CORE_POLL_SECONDS = 2.0
+# ``wait_terminal`` 的轮询间隔：Agent 等长任务时够用，又不至于在 SQLite 上打转。
+WAIT_POLL_SECONDS = 1.0
+# 轮询间隔下限，防止调用方传 0 变成忙等。
+MIN_WAIT_POLL_SECONDS = 0.01
 
 
 @dataclass(slots=True)
@@ -592,6 +601,59 @@ class PipelineRunner:
             await self.publish_queue_changed()
         self.wake()
         return len(changed)
+
+    async def wait_terminal(
+        self,
+        pipeline_id: str,
+        timeout_seconds: float,
+        *,
+        poll_seconds: float | None = None,
+    ) -> tuple[Pipeline, bool]:
+        """等待流水线进入终态，返回 ``(pipeline, finished)``。
+
+        - 每次轮询开一个**自己的短会话**（``_session_factory``）：只读一次流水线与
+          任务状态就关闭。调用方（Agent 工具上下文）的会话全程不被占用，等待几十秒
+          到十分钟也不会把审计事务挂在那里。
+        - 已经处于终态（completed / failed / cancelled）时立即返回，不睡第一个轮询
+          周期；未知 id 立即抛 ``PIPELINE_NOT_FOUND``，同样不等满超时。
+        - 到终态返回 ``(pipeline, True)``；超时返回 ``(pipeline, False)`` 与最后一次
+          读到的状态。两个分支返回的流水线都带 ``tasks``，与 ``get_pipeline`` 同构。
+        - ``asyncio.sleep`` 可被取消：调用方被取消（服务关闭、SSE 断开）时
+          ``CancelledError`` 照常向上传播，这里不吞。
+
+        ``poll_seconds`` 是轮询间隔，默认 :data:`WAIT_POLL_SECONDS`（1 秒）；下限
+        :data:`MIN_WAIT_POLL_SECONDS`，避免调用方传 0 变成忙等。
+        """
+        interval = max(
+            WAIT_POLL_SECONDS if poll_seconds is None else float(poll_seconds),
+            MIN_WAIT_POLL_SECONDS,
+        )
+        deadline = time.monotonic() + max(float(timeout_seconds), 0.0)
+        while True:
+            pipeline = await self._read_pipeline(pipeline_id)
+            if pipeline is None:
+                raise AppError(
+                    ErrorCode.PIPELINE_NOT_FOUND,
+                    "流水线不存在",
+                    {"pipeline_id": pipeline_id},
+                )
+            if PipelineStatus(pipeline.status).is_terminal:
+                return pipeline, True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return pipeline, False
+            await asyncio.sleep(min(interval, remaining))
+
+    async def _read_pipeline(self, pipeline_id: str) -> Pipeline | None:
+        """一次性短会话读出流水线与其任务。
+
+        会话在返回前关闭，但 ``get(with_tasks=True)`` 已把全部字段与任务列表加载
+        完毕（``tasks`` 走非映射属性），``publish_pipeline`` 用的是同一模式。
+        """
+        async with self._session_factory() as session:
+            return await PipelineRepository(session).get(
+                pipeline_id, with_tasks=True
+            )
 
     async def _recover_interrupted(self) -> None:
         """Mark RUNNING work from a previous API process as interrupted."""

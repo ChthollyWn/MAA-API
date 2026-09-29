@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -24,7 +25,7 @@ from maa_api.domain.task import (
     TASK_LABELS,
 )
 
-__all__ = ["SetTaskParams", "register_tools"]
+__all__ = ["SetTaskParams", "WaitPipelineParams", "register_tools"]
 
 
 class EmptyParams(BaseModel):
@@ -35,6 +36,13 @@ class GetPipelineParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pipeline_id: str = Field(min_length=1, max_length=36)
+
+
+class WaitPipelineParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pipeline_id: str = Field(min_length=1, max_length=36)
+    timeout_seconds: float = Field(default=300, ge=5, le=600)
 
 
 class ListPipelinesParams(BaseModel):
@@ -79,6 +87,18 @@ def register_tools(registry: ToolRegistry) -> None:
             description="读取流水线详情与任务级状态。",
             params_model=GetPipelineParams,
             handler=get_pipeline,
+            read_only=True,
+        ),
+        ToolDefinition(
+            name="wait_pipeline",
+            group="pipeline",
+            risk=ToolRisk.SAFE,
+            description=(
+                "等待指定流水线结束（完成、失败或取消）或超时，返回终态与各任务状态。"
+                "提交流水线后需要等结果时使用，不要反复调用 get_pipeline。"
+            ),
+            params_model=WaitPipelineParams,
+            handler=wait_pipeline,
             read_only=True,
         ),
         ToolDefinition(
@@ -163,6 +183,26 @@ async def get_pipeline(params: GetPipelineParams, ctx: ToolContext) -> dict[str,
             {"pipeline_id": params.pipeline_id},
         )
     return _pipeline_wire(pipeline)
+
+
+async def wait_pipeline(
+    params: WaitPipelineParams, ctx: ToolContext
+) -> dict[str, Any]:
+    """等待流水线终态；等待期间只用 runner 自己的短会话。
+
+    这里**不能**用 ``ctx.db_session``：``_execute_and_record`` 在整个 handler 期间
+    持有那个会话，等几分钟会把审计事务一起挂住（规格 §4.2）。
+    """
+    runner = _required_service(_app_state(ctx), "pipeline_runner")
+    started = time.monotonic()
+    pipeline, finished = await runner.wait_terminal(
+        params.pipeline_id, params.timeout_seconds
+    )
+    return {
+        "finished": finished,
+        "waited_seconds": round(time.monotonic() - started, 3),
+        "pipeline": _pipeline_wire(pipeline),
+    }
 
 
 async def list_pipelines(

@@ -684,6 +684,131 @@ def test_tool_loop_stops_when_the_model_repeats_the_same_calls():
     asyncio.run(scenario())
 
 
+def _pipeline_wait_registry(invoked: list[str]) -> ToolRegistry:
+    """注册 wait_pipeline 与 get_pipeline，用于对照打转检测的豁免范围。"""
+
+    class PipelineParams(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        pipeline_id: str
+
+    async def handler(params, _context):
+        invoked.append(params.pipeline_id)
+        return {"pipeline_id": params.pipeline_id}
+
+    registry = ToolRegistry()
+    for name in ("wait_pipeline", "get_pipeline"):
+        registry.register(
+            ToolDefinition(
+                name=name,
+                group="pipeline",
+                risk=ToolRisk.SAFE,
+                description="Returns one pipeline snapshot.",
+                params_model=PipelineParams,
+                handler=handler,
+                read_only=True,
+            )
+        )
+    return registry
+
+
+def _identical_pipeline_batches(
+    *calls: tuple[str, str], rounds: int
+) -> list[list[dict[str, Any]]]:
+    """同一批（名字, pipeline_id）组合连续出现 ``rounds`` 次，只有调用 id 不同。"""
+
+    return [
+        _tool_response(
+            *(
+                {
+                    "index": index,
+                    "id": f"call-{index}-{round_index}",
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps({"pipeline_id": pipeline_id}),
+                    },
+                }
+                for index, (name, pipeline_id) in enumerate(calls)
+            )
+        )
+        for round_index in range(rounds)
+    ]
+
+
+def test_only_wait_pipeline_batches_are_exempt_from_the_stuck_loop_detector():
+    """只含 wait_pipeline 的批次不计入打转：长任务连续等几次是正常节奏。"""
+
+    async def scenario():
+        invoked: list[str] = []
+        registry = _pipeline_wait_registry(invoked)
+        responses = _identical_pipeline_batches(
+            ("wait_pipeline", "pipeline-1"), rounds=3
+        ) + [_text_response("流水线完成了。")]
+        runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(
+            responses, registry=registry
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [chunk async for chunk in runtime.stream_message(session_id, "等它结束", None)]
+            assert _turn_events(chunks)[-1][0] == "message_end"
+            assert _turn_events(chunks)[-1][1]["finish_reason"] == "stop"
+            assert invoked == ["pipeline-1"] * 3
+            # 三次等待之后仍继续请求模型，最后才给出文字回答。
+            assert len(llm.turns) == 4, len(llm.turns)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_identical_get_pipeline_batches_still_count_as_a_stuck_loop():
+    """豁免只覆盖 wait_pipeline：反复查同一条流水线仍然是原地打转。"""
+
+    async def scenario():
+        invoked: list[str] = []
+        registry = _pipeline_wait_registry(invoked)
+        responses = _identical_pipeline_batches(
+            ("get_pipeline", "pipeline-1"), rounds=10
+        )
+        runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(
+            responses, registry=registry
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [chunk async for chunk in runtime.stream_message(session_id, "查一下", None)]
+            assert _turn_events(chunks)[-1][1]["finish_reason"] == "stuck_loop"
+            assert invoked == ["pipeline-1"] * 3
+            assert len(llm.turns) == 3, len(llm.turns)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_mixed_batches_containing_wait_pipeline_still_count_as_a_stuck_loop():
+    """「只含」才豁免：批里还带别的工具就照旧计数。"""
+
+    async def scenario():
+        invoked: list[str] = []
+        registry = _pipeline_wait_registry(invoked)
+        responses = _identical_pipeline_batches(
+            ("wait_pipeline", "pipeline-1"), ("get_pipeline", "pipeline-2"), rounds=10
+        )
+        runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(
+            responses, registry=registry
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [chunk async for chunk in runtime.stream_message(session_id, "继续", None)]
+            assert _turn_events(chunks)[-1][1]["finish_reason"] == "stuck_loop"
+            assert len(llm.turns) == 3, len(llm.turns)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_only_read_only_tool_batches_run_concurrently_and_mixed_batches_keep_model_order():
     async def run_batch(read_only: bool):
         class Params(BaseModel):

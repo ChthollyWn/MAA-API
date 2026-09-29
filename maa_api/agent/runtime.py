@@ -60,6 +60,8 @@ TITLE_TIMEOUT_SECONDS = 20.0
 #: 连续多少轮出现完全相同的工具调用就判定为原地打转。设为 2 表示「同一批调用连着
 #: 出现三次」：模型偶尔重复一次是正常重试，连着三次说明它已经拿不到新信息了。
 STUCK_REPEAT_LIMIT = 2
+#: 整批只含这些工具时不参与原地打转计数：等长任务本来就要连着等几次（规格 §4.2）。
+STUCK_EXEMPT_TOOLS = frozenset({"wait_pipeline"})
 INCIDENT_ALLOWED_TOOLS = frozenset(
     {
         "get_system_status",
@@ -799,18 +801,22 @@ class AgentRuntime:
                         return
                     # 没有步数上限，就必须认得出「模型在原地打转」：连续三轮发出完全相同的
                     # 工具调用说明它没有获得新信息，再跑下去只是烧 token。
+                    # 例外：整批只等流水线的调用不算打转，长任务连着等几次是正常节奏。
+                    # 这种批次也不重置 last_signature / repeats —— 否则模型「等一次、
+                    # 查一次」交替就能永远清空计数，把保险绕过去。
                     signature = _calls_signature(parsed_calls)
-                    repeats = repeats + 1 if signature == last_signature else 0
-                    last_signature = signature
-                    if repeats >= STUCK_REPEAT_LIMIT:
-                        await self._finish_with_text(
-                            session_id,
-                            "连续多轮发出了完全相同的工具调用，看起来已经拿不到新信息了。"
-                            "我先停下；如需继续，请告诉我下一步该查什么。",
-                            emit,
-                            "stuck_loop",
-                        )
-                        return
+                    if not _exempt_from_stuck_loop(parsed_calls):
+                        repeats = repeats + 1 if signature == last_signature else 0
+                        last_signature = signature
+                        if repeats >= STUCK_REPEAT_LIMIT:
+                            await self._finish_with_text(
+                                session_id,
+                                "连续多轮发出了完全相同的工具调用，看起来已经拿不到新信息了。"
+                                "我先停下；如需继续，请告诉我下一步该查什么。",
+                                emit,
+                                "stuck_loop",
+                            )
+                            return
                     continue
 
                 await self._persist_message(
@@ -1584,6 +1590,17 @@ def _parse_arguments(value: Any) -> dict[str, Any]:
 
 def _json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _exempt_from_stuck_loop(calls: Sequence[Mapping[str, Any]]) -> bool:
+    """整批只含豁免工具（当前只有 ``wait_pipeline``）时为真。
+
+    「只含」是刻意的：批里只要夹了别的工具，模型这一轮就拿到了新信息，照常计数。
+    空批次返回 False（调用点只在有工具调用时才会走到这里）。
+    """
+    return bool(calls) and all(
+        call.get("name") in STUCK_EXEMPT_TOOLS for call in calls
+    )
 
 
 def _calls_signature(calls: Sequence[Mapping[str, Any]]) -> str:

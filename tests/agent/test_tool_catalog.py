@@ -1,14 +1,16 @@
 """M11 exposes exactly the implemented docs/11 §3.2 tool catalog."""
 
+import asyncio
+
 from maa_api.agent.tools import build_registry
 
 
 EXPECTED_TOOLS = {
     "get_system_status", "get_screenshot", "get_versions", "get_logs",
     "resolve_stage", "get_drop_stats", "list_task_types", "get_pipeline",
-    "list_pipelines", "get_queue", "submit_pipeline", "stop_pipeline",
-    "set_task_params", "cancel_queued", "click", "swipe", "long_press",
-    "input_text", "key_event", "back_to_home", "trigger_screencap",
+    "wait_pipeline", "list_pipelines", "get_queue", "submit_pipeline",
+    "stop_pipeline", "set_task_params", "cancel_queued", "click", "swipe",
+    "long_press", "input_text", "key_event", "back_to_home", "trigger_screencap",
     "get_device_status", "reconnect_device", "list_devices", "list_copilots",
     "upload_copilot", "list_custom_tasks", "register_custom_task",
     "remove_custom_task", "set_infrast_plan", "check_updates", "update_core",
@@ -23,8 +25,17 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 40
+    assert len(actual) == 41
     assert "run_copilot" not in actual
+
+
+def test_wait_pipeline_is_registered_as_a_safe_read_only_pipeline_tool():
+    registry = build_registry()
+    definition = registry.get("wait_pipeline")
+
+    assert definition.group == "pipeline"
+    assert definition.risk.value == "SAFE"
+    assert definition.read_only is True
 
 
 def test_registry_schema_marks_safe_raw_exceptions_and_consumption_rules():
