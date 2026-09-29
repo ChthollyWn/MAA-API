@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
-import { ArrowDown, Bot, Gauge, MessagesSquare, SquarePen, TriangleAlert } from 'lucide-react'
+import { ArrowDown, Bot, CircleHelp, Gauge, MessagesSquare, SquarePen, TriangleAlert } from 'lucide-react'
 import { api } from '@/api/client'
 import { ApiError, toApiError } from '@/api/errors'
 import { keys } from '@/api/keys'
@@ -17,13 +17,16 @@ import { DESKTOP_QUERY, useMediaQuery } from '@/lib/media'
 import { Composer } from './Composer'
 import { ConfirmationCard } from './ConfirmationCard'
 import { LiveTurn, QuickPrompts, TranscriptEntryView } from './MessageViews'
+import { QuestionCard } from './QuestionCard'
 import { SessionList } from './SessionList'
 import { CapabilityAlert, ErrorAlert, GrantBar } from './StatusAlerts'
-import { formatTokenCount, grantRemainingLabel, isRecord, sessionTitle, stringValue, toShownError } from './format'
+import { formatTokenCount, grantRemainingLabel, isRecord, parseQuestionOptions, sessionTitle, stringValue, toShownError } from './format'
 import { requestId, streamMessage } from './stream'
 import { buildTranscript } from './transcript'
 import type {
   AgentConfirmation,
+  AgentQuestion,
+  AgentQuestionPrompt,
   AgentSession,
   CapabilityResult,
   PageEnvelope,
@@ -112,6 +115,20 @@ export default function AgentPage() {
     retry: false,
     refetchInterval: 10_000,
   })
+  // 本会话待答的提问：刷新/切页回来仍能看到（与 pending confirmations 同一节奏）。
+  const pendingQuestions = useQuery({
+    queryKey: [...keys.agent.pendingQuestions(), selectedId],
+    enabled: Boolean(selectedId),
+    queryFn: async () => {
+      const { data, error, response } = await api.GET('/api/agent/questions', {
+        params: { query: { session_id: selectedId!, status: 'pending', page: 1, size: 100 } },
+      })
+      if (error) throw toApiError(error, response)
+      return (data as unknown as PageEnvelope<AgentQuestion>).items
+    },
+    retry: false,
+    refetchInterval: 10_000,
+  })
 
   const sessionRows = useMemo(() => sessions.data?.items ?? [], [sessions.data?.items])
   const conversation = selectedSession.data
@@ -120,6 +137,8 @@ export default function AgentPage() {
   const entries = useMemo(() => buildTranscript(history), [history])
   const sessionPending = pendingConfirmations.data ?? []
   const otherPending = sessionPending.filter((item) => item.confirmation_id !== turn?.pendingConfirmation)
+  // 已经在本轮工具条下方展示过的那张卡不再重复渲染（刷新后本轮没了，才由这里接管）。
+  const otherQuestions = (pendingQuestions.data ?? []).filter((item) => item.question_id !== turn?.pendingQuestion?.question_id)
   const grant = conversation?.atomic_grant
   const now = useNow(Boolean(grant?.granted))
   const grantRemaining = grant?.granted ? grantRemainingLabel(grant.expires_at, now) : null
@@ -222,14 +241,29 @@ export default function AgentPage() {
       }
     },
   })
+  /**
+   * 提问被用户处理掉（提交/跳过，或发现已被别的标签页处理）之后：清掉本轮那张卡，
+   * 并把这条从待答缓存里摘掉 —— 只靠失效重取的话，已答的卡会闪一下再消失。
+   */
+  const resolveQuestion = (questionId: string) => {
+    setTurn((current) => current?.pendingQuestion?.question_id === questionId
+      ? { ...current, pendingQuestion: null }
+      : current)
+    queryClient.setQueryData([...keys.agent.pendingQuestions(), selectedId], (current: unknown) =>
+      Array.isArray(current)
+        ? current.filter((item) => !(isRecord(item) && item.question_id === questionId))
+        : current)
+    void queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingQuestions(), selectedId] })
+  }
 
   const lastMessageId = history.at(-1)?.id
   const tailKey = [
     lastMessageId ?? 'none',
     turn
-      ? [turn.segments.length, turn.assistantText.length, turn.tools.filter((tool) => tool.result !== undefined).length, turn.pendingConfirmation ?? '', turn.running].join(':')
+      ? [turn.segments.length, turn.assistantText.length, turn.tools.filter((tool) => tool.result !== undefined).length, turn.pendingConfirmation ?? '', turn.pendingQuestion?.question_id ?? '', turn.running].join(':')
       : 'idle',
     otherPending.map((item) => item.confirmation_id).join(','),
+    otherQuestions.map((item) => item.question_id).join(','),
     turnError?.message ?? '',
     messages.query.status,
   ].join('|')
@@ -268,7 +302,7 @@ export default function AgentPage() {
     const controller = new AbortController()
     abortRef.current = controller
     setTurnError(null)
-    setTurn({ userText: content, assistantText: '', tools: [], segments: [], pendingConfirmation: null, running: true, error: null })
+    setTurn({ userText: content, assistantText: '', tools: [], segments: [], pendingConfirmation: null, pendingQuestion: null, running: true, error: null })
     scroll.scrollToBottom()
     const handleEvent = (name: string, rawData: unknown) => {
       const data = isRecord(rawData) ? rawData : {}
@@ -284,8 +318,15 @@ export default function AgentPage() {
           segments: [...current.segments, { kind: 'tool', toolCallId: trace.toolCallId }],
         } : current)
       } else if (name === 'tool_result') {
+        // ask_user 的结果一到，「本轮还挂着提问」就不成立了：答案可能来自别的标签页，
+        // 超时/跳过更是本轮到此为止。不清的话实时副本会连同整轮内容一直挂在历史下面。
+        const questionResult = isRecord(data.result) ? data.result : null
+        const resolvedQuestionId = stringValue(data.name) === 'ask_user' ? stringValue(questionResult?.question_id) : ''
         setTurn((current) => current ? {
           ...current,
+          pendingQuestion: resolvedQuestionId && current.pendingQuestion?.question_id === resolvedQuestionId
+            ? null
+            : current.pendingQuestion,
           tools: current.tools.map((tool) => tool.toolCallId === data.tool_call_id
             ? { ...tool, result: rawData, auditId: typeof data.audit_id === 'number' ? data.audit_id : undefined }
             : tool),
@@ -300,6 +341,19 @@ export default function AgentPage() {
             : tool),
         } : current)
         void queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingConfirmations(), sessionId] })
+      } else if (name === 'question_required') {
+        const questionId = stringValue(data.question_id)
+        if (!questionId) return
+        // 本轮挂起等用户选择。服务端在 tool_start 之后推这条，卡就放在那次工具调用下方。
+        const prompt: AgentQuestionPrompt = {
+          question_id: questionId,
+          question: stringValue(data.question),
+          options: parseQuestionOptions(data.options),
+          multiple: data.multiple === true,
+          expires_at: stringValue(data.expires_at),
+        }
+        setTurn((current) => current ? { ...current, pendingQuestion: prompt } : current)
+        void queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingQuestions(), sessionId] })
       } else if (name === 'text_delta') {
         const text = stringValue(data.text)
         setTurn((current) => current ? { ...current, assistantText: current.assistantText + text, segments: appendText(current.segments, text) } : current)
@@ -352,12 +406,15 @@ export default function AgentPage() {
             queryClient.invalidateQueries({ queryKey: keys.agent.session(sessionId) }),
             queryClient.invalidateQueries({ queryKey: keys.agent.sessions() }),
             queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingConfirmations(), sessionId] }),
+            queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingQuestions(), sessionId] }),
           ])
       // 本轮内容已落库并回到 history，必须丢弃实时副本，否则同一句话会同时以
       // 本轮气泡和历史气泡出现两遍（工具轨迹同理）。清空时机只能是
       // invalidate 完成之后 —— 提前清会让界面在历史到达前闪空。
       await settled
-      setTurn((current) => (current?.pendingConfirmation ? current : null))
+      // 还挂着确认或提问的一轮保留：卡要留在原位等用户处理（提问结束时会由
+      // tool_result 分支摘掉，所以这里不会把已经结束的一轮永久留下）。
+      setTurn((current) => (current?.pendingConfirmation || current?.pendingQuestion ? current : null))
     }
   }
 
@@ -441,6 +498,10 @@ export default function AgentPage() {
     </>
   ) : null
 
+  const liveQuestion = turn?.pendingQuestion ? (
+    <QuestionCard key={turn.pendingQuestion.question_id} question={turn.pendingQuestion} onResolved={resolveQuestion} />
+  ) : null
+
   const transcript = !selectedId ? noSession : (
     <div className="space-y-4">
       {conversation ? (
@@ -461,18 +522,24 @@ export default function AgentPage() {
       {messages.earlierError ? <InlineAlert tone="danger">读取更早的消息失败：{toApiError(messages.earlierError).message}</InlineAlert> : null}
       {entries.map((entry) => <TranscriptEntryView key={entry.key} entry={entry} />)}
       {messages.query.isSuccess && history.length === 0 && !turn ? <QuickPrompts onPick={pickPrompt} /> : null}
-      {turn ? <LiveTurn turn={turn} confirmation={liveConfirmation} /> : null}
+      {turn ? <LiveTurn turn={turn} confirmation={liveConfirmation} question={liveQuestion} /> : null}
       {otherPending.map((item) => (
         <ConfirmationCard key={item.confirmation_id} confirmationId={item.confirmation_id} busy={resolvingFor(item.confirmation_id)} onResolve={resolve} />
+      ))}
+      {otherQuestions.map((item) => (
+        <QuestionCard key={item.question_id} question={item} onResolved={resolveQuestion} />
       ))}
       {turnError ? <ErrorAlert error={turnError} /> : null}
     </div>
   )
 
+  // 确认优先：确认会决定提问所在那批工具能不能执行，提问的结果本来就排在它后面。
   const composerStatus = turn?.running
     ? turn.pendingConfirmation
       ? <><TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-warning" />请先处理上方的确认</>
-      : <><Spinner />Agent 正在处理…</>
+      : turn.pendingQuestion
+        ? <><CircleHelp aria-hidden="true" className="size-4 shrink-0 text-primary-text" />请先回答上方的问题</>
+        : <><Spinner />Agent 正在处理…</>
     : resolveConfirmation.isPending
       ? <><Spinner />正在提交确认…</>
       : null

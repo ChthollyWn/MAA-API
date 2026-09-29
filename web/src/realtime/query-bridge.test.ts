@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { keys } from '@/api/keys'
 import { handleServerEvent } from '@/realtime/query-bridge'
 import { useLogBuffer } from '@/stores/log-buffer'
 import { formatLogTime } from '@/features/logs/format'
@@ -77,5 +78,40 @@ describe('realtime log records carry a timestamp', () => {
     )
 
     expect(bufferRows('task')[0].ts).toBe(1_790_000_500)
+  })
+})
+
+describe('agent question events keep the pending question list fresh', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('invalidates pending questions on question_request and question_resolved', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    for (const type of ['question_request', 'question_resolved'] as const) {
+      handleServerEvent({ type, data: { question_id: 'q-1' } }, queryClient)
+      // 失效是攒批的（250ms 窗口），推进计时器才会真正发出。
+      vi.advanceTimersByTime(300)
+    }
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.pendingQuestions(), refetchType: 'active' })
+    // 提问不进确认链路：这条事件不该顺手把确认也刷一遍。
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.pendingConfirmations(), refetchType: 'active' })
+  })
+
+  it('leaves the confirmation invalidation exactly as it was', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent({ type: 'confirm_resolved', data: {} }, queryClient)
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.pendingConfirmations(), refetchType: 'active' })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.pendingQuestions(), refetchType: 'active' })
   })
 })

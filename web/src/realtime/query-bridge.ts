@@ -90,6 +90,11 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
       invalidateBatched(queryClient, keys.agent.pendingConfirmations())
       invalidateBatched(queryClient, keys.agent.audits())
       break
+    // Agent 提问：只为多标签页同步待答卡，不进全局「待确认」面板与标题栏胶囊。
+    case 'question_request':
+    case 'question_resolved':
+      invalidateBatched(queryClient, keys.agent.pendingQuestions())
+      break
     case 'update_progress':
     case 'update_available':
       invalidateBatched(queryClient, keys.updates.status())
@@ -114,6 +119,7 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
       // Reconnect acknowledgement follows a possible WS gap; reload persisted
       // approval/audit state so missed terminal events cannot leave stale cards.
       invalidateBatched(queryClient, keys.agent.pendingConfirmations())
+      invalidateBatched(queryClient, keys.agent.pendingQuestions())
       invalidateBatched(queryClient, keys.agent.audits())
       break
     case 'server_shutdown':
