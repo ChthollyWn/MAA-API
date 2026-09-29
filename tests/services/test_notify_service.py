@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+from base64 import b64encode
 from typing import Any
 
 import pytest
@@ -154,7 +157,7 @@ def test_dispatches_each_subscribed_event_once_and_records_failures(notify_sessi
     asyncio.run(scenario())
 
 
-def test_supports_all_five_transports_with_injected_clients(notify_session_factory):
+def test_supports_every_transport_with_injected_clients(notify_session_factory):
     calls: list[tuple[dict[str, Any], str, str, float]] = []
 
     async def smtp(config, subject, body, *, timeout):
@@ -170,6 +173,7 @@ def test_supports_all_five_transports_with_injected_clients(notify_session_facto
             (NotifyChannelType.BARK, {"device_key": "device"}),
             (NotifyChannelType.DINGTALK, {"webhook": "https://example.test/ding", "secret": "secret"}),
             (NotifyChannelType.WECOM, {"webhook": "https://example.test/wecom"}),
+            (NotifyChannelType.FEISHU, {"webhook": "https://example.test/feishu"}),
         ]
         channels = []
         for channel_type, config in configs:
@@ -184,7 +188,7 @@ def test_supports_all_five_transports_with_injected_clients(notify_session_facto
 
         assert len(calls) == 1
         assert calls[0][3] == 10.0
-        assert len(http.calls) == 4
+        assert len(http.calls) == 5
         methods = {call[0] for call in http.calls}
         assert methods == {"POST"}
 
@@ -210,5 +214,83 @@ def test_test_send_writes_failure_and_rejects_template_execution(notify_session_
         stored = await service.get_channel(channel.id)
         assert stored.enabled is True
         assert stored.last_status == "failed"
+
+    asyncio.run(scenario())
+
+
+def test_feishu_channel_signs_the_body_with_its_own_algorithm(notify_session_factory):
+    """飞书加签与钉钉是两套算法：密钥含时间戳、消息体为空、秒级、签名放 body。"""
+
+    transport = _HttpSender()
+    service = NotifyService(notify_session_factory, http_sender=transport)
+
+    async def scenario():
+        unsigned = await service.create_channel(
+            type=NotifyChannelType.FEISHU,
+            name="group",
+            config={"webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/private-token"},
+            events=[NotifyEvent.PIPELINE_FAILED],
+        )
+        await service.test_channel(unsigned.id, event=NotifyEvent.PIPELINE_FAILED)
+        method, url, kwargs = transport.calls[-1]
+        assert (method, url) == ("POST", "https://open.feishu.cn/open-apis/bot/v2/hook/private-token")
+        payload = kwargs["json"]
+        assert payload["msg_type"] == "text"
+        assert payload["content"]["text"] == "MAA-API 测试通知\n这是一条测试通知，通道配置可正常发送。"
+        # 没填密钥就不带签名字段（带了反而会被飞书判为签名错误）
+        assert "timestamp" not in payload and "sign" not in payload
+
+        signed = await service.create_channel(
+            type=NotifyChannelType.FEISHU,
+            name="signed",
+            config={
+                "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/token",
+                "secret": "signing-secret",
+                "at_user_ids": ["ou_abc", "all"],
+            },
+            events=[NotifyEvent.PIPELINE_FAILED],
+        )
+        await service.test_channel(signed.id, event=NotifyEvent.PIPELINE_FAILED)
+        payload = transport.calls[-1][2]["json"]
+        assert payload["content"]["text"].endswith(
+            '<at user_id="ou_abc"></at><at user_id="all">所有人</at>'
+        )
+        timestamp, sign = payload["timestamp"], payload["sign"]
+        assert len(timestamp) == 10  # 秒级（钉钉是毫秒）
+        expected = b64encode(
+            hmac.new(
+                f"{timestamp}\nsigning-secret".encode("utf-8"),
+                digestmod=hashlib.sha256,
+            ).digest()
+        ).decode("ascii")
+        assert sign == expected
+
+        wire = channel_wire(await service.get_channel(signed.id))
+        assert wire["config"]["webhook"] == "https://open.feishu.cn/***"
+        assert wire["config"]["secret"] == "***"
+
+    asyncio.run(scenario())
+
+
+def test_feishu_channel_rejects_non_https_and_unsafe_mention_ids(notify_session_factory):
+    service = NotifyService(notify_session_factory)
+
+    async def scenario():
+        for config in (
+            {"webhook": "http://open.feishu.cn/open-apis/bot/v2/hook/x"},
+            {"webhook": "https://user:pw@open.feishu.cn/open-apis/bot/v2/hook/x"},
+            {
+                "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/x",
+                "at_user_ids": ['ou_x"><script>'],
+            },
+        ):
+            with pytest.raises(AppError) as caught:
+                await service.create_channel(
+                    type=NotifyChannelType.FEISHU,
+                    name="bad",
+                    config=config,
+                    events=[NotifyEvent.PIPELINE_COMPLETED],
+                )
+            assert caught.value.code == ErrorCode.NOTIFY_CONFIG_INVALID
 
     asyncio.run(scenario())

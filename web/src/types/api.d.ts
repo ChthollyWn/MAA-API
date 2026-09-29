@@ -2087,7 +2087,7 @@ export interface components {
          * NotifyChannelType
          * @enum {string}
          */
-        NotifyChannelType: "email" | "webhook" | "bark" | "dingtalk" | "wecom";
+        NotifyChannelType: "email" | "webhook" | "bark" | "dingtalk" | "wecom" | "feishu";
         /**
          * NotifyEvent
          * @enum {string}

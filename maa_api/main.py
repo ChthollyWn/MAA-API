@@ -920,6 +920,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.update_service = update_service
         app.state.notify_service = notify_service
+        # 流水线终态通知（docs/09 §13.1 的保底层）：执行器只负责在终态触发，
+        # 发给谁由通道配置决定。注入是后置的，因为 runner 先于 NotifyService 构造。
+        bind_notify_service = getattr(pipeline_runner, "bind_notify_service", None)
+        if callable(bind_notify_service):
+            bind_notify_service(notify_service)
         app.state.push_subscription_service = push_subscription_service
         app.state.webpush_service = webpush_service
         app.state.api_snippet_service = api_snippet_service

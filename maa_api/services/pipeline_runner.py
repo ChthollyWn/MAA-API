@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,12 +18,17 @@ from maa_api.core.enums import Message
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
 from maa_api.db.models import Pipeline, Task, utcnow
 from maa_api.db.repositories.pipeline import PipelineRepository, TaskRepository
-from maa_api.domain.enums import PipelineSource, PipelineStatus, TaskStatus
+from maa_api.domain.enums import (
+    NotifyEvent,
+    PipelineSource,
+    PipelineStatus,
+    TaskStatus,
+)
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.domain.task import RUNTIME_IMMUTABLE, TASK_MODELS
+from maa_api.domain.task import RUNTIME_IMMUTABLE, TASK_LABELS, TASK_MODELS
 from maa_api.services.log_hub import current_pipeline_id
 
-__all__ = ["TASK_TIMEOUT_SECONDS", "PipelineRunner"]
+__all__ = ["TASK_TIMEOUT_SECONDS", "PipelineRunner", "build_pipeline_notification"]
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +129,10 @@ class PipelineRunner:
         self._cancel_requested_ids: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
         self.incident_service: Any = None
+        self.notify_service: Any = None
         self._recovered_pipeline_ids: list[str] = []
         self._incident_tasks: set[asyncio.Task[Any]] = set()
+        self._notify_tasks: set[asyncio.Task[Any]] = set()
 
         client = self.registry.get(self.core_id)
         client.on("CALLBACK", self._on_callback)
@@ -196,11 +204,81 @@ class PipelineRunner:
 
     def _forget_incident_task(self, task: asyncio.Task[Any]) -> None:
         self._incident_tasks.discard(task)
-        if not task.cancelled():
-            try:
-                task.exception()
-            except Exception:  # noqa: BLE001
-                logger.exception("流水线自动诊断后台任务失败")
+        if task.cancelled():
+            return
+        # ``Task.exception()`` 是「返回」异常而不是抛出它，写成 try/except 会把
+        # 后台任务的失败静默吞掉——这里必须判返回值。
+        failure = task.exception()
+        if failure is not None:
+            logger.error("流水线自动诊断后台任务失败：%s", failure, exc_info=failure)
+
+    def bind_notify_service(self, service: Any) -> None:
+        """Bind multi-channel notifications after ``NotifyService`` is built.
+
+        Binding is late (and optional) for the same reason as the incident
+        service: the runner is constructed before the services that need the
+        database session factory, and tests substitute runners without it.
+        """
+        self.notify_service = service
+
+    def _schedule_pipeline_notification(
+        self, pipeline_id: str, status: PipelineStatus
+    ) -> None:
+        """Queue the terminal notification without blocking the queue consumer.
+
+        Delivery can take up to the per-channel timeout (10s) per channel; the
+        consumer must never wait for a notification before claiming the next
+        pipeline. Shutdown cancels pending sends exactly like incident tasks.
+        """
+        if self.notify_service is None:
+            return
+        task = asyncio.create_task(
+            self._send_pipeline_notification(pipeline_id, status),
+            name=f"pipeline-notify-{pipeline_id}",
+        )
+        self._notify_tasks.add(task)
+        task.add_done_callback(self._forget_notify_task)
+
+    def _forget_notify_task(self, task: asyncio.Task[Any]) -> None:
+        self._notify_tasks.discard(task)
+        if task.cancelled():
+            return
+        failure = task.exception()
+        if failure is not None:
+            logger.error("流水线终态通知后台任务失败：%s", failure, exc_info=failure)
+
+    async def _send_pipeline_notification(
+        self, pipeline_id: str, status: PipelineStatus
+    ) -> None:
+        """Deliver one pipeline's terminal status to the configured channels.
+
+        Transport failures are the channels' business (``NotifyService``
+        records them per channel and never disables a channel); this method only
+        has to keep its own failure out of the executor's terminal path.
+        """
+        service = self.notify_service
+        if service is None:
+            return
+        async with self._session_factory() as session:
+            pipeline = await PipelineRepository(session).get(
+                pipeline_id, with_tasks=True
+            )
+        if pipeline is None:
+            return
+        if not bool(getattr(pipeline, "notify_on_finish", False)):
+            return
+        event, payload = build_pipeline_notification(
+            pipeline, getattr(pipeline, "tasks", []) or [], status
+        )
+        result = await service.send_event(event, payload)
+        logger.info(
+            "流水线终态通知：pipeline_id=%s event=%s matched=%s sent=%s failed=%s",
+            pipeline_id,
+            event,
+            result.get("matched"),
+            result.get("sent"),
+            result.get("failed"),
+        )
 
     def wake(self) -> None:
         """Wake the consumer after a queue or core state change."""
@@ -260,6 +338,11 @@ class PipelineRunner:
             task.cancel()
         if pending_incidents:
             await asyncio.gather(*pending_incidents, return_exceptions=True)
+        pending_notifications = tuple(self._notify_tasks)
+        for task in pending_notifications:
+            task.cancel()
+        if pending_notifications:
+            await asyncio.gather(*pending_notifications, return_exceptions=True)
 
     def log_context(self, msg: Any, details: dict[str, Any]) -> tuple[str, str] | None:
         """Return pipeline/task ids for task callback logs while a task is active."""
@@ -1249,6 +1332,11 @@ class PipelineRunner:
                 )
                 await session.commit()
         if pipeline_failed:
+            # 手动 / agent 提交的流水线在设备预检就失败：与 _finish_pipeline 同源，
+            # 用户提交了任务却什么都没跑起来，是必须让他知道的一种终态。
+            self._schedule_pipeline_notification(
+                pipeline.id, PipelineStatus.FAILED
+            )
             self.schedule_pipeline_incident(pipeline.id)
         for task_id in changed_task_ids:
             await self._publish_task(task_id)
@@ -1586,8 +1674,13 @@ class PipelineRunner:
                 or str(error_code) != ErrorCode.CORE_CRASHED.value
             )
         ):
+            # 终态被内核崩溃抢占。通知留给 _record_core_crash_terminal 在真正改写
+            # 那一次发出，否则这里会先报一条「完成」再报一条「失败」。
             await self._record_core_crash_terminal(pipeline_id)
             return
+        if changed:
+            # mark_terminal 只在状态机真的接受了这次流转时为真，重放不会重发。
+            self._schedule_pipeline_notification(pipeline_id, PipelineStatus(status))
         if changed and PipelineStatus(status) is PipelineStatus.FAILED:
             if str(error_code) == ErrorCode.CORE_CRASHED.value:
                 active = self._active
@@ -1616,13 +1709,14 @@ class PipelineRunner:
         error_message = "MaaCore 子进程中断，流水线已停止"
         changed_task_ids: set[str] = set()
         persisted = False
+        promoted = False
         last_error: Exception | None = None
         for _attempt in range(2):
             try:
                 async with self._session_factory() as session:
                     pipeline_repo = PipelineRepository(session)
                     task_repo = TaskRepository(session)
-                    await pipeline_repo.mark_core_crashed(
+                    promoted = await pipeline_repo.mark_core_crashed(
                         pipeline_id, error_message=error_message
                     )
                     tasks = await task_repo.list_by_pipeline(pipeline_id)
@@ -1679,6 +1773,10 @@ class PipelineRunner:
         if not persisted:
             assert last_error is not None
             raise last_error
+        if promoted:
+            # 只有真正把行改成 CORE_CRASHED 的那一次才通知；重复调用（例如
+            # finally 里再补一次）不会命中 mark_core_crashed 的条件。
+            self._schedule_pipeline_notification(pipeline_id, PipelineStatus.FAILED)
         if active.core_epoch is not None:
             self._core_crash_pipeline_ids.setdefault(
                 int(active.core_epoch), set()
@@ -1743,10 +1841,11 @@ class PipelineRunner:
     async def _record_failed_claim_error(self, pipeline_id: str) -> None:
         """Fail a claim that cannot be released, so it cannot stick RUNNING."""
         error_message = "流水线领取失败，服务未能开始执行"
+        changed = False
         async with self._session_factory() as session:
             pipeline_repo = PipelineRepository(session)
             task_repo = TaskRepository(session)
-            await pipeline_repo.mark_terminal(
+            changed = await pipeline_repo.mark_terminal(
                 pipeline_id,
                 PipelineStatus.FAILED,
                 error_code=ErrorCode.INTERNAL_ERROR,
@@ -1780,6 +1879,8 @@ class PipelineRunner:
                         error_message=error_message,
                     )
             await session.commit()
+        if changed:
+            self._schedule_pipeline_notification(pipeline_id, PipelineStatus.FAILED)
         # The finalizer gives a core monitor callback already queued with
         # call_soon_threadsafe one event-loop turn to coalesce before snapshotting.
 
@@ -1941,3 +2042,116 @@ def _epoch(value: datetime | None) -> float | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.timestamp()
+
+
+#: 通知正文里最多列举几个任务名；超出只说总数（锁屏通知放不下整条流水线）。
+_NOTIFY_TASK_LIMIT = 6
+
+
+def _elapsed_seconds(
+    started_at: datetime | None, finished_at: datetime | None
+) -> int | None:
+    """执行耗时；缺时间戳或时间倒流时返回 ``None``（不编造数字）。"""
+    if started_at is None or finished_at is None:
+        return None
+    seconds = int((finished_at - started_at).total_seconds())
+    return seconds if seconds >= 0 else None
+
+
+def _duration_phrase(seconds: int) -> str:
+    minutes, secs = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} 小时 {minutes} 分"
+    if minutes:
+        return f"{minutes} 分 {secs} 秒"
+    return f"{secs} 秒"
+
+
+def build_pipeline_notification(
+    pipeline: Pipeline,
+    tasks: Sequence[Task],
+    status: PipelineStatus | None = None,
+) -> tuple[NotifyEvent, dict[str, Any]]:
+    """流水线终态通知的事件与载荷（docs/09 §13.1 的保底层）。
+
+    标题写结果、正文写执行状态：任务清单、成功/失败计数、耗时与失败原因。全部
+    用人话，不出现内部标识符（与 Web Push 的确认标题同一条原则）。``status`` 用于
+    内核崩溃抢占终态的场景：那里数据库行已经是 FAILED，而调用点手上还是原始终态。
+    """
+    final = (
+        PipelineStatus(status)
+        if status is not None
+        else PipelineStatus(pipeline.status)
+    )
+    labels = [
+        TASK_LABELS.get(str(task.type_name), str(task.type_name)) for task in tasks
+    ]
+    if len(labels) > _NOTIFY_TASK_LIMIT:
+        listed = "、".join(labels[:_NOTIFY_TASK_LIMIT]) + f" 等 {len(labels)} 项"
+    else:
+        listed = "、".join(labels)
+
+    counts = {
+        state: sum(TaskStatus(task.status) is state for task in tasks)
+        for state in (
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.SKIPPED,
+            TaskStatus.CANCELLED,
+        )
+    }
+    total = len(tasks)
+    lines: list[str] = []
+    if listed:
+        # 流水线名已经在通知标题里，正文不重复；各通道都会把标题与正文拼起来发。
+        lines.append(f"任务：{listed}")
+    if total:
+        if counts[TaskStatus.COMPLETED] == total:
+            lines.append(f"结果：{total} 项全部成功")
+        else:
+            summary = f"结果：{counts[TaskStatus.COMPLETED]}/{total} 成功"
+            for state, phrase in (
+                (TaskStatus.FAILED, "失败"),
+                (TaskStatus.SKIPPED, "跳过"),
+                (TaskStatus.CANCELLED, "未执行"),
+            ):
+                if counts[state]:
+                    summary += f"，{counts[state]} 项{phrase}"
+            lines.append(summary)
+    elapsed = _elapsed_seconds(pipeline.started_at, pipeline.finished_at)
+    if elapsed is not None:
+        lines.append(f"用时：{_duration_phrase(elapsed)}")
+    if final is PipelineStatus.FAILED:
+        reason = str(pipeline.error_message or pipeline.error_code or "未知原因")
+        if pipeline.error_message and pipeline.error_code:
+            reason += f"（{pipeline.error_code}）"
+        lines.append(f"失败原因：{reason}")
+
+    label = "任务执行失败" if final is PipelineStatus.FAILED else "任务执行完成"
+    payload: dict[str, Any] = {
+        "title": f"{label}：{pipeline.title}" if pipeline.title else label,
+        "message": "\n".join(lines) or label,
+        "pipeline_id": str(pipeline.id),
+        "pipeline_status": final.value,
+        "pipeline_title": pipeline.title or "",
+        "source": str(pipeline.source),
+        "task_count": total or int(pipeline.task_count or 0),
+        "completed_tasks": counts[TaskStatus.COMPLETED],
+        "failed_tasks": counts[TaskStatus.FAILED],
+        "skipped_tasks": counts[TaskStatus.SKIPPED],
+        "cancelled_tasks": counts[TaskStatus.CANCELLED],
+        "tasks": labels,
+    }
+    if elapsed is not None:
+        payload["duration"] = _duration_phrase(elapsed)
+        payload["duration_seconds"] = elapsed
+    if final is PipelineStatus.FAILED:
+        payload["error_code"] = str(pipeline.error_code or "")
+        payload["error_message"] = str(pipeline.error_message or "")
+    event = (
+        NotifyEvent.PIPELINE_FAILED
+        if final is PipelineStatus.FAILED
+        else NotifyEvent.PIPELINE_COMPLETED
+    )
+    return event, payload

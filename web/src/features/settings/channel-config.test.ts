@@ -25,6 +25,7 @@ describe('channel defaults', () => {
     expect(defaultChannelConfig('bark')).toEqual({ server: 'https://api.day.app', device_key: '' })
     expect(defaultChannelConfig('dingtalk')).toEqual({ webhook: '', secret: '', at_mobiles: [] })
     expect(defaultChannelConfig('wecom')).toEqual({ webhook: '', mentioned_list: [] })
+    expect(defaultChannelConfig('feishu')).toEqual({ webhook: '', secret: '', at_user_ids: [] })
   })
 })
 

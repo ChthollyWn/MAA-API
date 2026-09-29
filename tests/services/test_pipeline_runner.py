@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ from sqlmodel import SQLModel
 import maa_api.db.models  # noqa: F401
 from maa_api.agent.incidents import AgentIncidentService
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
-from maa_api.db.models import AgentSession, Pipeline, ResourceAsset, Task
+from maa_api.db.models import AgentSession, Pipeline, ResourceAsset, Task, utcnow
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.session import make_engine
@@ -27,7 +28,11 @@ from maa_api.domain.enums import (
     TaskStatus,
 )
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.services.pipeline_runner import PipelineRunner
+from maa_api.services.pipeline_runner import (
+    PipelineRunner,
+    _ActivePipeline,
+    build_pipeline_notification,
+)
 from maa_api.services.resource_service import ResourceService
 from maa_api.settings import Settings
 from maa_api.services import resource_service as resource_service_module
@@ -109,6 +114,20 @@ class FakeIncidentRuntime:
     async def run_incident(self, session_id, request, allowed_tools):
         self.calls.append((session_id, request, frozenset(allowed_tools)))
         return {"status": "completed"}
+
+
+class FakeNotifyService:
+    """Collects terminal notifications; ``fail`` simulates a broken transport."""
+
+    def __init__(self, *, fail: bool = False):
+        self.events: list[tuple[str, dict]] = []
+        self.fail = fail
+
+    async def send_event(self, event, payload=None):
+        if self.fail:
+            raise RuntimeError("通知通道全部失败")
+        self.events.append((str(event), dict(payload or {})))
+        return {"matched": 1, "sent": 1, "failed": 0}
 
 
 async def _create_schema(engine) -> None:
@@ -1159,6 +1178,362 @@ def test_runner_releases_snapshot_on_shutdown_and_core_crash(runner_env, termina
             assert stored_pipeline.status == expected
         if terminal == "crash":
             await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# 终态通知（pipeline_completed / pipeline_failed）
+# ---------------------------------------------------------------------------
+
+
+def test_completed_pipeline_notifies_readable_terminal_status(runner_env) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.started_at = utcnow() - timedelta(minutes=7, seconds=30)
+            await session.commit()
+
+        runner, asst, _core = make()
+        notify = FakeNotifyService()
+        runner.bind_notify_service(notify)
+
+        await runner._execute_pipeline(pipeline, [task])
+        await asyncio.gather(*tuple(runner._notify_tasks))
+
+        assert [event for event, _payload in notify.events] == ["pipeline_completed"]
+        _event, payload = notify.events[0]
+        assert payload["title"] == "任务执行完成"
+        assert payload["pipeline_id"] == pipeline.id
+        assert payload["pipeline_status"] == "completed"
+        assert payload["tasks"] == ["Copilot 作业"]
+        assert payload["completed_tasks"] == 1
+        assert payload["failed_tasks"] == 0
+        assert "pipeline_id" not in payload["message"]
+        assert "click" not in payload["message"]
+        assert "任务：Copilot 作业" in payload["message"]
+        assert "结果：1 项全部成功" in payload["message"]
+        assert payload["message"].startswith("任务：")
+
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+        expected = int((stored.finished_at - stored.started_at).total_seconds())
+        assert payload["duration_seconds"] == expected
+        assert payload["message"].splitlines()[-1] == f"用时：{payload['duration']}"
+        assert "error_code" not in payload
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_failed_pipeline_notifies_reason_and_error_code(runner_env) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root, deleted=True)
+        runner, asst, _core = make()
+        notify = FakeNotifyService()
+        runner.bind_notify_service(notify)
+
+        await runner._execute_pipeline(pipeline, [task])
+        await asyncio.gather(*tuple(runner._notify_tasks))
+
+        assert [event for event, _payload in notify.events] == ["pipeline_failed"]
+        _event, payload = notify.events[0]
+        assert payload["title"] == "任务执行失败"
+        assert payload["pipeline_status"] == "failed"
+        assert payload["error_code"] == ErrorCode.RESOURCE_ASSET_NOT_FOUND.value
+        assert payload["failed_tasks"] == 1
+        assert "0/1 成功" in payload["message"]
+        assert f"失败原因：{payload['error_message']}" in payload["message"]
+        assert f"（{payload['error_code']}）" in payload["message"]
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_notify_on_finish_false_suppresses_terminal_notification(runner_env) -> None:
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+            stored.notify_on_finish = False
+            await session.commit()
+
+        runner, asst, _core = make()
+        notify = FakeNotifyService()
+        runner.bind_notify_service(notify)
+
+        await runner._execute_pipeline(pipeline, [task])
+        await asyncio.gather(*tuple(runner._notify_tasks))
+
+        assert notify.events == []
+        async with factory() as session:
+            stored = await session.get(Pipeline, pipeline.id)
+        assert stored.status == PipelineStatus.COMPLETED
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_replayed_terminal_write_notifies_once(runner_env) -> None:
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-notify-once",
+                    source=PipelineSource.SCHEDULED,
+                    priority=Priority.SCHEDULED,
+                    status=PipelineStatus.RUNNING,
+                    task_count=0,
+                    title="睡前日常",
+                    started_at=utcnow() - timedelta(seconds=42),
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        notify = FakeNotifyService()
+        runner.bind_notify_service(notify)
+
+        await runner._finish_pipeline("pipeline-notify-once", PipelineStatus.COMPLETED)
+        await runner._finish_pipeline(
+            "pipeline-notify-once",
+            PipelineStatus.COMPLETED,
+            error_message="replayed terminal write",
+        )
+        await asyncio.gather(*tuple(runner._notify_tasks))
+
+        assert [event for event, _payload in notify.events] == ["pipeline_completed"]
+        _event, payload = notify.events[0]
+        assert payload["title"] == "任务执行完成：睡前日常"
+        assert payload["source"] == "scheduled"
+        assert payload["duration_seconds"] == 42
+        assert payload["message"] == "用时：42 秒"
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_notification_failure_does_not_break_the_terminal_write(
+    runner_env, caplog
+) -> None:
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-notify-broken",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.RUNNING,
+                    task_count=0,
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        runner.bind_notify_service(FakeNotifyService(fail=True))
+
+        with caplog.at_level("ERROR"):
+            await runner._finish_pipeline(
+                "pipeline-notify-broken",
+                PipelineStatus.FAILED,
+                error_code=ErrorCode.INTERNAL_ERROR,
+                error_message="worker failed",
+            )
+            # 后台任务的异常由 done callback 记录，不允许冒泡回终态路径。
+            await asyncio.gather(
+                *tuple(runner._notify_tasks), return_exceptions=True
+            )
+
+        assert runner._notify_tasks == set()
+        assert "流水线终态通知后台任务失败" in caplog.text
+        async with factory() as session:
+            stored = await session.get(Pipeline, "pipeline-notify-broken")
+        assert stored.status == PipelineStatus.FAILED
+        assert stored.error_code == ErrorCode.INTERNAL_ERROR
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_core_crash_preempting_a_completed_write_notifies_failure_once(
+    runner_env, monkeypatch
+) -> None:
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-notify-preempted",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.RUNNING,
+                    task_count=1,
+                )
+            )
+            session.add(
+                Task(
+                    id="task-notify-preempted",
+                    pipeline_id="pipeline-notify-preempted",
+                    order_index=0,
+                    type_name="Fight",
+                    task_name="Fight",
+                    params={},
+                    status=TaskStatus.RUNNING,
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        notify = FakeNotifyService()
+        runner.bind_notify_service(notify)
+        runner._active = _ActivePipeline(pipeline_id="pipeline-notify-preempted")
+
+        original_mark_terminal = PipelineRepository.mark_terminal
+
+        async def mark_terminal_then_crash(repo, pipeline_id, status, **kwargs):
+            changed = await original_mark_terminal(repo, pipeline_id, status, **kwargs)
+            # FATAL 在终态写入提交之后到达：行先写成 COMPLETED，再被改写为崩溃。
+            runner._active.core_crashed = True
+            return changed
+
+        monkeypatch.setattr(
+            PipelineRepository, "mark_terminal", mark_terminal_then_crash
+        )
+
+        await runner._finish_pipeline(
+            "pipeline-notify-preempted", PipelineStatus.COMPLETED
+        )
+        await asyncio.gather(*tuple(runner._notify_tasks))
+
+        assert [event for event, _payload in notify.events] == ["pipeline_failed"]
+        _event, payload = notify.events[0]
+        assert payload["error_code"] == ErrorCode.CORE_CRASHED.value
+        assert payload["pipeline_status"] == "failed"
+        async with factory() as session:
+            stored = await session.get(Pipeline, "pipeline-notify-preempted")
+            stored_task = await session.get(Task, "task-notify-preempted")
+        # 只报一条：不会先报「完成」再报「失败」。
+        assert stored.status == PipelineStatus.FAILED
+        assert stored.error_code == ErrorCode.CORE_CRASHED
+        assert stored_task.status == TaskStatus.FAILED
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_pipeline_notification_payload_truncates_long_task_lists() -> None:
+    pipeline = Pipeline(
+        id="pipeline-payload",
+        source=PipelineSource.MANUAL,
+        priority=Priority.MANUAL,
+        status=PipelineStatus.FAILED,
+        task_count=8,
+        error_code=ErrorCode.CORE_CRASHED,
+        error_message="MaaCore 子进程中断，流水线已停止",
+        started_at=utcnow() - timedelta(hours=1, minutes=5),
+        finished_at=utcnow(),
+    )
+    tasks = [
+        Task(
+            id=f"task-{index}",
+            pipeline_id=pipeline.id,
+            order_index=index,
+            type_name=type_name,
+            task_name=type_name,
+            params={},
+            status=TaskStatus.FAILED if index == 7 else TaskStatus.COMPLETED,
+        )
+        for index, type_name in enumerate(
+            [
+                "StartUp",
+                "Fight",
+                "Recruit",
+                "Infrast",
+                "Mall",
+                "Award",
+                "Roguelike",
+                "UnknownTask",
+            ]
+        )
+    ]
+
+    event, payload = build_pipeline_notification(pipeline, tasks)
+
+    assert event == "pipeline_failed"
+    assert payload["title"] == "任务执行失败"
+    assert payload["tasks"][-1] == "UnknownTask"
+    assert "开始唤醒、刷理智、自动公招、基建换班、获取信用及购物、领取奖励" in payload["message"]
+    assert "等 8 项" in payload["message"]
+    assert "结果：7/8 成功，1 项失败" in payload["message"]
+    assert payload["duration"] == "1 小时 5 分"
+    assert payload["duration_seconds"] == 3900
+    assert payload["message"].splitlines()[-1] == (
+        f"失败原因：MaaCore 子进程中断，流水线已停止（{ErrorCode.CORE_CRASHED}）"
+    )
+
+    # 崩溃抢占：数据库行已经改写为失败，而调用点手上还是「完成」。
+    pipeline.status = PipelineStatus.COMPLETED
+    event, payload = build_pipeline_notification(
+        pipeline, tasks, PipelineStatus.FAILED
+    )
+    assert event == "pipeline_failed"
+    assert payload["pipeline_status"] == "failed"
+
+
+def test_device_precheck_failure_notifies_failed_pipeline(runner_env) -> None:
+    """设备预检就失败的流水线也要通知：用户提交了任务却什么都没跑起来。"""
+
+    factory, resource_root, make = runner_env
+
+    async def scenario() -> None:
+        pipeline, task = await _seed_copilot(factory, resource_root)
+
+        class UnavailableDevice:
+            async def ensure_available(self, *, timeout: float):
+                return False
+
+            def snapshot(self):
+                return {"state": "unavailable"}
+
+        runner, asst, _core = make()
+        runner.device_manager = UnavailableDevice()
+        notify = FakeNotifyService()
+        runner.bind_notify_service(notify)
+
+        await runner._execute_pipeline(pipeline, [task])
+        await asyncio.gather(*tuple(runner._notify_tasks))
+
+        assert [event for event, _payload in notify.events] == ["pipeline_failed"]
+        _event, payload = notify.events[0]
+        assert payload["error_code"] == ErrorCode.DEVICE_NOT_CONNECTED.value
+        assert "设备当前不可用" in payload["message"]
+
+        await runner.stop()
         asst.stop()
 
     asyncio.run(scenario())

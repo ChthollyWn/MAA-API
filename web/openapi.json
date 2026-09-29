@@ -1725,7 +1725,8 @@
           "webhook",
           "bark",
           "dingtalk",
-          "wecom"
+          "wecom",
+          "feishu"
         ],
         "title": "NotifyChannelType",
         "type": "string"

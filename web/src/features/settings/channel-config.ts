@@ -10,6 +10,7 @@ export const CHANNEL_TYPES = [
   { value: 'bark', label: 'Bark' },
   { value: 'dingtalk', label: '钉钉' },
   { value: 'wecom', label: '企业微信' },
+  { value: 'feishu', label: '飞书' },
 ] as const satisfies readonly { value: ChannelType; label: string }[]
 
 export function isChannelType(value: unknown): value is ChannelType {
@@ -94,6 +95,11 @@ export const CHANNEL_FIELDS: Readonly<Record<ChannelType, readonly ChannelFieldS
   wecom: [
     { key: 'webhook', label: '机器人 Webhook', kind: 'url', required: true, initial: '', schemes: HTTPS_ONLY, placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…' },
     { key: 'mentioned_list', label: '@ 成员', kind: 'list', initial: [], itemName: '成员', placeholder: '成员 UserID，或 @all', description: '@all 会提醒群里所有人。' },
+  ],
+  feishu: [
+    { key: 'webhook', label: '机器人 Webhook', kind: 'url', required: true, initial: '', schemes: HTTPS_ONLY, placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/…' },
+    { key: 'secret', label: '签名密钥', kind: 'secret', initial: '', description: '机器人安全设置勾选「签名校验」时填写，未勾选则留空。' },
+    { key: 'at_user_ids', label: '@ 成员', kind: 'list', initial: [], itemName: '成员 ID', placeholder: '用户 ID（ou_… 或 user_id），或 all', description: '填 all 会 @ 群里所有人；ID 里不能有引号、尖括号或空格。' },
   ],
 }
 

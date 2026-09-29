@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, BellRing, Mail, MessageSquare, MessagesSquare, Pencil, Plus, Send, Trash2, Webhook, type LucideIcon } from 'lucide-react'
+import { Bell, BellRing, Bird, Mail, MessageSquare, MessagesSquare, Pencil, Plus, Send, Trash2, Webhook, type LucideIcon } from 'lucide-react'
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
 import { keys } from '@/api/keys'
@@ -26,6 +26,7 @@ const TYPE_ICONS: Readonly<Record<string, LucideIcon>> = {
   bark: BellRing,
   dingtalk: MessageSquare,
   wecom: MessagesSquare,
+  feishu: Bird,
 }
 
 async function fetchChannels(): Promise<Channel[]> {

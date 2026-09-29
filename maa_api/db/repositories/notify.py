@@ -1,7 +1,7 @@
 """``notify_channel`` 仓储：多通道通知配置的存取（docs/04 §5.12、§6、§9）。
 
 ``config`` 是一个**按 ``type`` 分支解释**的 JSON 列（email / webhook / bark /
-dingtalk / wecom 的字段集合完全不同）。五种通道的字段校验用按 ``type`` 分发的
+dingtalk / wecom / feishu 的字段集合完全不同）。六种通道的字段校验用按 ``type`` 分发的
 Pydantic 模型在服务层做，**不落成数据库约束**——仓储按「JSON 原文存取」处理它，
 不解析、不校验、不脱敏（脱敏是读接口的事，规则与 ``setting`` 表相同）。
 

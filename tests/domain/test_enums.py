@@ -122,6 +122,7 @@ EXPECTED_VALUES = {
         "BARK": "bark",
         "DINGTALK": "dingtalk",
         "WECOM": "wecom",
+        "FEISHU": "feishu",
     },
     "NotifyEvent": {
         "PIPELINE_COMPLETED": "pipeline_completed",

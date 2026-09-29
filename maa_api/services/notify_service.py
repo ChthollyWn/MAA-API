@@ -15,6 +15,7 @@ import logging
 import re
 import smtplib
 import time
+from base64 import b64encode
 from collections.abc import Callable, Mapping
 from email.message import EmailMessage
 from typing import Any
@@ -132,12 +133,37 @@ class _WeComConfig(_StrictConfig):
         return value
 
 
+class _FeishuConfig(_StrictConfig):
+    """飞书自定义机器人；加签算法与钉钉不同，见 :meth:`NotifyService._send_feishu`。"""
+
+    webhook: str = Field(min_length=1, max_length=2048)
+    secret: str = ""
+    at_user_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("webhook")
+    @classmethod
+    def valid_webhook(cls, value: str) -> str:
+        parts = urlsplit(value)
+        if parts.scheme != "https" or not parts.netloc or parts.username or parts.password:
+            raise ValueError("webhook 必须是 https 地址")
+        return value
+
+    @field_validator("at_user_ids")
+    @classmethod
+    def valid_at_user_ids(cls, values: list[str]) -> list[str]:
+        # 这些值会被原样拼进文本消息的 <at user_id="...">，引号或尖括号会破坏消息。
+        if any(not value or re.search(r"[\"'<>\s]", value) for value in values):
+            raise ValueError("at_user_ids 只能是不含引号、尖括号与空白的用户 ID")
+        return values
+
+
 _CONFIG_MODELS: dict[NotifyChannelType, type[BaseModel]] = {
     NotifyChannelType.EMAIL: _EmailConfig,
     NotifyChannelType.WEBHOOK: _WebhookConfig,
     NotifyChannelType.BARK: _BarkConfig,
     NotifyChannelType.DINGTALK: _DingTalkConfig,
     NotifyChannelType.WECOM: _WeComConfig,
+    NotifyChannelType.FEISHU: _FeishuConfig,
 }
 
 
@@ -330,6 +356,8 @@ class NotifyService:
             await self._http_request("POST", url, json=values)
         elif channel_type is NotifyChannelType.DINGTALK:
             await self._send_dingtalk(config, title, body)
+        elif channel_type is NotifyChannelType.FEISHU:
+            await self._send_feishu(config, title, body)
         else:
             await self._http_request(
                 "POST", config["webhook"],
@@ -345,8 +373,6 @@ class NotifyService:
             timestamp = str(int(time.time() * 1000))
             raw = f"{timestamp}\n{config['secret']}".encode("utf-8")
             digest = hmac.new(config["secret"].encode("utf-8"), raw, hashlib.sha256).digest()
-            from base64 import b64encode
-
             parts = urlsplit(url)
             query = dict(parse_qsl(parts.query, keep_blank_values=True))
             query.update(timestamp=timestamp, sign=b64encode(digest).decode("ascii"))
@@ -355,6 +381,31 @@ class NotifyService:
         if config["at_mobiles"]:
             text["atMobiles"] = config["at_mobiles"]
         await self._http_request("POST", url, json={"msgtype": "text", "text": text})
+
+    async def _send_feishu(self, config: dict[str, Any], title: str, body: str) -> None:
+        """飞书自定义机器人（``/open-apis/bot/v2/hook/<token>``）。
+
+        加签与钉钉是**两套**算法，别照抄：飞书把 ``"{timestamp}\\n{secret}"`` 当作
+        HMAC 的**密钥**、消息体为空，时间戳用**秒**，签名放在请求体里；钉钉则把
+        secret 当密钥、``"{timestamp}\\n{secret}"`` 当消息，时间戳用毫秒、签名放 URL。
+        """
+        mentions = "".join(
+            f'<at user_id="{user_id}">{"所有人" if user_id == "all" else ""}</at>'
+            for user_id in config["at_user_ids"]
+        )
+        payload: dict[str, Any] = {
+            "msg_type": "text",
+            "content": {"text": f"{title}\n{body}{mentions}"},
+        }
+        if config.get("secret"):
+            timestamp = str(int(time.time()))
+            digest = hmac.new(
+                f"{timestamp}\n{config['secret']}".encode("utf-8"),
+                digestmod=hashlib.sha256,
+            ).digest()
+            payload["timestamp"] = timestamp
+            payload["sign"] = b64encode(digest).decode("ascii")
+        await self._http_request("POST", config["webhook"], json=payload)
 
     async def _http_request(self, method: str, url: str, **kwargs: Any) -> None:
         transport = self._http_sender

@@ -144,6 +144,7 @@ class NotifyChannelType(StrEnum):
     BARK = "bark"
     DINGTALK = "dingtalk"
     WECOM = "wecom"
+    FEISHU = "feishu"
 
 
 class NotifyEvent(StrEnum):
