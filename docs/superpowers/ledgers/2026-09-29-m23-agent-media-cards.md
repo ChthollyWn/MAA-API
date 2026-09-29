@@ -55,3 +55,12 @@
 ## 最终交付与遗留
 
 见 `docs/13-决策记录.md` §8.29（含验证段与遗留清单）。台账原件：`docs/superpowers/ledgers/2026-09-29-m23-agent-media-cards.md`。
+
+## 收尾修复（tag 之后，各占一个短分支，见 docs/13 §8.29 第十、十一节）
+
+| 分支 | 起因（用户裁决） | 改动 | 验证（主 agent） |
+|---|---|---|---|
+| `m23-media-thumb-followups` | 会话里的图片发糊：「缩略图在会话中的尺寸可以缩小，质量不变，点击放大也是原图，其余的不改」「直接去掉这个文本」 | 只改前端 `ImageCard`：预览按缩略图自然尺寸显示（`w-fit` + `max-w-[20rem]`，长边 320 px），去掉卡片下方的原图尺寸文字 | `typecheck` / `test --run`（60 文件 596 项）/ `build` 退出码 0，构建产物含新样式 |
+| `m23-media-attachment-followups` | 「工具调用响应的图片，能不能以附件的形式，放到这个工具调用卡片内？只有用户明确的命令…图片才会发送显示到会话中」 | 后端撤掉 `get_screenshot` 归档结果里的 `media` 信封（契约收紧为「只有五个 `send_*` 产生媒体卡」）+ 工具描述与系统提示词加「只在用户明确要求时发送」门槛；前端删掉旧形态→会话卡的分支，新增 `toolScreenshotAttachment()` 与 `ToolAttachment.tsx`，附件渲染在该次工具调用 `<details>` 展开区「参数」之前 | 后端全量 **2042 passed / 4 skipped**；前端 `gen:api:check` / `typecheck` / `test --run`（60 文件 **602** 项）/ `build` 全部退出码 0；`dump_openapi.py --check`、`generate_api_guide.py --check` 退出码 0 |
+
+附带裁决：自动诊断会话开头 `incidents.py` 插的崩溃现场种子截图**同样按工具卡内附件处理**（用户裁决保持现状，不为它开 `snapshot_source` 例外）。规格里「`get_screenshot` 结果补上 media 信封」的表述被 §8.29 第十一节取代（规格是方案快照，按本仓惯例以 docs/13 §8 为准）。
