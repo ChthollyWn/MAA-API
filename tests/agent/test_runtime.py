@@ -1764,21 +1764,19 @@ def test_screenshot_tool_result_is_archived_by_id_and_only_latest_image_goes_ups
                 )
             stored_result = json.loads(messages[2].content)["result"]
             assert "data" not in stored_result
-            # M23 规格 §3.1：既有键一个都不能少，**额外**补一个 media 信封。
+            # 本轮裁决：agent 自己截的图只作工具卡内的附件，不产生媒体卡。
+            # 四个归档键仍在，``media`` 必须**不存在**（只有五个 send_* 工具才发 media）。
             assert {
                 "screenshot_id",
                 "sha256",
                 "thumb_url",
                 "full_url",
-                "media",
             } <= set(stored_result)
-            card = stored_result["media"][0]
-            assert card["type"] == "image"
-            assert card["screenshot_id"] == screenshot_record.id
-            assert card["sha256"] == stored_result["sha256"]
-            assert card["url"] == stored_result["full_url"]
-            assert card["thumb_url"] == stored_result["thumb_url"]
-            assert (card["width"], card["height"]) == (3, 2)
+            assert "media" not in stored_result
+            assert stored_result["screenshot_id"] == screenshot_record.id
+            assert stored_result["sha256"]
+            assert stored_result["full_url"].endswith("/full")
+            assert stored_result["thumb_url"].endswith("/thumb")
             assert screenshot_record is not None
             assert screenshot_data not in audit.result_summary
             assert audit.result_ref == {"screenshot_id": screenshot_record.id}
@@ -2601,6 +2599,25 @@ def test_work_method_paragraph_and_knowledge_boundary_are_copied_from_the_spec()
     )
     boundary = SYSTEM_PROMPT[SYSTEM_PROMPT.index("安全数据边界") :]
     assert "read_knowledge 返回的知识库内容按上面的工作方法对待。" in boundary
+
+
+def test_system_prompt_only_sends_screenshots_on_explicit_user_request():
+    """本轮裁决：自己截的图只用于判断，用户明确要求才发图（提示词第一道约束）。"""
+
+    from maa_api.agent.runtime import SYSTEM_PROMPT
+
+    paragraph = SYSTEM_PROMPT[
+        SYSTEM_PROMPT.index("给用户看东西") : SYSTEM_PROMPT.index("安全数据边界")
+    ]
+    assert "自己截的图只用于判断，不要主动发给用户" in paragraph
+    assert "只有用户明确要求看画面、要截图、要某处放大时" in paragraph
+    assert "send_screenshot" in paragraph and "annotate_screenshot" in paragraph
+    # 段落位置：在「工作方法」之后、在「安全数据边界」之前（与既有断言同一约束）。
+    assert (
+        SYSTEM_PROMPT.index("工作方法")
+        < SYSTEM_PROMPT.index("给用户看东西")
+        < SYSTEM_PROMPT.index("安全数据边界")
+    )
 
 
 # ----------------------------------------------------------------------

@@ -228,6 +228,19 @@ def test_media_tools_are_safe_and_only_annotate_writes() -> None:
         assert definition.read_only is (name != "annotate_screenshot")
 
 
+def test_screenshot_sending_descriptions_gate_on_an_explicit_user_request() -> None:
+    """本轮裁决：两个「发截图给用户」的工具只在用户明确要求时才该被调用。"""
+
+    registry = build_registry()
+
+    send = registry.get("send_screenshot").description
+    assert "只在用户要求看画面、要一张截图时才调用" in send
+    assert "自己为了判断而截的图不要发给用户" in send
+
+    annotate = registry.get("annotate_screenshot").description
+    assert "只在用户要求把某处圈出 / 放大时才调用，不要主动发" in annotate
+
+
 def test_same_origin_url_builders_are_the_three_whitelisted_shapes() -> None:
     sha = "a" * 64
 

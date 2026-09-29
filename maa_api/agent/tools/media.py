@@ -165,6 +165,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "把一张已有截图作为图片卡发给用户：给 screenshot_id 就用它，"
                 "只给 pipeline_id 就取该流水线最新一张，都不给＝本会话最近一张截图。"
+                "只在用户要求看画面、要一张截图时才调用；自己为了判断而截的图不要发给用户。"
             ),
             params_model=SendScreenshotParams,
             handler=send_screenshot,
@@ -181,6 +182,7 @@ def register_tools(registry: ToolRegistry) -> None:
                 "发给用户；文字说不清画面时用它把关键区域圈出来。"
                 "源图给 screenshot_id，或用 pipeline_id 取该流水线最新一张"
                 "（可用 trigger 过滤）；都不给＝本会话最近一张截图。"
+                "只在用户要求把某处圈出 / 放大时才调用，不要主动发。"
             ),
             params_model=AnnotateScreenshotParams,
             handler=annotate_screenshot,
