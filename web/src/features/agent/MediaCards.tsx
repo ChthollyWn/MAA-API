@@ -45,18 +45,28 @@ export function ImageCard({ card }: { card: ImageCardData }) {
   const needsFull = !sameSource(card.thumb, card.full)
   const full = useAuthedImage(open && needsFull ? card.full : null, { lazy: false })
   const alt = card.alt || card.caption || 'Agent 发来的图片'
-  const size = card.width && card.height ? `${card.width}×${card.height}` : ''
   return (
     <figure className="min-w-0">
-      <div ref={thumb.ref} className="overflow-hidden rounded-xl border bg-surface-2">
+      {/*
+        预览按缩略图的**自然尺寸**显示（长边 320 px，与 util/image.py 的
+        `_THUMBNAIL_EDGE` 对应），不再拉满卡片宽度：把 320 px 的图铺到 600+ px
+        等于放大四倍，视网膜屏上就是一团糊。想看细节点开，那时取的是原图。
+      */}
+      <div ref={thumb.ref} className="w-fit max-w-full overflow-hidden rounded-xl border bg-surface-2">
         {thumb.url ? (
           <button
             type="button"
             aria-label={`查看大图：${alt}`}
             onClick={() => setOpen(true)}
-            className="group relative block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            className="group relative block w-fit max-w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           >
-            <img src={thumb.url} alt={alt} loading="lazy" decoding="async" className="max-h-80 w-full object-contain" />
+            <img
+              src={thumb.url}
+              alt={alt}
+              loading="lazy"
+              decoding="async"
+              className="block h-auto max-h-80 w-auto max-w-[20rem] object-contain"
+            />
             <span aria-hidden="true" className="absolute right-2 top-2 grid size-7 place-items-center rounded-full bg-black/50 text-white opacity-85 transition-opacity group-hover:opacity-100">
               <ImageUp className="size-3.5" />
             </span>
@@ -64,16 +74,15 @@ export function ImageCard({ card }: { card: ImageCardData }) {
         ) : thumb.error ? (
           <ImageFailure label="图片不可用" onRetry={thumb.retry} />
         ) : (
-          <div role="status" className="flex min-h-32 items-center justify-center gap-2 py-6 text-footnote text-muted-foreground">
+          <div role="status" className="flex min-h-32 w-56 items-center justify-center gap-2 py-6 text-footnote text-muted-foreground">
             <Spinner />
             正在加载图片
           </div>
         )}
       </div>
-      {card.caption || size ? (
-        <figcaption className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-footnote text-muted-foreground">
-          {card.caption ? <span className="min-w-0 break-words">{card.caption}</span> : null}
-          {size ? <span className="tabular-nums">{size}</span> : null}
+      {card.caption ? (
+        <figcaption className="mt-1.5 text-footnote text-muted-foreground">
+          <span className="min-w-0 break-words">{card.caption}</span>
         </figcaption>
       ) : null}
       <ImageViewer
