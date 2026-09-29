@@ -86,12 +86,15 @@ class QuestionStatus(StrEnum):
 
     与 ``ConfirmationStatus`` 分开：确认的终态是「批准/拒绝/过期」，提问的终态是
     「已答/已跳过/过期」——「跳过」在确认链路里没有对应物，批准也没有。
+    ``CANCELLED``（M22）是「用户中断了这一轮」：提问没有获得裁决就被撤回，与
+    「跳过」（用户主动不答）和「过期」（没人管）都不同，不能合并进任何一个既有终态。
     """
 
     PENDING = "pending"
     ANSWERED = "answered"
     SKIPPED = "skipped"          # 用户点了「跳过」，本轮结束
     EXPIRED = "expired"          # 超时未回答，本轮结束
+    CANCELLED = "cancelled"      # 本轮被用户中断，提问被撤回（M22）
 
 
 class RiskLevel(StrEnum):

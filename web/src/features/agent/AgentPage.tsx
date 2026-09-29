@@ -73,6 +73,9 @@ export default function AgentPage() {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
   const [content, setContent] = useState<HTMLDivElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  // 被输入栏那个「停止」打断的本地流。`send()` 的 catch 见到 signal.aborted 会早退，
+  // 收尾（失效查询、丢弃实时副本）只能由 finally 认出「这是主动停止」才会继续做（M22）。
+  const interruptedControllerRef = useRef<AbortController | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   // 用户关掉过的降级原因：之后每轮 message_start 带回同样的原因时不再弹出。
   const dismissedReasonRef = useRef<string | null>(null)
@@ -99,6 +102,9 @@ export default function AgentPage() {
       return data as unknown as AgentSession
     },
     retry: false,
+    // 刷新/切页/换设备回来后，本会话是否还有一轮在跑只能问后端（本地没有那条流）。
+    // 与待确认、待答查询同一节奏：10 秒一次（M22 规格 §3.5）。
+    refetchInterval: 10_000,
   })
   const messages = useMessageWindow(selectedId)
   const pendingConfirmations = useQuery({
@@ -256,6 +262,55 @@ export default function AgentPage() {
     void queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingQuestions(), selectedId] })
   }
 
+  /**
+   * 一轮结束（成功、失败或被中断）后要刷新的五组查询：本轮已经落库，会话累计用量、
+   * 列表顺序、挂起卡片都可能变了。
+   */
+  const invalidateTurnQueries = (sessionId: string) => Promise.all([
+    queryClient.invalidateQueries({ queryKey: keys.agent.messages(sessionId) }),
+    queryClient.invalidateQueries({ queryKey: keys.agent.session(sessionId) }),
+    queryClient.invalidateQueries({ queryKey: keys.agent.sessions() }),
+    queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingConfirmations(), sessionId] }),
+    queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingQuestions(), sessionId] }),
+  ])
+
+  /**
+   * 停止本轮（M22）。后端幂等：没有在跑的一轮时返回 `interrupted=false`，不是错误。
+   *
+   * 本地必须自己收尾：`send()` 的 catch 见到 `signal.aborted` 会早退，`running` 会
+   * 永久停在 true（这个既有 bug 一并修）。这里显式置 `running:false`、标记本轮为已
+   * 中断、撤下挂起的确认/提问卡（后端已把确认置 rejected、提问置 cancelled），再失效
+   * 那五组查询让历史接上。
+   */
+  const stopTurn = useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { data, error, response } = await api.POST('/api/agent/sessions/{session_id}/interrupt', {
+        params: { path: { session_id: sessionId } },
+      })
+      if (error) throw toApiError(error, response)
+      return data
+    },
+    onSuccess: async (_result, sessionId) => {
+      const controller = abortRef.current
+      if (controller) {
+        // 先登记再 abort：finally 靠这个 ref 认出本轮是主动停止，照常失效与清场。
+        interruptedControllerRef.current = controller
+        controller.abort()
+      }
+      setTurn((current) => current ? {
+        ...current,
+        running: false,
+        interrupted: true,
+        pendingConfirmation: null,
+        pendingQuestion: null,
+      } : current)
+      await invalidateTurnQueries(sessionId)
+      setTurn((current) => (current?.pendingConfirmation || current?.pendingQuestion ? current : null))
+      setActionError(null)
+    },
+    onError: (error) => setActionError(toShownError(error)),
+  })
+
   const lastMessageId = history.at(-1)?.id
   const tailKey = [
     lastMessageId ?? 'none',
@@ -357,6 +412,21 @@ export default function AgentPage() {
       } else if (name === 'text_delta') {
         const text = stringValue(data.text)
         setTurn((current) => current ? { ...current, assistantText: current.assistantText + text, segments: appendText(current.segments, text) } : current)
+      } else if (name === 'interrupted') {
+        // 本轮被中断（用户在本标签页点了停止，或别的标签页/设备停的）。这不是错误：
+        // 状态行只说「本轮已停止」，随后的 message_end 与关流照常收尾，不做任何报错。
+        // 挂起的确认/提问卡也要撤下——后端已把它们置为终态，留着就是一张死卡。
+        setTurn((current) => current ? {
+          ...current,
+          running: false,
+          interrupted: true,
+          pendingConfirmation: null,
+          pendingQuestion: null,
+        } : current)
+      } else if (name === 'message_end') {
+        // 服务端已经给这一轮定论（收流紧随其后）：状态行不必再等连接关闭，免得
+        // 「Agent 正在处理…」多挂一拍。M22 起 message_end 也可能是 interrupted 的收尾。
+        setTurn((current) => current ? { ...current, running: false } : current)
       } else if (name === 'error') {
         const message = stringValue(data.message, 'Agent 对话失败。')
         setTurn((current) => current ? { ...current, error: message } : current)
@@ -389,32 +459,38 @@ export default function AgentPage() {
       setTurn((current) => current ? { ...current, running: false } : current)
     } catch (error) {
       if (controller.signal.aborted) return
-      const message = error instanceof Error ? error.message : 'Agent 对话失败。'
+      const code = error instanceof ApiError ? error.code : undefined
+      // 409 AGENT_SESSION_BUSY：这个会话还有一轮在跑（别处发的，或本地 turn_running
+      // 还没刷到）。文案必须指向输入栏那个「停止」，否则用户只能对着「会话忙」发呆。
+      const message = code === 'AGENT_SESSION_BUSY'
+        ? '该会话仍有一轮在跑，可先停止它'
+        : error instanceof Error ? error.message : 'Agent 对话失败。'
       setDraft((current) => current || content)
-      setTurnError({ message, code: error instanceof ApiError ? error.code : undefined })
+      setTurnError({ message, code })
       setTurn((current) => current ? { ...current, running: false, error: message } : current)
     } finally {
       if (abortRef.current === controller) abortRef.current = null
+      // 主动停止走的是 abort：catch 会早退，但这一轮同样落了库，失效不能跳过（M22）。
+      const interruptedHere = interruptedControllerRef.current === controller
+      if (interruptedHere) interruptedControllerRef.current = null
       // 无论成功还是失败都要刷新：失败的回合同样会落库（服务端把错误写成 assistant
       // 消息、工具结果和 token 用量也都写了），而失败路径此前什么都不刷新 —— 于是标题
       // 的累计 token 与会话列表停在旧数据，用户必须手动刷新页面才看到，新会话也因此
       // 一直不出现在列表里（新建的会话 last_message_at 为空，排在列表末尾）。
-      const settled = controller.signal.aborted
+      const settled = controller.signal.aborted && !interruptedHere
         ? Promise.resolve()
-        : Promise.all([
-            queryClient.invalidateQueries({ queryKey: keys.agent.messages(sessionId) }),
-            queryClient.invalidateQueries({ queryKey: keys.agent.session(sessionId) }),
-            queryClient.invalidateQueries({ queryKey: keys.agent.sessions() }),
-            queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingConfirmations(), sessionId] }),
-            queryClient.invalidateQueries({ queryKey: [...keys.agent.pendingQuestions(), sessionId] }),
-          ])
+        : invalidateTurnQueries(sessionId)
       // 本轮内容已落库并回到 history，必须丢弃实时副本，否则同一句话会同时以
       // 本轮气泡和历史气泡出现两遍（工具轨迹同理）。清空时机只能是
       // invalidate 完成之后 —— 提前清会让界面在历史到达前闪空。
       await settled
-      // 还挂着确认或提问的一轮保留：卡要留在原位等用户处理（提问结束时会由
-      // tool_result 分支摘掉，所以这里不会把已经结束的一轮永久留下）。
-      setTurn((current) => (current?.pendingConfirmation || current?.pendingQuestion ? current : null))
+      // 收尾期间用户可能已经发出下一条（message_end 一到输入栏就恢复可用）：那一轮
+      // 登记了新的 controller，这一轮的收尾不能把它的界面抹掉。
+      if (abortRef.current === null) {
+        // 还挂着确认或提问的一轮保留：卡要留在原位等用户处理（提问结束时会由
+        // tool_result 分支摘掉，所以这里不会把已经结束的一轮永久留下）。
+        setTurn((current) => (current?.pendingConfirmation || current?.pendingQuestion ? current : null))
+      }
     }
   }
 
@@ -435,7 +511,12 @@ export default function AgentPage() {
   }
   const resolve = (id: string, approved: boolean) => resolveConfirmation.mutate({ id, approved })
 
-  const busy = Boolean(turn?.running) || resolveConfirmation.isPending
+  const stopping = stopTurn.isPending
+  // 后端说这一轮还在跑、本地却没有它的流（刷新、切页、换设备回来）：输入栏同样要能停。
+  const backgroundRunning = Boolean(conversation?.turn_running) && !turn?.running
+  // 只有真有一轮可停时才把发送按钮换成「停止」；busy 仅来自提交确认时保持禁用的发送。
+  const canStop = Boolean(turn?.running) || backgroundRunning || stopping
+  const busy = Boolean(turn?.running) || backgroundRunning || stopping || resolveConfirmation.isPending
   const title = conversation ? sessionTitle(conversation) : selectedRow ? sessionTitle(selectedRow) : 'Agent'
 
   const statusItems: ReactNode[] = []
@@ -534,15 +615,19 @@ export default function AgentPage() {
   )
 
   // 确认优先：确认会决定提问所在那批工具能不能执行，提问的结果本来就排在它后面。
-  const composerStatus = turn?.running
-    ? turn.pendingConfirmation
-      ? <><TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-warning" />请先处理上方的确认</>
-      : turn.pendingQuestion
-        ? <><CircleHelp aria-hidden="true" className="size-4 shrink-0 text-primary-text" />请先回答上方的问题</>
-        : <><Spinner />Agent 正在处理…</>
-    : resolveConfirmation.isPending
-      ? <><Spinner />正在提交确认…</>
-      : null
+  const composerStatus = (() => {
+    if (stopping) return <><Spinner />正在停止本轮…</>
+    if (turn?.running) {
+      if (turn.pendingConfirmation) return <><TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-warning" />请先处理上方的确认</>
+      if (turn.pendingQuestion) return <><CircleHelp aria-hidden="true" className="size-4 shrink-0 text-primary-text" />请先回答上方的问题</>
+      return <><Spinner />Agent 正在处理…</>
+    }
+    // 中断是收尾，不是失败：只报「本轮已停止」，真正的结果（含中断标记）在历史里。
+    if (turn?.interrupted) return <>本轮已停止</>
+    if (backgroundRunning) return <><Spinner />本轮仍在后台执行</>
+    if (resolveConfirmation.isPending) return <><Spinner />正在提交确认…</>
+    return null
+  })()
 
   const composer = selectedId ? (
     <Composer
@@ -550,6 +635,8 @@ export default function AgentPage() {
       onValueChange={setDraft}
       onSend={() => void send()}
       busy={busy}
+      onStop={canStop ? () => stopTurn.mutate(selectedId) : undefined}
+      stopping={stopping}
       status={composerStatus}
       docked={!desktop}
       textareaRef={composerRef}

@@ -53,6 +53,8 @@ EXPIRED_SUMMARY = "提问超时，本轮已结束"
 RESTART_SUMMARY = "服务重启，未回答的提问已失效"
 SHUTDOWN_SUMMARY = "服务关闭，未回答的提问已失效"
 SKIPPED_SUMMARY = "用户跳过了提问"
+#: 本轮被用户中断时撤回挂起提问的收尾文案（M22 规格 §3.3）。
+CANCELLED_SUMMARY = "本轮已被中断，提问已取消"
 
 
 class QuestionService:
@@ -282,6 +284,33 @@ class QuestionService:
         wire = await self.get(question_id)
         self._broadcast_resolved(wire, "skipped")
         return wire
+
+    async def cancel_pending_for_session(self, session_id: str) -> list[str]:
+        """撤回该会话仍挂起的提问：CAS ``pending → cancelled`` 并唤醒等待方（M22 §3.3）。
+
+        中断必须让卡片进入终态而不是留着 pending：等待那一轮的协程马上会被取消，
+        留下的 pending 卡片会一直挂着直到超时，前端刷新后还会把它当成可提交的提问。
+        审计置 ``rejected`` 与「跳过」同口径——提问没有得到答案，但也不是超时。
+        返回被撤回的提问 id 列表；没有挂起提问时返回空列表（幂等）。
+        """
+        now = self.clock()
+        async with self.session_factory() as session:
+            repo = AgentQuestionRepository(session)
+            ids = await repo.cancel_pending_for_session(session_id, now)
+            rows = await _rows_by_ids(session, ids)
+            for row in rows:
+                await self._finish_audit(
+                    session,
+                    row.audit_id,
+                    AuditStatus.REJECTED,
+                    result_summary=CANCELLED_SUMMARY,
+                )
+            await session.commit()
+            wires = [self._wire(row) for row in rows]
+        # 广播与唤醒放在事务提交之后：等待方被唤醒后会立刻重读库，此时终态必须已经可见。
+        for wire in wires:
+            self._broadcast_resolved(wire, "cancelled")
+        return [str(wire["question_id"]) for wire in wires]
 
     async def reset_after_restart(self) -> None:
         """把重启前遗留的 pending 提问一律置 ``expired``。

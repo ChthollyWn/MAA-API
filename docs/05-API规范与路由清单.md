@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 104 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 105 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
 
 ```python
 # maa_api/domain/errors.py
@@ -279,6 +279,7 @@ class AppError(Exception):
 | `AGENT_DISABLED` | 503 | Agent 模块未启用 |
 | `AGENT_SESSION_NOT_FOUND` | 404 | 会话 id 不存在 |
 | `AGENT_SESSION_BUSY` | 409 | 该会话上一轮 tool-calling 循环尚未结束 |
+| `AGENT_TURN_INTERRUPTED` | 409 | 本轮被用户中断，该工具调用被取消、未完成（M22）。只落在审计的 `error_code` 上，中断端点本身返回 200 + `interrupted` |
 | `TOOL_NOT_FOUND` | 404 | `ToolRegistry` 中没有该工具名 |
 | `TOOL_ARGS_INVALID` | 422 | 工具参数不满足其 JSON Schema |
 | `TOOL_EXECUTION_FAILED` | 500 | 工具实现内部抛出未预期异常。被工具调用的下游错误（内核、设备）按其本身的码原样上抛，不包成这个码 |
@@ -295,7 +296,9 @@ class AppError(Exception):
 | `QUESTION_EXPIRED` | 409 | 回答已过期的提问 |
 | `QUESTION_SELECTION_INVALID` | 400 | 空选择、选项不在 options.label 里、或单选提交多项 |
 
-tool-calling 循环的非错误终态**不是错误**：会话正常结束并返回 200，最后一条 `agent_message.finish_reason` 记为 `stuck_loop`（连续三轮发出完全相同的工具调用，判定为原地打转）或 `max_steps`（调用方显式设了步数上限；默认不设上限）。把它们做成错误码会让前端丢掉模型已经产出的中间结论。
+tool-calling 循环的非错误终态**不是错误**：会话正常结束并返回 200，最后一条 `agent_message.finish_reason` 记为 `stuck_loop`（连续三轮发出完全相同的工具调用，判定为原地打转）或 `max_steps`（调用方显式设了步数上限；默认不设上限），M22 起还有 `interrupted`（用户主动中断了本轮）。把它们做成错误码会让前端丢掉模型已经产出的中间结论。
+
+`AGENT_TURN_INTERRUPTED` 与上面这些**不同层**：它是被中断的那次工具调用落在审计 `error_code` 上的码（[§6.15](#615-agent)），中断端点本身返回 `200` + `interrupted: true`。
 
 ### 4.12 定时任务
 
@@ -667,10 +670,11 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 | GET | `/api/agent/sessions` | 会话列表，按 `last_message_at` 倒序 | `page`、`size` | 200 | — |
 | POST | `/api/agent/sessions` | 新建会话，快照当前 `model` 与 `base_url`；默认模型 `deepseek-flash` | `{title?}` | 201 | `LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID` |
 | POST | `/api/agent/capabilities/check` | 检查当前模型的 function calling 与视觉输入能力并缓存结果 | 无 body | 200 | `LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID` |
-| GET | `/api/agent/sessions/{id}` | 会话详情与 token 消耗统计 | | 200 | `AGENT_SESSION_NOT_FOUND` |
+| GET | `/api/agent/sessions/{id}` | 会话详情与 token 消耗统计，含本轮是否仍在执行（`turn_running`） | | 200 | `AGENT_SESSION_NOT_FOUND` |
 | DELETE | `/api/agent/sessions/{id}` | 删除会话，消息级联删除 | | 204 | `AGENT_SESSION_NOT_FOUND` |
 | GET | `/api/agent/sessions/{id}/messages` | 消息与工具调用轨迹，按 `seq` 升序 | `after_seq`、`page`、`size` | 200 | `AGENT_SESSION_NOT_FOUND` |
 | POST | `/api/agent/sessions/{id}/messages` | 发送自然语言消息，执行 tool-calling 循环并以 SSE 返回轨迹 | `{content}` | 200 `text/event-stream` | `AGENT_SESSION_BUSY`、`LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID`、`LLM_CONTEXT_OVERFLOW` |
+| POST | `/api/agent/sessions/{id}/interrupt` | 中断该会话正在执行的一轮（M22）。幂等；没有活动轮次也返回 200 | 无 body | 200 | `AGENT_SESSION_NOT_FOUND`、`AGENT_DISABLED` |
 | DELETE | `/api/agent/sessions/{id}/atomic-grant` | 撤销该会话的原子操作授权，挂起中的调用按拒绝处理 | | 204 | `AGENT_SESSION_NOT_FOUND` |
 | GET | `/api/agent/audits` | 审计列表 | `caller`、`tool_name`、`status`、`risk_level`、`since`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/agent/audits/{id}` | 单条审计详情，含完整参数与结果摘要 | | 200 | `NOT_FOUND` |
@@ -683,7 +687,9 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 `POST /api/agent/capabilities/check` 以小型工具调用和测试图片分别检查 function calling 与视觉输入。首次发送消息前会自动补做一次缓存检查；工具调用失败则停止对话，视觉失败只禁用截图和原子屏幕操作，并保留文本对话。`degraded_reason` 直接说明失败原因：能力确实缺失时说明缺哪项，上游拒绝探查请求（模型标识不存在、鉴权失败等）时带上已脱敏、截断的上游 `error.message`、HTTP 状态与上游错误码，见 [13 §8.13](./13-决策记录.md)。
 
-`POST /api/agent/sessions/{id}/messages` 以 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`message_end` 和 `error` 事件流式返回结果。每个会话同一时间只运行一轮；客户端断开不会回滚已提交的工具副作用。
+`POST /api/agent/sessions/{id}/messages` 以 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`question_required`、`session_title`、`interrupted`、`message_end` 和 `error` 事件流式返回结果。每个会话同一时间只运行一轮；客户端断开不会回滚已提交的工具副作用。
+
+**中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`——`interrupted` 表示这次调用是否真的停掉了一轮，该会话没有活动轮次时是 `false`（200，不是错误）；`turn_running` 是返回这一刻该会话是否仍有活动轮次（正常收尾后为 `false`）。中断会停掉 LLM 流、撤回本轮还在等确认或在跑的工具、把挂起的提问置 `cancelled`，然后落一条 `finish_reason="interrupted"` 的助手消息、推 SSE `interrupted` 并释放会话锁（返回后即可发下一条消息）。两条边界：**不动流水线与队列**——要停在跑的流水线仍走显式的 `DELETE /api/pipelines/{id}`（或 Agent 的 `stop_pipeline`），已入队的任务一律保留；**已批准并已在执行的工具可能已经产生副作用且无法回滚**，中断只保证不再等它、不再有后续工具。中断是**主动**动作：客户端断网或关页面（SSE 被动断开）仍不取消本轮，这一轮会在后台继续执行，重开页面后靠 `GET /api/agent/sessions/{id}` 的 `turn_running` 恢复停止入口（前端行为见 [09 §6.4](./09-前端重构方案.md#64-agent-agent)）。
 
 `agent.auto_diagnose_failures` 默认开启。流水线终态失败和内核崩溃各按持久 incident key 最多创建一个可继续对话的诊断会话；关闭设置后不自动调用模型。自动诊断只暴露安全查询与恢复工具，仍遵循原子操作会话授权和资源消耗/破坏操作逐次确认策略。
 
@@ -691,7 +697,7 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 **Agent 提问端点**（M21）同样由独立的路由文件实现并沿用 `agent` tag（`operationId` 仍是 `agent_*`）：提问是会话交互的一部分，与知识库端点同一取舍。它与确认链路完全分开，路由表在 [§6.18](#618-agent-提问)。
 
-（16 条）
+（17 条）
 
 ### 6.16 confirmations
 

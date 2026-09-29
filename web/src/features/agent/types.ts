@@ -9,6 +9,11 @@ export interface AgentSession {
   prompt_tokens?: number
   completion_tokens?: number
   total_tokens?: number
+  /**
+   * 该会话此刻真有一轮在跑（后端进程内状态，M22）。刷新/换设备回来时，本地没有
+   * 流式轮次，只能靠它恢复停止入口与「本轮仍在后台执行」的状态行。
+   */
+  turn_running?: boolean
   atomic_grant?: { granted: boolean; expires_at?: string | null; grant_id?: string | null } | null
   created_at?: string | null
   updated_at?: string | null
@@ -31,6 +36,7 @@ export interface AgentMessage {
   tool_name?: string | null
   tool_call_id?: string | null
   audit_id?: number | null
+  /** `stop` / `error` / `question_unanswered` / `interrupted`（M22 起新增，见 specs §4）。 */
   finish_reason?: string | null
   created_at?: string | null
 }
@@ -98,6 +104,11 @@ export interface StreamingTurn {
   /** 本轮正挂着、等用户选择的提问；同一轮不会有第二个（后端是阻塞等待）。 */
   pendingQuestion: AgentQuestionPrompt | null
   running: boolean
+  /**
+   * 本轮已被中断（M22）：本地点了「停止」，或收到 SSE `interrupted`（别的标签页/
+   * 设备停的）。它不是失败——状态行只说「本轮已停止」，不弹错误。
+   */
+  interrupted?: boolean
   error: string | null
 }
 

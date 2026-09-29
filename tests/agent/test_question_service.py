@@ -453,3 +453,66 @@ def test_broadcast_failure_never_breaks_the_question_lifecycle():
 def test_question_timeout_must_be_positive():
     with pytest.raises(ValueError):
         QuestionService(None, timeout_seconds=0)
+
+
+def test_cancel_pending_for_session_cancels_cards_and_wakes_the_waiter(tmp_path):
+    """M22 规格 §3.3：中断撤回本会话挂起的提问，别的会话不受影响。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'cancel-question.sqlite3'}"
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        service, events = await _prepare(factory)
+        async with factory() as session:
+            await AgentSessionRepository(session).create(
+                AgentSession(id="session-2", model="test-model")
+            )
+            await session.commit()
+
+        first, first_audit = await _create(service)
+        second, _second_audit = await _create(
+            service, tool_call_id="call-2", question="第二个问题？"
+        )
+        other, other_audit = await _create(service, session_id="session-2")
+
+        waiter = asyncio.create_task(service.wait(first["question_id"]))
+        ids = await service.cancel_pending_for_session(SESSION_ID)
+
+        assert sorted(ids) == sorted(
+            [first["question_id"], second["question_id"]]
+        )
+        # 等待方被唤醒到终态 cancelled，而不是继续挂到超时。
+        woken = await asyncio.wait_for(waiter, timeout=5)
+        assert woken["status"] == QuestionStatus.CANCELLED.value
+        assert woken["question_id"] == first["question_id"]
+
+        assert (await service.get(first["question_id"]))["status"] == "cancelled"
+        assert (await service.get(second["question_id"]))["status"] == "cancelled"
+        assert (await service.get(other["question_id"]))["status"] == "pending"
+        assert (await service.list(status=QuestionStatus.PENDING))["total"] == 1
+
+        audit = await _audit(factory, first_audit)
+        assert audit.status == AuditStatus.REJECTED
+        assert audit.result_summary == "本轮已被中断，提问已取消"
+        assert (await _audit(factory, other_audit)).status == AuditStatus.PENDING
+
+        resolved = [
+            data for kind, data in events if kind == "question_resolved"
+        ]
+        assert {item["question_id"] for item in resolved} == set(ids)
+        assert {item["reason"] for item in resolved} == {"cancelled"}
+        # 幂等：再撤一次没有可处理的了。
+        assert await service.cancel_pending_for_session(SESSION_ID) == []
+
+        async with factory() as session:
+            # 撤回不是超时：不能被记成 expired。
+            rows = await AgentQuestionRepository(session).list(
+                session_id=SESSION_ID, status=QuestionStatus.EXPIRED
+            )
+        assert rows.total == 0
+        await engine.dispose()
+
+    asyncio.run(scenario())

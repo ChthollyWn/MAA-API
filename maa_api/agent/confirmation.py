@@ -37,6 +37,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIRMATION_TIMEOUT_SECONDS = 10 * 60
 DEFAULT_GRANT_CONFIRMATION_TIMEOUT_SECONDS = 120
+#: 本轮被用户中断时撤回待确认的理由（写进 ``confirmation.resolved_reason`` 与审计摘要）。
+INTERRUPTED_CONFIRMATION_REASON = "本轮已被中断"
+#: 被中断取消的工具调用落在审计上的说明：与 ``AGENT_TURN_INTERRUPTED`` 配套。
+INTERRUPTED_TOOL_MESSAGE = "本轮已被中断，该调用未完成"
+#: 中断时等被取消 worker 落完审计终态的宽限时长。返回之前必须让审计变成真的终态，
+#: 否则调用方刚拿到 ``interrupted=true``，审计页上那一条还是 pending。
+ABORT_WORKER_GRACE_SECONDS = 5.0
 AuditTerminalCallback = Callable[[AsyncSession, int, int, dict[str, Any]], Any]
 AuditPrepareCallback = Callable[[AsyncSession, int, Any], Any]
 AuditCommittedCallback = Callable[[int, int, dict[str, Any]], Any]
@@ -85,6 +92,10 @@ class ConfirmationService:
         self.clock = clock
         self._resolution_events: dict[str, asyncio.Event] = {}
         self._workers: dict[str, asyncio.Task[None]] = {}
+        #: 被「主动中断」取消的调用（审计 id）。只有列在这里的 worker 才把审计写成
+        #: ``AGENT_TURN_INTERRUPTED``；服务关闭路径取消 worker 时仍由 :meth:`close`
+        #: 的批量兜底写 ``SERVICE_UNAVAILABLE``，两者的语义不能混（M22 规格 §3.2）。
+        self._aborted_audits: set[int] = set()
         self._expiry_task: asyncio.Task[None] | None = None
         self._grant_locks: dict[str, asyncio.Lock] = {}
         self._grant_revocation_epochs: dict[str, int] = {}
@@ -650,6 +661,111 @@ class ConfirmationService:
         del context
         return await self.get(confirmation_id)
 
+    async def abort_session_calls(self, session_id: str) -> int:
+        """撤回某个会话本轮仍在等或仍在跑的工具调用，返回处理的条数（M22 规格 §3.2）。
+
+        索引是 ``AgentAudit.session_id``（真列）：``Confirmation`` 表没有会话列，
+        ``payload.session_id`` 只是 JSON 里的字段，按它过滤要全表扫。审计行则是每次
+        工具调用的必备落库，按会话查它就等于「本轮发起过的调用」。
+
+        两类处置刻意分开，顺序也不能反：
+
+        - **确认仍 ``pending``** → 走「拒绝」的效果（CAS 置 ``rejected``、审计
+          ``REJECTED``、广播、唤醒）。``_wait_and_execute`` 醒来只认状态，用户批准
+          就会执行，与本轮是否还在等无关，所以必须先撤确认再取消本轮。
+        - **确认已 ``approved`` 或根本没有确认（普通工具）** → 取消在跑的 worker。
+          worker 的 ``_execute_and_record`` 捕获 ``CancelledError`` 把审计写成交付
+          终态（``FAILED`` + ``AGENT_TURN_INTERRUPTED``）后继续抛出；不捕会留下永久
+          pending 的审计。已经产生的副作用无法回滚，这一点在文档里如实写明。
+        """
+        from sqlalchemy import select
+
+        now = self.clock()
+        rejected: list[Confirmation] = []
+        cancellations: list[tuple[str, int]] = []
+        async with self.session_factory() as session:
+            pending_audits = (
+                await session.execute(
+                    select(AgentAudit)
+                    .where(
+                        AgentAudit.session_id == session_id,
+                        AgentAudit.status == AuditStatus.PENDING,
+                    )
+                    .order_by(AgentAudit.id.asc())
+                )
+            ).scalars().all()
+            confirmations = ConfirmationRepository(session)
+            audits = AuditRepository(session)
+            for audit in pending_audits:
+                worker_key = (
+                    audit.confirmation_id
+                    if audit.confirmation_id is not None
+                    else str(audit.id)
+                )
+                confirmation = (
+                    await confirmations.get(audit.confirmation_id)
+                    if audit.confirmation_id is not None
+                    else None
+                )
+                if (
+                    confirmation is not None
+                    and confirmation.status == ConfirmationStatus.PENDING
+                ):
+                    changed = await confirmations.resolve(
+                        confirmation.id,
+                        ConfirmationStatus.REJECTED,
+                        resolved_by="system",
+                        reason=INTERRUPTED_CONFIRMATION_REASON,
+                        resolved_at=now,
+                    )
+                    if changed:
+                        await audits.set_terminal(
+                            audit.id,
+                            AuditStatus.REJECTED,
+                            error_code=str(ErrorCode.CONFIRMATION_REJECTED),
+                            result_summary=INTERRUPTED_CONFIRMATION_REASON,
+                        )
+                        await self._complete_sync_idempotency_error(
+                            session,
+                            audit.id,
+                            ErrorCode.CONFIRMATION_REJECTED,
+                            "确认请求已被拒绝",
+                            {
+                                "audit_id": audit.id,
+                                "confirmation_id": confirmation.id,
+                            },
+                        )
+                        rejected.append(confirmation)
+                        continue
+                    # CAS 输给并发批准：这一条已经进入执行路径，按在跑处理。
+                cancellations.append((worker_key, audit.id))
+            await session.commit()
+
+        # 先广播拒绝（唤醒确认 worker，它读到非 approved 会直接返回、不执行），
+        # 再取消那些已经在执行的 worker，避免「取消期间被批准」的窗口。
+        for confirmation in rejected:
+            self.broadcast(
+                "confirm_resolved", self._resolved_event(confirmation, "rejected")
+            )
+            event = self._resolution_events.get(confirmation.id)
+            if event is not None:
+                event.set()
+        cancelled_workers: list[asyncio.Task[None]] = []
+        for worker_key, audit_id in cancellations:
+            worker = self._workers.get(worker_key)
+            # ``cancelling()``：中断与「再撤一次」会先后调到这里，第二次 cancel 会打在
+            # worker 收尾自己的 await 上（写审计终态），把审计留成 pending。
+            if worker is not None and not worker.done() and not worker.cancelling():
+                # 先登记审计 id 再取消：worker 的收尾要据此判断这次取消是不是主动中断。
+                self._aborted_audits.add(audit_id)
+                worker.cancel()
+                cancelled_workers.append(worker)
+        if cancelled_workers:
+            # 等它们把审计写成终态再返回：``interrupted=true`` 时审计页不能还是 pending。
+            # 有上限：一次「停止」不能被一个不听话的 worker 无限挂住。
+            await asyncio.wait(cancelled_workers, timeout=ABORT_WORKER_GRACE_SECONDS)
+        return len(rejected) + len(cancellations)
+
     async def _create_confirmation(
         self,
         name: str,
@@ -893,6 +1009,38 @@ class ConfirmationService:
                 on_audit_committed=on_audit_committed,
             )
             return result
+        except asyncio.CancelledError:
+            # 主动中断取消了正在跑的调用：审计必须落终态，否则它会永久停在 pending
+            # （M22 规格 §3.2）。只对 ``abort_session_calls`` 登记过的审计这么写；
+            # 服务关闭路径的取消交给 ``close()`` 的批量兜底（那里写
+            # SERVICE_UNAVAILABLE），两条语义不能互相冒充。
+            if audit_id in self._aborted_audits:
+                error = AppError(
+                    ErrorCode.AGENT_TURN_INTERRUPTED,
+                    INTERRUPTED_TOOL_MESSAGE,
+                    {
+                        "audit_id": audit_id,
+                        **(
+                            {"confirmation_id": confirmation_id}
+                            if confirmation_id
+                            else {}
+                        ),
+                    },
+                )
+                await self._complete_audit(
+                    audit_id,
+                    AuditStatus.FAILED,
+                    error_code=str(error.code),
+                    result_summary=error.message,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    confirmation_id=(None if authorized_by else confirmation_id),
+                    authorized_by=authorized_by,
+                    response_status=error.http_status,
+                    response_body=_idempotency_error_body(error),
+                    on_audit_terminal=on_audit_terminal,
+                    on_audit_committed=on_audit_committed,
+                )
+            raise
         except AppError as exc:
             details = {
                 **(exc.details or {}),
@@ -949,6 +1097,9 @@ class ConfirmationService:
                 on_audit_committed=on_audit_committed,
             )
             raise error from exc
+        finally:
+            # 中断标记只在这条 worker 的生命周期里有意义：不清掉会随中断次数一直增长。
+            self._aborted_audits.discard(audit_id)
 
     async def _create_audit(
         self,

@@ -158,6 +158,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `AGENT_DISABLED` | 503 | 预留错误码；对应功能未交付（M11/M13） |
 | `AGENT_SESSION_NOT_FOUND` | 404 | 预留错误码；对应功能未交付（M11/M13） |
 | `AGENT_SESSION_BUSY` | 409 | 预留错误码；对应功能未交付（M11/M13） |
+| `AGENT_TURN_INTERRUPTED` | 409 | 预留错误码；对应功能未交付（M11/M13） |
 | `TOOL_NOT_FOUND` | 404 | 预留错误码；对应功能未交付（M11/M13） |
 | `TOOL_ARGS_INVALID` | 422 | 预留错误码；对应功能未交付（M11/M13） |
 | `TOOL_EXECUTION_FAILED` | 500 | 预留错误码；对应功能未交付（M11/M13） |

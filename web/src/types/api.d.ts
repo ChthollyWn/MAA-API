@@ -211,6 +211,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/sessions/{session_id}/interrupt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 中断该会话正在执行的一轮
+         * @description 中断该会话当前一轮（M22 规格 §3.4）。
+         *
+         *     幂等：没有活动轮次时返回 200 + ``interrupted=false``，不是错误——「已经停了」
+         *     与「刚刚停掉」对调用方是同一个结果。只停 Agent 这一轮，不碰流水线与队列。
+         */
+        post: operations["agent_interrupt_session_turn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/sessions/{session_id}/messages": {
         parameters: {
             query?: never;
@@ -2407,9 +2430,11 @@ export interface components {
          *
          *     与 ``ConfirmationStatus`` 分开：确认的终态是「批准/拒绝/过期」，提问的终态是
          *     「已答/已跳过/过期」——「跳过」在确认链路里没有对应物，批准也没有。
+         *     ``CANCELLED``（M22）是「用户中断了这一轮」：提问没有获得裁决就被撤回，与
+         *     「跳过」（用户主动不答）和「过期」（没人管）都不同，不能合并进任何一个既有终态。
          * @enum {string}
          */
-        QuestionStatus: "pending" | "answered" | "skipped" | "expired";
+        QuestionStatus: "pending" | "answered" | "skipped" | "expired" | "cancelled";
         /**
          * QueueHealth
          * @description 队列概览，不暴露流水线或任务条目。
@@ -4220,6 +4245,93 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_interrupt_session_turn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：AGENT_DISABLED */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

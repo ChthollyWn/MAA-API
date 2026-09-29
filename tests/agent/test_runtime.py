@@ -2827,3 +2827,559 @@ def test_ask_user_without_a_question_service_reports_agent_disabled():
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+# ----------------------------------------------------------------------
+# M22：中断正在执行的一轮
+# ----------------------------------------------------------------------
+
+
+class _GatedLLM:
+    """流到一半就挂住的假客户端：模拟「模型还在往外吐字」时按下停止。
+
+    真实的取消只能打在 await 上，所以挂住点必须是 await：``blocked`` 让用例确认
+    第一段文本确实已经流到 SSE，再没有第二个 chunk 会来。
+    """
+
+    def __init__(self, first_text: str) -> None:
+        self.first_text = first_text
+        self.blocked = asyncio.Event()
+        self.requests: list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]] = []
+
+    async def stream_chat_completion(self, model, messages, tools):
+        self.requests.append((model, list(messages), list(tools)))
+        yield {
+            "choices": [
+                {"index": 0, "delta": {"content": self.first_text}, "finish_reason": None}
+            ]
+        }
+        self.blocked.set()
+        await asyncio.Event().wait()  # 只有这一轮被取消才会离开这里
+
+
+def _assert_tool_history_complete(messages: list[dict[str, Any]]) -> None:
+    """每个 ``assistant.tool_calls`` 的 id 都要有对应的 tool 消息（上游结构要求）。"""
+    pending: list[str] = []
+    for message in messages:
+        if message["role"] == "assistant" and message.get("tool_calls"):
+            pending.extend(call["id"] for call in message["tool_calls"])
+        elif message["role"] == "tool":
+            assert message["tool_call_id"] in pending, message
+            pending.remove(message["tool_call_id"])
+    assert pending == []
+
+
+async def _session_audits(factory, session_id: str):
+    from sqlalchemy import select
+
+    async with factory() as session:
+        return list(
+            (
+                await session.execute(
+                    select(AgentAudit)
+                    .where(AgentAudit.session_id == session_id)
+                    .order_by(AgentAudit.id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+
+def test_interrupt_during_llm_stream_keeps_partial_text_and_closes_the_stream(tmp_path):
+    """规格 §5：流式期间中断 → 部分文本落库 + ``finish_reason=interrupted`` + SSE 收尾。"""
+
+    async def scenario():
+        from maa_api.agent.runtime import INTERRUPTED_NOTICE
+
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [], database_url=f"sqlite+aiosqlite:///{tmp_path / 'stream.sqlite3'}"
+        )
+        llm = _GatedLLM("正在读取日志……")
+        runtime.client_factory = lambda _settings: llm
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "帮我看看为什么失败", None)
+            received: list[str] = []
+            delta = await _next_named_event(stream, received, "text_delta")
+            assert delta["text"] == "正在读取日志……"
+            await asyncio.wait_for(llm.blocked.wait(), timeout=5)
+            assert runtime.turn_running(session_id) is True
+
+            assert await runtime.interrupt_turn(session_id) is True
+
+            await asyncio.wait_for(_drain_stream(stream, received), timeout=5)
+            events = _turn_events(received)
+            assert (
+                "interrupted",
+                {"session_id": session_id, "finish_reason": "interrupted"},
+            ) in events
+            assert events[-1] == (
+                "message_end",
+                {"session_id": session_id, "finish_reason": "interrupted"},
+            )
+            # 已经流出去的那段文本不再重发（否则界面上会出现两遍）。
+            assert [
+                data["text"] for event, data in events if event == "text_delta"
+            ] == ["正在读取日志……"]
+            assert runtime.turn_running(session_id) is False
+            assert session_id not in runtime._locked_sessions
+            # 幂等：本轮已经收尾，再按一次「停止」什么都不做。
+            assert await runtime.interrupt_turn(session_id) is False
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in messages] == ["user", "assistant"]
+            assert messages[1].finish_reason == "interrupted"
+            assert messages[1].content == f"正在读取日志……\n\n{INTERRUPTED_NOTICE}"
+            # 锁已释放：下一条消息可以立刻发出去。
+            assert await runtime.acquire_session(session_id) is True
+            runtime.release_session(session_id)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_interrupt_without_an_active_turn_reports_false_and_releases_a_stale_lock(tmp_path):
+    """规格 §5：没有活动轮次时 ``interrupted=false``；窗口里的锁要被释放。"""
+
+    async def scenario():
+        runtime, _factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [_text_response("done")],
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'idle.sqlite3'}",
+        )
+        try:
+            assert runtime.turn_running(session_id) is False
+            assert await runtime.interrupt_turn(session_id) is False
+
+            # 「REST 已 acquire、producer 还没登记」：锁在但没有任何执行。
+            assert await runtime.acquire_session(session_id) is True
+            assert runtime.turn_running(session_id) is False
+            assert await runtime.interrupt_turn(session_id) is False
+            # 不释放锁的话这个会话会一直 409，而实际上没有东西在跑。
+            assert await runtime.acquire_session(session_id) is True
+            runtime.release_session(session_id)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_interrupt_while_waiting_for_confirmation_rejects_it_and_never_executes(tmp_path):
+    """规格 §5：等确认期间中断 → 确认被拒、之后批准也不执行。"""
+
+    async def scenario():
+        from maa_api.agent.tools.raw import ClickParams
+
+        invoked: list[str] = []
+
+        async def dangerous(_params, _context):
+            invoked.append("executed")
+            return {"done": True}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="click",
+                group="ops",
+                risk=ToolRisk.DANGEROUS,
+                description="Requires human approval.",
+                params_model=ClickParams,
+                handler=dangerous,
+            )
+        )
+        runtime, factory, confirmations, llm, session_id, engine = await _runtime(
+            [
+                _tool_response(
+                    {
+                        "index": 0,
+                        "id": "confirmed-call",
+                        "type": "function",
+                        "function": {"name": "click", "arguments": '{"x":1,"y":2}'},
+                    }
+                )
+            ],
+            registry=registry,
+            confirmation_poll_seconds=0.01,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'confirm.sqlite3'}",
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "点一下", None)
+            received: list[str] = []
+            required = await _next_named_event(stream, received, "confirmation_required")
+            confirmation_id = required["confirmation_id"]
+            assert runtime.turn_running(session_id) is True
+
+            assert await runtime.interrupt_turn(session_id) is True
+
+            await asyncio.wait_for(_drain_stream(stream, received), timeout=5)
+            events = _turn_events(received)
+            assert events[-1] == (
+                "message_end",
+                {"session_id": session_id, "finish_reason": "interrupted"},
+            )
+            assert any(
+                event == "interrupted" for event, _data in events
+            )
+
+            # 撤回：确认被拒绝、审计 rejected。用户之后「批准」也执行不了了。
+            detail = await confirmations.get(confirmation_id)
+            assert detail["status"] == "rejected"
+            assert detail["resolved_reason"] == "本轮已被中断"
+            assert detail["execution"]["status"] == "rejected"
+            with pytest.raises(AppError) as excinfo:
+                await confirmations.resolve(
+                    confirmation_id, approved=True, resolved_by="test"
+                )
+            assert excinfo.value.code is ErrorCode.CONFIRMATION_ALREADY_RESOLVED
+            await asyncio.sleep(0.05)  # 给等待中的 worker 一点醒来的时间
+            assert invoked == []
+            # 模型没有第二次发言机会：整轮只发过一次请求。
+            assert len(llm.turns) == 1
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in messages] == [
+                "user",
+                "assistant",
+                "tool",
+                "assistant",
+            ]
+            stub = json.loads(messages[2].content)
+            assert stub["error"]["code"] == "AGENT_TURN_INTERRUPTED"
+            assert messages[2].tool_call_id == "confirmed-call"
+            assert messages[3].finish_reason == "interrupted"
+            assert messages[3].content == "本轮已被你中断。"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_interrupt_while_waiting_for_a_pipeline_cancels_the_worker_and_fails_the_audit(tmp_path):
+    """规格 §5：``wait_pipeline`` 等待期间中断 → worker 取消、审计 failed + 新码。"""
+
+    async def scenario():
+        from types import SimpleNamespace
+
+        from maa_api.agent.tools import build_registry
+        from maa_api.domain.enums import AuditStatus
+
+        started = asyncio.Event()
+
+        class BlockingRunner:
+            """只提供 ``wait_pipeline`` 需要的那一个方法：挂住直到被取消。"""
+
+            async def wait_terminal(self, _pipeline_id, _timeout_seconds, **_kwargs):
+                started.set()
+                await asyncio.Event().wait()
+
+        request = SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(pipeline_runner=BlockingRunner()))
+        )
+        call = {
+            "index": 0,
+            "id": "wait-1",
+            "type": "function",
+            "function": {
+                "name": "wait_pipeline",
+                "arguments": json.dumps(
+                    {"pipeline_id": "pipeline-1", "timeout_seconds": 600}
+                ),
+            },
+        }
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [_tool_response(call), _text_response("好，继续。")],
+            registry=build_registry(),
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'pipeline.sqlite3'}",
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "等它跑完", request)
+            received: list[str] = []
+            await _next_named_event(stream, received, "tool_start")
+            await asyncio.wait_for(started.wait(), timeout=5)
+            assert runtime.turn_running(session_id) is True
+
+            assert await runtime.interrupt_turn(session_id) is True
+
+            await asyncio.wait_for(_drain_stream(stream, received), timeout=5)
+            events = _turn_events(received)
+            assert events[-1][1]["finish_reason"] == "interrupted"
+            # 模型没有第二次发言机会：第 2 个响应永远不会被用到。
+            assert len(llm.turns) == 1
+
+            audits = await _session_audits(factory, session_id)
+            assert len(audits) == 1
+            assert audits[0].tool_name == "wait_pipeline"
+            assert audits[0].status == AuditStatus.FAILED
+            assert audits[0].error_code == "AGENT_TURN_INTERRUPTED"
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in messages] == [
+                "user",
+                "assistant",
+                "tool",
+                "assistant",
+            ]
+            assert messages[2].tool_call_id == "wait-1"
+            assert json.loads(messages[2].content)["error"]["code"] == (
+                "AGENT_TURN_INTERRUPTED"
+            )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_interrupt_while_a_question_is_pending_cancels_the_card(tmp_path):
+    """规格 §5：提问挂起期间中断 → ``cancelled`` + 卡片查询不再返回。"""
+
+    async def scenario():
+        from maa_api.agent.tools import build_registry
+        from maa_api.domain.enums import AuditStatus, QuestionStatus
+
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [_tool_response(_ask_user_call())],
+            registry=build_registry(),
+            question_timeout_seconds=60,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'question.sqlite3'}",
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "帮我刷点东西", None)
+            received: list[str] = []
+            required = await _next_named_event(stream, received, "question_required")
+            question_id = required["question_id"]
+
+            assert await runtime.interrupt_turn(session_id) is True
+
+            await asyncio.wait_for(_drain_stream(stream, received), timeout=5)
+            events = _turn_events(received)
+            assert events[-1] == (
+                "message_end",
+                {"session_id": session_id, "finish_reason": "interrupted"},
+            )
+
+            detail = await runtime.question_service.get(question_id)
+            assert detail["status"] == QuestionStatus.CANCELLED.value
+            # 待答列表不再返回这张卡片，刷新后前端不会看到一张提交不了的提问。
+            pending = await runtime.question_service.list(status=QuestionStatus.PENDING)
+            assert pending["total"] == 0
+            # 迟到的回答按终态冲突拒绝，不会把答案塞进一个已经结束的轮次。
+            with pytest.raises(AppError) as excinfo:
+                await runtime.question_service.answer(
+                    question_id, selected=["官服（Official）"]
+                )
+            assert excinfo.value.code is ErrorCode.QUESTION_ALREADY_ANSWERED
+
+            audits = await _session_audits(factory, session_id)
+            assert [audit.tool_name for audit in audits] == ["ask_user"]
+            assert audits[0].status == AuditStatus.REJECTED
+            assert audits[0].result_summary == "本轮已被中断，提问已取消"
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in messages] == [
+                "user",
+                "assistant",
+                "tool",
+                "assistant",
+            ]
+            assert messages[3].content == "本轮已被你中断。"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_interrupt_mid_batch_completes_the_history_and_the_next_request(tmp_path):
+    """规格 §5：批次中途中断后每个 ``tool_calls`` 都有对应 tool 消息。
+
+    中断点由测试控制：第一条 tool 消息落库之后、第二条之前挂住这一轮，正好落在
+    「补历史」的中间窗口上——这是最容易补重复或漏补的一条路径。
+    """
+
+    async def scenario():
+        from maa_api.agent.tools.raw import ClickParams
+
+        async def quick(params, _context):
+            return {"echo": params.x}
+
+        registry = ToolRegistry()
+        for name in ("first_tool", "second_tool"):
+            registry.register(
+                ToolDefinition(
+                    name=name,
+                    group="ops",
+                    risk=ToolRisk.SAFE,
+                    description="quick safe tool",
+                    params_model=ClickParams,
+                    handler=quick,
+                    read_only=True,
+                )
+            )
+        call_ids = ("batch-1", "batch-2")
+        names = ("first_tool", "second_tool")
+        response = _tool_response(
+            *(
+                {
+                    "index": index,
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": '{"x":%d,"y":2}' % index,
+                    },
+                }
+                for index, (call_id, name) in enumerate(
+                    zip(call_ids, names, strict=True)
+                )
+            )
+        )
+        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
+            [response, _text_response("继续处理。")],
+            registry=registry,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'batch.sqlite3'}",
+        )
+        original_persist = runtime._persist_message
+        first_tool_persisted = asyncio.Event()
+        hold = asyncio.Event()
+
+        async def held_persist(session_id_arg, **kwargs):
+            message = await original_persist(session_id_arg, **kwargs)
+            if kwargs.get("role") == "tool" and not first_tool_persisted.is_set():
+                first_tool_persisted.set()
+                await hold.wait()
+            return message
+
+        runtime._persist_message = held_persist
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "两个都跑一下", None)
+
+            async def drain() -> list[str]:
+                return [chunk async for chunk in stream]
+
+            consumer = asyncio.create_task(drain())
+            await asyncio.wait_for(first_tool_persisted.wait(), timeout=5)
+            assert await runtime.interrupt_turn(session_id) is True
+            hold.set()
+            received = await asyncio.wait_for(consumer, timeout=5)
+            events = _turn_events(received)
+            assert events[-1][1]["finish_reason"] == "interrupted"
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in messages] == [
+                "user",
+                "assistant",
+                "tool",
+                "tool",
+                "assistant",
+            ]
+            assert [message.tool_call_id for message in messages[2:4]] == list(call_ids)
+            second = json.loads(messages[3].content)
+            assert second["error"]["code"] == "AGENT_TURN_INTERRUPTED"
+            assert messages[4].finish_reason == "interrupted"
+
+            # 下一轮：请求里的历史必须结构完整，否则上游直接 400（M20 起不裁剪）。
+            runtime._persist_message = original_persist
+            assert await runtime.acquire_session(session_id) is True
+            follow_up = [
+                chunk async for chunk in runtime.stream_message(session_id, "继续", None)
+            ]
+            assert _turn_events(follow_up)[-1][1]["finish_reason"] == "stop"
+            assert len(llm.turns) == 2
+            _assert_tool_history_complete(llm.turns[1][1])
+        finally:
+            runtime._persist_message = original_persist
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_interrupt_marks_the_incident_turn_as_user_interrupted(tmp_path):
+    """规格 §2.2：自动诊断也能被同一个端点中断，但文案不能是「服务关闭」。"""
+
+    async def scenario():
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [
+                _text_response("占位"),  # 自动诊断不追加用户消息，这里只保证有可继续的历史
+            ],
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'incident.sqlite3'}",
+        )
+        llm = _GatedLLM("正在排查……")
+        runtime.client_factory = lambda _settings: llm
+        try:
+            async with factory() as session:
+                user = await AgentMessageRepository(session).create(
+                    AgentMessage(
+                        session_id=session_id, seq=1, role="user", content="流水线失败了"
+                    )
+                )
+                await session.commit()
+            assert user.seq == 1
+
+            run = asyncio.create_task(
+                runtime.run_incident(session_id, None, {"get_pipeline"})
+            )
+            await asyncio.wait_for(llm.blocked.wait(), timeout=5)
+            assert runtime.turn_running(session_id) is True
+
+            assert await runtime.interrupt_turn(session_id) is True
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(run, timeout=5)
+
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            # 诊断说明由 run_incident 落，措辞必须是「被用户中断」而不是「服务关闭」。
+            assert messages[-1].content.startswith("自动诊断已被你中断")
+            assert messages[-2].finish_reason == "interrupted"
+            assert runtime.turn_running(session_id) is False
+            assert session_id not in runtime._locked_sessions
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_passive_disconnect_leaves_the_turn_running_until_an_explicit_interrupt(tmp_path):
+    """M16 语义未变：断开连接**不**取消本轮，只有显式中断才会（规格 §2.2）。"""
+
+    async def scenario():
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [], database_url=f"sqlite+aiosqlite:///{tmp_path / 'passive.sqlite3'}"
+        )
+        llm = _GatedLLM("先说到一半")
+        runtime.client_factory = lambda _settings: llm
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            stream = runtime.stream_message(session_id, "长问题", None)
+            received: list[str] = []
+            await _next_named_event(stream, received, "text_delta")
+            await asyncio.wait_for(llm.blocked.wait(), timeout=5)
+
+            await stream.aclose()  # 客户端断网/关页面
+            await asyncio.sleep(0.05)
+
+            # 被动断开：这一轮照旧在跑，既没被取消也没被标记成中断。
+            assert runtime.turn_running(session_id) is True
+            assert session_id in runtime._locked_sessions
+            assert session_id not in runtime._interrupted
+
+            # 显式中断才真的停它，并且照常收尾。
+            assert await runtime.interrupt_turn(session_id) is True
+            assert runtime.turn_running(session_id) is False
+            assert session_id not in runtime._locked_sessions
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in messages] == ["user", "assistant"]
+            assert messages[1].finish_reason == "interrupted"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
