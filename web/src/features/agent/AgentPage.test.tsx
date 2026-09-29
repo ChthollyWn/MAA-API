@@ -29,6 +29,31 @@ function makeSession(overrides: Json = {}): Json {
   }
 }
 
+/** 服务端落库的提问 wire（M21）；SSE 的 `question_required` 是它去掉状态字段后的子集。 */
+function makeQuestion(overrides: Json = {}): Json {
+  return {
+    question_id: 'question-1',
+    session_id: 'session-1',
+    tool_call_id: 'call-ask',
+    question: '用哪个渠道刷 1-7？',
+    options: [
+      { label: '理智', description: '默认渠道，最多 6 次' },
+      { label: '理智药', description: null },
+    ],
+    multiple: false,
+    status: 'pending',
+    selection: null,
+    created_at: '2026-09-29T10:00:00Z',
+    expires_at: new Date(Date.now() + 10 * MINUTE).toISOString(),
+    answered_at: null,
+    answered_by: null,
+    ...overrides,
+  }
+}
+
+/** 与后端 runtime 的 QUESTION_EXPIRED_TEXT 同一句。 */
+const QUESTION_EXPIRED_TEXT = '提问超时未得到回答，本轮结束。你可以重新描述需求，我会重新发起提问。'
+
 const toolHistory: Json[] = [
   { id: 1, session_id: 'session-1', seq: 1, role: 'user', content: '分析刚才的失败', created_at: '2026-09-27T10:00:00Z' },
   { id: 2, session_id: 'session-1', seq: 2, role: 'assistant', content: '我正在检查关联日志。', tool_calls: [{ id: 'call-log', function: { name: 'get_logs', arguments: '{"source":"maa"}' } }], created_at: '2026-09-27T10:00:01Z' },
@@ -80,10 +105,14 @@ interface ApiOptions {
   messages?: Record<string, Json[]>
   pending?: Json[]
   confirmations?: Record<string, Json>
+  /** 本会话待答的提问（GET /api/agent/questions）。 */
+  questions?: Json[]
   capability?: Json
   createSession?: () => Json
   stream?: (content: string) => Response
   onResolve?: (confirmationId: string, approved: boolean) => void
+  /** 提问被提交或跳过时回调，用例在这里推后续事件。 */
+  onQuestion?: (questionId: string, action: 'answer' | 'skip', selected: string[]) => void
   /** 返回 Promise 时，消息读取要等它完成才响应。 */
   holdMessages?: () => Promise<void> | undefined
 }
@@ -95,6 +124,7 @@ function createAgentApi(options: ApiOptions = {}) {
     messages: options.messages ?? { 'session-1': toolHistory },
     pending: options.pending ?? [],
     confirmations: options.confirmations ?? {},
+    questions: options.questions ?? [],
   }
   const requests: RecordedRequest[] = []
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -153,6 +183,22 @@ function createAgentApi(options: ApiOptions = {}) {
         return json({ confirmation_id: id, status: approved ? 'approved' : 'rejected' })
       }
     }
+    if (url.pathname === '/api/agent/questions' && request.method === 'GET') {
+      const sessionId = url.searchParams.get('session_id')
+      const items = state.questions.filter((item) => !sessionId || item.session_id === sessionId)
+      return json({ items, total: items.length, page: 1, size: 100 })
+    }
+    const questionMatch = /^\/api\/agent\/questions\/([^/]+?)(\/skip)?$/.exec(url.pathname)
+    if (questionMatch) {
+      const [, id, skip] = questionMatch
+      if (request.method === 'POST') {
+        const selected = skip ? [] : ((body as Json | undefined)?.selected as string[] | undefined) ?? []
+        // 服务端把这条从 pending 里挪走，之后轮到 tool_result 与后续文本。
+        state.questions = state.questions.filter((item) => item.question_id !== id)
+        options.onQuestion?.(id!, skip ? 'skip' : 'answer', selected)
+        return json({ question_id: id, session_id: 'session-1', status: skip ? 'skipped' : 'answered', selection: selected })
+      }
+    }
     if (url.pathname === '/api/agent/capabilities/check' && request.method === 'POST') {
       return json(options.capability ?? { model: 'deepseek-flash', ready: true, tool_calling: true, vision: false, status: 'vision_degraded', degraded_reason: '模型暂不支持图片输入' })
     }
@@ -163,6 +209,7 @@ function createAgentApi(options: ApiOptions = {}) {
     state,
     requests,
     sentMessages: () => requests.filter((item) => item.method === 'POST' && item.path.endsWith('/messages')),
+    questionListCalls: () => requests.filter((item) => item.method === 'GET' && item.path === '/api/agent/questions').length,
     messagePages: () => requests
       .filter((item) => item.method === 'GET' && item.path.endsWith('/messages'))
       .map((item) => Number(item.query.get('page'))),
@@ -418,6 +465,207 @@ describe('Agent conversation page', () => {
     expect(screen.getByRole('region', { name: '本轮对话' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
     expect(screen.getByText(/等待你确认/)).toBeInTheDocument()
+  })
+
+  it('asks through a card inside the live turn and keeps the same turn going after the answer (M21)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    const question = makeQuestion()
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      stream: () => {
+        // 服务端在发卡之前已经落库：本会话待答列表里查得到同一条。
+        api.state.questions = [question]
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', capability_status: 'ready' }),
+          event('tool_start', { tool_call_id: 'call-ask', name: 'ask_user', arguments: { question: question.question, options: question.options } }),
+          event('question_required', {
+            tool_call_id: 'call-ask',
+            question_id: question.question_id,
+            question: question.question,
+            options: question.options,
+            multiple: false,
+            expires_at: question.expires_at,
+          }),
+        ])
+        return held.response
+      },
+      onQuestion: (id, _action, selected) => {
+        // 用户的选择作为工具结果回到模型，这一轮接着往下走。
+        api.state.messages['session-1'] = [
+          { id: 101, session_id: 'session-1', seq: 0, role: 'user', content: '刷一次 1-7', created_at: '2026-09-29T10:00:00Z' },
+          { id: 102, session_id: 'session-1', seq: 1, role: 'assistant', content: '按理智刷。', created_at: '2026-09-29T10:00:01Z' },
+        ]
+        held?.push([
+          event('tool_result', { tool_call_id: 'call-ask', name: 'ask_user', audit_id: 51, result: { status: 'answered', selected, question_id: id } }),
+          event('text_delta', { text: '按理智刷。' }),
+          event('message_end', { session_id: 'session-1', finish_reason: 'stop' }),
+        ])
+        held?.close()
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '刷一次 1-7' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    // 卡片挂在本轮工具条下方，输入栏提示先回答，发送被禁用。
+    expect(await screen.findByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
+    expect(screen.getByText('用哪个渠道刷 1-7？')).toBeInTheDocument()
+    expect(screen.getByText('请先回答上方的问题')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled()
+    const liveTurn = screen.getByRole('region', { name: '本轮对话' })
+    expect(within(liveTurn).getByText('向你提问')).toBeInTheDocument()
+    expect(within(liveTurn).getByText('ask_user')).toBeInTheDocument()
+
+    // 待答列表也拿到同一条，但本轮已经展示过：只出现一张卡。
+    await waitFor(() => expect(api.questionListCalls()).toBeGreaterThan(1))
+    expect(screen.getAllByRole('heading', { name: '需要你选择' })).toHaveLength(1)
+
+    const submit = screen.getByRole('button', { name: '提交' })
+    expect(submit).toBeDisabled()
+    fireEvent.click(screen.getByRole('radio', { name: /理智药/ }))
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+
+    const resolution = await waitFor(() => {
+      const posted = api.requests.find((item) => item.method === 'POST' && item.path === '/api/agent/questions/question-1')
+      expect(posted).toBeDefined()
+      return posted!
+    })
+    expect(resolution.body).toEqual({ selected: ['理智药'] })
+    expect(api.state.questions).toHaveLength(0)
+
+    // 提交成功后清卡，同一轮继续追加后续文本。
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '需要你选择' })).not.toBeInTheDocument())
+    expect(await screen.findByText('按理智刷。')).toBeInTheDocument()
+
+    // 回合结束、历史回来后实时副本消失，同一句话不重复出现。
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    expect(screen.getAllByText('按理智刷。')).toHaveLength(1)
+    expect(screen.queryByText('请先回答上方的问题')).not.toBeInTheDocument()
+  })
+
+  it('ends the turn with the server closing text when the question times out (M21)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    // 已过期的提问：本地倒计时先把它判成超时态。
+    const question = makeQuestion({ expires_at: new Date(Date.now() - 1000).toISOString() })
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      stream: () => {
+        api.state.questions = [question]
+        held = heldStream([
+          event('tool_start', { tool_call_id: 'call-ask', name: 'ask_user', arguments: {} }),
+          event('question_required', {
+            tool_call_id: 'call-ask',
+            question_id: question.question_id,
+            question: question.question,
+            options: question.options,
+            multiple: false,
+            expires_at: question.expires_at,
+          }),
+        ])
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '刷一次 1-7' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(await screen.findByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
+    expect(await screen.findByText('提问已超时，本轮已结束。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '提交' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '跳过' })).toBeDisabled()
+
+    // 后端把这条置为 expired：工具结果 + 收尾文案 + 本轮结束。
+    api.state.questions = []
+    api.state.messages['session-1'] = [
+      { id: 111, session_id: 'session-1', seq: 0, role: 'user', content: '刷一次 1-7', created_at: '2026-09-29T10:00:00Z' },
+      { id: 112, session_id: 'session-1', seq: 1, role: 'assistant', content: QUESTION_EXPIRED_TEXT, created_at: '2026-09-29T10:10:01Z' },
+    ]
+    act(() => {
+      held?.push([
+        event('tool_result', { tool_call_id: 'call-ask', name: 'ask_user', result: { status: 'expired', question_id: question.question_id } }),
+        event('text_delta', { text: QUESTION_EXPIRED_TEXT }),
+        event('message_end', { session_id: 'session-1', finish_reason: 'question_unanswered' }),
+      ])
+      held?.close()
+    })
+
+    // 超时收尾：清卡，留下后端那句收尾文案，实时副本让位给历史。
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '需要你选择' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    expect(screen.getAllByText(QUESTION_EXPIRED_TEXT)).toHaveLength(1)
+    expect(screen.queryByText('请先回答上方的问题')).not.toBeInTheDocument()
+    expect(api.requests.some((item) => item.method === 'POST' && item.path.includes('/skip'))).toBe(false)
+  })
+
+  it('restores the unanswered question of this session after a refresh and answers it from there (M21)', async () => {
+    const question = makeQuestion()
+    const api = createAgentApi({ messages: { 'session-1': [] }, questions: [question] })
+    renderPage()
+
+    // 刷新后本轮已经没了，卡由本会话待答查询接管；输入栏不说「请先回答」。
+    expect(await screen.findByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
+    expect(screen.getByText('用哪个渠道刷 1-7？')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument()
+    expect(screen.queryByText('请先回答上方的问题')).not.toBeInTheDocument()
+
+    fireEvent.click(await screen.findByRole('radio', { name: /理智药/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
+
+    await waitFor(() => expect(api.requests.some((item) => item.method === 'POST' && item.path === '/api/agent/questions/question-1')).toBe(true))
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '需要你选择' })).not.toBeInTheDocument())
+  })
+
+  it('keeps the confirmation wording when a confirmation and a question are pending at once (M21)', async () => {
+    const confirmation = {
+      confirmation_id: 'confirm-9',
+      action: 'consume_resource',
+      risk_level: 'consume',
+      reason: '此操作会使用一次理智药。',
+      payload: { tool_name: 'submit_pipeline', arguments: {}, session_id: 'session-1' },
+      status: 'pending',
+      expires_at: '2026-09-29T10:20:00Z',
+    }
+    const question = makeQuestion()
+    let held: ReturnType<typeof heldStream> | null = null
+    createAgentApi({
+      messages: { 'session-1': [] },
+      confirmations: { 'confirm-9': confirmation },
+      questions: [question],
+      stream: () => {
+        // 流要保持打开：状态行只在「本轮还在跑」时显示。
+        held = heldStream([
+          event('tool_start', { tool_call_id: 'call-9', name: 'submit_pipeline', arguments: {} }),
+          event('confirmation_required', { tool_call_id: 'call-9', name: 'submit_pipeline', confirmation_id: 'confirm-9', expires_at: confirmation.expires_at }),
+          event('question_required', {
+            tool_call_id: 'call-ask',
+            question_id: question.question_id,
+            question: question.question,
+            options: question.options,
+            multiple: false,
+            expires_at: question.expires_at,
+          }),
+        ])
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '刷一次 1-7' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(await screen.findByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
+    // 确认会决定提问所在那批工具能不能跑，状态行只说更靠前的那个。
+    expect(screen.getByText('请先处理上方的确认')).toBeInTheDocument()
+    expect(screen.queryByText('请先回答上方的问题')).not.toBeInTheDocument()
+
+    await act(async () => { held?.close() })
   })
 
   it('keeps a failed turn visible after the live copy is dropped and links LLM errors to the settings (AG2)', async () => {

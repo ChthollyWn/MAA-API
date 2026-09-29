@@ -44,6 +44,8 @@ export type ServerEvent =
   | WsEnvelope<'device_status', Record<string, unknown>>
   | WsEnvelope<'confirm_request', Record<string, unknown>>
   | WsEnvelope<'confirm_resolved', Record<string, unknown>>
+  | WsEnvelope<'question_request', Record<string, unknown>>
+  | WsEnvelope<'question_resolved', Record<string, unknown>>
   | WsEnvelope<'update_progress', Record<string, unknown> & { update_id: string }>
   | WsEnvelope<'update_available', Record<string, unknown>>
   | WsEnvelope<'agent_event', Record<string, unknown>>
@@ -60,6 +62,8 @@ export const REALTIME_STATE_CHANNELS = [
   'device_status',
   'confirm_request',
   'confirm_resolved',
+  'question_request',
+  'question_resolved',
   'update_progress',
   'update_available',
   'agent_event',

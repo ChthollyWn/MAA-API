@@ -46,8 +46,8 @@ function TypingIndicator() {
   )
 }
 
-/** 本轮的实时副本：用户的话、按到达顺序的回复与工具调用、确认卡。流结束并刷新历史后由页面丢弃。 */
-export function LiveTurn({ turn, confirmation }: { turn: StreamingTurn; confirmation?: ReactNode }) {
+/** 本轮的实时副本：用户的话、按到达顺序的回复与工具调用、确认卡与提问卡。流结束并刷新历史后由页面丢弃。 */
+export function LiveTurn({ turn, confirmation, question }: { turn: StreamingTurn; confirmation?: ReactNode; question?: ReactNode }) {
   const tools = new Map(turn.tools.map((tool) => [tool.toolCallId, tool]))
   return (
     <section aria-label="本轮对话" aria-busy={turn.running} className="space-y-3">
@@ -58,7 +58,8 @@ export function LiveTurn({ turn, confirmation }: { turn: StreamingTurn; confirma
         return tool ? <ToolCallBar key={`tool-${segment.toolCallId}`} tool={liveToolView(tool, turn.running)} /> : null
       })}
       {confirmation}
-      {turn.running && !turn.pendingConfirmation ? <TypingIndicator /> : null}
+      {question}
+      {turn.running && !turn.pendingConfirmation && !turn.pendingQuestion ? <TypingIndicator /> : null}
     </section>
   )
 }

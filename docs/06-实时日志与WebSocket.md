@@ -688,6 +688,34 @@ Cookie 作为备选，供前端在已通过 HTTP 登录接口设置 cookie 后�
 
 `expires_at` 让前端能自己倒计时，不必等服务端通知。超时后服务端会另发一条 `confirm_resolved`（`resolution: "expired"`）关闭卡片。
 
+**`question_request`** — Agent 发了一张选择卡片，本轮正在等用户裁决。提问的语义、与确认的分工见 [11-Agent模块设计 §5.3](./11-Agent模块设计.md)，卡片本身见 [09 §6.4](./09-前端重构方案.md#64-agent-agent)。
+
+```json
+{
+  "type": "question_request",
+  "ts": 1758000010.000,
+  "data": {
+    "question_id": "7f31...",
+    "session_id": "s-991",
+    "tool_call_id": "call_8c2f",
+    "question": "这次刷哪个关卡？",
+    "options": [
+      { "label": "1-7", "description": "消耗 6 理智，掉落固源岩" },
+      { "label": "CE-6", "description": "龙门币本" }
+    ],
+    "multiple": false,
+    "status": "pending",
+    "selection": null,
+    "created_at": "2026-09-29T09:00:10Z",
+    "expires_at": "2026-09-29T09:10:10Z",
+    "answered_at": null,
+    "answered_by": null
+  }
+}
+```
+
+**`question_resolved`** — 这条提问进入终态时广播一次：`data` 是同一条 wire（`status` 为 `answered` / `skipped` / `expired`），另加一个 `reason`，取值与 `status` 相同，说明是哪条路径终止的（用户点选、用户跳过、超时）。两者都只用来**失效本会话待答查询**：前端收到后重读 `GET /api/agent/questions?session_id=…&status=pending`，多标签页因此同步。提问不弹全局卡片、不计入「N 项待确认」、也不做 Web Push——提问不是确认，没有风险等级、不授权任何操作（[04 §5.17](./04-数据模型与持久化.md)）。前端要在 `subscribe` 的 `channels` 里带上这两个频道：服务端只向订阅了对应频道的连接推送，而未列入频道白名单的名字会被 `WS_BAD_MESSAGE` 直接拒掉。
+
 **`update_progress`** — 三种热更新的进度，语义见 [07-热更新方案](./07-热更新方案.md)。
 
 ```json

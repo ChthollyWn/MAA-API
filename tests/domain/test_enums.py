@@ -67,6 +67,12 @@ EXPECTED_VALUES = {
         "REJECTED": "rejected",
         "EXPIRED": "expired",
     },
+    "QuestionStatus": {
+        "PENDING": "pending",
+        "ANSWERED": "answered",
+        "SKIPPED": "skipped",
+        "EXPIRED": "expired",
+    },
     "RiskLevel": {
         "NONE": "none",
         "CONSUME": "consume",

@@ -18,7 +18,7 @@ EXPECTED_TOOLS = {
     "remove_custom_task", "set_infrast_plan", "check_updates", "update_core",
     "update_resource", "update_game", "restart_core", "list_schedules",
     "create_schedule", "update_schedule", "delete_schedule",
-    "check_confirmation", "read_knowledge",
+    "check_confirmation", "read_knowledge", "ask_user",
 }
 
 
@@ -27,8 +27,9 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 42
+    assert len(actual) == 43
     assert "knowledge" in {definition.group for definition in registry.list()}
+    assert "interaction" in {definition.group for definition in registry.list()}
     assert "run_copilot" not in actual
 
 
@@ -141,6 +142,22 @@ def test_wait_pipeline_is_registered_as_a_safe_read_only_pipeline_tool():
     assert definition.group == "pipeline"
     assert definition.risk.value == "SAFE"
     assert definition.read_only is True
+
+
+def test_ask_user_is_registered_as_a_safe_serial_interaction_tool():
+    """规格 §3.1：新工具组 interaction，SAFE、非只读（必须与写操作串行）、对模型可见。"""
+
+    definition = build_registry().get("ask_user")
+
+    assert definition.group == "interaction"
+    assert definition.risk.value == "SAFE"
+    assert definition.read_only is False
+    assert definition.model_visible is True
+    # 选项数量与长度上限进 JSON Schema：模型看得到「2–6 个选项」这条硬约束。
+    schema = definition.params_model.model_json_schema(mode="validation")
+    assert schema["properties"]["options"]["minItems"] == 2
+    assert schema["properties"]["options"]["maxItems"] == 6
+    assert schema["properties"]["multiple"]["default"] is False
 
 
 def test_registry_schema_marks_safe_raw_exceptions_and_consumption_rules():
@@ -270,5 +287,69 @@ def test_check_confirmation_is_safe_and_delegates_to_the_shared_confirmation_ser
             "confirmation_id": "confirm-1",
             "status": "approved",
         }
+
+    asyncio.run(scenario())
+
+
+def test_ask_user_rest_invocation_fails_with_invalid_parameter():
+    """规格 §2.2：REST 请求没法等 10 分钟，直接 400 并说明只能由内置 Agent 调用。"""
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from sqlmodel import SQLModel
+
+    import maa_api.db.models  # noqa: F401
+    from maa_api.agent.confirmation import ConfirmationService
+    from maa_api.agent.policy import PolicyEngine
+    from maa_api.api.deps import get_session
+    from maa_api.api.errors import register_exception_handlers
+    from maa_api.api.routers import agent
+    from maa_api.db import session as db_session
+    from maa_api.settings import LLMSettings, Settings, set_settings
+
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        app = FastAPI()
+        register_exception_handlers(app)
+        app.include_router(agent.router)
+        app.state.confirmation_service = ConfirmationService(
+            factory, build_registry(), policy=PolicyEngine()
+        )
+
+        async def get_test_session():
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = get_test_session
+        set_settings(Settings(llm=LLMSettings(base_url="https://llm.test/v1", api_key="k", model="m")))
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            listed = client.get("/api/agent/tools").json()["items"]
+            assert "ask_user" in {item["name"] for item in listed}
+
+            invoked = client.post(
+                "/api/agent/tools/ask_user/invoke",
+                json={
+                    "arguments": {
+                        "question": "走哪个渠道？",
+                        "options": [{"label": "官服"}, {"label": "B 服"}],
+                    }
+                },
+            )
+            assert invoked.status_code == 400, invoked.text
+            error = invoked.json()["error"]
+            assert error["code"] == "INVALID_PARAMETER"
+            assert "只能由内置 Agent 在会话内调用" in error["message"]
+        finally:
+            client.__exit__(None, None, None)
+            await engine.dispose()
 
     asyncio.run(scenario())

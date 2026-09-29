@@ -151,13 +151,20 @@ def _agent_runtime(request: Request):
     if runtime is not None:
         return runtime
     service = _confirmation_service(request)
+    # 应用没装配 runtime 时的兜底（测试直接拿 FastAPI() 拼路由会走到这里）：提问服务
+    # 可能没装，取不到就传 None，runtime 会据此对 ask_user 报 AGENT_DISABLED。
+    question_service = getattr(state, "question_service", None)
     factory = getattr(state, "agent_runtime_factory", None)
     if factory is not None:
-        runtime = factory(service)
+        from maa_api.agent.runtime import call_runtime_factory
+
+        runtime = call_runtime_factory(factory, service, question_service)
     else:
         from maa_api.agent.runtime import AgentRuntime
 
-        runtime = AgentRuntime(service.session_factory, service)
+        runtime = AgentRuntime(
+            service.session_factory, service, question_service=question_service
+        )
     state.agent_runtime = runtime
     return runtime
 

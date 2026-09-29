@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 100 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 104 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达。
 
 ```python
 # maa_api/domain/errors.py
@@ -290,6 +290,10 @@ class AppError(Exception):
 | `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史或知识库内容超出模型自身的上下文长度（本地不按字符数预裁剪），需开启新会话或缩短内容 |
 | `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
 | `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
+| `QUESTION_NOT_FOUND` | 404 | 提问 id 不存在 |
+| `QUESTION_ALREADY_ANSWERED` | 409 | 重复回答已 answered / skipped 的提问 |
+| `QUESTION_EXPIRED` | 409 | 回答已过期的提问 |
+| `QUESTION_SELECTION_INVALID` | 400 | 空选择、选项不在 options.label 里、或单选提交多项 |
 
 tool-calling 循环的非错误终态**不是错误**：会话正常结束并返回 200，最后一条 `agent_message.finish_reason` 记为 `stuck_loop`（连续三轮发出完全相同的工具调用，判定为原地打转）或 `max_steps`（调用方显式设了步数上限；默认不设上限）。把它们做成错误码会让前端丢掉模型已经产出的中间结论。
 
@@ -685,6 +689,8 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 **知识库端点**（M18）由独立的路由文件实现，但沿用 `agent` tag（`operationId` 仍是 `agent_*`），因此列在本节。内置条目是随代码发布的只读 Markdown，数据库只存用户的改动与自定义条目；`source`（`builtin` / `custom`）与 `modified` 由读侧的合并结果给出，供设置页显示「内置 / 已修改 / 自定义」徽标。`PUT` 收的是**完整的生效内容**而不是增量，与内置完全一致时等价于「恢复默认」；字段格式与长度不合法是 `422 VALIDATION_ERROR`，删除未修改过的内置条目或修改内置条目的 `kind` 是 `409 KNOWLEDGE_BUILTIN_READONLY`。启用条目数与术语表加档案的正文合计数不设上限（M20 用户裁决：注入多少以模型自身的上下文窗口为准，装不下时由上游拒绝并返回 `400 LLM_CONTEXT_OVERFLOW`）。写操作记一条服务日志，不进 Agent 审计；Agent 侧只有只读的 `read_knowledge` 工具，没有任何写通道。
 
+**Agent 提问端点**（M21）同样由独立的路由文件实现并沿用 `agent` tag（`operationId` 仍是 `agent_*`）：提问是会话交互的一部分，与知识库端点同一取舍。它与确认链路完全分开，路由表在 [§6.18](#618-agent-提问)。
+
 （16 条）
 
 ### 6.16 confirmations
@@ -713,6 +719,28 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 | GET | `/{path:path}` | SPA catch-all，非 `/api`、`/static` 前缀的路径一律回落到 `index.html`，由前端路由接管 | 豁免 |
 
 catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static` 两个前缀，否则拼错的 API 路径会返回一份 HTML 而不是 404 JSON——这种错误在前端调试时极难定位。
+
+（4 条）
+
+### 6.18 Agent 提问
+
+| 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
+|---|---|---|---|---|---|
+| GET | `/api/agent/questions` | 提问列表，默认只返回 `pending` | `session_id`、`status`、`page`、`size`（1–200，默认 20） | 200 | `INVALID_PAGINATION` |
+| GET | `/api/agent/questions/{question_id}` | 单条提问的完整状态 | | 200 | `QUESTION_NOT_FOUND` |
+| POST | `/api/agent/questions/{question_id}` | 提交选择，被挂起的那一轮继续执行 | `{selected: ["..."]}`：选中项的 label 列表，去重后每一项都必须在 `options` 里，单选只允许一项 | 200 | `QUESTION_NOT_FOUND`、`QUESTION_ALREADY_ANSWERED`、`QUESTION_EXPIRED`、`QUESTION_SELECTION_INVALID` |
+| POST | `/api/agent/questions/{question_id}/skip` | 跳过这次提问，本轮结束 | 无 body | 200 | `QUESTION_NOT_FOUND`、`QUESTION_ALREADY_ANSWERED`、`QUESTION_EXPIRED` |
+
+四个端点都 `Depends(require_auth)`。返回的是**单条 wire**（`question_id`、`session_id`、`tool_call_id`、`question`、`options[{label, description}]`、`multiple`、`status`、`selection`、`created_at`、`expires_at`、`answered_at`、`answered_by`，时间为 `...Z`），与 SSE `question_required` 的载荷同源；列表用统一的分页信封 `{items, total, page, size}`，`status` 传 `pending` 之外的取值可以看历史提问。提问服务未启动时四个端点都返回 `503 AGENT_DISABLED`。
+
+**提问不是确认**（[04 §5.17](./04-数据模型与持久化.md)）：这条链路没有「批准 / 拒绝」，只有「答 / 跳过 / 过期」；不授权任何操作，也不占「待确认」计数，因此前端不为它做全局面板与 Web Push。`question_id` 指向的是模型那次 `ask_user` 调用留下的记录（见 [11 §5.3](./11-Agent模块设计.md)）。
+
+错误码的口径值得写清，它决定了前端在竞态下看到什么：
+
+- 已 `answered` / `skipped` 的提问再提交是 `409 QUESTION_ALREADY_ANSWERED`（多标签页同时点选、刷新后重放都会命中），已 `expired` 是 `409 QUESTION_EXPIRED`。「你来晚了」不能说成「你选错了」，所以状态判定排在参数校验之前。
+- 时间上已过期（`expires_at < now`）但状态还是 `pending` 的提问，在返回 `409 QUESTION_EXPIRED` 之前**就地收敛成终态**并广播；否则它会一直挂在待答列表里，用户点了只拿到一个错。
+- 空选择、选项不在 `options.label` 里、单选提交多项是 `400 QUESTION_SELECTION_INVALID`，`details.options` 带上合法的 label 列表供前端兜底渲染。`selected` 因此声明成必填的字符串数组而不是 `min_length=1` —— 空数组是「没有选择」这个业务错误，加字段级约束会让同一种错误在 400 与 422 之间漂移。
+- 超时或跳过后本轮以 `finish_reason="question_unanswered"` 结束，这是正常终态而不是错误（同 [§4.11](#411-agent-与-llm) 的 `stuck_loop` / `max_steps` 口径）。等待时长由 `agent.question_timeout_seconds` 配置，默认 600 秒，落在那条提问的 `expires_at` 上。
 
 （4 条）
 

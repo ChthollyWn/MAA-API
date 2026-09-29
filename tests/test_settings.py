@@ -345,6 +345,7 @@ def test_env_mapping_names_are_pinned() -> None:
         "updates.check_hour": "MAA_UPDATES_CHECK_HOUR",
         "agent.confirmation_timeout_seconds": "MAA_AGENT_CONFIRMATION_TIMEOUT_SECONDS",
         "agent.grant_confirmation_timeout_seconds": "MAA_AGENT_GRANT_CONFIRMATION_TIMEOUT_SECONDS",
+        "agent.question_timeout_seconds": "MAA_AGENT_QUESTION_TIMEOUT_SECONDS",
         "agent.atomic_grant_minutes": "MAA_AGENT_ATOMIC_GRANT_MINUTES",
         "agent.auto_diagnose_failures": "MAA_AGENT_AUTO_DIAGNOSE_FAILURES",
     }
@@ -356,6 +357,7 @@ def test_agent_confirmation_and_atomic_grant_settings_have_documented_defaults_a
     default = resolve_settings(env={})
     assert default.agent.confirmation_timeout_seconds == 600
     assert default.agent.grant_confirmation_timeout_seconds == 120
+    assert default.agent.question_timeout_seconds == 600
     assert default.agent.atomic_grant_minutes == 15
     assert default.agent.auto_diagnose_failures is True
 
@@ -363,6 +365,7 @@ def test_agent_confirmation_and_atomic_grant_settings_have_documented_defaults_a
         {"agent": {
             "confirmation_timeout_seconds": 900,
             "grant_confirmation_timeout_seconds": 45,
+            "question_timeout_seconds": 300,
             "atomic_grant_minutes": 60,
             "auto_diagnose_failures": False,
         }},
@@ -370,6 +373,7 @@ def test_agent_confirmation_and_atomic_grant_settings_have_documented_defaults_a
     )
     assert configured.agent.confirmation_timeout_seconds == 900
     assert configured.agent.grant_confirmation_timeout_seconds == 45
+    assert configured.agent.question_timeout_seconds == 300
     assert configured.agent.atomic_grant_minutes == 60
     assert configured.agent.auto_diagnose_failures is False
 
@@ -377,9 +381,12 @@ def test_agent_confirmation_and_atomic_grant_settings_have_documented_defaults_a
         resolve_settings({"agent": {"atomic_grant_minutes": 61}}, env={})
     with pytest.raises(ValidationError):
         resolve_settings({"agent": {"confirmation_timeout_seconds": 0}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"question_timeout_seconds": 0}}, env={})
 
     assert schema_for("agent.confirmation_timeout_seconds")["minimum"] == 1
     assert schema_for("agent.grant_confirmation_timeout_seconds")["minimum"] == 1
+    assert schema_for("agent.question_timeout_seconds")["minimum"] == 1
     assert schema_for("agent.atomic_grant_minutes")["maximum"] == 60
 
 

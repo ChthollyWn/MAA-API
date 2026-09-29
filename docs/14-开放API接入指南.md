@@ -169,6 +169,10 @@ curl -X POST http://<host>:8002/api/snippets \
 | `LLM_CONTEXT_OVERFLOW` | 400 | 预留错误码；对应功能未交付（M11/M13） |
 | `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
 | `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
+| `QUESTION_NOT_FOUND` | 404 | 提问 id 不存在 |
+| `QUESTION_ALREADY_ANSWERED` | 409 | 重复回答已 answered / skipped 的提问 |
+| `QUESTION_EXPIRED` | 409 | 回答已过期的提问 |
+| `QUESTION_SELECTION_INVALID` | 400 | 空选择、选项不在 options.label 里、或单选提交多项 |
 | `SCHEDULE_NOT_FOUND` | 404 | 定时任务 id 不存在 |
 | `SCHEDULE_CRON_INVALID` | 400 | cron 表达式 APScheduler 无法解析，或 `timezone` 不是合法 IANA 时区名 |
 | `SCHEDULE_NAME_CONFLICT` | 409 | 名称重复，撞 `schedule.name` 唯一约束 |

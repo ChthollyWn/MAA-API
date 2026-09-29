@@ -1,4 +1,4 @@
-"""SQLModel 表定义：19 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：20 张业务表（docs/04 §3、§5、§6、§7）。
 
 纪律（每条都对应一次实测或一次返工）：
 
@@ -52,6 +52,7 @@ from maa_api.domain.enums import (
     ConfirmationStatus,
     PipelineStatus,
     Priority,
+    QuestionStatus,
     RiskLevel,
     TaskStatus,
     UpdateStatus,
@@ -911,4 +912,70 @@ class AgentKnowledge(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5.17 agent_question — Agent 主动提问与参数选择卡片（M21，规格 §3.2）
+# ---------------------------------------------------------------------------
+class AgentQuestion(SQLModel, table=True):
+    """Agent 主动提问：与 ``confirmation`` **并列**的一等交互（M21 规格 §3.2）。
+
+    刻意不复用 ``confirmation`` 表，也不给它加 ``question`` 分支：确认是「授权一次
+    有风险的操作」（有风险等级、能授权、占待确认计数、要 Web Push），提问只是「在
+    若干选项里取一个答案」（无风险、不授权、不打扰用户）。两者的生命周期、可见范围
+    与终态语义都不同，混在一张表里会让「待确认」计数把提问算进去。
+
+    ``options`` 与 ``selection`` 存的是 label 文本而不是索引：卡片渲染与答案回填
+    都以 label 为准，模型拿到的 ``selected`` 也是 label 列表（规格 §3.3），存索引会
+    在选项顺序变化时把历史答案指向别的选项。
+
+    ``expires_at`` 在创建时按 ``agent.question_timeout_seconds`` 算好落库（而不是
+    靠进程内计时器）：超时是**持久化事实**，进程重启后由 :meth:`expire_due` 兜底，
+    刷新页面看到的倒计时也来自这一列。
+    """
+
+    __tablename__ = "agent_question"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    session_id: str = Field(
+        foreign_key="agent_session.id", ondelete="CASCADE", max_length=36
+    )
+    #: 模型那次 ``ask_user`` 调用的 id，前端据此把卡片挂到对应的工具条上。
+    tool_call_id: str = Field(max_length=64)
+    question: str = Field(sa_column=text_column("question", nullable=False))
+    options: list[Any] = Field(
+        default_factory=list, sa_column=json_column("options", nullable=False)
+    )
+    multiple: bool = Field(default=False)
+    status: str = Field(default=QuestionStatus.PENDING, max_length=16)
+    #: 选中项 label 列表；未回答时为 NULL。
+    selection: list[Any] | None = Field(
+        default=None, sa_column=json_column("selection")
+    )
+    #: ``web``（用户点选/跳过）或 ``system``（超时、重启清理）。
+    answered_by: str | None = Field(default=None, max_length=32)
+    audit_id: int | None = Field(
+        default=None, foreign_key="agent_audit.id", ondelete="SET NULL"
+    )
+    expires_at: datetime = Field(
+        sa_column=datetime_column("expires_at", nullable=False)
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    answered_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("answered_at", nullable=True)
+    )
+
+    __table_args__ = (
+        # 超时扫描：status='pending' [AND expires_at < ?]
+        Index("ix_agent_question_status_expires_at", "status", "expires_at"),
+        # 会话待答列表：session_id=? AND status=? ORDER BY created_at
+        Index(
+            "ix_agent_question_session_status_created_at",
+            "session_id",
+            "status",
+            "created_at",
+        ),
     )

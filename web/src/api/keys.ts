@@ -53,5 +53,7 @@ export const keys = {
     auditDetail: (id: number) => [...root, 'agent', 'audits', 'detail', id] as const,
     confirmations: () => [...root, 'confirmations'] as const,
     pendingConfirmations: () => [...root, 'confirmations', 'pending'] as const,
+    /** 本会话待答的提问（Agent 主动提问卡）；按会话再分一段，便于整片失效。 */
+    pendingQuestions: () => [...root, 'agent', 'questions', 'pending'] as const,
   },
 } as const

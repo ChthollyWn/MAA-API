@@ -46,6 +46,35 @@ export interface AgentConfirmation {
   execution?: { status?: string; result?: string | null } | null
 }
 
+export interface AgentQuestionOption {
+  label: string
+  description?: string | null
+}
+
+/**
+ * 提问卡的渲染输入。SSE `question_required` 只带这几个字段（服务端刻意不带
+ * session_id/status 等），本会话待答卡拿到的是完整 wire，因此卡片按这个子集取字段，
+ * 两种来源都能直接传进来。
+ */
+export interface AgentQuestionPrompt {
+  question_id: string
+  question: string
+  options: AgentQuestionOption[]
+  multiple: boolean
+  expires_at: string
+}
+
+/** 服务端落库的提问 wire（REST 与 SSE 共用，12 个字段）。 */
+export interface AgentQuestion extends AgentQuestionPrompt {
+  session_id: string
+  tool_call_id: string
+  status: string
+  selection?: string[] | null
+  created_at?: string | null
+  answered_at?: string | null
+  answered_by?: string | null
+}
+
 /** 本轮流式过程中收到的一次工具调用。 */
 export interface ToolTrace {
   toolCallId: string
@@ -66,6 +95,8 @@ export interface StreamingTurn {
   tools: ToolTrace[]
   segments: TurnSegment[]
   pendingConfirmation: string | null
+  /** 本轮正挂着、等用户选择的提问；同一轮不会有第二个（后端是阻塞等待）。 */
+  pendingQuestion: AgentQuestionPrompt | null
   running: boolean
   error: string | null
 }
