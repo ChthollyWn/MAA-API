@@ -3,7 +3,8 @@ import { ChevronDown, LoaderCircle, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { pretty, toolLabel } from './format'
 import { MediaCards } from './MediaCards'
-import { mediaCardsOf } from './media'
+import { ToolAttachmentView } from './ToolAttachment'
+import { mediaCardsOf, toolScreenshotAttachment } from './media'
 import type { ToolStatus, ToolView } from './transcript'
 
 const statusText: Record<ToolStatus, { label: string; className: string }> = {
@@ -23,12 +24,14 @@ function JsonBlock({ label, value }: { label: string; value: unknown }) {
   )
 }
 
-/** 一次工具调用的紧凑折叠条：工具名与状态，展开看参数与结果 JSON。 */
+/** 一次工具调用的紧凑折叠条：工具名与状态，展开看截图附件、参数与结果 JSON。 */
 export function ToolCallBar({ tool }: { tool: ToolView }) {
   const status = statusText[tool.status]
   const label = tool.standalone ? undefined : toolLabel(tool.name)
-  // 卡片必须渲染在 `<details>` 之外：工具条整体默认折叠，放里面就等于看不见。
-  const cards = useMemo(() => mediaCardsOf(tool), [tool.name, tool.result])
+  // 媒体卡是「发给用户看」的内容，必须渲染在 `<details>` 之外：工具条整体默认折叠，
+  // 放里面就等于看不见。截图归档（`get_screenshot`）反过来只当工具卡内的附件。
+  const cards = useMemo(() => mediaCardsOf(tool), [tool.result])
+  const attachment = useMemo(() => toolScreenshotAttachment(tool.result), [tool.result])
   return (
     <div className="space-y-2">
       {cards.length > 0 ? <MediaCards cards={cards} /> : null}
@@ -53,6 +56,7 @@ export function ToolCallBar({ tool }: { tool: ToolView }) {
         </summary>
         <div className="space-y-3 border-t px-3 py-3">
           {tool.errorMessage ? <p className="break-words text-sm text-danger">{tool.errorMessage}</p> : null}
+          {attachment ? <ToolAttachmentView attachment={attachment} /> : null}
           {tool.standalone ? null : <JsonBlock label="参数" value={tool.arguments ?? {}} />}
           {tool.result !== undefined ? <JsonBlock label="结果" value={tool.result} /> : null}
           {tool.auditId ? <p className="text-xs text-muted-foreground tabular-nums">审计 #{tool.auditId}</p> : null}
