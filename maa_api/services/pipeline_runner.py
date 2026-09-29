@@ -1709,15 +1709,22 @@ class PipelineRunner:
         error_message = "MaaCore 子进程中断，流水线已停止"
         changed_task_ids: set[str] = set()
         persisted = False
-        promoted = False
         last_error: Exception | None = None
+        # 累积而不是每次重试都覆盖：重试自会看到行已是 CORE_CRASHED、返回 False，
+        # 用 False 覆盖就把上一次真正改写成功的记录丢了，通知也不会发出。它同时
+        # 保证只在真正改写成功的那一次通知，重复调用（例如 finally 里再补一次）
+        # 不会命中 mark_core_crashed 的 WHERE 条件。
+        ever_promoted = False
         for _attempt in range(2):
             try:
                 async with self._session_factory() as session:
                     pipeline_repo = PipelineRepository(session)
                     task_repo = TaskRepository(session)
-                    promoted = await pipeline_repo.mark_core_crashed(
-                        pipeline_id, error_message=error_message
+                    ever_promoted = (
+                        await pipeline_repo.mark_core_crashed(
+                            pipeline_id, error_message=error_message
+                        )
+                        or ever_promoted
                     )
                     tasks = await task_repo.list_by_pipeline(pipeline_id)
                     active_task_id = active.task.id if active.task is not None else None
@@ -1773,9 +1780,7 @@ class PipelineRunner:
         if not persisted:
             assert last_error is not None
             raise last_error
-        if promoted:
-            # 只有真正把行改成 CORE_CRASHED 的那一次才通知；重复调用（例如
-            # finally 里再补一次）不会命中 mark_core_crashed 的条件。
+        if ever_promoted:
             self._schedule_pipeline_notification(pipeline_id, PipelineStatus.FAILED)
         if active.core_epoch is not None:
             self._core_crash_pipeline_ids.setdefault(

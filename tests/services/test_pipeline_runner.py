@@ -1505,6 +1505,78 @@ def test_pipeline_notification_payload_truncates_long_task_lists() -> None:
     assert payload["pipeline_status"] == "failed"
 
 
+def test_core_crash_retry_after_the_promotion_commit_still_notifies(
+    runner_env, monkeypatch
+) -> None:
+    """崩溃改写成功但同一轮后续写入失败时，重试不能把「已改写」这件事丢掉。"""
+
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-notify-retry",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.RUNNING,
+                    task_count=1,
+                )
+            )
+            session.add(
+                Task(
+                    id="task-notify-retry",
+                    pipeline_id="pipeline-notify-retry",
+                    order_index=0,
+                    type_name="Fight",
+                    task_name="Fight",
+                    params={},
+                    status=TaskStatus.RUNNING,
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        notify = FakeNotifyService()
+        runner.bind_notify_service(notify)
+        runner._active = _ActivePipeline(pipeline_id="pipeline-notify-retry")
+        runner._active.core_crashed = True
+        attempts = {"count": 0}
+
+        original_commit = AsyncSession.commit
+
+        async def commit_then_fail_once(session):
+            # 模拟「提交的歧义失败」：commit() 真的落盘了，调用方却拿到异常——这正是
+            # 这里 for _attempt in range(2) 存在的理由。第一次的 mark_core_crashed
+            # 因此成功并在库里留下 CORE_CRASHED，而重试时它只会返回 False；「覆盖」
+            # 写法就把这次改写丢了，通知也不会发出。只对崩溃改写那一次生效。
+            await original_commit(session)
+            if session.in_transaction() is False and not attempts["count"]:
+                attempts["count"] = 1
+                raise RuntimeError("提交之后的会话收尾中断")
+
+        monkeypatch.setattr(AsyncSession, "commit", commit_then_fail_once)
+
+        await runner._record_core_crash_terminal("pipeline-notify-retry")
+        await asyncio.gather(*tuple(runner._notify_tasks))
+
+        assert attempts["count"] == 1  # 第一次确实走了「落盘后报错」这条路
+        assert [event for event, _payload in notify.events] == ["pipeline_failed"]
+        _event, payload = notify.events[0]
+        assert payload["error_code"] == ErrorCode.CORE_CRASHED.value
+        async with factory() as session:
+            stored = await session.get(Pipeline, "pipeline-notify-retry")
+            stored_task = await session.get(Task, "task-notify-retry")
+        assert stored.status == PipelineStatus.FAILED
+        assert stored.error_code == ErrorCode.CORE_CRASHED
+        assert stored_task.status == TaskStatus.FAILED
+
+        await runner.stop()
+        asst.stop()
+
+    asyncio.run(scenario())
+
+
 def test_device_precheck_failure_notifies_failed_pipeline(runner_env) -> None:
     """设备预检就失败的流水线也要通知：用户提交了任务却什么都没跑起来。"""
 

@@ -12,7 +12,8 @@
 ## 分支与发布
 
 - 集成分支是 refactor/v2。每个里程碑从它新建 `m<N>-<简短英文名>` 分支，完成后用 `git merge --no-ff` 合并回 refactor/v2，并打 `v2-m<N>` tag。
-- 不要 push，不要合并到 dev。
+- 默认不 push：提交到本地即可。用户明确要求推送时，push 当前分支到 origin 的同名分支（refactor/v2），不必再确认一次；没有明确要求就不要推。
+- 不要合并到 dev，也不要把 dev 拉进任何分支——dev 是旧线，与 v2 无关。
 - 不使用 worktree：.venv、config.yaml、resource/、web/node_modules 都不进版本库，新 worktree 里没有。直接在当前检出上切分支工作。
 
 ## 命令
