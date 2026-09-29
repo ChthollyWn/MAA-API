@@ -38,16 +38,47 @@ from maa_api.db.models import AgentKnowledge
 from maa_api.domain.errors import AppError, ErrorCode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SPEC_PATH = (
-    REPO_ROOT / "docs" / "superpowers" / "specs" / "2026-09-29-m18-agent-knowledge.md"
-)
+SPEC_DIR = REPO_ROOT / "docs" / "superpowers" / "specs"
+#: 内置全文的唯一原文来源：M18 的 5 个块（§4.4：不动）与 M19 新增的 26 个块。
+M18_SPEC_PATH = SPEC_DIR / "2026-09-29-m18-agent-knowledge.md"
+M19_SPEC_PATH = SPEC_DIR / "2026-09-29-m19-agent-knowledge-expansion.md"
+BUILTIN_DIR = REPO_ROOT / "maa_api" / "agent" / "knowledge" / "builtin"
 
+#: 内置条目的文档化清单：M18 规格 §4.6 的 5 条 + M19 规格 §4.1 清单的 26 条。
 BUILTIN_IDS = [
+    # M18
     "account-resources",
     "screen-home",
     "screen-depot",
     "gacha-conversion",
     "glossary",
+    # M19（§4.1 表格顺序）
+    "headhunt-rules",
+    "currency-sources",
+    "certificate-shops",
+    "annihilation-weekly",
+    "sanity-system",
+    "stage-rules",
+    "drop-efficiency",
+    "playbook-sanity-planning",
+    "playbook-drop-lookup",
+    "operator-progression",
+    "trust-and-potential",
+    "operator-classes",
+    "playbook-promotion-planning",
+    "screen-operator",
+    "recruit-tags",
+    "playbook-recruit",
+    "screen-recruit",
+    "infrast-mechanics",
+    "playbook-infrast-shift",
+    "screen-infrast",
+    "screen-terminal",
+    "screen-headhunt",
+    "screen-store",
+    "event-and-rerun",
+    "playbook-daily-weekly",
+    "glossary-terms",
 ]
 
 INDEX_HEADER = (
@@ -56,14 +87,44 @@ INDEX_HEADER = (
 GLOSSARY_HEADER = "术语表（开发者与用户维护）："
 PROFILE_HEADER = "用户档案（用户维护）："
 
-#: 五条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
+#: 注入段的 kind 分组与展示顺序（规格 §4.1）：索引三项在前，全文两项在后。
+INDEX_KINDS = ("playbook", "screen", "rule")
+FULLTEXT_KINDS = ("glossary", "profile")
+
+#: 31 条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
 #: glossary/profile），同 kind 内按 id 升序。
 BUILTIN_LIST_ORDER = [
     "account-resources",
+    "playbook-daily-weekly",
+    "playbook-drop-lookup",
+    "playbook-infrast-shift",
+    "playbook-promotion-planning",
+    "playbook-recruit",
+    "playbook-sanity-planning",
     "screen-depot",
+    "screen-headhunt",
     "screen-home",
+    "screen-infrast",
+    "screen-operator",
+    "screen-recruit",
+    "screen-store",
+    "screen-terminal",
+    "annihilation-weekly",
+    "certificate-shops",
+    "currency-sources",
+    "drop-efficiency",
+    "event-and-rerun",
     "gacha-conversion",
+    "headhunt-rules",
+    "infrast-mechanics",
+    "operator-classes",
+    "operator-progression",
+    "recruit-tags",
+    "sanity-system",
+    "stage-rules",
+    "trust-and-potential",
     "glossary",
+    "glossary-terms",
 ]
 
 MAX_ENABLED_ENTRIES = 50
@@ -116,29 +177,62 @@ def _write(fields: dict[str, object], body: str = "正文") -> str:
 
 
 def _spec_blocks() -> dict[str, str]:
-    """规格 §4.6 的五个 markdown 代码块，按 frontmatter 里的 id 索引。"""
-    text = SPEC_PATH.read_text(encoding="utf-8")
-    section = text[text.index("### 4.6") : text.index("## 5. 错误与兼容")]
-    blocks = re.findall(r"```markdown\n(.*?)```", section, re.DOTALL)
-    assert len(blocks) == len(BUILTIN_IDS)
+    """两份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。
+
+    M18 规格的 5 个块与 M19 规格的 26 个块合起来恰好是全部内置条目（M19 §4.4）。
+    """
     keyed: dict[str, str] = {}
-    for block in blocks:
-        match = re.search(r"^id: (\S+)$", block, re.MULTILINE)
-        assert match is not None, block[:40]
-        keyed[match.group(1)] = block
+    for path in (M18_SPEC_PATH, M19_SPEC_PATH):
+        text = path.read_text(encoding="utf-8")
+        section = text[text.index("### 4.6") : text.index("## 5. 错误与兼容")]
+        blocks = re.findall(r"```markdown\n(.*?)```", section, re.DOTALL)
+        assert blocks, f"{path.name} §4.6 里没有 markdown 块，小节边界或围栏格式变了"
+        for block in blocks:
+            match = re.search(r"^id: (\S+)$", block, re.MULTILINE)
+            assert match is not None, block[:40]
+            assert match.group(1) not in keyed, match.group(1)
+            keyed[match.group(1)] = block
     return keyed
 
 
 def _builtin_path(entry_id: str) -> Path:
-    return REPO_ROOT / "maa_api" / "agent" / "knowledge" / "builtin" / f"{entry_id}.md"
+    return BUILTIN_DIR / f"{entry_id}.md"
+
+
+def _builtin_fulltext(kind: str) -> str | None:
+    """内置的某类全文段：多条按 id 升序、用空行拼接；该 kind 没有条目时返回 None。"""
+    bodies = [
+        entry.body
+        for entry in sorted(builtin_entries().values(), key=lambda item: item.id)
+        if entry.kind == kind
+    ]
+    return "\n\n".join(bodies) if bodies else None
+
+
+def _builtin_fulltext_chars() -> int:
+    """启用的内置 glossary + profile 正文合计（内置条目默认全部启用）。"""
+    return sum(
+        len(entry.body)
+        for entry in builtin_entries().values()
+        if entry.kind in FULLTEXT_KINDS
+    )
 
 
 # ---------------------------------------------------------------------------
 # 内置条目：内容、加载与 fail loud
 # ---------------------------------------------------------------------------
 def test_builtin_files_are_copied_verbatim_from_the_spec():
-    """§4.6 是内置内容的原文：frontmatter 与正文（含标点与层级）逐字一致。"""
-    for entry_id, block in _spec_blocks().items():
+    """§4.6 是内置内容的原文：frontmatter 与正文（含标点与层级）逐字一致。
+
+    两份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记）
+    或少一条（文件漏了）都要失败。
+    """
+    blocks = _spec_blocks()
+    files = sorted(BUILTIN_DIR.glob("*.md"))
+    # 用集合比较：文件名的排序（glossary-terms.md 在 glossary.md 之前）不是契约。
+    assert set(blocks) == {path.stem for path in files}
+    assert sorted(blocks) == sorted(builtin_entries())
+    for entry_id, block in blocks.items():
         path = _builtin_path(entry_id)
         assert path.exists(), path
         assert path.read_text(encoding="utf-8").rstrip("\n") == block.rstrip("\n"), entry_id
@@ -779,7 +873,9 @@ def test_the_51st_enabled_entry_is_rejected(harness):
 
 def test_fulltext_budget_covers_enabled_glossary_and_profile_bodies(harness):
     service, _ = harness
-    budget = MAX_FULLTEXT_CHARS - len(builtin_entries()["glossary"].body)
+    # 内置的 glossary 与 glossary-terms 默认都启用，预算先把它们的正文扣掉
+    budget = MAX_FULLTEXT_CHARS - _builtin_fulltext_chars()
+    assert budget > 0
 
     async def scenario():
         profile = KnowledgeWrite(
@@ -821,7 +917,8 @@ def test_fulltext_budget_covers_enabled_glossary_and_profile_bodies(harness):
 
 def test_fulltext_budget_ignores_other_kinds(harness):
     service, factory = harness
-    budget = MAX_FULLTEXT_CHARS - len(builtin_entries()["glossary"].body)
+    budget = MAX_FULLTEXT_CHARS - _builtin_fulltext_chars()
+    assert budget > 0
 
     async def scenario():
         await service.put_entry(
@@ -859,47 +956,40 @@ def _render_expected(
 
 def test_render_context_orders_the_index_by_kind_then_id(harness):
     service, _ = harness
+    custom = (
+        ("zzz-playbook", "playbook", "最后一条剧本"),
+        ("aaa-screen", "screen", "第一条界面"),
+        ("mmm-rule", "rule", "中间一条规则"),
+    )
 
     async def scenario():
-        await service.put_entry(
-            "zzz-playbook",
-            KnowledgeWrite(kind="playbook", title="最后一条剧本", when_to_use="需要时", body="正文"),
+        for entry_id, kind, title in custom:
+            await service.put_entry(
+                entry_id,
+                KnowledgeWrite(kind=kind, title=title, when_to_use="需要时", body="正文"),
+            )
+        # 期望值现算：内置的索引条目 + 刚写的 3 条，按 kind 顺序、同 kind 按 id 升序。
+        rows = {
+            entry.id: (entry.kind, entry.title, entry.when_to_use)
+            for entry in builtin_entries().values()
+            if entry.kind in INDEX_KINDS
+        }
+        rows.update(
+            {entry_id: (kind, title, "需要时") for entry_id, kind, title in custom}
         )
-        await service.put_entry(
-            "aaa-screen",
-            KnowledgeWrite(kind="screen", title="第一条界面", when_to_use="需要时", body="正文"),
+        order = sorted(
+            rows, key=lambda entry_id: (INDEX_KINDS.index(rows[entry_id][0]), entry_id)
         )
-        await service.put_entry(
-            "mmm-rule",
-            KnowledgeWrite(kind="rule", title="中间一条规则", when_to_use="需要时", body="正文"),
-        )
-        builtin = builtin_entries()
+
         entries = await service.list_entries()
-        assert [
-            item.id for item in entries if item.kind in {"playbook", "screen", "rule"}
-        ] == [
-            "account-resources",
-            "zzz-playbook",
-            "aaa-screen",
-            "screen-depot",
-            "screen-home",
-            "gacha-conversion",
-            "mmm-rule",
-        ]
+        assert [item.id for item in entries if item.kind in INDEX_KINDS] == order
 
         expected = _render_expected(
             [
-                f"- account-resources｜{builtin['account-resources'].title}："
-                f"{builtin['account-resources'].when_to_use}",
-                "- zzz-playbook｜最后一条剧本：需要时",
-                "- aaa-screen｜第一条界面：需要时",
-                f"- screen-depot｜{builtin['screen-depot'].title}：{builtin['screen-depot'].when_to_use}",
-                f"- screen-home｜{builtin['screen-home'].title}：{builtin['screen-home'].when_to_use}",
-                f"- gacha-conversion｜{builtin['gacha-conversion'].title}："
-                f"{builtin['gacha-conversion'].when_to_use}",
-                "- mmm-rule｜中间一条规则：需要时",
+                f"- {entry_id}｜{rows[entry_id][1]}：{rows[entry_id][2]}"
+                for entry_id in order
             ],
-            builtin["glossary"].body,
+            _builtin_fulltext("glossary"),
             None,
         )
         context = await service.render_context()
@@ -924,7 +1014,8 @@ def test_render_context_injects_the_profile_verbatim(harness):
         )
         context = await service.render_context()
         assert context.endswith(f"{PROFILE_HEADER}\n默认账号：官服\n偏好：先报合成玉")
-        glossary = builtin_entries()["glossary"].body
+        glossary = _builtin_fulltext("glossary")
+        assert glossary is not None
         assert f"{GLOSSARY_HEADER}\n{glossary}\n\n{PROFILE_HEADER}" in context
 
     asyncio.run(scenario())
@@ -953,7 +1044,7 @@ def test_render_context_says_none_for_every_empty_section(harness):
 
 
 def test_render_context_injects_every_enabled_glossary(harness):
-    """多条启用的 glossary 全部注入：字数上限算的就是它们的正文合计。"""
+    """多条启用的 glossary 全部注入、按 id 升序：字数上限算的就是它们的正文合计。"""
     service, _ = harness
 
     async def scenario():
@@ -962,7 +1053,8 @@ def test_render_context_injects_every_enabled_glossary(harness):
             KnowledgeWrite(kind="glossary", title="补充术语", when_to_use="需要时", body="补充一"),
         )
         context = await service.render_context()
-        glossary = builtin_entries()["glossary"].body
+        glossary = _builtin_fulltext("glossary")
+        assert glossary is not None
         assert f"{GLOSSARY_HEADER}\n补充一\n\n{glossary}\n\n{PROFILE_HEADER}" in context
 
     asyncio.run(scenario())
