@@ -90,7 +90,11 @@ describe('ImageCard', () => {
     expect(image).toHaveAttribute('src')
     expect(requests).toEqual([`/api/images/${SHA}/thumb`])
     expect(screen.getByText('第 3 步失败')).toBeInTheDocument()
-    expect(screen.getByText('1920×1080')).toBeInTheDocument()
+    // 预览按缩略图的自然尺寸显示：不拉满卡片宽度（否则 320 px 的图被放大数倍）。
+    // 原图尺寸不再作为文本出现，看细节要点开大图。
+    expect(screen.queryByText('1920×1080')).not.toBeInTheDocument()
+    expect(image).toHaveClass('w-auto', 'max-w-[20rem]')
+    expect(image.parentElement).toHaveClass('w-fit')
 
     // 点开才取原图（缩略图已经在手，先顶着显示）。
     fireEvent.click(screen.getByRole('button', { name: '查看大图：关卡失败画面' }))
