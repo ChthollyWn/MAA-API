@@ -430,8 +430,10 @@ class Asst:
         return bool(Asst.__lib.AsstBackToHome(self.__ptr))
 
     def click(self, x: int, y: int, block: bool = True) -> int:
-        """点击指定坐标，返回 ``async_call_id``；坐标系为设备原始分辨率。
+        """点击指定坐标，返回 ``async_call_id``；坐标是 MaaCore 基准坐标。
 
+        内核按「高 / 720」把它缩放成设备像素（``ControlScaleProxy::click``），
+        所以调用方要给 16:9 基准坐标，而不是设备原始像素。
         同 :meth:`connect_async`：返回值只是受理编号，结果看 ``AsyncCallInfo`` 回调。
         """
         return int(Asst.__lib.AsstAsyncClick(self.__ptr, int(x), int(y), bool(block)))

@@ -207,21 +207,24 @@ def register_tools(registry: ToolRegistry) -> None:
         (
             "click",
             ToolRisk.DANGEROUS,
-            "点击游戏画面坐标；优先提交 MAA 任务而非盲目点坐标。",
+            "点击游戏画面坐标（使用 get_screenshot 返回图像的像素坐标）；"
+            "优先提交 MAA 任务而非盲目点坐标。",
             ClickParams,
             _click,
         ),
         (
             "swipe",
             ToolRisk.DANGEROUS,
-            "通过 ADB 在游戏画面执行一次定长滑动。",
+            "通过 ADB 在游戏画面执行一次定长滑动"
+            "（使用 get_screenshot 返回图像的像素坐标）。",
             SwipeParams,
             _swipe,
         ),
         (
             "long_press",
             ToolRisk.DANGEROUS,
-            "通过 ADB 在游戏画面执行一次长按。",
+            "通过 ADB 在游戏画面执行一次长按"
+            "（使用 get_screenshot 返回图像的像素坐标）。",
             LongPressParams,
             _long_press,
         ),

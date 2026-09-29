@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
@@ -21,8 +21,8 @@ from maa_api.api.routers import atomic, device
 from maa_api.db import session as db_session
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.enums import ScreenshotBackend, ScreenshotTrigger
-from maa_api.services.device_service import ScreenshotResult
-from maa_api.settings import Settings
+from maa_api.services.device_service import DeviceManager, ScreenshotResult
+from maa_api.settings import AdbSettings, Settings
 
 
 class FakeManager:
@@ -124,6 +124,44 @@ class FakeCoreRegistry:
         await self.manager.click(x, y)
 
 
+class SpyCoreRegistry:
+    """内核注册表替身：REST click 改走 DeviceManager 后不应再碰它。"""
+
+    def __init__(self) -> None:
+        self.get_calls = 0
+        self.click_calls: list[tuple[int, int]] = []
+
+    def get(self):
+        self.get_calls += 1
+        return self
+
+    async def click(self, x: int, y: int, *, block: bool = True) -> None:
+        self.click_calls.append((x, y))
+
+
+class FakeCoreClickClient:
+    """DeviceManager 的内核客户端替身：记录真正送进内核的基准坐标。"""
+
+    def __init__(self) -> None:
+        self.click_calls: list[tuple[int, int]] = []
+
+    async def click(self, x: int, y: int) -> None:
+        self.click_calls.append((x, y))
+
+
+@dataclass
+class FakeHttpAdbBackend:
+    """DeviceManager 的 ADB 后端替身：swipe/long_press 走设备像素。"""
+
+    calls: list[tuple[Any, ...]] = field(default_factory=list)
+
+    def swipe(self, address: str, *coordinates: int) -> None:
+        self.calls.append(("swipe", address, *coordinates))
+
+    def long_press(self, address: str, x: int, y: int, duration_ms: int) -> None:
+        self.calls.append(("long_press", address, x, y, duration_ms))
+
+
 @pytest.fixture
 def device_app(tmp_settings: Settings, monkeypatch: pytest.MonkeyPatch):
     app = FastAPI()
@@ -141,6 +179,34 @@ def device_app(tmp_settings: Settings, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(device.PipelineRepository, "current", current_pipeline)
     return app, app.state.device_manager, session
+
+
+@pytest.fixture
+def real_device_app(tmp_settings: Settings, monkeypatch: pytest.MonkeyPatch):
+    """同样的路由，但设备管理器是真的：坐标换算就发生在它内部。"""
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(device.router)
+    app.include_router(atomic.router)
+    core = FakeCoreClickClient()
+    adb = FakeHttpAdbBackend()
+    manager = DeviceManager(
+        lambda: Settings(adb=AdbSettings(path="/fake/adb", address="127.0.0.1:5555")),
+        core,
+        adb_backend=adb,
+        unavailable_probe_interval=0,
+    )
+    app.state.device_manager = manager
+    app.state.pipeline_runner = FakeRunner()
+    app.state.core_registry = SpyCoreRegistry()
+    session = FakeSession()
+    app.dependency_overrides[get_session] = lambda: session
+
+    async def current_pipeline(repo):
+        return repo.session.current
+
+    monkeypatch.setattr(device.PipelineRepository, "current", current_pipeline)
+    return app, manager, core, adb, session
 
 
 def test_status_and_route_registration(device_app, make_client):
@@ -388,6 +454,101 @@ def test_key_event_rejects_shell_like_values(device_app, make_client):
         "APP_SWITCH", "BACK", "DEL", "ENTER", "HOME"
     ]
     assert manager.calls == []
+
+
+@pytest.mark.parametrize(
+    ("resolution", "payload", "expected_core_call"),
+    [
+        ((2560, 1440), {"x": 2388, "y": 1280}, (1194, 640)),
+        ((1280, 720), {"x": 1194, "y": 640}, (1194, 640)),
+    ],
+)
+def test_click_route_scales_device_pixels_through_the_device_manager(
+    real_device_app, make_client, resolution, payload, expected_core_call
+):
+    app, manager, core, _, _ = real_device_app
+    manager.on_core_connection_event(
+        "ResolutionGot", {"width": resolution[0], "height": resolution[1]}
+    )
+    registry = app.state.core_registry
+
+    response = make_client(app).post("/api/device/click", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "backend": "core", **payload}
+    assert core.click_calls == [expected_core_call]
+    # 不再直接调用内核客户端：注册表既没被取用，也没收到点击。
+    assert registry.get_calls == 0
+    assert registry.click_calls == []
+    asyncio.run(manager.close())
+
+
+def test_click_route_requires_a_known_resolution(real_device_app, make_client):
+    app, manager, core, _, _ = real_device_app
+
+    response = make_client(app).post("/api/device/click", json={"x": 10, "y": 20})
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "DEVICE_NOT_CONNECTED"
+    assert core.click_calls == []
+    asyncio.run(manager.close())
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("click", {"x": 2560, "y": 10}),
+        ("swipe", {"x1": 0, "y1": 0, "x2": 2560, "y2": 10}),
+        ("long_press", {"x": 10, "y": 1440, "duration_ms": 600}),
+    ],
+)
+def test_device_action_routes_reject_pixels_outside_the_frame(
+    real_device_app, make_client, path, body
+):
+    app, manager, core, adb, _ = real_device_app
+    manager.on_core_connection_event("ResolutionGot", {"width": 2560, "height": 1440})
+
+    response = make_client(app).post(f"/api/device/{path}", json=body)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_PARAMETER"
+    assert core.click_calls == []
+    assert adb.calls == []
+    asyncio.run(manager.close())
+
+
+def test_swipe_route_runs_without_a_known_resolution(real_device_app, make_client):
+    app, manager, _, adb, _ = real_device_app
+
+    response = make_client(app).post(
+        "/api/device/swipe",
+        json={"x1": 5000, "y1": 5000, "x2": 6000, "y2": 6000, "duration_ms": 300},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["backend"] == "adb"
+    assert adb.calls == [("swipe", "127.0.0.1:5555", 5000, 5000, 6000, 6000, 300)]
+    asyncio.run(manager.close())
+
+
+def _declared_error_codes(app: FastAPI, path: str) -> set[str]:
+    """从 OpenAPI 的响应 description 里读回该端点声明的错误码。"""
+    responses = app.openapi()["paths"][path]["post"]["responses"]
+    declared: set[str] = set()
+    for entry in responses.values():
+        _, _, codes = str(entry["description"]).partition("：")
+        declared.update(part for part in codes.split("、") if part)
+    return declared
+
+
+def test_device_action_routes_declare_pixel_coordinate_errors(device_app):
+    app, _, _ = device_app
+
+    assert {
+        "DEVICE_NOT_CONNECTED", "INVALID_PARAMETER", "SERVICE_UNAVAILABLE"
+    } <= _declared_error_codes(app, "/api/device/click")
+    for path in ("/api/device/swipe", "/api/device/long_press"):
+        assert "INVALID_PARAMETER" in _declared_error_codes(app, path)
 
 
 def test_missing_device_manager_is_a_controlled_service_error(tmp_settings, make_client):

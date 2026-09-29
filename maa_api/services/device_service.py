@@ -40,6 +40,10 @@ RECONNECT_BACKOFF = (3.0, 6.0, 12.0, 24.0, 48.0)
 RECONNECT_WATCHDOG_SECONDS = 90.0
 UNAVAILABLE_PROBE_INTERVAL = 60.0
 ADB_HEALTH_TIMEOUT, CORE_CONNECT_TIMEOUT = 3.0, 60.0
+#: MaaCore 的 ``AsstAsyncClick`` 只接受 16:9 基准坐标：内核 ``ControlScaleProxy``
+#: 按「高 / 720」把它放大到设备像素。所有点击入口都收设备像素，换算只在
+#: :meth:`DeviceManager.click` 里做一次（M18 §4.5）。
+MAACORE_CLICK_HEIGHT = 720
 _ADBUTILS_PATH_KEY = "ADBUTILS_ADB_PATH"
 _ADBUTILS_PATH_LOCK = threading.RLock()
 _ADBUTILS_PATH_OWNERS: dict[object, str] = {}
@@ -443,6 +447,41 @@ class DeviceManager:
             "last_error": dict(self._last_error) if self._last_error else None,
         }
 
+    def _device_pixel_bounds(self) -> tuple[int, int] | None:
+        """快照里的设备像素分辨率 ``(width, height)``；未知返回 ``None``。
+
+        来源是内核 ``ResolutionGot`` / ``ResolutionInfo`` 回调缓存的分辨率，
+        与截图原图的 ``width`` / ``height`` 同一坐标系。
+        """
+        resolution = self.snapshot()["resolution"] or {}
+        try:
+            width, height = int(resolution["width"]), int(resolution["height"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return (width, height) if width > 0 and height > 0 else None
+
+    def _ensure_pixels_within_bounds(
+        self,
+        *,
+        operation: str,
+        points: tuple[tuple[int, int], ...],
+        bounds: tuple[int, int],
+    ) -> None:
+        """坐标越界即拒绝；Pydantic 只能表达 ``ge=0``，上界取决于设备分辨率。"""
+        width, height = bounds
+        for x, y in points:
+            if not (0 <= int(x) < width and 0 <= int(y) < height):
+                raise AppError(
+                    ErrorCode.INVALID_PARAMETER,
+                    "坐标超出设备分辨率范围",
+                    {
+                        "operation": operation,
+                        "x": int(x),
+                        "y": int(y),
+                        "resolution": {"width": width, "height": height},
+                    },
+                )
+
     async def connect(self, *, reason: str = "manual") -> bool:
         """Try exactly once, as required by the manual reconnect endpoint."""
         if self._closed or self._attempt_lock.locked():
@@ -701,6 +740,11 @@ class DeviceManager:
     async def swipe(
         self, x1: int, y1: int, x2: int, y2: int, duration_ms: int
     ) -> None:
+        bounds = self._device_pixel_bounds()
+        if bounds is not None:
+            self._ensure_pixels_within_bounds(
+                operation="swipe", points=((x1, y1), (x2, y2)), bounds=bounds
+            )
         try:
             await asyncio.to_thread(
                 self._backend.swipe,
@@ -719,14 +763,40 @@ class DeviceManager:
             ) from exc
 
     async def click(self, x: int, y: int) -> None:
-        """Click through MaaCore's native asynchronous click API."""
-        await self._core_client.click(int(x), int(y))
+        """按设备像素点击一次；内部换算成 MaaCore 基准坐标。
+
+        坐标与截图（``get_screenshot``、``GET /api/device/screenshot`` 的原图）
+        同一坐标系。MaaCore 只接受 16:9 基准，换算规则与内核
+        ``ControlScaleProxy`` 一致：``round(px × 720 / 高)``，两个方向都换算。
+        分辨率未知时无法换算，拒绝点击并要求先重连设备；越界拒绝。
+        """
+        bounds = self._device_pixel_bounds()
+        if bounds is None:
+            raise AppError(
+                ErrorCode.DEVICE_NOT_CONNECTED,
+                "未知设备分辨率，无法点击；请先重连设备",
+                {"operation": "click", "state": self.state.value},
+            )
+        px, py = int(x), int(y)
+        self._ensure_pixels_within_bounds(
+            operation="click", points=((px, py),), bounds=bounds
+        )
+        height = bounds[1]
+        await self._core_client.click(
+            round(px * MAACORE_CLICK_HEIGHT / height),
+            round(py * MAACORE_CLICK_HEIGHT / height),
+        )
 
     async def back_to_home(self) -> bool:
         """Return to the game home screen through the MaaCore application service."""
         return bool(await self._core_client.back_to_home())
 
     async def long_press(self, x: int, y: int, duration_ms: int) -> None:
+        bounds = self._device_pixel_bounds()
+        if bounds is not None:
+            self._ensure_pixels_within_bounds(
+                operation="long_press", points=((x, y),), bounds=bounds
+            )
         try:
             await asyncio.to_thread(
                 self._backend.long_press,

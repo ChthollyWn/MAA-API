@@ -247,7 +247,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 执行单点点击 */
+        /** 执行单点点击（坐标为设备像素，与截图一致） */
         post: operations["device_click_device"];
         delete?: never;
         options?: never;
@@ -315,7 +315,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 执行长按操作 */
+        /** 执行长按操作（坐标为设备像素，与截图一致） */
         post: operations["device_long_press_device"];
         delete?: never;
         options?: never;
@@ -383,7 +383,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 执行滑动操作 */
+        /** 执行滑动操作（坐标为设备像素，与截图一致） */
         post: operations["device_swipe_device"];
         delete?: never;
         options?: never;
@@ -4183,6 +4183,24 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
             /** @description token 缺失或不匹配：UNAUTHORIZED */
             401: {
                 headers: {
@@ -4228,7 +4246,7 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description 服务暂时不可用：CORE_NOT_READY */
+            /** @description 服务暂时不可用：CORE_NOT_READY、DEVICE_NOT_CONNECTED、SERVICE_UNAVAILABLE */
             503: {
                 headers: {
                     /** @description 建议的重试等待秒数（整数） */
@@ -4595,6 +4613,24 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
             /** @description token 缺失或不匹配：UNAUTHORIZED */
@@ -4980,6 +5016,24 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
             /** @description token 缺失或不匹配：UNAUTHORIZED */

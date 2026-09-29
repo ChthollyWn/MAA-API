@@ -152,7 +152,10 @@ class AsstProtocol(Protocol):
         """回到游戏主界面（卡死救援动作），返回是否成功。"""
 
     def click(self, x: int, y: int, block: bool = True) -> int:
-        """点击指定坐标，返回 ``async_call_id``；坐标系为设备原始分辨率。"""
+        """点击指定坐标，返回 ``async_call_id``；坐标是 MaaCore 基准坐标。
+
+        内核按「高 / 720」把它缩放成设备像素，调用方不要直接给设备原始像素。
+        """
 
     def screencap(self, block: bool = True) -> int:
         """触发一次截图，返回 ``async_call_id``；结果随后由 ``get_image`` 取回。"""

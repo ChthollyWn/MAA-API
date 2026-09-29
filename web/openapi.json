@@ -5325,6 +5325,20 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -5375,7 +5389,7 @@
                 }
               }
             },
-            "description": "服务暂时不可用：CORE_NOT_READY",
+            "description": "服务暂时不可用：CORE_NOT_READY、DEVICE_NOT_CONNECTED、SERVICE_UNAVAILABLE",
             "headers": {
               "Retry-After": {
                 "description": "建议的重试等待秒数（整数）",
@@ -5387,7 +5401,7 @@
             }
           }
         },
-        "summary": "执行单点点击",
+        "summary": "执行单点点击（坐标为设备像素，与截图一致）",
         "tags": [
           "device"
         ]
@@ -5736,6 +5750,20 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -5812,7 +5840,7 @@
             }
           }
         },
-        "summary": "执行长按操作",
+        "summary": "执行长按操作（坐标为设备像素，与截图一致）",
         "tags": [
           "device"
         ]
@@ -6164,6 +6192,20 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -6240,7 +6282,7 @@
             }
           }
         },
-        "summary": "执行滑动操作",
+        "summary": "执行滑动操作（坐标为设备像素，与截图一致）",
         "tags": [
           "device"
         ]
