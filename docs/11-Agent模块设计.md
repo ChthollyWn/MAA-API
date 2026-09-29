@@ -261,9 +261,11 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 - **Agent 页的对话内确认卡。** 本轮触发的确认固定显示在本轮内部（「批准并继续」「拒绝」，并说明「等待你确认后继续；该操作尚未执行」），输入栏上方的状态行提示「请先处理上方的确认」；本会话其余的待确认项显示在本轮之后，每张卡只出现一次。处置返回 409 时刷新本会话的待确认列表与这张卡的详情，与全局面板的做法一致。
 - **仍保留的遗留。** 待确认列表仍是读取全局前 100 条 pending 再按会话过滤；本轮的确认若在全局面板或推送里被处置，流结束时这一轮会因「确认仍挂着」被保留，与历史重复显示。两者都记在 [13 §8.12](./13-决策记录.md)。
 
-## 6. 知识库（M18）
+## 6. 知识库（M18、M19）
 
 提示词只描述能力边界与安全规则，不含游戏知识。知识库补上这一层：让 Agent 知道「某类需求怎么做」（操作剧本）、「画面长什么样」（界面知识）、「怎么换算与判定」（规则）、俗称与游戏内名称的对照，以及用户的偏好与默认账号。表结构见 [04 §5.16](./04-数据模型与持久化.md)，REST 见 [05 §6.15](./05-API规范与路由清单.md)，设置页见 [09 §6.5](./09-前端重构方案.md)。
+
+M18 交付了机制与 5 条骨架条目；**M19 把内置知识扩成体系化的「资深玩家」知识**：31 条内置条目，事实来源是 PRTS wiki（离线随代码发布，运行时不联网），每条断言在实施期都留有出处。构建过程见 [13 §8.24](./13-决策记录.md)。
 
 ### 6.1 条目与类型
 
@@ -277,7 +279,21 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | `glossary` | 术语表：俗称与游戏内名称对照 | 全文 |
 | `profile` | 用户档案：默认账号、偏好 | 全文 |
 
-随代码发布的五条内置知识是初始内容：`account-resources`（查账号资源的剧本）、`screen-home`（首页布局）、`screen-depot`（仓库界面）、`gacha-conversion`（抽卡换算）、`glossary`（俗称对照）。`screen-depot` 的页签与凭证位置仍是通用写法，待真机核对。
+随代码发布的内置知识共 **31 条**（M19 起）。M18 的 5 条是：`account-resources`（查账号资源的剧本）、`screen-home`（首页布局）、`screen-depot`（仓库界面）、`gacha-conversion`（抽卡换算）、`glossary`（俗称对照）；`screen-depot` 的页签与凭证位置仍是通用写法，待真机核对。
+
+M19 新增的 26 条按域分组：
+
+| 域 | 条目 |
+|---|---|
+| 抽卡与经济 | `headhunt-rules`（概率与保底）、`currency-sources`（货币来源与周期上限）、`certificate-shops`（凭证商店）、`annihilation-weekly`（剿灭与每周合成玉） |
+| 理智与作战 | `sanity-system`、`stage-rules`、`drop-efficiency`、`playbook-sanity-planning`、`playbook-drop-lookup` |
+| 养成 | `operator-progression`、`trust-and-potential`、`operator-classes`、`playbook-promotion-planning`、`screen-operator` |
+| 公开招募与基建 | `recruit-tags`、`playbook-recruit`、`screen-recruit`、`infrast-mechanics`、`playbook-infrast-shift`、`screen-infrast` |
+| 界面、活动与术语 | `screen-terminal`、`screen-headhunt`、`screen-store`、`event-and-rerun`、`playbook-daily-weekly`、`glossary-terms` |
+
+条目全文是**规格的一部分**并逐字绑定：M18 的 5 条在 [M18 规格 §4.6](./superpowers/specs/2026-09-29-m18-agent-knowledge.md)，M19 的 26 条在 [M19 规格 §4.6](./superpowers/specs/2026-09-29-m19-agent-knowledge-expansion.md)，测试断言两份规格的块并集恰好覆盖 `builtin/` 目录。
+
+**内容纪律**（写新条目时照此办）：事实以 PRTS 为准并留出处；会随版本变化的内容（当期卡池、活动时间、商店上架）一律不写死；`screen-*` 不写没有依据的坐标，只写相对位置并要求先截图确认；界面与数值上没把握时宁可写「以游戏内为准」，也不要让模型凭记忆报数。
 
 ### 6.2 内置与覆盖
 
@@ -296,6 +312,8 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 
 上限**先判后写**：把本次写入并进全表算出生效状态、通过上限检查后才落库，被拒时表里不留半成品；先判条目数，再判字数。
 
+M19 扩充后这两条上限的余量：内置条目 31 / 50；内置全文段（`glossary` 157 字 + `glossary-terms` 2,281 字）2,438 / 3,000 —— 也就是说用户自己的 `profile` 只剩约 560 字。这是刻意的：术语表与档案都是**每轮全文注入**，字数直接等于每轮的 token 成本；要提高余量就得先决定愿意多付多少上下文。
+
 ### 6.4 读取与 REST
 
 `read_knowledge`（§3.2）给 Agent 读全文，参数只有 `entry_id`；未知或已停用的条目返回 `KNOWLEDGE_NOT_FOUND`。它加入了 `INCIDENT_ALLOWED_TOOLS` —— 诊断会话同样注入索引，工具必须可用。
@@ -312,6 +330,8 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 ### 6.5 注入与信任边界
 
 runtime 在每轮开头生成状态摘要时一并生成知识库段，拼进 system 消息，顺序是**提示词 → 知识库段 → 状态摘要**。知识库段三段：索引（`- <id>｜<title>：<when_to_use>`，先按 kind 排 `playbook`、`screen`、`rule`，再按 id）→ 术语表全文 → 用户档案全文，空段落写「暂无」。`glossary` / `profile` 有多条启用时按 id 顺序全部注入。整段 system 消息照旧先过 `redact_remote_data`。
+
+**每轮成本**：31 条内置条目的索引约 1,892 字，加上术语表全文 2,438 字，合计约 4.3 千字（M18 时是 375 字）。这是 M19 换取知识密度的代价，也是设计上把「正文」放在索引之外的原因——29 条索引类条目的正文只在模型调用 `read_knowledge` 时才进上下文，单条可写到 20,000 字而不增加每轮开销。
 
 知识库读取失败时注入「知识库暂不可用」并记一条 warning，本轮照常进行；索引与状态摘要都在迭代循环之前生成一次，循环内所有请求复用。自动诊断会话同样注入。
 
