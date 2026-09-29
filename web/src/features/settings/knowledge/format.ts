@@ -4,8 +4,9 @@ import { asRecord } from '@/features/settings/schema'
 /**
  * 知识库的展示规则与前端校验（M18 规格 §4.1）。
  *
- * 上限与后端逐条对齐（`maa_api/agent/knowledge/__init__.py`）：前端只做即时提示，
- * 最终仍以后端的 409 / 422 为准 —— 这里的字数是「本页能看到的」。
+ * 只有字段级校验（标识、标题、什么时候用、正文长度），与后端逐条对齐
+ * （`maa_api/agent/knowledge/__init__.py`）：前端只做即时提示，最终仍以后端的 409 / 422 为准。
+ * 条目数与术语表/档案正文合计都没有上限（M20）：注入多少以模型自身的上下文为准。
  */
 export const KNOWLEDGE_PATH = '/more/settings/knowledge'
 export const NEW_KNOWLEDGE_PATH = `${KNOWLEDGE_PATH}/new`
@@ -25,15 +26,14 @@ export const KIND_LABELS: Record<KnowledgeKind, string> = {
   profile: '用户档案',
 }
 
-/** 正文会整段注入 system 消息的类型；它们的字数合计另有上限。 */
+/** 正文会整段注入 system 消息的类型；设置页按它们统计正文合计字数。 */
 export const FULLTEXT_KINDS: readonly KnowledgeKind[] = ['glossary', 'profile']
 
 export const ENTRY_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,47}$/
+/** 字段级约束（列宽 / 表单），不是上下文预算。 */
 export const MAX_TITLE_CHARS = 32
 export const MAX_WHEN_TO_USE_CHARS = 120
 export const MAX_BODY_CHARS = 20_000
-export const MAX_ENABLED_ENTRIES = 50
-export const MAX_FULLTEXT_CHARS = 3_000
 
 export function isKnowledgeKind(value: unknown): value is KnowledgeKind {
   return typeof value === 'string' && (KNOWLEDGE_KINDS as readonly string[]).includes(value)
@@ -120,33 +120,10 @@ export interface KnowledgeFormErrors {
   whenToUse?: string
   body?: string
   enabled?: string
-  fulltext?: string
-}
-
-export interface KnowledgeLimits {
-  /** 除了当前这一条以外，已启用的条目数。 */
-  otherEnabledEntries: number
-  /** 除了当前这一条以外，已启用的 glossary + profile 正文字数合计。 */
-  otherFulltextChars: number
-}
-
-/** 从列表的 `body_chars` 推出上限判断要用的两个数；当前条目按 id 排除。 */
-export function knowledgeLimits(
-  entries: readonly { id: string; kind: string; enabled: boolean; body_chars: number }[],
-  entryId: string | null,
-): KnowledgeLimits {
-  const others = entries.filter((entry) => entry.id !== entryId && entry.enabled)
-  return {
-    otherEnabledEntries: others.length,
-    otherFulltextChars: others
-      .filter((entry) => FULLTEXT_KINDS.includes(entry.kind as KnowledgeKind))
-      .reduce((sum, entry) => sum + entry.body_chars, 0),
-  }
 }
 
 export function validateKnowledgeForm(
   form: KnowledgeForm,
-  limits: KnowledgeLimits,
   options: { isNew: boolean },
 ): KnowledgeFormErrors {
   const errors: KnowledgeFormErrors = {}
@@ -170,21 +147,7 @@ export function validateKnowledgeForm(
   if (!body) errors.body = '正文不能为空。'
   else if (form.body.length > MAX_BODY_CHARS) errors.body = `正文最多 ${MAX_BODY_CHARS} 字，现在 ${form.body.length} 字。`
 
-  if (form.enabled && limits.otherEnabledEntries + 1 > MAX_ENABLED_ENTRIES) {
-    errors.enabled = `启用的知识条目不能超过 ${MAX_ENABLED_ENTRIES} 条；先停用一条再启用。`
-  }
-
-  const fulltextChars = fulltextTotal(form, limits)
-  if (form.enabled && FULLTEXT_KINDS.includes(form.kind) && fulltextChars > MAX_FULLTEXT_CHARS) {
-    errors.fulltext = `术语表与用户档案的正文合计最多 ${MAX_FULLTEXT_CHARS} 字，现在 ${fulltextChars} 字。`
-  }
   return errors
-}
-
-/** 写入后生效的 glossary + profile 正文字数合计。 */
-export function fulltextTotal(form: KnowledgeForm, limits: KnowledgeLimits): number {
-  const own = form.enabled && FULLTEXT_KINDS.includes(form.kind) ? form.body.length : 0
-  return limits.otherFulltextChars + own
 }
 
 export function lengthHint(value: string, max: number): string {
@@ -217,7 +180,6 @@ const GENERIC_MESSAGES = new Set(['与当前状态冲突', '参数校验失败',
 const CODE_TEXT: Record<string, string> = {
   KNOWLEDGE_NOT_FOUND: '这条知识条目不存在，可能已经在别处被删掉了。',
   KNOWLEDGE_BUILTIN_READONLY: `内置条目不能这样改：类型不可修改，没改过的内置条目也不能删除；要停用它请关掉「启用」。`,
-  KNOWLEDGE_LIMIT_EXCEEDED: `超出知识库上限：启用的条目最多 ${MAX_ENABLED_ENTRIES} 条，术语表与用户档案的正文合计最多 ${MAX_FULLTEXT_CHARS} 字。`,
   VALIDATION_ERROR: '字段不合法：检查标识、类型、标题、什么时候用与正文的长度。',
 }
 
@@ -247,7 +209,6 @@ const SERVER_FIELD_LABELS: Record<keyof KnowledgeFormErrors, string> = {
   whenToUse: '什么时候用',
   body: '正文',
   enabled: '启用',
-  fulltext: '字数合计',
 }
 
 /** 422 的 `details.fields` 逐字段映射回表单，标出是哪一项被服务端拒绝。 */

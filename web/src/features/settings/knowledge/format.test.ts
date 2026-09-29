@@ -3,8 +3,6 @@ import {
   FULLTEXT_KINDS,
   KIND_LABELS,
   MAX_BODY_CHARS,
-  MAX_ENABLED_ENTRIES,
-  MAX_FULLTEXT_CHARS,
   MAX_TITLE_CHARS,
   MAX_WHEN_TO_USE_CHARS,
   describeKnowledgeError,
@@ -14,7 +12,6 @@ import {
   indexLine,
   knowledgeEntryPath,
   knowledgeFormFromDetail,
-  knowledgeLimits,
   parseUtcTimestamp,
   serverFieldErrors,
   sourceBadge,
@@ -25,8 +22,6 @@ import {
 function form(overrides: Partial<KnowledgeForm> = {}): KnowledgeForm {
   return { ...emptyKnowledgeForm(), id: 'my-note', title: '我的笔记', whenToUse: '用户问起时', body: '正文', ...overrides }
 }
-
-const NO_OTHERS = { otherEnabledEntries: 0, otherFulltextChars: 0 }
 
 describe('knowledge entry paths and kinds', () => {
   it('builds the settings paths the router serves', () => {
@@ -108,58 +103,37 @@ describe('form helpers', () => {
   })
 })
 
-describe('limits', () => {
+describe('field validation', () => {
   it('caps title, when_to_use and body with readable messages', () => {
-   expect(validateKnowledgeForm(form({ title: 'x'.repeat(MAX_TITLE_CHARS + 1) }), NO_OTHERS, { isNew: false }).title)
+    expect(validateKnowledgeForm(form({ title: 'x'.repeat(MAX_TITLE_CHARS + 1) }), { isNew: false }).title)
       .toBe(`标题最多 ${MAX_TITLE_CHARS} 字，现在 ${MAX_TITLE_CHARS + 1} 字。`)
-    expect(validateKnowledgeForm(form({ whenToUse: '' }), NO_OTHERS, { isNew: false }).whenToUse).toBe('什么时候用不能为空。')
-    expect(validateKnowledgeForm(form({ whenToUse: 'x'.repeat(MAX_WHEN_TO_USE_CHARS + 1) }), NO_OTHERS, { isNew: false }).whenToUse)
+    expect(validateKnowledgeForm(form({ whenToUse: '' }), { isNew: false }).whenToUse).toBe('什么时候用不能为空。')
+    expect(validateKnowledgeForm(form({ whenToUse: 'x'.repeat(MAX_WHEN_TO_USE_CHARS + 1) }), { isNew: false }).whenToUse)
       .toBe(`什么时候用最多 ${MAX_WHEN_TO_USE_CHARS} 字，现在 ${MAX_WHEN_TO_USE_CHARS + 1} 字。`)
-    expect(validateKnowledgeForm(form({ body: '' }), NO_OTHERS, { isNew: false }).body).toBe('正文不能为空。')
-    expect(validateKnowledgeForm(form({ body: 'x'.repeat(MAX_BODY_CHARS + 1) }), NO_OTHERS, { isNew: false }).body)
+    expect(validateKnowledgeForm(form({ body: '' }), { isNew: false }).body).toBe('正文不能为空。')
+    expect(validateKnowledgeForm(form({ body: 'x'.repeat(MAX_BODY_CHARS + 1) }), { isNew: false }).body)
       .toBe(`正文最多 ${MAX_BODY_CHARS} 字，现在 ${MAX_BODY_CHARS + 1} 字。`)
-    expect(validateKnowledgeForm(form(), NO_OTHERS, { isNew: false })).toEqual({})
+    expect(validateKnowledgeForm(form(), { isNew: false })).toEqual({})
   })
 
   it('checks the identifier pattern only when creating', () => {
-    expect(validateKnowledgeForm(form({ id: '' }), NO_OTHERS, { isNew: true }).id).toBe('标识不能为空。')
-    expect(validateKnowledgeForm(form({ id: 'Bad_ID' }), NO_OTHERS, { isNew: true }).id).toBe('标识用 2–48 位小写字母、数字或连字符，并以字母或数字开头。')
-    expect(validateKnowledgeForm(form({ id: 'a' }), NO_OTHERS, { isNew: true }).id).toBe('标识用 2–48 位小写字母、数字或连字符，并以字母或数字开头。')
-    expect(validateKnowledgeForm(form({ id: 'bad-id' }), NO_OTHERS, { isNew: true })).toEqual({})
+    expect(validateKnowledgeForm(form({ id: '' }), { isNew: true }).id).toBe('标识不能为空。')
+    expect(validateKnowledgeForm(form({ id: 'Bad_ID' }), { isNew: true }).id).toBe('标识用 2–48 位小写字母、数字或连字符，并以字母或数字开头。')
+    expect(validateKnowledgeForm(form({ id: 'a' }), { isNew: true }).id).toBe('标识用 2–48 位小写字母、数字或连字符，并以字母或数字开头。')
+    expect(validateKnowledgeForm(form({ id: 'bad-id' }), { isNew: true })).toEqual({})
     // 已有的条目不该因为标识被改而被拦下：UI 上它本来就只读。
-    expect(validateKnowledgeForm(form({ id: '' }), NO_OTHERS, { isNew: false }).id).toBeUndefined()
+    expect(validateKnowledgeForm(form({ id: '' }), { isNew: false }).id).toBeUndefined()
   })
 
-  it('refuses to enable the 51st entry and points at the count', () => {
-    const errors = validateKnowledgeForm(form({ enabled: true }), { otherEnabledEntries: MAX_ENABLED_ENTRIES, otherFulltextChars: 0 }, { isNew: true })
-    expect(errors.enabled).toBe(`启用的知识条目不能超过 ${MAX_ENABLED_ENTRIES} 条；先停用一条再启用。`)
-    // 停用时不再受限。
-    expect(validateKnowledgeForm(form({ enabled: false }), { otherEnabledEntries: MAX_ENABLED_ENTRIES, otherFulltextChars: 0 }, { isNew: true }).enabled).toBeUndefined()
-  })
-
-  it('counts glossary + profile bodies together', () => {
-    const limits = { otherEnabledEntries: 1, otherFulltextChars: MAX_FULLTEXT_CHARS - 10 }
-    const over = validateKnowledgeForm(form({ kind: 'glossary', body: 'x'.repeat(11) }), limits, { isNew: false })
-    expect(over.fulltext).toBe(`术语表与用户档案的正文合计最多 ${MAX_FULLTEXT_CHARS} 字，现在 ${MAX_FULLTEXT_CHARS + 1} 字。`)
-    // 恰好到上限可以通过。
-    expect(validateKnowledgeForm(form({ kind: 'glossary', body: 'x'.repeat(10) }), limits, { isNew: false }).fulltext).toBeUndefined()
-    // 停用后不计入，也不受限。
-    expect(validateKnowledgeForm(form({ kind: 'glossary', body: 'x'.repeat(500) , enabled: false }), limits, { isNew: false }).fulltext).toBeUndefined()
-    // 其他类型不参与这条合计。
-    expect(validateKnowledgeForm(form({ kind: 'playbook', body: 'x'.repeat(500) }), limits, { isNew: false }).fulltext).toBeUndefined()
-  })
-
-  it('summarizes the limits from the list payload, excluding the entry being edited', () => {
-    const entries = [
-      { id: 'glossary', kind: 'glossary', enabled: true, body_chars: 900 },
-      { id: 'profile', kind: 'profile', enabled: true, body_chars: 400 },
-      { id: 'screen-home', kind: 'screen', enabled: true, body_chars: 800 },
-      { id: 'off-rule', kind: 'rule', enabled: false, body_chars: 100 },
-      { id: 'off-profile', kind: 'profile', enabled: false, body_chars: 700 },
-    ]
-    expect(knowledgeLimits(entries, 'glossary')).toEqual({ otherEnabledEntries: 2, otherFulltextChars: 400 })
-    expect(knowledgeLimits(entries, null)).toEqual({ otherEnabledEntries: 3, otherFulltextChars: 1300 })
-    expect(knowledgeLimits([], null)).toEqual({ otherEnabledEntries: 0, otherFulltextChars: 0 })
+  it('no longer caps the number of enabled entries or the glossary + profile total (M20)', () => {
+    // 上限跟着模型自身的上下文走，前端不再预先拦截。
+    expect(validateKnowledgeForm(form({ enabled: true }), { isNew: false })).toEqual({})
+    const huge = validateKnowledgeForm(form({ kind: 'glossary', body: 'x'.repeat(MAX_BODY_CHARS), enabled: true }), { isNew: false })
+    expect(huge).toEqual({})
+    expect('enabled' in huge).toBe(false)
+    expect('fulltext' in huge).toBe(false)
+    // 停用的条目同样不受限。
+    expect(validateKnowledgeForm(form({ kind: 'profile', body: 'x'.repeat(MAX_BODY_CHARS) }), { isNew: false })).toEqual({})
   })
 })
 
@@ -176,19 +150,15 @@ describe('timestamps', () => {
 })
 
 describe('error text', () => {
-  it('reads the two 409 codes even when the server message is generic', () => {
-    expect(describeKnowledgeError({ error: { code: 'KNOWLEDGE_LIMIT_EXCEEDED', message: '与当前状态冲突' } }))
-      .toContain('50 条')
-    expect(describeKnowledgeError({ error: { code: 'KNOWLEDGE_LIMIT_EXCEEDED', message: '与当前状态冲突' } }))
-      .toContain('3000 字')
+  it('reads the 409 codes even when the server message is generic', () => {
     expect(describeKnowledgeError({ error: { code: 'KNOWLEDGE_BUILTIN_READONLY', message: '与当前状态冲突' } }))
       .toContain('内置条目')
     expect(describeKnowledgeError({ error: { code: 'KNOWLEDGE_NOT_FOUND', message: '资源不存在' } })).toContain('不存在')
   })
 
   it('prefers the specific message the backend sends', () => {
-    expect(describeKnowledgeError({ error: { code: 'KNOWLEDGE_LIMIT_EXCEEDED', message: '启用的知识条目不能超过 50 条' } }))
-      .toBe('启用的知识条目不能超过 50 条')
+    expect(describeKnowledgeError({ error: { code: 'KNOWLEDGE_BUILTIN_READONLY', message: '内置条目的类型不可修改' } }))
+      .toBe('内置条目的类型不可修改')
   })
 
   it('falls back to a readable line for connection failures', () => {
