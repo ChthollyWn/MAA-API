@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd LaunchAgent 模板：让 MAA-API 在本机常驻（登录即起、退出即被拉起）。
+
+  **不要手工拷贝这份文件到 ~/Library/LaunchAgents/** —— 里面的注释在 plist 里
+  是合法的，但两个占位符必须先替换。统一用脚本安装，它会渲染占位符、校验语法、
+  加载服务：
+
+      ./scripts/maa-api-service.sh install
+
+  占位符（由 scripts/maa-api-service.sh 用 sed 替换，路径里不能含 "|"）：
+    __REPO_ROOT__  仓库根目录绝对路径
+    __PYTHON_BIN__ 解释器绝对路径，缺省 <仓库根>/.venv/bin/python
+
+  为什么 PATH 只给系统目录：launchd 的 PATH 极简，缺 /usr/local/bin 时连 adb 都
+  找不到；而 Python 解释器不走 PATH（脚本用 `python -m uvicorn`），由下面的
+  MAA_PYTHON 显式指定，避免把会腐烂的 virtualenv 哈希路径写进来。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.maa-api</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__REPO_ROOT__/scripts/start-maa-api.sh</string>
+  </array>
+
+  <!-- 兜底：启动器内部已经 cd 过，这里再钉一次工作目录 -->
+  <key>WorkingDirectory</key>
+  <string>__REPO_ROOT__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- 启动器优先用 MAA_PYTHON；显式钉住，不受 PATH 影响 -->
+    <key>MAA_PYTHON</key>
+    <string>__PYTHON_BIN__</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+
+  <!-- 登录即起 -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- 保活：正常退出与崩溃都重新拉起。语义是「常驻」而不是「崩溃才重启」，
+       所以临时停服请用 `maa-api-service.sh disable` / `stop`，不要只 bootout。 -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- 配置写坏时是「起→import 失败→退出」的快速循环，节流让它变成每 15 秒试一次 -->
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <!-- 只在「Python 还没起来就死」时有内容（venv 被删、config.yaml 语法错），
+       正常运行的日志在 resource/log/YYYY-MM-DD.log。脚本每次启动前会把这两个
+       文件截到最后 2MB，防止 KeepAlive 反复重启把日志撑爆。 -->
+  <key>StandardOutPath</key>
+  <string>__REPO_ROOT__/resource/log/uvicorn.out</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO_ROOT__/resource/log/uvicorn.err</string>
+</dict>
+</plist>

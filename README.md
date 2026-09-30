@@ -40,6 +40,36 @@ cd ..
 poetry run uvicorn maa_api.main:app --host 0.0.0.0 --port 8002
 ```
 
+## macOS 开机自启（LaunchAgent）
+
+用 launchd 让服务常驻：登录即起、进程退出即被拉起。管理命令都在 [maa-api-service.sh](scripts/maa-api-service.sh)：
+
+```bash
+./scripts/maa-api-service.sh install      # 安装并启动（可反复执行，用于更新配置）
+./scripts/maa-api-service.sh status       # 加载状态、PID、端口监听、日志位置
+./scripts/maa-api-service.sh logs 80      # 看应用日志与启动期兜底日志
+./scripts/maa-api-service.sh logs -f      # 持续跟随
+./scripts/maa-api-service.sh reload       # 改了 config.yaml 之后重启生效
+./scripts/maa-api-service.sh stop         # 停止当前实例
+./scripts/maa-api-service.sh disable      # 真正停用：停止且不再被拉起
+```
+
+| 命令 | 作用 |
+|---|---|
+| `install` | 渲染模板 → 校验语法 → 安装到 `~/Library/LaunchAgents/` → 启动 |
+| `uninstall` | 停止并删除 LaunchAgent（`--purge-logs` 顺带删除兜底日志） |
+| `start` / `stop` | 加载并启动 / 停止并卸载；`stop` 后 KeepAlive 仍启用 |
+| `restart` / `reload` | 重启服务，等价于 `launchctl kickstart -k` |
+| `enable` / `disable` | 允许 / 禁止自启并立即停止 |
+| `status` / `logs` / `paths` / `check` | 看状态、看日志、打印路径、只体检不改状态 |
+
+- **plist 的唯一事实来源是 [local.maa-api.plist.template](scripts/launchd/local.maa-api.plist.template)**。别直接编辑 `~/Library/LaunchAgents/local.maa-api.plist`——改模板后重新 `install`。
+- **`stop` 不等于停服**：KeepAlive 会把它拉回来，要彻底停用请用 `disable`（这也是它的设计语义：常驻）。
+- **改 `config.yaml` 后必须 `reload`**，launchd 起的实例没有终端可 Ctrl-C。
+- **日志分两处**：应用日志在 `resource/log/YYYY-MM-DD.log`；`resource/log/uvicorn.err` 只在「Python 还没起来就死」时才有内容（venv 被删、`config.yaml` 语法错）。脚本每次启动前会把后者截到最后 2MB。
+- **换端口**：`MAA_PORT=<端口> ./scripts/maa-api-service.sh install`，同时要保证 [start-maa-api.sh](scripts/start-maa-api.sh) 拿到同一个 `MAA_PORT`（模板已把它写进 plist 的环境变量）。
+- launchd 只存在于 macOS。Linux 用 systemd，容器用 `--restart unless-stopped`（见上一节），**不要与 LaunchAgent 同时跑**——两者会抢同一个 8002 端口与同一个 SQLite 库。
+
 ## 手机与 PWA
 
 手机可通过同一网络访问主机地址。若要启用 Service Worker、离线外壳与 Chromium 安装提示，请通过 **Tailscale Serve 的 HTTPS 地址**访问；直接使用局域网 HTTP 仍可打开页面和调用 API，但浏览器会禁用这些安全上下文能力。iOS 仍可从 Safari 分享菜单手动添加到主屏幕。Web Push 将在 M14 接入。
