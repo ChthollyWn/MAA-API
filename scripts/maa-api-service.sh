@@ -267,12 +267,16 @@ start_service() {
     ok "已加载并启动"
   fi
   sleep 1.5
-  local pid
-  pid="$(info pid)"
+  # 只用一个变量、且先赋默认值：`set -u` 下任何未绑定的展开都会让脚本在**回显**这一步
+  # 直接死掉，而服务其实已经起来了——最糟的失败方式。变量一律 init 后再读。
+  local pid="" state=""
+  pid="$(info pid || true)"
+  state="$(info state || true)"
   if [[ -n "$pid" ]]; then
-    ok "运行中：pid=$pid（state=$(info state)）"
+    ok "运行中：pid=$pid，state=$state"
   else
-    warn "launchd 已接管，但还没看到 pid；用 $0 status 与 $0 logs 复查"
+    warn "launchd 已接管，但还没看到 pid（state=${state:-未知}）"
+    dim "复查：$0 status       诊断：launchctl print $DOMAIN/$LABEL | grep -E 'state|pid'"
   fi
 }
 
