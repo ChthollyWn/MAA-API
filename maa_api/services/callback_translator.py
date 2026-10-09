@@ -27,10 +27,10 @@ CONNECTION_MAP: dict[str, str] = {
     "ResolutionError": "分辨率获取错误 {details}",
     "ResolutionGot": "已获取到模拟器分辨率 {height}*{width}",
     "ResolutionInfo": "分辨率信息 {height}*{width}（{why}）",
-    "Reconnecting": "模拟器连接断开(adb/模拟器异常) 正在重连 {details}",
-    "Reconnected": "模拟器连接断开(adb/模拟器异常) 重连成功 {details}",
-    "Disconnect": "模拟器连接断开(adb/模拟器异常) 重连失败 {details}",
-    "ScreencapFailed": "截图失败(adb/模拟器异常) {details}",
+    "Reconnecting": "模拟器连接断开（ADB 或模拟器异常），正在重连 {details}",
+    "Reconnected": "模拟器连接断开（ADB 或模拟器异常），重连成功 {details}",
+    "Disconnect": "模拟器连接断开（ADB 或模拟器异常），重连失败 {details}",
+    "ScreencapFailed": "截图失败（ADB 或模拟器异常）{details}",
     "FastestWayToScreencap": "最快截图耗时 {cost}ms",
     "ScreencapCost": "截图耗时 {average}ms（{minimum}/{maximum}）",
     "EmulatorFPS": "模拟器帧率 {fps}",
@@ -118,7 +118,7 @@ def _flatten(envelope: Mapping[str, Any]) -> dict[str, Any]:
 
     内核把数据放在两层中的任意一层：内层 ``details.details.task`` 是任务名，
     外层 ``details.task`` 是 ProcessTask 的类型名，插件回调两层都没有 ``task``、
-    只有信封上的 ``subtask``。内层同键优先——它才是本次事件自己的数据。
+    只有信封上的 ``subtask``。内层同键优先：它是本次事件自己的数据。
     """
 
     outer = _mapping(envelope.get("details"))

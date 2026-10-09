@@ -60,7 +60,7 @@ def describe_download_error(exc: BaseException) -> str:
     """把一次下载失败渲染成日志与用户可见文案。
 
     ``httpx.ReadTimeout`` / ``httpx.ConnectTimeout`` 的 ``str()`` 是空串，只写
-    ``f"{url}: {exc}"`` 会得到 ``url: `` 这种没有任何原因的报错（M7 实现曾因此
+    ``f"{url}: {exc}"`` 会得到 ``url: `` 这种没有任何原因的报错（曾因此
     让「活动资源」的失败记录只剩一个下载地址）。类型名是这类异常唯一携带的信息。
     """
     message = str(exc).strip()
@@ -73,7 +73,7 @@ def _is_retryable_failure(exc: BaseException) -> bool:
 
     大小不符、``Content-Range`` 非法、服务端忽略 ``Range`` 后又截断，都属于
     「重试同样的动作还是同样的结果」（docs/07 §5.4）。服务端明确返回的非 2xx
-    同理——那是「这个源不行」，交给调用方的多源回退，不在下载器里空转。
+    同理：那是「这个源不行」，交给调用方的多源回退，不在下载器里空转。
     ``DecodingError`` 是响应体被截断（常见于 gzip 传输被掐断），属于传输层。
     """
     if isinstance(exc, httpx.UnsupportedProtocol):

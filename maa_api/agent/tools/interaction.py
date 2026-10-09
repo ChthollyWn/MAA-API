@@ -1,9 +1,8 @@
-"""Agent 主动提问工具（M21，规格 §3.1）。
+"""Agent 主动提问工具（规格 §3.1）。
 
 只有 ``ask_user`` 一个工具：它本身**不执行任何操作**，只是把「需要用户裁决的参数」
 变成一张带选项的卡片，然后由 runtime 挂起本轮等待。真正的等待、落库与终态判定都在
-:class:`~maa_api.agent.questions.QuestionService` 里，这里只负责参数形状与 REST 拒绝
-——工具实现不做「谁在等、等多久」的判断，那是 runtime 的事。
+:class:`~maa_api.agent.questions.QuestionService` 里，这里只负责参数形状与 REST 拒绝：工具实现不做「谁在等、等多久」的判断，那是 runtime 的事。
 
 REST handler 直接失败（规格 §2.2）：``/api/agent/tools/ask_user/invoke`` 是一次同步
 HTTP 请求，没有人会挂在那里等 10 分钟，让调用方拿到明确的错误比让它超时好。
@@ -21,13 +20,13 @@ from maa_api.domain.errors import AppError, ErrorCode
 __all__ = ["AskUserOption", "AskUserParams", "register_tools"]
 
 ASK_USER_DESCRIPTION = (
-    "需要用户在若干候选之间做决定时（例如客户端渠道、刷哪个关卡、理智药与次数策略），"
-    "用本工具发一张选择卡片，不要写在回复正文里让用户打字回答。"
-    "用法：把每个候选写成 options 里的一项 label（2–6 个，<=80 字），需要解释时补 "
-    "description；问题本身只写「要让用户定什么」，不要把候选或推荐答案写进 question。"
-    "multiple=true 表示可多选，默认单选。"
-    "返回值里 status=answered 时，selected 就是用户的裁决，直接照它执行、不要再问一次；"
-    "status=expired 或 skipped 表示用户没有选择，本轮会就此结束，不要重试同一个提问。"
+    "需要用户在几个候选之间做决定时（客户端渠道、刷哪一关、刷几次、是否碎石或用药、"
+    "用哪套基建方案等），用它发一张选择卡片，不要写在回复正文里让用户打字回答。"
+    "把每个候选写成 options 里的一项 label，需要解释再补 description；"
+    "question 只说清要让用户定什么，不要把候选或推荐答案写进去。"
+    "需要多选时打开 multiple，默认单选。"
+    "卡片答完后 selected 就是用户的裁决，直接照它执行、不要再问一次；"
+    "跳过或超时都会结束本轮，不要重试同一个提问。"
 )
 
 
@@ -75,7 +74,7 @@ def register_tools(registry: ToolRegistry) -> None:
 
 
 async def ask_user(params: AskUserParams, ctx: ToolContext) -> dict[str, Any]:
-    """REST 调用一律失败：提问只能在会话内由 runtime 挂起等待。"""
+    """REST 调用直接失败：提问只能在会话内由 runtime 挂起等待。"""
     del params, ctx
     raise AppError(
         ErrorCode.INVALID_PARAMETER,

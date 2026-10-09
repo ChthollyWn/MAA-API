@@ -51,7 +51,10 @@ class AgentOpsService:
         del caller  # Reserved for audit attribution at the common tool boundary.
         update_lock = self.update_service._lock
         if update_lock.locked():
-            raise AppError(ErrorCode.UPDATE_ALREADY_RUNNING, "已有更新或维护操作正在执行")
+            raise AppError(
+                ErrorCode.UPDATE_ALREADY_RUNNING,
+                "已有更新或维护操作正在执行，请等它结束后再试",
+            )
 
         # With asyncio.Lock, this acquisition does not yield while the lock is
         # free. The locked check therefore fails fast if an update owns it.
@@ -113,14 +116,14 @@ class AgentOpsService:
             elif self.queue_service.paused and pending:
                 raise AppError(
                     ErrorCode.UPDATE_BLOCKED_BY_PIPELINE,
-                    "定时任务队列已暂停且仍有待执行流水线",
+                    "定时任务队列已暂停且仍有待执行流水线，请先恢复队列或清空待执行项",
                     {"pending": pending},
                 )
 
             if loop.time() >= deadline:
                 raise AppError(
                     ErrorCode.UPDATE_BLOCKED_BY_PIPELINE,
-                    "等待流水线队列空闲超时，未重启 MaaCore",
+                    "等待流水线队列空闲超时，内核没有重启；请稍后重试",
                     {"running_pipeline_id": getattr(running, "id", None), "pending": pending},
                 )
             await asyncio.sleep(self.poll_interval)

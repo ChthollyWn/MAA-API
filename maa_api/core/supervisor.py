@@ -1,17 +1,10 @@
-"""CoreSupervisor：内核子进程的状态机、心跳、崩溃检测、退避重启与维护窗口（M1-08）。
+"""CoreSupervisor：内核子进程的状态机、心跳、崩溃检测、退避重启与维护窗口。
 
-职责边界（docs/03 §4、docs/02 §4、docs/13 ADR-02/ADR-03）：
-
-- **本模块只管子进程生命周期**：spawn / 就绪等待 / 心跳 / 硬崩溃检测 / 退避重启 /
-  维护窗口 / 优雅关闭。
-- **不落库、不广播、不通知、不改流水线状态**（docs/03 §4.2 的第 1/3/4 步归
-  M2/M4/M5）。崩溃现场（``last_crash``）与 ``on_crash`` / ``on_state_change`` 钩子
-  就是给它们接的入口。
-- **不读 ``event_queue``**：事件队列只允许一个消费者（M1-09 ``CoreClient`` 的消费
-  线程）。supervisor 靠 :meth:`CoreSupervisor.set_dispatcher` 声明的消费者把
-  ``READY`` / ``PONG`` / ``FATAL`` 回调进 :meth:`handle_ready` / :meth:`handle_pong`
-  / :meth:`handle_fatal`；未声明消费者就 :meth:`start` 会 fail loud（抛
-  ``AppError(CORE_START_FAILED)``），避免两个消费者抢事件。
+只管子进程生命周期：spawn / 就绪等待 / 心跳 / 硬崩溃检测 / 退避重启 / 维护窗口 /
+优雅关闭。不落库、不广播、不通知、不改流水线状态，这些由 ``last_crash`` 与
+``on_crash`` / ``on_state_change`` 钩子接出去。事件队列只允许一个消费者：supervisor 靠
+:meth:`CoreSupervisor.set_dispatcher` 声明的消费者收 ``READY`` / ``PONG`` / ``FATAL``，
+未声明就 :meth:`CoreSupervisor.start` 会抛 ``AppError(CORE_START_FAILED)``。
 
 状态机::
 
@@ -21,38 +14,19 @@
     STARTING / CRASHED --失败预算耗尽 / 启动失败--> FAILED
     FAILED  --手动 start()/restart()--> STARTING / RESTARTING
 
-崩溃判据是两条**独立**通道，任一触发即认定崩溃（docs/03 §4.1）：
+崩溃判据两条独立通道，任一触发即算崩溃（docs/03 §4.1）：心跳连续
+:data:`HEARTBEAT_FAILURES` 次没有收到同 ``seq`` 的 ``PONG``（默认约 15 秒，
+:data:`LONG_COMMANDS` 执行期间跳过），以及 ``Process.is_alive()`` 轮询捕获段错误、
+OOM kill 这类不给事件的退出。心跳与业务命令共用队列，命令循环被卡死 15 秒以上同样算
+崩溃。
 
-1. **心跳**：每 :data:`HEARTBEAT_INTERVAL` 秒向 ``cmd_queue`` 投一条 ``PING(seq)``，
-   连续 :data:`HEARTBEAT_FAILURES` 次没收到同 ``seq`` 的 ``PONG``（默认约 15 秒）判失联。
-   心跳与业务命令共用同一条队列，因此它同时检测「命令循环被长任务卡死」——这是有意
-   的：卡死 15 秒以上的内核对使用者与崩溃无异。已知长命令（:data:`LONG_COMMANDS` =
-   ``LOAD_RESOURCE`` / ``CONNECT``）执行期间（``track_command`` 后尚未
-   ``release_command``）跳过判定且不累计失败，否则会误判。
-2. **进程存活**：轮询 ``Process.is_alive()`` 捕获段错误、OOM kill 这类不给事件的硬
-   崩溃；``exitcode`` 区分正常退出（0）、信号杀死（负值，如 -9 = SIGKILL）与异常
-   退出（MaaCore 会把 native 崩溃转成 exit 1 + ``crash.log``，M1-02 实测，因此判据
-   是「非预期退出」而不是「exitcode 为负」）。
+崩溃后置 ``CRASHED``、记 ``last_crash``、调 ``on_crash``（异常吞掉并记日志），再按
+``backoff`` 退避重启；``max_restart_attempts`` 用尽转 ``FAILED`` 并停止自动重启，等前端
+手动 ``start()`` / ``restart()``。预算只在手动调用时复位，「连续崩溃」跨自动重启累计。
 
-崩溃恢复（docs/02 §4、docs/03 §4.2）：置 ``CRASHED``、记 ``last_crash``（exitcode、
-时间、最近 :data:`CRASH_EVENT_BUFFER` 条事件现场、恢复尝试序号）、在检测线程上调用
-``on_crash`` 钩子（异常吞掉并记日志），然后按 ``backoff`` 退避重启：第 N 次重启用
-``backoff[min(N-1, len-1)]``（默认 5s → 15s → 60s）。**连续失败预算
-``max_restart_attempts`` 用尽后转 ``FAILED`` 并停止自动重启**，等前端手动
-``start()`` / ``restart()``。没有退避的自动重启会因坏资源变成崩溃风暴。
-
-退避预算只在**手动** ``start()`` / ``restart()`` 时复位，自动重启成功（READY）不复位
-——「连续崩溃」要跨自动重启累计，否则「崩溃 → 重启 → 又崩」的循环永远到不了上限。
-手动 ``restart(boot_config=...)`` 同时用于换掉 ``boot_config``（例如修复资源后重来）。
-
-维护窗口（docs/03 §4.3）：``async with supervisor.acquire_maintenance():`` 是互斥的
-（``asyncio.Lock``，并发进入串行化）。进入后 ``in_maintenance=True``、取消待执行的重启
-定时、心跳失败计数清零；窗口内「子进程停止」是预期行为，不进 ``CRASHED``、不触发
-重启。退出时恢复检测：若窗口内子进程已经死掉且不是主动 ``stop()``，立刻按崩溃处理
-（``CRASHED`` → 退避 → ``RESTARTING``）。热更新、重装内核、修改 MAA 路径都在窗口内执行。
-
-关机：先发 ``SHUTDOWN``，等 ``timeout``（默认 10 秒）→ ``terminate()`` 再等 5 秒 →
-``kill()``，最后置 ``STOPPED``（docs/02 §4）。
+维护窗口 ``async with supervisor.acquire_maintenance():`` 互斥：窗口内子进程停止不进
+``CRASHED`` 也不触发重启，退出时若子进程已死且不是主动 ``stop()`` 则按崩溃处理。关机先
+发 ``SHUTDOWN``，等 ``timeout`` 后 ``terminate()``、再等 5 秒 ``kill()``，置 ``STOPPED``。
 """
 
 from __future__ import annotations
@@ -110,7 +84,7 @@ TERMINATE_GRACE_SECONDS: float = 5.0
 #: 重启前回收残留进程时的 terminate 等待上限。
 REAP_TERMINATE_TIMEOUT: float = 2.0
 
-#: 进程存活轮询间隔：SIGKILL 后约 0.05 秒内可观测到 exitcode（M1-02 实测）。
+#: 进程存活轮询间隔：SIGKILL 后约 0.05 秒内可观测到 exitcode。
 LIVENESS_POLL_INTERVAL: float = 0.05
 
 #: 等待 READY 时的轮询间隔（async 轮询，不占用默认 executor）。
@@ -148,7 +122,7 @@ class CoreSupervisor:
     :param on_crash: 崩溃钩子，签名 ``fn(record: dict)``，在检测到崩溃的线程上同步
         调用；``record`` 就是 :attr:`last_crash` 的内容（``reason`` / ``exitcode`` /
         ``at`` / ``recent_events`` / ``attempt`` / ``pid`` / ``detail``）。异常会被
-        吞掉并记日志——崩溃处理路径绝不能被钩子打断。M2 落库、M4 广播、M5 通知接这里。
+        吞掉并记日志，崩溃处理路径不能被钩子打断。落库、广播与通知都在这里接钩子。
     :param on_state_change: 状态变更钩子，签名 ``fn(state: CoreState)``；同样同步调用、
         异常吞掉。广播 ``core_status`` 的接入点。
 
@@ -195,7 +169,7 @@ class CoreSupervisor:
         self._on_crash = on_crash
         self._on_state_change = on_state_change
 
-        # 身份稳定的两条队列：消费者（M1-09）在启动时抓住 event_queue，不能换。
+        # 身份稳定的两条队列：消费者在启动时抓住 event_queue，不能换。
         self._cmd_queue = self._ctx.Queue()
         self._event_queue = self._ctx.Queue()
 
@@ -226,7 +200,7 @@ class CoreSupervisor:
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._liveness_thread: Optional[threading.Thread] = None
         # 子进程代际：每次 spawn 自增（见 :meth:`_spawn_process`）。监控线程绑定自己
-        # 启动时的代际，换代后旧线程的迟到判定一律作废——这是 M1-15 修复的伪崩溃根因：
+        # 启动时的代际，换代后旧线程的迟到判定作废，这是伪崩溃的根因：
         # restart() 停掉旧进程时，旧 liveness 线程盯着的旧 ``Process`` 变成 dead，
         # 它会把这**次主动停止**记成 ``process_exit`` 并调度伪重启。
         self._generation = 0
@@ -272,7 +246,7 @@ class CoreSupervisor:
         """子进程退出码；进程仍存活或从未启动过时为 ``None``。
 
         符号语义：0 = 正常退出、负值 = 信号杀死（-9 SIGKILL、-11 SIGSEGV）、正值 =
-        异常退出（MaaCore 把 native 崩溃转成 exit 1 + crash.log，M1-02 实测）。
+        异常退出（MaaCore 把 native 崩溃转成 exit 1 + crash.log，）。
         """
         process = self._process
         return process.exitcode if process is not None else None
@@ -306,10 +280,10 @@ class CoreSupervisor:
     # ------------------------------------------------------------------
 
     def set_dispatcher(self, fn: Callable[[dict], Any]) -> None:
-        """声明事件队列的唯一消费者（M1-09 ``CoreClient`` 的消费线程）。
+        """声明事件队列的唯一消费者。
 
         supervisor 自己不读 ``event_queue``；``fn`` 必须接收每条被消费的事件 dict。
-        本类把它当作「已有消费者」的凭据：``start()`` / ``restart()`` 前没调用过就抛
+        ``CoreSupervisor`` 把它当作「已有消费者」的凭据：``start()`` / ``restart()`` 前没调用过就抛
         ``AppError(CORE_START_FAILED)``（fail loud），避免出现第二个消费者抢事件。
         消费者在消费每条事件后，应把 ``READY`` / ``PONG`` / ``FATAL`` 转给
         :meth:`handle_ready` / :meth:`handle_pong` / :meth:`handle_fatal`；其余事件
@@ -348,7 +322,7 @@ class CoreSupervisor:
             process = self._process
             ready_pid = payload.get("pid")
             if process is not None and ready_pid is not None and ready_pid != process.pid:
-                logger.warning("忽略过期 READY：payload.pid=%s 当前 pid=%s", ready_pid, process.pid)
+                logger.debug("忽略上一代内核的就绪通知（pid=%s，当前 pid=%s）", ready_pid, process.pid)
                 return
             self._ready_payload = payload
             if self._ready_flag is not None:
@@ -358,11 +332,11 @@ class CoreSupervisor:
                 self._set_state_locked(CoreState.READY)
             elif self._state is not CoreState.READY:
                 # STOPPED / FAILED / CRASHED：迟到的 READY，不复活。
-                logger.warning("状态 %s 下收到 READY，忽略", self._state.value)
+                logger.debug("内核已停止或已失败，忽略迟到的就绪通知（当前状态 %s）", self._state.value)
                 return
             self._heartbeat_failure_count = 0
             self._start_monitors_locked()
-        logger.info("内核就绪：pid=%s version=%s", self.pid, payload.get("version"))
+        logger.info("内核已就绪：版本 %s", payload.get("version"))
 
     def handle_fatal(self, payload: Optional[dict]) -> None:
         """收到 ``FATAL``（消费者调用）：启动期交给 ``start()``，运行期按崩溃处理。"""
@@ -393,7 +367,7 @@ class CoreSupervisor:
     # ------------------------------------------------------------------
 
     def track_command(self, cmd: dict) -> None:
-        """登记一条已投递的命令（M1-09 在 ``put`` 前调用）。
+        """登记一条已投递的命令。
 
         只有 :data:`LONG_COMMANDS` 里的类型会影响心跳判定：只要还有一条未
         ``release_command`` 的长命令，本轮心跳检查直接跳过且不累计失败。
@@ -407,7 +381,7 @@ class CoreSupervisor:
             self._in_flight[str(cmd_id)] = cmd.get("type")
 
     def release_command(self, cmd_id: Optional[str]) -> None:
-        """注销一条命令（收到 ``CMD_RESULT`` 或超时后由 M1-09 调用）。"""
+        """注销一条命令（收到 ``CMD_RESULT`` 或超时后由 CoreClient 调用）。"""
         if not cmd_id:
             return
         with self._lock:
@@ -436,12 +410,12 @@ class CoreSupervisor:
                 and self._process is not None
                 and self._process.is_alive()
             ):
-                logger.info("内核已处于 READY，start() 幂等返回")
+                logger.info("内核已在运行，无需重复启动")
                 return
             if self._awaiting_ready:
                 raise AppError(
                     ErrorCode.CORE_START_FAILED,
-                    "内核正在启动中，拒绝并发 start()",
+                    "内核正在启动，请稍后重试",
                     {"state": self._state.value},
                 )
             self._loop = asyncio.get_running_loop()
@@ -470,7 +444,7 @@ class CoreSupervisor:
         self._stop_monitors()
         await self._stop_process(graceful=graceful, timeout=timeout)
         self._set_state(CoreState.STOPPED)
-        logger.info("内核已停止：pid=%s exitcode=%s", self.pid, self.exitcode)
+        logger.info("内核已停止：退出码 %s", self.exitcode)
 
     async def restart(self, boot_config: Optional[dict] = None) -> None:
         """手动重启：停掉当前子进程、换 ``boot_config``（可选）、复位退避预算、再启动。
@@ -490,11 +464,11 @@ class CoreSupervisor:
             self._stop_requested = False
             self._set_state_locked(CoreState.RESTARTING)
         self._cancel_restart_timer()
-        # 关键顺序（M1-15 修复）：先停上一代监控线程，再优雅停止旧进程。旧 liveness
+        # 关键顺序：先停上一代监控线程，再优雅停止旧进程。旧 liveness
         # 线程持有旧 ``Process`` 引用，若它在旧进程退出（exitcode=0）后仍存活，就会把
         # 这次主动停止记成 ``process_exit`` 并调度伪重启，``_reap_process()`` 进而
         # terminate() 掉刚起来的新进程；包在维护窗口里也只是被推迟到窗口退出后补记。
-        # 这里不靠等待/sleep：stop_event 置位先于 SHUTDOWN 下发，线程一旦从 wait()
+        # 不靠等待/sleep：stop_event 置位先于 SHUTDOWN 下发，线程一旦从 wait()
         # 返回就不会再看 ``is_alive()``。
         self._stop_monitors()
         await self._stop_process(graceful=True, timeout=STOP_TIMEOUT_SECONDS)
@@ -513,8 +487,7 @@ class CoreSupervisor:
     async def acquire_maintenance(self) -> AsyncIterator["CoreSupervisor"]:
         """互斥的维护窗口（docs/03 §4.3）。
 
-        语义：进入后调用方应停止取新流水线，supervisor 同时关闭崩溃自动重启——
-        窗口内主动停 / 杀子进程是**预期行为而非崩溃**，不进 ``CRASHED``、不调
+        语义：进入后调用方应停止取新流水线，supervisor 同时关闭崩溃自动重启；窗口内主动停 / 杀子进程是**预期行为而非崩溃**，不进 ``CRASHED``、不调
         ``on_crash``、不重启；待执行的重启定时被取消，心跳失败计数清零。热更新、
         重装内核、修改 MAA 路径都必须在窗口内执行。
 
@@ -529,13 +502,13 @@ class CoreSupervisor:
                 self._in_maintenance = True
                 self._heartbeat_failure_count = 0
             self._cancel_restart_timer()
-            logger.info("进入内核维护窗口：暂停崩溃自动重启（热更新 / 重装内核 / 改 MAA 路径）")
+            logger.info("进入内核维护窗口，期间停止崩溃自动重启（热更新 / 重装内核 / 改 MAA 路径）")
             try:
                 yield self
             finally:
                 with self._lock:
                     self._in_maintenance = False
-                logger.info("退出内核维护窗口：恢复崩溃检测与自动重启")
+                logger.info("退出内核维护窗口，恢复崩溃检测与自动重启")
                 self._reconcile_after_maintenance()
 
     def _maintenance_lock_for_loop(self) -> asyncio.Lock:
@@ -588,8 +561,7 @@ class CoreSupervisor:
         with self._lock:
             if generation is not None and generation != self._generation:
                 logger.debug(
-                    "忽略第 %s 代监控线程的迟到崩溃判定（当前第 %s 代）：%s",
-                    generation,
+                    "忽略上一代监控线程的迟到判定（当前第 %s 代）：%s",
                     self._generation,
                     reason,
                 )
@@ -597,7 +569,7 @@ class CoreSupervisor:
             if self._stop_requested:
                 return False
             if self._in_maintenance:
-                logger.info("维护窗口内检测到子进程停止（预期行为，不按崩溃处理）：%s", reason)
+                logger.info("维护窗口内内核已停止，属预期行为，不按崩溃处理")
                 return False
             if self._state in (CoreState.STOPPED, CoreState.FAILED, CoreState.CRASHED):
                 return False
@@ -608,9 +580,9 @@ class CoreSupervisor:
             self._set_state_locked(CoreState.CRASHED)
             if self._restart_attempts >= self._max_restart_attempts:
                 logger.error(
-                    "内核连续失败已达上限 %s，停止自动重启（FAILED）：%s",
+                    "内核连续启动失败已达 %s 次，已停止自动重启；"
+                    "请到设置页检查内核路径后手动重启",
                     self._max_restart_attempts,
-                    record,
                 )
                 self._set_state_locked(CoreState.FAILED)
             else:
@@ -639,7 +611,8 @@ class CoreSupervisor:
             self._set_state_locked(CoreState.CRASHED)
             if self._restart_attempts >= self._max_restart_attempts:
                 logger.error(
-                    "自动重启连续失败达上限 %s，转 FAILED：%s", self._max_restart_attempts, detail
+                    "自动重启连续失败已达 %s 次，已停止重试；请手动重启内核",
+                    self._max_restart_attempts,
                 )
                 self._set_state_locked(CoreState.FAILED)
             else:
@@ -686,8 +659,8 @@ class CoreSupervisor:
     def _call_hook(hook: Callable[..., Any], argument: Any, name: str) -> None:
         try:
             hook(argument)
-        except Exception:  # noqa: BLE001 - 崩溃路径绝不能被钩子打断
-            logger.exception("%s 钩子异常（已吞掉）", name)
+        except Exception:  # noqa: BLE001 - 崩溃路径不能被钩子打断
+            logger.exception("崩溃回调 %s 执行失败，已忽略", name)
 
     def _start_restart_timer_locked(self, attempt: int, delay: float) -> None:
         cancel = threading.Event()
@@ -704,7 +677,7 @@ class CoreSupervisor:
     def _restart_waiter(self, attempt: int, delay: float, cancel: threading.Event) -> None:
         """退避到点后在事件循环上拉起 :meth:`_auto_restart`（可被维护窗口取消）。"""
         if cancel.wait(delay):
-            logger.info("待执行的内核重启（第 %s 次）已取消", attempt)
+            logger.info("已取消待执行的内核重启（第 %s 次）", attempt)
             return
         with self._lock:
             if self._restart_cancel is not cancel:
@@ -713,12 +686,12 @@ class CoreSupervisor:
                 return
             loop = self._loop
         if loop is None or loop.is_closed():
-            logger.warning("事件循环不可用，放弃自动重启（第 %s 次）", attempt)
+            logger.warning("事件循环不可用，放弃第 %s 次自动重启，需要手动重启内核", attempt)
             return
         try:
             asyncio.run_coroutine_threadsafe(self._auto_restart(attempt), loop)
         except RuntimeError:
-            logger.warning("事件循环已关闭，放弃自动重启（第 %s 次）", attempt)
+            logger.warning("事件循环已关闭，放弃第 %s 次自动重启，需要手动重启内核", attempt)
 
     def _cancel_restart_timer(self) -> None:
         with self._lock:
@@ -728,14 +701,14 @@ class CoreSupervisor:
             cancel.set()
 
     async def _auto_restart(self, attempt: int) -> None:
-        """退避到点后的自动重启：成功即 READY（不重新下发 CONNECT，那是 M6 的事）。"""
+        """退避到点后的自动重启：成功即 READY（不重新下发 CONNECT，那是事）。"""
         with self._lock:
             if self._stop_requested or self._in_maintenance:
                 return
             if self._state is CoreState.FAILED:
                 return
             delay = self._backoff[min(attempt - 1, len(self._backoff) - 1)]
-        logger.info("开始自动重启内核子进程（第 %s 次，退避 %.1fs）", attempt, delay)
+        logger.info("开始自动重启内核（第 %s 次，等待 %.1fs）", attempt, delay)
         try:
             await self._bring_up(restarting=True, wait_ready=True, timeout=START_TIMEOUT_SECONDS)
         except AppError as exc:
@@ -745,7 +718,7 @@ class CoreSupervisor:
                 exitcode=details.get("exitcode"),
             )
             return
-        logger.info("自动重启完成：pid=%s", self.pid)
+        logger.info("内核自动重启完成")
 
     # ------------------------------------------------------------------
     # spawn 与 READY 握手
@@ -765,11 +738,12 @@ class CoreSupervisor:
             return
         await self._reap_process()
         reason = info.get("reason", "start_failed")
+        # 失败细节（reason / exitcode / FATAL 载荷）只进 details，用户文案给下一步。
         message = {
-            "timeout": f"内核在 {timeout:.1f}s 内未上报 READY",
-            "fatal": f"内核启动失败（FATAL）：{info.get('detail')}",
-            "process_exit": f"内核子进程在 READY 之前退出（exitcode={info.get('exitcode')}）",
-        }.get(reason, f"内核启动失败：{reason}")
+            "timeout": f"内核在 {timeout:.1f} 秒内没有就绪，请到设置页检查内核路径后重试",
+            "fatal": "内核启动失败，请到设置页检查内核路径后重试；详情见日志页",
+            "process_exit": "内核启动后立即退出，请检查内核文件是否完整；详情见日志页",
+        }.get(reason, "内核启动失败，请到设置页检查内核路径后重试")
         raise AppError(
             ErrorCode.CORE_START_FAILED,
             message,
@@ -785,7 +759,7 @@ class CoreSupervisor:
         """换新一代队列、回收残留进程后 spawn 子进程，状态置 STARTING / RESTARTING。"""
         # 换代的第一步：让上一代监控线程确定性退出。它们可能在 ``_reap_process()``
         # 里看着残留进程被 terminate/kill；stop_event 先行置位保证它们不会把回收动作
-        # 判成崩溃（M1-15）。随后自增代际，让任何已经越过 stop_event 检查的迟到判定
+        # 判成崩溃。随后自增代际，让任何已经越过 stop_event 检查的迟到判定
         # 在 ``_handle_crash`` 里被识别为旧代际并作废。
         self._stop_monitors()
         await self._reap_process()
@@ -816,18 +790,18 @@ class CoreSupervisor:
         process.start()
         with self._lock:
             self._process = process
-        logger.info("内核子进程已启动：pid=%s state=%s", process.pid, self.state.value)
+        logger.info("内核进程已启动，当前状态 %s", self.state.value)
         return process
 
     def _rotate_queues(self) -> tuple[Any, Any]:
         """为新一代子进程换一对全新的 Queue，返回上一代（调用方负责收尾）。
 
-        为什么必须换（M1-08 实测，Python 3.13.3）：
+        为什么必须换（Python 3.13.3）：
 
         - ``Queue.get()`` 在 ``timeout=None`` 的阻塞读期间**持有内部读锁**
           （``with self._rlock: self._recv_bytes()``）。子进程被 SIGKILL / OOM
           杀死时锁不会释放（没有 finally 可执行），把同一对队列再交给下一个子进程，
-          它的 ``cmd_queue.get()`` 会永远卡在锁上——现象是「重启后 READY 正常上报，
+          它的 ``cmd_queue.get()`` 会永远卡在锁上：现象是「重启后 READY 正常上报，
           但新内核再也收不到任何命令」。
         - 子进程侧 ``Queue.put`` 的 feeder 线程也可能在对端已死后因 BrokenPipeError
           退出，之后所有 ``put`` 只进本地 buffer、不再上线。
@@ -900,15 +874,15 @@ class CoreSupervisor:
         try:
             self._cmd_queue.put(make_command("SHUTDOWN", graceful=bool(graceful)))
         except Exception:  # noqa: BLE001 - 队列已坏也必须走 kill 兜底
-            logger.exception("SHUTDOWN 命令入队失败，直接 terminate()")
+            logger.exception("无法通知内核优雅退出，改为强制结束进程")
         else:
             if await self._wait_process_exit(process, timeout):
                 return
-            logger.warning("SHUTDOWN 等待 %.1fs 超时，terminate()", timeout)
+            logger.warning("内核未在 %.1f 秒内优雅退出，改为强制结束进程", timeout)
         process.terminate()
         if await self._wait_process_exit(process, TERMINATE_GRACE_SECONDS):
             return
-        logger.warning("terminate() 等待 %.1fs 超时，kill()", TERMINATE_GRACE_SECONDS)
+        logger.warning("内核仍未退出，强制结束进程（等待 %.1f 秒）", TERMINATE_GRACE_SECONDS)
         process.kill()
         await self._wait_process_exit(process, TERMINATE_GRACE_SECONDS)
 
@@ -939,7 +913,7 @@ class CoreSupervisor:
             return
         stop_event = threading.Event()
         self._monitor_stop = stop_event
-        # 监控线程绑定启动时的代际：换代后它们必须自杀，绝不监控不属于自己的进程。
+        # 监控线程绑定启动时的代际：换代后它们必须退出，不监控不属于自己的进程。
         self._monitor_generation = generation
         process = self._process
         self._heartbeat_thread = threading.Thread(
@@ -974,7 +948,7 @@ class CoreSupervisor:
         seq = 0
         while not stop_event.wait(self._heartbeat_interval):
             if not self._is_current_generation(generation):
-                logger.debug("第 %s 代心跳线程退出：内核已换代", generation)
+                logger.debug("心跳线程退出：内核已换代（第 %s 代）", generation)
                 return
             if self._long_command_in_flight():
                 # 已知长命令期间临时放宽：跳过本轮且不累计失败（docs/03 §4.1）。
@@ -1010,22 +984,22 @@ class CoreSupervisor:
             try:
                 self._cmd_queue.put(make_command("PING", seq=seq))
             except Exception:  # noqa: BLE001 - 队列坏掉等同于一次心跳失败
-                logger.exception("PING 入队失败（seq=%s）", seq)
+                logger.exception("无法向内核发送心跳探测（序号 %s）", seq)
 
     def _liveness_loop(self, stop_event: threading.Event, process: Any, generation: int) -> None:
         """轮询 ``is_alive()`` 捕获不带事件的硬崩溃（段错误 / OOM kill）。
 
         ``generation`` 是本线程启动时的内核代际。换代（``restart()`` / 自动重启 / 手动
         ``start()``）后本线程盯着的 ``process`` 已被回收，它观测到的「退出」属于上一代、
-        不代表当前生命周期，必须直接退出——否则会把优雅停止（``exitcode=0``）记成
-        崩溃并调度伪重启，``_reap_process()`` 会 terminate 掉刚起来的新进程（M1-15）。
+        不代表当前生命周期，必须直接退出：否则会把优雅停止（``exitcode=0``）记成
+        崩溃并调度伪重启，``_reap_process()`` 会 terminate 掉刚起来的新进程。
         """
         if process is None:
             return
         reported = False
         while not stop_event.wait(LIVENESS_POLL_INTERVAL):
             if not self._is_current_generation(generation):
-                logger.debug("第 %s 代存活监控线程退出：内核已换代", generation)
+                logger.debug("存活监控线程退出：内核已换代（第 %s 代）", generation)
                 return
             if process.is_alive():
                 continue
@@ -1053,11 +1027,11 @@ class CoreSupervisor:
             dispatcher = self._dispatcher
             state = self._state
         if dispatcher is None:
+            # supervisor 自己不消费 event_queue：必须先由唯一消费者（CoreClient）通过
+            # set_dispatcher() 声明并回调 handle_*，否则会出现两个消费者抢事件。
             raise AppError(
                 ErrorCode.CORE_START_FAILED,
-                "start()/restart() 之前必须先 set_dispatcher()：supervisor 自身不消费 "
-                "event_queue，必须由唯一消费者（CoreClient）声明并回调 handle_*，"
-                "否则会出现两个消费者抢事件",
+                "内核正在启动，请稍后重试",
                 {"state": state.value},
             )
 

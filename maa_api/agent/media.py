@@ -1,4 +1,4 @@
-"""M23 媒体卡契约：``result.media`` 信封与四类卡片的**唯一定义处**。
+"""媒体卡契约：``result.media`` 信封与四类卡片的**唯一定义处**。
 
 行为以 ``docs/superpowers/specs/2026-09-29-m23-agent-media-cards.md`` §3.1 为准。
 产生卡片的工具统一返回::
@@ -6,7 +6,7 @@
     {"media": [<卡片>...], "caption": "整批的说明（可选）"}
 
 落库后就是 ``{"result": {"media": [...], "caption": ...}}``（tool 消息的 content）。
-同源地址的三种拼法（图片原图 / 缩略图 / 截图记录）收在本模块里，前端白名单认的
+同源地址的三种拼法（图片原图 / 缩略图 / 截图记录）都在这里拼出，前端白名单认的
 就是它们；物品图标地址由 :func:`item_icon_url` 一处拼出，同样在白名单里。
 
 :func:`compact_media_result` 是 §3.6 的模型上下文占位：媒体结果回灌模型时只留
@@ -95,7 +95,7 @@ def image_card(
 ) -> dict[str, Any]:
     """构造一张 ``image`` 卡（规格 §3.1）。
 
-    有 ``sha256`` 时用内容寻址地址；没有时回落到截图记录地址——两种都在前端白名单里。
+    有 ``sha256`` 时用内容寻址地址；没有时回落到截图记录地址：两种都在前端白名单里。
     """
     if not isinstance(screenshot_id, str) or not screenshot_id:
         raise ValueError("image_card 需要 screenshot_id")

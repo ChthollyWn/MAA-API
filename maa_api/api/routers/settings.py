@@ -33,7 +33,7 @@ class SettingResetRequest(BaseModel):
 def _service(request: Request) -> SettingService:
     service = getattr(request.app.state, "setting_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "设置服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "设置功能还在启动中，请稍后重试")
     return service
 
 

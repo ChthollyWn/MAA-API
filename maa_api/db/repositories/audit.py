@@ -19,16 +19,16 @@
 
 ``confirmation.payload`` 存的是**待执行动作的完整参数，不是引用**（docs/04
 §5.10），这样批准后不依赖发起方进程还活着。仓储原样存取，不做「按 id 回查」的
-任何尝试 —— 服务重启后扫出 ``PENDING`` 记录一律置 ``EXPIRED`` 的能力就建立在
+任何尝试：服务重启后扫出 ``PENDING`` 记录并置 ``EXPIRED`` 的能力就建立在
 这一点上。
 
 ``agent_audit.confirmation_id`` 与 ``authorized_by_id`` 互斥（docs/04 §5.9）
-是**写入方（M11 的 PolicyEngine）的纪律**，仓储两列原样存储、各自可查：拆成
+是**写入方（PolicyEngine）的纪律**，仓储两列原样存储、各自可查：拆成
 两列正是为了让「这个授权窗口内一共执行了哪些操作」成为一次简单的
 ``WHERE authorized_by_id = ?`` 查询。仓储不替写入方改数据，也不因此拒绝写审计
 （审计记录的是既成事实，不能因为策略记账有问题就丢记录）。
 
-事务纪律（docs/04 §9）：本模块所有方法都**不 commit**，由调用方决定事务边界。
+事务纪律（docs/04 §9）：所有方法都不 ``commit()``，由调用方决定事务边界。
 """
 
 from __future__ import annotations
@@ -67,11 +67,11 @@ def truncate_long_strings(
     规则（docs/04 §5.9）：任何超过 ``max_chars`` 的字符串值替换为
     ``{"__truncated__": true, "len": n}``；嵌套的 dict / list 逐层处理，
     非字符串标量原样返回。``ref``（如 ``"screenshot_id"``）是可选的上下文信息，
-    通用递归拿不到它，故不写这个键 —— 需要 ref 的调用方应先用 ``screenshot_id``
+    通用递归拿不到它，故不写这个键：需要 ref 的调用方应先用 ``screenshot_id``
     替换掉 base64 再交给仓储。
 
     入参是 ``None`` 或空容器时也安全：``arguments`` 是 NOT NULL 列，``None``
-    会在 flush 时被数据库拒绝，这里不做类型校验（那是调用方的契约）。
+    会在 flush 时被数据库拒绝，仓储不做类型校验（那是调用方的契约）。
     """
     if isinstance(value, str):
         if len(value) > max_chars:
@@ -111,8 +111,7 @@ class AuditRepository(BaseRepository):
         ``merge()``，**不修改入参**：调用方可能还要拿原始参数去执行/回显，
         审计的裁剪不该有这种副作用。
 
-        ``merge()``（而不是 ``add()``）的理由同 ``PipelineRepository.create``
-        （M2-07 实测）：入参保持 transient、字段永远可读。
+        ``merge()``（而不是 ``add()``）的理由同 ``PipelineRepository.create``：入参保持 transient、字段永远可读。
         """
         sanitized = audit.model_copy(
             update={
@@ -127,7 +126,7 @@ class AuditRepository(BaseRepository):
     async def get(self, audit_id: int) -> AgentAudit | None:
         """按主键取一条审计；不存在返回 ``None``。
 
-        审计是只追加表，没有 UPDATE 路径，所以这里不需要 ``populate_existing``。
+        审计是只追加表，没有 UPDATE 路径，所以不需要 ``populate_existing``。
         """
         return await self.session.get(AgentAudit, audit_id)
 
@@ -225,7 +224,7 @@ class ConfirmationRepository(BaseRepository):
 
         ``populate_existing=True``：:meth:`resolve` / :meth:`expire_overdue` 都走
         Core ``UPDATE``（``expire_overdue`` 为批量还显式关了
-        ``synchronize_session``），不刷新会返回身份映射里的陈旧实例（M2-08 实测）。
+        ``synchronize_session``），不刷新会返回身份映射里的陈旧实例。
         """
         return await self.session.get(
             Confirmation, confirmation_id, populate_existing=True
@@ -311,7 +310,7 @@ class ConfirmationRepository(BaseRepository):
         扫描任务处理），``resolved_at`` 用传入的 ``now``（扫描任务的判定时刻，
         不是每条各自的 ``expires_at``）。
 
-        ``synchronize_session=False`` 让批量更新不逐个同步身份映射（M2-08 纪律）；
+        ``synchronize_session=False`` 让批量更新不逐个同步身份映射；
         同一会话里要读这些记录的**真值**请走 :meth:`get`（它刷新），不要直接读
         手里的旧实例。
         """

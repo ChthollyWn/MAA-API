@@ -991,7 +991,7 @@ def test_existing_core_crashed_row_still_schedules_pipeline_incident(runner_env,
             stored = await session.get(Pipeline, pipeline.id)
             stored.status = PipelineStatus.FAILED
             stored.error_code = ErrorCode.CORE_CRASHED
-            stored.error_message = "MaaCore 子进程中断，流水线已停止"
+            stored.error_message = "内核中断，流水线已停止"
             await session.commit()
         runner, asst, _core = make()
         runner._active = type(
@@ -1152,7 +1152,7 @@ def test_runner_release_failure_does_not_rewrite_terminal_result(
         async with factory() as session:
             stored_pipeline = await session.get(Pipeline, pipeline.id)
             assert stored_pipeline.status == PipelineStatus.COMPLETED
-        assert "清理 Copilot snapshot 失败" in caplog.text
+        assert "清理 Copilot 临时文件失败" in caplog.text
         core.snapshot_path.unlink(missing_ok=True)
         core.snapshot_path.parent.rmdir()
         await runner.stop()
@@ -1220,7 +1220,7 @@ def test_completed_pipeline_notifies_readable_terminal_status(runner_env) -> Non
 
         assert [event for event, _payload in notify.events] == ["pipeline_completed"]
         _event, payload = notify.events[0]
-        assert payload["title"] == "任务执行完成"
+        assert payload["title"] == "流水线完成"
         assert payload["pipeline_id"] == pipeline.id
         assert payload["pipeline_status"] == "completed"
         assert payload["tasks"] == ["Copilot 作业"]
@@ -1259,13 +1259,14 @@ def test_failed_pipeline_notifies_reason_and_error_code(runner_env) -> None:
 
         assert [event for event, _payload in notify.events] == ["pipeline_failed"]
         _event, payload = notify.events[0]
-        assert payload["title"] == "任务执行失败"
+        assert payload["title"] == "流水线失败"
         assert payload["pipeline_status"] == "failed"
         assert payload["error_code"] == ErrorCode.RESOURCE_ASSET_NOT_FOUND.value
         assert payload["failed_tasks"] == 1
         assert "0/1 成功" in payload["message"]
         assert f"失败原因：{payload['error_message']}" in payload["message"]
-        assert f"（{payload['error_code']}）" in payload["message"]
+        # 错误码只留在 payload 里，不进通知正文。
+        assert payload["error_code"] not in payload["message"]
 
         await runner.stop()
         asst.stop()
@@ -1333,7 +1334,7 @@ def test_replayed_terminal_write_notifies_once(runner_env) -> None:
 
         assert [event for event, _payload in notify.events] == ["pipeline_completed"]
         _event, payload = notify.events[0]
-        assert payload["title"] == "任务执行完成：睡前日常"
+        assert payload["title"] == "流水线完成：睡前日常"
         assert payload["source"] == "scheduled"
         assert payload["duration_seconds"] == 42
         assert payload["message"] == "用时：42 秒"
@@ -1378,7 +1379,7 @@ def test_notification_failure_does_not_break_the_terminal_write(
             )
 
         assert runner._notify_tasks == set()
-        assert "流水线终态通知后台任务失败" in caplog.text
+        assert "流水线终态通知发送失败" in caplog.text
         async with factory() as session:
             stored = await session.get(Pipeline, "pipeline-notify-broken")
         assert stored.status == PipelineStatus.FAILED
@@ -1467,7 +1468,7 @@ def test_pipeline_notification_payload_truncates_long_task_lists() -> None:
         status=PipelineStatus.FAILED,
         task_count=8,
         error_code=ErrorCode.CORE_CRASHED,
-        error_message="MaaCore 子进程中断，流水线已停止",
+        error_message="内核中断，流水线已停止",
         started_at=utcnow() - timedelta(hours=1, minutes=5),
         finished_at=utcnow(),
     )
@@ -1498,16 +1499,14 @@ def test_pipeline_notification_payload_truncates_long_task_lists() -> None:
     event, payload = build_pipeline_notification(pipeline, tasks)
 
     assert event == "pipeline_failed"
-    assert payload["title"] == "任务执行失败"
+    assert payload["title"] == "流水线失败"
     assert payload["tasks"][-1] == "UnknownTask"
     assert "开始唤醒、刷理智、自动公招、基建换班、获取信用及购物、领取奖励" in payload["message"]
     assert "等 8 项" in payload["message"]
     assert "结果：7/8 成功，1 项失败" in payload["message"]
     assert payload["duration"] == "1 小时 5 分"
     assert payload["duration_seconds"] == 3900
-    assert payload["message"].splitlines()[-1] == (
-        f"失败原因：MaaCore 子进程中断，流水线已停止（{ErrorCode.CORE_CRASHED}）"
-    )
+    assert payload["message"].splitlines()[-1] == "失败原因：内核中断，流水线已停止"
 
     # 崩溃抢占：数据库行已经改写为失败，而调用点手上还是「完成」。
     pipeline.status = PipelineStatus.COMPLETED

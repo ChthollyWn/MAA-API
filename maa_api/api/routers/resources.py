@@ -97,7 +97,7 @@ def _resource_root() -> Path:
 def _resource_error() -> AppError:
     return AppError(
         ErrorCode.RESOURCE_LOAD_FAILED,
-        "无法读取 MaaCore 物品索引",
+        "读不到物品索引，请确认资源目录完整后重试",
         {"resource": "item_index.json"},
     )
 
@@ -199,8 +199,9 @@ def _load_index() -> tuple[Path, tuple[_Item, ...]]:
     response_model=list[ItemOut],
     summary="列出 Fight.drops 可用物品",
     description=(
-        "读取当前 MaaCore `resource/item_index.json` 并按名称、物品 ID 稳定排序。"
-        "`icon_url` 指向同源图片端点；对应图片不可用时为 `null`。索引缺失或无效时返回统一 API 错误。"
+        "列出当前内核物品索引里的物品，按名称与物品 ID 稳定排序。\n\n"
+        "- `icon_url` 指向同源图片端点，对应图片不可用时为 `null`\n"
+        "- 索引缺失或无效时返回 `RESOURCE_LOAD_FAILED`"
     ),
     responses=error_responses("RESOURCE_LOAD_FAILED"),
 )
@@ -225,7 +226,8 @@ async def list_items() -> list[ItemOut]:
     response_model=CopilotAssetPageOut,
     summary="列出已保存的 Copilot 作业",
     description=(
-        "返回已校验作业的元数据，不包含作业 JSON 内容；供流水线和 schedule 编辑器选择 asset_id。"
+        "返回已校验作业的元数据，不含作业 JSON 内容；"
+        "供流水线与定时任务编辑器选择 `asset_id`。"
     ),
     responses=error_responses("SERVICE_UNAVAILABLE", "UNAUTHORIZED"),
 )
@@ -237,7 +239,7 @@ async def list_copilot_assets(
 ) -> dict[str, Any]:
     service = getattr(request.app.state, "resource_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "资源服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "资源功能还在启动中，请稍后重试")
     return await service.list_copilots(page=page, size=size, q=q)
 
 
@@ -245,7 +247,7 @@ async def list_copilot_assets(
     "/items/icon",
     response_class=FileResponse,
     summary="读取索引中物品的图标",
-    description="只返回 item_index.json 中登记且位于 `resource/template/items` 的 PNG 图标。",
+    description="返回物品索引中该物品的 PNG 图标；索引里没有该物品或图标文件缺失时返回 `RESOURCE_ASSET_NOT_FOUND`。",
     responses={
         **error_responses("RESOURCE_ASSET_NOT_FOUND", "RESOURCE_LOAD_FAILED"),
         200: {"description": "Successful Response", "content": {"image/png": {}}},
@@ -260,6 +262,6 @@ async def get_item_icon(item_id: str = Query(..., min_length=1)) -> FileResponse
     if icon_path is None:
         raise AppError(
             ErrorCode.RESOURCE_ASSET_NOT_FOUND,
-            "物品不存在或没有可用图标",
+            "物品不存在或没有可用图标，请核对物品 ID 或刷新物品列表",
         )
     return FileResponse(icon_path, media_type="image/png")

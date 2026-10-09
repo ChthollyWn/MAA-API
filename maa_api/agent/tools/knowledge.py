@@ -1,6 +1,6 @@
-"""Agent 知识库读取工具（M18，规格 §4.1）。
+"""Agent 知识库读取工具（规格 §4.1）。
 
-只有这一个工具：Agent 没有任何写知识库的通道 —— 内容由持有访问令牌的人在设置页
+只有这一个工具：Agent 没有任何写知识库的通道：内容由持有访问令牌的人在设置页
 里维护（信任边界见 ``maa_api.agent.knowledge`` 的模块文档）。
 """
 
@@ -35,9 +35,8 @@ def register_tools(registry: ToolRegistry) -> None:
             group="knowledge",
             risk=ToolRisk.SAFE,
             description=(
-                "读取一条知识条目的全文（操作剧本、界面知识、规则、术语表或用户档案）。"
-                "系统消息里的知识库索引给出条目 id 与适用场景；用户的问题与其中一条相关时，"
-                "先用本工具读取全文再行动。"
+                "读一条知识条目的全文，里面是操作剧本、界面位置、规则和术语。"
+                "系统消息里的索引条目和用户的问题相关时，先读全文再行动。"
             ),
             params_model=ReadKnowledgeParams,
             handler=read_knowledge,

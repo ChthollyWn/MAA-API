@@ -9,7 +9,7 @@ Web Push 的 ``Authorization`` 头需要一份 ES256 签名的 JWT：
 
 与 :mod:`maa_api.services.webpush_crypto` 一样只用 ``cryptography``：``ec`` 的
 ECDSA 签名给的是 DER 编码，而 JWS 要的是 64 octet 的 ``R || S`` 定长拼接，
-两者必须显式转换 —— 直接把 DER 结果塞进 JWT 会得到一个签名永远验不过的 token。
+两者必须显式转换：直接把 DER 结果塞进 JWT 会得到一个签名永远验不过的 token。
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def sign_vapid_token(
     """为指定 endpoint origin 签一份 ES256 JWT。
 
     ``audience`` 必须是推送服务的 origin（``scheme://host[:port]``）而不是完整
-    endpoint —— RFC 8292 §2 规定 ``aud`` 取 origin，取错会被推送服务以 401/403 拒绝。
+    endpoint：RFC 8292 §2 规定 ``aud`` 取 origin，取错会被推送服务以 401/403 拒绝。
     """
     if not audience:
         raise ValueError("VAPID 的 aud 不能为空")

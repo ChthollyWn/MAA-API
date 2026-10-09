@@ -1,13 +1,13 @@
 """``log_entry`` 与 ``screenshot`` 两个仓储（docs/04 §5.3、§5.4、§6、§9、§10.4）。
 
-日志侧的三条硬约束（写错任何一条都会在 M4/M5 才暴雷）：
+日志侧的三条硬约束：
 
 - **``created_at`` 是事件时间。** ``LogHub`` 攒批刷盘，入库比事件晚几百毫秒，
   所以 ``bulk_insert`` 原样写入调用方构造时给出的时间戳（IPC 事件的 ``ts``），
-  绝不在这里用 ``INSERT`` 时刻覆盖（docs/04 §5.3）。
+  不用 ``INSERT`` 时刻覆盖（docs/04 §5.3）。
 - **``query(after_id=...)`` 是严格 ``id > after_id``。** ``log_entry.id`` 单调递增
   且兼作 WebSocket 续传游标，语义写成 ``>=`` 会让客户端反复收到同一条日志。
-- **``content`` 只放已格式化的正文，绝不放 base64 图像。** 截图先落 ``screenshot``
+- **``content`` 只放已格式化的正文，不放 base64 图像。** 截图先落 ``screenshot``
   表，日志里只带 ``meta.screenshot_id``（docs/04 §5.3）；仓储不做内容校验，
   这是调用方的纪律。
 
@@ -20,10 +20,10 @@
   分批删除就失去意义。
 - :class:`ScreenshotRepository` 的写入方法（``create`` / ``mark_deleted`` /
   ``purge_before``）与 ``PipelineRepository`` 一致**不 commit**，由清理服务
-  （M2-12）决定事务边界；``bulk_insert`` / ``purge`` 会顺带提交同一会话里调用方
+  决定事务边界；``bulk_insert`` / ``purge`` 会顺带提交同一会话里调用方
   尚未提交的其他写入，所以调用方要给日志与清理任务各自开独立会话
   （``db/session.py`` 的会话纪律：后台任务各自开新会话）。
-- 读方法一律不 commit。
+- 读方法不 commit。
 """
 
 from collections.abc import Sequence
@@ -62,7 +62,7 @@ class LogRepository(BaseRepository):
         ``created_at`` 原样使用入参（事件时间），缺省才由模型 ``default_factory``
         补 ``utcnow()``。
 
-        空序列直接返回 0，不开启也不提交事务 —— 刷盘循环最后一个不满批的队列
+        空序列直接返回 0，不开启也不提交事务：刷盘循环最后一个不满批的队列
         不该顺带提交调用方会话里的其他写入。写入失败时回滚并原样抛出
         （外键失效等），会话保持可用，由 ``LogHub`` 决定丢弃还是重试。
         """
@@ -208,7 +208,7 @@ class LogRepository(BaseRepository):
         sources: Sequence[LogSource] | None = None,
         before: datetime | None = None,
     ) -> int:
-        """Delete matching history in its own transaction (M4 history endpoint)."""
+        """Delete matching history in its own transaction."""
         if sources is None and before is None:
             raise ValueError("at least one deletion condition is required")
         conditions: list[Any] = []
@@ -236,11 +236,11 @@ class LogRepository(BaseRepository):
         两个维度取更严格的一方：先删 ``created_at < before`` 的（第一维），
         再对剩余记录按 ``id`` 升序删到 ``keep_max`` 条以内（第二维，防「一次异常
         刷了几十万行」的突发）。每批最多 :data:`PURGE_BATCH_SIZE` 行，批内用
-        子查询 ``ORDER BY ... LIMIT`` 表达 —— SQLite 默认没开
-        ``SQLITE_ENABLE_UPDATE_DELETE_LIMIT``（本机实测编译选项里没有），
+        子查询 ``ORDER BY ... LIMIT`` 表达：SQLite 默认没开
+        ``SQLITE_ENABLE_UPDATE_DELETE_LIMIT``（本机编译选项里没有），
         ``DELETE ... LIMIT`` 不可用。
 
-        调用方（M2-12 的清理服务）按 docs/04 §10.4 循环调用直到返回 0，中间
+        调用方按 docs/04 §10.4 循环调用直到返回 0，中间
         ``await asyncio.sleep()`` 让出写锁；本方法每次调用都提交，正是为了让
         写锁在批与批之间真正释放。
         """
@@ -306,12 +306,12 @@ class LogRepository(BaseRepository):
 
 
 class ScreenshotRepository(BaseRepository):
-    """截图归档记录的读写；文件本体归 M2-12 的保留策略管理。
+    """截图归档记录的读写；文件本体归保留策略管理。
 
     ``path`` 是相对 ``resource/`` 的相对路径（按日期分目录），仓储只存字符串、
     不拼绝对路径、不碰文件系统；``deleted_at`` 非空表示文件已被清理但**记录保留**
     （docs/04 §5.4），接口据此返回 ``410 SCREENSHOT_EXPIRED``（docs/05 §6.2）。
-    本类所有方法都不 commit。
+    ``ScreenshotRepository`` 的方法都不 commit。
     """
 
     async def create(self, screenshot: Screenshot) -> Screenshot:
@@ -319,7 +319,7 @@ class ScreenshotRepository(BaseRepository):
 
         与 ``PipelineRepository.create`` 的 ``merge()`` 不同：``Screenshot.id``
         由 ``default_factory=new_uuid`` 在客户端生成，``merge()`` 那次 SELECT 纯属
-        多余，而且会把一句 INSERT 变成读写升级——并发写下更容易撞上
+        多余，而且会把一句 INSERT 变成读写升级：并发写下更容易撞上
         ``database is locked``（docs/13 §8.32）。代价是**入参会成为会话管理的
         持久化实例**：调用方要用返回值，并在提交前读取需要的字段
         （``expire_on_commit=True`` 的会话提交后再读会触发异步懒加载）。
@@ -384,7 +384,7 @@ class ScreenshotRepository(BaseRepository):
 
     async def list_older_than(self, cutoff: datetime) -> list[Screenshot]:
         """``created_at < cutoff`` 且**文件还在**（``deleted_at IS NULL``）的记录，
-        按 ``created_at`` 升序 —— 给保留策略按「最旧优先」删文件用（docs/04 §10.3）。
+        按 ``created_at`` 升序：给保留策略按「最旧优先」删文件用（docs/04 §10.3）。
 
         已打 ``deleted_at`` 的不再返回：文件已经删过一次，重复删是无意义 IO，
         也会让「超过大小上限」的循环反复处理同一批记录。
@@ -413,8 +413,8 @@ class ScreenshotRepository(BaseRepository):
 
         条件里带 ``deleted_at IS NULL``：重复标记同一 id 返回 0 且不刷新时间戳
         （``deleted_at`` 是「文件何时被清理」的事实，重写会把它变成「最后一次
-        调用清理任务的时间」）。空 id 列表直接返回 0。**不 commit** —— 文件删除
-        与打标记由清理服务决定提交时机（M2-12）。
+        调用清理任务的时间」）。空 id 列表直接返回 0。**不 commit**：文件删除
+        与打标记由清理服务决定提交时机。
         """
         targets = [screenshot_id for screenshot_id in ids if screenshot_id]
         if not targets:
@@ -432,7 +432,7 @@ class ScreenshotRepository(BaseRepository):
         记录本身随流水线的保留策略一起清理（docs/04 §10.3）：文件保留 7 天、
         记录跟着 90 天的流水线历史走。调用方必须先用
         :meth:`list_older_than` + :meth:`mark_deleted` 处理完文件再调本方法，
-        否则记录先没了、文件就成了永远找不到的孤儿；这里不替调用方做顺序决策，
+        否则记录先没了、文件就成了找不到的孤儿；仓储不替调用方做顺序决策，
         只按给定的 cutoff 删记录。
         """
         result = await self.session.execute(

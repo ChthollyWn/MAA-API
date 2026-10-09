@@ -1,24 +1,23 @@
-"""AsstProtocol —— MaaCore 实例的能力契约（docs/03 §8 测试策略）。
+"""AsstProtocol：MaaCore 实例的能力契约（docs/03 §8 测试策略）。
 
-worker 只依赖本协议，不依赖具体实现（``maa_api/core/asst.py`` 的 ``Asst``）；
-测试时注入 ``tests.fakes.fake_asst.FakeAsst``，执行层、日志汇聚、重试与超时
-逻辑即可在没有 MaaCore、没有真机的环境下运行。
+worker 只依赖本协议，不依赖具体实现（``maa_api/core/asst.py`` 的 ``Asst``）；测试时注入
+``tests.fakes.fake_asst.FakeAsst``，执行层、日志汇聚、重试与超时逻辑即可在没有 MaaCore、
+没有真机的环境下运行。
 
 约定：
 
-- 用 ``typing.Protocol`` + ``@runtime_checkable``；运行期 ``isinstance`` 只检查成员
-  是否存在，不做签名级校验，签名由本文件与类型检查器约束。
-- 方法名、参数名、``staticmethod`` 标注与 ``maa_api/core/asst.py`` 的 ``Asst``
-  逐一对齐，M1-05 的结构一致性契约测试会双向校验。
-- ``call`` 是 worker 命令循环的通用分发入口。M1-04 的 ``Asst`` 是 ctypes 薄封装、
-  没有这个方法（真正提供它的是 ``FakeAsst`` 与 M1-07 的 worker），因此它声明为
-  ``Callable`` 属性而不是方法：既保住「协议方法 ⊆ Asst 公开方法」的结构契约，
-  又让运行期 ``isinstance`` 继续要求实现方提供 ``call``。
-- 类属性 ``__init__`` 是 typing 注入的「协议不可实例化」守卫，不属于协议方法
-  集合；这里换成等价的守卫对象，避免它污染上面的按名对齐检查（它不是 ``Asst``
-  的公开方法，却会被 ``vars()`` 当成协议方法）。
-- 枚举以 ``maa_api/core/enums.py`` 为唯一事实来源；``maa_api/model/util/utils.py``
-  是待删的旧模块，本文件不再引用。
+- 用 ``typing.Protocol`` + ``@runtime_checkable``；运行期 ``isinstance`` 只检查成员是否
+  存在，不做签名级校验，签名由本文件与类型检查器约束。
+- 方法名、参数名、``staticmethod`` 标注与 ``Asst`` 逐一对齐，结构一致性契约测试会双向
+  校验。
+- ``call`` 是 worker 命令循环的通用分发入口。``Asst`` 是 ctypes 薄封装、没有这个方法
+  （真正提供它的是 ``FakeAsst`` 与 worker），因此声明为 ``Callable`` 属性而不是方法：
+  既保住「协议方法 ⊆ Asst 公开方法」的结构契约，又让运行期 ``isinstance`` 继续要求实现方
+  提供 ``call``。
+- 类属性 ``__init__`` 是 typing 注入的「协议不可实例化」守卫，不属于协议方法集合；这里换
+  成等价的守卫对象，避免它污染按名对齐检查（它不是 ``Asst`` 的公开方法，却会被 ``vars()``
+  当成协议方法）。
+- 枚举以 ``maa_api/core/enums.py`` 为唯一事实来源。
 """
 
 from __future__ import annotations
@@ -45,7 +44,7 @@ JSON = Union[dict[str, Any], list[Any], int, float, str, bool, None]
 AsyncCallInfo = Message.AsyncCallInfo
 """异步调用结果所在的消息类型（msg=4）。
 
-``connect_async`` / ``click`` / ``screencap`` 的成败只能认它（M1-01 真机实测）：
+``connect_async`` / ``click`` / ``screencap`` 的成败只能认它：
 
 - 关联键 ``async_call_id`` 在回调 JSON **顶层**，与方法的返回值相等；
 - 成功标志取 ``details.details.ret`` —— 从回调记录 / IPC 事件对象看的双层路径
@@ -64,9 +63,9 @@ class _ProtocolMemberPlaceholder:
     ``call``，都不该被「按名对齐 Asst 公开方法」的检查当成方法：占位对象让
     ``inspect.isfunction`` / ``staticmethod`` 检查掠过它们，同时保持两个能力：
 
-    - ``callable()`` 为真 —— ``@runtime_checkable`` 据此把它们当方法成员，
+    - ``callable()`` 为真：``@runtime_checkable`` 据此把它们当方法成员，
       ``issubclass()`` 不会被禁用；
-    - 出现在 ``vars(AsstProtocol)`` 里 —— 运行期 ``isinstance`` 与契约测试
+    - 出现在 ``vars(AsstProtocol)`` 里：运行期 ``isinstance`` 与契约测试
       据此确认成员存在。
     """
 
@@ -197,8 +196,8 @@ class AsstProtocol(Protocol):
     def get_version(self) -> str:
         """获取 MaaCore 版本号。"""
 
-    #: 通用分发入口：``call(method, *args, **kwargs)`` —— 按名字调用上面声明的方法，
-    #: 供 worker 的命令循环使用。声明成 ``Callable`` 属性而非方法的原因见模块 docstring。
+    #: 通用分发入口：``call(method, *args, **kwargs)``，按名字调用上面声明的方法，
+    #: 供 worker 的命令循环使用；``Asst`` 没有这个方法，因此声明成属性。
     call: Callable[..., Any] = _ProtocolMemberPlaceholder(
         "AsstProtocol.call 只是分发入口的声明；实现由 FakeAsst / worker 提供"
     )

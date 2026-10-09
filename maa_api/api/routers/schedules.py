@@ -34,7 +34,7 @@ class ScheduleRunAccepted(BaseModel):
 def _service(request: Request) -> ScheduleService:
     service = getattr(request.app.state, "schedule_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "定时任务服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "定时任务功能还在启动中，请稍后重试")
     return service
 
 

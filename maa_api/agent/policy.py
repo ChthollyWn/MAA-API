@@ -195,7 +195,7 @@ def _atomic_confirmation(name: str) -> PolicyDecision:
     return PolicyDecision(
         True,
         RiskLevel.NONE,
-        reasons=(f"{name} 是绕过 MaaCore 识别与容错的原子操作",),
+        reasons=(f"{name} 是绕过内核识别与容错的原子操作",),
         confirmation_action=name,
     )
 

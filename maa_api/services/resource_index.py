@@ -1,12 +1,12 @@
-"""MaaCore 资源根、物品索引与图标路径（M23 媒体工具用）。
+"""MaaCore 资源根、物品索引与图标路径（媒体工具用）。
 
-**有意重复**：这里的资源根 / 物品索引 / 图标路径规则与
+资源根 / 物品索引 / 图标路径规则与
 :mod:`maa_api.api.routers.resources` 里的私有实现（``_resource_root`` / ``_load_index``
-/ ``_icon_path``）是同一套规则的第二份拷贝 —— ``tests/api/test_resources_router.py``
+/ ``_icon_path``）是同一套规则的第二份拷贝：``tests/api/test_resources_router.py``
 直接 monkeypatch 那边的私有名与 ``_INDEX_CACHE``，把那份实现搬过来会破它的夹具。
 两处必须保持一致：改这里的解析规则，就要同步改 ``api/routers/resources.py``。
 
-与路由层的差别只有一处：本模块额外提供 :func:`iter_resource_roots`，按 MaaCore 的
+与路由层的差别只有一处：这里额外提供 :func:`iter_resource_roots`，按 MaaCore 的
 真实加载链（基础层 → ``maa-layers/cache`` → ``maa-layers/custom``）给出资源层顺序，
 供关卡 tile 数据这类需要跟随增量层的读取使用。
 """
@@ -76,7 +76,7 @@ def iter_resource_roots() -> list[Path]:
     """按 MaaCore 的真实加载链给出资源层，**基础层在前、增量层在后**。
 
     后写的层覆盖先写的层，所以「哪一份生效」要用**反向遍历**（后面的先看）。目录不
-    存在是常态（增量层只在资源更新后才有），本函数不检查存在性，调用方自己容忍。
+    存在是常态（增量层只在资源更新后才有），不检查存在性，调用方自己容忍。
     """
     layers_root = REPO_ROOT / "resource" / "maa-layers"
     return [
@@ -132,7 +132,7 @@ def resolve_icon_path(item_id: str) -> Path:
     if icon_path is None:
         raise AppError(
             ErrorCode.RESOURCE_ASSET_NOT_FOUND,
-            "物品不存在或没有可用图标",
+            "物品不存在或没有可用图标，请确认名称后重试",
         )
     return icon_path
 
@@ -140,7 +140,7 @@ def resolve_icon_path(item_id: str) -> Path:
 def _resource_error() -> AppError:
     return AppError(
         ErrorCode.RESOURCE_LOAD_FAILED,
-        "无法读取 MaaCore 物品索引",
+        "无法读取内核物品索引，请重新加载资源后再试",
         {"resource": "item_index.json"},
     )
 

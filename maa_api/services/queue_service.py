@@ -1,4 +1,4 @@
-"""Persistent, priority-ordered pipeline queue (docs/02 §5, docs/12 M5)."""
+"""Persistent, priority-ordered pipeline queue (docs/02 §5)."""
 
 from __future__ import annotations
 
@@ -88,17 +88,19 @@ class QueueService:
         an existing row rather than creating a new one.
         """
         if not payload.tasks:
-            raise AppError(ErrorCode.PIPELINE_EMPTY, "流水线至少要包含一个任务")
+            raise AppError(
+                ErrorCode.PIPELINE_EMPTY, "流水线至少要包含一个任务，请添加后重新提交"
+            )
         if len(payload.tasks) > 32:
             raise AppError(
                 ErrorCode.PIPELINE_TOO_MANY_TASKS,
-                "单条流水线最多包含 32 个任务",
+                "单条流水线最多包含 32 个任务，请拆成多条提交",
                 {"task_count": len(payload.tasks), "maximum": 32},
             )
         if idempotency_key is not None and not 1 <= len(idempotency_key) <= 64:
             raise AppError(
                 ErrorCode.INVALID_PARAMETER,
-                "Idempotency-Key 长度必须为 1 到 64 个字符",
+                "Idempotency-Key 长度必须在 1 到 64 个字符之间，请调整后重试",
             )
 
         source = PipelineSource(source)
@@ -140,7 +142,7 @@ class QueueService:
                             else:
                                 raise AppError(
                                     ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
-                                    "Idempotency-Key 已用于不同的流水线请求",
+                                    "Idempotency-Key 已用于另一条流水线请求，请换一个或复用原请求",
                                     {"pipeline_id": existing.id},
                                 )
 
@@ -154,7 +156,7 @@ class QueueService:
                 if pending_count >= MAX_PENDING_PIPELINES:
                     raise AppError(
                         ErrorCode.QUEUE_FULL,
-                        f"待执行流水线已达到上限 {MAX_PENDING_PIPELINES}",
+                        f"待执行流水线已达到上限 {MAX_PENDING_PIPELINES}，请等待队列消化后再提交",
                         {"pending": pending_count, "maximum": MAX_PENDING_PIPELINES},
                         headers={"Retry-After": QUEUE_FULL_RETRY_AFTER},
                     )
@@ -208,7 +210,7 @@ class QueueService:
                                 return duplicate, True
                             raise AppError(
                                 ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
-                                "Idempotency-Key 已被另一请求占用",
+                                "Idempotency-Key 已被另一请求占用，请稍后重试",
                                 {"pipeline_id": duplicate.id if duplicate else None},
                             ) from None
                     raise
@@ -266,13 +268,13 @@ class QueueService:
             if pipeline is None:
                 raise AppError(
                     ErrorCode.PIPELINE_NOT_FOUND,
-                    "流水线不存在",
+                    "流水线不存在，请刷新列表",
                     {"pipeline_id": pipeline_id},
                 )
             if not await repo.set_priority(pipeline_id, priority):
                 raise AppError(
                     ErrorCode.QUEUE_ITEM_NOT_PENDING,
-                    "只有排队中的流水线可以调整优先级",
+                    "只有排队中的流水线可以调整优先级，请刷新列表确认状态",
                     {"pipeline_id": pipeline_id, "status": pipeline.status},
                 )
             await session.commit()

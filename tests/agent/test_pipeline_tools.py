@@ -440,8 +440,8 @@ def test_wait_pipeline_is_a_bounded_safe_read_only_tool() -> None:
     assert definition.risk is ToolRisk.SAFE
     assert definition.read_only is True
     assert definition.description == (
-        "等待指定流水线结束（完成、失败或取消）或超时，返回终态与各任务状态。"
-        "提交流水线后需要等结果时使用，不要反复调用 get_pipeline。"
+        "等一条流水线结束（完成、失败或取消）或超时再拿结果。"
+        "提交流水线后需要等结果时用，不要反复调用 get_pipeline。"
     )
 
     assert registry.validate("wait_pipeline", {"pipeline_id": "pipeline-1"}).timeout_seconds == 300

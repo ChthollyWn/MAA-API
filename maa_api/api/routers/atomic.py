@@ -1,4 +1,4 @@
-"""Immediate MaaCore actions guarded against pipeline interference (M5)."""
+"""立即执行的 MaaCore 动作，与流水线互斥。"""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def _device_manager(request: Request) -> Any:
     """设备管理器取值与 ``device.py`` 同契约（SERVICE_UNAVAILABLE 而非 500）。"""
     manager = getattr(request.app.state, "device_manager", None)
     if manager is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "设备管理服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "设备管理功能还在启动中，请稍后重试")
     return manager
 
 

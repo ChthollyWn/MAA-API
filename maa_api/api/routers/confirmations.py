@@ -23,7 +23,7 @@ class ResolveRequest(BaseModel):
 def _service(request: Request):
     service = getattr(request.app.state, "confirmation_service", None)
     if service is None:
-        raise AppError(ErrorCode.AGENT_DISABLED, "确认服务尚未启动")
+        raise AppError(ErrorCode.AGENT_DISABLED, "确认功能还在启动中，请稍后重试")
     return service
 
 
@@ -40,7 +40,7 @@ async def list_confirmations(
     size: int = Query(default=20),
 ) -> dict:
     if page < 1 or size < 1 or size > 200:
-        raise AppError(ErrorCode.INVALID_PAGINATION, "page 必须大于 0，size 必须为 1–200")
+        raise AppError(ErrorCode.INVALID_PAGINATION, "page 不能小于 1，size 需在 1–200 之间")
     return await _service(request).list(status=status, page=page, size=size)
 
 

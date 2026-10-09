@@ -213,7 +213,7 @@ def _validate_template(template: list[dict[str, Any]], priority: int) -> Pipelin
         ]
         raise AppError(
             ErrorCode.TASK_PARAM_INVALID,
-            "定时任务模板参数校验失败",
+            "定时任务模板参数校验失败，请检查参数后重试",
             {"issues": issues},
         ) from exc
 
@@ -247,7 +247,7 @@ class ScheduleService:
     def _cron_error(cron: str, timezone_name: str) -> AppError:
         return AppError(
             ErrorCode.SCHEDULE_CRON_INVALID,
-            "cron 必须是有效的五段标准表达式，时区须为 IANA 名称",
+            "cron 必须是有效的五段标准表达式，时区须为 IANA 名称，请检查后重试",
             {"cron": cron, "timezone": timezone_name},
         )
 
@@ -285,7 +285,9 @@ class ScheduleService:
             repo = ScheduleRepository(session)
             schedule = await repo.get(schedule_id)
             if schedule is None:
-                raise AppError(ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在")
+                raise AppError(
+                    ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在，请刷新列表"
+                )
             history = await PipelineRepository(session).list(
                 schedule_id=schedule.id, page=1, size=RECENT_RUNS_LIMIT
             )
@@ -313,7 +315,7 @@ class ScheduleService:
             if _name_conflict(exc):
                 raise AppError(
                     ErrorCode.SCHEDULE_NAME_CONFLICT,
-                    "已存在同名定时任务",
+                    "已存在同名定时任务，请换一个名称",
                     {"name": payload.name},
                 ) from exc
             raise
@@ -329,7 +331,9 @@ class ScheduleService:
                 repo = ScheduleRepository(session)
                 current = await repo.get(schedule_id)
                 if current is None:
-                    raise AppError(ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在")
+                    raise AppError(
+                        ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在，请刷新列表"
+                    )
                 current.name = payload.name
                 current.cron = payload.cron
                 current.timezone = payload.timezone
@@ -346,7 +350,7 @@ class ScheduleService:
             if _name_conflict(exc):
                 raise AppError(
                     ErrorCode.SCHEDULE_NAME_CONFLICT,
-                    "已存在同名定时任务",
+                    "已存在同名定时任务，请换一个名称",
                     {"name": payload.name},
                 ) from exc
             raise
@@ -358,7 +362,9 @@ class ScheduleService:
         async with self.session_factory() as session:
             current = await ScheduleRepository(session).get(schedule_id)
             if current is None:
-                raise AppError(ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在")
+                raise AppError(
+                    ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在，请刷新列表"
+                )
             values = {
                 "name": current.name,
                 "cron": changes.get("cron", current.cron),
@@ -377,7 +383,9 @@ class ScheduleService:
         async with self.session_factory() as session:
             deleted = await ScheduleRepository(session).delete(schedule_id)
             if not deleted:
-                raise AppError(ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在")
+                raise AppError(
+                    ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在，请刷新列表"
+                )
             await session.commit()
         self._remove(schedule_id)
 
@@ -390,7 +398,7 @@ class ScheduleService:
                 if await ScheduleRepository(session).has_unfinished(schedule.id):
                     raise AppError(
                         ErrorCode.PIPELINE_ALREADY_RUNNING,
-                        "该定时任务仍有未完成流水线，完成后再立即运行",
+                        "该定时任务还有未完成的流水线，请等它结束后再立即运行",
                         {"schedule_id": schedule.id},
                     )
         selected_priority = schedule.priority if priority is None else priority
@@ -417,7 +425,9 @@ class ScheduleService:
         async with self.session_factory() as session:
             schedule = await ScheduleRepository(session).get(schedule_id)
             if schedule is None:
-                raise AppError(ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在")
+                raise AppError(
+                    ErrorCode.SCHEDULE_NOT_FOUND, "定时任务不存在，请刷新列表"
+                )
             return schedule
 
     async def _register(self, schedule: Schedule) -> None:

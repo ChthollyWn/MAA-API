@@ -183,7 +183,7 @@ class UpdateService:
                 internal[target.value] = state
                 public[target.value] = await self._public_state(target, state)
             except Exception as exc:
-                logger.warning("update check failed for %s: %s", target.value, exc)
+                logger.warning("检查 %s 更新失败：%s", target.value, exc)
                 state = {"error": _error_message(exc), "available": None}
                 internal[target.value] = state
                 public[target.value] = await self._public_state(target, state)
@@ -197,7 +197,9 @@ class UpdateService:
         async with self.session_factory() as session:
             record = await UpdateRepository(session).get(update_id)
             if record is None:
-                raise AppError(ErrorCode.UPDATE_NOT_FOUND, "更新记录不存在")
+                raise AppError(
+                    ErrorCode.UPDATE_NOT_FOUND, "更新记录不存在，请刷新列表"
+                )
             return record
 
     async def list(
@@ -265,7 +267,7 @@ class UpdateService:
             self._lock.release()
             raise AppError(
                 ErrorCode.UPDATE_ALREADY_RUNNING,
-                "已有更新任务正在执行",
+                "已有更新任务正在执行，请等它结束后再试",
                 details={"target": selected.value},
             ) from exc
         except BaseException:
@@ -280,7 +282,7 @@ class UpdateService:
         if record.status != UpdateStatus.RUNNING or task is None or task.done():
             raise AppError(
                 ErrorCode.UPDATE_NOT_CANCELLABLE,
-                "该更新当前不能取消",
+                "该更新当前不能取消，请等它进入可取消的阶段",
                 details={"update_id": update_id, "status": str(record.status)},
             )
         current_phase = self._progress_state.get(
@@ -289,7 +291,7 @@ class UpdateService:
         if current_phase in {UpdatePhase.APPLYING.value, UpdatePhase.RESTARTING.value}:
             raise AppError(
                 ErrorCode.UPDATE_NOT_CANCELLABLE,
-                "更新已进入应用或重启阶段，不能取消",
+                "更新已进入应用或重启阶段，不能取消；请等更新完成",
                 details={"update_id": update_id, "phase": str(_value(record.phase))},
             )
         task.cancel()
@@ -305,7 +307,7 @@ class UpdateService:
         if original.status != UpdateStatus.FAILED:
             raise AppError(
                 ErrorCode.UPDATE_NOT_CANCELLABLE,
-                "只有失败的更新可以重试",
+                "只有失败的更新可以重试，请刷新列表确认状态",
                 details={"update_id": update_id, "status": str(original.status)},
             )
         try:
@@ -392,11 +394,11 @@ class UpdateService:
         try:
             await _call(self.broadcast, "update_available", payload)
         except Exception:
-            logger.exception("could not broadcast update_available")
+            logger.exception("无法广播可更新事件")
         try:
             await self._send_notification(payload)
         except Exception:
-            logger.exception("could not deliver update_available notification")
+            logger.exception("可更新通知发送失败")
         for item in fresh:
             notified[self._notification_key(item)] = self._fingerprint(item)
         await self._save_notification_state(notified)
@@ -422,7 +424,7 @@ class UpdateService:
                     try:
                         current = await _call(callback, workflow.core_client)
                     except Exception:
-                        logger.info("could not read the running MaaCore version before rollback")
+                        logger.info("回滚前无法读取正在运行的内核版本")
                 state = {"current": current, "latest": None, "available": True}
             elif (
                 target is UpdateTarget.RESOURCE
@@ -446,7 +448,7 @@ class UpdateService:
             ):
                 raise AppError(
                     ErrorCode.INVALID_PARAMETER,
-                    "只允许安装当前 stable 清单中的 MaaCore 版本",
+                    "只能安装当前 stable 清单中的内核版本，请从列表里选择",
                     {
                         "requested_version": str(requested_core_version),
                         "stable_version": state.get("latest"),
@@ -526,7 +528,7 @@ class UpdateService:
             finally:
                 raise
         except Exception as exc:
-            logger.exception("update %s failed", update_id)
+            logger.exception("更新 %s 失败", update_id)
             try:
                 record = await self.get(update_id)
                 await self._emit_progress(
@@ -541,7 +543,7 @@ class UpdateService:
                     error_message=_error_message(exc),
                 )
             except Exception:
-                logger.exception("could not persist failure for update %s", update_id)
+                logger.exception("无法保存更新 %s 的失败状态", update_id)
         finally:
             if self._current_id == update_id:
                 self._current_id = None
@@ -612,7 +614,7 @@ class UpdateService:
                         },
                     )
                     logger.warning(
-                        "resource OTA is current; optional channel errors: %s",
+                        "资源已是最新，可选渠道报错：%s",
                         "; ".join(message for _, message in errors),
                     )
                 return False
@@ -661,7 +663,7 @@ class UpdateService:
                 # archive must not discard a successfully staged OTA manifest.
                 if selected is ResourceChannel.OTA:
                     raise
-                logger.warning("resource %s stage failed: %s", selected.value, exc)
+                logger.warning("资源 %s 阶段失败：%s", selected.value, exc)
 
         if not staged:
             if stage_errors:
@@ -713,7 +715,7 @@ class UpdateService:
                 )
         if stage_errors:
             logger.warning(
-                "resource update completed partially; optional repo stage failed: %s",
+                "资源更新部分完成，可选的仓库阶段失败：%s",
                 "; ".join(str(error) for _, error in stage_errors),
             )
         if reload_mode == "defer":
@@ -892,7 +894,7 @@ class UpdateService:
                     "release": _field(result, "release"),
                 }
             except Exception as exc:
-                logger.info("MaaCore update check unavailable: %s", exc)
+                logger.info("暂时无法检查内核更新：%s", exc)
                 return {"current": None, "latest": None, "available": None, "error": _error_message(exc)}
 
         try:
@@ -910,7 +912,7 @@ class UpdateService:
                 try:
                     current = await _call(callback, workflow.core_client)
                 except Exception:
-                    logger.info("could not read the installed MaaCore version")
+                    logger.info("无法读取已安装的内核版本")
             return {
                 "current": current,
                 "latest": release.version,
@@ -918,7 +920,7 @@ class UpdateService:
                 "release": release,
             }
         except Exception as exc:
-            logger.info("MaaCore update check unavailable: %s", exc)
+            logger.info("暂时无法检查内核更新：%s", exc)
             return {"current": None, "latest": None, "available": None, "error": _error_message(exc)}
 
     async def _inspect_resources(self) -> dict[str, Any]:
@@ -1219,7 +1221,7 @@ class UpdateService:
         try:
             await _call(self.broadcast, "update_progress", payload)
         except Exception:
-            logger.exception("could not broadcast update progress")
+            logger.exception("无法广播更新进度")
         state["ws_at"] = now
         state["ws_phase"] = phase.value
         if percent is not None:
@@ -1239,7 +1241,7 @@ class UpdateService:
                 state["db_at"] = now
                 state["db_phase"] = phase.value
             except Exception:
-                logger.exception("could not persist update progress")
+                logger.exception("无法保存更新进度")
 
     async def _terminal(
         self,
@@ -1480,7 +1482,7 @@ class UpdateService:
                     path.unlink(missing_ok=True)
                     path.with_suffix(path.suffix + ".part").unlink(missing_ok=True)
             except OSError:
-                logger.warning("could not remove cancelled update temporary file %s", path)
+                logger.warning("无法删除已取消更新的临时文件 %s", path)
 
     async def _prune_expired_caches(self, target: UpdateTarget) -> None:
         """Remove only this target's inactive retry cache older than seven days."""
@@ -1525,7 +1527,7 @@ class UpdateService:
                     else:
                         entry.unlink()
                 except OSError:
-                    logger.warning("could not prune expired update cache %s", entry)
+                    logger.warning("无法清理过期的更新缓存 %s", entry)
 
     @staticmethod
     def _latest_mtime(path: Path) -> float:
@@ -1555,7 +1557,7 @@ class UpdateService:
             try:
                 runtime_token = await _call(self.resource_layers_loaded)
             except Exception:
-                logger.exception("could not identify active core for deferred resource marker")
+                logger.exception("无法确认待应用资源标记对应的内核")
         marker = str(runtime_token) if runtime_token else self._process_id
         async with self.session_factory() as session:
             repository = SettingRepository(session)
@@ -1586,7 +1588,7 @@ class UpdateService:
                     pending = False
                     await self._store_reload_pending(False)
             except Exception:
-                logger.exception("could not confirm resource layers were loaded")
+                logger.exception("无法确认资源层已加载")
         if self.resource_workflow is not None:
             setattr(self.resource_workflow, "reload_pending", pending)
         return pending

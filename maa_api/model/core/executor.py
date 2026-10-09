@@ -143,9 +143,9 @@ class PipelineExecutor:
                 )
 
                 if self.task_pipeline.status == TaskPipelineStatus.COMPLETED:
-                    smtp_service.send_email("MAA-API 任务全部完成通知", email_content)
+                    smtp_service.send_email("MAA-API 流水线完成通知", email_content)
                 else:
-                    smtp_service.send_email("MAA-API 任务执行失败通知", email_content)
+                    smtp_service.send_email("MAA-API 流水线失败通知", email_content)
 
                 self.task_pipeline.append_text_log("已发送邮件通知")
 

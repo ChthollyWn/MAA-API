@@ -1,57 +1,45 @@
-"""保留策略与后台清理（docs/04 §10、docs/12 M2）。
+"""保留策略与后台清理（docs/04 §10）。
 
-职责边界
---------
-本模块只做**清理**：按 docs/04 §10.2/§10.3 的分级策略删日志、流水线、截图文件与
-``<resource>/temp/screencap/`` 下的 IPC 中转图，每轮结束后做增量 vacuum。它**不**
-负责日志采集，也不负责 ``maacore_debug`` 的落库级别过滤（配置项
-``log.persist_maacore_debug_level``）—— 那是 ``LogHub`` 的职责（M4），本模块只对
-已经落库的数据执行保留策略（docs/04 §10.2）。
+只做清理：按 docs/04 §10.2/§10.3 的分级策略删日志、流水线、截图文件与
+``<resource>/temp/screencap/`` 下的 IPC 中转图，每轮结束后做增量 vacuum。不负责日志采集，
+也不负责 ``maacore_debug`` 的落库级别过滤（配置项 ``log.persist_maacore_debug_level``），
+那是 ``LogHub`` 的职责；这里只对已经落库的数据执行保留策略。
 
-接线方式（M3 的 lifespan）
---------------------------
-APScheduler 每天 :data:`RETENTION_CRON`（04:00）触发一次，另在应用启动后
-:data:`STARTUP_DELAY_SECONDS` 秒补跑一次，覆盖「长期停机后重启」的场景
-（docs/04 §10.4）。``run_retention`` 是普通协程，由调用方决定 job 的注册方式：
+接线方式：APScheduler 每天 :data:`RETENTION_CRON`（04:00）触发一次，另在应用启动后
+:data:`STARTUP_DELAY_SECONDS` 秒补跑一次，覆盖「长期停机后重启」的场景（docs/04 §10.4）。
+:func:`run_retention` 是普通协程，由调用方决定 job 的注册方式：
 
 .. code-block:: python
 
     scheduler.add_job(run_retention, CronTrigger.from_crontab(RETENTION_CRON), ...)
     scheduler.add_job(run_retention, "date", run_date=启动时刻 + 30 秒, ...)
 
-每次运行自行通过 ``session_factory`` 开新会话（后台任务不共享会话，docs/04 §2），
-异常**不吞**：清理失败要让 APScheduler 记下来，下一轮重试。
+每次运行自行通过 ``session_factory`` 开新会话（后台任务不共享会话，docs/04 §2），清理失败
+要让 APScheduler 记下来、下一轮重试，不吞异常。
 
-保留口径（数值都提到模块级常量，便于按运行数据回调）
-----------------------------------------------------
-- 日志（docs/04 §10.2）：``maa_task`` 30 天 / 300,000 条、``server`` 7 天 /
-  200,000 条、``maacore_debug`` 3 天 / 50,000 条。天数与条数两个维度同时生效，
-  取更严格的一方：先按天删，删完仍超上限就按 ``id`` 升序删到上限以内。
-- 流水线（docs/04 §10.3）：90 天或最近 500 条，先触发者生效；``task`` 随外键
-  级联，``log_entry`` / ``screenshot`` 的关联字段置 NULL 后各由自己的策略处理，
-  不保留墓碑记录。
-- 截图（docs/04 §10.3）：文件保留 7 天，并受总大小上限（默认 512 MB）约束；
-  超限时按 ``created_at`` 升序删文件并给记录打 ``deleted_at``，记录本身跟着
-  90 天的流水线历史清理（``ScreenshotRepository.purge_before``）。
-- IPC 中转图：``<resource>/temp/screencap/`` 下 mtime 超过 1 小时的文件，直接删，
-  不进 ``screenshot`` 表（docs/02 §3.3）。
+保留口径（数值都提到模块级常量，便于按运行数据回调）：
 
-分批与空间回收（docs/04 §10.4）
---------------------------------
+- 日志（docs/04 §10.2）：``maa_task`` 30 天 / 300,000 条、``server`` 7 天 / 200,000 条、
+  ``maacore_debug`` 3 天 / 50,000 条。天数与条数两个维度同时生效，取更严格的一方：先按天
+  删，删完仍超上限就按 ``id`` 升序删到上限以内。
+- 流水线（docs/04 §10.3）：90 天或最近 500 条，先触发者生效；``task`` 随外键级联，
+  ``log_entry`` / ``screenshot`` 的关联字段置 NULL 后各由自己的策略处理，不保留墓碑记录。
+- 截图（docs/04 §10.3）：文件保留 7 天，并受总大小上限（默认 512 MB）约束；超限时按
+  ``created_at`` 升序删文件并给记录打 ``deleted_at``，记录本身跟着 90 天的流水线历史清理
+  （``ScreenshotRepository.purge_before``）。
+- IPC 中转图：``<resource>/temp/screencap/`` 下 mtime 超过 1 小时的文件直接删，不进
+  ``screenshot`` 表（docs/02 §3.3）。
+
 删十万行的一条 DELETE 会长时间持有 SQLite 写锁，期间 ``LogHub`` 刷盘只能在
-``busy_timeout`` 上排队。因此：日志走 ``LogRepository.purge``（内部每批
-``LIMIT 5000``、每批自成事务），服务层再按 docs/04 §10.4 的 ``while True`` 循环
-反复调用，非零轮之间 ``await asyncio.sleep(BATCH_PAUSE_SECONDS)`` 让出写锁；
-截图文件也按 ``SCREENSHOT_FILE_BATCH_SIZE`` 分批。空间回收只做增量 vacuum
-``PRAGMA incremental_vacuum(1000)``（依赖初始迁移设好的
-``auto_vacuum=INCREMENTAL``，M2-01 实测落点见 ``db/migrations/env.py``）；完整
-``VACUUM`` 需要重写整库并独占，只作为设置页的手动维护操作，不进自动任务。
-
-文件路径约定
-------------
-``screenshot.path`` 是相对 ``resource/`` 的相对路径（docs/04 §5.4），而
-``resource/`` 由 ``session.DB_PATH`` 的父目录推导（不硬编码 ``resource/``），
-测试把 ``session.DB_PATH`` 指到 tmp 目录即可整库整目录隔离。
+``busy_timeout`` 上排队。因此日志走 ``LogRepository.purge``（内部每批 ``LIMIT 5000``、
+每批自成事务），服务层再按 docs/04 §10.4 的 ``while True`` 循环反复调用，非零轮之间
+``await asyncio.sleep(BATCH_PAUSE_SECONDS)`` 让出写锁；截图文件也按
+:data:`SCREENSHOT_FILE_BATCH_SIZE` 分批。空间回收只做增量 vacuum
+``PRAGMA incremental_vacuum(1000)``（依赖初始迁移设好的 ``auto_vacuum=INCREMENTAL``，
+落点见 ``db/migrations/env.py``）；完整 ``VACUUM`` 需要重写整库并独占，只作为设置页的手动
+维护操作。``screenshot.path`` 是相对 ``resource/`` 的相对路径（docs/04 §5.4），而
+``resource/`` 由 ``session.DB_PATH`` 的父目录推导，测试把 ``session.DB_PATH`` 指到 tmp
+目录即可整库整目录隔离。
 """
 
 from __future__ import annotations
@@ -75,7 +63,7 @@ from maa_api.domain.enums import LogSource
 
 logger = logging.getLogger(__name__)
 
-# M3 的 lifespan 按这两个常量注册 APScheduler job（docs/04 §10.4）。
+# lifespan 按这两个常量注册 APScheduler job（docs/04 §10.4）。
 RETENTION_CRON = "0 4 * * *"
 STARTUP_DELAY_SECONDS = 30
 
@@ -123,7 +111,7 @@ async def run_retention(
     :data:`session.session_factory`（运行时取模块属性，测试可注入临时库）。
     资源根目录同样在运行时从 ``session.DB_PATH.parent`` 推导。
 
-    返回 dict 至少含四个 key（M3 的 lifespan 与测试都依赖这个形状）：
+    返回 dict 至少含四个 key（lifespan 与测试都依赖这个形状）：
     ``logs_deleted`` / ``pipelines_deleted`` / ``screenshots_deleted`` /
     ``temp_files_deleted``，都是 int。其中 ``screenshots_deleted`` 计的是
     **文件被清理并打了 ``deleted_at``** 的截图条数，不含随后按 90 天口径删掉的
@@ -151,9 +139,9 @@ async def run_retention(
             )
             result["logs_deleted"] += deleted
             logger.info(
-                "保留策略：%s 日志删除 %d 条（>%d 天或超 %d 条）",
-                source.value,
+                "保留策略：已删除 %d 条 %s 日志（超过 %d 天或超过 %d 条的部分）",
                 deleted,
+                source.value,
                 policy.days,
                 policy.max_entries,
             )
@@ -167,7 +155,7 @@ async def run_retention(
             keep_latest=PIPELINE_KEEP_LATEST,
         )
         await db.commit()
-        logger.info("保留策略：流水线删除 %d 条", result["pipelines_deleted"])
+        logger.info("保留策略：已删除 %d 条流水线记录", result["pipelines_deleted"])
         if result["pipelines_deleted"]:
             await asyncio.sleep(BATCH_PAUSE_SECONDS)
         await _incremental_vacuum(db)
@@ -183,7 +171,7 @@ async def run_retention(
         )
         await db.commit()
         logger.info(
-            "保留策略：截图文件清理 %d 个，过期记录删除 %d 条",
+            "保留策略：已清理 %d 个截图文件、%d 条过期记录",
             result["screenshots_deleted"],
             purged_records,
         )
@@ -192,11 +180,17 @@ async def run_retention(
         # 4) IPC 中转图：不进 screenshot 表，按 mtime 直接删（docs/04 §10.3）。
         result["temp_files_deleted"] = _purge_temp_files(resource_root)
         logger.info(
-            "保留策略：temp/screencap 中转图删除 %d 个", result["temp_files_deleted"]
+            "保留策略：已删除 %d 个临时中转截图", result["temp_files_deleted"]
         )
         await _incremental_vacuum(db)
 
-    logger.info("保留策略完成：%s", result)
+    logger.info(
+        "保留策略执行完成：日志 %s 条、流水线 %s 条、截图 %s 个、临时文件 %s 个",
+        result["logs_deleted"],
+        result["pipelines_deleted"],
+        result["screenshots_deleted"],
+        result["temp_files_deleted"],
+    )
     return result
 
 
@@ -292,21 +286,22 @@ def _unlink_screenshot_files(
 
     只返回成功处理的 id：调用方据此 ``mark_deleted``，失败（越界路径、权限）
     的记录留到下一轮重试，不会出现「记录说文件已清理、文件却还在」的错位。
-    文件本就不存在也算处理成功 —— 接口应返回 410「截图已过期」而不是让前端
+    文件本就不存在也算处理成功：接口应返回 410「截图已过期」而不是让前端
     去撞一个 404。
     """
     marked: list[str] = []
     for shot in records:
         path = _resolve_under(resource_root, shot.path)
         if path is None:
-            logger.warning("保留策略：截图路径越出 resource 根，跳过 %s", shot.path)
+            # 库里的相对路径越界属脏数据：跳过并留一条 debug 即可，不影响这轮清理。
+            logger.debug("保留策略：截图路径不在资源目录内，已跳过 %s", shot.path)
             continue
         try:
             path.unlink()
         except FileNotFoundError:
             pass
         except OSError as exc:
-            logger.warning("保留策略：删除截图文件失败 %s（%s）", path, exc)
+            logger.warning("保留策略：删除截图文件失败（%s）：%s", path, exc)
             continue
         marked.append(shot.id)
     return marked
@@ -334,7 +329,7 @@ def _purge_temp_files(resource_root: Path) -> int:
         except FileNotFoundError:
             continue
         except OSError as exc:
-            logger.warning("保留策略：删除中转图失败 %s（%s）", entry, exc)
+            logger.warning("保留策略：删除临时中转截图失败（%s）：%s", entry, exc)
             continue
         deleted += 1
     return deleted

@@ -45,7 +45,7 @@ def _connection_config_names() -> list[str]:
 
 _FIELDS: dict[str, dict[str, Any]] = {
     "app.access_token": dict(label="访问密钥", group="应用", type="string", sensitive=True, hot_action="restart_required"),
-    "app.maa_core_path": dict(label="MaaCore 路径", group="应用", type="string", hot_action="restart_required"),
+    "app.maa_core_path": dict(label="内核路径", group="应用", type="string", hot_action="restart_required"),
     "app.proxy": dict(label="系统代理", group="应用", type="string", hot_action="none"),
     "updates.download_prefix": dict(label="更新下载前缀", group="更新", type="string", hot_action="restart_required"),
     "updates.check_hour": dict(label="每日更新检查时间（小时）", group="更新", type="integer", minimum=0, maximum=23, hot_action="restart_required"),
@@ -65,9 +65,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "llm.api_key": dict(label="LLM API 密钥", group="LLM", type="string", sensitive=True, hot_action="none"),
     "llm.model": dict(label="LLM 模型", group="LLM", type="string", hot_action="none"),
     "agent.confirmation_timeout_seconds": dict(label="Agent 确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
-    "agent.grant_confirmation_timeout_seconds": dict(label="原子操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
+    "agent.grant_confirmation_timeout_seconds": dict(label="屏幕操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.question_timeout_seconds": dict(label="Agent 提问等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
-    "agent.atomic_grant_minutes": dict(label="原子操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
+    "agent.atomic_grant_minutes": dict(label="屏幕操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
     "agent.auto_diagnose_failures": dict(label="自动诊断流水线与内核故障", group="Agent", type="boolean", hot_action="none"),
     # 下面两项只从 config.yaml 提供，不出现在设置 API 的响应里（见 CONFIG_ONLY_SETTING_KEYS）。
     # 这里保留元数据是为了让这张表覆盖全部 key，加 key 时不会漏掉归属与说明。

@@ -4,7 +4,7 @@
 「什么时候触发、要不要跳过、错过怎么办」的是 ``ScheduleService`` + APScheduler
 （后续里程碑），本仓储刻意不做任何调度决策，也不 import APScheduler。
 
-四条语义写错会在 M2-12 / M5 才暴雷：
+四条语义：
 
 - **``template`` 原样存 ``POST /api/pipelines`` 的 ``tasks`` 数组**，不做任何
   预处理、不注入默认值、不展开成 ``task`` 行（docs/04 §5.5）。定时触发时走的
@@ -17,8 +17,7 @@
   都不算数；系统忙时新流水线正常排队。是否调用它由调用方按
   ``schedule.skip_if_running`` 决定。
 - **``next_run_at`` / ``last_run_at`` 由 APScheduler 回写**（:meth:`record_run`
-  只是落值入口）：仓储不自己推算下一次触发时刻，也不在 ``create`` 时补默认值
-  —— ``misfire_grace_seconds`` 与 ``catch_up`` 决定了补跑时这两个值可能都是
+  只是落值入口）：仓储不自己推算下一次触发时刻，也不在 ``create`` 时补默认值：``misfire_grace_seconds`` 与 ``catch_up`` 决定了补跑时这两个值可能都是
   过去的时刻，仓储无权替调度器决定。
 - **``name`` 的唯一约束由数据库兜底**（``uq_schedule_name``），仓储不先查后写；
   冲突时 ``IntegrityError`` 原样抛出，由服务层转 409。
@@ -44,10 +43,9 @@ class ScheduleRepository(BaseRepository):
     async def create(self, schedule: Schedule) -> Schedule:
         """写入一条定时任务，返回受会话管理的副本；只 ``flush`` 不 ``commit``。
 
-        与 :meth:`PipelineRepository.create` 同样用 ``Session.merge()`` 接收入参
-        （M2-07 实测）：入参保持 transient，提交后字段仍可直接读，调用方不必为了
-        拿 ``schedule.id`` 再 await 一次刷新；``merge()`` 的返回副本才是会话管理
-        的对象，对入参的后续修改不会被提交。
+        与 :meth:`PipelineRepository.create` 同样用 ``Session.merge()`` 接收入参：入参保持 transient，提交后字段仍可直接读，调用方不必为了
+        拿 ``schedule.id`` 再 await 一次刷新；``merge()`` 的返回副本由会话管理，
+        对入参的后续修改不会被提交。
         """
         stored = await self.session.merge(schedule)
         await self.session.flush()
@@ -77,8 +75,7 @@ class ScheduleRepository(BaseRepository):
         """按主键取定时任务，没有返回 ``None``。
 
         ``populate_existing=True``：``session.get()`` 对身份映射里已有的实例不会
-        重新读库，配上 ``expire_on_commit=False`` 会返回陈旧对象（M2-07/M2-08
-        实测），而调用方常在一次请求里先 ``set_enabled`` / ``record_run`` 再回读。
+        重新读库，配上 ``expire_on_commit=False`` 会返回陈旧对象，而调用方常在一次请求里先 ``set_enabled`` / ``record_run`` 再回读。
         """
         return await self.session.get(Schedule, schedule_id, populate_existing=True)
 
@@ -162,7 +159,7 @@ class ScheduleRepository(BaseRepository):
         """本 schedule 是否有 ``pending`` / ``running`` 的流水线实例（docs/04 §5.5）。
 
         这就是 ``skip_if_running`` 的判据：只看**本 schedule 自己**的实例，
-        不看系统整体忙不忙——手动提交的流水线、别的 schedule 的实例都不影响。
+        不看系统整体忙不忙：手动提交的流水线、别的 schedule 的实例都不影响。
         用 ``EXISTS`` 而不是取回整行，复用 ``ix_pipeline_schedule_id_created_at``
         的前缀；判定口径与 :data:`NON_TERMINAL_PIPELINE_STATUSES` 共用一处，
         不会和 ``mark_terminal`` 的状态机漂移。
@@ -180,9 +177,8 @@ class ScheduleRepository(BaseRepository):
 
         先把 ``pipeline.schedule_id`` 指向本记录的实例置空，再删 schedule。
         外键声明的是 ``ON DELETE SET NULL``，但这依赖调用方连接开着
-        ``PRAGMA foreign_keys``——裸 ``create_async_engine`` 建出的库该 pragma
-        为 0，级联静默失效，删除会留下悬空引用（M2-07 实测，
-        ``PipelineRepository.purge_before`` 同样显式清理子表）。PRAGMA 生效时
+        ``PRAGMA foreign_keys``：裸 ``create_async_engine`` 建出的库该 pragma
+        为 0，级联静默失效，删除会留下悬空引用（``PipelineRepository.purge_before`` 同样显式清理子表）。PRAGMA 生效时
         这次 UPDATE 只是一次空操作。顺序不能反：schedule 删掉后就找不到这些
         流水线了。
         """

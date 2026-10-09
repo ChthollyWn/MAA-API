@@ -236,7 +236,7 @@ def test_feishu_channel_signs_the_body_with_its_own_algorithm(notify_session_fac
         assert (method, url) == ("POST", "https://open.feishu.cn/open-apis/bot/v2/hook/private-token")
         payload = kwargs["json"]
         assert payload["msg_type"] == "text"
-        assert payload["content"]["text"] == "MAA-API 测试通知\n这是一条测试通知，通道配置可正常发送。"
+        assert payload["content"]["text"] == "MAA-API 测试通知\n这是一条测试通知，通道配置可正常发送"
         # 没填密钥就不带签名字段（带了反而会被飞书判为签名错误）
         assert "timestamp" not in payload and "sign" not in payload
 

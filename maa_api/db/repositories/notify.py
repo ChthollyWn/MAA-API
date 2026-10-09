@@ -2,7 +2,7 @@
 
 ``config`` 是一个**按 ``type`` 分支解释**的 JSON 列（email / webhook / bark /
 dingtalk / wecom / feishu 的字段集合完全不同）。六种通道的字段校验用按 ``type`` 分发的
-Pydantic 模型在服务层做，**不落成数据库约束**——仓储按「JSON 原文存取」处理它，
+Pydantic 模型在服务层做，**不落成数据库约束**：仓储按「JSON 原文存取」处理它，
 不解析、不校验、不脱敏（脱敏是读接口的事，规则与 ``setting`` 表相同）。
 
 ``(type, name)`` 的唯一约束由数据库兜底（``uq_notify_channel_type_name``）：
@@ -32,8 +32,7 @@ class NotifyChannelRepository(BaseRepository):
         ``flush`` 是必须的：``(type, name)`` 重名冲突要在 ``create()`` 内以
         ``IntegrityError`` 抛出，服务层才能在同一个 ``try`` 里转成 409。
 
-        与 :meth:`PipelineRepository.create` 同样用 ``Session.merge()`` 接收入参
-        （M2-07 实测）：入参保持 transient，提交后字段仍可直接读。
+        与 :meth:`PipelineRepository.create` 同样用 ``Session.merge()`` 接收入参：入参保持 transient，提交后字段仍可直接读。
         """
         stored = await self.session.merge(channel)
         await self.session.flush()
@@ -43,7 +42,7 @@ class NotifyChannelRepository(BaseRepository):
         """按主键取通道，没有返回 ``None``。
 
         ``populate_existing=True``：``set_enabled`` / ``record_send`` 都走 Core
-        ``UPDATE``，不强制刷新就会返回身份映射里的陈旧实例（M2-08 实测）。
+        ``UPDATE``，不强制刷新就会返回身份映射里的陈旧实例。
         """
         return await self.session.get(
             NotifyChannel, channel_id, populate_existing=True
@@ -101,7 +100,7 @@ class NotifyChannelRepository(BaseRepository):
 
         ``last_sent_at`` 取 ``utcnow()``（「上一次尝试发送的时刻」）；``status``
         是 ``success`` / ``failed``（列宽 16），``error`` 是失败原因文本。
-        成功时 ``error=None`` 会清空上一次的失败原因——设置页展示的是「最近一次」
+        成功时 ``error=None`` 会清空上一次的失败原因：设置页展示的是「最近一次」
         的结果，留着旧错误会让人误以为这次也失败了。仓储不校验 ``status`` 的取值
         （没有对应的枚举，且它只影响展示），也不因失败而停用通道。
         """

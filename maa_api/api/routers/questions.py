@@ -1,10 +1,10 @@
-"""Agent 主动提问端点（M21，规格 §3.4 / docs/05 §6.18）。
+"""Agent 主动提问端点（规格 §3.4 / docs/05 §6.18）。
 
-四个操作与 :class:`~maa_api.agent.questions.QuestionService` 一一对应，路由里不
-做状态机判断 —— 唯一属于 REST 层的判断是分页范围（``page`` / ``size``）：它和其它
-列表接口同一口径，违反时是 ``400 INVALID_PAGINATION``。
+四个操作与 :class:`~maa_api.agent.questions.QuestionService` 一一对应，路由里不做状态机
+判断；属于 REST 层的判断只有分页范围（``page`` / ``size``），口径与其它列表接口一致，
+违反时是 ``400 INVALID_PAGINATION``。
 
-沿用 ``agent`` tag（与 M18 的知识库端点同一取舍）：这几个端点是 Agent 会话交互的
+沿用 ``agent`` tag（与知识库端点同一取舍）：这几个端点是 Agent 会话交互的
 一部分，``operationId`` 因此仍是 ``agent_*``，前端生成客户端不必多一套命名空间。
 """
 
@@ -26,9 +26,8 @@ router = APIRouter(prefix="/api/agent/questions", tags=["agent"])
 class AnswerRequest(BaseModel):
     """``POST /api/agent/questions/{id}`` 的入参。
 
-    ``selected`` 用**必填的字符串数组**而不是 ``min_length=1``：空数组是「没有选择」
-    这个业务错误（``400 QUESTION_SELECTION_INVALID``，规格 §3.4），不是字段级校验
-    失败；把约束写进模型只会让同一种错误在两个状态码之间漂移。
+    ``selected`` 是必填的字符串数组；空数组或不合法的选项返回 400
+    ``QUESTION_SELECTION_INVALID``。``multiple=false`` 时只能给一项。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -39,7 +38,7 @@ class AnswerRequest(BaseModel):
 def _service(request: Request):
     service = getattr(request.app.state, "question_service", None)
     if service is None:
-        raise AppError(ErrorCode.AGENT_DISABLED, "提问服务尚未启动")
+        raise AppError(ErrorCode.AGENT_DISABLED, "提问功能还在启动中，请稍后重试")
     return service
 
 
@@ -57,7 +56,7 @@ async def list_questions(
     size: int = Query(default=20),
 ) -> dict:
     if page < 1 or size < 1 or size > 200:
-        raise AppError(ErrorCode.INVALID_PAGINATION, "page 必须大于 0，size 必须为 1–200")
+        raise AppError(ErrorCode.INVALID_PAGINATION, "page 不能小于 1，size 需在 1–200 之间")
     return await _service(request).list(
         session_id=session_id, status=status, page=page, size=size
     )

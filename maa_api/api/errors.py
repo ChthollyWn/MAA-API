@@ -1,26 +1,11 @@
 """统一错误体、全局异常处理器与 ``error_responses()`` 辅助（docs/05 §1–§3、§11.2）。
 
-设计要点
-========
-
-**错误体只有一种形状**（docs/05 §1）：任何非 2xx 响应的 body 都是
-
-.. code-block:: json
-
-    {"error": {"code": "PIPELINE_NOT_FOUND", "message": "流水线不存在", "details": {...}}}
-
-``code`` 是可枚举的大写下划线字符串（:class:`~maa_api.domain.errors.ErrorCode`
-的成员名），这是 ADR-04 选自定义结构的核心价值 —— agent 据此做确定性分支；
-``message`` 是中文，直接展示给用户；``details`` 可选，为 ``None`` 时**整个键省略**
-（docs/05 §1 写明 details 可选），非 ``None`` 时里面的 ``None`` 值保持原样。
-处理器**不自造错误码**、也不把码降级成字符串常量表：状态码一律查
-:data:`~maa_api.domain.errors.ERROR_HTTP_STATUS`。
-
-**不返回堆栈**（docs/05 §1、§4.3）：未捕获异常只把 ``uuid4().hex`` 写进
+非 2xx 响应的 body 只有一种形状：``{"error": {"code", "message", "details"}}``。
+``code`` 取 :class:`~maa_api.domain.errors.ErrorCode` 成员名，``message`` 是中文，
+``details`` 为 ``None`` 时省略整个键。未捕获异常只把 ``uuid4().hex`` 写进
 ``details.trace_id``，堆栈由 :func:`logging.Logger.exception` 写进服务日志。
 
-四个处理器（:func:`register_exception_handlers`）
-================================================
+:func:`register_exception_handlers` 注册四个处理器：
 
 ============================  ====================================================
 异常                           行为
@@ -28,58 +13,22 @@
 ``AppError``                  ``exc.http_status`` + 统一体；``exc.headers`` 原样
                               透传（429/503 的 ``Retry-After`` 由此发出），401 补
                               ``WWW-Authenticate: Bearer``（docs/05 §2）
-``RequestValidationError``    按下面的实测判据分 400 / 422；``details.fields`` 是
-                              ``exc.errors()`` 的原生字段级列表（经
+``RequestValidationError``    按 ``errors()[i]["type"]`` 分 400 / 422；``details.fields``
+                              是 ``exc.errors()`` 的原生字段级列表（经
                               ``jsonable_encoder``，因为 ``ctx.error`` 是异常实例）
 ``StarletteHTTPException``    按状态码映射到表内通用码后输出统一体，保留原状态码与
-                              原 ``headers``；映射表外的状态码**保持框架默认响应**
+                              原 ``headers``；映射表外的状态码保持框架默认响应
 ``Exception``                 500 ``INTERNAL_ERROR``，``details`` 只有 ``trace_id``
 ============================  ====================================================
 
-响应头（M3-11）
-===============
+400 / 422 的分界看 ``errors()[i]["type"]``：``union_tag_invalid``（未知 discriminator）
+与 ``json_invalid`` 且 ``loc`` 形如 ``("body", <int>)``（请求体本身解码失败）是 400，
+其余是 422；字段级 JSON 解析失败的 ``loc`` 是 ``("body", "<字段名>")``，留在 422。
+``model_validator`` 里抛 ``AppError`` 不做包装，直达 ``AppError`` 处理器。
 
-docs/05 §2 要求 429 与 503 带 ``Retry-After``。抛错方经
-:attr:`~maa_api.domain.errors.AppError.headers` 携带，:func:`_app_error_handler`
-原样写进响应（401 的 ``WWW-Authenticate`` 用 ``setdefault``，不覆盖调用方显式给的值）。
-**响应头与错误体是两条互不影响的通道**：``details`` 里不再需要塞 ``retry_after``
-这类本属于头的信息，统一体的 JSON 形状一个字节都不变。
-
-:func:`error_responses()` 按 :data:`ERROR_RESPONSE_HEADERS` 把"这个码可能带哪些头"
-写进 OpenAPI 的 ``headers`` 字段。声明只描述文档，不参与运行时 —— 头由抛错方决定；
-``Retry-After`` 一律声明为整数秒，与鉴权限流 429 的取值口径一致。
-
-400 与 422 的分界（依据 M3-01 实测，见 tests/fixtures/api_probe_findings.md §1）
-=============================================================================
-
-判据是 ``RequestValidationError.errors()[i]["type"]`` 字符串，不是状态码也不是 ``msg``：
-
-- ``union_tag_invalid`` → 400 ``UNKNOWN_TASK_TYPE``（discriminated union 的
-  discriminator 取值不在已知任务类型内）。FastAPI 出厂对它是 422，必须特判。
-- ``json_invalid`` 且 ``loc`` 形如 ``("body", <int>)`` → 400 ``MALFORMED_JSON``
-  （请求体本身解码失败）。**字段级** JSON 解析失败的 ``loc`` 是
-  ``("body", "<字段名>")``，留在 422，所以必须带 loc 形状判断。
-- 其余（``union_tag_not_found`` / ``extra_forbidden`` / ``int_parsing`` /
-  ``value_error`` / ``too_short`` / ``list_type`` …）→ 422 ``VALIDATION_ERROR``。
-
-缺 discriminator（``union_tag_not_found``）与未知 discriminator
-（``union_tag_invalid``）是**两个不同的 type**，前者留在 422。
-
-``AppError`` 的接法：**A（model_validator 直接抛，app 级处理器接住）**。pydantic 2.11
-实测：``model_validator`` 里抛非 ``ValueError`` 的自定义异常不做任何包装，
-``TypeAdapter.validate_python`` 与 FastAPI 请求体校验都原样抛出，直达
-``@app.exception_handler(AppError)``；只有 ``ValueError`` 会被包装成
-``type="value_error"`` 的 ``ValidationError``。因此本模块**不需要**从
-``RequestValidationError.errors()[i]["ctx"]["error"]`` 里往回捞 AppError（接法 B）。
-
-例外：405 与 307（docs/05 §2.5）
-================================
-
-``405 Method Not Allowed`` 与 ``307 Temporary Redirect``（尾斜杠重定向）由 Starlette
-产生，**不进错误码表**：表内没有 405 的码，所以本模块对映射表外的状态码原样交给
-``fastapi.exception_handlers.http_exception_handler``，保持框架默认的
-``{"detail": ...}`` 响应；307 是 ``RedirectResponse``，根本不经过异常处理器。
-映射表内必须有码的状态码是 404 / 400 / 401 / 403 / 410 / 422 / 429 / 500 / 503。
+307 由 ``RedirectResponse`` 产生，不经过异常处理器。:func:`error_responses()` 按
+:data:`ERROR_RESPONSE_HEADERS` 把每个码可能带的响应头写进 OpenAPI 的 ``headers``，
+只描述文档。
 """
 
 from __future__ import annotations
@@ -120,10 +69,9 @@ logger = logging.getLogger(__name__)
 
 
 class ErrorDetail(BaseModel):
-    """统一错误体里的 ``error`` 对象（docs/05 §1）。
+    """统一错误体里的 ``error`` 对象。
 
-    ``code`` 用 :class:`~maa_api.domain.errors.ErrorCode` 校验：表外的码在这里
-    fail loud（pydantic ``ValidationError``），而不是被当成字符串发出去。
+    ``code`` 是错误码枚举成员名，``message`` 可直接展示给用户，``details`` 可选。
     """
 
     code: ErrorCode
@@ -141,7 +89,7 @@ def _dump_error_body(detail: ErrorDetail) -> dict[str, Any]:
     """把 :class:`ErrorDetail` 渲染成响应体 dict；``details is None`` 时省略该键。
 
     ``exclude_none=True`` 只作用于模型字段，不会递归删掉 ``details`` 里的 ``None``
-    值（pydantic 2.11 实测），因此 ``{"a": None}`` 这样的结构化上下文保持原样。
+    值（pydantic 2.11 的行为），因此 ``{"a": None}`` 这样的结构化上下文保持原样。
     """
     return ErrorBody(error=detail).model_dump(mode="json", exclude_none=True)
 
@@ -154,7 +102,7 @@ def _error_response(
 ) -> JSONResponse:
     """统一体的唯一出口：所有处理器都从这里构造响应。
 
-    401 一律补 ``WWW-Authenticate: Bearer``（docs/05 §2），已有该头时不覆盖。
+    401 补 ``WWW-Authenticate: Bearer``（docs/05 §2），已有该头时不覆盖。
     """
     merged = dict(headers or {})
     if status_code == 401:
@@ -232,7 +180,7 @@ def _default_phrase(status_code: int) -> str | None:
 def classify_validation_errors(
     errors: Sequence[Mapping[str, Any]],
 ) -> tuple[int, ErrorCode]:
-    """按 M3-01 实测的 ``type`` 判据给校验错误分类（详见模块文档字符串）。
+    """按）。
 
     :param errors: ``RequestValidationError.errors()``（或经 ``jsonable_encoder``
         后的同形列表）。
@@ -265,10 +213,14 @@ def _validation_message(code: ErrorCode, fields: Sequence[Mapping[str, Any]]) ->
     """校验错误的中文 message（原生英文 msg 留在 details.fields 里）。"""
     if code is ErrorCode.UNKNOWN_TASK_TYPE:
         tag = _first_ctx_value(fields, "union_tag_invalid", "tag")
-        return f"未知的任务类型：{tag}" if tag else "未知的任务类型"
+        return (
+            f"未知的任务类型：{tag}，可选值见 GET /api/tasks/types"
+            if tag
+            else "未知的任务类型，可选值见 GET /api/tasks/types"
+        )
     if code is ErrorCode.MALFORMED_JSON:
-        return "请求体不是合法 JSON"
-    return f"请求参数校验失败（{len(fields)} 处）"
+        return "请求体不是合法 JSON，请检查 Content-Type 与 JSON 格式"
+    return f"请求参数校验失败（{len(fields)} 处），请对照 details.fields 修正后重试"
 
 
 # ----------------------------------------------------------------------
@@ -301,7 +253,7 @@ async def _validation_error_handler(
 ) -> JSONResponse:
     """``RequestValidationError`` → 400 / 422 统一体，``details.fields`` 带原生列表。"""
     # ctx.error 是异常实例（value_error 情形），json.dumps 会 TypeError；jsonable_encoder
-    # 会把它渲染成 {}（M3-01 实测），并保证 loc/input 里的非 JSON 值可序列化。
+    # 会把它渲染成 {}，并保证 loc/input 里的非 JSON 值可序列化。
     fields = jsonable_encoder(exc.errors())
     status_code, code = classify_validation_errors(fields)
     return _error_response(
@@ -328,7 +280,7 @@ async def _http_exception_handler(
 
     detail = exc.detail
     if isinstance(detail, str) and detail and detail != _default_phrase(exc.status_code):
-        # 抛错方给了自定义 detail（本仓一律中文），直接当 message，信息不丢。
+        # 抛错方给了自定义 detail（本仓消息均为中文）时直接当 message，不改写。
         message = detail
         details = None
     else:
@@ -349,7 +301,7 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
     return _error_response(
         ErrorDetail(
             code=ErrorCode.INTERNAL_ERROR,
-            message="服务端内部错误",
+            message="服务端内部错误，请稍后重试；详情见日志页",
             details={"trace_id": trace_id},
         ),
         status_code=500,
@@ -359,7 +311,7 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
 def register_exception_handlers(app: FastAPI) -> None:
     """注册四类异常处理器（AppError / 校验错误 / HTTPException / 兜底 Exception）。
 
-    处理器都是模块级函数，``add_exception_handler`` 只是字典赋值，因此本函数
+    处理器都是模块级函数，``add_exception_handler`` 只是字典赋值，因此这里
     **可重复调用**：第二次注册覆盖的是同一批函数对象，行为幂等、不会叠加包装。
     """
     app.add_exception_handler(AppError, _app_error_handler)
@@ -390,7 +342,7 @@ _RETRY_AFTER_SPEC: dict[str, Any] = {
 #: 不可用、稍后可重试"的那些（内核未就绪/重启中/已崩溃、设备未连接、LLM 未配置、
 #: 服务启动或关闭中）。同为 503 但重试无意义的码（``MAP_LEVEL_KEY_UNAVAILABLE``
 #: 缺符号、``DEVICE_RESOLUTION_UNSUPPORTED`` 硬件不支持、``AGENT_DISABLED``
-#: 模块未启用）刻意不在其中 —— 它们要改配置或换设备，不是"等一等再来"。
+#: 模块未启用）刻意不在其中：它们要改配置或换设备，不是"等一等再来"。
 _RETRY_AFTER_CODES: frozenset[ErrorCode] = frozenset(
     {
         ErrorCode.RATE_LIMITED,
@@ -444,8 +396,8 @@ def error_responses(
     :returns: ``{状态码: {"description": ..., ["headers": ...], "content":
         {"application/json": {"example": {"error": {...}}}}}}``，按状态码升序；
         同一状态码内保持传入顺序。``headers`` 只在桶里至少一个码登记在
-        :data:`ERROR_RESPONSE_HEADERS` 时出现（M3-11），描述该状态码可能带的响应头
-        （如 429/503 的 ``Retry-After``）；没有登记头的状态码条目形状与 M3-04 完全
+        :data:`ERROR_RESPONSE_HEADERS` 时出现，描述该状态码可能带的响应头
+        （如 429/503 的 ``Retry-After``）；没有登记头的状态码条目形状完全
         一致。
 
     用法见 docs/05 §11.2::

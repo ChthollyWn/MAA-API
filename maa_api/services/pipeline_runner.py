@@ -1,4 +1,4 @@
-"""Single-consumer, callback-driven pipeline execution (docs/02 §5, docs/12 M5)."""
+"""Single-consumer, callback-driven pipeline execution (docs/02 §5)."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ CORE_POLL_SECONDS = 2.0
 WAIT_POLL_SECONDS = 1.0
 # 轮询间隔下限，防止调用方传 0 变成忙等。
 MIN_WAIT_POLL_SECONDS = 0.01
-# 任务终态留档截图的硬超时：截图只是留现场，绝不能拖慢任务收尾（docs/12 M23 §3.9）。
+# 任务终态留档截图的硬超时：截图只是留现场，不能拖慢任务收尾（docs/12 §3.9）。
 TASK_SNAPSHOT_TIMEOUT_SECONDS = 10.0
 # 需要留档的任务终态。``cancelled`` 不在其中：用户主动取消或服务重启回收，
 # 语义上不需要现场。
@@ -69,7 +69,7 @@ SNAPSHOT_OUTCOMES: frozenset[str] = frozenset(
     {"completed", "failed", "skipped", "crashed"}
 )
 # 需要把留档截图挂到日志上的终态 → (级别, 文案模板)。``completed`` 不挂：成功
-# 任务的日志里没有可附着的失败语义（docs/12 M23 §3.10）。
+# 任务的日志里没有可附着的失败语义（docs/12 §3.10）。
 SNAPSHOT_LOG_MESSAGES: dict[str, tuple[str, str]] = {
     "failed": ("ERROR", "任务失败 [{name}]，已保存现场截图"),
     "skipped": ("WARNING", "任务多次失败已跳过 [{name}]，已保存现场截图"),
@@ -247,10 +247,10 @@ class PipelineRunner:
         if task.cancelled():
             return
         # ``Task.exception()`` 是「返回」异常而不是抛出它，写成 try/except 会把
-        # 后台任务的失败静默吞掉——这里必须判返回值。
+        # 后台任务的失败静默吞掉：这里必须判返回值。
         failure = task.exception()
         if failure is not None:
-            logger.error("流水线自动诊断后台任务失败：%s", failure, exc_info=failure)
+            logger.error("自动诊断任务失败：%s", failure, exc_info=failure)
 
     def bind_notify_service(self, service: Any) -> None:
         """Bind multi-channel notifications after ``NotifyService`` is built.
@@ -294,7 +294,7 @@ class PipelineRunner:
             return
         failure = task.exception()
         if failure is not None:
-            logger.error("流水线终态通知后台任务失败：%s", failure, exc_info=failure)
+            logger.error("流水线终态通知发送失败：%s", failure, exc_info=failure)
 
     async def _send_pipeline_notification(
         self, pipeline_id: str, status: PipelineStatus
@@ -321,7 +321,7 @@ class PipelineRunner:
         )
         result = await service.send_event(event, payload)
         logger.info(
-            "流水线终态通知：pipeline_id=%s event=%s matched=%s sent=%s failed=%s",
+            "流水线终态通知已处理：pipeline_id=%s，事件 %s，匹配通道 %s，成功 %s，失败 %s",
             pipeline_id,
             event,
             result.get("matched"),
@@ -368,7 +368,7 @@ class PipelineRunner:
             try:
                 await self.request_cancel(active.pipeline_id)
             except AppError:
-                logger.exception("关闭时取消流水线失败：%s", active.pipeline_id)
+                logger.exception("关闭服务时取消流水线失败：%s", active.pipeline_id)
         self._running = False
         self.wake()
         worker = self._worker
@@ -435,14 +435,14 @@ class PipelineRunner:
                 if pipeline is None:
                     raise AppError(
                         ErrorCode.PIPELINE_NOT_FOUND,
-                        "流水线不存在",
+                        "流水线不存在，请刷新列表",
                         {"pipeline_id": pipeline_id},
                     )
                 status = PipelineStatus(pipeline.status)
                 if status.is_terminal:
                     raise AppError(
                         ErrorCode.PIPELINE_NOT_CANCELLABLE,
-                        "流水线已结束，无法取消",
+                        "流水线已经结束，无需取消；请刷新列表查看最新状态",
                         {"pipeline_id": pipeline_id, "status": status.value},
                     )
                 if status is PipelineStatus.PENDING:
@@ -482,7 +482,7 @@ class PipelineRunner:
                 await self.registry.get(self.core_id).stop()
             except AppError as exc:
                 logger.warning(
-                    "取消流水线时 STOP 未确认：pipeline_id=%s code=%s",
+                    "取消流水线时内核没有确认停止（pipeline_id=%s，code=%s）",
                     pipeline_id,
                     exc.code,
                 )
@@ -504,19 +504,19 @@ class PipelineRunner:
         if not params or "name" in params:
             raise AppError(
                 ErrorCode.TASK_PARAM_INVALID,
-                "参数更新必须包含字段且不能修改任务类型 name",
+                "参数更新必须包含字段，且不能修改任务类型 name；请检查后重试",
             )
         if any(value is None for value in params.values()):
             raise AppError(
                 ErrorCode.TASK_PARAM_INVALID,
-                "运行中参数更新不能使用 null 值",
+                "运行中参数更新不能使用 null 值，请去掉该字段或改为具体取值",
             )
         async with self.operation_lock:
             active = self._active
             if active is None or active.attempt is None or active.attempt.task_id != task_id:
                 raise AppError(
                     ErrorCode.INVALID_PARAMETER,
-                    "任务当前没有运行中的 MaaCore 执行",
+                    "该任务当前没有在运行，无法更新参数；请刷新后重试",
                     {"task_id": task_id},
                 )
 
@@ -526,20 +526,20 @@ class PipelineRunner:
                 if task is None:
                     raise AppError(
                         ErrorCode.TASK_NOT_FOUND,
-                        "任务不存在",
+                        "任务不存在，请刷新列表",
                         {"task_id": task_id},
                     )
                 if TaskStatus(task.status) is not TaskStatus.RUNNING:
                     raise AppError(
                         ErrorCode.INVALID_PARAMETER,
-                        "只有运行中的任务可以修改参数",
+                        "只有运行中的任务可以修改参数，请刷新后重试",
                         {"task_id": task_id, "status": str(task.status)},
                     )
                 model = TASK_MODELS.get(task.type_name)
                 if model is None:
                     raise AppError(
                         ErrorCode.UNKNOWN_TASK_TYPE,
-                        f"未知任务类型：{task.type_name}",
+                        f"未知任务类型：{task.type_name}，请重新选择",
                     )
 
                 supplied_fields = _task_patch_field_names(model, params)
@@ -548,7 +548,7 @@ class PipelineRunner:
                 if changed_immutable:
                     raise AppError(
                         ErrorCode.TASK_NOT_RUNTIME_MUTABLE,
-                        "运行中任务包含不可修改参数",
+                        "运行中任务包含不可修改的参数，请移除后重试",
                         {"fields": sorted(changed_immutable)},
                     )
 
@@ -561,7 +561,7 @@ class PipelineRunner:
                 except ValidationError as exc:
                     raise AppError(
                         ErrorCode.TASK_PARAM_INVALID,
-                        "运行中任务参数不符合任务 schema",
+                        "运行中任务的参数不合法，请检查后重试",
                         {"issues": exc.errors(include_input=False, include_context=False)},
                     ) from exc
 
@@ -575,7 +575,7 @@ class PipelineRunner:
                 if not accepted:
                     raise AppError(
                         ErrorCode.CORE_COMMAND_FAILED,
-                        "MaaCore 拒绝修改运行中任务参数",
+                        "内核拒绝修改运行中任务的参数，请等任务结束后再改",
                         {"task_id": task_id, "maa_task_id": active.attempt.maa_task_id},
                     )
                 stored_params = {**dict(task.params or {}), **normalized_patch}
@@ -590,7 +590,7 @@ class PipelineRunner:
                 ):
                     raise AppError(
                         ErrorCode.INVALID_PARAMETER,
-                        "任务已结束，不再接受参数更新",
+                        "任务已结束，不能再更新参数；请刷新列表",
                         {"task_id": task_id},
                     )
                 await session.commit()
@@ -599,7 +599,9 @@ class PipelineRunner:
                     active.task.params = dict(stored_params)
 
         if updated is None:
-            raise AppError(ErrorCode.TASK_NOT_FOUND, "任务不存在", {"task_id": task_id})
+            raise AppError(
+                ErrorCode.TASK_NOT_FOUND, "任务不存在，请刷新列表", {"task_id": task_id}
+            )
         await self._publish_task(task_id)
         return updated
 
@@ -612,7 +614,7 @@ class PipelineRunner:
         except ValueError:
             raise AppError(
                 ErrorCode.INVALID_PARAMETER,
-                f"未知的流水线来源：{source}",
+                f"未知的流水线来源：{source}，请检查后重试",
             ) from None
         async with self.operation_lock:
             async with self._session_factory() as session:
@@ -659,7 +661,7 @@ class PipelineRunner:
         - 到终态返回 ``(pipeline, True)``；超时返回 ``(pipeline, False)`` 与最后一次
           读到的状态。两个分支返回的流水线都带 ``tasks``，与 ``get_pipeline`` 同构。
         - ``asyncio.sleep`` 可被取消：调用方被取消（服务关闭、SSE 断开）时
-          ``CancelledError`` 照常向上传播，这里不吞。
+          ``CancelledError`` 照常向上传播。
 
         ``poll_seconds`` 是轮询间隔，默认 :data:`WAIT_POLL_SECONDS`（1 秒）；下限
         :data:`MIN_WAIT_POLL_SECONDS`，避免调用方传 0 变成忙等。
@@ -674,7 +676,7 @@ class PipelineRunner:
             if pipeline is None:
                 raise AppError(
                     ErrorCode.PIPELINE_NOT_FOUND,
-                    "流水线不存在",
+                    "流水线不存在，请刷新列表",
                     {"pipeline_id": pipeline_id},
                 )
             if PipelineStatus(pipeline.status).is_terminal:
@@ -745,7 +747,7 @@ class PipelineRunner:
                 except asyncio.CancelledError:
                     raise
                 except Exception:  # noqa: BLE001 - keep the sole consumer alive
-                    logger.exception("读取流水线队列或内核状态失败")
+                    logger.exception("读取流水线队列或内核状态失败，稍后重试")
             if pipeline is not None:
                 await self.publish_pipeline(pipeline.id)
                 await self.publish_queue_changed()
@@ -863,7 +865,7 @@ class PipelineRunner:
                             break
                         except Exception:  # noqa: BLE001 - startup recovery remains the final fallback
                             logger.exception(
-                                "claim 失败后释放流水线失败：pipeline_id=%s attempt=%s",
+                                "领取流水线失败后无法释放（pipeline_id=%s，第 %s 次）",
                                 pipeline_id,
                                 cleanup_attempt + 1,
                             )
@@ -876,7 +878,7 @@ class PipelineRunner:
                             await self._record_failed_claim_error(pipeline_id)
                         except Exception:  # noqa: BLE001 - leave startup recovery as final fallback
                             logger.exception(
-                                "claim 失败后无法终结流水线：pipeline_id=%s",
+                                "领取流水线失败后无法终结（pipeline_id=%s）",
                                 pipeline_id,
                             )
                 raise
@@ -946,9 +948,7 @@ class PipelineRunner:
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    logger.exception(
-                        "流水线设备预检异常：pipeline_id=%s", pipeline.id
-                    )
+                    logger.exception("流水线设备检查异常（pipeline_id=%s）", pipeline.id)
                     available = False
                 if not available and not active.core_crashed:
                     handled = await self._handle_device_unavailable(pipeline)
@@ -960,7 +960,7 @@ class PipelineRunner:
             if active.core_crashed:
                 crash_error = AppError(
                     ErrorCode.CORE_CRASHED,
-                    "MaaCore 子进程在任务执行前中断",
+                    "内核在任务执行前中断，流水线未开始；请检查内核状态后重试",
                     {"pipeline_id": pipeline.id},
                 )
                 if tasks:
@@ -983,7 +983,7 @@ class PipelineRunner:
                     cancelled = True
                     break
                 outcome, error = await self._execute_task(active, task)
-                # 留档是纯附加动作：自身吞掉所有异常（除取消），不参与下面这些
+                # 留档是纯附加动作：吞掉所有异常（除取消），不参与后续步骤
                 # 分支的判定，也不改变任务终态语义。
                 await self._capture_task_snapshot(active, task, outcome)
                 if outcome == "cancelled":
@@ -992,13 +992,13 @@ class PipelineRunner:
                 if outcome == "crashed":
                     fatal_error = error or AppError(
                         ErrorCode.CORE_CRASHED,
-                        "MaaCore 子进程中断，流水线已停止",
+                        "内核中断，流水线已停止；请到日志页查看原因",
                     )
                     break
                 if outcome == "failed":
                     fatal_error = error or AppError(
                         ErrorCode.INTERNAL_ERROR,
-                        "任务执行失败，流水线已停止",
+                        "流水线执行失败，已停止；请到日志页查看原因",
                     )
                     break
                 if outcome == "skipped":
@@ -1010,7 +1010,7 @@ class PipelineRunner:
                 # concurrent cancellation request arrived in the same window.
                 fatal_error = AppError(
                     ErrorCode.CORE_CRASHED,
-                    "MaaCore 子进程中断，流水线已停止",
+                    "内核中断，流水线已停止；请到日志页查看原因",
                     {"pipeline_id": pipeline.id},
                 )
                 cancelled = False
@@ -1038,10 +1038,13 @@ class PipelineRunner:
             await self._cancel_pipeline_rows(pipeline.id)
             raise
         except Exception as exc:  # noqa: BLE001 - persist unexpected runner failures
-            logger.exception("流水线执行器发生未处理错误：%s", pipeline.id)
+            logger.exception("流水线执行出现未处理的错误：%s", pipeline.id)
             await self._cancel_unstarted_tasks(
                 pipeline.id,
-                AppError(ErrorCode.INTERNAL_ERROR, "流水线执行器发生内部错误"),
+                AppError(
+                    ErrorCode.INTERNAL_ERROR,
+                    "流水线执行出错，已停止；请到日志页查看最近一条错误",
+                ),
             )
             await self._finish_pipeline(
                 pipeline.id,
@@ -1056,7 +1059,7 @@ class PipelineRunner:
                         await self.resource_service.release_copilot_path(snapshot_path)
                     except Exception:  # noqa: BLE001 - cleanup must not rewrite pipeline result
                         logger.exception(
-                            "清理 Copilot snapshot 失败：pipeline_id=%s path=%s",
+                            "清理 Copilot 临时文件失败（pipeline_id=%s，path=%s）",
                             pipeline.id,
                             snapshot_path,
                         )
@@ -1080,14 +1083,14 @@ class PipelineRunner:
     async def _capture_task_snapshot(
         self, active: _ActivePipeline, task: Task, outcome: str
     ) -> None:
-        """任务进入终态后留一张现场截图（docs/12 M23 §3.9/§3.10）。
+        """任务进入终态后留一张现场截图（docs/12 §3.9/§3.10）。
 
         ``completed`` / ``failed`` / ``skipped`` / ``crashed`` 都留：用户要看的
         正是「跑成什么样 / 卡在哪」，内核崩在任务里更是最需要现场的情况；
         ``cancelled`` 不留。失败与跳过（以及崩溃）额外把这张图挂到一条日志上。
 
         整段保持「失败即降级」：设备缺失、抓图异常、超时、落盘/落库失败都只记
-        一条 WARNING，**绝不改写任务终态、不重试、不拖慢收尾**。
+        一条 WARNING，**不改写任务终态、不重试、不拖慢收尾**。
         """
         if outcome not in SNAPSHOT_OUTCOMES:
             return
@@ -1095,14 +1098,14 @@ class PipelineRunner:
         if manager is None:
             # 未装配设备管理器是精简装配与既有测试替身的正常形态。
             logger.debug(
-                "任务留档截图跳过：未装配 device_manager（pipeline_id=%s）",
+                "任务留档截图跳过：没有可用的设备管理器（pipeline_id=%s）",
                 active.pipeline_id,
             )
             return
         capture = getattr(manager, "screenshot", None)
         if not callable(capture):
             logger.debug(
-                "任务留档截图跳过：device_manager 未提供 screenshot()（pipeline_id=%s）",
+                "任务留档截图跳过：设备管理器不支持截图（pipeline_id=%s）",
                 active.pipeline_id,
             )
             return
@@ -1138,9 +1141,9 @@ class PipelineRunner:
         except asyncio.CancelledError:
             # 取消照常传播：``_execute_pipeline`` 的取消处理必须照旧收尾。
             raise
-        except Exception as exc:  # noqa: BLE001 - 留档失败不得改写任务终态
+        except Exception as exc:  # noqa: BLE001 - 留档失败不改写任务终态
             logger.warning(
-                "任务留档截图失败：pipeline_id=%s task_id=%s outcome=%s：%s",
+                "任务留档截图失败（pipeline_id=%s，task_id=%s，结果 %s）：%s",
                 active.pipeline_id,
                 task.id,
                 outcome,
@@ -1195,7 +1198,7 @@ class PipelineRunner:
             if active.core_crashed:
                 error = AppError(
                     ErrorCode.CORE_CRASHED,
-                    "MaaCore 子进程中断，当前任务未完成",
+                    "内核中断，当前任务未完成；请到日志页查看原因",
                     {"task_id": task.id},
                 )
                 await self._set_task_status(
@@ -1213,13 +1216,13 @@ class PipelineRunner:
                     if not isinstance(asset_id, str) or not asset_id:
                         raise AppError(
                             ErrorCode.RESOURCE_ASSET_NOT_FOUND,
-                            "Copilot 作业不存在",
+                            "Copilot 作业不存在，请刷新列表",
                             {"task_id": task.id},
                         )
                     if self.resource_service is None:
                         raise AppError(
                             ErrorCode.SERVICE_UNAVAILABLE,
-                            "Copilot 资源解析服务尚未装配",
+                            "服务正在启动，请稍后重试",
                             {"task_id": task.id},
                         )
                     filename = await self.resource_service.resolve_copilot_path(asset_id)
@@ -1235,10 +1238,10 @@ class PipelineRunner:
                 except Exception as exc:  # noqa: BLE001 - fail closed before append
                     error = AppError(
                         ErrorCode.RESOURCE_LOAD_FAILED,
-                        "Copilot 作业文件解析失败",
+                        "Copilot 作业文件解析失败，请检查文件后重新上传",
                         {"task_id": task.id},
                     )
-                    logger.warning("Copilot 作业文件解析失败：%s：%s", task.id, exc)
+                    logger.warning("Copilot 作业文件解析失败（task_id=%s）：%s", task.id, exc)
                     await self._set_task_status(
                         task.id,
                         TaskStatus.FAILED,
@@ -1273,7 +1276,7 @@ class PipelineRunner:
                 if maa_task_id <= 0:
                     rejection = AppError(
                         ErrorCode.CORE_COMMAND_FAILED,
-                        f"MaaCore 未接受任务 {task.type_name}",
+                        f"内核没有接受任务 {task.type_name}，请到日志页查看原因",
                         {"cmd": "APPEND_TASK", "task_id": task.id},
                     )
                     if task.type_name == "Copilot":
@@ -1293,7 +1296,7 @@ class PipelineRunner:
                 if not started:
                     raise AppError(
                         ErrorCode.CORE_COMMAND_FAILED,
-                        f"MaaCore 未启动任务 {task.type_name}",
+                        f"内核没有启动任务 {task.type_name}，请到日志页查看原因",
                         {"cmd": "START", "task_id": task.id},
                     )
                 if active.cancel_requested:
@@ -1303,7 +1306,7 @@ class PipelineRunner:
                 if active.core_crashed:
                     error = AppError(
                         ErrorCode.CORE_CRASHED,
-                        "MaaCore 子进程中断，当前任务未完成",
+                        "内核中断，当前任务未完成；请到日志页查看原因",
                         {"task_id": task.id, "maa_task_id": maa_task_id},
                     )
                     await self._set_task_status(
@@ -1324,7 +1327,7 @@ class PipelineRunner:
                 if outcome == "crashed":
                     error = AppError(
                         ErrorCode.CORE_CRASHED,
-                        "MaaCore 子进程中断，当前任务未完成",
+                        "内核中断，当前任务未完成；请到日志页查看原因",
                         {"task_id": task.id, "maa_task_id": maa_task_id},
                     )
                     await self._set_task_status(
@@ -1336,7 +1339,7 @@ class PipelineRunner:
                     return "crashed", error
                 error = AppError(
                     ErrorCode.CORE_COMMAND_FAILED,
-                    f"MaaCore 任务链报告失败：{task.task_name}",
+                    f"内核报告任务失败：{task.task_name}；请到日志页查看原因",
                     {"task_id": task.id, "maa_task_id": maa_task_id},
                 )
             except asyncio.CancelledError:
@@ -1375,13 +1378,13 @@ class PipelineRunner:
                         error_message=exc.message,
                     )
                     return "crashed", exc
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 error = AppError(
                     ErrorCode.CORE_COMMAND_FAILED,
-                    f"执行任务 {task.task_name} 失败：{exc}",
+                    f"执行任务 {task.task_name} 失败，请到日志页查看原因",
                     {"task_id": task.id},
                 )
-                logger.exception("任务调用 MaaCore 失败：%s", task.id)
+                logger.exception("任务调用内核失败（task_id=%s）", task.id)
             finally:
                 if active.attempt is attempt:
                     active.attempt = None
@@ -1398,7 +1401,7 @@ class PipelineRunner:
                     # retrying its parameters.
                     await client.stop()
                 except AppError:
-                    logger.warning("失败任务后的 MaaCore STOP 未确认：%s", task.id)
+                    logger.warning("任务失败后内核没有确认停止（task_id=%s）", task.id)
 
             if active.cancel_requested:
                 await active.stop_complete.wait()
@@ -1407,7 +1410,7 @@ class PipelineRunner:
             if active.core_crashed:
                 crash_error = AppError(
                     ErrorCode.CORE_CRASHED,
-                    "MaaCore 子进程中断，当前任务未完成",
+                    "内核中断，当前任务未完成；请到日志页查看原因",
                     {"task_id": task.id},
                 )
                 await self._set_task_status(
@@ -1447,7 +1450,7 @@ class PipelineRunner:
                     if active.core_crashed:
                         error = AppError(
                             ErrorCode.CORE_CRASHED,
-                            "MaaCore 子进程中断，当前任务未完成",
+                            "内核中断，当前任务未完成；请到日志页查看原因",
                             {"task_id": task.id},
                         )
                         await self._set_task_status(
@@ -1475,7 +1478,7 @@ class PipelineRunner:
         """
         error = AppError(
             ErrorCode.DEVICE_NOT_CONNECTED,
-            "设备当前不可用，流水线未执行",
+            "设备当前不可用，流水线没有执行；请确认设备已连接后重新提交",
             {
                 "pipeline_id": pipeline.id,
                 "source": str(pipeline.source),
@@ -1503,7 +1506,7 @@ class PipelineRunner:
                         await session.commit()
             if deferred:
                 logger.warning(
-                    "设备不可用，定时流水线延后 5 分钟：pipeline_id=%s defer_count=%s",
+                    "设备不可用，定时流水线延后 5 分钟（pipeline_id=%s，第 %s 次）",
                     pipeline.id,
                     int(getattr(pipeline, "defer_count", 0)) + 1,
                 )
@@ -1553,7 +1556,7 @@ class PipelineRunner:
         )
         self._broadcast("device_status", snapshot)
         logger.error(
-            "设备预检失败，流水线已终止：pipeline_id=%s source=%s code=%s",
+            "设备检查失败，流水线已终止（pipeline_id=%s，来源 %s，code=%s）",
             pipeline.id,
             pipeline.source,
             ErrorCode.DEVICE_NOT_CONNECTED,
@@ -1573,7 +1576,7 @@ class PipelineRunner:
             if crash_waiter in done or active.core_crashed:
                 raise AppError(
                     ErrorCode.CORE_CRASHED,
-                    "MaaCore 子进程中断，当前任务未完成",
+                    "内核中断，当前任务未完成；请到日志页查看原因",
                     {"pipeline_id": active.pipeline_id},
                 )
             if cancel_waiter in done or active.cancel_requested:
@@ -1618,7 +1621,8 @@ class PipelineRunner:
                 return attempt.future.result()
             error = AppError(
                 ErrorCode.CORE_COMMAND_TIMEOUT,
-                f"任务 {attempt.type_name} 执行超过 {timeout:g} 秒",
+                f"任务 {attempt.type_name} 执行超过 {timeout:g} 秒，"
+                "已按超时处理；请查看设备状态",
                 {
                     "task_id": attempt.task_id,
                     "maa_task_id": attempt.maa_task_id,
@@ -1654,7 +1658,7 @@ class PipelineRunner:
                 attempt = active.attempt if active is not None else None
                 if attempt is not None and not attempt.future.done():
                     logger.error(
-                        "收到 AllTasksCompleted，但 task %s 仍未收到 TaskChain 终态回调；强制收敛为完成",
+                        "内核报告全部任务结束，任务 %s 缺少结束回调，已按完成处理",
                         attempt.maa_task_id,
                     )
                     attempt.future.set_result("completed")
@@ -1978,7 +1982,8 @@ class PipelineRunner:
             except Exception as exc:  # noqa: BLE001 - retry context-exit/commit ambiguity once
                 last_error = exc
                 logger.warning(
-                    "写入 core crash 流水线终态失败，将重试：pipeline_id=%s attempt=%s error=%s",
+                    "写入内核崩溃流水线的终态失败，将重试"
+                    "（pipeline_id=%s，第 %s 次，error=%s）",
                     pipeline_id,
                     _attempt + 1,
                     type(exc).__name__,
@@ -2109,7 +2114,7 @@ class PipelineRunner:
                     record = self._claim_failure_core_records.pop(generation, None)
                     if record is not None:
                         # 这次写入没有重试路径，失败必须只影响「崩溃现场」的保真度，
-                        # 不能连带跳过下面的诊断会话创建 —— 否则一次 DB 抖动会让
+                        # 不能连带跳过下面的诊断会话创建：否则一次 DB 抖动会让
                         # 开着自动诊断的失败流水线完全没有诊断记录。
                         try:
                             await self._record_failed_claim_core_crash(
@@ -2119,14 +2124,15 @@ class PipelineRunner:
                             )
                         except Exception:
                             logger.exception(
-                                "记录 claim 失败期间的内核崩溃现场失败，仍继续创建诊断会话 pipeline_id=%s generation=%s",
+                                "记录领取失败期间的内核崩溃现场失败，仍继续创建诊断会话"
+                                "（pipeline_id=%s，generation=%s）",
                                 pipeline_id,
                                 generation,
                             )
                 await service.pipeline_failed(pipeline_id)
             except Exception:
                 logger.exception(
-                    "claim 失败流水线的诊断调度失败 pipeline_id=%s", pipeline_id
+                    "领取失败流水线的诊断调度失败（pipeline_id=%s）", pipeline_id
                 )
             finally:
                 # Keep the generation-to-pipeline association until a new claim
@@ -2334,12 +2340,11 @@ def build_pipeline_notification(
     if elapsed is not None:
         lines.append(f"用时：{_duration_phrase(elapsed)}")
     if final is PipelineStatus.FAILED:
-        reason = str(pipeline.error_message or pipeline.error_code or "未知原因")
-        if pipeline.error_message and pipeline.error_code:
-            reason += f"（{pipeline.error_code}）"
+        # 通知正文只写中文原因：错误码留在 payload 里，锁屏上没人看得懂 DEVICE_NOT_CONNECTED。
+        reason = str(pipeline.error_message or "未知原因")
         lines.append(f"失败原因：{reason}")
 
-    label = "任务执行失败" if final is PipelineStatus.FAILED else "任务执行完成"
+    label = "流水线失败" if final is PipelineStatus.FAILED else "流水线完成"
     payload: dict[str, Any] = {
         "title": f"{label}：{pipeline.title}" if pipeline.title else label,
         "message": "\n".join(lines) or label,

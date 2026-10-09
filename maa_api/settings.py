@@ -1,79 +1,20 @@
 """配置加载：``config.yaml`` + 环境变量 + 进程内缓存（docs/02 §6、§7，docs/04 §5.6）。
 
-本模块是旧 ``maa_api/config/config.py`` 的替代者。与旧实现的关键区别只有一条：
-**没有任何 import 期副作用** —— 不建目录、不读文件、不 dlopen，``import
-maa_api.settings`` 在任何 CWD 下都成功且不产生任何文件。旧实现在 import 期就
-``mkdir static/ resource/{lib,log,temp}`` 并可能拷贝 ``daily_task_template.json``，
-CWD 不是仓库根时直接 ``RuntimeError``（见 docs/ENVIRONMENT.md），这对
-「启动第 1 步先加载配置、第 2 步才初始化数据库」的顺序（docs/02 §7）是硬伤。
-旧模块暂不删除（``maa_api/main.py`` 与 ``model/core/asst.py`` 还在 import 它），
-调用方迁完后由后续卡清理；新代码一律用本模块。
+解析优先级：环境变量 > setting 表 > config.yaml > 代码内默认值。读侧只走
+:func:`get_settings`，热更新用 :func:`set_settings` 替换缓存实例；设置元信息、校验与
+写入在 ``settings_schema.py`` / ``SettingService``。
 
-解析优先级（docs/04 §5.6）::
+import 期无副作用：不建目录、不读文件、不 dlopen。配置文件固定为仓库根的
+``config.yaml``（:data:`DEFAULT_CONFIG_PATH`），不依赖 CWD；放在别处时给
+:func:`load_settings` 传路径。
 
-    环境变量 > setting 表 > config.yaml > 代码内默认值
+环境变量名是 ``MAA_`` + 点分 key 的大写、点换下划线，映射表在 :data:`ENV_OVERRIDES`；
+变量存在但为空串时按「未设置」处理。``access_token`` 用空串表示「未配置」：yaml 写
+null、写空串或整个 ``app`` 段缺失都归一为 ``""``，鉴权据此关闭（docs/05 §5.2）。
 
-本模块实现 YAML、setting 表覆盖、环境变量与进程内缓存的统一解析；设置元信息、
-校验、写入与热生效动作由 ``settings_schema.py`` / ``SettingService`` 提供。把
-``setting`` 表读成 ``{"adb.address": ...}`` 这样的点分映射传给
-:func:`resolve_settings`，便会按固定优先级合并；热更新时用 :func:`set_settings`
-替换缓存实例（读侧始终走 :func:`get_settings`，不自行解析文件）。
-
-配置文件路径固定为仓库根的 ``config.yaml``（:data:`DEFAULT_CONFIG_PATH`，
-``maa_api/settings.py`` → ``parents[1]``），**不依赖 CWD**；旧实现是 CWD 相对路径
-``Path() / "config.yaml"``。部署时若把配置放在别处，显式给 :func:`load_settings`
-传路径。
-
-环境变量层
-----------
-
-命名统一为 ``MAA_`` + 点分 key 的大写、点换下划线（点分 key 与 docs/04 §5.6 的
-``setting`` 表 key 一致）：
-
-===========================  ===============================
-点分 key                     环境变量
-===========================  ===============================
-``app.access_token``         ``MAA_APP_ACCESS_TOKEN``
-``app.maa_core_path``        ``MAA_APP_MAA_CORE_PATH``
-``app.proxy``                ``MAA_APP_PROXY``
-``adb.path``                 ``MAA_ADB_PATH``
-``adb.address``              ``MAA_ADB_ADDRESS``
-``adb.screenshot_quality``   ``MAA_ADB_SCREENSHOT_QUALITY``
-``adb.connection_config``    ``MAA_ADB_CONNECTION_CONFIG``
-``adb.common_ports``         ``MAA_ADB_COMMON_PORTS``（逗号分隔整数）
-``channel.client_type``      ``MAA_CHANNEL_CLIENT_TYPE``
-``channel.server``           ``MAA_CHANNEL_SERVER``
-``llm.base_url``             ``MAA_LLM_BASE_URL``
-``llm.api_key``              ``MAA_LLM_API_KEY``
-``llm.model``                ``MAA_LLM_MODEL``
-===========================  ===============================
-
-映射表在代码里是 :data:`ENV_OVERRIDES`。变量**存在但取值为空串**时按「未设置」
-处理：不会把一个合法配置清空，也不会让 int 字段拿到空串；这与设置写入接口
-「空串视为不变更」的约定一致（docs/04 §5.6）。
-
-未配置的 ``access_token``
--------------------------
-
-``access_token`` 用**空字符串**表示「未配置」：yaml 里写 ``access_token:``（null）、
-写空串、或整个 ``app`` 段缺失，都归一为 ``""``；代码里没有、将来也不会有一个
-默认 token。读取方据此判定免鉴权模式（docs/05 §5.2：为空或未配置时全部端点免
-鉴权），不区分「没配」与「配了空值」—— 两者对鉴权语义相同，都是关闭鉴权。
-其余字段的 null 同样表示「未配置」，回落到默认值（``adb`` 三项的默认值与
-``config.template.yaml`` 一致）。
-
-yaml 段/键的取舍
-----------------
-
-只识别 :data:`SETTING_KEYS` 里的键；未识别的段（如 ``smtp``）与键一律
-忽略，后续里程碑往 ``config.yaml`` 加段时旧文件不会报错。已知段写成非映射
-（如 ``adb: 25``）抛 :class:`SettingsError` 而不是静默回落默认值——段名写对、
-形状写错时静默会让用户以为配置生效了。yaml 解析失败同样抛
-:class:`SettingsError`，消息里带文件路径，不静默吞。
-
-``app.access_token`` / ``app.maa_core_path`` / ``adb.path`` 在设置 API 中只读
-（docs/04 §5.6、docs/05 §4.13）。配置解析校验字段类型；UI 范围和枚举由设置
-schema 与服务层执行，避免启动加载路径和设置 API 的验证责任混淆。
+只识别 :data:`SETTING_KEYS` 里的键，未识别的段与键忽略；已知段写成非映射（如
+``adb: 25``）或 yaml 解析失败时抛 :class:`SettingsError`，不静默回落默认值。
+``app.access_token`` / ``app.maa_core_path`` / ``adb.path`` 在设置 API 里只读。
 """
 
 from __future__ import annotations
@@ -115,7 +56,7 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 ENV_PREFIX = "MAA_"
 
 #: 点分 key → ``Settings`` 字段路径。yaml 的 ``app`` / ``adb`` 段、``setting``
-#: 表的 key 与环境变量都按这张表解析；表里没有的段/键一律忽略。
+#: 表的 key 与环境变量都按这张表解析；表里没有的段/键忽略。
 SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "app.access_token": ("access_token",),
     "app.maa_core_path": ("maa_core_path",),
@@ -250,7 +191,7 @@ class AgentSettings(BaseModel):
 
     confirmation_timeout_seconds: int = Field(default=600, ge=1)
     grant_confirmation_timeout_seconds: int = Field(default=120, ge=1)
-    #: 提问的等待时长（M21，规格 §1.3）：到点未回答就置 expired 并结束本轮。
+    #: 提问的等待时长（规格 §1.3）：到点未回答就置 expired 并结束本轮。
     #: 与确认超时分开配：确认是「等你授权一次有风险的操作」，提问只是「等你选一个」。
     question_timeout_seconds: int = Field(default=600, ge=1)
     atomic_grant_minutes: int = Field(default=15, ge=1, le=60)
@@ -308,7 +249,7 @@ class Settings(BaseModel):
     ``access_token`` 为 ``""`` 即「未配置」，此时全部端点免鉴权（docs/05 §5.2）。
     """
 
-    #: 同上：未识别的段/键忽略（``smtp`` 段在本卡不建模，M6 的通知配置另建模型）。
+    #: 同上：未识别的段/键忽略（``smtp`` 段在本卡不建模，通知配置另建模型）。
     model_config = ConfigDict(extra="ignore")
 
     access_token: str = ""
@@ -336,7 +277,7 @@ def resolve_settings(
         ``{"app": {"access_token": "x"}, "adb": {"address": "1.2.3.4:5555"}}``。
     :param db_overrides: ``setting`` 表的覆盖项，点分 key 映射，如
         ``{"adb.address": "1.2.3.4:5555"}``。
-    :param env: 环境变量映射；``None`` 表示不叠加环境变量层（便于测试与 M6
+    :param env: 环境变量映射；``None`` 表示不叠加环境变量层（便于测试与后续
         显式传入），:func:`load_settings` 传 ``os.environ``。
     :returns: 合并后的配置；某一层里值为 ``None`` 的键表示「这层没配」，继续
         往下层取，四层都没有就用模型默认值。
@@ -419,7 +360,7 @@ def get_settings() -> Settings:
 def set_settings(settings: Settings | None) -> None:
     """替换或清空进程内缓存：传 :class:`Settings` 注入，传 ``None`` 表示下次重新加载。
 
-    供测试注入替身与 M6 的热更新使用（改完 DB 覆盖层后重新解析并换上）。
+    供测试注入替身与热更新使用（改完 DB 覆盖层后重新解析并换上）。
     """
     global _CACHE
     _CACHE = settings
@@ -472,7 +413,7 @@ def _yaml_layer(file_data: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def _dotted_layer(values: Mapping[str, Any] | None) -> dict[str, Any]:
-    """只保留已知点分 key（``setting`` 表的覆盖项形态，M6 接入）。"""
+    """只保留已知点分 key（``setting`` 表的覆盖项形态，）。"""
     if not values:
         return {}
     return {key: value for key, value in values.items() if key in SETTING_KEYS}

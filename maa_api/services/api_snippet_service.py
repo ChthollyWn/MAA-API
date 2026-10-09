@@ -177,7 +177,7 @@ class ApiSnippetService:
 def _not_found(snippet_id: str) -> AppError:
     return AppError(
         ErrorCode.API_SNIPPET_NOT_FOUND,
-        "API 调试台收藏不存在",
+        "API 调试台收藏不存在，请刷新列表",
         {"snippet_id": snippet_id},
     )
 
@@ -193,6 +193,6 @@ def _to_view(item: ApiSnippet) -> ApiSnippetView:
 def _name_conflict(name: str) -> AppError:
     return AppError(
         ErrorCode.API_SNIPPET_NAME_CONFLICT,
-        "API 调试台收藏名称已存在",
+        "已有同名收藏，请换一个名称",
         {"name": name},
     )

@@ -3,7 +3,7 @@
 ``setting`` 表只存**被显式覆盖过**的配置项，配置解析优先级为
 环境变量 > ``setting`` 表 > ``config.yaml`` > 代码内默认值（docs/04 §5.6）。
 所以本仓储只有四件事：读一个 key、upsert 一个 key、读全表、删一个 key，
-**绝不把代码内默认值灌进表里**——表里没有某个 key 就意味着「用下层的值」，
+**不把代码内默认值灌进表里**：表里没有某个 key 就意味着「用下层的值」，
 升级后新增的默认值会自动生效，不需要数据迁移。
 
 ``value`` 是 JSON 列而不是 TEXT（docs/04 §5.6）。:meth:`SettingRepository.get`
@@ -12,12 +12,12 @@
 要传给 PIL）不需要在读取侧再维护一张类型表。SQLite 的 JSON 声明类型是 NUMERIC
 亲和，纯数字的 JSON 文本会被 SQLite 存成 INTEGER/REAL；SQLAlchemy 的 SQLite
 方言对此有专门处理（``_SQliteJson.result_processor`` 对 ``numbers.Number``
-原样返回），整型/浮点仍能原样读回，本模块的测试钉住了这条。
+原样返回），整型/浮点仍能原样读回，测试钉住了这条。
 
 **不做的事**（归属后续里程碑）：字段元信息（中文标签、类型、取值范围、是否敏感、
 热生效动作）不进表，定义在代码里的 ``settings_schema.py``；敏感项读接口返回
 ``"***"``、写接口收到 ``"***"`` / 空串视为「不变更」，以及「环境变量 > 表 >
-yaml > 默认值」的解析链，都在 ``SettingService``（M2-12 及之后）。本仓储只负责
+yaml > 默认值」的解析链，都在 ``SettingService``。本仓储只负责
 存取，不做脱敏、不查类型表、不读 ``config.yaml``。
 
 事务纪律（docs/04 §9）：所有方法都不 ``commit()``，由调用方决定事务边界。
@@ -40,7 +40,7 @@ class SettingRepository(BaseRepository):
 
         直接 ``select`` 列而不是 ORM 实体：返回值本就是 JSON 解出的原始类型，
         不需要实例；也顺带避开「身份映射里已有陈旧实例时 ``session.get()``
-        不读库」的坑（M2-08 实测）。返回 ``None`` 的含义只有一个：**没有覆盖，
+        不读库」的坑。返回 ``None`` 的含义只有一个：**没有覆盖，
         请用下层的值**（见 :meth:`set` 对 ``None`` 的约束）。
         """
         result = await self.session.execute(
@@ -59,7 +59,7 @@ class SettingRepository(BaseRepository):
         两条路径。同一 key 永远只有一行。
 
         ``value`` 不能是 Python ``None``：列是 NOT NULL，且 JSON 的 ``null`` 与
-        「表里没有这一行」在 :meth:`get` 的返回值上无法区分——而「表里没有」
+        「表里没有这一行」在 :meth:`get` 的返回值上无法区分：而「表里没有」
         正是「用下层的值」的判据（docs/04 §5.6）。需要清除覆盖请用
         :meth:`delete`。``updated_by`` 是 ``manual`` / ``agent`` / ``system``
         之一（docs/04 §5.6），列宽 16，仓储不做枚举校验。

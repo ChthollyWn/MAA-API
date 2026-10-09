@@ -293,7 +293,7 @@ async def check_repo(
         version, release_note = _parse_mirror(response.json())
         source = "mirrorchyan"
     except (httpx.HTTPError, ValueError, ResourceUpdateError) as mirror_error:
-        logger.info("Mirror 酱 version check failed; falling back to raw: %s", mirror_error)
+        logger.info("镜像源版本查询失败，改用官方源：%s", mirror_error)
         try:
             response = await client.get(REPO_VERSION_URL)
             response.raise_for_status()
@@ -585,7 +585,7 @@ async def stage_repo_overlay(
                 except Exception as exc:
                     failures.append((url, exc))
                     logger.warning(
-                        "MaaResource archive source failed (%s): %s",
+                        "资源下载源不可用（%s）：%s",
                         url,
                         describe_download_error(exc),
                     )

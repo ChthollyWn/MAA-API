@@ -94,7 +94,7 @@ class ConfirmationService:
         self._workers: dict[str, asyncio.Task[None]] = {}
         #: 被「主动中断」取消的调用（审计 id）。只有列在这里的 worker 才把审计写成
         #: ``AGENT_TURN_INTERRUPTED``；服务关闭路径取消 worker 时仍由 :meth:`close`
-        #: 的批量兜底写 ``SERVICE_UNAVAILABLE``，两者的语义不能混（M22 规格 §3.2）。
+        #: 的批量兜底写 ``SERVICE_UNAVAILABLE``，两者的语义不能混（规格 §3.2）。
         self._aborted_audits: set[int] = set()
         self._expiry_task: asyncio.Task[None] | None = None
         self._grant_locks: dict[str, asyncio.Lock] = {}
@@ -423,8 +423,8 @@ class ConfirmationService:
                         AuditStatus.FAILED,
                         error_code=str(ErrorCode.SERVICE_UNAVAILABLE),
                         result_summary=(
-                            "服务重启时调用仍处于 pending，执行结果不确定；"
-                            "为避免重复副作用，不会自动重试"
+                            "服务重启时调用还没结束，结果不确定；"
+                            "为避免重复生效，不会自动重试"
                         ),
                     )
 
@@ -523,8 +523,8 @@ class ConfirmationService:
                         AuditStatus.FAILED,
                         error_code=str(ErrorCode.SERVICE_UNAVAILABLE),
                         result_summary=(
-                            "服务关闭时调用仍处于 pending，执行结果不确定；"
-                            "为避免重复副作用，不会自动重试"
+                            "服务关闭时调用还没结束，结果不确定；"
+                            "为避免重复生效，不会自动重试"
                         ),
                     )
             await self._recover_unanswered_idempotency(session)
@@ -662,7 +662,7 @@ class ConfirmationService:
         return await self.get(confirmation_id)
 
     async def abort_session_calls(self, session_id: str) -> int:
-        """撤回某个会话本轮仍在等或仍在跑的工具调用，返回处理的条数（M22 规格 §3.2）。
+        """撤回某个会话本轮仍在等或仍在跑的工具调用，返回处理的条数（规格 §3.2）。
 
         索引是 ``AgentAudit.session_id``（真列）：``Confirmation`` 表没有会话列，
         ``payload.session_id`` 只是 JSON 里的字段，按它过滤要全表扫。审计行则是每次
@@ -854,7 +854,7 @@ class ConfirmationService:
     ) -> None:
         """没有活跃前端连接时补一条 Web Push。
 
-        推送失败**不得**影响确认本身：确认已经落库并进入等待，超时机制照常运行。
+        推送失败**不影响**确认本身：确认已经落库并进入等待，超时机制照常运行。
         所以这里吞掉全部异常，只记日志。
         """
         if self.push is None:
@@ -1011,7 +1011,7 @@ class ConfirmationService:
             return result
         except asyncio.CancelledError:
             # 主动中断取消了正在跑的调用：审计必须落终态，否则它会永久停在 pending
-            # （M22 规格 §3.2）。只对 ``abort_session_calls`` 登记过的审计这么写；
+            # （规格 §3.2）。只对 ``abort_session_calls`` 登记过的审计这么写；
             # 服务关闭路径的取消交给 ``close()`` 的批量兜底（那里写
             # SERVICE_UNAVAILABLE），两条语义不能互相冒充。
             if audit_id in self._aborted_audits:
@@ -1537,7 +1537,7 @@ def _idempotency_error_body(error: AppError) -> dict[str, Any]:
 
 def _uncertain_audit_message(status: AuditStatus) -> str:
     if status == AuditStatus.FAILED:
-        return "工具执行结果不确定；为避免重复副作用，请先查询审计记录"
+        return "工具执行结果不确定；先查审计记录再决定要不要重试"
     return "Agent 工具调用未能完成"
 
 

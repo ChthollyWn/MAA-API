@@ -398,7 +398,7 @@ def test_missing_token_is_401_with_www_authenticate(tmp_settings, make_client) -
     assert resp.status_code == 401
     body = resp.json()
     assert body["error"]["code"] == "UNAUTHORIZED"
-    assert body["error"]["message"] == "缺少 access token"
+    assert body["error"]["message"] == "缺少 access token，请携带 Authorization: Bearer 或 X-Token"
     assert "details" not in body["error"]
     # WWW-Authenticate 由 M3-04 的处理器统一补（docs/05 §2）。
     assert resp.headers["WWW-Authenticate"] == "Bearer"
@@ -415,7 +415,7 @@ def test_wrong_token_is_401(tmp_settings, make_client) -> None:
     ):
         resp = client.get("/api/ping", **kwargs)
         assert resp.status_code == 401, (kwargs, resp.text)
-        assert resp.json()["error"]["message"] == "access token 不匹配"
+        assert resp.json()["error"]["message"] == "access token 不匹配，请检查配置的 access_token"
 
 
 # ----------------------------------------------------------------------

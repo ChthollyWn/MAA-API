@@ -1,56 +1,28 @@
 """应用装配：生命周期、路由注册、CORS、OpenAPI 元数据（docs/02 §6–§7，docs/05 §11）。
 
-本模块是 :mod:`maa_api` 的唯一装配入口（``uvicorn maa_api.main:app``）。它只做
-「接线」，不含任何业务逻辑；配置加载、数据库迁移与 M4–M5 生命周期在此装配。
+:mod:`maa_api` 的唯一装配入口（``uvicorn maa_api.main:app``），只做接线，不含业务逻辑。
 
-启动顺序（docs/02 §7 的九步）
-=============================
+:func:`lifespan` 按 docs/02 §7 的九步组织启动顺序。第 4 步启动 CoreSupervisor 不阻塞等待：
+服务进入可用状态不依赖内核就绪，``/api/system/health`` 如实返回服务自身状态，内核加载与
+设备连接都在后台进行。关闭按依赖关系倒序执行：取消 PipelineRunner → 关闭子进程 → 关闭
+WebSocket 与日志 tailer → 刷新日志缓冲。用 ``lifespan`` 而不是废弃的启动事件钩子：后者在
+fastapi 0.141 上仍可用但会发 deprecation 警告，且与「启动 / 关闭成对书写」的语义不匹配。
 
-:func:`lifespan` 按文档顺序组织。M5 接入 CoreSupervisor、CoreClient、SQLite 队列与
-PipelineRunner；M6 会把当前每代一次的连接钩子替换为 DeviceManager，并装载 APScheduler；
-Agent ToolRegistry 由 M11 提供，内置 Agent 对话循环归 M13。
+CORS（docs/05 §5.1）：旧装配把「通配符 origin + ``allow_credentials=True``」放在一起，
+浏览器会直接拒绝（带凭据的响应不允许通配符 origin），等于旧配置实际失效。这里改为显式白
+名单（本机 8002 两个回环写法）+ ``allow_origin_regex`` 覆盖 RFC 1918 局域网网段，保留
+``allow_credentials=True``，方法/头也显式列出。默认白名单是模块级常量
+（:data:`CORS_ORIGINS` / :data:`CORS_ORIGIN_REGEX`），局域网地址「可在设置页添加」属于
+middleware 装配期的取舍：要么在 :func:`create_app` 之前读出白名单，要么换成按请求查设置的
+动态 middleware。
 
-第 4 步（启动 CoreSupervisor **不阻塞等待**）是与现状最大的行为差异：服务进入可用
-状态不再依赖内核就绪，因此 M3 起 ``/api/system/health`` 就必须能如实返回服务自身
-状态；内核加载与设备连接都在后台进行，不阻塞 HTTP 服务启动。
+OpenAPI（docs/05 §11）：``openapi_tags=TAGS`` 的 16 条分组顺序即 ``/docs`` 展示顺序，
+``ws`` 条目保留用于说明协议与鉴权方式；``generate_unique_id_function=custom_operation_id``
+把 operationId 统一成 ``{tag}_{函数名}``（typescript 客户端方法名依赖这条约定）；
+``redirect_slashes=False`` 让所有路由不带尾斜杠，避免 307 干扰前端（docs/05 §2.5）。
 
-为什么是 ``lifespan``
-=====================
-
-废弃的启动事件钩子在 fastapi 0.141 上仍可用但会发 deprecation 警告，且与
-「启动 / 关闭成对书写」的语义不匹配；docs/02 §7 明确要求改用
-``@asynccontextmanager`` 的 lifespan。关闭顺序按依赖关系执行：取消 PipelineRunner → 关闭
-子进程 → 关闭 WebSocket 与日志 tailer → 刷新日志缓冲；APScheduler 与数据库关闭在后续
-里程碑接入。
-
-CORS（docs/05 §5.1）
-====================
-
-旧装配把「通配符 origin + ``allow_credentials=True``」放在一起，浏览器会直接拒绝
-（带凭据的响应不允许通配符 origin），等于旧配置实际失效。这里改为**显式白名单**
-（本机 8002 两个回环写法）+ ``allow_origin_regex`` 覆盖 RFC 1918 局域网网段，
-保留 ``allow_credentials=True``，方法/头也显式列出而不是通配。
-
-局域网地址「可在设置页添加」归 M6：middleware 在应用构造时装配，M6 接设置页时要么
-在 :func:`create_app` 之前读出白名单，要么换成按请求查设置的动态 middleware；本卡
-把默认白名单留成模块级常量（:data:`CORS_ORIGINS` / :data:`CORS_ORIGIN_REGEX`）作为
-唯一真源。
-
-OpenAPI（docs/05 §11）
-======================
-
-- ``openapi_tags=TAGS``：16 条分组，顺序即 ``/docs`` 展示顺序；``ws`` 与将来的
-  ``ws`` 不能在 Swagger UI 里调试，但必须保留条目说明协议与鉴权方式。
-- ``generate_unique_id_function=custom_operation_id``：operationId 统一成
-  ``{tag}_{函数名}``（typescript 客户端方法名依赖这条约定）。
-- ``redirect_slashes=False``：所有路由不带尾斜杠，尾斜杠一律 404，避免 307 干扰
-  前端（docs/05 §2.5）。
-
-日志
-====
-
-一律 stdlib :func:`logging.getLogger`。``maa_api.log`` 的 import 无副作用，lifespan
-中显式安装控制台、文件与 LogHub handler。
+日志统一用 stdlib :func:`logging.getLogger`；``maa_api.log`` 的 import 无副作用，lifespan 中
+显式安装控制台、文件与 LogHub handler。
 """
 
 from __future__ import annotations
@@ -165,7 +137,7 @@ async def _wait_for_pipeline_idle(
                 if confirmation_policy is None:
                     raise AppError(
                         ErrorCode.FORBIDDEN,
-                        "未配置强制中断确认策略",
+                        "这次强制中断没有确认渠道，已拒绝；请在更新页手动重试",
                     )
                 approved = confirmation_policy(target, dict(opts))
                 if asyncio.iscoroutine(approved):
@@ -173,7 +145,7 @@ async def _wait_for_pipeline_idle(
                 if not approved:
                     raise AppError(
                         ErrorCode.FORBIDDEN,
-                        "强制中断未通过确认策略",
+                        "强制中断没有获得确认，操作已取消；如确需中断，请在更新页确认后重试",
                     )
                 async with session_factory() as session:
                     active_record = await PipelineRepository(session).current(core_id)
@@ -219,7 +191,7 @@ async def _wait_for_pipeline_idle(
             if loop.time() >= deadline:
                 raise AppError(
                     ErrorCode.UPDATE_QUEUE_BUSY_TIMEOUT,
-                    "等待流水线空闲超时",
+                    "流水线一直没有空闲，等待超时；请稍后重试，或先停止正在执行的流水线",
                 )
             await asyncio.sleep(poll_interval)
     except BaseException:
@@ -267,19 +239,18 @@ async def request_trace_headers(request: Request, call_next):
 #: 服务标题与描述；描述会原样进入 ``/openapi.json`` 的 ``info``。
 TITLE = "MAA-API"
 DESCRIPTION = (
-    "MaaAssistantArknights 的 Web 服务（重构版）。\n\n"
-    "- **鉴权**：单一 `access_token`，四渠道按优先级取值 —— "
-    "`Authorization: Bearer` → `X-Token` → `?token=` → cookie `maa_token`；"
-    "未配置 `access_token` 时全部端点免鉴权\n"
-    "- **错误体**：所有非 2xx 响应都是 "
+    "MaaAssistantArknights 的 Web 服务。\n\n"
+    "- 鉴权：单一 `access_token`，按优先级依次取 `Authorization: Bearer`、"
+    "`X-Token`、`?token=`、cookie `maa_token`；未配置 `access_token` 时全部端点免鉴权\n"
+    "- 错误体：所有非 2xx 响应都是 "
     '`{"error": {"code", "message", "details"}}`，`code` 是可枚举的错误码\n'
-    "- **尾斜杠**：全部路由不带尾斜杠，带尾斜杠一律 404（`redirect_slashes=False`）\n"
-    "- `ws` 分组只在本文档占位说明协议与鉴权方式，不能在 Swagger UI 中调试"
+    "- 尾斜杠：全部路由不带尾斜杠，带尾斜杠返回 404\n"
+    "- `ws` 分组只说明协议与鉴权方式，不能在调试台里直接调用"
 )
 
 #: 读不到分发元数据时的回退版本（与 pyproject.toml 一致）；与
 #: :func:`maa_api.api.routers.system.health` 的取法相同：只读 importlib.metadata，
-#: 不 import 内核，也不 import 本模块（避免循环依赖）。
+#: 不 import 内核，也不 import ``maa_api.main``（避免循环依赖）。
 _FALLBACK_VERSION = "0.1.0"
 
 #: ``openapi_tags``：与路由分组一一对应，顺序即 ``/docs`` 展示顺序（docs/05 §11.1 原文）。
@@ -289,9 +260,9 @@ TAGS: list[dict[str, str]] = [
     {"name": "queue", "description": "队列快照与优先级调整"},
     {"name": "tasks", "description": "任务类型与参数 schema"},
     {"name": "device", "description": "设备状态、重连与原子操作"},
-    {"name": "core", "description": "MaaCore 子进程状态与原生能力"},
+    {"name": "core", "description": "内核状态与原生能力"},
     {"name": "screenshots", "description": "截图归档与读取"},
-    {"name": "updates", "description": "内核 / 资源 / 游戏三种热更新"},
+    {"name": "updates", "description": "内核、资源与游戏热更新"},
     {"name": "schedules", "description": "定时任务"},
     {"name": "settings", "description": "可视化配置"},
     {"name": "notifications", "description": "多通道通知"},
@@ -299,7 +270,7 @@ TAGS: list[dict[str, str]] = [
     {"name": "snippets", "description": "API 调试台收藏请求"},
     {"name": "agent", "description": "工具清单、会话与审计"},
     {"name": "confirmations", "description": "高风险操作的人工确认"},
-    {"name": "ws", "description": "WebSocket 实时通道（仅文档说明，不可在此调试）"},
+    {"name": "ws", "description": "WebSocket 实时通道（文档说明，不可调试）"},
 ]
 
 #: 免鉴权启动日志的固定文案：前端与运维按它判断服务处于免鉴权模式（docs/05 §5.2）。
@@ -379,7 +350,7 @@ class OperationIdRoute(Protocol):
 
     fastapi 0.141 的 ``generate_unique_id_function`` 对 ``@app.get`` 直挂的路由收到
     ``APIRoute``，对 ``include_router`` 进来的路由收到 ``_EffectiveRouteContext``
-    包装对象（实测见 docs/ENVIRONMENT.md）：两者都有 ``name`` / ``tags``。
+    包装对象（见 docs/ENVIRONMENT.md）：两者都有 ``name`` / ``tags``。
     因此这里按结构取属性，**不做 isinstance 判断、注解也不写死 ``APIRoute``**。
     """
 
@@ -417,9 +388,8 @@ def service_version() -> str:
 def warn_if_auth_disabled() -> None:
     """免鉴权模式时打印固定文案的 warning（docs/05 §5.2）。
 
-    独立成函数是为了可单测：直接调用即可断言文案，不必依赖 ``TestClient`` 线程里的
-    日志捕获（M3-09 实测 caplog 也能捕到，但直接调用更稳、更快）。这条文案是前端与
-    运维判断鉴权模式的依据，必须有用例钉住。
+    独立成函数以便单测：直接调用断言文案，不必依赖 ``TestClient`` 线程里的日志捕获。
+    这条文案是前端与运维判断鉴权模式的依据，用测试钉住。
     """
     if not get_settings().access_token:
         logger.warning(AUTH_DISABLED_WARNING)
@@ -427,13 +397,13 @@ def warn_if_auth_disabled() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """启动 / 关闭序列（docs/02 §7，当前落地到 M5）。
+    """启动 / 关闭序列（docs/02 §7）。
 
     启动（进入时）：
 
-    1. 加载配置 —— ``config.yaml`` → DB 覆盖项 → 环境变量
+    1. 加载配置：``config.yaml`` → DB 覆盖项 → 环境变量
     2. 初始化数据库引擎并执行 Alembic 迁移到 head（:func:`ensure_schema`，失败即启动失败）
-    3. 记录 ``app.state.started_at``（UTC ISO 8601 字符串，M3-07 的 health 读它）
+    3. 记录 ``app.state.started_at``（UTC ISO 8601 字符串， health 读它）
     4. 启动 LogHub 与日志来源
     5. 启动 MaaCore 子进程与 PipelineRunner；连接设备不阻塞启动
 
@@ -446,7 +416,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 执行阻塞的 alembic upgrade；失败原样抛出、中止启动（docs/04 §8.3）。
     await ensure_schema()
 
-    # M6: 设置服务在 schema 就绪后加载 DB 覆盖，并成为后续服务的配置提供者。
+    # 设置服务在 schema 就绪后加载 DB 覆盖，并成为后续服务的配置提供者。
     import maa_api.db.session as db_session
     import maa_api.settings as settings_module
     from maa_api.services.setting_service import SettingService
@@ -466,7 +436,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 第 9 步的可见结果：进程启动时间写入 app.state，health 端点读取它。
     app.state.started_at = datetime.now(timezone.utc).isoformat()
 
-    # 第 3 步（M4）：启动 LogHub、Python logging handler 与 MaaCore debug 日志 tail。
+    # 第 3 步：启动 LogHub、Python logging handler 与 MaaCore debug 日志 tail。
     # tailer 任务只建立任务，不等待子进程，也不要求 asst.log 已存在。
     hub = LogHub()
     await hub.start()
@@ -481,7 +451,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         del app.state.log_hub
         raise
 
-    # M5/M6 第 4–6 步：装配 MaaCore、设备管理与单消费者流水线执行器。
+    # 第 4–6 步：装配 MaaCore、设备管理与单消费者流水线执行器。
     core_supervisor = None
     core_client = None
     device_manager = None
@@ -768,7 +738,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             lifecycle_tasks.add(device_start_task)
             device_start_task.add_done_callback(lifecycle_tasks.discard)
 
-        # M7 update workflows share a lifespan-owned HTTP client and the exact
+        # Update workflows share a lifespan-owned HTTP client and the exact
         # DeviceManager safe APK installer. Importing their modules is side-effect free.
         from maa_api.services.core_update import CoreUpdateWorkflow
         from maa_api.services.game_update import GameUpdateService
@@ -928,7 +898,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bind_notify_service = getattr(pipeline_runner, "bind_notify_service", None)
         if callable(bind_notify_service):
             bind_notify_service(notify_service)
-        # 任务终态留档截图的日志附件（docs/12 M23 §3.10）：stdlib 日志渠道只搬运
+        # 任务终态留档截图的日志附件（docs/12 §3.10）：stdlib 日志渠道只搬运
         # pipeline/task/request 上下文，**不搬运 attachment**，附件只能走 hub 的
         # ``offer``，所以这里把 hub 后置注入给 runner（同 bind_notify_service）。
         bind_log_hub = getattr(pipeline_runner, "bind_log_hub", None)
@@ -990,7 +960,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.agent.questions import QuestionService
         from maa_api.agent.runtime import AgentRuntime, call_runtime_factory
 
-        # 提问与确认是两个独立的交互（M21 规格 §2.2）：独立的表、独立的服务、
+        # 提问与确认是两个独立的交互（规格 §2.2）：独立的表、独立的服务、
         # 独立的超时配置，这里只是并排装配。question_service_factory 与
         # confirmation_service_factory 同一用途：测试/冒烟脚本可替换成替身。
         question_factory = getattr(
@@ -1186,9 +1156,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await stop_logging(tailer_task, hub)
         raise
 
-    # M6 第 6 步通过 CoreSupervisor READY hook 异步启动 DeviceManager 的 startup retries。
-    # M6+: 第 7 步 从 DB 装载定时任务，启动 APScheduler
-    # M11: 第 8 步注册 ToolRegistry，并装配 Agent 工具服务。
+    # 第 6 步通过 CoreSupervisor READY hook 异步启动 DeviceManager 的 startup retries。
+    # 第 7 步：从 DB 装载定时任务，启动 APScheduler
+    # 第 8 步：注册 ToolRegistry，并装配 Agent 工具服务。
 
     # 第 9 步：yield 之后 uvicorn 才开始接受 HTTP 请求；子进程 READY 与设备连接
     # 均在后台发生，不阻塞 HTTP 服务的启动。
@@ -1285,12 +1255,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # 统一错误体与四个异常处理器（M3-04）：必须发生在第一个请求之前，注册本身幂等。
+    # 统一错误体与四个异常处理器：必须发生在第一个请求之前，注册本身幂等。
     register_exception_handlers(app)
 
     # 路由：前缀与 tag 都写在各自模块里，这里只 include。
-    # 旧 router/adb、router/maa、router/template 一律不注册（M3 起废弃，docs/02 §9）；
-    # 旧 static 挂载也不做 —— SPA catch-all 归 M8。
+    # 旧 router/adb、router/maa、router/template 不注册；
+    # 旧 static 挂载也不做：SPA catch-all 服务前端路由。
     app.include_router(system.router)
     app.include_router(tasks.router)
     app.include_router(device.router)

@@ -2,7 +2,7 @@
 
 ``ensure_schema()`` 是 lifespan 的第 2 步（docs/02 §7），必须早于 ``LogHub`` 与
 ``CoreSupervisor``：schema 不匹配时服务能起来但每个请求都在报 ``no such column``，
-比直接起不来更难排查，所以迁移失败一律让异常冒泡、中止启动。
+比直接起不来更难排查，所以迁移失败让异常冒泡、中止启动。
 
 四条纪律（docs/04 §8.3，逐条落到实现里）：
 
@@ -18,15 +18,15 @@
 - **迁移失败中止启动**。异常原样抛出，同时在 stderr 打印迁移前备份的路径，
   人工回滚有据可依（备份路径只在真的产生了备份时才存在）。
 
-**import 策略：本模块只依赖标准库**，``alembic`` / ``sqlalchemy`` 与
+**import 策略：只依赖标准库**，``alembic`` / ``sqlalchemy`` 与
 ``maa_api.db.session`` 都延迟到调用点 import。两个原因：
 
 1. ``maa_api.db.session`` 在 import 期就会 ``make_engine()`` 造一个异步引擎；
-   只做迁移入口的进程没必要背上这个副作用，延迟 import 让本模块 import 期零副作用。
-2. 本模块的契约（``ensure_schema`` 是 async、升级经线程池、不混第二条建表路径）
-   因此可以在**没有数据库栈的解释器**上静态检查 —— 验收命令用的是裸 ``python3``。
+   只做迁移入口的进程没必要背上这个副作用，延迟 import 让 import 期零副作用。
+2. 这里的契约（``ensure_schema`` 是 async、升级经线程池、不混第二条建表路径）
+   因此可以在**没有数据库栈的解释器**上静态检查：验收命令用的是裸 ``python3``。
 
-可测性契约（M2-05 与后续里程碑依赖）：所有路径都在**调用时**从
+可测性契约：所有路径都在调用时从
 ``maa_api.db.session`` 的模块属性读取（``session.DB_PATH`` / ``session.SYNC_URL``），
 不固化取值；``alembic.ini`` 与 ``script_location`` 按仓库根相对路径解析，
 调用方 cwd 必须是仓库根。
@@ -185,7 +185,7 @@ async def ensure_schema() -> None:
     try:
         await asyncio.to_thread(_upgrade_head)
     except Exception:
-        # 只补一条人工回滚所需的提示，然后原样抛出：绝不 try/except 后继续启动，
+        # 只补一条人工回滚所需的提示，然后原样抛出，不 try/except 后继续启动，
         # 否则服务能起来但每个请求都报 no such column（docs/04 §8.3）。
         if backup is None:
             message = (

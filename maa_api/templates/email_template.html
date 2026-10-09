@@ -93,11 +93,12 @@
                     <tr>
                         <td class="content" style="padding: 30px; color: #333;">
                             <div class="status-card" style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 15px 20px; margin: 20px 0; border-radius: 6px;">
-                                <h2 style="margin-top: 0; color: #1e40af;">任务流水线状态</h2>
+                                {% set status_labels = {'idle': '未开始', 'running': '运行中', 'completed': '已完成', 'failed': '失败', 'cancelled': '已取消'} %}
+                                <h2 style="margin-top: 0; color: #1e40af;">流水线状态</h2>
                                 <p style="margin: 8px 0; font-size: 16px; color: #1e3a8a;">
-                                    <strong>当前状态:</strong>
-                                    <span style="padding: 4px 8px; border-radius: 4px; background-color: {% if status == 'completed' %}#bbf7d0{% elif status == 'failed' %}#fecaca{% else %}#fef08a{% endif %}; color: {% if status == 'completed' %}#155e75{% elif status.value == 'failed' %}#991b1b{% else %}#854d0e{% endif %};">
-                                        {{ status.value }}
+                                    <strong>当前状态：</strong>
+                                    <span style="padding: 4px 8px; border-radius: 4px; background-color: {% if status == 'completed' %}#bbf7d0{% elif status == 'failed' %}#fecaca{% else %}#fef08a{% endif %}; color: {% if status == 'completed' %}#155e75{% elif status == 'failed' %}#991b1b{% else %}#854d0e{% endif %};">
+                                        {{ status_labels.get(status.value, status.value) }}
                                     </span>
                                 </p>
                             </div>
@@ -143,7 +144,7 @@
                     <!-- Footer -->
                     <tr>
                         <td class="footer" style="background-color: #f1f5f9; text-align: center; font-size: 0.8em; color: #64748b; padding: 20px; margin-top: 30px;">
-                            <p style="margin: 0;">© 2025 MAA-API 系统通知</p>
+                            <p style="margin: 0;">MAA-API 系统通知</p>
                             <p style="margin: 8px 0 0; opacity: 0.7;">此邮件为自动发送，请勿直接回复</p>
                         </td>
                     </tr>

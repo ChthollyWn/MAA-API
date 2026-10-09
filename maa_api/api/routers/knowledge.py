@@ -1,12 +1,11 @@
-"""Agent 知识库端点（M18 规格 §4.1）。
+"""Agent 知识库端点（规格 §4.1）。
 
-四个操作对应服务层的四个方法，路由里不做合并或上限判断 —— 唯一属于 REST 层的
-判断是**字段格式与长度**：约束写在下面的请求模型里，违反时走 FastAPI 原生的
-``422 VALIDATION_ERROR``（``details.fields`` 逐字段列表）。条目数与全文段字数
-不设上限（M20 用户裁决），因此没有对应的错误码。
+四个操作对应服务层的四个方法，路由里不做合并或上限判断；属于 REST 层的判断只有字段
+格式与长度，约束写在请求模型里，违反时走 FastAPI 原生的 ``422 VALIDATION_ERROR``
+（``details.fields`` 逐字段列表）。条目数与全文段字数不设上限，因此没有对应的错误码。
 
-写操作各记一条服务日志（条目 id、动作）。知识库不是 Agent 工具调用，不进 Agent
-审计（规格 §4.1「写操作记一条服务日志，不进 Agent 审计」）。
+写操作各记一条服务日志（条目 id、动作）。知识库不是 Agent 工具调用，不进 Agent 审计
+（规格 §4.1）。
 """
 
 from __future__ import annotations
@@ -58,7 +57,7 @@ class KnowledgeWriteRequest(KnowledgeWrite):
 
 
 class KnowledgePage(BaseModel):
-    """列表响应：不含正文（规格 §4.1 的 REST 表）。"""
+    """列表响应：列表项不含正文，只给字数。"""
 
     items: list[KnowledgeSummary]
     total: int
@@ -67,7 +66,7 @@ class KnowledgePage(BaseModel):
 def _service(request: Request) -> KnowledgeService:
     service = getattr(request.app.state, "knowledge_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "知识库服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "知识库功能还在启动中，请稍后重试")
     return service
 
 
@@ -119,7 +118,10 @@ async def put_knowledge_entry(
         description="知识条目 id", pattern=ENTRY_ID_PATTERN.pattern
     ),
 ) -> KnowledgeDetail:
-    """写入完整的生效内容：新建自定义条目，或修改、停用内置条目。"""
+    """写入完整的生效内容：新建自定义条目，或修改、停用内置条目。
+
+    内置条目的 ``kind`` 不可修改，改了返回 400 ``KNOWLEDGE_BUILTIN_READONLY``。
+    """
     detail = await _service(request).put_entry(entry_id, payload)
     logger.info(
         "知识库条目写入：id=%s source=%s modified=%s enabled=%s",
@@ -150,7 +152,11 @@ async def delete_knowledge_entry(
         description="知识条目 id", pattern=ENTRY_ID_PATTERN.pattern
     ),
 ) -> Response:
-    """删除自定义条目，或撤销对内置条目的修改（恢复默认）。"""
+    """删除自定义条目，或撤销对内置条目的修改（恢复默认）。
+
+    内置条目未被修改过时返回 400 ``KNOWLEDGE_BUILTIN_READONLY``；要停用它请写入
+    ``enabled=false``。
+    """
     await _service(request).delete_entry(entry_id)
     logger.info("知识库条目删除：id=%s", entry_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

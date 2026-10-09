@@ -1,19 +1,18 @@
 """MaaCore 的 ctypes FFI 封装（docs/03 §1、§2）。
 
-本模块是内核层唯一直接触碰 native 库的地方，承担三件事：
+内核层唯一直接触碰 native 库的地方，承担三件事：
 
-- 覆盖 docs/03 §1.1 的 26 个跨平台通用 C API。``AsstGetMapLevelKey`` 是 macOS
-  导出、Linux 未导出的实验性 API，按「运行期能力探测 + 优雅降级」处理：不可用时
-  返回 ``None``，调用方回退到基于 ``resource/.../Stages/`` 的本地关卡索引。
-  头文件没有声明、只能靠逆向推测签名的那个 API 一律不碰（编造签名会直接段错误）。
+- 覆盖 docs/03 §1.1 的 26 个跨平台通用 C API。``AsstGetMapLevelKey`` 是 macOS 导出、
+  Linux 未导出的实验性 API，按「运行期能力探测 + 优雅降级」处理：不可用时返回 ``None``，
+  调用方回退到基于 ``resource/.../Stages/`` 的本地关卡索引。头文件没有声明、只能靠逆向
+  推测签名的 API 不碰（编造签名会直接段错误）。
 - ``AsstAsyncConnect`` / ``AsstAsyncClick`` / ``AsstAsyncScreencap`` 的返回值是
-  ``AsstAsyncCallId``（受理编号），**非零不代表成功**；结果经 ``Message.AsyncCallInfo``
-  （msg=4）回调送达，按 M1-01 真机实测的层级解析：``async_call_id`` 在载荷顶层、
-  成功标志在 ``details.details.ret``（双层嵌套）、调用类型在顶层 ``what``。
-  msg=2 的 ``ConnectionInfo`` 会先于它报出 ``what == "Connected"``，
-  异步成败只能认 msg=4，不得用 ``ConnectionInfo`` 代替。
-- 回调发生在 MaaCore 自己的线程上：本模块只缓存 ``ResolutionGot`` 分辨率并原样
-  转发给用户回调，转发与解析都包在 ``try/except`` 里记日志，异常绝不穿过 C 调用边界。
+  ``AsstAsyncCallId``（受理编号），非零不代表成功；结果经 ``Message.AsyncCallInfo``
+  （msg=4）回调送达，层级为 ``async_call_id`` 与调用类型 ``what`` 在载荷顶层、成功标志在
+  ``details.details.ret``。msg=2 的 ``ConnectionInfo`` 会先于它报出
+  ``what == "Connected"``，异步成败只能认 msg=4。
+- 回调发生在 MaaCore 自己的线程上：只缓存 ``ResolutionGot`` 分辨率并原样转发给用户回调，
+  转发与解析都包在 ``try/except`` 里记日志，异常不穿过 C 调用边界。
 """
 
 from __future__ import annotations
@@ -59,7 +58,7 @@ class Asst:
     class _MapLevelKey(ctypes.Structure):
         """``AsstCallerExtra.h`` 的 ``struct AsstMapLevelKey``（实验性 API）。
 
-        四个字段都是 ``const char*``，字符串由 MaaCore 持有，调用方不得释放；
+        四个字段都是 ``const char*``，字符串由 MaaCore 持有，调用方不要释放；
         转成 Python ``str`` 后即可安全保留。
         """
 
@@ -137,7 +136,7 @@ class Asst:
         ret = True
         if user_dir is not None:
             user_dir = pathlib.Path(user_dir)
-            # AsstSetUserDir 要求目录已存在（M1-02 实测），否则返回 False、
+            # AsstSetUserDir 要求目录已存在，否则返回 False、
             # 在旧实现里表现为「内核加载失败」。这里先建目录再交给内核。
             user_dir.mkdir(parents=True, exist_ok=True)
             ret = bool(Asst.__lib.AsstSetUserDir(str(user_dir).encode("utf-8"))) and ret
@@ -247,7 +246,7 @@ class Asst:
         bind("AsstAsyncClick", c_int32, (c_void_p, c_int32, c_int32, c_bool))
         bind("AsstAsyncScreencap", c_int32, (c_void_p, c_bool))
 
-        # --- 取图与设备信息（缓冲区一律按指针传，按返回值截断）---
+        # --- 取图与设备信息（缓冲区按指针传，按返回值截断）---
         bind("AsstGetImage", c_size, (c_void_p, c_void_p, c_size))
         bind("AsstGetImageBgr", c_size, (c_void_p, c_void_p, c_size))
         bind("AsstGetUUID", c_size, (c_void_p, c_void_p, c_size))
@@ -260,7 +259,7 @@ class Asst:
         if Asst._has_symbol("AsstGetMapLevelKey"):
             bind("AsstGetMapLevelKey", Asst._MapLevelKey, (c_char_p,))
         else:
-            logger.info("当前内核未导出 AsstGetMapLevelKey，关卡互查将回退本地索引")
+            logger.info("当前内核版本不支持关卡互查，改用本地关卡索引")
 
     # ------------------------------------------------------------------
     # 实例生命周期
@@ -272,7 +271,7 @@ class Asst:
         """创建内核实例。
 
         :param callback: 用户回调，签名 ``(msg, details, arg) -> None``；它会运行在
-            MaaCore 的回调线程上，必须尽快返回、不得抛异常。本类会先包一层
+            MaaCore 的回调线程上，必须尽快返回、不能抛异常。``Asst`` 会先包一层
             「缓存分辨率 + 拦截异常」的 trampoline 再注册给内核。
         :param arg: 透传给回调的自定义参数。注意内核只保存指针值，调用方必须
             自行持有 ``arg`` 的引用（旧实现的隐式契约，worker 用模块级队列满足）。
@@ -286,16 +285,16 @@ class Asst:
             return
 
         def _trampoline(msg: int, details: Optional[bytes], custom_arg: Any) -> None:
-            # 运行在 MaaCore 回调线程上：解析与转发都不得把异常抛回 C 边界。
+            # 运行在 MaaCore 回调线程上：解析与转发都不把异常抛回 C 边界。
             try:
                 if msg == Message.ConnectionInfo:
                     self._cache_resolution(details)
             except Exception:
-                logger.exception("解析 ConnectionInfo 回调失败（msg=%s），已忽略", msg)
+                logger.exception("解析设备连接回调失败，已忽略（消息类型 %s）", msg)
             try:
                 callback(msg, details, custom_arg)
             except Exception:
-                logger.exception("用户回调处理 msg=%s 时抛异常，已就地拦截", msg)
+                logger.exception("处理内核回调消息 %s 时出错，已拦截，不影响内核运行", msg)
 
         # 存成实例属性防 GC：内核只持有函数指针，trampoline 被回收会直接崩内核。
         self.__callback = Asst.CallBackType(_trampoline)
@@ -308,7 +307,7 @@ class Asst:
             if ptr and Asst.__lib is not None:
                 Asst.__lib.AsstDestroy(ptr)
         except Exception:  # pragma: no cover - 半构造对象 / 解释器退出
-            logger.debug("销毁 MaaCore 实例失败", exc_info=True)
+            logger.debug("释放内核实例失败", exc_info=True)
         finally:
             try:
                 self.__ptr = None
@@ -321,8 +320,6 @@ class Asst:
 
     def _cache_resolution(self, details: Optional[bytes]) -> None:
         """从 ConnectionInfo 的 ``ResolutionGot`` 回调缓存 ``(width, height)``。
-
-        M1-01 实测载荷：``what`` 在 JSON 顶层、``width`` / ``height`` 在 ``details``
         里（``{"details":{"width":2560,"height":1440},"what":"ResolutionGot"}``）。
         这里对 ``what`` 的嵌套写法也保持宽容，取不到就当作无关回调忽略。
         """
@@ -394,7 +391,7 @@ class Asst:
         """异步连接设备，返回 ``async_call_id``。
 
         **返回值只表示「请求已受理」，非零不代表连接成功**（docs/08 §5.1）。
-        结果经 ``Message.AsyncCallInfo``（msg=4）回调送达，按 M1-01 实测层级解析：
+        结果经 ``Message.AsyncCallInfo``（msg=4）回调送达，按
 
         - 关联键 ``async_call_id`` 在回调 JSON **顶层**，与本方法返回值相等；
         - 成功标志在 **``details.details.ret``**（双层嵌套）；
@@ -461,18 +458,16 @@ class Asst:
 
         ``got == 0`` 或 ``got == get_null_size()`` 都视为失败；成功时按返回长度截断。
 
-        .. note::
-           M1-04 真机实测（v6.17.5，2560x1440）：``AsstGetImage`` 返回的是
-           **PNG 编码字节**（magic ``\\x89PNG``，本次 637585 字节），
+        .. note::（v6.17.5，2560x1440）：``AsstGetImage`` 返回的是
+           **PNG 编码字节**（magic ``\x89PNG``，本次 637585 字节），
            ``AsstGetImageBgr`` 返回裸 BGR（本次 2764800 字节 = 1280x720x3）。
            两者长度都不等于 ``w*h*3``，``size`` 只是容量上界；
            消费方（worker 落盘）应把返回字节当作**已编码图像**处理。
         """
         size = size or self._expected_image_size()
         if size <= 0:
-            logger.warning(
-                "尚无可用的截图尺寸（未收到 ResolutionGot 且未显式传入 size），跳过本次取图"
-            )
+            # 分辨率还没上报过、调用方也没给尺寸：本次取图无从分配缓冲区，属预期内跳过。
+            logger.debug("还没有拿到设备分辨率，跳过本次取图")
             return None
         buffer = (ctypes.c_char * size)()
         fn = Asst.__lib.AsstGetImageBgr if bgr else Asst.__lib.AsstGetImage
@@ -505,7 +500,7 @@ class Asst:
 
         防御式实现：一次调用用 :attr:`_TASKS_LIST_CAPACITY` 的宽松容量；返回 0
         视作空列表；返回值大于容量时按返回值扩容重试一次；最后按返回长度截断。
-        真实语义（返回长度 vs 任务个数）由 M1-14 真机冒烟确认。
+        真实语义（返回长度 vs 任务个数）由真机冒烟确认。
         """
         capacity = self._TASKS_LIST_CAPACITY
         buffer = (ctypes.c_int32 * capacity)()
@@ -529,7 +524,7 @@ class Asst:
         查不到匹配关卡时内核返回四个 NULL，这里同样归一为 ``None``。
         """
         if not Asst._has_symbol("AsstGetMapLevelKey"):
-            logger.debug("当前内核未导出 AsstGetMapLevelKey，回退本地关卡索引")
+            logger.debug("当前内核版本不支持关卡互查，改用本地关卡索引")
             return None
         result = Asst.__lib.AsstGetMapLevelKey(str(key).encode("utf-8"))
         fields = {
@@ -556,7 +551,7 @@ class Asst:
         :param params: 任务参数，缺省 ``{}``。
 
         ``task_id == 0`` 表示失败：内核校验必填参数，缺失时静默返回 0
-        （不抛异常、无回调，M1-02 实测），调用方必须当失败处理。
+        （不抛异常、无回调，），调用方必须当失败处理。
         """
         return int(
             Asst.__lib.AsstAppendTask(

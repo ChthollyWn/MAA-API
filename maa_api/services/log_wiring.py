@@ -46,7 +46,7 @@ def install_service_logging(
 ) -> None:
     """Install the existing console/file handlers and the shared LogHub handler."""
     selected = _hub_or_current(hub)
-    # M4-03 made this import side-effect free. Configuration belongs to lifespan,
+    # The import is side-effect free. Configuration belongs to lifespan,
     # after settings and the temporary/production DB path are known.
     from maa_api.log import configure_file_logging
 
@@ -113,7 +113,7 @@ def install_core_logging(
             try:
                 context = context_provider(msg, details)
             except Exception:  # noqa: BLE001 - optional context must not drop logs
-                logger.exception("Core callback log context lookup failed")
+                logger.exception("查找内核回调的日志上下文失败")
         for record in callback_translator.translate(msg, details):
             if context is not None:
                 record.pipeline_id, record.task_id = context

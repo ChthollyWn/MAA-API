@@ -156,14 +156,14 @@ class SettingService:
             # config.yaml 改（理由见 CONFIG_ONLY_SETTING_KEYS 的说明）。
             raise AppError(
                 ErrorCode.SETTING_READONLY,
-                "该设置项只能通过 config.yaml 或环境变量修改",
+                "该设置项只能在 config.yaml 或环境变量里修改",
                 {"keys": config_only},
             )
         unknown = [key for key in items if key not in SETTING_KEYS]
         if unknown:
             raise AppError(
                 ErrorCode.SETTING_KEY_UNKNOWN,
-                "设置项不存在",
+                "设置项不存在，请刷新页面",
                 {"keys": unknown},
             )
         ignored_sensitive = {
@@ -179,7 +179,7 @@ class SettingService:
         if readonly:
             raise AppError(
                 ErrorCode.SETTING_READONLY,
-                "设置项只能通过 config.yaml 或环境变量修改",
+                "该设置项只能在 config.yaml 或环境变量里修改",
                 {"keys": readonly},
             )
 
@@ -202,7 +202,8 @@ class SettingService:
                 except LLMEncryptionKeyInvalid as exc:
                     raise AppError(
                         ErrorCode.LLM_ENCRYPTION_KEY_INVALID,
-                        "缺少或无效的 LLM 加密密钥",
+                        "缺少或无效的 LLM 加密密钥，"
+                        "请在 config.yaml 或环境变量 MAA_LLM_ENCRYPTION_KEY 里配置",
                     ) from exc
             async with self._session_factory() as session:
                 repository = SettingRepository(session)
@@ -223,14 +224,14 @@ class SettingService:
         if unknown:
             raise AppError(
                 ErrorCode.SETTING_KEY_UNKNOWN,
-                "设置项不存在",
+                "设置项不存在，请刷新页面",
                 {"keys": unknown},
             )
         readonly = [key for key in keys if key in SETTING_READONLY_KEYS]
         if readonly:
             raise AppError(
                 ErrorCode.SETTING_READONLY,
-                "只读设置项没有数据库覆盖可重置",
+                "只读设置项没有可重置的覆盖值，请直接修改 config.yaml 或环境变量",
                 {"keys": readonly},
             )
 
@@ -303,7 +304,7 @@ class SettingService:
         if self._device_manager is None:
             raise AppError(
                 ErrorCode.SETTING_APPLY_FAILED,
-                "配置已保存，但设备管理器不可用",
+                "配置已保存，但设备暂时无法重连，请稍后到设备页检查连接状态",
                 {"applied": True},
             )
         try:
@@ -314,12 +315,12 @@ class SettingService:
         except Exception as exc:
             raise AppError(
                 ErrorCode.SETTING_APPLY_FAILED,
-                "配置已保存，但设备重连失败",
+                "配置已保存，但设备重连失败，请到设备页检查设备状态",
                 {"applied": True, "error": str(exc)},
             ) from exc
         if applied is not True:
             raise AppError(
                 ErrorCode.SETTING_APPLY_FAILED,
-                "配置已保存，但设备重连失败",
+                "配置已保存，但设备重连失败，请到设备页检查设备状态",
                 {"applied": True},
             )

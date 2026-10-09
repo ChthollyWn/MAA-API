@@ -216,14 +216,24 @@ def _builtin_fulltext_chars() -> int:
     )
 
 
+def _frontmatter(text: str) -> str:
+    """取 markdown 文本的 frontmatter（含两侧 ``---``），正文改动不影响比较。"""
+    lines = text.splitlines()
+    assert lines and lines[0].strip() == "---", lines[:1]
+    end = lines.index("---", 1)
+    return "\n".join(lines[: end + 1])
+
+
 # ---------------------------------------------------------------------------
 # 内置条目：内容、加载与 fail loud
 # ---------------------------------------------------------------------------
-def test_builtin_files_are_copied_verbatim_from_the_spec():
-    """§4.6 是内置内容的原文：frontmatter 与正文（含标点与层级）逐字一致。
+def test_builtin_files_match_the_spec_registry_and_frontmatter():
+    """§4.6 是内置条目的登记表：条目集合与 frontmatter 必须逐字一致。
 
     两份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记）
-    或少一条（文件漏了）都要失败。
+    或少一条（文件漏了）都要失败。B3 文案审计按规范改写了部分正文（营销形容词、
+    跨文件重复段落、超长句），所以正文不再要求与规格逐字相同；``id``、``kind``、
+    ``title``、``when_to_use`` 仍是契约。
     """
     blocks = _spec_blocks()
     files = sorted(BUILTIN_DIR.glob("*.md"))
@@ -233,7 +243,7 @@ def test_builtin_files_are_copied_verbatim_from_the_spec():
     for entry_id, block in blocks.items():
         path = _builtin_path(entry_id)
         assert path.exists(), path
-        assert path.read_text(encoding="utf-8").rstrip("\n") == block.rstrip("\n"), entry_id
+        assert _frontmatter(path.read_text(encoding="utf-8")) == _frontmatter(block), entry_id
 
 
 def test_builtin_entries_are_loaded_once_with_the_documented_ids():

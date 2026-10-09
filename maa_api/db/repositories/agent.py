@@ -5,15 +5,14 @@ Chat Completions（docs/04 §5.8），重建上下文只需要 ``SELECT`` 后改
 :meth:`AgentMessageRepository.list_by_session` 只保证「按 ``seq`` 升序」这一条
 顺序契约，不做任何语义转换。
 
-事务纪律（docs/04 §9）：本模块所有方法都**不 commit**，由调用方决定事务边界
-—— 一次 agent 回合往往要在同一事务里写 assistant 消息、tool 消息与审计记录。
+事务纪律（docs/04 §9）：所有方法都不 ``commit()``，由调用方决定事务边界：一次 agent 回合往往要在同一事务里写 assistant 消息、tool 消息与审计记录。
 ``create`` 只 ``flush``，让外键目标（会话行）在事务内可见、并让自增 ``id`` 落到
 返回值上。
 
 两条容易写错的边界，实现里都按 docs 钉死：
 
-- **``atomic_grant_*`` 只是持久化与查询，本卡不实现授权判定、窗口计算与撤销
-  语义**（归 M11 的 ``PolicyEngine``，docs/04 §5.7）。:meth:`AgentSessionRepository.clear_grant`
+- **``atomic_grant_*`` 只是持久化与查询，仓储不实现授权判定、窗口计算与撤销
+  语义**（归 ``PolicyEngine``，docs/04 §5.7）。:meth:`AgentSessionRepository.clear_grant`
   把两个字段**一起置空**，而不是把 ``expires_at`` 改成过去时刻：这样「从未授权」
   与「授权已撤销」在数据上不可区分是有意设计，这张表只需要回答「现在是否有效」。
 - **``list_recent`` 按 ``last_message_at DESC`` 且 NULL 排最后**：刚创建、还没发过
@@ -30,12 +29,12 @@ from maa_api.db.repositories.base import BaseRepository, Page
 
 
 class AgentSessionRepository(BaseRepository):
-    """内置 agent 会话的读写；授权字段的语义判定不在这里（归 M11）。"""
+    """内置 agent 会话的读写；授权字段的语义判定不在这里。"""
 
     async def create(self, session: AgentSession) -> AgentSession:
         """写入一个新会话，返回受会话管理的实例（只 ``flush`` 不 ``commit``）。
 
-        与 ``PipelineRepository.create`` 同一套理由（M2-07 实测）：用
+        与 ``PipelineRepository.create`` 同一套理由：用
         ``Session.merge()`` 而不是 ``Session.add()``，入参保持 transient、字段
         永远可读；``add()`` 会让入参变成会话管理的持久化实例，之后任何一次
         ``expire_all()`` / ``expire_on_commit=True`` 的提交都会清空它的实例字典，
@@ -53,7 +52,7 @@ class AgentSessionRepository(BaseRepository):
         ``populate_existing=True`` 是必须的：本仓储的 :meth:`update_grant` /
         :meth:`clear_grant` 走 Core ``UPDATE``，调用方（或本会话）身份映射里
         可能还留着旧实例；会话通常是 ``expire_on_commit=False``，不刷新的话
-        ``get`` 会把陈旧对象原样返回（M2-08 实测）。
+        ``get`` 会把陈旧对象原样返回。
         """
         return await self.session.get(
             AgentSession, session_id, populate_existing=True
@@ -224,7 +223,7 @@ class AgentMessageRepository(BaseRepository):
         ``IntegrityError`` 是调用方的并发缺陷，仓储不替它做决策。
 
         ``content`` 超过 32 KB 的截断（docs/04 §5.8）与截图替换为 ``screenshot_id``
-        是**调用方纪律**，不在仓储里做 —— 仓储只保证存进去的字节与给它的参数
+        是**调用方纪律**，不在仓储里做：仓储只保证存进去的字节与给它的参数
         一致（``agent_audit`` 的裁剪是例外，docs/04 §5.9 明确要求入库前裁剪，
         所以放在 :class:`AuditRepository` 内）。
         """

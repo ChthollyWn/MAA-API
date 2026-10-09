@@ -1,13 +1,13 @@
 """MaaCore 内核层枚举：回调消息与实例/静态选项键。
 
-本模块是内核 ABI 在 Python 侧的**唯一**映射表：
+内核 ABI 在 Python 侧的唯一映射表：
 
-- 整数值直接来自内核的 ``AsstMsg`` / ``InstanceOptionKey`` / ``StaticOptionKey``，
-  是与 ``resource/lib/maa`` 下本地内核通信的接口契约，**不得重排或改值**。
-  取值不连续（如 ``TaskChainError = 10000``）是内核既成事实，不要"顺手"改成连号 ——
-  照连号硬编码会把 ``ConnectionInfo`` (2) 当成 ``TaskChainError``。
-- 与旧封装 ``maa_api/model/util/utils.py`` 中的同名枚举逐项对齐；旧模块在 M3 删除，
-  删除之前两者必须保持数值一致（M1-03 verify 会逐项比对）。
+- 整数值直接来自内核的 ``AsstMsg`` / ``InstanceOptionKey`` / ``StaticOptionKey``，是与
+  ``resource/lib/maa`` 下本地内核通信的接口契约，不得重排或改值。取值不连续
+  （如 ``TaskChainError = 10000``）是内核既成事实，不要"顺手"改成连号：照连号硬编码会把
+  ``ConnectionInfo`` (2) 当成 ``TaskChainError``。
+- 与旧封装 ``maa_api/model/util/utils.py`` 中的同名枚举逐项对齐；旧模块删除之前两者必须
+  保持数值一致，一致性测试会逐项比对。
 
 决策依据：docs/02 §6（模块划分）、docs/03 §1.1（C API）与 §2.3（枚举补全）。
 """
@@ -85,7 +85,7 @@ class StaticOptionKey(IntEnum):
     gpu_ocr = 2
 
 
-# 过渡期兼容别名：M1-04 之前的调用方仍按旧名 *Type 引用这两个枚举。
-# 新代码一律使用 *Key；别名在内核层重写完成后（M1-05/M3）移除。
+# 过渡期兼容别名：旧调用方仍按旧名 *Type 引用这两个枚举。
+# 新代码统一使用 *Key；别名在内核层重写完成后移除。
 InstanceOptionType = InstanceOptionKey
 StaticOptionType = StaticOptionKey

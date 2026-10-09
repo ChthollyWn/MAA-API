@@ -15,7 +15,7 @@
 - **``repo_resource`` 这一行是通道 B 版本判定的唯一权威来源**，不能改读磁盘上的
   ``version.json``（内核更新会把 ``<maa_path>/resource/version.json`` 换回发行包
   自带的旧值，而 ``<layers>/repo/`` 里的那份不受影响）。本仓储只保证
-  ``remote_version`` 列的存取，判定逻辑在 ``UpdateService``（M7）。
+  ``remote_version`` 列的存取，判定逻辑在 ``UpdateService``。
 
 两条容易写错的列语义：
 
@@ -31,7 +31,7 @@
 远端两行为什么不能走 :meth:`ResourceAssetRepository.create` 的完整实例路径：
 ``UpdateService`` 只掌握「这一条远端记录现在是什么」的增量字段，用
 ``upsert_by_kind_name(kind, name, **fields)`` 只写变化的列，其余列保持原值
-（先 UPDATE、没有行再 INSERT，见该方法文档里的 SQLite CHECK 实测）；用完整实例
+（先 UPDATE、没有行再 INSERT，见该方法文档里的 SQLite CHECK 行为）；用完整实例
 ``merge()`` 会把没传的列覆盖成 Python 默认值。
 
 事务纪律（docs/04 §9）：所有方法都不 ``commit()``，由服务层决定事务边界。
@@ -47,7 +47,7 @@ from maa_api.db.repositories.base import BaseRepository
 from maa_api.domain.enums import ResourceAssetKind
 
 # upsert 允许写的列：主键与业务键（kind/name）之外的可变列。
-# 反射自表定义而不是手抄，模型加列后这里不会漏。
+# 反射自表定义而不是手抄，模型加列后不会漏。
 _IMMUTABLE_UPSERT_FIELDS = frozenset({"id", "kind", "name", "created_at"})
 _UPSERTABLE_FIELDS = frozenset(
     column.name for column in ResourceAsset.__table__.columns
@@ -65,11 +65,10 @@ class ResourceAssetRepository(BaseRepository):
         """写入一条资源，返回受会话管理的副本；只 ``flush`` 不 ``commit``。
 
         ``content`` 与 ``path`` 都为空时，``flush`` 会以 ``IntegrityError``
-        抛出 CHECK 约束失败——这正是想要的失败时机：服务层在同一个 ``try`` 里
+        抛出 CHECK 约束失败，服务层在同一个 ``try`` 里
         把「资源既没内容也没文件」转成 422，而不是等提交时才炸。
 
-        与 :meth:`PipelineRepository.create` 同样用 ``Session.merge()`` 接收入参
-        （M2-07 实测）：入参保持 transient，提交后字段仍可直接读。
+        与 :meth:`PipelineRepository.create` 同样用 ``Session.merge()`` 接收入参：入参保持 transient，提交后字段仍可直接读。
         """
         stored = await self.session.merge(asset)
         await self.session.flush()
@@ -79,7 +78,7 @@ class ResourceAssetRepository(BaseRepository):
         """按主键取资源，没有返回 ``None``。
 
         ``populate_existing=True``：``set_enabled`` 与 ``upsert_by_kind_name``
-        都会改同一行，不强制刷新会返回身份映射里的陈旧实例（M2-08 实测）。
+        都会改同一行，不强制刷新会返回身份映射里的陈旧实例。
         """
         return await self.session.get(
             ResourceAsset, asset_id, populate_existing=True
@@ -108,23 +107,22 @@ class ResourceAssetRepository(BaseRepository):
         """按 ``(kind, name)`` 插入或更新一行，返回落库后的实例。
 
         实现是**先 UPDATE、``rowcount == 0`` 再 INSERT**，不是
-        ``INSERT ... ON CONFLICT DO UPDATE``。原因是 M2-11 实测的 SQLite 行为：
-        CHECK 约束在**插入候选行**上先于冲突判定求值 ——
-        ``INSERT INTO resource_asset (kind, name, remote_version) VALUES (...)
+        ``INSERT ... ON CONFLICT DO UPDATE``。原因是
+        CHECK 约束在**插入候选行**上先于冲突判定求值：``INSERT INTO resource_asset (kind, name, remote_version) VALUES (...)
         ON CONFLICT (kind, name) DO UPDATE ...`` 即使目标行已存在，候选行仍是
         ``content IS NULL AND path IS NULL``，直接撞
         ``ck_resource_asset_content_or_path``，DO UPDATE 根本没机会执行
         （见 ``docs/ENVIRONMENT.md``）。UPDATE 先行则让 SQLite 在**真实行**
         上判定 CHECK，语义也正好是「更新后的这一行必须仍有 content 或 path」。
 
-        ``fields`` 之外的键（``id`` / ``created_at``）与未知列名一律
+        ``fields`` 之外的键（``id`` / ``created_at``）与未知列名
         ``ValueError``：``id`` / ``created_at`` 是身份列，改它等于换一行；
         未知列名多半是调用方拼错，静默忽略会写出「看起来成功了但字段没更新」的
         假象。（``kind`` / ``name`` 是位置参数，传不进 ``fields``。）
 
         ``created_at`` / ``updated_at`` 在插入路径上**显式赋值**：Core
         ``insert().values(...)`` 不会应用 SQLModel ``Field(default_factory=utcnow)``
-        配 ``sa_column`` 的那些 Python 侧默认值（M2-11 实测，`created_at` 直接
+        配 ``sa_column`` 的那些 Python 侧默认值（`created_at` 直接
         NOT NULL 失败），不能依赖列默认。更新路径的 ``updated_at`` 按「内容真的
         变了」才刷新（见模块文档），显式传入的 ``updated_at`` 优先。
 

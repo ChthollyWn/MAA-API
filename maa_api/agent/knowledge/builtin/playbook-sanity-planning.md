@@ -5,8 +5,7 @@ title: 理智规划与刷图
 when_to_use: 用户要刷材料、推主线、打活动或剿灭，需要安排理智怎么花，或要提交 Fight 任务时
 ---
 ## 1. 先看现状，不要直接开刷
-- get_system_status / get_queue：有流水线在跑就不要打断，先说清在跑什么、用 ask_user 发卡问是等它结束还是稍后再来。
-- 设备未连接：说明情况，征得同意后 reconnect_device。
+- get_system_status / get_queue：有流水线在跑就不要打断，先说清在跑什么、用 ask_user 发卡问是等它结束还是稍后再来；设备未连接就说明情况，征得同意后 reconnect_device。
 - 读理智：back_to_home → get_screenshot，按 screen-home 读「终端 TERMINAL」里的「当前理智/上限」。把这两个数先写在回复里，再决定下一步。
 
 ## 2. 按用户目标选图
@@ -14,7 +13,7 @@ when_to_use: 用户要刷材料、推主线、打活动或剿灭，需要安排�
 - 推主线：问清推到哪一关、用 Normal 还是 Hard，不要替用户决定打哪关。
 - 打活动：只能推荐当前开放的限时活动关卡；活动结束后这些关卡不再开放，拿不准就直说拿不准。
 - 剿灭：Fight 的 `stage` 必须填 `Annihilation`。选哪张图、理智怎么算、每周合成玉上限怎么涨，见 annihilation-weekly；本服务只负责把 `stage` 传对。
-- 顺手做完任务：别传「火蓝之心」的主线关卡 0 理智且可代理，适合刷通关次数/歼灭数。
+- 顺手做任务：别传类活动「火蓝之心」的主线关卡消耗 0 理智且可代理，适合刷通关次数和歼灭数。
 
 ## 3. 提交前校验关卡
 - 用 resolve_stage 查一次关卡代号，确认 code / stageId 对得上；`source=resource` 表示走本地关卡索引，`source=core` 表示内核解析。

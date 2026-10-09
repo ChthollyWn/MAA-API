@@ -1,13 +1,13 @@
 """``pipeline`` 与 ``task`` 两个仓储（docs/04 §5.1、§5.2、§6、§9）。
 
-`pipeline` 是队列的唯一事实来源：``PipelineRunner``（M5）按
-``ORDER BY priority ASC, created_at ASC`` 取 ``PENDING`` 记录，因此本模块的
+`pipeline` 是队列的唯一事实来源：``PipelineRunner``按
+``ORDER BY priority ASC, created_at ASC`` 取 ``PENDING`` 记录，因此这里的
 查询条件与排序都刻意贴着 docs/04 §6 的 ``ix_pipeline_dequeue`` /
 ``ix_pipeline_status_created_at`` / ``ix_pipeline_source_created_at`` /
 ``ix_pipeline_schedule_id_created_at`` 与 ``uq_task_pipeline_order`` 来写，
 不额外发明查询形态。
 
-事务纪律：本模块所有方法都**不 commit**。一次流水线提交要在同一事务里写
+事务纪律：所有方法都不 ``commit()``。一次流水线提交要在同一事务里写
 ``pipeline`` 与全部 ``task``（:meth:`PipelineRepository.create` 只 ``flush``），
 由服务层决定何时提交。
 """
@@ -37,7 +37,7 @@ TERMINAL_TASK_STATUSES = (
 
 
 class PipelineRepository(BaseRepository):
-    """流水线队列的读写。状态机流转一律用条件更新 + ``rowcount`` 判定。"""
+    """流水线队列的读写。状态机流转用条件更新 + ``rowcount`` 判定。"""
 
     async def create(
         self, pipeline: Pipeline, tasks: Sequence[Task]
@@ -46,16 +46,14 @@ class PipelineRepository(BaseRepository):
 
         只 ``flush`` 不 ``commit``：调用方提交时两者一起落库，回滚时一起消失。
 
-        用 ``Session.merge()`` 而不是 ``Session.add()`` 接收入参，这是 M2-07
-        实测后的决定：``add()`` 会让**入参对象**变成会话管理的持久化实例，
+        用 ``Session.merge()`` 而不是 ``Session.add()`` 接收入参：``add()`` 会让**入参对象**变成会话管理的持久化实例，
         之后任何一次 ``expire_all()``（或 ``expire_on_commit=True`` 的提交）都会
         清空它的实例字典，而 async 上下文外读取 ``pipeline.id`` 这类字段会抛
-        ``MissingGreenlet`` —— 调用方只是想在提交后拿 id，却被迫 await 刷新。
+        ``MissingGreenlet``：调用方只是想在提交后拿 id，却被迫 await 刷新。
         ``merge()`` 把状态复制进一个会话管理的副本并返回它，入参保持 transient、
         字段永远可读（id 等 Python 侧默认值在构造时就已生成，与副本一致）。
 
-        代价与约定：**入参只是数据载体**，对入参的后续修改不会被提交（副本才是
-        会话管理的对象）；后续状态变更走本仓储的状态方法或使用返回值。
+        代价与约定：**入参只是数据载体**，对入参的后续修改不会被提交，返回的副本由会话管理；后续状态变更走本仓储的状态方法或使用返回值。
         传入的 ``task`` 的 ``pipeline_id`` 会被指向 ``pipeline.id`` 后一并写入。
         """
         stored = await self.session.merge(pipeline)
@@ -71,14 +69,14 @@ class PipelineRepository(BaseRepository):
     ) -> Pipeline | None:
         """按主键取流水线；``with_tasks=True`` 时把任务列表挂到 ``pipeline.tasks``。
 
-        `Pipeline` 模型没有定义 relationship（表定义归 M2-03，仓储不改模型），
+        `Pipeline` 模型没有定义 relationship（表定义归模型模块，仓储不改模型），
         所以任务列表用**非映射属性** ``tasks`` 传递。pydantic v2 禁止给模型实例
         赋未声明字段（``ValueError: object has no field "tasks"``），只能走
-        ``object.__setattr__`` 绕过 —— 这是 M2-07 实测结论，不要改回 ``setattr``。
+        ``object.__setattr__`` 绕过：这是取证结论，不要改回 ``setattr``。
 
         ``populate_existing=True`` 是必需的：``session.get()`` 对已在身份映射里的
         对象**不会**重新加载，调用方 ``expire_all()`` 之后拿到的是过期实例，
-        在 async 上下文外读字段会抛 ``MissingGreenlet``（M2-07 实测）。
+        在 async 上下文外读字段会抛 ``MissingGreenlet``。
         强制从库里刷新，``get`` 的返回值永远可直接读。
         """
         pipeline = await self.session.get(
@@ -162,10 +160,10 @@ class PipelineRepository(BaseRepository):
         ``UPDATE pipeline SET status='running' ... WHERE id=? AND status='pending'``
 
         ``rowcount == 0`` 表示候选已被并发取走或已取消，返回 ``None``（由调用方
-        决定是否重试，而不是在这里循环重选 —— 仓储不做队列调度决策）。
+        决定是否重试，而不是在这里循环重选：仓储不做队列调度决策）。
 
         ``core_epoch`` 是执行时子进程的启动世代号（docs/04 §5.1），用于事后
-        把 ``task.maa_task_id`` 归位到某一次内核运行；M5 的 ``PipelineRunner``
+        把 ``task.maa_task_id`` 归位到某一次内核运行； ``PipelineRunner``
         领取时传入，缺省不写（NULL）。
         """
         candidate_id = await self._next_pending_id(core_id)
@@ -390,11 +388,10 @@ class PipelineRepository(BaseRepository):
 
         删除 pipeline 时同步删 task。生产连接的 ``PRAGMA foreign_keys=ON``
         （``db/session.py``）会让外键 CASCADE 自动清掉 task，但仓储不能假设调用
-        方的连接一定开了那个 PRAGMA —— M2-07 实测：裸 ``create_async_engine``
-        建出的库 ``foreign_keys=0``，CASCADE 静默不生效，purge 会留下孤儿 task。
+        方的连接一定开了那个 PRAGMA：建出的库 ``foreign_keys=0``，CASCADE 静默不生效，purge 会留下孤儿 task。
         因此这里显式删一遍 task；级联生效时它只是一次空操作。
 
-        本方法不 commit（清理服务自行决定事务边界与分批节奏，M2-12）。
+        本方法不 commit（清理服务自行决定事务边界与分批节奏）。
         """
         deleted = 0
         # 第一优先级：超过保留期

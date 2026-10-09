@@ -116,7 +116,7 @@ def match_core_asset(
         sizes = {item.get("size") for item in duplicates}
         if len(sizes) > 1:
             logger.warning(
-                "MaaCore release contains duplicate asset %s with conflicting sizes: %s",
+                "发布包里出现同名但大小不一致的资源 %s：%s",
                 name,
                 sorted(map(str, sizes)),
             )
@@ -214,7 +214,7 @@ def _archive_link_target(member: str, link: str, members: set[str]) -> str:
     """Validate an in-archive relative symlink and return its POSIX target path.
 
     上游的 macOS/Linux 包用版本化动态库的符号链接（``libopencv_world4.dylib`` →
-    ``libopencv_world4.4.12.0.dylib``），一律拒绝会让整个内核更新失败（docs/13
+    ``libopencv_world4.4.12.0.dylib``），全部拒绝会让整个内核更新失败（docs/13
     §8.35）。这里只放行「相对、不含 ``..``、目标就在归档内且真实存在」的链接：
     绝对链接、越界链接与悬空链接继续拒绝，zip-slip 那条防线不放松。
     """
@@ -556,7 +556,7 @@ class CoreUpdateWorkflow:
                 try:
                     return await validate_cached()
                 except Exception as exc:
-                    logger.warning("discarding invalid cached MaaCore archive %s: %s", archive_path, exc)
+                    logger.warning("缓存的内核压缩包不可用，已丢弃（%s）：%s", archive_path, exc)
             archive_path.unlink(missing_ok=True)
             clear_extraction()
 
@@ -583,7 +583,7 @@ class CoreUpdateWorkflow:
             except Exception as exc:
                 failures.append((url, exc))
                 logger.warning(
-                    "MaaCore download source failed (%s): %s",
+                    "内核下载源不可用（%s）：%s",
                     url,
                     describe_download_error(exc),
                 )
@@ -619,7 +619,7 @@ class CoreUpdateWorkflow:
                 installed_version = await _call(self.current_version, self.core_client)
             except Exception:
                 installed_version = None
-                logger.info("could not determine current MaaCore version; continuing update")
+                logger.info("无法确定当前内核版本，继续执行更新")
             if installed_version == release.version:
                 await self._notify("skipped", version=release.version)
                 return None
@@ -726,7 +726,7 @@ class CoreUpdateWorkflow:
         except Exception as exc:
             raise AppError(
                 ErrorCode.UPDATE_ROLLBACK_FAILED,
-                "MaaCore backup is unavailable or invalid",
+                "找不到可用的内核备份，无法回滚；请重新完整安装一次内核",
                 {"reason": str(exc)},
             ) from exc
 
@@ -767,7 +767,7 @@ class CoreUpdateWorkflow:
                 details["recovery_error"] = str(recovery_error)
             raise AppError(
                 ErrorCode.UPDATE_ROLLBACK_FAILED,
-                "MaaCore rollback failed",
+                "内核回滚失败，当前仍在使用原版本；请到更新页查看记录",
                 details,
             ) from rollback_error
         await self._notify("done", version=version, action="rollback")

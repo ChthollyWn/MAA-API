@@ -1,4 +1,4 @@
-"""通知通道配置、同步测试发送与 Web Push 订阅（M14）。"""
+"""通知通道配置、同步测试发送与 Web Push 订阅。"""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class NotifyTestRequest(BaseModel):
 def _service(request: Request) -> NotifyService:
     service = getattr(request.app.state, "notify_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "通知服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "通知功能还在启动中，请稍后重试")
     return service
 
 
@@ -119,12 +119,12 @@ async def test_notification_channel(
 
 
 # --------------------------------------------------------------------------
-# Web Push（M14，docs/09 §13.1）
+# Web Push（docs/09 §13.1）
 # --------------------------------------------------------------------------
 
 
 class PushSubscribeRequest(BaseModel):
-    """浏览器 ``PushSubscription.toJSON()`` 的子集（``expirationTime`` 忽略）。"""
+    """浏览器 ``PushSubscription.toJSON()`` 的子集，``expirationTime`` 忽略。"""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -133,7 +133,7 @@ class PushSubscribeRequest(BaseModel):
 
 
 class PushUnsubscribeRequest(BaseModel):
-    """按 endpoint 注销订阅（注册接口的请求形状里 endpoint 是必填，这里同理）。"""
+    """按 ``endpoint`` 注销订阅。"""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -143,7 +143,7 @@ class PushUnsubscribeRequest(BaseModel):
 def _push_service(request: Request) -> PushSubscriptionService:
     service = getattr(request.app.state, "push_subscription_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "推送订阅服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "推送订阅功能还在启动中，请稍后重试")
     return service
 
 
@@ -151,9 +151,9 @@ def _push_service(request: Request) -> PushSubscriptionService:
     "/notifications/vapid-public-key",
     summary="读取 Web Push 的 VAPID 公钥",
     description=(
-        "前端用它作为 `pushManager.subscribe` 的 `applicationServerKey`。\n\n"
-        "- 公钥由配置的 VAPID 私钥导出，不单独存储，避免两份配置漂移\n"
-        "- 未配置或私钥不可用时返回 503 `PUSH_NOT_CONFIGURED`\n"
+        "返回 VAPID 公钥，用于浏览器端 `pushManager.subscribe` 的 "
+        "`applicationServerKey`。\n\n"
+        "- 未配置私钥或私钥不可用时返回 503 `PUSH_NOT_CONFIGURED`"
     ),
     responses=error_responses("PUSH_NOT_CONFIGURED"),
     dependencies=[Depends(require_auth)],
@@ -166,8 +166,9 @@ async def get_vapid_public_key(request: Request) -> dict[str, Any]:
     "/notifications/push-subscriptions",
     summary="列出 Web Push 订阅",
     description=(
-        "只返回设备来源、时间与失效状态，**不回显** `endpoint` 全文与 "
-        "`p256dh` / `auth` 两个密钥字段：它们与凭据同级。\n"
+        "为保护凭据，响应不含 `endpoint` 全文与 `p256dh` / `auth`，"
+        "只返回设备来源、登记时间与失效状态。\n\n"
+        "- `include_disabled=true` 时同时返回已失效的订阅"
     ),
     dependencies=[Depends(require_auth)],
 )
@@ -189,12 +190,12 @@ async def list_push_subscriptions(
     status_code=status.HTTP_201_CREATED,
     summary="登记 Web Push 订阅",
     description=(
-        "接受浏览器 `PushSubscription.toJSON()` 的形状。\n\n"
-        "- 同一 `endpoint` 重复登记是**幂等更新**，返回 200 与既有资源，不新增行\n"
-        "- `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 未压缩 "
-        "P-256 点（实际校验点在曲线上）；`keys.auth` 必须是 16 octet\n"
+        "登记浏览器推送订阅，接受 `PushSubscription.toJSON()` 的形状。\n\n"
+        "- 同一 `endpoint` 重复登记是幂等更新：返回 200 与既有资源，不新增行\n"
+        "- `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 的未压缩 "
+        "P-256 点；`keys.auth` 必须是 16 octet"
     ),
-    # 幂等重放返回 200 而不是 201：契约里必须显式声明，否则生成的类型缺这一档。
+    # 幂等重放固定返回 200；契约要显式声明这一档，否则前端生成的类型缺它。
     responses={
         200: {"description": "该 endpoint 已登记，本次为幂等更新"},
         **error_responses("PUSH_SUBSCRIPTION_INVALID"),
@@ -235,11 +236,9 @@ async def delete_push_subscription(subscription_id: str, request: Request) -> Re
     status_code=status.HTTP_204_NO_CONTENT,
     summary="按 endpoint 注销当前浏览器的订阅",
     description=(
-        "浏览器注销时手上只有 `PushSubscription.endpoint`，而列表接口出于凭据保护"
-        "不回显它（同一推送服务下的多台设备主机名相同，按主机名删除会误伤别人），"
-        "因此提供这个按 endpoint 精确注销的入口。\n\n"
-        "- `endpoint` 放在请求体而不是 URL，避免它进入访问日志与浏览器历史\n"
-        "- 找不到对应订阅同样返回 204：注销是幂等操作\n"
+        "按 `endpoint` 精确注销当前浏览器的订阅。\n\n"
+        "- `endpoint` 放在请求体，避免它进入访问日志与浏览器历史\n"
+        "- 幂等：找不到对应订阅同样返回 204"
     ),
     dependencies=[Depends(require_auth)],
 )

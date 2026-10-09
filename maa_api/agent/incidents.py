@@ -229,8 +229,8 @@ class AgentIncidentService:
                         seq=await messages.next_seq(session_id),
                         role="assistant",
                         content=(
-                            "诊断期间流水线关联到 MaaCore 崩溃，最新状态和日志已补入本会话。"
-                            "如需重新分析，请继续提问。"
+                            "诊断期间这条流水线关联到内核崩溃，最新状态和日志已经补进本会话。"
+                            "要重新分析就继续提问。"
                         ),
                         finish_reason="incident_context_update",
                         created_at=now,

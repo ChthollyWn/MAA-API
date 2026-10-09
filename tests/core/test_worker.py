@@ -530,7 +530,7 @@ def test_log_bridge_forwards_child_logs(worker_factory) -> None:
 
     log_event = worker.events.wait(
         lambda event: event.get("type") == "LOG"
-        and "worker 启动" in event["payload"]["content"]
+        and "内核进程已启动" in event["payload"]["content"]
     )
     assert log_event is not None, worker.describe("未收到 LOG 事件")
     assert set(log_event["payload"]) == {"level", "content"}

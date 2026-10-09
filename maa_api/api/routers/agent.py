@@ -112,11 +112,11 @@ async def _replay_or_in_progress(
         async with repository_factory() as db:
             record = await AgentIdempotencyRepository(db).get(CallerType.REST, key)
             if record is None:
-                raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "幂等请求预约已失效，请重试")
+                raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "幂等请求的受理记录已过期，请重试")
             if record.request_hash != request_hash:
                 raise AppError(
                     ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
-                    "相同 Idempotency-Key 已用于不同的工具请求",
+                    "相同 Idempotency-Key 已用于不同的工具请求，请换一个 key 重试",
                 )
             audit_id = record.audit_id
             body = record.response_body
@@ -141,7 +141,7 @@ async def _replay_or_in_progress(
 def _confirmation_service(request: Request):
     service = getattr(request.app.state, "confirmation_service", None)
     if service is None:
-        raise AppError(ErrorCode.AGENT_DISABLED, "Agent 服务尚未启动")
+        raise AppError(ErrorCode.AGENT_DISABLED, "Agent 功能还在启动中，请稍后重试")
     return service
 
 
@@ -206,7 +206,7 @@ class _LockedSessionStreamingResponse(StreamingResponse):
 
 def _page(page: int, size: int) -> None:
     if page < 1 or size < 1 or size > 200:
-        raise AppError(ErrorCode.INVALID_PAGINATION, "page 必须大于 0，size 必须为 1–200")
+        raise AppError(ErrorCode.INVALID_PAGINATION, "page 不能小于 1，size 需在 1–200 之间")
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -332,7 +332,11 @@ async def list_tools(
         normalized_risk = aliases.get(risk_level.lower(), risk_level.lower())
         allowed = {risk.value for risk in RiskLevel}
         if normalized_risk not in allowed:
-            raise AppError(ErrorCode.INVALID_PARAMETER, "risk_level 取值无效")
+            raise AppError(
+                ErrorCode.INVALID_PARAMETER,
+                "risk_level 不是支持的取值，"
+                "可选：safe、conditional、dangerous 或 none、consume、destructive",
+            )
         items = [item for item in items if item["risk_level"] == normalized_risk]
     return {"items": items, "total": len(items)}
 
@@ -363,9 +367,13 @@ async def invoke_tool(
         return result
     key = idempotency_key.strip()
     if not key:
-        raise AppError(ErrorCode.INVALID_PARAMETER, "Idempotency-Key 不能为空")
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER, "Idempotency-Key 不能为空；不需要幂等时请去掉该请求头"
+        )
     if len(key) > 64:
-        raise AppError(ErrorCode.INVALID_PARAMETER, "Idempotency-Key 最长为 64 个字符")
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER, "Idempotency-Key 最长为 64 个字符，请换一个更短的 key"
+        )
 
     request_hash = _invoke_hash(name, payload)
     async with _idempotency_lock(f"rest:{key}"):
@@ -379,7 +387,7 @@ async def invoke_tool(
                 if existing.request_hash != request_hash:
                     raise AppError(
                         ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
-                        "相同 Idempotency-Key 已用于不同的工具请求",
+                        "相同 Idempotency-Key 已用于不同的工具请求，请换一个 key 重试",
                     )
                 await db.commit()
                 if existing.response_body is not None:
@@ -419,11 +427,11 @@ async def invoke_tool(
             async with repository_factory() as db:
                 record = await AgentIdempotencyRepository(db).get(CallerType.REST, key)
                 if record is None:
-                    raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "幂等请求预约已失效")
+                    raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "幂等请求的受理记录已过期，请重试")
                 if record.request_hash != request_hash:
                     raise AppError(
                         ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
-                        "相同 Idempotency-Key 已用于不同的工具请求",
+                        "相同 Idempotency-Key 已用于不同的工具请求，请换一个 key 重试",
                     )
                 record.audit_id = audit_id
                 record.request_mode = payload.mode
@@ -436,7 +444,7 @@ async def invoke_tool(
                         if confirmation is None:
                             raise AppError(
                                 ErrorCode.SERVICE_UNAVAILABLE,
-                                "确认记录未能关联到幂等请求",
+                                "确认记录已失效，请重新发起该操作",
                                 {"audit_id": audit_id},
                             )
                         record.response_body = {
@@ -517,7 +525,7 @@ async def invoke_tool(
                 elif record is not None and record.response_body is None:
                     error = AppError(
                         ErrorCode.SERVICE_UNAVAILABLE,
-                        "工具调用中断，执行结果不确定；为避免重复副作用，请先查询审计记录",
+                        "工具调用中断，执行结果不确定；请先按 audit_id 查询审计记录，确认未执行后再重试",
                         {"audit_id": record.audit_id},
                     )
                     record.response_status = error.http_status
@@ -593,10 +601,13 @@ async def create_session(
     if not settings.api_key and encryption_error is not None:
         raise AppError(
             ErrorCode.LLM_ENCRYPTION_KEY_INVALID,
-            "数据库中的 LLM API Key 无法解密；请修复加密密钥或配置有效的 YAML/env API Key",
+            "已保存的 LLM API Key 无法解密，请到设置页重新填写 API Key",
         )
     if not settings.base_url or not settings.api_key or not settings.model:
-        raise AppError(ErrorCode.LLM_NOT_CONFIGURED, "请先配置 LLM base_url、api_key 和 model")
+        raise AppError(
+            ErrorCode.LLM_NOT_CONFIGURED,
+            "还没有配置 LLM，请先在设置页填写 base_url、api_key 与 model",
+        )
     stored = await AgentSessionRepository(session).create(
         AgentSession(title=payload.title, model=settings.model, base_url=settings.base_url)
     )
@@ -644,9 +655,11 @@ async def stream_session_message(
     async with factory() as db_session:
         exists = await AgentSessionRepository(db_session).get(session_id)
     if exists is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在")
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
     if not await runtime.acquire_session(session_id):
-        raise AppError(ErrorCode.AGENT_SESSION_BUSY, "该会话已有一轮消息正在处理")
+        raise AppError(
+            ErrorCode.AGENT_SESSION_BUSY, "该会话还有一轮消息未结束，请等它结束后再发送"
+        )
     try:
         await runtime.ensure_configured(request, session_id)
     except BaseException:
@@ -675,9 +688,9 @@ async def get_session_detail(
 ) -> dict[str, Any]:
     stored = await AgentSessionRepository(session).get(session_id)
     if stored is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在")
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
     wire = session_wire(stored)
-    # ``turn_running`` 是「刷新后仍能停」的真相源（M22 规格 §3.4）。刻意直接读
+    # ``turn_running`` 是「刷新后仍能停」的真相源（规格 §3.4）。刻意直接读
     # ``app.state.agent_runtime``：为了一个只读字段去现场构造 runtime 会在没装配
     # runtime 的部署里凭空造出一个空运行时（那不是这个端点该做的事）。列表接口不带
     # 这个字段，省得为每一行都去问一次进程内状态。
@@ -699,14 +712,14 @@ async def interrupt_session_turn(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """中断该会话当前一轮（M22 规格 §3.4）。
+    """中断该会话正在执行的一轮。
 
-    幂等：没有活动轮次时返回 200 + ``interrupted=false``，不是错误——「已经停了」
-    与「刚刚停掉」对调用方是同一个结果。只停 Agent 这一轮，不碰流水线与队列。
+    幂等：没有活动轮次时返回 200 且 ``interrupted=false``。只中断这一轮，
+    不影响流水线与队列。
     """
     runtime = _agent_runtime(request)
     if await AgentSessionRepository(session).get(session_id) is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在")
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
     interrupted = await runtime.interrupt_turn(session_id)
     return {
         "session_id": session_id,
@@ -727,7 +740,7 @@ async def delete_session(session_id: str, request: Request) -> Response:
     async with service.session_factory() as session:
         exists = await AgentSessionRepository(session).get(session_id)
     if exists is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在")
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
     await service.revoke_session_grant(session_id)
     async with service.session_factory() as session:
         await AgentSessionRepository(session).delete(session_id)
@@ -750,7 +763,7 @@ async def list_session_messages(
 ) -> dict[str, Any]:
     _page(page, size)
     if await AgentSessionRepository(session).get(session_id) is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在")
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
     result = await AgentMessageRepository(session).list_page(
         session_id, after_seq=after_seq, page=page, size=size
     )
@@ -817,5 +830,5 @@ async def list_audits(
 async def get_audit(audit_id: int, session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
     audit = await AuditRepository(session).get(audit_id)
     if audit is None:
-        raise AppError(ErrorCode.NOT_FOUND, "Agent 审计记录不存在")
+        raise AppError(ErrorCode.NOT_FOUND, "Agent 审计记录不存在，请刷新列表后重试")
     return audit_wire(audit)

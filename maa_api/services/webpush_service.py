@@ -1,14 +1,14 @@
-"""Web Push 投递：VAPID 签名 + RFC 8291 加密 + 订阅失效处理（M14 Task 3）。
+"""Web Push 投递：VAPID 签名 + RFC 8291 加密 + 订阅失效处理。
 
-**推送是「即时层」，不是可靠层。** 它只在用户没开着页面时用于触达人工确认
-（docs/09 §13.1 的三级递进），因此这里的失败一律不向上冒泡：确认本身照常落库、
-照常等待、照常超时，推送发不出去只是少了一条通知，绝不能让确认流程本身失败。
+推送是即时层，不是可靠层：只在用户没开着页面时用于触达人工确认
+（docs/09 §13.1 的三级递进），因此失败不向上冒泡：确认本身照常落库、等待、超时，
+推送发不出去只是少了一条通知，不能反过来让确认流程失败。
 调用方用 :meth:`WebPushService.notify_confirmation` 得到一份结果摘要，用来记日志。
 
 失效处理遵循 Web Push 的既有约定：推送服务对已注销的订阅返回 ``404`` 或 ``410``，
 此时把该行标记为失效（保留行，见 :mod:`maa_api.db.repositories.push`），后续发送
-直接跳过。其它错误码只记录，不停用订阅 —— 一次 500 或超时是服务端抖动，停用会让
-用户彻底收不到通知。
+直接跳过。其它错误码只记录、不停用订阅：一次 500 或超时是服务端抖动，停用会让用户
+收不到通知。
 """
 
 from __future__ import annotations
@@ -69,20 +69,24 @@ def _truncate(value: str, limit: int) -> str:
 
 
 #: 原子操作与工具名 → 用户看得懂的动作描述。
-#: 推送标题里**不能**出现 ``click`` / ``submit_pipeline`` 这类内部标识符：用户收到
-#: 的是锁屏通知，看不懂就等于没通知（docs/09 §13.1 要求标题写清操作内容）。
+#: 推送标题里不能出现 ``click`` / ``submit_pipeline`` 这类内部标识符：用户收到的是
+#: 锁屏通知，看不懂就等于没通知（docs/09 §13.1 要求标题写清操作内容）。
+#: 用词与前端 ``web/src/features/agent/format.ts`` 的 ``TOOL_LABELS`` 保持一致；
+#: 那份只列模型可见工具，这里额外收了 ``run_task``，因为 REST 调用与历史审计里
+#: 可能出现这个旧标识符，认不出会直接把它显示给用户。
 _TOOL_LABELS: dict[str, str] = {
     "click": "在游戏画面点击",
     "swipe": "在游戏画面滑动",
     "long_press": "在游戏画面长按",
     "input_text": "向游戏输入文本",
     "key_event": "发送按键事件",
-    "submit_pipeline": "提交任务流水线",
-    "create_schedule": "创建定时任务",
+    "submit_pipeline": "提交流水线",
+    "cancel_queued": "取消排队的流水线",
+    "create_schedule": "新建定时任务",
     "update_schedule": "修改定时任务",
     "delete_schedule": "删除定时任务",
-    "restart_core": "重启 MaaCore 内核",
-    "update_core": "更新 MaaCore 内核",
+    "restart_core": "重启内核",
+    "update_core": "更新内核",
     "reconnect_device": "重连设备",
     "stop_pipeline": "停止流水线",
     "back_to_home": "返回游戏主界面",
@@ -115,7 +119,7 @@ def confirmation_title(tool_name: str, arguments: Any) -> str:
     """通知标题：动作 + 影响，都用人话。
 
     用户是从锁屏点进来的，``run_task`` / ``Fight.stone=3`` 这种内部标识符对他没有
-    意义。无法归类时退回工具名，但**不编造**影响范围——误报消耗比不报更糟。
+    意义。无法归类时退回工具名，但**不编造**影响范围：误报消耗比不报更糟。
     """
     action = _TOOL_LABELS.get(tool_name, tool_name)
     phrase = _consumption_phrase(arguments)
@@ -180,14 +184,17 @@ def build_confirmation_payload(
 
     按「Apple 卡片优先」设计（docs/09 §13.2）：完整信息写进 ``title`` 与 ``body``，
     ``tag`` 做同类合并，``data`` 承载深链与处置所需的 id。``actions`` 只是 Chromium
-    上的渐进增强 —— WebKit 会静默忽略它，所以流程正确性不能以按钮为前提。
+    上的渐进增强：WebKit 会静默忽略它，所以流程正确性不能以按钮为前提。
 
     ``title`` / ``body`` 只放操作名与原因，**不放** token、API Key、绝对路径等
     敏感内容：推送要经过第三方推送服务。
     """
     return {
         "title": _truncate(f"需要确认：{title}", _TITLE_LIMIT),
-        "body": _truncate(summary or "Agent 请求执行一个需要人工确认的操作。", _BODY_LIMIT),
+        "body": _truncate(
+            summary or "Agent 想执行一个需要确认的操作；点开通知可直接批准或拒绝",
+            _BODY_LIMIT,
+        ),
         "tag": f"confirm:{confirmation_id}",
         "data": {"confirmationId": confirmation_id, "url": url},
         "actions": (
@@ -237,7 +244,7 @@ class WebPushService:
         try:
             return vapid.load_vapid_private_key(raw)
         except ValueError:
-            logger.warning("VAPID 私钥不可解析，Web Push 本轮跳过")
+            logger.debug("推送密钥不可用，本轮跳过推送")
             return None
 
     def _subject(self) -> str:
@@ -261,7 +268,8 @@ class WebPushService:
         private_key = self._private_key()
         if private_key is None:
             raise AppError(
-                ErrorCode.PUSH_NOT_CONFIGURED, "未配置可用的 VAPID 私钥"
+                ErrorCode.PUSH_NOT_CONFIGURED,
+                "这台设备还不能接收推送：服务端未配置推送密钥，请在设置页查看开启步骤",
             )
 
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
@@ -271,7 +279,7 @@ class WebPushService:
             trimmed["body"] = _truncate(str(payload.get("body", "")), 128)
             body = json.dumps(trimmed, ensure_ascii=False, separators=(",", ":")).encode()
             if len(body) > crypto.MAX_PLAINTEXT_BYTES:
-                logger.warning("推送载荷超过 RFC 8291 上限，放弃投递")
+                logger.warning("推送内容超过推送服务的长度上限，已跳过这条投递")
                 return False
 
         try:
@@ -282,7 +290,7 @@ class WebPushService:
             )
         except crypto.PushEncryptionError as exc:
             # 订阅里存的是坏密钥（例如客户端 bug）：停用而不是每次重试都失败
-            logger.warning("订阅 %s 的密钥无法用于加密：%s", subscription.id, exc)
+            logger.warning("订阅 %s 的密钥无效，已停用该订阅：%s", subscription.id, exc)
             await self._subscriptions.mark_disabled(subscription.id)
             return False
 
@@ -308,16 +316,16 @@ class WebPushService:
             return True
         if status_code in _GONE_STATUS:
             logger.info(
-                "订阅 %s 已被推送服务注销（HTTP %s），标记失效",
+                "订阅 %s 已被推送服务注销（HTTP %s），已标记失效",
                 subscription.id,
                 status_code,
             )
             await self._subscriptions.mark_disabled(subscription.id)
             return False
         logger.warning(
-            "推送投递失败 HTTP %s（订阅 %s）：%s",
-            status_code,
+            "推送投递失败（订阅 %s）：HTTP %s，响应 %s",
             subscription.id,
+            status_code,
             str(getattr(response, "text", ""))[:200],
         )
         return False
@@ -343,7 +351,7 @@ class WebPushService:
             try:
                 return subscription, await self.send_to_subscription(subscription, payload)
             except Exception:
-                logger.exception("推送投递异常（订阅 %s）", subscription.id)
+                logger.exception("推送投递出错（订阅 %s）", subscription.id)
                 return subscription, False
 
         tasks = [asyncio.create_task(deliver(item)) for item in subscriptions]
@@ -352,7 +360,9 @@ class WebPushService:
             # 超出总预算的投递被放弃：确认的时效比这条通知更重要。
             task.cancel()
         if pending:
-            logger.warning("推送超出总预算 %.1fs，放弃 %d 条投递", self._budget, len(pending))
+            logger.warning(
+                "推送超过总时长预算 %.1f 秒，已放弃 %d 条投递", self._budget, len(pending)
+            )
 
         outcomes: list[tuple[Any, bool]] = []
         for task in done:

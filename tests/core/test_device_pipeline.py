@@ -170,7 +170,7 @@ def test_offline_device_does_not_run_tasks_and_fails_manual_and_agent(
             assert any(kind == "task_status" for kind, _ in broadcasts)
             assert any(kind == "pipeline_status" for kind, _ in broadcasts)
             assert any(kind == "device_status" for kind, _ in broadcasts)
-            assert "设备预检失败" in caplog.text
+            assert "设备检查失败" in caplog.text
             assert ErrorCode.DEVICE_NOT_CONNECTED in caplog.text
             await engine.dispose()
 

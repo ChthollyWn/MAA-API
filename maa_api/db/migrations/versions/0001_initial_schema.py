@@ -16,7 +16,7 @@ Create Date: 2026-09-16 19:21:32.063339
    其余 JSON 列无默认值；
 5. 外键 ``ondelete``：``task``→``pipeline``、``agent_message``→``agent_session``
    是 ``CASCADE``，其余关联列是 ``SET NULL``；
-6. 所有命名约束（pk/uq/ck/fk）显式写出 —— SQLite 删不掉匿名约束，将来 batch
+6. 所有命名约束（pk/uq/ck/fk）显式写出：SQLite 删不掉匿名约束，将来 batch
    重建表时要按名字引用。
 
 本迁移只建表、不重建表，所以不需要 ``batch_alter_table``，也不需要 ``copy_from``

@@ -118,8 +118,7 @@ class ConnectionManager:
         """是否有**正在看着页面**的客户端。
 
         人工确认的推送用它判断，而不是用「有没有连接」：移动端切到后台时页面被冻结，
-        WebSocket 常常仍然连着，此时按连接判断会认为「用户在看」而**不推送** ——
-        而用户恰恰看不到任何东西，确认只能等到超时自动拒绝。见 docs/09 §13.1。
+        WebSocket 常常仍然连着，此时按连接判断会认为「用户在看」而**不推送**：而用户恰恰看不到任何东西，确认只能等到超时自动拒绝。见 docs/09 §13.1。
         """
         return any(not session.closed and session.visible for session in self._sessions.values())
 
@@ -343,7 +342,7 @@ def _trusted_cookie_origin(origin: str | None) -> bool:
 
     ``tailscale serve`` 下前端来源是 ``https://<host>.<tailnet>.ts.net``，其中没有
     可用的 IP 字面量，所以必须由 ``deployment.cors_origins`` /
-    ``deployment.cors_origin_regex`` 显式放行 —— 与 HTTP CORS 用的是同一份配置，
+    ``deployment.cors_origin_regex`` 显式放行：与 HTTP CORS 用的是同一份配置，
     否则会出现「REST 能用、WebSocket 被 4403 拒绝」这种半通状态。
     """
     if not origin:
@@ -521,7 +520,7 @@ async def _handle_message(
         )
         return
 
-    await _send_direct(session, _error("WS_BAD_MESSAGE", f"未知的消息类型: {message_type}", req_id))
+    await _send_direct(session, _error("WS_BAD_MESSAGE", f"未知的消息类型：{message_type}", req_id))
     session.invalid_messages += 1
 
 

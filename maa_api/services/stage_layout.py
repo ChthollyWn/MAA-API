@@ -1,4 +1,4 @@
-"""关卡布局：从本地 ``Arknights-Tile-Pos`` 解析并归一化成网格码（M23 §3.4）。
+"""关卡布局：从本地 ``Arknights-Tile-Pos`` 解析并归一化成网格码（规格 §3.4）。
 
 数据链与规则（与规格 §3.4 一一对应）：
 
@@ -10,7 +10,7 @@
    多命中按 ``stageId`` 字典序取第一条并带出 ``candidates``；都没命中**不**在这里回落
    ``StageResolver``（它是 async 且要内核），由工具层决定兜底顺序；
 4. 读文件先按 overview 的 ``filename``；不在磁盘上时用同一目录的文件名清单按
-   ``f"{stageId}-"`` 前缀匹配（**绝不**把含 ``/`` 的 ``levelId`` 拼进 glob）；
+   ``f"{stageId}-"`` 前缀匹配（**不**把含 ``/`` 的 ``levelId`` 拼进 glob）；
 5. 单格归一成 3 字符 ``<地形><可部署><高度>``；起点/终点来自 ``isStart``/``isEnd``
    布尔而不是 ``tileKey``，单独出坐标数组，行序保持文件顺序。
 """
@@ -56,7 +56,7 @@ DEFAULT_TERRAIN = "."
 
 #: ``tileKey`` → 五类地形的**单一真相源**。本地 4186 张关卡图共 107 个不同
 #: ``tileKey``，全部显式列在这里；``tests/fixtures/tile_keys.json`` 是这份清单的
-#: 夹具，测试断言零遗漏 —— 资源更新冒出新键时那条测试变红，提醒补表。
+#: 夹具，测试断言零遗漏：资源更新冒出新键时那条测试变红，提醒补表。
 #: 分类口径：名字含 forbidden / wall / fence 的归阻挡；hole / empty / rabbithole 归
 #: 坑洞；sea / water / puddle 归水域；带机制语义的（毒雾、火山、传送、草丛、冰面、
 #: 治疗格、目标点、菌毯、流沙、活动与生息演算专用地形等）归特殊地形；road / floor /
@@ -209,7 +209,9 @@ def load_stage_layout(query: str) -> dict[str, Any]:
     entries, directory = _load_overview()
     matches = _match(entries, query)
     if not matches:
-        raise AppError(ErrorCode.RESOURCE_ASSET_NOT_FOUND, f"关卡不存在：{query}")
+        raise AppError(
+            ErrorCode.RESOURCE_ASSET_NOT_FOUND, f"关卡不存在：{query}，请检查关卡代号"
+        )
     winner = matches[0]
     payload, resource = _read_stage_file(directory, winner)
 
@@ -248,7 +250,7 @@ def _load_overview() -> tuple[tuple[_Entry, ...], Path]:
 
     raise AppError(
         ErrorCode.RESOURCE_LOAD_FAILED,
-        "无法读取本地关卡索引",
+        "无法读取本地关卡索引，请重新加载资源后再试",
         {"resource": f"{TILE_POS_DIRECTORY}/{OVERVIEW_FILENAME}"},
     )
 
@@ -335,7 +337,7 @@ def _read_stage_file(directory: Path, entry: _Entry) -> tuple[Any, str]:
     if filename is None:
         raise AppError(
             ErrorCode.RESOURCE_ASSET_NOT_FOUND,
-            f"关卡数据文件缺失：{entry.stage_id}",
+            f"关卡数据文件缺失：{entry.stage_id}，请重新下载资源",
             {"stage_id": entry.stage_id, "filename": entry.filename},
         )
     resource = f"{TILE_POS_DIRECTORY}/{filename.name}"
@@ -461,7 +463,7 @@ def _file_signature(path: Path) -> tuple[int, int, int, int]:
 def _load_error(resource: str) -> AppError:
     return AppError(
         ErrorCode.RESOURCE_LOAD_FAILED,
-        "无法读取本地关卡数据",
+        "无法读取本地关卡数据，请重新下载资源后再试",
         {"resource": resource},
     )
 

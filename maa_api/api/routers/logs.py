@@ -64,14 +64,14 @@ def _filters(
         try:
             sources = [SOURCE_WIRE_TO_DB[item] for item in source]
         except KeyError as exc:
-            raise _bad_parameter(f"未知日志来源: {exc.args[0]}") from None
+            raise _bad_parameter(f"未知日志来源: {exc.args[0]}，可选：task、service、core") from None
     minimum_level: LogLevel | None = None
     if level:
         normalized = [item.upper() for item in level]
         if any(item == "WARN" for item in normalized):
             normalized = ["WARNING" if item == "WARN" else item for item in normalized]
         if any(item not in _LEVEL_RANK for item in normalized):
-            raise _bad_parameter("level 必须为 DEBUG/INFO/WARNING/ERROR/CRITICAL")
+            raise _bad_parameter("level 不是支持的取值，可选：DEBUG、INFO、WARNING、ERROR、CRITICAL")
         # Repeated levels all constrain a minimum, so the strictest threshold wins.
         minimum_level = LogLevel(max(normalized, key=_LEVEL_RANK.__getitem__).lower())
     return {
@@ -135,14 +135,14 @@ async def list_logs(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     if order not in {"asc", "desc"}:
-        raise _bad_parameter("order 必须是 asc 或 desc")
+        raise _bad_parameter("order 不是支持的取值，可选：asc、desc")
     if size > 1000:
         size = 1000
     cursor_mode = after_id is not None or before_id is not None or page is None
     if cursor_mode and page is not None:
-        raise _bad_pagination("游标模式与 page 模式不能同时使用")
+        raise _bad_pagination("游标模式与 page 模式不能同时使用，请只选一种")
     if not cursor_mode and (after_id is not None or before_id is not None):
-        raise _bad_pagination("游标模式与 page 模式不能同时使用")
+        raise _bad_pagination("游标模式与 page 模式不能同时使用，请只选一种")
     filters = _filters(
         source=source,
         level=level,
@@ -153,7 +153,7 @@ async def list_logs(
     )
     if cursor_mode:
         if after_id is not None and before_id is not None and after_id >= before_id:
-            raise _bad_pagination("after_id 必须小于 before_id")
+            raise _bad_pagination("after_id 必须小于 before_id，请调整取值范围")
         since_at = datetime.fromtimestamp(since, timezone.utc).replace(tzinfo=None) if since is not None else None
         until_at = datetime.fromtimestamp(until, timezone.utc).replace(tzinfo=None) if until is not None else None
         filters.update(since=since_at, until=until_at)
@@ -210,11 +210,11 @@ async def export_logs(
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     if format not in {"txt", "jsonl"}:
-        raise _bad_parameter("format 必须是 txt 或 jsonl")
+        raise _bad_parameter("format 不是支持的取值，可选：txt、jsonl")
     if order not in {"asc", "desc"}:
-        raise _bad_parameter("order 必须是 asc 或 desc")
+        raise _bad_parameter("order 不是支持的取值，可选：asc、desc")
     if after_id is not None and before_id is not None and after_id >= before_id:
-        raise _bad_pagination("after_id 必须小于 before_id")
+        raise _bad_pagination("after_id 必须小于 before_id，请调整取值范围")
     filters = _filters(
         source=source, level=level, pipeline_id=pipeline_id, task_id=task_id,
         logger_prefix=logger, q=q,
@@ -254,7 +254,7 @@ async def export_logs(
     "/logs",
     status_code=204,
     summary="清理历史日志",
-    description="按来源和/或时间界限删除日志；至少提供一个条件。",
+    description="按来源或时间界限删除日志，至少提供一个条件。",
     responses=error_responses("INVALID_PARAMETER"),
     dependencies=[Depends(require_auth)],
 )
@@ -264,13 +264,13 @@ async def delete_logs(
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     if source is None and before is None:
-        raise _bad_parameter("source 与 before 至少提供一个")
+        raise _bad_parameter("source 与 before 至少提供一个，否则会删除全部日志")
     sources: list[LogSource] | None = None
     if source is not None:
         try:
             sources = [SOURCE_WIRE_TO_DB[item] for item in source]
         except KeyError as exc:
-            raise _bad_parameter(f"未知日志来源: {exc.args[0]}") from None
+            raise _bad_parameter(f"未知日志来源: {exc.args[0]}，可选：task、service、core") from None
     before_at = datetime.fromtimestamp(before, timezone.utc).replace(tzinfo=None) if before is not None else None
     await LogRepository(session).delete_matching(sources=sources, before=before_at)
     return Response(status_code=204)

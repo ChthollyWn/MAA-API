@@ -2,10 +2,10 @@
 
 纪律：
 
-- 一律用 :class:`enum.StrEnum`（Python 3.11 起内置），数据库侧存纯字符串列，
-  不用 ``sa.Enum`` —— SQLite 无法 ``ALTER TABLE ... DROP CONSTRAINT``，
+- 统一用 :class:`enum.StrEnum`（Python 3.11 起内置），数据库侧存纯字符串列，
+  不用 ``sa.Enum``：SQLite 无法 ``ALTER TABLE ... DROP CONSTRAINT``，
   加一个枚举值就得 batch 重建整张表（docs/04 §3.3）。
-- ``CoreStatus`` / ``DeviceStatus`` 是运行期内存状态，不参与持久化，因此**不在本模块**
+- ``CoreStatus`` / ``DeviceStatus`` 是运行期内存状态，不参与持久化，因此**不在枚举层**
   （分别见 docs/03 与 docs/08），只在日志与响应体里以字符串出现。
 - 内核指令枚举（``Message`` / ``InstanceOptionKey`` / ``StaticOptionKey``）属于
   ``maa_api/core/enums.py``，不在这里重复。
@@ -94,7 +94,7 @@ class QuestionStatus(StrEnum):
     ANSWERED = "answered"
     SKIPPED = "skipped"          # 用户点了「跳过」，本轮结束
     EXPIRED = "expired"          # 超时未回答，本轮结束
-    CANCELLED = "cancelled"      # 本轮被用户中断，提问被撤回（M22）
+    CANCELLED = "cancelled"      # 本轮被用户中断，提问被撤回
 
 
 class RiskLevel(StrEnum):

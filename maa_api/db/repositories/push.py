@@ -1,4 +1,4 @@
-"""``push_subscription`` 仓储：Web Push 订阅的存取（M14，docs/09 §13.1）。
+"""``push_subscription`` 仓储：Web Push 订阅的存取（docs/09 §13.1）。
 
 ``endpoint`` 的唯一约束由数据库兜底（``uq_push_subscription_endpoint``）：浏览器
 对同一个 Service Worker 重复订阅会拿到相同的 endpoint，因此重放注册是**幂等更新**
@@ -6,7 +6,7 @@
 不先查后写地依赖两次往返。
 
 发送路径只关心「未失效」的订阅，所以列表默认过滤 ``disabled_at IS NULL``；失效标记
-用 :meth:`mark_disabled`，**不删除行** —— 设置页需要展示哪台设备的订阅已失效。
+用 :meth:`mark_disabled`，**不删除行**：设置页需要展示哪台设备的订阅已失效。
 
 事务纪律（docs/04 §9）：所有方法都不 ``commit()``，由服务层决定事务边界。
 """

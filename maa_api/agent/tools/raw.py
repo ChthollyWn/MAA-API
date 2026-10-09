@@ -211,45 +211,43 @@ def register_tools(registry: ToolRegistry) -> None:
         (
             "click",
             ToolRisk.DANGEROUS,
-            "点击游戏画面坐标（使用 get_screenshot 返回图像的像素坐标）；"
-            "优先提交 MAA 任务而非盲目点坐标。",
+            "点击屏幕坐标（用 get_screenshot 返回图像的像素坐标）。"
+            "只有当任务编排做不到、或用户明确要求手点时用；用前先停掉流水线并重新截图。",
             ClickParams,
             _click,
         ),
         (
             "swipe",
             ToolRisk.DANGEROUS,
-            "通过 ADB 在游戏画面执行一次定长滑动"
-            "（使用 get_screenshot 返回图像的像素坐标）。",
+            "按住起点拖到终点，用来拖动列表或摇杆。坐标同 get_screenshot。",
             SwipeParams,
             _swipe,
         ),
         (
             "long_press",
             ToolRisk.DANGEROUS,
-            "通过 ADB 在游戏画面执行一次长按"
-            "（使用 get_screenshot 返回图像的像素坐标）。",
+            "按住坐标不放，用于需要按压的操作。坐标同 get_screenshot。",
             LongPressParams,
             _long_press,
         ),
         (
             "input_text",
             ToolRisk.DANGEROUS,
-            "通过 ADB 向游戏界面输入文本。",
+            "向游戏界面输入文本。需要打字填内容的场景用；输入前先停掉流水线并截图确认。",
             InputTextParams,
             _input_text,
         ),
         (
             "key_event",
             ToolRisk.DANGEROUS,
-            "发送白名单按键事件：BACK、HOME、ENTER、DEL 或 APP_SWITCH。",
+            "发送白名单按键事件（返回、主页、回车、删除、切换应用）。需要按游戏里的返回或主页键时用。",
             KeyEventParams,
             _key_event,
         ),
         (
             "back_to_home",
             ToolRisk.SAFE,
-            "使用 MaaCore 的幂等复位动作返回游戏主界面。",
+            "返回游戏主界面。可以重复调用，不需要确认。",
             EmptyParams,
             _back_to_home,
         ),

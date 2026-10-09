@@ -280,7 +280,7 @@ class NotifyService:
         channel = await self.get_channel(channel_id)
         payload = {
             "title": "MAA-API 测试通知",
-            "message": "这是一条测试通知，通道配置可正常发送。",
+            "message": "这是一条测试通知，通道配置可正常发送",
             "event": event.value,
             "sample": True,
         }
@@ -291,7 +291,7 @@ class NotifyService:
             await self._record_send(channel_id, "failed", safe_error)
             raise AppError(
                 ErrorCode.NOTIFY_SEND_FAILED,
-                "通知发送失败",
+                "通知发送失败，请检查通道配置；详情见日志页",
                 {"channel_id": channel_id, "upstream": safe_error},
             ) from exc
         await self._record_send(channel_id, "success", None)
@@ -319,7 +319,7 @@ class NotifyService:
             except Exception as exc:
                 failed += 1
                 await self._record_send(channel.id, "failed", _safe_error(exc, channel.config))
-                logger.warning("notification delivery failed for channel %s", channel.id)
+                logger.warning("通知投递失败（通道 %s）", channel.id)
             else:
                 sent += 1
                 await self._record_send(channel.id, "success", None)
@@ -385,7 +385,7 @@ class NotifyService:
     async def _send_feishu(self, config: dict[str, Any], title: str, body: str) -> None:
         """飞书自定义机器人（``/open-apis/bot/v2/hook/<token>``）。
 
-        加签与钉钉是**两套**算法，别照抄：飞书把 ``"{timestamp}\\n{secret}"`` 当作
+        加签与钉钉是**两套**算法，不能混用：飞书把 ``"{timestamp}\\n{secret}"`` 当作
         HMAC 的**密钥**、消息体为空，时间戳用**秒**，签名放在请求体里；钉钉则把
         secret 当密钥、``"{timestamp}\\n{secret}"`` 当消息，时间戳用毫秒、签名放 URL。
         """
@@ -448,7 +448,7 @@ class NotifyService:
         except (ValidationError, TypeError, ValueError) as exc:
             raise AppError(
                 ErrorCode.NOTIFY_CONFIG_INVALID,
-                "通知通道配置不合法",
+                "通知通道配置不合法，请检查必填项后重新保存",
                 {
                     "reason": json.dumps(
                         [
@@ -462,13 +462,17 @@ class NotifyService:
 
     @staticmethod
     def _not_found(channel_id: str) -> AppError:
-        return AppError(ErrorCode.NOTIFY_CHANNEL_NOT_FOUND, "通知通道不存在", {"channel_id": channel_id})
+        return AppError(
+            ErrorCode.NOTIFY_CHANNEL_NOT_FOUND,
+            "通知通道不存在，请刷新列表",
+            {"channel_id": channel_id},
+        )
 
     @staticmethod
     def _conflict(type: NotifyChannelType, name: str) -> AppError:
         return AppError(
             ErrorCode.NOTIFY_CHANNEL_CONFLICT,
-            "同类型通知通道名称已存在",
+            "已有同类型的同名通道，请换一个名称",
             {"type": type.value, "name": name},
         )
 
@@ -597,18 +601,20 @@ def _event_value(event: NotifyEvent | str) -> NotifyEvent | str:
 
 def _message(event: NotifyEvent | str, payload: Mapping[str, Any]) -> tuple[str, str]:
     labels = {
-        NotifyEvent.PIPELINE_COMPLETED: "任务执行完成",
-        NotifyEvent.PIPELINE_FAILED: "任务执行失败",
+        NotifyEvent.PIPELINE_COMPLETED: "流水线完成",
+        NotifyEvent.PIPELINE_FAILED: "流水线失败",
         NotifyEvent.CORE_CRASHED: "内核异常退出",
         NotifyEvent.DEVICE_DISCONNECTED: "设备连接断开",
         NotifyEvent.UPDATE_AVAILABLE: "发现可用更新",
         NotifyEvent.UPDATE_FINISHED: "更新完成",
         NotifyEvent.CONFIRMATION_REQUIRED: "需要人工确认",
     }
-    title = str(payload.get("title") or labels.get(event, f"MAA-API 通知：{event}"))
+    title = str(payload.get("title") or labels.get(event, "MAA-API 有一条新通知"))
     message = payload.get("message") or payload.get("body")
     if message is None:
-        message = json.dumps(payload, ensure_ascii=False, default=str, indent=2)
+        # 缺正文时给一句通用文案：原始 payload 是内部结构，不能当通知正文推给用户。
+        logger.debug("通知缺少正文，已使用缺省文案（event=%s）", event)
+        message = "点开 MAA-API 查看详情"
     return title, str(message)
 
 

@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/snippets", tags=["snippets"])
 def _service(request: Request) -> ApiSnippetService:
     service = getattr(request.app.state, "api_snippet_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "API 收藏服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "API 收藏功能还在启动中，请稍后重试")
     return service
 
 
@@ -50,7 +50,7 @@ async def list_snippets(request: Request) -> ApiSnippetPage:
             "description": "Created",
             "headers": {
                 "Location": {
-                    "description": "URI of the created API snippet",
+                    "description": "新建收藏的 URI",
                     "schema": {"type": "string"},
                 }
             },
@@ -69,7 +69,7 @@ async def create_snippet(
 @router.get(
     "/{snippet_id}",
     response_model=ApiSnippetView,
-    summary="读取 API 调试台收藏",
+    summary="读取 API 调试台收藏详情",
     responses=error_responses("API_SNIPPET_NOT_FOUND", "UNAUTHORIZED"),
     dependencies=[Depends(require_auth)],
 )

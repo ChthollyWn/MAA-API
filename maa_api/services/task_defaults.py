@@ -28,7 +28,7 @@ async def load_channel_defaults(session: AsyncSession) -> ChannelDefaults:
     }
     # Resolve the same four-layer settings stack as the visual API. Validate DB
     # channel values independently first so a legacy malformed value only falls
-    # back that one dimension, preserving M5's client_type/server independence.
+    # back that one dimension, keeping client_type/server independent.
     valid_overrides: dict[str, str] = {}
     for field_name, raw in raw_values.items():
         if raw is None:
@@ -36,8 +36,9 @@ async def load_channel_defaults(session: AsyncSession) -> ChannelDefaults:
         try:
             ChannelDefaults.model_validate({field_name: raw})
         except ValidationError:
-            logger.warning(
-                "setting %s 的值非法（%r），回退默认值",
+            # config.yaml 写错某个渠道默认值是预期内的降级：用默认值继续，不必打扰用户。
+            logger.debug(
+                "设置项 %s 的值不合法，已改用默认值（%r）",
                 f"channel.{field_name}",
                 raw,
             )
@@ -52,5 +53,5 @@ async def load_channel_defaults(session: AsyncSession) -> ChannelDefaults:
     except ValidationError:
         # A malformed config.yaml is normally caught during startup. Keep this
         # layer defensive for queue callers that run before startup validation.
-        logger.warning("渠道默认设置非法，回退代码默认值")
+        logger.debug("渠道默认设置不合法，已改用内置默认值")
         return ChannelDefaults()

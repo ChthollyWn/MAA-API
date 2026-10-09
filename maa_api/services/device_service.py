@@ -42,7 +42,7 @@ UNAVAILABLE_PROBE_INTERVAL = 60.0
 ADB_HEALTH_TIMEOUT, CORE_CONNECT_TIMEOUT = 3.0, 60.0
 #: MaaCore 的 ``AsstAsyncClick`` 只接受 16:9 基准坐标：内核 ``ControlScaleProxy``
 #: 按「高 / 720」把它放大到设备像素。所有点击入口都收设备像素，换算只在
-#: :meth:`DeviceManager.click` 里做一次（M18 §4.5）。
+#: :meth:`DeviceManager.click` 里做一次（§4.5）。
 MAACORE_CLICK_HEIGHT = 720
 _ADBUTILS_PATH_KEY = "ADBUTILS_ADB_PATH"
 _ADBUTILS_PATH_LOCK = threading.RLock()
@@ -288,10 +288,9 @@ class _AdbBackend:
                         cleanup_command,
                         str(cleanup_error),
                     ) from cleanup_error
-                logger.warning(
-                    "清理远端临时 APK 失败 path=%s error=%s",
-                    remote_path,
-                    cleanup_error,
+                # 清理临时安装包失败不影响安装结果，属预期内降级，不打扰用户。
+                logger.debug(
+                    "清理设备上的临时安装包失败（path=%s）：%s", remote_path, cleanup_error
                 )
 
     def force_stop(self, address: str, package: str) -> str:
@@ -473,7 +472,7 @@ class DeviceManager:
             if not (0 <= int(x) < width and 0 <= int(y) < height):
                 raise AppError(
                     ErrorCode.INVALID_PARAMETER,
-                    "坐标超出设备分辨率范围",
+                    "坐标超出设备分辨率范围，请重新截图后再定位",
                     {
                         "operation": operation,
                         "x": int(x),
@@ -561,7 +560,7 @@ class DeviceManager:
             if address:
                 await asyncio.to_thread(self._backend.disconnect, address)
         except Exception as exc:
-            logger.warning("断开 ADB 设备失败 address=%s error=%s", address, exc)
+            logger.warning("断开 ADB 设备失败（address=%s）：%s", address, exc)
         self._last_error = None
         self._retry_attempt = self._retry_max = 0
         self._next_at = None
@@ -608,7 +607,7 @@ class DeviceManager:
         except Exception as exc:
             raise AppError(
                 ErrorCode.DEVICE_SCAN_FAILED,
-                "读取 ADB 设备列表失败",
+                "读取 ADB 设备列表失败，请确认 ADB 可用后重试",
                 self._error_details("adb_scan", exc),
             ) from exc
         result: list[dict[str, Any]] = []
@@ -657,7 +656,7 @@ class DeviceManager:
         details = details if isinstance(details, dict) else {}
         if what == "Reconnecting":
             self._cancel_watchdog()
-            self._set_state(DeviceState.RECONNECTING, "MaaCore 正在尝试自动重连")
+            self._set_state(DeviceState.RECONNECTING, "内核正在自动重连")
             if self.reconnect_watchdog:
                 self._watchdog_task = self._spawn(
                     self._watchdog(), "maa-device-reconnect-watchdog"
@@ -666,10 +665,10 @@ class DeviceManager:
             self._cancel_watchdog()
             self._cancel_auto_reconnect()
             self._capture_device_info(details)
-            self._connected("MaaCore 已恢复设备连接")
+            self._connected("内核已恢复设备连接")
         elif what == "Disconnect":
             self._cancel_watchdog()
-            self._set_state(DeviceState.RECONNECTING, "MaaCore 放弃重连，设备管理器接管")
+            self._set_state(DeviceState.RECONNECTING, "内核放弃重连，改由设备管理器重连")
             self._start_reconnect("disconnect")
         elif what in {"ConnectFailed", "ConnectFaild"}:
             if self.state == DeviceState.CONNECTING:
@@ -704,13 +703,14 @@ class DeviceManager:
             except Exception as exc:
                 raise AppError(
                     ErrorCode.SCREENSHOT_FAILED,
-                    "MaaCore 截图失败",
+                    "用内核通道截图失败，请确认设备已连接；"
+                    "若持续失败，可改用 ADB 通道",
                     {"backend": "core", "error": str(exc)},
                 ) from exc
         if backend != "adb":
             raise AppError(
                 ErrorCode.INVALID_PARAMETER,
-                "截图 backend 必须是 adb 或 core",
+                "截图方式 backend 不是支持的取值，可选：adb、core",
                 {"backend": backend},
             )
         try:
@@ -729,7 +729,7 @@ class DeviceManager:
             except Exception as core_error:
                 raise AppError(
                     ErrorCode.SCREENSHOT_FAILED,
-                    "ADB 与 MaaCore 截图均失败",
+                    "ADB 与内核通道截图都失败，请检查设备连接后重试",
                     {
                         "backend": "adb+maacore",
                         "adb_error": str(adb_error),
@@ -758,7 +758,7 @@ class DeviceManager:
         except Exception as exc:
             raise AppError(
                 ErrorCode.ADB_COMMAND_FAILED,
-                "ADB 滑动操作失败",
+                "ADB 滑动失败，请确认设备已连接后重试",
                 self._error_details("adb_command", exc),
             ) from exc
 
@@ -774,7 +774,7 @@ class DeviceManager:
         if bounds is None:
             raise AppError(
                 ErrorCode.DEVICE_NOT_CONNECTED,
-                "未知设备分辨率，无法点击；请先重连设备",
+                "还不知道设备分辨率，无法点击；请先重连设备",
                 {"operation": "click", "state": self.state.value},
             )
         px, py = int(x), int(y)
@@ -808,7 +808,7 @@ class DeviceManager:
         except Exception as exc:
             raise AppError(
                 ErrorCode.ADB_COMMAND_FAILED,
-                "ADB 长按操作失败",
+                "ADB 长按失败，请确认设备已连接后重试",
                 self._error_details("adb_command", exc),
             ) from exc
 
@@ -818,7 +818,7 @@ class DeviceManager:
         except Exception as exc:
             raise AppError(
                 ErrorCode.ADB_COMMAND_FAILED,
-                "ADB 输入文本失败",
+                "ADB 输入文本失败，请确认设备已连接后重试",
                 self._error_details("adb_command", exc),
             ) from exc
 
@@ -828,7 +828,7 @@ class DeviceManager:
         if normalized not in allowed:
             raise AppError(
                 ErrorCode.INVALID_PARAMETER,
-                "按键不在允许列表中",
+                "按键不在允许列表中，请换一个按键",
                 {"key": key, "allowed": sorted(allowed)},
             )
         try:
@@ -836,7 +836,7 @@ class DeviceManager:
         except Exception as exc:
             raise AppError(
                 ErrorCode.ADB_COMMAND_FAILED,
-                "ADB 按键操作失败",
+                "ADB 按键失败，请确认设备已连接后重试",
                 self._error_details("adb_command", exc),
             ) from exc
 
@@ -848,7 +848,7 @@ class DeviceManager:
         except Exception as exc:
             raise AppError(
                 ErrorCode.ADB_COMMAND_FAILED,
-                "安装 APK 失败",
+                "安装 APK 失败，请确认设备已连接且存储空间充足",
                 self._error_details("adb_command", exc),
             ) from exc
 
@@ -870,7 +870,7 @@ class DeviceManager:
         except Exception as exc:
             raise AppError(
                 ErrorCode.ADB_COMMAND_FAILED,
-                "安全安装 APK 失败",
+                "安全安装 APK 失败，请确认设备已连接且已允许安装应用",
                 self._error_details("adb_install", exc),
             ) from exc
 
@@ -880,7 +880,7 @@ class DeviceManager:
         except Exception as exc:
             raise AppError(
                 ErrorCode.ADB_COMMAND_FAILED,
-                f"停止应用进程失败：{package}",
+                f"停止应用进程失败：{package}，请确认设备已连接后重试",
                 self._error_details("adb_command", exc),
             ) from exc
 
@@ -898,9 +898,7 @@ class DeviceManager:
                 await asyncio.to_thread(self._backend.disconnect, old_address)
             except Exception as exc:
                 logger.warning(
-                    "切换 ADB 地址时断开旧设备失败 address=%s error=%s",
-                    old_address,
-                    exc,
+                    "切换 ADB 地址时断开旧设备失败（address=%s）：%s", old_address, exc
                 )
         configure_path = getattr(self._backend, "configure_path", None)
         if callable(configure_path):
@@ -950,9 +948,7 @@ class DeviceManager:
                     await asyncio.to_thread(self._backend.disconnect, address)
                 except Exception as exc:
                     # A disconnected transport may be reported as an adb error.
-                    logger.debug(
-                        "ADB 预清理连接失败 address=%s error=%s", address, exc
-                    )
+                    logger.debug("ADB 预清理连接失败（address=%s）：%s", address, exc)
                 self._force_adb_disconnect = False
             output = await asyncio.to_thread(self._backend.connect, address)
             health = await asyncio.to_thread(
@@ -972,7 +968,7 @@ class DeviceManager:
                 getattr(exc, "stage", "adb_connect"), exc
             )
             logger.warning(
-                "ADB 设备健康检查失败 address=%s stage=%s error=%s",
+                "ADB 设备连接检查失败（address=%s，stage=%s）：%s",
                 address,
                 self._last_error.get("stage"),
                 exc,
@@ -998,7 +994,7 @@ class DeviceManager:
                 "output": str(exc),
                 "hint": _failure_hint("core_connect"),
             }
-            logger.warning("MaaCore 异步设备连接失败 address=%s error=%s", address, exc)
+            logger.warning("内核连接设备失败（address=%s）：%s", address, exc)
             return False
 
     async def _healthy_connected(self) -> bool:
@@ -1047,8 +1043,7 @@ class DeviceManager:
         self._publish_status()
         if changed:
             logger.info(
-                "设备状态变更 core_id=%s state=%s address=%s reason=%s",
-                self.core_id,
+                "设备状态已更新：%s（address=%s，原因 %s）",
                 state.value,
                 self.address,
                 reason,
@@ -1058,9 +1053,9 @@ class DeviceManager:
         try:
             self._broadcast("device_status", self.snapshot())
         except Exception:
-            logger.exception("广播 device_status 失败")
+            logger.exception("推送设备状态失败")
 
-    def _connected(self, reason: str = "ADB 与 MaaCore 均已确认连接") -> None:
+    def _connected(self, reason: str = "ADB 与内核均已确认连接") -> None:
         self._last_connected_at = time.time()
         self._last_error = None
         self._retry_attempt = self._retry_max = 0
@@ -1100,7 +1095,7 @@ class DeviceManager:
             await asyncio.sleep(self.reconnect_watchdog)
             if self.state == DeviceState.RECONNECTING and not self._closed:
                 logger.warning(
-                    "MaaCore 重连看门狗超时 address=%s timeout=%ss，设备管理器接管",
+                    "内核重连等待超时（address=%s，%s 秒），改由设备管理器重连",
                     self.address,
                     self.reconnect_watchdog,
                 )

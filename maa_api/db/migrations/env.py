@@ -19,7 +19,7 @@
   能拿到 ``PRAGMA auto_vacuum == 2`` 的放置方式（M2-01，见
   ``tests/fixtures/db_probe_findings.md`` §2）。此外 pragma 之后必须紧跟一次
   ``conn.commit()``（M2-04 补），否则 autobegin 的事务会让 Alembic 把整次迁移
-  判为「外部事务」而不提交，``alembic_version`` 行随之丢失 —— 详见
+  判为「外部事务」而不提交，``alembic_version`` 行随之丢失：详见
   :func:`run_migrations_online` 里的注释。
 - **绝不调用 ``SQLModel.metadata.create_all()``**：两条建表路径混用会让
   ``alembic_version`` 与实际 schema 漂移（docs/04 §8.3）。这里只 import 模型，
@@ -89,7 +89,7 @@ def run_migrations_online() -> None:
             # SQLAlchemy 事务，而 Alembic 的 MigrationContext 只要发现连接上
             # 已有事务就把它当「外部事务」，于是 begin_transaction() 退化成
             # no-op、迁移结束也不提交：DDL 因 pysqlite 不把 DDL 包进事务而留下，
-            # 但 alembic_version 的 INSERT 会随连接关闭一起回滚 —— 表现为
+            # 但 alembic_version 的 INSERT 会随连接关闭一起回滚：表现为
             # 「建完表但版本为空」，下次 upgrade 从头重放并撞上 table already exists。
             # 提交后连接回到无事务状态，Alembic 才会自己开事务并在结束时提交。
             conn.commit()

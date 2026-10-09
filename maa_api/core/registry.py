@@ -1,24 +1,22 @@
-"""CoreRegistry：内核实例注册表（多实例扩展口，M1-12）。
+"""CoreRegistry：内核实例注册表（多实例扩展口）。
 
-首版维持「只跑一个 MaaCore 子进程、绑一台设备」的现有语义（docs/13 ADR-10）：
-应用装配时用 :data:`DEFAULT_CORE_ID` 注册唯一的
-:class:`~maa_api.core.client.CoreClient`，内部所有内核调用一律写
-``registry.get(core_id)``，而 ``core_id`` 首版恒为 ``"default"``（docs/02 §5.4）。
-**多实例时在这里扩展**：将来支持多设备，只需让本注册表管理多份
-``core_id → CoreClient`` 与设备绑定配置，路由层与数据模型不需要改动 —— 这正是本卡
-不把 ``default`` 写死成模块级全局变量的原因。
+维持「只跑一个 MaaCore 子进程、绑一台设备」的现有语义（docs/13 ADR-10）：应用装配时用
+:data:`DEFAULT_CORE_ID` 注册唯一的 :class:`~maa_api.core.client.CoreClient`，内部所有内核
+调用写 ``registry.get(core_id)``，``core_id`` 恒为 ``"default"``（docs/02 §5.4）。将来支持
+多设备时，只需让注册表管理多份 ``core_id → CoreClient`` 与设备绑定配置，路由层与数据模型
+不需要改动，所以 ``default`` 不做成模块级全局变量。
 
-本模块是**纯内存映射**：不启动子进程、不碰数据库、不碰 Queue，也不负责多实例的
-进程编排（那属于真正扩展到多设备时的工作）。因此它可以在任何进程、任何时机被安全
-import：运行期**不** import ``maa_api.core.client`` / ``maa_api.core.supervisor``
-（类型标注走 ``TYPE_CHECKING``），不会把内核依赖链带给轻量调用方。
+纯内存映射：不启动子进程、不碰数据库、不碰 Queue，也不负责多实例的进程编排。因此它可以在
+任何进程、任何时机被安全 import：运行期不 import ``maa_api.core.client`` /
+``maa_api.core.supervisor``（类型标注走 ``TYPE_CHECKING``），不会把内核依赖链带给轻量
+调用方。
 
-查询失败一律抛 :class:`~maa_api.domain.errors.AppError`，错误码复用内核层既有的
-``CORE_NOT_READY``（不新增错误码）：「注册表里没有这个 core_id」与「内核未就绪」对
-调用方是同一类可重试状态，路由层会按既有映射返回固定 503。
+查询失败抛 :class:`~maa_api.domain.errors.AppError`，错误码复用内核层既有的
+``CORE_NOT_READY``（不新增错误码）：「注册表里没有这个 core_id」与「内核未就绪」对调用方
+是同一类可重试状态，路由层按既有映射返回固定 503。
 
-并发说明：注册/注销发生在装配期（单线程），运行期只有 ``get`` 的只读访问；本类因此
-不加锁，dict 的读取在 CPython 下是原子的。
+注册/注销发生在装配期（单线程），运行期只有 ``get`` 的只读访问，因此不加锁，dict 的读取
+在 CPython 下是原子的。
 """
 
 from __future__ import annotations
@@ -27,7 +25,7 @@ from typing import TYPE_CHECKING
 
 from maa_api.domain.errors import AppError, ErrorCode
 
-if TYPE_CHECKING:  # 仅类型检查期导入：运行期不得拉起内核依赖链。
+if TYPE_CHECKING:  # 仅类型检查期导入：运行期不拉起内核依赖链。
     from maa_api.core.client import CoreClient
 
 __all__ = ["DEFAULT_CORE_ID", "CoreRegistry"]
@@ -62,8 +60,7 @@ class CoreRegistry:
         if core_id in self._clients:
             raise AppError(
                 ErrorCode.CORE_NOT_READY,
-                f"core_id {core_id!r} 已注册，拒绝重复注册"
-                f"（先 unregister 或改用其他 core_id）",
+                f"内核实例 {core_id} 已存在，不能重复注册；请先移除同名实例或改用其他名称",
                 {"core_id": core_id},
             )
         self._clients[core_id] = client
@@ -80,8 +77,8 @@ class CoreRegistry:
         except KeyError:
             raise AppError(
                 ErrorCode.CORE_NOT_READY,
-                f"core_id {resolved!r} 未注册"
-                f"（当前已注册: {list(self._clients)!r}）",
+                f"找不到名为 {resolved} 的内核实例；"
+                f"当前可用：{'、'.join(self._clients) or '无'}",
                 {"core_id": resolved},
             ) from None
 

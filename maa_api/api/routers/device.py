@@ -80,7 +80,7 @@ class KeyEventRequest(BaseModel):
 def _device_manager(request: Request) -> Any:
     manager = getattr(request.app.state, "device_manager", None)
     if manager is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "设备管理服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "设备管理功能还在启动中，请稍后重试")
     return manager
 
 
@@ -257,20 +257,20 @@ async def device_screenshot(
     if backend not in {"adb", "core"}:
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
-            "截图 backend 必须是 adb 或 core",
+            "截图 backend 不是支持的取值，可选：adb、core",
             {"backend": backend},
         )
     normalized_format = format.lower()
     if normalized_format not in {"jpeg", "jpg", "png"}:
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
-            "截图 format 仅支持 jpeg、jpg 或 png",
+            "截图 format 不是支持的取值，可选：jpeg、jpg、png",
             {"format": format},
         )
     if size not in {"thumb", "mobile", "full"}:
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
-            "截图 size 仅支持 thumb、mobile 或 full",
+            "截图 size 不是支持的取值，可选：thumb、mobile、full",
             {"size": size},
         )
 
@@ -279,7 +279,7 @@ async def device_screenshot(
     if state != "connected":
         raise AppError(
             ErrorCode.DEVICE_NOT_CONNECTED,
-            "设备当前未连接，无法截图",
+            "设备当前未连接，无法截图；请先连接设备",
             {"state": state},
         )
     result = await manager.screenshot(backend=backend)
@@ -469,7 +469,7 @@ async def device_key_event(
     if normalized not in _ALLOWED_KEYS:
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
-            "按键不在允许列表中",
+            "按键不在允许列表内，可用按键见 details.allowed",
             {"key": payload.key, "allowed": sorted(_ALLOWED_KEYS)},
         )
     result = await _run_atomic(

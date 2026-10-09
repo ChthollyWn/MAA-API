@@ -502,9 +502,11 @@ def test_raw_coordinate_tools_document_the_screenshot_pixel_frame() -> None:
     registry = _registry()
     descriptions = {item.name: item.description for item in registry.list()}
 
-    for name in ("click", "swipe", "long_press"):
+    # 坐标口径只在 click 里写全，swipe / long_press 引用它（同一约束只写一次）。
+    assert "get_screenshot" in descriptions["click"]
+    assert "像素坐标" in descriptions["click"]
+    for name in ("swipe", "long_press"):
         assert "get_screenshot" in descriptions[name]
-        assert "像素坐标" in descriptions[name]
 
 
 @pytest.mark.parametrize(

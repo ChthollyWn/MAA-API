@@ -1,16 +1,16 @@
-"""Web Push 订阅的登记、列表与失效标记（M14，docs/09 §13.1）。
+"""Web Push 订阅的登记、列表与失效标记（docs/09 §13.1）。
 
-**校验必须在写入前完成。** ``p256dh`` 是浏览器的 ECDH 公钥，只有在 P-256 曲线上
-且不是无穷远点时才能参与密钥协商（RFC 8291 §7 把这条列为必需的安全检查：
-不校验公钥可能导致私钥被提取）。所以这里不只查长度，还实际解析一次点。
+``p256dh`` 是浏览器的 ECDH 公钥，只有在 P-256 曲线上且不是无穷远点时才能参与密钥
+协商（RFC 8291 §7 把这条列为必需的安全检查：不校验公钥可能导致私钥被提取），所以写入
+前不只查长度，还实际解析一次点。
 
-**列表接口不回显密钥材料。** ``endpoint`` 全文、``p256dh``、``auth`` 与凭据同级：
+列表接口不回显密钥材料：``endpoint`` 全文、``p256dh``、``auth`` 与凭据同级，
 ``endpoint`` 本身是推送服务的持有者凭据（拿到它就能向该订阅投递），两个密钥字段
 更是解密推送所必需。设置页只需要「哪台设备、是否失效、最近是否送达」，所以对外
 形状固定为 :func:`subscription_wire`。
 
 VAPID 密钥的管理规则见 :mod:`maa_api.services.webpush_vapid`：私钥来自
-``config.yaml`` / 环境变量，**不在启动时自动生成**。
+``config.yaml`` / 环境变量，不在启动时自动生成。
 """
 
 from __future__ import annotations
@@ -115,8 +115,8 @@ class PushSubscriptionService:
         if not raw:
             raise AppError(
                 ErrorCode.PUSH_NOT_CONFIGURED,
-                "未配置 VAPID 私钥，Web Push 不可用；"
-                "请运行 scripts/generate_vapid_keys.py 并把结果写入 config.yaml",
+                "这台设备还不能接收推送：服务端未配置推送密钥，"
+                "请在设置页查看开启步骤",
             )
         try:
             return vapid.load_vapid_private_key(raw)
@@ -124,7 +124,7 @@ class PushSubscriptionService:
             # 配置了但不可用同样是「没配好」，用同一个码而不是 500
             raise AppError(
                 ErrorCode.PUSH_NOT_CONFIGURED,
-                f"VAPID 私钥不可用: {exc}",
+                "服务端配置的推送密钥不可用，请在设置页重新生成后再试",
             ) from exc
 
     def _settings(self):
@@ -203,7 +203,7 @@ class PushSubscriptionService:
         if subscription is None:
             raise AppError(
                 ErrorCode.PUSH_SUBSCRIPTION_NOT_FOUND,
-                "订阅不存在",
+                "推送订阅不存在，请重新开启浏览器通知",
                 {"subscription_id": subscription_id},
             )
         return subscription
@@ -214,7 +214,7 @@ class PushSubscriptionService:
             if not deleted:
                 raise AppError(
                     ErrorCode.PUSH_SUBSCRIPTION_NOT_FOUND,
-                    "订阅不存在",
+                    "推送订阅不存在，请重新开启浏览器通知",
                     {"subscription_id": subscription_id},
                 )
             await session.commit()
@@ -224,7 +224,7 @@ class PushSubscriptionService:
 
         浏览器注销时手上只有 endpoint；列表出于凭据保护不回显它，所以需要一个按
         endpoint 精确删除的入口（同一推送服务下多台设备主机名相同，按主机名删除
-        会误伤别人的订阅）。找不到也算成功 —— 注销是幂等操作。
+        会误伤别人的订阅）。找不到也算成功：注销是幂等操作。
         """
         async with self._session_factory() as session:
             repository = PushSubscriptionRepository(session)

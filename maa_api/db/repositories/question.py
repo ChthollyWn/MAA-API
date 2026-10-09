@@ -12,9 +12,9 @@ Agent 主动提问的写入、待答列表与终态流转。三条纪律与 ``Co
   列表**而不是条数：服务层要据此广播 ``question_resolved`` 并唤醒阻塞在
   :meth:`~maa_api.agent.questions.QuestionService.wait` 上的那一轮对话。
 - ``options`` / ``selection`` 原样存取，仓储不解析选项文本、也不判断「选中项是否
-  合法」——那是服务层的业务校验（规格 §3.3），仓储只管状态机与查询。
+  合法」：那是服务层的业务校验（规格 §3.3），仓储只管状态机与查询。
 
-事务纪律（docs/04 §9）：本模块所有方法都**不 commit**，由调用方决定事务边界。
+事务纪律（docs/04 §9）：所有方法都不 ``commit()``，由调用方决定事务边界。
 """
 
 from __future__ import annotations
@@ -43,8 +43,7 @@ class AgentQuestionRepository(BaseRepository):
     async def create(self, question: AgentQuestion) -> AgentQuestion:
         """写入一条提问，返回受会话管理的实例（只 ``flush`` 不 ``commit``）。
 
-        用 ``merge()`` 而不是 ``add()``，理由同 ``AgentSessionRepository.create``
-        （M2-07 实测）：入参保持 transient、字段永远可读；代价是入参只是数据载体。
+        用 ``merge()`` 而不是 ``add()``，理由同 ``AgentSessionRepository.create``：入参保持 transient、字段永远可读；代价是入参只是数据载体。
         """
         stored = await self.session.merge(question)
         await self.session.flush()
@@ -55,7 +54,7 @@ class AgentQuestionRepository(BaseRepository):
 
         ``populate_existing=True``：:meth:`resolve` / :meth:`expire_overdue` 都走
         Core ``UPDATE``（批量那条还显式关了 ``synchronize_session``），不刷新会
-        返回身份映射里的陈旧实例（M2-08 实测）。
+        返回身份映射里的陈旧实例。
         """
         return await self.session.get(
             AgentQuestion, question_id, populate_existing=True
@@ -132,7 +131,7 @@ class AgentQuestionRepository(BaseRepository):
         返回值是 **id 列表而不是条数**（docs/04 §9）：服务层要据此广播
         ``question_resolved`` 并唤醒等待中的那一轮。用 ``UPDATE ... RETURNING id``
         一条语句同时完成「置终态」与「取回 id」：先 SELECT 再 UPDATE 会有并发窗口，
-        可能广播一个实际没被翻转的 id。``answered_by`` 记 ``system`` —— 超时不是
+        可能广播一个实际没被翻转的 id。``answered_by`` 记 ``system``：超时不是
         任何人的裁决，与超时确认同一口径。
         """
         result = await self.session.execute(
@@ -155,7 +154,7 @@ class AgentQuestionRepository(BaseRepository):
         """把所有遗留 pending 提问置 ``EXPIRED``，供进程重启清理。
 
         不做「按 ``expires_at`` 判定」：进程重启意味着等待那一轮的协程已经没了，
-        没超时的提问同样不可能再被回答（规格 §3.3），一律置终态。
+        没超时的提问同样不可能再被回答（规格 §3.3），一并置终态。
         """
         result = await self.session.execute(
             update(AgentQuestion)
@@ -173,12 +172,12 @@ class AgentQuestionRepository(BaseRepository):
     async def cancel_pending_for_session(
         self, session_id: str, now: datetime
     ) -> list[str]:
-        """把某个会话仍待答的提问批量置 ``CANCELLED``，返回其 id 列表（M22）。
+        """把某个会话仍待答的提问批量置 ``CANCELLED``，返回其 id 列表。
 
         与 :meth:`expire_all_pending` 同一条骨架（``UPDATE ... RETURNING id`` 一条
         语句同时翻状态与取回 id），区别只在过滤条件与目标状态：这里按 ``session_id``
         限定，因为「用户中断了某一轮」只该撤回那一轮挂起的提问，别的会话的卡片
-        与它无关。``answered_by`` 记 ``system``——撤回不是任何人的裁决。
+        与它无关。``answered_by`` 记 ``system``：撤回不是任何人的裁决。
         """
         result = await self.session.execute(
             update(AgentQuestion)

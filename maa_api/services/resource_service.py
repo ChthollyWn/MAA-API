@@ -152,7 +152,7 @@ class ResourceService:
         if not valid_asset_id:
             raise AppError(
                 ErrorCode.RESOURCE_ASSET_NOT_FOUND,
-                "Copilot 作业不存在",
+                "Copilot 作业不存在，请刷新列表",
                 {"asset_id": asset_id},
             )
         async with self.session_factory() as session:
@@ -160,7 +160,7 @@ class ResourceService:
         if asset is None or str(asset.kind) != ResourceAssetKind.COPILOT.value:
             raise AppError(
                 ErrorCode.RESOURCE_ASSET_NOT_FOUND,
-                "Copilot 作业不存在",
+                "Copilot 作业不存在，请刷新列表",
                 {"asset_id": asset_id},
             )
 
@@ -299,7 +299,7 @@ class ResourceService:
                         (run_directory / "operation.json").unlink(missing_ok=True)
                         run_directory.rmdir()
                 except OSError:
-                    logger.exception("清理未完成的 Copilot snapshot 失败：asset_id=%s", asset_id)
+                    logger.exception("清理未完成的 Copilot 临时文件失败（asset_id=%s）", asset_id)
                 raise
         raise _copilot_asset_file_error(asset_id)
 
@@ -400,7 +400,9 @@ class ResourceService:
                 asset_id,
             )
             _restore_file(target, previous_file)
-            raise AppError(ErrorCode.RESOURCE_LOAD_FAILED, "基建方案文件写入失败") from exc
+            raise AppError(
+                ErrorCode.RESOURCE_LOAD_FAILED, "基建方案文件写入失败，请检查磁盘后重试"
+            ) from exc
         return {
             **_asset_wire(existing, include_content=True, content=stored_content),
             "filename": filename,
@@ -461,7 +463,7 @@ class ResourceService:
             await self._rollback_created_custom_task(asset_id, file_snapshot, relative_path)
             raise AppError(
                 ErrorCode.RESOURCE_LOAD_FAILED,
-                "自定义任务已回滚，MaaCore 资源重载失败",
+                "自定义任务已回滚，但内核资源重新加载失败；请到日志页查看原因",
                 {"task": normalized_name},
             ) from exc
         return created
@@ -482,7 +484,9 @@ class ResourceService:
             repo = ResourceAssetRepository(session)
             original = await repo.get(asset_id)
             if original is None or str(original.kind) != ResourceAssetKind.CUSTOM_TASK.value:
-                raise AppError(ErrorCode.RESOURCE_ASSET_NOT_FOUND, "自定义任务不存在")
+                raise AppError(
+                    ErrorCode.RESOURCE_ASSET_NOT_FOUND, "自定义任务不存在，请刷新列表"
+                )
             snapshot = _asset_copy(original)
             await repo.delete(asset_id)
             await session.commit()
@@ -494,7 +498,7 @@ class ResourceService:
             await self._restore_custom_task(snapshot, file_snapshot)
             raise AppError(
                 ErrorCode.RESOURCE_LOAD_FAILED,
-                "自定义任务已恢复，MaaCore 资源重载失败",
+                "自定义任务已恢复，但内核资源重新加载失败；请到日志页查看原因",
                 {"task": snapshot.name},
             ) from exc
         if snapshot.path:
@@ -522,7 +526,9 @@ class ResourceService:
                 await ResourceAssetRepository(session).delete(stored.id)
                 await session.commit()
             _restore_file(path, previous_file)
-            raise AppError(ErrorCode.RESOURCE_LOAD_FAILED, "资源文件写入失败") from exc
+            raise AppError(
+                ErrorCode.RESOURCE_LOAD_FAILED, "资源文件写入失败，请检查磁盘后重试"
+            ) from exc
         return _asset_wire(stored, include_content=True, content=content)
 
     async def _list_assets(
@@ -744,12 +750,14 @@ class ResourceService:
         except (TypeError, ValueError) as exc:
             raise _invalid_json(code, "资源内容不是有效 JSON") from exc
         if len(encoded.encode("utf-8")) > MAX_RESOURCE_BYTES:
-            raise AppError(ErrorCode.ASSET_TOO_LARGE, "单个资源不能超过 2 MB")
+            raise AppError(
+                ErrorCode.ASSET_TOO_LARGE, "单个资源不能超过 2 MB，请压缩后重新上传"
+            )
         return json.loads(encoded)
 
     def _require_reloader(self) -> None:
         if self.reload_resources is None:
-            raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "资源重载服务尚未装配")
+            raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "服务正在启动，请稍后重试")
 
     async def _reload(self) -> None:
         result = self.reload_resources()
@@ -786,7 +794,7 @@ class ResourceService:
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise AppError(
                 ErrorCode.RESOURCE_LOAD_FAILED,
-                "无法读取资源资产文件",
+                "无法读取资源文件，请重新上传",
                 {"asset_id": asset.id},
             ) from exc
 
@@ -864,13 +872,15 @@ def _invalid_json(code: ErrorCode, message: str) -> AppError:
 
 
 def _asset_conflict(name: str) -> AppError:
-    return AppError(ErrorCode.RESOURCE_ASSET_CONFLICT, "已存在同名资源", {"name": name})
+    return AppError(
+        ErrorCode.RESOURCE_ASSET_CONFLICT, "已存在同名资源，请换一个名称", {"name": name}
+    )
 
 
 def _copilot_asset_file_error(asset_id: str) -> AppError:
     return AppError(
         ErrorCode.RESOURCE_LOAD_FAILED,
-        "Copilot 作业文件缺失、损坏或路径无效",
+        "Copilot 作业文件缺失或损坏，请重新上传",
         {"asset_id": asset_id},
     )
 

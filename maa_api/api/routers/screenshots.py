@@ -89,9 +89,13 @@ async def list_screenshots(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     if page < 1 or size < 1 or size > 200:
-        raise AppError(ErrorCode.INVALID_PAGINATION, "page 必须至少为 1，size 范围为 1 到 200")
+        raise AppError(ErrorCode.INVALID_PAGINATION, "page 不能小于 1，size 需在 1–200 之间")
     if trigger is not None and trigger not in {item.value for item in ScreenshotTrigger}:
-        raise AppError(ErrorCode.INVALID_PARAMETER, f"未知截图 trigger: {trigger}")
+        options = "、".join(item.value for item in ScreenshotTrigger)
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            f"未知的截图触发原因：{trigger}，可选：{options}",
+        )
     since_at = (
         datetime.fromtimestamp(since, timezone.utc).replace(tzinfo=None)
         if since is not None
@@ -115,7 +119,7 @@ async def list_screenshots(
 @router.get(
     "/screenshots/{id}",
     summary="读取截图内容",
-    description="返回截图图像字节；as=base64 时返回面向 agent 的 JSON 包装。",
+    description="返回截图图像字节；as=base64 时返回带元数据的 JSON。",
     responses=error_responses(
         "SCREENSHOT_NOT_FOUND", "SCREENSHOT_EXPIRED", "INVALID_PARAMETER"
     ),
@@ -128,12 +132,12 @@ async def get_screenshot(
     session: AsyncSession = Depends(get_session),
 ) -> Response | dict[str, Any]:
     if as_ not in {None, "base64"}:
-        raise AppError(ErrorCode.INVALID_PARAMETER, "as 仅支持 base64")
+        raise AppError(ErrorCode.INVALID_PARAMETER, "as 不是支持的取值，可选：base64")
     item = await ScreenshotRepository(session).get(id)
     if item is None:
         raise _not_found()
     if item.deleted_at is not None:
-        raise AppError(ErrorCode.SCREENSHOT_EXPIRED, "截图文件已过期清理")
+        raise AppError(ErrorCode.SCREENSHOT_EXPIRED, "截图文件已过期清理，请重新截图")
     path = _record_path(item)
     if path is None or not path.is_file():
         raise _not_found("截图文件不存在")

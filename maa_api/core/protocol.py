@@ -1,25 +1,21 @@
 """IPC 协议：命令/事件的类型、payload 结构、超时表与消息构造。
 
-两条单向队列（docs/02 §3、docs/13 ADR-03）：
+两条单向队列（docs/02 §3、docs/13 ADR-03）：``cmd_queue``（主 → 子）消息固定为
+``{"cmd_id": uuid4, "type": str, "payload": dict}``；``event_queue``（子 → 主）消息固定为
+``{"type": str, "ts": float, "payload": dict}``。
 
-- ``cmd_queue``（主 → 子）消息固定为 ``{"cmd_id": uuid4, "type": str, "payload": dict}``；
-- ``event_queue``（子 → 主）消息固定为 ``{"type": str, "ts": float, "payload": dict}``。
+只依赖标准库，不 import ``maa_api`` 的任何其他模块：命令循环跑在 spawn 出来的子进程里，
+入口模块会被重新 import，零依赖可以避免把 import 期副作用（如旧 ``maa_api.config.config``
+的 mkdir / 拷模板）带进子进程启动路径，也避免父子解释器之间的导入环。
 
-**本模块只依赖标准库，不 import ``maa_api`` 的任何其他模块。** 命令循环跑在
-spawn 出来的子进程里，入口模块会被重新 import（M1-02 实测）；零依赖可以避免把
-import 期副作用（如旧 ``maa_api.config.config`` 的 mkdir / 拷模板）带进子进程启动
-路径，也避免父子解释器之间的导入环。
+所有构造器只产出可 pickle 的纯 dict（``str`` / ``int`` / ``float`` / ``bool`` / ``None``
+/ ``list`` / ``dict`` 及其嵌套），不产出 dataclass、枚举实例或任何句柄对象。
+``multiprocessing.Queue`` 走 pickle，spawn 模式下不可 pickle 的对象要到运行时才暴露
+（docs/03 §8），因此契约测试用真实 Queue 兜住。
 
-所有构造器只产出**可 pickle 的纯 dict**（``str`` / ``int`` / ``float`` / ``bool`` /
-``None`` / ``list`` / ``dict`` 及其嵌套），不产出 dataclass、枚举实例或任何句柄
-对象。``multiprocessing.Queue`` 走 pickle，spawn 模式下不可 pickle 的对象要到运行时
-才暴露（docs/03 §8），因此协议层只做纯数据，契约测试用真实 Queue 兜住。
-
-``CALLBACK`` 事件刻意保持 MaaCore 的原始形态 ``{"msg": int, "details": dict}``：
-子进程只做 ``json.loads`` 与 ``Message(msg)`` 枚举转换，不翻译语义（docs/02 §3.2），
-中文文案映射留在主进程。
-
-超时时长按命令类型区分（docs/02 §3.4）：查询类 5 秒、``CONNECT`` 60 秒、
+``CALLBACK`` 事件保持 MaaCore 的原始形态 ``{"msg": int, "details": dict}``：子进程只做
+``json.loads`` 与 ``Message(msg)`` 枚举转换，不翻译语义（docs/02 §3.2），中文文案映射留在
+主进程。超时时长按命令类型区分（docs/02 §3.4）：查询类 5 秒、``CONNECT`` 60 秒、
 ``LOAD_RESOURCE`` 300 秒、``START`` / ``STOP`` 30 秒；``PING`` 心跳另给短超时。
 """
 
@@ -119,7 +115,7 @@ DEFAULT_QUERY_TIMEOUT: float = 5.0
 #: 心跳命令的短超时（秒）：PING 只是往返探活，不该等满查询类的 5 秒。
 PING_TIMEOUT: float = 2.0
 
-#: 会长时间阻塞命令循环的命令（docs/02 §3.4），供 M1-08 在慢命令期间放宽心跳。
+#: 会长时间阻塞命令循环的命令（docs/02 §3.4），供 supervisor 在慢命令期间放宽心跳。
 LONG_COMMANDS: frozenset[str] = frozenset({"LOAD_RESOURCE", "CONNECT"})
 
 #: 命令类型 → 超时秒数。每个命令都有登记值。
@@ -171,7 +167,7 @@ def command_timeout(type: str) -> float:
 def is_long_command(type: str) -> bool:
     """该命令是否会长时间阻塞命令循环（``LOAD_RESOURCE`` / ``CONNECT``）。
 
-    供 M1-08 在慢命令期间放宽心跳判定；未知命令类型抛 :class:`KeyError`。
+    供 supervisor 在慢命令期间放宽心跳判定；未知命令类型抛 :class:`KeyError`。
     """
     if type not in COMMAND_TYPES:
         raise KeyError(type)

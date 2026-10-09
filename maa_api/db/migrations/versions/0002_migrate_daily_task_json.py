@@ -5,7 +5,7 @@ Revises: 0001
 Create Date: 2026-09-16
 
 依据 docs/04 §5.5 与 §11：旧配置的 ``weekday_task`` 把星期几映射到 ``task_dict``
-里的一个任务组名，本迁移逐条展开成独立 ``schedule`` 记录 —— 例如
+里的一个任务组名，本迁移逐条展开成独立 ``schedule`` 记录：例如
 ``{"1": "workday"}`` 配合固定的 7 点与 19 点，生成 ``cron="0 7,19 * * 1"``、
 ``template`` 取 ``task_dict["workday"]``。
 
@@ -23,10 +23,10 @@ Create Date: 2026-09-16
    ``downgrade`` 按 :data:`NAME_PREFIX` 前缀精确删除本迁移插入的行，不碰用户自建的
    schedule，重复升级也不会撞 ``uq_schedule_name``。
 5. **名字稳定**：``name = f"{NAME_PREFIX}{weekday}"``；``id`` 由 name 派生的 UUID5
-   而不是随机 UUID4 —— 离线 SQL 可复现，降级后重放拿到同一批 id。
+   而不是随机 UUID4：离线 SQL 可复现，降级后重放拿到同一批 id。
 6. **离线模式**（``alembic upgrade head --sql``）：读表做幂等检查这一步跳过（mock
    connection 的 ``execute()`` 返回 ``None``，拿不到结果），直接渲染 INSERT。所有值都
-   内联在 Core 语句里、不通过 ``execute(params=...)`` 传参 —— 离线模式会丢弃执行参数
+   内联在 Core 语句里、不通过 ``execute(params=...)`` 传参：离线模式会丢弃执行参数
    （``MockConnection`` 的 executor 只收 construct），传参会让 SQL 渲染成占位符。
 
 可测性：源文件路径默认 ``<repo>/resource/daily_task.json``，可用 Alembic 配置项
@@ -160,7 +160,7 @@ def upgrade() -> None:
     table = schedule_table()
     bind = op.get_bind()
     if not op.get_context().as_sql:
-        # 幂等：同名记录已存在（手工建过、或迁移被重放）就不再插入 —— 既避开
+        # 幂等：同名记录已存在（手工建过、或迁移被重放）就不再插入：既避开
         # uq_schedule_name，也不覆盖用户数据。离线模式拿不到查询结果，跳过此检查。
         existing = {
             row[0]

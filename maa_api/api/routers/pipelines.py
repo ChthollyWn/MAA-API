@@ -1,4 +1,4 @@
-"""Pipeline submission, history, cancellation and associated resources (M5)."""
+"""Pipeline submission, history, cancellation and associated resources."""
 
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ def pipeline_wire(pipeline: Pipeline) -> dict[str, Any]:
 def _pipeline_not_found(pipeline_id: str) -> AppError:
     return AppError(
         ErrorCode.PIPELINE_NOT_FOUND,
-        "流水线不存在",
+        "流水线不存在，请刷新列表后重试",
         {"pipeline_id": pipeline_id},
     )
 
@@ -202,12 +202,14 @@ async def list_pipelines(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     if page < 1 or size < 1 or size > 200:
-        raise _invalid_pagination("page 必须大于等于 1，size 必须在 1 到 200 之间")
+        raise _invalid_pagination("page 不能小于 1，size 需在 1–200 之间")
     try:
         parsed_status = PipelineStatus(status) if status is not None else None
         parsed_source = PipelineSource(source) if source is not None else None
     except ValueError:
-        raise AppError(ErrorCode.INVALID_PARAMETER, "status 或 source 取值无效") from None
+        raise AppError(ErrorCode.INVALID_PARAMETER,
+            "status 可选 pending/running/completed/failed/cancelled；"
+            "source 可选 manual/agent/scheduled",) from None
     result = await PipelineRepository(session).list(
         status=parsed_status,
         source=parsed_source,
@@ -294,7 +296,7 @@ async def retry_pipeline(
     except ValidationError as exc:
         raise AppError(
             ErrorCode.TASK_PARAM_INVALID,
-            "历史任务参数无法重放",
+            "历史任务参数无法重放，请按原参数重新提交",
             {"pipeline_id": pipeline_id, "errors": exc.errors()},
         ) from exc
     request_body = PipelineCreate(
@@ -359,11 +361,11 @@ async def list_pipeline_logs(
     if await PipelineRepository(session).get(pipeline_id) is None:
         raise _pipeline_not_found(pipeline_id)
     if order not in {"asc", "desc"}:
-        raise AppError(ErrorCode.INVALID_PARAMETER, "order 必须是 asc 或 desc")
+        raise AppError(ErrorCode.INVALID_PARAMETER, "order 不是支持的取值，可选：asc、desc")
     if size < 1 or size > 1000 or (page is not None and page < 1):
-        raise _invalid_pagination("page 必须大于等于 1，size 必须在 1 到 1000 之间")
+        raise _invalid_pagination("page 不能小于 1，size 需在 1–1000 之间")
     if after_id is not None and page is not None:
-        raise _invalid_pagination("after_id 与 page 不能同时使用")
+        raise _invalid_pagination("after_id 与 page 不能同时使用，请只选一种分页方式")
     try:
         parsed_sources = (
             [SOURCE_WIRE_TO_DB[item] for item in source]
@@ -380,7 +382,9 @@ async def list_pipeline_logs(
             else None
         )
     except (KeyError, ValueError):
-        raise AppError(ErrorCode.INVALID_PARAMETER, "日志来源或级别取值无效") from None
+        raise AppError(ErrorCode.INVALID_PARAMETER,
+            "source[] 可选 task、service、core；"
+            "level[] 可选 debug、info、warning、error、critical",) from None
     repo = LogRepository(session)
     result = await repo.query(
         sources=parsed_sources,

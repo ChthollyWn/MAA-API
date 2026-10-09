@@ -1,9 +1,9 @@
-"""``agent_knowledge`` 仓储：Agent 知识库的覆盖层（M18，规格 §4.1、docs/04 §9）。
+"""``agent_knowledge`` 仓储：Agent 知识库的覆盖层（规格 §4.1、docs/04 §9）。
 
 这张表只存用户的改动（内置条目随代码发布），所以仓储只有四件事：读一行、读全表、
-整行写入、删一行，**不做合并**——「哪些列是覆盖、覆盖之后生效值是什么」是业务
+整行写入、删一行，**不做合并**：「哪些列是覆盖、覆盖之后生效值是什么」是业务
 决策，属于 :class:`maa_api.agent.knowledge.KnowledgeService`。与 ``setting``
-仓储同构：表里没有某一行就意味着「用下层的值」，因此这里绝不把内置内容灌进表里。
+仓储同构：表里没有某一行就意味着「用下层的值」，因此不把内置内容灌进表里。
 
 事务纪律（docs/04 §9）：所有方法都不 ``commit()``，由调用方决定事务边界。
 """
@@ -16,7 +16,7 @@ from maa_api.db.repositories.base import BaseRepository
 
 
 class AgentKnowledgeRepository(BaseRepository):
-    """知识库覆盖行的读写（M18，规格 §4.1）。"""
+    """知识库覆盖行的读写（规格 §4.1）。"""
 
     async def get(self, entry_id: str) -> AgentKnowledge | None:
         """返回 ``entry_id`` 的覆盖行；表里没有这一行时返回 ``None``。
@@ -41,7 +41,7 @@ class AgentKnowledgeRepository(BaseRepository):
         """整行写入：存在则覆盖可写列，不存在则插入。
 
         用 SQLite 的 ``INSERT ... ON CONFLICT(id) DO UPDATE`` 一条语句完成，
-        ``created_at`` 不在更新列里——首次写入的时间要留住，「这条覆盖是什么
+        ``created_at`` 不在更新列里：首次写入的时间要留住，「这条覆盖是什么
         时候建的」不该被每次编辑刷新。``set_`` 里的 NULL 是有意义的：它表示
         「这一列回到继承内置值」，所以不能跳过 NULL 列。
         """

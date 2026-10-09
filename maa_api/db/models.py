@@ -1,17 +1,16 @@
 """SQLModel 表定义：20 张业务表（docs/04 §3、§5、§6、§7）。
 
-纪律（每条都对应一次实测或一次返工）：
+约束（每条都有取证依据）：
 
 - **命名约定必须在任何表类定义之前设置。** 表定义之后再设置时，无名
-  ``Index`` / ``UniqueConstraint`` / 外键不会跟随约定名（M2-01 实测，
-  见 ``tests/fixtures/db_probe_findings.md`` §6.1）。
+  ``Index`` / ``UniqueConstraint`` / 外键不会跟随约定名（见 ``tests/fixtures/db_probe_findings.md`` §6.1）。
 - **主键分两类。** 对外暴露的资源用 36 字符 UUID 字符串；高频追加表
   （``log_entry`` / ``agent_message`` / ``agent_audit``）用
   ``INTEGER PRIMARY KEY AUTOINCREMENT``，靠 ``__table_args__`` 里的
   ``{'sqlite_autoincrement': True}`` 才会在 DDL 里落下 ``AUTOINCREMENT``
-  关键字 —— 只写 ``primary_key=True`` 是不够的（M2-01 实测）。缺了它，
+  关键字：只写 ``primary_key=True`` 是不够的。缺了它，
   日志表按天清理删到尾部后 id 会复用，WebSocket 续传游标漏记录。
-- **时间戳统一 UTC 的 naive datetime**，一律用 :func:`utcnow`，不用已废弃的
+- **时间戳统一 UTC 的 naive datetime**，用 :func:`utcnow`，不用已废弃的
   ``datetime.utcnow()``；列名只用 ``created_at`` / ``updated_at`` /
   ``started_at`` / ``finished_at`` / ``resolved_at`` / ``expires_at``。
 - **枚举存纯字符串列**，不用 ``sa.Enum``（SQLite 删不掉 CHECK 约束，枚举演进
@@ -27,7 +26,7 @@
   ``agent_audit`` 三张高频写表各自不超过 3 条。``status`` / ``source`` /
   ``level`` / ``kind`` 这类低基数列不建独立索引，只作复合索引首列。
 
-生产建表永远走 Alembic（M2-04，docs/04 §8.3）；``create_all`` 只用于测试。
+生产建表走 Alembic（docs/04 §8.3）；``create_all`` 只用于测试。
 """
 
 import uuid
@@ -91,14 +90,14 @@ def json_column(
     nullable: bool = True,
     server_default: str | None = None,
 ) -> Column:
-    """新建一个 JSON 列（工厂函数，绝不共用 ``Column`` 实例，docs/04 §7）。
+    """新建一个 JSON 列（工厂函数，不共用 ``Column`` 实例，docs/04 §7）。
 
     ``server_default`` 传 SQL 字面量原文，如 ``"'{}'"``；只在 docs 明确要求
     默认值的列上传。
 
     ``none_as_null=True`` 不能省：SQLAlchemy 的 ``JSON`` 默认把 Python ``None``
     序列化成 **JSON 字面量 ``'null'`` 字符串**（``none_as_null=False``），于是
-    "可空 JSON 列"里躺的是非 NULL 的 ``'null'`` —— ``IS NULL`` 查不到，
+    "可空 JSON 列"里躺的是非 NULL 的 ``'null'``：``IS NULL`` 查不到，
     ``resource_asset`` 的 ``content IS NOT NULL OR path IS NOT NULL`` 也会被
     静默绕过。开了之后 Python ``None`` 才真的落成 SQL NULL。
     """
@@ -116,7 +115,7 @@ def text_column(name: str, *, nullable: bool = True) -> Column:
 def datetime_column(name: str, *, nullable: bool = False) -> Column:
     """新建一个 DATETIME 列（同上，每次返回新实例）。
 
-    Python 侧默认值仍由 ``Field(default_factory=utcnow)`` 提供 —— 用了
+    Python 侧默认值仍由 ``Field(default_factory=utcnow)`` 提供：用了
     ``sa_column`` 之后 ``Field()`` 的列级参数失效，但 Python 侧默认值不失效。
     """
     return Column(name, DateTime, nullable=nullable)
@@ -882,7 +881,7 @@ class PushSubscription(SQLModel, table=True):
 
 
 # ---------------------------------------------------------------------------
-# 5.16 agent_knowledge — Agent 知识库的用户改动（M18，规格 §4.1）
+# 5.16 agent_knowledge — Agent 知识库的用户改动（规格 §4.1）
 # ---------------------------------------------------------------------------
 class AgentKnowledge(SQLModel, table=True):
     """Agent 知识库的覆盖层：只存与内置条目**不同**的字段。
@@ -916,7 +915,7 @@ class AgentKnowledge(SQLModel, table=True):
 
 
 # ---------------------------------------------------------------------------
-# 5.17 agent_question — Agent 主动提问与参数选择卡片（M21，规格 §3.2）
+# 5.17 agent_question — Agent 主动提问与参数选择卡片（规格 §3.2）
 # ---------------------------------------------------------------------------
 class AgentQuestion(SQLModel, table=True):
     """Agent 主动提问：与 ``confirmation`` **并列**的一等交互（M21 规格 §3.2）。

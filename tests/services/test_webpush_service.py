@@ -395,9 +395,10 @@ def test_confirmation_title_maps_tool_names_to_readable_actions() -> None:
     from maa_api.services.webpush_service import confirmation_title
 
     assert confirmation_title("click", {}) == "在游戏画面点击"
-    assert confirmation_title("submit_pipeline", {}) == "提交任务流水线"
+    assert confirmation_title("submit_pipeline", {}) == "提交流水线"
     # 认不出来的工具名直接退回原值，不编造动作
     assert confirmation_title("some_new_tool", {}) == "some_new_tool"
+    assert confirmation_title("cancel_queued", {}) == "取消排队的流水线"
 
 
 def test_confirmation_title_reports_consumption_in_plain_chinese() -> None:

@@ -1,4 +1,4 @@
-"""M23 媒体工具：把截图、物品图标、关卡示意图与图表卡发给用户。
+"""媒体工具：把截图、物品图标、关卡示意图与图表卡发给用户。
 
 五个工具都声明 ``ToolRisk.SAFE``（政策引擎直接放行、不弹确认，与 ``get_screenshot``
 同级；调用照常进审计），组 ``media``。``annotate_screenshot`` 会写文件与数据库行，
@@ -6,7 +6,7 @@
 
 REST 调用与内置会话走同一条注册表路径：五个工具的返回值都不依赖 runtime 的
 ``on_audit_prepare`` 钩子，所以两边拿到同样的 JSON（``get_screenshot`` 的归档例外，
-它只发生在 runtime 钩子里，本模块不动它）。
+它只发生在 runtime 钩子里，这里不动它）。
 """
 
 from __future__ import annotations
@@ -163,8 +163,8 @@ def register_tools(registry: ToolRegistry) -> None:
             group="media",
             risk=ToolRisk.SAFE,
             description=(
-                "把一张已有截图作为图片卡发给用户：给 screenshot_id 就用它，"
-                "只给 pipeline_id 就取该流水线最新一张，都不给＝本会话最近一张截图。"
+                "把已有截图作为图片卡发给用户：给 screenshot_id 就用它，"
+                "只给 pipeline_id 就取该流水线最新一张，都不给用本会话最近一张。"
                 "只在用户要求看画面、要一张截图时才调用；自己为了判断而截的图不要发给用户。"
             ),
             params_model=SendScreenshotParams,
@@ -178,10 +178,8 @@ def register_tools(registry: ToolRegistry) -> None:
             group="media",
             risk=ToolRisk.SAFE,
             description=(
-                "按原图归一化坐标（0–1）裁剪、放大截图并画红色标注框，生成一张新图"
-                "发给用户；文字说不清画面时用它把关键区域圈出来。"
-                "源图给 screenshot_id，或用 pipeline_id 取该流水线最新一张"
-                "（可用 trigger 过滤）；都不给＝本会话最近一张截图。"
+                "按原图归一化坐标（0–1）裁剪、放大截图并画红框，生成一张新图发给用户；"
+                "文字说不清位置时用它把关键区域圈出来。源图同 send_screenshot。"
                 "只在用户要求把某处圈出 / 放大时才调用，不要主动发。"
             ),
             params_model=AnnotateScreenshotParams,
@@ -194,7 +192,7 @@ def register_tools(registry: ToolRegistry) -> None:
             name="send_item_icons",
             group="media",
             risk=ToolRisk.SAFE,
-            description="按物品 ID 或中文名发送 1–8 个材料图标，展示给用户。",
+            description="把材料图标发给用户。用户问某个材料长什么样、要照着图标找材料时用。",
             params_model=SendItemIconsParams,
             handler=send_item_icons,
             read_only=True,
@@ -205,10 +203,7 @@ def register_tools(registry: ToolRegistry) -> None:
             name="send_stage_map",
             group="media",
             risk=ToolRisk.SAFE,
-            description=(
-                "按关卡编号（如 1-7）或 stageId 发送关卡布局示意图，"
-                "数据来自本地 tile 资源。"
-            ),
+            description="把关卡布局示意图发给用户。用户问某关怎么摆、地图长什么样时用。",
             params_model=SendStageMapParams,
             handler=send_stage_map,
             read_only=True,
@@ -220,8 +215,8 @@ def register_tools(registry: ToolRegistry) -> None:
             group="media",
             risk=ToolRisk.SAFE,
             description=(
-                "把结构化图表规格（line / bar / pie）发给用户；"
-                "数据必须来自工具真实返回，并在 source 里写明出处。"
+                "把工具返回的数据画成图表发给用户。要展示分布或趋势时用；"
+                "数据必须来自工具真实返回，并在 source 里写明出处，没有数据就不要画。"
             ),
             params_model=SendChartParams,
             handler=send_chart,

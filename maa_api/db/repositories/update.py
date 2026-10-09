@@ -1,6 +1,6 @@
 """``update_record`` 仓储：三种热更新的历史与并发互斥（docs/04 §5.11、§6、§9）。
 
-四条硬性语义，写错会在 M7 才暴雷：
+四条硬性语义：
 
 - **同一 ``target`` 同时只允许一条 ``running`` 记录**，由部分唯一索引
   ``uq_update_record_running_target`` 在数据库层强制，不是服务层「先查后插」。
@@ -54,9 +54,8 @@ class UpdateRepository(BaseRepository):
         ``IntegrityError`` 的形式抛出，服务层才能在同一个 ``try`` 里把它转成
         ``409``；拖到调用方 ``commit()`` 才发现冲突，错误归属就模糊了。
 
-        与 :meth:`PipelineRepository.create` 同样用 ``Session.merge()`` 接收入参
-        （M2-07 实测）：入参保持 transient，提交后字段仍可直接读，调用方不必为了
-        拿 ``id`` 再 await 一次刷新；``merge()`` 的返回副本才是会话管理的对象。
+        与 :meth:`PipelineRepository.create` 同样用 ``Session.merge()`` 接收入参：入参保持 transient，提交后字段仍可直接读，调用方不必为了
+        拿 ``id`` 再 await 一次刷新；``merge()`` 的返回副本由会话管理。
 
         记录以 ``running`` 状态创建且 ``started_at`` 为空时补 ``utcnow()``：
         更新记录没有 ``pending → running`` 的流转（见模块文档），开始时刻就是
@@ -73,7 +72,7 @@ class UpdateRepository(BaseRepository):
 
         ``populate_existing=True``：:meth:`update_progress` / :meth:`mark_terminal`
         都走 Core ``UPDATE``，不强制从库里刷新就会拿到身份映射里的陈旧实例
-        （M2-08 实测），而调用方常在一次请求里先写进度再回读。
+        ，而调用方常在一次请求里先写进度再回读。
         """
         return await self.session.get(
             UpdateRecord, record_id, populate_existing=True
@@ -84,8 +83,7 @@ class UpdateRepository(BaseRepository):
 
         部分唯一索引保证每个 target 至多一条 ``running``，所以这里 ``LIMIT 1``
         不是「任选一条」而是唯一解（复用 ``uq_update_record_running_target``，
-        docs/04 §6）。同时存在新近的成功记录时也只返回 ``running`` 的那条 ——
-        冲突判定看的是「现在有没有在跑」，不是「最后一条是什么」。
+        docs/04 §6）。同时存在新近的成功记录时也只返回 ``running`` 的那条：冲突判定看的是「现在有没有在跑」，不是「最后一条是什么」。
         """
         result = await self.session.execute(
             select(UpdateRecord)
@@ -150,7 +148,7 @@ class UpdateRepository(BaseRepository):
         四个参数全为 ``None`` 时不发语句、返回 ``False``。
 
         ``WHERE status IN (pending, running)``：节流后的进度写入可能与
-        ``mark_terminal`` 并发，迟到的回调不得把 ``phase`` / ``progress`` 写回
+        ``mark_terminal`` 并发，迟到的回调不能把 ``phase`` / ``progress`` 写回
         终态记录（否则失败的更新会显示「下载 87%」）。记录不存在或已终态都返回
         ``False``，服务层据此丢弃这次进度、不必报错。
 

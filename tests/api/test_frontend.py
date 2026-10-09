@@ -131,7 +131,9 @@ def test_notification_template_renders_from_the_package_template_directory() -> 
 
     assert "<title>MAA-API 任务报告</title>" in rendered
     assert "2026-09-24" in rendered
-    assert "completed" in rendered
+    # 邮件正文给用户看的是中文状态，不是内部枚举值。
+    assert "已完成" in rendered
+    assert ">completed<" not in rendered
 
 
 def test_dockerfile_builds_frontend_then_copies_only_output_to_python_runtime() -> None:

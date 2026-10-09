@@ -224,7 +224,7 @@ def test_duplicate_asset_size_conflict_warns(caplog: pytest.LogCaptureFixture) -
         for size in (10, 11)
     ]
     match_core_asset(items, system="Darwin", machine="arm64")
-    assert "conflicting sizes" in caplog.text
+    assert "同名但大小不一致" in caplog.text
 
 
 def test_extract_normalize_and_validate_wrapped_package(tmp_path: Path) -> None:

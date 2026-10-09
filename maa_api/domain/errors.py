@@ -1,24 +1,18 @@
 """领域错误码与领域异常。
 
-错误码来自 docs/05 §4.1–§4.15 的十五张表，全量 104 条，**与那份表一一对应**：
-``ErrorCode`` 的成员名即响应体 ``error.code`` 的线上取值（ADR-04 选自定义错误体的
-核心价值就是这个可枚举字符串，agent 据此做确定性分支）；每个错误码在
-:data:`ERROR_HTTP_STATUS` 里绑定**固定**的 HTTP 状态码，路由层不再自行决定状态码——
-这保证了同一个错误在不同端点上表现一致。
+``ErrorCode`` 的成员名即响应体 ``error.code`` 的线上取值，agent 据此做确定性分支；
+每个错误码在 :data:`ERROR_HTTP_STATUS` 里绑定固定 HTTP 状态码，路由层不自行决定状态码，
+同一个错误在不同端点上表现一致。
 
-唯一的例外是 ``UPDATE_INTERRUPTED``：它只作为 ``update_record.error_code`` 落库
-（服务被强杀导致更新中断，由启动时的残留记录清理写入），不对应任何 HTTP 响应，
-因此不登记在绑定表里，用它会 fail loud。
+``UPDATE_INTERRUPTED`` 是唯一例外：它只作为 ``update_record.error_code`` 落库（服务被
+强杀导致更新中断，由启动时的残留记录清理写入），不对应任何 HTTP 响应，因此不登记在
+绑定表里，拿它查状态码会直接 KeyError。
 
-``maa_api/api/errors.py``（M3-04）注册异常处理器，把领域异常翻译成绑定表里的状态码
-与统一错误体 ``{"error": {"code": ..., "message": ..., "details": {...}}}``。
+``maa_api/api/errors.py`` 注册异常处理器，把领域异常翻译成绑定表里的状态码与统一错误体
+``{"error": {"code": ..., "message": ..., "details": {...}}}``。
 
-本模块保持 M1-03 建立的契约：成员名 == 取值、绑定表查表 fail loud、异常可 pickle、
-``error.code`` 以纯字符串序列化。
-
-M3-11 起 ``AppError`` 还能携带可选的响应头（``headers``），供 429 / 503 这类
-docs/05 §2 要求带 ``Retry-After`` 的响应使用。领域层只负责携带与校验，把
-"头怎么进响应"留给 ``maa_api/api/errors.py`` 的处理器 —— 错误体 JSON 形状不受影响。
+``AppError`` 还携带可选的响应头（``headers``），供 429 / 503 这类要求带 ``Retry-After``
+的响应使用；领域层只负责携带与校验，怎么进响应由处理器决定。
 """
 
 from __future__ import annotations
@@ -245,7 +239,7 @@ class ErrorCode(StrEnum):
     # 该会话上一轮 tool-calling 循环尚未结束
     AGENT_SESSION_BUSY = "AGENT_SESSION_BUSY"
 
-    # 本轮已被用户中断，该工具调用被取消、未完成（M22）。只落在审计的 error_code 上
+    # 本轮已被用户中断，该工具调用被取消、未完成。只落在审计的 error_code 上
     AGENT_TURN_INTERRUPTED = "AGENT_TURN_INTERRUPTED"
 
     # `ToolRegistry` 中没有该工具名
@@ -276,14 +270,14 @@ class ErrorCode(StrEnum):
     # 会话历史超出模型上下文窗口，需新建会话或裁剪历史
     LLM_CONTEXT_OVERFLOW = "LLM_CONTEXT_OVERFLOW"
 
-    # ---- M18 知识库 ----
+    # ---- 知识库 ----
     # 知识条目 id 不存在，或（read_knowledge）已被停用
     KNOWLEDGE_NOT_FOUND = "KNOWLEDGE_NOT_FOUND"
 
     # 删除未修改过的内置条目，或修改内置条目的 kind
     KNOWLEDGE_BUILTIN_READONLY = "KNOWLEDGE_BUILTIN_READONLY"
 
-    # ---- M21 Agent 主动提问 ----
+    # ---- Agent 主动提问 ----
     # 提问 id 不存在
     QUESTION_NOT_FOUND = "QUESTION_NOT_FOUND"
 
@@ -487,7 +481,7 @@ def _normalize_headers(headers: Mapping[str, str] | None) -> dict[str, str] | No
     两条 fail loud 的校验都是为了把错误暴露在构造处而不是响应构造期：Starlette
     写响应头时用 ``.encode("latin-1")``，头名/值不是 ``str``（如误传整数 42）
     或含非 latin-1 字符都会在那一刻炸成 500。空映射等价于"没有额外头"，与
-    ``details={}`` 不同 —— 后者在错误体里是有意义的形状，前者不是。
+    ``details={}`` 不同：后者在错误体里是有意义的形状，前者不是。
     """
     if headers is None:
         return None
@@ -511,12 +505,12 @@ class AppError(Exception):
     """领域异常：携带错误码、人类可读消息、固定 HTTP 状态码与可选响应头。
 
     ``http_status`` 在构造时由 :data:`ERROR_HTTP_STATUS` 派生。未登记的错误码
-    **fail loud**：立即抛 ``KeyError``，不返回"默认 500" —— 未登记说明调用方用错了
+    **fail loud**：立即抛 ``KeyError``，不返回"默认 500"：未登记说明调用方用错了
     错误码，是编码缺陷，应当在与错误码定义同一次改动里暴露，而不是等线上把
     一个本该是 503 的场景伪装成 500。``UPDATE_INTERRUPTED`` 是唯一被刻意排除在
-    绑定表外的码（它只落库），传入同样会 fail loud —— 落库路径请直接写字符串值。
+    绑定表外的码（它只落库），传入同样会 fail loud：落库路径请直接写字符串值。
 
-    ``headers``（M3-11）是可选的响应头通道，写法则与 ``details`` 无关：它**不参与
+    ``headers``是可选的响应头通道，写法则与 ``details`` 无关：它**不参与
     错误体**，只被 ``maa_api/api/errors.py`` 的处理器原样写进响应。docs/05 §2 的
     429 / 503 用它携带 ``Retry-After``（整数秒，与鉴权限流 429 同口径）；
     ``None``（或空映射）表示不带额外头。

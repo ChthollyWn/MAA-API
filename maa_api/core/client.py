@@ -1,45 +1,39 @@
-"""CoreClient：主进程侧的内核异步命令代理（M1-09，docs/03 §5 / docs/02 §3.4）。
+"""CoreClient：主进程侧的内核异步命令代理（docs/03 §5、docs/02 §3.4）。
 
-把 ``cmd_queue`` / ``event_queue`` 的 IPC 细节对上层完全隐藏，暴露一组普通的 async
-方法。四件事：
+把 ``cmd_queue`` / ``event_queue`` 的 IPC 细节对上层隐藏，暴露一组普通的 async 方法：
 
-1. **事件消费线程。** ``multiprocessing.Queue.get()`` 是阻塞的同步调用，不能直接在
-   event loop 里读；也不能用 ``run_in_executor`` —— 长期占用的阻塞任务会污染默认
-   executor（docs/03 §5）。本类开一条 daemon 线程循环 ``get(timeout=...)``，拿到事件
-   后用 ``loop.call_soon_threadsafe`` 投回事件循环处理。**每轮重新读
-   ``supervisor.event_queue``**：队列按子进程代际轮换（M1-08 的 ``_rotate_queues``），
-   缓存 Queue 对象会在内核重启后静默收不到事件与命令回执。
-2. **cmd_id → Future。** 发命令时建 ``asyncio.Future`` 存进 :attr:`_pending_cmds`，收到
+1. 事件消费线程。``multiprocessing.Queue.get()`` 是阻塞的同步调用，不能直接在 event loop
+   里读，也不能用 ``run_in_executor``（长期占用的阻塞任务会污染默认 executor，
+   docs/03 §5）。``CoreClient`` 开一条 daemon 线程循环 ``get(timeout=...)``，拿到事件后用
+   ``loop.call_soon_threadsafe`` 投回事件循环处理。每轮重新读 ``supervisor.event_queue``：
+   队列按子进程代际轮换，缓存 Queue 对象会在内核重启后静默收不到事件与命令回执。
+2. cmd_id → Future。发命令时建 ``asyncio.Future`` 存进 :attr:`_pending_cmds`，收到
    ``CMD_RESULT`` 时 pop 并 ``set_result``；超时 pop 并 ``set_exception``
    （``CORE_COMMAND_TIMEOUT``），同时 ``supervisor.release_command``。超时后迟到的
-   ``CMD_RESULT`` 已不在映射里，**直接丢弃并记一条 warning**，绝不 set 到已结束的
-   Future。
-3. **两级 Future。** ``CONNECT`` / ``CLICK`` / ``SCREENCAP`` 先拿 ``CMD_RESULT.data``
-   里的 ``async_call_id``（受理编号，第一级），再等 ``msg=4`` 的 ``AsyncCallInfo``
-   回调兑现结果（第二级）。载荷层级以 M1-01 真机实测为准
-   （``tests/fixtures/async_call_info_sample.json``）：关联键 ``async_call_id`` 与调用
-   类型 ``what`` 在回调 JSON **顶层**，成功标志在 ``details.ret``（也就是回调事件
-   payload 的 ``details.details.ret``）。``msg=2`` 的 ``ConnectionInfo`` 会先报
-   ``what == "Connected"``，那只是中间态，连接成败只能认 ``msg=4``。回调可能**先于**
-   受理结果到达（子进程里回调是内核线程同步发出的，``CMD_RESULT`` 要等命令循环回
-   到循环顶部才入队；``FakeAsst`` 就是同步发回调），此时结果先进
-   :attr:`_early_async` 缓存，受理结果到达时立即兑现。
-4. **事件分派。** ``on(event_type, handler)`` 注册分派表（一个类型可多处理器，按注册
-   顺序调用，处理器异常吞掉并记日志）；``READY`` / ``PONG`` / ``FATAL`` 默认转发给
+   ``CMD_RESULT`` 不在映射里，直接丢弃并记一条 warning，不 set 到已结束的 Future。
+3. 两级 Future。``CONNECT`` / ``CLICK`` / ``SCREENCAP`` 先取 ``CMD_RESULT.data`` 里的
+   ``async_call_id``（受理编号），再等 ``msg=4`` 的 ``AsyncCallInfo`` 回调兑现结果。
+   载荷层级见 ``tests/fixtures/async_call_info_sample.json``：关联键 ``async_call_id`` 与
+   调用类型 ``what`` 在回调 JSON 顶层，成功标志在 ``details.ret``（即回调事件 payload 的
+   ``details.details.ret``）。``msg=2`` 的 ``ConnectionInfo`` 先报 ``what == "Connected"``，
+   那只是中间态。回调可能先于受理结果到达（子进程里回调由内核线程同步发出，
+   ``CMD_RESULT`` 要等命令循环回到顶部才入队），此时结果先进 :attr:`_early_async` 缓存，
+   受理结果到达时立即兑现。
+4. 事件分派。``on(event_type, handler)`` 注册分派表（一个类型可多处理器，按注册顺序调用，
+   处理器异常吞掉并记日志）；``READY`` / ``PONG`` / ``FATAL`` 默认转发给
    ``CoreSupervisor.handle_*``，``CALLBACK`` / ``LOG`` / ``CMD_RESULT`` 默认喂给
    ``supervisor.note_event`` 记入崩溃现场。其他服务只注册处理器，不直接触碰 Queue。
 
-未就绪门禁（docs/03 §5）：``supervisor.state`` 为 STARTING / STOPPED 时所有业务命令
-立刻抛 ``AppError(CORE_NOT_READY)``，RESTARTING → ``CORE_RESTARTING``，CRASHED →
-``CORE_CRASHED``，FAILED → ``CORE_START_FAILED``（``details["state"]`` 带状态），
-**不进队列等待** —— 让调用方立刻拿到明确状态，而不是挂在一个可能永远不就绪的内核上。
+未就绪门禁（docs/03 §5）：``supervisor.state`` 为 STARTING / STOPPED 时业务命令立刻抛
+``AppError(CORE_NOT_READY)``，RESTARTING → ``CORE_RESTARTING``，CRASHED →
+``CORE_CRASHED``，FAILED → ``CORE_START_FAILED``（``details["state"]`` 带状态），不进
+队列等待，让调用方立刻拿到明确状态。
 
 超时按命令类型区分（docs/02 §3.4，取自 :data:`maa_api.core.protocol.CMD_TIMEOUTS`）：
 查询类 5 秒、``CONNECT`` 60 秒、``LOAD_RESOURCE`` 300 秒、``START`` / ``STOP`` 30 秒。
-超时不代表子进程已死，存活判定仍归 supervisor 的心跳，不依赖这里兜底。
+超时不代表子进程已死，存活判定归 supervisor 的心跳。
 
-本模块只提供 append/start/stop 与事件分派；流水线的任务完成判定归 M5
-``PipelineRunner``。
+只提供 append/start/stop 与事件分派；任务完成判定归 ``PipelineRunner``。
 """
 
 from __future__ import annotations
@@ -100,17 +94,18 @@ _STATE_GATE: dict[CoreState, ErrorCode] = {
     CoreState.FAILED: ErrorCode.CORE_START_FAILED,
 }
 
+#: 未就绪门禁的用户文案：不出现状态机取值与命令名，改为「发生了什么 + 你能做什么」。
 _STATE_GATE_MESSAGE: dict[ErrorCode, str] = {
-    ErrorCode.CORE_NOT_READY: "内核未就绪，命令未下发（等待 READY 或 start() 后再试）",
-    ErrorCode.CORE_RESTARTING: "内核正在重启，命令未下发（重启完成后重试）",
-    ErrorCode.CORE_CRASHED: "内核已崩溃，命令未下发（等待自动重启或手动 restart()）",
-    ErrorCode.CORE_START_FAILED: "内核启动失败（FAILED），命令未下发（需人工介入）",
+    ErrorCode.CORE_NOT_READY: "内核正在启动，请稍后重试",
+    ErrorCode.CORE_RESTARTING: "内核正在重启，请稍后重试",
+    ErrorCode.CORE_CRASHED: "内核已崩溃，正在自动重启；若一直没有恢复，请到设置页手动重启内核",
+    ErrorCode.CORE_START_FAILED: "内核启动失败，请到设置页检查内核路径后重试",
 }
 
-#: 第一级受理结果里的 async_call_id 候选键（实测在 ``CMD_RESULT.data`` 顶层）。
+#: 第一级受理结果里的 async_call_id 候选键（位于 ``CMD_RESULT.data`` 顶层）。
 _CALL_ID_KEYS: tuple[str, ...] = ("async_call_id", "call_id", "id")
 
-#: 第二级回调里的 async_call_id 候选路径（按层尝试，实测顶层优先）。
+#: 第二级回调里的 async_call_id 候选路径（按层尝试，顶层优先）。
 _CALL_ID_PATHS: tuple[tuple[str, ...], ...] = (
     ("async_call_id",),
     ("call_id",),
@@ -120,7 +115,7 @@ _CALL_ID_PATHS: tuple[tuple[str, ...], ...] = (
     ("details", "id"),
 )
 
-#: 第二级回调里的成功标志候选路径。第一条是 M1-01 真机实测路径（回调 JSON 的
+#: 第二级回调里的成功标志候选路径。第一条是路径（回调 JSON 的
 #: ``details.ret``，即回调事件 payload 的 ``details.details.ret``）；其余为宽容候选。
 _RESULT_PATHS: tuple[tuple[str, ...], ...] = (
     ("details", "ret"),
@@ -149,11 +144,11 @@ class _AsyncCallUnparsed(Exception):
 class CoreClient:
     """主进程侧的内核异步代理（docs/03 §5）。
 
-    :param supervisor: M1-08 的 :class:`~maa_api.core.supervisor.CoreSupervisor` 或
+    :param supervisor: :class:`~maa_api.core.supervisor.CoreSupervisor` 或
         结构一致的测试替身；只依赖 ``cmd_queue`` / ``event_queue`` / ``state`` /
         ``track_command(cmd)`` / ``release_command(cmd_id)``，若它还有
         ``set_dispatcher`` / ``handle_ready`` / ``handle_pong`` / ``handle_fatal`` /
-        ``note_event``，本类会自动注册（缺失即跳过，便于测试替身）。
+        ``note_event``，``CoreClient`` 会自动注册（缺失即跳过，便于测试替身）。
     :param loop: 事件循环。缺省 ``None`` 表示延迟到第一次异步调用 / 第一次事件分派时
         绑定当前运行的 loop（``start_consumer()`` 在 async 上下文里调用时即可绑定）。
     :param screencap_dir: 截图缺省落盘目录；``None`` 用 :data:`DEFAULT_SCREENCAP_DIR`。
@@ -236,7 +231,7 @@ class CoreClient:
         - ``LOG``：``{"level": str, "content": str}``；
         - ``CMD_RESULT``：``{"cmd_id", "ok", "data", "error"}``。
 
-        处理器抛异常会被吞掉并记日志，绝不打断消费循环（回调线程里抛异常危害远大于
+        处理器抛异常会被吞掉并记日志，不打断消费循环（回调线程里抛异常危害远大于
         处理器本身的失败）。
         """
         if event_type not in self._handlers:
@@ -272,9 +267,7 @@ class CoreClient:
             try:
                 handler(payload)
             except Exception:  # noqa: BLE001 - 处理器异常不能打断消费循环
-                logger.exception(
-                    "事件 %s 的处理器 %r 抛异常（已吞掉，消费循环继续）", event_type, handler
-                )
+                logger.exception("处理内核事件 %s 时出错，事件已忽略，消费继续", event_type)
 
     # ------------------------------------------------------------------
     # 消费线程：启动 / 循环 / 关闭
@@ -284,7 +277,7 @@ class CoreClient:
         """启动事件消费线程（幂等；``close()`` 之后可再次调用重启）。
 
         同时向 supervisor 声明本客户端是 ``event_queue`` 的唯一消费者
-        （``set_dispatcher``）：M1-08 的 ``start()`` / ``restart()`` 之前必须先声明，
+        （``set_dispatcher``）： ``start()`` / ``restart()`` 之前必须先声明，
         否则 fail loud（避免两个消费者抢事件）。
         """
         with self._deferred_lock:
@@ -325,8 +318,9 @@ class CoreClient:
         if thread is not None and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout=CLOSE_JOIN_TIMEOUT)
             if thread.is_alive():
-                logger.warning(
-                    "消费线程在 %.1fs 内未退出（daemon 线程，不阻塞进程退出）",
+                # 后台线程，不阻塞进程退出；只是没能在超时内收尾，不影响用户。
+                logger.debug(
+                    "事件消费线程未在 %.1fs 内退出，不影响退出流程",
                     CLOSE_JOIN_TIMEOUT,
                 )
         self._thread = None
@@ -340,17 +334,17 @@ class CoreClient:
         try:
             setter(self._dispatch_from_consumer)
         except Exception:  # noqa: BLE001 - 声明失败不阻塞消费（测试替身可能没有）
-            logger.exception("supervisor.set_dispatcher 调用失败（消费仍会继续）")
+            logger.exception("内核事件分发注册失败，事件消费继续，不影响任务执行")
 
     def _consume(self, stop_event: threading.Event) -> None:
         """消费线程主体：阻塞 ``get`` + 投回事件循环（docs/03 §5）。"""
         while not stop_event.is_set():
             try:
                 # 每轮重新读属性：supervisor 每次 spawn 子进程都会换一对新 Queue，
-                # 缓存 Queue 对象会一直阻塞在旧队列上（M1-08 实测）。
+                # 缓存 Queue 对象会一直阻塞在旧队列上。
                 event_queue = self._supervisor.event_queue
             except Exception:  # noqa: BLE001 - 取队列都失败说明 supervisor 已不可用
-                logger.exception("读取 supervisor.event_queue 失败，消费线程退出")
+                logger.exception("无法读取内核事件队列，事件消费已停止；请重启服务")
                 return
             try:
                 event = event_queue.get(timeout=CONSUMER_POLL_INTERVAL)
@@ -369,7 +363,7 @@ class CoreClient:
 
         同时作为 ``supervisor.set_dispatcher`` 声明的 dispatcher（签名只要求接收事件
         dict）。事件循环尚未绑定时先缓存（:attr:`_deferred`），等第一次异步调用绑定
-        loop 后补投 —— 保证 ``start_consumer()`` 早于 ``await supervisor.start()``
+        loop 后补投：保证 ``start_consumer()`` 早于 ``await supervisor.start()``
         时 READY 不会丢。
         """
         if self._closing or (stop_event is not None and stop_event.is_set()):
@@ -381,13 +375,13 @@ class CoreClient:
         try:
             loop.call_soon_threadsafe(self._handle_event, event)
         except RuntimeError:
-            logger.warning("事件循环不可用，丢弃事件：%r", event)
+            logger.debug("事件循环不可用，已忽略一条内核事件")
 
     def _defer_event(self, event: Any) -> None:
         with self._deferred_lock:
             if len(self._deferred) >= DEFERRED_EVENT_LIMIT:
-                dropped = self._deferred.pop(0)
-                logger.warning("事件循环尚未绑定，延迟缓存已满，丢弃最旧事件：%r", dropped)
+                self._deferred.pop(0)
+                logger.debug("事件循环尚未绑定且延迟缓存已满，已丢弃最早的一条事件")
             self._deferred.append(event)
 
     def _flush_deferred(self) -> None:
@@ -406,7 +400,7 @@ class CoreClient:
     def _handle_event(self, event: Any) -> None:
         """事件循环侧的统一入口：先内部处理（Future / 异步解析），再走分派表。"""
         if not isinstance(event, dict):
-            logger.warning("忽略非法事件（不是 dict）：%r", event)
+            logger.debug("忽略格式不正确的内核事件")
             return
         event_type = event.get("type")
         payload = event.get("payload")
@@ -421,26 +415,27 @@ class CoreClient:
             try:
                 self._note_event(event)
             except Exception:  # noqa: BLE001 - 崩溃现场记录不能打断分派
-                logger.exception("supervisor.note_event 调用失败（已吞掉）")
+                logger.exception("记录内核事件现场失败，已忽略")
         self._call_handlers(event_type, payload)
 
     def _handle_cmd_result(self, payload: dict) -> None:
         """把 ``CMD_RESULT`` 兑现到对应 Future；迟到结果丢弃并记 warning。"""
         cmd_id = payload.get("cmd_id")
         if not isinstance(cmd_id, str):
-            logger.warning("CMD_RESULT 缺少合法的 cmd_id，丢弃：%r", payload)
+            logger.debug("内核命令结果缺少 cmd_id，已忽略")
             return
         future = self._pending_cmds.pop(cmd_id, None)
         with contextlib.suppress(Exception):
             self._supervisor.release_command(cmd_id)
         if future is None:
+            # 迟到或重复的结果：调用方已按超时 / 取消处理，这里只记一条可读日志。
             logger.warning(
-                "丢弃迟到的 CMD_RESULT：cmd_id=%s 不在待决表（已超时 / 已取消 / 非本客户端所发）",
+                "忽略迟到或重复的内核命令结果（cmd_id=%s），调用方已按超时处理",
                 cmd_id,
             )
             return
         if future.done():
-            logger.warning("CMD_RESULT 到达时 Future 已结束（cmd_id=%s），丢弃", cmd_id)
+            logger.debug("内核命令结果到达时调用方已结束等待（cmd_id=%s），已忽略", cmd_id)
             return
         if payload.get("ok"):
             future.set_result(payload.get("data"))
@@ -461,7 +456,7 @@ class CoreClient:
         try:
             return Message(int(raw))
         except (TypeError, ValueError):
-            logger.warning("CALLBACK 的 msg 不是已知内核消息类型：%r", raw)
+            logger.warning("收到无法识别的内核回调消息类型，已忽略：%r", raw)
             return None
 
     def _note_resolution(self, details: Any) -> None:
@@ -491,10 +486,10 @@ class CoreClient:
     def _resolve_async(self, details: Any) -> bool:
         """把一条 ``AsyncCallInfo`` 兑现到 ``_pending_async`` 里的 Future。
 
-        宽容解析（键名以 M1-01 真机实测为准，其余为候选）：关联键取回调 JSON
+        宽容解析（键名以为准，其余为候选）：关联键取回调 JSON
         **顶层** ``async_call_id``，成功标志取 ``details.ret``（即回调事件 payload 的
         ``details.details.ret``）。都取不到时记**完整原文** warning 并让所有等待方走
-        回退路径，绝不猜一个结果。
+        回退路径，不猜结果。
 
         :return: ``True`` = 已兑现或已缓存（回调先于受理结果到达）；``False`` = 丢弃。
         """
@@ -506,29 +501,27 @@ class CoreClient:
             except (TypeError, ValueError):
                 payload = None
         if not isinstance(payload, dict):
-            logger.warning("AsyncCallInfo 载荷不是 JSON 对象，无法解析，完整原文：%s", raw)
-            self._fail_async_waiters("AsyncCallInfo 载荷不是 JSON 对象")
+            logger.warning("无法解析内核回调内容，本次异步调用的结果未知；完整原文：%s", raw)
+            self._fail_async_waiters("内核回调内容无法解析")
             return False
 
         call_id = self._normalize_call_id(self._pick(payload, _CALL_ID_PATHS))
         if call_id is None:
             logger.warning(
-                "AsyncCallInfo 载荷缺少可识别的 async_call_id（候选键 %s），完整原文：%s",
-                "/".join(path[-1] for path in _CALL_ID_PATHS),
+                "内核回调缺少可识别的调用编号，无法对应到发起方；完整原文：%s",
                 raw,
             )
-            self._fail_async_waiters("AsyncCallInfo 载荷缺少 async_call_id")
+            self._fail_async_waiters("内核回调缺少调用编号")
             return False
 
         result = self._pick(payload, _RESULT_PATHS)
         if result is None:
             logger.warning(
-                "AsyncCallInfo 载荷缺少可识别的结果字段（ret/result/success/ok），"
-                "async_call_id=%s，完整原文：%s",
+                "内核回调缺少结果字段，无法判断调用是否成功（调用编号 %s）；完整原文：%s",
                 call_id,
                 raw,
             )
-            self._fail_async_waiters("AsyncCallInfo 载荷缺少结果字段")
+            self._fail_async_waiters("内核回调缺少结果字段")
             return False
 
         future = self._pending_async.pop(call_id, None)
@@ -537,14 +530,14 @@ class CoreClient:
             # 缓存结果，等 _await_async_call / connect 登记等待者时立即兑现。
             self._buffer_early_async(call_id, result)
             logger.debug(
-                "AsyncCallInfo 先于命令受理结果到达，已缓存：async_call_id=%s ret=%r what=%r",
+                "异步结果先于命令受理结果到达，已缓存：调用编号=%s 结果=%r 类型=%r",
                 call_id,
                 result,
                 payload.get("what"),
             )
             return True
         if future.done():
-            logger.warning("AsyncCallInfo 到达时 Future 已结束（async_call_id=%s），丢弃", call_id)
+            logger.debug("异步结果到达时调用方已结束等待（调用编号 %s），已忽略", call_id)
             return False
         future.set_result(result)
         return True
@@ -582,8 +575,8 @@ class CoreClient:
             return None
         result, at = entry
         if time.monotonic() - at > EARLY_ASYNC_TTL:
-            logger.warning(
-                "丢弃过期的异步结果缓存（async_call_id=%s，已缓存 %.1fs）",
+            logger.debug(
+                "异步结果缓存已过期（调用编号 %s，已缓存 %.1fs），已丢弃",
                 call_id,
                 time.monotonic() - at,
             )
@@ -616,9 +609,10 @@ class CoreClient:
             self._pending_cmds.pop(cmd_id, None)
             with contextlib.suppress(Exception):
                 self._supervisor.release_command(cmd_id)
+            # 原始异常只进异常链与 details，用户看到的是「发生了什么 + 你能做什么」。
             raise AppError(
                 ErrorCode.CORE_COMMAND_FAILED,
-                f"命令 {type_name} 入队失败：{exc}",
+                f"内核命令 {type_name} 下发失败，请重试；若持续失败，请到日志页查看原因",
                 {"cmd_id": cmd_id, "type": type_name},
             ) from exc
 
@@ -631,10 +625,11 @@ class CoreClient:
             self._pending_cmds.pop(cmd_id, None)
             with contextlib.suppress(Exception):
                 self._supervisor.release_command(cmd_id)
+            # 超时只说明这一条命令没等到回执，子进程存活与否由 supervisor 的心跳判定。
             error = AppError(
                 ErrorCode.CORE_COMMAND_TIMEOUT,
-                f"内核命令 {type_name} 超时（{effective:g}s）：超时不代表子进程已死，"
-                "存活判定归 supervisor 心跳",
+                f"内核命令 {type_name} 超过 {effective:g} 秒没有响应，"
+                "内核可能仍在执行；请先查看运行状态，不要立刻重试",
                 {"cmd_id": cmd_id, "type": type_name, "timeout": effective},
             )
             if not future.done():
@@ -660,11 +655,8 @@ class CoreClient:
         code = _STATE_GATE.get(state)
         if code is None:
             return
-        raise AppError(
-            code,
-            f"{_STATE_GATE_MESSAGE[code]}（state={state.value}，命令 {type_name}）",
-            {"state": state.value, "type": type_name},
-        )
+        # state 与 type 是给调用方与日志用的内部信息，只放 details，不进用户文案。
+        raise AppError(code, _STATE_GATE_MESSAGE[code], {"state": state.value, "type": type_name})
 
     @staticmethod
     def _coerce_state(state: Any) -> Optional[CoreState]:
@@ -673,7 +665,7 @@ class CoreClient:
         try:
             return CoreState(state)
         except (TypeError, ValueError):
-            logger.warning("无法识别的内核状态 %r，跳过就绪门禁", state)
+            logger.debug("无法识别的内核状态 %r，跳过就绪检查", state)
             return None
 
     @staticmethod
@@ -697,8 +689,8 @@ class CoreClient:
             try:
                 code = ErrorCode(str(raw_code))
             except ValueError:
-                logger.warning(
-                    "CMD_RESULT 返回未登记的错误码 %r，回退 CORE_COMMAND_FAILED", raw_code
+                logger.debug(
+                    "内核命令结果返回未登记的错误码 %r，按内核命令失败处理", raw_code
                 )
         message = str(error.get("message") or "内核命令执行失败")
         return AppError(code, message, {"cmd_id": payload.get("cmd_id"), "error": error})
@@ -712,15 +704,17 @@ class CoreClient:
         if running is None:
             loop = self._loop
             if loop is None or loop.is_closed():
+                # 走到这里说明调用方既不在事件循环内，构造时也没给 loop：属服务内部
+                # 用法错误（CoreClient 的异步方法只能在事件循环线程里调用）。
                 raise AppError(
                     ErrorCode.CORE_NOT_READY,
-                    "CoreClient 的异步方法必须在事件循环内调用（或在构造时传入 loop=）",
+                    "服务内部调用出错，请重试；若持续失败，请到日志页查看最近一条错误",
                     {"state": self._state_value()},
                 )
             return loop
         if self._loop is not running:
             if self._loop is not None and not self._loop.is_closed():
-                logger.warning("CoreClient 改绑事件循环：旧 loop 与当前运行的 loop 不同")
+                logger.debug("内核客户端改绑事件循环：与上次绑定的不是同一个")
             self._loop = running
             self._flush_deferred()
         return running
@@ -798,7 +792,7 @@ class CoreClient:
         if call_id is None:
             raise AppError(
                 ErrorCode.CORE_COMMAND_FAILED,
-                f"{type_name} 的 CMD_RESULT 未返回 async_call_id：{data!r}",
+                f"内核命令 {type_name} 的响应不完整，请重试；若持续失败，请到日志页查看原因",
                 {"type": type_name, "data": data},
             )
 
@@ -809,13 +803,16 @@ class CoreClient:
         except asyncio.TimeoutError:
             raise AppError(
                 ErrorCode.CORE_COMMAND_TIMEOUT,
-                f"异步调用 {type_name} 的结果回调超时（{result:g}s，async_call_id={call_id}）",
+                f"内核命令 {type_name} 超过 {result:g} 秒没有响应，"
+                "内核可能仍在执行；请先查看运行状态，不要立刻重试",
                 {"type": type_name, "async_call_id": call_id, "timeout": result},
             ) from None
         except _AsyncCallUnparsed as exc:
+            # 解析细节（载荷原文）只进异常链，用户看到的是可执行的一句话。
             raise AppError(
                 ErrorCode.CORE_COMMAND_FAILED,
-                f"AsyncCallInfo 载荷无法解析，{type_name} 的结果未知：{exc}",
+                f"内核命令 {type_name} 的结果无法确认，请重试；"
+                "若持续失败，请到日志页查看最近一条错误",
                 {"type": type_name, "async_call_id": call_id},
             ) from exc
         finally:
@@ -823,7 +820,7 @@ class CoreClient:
 
     @staticmethod
     def _extract_call_id(data: Any) -> Any:
-        """从 ``CMD_RESULT.data`` 取受理编号（实测是 ``{"async_call_id": int}``）。"""
+        """从 ``CMD_RESULT.data`` 取受理编号（``{"async_call_id": int}``）。"""
         if data is None or isinstance(data, bool):
             return None
         if isinstance(data, int):
@@ -881,8 +878,8 @@ class CoreClient:
 
         第一级只确认命令受理（``accept_timeout``，默认 10 秒，拿到 ``async_call_id``）；
         第二级等 ``msg=4`` 的 ``AsyncCallInfo``（``timeout`` 或构造参数
-        ``connect_timeout``，默认 60 秒）。**不得用 ``msg=2`` 的 ConnectionInfo 代替
-        结果** —— 它会在 AsyncCallInfo 之前就报出 ``what == "Connected"``。
+        ``connect_timeout``，默认 60 秒）。**不要用 ``msg=2`` 的 ConnectionInfo 代替
+        结果**：它会在 AsyncCallInfo 之前就报出 ``what == "Connected"``。
 
         解析失败（载荷缺 ``async_call_id`` / 结果字段）时记完整原文 warning，并回退为
         按 ``poll_interval`` 轮询 ``CONNECTED`` 命令，上限仍是 ``timeout``。
@@ -901,10 +898,7 @@ class CoreClient:
         )
         call_id = self._normalize_call_id(self._extract_call_id(data))
         if call_id is None:
-            logger.warning(
-                "CONNECT 的 CMD_RESULT 未返回 async_call_id（data=%r），回退 CONNECTED 轮询",
-                data,
-            )
+            logger.debug("连接命令的响应缺少调用编号，回退为轮询连接状态（data=%r）", data)
             return await self._poll_connected(result_timeout)
 
         future = loop.create_future()
@@ -915,12 +909,13 @@ class CoreClient:
             except asyncio.TimeoutError:
                 raise AppError(
                     ErrorCode.CORE_COMMAND_TIMEOUT,
-                    f"连接结果回调超时（{result_timeout:g}s，async_call_id={call_id}）",
+                    f"连接设备超过 {result_timeout:g} 秒没有响应，"
+                    "请确认设备已启动并已连接，然后重试",
                     {"async_call_id": call_id, "timeout": result_timeout},
                 ) from None
             except _AsyncCallUnparsed as exc:
-                logger.warning(
-                    "AsyncCallInfo 载荷无法解析（%s），回退 CONNECTED 轮询判定连接状态", exc
+                logger.debug(
+                    "连接结果无法解析（%s），回退为轮询连接状态", exc
                 )
                 return await self._poll_connected(result_timeout)
         finally:
@@ -941,7 +936,8 @@ class CoreClient:
             if remaining <= 0:
                 raise AppError(
                     ErrorCode.CORE_COMMAND_TIMEOUT,
-                    f"连接状态无法确认：AsyncCallInfo 不可解析，CONNECTED 轮询在 {timeout:g}s 内未连上",
+                    f"连接状态无法确认，{timeout:g} 秒内没有连上设备；"
+                    "请检查设备是否已启动、ADB 是否可用，然后重试",
                     {"timeout": float(timeout)},
                 )
             ok = False
@@ -952,7 +948,7 @@ class CoreClient:
                     )
                 )
             except AppError as exc:
-                logger.warning("CONNECTED 轮询失败：%s", exc)
+                logger.debug("轮询连接状态失败：%s", exc)
             if ok:
                 return True
             remaining = deadline - loop.time()
@@ -963,8 +959,7 @@ class CoreClient:
     async def append_task(self, type_name: str, params: Optional[dict] = None) -> int:
         """追加任务，返回内核 ``task_id``。
 
-        ``task_id == 0`` 会在 worker 侧被当成失败上报（缺必填参数时内核静默返回 0，
-        M1-02 实测），因此正常返回的 id 一定非零。
+        ``task_id == 0`` 会在 worker 侧被当成失败上报（缺必填参数时内核静默返回 0，），因此正常返回的 id 一定非零。
         """
         return await self._send(
             "APPEND_TASK", {"type_name": str(type_name), "params": dict(params or {})}
@@ -998,7 +993,7 @@ class CoreClient:
         """触发内核截图并落盘，返回实际文件 :class:`~pathlib.Path`。
 
         先 ``SCREENCAP``（两级 Future 等内核截好），再 ``GET_IMAGE`` 让 worker 取图
-        写盘 —— 图像字节不进 IPC（docs/02 §3.3），只回路径与元信息。``save_to`` 缺省
+        写盘：图像字节不进 IPC（docs/02 §3.3），只回路径与元信息。``save_to`` 缺省
         时用 ``screencap_dir`` + ``uuid4().hex`` 生成，后缀由是否已知分辨率决定
         （已知 → ``.jpg``，未知 → 裸字节 ``.bgr`` / ``.rgb``）；最终以 worker 回传的
         ``data["path"]`` 为准（分辨率未知时 worker 会自行加后缀）。
@@ -1009,7 +1004,7 @@ class CoreClient:
         if not isinstance(data, dict) or not data.get("path"):
             raise AppError(
                 ErrorCode.CORE_COMMAND_FAILED,
-                f"GET_IMAGE 未返回文件路径：{data!r}",
+                "内核没有返回截图文件路径，请重试；若持续失败，请到日志页查看原因",
                 {"data": data},
             )
         return Path(str(data["path"]))
@@ -1025,7 +1020,7 @@ class CoreClient:
         if not isinstance(data, dict) or not data.get("path"):
             raise AppError(
                 ErrorCode.CORE_COMMAND_FAILED,
-                f"GET_IMAGE 未返回文件路径：{data!r}",
+                "内核没有返回截图文件路径，请重试；若持续失败，请到日志页查看原因",
                 {"data": data},
             )
         return data

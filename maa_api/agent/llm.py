@@ -27,7 +27,7 @@ _KNOWN_UPSTREAM_ERROR_CODES = frozenset(
     }
 )
 
-#: 上游「上下文/输入过长」的已知错误码。本地不再预先按字符数裁剪会话历史（M20），
+#: 上游「上下文/输入过长」的已知错误码。本地不再预先按字符数裁剪会话历史，
 #: 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
 _CONTEXT_OVERFLOW_CODES = frozenset(
     {
@@ -215,7 +215,7 @@ class OpenAICompatibleClient:
                             {"Retry-After": retry_after} if retry_after else None,
                         )
                     if self._is_context_overflow(error_code, upstream_message):
-                        # 本地不再按字符数预裁剪会话历史（M20），上下文装不下时只能靠这里
+                        # 本地不再按字符数预裁剪会话历史，上下文装不下时只能靠这里
                         # 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
                         raise AppError(
                             ErrorCode.LLM_CONTEXT_OVERFLOW,

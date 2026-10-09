@@ -1,52 +1,27 @@
 """任务类型 schema 导出与参数校验（docs/05 §6.7、§8、§9）。
 
 三个端点共用同一份判别联合 :data:`~maa_api.domain.task.TaskInput`：
+``GET /api/tasks/types`` 给任务类型的完整参数 schema，供前端动态生成表单、agent 了解可用
+参数；``GET /api/tasks/types/{type_name}`` 给单个类型；``POST /api/tasks/validate`` 只校验
+不提交，返回规范化后的参数与将被注入的默认值。
 
-- ``GET /api/tasks/types``：任务类型的完整参数 schema，供前端动态生成表单、
-  agent 了解可用参数；
-- ``GET /api/tasks/types/{type_name}``：单个类型的 schema；
-- ``POST /api/tasks/validate``：只校验不提交，返回规范化后的参数与将被注入的默认值。
+前两者输出 pydantic 直出的标准 JSON Schema：中文标签、分组、控件提示等元信息挂在
+``x-*`` 前缀的自定义关键字上（校验器忽略未知关键字，schema 仍可喂给任何标准校验器），
+取值范围用 ``minimum`` / ``maximum`` / ``enum`` / ``minItems`` / ``maxItems`` 等原生
+关键字，跨字段依赖用 ``x-depends-on``（docs/05 §8.2、docs/09 §7.2）。
 
-前两者输出的是 pydantic 直出的**标准 JSON Schema**：中文标签、分组、控件提示等
-元信息一律挂在 ``x-*`` 前缀的自定义关键字上（JSON Schema 规范要求校验器忽略未知
-关键字，所以 schema 仍可喂给任何标准校验器），取值范围用 ``minimum`` /
-``maximum`` / ``enum`` / ``minItems`` / ``maxItems`` 等原生关键字，跨字段依赖用
-``x-depends-on``（docs/05 §8.2、docs/09 §7.2）。
+``POST /validate`` 走与提交路径同一个 :func:`~maa_api.domain.task.normalize` 做「校验
+之后、落库之前」的注入（docs/05 §9）。:func:`load_channel_defaults` 按 setting 仓储读
+``channel.client_type`` / ``channel.server`` 两个 key，读不到或值非法时回退
+:class:`~maa_api.domain.task.ChannelDefaults` 的默认值（Bilibili / CN）。两个 types 端点
+还把当前生效值注入响应 schema 里这两个字段的 ``default``，供前端按生效值预填；模型里两个
+字段仍是 ``default=None``，``model_fields_set`` 的注入语义没变，overlay 写在
+:func:`_overlay_channel_defaults` 的深拷贝上，不污染 ``model_json_schema()``。不做
+进程内缓存、不监听设置变更，每次请求两个主键点查。
 
-渠道默认值的来源
-================
-
-``POST /validate`` 走与提交路径**同一个** :func:`~maa_api.domain.task.normalize`
-做「校验之后、落库之前」的注入（docs/05 §9）。:func:`load_channel_defaults` 按
-setting 仓储读 ``channel.client_type`` / ``channel.server`` 两个 key，读不到
-（或值非法）时回退 :class:`~maa_api.domain.task.ChannelDefaults` 的默认值
-（Bilibili / CN）。
-
-两个 types 端点还用同一份默认值做**另一件事**（spec §3.4）：把当前生效的渠道
-默认值注入**响应 schema** 里 ``client_type`` / ``server`` 的 ``default``，供前端
-按生效值预填。这只是导出层的 overlay —— 模型里两个字段仍是 ``default=None``，
-``POST /validate`` 与提交路径的 ``model_fields_set`` 注入语义一个字都没变；
-OpenAPI 快照（这两个端点没有响应模型）也不受影响。overlay 写在
-:func:`_overlay_channel_defaults` 的深拷贝上，不污染 ``model_json_schema()``。
-
-**这里刻意不做进程内缓存、不监听设置变更**：带缓存与失效的 SettingService 属 M6，
-届时用 SettingService 替换 :func:`load_channel_defaults` 这一处读取即可，本模块
-其余代码不需要动。每次请求两个主键点查的代价可以接受。
-
-路由声明顺序
-============
-
-``/api/tasks/types`` 必须声明在 ``/api/tasks/{task_id}`` **之前**，否则 ``types``
-会被当成一个 task_id 走进详情端点（docs/05 §6.5，与 ``/api/pipelines/current``
-同理）。``GET /api/tasks/{task_id}`` 属 M5，本模块不提前实现 —— 将来加它时，
-请把它声明在 ``/types`` 与 ``/types/{type_name}`` 之后。
-
-鉴权
-====
-
-三个端点都是业务端点，不在 docs/05 §5.3 的豁免清单里，统一由 router 级的
-``Depends(require_auth)`` 保护（``/api/tasks/...`` 不以 ``/api/system/health`` 等
-豁免前缀开头）。
+``/api/tasks/types`` 必须声明在 ``/api/tasks/{task_id}`` 之前，否则 ``types`` 会被当成
+task_id 走进详情端点（docs/05 §6.5，与 ``/api/pipelines/current`` 同理）。三个端点都不在
+docs/05 §5.3 的豁免清单里，统一由 router 级的 ``Depends(require_auth)`` 保护。
 """
 
 from __future__ import annotations
@@ -120,8 +95,8 @@ def _collect_groups(schema: Mapping[str, Any]) -> list[str]:
 #: :func:`export_type_schema` 的默认渠道默认值，供**不走 HTTP** 的调用方使用：
 #: ``scripts/generate_task_types_fixture.py`` 直接调它生成前端 fixture，而该
 #: fixture 必须与 ``GET /api/tasks/types`` 返回的结构完全一致（含渠道 overlay）。
-#: 端点一律传入 ``await load_channel_defaults(session)`` 的生效值。只读常量，
-#: 任何调用方都不得改写它。
+#: 端点传入 ``await load_channel_defaults(session)`` 的生效值。本常量只读，
+#: 调用方不要改写它。
 _BUILTIN_CHANNEL_DEFAULTS = ChannelDefaults()
 
 #: overlay 的字段名 → :class:`~maa_api.domain.task.ChannelDefaults` 属性名。
@@ -142,8 +117,8 @@ def _overlay_channel_defaults(
     覆盖这一处 ``default``：只动副本，模型、OpenAPI 快照与 ``POST /validate``
     的语义都不受影响。
 
-    pydantic 2.11 实测 ``model_json_schema()`` 每次返回新 dict，但那是实现细节；
-    这里一律 :func:`copy.deepcopy` 后再改，杜绝「就地改写共享/缓存结果」。
+    ``model_json_schema()`` 每次返回新 dict，但那是实现细节；
+    这里先 :func:`copy.deepcopy` 再改，避免就地改写共享或缓存的结果。
     """
     copied = copy.deepcopy(schema)
     properties = copied.get("properties")
@@ -190,9 +165,8 @@ def export_type_schema(
 class TaskValidateRequest(BaseModel):
     """``POST /api/tasks/validate`` 的请求体：只有任务数组。
 
-    有意不复用 :class:`~maa_api.domain.task.PipelineCreate`：校验端点不建流水线，
-    ``title`` / ``priority`` / ``notify_on_finish`` 在这里没有意义，接受它们只会
-    让调用方误以为「校验通过」等于「提交参数合法」。
+    不含 ``title`` / ``priority`` / ``notify_on_finish``：这个端点只校验参数，
+    不建流水线。
     """
 
     model_config = ConfigDict(
@@ -234,19 +208,15 @@ router = APIRouter(
     "/types",
     summary="获取任务类型 schema",
     description=(
-        "返回全部任务类型的完整参数 schema，供前端动态生成表单、"
-        "agent 了解可用参数。\n\n"
-        "- 只读端点，**无副作用**（只读 setting 表以取渠道默认值）\n"
-        "- `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示"
-        "与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / "
-        "`x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` "
-        "等原生关键字\n"
-        "- `client_type` / `server` 的 `default` 是**当前生效**的全局渠道默认值"
-        "（来自设置表，默认 Bilibili / CN）：前端按它预填并随提交显式下发即可；"
-        "提交时不传这两个字段仍由服务端按同一份默认值注入，显式传 `null` 仍是"
-        "刻意留空\n"
-        "- 清单返回当前支持的全部任务类型，不接受分页参数\n"
-        "- `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`\n"
+        "返回全部任务类型的参数 schema，供前端动态生成表单。只读、无副作用。\n\n"
+        "- `schema` 为标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在"
+        " `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` /"
+        " `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字\n"
+        "- `client_type` / `server` 的 `default` 是当前生效的全局渠道默认值"
+        "（默认 Bilibili / CN）；提交时不传这两个字段仍按同一默认值注入，"
+        "显式传 `null` 表示留空\n"
+        "- 返回当前支持的全部任务类型，不接受分页参数；`lang` 当前仅支持 `zh`，"
+        "其它值返回 400 `INVALID_PARAMETER`"
     ),
     responses=error_responses("INVALID_PARAMETER", "UNAUTHORIZED"),
 )
@@ -254,14 +224,11 @@ async def list_types(
     session: Annotated[AsyncSession, Depends(get_session)],
     lang: Annotated[str, Query(description="中文标签语言；当前仅支持 zh")] = "zh",
 ) -> dict[str, Any]:
-    """任务类型的 schema 清单（docs/05 §6.7、§8.1）。
-
-    渠道默认值每请求现读（不缓存，见模块文档），overlay 只作用于响应副本。
-    """
+    """任务类型的 schema 清单。渠道默认值每请求现读，overlay 只作用于响应副本。"""
     if lang != "zh":
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
-            f"暂不支持的语言：{lang}；当前仅支持 zh",
+            f"不支持的语言：{lang}，可选：zh",
             {"lang": lang, "supported": ["zh"]},
         )
     channel_defaults = await load_channel_defaults(session)
@@ -276,11 +243,9 @@ async def list_types(
     summary="获取单个任务类型 schema",
     description=(
         "按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 "
-        "`items` 元素一致（不套分页信封），渠道字段的 `default` 同样是当前生效的"
-        "全局渠道默认值。\n\n"
-        "- 只读端点，**无副作用**（只读 setting 表以取渠道默认值）\n"
-        "- `type_name` 不在支持的任务类型内时返回 400 `UNKNOWN_TASK_TYPE`"
-        "（错误码表里它就是 400，不是 404）\n"
+        "`items` 元素一致（不套分页信封）。只读、无副作用。\n\n"
+        "- 渠道字段的 `default` 是当前生效的全局渠道默认值\n"
+        "- `type_name` 不在支持列表内时返回 400 `UNKNOWN_TASK_TYPE`"
     ),
     responses=error_responses("UNKNOWN_TASK_TYPE", "UNAUTHORIZED"),
 )
@@ -288,12 +253,12 @@ async def get_type(
     type_name: str,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    """单个任务类型的 schema（docs/05 §6.7）。"""
+    """单个任务类型的 schema。"""
     model = TASK_MODELS.get(type_name)
     if model is None:
         raise AppError(
             ErrorCode.UNKNOWN_TASK_TYPE,
-            f"未知的任务类型：{type_name}",
+            f"未知的任务类型：{type_name}，可选值见 GET /api/tasks/types",
             {"type_name": type_name, "expected": list(TASK_MODELS)},
         )
     # 未知类型在点查设置**之前**就返回 400（错误路径不依赖库表）。
@@ -305,14 +270,13 @@ async def get_type(
     "/validate",
     summary="校验任务参数",
     description=(
-        "只校验不提交：对任务数组跑完整的 pydantic 判别联合校验，并按全局渠道"
-        "默认值规范化，返回投递给内核的最终参数与用户原始提交。\n\n"
-        "- **无副作用**：不落库、不入队、不碰内核；只读 setting 表\n"
-        "- 未显式指定 `client_type` / `server` 的任务会注入 setting 表里的全局"
-        "默认值（默认 Bilibili / CN）；显式传 `null` 视为刻意留空，不注入\n"
-        "- `params` 是投递给内核的形态（已剔除 null、已注入默认值），`raw_params` "
-        "是原始提交快照（保留显式 null），可用于审计与回显\n"
-        "- 任务数 1..32，越界返回 422 `VALIDATION_ERROR`\n"
+        "校验并规范化任务数组，返回投递给内核的最终参数与原始提交。"
+        "不落库、不入队、不碰内核。\n\n"
+        "- 未显式指定 `client_type` / `server` 的任务会注入当前生效的全局渠道"
+        "默认值（默认 Bilibili / CN）；显式传 `null` 表示留空，不注入\n"
+        "- `params` 是投递给内核的形态（已剔除 null、已注入默认值），"
+        "`raw_params` 是原始提交快照（保留显式 null）\n"
+        "- 任务数 1–32，越界返回 422 `VALIDATION_ERROR`"
     ),
     responses=error_responses(
         "UNKNOWN_TASK_TYPE",
@@ -326,10 +290,10 @@ async def validate(
     payload: TaskValidateRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
-    """校验并规范化任务数组（docs/05 §6.7、§9）。
+    """校验并规范化任务数组。
 
-    注入只发生在 :func:`~maa_api.domain.task.normalize` 里；本函数只负责取渠道
-    默认值，不自己填任何字段，否则 ``model_fields_set`` 与 ``raw_params`` 会失真。
+    默认值注入只发生在 :func:`~maa_api.domain.task.normalize` 里；本函数只取渠道
+    默认值，否则 ``model_fields_set`` 与 ``raw_params`` 会失真。
     """
     defaults = await load_channel_defaults(session)
     items = [normalize(task, defaults) for task in payload.tasks]
@@ -354,7 +318,7 @@ async def get_task(
     if task is None:
         raise AppError(
             ErrorCode.TASK_NOT_FOUND,
-            "任务不存在",
+            "任务不存在，请刷新流水线详情后重试",
             {"task_id": task_id},
         )
     return _task_detail(task)

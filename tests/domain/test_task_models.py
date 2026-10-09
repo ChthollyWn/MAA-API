@@ -304,6 +304,35 @@ def test_every_field_has_label_and_description(model: type[BaseModel]) -> None:
         assert (field.description or "").strip(), f"{model.__name__}.{field_name} 缺 description"
 
 
+#: 字段说明只写给用户看的两件事（这个参数在游戏里做什么、不填会怎样），
+#: 实现口径的词一律不出现在 ``/api/tasks/types`` 直出的文案里（见 docs/copy-audit 规范 §五）。
+_FORBIDDEN_COPY = (
+    "内核默认值",
+    "discriminator",
+    "docstring",
+    ".cpp",
+    "params.",
+    "maybe_unused",
+    "由本服务约定",
+    "源码",
+)
+
+#: 说明栏是折叠一行的短语，超过 40 字就会被前端截断成「展开说明」（docs/copy-audit 诊断 §2.1）。
+_MAX_DESCRIPTION_LENGTH = 40
+
+
+@pytest.mark.parametrize("model", MODEL_TYPES, ids=MODEL_IDS)
+def test_descriptions_are_user_facing_and_short(model: type[BaseModel]) -> None:
+    for field_name, field in model.model_fields.items():
+        text = field.description or ""
+        assert not [word for word in _FORBIDDEN_COPY if word in text], (
+            f"{model.__name__}.{field_name} 的说明混进了实现细节: {text}"
+        )
+        assert len(text) <= _MAX_DESCRIPTION_LENGTH, (
+            f"{model.__name__}.{field_name} 的说明超过 {_MAX_DESCRIPTION_LENGTH} 字: {text}"
+        )
+
+
 def test_docstring_parity_covers_the_expected_total() -> None:
     parsed = _docstring_params()
     expected_total = sum(len(names) for names in parsed.values())

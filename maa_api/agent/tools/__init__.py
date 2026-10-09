@@ -11,7 +11,7 @@ __all__ = ["build_registry"]
 
 
 def build_registry() -> ToolRegistry:
-    """Build the one shared registry for every delivered M11 tool group."""
+    """Build the one shared registry for every delivered tool group."""
     # Imports stay inside the factory so each domain module may import its own
     # parameter/context helpers without creating a package initialization cycle.
     from maa_api.agent.tools.device import register_tools as register_device_tools
@@ -44,7 +44,7 @@ def build_registry() -> ToolRegistry:
             name="check_confirmation",
             group="confirmation",
             risk=ToolRisk.SAFE,
-            description="查询人工确认的状态和已完成工具调用的结果。",
+            description="查人工确认的状态和已经执行完的工具结果。确认卡还没回来、或要确认某个操作到底过没过时用。",
             params_model=CheckConfirmationParams,
             handler=check_confirmation,
             read_only=True,

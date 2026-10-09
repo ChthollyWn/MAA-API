@@ -1,4 +1,4 @@
-"""Agent 主动提问：带选项的卡片、挂起等待与用户裁决（M21，规格 §3.3）。
+"""Agent 主动提问：带选项的卡片、挂起等待与用户裁决（规格 §3.3）。
 
 与 :class:`~maa_api.agent.confirmation.ConfirmationService` 同构但**独立**：两者
 都是「落库先行 + 进程内 :class:`asyncio.Event` 只做唤醒 + 重启清理」，但这条链路
@@ -53,7 +53,7 @@ EXPIRED_SUMMARY = "提问超时，本轮已结束"
 RESTART_SUMMARY = "服务重启，未回答的提问已失效"
 SHUTDOWN_SUMMARY = "服务关闭，未回答的提问已失效"
 SKIPPED_SUMMARY = "用户跳过了提问"
-#: 本轮被用户中断时撤回挂起提问的收尾文案（M22 规格 §3.3）。
+#: 本轮被用户中断时撤回挂起提问的收尾文案（规格 §3.3）。
 CANCELLED_SUMMARY = "本轮已被中断，提问已取消"
 
 
@@ -167,8 +167,7 @@ class QuestionService:
     ) -> dict[str, Any]:
         """等这条提问进入终态并返回终态 wire；超时自己收敛，**不抛异常**。
 
-        等待事件与轮询两路并行（规格 §3.3）：事件负责「尽快」，轮询负责「不漏」——
-        由 REST 直接回答、或由后台扫描任务置过期的提问不会经过本进程的事件字典。
+        等待事件与轮询两路并行（规格 §3.3）：事件负责「尽快」，轮询负责「不漏」：由 REST 直接回答、或由后台扫描任务置过期的提问不会经过本进程的事件字典。
         到 ``expires_at`` 仍未答就自己走 :meth:`_expire_now` 兜底（扫描间隔可能配置得
         比超时还长），然后返回 ``expired`` 的 wire。
         """
@@ -286,11 +285,11 @@ class QuestionService:
         return wire
 
     async def cancel_pending_for_session(self, session_id: str) -> list[str]:
-        """撤回该会话仍挂起的提问：CAS ``pending → cancelled`` 并唤醒等待方（M22 §3.3）。
+        """撤回该会话仍挂起的提问：CAS ``pending → cancelled`` 并唤醒等待方（§3.3）。
 
         中断必须让卡片进入终态而不是留着 pending：等待那一轮的协程马上会被取消，
         留下的 pending 卡片会一直挂着直到超时，前端刷新后还会把它当成可提交的提问。
-        审计置 ``rejected`` 与「跳过」同口径——提问没有得到答案，但也不是超时。
+        审计置 ``rejected`` 与「跳过」同口径：提问没有得到答案，但也不是超时。
         返回被撤回的提问 id 列表；没有挂起提问时返回空列表（幂等）。
         """
         now = self.clock()
@@ -313,10 +312,10 @@ class QuestionService:
         return [str(wire["question_id"]) for wire in wires]
 
     async def reset_after_restart(self) -> None:
-        """把重启前遗留的 pending 提问一律置 ``expired``。
+        """把重启前遗留的 pending 提问置 ``expired``。
 
         进程重启后等待那一轮的协程已经不存在了，没超时的提问也不可能再被回答
-        （规格 §3.3）——留着 pending 只会让前端刷新后看到一张永远提交不了的卡片。
+        （规格 §3.3）：留着 pending 只会让前端刷新后看到一张永远提交不了的卡片。
         """
         rows = await self._expire_all(RESTART_SUMMARY)
         self._broadcast_expired(rows)
@@ -384,7 +383,7 @@ class QuestionService:
     async def _expire_now(self, question_id: str) -> dict[str, Any] | None:
         """把单条超时提问置 ``expired`` 并广播，返回终态 wire。
 
-        ``None`` 表示 CAS 没改到行（别人已经答了或已经置过期）——调用方读回真值即可。
+        ``None`` 表示 CAS 没改到行（别人已经答了或已经置过期）：调用方读回真值即可。
         """
         now = self.clock()
         async with self.session_factory() as session:
@@ -542,8 +541,7 @@ def _validate_selection(row: AgentQuestion, selected: Sequence[str]) -> list[str
     """校验并归一用户的选择，返回去重后的 label 列表。
 
     四条规则（规格 §3.3）：非空、去重、每一项都在 ``options.label`` 里、
-    ``multiple=False`` 时只能一项。任何一条不满足都抛 ``QUESTION_SELECTION_INVALID``
-    —— 这是 400 而不是 409：请求本身（选了什么）不成立，与提问当前状态无关。
+    ``multiple=False`` 时只能一项。任何一条不满足都抛 ``QUESTION_SELECTION_INVALID``：这是 400 而不是 409：请求本身（选了什么）不成立，与提问当前状态无关。
     """
     if isinstance(selected, str):
         # 防御：REST body 是字符串数组，但内部调用方可能直接传单个 label。

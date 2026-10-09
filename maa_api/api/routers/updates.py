@@ -56,7 +56,7 @@ class CoreRollbackRequest(BaseModel):
 def _service(request: Request) -> UpdateService:
     service = getattr(request.app.state, "update_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "更新服务尚未启动")
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "更新功能还在启动中，请稍后重试")
     return service
 
 
@@ -74,7 +74,7 @@ def _validate_channel(value: str, allowed: set[str], label: str) -> str:
     if value not in allowed:
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
-            f"{label}取值无效",
+            f"{label} 不是支持的取值，可选：{'、'.join(sorted(allowed))}",
             {"channel": value, "allowed": sorted(allowed)},
         )
     return value
@@ -102,7 +102,7 @@ async def update_status(
 @router.post(
     "/updates/core",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="受理 MaaCore 更新",
+    summary="受理内核更新",
     responses=error_responses(
         "INVALID_PARAMETER",
         "UPDATE_ALREADY_RUNNING",
@@ -120,7 +120,7 @@ async def update_core(
     request: Request,
     response: Response,
 ) -> dict[str, Any]:
-    _validate_channel(payload.channel, {"stable"}, "MaaCore channel")
+    _validate_channel(payload.channel, {"stable"}, "内核发布渠道")
     record = await _service(request).start(
         UpdateTarget.CORE,
         payload.model_dump(exclude_none=True),
@@ -200,7 +200,7 @@ async def update_game(
 @router.post(
     "/updates/core/rollback",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="受理 MaaCore 回滚",
+    summary="受理内核回滚",
     responses=error_responses(
         "UPDATE_ALREADY_RUNNING",
         "UPDATE_ROLLBACK_FAILED",
@@ -241,13 +241,17 @@ async def list_updates(
     size: int = Query(default=20),
 ) -> dict[str, Any]:
     if page < 1 or size < 1 or size > 200:
-        raise _invalid_pagination("page 必须大于等于 1，size 必须在 1 到 200 之间")
+        raise _invalid_pagination("page 不能小于 1，size 需在 1–200 之间")
     if target is not None and target not in {item.value for item in UpdateTarget}:
-        raise AppError(ErrorCode.INVALID_PARAMETER, "target 取值无效", {"target": target})
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            "target 不是支持的取值，可选：core、resource、game",
+            {"target": target},
+        )
     if status_filter is not None and status_filter not in {item.value for item in UpdateStatus}:
         raise AppError(
             ErrorCode.INVALID_PARAMETER,
-            "status 取值无效",
+            "status 不是支持的取值，可选：pending、running、success、failed、cancelled、skipped",
             {"status": status_filter},
         )
     page_result = await _service(request).list(

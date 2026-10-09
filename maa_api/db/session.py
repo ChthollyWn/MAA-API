@@ -8,7 +8,7 @@
 - :data:`DB_PATH` 是**相对**路径，不在这里建目录、不在这里建表；目录创建与建表
   归 ``db/migrate.py`` 的 ``ensure_schema``（docs/04 §8.3）。
 
-会话纪律：后台任务（PipelineRunner、LogHub 刷盘、清理任务）各自开新会话，绝不
+会话纪律：后台任务（PipelineRunner、LogHub 刷盘、清理任务）各自开新会话，不
 跨任务共享；``expire_on_commit=False`` 让提交后仍能读取 ORM 对象字段做 WebSocket
 广播，而不触发隐式 refresh 查询。
 """
@@ -55,7 +55,7 @@ def apply_pragmas(dbapi_conn, _record=None) -> None:
     """在每条新连接上设置六个连接级 PRAGMA。
 
     必须挂在 ``connect`` 事件上而不是建库时执行一次：PRAGMA 是连接级的，
-    连接池里每条新连接都要重新设置。``foreign_keys`` 尤其容易漏 —— SQLite
+    连接池里每条新连接都要重新设置。``foreign_keys`` 尤其容易漏：SQLite
     默认关闭外键约束，不显式打开则所有 ``ON DELETE CASCADE`` 都是装饰。
     """
     cur = dbapi_conn.cursor()
@@ -120,9 +120,9 @@ async def run_with_busy_retry(
 
     失败只回退到 savepoint，外层事务（审计行等）不受影响，因此可以安全重试。
     每次重试前按 ``base_delay * 2**(n-1)`` 退避并加 0.5–1.5 倍抖动：多个写者
-    同时重试时不会同步撞在一起。非 BUSY 的异常立即上抛——重试语法错误或约束
+    同时重试时不会同步撞在一起。非 BUSY 的异常立即上抛：重试语法错误或约束
     冲突只会把同一个错误重复一遍。最终失败的处置留给调用方（如降级成
-    ``SCREENSHOT_FAILED``），本函数只负责多给几次机会。
+    ``SCREENSHOT_FAILED``），这里只负责多给几次机会。
     """
     if attempts < 1:
         raise ValueError("attempts must be positive")

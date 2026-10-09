@@ -1,6 +1,6 @@
 """Web Push 消息加密（RFC 8291 + RFC 8188 ``aes128gcm``）。
 
-M14 的 Web Push 只依赖 ``cryptography``（已是项目直接依赖），不引入 ``pywebpush``：
+Web Push 只依赖 ``cryptography``（已是项目直接依赖），不引入 ``pywebpush``：
 本机网络对 PyPI 不稳定，而这里需要的 ECDH P-256、HKDF-SHA256 与 AES-128-GCM 原语
 ``cryptography`` 全部具备。
 
@@ -8,8 +8,8 @@ M14 的 Web Push 只依赖 ``cryptography``（已是项目直接依赖），不�
 RFC 8291 §3.4 的 ``PRK_key = HMAC(auth_secret, ecdh_secret)`` 与
 ``PRK = HMAC(salt, IKM)`` 都是「只做 extract」的语义，而 ``cryptography`` 的
 ``HKDF.derive()`` 是 RFC 5869 的 extract+expand 组合，用它替换会**额外多做一次
-expand**：结果全错，且不抛任何异常。这个陷阱已用 RFC 8291 Appendix A 的官方
-中间值实测确认，``tests/services/test_webpush_crypto.py`` 里保留断言锁住它。
+expand**：结果全错，且不抛任何异常。``tests/services/test_webpush_crypto.py`` 用
+RFC 8291 Appendix A 的官方中间值锁住这个陷阱。
 """
 
 from __future__ import annotations
