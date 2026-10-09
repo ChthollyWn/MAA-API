@@ -78,7 +78,6 @@ export function CurrentPipelineCard({ pipeline, isPending, error, onRetry }: Cur
         </span>
         <div className="min-w-0">
           <p className="text-[0.9375rem] font-semibold">当前没有运行中的流水线</p>
-          <p className="mt-0.5 text-footnote text-muted-foreground">新建任务或运行定时任务后，进度会显示在这里。</p>
         </div>
       </section>
     )

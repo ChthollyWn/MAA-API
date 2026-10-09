@@ -107,7 +107,6 @@ export function QuickActions() {
         </span>
         <span className="min-w-0">
           <span className="block text-[0.9375rem] font-semibold">新建任务</span>
-          <span className="block text-footnote text-muted-foreground">编排后立即执行</span>
         </span>
       </Link>
       <button type="button" className={tileClassName} onClick={() => setScheduleSheetOpen(true)}>
@@ -116,7 +115,6 @@ export function QuickActions() {
         </span>
         <span className="min-w-0">
           <span className="block text-[0.9375rem] font-semibold">运行定时任务</span>
-          <span className="block text-footnote text-muted-foreground">马上执行一次</span>
         </span>
       </button>
       <RunScheduleSheet open={scheduleSheetOpen} onOpenChange={setScheduleSheetOpen} />

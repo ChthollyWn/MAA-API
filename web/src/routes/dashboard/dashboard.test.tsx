@@ -280,7 +280,6 @@ describe('home page', () => {
       for (let index = 0; index < 30; index += 1) await Promise.resolve()
     })
     expect(network.screenshotCount()).toBe(1)
-    expect(screen.getByText('任务运行中，每 5 秒自动刷新')).toBeInTheDocument()
 
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
     expect(network.screenshotCount()).toBe(2)
@@ -290,7 +289,6 @@ describe('home page', () => {
     expect(network.screenshotCount()).toBe(3)
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
     expect(network.screenshotCount()).toBe(3)
-    expect(screen.getByText('空闲时手动刷新')).toBeInTheDocument()
   })
 
   it('takes one initial screenshot while idle and does not poll it every five seconds', async () => {

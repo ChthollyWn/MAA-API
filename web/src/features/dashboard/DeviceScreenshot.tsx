@@ -85,9 +85,6 @@ export function DeviceScreenshot({ connected, deviceKnown, loading, pipelineRunn
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 id="device-screenshot-title" className="text-[0.9375rem] font-semibold">设备画面</h2>
-          <p className="mt-0.5 text-footnote text-muted-foreground">
-            {pipelineRunning ? '任务运行中，每 5 秒自动刷新' : '空闲时手动刷新'}
-          </p>
         </div>
         <Button
           aria-label="刷新设备截图"
