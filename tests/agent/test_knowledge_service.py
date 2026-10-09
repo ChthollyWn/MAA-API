@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,8 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 from maa_api.agent.knowledge import (
+    ACTIVITY_HEADER,
+    MAX_ACTIVITY_LINE_CHARS,
     BuiltinEntry,
     KnowledgeBuiltinError,
     KnowledgeService,
@@ -39,12 +42,13 @@ from maa_api.domain.errors import AppError, ErrorCode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_DIR = REPO_ROOT / "docs" / "superpowers" / "specs"
-#: 内置全文的唯一原文来源：M18 的 5 个块（§4.4：不动）与 M19 新增的 26 个块。
+#: 内置全文的唯一原文来源：M18 的 5 个块（§4.4：不动）、M19 新增的 26 个与 M24 的 1 个。
 M18_SPEC_PATH = SPEC_DIR / "2026-09-29-m18-agent-knowledge.md"
 M19_SPEC_PATH = SPEC_DIR / "2026-09-29-m19-agent-knowledge-expansion.md"
+M24_SPEC_PATH = SPEC_DIR / "2026-10-09-m24-activity-knowledge.md"
 BUILTIN_DIR = REPO_ROOT / "maa_api" / "agent" / "knowledge" / "builtin"
 
-#: 内置条目的文档化清单：M18 规格 §4.6 的 5 条 + M19 规格 §4.1 清单的 26 条。
+#: 内置条目的文档化清单：M18 规格 §4.6 的 5 条、M19 §4.1 的 26 条、M24 §4.5 的 1 条。
 BUILTIN_IDS = [
     # M18
     "account-resources",
@@ -79,11 +83,14 @@ BUILTIN_IDS = [
     "event-and-rerun",
     "playbook-daily-weekly",
     "glossary-terms",
+    # M24
+    "activity-stage-codes",
 ]
 
 INDEX_HEADER = (
     "知识库索引（开发者与用户维护，可作为操作指引；需要时用 read_knowledge 读取全文）："
 )
+ACTIVITY_HEADER = "当期活动（来自本机活动资源，随资源更新自动变化）："
 GLOSSARY_HEADER = "术语表（开发者与用户维护）："
 PROFILE_HEADER = "用户档案（用户维护）："
 
@@ -91,7 +98,7 @@ PROFILE_HEADER = "用户档案（用户维护）："
 INDEX_KINDS = ("playbook", "screen", "rule")
 FULLTEXT_KINDS = ("glossary", "profile")
 
-#: 31 条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
+#: 32 条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
 #: glossary/profile），同 kind 内按 id 升序。
 BUILTIN_LIST_ORDER = [
     "account-resources",
@@ -109,6 +116,7 @@ BUILTIN_LIST_ORDER = [
     "screen-recruit",
     "screen-store",
     "screen-terminal",
+    "activity-stage-codes",
     "annihilation-weekly",
     "certificate-shops",
     "currency-sources",
@@ -138,6 +146,27 @@ async def _create_all(engine) -> None:
         await connection.run_sync(SQLModel.metadata.create_all)
 
 
+class _NoActivity:
+    """默认桩：读不到活动资源（M24 §4.3 的降级路径）。
+
+    没有这一桩，每个 render_context 用例都会去读本机真资源，断言就跟着机器上装的是
+    哪一期活动变；测试要与数据解耦。
+    """
+
+    def snapshot(self):
+        raise AppError(ErrorCode.RESOURCE_LOAD_FAILED, "测试里没有活动资源")
+
+
+class _FixedActivity:
+    """固定快照的桩：用来断言注入段的位置、内容与字数。"""
+
+    def __init__(self, snapshot):
+        self._snapshot = snapshot
+
+    def snapshot(self):
+        return self._snapshot
+
+
 @pytest.fixture
 def harness(tmp_path):
     """``(service, session_factory)``，绑定在一次性 SQLite 文件上。"""
@@ -146,7 +175,7 @@ def harness(tmp_path):
     )
     asyncio.run(_create_all(engine))
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    yield KnowledgeService(factory), factory
+    yield KnowledgeService(factory, activity_index=_NoActivity()), factory
     engine.sync_engine.dispose()
 
 
@@ -175,12 +204,12 @@ def _write(fields: dict[str, object], body: str = "正文") -> str:
 
 
 def _spec_blocks() -> dict[str, str]:
-    """两份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。
+    """三份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。
 
-    M18 规格的 5 个块与 M19 规格的 26 个块合起来恰好是全部内置条目（M19 §4.4）。
+    M18 的 5 个块、M19 的 26 个块与 M24 的 1 个块合起来恰好是全部内置条目。
     """
     keyed: dict[str, str] = {}
-    for path in (M18_SPEC_PATH, M19_SPEC_PATH):
+    for path in (M18_SPEC_PATH, M19_SPEC_PATH, M24_SPEC_PATH):
         text = path.read_text(encoding="utf-8")
         section = text[text.index("### 4.6") : text.index("## 5. 错误与兼容")]
         blocks = re.findall(r"```markdown\n(.*?)```", section, re.DOTALL)
@@ -230,7 +259,7 @@ def _frontmatter(text: str) -> str:
 def test_builtin_files_match_the_spec_registry_and_frontmatter():
     """§4.6 是内置条目的登记表：条目集合与 frontmatter 必须逐字一致。
 
-    两份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记）
+    三份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记）
     或少一条（文件漏了）都要失败。B3 文案审计按规范改写了部分正文（营销形容词、
     跨文件重复段落、超长句），所以正文不再要求与规格逐字相同；``id``、``kind``、
     ``title``、``when_to_use`` 仍是契约。
@@ -1097,3 +1126,197 @@ def test_read_for_agent_returns_the_effective_body(harness):
         assert entry.modified is True
 
     asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# M24 §4.3：当期活动段的注入
+# ---------------------------------------------------------------------------
+def _activity_snapshot(**overrides):
+    """一个固定的活动快照，字段与 ActivitySnapshot 对齐。"""
+
+    from maa_api.services.activity_index import ActivitySnapshot, ActivityStage
+
+    values = {
+        "name": "示例活动#3 副标题",
+        "started_at": date(2026, 9, 29),
+        "series": 3,
+        "stage_id_prefix": "act3demo",
+        "confidence": "high",
+        "matched_by": "series-number",
+        "related": (),
+        "alternatives": (),
+        "stages": (
+            ActivityStage("XX-01", "一号", "act3demo_01", "activities/act3demo/level_act3demo_01"),
+            ActivityStage("XX-08", "八号", "act3demo_08", "activities/act3demo/level_act3demo_08"),
+        ),
+        "navigation": "missing",
+        "resource_updated_at": "2026-10-08 21:02:19.000",
+        "source": "/tmp/example/resource",
+    }
+    values.update(overrides)
+    return ActivitySnapshot(**values)
+
+
+def _service_with_activity(tmp_path, **overrides):
+    """带固定活动快照的知识库服务；内置条目用真文件、数据库用一次性 SQLite。"""
+
+    engine = db_session.make_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'activity.db'}", poolclass=NullPool
+    )
+    asyncio.run(_create_all(engine))
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    service = KnowledgeService(factory, activity_index=_FixedActivity(_activity_snapshot(**overrides)))
+    return service, engine
+
+
+def test_render_context_puts_the_activity_line_between_index_and_glossary(tmp_path) -> None:
+    service, engine = _service_with_activity(tmp_path)
+
+    async def scenario():
+        context = await service.render_context()
+        lines = context.split("\n")
+
+        activity_at = lines.index(ACTIVITY_HEADER)
+        assert lines[activity_at + 1] == (
+            "示例活动#3 副标题，2026-09-29 开始"
+            "；关卡代号 XX-01…XX-08（共 2 关）"
+            "；同名代号可能属于别的期次，提交前用 get_activity_stages 核对 stageId。"
+        )
+        # 位置：索引段之后（索引行后跟一个空行）、术语表之前。
+        assert lines[activity_at - 1] == ""
+        assert lines[activity_at - 2].startswith("- ")
+        assert lines.index(GLOSSARY_HEADER) > activity_at
+        # 每轮成本：整行（不含标题）≤ 120 字（写死数字，别跟着常量走，
+        # 跟着常量走的断言抓不到「上限被悄悄放宽」这种漂移）。
+        assert len(lines[activity_at + 1]) <= 120 <= MAX_ACTIVITY_LINE_CHARS
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        engine.sync_engine.dispose()
+
+
+def test_render_context_says_the_codes_are_unknown_when_inference_fails(tmp_path) -> None:
+    """推不出代号时那一行要如实说不知道，并指向带参数的查法，不能让模型自己编。"""
+
+    service, engine = _service_with_activity(
+        tmp_path,
+        stage_id_prefix=None,
+        series=None,
+        confidence="none",
+        matched_by="none",
+        stages=(),
+    )
+
+    async def scenario():
+        line = (await service.render_context()).split("\n")
+        body = line[line.index(ACTIVITY_HEADER) + 1]
+        assert body.startswith("示例活动#3 副标题")
+        assert "关卡代号未知" in body
+        assert "get_activity_stages" in body
+        assert len(body) <= 120 <= MAX_ACTIVITY_LINE_CHARS
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        engine.sync_engine.dispose()
+
+
+def test_render_context_skips_the_activity_section_when_the_reader_fails(harness) -> None:
+    """默认桩读不到活动资源 → 整段不插；其余段落照旧（与「暂无」的语义区分开）。"""
+
+    service, _ = harness
+
+    async def scenario():
+        context = await service.render_context()
+        assert ACTIVITY_HEADER not in context
+        assert INDEX_HEADER in context and GLOSSARY_HEADER in context
+
+    asyncio.run(scenario())
+
+
+def test_activity_reader_is_optional_and_falls_back_to_the_default_index(monkeypatch) -> None:
+    """没注入数据源时用模块级默认门面（生产路径），读不到同样不插段。"""
+
+    calls: list[int] = []
+
+    class _Reader:
+        def snapshot(self):
+            calls.append(1)
+            raise AppError(ErrorCode.RESOURCE_LOAD_FAILED, "没有活动资源")
+
+    from maa_api.services import activity_index as activity_module
+
+    monkeypatch.setattr(activity_module, "_DEFAULT", _Reader())
+    service, engine = _service_with_activity_database_only()
+
+    async def scenario():
+        context = await service.render_context()
+        assert ACTIVITY_HEADER not in context
+        assert calls == [1]
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        engine.sync_engine.dispose()
+
+
+def _service_with_activity_database_only():
+    """只给数据库的知识库服务（不给活动数据源），用来验证默认门面兜底。"""
+
+    import tempfile
+
+    directory = tempfile.mkdtemp(prefix="m24-knowledge-")
+    engine = db_session.make_engine(
+        f"sqlite+aiosqlite:///{directory}/service.db", poolclass=NullPool
+    )
+    asyncio.run(_create_all(engine))
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    return KnowledgeService(factory), engine
+
+
+def test_agent_visible_sources_carry_no_version_sensitive_data() -> None:
+    """Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。
+
+    口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识
+    条目（每轮注入索引、`read_knowledge` 可读全文）、新工具的**源码**（工具描述会随
+    JSON schema 给模型，查不到时的提示也是运行时返回给模型的文本）、活动索引服务与
+    知识库注入段的源码。
+
+    注意口径：模式名（玩法名，M19 术语表里作为模式列举）**不算**期次数据，它不会随
+    版本失效；测试夹具里的构造数据（`XX-01`、`act7demo`）也不算。
+
+    当期前缀由**真资源跑一遍推断**得到（`ActivityIndex(root).snapshot()`），而不是从
+    候选里随便挑一个，否则断言可能在检查一个与当期无关的名字（这正是本用例的第一版
+    犯过的错：取字典序最小的候选，拿到的是很久以前的一期）。
+    """
+
+    from maa_api.services.activity_index import ActivityIndex
+
+    resource_root = None
+    for candidate in (
+        REPO_ROOT / "resource" / "maa-layers" / "repo" / "resource",
+        REPO_ROOT / "resource" / "lib" / "maa" / "Darwin" / "resource",
+    ):
+        if (candidate / "version.json").is_file() and (
+            candidate / "Arknights-Tile-Pos" / "overview.json"
+        ).is_file():
+            resource_root = candidate
+            break
+    if resource_root is None:
+        pytest.skip("本机没有活动资源层，没有可对照的当期数据")
+
+    snapshot = ActivityIndex(resource_root).snapshot()
+    needles = {needle for needle in (snapshot.name, snapshot.stage_id_prefix) if needle}
+    assert needles, "活动名与当期前缀至少要有一个能用来做泄漏检查"
+
+    watched = (
+        *sorted(BUILTIN_DIR.glob("*.md")),
+        REPO_ROOT / "maa_api" / "agent" / "tools" / "activity.py",
+        REPO_ROOT / "maa_api" / "services" / "activity_index.py",
+        REPO_ROOT / "maa_api" / "agent" / "knowledge" / "__init__.py",
+    )
+    for path in watched:
+        text = path.read_text(encoding="utf-8")
+        for needle in needles:
+            assert needle not in text, f"{path.name} 里出现了当期数据 {needle!r}"

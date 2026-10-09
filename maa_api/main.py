@@ -73,6 +73,7 @@ from maa_api.db.migrate import ensure_schema
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.log_hub import LogHub, current_request_id, set_log_hub
+from maa_api.services.activity_index import ActivityIndex
 from maa_api.services.api_snippet_service import ApiSnippetService
 from maa_api.services.log_wiring import (
     install_core_logging,
@@ -929,9 +930,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ),
         )
         app.state.agent_ops_service = agent_ops_service
+        # 活动索引：读本机活动资源的只读门面。工具与知识库注入段共用同一个实例，
+        # 签名缓存因此只需维护一份（M24）。
+        activity_index = ActivityIndex()
+        app.state.activity_index = activity_index
         # 知识库：构造时把随代码发布的内置条目加载一次（文件坏了要在启动处就炸），
         # 用户改动存在 agent_knowledge 表里。runtime 与本路由共用这一个实例。
-        app.state.knowledge_service = KnowledgeService(db_session.session_factory)
+        app.state.knowledge_service = KnowledgeService(
+            db_session.session_factory, activity_index=activity_index
+        )
         confirmation_factory = getattr(
             app.state, "confirmation_service_factory", ConfirmationService
         )

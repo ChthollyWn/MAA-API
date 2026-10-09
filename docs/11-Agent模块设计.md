@@ -51,7 +51,9 @@ REST 工具 API ─────┐
 
 `AsstGetMapLevelKey` 能把"切城区"、"1-7"、`main_01-07` 这类不同写法互相映射，对解析自然语言指令很有用。但核实发现它只在 macOS 的 `libMaaCore.dylib` 里导出，Linux 的 `.so` 没有，且官方标注为实验性 API（详见 [03-MaaCore内核层设计 §1.2](./03-MaaCore内核层设计.md)）。
 
-因此 `resolve_stage` 工具的实现是两级的：优先调内核 API，不可用时回退到从 `resource/lib/maa/*/resource/tasks/Stages/` 目录构建的本地关卡索引。工具返回值里带 `source` 字段标明用了哪条路径，便于排查。这个工具永远不会因为平台不同而消失，只是精度可能下降。
+因此 `resolve_stage` 工具的实现是两级的：优先调内核 API，不可用时回退到本地关卡索引。工具返回值里带 `source` 字段标明用了哪条路径（`core` / `resource`），便于排查。这个工具永远不会因为平台不同而消失，只是精度可能下降。
+
+本地索引在 M24 改为读 `Arknights-Tile-Pos/overview.json`（含活动关，4255 条），此前读的 `stages.json` 只有 608 个常驻关，**活动关一条都没有**，也与本节原文写的 `tasks/Stages/` 不符。匹配顺序是 `stageId` 精确 → `levelId` 精确 → `code` 精确 → 中文名精确，每级都大小写不敏感；`stageId` 命中时**原样返回**那一条（用户给的标识就是它），其余各级会把同一张图的 `#f#` 变体按 `levelId` 合并成一条（真实数据里 `main_01-07` 与 `main_01-07#f#` 的 `levelId` 完全相同，重复计入会让候选数虚高）。**代号不足以定位一关**：同一个 `code` 会出现在多个活动期次里，全表 2156 个 `code` 有 958 个对应多个 `stageId`（`VEC-08` 一条代号对应 4 期）。所以重名时返回**全部候选** `candidates`（按 `stageId` 字典序）与候选总数 `candidates_total`，`resolved` 仍是第一条：只读 `resolved` 的既有调用方与前端行为不变。旧实现静默取字典序第一条，会把用户问的当期 `VEC-08` 解析成第一期同名关。`stages_path` 参数保留给测试与旧装配，语义变为「显式指定 `overview.json` 的路径」，另有等价的 `overview_path`。
 
 ## 3. ToolRegistry 与工具清单
 
@@ -189,6 +191,14 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 关卡示意图的数据（`send_stage_map`）。索引 `Arknights-Tile-Pos/overview.json` 是一个 4186 键的 dict，键为 `f"{stageId}-{levelId.replace('/', '-')}"`，值含 `code` / `stageId` / `levelId` / `filename` / `width` / `height` / `name`（`filename` 恒等于 `<键>.json`）。`code` 并不唯一（2133 个 code 里 944 个对应多关，`ISW-NO` 一个 code 对应 554 关），所以定位规则是：`stageId` / `levelId` 精确匹配优先 → 否则按 `code` → 多命中按 `stageId` 字典序取第一，并在结果里回报候选数 `candidates`。资源根按内核真实加载链查找：`<maa_path>/resource` 加 `maa-layers/{cache,custom}/resource`（后者覆盖前层；`maa-layers/repo/` 不是运行时增量层，它在资源更新时就被合并进 `<maa_path>/resource`）。单格是 3 字符码 `<地形><可部署><高度>`：地形 5 类（`#` 阻挡 / `~` 坑洞 / `w` 水域 / `!` 特殊机制 / `.` 普通地面，107 个 `tileKey` 全部显式成表并有夹具测试保证零遗漏），可部署与高度直接取 `buildableType` / `heightType`；起点与终点不来自 `tileKey` 而来自 `isStart` / `isEnd` 布尔，单独出坐标数组。`legend` 是片段码（1 字符只讲地形、2 字符只讲「可部署 + 高度」），前端按长度分派渲染；tile 行序原样输出不翻转，画面方向由前端一个常量负责（自上而下还是自下而上待真机核对）。
 
 图表的校验分两级。字段级超限（类目 / 系列 / 点数 / 长度 / 枚举 / 额外字段）走标准 `422 TOOL_ARGS_INVALID`；语义级越界（总点数 > 600、序列化 > 24 KB、`NaN` / `Inf`、`line` 与 `bar` 的 `len(values) != len(categories)`）返回 `400 INVALID_PARAMETER`，并在 message 里指明哪一项、实际多大。两级都要守是因为 docs/04 §5.8 的 32 KB tool content 纪律在代码里没有强制截断，产出方必须自我约束。
+
+活动组（`activity`，M24）：`SAFE`、只读。加入这一条后工具总数 48 → 49
+
+| 工具 | risk | 用途 |
+|---|---|---|
+| `get_activity_stages` | SAFE | 查当期活动与它的关卡代号，或按 `stageId` / 代号 / 中文名 / `levelId` 查某一关属于哪一期活动。两个参数都可选：`stage`（1–64 字）查单关；`prefix`（2–32 字）取某一组关卡（只接受返回里出现过的前缀）。都不给就列当期活动。数据每次从本机活动资源现读（`version.json` 的 `activity` 段 + `Arknights-Tile-Pos/overview.json` + `tasks/Stages/` 的文件名），**不写死任何当期数据、不联网** |
+
+当期活动怎么推出来（`maa_api/services/activity_index.py`）。包内**没有**活动名到关卡代号的映射表，中文关卡名与活动名之间也没有字符关系，所以只在能解释得通时给答案：从活动名里提期数（`#3` / `第三期`）→ 前缀按 `^([a-z]+)(\d+)([a-z]+)$` 拆出期数与模式后缀，只留期数相等、全部关卡在 `activities/` 命名空间、且有字母后缀的（无后缀的干扰项出局，当期 9 个候选收敛到 3 个）→ 按「主关数 → 关卡总数 → 前缀字典序」排序取第一名：唯一候选是 `confidence="high"`，多个候选是 `low` 且第一名进 `stages`、其余进 `alternatives`（`related` 另列同一类玩法的其它期次），提不到期数或没有合格前缀是 `none`（`stages` 为空数组、不给代号）。返回值同时带 `matched_by`、`stage_id_prefix`、`code_range`、`navigation`（`tasks/Stages/<前缀>.json` 存在与否，只描述资源现状，不预测 Fight 能不能过）与 `resource_updated_at`，让模型知道结论是怎么来的。查单关返回 `matches[]`（全部候选，每条带 `is_current` 与期数 `period`）；查询按 `stageId` → `code` → 中文名 → `levelId` 分级匹配，某一级有命中就不再往下找，并回报命中的哪一级（`matched_field`）。这条分级带来一个已知边界：一个词既是某关的代号、又是另一关的中文名时只返回代号那一级（实测「切尔诺伯格」），要查另一关得用它的代号或 `stageId`；取舍理由是本工具的主要问法是代号与 `stageId`，取并集会把两关混在一起返回。查不到是空数组加一句提示，不是错误。**边界**：活动名不带期数时给不出代号，这一条如实写在返回值与文档里，见 [13 §8.38](./13-决策记录.md)。
 
 ## 4. PolicyEngine
 
@@ -338,11 +348,11 @@ REST 调用不可用。`ask_user` 经 `POST /api/agent/tools/{name}/invoke` 调�
 
 兜底。图表卡永远带一张「数据」折叠表格，它既是无障碍替代，也是 ECharts chunk 加载失败时的回退；图片加载失败时卡片显示失败态与重试。界面细节见 §8.5。
 
-## 6. 知识库（M18、M19）
+## 6. 知识库（M18、M19、M24）
 
 提示词只描述能力边界与安全规则，不含游戏知识。知识库补上这一层：让 Agent 知道「某类需求怎么做」（操作剧本）、「画面长什么样」（界面知识）、「怎么换算与判定」（规则）、俗称与游戏内名称的对照，以及用户的偏好与默认账号。表结构见 [04 §5.16](./04-数据模型与持久化.md)，REST 见 [05 §6.15](./05-API规范与路由清单.md)，设置页见 [09 §6.5](./09-前端重构方案.md)。
 
-M18 交付了机制与 5 条骨架条目；M19 把内置知识扩成体系化的「资深玩家」知识：31 条内置条目，事实来源是 PRTS wiki（离线随代码发布，运行时不联网），每条断言在实施期都留有出处。构建过程见 [13 §8.24](./13-决策记录.md)。
+M18 交付了机制与 5 条骨架条目；M19 把内置知识扩成体系化的「资深玩家」知识：31 条内置条目，事实来源是 PRTS wiki（离线随代码发布，运行时不联网），每条断言在实施期都留有出处。M24 再补一条 `activity-stage-codes`（活动关卡代号体系与查法，不含当期数据），并把「现在是什么活动」做成每轮注入的一行与工具 `get_activity_stages`（§3.2、§6.5）：会随版本失效的当期数据不入库，改为每次现读本机活动资源。构建过程见 [13 §8.24](./13-决策记录.md)、[13 §8.38](./13-决策记录.md)。
 
 ### 6.1 条目与类型
 
@@ -356,9 +366,9 @@ M18 交付了机制与 5 条骨架条目；M19 把内置知识扩成体系化的
 | `glossary` | 术语表：俗称与游戏内名称对照 | 全文 |
 | `profile` | 用户档案：默认账号、偏好 | 全文 |
 
-随代码发布的内置知识共 31 条（M19 起）。M18 的 5 条是：`account-resources`（查账号资源的剧本）、`screen-home`（首页布局）、`screen-depot`（仓库界面）、`gacha-conversion`（抽卡换算）、`glossary`（俗称对照）；`screen-depot` 的页签与凭证位置仍是通用写法，待真机核对。
+随代码发布的内置知识共 32 条（M24 起；M19 起为 31 条）。M18 的 5 条是：`account-resources`（查账号资源的剧本）、`screen-home`（首页布局）、`screen-depot`（仓库界面）、`gacha-conversion`（抽卡换算）、`glossary`（俗称对照）；`screen-depot` 的页签与凭证位置仍是通用写法，待真机核对。
 
-M19 新增的 26 条按域分组：
+M19 新增的 26 条按域分组（M24 的 1 条补在最后一个域）：
 
 | 域 | 条目 |
 |---|---|
@@ -366,9 +376,9 @@ M19 新增的 26 条按域分组：
 | 理智与作战 | `sanity-system`、`stage-rules`、`drop-efficiency`、`playbook-sanity-planning`、`playbook-drop-lookup` |
 | 养成 | `operator-progression`、`trust-and-potential`、`operator-classes`、`playbook-promotion-planning`、`screen-operator` |
 | 公开招募与基建 | `recruit-tags`、`playbook-recruit`、`screen-recruit`、`infrast-mechanics`、`playbook-infrast-shift`、`screen-infrast` |
-| 界面、活动与术语 | `screen-terminal`、`screen-headhunt`、`screen-store`、`event-and-rerun`、`playbook-daily-weekly`、`glossary-terms` |
+| 界面、活动与术语 | `screen-terminal`、`screen-headhunt`、`screen-store`、`event-and-rerun`、`playbook-daily-weekly`、`glossary-terms`；M24 的 `activity-stage-codes`（活动关卡代号） |
 
-条目全文是规格的一部分并逐字绑定：M18 的 5 条在 [M18 规格 §4.6](./superpowers/specs/2026-09-29-m18-agent-knowledge.md)，M19 的 26 条在 [M19 规格 §4.6](./superpowers/specs/2026-09-29-m19-agent-knowledge-expansion.md)，测试断言两份规格的块并集恰好覆盖 `builtin/` 目录。
+条目全文是规格的一部分并逐字绑定：M18 的 5 条在 [M18 规格 §4.6](./superpowers/specs/2026-09-29-m18-agent-knowledge.md)，M19 的 26 条在 [M19 规格 §4.6](./superpowers/specs/2026-09-29-m19-agent-knowledge-expansion.md)，M24 的 1 条在 [M24 规格 §4.6](./superpowers/specs/2026-10-09-m24-activity-knowledge.md)，测试断言三份规格的块并集恰好覆盖 `builtin/` 目录。
 
 内容纪律（写新条目时照此办）：事实以 PRTS 为准并留出处；会随版本变化的内容（当期卡池、活动时间、商店上架）一律不写死；`screen-*` 不写没有依据的坐标，只写相对位置并要求先截图确认；界面与数值上没把握时宁可写「以游戏内为准」，也不要让模型凭记忆报数。
 
@@ -389,7 +399,7 @@ M19 新增的 26 条按域分组：
 
 写入仍然是先判后写：字段不合法时表里不留半成品。内置 `kind` 不可覆盖（`409 KNOWLEDGE_BUILTIN_READONLY`）依旧生效。
 
-内容加多了会怎样：索引类条目的正文不读不花钱，只有索引行（每条一行）与 `glossary` / `profile` 的全文是每轮成本。真把模型窗口塞满时，请求会被上游拒绝，服务端把上游的「上下文过长」映射成 `400 LLM_CONTEXT_OVERFLOW` 给前端（[13 §8.25](./13-决策记录.md)）。参考量级：31 条内置条目时索引 1,892 字、全文段 2,438 字，合计约 4.3 千字。
+内容加多了会怎样：索引类条目的正文不读不花钱，只有索引行（每条一行）与 `glossary` / `profile` 的全文是每轮成本。真把模型窗口塞满时，请求会被上游拒绝，服务端把上游的「上下文过长」映射成 `400 LLM_CONTEXT_OVERFLOW` 给前端（[13 §8.25](./13-决策记录.md)）。参考量级：M19 的 31 条内置条目时索引 1,892 字、全文段 2,438 字，合计约 4.3 千字；M24 再加一行当期活动段（≤ 120 字）。
 
 ### 6.4 读取与 REST
 
@@ -406,9 +416,11 @@ M19 新增的 26 条按域分组：
 
 ### 6.5 注入与信任边界
 
-runtime 在每轮开头生成状态摘要时一并生成知识库段，拼进 system 消息，顺序是提示词 → 知识库段 → 状态摘要。知识库段三段：索引（`- <id>｜<title>：<when_to_use>`，先按 kind 排 `playbook`、`screen`、`rule`，再按 id）→ 术语表全文 → 用户档案全文，空段落写「暂无」。`glossary` / `profile` 有多条启用时按 id 顺序全部注入。整段 system 消息照旧先过 `redact_remote_data`。
+runtime 在每轮开头生成状态摘要时一并生成知识库段，拼进 system 消息，顺序是提示词 → 知识库段 → 状态摘要。知识库段的主体是索引（`- <id>｜<title>：<when_to_use>`，先按 kind 排 `playbook`、`screen`、`rule`，再按 id）→ 当期活动（M24，只在读到数据时插入）→ 术语表全文 → 用户档案全文，空段落写「暂无」。`glossary` / `profile` 有多条启用时按 id 顺序全部注入。整段 system 消息照旧先过 `redact_remote_data`。
 
-每轮成本：31 条内置条目的索引约 1,892 字，加上术语表全文 2,438 字，合计约 4.3 千字（M18 时是 375 字）。这是 M19 换取知识密度的代价，也是设计上把「正文」放在索引之外的原因：29 条索引类条目的正文只在模型调用 `read_knowledge` 时才进上下文，单条可写到 20,000 字而不增加每轮开销。
+当期活动段（M24）。位置在索引之后、术语表之前，**只放一行、≤ 120 字**：活动名、开始日期、关卡代号区间与关数，加一句「同名代号可能属于别的期次」的消歧提醒，并点出查具体关卡用 `get_activity_stages`。不列全部关卡——这一段是**每轮成本**，列全表的路径是工具。数据由 `activity_index` 现读本机活动资源（`version.json` 的 `activity` 段与 `Arknights-Tile-Pos/overview.json`），按文件签名缓存，`update_resource` 之后同一进程内即可反映新活动；读不出来时**整段不插**（没有内容可展示，插一行「暂无」只花 token 不提供信息）。取数据的服务经构造参数注入（`KnowledgeService(factory, activity_index=…)`），缺省用模块级默认实现，测试可注入假件。
+
+每轮成本：M19 测得 31 条内置条目的索引约 1,892 字，加上术语表全文 2,438 字，合计约 4.3 千字（M18 时是 375 字）；M24 再付一条索引行与一行 ≤ 120 字的当期活动段。这是换取知识密度的代价，也是设计上把「正文」放在索引之外的原因：M24 起 30 条索引类条目的正文只在模型调用 `read_knowledge` 时才进上下文，单条可写到 20,000 字而不增加每轮开销。
 
 知识库读取失败时注入「知识库暂不可用」并记一条 warning，本轮照常进行；索引与状态摘要都在迭代循环之前生成一次，循环内所有请求复用。自动诊断会话同样注入。
 

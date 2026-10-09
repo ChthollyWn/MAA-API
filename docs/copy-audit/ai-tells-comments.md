@@ -1,44 +1,44 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 7786 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 7886 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 186 | 186 |
-| 「A 而不是 B」对照腔 | high | 0 | 78 | 78 |
+| 粗体强调 | medium | 0 | 189 | 189 |
+| 「A 而不是 B」对照腔 | high | 0 | 79 | 79 |
 | 破折号当冒号用 | high | 0 | 61 | 61 |
 | 绝对化规定腔 | medium | 0 | 46 | 46 |
 | 自指式讲解腔 | medium | 0 | 8 | 8 |
 | 「…即可」机器腔 | medium | 0 | 7 | 7 |
+| 提示腔 | medium | 0 | 3 | 3 |
 | 省略号 | medium | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 0 | 2 | 2 |
-| 提示腔 | medium | 0 | 2 | 2 |
 | 「不是…而是…」对照句 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 186）
+## 粗体强调（medium｜用户可见 0 / 开发向 189）
 
 **开发向**
 
-- `maa_api/agent/knowledge/__init__.py:567` 读全表是为了返回**写入后的生效内容**（合并内置值），不再有上限判定：
+- `maa_api/agent/knowledge/__init__.py:654` 读全表是为了返回**写入后的生效内容**（合并内置值），不再有上限判定：
 - `maa_api/agent/knowledge/builtin/operator-classes.md:12` *先锋 —— 对部署有更佳效果的职业**。部署费用普遍较低或适中，能产出额外部署费用，多用于开局展开阵型和补给费用。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:20` *近卫 —— 近战攻击为主的输出职业**。人数最多的职业，地面输出的主要来源。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 180 条，见 inventory.json
+- …… 另有 183 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 78）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 79）
 
 **开发向**
 
-- `maa_api/agent/knowledge/__init__.py:465` 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
+- `maa_api/agent/knowledge/__init__.py:522` 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
 - `maa_api/agent/llm.py:31` : 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
 - `maa_api/agent/llm.py:219` 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
 - `maa_api/agent/runtime.py:1682` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
 - `maa_api/core/worker.py:283` 跳过而非报错（docs/03 §7）。
-- …… 另有 72 条，见 inventory.json
+- …… 另有 73 条，见 inventory.json
 
 ## 破折号当冒号用（high｜用户可见 0 / 开发向 61）
 
@@ -88,6 +88,14 @@
 - `web/src/types/api.d.ts:2987` @description 切换到已登录的账号，输入登录名的一部分即可；不填则不切换
 - …… 另有 1 条，见 inventory.json
 
+## 提示腔（medium｜用户可见 0 / 开发向 3）
+
+**开发向**
+
+- `maa_api/services/stage_resolver.py:111` 注意：overview.json 的值是驼峰（``stageId`` / ``levelId``），返回给上层才转蛇形。
+- `scripts/spike_subprocess_isolation.py:181` 注意：user_dir 必须已存在，否则 AsstSetUserDir 返回 False。
+- `tests/api/test_app_skeleton.py:304` 注意：iter_route_contexts 对内置 /docs、/openapi.json 等给的是 RouteContext
+
 ## 省略号（medium｜用户可见 0 / 开发向 3）
 
 **开发向**
@@ -102,13 +110,6 @@
 
 - `maa_api/db/migrations/env.py:85` ⚠️ 必须在建任何表之前、且写在 connection 上（M2-01 实测）。
 - `maa_api/db/migrations/env.py:88` ⚠️ 紧跟一次 commit，不能省。exec_driver_sql 会 autobegin 一个
-
-## 提示腔（medium｜用户可见 0 / 开发向 2）
-
-**开发向**
-
-- `scripts/spike_subprocess_isolation.py:181` 注意：user_dir 必须已存在，否则 AsstSetUserDir 返回 False。
-- `tests/api/test_app_skeleton.py:304` 注意：iter_route_contexts 对内置 /docs、/openapi.json 等给的是 RouteContext
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 1）
 

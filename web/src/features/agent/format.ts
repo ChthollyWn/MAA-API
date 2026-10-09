@@ -115,6 +115,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_logs: '读取日志',
   read_knowledge: '查阅知识库',
   resolve_stage: '解析关卡',
+  get_activity_stages: '查当期活动',
   get_drop_stats: '读取掉落统计',
   list_task_types: '读取任务类型',
   get_pipeline: '读取流水线',

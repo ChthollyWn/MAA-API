@@ -1,8 +1,8 @@
 # Agent 与知识库
 
-共 1091 条。
+共 1117 条。
 
-## knowledge（919）
+## knowledge（936）
 
 
 **maa_api/agent/knowledge/builtin/account-resources.md**
@@ -22,6 +22,25 @@
 - `maa_api/agent/knowledge/builtin/account-resources.md:19` [md-line] 截图查找寻访凭证、十连寻访凭证，以及中坚、限定、联动、新年等专用寻访凭证；一屏看不全就按 screen-depot 的说明翻页。每读到一组数量先写出来。
 - `maa_api/agent/knowledge/builtin/account-resources.md:20` [md-line] 按 gacha-conversion 换算后回答：列出各项数量、通用抽数（不含源石、含源石两档），专用凭证单列，写明截图时间。
 - `maa_api/agent/knowledge/builtin/account-resources.md:21` [md-line] 最后调用 back_to_home。
+
+**maa_api/agent/knowledge/builtin/activity-stage-codes.md**
+
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:1` [md-line] ---
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:6` [md-line] ---
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:7` [md-line] 代号不是关卡名
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:9` [md-line] **代号**是选关界面上写的那个，形如 `XX-01`、`XX-EX-3`。同一期活动里的代号连编号都不重复，但**跨期次会重名**——同一个代号在不同期活动里指向不同的关。
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:10` [md-line] **stageId** 是内核与资源用的内部名，形如 `act<期数><模式>_08`：前半段是这一期活动的标识，后半段是关卡号。它全局唯一。
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:11` [md-line] 提交 `Fight` 用的是**代号**（`stage` 参数），要先拿到代号再提交；但要确认「这个代号属于哪一期」，只能靠 stageId。
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:13` [md-line] 同名代号怎么消歧
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:16` [md-line] 怎么查
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:17` [md-line] 想知道「现在是什么活动、这一期有哪些关」：`get_activity_stages` 不带参数。
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:18` [md-line] 想知道「某个代号/关卡名是哪一期、当期是不是它」：`get_activity_stages` 带 `stage`。
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:19` [md-line] 想校验内核认不认这一关、拿到 `Fight` 要的写法：`resolve_stage`。
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:20` [md-line] 想知道某一关的地形与出怪位置：`send_stage_map`（本地关卡图）。
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:24` [md-line] 三条不确定的事
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:25` [md-line] **活动分阶段开放**：第一段、第二段、末段先后开，资源里没有时间表。用户问「后三关能不能打」时，答「以游戏内公告与当前界面为准」，必要时让他截个图。
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:26` [md-line] **活动名推代号是推断，不是查表**：本机资源里只有活动名和关卡表，没有名字到代号的映射。工具靠「活动名里的期数 + 当期候选的量级」排序，返回 `confidence`：`high` 表示同期只剩一个候选，`low` 表示有多个候选、取的是排第一的那个（其余在 `alternatives` 里）。`none` 就是推…（共 200 字）
+- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:27` [md-line] **活动之外的模式**（肉鸽、危机合约、剿灭、生息演算）各有自己的代号体系，不在「当期活动」里，按各自的说法回答。
 
 **maa_api/agent/knowledge/builtin/annihilation-weekly.md**
 
@@ -204,14 +223,15 @@
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:27` [md-line] 没体验过的插曲/别传要消耗 1 个事相结晶解锁；事相结晶每周一 4:00 补 1 次机会，登录签到自动消耗，上限 2 个（博士声望 ≥Lv.60 时 3 个）。
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:28` [md-line] 开过「记录修复」的活动例外：完成该系列关卡（不含剧情、教程关）积累评价星数——2 星/3 星都算，突袭/遭遇战记 4 星——可以拿回该活动的限定奖励。
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:30` [md-line] 用本服务刷活动
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:31` [md-line] Fight 的 `stage`：当期 SideStory 的**后三关要写完整关卡编号**；普通活动关按公告里的关卡代号写。
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:32` [md-line] 提交前先确认这一段已经开放（见上），后三关没开就等着，或先刷前面的代币关。
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:33` [md-line] 用户问活动时间、当期商店内容这类会变的信息时，答「以游戏内公告为准」，不要凭记忆报日期。
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:35` [md-line] 优先刷什么
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:37` [md-line] 先把能打的活动关推到首通，拿首次通关/首通源石和一次性奖励（这部分复刻不再给，过期作废）。
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:38` [md-line] 代币优先换**不可替代**的东西：活动干员及其信物、限定家具、时装、寻访凭证。
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:39` [md-line] 其次换模组养成材料和高级素材，最后才是龙门币、作战记录这类平时也能刷的。
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:40` [md-line] 商店快关时提醒用户把代币花掉——兑换期一过就用不了了。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:31` [md-line] 当期是哪个活动、这一期有哪些关卡代号，用 `get_activity_stages` 查（数据来自本机活动资源，每次现读）；`resolve_stage` 只负责校验内核认不认这一关。活动关卡的代号体系见 `activity-stage-codes`。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:32` [md-line] Fight 的 `stage`：当期 SideStory 的**后三关要写完整关卡编号**；普通活动关按公告里的关卡代号写。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:33` [md-line] 提交前先确认这一段已经开放（见上），后三关没开就等着，或先刷前面的代币关。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:34` [md-line] 用户问活动时间、当期商店内容这类会变的信息时，答「以游戏内公告为准」，不要凭记忆报日期。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:36` [md-line] 优先刷什么
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:38` [md-line] 先把能打的活动关推到首通，拿首次通关/首通源石和一次性奖励（这部分复刻不再给，过期作废）。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:39` [md-line] 代币优先换**不可替代**的东西：活动干员及其信物、限定家具、时装、寻访凭证。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:40` [md-line] 其次换模组养成材料和高级素材，最后才是龙门币、作战记录这类平时也能刷的。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:41` [md-line] 商店快关时提醒用户把代币花掉——兑换期一过就用不了了。
 
 **maa_api/agent/knowledge/builtin/gacha-conversion.md**
 
@@ -1017,7 +1037,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:23` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:24` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（172）
+## agent（181）
 
 
 **maa_api/agent/confirmation.py**
@@ -1055,16 +1075,23 @@
 
 **maa_api/agent/knowledge/__init__.py**
 
-- `maa_api/agent/knowledge/__init__.py:87` [const] 知识库索引（开发者与用户维护，可作为操作指引；需要时用 read_knowledge 读取全文）：
-- `maa_api/agent/knowledge/__init__.py:89` [const] 术语表（开发者与用户维护）：
-- `maa_api/agent/knowledge/__init__.py:90` [const] 用户档案（用户维护）：
-- `maa_api/agent/knowledge/__init__.py:93` [const] 暂无
-- `maa_api/agent/knowledge/__init__.py:135` [literal] id 必须匹配 ^[a-z0-9][a-z0-9-]{1,47}$
-- `maa_api/agent/knowledge/__init__.py:137` [literal] kind 必须是 {list(KNOWLEDGE_KINDS)} 之一
-- `maa_api/agent/knowledge/__init__.py:139` [literal] title 长度必须是 1–{MAX_TITLE_CHARS} 字
-- `maa_api/agent/knowledge/__init__.py:142` [literal] when_to_use 长度必须是 1–{MAX_WHEN_TO_USE_CHARS} 字
-- `maa_api/agent/knowledge/__init__.py:145` [literal] body 长度必须是 1–{MAX_BODY_CHARS} 字
-- `maa_api/agent/knowledge/__init__.py:506` [literal] - {entry.id}｜{entry.title}：{entry.when_to_use}
+- `maa_api/agent/knowledge/__init__.py:95` [const] 知识库索引（开发者与用户维护，可作为操作指引；需要时用 read_knowledge 读取全文）：
+- `maa_api/agent/knowledge/__init__.py:98` [const] 当期活动（来自本机活动资源，随资源更新自动变化）：
+- `maa_api/agent/knowledge/__init__.py:103` [const] 术语表（开发者与用户维护）：
+- `maa_api/agent/knowledge/__init__.py:104` [const] 用户档案（用户维护）：
+- `maa_api/agent/knowledge/__init__.py:107` [const] 暂无
+- `maa_api/agent/knowledge/__init__.py:137` [literal] ，{snapshot.started_at.isoformat()} 开始
+- `maa_api/agent/knowledge/__init__.py:140` [const] ；关卡代号 {code_range[0]}…{code_range[1]}（共 {len(snapshot.stages)} 关）
+- `maa_api/agent/knowledge/__init__.py:142` [const] ；关卡代号前缀 {snapshot.stage_id_prefix}（共 {len(snapshot.stages)} 关）
+- `maa_api/agent/knowledge/__init__.py:144` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
+- `maa_api/agent/knowledge/__init__.py:145` [const] ；同名代号可能属于别的期次，提交前用 get_activity_stages 核对 stageId。
+- `maa_api/agent/knowledge/__init__.py:153` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
+- `maa_api/agent/knowledge/__init__.py:189` [literal] id 必须匹配 ^[a-z0-9][a-z0-9-]{1,47}$
+- `maa_api/agent/knowledge/__init__.py:191` [literal] kind 必须是 {list(KNOWLEDGE_KINDS)} 之一
+- `maa_api/agent/knowledge/__init__.py:193` [literal] title 长度必须是 1–{MAX_TITLE_CHARS} 字
+- `maa_api/agent/knowledge/__init__.py:196` [literal] when_to_use 长度必须是 1–{MAX_WHEN_TO_USE_CHARS} 字
+- `maa_api/agent/knowledge/__init__.py:199` [literal] body 长度必须是 1–{MAX_BODY_CHARS} 字
+- `maa_api/agent/knowledge/__init__.py:566` [literal] - {entry.id}｜{entry.title}：{entry.when_to_use}
 
 **maa_api/agent/llm.py**
 
@@ -1155,7 +1182,12 @@
 
 **maa_api/agent/tools/__init__.py**
 
-- `maa_api/agent/tools/__init__.py:47` [literal] 查人工确认的状态和已经执行完的工具结果。确认卡还没回来、或要确认某个操作到底过没过时用。
+- `maa_api/agent/tools/__init__.py:49` [literal] 查人工确认的状态和已经执行完的工具结果。确认卡还没回来、或要确认某个操作到底过没过时用。
+
+**maa_api/agent/tools/activity.py**
+
+- `maa_api/agent/tools/activity.py:57` [literal] 查当期活动叫什么、这一期有哪些关卡，以及某个关卡代号属于哪一期。用户提到活动、当期关卡、或问「这关现在能不能打」时先查一次；提交 Fight 前用它拿到准确的关卡代号。
+- `maa_api/agent/tools/activity.py:77` [const] 没有匹配的关卡。可以改用 stageId（形如 <前缀>_08）或中文关卡名；也可以不带参数先看当期活动的关卡表。
 
 **maa_api/agent/tools/device.py**
 
