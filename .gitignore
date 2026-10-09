@@ -136,3 +136,9 @@ config.yaml
 
 # superpowers 的临时工作区（执行台账、任务简报、审核材料）；需要留存的台账复制到 docs/superpowers/ledgers/
 .superpowers/
+
+# 文案审计的机器可读全量记录（2.8 MB，随时可由 scripts/copy_inventory.py 重建）。
+# 规则命中基线 lint-baseline.json 要入库：它是 --check 防回潮闸门的比较对象。
+docs/copy-audit/inventory.json
+# 抽取器运行期的中间文件（正常结束会自行删除）。
+.copy-inventory-web.json
