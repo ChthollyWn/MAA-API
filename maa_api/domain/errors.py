@@ -260,7 +260,8 @@ class ErrorCode(StrEnum):
     # `base_url` / `api_key` / `model` 三项未配齐
     LLM_NOT_CONFIGURED = "LLM_NOT_CONFIGURED"
 
-    # 上游返回非 2xx。`details.upstream_status` 与已知白名单 `upstream_code` 返回
+    # 上游返回非 2xx（`details.upstream_status` 与已知白名单 `upstream_code`），或请求
+    # 根本没到上游（连接层失败：TLS 校验、域名解析、拒连、流中断，原因在 `details.upstream_error`）
     LLM_REQUEST_FAILED = "LLM_REQUEST_FAILED"
 
     # 上游在超时内未返回

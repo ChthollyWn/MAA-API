@@ -2204,7 +2204,9 @@ def _probe_degraded_reason(tool_error: AppError | None) -> str:
 
     模型名不存在、端点鉴权失败、中转站不转发 ``tools`` 都会落到这里。只报「未通过
     function calling 能力检查」会把这些原因混成一条，用户看不出该改配置还是换模型；
-    因此上游给了可读原因（``llm.py`` 已脱敏并截断）就带出来。
+    因此上游给了可读原因（``llm.py`` 已脱敏并截断）就带出来。连接层失败（TLS 证书
+    校验、域名解析、连接被拒）没有上游响应，原因在 ``details.upstream_error`` 里，
+    同样带出来——否则这类故障只会显示一句「LLM 上游请求失败」。
     """
     if tool_error is None:
         return "当前模型未通过 function calling 能力检查，无法进行 Agent 对话"
@@ -2225,9 +2227,19 @@ def _probe_degraded_reason(tool_error: AppError | None) -> str:
         parts.append(f"能力探查请求被上游拒绝（{described}）")
     else:
         parts.append("能力探查请求失败")
-    upstream_message = details.get("upstream_message")
-    if isinstance(upstream_message, str) and upstream_message:
-        parts.append(str(redact_remote_data(upstream_message)))
+    cause = next(
+        (
+            value
+            for value in (
+                details.get("upstream_message"),
+                details.get("upstream_error"),
+            )
+            if isinstance(value, str) and value
+        ),
+        None,
+    )
+    if cause is not None:
+        parts.append(str(redact_remote_data(cause)))
     else:
         fallback = str(tool_error.message) if tool_error.message else ""
         if fallback and fallback != prefix:

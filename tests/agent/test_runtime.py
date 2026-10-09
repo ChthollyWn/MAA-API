@@ -1982,6 +1982,64 @@ def test_probe_reason_never_echoes_credentials_and_falls_back_without_upstream_d
 
     asyncio.run(scenario())
 
+def test_probe_reason_reports_transport_level_failure():
+    """TLS/DNS 这类连接层失败也要出现在 degraded_reason 里。
+
+    `.venv` 被重建丢掉了 certifi 的 CA 包时，运行中的进程新建 httpx 客户端会拿到
+    空信任库，TLS 校验必然失败（``ConnectError``，没有上游响应）。旧实现只剩一句
+    「LLM 上游请求失败」，和「模型没通过 function calling 检查」看起来一样。
+    """
+
+    async def scenario():
+        tls_failure = AppError(
+            ErrorCode.LLM_REQUEST_FAILED,
+            "LLM 上游请求失败",
+            {
+                "upstream_error": (
+                    "TLS 证书校验失败（[SSL: CERTIFICATE_VERIFY_FAILED] certificate "
+                    "verify failed: self-signed certificate in certificate chain "
+                    "(_ssl.c:1028)）"
+                )
+            },
+        )
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [tls_failure, _text_response("image accepted")],
+            prime_capabilities=False,
+        )
+        try:
+            result = await runtime.check_capabilities(None)
+            assert result["tool_calling"] is False
+            assert result["ready"] is False
+            assert result["status"] == "llm_unavailable"
+            reason = result["degraded_reason"]
+            assert "未通过 function calling 能力检查" not in reason
+            assert "能力探查请求失败" in reason
+            assert "TLS 证书校验失败" in reason
+            assert "CERTIFICATE_VERIFY_FAILED" in reason
+        finally:
+            await engine.dispose()
+
+        # 传输层原因同样要先脱敏：details 会原样出接口。
+        leaked_key = "sk-do-not-leak-this"
+        leaking = AppError(
+            ErrorCode.LLM_REQUEST_FAILED,
+            "LLM 上游请求失败",
+            {"upstream_error": f"ConnectError：Authorization: Bearer {leaked_key}"},
+        )
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [leaking, _text_response("image accepted")],
+            prime_capabilities=False,
+        )
+        try:
+            result = await runtime.check_capabilities(None)
+            assert leaked_key not in result["degraded_reason"]
+            assert "[REDACTED]" in result["degraded_reason"]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_vision_probe_requires_the_model_to_actually_read_the_image():
     """不接受图片的模型会回「我看不到图片」，不能因为有文本就算支持视觉。"""
     probe_call = [

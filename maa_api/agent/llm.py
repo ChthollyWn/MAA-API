@@ -54,8 +54,80 @@ _CONTEXT_OVERFLOW_MESSAGE_PATTERNS = (
 )
 
 #: ``details.upstream_message`` 的长度上限：够定位「模型名不存在」「图片格式不支持」
-#: 这类 400，又不至于让一段上游正文塞满错误响应。
+#: 这类 400，又不至于让一段上游正文塞满错误响应。``details.upstream_error``
+#: （连接层失败）沿用同一个上限。
 MAX_UPSTREAM_MESSAGE_CHARS = 300
+
+#: 连接层失败的已知成因：``str(exc)`` 命中关键词就给一句中文结论，用户不必自己
+#: 从 ``[SSL: CERTIFICATE_VERIFY_FAILED]`` 这种原文里认。顺序即优先级。
+_TRANSPORT_CAUSE_LABELS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        (
+            "certificate_verify_failed",
+            "certificate verify failed",
+            "sslcertverificationerror",
+            "self-signed certificate",
+            "self signed certificate",
+            "unable to get local issuer",
+        ),
+        "TLS 证书校验失败",
+    ),
+    (
+        (
+            "nodename nor servname",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "getaddrinfo",
+            "name resolution",
+        ),
+        "域名解析失败",
+    ),
+    (("connection refused",), "连接被拒绝"),
+    (
+        (
+            "connection reset",
+            "connection aborted",
+            "broken pipe",
+            "server disconnected",
+            "incomplete chunked read",
+            "connection closed",
+        ),
+        "与上游的连接中断",
+    ),
+    (("proxy",), "代理连接失败"),
+    (("timed out", "timeout"), "连接超时"),
+)
+
+
+def _describe_transport_error(exc: httpx.HTTPError) -> str:
+    """把连接层异常压成一句可读原因（先脱敏，再截断）。
+
+    连接层失败（TLS 校验、域名解析、连接被拒、流中断）在 ``str(exc)`` 里已经有
+    可读原文，但没有上游响应，所以 ``details`` 里不会有 ``upstream_status``。
+    命中已知措辞时补一句中文结论；都不命中就退回异常类名加原文，至少还能看出
+    是 ``ConnectError`` 还是 ``RemoteProtocolError``。原文可能回显 API Key 或
+    ``Authorization`` 头（``details`` 会原样出接口），所以与 ``upstream_message``
+    走同一套 ``redact_remote_data`` 脱敏。
+    """
+    raw = str(redact_remote_data(str(exc).strip()))
+    haystack = raw.casefold()
+    label = next(
+        (
+            candidate
+            for patterns, candidate in _TRANSPORT_CAUSE_LABELS
+            if any(pattern in haystack for pattern in patterns)
+        ),
+        None,
+    )
+    if label and raw:
+        described = f"{label}（{raw}）"
+    elif label:
+        described = label
+    elif raw:
+        described = f"{type(exc).__name__}：{raw}"
+    else:
+        described = type(exc).__name__
+    return described[:MAX_UPSTREAM_MESSAGE_CHARS]
 
 
 class OpenAICompatibleClient:
@@ -195,8 +267,15 @@ class OpenAICompatibleClient:
                     )
         except httpx.TimeoutException:
             raise AppError(ErrorCode.LLM_TIMEOUT, "LLM 上游请求超时") from None
-        except httpx.HTTPError:
-            raise AppError(ErrorCode.LLM_REQUEST_FAILED, "LLM 上游请求失败") from None
+        except httpx.HTTPError as exc:
+            # 连接层失败没有上游响应，``details`` 里不会有 ``upstream_status``；此前
+            # ``from None`` 把唯一的原因（TLS 校验、DNS、拒连、流中断）整个丢掉，
+            # 界面只剩「LLM 上游请求失败」，与「模型不支持工具调用」无法区分。
+            raise AppError(
+                ErrorCode.LLM_REQUEST_FAILED,
+                "LLM 上游请求失败",
+                {"upstream_error": _describe_transport_error(exc)},
+            ) from None
 
     @staticmethod
     def _upstream_error_code(response: httpx.Response) -> str | None:

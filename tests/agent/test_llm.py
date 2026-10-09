@@ -466,6 +466,86 @@ def test_upstream_timeout_maps_to_llm_timeout() -> None:
     asyncio.run(scenario())
 
 
+def _transport_failure(error: httpx.HTTPError) -> AppError:
+    """把 mock transport 抛出的连接层异常跑成 ``AppError``，供下面几条用例共用。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise error
+
+    async def scenario() -> AppError:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("m", [], []))
+        return exc_info.value
+
+    return asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_label"),
+    [
+        (
+            httpx.ConnectError(
+                "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+                "self-signed certificate in certificate chain (_ssl.c:1028)"
+            ),
+            "TLS 证书校验失败",
+        ),
+        (
+            httpx.ConnectError(
+                "[Errno 8] nodename nor servname provided, or not known"
+            ),
+            "域名解析失败",
+        ),
+        (httpx.ConnectError("[Errno 61] Connection refused"), "连接被拒绝"),
+        (
+            httpx.RemoteProtocolError("Server disconnected without sending a response."),
+            "与上游的连接中断",
+        ),
+    ],
+    ids=["tls-verify", "name-resolution", "connection-refused", "stream-aborted"],
+)
+def test_transport_failure_keeps_the_real_cause_in_details(
+    error: httpx.HTTPError, expected_label: str
+) -> None:
+    """连接层失败没有上游响应，真实原因必须落在 ``details.upstream_error`` 里。
+
+    此前 ``except httpx.HTTPError`` 用 ``from None`` 硬编码文案，TLS 证书校验失败、
+    域名解析失败、连接被拒全都显示成一句「LLM 上游请求失败」，无法与「模型能力不足」
+    区分（``.venv`` 被重建丢掉 certifi CA 包时就是这个症状）。
+    """
+    mapped = _transport_failure(error)
+
+    assert mapped.code == ErrorCode.LLM_REQUEST_FAILED
+    assert mapped.message == "LLM 上游请求失败"
+    assert set(mapped.details) == {"upstream_error"}
+    described = mapped.details["upstream_error"]
+    assert described.startswith(f"{expected_label}（")
+    assert str(error) in described
+    assert "sk-hidden" not in repr(mapped)
+
+
+def test_transport_cause_falls_back_to_the_exception_name_and_is_redacted_and_truncated() -> None:
+    """陌生措辞退回「异常类名：原文」，原文同样要脱敏、截断。"""
+    assert _transport_failure(httpx.ReadError("")).details == {
+        "upstream_error": "ReadError"
+    }
+
+    leaked = _transport_failure(
+        httpx.ConnectError("handshake failed; Authorization: Bearer sk-live-secret")
+    )
+    assert "sk-live-secret" not in repr(leaked)
+    assert leaked.details["upstream_error"].startswith("ConnectError：")
+    assert "[REDACTED]" in leaked.details["upstream_error"]
+
+    long_message = _transport_failure(httpx.ReadError("y" * 1000))
+    assert len(long_message.details["upstream_error"]) == 300
+    assert long_message.details["upstream_error"].startswith("ReadError：")
+
+
 def test_client_never_logs_api_key_or_authorization_header(caplog: pytest.LogCaptureFixture) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

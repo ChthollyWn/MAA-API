@@ -16,6 +16,16 @@
 - `poetry lock` 若在受限沙箱下需要 `POETRY_CACHE_DIR=$(mktemp -d)`（默认缓存目录在仓库外）。
 - Node v23.11.0；pnpm 11.1.3。adb 36.0.0 于 `/opt/homebrew/bin/adb`。
 
+## 常驻服务与 `.venv`（2026-10-09 实测）
+
+- **服务由 launchd 常驻**：`~/Library/LaunchAgents/local.maa-api.plist` → `scripts/maa-api-service.sh`（install/enable/disable/stop），`MAA_PYTHON` 钉在 `.venv/bin/python`，监听 `:8002`，日志在 `resource/log/uvicorn.out|err`。`launchctl print gui/$UID/local.maa-api` 能看到 `pid`；沙箱里 `ps` 被拒时用 `lsof -nP -p <pid>` 看它打开的日志与库。
+- **`.venv` 换成另一个 Python 版本的 venv 时，已在运行的进程会静默坏掉**（本次事故）：进程的 `sys.path` 仍指向 `.venv/lib/python3.13/site-packages`，而 httpx 的 `SSLConfig.DEFAULT_CA_BUNDLE_PATH` 是 **import 时**由 `certifi.where()` 算好的路径；`httpx/_config.py` 只在 `ca_bundle_path.is_file()` 为真时才 `load_verify_locations(...)`，文件没了就**静默跳过**，于是新建客户端的信任库为空、任何 HTTPS 握手都失败：`[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1028)`（没有信任锚时链顶的自签根必然报这一句，实测复现）。
+- **只有新建 httpx 客户端会中招**：进程启动时就建好的长连接客户端（`main.py` 的 `update_http_client`）SSLContext 已经在内存里，握手照常成功——「更新检查还能连上 GitHub、只是读超时」不能证明 TLS 正常。Agent 的能力探查每次新建客户端（`llm.py`），所以最先坏的是它。
+- **判别**：`POST /api/agent/capabilities/check` 返回 200，`degraded_reason` 只说「LLM 上游请求失败」，但同一份 `config.yaml` 在 shell 里用 httpx 直连同一端点完全正常 → 先 `stat .venv/lib/python3.13/site-packages/certifi/cacert.pem`（该路径取自进程 traceback 里的 site-packages），再看进程有没有开新连接（`lsof -nP -p <pid> -a -iTCP`；TLS 握手失败也可能快到抓不住 ESTABLISHED，别只凭没有 socket 就断定与网络无关）。本次已让 `llm.py` 把连接层原因带进 `details.upstream_error`（见 [13 §8.30](./13-决策记录.md)），以后这句会直接写成「TLS 证书校验失败（…）」。
+- **恢复**：把 `certifi/cacert.pem` 放回运行中进程期望的那个路径即可，**不需要重启**（httpx 每次新建客户端都重新按路径找文件）。根治是重建同版本 `.venv`：`python3.13 -m venv --clear .venv` + `poetry install --no-root`。
+- **`.venv` 坏掉时服务无法重启**：`scripts/start-maa-api.sh` 在 `$PYTHON_BIN` 不可执行时直接 `exit 1`，launchd `KeepAlive` 会按 `ThrottleInterval` 15 秒一次快速失败循环。
+- **受限沙箱里 poetry 装依赖要给 `POETRY_CACHE_DIR` 指一个可写目录**（同上面 `poetry lock` 那条）。否则报的是「All attempts to connect to mirrors.aliyun.com failed」，真正的原因在 `-v` 输出里：`[Errno 1] Operation not permitted: '/Users/user/Library/Caches/pypoetry/cache/...'`——与网络无关，按提示排查会误诊。
+
 ## MaaCore 内核
 
 - 本地库：`resource/lib/maa/Darwin/`（v6.17.5）与 `resource/lib/maa/Linux/`（v6.17.2）。
