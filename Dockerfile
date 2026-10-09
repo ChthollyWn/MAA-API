@@ -3,7 +3,7 @@ FROM node:22-slim AS web
 
 WORKDIR /web
 
-# Separate dependency manifests to keep the pnpm install layer cacheable.
+# 依赖清单单独复制：改业务代码不会让 pnpm install 这一层缓存失效。
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 
@@ -27,7 +27,7 @@ COPY maa_api/ ./maa_api/
 COPY scripts/ ./scripts/
 COPY alembic.ini ./alembic.ini
 COPY config.template.yaml ./config.yaml
-# Copy only Vite output; the runtime image is based on Python and has no Node toolchain.
+# 只复制 Vite 产物：运行镜像是 Python 基底，没有 Node 工具链。
 COPY --from=web /static ./static
 
 EXPOSE 8002

@@ -323,7 +323,7 @@ def build_findings(
         flat = "\n".join(f"- {line}" for line in flatten_json(parsed)) if parsed is not None else "- details 不是合法 JSON，见原始文本"
         raw_block = async_info.get("details_raw", "")
         observed = run.get("observed_message_ids") or []
-        captured_verdict = f"""**已捕获。** 触发一次 `AsstAsyncConnect(handle, adb, address, "General", block=True)`，
+        captured_verdict = f"""捕获到 AsyncCallInfo：触发一次 `AsstAsyncConnect(handle, adb, address, "General", block=True)`，
 `AsstAsyncConnect` 返回 `async_call_id = {run.get('async_connect_return')}`（受理编号），
 约 {async_info.get('offset_sec')}s 后收到 `Message = 4`（AsyncCallInfo）的回调。
 
@@ -358,7 +358,7 @@ def build_findings(
 `details_raw` 保存上面这段原文。给 M1-04 的解析器结论见 §4。"""
     else:
         errs = "; ".join(run.get("errors") or []) or "无显式报错"
-        captured_verdict = f"""**未捕获。** 在 {run.get('wait_sec')}s 内没有收到 `Message = 4`（AsyncCallInfo）回调，
+        captured_verdict = f"""未捕获 AsyncCallInfo：在 {run.get('wait_sec')}s 内没有收到 `Message = 4`（AsyncCallInfo）回调，
 观测到的回调 msg 序列为 `{run.get('observed_message_ids')}`，错误记录：{errs}。
 按任务卡要求如实记录为未捕获，不推断字段名。"""
 

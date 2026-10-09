@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "maa-api"
 version = "0.1.0"
-description = ""
+description = "以 MaaAssistantArknights 为内核的 FastAPI 服务"
 authors = ["ChthollyWn <85938618+ChthollyWn@users.noreply.github.com>"]
 readme = "README.md"
 
@@ -9,8 +9,8 @@ readme = "README.md"
 python = "^3.11"
 fastapi = ">=0.138,<1.0"
 uvicorn = ">=0.30"
-# Uvicorn's automatic WebSocket protocol selection needs a server implementation;
-# the default M4 deployment must support real /api/ws upgrades.
+# uvicorn 自动选择 WebSocket 协议实现时需要服务端实现；M4 起的部署必须支持真实的
+# /api/ws 升级。
 websockets = ">=13.0"
 pydantic = "^2.7"
 sqlmodel = ">=0.0.22"

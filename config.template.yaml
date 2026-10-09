@@ -1,49 +1,49 @@
 # 配置模板：复制为 config.yaml 后按需填写（config.yaml 不入库）
 # 应用配置
 app:
-  # 访问密钥 为空则不鉴权
+  # 访问密钥；留空则免鉴权
   access_token:
-  # maa核心文件位置
+  # MaaCore 内核目录
   maa_core_path:
-  # 系统代理
+  # 系统代理；留空表示不使用
   proxy:
 
 # 更新检查与下载配置
 updates:
-  # 可选下载加速前缀；留空时使用官方地址
+  # 可选下载加速前缀；留空时用官方地址
   download_prefix:
-  # 每日更新检查的本地小时（0-23），默认 09:00
+  # 每日更新检查的本地时间（小时，0-23）；默认 09:00
   check_hour: 9
 
-# adb配置
+# ADB 配置
 adb:
-  # adb路径
+  # adb 可执行文件路径
   path: /opt/homebrew/bin/adb
-  # adb连接地址
+  # 设备连接地址
   address: 127.0.0.1:5555
-  # 截屏质量 范围1-95 值越大质量越高
+  # 截图质量（1-95）；值越大越清晰
   screenshot_quality: 25
-  # MaaCore ADB 连接配置
+  # MaaCore 的 ADB 连接配置名
   connection_config: General
-  # 扫描模拟器常见端口
+  # 扫描模拟器常用端口
   common_ports: [5555, 5556, 7555, 16384, 21503, 62001]
 
-# 任务全局默认渠道（单任务显式参数优先）
+# 任务全局默认客户端渠道（单任务显式参数优先）
 channel:
   client_type: Bilibili
   server: CN
 
-# 故障后创建可继续对话的自动诊断会话
+# 流水线失败或内核崩溃后，自动创建可继续追问的诊断会话
 agent:
   auto_diagnose_failures: true
 
-# OpenAI 兼容模型（密钥建议通过环境变量或设置页录入；数据库密钥由 MAA_LLM_ENCRYPTION_KEY 加密）
+# OpenAI 兼容模型；密钥建议通过环境变量或设置页录入，数据库里的密钥由 MAA_LLM_ENCRYPTION_KEY 加密
 llm:
   base_url: https://api.deepseek.com
   api_key:
   model: deepseek-flash
 
-# 邮箱配置
+# 邮件通知
 smtp:
   server: smtp.qq.com
   port: 587
@@ -51,7 +51,7 @@ smtp:
   password:
 
 # Web Push（PWA 推送通知）：用 scripts/generate_vapid_keys.py 生成密钥对后粘贴到这里
-# 私钥必须保持稳定：换密钥会让所有已建立的浏览器订阅静默失效
+# 私钥必须保持稳定，换密钥会让所有已建立的浏览器订阅静默失效
 notify:
   vapid_private_key:
   # JWT 的 sub，推送服务用它联系站点管理员；改成你自己的邮箱

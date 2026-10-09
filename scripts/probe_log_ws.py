@@ -145,7 +145,7 @@ def probe_ws_routing() -> dict[str, Any]:
     app = FastAPI()
     app.include_router(router)
 
-    # 注意：docs/06 的 asst.log 路由；这里只关心「怎么才能看到 WS 路径」
+    # docs/06 的 asst.log 路由：只关心 WS 路径的取法
     openapi_paths = sorted(app.openapi()["paths"])
     context_paths: list[dict[str, Any]] = []
     for context in iter_route_contexts(app.routes):
@@ -1724,7 +1724,7 @@ def build_findings_md(result: dict[str, Any]) -> str:
     md.append("| check | 结果 |")
     md.append("|---|---|")
     for name, ok in checks.items():
-        md.append(f"| `{name}` | {'✅ true' if ok else '❌ false'} |")
+        md.append(f"| `{name}` | {'通过' if ok else '失败'} |")
     md.append("")
     md.append(
         f"`probe_ok = {result.get('probe_ok')}`（11 条 required_checks 全 true 且探针自身无异常）。\n"

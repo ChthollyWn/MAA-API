@@ -94,7 +94,7 @@ from sqlalchemy import (  # noqa: E402
 )
 from sqlmodel import Field, SQLModel  # noqa: E402
 
-# ⚠️ 必须在任何表定义之前设置 —— 这正是实验 1 要验证的写法。
+# 必须在任何表定义之前设置：这正是实验 1 要验证的写法。
 SQLModel.metadata.naming_convention = NAMING_CONVENTION
 
 
@@ -215,7 +215,7 @@ def _late_naming_convention_control() -> dict:
             UniqueConstraint("parent_id", "status"),
         )
 
-    # ⚠️ 表已经定义完了才设置命名约定
+    # 表已经定义完了才设置命名约定
     md.naming_convention = NAMING_CONVENTION
 
     engine = create_engine("sqlite://")
@@ -1351,10 +1351,10 @@ def build_findings_md(result: dict) -> str:
 
     def _verdict(name: str, value: int) -> str:
         if value == 2 and av_version_ok.get(name):
-            return "✅ 生效"
+            return "生效"
         if value == 2:
-            return "⚠️ **不可用**：pragma 拿到 2，但 `alembic_version` 行被回滚"
-        return "❌ 未生效（0 = NONE，静默失效）"
+            return "不可用：pragma 拿到 2，但 `alembic_version` 行被回滚"
+        return "未生效（0 = NONE，静默失效）"
 
     av_rows = "\n".join(
         f"| `{name}` | {value} | {_version_rows_text(name)} | {_verdict(name, value)} |"
@@ -1416,7 +1416,7 @@ def build_findings_md(result: dict) -> str:
 > 说明，并给探针补上「`alembic_version` 行 == 预期版本」断言与「不 commit」对照场景，
 > 使这类错误能被探针本身挡住。
 
-## 结论速览
+## 实测结果一览
 
 | 问题 | 实测结论 |
 |---|---|
@@ -1464,7 +1464,7 @@ def build_findings_md(result: dict) -> str:
 
   ```python
   conn.exec_driver_sql("PRAGMA auto_vacuum=INCREMENTAL")
-  conn.commit()  # ⚠️ 不能省：见下一条
+  conn.commit()  # 不能省：见下一条
   ```
 
   本场景（`{chosen}`）实测 `PRAGMA auto_vacuum = {av.get(chosen, '（无）')}`、

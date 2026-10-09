@@ -1,3 +1,8 @@
+# MAA-API
+
+以 MaaAssistantArknights 为内核的 FastAPI 服务，自带 Web 控制台、开放 API 与内置 Agent。
+重构方案与决策见 [docs/](docs/README.md)。
+
 ## Copilot 作业
 
 通过 Agent 的 `upload_copilot` 保存并校验作业 JSON，再把返回的资产 ID 作为 `Copilot` 任务提交到流水线或定时任务。每次执行都会从已校验的资产生成独立私有快照；MaaCore 读取这份快照，源文件在解析后被修改或删除不影响当前运行。资源路径任一组件是 symlink 时会拒绝执行，快照在流水线结束后清理。Copilot 使用自己的任务类型，不会被替换成普通 Fight 关卡。
@@ -63,20 +68,20 @@ poetry run uvicorn maa_api.main:app --host 0.0.0.0 --port 8002
 | `enable` / `disable` | 允许 / 禁止自启并立即停止 |
 | `status` / `logs` / `paths` / `check` | 看状态、看日志、打印路径、只体检不改状态 |
 
-- **plist 的唯一事实来源是 [local.maa-api.plist.template](scripts/launchd/local.maa-api.plist.template)**。别直接编辑 `~/Library/LaunchAgents/local.maa-api.plist`——改模板后重新 `install`。
-- **`stop` 不等于停服**：KeepAlive 会把它拉回来，要彻底停用请用 `disable`（这也是它的设计语义：常驻）。
-- **改 `config.yaml` 后必须 `reload`**，launchd 起的实例没有终端可 Ctrl-C。
-- **日志分两处**：应用日志在 `resource/log/YYYY-MM-DD.log`；`resource/log/uvicorn.err` 只在「Python 还没起来就死」时才有内容（venv 被删、`config.yaml` 语法错）。脚本每次启动前会把后者截到最后 2MB。
-- **换端口**：`MAA_PORT=<端口> ./scripts/maa-api-service.sh install`，同时要保证 [start-maa-api.sh](scripts/start-maa-api.sh) 拿到同一个 `MAA_PORT`（模板已把它写进 plist 的环境变量）。
-- launchd 只存在于 macOS。Linux 用 systemd，容器用 `--restart unless-stopped`（见上一节），**不要与 LaunchAgent 同时跑**——两者会抢同一个 8002 端口与同一个 SQLite 库。
+- plist 的唯一事实来源是 [local.maa-api.plist.template](scripts/launchd/local.maa-api.plist.template)：不要直接编辑 `~/Library/LaunchAgents/local.maa-api.plist`，改模板后重新 `install`。
+- `stop` 不等于停服：KeepAlive 会把它拉回来，要彻底停用请用 `disable`（这也是它的设计语义：常驻）。
+- 改 `config.yaml` 后必须 `reload`，launchd 起的实例没有终端可 Ctrl-C。
+- 日志分两处：应用日志在 `resource/log/YYYY-MM-DD.log`；`resource/log/uvicorn.err` 只在「Python 还没起来就死」时才有内容（venv 被删、`config.yaml` 语法错）。脚本每次启动前会把后者截到最后 2MB。
+- 换端口：`MAA_PORT=<端口> ./scripts/maa-api-service.sh install`，同时要保证 [start-maa-api.sh](scripts/start-maa-api.sh) 拿到同一个 `MAA_PORT`（模板已把它写进 plist 的环境变量）。
+- launchd 只存在于 macOS。Linux 用 systemd，容器用 `--restart unless-stopped`（见上一节），不要与 LaunchAgent 同时跑：两者会抢同一个 8002 端口与同一个 SQLite 库。
 
 ## 手机与 PWA
 
-手机可通过同一网络访问主机地址。若要启用 Service Worker、离线外壳与 Chromium 安装提示，请通过 **Tailscale Serve 的 HTTPS 地址**访问；直接使用局域网 HTTP 仍可打开页面和调用 API，但浏览器会禁用这些安全上下文能力。iOS 仍可从 Safari 分享菜单手动添加到主屏幕。Web Push 将在 M14 接入。
+手机可通过同一网络访问主机地址。若要启用 Service Worker、离线外壳与 Chromium 安装提示，请通过 Tailscale Serve 的 HTTPS 地址访问；直接使用局域网 HTTP 仍可打开页面和调用 API，但浏览器会禁用这些安全上下文能力。iOS 仍可从 Safari 分享菜单手动添加到主屏幕。Web Push 已接入（M14），需要 HTTPS 入口与 VAPID 密钥。
 
 ## 用 superpowers 推进里程碑
 
-后续里程碑（M10–M15，范围见 [docs/12](docs/12-实施计划与里程碑.md)）在 Codex 中用 superpowers 插件推进。项目约定写在 [AGENTS.md](AGENTS.md)，下面的提示词只需把 `<N>` 换成里程碑编号。
+后续里程碑（范围见 [docs/12](docs/12-实施计划与里程碑.md)）在 Codex 中用 superpowers 插件推进。项目约定写在 [AGENTS.md](AGENTS.md)，下面的提示词只需把 `<N>` 换成里程碑编号。
 
 ### 第一步：在计划模式里理清范围
 

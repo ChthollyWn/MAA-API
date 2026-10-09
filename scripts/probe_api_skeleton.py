@@ -1269,7 +1269,7 @@ def build_findings_md(result: dict[str, Any]) -> str:
         return f"| `{name}` | {rec.get('outcome')} | {types} | {rec.get('exception') or ''} |"
 
     check_lines = "\n".join(
-        f"| `{name}` | {'✅' if ok else '❌'} |" for name, ok in checks.items()
+        f"| `{name}` | {'通过' if ok else '失败'} |" for name, ok in checks.items()
     )
 
     md: list[str] = []
@@ -1389,7 +1389,7 @@ def build_findings_md(result: dict[str, Any]) -> str:
     )
     md.append("")
     md.append(
-        f"- ⚠️ docs/05 §7.2 的 `MaaField` 写不下 `x-depends-on` / `x-risk`：它的签名没有 `json_schema_extra` 入口，"
+        f"- docs/05 §7.2 的 `MaaField` 写不下 `x-depends-on` / `x-risk`：它的签名没有 `json_schema_extra` 入口，"
         f"而 `**kwargs` 直接转给 `Field` 会撞车（实测 `{(b.get('docs_maafield_x_extra') or {}).get('collision_message')}`）。"
         "实现时必须给 `MaaField` 加一个额外 x-键参数（本探针叫 `x_extra`）。"
     )

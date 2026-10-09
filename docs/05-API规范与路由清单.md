@@ -1,4 +1,4 @@
-> 本文档是 MAA-API 对外契约的唯一规范：HTTP 状态码用法、统一错误体与错误码枚举、四渠道鉴权、全量路由清单、任务提交的请求体设计与幂等约定。上游决策见 [README 决策速查表](./README.md#决策速查表)，接入层在整体架构中的位置见 [02-系统架构设计](./02-系统架构设计.md)。
+> MAA-API 对外契约的唯一规范：HTTP 状态码用法、统一错误体与错误码枚举、四渠道鉴权、全量路由清单、任务提交的请求体设计与幂等约定。上游决策见 [README 决策速查表](./README.md#决策速查表)，接入层在整体架构中的位置见 [02-系统架构设计](./02-系统架构设计.md)。
 
 # API 规范与路由清单
 
@@ -6,7 +6,7 @@
 
 重构后的 API 遵循四条硬规则，它们共同废弃了现有 `maa_api/model/request/response.py` 那套 `{code: 10200}` 体系。
 
-**语义由 HTTP 状态码承担。** 现有实现无论成败都返回 HTTP 200，真实结果藏在响应体的 `code` 字段里。这让所有中间层——浏览器、`fetch` 的 `response.ok`、反向代理的日志、OpenAPI 生成的客户端、调用方的重试策略——全部失效，每一处都必须先解析 body 才知道发生了什么。新规范下状态码是第一现场。
+**语义由 HTTP 状态码承担。** 现有实现无论成败都返回 HTTP 200，真实结果藏在响应体的 `code` 字段里。这让所有中间层（浏览器、`fetch` 的 `response.ok`、反向代理的日志、OpenAPI 生成的客户端、调用方的重试策略）全部失效，每一处都必须先解析 body 才知道发生了什么。新规范下状态码是第一现场。
 
 **错误体只有一种形状。** 任何非 2xx 响应的 body 都是：
 
@@ -85,7 +85,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ### 2.2 400 与 422 的分界
 
-界线是"**Pydantic 能不能表达**"。能被字段类型、`ge`/`le`、`Literal`、`model_validator` 拦住的，一律 422，错误码 `VALIDATION_ERROR` 或 `TASK_PARAM_INVALID`，`details` 里带 FastAPI 原生的字段级错误列表。拦不住的语义问题——请求体不是合法 JSON、discriminator 取值不在已知任务类型内、设置项 key 不存在、cron 字符串 APScheduler 解析不了——用 400。
+界线是"**Pydantic 能不能表达**"。能被字段类型、`ge`/`le`、`Literal`、`model_validator` 拦住的，一律 422，错误码 `VALIDATION_ERROR` 或 `TASK_PARAM_INVALID`，`details` 里带 FastAPI 原生的字段级错误列表。拦不住的语义问题用 400：请求体不是合法 JSON、discriminator 取值不在已知任务类型内、设置项 key 不存在、cron 字符串 APScheduler 解析不了。
 
 这条线的实用价值在于前端：422 一定能定位到具体字段并高亮表单项，400 只能弹一条整体提示。
 
@@ -97,17 +97,17 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 三者都表示"不是客户端的错"，区别在于下游处于什么状态，以及客户端该怎么处置。
 
-**503 Service Unavailable —— 依赖暂时不可用，等一等再来。** 内核还在加载资源、设备没连上、LLM 没配置。这类响应带 `Retry-After`，前端会自动重试或显示"等待中"。
+**503 Service Unavailable：依赖暂时不可用，等一等再来。** 内核还在加载资源、设备没连上、LLM 没配置。这类响应带 `Retry-After`，前端会自动重试或显示"等待中"。
 
-**502 Bad Gateway —— 依赖被调用了，但它失败了。** `AsstAppendTask` 返回 0、`adb shell` 非零退出、下载源返回 500、LLM 端点报 `invalid_api_key`。这类不该自动重试，要把失败原因显示给用户。
+**502 Bad Gateway：依赖被调用了，但它失败了。** `AsstAppendTask` 返回 0、`adb shell` 非零退出、下载源返回 500、LLM 端点报 `invalid_api_key`。这类不该自动重试，要把失败原因显示给用户。
 
-**504 Gateway Timeout —— 依赖被调用了，但没在时限内应答。** MaaCore 子进程命令超时（`CORE_COMMAND_TIMEOUT`）与 LLM 上游超时（`LLM_TIMEOUT`）都归这一类。
+**504 Gateway Timeout：依赖被调用了，但没在时限内应答。** MaaCore 子进程命令超时（`CORE_COMMAND_TIMEOUT`）与 LLM 上游超时（`LLM_TIMEOUT`）都归这一类。
 
-区分 504 与 502 的价值在于两者的**后续处置不同**。502 意味着下游给了明确答复"这事我办不成"，原因通常就在响应里，重试大概率还是同样的结果。504 意味着下游没答复，那么操作**可能已经执行了一半**——`CORE_COMMAND_TIMEOUT` 尤其如此：命令已经投递进子进程队列，超时只说明没在预算内收到 `CMD_RESULT`，任务可能正在跑。因此 504 后客户端要做的是查状态（`GET /api/pipelines/current`）而不是重试，盲目重试可能提交两遍。
+区分 504 与 502 的价值在于两者的**后续处置不同**。502 意味着下游给了明确答复"这事我办不成"，原因通常就在响应里，重试大概率还是同样的结果。504 意味着下游没答复，那么操作**可能已经执行了一半**，`CORE_COMMAND_TIMEOUT` 尤其如此：命令已经投递进子进程队列，超时只说明没在预算内收到 `CMD_RESULT`，任务可能正在跑。因此 504 后客户端要做的是查状态（`GET /api/pipelines/current`）而不是重试，盲目重试可能提交两遍。
 
 这个区分同时让监控告警能分开统计"内核执行失败"与"内核卡住"，这两类的根因与处理方式完全不同：前者通常是参数或资源问题，后者往往意味着该重启内核了。
 
-规则：**"下游明确失败"用 502，"下游未在时限内响应"用 504。** 判断依据是有没有收到答复，不是失败得有多严重。据此 `UPDATE_DOWNLOAD_FAILED`（下载中断或返回非 2xx）仍是 502 —— 下载中断是传输层给了明确结果，不是没答复。
+规则：**"下游明确失败"用 502，"下游未在时限内响应"用 504。** 判断依据是有没有收到答复，不是失败得有多严重。据此 `UPDATE_DOWNLOAD_FAILED`（下载中断或返回非 2xx）仍是 502：下载中断是传输层给了明确结果，不是没答复。
 
 ### 2.5 框架自动产生的状态码
 
@@ -121,11 +121,11 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 理由有三。既然状态码已经承担了成败语义，`code` 字段就是纯冗余，`message` 在成功时永远是 `"success"` 这种无信息量的占位，`data` 则让每一处消费都要多写一次 `.data`。
 
-更实际的理由是生态。FastAPI 的 `response_model` 直接映射资源模型，封套会迫使每个模型都套一层泛型 `Response[T]`，而 OpenAPI 的泛型展开在客户端代码生成器里支持得很差——[10-开放API与调试台](./10-开放API与调试台.md) 要从 OpenAPI 生成 TypeScript 类型，裸模型生成出来就是 `Pipeline`，封套模型生成出来是 `ResponseWrapper_Pipeline_` 且 `data` 是可空的，每处都要断言。工具响应直接使用资源体，多一层封套会增加客户端解析与模型上下文开销。
+更实际的理由是生态。FastAPI 的 `response_model` 直接映射资源模型，封套会迫使每个模型都套一层泛型 `Response[T]`，而 OpenAPI 的泛型展开在客户端代码生成器里支持得很差：[10-开放API与调试台](./10-开放API与调试台.md) 要从 OpenAPI 生成 TypeScript 类型，裸模型生成出来就是 `Pipeline`，封套模型生成出来是 `ResponseWrapper_Pipeline_` 且 `data` 是可空的，每处都要断言。工具响应直接使用资源体，多一层封套会增加客户端解析与模型上下文开销。
 
 第三个理由是错误体已经**有**封套（`{"error": {...}}`）。成功裸返回、失败带 `error` 键，两者形状不同反而是好事：`if ("error" in body)` 之外还有状态码可判，不存在歧义。
 
-单值响应也不例外。`GET /api/core/version` 返回 `{"version": "v6.17.3"}` 而不是裸字符串——JSON 顶层给对象，留出后续加字段的空间。
+单值响应也不例外。`GET /api/core/version` 返回 `{"version": "v6.17.3"}` 而不是裸字符串：JSON 顶层给对象，留出后续加字段的空间。
 
 ### 3.2 分页
 
@@ -135,13 +135,13 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 { "items": [...], "total": 137, "page": 1, "size": 20 }
 ```
 
-查询参数固定为 `page`（从 1 开始）与 `size`（默认 20，上限 200）。`page` 或 `size` 越界返回 `400 INVALID_PAGINATION`，不做静默钳制——静默钳制会让前端误以为自己拿到了第 999 页。
+查询参数固定为 `page`（从 1 开始）与 `size`（默认 20，上限 200）。`page` 或 `size` 越界返回 `400 INVALID_PAGINATION`，不做静默钳制：静默钳制会让前端误以为自己拿到了第 999 页。
 
-日志端点额外支持 `after_id` / `before_id` 游标（配合 `log_entry.id` 的单调性），用于 WebSocket 断线后补齐缺口。游标模式与 `page` 互斥，同时传两者返回 `400 INVALID_PAGINATION`。日志端点还有两处例外：`size` 上限放宽到 1000（导出预览与断线补发会一次性拉取大段记录），且默认值为 100 而非 20。查询语义与 `pipeline_id` 关联方式详见 [06-实时日志与WebSocket §9](./06-实时日志与WebSocket.md)，那里同时说明了为什么日志应当一律走游标而不用 `page`。
+日志端点额外支持 `after_id` / `before_id` 游标（配合 `log_entry.id` 的单调性），用于 WebSocket 断线后补齐缺口。游标模式与 `page` 互斥，同时传两者返回 `400 INVALID_PAGINATION`。日志端点还有两处例外：`size` 上限放宽到 1000（导出预览与断线补发会一次性拉取大段记录），且默认值为 100 而非 20。查询语义与 `pipeline_id` 关联方式详见 [06-实时日志与WebSocket §9](./06-实时日志与WebSocket.md)，其中也说明了为什么日志要走游标而不用 `page`。
 
 ### 3.3 空值与缺省
 
-响应体中语义上"尚未发生"的字段返回 `null` 而不是省略键（`started_at: null`），这样 TypeScript 的类型是 `string | null` 而非 `string | undefined`，前端少一层判断。`GET /api/pipelines/current` 在无运行中流水线时返回 `200` + `{"pipeline": null}`，不返回 404——"当前没有在跑"是正常状态，不是资源缺失。
+响应体中语义上"尚未发生"的字段返回 `null` 而不是省略键（`started_at: null`），这样 TypeScript 的类型是 `string | null`，前端少一层判断。`GET /api/pipelines/current` 在无运行中流水线时返回 `200` + `{"pipeline": null}`，不返回 404："当前没有在跑"是正常状态，不是资源缺失。
 
 ## 4. 错误码表
 
@@ -156,7 +156,7 @@ class AppError(Exception):
     details: dict[str, Any] | None
 ```
 
-每个错误码在代码里绑定固定的 HTTP 状态码，路由层不再自行决定状态码——这保证了同一个错误在不同端点上表现一致。
+每个错误码在代码里绑定固定的 HTTP 状态码，路由层不再自行决定状态码：这保证了同一个错误在不同端点上表现一致。
 
 ### 4.1 鉴权
 
@@ -298,7 +298,7 @@ class AppError(Exception):
 
 tool-calling 循环的非错误终态**不是错误**：会话正常结束并返回 200，最后一条 `agent_message.finish_reason` 记为 `stuck_loop`（连续三轮发出完全相同的工具调用，判定为原地打转）或 `max_steps`（调用方显式设了步数上限；默认不设上限），M22 起还有 `interrupted`（用户主动中断了本轮）。把它们做成错误码会让前端丢掉模型已经产出的中间结论。
 
-`AGENT_TURN_INTERRUPTED` 与上面这些**不同层**：它是被中断的那次工具调用落在审计 `error_code` 上的码（[§6.15](#615-agent)），中断端点本身返回 `200` + `interrupted: true`。
+`AGENT_TURN_INTERRUPTED` 与前面这些错误码**不同层**：它是被中断的那次工具调用落在审计 `error_code` 上的码（[§6.15](#615-agent)），中断端点本身返回 `200` + `interrupted: true`。
 
 ### 4.12 定时任务
 
@@ -346,7 +346,7 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 
 ### 5.1 四个渠道与优先级
 
-单一 `access_token`，支持四种传递方式。取值按固定优先级，取到第一个非空值即停止，**不做回退尝试**——若 `Authorization` 头存在但值错误，直接判 401，不再去看 query 参数，否则攻击者可以用正确的 query 掩盖错误的头，日志会记混。
+单一 `access_token`，支持四种传递方式。取值按固定优先级，取到第一个非空值即停止，**不做回退尝试**：若 `Authorization` 头存在但值错误，直接判 401，不再去看 query 参数，否则攻击者可以用正确的 query 掩盖错误的头，日志会记混。
 
 | 顺序 | 渠道 | 形式 | 主要使用者 |
 |---|---|---|---|
@@ -355,15 +355,15 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 | 3 | query 参数 | `?token=<token>` | WebSocket、可分享的调试链接 |
 | 4 | cookie | `maa_token=<token>` | WebSocket、PWA 场景下的静态资源 |
 
-排序依据是显式程度与泄露风险。头部是 HTTP 认证的标准位置，排最前。query 参数会进入访问日志、浏览器历史与 `Referer`，泄露面最大，因此排在头部之后——但**必须支持**，因为浏览器的 `WebSocket` 构造器不允许自定义请求头。cookie 排最后是因为它会被浏览器自动附加，存在 CSRF 风险。
+排序依据是显式程度与泄露风险。头部是 HTTP 认证的标准位置，排最前。query 参数会进入访问日志、浏览器历史与 `Referer`，泄露面最大，因此排在头部之后，但**必须支持**，因为浏览器的 `WebSocket` 构造器不允许自定义请求头。cookie 排最后是因为它会被浏览器自动附加，存在 CSRF 风险。
 
-针对 cookie 的 CSRF 风险有一条额外限制：**仅凭 cookie 鉴权的请求只允许 `GET`、`HEAD` 与 WebSocket 升级**。写方法（`POST`/`PUT`/`PATCH`/`DELETE`）如果 token 只来自 cookie，返回 `403 FORBIDDEN`。前端 SPA 本来就走 `X-Token`，不受影响；这条限制只挡住"用户在别的网站上被诱导对本服务发起写请求"的场景。
+针对 cookie 的 CSRF 风险有一条额外限制：**仅凭 cookie 鉴权的请求只允许 `GET`、`HEAD` 与 WebSocket 升级**。写方法（`POST`/`PUT`/`PATCH`/`DELETE`）如果 token 只来自 cookie，返回 `403 FORBIDDEN`。前端 SPA 本来就走 `X-Token`，不受影响；这条限制只挡住"用户在别的网站上被诱导对服务发起写请求"的场景。
 
 CORS 使用显式 loopback 白名单（`http://localhost:8002`、`http://127.0.0.1:8002`）加 RFC1918 局域网 origin 正则，保留 `allow_credentials=True`。M10 在请求允许头中补入 `X-Request-Id`，并暴露 `X-Request-Id`、`X-Response-Time-Ms` 与 `Location`：前两者供调试台关联日志和展示服务端耗时，`Location` 让跨源浏览器调用方读取创建收藏的资源地址；任意 Tailscale FQDN 的白名单配置归 M15。
 
 ### 5.2 未配置 token 时的行为
 
-`access_token` 为空或未配置时**全部端点免鉴权**，这是对现有行为的完整保留（现有 `token_auth` 就是 `if access_token and access_token != token` 才拒绝）。本项目主要跑在家庭局域网，强制鉴权会显著劣化初次使用体验。
+`access_token` 为空或未配置时**全部端点免鉴权**，这是对现有行为的完整保留（现有 `token_auth` 就是 `if access_token and access_token != token` 才拒绝）。项目主要部署在家庭局域网，强制鉴权会显著劣化初次使用体验。
 
 但要把这个状态说清楚，不能让它静默：启动日志打印一行醒目的 `未配置 access_token，API 处于免鉴权模式`；`GET /api/system/health` 的响应体带 `"auth_enabled": false`；前端读到该字段后跳过登录页直接进入应用。原方案还要求在设置页顶部常驻一条警告、并提供一键生成随机 token 的入口，这两项尚未实现（见 [13 §8.12](./13-决策记录.md)）。
 
@@ -371,9 +371,9 @@ CORS 使用显式 loopback 白名单（`http://localhost:8002`、`http://127.0.0
 
 即使配置了 token，以下端点也不校验：
 
-- `GET /api/system/health` —— 供外部监控与容器健康检查探测，且只返回状态不返回数据
-- `GET /docs`、`GET /redoc`、`GET /openapi.json` —— 只暴露接口结构，不暴露业务数据。"Try it out" 发出的实际请求仍需 token；自研调试台会自动带上 token，这是它相对原生 `/docs` 的主要优势
-- `/static/*`、SPA catch-all、`/manifest.webmanifest`、`/sw.js` —— 前端资源必须先加载出来，用户才有地方填 token。这是对现有行为的**有意修正**：现在 `GET /` 与 `GET /daily` 都挂了 `token_auth`，意味着没有 token 连页面都打不开，只能靠 URL 带 `?token=` 访问
+- `GET /api/system/health`：供外部监控与容器健康检查探测，且只返回状态不返回数据
+- `GET /docs`、`GET /redoc`、`GET /openapi.json`：只暴露接口结构，不暴露业务数据。"Try it out" 发出的实际请求仍需 token；自研调试台会自动带上 token，这是它相对原生 `/docs` 的主要优势
+- `/static/*`、SPA catch-all、`/manifest.webmanifest`、`/sw.js`：前端资源必须先加载出来，用户才有地方填 token。这是对现有行为的**有意修正**：现在 `GET /` 与 `GET /daily` 都挂了 `token_auth`，意味着没有 token 连页面都打不开，只能靠 URL 带 `?token=` 访问
 
 
 ### 5.4 WebSocket 的鉴权
@@ -428,7 +428,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ### 6.3 device
 
-设备相关操作分两条通道，`backend` 字段在响应中明示。**`click` 走 MaaCore 的 `AsstAsyncClick`；`swipe` / `long_press` / `input_text` / `key_event` 一律走 ADB**——MaaCore 的 C API 里只有点击，没有滑动、长按、输入文本与按键，这是内核的硬约束。所有原子操作**不入队列**，直接投递；流水线运行中调用返回 `409 PIPELINE_ALREADY_RUNNING`，除非带 `force=true`。M10 手动 REST 路径用 `force=true` 时仅写强制介入警告日志，不创建 `agent_audit` 记录；Agent 工具调用的审计依照 M11 的 Agent 工作流契约。
+设备相关操作分两条通道，`backend` 字段在响应中明示。**`click` 走 MaaCore 的 `AsstAsyncClick`；`swipe` / `long_press` / `input_text` / `key_event` 一律走 ADB**：MaaCore 的 C API 里只有点击，没有滑动、长按、输入文本与按键，这是内核的硬约束。所有原子操作**不入队列**，直接投递；流水线运行中调用返回 `409 PIPELINE_ALREADY_RUNNING`，除非带 `force=true`。M10 手动 REST 路径用 `force=true` 时仅写强制介入警告日志，不创建 `agent_audit` 记录；Agent 工具调用的审计依照 M11 的 Agent 工作流契约。
 
 **坐标统一用设备原始像素（M18）。** `click` / `swipe` / `long_press` 的入参坐标与截图（`GET /api/device/screenshot` 原图、Agent 的 `get_screenshot`）的 `width` / `height` 同一坐标系，响应里回显的也是调用方传入的设备像素。换算只在设备管理器做一次：`click` 调 `AsstAsyncClick` 前按「高 / 720」折成 MaaCore 基准坐标（`core = round(px × 720 / 高)`），`swipe` / `long_press` 本来就走 ADB 设备像素。分辨率取设备快照的 `resolution`：未知时 `click` 返回 `503 DEVICE_NOT_CONNECTED`（提示先重连设备），`swipe` / `long_press` 跳过越界校验、照常执行；坐标超出画面一律 `400 INVALID_PARAMETER`。按旧语义（MaaCore 基准坐标）写的调用方要先按「高 / 720」换算，1280×720 设备上两者相同。
 
@@ -445,7 +445,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 | POST | `/api/device/input_text` | 输入文本，ADB 通道 | `{text, force?}` | 200 | `ADB_COMMAND_FAILED` |
 | POST | `/api/device/key_event` | 按键事件，ADB 通道。`key` 为白名单枚举（`BACK`/`HOME`/`ENTER`/`DEL`/`APP_SWITCH`） | `{key, force?}` | 200 | `INVALID_PARAMETER`、`ADB_COMMAND_FAILED` |
 
-**不开放任意 `adb shell`。** 按键用枚举白名单而非透传字符串，是为了守住这条边界——透传 keycode 字符串等价于开放一个受限的 shell。
+**不开放任意 `adb shell`。** 按键用枚举白名单而非透传字符串，是为了守住这条边界：透传 keycode 字符串等价于开放一个受限的 shell。
 
 （10 条）
 
@@ -455,7 +455,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 |---|---|---|---|---|---|
 | POST | `/api/core/back_to_home` | 回游戏主界面，MaaCore 原生能力 | `{force?}` | 200 | `CORE_NOT_READY`、`PIPELINE_ALREADY_RUNNING` |
 
-内核子进程没有独立的 HTTP 端点：状态（`state` / `pid` / `generation`）读 `GET /api/system/health` 的 `core` 段（§6.1），内核与资源版本读 `get_versions` 工具、重启子进程走 `restart_core` 工具，都只在 Agent 侧提供（§6.15）；当前只有一条 `default` 内核，因此也没有内核实例列表端点。关卡互查同理，只剩 `resolve_stage` 工具：优先用 `AsstGetMapLevelKey`，查不到或符号缺失时降级到本地资源索引，而不是报错——该函数位于 `AsstCallerExtra.h`，官方明确标注不属于受支持的公共 API、可能随时变更或移除。
+内核子进程没有独立的 HTTP 端点：状态（`state` / `pid` / `generation`）读 `GET /api/system/health` 的 `core` 段（§6.1），内核与资源版本读 `get_versions` 工具、重启子进程走 `restart_core` 工具，都只在 Agent 侧提供（§6.15）；当前只有一条 `default` 内核，因此也没有内核实例列表端点。关卡互查同理，只剩 `resolve_stage` 工具：优先用 `AsstGetMapLevelKey`，查不到或符号缺失时降级到本地资源索引，而不是报错：该函数位于 `AsstCallerExtra.h`，官方明确标注不属于受支持的公共 API、可能随时变更或移除。
 
 （1 条）
 
@@ -500,7 +500,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 | POST | `/api/tasks/validate` | 只校验不提交，返回规范化后的参数与将被注入的默认值 | `{tasks[]}` | 200 | `UNKNOWN_TASK_TYPE`、`TASK_PARAM_INVALID` |
 | GET | `/api/tasks/{task_id}` | 单任务详情（状态、重试次数、`params` 与 `raw_params`、耗时） | | 200 | `TASK_NOT_FOUND` |
 
-`POST /api/tasks/validate` 存在的意义是给 agent 一个安全的试错入口：它可以先校验再提交，而不是提交失败后从错误信息里反推参数长什么样。
+`POST /api/tasks/validate` 存在的意义是给 agent 一个安全的试错入口：先校验再提交，不必等提交失败后从错误信息里反推参数长什么样。
 
 （4 条）
 
@@ -537,7 +537,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 - `ota`：只更通道 A 的活动 task 定义，秒级完成
 - `repo`：只更通道 B 的数据文件与模板图，需要下载约 13 MB 压缩包、解压出约 107 MB
 
-不拆端点的理由与 `update_record.target` 不拆通道是同一条：三种更新共用一把互斥锁，同一时刻只允许一条 `target='resource'` 的记录在跑。两个端点会让调用方误以为可以并发触发，实际仍会撞 `UPDATE_ALREADY_RUNNING`。`channel='repo'` 才可能返回 `UPDATE_DISK_INSUFFICIENT`——通道 A 只有 15 KB，预检没有意义。
+不拆端点的理由与 `update_record.target` 不拆通道是同一条：三种更新共用一把互斥锁，同一时刻只允许一条 `target='resource'` 的记录在跑。两个端点会让调用方误以为可以并发触发，实际仍会撞 `UPDATE_ALREADY_RUNNING`。`channel='repo'` 才可能返回 `UPDATE_DISK_INSUFFICIENT`：通道 A 只有 15 KB，预检没有意义。
 
 `GET /api/updates/status` 的 `resource` 段相应地按通道分列，两条通道的"版本"本来就不是同一种东西：
 
@@ -578,7 +578,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 | DELETE | `/api/schedules/{id}` | 删除 | | 204 | `SCHEDULE_NOT_FOUND` |
 | POST | `/api/schedules/{id}/run` | 立即执行一次，按 `template` 提交流水线 | `{priority?}`：默认沿用 schedule 的优先级 | 202 | `SCHEDULE_NOT_FOUND`、`QUEUE_FULL`、`PIPELINE_ALREADY_RUNNING` |
 
-`template` 在创建与更新时就走一遍完整的任务校验，不等到触发时才报错——定时任务的失败最难被发现，配置阶段拦住是唯一有效的时机。
+`template` 在创建与更新时就走一遍完整的任务校验，不等到触发时才报错：定时任务的失败最难被发现，配置阶段拦住是唯一有效的时机。
 
 （7 条）
 
@@ -628,7 +628,7 @@ Agent 设置包含 `agent.auto_diagnose_failures`，true/false 控制流水线�
 
 测试发送用 200 同步返回而不是 202，因为用户点"测试"就是要立刻知道配置对不对；异步受理会让他还得去别处查结果。
 
-Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重复订阅拿到的是同一个 endpoint，重放注册更新既有行并返回 200 而不是新增一条。列表只返回 `id`、`endpoint_host`、`user_agent`、时间与失效状态 —— `endpoint` 全文本身就是投递凭据，`p256dh`/`auth` 更是解密推送所必需，三者与凭据同级。推送服务返回 404/410 时订阅被标记失效（保留行供设置页展示），重新订阅会清除该标记。注销提供了两个入口：按 id，以及按 endpoint（`endpoint` 放在请求体里而不是 URL，避免它进入访问日志；找不到对应订阅同样返回 204，因为注销是幂等操作）。
+Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重复订阅拿到的是同一个 endpoint，重放注册更新既有行并返回 200 而不是新增一条。列表只返回 `id`、`endpoint_host`、`user_agent`、时间与失效状态：`endpoint` 全文本身就是投递凭据，`p256dh`/`auth` 更是解密推送所必需，三者与凭据同级。推送服务返回 404/410 时订阅被标记失效（保留行供设置页展示），重新订阅会清除该标记。注销提供了两个入口：按 id，以及按 endpoint（`endpoint` 放在请求体里而不是 URL，避免它进入访问日志；找不到对应订阅同样返回 204，因为注销是幂等操作）。
 
 （10 条）
 
@@ -674,11 +674,11 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 `POST /api/agent/sessions/{id}/messages` 以 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`question_required`、`session_title`、`interrupted`、`message_end` 和 `error` 事件流式返回结果。每个会话同一时间只运行一轮；客户端断开不会回滚已提交的工具副作用。
 
-**中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`——`interrupted` 表示这次调用是否真的停掉了一轮，该会话没有活动轮次时是 `false`（200，不是错误）；`turn_running` 是返回这一刻该会话是否仍有活动轮次（正常收尾后为 `false`）。中断会停掉 LLM 流、撤回本轮还在等确认或在跑的工具、把挂起的提问置 `cancelled`，然后落一条 `finish_reason="interrupted"` 的助手消息、推 SSE `interrupted` 并释放会话锁（返回后即可发下一条消息）。两条边界：**不动流水线与队列**——要停在跑的流水线仍走显式的 `DELETE /api/pipelines/{id}`（或 Agent 的 `stop_pipeline`），已入队的任务一律保留；**已批准并已在执行的工具可能已经产生副作用且无法回滚**，中断只保证不再等它、不再有后续工具。中断是**主动**动作：客户端断网或关页面（SSE 被动断开）仍不取消本轮，这一轮会在后台继续执行，重开页面后靠 `GET /api/agent/sessions/{id}` 的 `turn_running` 恢复停止入口（前端行为见 [09 §6.4](./09-前端重构方案.md#64-agent-agent)）。
+**中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`，其中 `interrupted` 表示这次调用是否真的停掉了一轮，该会话没有活动轮次时是 `false`（200，不是错误）；`turn_running` 是返回这一刻该会话是否仍有活动轮次（正常收尾后为 `false`）。中断会停掉 LLM 流、撤回本轮还在等确认或在跑的工具、把挂起的提问置 `cancelled`，然后落一条 `finish_reason="interrupted"` 的助手消息、推 SSE `interrupted` 并释放会话锁（返回后即可发下一条消息）。两条边界：**不动流水线与队列**，要停在跑的流水线仍走显式的 `DELETE /api/pipelines/{id}`（或 Agent 的 `stop_pipeline`），已入队的任务一律保留；**已批准并已在执行的工具可能已经产生副作用且无法回滚**，中断只保证不再等它、不再有后续工具。中断是**主动**动作：客户端断网或关页面（SSE 被动断开）仍不取消本轮，这一轮会在后台继续执行，重开页面后靠 `GET /api/agent/sessions/{id}` 的 `turn_running` 恢复停止入口（前端行为见 [09 §6.4](./09-前端重构方案.md#64-agent-agent)）。
 
 `agent.auto_diagnose_failures` 默认开启。流水线终态失败和内核崩溃各按持久 incident key 最多创建一个可继续对话的诊断会话；关闭设置后不自动调用模型。自动诊断只暴露安全查询与恢复工具，仍遵循原子操作会话授权和资源消耗/破坏操作逐次确认策略。
 
-**知识库端点**（M18）由独立的路由文件实现，但沿用 `agent` tag（`operationId` 仍是 `agent_*`），因此列在本节。内置条目是随代码发布的只读 Markdown，数据库只存用户的改动与自定义条目；`source`（`builtin` / `custom`）与 `modified` 由读侧的合并结果给出，供设置页显示「内置 / 已修改 / 自定义」徽标。`PUT` 收的是**完整的生效内容**而不是增量，与内置完全一致时等价于「恢复默认」；字段格式与长度不合法是 `422 VALIDATION_ERROR`，删除未修改过的内置条目或修改内置条目的 `kind` 是 `409 KNOWLEDGE_BUILTIN_READONLY`。启用条目数与术语表加档案的正文合计数不设上限（M20 用户裁决：注入多少以模型自身的上下文窗口为准，装不下时由上游拒绝并返回 `400 LLM_CONTEXT_OVERFLOW`）。写操作记一条服务日志，不进 Agent 审计；Agent 侧只有只读的 `read_knowledge` 工具，没有任何写通道。
+**知识库端点**（M18）由独立的路由文件实现，但沿用 `agent` tag（`operationId` 仍是 `agent_*`）。内置条目是随代码发布的只读 Markdown，数据库只存用户的改动与自定义条目；`source`（`builtin` / `custom`）与 `modified` 由读侧的合并结果给出，供设置页显示「内置 / 已修改 / 自定义」徽标。`PUT` 收的是**完整的生效内容**而不是增量，与内置完全一致时等价于「恢复默认」；字段格式与长度不合法是 `422 VALIDATION_ERROR`，删除未修改过的内置条目或修改内置条目的 `kind` 是 `409 KNOWLEDGE_BUILTIN_READONLY`。启用条目数与术语表加档案的正文合计数不设上限（M20 用户裁决：注入多少以模型自身的上下文窗口为准，装不下时由上游拒绝并返回 `400 LLM_CONTEXT_OVERFLOW`）。写操作记一条服务日志，不进 Agent 审计；Agent 侧只有只读的 `read_knowledge` 工具，没有任何写通道。
 
 **Agent 提问端点**（M21）同样由独立的路由文件实现并沿用 `agent` tag（`operationId` 仍是 `agent_*`）：提问是会话交互的一部分，与知识库端点同一取舍。它与确认链路完全分开，路由表在 [§6.18](#618-agent-提问)。
 
@@ -709,7 +709,7 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 | GET | `/` | SPA 入口，返回 `static/index.html` | 豁免 |
 | GET | `/{path:path}` | SPA catch-all，非 `/api`、`/static` 前缀的路径一律回落到 `index.html`，由前端路由接管 | 豁免 |
 
-catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static` 两个前缀，否则拼错的 API 路径会返回一份 HTML 而不是 404 JSON——这种错误在前端调试时极难定位。
+catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static` 两个前缀，否则拼错的 API 路径会返回一份 HTML 而不是 404 JSON：这种错误在前端调试时极难定位。
 
 （4 条）
 
@@ -730,7 +730,7 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 - 已 `answered` / `skipped` 的提问再提交是 `409 QUESTION_ALREADY_ANSWERED`（多标签页同时点选、刷新后重放都会命中），已 `expired` 是 `409 QUESTION_EXPIRED`。「你来晚了」不能说成「你选错了」，所以状态判定排在参数校验之前。
 - 时间上已过期（`expires_at < now`）但状态还是 `pending` 的提问，在返回 `409 QUESTION_EXPIRED` 之前**就地收敛成终态**并广播；否则它会一直挂在待答列表里，用户点了只拿到一个错。
-- 空选择、选项不在 `options.label` 里、单选提交多项是 `400 QUESTION_SELECTION_INVALID`，`details.options` 带上合法的 label 列表供前端兜底渲染。`selected` 因此声明成必填的字符串数组而不是 `min_length=1` —— 空数组是「没有选择」这个业务错误，加字段级约束会让同一种错误在 400 与 422 之间漂移。
+- 空选择、选项不在 `options.label` 里、单选提交多项是 `400 QUESTION_SELECTION_INVALID`，`details.options` 带上合法的 label 列表供前端兜底渲染。`selected` 因此声明成必填的字符串数组而不是 `min_length=1`：空数组是「没有选择」这个业务错误，加字段级约束会让同一种错误在 400 与 422 之间漂移。
 - 超时或跳过后本轮以 `finish_reason="question_unanswered"` 结束，这是正常终态而不是错误（同 [§4.11](#411-agent-与-llm) 的 `stuck_loop` / `max_steps` 口径）。等待时长由 `agent.question_timeout_seconds` 配置，默认 600 秒，落在那条提问的 `expires_at` 上。
 
 （4 条）
@@ -743,7 +743,7 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 提交 `Fight` 时可以传 `theme="Sami"`，校验器不会拦，参数被静默丢弃。字段在类里重复定义（`times` 出现两次，后一个覆盖前一个）。OpenAPI 文档里所有任务类型看起来都接受全部 70 个参数，前端与 agent 无法据此生成正确的表单或工具 schema。还有几个末尾带逗号的字段声明（`tools_to_craft: Optional[list[str]] = None,`）让默认值变成了元组 `(None,)`。
 
-新设计按任务类型分离模型，用 Pydantic 的 **discriminated union**，discriminator 沿用现有的 `name` 字段——保持这个字段名可以让现有前端的请求体结构基本不变，降低迁移成本。
+新设计按任务类型分离模型，用 Pydantic 的 **discriminated union**，discriminator 沿用现有的 `name` 字段：保持这个字段名可以让现有前端的请求体结构基本不变，降低迁移成本。
 
 ### 7.2 基类与字段装饰
 
@@ -794,13 +794,13 @@ class TaskInputBase(BaseModel):
 
 `extra="forbid"` 是这次重构最重要的一处收紧：它把"参数写错了但没人告诉我"变成一个立刻可见的 422。
 
-`exclude_none=True` 保留了现有 `Task.__init__` 里 `{k: v for k, v in params.items() if v is not None}` 的行为，但位置更合理——放在导出环节而不是构造环节，模型本身仍能区分"没设置"与"设为 null"。
+`exclude_none=True` 保留了现有 `Task.__init__` 里 `{k: v for k, v in params.items() if v is not None}` 的行为，但位置更合理：放在导出环节而不是构造环节，模型本身仍能区分"没设置"与"设为 null"。
 
-**M17 起字段带的是真实内核默认值。** `maa_api/domain/task.py` 里 56 个字段写了 `default=`（`enable` 在基类上声明一次、覆盖 9 种任务类型），取值逐字段来自 MAA v6.17.5 的内核源码、官方文档与真内核实测三条独立证据链（逐字段表见 `docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md` §4），不再一律 `default=None`。因为默认值不再是 `None`，`exclude_none=True` 的**语义随之改变**：默认值会**显式出现在下发快照里**——这正是"预填即下发"的服务端对应物，代价是 MAA 以后调整默认值时我们不再自动跟随。显式传 `null` 仍然表示"不下发该参数，由内核决定"，这条三态语义一个字没改。
+**M17 起字段带的是真实内核默认值。** `maa_api/domain/task.py` 里 56 个字段写了 `default=`（`enable` 在基类上声明一次、覆盖 9 种任务类型），取值逐字段来自 MAA v6.17.5 的内核源码、官方文档与真内核实测三条独立证据链（逐字段表见 `docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md` §4），不再一律 `default=None`。因为默认值不再是 `None`，`exclude_none=True` 的**语义随之改变**：默认值会**显式出现在下发快照里**，这正是"预填即下发"的服务端对应物，代价是 MAA 以后调整默认值时我们不再自动跟随。显式传 `null` 仍然表示"不下发该参数，由内核决定"，这条三态语义一个字没改。
 
-**但不是所有字段都有默认值。** 四类字段刻意保持 `default is None`，行为与 M17 之前完全一样（界面仍按三态显示、提交时不下发）：语义是"无限"的（`Fight.times`、`Roguelike.starts_count` / `investments_count`）、语义是"空 = 不启用"的（`Fight.stage`、`StartUp.account_name`、`Roguelike.squad` / `roles` / `core_char`、`Infrast.filename` 等）、条件默认值随 `mode` / `theme` 变化的（`Roguelike.use_foldartal`、`check_collapsal_paradigms`、`difficulty`、`expected_collapsal_paradigms`）、本服务校验器禁止"设了但不生效"的（`Recruit.expedite_times`）。
+**但不是所有字段都有默认值。** 四类字段刻意保持 `default is None`，行为与 M17 之前完全一样（界面仍按三态显示、提交时不下发）：语义是"无限"的（`Fight.times`、`Roguelike.starts_count` / `investments_count`）、语义是"空 = 不启用"的（`Fight.stage`、`StartUp.account_name`、`Roguelike.squad` / `roles` / `core_char`、`Infrast.filename` 等）、条件默认值随 `mode` / `theme` 变化的（`Roguelike.use_foldartal`、`check_collapsal_paradigms`、`difficulty`、`expected_collapsal_paradigms`）、服务端校验器禁止"设了但不生效"的（`Recruit.expedite_times`）。
 
-**其中三个默认值是本服务的约定，不是内核默认值。** `Recruit.select` = `[1, 4, 5]`、`Recruit.confirm` = `[2, 3, 4, 5]`、`Infrast.facility` = 七个设施，这三个字段内核**必填但无默认值**，缺任何一个 `AsstAppendTask` 都返回 0；取值沿用旧前端 `createTasks` 的日常预设与 `resource/daily_task_template.json`。真内核实测（`scripts/probe_task_defaults.py`，append 不需要连设备）的结论是：`StartUp` 必须给 `client_type`、`Recruit` 必须同时给 `select` 与 `confirm`、`Infrast` 必须给 `facility`。这三个字段的 `description` 里必须注明"本服务约定"。
+**其中三个默认值是服务端的约定，不是内核默认值。** `Recruit.select` = `[1, 4, 5]`、`Recruit.confirm` = `[2, 3, 4, 5]`、`Infrast.facility` = 七个设施，这三个字段内核**必填但无默认值**，缺任何一个 `AsstAppendTask` 都返回 0；取值沿用旧前端 `createTasks` 的日常预设与 `resource/daily_task_template.json`。真内核实测（`scripts/probe_task_defaults.py`，append 不需要连设备）的结论是：`StartUp` 必须给 `client_type`、`Recruit` 必须同时给 `select` 与 `confirm`、`Infrast` 必须给 `facility`。这三个字段的 `description` 里必须注明"本服务约定"。
 
 ### 7.3 三个代表性模型
 
@@ -916,7 +916,7 @@ class InfrastInput(TaskInputBase):
         return self
 ```
 
-三个示例里带 `default=` 的字段都取自 M17 的逐字段默认值表；仍是 `default=None` 的只有两类——刻意不设默认值的字段（`account_name`、`stage`、`times`、`penguin_id`、`filename`）与渠道字段（`client_type` / `server`，模型里保持 `None`，生效值由 §9 的 overlay 写进 schema）。
+三个示例里带 `default=` 的字段都取自 M17 的逐字段默认值表；仍是 `default=None` 的只有两类：刻意不设默认值的字段（`account_name`、`stage`、`times`、`penguin_id`、`filename`）与渠道字段（`client_type` / `server`，模型里保持 `None`，生效值由 §9 的 overlay 写进 schema）。
 
 ### 7.4 联合类型与提交请求体
 
@@ -939,7 +939,7 @@ class PipelineCreate(BaseModel):
 
 `source` **不在请求体里**，由服务端按调用入口判定：REST 路由 → `manual`，内置 Agent → `agent`，`ScheduleService` → `scheduled`。让客户端自报来源等于让 agent 可以伪装成手动操作抢到最高优先级，优先级体系就失效了。
 
-`priority` 允许显式指定，但只能调低不能调高到超出来源的默认值——agent 不能把自己提到 0。越权时不报错，静默钳制到来源默认值并在审计里记录，因为这是一个 agent 可能因不理解规则而反复触发的边界。
+`priority` 允许显式指定，但只能调低不能调高到超出来源的默认值：agent 不能把自己提到 0。越权时不报错，静默钳制到来源默认值并在审计里记录，因为这是一个 agent 可能因不理解规则而反复触发的边界。
 
 ### 7.5 需要在模型里显式编码的约束
 
@@ -957,13 +957,13 @@ class PipelineCreate(BaseModel):
 | `Roguelike` | `theme` 枚举 `{Phantom, Mizuki, Sami, Sarkaz}`；`mode` 取 `{0, 1, 4, 5}`，**`2` 已弃用**，传入时 400 `TASK_PARAM_DEPRECATED`，`3` 为开发中同样拒绝；`difficulty` 非负且仅非 `Phantom` 主题生效；`mode=5` 要求 `theme="Sami"`；`start_foldartal_list`/`first_floor_foldartal`/`use_foldartal`/`check_collapsal_paradigms` 仅 `Sami` 生效；`only_start_with_elite_two` 要求 `mode=4` 且 `start_with_elite_two=true`；`use_nonfriend_support` 要求 `use_support=true`；`refresh_trader_with_dice` 仅 `Mizuki` 生效 |
 | `Reclamation` | `theme` 枚举 `{Fire, Tales}`；`mode` 取 `{0, 1}`；`increment_mode` 取 `{0, 1}`；`num_craft_batches` ≥ 1 |
 
-主题相关的跨字段规则一律实现为 `model_validator` 并抛 `TASK_PARAM_INVALID`，而不是静默忽略。原因是"设了但不生效"是用户最常见的困惑来源——`Roguelike` 在 `Phantom` 主题下设了 `difficulty` 却毫无反应，没有报错的话根本无从察觉。
+主题相关的跨字段规则一律实现为 `model_validator` 并抛 `TASK_PARAM_INVALID`，而不是静默忽略。原因是"设了但不生效"是用户最常见的困惑来源：`Roguelike` 在 `Phantom` 主题下设了 `difficulty` 却毫无反应，没有报错的话根本无从察觉。
 
 ### 7.6 对现有实现的五处修正
 
 这些不是设计偏好，是现有代码里的实际缺陷，新模型必须修正。
 
-**默认值的口径在 M17 改过。** M17 起，凡内核有默认值的字段都在模型里写真实的 `default`，并随 JSON Schema 暴露给前端预填（来源是 MAA v6.17.5 源码、官方文档与真内核实测三条独立证据链，逐字段见 `docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md` §4）；只有四类字段刻意保持 `None`——语义是"无限"的、语义是"空 = 不启用"的、条件默认值随主题/模式变化的、本服务校验器禁止"设了但不生效"的（见 §7.2）。用户 2026-09-28 的裁决与代价见 [13 §8.17](./13-决策记录.md)。下面与默认值有关的两条修正按这个新口径收尾。
+**默认值的口径在 M17 改过。** M17 起，凡内核有默认值的字段都在模型里写真实的 `default`，并随 JSON Schema 暴露给前端预填（来源是 MAA v6.17.5 源码、官方文档与真内核实测三条独立证据链，逐字段见 `docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md` §4）；只有四类字段刻意保持 `None`：语义是"无限"的、语义是"空 = 不启用"的、条件默认值随主题/模式变化的、服务端校验器禁止"设了但不生效"的（见 §7.2）。用户 2026-09-28 的裁决与代价见 [13 §8.17](./13-决策记录.md)。下面与默认值有关的两条修正按这个新口径收尾。
 
 **`ReclamationTask` 的 params 字典用变量当键。** 现有代码写的是 `params = {enable: enable, theme: theme, ...}`，键是变量的**值**而不是字符串字面量。实际效果是：全部参数为 `None` 时，字典退化成 `{None: None}` 这一个条目；有值时键变成参数值本身（`{"Fire": "Fire"}`）。这个任务类型目前实际上完全不可用。新模型通过 `model_dump()` 生成参数字典，结构性地消除了这类错误。
 
@@ -971,7 +971,7 @@ class PipelineCreate(BaseModel):
 
 **`AwardTask` 的默认值与文档冲突。** `TaskRequest` 里 `mail`/`recruit`/`orundum`/`mining`/`specialaccess` 的默认值都是 `True`，而 `task.py` 文档字符串明确写"默认为 False"（只有 `award` 默认 True）。文档字符串是对的：内核默认值就是 `award=true`、其余五项 `false`，新模型照此逐个写 `default=`（`award` 为 `True`，五项为 `False`）。M17 之前这一段给出的处置是"这些字段一律 `default=None`，不下发则由内核用自己的默认值，服务端不预设"，这条已被用户 2026-09-28 的裁决取代（见 [13 §8.17](./13-决策记录.md)）。
 
-**`InfrastTask.threshold` 的默认值不一致。** 函数签名写 `threshold: float = 0.5`，文档字符串写"默认 0.3"。**已确认以 0.3 为准**，签名里的 0.5 是错的，新模型写 `default=0.3`。M17 之前这一段给出的处置是"仍不设服务端默认值（`default=None`），把默认值的决定权交还内核"，理由是服务端预设默认值会在内核调整默认行为时产生偏差；这条理由被 2026-09-28 的裁决覆盖——预填即下发，接受"内核改默认值我们不再自动跟随"的代价，0.3 现在既写在 `description` 里，也是请求体的实际默认（见 [13 §8.17](./13-决策记录.md)）。
+**`InfrastTask.threshold` 的默认值不一致。** 函数签名写 `threshold: float = 0.5`，文档字符串写"默认 0.3"。**已确认以 0.3 为准**，签名里的 0.5 是错的，新模型写 `default=0.3`。M17 之前这一段给出的处置是"仍不设服务端默认值（`default=None`），把默认值的决定权交还内核"，理由是服务端预设默认值会在内核调整默认行为时产生偏差；这条理由被 2026-09-28 的裁决覆盖：预填即下发，接受"内核改默认值我们不再自动跟随"的代价，0.3 现在既写在 `description` 里，也是请求体的实际默认（见 [13 §8.17](./13-决策记录.md)）。
 
 **`times` 字段在 `TaskRequest` 中重复声明。** 第 12 行与第 24 行各有一个 `times: Optional[int] = None`，Python 类定义里后者覆盖前者。按类型分离后这个问题自然消失：`Fight` 与 `Recruit` 各有独立的 `times`，语义也不同（战斗次数 vs 招募次数），共用一个字段本身就是错的。
 
@@ -979,7 +979,7 @@ class PipelineCreate(BaseModel):
 
 这个端点有两类消费者，需求恰好一致：前端用它动态生成任务配置表单，agent 用它了解某个任务类型有哪些参数可用。共用一份 schema 保证两边永远不会看到不同的参数集。
 
-schema 里的 `default` 有两种来源：绝大多数字段是**静态**的内核默认值（MAA v6.17.5，逐字段依据见 §7.2）；`client_type` 与 `server` 的 `default` 是**动态**的——每次请求用 `load_channel_defaults` 从 `setting` 表读**当前生效**的渠道默认值（默认 `Bilibili` / `CN`）注入响应，因为前端要按生效值预填并显式下发。overlay 只改这两个端点响应里的 schema 副本，pydantic 模型与提交流程的默认语义不变（见 §9）。
+schema 里的 `default` 有两种来源：绝大多数字段是**静态**的内核默认值（MAA v6.17.5，逐字段依据见 §7.2）；`client_type` 与 `server` 的 `default` 是**动态**的：每次请求用 `load_channel_defaults` 从 `setting` 表读**当前生效**的渠道默认值（默认 `Bilibili` / `CN`）注入响应，因为前端要按生效值预填并显式下发。overlay 只改这两个端点响应里的 schema 副本，pydantic 模型与提交流程的默认语义不变（见 §9）。
 
 ### 8.1 导出实现
 
@@ -1051,11 +1051,11 @@ def export_type_schema(
 | `x-widget` | 控件提示（`select` / `stepper` / `switch` / `tags` / `textarea`） | 选择渲染组件 |
 | `x-enum-labels` | 枚举值到中文的映射 | 下拉选项的显示文案 |
 
-`x-enum-labels` 也挂在**数组元素**的子 schema 上。`Infrast.facility` 的中文设施名（制造站 / 贸易站 / 发电站 / 控制中枢 / 会客室 / 办公室 / 宿舍）写在 `properties.facility.items` 里，而不是 `properties.facility` 顶层——前端渲染多选类字段时要下钻一层取这张映射表。
+`x-enum-labels` 也挂在**数组元素**的子 schema 上。`Infrast.facility` 的中文设施名（制造站 / 贸易站 / 发电站 / 控制中枢 / 会客室 / 办公室 / 宿舍）写在 `properties.facility.items` 里，而不是 `properties.facility` 顶层：前端渲染多选类字段时要下钻一层取这张映射表。
 
 取值范围直接用 JSON Schema 原生关键字承载：`minimum` / `maximum`（来自 `ge` / `le`）、`enum`（来自 `Literal`）、`minItems` / `maxItems`。这样前端可以直接把它喂给 `react-hook-form` 之类的库做客户端校验，不必解析自定义字段。
 
-`description` 取 Pydantic `Field` 的 `description`，内容直接摘自 `task.py` 的文档字符串——那些说明（"剿灭作战必须输入 Annihilation"、"仅在 use_support 为 True 时有效"）是本项目最有价值的领域知识，必须出现在表单的提示文案和 agent 的工具描述里，不能停留在源码注释。
+`description` 取 Pydantic `Field` 的 `description`，内容直接摘自 `task.py` 的文档字符串：那些说明（"剿灭作战必须输入 Annihilation"、"仅在 use_support 为 True 时有效"）是项目里最有价值的领域知识，必须出现在表单的提示文案和 agent 的工具描述里，不能停留在源码注释。
 
 **跨字段规则无法用 JSON Schema 干净地表达**，因此额外给出 `x-depends-on`：
 
@@ -1067,13 +1067,13 @@ def export_type_schema(
 }
 ```
 
-前端据此在 `expedite` 未开启时禁用该项；agent 从工具描述里读到同样的约束。服务端的 `model_validator` 仍是最终防线——客户端校验只是体验优化，不是安全边界。
+前端据此在 `expedite` 未开启时禁用该项；agent 从工具描述里读到同样的约束。服务端的 `model_validator` 仍是最终防线：客户端校验只是体验优化，不是安全边界。
 
 ## 9. 全局渠道默认值的注入位置
 
 按决策，渠道默认 **Bilibili（B 服）**，任务未显式指定 `client_type` 时自动套用，允许单任务覆盖。`Fight` 与 `Recruit` 的 `server` 字段同理（默认 `CN`）。
 
-注意区分**模型里的默认值**与**schema 里的默认值**：`client_type` / `server` 在 pydantic 模型里仍是 `default=None`，上面这条注入语义完全不变；`GET /api/tasks/types` 与 `/api/tasks/types/{type_name}` 响应里那个"当前生效"的 `default` 只是给前端预填用的 overlay（见 §8）。
+注意区分**模型里的默认值**与**schema 里的默认值**：`client_type` / `server` 在 pydantic 模型里仍是 `default=None`，schema 注入的语义完全不变；`GET /api/tasks/types` 与 `/api/tasks/types/{type_name}` 响应里那个"当前生效"的 `default` 只是给前端预填用的 overlay（见 §8）。
 
 注入发生在**校验之后、落库之前**的唯一一个函数里：
 
@@ -1105,13 +1105,13 @@ def normalize(task: TaskInput, defaults: ChannelDefaults) -> NormalizedTask:
 
 **为什么不在路由层做。** 路由层做就得做三遍，定时任务与 Agent 迟早会漏一处。
 
-`model_fields_set` 是这段逻辑的关键，它区分了三种情况：字段未出现在请求 JSON 里（注入默认值）、显式传 `null`（不注入，不下发该参数，由内核决定）、显式传具体值（原样使用）。第二种情况对 `Fight.client_type` 有实际意义——文档明确说该字段留空则关闭"崩溃后重启续刷"功能，用户可能就是想关掉它。
+`model_fields_set` 是这段逻辑的关键，它区分了三种情况：字段未出现在请求 JSON 里（注入默认值）、显式传 `null`（不注入，不下发该参数，由内核决定）、显式传具体值（原样使用）。第二种情况对 `Fight.client_type` 有实际意义：文档明确说该字段留空则关闭"崩溃后重启续刷"功能，用户可能就是想关掉它。
 
-`raw_params` 走 `exclude_unset=True`，记录的正是 `model_fields_set` 里的字段，所以"显式 `null`"与"没提这个字段"在库里长得不一样。M17 之后默认值会进 `params` 快照，`raw_params` 的这条口径没有变——它只记客户端真的提交过什么（前端把默认值物化进提交体后，通常也就一并提交了）。
+`raw_params` 走 `exclude_unset=True`，记录的正是 `model_fields_set` 里的字段，所以"显式 `null`"与"没提这个字段"在库里长得不一样。M17 之后默认值会进 `params` 快照，`raw_params` 的这条口径没有变：它只记客户端真的提交过什么（前端把默认值物化进提交体后，通常也就一并提交了）。
 
 `ChannelDefaults` 从 `SettingService` 读取（`channel.client_type`、`channel.server`），带进程内缓存并在设置变更时失效。定时任务在**触发时**读取当前默认值而不是创建时快照，**未显式带这两个字段**的流水线/定时任务因此会跟随后续渠道设置变更。
 
-M17 之后这条跟随有了限定：前端会把当时生效的渠道值预填并显式下发，所以**新建**的流水线/定时任务在提交那一刻就冻结了渠道值，之后改渠道设置不会再影响它们——这是"预填即下发"已知且用户确认的代价（见 [13 §8.17](./13-决策记录.md)）。M17 之前创建、请求体里没有这两个字段的旧流水线不受影响，仍然跟随。
+M17 之后这条跟随有了限定：前端会把当时生效的渠道值预填并显式下发，所以**新建**的流水线/定时任务在提交那一刻就冻结了渠道值，之后改渠道设置不会再影响它们：这是"预填即下发"已知且用户确认的代价（见 [13 §8.17](./13-决策记录.md)）。M17 之前创建、请求体里没有这两个字段的旧流水线不受影响，仍然跟随。
 
 ## 10. 幂等性与并发
 
@@ -1128,13 +1128,13 @@ M17 之后这条跟随有了限定：前端会把当时生效的渠道值预填�
 | `POST /api/core/restart` | 已处于 `RESTARTING` 时返回 409 |
 | `POST /api/resources/reload` | `checksum` 未变化时返回 202 但不实际重载 |
 
-`Idempotency-Key` 的处理规则：客户端生成（推荐 UUID，长度 1–64 字符），服务端在 24 小时窗口内有效。命中已有记录时，**比对请求体哈希**——一致则返回首次响应（Agent 调用关联首次 `audit_id`），不一致则返回 `409 IDEMPOTENCY_KEY_CONFLICT`。流水线 key 落在 pipeline 唯一列；Agent key 与首次响应快照落 `agent_idempotency`，并以 `(caller, key)` 唯一约束兜底并发写入。后一种情况通常意味着客户端的 key 生成有 bug，静默接受会掩盖问题。
+`Idempotency-Key` 的处理规则：客户端生成（推荐 UUID，长度 1–64 字符），服务端在 24 小时窗口内有效。命中已有记录时，**比对请求体哈希**：一致则返回首次响应（Agent 调用关联首次 `audit_id`），不一致则返回 `409 IDEMPOTENCY_KEY_CONFLICT`。流水线 key 落在 pipeline 唯一列；Agent key 与首次响应快照落 `agent_idempotency`，并以 `(caller, key)` 唯一约束兜底并发写入。后一种情况通常意味着客户端的 key 生成有 bug，静默接受会掩盖问题。
 
 为什么流水线提交需要这道保护：移动端是首要目标设备，弱网下用户点"开始"没有立即反馈会重复点击；PWA 的离线重放也可能重发同一请求。没有幂等保护的后果是队列里出现两条一模一样的日常任务，第二条跑起来会在已经做完的关卡上浪费理智。
 
 ### 10.2 天然幂等的端点
 
-所有 `GET`、`PUT /api/settings`（全量覆盖语义）、`PUT /api/schedules/{id}`、`PUT /api/notifications/channels/{id}`、全部 `DELETE`（重复删除返回 204 而非 404——目标状态已达成，报错没有意义）。
+所有 `GET`、`PUT /api/settings`（全量覆盖语义）、`PUT /api/schedules/{id}`、`PUT /api/notifications/channels/{id}`、全部 `DELETE`（重复删除返回 204 而非 404：目标状态已达成，报错没有意义）。
 
 `PATCH /api/queue/{pipeline_id}` 也是幂等的，但受 `QUEUE_ITEM_NOT_PENDING` 约束：条目一旦开跑，优先级就不再可改。
 
@@ -1144,7 +1144,7 @@ M17 之后这条跟随有了限定：前端会把当时生效的渠道值预填�
 
 **状态流转靠条件更新兜底。** 所有终态流转写成 `UPDATE ... WHERE id = ? AND status = ?`，用影响行数判断是否被接受，返回 0 行则转成 409。细节见 [04-数据模型与持久化](./04-数据模型与持久化.md) 的仓储层章节。
 
-**原子操作与流水线的冲突。** 流水线运行中调用 `POST /api/device/*` 或 `/api/core/back_to_home` 返回 `409 PIPELINE_ALREADY_RUNNING`；M10 手动 REST 请求带 `force=true` 则执行，并写强制介入警告日志，但该 REST 路径不创建 `agent_audit` 记录。Agent 工具调用的审计按 M11 Agent 工作流契约处理。Agent 的"卡死救援"场景应遵循的序列是：先 `DELETE /api/pipelines/{id}` 停止流水线，再做原子操作——这条序列写进工具描述里，而不是靠 agent 自己推断。
+**原子操作与流水线的冲突。** 流水线运行中调用 `POST /api/device/*` 或 `/api/core/back_to_home` 返回 `409 PIPELINE_ALREADY_RUNNING`；M10 手动 REST 请求带 `force=true` 则执行，并写强制介入警告日志，但该 REST 路径不创建 `agent_audit` 记录。Agent 工具调用的审计按 M11 Agent 工作流契约处理。Agent 的"卡死救援"场景应遵循的序列是：先 `DELETE /api/pipelines/{id}` 停止流水线，再做原子操作。这条序列写进工具描述里。
 
 **WebSocket 与 REST 的一致性。** 两者读的是同一份数据库状态，WS 事件只是变更通知，不携带权威状态。前端收到 `pipeline_status_changed` 后若需完整数据应重新拉取，避免乱序的事件覆盖了较新的状态。
 
@@ -1264,7 +1264,7 @@ app = FastAPI(generate_unique_id_function=custom_operation_id, redirect_slashes=
 | `GET /api/adb/screenshot` | `GET /api/device/screenshot` |
 | `GET /daily` | 前端路由 `/#/schedules`，由 SPA catch-all 处理 |
 
-三处语义变化需要调用方注意。`GET /api/maa/pipeline` 原本返回内存里唯一的那条流水线（含全部日志与 base64 截图），新的 `GET /api/pipelines/current` 只返回流水线与任务状态，日志与截图各有独立端点——把三类数据塞进一个响应会让这个高频轮询接口传输几百 KB。
+三处语义变化需要调用方注意。`GET /api/maa/pipeline` 原本返回内存里唯一的那条流水线（含全部日志与 base64 截图），新的 `GET /api/pipelines/current` 只返回流水线与任务状态，日志与截图各有独立端点：把三类数据塞进一个响应会让这个高频轮询接口传输几百 KB。
 
 `DELETE /api/maa/pipeline` 不带 id，因为只可能有一条；新接口必须带 id，因为队列里可能有多条。想取消"当前那条"需要先读 `GET /api/pipelines/current` 拿 id。
 
