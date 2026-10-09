@@ -203,8 +203,53 @@ def _safe_archive_destination(root: Path, name: str) -> Path:
     return destination
 
 
+def _decode_archive_link(member: str, raw: bytes) -> str:
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise CoreUpdateError(f"symlink target is not UTF-8: {member!r}") from exc
+
+
+def _archive_link_target(member: str, link: str, members: set[str]) -> str:
+    """Validate an in-archive relative symlink and return its POSIX target path.
+
+    上游的 macOS/Linux 包用版本化动态库的符号链接（``libopencv_world4.dylib`` →
+    ``libopencv_world4.4.12.0.dylib``），一律拒绝会让整个内核更新失败（docs/13
+    §8.35）。这里只放行「相对、不含 ``..``、目标就在归档内且真实存在」的链接：
+    绝对链接、越界链接与悬空链接继续拒绝，zip-slip 那条防线不放松。
+    """
+    normalized = link.replace("\\", "/")
+    relative = PurePosixPath(normalized)
+    if (
+        not relative.parts
+        or relative.is_absolute()
+        or PureWindowsPath(link).is_absolute()
+        or PureWindowsPath(link).drive
+    ):
+        raise CoreUpdateError(
+            f"absolute symlink in MaaCore archive: {member!r} -> {link!r}"
+        )
+    if any(part in {"..", ""} for part in relative.parts):
+        raise CoreUpdateError(f"escaping symlink in MaaCore archive: {member!r} -> {link!r}")
+    parent = PurePosixPath(member.replace("\\", "/")).parent
+    resolved = parent.joinpath(*relative.parts).as_posix()
+    if resolved not in members:
+        raise CoreUpdateError(
+            f"dangling symlink in MaaCore archive: {member!r} -> {link!r}"
+        )
+    return resolved
+
+
+def _create_archive_symlink(target: Path, link: str, member: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.symlink_to(link.replace("\\", "/"))
+    except OSError as exc:
+        raise CoreUpdateError(f"cannot create symlink {member!r}: {exc}") from exc
+
+
 def extract_core_archive(archive: str | Path, destination: str | Path) -> Path:
-    """Extract a zip or tar.gz archive while rejecting links and path traversal."""
+    """Extract a zip or tar.gz archive, rejecting unsafe links and traversal."""
     archive_path = Path(archive)
     output = Path(destination)
     if output.exists() and any(output.iterdir()):
@@ -213,11 +258,15 @@ def extract_core_archive(archive: str | Path, destination: str | Path) -> Path:
     try:
         if archive_path.name.lower().endswith(".zip"):
             with zipfile.ZipFile(archive_path) as bundle:
+                members = set(bundle.namelist())
                 for item in bundle.infolist():
                     target = _safe_archive_destination(output, item.filename)
                     mode = item.external_attr >> 16
                     if mode and (mode & 0o170000) == 0o120000:
-                        raise CoreUpdateError(f"symlink in MaaCore archive: {item.filename!r}")
+                        link = _decode_archive_link(item.filename, bundle.read(item))
+                        _archive_link_target(item.filename, link, members)
+                        _create_archive_symlink(target, link, item.filename)
+                        continue
                     if item.is_dir():
                         target.mkdir(parents=True, exist_ok=True)
                         continue
@@ -226,8 +275,14 @@ def extract_core_archive(archive: str | Path, destination: str | Path) -> Path:
                         shutil.copyfileobj(source, sink)
         elif archive_path.name.lower().endswith(".tar.gz"):
             with tarfile.open(archive_path, mode="r:gz") as bundle:
-                for item in bundle.getmembers():
+                items = bundle.getmembers()
+                members = {item.name for item in items}
+                for item in items:
                     target = _safe_archive_destination(output, item.name)
+                    if item.issym():
+                        _archive_link_target(item.name, item.linkname, members)
+                        _create_archive_symlink(target, item.linkname, item.name)
+                        continue
                     if not (item.isdir() or item.isfile()):
                         raise CoreUpdateError(f"link or special file in MaaCore archive: {item.name!r}")
                     if item.isdir():

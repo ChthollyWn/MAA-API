@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import os
+import tarfile
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -245,6 +246,76 @@ def test_extract_rejects_path_traversal(tmp_path: Path) -> None:
     with pytest.raises(CoreUpdateError, match="unsafe path"):
         extract_core_archive(archive, destination)
     assert not (tmp_path / "outside.txt").exists()
+
+
+def _zip_symlink(name: str, target: str) -> tuple[zipfile.ZipInfo, str]:
+    """造一个 Unix 符号链接条目（``create_system=3`` 才认 mode 位）。"""
+    info = zipfile.ZipInfo(name)
+    info.create_system = 3
+    info.external_attr = 0o120777 << 16
+    return info, target
+
+
+def test_extract_keeps_safe_in_archive_symlinks(tmp_path: Path) -> None:
+    """macOS 包用版本化 dylib 的符号链接，解压要保留而不是拒绝（docs/13 §8.35）。"""
+    prefix = "MAA-v6.18.0-macos-runtime-universal/"
+    archive = tmp_path / "release.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(prefix + "libopencv_world4.4.12.0.dylib", b"real library")
+        bundle.writestr(
+            *_zip_symlink(prefix + "libopencv_world4.dylib", "libopencv_world4.4.12.0.dylib")
+        )
+
+    extracted = extract_core_archive(archive, tmp_path / "extracted")
+
+    link = extracted / prefix / "libopencv_world4.dylib"
+    assert link.is_symlink()
+    assert os.readlink(link) == "libopencv_world4.4.12.0.dylib"
+    assert link.read_bytes() == b"real library"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "/etc/passwd",
+        "../../outside.dylib",
+        "missing.dylib",
+    ],
+)
+def test_extract_rejects_absolute_escaping_and_dangling_symlinks(
+    tmp_path: Path, target: str
+) -> None:
+    prefix = "MAA-v6.18.0-macos-runtime-universal/"
+    archive = tmp_path / "release.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(prefix + "libMaaCore.dylib", b"fake native library")
+        bundle.writestr(*_zip_symlink(prefix + "libopencv_world4.dylib", target))
+
+    destination = tmp_path / "extracted"
+    with pytest.raises(CoreUpdateError, match="symlink"):
+        extract_core_archive(archive, destination)
+    assert not (tmp_path / "outside.dylib").exists()
+
+
+def test_extract_keeps_safe_symlinks_from_a_tar_package(tmp_path: Path) -> None:
+    """Linux 的 tar.gz 走同一套规则（本机没有 Linux 包可实测，由这条用例覆盖）。"""
+    prefix = "MAA-v6.18.0-linux-x86_64/"
+    archive = tmp_path / "release.tar.gz"
+    with tarfile.open(archive, mode="w:gz") as bundle:
+        payload = tarfile.TarInfo(prefix + "libopencv_world4.so.4.12.0")
+        payload.size = len(b"real library")
+        bundle.addfile(payload, io.BytesIO(b"real library"))
+        link = tarfile.TarInfo(prefix + "libopencv_world4.so")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "libopencv_world4.so.4.12.0"
+        bundle.addfile(link)
+
+    extracted = extract_core_archive(archive, tmp_path / "extracted")
+
+    path = extracted / prefix / "libopencv_world4.so"
+    assert path.is_symlink()
+    assert os.readlink(path) == "libopencv_world4.so.4.12.0"
+    assert path.read_bytes() == b"real library"
 
 
 def test_corrupt_or_incomplete_package_is_rejected_before_touching_target(
