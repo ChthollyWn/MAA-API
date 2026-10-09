@@ -31,6 +31,7 @@ from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.db.models import AgentMessage, Screenshot, utcnow
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
 from maa_api.db.repositories.log import ScreenshotRepository
+from maa_api.db.session import describe_database_error, run_with_busy_retry
 from maa_api.domain.enums import CallerType, ScreenshotBackend, ScreenshotTrigger
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import Settings, get_settings
@@ -1369,16 +1370,26 @@ class AgentRuntime:
             ) -> Any:
                 if call["name"] == "get_screenshot" and isinstance(result, Mapping):
                     try:
-                        async with _db.begin_nested():
-                            return await self._archive_screenshot_result(result, _db)
+                        # 归档写落在审计事务里，会被同进程其它写者（日志刷盘、
+                        # 确认扫描、流水线收尾）抢锁；独立 SAVEPOINT + 有限重试
+                        # 让「database is locked」不再直接毁掉这张截图。
+                        return await run_with_busy_retry(
+                            _db,
+                            lambda: self._archive_screenshot_result(result, _db),
+                        )
                     except AppError:
                         raise
                     except Exception as exc:  # noqa: BLE001 - never persist inline image bytes
-                        logger.warning("Agent screenshot archive failed: %s", type(exc).__name__)
+                        detail = describe_database_error(exc)
+                        logger.warning("Agent screenshot archive failed: %s", detail)
                         raise AppError(
                             ErrorCode.SCREENSHOT_FAILED,
                             "截图归档失败；图片未写入审计记录",
-                            {"audit_id": audit_id, "cause": type(exc).__name__},
+                            {
+                                "audit_id": audit_id,
+                                "cause": type(exc).__name__,
+                                "detail": detail,
+                            },
                         ) from None
                 return result
 

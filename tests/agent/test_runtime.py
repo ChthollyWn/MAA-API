@@ -1910,6 +1910,104 @@ def test_screenshot_archive_insert_failure_isolated_and_persists_failed_audit_wi
     asyncio.run(scenario())
 
 
+def test_screenshot_archive_retries_sqlite_busy_instead_of_losing_the_image(tmp_path):
+    """写锁竞争只多等一次，不再直接把截图降级成 SCREENSHOT_FAILED（docs/13 §8.32）。"""
+
+    async def scenario():
+        import base64
+        import io
+        import sqlite3
+
+        from PIL import Image
+        from sqlalchemy.exc import OperationalError
+
+        from maa_api.db import session as session_module
+        from maa_api.db.repositories.log import ScreenshotRepository
+
+        class EmptyParams(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+        output = io.BytesIO()
+        Image.new("RGB", (4, 3), color=(20, 160, 40)).save(output, format="JPEG")
+        screenshot_data = base64.b64encode(output.getvalue()).decode("ascii")
+
+        async def screenshot(_params, _context):
+            return {
+                "format": "jpeg",
+                "backend": "adb",
+                "width": 4,
+                "height": 3,
+                "captured_at": "2026-09-26T00:00:00Z",
+                "data": screenshot_data,
+            }
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="get_screenshot",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Capture an image for inspection.",
+                params_model=EmptyParams,
+                handler=screenshot,
+                read_only=True,
+            )
+        )
+        call = _tool_response(
+            {
+                "index": 0,
+                "id": "busy-screenshot",
+                "type": "function",
+                "function": {"name": "get_screenshot", "arguments": "{}"},
+            }
+        )
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [call, _text_response("已经看到画面。")],
+            registry=registry,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'screenshot-busy.sqlite3'}",
+        )
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(session_module, "DB_PATH", tmp_path / "resource-root" / "agent.sqlite3")
+        original_create = ScreenshotRepository.create
+        calls = 0
+
+        async def busy_once(repository, screenshot_row):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OperationalError(
+                    "INSERT INTO screenshot (id) VALUES (?)",
+                    {},
+                    sqlite3.OperationalError("database is locked"),
+                )
+            return await original_create(repository, screenshot_row)
+
+        monkeypatch.setattr(ScreenshotRepository, "create", busy_once)
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [
+                chunk async for chunk in runtime.stream_message(session_id, "看看屏幕", None)
+            ]
+            events = _events(_event_stream(chunks))
+            results = [
+                data
+                for event, data in events
+                if event == "tool_result" and data.get("name") == "get_screenshot"
+            ]
+            assert len(results) == 1
+            assert "error" not in results[0], results[0]
+            assert results[0]["result"]["screenshot_id"]
+            async with factory() as session:
+                screenshots = await ScreenshotRepository(session).list_page(size=10)
+            assert screenshots.total == 1
+            assert calls == 2, "第一次必须撞锁失败，第二次归档成功"
+        finally:
+            monkeypatch.undo()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_probe_failure_reports_the_upstream_reason_instead_of_a_generic_capability_verdict():
     """模型名写错时不能只说「未通过能力检查」，要把上游原话带给用户。"""
 

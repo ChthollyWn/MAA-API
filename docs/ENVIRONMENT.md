@@ -253,6 +253,11 @@
   M2-07 卡面 verify 正是 `s.expire_all(); await repo.get(high.id)`，所以 `PipelineRepository.create()`
   用 `Session.merge()` 而不是 `session.add()`：merge 把状态复制进受会话管理的副本返回，**入参保持 transient**、
   字段永远可读（代价：对入参的后续修改不会被提交，调用方要用返回值/仓储方法）。改成 `add()` 该 verify 必挂。
+- **例外：`ScreenshotRepository.create()` 用 `session.add()`**（2026-10-09，docs/13 §8.32）。`Screenshot.id`
+  由 `default_factory=new_uuid` 在客户端生成，`merge()` 那次 SELECT 纯属多余，而且把一句 INSERT 变成
+  「先读后写」的升级路径——并发写下更容易撞 `database is locked`。代价是入参本身成为会话管理的持久化实例：
+  调用方必须用返回值，并在提交前读取需要的字段（`expire_on_commit=False` 时提交后仍可读，`True` 时会触发
+  异步懒加载）。`PipelineRepository.create()` 不适用这条，它仍然用 merge。
 - **裸 `create_async_engine("sqlite+aiosqlite:///...")` 的库 `PRAGMA foreign_keys=0`**，`ON DELETE CASCADE`
   静默不生效（实测：删 pipeline 后 task 仍在）；只有 `db/session.py` 的 `make_engine` 才把它置 1。
   清理方法不能假设调用方连接开了 PRAGMA（`PipelineRepository.purge_before` 因此显式删子表）；

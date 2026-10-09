@@ -19,7 +19,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 
 from maa_api.db.models import LogEntry, Pipeline, Screenshot, utcnow
@@ -412,6 +412,41 @@ def test_screenshot_create_get_and_list_by_pipeline(db_session_factory):
             assert len(await ScreenshotRepository(session).list_by_pipeline("p-1")) == 2
 
     asyncio.run(scenario())
+
+
+def test_screenshot_create_inserts_without_the_merge_select(db_engine, db_session_factory):
+    """``create()`` 用 ``add()``：客户端 UUID 不需要 ``merge()`` 那次 SELECT。
+
+    ``merge()`` 把一句 INSERT 变成「先 SELECT 再 INSERT」的读写升级，并发写下更
+    容易撞 ``database is locked``（docs/13 §8.32）。这里同时钉住新契约：返回的就是
+    入参实例，提交后（``expire_on_commit=False``）字段仍可读。
+    """
+    statements: list[str] = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many) -> None:
+        statements.append(statement)
+
+    async def scenario():
+        async with db_session_factory() as session:
+            created = await ScreenshotRepository(session).create(_shot())
+            await session.commit()
+        return created
+
+    event.listen(db_engine.sync_engine, "before_cursor_execute", capture)
+    try:
+        created = asyncio.run(scenario())
+    finally:
+        event.remove(db_engine.sync_engine, "before_cursor_execute", capture)
+
+    assert created.id
+    assert created.path == DEFAULT_SHOT["path"]
+    lowered = [statement.lower() for statement in statements]
+    assert any(statement.startswith("insert into screenshot") for statement in lowered)
+    assert not [
+        statement
+        for statement in lowered
+        if statement.startswith("select") and "screenshot" in statement
+    ]
 
 
 def test_screenshot_list_older_than_and_total_size_active(db_session_factory):

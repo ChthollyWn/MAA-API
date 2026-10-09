@@ -315,16 +315,19 @@ class ScreenshotRepository(BaseRepository):
     """
 
     async def create(self, screenshot: Screenshot) -> Screenshot:
-        """写入一条截图记录并 flush，返回受会话管理的副本（不 commit）。
+        """写入一条截图记录并 flush，返回该实例（不 commit）。
 
-        与 ``PipelineRepository.create`` 同款：``merge()`` 让入参保持 transient、
-        字段永远可读（M2-07 实测：``add()`` 会让入参变成会话管理的持久化实例，
-        提交/过期后在 async 上下文外读 ``id`` 会抛 ``MissingGreenlet``）。
-        调用方拿到返回值或自己保留的 id 都行。
+        与 ``PipelineRepository.create`` 的 ``merge()`` 不同：``Screenshot.id``
+        由 ``default_factory=new_uuid`` 在客户端生成，``merge()`` 那次 SELECT 纯属
+        多余，而且会把一句 INSERT 变成读写升级——并发写下更容易撞上
+        ``database is locked``（docs/13 §8.32）。代价是**入参会成为会话管理的
+        持久化实例**：调用方要用返回值，并在提交前读取需要的字段
+        （``expire_on_commit=True`` 的会话提交后再读会触发异步懒加载）。
+        本方法语义是新建：重复主键会抛 ``IntegrityError``，不承担 upsert。
         """
-        stored = await self.session.merge(screenshot)
+        self.session.add(screenshot)
         await self.session.flush()
-        return stored
+        return screenshot
 
     async def get(self, screenshot_id: str) -> Screenshot | None:
         """按主键取一条截图记录，不存在返回 ``None``。
