@@ -368,6 +368,31 @@ def test_repo_staging_disables_resume_and_extracts_only_resource(tmp_path: Path)
     asyncio.run(scenario())
 
 
+def test_repo_archive_failure_message_names_the_exception_type(tmp_path: Path) -> None:
+    """httpx 超时的 str() 是空串，报错必须带类型名，否则只剩一个下载地址。"""
+
+    async def scenario() -> None:
+        async def failing_download(*args: Any, **kwargs: Any) -> None:
+            raise httpx.ReadTimeout("")
+
+        async with _mock_client({}) as client:
+            with pytest.raises(ResourceUpdateError) as excinfo:
+                await stage_repo_overlay(
+                    client,
+                    ResourceCheck(ResourceChannel.REPO, changed=True, version="queried"),
+                    tmp_path / "resource" / "temp",
+                    downloader=failing_download,
+                )
+
+        message = str(excinfo.value)
+        assert message.startswith(
+            "UPDATE_DOWNLOAD_FAILED: all MaaResource archive sources failed"
+        )
+        assert f"{REPO_ARCHIVE_URL}: ReadTimeout" in message
+
+    asyncio.run(scenario())
+
+
 def test_repo_archive_download_tries_user_prefix_then_original_url(tmp_path: Path) -> None:
     async def scenario() -> None:
         payload = _repo_archive()

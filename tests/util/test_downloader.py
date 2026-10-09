@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from maa_api.util.downloader import download
+from maa_api.util.downloader import describe_download_error, download
 
 
 class ChunkStream(httpx.AsyncByteStream):
@@ -21,6 +21,20 @@ class RaisingStream(httpx.AsyncByteStream):
     async def __aiter__(self) -> AsyncIterator[bytes]:
         yield b"x" * (1024 * 1024)
         raise RuntimeError("connection dropped")
+
+
+class ResettingStream(httpx.AsyncByteStream):
+    """Yields some bytes, then drops the connection like a reset GitHub transfer."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = chunks
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self.chunks:
+            yield chunk
+        raise httpx.RemoteProtocolError(
+            "peer closed connection without sending complete message body"
+        )
 
 
 class BlockingStream(httpx.AsyncByteStream):
@@ -277,3 +291,162 @@ def test_cancellation_respects_partial_file_policy(
             assert partial.read_bytes() == b"x" * (1024 * 1024)
 
     run(scenario())
+
+
+def test_describe_download_error_keeps_the_type_when_the_message_is_empty() -> None:
+    """httpx 超时的 str() 是空串，报错必须带上类型名才有排查价值。"""
+    assert str(httpx.ReadTimeout("")) == ""
+    assert describe_download_error(httpx.ReadTimeout("")) == "ReadTimeout"
+    assert (
+        describe_download_error(httpx.ConnectError("connection refused"))
+        == "ConnectError: connection refused"
+    )
+
+
+def test_network_failure_is_retried_and_resumes_from_the_surviving_partial(
+    tmp_path: Path,
+) -> None:
+    """一次连接重置后重试应带 Range 续传，而不是整包重下（docs/07 §5.4）。"""
+    destination = tmp_path / "archive.zip"
+    requests: list[httpx.Request] = []
+    total_size = 2 * 1024 * 1024
+    first_half, second_half = b"a" * (1024 * 1024), b"b" * (1024 * 1024)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.headers.get("Range") == f"bytes={len(first_half)}-":
+            return httpx.Response(
+                206,
+                headers={
+                    "Content-Range": f"bytes {len(first_half)}-{total_size - 1}/{total_size}",
+                    "Content-Length": str(len(second_half)),
+                },
+                stream=ChunkStream([second_half]),
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            headers={"Content-Length": str(total_size)},
+            stream=ResettingStream([first_half]),
+            request=request,
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        result = run(
+            download(
+                "https://download.invalid/archive.zip",
+                destination,
+                expected_size=total_size,
+                client=client,
+                backoff=(0, 0, 0),
+            )
+        )
+    finally:
+        run(client.aclose())
+
+    assert result == destination
+    assert destination.read_bytes() == first_half + second_half
+    assert not destination.with_suffix(".zip.part").exists()
+    assert len(requests) == 2
+    assert "Range" not in requests[0].headers
+    assert requests[1].headers["Range"] == f"bytes={len(first_half)}-"
+
+
+def test_http_status_failure_is_not_retried_so_source_fallback_stays_fast(
+    tmp_path: Path,
+) -> None:
+    """服务端明确返回 503 说明这个源不行，重试交给调用方的多源回退。"""
+    destination = tmp_path / "payload.bin"
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(503, request=request)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        run(
+            download(
+                "https://download.invalid/payload.bin",
+                destination,
+                transport=httpx.MockTransport(handler),
+                backoff=(0, 0, 0),
+            )
+        )
+
+    assert len(requests) == 1
+
+
+def test_retry_budget_is_bounded_and_partial_policy_applies_at_the_end(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "payload.bin"
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ConnectError("connection refused", request=request)
+
+    with pytest.raises(httpx.ConnectError):
+        run(
+            download(
+                "https://download.invalid/payload.bin",
+                destination,
+                transport=httpx.MockTransport(handler),
+                max_retries=2,
+                backoff=(),
+                keep_partial_on_error=False,
+            )
+        )
+
+    assert attempts == 3
+    assert not destination.with_suffix(".bin.part").exists()
+
+
+def test_non_retryable_status_is_not_retried(tmp_path: Path) -> None:
+    destination = tmp_path / "payload.bin"
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(404, request=request)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        run(
+            download(
+                "https://download.invalid/missing.bin",
+                destination,
+                transport=httpx.MockTransport(handler),
+                backoff=(0, 0, 0),
+            )
+        )
+
+    assert len(requests) == 1
+
+
+def test_validation_failure_is_not_retried(tmp_path: Path) -> None:
+    destination = tmp_path / "payload.bin"
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            headers={"Content-Length": "3"},
+            stream=ChunkStream([b"bad"]),
+            request=request,
+        )
+
+    with pytest.raises(ValueError, match="size mismatch"):
+        run(
+            download(
+                "https://download.invalid/payload.bin",
+                destination,
+                expected_size=4,
+                transport=httpx.MockTransport(handler),
+                backoff=(0, 0, 0),
+            )
+        )
+
+    assert len(requests) == 1

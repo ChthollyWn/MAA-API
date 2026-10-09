@@ -28,7 +28,10 @@ from typing import Any, Callable, Mapping
 import httpx
 
 from maa_api.domain.enums import ResourceChannel
-from maa_api.util.downloader import download as default_downloader
+from maa_api.util.downloader import (
+    describe_download_error,
+    download as default_downloader,
+)
 
 __all__ = [
     "OTA_URL",
@@ -571,11 +574,17 @@ async def stage_repo_overlay(
                     break
                 except Exception as exc:
                     failures.append((url, exc))
-                    logger.warning("MaaResource archive source failed (%s): %s", url, exc)
+                    logger.warning(
+                        "MaaResource archive source failed (%s): %s",
+                        url,
+                        describe_download_error(exc),
+                    )
                     archive.unlink(missing_ok=True)
                     archive.with_suffix(archive.suffix + ".part").unlink(missing_ok=True)
             if not downloaded:
-                details = "; ".join(f"{url}: {error}" for url, error in failures)
+                details = "; ".join(
+                    f"{url}: {describe_download_error(error)}" for url, error in failures
+                )
                 raise ResourceUpdateError(
                     f"UPDATE_DOWNLOAD_FAILED: all MaaResource archive sources failed: {details}"
                 ) from (failures[-1][1] if failures else None)

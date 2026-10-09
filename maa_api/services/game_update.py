@@ -539,7 +539,9 @@ class GameUpdateService:
                 if inspect.isawaitable(result):
                     result = await result
             except Exception as exc:
-                transfer_errors.append(f"{attempt_url}: {exc}")
+                transfer_errors.append(
+                    f"{attempt_url}: {downloader.describe_download_error(exc)}"
+                )
                 continue
 
             downloaded_path = Path(result) if result is not None else attempt_target

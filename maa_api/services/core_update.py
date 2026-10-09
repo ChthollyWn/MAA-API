@@ -25,7 +25,10 @@ from typing import Any, Callable
 import httpx
 
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.util.downloader import download as default_downloader
+from maa_api.util.downloader import (
+    describe_download_error,
+    download as default_downloader,
+)
 
 __all__ = [
     "CORE_ARCHIVE_CACHE_TTL_SECONDS",
@@ -524,7 +527,11 @@ class CoreUpdateWorkflow:
                 return await validate_cached()
             except Exception as exc:
                 failures.append((url, exc))
-                logger.warning("MaaCore download source failed (%s): %s", url, exc)
+                logger.warning(
+                    "MaaCore download source failed (%s): %s",
+                    url,
+                    describe_download_error(exc),
+                )
                 archive_path.unlink(missing_ok=True)
                 partial_path.unlink(missing_ok=True)
                 clear_extraction()
@@ -532,10 +539,12 @@ class CoreUpdateWorkflow:
         if not failures:
             raise CoreUpdateError("MaaCore release has no usable download source")
         final_url, final_error = failures[-1]
-        attempted = "; ".join(f"{url}: {error}" for url, error in failures)
+        attempted = "; ".join(
+            f"{url}: {describe_download_error(error)}" for url, error in failures
+        )
         raise CoreUpdateError(
             f"all MaaCore download sources failed; final source {final_url}: "
-            f"{final_error}; attempts: {attempted}"
+            f"{describe_download_error(final_error)}; attempts: {attempted}"
         ) from final_error
 
     async def update(
