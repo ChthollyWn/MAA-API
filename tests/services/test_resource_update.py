@@ -41,17 +41,26 @@ from maa_api.services.resource_update import (
 def _repo_archive(
     *, version: str = "2026-09-14 04:36:14.000", bad_path: str | None = None
 ) -> bytes:
+    """按上游 2026-10-08 的实际布局造包：含 resource/.gitignore 与 tasks/hotfix。"""
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("MaaResource-main/", "")
         archive.writestr("MaaResource-main/cache/.gitignore", "ignored")
         archive.writestr("MaaResource-main/resource/", "")
         archive.writestr(
+            "MaaResource-main/resource/.gitignore",
+            b"/*\n!/version.json\n!/tasks/\n/tasks/*\n!/tasks/hotfix/\n",
+        )
+        archive.writestr(
             "MaaResource-main/resource/version.json",
             json.dumps({"last_updated": version}),
         )
         archive.writestr("MaaResource-main/resource/stages.json", '{"new":"stage"}')
         archive.writestr("MaaResource-main/resource/template/items/new.png", b"image")
+        archive.writestr(
+            "MaaResource-main/resource/tasks/hotfix/ocr_replace.json",
+            json.dumps({"OCRReplace": {"hello": "world"}}),
+        )
         if bad_path:
             archive.writestr(f"MaaResource-main/resource/{bad_path}", b"unsafe")
     return output.getvalue()
@@ -364,6 +373,35 @@ def test_repo_staging_disables_resume_and_extracts_only_resource(tmp_path: Path)
         assert staged.version == "2026-09-14 04:36:14.000"
         assert (staged.path / "resource" / "stages.json").is_file()
         assert not (staged.path / "cache").exists()
+
+    asyncio.run(scenario())
+
+
+def test_repo_staging_skips_gitignore_and_merges_tasks_hotfix(tmp_path: Path) -> None:
+    """上游 2026-10-08 的布局：``resource/.gitignore`` 跳过、``tasks/hotfix`` 合并。
+
+    白名单命中 ``tasks`` 之前，上游新增的这两个条目会让整次活动资源更新以
+    ``MaaResource path is outside the overlay whitelist`` 失败（docs/13 §8.33）。
+    """
+
+    async def scenario() -> None:
+        payload = _repo_archive()
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, content=payload))
+        ) as client:
+            staged = await stage_repo_overlay(
+                client,
+                ResourceCheck(ResourceChannel.REPO, changed=True, version="queried"),
+                tmp_path / "temp",
+            )
+
+        hotfix = staged.path / "resource" / "tasks" / "hotfix" / "ocr_replace.json"
+        assert hotfix.is_file()
+        assert json.loads(hotfix.read_text(encoding="utf-8")) == {
+            "OCRReplace": {"hello": "world"}
+        }
+        # 仓库卫生文件不进 overlay 目录；未知条目仍然报错（见下一条用例）
+        assert not (staged.path / "resource" / ".gitignore").exists()
 
     asyncio.run(scenario())
 

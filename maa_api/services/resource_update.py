@@ -113,6 +113,9 @@ RESOURCE_MANIFEST: tuple[ResourceItem, ...] = (
 )
 
 _OTA_ITEM, _REPO_ITEM = RESOURCE_MANIFEST
+#: overlay 允许落进内核 ``resource/`` 的一级条目。上游 2026-10-08 的快照新增了
+#: ``tasks/hotfix/ocr_replace.json``（与早已存在的 ``global/*/resource/tasks/hotfix/``
+#: 同源），白名单是旧快照会导致整次更新失败，见 docs/13 §8.33。
 _REPO_RESOURCE_FILES = frozenset(
     {
         "Arknights-Tile-Pos",
@@ -122,11 +125,18 @@ _REPO_RESOURCE_FILES = frozenset(
         "item_index.json",
         "recruitment.json",
         "stages.json",
+        "tasks",
         "template",
         "version.json",
     }
 )
-_REPO_DIRECTORY_ROOTS = frozenset({"Arknights-Tile-Pos", "global", "template"})
+_REPO_DIRECTORY_ROOTS = frozenset(
+    {"Arknights-Tile-Pos", "global", "tasks", "template"}
+)
+#: 上游 ``resource/`` 里属于仓库自身卫生、不要 overlay 进内核的条目。它们显式列在
+#: 这里而不是加入白名单：白名单外的**未知**条目仍然要报错，才能让上游又一次改布局
+#: 时立刻被发现，而不是把看不懂的东西默默合进内核资源目录。
+_REPO_IGNORED_ENTRIES = frozenset({".gitignore"})
 _REPO_ARCHIVE_ESTIMATE = 13_916_116
 _REPO_EXPANDED_ESTIMATE = 107 * 1024 * 1024
 RESOURCE_DISK_GROWTH_FACTOR = 1.5
@@ -633,6 +643,10 @@ async def stage_repo_overlay(
                     remainder = PurePosixPath(*relative.parts[2:])
                     if not remainder.parts:
                         target_resource.mkdir(parents=True, exist_ok=True)
+                        continue
+                    if remainder.parts[0] in _REPO_IGNORED_ENTRIES:
+                        # 上游 resource/.gitignore 是仓库卫生文件（它本身就是上游维护
+                        # resource/ 内容的清单），不进 overlay。
                         continue
                     if remainder.parts[0] not in _REPO_RESOURCE_FILES:
                         raise ResourceUpdateError(
