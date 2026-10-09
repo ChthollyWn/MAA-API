@@ -126,7 +126,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
   const submit = () => {
     if (busy) return
     if (Object.keys(errors).length > 0) {
-      setNotice('还有字段没有填好或超出字数，照着下面的提示改。')
+      setNotice('还有字段没填好或超出字数，请按字段提示修改。')
       return
     }
     setFieldErrors({})
@@ -187,7 +187,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
         <Field
           label="标识"
           htmlFor="knowledge-id"
-          description={isNew ? '索引里的名字，也是 read_knowledge 的参数；创建后不可修改。' : '标识创建后不可修改。'}
+          description={isNew ? '索引里的名字，创建后不可修改' : '创建后不可修改'}
           error={fieldErrors.id ?? errors.id}
           errorId="knowledge-id-error"
         >
@@ -208,7 +208,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
         <Field
           label="类型"
           htmlFor="knowledge-kind"
-          description={builtin ? '内置条目的类型不可修改。' : '术语表与用户档案会整段注入 system 消息。'}
+          description={builtin ? '内置条目的类型不可修改' : '术语表与用户档案会整段进模型上下文'}
           error={fieldErrors.kind ?? errors.kind}
           errorId="knowledge-kind-error"
         >
@@ -248,7 +248,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
           label="什么时候用"
           htmlFor="knowledge-when"
           labelAside={<Counter value={form.whenToUse} max={MAX_WHEN_TO_USE_CHARS} />}
-          description="写给模型看的一句话：用户提到什么时该读这一条。"
+          description="用户提到什么时该读这一条"
           error={fieldErrors.whenToUse ?? errors.whenToUse}
           errorId="knowledge-when-error"
         >
@@ -269,7 +269,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
           label="正文"
           htmlFor="knowledge-body"
           labelAside={<Counter value={form.body} max={MAX_BODY_CHARS} />}
-          description="Markdown；只有 read_knowledge 读到它时才会进模型上下文。"
+          description="Markdown；被读到才会进模型上下文"
           error={fieldErrors.body ?? errors.body}
           errorId="knowledge-body-error"
         >
@@ -290,7 +290,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
           <SwitchRow
             id="knowledge-enabled"
             label="启用"
-            description="停用后不进索引，read_knowledge 也读不到它。"
+            description="停用后不进索引，Agent 也读不到它"
             checked={form.enabled}
             disabled={busy}
             onCheckedChange={(enabled) => change({ enabled })}
@@ -298,7 +298,7 @@ function KnowledgeEditor({ entry, onLeave }: KnowledgeEditorProps) {
           {errors.enabled ? <p className="pb-3 text-footnote font-medium text-danger">{errors.enabled}</p> : null}
         </div>
 
-        <Section title="索引预览" description="Agent 的系统消息里会这样列出这一条。">
+        <Section title="索引预览" hint="Agent 的系统消息里会这样列出这一条。">
           <pre className="overflow-x-auto overscroll-x-contain rounded-xl border bg-card px-3.5 py-3 font-mono text-footnote leading-6 shadow-card">{preview}</pre>
         </Section>
 
@@ -335,7 +335,7 @@ export function KnowledgeEditorScreen({ entryId }: { entryId: string | null }) {
           <EmptyState
             icon={BookX}
             title="找不到这个知识条目"
-            description="它可能已经被删除。"
+            description="条目可能已经被删除"
             action={<Button asChild variant="outline"><Link to={KNOWLEDGE_PATH}>返回知识库</Link></Button>}
           />
         ) : (

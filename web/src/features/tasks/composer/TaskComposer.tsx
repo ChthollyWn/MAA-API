@@ -11,6 +11,7 @@ import { Section } from '@/components/ui/section'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states'
 import { StickyActionBar } from '@/components/ui/sticky-action-bar'
 import { errorMessage, riskSummary, type TaskDraft } from '../form'
+import { taskErrorSummaryMessage } from '../pipeline-format'
 import { useTaskTypes } from '../task-types'
 import { MAX_TASKS, templateFromDrafts } from './drafts'
 import { useComposerStore } from './store'
@@ -20,7 +21,7 @@ import { composerSubmitKey, useSubmitPipeline, type ComposerNotice } from './use
 function RiskLines({ lines }: { lines: readonly string[] }) {
   return (
     <>
-      下列参数会消耗游戏内资源，确认后先由服务端校验，再加入队列：
+      这些参数会消耗游戏内资源：
       {lines.map((line) => <span key={line} className="mt-1.5 block font-medium text-foreground">{line}</span>)}
     </>
   )
@@ -32,13 +33,11 @@ function fieldErrorSummary(drafts: readonly TaskDraft[], errors: Readonly<Record
     .filter((entry) => entry.count > 0)
   if (failing.length === 0) return null
   const total = failing.reduce((sum, entry) => sum + entry.count, 0)
-  const message = failing.length === 1
-    ? `第 ${failing[0].position} 个任务有 ${total} 处错误，点开修改。`
-    : `第 ${failing.map((entry) => entry.position).join('、')} 个任务共有 ${total} 处错误，点开修改。`
+  const message = `${taskErrorSummaryMessage(failing.map((entry) => entry.position), total)}，点开修改。`
   return { message, firstId: failing[0].id }
 }
 
-/** 任务 › 新建：可选名称、任务列表、底部「开始执行」与「存为定时」。草稿存在内存 store 里。 */
+/** 任务 › 新建：可选名称、任务列表、底部「开始执行」与「存为定时任务」。草稿存在内存 store 里。 */
 export function TaskComposer() {
   const navigate = useNavigate()
   const types = useTaskTypes()
@@ -88,7 +87,7 @@ export function TaskComposer() {
     if (drafts.length === 0 || submitting) return
     const risks = riskSummary(drafts, taskTypes)
     if (risks.length > 0) {
-      const ok = await confirm({ title: '确认消耗资源？', description: <RiskLines lines={risks} />, confirmText: '确认并开始执行' })
+      const ok = await confirm({ title: '确认消耗资源？', description: <RiskLines lines={risks} />, confirmText: '开始执行' })
       if (!ok) return
     }
     setNotice(null)
@@ -120,15 +119,15 @@ export function TaskComposer() {
           />
         </Field>
 
-        <Section title="执行顺序" description="从上到下依次执行，只提交你改过的参数。">
+        <Section title="执行顺序" hint="从上到下依次执行，只提交你改过的参数。">
           {types.isPending ? (
             <div className="rounded-xl border bg-card shadow-card"><LoadingState label="正在读取任务类型…" /></div>
           ) : types.error ? (
             <div className="rounded-xl border bg-card shadow-card">
-              <ErrorState message={`无法读取任务类型：${errorMessage(types.error)}`} onRetry={() => void types.refetch()} retrying={types.isFetching} />
+              <ErrorState message={`读取任务类型失败：${errorMessage(types.error)}`} onRetry={() => void types.refetch()} retrying={types.isFetching} />
             </div>
           ) : taskTypes.length === 0 ? (
-            <div className="rounded-xl border bg-card shadow-card"><EmptyState title="服务端暂未提供任务类型" description="刷新页面或检查服务版本后再试。" /></div>
+            <div className="rounded-xl border bg-card shadow-card"><EmptyState title="还没有可用的任务类型" description="刷新页面后再试" /></div>
           ) : (
             <TaskListEditor
               taskTypes={taskTypes}
@@ -158,7 +157,7 @@ export function TaskComposer() {
               tone="success"
               action={<Button asChild variant="outline" size="sm"><Link to="/tasks/queue">查看队列</Link></Button>}
             >
-              流水线已加入队列。
+              流水线已加入队列
             </InlineAlert>
           ) : null}
         </div>
@@ -167,11 +166,11 @@ export function TaskComposer() {
       <StickyActionBar>
         <Button variant="outline" disabled={count === 0 || submitting} onClick={saveAsSchedule}>
           <CalendarPlus aria-hidden="true" />
-          存为定时
+          存为定时任务
         </Button>
         <Button loading={submitting} disabled={count === 0 || count > MAX_TASKS || taskTypes.length === 0} onClick={() => void start()}>
           {submitting ? null : <Play aria-hidden="true" />}
-          {submitting ? '正在提交…' : `开始执行（${count} 项）`}
+          {submitting ? '正在提交…' : '开始执行'}
         </Button>
       </StickyActionBar>
       {confirmElement}

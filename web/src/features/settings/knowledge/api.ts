@@ -66,7 +66,7 @@ export async function deleteKnowledgeEntry(entryId: string): Promise<void> {
 export async function setKnowledgeEnabled(entryId: string, enabled: boolean): Promise<KnowledgeDetail> {
   const detail = await fetchKnowledgeEntry(entryId)
   if (!isKnowledgeKind(detail.kind)) {
-    throw new ApiError({ status: 500, message: `知识条目「${entryId}」的类型无法识别：${detail.kind}` })
+    throw new ApiError({ status: 500, message: `知识条目「${entryId}」的类型无法识别，请刷新页面后重试。` })
   }
   return saveKnowledgeEntry(entryId, {
     kind: detail.kind,

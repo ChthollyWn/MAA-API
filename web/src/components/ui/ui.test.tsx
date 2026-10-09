@@ -8,8 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Disclosure } from '@/components/ui/disclosure'
+import { InfoHint } from '@/components/ui/info-hint'
 import { ListGroup, ListItem } from '@/components/ui/list'
 import { Progress } from '@/components/ui/progress'
+import { Section } from '@/components/ui/section'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { ResponsiveSheet } from '@/components/ui/sheet'
 import { EmptyState, ErrorState } from '@/components/ui/states'
@@ -217,5 +219,31 @@ describe('display primitives', () => {
     expect(screen.getByText('已修改 2 项')).toBeInTheDocument()
     await act(async () => { fireEvent.click(summary) })
     expect(screen.getByText('时区')).toBeVisible()
+  })
+})
+
+describe('InfoHint', () => {
+  it('keeps the explanation hidden until the user asks for it', async () => {
+    render(<InfoHint label="执行顺序 说明">从上到下依次执行。</InfoHint>)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: '执行顺序 说明' })
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await act(async () => { fireEvent.click(trigger) })
+    expect(screen.getByRole('tooltip')).toHaveTextContent('从上到下依次执行。')
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('opens on hover and closes on escape', async () => {
+    render(<InfoHint>只影响本页发出的请求。</InfoHint>)
+    await act(async () => { fireEvent.mouseEnter(screen.getByRole('button', { name: '说明' })) })
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+    await act(async () => { fireEvent.keyDown(screen.getByRole('button', { name: '说明' }), { key: 'Escape' }) })
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('renders as a question mark button inside Section titles', () => {
+    render(<Section title="执行顺序" hint="从上到下依次执行。"><p>内容</p></Section>)
+    expect(screen.getByRole('heading', { name: /执行顺序/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '执行顺序 说明' })).toBeInTheDocument()
   })
 })

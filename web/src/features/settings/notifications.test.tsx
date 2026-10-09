@@ -188,7 +188,7 @@ describe('Web Push', () => {
     expect(await screen.findByText('已订阅')).toBeInTheDocument()
     await waitFor(() => expect(api.find('GET', '/api/notifications/push-subscriptions').length).toBeGreaterThanOrEqual(2))
 
-    fireEvent.click(screen.getByRole('button', { name: '注销本机订阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '注销订阅' }))
     await waitFor(() => expect(push.disablePush).toHaveBeenCalledTimes(1))
     expect(await screen.findByText('未订阅')).toBeInTheDocument()
   })
@@ -240,8 +240,8 @@ describe('notification channels', () => {
     fireEvent.change(within(dialog).getByLabelText('名称'), { target: { value: '手机' } })
     expect(within(dialog).getByLabelText('服务器')).toHaveValue('https://api.day.app')
     fireEvent.change(within(dialog).getByLabelText('设备密钥'), { target: { value: 'abc123' } })
-    expect(within(dialog).getByRole('button', { name: '任务完成' })).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(within(dialog).getByRole('button', { name: '任务失败' }))
+    expect(within(dialog).getByRole('button', { name: '流水线完成' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(within(dialog).getByRole('button', { name: '流水线失败' }))
     fireEvent.click(within(dialog).getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(api.find('POST', '/api/notifications/channels')).toHaveLength(1))
@@ -319,7 +319,7 @@ describe('notification channels', () => {
     expect(JSON.parse((again as HTMLTextAreaElement).value)).toEqual(edited)
     fireEvent.change(again, { target: { value: '{"server": ' } })
     fireEvent.click(within(dialog).getByRole('button', { name: '使用表单编辑' }))
-    expect(within(dialog).getByText('配置不是有效的 JSON，请检查括号、引号和逗号。')).toBeInTheDocument()
+    expect(within(dialog).getByText('请输入有效的 JSON，检查括号、引号和逗号。')).toBeInTheDocument()
     expect(within(dialog).getByLabelText('配置 JSON')).toBeInTheDocument()
 
     fireEvent.change(within(dialog).getByLabelText('配置 JSON'), { target: { value: JSON.stringify({ ...edited, to: ['ops@example.com'] }) } })
@@ -330,6 +330,40 @@ describe('notification channels', () => {
       type: 'email',
       config: { ...edited, to: ['ops@example.com'] },
     })
+  })
+
+  it('collects the explanation in the section hint instead of the subtitle', async () => {
+    installApi()
+    renderNotifications()
+
+    // 解释性副标题收进小问号，正文只留标题与操作。
+    expect(await screen.findByRole('button', { name: '通知通道 说明' })).toBeInTheDocument()
+    expect(screen.queryByText('流水线完成、失败或发现更新时发送消息。')).not.toBeInTheDocument()
+  })
+
+  it('explains masked credentials with one line in the form and in the raw JSON (P7)', async () => {
+    installApi({
+      channels: [{
+        id: 'channel-hook',
+        type: 'webhook',
+        name: '值班机器人',
+        enabled: true,
+        config: { url: 'https://example.com/hook?token=***', method: 'POST', headers: {}, body_template: '{title}' },
+        events: ['pipeline_completed'],
+        last_status: null,
+        last_sent_at: null,
+        last_error: null,
+      }],
+    })
+    renderNotifications()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^值班机器人/ }))
+    const dialog = await screen.findByRole('dialog', { name: '编辑通知通道' })
+    // 请求地址里的凭据和 JSON 模式共用同一句说明。
+    expect(within(dialog).getByText('保持 *** 不变即沿用已保存的凭据')).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '以 JSON 编辑' }))
+    expect(within(dialog).getByText('保持 *** 不变即沿用已保存的凭据')).toBeInTheDocument()
   })
 
   it('sends a test notification and deletes a channel only after confirmation (P8)', async () => {

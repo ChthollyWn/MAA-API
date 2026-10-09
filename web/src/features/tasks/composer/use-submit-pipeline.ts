@@ -27,7 +27,7 @@ interface SubmitCallbacks {
   onFieldErrors: () => void
 }
 
-const TIMEOUT_NOTICE = '服务端未在预期时间内响应（504），这条流水线可能已经入队。正在确认状态；再次点击会使用同一请求编号。'
+const TIMEOUT_NOTICE = '服务端响应超时（504），这条流水线可能已经入队。正在确认状态，再点一次不会重复提交。'
 
 /**
  * 编排提交：先 `POST /api/tasks/validate`，通过后带 `Idempotency-Key` 提交 `POST /api/pipelines`。
@@ -67,16 +67,16 @@ export function useSubmitPipeline(taskTypes: readonly TaskTypeSchema[], callback
         try {
           const { data, error: currentError, response } = await api.GET('/api/pipelines/current')
           if (!currentError) queryClient.setQueryData(keys.pipelines.current(), data)
-          else callbacks.onNotice({ tone: 'warning', message: `服务端未在预期时间内响应（504），且当前流水线查询失败：${toApiError(currentError, response).message}。再次点击会使用同一请求编号。` })
+          else callbacks.onNotice({ tone: 'warning', message: `服务端响应超时（504），且当前流水线查询失败：${toApiError(currentError, response).message}。再点一次不会重复提交。` })
         } catch (statusError) {
-          callbacks.onNotice({ tone: 'warning', message: `服务端未在预期时间内响应（504），当前状态查询失败：${errorMessage(statusError)}。再次点击会使用同一请求编号。` })
+          callbacks.onNotice({ tone: 'warning', message: `服务端响应超时（504），当前状态查询失败：${errorMessage(statusError)}。再点一次不会重复提交。` })
         }
         await queryClient.invalidateQueries({ queryKey: keys.queue.all() })
       } else if (Object.keys(mapped).length > 0) {
         callbacks.onNotice(null)
         callbacks.onFieldErrors()
       } else {
-        callbacks.onNotice({ tone: 'danger', message: issues.length > 0 ? `校验未通过：${message}` : `提交失败：${message}` })
+        callbacks.onNotice({ tone: 'danger', message: issues.length > 0 ? `校验未通过：${message}` : `提交流水线失败：${message}` })
       }
     },
   })

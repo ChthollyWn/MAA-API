@@ -1,6 +1,6 @@
 import type { LogRecord } from '@/realtime/events'
 
-export const SOURCE_LABELS = { task: '任务', service: '服务', core: '核心' } as const
+export const SOURCE_LABELS = { task: '任务', service: '服务', core: '内核' } as const
 
 export function sourceLabel(source: unknown): string {
   const value = String(source ?? '')

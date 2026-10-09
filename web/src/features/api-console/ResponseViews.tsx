@@ -56,7 +56,7 @@ function ErrorCard({ error }: { error: NonNullable<ResponseView['errorCard']> })
 
 export function ResponseContents({ response, openApi }: { response: ResponseView | null; openApi?: OpenApiDocument }) {
   if (!response) {
-    return <EmptyState icon={Send} title="还没有响应" description="发送请求后，这里显示状态、耗时、响应体与响应头。" className="py-8" />
+    return <EmptyState icon={Send} title="还没有响应" description="发送请求后这里会显示结果" className="py-8" />
   }
   const headers = recordOf(response.headers)
   const contentType = String(headers['content-type'] ?? '').toLowerCase()
@@ -81,7 +81,7 @@ export function ResponseContents({ response, openApi }: { response: ResponseView
             : <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-2 p-3 font-mono text-xs leading-5">{response.bodyText}</pre>}
         </section>
       ) : (
-        <p className="rounded-lg bg-surface-2 px-3 py-2.5 text-footnote text-muted-foreground">响应没有内容。</p>
+        <p className="rounded-lg bg-surface-2 px-3 py-2.5 text-footnote text-muted-foreground">响应没有内容</p>
       )}
       <Disclosure variant="plain" title={<>响应头 <span className="font-normal text-muted-foreground tabular-nums">{Object.keys(headers).length}</span></>}>
         <dl className="divide-y rounded-lg bg-surface-2/70">
@@ -131,11 +131,11 @@ export function LogContents({ logs, timeline, requestId, connection, historyTrun
         </span>
         <span className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">request_id {requestId ?? '等待发送请求'}</span>
       </div>
-      {historyTruncated ? <InlineAlert tone="warning">日志历史不完整，服务器保留的回放范围不足；部分较早日志可能缺失。</InlineAlert> : null}
+      {historyTruncated ? <InlineAlert tone="warning">日志历史不完整，较早的部分可能缺失</InlineAlert> : null}
       <section aria-label="状态时间线" className="space-y-2">
         <h3 className="px-1 text-sm font-semibold">状态时间线</h3>
         {timeline.length === 0 ? (
-          <p className="px-1 text-footnote text-muted-foreground">暂无状态变化；这条时间线只在调试台里显示。</p>
+          <p className="px-1 text-footnote text-muted-foreground">还没有状态变化</p>
         ) : (
           <ol className="ml-2 space-y-2.5 border-l pl-4">
             {timeline.slice(-6).map((item, index) => (
@@ -151,7 +151,7 @@ export function LogContents({ logs, timeline, requestId, connection, historyTrun
       <section aria-label="服务端日志" className="space-y-2">
         <h3 className="px-1 text-sm font-semibold">服务端日志 <span className="font-normal text-muted-foreground tabular-nums">{logs.length}</span></h3>
         {logs.length === 0 ? (
-          <p className="px-1 text-footnote text-muted-foreground">还没有收到这次请求或关联流水线的日志。</p>
+          <p className="px-1 text-footnote text-muted-foreground">还没有收到这次请求或关联流水线的日志</p>
         ) : (
           <ol className="divide-y overflow-hidden rounded-lg border">
             {logs.map((record, index) => {

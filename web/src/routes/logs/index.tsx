@@ -133,7 +133,7 @@ export default function LogsPage() {
             </Button>
           )}
         >
-          断线期间的日志超出实时缓冲，可能存在未加载的历史日志。
+          断线期间的日志可能没有全部收到
         </InlineAlert>
       ) : realtime.truncated && history.backfillResolved ? (
         <InlineAlert tone="success">已从历史记录补齐 {history.recoveredCount.toLocaleString()} 条缺失日志</InlineAlert>
@@ -142,8 +142,8 @@ export default function LogsPage() {
 
       {realtime.status === 'OFFLINE' && !history.error ? (
         <InlineAlert tone="info">
-          目前显示已加载的历史记录；重新连接后实时日志会继续追加。
-          {realtime.error ? <span className="mt-0.5 block text-footnote text-muted-foreground">连接错误：{realtime.error}</span> : null}
+          当前显示已加载的历史记录，重新连接后会继续追加实时日志。
+          {realtime.error ? <span className="mt-0.5 block text-footnote text-muted-foreground">断开原因：{realtime.error}</span> : null}
         </InlineAlert>
       ) : null}
 
@@ -160,8 +160,8 @@ export default function LogsPage() {
         ) : (
           <EmptyState
             icon={narrowed ? SearchX : ScrollText}
-            title="暂无匹配的历史或实时日志"
-            description={narrowed ? '换个关键词或放宽筛选条件试试。' : '新的日志会实时出现在这里。'}
+            title="还没有匹配的日志"
+            description={narrowed ? '换个关键词或放宽筛选条件试试' : '新的日志会实时出现在这里'}
             action={conditions.length ? <Button variant="outline" size="sm" onClick={clearFilters}>清除筛选</Button> : null}
           />
         )}

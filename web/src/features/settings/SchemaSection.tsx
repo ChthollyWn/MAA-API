@@ -141,7 +141,7 @@ export function SchemaSection({ section, intro }: SchemaSectionProps) {
       if (error) throw toApiError(error, response)
       await refresh()
       setDraft({})
-      toast.success(count > 1 ? `已保存 ${count} 项设置` : '设置已保存')
+      toast.success(count > 1 ? `已保存 ${count} 项设置` : '已保存')
     } catch (caught) {
       if (isApplyFailure(caught)) {
         await refresh()
@@ -160,7 +160,7 @@ export function SchemaSection({ section, intro }: SchemaSectionProps) {
   const reset = async () => {
     const effect = overridden.length
       ? `会清除 ${overridden.length} 项在网页上保存的值，改用配置文件、环境变量或默认值。`
-      : '这个分区没有在网页上保存的值，恢复默认不会改变当前设置。'
+      : '这个分区没有在网页上改过的值，恢复默认不会改变当前设置。'
     const ok = await confirm({
       title: `恢复「${section.title}」的默认设置？`,
       description: dirty ? `${effect}还没保存的更改也会一并放弃。` : effect,
@@ -205,7 +205,7 @@ export function SchemaSection({ section, intro }: SchemaSectionProps) {
         <EmptyState
           icon={Inbox}
           title="这个分区没有设置项"
-          description={`服务端没有返回属于「${section.title}」的设置。`}
+          description="暂时没有可以修改的设置"
           action={<Button asChild variant="outline" size="sm"><Link to={SETTINGS_INDEX_PATH}>返回设置</Link></Button>}
         />
       </div>
@@ -230,13 +230,13 @@ export function SchemaSection({ section, intro }: SchemaSectionProps) {
           </ListGroup>
         ))}
         {resettable.length ? (
-          <ListGroup footer="恢复默认只清除在网页上保存的值（数据库覆盖）；配置文件与环境变量里的值不受影响。">
+          <ListGroup footer="只清除在网页上保存的值，配置文件与环境变量不受影响">
             <ListItem
               icon={RotateCcw}
               iconTone="danger"
               tone="danger"
               title={pending === 'reset' ? '正在恢复默认…' : '恢复默认'}
-              description={overridden.length ? `本分区有 ${overridden.length} 项在网页上改过` : '本分区没有在网页上改过的值'}
+              description={overridden.length ? `有 ${overridden.length} 项在网页上改过` : '没有在网页上改过的值'}
               chevron={false}
               disabled={pending !== null}
               onClick={() => void reset()}

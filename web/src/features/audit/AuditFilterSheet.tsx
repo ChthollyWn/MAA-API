@@ -33,7 +33,7 @@ export function AuditFilterSheet({ open, onOpenChange, filters, onApply, onClear
       open={open}
       onOpenChange={onOpenChange}
       title="筛选审计记录"
-      description="筛选条件会写入页面地址，可以直接分享当前视图。"
+      description="筛选条件会写进页面地址"
       footer={(
         <div className="grid grid-cols-2 gap-2">
           <Button variant="secondary" onClick={onClear}>清除</Button>
@@ -84,7 +84,7 @@ export function AuditFilterSheet({ open, onOpenChange, filters, onApply, onClear
             </NativeSelect>
           </Field>
         </div>
-        <Field label="开始日期" htmlFor={`${baseId}-since`} description="按 UTC 零点计算，只看这一天及之后的记录。">
+        <Field label="开始日期" htmlFor={`${baseId}-since`} description="按 UTC 零点计算，显示这一天及之后的记录">
           <Input
             id={`${baseId}-since`}
             type="date"

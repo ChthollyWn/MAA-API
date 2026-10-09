@@ -103,7 +103,8 @@ export function hotActionLabel(action: string): string {
   if (action === 'none') return '保存后立即生效'
   if (action === 'reconnect') return '保存后会重新连接设备'
   if (action === 'restart_required') return '重启服务后生效'
-  return `生效方式：${action}`
+  // 服务端新增了未知的生效方式：不把枚举原文摆到界面上。
+  return '保存后生效'
 }
 
 export function rangeLabel(minimum?: number, maximum?: number): string | null {
@@ -132,8 +133,8 @@ export function parseFieldValue(field: SettingField, raw: unknown): ParseResult 
     const parsed = typeof value === 'number' ? value : Number(value)
     if (!Number.isFinite(parsed)) return { error: '请输入有效数值。' }
     if (field.type === 'integer' && !Number.isInteger(parsed)) return { error: '请输入整数。' }
-    if (field.minimum !== undefined && parsed < field.minimum) return { error: `不能小于 ${field.minimum}。` }
-    if (field.maximum !== undefined && parsed > field.maximum) return { error: `不能大于 ${field.maximum}。` }
+    if (field.minimum !== undefined && parsed < field.minimum) return { error: `请填写不小于 ${field.minimum} 的值。` }
+    if (field.maximum !== undefined && parsed > field.maximum) return { error: `请填写不大于 ${field.maximum} 的值。` }
     return { value: parsed }
   }
   if (field.type === 'integer[]') {
@@ -143,20 +144,20 @@ export function parseFieldValue(field: SettingField, raw: unknown): ParseResult 
     for (const item of items) {
       const text = typeof item === 'string' ? item.trim() : item
       const parsed = text === '' || typeof text === 'boolean' || text === null ? Number.NaN : Number(text)
-      if (!Number.isInteger(parsed)) return { error: '每一项都必须是整数。' }
-      if (field.minimum !== undefined && parsed < field.minimum) return { error: `每个值不能小于 ${field.minimum}。` }
-      if (field.maximum !== undefined && parsed > field.maximum) return { error: `每个值不能大于 ${field.maximum}。` }
+      if (!Number.isInteger(parsed)) return { error: '请把每一项都填成整数。' }
+      if (field.minimum !== undefined && parsed < field.minimum) return { error: `请填写不小于 ${field.minimum} 的值。` }
+      if (field.maximum !== undefined && parsed > field.maximum) return { error: `请填写不大于 ${field.maximum} 的值。` }
       values.push(parsed)
     }
-    if (new Set(values).size !== values.length) return { error: '不能包含重复的值。' }
+    if (new Set(values).size !== values.length) return { error: '请不要添加重复的值。' }
     return { value: values }
   }
   if (field.type === 'string[]') {
     const items = listItems(raw)
     if (!items) return { error: '请填写文本列表。' }
     const values = items.map((item) => String(item ?? '').trim())
-    if (values.some((item) => !item)) return { error: '列表中不能有空白项。' }
-    if (new Set(values).size !== values.length) return { error: '不能包含重复的值。' }
+    if (values.some((item) => !item)) return { error: '请不要添加空白项。' }
+    if (new Set(values).size !== values.length) return { error: '请不要添加重复的值。' }
     return { value: values }
   }
   if (field.type === 'boolean') return { value: value === true || value === 'true' }

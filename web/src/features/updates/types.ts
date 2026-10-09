@@ -266,11 +266,11 @@ export function interruptsPipeline(target: UpdateTarget, options: UpdateOptions)
   return options.forceInterrupt || (target === 'resource' && options.reloadMode === 'force')
 }
 
-/** 会中断流水线时，确认按钮直接写明后果。 */
+/** 会停止流水线时，确认按钮直接写明后果。 */
 export function interruptActionLabel(target: UpdateTarget, state: UpdateTargetState | undefined, selection: UpdateSelection): string {
-  if (target === 'core') return `中断流水线并${state?.latest ? '更新' : '安装'}`
-  if (target === 'resource') return `中断流水线并${state?.reload_pending && selection.reloadMode === 'force' ? '立即生效' : '更新'}`
-  return `中断流水线并${selectionAvailability(target, state, selection) === false ? '重新安装' : '安装'}`
+  if (target === 'core') return `停止流水线并${state?.latest ? '更新' : '安装'}`
+  if (target === 'resource') return `停止流水线并${state?.reload_pending && selection.reloadMode === 'force' ? '立即生效' : '更新'}`
+  return `停止流水线并${selectionAvailability(target, state, selection) === false ? '重新安装' : '安装'}`
 }
 
 /** 卡片主操作打开面板时的初始选择：资源已下载待生效且没有新版本时，默认「立即生效」。 */
@@ -286,15 +286,9 @@ export function errorMessage(value: unknown): string {
     const error = value as Record<string, unknown>
     const envelope = error.error && typeof error.error === 'object' ? error.error as Record<string, unknown> : null
     const message = asText(error.message) ?? asText(error.detail) ?? asText(envelope?.message) ?? asText(error.error)
-    const code = asText(error.code) ?? asText(envelope?.code)
-    if (message && code) return `${message}（${code}）`
+    // 错误码是接口契约值，不展示给用户；拿不到消息时统一给一句可以照做的兜底。
     if (message) return message
-    if (code) return `请求失败（${code}）`
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return '请求失败，请稍后重试。'
-    }
+    return '更新失败，请稍后重试。'
   }
-  return '请求失败，请稍后重试。'
+  return '更新失败，请稍后重试。'
 }

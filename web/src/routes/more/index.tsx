@@ -49,7 +49,7 @@ export default function MorePage() {
     if (!token || loggingOut) return
     const ok = await confirm({
       title: '退出登录？',
-      description: '会清除此设备保存的访问 token，需要重新输入才能继续使用。',
+      description: '需要重新输入访问 token 才能继续使用。',
       confirmText: '退出登录',
       tone: 'danger',
     })
@@ -60,7 +60,7 @@ export default function MorePage() {
     setLoggingOut(false)
     if (error) {
       const apiError = toApiError(error, response)
-      setLogoutError(apiError.status === 403 ? '服务拒绝了登出请求，请检查凭据后重试。' : apiError.message)
+      setLogoutError(apiError.status === 403 ? '没有权限退出登录（403）' : apiError.message)
       return
     }
     clearToken()

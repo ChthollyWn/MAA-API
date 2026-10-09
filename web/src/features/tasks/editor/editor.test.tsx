@@ -162,7 +162,7 @@ describe('TaskEditor', () => {
 
     fireEvent.change(screen.getByLabelText('数量：固源岩'), { target: { value: '5' } })
     expect(onChange).toHaveBeenLastCalledWith({ drops: { '30013': 5 } })
-    fireEvent.click(screen.getByRole('button', { name: '删除物品：固源岩' }))
+    fireEvent.click(screen.getByRole('button', { name: '移除物品：固源岩' }))
     expect(onChange).toHaveBeenLastCalledWith({})
   })
 
@@ -171,7 +171,7 @@ describe('TaskEditor', () => {
     const onChange = vi.fn()
     renderEditor({ taskType: typeByName('Fight'), onChange })
 
-    expect(await screen.findByText(/物品目录不可用，可手动输入物品 ID/)).toBeInTheDocument()
+    expect(await screen.findByText(/读取物品目录失败/)).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('物品 ID'), { target: { value: '30013' } })
     fireEvent.click(screen.getByRole('button', { name: '添加 ID' }))
     expect(onChange).toHaveBeenLastCalledWith({ drops: { '30013': 1 } })
@@ -343,7 +343,7 @@ describe('TaskEditor', () => {
     const onChange = vi.fn()
     renderEditor({ taskType: typeByName('Infrast'), initial: { threshold: 0 }, onChange })
 
-    expect(screen.getByText('范围 0 ~ 1')).toBeInTheDocument()
+    expect(screen.getByText('范围 0–1')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '减少工作心情阈值' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '增加工作心情阈值' }))
     expect(onChange).toHaveBeenLastCalledWith({ threshold: 0.05 })
@@ -437,7 +437,7 @@ describe('TaskEditor', () => {
     const onChange = vi.fn()
     renderEditor({ taskType: typeByName('Infrast'), onChange })
 
-    expect(screen.getByText('尚未添加，点下方选项按顺序加入。')).toBeInTheDocument()
+    expect(screen.getByText('尚未添加')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '添加 制造站' }))
     fireEvent.click(screen.getByRole('button', { name: '添加 贸易站' }))
     expect(onChange).toHaveBeenLastCalledWith({ facility: ['Mfg', 'Trade'] })
@@ -494,10 +494,10 @@ describe('TaskEditor', () => {
     const payload = screen.getByLabelText('原始参数')
     fireEvent.change(payload, { target: { value: '{"a":' } })
     expect(onChange).not.toHaveBeenCalled()
-    expect(screen.getByText('JSON 格式尚未完整或无效')).toBeInTheDocument()
+    expect(screen.getByText('JSON 格式尚未完整或无效。')).toBeInTheDocument()
     fireEvent.change(payload, { target: { value: '42' } })
     expect(onChange).toHaveBeenLastCalledWith({ payload: 42 })
-    expect(screen.queryByText('JSON 格式尚未完整或无效')).not.toBeInTheDocument()
+    expect(screen.queryByText('JSON 格式尚未完整或无效。')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '恢复默认：原始参数' }))
     expect(onChange).toHaveBeenLastCalledWith({})
     expect(screen.getByLabelText('原始参数')).toHaveValue('')
@@ -513,7 +513,7 @@ describe('TaskEditor', () => {
     expect(onChange).toHaveBeenLastCalledWith({ aliases: { amiya: '阿米娅' } })
     fireEvent.change(screen.getByLabelText('开始'), { target: { value: '8' } })
     expect(onChange).toHaveBeenLastCalledWith({ aliases: { amiya: '阿米娅' }, window: { start: 8 } })
-    fireEvent.click(screen.getByRole('button', { name: '删除键 amiya' }))
+    fireEvent.click(screen.getByRole('button', { name: '移除键 amiya' }))
     expect(onChange).toHaveBeenLastCalledWith({ window: { start: 8 } })
   })
 

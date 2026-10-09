@@ -288,11 +288,13 @@ describe('Agent conversation page', () => {
     expect(screen.getByText('剩余 12 分钟')).toBeInTheDocument()
 
     // 工具调用与它的结果合成一条折叠条，默认收起，展开后能看到参数与结果 JSON。
-    const toolBar = screen.getByText('get_logs').closest('details')!
+    const toolBar = screen.getByText('读取日志').closest('details')!
     expect(toolBar).not.toHaveAttribute('open')
-    expect(within(toolBar).getByText('已完成')).toBeInTheDocument()
+    expect(within(toolBar).getByText('完成')).toBeInTheDocument()
     expect(within(toolBar).getByText('审计 #22')).toBeInTheDocument()
-    fireEvent.click(within(toolBar).getByText('get_logs'))
+    // 英文函数名收在展开区：折叠条上只有中文动作名。
+    expect(within(toolBar).getByText('get_logs')).toBeInTheDocument()
+    fireEvent.click(within(toolBar).getByText('读取日志'))
     expect(toolBar).toHaveAttribute('open')
     expect(within(toolBar).getByText(/"source": "maa"/)).toBeInTheDocument()
     expect(within(toolBar).getByText(/"items": \[\]/)).toBeInTheDocument()
@@ -312,7 +314,7 @@ describe('Agent conversation page', () => {
     createAgentApi({ messages: { 'session-1': [toolHistory[2]!] } })
     renderPage()
 
-    const orphan = await screen.findByText('工具结果 · get_logs')
+    const orphan = await screen.findByText('工具结果 · 读取日志')
     const bar = orphan.closest('details')!
     expect(bar).not.toHaveAttribute('open')
     fireEvent.click(orphan)
@@ -386,8 +388,10 @@ describe('Agent conversation page', () => {
 
     expect(await screen.findByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
     expect(await screen.findByText('此操作会使用一次理智药。')).toBeInTheDocument()
+    // 确认卡只留后果，不再铺策略与审计机制。
+    expect(screen.getByText('拒绝或过期后不会重试这个操作。')).toBeInTheDocument()
     expect(screen.getByText(/等待你确认/)).toBeInTheDocument()
-    const liveTurn = screen.getByRole('region', { name: '本轮对话' })
+    const liveTurn = screen.getByRole('region', { name: '本轮消息' })
     expect(within(liveTurn).getByText('submit_pipeline')).toBeInTheDocument()
     expect(within(liveTurn).getByText('等待确认')).toBeInTheDocument()
     fireEvent.change(composer, { target: { value: '顺便看看队列' } })
@@ -405,7 +409,7 @@ describe('Agent conversation page', () => {
 
     // 回归：流结束后本轮内容已回到历史，实时副本必须消失，否则同一句话出现两遍。
     await waitFor(() => expect(streamFinished).toBe(true))
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(screen.getAllByText('刷一次 1-7')).toHaveLength(1)
     expect(screen.getAllByText('已提交流水线，当前状态为排队中。')).toHaveLength(1)
   })
@@ -433,12 +437,12 @@ describe('Agent conversation page', () => {
 
     // 流已结束、历史还在刷新：这时丢弃实时副本，界面会闪空。
     await waitFor(() => expect(api.messagePages()).toHaveLength(2))
-    expect(screen.getByRole('region', { name: '本轮对话' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '本轮消息' })).toBeInTheDocument()
     expect(screen.getAllByText('检查一下')).toHaveLength(1)
     expect(screen.getAllByText('设备在线，队列为空。')).toHaveLength(1)
 
     act(() => releaseHistory())
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(screen.getAllByText('检查一下')).toHaveLength(1)
     expect(screen.getAllByText('设备在线，队列为空。')).toHaveLength(1)
   })
@@ -470,11 +474,11 @@ describe('Agent conversation page', () => {
     expect(await screen.findByText('会话级屏幕操作授权')).toBeInTheDocument()
     expect(screen.getByText(/15 分钟屏幕操作授权/)).toBeInTheDocument()
     // 流结束、收尾刷新全部完成之后，等待中的这一轮仍要留在原位。
-    await waitFor(() => expect(screen.queryByText('请先处理上方的确认')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('请先处理待确认的操作')).not.toBeInTheDocument())
     await waitFor(() => expect(api.messagePages()).toHaveLength(2))
     await waitFor(() => expect(queryClient.isFetching()).toBe(0))
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
-    expect(screen.getByRole('region', { name: '本轮对话' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '本轮消息' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
     expect(screen.getByText(/等待你确认/)).toBeInTheDocument()
   })
@@ -524,9 +528,9 @@ describe('Agent conversation page', () => {
     // 卡片挂在本轮工具条下方，输入栏提示先回答；本轮还在跑，发送按钮是「停止」。
     expect(await screen.findByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
     expect(screen.getByText('用哪个渠道刷 1-7？')).toBeInTheDocument()
-    expect(screen.getByText('请先回答上方的问题')).toBeInTheDocument()
+    expect(screen.getByText('请先回答等待中的提问')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '停止本轮' })).toBeInTheDocument()
-    const liveTurn = screen.getByRole('region', { name: '本轮对话' })
+    const liveTurn = screen.getByRole('region', { name: '本轮消息' })
     expect(within(liveTurn).getByText('向你提问')).toBeInTheDocument()
     expect(within(liveTurn).getByText('ask_user')).toBeInTheDocument()
 
@@ -553,9 +557,9 @@ describe('Agent conversation page', () => {
     expect(await screen.findByText('按理智刷。')).toBeInTheDocument()
 
     // 回合结束、历史回来后实时副本消失，同一句话不重复出现。
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(screen.getAllByText('按理智刷。')).toHaveLength(1)
-    expect(screen.queryByText('请先回答上方的问题')).not.toBeInTheDocument()
+    expect(screen.queryByText('请先回答等待中的提问')).not.toBeInTheDocument()
   })
 
   it('ends the turn with the server closing text when the question times out (M21)', async () => {
@@ -608,9 +612,9 @@ describe('Agent conversation page', () => {
 
     // 超时收尾：清卡，留下后端那句收尾文案，实时副本让位给历史。
     await waitFor(() => expect(screen.queryByRole('heading', { name: '需要你选择' })).not.toBeInTheDocument())
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(screen.getAllByText(QUESTION_EXPIRED_TEXT)).toHaveLength(1)
-    expect(screen.queryByText('请先回答上方的问题')).not.toBeInTheDocument()
+    expect(screen.queryByText('请先回答等待中的提问')).not.toBeInTheDocument()
     expect(api.requests.some((item) => item.method === 'POST' && item.path.includes('/skip'))).toBe(false)
   })
 
@@ -622,8 +626,8 @@ describe('Agent conversation page', () => {
     // 刷新后本轮已经没了，卡由本会话待答查询接管；输入栏不说「请先回答」。
     expect(await screen.findByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
     expect(screen.getByText('用哪个渠道刷 1-7？')).toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument()
-    expect(screen.queryByText('请先回答上方的问题')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument()
+    expect(screen.queryByText('请先回答等待中的提问')).not.toBeInTheDocument()
 
     fireEvent.click(await screen.findByRole('radio', { name: /理智药/ }))
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
@@ -674,8 +678,8 @@ describe('Agent conversation page', () => {
     expect(await screen.findByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
     // 确认会决定提问所在那批工具能不能跑，状态行只说更靠前的那个。
-    expect(screen.getByText('请先处理上方的确认')).toBeInTheDocument()
-    expect(screen.queryByText('请先回答上方的问题')).not.toBeInTheDocument()
+    expect(screen.getByText('请先处理待确认的操作')).toBeInTheDocument()
+    expect(screen.queryByText('请先回答等待中的提问')).not.toBeInTheDocument()
 
     await act(async () => { held?.close() })
   })
@@ -698,7 +702,7 @@ describe('Agent conversation page', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
 
     expect(await screen.findByText(failure)).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(screen.getByText(failure)).toBeInTheDocument()
     expect(screen.getAllByText('你好')).toHaveLength(1)
     expect(screen.getByRole('link', { name: '前往设置检查 LLM 配置' })).toHaveAttribute('href', '/more/settings/agent')
@@ -801,7 +805,7 @@ describe('Agent conversation page', () => {
       held?.close()
     })
     await waitFor(() => expect(screen.queryByText('Agent 正在处理…')).not.toBeInTheDocument())
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(screen.getAllByText('队列为空。')).toHaveLength(1)
     // 回合结束后发送按钮回来（草稿还在，所以是可用的）。
     expect(screen.getByRole('button', { name: '发送' })).toBeEnabled()
@@ -911,12 +915,12 @@ describe('Agent conversation page', () => {
     renderPage()
 
     expect(await screen.findByText('你可以这样开始')).toBeInTheDocument()
-    const prompts = ['查看设备状态和队列', '分析最近一次失败的流水线', '帮我保存一个 Copilot 作业']
+    const prompts = ['设备连上了吗', '上次那条流水线为什么失败', '把这份作业存下来']
     for (const prompt of prompts) expect(screen.getByRole('button', { name: prompt })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '分析最近一次失败的流水线' }))
+    fireEvent.click(screen.getByRole('button', { name: '上次那条流水线为什么失败' }))
 
-    expect(screen.getByRole('textbox', { name: composerName })).toHaveValue('分析最近一次失败的流水线')
+    expect(screen.getByRole('textbox', { name: composerName })).toHaveValue('上次那条流水线为什么失败')
     expect(api.sentMessages()).toHaveLength(0)
   })
 
@@ -1154,12 +1158,12 @@ describe('Agent conversation page', () => {
     expect(screen.getByRole('button', { name: '停止本轮' })).toBeDisabled()
     expect(screen.queryByText('执行中')).not.toBeInTheDocument()
     expect(screen.getByText('未返回结果')).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '本轮对话' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '本轮消息' })).toBeInTheDocument()
 
     act(() => releaseHistory())
 
     // 本轮收尾：实时副本让位给历史、部分文本只出现一次、不报错。
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(await screen.findByText('本轮已被你中断。')).toBeInTheDocument()
     expect(screen.getAllByText('正在查询…')).toHaveLength(1)
     expect(screen.getByText('失败')).toBeInTheDocument()
@@ -1262,7 +1266,7 @@ describe('Agent conversation page', () => {
     ]
     await act(async () => { held?.close() })
 
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(await screen.findByText('本轮已被你中断。')).toBeInTheDocument()
     expect(screen.getAllByText('正在查询…')).toHaveLength(1)
   })
@@ -1333,7 +1337,7 @@ describe('Agent conversation page', () => {
 
     // 实时：卡片随 tool_result 到达就出现（工具条本身是折叠的，卡片在外面）。
     expect(await screen.findByRole('img', { name: '当前的游戏画面' })).toBeInTheDocument()
-    const liveTurn = screen.getByRole('region', { name: '本轮对话' })
+    const liveTurn = screen.getByRole('region', { name: '本轮消息' })
     expect(within(liveTurn).getAllByTestId('media-cards')).toHaveLength(1)
     expect(within(liveTurn).getByText('发送截图')).toBeInTheDocument()
     expect(liveTurn.querySelectorAll('details[open]')).toHaveLength(0)
@@ -1357,7 +1361,7 @@ describe('Agent conversation page', () => {
     })
 
     // 历史回来、实时副本丢弃后，卡片仍然在（同一条 tool 消息重建），且不重复。
-    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮对话' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
     expect(screen.getAllByTestId('media-cards')).toHaveLength(2)
     expect(screen.getAllByRole('img', { name: '当前的游戏画面' })).toHaveLength(1)
     expect(screen.getByText('1-7 掉落')).toBeInTheDocument()

@@ -10,7 +10,7 @@ export default function NotFoundPage() {
       <EmptyState
         icon={Compass}
         title="找不到这个页面"
-        description="地址可能已更改，或页面尚未开放。"
+        description="地址可能已更改，从首页重新进入"
         action={<Button asChild><Link to="/">返回首页</Link></Button>}
         className="py-16"
       />

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { InfoHint } from '@/components/ui/info-hint'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 
@@ -7,7 +8,10 @@ export interface FieldProps {
   htmlFor?: string
   /** 标签右侧的小字或按钮，例如「默认」「已修改」「恢复默认」。 */
   labelAside?: ReactNode
+  /** 标签下方的可见说明：不填会怎样这类必须看到的。 */
   description?: ReactNode
+  /** 解释性说明（取值范围、机制），收进标签旁的小问号。 */
+  hint?: ReactNode
   descriptionId?: string
   error?: ReactNode
   errorId?: string
@@ -16,11 +20,14 @@ export interface FieldProps {
 }
 
 /** 标签在上、控件在下、说明与错误紧贴控件的表单字段。 */
-export function Field({ label, htmlFor, labelAside, description, descriptionId, error, errorId, children, className }: FieldProps) {
+export function Field({ label, htmlFor, labelAside, description, hint, descriptionId, error, errorId, children, className }: FieldProps) {
   return (
     <div className={cn('space-y-1.5', className)}>
       <div className="flex min-h-5 items-center justify-between gap-2">
-        <Label htmlFor={htmlFor}>{label}</Label>
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <Label htmlFor={htmlFor}>{label}</Label>
+          {hint ? <InfoHint label={typeof label === 'string' ? `${label} 说明` : '字段说明'}>{hint}</InfoHint> : null}
+        </span>
         {labelAside ? <div className="flex shrink-0 items-center gap-1.5">{labelAside}</div> : null}
       </div>
       {children}

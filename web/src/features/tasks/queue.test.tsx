@@ -44,7 +44,7 @@ describe('task queue', () => {
     expect(await within(running).findByText(/开始于/)).toBeInTheDocument()
     expect(within(running).getByRole('link', { name: '查看详情' })).toHaveAttribute('href', '/tasks/history/running-1')
 
-    fireEvent.click(within(running).getByRole('button', { name: '停止' }))
+    fireEvent.click(within(running).getByRole('button', { name: '停止流水线' }))
     const dialog = await screen.findByRole('alertdialog', { name: '停止当前流水线？' })
     expect(network.find('DELETE', '/api/pipelines/running-1')).toHaveLength(0)
     fireEvent.click(within(dialog).getByRole('button', { name: '停止流水线' }))
@@ -62,10 +62,10 @@ describe('task queue', () => {
     for (const text of ['Agent 任务', 'Agent · 优先级 1（普通）', '等待执行']) expect(rows[1]).toHaveTextContent(text)
     expect(within(rows[0]).getByRole('link', { name: /夜间定时/ })).toHaveAttribute('href', '/tasks/history/queued-1')
 
-    fireEvent.click(within(await openPendingMenu('夜间定时')).getByRole('button', { name: '取消' }))
-    const dialog = await screen.findByRole('alertdialog', { name: '取消「夜间定时」？' })
+    fireEvent.click(within(await openPendingMenu('夜间定时')).getByRole('button', { name: '取消排队' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '取消「夜间定时」的排队？' })
     expect(network.find('DELETE', '/api/pipelines/queued-1')).toHaveLength(0)
-    fireEvent.click(within(dialog).getByRole('button', { name: '取消这条' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消排队' }))
     await waitFor(() => expect(network.find('DELETE', '/api/pipelines/queued-1')).toHaveLength(1))
   })
 
@@ -73,12 +73,12 @@ describe('task queue', () => {
     const network = installTaskApi()
     renderTaskArea('/tasks/queue')
 
-    fireEvent.click(within(await openPendingMenu('夜间定时')).getByRole('button', { name: '停止当前并执行此条' }))
-    const dialog = await screen.findByRole('alertdialog', { name: '停止当前并执行此条？' })
-    expect(dialog).toHaveTextContent('不能保证目标紧接当前项执行')
-    fireEvent.click(within(dialog).getByRole('button', { name: '停止并执行此条' }))
+    fireEvent.click(within(await openPendingMenu('夜间定时')).getByRole('button', { name: '优先执行' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '停止当前流水线并优先执行「夜间定时」？' })
+    expect(dialog).toHaveTextContent('不保证接着执行')
+    fireEvent.click(within(dialog).getByRole('button', { name: '停止并优先执行' }))
 
-    expect(await screen.findByText('目标已调至优先级 0，当前流水线已请求取消；队列按显示顺序继续调度。')).toBeInTheDocument()
+    expect(await screen.findByText('已提到最高优先级，当前流水线已请求停止')).toBeInTheDocument()
     const patchIndex = network.requests.findIndex((request) => request.method === 'PATCH' && request.url.endsWith('/api/queue/queued-1'))
     const cancelIndex = network.requests.findIndex((request) => request.method === 'DELETE' && request.url.endsWith('/api/pipelines/running-1'))
     expect(patchIndex).toBeGreaterThanOrEqual(0)
@@ -91,22 +91,22 @@ describe('task queue', () => {
     renderTaskArea('/tasks/queue')
 
     expect(await screen.findByText('当前没有运行中的流水线')).toBeInTheDocument()
-    expect(within(await openPendingMenu('夜间定时')).getByRole('button', { name: '停止当前并执行此条' })).toBeDisabled()
+    expect(within(await openPendingMenu('夜间定时')).getByRole('button', { name: '优先执行' })).toBeDisabled()
   })
 
   it('clears every pending pipeline after a confirmation that states the count (T12)', async () => {
     const network = installTaskApi()
     renderTaskArea('/tasks/queue')
 
-    fireEvent.click(await screen.findByRole('button', { name: '清空待执行' }))
-    const dialog = await screen.findByRole('alertdialog', { name: '清空待执行？' })
+    fireEvent.click(await screen.findByRole('button', { name: '清空队列' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '清空队列？' })
     expect(dialog).toHaveTextContent('2 条')
     expect(network.find('DELETE', '/api/queue')).toHaveLength(0)
-    fireEvent.click(within(dialog).getByRole('button', { name: '清空 2 条待执行' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '清空队列' }))
 
     await waitFor(() => expect(network.find('DELETE', '/api/queue')).toHaveLength(1))
-    expect(await screen.findByText('没有待执行的流水线')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '清空待执行' })).toBeDisabled()
+    expect(await screen.findByText('还没有待执行的流水线')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '清空队列' })).toBeDisabled()
   })
 
   it('polls every five seconds and refreshes on demand', async () => {

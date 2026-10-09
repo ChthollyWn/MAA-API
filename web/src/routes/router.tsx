@@ -47,7 +47,7 @@ async function exchangeStoredCookie(token: string): Promise<true> {
 }
 
 function LoadingPage() {
-  return <LoadingState label="正在载入页面" className="min-h-[40dvh]" />
+  return <LoadingState label="正在加载…" className="min-h-[40dvh]" />
 }
 
 function AccessError({ message, onRetry, returnTo }: { message: string; onRetry: () => void; returnTo: string }) {
@@ -85,7 +85,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   if (health.data?.auth_enabled && token && cookieCheck.error) {
     const error = toApiError(cookieCheck.error)
     if (error.status === 401) return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />
-    return <AccessError message={error.status === 403 ? '认证请求被拒绝（403）。当前 token 仍保留，请检查连接或重新输入 token。' : error.message} onRetry={() => void cookieCheck.refetch()} returnTo={returnTo} />
+    return <AccessError message={error.status === 403 ? '认证请求被拒绝（403），请重新输入 token。' : error.message} onRetry={() => void cookieCheck.refetch()} returnTo={returnTo} />
   }
   return <>{children}</>
 }

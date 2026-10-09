@@ -174,12 +174,12 @@ describe('updates page', () => {
     expect(within(sheet).getByRole('radio', { name: '全部' })).toHaveAttribute('aria-checked', 'true')
     expect(within(sheet).getByRole('radio', { name: '等待空闲' })).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(within(sheet).getByRole('radio', { name: '仅仓库' }))
-    expect(within(sheet).queryByText(/流水线会被立即取消/)).not.toBeInTheDocument()
-    fireEvent.click(within(sheet).getByRole('switch', { name: '允许强制中断正在运行的流水线' }))
-    expect(within(sheet).getByText(/流水线会被立即取消/)).toBeInTheDocument()
+    expect(within(sheet).queryByText(/流水线会被停止/)).not.toBeInTheDocument()
+    fireEvent.click(within(sheet).getByRole('switch', { name: '允许强制停止正在运行的流水线' }))
+    expect(within(sheet).getByText(/流水线会被停止/)).toBeInTheDocument()
     expect(requests.some((request) => isRequest(request, '/api/updates/resource', 'POST'))).toBe(false)
 
-    fireEvent.click(within(sheet).getByRole('button', { name: '中断流水线并更新' }))
+    fireEvent.click(within(sheet).getByRole('button', { name: '停止流水线并更新' }))
     await waitForSheetToClose()
     expect(await screen.findByText('20%')).toBeInTheDocument()
     expect(await bodyOf(requests.find((request) => isRequest(request, '/api/updates/resource', 'POST')))).toEqual({
@@ -211,13 +211,13 @@ describe('updates page', () => {
     await screen.findByRole('heading', { name: 'MAA 内核' })
     fireEvent.click(within(card('MAA 内核')).getByRole('button', { name: '更新至 6.18.0' }))
     let sheet = await screen.findByRole('dialog', { name: '更新 MAA 内核' })
-    fireEvent.click(within(sheet).getByRole('switch', { name: '允许强制中断正在运行的流水线' }))
+    fireEvent.click(within(sheet).getByRole('switch', { name: '允许强制停止正在运行的流水线' }))
     fireEvent.click(within(sheet).getByRole('button', { name: '取消' }))
     await waitForSheetToClose()
 
     fireEvent.click(within(card('MAA 内核')).getByRole('button', { name: '更新至 6.18.0' }))
     sheet = await screen.findByRole('dialog', { name: '更新 MAA 内核' })
-    expect(within(sheet).getByRole('switch', { name: '允许强制中断正在运行的流水线' })).toHaveAttribute('aria-checked', 'false')
+    expect(within(sheet).getByRole('switch', { name: '允许强制停止正在运行的流水线' })).toHaveAttribute('aria-checked', 'false')
     fireEvent.click(within(sheet).getByRole('button', { name: '关闭' }))
     await waitForSheetToClose()
 

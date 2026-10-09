@@ -16,6 +16,7 @@ import { StickyActionBar } from '@/components/ui/sticky-action-bar'
 import { toast } from '@/components/ui/toaster'
 import { errorMessage, isObject, textValue } from '../form'
 import {
+  CANCEL_QUEUED_NOTICE,
   explicitTitle,
   formatTime,
   isActiveStatus,
@@ -25,6 +26,7 @@ import {
   sourceLabel,
   statusLabel,
   statusTone,
+  STOP_PIPELINE_NOTICE,
   taskDuration,
   taskNamesTitle,
   UNTITLED,
@@ -48,7 +50,7 @@ function TaskResults({ tasks }: { tasks: PipelineRow[] }) {
   return (
     <Section id="pipeline-tasks" title="任务结果" description={`${tasks.length} 个任务`}>
       {tasks.length === 0 ? (
-        <p className={`${card} px-4 py-3.5 text-footnote text-muted-foreground`}>服务端没有返回任务明细。</p>
+        <p className={`${card} px-4 py-3.5 text-footnote text-muted-foreground`}>任务明细暂不可用，稍后重试。</p>
       ) : (
         <ol className={`${card} divide-y overflow-hidden`}>
           {tasks.map((task, index) => {
@@ -70,7 +72,7 @@ function TaskResults({ tasks }: { tasks: PipelineRow[] }) {
                     <Badge variant={statusTone(status)}>{statusLabel(status)}</Badge>
                   </div>
                   <p className="mt-0.5 text-footnote tabular-nums text-muted-foreground">{duration ?? '未开始'}</p>
-                  {retries > 0 ? <p className="text-footnote text-muted-foreground">重试 {retries} 次</p> : null}
+                  {retries > 0 ? <p className="text-footnote text-muted-foreground">已重试 {retries} 次</p> : null}
                   {failure ? <p className="mt-1 break-words text-footnote text-danger">{failure.message}</p> : null}
                 </div>
               </li>
@@ -82,7 +84,7 @@ function TaskResults({ tasks }: { tasks: PipelineRow[] }) {
   )
 }
 
-/** 流水线详情：概要、每个任务的结果、最近日志与截图；运行中或等待中可取消，失败或已取消可重试。 */
+/** 流水线详情：概要、每个任务的结果、最近日志与截图；运行中可停止，待执行可取消排队，失败或已取消可重试。 */
 export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -93,6 +95,8 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
     refetchInterval: (query) => (isActiveStatus(normalizeStatus(query.state.data?.status)) ? 5_000 : false),
   })
   const pipeline = detail.data
+  // 同一个取消接口：运行中的流水线叫「停止」，待执行的叫「取消排队」。
+  const running = normalizeStatus(pipeline?.status) === 'running'
 
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: keys.pipelines.detail(pipelineId), exact: true }),
@@ -104,10 +108,10 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
   const cancel = useMutation({
     mutationFn: () => cancelPipeline(pipelineId),
     onSuccess: async () => {
-      setNotice({ tone: 'success', message: '已发送取消请求。' })
+      setNotice({ tone: 'success', message: running ? '已请求停止流水线' : '已请求取消排队' })
       await refresh()
     },
-    onError: (error) => setNotice({ tone: 'danger', message: `取消失败：${errorMessage(error)}` }),
+    onError: (error) => setNotice({ tone: 'danger', message: `${running ? '停止' : '取消排队'}失败：${errorMessage(error)}` }),
   })
 
   const retry = useMutation({
@@ -123,10 +127,10 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
       ])
       const nextId = textValue(data?.pipeline_id)
       if (nextId) {
-        toast.success('已重新加入队列')
+        toast.success('已重试，新流水线已入队')
         navigate(`/tasks/history/${encodeURIComponent(nextId)}`, { replace: true })
       } else {
-        setNotice({ tone: 'success', message: '已提交重试流水线。' })
+        setNotice({ tone: 'success', message: '已提交重试' })
       }
     },
     onError: (error) => setNotice({ tone: 'danger', message: `重试失败：${errorMessage(error)}` }),
@@ -162,9 +166,9 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
 
   const requestCancel = async () => {
     const ok = await confirm({
-      title: '取消这条流水线？',
-      description: status === 'running' ? '正在执行的任务会被中断，已经完成的任务不受影响。' : '它会离开待执行队列，不再执行。',
-      confirmText: '取消流水线',
+      title: running ? '停止这条流水线？' : `取消「${title}」的排队？`,
+      description: running ? STOP_PIPELINE_NOTICE : CANCEL_QUEUED_NOTICE,
+      confirmText: running ? '停止流水线' : '取消排队',
       cancelText: '保留',
       tone: 'danger',
     })
@@ -176,9 +180,9 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
 
   const requestRetry = async () => {
     const ok = await confirm({
-      title: '重新执行这条流水线？',
+      title: '重试这条流水线？',
       description: '会用同样的任务和参数新建一条流水线，加入队列。',
-      confirmText: '重新加入队列',
+      confirmText: '重试',
     })
     if (ok) {
       setNotice(null)
@@ -216,7 +220,7 @@ export function PipelineDetail({ pipelineId }: { pipelineId: string }) {
           ) : null}
         </section>
 
-        {detail.error ? <InlineAlert tone="warning">详情更新失败：{errorMessage(detail.error)}</InlineAlert> : null}
+        {detail.error ? <InlineAlert tone="warning">流水线更新失败：{errorMessage(detail.error)}</InlineAlert> : null}
         {notice ? <InlineAlert tone={notice.tone}>{notice.message}</InlineAlert> : null}
 
         <TaskResults tasks={tasks} />

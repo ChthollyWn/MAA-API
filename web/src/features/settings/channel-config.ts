@@ -22,8 +22,8 @@ export function channelTypeLabel(type: string): string {
 }
 
 export const NOTIFY_EVENTS = [
-  { value: 'pipeline_completed', label: '任务完成' },
-  { value: 'pipeline_failed', label: '任务失败' },
+  { value: 'pipeline_completed', label: '流水线完成' },
+  { value: 'pipeline_failed', label: '流水线失败' },
   { value: 'core_crashed', label: '内核异常退出' },
   { value: 'device_disconnected', label: '设备断开连接' },
   { value: 'update_available', label: '发现可用更新' },
@@ -69,9 +69,9 @@ export const CHANNEL_FIELDS: Readonly<Record<ChannelType, readonly ChannelFieldS
       label: '使用 SSL/TLS 连接',
       kind: 'switch',
       initial: true,
-      description: '开启时直接建立加密连接（常用端口 465）；关闭时先普通连接再升级加密（常用端口 587）。',
+      description: '开启时直接建立加密连接（常用端口 465）；关闭时先普通连接再升级加密（常用端口 587）',
     },
-    { key: 'username', label: '用户名', kind: 'text', initial: '', placeholder: '通常是发件邮箱', description: '留空则不登录；发件人用这个地址，没有时用第一个收件人。' },
+    { key: 'username', label: '用户名', kind: 'text', initial: '', placeholder: '通常是发件邮箱', description: '留空则不登录；发件人用这个地址，没有时用第一个收件人' },
     { key: 'password', label: '密码或授权码', kind: 'secret', initial: '' },
     { key: 'to', label: '收件人', kind: 'list', required: true, initial: [], email: true, itemName: '收件人', placeholder: 'name@example.com' },
   ],
@@ -79,27 +79,27 @@ export const CHANNEL_FIELDS: Readonly<Record<ChannelType, readonly ChannelFieldS
     { key: 'url', label: '请求地址', kind: 'url', required: true, initial: '', schemes: WEB_SCHEMES, placeholder: 'https://example.com/hook' },
     { key: 'method', label: '请求方法', kind: 'method', initial: 'POST' },
     { key: 'headers', label: '请求头', kind: 'headers', initial: {} },
-    { key: 'body_template', label: '消息模板', kind: 'template', initial: '{title}\n{body}', description: '用 {title} 和 {body} 插入通知标题与正文，只做文本替换。' },
+    { key: 'body_template', label: '消息模板', kind: 'template', initial: '{title}\n{body}', description: '用 {title} 和 {body} 插入通知标题与正文，只做文本替换' },
   ],
   bark: [
-    { key: 'server', label: '服务器', kind: 'url', initial: 'https://api.day.app', omitWhenEmpty: true, schemes: WEB_SCHEMES, description: '使用自建 Bark 服务时改成自己的地址。' },
-    { key: 'device_key', label: '设备密钥', kind: 'secret', required: true, initial: '', description: 'Bark App 推送地址中的那段 key。' },
+    { key: 'server', label: '服务器', kind: 'url', initial: 'https://api.day.app', omitWhenEmpty: true, schemes: WEB_SCHEMES, description: '使用自建 Bark 服务时改成自己的地址' },
+    { key: 'device_key', label: '设备密钥', kind: 'secret', required: true, initial: '', description: 'Bark App 推送地址中的那段 key' },
     { key: 'sound', label: '提示音', kind: 'text', omitWhenEmpty: true, placeholder: '留空使用默认提示音' },
     { key: 'group', label: '分组', kind: 'text', omitWhenEmpty: true, placeholder: '例如 MAA' },
   ],
   dingtalk: [
     { key: 'webhook', label: '机器人 Webhook', kind: 'url', required: true, initial: '', schemes: HTTPS_ONLY, placeholder: 'https://oapi.dingtalk.com/robot/send?access_token=…' },
-    { key: 'secret', label: '加签密钥', kind: 'secret', initial: '', description: '机器人安全设置选择「加签」时填写。' },
+    { key: 'secret', label: '加签密钥', kind: 'secret', initial: '', description: '机器人安全设置选择「加签」时填写' },
     { key: 'at_mobiles', label: '@ 手机号', kind: 'list', initial: [], itemName: '手机号', placeholder: '13800000000' },
   ],
   wecom: [
     { key: 'webhook', label: '机器人 Webhook', kind: 'url', required: true, initial: '', schemes: HTTPS_ONLY, placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…' },
-    { key: 'mentioned_list', label: '@ 成员', kind: 'list', initial: [], itemName: '成员', placeholder: '成员 UserID，或 @all', description: '@all 会提醒群里所有人。' },
+    { key: 'mentioned_list', label: '@ 成员', kind: 'list', initial: [], itemName: '成员', placeholder: '成员 UserID，或 @all', description: '@all 会提醒群里所有人' },
   ],
   feishu: [
     { key: 'webhook', label: '机器人 Webhook', kind: 'url', required: true, initial: '', schemes: HTTPS_ONLY, placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/…' },
-    { key: 'secret', label: '签名密钥', kind: 'secret', initial: '', description: '机器人安全设置勾选「签名校验」时填写，未勾选则留空。' },
-    { key: 'at_user_ids', label: '@ 成员', kind: 'list', initial: [], itemName: '成员 ID', placeholder: '用户 ID（ou_… 或 user_id），或 all', description: '填 all 会 @ 群里所有人；ID 里不能有引号、尖括号或空格。' },
+    { key: 'secret', label: '签名密钥', kind: 'secret', initial: '', description: '机器人安全设置勾选「签名校验」时填写，未勾选则留空' },
+    { key: 'at_user_ids', label: '@ 成员', kind: 'list', initial: [], itemName: '成员 ID', placeholder: '用户 ID（ou_… 或 user_id），或 all', description: '填 all 会 @ 群里所有人；ID 里不能有引号、尖括号或空格' },
   ],
 }
 
@@ -270,7 +270,7 @@ export function validateChannelForm(type: ChannelType, values: ChannelFormValues
         if (!text) {
           if (spec.required) errors[spec.key] = requiredMessage(spec.label)
         } else if (!Number.isInteger(port) || port < 1 || port > 65535) {
-          errors[spec.key] = '端口应为 1 ~ 65535 之间的整数。'
+          errors[spec.key] = '请输入 1 ~ 65535 之间的端口号。'
         }
         break
       }
@@ -283,9 +283,9 @@ export function validateChannelForm(type: ChannelType, values: ChannelFormValues
       case 'headers': {
         const rows = headerRowsOf(value).filter((row) => row.name.trim() || row.value.trim())
         const names = rows.map((row) => row.name.trim())
-        if (names.some((name) => !name)) errors[spec.key] = '请求头名称不能为空。'
-        else if (names.some((name) => !HEADER_NAME.test(name))) errors[spec.key] = '请求头名称只能包含字母、数字和 - 等符号。'
-        else if (new Set(names.map((name) => name.toLowerCase())).size !== names.length) errors[spec.key] = '请求头名称不能重复。'
+        if (names.some((name) => !name)) errors[spec.key] = '请填写请求头名称。'
+        else if (names.some((name) => !HEADER_NAME.test(name))) errors[spec.key] = '请只用字母、数字和 - 等符号填写请求头名称。'
+        else if (new Set(names.map((name) => name.toLowerCase())).size !== names.length) errors[spec.key] = '请不要填写重复的请求头名称。'
         break
       }
       default:
@@ -300,9 +300,9 @@ export function parseConfigText(text: string): { config: JsonRecord; error?: und
   try {
     parsed = JSON.parse(text)
   } catch {
-    return { error: '配置不是有效的 JSON，请检查括号、引号和逗号。' }
+    return { error: '请输入有效的 JSON，检查括号、引号和逗号。' }
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: '配置必须是 JSON 对象。' }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: '请填写一个 JSON 对象。' }
   return { config: parsed as JsonRecord }
 }
 

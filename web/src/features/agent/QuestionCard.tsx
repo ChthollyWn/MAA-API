@@ -181,8 +181,8 @@ export function QuestionCard({ question, onResolved }: QuestionCardProps) {
           {terminal
             ? TERMINAL_TEXT[terminal]
             : question.multiple
-              ? '可以选择多项；也可以直接跳过，本轮会结束。'
-              : '只能选择一项；也可以直接跳过，本轮会结束。'}
+              ? '选多项，或直接跳过结束本轮。'
+              : '选一项，或直接跳过结束本轮。'}
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2 border-t bg-surface-2/40 p-3">

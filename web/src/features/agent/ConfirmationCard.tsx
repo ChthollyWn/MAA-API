@@ -74,7 +74,7 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
         ) : rejected ? (
           <p className="text-sm text-muted-foreground">确认已结束，本轮不会重试该操作。</p>
         ) : (
-          <p className="text-footnote text-muted-foreground">此操作会经过服务端策略和审计；拒绝或过期后 Agent 不会重试。</p>
+          <p className="text-footnote text-muted-foreground">拒绝或过期后不会重试这个操作。</p>
         )}
       </div>
       {approved || rejected ? null : (

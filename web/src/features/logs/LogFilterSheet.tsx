@@ -39,7 +39,7 @@ export function LogFilterSheet({ open, onOpenChange, filters, onFiltersChange }:
       open={open}
       onOpenChange={onOpenChange}
       title="筛选日志"
-      description="选择后立即生效"
+      description="改动立即生效"
       footer={(
         <div className="grid grid-cols-2 gap-2">
           <Button variant="secondary" disabled={filterConditions(filters).length === 0} onClick={() => onFiltersChange(NO_FILTERS)}>
@@ -96,7 +96,7 @@ export function LogFilterSheet({ open, onOpenChange, filters, onFiltersChange }:
               label="结束时间"
               htmlFor="log-until"
               errorId="log-until-error"
-              error={inverted ? '结束时间早于开始时间，不会有匹配的日志。' : undefined}
+              error={inverted ? '结束时间早于开始时间，请重新选择。' : undefined}
             >
               <Input
                 id="log-until"

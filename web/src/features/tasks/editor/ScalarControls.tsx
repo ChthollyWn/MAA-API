@@ -109,7 +109,7 @@ function fractionDigits(step: number): number {
 }
 
 function rangeText(min: number | undefined, max: number | undefined): string | null {
-  if (min !== undefined && max !== undefined) return `范围 ${min} ~ ${max}`
+  if (min !== undefined && max !== undefined) return `范围 ${min}–${max}`
   if (min !== undefined) return `最小 ${min}`
   if (max !== undefined) return `最大 ${max}`
   return null

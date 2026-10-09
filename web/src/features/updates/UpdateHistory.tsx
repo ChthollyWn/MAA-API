@@ -23,7 +23,7 @@ export function UpdateHistory({ records, total, isLoading, isFetching, error, on
     <Section
       id="update-history"
       title="最近更新记录"
-      description="检查版本不会产生记录。"
+      hint="检查版本不会产生记录。"
       actions={(
         <Button variant="ghost" size="icon" aria-label="刷新更新记录" disabled={isFetching} onClick={onRefresh}>
           <RefreshCw aria-hidden="true" className={cn(isFetching && 'animate-spin')} />
@@ -38,7 +38,7 @@ export function UpdateHistory({ records, total, isLoading, isFetching, error, on
         <div className="rounded-xl border bg-card shadow-card"><LoadingState label="正在读取更新记录…" /></div>
       ) : records.length === 0 ? (
         <div className="rounded-xl border bg-card shadow-card">
-          <EmptyState icon={History} title="还没有更新记录" description="开始一次更新后，结果会记录在这里。" />
+          <EmptyState icon={History} title="还没有更新记录" description="开始一次更新后，结果会记录在这里" />
         </div>
       ) : (
         <ul aria-label="最近更新记录" className="divide-y overflow-hidden rounded-xl border bg-card shadow-card">

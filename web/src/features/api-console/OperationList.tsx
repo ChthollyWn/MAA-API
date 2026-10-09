@@ -177,8 +177,8 @@ export function InterfaceList({ groups, search, onClearSearch, selected, onSelec
     content = <LoadingState label="正在读取接口目录…" />
   } else if (matches.size === 0) {
     content = filtering
-      ? <EmptyState icon={SearchX} title="没有匹配的接口" description="按路径、摘要或 operationId 搜索。" action={<Button variant="outline" size="sm" onClick={onClearSearch}>清除搜索</Button>} />
-      : <EmptyState icon={ListTree} title="接口目录为空" description="/openapi.json 里没有可调用的接口。" />
+      ? <EmptyState icon={SearchX} title="还没有匹配的接口" description="换个关键词试试" action={<Button variant="outline" size="sm" onClick={onClearSearch}>清除搜索</Button>} />
+      : <EmptyState icon={ListTree} title="还没有可调用的接口" description="/openapi.json 里没有接口" />
   } else {
     content = groups.map((group) => {
       const operations = group.operations.filter((operation) => matches.has(operation))
@@ -247,7 +247,7 @@ export function FavoriteList({ favorites, loading, error, refreshing, onRefresh,
         </InlineAlert>
       ) : null}
       {loading ? <LoadingState label="正在读取收藏…" /> : favorites.length === 0 ? (
-        error ? null : <EmptyState icon={Heart} title="还没有收藏" description="在请求编辑器里命名并保存；收藏同步到当前服务，不含鉴权凭据。" />
+        error ? null : <EmptyState icon={Heart} title="还没有收藏" description="在请求编辑器里命名并保存" />
       ) : (
         <ul className={listClassName(inset)}>
           {favorites.map((favorite) => (
@@ -288,7 +288,7 @@ export function HistoryList({ entries, onRestore, inset }: { entries: ConsoleHis
     <section aria-label="本机历史" className={cn(!inset && 'space-y-3')}>
       <ListHeader inset={inset}>本机历史 · {entries.length}/{HISTORY_MAX_ENTRIES} · 不含 token</ListHeader>
       {entries.length === 0 ? (
-        <EmptyState icon={History} title="还没有请求记录" description={`发送过的请求只保存在本机，最多 ${HISTORY_MAX_ENTRIES} 条，不含 token 等凭据。`} />
+        <EmptyState icon={History} title="还没有请求记录" description="发送请求后会自动记录在这里" />
       ) : (
         <ul aria-label="本机请求历史" className={listClassName(inset)}>
           {entries.map((entry) => {

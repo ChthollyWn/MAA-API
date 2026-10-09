@@ -60,7 +60,7 @@ function deviceName(item: PushSubscriptionItem): string {
  */
 export function PushNotifications() {
   return (
-    <Section title="Web 推送" description="页面没打开时，需要你确认的操作会以系统通知送到这台设备，点通知即可回到确认卡片。">
+    <Section title="Web 推送" hint="页面没打开时，需要你确认的操作会以系统通知送到这台设备。">
       {PUSH_AVAILABLE ? <PushControls /> : <PushUnavailable />}
     </Section>
   )
@@ -117,7 +117,7 @@ function PushControls() {
     try {
       await enablePush()
       setPermission(currentPermission())
-      toast.success('推送已启用，需要你确认的操作会推送到这台设备')
+      toast.success('已启用推送')
       await reload()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '启用推送失败。')
@@ -132,7 +132,7 @@ function PushControls() {
     setError(null)
     try {
       await disablePush()
-      toast.success('已在本机注销推送订阅')
+      toast.success('已注销这台设备的推送订阅')
       await reload()
     } catch {
       setError('注销推送订阅失败，请稍后重试。')
@@ -172,14 +172,14 @@ function PushControls() {
         <ListItem
           icon={Smartphone}
           iconTone="primary"
-          title="此设备"
+          title="这台设备"
           trailing={subscribedHere === null ? <Spinner /> : <Badge variant={subscribedHere ? 'success' : 'neutral'}>{subscribedHere ? '已订阅' : '未订阅'}</Badge>}
         />
       </ListGroup>
 
       {permission === 'denied' ? (
         <InlineAlert tone="warning" title="通知权限已被拒绝">
-          浏览器已拒绝通知权限。请在浏览器的网站设置里把「通知」改为允许，再回到这里启用。
+          请在浏览器的网站设置里把「通知」改为允许，再回到这里启用。
         </InlineAlert>
       ) : null}
 
@@ -189,19 +189,19 @@ function PushControls() {
           启用推送通知
         </Button>
         <Button type="button" variant="outline" loading={busy === 'disable'} disabled={busy !== null} onClick={() => void disable()}>
-          注销本机订阅
+          注销订阅
         </Button>
       </div>
 
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
-      <ListGroup title="已登记的设备" headingLevel="h3" footer="每个启用过推送的浏览器都会出现在这里；删除后那台设备不再收到推送。">
+      <ListGroup title="已登记的设备" headingLevel="h3" footer="每个启用过推送的浏览器都会出现在这里，删除后那台设备不再收到推送">
         {subscriptions.isPending ? (
           <LoadingState label="正在读取设备…" className="min-h-16" />
         ) : subscriptions.isError ? (
           <ErrorState message={`设备列表读取失败：${errorText(subscriptions.error)}`} onRetry={() => void subscriptions.refetch()} retrying={subscriptions.isFetching} />
         ) : items.length === 0 ? (
-          <p className="px-4 py-3.5 text-sm text-muted-foreground">还没有设备登记推送订阅。</p>
+          <p className="px-4 py-3.5 text-sm text-muted-foreground">还没有登记推送订阅的设备</p>
         ) : (
           items.map((item) => {
             const registered = formatTime(item.created_at)

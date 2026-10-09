@@ -93,12 +93,17 @@ export interface paths {
         /**
          * 写入 Agent 知识条目
          * @description 写入完整的生效内容：新建自定义条目，或修改、停用内置条目。
+         *
+         *     内置条目的 ``kind`` 不可修改，改了返回 400 ``KNOWLEDGE_BUILTIN_READONLY``。
          */
         put: operations["agent_put_knowledge_entry"];
         post?: never;
         /**
          * 删除 Agent 知识条目
          * @description 删除自定义条目，或撤销对内置条目的修改（恢复默认）。
+         *
+         *     内置条目未被修改过时返回 400 ``KNOWLEDGE_BUILTIN_READONLY``；要停用它请写入
+         *     ``enabled=false``。
          */
         delete: operations["agent_delete_knowledge_entry"];
         options?: never;
@@ -222,10 +227,10 @@ export interface paths {
         put?: never;
         /**
          * 中断该会话正在执行的一轮
-         * @description 中断该会话当前一轮（M22 规格 §3.4）。
+         * @description 中断该会话正在执行的一轮。
          *
-         *     幂等：没有活动轮次时返回 200 + ``interrupted=false``，不是错误——「已经停了」
-         *     与「刚刚停掉」对调用方是同一个结果。只停 Agent 这一轮，不碰流水线与队列。
+         *     幂等：没有活动轮次时返回 200 且 ``interrupted=false``。只中断这一轮，
+         *     不影响流水线与队列。
          */
         post: operations["agent_interrupt_session_turn"];
         delete?: never;
@@ -610,16 +615,18 @@ export interface paths {
         };
         /**
          * 列出 Web Push 订阅
-         * @description 只返回设备来源、时间与失效状态，**不回显** `endpoint` 全文与 `p256dh` / `auth` 两个密钥字段：它们与凭据同级。
+         * @description 为保护凭据，响应不含 `endpoint` 全文与 `p256dh` / `auth`，只返回设备来源、登记时间与失效状态。
+         *
+         *     - `include_disabled=true` 时同时返回已失效的订阅
          */
         get: operations["notifications_list_push_subscriptions"];
         put?: never;
         /**
          * 登记 Web Push 订阅
-         * @description 接受浏览器 `PushSubscription.toJSON()` 的形状。
+         * @description 登记浏览器推送订阅，接受 `PushSubscription.toJSON()` 的形状。
          *
-         *     - 同一 `endpoint` 重复登记是**幂等更新**，返回 200 与既有资源，不新增行
-         *     - `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 未压缩 P-256 点（实际校验点在曲线上）；`keys.auth` 必须是 16 octet
+         *     - 同一 `endpoint` 重复登记是幂等更新：返回 200 与既有资源，不新增行
+         *     - `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 的未压缩 P-256 点；`keys.auth` 必须是 16 octet
          */
         post: operations["notifications_create_push_subscription"];
         delete?: never;
@@ -639,10 +646,10 @@ export interface paths {
         put?: never;
         /**
          * 按 endpoint 注销当前浏览器的订阅
-         * @description 浏览器注销时手上只有 `PushSubscription.endpoint`，而列表接口出于凭据保护不回显它（同一推送服务下的多台设备主机名相同，按主机名删除会误伤别人），因此提供这个按 endpoint 精确注销的入口。
+         * @description 按 `endpoint` 精确注销当前浏览器的订阅。
          *
-         *     - `endpoint` 放在请求体而不是 URL，避免它进入访问日志与浏览器历史
-         *     - 找不到对应订阅同样返回 204：注销是幂等操作
+         *     - `endpoint` 放在请求体，避免它进入访问日志与浏览器历史
+         *     - 幂等：找不到对应订阅同样返回 204
          */
         post: operations["notifications_delete_push_subscription_by_endpoint"];
         delete?: never;
@@ -677,10 +684,9 @@ export interface paths {
         };
         /**
          * 读取 Web Push 的 VAPID 公钥
-         * @description 前端用它作为 `pushManager.subscribe` 的 `applicationServerKey`。
+         * @description 返回 VAPID 公钥，用于浏览器端 `pushManager.subscribe` 的 `applicationServerKey`。
          *
-         *     - 公钥由配置的 VAPID 私钥导出，不单独存储，避免两份配置漂移
-         *     - 未配置或私钥不可用时返回 503 `PUSH_NOT_CONFIGURED`
+         *     - 未配置私钥或私钥不可用时返回 503 `PUSH_NOT_CONFIGURED`
          */
         get: operations["notifications_get_vapid_public_key"];
         put?: never;
@@ -890,7 +896,7 @@ export interface paths {
         };
         /**
          * 列出已保存的 Copilot 作业
-         * @description 返回已校验作业的元数据，不包含作业 JSON 内容；供流水线和 schedule 编辑器选择 asset_id。
+         * @description 返回已校验作业的元数据，不含作业 JSON 内容；供流水线与定时任务编辑器选择 `asset_id`。
          */
         get: operations["resources_list_copilot_assets"];
         put?: never;
@@ -910,7 +916,10 @@ export interface paths {
         };
         /**
          * 列出 Fight.drops 可用物品
-         * @description 读取当前 MaaCore `resource/item_index.json` 并按名称、物品 ID 稳定排序。`icon_url` 指向同源图片端点；对应图片不可用时为 `null`。索引缺失或无效时返回统一 API 错误。
+         * @description 列出当前内核物品索引里的物品，按名称与物品 ID 稳定排序。
+         *
+         *     - `icon_url` 指向同源图片端点，对应图片不可用时为 `null`
+         *     - 索引缺失或无效时返回 `RESOURCE_LOAD_FAILED`
          */
         get: operations["resources_list_items"];
         put?: never;
@@ -930,7 +939,7 @@ export interface paths {
         };
         /**
          * 读取索引中物品的图标
-         * @description 只返回 item_index.json 中登记且位于 `resource/template/items` 的 PNG 图标。
+         * @description 返回物品索引中该物品的 PNG 图标；索引里没有该物品或图标文件缺失时返回 `RESOURCE_ASSET_NOT_FOUND`。
          */
         get: operations["resources_get_item_icon"];
         put?: never;
@@ -1025,7 +1034,7 @@ export interface paths {
         };
         /**
          * 读取截图内容
-         * @description 返回截图图像字节；as=base64 时返回面向 agent 的 JSON 包装。
+         * @description 返回截图图像字节；as=base64 时返回带元数据的 JSON。
          */
         get: operations["screenshots_get_screenshot"];
         put?: never;
@@ -1113,7 +1122,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 读取 API 调试台收藏 */
+        /** 读取 API 调试台收藏详情 */
         get: operations["snippets_get_snippet"];
         /** 更新 API 调试台收藏 */
         put: operations["snippets_update_snippet"];
@@ -1136,27 +1145,20 @@ export interface paths {
         put?: never;
         /**
          * 换取认证 cookie
-         * @description 用请求头里的 token 换取一枚 `HttpOnly; SameSite=Lax` 的 `maa_token` cookie。
+         * @description 用请求头里的 token 换取一枚 `HttpOnly; SameSite=Lax` 的 `maa_token` cookie，供浏览器 WebSocket 握手自动携带，响应无体（204）。
          *
-         *     - 用途：浏览器 WebSocket 构造器不能自定义请求头（docs/05 §5.4），换取后握手自动携带 cookie，token 不进 URL 与访问日志
-         *     - 副作用：下发 `Set-Cookie`，值即配置的 `access_token`、`Path=/`
-         *     - 未带 `Secure` 属性：HTTPS 判定（`X-Forwarded-Proto`）归 M15
-         *     - 免鉴权模式（未配置 `access_token`）下返回 `204` 但**不下发** cookie，此时没有可下发的秘密，WebSocket 握手也不校验
-         *     - 写方法：仅凭 cookie 调用本端点同样 403（cookie 渠道收窄，docs/05 §5.1）
-         *     - `401 UNAUTHORIZED`：缺少 token 或 token 不匹配；`403 FORBIDDEN`：token 仅来自 cookie
-         *     - 响应无体（`204`），成功与否只看状态码
+         *     - 副作用：下发 `Set-Cookie`，值即 `access_token`、`Path=/`；`Secure` 由请求的 `X-Forwarded-Proto` 决定
+         *     - 免鉴权模式（未配置 `access_token`）返回 204 但不下发 cookie
+         *     - 仅头部 token 可调用：仅凭 cookie 返回 403，缺少 token 或不匹配返回 401
          */
         post: operations["system_exchange_cookie"];
         /**
          * 清除认证 cookie
-         * @description 清除 `maa_token` cookie，供前端「登出」时调用。
+         * @description 清除 `maa_token` cookie，供前端「登出」时调用，响应无体（204）。
          *
-         *     - 为什么需要服务端端点：cookie 是 `HttpOnly`，前端 JavaScript 删不掉（docs/13 §4），不清理则登出后 WebSocket 仍能连上
          *     - 副作用：下发 `Set-Cookie`（空值 + `Max-Age=0`），浏览器随后删除该 cookie
-         *     - 写方法，必须经头部 token 鉴权；仅凭 cookie 调用会 403
-         *     - 免鉴权模式下无需凭据（本就没有 cookie 可清时调用也无害）
-         *     - `401 UNAUTHORIZED`：缺少 token 或 token 不匹配；`403 FORBIDDEN`：token 仅来自 cookie
-         *     - 响应无体（`204`）
+         *     - 仅头部 token 可调用：仅凭 cookie 返回 403，缺少 token 或不匹配返回 401
+         *     - 幂等：没有 cookie 时调用同样返回 204
          */
         delete: operations["system_clear_cookie"];
         options?: never;
@@ -1173,16 +1175,11 @@ export interface paths {
         };
         /**
          * 获取健康状态
-         * @description 返回服务自身的健康状态，供外部监控与容器健康检查探测。
+         * @description 返回服务自身状态与运行态概览：内核、设备、队列。免鉴权，无需携带凭据。
          *
-         *     - **免鉴权**：即使配置了 `access_token` 也不校验（docs/05 §5.3），无需携带凭据
-         *     - 只返回状态，不返回业务数据；`auth_enabled` 为 `false` 时前端直接跳过登录页
-         *     - `auth_enabled` 由配置的 `access_token` 是否为空决定（docs/05 §5.2）
-         *     - `version` 取已安装分发包元数据，读不到时回退 `0.1.0`
-         *     - `started_at` 是进程启动时间（ISO 8601 字符串），尚未写入时为 `null`（docs/05 §3.3）
-         *     - `core` 含内核状态、pid 和代际；`device` 复用设备快照；`queue` 只含待处理/运行数和暂停状态
-         *     - lifespan 尚未装配运行态对象时，`core` / `device` / `queue` 为 `null`，仍返回 200
-         *     - 不校验 token；队列概览只执行只读查询，不返回队列条目
+         *     - `auth_enabled` 由是否配置 `access_token` 决定；为 `false` 时前端跳过登录页
+         *     - `started_at` 是进程启动时间（ISO 8601），尚未写入时为 `null`
+         *     - 运行时对象尚未就绪时 `core` / `device` / `queue` 为 `null`，仍返回 200
          */
         get: operations["system_health"];
         put?: never;
@@ -1209,7 +1206,7 @@ export interface paths {
         post?: never;
         /**
          * 清理历史日志
-         * @description 按来源和/或时间界限删除日志；至少提供一个条件。
+         * @description 按来源或时间界限删除日志，至少提供一个条件。
          */
         delete: operations["system_delete_logs"];
         options?: never;
@@ -1246,13 +1243,11 @@ export interface paths {
         };
         /**
          * 获取任务类型 schema
-         * @description 返回全部任务类型的完整参数 schema，供前端动态生成表单、agent 了解可用参数。
+         * @description 返回全部任务类型的参数 schema，供前端动态生成表单。只读、无副作用。
          *
-         *     - 只读端点，**无副作用**（只读 setting 表以取渠道默认值）
-         *     - `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字
-         *     - `client_type` / `server` 的 `default` 是**当前生效**的全局渠道默认值（来自设置表，默认 Bilibili / CN）：前端按它预填并随提交显式下发即可；提交时不传这两个字段仍由服务端按同一份默认值注入，显式传 `null` 仍是刻意留空
-         *     - 清单返回当前支持的全部任务类型，不接受分页参数
-         *     - `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`
+         *     - `schema` 为标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字
+         *     - `client_type` / `server` 的 `default` 是当前生效的全局渠道默认值（默认 Bilibili / CN）；提交时不传这两个字段仍按同一默认值注入，显式传 `null` 表示留空
+         *     - 返回当前支持的全部任务类型，不接受分页参数；`lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`
          */
         get: operations["tasks_list_types"];
         put?: never;
@@ -1272,10 +1267,10 @@ export interface paths {
         };
         /**
          * 获取单个任务类型 schema
-         * @description 按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封），渠道字段的 `default` 同样是当前生效的全局渠道默认值。
+         * @description 按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封）。只读、无副作用。
          *
-         *     - 只读端点，**无副作用**（只读 setting 表以取渠道默认值）
-         *     - `type_name` 不在支持的任务类型内时返回 400 `UNKNOWN_TASK_TYPE`（错误码表里它就是 400，不是 404）
+         *     - 渠道字段的 `default` 是当前生效的全局渠道默认值
+         *     - `type_name` 不在支持列表内时返回 400 `UNKNOWN_TASK_TYPE`
          */
         get: operations["tasks_get_type"];
         put?: never;
@@ -1297,12 +1292,11 @@ export interface paths {
         put?: never;
         /**
          * 校验任务参数
-         * @description 只校验不提交：对任务数组跑完整的 pydantic 判别联合校验，并按全局渠道默认值规范化，返回投递给内核的最终参数与用户原始提交。
+         * @description 校验并规范化任务数组，返回投递给内核的最终参数与原始提交。不落库、不入队、不碰内核。
          *
-         *     - **无副作用**：不落库、不入队、不碰内核；只读 setting 表
-         *     - 未显式指定 `client_type` / `server` 的任务会注入 setting 表里的全局默认值（默认 Bilibili / CN）；显式传 `null` 视为刻意留空，不注入
-         *     - `params` 是投递给内核的形态（已剔除 null、已注入默认值），`raw_params` 是原始提交快照（保留显式 null），可用于审计与回显
-         *     - 任务数 1..32，越界返回 422 `VALIDATION_ERROR`
+         *     - 未显式指定 `client_type` / `server` 的任务会注入当前生效的全局渠道默认值（默认 Bilibili / CN）；显式传 `null` 表示留空，不注入
+         *     - `params` 是投递给内核的形态（已剔除 null、已注入默认值），`raw_params` 是原始提交快照（保留显式 null）
+         *     - 任务数 1–32，越界返回 422 `VALIDATION_ERROR`
          */
         post: operations["tasks_validate"];
         delete?: never;
@@ -1354,7 +1348,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 受理 MaaCore 更新 */
+        /** 受理内核更新 */
         post: operations["updates_update_core"];
         delete?: never;
         options?: never;
@@ -1371,7 +1365,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 受理 MaaCore 回滚 */
+        /** 受理内核回滚 */
         post: operations["updates_rollback_core"];
         delete?: never;
         options?: never;
@@ -1473,9 +1467,8 @@ export interface components {
          * AnswerRequest
          * @description ``POST /api/agent/questions/{id}`` 的入参。
          *
-         *     ``selected`` 用**必填的字符串数组**而不是 ``min_length=1``：空数组是「没有选择」
-         *     这个业务错误（``400 QUESTION_SELECTION_INVALID``，规格 §3.4），不是字段级校验
-         *     失败；把约束写进模型只会让同一种错误在两个状态码之间漂移。
+         *     ``selected`` 是必填的字符串数组；空数组或不合法的选项返回 400
+         *     ``QUESTION_SELECTION_INVALID``。``multiple=false`` 时只能给一项。
          */
         AnswerRequest: {
             /** Selected */
@@ -1560,12 +1553,6 @@ export interface components {
         /**
          * AwardInput
          * @description 领取各种奖励。
-         *
-         *     M17 起 ``award`` 与 ``mail``/``recruit``/``orundum``/``mining``/``specialaccess``
-         *     都写 schema ``default``（内核默认值：``award=true``，其余 ``false``）。
-         *     旧 ``TaskRequest`` 曾把它们一律写成 True 与 docstring 冲突；现在以内核源码的
-         *     实际默认值为准，逐字段见
-         *     docs/superpowers/specs/2026-09-28-m17-task-param-defaults.md §4。
          * @example {
          *       "award": true,
          *       "mail": true,
@@ -1575,48 +1562,48 @@ export interface components {
         AwardInput: {
             /**
              * Award
-             * @description 领取每日/每周任务奖励；内核默认值 True
+             * @description 领取每日与每周任务奖励（默认开启）
              * @default true
              */
             award: boolean | null;
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
              * Mail
-             * @description 领取所有邮件奖励；内核默认值 False
+             * @description 领取所有邮件奖励（默认关闭）
              * @default false
              */
             mail: boolean | null;
             /**
              * Mining
-             * @description 领取限时开采许可的合成玉奖励；内核默认值 False
+             * @description 领取限时开采许可的合成玉（默认关闭）
              * @default false
              */
             mining: boolean | null;
             /**
-             * @description 判别联合 discriminator，固定为 Award；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "Award";
             /**
              * Orundum
-             * @description 领取幸运墙的合成玉奖励；内核默认值 False
+             * @description 领取幸运墙的合成玉（默认关闭）
              * @default false
              */
             orundum: boolean | null;
             /**
              * Recruit
-             * @description 领取限定池子赠送的每日免费单抽；内核默认值 False
+             * @description 领取限定池的每日免费单抽（默认关闭）
              * @default false
              */
             recruit: boolean | null;
             /**
              * Specialaccess
-             * @description 领取五周年赠送的月卡奖励；内核默认值 False
+             * @description 领取五周年赠送的月卡奖励（默认关闭）
              * @default false
              */
             specialaccess: boolean | null;
@@ -1649,17 +1636,17 @@ export interface components {
         CloseDownInput: {
             /**
              * Client Type
-             * @description 客户端版本；docstring 标注「必选，填空则不执行」，实际上由全局渠道默认值注入保证非空（未指定时套用默认 Bilibili）。可选值：Official / Bilibili / txwy / YoStarEN / YoStarJP / YoStarKR
+             * @description 要关闭的客户端渠道；不填时用设置里选的默认渠道
              */
             client_type?: ("Official" | "Bilibili" | "txwy" | "YoStarEN" | "YoStarJP" | "YoStarKR") | null;
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
-             * @description 判别联合 discriminator，固定为 CloseDown；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "CloseDown";
@@ -1718,24 +1705,24 @@ export interface components {
         CopilotInput: {
             /**
              * Asset Id
-             * @description 已上传并通过结构校验的 Copilot 作业 ID；执行时由服务端解析为资源文件路径。不支持运行中设置
+             * @description 要执行的已上传作业（不支持运行中设置）
              */
             asset_id: string;
             /**
              * Formation
-             * @description 执行作业前是否重新编队；默认关闭
+             * @description 执行作业前按作业重新编队（默认关闭）
              * @default false
              */
             formation: boolean;
             /**
-             * @description 判别联合 discriminator，固定为 Copilot；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "Copilot";
         };
         /**
          * CoreHealth
-         * @description 内核监督器的最小首页状态。
+         * @description 内核状态：运行状态、进程 pid 与重启代际。
          */
         CoreHealth: {
             /** Generation */
@@ -1775,7 +1762,7 @@ export interface components {
         };
         /**
          * DeviceHealth
-         * @description 复用 ``DeviceManager.snapshot()`` 的设备状态。
+         * @description 设备连接状态与最近一次连接信息。
          */
         DeviceHealth: {
             /** Address */
@@ -1806,7 +1793,7 @@ export interface components {
         };
         /**
          * DeviceRetryHealth
-         * @description 复用 ``DeviceManager.snapshot()`` 的重试状态。
+         * @description 自动重连状态：已尝试次数、上限与下次重连时间（epoch 秒）。
          */
         DeviceRetryHealth: {
             /** Attempt */
@@ -1831,18 +1818,18 @@ export interface components {
         FightInput: {
             /**
              * Drgrandet
-             * @description 节省理智碎石模式；仅在可能产生碎石效果时生效：在碎石确认界面等待，直到当前的 1 点理智恢复完成后再立刻碎石。内核默认值 False
+             * @description 在碎石确认界面等到理智恢复 1 点再碎，省一颗源石（默认关闭）
              * @default false
              */
             DrGrandet: boolean | null;
             /**
              * Client Type
-             * @description 客户端版本；用于游戏崩溃时重启并连回去继续刷，若为空则不启用该功能。未指定时套用全局渠道默认值（默认 Bilibili）
+             * @description 客户端渠道；崩溃后按它重启游戏继续刷，明确留空则不启用
              */
             client_type?: ("Official" | "Bilibili" | "txwy" | "YoStarEN" | "YoStarJP" | "YoStarKR") | null;
             /**
              * Drops
-             * @description 指定掉落数量；key 为 item_id（见 resource/item_index.json），value 为数量。是或的关系，即任一达到即停止任务；默认空对象表示不指定掉落目标
+             * @description 指定掉落目标与数量，任一达标就停止任务（默认不指定）
              * @default {}
              */
             drops: {
@@ -1850,52 +1837,52 @@ export interface components {
             } | null;
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
              * Expiring Medicine
-             * @description 最大使用 48 小时内过期理智药数量；内核默认值 0。该参数自内核 v6.8.0 起已弃用，内核改用 medicine_expire_days（理智药过期天数，非 0 即视为 2 天）；本服务的字段仅为兼容旧提交保留
+             * @description 最多吃几瓶 48 小时内过期的理智药；当前内核已不再读取（默认 0）
              * @default 0
              */
             expiring_medicine: number | null;
             /**
              * Medicine
-             * @description 最大使用理智药数量；内核默认值 0（即不吃药）
+             * @description 最多吃几瓶理智药（默认 0，即不吃）
              * @default 0
              */
             medicine: number | null;
             /**
-             * @description 判别联合 discriminator，固定为 Fight；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "Fight";
             /**
              * Penguin Id
-             * @description 企鹅数据汇报 id；仅在 report_to_penguin 为 True 时有效
+             * @description 企鹅物流的汇报 id，配合「汇报企鹅数据」使用
              */
             penguin_id?: string | null;
             /**
              * Report To Penguin
-             * @description 是否汇报企鹅数据；内核默认值 False
+             * @description 把作战结果上传到企鹅物流（默认关闭）
              * @default false
              */
             report_to_penguin: boolean | null;
             /**
              * Series
-             * @description 连战次数；-1 为禁用切换，0 为自动切换为当前可用的最大次数（如当前理智不够 6 次，则选择最低可用次数），1~6 为指定连战次数。内核默认值 1
+             * @description 同一关卡连续作战的次数（默认 1）
              * @default 1
              */
             series: number | null;
             /**
              * Server
-             * @description 服务器，会影响掉落识别及上传；未指定时套用全局默认值（CN）。可选值：CN / US / JP / KR
+             * @description 游戏服务器，影响掉落识别与上传；不填时用设置里选的默认服务器
              */
             server?: ("CN" | "US" | "JP" | "KR") | null;
             /**
              * Stage
-             * @description 关卡名；留空则识别当前/上次的关卡。支持全部主线关卡（如 1-7、S3-2），可在关卡结尾输入 Normal/Hard 表示需要切换标准与磨难难度；剿灭作战必须输入 Annihilation；当期 SS 活动后三关必须输入完整关卡编号。不支持运行中设置
+             * @description 剿灭作战填 Annihilation，留空识别当前或上次关卡（不支持运行中设置）
              * @example 1-7
              * @example S3-2
              * @example Annihilation
@@ -1904,13 +1891,13 @@ export interface components {
             stage?: string | null;
             /**
              * Stone
-             * @description 最大吃石头（源石）数量；内核默认值 0（即不碎石）
+             * @description 最多碎几颗源石换理智（默认 0，即不碎）
              * @default 0
              */
             stone: number | null;
             /**
              * Times
-             * @description 指定战斗次数；不传则由内核使用默认值（无穷大）
+             * @description 刷多少次后停止；不填则不限制次数
              */
             times?: number | null;
         };
@@ -1944,15 +1931,10 @@ export interface components {
         };
         /**
          * HealthResponse
-         * @description ``GET /api/system/health`` 的响应体（docs/05 §6.1、§3.3）。
+         * @description ``GET /api/system/health`` 的响应体。
          *
-         *     内核（``core``）、设备（``device``）与队列（``queue``）只读取 lifespan 装配到
-         *     ``app.state`` 的运行时对象。lifespan 尚未完成或没有装配对象时，这些字段为
-         *     ``null``，健康探测仍返回 200。队列只包含计数与暂停状态，不暴露队列详情。
-         *
-         *     ``started_at`` 按 docs/05 §3.3「尚未发生的字段返回 ``null`` 而不是省略键」，
-         *     类型是 ``str | None``、默认 ``None``，响应里始终出现该键；写入方是 M3-09 的
-         *     lifespan（``app.state.started_at``），本模块只负责读取。
+         *     ``core`` / ``device`` / ``queue`` 在运行时对象尚未就绪时为 ``null``，健康探测仍返回 200。
+         *     ``started_at`` 是进程启动时间，尚未写入时为 ``null``（键始终存在）。
          */
         HealthResponse: {
             /** Auth Enabled */
@@ -2002,31 +1984,31 @@ export interface components {
         InfrastInput: {
             /**
              * Dorm Notstationed Enabled
-             * @description 是否启用宿舍「未进驻」选项；内核默认值 False
+             * @description 宿舍填充时勾选「未进驻」筛选（默认关闭）
              * @default false
              */
             dorm_notstationed_enabled: boolean | null;
             /**
              * Dorm Trust Enabled
-             * @description 是否将宿舍剩余位置填入信赖未满干员；内核默认值 False
+             * @description 宿舍剩余位置填信赖未满的干员（默认关闭）
              * @default false
              */
             dorm_trust_enabled: boolean | null;
             /**
              * Drones
-             * @description 无人机用途；mode == 10000 时该字段无效（会被忽略）。可选值包括 "_NotUse", "Money", "SyntheticJade", "CombatRecord", "PureGold", "OriginStone", "Chip"；内核默认值 _NotUse
+             * @description 无人机用在哪里；自定义换班模式下不生效（默认不使用）
              * @default _NotUse
              */
             drones: ("_NotUse" | "Money" | "SyntheticJade" | "CombatRecord" | "PureGold" | "OriginStone" | "Chip") | null;
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
              * Facility
-             * @description 要换班的设施（有序，顺序即换班顺序），内核必填；默认值（全部七个设施，按标准换班顺序）由本服务约定，内核没有默认值。设施名选项包括 "Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"。不支持运行中设置
+             * @description 要换班的设施，顺序即换班顺序，默认全部（不支持运行中设置）
              * @default [
              *       "Mfg",
              *       "Trade",
@@ -2040,35 +2022,35 @@ export interface components {
             facility: ("Mfg" | "Trade" | "Power" | "Control" | "Reception" | "Office" | "Dorm")[] | null;
             /**
              * Filename
-             * @description 自定义配置路径，仅 mode == 10000 时生效且必填，否则会被忽略。不支持运行中设置
+             * @description 自定义换班用的配置文件路径（不支持运行中设置）
              */
             filename?: string | null;
             /**
              * Mode
-             * @description 换班工作模式；0 为默认换班模式（单设施最优解），10000 为自定义换班模式（读取用户配置），20000 为一键轮换模式（会跳过控制中枢、发电站、宿舍以及办公室，其余设施不进行换班但保留基本操作，如使用无人机、会客室逻辑）。内核默认值 0
+             * @description 换班工作模式；一键轮换会跳过部分设施（默认换班）
              * @default 0
              */
             mode: (0 | 10000 | 20000) | null;
             /**
-             * @description 判别联合 discriminator，固定为 Infrast；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "Infrast";
             /**
              * Plan Index
-             * @description 使用配置中的方案序号，仅 mode == 10000 时生效且必填，否则会被忽略。内核默认值 0；不支持运行中设置
+             * @description 用配置文件里的第几个方案，默认第一个（不支持运行中设置）
              * @default 0
              */
             plan_index: number | null;
             /**
              * Replenish
-             * @description 贸易站「源石碎片」是否自动补货；内核默认值 False
+             * @description 贸易站「源石碎片」卖完后自动补货（默认关闭）
              * @default false
              */
             replenish: boolean | null;
             /**
              * Threshold
-             * @description 工作心情阈值，取值范围 [0, 1.0]；内核默认值 0.3。mode == 10000 时该字段仅针对 autofill 有效
+             * @description 干员心情低于这个比例就换班（默认 0.3）
              * @default 0.3
              */
             threshold: number | null;
@@ -2160,7 +2142,7 @@ export interface components {
         };
         /**
          * KnowledgePage
-         * @description 列表响应：不含正文（规格 §4.1 的 REST 表）。
+         * @description 列表响应：列表项不含正文，只给字数。
          */
         KnowledgePage: {
             /** Items */
@@ -2249,48 +2231,48 @@ export interface components {
         MallInput: {
             /**
              * Blacklist
-             * @description 黑名单列表（商品名，如「加急许可」「家具零件」等）；默认空列表（无黑名单），不支持运行中设置，可选
+             * @description 不买的商品名（不支持运行中设置）
              * @default []
              */
             blacklist: string[] | null;
             /**
              * Buy First
-             * @description 优先购买列表（商品名，如「招聘许可」「龙门币」等）；默认空列表（无优先项），不支持运行中设置，可选
+             * @description 优先购买的商品名（不支持运行中设置）
              * @default []
              */
             buy_first: string[] | null;
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
              * Force Shopping If Credit Full
-             * @description 是否在信用溢出时无视黑名单；内核默认值 False
+             * @description 信用点溢出时也买黑名单里的商品（默认关闭）
              * @default false
              */
             force_shopping_if_credit_full: boolean | null;
             /**
-             * @description 判别联合 discriminator，固定为 Mall；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "Mall";
             /**
              * Only Buy Discount
-             * @description 是否只购买折扣物品，只作用于第二轮购买；内核默认值 False
+             * @description 只买打折商品，第二轮购买生效（默认关闭）
              * @default false
              */
             only_buy_discount: boolean | null;
             /**
              * Reserve Max Credit
-             * @description 是否在信用点低于 300 时停止购买，只作用于第二轮购买；内核默认值 False
+             * @description 信用点低于 300 就停止购买，第二轮生效（默认关闭）
              * @default false
              */
             reserve_max_credit: boolean | null;
             /**
              * Shopping
-             * @description 是否购物；内核默认值 True。不支持运行中设置
+             * @description 用信用点买东西，默认开启（不支持运行中设置）
              * @default true
              */
             shopping: boolean | null;
@@ -2406,7 +2388,7 @@ export interface components {
         };
         /**
          * PushSubscribeRequest
-         * @description 浏览器 ``PushSubscription.toJSON()`` 的子集（``expirationTime`` 忽略）。
+         * @description 浏览器 ``PushSubscription.toJSON()`` 的子集，``expirationTime`` 忽略。
          */
         PushSubscribeRequest: {
             /** Endpoint */
@@ -2418,7 +2400,7 @@ export interface components {
         };
         /**
          * PushUnsubscribeRequest
-         * @description 按 endpoint 注销订阅（注册接口的请求形状里 endpoint 是必填，这里同理）。
+         * @description 按 ``endpoint`` 注销订阅。
          */
         PushUnsubscribeRequest: {
             /** Endpoint */
@@ -2437,7 +2419,7 @@ export interface components {
         QuestionStatus: "pending" | "answered" | "skipped" | "expired" | "cancelled";
         /**
          * QueueHealth
-         * @description 队列概览，不暴露流水线或任务条目。
+         * @description 队列计数与暂停状态。
          */
         QueueHealth: {
             /** Paused */
@@ -2464,42 +2446,42 @@ export interface components {
         ReclamationInput: {
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
              * Increment Mode
-             * @description 点击类型；0 为连点，1 为长按。内核默认值 0
+             * @description 制造时点击屏幕的方式（默认连点）
              * @default 0
              */
             increment_mode: (0 | 1) | null;
             /**
              * Mode
-             * @description 模式；0 为刷分与建造点（进入战斗直接退出），1 为沙中之火刷赤金、联络员买水后基地锻造／沙洲遗闻自动制造物品并读档刷货币。内核默认值 0
+             * @description 运行模式（默认刷分与建造点）
              * @default 0
              */
             mode: (0 | 1) | null;
             /**
-             * @description 判别联合 discriminator，固定为 Reclamation；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "Reclamation";
             /**
              * Num Craft Batches
-             * @description 单次最大制造轮数；内核默认值 16（按组装荧光棒至少消耗 3000 木头推算）
+             * @description 单次最多制造几轮（默认 16）
              * @default 16
              */
             num_craft_batches: number | null;
             /**
              * Theme
-             * @description 主题；Fire 为「沙中之火」，Tales 为「沙洲遗闻」。内核默认值 Tales（Fire 主题已下线，内核会直接停止任务）
+             * @description 生息演算主题；沙中之火已下线（默认沙洲遗闻）
              * @default Tales
              */
             theme: ("Fire" | "Tales") | null;
             /**
              * Tools To Craft
-             * @description 自动制造的物品；默认空列表表示不组装任何物品。内核对该键没做缺省判空（ReclamationCraftTaskPlugin 直接取 find(...).value()），所以必须显式下发——这也是它需要默认值的原因；要组装请自行填入物品名
+             * @description 要自动制造的物品；不填则不制造
              * @default []
              */
             tools_to_craft: string[] | null;
@@ -2533,7 +2515,7 @@ export interface components {
         RecruitInput: {
             /**
              * Confirm
-             * @description 会去点击确认的 Tag 等级，内核必填；元素取值范围 1~6。默认值 [2, 3, 4, 5] 由本服务约定（内核没有默认值）。内核以「confirm 含 -1」表示仅公招计算（只计算 Tag 组合、不点击确认），本服务的元素约束 1~6 不接受 -1
+             * @description 要点击确认的 Tag 星级（默认 2、3、4、5 星）
              * @default [
              *       2,
              *       3,
@@ -2544,46 +2526,46 @@ export interface components {
             confirm: number[] | null;
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
              * Expedite
-             * @description 是否使用加急许可；内核默认值 False
+             * @description 用加急许可立刻完成招募（默认关闭）
              * @default false
              */
             expedite: boolean | null;
             /**
              * Expedite Times
-             * @description 加急次数；仅在 expedite 为 True 时有效。内核 v6.17.5 已不再使用该值（RecruitTask.cpp 取到后以 [[maybe_unused]] 丢弃，加急次数实际由 times 上限决定），本字段仅为兼容旧提交保留，因此没有默认值
+             * @description 当前内核不再读取此值，加急次数由「招募次数」决定
              */
             expedite_times?: number | null;
             /**
              * Extra Tags Mode
-             * @description 选择更多的 Tags；0 为默认行为，1 为选 3 个 Tags（即使可能冲突），2 为如果可能则同时选择更多的高星 Tag 组合（即使可能冲突）。内核默认值 0
+             * @description 一轮里选择更多 Tag 的策略（默认 0）
              * @default 0
              */
             extra_tags_mode: (0 | 1 | 2) | null;
             /**
              * First Tags
-             * @description 首选 Tags，仅在 Tag 等级为 3 时有效；会尽可能多地选择这里的 Tags（如果有）。属于强制选择，会忽略所有「让 3 星 Tag 不被选择」的设置
+             * @description 无论其他设置如何都会优先进这些 Tag（仅 3 星）
              * @default []
              */
             first_tags: string[] | null;
             /**
-             * @description 判别联合 discriminator，固定为 Recruit；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "Recruit";
             /**
              * Penguin Id
-             * @description 企鹅数据汇报 id；仅在 report_to_penguin 为 True 时有效
+             * @description 企鹅物流的汇报 id，配合「汇报企鹅数据」使用
              */
             penguin_id?: string | null;
             /**
              * Recruitment Time
-             * @description Tag 等级（大于等于 3，JSON 键为字符串）和对应的希望招募时限，单位为分钟；内核默认值都为 540（即 09:00:00）
+             * @description 各 Tag 星级对应的希望招募时限（默认 9 小时）
              * @default {
              *       "3": 540,
              *       "4": 540,
@@ -2596,25 +2578,25 @@ export interface components {
             } | null;
             /**
              * Refresh
-             * @description 是否刷新三星 Tags；内核默认值 False
+             * @description 连三星标签也一起刷新（默认关闭）
              * @default false
              */
             refresh: boolean | null;
             /**
              * Report To Penguin
-             * @description 是否汇报企鹅数据；内核默认值 False
+             * @description 把公招结果上传到企鹅物流（默认关闭）
              * @default false
              */
             report_to_penguin: boolean | null;
             /**
              * Report To Yituliu
-             * @description 是否汇报一图流数据；内核默认值 False
+             * @description 把公招结果上传到一图流（默认关闭）
              * @default false
              */
             report_to_yituliu: boolean | null;
             /**
              * Select
-             * @description 会去点击标签的 Tag 等级，内核必填；元素取值范围 1~6。默认值 [1, 4, 5] 由本服务约定（内核没有默认值），沿用旧前端日常预设
+             * @description 要点击选中的 Tag 星级（默认 1、4、5 星）
              * @default [
              *       1,
              *       4,
@@ -2624,30 +2606,30 @@ export interface components {
             select: number[] | null;
             /**
              * Server
-             * @description 服务器，会影响上传；未指定时套用全局默认值（CN）。可选值：CN / US / JP / KR
+             * @description 游戏服务器，影响数据上传；不填时用设置里选的默认服务器
              */
             server?: ("CN" | "US" | "JP" | "KR") | null;
             /**
              * Set Time
-             * @description 是否设置招募时限（按 recruitment_time 的对应值把游戏内计时器点到位）；内核默认值 True。该设置只在真正执行招募时用得上——内核在 times=0 时主循环不执行，旧文案「仅在 times 为 0 时生效」与源码相反
+             * @description 按「招募时限映射」把游戏内招募计时器点到位（默认开启）
              * @default true
              */
             set_time: boolean | null;
             /**
              * Skip Robot
-             * @description 是否在识别到小车词条时跳过；内核默认值 False。内核源码用 params.find("skip_robot")——键缺省即不跳过，旧文案「默认 True」与源码相反（官方文档的 @default true 与源码冲突，以源码为准）
+             * @description 识别到小车词条时跳过（默认关闭）
              * @default false
              */
             skip_robot: boolean | null;
             /**
              * Times
-             * @description 招募多少次；内核默认值 0（主循环不执行，只进公招页而不招募）。要真正招募请设置为大于 0 的次数
+             * @description 招募多少次；默认 0，只进公招页不招募
              * @default 0
              */
             times: number | null;
             /**
              * Yituliu Id
-             * @description 一图流汇报 id；仅在 report_to_yituliu 为 True 时有效
+             * @description 一图流的汇报 id，配合「汇报一图流数据」使用
              */
             yituliu_id?: string | null;
         };
@@ -2720,132 +2702,132 @@ export interface components {
         RoguelikeInput: {
             /**
              * Check Collapsal Paradigms
-             * @description 是否检测获取的坍缩范式；仅适用于 Sami 主题。模式 5 下内核默认值为 True，其他模式下为 False；不传则由内核决定
+             * @description 检测拿到的坍缩范式；不填由内核按模式决定（刷坍缩范式默认开启）
              */
             check_collapsal_paradigms?: boolean | null;
             /**
              * Core Char
-             * @description 开局干员名；仅支持单个干员中文名（无论区服）；留空 = 内核自动选择（根据练度自动选，传空字符串 "" 等效）
+             * @description 开局要借的干员中文名；不填则由内核自动选择
              */
             core_char?: string | null;
             /**
              * Difficulty
-             * @description 指定难度等级；仅适用于除 Phantom 以外的主题，若未解锁难度则会选择当前已解锁的最高难度。内核默认值为 -1（未指定），但 Phantom 主题下不允许非空，所以这里保持「未设置」三态而不写静态默认值
+             * @description 仅用于傀影以外的主题；不填则选已解锁的最高难度
              */
             difficulty?: number | null;
             /**
              * Double Check Collapsal Paradigms
-             * @description 是否执行坍缩范式检测防漏措施；仅在主题为 Sami 且 check_collapsal_paradigms 为 True 时有效。模式 5 下内核默认值为 True，其他模式下为 False；不传则由内核决定
+             * @description 多一道坍缩范式检测，避免漏检（不填由内核决定）
              */
             double_check_collapsal_paradigms?: boolean | null;
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
              * Expected Collapsal Paradigms
-             * @description 希望触发的坍缩范式；仅在主题为 Sami 且模式为 5 时有效。内核默认值为 ["目空一些", "睁眼瞎", "图像损坏", "一抹黑"]
+             * @description 希望刷到的坍缩范式（仅刷坍缩范式模式）
              */
             expected_collapsal_paradigms?: string[] | null;
             /**
              * First Floor Foldartal
-             * @description 希望在第一层远见阶段得到的密文板；仅适用于 Sami 主题，不限模式；若成功凹到则停止任务
+             * @description 第一层远见想要的密文板；凹到就停止任务
              */
             first_floor_foldartal?: string | null;
             /**
              * Investment Enabled
-             * @description 是否投资源石锭；内核默认值 True
+             * @description 把源石锭投进商店（默认开启）
              * @default true
              */
             investment_enabled: boolean | null;
             /**
              * Investments Count
-             * @description 投资源石锭的次数；达到后自动停止任务。不传则由内核使用默认值（INT_MAX，即不限制）
+             * @description 投多少次后停止；不填则不限制
              */
             investments_count?: number | null;
             /**
              * Mode
-             * @description 模式；0 为刷分/奖励点数（尽可能稳定地打更多层数），1 为刷源石锭（第一层投资完就退出），2 已弃用（兼顾模式 0 与 1，投资过后再退出，没有投资就继续往后打），3 开发中，4 为凹开局（先在 0 难度下到达第三层后重开，再到指定难度下凹开局奖励；Phantom 主题下不切换难度），5 为刷坍缩范式（仅适用于 Sami 主题）。内核默认值 0
+             * @description 肉鸽的玩法模式（默认刷分/奖励点数）
              * @default 0
              */
             mode: (0 | 1 | 2 | 3 | 4 | 5) | null;
             /**
-             * @description 判别联合 discriminator，固定为 Roguelike；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "Roguelike";
             /**
              * Only Start With Elite Two
-             * @description 是否只凹开局干员精二直升而忽视其他开局条件；仅在模式为 4 且 start_with_elite_two 为 True 时有效。内核默认值 False
+             * @description 只凹精二直升，忽略其他开局条件（默认关闭）
              * @default false
              */
             only_start_with_elite_two: boolean | null;
             /**
              * Refresh Trader With Dice
-             * @description 是否用骰子刷新商店购买特殊商品；仅适用于 Mizuki 主题，用于刷指路鳞。内核默认值 False
+             * @description 用骰子刷新商店，用于刷指路鳞（默认关闭）
              * @default false
              */
             refresh_trader_with_dice: boolean | null;
             /**
              * Roles
-             * @description 开局职业组；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「取长补短」）
+             * @description 开局职业组；不填则由内核自动选择
              */
             roles?: string | null;
             /**
              * Squad
-             * @description 开局分队名；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「指挥分队」）
+             * @description 开局用哪个分队；不填则由内核自动选择
              */
             squad?: string | null;
             /**
              * Start Foldartal List
-             * @description 凹开局时希望在开局奖励阶段得到的密文板；仅主题为 Sami 且模式为 4 时有效。仅当开局拥有列表中所有的密文板时才算凹开局成功；此参数须与「生活至上分队」同时使用，其他分队在开局奖励阶段不会获得密文板
+             * @description 开局奖励想要的密文板；需搭配「生活至上分队」
              */
             start_foldartal_list?: string[] | null;
             /**
              * Start With Elite Two
-             * @description 是否在凹开局的同时凹干员精二直升；仅适用于模式 4。内核默认值 False
+             * @description 凹开局时顺便凹精二直升（仅「凹开局」，默认关闭）
              * @default false
              */
             start_with_elite_two: boolean | null;
             /**
              * Starts Count
-             * @description 开始探索的次数；达到后自动停止任务。不传则由内核使用默认值（INT_MAX，即不限制）
+             * @description 开始探索多少次后停止；不填则不限制
              */
             starts_count?: number | null;
             /**
              * Stop At Final Boss
-             * @description 是否在第 5 层险路恶敌节点前停止任务；仅适用于除 Phantom 以外的主题。内核默认值 False
+             * @description 仅用于傀影以外的主题，第 5 层险路恶敌前停止（默认关闭）
              * @default false
              */
             stop_at_final_boss: boolean | null;
             /**
              * Stop When Investment Full
-             * @description 是否在投资到达上限后自动停止任务；内核默认值 False
+             * @description 投资满后自动停止任务（默认关闭）
              * @default false
              */
             stop_when_investment_full: boolean | null;
             /**
              * Theme
-             * @description 主题；可选值包括 "Phantom", "Mizuki", "Sami", "Sarkaz"。内核默认值 Phantom
+             * @description 要刷的肉鸽主题（默认傀影与猩红孤钻）
              * @default Phantom
              */
             theme: ("Phantom" | "Mizuki" | "Sami" | "Sarkaz") | null;
             /**
              * Use Foldartal
-             * @description 是否使用密文板；仅适用于 Sami 主题。模式 5 下内核默认值为 False，其他模式下为 True；不传则由内核决定
+             * @description 是否使用密文板；不填由内核按模式决定（刷坍缩范式默认关闭）
              */
             use_foldartal?: boolean | null;
             /**
              * Use Nonfriend Support
-             * @description 是否可以是非好友助战干员；仅在 use_support 为 True 时有效。内核默认值 False
+             * @description 允许借非好友的助战干员（默认关闭）
              * @default false
              */
             use_nonfriend_support: boolean | null;
             /**
              * Use Support
-             * @description 开局干员是否为助战干员；内核默认值 False
+             * @description 开局干员换成助战干员（默认关闭）
              * @default false
              */
             use_support: boolean | null;
@@ -3002,7 +2984,7 @@ export interface components {
         StartUpInput: {
             /**
              * Account Name
-             * @description 切换账号；仅支持切换至已登录的账号，使用登录名进行查找，保证输入内容在所有已登录账号中唯一即可。官服示例 123****4567（可输入 123****4567、4567、123、3****4567）；B 服示例 张三（可输入 张三、张、三）
+             * @description 切换到已登录的账号，输入登录名的一部分即可；不填则不切换
              * @example 123****4567
              * @example 4567
              * @example 张三
@@ -3010,23 +2992,23 @@ export interface components {
             account_name?: string | null;
             /**
              * Client Type
-             * @description 客户端版本；未指定时套用全局渠道默认值（默认 Bilibili）。可选值：Official / Bilibili / txwy / YoStarEN / YoStarJP / YoStarKR
+             * @description 游戏客户端渠道；不填时用设置里选的默认渠道
              */
             client_type?: ("Official" | "Bilibili" | "txwy" | "YoStarEN" | "YoStarJP" | "YoStarKR") | null;
             /**
              * Enable
-             * @description 是否启用本任务；内核默认值 True（启用）
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
              * @default true
              */
             enable: boolean | null;
             /**
-             * @description 判别联合 discriminator，固定为 StartUp；由任务类型选择器决定，用户不需要填写 (enum property replaced by openapi-typescript)
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             name: "StartUp";
             /**
              * Start Game Enabled
-             * @description 是否自动启动客户端；内核默认值 False（即不自动启动，源码 StartUpTask.cpp 的 params.get("start_game_enabled", false)）。需要自动启动客户端时请显式设为 True
+             * @description 启动任务前自动打开游戏客户端（默认关闭）
              * @default false
              */
             start_game_enabled: boolean | null;
@@ -3056,9 +3038,8 @@ export interface components {
          * TaskValidateRequest
          * @description ``POST /api/tasks/validate`` 的请求体：只有任务数组。
          *
-         *     有意不复用 :class:`~maa_api.domain.task.PipelineCreate`：校验端点不建流水线，
-         *     ``title`` / ``priority`` / ``notify_on_finish`` 在这里没有意义，接受它们只会
-         *     让调用方误以为「校验通过」等于「提交参数合法」。
+         *     不含 ``title`` / ``priority`` / ``notify_on_finish``：这个端点只校验参数，
+         *     不建流水线。
          * @example {
          *       "tasks": [
          *         {
@@ -8932,7 +8913,7 @@ export interface operations {
             /** @description Created */
             201: {
                 headers: {
-                    /** @description URI of the created API snippet */
+                    /** @description 新建收藏的 URI */
                     Location?: string;
                     [name: string]: unknown;
                 };

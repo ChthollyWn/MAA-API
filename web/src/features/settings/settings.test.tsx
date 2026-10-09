@@ -197,7 +197,7 @@ describe('settings index', () => {
     expect(screen.getByRole('heading', { name: '设置', level: 1 })).toBeInTheDocument()
     const rows: Array<[RegExp, string]> = [
       [/^外观/, 'appearance'],
-      [/^访问令牌/, 'access'],
+      [/^访问 token/, 'access'],
       [/^设备与渠道/, 'device'],
       [/^LLM 与 Agent/, 'agent'],
       [/^通知/, 'notifications'],
@@ -362,7 +362,7 @@ describe('schema-driven sections', () => {
     fireEvent.change(await screen.findByLabelText('截图质量'), { target: { value: '0' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    expect(await screen.findByText('不能小于 1。')).toBeInTheDocument()
+    expect(await screen.findByText('请填写不小于 1 的值。')).toBeInTheDocument()
     expect(screen.getByLabelText('截图质量')).toHaveAttribute('aria-invalid', 'true')
     expect(screen.getByText('范围 1 ~ 95')).toBeInTheDocument()
     expect(api.puts()).toHaveLength(0)
@@ -375,10 +375,10 @@ describe('schema-driven sections', () => {
     const ports = await screen.findByLabelText('模拟器常见端口')
     fireEvent.change(ports, { target: { value: '5555' } })
     fireEvent.keyDown(ports, { key: 'Enter' })
-    expect(await screen.findByText('已经添加过这个值。')).toBeInTheDocument()
+    expect(await screen.findByText('请不要重复添加这个值。')).toBeInTheDocument()
     fireEvent.change(ports, { target: { value: '70000' } })
     fireEvent.click(screen.getByRole('button', { name: '添加模拟器常见端口' }))
-    expect(await screen.findByText('每个值不能大于 65535。')).toBeInTheDocument()
+    expect(await screen.findByText('请填写不大于 65535 的值。')).toBeInTheDocument()
     fireEvent.change(ports, { target: { value: '7555' } })
     fireEvent.keyDown(ports, { key: 'Enter' })
     fireEvent.click(screen.getByRole('button', { name: '移除 16384' }))
@@ -532,8 +532,8 @@ describe('local sections', () => {
     expect(document.body.textContent).not.toContain('new-token')
     expect(document.body.textContent).not.toContain('old-token')
 
-    fireEvent.click(screen.getByRole('button', { name: /清除此设备的 token/ }))
-    const dialog = await screen.findByRole('alertdialog', { name: '清除此设备保存的访问 token？' })
+    fireEvent.click(screen.getByRole('button', { name: /清除这台设备的 token/ }))
+    const dialog = await screen.findByRole('alertdialog', { name: '清除这台设备保存的访问 token？' })
     expect(useAuth.getState().token).toBe('new-token')
     fireEvent.click(within(dialog).getByRole('button', { name: '清除 token' }))
 

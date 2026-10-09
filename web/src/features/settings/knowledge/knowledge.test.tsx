@@ -210,6 +210,9 @@ describe('knowledge settings section', () => {
     expect(screen.getByRole('switch', { name: '启用「抽卡换算」' })).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByText('已启用 4 条 · 术语表与用户档案正文合计 1300 字')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '新建' })).toHaveAttribute('href', NEW_KNOWLEDGE_PATH)
+    // 机制说明收进小问号，标题下不再铺解释。
+    expect(screen.getByRole('button', { name: '知识条目 说明' })).toBeInTheDocument()
+    expect(screen.queryByText(/Agent 每轮都会带上这份索引/)).not.toBeInTheDocument()
   })
 
   it('writes the whole entry back when the enable switch flips', async () => {
@@ -239,8 +242,8 @@ describe('knowledge settings section', () => {
     fireEvent.click(await screen.findByRole('switch', { name: '启用「抽卡换算」' }))
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('内置条目不能这样改')
-    expect(alert).toHaveTextContent('类型不可修改')
+    expect(alert).toHaveTextContent('内置条目不能改类型')
+    expect(alert).toHaveTextContent('也不能删除')
     expect(api.puts()).toHaveLength(1)
     // 失败后回到原状态，不留下假的成功界面。
     await waitFor(() => expect(screen.getByRole('switch', { name: '启用「抽卡换算」' })).toHaveAttribute('aria-checked', 'false'))
@@ -369,6 +372,7 @@ describe('knowledge editor', () => {
     expect(screen.getByLabelText('类型')).toBeDisabled()
     expect(screen.getByLabelText('标识')).toHaveAttribute('readonly')
     expect(screen.getByText(/^上次更新：/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '索引预览 说明' })).toBeInTheDocument()
 
     fireEvent.change(title, { target: { value: '首页布局（改）' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -394,8 +398,8 @@ describe('knowledge editor', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('内置条目不能这样改')
-    expect(alert).toHaveTextContent('类型不可修改')
+    expect(alert).toHaveTextContent('内置条目不能改类型')
+    expect(alert).toHaveTextContent('也不能删除')
     expect(api.puts()).toHaveLength(1)
   })
 
@@ -417,7 +421,7 @@ describe('knowledge editor', () => {
     fireEvent.change(await screen.findByLabelText('标题'), { target: { value: '改过的标题' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    expect(await screen.findByText('服务端拒绝了「标题」：String should have at most 32 characters')).toBeInTheDocument()
+    expect(await screen.findByText('服务端拒绝了「标题」：内容太长。')).toBeInTheDocument()
   })
 
   it('restores the builtin content only after confirmation', async () => {

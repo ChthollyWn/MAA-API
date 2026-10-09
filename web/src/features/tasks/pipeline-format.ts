@@ -29,6 +29,19 @@ export function taskNamesTitle(tasks: unknown): string | null {
 
 export const UNTITLED = '未命名流水线'
 
+/** 停止运行中的流水线：确认弹窗与结果说明共用，避免队列页与详情页各写一遍。 */
+export const STOP_PIPELINE_NOTICE = '正在运行的流水线会停止，已完成的流水线不受影响。'
+
+/** 把待执行流水线移出队列：确认弹窗与结果说明共用。 */
+export const CANCEL_QUEUED_NOTICE = '它会离开待执行队列，不再执行。'
+
+/** 表单校验摘要：编排器与定时任务编辑器共用同一句话。 */
+export function taskErrorSummaryMessage(positions: readonly number[], total: number): string {
+  return positions.length === 1
+    ? `第 ${positions[0]} 个任务有 ${total} 处错误`
+    : `第 ${positions.join('、')} 个任务共有 ${total} 处错误`
+}
+
 export function normalizeStatus(value: unknown): string {
   return typeof value === 'string' && value ? value.toLowerCase() : 'unknown'
 }

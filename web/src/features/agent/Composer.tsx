@@ -117,7 +117,7 @@ export function Composer({ value, onValueChange, onSend, busy, onStop, stopping 
               </Button>
             )}
           </div>
-          {coarse ? null : <p className="mt-1.5 hidden text-xs text-muted-foreground lg:block">Enter 发送，Shift+Enter 换行；资源消耗和破坏性操作会逐次请你确认</p>}
+          {coarse ? null : <p className="mt-1.5 hidden text-xs text-muted-foreground lg:block">Enter 发送，Shift+Enter 换行</p>}
         </div>
       </form>
     </>

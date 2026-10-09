@@ -33,9 +33,9 @@ const reloadOptions = [
 ] as const satisfies readonly { value: ReloadMode; label: string }[]
 
 const reloadHints: Record<ReloadMode, string> = {
-  wait: '下载完成后，等当前任务结束再重载资源。',
+  wait: '下载完成后，等当前流水线结束再重载资源。',
   defer: '只下载，暂不重载；之后再选「立即」让它生效。',
-  force: '下载完成后立即重载资源，会中断正在执行的流水线。',
+  force: '下载完成后立即重载资源，会停止正在执行的流水线。',
 }
 
 function SummaryRow({ label, children }: { label: string; children: ReactNode }) {
@@ -66,7 +66,7 @@ export interface UpdateOptionsSheetProps {
   onSubmit: (options: UpdateOptions) => void
 }
 
-/** 点主操作后打开：选资源范围、生效方式与是否强制中断，确认后才提交。 */
+/** 点主操作后打开：选资源范围、生效方式与是否强制停止，确认后才提交。 */
 export function UpdateOptionsSheet({ open, onOpenChange, target, state, gameChannel, submitting, error, onSubmit }: UpdateOptionsSheetProps) {
   const [selection, setSelection] = useState<UpdateSelection>(() => initialSelection(target, state, gameChannel))
   const [forceInterrupt, setForceInterrupt] = useState(false)
@@ -83,7 +83,7 @@ export function UpdateOptionsSheet({ open, onOpenChange, target, state, gameChan
       open={open}
       onOpenChange={onOpenChange}
       title={`更新${withLeadingSpace(targetLabels[target])}`}
-      description="确认后开始，进度会显示在页面顶部。"
+      description="确认后开始，进度会显示在热更新页面上"
       footer={(
         <div className="grid grid-cols-2 gap-2">
           <Button variant="secondary" disabled={submitting} onClick={() => onOpenChange(false)}>取消</Button>
@@ -111,7 +111,7 @@ export function UpdateOptionsSheet({ open, onOpenChange, target, state, gameChan
 
         {target === 'game' ? (
           <dl className="divide-y">
-            <SummaryRow label="渠道">{gameChannelLabels[selection.gameChannel]}</SummaryRow>
+            <SummaryRow label="客户端渠道">{gameChannelLabels[selection.gameChannel]}</SummaryRow>
             <SummaryRow label="版本">
               <VersionChange
                 current={asText(game?.current)}
@@ -148,20 +148,20 @@ export function UpdateOptionsSheet({ open, onOpenChange, target, state, gameChan
 
         <div className="space-y-2">
           <SwitchRow
-            label="允许强制中断正在运行的流水线"
-            description={reloadInterrupts ? '「立即」生效方式本身就会中断流水线。' : '只在更新被流水线阻塞时打开。'}
+            label="允许强制停止正在运行的流水线"
+            description={reloadInterrupts ? '「立即」生效方式本身就会停止流水线。' : '只在更新被流水线阻塞时打开。'}
             checked={interrupt}
             disabled={reloadInterrupts}
             onCheckedChange={setForceInterrupt}
           />
           {interrupt ? (
-            <InlineAlert tone="warning" title="会中断当前任务">
-              正在执行的流水线会被立即取消，未完成的任务不会继续执行。
+            <InlineAlert tone="warning" title="会停止当前流水线">
+              正在执行的流水线会被停止，后面的任务不会再执行。
             </InlineAlert>
           ) : null}
         </div>
 
-        {error ? <InlineAlert tone="danger">更新操作失败：{errorMessage(error)}</InlineAlert> : null}
+        {error ? <InlineAlert tone="danger">更新失败：{errorMessage(error)}</InlineAlert> : null}
       </div>
     </ResponsiveSheet>
   )

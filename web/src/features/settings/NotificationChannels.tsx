@@ -93,7 +93,7 @@ export function NotificationChannels() {
       if (failure) throw toApiError(failure, response)
       toast.success(enabled ? `已启用「${channel.name}」` : `已停用「${channel.name}」`)
     } catch (caught) {
-      setError(`无法${enabled ? '启用' : '停用'}「${channel.name}」：${errorText(caught)}`)
+      setError(`${enabled ? '启用' : '停用'}「${channel.name}」失败：${errorText(caught)}`)
     } finally {
       setBusyId(null)
       await refresh()
@@ -112,7 +112,7 @@ export function NotificationChannels() {
       toast.success(`已向「${channel.name}」发送测试通知`)
     } catch (caught) {
       const upstream = asRecord(toApiError(caught).details).upstream
-      setError(`「${channel.name}」测试发送失败：${typeof upstream === 'string' && upstream ? upstream : errorText(caught)}`)
+      setError(`「${channel.name}」发送测试通知失败：${typeof upstream === 'string' && upstream ? upstream : errorText(caught)}`)
     } finally {
       setBusyId(null)
       await refresh()
@@ -122,7 +122,7 @@ export function NotificationChannels() {
   const remove = async (channel: Channel) => {
     const ok = await confirm({
       title: `删除通知通道「${channel.name}」？`,
-      description: '删除后不再向它发送任何通知，这个操作无法撤销。',
+      description: '删除后不再向这个通道发送通知，且无法撤销。',
       confirmText: '删除通道',
       tone: 'danger',
     })
@@ -136,7 +136,7 @@ export function NotificationChannels() {
       if (failure) throw toApiError(failure, response)
       toast.success(`已删除「${channel.name}」`)
     } catch (caught) {
-      setError(`无法删除「${channel.name}」：${errorText(caught)}`)
+      setError(`删除「${channel.name}」失败：${errorText(caught)}`)
     } finally {
       setBusyId(null)
       await refresh()
@@ -148,7 +148,7 @@ export function NotificationChannels() {
   return (
     <Section
       title="通知通道"
-      description="任务完成、失败或发现更新时发送消息。"
+      hint="流水线完成、失败或发现更新时发送消息。"
       actions={list.length ? (
         <Button type="button" variant="soft" size="sm" onClick={() => openEditor(null)}>
           <Plus aria-hidden="true" />
@@ -200,7 +200,7 @@ export function NotificationChannels() {
                   description={channelTypeLabel(channel.type)}
                   disabled={busyId !== null}
                   actions={[
-                    { label: '发送测试通知', description: '发送一条「任务完成」示例消息', icon: Send, onSelect: () => void test(channel) },
+                    { label: '发送测试通知', description: '发送一条「流水线完成」示例消息', icon: Send, onSelect: () => void test(channel) },
                     { label: '编辑', icon: Pencil, onSelect: () => openEditor(channel) },
                     { label: '删除', icon: Trash2, tone: 'danger', onSelect: () => void remove(channel) },
                   ]}
@@ -214,7 +214,7 @@ export function NotificationChannels() {
           <EmptyState
             icon={Bell}
             title="还没有通知通道"
-            description="添加一个通道后，可以订阅任务完成等事件，并发送测试消息确认能收到。"
+            description="添加一个通道，订阅需要通知的事件"
             action={(
               <Button type="button" onClick={() => openEditor(null)}>
                 <Plus aria-hidden="true" />

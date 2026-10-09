@@ -37,7 +37,7 @@ export function AppearanceSection() {
   )
 }
 
-/** 访问令牌：替换或清除此浏览器保存的 token，页面上从不显示已保存的值。 */
+/** 访问 token：替换或清除这个浏览器保存的 token，页面上从不显示已保存的值。 */
 export function AccessSection() {
   const token = useAuth((state) => state.token)
   const setToken = useAuth((state) => state.setToken)
@@ -60,33 +60,33 @@ export function AccessSection() {
     setValue('')
     setVisible(false)
     setError(null)
-    toast.success('已更新此设备保存的访问 token')
+    toast.success('已更新这台设备保存的访问 token')
   }
 
   const clear = async () => {
     const ok = await confirm({
-      title: '清除此设备保存的访问 token？',
+      title: '清除这台设备保存的访问 token？',
       description: authEnabled
         ? '清除后需要重新输入 token 才能继续使用，页面会回到登录。'
-        : '清除后，如果服务启用了访问密钥，需要重新输入 token。',
+        : '清除后，如果服务端要求 token，需要重新输入。',
       confirmText: '清除 token',
       tone: 'danger',
     })
     if (!ok) return
     clearToken()
-    toast.success('已清除此设备保存的访问 token')
+    toast.success('已清除这台设备保存的访问 token')
   }
 
   return (
     <div className="space-y-6 pb-4">
       <ListGroup title="当前状态">
-        <ListItem icon={KeyRound} iconTone="primary" title="此设备的访问 token" trailing={token ? '已保存' : '未保存'} />
+        <ListItem icon={KeyRound} iconTone="primary" title="这台设备的访问 token" trailing={token ? '已保存' : '未保存'} />
         {health.data ? (
           <ListItem
             icon={ShieldCheck}
             iconTone={authEnabled ? 'success' : 'neutral'}
-            title="服务端访问密钥"
-            description={authEnabled ? '请求需要带上正确的 token' : '服务没有设置访问密钥，不需要 token'}
+            title="服务端 token"
+            description={authEnabled ? '请求需要带上正确的 token' : '服务端没有设置 token，不需要鉴权'}
             trailing={authEnabled ? '已启用' : '未启用'}
           />
         ) : null}
@@ -96,7 +96,7 @@ export function AccessSection() {
         <Field
           label="新的访问 token"
           htmlFor="settings-access-token"
-          description="只保存在这个浏览器里；页面不会显示已保存的 token。"
+          description="只保存在这个浏览器里，页面不显示已保存的 token"
           descriptionId="settings-access-token-description"
           error={error}
           errorId="settings-access-token-error"
@@ -111,7 +111,7 @@ export function AccessSection() {
               autoCorrect="off"
               spellCheck={false}
               className="pr-12"
-              placeholder={token ? '输入新的 token 以替换' : '输入 token'}
+              placeholder={token ? '输入新的 token 替换旧值' : '输入 token'}
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? 'settings-access-token-error settings-access-token-description' : 'settings-access-token-description'}
               onChange={(event) => {
@@ -136,12 +136,12 @@ export function AccessSection() {
       </form>
 
       {token ? (
-        <ListGroup footer="如果还要注销浏览器登录状态，请在「更多」里退出登录。">
+        <ListGroup footer="退出登录在「更多」里">
           <ListItem
             icon={Trash2}
             iconTone="danger"
             tone="danger"
-            title="清除此设备的 token"
+            title="清除这台设备的 token"
             chevron={false}
             onClick={() => void clear()}
           />

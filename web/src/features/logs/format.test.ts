@@ -31,7 +31,7 @@ describe('log labels', () => {
   it('names known sources in Chinese and keeps unknown ones', () => {
     expect(sourceLabel('task')).toBe('任务')
     expect(sourceLabel('service')).toBe('服务')
-    expect(sourceLabel('core')).toBe('核心')
+    expect(sourceLabel('core')).toBe('内核')
     expect(sourceLabel('plugin')).toBe('plugin')
   })
 

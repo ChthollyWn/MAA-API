@@ -13,7 +13,7 @@ export function ScheduleRuns({ runs }: { runs: readonly ScheduleRun[] }) {
     <Section id="schedule-runs" title="最近运行">
       {runs.length === 0 ? (
         <div className="rounded-xl border bg-card shadow-card">
-          <EmptyState className="py-7" title="还没有运行记录" description="到点或手动运行后，结果会出现在这里。" />
+          <EmptyState className="py-7" title="还没有运行记录" description="到点或手动运行后，结果会出现在这里" />
         </div>
       ) : (
         <ListGroup>

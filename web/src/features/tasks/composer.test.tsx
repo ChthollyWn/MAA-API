@@ -59,8 +59,8 @@ describe('task composer', () => {
     installTaskApi()
     renderTaskArea()
 
-    expect(await screen.findByRole('button', { name: '开始执行（0 项）' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '存为定时' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: '开始执行' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '存为定时任务' })).toBeDisabled()
     const sheet = await openTypeSheet()
     const options = within(sheet).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '关闭')
     expect(options).toHaveLength(10)
@@ -75,7 +75,7 @@ describe('task composer', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     act(() => useComposerStore.getState().setDrafts(Array.from({ length: 32 }, (_, index) => ({ id: `draft-${index}`, name: 'Award', params: {} }))))
-    expect(await screen.findByRole('button', { name: '开始执行（32 项）' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: '开始执行' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '添加任务' })).toBeDisabled()
     expect(screen.getByText('最多 32 个任务')).toBeInTheDocument()
     const menu = await openRowMenu(1, '领取奖励')
@@ -113,19 +113,19 @@ describe('task composer', () => {
     await closeEditor(editor)
     expect(screen.getByRole('button', { name: /^第 1 项：/ })).toHaveTextContent('理智药 2')
 
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（1 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
     const dismissed = await screen.findByRole('alertdialog', { name: '确认消耗资源？' })
     expect(dismissed).toHaveTextContent('最大理智药数')
     fireEvent.click(within(dismissed).getByRole('button', { name: '取消' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(network.find('POST', '/api/tasks/validate')).toHaveLength(0)
 
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（1 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
     const dialog = await screen.findByRole('alertdialog', { name: '确认消耗资源？' })
     expect(dialog).toHaveTextContent('刷理智 · 最大理智药数：2')
-    fireEvent.click(within(dialog).getByRole('button', { name: '确认并开始执行' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '开始执行' }))
 
-    const success = await screen.findByText('流水线已加入队列。')
+    const success = await screen.findByText('流水线已加入队列')
     expect(success.closest('[role="status"]')).not.toBeNull()
     expect(screen.getByRole('link', { name: '查看队列' })).toHaveAttribute('href', '/tasks/queue')
     const [validation] = network.find('POST', '/api/tasks/validate')
@@ -144,9 +144,9 @@ describe('task composer', () => {
 
     fireEvent.change(await screen.findByLabelText('流水线名称（可选）'), { target: { value: '  早间日常  ' } })
     await closeEditor(await addTask('开始唤醒'))
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（1 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
 
-    expect(await screen.findByText('流水线已加入队列。')).toBeInTheDocument()
+    expect(await screen.findByText('流水线已加入队列')).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(await network.find('POST', '/api/pipelines')[0].clone().json()).toEqual({ tasks: [withDefaults('StartUp')], title: '早间日常' })
     expect(screen.getByLabelText('流水线名称（可选）')).toHaveValue('')
@@ -162,7 +162,7 @@ describe('task composer', () => {
     const editor = await addTask('刷理智')
     fireEvent.change(within(editor).getByLabelText('关卡名'), { target: { value: 'unknown' } })
     await closeEditor(editor)
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（1 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
 
     expect(await screen.findByText('第 1 个任务有 1 处错误，点开修改。')).toBeInTheDocument()
     const row = screen.getByRole('button', { name: /^第 1 项：/ })
@@ -190,7 +190,7 @@ describe('task composer', () => {
 
     await closeEditor(await addTask('开始唤醒'))
     await closeEditor(await addTask('刷理智'))
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（2 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
 
     expect(await screen.findByText('第 2 个任务有 1 处错误，点开修改。')).toBeInTheDocument()
     const [startUp, fight] = taskRows()
@@ -213,15 +213,15 @@ describe('task composer', () => {
     renderTaskArea()
 
     await closeEditor(await addTask('开始唤醒'))
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（1 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
 
     await waitFor(() => expect(alertsWith('504')).toHaveLength(1))
     await waitFor(() => expect(network.find('GET', '/api/pipelines/current')).toHaveLength(1))
     const firstKey = network.find('POST', '/api/pipelines')[0].headers.get('Idempotency-Key')
     expect(firstKey).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（1 项）' }))
-    expect(await screen.findByText('流水线已加入队列。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
+    expect(await screen.findByText('流水线已加入队列')).toBeInTheDocument()
     const writes = network.find('POST', '/api/pipelines')
     expect(writes).toHaveLength(2)
     expect(writes[1].headers.get('Idempotency-Key')).toBe(firstKey)
@@ -232,9 +232,9 @@ describe('task composer', () => {
     renderTaskArea()
 
     await closeEditor(await addTask('开始唤醒'))
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（1 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
 
-    await waitFor(() => expect(alertsWith('提交失败：提交失败')).toHaveLength(1))
+    await waitFor(() => expect(alertsWith('提交流水线失败：提交失败')).toHaveLength(1))
     expect(taskRows()).toHaveLength(1)
   })
 
@@ -257,12 +257,12 @@ describe('task composer', () => {
     expect(taskRows()[1]).toHaveAccessibleName(/^第 2 项：\s*刷理智/)
     expect(taskRows()[1]).toHaveTextContent('1-7')
 
-    fireEvent.click(within(await openRowMenu(3, '开始唤醒')).getByRole('button', { name: '删除' }))
-    const confirm = await screen.findByRole('alertdialog', { name: '删除第 3 项「开始唤醒」？' })
-    fireEvent.click(within(confirm).getByRole('button', { name: '删除任务' }))
+    fireEvent.click(within(await openRowMenu(3, '开始唤醒')).getByRole('button', { name: '移除' }))
+    const confirm = await screen.findByRole('alertdialog', { name: '移除第 3 项「开始唤醒」？' })
+    fireEvent.click(within(confirm).getByRole('button', { name: '移除任务' }))
     await waitFor(() => expect(taskRows()).toHaveLength(2))
 
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（2 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
     await waitFor(() => expect(network.find('POST', '/api/pipelines')).toHaveLength(1))
     expect(await network.find('POST', '/api/pipelines')[0].clone().json()).toEqual({ tasks: [withDefaults('Fight', { stage: '1-7' }), withDefaults('Fight', { stage: '1-7' })] })
   })
@@ -286,7 +286,7 @@ describe('task composer', () => {
     await waitFor(() => expect(taskRows()).toHaveLength(2))
     expect(useComposerStore.getState().drafts[1]?.params).toEqual(materializeDefaults(typeByName('Fight'), {}))
 
-    fireEvent.click(screen.getByRole('button', { name: '开始执行（2 项）' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始执行' }))
     await waitFor(() => expect(network.find('POST', '/api/pipelines')).toHaveLength(1))
     const sent = { tasks: [withDefaults('Fight'), withDefaults('Fight')] }
     expect(await network.find('POST', '/api/tasks/validate')[0].clone().json()).toEqual(sent)
@@ -321,7 +321,7 @@ describe('task composer', () => {
     fireEvent.change(within(editor).getByLabelText('关卡名'), { target: { value: '1-7' } })
     fireEvent.change(within(editor).getByLabelText('最大理智药数'), { target: { value: '2' } })
     await closeEditor(editor)
-    fireEvent.click(screen.getByRole('button', { name: '存为定时' }))
+    fireEvent.click(screen.getByRole('button', { name: '存为定时任务' }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/schedules/new'))
     expect(router.state.location.state).toEqual({

@@ -86,7 +86,8 @@ export function EnvironmentSheet({ open, onOpenChange, environment, onBaseUrlCha
         <Field
           label="Base URL"
           htmlFor="console-base-url"
-          description="留空时请求当前服务。填写其他实例后，接口目录、请求、收藏与专用 WebSocket 都会切到那台服务，并受它的 CORS 策略限制。"
+          description="留空时请求当前服务"
+          hint="填写其他实例后，请求、收藏与专用 WebSocket 都会切到那台服务。"
         >
           <Input
             id="console-base-url"
@@ -107,7 +108,7 @@ export function EnvironmentSheet({ open, onOpenChange, environment, onBaseUrlCha
           labelAside={environment.tokenOverride ? <Button variant="link" size="sm" className="text-footnote" onClick={onUseLoginToken}>改用登录 token</Button> : null}
           description={environment.tokenOverride && !environment.temporaryToken.trim()
             ? '临时 token 为空：请求将不带 token 发送。'
-            : '只保存在当前页面，刷新即失效，不会写入本机存储。'}
+            : '只保存在当前页面，刷新即失效。'}
         >
           <Input
             id="console-temporary-token"

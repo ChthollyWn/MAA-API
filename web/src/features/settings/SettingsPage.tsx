@@ -39,10 +39,10 @@ function SettingsIndex() {
   return (
     <Page title="设置" width="narrow">
       <div className="space-y-6 pb-4">
-        <ListGroup title="此设备" footer="只影响当前浏览器。">
+        <ListGroup title="这台设备" footer="只影响当前浏览器">
           {SETTINGS_SECTIONS.filter((section) => section.scope === 'local').map(row)}
         </ListGroup>
-        <ListGroup title="服务" footer="保存在服务端，对所有连接这台 MAA-API 的设备生效。">
+        <ListGroup title="服务" footer="保存在服务端，对所有连接的设备生效">
           {SETTINGS_SECTIONS.filter((section) => section.scope === 'server' && (section.id !== 'other' || showOther)).map(row)}
         </ListGroup>
       </div>
@@ -56,7 +56,7 @@ function UnknownSection() {
       <EmptyState
         icon={SearchX}
         title="找不到这个设置分区"
-        description="链接可能有误，或者这个分区已经不存在。"
+        description="链接可能有误，或者这个分区已经不存在"
         action={<Button asChild variant="outline"><Link to={SETTINGS_INDEX_PATH}>返回设置</Link></Button>}
       />
     </Page>

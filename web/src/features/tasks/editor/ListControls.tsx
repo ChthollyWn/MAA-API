@@ -106,7 +106,7 @@ export function ChoiceOrderedListControl({ labelId, schema, root, value, isNull,
           })}
         </ol>
       ) : (
-        <EmptyHint isNull={isNull} text="尚未添加，点下方选项按顺序加入。" />
+        <EmptyHint isNull={isNull} text="尚未添加" />
       )}
       {remaining.length > 0 ? (
         <div className="flex flex-wrap gap-2">
@@ -190,7 +190,7 @@ export function TagsControl(props: ControlProps) {
   )
 }
 
-/** 自由输入的列表（含无固定选项的 ordered-list）：每项一行，可上移、下移、删除。 */
+/** 自由输入的列表（含无固定选项的 ordered-list）：每项一行，可上移、下移、移除。 */
 export function ListControl(props: ControlProps) {
   const { schema, value, isNull, disabled, onChange } = props
   const values = Array.isArray(value) ? value : []
@@ -208,7 +208,7 @@ export function ListControl(props: ControlProps) {
               <Button type="button" variant="ghost" size="icon" aria-label={`下移第 ${index + 1} 项`} disabled={disabled || index === values.length - 1} onClick={() => onChange(moveArrayItem(values, index, 1))}>
                 <ArrowDown aria-hidden="true" />
               </Button>
-              <Button type="button" variant="ghost" size="icon" aria-label={`删除第 ${index + 1} 项`} disabled={disabled || values.length <= minItems} onClick={() => onChange(updateArrayItem(values, index, UNSET))}>
+              <Button type="button" variant="ghost" size="icon" aria-label={`移除第 ${index + 1} 项`} disabled={disabled || values.length <= minItems} onClick={() => onChange(updateArrayItem(values, index, UNSET))}>
                 <Trash2 aria-hidden="true" />
               </Button>
             </li>

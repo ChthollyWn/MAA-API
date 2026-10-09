@@ -37,7 +37,7 @@ export interface CurrentPipelineCardProps {
   onRetry: () => void
 }
 
-/** 「当前任务」：进度、正在执行的步骤、全部步骤与停止。 */
+/** 「当前流水线」：进度、正在执行的任务、全部任务与停止。 */
 export function CurrentPipelineCard({ pipeline, isPending, error, onRetry }: CurrentPipelineCardProps) {
   const queryClient = useQueryClient()
   const [confirm, confirmElement] = useConfirm()
@@ -47,7 +47,7 @@ export function CurrentPipelineCard({ pipeline, isPending, error, onRetry }: Cur
       if (stopError) throw toApiError(stopError, response)
     },
     onSuccess: async () => {
-      toast.success('已请求停止当前任务')
+      toast.success('已请求停止当前流水线')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: keys.pipelines.current() }),
         queryClient.invalidateQueries({ queryKey: keys.queue.all() }),
@@ -60,25 +60,25 @@ export function CurrentPipelineCard({ pipeline, isPending, error, onRetry }: Cur
 
   if (error) {
     return (
-      <section aria-label="当前任务" className={cn(card, 'p-4')}>
+      <section aria-label="当前流水线" className={cn(card, 'p-4')}>
         <InlineAlert tone="danger" action={<Button onClick={onRetry} size="sm" variant="outline">重试</Button>}>
-          读取当前任务失败：{toApiError(error).message}
+          读取当前流水线失败：{toApiError(error).message}
         </InlineAlert>
       </section>
     )
   }
   if (isPending && !pipeline) {
-    return <section aria-label="当前任务" className={card}><LoadingState label="正在读取当前任务…" /></section>
+    return <section aria-label="当前流水线" className={card}><LoadingState label="正在读取当前流水线…" /></section>
   }
   if (!pipeline) {
     return (
-      <section aria-label="当前任务" className={cn(card, 'flex items-center gap-4 p-4')}>
+      <section aria-label="当前流水线" className={cn(card, 'flex items-center gap-4 p-4')}>
         <span className="grid size-11 shrink-0 place-items-center rounded-full bg-surface-2 text-muted-foreground">
           <ListChecks aria-hidden="true" className="size-5" />
         </span>
         <div className="min-w-0">
-          <p className="text-[0.9375rem] font-semibold">当前没有运行中的任务</p>
-          <p className="mt-0.5 text-footnote text-muted-foreground">新建任务或运行一个定时任务后，进度会显示在这里。</p>
+          <p className="text-[0.9375rem] font-semibold">当前没有运行中的流水线</p>
+          <p className="mt-0.5 text-footnote text-muted-foreground">新建任务或运行定时任务后，进度会显示在这里。</p>
         </div>
       </section>
     )
@@ -95,9 +95,9 @@ export function CurrentPipelineCard({ pipeline, isPending, error, onRetry }: Cur
   const stopPipeline = async () => {
     if (!pipeline.id) return
     const ok = await confirm({
-      title: '停止当前任务？',
-      description: '正在执行的步骤会被中断，已经完成的步骤不受影响。',
-      confirmText: '停止任务',
+      title: '停止当前流水线？',
+      description: '已完成的任务不受影响。',
+      confirmText: '停止流水线',
       tone: 'danger',
     })
     if (ok) stop.mutate(pipeline.id)
@@ -107,7 +107,7 @@ export function CurrentPipelineCard({ pipeline, isPending, error, onRetry }: Cur
     <section aria-labelledby="current-pipeline-title" className={cn(card, 'p-4')}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-footnote text-muted-foreground">当前任务</p>
+          <p className="text-footnote text-muted-foreground">当前流水线</p>
           <h2 id="current-pipeline-title" className="mt-0.5 break-words text-headline font-semibold">{pipeline.title ?? '执行中的流水线'}</h2>
         </div>
         <Badge variant={tone} aria-label={`流水线状态：${statusLabel}`}>{statusLabel}</Badge>
@@ -121,8 +121,8 @@ export function CurrentPipelineCard({ pipeline, isPending, error, onRetry }: Cur
       {currentStep ? <p className="mt-3 text-sm">正在执行：<span className="font-medium">{currentStep.name}</span></p> : null}
 
       {pipeline.tasks.length ? (
-        <Disclosure variant="plain" title={`全部步骤（${pipeline.tasks.length}）`} className="-mx-1 mt-2">
-          <ol aria-label="流水线任务步骤" className="space-y-1">
+        <Disclosure variant="plain" title={`全部任务（${pipeline.tasks.length}）`} className="-mx-1 mt-2">
+          <ol aria-label="流水线任务列表" className="space-y-1">
             {pipeline.tasks.map((task, index) => (
               <li key={task.id} className="flex items-center justify-between gap-3 rounded-lg px-1 py-1.5">
                 <span className="flex min-w-0 items-center gap-2.5">
@@ -138,14 +138,14 @@ export function CurrentPipelineCard({ pipeline, isPending, error, onRetry }: Cur
           </ol>
         </Disclosure>
       ) : (
-        <p className="mt-3 text-footnote text-muted-foreground">任务步骤详情正在同步。</p>
+        <p className="mt-3 text-footnote text-muted-foreground">任务详情正在同步。</p>
       )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {running && pipeline.id ? (
           <Button variant="destructive-soft" size="sm" loading={stop.isPending} onClick={() => void stopPipeline()}>
             {stop.isPending ? null : <CircleStop aria-hidden="true" />}
-            停止任务
+            停止流水线
           </Button>
         ) : null}
         {pipeline.id ? (

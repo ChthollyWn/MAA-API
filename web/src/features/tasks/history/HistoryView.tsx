@@ -73,7 +73,7 @@ export function HistoryView() {
   if (history.error && rows.length === 0) {
     return (
       <div className="rounded-xl border bg-card shadow-card">
-        <ErrorState message={`无法读取执行历史：${errorMessage(history.error)}`} onRetry={() => void history.refetch()} retrying={history.isFetching} />
+        <ErrorState message={`读取执行历史失败：${errorMessage(history.error)}`} onRetry={() => void history.refetch()} retrying={history.isFetching} />
       </div>
     )
   }
@@ -83,8 +83,8 @@ export function HistoryView() {
         <EmptyState
           icon={History}
           title="还没有执行记录"
-          description="执行过的流水线会出现在这里。"
-          action={<Button asChild variant="outline"><Link to="/tasks">新建任务</Link></Button>}
+          description="新建并执行一条流水线后会显示在这里"
+          action={<Button asChild variant="outline"><Link to="/tasks">新建流水线</Link></Button>}
         />
       </div>
     )

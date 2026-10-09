@@ -112,9 +112,9 @@ describe('schedule form', () => {
     expect(validateScheduleForm(weekly(), 1)).toEqual({})
     expect(validateScheduleForm(weekly({ name: '  ', weekdays: [], time: '' }), 0)).toEqual({
       name: '请填写名称。',
-      weekdays: '至少选择一天。',
+      weekdays: '请至少选择一天。',
       time: '请填写有效的时间。',
-      tasks: '至少添加一个任务。',
+      tasks: '请至少添加一个任务。',
     })
     expect(validateScheduleForm(weekly({ mode: 'cron', cron: ' ', weekdays: [] }), 1)).toEqual({ cron: '请填写 cron 表达式。' })
   })

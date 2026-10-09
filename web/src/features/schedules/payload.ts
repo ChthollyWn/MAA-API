@@ -103,10 +103,10 @@ export function validateScheduleForm(form: ScheduleForm, taskCount: number): Sch
   if (form.mode === 'cron') {
     if (!form.cron.trim()) errors.cron = '请填写 cron 表达式。'
   } else {
-    if (form.weekdays.length === 0) errors.weekdays = '至少选择一天。'
+    if (form.weekdays.length === 0) errors.weekdays = '请至少选择一天。'
     if (!buildWeeklyCron(EVERY_DAY, form.time)) errors.time = '请填写有效的时间。'
   }
-  if (taskCount === 0) errors.tasks = '至少添加一个任务。'
+  if (taskCount === 0) errors.tasks = '请至少添加一个任务。'
   return errors
 }
 

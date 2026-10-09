@@ -183,7 +183,7 @@ describe('Agent audit page', () => {
     })
     renderAudit(fetchMock, '/more/audit?since=2026-09-24T00%3A00%3A00.000Z')
 
-    expect(await screen.findByText('没有符合条件的审计记录')).toBeInTheDocument()
+    expect(await screen.findByText('还没有符合条件的审计记录')).toBeInTheDocument()
     expect(urls.some((url) => url.searchParams.get('since') === '2026-09-24T00:00:00.000Z')).toBe(true)
     expect(screen.getByRole('button', { name: '移除筛选条件：开始日期：2026-09-24' })).toBeInTheDocument()
     const sheet = await openFilters()

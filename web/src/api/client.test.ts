@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './client'
-import { ApiError, apiErrorFromResponse } from './errors'
+import { ApiError, apiErrorFromResponse, toApiError } from './errors'
 import { shouldRetryQuery, queryClient } from '@/lib/query-client'
 import {
   AUTH_TOKEN_STORAGE_KEY,
@@ -107,6 +107,13 @@ describe('API client', () => {
     expect(error.code).toBe('INVALID_INPUT')
     expect(error.message).toBe('Invalid input')
     expect(error.details).toEqual({ field: 'name' })
+  })
+
+  it('keeps every fallback message in Chinese so the UI never shows raw English', () => {
+    expect(apiErrorFromResponse(new Response(null, { status: 500 }), {}).message).toBe('请求失败（HTTP 500），请稍后重试')
+    expect(toApiError({ error: { code: 'INTERNAL' } }).message).toBe('接口请求失败，请稍后重试')
+    expect(toApiError(new Error('')).message).toBe('网络请求失败，请检查网络后重试')
+    expect(toApiError(null).message).toBe('网络请求失败，请检查网络后重试')
   })
 
   it('retries network and ordinary server errors at most three times, but not 4xx or 504', () => {

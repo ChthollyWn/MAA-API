@@ -34,8 +34,8 @@ describe('parseFieldValue', () => {
     expect(parseFieldValue(integer, 'abc')).toEqual({ error: '请输入有效数值。' })
     expect(parseFieldValue(integer, 'Infinity')).toEqual({ error: '请输入有效数值。' })
     expect(parseFieldValue(integer, '2.5')).toEqual({ error: '请输入整数。' })
-    expect(parseFieldValue(integer, '0')).toEqual({ error: '不能小于 1。' })
-    expect(parseFieldValue(integer, '96')).toEqual({ error: '不能大于 95。' })
+    expect(parseFieldValue(integer, '0')).toEqual({ error: '请填写不小于 1 的值。' })
+    expect(parseFieldValue(integer, '96')).toEqual({ error: '请填写不大于 95 的值。' })
     expect(parseFieldValue(integer, ' 25 ')).toEqual({ value: 25 })
     expect(parseFieldValue(integer, 30)).toEqual({ value: 30 })
   })
@@ -43,8 +43,8 @@ describe('parseFieldValue', () => {
   it('accepts decimals for number fields', () => {
     const number = field({ type: 'number', minimum: 0.05, maximum: 60 })
     expect(parseFieldValue(number, '0.5')).toEqual({ value: 0.5 })
-    expect(parseFieldValue(number, '0.01')).toEqual({ error: '不能小于 0.05。' })
-    expect(parseFieldValue(number, '61')).toEqual({ error: '不能大于 60。' })
+    expect(parseFieldValue(number, '0.01')).toEqual({ error: '请填写不小于 0.05 的值。' })
+    expect(parseFieldValue(number, '61')).toEqual({ error: '请填写不大于 60 的值。' })
   })
 
   it('validates every element of an integer array', () => {
@@ -53,19 +53,19 @@ describe('parseFieldValue', () => {
     expect(parseFieldValue(ports, '5555, 5556')).toEqual({ value: [5555, 5556] })
     expect(parseFieldValue(ports, [])).toEqual({ error: '请至少添加一个整数。' })
     expect(parseFieldValue(ports, '')).toEqual({ error: '请至少添加一个整数。' })
-    expect(parseFieldValue(ports, [5555, 1.5])).toEqual({ error: '每一项都必须是整数。' })
-    expect(parseFieldValue(ports, '5555,,5556')).toEqual({ error: '每一项都必须是整数。' })
-    expect(parseFieldValue(ports, [0])).toEqual({ error: '每个值不能小于 1。' })
-    expect(parseFieldValue(ports, [70000])).toEqual({ error: '每个值不能大于 65535。' })
-    expect(parseFieldValue(ports, [5555, 5555])).toEqual({ error: '不能包含重复的值。' })
+    expect(parseFieldValue(ports, [5555, 1.5])).toEqual({ error: '请把每一项都填成整数。' })
+    expect(parseFieldValue(ports, '5555,,5556')).toEqual({ error: '请把每一项都填成整数。' })
+    expect(parseFieldValue(ports, [0])).toEqual({ error: '请填写不小于 1 的值。' })
+    expect(parseFieldValue(ports, [70000])).toEqual({ error: '请填写不大于 65535 的值。' })
+    expect(parseFieldValue(ports, [5555, 5555])).toEqual({ error: '请不要添加重复的值。' })
   })
 
   it('submits string arrays as arrays of trimmed, unique entries and allows an empty list', () => {
     const origins = field({ type: 'string[]' })
     expect(parseFieldValue(origins, [' https://a.example ', 'https://b.example'])).toEqual({ value: ['https://a.example', 'https://b.example'] })
     expect(parseFieldValue(origins, [])).toEqual({ value: [] })
-    expect(parseFieldValue(origins, ['https://a.example', ' '])).toEqual({ error: '列表中不能有空白项。' })
-    expect(parseFieldValue(origins, ['https://a.example', 'https://a.example'])).toEqual({ error: '不能包含重复的值。' })
+    expect(parseFieldValue(origins, ['https://a.example', ' '])).toEqual({ error: '请不要添加空白项。' })
+    expect(parseFieldValue(origins, ['https://a.example', 'https://a.example'])).toEqual({ error: '请不要添加重复的值。' })
   })
 
   it('normalizes booleans and rejects values outside the enum', () => {

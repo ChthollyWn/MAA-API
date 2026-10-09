@@ -65,7 +65,7 @@ export function apiErrorFromResponse(
     message:
       asString(envelope?.message) ||
       response.statusText ||
-      `Request failed with status ${status}`,
+      `请求失败（HTTP ${status}），请稍后重试`,
     details: envelope?.details,
     body: parseJson(body),
   })
@@ -80,7 +80,7 @@ export function toApiError(error: unknown, response?: Pick<Response, 'status' | 
   if (envelope) {
     return new ApiError({
       code: asString(envelope.code),
-      message: asString(envelope.message) || 'The API request failed',
+      message: asString(envelope.message) || '接口请求失败，请稍后重试',
       details: envelope.details,
       body: parseJson(error),
       cause: error,
@@ -88,11 +88,11 @@ export function toApiError(error: unknown, response?: Pick<Response, 'status' | 
   }
 
   if (error instanceof Error) {
-    return new ApiError({ message: error.message || 'The network request failed', cause: error })
+    return new ApiError({ message: error.message || '网络请求失败，请检查网络后重试', cause: error })
   }
 
   return new ApiError({
-    message: typeof error === 'string' ? error : 'The network request failed',
+    message: typeof error === 'string' ? error : '网络请求失败，请检查网络后重试',
     body: error,
     cause: error,
   })

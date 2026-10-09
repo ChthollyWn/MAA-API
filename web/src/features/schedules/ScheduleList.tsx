@@ -41,7 +41,7 @@ function ScheduleRow({ schedule, confirm }: { schedule: ScheduleView; confirm: C
     onError: (failure, enabled) => {
       queryClient.setQueryData(schedulesQuery.queryKey, (rows) => rows?.map((row) => (row.id === schedule.id ? { ...row, enabled: !enabled } : row)))
       void queryClient.invalidateQueries({ queryKey: ['schedules'] })
-      setError(`没能${enabled ? '启用' : '停用'}：${toApiError(failure).message}`)
+      setError(`${enabled ? '启用' : '停用'}失败：${toApiError(failure).message}`)
     },
   })
   const run = useMutation({
@@ -123,7 +123,7 @@ function ScheduleRow({ schedule, confirm }: { schedule: ScheduleView; confirm: C
 function MigrationNote() {
   return (
     <p className="px-1 text-footnote text-muted-foreground">
-      旧版 <span className="font-mono">resource/daily_task.json</span> 里按星期配置的任务组，会在服务启动时自动迁移成定时任务，旧的星期编号也会一并校正。这里管理的是迁移后的记录，不会读写旧文件。
+      旧版 <span className="font-mono">resource/daily_task.json</span> 里按星期配置的任务组，会在服务启动时自动迁移成定时任务。
     </p>
   )
 }
@@ -155,7 +155,7 @@ export function ScheduleList() {
         <EmptyState
           icon={CalendarClock}
           title="还没有定时任务"
-          description="按星期和时间自动执行一组任务，比如每天早上刷理智、基建换班、领取奖励。"
+          description="按星期和时间自动执行一组任务"
           action={<Button asChild><Link to={NEW_SCHEDULE_PATH}><Plus aria-hidden="true" />新建定时任务</Link></Button>}
         />
       </div>
@@ -178,7 +178,7 @@ export function ScheduleList() {
           </>
         )}
       >
-        {schedules.error ? <InlineAlert tone="warning">定时任务更新失败：{toApiError(schedules.error).message}</InlineAlert> : null}
+        {schedules.error ? <InlineAlert tone="warning">刷新失败：{toApiError(schedules.error).message}</InlineAlert> : null}
         <ul className={cn(card, 'divide-y overflow-hidden')}>
           {rows.map((schedule) => <ScheduleRow key={schedule.id} schedule={schedule} confirm={confirm} />)}
         </ul>

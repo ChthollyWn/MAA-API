@@ -68,7 +68,7 @@ export function AuditDetailSheet({ open, onOpenChange, record, loading, error }:
             {record.forced ? <Badge variant="warning">强制执行</Badge> : null}
           </div>
           {loading ? <p role="status" className="text-footnote text-muted-foreground">正在读取完整详情…</p> : null}
-          {error ? <InlineAlert tone="warning">完整详情读取失败，下面是列表里的信息：{error}</InlineAlert> : null}
+          {error ? <InlineAlert tone="warning">详情读取失败，下面显示列表里的信息：{error}</InlineAlert> : null}
           <dl className="divide-y">
             <Row label="审计编号"><Code>{record.audit_id}</Code></Row>
             <Row label="耗时"><span className="tabular-nums">{record.duration_ms} ms</span></Row>

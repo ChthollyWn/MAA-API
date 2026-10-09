@@ -41,7 +41,7 @@ async function postUpdate(target: UpdateTarget, options: UpdateOptions): Promise
       })
   if (result.error) throw apiError(result.error)
   const record = result.data as unknown as UpdateRecord | undefined
-  if (!record) throw new Error('更新请求已提交，但接口没有返回记录编号。')
+  if (!record) throw new Error('更新请求已提交，但没能读到进度，请刷新后查看。')
   return record
 }
 
@@ -58,7 +58,7 @@ export function useUpdates() {
     queryFn: async () => {
       const { data, error } = await api.GET('/api/updates/status')
       if (error) throw apiError(error)
-      if (!data) throw new Error('更新状态接口没有返回数据。')
+      if (!data) throw new Error('没有读取到更新状态，请稍后重试。')
       return data as unknown as UpdateStatusResponse
     },
     // WS 在线时由 update_progress 使其失效；连接中或离线时轮询，才能发现别处发起的更新。
@@ -70,7 +70,7 @@ export function useUpdates() {
     queryFn: async () => {
       const { data, error } = await api.GET('/api/updates', { params: { query: HISTORY_PAGE } })
       if (error) throw apiError(error)
-      if (!data) throw new Error('更新记录接口没有返回数据。')
+      if (!data) throw new Error('没有读取到更新记录，请稍后重试。')
       return data as unknown as UpdateHistoryResponse
     },
   })
@@ -83,14 +83,14 @@ export function useUpdates() {
   const detailQuery = useQuery({
     queryKey: detailKey(activeId),
     enabled: activeId !== null,
-    queryFn: () => fetchRecord(activeId!, '更新进度接口没有返回数据。'),
+    queryFn: () => fetchRecord(activeId!, '没有读取到更新进度，请稍后重试。'),
     refetchInterval: activeId ? 2000 : false,
   })
 
   const historyDetailQuery = useQuery({
     queryKey: detailKey(historyDetailId),
     enabled: historyDetailId !== null,
-    queryFn: () => fetchRecord(historyDetailId!, '更新详情接口没有返回数据。'),
+    queryFn: () => fetchRecord(historyDetailId!, '没有读取到更新详情，请稍后重试。'),
   })
 
   useEffect(() => {
@@ -140,7 +140,7 @@ export function useUpdates() {
     mutationFn: async () => {
       const { data, error } = await api.GET('/api/updates/status', { params: { query: { refresh: true } } })
       if (error) throw apiError(error)
-      if (!data) throw new Error('更新状态接口没有返回数据。')
+      if (!data) throw new Error('没有读取到更新状态，请稍后重试。')
       return data as unknown as UpdateStatusResponse
     },
     onSuccess: (data) => queryClient.setQueryData(keys.updates.status(), data),
@@ -170,7 +170,7 @@ export function useUpdates() {
       const { data, error } = await api.POST('/api/updates/{update_id}/retry', { params: { path: { update_id: id } } })
       if (error) throw apiError(error)
       const record = data as unknown as UpdateRecord | undefined
-      if (!record) throw new Error('重试请求已提交，但接口没有返回记录编号。')
+      if (!record) throw new Error('重试请求已提交，但没能读到进度，请刷新后查看。')
       return record
     },
     onSuccess: refreshAfterAccept,

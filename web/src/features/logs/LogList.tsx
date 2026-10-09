@@ -172,7 +172,7 @@ export function LogList({ records, loading, hasMore, loadingMore, onLoadOlder, p
           <LoadingState label="正在加载历史日志" className="h-full min-h-48" />
         ) : empty ? (
           <div className="grid h-full min-h-48 place-items-center">
-            {placeholder ?? <EmptyState icon={ScrollText} title="暂无匹配的历史或实时日志" />}
+            {placeholder ?? <EmptyState icon={ScrollText} title="还没有匹配的日志" />}
           </div>
         ) : (
           <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>

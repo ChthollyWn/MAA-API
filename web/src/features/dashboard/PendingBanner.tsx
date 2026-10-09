@@ -15,7 +15,7 @@ export function PendingBanner() {
       <ShieldAlert aria-hidden="true" className="size-5 shrink-0 text-warning" />
       <span className="min-w-0 flex-1">
         <span className="block text-[0.9375rem] font-semibold">{pendingCount} 项操作等待你确认</span>
-        <span className="block text-footnote text-muted-foreground">Agent 请求的消耗类或破坏类操作需要你批准</span>
+        <span className="block text-footnote text-muted-foreground">Agent 请求的资源消耗和破坏性操作需要你确认</span>
       </span>
       <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
     </button>

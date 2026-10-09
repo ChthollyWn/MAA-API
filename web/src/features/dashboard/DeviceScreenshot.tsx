@@ -86,7 +86,7 @@ export function DeviceScreenshot({ connected, deviceKnown, loading, pipelineRunn
         <div className="min-w-0">
           <h2 id="device-screenshot-title" className="text-[0.9375rem] font-semibold">设备画面</h2>
           <p className="mt-0.5 text-footnote text-muted-foreground">
-            {pipelineRunning ? '任务运行中，每 5 秒自动刷新' : '点右侧按钮获取当前画面'}
+            {pipelineRunning ? '任务运行中，每 5 秒自动刷新' : '空闲时手动刷新'}
           </p>
         </div>
         <Button
@@ -106,7 +106,7 @@ export function DeviceScreenshot({ connected, deviceKnown, loading, pipelineRunn
         {loading ? (
           <p className="text-sm text-muted-foreground" role="status">正在读取设备状态</p>
         ) : !deviceKnown ? (
-          <Placeholder title="设备状态暂不可用" description="请刷新服务状态后重试。" />
+          <Placeholder title="设备状态暂不可用" description="刷新服务状态后重试。" />
         ) : !connected ? (
           <Placeholder title="设备尚未连接" description="连接设备后可在此查看实时画面。" />
         ) : imageUrl ? (
@@ -126,7 +126,7 @@ export function DeviceScreenshot({ connected, deviceKnown, loading, pipelineRunn
         ) : message ? (
           <Placeholder title="截图获取失败" description={message} />
         ) : (
-          <p className="text-sm text-muted-foreground">暂无截图</p>
+          <p className="text-sm text-muted-foreground">还没有截图</p>
         )}
       </div>
       {message ? (

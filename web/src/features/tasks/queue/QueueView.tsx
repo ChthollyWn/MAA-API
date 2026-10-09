@@ -15,12 +15,14 @@ import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/ui/s
 import { toast } from '@/components/ui/toaster'
 import { errorMessage, isObject } from '../form'
 import {
+  CANCEL_QUEUED_NOTICE,
   formatTime,
   normalizeStatus,
   pipelineIdOf,
   priorityLabel,
   sourceLabel,
   statusLabel,
+  STOP_PIPELINE_NOTICE,
   type PipelineRow,
 } from '../pipeline-format'
 import { cancelPipeline, usePipelineTitle } from '../pipeline-queries'
@@ -102,10 +104,10 @@ export function QueueView() {
     onSuccess: async (action) => {
       setNotice(null)
       queryClient.setQueryData<QueueSnapshot>(keys.queue.all(), (old) => (old ? { ...old, paused: action === 'pause' } : old))
-      toast.success(action === 'pause' ? '队列已暂停；当前流水线会继续运行。' : '队列已恢复。')
+      toast.success(action === 'pause' ? '已暂停队列' : '已恢复队列')
       await queryClient.invalidateQueries({ queryKey: keys.queue.all() })
     },
-    onError: (error) => setNotice({ tone: 'danger', message: `操作失败：${errorMessage(error)}` }),
+    onError: (error) => setNotice({ tone: 'danger', message: errorMessage(error) }),
   })
 
   const cancel = useMutation({
@@ -115,7 +117,7 @@ export function QueueView() {
       toast.success(message)
       await refreshAll()
     },
-    onError: (error) => setNotice({ tone: 'danger', message: `操作失败：${errorMessage(error)}` }),
+    onError: (error) => setNotice({ tone: 'danger', message: errorMessage(error) }),
   })
 
   const clear = useMutation({
@@ -125,10 +127,10 @@ export function QueueView() {
     },
     onSuccess: async () => {
       setNotice(null)
-      toast.success('已取消所有待执行条目。')
+      toast.success('已清空队列')
       await refreshAll()
     },
-    onError: (error) => setNotice({ tone: 'danger', message: `操作失败：${errorMessage(error)}` }),
+    onError: (error) => setNotice({ tone: 'danger', message: errorMessage(error) }),
   })
 
   const promote = useMutation({
@@ -137,13 +139,13 @@ export function QueueView() {
       if (promoted.error) throw toApiError(promoted.error, promoted.response)
       await cancelPipeline(currentRunningId)
     },
-    onMutate: () => setNotice({ tone: 'info', message: '正在提升目标并请求取消当前流水线…' }),
+    onMutate: () => setNotice({ tone: 'info', message: '正在提升优先级并请求停止当前流水线…' }),
     onSuccess: async () => {
-      setNotice({ tone: 'success', message: '目标已调至优先级 0，当前流水线已请求取消；队列按显示顺序继续调度。' })
+      setNotice({ tone: 'success', message: '已提到最高优先级，当前流水线已请求停止' })
       await refreshAll()
     },
     onError: async (error) => {
-      setNotice({ tone: 'danger', message: `操作未完整完成：${errorMessage(error)}。若优先级调整已成功，目标仍会留在队列中。` })
+      setNotice({ tone: 'danger', message: `优先执行失败：${errorMessage(error)}。若优先级已调整成功，目标仍会留在队列中。` })
       await queryClient.invalidateQueries({ queryKey: keys.queue.all() })
     },
   })
@@ -154,7 +156,7 @@ export function QueueView() {
     if (!running || !runningId) return
     const ok = await confirm({
       title: '停止当前流水线？',
-      description: '正在执行的任务会被中断，已经完成的任务不受影响。',
+      description: STOP_PIPELINE_NOTICE,
       confirmText: '停止流水线',
       tone: 'danger',
     })
@@ -164,25 +166,25 @@ export function QueueView() {
   const cancelPending = async (row: PipelineRow) => {
     const title = titleOf(row)
     const ok = await confirm({
-      title: `取消「${title}」？`,
-      description: '它会离开待执行队列，不再执行。',
-      confirmText: '取消这条',
+      title: `取消「${title}」的排队？`,
+      description: CANCEL_QUEUED_NOTICE,
+      confirmText: '取消排队',
       cancelText: '保留',
       tone: 'danger',
     })
-    if (ok) cancel.mutate({ id: pipelineIdOf(row), message: `已取消「${title}」` })
+    if (ok) cancel.mutate({ id: pipelineIdOf(row), message: `已取消「${title}」的排队` })
   }
 
   const jumpAhead = async (row: PipelineRow) => {
     const targetId = pipelineIdOf(row)
     if (!running || !runningId || !targetId) {
-      setNotice({ tone: 'danger', message: '无法识别当前或目标流水线 ID，未执行操作。' })
+      setNotice({ tone: 'danger', message: '没有找到当前或目标流水线，未执行操作。' })
       return
     }
     const ok = await confirm({
-      title: '停止当前并执行此条？',
-      description: `当前流水线「${titleOf(running)}」会被停止，「${titleOf(row)}」调到最高优先级。队列仍按优先级和入队时间调度，更早的最高优先级条目可能先运行，因此不能保证目标紧接当前项执行。`,
-      confirmText: '停止并执行此条',
+      title: `停止当前流水线并优先执行「${titleOf(row)}」？`,
+      description: `会停止「${titleOf(running)}」，把「${titleOf(row)}」提到最高优先级，不保证接着执行。`,
+      confirmText: '停止并优先执行',
       tone: 'danger',
     })
     if (ok) promote.mutate({ targetId, currentRunningId: runningId })
@@ -192,9 +194,9 @@ export function QueueView() {
     const count = pending.length
     if (count === 0) return
     const ok = await confirm({
-      title: '清空待执行？',
+      title: '清空队列？',
       description: `将取消 ${count} 条待执行流水线，正在运行的不受影响。`,
-      confirmText: `清空 ${count} 条待执行`,
+      confirmText: '清空队列',
       tone: 'danger',
     })
     if (ok) clear.mutate()
@@ -204,7 +206,7 @@ export function QueueView() {
   if (queue.error && !snapshot) {
     return (
       <div className={card}>
-        <ErrorState message={`无法读取队列：${errorMessage(queue.error)}`} onRetry={() => void queue.refetch()} retrying={queue.isFetching} />
+        <ErrorState message={`读取队列失败：${errorMessage(queue.error)}`} onRetry={() => void queue.refetch()} retrying={queue.isFetching} />
       </div>
     )
   }
@@ -248,7 +250,7 @@ export function QueueView() {
             <div className="mt-3 flex flex-wrap gap-2">
               <Button variant="destructive-soft" size="sm" disabled={busy} onClick={() => void stopRunning()}>
                 <CircleStop aria-hidden="true" />
-                停止
+                停止流水线
               </Button>
               {runningId ? <Button asChild variant="ghost" size="sm"><Link to={detailPath(runningId)}>查看详情</Link></Button> : null}
             </div>
@@ -258,7 +260,7 @@ export function QueueView() {
             <EmptyState
               className="py-7"
               title="当前没有运行中的流水线"
-              description={paused ? '队列已暂停，恢复后会继续执行待执行的流水线。' : '待执行的流水线会按顺序开始。'}
+              description={paused ? '队列已暂停，恢复后会继续执行' : '新建并开始执行后会在这里运行'}
             />
           </div>
         )}
@@ -267,20 +269,20 @@ export function QueueView() {
       <Section
         id="queue-pending"
         title="待执行"
-        description={pending.length > 0 ? '按优先级与入队时间调度' : undefined}
+        hint={pending.length > 0 ? '按优先级与入队时间调度。' : undefined}
         actions={(
           <>
             <Button variant="ghost" size="icon-sm" aria-label="刷新队列" onClick={() => void queue.refetch()}>
               {queue.isFetching ? <Spinner /> : <RefreshCw aria-hidden="true" />}
             </Button>
             <Button variant="ghost" size="sm" className="text-danger" disabled={pending.length === 0 || busy} onClick={() => void clearPending()}>
-              清空待执行
+              清空队列
             </Button>
           </>
         )}
       >
         {pending.length === 0 ? (
-          <div className={card}><EmptyState className="py-7" icon={Inbox} title="没有待执行的流水线" description="新建任务或定时任务到点后会在这里排队。" /></div>
+          <div className={card}><EmptyState className="py-7" icon={Inbox} title="还没有待执行的流水线" description="新建流水线，或等定时任务到点" /></div>
         ) : (
           <ol className={`${card} divide-y overflow-hidden`}>
             {pending.map((row, index) => {
@@ -306,13 +308,13 @@ export function QueueView() {
                     disabled={busy || !id}
                     actions={[
                       {
-                        label: '停止当前并执行此条',
-                        description: '调到最高优先级，并停止正在运行的流水线',
+                        label: '优先执行',
+                        description: '提到最高优先级，并停止正在运行的流水线',
                         icon: ArrowUpToLine,
                         disabled: !running,
                         onSelect: () => void jumpAhead(row),
                       },
-                      { label: '取消', description: '从队列移除，不再执行', icon: X, tone: 'danger', onSelect: () => void cancelPending(row) },
+                      { label: '取消排队', description: '从队列移除，不再执行', icon: X, tone: 'danger', onSelect: () => void cancelPending(row) },
                     ]}
                   />
                 </li>

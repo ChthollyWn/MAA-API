@@ -194,15 +194,15 @@ export function AuditPage() {
           <div className="rounded-xl border bg-card shadow-card"><LoadingState label="正在读取审计记录…" /></div>
         ) : audits.error && !audits.data ? (
           <div className="rounded-xl border bg-card shadow-card">
-            <ErrorState message={`读取失败：${queryError(audits.error)}`} onRetry={() => void audits.refetch()} retrying={audits.isFetching} />
+            <ErrorState message={`读取审计记录失败：${queryError(audits.error)}`} onRetry={() => void audits.refetch()} retrying={audits.isFetching} />
           </div>
         ) : items.length === 0 ? (
           <div className="rounded-xl border bg-card shadow-card">
             {conditions.length || page > 1 ? (
               <EmptyState
                 icon={SearchX}
-                title="没有符合条件的审计记录"
-                description={conditions.length ? '放宽筛选条件试试。' : '这一页已经没有记录了。'}
+                title="还没有符合条件的审计记录"
+                description={conditions.length ? '放宽筛选条件试试' : '这一页已经没有记录了'}
                 action={(
                   <>
                     {page > 1 ? <Button variant="outline" size="sm" onClick={() => goToPage(1)}>回到第一页</Button> : null}
@@ -211,7 +211,7 @@ export function AuditPage() {
                 )}
               />
             ) : (
-              <EmptyState icon={ClipboardList} title="还没有审计记录" description="Agent 调用工具后，每一次调用都会记录在这里。" />
+              <EmptyState icon={ClipboardList} title="还没有审计记录" description="Agent 调用工具后会自动记录在这里" />
             )}
           </div>
         ) : (

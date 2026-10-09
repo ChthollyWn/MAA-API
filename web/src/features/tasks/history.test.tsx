@@ -57,8 +57,8 @@ describe('task history', () => {
     renderTaskArea('/tasks/history')
 
     expect(await screen.findByRole('link', { name: /定时 · 日常/ })).toHaveAttribute('href', '/tasks/history/history-3')
-    expect(screen.getByRole('link', { name: /手动任务 · 3 项/ })).toHaveAttribute('href', '/tasks/history/history-4')
-    expect(screen.getByRole('link', { name: /Agent 任务 · 1 项/ })).toHaveAttribute('href', '/tasks/history/history-5')
+    expect(screen.getByRole('link', { name: /手动流水线 · 3 项/ })).toHaveAttribute('href', '/tasks/history/history-4')
+    expect(screen.getByRole('link', { name: /Agent 流水线 · 1 项/ })).toHaveAttribute('href', '/tasks/history/history-5')
     expect(network.find('GET', '/api/pipelines/history-3')).toHaveLength(0)
     expect(network.find('GET', '/api/pipelines/history-4')).toHaveLength(0)
   })
@@ -68,7 +68,7 @@ describe('task history', () => {
     renderTaskArea('/tasks/history')
 
     expect(await screen.findByText('还没有执行记录')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '新建任务' })).toHaveAttribute('href', '/tasks')
+    expect(screen.getByRole('link', { name: '新建流水线' })).toHaveAttribute('href', '/tasks')
   })
 
   it('opens the detail page with its summary, task results, recent logs and screenshots (T9)', async () => {
@@ -124,20 +124,20 @@ describe('task history', () => {
     const { router } = renderTaskArea('/tasks/history/pipeline-running')
 
     fireEvent.click(await screen.findByRole('button', { name: '取消流水线' }))
-    const cancel = await screen.findByRole('alertdialog', { name: '取消这条流水线？' })
+    const cancel = await screen.findByRole('alertdialog', { name: '停止这条流水线？' })
     expect(network.find('DELETE', '/api/pipelines/pipeline-running')).toHaveLength(0)
-    fireEvent.click(within(cancel).getByRole('button', { name: '取消流水线' }))
+    fireEvent.click(within(cancel).getByRole('button', { name: '停止流水线' }))
     await waitFor(() => expect(network.find('DELETE', '/api/pipelines/pipeline-running')).toHaveLength(1))
-    expect(await screen.findByText('已发送取消请求。')).toBeInTheDocument()
+    expect(await screen.findByText('已请求停止流水线')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
 
     await act(async () => router.navigate('/tasks/history/pipeline-failed'))
     expect(await screen.findByText('刷理智失败')).toBeInTheDocument()
-    expect(screen.queryByText('已发送取消请求。')).not.toBeInTheDocument()
+    expect(screen.queryByText('已请求停止流水线')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '取消流水线' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
-    const retry = await screen.findByRole('alertdialog', { name: '重新执行这条流水线？' })
-    fireEvent.click(within(retry).getByRole('button', { name: '重新加入队列' }))
+    const retry = await screen.findByRole('alertdialog', { name: '重试这条流水线？' })
+    fireEvent.click(within(retry).getByRole('button', { name: '重试' }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/history/pipeline-retry'))
     expect(network.find('POST', '/api/pipelines/pipeline-failed/retry')).toHaveLength(1)
@@ -152,7 +152,7 @@ describe('task history', () => {
     const { router } = renderTaskArea('/tasks/history/pipeline-failed')
 
     fireEvent.click(await screen.findByRole('button', { name: '重试' }))
-    fireEvent.click(within(await screen.findByRole('alertdialog', { name: '重新执行这条流水线？' })).getByRole('button', { name: '重新加入队列' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: '重试这条流水线？' })).getByRole('button', { name: '重试' }))
 
     await waitFor(() => expect(screen.queryAllByRole('alert').some((node) => node.textContent?.includes('重试失败：队列已暂停'))).toBe(true))
     expect(router.state.location.pathname).toBe('/tasks/history/pipeline-failed')

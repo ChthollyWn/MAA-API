@@ -64,7 +64,7 @@ async function fetchVapidPublicKey(): Promise<string> {
   if (error) {
     const status = response?.status ?? 0
     if (status === 503) {
-      throw new Error('服务端尚未配置 VAPID 密钥，推送不可用。请先运行 scripts/generate_vapid_keys.py。')
+      throw new Error('推送未启用：服务端还没有配置 VAPID 密钥。')
     }
     throw new Error('读取推送公钥失败。')
   }
@@ -87,7 +87,7 @@ export async function enablePush(): Promise<PushSubscription> {
   if (permission !== 'granted') {
     throw new Error(
       permission === 'denied'
-        ? '浏览器已拒绝通知权限。请在浏览器设置里重新允许后再试。'
+        ? '浏览器已拒绝通知权限，请在浏览器设置里允许后重新启用。'
         : '未获得通知权限，推送未启用。',
     )
   }

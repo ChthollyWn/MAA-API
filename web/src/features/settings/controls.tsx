@@ -74,7 +74,7 @@ export function ChipListInput({ id, label, values, parse, onChange, placeholder 
       return
     }
     if (values.some((item) => item === result.value)) {
-      setEntryError('已经添加过这个值。')
+      setEntryError('请不要重复添加这个值。')
       return
     }
     onChange([...values, result.value])

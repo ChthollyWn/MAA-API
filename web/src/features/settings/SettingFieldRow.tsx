@@ -21,8 +21,7 @@ import {
 
 /** schema 没有的补充说明。 */
 const FIELD_NOTES: Readonly<Record<string, string>> = {
-  'agent.auto_diagnose_failures':
-    '默认开启。流水线失败或 MaaCore 崩溃后，Agent 会保存诊断会话并分析关联日志；关闭后只保留原有故障记录，不自动调用模型。',
+  'agent.auto_diagnose_failures': '流水线失败或内核崩溃时，自动让 Agent 分析日志（默认开启）',
 }
 
 const SEGMENTED_LIMIT = 3

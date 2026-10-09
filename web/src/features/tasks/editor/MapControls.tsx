@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Search, Trash2 } from 'lucide-react'
 import { toApiError } from '@/api/errors'
 import { Button } from '@/components/ui/button'
+import { InfoHint } from '@/components/ui/info-hint'
 import { Input } from '@/components/ui/input'
 import { UNSET, getType, isObject, normalizeSchema, objectValue, type JsonSchema } from '../form'
 import { NUMBER_INPUT_CLASS, ariaProps, type ControlProps } from './control-props'
@@ -37,7 +38,9 @@ export function ItemCountMapControl({ id, labelId, value, isNull, disabled, inva
 
   return (
     <div role="group" aria-labelledby={labelId} {...ariaProps({ invalid, describedBy })} className="space-y-2.5">
-      <p className="text-footnote text-muted-foreground">任一物品达到指定数量即停止任务。</p>
+      <p className="text-footnote text-muted-foreground">
+        <InfoHint label="掉落数量说明">任一物品达到指定数量即停止任务。</InfoHint>
+      </p>
       {entries.length > 0 ? (
         <ul className="divide-y overflow-hidden rounded-lg bg-surface-2">
           {entries.map(([itemId, quantity]) => {
@@ -69,7 +72,7 @@ export function ItemCountMapControl({ id, labelId, value, isNull, disabled, inva
                   type="button"
                   variant="ghost"
                   size="icon"
-                  aria-label={`删除物品：${name}`}
+                  aria-label={`移除物品：${name}`}
                   disabled={disabled}
                   onClick={() => {
                     const next = withoutKey(map, itemId)
@@ -83,7 +86,7 @@ export function ItemCountMapControl({ id, labelId, value, isNull, disabled, inva
           })}
         </ul>
       ) : (
-        <p className="text-footnote text-muted-foreground">{isNull ? '已设为空' : '尚未添加物品数量条件。'}</p>
+        <p className="text-footnote text-muted-foreground">{isNull ? '已设为空' : '尚未添加物品数量条件'}</p>
       )}
 
       {catalog.isPending ? (
@@ -127,7 +130,7 @@ export function ItemCountMapControl({ id, labelId, value, isNull, disabled, inva
                 ))}
               </ul>
             ) : (
-              <p className="text-footnote text-muted-foreground">没有匹配的物品。</p>
+              <p className="text-footnote text-muted-foreground">还没有匹配的物品</p>
             )
           ) : null}
         </div>
@@ -157,7 +160,7 @@ export function ItemCountMapControl({ id, labelId, value, isNull, disabled, inva
         </div>
       )}
       {catalog.error ? (
-        <p role="status" className="text-footnote text-muted-foreground">物品目录不可用，可手动输入物品 ID。{toApiError(catalog.error).message}</p>
+        <p role="status" className="text-footnote text-muted-foreground">读取物品目录失败：{toApiError(catalog.error).message}。可以手动输入物品 ID。</p>
       ) : null}
     </div>
   )
@@ -172,7 +175,7 @@ export function DurationMapControl({ labelId, value, isNull, disabled, invalid, 
   return (
     <div role="group" aria-labelledby={labelId} {...ariaProps({ invalid, describedBy })} className="space-y-2">
       <p className="text-footnote text-muted-foreground">
-        {isNull ? '已设为空。' : null}招募等级固定为 3–6 星 Tag；默认时长为 09:00，编辑后按分钟提交。
+        {isNull ? '已设为空。' : null}招募等级为 3–6 星 Tag，默认时长 09:00
       </p>
       <ul className="divide-y overflow-hidden rounded-lg bg-surface-2">
         {RECRUIT_LEVELS.map((key) => {
@@ -264,7 +267,7 @@ export function KeyValueMapControl({ labelId, schema, root, value, isNull, disab
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label={`删除键 ${key}`}
+                aria-label={`移除键 ${key}`}
                 disabled={disabled}
                 onClick={() => {
                   const next = withoutKey(map, key)
@@ -277,7 +280,7 @@ export function KeyValueMapControl({ labelId, schema, root, value, isNull, disab
           ))}
         </ul>
       ) : (
-        <p className="text-footnote text-muted-foreground">{isNull ? '已设为空' : '尚未添加映射项。'}</p>
+        <p className="text-footnote text-muted-foreground">{isNull ? '已设为空' : '尚未添加映射项'}</p>
       )}
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
         <Input aria-label="新键" placeholder="键" value={newKey} disabled={disabled} onChange={(event) => setNewKey(event.target.value)} />

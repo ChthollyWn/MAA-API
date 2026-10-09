@@ -148,7 +148,7 @@ describe('more page', () => {
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
     fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '退出登录' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('服务拒绝了登出请求，请检查凭据后重试。')
+    expect(await screen.findByRole('alert')).toHaveTextContent('没有权限退出登录（403）')
     expect(useAuth.getState().token).toBe('saved-token')
   })
 })

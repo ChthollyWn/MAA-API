@@ -76,6 +76,7 @@ describe('agent question card', () => {
     expect(screen.getByText('用哪个渠道刷 1-7？')).toBeInTheDocument()
     expect(screen.getByText('默认渠道，最多 6 次')).toBeInTheDocument()
     const submit = screen.getByRole('button', { name: '提交' })
+    expect(screen.getByText('选一项，或直接跳过结束本轮。')).toBeInTheDocument()
     // 一项都没选就不许提交。
     expect(submit).toBeDisabled()
 
@@ -119,6 +120,7 @@ describe('agent question card', () => {
     const reason = screen.getByRole('checkbox', { name: '理智' })
     const stone = screen.getByRole('checkbox', { name: '源石' })
     expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+    expect(screen.getByText('选多项，或直接跳过结束本轮。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '提交' })).toBeDisabled()
 
     fireEvent.click(reason)

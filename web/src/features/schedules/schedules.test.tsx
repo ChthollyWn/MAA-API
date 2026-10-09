@@ -257,7 +257,7 @@ describe('schedule list', () => {
     renderSchedules()
 
     fireEvent.click(await screen.findByRole('switch', { name: '启用「周末日常」' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('没能停用：服务暂时不可用')
+    expect(await screen.findByRole('alert')).toHaveTextContent('停用失败：服务暂时不可用')
     expect(screen.getByRole('switch', { name: '启用「周末日常」' })).toHaveAttribute('aria-checked', 'true')
   })
 
@@ -301,7 +301,7 @@ describe('schedule editor', () => {
     fireEvent.change(screen.getByLabelText('时间'), { target: { value: '19:30' } })
     expect(screen.getByText('周日 19:30 运行')).toBeInTheDocument()
     await closeEditor(await addTask('开始唤醒'))
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/schedules'))
     const [request] = network.find('POST', '/api/schedules')
@@ -327,12 +327,12 @@ describe('schedule editor', () => {
     await screen.findByRole('button', { name: '添加任务' })
     expect(screen.getByRole('button', { name: '每天' })).toHaveAttribute('aria-pressed', 'true')
     for (const day of ['周一', '周二', '周三', '周四', '周五', '周六', '周日']) fireEvent.click(weekday(day))
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
 
     expect(screen.getByLabelText('名称')).toHaveAttribute('aria-invalid', 'true')
     expect(screen.getByText('请填写名称。')).toBeInTheDocument()
-    expect(screen.getByText('至少选择一天。')).toBeInTheDocument()
-    expect(screen.getByText('至少添加一个任务。')).toBeInTheDocument()
+    expect(screen.getByText('请至少选择一天。')).toBeInTheDocument()
+    expect(screen.getByText('请至少添加一个任务。')).toBeInTheDocument()
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('名称')))
     expect(network.find('POST', '/api/schedules')).toHaveLength(0)
 
@@ -341,7 +341,7 @@ describe('schedule editor', () => {
     expect(weekday('周五')).toHaveAttribute('aria-pressed', 'true')
     expect(weekday('周六')).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByRole('button', { name: '工作日' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByText('至少选择一天。')).not.toBeInTheDocument()
+    expect(screen.queryByText('请至少选择一天。')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '周末' }))
     expect(weekday('周日')).toHaveAttribute('aria-pressed', 'true')
     expect(weekday('周一')).toHaveAttribute('aria-pressed', 'false')
@@ -354,8 +354,8 @@ describe('schedule editor', () => {
 
     fireEvent.change(await screen.findByLabelText('名称'), { target: { value: '每日剿灭' } })
     await closeEditor(await addTask('Copilot 作业'))
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
-    expect(await screen.findByText('第 1 个任务有 1 处错误，点开修改。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
+    expect(await screen.findByText('第 1 个任务有 1 处错误。')).toBeInTheDocument()
     expect(taskRows()[0]).toHaveTextContent('1 处错误')
     expect(network.find('POST', '/api/schedules')).toHaveLength(0)
 
@@ -368,7 +368,7 @@ describe('schedule editor', () => {
     await closeEditor(copilot)
     expect(taskRows()[0]).toHaveTextContent('主线 1-7')
     expect(taskRows()[0]).not.toHaveTextContent('处错误')
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
 
     await waitFor(() => expect(network.find('POST', '/api/schedules')).toHaveLength(1))
     const payload = await json(network.find('POST', '/api/schedules')[0])
@@ -382,7 +382,7 @@ describe('schedule editor', () => {
 
     fireEvent.change(await screen.findByLabelText('名称'), { target: { value: '重复日常' } })
     await closeEditor(await addTask('开始唤醒'))
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('名称已被使用')
@@ -401,14 +401,14 @@ describe('schedule editor', () => {
     const { router } = renderSchedules([{ pathname: '/tasks/schedules/new', state: { apiConsolePrefill: { template: [{ name: 'Fight', stage: '1-7' }] } } }])
 
     expect(await screen.findByRole('heading', { name: '新建定时任务', level: 1 })).toBeInTheDocument()
-    expect(screen.getByText('已载入 API 调试台收藏的流水线模板；设置星期与时间后即可保存。')).toBeInTheDocument()
+    expect(screen.getByText('已载入 API 调试台收藏的流水线模板。设好星期和时间就能保存。')).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: /^第 1 项：\s*刷理智/ })).toHaveTextContent('1-7')
     await waitFor(() => expect(router.state.location.state).toBeNull())
     expect(router.state.historyAction).toBe('REPLACE')
     expect(localStorage.getItem('maa.api-console.schedule-template')).toBeNull()
 
     fireEvent.change(screen.getByLabelText('名称'), { target: { value: '调试台刷图' } })
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
     await waitFor(() => expect(network.find('POST', '/api/schedules')).toHaveLength(1))
     expect((await json(network.find('POST', '/api/schedules')[0])).template).toEqual([withDefaults('Fight', { stage: '1-7' })])
   })
@@ -420,13 +420,13 @@ describe('schedule editor', () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/tasks/schedules/new'))
     expect(await screen.findByLabelText('名称')).toHaveValue('每日刷图')
-    expect(screen.getByText('已载入编排好的 1 个任务；设置星期与时间后即可保存。')).toBeInTheDocument()
+    expect(screen.getByText('已载入 1 个任务。设好星期和时间就能保存。')).toBeInTheDocument()
     const row = await screen.findByRole('button', { name: /^第 1 项：\s*刷理智/ })
     expect(row).toHaveTextContent('1-7')
     expect(row).toHaveTextContent('理智药 2')
     await waitFor(() => expect(router.state.location.state).toBeNull())
 
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
     await waitFor(() => expect(network.find('POST', '/api/schedules')).toHaveLength(1))
     expect(await json(network.find('POST', '/api/schedules')[0])).toMatchObject({
       name: '每日刷图',
@@ -520,9 +520,9 @@ describe('schedule editor', () => {
     fireEvent.change(await screen.findByLabelText('名称'), { target: { value: '校验失败' } })
     await closeEditor(await addTask('开始唤醒'))
     await closeEditor(await addTask('刷理智'))
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
 
-    expect(await screen.findByText('第 2 个任务有 1 处错误，点开修改。')).toBeInTheDocument()
+    expect(await screen.findByText('第 2 个任务有 1 处错误。')).toBeInTheDocument()
     const [startUp, fight] = taskRows()
     expect(startUp).not.toHaveTextContent('处错误')
     expect(fight).toHaveTextContent('1 处错误')
@@ -550,7 +550,7 @@ describe('schedule editor', () => {
     fireEvent.change(await screen.findByLabelText('名称'), { target: { value: '火星日常' } })
     fireEvent.change(screen.getByLabelText('时区'), { target: { value: 'Mars/Olympus' } })
     await closeEditor(await addTask('开始唤醒'))
-    fireEvent.click(screen.getByRole('button', { name: '创建定时任务' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建定时任务' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('时间设置无效')
     const timezone = screen.getByLabelText('时区')

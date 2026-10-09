@@ -191,17 +191,17 @@ describe('home page', () => {
     cleanup()
     installFetch({ pipeline: { pipeline: null } })
     renderDashboard()
-    expect(await screen.findByText('当前没有运行中的任务')).toBeInTheDocument()
+    expect(await screen.findByText('当前没有运行中的流水线')).toBeInTheDocument()
   })
 
   it('stops the running pipeline only after confirmation', async () => {
     const network = installFetch({ pipeline: runningPipeline })
     renderDashboard()
 
-    fireEvent.click(await screen.findByRole('button', { name: '停止任务' }))
-    const dialog = await screen.findByRole('alertdialog', { name: '停止当前任务？' })
+    fireEvent.click(await screen.findByRole('button', { name: '停止流水线' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '停止当前流水线？' })
     expect(network.requests.some((request) => request.method === 'DELETE')).toBe(false)
-    fireEvent.click(within(dialog).getByRole('button', { name: '停止任务' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '停止流水线' }))
 
     await waitFor(() => expect(network.requests.some((request) => request.method === 'DELETE' && request.url.endsWith('/api/pipelines/pipeline-1'))).toBe(true))
   })
@@ -290,7 +290,7 @@ describe('home page', () => {
     expect(network.screenshotCount()).toBe(3)
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
     expect(network.screenshotCount()).toBe(3)
-    expect(screen.getByText('点右侧按钮获取当前画面')).toBeInTheDocument()
+    expect(screen.getByText('空闲时手动刷新')).toBeInTheDocument()
   })
 
   it('takes one initial screenshot while idle and does not poll it every five seconds', async () => {

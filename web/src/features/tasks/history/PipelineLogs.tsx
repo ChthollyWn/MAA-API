@@ -63,7 +63,7 @@ export function PipelineLogs({ pipelineId, active }: { pipelineId: string; activ
           日志读取失败：{errorMessage(logs.error)}
         </InlineAlert>
       ) : items.length === 0 ? (
-        <p className="rounded-xl border bg-card px-4 py-3.5 text-footnote text-muted-foreground shadow-card">这条流水线暂无日志。</p>
+        <p className="rounded-xl border bg-card px-4 py-3.5 text-footnote text-muted-foreground shadow-card">还没有日志</p>
       ) : (
         <ol
           ref={listRef}

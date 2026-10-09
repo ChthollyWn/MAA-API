@@ -77,7 +77,7 @@ describe('validateChannelForm', () => {
       to: '请至少添加一个收件人。',
     })
     const badPort = { ...formValuesFromConfig('email', maskedEmail), port: '70000' }
-    expect(validateChannelForm('email', badPort, maskedEmail)).toEqual({ port: '端口应为 1 ~ 65535 之间的整数。' })
+    expect(validateChannelForm('email', badPort, maskedEmail)).toEqual({ port: '请输入 1 ~ 65535 之间的端口号。' })
     const httpDingTalk = { ...formValuesFromConfig('dingtalk', defaultChannelConfig('dingtalk')), webhook: 'http://oapi.dingtalk.com/robot/send' }
     expect(validateChannelForm('dingtalk', httpDingTalk, {})).toEqual({ webhook: '请输入以 https:// 开头的地址。' })
   })
@@ -90,17 +90,17 @@ describe('validateChannelForm', () => {
 
   it('rejects header rows without a valid name and duplicated names', () => {
     const base = formValuesFromConfig('webhook', { ...defaultChannelConfig('webhook'), url: 'https://example.com' })
-    expect(validateChannelForm('webhook', { ...base, headers: [{ id: 1, name: '', value: 'x' }] }, {})).toEqual({ headers: '请求头名称不能为空。' })
-    expect(validateChannelForm('webhook', { ...base, headers: [{ id: 1, name: 'Bad Name', value: 'x' }] }, {})).toEqual({ headers: '请求头名称只能包含字母、数字和 - 等符号。' })
-    expect(validateChannelForm('webhook', { ...base, headers: [{ id: 1, name: 'X-A', value: '1' }, { id: 2, name: 'x-a', value: '2' }] }, {})).toEqual({ headers: '请求头名称不能重复。' })
+    expect(validateChannelForm('webhook', { ...base, headers: [{ id: 1, name: '', value: 'x' }] }, {})).toEqual({ headers: '请填写请求头名称。' })
+    expect(validateChannelForm('webhook', { ...base, headers: [{ id: 1, name: 'Bad Name', value: 'x' }] }, {})).toEqual({ headers: '请只用字母、数字和 - 等符号填写请求头名称。' })
+    expect(validateChannelForm('webhook', { ...base, headers: [{ id: 1, name: 'X-A', value: '1' }, { id: 2, name: 'x-a', value: '2' }] }, {})).toEqual({ headers: '请不要填写重复的请求头名称。' })
   })
 })
 
 describe('raw config text', () => {
   it('accepts JSON objects only', () => {
     expect(parseConfigText('{"device_key":"***"}')).toEqual({ config: { device_key: '***' } })
-    expect(parseConfigText('[]')).toEqual({ error: '配置必须是 JSON 对象。' })
-    expect(parseConfigText('{"a":')).toEqual({ error: '配置不是有效的 JSON，请检查括号、引号和逗号。' })
+    expect(parseConfigText('[]')).toEqual({ error: '请填写一个 JSON 对象。' })
+    expect(parseConfigText('{"a":')).toEqual({ error: '请输入有效的 JSON，检查括号、引号和逗号。' })
   })
 })
 

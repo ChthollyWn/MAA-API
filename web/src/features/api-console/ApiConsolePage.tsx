@@ -88,7 +88,7 @@ function useConsoleOpenApi(baseUrl: string, token: string | null) {
       if (token) headers.set('Authorization', `Bearer ${token}`)
       const sameOrigin = typeof window !== 'undefined' && url.origin === window.location.origin
       const response = await fetch(url, { headers, credentials: sameOrigin ? 'same-origin' : 'omit' })
-      if (!response.ok) throw new Error(`读取 OpenAPI 失败：HTTP ${response.status}`)
+      if (!response.ok) throw new Error(`读取 OpenAPI 失败（HTTP ${response.status}）`)
       return response.json() as Promise<OpenApiDocument>
     },
     retry: false,
@@ -330,7 +330,7 @@ function ApiConsolePage() {
       return result.data
     },
     onSuccess: async (item) => {
-      toast.success('收藏已保存，鉴权凭据不会写入收藏')
+      toast.success('已保存收藏')
       setRequestNotice(null)
       setEditingFavorite(item?.id ?? null)
       setFavoriteName(item?.name ?? favoriteName)
@@ -346,7 +346,7 @@ function ApiConsolePage() {
       if (result.error) throw toApiError(result.error, result.response)
     },
     onSuccess: async (_data, id) => {
-      toast.success('收藏已删除')
+      toast.success('已删除收藏')
       if (id === editingFavorite) {
         setEditingFavorite(null)
         setFavoriteName('')
@@ -369,7 +369,7 @@ function ApiConsolePage() {
   const selectFavorite = (favorite: ApiSnippet) => {
     const operation = findOperation(groups, favorite.method, favorite.path)
     if (!operation) {
-      setListNotice({ tone: 'warning', text: `收藏目标 ${favorite.method} ${favorite.path} 已不在当前 OpenAPI 契约中。` })
+      setListNotice({ tone: 'warning', text: `收藏的接口 ${favorite.method} ${favorite.path} 已不在当前 OpenAPI 文档里，刷新接口目录后再试。` })
       return
     }
     chooseOperation(operation, favorite, favorite)
@@ -378,7 +378,7 @@ function ApiConsolePage() {
   const restoreHistory = (entry: ConsoleHistoryEntry) => {
     const operation = findOperationForPath(groups, entry.method, entry.path)
     if (!operation) {
-      setListNotice({ tone: 'warning', text: `历史目标 ${entry.method} ${entry.path} 已不在当前 OpenAPI 契约中。` })
+      setListNotice({ tone: 'warning', text: `历史的接口 ${entry.method} ${entry.path} 已不在当前 OpenAPI 文档里，刷新接口目录后再试。` })
       return
     }
     chooseOperation(operation, entry)
@@ -400,9 +400,9 @@ function ApiConsolePage() {
   const exportCurl = async () => {
     if (!selected) return
     if (await copyText(curlCommand)) {
-      toast.success(curlIncludeToken ? '已复制 cURL 命令（含真实 token）' : '已复制 cURL 命令，token 用 $MAA_TOKEN 占位')
+      toast.success(curlIncludeToken ? '已复制 cURL（含真实 token）' : '已复制 cURL')
     } else {
-      setRequestNotice({ tone: 'warning', text: '无法写入剪贴板，请在「cURL 导出」里手动复制命令。' })
+      setRequestNotice({ tone: 'warning', text: '无法写入剪贴板，请在「cURL 导出」里手动复制' })
     }
   }
 
@@ -419,7 +419,7 @@ function ApiConsolePage() {
     if (!selected || selected.path !== '/api/pipelines') return
     const template = pipelineTemplateFromBody(body)
     if (template.length === 0) {
-      setRequestNotice({ tone: 'warning', text: '当前请求体里没有可转入定时任务的任务模板。' })
+      setRequestNotice({ tone: 'warning', text: '当前请求体里没有可以转成定时任务的任务。' })
       return
     }
     navigate(SCHEDULE_EDITOR_PATH, { state: { apiConsolePrefill: { template } } })
@@ -428,7 +428,7 @@ function ApiConsolePage() {
   const handoffFavoriteSchedule = (favorite: ApiSnippet) => {
     const template = pipelineTemplateFromBody(favorite.body)
     if (template.length === 0) {
-      setListNotice({ tone: 'warning', text: '这条收藏没有可转入定时任务的任务模板。' })
+      setListNotice({ tone: 'warning', text: '这条收藏里没有可以转成定时任务的任务。' })
       return
     }
     navigate(SCHEDULE_EDITOR_PATH, { state: { apiConsolePrefill: { template } } })
@@ -557,7 +557,7 @@ function ApiConsolePage() {
                 />
               </>
             ) : (
-              <EmptyState icon={MousePointerClick} title="选择一个接口" description="从左侧接口列表选择后，这里会按 OpenAPI 生成请求表单。" className="flex-1" />
+              <EmptyState icon={MousePointerClick} title="还没有选择接口" description="从左侧选一个接口开始" className="flex-1" />
             )}
           </section>
           <section aria-label="响应与日志" className={COLUMN_CLASS}>

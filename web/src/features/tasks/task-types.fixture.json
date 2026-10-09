@@ -25,7 +25,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -33,7 +33,7 @@
           "name": {
             "const": "StartUp",
             "default": "StartUp",
-            "description": "判别联合 discriminator，固定为 StartUp；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -57,7 +57,7 @@
               }
             ],
             "default": "Bilibili",
-            "description": "客户端版本；未指定时套用全局渠道默认值（默认 Bilibili）。可选值：Official / Bilibili / txwy / YoStarEN / YoStarJP / YoStarKR",
+            "description": "游戏客户端渠道；不填时用设置里选的默认渠道",
             "title": "Client Type",
             "x-enum-labels": {
               "Bilibili": "B 服",
@@ -81,7 +81,7 @@
               }
             ],
             "default": false,
-            "description": "是否自动启动客户端；内核默认值 False（即不自动启动，源码 StartUpTask.cpp 的 params.get(\"start_game_enabled\", false)）。需要自动启动客户端时请显式设为 True",
+            "description": "启动任务前自动打开游戏客户端（默认关闭）",
             "title": "Start Game Enabled",
             "x-group": "账号",
             "x-label": "自动启动客户端"
@@ -96,7 +96,7 @@
               }
             ],
             "default": null,
-            "description": "切换账号；仅支持切换至已登录的账号，使用登录名进行查找，保证输入内容在所有已登录账号中唯一即可。官服示例 123****4567（可输入 123****4567、4567、123、3****4567）；B 服示例 张三（可输入 张三、张、三）",
+            "description": "切换到已登录的账号，输入登录名的一部分即可；不填则不切换",
             "examples": [
               "123****4567",
               "4567",
@@ -140,7 +140,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -148,7 +148,7 @@
           "name": {
             "const": "CloseDown",
             "default": "CloseDown",
-            "description": "判别联合 discriminator，固定为 CloseDown；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -172,7 +172,7 @@
               }
             ],
             "default": "Bilibili",
-            "description": "客户端版本；docstring 标注「必选，填空则不执行」，实际上由全局渠道默认值注入保证非空（未指定时套用默认 Bilibili）。可选值：Official / Bilibili / txwy / YoStarEN / YoStarJP / YoStarKR",
+            "description": "要关闭的客户端渠道；不填时用设置里选的默认渠道",
             "title": "Client Type",
             "x-enum-labels": {
               "Bilibili": "B 服",
@@ -224,7 +224,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -232,7 +232,7 @@
           "name": {
             "const": "Fight",
             "default": "Fight",
-            "description": "判别联合 discriminator，固定为 Fight；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -248,7 +248,7 @@
               }
             ],
             "default": null,
-            "description": "关卡名；留空则识别当前/上次的关卡。支持全部主线关卡（如 1-7、S3-2），可在关卡结尾输入 Normal/Hard 表示需要切换标准与磨难难度；剿灭作战必须输入 Annihilation；当期 SS 活动后三关必须输入完整关卡编号。不支持运行中设置",
+            "description": "剿灭作战填 Annihilation，留空识别当前或上次关卡（不支持运行中设置）",
             "examples": [
               "1-7",
               "S3-2",
@@ -270,7 +270,7 @@
               }
             ],
             "default": null,
-            "description": "指定战斗次数；不传则由内核使用默认值（无穷大）",
+            "description": "刷多少次后停止；不填则不限制次数",
             "title": "Times",
             "x-group": "基础",
             "x-label": "指定次数"
@@ -287,7 +287,7 @@
               }
             ],
             "default": 1,
-            "description": "连战次数；-1 为禁用切换，0 为自动切换为当前可用的最大次数（如当前理智不够 6 次，则选择最低可用次数），1~6 为指定连战次数。内核默认值 1",
+            "description": "同一关卡连续作战的次数（默认 1）",
             "title": "Series",
             "x-enum-labels": {
               "-1": "禁用切换",
@@ -314,7 +314,7 @@
               }
             ],
             "default": 0,
-            "description": "最大使用理智药数量；内核默认值 0（即不吃药）",
+            "description": "最多吃几瓶理智药（默认 0，即不吃）",
             "title": "Medicine",
             "x-group": "资源消耗",
             "x-label": "最大理智药数",
@@ -331,7 +331,7 @@
               }
             ],
             "default": 0,
-            "description": "最大使用 48 小时内过期理智药数量；内核默认值 0。该参数自内核 v6.8.0 起已弃用，内核改用 medicine_expire_days（理智药过期天数，非 0 即视为 2 天）；本服务的字段仅为兼容旧提交保留",
+            "description": "最多吃几瓶 48 小时内过期的理智药；当前内核已不再读取（默认 0）",
             "title": "Expiring Medicine",
             "x-group": "资源消耗",
             "x-label": "最大 48 小时内过期理智药数",
@@ -348,7 +348,7 @@
               }
             ],
             "default": 0,
-            "description": "最大吃石头（源石）数量；内核默认值 0（即不碎石）",
+            "description": "最多碎几颗源石换理智（默认 0，即不碎）",
             "title": "Stone",
             "x-group": "资源消耗",
             "x-label": "最大碎石数",
@@ -364,7 +364,7 @@
               }
             ],
             "default": false,
-            "description": "节省理智碎石模式；仅在可能产生碎石效果时生效：在碎石确认界面等待，直到当前的 1 点理智恢复完成后再立刻碎石。内核默认值 False",
+            "description": "在碎石确认界面等到理智恢复 1 点再碎，省一颗源石（默认关闭）",
             "title": "Drgrandet",
             "x-group": "资源消耗",
             "x-label": "节省理智碎石模式"
@@ -385,7 +385,7 @@
               }
             ],
             "default": "CN",
-            "description": "服务器，会影响掉落识别及上传；未指定时套用全局默认值（CN）。可选值：CN / US / JP / KR",
+            "description": "游戏服务器，影响掉落识别与上传；不填时用设置里选的默认服务器",
             "title": "Server",
             "x-enum-labels": {
               "CN": "国服",
@@ -415,7 +415,7 @@
               }
             ],
             "default": "Bilibili",
-            "description": "客户端版本；用于游戏崩溃时重启并连回去继续刷，若为空则不启用该功能。未指定时套用全局渠道默认值（默认 Bilibili）",
+            "description": "客户端渠道；崩溃后按它重启游戏继续刷，明确留空则不启用",
             "title": "Client Type",
             "x-enum-labels": {
               "Bilibili": "B 服",
@@ -439,7 +439,7 @@
               }
             ],
             "default": false,
-            "description": "是否汇报企鹅数据；内核默认值 False",
+            "description": "把作战结果上传到企鹅物流（默认关闭）",
             "title": "Report To Penguin",
             "x-group": "数据上报",
             "x-label": "汇报企鹅数据"
@@ -454,7 +454,7 @@
               }
             ],
             "default": null,
-            "description": "企鹅数据汇报 id；仅在 report_to_penguin 为 True 时有效",
+            "description": "企鹅物流的汇报 id，配合「汇报企鹅数据」使用",
             "title": "Penguin Id",
             "x-depends-on": {
               "report_to_penguin": true
@@ -475,7 +475,7 @@
               }
             ],
             "default": {},
-            "description": "指定掉落数量；key 为 item_id（见 resource/item_index.json），value 为数量。是或的关系，即任一达到即停止任务；默认空对象表示不指定掉落目标",
+            "description": "指定掉落目标与数量，任一达标就停止任务（默认不指定）",
             "title": "Drops",
             "x-group": "高级",
             "x-label": "指定掉落数量",
@@ -531,7 +531,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -539,7 +539,7 @@
           "name": {
             "const": "Recruit",
             "default": "Recruit",
-            "description": "判别联合 discriminator，固定为 Recruit；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -555,7 +555,7 @@
               }
             ],
             "default": false,
-            "description": "是否刷新三星 Tags；内核默认值 False",
+            "description": "连三星标签也一起刷新（默认关闭）",
             "title": "Refresh",
             "x-group": "基础",
             "x-label": "刷新三星 Tags"
@@ -579,7 +579,7 @@
               4,
               5
             ],
-            "description": "会去点击标签的 Tag 等级，内核必填；元素取值范围 1~6。默认值 [1, 4, 5] 由本服务约定（内核没有默认值），沿用旧前端日常预设",
+            "description": "要点击选中的 Tag 星级（默认 1、4、5 星）",
             "title": "Select",
             "x-group": "基础",
             "x-label": "点击的 Tag 等级",
@@ -605,7 +605,7 @@
               4,
               5
             ],
-            "description": "会去点击确认的 Tag 等级，内核必填；元素取值范围 1~6。默认值 [2, 3, 4, 5] 由本服务约定（内核没有默认值）。内核以「confirm 含 -1」表示仅公招计算（只计算 Tag 组合、不点击确认），本服务的元素约束 1~6 不接受 -1",
+            "description": "要点击确认的 Tag 星级（默认 2、3、4、5 星）",
             "title": "Confirm",
             "x-group": "基础",
             "x-label": "确认的 Tag 等级",
@@ -624,7 +624,7 @@
               }
             ],
             "default": [],
-            "description": "首选 Tags，仅在 Tag 等级为 3 时有效；会尽可能多地选择这里的 Tags（如果有）。属于强制选择，会忽略所有「让 3 星 Tag 不被选择」的设置",
+            "description": "无论其他设置如何都会优先进这些 Tag（仅 3 星）",
             "title": "First Tags",
             "x-group": "公招标签",
             "x-label": "首选 Tags",
@@ -645,7 +645,7 @@
               }
             ],
             "default": 0,
-            "description": "选择更多的 Tags；0 为默认行为，1 为选 3 个 Tags（即使可能冲突），2 为如果可能则同时选择更多的高星 Tag 组合（即使可能冲突）。内核默认值 0",
+            "description": "一轮里选择更多 Tag 的策略（默认 0）",
             "title": "Extra Tags Mode",
             "x-enum-labels": {
               "0": "默认行为",
@@ -667,7 +667,7 @@
               }
             ],
             "default": 0,
-            "description": "招募多少次；内核默认值 0（主循环不执行，只进公招页而不招募）。要真正招募请设置为大于 0 的次数",
+            "description": "招募多少次；默认 0，只进公招页不招募",
             "title": "Times",
             "x-group": "基础",
             "x-label": "招募次数"
@@ -682,7 +682,7 @@
               }
             ],
             "default": true,
-            "description": "是否设置招募时限（按 recruitment_time 的对应值把游戏内计时器点到位）；内核默认值 True。该设置只在真正执行招募时用得上——内核在 times=0 时主循环不执行，旧文案「仅在 times 为 0 时生效」与源码相反",
+            "description": "按「招募时限映射」把游戏内招募计时器点到位（默认开启）",
             "title": "Set Time",
             "x-depends-on": {
               "times": 0
@@ -700,7 +700,7 @@
               }
             ],
             "default": false,
-            "description": "是否使用加急许可；内核默认值 False",
+            "description": "用加急许可立刻完成招募（默认关闭）",
             "title": "Expedite",
             "x-group": "加急与跳过",
             "x-label": "使用加急许可",
@@ -717,7 +717,7 @@
               }
             ],
             "default": null,
-            "description": "加急次数；仅在 expedite 为 True 时有效。内核 v6.17.5 已不再使用该值（RecruitTask.cpp 取到后以 [[maybe_unused]] 丢弃，加急次数实际由 times 上限决定），本字段仅为兼容旧提交保留，因此没有默认值",
+            "description": "当前内核不再读取此值，加急次数由「招募次数」决定",
             "title": "Expedite Times",
             "x-depends-on": {
               "expedite": true
@@ -735,7 +735,7 @@
               }
             ],
             "default": false,
-            "description": "是否在识别到小车词条时跳过；内核默认值 False。内核源码用 params.find(\"skip_robot\")——键缺省即不跳过，旧文案「默认 True」与源码相反（官方文档的 @default true 与源码冲突，以源码为准）",
+            "description": "识别到小车词条时跳过（默认关闭）",
             "title": "Skip Robot",
             "x-group": "加急与跳过",
             "x-label": "跳过小车词条"
@@ -758,7 +758,7 @@
               "5": 540,
               "6": 540
             },
-            "description": "Tag 等级（大于等于 3，JSON 键为字符串）和对应的希望招募时限，单位为分钟；内核默认值都为 540（即 09:00:00）",
+            "description": "各 Tag 星级对应的希望招募时限（默认 9 小时）",
             "title": "Recruitment Time",
             "x-group": "公招标签",
             "x-label": "招募时限映射",
@@ -774,7 +774,7 @@
               }
             ],
             "default": false,
-            "description": "是否汇报企鹅数据；内核默认值 False",
+            "description": "把公招结果上传到企鹅物流（默认关闭）",
             "title": "Report To Penguin",
             "x-group": "数据上报",
             "x-label": "汇报企鹅数据"
@@ -789,7 +789,7 @@
               }
             ],
             "default": null,
-            "description": "企鹅数据汇报 id；仅在 report_to_penguin 为 True 时有效",
+            "description": "企鹅物流的汇报 id，配合「汇报企鹅数据」使用",
             "title": "Penguin Id",
             "x-depends-on": {
               "report_to_penguin": true
@@ -807,7 +807,7 @@
               }
             ],
             "default": false,
-            "description": "是否汇报一图流数据；内核默认值 False",
+            "description": "把公招结果上传到一图流（默认关闭）",
             "title": "Report To Yituliu",
             "x-group": "数据上报",
             "x-label": "汇报一图流数据"
@@ -822,7 +822,7 @@
               }
             ],
             "default": null,
-            "description": "一图流汇报 id；仅在 report_to_yituliu 为 True 时有效",
+            "description": "一图流的汇报 id，配合「汇报一图流数据」使用",
             "title": "Yituliu Id",
             "x-depends-on": {
               "report_to_yituliu": true
@@ -846,7 +846,7 @@
               }
             ],
             "default": "CN",
-            "description": "服务器，会影响上传；未指定时套用全局默认值（CN）。可选值：CN / US / JP / KR",
+            "description": "游戏服务器，影响数据上传；不填时用设置里选的默认服务器",
             "title": "Server",
             "x-enum-labels": {
               "CN": "国服",
@@ -916,7 +916,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -924,7 +924,7 @@
           "name": {
             "const": "Infrast",
             "default": "Infrast",
-            "description": "判别联合 discriminator，固定为 Infrast；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -945,7 +945,7 @@
               }
             ],
             "default": 0,
-            "description": "换班工作模式；0 为默认换班模式（单设施最优解），10000 为自定义换班模式（读取用户配置），20000 为一键轮换模式（会跳过控制中枢、发电站、宿舍以及办公室，其余设施不进行换班但保留基本操作，如使用无人机、会客室逻辑）。内核默认值 0",
+            "description": "换班工作模式；一键轮换会跳过部分设施（默认换班）",
             "title": "Mode",
             "x-enum-labels": {
               "0": "默认换班（单设施最优解）",
@@ -995,7 +995,7 @@
               "Office",
               "Dorm"
             ],
-            "description": "要换班的设施（有序，顺序即换班顺序），内核必填；默认值（全部七个设施，按标准换班顺序）由本服务约定，内核没有默认值。设施名选项包括 \"Mfg\", \"Trade\", \"Power\", \"Control\", \"Reception\", \"Office\", \"Dorm\"。不支持运行中设置",
+            "description": "要换班的设施，顺序即换班顺序，默认全部（不支持运行中设置）",
             "title": "Facility",
             "x-group": "基础",
             "x-label": "要换班的设施（有序）",
@@ -1020,7 +1020,7 @@
               }
             ],
             "default": "_NotUse",
-            "description": "无人机用途；mode == 10000 时该字段无效（会被忽略）。可选值包括 \"_NotUse\", \"Money\", \"SyntheticJade\", \"CombatRecord\", \"PureGold\", \"OriginStone\", \"Chip\"；内核默认值 _NotUse",
+            "description": "无人机用在哪里；自定义换班模式下不生效（默认不使用）",
             "title": "Drones",
             "x-enum-labels": {
               "Chip": "芯片",
@@ -1047,7 +1047,7 @@
               }
             ],
             "default": 0.3,
-            "description": "工作心情阈值，取值范围 [0, 1.0]；内核默认值 0.3。mode == 10000 时该字段仅针对 autofill 有效",
+            "description": "干员心情低于这个比例就换班（默认 0.3）",
             "title": "Threshold",
             "x-group": "基础",
             "x-label": "工作心情阈值"
@@ -1062,7 +1062,7 @@
               }
             ],
             "default": false,
-            "description": "贸易站「源石碎片」是否自动补货；内核默认值 False",
+            "description": "贸易站「源石碎片」卖完后自动补货（默认关闭）",
             "title": "Replenish",
             "x-group": "基础",
             "x-label": "源石碎片自动补货"
@@ -1077,7 +1077,7 @@
               }
             ],
             "default": false,
-            "description": "是否启用宿舍「未进驻」选项；内核默认值 False",
+            "description": "宿舍填充时勾选「未进驻」筛选（默认关闭）",
             "title": "Dorm Notstationed Enabled",
             "x-group": "基础",
             "x-label": "启用宿舍「未进驻」选项"
@@ -1092,7 +1092,7 @@
               }
             ],
             "default": false,
-            "description": "是否将宿舍剩余位置填入信赖未满干员；内核默认值 False",
+            "description": "宿舍剩余位置填信赖未满的干员（默认关闭）",
             "title": "Dorm Trust Enabled",
             "x-group": "基础",
             "x-label": "剩余位置填入信赖未满干员"
@@ -1107,7 +1107,7 @@
               }
             ],
             "default": null,
-            "description": "自定义配置路径，仅 mode == 10000 时生效且必填，否则会被忽略。不支持运行中设置",
+            "description": "自定义换班用的配置文件路径（不支持运行中设置）",
             "title": "Filename",
             "x-group": "自定义换班",
             "x-label": "自定义配置路径"
@@ -1123,7 +1123,7 @@
               }
             ],
             "default": 0,
-            "description": "使用配置中的方案序号，仅 mode == 10000 时生效且必填，否则会被忽略。内核默认值 0；不支持运行中设置",
+            "description": "用配置文件里的第几个方案，默认第一个（不支持运行中设置）",
             "title": "Plan Index",
             "x-group": "自定义换班",
             "x-label": "方案序号"
@@ -1173,7 +1173,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -1181,7 +1181,7 @@
           "name": {
             "const": "Mall",
             "default": "Mall",
-            "description": "判别联合 discriminator，固定为 Mall；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -1197,7 +1197,7 @@
               }
             ],
             "default": true,
-            "description": "是否购物；内核默认值 True。不支持运行中设置",
+            "description": "用信用点买东西，默认开启（不支持运行中设置）",
             "title": "Shopping",
             "x-group": "基础",
             "x-label": "是否购物",
@@ -1216,7 +1216,7 @@
               }
             ],
             "default": [],
-            "description": "优先购买列表（商品名，如「招聘许可」「龙门币」等）；默认空列表（无优先项），不支持运行中设置，可选",
+            "description": "优先购买的商品名（不支持运行中设置）",
             "title": "Buy First",
             "x-group": "购买清单",
             "x-label": "优先购买列表",
@@ -1235,7 +1235,7 @@
               }
             ],
             "default": [],
-            "description": "黑名单列表（商品名，如「加急许可」「家具零件」等）；默认空列表（无黑名单），不支持运行中设置，可选",
+            "description": "不买的商品名（不支持运行中设置）",
             "title": "Blacklist",
             "x-group": "购买清单",
             "x-label": "黑名单列表",
@@ -1251,7 +1251,7 @@
               }
             ],
             "default": false,
-            "description": "是否在信用溢出时无视黑名单；内核默认值 False",
+            "description": "信用点溢出时也买黑名单里的商品（默认关闭）",
             "title": "Force Shopping If Credit Full",
             "x-group": "基础",
             "x-label": "信用溢出时无视黑名单"
@@ -1266,7 +1266,7 @@
               }
             ],
             "default": false,
-            "description": "是否只购买折扣物品，只作用于第二轮购买；内核默认值 False",
+            "description": "只买打折商品，第二轮购买生效（默认关闭）",
             "title": "Only Buy Discount",
             "x-group": "基础",
             "x-label": "只购买折扣物品"
@@ -1281,7 +1281,7 @@
               }
             ],
             "default": false,
-            "description": "是否在信用点低于 300 时停止购买，只作用于第二轮购买；内核默认值 False",
+            "description": "信用点低于 300 就停止购买，第二轮生效（默认关闭）",
             "title": "Reserve Max Credit",
             "x-group": "基础",
             "x-label": "信用点低于 300 时停止购买"
@@ -1303,10 +1303,10 @@
     {
       "name": "Award",
       "label": "领取奖励",
-      "description": "领取各种奖励。\n\nM17 起 ``award`` 与 ``mail``/``recruit``/``orundum``/``mining``/``specialaccess``\n都写 schema ``default``（内核默认值：``award=true``，其余 ``false``）。\n旧 ``TaskRequest`` 曾把它们一律写成 True 与 docstring 冲突；现在以内核源码的\n实际默认值为准，逐字段见\ndocs/superpowers/specs/2026-09-28-m17-task-param-defaults.md §4。",
+      "description": "领取各种奖励。",
       "schema": {
         "additionalProperties": false,
-        "description": "领取各种奖励。\n\nM17 起 ``award`` 与 ``mail``/``recruit``/``orundum``/``mining``/``specialaccess``\n都写 schema ``default``（内核默认值：``award=true``，其余 ``false``）。\n旧 ``TaskRequest`` 曾把它们一律写成 True 与 docstring 冲突；现在以内核源码的\n实际默认值为准，逐字段见\ndocs/superpowers/specs/2026-09-28-m17-task-param-defaults.md §4。",
+        "description": "领取各种奖励。",
         "examples": [
           {
             "award": true,
@@ -1325,7 +1325,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -1333,7 +1333,7 @@
           "name": {
             "const": "Award",
             "default": "Award",
-            "description": "判别联合 discriminator，固定为 Award；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -1349,7 +1349,7 @@
               }
             ],
             "default": true,
-            "description": "领取每日/每周任务奖励；内核默认值 True",
+            "description": "领取每日与每周任务奖励（默认开启）",
             "title": "Award",
             "x-group": "基础",
             "x-label": "领取每日/每周任务奖励"
@@ -1364,7 +1364,7 @@
               }
             ],
             "default": false,
-            "description": "领取所有邮件奖励；内核默认值 False",
+            "description": "领取所有邮件奖励（默认关闭）",
             "title": "Mail",
             "x-group": "奖励项",
             "x-label": "领取邮件奖励"
@@ -1379,7 +1379,7 @@
               }
             ],
             "default": false,
-            "description": "领取限定池子赠送的每日免费单抽；内核默认值 False",
+            "description": "领取限定池的每日免费单抽（默认关闭）",
             "title": "Recruit",
             "x-group": "奖励项",
             "x-label": "领取每日免费单抽"
@@ -1394,7 +1394,7 @@
               }
             ],
             "default": false,
-            "description": "领取幸运墙的合成玉奖励；内核默认值 False",
+            "description": "领取幸运墙的合成玉（默认关闭）",
             "title": "Orundum",
             "x-group": "奖励项",
             "x-label": "领取幸运墙合成玉"
@@ -1409,7 +1409,7 @@
               }
             ],
             "default": false,
-            "description": "领取限时开采许可的合成玉奖励；内核默认值 False",
+            "description": "领取限时开采许可的合成玉（默认关闭）",
             "title": "Mining",
             "x-group": "奖励项",
             "x-label": "领取限时开采许可奖励"
@@ -1424,7 +1424,7 @@
               }
             ],
             "default": false,
-            "description": "领取五周年赠送的月卡奖励；内核默认值 False",
+            "description": "领取五周年赠送的月卡奖励（默认关闭）",
             "title": "Specialaccess",
             "x-group": "奖励项",
             "x-label": "领取五周年月卡奖励"
@@ -1476,7 +1476,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -1484,7 +1484,7 @@
           "name": {
             "const": "Roguelike",
             "default": "Roguelike",
-            "description": "判别联合 discriminator，固定为 Roguelike；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -1506,7 +1506,7 @@
               }
             ],
             "default": "Phantom",
-            "description": "主题；可选值包括 \"Phantom\", \"Mizuki\", \"Sami\", \"Sarkaz\"。内核默认值 Phantom",
+            "description": "要刷的肉鸽主题（默认傀影与猩红孤钻）",
             "title": "Theme",
             "x-enum-labels": {
               "Mizuki": "水月与深蓝之树",
@@ -1536,13 +1536,13 @@
               }
             ],
             "default": 0,
-            "description": "模式；0 为刷分/奖励点数（尽可能稳定地打更多层数），1 为刷源石锭（第一层投资完就退出），2 已弃用（兼顾模式 0 与 1，投资过后再退出，没有投资就继续往后打），3 开发中，4 为凹开局（先在 0 难度下到达第三层后重开，再到指定难度下凹开局奖励；Phantom 主题下不切换难度），5 为刷坍缩范式（仅适用于 Sami 主题）。内核默认值 0",
+            "description": "肉鸽的玩法模式（默认刷分/奖励点数）",
             "title": "Mode",
             "x-enum-labels": {
               "0": "刷分/奖励点数",
               "1": "刷源石锭",
-              "2": "已弃用",
-              "3": "开发中",
+              "2": "已弃用（无法提交）",
+              "3": "开发中（无法提交）",
               "4": "凹开局",
               "5": "刷坍缩范式（仅 Sami）"
             },
@@ -1560,7 +1560,7 @@
               }
             ],
             "default": null,
-            "description": "开局分队名；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「指挥分队」）",
+            "description": "开局用哪个分队；不填则由内核自动选择",
             "title": "Squad",
             "x-group": "基础",
             "x-label": "开局分队名"
@@ -1575,7 +1575,7 @@
               }
             ],
             "default": null,
-            "description": "开局职业组；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「取长补短」）",
+            "description": "开局职业组；不填则由内核自动选择",
             "title": "Roles",
             "x-group": "基础",
             "x-label": "开局职业组"
@@ -1590,7 +1590,7 @@
               }
             ],
             "default": null,
-            "description": "开局干员名；仅支持单个干员中文名（无论区服）；留空 = 内核自动选择（根据练度自动选，传空字符串 \"\" 等效）",
+            "description": "开局要借的干员中文名；不填则由内核自动选择",
             "title": "Core Char",
             "x-group": "开局",
             "x-label": "开局干员名"
@@ -1605,7 +1605,7 @@
               }
             ],
             "default": false,
-            "description": "开局干员是否为助战干员；内核默认值 False",
+            "description": "开局干员换成助战干员（默认关闭）",
             "title": "Use Support",
             "x-group": "开局",
             "x-label": "开局干员为助战干员"
@@ -1620,7 +1620,7 @@
               }
             ],
             "default": false,
-            "description": "是否可以是非好友助战干员；仅在 use_support 为 True 时有效。内核默认值 False",
+            "description": "允许借非好友的助战干员（默认关闭）",
             "title": "Use Nonfriend Support",
             "x-depends-on": {
               "use_support": true
@@ -1638,7 +1638,7 @@
               }
             ],
             "default": null,
-            "description": "开始探索的次数；达到后自动停止任务。不传则由内核使用默认值（INT_MAX，即不限制）",
+            "description": "开始探索多少次后停止；不填则不限制",
             "title": "Starts Count",
             "x-group": "开局",
             "x-label": "开始探索次数"
@@ -1654,7 +1654,7 @@
               }
             ],
             "default": null,
-            "description": "指定难度等级；仅适用于除 Phantom 以外的主题，若未解锁难度则会选择当前已解锁的最高难度。内核默认值为 -1（未指定），但 Phantom 主题下不允许非空，所以这里保持「未设置」三态而不写静态默认值",
+            "description": "仅用于傀影以外的主题；不填则选已解锁的最高难度",
             "title": "Difficulty",
             "x-group": "开局",
             "x-label": "指定难度等级"
@@ -1669,7 +1669,7 @@
               }
             ],
             "default": false,
-            "description": "是否在凹开局的同时凹干员精二直升；仅适用于模式 4。内核默认值 False",
+            "description": "凹开局时顺便凹精二直升（仅「凹开局」，默认关闭）",
             "title": "Start With Elite Two",
             "x-group": "开局",
             "x-label": "凹干员精二直升"
@@ -1684,7 +1684,7 @@
               }
             ],
             "default": false,
-            "description": "是否只凹开局干员精二直升而忽视其他开局条件；仅在模式为 4 且 start_with_elite_two 为 True 时有效。内核默认值 False",
+            "description": "只凹精二直升，忽略其他开局条件（默认关闭）",
             "title": "Only Start With Elite Two",
             "x-depends-on": {
               "mode": 4,
@@ -1703,7 +1703,7 @@
               }
             ],
             "default": null,
-            "description": "希望在第一层远见阶段得到的密文板；仅适用于 Sami 主题，不限模式；若成功凹到则停止任务",
+            "description": "第一层远见想要的密文板；凹到就停止任务",
             "title": "First Floor Foldartal",
             "x-depends-on": {
               "theme": "Sami"
@@ -1724,7 +1724,7 @@
               }
             ],
             "default": null,
-            "description": "凹开局时希望在开局奖励阶段得到的密文板；仅主题为 Sami 且模式为 4 时有效。仅当开局拥有列表中所有的密文板时才算凹开局成功；此参数须与「生活至上分队」同时使用，其他分队在开局奖励阶段不会获得密文板",
+            "description": "开局奖励想要的密文板；需搭配「生活至上分队」",
             "title": "Start Foldartal List",
             "x-depends-on": {
               "mode": 4,
@@ -1744,7 +1744,7 @@
               }
             ],
             "default": null,
-            "description": "是否使用密文板；仅适用于 Sami 主题。模式 5 下内核默认值为 False，其他模式下为 True；不传则由内核决定",
+            "description": "是否使用密文板；不填由内核按模式决定（刷坍缩范式默认关闭）",
             "title": "Use Foldartal",
             "x-depends-on": {
               "theme": "Sami"
@@ -1762,7 +1762,7 @@
               }
             ],
             "default": false,
-            "description": "是否在第 5 层险路恶敌节点前停止任务；仅适用于除 Phantom 以外的主题。内核默认值 False",
+            "description": "仅用于傀影以外的主题，第 5 层险路恶敌前停止（默认关闭）",
             "title": "Stop At Final Boss",
             "x-group": "主题专属",
             "x-label": "第 5 层险路恶敌前停止"
@@ -1777,7 +1777,7 @@
               }
             ],
             "default": true,
-            "description": "是否投资源石锭；内核默认值 True",
+            "description": "把源石锭投进商店（默认开启）",
             "title": "Investment Enabled",
             "x-group": "投资",
             "x-label": "投资源石锭",
@@ -1793,7 +1793,7 @@
               }
             ],
             "default": null,
-            "description": "投资源石锭的次数；达到后自动停止任务。不传则由内核使用默认值（INT_MAX，即不限制）",
+            "description": "投多少次后停止；不填则不限制",
             "title": "Investments Count",
             "x-group": "投资",
             "x-label": "投资次数"
@@ -1808,7 +1808,7 @@
               }
             ],
             "default": false,
-            "description": "是否在投资到达上限后自动停止任务；内核默认值 False",
+            "description": "投资满后自动停止任务（默认关闭）",
             "title": "Stop When Investment Full",
             "x-group": "投资",
             "x-label": "投资满后停止任务"
@@ -1823,7 +1823,7 @@
               }
             ],
             "default": false,
-            "description": "是否用骰子刷新商店购买特殊商品；仅适用于 Mizuki 主题，用于刷指路鳞。内核默认值 False",
+            "description": "用骰子刷新商店，用于刷指路鳞（默认关闭）",
             "title": "Refresh Trader With Dice",
             "x-depends-on": {
               "theme": "Mizuki"
@@ -1841,7 +1841,7 @@
               }
             ],
             "default": null,
-            "description": "是否检测获取的坍缩范式；仅适用于 Sami 主题。模式 5 下内核默认值为 True，其他模式下为 False；不传则由内核决定",
+            "description": "检测拿到的坍缩范式；不填由内核按模式决定（刷坍缩范式默认开启）",
             "title": "Check Collapsal Paradigms",
             "x-depends-on": {
               "theme": "Sami"
@@ -1859,7 +1859,7 @@
               }
             ],
             "default": null,
-            "description": "是否执行坍缩范式检测防漏措施；仅在主题为 Sami 且 check_collapsal_paradigms 为 True 时有效。模式 5 下内核默认值为 True，其他模式下为 False；不传则由内核决定",
+            "description": "多一道坍缩范式检测，避免漏检（不填由内核决定）",
             "title": "Double Check Collapsal Paradigms",
             "x-depends-on": {
               "check_collapsal_paradigms": true
@@ -1880,7 +1880,7 @@
               }
             ],
             "default": null,
-            "description": "希望触发的坍缩范式；仅在主题为 Sami 且模式为 5 时有效。内核默认值为 [\"目空一些\", \"睁眼瞎\", \"图像损坏\", \"一抹黑\"]",
+            "description": "希望刷到的坍缩范式（仅刷坍缩范式模式）",
             "title": "Expected Collapsal Paradigms",
             "x-depends-on": {
               "mode": 5,
@@ -1933,7 +1933,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -1941,7 +1941,7 @@
           "name": {
             "const": "Reclamation",
             "default": "Reclamation",
-            "description": "判别联合 discriminator，固定为 Reclamation；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -1961,7 +1961,7 @@
               }
             ],
             "default": "Tales",
-            "description": "主题；Fire 为「沙中之火」，Tales 为「沙洲遗闻」。内核默认值 Tales（Fire 主题已下线，内核会直接停止任务）",
+            "description": "生息演算主题；沙中之火已下线（默认沙洲遗闻）",
             "title": "Theme",
             "x-enum-labels": {
               "Fire": "沙中之火",
@@ -1985,7 +1985,7 @@
               }
             ],
             "default": 0,
-            "description": "模式；0 为刷分与建造点（进入战斗直接退出），1 为沙中之火刷赤金、联络员买水后基地锻造／沙洲遗闻自动制造物品并读档刷货币。内核默认值 0",
+            "description": "运行模式（默认刷分与建造点）",
             "title": "Mode",
             "x-enum-labels": {
               "0": "刷分与建造点（进入战斗直接退出）",
@@ -2008,7 +2008,7 @@
               }
             ],
             "default": [],
-            "description": "自动制造的物品；默认空列表表示不组装任何物品。内核对该键没做缺省判空（ReclamationCraftTaskPlugin 直接取 find(...).value()），所以必须显式下发——这也是它需要默认值的原因；要组装请自行填入物品名",
+            "description": "要自动制造的物品；不填则不制造",
             "title": "Tools To Craft",
             "x-group": "制造",
             "x-label": "自动制造的物品",
@@ -2028,7 +2028,7 @@
               }
             ],
             "default": 0,
-            "description": "点击类型；0 为连点，1 为长按。内核默认值 0",
+            "description": "制造时点击屏幕的方式（默认连点）",
             "title": "Increment Mode",
             "x-enum-labels": {
               "0": "连点",
@@ -2049,7 +2049,7 @@
               }
             ],
             "default": 16,
-            "description": "单次最大制造轮数；内核默认值 16（按组装荧光棒至少消耗 3000 木头推算）",
+            "description": "单次最多制造几轮（默认 16）",
             "title": "Num Craft Batches",
             "x-group": "制造",
             "x-label": "单次最大制造轮数"
@@ -2082,14 +2082,14 @@
           "name": {
             "const": "Copilot",
             "default": "Copilot",
-            "description": "判别联合 discriminator，固定为 Copilot；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
             "x-label": "任务类型"
           },
           "asset_id": {
-            "description": "已上传并通过结构校验的 Copilot 作业 ID；执行时由服务端解析为资源文件路径。不支持运行中设置",
+            "description": "要执行的已上传作业（不支持运行中设置）",
             "maxLength": 36,
             "minLength": 1,
             "title": "Asset Id",
@@ -2099,7 +2099,7 @@
           },
           "formation": {
             "default": false,
-            "description": "执行作业前是否重新编队；默认关闭",
+            "description": "执行作业前按作业重新编队（默认关闭）",
             "title": "Formation",
             "type": "boolean",
             "x-group": "基础",

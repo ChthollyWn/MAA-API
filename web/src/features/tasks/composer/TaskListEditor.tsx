@@ -67,7 +67,7 @@ function TaskRow({ draft, position, count, taskType, summary, errorCount, disabl
             {errorCount > 0 ? <Badge variant="danger">{errorCount} 处错误</Badge> : null}
           </span>
           <span className={cn('mt-0.5 block truncate text-footnote', taskType ? 'text-muted-foreground' : 'text-danger')}>
-            {taskType ? summary : '服务端未提供这种任务，无法编辑'}
+            {taskType ? summary : '当前版本不支持这种任务'}
           </span>
         </span>
       </button>
@@ -79,7 +79,7 @@ function TaskRow({ draft, position, count, taskType, summary, errorCount, disabl
           { label: '上移', icon: ArrowUp, disabled: position === 1, onSelect: () => onMove(-1) },
           { label: '下移', icon: ArrowDown, disabled: position === count, onSelect: () => onMove(1) },
           { label: '复制', icon: Copy, disabled: full || !taskType, onSelect: onDuplicate },
-          { label: '删除', icon: Trash2, tone: 'danger', onSelect: onRemove },
+          { label: '移除', icon: Trash2, tone: 'danger', onSelect: onRemove },
         ]}
       />
     </li>
@@ -87,7 +87,7 @@ function TaskRow({ draft, position, count, taskType, summary, errorCount, disabl
 }
 
 /**
- * 可编排的任务列表：每行显示类型、参数摘要与错误数，点行打开参数编辑器；行内菜单可上移、下移、复制、删除。
+ * 可编排的任务列表：每行显示类型、参数摘要与错误数，点行打开参数编辑器；行内菜单可上移、下移、复制、移除。
  * 编排器与定时任务编辑器共用；草稿结构见 `TaskDraft`（新建与复制时按 schema 预填默认值，提交即下发）。
  */
 export function TaskListEditor({
@@ -144,9 +144,9 @@ export function TaskListEditor({
   const remove = async (index: number) => {
     const draft = drafts[index]
     const ok = await confirm({
-      title: `删除第 ${index + 1} 项「${typeOf(draft.name)?.label ?? draft.name}」？`,
-      description: '这个任务和它改过的参数会一起删除。',
-      confirmText: '删除任务',
+      title: `移除第 ${index + 1} 项「${typeOf(draft.name)?.label ?? draft.name}」？`,
+      description: '这个任务和它改过的参数会一起移除。',
+      confirmText: '移除任务',
       tone: 'danger',
     })
     if (ok) onChange(drafts.filter((candidate) => candidate.id !== draft.id))
@@ -163,7 +163,7 @@ export function TaskListEditor({
           <EmptyState
             icon={ListChecks}
             title="还没有任务"
-            description={emptyDescription ?? `可以添加多个任务，最多 ${maxTasks} 个。`}
+            description={emptyDescription ?? `最多 ${maxTasks} 个任务`}
             action={<Button disabled={disabled} onClick={() => setTypeSheetOpen(true)}><Plus aria-hidden="true" />添加任务</Button>}
           />
         </div>

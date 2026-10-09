@@ -85,7 +85,7 @@ export function KnowledgeSection() {
       await setKnowledgeEnabled(entry.id, enabled)
       toast.success(enabled ? `已启用「${entry.title}」` : `已停用「${entry.title}」`)
     } catch (caught) {
-      setError(`无法${enabled ? '启用' : '停用'}「${entry.title}」：${describeKnowledgeError(caught)}`)
+      setError(`${enabled ? '启用' : '停用'}「${entry.title}」失败：${describeKnowledgeError(caught)}`)
     } finally {
       setBusyId(null)
       await invalidateKnowledge(queryClient, entry.id)
@@ -112,7 +112,7 @@ export function KnowledgeSection() {
         <EmptyState
           icon={BookOpen}
           title="还没有知识条目"
-          description="内置条目随服务发布；也可以自己写一条操作剧本、界面知识或用户档案。"
+          description="内置条目随服务发布，也可以自己新建一条"
           action={<Button asChild><Link to={NEW_KNOWLEDGE_PATH}><Plus aria-hidden="true" />新建条目</Link></Button>}
         />
       </div>
@@ -138,7 +138,7 @@ export function KnowledgeSection() {
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
       <Section
         title="知识条目"
-        description="Agent 每轮都会带上这份索引，正文由它在需要时用 read_knowledge 读取。"
+        hint="Agent 每轮都会带上这份索引，正文由它在需要时用 read_knowledge 读取。"
         actions={entries.length ? (
           <Button asChild variant="soft" size="sm">
             <Link to={NEW_KNOWLEDGE_PATH}><Plus aria-hidden="true" />新建</Link>

@@ -39,7 +39,7 @@ export function JsonControl({ id, value, isNull, disabled, invalid, describedBy,
     <div className="space-y-1.5">
       <p className="flex items-start gap-1.5 text-footnote text-muted-foreground">
         <Braces aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-        此参数用 JSON 编辑，输入完整的 JSON 值后自动应用。
+        输入完整的 JSON 后自动应用
       </p>
       <Textarea
         id={id}
@@ -56,7 +56,7 @@ export function JsonControl({ id, value, isNull, disabled, invalid, describedBy,
             onChange(parsed)
             setParseError(null)
           } catch {
-            setParseError('JSON 格式尚未完整或无效')
+            setParseError('JSON 格式尚未完整或无效。')
           }
         }}
       />

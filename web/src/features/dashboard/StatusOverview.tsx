@@ -110,7 +110,7 @@ export function StatusOverview({ dashboard }: { dashboard: Dashboard }) {
           <StatusRow
             icon={Smartphone}
             label="设备"
-            value={device ? deviceLabels[device.state] ?? `未知（${device.state}）` : '不可用'}
+            value={device ? deviceLabels[device.state] ?? '状态未知' : '不可用'}
             tone={deviceTone(deviceState)}
             details={device
               ? [
@@ -118,14 +118,14 @@ export function StatusOverview({ dashboard }: { dashboard: Dashboard }) {
                   retrying ? `正在连接（第 ${device.retry.attempt} / ${device.retry.max} 次）` : null,
                   device.last_error && typeof device.last_error.message === 'string' ? `最近错误：${device.last_error.message}` : null,
                 ]
-              : ['设备状态尚未装配或暂不可用']}
+              : ['设备状态暂不可用']}
           />
           <StatusRow
             icon={Cpu}
             label="内核"
-            value={core ? coreLabels[core.state] ?? `未知（${core.state}）` : '不可用'}
+            value={core ? coreLabels[core.state] ?? '状态未知' : '不可用'}
             tone={coreTone(core?.state)}
-            details={core ? [`PID ${core.pid ?? '—'} · 世代 ${core.generation}`] : ['内核运行状态尚未装配或暂不可用']}
+            details={core ? [`PID ${core.pid ?? '—'} · 世代 ${core.generation}`] : ['内核状态暂不可用']}
           />
           <StatusRow
             icon={Server}
@@ -164,7 +164,7 @@ export function StatusOverview({ dashboard }: { dashboard: Dashboard }) {
             </Button>
           )}
         >
-          请确认模拟器已启动，再发起连接。
+          先确认模拟器已启动，再发起连接。
         </InlineAlert>
       ) : null}
       {reconnect.error ? <InlineAlert tone="danger">重连失败：{toApiError(reconnect.error).message}</InlineAlert> : null}

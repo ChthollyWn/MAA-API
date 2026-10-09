@@ -20,7 +20,7 @@ export const primaryNav: readonly NavItem[] = [
 /** 「更多」里的次级入口；桌面侧边栏直接展开显示。 */
 export const secondaryNav: readonly (NavItem & { description: string })[] = [
   { to: '/more/updates', label: '热更新', icon: Download, description: '内核、活动资源与游戏版本' },
-  { to: '/more/audit', label: 'Agent 审计', icon: ClipboardList, description: '工具调用、确认结果与关联流水线' },
-  { to: '/more/api-console', label: 'API 调试台', icon: CodeXml, description: '选接口、发请求并查看服务端日志' },
-  { to: '/more/settings', label: '设置', icon: Settings2, description: '设备、渠道、LLM、通知与服务接入' },
+  { to: '/more/audit', label: 'Agent 审计', icon: ClipboardList, description: '工具调用、确认结果与流水线' },
+  { to: '/more/api-console', label: 'API 调试台', icon: CodeXml, description: '选接口、发请求、看日志' },
+  { to: '/more/settings', label: '设置', icon: Settings2, description: '设备、客户端渠道、LLM、通知与服务接入' },
 ]

@@ -3,7 +3,7 @@
     "schemas": {
       "AnswerRequest": {
         "additionalProperties": false,
-        "description": "``POST /api/agent/questions/{id}`` 的入参。\n\n``selected`` 用**必填的字符串数组**而不是 ``min_length=1``：空数组是「没有选择」\n这个业务错误（``400 QUESTION_SELECTION_INVALID``，规格 §3.4），不是字段级校验\n失败；把约束写进模型只会让同一种错误在两个状态码之间漂移。",
+        "description": "``POST /api/agent/questions/{id}`` 的入参。\n\n``selected`` 是必填的字符串数组；空数组或不合法的选项返回 400\n``QUESTION_SELECTION_INVALID``。``multiple=false`` 时只能给一项。",
         "properties": {
           "selected": {
             "items": {
@@ -188,7 +188,7 @@
       },
       "AwardInput": {
         "additionalProperties": false,
-        "description": "领取各种奖励。\n\nM17 起 ``award`` 与 ``mail``/``recruit``/``orundum``/``mining``/``specialaccess``\n都写 schema ``default``（内核默认值：``award=true``，其余 ``false``）。\n旧 ``TaskRequest`` 曾把它们一律写成 True 与 docstring 冲突；现在以内核源码的\n实际默认值为准，逐字段见\ndocs/superpowers/specs/2026-09-28-m17-task-param-defaults.md §4。",
+        "description": "领取各种奖励。",
         "examples": [
           {
             "award": true,
@@ -207,7 +207,7 @@
               }
             ],
             "default": true,
-            "description": "领取每日/每周任务奖励；内核默认值 True",
+            "description": "领取每日与每周任务奖励（默认开启）",
             "title": "Award",
             "x-group": "基础",
             "x-label": "领取每日/每周任务奖励"
@@ -222,7 +222,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -237,7 +237,7 @@
               }
             ],
             "default": false,
-            "description": "领取所有邮件奖励；内核默认值 False",
+            "description": "领取所有邮件奖励（默认关闭）",
             "title": "Mail",
             "x-group": "奖励项",
             "x-label": "领取邮件奖励"
@@ -252,7 +252,7 @@
               }
             ],
             "default": false,
-            "description": "领取限时开采许可的合成玉奖励；内核默认值 False",
+            "description": "领取限时开采许可的合成玉（默认关闭）",
             "title": "Mining",
             "x-group": "奖励项",
             "x-label": "领取限时开采许可奖励"
@@ -260,7 +260,7 @@
           "name": {
             "const": "Award",
             "default": "Award",
-            "description": "判别联合 discriminator，固定为 Award；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -276,7 +276,7 @@
               }
             ],
             "default": false,
-            "description": "领取幸运墙的合成玉奖励；内核默认值 False",
+            "description": "领取幸运墙的合成玉（默认关闭）",
             "title": "Orundum",
             "x-group": "奖励项",
             "x-label": "领取幸运墙合成玉"
@@ -291,7 +291,7 @@
               }
             ],
             "default": false,
-            "description": "领取限定池子赠送的每日免费单抽；内核默认值 False",
+            "description": "领取限定池的每日免费单抽（默认关闭）",
             "title": "Recruit",
             "x-group": "奖励项",
             "x-label": "领取每日免费单抽"
@@ -306,7 +306,7 @@
               }
             ],
             "default": false,
-            "description": "领取五周年赠送的月卡奖励；内核默认值 False",
+            "description": "领取五周年赠送的月卡奖励（默认关闭）",
             "title": "Specialaccess",
             "x-group": "奖励项",
             "x-label": "领取五周年月卡奖励"
@@ -376,7 +376,7 @@
                 "type": "null"
               }
             ],
-            "description": "客户端版本；docstring 标注「必选，填空则不执行」，实际上由全局渠道默认值注入保证非空（未指定时套用默认 Bilibili）。可选值：Official / Bilibili / txwy / YoStarEN / YoStarJP / YoStarKR",
+            "description": "要关闭的客户端渠道；不填时用设置里选的默认渠道",
             "title": "Client Type",
             "x-enum-labels": {
               "Bilibili": "B 服",
@@ -400,7 +400,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -408,7 +408,7 @@
           "name": {
             "const": "CloseDown",
             "default": "CloseDown",
-            "description": "判别联合 discriminator，固定为 CloseDown；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -557,7 +557,7 @@
         ],
         "properties": {
           "asset_id": {
-            "description": "已上传并通过结构校验的 Copilot 作业 ID；执行时由服务端解析为资源文件路径。不支持运行中设置",
+            "description": "要执行的已上传作业（不支持运行中设置）",
             "maxLength": 36,
             "minLength": 1,
             "title": "Asset Id",
@@ -567,7 +567,7 @@
           },
           "formation": {
             "default": false,
-            "description": "执行作业前是否重新编队；默认关闭",
+            "description": "执行作业前按作业重新编队（默认关闭）",
             "title": "Formation",
             "type": "boolean",
             "x-group": "基础",
@@ -576,7 +576,7 @@
           "name": {
             "const": "Copilot",
             "default": "Copilot",
-            "description": "判别联合 discriminator，固定为 Copilot；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -590,7 +590,7 @@
         "type": "object"
       },
       "CoreHealth": {
-        "description": "内核监督器的最小首页状态。",
+        "description": "内核状态：运行状态、进程 pid 与重启代际。",
         "properties": {
           "generation": {
             "title": "Generation",
@@ -666,7 +666,7 @@
         "type": "object"
       },
       "DeviceHealth": {
-        "description": "复用 ``DeviceManager.snapshot()`` 的设备状态。",
+        "description": "设备连接状态与最近一次连接信息。",
         "properties": {
           "address": {
             "anyOf": [
@@ -748,7 +748,7 @@
         "type": "object"
       },
       "DeviceRetryHealth": {
-        "description": "复用 ``DeviceManager.snapshot()`` 的重试状态。",
+        "description": "自动重连状态：已尝试次数、上限与下次重连时间（epoch 秒）。",
         "properties": {
           "attempt": {
             "title": "Attempt",
@@ -802,7 +802,7 @@
               }
             ],
             "default": false,
-            "description": "节省理智碎石模式；仅在可能产生碎石效果时生效：在碎石确认界面等待，直到当前的 1 点理智恢复完成后再立刻碎石。内核默认值 False",
+            "description": "在碎石确认界面等到理智恢复 1 点再碎，省一颗源石（默认关闭）",
             "title": "Drgrandet",
             "x-group": "资源消耗",
             "x-label": "节省理智碎石模式"
@@ -824,7 +824,7 @@
                 "type": "null"
               }
             ],
-            "description": "客户端版本；用于游戏崩溃时重启并连回去继续刷，若为空则不启用该功能。未指定时套用全局渠道默认值（默认 Bilibili）",
+            "description": "客户端渠道；崩溃后按它重启游戏继续刷，明确留空则不启用",
             "title": "Client Type",
             "x-enum-labels": {
               "Bilibili": "B 服",
@@ -851,7 +851,7 @@
               }
             ],
             "default": {},
-            "description": "指定掉落数量；key 为 item_id（见 resource/item_index.json），value 为数量。是或的关系，即任一达到即停止任务；默认空对象表示不指定掉落目标",
+            "description": "指定掉落目标与数量，任一达标就停止任务（默认不指定）",
             "title": "Drops",
             "x-group": "高级",
             "x-label": "指定掉落数量",
@@ -867,7 +867,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -883,7 +883,7 @@
               }
             ],
             "default": 0,
-            "description": "最大使用 48 小时内过期理智药数量；内核默认值 0。该参数自内核 v6.8.0 起已弃用，内核改用 medicine_expire_days（理智药过期天数，非 0 即视为 2 天）；本服务的字段仅为兼容旧提交保留",
+            "description": "最多吃几瓶 48 小时内过期的理智药；当前内核已不再读取（默认 0）",
             "title": "Expiring Medicine",
             "x-group": "资源消耗",
             "x-label": "最大 48 小时内过期理智药数",
@@ -900,7 +900,7 @@
               }
             ],
             "default": 0,
-            "description": "最大使用理智药数量；内核默认值 0（即不吃药）",
+            "description": "最多吃几瓶理智药（默认 0，即不吃）",
             "title": "Medicine",
             "x-group": "资源消耗",
             "x-label": "最大理智药数",
@@ -909,7 +909,7 @@
           "name": {
             "const": "Fight",
             "default": "Fight",
-            "description": "判别联合 discriminator，固定为 Fight；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -924,7 +924,7 @@
                 "type": "null"
               }
             ],
-            "description": "企鹅数据汇报 id；仅在 report_to_penguin 为 True 时有效",
+            "description": "企鹅物流的汇报 id，配合「汇报企鹅数据」使用",
             "title": "Penguin Id",
             "x-depends-on": {
               "report_to_penguin": true
@@ -942,7 +942,7 @@
               }
             ],
             "default": false,
-            "description": "是否汇报企鹅数据；内核默认值 False",
+            "description": "把作战结果上传到企鹅物流（默认关闭）",
             "title": "Report To Penguin",
             "x-group": "数据上报",
             "x-label": "汇报企鹅数据"
@@ -959,7 +959,7 @@
               }
             ],
             "default": 1,
-            "description": "连战次数；-1 为禁用切换，0 为自动切换为当前可用的最大次数（如当前理智不够 6 次，则选择最低可用次数），1~6 为指定连战次数。内核默认值 1",
+            "description": "同一关卡连续作战的次数（默认 1）",
             "title": "Series",
             "x-enum-labels": {
               "-1": "禁用切换",
@@ -990,7 +990,7 @@
                 "type": "null"
               }
             ],
-            "description": "服务器，会影响掉落识别及上传；未指定时套用全局默认值（CN）。可选值：CN / US / JP / KR",
+            "description": "游戏服务器，影响掉落识别与上传；不填时用设置里选的默认服务器",
             "title": "Server",
             "x-enum-labels": {
               "CN": "国服",
@@ -1011,7 +1011,7 @@
                 "type": "null"
               }
             ],
-            "description": "关卡名；留空则识别当前/上次的关卡。支持全部主线关卡（如 1-7、S3-2），可在关卡结尾输入 Normal/Hard 表示需要切换标准与磨难难度；剿灭作战必须输入 Annihilation；当期 SS 活动后三关必须输入完整关卡编号。不支持运行中设置",
+            "description": "剿灭作战填 Annihilation，留空识别当前或上次关卡（不支持运行中设置）",
             "examples": [
               "1-7",
               "S3-2",
@@ -1033,7 +1033,7 @@
               }
             ],
             "default": 0,
-            "description": "最大吃石头（源石）数量；内核默认值 0（即不碎石）",
+            "description": "最多碎几颗源石换理智（默认 0，即不碎）",
             "title": "Stone",
             "x-group": "资源消耗",
             "x-label": "最大碎石数",
@@ -1049,7 +1049,7 @@
                 "type": "null"
               }
             ],
-            "description": "指定战斗次数；不传则由内核使用默认值（无穷大）",
+            "description": "刷多少次后停止；不填则不限制次数",
             "title": "Times",
             "x-group": "基础",
             "x-label": "指定次数"
@@ -1112,7 +1112,7 @@
         "type": "object"
       },
       "HealthResponse": {
-        "description": "``GET /api/system/health`` 的响应体（docs/05 §6.1、§3.3）。\n\n内核（``core``）、设备（``device``）与队列（``queue``）只读取 lifespan 装配到\n``app.state`` 的运行时对象。lifespan 尚未完成或没有装配对象时，这些字段为\n``null``，健康探测仍返回 200。队列只包含计数与暂停状态，不暴露队列详情。\n\n``started_at`` 按 docs/05 §3.3「尚未发生的字段返回 ``null`` 而不是省略键」，\n类型是 ``str | None``、默认 ``None``，响应里始终出现该键；写入方是 M3-09 的\nlifespan（``app.state.started_at``），本模块只负责读取。",
+        "description": "``GET /api/system/health`` 的响应体。\n\n``core`` / ``device`` / ``queue`` 在运行时对象尚未就绪时为 ``null``，健康探测仍返回 200。\n``started_at`` 是进程启动时间，尚未写入时为 ``null``（键始终存在）。",
         "properties": {
           "auth_enabled": {
             "title": "Auth Enabled",
@@ -1217,7 +1217,7 @@
               }
             ],
             "default": false,
-            "description": "是否启用宿舍「未进驻」选项；内核默认值 False",
+            "description": "宿舍填充时勾选「未进驻」筛选（默认关闭）",
             "title": "Dorm Notstationed Enabled",
             "x-group": "基础",
             "x-label": "启用宿舍「未进驻」选项"
@@ -1232,7 +1232,7 @@
               }
             ],
             "default": false,
-            "description": "是否将宿舍剩余位置填入信赖未满干员；内核默认值 False",
+            "description": "宿舍剩余位置填信赖未满的干员（默认关闭）",
             "title": "Dorm Trust Enabled",
             "x-group": "基础",
             "x-label": "剩余位置填入信赖未满干员"
@@ -1256,7 +1256,7 @@
               }
             ],
             "default": "_NotUse",
-            "description": "无人机用途；mode == 10000 时该字段无效（会被忽略）。可选值包括 \"_NotUse\", \"Money\", \"SyntheticJade\", \"CombatRecord\", \"PureGold\", \"OriginStone\", \"Chip\"；内核默认值 _NotUse",
+            "description": "无人机用在哪里；自定义换班模式下不生效（默认不使用）",
             "title": "Drones",
             "x-enum-labels": {
               "Chip": "芯片",
@@ -1281,7 +1281,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -1325,7 +1325,7 @@
               "Office",
               "Dorm"
             ],
-            "description": "要换班的设施（有序，顺序即换班顺序），内核必填；默认值（全部七个设施，按标准换班顺序）由本服务约定，内核没有默认值。设施名选项包括 \"Mfg\", \"Trade\", \"Power\", \"Control\", \"Reception\", \"Office\", \"Dorm\"。不支持运行中设置",
+            "description": "要换班的设施，顺序即换班顺序，默认全部（不支持运行中设置）",
             "title": "Facility",
             "x-group": "基础",
             "x-label": "要换班的设施（有序）",
@@ -1340,7 +1340,7 @@
                 "type": "null"
               }
             ],
-            "description": "自定义配置路径，仅 mode == 10000 时生效且必填，否则会被忽略。不支持运行中设置",
+            "description": "自定义换班用的配置文件路径（不支持运行中设置）",
             "title": "Filename",
             "x-group": "自定义换班",
             "x-label": "自定义配置路径"
@@ -1360,7 +1360,7 @@
               }
             ],
             "default": 0,
-            "description": "换班工作模式；0 为默认换班模式（单设施最优解），10000 为自定义换班模式（读取用户配置），20000 为一键轮换模式（会跳过控制中枢、发电站、宿舍以及办公室，其余设施不进行换班但保留基本操作，如使用无人机、会客室逻辑）。内核默认值 0",
+            "description": "换班工作模式；一键轮换会跳过部分设施（默认换班）",
             "title": "Mode",
             "x-enum-labels": {
               "0": "默认换班（单设施最优解）",
@@ -1374,7 +1374,7 @@
           "name": {
             "const": "Infrast",
             "default": "Infrast",
-            "description": "判别联合 discriminator，固定为 Infrast；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -1391,7 +1391,7 @@
               }
             ],
             "default": 0,
-            "description": "使用配置中的方案序号，仅 mode == 10000 时生效且必填，否则会被忽略。内核默认值 0；不支持运行中设置",
+            "description": "用配置文件里的第几个方案，默认第一个（不支持运行中设置）",
             "title": "Plan Index",
             "x-group": "自定义换班",
             "x-label": "方案序号"
@@ -1406,7 +1406,7 @@
               }
             ],
             "default": false,
-            "description": "贸易站「源石碎片」是否自动补货；内核默认值 False",
+            "description": "贸易站「源石碎片」卖完后自动补货（默认关闭）",
             "title": "Replenish",
             "x-group": "基础",
             "x-label": "源石碎片自动补货"
@@ -1423,7 +1423,7 @@
               }
             ],
             "default": 0.3,
-            "description": "工作心情阈值，取值范围 [0, 1.0]；内核默认值 0.3。mode == 10000 时该字段仅针对 autofill 有效",
+            "description": "干员心情低于这个比例就换班（默认 0.3）",
             "title": "Threshold",
             "x-group": "基础",
             "x-label": "工作心情阈值"
@@ -1628,7 +1628,7 @@
         "type": "object"
       },
       "KnowledgePage": {
-        "description": "列表响应：不含正文（规格 §4.1 的 REST 表）。",
+        "description": "列表响应：列表项不含正文，只给字数。",
         "properties": {
           "items": {
             "items": {
@@ -1820,7 +1820,7 @@
               }
             ],
             "default": [],
-            "description": "黑名单列表（商品名，如「加急许可」「家具零件」等）；默认空列表（无黑名单），不支持运行中设置，可选",
+            "description": "不买的商品名（不支持运行中设置）",
             "title": "Blacklist",
             "x-group": "购买清单",
             "x-label": "黑名单列表",
@@ -1839,7 +1839,7 @@
               }
             ],
             "default": [],
-            "description": "优先购买列表（商品名，如「招聘许可」「龙门币」等）；默认空列表（无优先项），不支持运行中设置，可选",
+            "description": "优先购买的商品名（不支持运行中设置）",
             "title": "Buy First",
             "x-group": "购买清单",
             "x-label": "优先购买列表",
@@ -1855,7 +1855,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -1870,7 +1870,7 @@
               }
             ],
             "default": false,
-            "description": "是否在信用溢出时无视黑名单；内核默认值 False",
+            "description": "信用点溢出时也买黑名单里的商品（默认关闭）",
             "title": "Force Shopping If Credit Full",
             "x-group": "基础",
             "x-label": "信用溢出时无视黑名单"
@@ -1878,7 +1878,7 @@
           "name": {
             "const": "Mall",
             "default": "Mall",
-            "description": "判别联合 discriminator，固定为 Mall；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -1894,7 +1894,7 @@
               }
             ],
             "default": false,
-            "description": "是否只购买折扣物品，只作用于第二轮购买；内核默认值 False",
+            "description": "只买打折商品，第二轮购买生效（默认关闭）",
             "title": "Only Buy Discount",
             "x-group": "基础",
             "x-label": "只购买折扣物品"
@@ -1909,7 +1909,7 @@
               }
             ],
             "default": false,
-            "description": "是否在信用点低于 300 时停止购买，只作用于第二轮购买；内核默认值 False",
+            "description": "信用点低于 300 就停止购买，第二轮生效（默认关闭）",
             "title": "Reserve Max Credit",
             "x-group": "基础",
             "x-label": "信用点低于 300 时停止购买"
@@ -1924,7 +1924,7 @@
               }
             ],
             "default": true,
-            "description": "是否购物；内核默认值 True。不支持运行中设置",
+            "description": "用信用点买东西，默认开启（不支持运行中设置）",
             "title": "Shopping",
             "x-group": "基础",
             "x-label": "是否购物",
@@ -2179,7 +2179,7 @@
         "type": "object"
       },
       "PushSubscribeRequest": {
-        "description": "浏览器 ``PushSubscription.toJSON()`` 的子集（``expirationTime`` 忽略）。",
+        "description": "浏览器 ``PushSubscription.toJSON()`` 的子集，``expirationTime`` 忽略。",
         "properties": {
           "endpoint": {
             "maxLength": 2048,
@@ -2203,7 +2203,7 @@
         "type": "object"
       },
       "PushUnsubscribeRequest": {
-        "description": "按 endpoint 注销订阅（注册接口的请求形状里 endpoint 是必填，这里同理）。",
+        "description": "按 ``endpoint`` 注销订阅。",
         "properties": {
           "endpoint": {
             "maxLength": 2048,
@@ -2231,7 +2231,7 @@
         "type": "string"
       },
       "QueueHealth": {
-        "description": "队列概览，不暴露流水线或任务条目。",
+        "description": "队列计数与暂停状态。",
         "properties": {
           "paused": {
             "title": "Paused",
@@ -2280,7 +2280,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -2299,7 +2299,7 @@
               }
             ],
             "default": 0,
-            "description": "点击类型；0 为连点，1 为长按。内核默认值 0",
+            "description": "制造时点击屏幕的方式（默认连点）",
             "title": "Increment Mode",
             "x-enum-labels": {
               "0": "连点",
@@ -2323,7 +2323,7 @@
               }
             ],
             "default": 0,
-            "description": "模式；0 为刷分与建造点（进入战斗直接退出），1 为沙中之火刷赤金、联络员买水后基地锻造／沙洲遗闻自动制造物品并读档刷货币。内核默认值 0",
+            "description": "运行模式（默认刷分与建造点）",
             "title": "Mode",
             "x-enum-labels": {
               "0": "刷分与建造点（进入战斗直接退出）",
@@ -2336,7 +2336,7 @@
           "name": {
             "const": "Reclamation",
             "default": "Reclamation",
-            "description": "判别联合 discriminator，固定为 Reclamation；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -2353,7 +2353,7 @@
               }
             ],
             "default": 16,
-            "description": "单次最大制造轮数；内核默认值 16（按组装荧光棒至少消耗 3000 木头推算）",
+            "description": "单次最多制造几轮（默认 16）",
             "title": "Num Craft Batches",
             "x-group": "制造",
             "x-label": "单次最大制造轮数"
@@ -2372,7 +2372,7 @@
               }
             ],
             "default": "Tales",
-            "description": "主题；Fire 为「沙中之火」，Tales 为「沙洲遗闻」。内核默认值 Tales（Fire 主题已下线，内核会直接停止任务）",
+            "description": "生息演算主题；沙中之火已下线（默认沙洲遗闻）",
             "title": "Theme",
             "x-enum-labels": {
               "Fire": "沙中之火",
@@ -2395,7 +2395,7 @@
               }
             ],
             "default": [],
-            "description": "自动制造的物品；默认空列表表示不组装任何物品。内核对该键没做缺省判空（ReclamationCraftTaskPlugin 直接取 find(...).value()），所以必须显式下发——这也是它需要默认值的原因；要组装请自行填入物品名",
+            "description": "要自动制造的物品；不填则不制造",
             "title": "Tools To Craft",
             "x-group": "制造",
             "x-label": "自动制造的物品",
@@ -2475,7 +2475,7 @@
               4,
               5
             ],
-            "description": "会去点击确认的 Tag 等级，内核必填；元素取值范围 1~6。默认值 [2, 3, 4, 5] 由本服务约定（内核没有默认值）。内核以「confirm 含 -1」表示仅公招计算（只计算 Tag 组合、不点击确认），本服务的元素约束 1~6 不接受 -1",
+            "description": "要点击确认的 Tag 星级（默认 2、3、4、5 星）",
             "title": "Confirm",
             "x-group": "基础",
             "x-label": "确认的 Tag 等级",
@@ -2491,7 +2491,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -2506,7 +2506,7 @@
               }
             ],
             "default": false,
-            "description": "是否使用加急许可；内核默认值 False",
+            "description": "用加急许可立刻完成招募（默认关闭）",
             "title": "Expedite",
             "x-group": "加急与跳过",
             "x-label": "使用加急许可",
@@ -2522,7 +2522,7 @@
                 "type": "null"
               }
             ],
-            "description": "加急次数；仅在 expedite 为 True 时有效。内核 v6.17.5 已不再使用该值（RecruitTask.cpp 取到后以 [[maybe_unused]] 丢弃，加急次数实际由 times 上限决定），本字段仅为兼容旧提交保留，因此没有默认值",
+            "description": "当前内核不再读取此值，加急次数由「招募次数」决定",
             "title": "Expedite Times",
             "x-depends-on": {
               "expedite": true
@@ -2545,7 +2545,7 @@
               }
             ],
             "default": 0,
-            "description": "选择更多的 Tags；0 为默认行为，1 为选 3 个 Tags（即使可能冲突），2 为如果可能则同时选择更多的高星 Tag 组合（即使可能冲突）。内核默认值 0",
+            "description": "一轮里选择更多 Tag 的策略（默认 0）",
             "title": "Extra Tags Mode",
             "x-enum-labels": {
               "0": "默认行为",
@@ -2569,7 +2569,7 @@
               }
             ],
             "default": [],
-            "description": "首选 Tags，仅在 Tag 等级为 3 时有效；会尽可能多地选择这里的 Tags（如果有）。属于强制选择，会忽略所有「让 3 星 Tag 不被选择」的设置",
+            "description": "无论其他设置如何都会优先进这些 Tag（仅 3 星）",
             "title": "First Tags",
             "x-group": "公招标签",
             "x-label": "首选 Tags",
@@ -2578,7 +2578,7 @@
           "name": {
             "const": "Recruit",
             "default": "Recruit",
-            "description": "判别联合 discriminator，固定为 Recruit；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -2593,7 +2593,7 @@
                 "type": "null"
               }
             ],
-            "description": "企鹅数据汇报 id；仅在 report_to_penguin 为 True 时有效",
+            "description": "企鹅物流的汇报 id，配合「汇报企鹅数据」使用",
             "title": "Penguin Id",
             "x-depends-on": {
               "report_to_penguin": true
@@ -2619,7 +2619,7 @@
               "5": 540,
               "6": 540
             },
-            "description": "Tag 等级（大于等于 3，JSON 键为字符串）和对应的希望招募时限，单位为分钟；内核默认值都为 540（即 09:00:00）",
+            "description": "各 Tag 星级对应的希望招募时限（默认 9 小时）",
             "title": "Recruitment Time",
             "x-group": "公招标签",
             "x-label": "招募时限映射",
@@ -2635,7 +2635,7 @@
               }
             ],
             "default": false,
-            "description": "是否刷新三星 Tags；内核默认值 False",
+            "description": "连三星标签也一起刷新（默认关闭）",
             "title": "Refresh",
             "x-group": "基础",
             "x-label": "刷新三星 Tags"
@@ -2650,7 +2650,7 @@
               }
             ],
             "default": false,
-            "description": "是否汇报企鹅数据；内核默认值 False",
+            "description": "把公招结果上传到企鹅物流（默认关闭）",
             "title": "Report To Penguin",
             "x-group": "数据上报",
             "x-label": "汇报企鹅数据"
@@ -2665,7 +2665,7 @@
               }
             ],
             "default": false,
-            "description": "是否汇报一图流数据；内核默认值 False",
+            "description": "把公招结果上传到一图流（默认关闭）",
             "title": "Report To Yituliu",
             "x-group": "数据上报",
             "x-label": "汇报一图流数据"
@@ -2689,7 +2689,7 @@
               4,
               5
             ],
-            "description": "会去点击标签的 Tag 等级，内核必填；元素取值范围 1~6。默认值 [1, 4, 5] 由本服务约定（内核没有默认值），沿用旧前端日常预设",
+            "description": "要点击选中的 Tag 星级（默认 1、4、5 星）",
             "title": "Select",
             "x-group": "基础",
             "x-label": "点击的 Tag 等级",
@@ -2710,7 +2710,7 @@
                 "type": "null"
               }
             ],
-            "description": "服务器，会影响上传；未指定时套用全局默认值（CN）。可选值：CN / US / JP / KR",
+            "description": "游戏服务器，影响数据上传；不填时用设置里选的默认服务器",
             "title": "Server",
             "x-enum-labels": {
               "CN": "国服",
@@ -2732,7 +2732,7 @@
               }
             ],
             "default": true,
-            "description": "是否设置招募时限（按 recruitment_time 的对应值把游戏内计时器点到位）；内核默认值 True。该设置只在真正执行招募时用得上——内核在 times=0 时主循环不执行，旧文案「仅在 times 为 0 时生效」与源码相反",
+            "description": "按「招募时限映射」把游戏内招募计时器点到位（默认开启）",
             "title": "Set Time",
             "x-depends-on": {
               "times": 0
@@ -2750,7 +2750,7 @@
               }
             ],
             "default": false,
-            "description": "是否在识别到小车词条时跳过；内核默认值 False。内核源码用 params.find(\"skip_robot\")——键缺省即不跳过，旧文案「默认 True」与源码相反（官方文档的 @default true 与源码冲突，以源码为准）",
+            "description": "识别到小车词条时跳过（默认关闭）",
             "title": "Skip Robot",
             "x-group": "加急与跳过",
             "x-label": "跳过小车词条"
@@ -2766,7 +2766,7 @@
               }
             ],
             "default": 0,
-            "description": "招募多少次；内核默认值 0（主循环不执行，只进公招页而不招募）。要真正招募请设置为大于 0 的次数",
+            "description": "招募多少次；默认 0，只进公招页不招募",
             "title": "Times",
             "x-group": "基础",
             "x-label": "招募次数"
@@ -2780,7 +2780,7 @@
                 "type": "null"
               }
             ],
-            "description": "一图流汇报 id；仅在 report_to_yituliu 为 True 时有效",
+            "description": "一图流的汇报 id，配合「汇报一图流数据」使用",
             "title": "Yituliu Id",
             "x-depends-on": {
               "report_to_yituliu": true
@@ -2911,7 +2911,7 @@
                 "type": "null"
               }
             ],
-            "description": "是否检测获取的坍缩范式；仅适用于 Sami 主题。模式 5 下内核默认值为 True，其他模式下为 False；不传则由内核决定",
+            "description": "检测拿到的坍缩范式；不填由内核按模式决定（刷坍缩范式默认开启）",
             "title": "Check Collapsal Paradigms",
             "x-depends-on": {
               "theme": "Sami"
@@ -2928,7 +2928,7 @@
                 "type": "null"
               }
             ],
-            "description": "开局干员名；仅支持单个干员中文名（无论区服）；留空 = 内核自动选择（根据练度自动选，传空字符串 \"\" 等效）",
+            "description": "开局要借的干员中文名；不填则由内核自动选择",
             "title": "Core Char",
             "x-group": "开局",
             "x-label": "开局干员名"
@@ -2943,7 +2943,7 @@
                 "type": "null"
               }
             ],
-            "description": "指定难度等级；仅适用于除 Phantom 以外的主题，若未解锁难度则会选择当前已解锁的最高难度。内核默认值为 -1（未指定），但 Phantom 主题下不允许非空，所以这里保持「未设置」三态而不写静态默认值",
+            "description": "仅用于傀影以外的主题；不填则选已解锁的最高难度",
             "title": "Difficulty",
             "x-group": "开局",
             "x-label": "指定难度等级"
@@ -2957,7 +2957,7 @@
                 "type": "null"
               }
             ],
-            "description": "是否执行坍缩范式检测防漏措施；仅在主题为 Sami 且 check_collapsal_paradigms 为 True 时有效。模式 5 下内核默认值为 True，其他模式下为 False；不传则由内核决定",
+            "description": "多一道坍缩范式检测，避免漏检（不填由内核决定）",
             "title": "Double Check Collapsal Paradigms",
             "x-depends-on": {
               "check_collapsal_paradigms": true
@@ -2975,7 +2975,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -2992,7 +2992,7 @@
                 "type": "null"
               }
             ],
-            "description": "希望触发的坍缩范式；仅在主题为 Sami 且模式为 5 时有效。内核默认值为 [\"目空一些\", \"睁眼瞎\", \"图像损坏\", \"一抹黑\"]",
+            "description": "希望刷到的坍缩范式（仅刷坍缩范式模式）",
             "title": "Expected Collapsal Paradigms",
             "x-depends-on": {
               "mode": 5,
@@ -3011,7 +3011,7 @@
                 "type": "null"
               }
             ],
-            "description": "希望在第一层远见阶段得到的密文板；仅适用于 Sami 主题，不限模式；若成功凹到则停止任务",
+            "description": "第一层远见想要的密文板；凹到就停止任务",
             "title": "First Floor Foldartal",
             "x-depends-on": {
               "theme": "Sami"
@@ -3029,7 +3029,7 @@
               }
             ],
             "default": true,
-            "description": "是否投资源石锭；内核默认值 True",
+            "description": "把源石锭投进商店（默认开启）",
             "title": "Investment Enabled",
             "x-group": "投资",
             "x-label": "投资源石锭",
@@ -3044,7 +3044,7 @@
                 "type": "null"
               }
             ],
-            "description": "投资源石锭的次数；达到后自动停止任务。不传则由内核使用默认值（INT_MAX，即不限制）",
+            "description": "投多少次后停止；不填则不限制",
             "title": "Investments Count",
             "x-group": "投资",
             "x-label": "投资次数"
@@ -3067,13 +3067,13 @@
               }
             ],
             "default": 0,
-            "description": "模式；0 为刷分/奖励点数（尽可能稳定地打更多层数），1 为刷源石锭（第一层投资完就退出），2 已弃用（兼顾模式 0 与 1，投资过后再退出，没有投资就继续往后打），3 开发中，4 为凹开局（先在 0 难度下到达第三层后重开，再到指定难度下凹开局奖励；Phantom 主题下不切换难度），5 为刷坍缩范式（仅适用于 Sami 主题）。内核默认值 0",
+            "description": "肉鸽的玩法模式（默认刷分/奖励点数）",
             "title": "Mode",
             "x-enum-labels": {
               "0": "刷分/奖励点数",
               "1": "刷源石锭",
-              "2": "已弃用",
-              "3": "开发中",
+              "2": "已弃用（无法提交）",
+              "3": "开发中（无法提交）",
               "4": "凹开局",
               "5": "刷坍缩范式（仅 Sami）"
             },
@@ -3084,7 +3084,7 @@
           "name": {
             "const": "Roguelike",
             "default": "Roguelike",
-            "description": "判别联合 discriminator，固定为 Roguelike；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -3100,7 +3100,7 @@
               }
             ],
             "default": false,
-            "description": "是否只凹开局干员精二直升而忽视其他开局条件；仅在模式为 4 且 start_with_elite_two 为 True 时有效。内核默认值 False",
+            "description": "只凹精二直升，忽略其他开局条件（默认关闭）",
             "title": "Only Start With Elite Two",
             "x-depends-on": {
               "mode": 4,
@@ -3119,7 +3119,7 @@
               }
             ],
             "default": false,
-            "description": "是否用骰子刷新商店购买特殊商品；仅适用于 Mizuki 主题，用于刷指路鳞。内核默认值 False",
+            "description": "用骰子刷新商店，用于刷指路鳞（默认关闭）",
             "title": "Refresh Trader With Dice",
             "x-depends-on": {
               "theme": "Mizuki"
@@ -3136,7 +3136,7 @@
                 "type": "null"
               }
             ],
-            "description": "开局职业组；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「取长补短」）",
+            "description": "开局职业组；不填则由内核自动选择",
             "title": "Roles",
             "x-group": "基础",
             "x-label": "开局职业组"
@@ -3150,7 +3150,7 @@
                 "type": "null"
               }
             ],
-            "description": "开局分队名；留空 = 内核自动选择（内核源码取空串，而不是官方文档写的「指挥分队」）",
+            "description": "开局用哪个分队；不填则由内核自动选择",
             "title": "Squad",
             "x-group": "基础",
             "x-label": "开局分队名"
@@ -3167,7 +3167,7 @@
                 "type": "null"
               }
             ],
-            "description": "凹开局时希望在开局奖励阶段得到的密文板；仅主题为 Sami 且模式为 4 时有效。仅当开局拥有列表中所有的密文板时才算凹开局成功；此参数须与「生活至上分队」同时使用，其他分队在开局奖励阶段不会获得密文板",
+            "description": "开局奖励想要的密文板；需搭配「生活至上分队」",
             "title": "Start Foldartal List",
             "x-depends-on": {
               "mode": 4,
@@ -3187,7 +3187,7 @@
               }
             ],
             "default": false,
-            "description": "是否在凹开局的同时凹干员精二直升；仅适用于模式 4。内核默认值 False",
+            "description": "凹开局时顺便凹精二直升（仅「凹开局」，默认关闭）",
             "title": "Start With Elite Two",
             "x-group": "开局",
             "x-label": "凹干员精二直升"
@@ -3201,7 +3201,7 @@
                 "type": "null"
               }
             ],
-            "description": "开始探索的次数；达到后自动停止任务。不传则由内核使用默认值（INT_MAX，即不限制）",
+            "description": "开始探索多少次后停止；不填则不限制",
             "title": "Starts Count",
             "x-group": "开局",
             "x-label": "开始探索次数"
@@ -3216,7 +3216,7 @@
               }
             ],
             "default": false,
-            "description": "是否在第 5 层险路恶敌节点前停止任务；仅适用于除 Phantom 以外的主题。内核默认值 False",
+            "description": "仅用于傀影以外的主题，第 5 层险路恶敌前停止（默认关闭）",
             "title": "Stop At Final Boss",
             "x-group": "主题专属",
             "x-label": "第 5 层险路恶敌前停止"
@@ -3231,7 +3231,7 @@
               }
             ],
             "default": false,
-            "description": "是否在投资到达上限后自动停止任务；内核默认值 False",
+            "description": "投资满后自动停止任务（默认关闭）",
             "title": "Stop When Investment Full",
             "x-group": "投资",
             "x-label": "投资满后停止任务"
@@ -3252,7 +3252,7 @@
               }
             ],
             "default": "Phantom",
-            "description": "主题；可选值包括 \"Phantom\", \"Mizuki\", \"Sami\", \"Sarkaz\"。内核默认值 Phantom",
+            "description": "要刷的肉鸽主题（默认傀影与猩红孤钻）",
             "title": "Theme",
             "x-enum-labels": {
               "Mizuki": "水月与深蓝之树",
@@ -3273,7 +3273,7 @@
                 "type": "null"
               }
             ],
-            "description": "是否使用密文板；仅适用于 Sami 主题。模式 5 下内核默认值为 False，其他模式下为 True；不传则由内核决定",
+            "description": "是否使用密文板；不填由内核按模式决定（刷坍缩范式默认关闭）",
             "title": "Use Foldartal",
             "x-depends-on": {
               "theme": "Sami"
@@ -3291,7 +3291,7 @@
               }
             ],
             "default": false,
-            "description": "是否可以是非好友助战干员；仅在 use_support 为 True 时有效。内核默认值 False",
+            "description": "允许借非好友的助战干员（默认关闭）",
             "title": "Use Nonfriend Support",
             "x-depends-on": {
               "use_support": true
@@ -3309,7 +3309,7 @@
               }
             ],
             "default": false,
-            "description": "开局干员是否为助战干员；内核默认值 False",
+            "description": "开局干员换成助战干员（默认关闭）",
             "title": "Use Support",
             "x-group": "开局",
             "x-label": "开局干员为助战干员"
@@ -3791,7 +3791,7 @@
                 "type": "null"
               }
             ],
-            "description": "切换账号；仅支持切换至已登录的账号，使用登录名进行查找，保证输入内容在所有已登录账号中唯一即可。官服示例 123****4567（可输入 123****4567、4567、123、3****4567）；B 服示例 张三（可输入 张三、张、三）",
+            "description": "切换到已登录的账号，输入登录名的一部分即可；不填则不切换",
             "examples": [
               "123****4567",
               "4567",
@@ -3818,7 +3818,7 @@
                 "type": "null"
               }
             ],
-            "description": "客户端版本；未指定时套用全局渠道默认值（默认 Bilibili）。可选值：Official / Bilibili / txwy / YoStarEN / YoStarJP / YoStarKR",
+            "description": "游戏客户端渠道；不填时用设置里选的默认渠道",
             "title": "Client Type",
             "x-enum-labels": {
               "Bilibili": "B 服",
@@ -3842,7 +3842,7 @@
               }
             ],
             "default": true,
-            "description": "是否启用本任务；内核默认值 True（启用）",
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
             "title": "Enable",
             "x-group": "基础",
             "x-label": "启用本任务"
@@ -3850,7 +3850,7 @@
           "name": {
             "const": "StartUp",
             "default": "StartUp",
-            "description": "判别联合 discriminator，固定为 StartUp；由任务类型选择器决定，用户不需要填写",
+            "description": "由任务类型选择器决定，不用填",
             "title": "Name",
             "type": "string",
             "x-group": "基础",
@@ -3866,7 +3866,7 @@
               }
             ],
             "default": false,
-            "description": "是否自动启动客户端；内核默认值 False（即不自动启动，源码 StartUpTask.cpp 的 params.get(\"start_game_enabled\", false)）。需要自动启动客户端时请显式设为 True",
+            "description": "启动任务前自动打开游戏客户端（默认关闭）",
             "title": "Start Game Enabled",
             "x-group": "账号",
             "x-label": "自动启动客户端"
@@ -3921,7 +3921,7 @@
       },
       "TaskValidateRequest": {
         "additionalProperties": false,
-        "description": "``POST /api/tasks/validate`` 的请求体：只有任务数组。\n\n有意不复用 :class:`~maa_api.domain.task.PipelineCreate`：校验端点不建流水线，\n``title`` / ``priority`` / ``notify_on_finish`` 在这里没有意义，接受它们只会\n让调用方误以为「校验通过」等于「提交参数合法」。",
+        "description": "``POST /api/tasks/validate`` 的请求体：只有任务数组。\n\n不含 ``title`` / ``priority`` / ``notify_on_finish``：这个端点只校验参数，\n不建流水线。",
         "examples": [
           {
             "tasks": [
@@ -4057,7 +4057,7 @@
     }
   },
   "info": {
-    "description": "MaaAssistantArknights 的 Web 服务（重构版）。\n\n- **鉴权**：单一 `access_token`，四渠道按优先级取值 —— `Authorization: Bearer` → `X-Token` → `?token=` → cookie `maa_token`；未配置 `access_token` 时全部端点免鉴权\n- **错误体**：所有非 2xx 响应都是 `{\"error\": {\"code\", \"message\", \"details\"}}`，`code` 是可枚举的错误码\n- **尾斜杠**：全部路由不带尾斜杠，带尾斜杠一律 404（`redirect_slashes=False`）\n- `ws` 分组只在本文档占位说明协议与鉴权方式，不能在 Swagger UI 中调试",
+    "description": "MaaAssistantArknights 的 Web 服务。\n\n- 鉴权：单一 `access_token`，按优先级依次取 `Authorization: Bearer`、`X-Token`、`?token=`、cookie `maa_token`；未配置 `access_token` 时全部端点免鉴权\n- 错误体：所有非 2xx 响应都是 `{\"error\": {\"code\", \"message\", \"details\"}}`，`code` 是可枚举的错误码\n- 尾斜杠：全部路由不带尾斜杠，带尾斜杠返回 404\n- `ws` 分组只说明协议与鉴权方式，不能在调试台里直接调用",
     "title": "MAA-API",
     "version": "0.1.0"
   },
@@ -4396,7 +4396,7 @@
     },
     "/api/agent/knowledge/{entry_id}": {
       "delete": {
-        "description": "删除自定义条目，或撤销对内置条目的修改（恢复默认）。",
+        "description": "删除自定义条目，或撤销对内置条目的修改（恢复默认）。\n\n内置条目未被修改过时返回 400 ``KNOWLEDGE_BUILTIN_READONLY``；要停用它请写入\n``enabled=false``。",
         "operationId": "agent_delete_knowledge_entry",
         "parameters": [
           {
@@ -4554,7 +4554,7 @@
         ]
       },
       "put": {
-        "description": "写入完整的生效内容：新建自定义条目，或修改、停用内置条目。",
+        "description": "写入完整的生效内容：新建自定义条目，或修改、停用内置条目。\n\n内置条目的 ``kind`` 不可修改，改了返回 400 ``KNOWLEDGE_BUILTIN_READONLY``。",
         "operationId": "agent_put_knowledge_entry",
         "parameters": [
           {
@@ -5353,7 +5353,7 @@
     },
     "/api/agent/sessions/{session_id}/interrupt": {
       "post": {
-        "description": "中断该会话当前一轮（M22 规格 §3.4）。\n\n幂等：没有活动轮次时返回 200 + ``interrupted=false``，不是错误——「已经停了」\n与「刚刚停掉」对调用方是同一个结果。只停 Agent 这一轮，不碰流水线与队列。",
+        "description": "中断该会话正在执行的一轮。\n\n幂等：没有活动轮次时返回 200 且 ``interrupted=false``。只中断这一轮，\n不影响流水线与队列。",
         "operationId": "agent_interrupt_session_turn",
         "parameters": [
           {
@@ -7764,7 +7764,7 @@
     },
     "/api/notifications/push-subscriptions": {
       "get": {
-        "description": "只返回设备来源、时间与失效状态，**不回显** `endpoint` 全文与 `p256dh` / `auth` 两个密钥字段：它们与凭据同级。",
+        "description": "为保护凭据，响应不含 `endpoint` 全文与 `p256dh` / `auth`，只返回设备来源、登记时间与失效状态。\n\n- `include_disabled=true` 时同时返回已失效的订阅",
         "operationId": "notifications_list_push_subscriptions",
         "parameters": [
           {
@@ -7808,7 +7808,7 @@
         ]
       },
       "post": {
-        "description": "接受浏览器 `PushSubscription.toJSON()` 的形状。\n\n- 同一 `endpoint` 重复登记是**幂等更新**，返回 200 与既有资源，不新增行\n- `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 未压缩 P-256 点（实际校验点在曲线上）；`keys.auth` 必须是 16 octet",
+        "description": "登记浏览器推送订阅，接受 `PushSubscription.toJSON()` 的形状。\n\n- 同一 `endpoint` 重复登记是幂等更新：返回 200 与既有资源，不新增行\n- `endpoint` 必须是 https 绝对 URL；`keys.p256dh` 必须是 65 octet 的未压缩 P-256 点；`keys.auth` 必须是 16 octet",
         "operationId": "notifications_create_push_subscription",
         "requestBody": {
           "content": {
@@ -7857,7 +7857,7 @@
     },
     "/api/notifications/push-subscriptions/delete": {
       "post": {
-        "description": "浏览器注销时手上只有 `PushSubscription.endpoint`，而列表接口出于凭据保护不回显它（同一推送服务下的多台设备主机名相同，按主机名删除会误伤别人），因此提供这个按 endpoint 精确注销的入口。\n\n- `endpoint` 放在请求体而不是 URL，避免它进入访问日志与浏览器历史\n- 找不到对应订阅同样返回 204：注销是幂等操作",
+        "description": "按 `endpoint` 精确注销当前浏览器的订阅。\n\n- `endpoint` 放在请求体，避免它进入访问日志与浏览器历史\n- 幂等：找不到对应订阅同样返回 204",
         "operationId": "notifications_delete_push_subscription_by_endpoint",
         "requestBody": {
           "content": {
@@ -7941,7 +7941,7 @@
     },
     "/api/notifications/vapid-public-key": {
       "get": {
-        "description": "前端用它作为 `pushManager.subscribe` 的 `applicationServerKey`。\n\n- 公钥由配置的 VAPID 私钥导出，不单独存储，避免两份配置漂移\n- 未配置或私钥不可用时返回 503 `PUSH_NOT_CONFIGURED`",
+        "description": "返回 VAPID 公钥，用于浏览器端 `pushManager.subscribe` 的 `applicationServerKey`。\n\n- 未配置私钥或私钥不可用时返回 503 `PUSH_NOT_CONFIGURED`",
         "operationId": "notifications_get_vapid_public_key",
         "responses": {
           "200": {
@@ -9183,7 +9183,7 @@
     },
     "/api/resources/copilots": {
       "get": {
-        "description": "返回已校验作业的元数据，不包含作业 JSON 内容；供流水线和 schedule 编辑器选择 asset_id。",
+        "description": "返回已校验作业的元数据，不含作业 JSON 内容；供流水线与定时任务编辑器选择 `asset_id`。",
         "operationId": "resources_list_copilot_assets",
         "parameters": [
           {
@@ -9294,7 +9294,7 @@
     },
     "/api/resources/items": {
       "get": {
-        "description": "读取当前 MaaCore `resource/item_index.json` 并按名称、物品 ID 稳定排序。`icon_url` 指向同源图片端点；对应图片不可用时为 `null`。索引缺失或无效时返回统一 API 错误。",
+        "description": "列出当前内核物品索引里的物品，按名称与物品 ID 稳定排序。\n\n- `icon_url` 指向同源图片端点，对应图片不可用时为 `null`\n- 索引缺失或无效时返回 `RESOURCE_LOAD_FAILED`",
         "operationId": "resources_list_items",
         "responses": {
           "200": {
@@ -9334,7 +9334,7 @@
     },
     "/api/resources/items/icon": {
       "get": {
-        "description": "只返回 item_index.json 中登记且位于 `resource/template/items` 的 PNG 图标。",
+        "description": "返回物品索引中该物品的 PNG 图标；索引里没有该物品或图标文件缺失时返回 `RESOURCE_ASSET_NOT_FOUND`。",
         "operationId": "resources_get_item_icon",
         "parameters": [
           {
@@ -10140,7 +10140,7 @@
     },
     "/api/screenshots/{id}": {
       "get": {
-        "description": "返回截图图像字节；as=base64 时返回面向 agent 的 JSON 包装。",
+        "description": "返回截图图像字节；as=base64 时返回带元数据的 JSON。",
         "operationId": "screenshots_get_screenshot",
         "parameters": [
           {
@@ -10541,7 +10541,7 @@
             "description": "Created",
             "headers": {
               "Location": {
-                "description": "URI of the created API snippet",
+                "description": "新建收藏的 URI",
                 "schema": {
                   "type": "string"
                 }
@@ -10722,7 +10722,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "读取 API 调试台收藏",
+        "summary": "读取 API 调试台收藏详情",
         "tags": [
           "snippets"
         ]
@@ -10826,7 +10826,7 @@
     },
     "/api/system/auth/cookie": {
       "delete": {
-        "description": "清除 `maa_token` cookie，供前端「登出」时调用。\n\n- 为什么需要服务端端点：cookie 是 `HttpOnly`，前端 JavaScript 删不掉（docs/13 §4），不清理则登出后 WebSocket 仍能连上\n- 副作用：下发 `Set-Cookie`（空值 + `Max-Age=0`），浏览器随后删除该 cookie\n- 写方法，必须经头部 token 鉴权；仅凭 cookie 调用会 403\n- 免鉴权模式下无需凭据（本就没有 cookie 可清时调用也无害）\n- `401 UNAUTHORIZED`：缺少 token 或 token 不匹配；`403 FORBIDDEN`：token 仅来自 cookie\n- 响应无体（`204`）",
+        "description": "清除 `maa_token` cookie，供前端「登出」时调用，响应无体（204）。\n\n- 副作用：下发 `Set-Cookie`（空值 + `Max-Age=0`），浏览器随后删除该 cookie\n- 仅头部 token 可调用：仅凭 cookie 返回 403，缺少 token 或不匹配返回 401\n- 幂等：没有 cookie 时调用同样返回 204",
         "operationId": "system_clear_cookie",
         "responses": {
           "204": {
@@ -10867,7 +10867,7 @@
         ]
       },
       "post": {
-        "description": "用请求头里的 token 换取一枚 `HttpOnly; SameSite=Lax` 的 `maa_token` cookie。\n\n- 用途：浏览器 WebSocket 构造器不能自定义请求头（docs/05 §5.4），换取后握手自动携带 cookie，token 不进 URL 与访问日志\n- 副作用：下发 `Set-Cookie`，值即配置的 `access_token`、`Path=/`\n- 未带 `Secure` 属性：HTTPS 判定（`X-Forwarded-Proto`）归 M15\n- 免鉴权模式（未配置 `access_token`）下返回 `204` 但**不下发** cookie，此时没有可下发的秘密，WebSocket 握手也不校验\n- 写方法：仅凭 cookie 调用本端点同样 403（cookie 渠道收窄，docs/05 §5.1）\n- `401 UNAUTHORIZED`：缺少 token 或 token 不匹配；`403 FORBIDDEN`：token 仅来自 cookie\n- 响应无体（`204`），成功与否只看状态码",
+        "description": "用请求头里的 token 换取一枚 `HttpOnly; SameSite=Lax` 的 `maa_token` cookie，供浏览器 WebSocket 握手自动携带，响应无体（204）。\n\n- 副作用：下发 `Set-Cookie`，值即 `access_token`、`Path=/`；`Secure` 由请求的 `X-Forwarded-Proto` 决定\n- 免鉴权模式（未配置 `access_token`）返回 204 但不下发 cookie\n- 仅头部 token 可调用：仅凭 cookie 返回 403，缺少 token 或不匹配返回 401",
         "operationId": "system_exchange_cookie",
         "responses": {
           "204": {
@@ -10910,7 +10910,7 @@
     },
     "/api/system/health": {
       "get": {
-        "description": "返回服务自身的健康状态，供外部监控与容器健康检查探测。\n\n- **免鉴权**：即使配置了 `access_token` 也不校验（docs/05 §5.3），无需携带凭据\n- 只返回状态，不返回业务数据；`auth_enabled` 为 `false` 时前端直接跳过登录页\n- `auth_enabled` 由配置的 `access_token` 是否为空决定（docs/05 §5.2）\n- `version` 取已安装分发包元数据，读不到时回退 `0.1.0`\n- `started_at` 是进程启动时间（ISO 8601 字符串），尚未写入时为 `null`（docs/05 §3.3）\n- `core` 含内核状态、pid 和代际；`device` 复用设备快照；`queue` 只含待处理/运行数和暂停状态\n- lifespan 尚未装配运行态对象时，`core` / `device` / `queue` 为 `null`，仍返回 200\n- 不校验 token；队列概览只执行只读查询，不返回队列条目",
+        "description": "返回服务自身状态与运行态概览：内核、设备、队列。免鉴权，无需携带凭据。\n\n- `auth_enabled` 由是否配置 `access_token` 决定；为 `false` 时前端跳过登录页\n- `started_at` 是进程启动时间（ISO 8601），尚未写入时为 `null`\n- 运行时对象尚未就绪时 `core` / `device` / `queue` 为 `null`，仍返回 200",
         "operationId": "system_health",
         "responses": {
           "200": {
@@ -10932,7 +10932,7 @@
     },
     "/api/system/logs": {
       "delete": {
-        "description": "按来源和/或时间界限删除日志；至少提供一个条件。",
+        "description": "按来源或时间界限删除日志，至少提供一个条件。",
         "operationId": "system_delete_logs",
         "parameters": [
           {
@@ -11492,7 +11492,7 @@
     },
     "/api/tasks/types": {
       "get": {
-        "description": "返回全部任务类型的完整参数 schema，供前端动态生成表单、agent 了解可用参数。\n\n- 只读端点，**无副作用**（只读 setting 表以取渠道默认值）\n- `schema` 是 pydantic 直出的标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字\n- `client_type` / `server` 的 `default` 是**当前生效**的全局渠道默认值（来自设置表，默认 Bilibili / CN）：前端按它预填并随提交显式下发即可；提交时不传这两个字段仍由服务端按同一份默认值注入，显式传 `null` 仍是刻意留空\n- 清单返回当前支持的全部任务类型，不接受分页参数\n- `lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`",
+        "description": "返回全部任务类型的参数 schema，供前端动态生成表单。只读、无副作用。\n\n- `schema` 为标准 JSON Schema；中文标签、分组、控件提示与风险标记挂在 `x-label` / `x-group` / `x-widget` / `x-enum-labels` / `x-risk` / `x-depends-on` 上，取值范围走 `minimum` / `maximum` / `enum` 等原生关键字\n- `client_type` / `server` 的 `default` 是当前生效的全局渠道默认值（默认 Bilibili / CN）；提交时不传这两个字段仍按同一默认值注入，显式传 `null` 表示留空\n- 返回当前支持的全部任务类型，不接受分页参数；`lang` 当前仅支持 `zh`，其它值返回 400 `INVALID_PARAMETER`",
         "operationId": "tasks_list_types",
         "parameters": [
           {
@@ -11568,7 +11568,7 @@
     },
     "/api/tasks/types/{type_name}": {
       "get": {
-        "description": "按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封），渠道字段的 `default` 同样是当前生效的全局渠道默认值。\n\n- 只读端点，**无副作用**（只读 setting 表以取渠道默认值）\n- `type_name` 不在支持的任务类型内时返回 400 `UNKNOWN_TASK_TYPE`（错误码表里它就是 400，不是 404）",
+        "description": "按类型名返回单个任务类型的 schema，结构与 `GET /api/tasks/types` 的 `items` 元素一致（不套分页信封）。只读、无副作用。\n\n- 渠道字段的 `default` 是当前生效的全局渠道默认值\n- `type_name` 不在支持列表内时返回 400 `UNKNOWN_TASK_TYPE`",
         "operationId": "tasks_get_type",
         "parameters": [
           {
@@ -11641,7 +11641,7 @@
     },
     "/api/tasks/validate": {
       "post": {
-        "description": "只校验不提交：对任务数组跑完整的 pydantic 判别联合校验，并按全局渠道默认值规范化，返回投递给内核的最终参数与用户原始提交。\n\n- **无副作用**：不落库、不入队、不碰内核；只读 setting 表\n- 未显式指定 `client_type` / `server` 的任务会注入 setting 表里的全局默认值（默认 Bilibili / CN）；显式传 `null` 视为刻意留空，不注入\n- `params` 是投递给内核的形态（已剔除 null、已注入默认值），`raw_params` 是原始提交快照（保留显式 null），可用于审计与回显\n- 任务数 1..32，越界返回 422 `VALIDATION_ERROR`",
+        "description": "校验并规范化任务数组，返回投递给内核的最终参数与原始提交。不落库、不入队、不碰内核。\n\n- 未显式指定 `client_type` / `server` 的任务会注入当前生效的全局渠道默认值（默认 Bilibili / CN）；显式传 `null` 表示留空，不注入\n- `params` 是投递给内核的形态（已剔除 null、已注入默认值），`raw_params` 是原始提交快照（保留显式 null）\n- 任务数 1–32，越界返回 422 `VALIDATION_ERROR`",
         "operationId": "tasks_validate",
         "requestBody": {
           "content": {
@@ -12018,7 +12018,7 @@
             }
           }
         },
-        "summary": "受理 MaaCore 更新",
+        "summary": "受理内核更新",
         "tags": [
           "updates"
         ]
@@ -12147,7 +12147,7 @@
             }
           }
         },
-        "summary": "受理 MaaCore 回滚",
+        "summary": "受理内核回滚",
         "tags": [
           "updates"
         ]
@@ -12800,7 +12800,7 @@
       "name": "device"
     },
     {
-      "description": "MaaCore 子进程状态与原生能力",
+      "description": "内核状态与原生能力",
       "name": "core"
     },
     {
@@ -12808,7 +12808,7 @@
       "name": "screenshots"
     },
     {
-      "description": "内核 / 资源 / 游戏三种热更新",
+      "description": "内核、资源与游戏热更新",
       "name": "updates"
     },
     {
@@ -12840,7 +12840,7 @@
       "name": "confirmations"
     },
     {
-      "description": "WebSocket 实时通道（仅文档说明，不可在此调试）",
+      "description": "WebSocket 实时通道（文档说明，不可调试）",
       "name": "ws"
     }
   ]

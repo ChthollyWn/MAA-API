@@ -63,7 +63,7 @@ describe('collectFieldIssues and mapFieldIssues', () => {
 
 describe('error messages', () => {
   it('explains policy rejections and reads nested messages', () => {
-    expect(errorMessage(validationError({ error: { message: 'forbidden' } }, 403))).toContain('请求被策略拒绝（403）')
+    expect(errorMessage(validationError({ error: { message: 'forbidden' } }, 403))).toContain('没有权限执行此操作（403）')
     expect(errorMessage({ error: { message: '队列已满' } })).toBe('队列已满')
     expect(errorMessage('纯文本错误')).toBe('纯文本错误')
     expect(errorMessage(42)).toBe('请求失败，请稍后重试')

@@ -23,6 +23,18 @@ interface RealtimeStatusStore extends RealtimeStatus {
   setStatus: (patch: Partial<RealtimeStatus>) => void
 }
 
+/**
+ * 连接失败原因：只放中文整句，不暴露底层异常内容。
+ *
+ * 消费方（日志页横幅、更多页状态）会直接把它渲染成整句。
+ */
+const REALTIME_ERROR_MESSAGE = {
+  auth_failed: '访问 token 已失效，请重新登录',
+  transport_failed: '无法建立实时连接，正在重试',
+  origin_rejected: '连接来源未通过校验，请检查反向代理配置',
+  send_failed: '实时连接发送失败，请刷新页面',
+} as const
+
 export const useRealtimeStatusStore = create<RealtimeStatusStore>((set) => ({
   status: 'CONNECTING',
   reconnectAttempt: 0,
@@ -145,7 +157,7 @@ export class RealtimeClient {
     this.offlineRetryable = false
     this.clearRetry()
     this.closeCurrentSocket()
-    useRealtimeStatusStore.getState().setStatus({ status: 'OFFLINE', error: 'Authentication failed' })
+    useRealtimeStatusStore.getState().setStatus({ status: 'OFFLINE', error: REALTIME_ERROR_MESSAGE.auth_failed })
   }
 
   constructor(options: RealtimeClientOptions = {}) {
@@ -281,7 +293,7 @@ export class RealtimeClient {
       socket = this.createSocket(url)
     } catch (error) {
       toApiError(error)
-      useRealtimeStatusStore.getState().setStatus({ error: 'Unable to create WebSocket connection' })
+      useRealtimeStatusStore.getState().setStatus({ error: REALTIME_ERROR_MESSAGE.transport_failed })
       this.scheduleReconnect()
       return
     }
@@ -378,7 +390,7 @@ export class RealtimeClient {
         useRealtimeStatusStore.getState().setStatus({
           status: 'OFFLINE',
           closeCode: 4403,
-          error: 'WebSocket origin is not trusted',
+          error: REALTIME_ERROR_MESSAGE.origin_rejected,
         })
         this.stopped = true
         return
@@ -412,7 +424,7 @@ export class RealtimeClient {
       this.socket.send(JSON.stringify(value))
     } catch (error) {
       toApiError(error)
-      useRealtimeStatusStore.getState().setStatus({ error: 'WebSocket send failed' })
+      useRealtimeStatusStore.getState().setStatus({ error: REALTIME_ERROR_MESSAGE.send_failed })
       this.socket.close()
     }
   }
@@ -517,7 +529,7 @@ export class RealtimeClient {
     useRealtimeStatusStore.getState().setStatus({
       status: 'OFFLINE',
       closeCode: 4401,
-      error: 'Authentication failed',
+      error: REALTIME_ERROR_MESSAGE.auth_failed,
     })
     useAuth.getState().onUnauthorized()
   }

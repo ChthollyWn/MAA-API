@@ -113,7 +113,7 @@ export function ScheduleTimeFields({ form, errors, disabled, advancedOpen, onCha
         <Field
           label="时区"
           htmlFor="schedule-timezone"
-          description="IANA 时区名，例如 Asia/Shanghai、UTC；星期与时间按这个时区计算。"
+          hint="IANA 时区名，例如 Asia/Shanghai、UTC；星期与时间按这个时区计算。"
           error={errors.timezone}
           errorId="schedule-timezone-error"
         >

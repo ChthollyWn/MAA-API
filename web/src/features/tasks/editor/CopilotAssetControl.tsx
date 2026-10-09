@@ -24,7 +24,7 @@ export function CopilotAssetControl({ id, value, disabled, invalid, describedBy,
         {...ariaProps({ invalid, describedBy })}
         onChange={(event) => onChange(event.target.value || UNSET)}
       >
-        <option value="">{loading ? '正在读取已保存作业…' : list.length ? '选择已保存的 Copilot 作业' : '没有已保存的 Copilot 作业'}</option>
+        <option value="">{loading ? '正在读取已保存作业…' : list.length ? '选择已保存的 Copilot 作业' : '还没有已保存的 Copilot 作业'}</option>
         {unlisted ? <option value={current}>{`作业 ${current}（已不在列表中）`}</option> : null}
         {list.map((asset) => {
           const stage = asset.meta?.stage_name
@@ -38,13 +38,9 @@ export function CopilotAssetControl({ id, value, disabled, invalid, describedBy,
         >
           读取 Copilot 作业失败：{errorText}
         </InlineAlert>
-      ) : (
-        <p className="text-footnote text-muted-foreground">
-          {list.length === 0 && !loading
-            ? '先在 Agent 对话中上传并保存 Copilot 作业，再回来选择。'
-            : '队列只保存作业 ID；运行时服务会重新校验并创建受控文件快照。'}
-        </p>
-      )}
+      ) : list.length === 0 && !loading ? (
+        <p className="text-footnote text-muted-foreground">先在 Agent 会话中保存一个 Copilot 作业</p>
+      ) : null}
     </div>
   )
 }

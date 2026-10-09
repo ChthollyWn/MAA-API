@@ -56,7 +56,7 @@ export function UpdateRecordSheet({ open, onOpenChange, record, loading, error, 
       {record ? (
         <div className="space-y-4">
           {loading ? <p role="status" className="text-footnote text-muted-foreground">正在读取完整详情…</p> : null}
-          {error ? <InlineAlert tone="warning">详情读取失败，下面是列表里的信息：{errorMessage(error)}</InlineAlert> : null}
+          {error ? <InlineAlert tone="warning">详情读取失败，下面显示列表里的信息：{errorMessage(error)}</InlineAlert> : null}
           <dl className="divide-y">
             <Row label="记录编号"><code className="font-mono text-[0.8125rem]">{record.id}</code></Row>
             {status ? <Row label="状态"><Badge variant={status.tone}>{status.label}</Badge></Row> : null}

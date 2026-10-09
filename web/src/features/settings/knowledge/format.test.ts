@@ -179,8 +179,28 @@ describe('error text', () => {
         },
       },
     })
-    expect(errors.title).toBe('服务端拒绝了「标题」：String should have at most 32 characters')
-    expect(errors.id).toBe('服务端拒绝了「标识」：String should match pattern')
+    expect(errors.title).toBe('服务端拒绝了「标题」：内容太长。')
+    expect(errors.id).toBe('服务端拒绝了「标识」：格式不符合要求。')
     expect(serverFieldErrors(new Error('offline'))).toEqual({})
+  })
+
+  it('never shows the English pydantic message to the user', () => {
+    const errors = serverFieldErrors({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: '请求参数校验失败（3 处）',
+        details: {
+          fields: [
+            { loc: ['body', 'title'], msg: '标题不符合要求', type: 'value_error' },
+            { loc: ['body', 'body'], msg: 'String should have at most 20000 characters', type: 'string_too_long' },
+            { loc: ['body', 'kind'], msg: 'Input should be a valid string', type: 'some_future_type' },
+          ],
+        },
+      },
+    })
+    // 服务端已经给了中文就原样用，英文按 pydantic 的 type 换中文，认不出的类型给中文兜底。
+    expect(errors.title).toBe('服务端拒绝了「标题」：标题不符合要求')
+    expect(errors.body).toBe('服务端拒绝了「正文」：内容太长。')
+    expect(errors.kind).toBe('服务端拒绝了「类型」：内容不合法，请检查后重试。')
   })
 })

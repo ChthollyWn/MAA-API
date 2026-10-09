@@ -114,16 +114,16 @@ export default function UpdatesPage() {
               {check.isPending ? '正在检查…' : '立即检查'}
             </Button>
           </div>
-          <p className="text-footnote text-muted-foreground">检查只读取版本信息，下载与安装由你手动开始。</p>
+          <p className="text-footnote text-muted-foreground">检查只读取版本信息，不会自动下载或安装。</p>
         </div>
 
         {check.error ? (
           <InlineAlert tone="danger" title="立即检查失败">
             {errorMessage(check.error)}
-            {status ? <span className="mt-0.5 block">下方仍是上次的检查结果。</span> : null}
+            {status ? <span className="mt-0.5 block">仍显示上次的检查结果。</span> : null}
           </InlineAlert>
         ) : null}
-        {submit.error && !optionsSheet?.open ? <InlineAlert tone="danger">更新操作失败：{errorMessage(submit.error)}</InlineAlert> : null}
+        {submit.error && !optionsSheet?.open ? <InlineAlert tone="danger">更新失败：{errorMessage(submit.error)}</InlineAlert> : null}
         {retry.error && !recordOpen ? <InlineAlert tone="danger">重试失败：{errorMessage(retry.error)}</InlineAlert> : null}
         {statusQuery.error && status ? (
           <InlineAlert
@@ -137,7 +137,7 @@ export default function UpdatesPage() {
         {activeRecord ? (
           <UpdateProgress record={activeRecord} busy={cancel.isPending} onCancel={(id) => void cancelUpdate(id)}>
             <p className="text-footnote text-muted-foreground">内核、活动资源与游戏共用一条更新队列，当前更新结束后才能开始下一个。</p>
-            {detailQuery.error ? <InlineAlert tone="warning">更新进度读取失败，将继续尝试恢复：{errorMessage(detailQuery.error)}</InlineAlert> : null}
+            {detailQuery.error ? <InlineAlert tone="warning">更新进度读取失败，会自动重试：{errorMessage(detailQuery.error)}</InlineAlert> : null}
             {cancel.error ? <InlineAlert tone="danger">取消失败：{errorMessage(cancel.error)}</InlineAlert> : null}
           </UpdateProgress>
         ) : null}

@@ -341,7 +341,7 @@ export default function AgentPage() {
     const title = sessionTitle(session)
     const ok = await confirm({
       title: `删除会话「${title}」？`,
-      description: '会话里的全部消息会一起删除，无法恢复；这个会话的屏幕操作授权也会被撤销。',
+      description: '会话里的全部消息会一起删除，无法恢复；屏幕操作授权也会一并撤销。',
       confirmText: '删除会话',
       tone: 'danger',
     })
@@ -428,7 +428,7 @@ export default function AgentPage() {
         // 「Agent 正在处理…」多挂一拍。M22 起 message_end 也可能是 interrupted 的收尾。
         setTurn((current) => current ? { ...current, running: false } : current)
       } else if (name === 'error') {
-        const message = stringValue(data.message, 'Agent 对话失败。')
+        const message = stringValue(data.message, '本轮回复失败，请重试。')
         setTurn((current) => current ? { ...current, error: message } : current)
         // 普通回合出错时服务端不会把错误写成消息，这里不单独存下来，实时副本一清空就看不到了。
         setTurnError({ message, code: stringValue(data.code) || undefined })
@@ -464,7 +464,7 @@ export default function AgentPage() {
       // 还没刷到）。文案必须指向输入栏那个「停止」，否则用户只能对着「会话忙」发呆。
       const message = code === 'AGENT_SESSION_BUSY'
         ? '该会话仍有一轮在跑，可先停止它'
-        : error instanceof Error ? error.message : 'Agent 对话失败。'
+        : error instanceof Error ? error.message : '本轮回复失败，请重试。'
       setDraft((current) => current || content)
       setTurnError({ message, code })
       setTurn((current) => current ? { ...current, running: false, error: message } : current)
@@ -536,7 +536,7 @@ export default function AgentPage() {
   ) : sessions.error ? (
     <ErrorState message={`读取会话失败：${toApiError(sessions.error).message}`} onRetry={() => void sessions.refetch()} retrying={sessions.isFetching} />
   ) : sessionRows.length === 0 ? (
-    <p className="px-3 py-6 text-center text-footnote text-muted-foreground">还没有会话。</p>
+    <p className="px-3 py-6 text-center text-footnote text-muted-foreground">还没有会话</p>
   ) : (
     <SessionList
       sessions={sessionRows}
@@ -562,7 +562,7 @@ export default function AgentPage() {
     <EmptyState
       icon={Bot}
       title="还没有会话"
-      description="新建会话后，可以用自然语言查询设备与日志、编排任务、创建定时任务，也可以继续分析自动诊断记录。"
+      description="说出你的目标就行，比如「看看设备连上没有」。"
       action={newSessionButton()}
       className="min-h-[50dvh]"
     />
@@ -573,7 +573,7 @@ export default function AgentPage() {
   const liveConfirmation = turn?.pendingConfirmation ? (
     <>
       <p role="status" className="flex items-center gap-2 text-sm text-warning">
-        <TriangleAlert aria-hidden="true" className="size-4 shrink-0" />等待你确认后继续；该操作尚未执行。
+        <TriangleAlert aria-hidden="true" className="size-4 shrink-0" />等待你确认，操作还没有执行。
       </p>
       <ConfirmationCard confirmationId={turn.pendingConfirmation} busy={resolvingFor(turn.pendingConfirmation)} onResolve={resolve} />
     </>
@@ -588,10 +588,10 @@ export default function AgentPage() {
       {conversation ? (
         <p className="text-center text-xs text-muted-foreground tabular-nums">{conversation.model || '模型未配置'} · {formatTokenCount(conversation.total_tokens)} Token</p>
       ) : null}
-      {selectedSession.error ? <InlineAlert tone="danger">会话读取失败：{toApiError(selectedSession.error).message}</InlineAlert> : null}
-      {messages.query.isPending ? <LoadingState label="正在载入对话历史…" /> : null}
+      {selectedSession.error ? <InlineAlert tone="danger">读取会话失败：{toApiError(selectedSession.error).message}</InlineAlert> : null}
+      {messages.query.isPending ? <LoadingState label="正在载入历史消息…" /> : null}
       {messages.query.error ? (
-        <ErrorState title="消息读取失败" message={toApiError(messages.query.error).message} onRetry={() => void messages.query.refetch()} retrying={messages.query.isFetching} />
+        <ErrorState title="读取消息失败" message={toApiError(messages.query.error).message} onRetry={() => void messages.query.refetch()} retrying={messages.query.isFetching} />
       ) : null}
       {messages.hasEarlier ? (
         <div className="flex justify-center">
@@ -618,8 +618,8 @@ export default function AgentPage() {
   const composerStatus = (() => {
     if (stopping) return <><Spinner />正在停止本轮…</>
     if (turn?.running) {
-      if (turn.pendingConfirmation) return <><TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-warning" />请先处理上方的确认</>
-      if (turn.pendingQuestion) return <><CircleHelp aria-hidden="true" className="size-4 shrink-0 text-primary-text" />请先回答上方的问题</>
+      if (turn.pendingConfirmation) return <><TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-warning" />请先处理待确认的操作</>
+      if (turn.pendingQuestion) return <><CircleHelp aria-hidden="true" className="size-4 shrink-0 text-primary-text" />请先回答等待中的提问</>
       return <><Spinner />Agent 正在处理…</>
     }
     // 中断是收尾，不是失败：只报「本轮已停止」，真正的结果（含中断标记）在历史里。
@@ -679,7 +679,7 @@ export default function AgentPage() {
         contentClassName="flex min-h-0 flex-col"
       >
         <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)] gap-6">
-          <aside aria-label="Agent 会话" className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-card">
+          <aside aria-label="Agent 会话列表" className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-card">
             <div className="flex shrink-0 items-center justify-between gap-2 border-b py-1.5 pl-4 pr-1.5">
               <h2 className="text-headline font-semibold">会话</h2>
               <Button type="button" variant="ghost" size="icon" aria-label="新建会话" loading={createSession.isPending} onClick={() => createSession.mutate()}>
@@ -688,7 +688,7 @@ export default function AgentPage() {
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-2">{sessionList}</div>
           </aside>
-          <section aria-label="Agent 对话" className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-card">
+          <section aria-label="Agent 消息区" className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-card">
             {statusRegion ? <div className="shrink-0 border-b p-3">{statusRegion}</div> : null}
             <div ref={setScroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               <div ref={setContent} className="mx-auto w-full max-w-3xl px-6 py-6">{transcript}</div>
@@ -704,7 +704,7 @@ export default function AgentPage() {
   return (
     <Page title={title} actions={actions} toolbar={statusRegion ?? undefined}>
       <div ref={setContent}>
-        <section aria-label="Agent 对话" className="pb-4">{transcript}</section>
+        <section aria-label="Agent 消息区" className="pb-4">{transcript}</section>
         {composer}
       </div>
       <ResponsiveSheet

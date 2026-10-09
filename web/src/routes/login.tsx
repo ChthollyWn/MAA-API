@@ -65,10 +65,10 @@ export default function LoginPage() {
   const returnTo = safeReturnTo(new URLSearchParams(location.search).get('returnTo'))
   const storedAuthError = !value && storedTokenCheck.error
     ? toApiError(storedTokenCheck.error).status === 403
-      ? '服务拒绝了已保存 token 的认证请求（403）。token 仍保留，请输入正确的访问 token 后重试。'
+      ? '保存的 token 被服务拒绝（403），请重新输入。'
       : toApiError(storedTokenCheck.error).status === 401
-        ? '已保存的 token 无效，请重新输入。'
-        : `无法完成认证：${toApiError(storedTokenCheck.error).message}`
+        ? '保存的 token 已失效，请重新输入。'
+        : `认证失败：${toApiError(storedTokenCheck.error).message}`
     : null
   const visibleError = inlineError ?? storedAuthError
 
@@ -95,10 +95,10 @@ export default function LoginPage() {
       const apiError = toApiError(error)
       setInlineError(
         apiError.status === 401
-          ? 'Token 无效，请检查后重试。'
+          ? '访问 token 无效，请重新输入。'
           : apiError.status === 403
             ? '服务拒绝了此认证请求，请确认使用的是访问 token。'
-            : `无法完成登录：${apiError.message}`,
+            : `登录失败：${apiError.message}`,
       )
     } finally {
       setSubmitting(false)
@@ -134,7 +134,7 @@ export default function LoginPage() {
       <div className="rounded-2xl border bg-card p-6 shadow-card">
         <div className="space-y-1.5">
           <h1 className="text-title font-semibold tracking-tight">连接到 MAA-API</h1>
-          <p className="text-sm text-muted-foreground">输入服务访问 token 以继续。token 仅保存在此设备。</p>
+          <p className="text-sm text-muted-foreground">输入访问 token 继续，它只保存在这台设备上</p>
         </div>
         <form className="mt-6 space-y-4" onSubmit={(event) => void submit(event)}>
           <div className="space-y-2">

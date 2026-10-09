@@ -47,14 +47,14 @@ function RunScheduleSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
   const choose = async (schedule: Schedule) => {
     const ok = await confirm({
       title: `立即运行「${schedule.name}」？`,
-      description: `${schedule.template.length} 个任务会按顺序加入队列，不影响它原本的定时安排。`,
+      description: `这 ${schedule.template.length} 个任务会作为一条流水线入队，不影响原本的定时安排。`,
       confirmText: '立即运行',
     })
     if (ok) run.mutate(schedule)
   }
 
   return (
-    <ResponsiveSheet open={open} onOpenChange={onOpenChange} title="运行定时任务" description="选择一个定时任务，马上执行一次。" size="sm">
+    <ResponsiveSheet open={open} onOpenChange={onOpenChange} title="运行定时任务" size="sm">
       {schedules.isPending ? (
         <LoadingState label="正在读取定时任务…" />
       ) : schedules.error ? (
@@ -63,7 +63,7 @@ function RunScheduleSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
         <EmptyState
           icon={CalendarClock}
           title="还没有定时任务"
-          description="先编排一组任务并保存为定时任务，之后可以在这里一键运行。"
+          description="先编排一组任务并保存为定时任务。"
           action={<Button asChild variant="outline" onClick={() => onOpenChange(false)}><Link to="/tasks/schedules/new">新建定时任务</Link></Button>}
         />
       ) : (

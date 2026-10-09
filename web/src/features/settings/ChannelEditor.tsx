@@ -44,6 +44,9 @@ const EVENT_ORDER: readonly string[] = NOTIFY_EVENTS.map((event) => event.value)
 
 const TEXT_INPUT = { autoComplete: 'off', autoCapitalize: 'none', autoCorrect: 'off', spellCheck: false } as const
 
+/** 服务端脱敏后的 `***`：地址、请求头与 JSON 三种编辑入口都沿用这一句。 */
+const MASK_NOTE = '保持 *** 不变即沿用已保存的凭据'
+
 interface EditorState {
   type: string
   name: string
@@ -195,8 +198,8 @@ function ConfigField({ spec, id, value, masked, error, disabled, onChange }: Con
 
   let description = spec.description
   if (spec.kind === 'secret' && masked) description = '已保存，留空则保留原值'
-  else if (spec.kind === 'url' && text.includes(MASK)) description = '地址里的 *** 是已保存的凭据，保持不变即可保留原值。'
-  else if (spec.kind === 'headers' && headerRowsOf(value).some((row) => row.value === MASK)) description = '显示为 *** 的值是已保存的凭据，保持不变即可保留原值。'
+  else if (spec.kind === 'url' && text.includes(MASK)) description = MASK_NOTE
+  else if (spec.kind === 'headers' && headerRowsOf(value).some((row) => row.value === MASK)) description = MASK_NOTE
   const describedBy = [error ? errorId : '', description ? descriptionId : ''].filter(Boolean).join(' ') || undefined
   const aria = { 'aria-invalid': error ? true : undefined, 'aria-describedby': describedBy }
   const field = (control: ReactNode, labelled = true) => (
@@ -222,7 +225,7 @@ function ConfigField({ spec, id, value, masked, error, disabled, onChange }: Con
           id={id}
           label={spec.label}
           values={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-          parse={(entry) => (spec.email && !isEmailAddress(entry) ? { error: '请输入有效的邮箱地址。' } : { value: entry })}
+          parse={(entry) => (spec.email && !isEmailAddress(entry) ? { error: '请填写有效的邮箱地址。' } : { value: entry })}
           inputMode={spec.email ? 'email' : 'text'}
           placeholder={spec.placeholder}
           disabled={disabled}
@@ -312,7 +315,7 @@ export function ChannelEditor({ open, channel, onOpenChange, onSaved }: ChannelE
     const nextErrors: Record<string, string> = {}
     const name = state.name.trim()
     if (!name) nextErrors.name = '请填写通道名称。'
-    else if (name.length > 64) nextErrors.name = '名称最多 64 个字符。'
+    else if (name.length > 64) nextErrors.name = '请把名称控制在 64 个字符以内。'
     let config: JsonRecord | undefined
     if (!type) {
       nextErrors.type = '请选择通道类型。'
@@ -343,7 +346,7 @@ export function ChannelEditor({ open, channel, onOpenChange, onSaved }: ChannelE
       onSaved(name, !channel)
     } catch (caught) {
       if (toApiError(caught).code === 'NOTIFY_CHANNEL_CONFLICT') {
-        setErrors({ name: '同类型的通道里已经有这个名称。' })
+        setErrors({ name: '同类型的通道里已经有这个名称，请换一个。' })
         document.getElementById(fieldId('name'))?.focus()
       } else {
         setSubmitError(describeChannelError(caught))
@@ -358,7 +361,7 @@ export function ChannelEditor({ open, channel, onOpenChange, onSaved }: ChannelE
       open={open}
       onOpenChange={onOpenChange}
       title={channel ? '编辑通知通道' : '添加通知通道'}
-      description={channel ? undefined : '选择类型并填写连接信息，保存后可以发一条测试通知确认。'}
+      description={channel ? undefined : '选择类型并填写连接信息，保存后可以发测试通知'}
       mobile="full"
       size="md"
       footer={(
@@ -414,7 +417,7 @@ export function ChannelEditor({ open, channel, onOpenChange, onSaved }: ChannelE
             <Field
               label="配置 JSON"
               htmlFor={fieldId('config')}
-              description={state.configText.includes(MASK) ? '显示为 *** 的是已保存的凭据，保持不变即可保留原值。' : '填写一个 JSON 对象，字段与表单一致。'}
+              description={state.configText.includes(MASK) ? MASK_NOTE : '填写一个 JSON 对象，字段与表单一致'}
               descriptionId={`${fieldId('config')}-description`}
               error={errors.config}
               errorId={`${fieldId('config')}-error`}
@@ -454,7 +457,7 @@ export function ChannelEditor({ open, channel, onOpenChange, onSaved }: ChannelE
 
         <fieldset>
           <legend className="text-[0.9375rem] font-semibold">订阅事件</legend>
-          <p className="mt-0.5 text-footnote text-muted-foreground">选中的事件发生时发送通知；都不选时只能发送测试通知。</p>
+          <p className="mt-0.5 text-footnote text-muted-foreground">选中的事件发生时发送通知，都不选时只能发送测试通知。</p>
           <div className="mt-2.5 flex flex-wrap gap-2">
             {NOTIFY_EVENTS.map((event) => {
               const selected = state.events.includes(event.value)
@@ -475,7 +478,7 @@ export function ChannelEditor({ open, channel, onOpenChange, onSaved }: ChannelE
 
         <SwitchRow
           label="启用此通道"
-          description="停用后保留配置，但不再发送通知。"
+          description="停用后保留配置，但不再发送通知"
           checked={state.enabled}
           disabled={saving}
           onCheckedChange={(checked) => patch({ enabled: checked })}

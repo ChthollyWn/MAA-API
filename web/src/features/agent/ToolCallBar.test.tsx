@@ -144,6 +144,20 @@ describe('ToolCallBar', () => {
     expect(details).toHaveTextContent('main_01-07')
   })
 
+  it('keeps the Chinese action name on the bar and folds the raw tool name and arguments away', () => {
+    const { container } = render(<ToolCallBar tool={tool()} />)
+    const details = container.querySelector('details')!
+    const bar = details.querySelector('summary')!
+    // 折叠条上只有中文动作名，英文函数名留给展开区。
+    expect(bar).toHaveTextContent('发送关卡示意图')
+    expect(bar).not.toHaveTextContent('send_stage_map')
+    expect(within(details).getByText('send_stage_map')).toBeInTheDocument()
+    // 参数只报个数，JSON 折在二级折叠区里。
+    const argumentsSummary = within(details).getByText('这次调用带了 1 个参数')
+    expect(argumentsSummary.closest('details')).not.toBe(details)
+    expect(within(details).getByText(/"stage": "1-7"/)).toBeInTheDocument()
+  })
+
   it('renders no media card for a tool result without media', () => {
     const { container } = render(<ToolCallBar tool={tool({ name: 'get_logs', result: { result: { items: [], total: 0 } } })} />)
     expect(container.querySelector('[data-testid="media-cards"]')).toBeNull()

@@ -157,7 +157,7 @@ describe('logs page', () => {
     renderPage('/logs/core')
 
     expect(await screen.findByText('core-row')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '核心' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: '内核' })).toHaveAttribute('aria-checked', 'true')
     expect(screen.queryByText('task-row')).not.toBeInTheDocument()
   })
 
@@ -230,7 +230,7 @@ describe('logs page', () => {
     })
     renderPage()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('超出实时缓冲')
+    expect(await screen.findByRole('alert')).toHaveTextContent('断线期间的日志可能没有全部收到')
     fireEvent.click(screen.getByRole('button', { name: '加载缺失历史日志' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已从历史记录补齐 2 条'))
     expect(screen.queryByRole('button', { name: '加载缺失历史日志' })).not.toBeInTheDocument()
@@ -242,7 +242,7 @@ describe('logs page', () => {
 
   it('G5 shows empty and error states and offers a history retry', async () => {
     renderPage()
-    expect(await screen.findByText('暂无匹配的历史或实时日志')).toBeInTheDocument()
+    expect(await screen.findByText('还没有匹配的日志')).toBeInTheDocument()
     cleanup()
 
     fetchMock.mockImplementationOnce(async (input, init) => {
@@ -255,12 +255,12 @@ describe('logs page', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('history unavailable')
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    expect(await screen.findByText('暂无匹配的历史或实时日志')).toBeInTheDocument()
+    expect(await screen.findByText('还没有匹配的日志')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('G5 keeps the offline notice that only loaded history is shown', async () => {
-    useRealtimeStatusStore.getState().setStatus({ status: 'OFFLINE', error: 'Authentication failed' })
+    useRealtimeStatusStore.getState().setStatus({ status: 'OFFLINE', error: '访问 token 已失效，请重新登录' })
     fetchMock.mockImplementation(async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init)
       requests.push(request)
@@ -269,9 +269,9 @@ describe('logs page', () => {
     renderPage()
 
     expect(await screen.findByText('log-4')).toBeInTheDocument()
-    const notice = screen.getAllByRole('status').find((element) => element.textContent?.includes('目前显示已加载的历史记录'))
+    const notice = screen.getAllByRole('status').find((element) => element.textContent?.includes('当前显示已加载的历史记录'))
     expect(notice).toBeDefined()
-    expect(notice).toHaveTextContent('Authentication failed')
+    expect(notice).toHaveTextContent('访问 token 已失效，请重新登录')
   })
 
   it('G6 keeps the scroll position when a new log arrives while the reader is away from the bottom, and follows while at the bottom', async () => {
@@ -395,7 +395,7 @@ describe('logs page', () => {
 
   it('G8 converts a custom start time from local time and clears it from the sheet', async () => {
     renderPage()
-    expect(await screen.findByText('暂无匹配的历史或实时日志')).toBeInTheDocument()
+    expect(await screen.findByText('还没有匹配的日志')).toBeInTheDocument()
 
     const sheet = await openFilters()
     fireEvent.change(within(sheet).getByLabelText('开始时间'), { target: { value: '2026-09-27T10:00' } })

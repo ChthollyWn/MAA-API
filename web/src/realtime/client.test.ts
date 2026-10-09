@@ -124,6 +124,7 @@ describe('RealtimeClient', () => {
     sockets[1].close(4403, 'untrusted_origin')
     expect(sockets).toHaveLength(2)
     expect(useRealtimeStatusStore.getState()).toMatchObject({ status: 'OFFLINE', closeCode: 4403 })
+    expect(useRealtimeStatusStore.getState().error).toBe('连接来源未通过校验，请检查反向代理配置')
     client.disconnect()
 
     const cookieOnly = makeClient()
@@ -147,6 +148,7 @@ describe('RealtimeClient', () => {
     expect(useAuth.getState().token).toBeNull()
     expect(sockets).toHaveLength(2)
     expect(useRealtimeStatusStore.getState().status).toBe('OFFLINE')
+    expect(useRealtimeStatusStore.getState().error).toBe('访问 token 已失效，请重新登录')
     client.disconnect()
     window.removeEventListener(UNAUTHORIZED_EVENT, unauthorized)
   })

@@ -32,7 +32,7 @@ export function fallbackPipelineTitle(row: PipelineRow, scheduleNames: ReadonlyM
   const scheduleName = typeof row.schedule_id === 'string' ? scheduleNames.get(row.schedule_id) : undefined
   if (scheduleName) return `定时 · ${scheduleName}`
   const source = sourceLabel(row.source)
-  return withTaskCount(`${source}${/[A-Za-z]$/.test(source) ? ' ' : ''}任务`, row)
+  return withTaskCount(`${source}${/[A-Za-z]$/.test(source) ? ' ' : ''}流水线`, row)
 }
 
 /**

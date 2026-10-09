@@ -16,6 +16,7 @@ import { StickyActionBar } from '@/components/ui/sticky-action-bar'
 import { SwitchRow } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toaster'
 import { draftsFromTemplate, materializeDrafts, templateFromDrafts, TaskListEditor, useTaskTypes, type TaskDraft } from '@/features/tasks'
+import { taskErrorSummaryMessage } from '@/features/tasks/pipeline-format'
 import { useUnsavedChangesGuard } from '@/lib/use-unsaved-changes'
 import { deleteSchedule, refreshAfterRun, runSchedule, saveSchedule, SCHEDULES_PATH, updateScheduleCache } from './api'
 import { describeSaveFailure, pruneTaskErrors, type SaveFailureContext, type TaskErrors } from './errors'
@@ -88,9 +89,7 @@ function taskErrorSummary(drafts: readonly TaskDraft[], errors: TaskErrors) {
     .filter((entry) => entry.count > 0)
   if (failing.length === 0) return null
   const total = failing.reduce((sum, entry) => sum + entry.count, 0)
-  const message = failing.length === 1
-    ? `第 ${failing[0].position} 个任务有 ${total} 处错误，点开修改。`
-    : `第 ${failing.map((entry) => entry.position).join('、')} 个任务共有 ${total} 处错误，点开修改。`
+  const message = `${taskErrorSummaryMessage(failing.map((entry) => entry.position), total)}。`
   return { message, firstId: failing[0].id }
 }
 
@@ -101,8 +100,8 @@ function whenSummary(form: ScheduleForm): string {
 
 function prefillMessage(prefill: SchedulePrefill): string {
   return prefill.source === 'composer'
-    ? `已载入编排好的 ${prefill.template.length} 个任务；设置星期与时间后即可保存。`
-    : '已载入 API 调试台收藏的流水线模板；设置星期与时间后即可保存。'
+    ? `已载入 ${prefill.template.length} 个任务。设好星期和时间就能保存。`
+    : '已载入 API 调试台收藏的流水线模板。设好星期和时间就能保存。'
 }
 
 interface ScheduleEditorProps {
@@ -173,7 +172,7 @@ function ScheduleEditor({ schedule, prefill, onLeave }: ScheduleEditorProps) {
     mutationFn: ({ payload }: { payload: ScheduleWrite; context: SaveFailureContext }) => saveSchedule(schedule?.id ?? null, payload),
     onSuccess: (saved) => {
       updateScheduleCache(queryClient, { saved })
-      toast.success(schedule ? '定时任务已保存' : '定时任务已创建')
+      toast.success(schedule ? '定时任务已保存' : '已新建定时任务')
       onLeave(SCHEDULES_PATH)
     },
     onError: (error, { context }) => {
@@ -327,7 +326,7 @@ function ScheduleEditor({ schedule, prefill, onLeave }: ScheduleEditorProps) {
           <ScheduleTimeFields form={form} errors={fieldErrors} disabled={busy} advancedOpen={advancedOpen} onChange={changeForm} />
         </Section>
 
-        <Section id={TASKS_SECTION_ID} title="执行顺序" description="到点后从上到下依次执行，只保存你改过的参数。">
+        <Section id={TASKS_SECTION_ID} title="执行顺序" hint="到点后从上到下依次执行，只保存改过的参数。">
           {tasks}
           {fieldErrors.tasks ? <p className="px-1 text-footnote font-medium text-danger">{fieldErrors.tasks}</p> : null}
         </Section>
@@ -343,7 +342,7 @@ function ScheduleEditor({ schedule, prefill, onLeave }: ScheduleEditorProps) {
               onCheckedChange={(enabled) => changeForm({ enabled })}
             />
           </div>
-          <p className="px-1 text-footnote text-muted-foreground">定时任务以最低优先级排队；上一次还没执行完时，这次到点会跳过。</p>
+          <p className="px-1 text-footnote text-muted-foreground">定时任务以最低优先级排队。上一次还没执行完时，这次到点会跳过。</p>
         </div>
 
         {schedule ? <ScheduleRuns runs={schedule.recent_runs} /> : null}
@@ -364,7 +363,7 @@ function ScheduleEditor({ schedule, prefill, onLeave }: ScheduleEditorProps) {
 
       <StickyActionBar summary={schedule && dirty ? '有未保存的更改' : undefined}>
         <Button loading={save.isPending} disabled={busy || (schedule !== null && !dirty)} onClick={submit}>
-          {save.isPending ? (schedule ? '正在保存…' : '正在创建…') : schedule ? '保存' : '创建定时任务'}
+          {save.isPending ? (schedule ? '正在保存…' : '正在新建…') : schedule ? '保存' : '新建定时任务'}
         </Button>
       </StickyActionBar>
       {confirmElement}

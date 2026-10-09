@@ -64,10 +64,9 @@ export function ConfirmationDock() {
       open={open}
       onOpenChange={onOpenChange}
       title="需要人工确认"
-      description="Agent 请求执行下面的操作，请逐条批准或拒绝。"
       size="md"
     >
-      <ConfirmationsPanel showHeading={false} emptyFallback={<EmptyState icon={ShieldCheck} title="没有待确认的操作" />} />
+      <ConfirmationsPanel showHeading={false} emptyFallback={<EmptyState icon={ShieldCheck} title="还没有待确认的操作" />} />
     </ResponsiveSheet>
   )
 }

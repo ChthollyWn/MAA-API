@@ -154,7 +154,7 @@ export function PipelineScreenshots({ pipelineId, active }: { pipelineId: string
           截图列表读取失败：{errorMessage(screenshots.error)}
         </InlineAlert>
       ) : items.length === 0 ? (
-        <p className="rounded-xl border bg-card px-4 py-3.5 text-footnote text-muted-foreground shadow-card">这条流水线没有截图。</p>
+        <p className="rounded-xl border bg-card px-4 py-3.5 text-footnote text-muted-foreground shadow-card">还没有截图</p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {items.map((shot, index) => (

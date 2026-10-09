@@ -1,5 +1,6 @@
 import { toApiError } from '@/api/errors'
 import { asRecord } from '@/features/settings/schema'
+import { errorText } from '@/features/settings/format'
 
 /**
  * 知识库的展示规则与前端校验（M18 规格 §4.1）。
@@ -179,13 +180,13 @@ export function formatUpdatedAt(value: string | null | undefined): string | null
 const GENERIC_MESSAGES = new Set(['与当前状态冲突', '参数校验失败', '资源不存在'])
 const CODE_TEXT: Record<string, string> = {
   KNOWLEDGE_NOT_FOUND: '这条知识条目不存在，可能已经在别处被删掉了。',
-  KNOWLEDGE_BUILTIN_READONLY: `内置条目不能这样改：类型不可修改，没改过的内置条目也不能删除；要停用它请关掉「启用」。`,
-  VALIDATION_ERROR: '字段不合法：检查标识、类型、标题、什么时候用与正文的长度。',
+  KNOWLEDGE_BUILTIN_READONLY: '内置条目不能改类型，也不能删除；要停用就关掉「启用」。',
+  VALIDATION_ERROR: '字段不合法，请检查标识、类型、标题、什么时候用和正文。',
 }
 
 export function describeKnowledgeError(error: unknown): string {
   const failure = toApiError(error)
-  if (failure.status === undefined && !failure.code) return '无法连接服务，请检查网络后重试。'
+  if (failure.status === undefined && !failure.code) return errorText(error)
   const message = failure.message.trim()
   if (message && !GENERIC_MESSAGES.has(message) && !/^请求(参数)?校验失败/.test(message)) return message
   const text = failure.code ? CODE_TEXT[failure.code] : undefined
@@ -221,8 +222,29 @@ export function serverFieldErrors(error: unknown): KnowledgeFormErrors {
     const loc = Array.isArray(item.loc) ? item.loc : []
     const last = loc[loc.length - 1]
     const key = typeof last === 'string' ? SERVER_FIELD_NAMES[last] : undefined
-    const message = typeof item.msg === 'string' && item.msg ? item.msg : '字段不合法'
-    if (key && !errors[key]) errors[key] = `服务端拒绝了「${SERVER_FIELD_LABELS[key]}」：${message}`
+    if (key && !errors[key]) errors[key] = `服务端拒绝了「${SERVER_FIELD_LABELS[key]}」：${serverFieldMessage(item)}`
   }
   return errors
+}
+
+/** 校验错误里的英文是 pydantic 的 msg，按 `type` 换成中文；服务端已经给中文时原样保留。 */
+const SERVER_ERROR_TYPES: Record<string, string> = {
+  missing: '不能为空。',
+  string_too_short: '内容太短。',
+  string_too_long: '内容太长。',
+  string_pattern_mismatch: '格式不符合要求。',
+  string_type: '需要填写文本。',
+  literal_error: '不是允许的取值。',
+  bool_parsing: '需要开关值。',
+  int_parsing: '需要整数。',
+  value_error: '取值不符合要求。',
+}
+
+const CJK = /[\u4e00-\u9fff]/
+
+function serverFieldMessage(item: Record<string, unknown>): string {
+  const message = typeof item.msg === 'string' ? item.msg.trim() : ''
+  if (CJK.test(message)) return message
+  const type = typeof item.type === 'string' ? item.type : ''
+  return SERVER_ERROR_TYPES[type] ?? '内容不合法，请检查后重试。'
 }

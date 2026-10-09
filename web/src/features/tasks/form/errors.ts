@@ -10,7 +10,7 @@ export function unwrapHttpError(value: unknown): Record<string, unknown> {
 
 export function errorMessage(value: unknown): string {
   const apiError = toApiError(value)
-  if (apiError.status === 403) return '请求被策略拒绝（403）。若操作本应允许，请检查代理是否剥离了 X-Token 鉴权头，并重新登录。'
+  if (apiError.status === 403) return '没有权限执行此操作（403）。如果通过反向代理访问，请确认鉴权头未被剥离后重新登录。'
   const source = unwrapHttpError(value)
   const nested = isObject(source.error) ? source.error : source
   const message = nested.message ?? source.message

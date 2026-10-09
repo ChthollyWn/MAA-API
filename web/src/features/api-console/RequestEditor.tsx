@@ -121,7 +121,7 @@ export function ParameterSections({ operation, document, pathParams, onPathParam
         </Section>
       ) : null}
       {queryParameters.length > 0 ? (
-        <Section id="console-query-params" title="Query 参数" description="只发送已启用的参数；不启用和发送空值是两种语义" className="p-4">
+        <Section id="console-query-params" title="Query 参数" hint="只有已启用的参数才会发送；启用后留空会发送空值。" className="p-4">
           <div className="divide-y">
             {queryParameters.map((parameter) => {
               const name = String(parameter.name)
@@ -228,7 +228,7 @@ export function HeadersSection({ headers, onHeadersChange, onBlockedHeader, toke
           <Button variant="outline" size="sm" onClick={() => onHeadersChange({ ...headers, [nextCustomHeaderName(headers)]: '' })}>
             <Plus aria-hidden="true" />添加 header
           </Button>
-          <p className="px-1 text-footnote text-muted-foreground">可以用自定义 X-Token 测试该渠道；Authorization、X-Token、Cookie 不会写入历史与收藏。</p>
+          <p className="px-1 text-footnote text-muted-foreground">自定义 X-Token 会覆盖当前凭据；Authorization、X-Token、Cookie 不会写入历史与收藏。</p>
         </div>
       </Disclosure>
     </div>
@@ -287,7 +287,7 @@ export function FavoriteSection({ name, onNameChange, editing, saving, onSave, c
   onSchedule: () => void
 }) {
   return (
-    <Section id="console-favorite" title="收藏" description="保存到当前服务；鉴权凭据不会写入收藏" className="p-4">
+    <Section id="console-favorite" title="收藏" description="保存到当前服务" hint="鉴权凭据不会写入收藏。" className="p-4">
       <div className="flex gap-2">
         <Input
           aria-label="收藏名称"
