@@ -7,6 +7,10 @@ describe('toolLabel', () => {
     expect(toolLabel('wait_pipeline')).toBe('等待流水线结束')
   })
 
+  it('names the tool M24 added in Chinese', () => {
+    expect(toolLabel('get_activity_stages')).toBe('查当期活动')
+  })
+
   it('leaves unknown tools to the raw name', () => {
     expect(toolLabel('some_future_tool')).toBeUndefined()
   })

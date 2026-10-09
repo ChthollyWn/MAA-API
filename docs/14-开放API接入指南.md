@@ -206,9 +206,9 @@ curl -X POST http://<host>:8002/api/snippets \
 | `queue` | 队列快照与优先级调整 |
 | `tasks` | 任务类型与参数 schema |
 | `device` | 设备状态、重连与原子操作 |
-| `core` | MaaCore 子进程状态与原生能力 |
+| `core` | 内核状态与原生能力 |
 | `screenshots` | 截图归档与读取 |
-| `updates` | 内核 / 资源 / 游戏三种热更新 |
+| `updates` | 内核、资源与游戏热更新 |
 | `schedules` | 定时任务 |
 | `settings` | 可视化配置 |
 | `notifications` | 多通道通知 |
@@ -216,7 +216,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `snippets` | API 调试台收藏请求 |
 | `agent` | 工具清单、会话与审计 |
 | `confirmations` | 高风险操作的人工确认 |
-| `ws` | WebSocket 实时通道（仅文档说明，不可在此调试） |
+| `ws` | WebSocket 实时通道（文档说明，不可调试） |
 <!-- GENERATED:OPENAPI-TAGS:END -->
 
 ## 5. REST 端到端调用

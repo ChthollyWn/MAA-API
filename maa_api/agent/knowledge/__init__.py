@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -30,6 +31,7 @@ from datetime import datetime
 from functools import lru_cache
 from importlib import resources
 from importlib.resources.abc import Traversable
+from typing import Protocol
 
 from pydantic import BaseModel
 from ruamel.yaml import YAML
@@ -40,6 +42,9 @@ from maa_api.db import session as db_session
 from maa_api.db.models import AgentKnowledge, utcnow
 from maa_api.db.repositories.agent_knowledge import AgentKnowledgeRepository
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.activity_index import ActivitySnapshot, default_activity_index
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "BUILTIN_PACKAGE",
@@ -47,12 +52,14 @@ __all__ = [
     "FULLTEXT_KINDS",
     "INDEX_KINDS",
     "INDEX_HEADER",
+    "ACTIVITY_HEADER",
     "GLOSSARY_HEADER",
     "PROFILE_HEADER",
     "KNOWLEDGE_KINDS",
     "MAX_BODY_CHARS",
     "MAX_TITLE_CHARS",
     "MAX_WHEN_TO_USE_CHARS",
+    "ActivityReader",
     "BuiltinEntry",
     "KnowledgeBuiltinError",
     "KnowledgeBuiltinView",
@@ -63,6 +70,7 @@ __all__ = [
     "KnowledgeWrite",
     "builtin_entries",
     "load_builtins",
+    "render_activity_line",
 ]
 
 #: 内置条目所在包与子目录（``maa_api/agent/knowledge/builtin/*.md``）。
@@ -82,10 +90,16 @@ MAX_TITLE_CHARS = 32
 MAX_WHEN_TO_USE_CHARS = 120
 MAX_BODY_CHARS = 20_000
 
-#: 注入段的三行标题，照抄规格 §4.1 的示例。
+#: 注入段的三行标题，照抄规格 §4.1 的示例；第四行是 M24 加的当期活动段。
 INDEX_HEADER = (
     "知识库索引（开发者与用户维护，可作为操作指引；需要时用 read_knowledge 读取全文）："
 )
+#: M24：当期活动段。它排在索引之后、术语表之前，每轮只有一行。
+ACTIVITY_HEADER = "当期活动（来自本机活动资源，随资源更新自动变化）："
+#: 当期活动那一行（不含标题）的长度上限。规格定的是「每轮成本 ≤ 120 字」，所以正常
+#: 活动名（真数据 101 字）不会触发裁剪；活动名由上游决定、可能很长，超限时按这个数
+#: 裁剪才不会让每轮的固定成本失控（规格 §3.1、§4.3）。
+MAX_ACTIVITY_LINE_CHARS = 120
 GLOSSARY_HEADER = "术语表（开发者与用户维护）："
 PROFILE_HEADER = "用户档案（用户维护）："
 
@@ -102,6 +116,46 @@ _KIND_ORDER = {kind: index for index, kind in enumerate(KNOWLEDGE_KINDS)}
 
 class KnowledgeBuiltinError(RuntimeError):
     """内置知识文件不合法：启动时 fail loud，绝不静默跳过。"""
+
+
+class ActivityReader(Protocol):
+    """注入段需要的活动数据源（结构上就是 :class:`ActivityIndex`）。"""
+
+    def snapshot(self) -> ActivitySnapshot: ...
+
+
+def render_activity_line(snapshot: ActivitySnapshot) -> str:
+    """把活动快照折成一行（规格 §4.3）。
+
+    只放活动名、开始日期、代号区间与关数、以及「同名代号可能是别的期次」这句消歧提醒。
+    推不出代号时如实写「未知」，并说明可以用 ``get_activity_stages`` 带关卡代号去查；
+    这句话是模型知道「自己不知道」的唯一来源。
+
+    整行按 :data:`MAX_ACTIVITY_LINE_CHARS` 收尾：活动名由上游决定、可能很长，超预算时
+    先裁活动名再退掉代号区间，保证每轮多花的那点上下文有上界。
+    """
+    started = f"，{snapshot.started_at.isoformat()} 开始" if snapshot.started_at else ""
+    code_range = snapshot.code_range
+    if snapshot.stage_id_prefix and code_range:
+        stages = f"；关卡代号 {code_range[0]}…{code_range[1]}（共 {len(snapshot.stages)} 关）"
+    elif snapshot.stage_id_prefix:
+        stages = f"；关卡代号前缀 {snapshot.stage_id_prefix}（共 {len(snapshot.stages)} 关）"
+    else:
+        stages = "；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查"
+    tail = "；同名代号可能属于别的期次，提交前用 get_activity_stages 核对 stageId。"
+
+    name = snapshot.name
+    fixed = len(started) + len(stages) + len(tail)
+    budget = MAX_ACTIVITY_LINE_CHARS - fixed
+    if budget < len(name):
+        # 预算不够就先退掉代号区间（信息量最小的一段），再裁活动名。
+        if code_range or snapshot.stage_id_prefix:
+            stages = "；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查"
+            fixed = len(started) + len(stages) + len(tail)
+            budget = MAX_ACTIVITY_LINE_CHARS - fixed
+        if budget < len(name):
+            name = name[: max(budget - 1, 1)] + "…"
+    return f"{name}{started}{stages}{tail}"
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +506,8 @@ class KnowledgeService:
     """知识库门面：构造时注入会话工厂，启动时加载一次内置条目。
 
     ``builtins`` 只为测试注入（例如验证「新版本新增内置条目」的迁移语义）；
+    ``activity_index`` 是 M24 加的当期活动数据源。它与知识条目不同，读的是本机活动
+    资源，会随资源更新变化，所以每轮现读、读不到就不插这一段。
     生产装配用 ``KnowledgeService(db_session.session_factory)``。
     """
 
@@ -460,10 +516,14 @@ class KnowledgeService:
         session_factory: async_sessionmaker[AsyncSession] | None = None,
         *,
         builtins: Mapping[str, BuiltinEntry] | None = None,
+        activity_index: "ActivityReader | None" = None,
     ) -> None:
         self._session_factory = session_factory or db_session.session_factory
         # 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
         self._builtins = dict(builtins) if builtins is not None else builtin_entries()
+        self._activity_index = activity_index
+        #: 「当期活动读不到」的 warning 只在第一次失败时打一次（见 :meth:`_activity_line`）。
+        self._activity_failure_logged = False
 
     # -- 读 ---------------------------------------------------------------
     async def list_entries(self) -> list[KnowledgeSummary]:
@@ -492,11 +552,11 @@ class KnowledgeService:
         return _full(entry)
 
     async def render_context(self) -> str:
-        """拼进 system 消息的知识库段（格式见规格 §4.1）。
+        """拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。
 
-        索引与全文都取生效值；``glossary`` / ``profile`` 有多条启用时按 id 顺序
-        全部注入。
-        空段落写「暂无」。
+        段落顺序：索引 → **当期活动**（M24，读不到就整段不插）→ 术语表 → 用户档案。
+        索引与全文都取生效值；``glossary`` / ``profile`` 有多条启用时按 id 顺序全部注入。
+        索引、术语表、用户档案为空时写「暂无」。
         """
         async with self._session_factory() as session:
             rows = await AgentKnowledgeRepository(session).all()
@@ -511,6 +571,9 @@ class KnowledgeService:
             (PROFILE_HEADER, FULLTEXT_KINDS[1]),
         )
         lines = [INDEX_HEADER, *(index_lines or [EMPTY_SECTION])]
+        activity = self._activity_line()
+        if activity is not None:
+            lines += ["", ACTIVITY_HEADER, activity]
         for header, kind in sections:
             bodies = [
                 entry.body
@@ -518,6 +581,30 @@ class KnowledgeService:
             ]
             lines += ["", header, "\n\n".join(bodies) if bodies else EMPTY_SECTION]
         return "\n".join(lines)
+
+    def _activity_line(self) -> str | None:
+        """当期活动那一行；没有数据源或读不出来时返回 ``None``（整段不插）。
+
+        与「知识库读失败降级为『知识库暂不可用』」不同：这里没有内容可展示，插一行
+        「暂无」只花 token 不提供信息（规格 §4.3）。
+
+        读失败只记一次 warning：没装活动资源是干净检出的常态，每轮带栈刷屏会把日志淹掉；
+        同一进程里失败过一次之后降为 debug。资源装好后第一次成功会重置这个标记。
+        """
+        index = self._activity_index
+        if index is None:
+            index = default_activity_index()
+        try:
+            snapshot = index.snapshot()
+        except Exception:  # noqa: BLE001 - 活动数据只是可选上下文
+            if not self._activity_failure_logged:
+                self._activity_failure_logged = True
+                logger.warning("当期活动数据读取失败，本轮起不再注入这一段", exc_info=True)
+            else:
+                logger.debug("当期活动数据仍然读不到，继续不注入这一段")
+            return None
+        self._activity_failure_logged = False
+        return render_activity_line(snapshot)
 
     # -- 写 ---------------------------------------------------------------
     async def put_entry(self, entry_id: str, payload: KnowledgeWrite) -> KnowledgeDetail:

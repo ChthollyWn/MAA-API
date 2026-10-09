@@ -60,8 +60,10 @@ BUILTIN_IDS = {
     "screen-terminal",
     "stage-rules",
     "trust-and-potential",
+    # M24 新增的 1 条
+    "activity-stage-codes",
 }
-#: 31 条内置条目在列表里的顺序：先 kind（playbook/screen/rule/glossary/profile），
+#: 32 条内置条目在列表里的顺序：先 kind（playbook/screen/rule/glossary/profile），
 #: 同 kind 按 id。
 BUILTIN_LIST_ORDER = [
     "account-resources",
@@ -79,6 +81,7 @@ BUILTIN_LIST_ORDER = [
     "screen-recruit",
     "screen-store",
     "screen-terminal",
+    "activity-stage-codes",
     "annihilation-weekly",
     "certificate-shops",
     "currency-sources",
