@@ -136,7 +136,8 @@ class AccountCaptureResult:
 
     ``skipped`` 取值：``not_subtask_extra_info``（不是这条回调）、``unsupported``
     （别的 ``what``）、``incomplete``（``done=false`` 的过程回调）、``bad_payload``
-    （结构不符或坏 JSON）、``error``（落库时抛了异常，已记 warning）。
+    （结构不符或坏 JSON）、``no_owned_operators``（空识别保护：一个已拥有干员都没识别
+    到，M33 护栏 G1）、``error``（落库时抛了异常，已记 warning）。
     """
 
     kind: str | None = None
@@ -144,6 +145,8 @@ class AccountCaptureResult:
     skipped: str | None = None
     item_count: int = 0
     diff_count: int = 0
+    #: 收缩保护留下的「已拥有」条数（M33 护栏 G2）。
+    kept_count: int = 0
     error: str | None = None
 
 
@@ -261,15 +264,42 @@ class AccountCaptureService:
         if not snapshots:
             return AccountCaptureResult(kind=RECOGNITION_KIND_OPERBOX, skipped="bad_payload")
 
+        # 空识别（M33 护栏 G1，规格 §4.3）：游戏没启动时内核照样发 ``done=true``，只是
+        # ``all_opers`` 里一个 ``own=true`` 都没有（实测 16:26–16:29 那四次）。这种载荷
+        # 落库会把整表标成「未拥有」——比留着旧数据危险得多，直接跳过、只记一条 warning。
         operators = _operators_payload(snapshots, self._operators)
         all_ids = [item.char_id for item in snapshots if item.listed_in_all]
+        owned = sum(1 for item in operators.values() if item.get("own"))
+        if owned == 0:
+            logger.warning(
+                "干员识别没有识别到任何已拥有干员（all_opers %d 条），本次不更新账号数据"
+                "（M33 空识别保护）；请确认游戏已启动并停在干员列表页",
+                len(all_ids),
+            )
+            return AccountCaptureResult(
+                kind=RECOGNITION_KIND_OPERBOX, skipped="no_owned_operators"
+            )
+
         result = await self._box.apply_recognition(
             operators,
             all_operators=all_ids,
             now=created_at,
             recognized_at=created_at,
+            # 收缩保护（M33 护栏 G2，规格 §4.3，用户裁决「识别只加不减」）：识别没看到
+            # 的已拥有干员保留为已拥有，只记日志提示；取消拥有走手动 / Agent 编辑。
+            keep_owned=True,
         )
-        owned = sum(1 for item in operators.values() if item.get("own"))
+        result = result or {}
+        kept_owned = [str(char_id) for char_id in result.get("kept_owned") or ()]
+        if kept_owned:
+            names = _operator_names(snapshots)
+            logger.warning(
+                "干员识别少了 %d 名库里已拥有的干员（%s%s），已按「识别只加不减」保留为"
+                "已拥有；确实不再拥有时请用 update_operator_box 修改",
+                len(kept_owned),
+                "、".join(names.get(char_id, char_id) for char_id in kept_owned[:5]),
+                " 等" if len(kept_owned) > 5 else "",
+            )
         await self._record(
             RECOGNITION_KIND_OPERBOX,
             item_count=owned,
@@ -282,7 +312,8 @@ class AccountCaptureService:
             kind=RECOGNITION_KIND_OPERBOX,
             written=True,
             item_count=owned,
-            diff_count=int((result or {}).get("diffs") or 0),
+            diff_count=int(result.get("diffs") or 0),
+            kept_count=len(kept_owned),
         )
 
     # -- Depot ------------------------------------------------------------
@@ -556,6 +587,11 @@ def _operators_payload(
                 values[field] = value
         payload[item.char_id] = values
     return payload
+
+
+def _operator_names(snapshots: Sequence[OperBoxSnapshot]) -> dict[str, str]:
+    """``char_id → 名字``，只用于收缩保护的日志提示（回调没给名字就退回 id）。"""
+    return {item.char_id: item.name for item in snapshots if item.name}
 
 
 def _entries(value: Any) -> list[Mapping[str, Any]] | None:

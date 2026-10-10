@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""M27 账号数据与养成计划的端到端冒烟（M31 补齐进度重算与删除钩子，末行 `SMOKE OK`）。
+"""M27 账号数据与养成计划的端到端冒烟（M31 补齐进度重算与删除钩子，M33 补齐 CALLBACK
+接线，末行 `SMOKE OK`）。
 
 用**假内核回调**与假外部来源跑通整条链路，不打真机、不打网：
 
@@ -11,7 +12,9 @@
 5. 模拟完成：仓库备齐 → 计划标完成、定时任务被删除、发 `upgrade_plan_finished` 通知；
 6. 计划列表与取消；
 7. 删除定时任务（规格 §7.7）：用户在任务页删掉每日任务 → 计划同步标为已取消；
-8. 识别覆盖手动值的差异。
+8. 识别覆盖手动值的差异；
+9. 接线（M33 §4.1）：注册好的 CALLBACK 处理器收到**真实事件**后异步落库
+   （不是直接调 `handle_callback`），识别记录带上流水线上下文与渠道。
 
 跑法::
 
@@ -41,8 +44,13 @@ from maa_api.db.models import (  # noqa: E402
     UpgradePlan,
 )
 from maa_api.core.enums import Message  # noqa: E402
+from maa_api.db.repositories.account import (  # noqa: E402
+    RECOGNITION_KIND_OPERBOX,
+    AccountRecognitionRepository,
+)
 from maa_api.db.session import make_engine  # noqa: E402
 from maa_api.services.account.box import OperatorBoxService  # noqa: E402
+from maa_api.services.account.callback_wiring import install_account_capture  # noqa: E402
 from maa_api.services.account.capture import AccountCaptureService  # noqa: E402
 from maa_api.services.account.depot import DepotService  # noqa: E402
 from maa_api.services.account.plans import UpgradePlanService  # noqa: E402
@@ -179,6 +187,22 @@ class FakeNotifyService:
 
     async def notify(self, event: Any, payload: dict[str, Any]) -> None:
         self.events.append((str(event), payload))
+
+
+class FakeCoreClient:
+    """`MaaCoreClient` 的事件注册面：只留 `on()` 与一个手动 `emit()`。"""
+
+    def __init__(self) -> None:
+        self.handlers: dict[str, list[Any]] = {}
+        self.consumed: list[dict[str, Any]] = []
+
+    def on(self, event_type: str, handler: Any) -> None:
+        self.handlers.setdefault(event_type, []).append(handler)
+
+    def emit(self, payload: dict[str, Any]) -> None:
+        self.consumed.append(payload)
+        for handler in list(self.handlers.get("CALLBACK", ())):
+            handler(payload)
 
 
 class _FakePlan:
@@ -454,6 +478,62 @@ async def run() -> None:
             require(not remaining["items"], f"标记后不该还有未处理差异：{remaining}")
             print(f"[8] 「知道了」标记 {dismissed} 条；未处理差异清零")
 
+            # 9. M33 接线：注册好的 CALLBACK 处理器收到真实事件后异步落库。
+            #    M27 的教训：直接调 `handle_callback` 的冒烟盯不住「谁在生产侧调用它」，
+            #    这里必须走 `on("CALLBACK", ...)` 注册出来的那条路。
+            client = FakeCoreClient()
+            install_account_capture(
+                client,
+                capture,
+                context_provider=lambda _msg, _details: ("pipeline-smoke", "task-smoke"),
+                client_type_provider=lambda: "Bilibili",
+            )
+            require("CALLBACK" in client.handlers, "接线没有注册 CALLBACK 处理器")
+            client.emit(
+                {
+                    "msg": int(Message.SubTaskExtraInfo),
+                    "details": {
+                        "class": "asst::OperBoxRecognitionTask",
+                        "what": "OperBoxInfo",
+                        "details": {
+                            "done": True,
+                            "all_opers": [
+                                {
+                                    "id": "char_010_chen",
+                                    "name": "陈",
+                                    "rarity": 6,
+                                    "own": True,
+                                },
+                                {
+                                    "id": "char_124_kroos",
+                                    "name": "克洛丝",
+                                    "rarity": 3,
+                                    "own": False,
+                                },
+                            ],
+                            "own_opers": [],
+                        },
+                    },
+                }
+            )
+            # 处理器只创建任务（不阻塞消费线程），所以这里让出事件循环等它落库。
+            wired = None
+            for _ in range(50):
+                wired = await _latest_operbox_recognition(factory)
+                if wired is not None and wired.pipeline_id == "pipeline-smoke":
+                    break
+                await asyncio.sleep(0.01)
+            require(wired is not None, "CALLBACK 事件没有落库")
+            require(
+                (wired.pipeline_id, wired.task_id, wired.client_type)
+                == ("pipeline-smoke", "task-smoke", "Bilibili"),
+                f"识别记录应带流水线上下文与渠道：{wired}",
+            )
+            chen = await box.get_operator("char_010_chen")
+            require(chen["own"] is True, f"接线后陈应是已拥有：{chen}")
+            print(f"[9] CALLBACK 接线：识别记录 {wired.kind} 带 pipeline={wired.pipeline_id}"
+                  f"｜task={wired.task_id}｜渠道={wired.client_type}｜陈 own={chen['own']}")
+
             # 清理
             require(await _count(factory, UpgradePlan) == 3, "计划行数不对")
             require(await _count(factory, AccountRecognition) >= 2, "识别记录行数不对")
@@ -477,6 +557,13 @@ async def _count(factory: Any, model: Any) -> int:
     async with factory() as session:
         result = await session.execute(select(func.count()).select_from(model))
         return int(result.scalar() or 0)
+
+
+async def _latest_operbox_recognition(factory: Any) -> Any:
+    """最新一条干员识别记录（接线那步靠它确认事件真的落库了）。"""
+
+    async with factory() as session:
+        return await AccountRecognitionRepository(session).latest(RECOGNITION_KIND_OPERBOX)
 
 
 async def _fill_depot(factory: Any, items: dict[str, int]) -> None:

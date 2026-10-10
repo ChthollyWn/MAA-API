@@ -361,7 +361,12 @@ def test_first_recognition_creates_rows_and_records_fields(box):
             now=NOW,
             recognized_at=NOW,
         )
-        assert result == {"created": 1, "updated": 0, "diffs": 0}
+        assert result == {
+            "created": 1,
+            "updated": 0,
+            "diffs": 0,
+            "kept_owned": [],
+        }
         detail = await service.get_operator("char_002_amiya")
         assert detail["name"] == "阿米娅"
         assert detail["rarity"] == 5
@@ -485,7 +490,12 @@ def test_recognition_does_not_record_a_diff_when_the_values_agree(box):
     asyncio.run(scenario())
 
 
-def test_recognition_marks_operators_missing_from_own_opers_as_not_owned(box):
+def test_recognition_marks_operators_missing_from_the_owned_set_as_not_owned(box):
+    """``all_opers`` 里、但本次识别为已拥有的那批（``operators``）里没有的 → ``own=False``。
+
+    ``operators`` 在 capture 层由 ``all_opers`` 里 ``own=true`` 的条目拼出（M33 §4.2），
+    不是内核载荷里的 ``own_opers`` 字段（见 `docs/13-决策记录.md` §8.48 二）。
+    """
     service, store, _factory = box
     _seed(store, "char_002_amiya")
 
@@ -496,7 +506,12 @@ def test_recognition_marks_operators_missing_from_own_opers_as_not_owned(box):
             now=NOW,
             recognized_at=NOW,
         )
-        assert result == {"created": 1, "updated": 1, "diffs": 0}
+        assert result == {
+            "created": 1,
+            "updated": 1,
+            "diffs": 0,
+            "kept_owned": [],
+        }
         owned = await service.list_operators(owned_only=True)
         assert [item["char_id"] for item in owned["items"]] == []
         everyone = await service.list_operators(owned_only=False)
@@ -505,6 +520,83 @@ def test_recognition_marks_operators_missing_from_own_opers_as_not_owned(box):
             "char_103_angel",
         }
         assert all(item["own"] is False for item in everyone["items"])
+
+    asyncio.run(scenario())
+
+
+def test_recognition_with_keep_owned_keeps_the_value_and_reports_it(box):
+    """M33 护栏 G2（规格 §4.3，用户裁决「识别只加不减」）：识别说未拥有也不改已拥有。"""
+    service, store, _factory = box
+    _seed(store, "char_103_angel", own=True)
+
+    async def scenario():
+        result = await service.apply_recognition(
+            {"char_103_angel": {"name": "能天使", "rarity": 6, "own": False}},
+            all_operators=["char_103_angel"],
+            now=NOW,
+            recognized_at=NOW,
+            keep_owned=True,
+        )
+        assert result["kept_owned"] == ["char_103_angel"]
+        row = store.rows["char_103_angel"]
+        assert row.own is True
+        # 值没变，所以没有差异要用户确认；来源仍按本次识别记。
+        assert (await service.list_diffs())["total"] == 0
+        assert row.field_sources["own"] == "recognition"
+        assert row.recognized_values["own"] is True
+        # 练度不受影响（识别这次没给）。
+        assert (row.elite, row.level, row.potential) == (2, 90, 6)
+
+        # 关掉开关时仍是「识别说了算」——默认行为没有变。
+        result = await service.apply_recognition(
+            {"char_103_angel": {"own": False}},
+            all_operators=["char_103_angel"],
+            now=NOW,
+            recognized_at=NOW,
+        )
+        assert result["kept_owned"] == []
+        assert store.rows["char_103_angel"].own is False
+
+    asyncio.run(scenario())
+
+
+def test_recognition_keep_owned_does_not_protect_new_rows(box):
+    """新建行的 ``own=True`` 只是占位：本次新出现的 id 要按识别值落成未拥有。"""
+    service, store, _factory = box
+
+    async def scenario():
+        result = await service.apply_recognition(
+            {"char_103_angel": {"name": "能天使", "rarity": 6, "own": False}},
+            all_operators=["char_103_angel"],
+            now=NOW,
+            recognized_at=NOW,
+            keep_owned=True,
+        )
+        assert result["kept_owned"] == []
+        assert store.rows["char_103_angel"].own is False
+
+    asyncio.run(scenario())
+
+
+def test_recognition_keep_owned_respects_a_manual_unown(box):
+    """裁决 A 的另一半：真要取消拥有走手动 / Agent 编辑，识别不会再改回来。"""
+    service, store, _factory = box
+    _seed(store, "char_103_angel", own=True)
+
+    async def scenario():
+        await service.patch_operator("char_103_angel", {"own": False})
+        assert store.rows["char_103_angel"].own is False
+        assert store.rows["char_103_angel"].field_sources["own"] == "manual"
+
+        result = await service.apply_recognition(
+            {"char_103_angel": {"own": False}},
+            all_operators=["char_103_angel"],
+            now=NOW,
+            recognized_at=NOW,
+            keep_owned=True,
+        )
+        assert result["kept_owned"] == []
+        assert store.rows["char_103_angel"].own is False
 
     asyncio.run(scenario())
 

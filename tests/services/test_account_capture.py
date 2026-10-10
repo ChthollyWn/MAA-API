@@ -19,6 +19,7 @@ potential；技能等级、专精、模组识别不动；被覆盖的字段在�
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 
 import pytest
@@ -183,6 +184,111 @@ def test_operbox_done_true_writes_operators_and_a_recognition_record(
             assert recognition.recognized_at == RECOGNIZED_AT
 
             assert await AccountOperatorDiffRepository(session).count_pending() == 0
+
+    asyncio.run(scenario())
+
+
+def test_operbox_empty_recognition_is_skipped_and_keeps_old_data(
+    retention_session_factory, caplog
+) -> None:
+    """M33 护栏 G1（规格 §4.3）：游戏没启动时内核照样发 ``done=true``。
+
+    实测载荷（16:26–16:29 那四次重试）：``all_opers`` 里一个 ``own=true`` 都没有。
+    这种载荷落库会把整表标成未拥有，采集层必须在**写库之前**整条跳过。
+    """
+
+    async def scenario() -> None:
+        await _capture(
+            retention_session_factory,
+            _operbox(
+                all_opers=[
+                    {"id": "char_002_amiya", "name": "阿米娅", "rarity": 5, "own": True}
+                ],
+                own_opers=[AMIYA],
+            ),
+        )
+
+        empty = [
+            {"id": "char_002_amiya", "name": "阿米娅", "rarity": 5, "own": False},
+            {"id": "char_103_angel", "name": "能天使", "rarity": 6, "own": False},
+        ]
+        with caplog.at_level(logging.WARNING):
+            result = await _capture(
+                retention_session_factory, _operbox(all_opers=empty, own_opers=[])
+            )
+        assert result.kind == RECOGNITION_KIND_OPERBOX
+        assert (result.written, result.skipped) == (False, "no_owned_operators")
+        assert "空识别保护" in caplog.text
+
+        async with retention_session_factory() as session:
+            repo = AccountOperatorRepository(session)
+            amiya = await repo.get("char_002_amiya")
+            assert amiya is not None and amiya.own is True
+            # 跳过发生在落库之前：这次载荷里的新 id 不会被建成「未拥有」行。
+            assert await repo.get("char_103_angel") is None
+            # 识别记录也没有新增，latest 仍是第一次那条。
+            latest = await AccountRecognitionRepository(session).latest(
+                RECOGNITION_KIND_OPERBOX
+            )
+            assert latest is not None and latest.item_count == 1
+
+    asyncio.run(scenario())
+
+
+def test_operbox_shrink_protection_keeps_the_missing_operators(
+    retention_session_factory, caplog
+) -> None:
+    """M33 护栏 G2（规格 §4.3，裁决 A「识别只加不减」）。
+
+    载荷按 17:20 那次的形状：``own_opers`` 少一名库里已拥有的干员（380 vs 383），
+    采集层保留它的已拥有状态、练度沿用行里既有值，并记一条 warning 提示。
+    """
+
+    async def scenario() -> None:
+        await _capture(
+            retention_session_factory,
+            _operbox(
+                all_opers=[
+                    {"id": "char_002_amiya", "name": "阿米娅", "rarity": 5, "own": True},
+                    {"id": "char_103_angel", "name": "能天使", "rarity": 6, "own": True},
+                ],
+                own_opers=[
+                    AMIYA,
+                    {
+                        "id": "char_103_angel",
+                        "name": "能天使",
+                        "rarity": 6,
+                        "own": True,
+                        "elite": 2,
+                        "level": 90,
+                        "potential": 6,
+                    },
+                ],
+            ),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await _capture(
+                retention_session_factory,
+                _operbox(
+                    all_opers=[
+                        {"id": "char_002_amiya", "name": "阿米娅", "rarity": 5, "own": True},
+                        {"id": "char_103_angel", "name": "能天使", "rarity": 6, "own": False},
+                    ],
+                    own_opers=[AMIYA],
+                ),
+            )
+        assert result.written is True
+        assert result.kept_count == 1
+        # item_count 记的是「本次识别到的已拥有数」（阿米娅），与收缩保护无关。
+        assert result.item_count == 1
+        assert "识别只加不减" in caplog.text and "能天使" in caplog.text
+
+        async with retention_session_factory() as session:
+            angel = await AccountOperatorRepository(session).get("char_103_angel")
+            assert angel is not None and angel.own is True
+            # 这次没给练度详情：沿用行里既有的值，不写回默认值。
+            assert (angel.elite, angel.level, angel.potential) == (2, 90, 6)
 
     asyncio.run(scenario())
 
