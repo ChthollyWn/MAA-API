@@ -22,3 +22,19 @@
 `prts_parse.wikitext` 的解析测试用，来源与日期同上。
 
 请求头的 User-Agent 是 `MAA-API/0.1 (+https://github.com/ChthollyWn/MAA-API)`（规格 §3.2、S1）。
+
+## M26 追加（2026-10-10）
+
+| 文件 | 页面 |
+|---|---|
+| `page_silverash.json` | `银灰`（6★、三技能、两个模组） |
+| `page_surtr.json` | `史尔特尔`（6★、专精与模组材料） |
+| `page_kroos.json` | `克洛丝`（3★，只有两个技能） |
+| `page_originium_slug.json` | `源石虫`（敌人，级别 0/1） |
+| `page_patriot.json` | `爱国者`（敌人，级别 0/1，带技能与天赋） |
+| `page_item_30013.json` | `固源岩组`（材料，加工站配方） |
+| `page_item_30033.json` | `聚酸酯组`（材料，加工站配方） |
+
+抓取方式同 M25：`scripts/fetch_m26_fixtures.py`（`action=query&prop=revisions&redirects=1`）。
+实测：干员页的 `稀有度` 从 0 开始（`5` = 6★）；材料消耗写作 `{{材料消耗|龙门币|3w}}`（`w` = 万）；
+敌人页只有级别 0 与级别 1 两级，级别 1 只写与级别 0 不同的字段。

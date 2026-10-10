@@ -1,7 +1,8 @@
-"""Agent 的游戏数据工具（规格 §5.7、§5.8）：`get_stage`、`search_prts`、`get_prts_page`。
+"""Agent 的游戏数据工具（规格 §5.7、§5.8、§6.3–§6.5）。
 
-三个工具都是只读、SAFE、不需要设备；返回值顶层带来源信封（§3.4），外部页面内容一律
-标注 ``untrusted``，模型不得把其中的文字当指令（§4.1）。
+`get_stage`、`search_prts`、`get_prts_page` 是 M25 的通用检索；`get_operator`、`get_enemy`、
+`get_item`、`get_drop_rates` 是 M26 的实体查询。都是只读、SAFE、不需要设备；返回值顶层带
+来源信封（§3.4），外部页面内容一律标注 ``untrusted``，模型不得把其中的文字当指令（§4.1）。
 """
 
 from __future__ import annotations
@@ -13,9 +14,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 
 __all__ = [
+    "GetDropRatesParams",
+    "GetEnemyParams",
+    "GetItemParams",
+    "GetOperatorParams",
     "GetPrtsPageParams",
     "GetStageParams",
     "SearchPrtsParams",
+    "get_drop_rates",
+    "get_enemy",
+    "get_item",
+    "get_operator",
     "get_prts_page",
     "get_stage",
     "register_tools",
@@ -75,6 +84,74 @@ class GetPrtsPageParams(BaseModel):
     )
 
 
+class GetOperatorParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        min_length=1,
+        max_length=32,
+        description="干员的中文名、英文名、日文名或 char_id（如 char_172_svrash）。",
+    )
+    sections: (
+        list[Literal["basic", "stats", "skills", "talents", "potentials", "modules", "costs"]]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "要取哪些字段组，默认 basic + stats + skills + talents + modules："
+            "basic（职业、分支、特性、标签、位置、获得方式）、stats（各精英阶段满级面板、"
+            "部署费用、阻挡数、攻击间隔、攻击范围网格、信赖加成）、skills（技能与专精）、"
+            "talents（天赋）、potentials（潜能 2–6）、modules（模组）、costs（精一精二、"
+            "技能升级与专精、模组的材料）。要材料消耗时必须显式带上 costs。"
+        ),
+    )
+    skill_detail: Literal["max", "all"] = Field(
+        default="max",
+        description="max 只给 7 级与专精 1–3；all 连 1–6 级一起给。",
+    )
+
+
+class GetEnemyParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        min_length=1, max_length=32, description="敌人名称或 enemy_xxx。"
+    )
+    level: int | None = Field(
+        default=None,
+        ge=0,
+        le=2,
+        description="只取这一级（0–2）；留空返回页面上有的全部级别，高级别已用级别 0 补齐。",
+    )
+
+
+class GetItemParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=32, description="材料名称或 itemId。")
+
+
+class GetDropRatesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+        description="按材料查：名称或 itemId。与 stage 二选一。",
+    )
+    stage: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description="按关卡查：代号或 stageId。与 item 二选一。",
+    )
+    limit: int = Field(default=8, ge=1, le=20, description="返回条数，默认 8，最多 20。")
+    include_closed: bool = Field(
+        default=False, description="是否包含已关闭活动关卡的统计（默认只看当前开放）。"
+    )
+
+
 def register_tools(registry: ToolRegistry) -> None:
     """注册游戏数据组工具（规格附录 A）。"""
     registry.register(
@@ -104,6 +181,67 @@ def register_tools(registry: ToolRegistry) -> None:
             ),
             params_model=SearchPrtsParams,
             handler=search_prts,
+            read_only=True,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="get_operator",
+            group="game",
+            risk=ToolRisk.SAFE,
+            description=(
+                "查一名干员的职业、分支、特性、标签、各精英阶段满级面板、攻击范围、技能与专精、"
+                "天赋、潜能、模组与养成材料。要练度规划（材料消耗）时显式带上 sections=[...] "
+                "里的 costs。用户问某个干员的数值或材料时先查一次。"
+                f"{_UNTRUSTED_NOTE}"
+            ),
+            params_model=GetOperatorParams,
+            handler=get_operator,
+            read_only=True,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="get_enemy",
+            group="game",
+            risk=ToolRisk.SAFE,
+            description=(
+                "查一个敌人的基础信息（编号、地位级别、种类、攻击与行动方式、能力）与每一级的"
+                "数值（生命、攻击、防御、法抗、移速、攻击间隔、重量、各类抗性、技能与天赋）。"
+                f"关卡打不过、要比较敌方强度时用它。{_UNTRUSTED_NOTE}"
+            ),
+            params_model=GetEnemyParams,
+            handler=get_enemy,
+            read_only=True,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="get_item",
+            group="game",
+            risk=ToolRisk.SAFE,
+            description=(
+                "查一个材料或道具的基础信息、加工站配方（原料、龙门币、副产物与概率）与掉率前 5"
+                "（按单件期望理智排序）。想知道某材料去哪刷、怎么合成时用它。"
+                f"{_UNTRUSTED_NOTE}"
+            ),
+            params_model=GetItemParams,
+            handler=get_item,
+            read_only=True,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="get_drop_rates",
+            group="game",
+            risk=ToolRisk.SAFE,
+            description=(
+                "查掉落率：按材料列出各关卡的掉率、样本数、理智消耗与单件期望理智，或按关卡列出"
+                "该关掉的物品。样本数低于 100 的标「样本少」并排在后面；默认只看当前开放的关卡。"
+                f"数据来自企鹅物流（CC BY-NC 4.0）。{_UNTRUSTED_NOTE}"
+            ),
+            params_model=GetDropRatesParams,
+            handler=get_drop_rates,
             read_only=True,
         )
     )
@@ -142,6 +280,56 @@ async def search_prts(params: SearchPrtsParams, context: ToolContext) -> dict[st
     """在 PRTS 上检索（规格 §5.8）。"""
     service = _page_service(context)
     return await service.search(params.query, limit=params.limit)
+
+
+async def get_operator(params: GetOperatorParams, context: ToolContext) -> dict[str, Any]:
+    """查干员（规格 §6.3）。"""
+    service = _service(context, "operator_service", "maa_api.services.game.operators")
+    return await service.get(
+        params.name, sections=params.sections, skill_detail=params.skill_detail
+    )
+
+
+async def get_enemy(params: GetEnemyParams, context: ToolContext) -> dict[str, Any]:
+    """查敌人（规格 §6.4）。"""
+    service = _service(context, "enemy_service", "maa_api.services.game.enemies")
+    return await service.get(params.name, level=params.level)
+
+
+async def get_item(params: GetItemParams, context: ToolContext) -> dict[str, Any]:
+    """查材料（规格 §6.5）。"""
+    service = _service(context, "item_service", "maa_api.services.game.items")
+    return await service.get(params.name)
+
+
+async def get_drop_rates(params: GetDropRatesParams, context: ToolContext) -> dict[str, Any]:
+    """查掉落率（规格 §6.5）。"""
+    if (params.item is None) == (params.stage is None):
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            "item 与 stage 必须二选一",
+            {"item": params.item, "stage": params.stage},
+        )
+    service = _service(context, "drop_service", "maa_api.services.game.drops")
+    if params.item is not None:
+        return await service.item_rates(
+            params.item, limit=params.limit, include_closed=params.include_closed
+        )
+    return await service.stage_rates(
+        params.stage, limit=params.limit, include_closed=params.include_closed
+    )
+
+
+def _service(context: ToolContext, state_name: str, module: str) -> Any:
+    """装配在 `app.state` 上的服务优先，否则用该模块的默认门面。"""
+    service = _state(context, state_name)
+    if service is not None:
+        return service
+    import importlib
+
+    return getattr(importlib.import_module(module), f"default_{state_name}")()
 
 
 async def get_prts_page(params: GetPrtsPageParams, context: ToolContext) -> dict[str, Any]:

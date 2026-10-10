@@ -1,0 +1,103 @@
+{
+ "matrix": [
+  {
+   "stageId": "act11d0_04_rep",
+   "itemId": "30012",
+   "times": 174,
+   "quantity": 142,
+   "stdDev": 0.402,
+   "start": 1623916800000,
+   "end": 1624737600000
+  },
+  {
+   "stageId": "act13d0_05",
+   "itemId": "30012",
+   "times": 92,
+   "quantity": 1,
+   "stdDev": 0.1037,
+   "start": 1600934400000,
+   "end": 1601496000000
+  },
+  {
+   "stageId": "act12side_04_perm",
+   "itemId": "30012",
+   "times": 702,
+   "quantity": 15,
+   "stdDev": 0.1446,
+   "start": 1659988800000,
+   "end": null
+  },
+  {
+   "stageId": "a001_01_perm",
+   "itemId": "30012",
+   "times": 2823,
+   "quantity": 3520,
+   "stdDev": 0.4393,
+   "start": 1618430400000,
+   "end": null
+  },
+  {
+   "stageId": "act21side_08_rep",
+   "itemId": "30013",
+   "times": 4948023,
+   "quantity": 5411533,
+   "stdDev": 0.2923,
+   "start": 1697961600000,
+   "end": 1698782400000
+  },
+  {
+   "stageId": "main_15-08",
+   "itemId": "30012",
+   "times": 2889341,
+   "quantity": 1050982,
+   "stdDev": 0.7325,
+   "start": 1744012800000,
+   "end": null
+  },
+  {
+   "stageId": "main_15-08",
+   "itemId": "30013",
+   "times": 2889341,
+   "quantity": 74840,
+   "stdDev": 0.1635,
+   "start": 1744012800000,
+   "end": null
+  },
+  {
+   "stageId": "tough_12-15",
+   "itemId": "30013",
+   "times": 1065483,
+   "quantity": 26362,
+   "stdDev": 0.1626,
+   "start": 1739736000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_12-15",
+   "itemId": "30012",
+   "times": 1065483,
+   "quantity": 387261,
+   "stdDev": 0.8438,
+   "start": 1739736000000,
+   "end": null
+  },
+  {
+   "stageId": "main_08-13",
+   "itemId": "30013",
+   "times": 4042328,
+   "quantity": 107229,
+   "stdDev": 0.1644,
+   "start": 1604217600000,
+   "end": null
+  },
+  {
+   "stageId": "main_08-13",
+   "itemId": "30012",
+   "times": 4042328,
+   "quantity": 1473083,
+   "stdDev": 0.6954,
+   "start": 1604217600000,
+   "end": null
+  }
+ ]
+}

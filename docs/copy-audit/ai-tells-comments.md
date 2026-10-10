@@ -1,23 +1,23 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 8420 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 8738 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 195 | 195 |
-| 「A 而不是 B」对照腔 | high | 0 | 81 | 81 |
-| 破折号当冒号用 | high | 0 | 66 | 66 |
-| 绝对化规定腔 | medium | 0 | 48 | 48 |
+| 粗体强调 | medium | 0 | 198 | 198 |
+| 「A 而不是 B」对照腔 | high | 0 | 84 | 84 |
+| 破折号当冒号用 | high | 0 | 67 | 67 |
+| 绝对化规定腔 | medium | 0 | 49 | 49 |
 | 自指式讲解腔 | medium | 0 | 8 | 8 |
 | 「…即可」机器腔 | medium | 0 | 7 | 7 |
+| 宣传词 | medium | 0 | 3 | 3 |
 | 提示腔 | medium | 0 | 3 | 3 |
 | 省略号 | medium | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 0 | 2 | 2 |
-| 宣传词 | medium | 0 | 2 | 2 |
 | 「不是…而是…」对照句 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 195）
+## 粗体强调（medium｜用户可见 0 / 开发向 198）
 
 **开发向**
 
@@ -27,9 +27,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 189 条，见 inventory.json
+- …… 另有 192 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 81）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 84）
 
 **开发向**
 
@@ -39,9 +39,9 @@
 - `maa_api/agent/runtime.py:1808` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
 - `maa_api/core/worker.py:283` 跳过而非报错（docs/03 §7）。
-- …… 另有 75 条，见 inventory.json
+- …… 另有 78 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 66）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 67）
 
 **开发向**
 
@@ -51,19 +51,19 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 60 条，见 inventory.json
+- …… 另有 61 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 48）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 49）
 
 **开发向**
 
+- `maa_api/services/external/http.py:187` 主机白名单在发请求之前判：来源登记表里没有的主机一律拒绝。
 - `maa_api/services/external/prts.py:41` : 标题里一律禁止的字符：它们只可能来自拼接错误或注入尝试。
 - `maa_api/services/prts_parse/wikitext.py:73` : 展示文本在**第一个**位置参数的已知模板（其余模板一律取最后一个，见模块 docstring）。
 - `scripts/api_smoke.py:363` 环境变量层优先级高于 yaml：开发机上的 MAA_* 会让结果随环境漂移，一律清掉。
 - `scripts/maa-api-service.sh:130` 只看「是不是 python」确实不够精确，但比「监听中的端口一律算别人的进程」好：
 - `scripts/maa-api-service.sh:271` 直接死掉，而服务其实已经起来了——最糟的失败方式。变量一律 init 后再读。
-- `web/src/features/agent/QuestionCard.tsx:110` 必须选中才能提交；跳过不需要选。整卡在终态一律禁用。
-- …… 另有 42 条，见 inventory.json
+- …… 另有 43 条，见 inventory.json
 
 ## 自指式讲解腔（medium｜用户可见 0 / 开发向 8）
 
@@ -89,6 +89,14 @@
 - `web/src/types/api.d.ts:3147` @description 切换到已登录的账号，输入登录名的一部分即可；不填则不切换
 - …… 另有 1 条，见 inventory.json
 
+## 宣传词（medium｜用户可见 0 / 开发向 3）
+
+**开发向**
+
+- `maa_api/services/external/prts.py:554` : 供领域层构造条件用的便捷函数：`id_condition("关卡id", "act3break_01")`。
+- `maa_api/services/external/prts.py:566` : 供领域层构造条件用的便捷函数：`page_condition("7-18 爱国者之死")`。
+- `tests/services/test_game_drops.py:553` 供 get_item / get_stage 用的两个便捷方法
+
 ## 提示腔（medium｜用户可见 0 / 开发向 3）
 
 **开发向**
@@ -111,13 +119,6 @@
 
 - `maa_api/db/migrations/env.py:85` ⚠️ 必须在建任何表之前、且写在 connection 上（M2-01 实测）。
 - `maa_api/db/migrations/env.py:88` ⚠️ 紧跟一次 commit，不能省。exec_driver_sql 会 autobegin 一个
-
-## 宣传词（medium｜用户可见 0 / 开发向 2）
-
-**开发向**
-
-- `maa_api/services/external/prts.py:554` : 供领域层构造条件用的便捷函数：`id_condition("关卡id", "act3break_01")`。
-- `maa_api/services/external/prts.py:566` : 供领域层构造条件用的便捷函数：`page_condition("7-18 爱国者之死")`。
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 1）
 

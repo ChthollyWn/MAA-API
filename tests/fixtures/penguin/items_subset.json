@@ -1,0 +1,332 @@
+[
+ {
+  "itemId": "2001",
+  "name": "基础作战记录",
+  "name_i18n": {
+   "en": "Drill Battle Record",
+   "ja": "入門作戦記録",
+   "ko": "기초작전기록",
+   "zh": "基础作战记录"
+  },
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "itemType": "CARD_EXP",
+  "sortId": 20004,
+  "rarity": 1,
+  "groupID": "exp",
+  "spriteCoord": [
+   0,
+   0
+  ],
+  "alias": {
+   "ja": [
+    "入門作戦記録",
+    "にゅうもんさくせんきろく",
+    "ニュウモンサクセンキロク"
+   ],
+   "zh": [
+    "基础作战记录",
+    "狗粮",
+    "录像带",
+    "经验卡"
+   ]
+  },
+  "pron": {
+   "ja": [
+    "nyuumon`sakusen`kiroku",
+    "nyuumon`sakusen`kiroku"
+   ],
+   "zh": [
+    "ji`chu`zuo`zhan`ji`lu",
+    "gou`liang",
+    "lu`xiang`dai",
+    "jing`yan`ka"
+   ]
+  }
+ },
+ {
+  "itemId": "2002",
+  "name": "初级作战记录",
+  "name_i18n": {
+   "en": "Frontline Battle Record",
+   "ja": "初級作戦記録",
+   "ko": "초급작전기록",
+   "zh": "初级作战记录"
+  },
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "itemType": "CARD_EXP",
+  "sortId": 20003,
+  "rarity": 2,
+  "groupID": "exp",
+  "spriteCoord": [
+   1,
+   0
+  ],
+  "alias": {
+   "ja": [
+    "初級作戦記録",
+    "しょきゅうさくせんきろく",
+    "ショキュウサクセンキロク"
+   ],
+   "zh": [
+    "初级作战记录",
+    "狗粮",
+    "录像带",
+    "经验卡"
+   ]
+  },
+  "pron": {
+   "ja": [
+    "shokyuu`sakusen`kiroku",
+    "syokyuu`sakusen`kiroku"
+   ],
+   "zh": [
+    "chu`ji`zuo`zhan`ji`lu",
+    "gou`liang",
+    "lu`xiang`dai",
+    "jing`yan`ka"
+   ]
+  }
+ },
+ {
+  "itemId": "30011",
+  "name": "源岩",
+  "name_i18n": {
+   "en": "Orirock",
+   "ja": "源岩鉱",
+   "ko": "원암",
+   "zh": "源岩"
+  },
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "itemType": "MATERIAL",
+  "sortId": 100015,
+  "rarity": 0,
+  "groupID": "orirock",
+  "spriteCoord": [
+   4,
+   0
+  ],
+  "alias": {
+   "ja": [
+    "源岩鉱",
+    "げんがんこう",
+    "ゲンガンコウ"
+   ],
+   "zh": [
+    "源岩",
+    "土块",
+    "石头"
+   ]
+  },
+  "pron": {
+   "ja": [
+    "gengan`kou",
+    "gengan`kou"
+   ],
+   "zh": [
+    "yuan`yan",
+    "tu`kuai",
+    "shi`tou"
+   ]
+  }
+ },
+ {
+  "itemId": "30012",
+  "name": "固源岩",
+  "name_i18n": {
+   "en": "Orirock Cube",
+   "ja": "初級源岩",
+   "ko": "원암 큐브",
+   "zh": "固源岩"
+  },
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "itemType": "MATERIAL",
+  "sortId": 100014,
+  "rarity": 1,
+  "groupID": "orirock",
+  "spriteCoord": [
+   5,
+   0
+  ],
+  "alias": {
+   "ja": [
+    "初級源岩",
+    "しょきゅうげんがん",
+    "ショキュウゲンガン"
+   ],
+   "zh": [
+    "固源岩",
+    "土块",
+    "石头"
+   ]
+  },
+  "pron": {
+   "ja": [
+    "shokyuu`gengan",
+    "syokyuu`gengan"
+   ],
+   "zh": [
+    "gu`yuan`yan",
+    "tu`kuai",
+    "shi`tou"
+   ]
+  }
+ },
+ {
+  "itemId": "30013",
+  "name": "固源岩组",
+  "name_i18n": {
+   "en": "Orirock Cluster",
+   "ja": "中級源岩",
+   "ko": "원암 큐브 번들",
+   "zh": "固源岩组"
+  },
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "itemType": "MATERIAL",
+  "sortId": 100013,
+  "rarity": 2,
+  "groupID": "orirock",
+  "spriteCoord": [
+   0,
+   1
+  ],
+  "alias": {
+   "ja": [
+    "中級源岩",
+    "ちゅうきゅうげんがん",
+    "チュウキュウゲンガン"
+   ],
+   "zh": [
+    "固源岩组",
+    "土块",
+    "石头"
+   ]
+  },
+  "pron": {
+   "ja": [
+    "chuukyuu`gengan",
+    "tyuukyuu`gengan"
+   ],
+   "zh": [
+    "gu`yuan`yan`zu",
+    "tu`kuai",
+    "shi`tou"
+   ]
+  }
+ },
+ {
+  "itemId": "30033",
+  "name": "聚酸酯组",
+  "name_i18n": {
+   "en": "Polyester Pack",
+   "ja": "中級エステル",
+   "ko": "폴리에스테르 번들",
+   "zh": "聚酸酯组"
+  },
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "itemType": "MATERIAL",
+  "sortId": 100021,
+  "rarity": 2,
+  "groupID": "ester",
+  "spriteCoord": [
+   3,
+   2
+  ],
+  "alias": {
+   "ja": [
+    "中級エステル",
+    "ちゅうきゅうえすてる",
+    "チュウキュウエステル"
+   ],
+   "zh": [
+    "聚酸酯组"
+   ]
+  },
+  "pron": {
+   "ja": [
+    "chuukyuu`esuteru",
+    "tyuukyuu`esuteru"
+   ],
+   "zh": [
+    "ju`suan`zhi`zu"
+   ]
+  }
+ }
+]

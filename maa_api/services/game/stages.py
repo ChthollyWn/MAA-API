@@ -56,6 +56,7 @@ class StageService:
 
     prts: PrtsClient | None = None
     index: ActivityIndex | None = None
+    drops: Any = None
     settings_provider: Callable[[], Settings] = get_settings
 
     @property
@@ -65,6 +66,15 @@ class StageService:
     @property
     def local_index(self) -> ActivityIndex:
         return self.index or default_activity_index()
+
+    @property
+    def drop_service(self) -> Any:
+        """掉率服务（M26 接入）；缺省用模块级默认门面。"""
+        if self.drops is not None:
+            return self.drops
+        from maa_api.services.game.drops import default_drop_service
+
+        return default_drop_service()
 
     async def get(
         self,
@@ -139,11 +149,7 @@ class StageService:
             if "devices" in groups:
                 payload["devices"] = [ _device(device) for device in page.devices ]
             if "drops" in groups:
-                payload["drops"] = {
-                    "first": list(page.first_drops),
-                    "normal": list(page.normal_drops),
-                    "note": "PRTS 的定性描述；掉率见 M26 的 get_drop_rates（企鹅物流）",
-                }
+                payload["drops"] = await self._drops_group(page, target)
         else:
             if "basic" in groups:
                 payload["basic"] = _basic_group(None, target)
@@ -162,6 +168,38 @@ class StageService:
                 region_note=_region_note(client_type, self.settings_provider()),
             )
         )
+        return payload
+
+    async def _drops_group(
+        self, page: StagePage, target: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """掉落：PRTS 的定性描述 + 企鹅物流的掉率（M26，规格 §6.1 第 3 条）。
+
+        掉率取不到时只降级这一段：定性描述照常返回，`rates_unavailable` 说明原因。
+        """
+        payload: dict[str, Any] = {
+            "first": list(page.first_drops),
+            "normal": list(page.normal_drops),
+            "source": "prts",
+            "rates": [],
+        }
+        stage_id = target.get("stage_id")
+        if not stage_id:
+            payload["rates_unavailable"] = "没有 stageId，无法查企鹅物流的掉率"
+            return payload
+        try:
+            payload["rates"] = await self.drop_service.stage_drop_rates(str(stage_id))
+        except AppError as exc:
+            if exc.code in {
+                ErrorCode.EXTERNAL_SOURCE_DISABLED,
+                ErrorCode.EXTERNAL_SOURCE_UNAVAILABLE,
+                ErrorCode.EXTERNAL_SOURCE_RATE_LIMITED,
+                ErrorCode.EXTERNAL_RESPONSE_INVALID,
+                ErrorCode.GAME_DATA_NOT_FOUND,
+            }:
+                payload["rates_unavailable"] = f"企鹅物流取不到掉率（{exc.code}）"
+            else:
+                raise
         return payload
 
     async def _locate_page(

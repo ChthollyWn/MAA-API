@@ -1,0 +1,544 @@
+{
+ "matrix": [
+  {
+   "stageId": "main_08-13",
+   "itemId": "30013",
+   "times": 4042328,
+   "quantity": 107229,
+   "stdDev": 0.1644,
+   "start": 1604217600000,
+   "end": null
+  },
+  {
+   "stageId": "main_15-08",
+   "itemId": "30013",
+   "times": 2889341,
+   "quantity": 74840,
+   "stdDev": 0.1635,
+   "start": 1744012800000,
+   "end": null
+  },
+  {
+   "stageId": "main_17-04",
+   "itemId": "30013",
+   "times": 2559623,
+   "quantity": 55557,
+   "stdDev": 0.1524,
+   "start": 1777608000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_12-15",
+   "itemId": "30013",
+   "times": 1065483,
+   "quantity": 26362,
+   "stdDev": 0.1626,
+   "start": 1739736000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_13-04",
+   "itemId": "30013",
+   "times": 810355,
+   "quantity": 32269,
+   "stdDev": 0.1961,
+   "start": 1696752000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_13-13",
+   "itemId": "30013",
+   "times": 671071,
+   "quantity": 26933,
+   "stdDev": 0.1971,
+   "start": 1696752000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_11-06",
+   "itemId": "30013",
+   "times": 609529,
+   "quantity": 17887,
+   "stdDev": 0.1691,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_11-06",
+   "itemId": "30013",
+   "times": 608561,
+   "quantity": 17365,
+   "stdDev": 0.1674,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_10-05",
+   "itemId": "30013",
+   "times": 589577,
+   "quantity": 447364,
+   "stdDev": 0.7658,
+   "start": 1649923200000,
+   "end": null
+  },
+  {
+   "stageId": "main_14-07",
+   "itemId": "30013",
+   "times": 544096,
+   "quantity": 14106,
+   "stdDev": 0.165,
+   "start": 1715716800000,
+   "end": null
+  },
+  {
+   "stageId": "main_16-13",
+   "itemId": "30013",
+   "times": 536603,
+   "quantity": 13559,
+   "stdDev": 0.1651,
+   "start": 1759982400000,
+   "end": null
+  },
+  {
+   "stageId": "tough_14-07",
+   "itemId": "30013",
+   "times": 490833,
+   "quantity": 12701,
+   "stdDev": 0.1638,
+   "start": 1715716800000,
+   "end": null
+  },
+  {
+   "stageId": "main_13-13",
+   "itemId": "30013",
+   "times": 420256,
+   "quantity": 16787,
+   "stdDev": 0.1976,
+   "start": 1696752000000,
+   "end": null
+  },
+  {
+   "stageId": "main_13-04",
+   "itemId": "30013",
+   "times": 400227,
+   "quantity": 15898,
+   "stdDev": 0.1966,
+   "start": 1696752000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_12-06",
+   "itemId": "30013",
+   "times": 360582,
+   "quantity": 15542,
+   "stdDev": 0.2045,
+   "start": 1680768000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_12-04",
+   "itemId": "30013",
+   "times": 356344,
+   "quantity": 9977,
+   "stdDev": 0.1665,
+   "start": 1680768000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_14-17",
+   "itemId": "30013",
+   "times": 341256,
+   "quantity": 8712,
+   "stdDev": 0.1591,
+   "start": 1715716800000,
+   "end": null
+  },
+  {
+   "stageId": "tough_10-05",
+   "itemId": "30013",
+   "times": 335979,
+   "quantity": 255260,
+   "stdDev": 0.7472,
+   "start": 1649923200000,
+   "end": null
+  },
+  {
+   "stageId": "main_04-04",
+   "itemId": "30013",
+   "times": 298460,
+   "quantity": 5002,
+   "stdDev": 0.1285,
+   "start": 1556676000000,
+   "end": null
+  },
+  {
+   "stageId": "main_04-06",
+   "itemId": "30013",
+   "times": 288189,
+   "quantity": 127420,
+   "stdDev": 0.5719,
+   "start": 1556676000000,
+   "end": null
+  },
+  {
+   "stageId": "main_04-10",
+   "itemId": "30013",
+   "times": 262432,
+   "quantity": 7882,
+   "stdDev": 0.1712,
+   "start": 1556676000000,
+   "end": null
+  },
+  {
+   "stageId": "main_04-07",
+   "itemId": "30013",
+   "times": 240665,
+   "quantity": 3935,
+   "stdDev": 0.1272,
+   "start": 1556676000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_12-13",
+   "itemId": "30013",
+   "times": 233850,
+   "quantity": 128434,
+   "stdDev": 0.5675,
+   "start": 1680768000000,
+   "end": null
+  },
+  {
+   "stageId": "main_12-06",
+   "itemId": "30013",
+   "times": 210437,
+   "quantity": 8629,
+   "stdDev": 0.2,
+   "start": 1680768000000,
+   "end": null
+  },
+  {
+   "stageId": "main_06-05",
+   "itemId": "30013",
+   "times": 190393,
+   "quantity": 114219,
+   "stdDev": 0.6645,
+   "start": 1577174400000,
+   "end": null
+  },
+  {
+   "stageId": "main_11-11",
+   "itemId": "30013",
+   "times": 170785,
+   "quantity": 4843,
+   "stdDev": 0.1669,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_11-16",
+   "itemId": "30013",
+   "times": 170704,
+   "quantity": 93917,
+   "stdDev": 0.6529,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "sub_04-4-1",
+   "itemId": "30013",
+   "times": 158666,
+   "quantity": 1989,
+   "stdDev": 0.1116,
+   "start": 1577174400000,
+   "end": null
+  },
+  {
+   "stageId": "tough_13-08",
+   "itemId": "30013",
+   "times": 157374,
+   "quantity": 4135,
+   "stdDev": 0.1609,
+   "start": 1696752000000,
+   "end": null
+  },
+  {
+   "stageId": "main_10-06",
+   "itemId": "30013",
+   "times": 156404,
+   "quantity": 6833,
+   "stdDev": 0.2053,
+   "start": 1649923200000,
+   "end": null
+  },
+  {
+   "stageId": "tough_12-10",
+   "itemId": "30013",
+   "times": 155056,
+   "quantity": 4707,
+   "stdDev": 0.1719,
+   "start": 1680768000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_13-02",
+   "itemId": "30013",
+   "times": 143823,
+   "quantity": 75066,
+   "stdDev": 0.6545,
+   "start": 1696752000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_13-14",
+   "itemId": "30013",
+   "times": 137936,
+   "quantity": 3589,
+   "stdDev": 0.1596,
+   "start": 1696752000000,
+   "end": null
+  },
+  {
+   "stageId": "main_12-04",
+   "itemId": "30013",
+   "times": 135428,
+   "quantity": 3706,
+   "stdDev": 0.1659,
+   "start": 1680768000000,
+   "end": null
+  },
+  {
+   "stageId": "main_05-05",
+   "itemId": "30013",
+   "times": 133706,
+   "quantity": 2100,
+   "stdDev": 0.1246,
+   "start": 1562659200000,
+   "end": null
+  },
+  {
+   "stageId": "main_11-13",
+   "itemId": "30013",
+   "times": 131441,
+   "quantity": 5854,
+   "stdDev": 0.2091,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "tough_11-16",
+   "itemId": "30013",
+   "times": 130974,
+   "quantity": 72160,
+   "stdDev": 0.5981,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_07-05",
+   "itemId": "30013",
+   "times": 130091,
+   "quantity": 78082,
+   "stdDev": 0.6525,
+   "start": 1588320000000,
+   "end": null
+  },
+  {
+   "stageId": "tough_11-13",
+   "itemId": "30013",
+   "times": 125373,
+   "quantity": 5716,
+   "stdDev": 0.2091,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "sub_09-1-2",
+   "itemId": "30013",
+   "times": 118275,
+   "quantity": 2010,
+   "stdDev": 0.1294,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_17-10",
+   "itemId": "30033",
+   "times": 3698588,
+   "quantity": 58276,
+   "stdDev": 0.1287,
+   "start": 1777608000000,
+   "end": null
+  },
+  {
+   "stageId": "main_09-17",
+   "itemId": "30033",
+   "times": 913612,
+   "quantity": 19183,
+   "stdDev": 0.1444,
+   "start": 1631865600000,
+   "end": null
+  },
+  {
+   "stageId": "main_04-09",
+   "itemId": "30033",
+   "times": 437483,
+   "quantity": 10177,
+   "stdDev": 0.1515,
+   "start": 1556676000000,
+   "end": null
+  },
+  {
+   "stageId": "main_04-08",
+   "itemId": "30033",
+   "times": 379265,
+   "quantity": 9176,
+   "stdDev": 0.1542,
+   "start": 1556676000000,
+   "end": null
+  },
+  {
+   "stageId": "main_11-10",
+   "itemId": "30033",
+   "times": 375598,
+   "quantity": 12677,
+   "stdDev": 0.1822,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_14-11",
+   "itemId": "30033",
+   "times": 362209,
+   "quantity": 7168,
+   "stdDev": 0.1423,
+   "start": 1715716800000,
+   "end": null
+  },
+  {
+   "stageId": "tough_14-11",
+   "itemId": "30033",
+   "times": 302235,
+   "quantity": 6013,
+   "stdDev": 0.1428,
+   "start": 1715716800000,
+   "end": null
+  },
+  {
+   "stageId": "tough_11-10",
+   "itemId": "30033",
+   "times": 221583,
+   "quantity": 7630,
+   "stdDev": 0.1842,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_10-13",
+   "itemId": "30033",
+   "times": 218441,
+   "quantity": 7591,
+   "stdDev": 0.1838,
+   "start": 1649923200000,
+   "end": null
+  },
+  {
+   "stageId": "tough_14-14",
+   "itemId": "30033",
+   "times": 190469,
+   "quantity": 4085,
+   "stdDev": 0.1456,
+   "start": 1715716800000,
+   "end": null
+  },
+  {
+   "stageId": "sub_05-4-1",
+   "itemId": "30033",
+   "times": 188651,
+   "quantity": 2497,
+   "stdDev": 0.115,
+   "start": 1577174400000,
+   "end": null
+  },
+  {
+   "stageId": "tough_11-09",
+   "itemId": "30033",
+   "times": 184433,
+   "quantity": 4305,
+   "stdDev": 0.1516,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_07-08",
+   "itemId": "30033",
+   "times": 179943,
+   "quantity": 2541,
+   "stdDev": 0.1183,
+   "start": 1588320000000,
+   "end": null
+  },
+  {
+   "stageId": "main_07-03",
+   "itemId": "30033",
+   "times": 164235,
+   "quantity": 91572,
+   "stdDev": 0.7716,
+   "start": 1588320000000,
+   "end": null
+  },
+  {
+   "stageId": "main_16-12",
+   "itemId": "30033",
+   "times": 163871,
+   "quantity": 3308,
+   "stdDev": 0.1463,
+   "start": 1759982400000,
+   "end": null
+  },
+  {
+   "stageId": "main_11-09",
+   "itemId": "30033",
+   "times": 153609,
+   "quantity": 3322,
+   "stdDev": 0.1462,
+   "start": 1665475200000,
+   "end": null
+  },
+  {
+   "stageId": "main_14-14",
+   "itemId": "30033",
+   "times": 149311,
+   "quantity": 3187,
+   "stdDev": 0.1458,
+   "start": 1715716800000,
+   "end": null
+  },
+  {
+   "stageId": "tough_10-13",
+   "itemId": "30033",
+   "times": 145595,
+   "quantity": 5017,
+   "stdDev": 0.1827,
+   "start": 1649923200000,
+   "end": null
+  },
+  {
+   "stageId": "tough_13-02",
+   "itemId": "30033",
+   "times": 143823,
+   "quantity": 2863,
+   "stdDev": 0.1404,
+   "start": 1696752000000,
+   "end": null
+  },
+  {
+   "stageId": "main_09-05",
+   "itemId": "30033",
+   "times": 140953,
+   "quantity": 1798,
+   "stdDev": 0.1135,
+   "start": 1631865600000,
+   "end": null
+  }
+ ]
+}

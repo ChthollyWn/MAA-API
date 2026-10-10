@@ -1,0 +1,74 @@
+[
+ {
+  "start": 1556676000000,
+  "end": null,
+  "label_i18n": {
+   "en": "Game Released",
+   "ja": "ゲーム稼働",
+   "ko": "Game Released",
+   "zh": "开服"
+  },
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": false
+   },
+   "KR": {
+    "exist": false
+   },
+   "US": {
+    "exist": false
+   }
+  }
+ },
+ {
+  "start": 1579190400000,
+  "end": null,
+  "label_i18n": {
+   "en": "Game Released",
+   "ja": "ゲーム稼働",
+   "ko": "Game Released",
+   "zh": "开服"
+  },
+  "existence": {
+   "CN": {
+    "exist": false
+   },
+   "JP": {
+    "exist": false
+   },
+   "KR": {
+    "exist": false
+   },
+   "US": {
+    "exist": true
+   }
+  }
+ },
+ {
+  "start": 1579140000000,
+  "end": null,
+  "label_i18n": {
+   "en": "Game Released",
+   "ja": "ゲーム稼働",
+   "ko": "Game Released",
+   "zh": "开服"
+  },
+  "existence": {
+   "CN": {
+    "exist": false
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": false
+   }
+  }
+ }
+]

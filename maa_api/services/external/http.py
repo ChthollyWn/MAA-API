@@ -26,6 +26,7 @@ from maa_api.services.external.sources import (
     CACHE_LEVELS,
     ResolvedSource,
     resolve_source,
+    validate_host,
 )
 from maa_api.services.external.status import SourceStatusRegistry
 from maa_api.settings import Settings, get_settings
@@ -169,16 +170,23 @@ class ExternalClient:
         params: Mapping[str, str] | None = None,
         *,
         cache_level: str | None = None,
+        host: str | None = None,
     ) -> ExternalResult:
         """取一个端点的 JSON；带缓存、限流、重试、熔断与旧值回退。
+
+        :param host: 显式指定来源主机（必须是该来源 :attr:`SourceSpec.hosts` 里的一员，
+            如企鹅物流的 `penguin-stats.cn`）；缺省用登记表的第一个主机。
 
         :raises AppError: `EXTERNAL_SOURCE_DISABLED`（来源被关闭）、
             `EXTERNAL_SOURCE_RATE_LIMITED`（等不到令牌或远端 429 冷却中）、
             `EXTERNAL_SOURCE_UNAVAILABLE`（网络错误、超时、5xx、熔断中）、
-            `EXTERNAL_RESPONSE_INVALID`（超限、JSON 无效、结构不符）。
+            `EXTERNAL_RESPONSE_INVALID`（超限、JSON 无效、结构不符）、
+            `INVALID_PARAMETER`（主机不在该来源的登记表里）。
         """
         source = resolve_source(kind, self._settings_provider())
-        url = source.spec.url(endpoint, params or {})
+        # 主机白名单在发请求之前判：来源登记表里没有的主机一律拒绝。
+        validate_host(source.spec, host)
+        url = source.spec.url(endpoint, params or {}, host=host)
         key = cache_key(kind, endpoint, params or {})
         level = cache_level if cache_level in CACHE_LEVELS else source.spec.cache_level
         ttl = source.cache_level_seconds.get(level, source.cache_level_seconds["static"])
