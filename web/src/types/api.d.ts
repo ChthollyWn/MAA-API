@@ -2054,7 +2054,7 @@ export interface components {
             enable: boolean | null;
             /**
              * Expiring Medicine
-             * @description 最多吃几瓶 48 小时内过期的理智药；当前内核已不再读取（默认 0）
+             * @description 最多吃几瓶 48 小时内过期的理智药；非 0 时内核会把这些药一起用掉
              * @default 0
              */
             expiring_medicine: number | null;

@@ -359,7 +359,7 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 | 错误码 | HTTP | 含义与触发场景 |
 |---|---|---|
 | `ACCOUNT_DATA_NOT_FOUND` | 404 | 账号数据里查无此对象：`GET /api/account/operators/{char_id}` 没有该干员的记录，或账号数据尚未识别过 |
-| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（`GET` / `DELETE /api/agent/upgrade-plans/{plan_id}`，M27 后半与前端计划页用） |
+| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（计划的工具入口是 `list_upgrade_plans` / `cancel_upgrade_plan`；计划的 REST 端点留给后续里程碑） |
 
 两个码都是「这条记录不在库里」，与 `GAME_DATA_NOT_FOUND`（来源上没有）区分：账号数据来自本机识别与手动编辑，不查外部来源。字段级编辑约束（精英化上限、专精前置、模组类型与等级）违反时不用新码，走 §4.2 的 `INVALID_PARAMETER`，`details` 带字段名与合法取值。
 

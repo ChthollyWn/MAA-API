@@ -316,7 +316,7 @@ class FightInput(TaskInputBase):
         group="资源消耗",
         ge=0,
         risk=RISK_CONSUME,
-        description="最多吃几瓶 48 小时内过期的理智药；当前内核已不再读取（默认 0）",
+        description="最多吃几瓶 48 小时内过期的理智药；非 0 时内核会把这些药一起用掉",
     )
     stone: int | None = MaaField(
         default=0,
