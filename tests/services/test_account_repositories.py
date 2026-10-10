@@ -68,11 +68,11 @@ def test_new_row_defaults_match_the_wire_shape(retention_session_factory) -> Non
                 None,
                 None,
             )
-            assert (row.own, row.elite, row.level, row.potential) == (False, 0, 0, 0)
-            assert row.skill_level == 1
-            # 专精是三个 0 槽而不是空映射：页面与编辑校验都按它读。
-            assert row.masteries == {"1": 0, "2": 0, "3": 0}
-            assert row.modules == {}
+            # M35：建行只填「确定的」——未拥有 + 练度六列 NULL＝未识别，不冒充 0 级/技能 1 级。
+            assert (row.own, row.elite, row.level, row.potential) == (False, None, None, None)
+            assert row.skill_level is None
+            assert row.masteries is None
+            assert row.modules is None
             assert row.recognized_values is None
             assert row.field_sources == {}
             assert row.recognized_at is None
@@ -169,7 +169,8 @@ def test_operator_repository_reads_filters_and_upserts(retention_session_factory
             assert await repo.count() == 4
             updated = await repo.get("char_002_amiya")
             assert updated is not None
-            assert (updated.level, updated.elite, updated.name) == (85, 0, "阿米娅")
+            # upsert 是整行覆盖：这次没写精英化，原来的值不保留，落成 NULL＝未识别。
+            assert (updated.level, updated.elite, updated.name) == (85, None, "阿米娅")
 
     asyncio.run(scenario())
 

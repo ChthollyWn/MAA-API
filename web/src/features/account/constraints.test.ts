@@ -10,7 +10,7 @@ import {
   patchIsEmpty,
   validateDraft,
 } from './constraints'
-import { OPERATORS, operatorRow } from './test-utils'
+import { KNOWN_EMPTY_ROW, OPERATORS, UNKNOWN_ALL_ROW, UNKNOWN_SKILL_ROW, operatorRow } from './test-utils'
 
 const amiya = OPERATORS[0]
 
@@ -100,5 +100,69 @@ describe('M27 编辑约束', () => {
     const draft = draftFromRow(row)
     expect(draft.skillCount).toBe(1)
     expect(validateDraft({ ...draft, elite: 1 }, row.rarity)).toEqual({})
+  })
+})
+
+describe('M35 未识别练度', () => {
+  it('未识别的列读进草稿仍是 null，不折算成 0 / 1 / 空表', () => {
+    expect(draftFromRow(UNKNOWN_ALL_ROW)).toMatchObject({
+      elite: null,
+      level: null,
+      potential: null,
+      skillLevel: null,
+      masteries: null,
+      modules: null,
+    })
+    expect(draftFromRow(UNKNOWN_ALL_ROW).skillCount).toBe(defaultSkillCount(UNKNOWN_ALL_ROW.rarity))
+
+    // 识别给得出的三列有值，技能 / 专精 / 模组三列未识别——M35 的真实现场。
+    expect(draftFromRow(UNKNOWN_SKILL_ROW)).toMatchObject({
+      elite: 2,
+      level: 90,
+      potential: 1,
+      skillLevel: null,
+      masteries: null,
+      modules: null,
+    })
+    expect(draftFromRow(UNKNOWN_SKILL_ROW).skillCount).toBe(3)
+  })
+
+  it('未知不拦专精与模组的补录（与后端「约束只在已知时判」同口径）', () => {
+    expect(canEditMasteries({ elite: null, skillLevel: null })).toBe(true)
+    expect(canEditMasteries({ elite: null, skillLevel: 4 })).toBe(true)
+    expect(canEditMasteries({ elite: 0, skillLevel: null })).toBe(true)
+    expect(canEditModules({ elite: null })).toBe(true)
+
+    const draft = {
+      ...draftFromRow(UNKNOWN_SKILL_ROW),
+      masteries: { '1': 3, '2': 0, '3': 0 },
+      modules: { X: 1 },
+    }
+    expect(validateDraft(draft, UNKNOWN_SKILL_ROW.rarity)).toEqual({})
+  })
+
+  it('已知的非法组合照旧拦：技能不到 7 时填了专精仍报错', () => {
+    const draft = {
+      ...draftFromRow(UNKNOWN_SKILL_ROW),
+      skillLevel: 4,
+      masteries: { '1': 3, '2': 0, '3': 0 },
+    }
+    expect(validateDraft(draft, UNKNOWN_SKILL_ROW.rarity).masteries).toMatch(/专精只在精二且技能等级 7 时可填/)
+  })
+
+  it('未识别的列不写进 PATCH：留空就是留空，不会被兜成 0 / 空表', () => {
+    expect(patchIsEmpty(buildPatch(UNKNOWN_ALL_ROW, draftFromRow(UNKNOWN_ALL_ROW)))).toBe(true)
+    expect(patchIsEmpty(buildPatch(UNKNOWN_SKILL_ROW, draftFromRow(UNKNOWN_SKILL_ROW)))).toBe(true)
+
+    // 只补等级：技能 / 专精 / 模组仍未识别，不跟着写。
+    const draft = { ...draftFromRow(UNKNOWN_SKILL_ROW), level: 85 }
+    expect(buildPatch(UNKNOWN_SKILL_ROW, draft)).toEqual({ level: 85 })
+  })
+
+  it('已知的空专精 / 空模组仍是具体值，不会被当成未识别', () => {
+    const draft = draftFromRow(KNOWN_EMPTY_ROW)
+    expect(draft.masteries).toEqual({ '1': 0, '2': 0, '3': 0 })
+    expect(draft.modules).toEqual({})
+    expect(patchIsEmpty(buildPatch(KNOWN_EMPTY_ROW, draft))).toBe(true)
   })
 })

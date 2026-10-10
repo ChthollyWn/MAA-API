@@ -31,7 +31,6 @@ from maa_api.db.models import (
     AccountOperator,
     AccountOperatorDiff,
     AccountRecognition,
-    empty_masteries,
     utcnow,
 )
 from maa_api.db.repositories.base import BaseRepository
@@ -98,13 +97,12 @@ class AccountOperatorRepository(BaseRepository):
     ) -> AccountOperator:
         """构造一条**未入库**的干员行（默认值见 :class:`~maa_api.db.models.AccountOperator`）。
 
-        同步方法：识别合并要先把行拼好再决定写不写，构造不应该碰会话。``masteries``
-        的默认值是三个 0 槽（不是空映射），页面与编辑校验都按 `{"1":0,"2":0,"3":0}`
-        理解它。
+        同步方法：识别合并要先把行拼好再决定写不写，构造不应该碰会话。练度六列一律
+        留 ``None``（＝未识别）：新行来自识别，而识别给不出技能等级 / 专精 / 模组，
+        把 ``masteries`` 预填成三个 0 槽就等于替内核撒了谎（M35）。
         """
         row = AccountOperator(char_id=char_id, name=name, rarity=rarity, own=own)
         row.profession = profession
-        row.masteries = empty_masteries()
         return row
 
     async def get(self, char_id: str) -> AccountOperator | None:

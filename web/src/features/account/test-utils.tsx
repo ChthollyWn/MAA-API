@@ -70,6 +70,57 @@ export const OPERATORS: OperatorRow[] = [
   }),
 ]
 
+/**
+ * M35 未识别练度夹具。
+ *
+ * `UNKNOWN_SKILL_ROW`：识别到了精英化 / 等级 / 潜能（内核 OperBox 只给得出这三个），
+ * 技能等级、专精、模组三列是 `null` ＝ **未识别**——这正是 M35 之前被渲染成
+ * 「技能 1 级 / 无专精 / 无模组」的现场。
+ * `UNKNOWN_ALL_ROW`：只有 `all_opers` 条目、没有详情的干员，六列全未识别。
+ */
+export const UNKNOWN_SKILL_ROW: OperatorRow = operatorRow({
+  char_id: 'char_4093_frston',
+  name: 'Friston-3',
+  rarity: 6,
+  elite: 2,
+  level: 90,
+  potential: 1,
+  skill_level: null,
+  masteries: null,
+  modules: null,
+  profession: '术师',
+  field_sources: { own: 'recognition', elite: 'recognition', level: 'recognition', potential: 'recognition' },
+})
+
+export const UNKNOWN_ALL_ROW: OperatorRow = operatorRow({
+  char_id: 'char_9999_unknown',
+  name: '未识别练度',
+  rarity: 3,
+  elite: null,
+  level: null,
+  potential: null,
+  skill_level: null,
+  masteries: null,
+  modules: null,
+  profession: '近卫',
+  field_sources: { own: 'recognition' },
+})
+
+/** 已知但「空」的练度：全 0 专精槽与空模组是「无专精 / 无模组」，不是未识别。 */
+export const KNOWN_EMPTY_ROW: OperatorRow = operatorRow({
+  char_id: 'char_102_texas',
+  name: '德克萨斯',
+  rarity: 5,
+  elite: 0,
+  level: 1,
+  potential: 1,
+  skill_level: 1,
+  masteries: { '1': 0, '2': 0, '3': 0 },
+  modules: {},
+  profession: '先锋',
+  field_sources: { own: 'recognition', elite: 'recognition', level: 'recognition', potential: 'recognition', skill_level: 'manual', masteries: 'manual', modules: 'manual' },
+})
+
 export const DEPOT_ITEMS: DepotItem[] = [
   { item_id: '30011', name: '源岩', count: 42, category: '材料' },
   { item_id: '30012', name: '固源岩', count: 7, category: '材料' },
@@ -164,7 +215,8 @@ export function installAccountApi(options: AccountApiOptions = {}) {
       const rarityMin = url.searchParams.get('rarity_min')
       if (rarityMin) rows = rows.filter((row) => row.rarity >= Number(rarityMin))
       const eliteMin = url.searchParams.get('elite_min')
-      if (eliteMin !== null) rows = rows.filter((row) => row.elite >= Number(eliteMin))
+      // 未识别的精英化不命中「最低精英化」（M35 规格 §4.4）：SQL 的三值逻辑就是这个结果。
+      if (eliteMin !== null) rows = rows.filter((row) => row.elite !== null && row.elite >= Number(eliteMin))
       const profession = url.searchParams.get('profession')
       if (profession) rows = rows.filter((row) => row.profession === profession)
       const query = url.searchParams.get('query')

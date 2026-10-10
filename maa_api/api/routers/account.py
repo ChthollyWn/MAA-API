@@ -66,6 +66,10 @@ class OperatorPatchRequest(BaseModel):
 
     取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、
     模组与精英化）在服务层做——它们要看行里既有的值。
+
+    字段传 ``null`` 与不传同义：**都不修改**。M35 之后读出来可能是 ``null``（＝未识别），
+    但本轮不提供「把已识别的值清回未识别」的写入语义（规格 §3.2），所以读到的 ``null``
+    原样回传不会误清数据。
     """
 
     model_config = ConfigDict(
@@ -115,9 +119,12 @@ class OperatorPatchRequest(BaseModel):
 class AccountOperatorRow(BaseModel):
     """干员行：docs/05 §6.20 的字段清单，与单条读取同形。
 
-    ``masteries`` 的三个槽位总是出现（没识别过、也没手改过的行也是 0），``modules``
-    只含已解锁的类型，``field_sources`` 的值只有 recognition / manual / agent。
-    ``name``、``rarity``、``profession`` 在映射不到的干员上可以是 ``null``。
+    练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` /
+    ``modules``）可以是 ``null`` ＝ **未识别**（M35）：既没有识别值，也没有 manual /
+    agent 写入。内核 OperBox 只识别得到前四个字段里的三个（``elite`` / ``level`` /
+    ``potential``），技能等级、专精、模组不在识别范围内，别把 ``null`` 读成 0 级 /
+    技能 1 级 / 无专精。``field_sources`` 的值只有 recognition / manual / agent；
+    ``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。
     """
 
     char_id: str
@@ -125,12 +132,12 @@ class AccountOperatorRow(BaseModel):
     rarity: int | None = None
     profession: str | None = None
     own: bool
-    elite: int
-    level: int
-    potential: int
-    skill_level: int
-    masteries: dict[str, int] = Field(default_factory=dict)
-    modules: dict[str, int] = Field(default_factory=dict)
+    elite: int | None = None
+    level: int | None = None
+    potential: int | None = None
+    skill_level: int | None = None
+    masteries: dict[str, int] | None = None
+    modules: dict[str, int] | None = None
     field_sources: dict[str, str] = Field(default_factory=dict)
     recognized_at: str | None = None
     updated_at: str | None = None

@@ -7,15 +7,17 @@ import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states'
-import { accountKeys, cancelUpgradePlan, fetchUpgradePlans, type UpgradePlan } from './api'
+import { accountKeys, cancelUpgradePlan, fetchUpgradePlans, type PlanUnknown, type UpgradePlan } from './api'
 import {
   finiteNumber,
+  fieldLabel,
   formatDateTime,
   missingMaterialsText,
   parsePlanStages,
   planRunsTotal,
   planStagesText,
   planStatusLabel,
+  UNKNOWN_TEXT,
   upgradeTargetText,
 } from './format'
 
@@ -44,6 +46,36 @@ export function planTargets(value: unknown): PlanTarget[] {
   })
 }
 
+/** `progress.unknowns` 的一条（§4.7）；三字段缺一个就跳过，别把半条渲染进页面。 */
+export function planUnknowns(value: unknown): PlanUnknown[] {
+  return (Array.isArray(value) ? value : []).flatMap((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return []
+    const entry = row as Record<string, unknown>
+    const operator = typeof entry.operator === 'string' ? entry.operator.trim() : ''
+    const field = typeof entry.field === 'string' ? entry.field.trim() : ''
+    const reason = typeof entry.reason === 'string' ? entry.reason.trim() : ''
+    if (!operator || !field) return []
+    return [{ operator, field, reason: reason || '未识别，需先确认' }]
+  })
+}
+
+/**
+ * `progress.unknowns` 之前落库的旧行兜底（§4.7）：从 `notes` 里挑出提到「未识别」的那句。
+ * 只挑这一句，不把整份 `notes` 铺出来；`progress.notes` 与顶层 `notes` 两种落点都认。
+ */
+export function planUnknownNotes(plan: UpgradePlan): string[] {
+  const progress = plan.progress ?? {}
+  const raw = [
+    ...(Array.isArray(progress.notes) ? progress.notes : [progress.notes]),
+    ...(Array.isArray(plan.notes) ? plan.notes : [plan.notes]),
+  ]
+  const picked = raw
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.includes(UNKNOWN_TEXT))
+  return Array.from(new Set(picked))
+}
+
 function planProgress(plan: UpgradePlan) {
   const progress = plan.progress ?? {}
   const stages = parsePlanStages(progress.stages)
@@ -69,6 +101,10 @@ function planProgress(plan: UpgradePlan) {
     replannedAt,
     replanError,
     scheduleNote,
+    /** §4.7「待确认」：未识别的维度（`progress.unknowns`），旧行没有就是空数组。 */
+    unknowns: planUnknowns(progress.unknowns),
+    /** `unknowns` 缺失时的兜底：`notes` 里提「未识别」的那句。 */
+    unknownNotes: planUnknownNotes(plan),
   }
 }
 
@@ -140,6 +176,27 @@ function PlanCard({
         <InlineAlert tone="warning">重新排期失败：{progress.replanError}</InlineAlert>
       ) : null}
       {progress.scheduleNote ? <p className="text-footnote text-muted-foreground">{progress.scheduleNote}</p> : null}
+
+      {/* §4.7「待确认」：未识别的维度算不进材料增量，这里逐条说清是哪一位的哪一维。 */}
+      {progress.unknowns.length || progress.unknownNotes.length ? (
+        <InlineAlert tone="warning" title="待确认">
+          {progress.unknowns.length ? (
+            <ul aria-label="待确认项" className="space-y-0.5">
+              {progress.unknowns.map((item, index) => (
+                <li key={`${item.operator}-${item.field}-${index}`} className="break-words">
+                  {item.operator} · {fieldLabel(item.field)} · {item.reason}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            progress.unknownNotes.map((item, index) => (
+              <p key={index} className="break-words">
+                {item}
+              </p>
+            ))
+          )}
+        </InlineAlert>
+      ) : null}
 
       {plan.status === 'active' ? (
         <div className="flex justify-end">

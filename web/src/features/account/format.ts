@@ -53,25 +53,47 @@ export function professionLabel(value: string | null | undefined): string {
   return PROFESSION_CN[value.toUpperCase()] ?? value
 }
 
-export function eliteLabel(elite: number): string {
+/**
+ * 未识别（M35）：练度六列读到 `null` 时页面写的词。内核 OperBox 只识别
+ * `elite` / `level` / `potential`，技能等级、专精、模组只有人工或 Agent 写过才有值。
+ */
+export const UNKNOWN_TEXT = '未识别'
+
+/** 精英化：`null` / `undefined` ＝ 未识别，不许折算成「精零」。 */
+export function eliteLabel(elite: number | null | undefined): string {
+  if (elite === null || elite === undefined) return UNKNOWN_TEXT
   if (elite === 0) return '精零'
   if (elite === 1) return '精一'
   if (elite === 2) return '精二'
   return `精英化 ${elite}`
 }
 
-/** 专精列：`S1 3 · S2 1`；没有专精显示「—」。 */
-export function masteryText(masteries: Record<string, number> | undefined): string {
+/**
+ * 数值型练度列（等级 / 潜能 / 技能等级）：有值写数字，`null` / `undefined` 写「未识别」。
+ * 这三列以前直接渲染数字，得先过这一层，页面上才不会出现空白或裸 `null`。
+ */
+export function trainingValueText(value: number | null | undefined): string {
+  return value === null || value === undefined ? UNKNOWN_TEXT : String(value)
+}
+
+/**
+ * 专精列：`S1 3 · S2 1`；没有专精显示「—」。
+ * `null` / `undefined` ＝ 未识别，写「未识别」——**空对象或全 0 槽是已知的「无专精」**，
+ * 与「不知道」必须区分开（M35 规格 §4.9）。
+ */
+export function masteryText(masteries: Record<string, number> | null | undefined): string {
+  if (masteries === null || masteries === undefined) return UNKNOWN_TEXT
   const parts = ['1', '2', '3']
-    .map((slot) => [slot, Number(masteries?.[slot] ?? 0)] as const)
+    .map((slot) => [slot, Number(masteries[slot] ?? 0)] as const)
     .filter(([, level]) => level > 0)
     .map(([slot, level]) => `S${slot} ${level}`)
   return parts.length ? parts.join(' · ') : '—'
 }
 
-/** 模组列：`X2 · Y1`；没有模组显示「—」。 */
-export function moduleText(modules: Record<string, number> | undefined): string {
-  const parts = Object.entries(modules ?? {})
+/** 模组列：`X2 · Y1`；没有模组显示「—」；`null` / `undefined` ＝ 未识别（同上）。 */
+export function moduleText(modules: Record<string, number> | null | undefined): string {
+  if (modules === null || modules === undefined) return UNKNOWN_TEXT
+  const parts = Object.entries(modules)
     .filter(([, level]) => Number(level) > 0)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([type, level]) => `${type}${level}`)

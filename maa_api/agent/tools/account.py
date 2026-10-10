@@ -142,6 +142,9 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），"
                 "以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；"
+                "技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、"
+                "精英化、等级、潜能），别说成没升过技能或没有专精，用 update_operator_box "
+                "补录或让用户确认；"
                 "数据缺失或过期时返回 suggest_recognition，用 ask_user 建议用户跑一次干员识别；"
                 "识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。"
             ),
@@ -172,6 +175,7 @@ def register_tools(registry: ToolRegistry) -> None:
             risk=ToolRisk.SAFE,
             description=(
                 "修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。"
+                "技能等级、专精、模组识别不出来，只能靠它补录；"
                 "用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。"
             ),
             params_model=UpdateOperatorBoxParams,
@@ -187,6 +191,8 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、"
                 "去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。"
+                "当前练度里未识别的维度不会被算成增量（也不按默认值兜底）：返回的 unknowns "
+                "列出这些缺口，先补录或如实告诉用户，不要替用户假定。"
             ),
             params_model=PlanUpgradeParams,
             handler=plan_upgrade,
@@ -201,7 +207,8 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，"
                 "材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、"
-                "用药口径与预计天数）。"
+                "用药口径与预计天数）。练度里未识别的维度不会算成增量，返回的 unknowns "
+                "列着这些缺口，要如实告诉用户而不是替他假定。"
             ),
             params_model=StartUpgradePlanParams,
             handler=start_upgrade_plan,

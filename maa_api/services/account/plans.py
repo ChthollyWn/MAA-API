@@ -279,11 +279,18 @@ class UpgradePlanService:
         if stages and self._pipeline_service is not None:
             today = await self._submit_today(name=name, stages=stages)
 
+        unknowns = list(plan_dict.get("unknowns") or [])
         row = await self._create_plan_row(
             name=name,
             targets=list(targets),
             requirements=plan_dict.get("requirements") or {},
-            progress={"stages": stages, "total_sanity": plan_dict.get("total_sanity")},
+            progress={
+                "stages": stages,
+                "total_sanity": plan_dict.get("total_sanity"),
+                # M35（规格 §4.7）：启动时算出的「待确认」项随进度一起落库，计划详情与
+                # Agent 之后读同一条记录就能看到，不必重算（重算会随仓库/识别状态漂移）。
+                "unknowns": unknowns,
+            },
             schedule_id=schedule_id,
             session_id=getattr(context, "session_id", None) if context is not None else None,
         )
@@ -296,6 +303,7 @@ class UpgradePlanService:
             "days_estimated": plan_dict.get("days_estimated"),
             "conflicts": conflicts,
             "notes": list(plan_dict.get("notes") or []),
+            "unknowns": unknowns,
             "medicine": {"today": 0, "daily_expiring_medicine": 999, "stone": 0},
         }
 
@@ -351,6 +359,9 @@ class UpgradePlanService:
             "conflicts": await self._conflicting_schedules(),
             "unobtainable": list(plan_dict.get("unobtainable") or []),
             "notes": list(dict.fromkeys(notes)),
+            # M35（规格 §4.7）：确认卡片与详情看同一份「待确认」项，卡片里就能提醒
+            # 「这几维还没识别，材料增量没算」。
+            "unknowns": list(plan_dict.get("unknowns") or []),
         }
 
     async def _conflicting_schedules(self) -> list[dict[str, Any]]:

@@ -229,7 +229,12 @@ def test_box_row_wire_normalizes_json_columns_and_times():
     assert wire["updated_at"] is None
 
 
-def test_box_row_wire_fills_safe_defaults_for_a_bare_row():
+def test_box_row_wire_passes_unknown_training_through_as_none():
+    """M35：没识别过、也没人写过的行，六个练度字段就是 ``None``。
+
+    M35 之前这里返回 ``elite=0`` / 技能 1 级 / 三个 0 专精槽 / 空模组，等于把
+    「未识别」渲染成「精零 1 级、无专精、无模组」——Agent 就是这么回答用户的。
+    """
     wire = box_row_wire(SimpleNamespace(char_id="char_y"))
     assert wire == {
         "char_id": "char_y",
@@ -237,12 +242,12 @@ def test_box_row_wire_fills_safe_defaults_for_a_bare_row():
         "rarity": None,
         "profession": None,
         "own": False,
-        "elite": 0,
-        "level": 0,
-        "potential": 0,
-        "skill_level": 1,
-        "masteries": {"1": 0, "2": 0, "3": 0},
-        "modules": {},
+        "elite": None,
+        "level": None,
+        "potential": None,
+        "skill_level": None,
+        "masteries": None,
+        "modules": None,
         "field_sources": {},
         "recognized_at": None,
         "updated_at": None,

@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { installAccountApi, renderAccount } from './test-utils'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { KNOWN_EMPTY_ROW, UNKNOWN_SKILL_ROW, installAccountApi, renderAccount } from './test-utils'
 
 function operatorsRequests(find: ReturnType<typeof installAccountApi>['find']) {
   return find('GET', '/api/account/operators')
+}
+
+/** 一行里某个字段单元格（`<dt>标签</dt><dd>值</dd>`）的文本。 */
+function fieldValue(row: HTMLElement, label: string): string {
+  const term = within(row).getByText(label)
+  return term.nextElementSibling?.textContent ?? ''
 }
 
 describe('M27 干员页', () => {
@@ -117,6 +123,29 @@ describe('M27 干员页', () => {
     renderAccount('/more/account')
 
     expect(await screen.findByText('没有符合条件的干员')).toBeInTheDocument()
+  })
+
+  it('M35：技能 / 专精 / 模组未识别时写「未识别」，已知的精英化与等级照旧显示', async () => {
+    installAccountApi({ diffs: [], operators: [UNKNOWN_SKILL_ROW] })
+    renderAccount('/more/account')
+
+    const row = await screen.findByTestId('operator-char_4093_frston')
+    expect(fieldValue(row, '技能等级')).toBe('未识别')
+    expect(fieldValue(row, '专精')).toBe('未识别')
+    expect(fieldValue(row, '模组')).toBe('未识别')
+    expect(fieldValue(row, '精英化')).toBe('精二')
+    expect(fieldValue(row, '等级')).toBe('90')
+    expect(fieldValue(row, '潜能')).toBe('1')
+  })
+
+  it('M35：已知的「无专精 / 无模组」显示「—」，不和未识别混为一谈', async () => {
+    installAccountApi({ diffs: [], operators: [KNOWN_EMPTY_ROW] })
+    renderAccount('/more/account')
+
+    const row = await screen.findByTestId('operator-char_102_texas')
+    expect(fieldValue(row, '专精')).toBe('—')
+    expect(fieldValue(row, '模组')).toBe('—')
+    expect(within(row).queryByText('未识别')).not.toBeInTheDocument()
   })
 })
 

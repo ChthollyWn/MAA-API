@@ -125,15 +125,22 @@
         "type": "object"
       },
       "AccountOperatorRow": {
-        "description": "干员行：docs/05 §6.20 的字段清单，与单条读取同形。\n\n``masteries`` 的三个槽位总是出现（没识别过、也没手改过的行也是 0），``modules``\n只含已解锁的类型，``field_sources`` 的值只有 recognition / manual / agent。\n``name``、``rarity``、``profession`` 在映射不到的干员上可以是 ``null``。",
+        "description": "干员行：docs/05 §6.20 的字段清单，与单条读取同形。\n\n练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` /\n``modules``）可以是 ``null`` ＝ **未识别**（M35）：既没有识别值，也没有 manual /\nagent 写入。内核 OperBox 只识别得到前四个字段里的三个（``elite`` / ``level`` /\n``potential``），技能等级、专精、模组不在识别范围内，别把 ``null`` 读成 0 级 /\n技能 1 级 / 无专精。``field_sources`` 的值只有 recognition / manual / agent；\n``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。",
         "properties": {
           "char_id": {
             "title": "Char Id",
             "type": "string"
           },
           "elite": {
-            "title": "Elite",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elite"
           },
           "field_sources": {
             "additionalProperties": {
@@ -143,22 +150,43 @@
             "type": "object"
           },
           "level": {
-            "title": "Level",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
           },
           "masteries": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Masteries",
-            "type": "object"
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masteries"
           },
           "modules": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Modules",
-            "type": "object"
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modules"
           },
           "name": {
             "anyOf": [
@@ -176,8 +204,15 @@
             "type": "boolean"
           },
           "potential": {
-            "title": "Potential",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Potential"
           },
           "profession": {
             "anyOf": [
@@ -213,8 +248,15 @@
             "title": "Recognized At"
           },
           "skill_level": {
-            "title": "Skill Level",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Level"
           },
           "updated_at": {
             "anyOf": [
@@ -230,11 +272,7 @@
         },
         "required": [
           "char_id",
-          "own",
-          "elite",
-          "level",
-          "potential",
-          "skill_level"
+          "own"
         ],
         "title": "AccountOperatorRow",
         "type": "object"
@@ -2485,7 +2523,7 @@
       },
       "OperatorPatchRequest": {
         "additionalProperties": false,
-        "description": "手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。\n\n取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、\n模组与精英化）在服务层做——它们要看行里既有的值。",
+        "description": "手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。\n\n取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、\n模组与精英化）在服务层做——它们要看行里既有的值。\n\n字段传 ``null`` 与不传同义：**都不修改**。M35 之后读出来可能是 ``null``（＝未识别），\n但本轮不提供「把已识别的值清回未识别」的写入语义（规格 §3.2），所以读到的 ``null``\n原样回传不会误清数据。",
         "examples": [
           {
             "elite": 2,

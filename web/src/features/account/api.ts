@@ -37,14 +37,19 @@ export interface OperatorRow {
   name: string
   rarity: number
   own: boolean
-  elite: number
-  level: number
-  potential: number
-  skill_level: number
-  /** 技能序号（"1"/"2"/"3"）→ 专精 0–3。 */
-  masteries: Record<string, number>
-  /** 模组类型（X/Y/D/A）→ 等级 1–3。 */
-  modules: Record<string, number>
+  /**
+   * 练度六列（M35）：`null` ＝ **未识别**，既没有识别值也没有 manual / agent 写入。
+   * 展示层必须写「未识别」，不许折算成 0 级 / 技能 1 级 / 无专精；内核 OperBox 只
+   * 识别 `elite` / `level` / `potential`，技能等级、专精、模组只有人工或 Agent 写过才有值。
+   */
+  elite: number | null
+  level: number | null
+  potential: number | null
+  skill_level: number | null
+  /** 技能序号（"1"/"2"/"3"）→ 专精 0–3；`null` ＝ 未识别。 */
+  masteries: Record<string, number> | null
+  /** 模组类型（X/Y/D/A）→ 等级 1–3；`null` ＝ 未识别。 */
+  modules: Record<string, number> | null
   /** 字段名 → 来源；识别不覆盖技能等级、专精与模组。 */
   field_sources: Record<string, FieldSource>
   recognized_at: string | null
@@ -119,11 +124,27 @@ export interface DepotListQuery {
 export type UpgradePlanStatus = 'active' | 'completed' | 'cancelled'
 
 /**
+ * §4.7 的「待确认」项：某一维练度是「未识别」（`null`），所以那一维的材料增量没敢算。
+ *
+ * `GET /api/account/upgrade-plans` 的每条计划放在 `progress.unknowns`；M35 之前落库的旧
+ * 行没有这个键，页面按空数组处理（不能因此整块不渲染）。
+ */
+export interface PlanUnknown {
+  /** 干员名（不是 `char_id`：这一步只为了让人看懂是哪一位）。 */
+  operator: string
+  /** 没识别的练度字段名（`elite`/`level`/`potential`/`skill_level`/`masteries`/`modules`）。 */
+  field: string
+  /** 一句人话，例如「未识别，需先确认」。 */
+  reason: string
+}
+
+/**
  * `start_upgrade_plan` 落库后的计划（服务层 `_plan_wire()`，规格 §7.7）。
  *
  * `progress` 按计划阶段长出不同的键——`stages`/`total_sanity`（启动时）、
  * `missing`（刷新后）、`days_estimated`/`replanned_at`/`closed_dropped`（重新排期后）、
  * `replan_error`（排期失败时）——所以这里留成宽松映射，页面按需收窄，缺项不炸。
+ * M35 起还会带 `unknowns`（§4.7「待确认」）与 `notes`（人话说明）。
  */
 export interface UpgradePlan {
   id: string
@@ -131,12 +152,17 @@ export interface UpgradePlan {
   status: string
   targets: unknown
   requirements: unknown
-  progress: Record<string, unknown>
+  progress: Record<string, unknown> & { unknowns?: PlanUnknown[]; notes?: unknown }
   schedule_id: string | null
   session_id: string | null
   created_at: string | null
   updated_at: string | null
   completed_at: string | null
+  /**
+   * 人话说明。计划详情按 `progress.notes` 收；这里也认一份，因为启动/预览结果是在**顶层**
+   * 给 `notes` 的（`UpgradePlanService.start/preview`），后端把哪一份透进计划行不影响渲染。
+   */
+  notes?: unknown
 }
 
 export interface UpgradePlanListPayload {
@@ -256,7 +282,11 @@ export async function fetchAccountSummary(signal?: AbortSignal): Promise<Account
 
 /**
  * 干员行兜底：映射不到的干员在库里 `name` / `rarity` / `profession` 可以是空，
- * 页面对这三项按空值渲染；三个字典列缺项时补空表，别让 `undefined` 漏进展示层。
+ * 页面对这三项按空值渲染。
+ *
+ * 练度六列**不再**兜成 0 / 1 / 空表（M35）：`null` ＝ 未识别，兜底会把「不知道」
+ * 写成具体值，正是这一轮要修的 bug。后端少给字段时（`undefined`）与 `null` 同义，
+ * 一起归一成 `null`，展示层只认这一种「未识别」。
  */
 export function normalizeOperatorRow(row: OperatorRowWire): OperatorRow {
   return {
@@ -264,8 +294,12 @@ export function normalizeOperatorRow(row: OperatorRowWire): OperatorRow {
     name: row.name ?? '',
     rarity: row.rarity ?? 0,
     profession: row.profession ?? null,
-    masteries: row.masteries ?? {},
-    modules: row.modules ?? {},
+    elite: row.elite ?? null,
+    level: row.level ?? null,
+    potential: row.potential ?? null,
+    skill_level: row.skill_level ?? null,
+    masteries: row.masteries ?? null,
+    modules: row.modules ?? null,
     field_sources: (row.field_sources ?? {}) as Record<string, FieldSource>,
     recognized_at: row.recognized_at ?? null,
     updated_at: row.updated_at ?? null,
@@ -346,6 +380,7 @@ export function normalizeUpgradePlan(value: UpgradePlan): UpgradePlan {
     created_at: value.created_at ?? null,
     updated_at: value.updated_at ?? null,
     completed_at: value.completed_at ?? null,
+    notes: value.notes ?? null,
   }
 }
 

@@ -2,7 +2,8 @@
 
 数据链：
 
-1. 当前状态：注入的 ``box``（``OperatorBoxService``）→ 没有记录时按「刚获得」；
+1. 当前状态：注入的 ``box``（``OperatorBoxService``）→ 练度列缺值就是**未识别**
+   （``None``，M35），不再假设「刚获得」；
 2. 需求：``OperatorService.get(name, sections=["costs", "modules"])`` 的材料表算增量；
 3. 配方：PRTS 材料页 ``{{道具配方/加工站}}``，按需求闭包递归取（一次 ≤ 20 个标题）；
 4. 掉率：``DropService.item_rates``（企鹅物流），筛出候选关卡；
@@ -28,8 +29,9 @@
    ``box`` 自身的 ``list_items(limit=…, offset=…)``（照 ``DepotService`` 的形状分页读全表），
    也可以用构造参数 ``depot`` 直接注入 ``DepotService``。没有任何仓库来源时按库存 0 算并
    在 ``notes`` 里说明——不静默。
-2. 记录存在但 ``own=False`` 时按「刚获得」算并照样标 ``assumed_current``：账号里的
-   未拥有行没有任何养成进度可言，按 0 起算才不会低估需求。
+2. 记录存在但 ``own=False``（或根本没有记录）时：``assumed_current`` 为真，但练度一律
+   留空——「没识别过」不等于「精零 1 级」，要用的维度缺什么进 ``unknowns`` 并在 notes
+   说明（M35）。只有识别确实给到的值才当事实用。
 3. 隐含前置：目标只写了 ``masteries`` / ``modules`` 而没写 ``elite`` / ``skill_level``
    时，按「专精与模组需要精英二、专精需要技能 7 级」把缺的前置补进目标（进 ``implied``，
    并写进 notes）。显式写了的字段是上限：显式 ``elite=1`` + 专精不越过精一，只记一条
@@ -65,6 +67,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from maa_api.domain.errors import AppError
+from maa_api.services.account.rules import UNKNOWN_TRAINING_FIELDS
 from maa_api.services.activity_index import (
     NAVIGATION_DIRECTORY,
     ActivityIndex,
@@ -80,7 +83,6 @@ from maa_api.services.resource_index import iter_resource_roots
 from maa_api.settings import Settings, get_settings
 
 __all__ = [
-    "FRESH_OPERATOR",
     "SANITY_PER_DAY",
     "UpgradePlan",
     "UpgradePlanner",
@@ -119,16 +121,6 @@ MAX_DEPOT_PAGES = 20
 
 #: 一次规划最多处理几个目标（规格 §7.6：1–10 个）。
 MAX_TARGETS = 10
-
-#: 「刚获得」的干员状态（精零 1 级 0 潜、技能 1 级）。
-FRESH_OPERATOR: Mapping[str, Any] = {
-    "elite": 0,
-    "level": 1,
-    "potential": 0,
-    "skill_level": 1,
-    "masteries": {},
-    "modules": {},
-}
 
 #: 只报需求、不参与刷关规划的材料（规格 §7.3）。
 REPORT_ONLY_NAMES: tuple[str, ...] = ("龙门币", "作战记录")
@@ -172,6 +164,21 @@ def _clamp(value: Any, minimum: int, maximum: int, default: int) -> int:
         number = int(value)
     except (TypeError, ValueError):
         return default
+    return max(minimum, min(maximum, number))
+
+
+def _optional_int(value: Any, minimum: int, maximum: int) -> int | None:
+    """练度列的「可能没有值」读法（M35）：``None`` ＝ 未识别，不再折算成默认值。
+
+    与 :func:`_clamp` 的区别只在缺值：``_clamp`` 给兜底值（旧口径「没识别过 ＝ 精零
+    1 级」就是这么来的），这里把「不知道」如实传下去，由调用方决定怎么处理。
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
     return max(minimum, min(maximum, number))
 
 
@@ -370,6 +377,8 @@ class UpgradePlan:
     days_estimated: float = 0.0
     surplus: Mapping[str, int] = field(default_factory=dict)
     unobtainable: tuple[dict[str, Any], ...] = ()
+    #: M35：因为练度未识别而没敢算的维度（``{"operator", "field", "reason"}``）。
+    unknowns: tuple[dict[str, Any], ...] = ()
     notes: tuple[str, ...] = ()
     feasible: bool = True
     total_runs: int = 0
@@ -390,6 +399,7 @@ class UpgradePlan:
             "sanity_per_day": self.sanity_per_day,
             "surplus": dict(self.surplus),
             "unobtainable": [dict(row) for row in self.unobtainable],
+            "unknowns": [dict(row) for row in self.unknowns],
             "feasible": self.feasible,
             "synthesis_lmd": self.synthesis_lmd,
             "server": self.server,
@@ -498,41 +508,86 @@ def _normalize_modules(value: Any) -> list[tuple[str, int]]:
 
 
 def _normalize_current(row: Mapping[str, Any]) -> dict[str, Any]:
-    """账号数据行 → 当前状态（缺列按安全默认值兜底）。"""
-    masteries: dict[int, int] = {}
-    for slot, level in (_normalize_masteries(row.get("masteries")) or {}).items():
-        masteries[slot] = level
-    modules: dict[str, int] = {}
-    for code, level in _normalize_modules(row.get("modules")):
-        modules[code] = level
+    """账号数据行 → 当前状态。
+
+    M35：六个练度列没有值就是 ``None``（未识别），不再 clamp 成 1 / 0 / 空映射——
+    「没识别过」在旧口径里会被读成「精零 1 级、无专精、无模组」，那是冒充事实。
+    ``own`` 没有未知态（每次识别都给），``rarity`` 另走 :func:`_as_rarity` 兜底。
+    """
+    masteries = _optional_masteries(row.get("masteries"))
+    modules = _optional_modules(row.get("modules"))
     return {
         "char_id": row.get("char_id"),
         "name": row.get("name"),
         "own": bool(row.get("own")),
         "rarity": _as_rarity(row.get("rarity")),
-        "elite": _clamp(row.get("elite"), 0, 2, 0),
-        "level": _clamp(row.get("level"), 0, 90, 1) or 1,
-        "potential": _clamp(row.get("potential"), 0, 6, 0),
-        "skill_level": _clamp(row.get("skill_level"), 1, 7, 1),
-        "masteries": {str(slot): masteries[slot] for slot in sorted(masteries)},
-        "modules": {code: modules[code] for code in sorted(modules)},
+        "elite": _optional_int(row.get("elite"), 0, 2),
+        "level": _optional_int(row.get("level"), 1, 90),
+        "potential": _optional_int(row.get("potential"), 0, 6),
+        "skill_level": _optional_int(row.get("skill_level"), 1, 7),
+        "masteries": masteries,
+        "modules": modules,
     }
 
 
-def _fresh_current() -> dict[str, Any]:
+def _optional_masteries(raw: Any) -> dict[str, int] | None:
+    """专精列的当前值：``None`` ＝ 未识别；``{}`` ＝ 已知「没有专精」（M35）。"""
+    if raw is None:
+        return None
+    normalized = _normalize_masteries(raw) or {}
+    return {str(slot): normalized[slot] for slot in sorted(normalized)}
+
+
+def _optional_modules(raw: Any) -> dict[str, int] | None:
+    """模组列的当前值：``None`` ＝ 未识别；``{}`` ＝ 已知「没有模组」（M35）。"""
+    if raw is None:
+        return None
+    return {code: level for code, level in _normalize_modules(raw)}
+
+
+def _unknown_current() -> dict[str, Any]:
+    """没有任何可用记录时的当前状态：六个练度列全 ``None``。
+
+    M35 之前这里返回 ``FRESH_OPERATOR``（精零 1 级 0 潜技能 1），把「不知道」写成了
+    一个具体的低练度值；现在只保留确定知道的部分（名字/拥有都是否），练度留给
+    ``unknowns`` 去说。
+    """
     return {
         "char_id": None,
         "name": None,
         "own": False,
         # 没有记录时不知道星级：按最低星兜底（与 `_as_rarity` 同一个口径）。
         "rarity": 1,
-        "elite": int(FRESH_OPERATOR["elite"]),
-        "level": int(FRESH_OPERATOR["level"]),
-        "potential": int(FRESH_OPERATOR["potential"]),
-        "skill_level": int(FRESH_OPERATOR["skill_level"]),
-        "masteries": {},
-        "modules": {},
+        "elite": None,
+        "level": None,
+        "potential": None,
+        "skill_level": None,
+        "masteries": None,
+        "modules": None,
     }
+
+
+#: 未识别字段的中文名（M35）：wire 里的 ``field`` 用列名，给人看的话用它。
+UNKNOWN_TRAINING_LABELS: Mapping[str, str] = {
+    "elite": "精英化",
+    "level": "等级",
+    "potential": "潜能",
+    "skill_level": "技能等级",
+    "masteries": "专精",
+    "modules": "模组",
+}
+
+
+def _unknown_entry(operator: str, field: str) -> dict[str, Any]:
+    """``unknowns`` 的一条：哪个干员的哪一维没识别，所以那一维的材料没敢算。"""
+    return {"operator": operator, "field": field, "reason": "未识别，需先确认"}
+
+
+def _order_unknowns(fields: Iterable[str]) -> list[str]:
+    """去重并按 ``UNKNOWN_TRAINING_FIELDS`` 排序（wire 里字段顺序稳定，前端好渲染）。"""
+    unique = list(dict.fromkeys(fields))
+    known = [field for field in UNKNOWN_TRAINING_FIELDS if field in unique]
+    return [*known, *(field for field in unique if field not in UNKNOWN_TRAINING_FIELDS)]
 
 
 def _match_module(
@@ -560,27 +615,46 @@ def _target_increments(
     type_by_name: Mapping[str, str],
     current: Mapping[str, Any],
     target: UpgradeTarget,
-) -> tuple[dict[str, int], dict[str, Any], list[str], list[str]]:
+) -> tuple[dict[str, int], dict[str, Any], list[str], list[str], list[str]]:
     """算「从当前到目标」的增量材料。
 
-    :returns: ``(材料, 生效目标, 隐含补上的前置, 警告)``。
+    :returns: ``(材料, 生效目标, 隐含补上的前置, 警告, 现状未知的字段)``。
+
+    M35：目标要用到的维度只要现状**未知**（``None``），就不产生该维度的材料增量——
+    不知道起点，「从当前到目标」的差就没法算；字段名进第五个返回值，由调用方汇总成
+    ``unknowns`` 与一句人话。已知维度的增量照算，不受影响。
     """
     items: dict[str, int] = {}
     implied: list[str] = []
     warnings: list[str] = []
+    unknown: list[str] = []
 
     def add(rows: Any) -> None:
         for name, amount in _materials(rows):
             items[name] = items.get(name, 0) + amount
 
-    cur_elite = int(current.get("elite") or 0)
-    cur_skill = int(current.get("skill_level") or 1)
-    cur_masteries = {
-        int(slot): int(level)
-        for slot, level in (current.get("masteries") or {}).items()
-        if str(slot).isdigit()
-    }
-    cur_modules = {str(code): int(level) for code, level in (current.get("modules") or {}).items()}
+    def mark_unknown(field: str) -> None:
+        if field not in unknown:
+            unknown.append(field)
+
+    cur_elite = current.get("elite")
+    cur_skill = current.get("skill_level")
+    cur_masteries_rows = current.get("masteries")
+    cur_masteries = (
+        None
+        if cur_masteries_rows is None
+        else {
+            int(slot): int(level)
+            for slot, level in cur_masteries_rows.items()
+            if str(slot).isdigit()
+        }
+    )
+    cur_modules_rows = current.get("modules")
+    cur_modules = (
+        None
+        if cur_modules_rows is None
+        else {str(code): int(level) for code, level in cur_modules_rows.items()}
+    )
 
     wanted_masteries = {
         int(slot): int(level)
@@ -589,79 +663,106 @@ def _target_increments(
     }
     wanted_modules = tuple(target.modules or ())
 
-    target_elite = target.elite
-    if target_elite is None:
-        target_elite = cur_elite
-        if (wanted_masteries or wanted_modules) and cur_elite < 2:
-            target_elite = 2
-            implied.append("elite")
-    elite_blocked = target_elite < 2
-    target_skill = target.skill_level
-    if target_skill is None:
-        target_skill = cur_skill
-        # 精英化上不去时专精本来就不算，不再隐含补技能等级（免得白算 6 级的材料）。
-        if wanted_masteries and not elite_blocked and cur_skill < 7:
-            target_skill = 7
-            implied.append("skill_level")
+    target_elite = target.elite if target.elite is not None else cur_elite
+    if (
+        target.elite is None
+        and (wanted_masteries or wanted_modules)
+        and (cur_elite is None or cur_elite < 2)
+    ):
+        target_elite = 2
+        implied.append("elite")
+    elite_blocked = target_elite is not None and target_elite < 2
 
-    skill_blocked = target_skill < 7
-    if (wanted_masteries or wanted_modules) and elite_blocked:
+    target_skill = (
+        target.skill_level if target.skill_level is not None else cur_skill
+    )
+    if (
+        target.skill_level is None
+        and wanted_masteries
+        and not elite_blocked
+        and (cur_skill is None or cur_skill < 7)
+    ):
+        target_skill = 7
+        implied.append("skill_level")
+    skill_blocked = target_skill is not None and target_skill < 7
+
+    if (
+        (wanted_masteries or wanted_modules)
+        and target_elite is not None
+        and target_elite < 2
+    ):
         warnings.append(
             f"专精与模组需要精英二，目标只到精{target_elite}：这部分材料未计入"
         )
-    if wanted_masteries and skill_blocked:
+    if wanted_masteries and target_skill is not None and target_skill < 7:
         warnings.append(
             f"专精需要技能 7 级，目标只到技能 {target_skill} 级：专精材料未计入"
         )
 
     elite_costs = costs.get("elite") if isinstance(costs.get("elite"), Mapping) else {}
-    for level in range(cur_elite + 1, target_elite + 1):
-        rows = elite_costs.get(f"精{level}")
-        if not rows:
-            warnings.append(f"材料数据里没有精英{level}（精{level}）的材料")
-            continue
-        add(rows)
+    if target_elite is None:
+        pass  # 目标没提精英化，现状也未知：这一维没有要算的增量
+    elif cur_elite is None:
+        mark_unknown("elite")
+    else:
+        for level in range(cur_elite + 1, target_elite + 1):
+            rows = elite_costs.get(f"精{level}")
+            if not rows:
+                warnings.append(f"材料数据里没有精英{level}（精{level}）的材料")
+                continue
+            add(rows)
 
     skill_costs = (
         costs.get("skill_levels") if isinstance(costs.get("skill_levels"), Mapping) else {}
     )
-    for level in range(cur_skill + 1, min(target_skill, MAX_SKILL_KEY) + 1):
-        rows = skill_costs.get(str(level))
-        if not rows:
-            warnings.append(f"材料数据里没有技能 {level} 级的材料")
-            continue
-        add(rows)
+    if target_skill is None:
+        pass
+    elif cur_skill is None:
+        mark_unknown("skill_level")
+    else:
+        for level in range(cur_skill + 1, min(target_skill, MAX_SKILL_KEY) + 1):
+            rows = skill_costs.get(str(level))
+            if not rows:
+                warnings.append(f"材料数据里没有技能 {level} 级的材料")
+                continue
+            add(rows)
 
     if wanted_masteries and not elite_blocked and not skill_blocked:
-        for slot in sorted(wanted_masteries):
-            numeral = _CN_NUMERALS[slot]
-            start = max(min(cur_masteries.get(slot, 0), 3), 0) + 1
-            for level in range(start, min(wanted_masteries[slot], 3) + 1):
-                rows = skill_costs.get(f"{numeral}{MAX_SKILL_KEY + level}")
-                if not rows:
-                    warnings.append(f"材料数据里没有技能 {slot} 的专精{level}材料")
-                    continue
-                add(rows)
+        if cur_masteries is None:
+            mark_unknown("masteries")
+        else:
+            for slot in sorted(wanted_masteries):
+                numeral = _CN_NUMERALS[slot]
+                start = max(min(cur_masteries.get(slot, 0), 3), 0) + 1
+                for level in range(start, min(wanted_masteries[slot], 3) + 1):
+                    rows = skill_costs.get(f"{numeral}{MAX_SKILL_KEY + level}")
+                    if not rows:
+                        warnings.append(f"材料数据里没有技能 {slot} 的专精{level}材料")
+                        continue
+                    add(rows)
 
     module_entries = costs.get("modules") if isinstance(costs.get("modules"), Sequence) else []
     if wanted_modules and not elite_blocked:
-        for type_code, want_level in wanted_modules:
-            entry = _match_module(module_entries, type_code, type_by_name)
-            if entry is None:
-                warnings.append(f"材料数据里找不到类型为「{type_code}」的模组")
-                continue
-            levels = {
-                int(row["level"]): row.get("materials") or []
-                for row in entry.get("levels") or ()
-                if isinstance(row, Mapping) and str(row.get("level", "")).isdigit()
-            }
-            start = max(min(cur_modules.get(type_code, 0), 3), 0) + 1
-            for level in range(start, min(want_level, 3) + 1):
-                rows = levels.get(level)
-                if not rows:
-                    warnings.append(f"「{type_code}」模组没有 {level} 级的材料数据")
+        if cur_modules is None:
+            mark_unknown("modules")
+        else:
+            for type_code, want_level in wanted_modules:
+                entry = _match_module(module_entries, type_code, type_by_name)
+                if entry is None:
+                    warnings.append(f"材料数据里找不到类型为「{type_code}」的模组")
                     continue
-                add(rows)
+                levels = {
+                    int(row["level"]): row.get("materials") or []
+                    for row in entry.get("levels") or ()
+                    if isinstance(row, Mapping) and str(row.get("level", "")).isdigit()
+                }
+                start = max(min(cur_modules.get(type_code, 0), 3), 0) + 1
+                for level in range(start, min(want_level, 3) + 1):
+                    rows = levels.get(level)
+                    if not rows:
+                        warnings.append(f"「{type_code}」模组没有 {level} 级的材料数据")
+                        continue
+                    add(rows)
 
     effective = {
         "elite": target_elite,
@@ -671,7 +772,7 @@ def _target_increments(
         "masteries": {str(slot): level for slot, level in sorted(wanted_masteries.items())},
         "modules": [{"type": code, "level": level} for code, level in wanted_modules],
     }
-    return items, effective, implied, warnings
+    return items, effective, implied, warnings, unknown
 
 
 # --------------------------------------------------------------------------- #
@@ -1032,6 +1133,9 @@ class UpgradePlanner:
                 "合成消耗的龙门币单列在 synthesis"
             )
 
+        unknowns = tuple(
+            entry for row in target_rows for entry in row.get("unknowns", ())
+        )
         return UpgradePlan(
             targets=tuple(target_rows),
             requirements=requirements,
@@ -1041,6 +1145,7 @@ class UpgradePlanner:
             days_estimated=round(total_sanity / SANITY_PER_DAY, 2),
             surplus=surplus,
             unobtainable=tuple(unobtainable),
+            unknowns=unknowns,
             notes=tuple(dict.fromkeys(notes)),
             feasible=solved.feasible,
             total_runs=sum(row["runs"] for row in stage_rows),
@@ -1225,11 +1330,12 @@ class UpgradePlanner:
             "operator": target.operator,
             "char_id": None,
             "assumed_current": False,
-            "current": _fresh_current(),
+            "current": _unknown_current(),
             "target": {},
             "requirements": {},
             "implied": [],
             "warnings": [],
+            "unknowns": [],
         }
         if not target.operator:
             row["warnings"].append("目标缺少 operator 名字")
@@ -1250,7 +1356,7 @@ class UpgradePlanner:
         row["warnings"].extend(current_warnings)
         notes.extend(current_notes)
 
-        increments, effective, implied, warnings = _target_increments(
+        increments, effective, implied, warnings, unknown_fields = _target_increments(
             costs, type_by_name, current, target
         )
         row["target"] = effective
@@ -1260,13 +1366,29 @@ class UpgradePlanner:
             notes.append(
                 f"「{target.operator}」只写了专精/模组，按前置补齐 {'、'.join(implied)}"
             )
-        levelup, levelup_note = await self._levelup_increment(current, effective, notes)
+        levelup, levelup_note, levelup_unknown = await self._levelup_increment(
+            current, effective, notes
+        )
         if levelup_note:
             row["warnings"].append(levelup_note)
             if levelup_note not in notes:
                 notes.append(levelup_note)
         for name, amount in levelup.items():
             increments[name] = increments.get(name, 0) + amount
+
+        # M35：现状未知的维度不硬算，列进 unknowns 并说一句人话（规格 §4.7）。
+        missing = _order_unknowns([*unknown_fields, *levelup_unknown])
+        if missing:
+            row["unknowns"] = [_unknown_entry(target.operator, field) for field in missing]
+            labels = "、".join(UNKNOWN_TRAINING_LABELS[field] for field in missing)
+            unknown_note = (
+                f"「{target.operator}」的{labels}未识别，未计入相应增量；"
+                "跑一次干员识别，或用 Agent/页面补录练度后再算"
+            )
+            row["warnings"].append(unknown_note)
+            if unknown_note not in notes:
+                notes.append(unknown_note)
+
         row["requirements"] = {
             item["name"]: item["amount"] for item in _merge(increments.items())
         }
@@ -1277,23 +1399,43 @@ class UpgradePlanner:
         current: Mapping[str, Any],
         effective: Mapping[str, Any],
         notes: list[str],
-    ) -> tuple[dict[str, int], str | None]:
+    ) -> tuple[dict[str, int], str | None, list[str]]:
         """升级经验（折算成作战记录）与升级龙门币（规格 §7.6、M29）。
 
         精英化、技能、专精与模组消耗的龙门币已经在材料表里；这里只补**升级**那部分，
         不重复计精英化龙门币。拆包常量表取不到时用内置的官方数值表兜底，来源写进
         ``notes``（§3.5：禁止冒充）。
+
+        :returns: ``(材料, 警告/说明, 现状未知的字段名)``。M35：当前精英化或等级没识别
+            时算不出「从当前到满级」那一段，返回未知字段名交给调用方汇总，不再按
+            「精零 1 级」硬算。
         """
         rarity = _as_rarity(current.get("rarity"))
-        from_elite = _clamp(current.get("elite"), 0, 2, 0)
-        from_level = _clamp(current.get("level"), 1, 90, 1)
-        to_elite = _clamp(effective.get("elite"), 0, 2, 0)
+        from_elite = _optional_int(current.get("elite"), 0, 2)
+        from_level = _optional_int(current.get("level"), 1, 90)
+        if from_elite is None or from_level is None:
+            missing = [
+                field
+                for field, value in (("elite", from_elite), ("level", from_level))
+                if value is None
+            ]
+            return {}, None, missing
         table = await self.levelup
         if table is None or not getattr(table, "available", False):
-            return {}, "升级经验与龙门币表不可用，这部分未计入需求"
-        to_level = self._resolve_target_level(rarity, current, to_elite, notes)
+            return {}, "升级经验与龙门币表不可用，这部分未计入需求", []
+        to_elite = _optional_int(effective.get("elite"), 0, 2)
+        if to_elite is None:
+            # 目标没写精英化：按当前阶段原地升级。
+            to_elite = from_elite
+        to_level = self._resolve_target_level(
+            rarity,
+            current_level=from_level,
+            current_elite=from_elite,
+            to_elite=to_elite,
+            notes=notes,
+        )
         if to_level is None:
-            return {}, None
+            return {}, None, []
         if getattr(table, "note", ""):
             # 来源说明（拆包数据 / 内置兜底）只记一次，最后统一进 notes（§3.5）。
             self._levelup_note = str(table.note)
@@ -1306,33 +1448,36 @@ class UpgradePlanner:
                 to_level=to_level,
             )
         except Exception as exc:  # noqa: BLE001 - 表坏了只影响这一段
-            return {}, f"升级经验与龙门币计算失败（{type(exc).__name__}），这部分未计入需求"
+            return {}, (
+                f"升级经验与龙门币计算失败（{type(exc).__name__}），这部分未计入需求"
+            ), []
         if cost.get("note"):
             # 表自己的说明（内置兜底、目标低于当前…）不是「这段算不出来」。
             self._levelup_note = self._levelup_note or str(cost["note"])
         exp = int(cost.get("exp") or 0)
         lmd = int(cost.get("lmd") or 0)
         if not exp and not lmd:
-            return {}, None
+            return {}, None, []
         self._levelup_exp = exp
-        return {"作战记录": exp, "龙门币": lmd}, None
+        return {"作战记录": exp, "龙门币": lmd}, None, []
 
     def _resolve_target_level(
         self,
         rarity: int,
-        current: Mapping[str, Any],
+        *,
+        current_level: int,
+        current_elite: int,
         to_elite: int,
         notes: list[str],
     ) -> int | None:
         """目标等级：该精英阶段的满级（材料目标不写等级，规格 §7.6 只规划到精英几）。
 
         已经在该阶段且已在满级时返回 ``None``（没有可升的级）。满级查不到也返回
-        ``None`` 并写一条 ``notes``，不猜。
+        ``None`` 并写一条 ``notes``，不猜。传入的当前值必须是**已知**的练度
+        （M35：调用方先确认过，未识别不会走到这里）。
         """
         levels = getattr(self._levelup_table, "max_levels", None)
         known = levels if isinstance(levels, Mapping) else None
-        current_level = _clamp(current.get("level"), 1, 90, 1)
-        current_elite = _clamp(current.get("elite"), 0, 2, 0)
         if to_elite == current_elite:
             cap = max_level_for(rarity, current_elite, max_levels=known)
         else:
@@ -1380,24 +1525,32 @@ class UpgradePlanner:
     async def _current_state(
         self, box: Any, target: UpgradeTarget
     ) -> tuple[dict[str, Any], bool, list[str], list[str]]:
-        """找干员的当前状态；找不到（或没标记拥有）时按刚获得算。"""
-        fresh = _fresh_current()
+        """找干员的当前状态。
+
+        M35：找不到记录（或没标拥有）时**不**再假设「刚获得」——那是拿一个编出来的
+        低练度当事实。只返回「不知道」的当前状态（练度全 ``None``、``assumed_current``
+        为真），要用的维度缺什么由 ``_target_increments`` 收进 ``unknowns``。
+        """
+        fresh = _unknown_current()
         if box is None:
-            return fresh, True, [f"没有账号数据（box 未注入），「{target.operator}」按刚获得计算"], []
+            return fresh, True, [
+                f"没有账号数据（box 未注入），「{target.operator}」的练度未识别，只算已知维度"
+            ], []
         try:
             payload = await box.list_operators(
                 query=target.operator, owned_only=False, limit=5
             )
         except Exception as exc:
             return fresh, True, [
-                f"账号数据读取失败（{type(exc).__name__}），「{target.operator}」按刚获得计算"
+                f"账号数据读取失败（{type(exc).__name__}），"
+                f"「{target.operator}」的练度未识别，只算已知维度"
             ], []
 
         rows = _rows_of(payload)
         row = _pick_operator(rows, target.operator)
         if row is None:
             return fresh, True, [
-                f"账号数据里没有「{target.operator}」的记录，按刚获得计算并标 assumed_current"
+                f"账号数据里没有「{target.operator}」的记录，练度未识别并标 assumed_current"
             ], []
 
         needs_detail = bool(target.masteries or target.modules)
@@ -1416,7 +1569,7 @@ class UpgradePlanner:
         current = _normalize_current(row)
         if not current["own"]:
             return fresh, True, [], [
-                "账号数据没有把该干员标为已拥有，按刚获得计算（含 assumed_current）"
+                "账号数据没有把该干员标为已拥有，练度未识别（含 assumed_current）"
             ]
         return current, False, [], []
 

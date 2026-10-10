@@ -64,6 +64,7 @@ def plan_payload(
     total_sanity: int | None = None,
     days_estimated: float | None = None,
     unobtainable: Sequence[Mapping[str, Any]] | None = None,
+    unknowns: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     rows = [dict(row) for row in (stages if stages is not None else [STAGE])]
     sanity = (
@@ -79,6 +80,8 @@ def plan_payload(
         "unobtainable": [dict(row) for row in (unobtainable or ())],
         "notes": ["规划说明"],
         "feasible": not unobtainable,
+        # M35（规格 §4.7）：未识别维度不进增量，改成这里的一条条「待确认」。
+        "unknowns": [dict(row) for row in (unknowns or ())],
     }
 
 
@@ -353,7 +356,9 @@ async def test_preview_does_not_write_and_matches_start_shapes():
         "conflicts",
         "unobtainable",
         "notes",
+        "unknowns",
     }
+    assert preview["unknowns"] == []
     assert preview["medicine"] == {"today": 0, "stone": 0, "expiring_medicine": EXPIRING_MEDICINE}
     assert preview["total_sanity"] == 18
     assert preview["days_estimated"] == round(18 / 240, 2)
