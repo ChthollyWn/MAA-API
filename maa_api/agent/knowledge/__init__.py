@@ -10,8 +10,9 @@
   内置**不同**的列，其余为 NULL，读取时继承内置值；``kind`` 不可覆盖。写入时若
   没有任何字段与内置不同且处于启用状态，就删掉这一行（「恢复默认」）。
 - **注入**：:meth:`KnowledgeService.render_context` 返回拼进 system 消息的那段
-  文本：索引（playbook / screen / rule，先按 kind 再按 id 排序）+ 术语表全文 +
-  用户档案全文。
+  文本：索引（playbook / screen / rule，先按 kind 再按 id 排序）+ 当期活动（M24）+
+  当期卡池（M28）+ 账号数据（M27）+ 术语表全文 + 用户档案全文；三段实时数据各自
+  读不到时整段不插。三层口径见 docs/11 §6.7。
 
 写入只做**字段校验**（格式与长度在请求模型里拦成 422，这里的同名校验是兜底）与
 内置 ``kind`` 的覆盖保护（409 ``KNOWLEDGE_BUILTIN_READONLY``）。条目数与全文段
@@ -877,9 +878,10 @@ class KnowledgeService:
     async def render_context(self) -> str:
         """拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。
 
-        段落顺序：索引 → **当期活动**（M24，读不到就整段不插）→ 术语表 → 用户档案。
+        段落顺序：索引 → **当期活动**（M24）→ **当期卡池**（M28）→ **账号数据**（M27）
+        → 术语表全文 → 用户档案全文；三段实时数据（活动 / 卡池 / 账号）读不到时**整段不插**。
         索引与全文都取生效值；``glossary`` / ``profile`` 有多条启用时按 id 顺序全部注入。
-        索引、术语表、用户档案为空时写「暂无」。
+        索引、术语表、用户档案为空时写「暂无」。三层口径见 docs/11 §6.7。
         """
         async with self._session_factory() as session:
             rows = await AgentKnowledgeRepository(session).all()

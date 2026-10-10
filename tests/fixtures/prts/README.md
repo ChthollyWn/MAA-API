@@ -47,3 +47,9 @@
 | `story_1-1_beg.wikitext` | `action=query&prop=revisions&rvprop=content\|ids\|timestamp&rvslots=main&redirects=1&titles=1-1 孤岛/BEG` 的裸 wikitext（revid 426748） | 2026-10-10 |
 
 抓取方式同 M25/M26 的 httpx 脚本（`action=ask` 与 `action=query&prop=revisions`）。
+
+## M30 追加（2026-10-10）
+
+| 文件 | 来源与抓取方式 | 抓取日期 |
+|---|---|---|
+| `page_titles.json` | 内置知识条目 `get_prts_page(title=…)` 引用的 26 个页面标题白名单（T1 复核实测结论，抓取用 `action=query&formatversion=2&redirects=1&prop=info&titles=…`，同源但不打网；`tests/services/test_knowledge_page_pointers.py` 用它守「改写稿只指向真实页面」） | 2026-10-10 |
