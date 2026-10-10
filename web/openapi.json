@@ -1,6 +1,244 @@
 {
   "components": {
     "schemas": {
+      "AccountDepotList": {
+        "description": "仓库响应；``categories`` 见 :meth:`DepotService.list_items`。",
+        "properties": {
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AccountDepotRow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "AccountDepotList",
+        "type": "object"
+      },
+      "AccountDepotRow": {
+        "description": "仓库行：物品 id、名字、数量、分类与识别时间。",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "recognized_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recognized At"
+          }
+        },
+        "required": [
+          "item_id",
+          "count"
+        ],
+        "title": "AccountDepotRow",
+        "type": "object"
+      },
+      "AccountOperatorList": {
+        "description": "干员表响应（docs/05 §6.20：列表用 ``{items, total, limit, offset}``）。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AccountOperatorRow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "AccountOperatorList",
+        "type": "object"
+      },
+      "AccountOperatorRow": {
+        "description": "干员行：docs/05 §6.20 的字段清单，与单条读取同形。\n\n``masteries`` 的三个槽位总是出现（没识别过、也没手改过的行也是 0），``modules``\n只含已解锁的类型，``field_sources`` 的值只有 recognition / manual / agent。\n``name``、``rarity``、``profession`` 在映射不到的干员上可以是 ``null``。",
+        "properties": {
+          "char_id": {
+            "title": "Char Id",
+            "type": "string"
+          },
+          "elite": {
+            "title": "Elite",
+            "type": "integer"
+          },
+          "field_sources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Field Sources",
+            "type": "object"
+          },
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "masteries": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Masteries",
+            "type": "object"
+          },
+          "modules": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Modules",
+            "type": "object"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "own": {
+            "title": "Own",
+            "type": "boolean"
+          },
+          "potential": {
+            "title": "Potential",
+            "type": "integer"
+          },
+          "profession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profession"
+          },
+          "rarity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rarity"
+          },
+          "recognized_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recognized At"
+          },
+          "skill_level": {
+            "title": "Skill Level",
+            "type": "integer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "char_id",
+          "own",
+          "elite",
+          "level",
+          "potential",
+          "skill_level"
+        ],
+        "title": "AccountOperatorRow",
+        "type": "object"
+      },
       "AnswerRequest": {
         "additionalProperties": false,
         "description": "``POST /api/agent/questions/{id}`` 的入参。\n\n``selected`` 是必填的字符串数组；空数组或不合法的选项返回 400\n``QUESTION_SELECTION_INVALID``。``multiple=false`` 时只能给一项。",
@@ -5138,7 +5376,7 @@
   "paths": {
     "/api/account/depot": {
       "get": {
-        "description": "仓库识别结果，按物品分类分组展示的只读列表。\n\n- `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数\n- 仓库识别只看养成材料页签，龙门币与作战记录不在其中\n- 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定",
+        "description": "仓库识别结果，按物品分类分组展示的只读列表。\n\n- `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数\n- `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选条件影响；页面用它渲染分类下拉\n- 仓库识别只看养成材料页签，龙门币与作战记录不在其中\n- 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定",
         "operationId": "account_list_account_depot",
         "parameters": [
           {
@@ -5206,9 +5444,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Account List Account Depot",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AccountDepotList"
                 }
               }
             },
@@ -5514,9 +5750,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Account List Account Operators",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AccountOperatorList"
                 }
               }
             },

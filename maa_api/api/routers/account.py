@@ -34,7 +34,15 @@ from maa_api.services.account.rules import (
     MODULE_TYPES,
 )
 
-__all__ = ["OperatorDiffDismissRequest", "OperatorPatchRequest", "router"]
+__all__ = [
+    "AccountDepotList",
+    "AccountDepotRow",
+    "AccountOperatorList",
+    "AccountOperatorRow",
+    "OperatorDiffDismissRequest",
+    "OperatorPatchRequest",
+    "router",
+]
 
 router = APIRouter(prefix="/api/account", tags=["account"])
 
@@ -102,6 +110,59 @@ class OperatorPatchRequest(BaseModel):
     source: WriteSource = Field(
         default="manual", description="字段来源标记；Agent 工具写 agent，页面写 manual"
     )
+
+
+class AccountOperatorRow(BaseModel):
+    """干员行：docs/05 §6.20 的字段清单，与单条读取同形。
+
+    ``masteries`` 的三个槽位总是出现（没识别过、也没手改过的行也是 0），``modules``
+    只含已解锁的类型，``field_sources`` 的值只有 recognition / manual / agent。
+    ``name``、``rarity``、``profession`` 在映射不到的干员上可以是 ``null``。
+    """
+
+    char_id: str
+    name: str | None = None
+    rarity: int | None = None
+    profession: str | None = None
+    own: bool
+    elite: int
+    level: int
+    potential: int
+    skill_level: int
+    masteries: dict[str, int] = Field(default_factory=dict)
+    modules: dict[str, int] = Field(default_factory=dict)
+    field_sources: dict[str, str] = Field(default_factory=dict)
+    recognized_at: str | None = None
+    updated_at: str | None = None
+
+
+class AccountOperatorList(BaseModel):
+    """干员表响应（docs/05 §6.20：列表用 ``{items, total, limit, offset}``）。"""
+
+    items: list[AccountOperatorRow]
+    total: int
+    limit: int
+    offset: int
+
+
+class AccountDepotRow(BaseModel):
+    """仓库行：物品 id、名字、数量、分类与识别时间。"""
+
+    item_id: str
+    name: str | None = None
+    count: int
+    category: str | None = None
+    recognized_at: str | None = None
+
+
+class AccountDepotList(BaseModel):
+    """仓库响应；``categories`` 见 :meth:`DepotService.list_items`。"""
+
+    items: list[AccountDepotRow]
+    total: int
+    limit: int
+    offset: int
+    categories: list[str] = Field(default_factory=list)
 
 
 def _box_service(request: Request) -> OperatorBoxService:
@@ -177,6 +238,7 @@ async def get_account_summary(request: Request) -> dict[str, Any]:
 
 @router.get(
     "/operators",
+    response_model=AccountOperatorList,
     summary="读取干员表",
     description=(
         "账号识别到的干员列表，带筛选与分页。\n\n"
@@ -197,8 +259,8 @@ async def list_account_operators(
     elite_min: int | None = Query(default=None, ge=0, le=2, description="最低精英化等级"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-) -> dict[str, Any]:
-    return await _box_service(request).list_operators(
+) -> AccountOperatorList:
+    payload = await _box_service(request).list_operators(
         query=query,
         owned_only=owned_only,
         rarity_min=rarity_min,
@@ -207,6 +269,7 @@ async def list_account_operators(
         limit=limit,
         offset=offset,
     )
+    return AccountOperatorList(**payload)
 
 
 @router.get(
@@ -309,10 +372,13 @@ async def dismiss_account_operator_diffs(
 
 @router.get(
     "/depot",
+    response_model=AccountDepotList,
     summary="读取仓库",
     description=(
         "仓库识别结果，按物品分类分组展示的只读列表。\n\n"
         "- `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数\n"
+        "- `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选"
+        "条件影响；页面用它渲染分类下拉\n"
         "- 仓库识别只看养成材料页签，龙门币与作战记录不在其中\n"
         "- 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定"
     ),
@@ -325,10 +391,11 @@ async def list_account_depot(
     query: str | None = Query(default=None, description="物品名片段"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-) -> dict[str, Any]:
-    return await _depot_service(request).list_items(
+) -> AccountDepotList:
+    payload = await _depot_service(request).list_items(
         category=category, query=query, limit=limit, offset=offset
     )
+    return AccountDepotList(**payload)
 
 
 # ---------------------------------------------------------------------------

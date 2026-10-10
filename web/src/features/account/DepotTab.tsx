@@ -54,7 +54,7 @@ export function DepotTab() {
       signal,
     ),
     initialPageParam: 0,
-    // 仓库响应不带 limit/offset，下一页的偏移由已取回的条数推出来。
+    // 视图载荷只带 items / total / categories；翻页偏移由已取回的条数推出来。
     getNextPageParam: (lastPage, allPages) => {
       const loaded = allPages.reduce((sum, page) => sum + page.items.length, 0)
       return lastPage.items.length > 0 && loaded < lastPage.total ? loaded : undefined

@@ -800,7 +800,9 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 七个端点都 `Depends(require_auth)`。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent`）。
 
-干员行的字段是 `char_id`、`name`、`rarity`、`profession`、`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`（`{"1": 0..3, "2": …, "3": …}`）、`modules`（模组类型 `X` / `Y` / `D` / `A` → 等级 1–3）、`field_sources`、`recognized_at`、`updated_at`；仓库行的字段是 `item_id`、`name`、`count`、`category`、`recognized_at`。
+两个只读列表端点（`/operators`、`/depot`）另有 Pydantic 响应模型（`AccountOperatorList` / `AccountDepotList`）把形状写进 `web/openapi.json` 与前端生成类型；此前它们只有 `-> dict`，前端手写的类型覆盖层读错容器键也发现不了——M33 的真机事故就是前端读 `operators`、后端给 `items`，`?? []` 兜成空列表且两边测试各自自洽（见 [13 §8.49](./13-决策记录.md)）。
+
+干员行的字段是 `char_id`、`name`、`rarity`、`profession`、`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`（`{"1": 0..3, "2": …, "3": …}`）、`modules`（模组类型 `X` / `Y` / `D` / `A` → 等级 1–3）、`field_sources`、`recognized_at`、`updated_at`；仓库行的字段是 `item_id`、`name`、`count`、`category`、`recognized_at`。仓库列表的容器还多一个 `categories`：这份识别快照里出现过的全部分类、按名字排序，与 `category` / `query` 两个筛选无关（分页只截取条目，分类清单不随筛选缩水），前端用它填分类下拉。
 
 `PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。识别结果的合并规则见 [11 §6.5](./11-Agent模块设计.md)与规格 §7.3：识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组只由手动或 Agent 写入；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
 
