@@ -1,0 +1,85 @@
+{
+ "query": {
+  "printrequests": [
+   {
+    "label": "",
+    "key": "",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 2,
+    "format": false
+   },
+   {
+    "label": "关卡id",
+    "key": "关卡id",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "关卡名称",
+    "key": "关卡名称",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "敌人数量",
+    "key": "敌人数量",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   }
+  ],
+  "results": {
+   "VEC-01 寂静螺旋": {
+    "printouts": {
+     "关卡id": [
+      "act3break_01"
+     ],
+     "关卡名称": [
+      "寂静螺旋"
+     ],
+     "敌人数量": [
+      "10"
+     ]
+    },
+    "fulltext": "VEC-01 寂静螺旋",
+    "fullurl": "//prts.wiki/w/VEC-01_%E5%AF%82%E9%9D%99%E8%9E%BA%E6%97%8B",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "VEC-08 磷脂层破坏": {
+    "printouts": {
+     "关卡id": [
+      "act3break_08"
+     ],
+     "关卡名称": [
+      "磷脂层破坏"
+     ],
+     "敌人数量": [
+      "16"
+     ]
+    },
+    "fulltext": "VEC-08 磷脂层破坏",
+    "fullurl": "//prts.wiki/w/VEC-08_%E7%A3%B7%E8%84%82%E5%B1%82%E7%A0%B4%E5%9D%8F",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   }
+  },
+  "serializer": "SMW\\Serializers\\QueryResultSerializer",
+  "version": 2,
+  "meta": {
+   "hash": "c2cb20d7bcd00acc225404b23686eb1d",
+   "count": 2,
+   "offset": 0,
+   "source": "",
+   "time": "0.008031"
+  }
+ }
+}

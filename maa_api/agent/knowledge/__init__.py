@@ -43,6 +43,11 @@ from maa_api.db.models import AgentKnowledge, utcnow
 from maa_api.db.repositories.agent_knowledge import AgentKnowledgeRepository
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.activity_index import ActivitySnapshot, default_activity_index
+from maa_api.services.game.activities import (
+    ActivityReport,
+    CurrentActivity,
+    report_from_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +58,13 @@ __all__ = [
     "INDEX_KINDS",
     "INDEX_HEADER",
     "ACTIVITY_HEADER",
+    "ACTIVITY_HEADER_FALLBACK",
+    "ACTIVITY_HEADER_FOREIGN",
+    "ACTIVITY_HEADER_PRTS",
+    "ACTIVITY_INJECTION_BUDGET_SECONDS",
+    "MAX_ACTIVITY_LINES",
+    "render_activity_lines",
+    "render_activity_section",
     "GLOSSARY_HEADER",
     "PROFILE_HEADER",
     "KNOWLEDGE_KINDS",
@@ -94,8 +106,19 @@ MAX_BODY_CHARS = 20_000
 INDEX_HEADER = (
     "知识库索引（开发者与用户维护，可作为操作指引；需要时用 read_knowledge 读取全文）："
 )
-#: M24：当期活动段。它排在索引之后、术语表之前，每轮只有一行。
+#: M24：当期活动段。它排在索引之后、术语表之前。
+#: M25 起国服走 PRTS（多个在开活动各一行），取不到时退回 M24 的那一行。
 ACTIVITY_HEADER = "当期活动（来自本机活动资源，随资源更新自动变化）："
+#: M25：PRTS 可用时的标题，`{time}` 是抓取时刻（本机时区，HH:MM）。规格 §5.9。
+ACTIVITY_HEADER_PRTS = "当期活动（PRTS，{time} 抓取）："
+#: M25：PRTS 不可用时的降级标题（正文沿用 M24 的那一行）。
+ACTIVITY_HEADER_FALLBACK = "当期活动（本机资源包推断，PRTS 暂不可用）："
+#: M25：外服的降级标题（规格 §4.3）。
+ACTIVITY_HEADER_FOREIGN = "当期活动（本机资源包推断；外服进度与国服不同）："
+#: 每轮注入的最多活动行数（Q13、规格 §4.5）。
+MAX_ACTIVITY_LINES = 5
+#: 注入取数的预算：超时就用缓存旧值或本地兜底，不能拖慢开场（S29、规格 §4.5）。
+ACTIVITY_INJECTION_BUDGET_SECONDS = 3.0
 #: 当期活动那一行（不含标题）的长度上限。规格定的是「每轮成本 ≤ 120 字」，所以正常
 #: 活动名（真数据 101 字）不会触发裁剪；活动名由上游决定、可能很长，超限时按这个数
 #: 裁剪才不会让每轮的固定成本失控（规格 §3.1、§4.3）。
@@ -153,6 +176,100 @@ def render_activity_line(snapshot: ActivitySnapshot) -> str:
             stages = "；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查"
             fixed = len(started) + len(stages) + len(tail)
             budget = MAX_ACTIVITY_LINE_CHARS - fixed
+        if budget < len(name):
+            name = name[: max(budget - 1, 1)] + "…"
+    return f"{name}{started}{stages}{tail}"
+
+
+def render_activity_lines(report: ActivityReport) -> list[str]:
+    """PRTS 报告 → 每个在开活动一行（§5.9）。
+
+    行格式：``- 名称｜至 MM-DD HH:MM｜VEC-01…VEC-12（12 关）``。超长时先省略代号区间，
+    再截活动名——与 M24 的裁剪顺序一致，保证每行仍是 :data:`MAX_ACTIVITY_LINE_CHARS` 以内。
+    """
+    lines: list[str] = []
+    for activity in report.activities[:MAX_ACTIVITY_LINES]:
+        lines.append(_activity_row(activity))
+    return lines
+
+
+def _activity_row(activity: CurrentActivity) -> str:
+    """一个活动一行。"""
+    name = activity.name
+    tail = _row_tail(activity)
+    budget = MAX_ACTIVITY_LINE_CHARS - len(tail)
+    if len(name) > budget:
+        # 先省掉代号区间，再截活动名。
+        if activity.code_range:
+            tail = _row_tail(activity, with_range=False)
+            budget = MAX_ACTIVITY_LINE_CHARS - len(tail)
+        if len(name) > budget:
+            name = name[: max(budget - 1, 1)] + "…"
+    return f"- {name}{tail}"
+
+
+def _row_tail(activity: CurrentActivity, *, with_range: bool = True) -> str:
+    end = activity.end_at.astimezone().strftime("%m-%d %H:%M") if activity.end_at else "时间未知"
+    parts = [f"｜至 {end}"]
+    code_range = activity.code_range
+    if with_range and code_range:
+        parts.append(
+            f"｜{code_range['first']}…{code_range['last']}（{code_range['count']} 关）"
+        )
+    elif not code_range:
+        parts.append("｜代号未知，用 get_activity_stages 查")
+    return "".join(parts)
+
+
+def render_activity_section(report: ActivityReport | None) -> list[str]:
+    """注入段的两行：标题 + 正文行（取不到时返回空列表，整段不插）。
+
+    - PRTS 可用（任一条 ``source=prts``）：标题带抓取时刻，每个在开活动一行；
+    - 降级（``source=resource``）：标题说明来路，正文沿用 M24 的那一行。
+    """
+    if report is None or not report.activities:
+        return []
+    first = report.activities[0]
+    if first.source == "resource":
+        header = (
+            ACTIVITY_HEADER_FOREIGN if report.region_note else ACTIVITY_HEADER_FALLBACK
+        )
+        return [header, _fallback_line(first)]
+    fetched = next(
+        (source.fetched_at for source in report.sources if source.fetched_at), None
+    )
+    stamp = fetched.astimezone().strftime("%H:%M") if fetched else "刚刚"
+    return [
+        ACTIVITY_HEADER_PRTS.format(time=stamp),
+        *render_activity_lines(report),
+    ]
+
+
+def _fallback_line(activity: CurrentActivity) -> str:
+    """降级时沿用 M24 的那一行（活动名、开始日期、代号区间、消歧提醒）。"""
+    started = (
+        f"，{activity.start_at.astimezone().date().isoformat()} 开始"
+        if activity.start_at
+        else ""
+    )
+    code_range = activity.code_range
+    if activity.stage_id_prefix and code_range:
+        stages = (
+            f"；关卡代号 {code_range['first']}…{code_range['last']}"
+            f"（共 {len(activity.stages)} 关）"
+        )
+    elif activity.stage_id_prefix:
+        stages = f"；关卡代号前缀 {activity.stage_id_prefix}（共 {len(activity.stages)} 关）"
+    else:
+        stages = "；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查"
+    tail = "；同名代号可能属于别的期次，提交前用 get_activity_stages 核对 stageId。"
+    name = activity.name
+    fixed = len(started) + len(stages) + len(tail)
+    budget = MAX_ACTIVITY_LINE_CHARS - fixed
+    if budget < len(name):
+        if code_range or activity.stage_id_prefix:
+            stages = "；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查"
+            budget = MAX_ACTIVITY_LINE_CHARS - len(started) - len(stages) - len(tail)
         if budget < len(name):
             name = name[: max(budget - 1, 1)] + "…"
     return f"{name}{started}{stages}{tail}"
@@ -517,12 +634,15 @@ class KnowledgeService:
         *,
         builtins: Mapping[str, BuiltinEntry] | None = None,
         activity_index: "ActivityReader | None" = None,
+        activity_service: "ActivityReader | None" = None,
     ) -> None:
         self._session_factory = session_factory or db_session.session_factory
         # 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
         self._builtins = dict(builtins) if builtins is not None else builtin_entries()
         self._activity_index = activity_index
-        #: 「当期活动读不到」的 warning 只在第一次失败时打一次（见 :meth:`_activity_line`）。
+        #: M25：外部活动服务（PRTS 优先）。没装时退回 M24 的本机快照口径。
+        self._activity_service = activity_service
+        #: 「当期活动读不到」的 warning 只在第一次失败时打一次（见 :meth:`_activity_section`）。
         self._activity_failure_logged = False
 
     # -- 读 ---------------------------------------------------------------
@@ -571,9 +691,9 @@ class KnowledgeService:
             (PROFILE_HEADER, FULLTEXT_KINDS[1]),
         )
         lines = [INDEX_HEADER, *(index_lines or [EMPTY_SECTION])]
-        activity = self._activity_line()
-        if activity is not None:
-            lines += ["", ACTIVITY_HEADER, activity]
+        activity = await self._activity_section()
+        if activity:
+            lines += ["", *activity]
         for header, kind in sections:
             bodies = [
                 entry.body
@@ -582,8 +702,8 @@ class KnowledgeService:
             lines += ["", header, "\n\n".join(bodies) if bodies else EMPTY_SECTION]
         return "\n".join(lines)
 
-    def _activity_line(self) -> str | None:
-        """当期活动那一行；没有数据源或读不出来时返回 ``None``（整段不插）。
+    async def _activity_section(self) -> list[str]:
+        """当期活动段（标题 + 正文行）；读不出来时返回空列表（整段不插）。
 
         与「知识库读失败降级为『知识库暂不可用』」不同：这里没有内容可展示，插一行
         「暂无」只花 token 不提供信息（规格 §4.3）。
@@ -591,20 +711,32 @@ class KnowledgeService:
         读失败只记一次 warning：没装活动资源是干净检出的常态，每轮带栈刷屏会把日志淹掉；
         同一进程里失败过一次之后降为 debug。资源装好后第一次成功会重置这个标记。
         """
-        index = self._activity_index
-        if index is None:
-            index = default_activity_index()
         try:
-            snapshot = index.snapshot()
+            report = await self._activity_report()
         except Exception:  # noqa: BLE001 - 活动数据只是可选上下文
             if not self._activity_failure_logged:
                 self._activity_failure_logged = True
                 logger.warning("当期活动数据读取失败，本轮起不再注入这一段", exc_info=True)
             else:
                 logger.debug("当期活动数据仍然读不到，继续不注入这一段")
-            return None
+            return []
         self._activity_failure_logged = False
-        return render_activity_line(snapshot)
+        return render_activity_section(report)
+
+    async def _activity_report(self) -> ActivityReport | None:
+        """取当期活动：装了外部服务就走 PRTS（3 s 预算），否则用本机快照。"""
+        service = self._activity_service
+        if service is not None and hasattr(service, "current"):
+            report = await service.current(
+                detail="summary",
+                budget_seconds=ACTIVITY_INJECTION_BUDGET_SECONDS,
+            )
+            if report is not None:
+                return report
+        index = self._activity_index
+        if index is None:
+            index = default_activity_index()
+        return report_from_snapshot(index.snapshot())
 
     # -- 写 ---------------------------------------------------------------
     async def put_entry(self, entry_id: str, payload: KnowledgeWrite) -> KnowledgeDetail:

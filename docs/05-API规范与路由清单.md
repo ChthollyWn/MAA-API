@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 105 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 110 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
 
 ```python
 # maa_api/domain/errors.py
@@ -342,6 +342,18 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 | `API_SNIPPET_NOT_FOUND` | 404 | API 调试台收藏 id 不存在 |
 | `API_SNIPPET_NAME_CONFLICT` | 409 | API 调试台收藏名称重复 |
 
+### 4.16 外部数据源（M25）
+
+| 错误码 | HTTP | 含义与触发场景 |
+|---|---|---|
+| `EXTERNAL_SOURCE_DISABLED` | 503 | 来源被配置关闭：`sources.enabled` 为 `false`，或该来源自己的开关为 `false`（如 `sources.prts_enabled`）。可以降级的工具（`get_activity_stages`、`get_stage`）改用本机兜底、不抛它；没有本地兜底的查询（`search_prts`、`get_prts_page`）直接抛 |
+| `EXTERNAL_SOURCE_UNAVAILABLE` | 503 | 网络错误、连接或读取超时、上游 5xx，或该来源正在熔断冷却中（同一来源连续 3 次失败后暂停 60 秒） |
+| `EXTERNAL_SOURCE_RATE_LIMITED` | 429 | 本地令牌桶取不到令牌（最多等 5 秒），或远端返回 429 后的冷却期内（时长取 `Retry-After`，缺省 60 秒、封顶 300 秒） |
+| `EXTERNAL_RESPONSE_INVALID` | 502 | 响应解压后超过来源上限、JSON 无效，或结构与来源约定不符（MediaWiki 的 `{"error": {...}}` 错误体也走这一条） |
+| `GAME_DATA_NOT_FOUND` | 404 | 来源上确实没有这条数据：PRTS 没有这个页面、关卡或搜索结果 |
+
+状态码口径：来源被关闭与取不到都是「现在没有」，用 503；远端 429 与本地限流都透传 429；下游答复了但答复不能用是 502；来源上没有这条数据是 404。可以降级的工具不抛错，返回降级结果并在 `unavailable` 里列出取不到的字段组（`get_activity_stages` 退回本机活动资源、`get_stage` 只回本机能给的字段，[11 §6.6](./11-Agent模块设计.md)）；`search_prts` 与 `get_prts_page` 没有本地兜底，前两个 503 会直接透出。
+
 ## 5. 鉴权设计
 
 ### 5.1 四个渠道与优先级
@@ -403,7 +415,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 101 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 103 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -734,6 +746,21 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 - 超时或跳过后本轮以 `finish_reason="question_unanswered"` 结束，这是正常终态而不是错误（同 [§4.11](#411-agent-与-llm) 的 `stuck_loop` / `max_steps` 口径）。等待时长由 `agent.question_timeout_seconds` 配置，默认 600 秒，落在那条提问的 `expires_at` 上。
 
 （4 条）
+
+### 6.19 外部数据源
+
+| 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
+|---|---|---|---|---|---|
+| GET | `/api/sources/status` | 各外部来源的状态快照 | 无 | 200 | `UNAUTHORIZED` |
+| DELETE | `/api/sources/cache` | 清空全部或单个来源的内存缓存 | `source`（可选，来源 kind，如 `prts`） | 200 | `INVALID_PARAMETER`、`UNAUTHORIZED` |
+
+`GET /api/sources/status` 每个来源返回 `kind`、`label`、`enabled`（总开关关闭时全为 `false`）、`rate_per_minute`、`last_success_at`、`last_error_at` / `last_error_code` / `last_error_message`、`consecutive_failures`、`cooldown_until` / `cooldown_seconds`、`requests`、`bytes_read`、`retries`，以及 `cache`（`entries`、`bytes`、`hits`、`misses`、`hit_rate`、`evictions`），供设置页「外部数据源」分区与排查使用。
+
+`DELETE /api/sources/cache` 不传 `source` 时清空全部来源，返回 `{source, cleared}`（`cleared` 是清掉的条数）；`source` 不是已登记的来源时返回 `400 INVALID_PARAMETER`，`details.known` 给出可用的取值。缓存只存在进程内存，重启即清空。
+
+两个端点都 `Depends(require_auth)`。**本组只有状态与缓存清理，没有检索代理**（Q25）：Agent 的工具调用入口沿用既有机制，工具目录照常出现在 `GET /api/agent/tools`，不让本服务变成 PRTS 的代理。M25 只登记 `prts` 一个来源，企鹅物流、作业站与拆包数据在各自里程碑加入。来源开关、限流、缓存时长与是否走代理都由 `sources` 段控制，见 [§4.16](#416-外部数据源m25)、[11 §6.6](./11-Agent模块设计.md) 与 [15 §7](./15-部署指南.md)。
+
+（2 条）
 
 ## 7. 任务提交的请求体设计
 

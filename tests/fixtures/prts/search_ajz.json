@@ -1,0 +1,49 @@
+{
+ "batchcomplete": true,
+ "continue": {
+  "sroffset": 5,
+  "continue": "-||"
+ },
+ "query": {
+  "searchinfo": {
+   "totalhits": 8
+  },
+  "search": [
+   {
+    "ns": 0,
+    "title": "7-18 爱国者之死",
+    "pageid": 15390,
+    "snippet": "{{剧情跳转/关卡|7-18|<span class=\"searchmatch\">爱国者</span>之死}}\n|关卡名=<span class=\"searchmatch\">爱国者</span>之死\n",
+    "titlesnippet": ""
+   },
+   {
+    "ns": 0,
+    "title": "爱国者/spine",
+    "pageid": 23619,
+    "snippet": "    &quot;name&quot;: &quot;<span class=\"searchmatch\">爱国者</span>&quot;,\n",
+    "titlesnippet": ""
+   },
+   {
+    "ns": 0,
+    "title": "爱国者的源石祭坛/spine",
+    "pageid": 23996,
+    "snippet": "    &quot;name&quot;: &quot;<span class=\"searchmatch\">爱国者</span>的源石祭坛&quot;,\n",
+    "titlesnippet": ""
+   },
+   {
+    "ns": 0,
+    "title": "爱国者的源石祭坛",
+    "pageid": 43307,
+    "snippet": "|名称=<span class=\"searchmatch\">爱国者</span>的源石祭坛\n",
+    "titlesnippet": ""
+   },
+   {
+    "ns": 0,
+    "title": "爱国者",
+    "pageid": 15694,
+    "snippet": "&lt;div class=&quot;nomobile&quot;&gt;[[文件:Avg avg npc 025 1.png|缩略图|&lt;center&gt;<span class=\"searchmatch\">爱国者</span>&lt;/center&gt;]]&lt;/div&gt;\n|名称=<span class=\"searchmatch\">爱国者</span>\n",
+    "titlesnippet": ""
+   }
+  ]
+ }
+}

@@ -1,0 +1,64 @@
+{
+ "parse": {
+  "title": "矢量突破/03",
+  "pageid": 96813,
+  "sections": [
+   {
+    "toclevel": 1,
+    "level": "2",
+    "line": "关卡信息",
+    "number": "1",
+    "index": "1",
+    "fromtitle": "矢量突破/03",
+    "byteoffset": 298,
+    "anchor": "关卡信息",
+    "linkAnchor": "关卡信息"
+   },
+   {
+    "toclevel": 2,
+    "level": "3",
+    "line": "<span>矢量突破 #3「拟生态」作战环境&amp;敌人一览表</span>",
+    "number": "1.1",
+    "index": "",
+    "fromtitle": false,
+    "byteoffset": null,
+    "anchor": "矢量突破_#3「拟生态」作战环境&敌人一览表",
+    "linkAnchor": "矢量突破_#3「拟生态」作战环境&敌人一览表"
+   },
+   {
+    "toclevel": 1,
+    "level": "2",
+    "line": "突破里程碑",
+    "number": "2",
+    "index": "2",
+    "fromtitle": "矢量突破/03",
+    "byteoffset": 17774,
+    "anchor": "突破里程碑",
+    "linkAnchor": "突破里程碑"
+   },
+   {
+    "toclevel": 1,
+    "level": "2",
+    "line": "蚀刻章套组",
+    "number": "3",
+    "index": "3",
+    "fromtitle": "矢量突破/03",
+    "byteoffset": 23223,
+    "anchor": "蚀刻章套组",
+    "linkAnchor": "蚀刻章套组"
+   },
+   {
+    "toclevel": 1,
+    "level": "2",
+    "line": "音乐鉴赏",
+    "number": "4",
+    "index": "4",
+    "fromtitle": "矢量突破/03",
+    "byteoffset": 23494,
+    "anchor": "音乐鉴赏",
+    "linkAnchor": "音乐鉴赏"
+   }
+  ],
+  "showtoc": true
+ }
+}

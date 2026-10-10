@@ -315,6 +315,35 @@
         "title": "AwardInput",
         "type": "object"
       },
+      "CacheClearResponse": {
+        "additionalProperties": false,
+        "description": "清空缓存的结果。",
+        "properties": {
+          "cleared": {
+            "description": "清掉的条数",
+            "title": "Cleared",
+            "type": "integer"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "清空的来源；null 表示全部",
+            "title": "Source"
+          }
+        },
+        "required": [
+          "source",
+          "cleared"
+        ],
+        "title": "CacheClearResponse",
+        "type": "object"
+      },
       "CallerType": {
         "enum": [
           "rest",
@@ -3769,6 +3798,191 @@
           "items"
         ],
         "title": "SettingUpdateRequest",
+        "type": "object"
+      },
+      "SourceCacheStats": {
+        "description": "一个来源的缓存统计。",
+        "properties": {
+          "bytes": {
+            "description": "估算占用字节数",
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "entries": {
+            "description": "缓存条数",
+            "title": "Entries",
+            "type": "integer"
+          },
+          "evictions": {
+            "description": "因超出内存上限被淘汰的条数",
+            "title": "Evictions",
+            "type": "integer"
+          },
+          "hit_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "命中率，没有读写时为 null",
+            "title": "Hit Rate"
+          },
+          "hits": {
+            "description": "命中次数",
+            "title": "Hits",
+            "type": "integer"
+          },
+          "misses": {
+            "description": "未命中次数",
+            "title": "Misses",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entries",
+          "bytes",
+          "hits",
+          "misses",
+          "evictions"
+        ],
+        "title": "SourceCacheStats",
+        "type": "object"
+      },
+      "SourceStatus": {
+        "description": "一个来源的运行时状态。",
+        "properties": {
+          "bytes_read": {
+            "default": 0,
+            "title": "Bytes Read",
+            "type": "integer"
+          },
+          "cache": {
+            "$ref": "#/components/schemas/SourceCacheStats"
+          },
+          "consecutive_failures": {
+            "default": 0,
+            "title": "Consecutive Failures",
+            "type": "integer"
+          },
+          "cooldown_seconds": {
+            "default": 0,
+            "description": "冷却剩余秒数",
+            "title": "Cooldown Seconds",
+            "type": "integer"
+          },
+          "cooldown_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "冷却截止时间，未在冷却时为 null",
+            "title": "Cooldown Until"
+          },
+          "enabled": {
+            "description": "该来源当前是否启用（总开关关闭时全为 false）",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "rate_per_minute": {
+            "description": "当前每分钟请求上限",
+            "title": "Rate Per Minute",
+            "type": "integer"
+          },
+          "requests": {
+            "default": 0,
+            "title": "Requests",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "enabled",
+          "rate_per_minute",
+          "cache"
+        ],
+        "title": "SourceStatus",
+        "type": "object"
+      },
+      "SourcesStatusResponse": {
+        "description": "各外部来源的状态快照。",
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "title": "SourcesStatusResponse",
         "type": "object"
       },
       "StartUpInput": {
@@ -10824,6 +11038,122 @@
         ]
       }
     },
+    "/api/sources/cache": {
+      "delete": {
+        "description": "清空全部或单个来源的内存缓存；返回清掉的条数。",
+        "operationId": "sources_clear_sources_cache",
+        "parameters": [
+          {
+            "description": "只清这个来源；不传则清空全部（如 prts）",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只清这个来源；不传则清空全部（如 prts）",
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CacheClearResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "清空外部数据源缓存",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/sources/status": {
+      "get": {
+        "description": "各来源的开关、状态与缓存统计；供设置页显示与排查。",
+        "operationId": "sources_get_sources_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcesStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          }
+        },
+        "summary": "查外部数据源状态",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
     "/api/system/auth/cookie": {
       "delete": {
         "description": "清除 `maa_token` cookie，供前端「登出」时调用，响应无体（204）。\n\n- 副作用：下发 `Set-Cookie`（空值 + `Max-Age=0`），浏览器随后删除该 cookie\n- 仅头部 token 可调用：仅凭 cookie 返回 403，缺少 token 或不匹配返回 401\n- 幂等：没有 cookie 时调用同样返回 204",
@@ -12818,6 +13148,10 @@
     {
       "description": "可视化配置",
       "name": "settings"
+    },
+    {
+      "description": "外部数据源状态与缓存",
+      "name": "sources"
     },
     {
       "description": "多通道通知",

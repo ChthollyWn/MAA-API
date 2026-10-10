@@ -359,9 +359,25 @@ class ErrorCode(StrEnum):
     # 单个资源超过 2 MB 上限
     ASSET_TOO_LARGE = "ASSET_TOO_LARGE"
 
+    # ---- docs/05 §4.16 外部数据源（M25）----
+    # 来源被配置关闭（`sources.enabled` 或该来源自己的开关）
+    EXTERNAL_SOURCE_DISABLED = "EXTERNAL_SOURCE_DISABLED"
+
+    # 网络错误、超时、5xx 或熔断中
+    EXTERNAL_SOURCE_UNAVAILABLE = "EXTERNAL_SOURCE_UNAVAILABLE"
+
+    # 本地令牌桶取不到令牌，或远端 429 的冷却期内
+    EXTERNAL_SOURCE_RATE_LIMITED = "EXTERNAL_SOURCE_RATE_LIMITED"
+
+    # 响应解压后超出上限、JSON 无效，或结构与来源约定不符
+    EXTERNAL_RESPONSE_INVALID = "EXTERNAL_RESPONSE_INVALID"
+
+    # 来源上没有这个页面、关卡、干员或作业
+    GAME_DATA_NOT_FOUND = "GAME_DATA_NOT_FOUND"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 103 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 109 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -471,6 +487,13 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.INFRAST_PLAN_INVALID: 422,
     ErrorCode.CUSTOM_TASK_INVALID: 422,
     ErrorCode.ASSET_TOO_LARGE: 400,
+    # 外部来源：关闭与取不到都是「现在没有」，用 503；远端 429 透传 429；响应不合约定是
+    # 下游答复了但答复不能用，用 502；来源上确实没有这条数据用 404。
+    ErrorCode.EXTERNAL_SOURCE_DISABLED: 503,
+    ErrorCode.EXTERNAL_SOURCE_UNAVAILABLE: 503,
+    ErrorCode.EXTERNAL_SOURCE_RATE_LIMITED: 429,
+    ErrorCode.EXTERNAL_RESPONSE_INVALID: 502,
+    ErrorCode.GAME_DATA_NOT_FOUND: 404,
 
 }
 

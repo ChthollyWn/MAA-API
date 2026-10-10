@@ -24,6 +24,9 @@ EXPECTED_TOOLS = {
     "send_stage_map", "send_chart",
     # M24 活动组（规格 §4.2）。
     "get_activity_stages",
+    "get_stage",
+    "search_prts",
+    "get_prts_page",
 }
 
 
@@ -32,11 +35,12 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 49
+    assert len(actual) == 52
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
     assert "activity" in {definition.group for definition in registry.list()}
+    assert "game" in {definition.group for definition in registry.list()}
     assert "run_copilot" not in actual
 
 

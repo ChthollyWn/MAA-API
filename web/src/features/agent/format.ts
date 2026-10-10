@@ -116,6 +116,9 @@ const TOOL_LABELS: Record<string, string> = {
   read_knowledge: '查阅知识库',
   resolve_stage: '解析关卡',
   get_activity_stages: '查当期活动',
+  get_stage: '查关卡情报',
+  search_prts: '搜索 PRTS',
+  get_prts_page: '读 PRTS 页面',
   get_drop_stats: '读取掉落统计',
   list_task_types: '读取任务类型',
   get_pipeline: '读取流水线',
@@ -160,6 +163,108 @@ const TOOL_LABELS: Record<string, string> = {
 
 export function toolLabel(name: string): string | undefined {
   return TOOL_LABELS[name]
+}
+
+// ---------------------------------------------------------------------------
+// 来源信封（规格 §3.4、§4.2）：工具结果里的 `sources` → 工具卡上的来源标签
+// ---------------------------------------------------------------------------
+
+/** 前端只为这些主机生成外链（规格 §4.2、附录 D）；其余主机只显示文字。 */
+export const SOURCE_LINK_HOSTS: readonly string[] = [
+  'prts.wiki',
+  'prts.plus',
+  'zoot.plus',
+  'penguin-stats.io',
+  'penguin-stats.cn',
+  'github.com',
+]
+
+/** 一次结果最多渲染的来源标签数；信封里的 `sources` 正常只有几条。 */
+export const SOURCE_TAG_LIMIT = 8
+
+/** 来源标签的渲染输入；字段名按信封闭环，但只留渲染要用的（规格 §3.4）。 */
+export interface ToolSource {
+  kind: string
+  label: string
+  title: string
+  /** 已过白名单的外链；主机不在白名单、协议不是 https 或字段缺失时是 null。 */
+  url: string | null
+  /** ISO 时间串，展示时走 `formatFetchedAt`；解析不了就原样显示。 */
+  fetchedAt: string
+  cached: boolean
+  stale: boolean
+}
+
+/**
+ * 外链白名单（规格 §4.2、附录 D）：只认 https 与六个主机及其子域。
+ * 其余主机只显示文字，这里返回 null，不生成可点链接。
+ */
+export function sourceLinkHref(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'https:') return null
+  const host = parsed.hostname.toLowerCase()
+  const allowed = SOURCE_LINK_HOSTS.some((candidate) => host === candidate || host.endsWith(`.${candidate}`))
+  return allowed ? value : null
+}
+
+/** 工具结果体：`{result: {...}}` / `{error: {...}}`（与 media.ts 的 `resultBody` 同口径）。 */
+function toolResultBody(input: unknown): JsonRecord | null {
+  if (!isRecord(input)) return null
+  if ('result' in input) return isRecord(input.result) ? input.result : null
+  return input
+}
+
+function sourceText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+/**
+ * 解析一次工具结果里的来源信封（规格 §3.4）。
+ *
+ * 与媒体卡同一套纪律：只做「解析 + 防御」，认不出的条目直接丢掉，永不抛异常。
+ * 最差的结果是没有标签，不渲染总比白屏好。`url` 只保留白名单主机的地址（`sourceLinkHref`）。
+ */
+export function parseToolSources(result: unknown): ToolSource[] {
+  const raw = toolResultBody(result)?.sources
+  if (!Array.isArray(raw)) return []
+  const sources: ToolSource[] = []
+  for (const entry of raw) {
+    if (sources.length >= SOURCE_TAG_LIMIT) break
+    if (!isRecord(entry)) continue
+    const kind = sourceText(entry.kind)
+    const label = sourceText(entry.label) || kind
+    if (!label) continue
+    sources.push({
+      kind,
+      label,
+      title: sourceText(entry.title),
+      url: sourceLinkHref(entry.url),
+      fetchedAt: sourceText(entry.fetched_at),
+      cached: entry.cached === true,
+      stale: entry.stale === true,
+    })
+  }
+  return sources
+}
+
+/** 外服提示（规格 §4.3、§5.12）：结果里的 `region_note`，空串视为没有。 */
+export function toolRegionNote(result: unknown): string | null {
+  return sourceText(toolResultBody(result)?.region_note) || null
+}
+
+const fetchedAtFormat = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+
+/** 来源标签上的抓取时间：本地时区、精确到分钟（规格 §4.2）。解析不了就原样显示。 */
+export function formatFetchedAt(value: string): string {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : fetchedAtFormat.format(date)
 }
 
 export function toShownError(error: unknown, response?: Response): ShownError {

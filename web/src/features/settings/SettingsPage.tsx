@@ -13,6 +13,7 @@ import { AccessSection, AppearanceSection, themeLabel } from './LocalSections'
 import { NotificationChannels } from './NotificationChannels'
 import { PushNotifications } from './PushNotifications'
 import { SchemaSection } from './SchemaSection'
+import { SourcesStatus } from './SourcesStatus'
 import {
   SETTINGS_INDEX_PATH,
   SETTINGS_SECTIONS,
@@ -82,6 +83,9 @@ function SectionPage({ section }: { section: SettingsSection }) {
       )
     case 'agent':
       return <SchemaSection section={section} intro={<AgentCapabilityCheck />} />
+    case 'sources':
+      // 状态面板与 schema 驱动的开关同页：面板在上，字段在下（规格 §5.11）。
+      return <SchemaSection section={section} intro={<SourcesStatus />} />
     case 'knowledge':
       // 知识库不是设置项：它有自己的列表与整页编辑器，不走设置 schema。
       return (

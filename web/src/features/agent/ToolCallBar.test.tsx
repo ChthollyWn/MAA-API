@@ -45,6 +45,39 @@ const ARCHIVED_SCREENSHOT = {
   format: 'jpeg',
 }
 
+const PRTS_URL = 'https://prts.wiki/w/7-18_%E7%88%B1%E5%9B%BD%E8%80%85%E4%B9%8B%E6%AD%BB'
+
+/** 规格 §3.4 的来源信封：三条来源覆盖外链白名单内、白名单外与「旧数据」。 */
+const SOURCED_RESULT = {
+  result: {
+    sources: [
+      {
+        kind: 'prts',
+        label: 'PRTS',
+        title: '7-18 爱国者之死',
+        url: PRTS_URL,
+        revision: 123_456,
+        fetched_at: '2026-10-10T09:00:00+08:00',
+        cached: true,
+        stale: false,
+      },
+      {
+        kind: 'penguin',
+        label: '企鹅物流',
+        title: '1-7 掉落',
+        url: 'https://example.com/result',
+        revision: null,
+        fetched_at: '2026-10-10T09:30:00+08:00',
+        cached: false,
+        stale: true,
+      },
+    ],
+    untrusted: true,
+    unavailable: [],
+    region_note: null,
+  },
+}
+
 function tool(overrides: Partial<ToolView> = {}): ToolView {
   return {
     name: 'send_stage_map',
@@ -164,5 +197,65 @@ describe('ToolCallBar', () => {
     expect(container.querySelector('[data-testid="tool-attachment"]')).toBeNull()
     expect(container.querySelector('details')).toBeInTheDocument()
     expect(screen.getByText('读取日志')).toBeInTheDocument()
+  })
+
+  it('renders the source tags above the collapsed details, never inside it', () => {
+    const { container } = render(<ToolCallBar tool={tool({ name: 'get_stage', result: SOURCED_RESULT })} />)
+    const details = container.querySelector('details')!
+    const tags = container.querySelector('[data-testid="tool-sources"]')
+
+    expect(tags).not.toBeNull()
+    // 与媒体卡同一层级：工具条默认折叠，放里面等于看不见（规格 §4.2）。
+    expect(details).not.toHaveAttribute('open')
+    expect(details.querySelector('[data-testid="tool-sources"]')).toBeNull()
+    expect(tags!.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('查关卡情报')).toBeInTheDocument()
+    expect(screen.getByText('PRTS')).toBeInTheDocument()
+    expect(screen.getByText('7-18 爱国者之死')).toBeInTheDocument()
+  })
+
+  it('links only the hosts the spec whitelists and keeps other hosts as plain text', () => {
+    const { container } = render(<ToolCallBar tool={tool({ name: 'get_stage', result: SOURCED_RESULT })} />)
+    const tags = container.querySelector('[data-testid="tool-sources"]')!
+
+    const link = within(tags as HTMLElement).getByRole('link', { name: '7-18 爱国者之死' })
+    expect(link).toHaveAttribute('href', PRTS_URL)
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer noopener')
+
+    // 非白名单主机：标题照显示，但不给可点的 `<a>`，也不把外域地址画出来。
+    expect(within(tags as HTMLElement).queryByRole('link', { name: '1-7 掉落' })).toBeNull()
+    expect(within(tags as HTMLElement).getByText('1-7 掉落')).toBeInTheDocument()
+    expect(tags).not.toHaveTextContent('example.com')
+  })
+
+  it('marks cached and stale sources and shows the fetch time down to the minute', () => {
+    const { container } = render(<ToolCallBar tool={tool({ name: 'get_stage', result: SOURCED_RESULT })} />)
+    const items = within(container.querySelector('[data-testid="tool-sources"]') as HTMLElement).getAllByRole('listitem')
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('缓存')
+    expect(items[0]).not.toHaveTextContent('旧数据')
+    expect(items[1]).toHaveTextContent('旧数据')
+    expect(items[1]).not.toHaveTextContent('缓存')
+
+    const time = container.querySelector('time')!
+    expect(time).toHaveAttribute('datetime', '2026-10-10T09:00:00+08:00')
+    expect(time.textContent).toMatch(/\d{1,2}:\d{2}(?!:)/)
+    expect(time.textContent).not.toMatch(/:\d{2}:\d{2}/)
+  })
+
+  it('shows the region note outside the details and hides the block when there is nothing to cite', () => {
+    const { container: withNote } = render(<ToolCallBar tool={tool({
+      name: 'get_activity_stages',
+      result: { result: { sources: SOURCED_RESULT.result.sources, region_note: '国服数据，外服可能尚未实装或数值不同' } },
+    })} />)
+    const tags = withNote.querySelector('[data-testid="tool-sources"]')!
+    expect(tags.closest('details')).toBeNull()
+    expect(within(tags as HTMLElement).getByText('国服数据，外服可能尚未实装或数值不同')).toBeInTheDocument()
+
+    cleanup()
+    const { container: withoutSources } = render(<ToolCallBar tool={tool({ name: 'get_stage', result: { result: { code: '1-7', unavailable: ['drops'] } } })} />)
+    expect(withoutSources.querySelector('[data-testid="tool-sources"]')).toBeNull()
   })
 })

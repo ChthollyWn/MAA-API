@@ -1,0 +1,121 @@
+{
+ "query": {
+  "printrequests": [
+   {
+    "label": "",
+    "key": "",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 2,
+    "format": false
+   },
+   {
+    "label": "关卡id",
+    "key": "关卡id",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "关卡名称",
+    "key": "关卡名称",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "推荐等级",
+    "key": "推荐等级",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "部署上限",
+    "key": "部署上限",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "初始COST",
+    "key": "初始COST",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "目标点耐久",
+    "key": "目标点耐久",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "敌人数量",
+    "key": "敌人数量",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "地图大小",
+    "key": "地图大小",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "作战消耗",
+    "key": "作战消耗",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   }
+  ],
+  "results": {
+   "7-18 爱国者之死": {
+    "printouts": {
+     "关卡id": [
+      "main_07-16"
+     ],
+     "关卡名称": [
+      "爱国者之死"
+     ],
+     "推荐等级": [],
+     "部署上限": [],
+     "初始COST": [],
+     "目标点耐久": [],
+     "敌人数量": [
+      "45"
+     ],
+     "地图大小": [],
+     "作战消耗": []
+    },
+    "fulltext": "7-18 爱国者之死",
+    "fullurl": "//prts.wiki/w/7-18_%E7%88%B1%E5%9B%BD%E8%80%85%E4%B9%8B%E6%AD%BB",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   }
+  },
+  "serializer": "SMW\\Serializers\\QueryResultSerializer",
+  "version": 2,
+  "meta": {
+   "hash": "44edd5ea61d931680d7f9a33948e5421",
+   "count": 1,
+   "offset": 0,
+   "source": "",
+   "time": "0.028938"
+  }
+ }
+}

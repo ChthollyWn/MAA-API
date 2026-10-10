@@ -37,7 +37,7 @@ API_SPEC_PATH = REPO_ROOT / "docs" / "05-API规范与路由清单.md"
 OPENAPI_PATH = REPO_ROOT / "web" / "openapi.json"
 
 #: §6 的小节总数（6.1–6.18）；解析结果对不上说明文档结构变了、门禁已经失效。
-SECTION_COUNT = 18
+SECTION_COUNT = 19
 #: 参与集合比对的小节：§6.2 是 WebSocket、§6.17 是静态与文档入口，都不在 OpenAPI 里。
 API_SECTIONS = (
     "6.1",
@@ -56,6 +56,7 @@ API_SECTIONS = (
     "6.15",
     "6.16",
     "6.18",
+    "6.19",
 )
 WS_SECTION = "6.2"
 STATIC_SECTION = "6.17"

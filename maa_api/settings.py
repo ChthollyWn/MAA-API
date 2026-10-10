@@ -39,6 +39,7 @@ __all__ = [
     "DeploymentSettings",
     "NotifySettings",
     "Settings",
+    "SourcesSettings",
     "SettingsError",
     "core_user_dir",
     "get_settings",
@@ -78,6 +79,14 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "log.persist_maacore_debug_level": ("log", "persist_maacore_debug_level"),
     "adb.connection_config": ("adb", "connection_config"),
     "adb.common_ports": ("adb", "common_ports"),
+    # ---- 外部数据源（M25，附录 B）。M25 只登记 PRTS 相关键与公共键。----
+    "sources.enabled": ("sources", "enabled"),
+    "sources.use_proxy": ("sources", "use_proxy"),
+    "sources.cache_live_seconds": ("sources", "cache_live_seconds"),
+    "sources.cache_static_seconds": ("sources", "cache_static_seconds"),
+    "sources.cache_max_mb": ("sources", "cache_max_mb"),
+    "sources.prts_enabled": ("sources", "prts_enabled"),
+    "sources.prts_rate_per_minute": ("sources", "prts_rate_per_minute"),
     "channel.client_type": ("channel", "client_type"),
     "channel.server": ("channel", "server"),
     "llm.base_url": ("llm", "base_url"),
@@ -184,6 +193,24 @@ class UpdateSettings(BaseModel):
     check_hour: int = Field(default=9, ge=0, le=23)
 
 
+class SourcesSettings(BaseModel):
+    """外部数据源（M25，规格 §3.2、§4.6、附录 B）。
+
+    访问层每次请求现读这个段（全部 ``hot_action="none"``），所以改开关或限流立即生效。
+    M25 只登记 PRTS 相关键与公共键；企鹅物流、作业站、拆包数据的键在各自的里程碑加。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    use_proxy: bool = True
+    cache_live_seconds: int = Field(default=300, ge=60, le=3600)
+    cache_static_seconds: int = Field(default=21600, ge=600, le=86400)
+    cache_max_mb: int = Field(default=64, ge=8, le=512)
+    prts_enabled: bool = True
+    prts_rate_per_minute: int = Field(default=30, ge=1, le=120)
+
+
 class AgentSettings(BaseModel):
     """Confirmation/question timeouts and the bounded internal atomic-operation grant."""
 
@@ -259,6 +286,7 @@ class Settings(BaseModel):
     log: LogSettings = Field(default_factory=LogSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    sources: SourcesSettings = Field(default_factory=SourcesSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

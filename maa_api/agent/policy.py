@@ -7,17 +7,23 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRisk
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.repositories.audit import ConfirmationRepository
+from maa_api.db.repositories.pipeline import TaskRepository
 from maa_api.domain.enums import AgentSessionStatus, CallerType, RiskLevel
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.domain.task import RISK_FIELDS
+from maa_api.domain.task import RISK_FIELDS, TASK_MODELS
 
 DEFAULT_ATOMIC_GRANT_MINUTES = 15
 MAX_ATOMIC_GRANT_MINUTES = 60
+
+#: 运行中改参数时无法确定任务类型与现有参数（拿不到持久化行）时的确认理由。
+CONSUMPTION_UNDETERMINED_REASON = (
+    "set_task_params 无法确定运行中任务的类型与现有参数，按保守策略要求确认"
+)
 
 ATOMIC_TOOL_NAMES = frozenset(
     {"click", "swipe", "long_press", "input_text", "key_event"}
@@ -99,7 +105,9 @@ class PolicyEngine:
             "create_schedule",
             "update_schedule",
         }:
-            reasons = _consumption_reasons(arguments, tool_name=name)
+            reasons = await _consumption_reasons(
+                arguments, tool_name=name, context=context
+            )
             if reasons:
                 return PolicyDecision(
                     True,
@@ -220,72 +228,268 @@ def _is_future(value: datetime) -> bool:
     return value > datetime.now(UTC)
 
 
-def _as_json_value(value: Any) -> Any:
+def _as_json_value(value: Any, *, exclude_unset: bool = True) -> Any:
+    """Serialize an argument model for inspection.
+
+    ``exclude_unset=False`` keeps every schema default, which is what the kernel
+    receives once the payload is normalized (D1).
+    """
     if isinstance(value, BaseModel):
-        return value.model_dump(mode="python", by_alias=True, exclude_unset=True)
+        return value.model_dump(
+            mode="python", by_alias=True, exclude_unset=exclude_unset
+        )
     return value
 
 
-def _consumption_reasons(arguments: Any, *, tool_name: str) -> tuple[str, ...]:
+async def _consumption_reasons(
+    arguments: Any, *, tool_name: str, context: ToolContext | None = None
+) -> tuple[str, ...]:
+    """Return the risk fields that the kernel would actually receive as truthy.
+
+    The values are the effective ones: schema defaults count, and for
+    ``set_task_params`` the persisted task parameters are merged with this
+    patch before judging. Anything that cannot be resolved is judged by the
+    request alone, which can only add confirmations, never remove one.
+    """
     reasons: list[str] = []
-    value = _as_json_value(arguments)
+    value = _as_json_value(arguments, exclude_unset=False)
     if not isinstance(value, Mapping):
         return ()
 
-    if tool_name in {"submit_pipeline", "create_schedule", "update_schedule"}:
+    existing: Mapping[str, Any] | None = None
+    existing_model: type[BaseModel] | None = None
+    if tool_name == "set_task_params":
+        patch = _set_task_params_patch(value)
+        resolved = await _existing_task_params(value.get("task_id"), context)
+        if resolved is None:
+            return _unresolved_patch_reasons(patch)
+        existing, existing_model = resolved
+        task_values = (_merged_params(patch, existing, existing_model),)
+    else:
         tasks = value.get("tasks", value.get("template", ()))
         task_values = tasks if isinstance(tasks, (list, tuple)) else (tasks,)
-    else:
-        task = value.get("task")
-        params = (
-            task
-            if isinstance(task, Mapping)
-            else value.get("params", value.get("task_params", value))
-        )
-        task_values = (params,)
-
-    def inspect_task(task: Any) -> None:
-        task = _as_json_value(task)
-        if not isinstance(task, Mapping):
-            return
-        task_name = next(
-            (
-                task[key]
-                for key in ("name", "task_name", "type", "type_name")
-                if isinstance(task.get(key), str)
-                and task[key] in RISK_FIELDS
-            ),
-            None,
-        )
-        params = task.get("params", task.get("raw_params", task))
-        params = _as_json_value(params)
-        if not isinstance(params, Mapping):
-            return
-        field_names = (
-            _CONSUMPTION_FIELD_ORDER[task_name]
-            if task_name in _CONSUMPTION_FIELD_ORDER
-            else tuple(sorted(_CONSUMPTION_FIELD_NAMES))
-        )
-        if task_name is not None:
-            field_names = tuple(
-                field for field in field_names if field in RISK_FIELDS[task_name]
-            )
-        for field in field_names:
-            if field not in params:
-                continue
-            candidate = params[field]
-            if field in _CONSUMPTION_COUNT_FIELDS:
-                triggered = (
-                    isinstance(candidate, (int, float))
-                    and not isinstance(candidate, bool)
-                    and candidate > 0
-                )
-            else:
-                triggered = candidate is True
-            if triggered:
-                label = f"{task_name}.{field}" if task_name else field
-                reasons.append(f"{label}={candidate}")
 
     for task in task_values:
-        inspect_task(task)
+        effective = _effective_task_params(task)
+        if effective is None:
+            continue
+        reasons.extend(_task_consumption_reasons(effective, _task_type_name(effective)))
+
     return tuple(dict.fromkeys(reasons))
+
+
+def _set_task_params_patch(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Flatten the request body into the field patch the runner would apply.
+
+    The registered model is ``{"task_id": ..., "params": {...}}``; a wrapper
+    ``{"task": {"name": ..., "params": {...}}}`` reaches policy evaluation from
+    callers that hand over a whole task definition, so both shapes are folded
+    into one flat patch and the inner values win.
+    """
+    flat: dict[str, Any] = {}
+    task = value.get("task")
+    if isinstance(task, Mapping):
+        flat.update(task)
+    for key in ("params", "task_params"):
+        nested = task.get(key) if isinstance(task, Mapping) else None
+        if nested is None:
+            nested = value.get(key)
+        if isinstance(nested, Mapping):
+            flat.update(nested)
+    return flat or value
+
+
+def _unresolved_patch_reasons(patch: Mapping[str, Any]) -> tuple[str, ...]:
+    """Fail closed for a patch whose task type and current values are unknown.
+
+    The decision usually comes from the persisted row, which carries both the
+    task type and the parameters the core is running with. Without that row
+    there is no way to tell which defaults the core would apply, so the patch
+    is confirmed unless its own shape pins down a single, non-consuming task
+    type. A patch that names its task type through ``name`` stays free when
+    that type consumes nothing; anything ambiguous is confirmed.
+    """
+    named = _patch_task_name(patch)
+    if named is not None:
+        task_name, model = named
+        params, _ = _resolved_task_params(model, _patch_for_model(patch, model))
+        return tuple(_task_consumption_reasons(params, task_name))
+
+    consuming: list[list[str]] = []
+    for task_name, model in TASK_MODELS.items():
+        applicable = _patch_for_model(patch, model)
+        if not applicable:
+            continue
+        params, _ = _resolved_task_params(model, applicable)
+        reasons = _task_consumption_reasons(params, task_name)
+        if reasons:
+            consuming.append(reasons)
+    if len(consuming) == 1:
+        return tuple(consuming[0])
+    return (CONSUMPTION_UNDETERMINED_REASON,)
+
+
+def _patch_task_name(patch: Mapping[str, Any]) -> tuple[str, type[BaseModel]] | None:
+    """Resolve the task type a patch names through a payload ``name`` field."""
+    for key in ("name", "task_name", "type", "type_name"):
+        value = patch.get(key)
+        if isinstance(value, str) and value in TASK_MODELS:
+            return value, TASK_MODELS[value]
+    return None
+
+
+def _patch_for_model(
+    patch: Mapping[str, Any], model: type[BaseModel]
+) -> dict[str, Any]:
+    """Keep the patch fields that ``model`` understands (field name or alias)."""
+    accepted: set[str] = set()
+    aliases: dict[str, str] = {}
+    for name, model_field in model.model_fields.items():
+        accepted.add(name)
+        alias = model_field.validation_alias
+        if isinstance(alias, str):
+            accepted.add(alias)
+            aliases[name] = alias
+    return {
+        aliases.get(field, field): value
+        for field, value in patch.items()
+        if field in accepted
+    }
+
+
+def _effective_task_params(task: Any) -> Mapping[str, Any] | None:
+    """Return the kernel-ready parameters of one task definition, if resolvable.
+
+    The kernel receives the *complete* task definition: the fields that the
+    payload left out fall back to the schema defaults (Mall ``shopping`` and
+    Roguelike ``investment_enabled`` are ``true``).
+    """
+    dumped = _as_json_value(task, exclude_unset=False)
+    if not isinstance(dumped, Mapping):
+        return None
+    params = dumped.get("params", dumped.get("raw_params", dumped))
+    if not isinstance(params, Mapping):
+        return None
+    task_name = _task_type_name(dumped)
+    model = TASK_MODELS.get(task_name) if task_name is not None else None
+    return _resolved_task_params(model, params)[0]
+
+
+def _task_type_name(task: Mapping[str, Any]) -> str | None:
+    for key in ("name", "task_name", "type", "type_name"):
+        value = task.get(key)
+        if isinstance(value, str) and value in TASK_MODELS:
+            return value
+    return None
+
+
+def _resolved_task_params(
+    model: type[BaseModel] | None, params: Mapping[str, Any]
+) -> tuple[Mapping[str, Any], type[BaseModel] | None]:
+    """Normalize one parameter map to the values the core would receive.
+
+    Task models reject impossible combinations with ``AppError`` in cross-field
+    validators, so both failure kinds fall back to the raw map instead of
+    letting a policy evaluation raise.
+    """
+    if model is None:
+        return params, None
+    try:
+        normalized = model.model_validate(params)
+    except (ValidationError, AppError):
+        return params, model
+    return (
+        normalized.model_dump(mode="python", by_alias=True, exclude_unset=False),
+        model,
+    )
+
+
+def _task_consumption_reasons(
+    params: Mapping[str, Any], task_name: str | None
+) -> list[str]:
+    """Judge one complete parameter set, preferring the field order per type."""
+    field_names = (
+        _CONSUMPTION_FIELD_ORDER[task_name]
+        if task_name in _CONSUMPTION_FIELD_ORDER
+        else tuple(sorted(_CONSUMPTION_FIELD_NAMES))
+    )
+    if task_name is not None and task_name in RISK_FIELDS:
+        field_names = tuple(
+            field for field in field_names if field in RISK_FIELDS[task_name]
+        )
+    reasons: list[str] = []
+    for field in field_names:
+        if field not in params or not _is_consuming(params[field], field=field):
+            continue
+        label = f"{task_name}.{field}" if task_name else field
+        reasons.append(f"{label}={params[field]}")
+    return reasons
+
+
+def _is_consuming(candidate: Any, *, field: str) -> bool:
+    if field in _CONSUMPTION_COUNT_FIELDS:
+        return (
+            isinstance(candidate, (int, float))
+            and not isinstance(candidate, bool)
+            and candidate > 0
+        )
+    return candidate is True
+
+
+def _merged_params(
+    patch: Mapping[str, Any],
+    existing: Mapping[str, Any] | None,
+    model: type[BaseModel] | None,
+) -> Mapping[str, Any]:
+    """Merge the current task parameters with this patch.
+
+    A sparse ``Task.params`` row usually lost the core's defaults (only the
+    fields that were set at submit time survive), so the row is re-validated
+    and the patch is layered on top of the complete view. ``None`` patch
+    values are dropped: the runner rejects them before touching the core.
+    """
+    merged: dict[str, Any] = dict(existing or {})
+    for field, value in patch.items():
+        if value is None:
+            continue
+        merged[_normalized_field(field, model)] = value
+    return merged
+
+
+def _normalized_field(field: str, model: type[BaseModel] | None) -> str:
+    """Map an alias/field name back to the model field name (Runner parity)."""
+    if model is None:
+        return field
+    for name, model_field in model.model_fields.items():
+        if model_field.validation_alias == field:
+            return name
+    return field
+
+
+async def _existing_task_params(
+    task_id: Any, context: ToolContext | None
+) -> tuple[Mapping[str, Any], type[BaseModel] | None] | None:
+    """Read the persisted parameters that this runtime patch builds on.
+
+    ``set_task_params`` is the only payload that carries no task type and no
+    full parameter set. A missing context, a missing row or a failed read all
+    return ``None``; the caller then judges the request as it stands, which can
+    only add confirmations (fail closed).
+    """
+    if context is None or not isinstance(task_id, str) or not task_id:
+        return None
+    session = context.db_session
+    if session is None:
+        return None
+    try:
+        task = await TaskRepository(session).get(task_id)
+    except AppError:
+        return None
+    if task is None:
+        return None
+    params = getattr(task, "params", None)
+    if not isinstance(params, Mapping):
+        return None
+    task_name = getattr(task, "type_name", None)
+    model = TASK_MODELS.get(task_name) if isinstance(task_name, str) else None
+    return _resolved_task_params(model, params)

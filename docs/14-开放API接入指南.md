@@ -196,6 +196,11 @@ curl -X POST http://<host>:8002/api/snippets \
 | `INFRAST_PLAN_INVALID` | 422 | 基建方案 JSON 结构不符，或引用了不存在的设施名 |
 | `CUSTOM_TASK_INVALID` | 422 | 自定义 task 定义不符合内核 `tasks.json` 的结构约定 |
 | `ASSET_TOO_LARGE` | 400 | 单个资源超过 2 MB 上限 |
+| `EXTERNAL_SOURCE_DISABLED` | 503 | 来源被配置关闭：`sources.enabled` 为 `false`，或该来源自己的开关为 `false`（如 `sources.prts_enabled`）。可以降级的工具（`get_activity_stages`、`get_stage`）改用本机兜底、不抛它；没有本地兜底的查询（`search_prts`、`get_prts_page`）直接抛 |
+| `EXTERNAL_SOURCE_UNAVAILABLE` | 503 | 网络错误、连接或读取超时、上游 5xx，或该来源正在熔断冷却中（同一来源连续 3 次失败后暂停 60 秒） |
+| `EXTERNAL_SOURCE_RATE_LIMITED` | 429 | 本地令牌桶取不到令牌（最多等 5 秒），或远端返回 429 后的冷却期内（时长取 `Retry-After`，缺省 60 秒、封顶 300 秒） |
+| `EXTERNAL_RESPONSE_INVALID` | 502 | 响应解压后超过来源上限、JSON 无效，或结构与来源约定不符（MediaWiki 的 `{"error": {...}}` 错误体也走这一条） |
+| `GAME_DATA_NOT_FOUND` | 404 | 来源上确实没有这条数据：PRTS 没有这个页面、关卡或搜索结果 |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->
@@ -211,6 +216,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `updates` | 内核、资源与游戏热更新 |
 | `schedules` | 定时任务 |
 | `settings` | 可视化配置 |
+| `sources` | 外部数据源状态与缓存 |
 | `notifications` | 多通道通知 |
 | `resources` | Copilot 作业、基建方案、自定义 task |
 | `snippets` | API 调试台收藏请求 |

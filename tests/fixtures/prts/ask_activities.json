@@ -1,0 +1,146 @@
+{
+ "query-continue-offset": 50,
+ "query": {
+  "printrequests": [
+   {
+    "label": "",
+    "key": "",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 2,
+    "format": false
+   },
+   {
+    "label": "名称缩短",
+    "key": "名称缩短",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "活动开始时间",
+    "key": "活动开始时间",
+    "redi": "",
+    "typeid": "_dat",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "活动结束时间",
+    "key": "活动结束时间",
+    "redi": "",
+    "typeid": "_dat",
+    "mode": 1,
+    "format": ""
+   }
+  ],
+  "results": {
+   "昨日海": {
+    "printouts": {
+     "名称缩短": [
+      "昨日海"
+     ],
+     "活动开始时间": [
+      {
+       "timestamp": "1791518400",
+       "raw": "1/2026/10/9/4/0/0/0"
+      }
+     ],
+     "活动结束时间": [
+      {
+       "timestamp": "1793303940",
+       "raw": "1/2026/10/29/19/59/0/0"
+      }
+     ]
+    },
+    "fulltext": "昨日海",
+    "fullurl": "//prts.wiki/w/%E6%98%A8%E6%97%A5%E6%B5%B7",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "矢量突破/03": {
+    "printouts": {
+     "名称缩短": [
+      "矢量突破 #3"
+     ],
+     "活动开始时间": [
+      {
+       "timestamp": "1790668800",
+       "raw": "1/2026/9/29/8/0/0/0"
+      }
+     ],
+     "活动结束时间": [
+      {
+       "timestamp": "1792439940",
+       "raw": "1/2026/10/19/19/59/0/0"
+      }
+     ]
+    },
+    "fulltext": "矢量突破/03",
+    "fullurl": "//prts.wiki/w/%E7%9F%A2%E9%87%8F%E7%AA%81%E7%A0%B4/03",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "稳态测定": {
+    "printouts": {
+     "名称缩短": [
+      "稳态测定"
+     ],
+     "活动开始时间": [
+      {
+       "timestamp": "1790539200",
+       "raw": "1/2026/9/27/20/0/0/0"
+      }
+     ],
+     "活动结束时间": [
+      {
+       "timestamp": "1791403140",
+       "raw": "1/2026/10/7/19/59/0/0"
+      }
+     ]
+    },
+    "fulltext": "稳态测定",
+    "fullurl": "//prts.wiki/w/%E7%A8%B3%E6%80%81%E6%B5%8B%E5%AE%9A",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "锦枫映月": {
+    "printouts": {
+     "名称缩短": [
+      "锦枫映月"
+     ],
+     "活动开始时间": [
+      {
+       "timestamp": "1790107200",
+       "raw": "1/2026/9/22/20/0/0/0"
+      }
+     ],
+     "活动结束时间": [
+      {
+       "timestamp": "1790711940",
+       "raw": "1/2026/9/29/19/59/0/0"
+      }
+     ]
+    },
+    "fulltext": "锦枫映月",
+    "fullurl": "//prts.wiki/w/%E9%94%A6%E6%9E%AB%E6%98%A0%E6%9C%88",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   }
+  },
+  "serializer": "SMW\\Serializers\\QueryResultSerializer",
+  "version": 2,
+  "meta": {
+   "hash": "4d040be895ce8cb8c342f22b772f42d9",
+   "count": 50,
+   "offset": 0,
+   "source": "",
+   "time": "0.038745"
+  }
+ }
+}
