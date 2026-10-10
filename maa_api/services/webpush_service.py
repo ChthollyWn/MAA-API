@@ -76,6 +76,13 @@ def _truncate(value: str, limit: int) -> str:
 #: 可能出现这个旧标识符，认不出会直接把它显示给用户。
 _TOOL_LABELS: dict[str, str] = {
     "click": "在游戏画面点击",
+    "get_operator_box": "查我的干员",
+    "get_depot": "查仓库",
+    "update_operator_box": "修改干员数据",
+    "plan_upgrade": "算养成规划",
+    "start_upgrade_plan": "启动养成计划",
+    "list_upgrade_plans": "查养成计划",
+    "cancel_upgrade_plan": "停止养成计划",
     "swipe": "在游戏画面滑动",
     "long_press": "在游戏画面长按",
     "input_text": "向游戏输入文本",
