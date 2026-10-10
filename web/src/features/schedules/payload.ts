@@ -60,7 +60,13 @@ export function toScheduleTemplate(tasks: readonly TemplateTask[]): ScheduleTemp
         if (typeof task.asset_id !== 'string' || !task.asset_id) {
           throw new ScheduleTemplateError('请选择一个已保存的 Copilot 作业。', index, 'asset_id')
         }
-        return { name: 'Copilot', asset_id: task.asset_id, formation: task.formation === true }
+        return {
+          name: 'Copilot',
+          asset_id: task.asset_id,
+          formation: task.formation === true,
+          // M29/D2：缺一名时借助战；定时任务模板沿用「不用助战」的保守默认。
+          support_unit_usage: task.support_unit_usage === 1 ? 1 : 0,
+        }
       }
       default:
         throw new ScheduleTemplateError(`定时任务不支持「${String(task.name)}」，请删除第 ${index + 1} 项。`, index)

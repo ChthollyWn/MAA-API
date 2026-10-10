@@ -24,6 +24,7 @@ def test_copilot_is_accepted_by_pipeline_schedule_and_task_schema() -> None:
     assert pipeline.tasks[0].to_core_params() == {
         "asset_id": "asset-1",
         "formation": False,
+        "support_unit_usage": 0,
     }
     assert schedule.template[0].name == "Copilot"
     assert TASK_MODELS["Copilot"].model_fields["asset_id"].is_required()
@@ -31,6 +32,7 @@ def test_copilot_is_accepted_by_pipeline_schedule_and_task_schema() -> None:
         "name",
         "asset_id",
         "formation",
+        "support_unit_usage",
     }
     assert CopilotInput.model_validate(
         {"name": "Copilot", "asset_id": "asset-1"}
@@ -39,4 +41,8 @@ def test_copilot_is_accepted_by_pipeline_schedule_and_task_schema() -> None:
     schema = export_type_schema(TASK_MODELS["Copilot"])
     assert schema["label"]
     assert schema["schema"]["properties"]["asset_id"]["x-label"]
-    assert schema["schema"]["examples"] == [copilot]
+    # 例子可以有多个（M29 补了带 support_unit_usage 的那条），但每一个都必须能过校验，
+    # 且「不带 support_unit_usage」的最简形态一定在里面。
+    examples = schema["schema"]["examples"]
+    assert copilot in examples
+    assert all(CopilotInput.model_validate(item) for item in examples)

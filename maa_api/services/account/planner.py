@@ -46,9 +46,11 @@
 7. 掉率取不到不算失败：单个材料取掉率失败（网络、限流、材料不在表里）只影响那个材料，
    记进 ``unobtainable`` 的 ``reason``；``scipy`` 不可用或求解失败时返回需求 + ``notes``，
    ``stages`` 为空、``feasible`` 为 False。
-8. 升级经验与升级龙门币本期不计（M29 补）：精英化、技能、专精与模组消耗的龙门币计入
-   需求，但龙门币与作战记录不参与刷关规划（规格 §7.3：仓库识别不含这两项），只在
-   ``requirements`` 里报数。
+8. 升级经验与升级龙门币走拆包常量表（M27 起预留、M29 接入，规格 §7.6 第 10 条）：目标
+   等级按该精英阶段的满级算（材料目标只写到「精英几」）；经验折算成「作战记录」的点数进
+   ``requirements``，与龙门币一样**只报需求、不参与刷关规划**（规格 §7.3：仓库识别不含这两
+   项）。精英化、技能、专精与模组消耗的龙门币由材料表计入，升级龙门币另算，两者不重复。
+   拆包常量表取不到时用内置的官方数值表兜底并在 ``notes`` 写明来源（§3.5）。
 9. Agent 工具层调的入口是 ``as_dict_plan(targets, use_depot=…)``（``plan`` + ``as_dict()``），
    没给 ``box`` 时用构造时注入的账号数据句柄；``default_upgrade_planner()`` 就是按这个口径
    装配的进程内单例（干员表与仓库都用 ``db.session.session_factory``）。
@@ -71,6 +73,7 @@ from maa_api.services.activity_index import (
 from maa_api.services.external.prts import PrtsClient
 from maa_api.services.game.drops import SMALL_SAMPLE_TIMES, default_drop_service
 from maa_api.services.game.items import default_item_service
+from maa_api.services.game.levelup import max_level_for
 from maa_api.services.game.operators import OperatorService
 from maa_api.services.prts_parse.item import ItemPage, parse_item_page
 from maa_api.services.resource_index import iter_resource_roots
@@ -170,6 +173,26 @@ def _clamp(value: Any, minimum: int, maximum: int, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return max(minimum, min(maximum, number))
+
+
+def _as_rarity(value: Any, default: int = 1) -> int:
+    """星级归一：``6`` / ``"6"`` / ``"TIER_6"`` / ``"6★"`` 都读成 6。
+
+    账号数据的 ``rarity`` 列是识别结果里的原始形状（内核给 ``TIER_6``，作业站给数字），
+    两种都认；读不出时按最低星兜底（经验曲线按 1★–2★ 那条走，宁少不多）。
+    """
+    if isinstance(value, bool) or value is None:
+        return default
+    if isinstance(value, int):
+        return value if 1 <= value <= 6 else default
+    text = str(value).strip().upper()
+    if text.startswith("TIER_"):
+        text = text[5:]
+    digits = "".join(character for character in text if character.isdigit())
+    if not digits:
+        return default
+    number = int(digits[:2])
+    return number if 1 <= number <= 6 else default
 
 
 def _chunks(items: Sequence[Any], size: int) -> Iterable[list[Any]]:
@@ -470,6 +493,7 @@ def _normalize_current(row: Mapping[str, Any]) -> dict[str, Any]:
         "char_id": row.get("char_id"),
         "name": row.get("name"),
         "own": bool(row.get("own")),
+        "rarity": _as_rarity(row.get("rarity")),
         "elite": _clamp(row.get("elite"), 0, 2, 0),
         "level": _clamp(row.get("level"), 0, 90, 1) or 1,
         "potential": _clamp(row.get("potential"), 0, 6, 0),
@@ -484,6 +508,8 @@ def _fresh_current() -> dict[str, Any]:
         "char_id": None,
         "name": None,
         "own": False,
+        # 没有记录时不知道星级：按最低星兜底（与 `_as_rarity` 同一个口径）。
+        "rarity": 1,
         "elite": int(FRESH_OPERATOR["elite"]),
         "level": int(FRESH_OPERATOR["level"]),
         "potential": int(FRESH_OPERATOR["potential"]),
@@ -809,6 +835,7 @@ class UpgradePlanner:
         index: Any = None,
         depot: Any = None,
         box: Any = None,
+        levelup: Any = None,
         settings_provider: Callable[[], Settings] = get_settings,
     ) -> None:
         self._operators = operators
@@ -818,7 +845,37 @@ class UpgradePlanner:
         self._depot = depot
         #: ``as_dict_plan`` 没显式给 ``box`` 时的默认账号数据句柄（装配时注入）。
         self._account_box = box
+        #: 升级经验 / 龙门币表（M29，规格 §7.6）。可以是 :class:`LevelUpTable`，也可以是
+        #: 返回它的 awaitable（``levelup.load_level_up_table``）；缺省按内置官方数值表兜底。
+        self._levelup = levelup
+        self._levelup_table: Any = None
+        self._levelup_loaded = False
+        self._levelup_note = ""
+        self._levelup_exp = 0
         self._settings_provider = settings_provider
+
+    @property
+    async def levelup(self) -> Any:
+        """升级经验 / 龙门币表；第一次用到时才装配（内置兜底，不发网络请求就可用）。
+
+        * 显式注入了 ``levelup``：直接用它（``await`` 一个 awaitable，否者原样返回），
+          加载失败时**不**静默换内置表——注入方要能看见失败。
+        * 没有注入：先试拆包常量表（``levelup.load_level_up_table``），取不到时它自己
+          返回内置表（``source="builtin"``，带 ``note``）。
+        """
+        if self._levelup_loaded:
+            return self._levelup_table
+        self._levelup_loaded = True
+        if self._levelup is not None:
+            loaded = self._levelup
+            if hasattr(loaded, "__await__"):
+                loaded = await loaded
+            self._levelup_table = loaded
+            return self._levelup_table
+        from maa_api.services.game.levelup import load_level_up_table
+
+        self._levelup_table = await load_level_up_table()
+        return self._levelup_table
 
     # -- 惰性默认装配 -----------------------------------------------------
     @property
@@ -1004,10 +1061,20 @@ class UpgradePlanner:
         notes.extend(self._data_notes(server_name, stages, allowed=allowed))
         if not use_depot:
             notes.append("use_depot=False：没有用仓库库存抵扣")
-        notes.append(
-            "未计入升级所需的经验与龙门币（需要拆包常量表，M29 补）；"
-            "精英化、技能、专精与模组消耗的龙门币已计入需求"
-        )
+        # M29：升级经验与龙门币已接入拆包常量表（规格 §7.6 第 10 条）。
+        if self._levelup_exp:
+            if self._levelup_note:
+                notes.append(self._levelup_note)
+            notes.append(
+                f"升级经验与龙门币已计入需求（作战记录 {self._levelup_exp} 点折算值、"
+                f"升级龙门币见 requirements）；精英化、技能、专精与模组消耗的龙门币"
+                "另由材料表计入，两者不重复"
+            )
+        else:
+            notes.append(
+                "未计入升级所需的经验与龙门币（拆包常量表不可用或没有可升的级）；"
+                "精英化、技能、专精与模组消耗的龙门币已计入需求"
+            )
         if recipes:
             notes.append(
                 "合成按 PRTS 材料页的加工站配方（需求闭包递归取），副产物不计（保守），"
@@ -1069,14 +1136,95 @@ class UpgradePlanner:
         row["target"] = effective
         row["implied"] = implied
         row["warnings"].extend(warnings)
-        row["requirements"] = {
-            item["name"]: item["amount"] for item in _merge(increments.items())
-        }
         if implied:
             notes.append(
                 f"「{target.operator}」只写了专精/模组，按前置补齐 {'、'.join(implied)}"
             )
+        levelup, levelup_note = await self._levelup_increment(current, effective, notes)
+        if levelup_note:
+            row["warnings"].append(levelup_note)
+            if levelup_note not in notes:
+                notes.append(levelup_note)
+        for name, amount in levelup.items():
+            increments[name] = increments.get(name, 0) + amount
+        row["requirements"] = {
+            item["name"]: item["amount"] for item in _merge(increments.items())
+        }
         return row, increments
+
+    async def _levelup_increment(
+        self,
+        current: Mapping[str, Any],
+        effective: Mapping[str, Any],
+        notes: list[str],
+    ) -> tuple[dict[str, int], str | None]:
+        """升级经验（折算成作战记录）与升级龙门币（规格 §7.6、M29）。
+
+        精英化、技能、专精与模组消耗的龙门币已经在材料表里；这里只补**升级**那部分，
+        不重复计精英化龙门币。拆包常量表取不到时用内置的官方数值表兜底，来源写进
+        ``notes``（§3.5：禁止冒充）。
+        """
+        rarity = _as_rarity(current.get("rarity"))
+        from_elite = _clamp(current.get("elite"), 0, 2, 0)
+        from_level = _clamp(current.get("level"), 1, 90, 1)
+        to_elite = _clamp(effective.get("elite"), 0, 2, 0)
+        table = await self.levelup
+        if table is None or not getattr(table, "available", False):
+            return {}, "升级经验与龙门币表不可用，这部分未计入需求"
+        to_level = self._resolve_target_level(rarity, current, to_elite, notes)
+        if to_level is None:
+            return {}, None
+        if getattr(table, "note", ""):
+            # 来源说明（拆包数据 / 内置兜底）只记一次，最后统一进 notes（§3.5）。
+            self._levelup_note = str(table.note)
+        try:
+            cost = table.cost(
+                rarity=rarity,
+                from_elite=from_elite,
+                from_level=from_level,
+                to_elite=to_elite,
+                to_level=to_level,
+            )
+        except Exception as exc:  # noqa: BLE001 - 表坏了只影响这一段
+            return {}, f"升级经验与龙门币计算失败（{type(exc).__name__}），这部分未计入需求"
+        if cost.get("note"):
+            # 表自己的说明（内置兜底、目标低于当前…）不是「这段算不出来」。
+            self._levelup_note = self._levelup_note or str(cost["note"])
+        exp = int(cost.get("exp") or 0)
+        lmd = int(cost.get("lmd") or 0)
+        if not exp and not lmd:
+            return {}, None
+        self._levelup_exp = exp
+        return {"作战记录": exp, "龙门币": lmd}, None
+
+    def _resolve_target_level(
+        self,
+        rarity: int,
+        current: Mapping[str, Any],
+        to_elite: int,
+        notes: list[str],
+    ) -> int | None:
+        """目标等级：该精英阶段的满级（材料目标不写等级，规格 §7.6 只规划到精英几）。
+
+        已经在该阶段且已在满级时返回 ``None``（没有可升的级）。满级查不到也返回
+        ``None`` 并写一条 ``notes``，不猜。
+        """
+        levels = getattr(self._levelup_table, "max_levels", None)
+        known = levels if isinstance(levels, Mapping) else None
+        current_level = _clamp(current.get("level"), 1, 90, 1)
+        current_elite = _clamp(current.get("elite"), 0, 2, 0)
+        if to_elite == current_elite:
+            cap = max_level_for(rarity, current_elite, max_levels=known)
+        else:
+            # 要精英化：当前阶段先升到满级（精英化本身不改等级），精英化之后从 1 级练到
+            # 新阶段的满级。两者由 `LevelUpTable.cost` 分别按各自的 cap 取。
+            cap = max_level_for(rarity, to_elite, max_levels=known)
+        if cap is None:
+            notes.append("没有该稀有度与精英阶段的满级数据，未计升级所需的经验与龙门币")
+            return None
+        if cap == current_level and to_elite == current_elite:
+            return None
+        return max(cap, current_level)
 
     async def _load_costs(
         self, target: UpgradeTarget

@@ -13,11 +13,16 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from maa_api.api.deps import require_auth
+from maa_api.api.deps import get_session, require_auth
 from maa_api.api.errors import error_responses
+from maa_api.db.models import ResourceAsset, utcnow
+from maa_api.db.repositories.resource import ResourceAssetRepository
+from maa_api.domain.enums import ResourceAssetKind
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.resource_service import _asset_wire
 from maa_api.settings import get_settings
 
 
@@ -59,6 +64,14 @@ class CopilotAssetPageOut(BaseModel):
     total: int
     page: int = Field(ge=1)
     size: int = Field(ge=1, le=200)
+
+
+class RetainRequest(BaseModel):
+    """「保留」开关（规格 §9.11）：被保留的作业不会被每日清理删掉。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    retain: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,3 +278,170 @@ async def get_item_icon(item_id: str = Query(..., min_length=1)) -> FileResponse
             "物品不存在或没有可用图标，请核对物品 ID 或刷新物品列表",
         )
     return FileResponse(icon_path, media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# 作业资源（M29，规格 §9.5 / §9.10）
+#
+# 读写直接落 ``resource_asset``：写入侧仍只走 Agent 工具（``upload_copilot`` 等，
+# docs/05 §6.14），这三条只做「看 / 删 / 保留」。作业 JSON 的读法与
+# ``ResourceService`` 一致：小作业在 ``content`` 列，大作业在 ``path`` 指向的文件。
+# ---------------------------------------------------------------------------
+
+
+def _copilot_service(request: Request) -> Any:
+    service = getattr(request.app.state, "resource_service", None)
+    if service is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "资源功能还在启动中，请稍后重试")
+    return service
+
+
+def _copilot_asset_root(request: Request) -> Path:
+    """作业文件的根目录：先问资源服务，再退回 ``_resource_root()``。"""
+    service = getattr(request.app.state, "resource_service", None)
+    root = getattr(service, "resource_root", None)
+    if isinstance(root, Path):
+        return root
+    return _resource_root()
+
+
+def _copilot_not_found() -> AppError:
+    return AppError(
+        ErrorCode.RESOURCE_ASSET_NOT_FOUND, "Copilot 作业不存在，请刷新列表"
+    )
+
+
+def _copilot_file_error() -> AppError:
+    return AppError(
+        ErrorCode.RESOURCE_LOAD_FAILED,
+        "Copilot 作业文件缺失或损坏，请重新上传",
+    )
+
+
+def _copilot_asset_file(root: Path, relative: str | None) -> Path | None:
+    """``asset.path`` 解析到根目录之内才返回，越界或缺失一律 ``None``。"""
+    if not relative:
+        return None
+    try:
+        file_path = (root / relative).resolve()
+        file_path.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return file_path
+
+
+def _copilot_content(asset: ResourceAsset, root: Path) -> Any:
+    if asset.content is not None:
+        return asset.content
+    file_path = _copilot_asset_file(root, asset.path)
+    if file_path is None:
+        raise _copilot_file_error()
+    try:
+        return json.loads(file_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise _copilot_file_error() from exc
+
+
+async def _copilot_asset(
+    session: AsyncSession, asset_id: str
+) -> ResourceAsset | None:
+    asset = await ResourceAssetRepository(session).get(asset_id)
+    if asset is None or str(asset.kind) != ResourceAssetKind.COPILOT.value:
+        return None
+    return asset
+
+
+@router.get(
+    "/copilots/{asset_id}",
+    response_model=None,
+    summary="读取单个 Copilot 作业（含作业 JSON）",
+    description=(
+        "返回该作业的资源 wire 与 `content`（作业 JSON 原文），供「作业」页查看与下载。\n\n"
+        "- 小作业的 `content` 在库里，大作业从 `agent-assets/copilot/` 下的文件读\n"
+        "- 不存在、不是 Copilot 作业返回 `RESOURCE_ASSET_NOT_FOUND`\n"
+        "- 文件缺失或损坏返回 `RESOURCE_LOAD_FAILED`"
+    ),
+    responses=error_responses(
+        "RESOURCE_ASSET_NOT_FOUND",
+        "RESOURCE_LOAD_FAILED",
+        "SERVICE_UNAVAILABLE",
+        "UNAUTHORIZED",
+    ),
+)
+async def get_copilot_asset(
+    asset_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    _copilot_service(request)
+    asset = await _copilot_asset(session, asset_id)
+    if asset is None:
+        raise _copilot_not_found()
+    content = _copilot_content(asset, _copilot_asset_root(request))
+    return _asset_wire(asset, include_content=True, content=content)
+
+
+@router.delete(
+    "/copilots/{asset_id}",
+    summary="删除一个 Copilot 作业",
+    description=(
+        "删除作业资源记录；大作业落盘的文件一并清掉。"
+        "不存在、不是 Copilot 作业返回 `RESOURCE_ASSET_NOT_FOUND`。"
+    ),
+    responses=error_responses(
+        "RESOURCE_ASSET_NOT_FOUND", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+    ),
+)
+async def delete_copilot_asset(
+    asset_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    _copilot_service(request)
+    repo = ResourceAssetRepository(session)
+    asset = await _copilot_asset(session, asset_id)
+    if asset is None:
+        raise _copilot_not_found()
+    file_path = _copilot_asset_file(_copilot_asset_root(request), asset.path)
+    await repo.delete(asset_id)
+    await session.commit()
+    if file_path is not None:
+        file_path.unlink(missing_ok=True)
+    return {"id": asset_id, "removed": True}
+
+
+@router.post(
+    "/copilots/{asset_id}/retain",
+    response_model=None,
+    summary="设置 Copilot 作业是否保留",
+    description=(
+        "写入 `meta.retain`（规格 §9.11）：被保留的作业不会被每日清理删掉，可以再取消。"
+        "返回更新后的资源 wire（不含 `content`）。"
+    ),
+    responses=error_responses(
+        "RESOURCE_ASSET_NOT_FOUND", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+    ),
+)
+async def retain_copilot_asset(
+    asset_id: str,
+    payload: RetainRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    _copilot_service(request)
+    repo = ResourceAssetRepository(session)
+    asset = await _copilot_asset(session, asset_id)
+    if asset is None:
+        raise _copilot_not_found()
+    # JSON 列的原地修改不被 ORM 追踪（docs/04 §7），整列赋值写回。
+    meta = dict(asset.meta or {})
+    meta["retain"] = bool(payload.retain)
+    asset.meta = meta
+    asset.updated_at = utcnow()
+    await session.merge(asset)
+    await session.commit()
+    stored = await repo.get(asset_id)
+    if stored is None:  # pragma: no cover - 刚提交的行不会凭空消失
+        raise _copilot_not_found()
+    return _asset_wire(stored, include_content=False)
+

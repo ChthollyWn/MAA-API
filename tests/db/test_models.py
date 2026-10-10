@@ -62,6 +62,7 @@ BUSINESS_TABLES = {
     "account_depot_item",
     "account_recognition",
     "upgrade_plan",
+    "copilot_grant",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -76,6 +77,7 @@ UUID_PK_TABLES = [
     "api_snippet",
     "push_subscription",
     "agent_question",
+    "copilot_grant",
 ]
 AUTOINCREMENT_TABLES = ["log_entry", "agent_message", "agent_audit", "agent_idempotency"]
 
@@ -113,6 +115,22 @@ EXPECTED_INDEXES = {
     "ix_upgrade_plan_status_created_at": (
         "upgrade_plan",
         ("status", "created_at"),
+        False,
+    ),
+    # M29：作业授权的一条部分唯一索引 + 两条复合索引。
+    "uq_copilot_grant_active_session": (
+        "copilot_grant",
+        ("session_id",),
+        True,
+    ),
+    "ix_copilot_grant_status_expires_at": (
+        "copilot_grant",
+        ("status", "expires_at"),
+        False,
+    ),
+    "ix_copilot_grant_session_id_created_at": (
+        "copilot_grant",
+        ("session_id", "created_at"),
         False,
     ),
     "ix_sanity_observation_stage_created_at": (
@@ -218,6 +236,8 @@ EXPECTED_FK_SET_NULL = {
     ("upgrade_plan", "schedule_id"),
     ("upgrade_plan", "session_id"),
     ("agent_audit", "confirmation_id"),
+    # M29：会话删了授权记录仍要留着（审计），只是不再对任何会话生效。
+    ("copilot_grant", "session_id"),
     ("agent_question", "audit_id"),
     ("agent_audit", "authorized_by_id"),
     ("agent_audit", "session_id"),
@@ -337,8 +357,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_20_business_tables():
-    """20 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+def test_metadata_has_exactly_26_business_tables():
+    """26 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
@@ -433,7 +453,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """19 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """31 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
@@ -455,6 +475,108 @@ def test_unique_constraints_match_spec():
                     tuple(col.name for col in constraint.columns),
                 )
     assert actual == EXPECTED_UNIQUE_CONSTRAINTS
+
+
+def test_copilot_grant_uses_partial_unique_index_for_one_active_per_session(conn):
+    """每个会话同时最多一个 active：部分唯一索引，不是普通唯一约束（规格 §9.6）。
+
+    普通唯一索引会让同一会话的历史授权只能留一条；谓词写成 ``status = 'active'``
+    之后终态历史可以堆积。
+    """
+    table = MD.tables["copilot_grant"]
+    unique = [ix for ix in table.indexes if ix.name == "uq_copilot_grant_active_session"]
+    assert len(unique) == 1 and unique[0].unique
+    assert unique[0].dialect_options["sqlite"].get("where") is not None
+    assert "WHERE" in ddl(conn, "uq_copilot_grant_active_session")
+    assert "STATUS = 'ACTIVE'" in ddl(conn, "uq_copilot_grant_active_session")
+    assert [
+        constraint.name
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    ] == []
+
+
+def test_partial_unique_index_allows_terminal_history_for_one_session(engine):
+    """语义验证：同一会话可以有多条终态授权，但同时只能有一条 active。"""
+    with Session(engine) as session:
+        session.add(models.AgentSession(id="session-1", model="gpt-test"))
+        session.add(
+            models.CopilotGrant(
+                id="grant-1",
+                session_id="session-1",
+                stage_id="main_01-07",
+                status="succeeded",
+                expires_at=utcnow(),
+            )
+        )
+        session.add(
+            models.CopilotGrant(
+                id="grant-2",
+                session_id="session-1",
+                stage_id="main_01-07",
+                status="active",
+                expires_at=utcnow(),
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            models.CopilotGrant(
+                id="grant-3",
+                session_id="session-1",
+                stage_id="main_01-07",
+                status="active",
+                expires_at=utcnow(),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    with Session(engine) as session:
+        session.add(
+            models.CopilotGrant(
+                id="grant-4",
+                session_id="session-1",
+                stage_id="main_01-07",
+                status="revoked",
+                expires_at=utcnow(),
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        rows = session.scalars(select(models.CopilotGrant)).all()
+        # 被拒绝的那条没有落库（回滚了），终态历史行照常留着。
+        assert sorted(row.id for row in rows) == ["grant-1", "grant-2", "grant-4"]
+        assert sum(1 for row in rows if row.status == "active") == 1
+
+
+def test_copilot_grant_orm_defaults(engine):
+    """状态机的默认值：active / 3 次 / 不用掉 / 三星标准 / 允许助战。"""
+    with Session(engine) as session:
+        session.add(models.AgentSession(id="session-1", model="gpt-test"))
+        session.add(
+            models.CopilotGrant(
+                id="grant-1",
+                session_id="session-1",
+                stage_id="main_01-07",
+                expires_at=utcnow(),
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        row = session.get(models.CopilotGrant, "grant-1")
+        assert row.status == "active"
+        assert row.attempts == 3
+        assert row.used == 0
+        assert row.success == "three_star"
+        assert row.support == "fill_one"
+        assert row.stage_code is None
+        assert row.finished_at is None
+        assert row.created_at.tzinfo is None
 
 
 def test_no_standalone_low_cardinality_indexes():

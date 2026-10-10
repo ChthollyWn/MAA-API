@@ -1382,6 +1382,9 @@ class PipelineRunner:
                     return "failed", error
                 core_params = {
                     "filename": str(filename),
+                    # M29/D2：`support_unit_usage`（0 不用 / 1 缺一名时补位）必须在
+                    # formation=true 时传给内核；这里重建 core_params 时不能丢。
+                    "support_unit_usage": int(core_params.get("support_unit_usage") or 0),
                     "formation": core_params.get("formation", False),
                 }
             if task.type_name == "Infrast" and _is_custom_infrast(core_params):

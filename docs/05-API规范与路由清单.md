@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 112 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 114 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
 
 ```python
 # maa_api/domain/errors.py
@@ -363,6 +363,15 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 
 两个码都是「这条记录不在库里」，与 `GAME_DATA_NOT_FOUND`（来源上没有）区分：账号数据来自本机识别与手动编辑，不查外部来源。字段级编辑约束（精英化上限、专精前置、模组类型与等级）违反时不用新码，走 §4.2 的 `INVALID_PARAMETER`，`details` 带字段名与合法取值。
 
+### 4.18 作业研究（M29）
+
+| 错误码 | HTTP | 含义与触发场景 |
+|---|---|---|
+| `COPILOT_GRANT_STAGE_MISMATCH` | 409 | 手上的作业授权只覆盖另一个关卡；`details` 带授权的关卡与本次提交的关卡 |
+| `COPILOT_GRANT_EXHAUSTED` | 409 | 授权的尝试次数已用完（含「次数没用完但有效期已过、剩余次数作废」） |
+
+两个码只对 INTERNAL（Agent 会话）调用方出现。没有授权不是错误而是确认：策略层返回 `confirmation_action="grant_copilot_attempts"`，由用户在本轮批准（可改尝试次数、成功标准与是否允许助战），批准后写 `copilot_grant` 表；REST 调用方的 Copilot 提交保持逐次评估、不受授权约束。
+
 ## 5. 鉴权设计
 
 ### 5.1 四个渠道与优先级
@@ -424,7 +433,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 110 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 114 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -660,12 +669,15 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 | GET | `/api/resources/items` | 读取当前 MaaCore `resource/item_index.json`，供 `Fight.drops` 按名称搜索 | | `200 [{item_id, name, icon_url}]` | `RESOURCE_LOAD_FAILED` |
 | GET | `/api/resources/items/icon` | 返回物品索引中登记的图标 | `item_id` | `200 image/png` | `RESOURCE_ASSET_NOT_FOUND`、`RESOURCE_LOAD_FAILED` |
 | GET | `/api/resources/copilots` | Copilot 作业元数据列表（不含作业 JSON），供流水线和 schedule 编辑器选择 `asset_id` | `page`、`size`、`q` | `200 {items:[{id,name,meta,...}],total,page,size}` | `SERVICE_UNAVAILABLE` |
+| GET | `/api/resources/copilots/{asset_id}` | 单个作业的资源 wire + `content`（作业 JSON 原文），供「作业」页查看与下载 | | 200 | `RESOURCE_ASSET_NOT_FOUND`、`RESOURCE_LOAD_FAILED` |
+| DELETE | `/api/resources/copilots/{asset_id}` | 删除作业资源，落盘的大作业文件一并清掉 | | `200 {id,removed}` | `RESOURCE_ASSET_NOT_FOUND` |
+| POST | `/api/resources/copilots/{asset_id}/retain` | 设置作业是否被保留（不被每日清理删掉），返回更新后的资源 wire | `{retain: bool}` | 200 | `RESOURCE_ASSET_NOT_FOUND`、`VALIDATION_ERROR` |
 
 `GET /api/resources/items` 返回按名称（忽略大小写）与 `item_id` 排序的完整数组；`item_id` 是索引对象的 key，`name` 来自对应记录。`icon_url` 是同源 `/api/resources/items/icon?item_id=...` URL；索引记录的 `icon` 所指 PNG 不存在、不可读或路径不在 `resource/template/items/` 内时返回 `null`。图标端点仅允许读取索引中登记且解析后仍位于该目录的 PNG。索引缺失、不可读或结构无效时返回统一 JSON 错误 `RESOURCE_LOAD_FAILED`（500）。响应缓存按索引文件元信息失效；端点仅读本地文件，不加载 MaaCore，也不访问网络。
 
 资源的写入侧没有 HTTP 端点，只在 Agent 侧以工具形式提供：`upload_copilot`（校验并保存作业 JSON）、`set_infrast_plan`、`list_custom_tasks` / `register_custom_task` / `remove_custom_task`（增量注入 `tasks.json`），经 `POST /api/agent/tools/{name}/invoke` 调用（§6.15）。内核只认磁盘上的资源文件：自定义 task 的注入必须经由 `LOAD_RESOURCE` 生效，因此这一层在 `ResourceService` 内部完成「合并启用中的增量目录 + 重载」，注册与移除由服务级锁串行化，重载失败时回滚改动并返回 `RESOURCE_LOAD_FAILED`（重载要把整条加载链从头走一遍，命令超时预算 300 秒，见 [02-系统架构设计 §3.4](./02-系统架构设计.md)）；基建方案与作业 JSON 是任务执行时读取的数据文件，写盘即生效，不触发重载。
 
-（3 条）
+（6 条）
 
 ### 6.15 agent
 
@@ -682,6 +694,7 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 | POST | `/api/agent/sessions/{id}/messages` | 发送自然语言消息，执行 tool-calling 循环并以 SSE 返回轨迹 | `{content}` | 200 `text/event-stream` | `AGENT_SESSION_BUSY`、`LLM_NOT_CONFIGURED`、`LLM_ENCRYPTION_KEY_INVALID`、`LLM_CONTEXT_OVERFLOW` |
 | POST | `/api/agent/sessions/{id}/interrupt` | 中断该会话正在执行的一轮（M22）。幂等；没有活动轮次也返回 200 | 无 body | 200 | `AGENT_SESSION_NOT_FOUND`、`AGENT_DISABLED` |
 | DELETE | `/api/agent/sessions/{id}/atomic-grant` | 撤销该会话的原子操作授权，挂起中的调用按拒绝处理 | | 204 | `AGENT_SESSION_NOT_FOUND` |
+| DELETE | `/api/agent/sessions/{id}/copilot-grant` | 撤销该会话的作业授权（M29，规格 §9.6）；幂等，没有进行中的授权也返回 204 | | 204 | `AGENT_SESSION_NOT_FOUND` |
 | GET | `/api/agent/audits` | 审计列表 | `caller`、`tool_name`、`status`、`risk_level`、`since`、`page`、`size` | 200 | `INVALID_PAGINATION` |
 | GET | `/api/agent/audits/{id}` | 单条审计详情，含完整参数与结果摘要 | | 200 | `NOT_FOUND` |
 | GET | `/api/agent/knowledge` | Agent 知识库条目列表（`items` + `total`），不含正文 | | 200 | — |
@@ -703,7 +716,7 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 
 **Agent 提问端点**（M21）同样由独立的路由文件实现并沿用 `agent` tag（`operationId` 仍是 `agent_*`）：提问是会话交互的一部分，与知识库端点同一取舍。它与确认链路完全分开，路由表在 [§6.18](#618-agent-提问)。
 
-（17 条）
+（18 条）
 
 ### 6.16 confirmations
 
@@ -711,13 +724,15 @@ LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端�
 |---|---|---|---|---|---|
 | GET | `/api/confirmations` | 确认请求列表，默认只返回 `pending` | `status`、`page`、`size` | 200 | — |
 | GET | `/api/confirmations/{id}` | 详情，含 `payload` 与命中的策略说明 | | 200 | `CONFIRMATION_NOT_FOUND` |
-| POST | `/api/confirmations/{id}` | 批准或拒绝 | `{approved: bool, reason?}` | 200 | `CONFIRMATION_NOT_FOUND`、`CONFIRMATION_ALREADY_RESOLVED`、`CONFIRMATION_EXPIRED` |
+| POST | `/api/confirmations/{id}` | 批准或拒绝 | `{approved: bool, reason?, overrides?}`（`overrides` 只有 `grant_copilot_attempts` 用得上） | 200 | `CONFIRMATION_NOT_FOUND`、`CONFIRMATION_ALREADY_RESOLVED`、`CONFIRMATION_EXPIRED`、`INVALID_PARAMETER`、`SERVICE_UNAVAILABLE` |
 
 用单个 `POST /api/confirmations/{id}` 带布尔字段，而不是 `/approve` 与 `/reject` 两个端点，原因是前端弹卡片的两个按钮共用一份请求逻辑，且拒绝必须能带 `reason`。返回 200 而非 202：批准这个动作本身是同步完成的（状态落库 + 唤醒等待方），被批准的动作是否完成则由它自己的资源去表达。
 
 **会话级原子操作授权复用这同一套确认流程**，不另起端点。授权请求是一条 `action` 为 `grant_atomic_ops` 的确认记录，`payload` 为 `{"session_id": "...", "window_seconds": 900}`；批准它的"执行"就是在 `agent_session` 上写入授权窗口。撤销走上面的 `DELETE /api/agent/sessions/{id}/atomic-grant`，不是再发一条确认。这样前端只需实现一种确认卡片，只是文案按 `action` 区分（机制见 [11-Agent模块设计 §4.3](./11-Agent模块设计.md)）。
 
 `GET /api/agent/sessions/{id}` 的响应带 `atomic_grant: {granted, expires_at, grant_id} | null`，供前端在页面刷新后恢复授权提示；WebSocket 的 `atomic_grant_changed` 事件用于刷新会话详情。
+
+**作业授权（M29）复用同一套确认流程**：请求是一条 `action` 为 `grant_copilot_attempts` 的确认记录，批准它的"执行"就是往 `copilot_grant` 写一行（主键取确认 id，重复批准只留一行）。`overrides` 是用户在卡片上改过的三项——`attempts`（1–10 的整数，不收 `"3"` 这类字符串）、`success`（`three_star` / `clear`）、`support`（`fill_one` / `none`），`extra="forbid"`：拼错的键是 422，不静默忽略；**有效期只展示、不在卡片上改**。授权写失败（缺会话或关卡）时确认已是 `approved`，重批一次补齐，见 [13 §8.44](./13-决策记录.md) 十、6。撤销走 `DELETE /api/agent/sessions/{id}/copilot-grant`；`GET /api/agent/sessions/{id}` 的响应另带 `copilot_grant: {grant_id, stage_id, stage_code, attempts_total, attempts_used, remaining_attempts, success, support, status, expires_at} | null`（与 `atomic_grant` 并列），WebSocket 的 `copilot_grant_changed` 事件用于刷新。
 
 （3 条）
 
@@ -985,7 +1000,10 @@ class InfrastInput(TaskInputBase):
 ```python
 TaskInput = Annotated[
     StartUpInput | CloseDownInput | FightInput | RecruitInput | InfrastInput
-    | MallInput | AwardInput | RoguelikeInput | ReclamationInput,
+    | MallInput | AwardInput | RoguelikeInput | ReclamationInput
+    # M27 起：OperBoxInput | DepotInput
+    # M29 起：CustomInput | CopilotInput（共 13 种：11 种内核内置 + Custom + Copilot）
+    | OperBoxInput | DepotInput | CustomInput | CopilotInput,
     Field(discriminator="name"),
 ]
 
@@ -1018,6 +1036,7 @@ class PipelineCreate(BaseModel):
 | `Award` | 全为布尔，无范围约束 |
 | `Roguelike` | `theme` 枚举 6 值 `{Phantom, Mizuki, Sami, Sarkaz, JieGarden, BlackFlow}`；`mode` 取 `{0, 1, 2, 3, 4, 5, 6, 7, 10001, 20001, 30001}`，**`2` 已弃用**，传入时 400 `TASK_PARAM_DEPRECATED`，`3` 为开发中同样拒绝，其余模式按主题收口（对齐上游 `RoguelikeConfig.h::is_valid_mode`：通用 0/1/4/6/7，`5` 仅 `Sami`、`10001` 仅 `Sarkaz`、`20001` 仅 `JieGarden`、`30001` 仅 `BlackFlow`，BlackFlow 只接受 0/1/30001）；`difficulty` 取 `≥ -1`（`-1` 表示不指定）；`start_with_elite_two` 仅 `mode=4` 有效（M28 补）；`mode=20001` 必须给 `find_playTime_target`（1–3），反向也要求它只在 `mode=20001` 下出现；`start_foldartal_list` / `first_floor_foldartal` / `use_foldartal` / `check_collapsal_paradigms` 仅 `Sami` 生效（`start_foldartal_list` 还要求 `mode=4`）；`expected_collapsal_paradigms` 要求 `Sami` 且 `mode=5`；`double_check_collapsal_paradigms` 要求 `Sami` 且 `check_collapsal_paradigms=true`（该字段未显式给时按 `mode=5` 判定）；`only_start_with_elite_two` 要求 `mode=4` 且 `start_with_elite_two=true`；`use_nonfriend_support` 要求 `use_support=true`；`refresh_trader_with_dice` 仅 `Mizuki` 生效；`collectible_mode_shopping` / `collectible_mode_squad` / `collectible_mode_start_list` 仅 `mode=4` 生效；`investment_with_more_score` 仅 `mode=1`；`monthly_squad_auto_iterate` / `monthly_squad_check_comms` 仅 `mode=6`；`deep_exploration_auto_iterate` 仅 `mode=7`；`blackflow_strategy` / `blackflow_cultivation_target` 仅 `BlackFlow`；`stop_at_final_boss` 不适用于 `Phantom` |
 | `Reclamation` | `theme` 枚举 `{Fire, Tales}`；`mode` 取 `{0, 1}`；`increment_mode` 取 `{0, 1}`；`num_craft_batches` ≥ 1 |
+| `Custom` | `task_names` 必填（1–16 个**非空**名字，内核执行第一个匹配上的任务及其 `next`，多条要 append 多个 Custom 任务）；`params` 可选对象（目前只有 MiniGame 类任务读它，不收窄结构）；`RISK_FIELDS` 为空集（不额外弹确认）。M29 新增（D7），本服务的结算识别任务（`MaaApi@CopilotResult…`）正是靠这条路运行 |
 
 主题相关的跨字段规则一律实现为 `model_validator` 并抛 `TASK_PARAM_INVALID`，而不是静默忽略。原因是"设了但不生效"是用户最常见的困惑来源：`Roguelike` 在 `mode=4` 之外设了 `collectible_mode_start_list`（M28 新增的凹开局参数）却毫无反应，没有报错的话根本无从察觉。
 

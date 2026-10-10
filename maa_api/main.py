@@ -992,6 +992,62 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.services.game.roguelike import RoguelikeService
 
         app.state.roguelike_service = RoguelikeService()
+        # 作业研究（M29）：授权、草稿与一次尝试。授权在进程启动时把上次遗留的 active 标
+        # 成 interrupted（规格 §9.6：「服务重启时仍为 active 的授权作废」）。
+        from maa_api.services.copilot.draft import CopilotDraftService
+        from maa_api.services.copilot.grant import CopilotGrantService
+        from maa_api.services.copilot.result import CopilotResultService
+
+        # 授权进终态时发 `copilot_research_finished`（规格 §9.9）：渠道走 NotifyService，
+        # 浏览器推送走 WebPushService（M14 的「只用于待确认提醒」在 M29 放宽）。
+        async def _copilot_notify(message: dict[str, Any]) -> None:
+            payload = dict(message.get("payload") or {})
+            try:
+                await notify_service.send_event(message["event"], payload)
+            except Exception:  # noqa: BLE001 - 通知通道失败不影响授权状态机
+                logger.warning("作业研究结束的渠道通知发送失败", exc_info=True)
+            try:
+                await webpush_service.broadcast(
+                    {
+                        "type": "notification",
+                        "title": payload.get("title") or "作业研究结束",
+                        "body": payload.get("message") or payload.get("body") or "",
+                        "data": {"kind": "copilot_research", "session_id": payload.get("session_id")},
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("作业研究结束的浏览器推送发送失败", exc_info=True)
+
+        grant_service = CopilotGrantService(
+            db_session.session_factory, notifier=_copilot_notify
+        )
+        app.state.copilot_grant_service = grant_service
+        app.state.copilot_result_service = CopilotResultService(
+            db_session.session_factory,
+            resource_service=getattr(app.state, "resource_service", None),
+        )
+        app.state.copilot_draft_service = CopilotDraftService(
+            db_session.session_factory,
+            box=app.state.box_service,
+            stage_level=getattr(app.state, "stage_level_service", None),
+        )
+        # 一次尝试：提交 Copilot → 结果识别 → 退出结算，阻塞等待由工具层兜（§9.7）。
+        from maa_api.services.copilot.attempt import CopilotAttemptService
+
+        app.state.copilot_attempt_service = CopilotAttemptService(
+            db_session.session_factory,
+            pipeline_service=pipeline_runner,
+            grant_service=grant_service,
+            result_service=app.state.copilot_result_service,
+            draft_service=app.state.copilot_draft_service,
+            box=app.state.box_service,
+        )
+        try:
+            interrupted = await grant_service.mark_stale_active()
+            if interrupted:
+                logger.info("作业授权：%s 条未结束的授权已标为 interrupted", interrupted)
+        except Exception:  # noqa: BLE001 - 启动清理失败不该拦启动
+            logger.warning("作业授权的启动清理失败", exc_info=True)
         app.state.knowledge_service = KnowledgeService(
             db_session.session_factory,
             activity_index=activity_index,

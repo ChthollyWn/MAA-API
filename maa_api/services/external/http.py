@@ -171,11 +171,17 @@ class ExternalClient:
         *,
         cache_level: str | None = None,
         host: str | None = None,
+        origin: str | None = None,
+        suffix: str = "",
     ) -> ExternalResult:
         """取一个端点的 JSON；带缓存、限流、重试、熔断与旧值回退。
 
         :param host: 显式指定来源主机（必须是该来源 :attr:`SourceSpec.hosts` 里的一员，
             如企鹅物流的 `penguin-stats.cn`）；缺省用登记表的第一个主机。
+        :param origin: ``https://<主机><仓库前缀>`` 形式的**镜像前缀**（拆包数据用它：
+            同一份内容有多个前缀）。主机仍要过白名单。
+        :param suffix: 接在端点路径后面的相对路径（拆包数据的 ``zh_CN/gamedata/...``）；
+            它同时进缓存键，所以同一端点的不同文件不会互相覆盖。
 
         :raises AppError: `EXTERNAL_SOURCE_DISABLED`（来源被关闭）、
             `EXTERNAL_SOURCE_RATE_LIMITED`（等不到令牌或远端 429 冷却中）、
@@ -186,8 +192,10 @@ class ExternalClient:
         source = resolve_source(kind, self._settings_provider())
         # 主机白名单在发请求之前判：来源登记表里没有的主机一律拒绝。
         validate_host(source.spec, host)
-        url = source.spec.url(endpoint, params or {}, host=host)
-        key = cache_key(kind, endpoint, params or {})
+        url = source.spec.url(
+            endpoint, params or {}, host=host, origin=origin, suffix=suffix
+        )
+        key = cache_key(kind, f"{endpoint}\x1f{suffix}" if suffix else endpoint, params or {})
         level = cache_level if cache_level in CACHE_LEVELS else source.spec.cache_level
         ttl = source.cache_level_seconds.get(level, source.cache_level_seconds["static"])
 

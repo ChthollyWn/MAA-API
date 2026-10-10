@@ -1,0 +1,23 @@
+{
+  "status_code": 200,
+  "data": {
+    "id": 22311,
+    "type": "PRTS",
+    "upload_time": "2026-10-07T20:30:11",
+    "uploader_id": "114",
+    "uploader": "Genicur",
+    "views": 833,
+    "hot_score": 13.124927429758298,
+    "available": true,
+    "rating_level": 9,
+    "not_enough_rating": false,
+    "rating_ratio": 0.9,
+    "rating_type": 0,
+    "comments_count": 2,
+    "content": "{\"version\":3,\"stage_name\":\"main_01-07\",\"difficulty\":1,\"minimum_required\":\"v4.0.0\",\"doc\":{\"title\":\"1-7 稀音 单人 61s 速刷 信赖 无专\",\"details\":\"Genicur#5434（常年挂满练稀音\\n练了稀音的点个赞吧 稀音厨真的很少见呜呜呜\\n面板没什么要求，全程堵门，只要三下能点死虫子就行，稀音和小车的攻击力都要大于350（精一五六十级？）技能等级无所谓，最后开一下加快收尾。\"},\"opers\":[{\"name\":\"稀音\",\"skill\":2,\"skill_usage\":0,\"requirements\":{\"elite\":1,\"level\":45,\"skill_level\":7}}],\"groups\":[],\"actions\":[{\"type\":\"SpeedUp\"},{\"name\":\"稀音\",\"type\":\"Deploy\",\"location\":[8,2],\"direction\":\"Right\"},{\"name\":\"移动摄影器\",\"type\":\"Deploy\",\"location\":[8,5],\"direction\":\"Right\"},{\"name\":\"移动摄影器\",\"type\":\"Deploy\",\"location\":[8,3],\"direction\":\"Right\"},{\"name\":\"移动摄影器\",\"type\":\"Deploy\",\"location\":[8,1],\"direction\":\"Right\"},{\"name\":\"移动摄影器\",\"type\":\"Deploy\",\"location\":[7,3],\"direction\":\"Right\"},{\"kills\":32,\"name\":\"稀音\",\"type\":\"Skill\",\"location\":[8,2],\"pre_delay\":1500},{\"type\":\"SkillDaemon\"}]}",
+    "like": 34,
+    "dislike": 2,
+    "comment_status": "ENABLED",
+    "status": "PUBLIC"
+  }
+}

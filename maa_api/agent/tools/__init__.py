@@ -16,6 +16,8 @@ def build_registry() -> ToolRegistry:
     # parameter/context helpers without creating a package initialization cycle.
     from maa_api.agent.tools.account import register_tools as register_account_tools
     from maa_api.agent.tools.activity import register_tools as register_activity_tools
+    from maa_api.agent.tools.copilot_attempt import register_tools as register_copilot_attempt_tools
+    from maa_api.agent.tools.copilot_site import register_tools as register_copilot_site_tools
     from maa_api.agent.tools.device import register_tools as register_device_tools
     from maa_api.agent.tools.estate import register_tools as register_estate_tools
     from maa_api.agent.tools.game import register_tools as register_game_tools
@@ -28,15 +30,19 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.resource import register_tools as register_resource_tools
     from maa_api.agent.tools.roguelike import register_tools as register_roguelike_tools
     from maa_api.agent.tools.schedule import register_tools as register_schedule_tools
+    from maa_api.agent.tools.stage_level import register_tools as register_stage_level_tools
     from maa_api.agent.tools.status import register_tools as register_status_tools
 
     registry = ToolRegistry()
     for register in (
         register_status_tools,
+        register_stage_level_tools,
         register_activity_tools,
         register_game_tools,
         register_account_tools,
         register_estate_tools,
+        register_copilot_site_tools,
+        register_copilot_attempt_tools,
         register_roguelike_tools,
         register_media_tools,
         register_pipeline_tools,

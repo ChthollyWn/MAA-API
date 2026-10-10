@@ -66,6 +66,41 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "sources.cache_live_seconds": dict(label="当期数据缓存时长（秒）", group="外部数据源", type="integer", minimum=60, maximum=3600, hot_action="none"),
     "sources.cache_static_seconds": dict(label="稳定数据缓存时长（秒）", group="外部数据源", type="integer", minimum=600, maximum=86400, hot_action="none"),
     "sources.cache_max_mb": dict(label="缓存内存上限（MB）", group="外部数据源", type="integer", minimum=8, maximum=512, hot_action="none"),
+    "sources.cache_level_seconds": dict(
+        label="拆包数据缓存时长（秒）",
+        group="外部数据源",
+        type="integer",
+        minimum=3600,
+        maximum=604800,
+        hot_action="none",
+    ),
+    "sources.gamedata_enabled": dict(
+        label="启用拆包数据",
+        group="外部数据源",
+        type="boolean",
+        hot_action="none",
+    ),
+    "sources.gamedata_rate_per_minute": dict(
+        label="拆包数据每分钟请求上限",
+        group="外部数据源",
+        type="integer",
+        minimum=1,
+        maximum=60,
+        hot_action="none",
+    ),
+    "sources.gamedata_mirrors": dict(
+        label="拆包数据镜像",
+        group="外部数据源",
+        type="string_list",
+        description="按顺序尝试；都失败且开启 GitHub 回退时再走 API",
+        hot_action="none",
+    ),
+    "sources.gamedata_github_api_fallback": dict(
+        label="拆包数据 GitHub 回退",
+        group="外部数据源",
+        type="boolean",
+        hot_action="none",
+    ),
     "sources.prts_enabled": dict(label="启用 PRTS", group="外部数据源", type="boolean", hot_action="none"),
     "sources.prts_rate_per_minute": dict(label="PRTS 每分钟请求上限", group="外部数据源", type="integer", minimum=1, maximum=120, hot_action="none"),
     # M26 的企鹅物流（掉率）。主机两个内容一致，失败时自动改试另一个。
@@ -84,6 +119,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     # M27 账号数据的过期阈值：概要接口与注入段现读设置，改完立即生效。
     "agent.box_stale_days": dict(label="干员识别过期天数", group="Agent", type="integer", minimum=1, maximum=365, hot_action="none"),
     "agent.depot_stale_days": dict(label="仓库识别过期天数", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
+    # M29 作业研究：每天 04:00 的清理任务与授权卡片现读这三项，改完立即生效。
+    "agent.copilot_retention_days": dict(label="作业草稿保留天数", group="Agent", type="integer", minimum=1, maximum=365, hot_action="none"),
+    "agent.copilot_grant_minutes": dict(label="作业授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=1440, hot_action="none"),
+    "agent.copilot_attempt_timeout_minutes": dict(label="单次作业尝试超时（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
     # 下面两项只从 config.yaml 提供，不出现在设置 API 的响应里（见 CONFIG_ONLY_SETTING_KEYS）。
     # 这里保留元数据是为了让这张表覆盖全部 key，加 key 时不会漏掉归属与说明。
     "notify.vapid_private_key": dict(label="Web Push VAPID 私钥", group="通知", type="string", sensitive=True, hot_action="restart_required"),

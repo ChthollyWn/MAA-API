@@ -1174,3 +1174,77 @@ class UpgradePlan(SQLModel, table=True):
         # 计划列表：status=? ORDER BY created_at
         Index("ix_upgrade_plan_status_created_at", "status", "created_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 5.23 copilot_grant — 作业授权（规格 §9.6、附录 E）
+# ---------------------------------------------------------------------------
+class CopilotGrant(SQLModel, table=True):
+    """一次作业授权：会话 + 关卡 + 次数 + 有效期（规格 §9.6、附录 E）。
+
+    ``id`` 就是那条 ``grant_copilot_attempts`` 确认的 id（附录 E 的「id（= 确认 id）」），
+    所以同一次批准重复落库是幂等的。状态机七态：
+
+    - ``active``：还能开始下一次尝试（**同时最多一个**，见下面的部分唯一索引）；
+    - ``succeeded``：某次尝试达到授权的成功标准（``success``）；
+    - ``exhausted``：次数用完且没成功；
+    - ``stopped``：用户中断本轮，或理智不足（规格 §9.7 的 ``sanity_insufficient``）；
+    - ``expired``：有效期到了但次数没用完，剩余次数作废；
+    - ``revoked``：用户点「撤销」或前端删除授权；
+    - ``interrupted``：服务重启时仍是 ``active`` 的授权（规格 §9.6 末）。
+
+    ``attempts`` / ``used`` 是附录 E 的 ``attempts_total`` / ``attempts_used`` 的简称
+    （用户口径，见 M29 工作流 C 的报告）：``attempts`` 是批准的总次数（1–10），
+    ``used`` 是**已开始**的尝试数。计数规则见规格 §9.7 的表：``sanity_insufficient`` /
+    ``not_started`` / ``error`` / ``interrupted`` 不计次，由
+    :class:`~maa_api.services.copilot.grant.CopilotGrantService` 退还（``used`` 减一）。
+
+    有效期只在**开始下一次尝试**时检查：已经在跑的尝试跑完不因超时中断。
+    """
+
+    __tablename__ = "copilot_grant"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    session_id: str | None = Field(
+        default=None,
+        foreign_key="agent_session.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    #: 关卡标识（`main_01-07` 这类 stageId，或作业 meta 里的 stage_id）。
+    stage_id: str = Field(max_length=64)
+    #: 关卡代号（`1-7` 这类 code）；作业只给得出其中一个时另一个为空。
+    stage_code: str | None = Field(default=None, max_length=24)
+    status: str = Field(default="active", max_length=16)
+    #: 批准的总尝试次数（1–10）。
+    attempts: int = Field(default=3)
+    #: 已开始的尝试次数（不计次的尝试会被退还）。
+    used: int = Field(default=0)
+    #: 成功标准：`three_star`（默认）或 `clear`（两星/三星/结算出现都算过）。
+    success: str = Field(default="three_star", max_length=16)
+    #: 是否允许助战补位：`fill_one` / `none`。
+    support: str = Field(default="fill_one", max_length=16)
+    expires_at: datetime = Field(sa_column=datetime_column("expires_at"))
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+    finished_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("finished_at", nullable=True)
+    )
+
+    __table_args__ = (
+        # 一个会话同时最多一条 active（规格 §9.6）：部分唯一索引，终态历史行不受限。
+        Index(
+            "uq_copilot_grant_active_session",
+            "session_id",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+        ),
+        # 过期清扫与「当前有效授权」：status=? AND expires_at <= ?
+        Index("ix_copilot_grant_status_expires_at", "status", "expires_at"),
+        # 会话历史：session_id=? ORDER BY created_at
+        Index("ix_copilot_grant_session_id_created_at", "session_id", "created_at"),
+    )

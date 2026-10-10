@@ -348,6 +348,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/sessions/{session_id}/copilot-grant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 撤销 Agent 会话的作业授权
+         * @description 把该会话生效中的作业授权标 `revoked`（规格 §9.6），前端授权条的「撤销」入口。
+         *
+         *     幂等：没有生效中的授权同样返回 204。
+         */
+        delete: operations["agent_revoke_copilot_grant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/sessions/{session_id}/interrupt": {
         parameters: {
             query?: never;
@@ -450,7 +472,13 @@ export interface paths {
         /** 读取人工确认详情与执行结果 */
         get: operations["confirmations_get_confirmation"];
         put?: never;
-        /** 批准或拒绝人工确认 */
+        /**
+         * 批准或拒绝人工确认
+         * @description 批准或拒绝一条确认。
+         *
+         *     ``overrides`` 只有 ``grant_copilot_attempts`` 用得上（规格 §9.6）：用户在作业授权
+         *     卡片上改的尝试次数 / 成功标准 / 是否允许助战，批准时写进授权记录。
+         */
         post: operations["confirmations_resolve_confirmation"];
         delete?: never;
         options?: never;
@@ -1033,6 +1061,54 @@ export interface paths {
         get: operations["resources_list_copilot_assets"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/resources/copilots/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取单个 Copilot 作业（含作业 JSON）
+         * @description 返回该作业的资源 wire 与 `content`（作业 JSON 原文），供「作业」页查看与下载。
+         *
+         *     - 小作业的 `content` 在库里，大作业从 `agent-assets/copilot/` 下的文件读
+         *     - 不存在、不是 Copilot 作业返回 `RESOURCE_ASSET_NOT_FOUND`
+         *     - 文件缺失或损坏返回 `RESOURCE_LOAD_FAILED`
+         */
+        get: operations["resources_get_copilot_asset"];
+        put?: never;
+        post?: never;
+        /**
+         * 删除一个 Copilot 作业
+         * @description 删除作业资源记录；大作业落盘的文件一并清掉。不存在、不是 Copilot 作业返回 `RESOURCE_ASSET_NOT_FOUND`。
+         */
+        delete: operations["resources_delete_copilot_asset"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/resources/copilots/{asset_id}/retain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 设置 Copilot 作业是否保留
+         * @description 写入 `meta.retain`（规格 §9.11）：被保留的作业不会被每日清理删掉，可以再取消。返回更新后的资源 wire（不含 `content`）。
+         */
+        post: operations["resources_retain_copilot_asset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1884,10 +1960,23 @@ export interface components {
         /**
          * CopilotInput
          * @description 执行已校验并上传的 Copilot 作业。
+         *
+         *     ``asset_id`` 是本服务的作业资源 id；内核要的 ``filename`` 由
+         *     :class:`~maa_api.services.pipeline_runner.PipelineRunner` 在执行前解析（作业 JSON 的
+         *     协议校验在 :mod:`maa_api.services.copilot.rules`，D2 修复后的口径）。
+         *
+         *     ``support_unit_usage`` 是 M29 的自动重试用到的参数（规格 §9.1 第 3 条）：0 不用助战，
+         *     1 缺一名干员时借助战补位。取值域照上游放宽到 0–3，本里程碑只写 0 / 1。
          * @example {
          *       "asset_id": "asset-1",
          *       "formation": false,
          *       "name": "Copilot"
+         *     }
+         * @example {
+         *       "asset_id": "asset-1",
+         *       "formation": true,
+         *       "name": "Copilot",
+         *       "support_unit_usage": 1
          *     }
          */
         CopilotInput: {
@@ -1907,6 +1996,12 @@ export interface components {
              * @enum {string}
              */
             name: "Copilot";
+            /**
+             * Support Unit Usage
+             * @description 0 不用助战；1 缺一名时借助战补位（仅在重新编队时有效）
+             * @default 0
+             */
+            support_unit_usage: number;
         };
         /**
          * CoreHealth
@@ -1947,6 +2042,64 @@ export interface components {
             force_interrupt: boolean;
             /** Version */
             version?: string | null;
+        };
+        /**
+         * CustomInput
+         * @description 自定义任务（D7、规格 §9.1 第 3 条）：跑 ``tasks.json`` 里已定义的任务链。
+         *
+         *     形状照上游 v6.18.0 的 ``CustomTask::set_params``（``src/MaaCore/Task/Interface/
+         *     CustomTask.cpp`` 与集成文档「任务参数 · ``Custom``」）：
+         *
+         *     - ``task_names``（必填，array<string>）：执行数组中**第一个匹配上**的任务及其
+         *       ``next`` 等；想跑多条就 append 多个 Custom 任务；
+         *     - ``params``（可选，object）：任务附加参数，目前只有像素画/MiniGame 这类任务读它
+         *       （``params.pixel_paint`` 等），因此不在这里收窄结构；
+         *     - ``enable``（可选，默认 true）：继承自 :class:`TaskInputBase`。
+         *
+         *     ``task_names`` 里的名字必须在内核的任务表里存在，否则 ``AsstAppendTask`` 返回 0、
+         *     内核侧直接 ``set_params failed``（``CustomTask::set_params`` 对每个名字做
+         *     ``Task.get``）；本服务的内置识别任务（``MaaApi@CopilotResult@…``，见
+         *     :mod:`maa_api.services.copilot.result`）就是靠这条路径运行。
+         * @example {
+         *       "name": "Custom",
+         *       "task_names": [
+         *         "MaaApi@CopilotResult@Start"
+         *       ]
+         *     }
+         * @example {
+         *       "name": "Custom",
+         *       "params": {
+         *         "key": "value"
+         *       },
+         *       "task_names": [
+         *         "Custom_MyTask"
+         *       ]
+         *     }
+         */
+        CustomInput: {
+            /**
+             * Enable
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
+             * @default true
+             */
+            enable: boolean | null;
+            /**
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            name: "Custom";
+            /**
+             * Params
+             * @description 任务附加参数（可选），目前只有 MiniGame 类任务会读
+             */
+            params?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Task Names
+             * @description 内核 tasks.json 里的任务名列表，执行第一个匹配上的
+             */
+            task_names: string[];
         };
         /**
          * DepotInput
@@ -2514,7 +2667,7 @@ export interface components {
          * NotifyEvent
          * @enum {string}
          */
-        NotifyEvent: "pipeline_completed" | "pipeline_failed" | "core_crashed" | "device_disconnected" | "update_available" | "update_finished" | "confirmation_required" | "upgrade_plan_finished";
+        NotifyEvent: "pipeline_completed" | "pipeline_failed" | "core_crashed" | "device_disconnected" | "update_available" | "update_finished" | "confirmation_required" | "upgrade_plan_finished" | "copilot_research_finished";
         /** NotifyTestRequest */
         NotifyTestRequest: {
             /** @default pipeline_completed */
@@ -2638,6 +2791,23 @@ export interface components {
             source: "manual" | "agent";
         };
         /**
+         * OverridesRequest
+         * @description ``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。
+         *
+         *     尝试次数、成功标准与是否允许助战都能在卡片上改；有效期只展示，**不在**这里。
+         *     键名与取值域与 ``services/copilot/grant.py`` 的常量一一对应（1–10 /
+         *     ``three_star`` / ``clear`` / ``fill_one`` / ``none``）。``extra="forbid"``：
+         *     拼错的键是 422，不静默忽略 —— 用户以为改了次数而实际没改是最坏的结果。
+         */
+        OverridesRequest: {
+            /** Attempts */
+            attempts?: number | null;
+            /** Success */
+            success?: ("three_star" | "clear") | null;
+            /** Support */
+            support?: ("fill_one" | "none") | null;
+        };
+        /**
          * PipelineCreate
          * @description 流水线提交请求体（docs/05 §7.4）。``source`` 不在请求体里，由服务端按入口判定。
          * @example {
@@ -2705,7 +2875,7 @@ export interface components {
             /** Priority */
             priority?: number | null;
             /** Tasks */
-            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CopilotInput"])[];
+            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CustomInput"] | components["schemas"]["CopilotInput"])[];
             /** Title */
             title?: string | null;
         };
@@ -2965,6 +3135,7 @@ export interface components {
         ResolveRequest: {
             /** Approved */
             approved: boolean;
+            overrides?: components["schemas"]["OverridesRequest"] | null;
             /** Reason */
             reason?: string | null;
         };
@@ -2991,6 +3162,14 @@ export interface components {
              * @enum {string}
              */
             reload_mode: "wait" | "force" | "defer";
+        };
+        /**
+         * RetainRequest
+         * @description 「保留」开关（规格 §9.11）：被保留的作业不会被每日清理删掉。
+         */
+        RetainRequest: {
+            /** Retain */
+            retain: boolean;
         };
         /** RetryRequest */
         RetryRequest: {
@@ -3435,7 +3614,7 @@ export interface components {
              */
             skip_if_running: boolean;
             /** Template */
-            template: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CopilotInput"])[];
+            template: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CustomInput"] | components["schemas"]["CopilotInput"])[];
             /**
              * Timezone
              * @default Asia/Shanghai
@@ -3666,7 +3845,7 @@ export interface components {
          */
         TaskValidateRequest: {
             /** Tasks */
-            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CopilotInput"])[];
+            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CustomInput"] | components["schemas"]["CopilotInput"])[];
         };
         /** ValidationError */
         ValidationError: {
@@ -5146,6 +5325,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
         };
     };
     agent_delete_session: {
@@ -5274,6 +5473,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_revoke_copilot_grant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };
@@ -5963,6 +6247,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };
@@ -8754,6 +9058,291 @@ export interface operations {
                      *         "code": "UNAUTHORIZED",
                      *         "details": {},
                      *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    resources_get_copilot_asset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：RESOURCE_ASSET_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RESOURCE_ASSET_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务端内部错误：RESOURCE_LOAD_FAILED */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RESOURCE_LOAD_FAILED",
+                     *         "details": {},
+                     *         "message": "服务端内部错误"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    resources_delete_copilot_asset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：RESOURCE_ASSET_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RESOURCE_ASSET_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    resources_retain_copilot_asset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetainRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：RESOURCE_ASSET_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RESOURCE_ASSET_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
                      *       }
                      *     }
                      */

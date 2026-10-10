@@ -109,6 +109,11 @@ class PolicyEngine:
         if name in ACCOUNT_WRITE_TOOLS:
             return await self._evaluate_account_write(name, arguments, context)
 
+        if name == "run_copilot_attempt" or (
+            name == "submit_pipeline" and _submits_a_copilot(_as_json_value(arguments))
+        ):
+            return await self._evaluate_copilot_attempt(name, arguments, context)
+
         if name in {
             "submit_pipeline",
             "set_task_params",
@@ -144,6 +149,68 @@ class PolicyEngine:
             RiskLevel.DESTRUCTIVE,
             reasons=(f"{name} 尚未配置参数风险规则",),
             confirmation_action=name,
+        )
+
+    async def _evaluate_copilot_attempt(
+        self, name: str, value: Any, context: ToolContext
+    ) -> PolicyDecision:
+        """作业授权（规格 §9.6）：INTERNAL 调用方必须先有该会话、该关卡的有效授权。
+
+        没有授权不是「报错」而是「弹授权卡片」：`confirmation_action` 用
+        `grant_copilot_attempts`，尝试次数与成功标准从工具参数预填。REST 调用方保持
+        现状（逐次评估、无消耗字段即放行）。
+        """
+        if context.caller is not CallerType.INTERNAL:
+            return PolicyDecision(False, RiskLevel.NONE)
+        value = _as_json_value(value)
+        grant = await _active_copilot_grant(context)
+        if grant is None:
+            attempts = value.get("grant_attempts") if isinstance(value, Mapping) else None
+            success = value.get("success") if isinstance(value, Mapping) else None
+            support = value.get("support") if isinstance(value, Mapping) else None
+            attempts = int(attempts) if isinstance(attempts, int) and not isinstance(attempts, bool) else 3
+            success = str(success or "three_star")
+            stage_id, stage_code = await _copilot_stage(
+                value.get("copilot_id") if isinstance(value, Mapping) else None, context
+            )
+            payload: dict[str, Any] = {
+                "attempts": max(1, min(attempts, 10)),
+                "success": success if success in {"three_star", "clear"} else "three_star",
+                "support": str(support) if support in {"fill_one", "none"} else "fill_one",
+                "tool_name": name,
+                "target_kind": "copilot",
+                # 确认接口批准时要写进授权行，所以关卡与会话必须在 payload 里（§9.6）。
+                "session_id": context.session_id,
+                "stage_id": stage_id,
+                "stage_code": stage_code,
+            }
+            return PolicyDecision(
+                True,
+                RiskLevel.CONSUME,
+                reasons=(f"执行作业尝试需要授权：{payload['attempts']} 次以内",),
+                confirmation_action="grant_copilot_attempts",
+                extra_payload=payload,
+            )
+        stage_id = value.get("stage_id") if isinstance(value, Mapping) else None
+        if stage_id and str(stage_id) != str(grant.get("stage_id")):
+            raise AppError(
+                ErrorCode.COPILOT_GRANT_STAGE_MISMATCH,
+                f"授权只覆盖关卡 {grant.get('stage_code') or grant.get('stage_id')}，"
+                f"不能用于 {stage_id}",
+                {"grant_stage_id": grant.get("stage_id"), "stage_id": stage_id},
+            )
+        remaining = int(grant.get("attempts") or 0) - int(grant.get("used") or 0)
+        if remaining <= 0:
+            raise AppError(
+                ErrorCode.COPILOT_GRANT_EXHAUSTED,
+                "本次作业授权的尝试次数已用完，需要重新申请",
+                {"grant_id": grant.get("id")},
+            )
+        return PolicyDecision(
+            False,
+            RiskLevel.NONE,
+            authorized_by=str(grant.get("id")),
+            window_seconds=_seconds_until(grant.get("expires_at")),
         )
 
     async def _evaluate_account_write(
@@ -426,6 +493,88 @@ def _as_json_value(value: Any, *, exclude_unset: bool = True) -> Any:
             mode="python", by_alias=True, exclude_unset=exclude_unset
         )
     return value
+
+
+def _submits_a_copilot(value: Any) -> bool:
+    """提交内容里有没有 Copilot 任务（规格 §9.6 的第二种入口）。"""
+    if not isinstance(value, Mapping):
+        return False
+    tasks = value.get("tasks")
+    if not isinstance(tasks, list):
+        return False
+    for task in tasks:
+        if isinstance(task, Mapping) and str(task.get("name") or "") == "Copilot":
+            return True
+    return False
+
+
+async def _copilot_stage(
+    copilot_id: Any, context: ToolContext
+) -> tuple[str | None, str | None]:
+    """从作业资源读关卡（`run_copilot_attempt` 的参数里没有关卡）。
+
+    读不到（没有会话、资源不存在、meta 里没写）时返回两个 `None`：确认卡片照弹，
+    批准时由确认服务按「关卡缺失」处理，不会写一条空授权。
+    """
+    if not isinstance(copilot_id, str) or not copilot_id or context.db_session is None:
+        return None, None
+    try:
+        from sqlmodel import select
+
+        from maa_api.db.models import ResourceAsset
+
+        session = context.db_session
+        row = (
+            await session.execute(
+                select(ResourceAsset).where(ResourceAsset.id == copilot_id)
+            )
+        ).scalars().first()
+        meta = (getattr(row, "meta", None) or {}) if row is not None else {}
+        stage_id = meta.get("stage_id")
+        stage_code = meta.get("stage_code") or stage_id
+        return (
+            str(stage_id) if stage_id else None,
+            str(stage_code) if stage_code else None,
+        )
+    except Exception:  # noqa: BLE001 - 关卡只是确认卡片的附加信息
+        return None, None
+
+
+async def _active_copilot_grant(context: ToolContext) -> dict[str, Any] | None:
+    """读当前会话的有效作业授权；读不到就当作「没有授权」（fail closed 到弹卡片）。"""
+    if context.db_session is None:
+        return None
+    try:
+        from maa_api.services.copilot.grant import CopilotGrantService
+
+        session = context.db_session
+
+        def factory():  # pragma: no cover - 复用调用方已有的会话
+            class _Existing:
+                async def __aenter__(self_inner):
+                    return session
+
+                async def __aexit__(self_inner, *exc):
+                    return False
+
+            return _Existing()
+
+        return await CopilotGrantService(factory).get_active(context.session_id)
+    except Exception:  # noqa: BLE001 - 授权服务不可用时按「没有授权」处理
+        return None
+
+
+def _seconds_until(value: Any) -> int | None:
+    """授权剩余秒数（给确认卡片与审计用）。"""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return max(int((moment - datetime.now(UTC)).total_seconds()), 0)
 
 
 async def _consumption_reasons(

@@ -41,6 +41,7 @@ from maa_api.domain.task import (
     ChannelDefaults,
     CloseDownInput,
     CopilotInput,
+    CustomInput,
     DepotInput,
     FightInput,
     InfrastInput,
@@ -73,6 +74,7 @@ MODEL_TYPES: tuple[type[BaseModel], ...] = (
     ReclamationInput,
     OperBoxInput,
     DepotInput,
+    CustomInput,
     CopilotInput,
 )
 TYPE_NAMES: tuple[str, ...] = tuple(TASK_LABELS)
@@ -199,7 +201,7 @@ def _case_id(value: Any) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_task_input_union_has_eleven_core_and_one_resource_task_in_order() -> None:
+def test_task_input_union_has_eleven_core_and_two_resource_tasks_in_order() -> None:
     models = get_args(get_args(TaskInput)[0])
     assert [model.model_fields["name"].default for model in models] == list(TYPE_NAMES)
     assert set(TASK_MODELS) == set(TYPE_NAMES)
@@ -212,6 +214,8 @@ def test_task_labels_are_exactly_the_core_task_names() -> None:
     assert TASK_LABELS == expected | {
         "OperBox": "干员识别",
         "Depot": "仓库识别",
+        # M29 的自定义任务（D7）：内核 ``CustomTask`` 的中文名。
+        "Custom": "自定义任务",
         "Copilot": "Copilot 作业",
     }
     assert TASK_LABELS["Fight"] == "刷理智"
@@ -462,6 +466,9 @@ def test_extra_field_error_is_inherited_by_every_model() -> None:
         payload = {"name": type_name, "definitely_not_a_param": 1}
         if type_name == "Copilot":
             payload["asset_id"] = "asset-1"
+        if type_name == "Custom":
+            # Custom 的唯一必填项：不给它的话第一个错误是 missing，不是 extra_forbidden。
+            payload["task_names"] = ["MaaApi@CopilotResult@Start"]
         with pytest.raises(ValidationError) as excinfo:
             model.model_validate(payload)
         assert excinfo.value.errors()[0]["type"] == "extra_forbidden"

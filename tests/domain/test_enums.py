@@ -141,6 +141,8 @@ EXPECTED_VALUES = {
         "CONFIRMATION_REQUIRED": "confirmation_required",
         # M27：养成计划的材料备齐、定时任务已停（S15）。
         "UPGRADE_PLAN_FINISHED": "upgrade_plan_finished",
+        # M29：作业研究的授权进入终态（规格 §9.9），渠道与浏览器推送各发一次。
+        "COPILOT_RESEARCH_FINISHED": "copilot_research_finished",
     },
     "AgentRole": {
         "SYSTEM": "system",

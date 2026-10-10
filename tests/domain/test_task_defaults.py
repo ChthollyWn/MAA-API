@@ -144,8 +144,12 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     "Depot": {
         "enable": True,
     },
+    "Custom": {
+        "enable": True,
+    },
     "Copilot": {
         "formation": False,
+        "support_unit_usage": 0,
     },
 }
 
