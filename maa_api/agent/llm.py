@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
@@ -12,6 +14,22 @@ from maa_api.agent.redaction import redact_remote_data
 from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = ["OpenAICompatibleClient"]
+
+logger = logging.getLogger(__name__)
+
+#: 上游抖动时最多尝试几次（含首次）。重试只在**这一次尝试还没吐出任何 chunk** 时
+#: 进行：已经流出去的文字不能重放，否则用户会看到重复内容。
+DEFAULT_MAX_ATTEMPTS = 3
+#: 超时单独限一个更小的次数。每次超时都要烧满 ``timeout_seconds``（默认 120 秒），
+#: 三次就是六分钟的等待——用户分不清「还在跑」和「已经死了」。
+TIMEOUT_MAX_ATTEMPTS = 2
+#: 两次尝试之间的基础退避（秒），按 2 的幂递增：0.5 秒、1 秒。
+DEFAULT_RETRY_BACKOFF_SECONDS = 0.5
+#: 429 的 ``Retry-After`` 最多采纳到这里。上游要我们等更久时，与其把一轮对话挂在
+#: 睡眠上，不如把错误交给用户，让他决定什么时候重发。
+MAX_RETRY_AFTER_SECONDS = 10.0
+#: 上游状态码从这一档起算「上游自己在说暂时不行」，值得原样重试。
+RETRYABLE_UPSTREAM_STATUS_FLOOR = 500
 
 _KNOWN_UPSTREAM_ERROR_CODES = frozenset(
     {
@@ -130,6 +148,21 @@ def _describe_transport_error(exc: httpx.HTTPError) -> str:
     return described[:MAX_UPSTREAM_MESSAGE_CHARS]
 
 
+def _parse_retry_after(raw: str | None) -> float | None:
+    """解析 429 的 ``Retry-After``；只认「秒数」形式，HTTP 日期形式返回 ``None``。
+
+    日期形式要求与服务端时钟对齐，而这里的用途只是「这一轮睡多久」，秒数足够；
+    认不出来就退回指数退避，不做额外猜测。
+    """
+    if not raw:
+        return None
+    try:
+        seconds = float(raw.strip())
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, seconds)
+
+
 class OpenAICompatibleClient:
     """Yield raw OpenAI SSE chunk dictionaries without executing tool calls."""
 
@@ -140,10 +173,15 @@ class OpenAICompatibleClient:
         api_key: str,
         http_client: httpx.AsyncClient | None = None,
         timeout_seconds: float = 120.0,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+        #: 至少一次：调用方写 0 或负数时，语义只能是「不重试」，不能变成一次都不发。
+        self.max_attempts = max(1, int(max_attempts))
+        self.retry_backoff_seconds = max(0.0, float(retry_backoff_seconds))
         self._http_client = (
             http_client
             if http_client is not None
@@ -168,16 +206,86 @@ class OpenAICompatibleClient:
     async def __aexit__(self, *_: object) -> None:
         await self.aclose()
 
+    @staticmethod
+    def _is_retryable(exc: AppError) -> bool:
+        """这次失败重发一遍有没有意义。
+
+        可重试：连接层失败（DNS/TLS/拒连/流中断，``details`` 里没有上游状态码）、
+        上游 5xx、429、读超时，以及「流没读完」这类传输中断。不可重试的是那些
+        重发一次结果完全一样的：401/403、模型名写错的 400、上下文超长、参数非法。
+        """
+        if exc.code in (ErrorCode.LLM_TIMEOUT, ErrorCode.LLM_RATE_LIMITED):
+            return True
+        if exc.code != ErrorCode.LLM_REQUEST_FAILED:
+            return False
+        status = (exc.details or {}).get("upstream_status")
+        if isinstance(status, int):
+            return status >= RETRYABLE_UPSTREAM_STATUS_FLOOR
+        # 没有上游响应 = 请求根本没到上游，或者流中途断了。
+        return True
+
+    def _attempts_for(self, exc: AppError) -> int:
+        if exc.code == ErrorCode.LLM_TIMEOUT:
+            return min(self.max_attempts, TIMEOUT_MAX_ATTEMPTS)
+        return self.max_attempts
+
+    def _retry_delay(self, exc: AppError, attempt: int) -> float:
+        """下一次尝试前等多久：429 优先听 ``Retry-After``，其余走指数退避。"""
+        if exc.code == ErrorCode.LLM_RATE_LIMITED:
+            seconds = _parse_retry_after((exc.headers or {}).get("Retry-After"))
+            if seconds is not None:
+                return min(seconds, MAX_RETRY_AFTER_SECONDS)
+        return self.retry_backoff_seconds * (2 ** (attempt - 1))
+
     async def stream_chat_completion(
         self,
         model: str,
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
     ) -> AsyncIterator[dict[str, Any]]:
-        """Yield each parsed OpenAI SSE chunk in wire order, including usage chunks."""
+        """Yield each parsed OpenAI SSE chunk in wire order, including usage chunks.
+
+        上游抖动（连接层失败、5xx、429、超时）会自动重试：这类失败此前直接变成
+        「LLM 上游请求失败」，一轮对话就此作废，用户只能自己重发。重试的边界是
+        **还没有吐出任何 chunk**：一旦有内容流过，重放会让用户看到重复文本，
+        所以那时原样抛出，交给上层收尾。
+        """
         if not self.base_url or not self.api_key:
             raise AppError(ErrorCode.LLM_NOT_CONFIGURED, "LLM 配置不完整")
 
+        attempt = 0
+        while True:
+            attempt += 1
+            emitted = False
+            try:
+                async for chunk in self._stream_chat_completion_once(model, messages, tools):
+                    emitted = True
+                    yield chunk
+                return
+            except AppError as exc:
+                allowed = self._attempts_for(exc)
+                if emitted or not self._is_retryable(exc) or attempt >= allowed:
+                    raise
+                delay = self._retry_delay(exc, attempt)
+                logger.warning(
+                    "LLM 上游请求失败，%.1f 秒后重试（第 %d/%d 次尝试）：code=%s message=%s details=%s",
+                    delay,
+                    attempt + 1,
+                    allowed,
+                    exc.code,
+                    exc.message,
+                    redact_remote_data(exc.details) if exc.details else None,
+                )
+                if delay > 0:
+                    await asyncio.sleep(delay)
+
+    async def _stream_chat_completion_once(
+        self,
+        model: str,
+        messages: Sequence[dict[str, Any]],
+        tools: Sequence[dict[str, Any]],
+    ) -> AsyncIterator[dict[str, Any]]:
+        """发送一次请求并逐块产出；重试策略不在这里，见 :meth:`stream_chat_completion`。"""
         body = {
             "model": model,
             "messages": messages,

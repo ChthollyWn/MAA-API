@@ -135,6 +135,30 @@ INTERRUPTED_TOOL_STUB = {
         "message": "本轮已被中断，该调用未完成",
     }
 }
+#: 能力探查**失败**（请求被上游拒绝、超时、连接层失败）时结果的最长存活时间。
+#: 探查成功的结果不设过期：模型能力不会因为一次抖动而改变，改 ``config.yaml`` 仍然
+#: 要重启服务才会重新探查（docs/13 §8.13）。失败态必须过期，否则一次瞬时抖动会把
+#: 进程钉死在「当前模型未通过 function calling 能力检查」上——之后每一轮都在几秒内
+#: 失败，界面上看起来就是「Agent 又用不了了」，而唯一的解法是重启服务。
+CAPABILITY_FAILURE_TTL_SECONDS = 60.0
+#: 普通对话轮次失败后补写的助手消息的 ``finish_reason``（落库列宽 24，无枚举约束）。
+TURN_FAILED_FINISH_REASON = "turn_error"
+#: 这些错误码意味着「用户消息已经落库，但这一轮没能给出回答」：会话里会留下一个没有
+#: 回复的尾巴，刷新后看不出发生过什么。补一条说明让会话自洽（规格 §8.2）。
+TURN_FAILURE_NOTICE_CODES = frozenset(
+    {
+        ErrorCode.LLM_REQUEST_FAILED,
+        ErrorCode.LLM_TIMEOUT,
+        ErrorCode.LLM_RATE_LIMITED,
+        ErrorCode.LLM_CONTEXT_OVERFLOW,
+    }
+)
+#: 失败说明的结尾。上下文超长要单独说：让用户「直接重发」是错的，那一轮重发还是超。
+TURN_FAILURE_NOTICE_TAIL = "这条消息已保留，可以直接重发。"
+TURN_FAILURE_NOTICE_OVERFLOW_TAIL = "这条消息已保留；请开启新会话或删减内容后再试。"
+#: 非 AppError 的意外异常对外只说这一句，细节只进日志：SSE 与落库的消息都会给用户看，
+#: 不该把内部异常文本暴露出去。
+TURN_FAILURE_GENERIC_MESSAGE = "Agent 对话处理失败"
 SCREEN_TOOL_NAMES = frozenset(
     {
         "get_screenshot",
@@ -455,6 +479,8 @@ class AgentRuntime:
         #: 打断成半截。
         self._interrupt_settling: set[str] = set()
         self._capability_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        #: 失败态能力结果的过期时刻（``time.monotonic()``）。成功态不登记，永不过期。
+        self._capability_expiry: dict[tuple[str, str], float] = {}
 
     async def acquire_session(self, session_id: str) -> bool:
         """Claim a single in-process turn slot for one persisted session."""
@@ -682,6 +708,39 @@ class AgentRuntime:
     def _forget_queue_waiter(self, task: asyncio.Task[Any]) -> None:
         self._queue_waiters.discard(task)
 
+    def _cached_capabilities(self, key: tuple[str, str]) -> dict[str, Any] | None:
+        """读能力缓存；探查本身失败的结果过了保鲜期就作废，下一轮重新探。
+
+        成功的探查（模型确实支持 / 确实不支持工具调用）永不过期：模型能力不会因为
+        一次网络抖动而改变，改 ``config.yaml`` 仍需重启服务（docs/13 §8.13）。
+        """
+        result = self._capability_cache.get(key)
+        if result is None:
+            return None
+        deadline = self._capability_expiry.get(key)
+        if deadline is not None and time.monotonic() >= deadline:
+            self._capability_cache.pop(key, None)
+            self._capability_expiry.pop(key, None)
+            return None
+        return result
+
+    def _remember_capabilities(
+        self, key: tuple[str, str], result: dict[str, Any], *, probe_failed: bool
+    ) -> None:
+        """写入能力缓存。
+
+        ``probe_failed`` 的语义是「这一次探查请求没跑通」（超时、连接层失败、上游
+        4xx/5xx），而不是「模型明确不支持」。只有后者能长期缓存：把前者也钉死，
+        一次抖动就会让之后每一轮都失败在能力检查上。
+        """
+        self._capability_cache[key] = result
+        if probe_failed:
+            self._capability_expiry[key] = (
+                time.monotonic() + CAPABILITY_FAILURE_TTL_SECONDS
+            )
+        else:
+            self._capability_expiry.pop(key, None)
+
     async def check_capabilities(self, request: Any) -> dict[str, Any]:
         """Probe function calling and image input without executing a tool."""
         model = get_settings().llm.model
@@ -711,7 +770,11 @@ class AgentRuntime:
                 "status": "llm_not_configured",
                 "degraded_reason": "请先配置 LLM base_url、api_key 和 model",
             }
-            self._capability_cache[(model, settings.llm.base_url)] = result
+            # LLM 配置在设置页可以随时补上（落库），所以「还没配」同样按失败态过期，
+            # 不能等到重启才自愈。
+            self._remember_capabilities(
+                (model, settings.llm.base_url), result, probe_failed=True
+            )
             return result
 
         return await self._probe_capabilities(settings, model=model, base_url=settings.llm.base_url)
@@ -731,6 +794,7 @@ class AgentRuntime:
         tool_calling = False
         vision = False
         tool_error: AppError | None = None
+        vision_error: AppError | None = None
         client, owned = self._make_client(probe_settings)
         try:
             probe_tool = {
@@ -780,7 +844,8 @@ class AgentRuntime:
                     )
                 # 只看「有没有文本」会把「我看不到图片」也算成支持视觉，必须核对内容。
                 vision = _VISION_PROBE_MARKER in "".join(vision_text).casefold()
-            except AppError:
+            except AppError as exc:
+                vision_error = exc
                 vision = False
         finally:
             if owned:
@@ -805,7 +870,20 @@ class AgentRuntime:
             "status": status,
             "degraded_reason": degraded_reason,
         }
-        self._capability_cache[key] = result
+        if tool_error is not None or vision_error is not None:
+            # 探查失败会让「工具调用：不可用」这类结论失真，日志里必须留下真实原因。
+            # 这条路径此前一个字都不记（docs/13 §8.30 记的是同一类问题：能力自检失败
+            # 却查不到原因）。失败态只缓存一小会儿，见 ``_remember_capabilities``。
+            logger.warning(
+                "Agent 能力探查失败：model=%s base_url=%s tool=%s vision=%s",
+                model,
+                base_url,
+                _error_brief(tool_error),
+                _error_brief(vision_error),
+            )
+        self._remember_capabilities(
+            key, result, probe_failed=tool_error is not None or vision_error is not None
+        )
         return result
 
     async def _produce_turn(
@@ -820,6 +898,10 @@ class AgentRuntime:
             # session_title 就能立刻回填，不用为标题再轮询一次。
             await self._generate_session_title(session_id, request, emit)
         except AppError as exc:
+            # 这一行是这类故障唯一的服务端留痕：轮次失败此前只推一条 SSE error 事件，
+            # 事件随页面一起消失，第二天再问「Agent 怎么又不好使了」就无从查起。
+            logger.warning("Agent 轮次失败：session=%s %s", session_id, _error_brief(exc))
+            await self._record_turn_failure(session_id, exc.code, exc.message)
             await emit(
                 "error",
                 {
@@ -834,13 +916,55 @@ class AgentRuntime:
             # SSE 消费端的取消与它无关。
             raise
         except Exception as exc:  # noqa: BLE001 - keep an SSE stream from leaking details
-            logger.error("Agent turn failed: %s", type(exc).__name__)
-            await emit("error", {"code": str(ErrorCode.LLM_REQUEST_FAILED), "message": "Agent 对话处理失败"})
+            logger.exception(
+                "Agent turn failed: session=%s error=%s", session_id, type(exc).__name__
+            )
+            await self._record_turn_failure(
+                session_id, ErrorCode.LLM_REQUEST_FAILED, TURN_FAILURE_GENERIC_MESSAGE
+            )
+            await emit(
+                "error",
+                {
+                    "code": str(ErrorCode.LLM_REQUEST_FAILED),
+                    "message": TURN_FAILURE_GENERIC_MESSAGE,
+                },
+            )
         finally:
             self.release_session(session_id)
             # 中断标记随这一轮一起结束：留着会让下一个同会话轮次把自己也当成被中断。
             self._clear_interrupt(session_id)
             await queue.put(_SSE_END)
+
+    async def _record_turn_failure(
+        self, session_id: str, code: ErrorCode | str, message: str | None
+    ) -> None:
+        """给「用户消息已落库、这一轮没答上」的会话补一条说明。
+
+        没有它，这一轮在界面上就等于没发生过：刷新之后只剩用户那句孤零零的话，
+        看起来像 Agent 把消息吃掉了。只在用户消息已经是最后一条时补——失败发生在
+        落库之前（未配置 LLM、会话不存在）本来就没有尾巴，不该凭空多一条助手消息。
+        写不进去也不能顶掉真正的错误，所以这里吞掉自己的异常。
+        """
+        if code not in TURN_FAILURE_NOTICE_CODES:
+            return
+        try:
+            async with self.session_factory() as session:
+                history = await AgentMessageRepository(session).list_by_session(session_id)
+            if not history or str(history[-1].role) != "user":
+                return
+            tail = (
+                TURN_FAILURE_NOTICE_OVERFLOW_TAIL
+                if str(code) == ErrorCode.LLM_CONTEXT_OVERFLOW.value
+                else TURN_FAILURE_NOTICE_TAIL
+            )
+            await self._persist_message(
+                session_id,
+                role="assistant",
+                content=f"本轮没有完成（{code}）：{message or '原因未知'}。{tail}",
+                finish_reason=TURN_FAILED_FINISH_REASON,
+            )
+        except Exception:  # noqa: BLE001 - 说明只是收尾，不能盖过真正的失败
+            logger.warning("Agent 轮次失败说明写入失败：session=%s", session_id, exc_info=True)
 
     async def _run_turn(
         self,
@@ -916,7 +1040,7 @@ class AgentRuntime:
                     "自动诊断会话没有可继续的用户消息",
                 )
         capability_key = (model, base_url)
-        capabilities = self._capability_cache.get(capability_key)
+        capabilities = self._cached_capabilities(capability_key)
         if capabilities is None:
             capability_settings = settings.model_copy(
                 update={
@@ -1693,6 +1817,9 @@ class AgentRuntime:
                 ),
                 # 自定义 client_factory（测试替身）不认这个参数，只透给真实客户端。
                 timeout_seconds=TITLE_TIMEOUT_SECONDS if self.client_factory is None else None,
+                # 标题只是导航装饰，不重试：退避重试会把 20 秒的预算乘三，用户为了
+                # 一个标题多等一轮收流不值得。
+                max_attempts=1 if self.client_factory is None else None,
             )
             try:
                 title = await self._read_title(client, model, seed[:TITLE_SEED_MAX_CHARS])
@@ -1756,14 +1883,25 @@ class AgentRuntime:
             )
         return settings
 
-    def _make_client(self, settings: Settings, *, timeout_seconds: float | None = None) -> tuple[Any, bool]:
+    def _make_client(
+        self,
+        settings: Settings,
+        *,
+        timeout_seconds: float | None = None,
+        max_attempts: int | None = None,
+    ) -> tuple[Any, bool]:
         if self.client_factory is not None:
             return self.client_factory(settings), False
+        kwargs: dict[str, Any] = {}
+        if timeout_seconds is not None:
+            kwargs["timeout_seconds"] = timeout_seconds
+        if max_attempts is not None:
+            kwargs["max_attempts"] = max_attempts
         return (
             OpenAICompatibleClient(
                 base_url=settings.llm.base_url,
                 api_key=settings.llm.api_key,
-                **({"timeout_seconds": timeout_seconds} if timeout_seconds is not None else {}),
+                **kwargs,
             ),
             True,
         )
@@ -2203,6 +2341,20 @@ def _request_id(request: Any) -> str | None:
         return current_request_id.get()
     except Exception:  # noqa: BLE001 - request tracing is optional
         return None
+
+
+#: 一条失败日志的长度上限。``details`` 里可能有上游原文，日志不该被一段正文撑满。
+ERROR_BRIEF_MAX_CHARS = 1000
+
+
+def _error_brief(error: AppError | None) -> str:
+    """把一次失败压成一行日志文本；``details`` 先脱敏（它可能带回上游原文）。"""
+    if error is None:
+        return "-"
+    brief = f"{error.code}: {error.message or ''}".rstrip()
+    if error.details:
+        brief = f"{brief} details={redact_remote_data(error.details)}"
+    return brief[:ERROR_BRIEF_MAX_CHARS]
 
 
 def _capability_status(code: ErrorCode | str) -> str:

@@ -3945,3 +3945,217 @@ def test_media_tool_result_reaches_sse_and_the_stored_message():
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_turn_failure_is_logged_and_leaves_a_notice_in_the_session(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """轮次失败要留下两样东西：日志里的一行，和会话里的一条说明。
+
+    2026-10-09 的实况是两样都没有：用户消息已经落库，回复与错误原因都没留下，用户
+    第二天只能问「Agent 怎么又不好使了」，而服务端一个字都查不到——`AppError` 分支
+    当时只把错误推给 SSE，事件随页面一起消失。
+    """
+
+    async def scenario():
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [AppError(ErrorCode.LLM_TIMEOUT, "LLM 上游请求超时")]
+        )
+        try:
+            with caplog.at_level(logging.WARNING, logger="maa_api.agent.runtime"):
+                assert await runtime.acquire_session(session_id) is True
+                chunks = [
+                    chunk async for chunk in runtime.stream_message(session_id, "你好", None)
+                ]
+            events = _events(_event_stream(chunks))
+            assert events[-1][0] == "error"
+            assert events[-1][1]["code"] == "LLM_TIMEOUT"
+            assert "Agent 轮次失败" in caplog.text
+            assert "LLM_TIMEOUT" in caplog.text
+
+            async with factory() as session:
+                history = await AgentMessageRepository(session).list_by_session(session_id)
+            assert [message.role for message in history] == ["user", "assistant"]
+            notice = history[-1]
+            assert notice.finish_reason == "turn_error"
+            assert "LLM 上游请求超时" in (notice.content or "")
+            assert "这条消息已保留" in (notice.content or "")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_context_overflow_notice_points_at_a_new_session_instead_of_a_resend() -> None:
+    """上下文装不下时「可以直接重发」是错的：同一轮重发一次还是装不下。"""
+
+    async def scenario():
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [
+                AppError(
+                    ErrorCode.LLM_CONTEXT_OVERFLOW,
+                    "会话历史或知识库内容超出模型上下文长度，请开启新会话或缩短内容",
+                )
+            ]
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            chunks = [chunk async for chunk in runtime.stream_message(session_id, "接着聊", None)]
+            assert _events(_event_stream(chunks))[-1][0] == "error"
+
+            async with factory() as session:
+                history = await AgentMessageRepository(session).list_by_session(session_id)
+            notice = history[-1].content or ""
+            assert "开启新会话" in notice
+            assert "可以直接重发" not in notice
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_turn_failure_notice_only_covers_llm_failures_with_a_dangling_user_message() -> None:
+    """说明只补在「用户消息是最后一条」的 LLM 失败上，别的组合一概不补。"""
+
+    async def scenario():
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime([])
+        try:
+            async def stored_roles() -> list[str]:
+                async with factory() as session:
+                    history = await AgentMessageRepository(session).list_by_session(session_id)
+                return [str(message.role) for message in history]
+
+            # 会话还是空的：失败发生在用户消息落库之前，没有尾巴可补。
+            await runtime._record_turn_failure(session_id, ErrorCode.LLM_TIMEOUT, "超时")
+            # 非 LLM 类错误（未配置、会话忙）本来就没有半截对话。
+            await runtime._record_turn_failure(
+                session_id, ErrorCode.LLM_NOT_CONFIGURED, "请先配置 LLM"
+            )
+            assert await stored_roles() == []
+
+            await runtime._persist_message(session_id, role="user", content="你好")
+            await runtime._persist_message(session_id, role="assistant", content="在")
+            # 上一轮已经答完了：再失败也不该在这条尾巴后面追加说明。
+            await runtime._record_turn_failure(session_id, ErrorCode.LLM_TIMEOUT, "超时")
+            assert await stored_roles() == ["user", "assistant"]
+
+            await runtime._persist_message(session_id, role="user", content="再问一句")
+            await runtime._record_turn_failure(session_id, ErrorCode.LLM_TIMEOUT, "超时")
+            assert await stored_roles() == ["user", "assistant", "user", "assistant"]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_transient_probe_failure_does_not_disable_the_agent_until_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """一次瞬时抖动不能让整个进程永久「能力不足」。
+
+    旧实现无条件缓存探查结果：探测失败一次，之后每一轮都在几秒内报「当前模型未通过
+    function calling 能力检查」，只有重启服务才恢复——用户看到的就是「Agent 又用不了
+    了，重启一下就好了」。失败态现在按 ``CAPABILITY_FAILURE_TTL_SECONDS`` 过期。
+    """
+    monkeypatch.setattr("maa_api.agent.runtime.CAPABILITY_FAILURE_TTL_SECONDS", 0.0)
+
+    async def scenario():
+        probe = _tool_response(
+            {
+                "index": 0,
+                "id": "probe-1",
+                "type": "function",
+                "function": {"name": "capability_probe", "arguments": "{}"},
+            }
+        )
+        runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(
+            [
+                # 第一次探查：工具探针请求就失败了（瞬时故障），随后照旧跑一次视觉探针
+                AppError(ErrorCode.LLM_TIMEOUT, "LLM 上游请求超时"),
+                _text_response("image accepted"),
+                # 第二次探查：探针与视觉探针都成功
+                probe,
+                _text_response("blue"),
+                # 缓存自愈之后的一轮对话
+                _text_response("可以了"),
+            ],
+            prime_capabilities=False,
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            first = [chunk async for chunk in runtime.stream_message(session_id, "在吗", None)]
+            first_events = _events(_event_stream(first))
+            assert first_events[-1][0] == "error"
+            assert first_events[-1][1]["code"] == "LLM_REQUEST_FAILED"
+            assert llm.turns == [], "能力探查失败时不该把消息发给模型"
+
+            assert await runtime.acquire_session(session_id) is True
+            second = [chunk async for chunk in runtime.stream_message(session_id, "再问一次", None)]
+            second_events = [event for event, _data in _turn_events(second)]
+            assert "error" not in second_events
+            assert second_events == ["message_start", "text_delta", "message_end"]
+            assert [request[2][0]["function"]["name"] for request in llm.requests[:1]] == [
+                "capability_probe"
+            ]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_capability_probe_failure_is_logged_with_its_real_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """探查失败必须记下真实原因：否则「工具调用不可用」永远查不出是谁的问题。"""
+
+    async def scenario():
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime(
+            [
+                AppError(
+                    ErrorCode.LLM_REQUEST_FAILED,
+                    "LLM 上游请求失败",
+                    {"upstream_status": 400, "upstream_code": "invalid_request_error"},
+                ),
+                _text_response("image accepted"),
+            ],
+            prime_capabilities=False,
+        )
+        try:
+            with caplog.at_level(logging.WARNING, logger="maa_api.agent.runtime"):
+                result = await runtime.check_capabilities(None)
+            assert result["tool_calling"] is False
+            assert "Agent 能力探查失败" in caplog.text
+            assert "invalid_request_error" in caplog.text
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_successful_capability_probe_stays_cached_without_a_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """成功态不过期：模型能力不会因为一次抖动而改变（改配置仍需重启，§8.13）。"""
+    monkeypatch.setattr("maa_api.agent.runtime.CAPABILITY_FAILURE_TTL_SECONDS", 0.0)
+
+    async def scenario():
+        runtime, _factory, _confirmations, _llm, _session_id, engine = await _runtime([])
+        key = ("test-model", "https://llm.test/v1")
+        result = {
+            "model": "test-model",
+            "tool_calling": True,
+            "vision": True,
+            "ready": True,
+            "status": "ready",
+            "degraded_reason": None,
+        }
+        try:
+            runtime._remember_capabilities(key, result, probe_failed=False)
+            assert runtime._cached_capabilities(key) == result
+
+            runtime._remember_capabilities(key, dict(result, ready=False), probe_failed=True)
+            assert runtime._cached_capabilities(key) is None
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())

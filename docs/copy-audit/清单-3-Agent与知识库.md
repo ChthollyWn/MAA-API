@@ -1,6 +1,6 @@
 # Agent 与知识库
 
-共 1117 条。
+共 1120 条。
 
 ## knowledge（936）
 
@@ -1037,7 +1037,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:23` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:24` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（181）
+## agent（184）
 
 
 **maa_api/agent/confirmation.py**
@@ -1095,17 +1095,17 @@
 
 **maa_api/agent/llm.py**
 
-- `maa_api/agent/llm.py:51` [literal] 上下文长度
-- `maa_api/agent/llm.py:52` [literal] 上下文窗口
-- `maa_api/agent/llm.py:53` [literal] 超出上下文
-- `maa_api/agent/llm.py:73` [literal] TLS 证书校验失败
-- `maa_api/agent/llm.py:83` [literal] 域名解析失败
-- `maa_api/agent/llm.py:85` [literal] 连接被拒绝
-- `maa_api/agent/llm.py:95` [literal] 与上游的连接中断
-- `maa_api/agent/llm.py:97` [literal] 代理连接失败
-- `maa_api/agent/llm.py:98` [literal] 连接超时
-- `maa_api/agent/llm.py:123` [const] {label}（{raw}）
-- `maa_api/agent/llm.py:127` [const] {type(exc).__name__}：{raw}
+- `maa_api/agent/llm.py:69` [literal] 上下文长度
+- `maa_api/agent/llm.py:70` [literal] 上下文窗口
+- `maa_api/agent/llm.py:71` [literal] 超出上下文
+- `maa_api/agent/llm.py:91` [literal] TLS 证书校验失败
+- `maa_api/agent/llm.py:101` [literal] 域名解析失败
+- `maa_api/agent/llm.py:103` [literal] 连接被拒绝
+- `maa_api/agent/llm.py:113` [literal] 与上游的连接中断
+- `maa_api/agent/llm.py:115` [literal] 代理连接失败
+- `maa_api/agent/llm.py:116` [literal] 连接超时
+- `maa_api/agent/llm.py:141` [const] {label}（{raw}）
+- `maa_api/agent/llm.py:145` [const] {type(exc).__name__}：{raw}
 
 **maa_api/agent/media.py**
 
@@ -1140,45 +1140,48 @@
 - `maa_api/agent/runtime.py:104` [const] 知识库暂不可用
 - `maa_api/agent/runtime.py:126` [const] 本轮已被你中断。
 - `maa_api/agent/runtime.py:135` [literal] 本轮已被中断，该调用未完成
-- `maa_api/agent/runtime.py:153` [literal] 当前模型不支持视觉输入；圈选截图已禁用
-- `maa_api/agent/runtime.py:155` [const] 当前模型不支持视觉输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:170` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 1424 字）
-- `maa_api/agent/runtime.py:281` [const] [历史截图已省略
-- `maa_api/agent/runtime.py:283` [literal] ，时间 {captured_at}
-- `maa_api/agent/runtime.py:311` [literal] [截图图像当前不可用，请重新获取截图后再判断画面]
-- `maa_api/agent/runtime.py:319` [literal] 未知时间
-- `maa_api/agent/runtime.py:369` [literal] 暂不可用
-- `maa_api/agent/runtime.py:569` [literal] 会话没有持有活动轮次锁
-- `maa_api/agent/runtime.py:637` [const] 自动诊断暂不可用（{exc.code}）：{exc.message}。故障记录已保存，修好 LLM 配置或模型能力后可以继续在本会话里问。
-- `maa_api/agent/runtime.py:646` [literal] 自动诊断已被你中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
-- `maa_api/agent/runtime.py:649` [literal] 自动诊断在服务关闭时中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
-- `maa_api/agent/runtime.py:657` [const] 自动诊断暂不可用（LLM_REQUEST_FAILED）。故障记录已保存，检查 LLM 配置和服务日志后可以继续在本会话里问。
-- `maa_api/agent/runtime.py:692` [literal] 数据库中的 LLM API Key 无法解密；请配置有效的 YAML/env API Key
-- `maa_api/agent/runtime.py:694` [literal] 当前 LLM 配置不可用，无法检查模型能力
-- `maa_api/agent/runtime.py:712` [literal] 请先配置 LLM base_url、api_key 和 model
-- `maa_api/agent/runtime.py:799` [const] 当前模型不支持图片输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:838` [literal] Agent 对话处理失败
-- `maa_api/agent/runtime.py:935` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
-- `maa_api/agent/runtime.py:1008` [literal] LLM 返回了无效的工具调用。
-- `maa_api/agent/runtime.py:1098` [literal] 确认没有通过
-- `maa_api/agent/runtime.py:1114` [const] 确认被拒绝或过期了，我不会重试。要换个方案吗？
-- `maa_api/agent/runtime.py:1332` [literal] 内置 Agent 不提供该工具，请用 get_screenshot
-- `maa_api/agent/runtime.py:1342` [literal] 此自动诊断会话不允许调用该工具
-- `maa_api/agent/runtime.py:1460` [literal] 确认请求已被拒绝
-- `maa_api/agent/runtime.py:1502` [literal] 前一项操作未获确认，本项未执行。
-- `maa_api/agent/runtime.py:1532` [literal] 提问服务尚未启动
-- `maa_api/agent/runtime.py:1722` [literal] {TITLE_PROMPT} 用户的问题： {seed}
-- `maa_api/agent/runtime.py:2078` [literal] 「
-- `maa_api/agent/runtime.py:2078` [literal] 」
-- `maa_api/agent/runtime.py:2078` [literal] 《
-- `maa_api/agent/runtime.py:2078` [literal] 》
-- `maa_api/agent/runtime.py:2082` [literal] 会话标题
-- `maa_api/agent/runtime.py:2082` [literal] 标题
-- `maa_api/agent/runtime.py:2083` [literal] ：
-- `maa_api/agent/runtime.py:2226` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
-- `maa_api/agent/runtime.py:2227` [const] 当前模型无法进行 Agent 对话
-- `maa_api/agent/runtime.py:2233` [literal] ，
-- `maa_api/agent/runtime.py:2261` [literal] {prefix}：{'；'.join(parts)}
+- `maa_api/agent/runtime.py:157` [const] 这条消息已保留，可以直接重发。
+- `maa_api/agent/runtime.py:158` [const] 这条消息已保留；请开启新会话或删减内容后再试。
+- `maa_api/agent/runtime.py:161` [const] Agent 对话处理失败
+- `maa_api/agent/runtime.py:177` [literal] 当前模型不支持视觉输入；圈选截图已禁用
+- `maa_api/agent/runtime.py:179` [const] 当前模型不支持视觉输入；截图和原子屏幕操作已禁用
+- `maa_api/agent/runtime.py:194` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 1424 字）
+- `maa_api/agent/runtime.py:305` [const] [历史截图已省略
+- `maa_api/agent/runtime.py:307` [literal] ，时间 {captured_at}
+- `maa_api/agent/runtime.py:335` [literal] [截图图像当前不可用，请重新获取截图后再判断画面]
+- `maa_api/agent/runtime.py:343` [literal] 未知时间
+- `maa_api/agent/runtime.py:393` [literal] 暂不可用
+- `maa_api/agent/runtime.py:595` [literal] 会话没有持有活动轮次锁
+- `maa_api/agent/runtime.py:663` [const] 自动诊断暂不可用（{exc.code}）：{exc.message}。故障记录已保存，修好 LLM 配置或模型能力后可以继续在本会话里问。
+- `maa_api/agent/runtime.py:672` [literal] 自动诊断已被你中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
+- `maa_api/agent/runtime.py:675` [literal] 自动诊断在服务关闭时中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
+- `maa_api/agent/runtime.py:683` [const] 自动诊断暂不可用（LLM_REQUEST_FAILED）。故障记录已保存，检查 LLM 配置和服务日志后可以继续在本会话里问。
+- `maa_api/agent/runtime.py:751` [literal] 数据库中的 LLM API Key 无法解密；请配置有效的 YAML/env API Key
+- `maa_api/agent/runtime.py:753` [literal] 当前 LLM 配置不可用，无法检查模型能力
+- `maa_api/agent/runtime.py:771` [literal] 请先配置 LLM base_url、api_key 和 model
+- `maa_api/agent/runtime.py:864` [const] 当前模型不支持图片输入；截图和原子屏幕操作已禁用
+- `maa_api/agent/runtime.py:963` [literal] 本轮没有完成（{code}）：{message or '原因未知'}。{tail}
+- `maa_api/agent/runtime.py:1059` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
+- `maa_api/agent/runtime.py:1132` [literal] LLM 返回了无效的工具调用。
+- `maa_api/agent/runtime.py:1222` [literal] 确认没有通过
+- `maa_api/agent/runtime.py:1238` [const] 确认被拒绝或过期了，我不会重试。要换个方案吗？
+- `maa_api/agent/runtime.py:1456` [literal] 内置 Agent 不提供该工具，请用 get_screenshot
+- `maa_api/agent/runtime.py:1466` [literal] 此自动诊断会话不允许调用该工具
+- `maa_api/agent/runtime.py:1584` [literal] 确认请求已被拒绝
+- `maa_api/agent/runtime.py:1626` [literal] 前一项操作未获确认，本项未执行。
+- `maa_api/agent/runtime.py:1656` [literal] 提问服务尚未启动
+- `maa_api/agent/runtime.py:1849` [literal] {TITLE_PROMPT} 用户的问题： {seed}
+- `maa_api/agent/runtime.py:2216` [literal] 「
+- `maa_api/agent/runtime.py:2216` [literal] 」
+- `maa_api/agent/runtime.py:2216` [literal] 《
+- `maa_api/agent/runtime.py:2216` [literal] 》
+- `maa_api/agent/runtime.py:2220` [literal] 会话标题
+- `maa_api/agent/runtime.py:2220` [literal] 标题
+- `maa_api/agent/runtime.py:2221` [literal] ：
+- `maa_api/agent/runtime.py:2378` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
+- `maa_api/agent/runtime.py:2379` [const] 当前模型无法进行 Agent 对话
+- `maa_api/agent/runtime.py:2385` [literal] ，
+- `maa_api/agent/runtime.py:2413` [literal] {prefix}：{'；'.join(parts)}
 
 **maa_api/agent/tools/__init__.py**
 
