@@ -411,6 +411,24 @@ class AccountDepotItemRepository(BaseRepository):
         )
         return int(await self.session.scalar(statement) or 0)
 
+    async def categories(self) -> list[str]:
+        """整份快照里出现过的分类，按名字排序（页面分类下拉，不受筛选影响）。
+
+        ``NULL`` 与空白的分类不返回：它们进不了页面的分类分组，也不该出现在下拉里。
+        """
+        statement = (
+            select(AccountDepotItem.category)
+            .where(AccountDepotItem.category.is_not(None))
+            .distinct()
+            .order_by(AccountDepotItem.category.asc())
+        )
+        result = await self.session.execute(statement)
+        return [
+            text
+            for value in result.scalars().all()
+            if (text := str(value or "").strip())
+        ]
+
 
 def _depot_conditions(*, category: str | None, query: str | None) -> list[Any]:
     conditions: list[Any] = []

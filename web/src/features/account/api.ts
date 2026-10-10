@@ -1,13 +1,15 @@
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
+import type { components } from '@/types/api'
 
 /**
  * 「账号数据」页的请求层（规格 §7.5、§7.7、附录 C 的 `/api/account/*`）。
  *
- * 前六个端点还没进生成类型 `web/src/types/api.d.ts`（主 agent 会跑 `pnpm gen:api`），
- * 形状按规格冻结，先在本地声明；养成计划那三个端点已经在生成类型里，但为了这个文件
- * 只有一层口径，也一并写进下面的 `AccountEndpoints`。请求仍走 `api` 客户端，鉴权
- * （`X-Token`）与请求号由它的中间件照旧加。转写层删掉后，函数签名保持不变。
+ * `/operators` 与 `/depot` 两个列表端点在路由上带 `response_model`（M34），形状由生成类型
+ * `web/src/types/api.d.ts` 定死：读错键过不了 `pnpm typecheck`，所以它们**不在**下面的
+ * `AccountEndpoints` 覆盖层里。其余端点（概要、单条与编辑、差异、养成计划）还没接响应
+ * 模型，OpenAPI 里是自由对象，形状按规格在本地声明——往覆盖层里加回上面那两个端点，
+ * 等于把这道护栏撤掉。请求仍走 `api` 客户端，鉴权（`X-Token`）与请求号由它的中间件照旧加。
  */
 
 /** 字段来源：识别 / 手动 / Agent（§7.3、§7.4）。 */
@@ -51,8 +53,12 @@ export interface OperatorRow {
   profession?: string | null
 }
 
+/** 生成类型里的干员行：`GET /api/account/operators` 的响应元素（路由的 `response_model`）。 */
+export type OperatorRowWire = components['schemas']['AccountOperatorRow']
+
 export interface OperatorListPayload {
-  operators: OperatorRow[]
+  /** 路由 `response_model` 定的容器键（docs/05 §6.20）：列表统一叫 `items`。 */
+  items: OperatorRow[]
   total: number
   limit: number
   offset: number
@@ -148,12 +154,18 @@ interface Result<T> {
   response: Response
 }
 
+/**
+ * 手写覆盖层：这几个端点还没接 `response_model`，生成的 OpenAPI 里响应是自由对象，
+ * 形状只能在这里声明。
+ *
+ * `/operators` 与 `/depot` **故意不在这里**——它们在路由上有响应模型（M34），形状由
+ * `web/src/types/api.d.ts` 定死，读错键会被 `pnpm typecheck` 抓住。往这里加回它们
+ * 等于把那道护栏撤掉（M34 的空列表就是这么漏出去的）。
+ */
 interface AccountEndpoints {
   GET: {
     (path: '/api/account/summary', init?: { signal?: AbortSignal }): Promise<Result<AccountSummaryRaw>>
-    (path: '/api/account/operators', init?: { params?: { query?: OperatorListQuery }; signal?: AbortSignal }): Promise<Result<OperatorListPayload>>
     (path: '/api/account/operator-diffs', init?: { signal?: AbortSignal }): Promise<Result<{ items: OperatorDiff[]; total?: number }>>
-    (path: '/api/account/depot', init?: { params?: { query?: DepotListQuery }; signal?: AbortSignal }): Promise<Result<DepotListPayload>>
     (path: '/api/account/upgrade-plans', init?: { params?: { query?: UpgradePlanListQuery }; signal?: AbortSignal }): Promise<Result<UpgradePlanListPayload>>
     (path: '/api/account/upgrade-plans/{plan_id}', init: { params: { path: { plan_id: string } }; signal?: AbortSignal }): Promise<Result<UpgradePlan>>
   }
@@ -168,7 +180,8 @@ interface AccountEndpoints {
   }
 }
 
-const accountApi = api as unknown as AccountEndpoints
+/** 覆盖层在前、生成类型在后：没覆盖的路径走 `typeof api` 的签名（`/operators`、`/depot`）。 */
+const accountApi = api as unknown as AccountEndpoints & typeof api
 
 /** 与 `keys.all`（`['api']`）同根，方便整片失效；`web/src/api/keys.ts` 由主 agent 统一维护。 */
 const accountRoot = ['api', 'account'] as const
@@ -241,13 +254,37 @@ export async function fetchAccountSummary(signal?: AbortSignal): Promise<Account
   return normalizeSummary(data)
 }
 
+/**
+ * 干员行兜底：映射不到的干员在库里 `name` / `rarity` / `profession` 可以是空，
+ * 页面对这三项按空值渲染；三个字典列缺项时补空表，别让 `undefined` 漏进展示层。
+ */
+export function normalizeOperatorRow(row: OperatorRowWire): OperatorRow {
+  return {
+    ...row,
+    name: row.name ?? '',
+    rarity: row.rarity ?? 0,
+    profession: row.profession ?? null,
+    masteries: row.masteries ?? {},
+    modules: row.modules ?? {},
+    field_sources: (row.field_sources ?? {}) as Record<string, FieldSource>,
+    recognized_at: row.recognized_at ?? null,
+    updated_at: row.updated_at ?? null,
+  }
+}
+
 export async function fetchOperators(query: OperatorListQuery, signal?: AbortSignal): Promise<OperatorListPayload> {
   const { data, error, response } = await accountApi.GET('/api/account/operators', {
     params: { query },
     signal,
   })
   if (error || !data) throw toApiError(error, response)
-  return { operators: data.operators ?? [], total: data.total ?? 0, limit: data.limit ?? query.limit, offset: data.offset ?? query.offset }
+  // 容器键由路由的 `response_model` 定死（docs/05 §6.20）：写错键过不了 `pnpm typecheck`。
+  return {
+    items: (data.items ?? []).map(normalizeOperatorRow),
+    total: data.total ?? 0,
+    limit: data.limit ?? query.limit,
+    offset: data.offset ?? query.offset,
+  }
 }
 
 export async function patchOperator(charId: string, body: OperatorPatch): Promise<OperatorRow> {
@@ -274,10 +311,25 @@ export async function dismissOperatorDiffs(ids?: number[]): Promise<number> {
   return data?.dismissed ?? 0
 }
 
+/** 仓库行兜底：映射不到的物品名为空，页面按 `item_id` 展示（服务层也这么兜）。 */
+function normalizeDepotItem(row: components['schemas']['AccountDepotRow']): DepotItem {
+  return {
+    item_id: row.item_id,
+    name: row.name ?? row.item_id,
+    count: row.count,
+    category: row.category ?? null,
+  }
+}
+
 export async function fetchDepot(query: DepotListQuery, signal?: AbortSignal): Promise<DepotListPayload> {
   const { data, error, response } = await accountApi.GET('/api/account/depot', { params: { query }, signal })
   if (error || !data) throw toApiError(error, response)
-  return { items: data.items ?? [], total: data.total ?? 0, categories: data.categories ?? [] }
+  // `categories` 由后端按整份快照给（M34）：分页或筛选时下拉不会缩水。
+  return {
+    items: (data.items ?? []).map(normalizeDepotItem),
+    total: data.total ?? 0,
+    categories: data.categories ?? [],
+  }
 }
 
 /** 缺项兜底：后端少给一个字段时页面照常渲染，而不是整块炸掉。 */

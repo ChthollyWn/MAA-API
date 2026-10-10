@@ -109,7 +109,7 @@ export function OperatorsTab() {
   })
 
   const rows = (list.data?.pages ?? [])
-    .flatMap((page) => page.operators ?? [])
+    .flatMap((page) => page.items ?? [])
     .filter((row) => matchesOwned(row, filters.owned))
   const total = list.data?.pages.at(-1)?.total ?? rows.length
   const searching = effectiveFilters.query !== filters.query || list.isFetching

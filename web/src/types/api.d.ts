@@ -25,6 +25,7 @@ export interface paths {
          * @description 仓库识别结果，按物品分类分组展示的只读列表。
          *
          *     - `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数
+         *     - `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选条件影响；页面用它渲染分类下拉
          *     - 仓库识别只看养成材料页签，龙门币与作战记录不在其中
          *     - 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定
          */
@@ -1765,6 +1766,96 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccountDepotList
+         * @description 仓库响应；``categories`` 见 :meth:`DepotService.list_items`。
+         */
+        AccountDepotList: {
+            /** Categories */
+            categories?: string[];
+            /** Items */
+            items: components["schemas"]["AccountDepotRow"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * AccountDepotRow
+         * @description 仓库行：物品 id、名字、数量、分类与识别时间。
+         */
+        AccountDepotRow: {
+            /** Category */
+            category?: string | null;
+            /** Count */
+            count: number;
+            /** Item Id */
+            item_id: string;
+            /** Name */
+            name?: string | null;
+            /** Recognized At */
+            recognized_at?: string | null;
+        };
+        /**
+         * AccountOperatorList
+         * @description 干员表响应（docs/05 §6.20：列表用 ``{items, total, limit, offset}``）。
+         */
+        AccountOperatorList: {
+            /** Items */
+            items: components["schemas"]["AccountOperatorRow"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * AccountOperatorRow
+         * @description 干员行：docs/05 §6.20 的字段清单，与单条读取同形。
+         *
+         *     ``masteries`` 的三个槽位总是出现（没识别过、也没手改过的行也是 0），``modules``
+         *     只含已解锁的类型，``field_sources`` 的值只有 recognition / manual / agent。
+         *     ``name``、``rarity``、``profession`` 在映射不到的干员上可以是 ``null``。
+         */
+        AccountOperatorRow: {
+            /** Char Id */
+            char_id: string;
+            /** Elite */
+            elite: number;
+            /** Field Sources */
+            field_sources?: {
+                [key: string]: string;
+            };
+            /** Level */
+            level: number;
+            /** Masteries */
+            masteries?: {
+                [key: string]: number;
+            };
+            /** Modules */
+            modules?: {
+                [key: string]: number;
+            };
+            /** Name */
+            name?: string | null;
+            /** Own */
+            own: boolean;
+            /** Potential */
+            potential: number;
+            /** Profession */
+            profession?: string | null;
+            /** Rarity */
+            rarity?: number | null;
+            /** Recognized At */
+            recognized_at?: string | null;
+            /** Skill Level */
+            skill_level: number;
+            /** Updated At */
+            updated_at?: string | null;
+        };
         /**
          * AnswerRequest
          * @description ``POST /api/agent/questions/{id}`` 的入参。
@@ -3945,9 +4036,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AccountDepotList"];
                 };
             };
             /** @description token 缺失或不匹配：UNAUTHORIZED */
@@ -4139,9 +4228,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AccountOperatorList"];
                 };
             };
             /** @description token 缺失或不匹配：UNAUTHORIZED */

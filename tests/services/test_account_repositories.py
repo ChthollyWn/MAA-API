@@ -253,6 +253,39 @@ def test_depot_repository_replaces_all_and_filters(retention_session_factory) ->
     asyncio.run(scenario())
 
 
+def test_depot_repository_lists_categories_of_the_snapshot(
+    retention_session_factory,
+) -> None:
+    """分类清单取整份快照的 distinct 分类：按名字排序，NULL 与空白不出现。"""
+
+    async def scenario() -> None:
+        async with retention_session_factory() as session:
+            repo = AccountDepotItemRepository(session)
+            # 从未识别过时是空清单，页面据此显示「全部分类」一项。
+            assert await repo.categories() == []
+            assert (
+                await repo.replace_all(
+                    [
+                        _depot_row("30012", "固源岩", 120, category="MATERIAL"),
+                        _depot_row("30011", "源岩", 8, category="MATERIAL"),
+                        _depot_row("4001", "龙门币", 15, category="NORMAL"),
+                        _depot_row("30061", "无分类物品", 1, category=None),
+                        _depot_row("30062", "空白分类", 1, category="   "),
+                    ]
+                )
+                == 5
+            )
+            await session.commit()
+
+        async with retention_session_factory() as session:
+            assert await AccountDepotItemRepository(session).categories() == [
+                "MATERIAL",
+                "NORMAL",
+            ]
+
+    asyncio.run(scenario())
+
+
 def test_recognition_repository_records_and_reads_the_latest(
     retention_session_factory,
 ) -> None:

@@ -93,6 +93,8 @@ class DepotService:
         """仓库物品列表，带分类与名字筛选、``total`` 与分页。
 
         ``limit`` / ``offset`` 由本层夹到合法区间；``total`` 是筛选后的总数。
+        ``categories`` 是**整份快照**里出现过的分类（按名字排序），与 ``category`` /
+        ``query`` 无关：页面用它渲染分类下拉，分页或筛选时不能缩水（规格 §7.3）。
         """
         limit = max(int(limit), 1)
         offset = max(int(offset), 0)
@@ -103,11 +105,13 @@ class DepotService:
             repo = item_repo(session)
             total = await repo.count(category=cat, query=text)
             rows = await repo.list(category=cat, query=text, limit=limit, offset=offset)
+            categories = await repo.categories()
         return {
             "items": [depot_row_wire(row) for row in rows],
             "total": total,
             "limit": limit,
             "offset": offset,
+            "categories": categories,
         }
 
     async def replace_all(

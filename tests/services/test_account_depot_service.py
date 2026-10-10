@@ -86,6 +86,16 @@ def _make_fakes(store: dict[str, Any]) -> dict[str, Any]:
             rows = self._filtered(category=category, query=query)
             return rows[offset : offset + limit]
 
+        async def categories(self) -> list[str]:
+            # 真仓储取的是整份快照的 distinct 分类（与筛选无关），这里同样不接筛选参数。
+            return sorted(
+                {
+                    str(row.category).strip()
+                    for row in store["items"].values()
+                    if str(row.category or "").strip()
+                }
+            )
+
     class AccountRecognitionRepository:
         def __init__(self, session: Any = None) -> None:
             self.session = session
@@ -226,6 +236,37 @@ def test_list_items_filters_by_category_and_name_with_pagination(depot):
 
         clamped = await service.list_items(limit=0, offset=-3)
         assert clamped["limit"] == 1 and clamped["offset"] == 0
+
+    asyncio.run(scenario())
+
+
+def test_list_items_reports_every_category_of_the_snapshot(depot):
+    """分类下拉的取值来自整份快照：不受 category / query 筛选与分页影响。"""
+    service, _store, _factory = depot
+
+    async def scenario():
+        await service.replace_all(
+            [
+                {"item_id": "30012", "name": "聚酸酯组", "count": 3, "category": "材料"},
+                {"item_id": "30013", "name": "聚酸酯块", "count": 5, "category": "材料"},
+                {"item_id": "3231", "name": "技巧概要·卷1", "count": 40, "category": "技巧概要"},
+                {"item_id": "30061", "name": "无分类物品", "count": 1},
+                {"item_id": "30062", "name": "空白分类", "count": 1, "category": "  "},
+            ],
+            recognized_at=NOW,
+        )
+
+        assert (await service.list_items())["categories"] == ["技巧概要", "材料"]
+        # 筛选与分页都不改变这份清单——页面的分类下拉靠它。
+        assert (await service.list_items(category="材料"))["categories"] == ["技巧概要", "材料"]
+        assert (await service.list_items(query="聚酸酯", limit=1))["categories"] == [
+            "技巧概要",
+            "材料",
+        ]
+
+        # 整表清空后清单也空（不是把历史分类留着）。
+        assert await service.replace_all([], recognized_at=NOW) == 0
+        assert (await service.list_items())["categories"] == []
 
     asyncio.run(scenario())
 

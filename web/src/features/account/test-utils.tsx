@@ -169,7 +169,8 @@ export function installAccountApi(options: AccountApiOptions = {}) {
       if (profession) rows = rows.filter((row) => row.profession === profession)
       const query = url.searchParams.get('query')
       if (query) rows = rows.filter((row) => row.name.includes(query))
-      return jsonResponse({ operators: rows.slice(offset, offset + limit), total: rows.length, limit, offset })
+      // 容器键与真后端一致：`{items, total, limit, offset}`（路由的 `response_model`）。
+      return jsonResponse({ items: rows.slice(offset, offset + limit), total: rows.length, limit, offset })
     }
 
     const patch = url.pathname.match(/^\/api\/account\/operators\/([^/]+)$/)

@@ -500,6 +500,67 @@ def test_router_declares_the_six_documented_paths():
     }
 
 
+#: docs/05 §6.20 冻结的干员行字段：响应模型必须与它逐字一致，不许漂移。
+OPERATOR_ROW_FIELDS = {
+    "char_id",
+    "name",
+    "rarity",
+    "profession",
+    "own",
+    "elite",
+    "level",
+    "potential",
+    "skill_level",
+    "masteries",
+    "modules",
+    "field_sources",
+    "recognized_at",
+    "updated_at",
+}
+
+
+@pytest.mark.parametrize(
+    ("path", "model", "keys"),
+    (
+        (
+            "/api/account/operators",
+            "AccountOperatorList",
+            {"items", "total", "limit", "offset"},
+        ),
+        (
+            "/api/account/depot",
+            "AccountDepotList",
+            {"items", "total", "limit", "offset", "categories"},
+        ),
+    ),
+)
+def test_list_endpoints_pin_their_response_shape(path, model, keys):
+    """两个只读列表端点必须带 ``response_model``：形状要进 OpenAPI。
+
+    没有响应模型时 OpenAPI 里是自由对象，``web/src/types/api.d.ts`` 生成不出
+    ``items`` / ``total``，前端读错键也不会被 ``pnpm typecheck`` 发现（M34 的根因）。
+    这里的断言就是那条护栏的守卫：去掉装饰器上的 ``response_model`` 会立刻红。
+    """
+    app, _box, _depot = _app()
+    schema = app.openapi()
+    response = schema["paths"][path]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert response == {"$ref": f"#/components/schemas/{model}"}, (
+        f"{path} 的 200 响应必须是 {model}，不是自由对象"
+    )
+    defined = schema["components"]["schemas"][model]
+    assert set(defined["properties"]) == keys
+    assert {"items", "total", "limit", "offset"} <= set(defined["required"])
+
+
+def test_operator_row_schema_matches_the_frozen_field_list():
+    """行模型的字段与 docs/05 §6.20 的清单一致（前端切片与注入段都按它写）。"""
+    app, _box, _depot = _app()
+    row = app.openapi()["components"]["schemas"]["AccountOperatorRow"]
+    assert set(row["properties"]) == OPERATOR_ROW_FIELDS
+
+
 def test_router_accepts_the_main_app_state_keys(make_client, tmp_settings):
     """main.py 装配的是 ``box_service`` / ``depot_service`` 两个键，路由必须认它们。"""
     app = FastAPI()

@@ -1,11 +1,11 @@
 # AI 腔规则命中：用户可见文案
 
-总计 12022 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12041 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 160 | 290 | 450 |
+| 粗体强调 | medium | 160 | 291 | 451 |
 | 破折号当冒号用 | high | 35 | 90 | 125 |
 | 「A 而不是 B」对照腔 | high | 14 | 79 | 93 |
 | 绝对化规定腔 | medium | 11 | 56 | 67 |
@@ -18,7 +18,7 @@
 | 感叹号 | low | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 160 / 开发向 290）
+## 粗体强调（medium｜用户可见 160 / 开发向 291）
 
 **用户可见**
 
@@ -42,7 +42,7 @@
 - `maa_api/agent/knowledge/__init__.py:879` 拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。 段落顺序：索引 → **当期活动**（M24）→ **当期卡池**（M28）→ **账号数据**（M27） → 术语表全文 → 用户档案全文；三段实时数据（活动…（共 241 字）
 - `maa_api/agent/knowledge/convergence.py:1` M30 T3：删除内置条目后，把幸存下来的用户覆盖行迁移成自定义条目。 为什么需要冻结 ``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL，读的时候 继承内置值（见 :mod:`maa_api.ag…（共 1075 字）
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
-- …… 另有 282 条，见 inventory.json
+- …… 另有 283 条，见 inventory.json
 
 ## 破折号当冒号用（high｜用户可见 35 / 开发向 90）
 
@@ -50,7 +50,7 @@
 
 - `web/src/features/agent/ConfirmationCard.tsx:175` ${name}${missing === null ? '' : `：缺 ${missing}`}${counts.length ? `（${counts.join('，')}）` : ''}${tail.length ? `——${tai…（共 139 字）
 - `web/src/features/agent/ConfirmationCard.tsx:175` ——${tail.join('；')}
-- `maa_api/api/routers/account.py:57` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。
+- `maa_api/api/routers/account.py:65` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。
 - `maa_api/api/routers/confirmations.py:19` ``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。 尝试次数、成功标准与是否允许助战都能在卡片上改；有效期只展示，**不在**这里。 键名与取值域与 ``services/copilot/grant…（共 254 字）
 - `maa_api/db/models.py:845` Web Push 订阅（M14，docs/09 §13.1）。 ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一 Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新…（共 281 字）
 - `maa_api/domain/task.py:825` 无限刷肉鸽（集成战略）。 主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError`` （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PA…（共 291 字）
