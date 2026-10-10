@@ -144,6 +144,7 @@ describe('settings sections', () => {
     expect(sectionForGroup('渠道')).toBe('device')
     expect(sectionForGroup('LLM')).toBe('agent')
     expect(sectionForGroup('Agent')).toBe('agent')
+    expect(sectionForGroup('外部数据源')).toBe('sources')
     expect(sectionForGroup('更新')).toBe('maintenance')
     expect(sectionForGroup('日志')).toBe('maintenance')
     expect(sectionForGroup('应用')).toBe('system')
@@ -155,8 +156,19 @@ describe('settings sections', () => {
   it('finds known sections only', () => {
     expect(findSection('device')?.title).toBe('设备与渠道')
     expect(findSection('appearance')?.title).toBe('外观')
+    expect(findSection('sources')?.title).toBe('外部数据源')
     expect(findSection('nope')).toBeUndefined()
     expect(findSection(undefined)).toBeUndefined()
+  })
+
+  it('keeps the M25 external-source keys in their own section', () => {
+    const fields = [
+      field({ key: 'sources.prts_enabled', group: '外部数据源' }),
+      field({ key: 'app.proxy', group: '应用' }),
+      field({ key: 'sources.cache_max_mb', group: '外部数据源' }),
+    ]
+    expect(fieldsForSection(fields, 'sources').map((item) => item.key)).toEqual(['sources.prts_enabled', 'sources.cache_max_mb'])
+    expect(hasUnmappedGroups(fields)).toBe(false)
   })
 
   it('keeps the schema order of groups inside a section', () => {

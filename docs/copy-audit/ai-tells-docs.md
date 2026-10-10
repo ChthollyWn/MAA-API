@@ -1,15 +1,15 @@
 # AI 腔规则命中：docs 与 README 正文（逐行统计）
 
-总计 9629 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 9805 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 1870 | 1870 |
-| 破折号当冒号用 | high | 0 | 356 | 356 |
-| 「A 而不是 B」对照腔 | high | 0 | 225 | 225 |
-| 绝对化规定腔 | medium | 0 | 157 | 157 |
-| 「…即可」机器腔 | medium | 0 | 59 | 59 |
+| 粗体强调 | medium | 0 | 1922 | 1922 |
+| 破折号当冒号用 | high | 0 | 366 | 366 |
+| 「A 而不是 B」对照腔 | high | 0 | 227 | 227 |
+| 绝对化规定腔 | medium | 0 | 161 | 161 |
+| 「…即可」机器腔 | medium | 0 | 60 | 60 |
 | 自指式讲解腔 | medium | 0 | 19 | 19 |
 | 「不是…而是…」对照句 | high | 0 | 17 | 17 |
 | 省略号 | medium | 0 | 4 | 4 |
@@ -20,7 +20,7 @@
 | 英文 AI 惯用语 | medium | 0 | 1 | 1 |
 | 宣传词 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 1870）
+## 粗体强调（medium｜用户可见 0 / 开发向 1922）
 
 **开发向**
 
@@ -30,9 +30,9 @@
 - `docs/01-重构总览与现状评估.md:45` **启动期强耦合。** `maa_api/model/core/scheduler.py` 末尾是模块级 `task_scheduler = TaskScheduler()`，构造函数里调 `load_asst()`，而 `load_ass…（共 273 字）
 - `docs/01-重构总览与现状评估.md:47` **单实例且无队列。** 全局一个 MaaCore 实例，`_check_asst_running()` 在运行中直接抛异常拒绝新提交。定时任务撞上手动任务时靠 `if task_scheduler.is_running(): return…（共 149 字）
 - `docs/01-重构总览与现状评估.md:49` **状态全在内存。** `TaskPipeline` 是个 pydantic 模型，`tasks`、`status`、`logs` 都是内存字段。重启丢失全部执行历史，前端刷新看到的是当前进程的瞬时状态。
-- …… 另有 1864 条，见 inventory.json
+- …… 另有 1916 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 356）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 366）
 
 **开发向**
 
@@ -42,9 +42,9 @@
 - `docs/02-系统架构设计.md:135` `LOAD_RESOURCE` 的 300 秒是从原定的 120 秒上调的。原值是按"基础资源 + 一个 15 KB 的 OTA `tasks.json`"估的，而现在这条命令一次要跑完整条加载链——基础资源加上三个增量层，其中通道 B 的…（共 272 字）
 - `docs/02-系统架构设计.md:197` **不抢占**意味着：正在执行的流水线不会被更高优先级的新提交打断。用户若想立刻插队，需显式调用停止接口终止当前流水线，再提交新的 —— 这个动作在前端是一个明确的按钮，不是隐式行为。
 - `docs/02-系统架构设计.md:311` 启动 `CoreSupervisor`，**不阻塞等待** —— 子进程在后台走"校验版本 → 加载资源 → 连接设备"
-- …… 另有 350 条，见 inventory.json
+- …… 另有 360 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 225）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 227）
 
 **开发向**
 
@@ -54,9 +54,9 @@
 - `docs/01-重构总览与现状评估.md:82` 类体里的尾随逗号会让默认值变成元组 `(None,)` 而非 `None`，与声明的类型不符。
 - `docs/01-重构总览与现状评估.md:94` **枚举值硬编码在 Python 里会随内核版本过时。** 最典型的是 `Roguelike.theme`（当前硬编码 `Phantom` / `Mizuki` / `Sami` / `Sarkaz`），MAA 每次新增肉鸽主题都需要改代码…（共 214 字）
 - `docs/01-重构总览与现状评估.md:156` 配置文件 `config.yaml` 的结构会扩展（新增渠道默认值、LLM 配置、通知通道、重试参数等），但可视化设置页的配置项落库而非写回 YAML，两者的优先级关系见 [08-ADB连接与账号渠道](./08-ADB连接与账号渠道.md…（共 122 字）
-- …… 另有 219 条，见 inventory.json
+- …… 另有 221 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 157）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 161）
 
 **开发向**
 
@@ -66,19 +66,19 @@
 - `docs/03-MaaCore内核层设计.md:220` pass # 回调线程内绝不抛异常，否则可能直接崩内核
 - `docs/03-MaaCore内核层设计.md:315` **内核未就绪时的行为。** 子进程处于 `STARTING` / `RESTARTING` / `CRASHED` / `FAILED` 时，所有业务命令直接抛领域异常（对应 `CORE_NOT_READY` / `CORE_RESTAR…（共 247 字）
 - `docs/04-数据模型与持久化.md:82` 会话管理遵循两条纪律。HTTP 请求通过依赖注入拿到 `AsyncSession`，请求结束即关闭；后台任务（`PipelineRunner`、`LogHub` 刷盘、清理任务）**各自开新会话**，绝不跨任务共享——`AsyncSessi…（共 238 字）
-- …… 另有 151 条，见 inventory.json
+- …… 另有 155 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 59）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 60）
 
 **开发向**
 
 - `AGENTS.md:15` 默认不 push：提交到本地即可。用户明确要求推送时，push 当前分支到 origin 的同名分支（refactor/v2），不必再确认一次；没有明确要求就不要推。
 - `docs/04-数据模型与持久化.md:9` 数据库文件位于 `resource/maa_api.db`。选这个位置的原因有三：`resource/` 已在 `.gitignore` 中被整体忽略，数据库及其 WAL 副产品不会误入版本库；`resource/` 已是运行期数据的既有落…（共 178 字）
-- `docs/05-API规范与路由清单.md:677` **中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`，其中 `inter…（共 660 字）
+- `docs/05-API规范与路由清单.md:689` **中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`，其中 `inter…（共 660 字）
 - `docs/06-实时日志与WebSocket.md:420` 内核热更新导致子进程重启时，MaaCore 会重新初始化日志系统并追加到同一个 `asst.log`（`LoadFileStream` 后接 `log_init_info`，可从实测日志开头的 `MaaCore Process Start`…（共 148 字）
 - `docs/07-热更新方案.md:53` **当前版本号**从内核自身取。现有做法是 `Asst.load()` 后调 `Asst().get_version()`——这在重构后**不可行**，因为主进程绝不加载 `libMaaCore`（[02-系统架构设计 §1](./02-系…（共 247 字）
 - `docs/07-热更新方案.md:465` 顺带一提，通道 B 的 `global/` 子树（约 1 MB，四个外服）对本项目无用——本项目只支持国服，内核只在按外服 `ClientType` 加载时才会读它。原样保留即可，不值得为省 1 MB 在解压时做过滤。
-- …… 另有 53 条，见 inventory.json
+- …… 另有 54 条，见 inventory.json
 
 ## 自指式讲解腔（medium｜用户可见 0 / 开发向 19）
 
@@ -96,7 +96,7 @@
 
 **开发向**
 
-- `docs/05-API规范与路由清单.md:964` 这些不是设计偏好，是现有代码里的实际缺陷，新模型必须修正。
+- `docs/05-API规范与路由清单.md:991` 这些不是设计偏好，是现有代码里的实际缺陷，新模型必须修正。
 - `docs/07-热更新方案.md:363` 顺带修正一个直觉误差：体积大头不是模板图而是 `Arknights-Tile-Pos/` 的关卡格子坐标（93 MB 对 12 MB）。它们是高度可压缩的 JSON，所以压缩包只有 13 MB 却能解压出 107 MB——**磁盘预检要按解…（共 139 字）
 - `docs/08-ADB连接与账号渠道.md:472` **并发命令的交错。** 两个客户端同时对同一设备发命令，adb server 会串行化，但顺序不保证。实际影响很小（我们的操作本身就是异步的），唯一需要小心的是"截图 + 点击"这类要求时序的组合——agent 先截图看到某个按钮、再点击…（共 250 字）
 - `docs/08-ADB连接与账号渠道.md:792` **账号数据不互通**。官服与 B 服是不同的服务器，账号、进度完全独立。切换渠道不是"换个皮肤"而是"换个游戏"。界面上的渠道切换入口要有足够的视觉分量，不能像切换主题那样轻描淡写。
@@ -108,7 +108,7 @@
 
 **开发向**
 
-- `docs/13-决策记录.md:778` 三、时序与收尾口径。模型调用新工具 `ask_user`（group `interaction`、SAFE、`read_only=False`、`model_visible=True`，参数 `question` + `options[2.…（共 713 字）
+- `docs/13-决策记录.md:780` 三、时序与收尾口径。模型调用新工具 `ask_user`（group `interaction`、SAFE、`read_only=False`、`model_visible=True`，参数 `question` + `options[2.…（共 713 字）
 - `docs/ENVIRONMENT.md:428` ``| `CODE` | 404 | 含义…… |`` 的行共 92 行 / 14 张表，HTTP 列为 `—` 的只有 `UPDATE_INTERRUPTED`。
 - `docs/superpowers/plans/2026-09-28-m17-task-param-defaults.md:64` docs/09 §7.3/§603/§656：把「未改动的字段不进草稿……控件显示内核默认值并标「默认」」改写为新的物化 + 预填 + 显式下发模型，并保留「服务端不预设内核默认值」这条历史理由的说明（现在由 §8 的偏离条目承接）。
 - `docs/superpowers/specs/2026-10-09-m25-prts-knowledge.md:134` | 当期活动用 SMW 查询取，时间同时给 `timestamp`（Unix 秒）与 `raw`（UTC） | `action=ask&query=[[分类:有活动信息的页面]][[!分类:集成战略]]\|?名称缩短\|?活动开始时间\|?…（共 239 字）

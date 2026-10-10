@@ -63,6 +63,7 @@ from maa_api.api.routers import (
     snippets,
     settings as settings_router,
     schedules,
+    sources,
     system,
     tasks,
     updates,
@@ -266,6 +267,7 @@ TAGS: list[dict[str, str]] = [
     {"name": "updates", "description": "内核、资源与游戏热更新"},
     {"name": "schedules", "description": "定时任务"},
     {"name": "settings", "description": "可视化配置"},
+    {"name": "sources", "description": "外部数据源状态与缓存"},
     {"name": "notifications", "description": "多通道通知"},
     {"name": "resources", "description": "Copilot 作业、基建方案、自定义 task"},
     {"name": "snippets", "description": "API 调试台收藏请求"},
@@ -1284,6 +1286,7 @@ def create_app() -> FastAPI:
     app.include_router(snippets.router)
     app.include_router(agent.router)
     app.include_router(knowledge.router)
+    app.include_router(sources.router)
     app.include_router(confirmations.router)
     app.include_router(questions.router)
     app.include_router(ws_router)

@@ -1134,6 +1134,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources/cache": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 清空外部数据源缓存
+         * @description 清空全部或单个来源的内存缓存；返回清掉的条数。
+         */
+        delete: operations["sources_clear_sources_cache"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查外部数据源状态
+         * @description 各来源的开关、状态与缓存统计；供设置页显示与排查。
+         */
+        get: operations["sources_get_sources_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/auth/cookie": {
         parameters: {
             query?: never;
@@ -1607,6 +1647,22 @@ export interface components {
              * @default false
              */
             specialaccess: boolean | null;
+        };
+        /**
+         * CacheClearResponse
+         * @description 清空缓存的结果。
+         */
+        CacheClearResponse: {
+            /**
+             * Cleared
+             * @description 清掉的条数
+             */
+            cleared: number;
+            /**
+             * Source
+             * @description 清空的来源；null 表示全部
+             */
+            source: string | null;
         };
         /**
          * CallerType
@@ -2971,6 +3027,110 @@ export interface components {
             items: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * SourceCacheStats
+         * @description 一个来源的缓存统计。
+         */
+        SourceCacheStats: {
+            /**
+             * Bytes
+             * @description 估算占用字节数
+             */
+            bytes: number;
+            /**
+             * Entries
+             * @description 缓存条数
+             */
+            entries: number;
+            /**
+             * Evictions
+             * @description 因超出内存上限被淘汰的条数
+             */
+            evictions: number;
+            /**
+             * Hit Rate
+             * @description 命中率，没有读写时为 null
+             */
+            hit_rate?: number | null;
+            /**
+             * Hits
+             * @description 命中次数
+             */
+            hits: number;
+            /**
+             * Misses
+             * @description 未命中次数
+             */
+            misses: number;
+        };
+        /**
+         * SourceStatus
+         * @description 一个来源的运行时状态。
+         */
+        SourceStatus: {
+            /**
+             * Bytes Read
+             * @default 0
+             */
+            bytes_read: number;
+            cache: components["schemas"]["SourceCacheStats"];
+            /**
+             * Consecutive Failures
+             * @default 0
+             */
+            consecutive_failures: number;
+            /**
+             * Cooldown Seconds
+             * @description 冷却剩余秒数
+             * @default 0
+             */
+            cooldown_seconds: number;
+            /**
+             * Cooldown Until
+             * @description 冷却截止时间，未在冷却时为 null
+             */
+            cooldown_until?: string | null;
+            /**
+             * Enabled
+             * @description 该来源当前是否启用（总开关关闭时全为 false）
+             */
+            enabled: boolean;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Last Error At */
+            last_error_at?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Last Error Message */
+            last_error_message?: string | null;
+            /** Last Success At */
+            last_success_at?: string | null;
+            /**
+             * Rate Per Minute
+             * @description 当前每分钟请求上限
+             */
+            rate_per_minute: number;
+            /**
+             * Requests
+             * @default 0
+             */
+            requests: number;
+            /**
+             * Retries
+             * @default 0
+             */
+            retries: number;
+        };
+        /**
+         * SourcesStatusResponse
+         * @description 各外部来源的状态快照。
+         */
+        SourcesStatusResponse: {
+            /** Sources */
+            sources: components["schemas"]["SourceStatus"][];
         };
         /**
          * StartUpInput
@@ -9203,6 +9363,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sources_clear_sources_cache: {
+        parameters: {
+            query?: {
+                /** @description 只清这个来源；不传则清空全部（如 prts） */
+                source?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheClearResponse"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sources_get_sources_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourcesStatusResponse"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

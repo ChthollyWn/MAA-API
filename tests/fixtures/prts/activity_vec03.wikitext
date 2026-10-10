@@ -1,0 +1,124 @@
+<!-- 本文件是 prts.wiki《矢量突破/03》正文的裁剪快照：来源与抓取日期见同目录 README.md。
+     保留活动信息、关卡信息（登场敌人 + 首个关卡表全部 12 行）、突破里程碑前 5 条、
+     蚀刻章套组与音乐鉴赏；中间的 buff 表、注释掉的表格块与其余里程碑条目已删除。 -->
+{{活动信息
+|类型=矢量突破
+|名称=矢量突破#3「拟生态」
+|名称缩短=矢量突破 #3
+|副标题=VECTOR BREAKTHROUGH #3: TOUCH
+|活动开始时间=2026-09-29 16:00
+|活动结束时间=2026-10-20 03:59
+|兑换结束时间=2026-10-23 03:59
+|标题图文件名=活动预告 矢量突破03 01.JPG
+|官网链接=1455
+|公告=矢量突破/03/活动公告
+|参加条件关卡=[[2-10|主线关卡2-10]]
+|限时寻访1=[[寻访模拟/定向甄选08|定向甄选08]]
+}}
+<center>{{矢量突破导航}}</center>
+==关卡信息==
+{{#widget:style|style=/* trimmed */}}{{#vardefine:trimallow|{{mdi|star-box|color=#2a4e97|style=text-shadow:0 0 5px #aac7de, 0 0 5px #aac7de;|class=trimallow}}}}
+{{#Widget:倒计时/jsmini}}
+{{登场敌人
+|标题=矢量突破 #3「拟生态」
+|活动名称=矢量突破S3
+|标题样式=color: #757575;background:linear-gradient(0deg, #b7fcff, #0000 90%), linear-gradient(135deg, #0000 10%, #466465 10% 13%, #0000 13%), linear-gradient(-45deg, #0000 10%, #466465 10% 13%, #0000 13%), linear-gradient(90deg, #259397, #33aeb3, #20c3c9 20% 90%, #259397);
+|环境信息=矢量突破 启动中……<br><br>代号：#3 拟生态<br>考核训练官：精英干员 Touch<br><br>正在生成训练场地……<br>正在载入敌方数据库……<br>正在生成训练官程序……<br>正在引入由精英干员领队的辅助训练官……<br><br>等待下一步指令…_
+|宽度=80
+|数量=9
+}}
+<tabber>
+核心突破=
+{| class="wikitable" style="white-space:normal;display:table;text-align:center;width:min(550px, 100%);"
+!rowspan=2|关卡
+!rowspan=2|驻守考官
+!colspan=2 style="background:#fede00;color:#000;"|获得积分点
+|-
+!通关
+!首次通关
+|-
+|{{关卡链接|VEC-01|act3break 01}}
+|{{color|darkgrey|NO NEED TO WORRY!}}
+|25||+75
+|-
+|{{关卡链接|VEC-02|act3break 02}}
+|{{color|darkgrey|NO NEED TO WORRY!}}
+|25||+75
+|-
+|{{关卡链接|VEC-03|act3break 03}}
+|{{color|darkgrey|NO NEED TO WORRY!}}
+|25||+75
+|-
+|{{关卡链接|VEC-04|act3break 04}}
+|{{敌人头像|“Touch”，再生之流|px=60}}  Rank.1
+|30||+90
+|-"
+|{{关卡链接|VEC-05|act3break 05}}
+|{{color|darkgrey|NO NEED TO WORRY!}}
+|30||+90
+|-
+|{{关卡链接|VEC-06|act3break 06}}
+|{{color|darkgrey|NO NEED TO WORRY!}}
+|30||+90
+|-
+|{{关卡链接|VEC-07|act3break 07}}
+|{{color|darkgrey|NO NEED TO WORRY!}}
+|30||+90
+|- class="hard"
+|{{关卡链接|VEC-08|act3break 08|style=color:#fff;}}
+|style="background: linear-gradient(0deg, #a90a0854, transparent 60%);"|{{敌人头像|“Touch”，再生之流|px=60}} Rank.2
+|40||+120
+|- class="hard"
+|{{关卡链接|VEC-09|act3break 09|style=color:#fff;}}
+|{{color|lightgrey|NO NEED TO WORRY!}}
+|40||+120
+|- class="hard"
+|{{关卡链接|VEC-10|act3break 10|style=color:#fff;}}
+|{{color|lightgrey|NO NEED TO WORRY!}}
+|40||+120
+|- class="hard"
+|{{关卡链接|VEC-11|act3break 11|style=color:#fff;}}
+|{{color|lightgrey|NO NEED TO WORRY!}}
+|40||+120
+|- class="hard"
+|{{关卡链接|VEC-12|act3break 12|style=color:#fff;}}
+|style="background: linear-gradient(0deg, #a90a0854, #570706a1 50%);color: white;"|{{敌人头像|“Touch”，再生之流|px=60}}  Rank.3
+|60||+180
+|}
+</tabber>
+==突破里程碑==
+获得[[文件:道具 带框 “小心地滑”.png|40px|link=“小心地滑”]][[“小心地滑”]]提升突破里程碑等级以逐步获得奖励。
+
+※每个奖励左侧的大号数字为等级，下方的数字为 累积经验'''(+升至此级所需经验)'''
+
+※部分里程碑等级将在后续开放，超出等级上限的标识牌将被丢弃。
+{{活动里程碑2/style|bg=linear-gradient(180deg, #8e8f8e 70%, #161616)|color=white}}
+<ul class="tl-eventpoint-ul">
+{{活动里程碑2|exp=40|1|龙门币|10000|{{道具图标|龙门币||48px}}}}
+{{活动里程碑2|exp=40|2|全新装置|2|{{道具图标|全新装置||48px}}|bg=linear-gradient(180deg, #4f616b 70%, #133f63)}}
+{{活动里程碑2|exp=40|3|中级作战记录|10|{{道具图标|中级作战记录||48px}}}}
+{{活动里程碑2|exp=40|4|晶体元件|2|{{道具图标|晶体元件||48px}}|bg=linear-gradient(180deg, #4f616b 70%, #133f63)}}
+{{活动里程碑2|exp=40|5|技巧概要·卷2|10|{{道具图标|技巧概要·卷2||48px}}}}
+<!---->
+</ul>
+==蚀刻章套组==
+{{#widget:MedalShowcase}}
+{{蚀刻章展示|medalgroup=medalGroupActivityAct3break}}
+{|class="wikitable" style="display:table;white-space:normal;width:100%;max-width:800px;"
+!备注
+|-
+|※蚀刻章<拟生态制衡奖章>可通过失败的作战积累进度。<br>※蚀刻章<拟生态凝神奖章>中，条件“部署地面干员”实际为部署干员至地面。
+|}
+[[分类:存在蚀刻章备注的活动]]
+
+==音乐鉴赏==
+{{#invoke:MusicTable|table|表格标题=[[文件:图标_矢量突破-3.png|x64px|link=]]
+
+|标题1=Neo-vector
+|样式1=旧曲
+|资源1=https://music.163.com/song/media/outer/url?id=2630863181
+
+|标题2=拟生态
+|样式2=Boss
+|资源2=https://music.163.com/song/media/outer/url?id=3440323218
+}}

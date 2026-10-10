@@ -1,0 +1,69 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "redirects": [
+   {
+    "from": "YW-ST-1",
+    "to": "YW-ST-1 羽兽盘旋"
+   },
+   {
+    "from": "YW-1",
+    "to": "YW-1 互助会"
+   },
+   {
+    "from": "YW-2",
+    "to": "YW-2 浮浮沉沉"
+   }
+  ],
+  "pages": [
+   {
+    "ns": 0,
+    "title": "YW-EX-1",
+    "missing": true,
+    "contentmodel": "wikitext",
+    "pagelanguage": "zh-cn",
+    "pagelanguagehtmlcode": "zh-Hans-CN",
+    "pagelanguagedir": "ltr"
+   },
+   {
+    "pageid": 98027,
+    "ns": 0,
+    "title": "YW-ST-1 羽兽盘旋",
+    "contentmodel": "wikitext",
+    "pagelanguage": "zh-cn",
+    "pagelanguagehtmlcode": "zh-Hans-CN",
+    "pagelanguagedir": "ltr",
+    "touched": "2026-10-09T12:26:06Z",
+    "lastrevid": 439761,
+    "length": 610,
+    "new": true
+   },
+   {
+    "pageid": 98030,
+    "ns": 0,
+    "title": "YW-1 互助会",
+    "contentmodel": "wikitext",
+    "pagelanguage": "zh-cn",
+    "pagelanguagehtmlcode": "zh-Hans-CN",
+    "pagelanguagedir": "ltr",
+    "touched": "2026-10-09T08:14:31Z",
+    "lastrevid": 439764,
+    "length": 1249,
+    "new": true
+   },
+   {
+    "pageid": 98036,
+    "ns": 0,
+    "title": "YW-2 浮浮沉沉",
+    "contentmodel": "wikitext",
+    "pagelanguage": "zh-cn",
+    "pagelanguagehtmlcode": "zh-Hans-CN",
+    "pagelanguagedir": "ltr",
+    "touched": "2026-10-09T08:14:32Z",
+    "lastrevid": 439770,
+    "length": 1284,
+    "new": true
+   }
+  ]
+ }
+}

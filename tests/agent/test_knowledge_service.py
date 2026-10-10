@@ -28,6 +28,7 @@ from sqlmodel import SQLModel
 
 from maa_api.agent.knowledge import (
     ACTIVITY_HEADER,
+    ACTIVITY_HEADER_FALLBACK,
     MAX_ACTIVITY_LINE_CHARS,
     BuiltinEntry,
     KnowledgeBuiltinError,
@@ -1176,7 +1177,8 @@ def test_render_context_puts_the_activity_line_between_index_and_glossary(tmp_pa
         context = await service.render_context()
         lines = context.split("\n")
 
-        activity_at = lines.index(ACTIVITY_HEADER)
+        # M25 起本机快照走降级标题（规格 §5.9）；PRTS 可用时标题与行格式另有用例。
+        activity_at = lines.index(ACTIVITY_HEADER_FALLBACK)
         assert lines[activity_at + 1] == (
             "示例活动#3 副标题，2026-09-29 开始"
             "；关卡代号 XX-01…XX-08（共 2 关）"
@@ -1210,7 +1212,7 @@ def test_render_context_says_the_codes_are_unknown_when_inference_fails(tmp_path
 
     async def scenario():
         line = (await service.render_context()).split("\n")
-        body = line[line.index(ACTIVITY_HEADER) + 1]
+        body = line[line.index(ACTIVITY_HEADER_FALLBACK) + 1]
         assert body.startswith("示例活动#3 副标题")
         assert "关卡代号未知" in body
         assert "get_activity_stages" in body

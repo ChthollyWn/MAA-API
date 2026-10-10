@@ -66,3 +66,19 @@ deployment:
   cors_origins: []
   # 追加的来源正则（整条匹配），用于 *.ts.net 这类通配域名
   cors_origin_regex: ""
+
+# 外部数据源（PRTS 等只读内容；改完立即生效，不需要重启）
+sources:
+  # 总开关；关掉等于所有外部来源不可用，工具与注入段退回本机资源包
+  enabled: true
+  # 外部请求是否走 app.proxy；proxy 为空时直连
+  use_proxy: true
+  # 当期数据（活动列表、卡池、搜索结果）的缓存时长，秒
+  cache_live_seconds: 300
+  # 稳定数据（页面正文、SMW/Cargo 查询）的缓存时长，秒
+  cache_static_seconds: 21600
+  # 进程内缓存的内存上限（MB），超出按 LRU 淘汰
+  cache_max_mb: 64
+  prts_enabled: true
+  # 每分钟请求上限；站点短时限流时会自动退让
+  prts_rate_per_minute: 30

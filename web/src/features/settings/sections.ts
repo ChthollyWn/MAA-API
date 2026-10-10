@@ -1,7 +1,7 @@
-import { Bell, BookOpen, Bot, KeyRound, Palette, Server, SlidersHorizontal, Smartphone, Wrench, type LucideIcon } from 'lucide-react'
+import { Bell, BookOpen, Bot, Globe, KeyRound, Palette, Server, SlidersHorizontal, Smartphone, Wrench, type LucideIcon } from 'lucide-react'
 import type { SettingField } from './schema'
 
-export type SettingsSectionId = 'appearance' | 'access' | 'device' | 'agent' | 'knowledge' | 'notifications' | 'maintenance' | 'system' | 'other'
+export type SettingsSectionId = 'appearance' | 'access' | 'device' | 'agent' | 'knowledge' | 'notifications' | 'sources' | 'maintenance' | 'system' | 'other'
 
 export interface SettingsSection {
   id: SettingsSectionId
@@ -19,6 +19,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'agent', title: 'LLM 与 Agent', summary: '模型接口、确认时限与自动诊断', icon: Bot, scope: 'server' },
   { id: 'knowledge', title: 'Agent 知识库', summary: '操作剧本、界面知识与用户档案', icon: BookOpen, scope: 'server' },
   { id: 'notifications', title: '通知', summary: 'Web 推送与通知通道', icon: Bell, scope: 'server' },
+  { id: 'sources', title: '外部数据源', summary: 'PRTS 等外部来源的开关、状态与缓存', icon: Globe, scope: 'server' },
   { id: 'maintenance', title: '更新与日志', summary: '更新检查、下载前缀与日志级别', icon: Wrench, scope: 'server' },
   { id: 'system', title: '应用与部署', summary: '代理、内核路径与反向代理', icon: Server, scope: 'server' },
   { id: 'other', title: '其他', summary: '尚未归类的设置项', icon: SlidersHorizontal, scope: 'server' },
@@ -35,6 +36,8 @@ const GROUP_SECTIONS = new Map<string, SettingsSectionId>([
   ['渠道', 'device'],
   ['LLM', 'agent'],
   ['Agent', 'agent'],
+  // M25：来源开关与状态面板同属「外部数据源」分区（规格 §5.11）。
+  ['外部数据源', 'sources'],
   ['更新', 'maintenance'],
   ['日志', 'maintenance'],
   ['应用', 'system'],

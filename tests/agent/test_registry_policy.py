@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -14,16 +16,20 @@ from sqlmodel import SQLModel
 
 from maa_api.agent.policy import PolicyEngine, ToolRisk
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry
-from maa_api.db.models import AgentSession, Confirmation, utcnow
+from maa_api.db.models import AgentSession, Confirmation, Pipeline, Task, utcnow
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import (
     AgentSessionStatus,
     CallerType,
     ConfirmationStatus,
+    PipelineSource,
+    PipelineStatus,
+    Priority,
     RiskLevel,
 )
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.domain.task import PipelineCreate
 from maa_api.services.schedule_service import ScheduleWrite
 
 
@@ -523,3 +529,396 @@ def test_rest_caller_cannot_reuse_internal_session_grants() -> None:
 
     assert decision.requires_confirmation is True
     assert decision.confirmation_action == "click"
+# ---------------------------------------------------------------------------
+# D1：策略按「内核实际收到的值」（含默认值）判断（规格 §5.3）
+# ---------------------------------------------------------------------------
+
+
+def _validated(name: str, arguments: dict[str, Any]) -> BaseModel:
+    """走生产路径的同一套校验：``ConfirmationService`` 先把参数 validate 成模型。"""
+    module_name = {
+        "set_task_params": "maa_api.agent.tools.pipeline",
+        "create_schedule": "maa_api.agent.tools.schedule",
+        "update_schedule": "maa_api.agent.tools.schedule",
+    }[name]
+    registry = ToolRegistry()
+    importlib.import_module(module_name).register_tools(registry)
+    return registry.validate(name, arguments)
+
+
+def _submit_definition() -> ToolDefinition:
+    return _definition("submit_pipeline", ToolRisk.CONDITIONAL, group="pipeline")
+
+
+def _set_params_definition() -> ToolDefinition:
+    return _definition("set_task_params", ToolRisk.CONDITIONAL, group="pipeline")
+
+
+def _schedule_definition(name: str = "create_schedule") -> ToolDefinition:
+    return _definition(name, ToolRisk.CONDITIONAL, group="schedule")
+
+
+class _RecordingSession:
+    """真会话 + 记下查过哪些 task id，避免替身会话与真 ``TaskRepository`` 行为分叉。"""
+
+    def __init__(self, session: Any) -> None:
+        self._session = session
+        self.lookups: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+    async def get(self, entity: Any, ident: Any, **kwargs: Any) -> Any:
+        if getattr(entity, "__name__", "") == "Task":
+            self.lookups.append(ident)
+        return await self._session.get(entity, ident, **kwargs)
+
+
+class _FailingSession(_RecordingSession):
+    """读取现有参数时报错（例如被别处回滚过的会话）。"""
+
+    async def get(self, entity: Any, ident: Any, **kwargs: Any) -> Any:
+        raise AppError(ErrorCode.TASK_NOT_FOUND, "任务不存在")
+
+
+async def _create_schema(engine) -> None:
+    async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
+
+
+@pytest.fixture
+def policy_db(tmp_path):
+    engine = make_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'policy-d1.db'}", poolclass=NullPool
+    )
+    asyncio.run(_create_schema(engine))
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    yield factory
+    engine.sync_engine.dispose()
+
+
+def _run_with_task(factory, task: Task | None, evaluate):
+    """在一条真会话里放好 pipeline/task 行，用 ``_RecordingSession`` 评估并回收结果。"""
+
+    async def scenario():
+        async with factory() as session:
+            if task is not None:
+                session.add(_pipeline_row(task.pipeline_id))
+                session.add(task)
+                await session.commit()
+            context = _context(CallerType.REST, db_session=_RecordingSession(session))
+            decision = await evaluate(context)
+            return decision, context.db_session.lookups
+
+    return asyncio.run(scenario())
+
+
+def _pipeline_row(pipeline_id: str) -> Pipeline:
+    return Pipeline(
+        id=pipeline_id,
+        source=PipelineSource.AGENT,
+        priority=Priority.AGENT,
+        status=PipelineStatus.RUNNING,
+        task_count=1,
+    )
+
+
+def _seed_task(**overrides) -> Task:
+    values = {
+        "id": "task-mall",
+        "pipeline_id": "pipeline-1",
+        "order_index": 0,
+        "type_name": "Mall",
+        "task_name": "获取信用及购物",
+        "params": {"shopping": True},
+        "status": "running",
+    }
+    values.update(overrides)
+    return Task(**values)
+
+
+@pytest.mark.parametrize(
+    ("task", "requires_confirmation"),
+    [
+        ({"name": "Mall"}, True),
+        ({"name": "Mall", "shopping": False}, False),
+        ({"name": "Roguelike"}, True),
+        ({"name": "Roguelike", "investment_enabled": False}, False),
+        ({"name": "Roguelike", "theme": "Sami", "mode": 5}, True),
+        ({"name": "Fight", "stage": "1-7", "series": 0}, False),
+        ({"name": "Fight", "stone": 0, "medicine": 0, "expiring_medicine": 0}, False),
+        ({"name": "Recruit", "times": 4}, False),
+        ({"name": "Award"}, False),
+    ],
+)
+def test_submit_pipeline_uses_kernel_defaults_for_omitted_risk_fields(
+    task, requires_confirmation
+) -> None:
+    """省略 `shopping` / `investment_enabled` 时内核收到默认 ``true``，必须确认（D1）。"""
+    create = PipelineCreate.model_validate({"tasks": [task]})
+    decision = _evaluate(_submit_definition(), create, _context(CallerType.REST))
+
+    assert decision.requires_confirmation is requires_confirmation
+    if requires_confirmation:
+        assert decision.risk == RiskLevel.CONSUME
+
+
+def test_submit_pipeline_reports_omitted_default_risk_values_as_reasons() -> None:
+    create = PipelineCreate.model_validate(
+        {"tasks": [{"name": "Mall"}, {"name": "Roguelike"}]}
+    )
+    decision = _evaluate(_submit_definition(), create, _context(CallerType.REST))
+
+    assert decision.reasons == (
+        "Mall.shopping=True",
+        "Roguelike.investment_enabled=True",
+    )
+
+
+def test_submit_pipeline_still_ignores_default_zero_count_fields() -> None:
+    """Fight 的三个计数字段默认 0，省略或显式 0 都不该弹确认（规格 §5.3 正反例）。"""
+    create = PipelineCreate.model_validate({"tasks": [{"name": "Fight", "stage": "1-7"}]})
+    decision = _evaluate(_submit_definition(), create, _context(CallerType.REST))
+
+    assert decision.requires_confirmation is False
+    assert decision.reasons == ()
+
+
+def test_submit_pipeline_keeps_non_risk_defaults_out_of_the_decision() -> None:
+    """``PipelineCreate`` 自身的默认值（``notify_on_finish=True``）不是 risk 字段。"""
+    create = PipelineCreate.model_validate({"tasks": [{"name": "StartUp"}]})
+    decision = _evaluate(_submit_definition(), create, _context(CallerType.REST))
+
+    assert decision.requires_confirmation is False
+
+
+@pytest.mark.parametrize(
+    ("task", "requires_confirmation", "reasons"),
+    [
+        ({"name": "Mall"}, True, ("Mall.shopping=True",)),
+        ({"name": "Mall", "shopping": False}, False, ()),
+        ({"name": "Roguelike"}, True, ("Roguelike.investment_enabled=True",)),
+        ({"name": "Fight", "stone": 0}, False, ()),
+        ({"name": "Fight", "stone": 2}, True, ("Fight.stone=2",)),
+    ],
+)
+def test_create_schedule_uses_kernel_defaults_for_omitted_risk_fields(
+    task, requires_confirmation, reasons
+) -> None:
+    params = _validated(
+        "create_schedule",
+        {"name": "daily", "cron": "0 4 * * *", "template": [task]},
+    )
+    decision = _evaluate(_schedule_definition(), params, _context(CallerType.REST))
+
+    assert decision.requires_confirmation is requires_confirmation
+    assert decision.reasons == reasons
+
+
+def test_update_schedule_uses_kernel_defaults_for_omitted_risk_fields() -> None:
+    params = _validated(
+        "update_schedule",
+        {
+            "schedule_id": "schedule-1",
+            "name": "daily",
+            "cron": "0 4 * * *",
+            "template": [{"name": "Roguelike", "theme": "Sami"}],
+        },
+    )
+    decision = _evaluate(
+        _schedule_definition("update_schedule"), params, _context(CallerType.REST)
+    )
+
+    assert decision.requires_confirmation is True
+    assert decision.risk == RiskLevel.CONSUME
+    assert decision.reasons == ("Roguelike.investment_enabled=True",)
+
+
+def test_set_task_params_without_database_context_fails_closed() -> None:
+    """拿不到现有参数时按含默认值的完整参数判断，宁可多确认（fail closed）。"""
+    params = _validated("set_task_params", {"task_id": "task-1", "params": {"times": 4}})
+    decision = _evaluate(_set_params_definition(), params, _context(CallerType.REST))
+
+    assert decision.requires_confirmation is True
+    assert decision.risk == RiskLevel.CONSUME
+
+
+def test_set_task_params_without_a_database_session_fails_closed() -> None:
+    params = _validated("set_task_params", {"task_id": "task-1", "params": {"times": 4}})
+    decision = _evaluate(
+        _set_params_definition(),
+        params,
+        _context(CallerType.INTERNAL, session_id="session-1"),
+    )
+
+    assert decision.requires_confirmation is True
+
+
+def test_set_task_params_reads_the_persisted_task_and_merges_the_patch(policy_db) -> None:
+    """patch 只有 ``times`` 时，现有参数里的 ``shopping=true`` 仍要弹确认（D1）。"""
+    params = _validated("set_task_params", {"task_id": "task-mall", "params": {"times": 4}})
+
+    decision, lookups = _run_with_task(
+        policy_db,
+        _seed_task(),
+        lambda context: PolicyEngine().evaluate(_set_params_definition(), params, context),
+    )
+
+    assert lookups == ["task-mall"]
+    assert decision.requires_confirmation is True
+    assert decision.risk == RiskLevel.CONSUME
+    assert decision.reasons == ("Mall.shopping=True",)
+
+
+def test_set_task_params_patch_overrides_the_persisted_value(policy_db) -> None:
+    """现有 ``shopping=true`` + 本次显式 ``false``：内核最终收到 false，不确认。"""
+    params = _validated(
+        "set_task_params", {"task_id": "task-mall", "params": {"shopping": False}}
+    )
+
+    decision, _lookups = _run_with_task(
+        policy_db,
+        _seed_task(),
+        lambda context: PolicyEngine().evaluate(_set_params_definition(), params, context),
+    )
+
+    assert decision.requires_confirmation is False
+    assert decision.reasons == ()
+
+
+def test_set_task_params_requires_confirmation_for_a_risk_field_in_the_patch(policy_db) -> None:
+    params = _validated("set_task_params", {"task_id": "task-fight", "params": {"stone": 2}})
+
+    decision, _lookups = _run_with_task(
+        policy_db,
+        _seed_task(
+            id="task-fight",
+            type_name="Fight",
+            task_name="刷理智",
+            params={"stage": "1-7", "stone": 0},
+        ),
+        lambda context: PolicyEngine().evaluate(_set_params_definition(), params, context),
+    )
+
+    assert decision.requires_confirmation is True
+    assert decision.reasons == ("Fight.stone=2",)
+
+
+def test_set_task_params_accepts_a_clean_patch_on_a_fight_task(policy_db) -> None:
+    """Fight 的计数字段默认 0：只改次数的运行中更新不该被误报。"""
+    params = _validated("set_task_params", {"task_id": "task-fight", "params": {"times": 7}})
+
+    decision, _lookups = _run_with_task(
+        policy_db,
+        _seed_task(
+            id="task-fight",
+            type_name="Fight",
+            task_name="刷理智",
+            params={"stage": "1-7", "stone": 0, "medicine": 0},
+        ),
+        lambda context: PolicyEngine().evaluate(_set_params_definition(), params, context),
+    )
+
+    assert decision.requires_confirmation is False
+    assert decision.reasons == ()
+
+
+def test_set_task_params_fails_closed_when_the_task_row_is_missing(policy_db) -> None:
+    params = _validated(
+        "set_task_params", {"task_id": "task-missing", "params": {"times": 4}}
+    )
+
+    decision, _lookups = _run_with_task(
+        policy_db,
+        None,
+        lambda context: PolicyEngine().evaluate(_set_params_definition(), params, context),
+    )
+
+    assert decision.requires_confirmation is True
+
+
+def test_set_task_params_fails_closed_when_the_row_read_fails(policy_db) -> None:
+    """读取现有参数报错时不能跳过判定，按保守策略要求确认。"""
+    params = _validated(
+        "set_task_params", {"task_id": "task-mall", "params": {"times": 4}}
+    )
+
+    async def evaluate(factory):
+        async with factory() as session:
+            context = _context(CallerType.REST, db_session=_FailingSession(session))
+            return await PolicyEngine().evaluate(_set_params_definition(), params, context)
+
+    decision = asyncio.run(evaluate(policy_db))
+
+    assert decision.requires_confirmation is True
+    assert decision.risk == RiskLevel.CONSUME
+
+
+def test_set_task_params_fails_closed_for_an_unmapped_task_type(policy_db) -> None:
+    """任务类型不在 schema 里（例如已下线类型）时，只能按 patch 保守判断。"""
+    params = _validated(
+        "set_task_params", {"task_id": "task-legacy", "params": {"times": 4}}
+    )
+
+    decision, _lookups = _run_with_task(
+        policy_db,
+        _seed_task(id="task-legacy", type_name="Legacy", task_name="旧任务"),
+        lambda context: PolicyEngine().evaluate(_set_params_definition(), params, context),
+    )
+
+    assert decision.requires_confirmation is True
+    assert decision.risk == RiskLevel.CONSUME
+
+
+def test_set_task_params_merges_an_omitted_mutable_flag_for_roguelike(policy_db) -> None:
+    """Roguelike 的 ``investment_enabled`` 默认 true：patch 不碰它时也要确认（D1）。"""
+    params = _validated("set_task_params", {"task_id": "task-rogue", "params": {"mode": 4}})
+
+    decision, _lookups = _run_with_task(
+        policy_db,
+        _seed_task(
+            id="task-rogue",
+            type_name="Roguelike",
+            task_name="自动肉鸽",
+            params={"theme": "Sami", "mode": 1},
+        ),
+        lambda context: PolicyEngine().evaluate(_set_params_definition(), params, context),
+    )
+
+    assert decision.requires_confirmation is True
+    assert decision.reasons == ("Roguelike.investment_enabled=True",)
+
+
+def test_set_task_params_does_not_confirm_when_the_patch_disables_the_flag(policy_db) -> None:
+    params = _validated(
+        "set_task_params",
+        {"task_id": "task-rogue", "params": {"investment_enabled": False}},
+    )
+
+    decision, _lookups = _run_with_task(
+        policy_db,
+        _seed_task(
+            id="task-rogue",
+            type_name="Roguelike",
+            task_name="自动肉鸽",
+            params={"theme": "Sami", "mode": 1},
+        ),
+        lambda context: PolicyEngine().evaluate(_set_params_definition(), params, context),
+    )
+
+    assert decision.requires_confirmation is False
+    assert decision.reasons == ()
+
+
+def test_internal_caller_gets_the_same_consumption_answer_as_rest() -> None:
+    """内部会话的确认判定与 REST 一致：只有原子操作才谈「会话授权」。"""
+    create = PipelineCreate.model_validate({"tasks": [{"name": "Mall"}]})
+    internal = _evaluate(
+        _submit_definition(),
+        create,
+        _context(CallerType.INTERNAL, session_id="session-1", db_session=object()),
+    )
+
+    assert internal.requires_confirmation is True
+    assert internal.risk == RiskLevel.CONSUME
+    assert internal.authorized_by is None
