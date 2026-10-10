@@ -419,7 +419,8 @@ def resolve_source(kind: str, settings: Settings | None = None) -> ResolvedSourc
     """把登记表与配置合成一个可用来源；被关闭时抛 `EXTERNAL_SOURCE_DISABLED`。
 
     总开关 `sources.enabled` 关掉等于所有来源不可用；来源自己的开关（如
-    `sources.prts_enabled`、`sources.penguin_enabled`）单独再判一次。
+    `sources.prts_enabled`、`sources.penguin_enabled`、`sources.copilot_site_enabled`）
+    单独再判一次，限流同样取各自配置的每分钟上限。
     """
     spec = get_spec(kind)
     settings = settings or get_settings()
@@ -442,6 +443,12 @@ def resolve_source(kind: str, settings: Settings | None = None) -> ResolvedSourc
             "企鹅物流数据源已关闭",
             {"kind": kind},
         )
+    if kind == "copilot_site" and not sources.copilot_site_enabled:
+        raise AppError(
+            ErrorCode.EXTERNAL_SOURCE_DISABLED,
+            "作业站数据源已关闭",
+            {"kind": kind},
+        )
     if kind in {"gamedata", "gamedata_github"} and not sources.gamedata_enabled:
         raise AppError(
             ErrorCode.EXTERNAL_SOURCE_DISABLED,
@@ -452,10 +459,12 @@ def resolve_source(kind: str, settings: Settings | None = None) -> ResolvedSourc
         rate = sources.prts_rate_per_minute
     elif kind == "penguin":
         rate = sources.penguin_rate_per_minute
+    elif kind == "copilot_site":
+        rate = sources.copilot_site_rate_per_minute
     elif kind in {"gamedata", "gamedata_github"}:
         rate = sources.gamedata_rate_per_minute
     else:
-        # 作业站（M29）暂时没有自己的开关与限流键：用登记表的默认值，只受总开关约束。
+        # 没有专属限流键的来源走登记表的默认值；目前登记表里的来源都有专属键。
         rate = spec.rate_per_minute
     proxy = settings.proxy if sources.use_proxy else ""
     return ResolvedSource(

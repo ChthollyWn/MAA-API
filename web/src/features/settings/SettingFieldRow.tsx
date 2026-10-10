@@ -22,6 +22,8 @@ import {
 /** schema 没有的补充说明。 */
 const FIELD_NOTES: Readonly<Record<string, string>> = {
   'agent.auto_diagnose_failures': '流水线失败或内核崩溃时，自动让 Agent 分析日志（默认开启）',
+  'sources.copilot_site_enabled': '关掉后作业站搜索与导入直接报「来源已关闭」，不影响 PRTS 与拆包数据',
+  'sources.copilot_site_rate_per_minute': '每分钟请求数上限，作业搜索与作业内容下载共用；改完立即生效',
 }
 
 const SEGMENTED_LIMIT = 3

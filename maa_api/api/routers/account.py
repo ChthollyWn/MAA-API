@@ -24,6 +24,7 @@ from maa_api.api.errors import error_responses
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.account.box import OperatorBoxService
 from maa_api.services.account.depot import DepotService
+from maa_api.services.account.plans import UpgradePlanService
 from maa_api.services.account.rules import (
     MAX_LEVEL,
     MAX_MASTERY_LEVEL,
@@ -46,6 +47,10 @@ WriteSource = Literal["manual", "agent"]
 MasteryKey = Annotated[str, StringConstraints(pattern=r"^[123]$")]
 #: 模组类型只能是 X / Y / D / A（规格 §7.5）。
 ModuleType = Annotated[str, StringConstraints(pattern=r"^[XYDA]$")]
+
+#: 养成计划的三态（规格 §7.7，落在 ``upgrade_plan.status``）；非法值由 FastAPI 挡成
+#: 422 ``VALIDATION_ERROR``，路由层不自己解析。
+PlanStatus = Literal["active", "completed", "cancelled"]
 
 
 class OperatorPatchRequest(BaseModel):
@@ -124,6 +129,32 @@ def _depot_service(request: Request) -> DepotService:
     if service is None:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "账号数据功能还在启动中，请稍后重试")
     return service
+
+
+def _plan_service(request: Request) -> UpgradePlanService:
+    """取 lifespan 装配的养成计划服务；键名约定同 :func:`_box_service`。
+
+    ``upgrade_plan_service`` 是 ``main.py`` 的装配名，``account_upgrade_plan_service``
+    是本路由文档里写的名字（测试自搭 app 常用）。
+    """
+    state = request.app.state
+    service = getattr(state, "upgrade_plan_service", None) or getattr(
+        state, "account_upgrade_plan_service", None
+    )
+    if service is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "养成计划功能还在启动中，请稍后重试")
+    return service
+
+
+async def _plan_wires(request: Request) -> list[dict[str, Any]]:
+    """全部计划的 wire 列表；``list_plans()`` 会顺带刷新进行中计划的进度。
+
+    服务层只提供 :meth:`UpgradePlanService.list_plans`（没有单条读取），所以单条读取
+    也走这里过滤，列表与单条的形状天然一致。
+    """
+    listing = await _plan_service(request).list_plans()
+    plans = listing.get("plans")
+    return list(plans) if isinstance(plans, list) else []
 
 
 @router.get(
@@ -298,3 +329,77 @@ async def list_account_depot(
     return await _depot_service(request).list_items(
         category=category, query=query, limit=limit, offset=offset
     )
+
+
+# ---------------------------------------------------------------------------
+# 养成计划（M31 补口，规格 §7.7）
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/upgrade-plans",
+    summary="列出养成计划",
+    description=(
+        "养成计划列表，`items` 的形状与 Agent 工具 `list_upgrade_plans` 一致。\n\n"
+        "- 顺带重算进行中计划的进度：`active` 且材料已齐的计划会在这里变成 `completed`\n"
+        "- `status` 只接受 `active` / `completed` / `cancelled`，缺省返回全部\n"
+        "- `total` 是筛选后的条数"
+    ),
+    responses=error_responses("VALIDATION_ERROR", "UNAUTHORIZED"),
+    dependencies=[Depends(require_auth)],
+)
+async def list_account_upgrade_plans(
+    request: Request,
+    status: PlanStatus | None = Query(
+        default=None, description="按状态筛选：active / completed / cancelled"
+    ),
+) -> dict[str, Any]:
+    plans = [
+        plan
+        for plan in await _plan_wires(request)
+        if status is None or plan.get("status") == status
+    ]
+    return {"items": plans, "total": len(plans)}
+
+
+@router.get(
+    "/upgrade-plans/{plan_id}",
+    summary="读取养成计划",
+    description=(
+        "按 `plan_id` 读一条养成计划，返回与列表 `items` 相同的形状。\n\n"
+        "- 计划不存在时 404 `UPGRADE_PLAN_NOT_FOUND`（与服务层同一个码）"
+    ),
+    responses=error_responses("UPGRADE_PLAN_NOT_FOUND", "UNAUTHORIZED"),
+    dependencies=[Depends(require_auth)],
+)
+async def get_account_upgrade_plan(
+    request: Request,
+    plan_id: str = Path(description="计划 id"),
+) -> dict[str, Any]:
+    for plan in await _plan_wires(request):
+        if str(plan.get("id")) == plan_id:
+            return plan
+    raise AppError(
+        ErrorCode.UPGRADE_PLAN_NOT_FOUND,
+        f"养成计划不存在：{plan_id}",
+        {"plan_id": plan_id},
+    )
+
+
+@router.delete(
+    "/upgrade-plans/{plan_id}",
+    summary="取消养成计划",
+    description=(
+        "取消一条养成计划，等价于 Agent 工具 `cancel_upgrade_plan`。\n\n"
+        "- 删除计划名下的每日定时任务；定时任务已经不在了也不报错\n"
+        "- 计划状态置为 `cancelled`，返回取消后的计划\n"
+        "- 计划不存在时 404 `UPGRADE_PLAN_NOT_FOUND`"
+    ),
+    responses=error_responses("UPGRADE_PLAN_NOT_FOUND", "UNAUTHORIZED"),
+    dependencies=[Depends(require_auth)],
+)
+async def cancel_account_upgrade_plan(
+    request: Request,
+    plan_id: str = Path(description="计划 id"),
+) -> dict[str, Any]:
+    return await _plan_service(request).cancel(plan_id)

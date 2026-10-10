@@ -1,6 +1,6 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 5815 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 5970 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
@@ -8,7 +8,7 @@
 | 粗体强调 | medium | 0 | 68 | 68 |
 | 绝对化规定腔 | medium | 0 | 65 | 65 |
 | 「A 而不是 B」对照腔 | high | 0 | 46 | 46 |
-| 破折号当冒号用 | high | 0 | 43 | 43 |
+| 破折号当冒号用 | high | 0 | 46 | 46 |
 | 自指式讲解腔 | medium | 0 | 10 | 10 |
 | 省略号 | medium | 0 | 7 | 7 |
 | 「…即可」机器腔 | medium | 0 | 4 | 4 |
@@ -53,17 +53,17 @@
 - `tests/agent/test_knowledge_service.py:1281` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
 - …… 另有 40 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 43）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 46）
 
 **开发向**
 
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
 - `tests/agent/test_knowledge_no_numbers.py:478` ``numbers_to_remove`` 里挑出来的真实数值片段 ``(来源, 片段)``。 复核报告这些字段是描述性短语，必须挑掉带注释（→、括号、分号）与不以数值为主体的 条目，只留下「数字 + 单位」或裸百分比形态的片段——它们必须…（共 142 字）
+- `tests/agent/test_policy_account_write.py:1` 养成计划确认卡片（M31 补口，规格 §7.7）：预演进 payload、冲突进 reasons。 M27 的确认卡片只有 ``summary`` / ``targets`` / ``run_times``，用户按下确认之前看不到 「会和现…（共 374 字）
+- `tests/agent/test_policy_account_write.py:148` 条目的字段缺一个就用另一边，全缺就跳过——不能让确认卡片多一行空话。
 - `tests/agent/test_runtime.py:3461` 规格 §5：批次中途中断后每个 ``tool_calls`` 都有对应 tool 消息。 中断点由测试控制：第一条 tool 消息落库之后、第二条之前挂住这一轮，正好落在 「补历史」的中间窗口上——这是最容易补重复或漏补的一条路径。
 - `tests/agent/test_runtime.py:3953` 轮次失败要留下两样东西：日志里的一行，和会话里的一条说明。 2026-10-09 的实况是两样都没有：用户消息已经落库，回复与错误原因都没留下，用户 第二天只能问「Agent 怎么又不好使了」，而服务端一个字都查不到——`AppError`…（共 147 字）
-- `tests/agent/test_runtime.py:4054` 一次瞬时抖动不能让整个进程永久「能力不足」。 旧实现无条件缓存探查结果：探测失败一次，之后每一轮都在几秒内报「当前模型未通过 function calling 能力检查」，只有重启服务才恢复——用户看到的就是「Agent 又用不了 了，重启…（共 172 字）
-- `tests/agent/test_stage_level_tool.py:1` `get_stage_level_data` 工具（规格 §9.3）：注册元数据、参数校验与 handler。 `agent/tools/__init__.py` 由主 agent 统一装配（M29 期间并行任务同时改工具目录），所以这里 …（共 247 字）
-- …… 另有 37 条，见 inventory.json
+- …… 另有 40 条，见 inventory.json
 
 ## 自指式讲解腔（medium｜用户可见 0 / 开发向 10）
 

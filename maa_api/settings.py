@@ -102,6 +102,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "sources.penguin_enabled": ("sources", "penguin_enabled"),
     "sources.penguin_host": ("sources", "penguin_host"),
     "sources.penguin_rate_per_minute": ("sources", "penguin_rate_per_minute"),
+    # M29 作业站（prts.maa.plus，规格 §9.5、附录 B）：开关与每分钟请求上限。
+    "sources.copilot_site_enabled": ("sources", "copilot_site_enabled"),
+    "sources.copilot_site_rate_per_minute": ("sources", "copilot_site_rate_per_minute"),
     # M29 拆包数据（规格 §9.3、附录 B）。
     "sources.gamedata_enabled": ("sources", "gamedata_enabled"),
     "sources.gamedata_rate_per_minute": ("sources", "gamedata_rate_per_minute"),
@@ -215,7 +218,8 @@ class SourcesSettings(BaseModel):
     """外部数据源（M25，规格 §3.2、§4.6、附录 B）。
 
     访问层每次请求现读这个段（全部 ``hot_action="none"``），所以改开关或限流立即生效。
-    M25 只登记 PRTS 相关键与公共键；企鹅物流、作业站、拆包数据的键在各自的里程碑加。
+    M25 只登记 PRTS 相关键与公共键，企鹅物流（M26）、作业站与拆包数据（M29）的键
+    在各自的里程碑加。
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -243,6 +247,10 @@ class SourcesSettings(BaseModel):
     penguin_enabled: bool = True
     penguin_host: Literal["penguin-stats.io", "penguin-stats.cn"] = "penguin-stats.io"
     penguin_rate_per_minute: int = Field(default=10, ge=1, le=60)
+    #: M29 作业站（``prts.maa.plus``，附录 B）。关掉后作业搜索与导入直接报来源已关闭；
+    #: 改开关或限流立即生效（与其它来源一样每次请求现读）。
+    copilot_site_enabled: bool = True
+    copilot_site_rate_per_minute: int = Field(default=20, ge=1, le=60)
 
 
 class AgentSettings(BaseModel):

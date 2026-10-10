@@ -426,6 +426,22 @@ class _SolveOutcome:
     warning: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _SolveResult:
+    """``_solve`` 的产物：``plan`` 与 ``plan_needs`` 共用同一段求解。"""
+
+    options: list[_StageOption]
+    stages: list[dict[str, Any]]
+    synthesis: list[dict[str, Any]]
+    total_sanity: int
+    surplus: dict[str, int]
+    unobtainable: list[dict[str, Any]]
+    allowed: set[str]
+    synthesis_lmd: int
+    feasible: bool
+    has_recipes: bool
+
+
 # --------------------------------------------------------------------------- #
 # 目标 → 增量材料
 # --------------------------------------------------------------------------- #
@@ -981,84 +997,19 @@ class UpgradePlanner:
             )
         farm_needs = {key: value for key, value in needs.items() if key not in report_only}
 
-        recipes, meta, closure_notes = await self._load_recipes(
-            list(farm_needs), display=display
+        solved = await self._solve(
+            farm_needs, depot=depot, display=display, server_name=server_name, notes=notes
         )
-        notes.extend(closure_notes)
-
-        universe = set(farm_needs)
-        for recipe in recipes.values():
-            universe.add(recipe.product)
-            universe.update(key for key, _ in recipe.materials)
-        for key in universe:
-            display.setdefault(key, key)
-
-        rates, status = await self._load_rates(sorted(universe), display=display,
-                                               server=server_name, notes=notes)
-        stages, stage_notes = self._candidate_stages(rates, display=display)
-        notes.extend(stage_notes)
-        covered = {key for stage in stages for key in stage.rates}
-        for key, rows in rates.items():
-            if rows and key not in covered and key not in status:
-                status[key] = (
-                    "掉率行都不满足候选条件（关卡开放、理智消耗 > 0、样本数 ≥ "
-                    f"{MIN_SAMPLE}、MAA 能导航）"
-                )
-
-        has_stage: dict[str, bool] = {}
-        for stage in stages:
-            for key in stage.rates:
-                has_stage[key] = True
-
-        rows, usable_recipes, unsatisfied = _supply_analysis(
-            needs=farm_needs,
-            depot=depot,
-            has_stage=has_stage,
-            recipes=list(recipes.values()),
-        )
-        outcome = _solve_allocation(
-            rows=rows,
-            stages=stages,
-            recipes=usable_recipes,
-            needs=farm_needs,
-            depot=depot,
-        )
-        if outcome.status is not None:
-            notes.append(outcome.status)
-        if outcome.warning is not None:
-            notes.append(outcome.warning)
-
-        allowed = set(rows)
-        stage_rows, total_sanity, surplus = self._render_stages(
-            stages, outcome.runs, allowed=allowed, needs=farm_needs, depot=depot,
-            recipes=usable_recipes, counts=outcome.counts, display=display,
-        )
-        synthesis = self._render_synthesis(
-            usable_recipes, outcome.counts, display=display, depot=depot
-        )
-        synthesis_lmd = sum(row["lmd_total"] for row in synthesis)
-
-        unobtainable = self._render_unobtainable(
-            unsatisfied, needs=farm_needs, depot=depot, display=display,
-            meta=meta, status=status,
-        )
-        if unobtainable:
-            notes.append(
-                "有材料无法只靠刷关与合成凑齐：见 unobtainable 的缺口与获取提示；"
-                "其余材料已按可用途径规划"
-            )
-        if outcome.status is not None:
-            stage_rows = []
-            synthesis = []
-            synthesis_lmd = 0
-            total_sanity = 0
-            surplus = {}
-
-        feasible = not unobtainable and outcome.status is None
+        stage_rows = solved.stages
+        synthesis = solved.synthesis
+        total_sanity = solved.total_sanity
+        surplus = solved.surplus
+        unobtainable = solved.unobtainable
+        synthesis_lmd = solved.synthesis_lmd
         requirements = {
             display.get(key, key): amount for key, amount in needs.items() if amount
         }
-        notes.extend(self._data_notes(server_name, stages, allowed=allowed))
+        notes.extend(self._data_notes(server_name, solved.options, allowed=solved.allowed))
         if not use_depot:
             notes.append("use_depot=False：没有用仓库库存抵扣")
         # M29：升级经验与龙门币已接入拆包常量表（规格 §7.6 第 10 条）。
@@ -1075,7 +1026,7 @@ class UpgradePlanner:
                 "未计入升级所需的经验与龙门币（拆包常量表不可用或没有可升的级）；"
                 "精英化、技能、专精与模组消耗的龙门币已计入需求"
             )
-        if recipes:
+        if solved.has_recipes:
             notes.append(
                 "合成按 PRTS 材料页的加工站配方（需求闭包递归取），副产物不计（保守），"
                 "合成消耗的龙门币单列在 synthesis"
@@ -1091,10 +1042,179 @@ class UpgradePlanner:
             surplus=surplus,
             unobtainable=tuple(unobtainable),
             notes=tuple(dict.fromkeys(notes)),
-            feasible=feasible,
+            feasible=solved.feasible,
             total_runs=sum(row["runs"] for row in stage_rows),
             synthesis_lmd=synthesis_lmd,
             server=server_name,
+        )
+
+    async def plan_needs(
+        self,
+        needs: Mapping[str, int],
+        *,
+        server: str | None = None,
+        display: Mapping[str, str] | None = None,
+    ) -> UpgradePlan:
+        """按「还缺多少材料」重算规划（规格 §7.7：计划流水线结束后重算剩余场次）。
+
+        与 :meth:`plan` 只差入口：``needs`` 已经是净需求（需求 − 当前仓库，
+        由调用方扣好），这里不重算目标增量、也不再扣一次仓库；``display`` 给的
+        是材料显示名（:class:`UpgradePlan` 的 ``requirements`` 键就是它），
+        缺省时直接用 ``needs`` 的键。继续走「配方闭包 → 掉率 → 候选关 → 线性
+        规划」，掉率按 ``include_closed=False`` 取，所以已关闭的关卡天然被剔除。
+        """
+        settings = self._settings_provider()
+        default_server = getattr(getattr(settings, "channel", None), "server", None) or "CN"
+        server_name = str(server or default_server).upper()
+
+        names: dict[str, str] = {}
+        for raw_key, raw_name in (display or {}).items():
+            names[_key(str(raw_key))] = str(raw_name)
+
+        notes: list[str] = []
+        farm_needs: dict[str, int] = {}
+        for raw_name, raw_amount in (needs or {}).items():
+            try:
+                amount = int(raw_amount)
+            except (TypeError, ValueError):
+                continue
+            if amount <= 0:
+                continue
+            name = str(raw_name)
+            names.setdefault(_key(name), name)
+            key = _key(name)
+            farm_needs[key] = farm_needs.get(key, 0) + amount
+
+        report_only = {key for key in farm_needs if _is_report_only(names.get(key, key))}
+        if report_only:
+            notes.append(
+                "龙门币与作战记录只报需求、不参与刷关规划（仓库识别不含这两项，规格 §7.3）"
+            )
+            farm_needs = {
+                key: value for key, value in farm_needs.items() if key not in report_only
+            }
+        if not farm_needs:
+            notes.append("没有剩余需求：不需要刷关")
+            return UpgradePlan(notes=tuple(notes), server=server_name)
+
+        solved = await self._solve(
+            farm_needs, depot={}, display=names, server_name=server_name, notes=notes
+        )
+        notes.extend(self._data_notes(server_name, solved.options, allowed=solved.allowed))
+        return UpgradePlan(
+            requirements={names.get(key, key): amount for key, amount in farm_needs.items()},
+            stages=tuple(solved.stages),
+            synthesis=tuple(solved.synthesis),
+            total_sanity=solved.total_sanity,
+            days_estimated=round(solved.total_sanity / SANITY_PER_DAY, 2),
+            surplus=solved.surplus,
+            unobtainable=tuple(solved.unobtainable),
+            notes=tuple(dict.fromkeys(notes)),
+            feasible=solved.feasible,
+            total_runs=sum(row["runs"] for row in solved.stages),
+            synthesis_lmd=solved.synthesis_lmd,
+            server=server_name,
+        )
+
+    async def _solve(
+        self,
+        farm_needs: Mapping[str, int],
+        *,
+        depot: Mapping[str, int],
+        display: dict[str, str],
+        server_name: str,
+        notes: list[str],
+    ) -> _SolveResult:
+        """把「净需求 + 仓库」解成关卡与场次；``plan`` 与 ``plan_needs`` 共用。
+
+        只依赖 ``farm_needs``（已归一并扣过仓库），不重算目标增量；``display``
+        缺的键补成键本身，``notes`` 就地追加解释。
+        """
+        recipes, meta, closure_notes = await self._load_recipes(
+            list(farm_needs), display=display
+        )
+        notes.extend(closure_notes)
+
+        universe = set(farm_needs)
+        for recipe in recipes.values():
+            universe.add(recipe.product)
+            universe.update(key for key, _ in recipe.materials)
+        for key in universe:
+            display.setdefault(key, key)
+
+        rates, status = await self._load_rates(sorted(universe), display=display,
+                                               server=server_name, notes=notes)
+        options, stage_notes = self._candidate_stages(rates, display=display)
+        notes.extend(stage_notes)
+        covered = {key for stage in options for key in stage.rates}
+        for key, rows in rates.items():
+            if rows and key not in covered and key not in status:
+                status[key] = (
+                    "掉率行都不满足候选条件（关卡开放、理智消耗 > 0、样本数 ≥ "
+                    f"{MIN_SAMPLE}、MAA 能导航）"
+                )
+
+        has_stage: dict[str, bool] = {}
+        for stage in options:
+            for key in stage.rates:
+                has_stage[key] = True
+
+        rows, usable_recipes, unsatisfied = _supply_analysis(
+            needs=farm_needs,
+            depot=depot,
+            has_stage=has_stage,
+            recipes=list(recipes.values()),
+        )
+        outcome = _solve_allocation(
+            rows=rows,
+            stages=options,
+            recipes=usable_recipes,
+            needs=farm_needs,
+            depot=depot,
+        )
+        if outcome.status is not None:
+            notes.append(outcome.status)
+        if outcome.warning is not None:
+            notes.append(outcome.warning)
+
+        allowed = set(rows)
+        stage_rows, total_sanity, surplus = self._render_stages(
+            options, outcome.runs, allowed=allowed, needs=farm_needs, depot=depot,
+            recipes=usable_recipes, counts=outcome.counts, display=display,
+        )
+        synthesis = self._render_synthesis(
+            usable_recipes, outcome.counts, display=display, depot=depot
+        )
+        synthesis_lmd = sum(row["lmd_total"] for row in synthesis)
+
+        unobtainable = self._render_unobtainable(
+            unsatisfied, needs=farm_needs, depot=depot, display=display,
+            meta=meta, status=status,
+        )
+        if unobtainable:
+            notes.append(
+                "有材料无法只靠刷关与合成凑齐：见 unobtainable 的缺口与获取提示；"
+                "其余材料已按可用途径规划"
+            )
+        feasible = not unobtainable and outcome.status is None
+        if outcome.status is not None:
+            stage_rows = []
+            synthesis = []
+            synthesis_lmd = 0
+            total_sanity = 0
+            surplus = {}
+
+        return _SolveResult(
+            options=options,
+            stages=stage_rows,
+            synthesis=synthesis,
+            total_sanity=total_sanity,
+            surplus=surplus,
+            unobtainable=unobtainable,
+            allowed=allowed,
+            synthesis_lmd=synthesis_lmd,
+            feasible=feasible,
+            has_recipes=bool(recipes),
         )
 
     # -- 目标 -------------------------------------------------------------

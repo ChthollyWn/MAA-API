@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { ErrorState, LoadingState } from '@/components/ui/states'
+import { AccountActionDetails, isAccountTool } from '@/features/agent/ConfirmationCard'
 import { cn } from '@/lib/utils'
 
 export interface Confirmation {
@@ -213,12 +214,22 @@ export function ConfirmationsPanel({ showHeading = true, emptyFallback = null }:
                     授权目标会话：<code className="break-all rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.8125rem]">{grantSessionId ?? '无法识别目标会话'}</code>。批准后，该会话获得 {grantWindow > 0 ? `${Math.floor(grantWindow / 60)} 分钟` : '限时'}授权；点击、滑动、长按、输入和按键操作都会记入审计。
                   </p>
                 ) : null}
-                <details className="group rounded-lg bg-surface-2/70">
-                  <summary className="flex min-h-10 list-none items-center px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">查看操作参数</summary>
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border-t border-border/70 px-3 py-2 font-mono text-xs leading-5">
-                    {JSON.stringify(item.payload.arguments ?? {}, null, 2)}
-                  </pre>
-                </details>
+                {isAccountTool(item.payload.tool_name ?? item.action) ? (
+                  // 账号数据类动作（§7.4、§7.7）与确认卡片共用同一份结构化明细，不展开成 JSON。
+                  // `reason` 已经显示在上一行，冲突提示撞车时明细里不再重复一遍。
+                  <AccountActionDetails
+                    payload={item.payload}
+                    toolName={item.payload.tool_name ?? item.action}
+                    reason={item.reason}
+                  />
+                ) : (
+                  <details className="group rounded-lg bg-surface-2/70">
+                    <summary className="flex min-h-10 list-none items-center px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">查看操作参数</summary>
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border-t border-border/70 px-3 py-2 font-mono text-xs leading-5">
+                      {JSON.stringify(item.payload.arguments ?? {}, null, 2)}
+                    </pre>
+                  </details>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2 border-t bg-surface-2/40 p-3">
                 <Button

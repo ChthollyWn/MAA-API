@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -19,6 +19,12 @@ from maa_api.domain.task import RISK_FIELDS, TASK_MODELS
 
 DEFAULT_ATOMIC_GRANT_MINUTES = 15
 MAX_ATOMIC_GRANT_MINUTES = 60
+
+#: 计划预演失败时写进确认 payload 的短字符串上限（规格 §7.7：失败只降级，不挡确认）。
+PLAN_PREVIEW_ERROR_LIMIT = 200
+#: 计划预演的提供者，形状与 ``UpgradePlanService.preview`` 一致：
+#: ``await provider(name=..., targets=..., run_times=..., context=...)``。
+PlanPreviewProvider = Callable[..., Awaitable[Mapping[str, Any]]]
 
 #: 运行中改参数时无法确定任务类型与现有参数（拿不到持久化行）时的确认理由。
 CONSUMPTION_UNDETERMINED_REASON = (
@@ -56,6 +62,40 @@ _CONSUMPTION_FIELD_NAMES = frozenset(
     field for fields in RISK_FIELDS.values() for field in fields
 )
 
+#: 预演里的冲突提示前缀（规格 §7.7 末条：确认卡片要提示与现有定时任务争抢理智）。
+CONFLICT_REASON_PREFIX = "与现有定时任务争抢理智："
+
+
+def _conflict_reasons(preview: Mapping[str, Any]) -> list[str]:
+    """预演结果里的定时任务冲突 → 确认理由（最多合成一条）。
+
+    冲突条目是服务层 ``_conflicting_schedules`` 的形状 ``{"schedule_id", "name"}``；
+    多条用「、」连成一行，字段缺一个时降级成另一边，全缺就跳过这条冲突。
+    """
+    conflicts = preview.get("conflicts")
+    if not isinstance(conflicts, list):
+        return []
+    labels: list[str] = []
+    for item in conflicts:
+        if isinstance(item, Mapping):
+            name = str(item.get("name") or "").strip()
+            schedule_id = str(item.get("schedule_id") or "").strip()
+        else:
+            name, schedule_id = str(item).strip(), ""
+        if name and schedule_id:
+            labels.append(f"{name}（{schedule_id}）")
+        elif name or schedule_id:
+            labels.append(name or schedule_id)
+    if not labels:
+        return []
+    return [f"{CONFLICT_REASON_PREFIX}{'、'.join(labels)}"]
+
+
+def _preview_error_text(exc: BaseException) -> str:
+    """预演异常 → 确认 payload 里的短字符串（没有消息时退回异常类名）。"""
+    text = str(exc).strip() or exc.__class__.__name__
+    return text[:PLAN_PREVIEW_ERROR_LIMIT]
+
 
 @dataclass(frozen=True, slots=True)
 class PolicyDecision:
@@ -74,7 +114,12 @@ class PolicyDecision:
 class PolicyEngine:
     """Evaluate tool risk against arguments and persisted internal-session grants."""
 
-    def __init__(self, *, atomic_grant_minutes: int = DEFAULT_ATOMIC_GRANT_MINUTES):
+    def __init__(
+        self,
+        *,
+        atomic_grant_minutes: int = DEFAULT_ATOMIC_GRANT_MINUTES,
+        plan_preview: PlanPreviewProvider | None = None,
+    ):
         if isinstance(atomic_grant_minutes, bool) or not isinstance(
             atomic_grant_minutes, int
         ):
@@ -83,7 +128,12 @@ class PolicyEngine:
             raise ValueError(
                 f"atomic_grant_minutes must be between 1 and {MAX_ATOMIC_GRANT_MINUTES}"
             )
+        if plan_preview is not None and not callable(plan_preview):
+            raise TypeError("plan_preview must be a callable")
         self.atomic_grant_minutes = atomic_grant_minutes
+        #: 可选的计划预演提供者（`UpgradePlanService.preview`）；None 时确认卡片
+        #: 与 M27 一致，不含 `preview` / `preview_error`。
+        self.plan_preview = plan_preview
 
     async def evaluate(
         self,
@@ -222,7 +272,7 @@ class PolicyEngine:
         看见差异）；读不到当前值时只列目标值，不因为读失败而跳过确认。
         """
         value = _as_json_value(arguments, exclude_unset=False)
-        payload: Mapping[str, Any] | None = None
+        payload: dict[str, Any] | None = None
         if name == "update_operator_box" and isinstance(value, Mapping):
             changes = value.get("changes")
             count = len(changes) if isinstance(changes, list) else 0
@@ -267,10 +317,19 @@ class PolicyEngine:
                 "targets": targets if isinstance(targets, list) else [],
                 "run_times": times if isinstance(times, list) else [],
             }
+            reasons = [summary]
+            preview, preview_error = await self._plan_preview(value, context)
+            if preview is not None:
+                payload["preview"] = dict(preview)
+                # 规格 §7.7 末条：确认时就告诉用户会和哪些定时任务争抢理智。
+                reasons.extend(_conflict_reasons(preview))
+            elif preview_error is not None:
+                # 预演拿不到只是卡片少一段内容，确认照弹（风险与确认频率都不变）。
+                payload["preview_error"] = preview_error
             return PolicyDecision(
                 True,
                 RiskLevel.NONE,
-                reasons=(summary,),
+                reasons=tuple(reasons),
                 confirmation_action=name,
                 extra_payload=payload,
             )
@@ -280,6 +339,38 @@ class PolicyEngine:
             reasons=(f"{name} 需要人工确认",),
             confirmation_action=name,
         )
+
+    async def _plan_preview(
+        self, value: Mapping[str, Any], context: ToolContext
+    ) -> tuple[Mapping[str, Any] | None, str | None]:
+        """问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。
+
+        提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用，
+        与 :meth:`~maa_api.services.account.plans.UpgradePlanService.preview` 同签名，
+        装配时可以直接注入服务方法。没有注入提供者、参数不齐、返回值不是映射、
+        提供者抛异常——四种情况都只是「拿不到预演」，绝不拦下这次确认。
+        """
+        provider = self.plan_preview
+        if provider is None:
+            return None, None
+        name = value.get("name")
+        targets = value.get("targets")
+        run_times = value.get("run_times")
+        if not isinstance(name, str) or not name.strip():
+            return None, None
+        if not isinstance(targets, list) or not targets:
+            return None, None
+        if not isinstance(run_times, list) or not run_times:
+            return None, None
+        try:
+            preview = await provider(
+                name=name, targets=targets, run_times=run_times, context=context
+            )
+        except Exception as exc:  # noqa: BLE001 - 预演失败只降级，不拦确认
+            return None, _preview_error_text(exc)
+        if not isinstance(preview, Mapping):
+            return None, f"计划预演返回的不是映射：{type(preview).__name__}"
+        return preview, None
 
     async def _evaluate_atomic(
         self, definition: ToolDefinition, context: ToolContext

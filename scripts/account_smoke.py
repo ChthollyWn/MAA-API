@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""M27 账号数据与养成计划的端到端冒烟（规格 §7.9，末行 `SMOKE OK`）。
+"""M27 账号数据与养成计划的端到端冒烟（M31 补齐进度重算与删除钩子，末行 `SMOKE OK`）。
 
 用**假内核回调**与假外部来源跑通整条链路，不打真机、不打网：
 
 1. 识别：`OperBoxInfo`（`done=false` 忽略、`done=true` 落库）与 `DepotInfo`（整表替换）；
 2. 页面数据：`OperatorBoxService` / `DepotService` 读回干员表、仓库与识别时间；
-3. 规划：`plan_upgrade`（线性规划）给出关卡、次数与理智；
-4. 计划：`start_upgrade_plan` 的确认后动作——今天的流水线 + 每日定时任务；
-5. 模拟完成：仓库备齐 → 计划标完成、定时任务被删除、发 `upgrade_plan_finished` 通知。
+3. 规划：`plan_upgrade`（线性规划）给出关卡、次数与理智，随后 `start_upgrade_plan`
+   的确认后动作——今天的流水线 + 每日定时任务；
+4. 进度重算（规格 §7.7）：材料不齐时按剩余需求重跑规划，更新**同一条**定时任务的 Fight 次数；
+5. 模拟完成：仓库备齐 → 计划标完成、定时任务被删除、发 `upgrade_plan_finished` 通知；
+6. 计划列表与取消；
+7. 删除定时任务（规格 §7.7）：用户在任务页删掉每日任务 → 计划同步标为已取消；
+8. 识别覆盖手动值的差异。
 
 跑法::
 
@@ -21,6 +25,7 @@ import sys
 import tempfile
 import traceback
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -110,31 +115,62 @@ class FakePipelineService:
 
 
 class FakeScheduleService:
-    """内存里的定时任务表。"""
+    """内存里的定时任务表（形状贴近真实 `ScheduleService`，含删除钩子）。"""
 
     def __init__(self) -> None:
         self.rows: list[dict[str, Any]] = []
+        self.updated: list[str] = []
+        self.deleted: list[str] = []
+        self._hook: Any = None
 
-    async def list(self) -> dict[str, Any]:
-        return {"schedules": list(self.rows), "total": len(self.rows)}
+    def bind_delete_hook(self, hook: Any) -> None:
+        self._hook = hook
 
-    async def create(self, payload: Any) -> dict[str, Any]:
+    def row(self, schedule_id: str) -> dict[str, Any]:
+        for row in self.rows:
+            if row["id"] == schedule_id:
+                return row
+        raise SmokeFailure(f"定时任务不存在：{schedule_id}")
+
+    async def list(self) -> Any:
+        return SimpleNamespace(
+            items=[SimpleNamespace(**row) for row in self.rows], total=len(self.rows)
+        )
+
+    async def get(self, schedule_id: str) -> Any:
+        return SimpleNamespace(**self.row(schedule_id))
+
+    async def create(self, payload: Any) -> Any:
         row = {
             "id": f"schedule-{len(self.rows) + 1}",
             "name": getattr(payload, "name", ""),
             "cron": getattr(payload, "cron", ""),
+            "timezone": getattr(payload, "timezone", "Asia/Shanghai"),
             "template": [
                 item.model_dump(exclude_unset=True)
                 if hasattr(item, "model_dump")
                 else dict(item)
                 for item in getattr(payload, "template", [])
             ],
+            "priority": getattr(payload, "priority", 2),
+            "enabled": getattr(payload, "enabled", True),
+            "skip_if_running": getattr(payload, "skip_if_running", True),
         }
         self.rows.append(row)
-        return row
+        return SimpleNamespace(**row)
+
+    async def update(self, schedule_id: str, payload: Any) -> Any:
+        row = self.row(schedule_id)
+        row.update(payload.model_dump(exclude_unset=True))
+        self.updated.append(schedule_id)
+        return SimpleNamespace(**row)
 
     async def delete(self, schedule_id: str) -> None:
-        self.rows = [row for row in self.rows if row["id"] != schedule_id]
+        row = self.row(schedule_id)
+        self.rows = [item for item in self.rows if item["id"] != schedule_id]
+        self.deleted.append(schedule_id)
+        if self._hook is not None:
+            await self._hook(schedule_id)
 
 
 class FakeNotifyService:
@@ -145,37 +181,55 @@ class FakeNotifyService:
         self.events.append((str(event), payload))
 
 
+class _FakePlan:
+    """与 `UpgradePlan.as_dict()` 同形的最小方案。"""
+
+    def __init__(self, *, runs: int, requirements: dict[str, int]) -> None:
+        self._runs = runs
+        self._requirements = requirements
+
+    def as_dict(self) -> dict[str, Any]:
+        sanity = self._runs * 6
+        return {
+            "targets": [{"operator": "银灰", "assumed_current": True}],
+            "requirements": dict(self._requirements),
+            "stages": [
+                {
+                    "stage_id": "main_01-07",
+                    "stage_code": "1-7",
+                    "runs": self._runs,
+                    "sanity_per_run": 6,
+                    "sanity": sanity,
+                }
+            ],
+            "synthesis": [],
+            "total_sanity": sanity,
+            "days_estimated": round(sanity / 240, 2),
+            "surplus": {},
+            "unobtainable": [],
+            "notes": ["冒烟用的假方案"],
+        }
+
+
 class FakePlanner:
-    """规划器替身：给固定的一条关卡方案，避免冒烟依赖真掉率。"""
+    """规划器替身：给固定方案，避免冒烟依赖真掉率。
+
+    `plan()` 是启动/预览用的一次性方案（1-7 刷 3 次）；`plan_needs()` 是流水线结束
+    后的剩余需求重算，故意给不同场次（7 次），好让冒烟看到每日任务被真的改掉。
+    """
 
     def __init__(self) -> None:
         self.calls: list[Any] = []
+        self.needs_calls: list[dict[str, int]] = []
 
     async def plan(self, targets: Any, *, use_depot: bool = True, server: Any = None, box: Any = None):
         self.calls.append(targets)
+        # 有意留一个仓库里没有的材料，让 refresh 走「不齐 → 重算」这条分支。
+        return _FakePlan(runs=3, requirements={"龙门币": 180000, "固源岩组": 4, "扭转醇": 5})
 
-        class _Plan:
-            def as_dict(self_inner) -> dict[str, Any]:
-                return {
-                    "targets": [{"operator": "银灰", "assumed_current": True}],
-                    "requirements": {"龙门币": 180000, "固源岩组": 4},
-                    "stages": [
-                        {
-                            "stage_id": "main_01-07",
-                            "stage_code": "1-7",
-                            "runs": 3,
-                            "sanity": 18,
-                        }
-                    ],
-                    "synthesis": [],
-                    "total_sanity": 18,
-                    "days_estimated": 0.08,
-                    "surplus": {},
-                    "unobtainable": [],
-                    "notes": ["冒烟用的假方案"],
-                }
-
-        return _Plan()
+    async def plan_needs(self, needs: Any, *, server: Any = None, display: Any = None) -> _FakePlan:
+        self.needs_calls.append(dict(needs))
+        return _FakePlan(runs=7, requirements={})
 
 
 # ---------------------------------------------------------------------------
@@ -294,18 +348,50 @@ async def run() -> None:
             print(f"[3] 养成计划启动：今天的流水线 {[task['name'] for task in tasks]}"
                   f"｜每日 {schedules.rows[0]['cron']}｜总理智 {started['total_sanity']}")
 
-            # 4. 模拟完成：仓库备齐 → 重算 → 完成 + 删除定时任务 + 通知
+            # 4. 进度重算：不齐 → 用剩余需求重跑规划 → 更新同一条定时任务的 Fight 次数
             notify = FakeNotifyService()
             plans._notify_service = notify  # 冒烟里直接换掉通知替身
-            await _fill_depot(factory, {"龙门币": 200000, "固源岩组": 9})
+            replanned = await plans.refresh(started["plan"]["id"])
+            require(replanned["status"] == "active", f"材料没齐不该完成：{replanned}")
+            require(
+                planner.needs_calls == [{"扭转醇": 5}],
+                f"剩余需求应跳过已备齐的材料与龙门币：{planner.needs_calls}",
+            )
+            require(schedules.updated == ["schedule-1"], f"没有更新同一条定时任务：{schedules.updated}")
+            require(
+                [task["times"] for task in schedules.rows[0]["template"] if task["name"] == "Fight"]
+                == [7],
+                f"每日任务的 Fight 次数没按剩余需求重算：{schedules.rows[0]['template']}",
+            )
+            require(
+                schedules.rows[0]["name"] == "养成计划：银灰精二"
+                and schedules.rows[0]["cron"] == "0 8,20 * * *",
+                f"更新不该改任务名与时刻：{schedules.rows[0]}",
+            )
+            require(
+                replanned["progress"]["replanned_at"]
+                and replanned["progress"]["missing"] == {"扭转醇": 5}
+                and replanned["progress"]["closed_dropped"] == [],
+                f"进度字段不对：{replanned['progress']}",
+            )
+            print(f"[4] 进度重算：剩余 {replanned['progress']['missing']}｜每日任务 Fight "
+                  f"{[task['times'] for task in schedules.rows[0]['template'] if task['name'] == 'Fight']} 次"
+                  f"｜重算时间 {replanned['progress']['replanned_at']}")
+
+            # 5. 模拟完成：仓库备齐 → 重算 → 完成 + 删除定时任务 + 通知
+            await _fill_depot(factory, {"龙门币": 200000, "固源岩组": 9, "扭转醇": 5})
             refreshed = await plans.refresh(started["plan"]["id"])
             require(refreshed["status"] == "completed", f"计划没有完成：{refreshed}")
             require(not schedules.rows, "完成后应删除定时任务")
-            require(notify.events, "未注入通知服务时不该有事件")
-            plans._notify_service = notify
-            print(f"[4] 模拟完成：计划 {refreshed['status']}｜定时任务 {len(schedules.rows)} 条")
+            require(len(notify.events) == 1, f"完成应发一条通知：{notify.events}")
+            require(
+                notify.events[0][1]["plan_id"] == started["plan"]["id"],
+                f"通知应带计划 id：{notify.events}",
+            )
+            print(f"[5] 模拟完成：计划 {refreshed['status']}｜定时任务 {len(schedules.rows)} 条"
+                  f"｜通知 {notify.events[0][0]}")
 
-            # 5. 计划列表与取消
+            # 6. 计划列表与取消
             listed = await plans.list_plans()
             require(listed["total"] == 1, f"计划列表不对：{listed}")
             second = await plans.start(
@@ -315,9 +401,30 @@ async def run() -> None:
             )
             cancelled = await plans.cancel(second["plan"]["id"])
             require(cancelled["status"] == "cancelled", f"取消失败：{cancelled}")
-            print(f"[5] 计划列表 {listed['total']} 条｜取消后状态 {cancelled['status']}")
+            print(f"[6] 计划列表 {listed['total']} 条｜取消后状态 {cancelled['status']}")
 
-            # 6. 差异（识别覆盖手动值）
+            # 7. 删除定时任务（用户在任务页删除）→ 计划同步取消
+            schedules.bind_delete_hook(plans.on_schedule_deleted)
+            third = await plans.start(
+                name="凯尔希精二",
+                targets=[{"operator": "凯尔希", "elite": 2}],
+                run_times=["07:15"],
+            )
+            require(third["schedule_id"], f"第三个计划应有定时任务：{third}")
+            await schedules.delete(str(third["schedule_id"]))
+            after_delete = await plans._get_plan(third["plan"]["id"])
+            require(
+                after_delete["status"] == "cancelled",
+                f"删除定时任务后计划应取消：{after_delete}",
+            )
+            require(
+                (await plans._get_plan(started["plan"]["id"]))["status"] == "completed",
+                "删除别的任务不该改动已完成计划",
+            )
+            print(f"[7] 删除定时任务：{third['schedule_id']} → 计划 {after_delete['status']}"
+                  f"｜已完成计划仍是 completed")
+
+            # 8. 差异（识别覆盖手动值）
             await box.patch_operator("char_172_svrash", {"level": 80}, source="manual")
             await capture.handle_callback(
                 operbox_callback(
@@ -339,16 +446,16 @@ async def run() -> None:
             diffs = await box.list_diffs()
             require(diffs["total"] >= 1, f"识别覆盖手动值应记差异：{diffs}")
             first = diffs["items"][0]
-            print(f"[6] 差异：{diffs['total']} 条（{first['field']}："
+            print(f"[8] 差异：{diffs['total']} 条（{first['field']}："
                   f"{first['manual_value']} → {first['recognized_value']}）")
             dismissed = await box.dismiss_diffs(None)
             require(dismissed >= 1, f"「知道了」没有标记：{dismissed}")
             remaining = await box.list_diffs()
             require(not remaining["items"], f"标记后不该还有未处理差异：{remaining}")
-            print(f"[6] 「知道了」标记 {dismissed} 条；未处理差异清零")
+            print(f"[8] 「知道了」标记 {dismissed} 条；未处理差异清零")
 
             # 清理
-            require(await _count(factory, UpgradePlan) == 2, "计划行数不对")
+            require(await _count(factory, UpgradePlan) == 3, "计划行数不对")
             require(await _count(factory, AccountRecognition) >= 2, "识别记录行数不对")
             await plan_service.list_plans()
             await engine.dispose()

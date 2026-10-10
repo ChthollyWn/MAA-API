@@ -3,6 +3,7 @@ import { Page } from '@/components/layout/Page'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { DepotTab } from './DepotTab'
 import { OperatorsTab } from './OperatorsTab'
+import { UpgradePlansSection } from './UpgradePlansSection'
 
 export type AccountView = 'operators' | 'depot'
 
@@ -36,13 +37,17 @@ export function AccountAreaNav({ value }: { value: AccountView }) {
   )
 }
 
-/** 账号数据页：`/more/account` 是干员，`/more/account/depot` 是仓库（规格 §7.5）。 */
+/** 账号数据页：`/more/account` 是干员，`/more/account/depot` 是仓库（规格 §7.5、§7.7）。 */
 export default function AccountPage() {
   const location = useLocation()
   const view = accountView(location.pathname)
   return (
     <Page title="账号数据" back="/more" toolbar={<AccountAreaNav value={view} />}>
       {view === 'depot' ? <DepotTab /> : <OperatorsTab />}
+      {/* 养成计划与当前标签页无关，两个标签页下都显示（规格 §7.7）。 */}
+      <div className="mt-6">
+        <UpgradePlansSection />
+      </div>
     </Page>
   )
 }

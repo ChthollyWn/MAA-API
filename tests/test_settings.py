@@ -342,6 +342,9 @@ def test_env_mapping_names_are_pinned() -> None:
         "sources.penguin_enabled": "MAA_SOURCES_PENGUIN_ENABLED",
         "sources.penguin_host": "MAA_SOURCES_PENGUIN_HOST",
         "sources.penguin_rate_per_minute": "MAA_SOURCES_PENGUIN_RATE_PER_MINUTE",
+        # M29 作业站（附录 B）：独立开关与限流。
+        "sources.copilot_site_enabled": "MAA_SOURCES_COPILOT_SITE_ENABLED",
+        "sources.copilot_site_rate_per_minute": "MAA_SOURCES_COPILOT_SITE_RATE_PER_MINUTE",
         "channel.client_type": "MAA_CHANNEL_CLIENT_TYPE",
         "channel.server": "MAA_CHANNEL_SERVER",
         "llm.base_url": "MAA_LLM_BASE_URL",
@@ -574,6 +577,64 @@ def test_gamedata_settings_have_documented_defaults_and_bounds() -> None:
     assert template_sources["gamedata_rate_per_minute"] == 10
     assert template_sources["gamedata_github_api_fallback"] is True
     assert template_sources["gamedata_mirrors"] == default.sources.gamedata_mirrors
+
+
+def test_copilot_site_settings_have_documented_defaults_and_bounds() -> None:
+    """M29 作业站：独立开关与限流（规格附录 B）。"""
+    from maa_api.services.settings_schema import schema_for
+
+    default = resolve_settings(env={})
+    assert default.sources.copilot_site_enabled is True
+    assert default.sources.copilot_site_rate_per_minute == 20
+
+    configured = resolve_settings(
+        {
+            "sources": {
+                "copilot_site_enabled": False,
+                "copilot_site_rate_per_minute": 5,
+            }
+        },
+        env={},
+    )
+    assert configured.sources.copilot_site_enabled is False
+    assert configured.sources.copilot_site_rate_per_minute == 5
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_SOURCES_COPILOT_SITE_ENABLED": "false",
+            "MAA_SOURCES_COPILOT_SITE_RATE_PER_MINUTE": "42",
+        }
+    )
+    assert env_layer.sources.copilot_site_enabled is False
+    assert env_layer.sources.copilot_site_rate_per_minute == 42
+
+    # 越界：范围 1–60（附录 B）。
+    with pytest.raises(ValidationError):
+        resolve_settings({"sources": {"copilot_site_rate_per_minute": 0}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"sources": {"copilot_site_rate_per_minute": 61}}, env={})
+
+    # 设置页 schema：两个键都在「外部数据源」分组，类型、范围与生效方式正确。
+    enabled_field = schema_for("sources.copilot_site_enabled")
+    assert enabled_field["group"] == "外部数据源"
+    assert enabled_field["label"] == "启用作业站"
+    assert enabled_field["type"] == "boolean"
+    assert enabled_field["hot_action"] == "none"
+
+    rate_field = schema_for("sources.copilot_site_rate_per_minute")
+    assert rate_field["group"] == "外部数据源"
+    assert rate_field["label"] == "作业站每分钟请求上限"
+    assert rate_field["type"] == "integer"
+    assert rate_field["minimum"] == 1
+    assert rate_field["maximum"] == 60
+    assert rate_field["hot_action"] == "none"
+
+    # 文档一致性：模板里的值就是代码默认值，且模板带中文注释。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template_sources = YAML(typ="safe").load(template_text)["sources"]
+    assert template_sources["copilot_site_enabled"] is True
+    assert template_sources["copilot_site_rate_per_minute"] == 20
+    assert "# 作业站（prts.maa.plus，M29）" in template_text
 
 
 def test_log_settings_read_yaml_and_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

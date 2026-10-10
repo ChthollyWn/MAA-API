@@ -87,6 +87,47 @@ describe('M11 pending confirmations panel', () => {
     expect(requests.some((request) => request.url.endsWith('/api/confirmations/confirm-1'))).toBe(true)
   })
 
+  it('renders an account write as structured details instead of a JSON blob', async () => {
+    const accountConfirmation = {
+      ...pendingConfirmation,
+      confirmation_id: 'confirm-2',
+      action: 'agent_tool',
+      risk_level: 'consume',
+      reason: '养成计划写入：1 个目标',
+      payload: {
+        tool_name: 'start_upgrade_plan',
+        arguments: { name: '阿米娅精二' },
+        summary: '把阿米娅精二，顺带刷固源岩',
+        targets: [{ operator: '阿米娅', elite: 2, skill_level: 7, masteries: { '2': 3 }, modules: [{ type: 'X', level: 2 }] }],
+        run_times: ['04:00', '16:00'],
+        preview: {
+          today_tasks: [{ name: 'Fight', stage: '1-7', times: 12 }],
+          daily_template: [{ name: 'StartUp' }, { name: 'Fight', stage: '1-7', times: 5, expiring_medicine: 999 }],
+          medicine: { today: 0, stone: 0, expiring_medicine: 999 },
+          days_estimated: 6,
+          total_sanity: 216,
+          stages: [{ stage_code: '1-7', runs: 12, sanity: 216, items: [{ item_name: '固源岩' }] }],
+          conflicts: [{ schedule_id: 'sched-1', name: '夜间刷关' }],
+          unobtainable: [{ name: '聚酸酯', amount: 10, have: 4, missing: 6, reason: '仓库不足', hint: '先刷 4-4' }],
+          notes: ['预览：没有提交流水线'],
+        },
+      },
+    }
+    const fetchMock = vi.fn<typeof fetch>(async () => json({ items: [accountConfirmation], total: 1, page: 1, size: 20 }))
+
+    renderPanel(fetchMock)
+
+    expect(await screen.findByText('养成计划摘要')).toBeInTheDocument()
+    expect(screen.getByText('阿米娅')).toBeInTheDocument()
+    expect(screen.getByText('精二 · 技能 7 · S2 3 · 模组 X2')).toBeInTheDocument()
+    expect(screen.getByLabelText('今天要提交的刷关清单')).toBeInTheDocument()
+    expect(screen.getByLabelText('每日定时任务模板')).toBeInTheDocument()
+    expect(screen.getByText('今天 理智药 0、源石 0、临期理智药 999')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('与现有定时任务争抢理智：夜间刷关（sched-1）')
+    // 账号写入不再退回 JSON 展开。
+    expect(screen.queryByText('查看操作参数')).not.toBeInTheDocument()
+  })
+
   it('shows a recovery action when loading approvals fails', async () => {
     renderPanel(vi.fn<typeof fetch>(async () => json(
       { error: { code: 'SERVICE_UNAVAILABLE', message: 'service down' } }, 503,

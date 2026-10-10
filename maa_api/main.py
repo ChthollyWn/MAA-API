@@ -911,9 +911,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         upgrade_plans = UpgradePlanService(
             db_session.session_factory,
             pipeline_service=pipeline_runner,
-            schedule_service=app.state.schedule_service
-            if hasattr(app.state, "schedule_service")
-            else None,
+            # 定时任务服务在函数后段才构造，这里拿不到：装配末尾用
+            # `bind_schedule_service` 补一次绑定（见那处的注释与 docs/13 §8.46 二）。
             notify_service=notify_service,
             # 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
             # 现建，语义一致。
@@ -1071,7 +1070,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             db_session.session_factory,
             build_registry(),
             policy=PolicyEngine(
-                atomic_grant_minutes=current_settings.agent.atomic_grant_minutes
+                atomic_grant_minutes=current_settings.agent.atomic_grant_minutes,
+                # 养成计划的确认卡片预演（M31）：确认 `start_upgrade_plan` 前把
+                # 「今天要跑什么、用多少理智、和哪些定时任务争抢」算给用户看。
+                # 提供者缺失或抛异常时只降级成 `preview_error`，不拦确认。
+                plan_preview=getattr(
+                    getattr(app.state, "upgrade_plan_service", None), "preview", None
+                ),
             ),
             broadcast=lambda message_type, data: ws_manager.broadcast(message_type, data),
             notify=notify_service,
@@ -1231,6 +1236,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         await schedule_service.load_enabled()
         app.state.schedule_service = schedule_service
+        # 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
+        # 服务还不存在），这里补上绑定；同一处把「定时任务被删除」的回调接回计划
+        # 服务（规格 §7.7 第 4 条：用户在定时任务页删掉任务时计划同步标为已取消）。
+        # 两个绑定都拿 `getattr` 兜底：没有数据库时整段账号/确认装配会被跳过。
+        upgrade_plans = getattr(app.state, "upgrade_plan_service", None)
+        if upgrade_plans is not None:
+            upgrade_plans.bind_schedule_service(schedule_service)
+            schedule_service.bind_delete_hook(upgrade_plans.on_schedule_deleted)
     except BaseException:
         shutdown_started = True
         if question_service is not None:

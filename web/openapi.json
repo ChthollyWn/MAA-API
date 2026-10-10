@@ -5757,6 +5757,231 @@
         ]
       }
     },
+    "/api/account/upgrade-plans": {
+      "get": {
+        "description": "养成计划列表，`items` 的形状与 Agent 工具 `list_upgrade_plans` 一致。\n\n- 顺带重算进行中计划的进度：`active` 且材料已齐的计划会在这里变成 `completed`\n- `status` 只接受 `active` / `completed` / `cancelled`，缺省返回全部\n- `total` 是筛选后的条数",
+        "operationId": "account_list_account_upgrade_plans",
+        "parameters": [
+          {
+            "description": "按状态筛选：active / completed / cancelled",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "active",
+                    "completed",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按状态筛选：active / completed / cancelled",
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Account List Account Upgrade Plans",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          }
+        },
+        "summary": "列出养成计划",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/api/account/upgrade-plans/{plan_id}": {
+      "delete": {
+        "description": "取消一条养成计划，等价于 Agent 工具 `cancel_upgrade_plan`。\n\n- 删除计划名下的每日定时任务；定时任务已经不在了也不报错\n- 计划状态置为 `cancelled`，返回取消后的计划\n- 计划不存在时 404 `UPGRADE_PLAN_NOT_FOUND`",
+        "operationId": "account_cancel_account_upgrade_plan",
+        "parameters": [
+          {
+            "description": "计划 id",
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "description": "计划 id",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Account Cancel Account Upgrade Plan",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UPGRADE_PLAN_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：UPGRADE_PLAN_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "取消养成计划",
+        "tags": [
+          "account"
+        ]
+      },
+      "get": {
+        "description": "按 `plan_id` 读一条养成计划，返回与列表 `items` 相同的形状。\n\n- 计划不存在时 404 `UPGRADE_PLAN_NOT_FOUND`（与服务层同一个码）",
+        "operationId": "account_get_account_upgrade_plan",
+        "parameters": [
+          {
+            "description": "计划 id",
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "description": "计划 id",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Account Get Account Upgrade Plan",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UPGRADE_PLAN_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：UPGRADE_PLAN_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "读取养成计划",
+        "tags": [
+          "account"
+        ]
+      }
+    },
     "/api/agent/audits": {
       "get": {
         "operationId": "agent_list_audits",
