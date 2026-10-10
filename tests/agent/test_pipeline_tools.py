@@ -445,6 +445,7 @@ def test_wait_pipeline_is_a_bounded_safe_read_only_tool() -> None:
     assert definition.description == (
         "等一条流水线结束（完成、失败或取消）或超时再拿结果。"
         "提交流水线后需要等结果时用，不要反复调用 get_pipeline。"
+        "失败时先看现场截图判断是不是游戏没启动：画面是设备桌面或登录页就先补 StartUp。"
     )
 
     assert registry.validate("wait_pipeline", {"pipeline_id": "pipeline-1"}).timeout_seconds == 300

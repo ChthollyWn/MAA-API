@@ -48,8 +48,9 @@ from maa_api.domain.errors import AppError, ErrorCode
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SDD_DIR = REPO_ROOT / ".superpowers" / "sdd" / "2026-10-10-m30-knowledge-convergence"
 
-# 32 个内置条目（T1-a 15 条 + T1-b 17 条）；数量对不上说明条目被增删，扫描口径要重核。
-EXPECTED_ENTRY_COUNT = 32
+# 33 个内置条目（M30 T1 复核时的 32 条 + M32 新增的 task-preconditions）；
+# 数量对不上说明条目被增删，扫描口径要重核。
+EXPECTED_ENTRY_COUNT = 33
 FULLTEXT_ENTRY_COUNT = 2  # glossary 与 glossary-terms：全文注入，不占索引行
 
 # 反例来源：两份复核报告的逐条处置表。仓库内只留 `id` 与 `numbers_to_remove` 两列的快照

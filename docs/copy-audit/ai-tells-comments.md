@@ -1,14 +1,14 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 11372 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 11408 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 231 | 231 |
+| 粗体强调 | medium | 0 | 232 | 232 |
 | 「A 而不是 B」对照腔 | high | 0 | 98 | 98 |
-| 破折号当冒号用 | high | 0 | 95 | 95 |
-| 绝对化规定腔 | medium | 0 | 56 | 56 |
+| 破折号当冒号用 | high | 0 | 97 | 97 |
+| 绝对化规定腔 | medium | 0 | 58 | 58 |
 | 「…即可」机器腔 | medium | 0 | 16 | 16 |
 | 自指式讲解腔 | medium | 0 | 16 | 16 |
 | 省略号 | medium | 0 | 4 | 4 |
@@ -18,7 +18,7 @@
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 231）
+## 粗体强调（medium｜用户可见 0 / 开发向 232）
 
 **开发向**
 
@@ -28,7 +28,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 225 条，见 inventory.json
+- …… 另有 226 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 98）
 
@@ -42,7 +42,7 @@
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
 - …… 另有 92 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 95）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 97）
 
 **开发向**
 
@@ -52,19 +52,19 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 89 条，见 inventory.json
+- …… 另有 91 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 56）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 58）
 
 **开发向**
 
+- `maa_api/agent/preconditions.py:51` : `StartUp` 的小写形式：判定一律大小写不敏感（规格 §4.1）。
+- `maa_api/agent/tools/pipeline.py:216` 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
 - `maa_api/services/account/capture.py:19` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
 - `maa_api/services/copilot/rules.py:72` : ``Click`` / ``Swipe`` 等动作一律放行（Q38）。
 - `maa_api/services/external/http.py:193` 主机白名单在发请求之前判：来源登记表里没有的主机一律拒绝。
 - `maa_api/services/external/prts.py:41` : 标题里一律禁止的字符：它们只可能来自拼接错误或注入尝试。
-- `maa_api/services/external/sources.py:492` : 前缀里出现查询串、片段、``..`` 或编码转义一律拒绝——它们只可能来自拼接错误或注入尝试。
-- `maa_api/services/prts_parse/wikitext.py:73` : 展示文本在**第一个**位置参数的已知模板（其余模板一律取最后一个，见模块 docstring）。
-- …… 另有 50 条，见 inventory.json
+- …… 另有 52 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 0 / 开发向 16）
 

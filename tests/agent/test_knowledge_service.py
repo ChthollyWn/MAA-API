@@ -43,13 +43,16 @@ from maa_api.domain.errors import AppError, ErrorCode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_DIR = REPO_ROOT / "docs" / "superpowers" / "specs"
-#: 内置全文的唯一原文来源：M18 的 5 个块（§4.4：不动）、M19 新增的 26 个与 M24 的 1 个。
+#: 内置全文的唯一原文来源：M18 的 5 个块（§4.4：不动）、M19 新增的 26 个、M24 的 1 个
+#: 与 M32 新增的 1 个。
 M18_SPEC_PATH = SPEC_DIR / "2026-09-29-m18-agent-knowledge.md"
 M19_SPEC_PATH = SPEC_DIR / "2026-09-29-m19-agent-knowledge-expansion.md"
 M24_SPEC_PATH = SPEC_DIR / "2026-10-09-m24-activity-knowledge.md"
+M32_SPEC_PATH = SPEC_DIR / "2026-10-10-m32-task-preconditions.md"
 BUILTIN_DIR = REPO_ROOT / "maa_api" / "agent" / "knowledge" / "builtin"
 
-#: 内置条目的文档化清单：M18 规格 §4.6 的 5 条、M19 §4.1 的 26 条、M24 §4.5 的 1 条。
+#: 内置条目的文档化清单：M18 规格 §4.6 的 5 条、M19 §4.1 的 26 条、M24 §4.5 的 1 条、
+#: M32 §4.6 的 1 条。
 BUILTIN_IDS = [
     # M18
     "account-resources",
@@ -86,6 +89,8 @@ BUILTIN_IDS = [
     "glossary-terms",
     # M24
     "activity-stage-codes",
+    # M32
+    "task-preconditions",
 ]
 
 INDEX_HEADER = (
@@ -99,7 +104,7 @@ PROFILE_HEADER = "用户档案（用户维护）："
 INDEX_KINDS = ("playbook", "screen", "rule")
 FULLTEXT_KINDS = ("glossary", "profile")
 
-#: 32 条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
+#: 33 条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
 #: glossary/profile），同 kind 内按 id 升序。
 BUILTIN_LIST_ORDER = [
     "account-resources",
@@ -109,6 +114,7 @@ BUILTIN_LIST_ORDER = [
     "playbook-promotion-planning",
     "playbook-recruit",
     "playbook-sanity-planning",
+    "task-preconditions",
     "screen-depot",
     "screen-headhunt",
     "screen-home",
@@ -205,12 +211,12 @@ def _write(fields: dict[str, object], body: str = "正文") -> str:
 
 
 def _spec_blocks() -> dict[str, str]:
-    """三份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。
+    """四份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。
 
-    M18 的 5 个块、M19 的 26 个块与 M24 的 1 个块合起来恰好是全部内置条目。
+    M18 的 5 个块、M19 的 26 个块、M24 的 1 个块与 M32 的 1 个块合起来恰好是全部内置条目。
     """
     keyed: dict[str, str] = {}
-    for path in (M18_SPEC_PATH, M19_SPEC_PATH, M24_SPEC_PATH):
+    for path in (M18_SPEC_PATH, M19_SPEC_PATH, M24_SPEC_PATH, M32_SPEC_PATH):
         text = path.read_text(encoding="utf-8")
         section = text[text.index("### 4.6") : text.index("## 5. 错误与兼容")]
         blocks = re.findall(r"```markdown\n(.*?)```", section, re.DOTALL)
@@ -260,7 +266,7 @@ def _frontmatter(text: str) -> str:
 def test_builtin_files_match_the_spec_registry_and_frontmatter():
     """§4.6 是内置条目的登记表：条目集合与 frontmatter 必须逐字一致。
 
-    三份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记）
+    四份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记）
     或少一条（文件漏了）都要失败。B3 文案审计按规范改写了部分正文（营销形容词、
     跨文件重复段落、超长句），所以正文不再要求与规格逐字相同；``id``、``kind``、
     ``title``、``when_to_use`` 仍是契约。

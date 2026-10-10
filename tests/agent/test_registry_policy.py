@@ -202,7 +202,9 @@ def test_submit_pipeline_checks_consumption_parameters(task, requires_confirmati
 def test_consumption_reasons_include_each_triggered_risk_field() -> None:
     decision = _evaluate(
         _definition("submit_pipeline", ToolRisk.CONDITIONAL, group="pipeline"),
-        {"tasks": [{"name": "Fight", "stone": 2, "medicine": 1}]},
+        # 带 StartUp 让流水线满足游戏前提，本用例只盯消耗类理由（M32 的前提提醒见
+        # tests/agent/test_preconditions.py）。
+        {"tasks": [{"name": "StartUp"}, {"name": "Fight", "stone": 2, "medicine": 1}]},
         _context(CallerType.REST),
     )
 
@@ -665,7 +667,9 @@ def test_submit_pipeline_uses_kernel_defaults_for_omitted_risk_fields(
 
 def test_submit_pipeline_reports_omitted_default_risk_values_as_reasons() -> None:
     create = PipelineCreate.model_validate(
-        {"tasks": [{"name": "Mall"}, {"name": "Roguelike"}]}
+        # 带 StartUp 让流水线满足游戏前提，本用例只盯省略字段的默认消耗值（M32 的前提提醒见
+        # tests/agent/test_preconditions.py）。
+        {"tasks": [{"name": "StartUp"}, {"name": "Mall"}, {"name": "Roguelike"}]}
     )
     decision = _evaluate(_submit_definition(), create, _context(CallerType.REST))
 

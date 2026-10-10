@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from maa_api.agent.preconditions import failure_hint, missing_start_up_warning
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.db.models import Pipeline, Task
 from maa_api.db.repositories.pipeline import PipelineRepository
@@ -96,6 +98,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "等一条流水线结束（完成、失败或取消）或超时再拿结果。"
                 "提交流水线后需要等结果时用，不要反复调用 get_pipeline。"
+                "失败时先看现场截图判断是不是游戏没启动：画面是设备桌面或登录页就先补 StartUp。"
             ),
             params_model=WaitPipelineParams,
             handler=wait_pipeline,
@@ -123,7 +126,12 @@ def register_tools(registry: ToolRegistry) -> None:
             name="submit_pipeline",
             group="pipeline",
             risk=ToolRisk.CONDITIONAL,
-            description="把任务提交成一条流水线，这是实际动手的入口。提交前先确认设备已连接、参数都来自用户。",
+            description=(
+                "把任务提交成一条流水线，这是实际动手的入口。"
+                "内核任务都从主界面起手，只有 StartUp 会拉起客户端；"
+                "游戏状态不确定时把 StartUp（start_game_enabled: true）放第一条。"
+                "提交前先确认设备已连接、参数都来自用户。"
+            ),
             params_model=PipelineCreate,
             handler=submit_pipeline,
         ),
@@ -198,11 +206,18 @@ async def wait_pipeline(
     pipeline, finished = await runner.wait_terminal(
         params.pipeline_id, params.timeout_seconds
     )
-    return {
+    wire = _pipeline_wire(pipeline)
+    result: dict[str, Any] = {
         "finished": finished,
         "waited_seconds": round(time.monotonic() - started, 3),
-        "pipeline": _pipeline_wire(pipeline),
+        "pipeline": wire,
     }
+    # M32 §4.5：终态失败的处置提示只在 `CORE_COMMAND_FAILED` 时出现；
+    # 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
+    hint = failure_hint(_error_code(wire))
+    if hint is not None:
+        result["hint"] = hint
+    return result
 
 
 async def list_pipelines(
@@ -242,12 +257,17 @@ async def submit_pipeline(
     if not reused:
         await runner.publish_pipeline(pipeline.id)
         await runner.publish_queue_changed()
-    return {
+    result: dict[str, Any] = {
         "pipeline_id": pipeline.id,
         "status": str(pipeline.status),
         "created_at": _iso(pipeline.created_at),
         "reused": reused,
     }
+    # M32 §4.5：提醒不拦——提交照旧，只在结果里多一条可选警告。
+    warning = missing_start_up_warning(params.tasks)
+    if warning is not None:
+        result["warnings"] = [warning]
+    return result
 
 
 async def stop_pipeline(_params: EmptyParams, ctx: ToolContext) -> dict[str, Any]:
@@ -361,6 +381,15 @@ def _error(code: str | None, message: str | None) -> dict[str, str | None] | Non
     if code is None and message is None:
         return None
     return {"code": code, "message": message}
+
+
+def _error_code(wire: Mapping[str, Any]) -> str | None:
+    """流水线 wire 里的 ``error.code``；结构缺失或不是字符串时返回 ``None``。"""
+    error = wire.get("error")
+    if not isinstance(error, Mapping):
+        return None
+    code = error.get("code")
+    return code if isinstance(code, str) else None
 
 
 def _iso(value: datetime | None) -> str | None:
