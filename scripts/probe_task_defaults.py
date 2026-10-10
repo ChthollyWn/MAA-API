@@ -65,6 +65,12 @@ CANDIDATES: list[tuple[str, str, dict]] = [
     ("Roguelike", "theme + mode", {"theme": "Phantom", "mode": 0}),
     ("Reclamation", "空参数", {}),
     ("Reclamation", "theme + mode", {"theme": "Tales", "mode": 0}),
+    # M27 的账号识别任务：规格 §7.2 T1 要求确认空参数被内核接受。docs/ENVIRONMENT.md
+    # 「MaaCore 内核」节已记过 `OperBox` / `Depot` 空参数可入队，这里登记进探针是为了
+    # 换内核版本时能重跑一遍；真机识别（真账号跑一次 OperBox / Depot）留作补充证据，
+    # 不是本里程碑的硬门槛。
+    ("OperBox", "空参数", {}),
+    ("Depot", "空参数", {}),
     ("Copilot", "空参数", {}),
     ("Copilot", "filename 不存在", {"filename": "__probe_missing__.json"}),
 ]

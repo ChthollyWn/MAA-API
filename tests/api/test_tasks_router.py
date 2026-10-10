@@ -43,6 +43,8 @@ EXPECTED_TYPES = [
     "Award",
     "Roguelike",
     "Reclamation",
+    "OperBox",
+    "Depot",
     "Copilot",
 ]
 
@@ -102,7 +104,7 @@ def prepared_db(isolated_db: AsyncEngine, tmp_settings: Settings) -> AsyncEngine
 
 def test_task_models_cover_core_and_copilot_types() -> None:
     """TASK_MODELS 由共享判别联合推导，Copilot 紧随九种内置类型。"""
-    assert len(tasks.TASK_MODELS) == 10
+    assert len(tasks.TASK_MODELS) == 12
     assert list(tasks.TASK_MODELS) == EXPECTED_TYPES
 
 
@@ -235,7 +237,7 @@ def test_list_types_returns_fixed_pagination_envelope(
     assert response.status_code == 200, response.text
     body = response.json()
     assert set(body) == {"items", "total", "page", "size"}
-    assert (body["total"], body["page"], body["size"]) == (10, 1, 10)
+    assert (body["total"], body["page"], body["size"]) == (12, 1, 12)
     assert [item["name"] for item in body["items"]] == EXPECTED_TYPES
 
 

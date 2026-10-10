@@ -35,11 +35,13 @@ __all__ = [
     "ChannelDefaults",
     "CloseDownInput",
     "CopilotInput",
+    "DepotInput",
     "FightInput",
     "InfrastInput",
     "MaaField",
     "MallInput",
     "NormalizedTask",
+    "OperBoxInput",
     "PipelineCreate",
     "RECLAMATION_THEMES",
     "RISK_CONSUME",
@@ -178,7 +180,7 @@ class TaskInputBase(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# 9 种任务类型
+# 11 种任务类型
 # --------------------------------------------------------------------------- #
 
 
@@ -1099,6 +1101,39 @@ class ReclamationInput(TaskInputBase):
     )
 
 
+class OperBoxInput(TaskInputBase):
+    """干员识别：读一遍账号里有哪些干员、练到什么程度（规格 §7.2 T1）。
+
+    没有参数：``AsstAppendTask("OperBox", {})`` 就能入队（docs/ENVIRONMENT.md
+    「MaaCore 内核」节实测）。识别结果经 ``SubTaskExtraInfo`` 回调推给
+    :mod:`maa_api.services.account.capture`，识别不了技能等级、专精与模组。
+    """
+
+    model_config = _task_config({"name": "OperBox"})
+
+    name: Literal["OperBox"] = MaaField(
+        default="OperBox",
+        label="任务类型",
+        description="由任务类型选择器决定，不用填",
+    )
+
+
+class DepotInput(TaskInputBase):
+    """仓库识别：读一遍账号仓库「养成材料」页签的数量（规格 §7.2 T1）。
+
+    没有参数，空参数即可入队。识别结果经 ``SubTaskExtraInfo`` 回调整表替换仓库
+    数量；龙门币与作战记录不在该页签内。
+    """
+
+    model_config = _task_config({"name": "Depot"})
+
+    name: Literal["Depot"] = MaaField(
+        default="Depot",
+        label="任务类型",
+        description="由任务类型选择器决定，不用填",
+    )
+
+
 class CopilotInput(BaseModel):
     """执行已校验并上传的 Copilot 作业。"""
 
@@ -1143,6 +1178,8 @@ _TASK_MODEL_TYPES: tuple[type[BaseModel], ...] = (
     AwardInput,
     RoguelikeInput,
     ReclamationInput,
+    OperBoxInput,
+    DepotInput,
     CopilotInput,
 )
 
@@ -1157,6 +1194,8 @@ TaskInput = Annotated[
     | AwardInput
     | RoguelikeInput
     | ReclamationInput
+    | OperBoxInput
+    | DepotInput
     | CopilotInput,
     Field(discriminator="name"),
 ]
@@ -1177,6 +1216,8 @@ TASK_LABELS: dict[str, str] = {
     "Award": "领取奖励",
     "Roguelike": "自动肉鸽",
     "Reclamation": "生息演算",
+    "OperBox": "干员识别",
+    "Depot": "仓库识别",
     "Copilot": "Copilot 作业",
 }
 
@@ -1191,6 +1232,8 @@ RUNTIME_IMMUTABLE: dict[str, list[str]] = {
     "Award": [],
     "Roguelike": [],
     "Reclamation": [],
+    "OperBox": [],
+    "Depot": [],
     "Copilot": ["asset_id"],
 }
 
@@ -1209,6 +1252,8 @@ RISK_FIELDS: dict[str, frozenset[str]] = {
     "Award": frozenset(),
     "Roguelike": frozenset({"investment_enabled"}),
     "Reclamation": frozenset(),
+    "OperBox": frozenset(),
+    "Depot": frozenset(),
     "Copilot": frozenset(),
 }
 

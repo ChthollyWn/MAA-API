@@ -261,6 +261,14 @@ class PipelineRunner:
         """
         self.notify_service = service
 
+    def bind_finish_hook(self, hook: Any) -> None:
+        """Bind a post-terminal hook (M27：养成计划的进度重算)。
+
+        Same late/optional binding as ``bind_notify_service``: the plan service is
+        built after the runner, and tests substitute runners without it.
+        """
+        self._finish_hook = hook
+
     def bind_log_hub(self, hub: Any) -> None:
         """Bind the log hub so task snapshots can carry log attachments.
 
@@ -279,11 +287,23 @@ class PipelineRunner:
         consumer must never wait for a notification before claiming the next
         pipeline. Shutdown cancels pending sends exactly like incident tasks.
         """
+        self._schedule_finish_hook(pipeline_id, status)
         if self.notify_service is None:
             return
         task = asyncio.create_task(
             self._send_pipeline_notification(pipeline_id, status),
             name=f"pipeline-notify-{pipeline_id}",
+        )
+        self._notify_tasks.add(task)
+        task.add_done_callback(self._forget_notify_task)
+
+    def _schedule_finish_hook(self, pipeline_id: str, status: PipelineStatus) -> None:
+        """终态钩子：不阻塞队列消费者，失败只记日志（计划重算不该拖垮收尾）。"""
+        hook = getattr(self, "_finish_hook", None)
+        if hook is None:
+            return
+        task = asyncio.create_task(
+            hook(pipeline_id, status), name=f"pipeline-finish-hook-{pipeline_id}"
         )
         self._notify_tasks.add(task)
         task.add_done_callback(self._forget_notify_task)

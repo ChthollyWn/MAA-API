@@ -48,6 +48,7 @@ import httpx
 
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import (
+    account,
     agent,
     atomic,
     confirmations,
@@ -268,6 +269,7 @@ TAGS: list[dict[str, str]] = [
     {"name": "schedules", "description": "定时任务"},
     {"name": "settings", "description": "可视化配置"},
     {"name": "sources", "description": "外部数据源状态与缓存"},
+    {"name": "account", "description": "账号数据（干员、仓库与养成计划）"},
     {"name": "notifications", "description": "多通道通知"},
     {"name": "resources", "description": "Copilot 作业、基建方案、自定义 task"},
     {"name": "snippets", "description": "API 调试台收藏请求"},
@@ -901,6 +903,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bind_notify_service = getattr(pipeline_runner, "bind_notify_service", None)
         if callable(bind_notify_service):
             bind_notify_service(notify_service)
+        # 养成计划（M27）：今天的流水线与每日定时任务在确认之后由计划服务提交；流水线
+        # 进终态时重算进度（规格 §7.7）。导入放在用它的分支里：账号服务的装配在另一个
+        # 条件分支（没有数据库时整段跳过），模块级导入在这里可能还没绑定。
+        from maa_api.services.account.plans import UpgradePlanService
+
+        upgrade_plans = UpgradePlanService(
+            db_session.session_factory,
+            pipeline_service=pipeline_runner,
+            schedule_service=app.state.schedule_service
+            if hasattr(app.state, "schedule_service")
+            else None,
+            notify_service=notify_service,
+            # 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
+            # 现建，语义一致。
+            box=getattr(app.state, "box_service", None),
+            depot=getattr(app.state, "depot_service", None),
+        )
+        app.state.upgrade_plan_service = upgrade_plans
+        bind_finish_hook = getattr(pipeline_runner, "bind_finish_hook", None)
+        if callable(bind_finish_hook):
+            bind_finish_hook(upgrade_plans.on_pipeline_finished)
         # 任务终态留档截图的日志附件（docs/12 §3.10）：stdlib 日志渠道只搬运
         # pipeline/task/request 上下文，**不搬运 attachment**，附件只能走 hub 的
         # ``offer``，所以这里把 hub 后置注入给 runner（同 bind_notify_service）。
@@ -938,8 +961,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.activity_index = activity_index
         # 知识库：构造时把随代码发布的内置条目加载一次（文件坏了要在启动处就炸），
         # 用户改动存在 agent_knowledge 表里。runtime 与本路由共用这一个实例。
+        # 账号数据（M27）：干员表、仓库、养成规划与计划。工具、REST 与注入段共用这些
+        # 实例；识别结果由回调采集服务写入（见 AccountCaptureService）。
+        from maa_api.services.account.box import OperatorBoxService
+        from maa_api.services.account.capture import AccountCaptureService
+        from maa_api.services.account.depot import DepotService
+        from maa_api.services.account.plans import UpgradePlanService
+        from maa_api.services.account.summary import AccountSummaryReader
+
+        box_service = OperatorBoxService(db_session.session_factory)
+        depot_service = DepotService(db_session.session_factory)
+        app.state.box_service = box_service
+        app.state.depot_service = depot_service
+        app.state.account_summary = AccountSummaryReader(
+            box=box_service, depot=depot_service
+        )
+        account_capture = AccountCaptureService(
+            db_session.session_factory,
+            box_service=box_service,
+            depot_service=depot_service,
+        )
+        app.state.account_capture = account_capture
         app.state.knowledge_service = KnowledgeService(
-            db_session.session_factory, activity_index=activity_index
+            db_session.session_factory,
+            activity_index=activity_index,
+            account_reader=app.state.account_summary,
         )
         confirmation_factory = getattr(
             app.state, "confirmation_service_factory", ConfirmationService
@@ -1287,6 +1333,7 @@ def create_app() -> FastAPI:
     app.include_router(agent.router)
     app.include_router(knowledge.router)
     app.include_router(sources.router)
+    app.include_router(account.router)
     app.include_router(confirmations.router)
     app.include_router(questions.router)
     app.include_router(ws_router)

@@ -292,7 +292,7 @@ def test_openapi_metadata_tags_and_operation_ids(
 
     tag_names = [entry["name"] for entry in spec["tags"]]
     assert tag_names == [entry["name"] for entry in TAGS]
-    assert len(tag_names) == 17
+    assert len(tag_names) == 18
     assert tag_names[0] == "system" and tag_names[-1] == "ws"
 
     ids = _operation_ids(spec)
@@ -581,7 +581,7 @@ def test_auth_is_enforced_on_business_endpoints(
 
     authorized = client.get("/api/tasks/types", headers={"X-Token": TOKEN})
     assert authorized.status_code == 200
-    assert authorized.json()["total"] == 10
+    assert authorized.json()["total"] == 12
 
     health = client.get("/api/system/health")
     assert health.status_code == 200

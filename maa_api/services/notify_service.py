@@ -608,6 +608,7 @@ def _message(event: NotifyEvent | str, payload: Mapping[str, Any]) -> tuple[str,
         NotifyEvent.UPDATE_AVAILABLE: "发现可用更新",
         NotifyEvent.UPDATE_FINISHED: "更新完成",
         NotifyEvent.CONFIRMATION_REQUIRED: "需要人工确认",
+    NotifyEvent.UPGRADE_PLAN_FINISHED: "养成计划完成",
     }
     title = str(payload.get("title") or labels.get(event, "MAA-API 有一条新通知"))
     message = payload.get("message") or payload.get("body")

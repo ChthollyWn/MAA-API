@@ -1,15 +1,15 @@
 # AI 腔规则命中：docs 与 README 正文（逐行统计）
 
-总计 9997 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 10231 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 1978 | 1978 |
-| 破折号当冒号用 | high | 0 | 370 | 370 |
-| 「A 而不是 B」对照腔 | high | 0 | 231 | 231 |
-| 绝对化规定腔 | medium | 0 | 165 | 165 |
-| 「…即可」机器腔 | medium | 0 | 60 | 60 |
+| 粗体强调 | medium | 0 | 2035 | 2035 |
+| 破折号当冒号用 | high | 0 | 385 | 385 |
+| 「A 而不是 B」对照腔 | high | 0 | 234 | 234 |
+| 绝对化规定腔 | medium | 0 | 168 | 168 |
+| 「…即可」机器腔 | medium | 0 | 62 | 62 |
 | 自指式讲解腔 | medium | 0 | 19 | 19 |
 | 「不是…而是…」对照句 | high | 0 | 17 | 17 |
 | 省略号 | medium | 0 | 4 | 4 |
@@ -20,7 +20,7 @@
 | 英文 AI 惯用语 | medium | 0 | 1 | 1 |
 | 宣传词 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 1978）
+## 粗体强调（medium｜用户可见 0 / 开发向 2035）
 
 **开发向**
 
@@ -30,9 +30,9 @@
 - `docs/01-重构总览与现状评估.md:45` **启动期强耦合。** `maa_api/model/core/scheduler.py` 末尾是模块级 `task_scheduler = TaskScheduler()`，构造函数里调 `load_asst()`，而 `load_ass…（共 273 字）
 - `docs/01-重构总览与现状评估.md:47` **单实例且无队列。** 全局一个 MaaCore 实例，`_check_asst_running()` 在运行中直接抛异常拒绝新提交。定时任务撞上手动任务时靠 `if task_scheduler.is_running(): return…（共 149 字）
 - `docs/01-重构总览与现状评估.md:49` **状态全在内存。** `TaskPipeline` 是个 pydantic 模型，`tasks`、`status`、`logs` 都是内存字段。重启丢失全部执行历史，前端刷新看到的是当前进程的瞬时状态。
-- …… 另有 1972 条，见 inventory.json
+- …… 另有 2029 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 370）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 385）
 
 **开发向**
 
@@ -42,9 +42,9 @@
 - `docs/02-系统架构设计.md:135` `LOAD_RESOURCE` 的 300 秒是从原定的 120 秒上调的。原值是按"基础资源 + 一个 15 KB 的 OTA `tasks.json`"估的，而现在这条命令一次要跑完整条加载链——基础资源加上三个增量层，其中通道 B 的…（共 272 字）
 - `docs/02-系统架构设计.md:197` **不抢占**意味着：正在执行的流水线不会被更高优先级的新提交打断。用户若想立刻插队，需显式调用停止接口终止当前流水线，再提交新的 —— 这个动作在前端是一个明确的按钮，不是隐式行为。
 - `docs/02-系统架构设计.md:311` 启动 `CoreSupervisor`，**不阻塞等待** —— 子进程在后台走"校验版本 → 加载资源 → 连接设备"
-- …… 另有 364 条，见 inventory.json
+- …… 另有 379 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 231）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 234）
 
 **开发向**
 
@@ -54,9 +54,9 @@
 - `docs/01-重构总览与现状评估.md:82` 类体里的尾随逗号会让默认值变成元组 `(None,)` 而非 `None`，与声明的类型不符。
 - `docs/01-重构总览与现状评估.md:94` **枚举值硬编码在 Python 里会随内核版本过时。** 最典型的是 `Roguelike.theme`（当前硬编码 `Phantom` / `Mizuki` / `Sami` / `Sarkaz`），MAA 每次新增肉鸽主题都需要改代码…（共 214 字）
 - `docs/01-重构总览与现状评估.md:156` 配置文件 `config.yaml` 的结构会扩展（新增渠道默认值、LLM 配置、通知通道、重试参数等），但可视化设置页的配置项落库而非写回 YAML，两者的优先级关系见 [08-ADB连接与账号渠道](./08-ADB连接与账号渠道.md…（共 122 字）
-- …… 另有 225 条，见 inventory.json
+- …… 另有 228 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 165）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 168）
 
 **开发向**
 
@@ -66,19 +66,19 @@
 - `docs/03-MaaCore内核层设计.md:220` pass # 回调线程内绝不抛异常，否则可能直接崩内核
 - `docs/03-MaaCore内核层设计.md:315` **内核未就绪时的行为。** 子进程处于 `STARTING` / `RESTARTING` / `CRASHED` / `FAILED` 时，所有业务命令直接抛领域异常（对应 `CORE_NOT_READY` / `CORE_RESTAR…（共 247 字）
 - `docs/04-数据模型与持久化.md:82` 会话管理遵循两条纪律。HTTP 请求通过依赖注入拿到 `AsyncSession`，请求结束即关闭；后台任务（`PipelineRunner`、`LogHub` 刷盘、清理任务）**各自开新会话**，绝不跨任务共享——`AsyncSessi…（共 238 字）
-- …… 另有 159 条，见 inventory.json
+- …… 另有 162 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 60）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 62）
 
 **开发向**
 
 - `AGENTS.md:15` 默认不 push：提交到本地即可。用户明确要求推送时，push 当前分支到 origin 的同名分支（refactor/v2），不必再确认一次；没有明确要求就不要推。
 - `docs/04-数据模型与持久化.md:9` 数据库文件位于 `resource/maa_api.db`。选这个位置的原因有三：`resource/` 已在 `.gitignore` 中被整体忽略，数据库及其 WAL 副产品不会误入版本库；`resource/` 已是运行期数据的既有落…（共 178 字）
-- `docs/05-API规范与路由清单.md:689` **中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`，其中 `inter…（共 660 字）
+- `docs/05-API规范与路由清单.md:698` **中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`，其中 `inter…（共 660 字）
 - `docs/06-实时日志与WebSocket.md:420` 内核热更新导致子进程重启时，MaaCore 会重新初始化日志系统并追加到同一个 `asst.log`（`LoadFileStream` 后接 `log_init_info`，可从实测日志开头的 `MaaCore Process Start`…（共 148 字）
 - `docs/07-热更新方案.md:53` **当前版本号**从内核自身取。现有做法是 `Asst.load()` 后调 `Asst().get_version()`——这在重构后**不可行**，因为主进程绝不加载 `libMaaCore`（[02-系统架构设计 §1](./02-系…（共 247 字）
 - `docs/07-热更新方案.md:465` 顺带一提，通道 B 的 `global/` 子树（约 1 MB，四个外服）对本项目无用——本项目只支持国服，内核只在按外服 `ClientType` 加载时才会读它。原样保留即可，不值得为省 1 MB 在解压时做过滤。
-- …… 另有 54 条，见 inventory.json
+- …… 另有 56 条，见 inventory.json
 
 ## 自指式讲解腔（medium｜用户可见 0 / 开发向 19）
 
@@ -89,19 +89,19 @@
 - `docs/03-MaaCore内核层设计.md:1` 本文档定义 MaaCore 内核的 FFI 封装、子进程 worker 与生命周期管理。决策依据见 [README 决策速查表](./README.md#决策速查表)，架构位置见 [02-系统架构设计](./02-系统架构设计.md)。
 - `docs/04-数据模型与持久化.md:1` 本文档定义 MAA-API 重构后的全部持久化结构：SQLite 库文件布局、20 张业务表的字段与索引、状态枚举、Alembic 迁移组织、仓储层职责与数据保留策略。技术选型依据见 [README 决策速查表](./README.md#决…（共 164 字）
 - `docs/04-数据模型与持久化.md:92` `AUTOINCREMENT` 关键字在这里不能省。不带它时 SQLite 用「当前最大 rowid + 1」分配 id，删掉末尾若干行之后新插入的行会**复用已被删除的 id**；而日志表恰好有一个按天清理的保留策略，一旦某次清理删到了尾…（共 202 字）
-- `docs/04-数据模型与持久化.md:1207` 截图文件保留 7 天，同时受总大小上限约束（默认 512 MB）。两个维度依次执行：先按 7 天删，删完若总量仍超上限，再按 `created_at` 升序继续删最旧的；文件被删时给记录打 `deleted_at`，记录本身按 90 天随流…（共 422 字）
+- `docs/04-数据模型与持久化.md:1290` 截图文件保留 7 天，同时受总大小上限约束（默认 512 MB）。两个维度依次执行：先按 7 天删，删完若总量仍超上限，再按 `created_at` 升序继续删最旧的；文件被删时给记录打 `deleted_at`，记录本身按 90 天随流…（共 422 字）
 - …… 另有 13 条，见 inventory.json
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 17）
 
 **开发向**
 
-- `docs/05-API规范与路由清单.md:991` 这些不是设计偏好，是现有代码里的实际缺陷，新模型必须修正。
+- `docs/05-API规范与路由清单.md:1024` 这些不是设计偏好，是现有代码里的实际缺陷，新模型必须修正。
 - `docs/07-热更新方案.md:363` 顺带修正一个直觉误差：体积大头不是模板图而是 `Arknights-Tile-Pos/` 的关卡格子坐标（93 MB 对 12 MB）。它们是高度可压缩的 JSON，所以压缩包只有 13 MB 却能解压出 107 MB——**磁盘预检要按解…（共 139 字）
 - `docs/08-ADB连接与账号渠道.md:472` **并发命令的交错。** 两个客户端同时对同一设备发命令，adb server 会串行化，但顺序不保证。实际影响很小（我们的操作本身就是异步的），唯一需要小心的是"截图 + 点击"这类要求时序的组合——agent 先截图看到某个按钮、再点击…（共 250 字）
 - `docs/08-ADB连接与账号渠道.md:792` **账号数据不互通**。官服与 B 服是不同的服务器，账号、进度完全独立。切换渠道不是"换个皮肤"而是"换个游戏"。界面上的渠道切换入口要有足够的视觉分量，不能像切换主题那样轻描淡写。
 - `docs/09-前端重构方案.md:487` `get_screenshot` 的图不是卡片，是工具卡内的附件（M23 收尾）。只有五个 `send_*` 工具产生会话级媒体卡；agent 自己观察画面用的 `get_screenshot` 结果由 `media.ts` 的 `tool…（共 390 字）
-- `docs/09-前端重构方案.md:1159` 但推送通知在 HTTP 下必然失效，无论哪个平台。iOS 的 Web Push 要求三个条件同时成立：站点是 HTTPS、PWA 已通过分享菜单添加到主屏、在已安装的应用内由用户手势触发 `Notification.requestPermi…（共 186 字）
+- `docs/09-前端重构方案.md:1162` 但推送通知在 HTTP 下必然失效，无论哪个平台。iOS 的 Web Push 要求三个条件同时成立：站点是 HTTPS、PWA 已通过分享菜单添加到主屏、在已安装的应用内由用户手势触发 `Notification.requestPermi…（共 186 字）
 - …… 另有 11 条，见 inventory.json
 
 ## 省略号（medium｜用户可见 0 / 开发向 4）
@@ -109,7 +109,7 @@
 **开发向**
 
 - `docs/13-决策记录.md:780` 三、时序与收尾口径。模型调用新工具 `ask_user`（group `interaction`、SAFE、`read_only=False`、`model_visible=True`，参数 `question` + `options[2.…（共 713 字）
-- `docs/ENVIRONMENT.md:428` ``| `CODE` | 404 | 含义…… |`` 的行共 92 行 / 14 张表，HTTP 列为 `—` 的只有 `UPDATE_INTERRUPTED`。
+- `docs/ENVIRONMENT.md:430` ``| `CODE` | 404 | 含义…… |`` 的行共 92 行 / 14 张表，HTTP 列为 `—` 的只有 `UPDATE_INTERRUPTED`。
 - `docs/superpowers/plans/2026-09-28-m17-task-param-defaults.md:64` docs/09 §7.3/§603/§656：把「未改动的字段不进草稿……控件显示内核默认值并标「默认」」改写为新的物化 + 预填 + 显式下发模型，并保留「服务端不预设内核默认值」这条历史理由的说明（现在由 §8 的偏离条目承接）。
 - `docs/superpowers/specs/2026-10-09-m25-prts-knowledge.md:134` | 当期活动用 SMW 查询取，时间同时给 `timestamp`（Unix 秒）与 `raw`（UTC） | `action=ask&query=[[分类:有活动信息的页面]][[!分类:集成战略]]\|?名称缩短\|?活动开始时间\|?…（共 239 字）
 
@@ -131,8 +131,8 @@
 
 **开发向**
 
-- `docs/09-前端重构方案.md:847` `4401` / `4403` 这两个必须硬编码成「不重连」。鉴权失败是确定性错误，重连只会在服务端日志里刷出一串失败握手，且掩盖真正的问题。close `1011` 的语义值得特别注意：按 06 §6，它表示「本连接的服务端发送队列满了，…（共 186 字）
-- `docs/ENVIRONMENT.md:734` 复跑注意：`.venv/bin/python scripts/probe_log_ws.py` 每次都会覆盖 `tests/fixtures/log_ws_probe_result.json` 与 `log_ws_probe_finding…（共 233 字）
+- `docs/09-前端重构方案.md:850` `4401` / `4403` 这两个必须硬编码成「不重连」。鉴权失败是确定性错误，重连只会在服务端日志里刷出一串失败握手，且掩盖真正的问题。close `1011` 的语义值得特别注意：按 06 §6，它表示「本连接的服务端发送队列满了，…（共 186 字）
+- `docs/ENVIRONMENT.md:736` 复跑注意：`.venv/bin/python scripts/probe_log_ws.py` 每次都会覆盖 `tests/fixtures/log_ws_probe_result.json` 与 `log_ws_probe_finding…（共 233 字）
 
 ## 口播腔（high｜用户可见 0 / 开发向 1）
 
@@ -144,11 +144,11 @@
 
 **开发向**
 
-- `docs/09-前端重构方案.md:1165` 反向代理终结 TLS。前面放一个 Caddy 或 Nginx，用自有域名 + Let's Encrypt。如果域名解析到公网 IP 则用 HTTP-01 挑战，但那意味着服务要暴露到公网，与私有部署的前提冲突。更好的做法是 DNS-01 挑…（共 310 字）
+- `docs/09-前端重构方案.md:1168` 反向代理终结 TLS。前面放一个 Caddy 或 Nginx，用自有域名 + Let's Encrypt。如果域名解析到公网 IP 则用 HTTP-01 挑战，但那意味着服务要暴露到公网，与私有部署的前提冲突。更好的做法是 DNS-01 挑…（共 310 字）
 
 ## 宣传词（medium｜用户可见 0 / 开发向 1）
 
 **开发向**
 
-- `docs/09-前端重构方案.md:1171` Chrome DevTools 的端口转发。Android 手机用 USB 连电脑，在 `chrome://inspect` 里配端口转发，手机上的 `localhost:8002` 映射到电脑能访问的地址，从而落进 `localhost`…（共 176 字）
+- `docs/09-前端重构方案.md:1174` Chrome DevTools 的端口转发。Android 手机用 USB 连电脑，在 `chrome://inspect` 里配端口转发，手机上的 `localhost:8002` 映射到电脑能访问的地址，从而落进 `localhost`…（共 176 字）
 

@@ -36,6 +36,9 @@ channel:
 # 流水线失败或内核崩溃后，自动创建可继续追问的诊断会话
 agent:
   auto_diagnose_failures: true
+  # 账号数据（干员识别 / 仓库识别）超过多少天算过期；概要接口与 Agent 注入据此提示重新识别
+  box_stale_days: 14
+  depot_stale_days: 3
 
 # OpenAI 兼容模型；密钥建议通过环境变量或设置页录入，数据库里的密钥由 MAA_LLM_ENCRYPTION_KEY 加密
 llm:

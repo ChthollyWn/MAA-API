@@ -139,6 +139,8 @@ EXPECTED_VALUES = {
         "UPDATE_AVAILABLE": "update_available",
         "UPDATE_FINISHED": "update_finished",
         "CONFIRMATION_REQUIRED": "confirmation_required",
+        # M27：养成计划的材料备齐、定时任务已停（S15）。
+        "UPGRADE_PLAN_FINISHED": "upgrade_plan_finished",
     },
     "AgentRole": {
         "SYSTEM": "system",

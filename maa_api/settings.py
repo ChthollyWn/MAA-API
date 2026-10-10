@@ -69,6 +69,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "agent.question_timeout_seconds": ("agent", "question_timeout_seconds"),
     "agent.atomic_grant_minutes": ("agent", "atomic_grant_minutes"),
     "agent.auto_diagnose_failures": ("agent", "auto_diagnose_failures"),
+    # 账号数据的过期阈值（M27，规格 §7.3、附录 B）：识别结果超过这些天数即提示重新识别。
+    "agent.box_stale_days": ("agent", "box_stale_days"),
+    "agent.depot_stale_days": ("agent", "depot_stale_days"),
     "adb.path": ("adb", "path"),
     "adb.address": ("adb", "address"),
     "adb.screenshot_quality": ("adb", "screenshot_quality"),
@@ -230,6 +233,10 @@ class AgentSettings(BaseModel):
     question_timeout_seconds: int = Field(default=600, ge=1)
     atomic_grant_minutes: int = Field(default=15, ge=1, le=60)
     auto_diagnose_failures: bool = True
+    #: 账号数据（M27，规格 §7.3）：干员 / 仓库识别结果超过这些天数即「已过期」，
+    #: 概要接口与注入段据此提示重新识别。取值范围见附录 B。
+    box_stale_days: int = Field(default=14, ge=1, le=365)
+    depot_stale_days: int = Field(default=3, ge=1, le=60)
 
 
 class DeploymentSettings(BaseModel):
