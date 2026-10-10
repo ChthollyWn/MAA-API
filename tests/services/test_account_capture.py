@@ -164,13 +164,12 @@ def test_operbox_done_true_writes_operators_and_a_recognition_record(
             assert angel.own is False
             # all_opers 里的未拥有干员也要有名字与职业，页面按名字筛选才有意义。
             assert (angel.name, angel.rarity, angel.profession) == ("能天使", 6, "狙击")
-            # 这次只认得「未拥有」，练度是建行默认值（上一次识别的值由服务层保留）。
-            assert angel.recognized_values == {
-                "own": False,
-                "elite": 0,
-                "level": 0,
-                "potential": 0,
-            }
+            # 这次只认得「未拥有」：练度三列与技能相关列都是 NULL＝未识别（M35）。
+            assert angel.recognized_values == {"own": False}
+            assert (angel.elite, angel.level, angel.potential) == (None, None, None)
+            assert angel.skill_level is None
+            assert angel.masteries is None
+            assert angel.modules is None
 
             recognition = await AccountRecognitionRepository(session).latest(
                 RECOGNITION_KIND_OPERBOX

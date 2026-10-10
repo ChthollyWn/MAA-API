@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
   compactText,
+  eliteLabel,
   finiteNumber,
   formatDateTime,
+  masteryText,
   missingMaterialsText,
+  moduleText,
   parsePlanStages,
   planRunsTotal,
   planStagesText,
   planStatusLabel,
+  trainingValueText,
   upgradeTargetText,
 } from './format'
 
@@ -89,5 +93,35 @@ describe('M31 养成计划的格式化', () => {
     expect(formatDateTime('not-a-date')).toBeNull()
     expect(formatDateTime(null)).toBeNull()
     expect(formatDateTime(undefined)).toBeNull()
+  })
+})
+
+describe('M35 未识别练度', () => {
+  it('eliteLabel：null / undefined 写「未识别」，有值照旧', () => {
+    expect(eliteLabel(null)).toBe('未识别')
+    expect(eliteLabel(undefined)).toBe('未识别')
+    expect([0, 1, 2].map((elite) => eliteLabel(elite))).toEqual(['精零', '精一', '精二'])
+  })
+
+  it('trainingValueText：等级 / 潜能 / 技能等级缺值写「未识别」，0 是合法值', () => {
+    expect(trainingValueText(null)).toBe('未识别')
+    expect(trainingValueText(undefined)).toBe('未识别')
+    expect(trainingValueText(0)).toBe('0')
+    expect(trainingValueText(90)).toBe('90')
+  })
+
+  it('masteryText：未识别（null）与已知的「无专精」（空映射 / 全 0 槽）不是一回事', () => {
+    expect(masteryText(null)).toBe('未识别')
+    expect(masteryText(undefined)).toBe('未识别')
+    expect(masteryText({})).toBe('—')
+    expect(masteryText({ '1': 0, '2': 0, '3': 0 })).toBe('—')
+    expect(masteryText({ '1': 3, '2': 1, '3': 0 })).toBe('S1 3 · S2 1')
+  })
+
+  it('moduleText：未识别（null）与已知的「无模组」（空映射）不是一回事', () => {
+    expect(moduleText(null)).toBe('未识别')
+    expect(moduleText(undefined)).toBe('未识别')
+    expect(moduleText({})).toBe('—')
+    expect(moduleText({ X: 2, Y: 1 })).toBe('X2 · Y1')
   })
 })

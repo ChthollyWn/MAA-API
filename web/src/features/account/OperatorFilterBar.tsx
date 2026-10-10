@@ -105,7 +105,7 @@ export function OperatorFilterBar({ filters, onFiltersChange, onClear, busy = fa
         </label>
       </div>
       <p className="text-footnote text-muted-foreground">
-        稀有度与精英化按「最低」筛选；未拥有只能在已取回的列表里过滤。
+        稀有度与精英化按「最低」筛选；精英化未识别的干员不参与「最低精英化」筛选；未拥有只能在已取回的列表里过滤。
       </p>
     </div>
   )

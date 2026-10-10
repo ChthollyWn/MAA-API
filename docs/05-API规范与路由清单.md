@@ -793,7 +793,7 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 | GET | `/api/account/summary` | 账号数据概要与是否过期 | 无 | 200 | `UNAUTHORIZED` |
 | GET | `/api/account/operators` | 干员表，默认只返回已拥有 | `query`（名字片段）、`owned_only`（默认 `true`，`false` 时连未拥有的一起列出）、`rarity_min`（1–6）、`profession`、`elite_min`（0–2）、`limit`（1–200，默认 50）、`offset` | 200 | `UNAUTHORIZED` |
 | GET | `/api/account/operators/{char_id}` | 单名干员的完整记录（编辑抽屉打开时读） | 无 | 200 | `ACCOUNT_DATA_NOT_FOUND`、`UNAUTHORIZED` |
-| PATCH | `/api/account/operators/{char_id}` | 手动编辑干员数据 | 只接受可编辑字段，未知字段 422：`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`、`modules`、`source`（`manual` / `agent`，默认 `manual`） | 200 | `ACCOUNT_DATA_NOT_FOUND`、`INVALID_PARAMETER`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
+| PATCH | `/api/account/operators/{char_id}` | 手动编辑干员数据 | 只接受可编辑字段，未知字段 422：`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`、`modules`、`source`（`manual` / `agent`，默认 `manual`）；练度列传 `null` 与不传同义＝不改（M35，不做「写 `null` 清回未识别」） | 200 | `ACCOUNT_DATA_NOT_FOUND`、`INVALID_PARAMETER`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
 | GET | `/api/account/operator-diffs` | 识别覆盖手动值的差异 | `include_dismissed`（默认 `false`）、`limit`（1–500，默认 200） | 200 | `UNAUTHORIZED` |
 | DELETE | `/api/account/operator-diffs` | 把差异标记为已知 | `{ids: [int]}` 逐条，或省略＝全部 | 200 | `UNAUTHORIZED` |
 | GET | `/api/account/depot` | 仓库识别结果，按分类分组 | `category`、`query`、`limit`（1–500，默认 100）、`offset` | 200 | `UNAUTHORIZED` |
@@ -804,7 +804,9 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 干员行的字段是 `char_id`、`name`、`rarity`、`profession`、`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`（`{"1": 0..3, "2": …, "3": …}`）、`modules`（模组类型 `X` / `Y` / `D` / `A` → 等级 1–3）、`field_sources`、`recognized_at`、`updated_at`；仓库行的字段是 `item_id`、`name`、`count`、`category`、`recognized_at`。仓库列表的容器还多一个 `categories`：这份识别快照里出现过的全部分类、按名字排序，与 `category` / `query` 两个筛选无关（分页只截取条目，分类清单不随筛选缩水），前端用它填分类下拉。
 
-`PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。识别结果的合并规则见 [11 §6.5](./11-Agent模块设计.md)与规格 §7.3：识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组只由手动或 Agent 写入；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
+**练度六列可空（M35）**：`elite` / `level` / `potential` / `skill_level` / `masteries` / `modules` 都是 `T | null`，`null` ＝ **未识别**——既没有识别值，也没有 manual / agent 写入（`field_sources` 是唯一台账）。这与「已知的无专精 / 无模组」不同：`{"1": 0, "2": 0, "3": 0}` 与 `{}` 是已知值，`null` 才是不知道。内核的干员识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组在详情页、M36 才扫，所以新识别出来的行这三列就是 `null`。`elite_min` 这类筛选不会命中 `null` 行（SQL 三值逻辑），前端列表与编辑抽屉把 `null` 显示成「未识别」，Agent 侧的 `get_operator_box` / `plan_upgrade` 同样如此；`plan_upgrade` 返回里的 `unknowns` 列出未识别维度，这些维度不进材料增量。见 [13 §8.50](./13-决策记录.md)。
+
+`PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。这些**前置条件只在该字段已知时判**（M35）：精英化或技能等级是 `null`（未识别）时不拦专精 / 模组的补录，否则不知道练度就永远填不进去；已知值照旧拦（精一填专精、技能不满 7 级填专精、精一填模组都是 422）。显式把精英化降到 2 以下仍会清空专精与模组。识别结果的合并规则见 [11 §6.5](./11-Agent模块设计.md)与规格 §7.3：识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组只由手动或 Agent 写入；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
 
 `source` 只接受 `manual` 与 `agent`：识别写入固定标 `recognition`，客户端不能借这个字段把识别结果伪装成手动值，所以传 `recognition` 是 422（Pydantic 枚举校验）。
 
@@ -828,7 +830,7 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 `DELETE` 幂等：定时任务已经被删掉时不报错，计划已经是 `cancelled` 时再调一次仍是 200 与同一条计划。取消只影响计划与它名下的定时任务，不会去停正在跑的流水线。
 
-确认卡片里的预演不在这三个端点里：`start_upgrade_plan` 的确认 payload 带 `preview`（预演结果，含 `today_tasks`、`daily_template`、`medicine`、`days_estimated`、`total_sanity`、`stages`、`conflicts`、`unobtainable`、`notes`）与可选的中文冲突理由；预演取不到时降级成 `preview_error` 短字符串，不挡确认（规格 §7.7）。
+确认卡片里的预演不在这三个端点里：`start_upgrade_plan` 的确认 payload 带 `preview`（预演结果，含 `today_tasks`、`daily_template`、`medicine`、`days_estimated`、`total_sanity`、`stages`、`conflicts`、`unobtainable`、`notes`、`unknowns`）与可选的中文冲突理由；预演取不到时降级成 `preview_error` 短字符串，不挡确认（规格 §7.7）。`unknowns` 与 `start_upgrade_plan` 返回的同名键一样，是练度未识别维度的「待确认」项（元素 `{operator, field, reason}`，M35 起）；`start` 还会把它写进 `progress.unknowns`，所以列表/详情读回来的同一条记录里也能看到，不必重算（规格 §4.7）。
 
 （3 条）
 

@@ -18,6 +18,7 @@ from tests.services.test_upgrade_plan_lifecycle import (
     FakeScheduleService,
     async_test,
     fights,
+    plan_payload,
     service,
 )
 
@@ -62,6 +63,33 @@ async def test_start_persists_the_plan_and_both_delivery_shapes():
 
     listed = await handle.list_plans()
     assert listed["total"] == 1 and listed["plans"][0]["id"] == plan["id"]
+
+
+@async_test
+async def test_start_and_preview_carry_the_unknown_training_fields():
+    """规格 §4.7：未识别维度不猜增量，改成「待确认」项；启动落库、预览卡片同源可见。"""
+    unknown = {"operator": "克莱门莎", "field": "skill_level", "reason": "未识别，需先确认"}
+    pipeline = FakePipelineService()
+    _factory, handle = await service(
+        pipeline=pipeline,
+        schedule=FakeScheduleService(),
+        planner=FakePlanner(plan=plan_payload(unknowns=[unknown])),
+    )
+
+    started = await handle.start(name="乙", targets=[{"operator": "克莱门莎"}], run_times=["08:00"])
+
+    assert started["unknowns"] == [unknown]
+    assert started["plan"]["progress"]["unknowns"] == [unknown]
+
+    # 列表/详情读回的是落库后那条记录里的 unknowns（JSON 列往返），不重算也不会丢。
+    listed = await handle.list_plans()
+    assert listed["plans"][0]["progress"]["unknowns"] == [unknown]
+
+    previewed = await handle.preview(
+        name="乙", targets=[{"operator": "克莱门莎"}], run_times=["08:00"]
+    )
+    assert previewed["unknowns"] == [unknown]
+    assert previewed["notes"][0] == "预览：没有提交流水线，也没有创建定时任务"
 
 
 @async_test

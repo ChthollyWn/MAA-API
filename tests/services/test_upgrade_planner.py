@@ -381,7 +381,13 @@ def harness(
     operators = FakeOperators(payloads if payloads is not None else {"甲": BASE_PAYLOAD})
     drops = FakeDrops(rates, default=default_rates)
     prts = FakePrts(pages)
-    box = box if box is not None else FakeBox(row_key=row_key)
+    # M35：默认给「甲」「乙」一条**已识别**的账号行（精零 1 级、技能 1、无专精/模组），
+    # 「从零算起」的用例才有真实依据——不再靠「没有记录 → 按刚获得」的编造值。
+    # 星级取 1★ 是为了不掺进升级经验/龙门币（1★ 没有精一精二），那部分另有专门用例。
+    # 「没有记录 → 未识别」的用例自己传空的 ``FakeBox()``。
+    box = box if box is not None else FakeBox(
+        [box_row("甲", rarity=1), box_row("乙", rarity=1)], row_key=row_key
+    )
     index = index if index is not None else FakeIndex()
     planner_instance = UpgradePlanner(
         operators=operators,
@@ -777,27 +783,35 @@ async def test_costs_unavailable_degrades_for_that_target() -> None:
 
 
 @async_test
-async def test_no_box_record_assumes_fresh_operator() -> None:
-    """没有干员记录时按「刚获得」算，并标 assumed_current。"""
+async def test_no_box_record_is_unknown_not_assumed_fresh() -> None:
+    """没有干员记录时不编「刚获得」：练度留空、进 unknowns，材料需求为空（M35）。"""
     h = harness(
         rates={TARGET: [stage_row("main_01-07", "1-7", TARGET, times=1000,
-                                  quantity=1000, ap_cost=6)]}
+                                  quantity=1000, ap_cost=6)]},
+        box=FakeBox(),
     )
 
     plan = await h.planner.plan([UpgradeTarget("甲", elite=1)], box=h.box)
 
     row = plan.targets[0]
     assert row["assumed_current"] is True
-    assert row["current"]["elite"] == 0
-    assert row["current"]["level"] == 1
-    assert row["current"]["skill_level"] == 1
-    assert row["requirements"] == {TARGET: 10, "龙门币": 30000}
-    assert any("刚获得" in note for note in plan.notes)
+    assert row["current"]["elite"] is None
+    assert row["current"]["level"] is None
+    assert row["current"]["skill_level"] is None
+    # 现状未知 → 精英化那 10 个目标料没有依据，一个都不算。
+    assert row["requirements"] == {}
+    assert plan.requirements == {}
+    assert plan.unknowns == (
+        {"operator": "甲", "field": "elite", "reason": "未识别，需先确认"},
+        {"operator": "甲", "field": "level", "reason": "未识别，需先确认"},
+    )
+    assert any("未识别" in note for note in plan.notes)
+    assert not any("刚获得" in note for note in plan.notes)
 
 
 @async_test
-async def test_box_record_without_ownership_is_assumed_fresh() -> None:
-    """记录说没拥有：按刚获得算，并说明原因。"""
+async def test_box_record_without_ownership_is_unknown_not_assumed_fresh() -> None:
+    """记录说没拥有：标 assumed_current 并说明原因，但不按「刚获得」编练度（M35）。"""
     box = FakeBox([box_row("甲", own=False)])
     h = harness(
         rates={TARGET: [stage_row("main_01-07", "1-7", TARGET, times=1000,
@@ -809,7 +823,8 @@ async def test_box_record_without_ownership_is_assumed_fresh() -> None:
 
     assert plan.targets[0]["assumed_current"] is True
     assert any("拥有" in warning for warning in plan.targets[0]["warnings"])
-    assert plan.requirements == {TARGET: 10, "龙门币": 30000}
+    assert plan.requirements == {}
+    assert {entry["field"] for entry in plan.unknowns} == {"elite", "level"}
 
 
 @async_test
@@ -860,7 +875,7 @@ async def test_box_record_makes_targets_incremental() -> None:
 
 @async_test
 async def test_masteries_without_prerequisites_add_them_implicitly() -> None:
-    """只写「专精一」：按刚获得算，隐含补上精英二与技能 7 级，并标 implied。"""
+    """只写「专精一」：从**已识别**的精零 1 级算起，隐含补精英二与技能 7 级，并标 implied。"""
     payload = {
         "costs": {
             "elite": BASE_COSTS["elite"],
@@ -875,7 +890,7 @@ async def test_masteries_without_prerequisites_add_them_implicitly() -> None:
     plan = await h.planner.plan([UpgradeTarget("甲", masteries={1: 1})], box=h.box)
 
     row = plan.targets[0]
-    assert row["assumed_current"] is True
+    assert row["assumed_current"] is False
     assert set(row["implied"]) == {"elite", "skill_level"}
     assert row["target"]["elite"] == 2
     assert row["target"]["skill_level"] == 7
@@ -918,7 +933,7 @@ async def test_use_depot_deducts_inventory() -> None:
     rates = {TARGET: [stage_row("main_01-07", "1-7", TARGET, times=1000,
                                 quantity=500, ap_cost=6)]}  # rate 0.5
     depot = FakeDepot({TARGET: 4})
-    box = FakeBox(depot=depot)
+    box = FakeBox([box_row("甲", rarity=1)], depot=depot)
     h = harness(rates=rates, box=box)
 
     with_depot = await h.planner.plan([UpgradeTarget("甲", elite=1)], box=box)
@@ -938,7 +953,7 @@ async def test_use_depot_deducts_inventory() -> None:
 async def test_depot_is_paged() -> None:
     """仓库一页装不下时分页读完（假服务每页最多 2 条）。"""
     depot = FakeDepot({TARGET: 4, FINE: 1, "别的料": 9}, page_cap=2)
-    box = FakeBox(depot=depot)
+    box = FakeBox([box_row("甲", rarity=1)], depot=depot)
     h = harness(
         rates={TARGET: [stage_row("main_01-07", "1-7", TARGET, times=1000,
                                   quantity=500, ap_cost=6)]},
@@ -962,7 +977,7 @@ async def test_depot_covered_material_is_not_unobtainable() -> None:
         "modules": [],
         "unavailable": [],
     }
-    box = FakeBox(depot=FakeDepot({BLOCK: 5}))
+    box = FakeBox([box_row("甲", rarity=1)], depot=FakeDepot({BLOCK: 5}))
     h = harness(payloads={"甲": payload}, box=box)
 
     plan = await h.planner.plan([UpgradeTarget("甲", elite=1)], box=box)
@@ -1261,17 +1276,77 @@ async def test_levelup_uses_the_account_rarity_curve() -> None:
 
 
 @async_test
-async def test_levelup_without_account_record_uses_the_lowest_rarity() -> None:
-    """账号里没有记录（按刚获得算）时星级未知：按 1★ 兜底，宁少不多，并标明来源。"""
-    h = harness(default_rates=True)
+async def test_levelup_uses_the_lowest_rarity_when_the_row_has_no_rarity() -> None:
+    """星级缺失时按 1★ 兜底，宁少不多，并标明来源（M35：练度本身仍是已知值）。"""
+    box = FakeBox([box_row("甲", rarity=None)])
+    h = harness(default_rates=True, box=box)
     h.planner = levelup_planner(
         operators=h.operators, drops=h.drops, items=FakeItems(h.prts),
-        index=h.index, box=None, settings_provider=_settings,
+        index=h.index, box=box, settings_provider=_settings,
     )
 
-    plan = await h.planner.plan([UpgradeTarget("甲")], box=None)
+    plan = await h.planner.plan([UpgradeTarget("甲")], box=box)
 
     # 1★ 不知道星级时按 1★ 兜底：精零 1→30 的 9,800 经验 / 6,043 龙门币（不能精一）。
     assert plan.requirements["作战记录"] == 9_800
     assert plan.requirements["龙门币"] == 6_043
     assert any("内置的官方数值表" in note for note in plan.notes)
+
+
+# --------------------------------------------------------------------------- #
+# M35：练度未识别不虚报（规格 §4.7）
+# --------------------------------------------------------------------------- #
+
+
+@async_test
+async def test_unknown_skill_level_keeps_elite_increments() -> None:
+    """行里只有精英化/等级（M33 那种 own-only 行）：精英化照算，技能与专精进 unknowns。"""
+    box = FakeBox([
+        box_row("甲", elite=0, level=1, skill_level=None, masteries=None, modules=None)
+    ])
+    h = harness(default_rates=True, box=box)
+
+    plan = await h.planner.plan(
+        [UpgradeTarget("甲", elite=2, masteries={1: 1})], box=box
+    )
+
+    assert plan.requirements[TARGET] == 10  # 精英一 10 个目标料照算
+    assert FINE in plan.requirements  # 精英二 4 个精密料照算
+    assert "专精料" not in plan.requirements  # 技能/专精未知：不按「技能 1 级」硬算
+    assert [entry["field"] for entry in plan.unknowns] == ["skill_level", "masteries"]
+    assert plan.targets[0]["unknowns"] == list(plan.unknowns)
+    assert any("未识别" in note for note in plan.notes)
+    assert any("未识别" in warning for warning in plan.targets[0]["warnings"])
+
+
+@async_test
+async def test_unknown_skill_level_is_not_counted_as_skill_one() -> None:
+    """负向对照：技能等级未识别时，专精目标一块专精料都不算（M35 前会按技能 1 级算）。"""
+    box = FakeBox([
+        box_row("甲", elite=2, level=90, skill_level=None, masteries=None, modules={})
+    ])
+    h = harness(default_rates=True, box=box)
+
+    plan = await h.planner.plan([UpgradeTarget("甲", masteries={1: 1})], box=box)
+
+    assert plan.requirements == {}
+    assert [entry["field"] for entry in plan.unknowns] == ["skill_level", "masteries"]
+    assert plan.feasible is True
+
+
+@async_test
+async def test_as_dict_plan_exposes_unknowns() -> None:
+    """wire 里带 unknowns（计划级 + 目标级），Agent 与页面都能看到「待确认」项。"""
+    box = FakeBox([box_row("甲", elite=None, level=None, skill_level=None)])
+    h = harness(default_rates=True, box=box)
+
+    payload = await h.planner.as_dict_plan(
+        [{"operator": "甲", "elite": 1}], use_depot=False
+    )
+
+    assert payload["unknowns"] == [
+        {"operator": "甲", "field": "elite", "reason": "未识别，需先确认"},
+        {"operator": "甲", "field": "level", "reason": "未识别，需先确认"},
+    ]
+    assert payload["targets"][0]["unknowns"] == payload["unknowns"]
+    assert payload["requirements"] == {}

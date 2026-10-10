@@ -41,6 +41,7 @@ from maa_api.services.account.rules import (
     module_wire,
     normalize_masteries,
     normalize_modules,
+    optional_int,
     require_bool,
     require_int,
     skill_count,
@@ -210,13 +211,15 @@ class OperatorBoxService:
 
             # 先算出这次编辑之后的生效值（``final``），同时把行里当前的值留在
             # ``before`` 里：只有真正变了的字段才写库、才改来源标记——页面把未修改的
-            # 字段原样回传时不该把它标成「手动改过」。
+            # 字段原样回传时不该把它标成「手动改过」。练度六列用 ``None`` 表示
+            # **未识别**（M35 规格 §4.5）：``None → 值`` 算一次变化，而未知本身在
+            # 约束层按「不知道」处理（见下）。
             before: dict[str, Any] = {
                 "own": bool(getattr(row, "own", False)),
-                "elite": int(getattr(row, "elite", 0) or 0),
-                "level": int(getattr(row, "level", 0) or 0),
-                "potential": int(getattr(row, "potential", 0) or 0),
-                "skill_level": int(getattr(row, "skill_level", 1) or 1),
+                "elite": optional_int(getattr(row, "elite", None)),
+                "level": optional_int(getattr(row, "level", None)),
+                "potential": optional_int(getattr(row, "potential", None)),
+                "skill_level": optional_int(getattr(row, "skill_level", None)),
                 "masteries": mastery_wire(getattr(row, "masteries", None)),
                 "modules": module_wire(getattr(row, "modules", None)),
             }
@@ -273,9 +276,10 @@ class OperatorBoxService:
 
             # 精英化被显式调到精二以下时，专精与模组在语义上不再存在：先清空，
             # 再判跨字段约束——报错会让「降精英化」这个动作根本做不成（前端不会
-            # 同时把 masteries 一起传上来）。
+            # 同时把 masteries 一起传上来）。未识别的列（``None``）保持未识别：
+            # 「没识别过」不等于「有专精」，不需要清成一份假的「无专精」。
             if "elite" in payload and final["elite"] < MASTERY_ELITE_REQUIRED:
-                if any(final["masteries"].values()):
+                if final["masteries"] is not None and any(final["masteries"].values()):
                     final["masteries"] = {"1": 0, "2": 0, "3": 0}
                 if final["modules"]:
                     final["modules"] = {}
@@ -284,29 +288,42 @@ class OperatorBoxService:
                         changed.add(field)
 
             # 跨字段约束按**生效值**判：只改模组而不提精英化时，用的是行里既有的
-            # 精英化等级。两条依次是：专精要精二且技能 7、模组要精二。
-            if any(final["masteries"].values()):
-                if final["elite"] < MASTERY_ELITE_REQUIRED:
+            # 精英化等级。约束**只在已知时判**（M35 规格 §4.5）：「精英化没识别过」
+            # 证明不了专精非法，拦住用户补录才是不讲道理。两条依次是：专精要精二且
+            # 技能 7、模组要精二。
+            if final["masteries"] is not None and any(final["masteries"].values()):
+                if final["elite"] is not None and final["elite"] < MASTERY_ELITE_REQUIRED:
                     raise validation_error(
                         "masteries",
                         "专精只在精二时可填",
                         elite_required=MASTERY_ELITE_REQUIRED,
                     )
-                if final["skill_level"] != MAX_SKILL_LEVEL:
+                if (
+                    final["skill_level"] is not None
+                    and final["skill_level"] != MAX_SKILL_LEVEL
+                ):
                     raise validation_error(
                         "masteries",
                         "专精要求技能等级为 7",
                         skill_level_required=MAX_SKILL_LEVEL,
                     )
-            if final["skill_level"] != MAX_SKILL_LEVEL and "skill_level" in payload:
+            if (
+                "skill_level" in payload
+                and final["skill_level"] is not None
+                and final["skill_level"] != MAX_SKILL_LEVEL
+            ):
                 # 把技能等级改到 7 以下会让既有的专精变成非法状态。
-                if any(before["masteries"].values()):
+                if before["masteries"] is not None and any(before["masteries"].values()):
                     raise validation_error(
                         "skill_level",
                         "已填专精时技能等级必须保持 7",
                         skill_level_required=MAX_SKILL_LEVEL,
                     )
-            if final["modules"] and final["elite"] < MASTERY_ELITE_REQUIRED:
+            if (
+                final["modules"]
+                and final["elite"] is not None
+                and final["elite"] < MASTERY_ELITE_REQUIRED
+            ):
                 raise validation_error(
                     "modules",
                     "模组只在精二时可填",
@@ -483,10 +500,19 @@ class OperatorBoxService:
                     )
                     diffs += 1
 
-                for field, value in values.items():
+                # 只有真的拿到值的字段才算「这次识别给出了值」：没给出值的字段保持
+                # 未识别（M35：``None`` 就是 ``None``，不许落成 0 / 空映射），也不把
+                # 它标成识别来源——来源台账与值必须一致。``own`` 例外：``all_opers``
+                # 每次都给出它，没有未知态。
+                recognized_values = {
+                    field: value
+                    for field, value in values.items()
+                    if value is not None or field == "own"
+                }
+                for field, value in recognized_values.items():
                     setattr(row, field, value)
                     sources[field] = RECOGNITION_SOURCE
-                row.recognized_values = values
+                row.recognized_values = recognized_values
                 row.field_sources = sources
                 row.recognized_at = stamp
                 row.updated_at = moment
@@ -554,10 +580,13 @@ def _optional_int(value: Any) -> int | None:
 
 
 def _coerce_recognized(field: str, value: Any) -> Any:
-    """识别值归一：布尔按真假、整数按 int（内核回调里可能是字符串或浮点）。"""
+    """识别值归一：布尔按真假、整数按 int（内核回调里可能是字符串或浮点）。
+
+    整数解析不出来时回 ``None``（＝这次没给出值），**不再折算成 0**：0 是「精零」
+    这个具体事实，不能拿来接住脏数据（M35）。
+    """
     if field == "own":
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes"}
         return bool(value)
-    parsed = _optional_int(value)
-    return 0 if parsed is None else parsed
+    return _optional_int(value)

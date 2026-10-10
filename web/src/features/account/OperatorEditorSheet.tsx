@@ -26,7 +26,7 @@ import {
   validateDraft,
   type OperatorDraft,
 } from './constraints'
-import { errorText, fieldSource, professionLabel, rarityLabel, sourceLabel } from './format'
+import { UNKNOWN_TEXT, errorText, fieldSource, professionLabel, rarityLabel, sourceLabel } from './format'
 
 function SourceTag({ source, field }: { source: FieldSource | null; field: string }) {
   const label = sourceLabel(source)
@@ -59,11 +59,15 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
 
   const set = <K extends keyof OperatorDraft>(key: K, value: OperatorDraft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
+  // 未识别（`null`）的整列在用户填了任意一档后就算「补录」：整列从 null 变成具体映射。
   const setMastery = (slot: string, level: number) =>
-    setDraft((current) => ({ ...current, masteries: { ...current.masteries, [slot]: level } }))
+    setDraft((current) => ({
+      ...current,
+      masteries: { ...(current.masteries ?? { '1': 0, '2': 0, '3': 0 }), [slot]: level },
+    }))
   const setModule = (type: string, level: number) =>
     setDraft((current) => {
-      const modules = { ...current.modules }
+      const modules = { ...(current.modules ?? {}) }
       if (level > 0) modules[type] = level
       else delete modules[type]
       return { ...current, modules }
@@ -81,17 +85,18 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
     },
   })
 
-  // 精英化或技能等级降到不允许的状态时，把专精与模组就地清零：控件同时禁用，
-  // 保存时也就不会提交与精英化不一致的值。
+  // 精英化或技能等级落到**已知的**不允许状态时，把专精与模组就地清零：控件同时禁用，
+  // 保存时也就不会提交与精英化不一致的值。未识别（`null`）时两者都放行，也不清零——
+  // 「不知道」不是「有专精」，清成 0 反而是把未知写成「无专精」。
   useEffect(() => {
     setDraft((current) => {
       const next = { ...current }
       let changed = false
-      if (!canEditMasteries(current) && Object.values(current.masteries).some((level) => level > 0)) {
+      if (!canEditMasteries(current) && current.masteries !== null && Object.values(current.masteries).some((level) => level > 0)) {
         next.masteries = { '1': 0, '2': 0, '3': 0 }
         changed = true
       }
-      if (!canEditModules(current) && Object.keys(current.modules).length > 0) {
+      if (!canEditModules(current) && current.modules !== null && Object.keys(current.modules).length > 0) {
         next.modules = {}
         changed = true
       }
@@ -141,9 +146,11 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
         >
           <NativeSelect
             id={`${baseId}-elite`}
-            value={String(draft.elite)}
-            onChange={(event) => set('elite', Number(event.currentTarget.value))}
+            value={draft.elite === null ? '' : String(draft.elite)}
+            onChange={(event) => set('elite', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
           >
+            {/* 未识别只在行里本来就没值时出现：已识别的值不能从页面清回未识别（规格 §3.2）。 */}
+            {row.elite == null ? <option value="">{UNKNOWN_TEXT}</option> : null}
             {Array.from({ length: eliteCap + 1 }, (_, elite) => (
               <option key={elite} value={elite}>{['精零', '精一', '精二'][elite]}</option>
             ))}
@@ -163,8 +170,9 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
               inputMode="numeric"
               min={1}
               max={MAX_LEVEL}
-              value={draft.level}
-              onChange={(event) => set('level', Number(event.currentTarget.value))}
+              placeholder={UNKNOWN_TEXT}
+              value={draft.level === null ? '' : draft.level}
+              onChange={(event) => set('level', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
             />
           </Field>
           <Field
@@ -179,8 +187,9 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
               inputMode="numeric"
               min={1}
               max={MAX_POTENTIAL}
-              value={draft.potential}
-              onChange={(event) => set('potential', Number(event.currentTarget.value))}
+              placeholder={UNKNOWN_TEXT}
+              value={draft.potential === null ? '' : draft.potential}
+              onChange={(event) => set('potential', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
             />
           </Field>
         </div>
@@ -194,9 +203,10 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
           >
             <NativeSelect
               id={`${baseId}-skill`}
-              value={String(draft.skillLevel)}
-              onChange={(event) => set('skillLevel', Number(event.currentTarget.value))}
+              value={draft.skillLevel === null ? '' : String(draft.skillLevel)}
+              onChange={(event) => set('skillLevel', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
             >
+              {row.skill_level == null ? <option value="">{UNKNOWN_TEXT}</option> : null}
               {Array.from({ length: MAX_SKILL_LEVEL }, (_, index) => index + 1).map((level) => (
                 <option key={level} value={level}>{level} 级</option>
               ))}
@@ -225,7 +235,11 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
             <SourceTag source={fieldSource(row, 'masteries')} field="masteries" />
           </legend>
           <p className="text-footnote text-muted-foreground">
-            {masteriesEditable ? '0 表示未专精，最高 3 级。' : '专精只在精二且技能等级 7 时可填。'}
+            {!masteriesEditable
+              ? '专精只在精二且技能等级 7 时可填。'
+              : draft.masteries === null
+                ? '未识别：填任意一档即视为补录；0 表示未专精，最高 3 级。'
+                : '0 表示未专精，最高 3 级。'}
           </p>
           <div className="grid grid-cols-3 gap-3">
             {SKILL_SLOTS.slice(0, draft.skillCount).map((slot) => (
@@ -234,9 +248,14 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
                 <NativeSelect
                   aria-label={`S${slot} 专精`}
                   disabled={!masteriesEditable}
-                  value={String(draft.masteries[slot] ?? 0)}
-                  onChange={(event) => setMastery(slot, Number(event.currentTarget.value))}
+                  value={draft.masteries === null ? '' : String(draft.masteries[slot] ?? 0)}
+                  onChange={(event) => {
+                    // 选中「未识别」不改动草稿：没有「把已填的专精清回未识别」的语义（规格 §3.2）。
+                    if (event.currentTarget.value === '') return
+                    setMastery(slot, Number(event.currentTarget.value))
+                  }}
                 >
+                  {draft.masteries === null ? <option value="">{UNKNOWN_TEXT}</option> : null}
                   {[0, 1, 2, 3].map((level) => <option key={level} value={level}>{level}</option>)}
                 </NativeSelect>
               </label>
@@ -251,7 +270,11 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
             <SourceTag source={fieldSource(row, 'modules')} field="modules" />
           </legend>
           <p className="text-footnote text-muted-foreground">
-            {modulesEditable ? '类型固定为 X / Y / D / A，等级 1–3。' : '模组只在精二时可填。'}
+            {!modulesEditable
+              ? '模组只在精二时可填。'
+              : draft.modules === null
+                ? '未识别：填任意一个类型即视为补录；类型固定为 X / Y / D / A，等级 1–3。'
+                : '类型固定为 X / Y / D / A，等级 1–3。'}
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {MODULE_TYPES.map((type) => (
@@ -260,9 +283,14 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
                 <NativeSelect
                   aria-label={`${type} 模组等级`}
                   disabled={!modulesEditable}
-                  value={String(draft.modules[type] ?? 0)}
-                  onChange={(event) => setModule(type, Number(event.currentTarget.value))}
+                  value={draft.modules === null ? '' : String(draft.modules[type] ?? 0)}
+                  onChange={(event) => {
+                    // 同专精：选中「未识别」不改动草稿，没有清回未知的写入语义。
+                    if (event.currentTarget.value === '') return
+                    setModule(type, Number(event.currentTarget.value))
+                  }}
                 >
+                  {draft.modules === null ? <option value="">{UNKNOWN_TEXT}</option> : null}
                   <option value={0}>未装备</option>
                   {Array.from({ length: MAX_MODULE_LEVEL }, (_, index) => index + 1).map((level) => (
                     <option key={level} value={level}>{level} 级</option>

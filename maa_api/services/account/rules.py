@@ -31,6 +31,7 @@ __all__ = [
     "RECOGNITION_SOURCE",
     "RECOGNIZED_FIELDS",
     "SKILL_COUNT_BY_RARITY",
+    "UNKNOWN_TRAINING_FIELDS",
     "WRITE_SOURCES",
     "box_row_wire",
     "diff_wire",
@@ -40,6 +41,7 @@ __all__ = [
     "module_wire",
     "normalize_masteries",
     "normalize_modules",
+    "optional_int",
     "require_bool",
     "require_int",
     "skill_count",
@@ -66,6 +68,17 @@ BOX_FIELDS: tuple[str, ...] = (
 
 #: 识别能覆盖的字段（规格 §7.3）：识别结果只动这四个。
 RECOGNIZED_FIELDS: tuple[str, ...] = ("own", "elite", "level", "potential")
+
+#: 可为「未识别」的练度列（M35 规格 §4.1）：取值 ``None`` 表示既没有识别值、
+#: 也没有 manual / agent 写入。前端、API 文档与规划层共用这一份字段名。
+UNKNOWN_TRAINING_FIELDS: tuple[str, ...] = (
+    "elite",
+    "level",
+    "potential",
+    "skill_level",
+    "masteries",
+    "modules",
+)
 
 #: ``PATCH`` 允许改的字段（规格 §7.5）。``char_id`` / ``name`` / ``rarity`` /
 #: ``profession`` 是识别与资源侧的事实，不可手改。
@@ -212,15 +225,30 @@ def json_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
-def mastery_wire(value: Any) -> dict[str, int]:
-    """专精列 → ``{"1": 0..3, "2": ..., "3": ...}``（规格 §7.5 的 wire 形状）。
+def optional_int(value: Any) -> int | None:
+    """练度列的读侧归一：``None`` / 非整数一律回 ``None``（＝未识别），**不兜底成 0**。
 
-    三个槽位**总是**出现：没识别过、也没手改过的行同样返回全 0，前端不必区分
-    「缺键」与「0 级」两种写法。只接受 1–3 且值为整数的项；键统一成字符串，
-    前端不用猜 JSON 里存的是 int 还是 str。
+    布尔要单独挡掉：``True`` 也是 ``int``，但练度列里它只可能是脏数据。
     """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def mastery_wire(value: Any) -> dict[str, int] | None:
+    """专精列 → ``{"1": 0..3, "2": ..., "3": ...}``；未知回 ``None``。
+
+    三个槽位在**已知**时总是一起出现（前端不必区分「缺键」与「0 级」）；但只要这一列
+    没被识别、也没被人工/Agent 写过（``None``），就原样返回 ``None``——M35 之前这里
+    总补全三个 0，等于替「没识别过」编了一份「无专精」的答案。
+    """
+    if not isinstance(value, Mapping):
+        return None
     result = {"1": 0, "2": 0, "3": 0}
-    for key, raw in json_mapping(value).items():
+    for key, raw in value.items():
         try:
             slot = int(key)
         except (TypeError, ValueError):
@@ -231,10 +259,16 @@ def mastery_wire(value: Any) -> dict[str, int]:
     return result
 
 
-def module_wire(value: Any) -> dict[str, int]:
-    """模组列 → ``{"X": 1..3}``；未知类型或非整数等级丢弃。"""
+def module_wire(value: Any) -> dict[str, int] | None:
+    """模组列 → ``{"X": 1..3}``；未知回 ``None``（口径同 :func:`mastery_wire`）。
+
+    已装模组是 ``{"X": 2}`` 这种非空映射；``{}`` 与 ``None`` 的区别是「确认没装」与
+    「不知道」，读侧不许把后者说成前者。
+    """
+    if not isinstance(value, Mapping):
+        return None
     result: dict[str, int] = {}
-    for key, raw in json_mapping(value).items():
+    for key, raw in value.items():
         module_type = str(key)
         if module_type not in MODULE_TYPES:
             continue
@@ -257,10 +291,12 @@ def field_sources_wire(value: Any) -> dict[str, str]:
 
 
 def box_row_wire(row: Any) -> dict[str, Any]:
-    """干员表行 → 对外形状（规格 §7.5 的 wire）。
+    """干员表行 → 对外形状（规格 §7.5 的 wire、M35 规格 §4.3）。
 
-    缺列用安全的默认值兜底（``own=False``、``elite=0``、``level=0``、技能 1 级、
-    空专精与模组），这样刚识别出来的行与手动补过的行在页面上同形。
+    练度六列**原样透传**：有值给值，没识别也没人写过的给 ``None``（＝未识别）。
+    M35 之前这里逐列兜底（``elite=0``、技能 1 级、专精三槽全 0、模组空映射），
+    于是「不知道」在页面与会话里被渲染成「精零 1 级、无专精、无模组」。
+    ``own`` 仍是布尔：``all_opers`` 每次都给出它，没有未知态。
     """
     return {
         "char_id": str(getattr(row, "char_id", "")),
@@ -268,10 +304,10 @@ def box_row_wire(row: Any) -> dict[str, Any]:
         "rarity": getattr(row, "rarity", None),
         "profession": getattr(row, "profession", None),
         "own": bool(getattr(row, "own", False)),
-        "elite": int(getattr(row, "elite", 0) or 0),
-        "level": int(getattr(row, "level", 0) or 0),
-        "potential": int(getattr(row, "potential", 0) or 0),
-        "skill_level": int(getattr(row, "skill_level", 1) or 1),
+        "elite": optional_int(getattr(row, "elite", None)),
+        "level": optional_int(getattr(row, "level", None)),
+        "potential": optional_int(getattr(row, "potential", None)),
+        "skill_level": optional_int(getattr(row, "skill_level", None)),
         "masteries": mastery_wire(getattr(row, "masteries", None)),
         "modules": module_wire(getattr(row, "modules", None)),
         "field_sources": field_sources_wire(getattr(row, "field_sources", None)),

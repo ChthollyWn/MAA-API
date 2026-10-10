@@ -166,8 +166,10 @@ def test_first_recognition_creates_rows_and_records_fields(account_session_facto
         }
         assert detail["recognized_at"] == "2026-10-10T03:00:00Z"
         assert detail["updated_at"] == "2026-10-10T03:00:00Z"
-        assert detail["masteries"] == {"1": 0, "2": 0, "3": 0}
-        assert detail["modules"] == {}
+        # OperBox 给不出技能等级、专精与模组：这三列保持 NULL＝未识别（M35）。
+        assert detail["skill_level"] is None
+        assert detail["masteries"] is None
+        assert detail["modules"] is None
 
     asyncio.run(scenario())
 

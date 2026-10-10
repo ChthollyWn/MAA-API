@@ -29,6 +29,7 @@ import {
   professionLabel,
   rarityLabel,
   rowSources,
+  trainingValueText,
 } from './format'
 import { useDebouncedValue } from './use-debounced-value'
 
@@ -38,17 +39,24 @@ const SOURCE_TONES: Record<FieldSource, 'neutral' | 'success' | 'primary'> = {
   agent: 'success',
 }
 
-function FieldCell({ label, value }: { label: string; value: string | number }) {
+function FieldCell({ label, value, unknown = false }: { label: string; value: string; unknown?: boolean }) {
   return (
     <div className="min-w-0">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate font-medium tabular-nums">{value}</dd>
+      <dd
+        className={unknown ? 'truncate text-muted-foreground' : 'truncate font-medium tabular-nums'}
+        title={unknown ? '识别结果里没有这一项；人工或 Agent 补录后才会显示' : undefined}
+      >
+        {value}
+      </dd>
     </div>
   )
 }
 
 function OperatorLine({ row, onEdit }: { row: OperatorRow; onEdit: () => void }) {
   const sources = rowSources(row)
+  // 练度六列的 `null` ＝ 未识别（M35）：一律写「未识别」，不折算成 0 级 / 技能 1 / 无专精。
+  const isUnknown = (value: unknown) => value === null || value === undefined
   return (
     <li data-testid={`operator-${row.char_id}`} className="space-y-1.5 p-3.5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -67,12 +75,12 @@ function OperatorLine({ row, onEdit }: { row: OperatorRow; onEdit: () => void })
         </Button>
       </div>
       <dl className="grid grid-cols-3 gap-x-3 gap-y-1 text-footnote sm:grid-cols-5">
-        <FieldCell label="精英化" value={eliteLabel(row.elite)} />
-        <FieldCell label="等级" value={row.level} />
-        <FieldCell label="潜能" value={row.potential} />
-        <FieldCell label="技能等级" value={row.skill_level} />
-        <FieldCell label="专精" value={masteryText(row.masteries)} />
-        <FieldCell label="模组" value={moduleText(row.modules)} />
+        <FieldCell label="精英化" value={eliteLabel(row.elite)} unknown={isUnknown(row.elite)} />
+        <FieldCell label="等级" value={trainingValueText(row.level)} unknown={isUnknown(row.level)} />
+        <FieldCell label="潜能" value={trainingValueText(row.potential)} unknown={isUnknown(row.potential)} />
+        <FieldCell label="技能等级" value={trainingValueText(row.skill_level)} unknown={isUnknown(row.skill_level)} />
+        <FieldCell label="专精" value={masteryText(row.masteries)} unknown={isUnknown(row.masteries)} />
+        <FieldCell label="模组" value={moduleText(row.modules)} unknown={isUnknown(row.modules)} />
       </dl>
       <div className="flex flex-wrap items-center gap-1">
         <span className="text-footnote text-muted-foreground">字段来源</span>

@@ -991,11 +991,6 @@ class AgentQuestion(SQLModel, table=True):
 # ---------------------------------------------------------------------------
 
 
-def empty_masteries() -> dict[str, int]:
-    """专精列的默认值：三个技能槽都在、都为 0（规格 §7.5 的 wire 形状）。"""
-    return {"1": 0, "2": 0, "3": 0}
-
-
 class AccountOperator(SQLModel, table=True):
     """账号里的一名干员（规格 §7.3、附录 E）。
 
@@ -1006,6 +1001,13 @@ class AccountOperator(SQLModel, table=True):
 
     ``name`` / ``rarity`` / ``profession`` 允许为空：``all_opers`` 里只有 id、
     又没有被本机资料认出来的干员行仍然要留（``own=false``），等后续识别或资源补全。
+
+    练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` /
+    ``modules``）都可为 **NULL ＝ 未识别**（M35）：既没有识别值，也没有 manual / agent
+    写入。内核的 OperBox 只给得出 ``own`` 与 ``elite`` / ``level`` / ``potential``，
+    技能等级、专精、模组本来就不在识别结果里（见 ``RECOGNIZED_FIELDS``）；把它们当成
+    0 / 1 / 空映射渲染，就是在拿默认值冒充事实。读侧一律原样透传 ``None``，
+    不许再折算成具体值。
     """
 
     __tablename__ = "account_operator"
@@ -1016,16 +1018,15 @@ class AccountOperator(SQLModel, table=True):
     #: 中文职业（近卫 / 术师 …），来自本机 ``battle_data.json``。
     profession: str | None = Field(default=None, max_length=16)
     own: bool = Field(default=False)
-    elite: int = Field(default=0)
-    level: int = Field(default=0)
-    potential: int = Field(default=0)
-    skill_level: int = Field(default=1)
-    masteries: dict[str, int] = Field(
-        default_factory=empty_masteries,
-        sa_column=json_column("masteries", nullable=False),
+    elite: int | None = Field(default=None)
+    level: int | None = Field(default=None)
+    potential: int | None = Field(default=None)
+    skill_level: int | None = Field(default=None)
+    masteries: dict[str, int] | None = Field(
+        default=None, sa_column=json_column("masteries")
     )
-    modules: dict[str, int] = Field(
-        default_factory=dict, sa_column=json_column("modules", nullable=False)
+    modules: dict[str, int] | None = Field(
+        default=None, sa_column=json_column("modules")
     )
     #: 最近一次识别的值（只含识别能覆盖的四个字段）；从未识别为 NULL。
     recognized_values: dict[str, Any] | None = Field(

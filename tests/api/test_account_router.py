@@ -279,7 +279,10 @@ def test_operator_wire_shape_and_single_get(isolated_db, make_client, tmp_settin
         "recognized_at",
         "updated_at",
     }
-    assert payload["masteries"] == {"1": 0, "2": 0, "3": 0}
+    # M35：识别给不出技能等级、专精与模组，wire 照实回 null（页面渲染成「未识别」）。
+    assert payload["skill_level"] is None
+    assert payload["masteries"] is None
+    assert payload["modules"] is None
     assert payload["field_sources"]["elite"] == "recognition"
 
     missing = client.get("/api/account/operators/char_none")
@@ -332,7 +335,6 @@ def test_patch_operator_rejects_unknown_fields_and_bad_values(
         {"potential": 7},
         {"skill_level": 8},
         {"masteries": {"4": 1}},
-        {"masteries": {"1": 3}},  # 精一？不，先看下面：技能等级没到 7
         {"modules": {"Z": 1}},
         {"modules": {"X": 4}},
         {"source": "recognition"},
@@ -340,6 +342,35 @@ def test_patch_operator_rejects_unknown_fields_and_bad_values(
         response = client.patch(url, json=body)
         assert response.status_code == 422, body
         assert _error(response)["code"] == "VALIDATION_ERROR", body
+
+
+def test_patch_masteries_only_judges_prerequisites_when_known(
+    isolated_db, make_client, tmp_settings
+):
+    """M35：专精的前置只在**已知**时判；未知时不拦补录，已知时必须拦住。"""
+    app, client = _seeded_client(isolated_db, make_client)
+    url = "/api/account/operators/char_002_amiya"
+
+    # 技能等级还没识别过（NULL）：先补录专精——拦住就没法录了。
+    allowed = client.patch(url, json={"masteries": {"1": 3}})
+    assert allowed.status_code == 200
+    assert allowed.json()["masteries"] == {"1": 3, "2": 0, "3": 0}
+
+    # 反向也护着：已有专精时把技能等级改到 7 级以下 → 422。
+    lowered = client.patch(url, json={"skill_level": 4})
+    assert lowered.status_code == 422
+    assert _error(lowered)["code"] == "VALIDATION_ERROR"
+
+    # 清空专精 → 技能等级已知为 4 级 → 同样的专精就被前置拦住了。
+    assert client.patch(url, json={"masteries": {"1": 0}}).status_code == 200
+    assert client.patch(url, json={"skill_level": 4}).status_code == 200
+    rejected = client.patch(url, json={"masteries": {"1": 3}})
+    assert rejected.status_code == 422
+    assert _error(rejected)["code"] == "VALIDATION_ERROR"
+
+    # 技能 7 级之后放行。
+    assert client.patch(url, json={"skill_level": 7}).status_code == 200
+    assert client.patch(url, json={"masteries": {"1": 3}}).status_code == 200
 
 
 def test_patch_operator_404_for_unknown_operator(isolated_db, make_client, tmp_settings):

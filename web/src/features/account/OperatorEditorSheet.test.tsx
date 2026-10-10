@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { installAccountApi, operatorRow, renderAccount } from './test-utils'
+import { UNKNOWN_ALL_ROW, UNKNOWN_SKILL_ROW, installAccountApi, operatorRow, renderAccount } from './test-utils'
 
 const THREE_STAR = operatorRow({
   char_id: 'char_3_star',
@@ -115,5 +115,69 @@ describe('M27 干员编辑抽屉', () => {
 
     expect(await within(dialog).findByText(/保存失败：/)).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+})
+
+describe('M35 未识别练度的编辑', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('未识别的列留空且当前项是「未识别」，专精 / 模组控件不被禁用', async () => {
+    installAccountApi({ diffs: [], operators: [UNKNOWN_SKILL_ROW] })
+    renderAccount('/more/account')
+    const dialog = await openEditor('Friston-3')
+
+    const skill = within(dialog).getByLabelText('技能等级')
+    expect(skill).toHaveValue('')
+    expect(within(skill).getByRole('option', { selected: true })).toHaveTextContent('未识别')
+    // 技能等级未知不拦补录（后端也只在已知时判），模组同样留空。
+    expect(within(dialog).getByLabelText('S1 专精')).toBeEnabled()
+    expect(within(dialog).getByLabelText('S2 专精')).toHaveValue('')
+    expect(within(dialog).getByLabelText('X 模组等级')).toHaveValue('')
+    // 识别值照旧填在表单里，不许被写成未识别。
+    expect(within(dialog).getByLabelText('精英化')).toHaveValue('2')
+    expect(within(dialog).getByLabelText('等级')).toHaveValue(90)
+  })
+
+  it('精英化也未知时同样不拦专精 / 模组补录', async () => {
+    installAccountApi({ diffs: [], operators: [UNKNOWN_ALL_ROW] })
+    renderAccount('/more/account')
+    const dialog = await openEditor('未识别练度')
+
+    expect(within(dialog).getByLabelText('S1 专精')).toBeEnabled()
+    expect(within(dialog).getByLabelText('X 模组等级')).toBeEnabled()
+  })
+
+  it('只改已知字段时，未识别的技能 / 专精 / 模组不写进 PATCH', async () => {
+    const { find } = installAccountApi({ diffs: [], operators: [UNKNOWN_SKILL_ROW] })
+    renderAccount('/more/account')
+    const dialog = await openEditor('Friston-3')
+
+    fireEvent.change(within(dialog).getByLabelText('等级'), { target: { value: '85' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存 1 项改动' }))
+
+    await waitFor(() => expect(find('PATCH', '/api/account/operators/char_4093_frston')).toHaveLength(1))
+    const body = find('PATCH', '/api/account/operators/char_4093_frston')[0].body
+    expect(body).toEqual({ level: 85 })
+    expect(body).not.toHaveProperty('skill_level')
+    expect(body).not.toHaveProperty('masteries')
+    expect(body).not.toHaveProperty('modules')
+  })
+
+  it('补录专精：只填 S2 时 PATCH 带上具体映射，S2=3', async () => {
+    const { find } = installAccountApi({ diffs: [], operators: [UNKNOWN_SKILL_ROW] })
+    renderAccount('/more/account')
+    const dialog = await openEditor('Friston-3')
+
+    fireEvent.change(within(dialog).getByLabelText('S2 专精'), { target: { value: '3' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存 1 项改动' }))
+
+    await waitFor(() => expect(find('PATCH', '/api/account/operators/char_4093_frston')).toHaveLength(1))
+    expect(find('PATCH', '/api/account/operators/char_4093_frston')[0].body).toEqual({
+      masteries: { '1': 0, '2': 3, '3': 0 },
+    })
   })
 })

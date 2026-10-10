@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 describe('账号请求层的容器键', () => {
-  it('干员列表按路由的响应模型读 items，并归一化空列', async () => {
+  it('干员列表按路由的响应模型读 items：未识别练度保持 null，不兜成 0 / 空表', async () => {
     const { calls, fetchMock } = recordCalls()
     fetchMock.mockImplementation(async (input, init) => {
       const request = input instanceof Request ? input : new Request(String(input), init)
@@ -45,8 +45,8 @@ describe('账号请求层的容器键', () => {
             recognized_at: '2026-10-10T12:08:40Z',
             updated_at: '2026-10-10T12:08:40Z',
           },
-          // 映射不到的干员：名字 / 稀有度 / 职业为空，字典列缺项（真机会落到这三列）。
-          { char_id: 'char_9999', own: false, elite: 0, level: 0, potential: 0, skill_level: 1 },
+          // 未识别（M35）：只有 `all_opers` 条目的干员只带 `own`，练度六列读出来是 null。
+          { char_id: 'char_9999', own: false },
         ],
         total: 383,
         limit: 50,
@@ -63,12 +63,28 @@ describe('账号请求层的容器键', () => {
     expect(payload.limit).toBe(50)
     expect(payload.items.map((row) => row.char_id)).toEqual(['char_002_amiya', 'char_9999'])
     expect(payload.items[0].name).toBe('阿米娅')
-    expect(payload.items[1]).toMatchObject({
+    // 有值的练度原样透传。
+    expect(payload.items[0]).toMatchObject({
+      elite: 2,
+      level: 80,
+      potential: 6,
+      skill_level: 7,
+      masteries: { '1': 3 },
+      modules: { X: 1 },
+    })
+    // 未识别的练度**不许**兜成 0 / 1 / 空表（M35 的护栏：这里写 `masteries: {}` 就会红）。
+    expect(payload.items[1]).toEqual({
+      char_id: 'char_9999',
       name: '',
       rarity: 0,
       profession: null,
-      masteries: {},
-      modules: {},
+      own: false,
+      elite: null,
+      level: null,
+      potential: null,
+      skill_level: null,
+      masteries: null,
+      modules: null,
       field_sources: {},
       recognized_at: null,
       updated_at: null,

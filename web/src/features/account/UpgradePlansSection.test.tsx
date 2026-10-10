@@ -178,3 +178,114 @@ describe('M31 养成计划区块', () => {
     expect(screen.getByText('精二阿米娅')).toBeInTheDocument()
   })
 })
+
+const UNKNOWN_PLAN = {
+  ...ACTIVE_PLAN,
+  id: 'plan-3',
+  name: '精二克莱门莎',
+  progress: {
+    ...ACTIVE_PLAN.progress,
+    unknowns: [{ operator: '克莱门莎', field: 'skill_level', reason: '未识别，需先确认' }],
+  },
+}
+
+const UNKNOWN_NOTES_PLAN = {
+  ...ACTIVE_PLAN,
+  id: 'plan-4',
+  name: '精二圣约送葬人',
+  progress: {
+    ...ACTIVE_PLAN.progress,
+    notes: [
+      '合成按 PRTS 材料页的加工站配方（需求闭包递归取）',
+      '圣约送葬人的专精未识别，未计入材料增量；跑一次干员识别或用 Agent/页面补录后再算',
+    ],
+  },
+}
+
+describe('M35 待确认项（§4.7）', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  function installSingle(plan: unknown) {
+    return installPlanApi((path, method) =>
+      path === '/api/account/upgrade-plans' && method === 'GET' ? jsonResponse({ items: [plan], total: 1 }) : null,
+    )
+  }
+
+  it('progress.unknowns 有一条时渲染干员名、字段中文标签与理由', async () => {
+    const { fetchMock } = installSingle(UNKNOWN_PLAN)
+    renderSection(fetchMock)
+
+    expect(await screen.findByText('精二克莱门莎')).toBeInTheDocument()
+    const list = screen.getByLabelText('待确认项')
+    expect(list).toHaveTextContent('克莱门莎 · 技能等级 · 未识别，需先确认')
+    // 字段名走 fieldLabel 转中文，不把 wire 上的 snake_case 漏到页面上。
+    expect(list).not.toHaveTextContent('skill_level')
+  })
+
+  it('多条 unknowns 全部渲染', async () => {
+    const plan = {
+      ...UNKNOWN_PLAN,
+      progress: {
+        ...UNKNOWN_PLAN.progress,
+        unknowns: [
+          { operator: '克莱门莎', field: 'skill_level', reason: '未识别，需先确认' },
+          { operator: '圣约送葬人', field: 'masteries', reason: '未识别，需先确认' },
+        ],
+      },
+    }
+    const { fetchMock } = installSingle(plan)
+    renderSection(fetchMock)
+
+    const items = await screen.findByLabelText('待确认项')
+    expect(within(items).getAllByRole('listitem')).toHaveLength(2)
+    expect(items).toHaveTextContent('克莱门莎 · 技能等级 · 未识别，需先确认')
+    expect(items).toHaveTextContent('圣约送葬人 · 专精 · 未识别，需先确认')
+  })
+
+  it('unknowns 缺失（旧行）或为空数组时不渲染这一块', async () => {
+    const { fetchMock } = installPlanApi((path, method) =>
+      path === '/api/account/upgrade-plans' && method === 'GET'
+        ? jsonResponse({
+            items: [
+              ACTIVE_PLAN,
+              { ...UNKNOWN_PLAN, id: 'plan-5', progress: { ...ACTIVE_PLAN.progress, unknowns: [] } },
+            ],
+            total: 2,
+          })
+        : null,
+    )
+    renderSection(fetchMock)
+
+    expect(await screen.findByText('精二阿米娅')).toBeInTheDocument()
+    expect(screen.queryByText('待确认')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('待确认项')).not.toBeInTheDocument()
+  })
+
+  it('没有 unknowns 的旧行只显示 notes 里提「未识别」的那句，不铺整份 notes', async () => {
+    const { fetchMock } = installSingle(UNKNOWN_NOTES_PLAN)
+    renderSection(fetchMock)
+
+    expect(await screen.findByText('待确认')).toBeInTheDocument()
+    expect(
+      screen.getByText('圣约送葬人的专精未识别，未计入材料增量；跑一次干员识别或用 Agent/页面补录后再算'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('合成按 PRTS 材料页的加工站配方（需求闭包递归取）')).not.toBeInTheDocument()
+  })
+
+  it('已有 unknowns 时不再重复显示 notes 里那句', async () => {
+    const plan = {
+      ...UNKNOWN_PLAN,
+      progress: { ...UNKNOWN_PLAN.progress, notes: ['克莱门莎的技能等级未识别，未计入材料增量'] },
+    }
+    const { fetchMock } = installSingle(plan)
+    renderSection(fetchMock)
+
+    const list = await screen.findByLabelText('待确认项')
+    expect(list).toHaveTextContent('克莱门莎 · 技能等级 · 未识别，需先确认')
+    expect(screen.queryByText('克莱门莎的技能等级未识别，未计入材料增量')).not.toBeInTheDocument()
+  })
+})

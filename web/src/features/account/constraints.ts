@@ -4,6 +4,9 @@ import type { OperatorPatch, OperatorRow } from './api'
  * 编辑抽屉的前端校验（规格 §7.5），口径与后端的编辑约束一致：
  * 精英化上限按稀有度、专精只在精二且技能 7 级、模组只在精二、模组类型固定 X/Y/D/A。
  * 纯函数，页面与测试共用；保存时只把改动过的字段放进 `PATCH` 请求体。
+ *
+ * M35：练度字段的 `null` ＝ **未识别**（表单留空），处置与后端 `patch_operator` 相同——
+ * 未知不折算成 0 / 1 / 空表，未知不拦专精与模组的补录，`null` 也不会被写进 `PATCH`。
  */
 
 export const MODULE_TYPES = ['X', 'Y', 'D', 'A'] as const
@@ -35,47 +38,63 @@ export function defaultSkillCount(rarity: number): number {
   return 1
 }
 
+/**
+ * 专精可填：精二且技能 7 级。精英化或技能等级**未识别**（`null`）时不拦——「不知道」
+ * 证明不了非法，与后端 `patch_operator` 的「约束只在已知时判」同口径（M35 规格 §4.5）；
+ * 前端不许比后端更严，否则用户补录不了数据。
+ */
 export function canEditMasteries(draft: Pick<OperatorDraft, 'elite' | 'skillLevel'>): boolean {
+  if (draft.elite === null || draft.skillLevel === null) return true
   return draft.elite === 2 && draft.skillLevel === MAX_SKILL_LEVEL
 }
 
+/** 模组可填：精二；精英化未识别时不拦（同上）。 */
 export function canEditModules(draft: Pick<OperatorDraft, 'elite'>): boolean {
+  if (draft.elite === null) return true
   return draft.elite === 2
 }
 
 export interface OperatorDraft {
   own: boolean
-  elite: number
-  level: number
-  potential: number
-  skillLevel: number
+  /** `null` ＝ 未识别（M35）：控件留空，保存时不带这个字段。 */
+  elite: number | null
+  level: number | null
+  potential: number | null
+  skillLevel: number | null
   /** 表单里显示几个专精输入（默认按稀有度给，可改）；不发给后端。 */
   skillCount: number
-  /** "1"–"3" → 0–3。 */
-  masteries: Record<string, number>
-  /** X/Y/D/A → 1–3；没装备的类型不出现。 */
-  modules: Record<string, number>
+  /** "1"–"3" → 0–3；`null` ＝ 整列未识别。 */
+  masteries: Record<string, number> | null
+  /** X/Y/D/A → 1–3；没装备的类型不出现；`null` ＝ 整列未识别。 */
+  modules: Record<string, number> | null
 }
 
-function masterslots(masteries: Record<string, number> | undefined): number {
+function masterslots(masteries: Record<string, number> | null | undefined): number {
   return SKILL_SLOTS.reduce((max, slot) => (Number(masteries?.[slot] ?? 0) > 0 ? Math.max(max, Number(slot)) : max), 0)
 }
 
 export function draftFromRow(row: OperatorRow): OperatorDraft {
   return {
     own: row.own,
-    elite: row.elite,
-    level: row.level,
-    potential: row.potential,
-    skillLevel: row.skill_level,
+    // `undefined`（PATCH 回包缺字段）与 `null` 同义：草稿里只认 `null` 这一种「未识别」。
+    elite: row.elite ?? null,
+    level: row.level ?? null,
+    potential: row.potential ?? null,
+    skillLevel: row.skill_level ?? null,
     skillCount: Math.max(defaultSkillCount(row.rarity), masterslots(row.masteries)),
-    masteries: Object.fromEntries(SKILL_SLOTS.map((slot) => [slot, Number(row.masteries?.[slot] ?? 0)])),
-    modules: Object.fromEntries(
-      MODULE_TYPES.flatMap((type) => {
-        const level = Number(row.modules?.[type] ?? 0)
-        return level > 0 ? [[type, level] as const] : []
-      }),
-    ),
+    // 未识别的列保持 `null`：兜成 0/空表就是把「不知道」写成「没有」，正是 M35 要修的问题。
+    // `undefined`（PATCH 回包缺字段）与 `null` 同义，一起按未识别处理。
+    masteries: row.masteries == null
+      ? null
+      : Object.fromEntries(SKILL_SLOTS.map((slot) => [slot, Number(row.masteries?.[slot] ?? 0)])),
+    modules: row.modules == null
+      ? null
+      : Object.fromEntries(
+        MODULE_TYPES.flatMap((type) => {
+          const level = Number(row.modules?.[type] ?? 0)
+          return level > 0 ? [[type, level] as const] : []
+        }),
+      ),
   }
 }
 
@@ -84,12 +103,12 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)))
 }
 
-/** 专精只保留已显示的技能槽；技能数调小后多出来的槽归零。 */
+/** 专精只保留已显示的技能槽；技能数调小后多出来的槽归零。未识别（`null`）槽按 0 参与归一。 */
 export function normalizeMasteries(draft: OperatorDraft): Record<string, number> {
   return Object.fromEntries(
     SKILL_SLOTS.map((slot) => [
       slot,
-      Number(slot) <= draft.skillCount ? clampInt(Number(draft.masteries[slot] ?? 0), 0, MAX_MASTERY) : 0,
+      Number(slot) <= draft.skillCount ? clampInt(Number(draft.masteries?.[slot] ?? 0), 0, MAX_MASTERY) : 0,
     ]),
   )
 }
@@ -98,7 +117,7 @@ export function normalizeMasteries(draft: OperatorDraft): Record<string, number>
 export function normalizeModules(draft: OperatorDraft): Record<string, number> {
   return Object.fromEntries(
     MODULE_TYPES.flatMap((type) => {
-      const level = Number(draft.modules[type] ?? 0)
+      const level = Number(draft.modules?.[type] ?? 0)
       return level > 0 ? [[type, clampInt(level, 1, MAX_MODULE_LEVEL)] as const] : []
     }),
   )
@@ -113,42 +132,48 @@ function isInt(value: number): boolean {
 /**
  * 逐字段校验；返回空对象表示可以保存。精英化越界、专精/模组在不允许的状态下填了非零值
  * 都会报错（抽屉里同时把这些控件禁掉，两道防线）。
+ *
+ * `null` ＝ 未识别：未知字段不参与校验（留空不算错，也不拦专精/模组的补录），与后端
+ * 「约束只在已知时判」同口径；已知但非法的组合照旧报错（M35 规格 §4.5）。
  */
 export function validateDraft(draft: OperatorDraft, rarity: number): Partial<Record<DraftField, string>> {
   const errors: Partial<Record<DraftField, string>> = {}
   const cap = maxElite(rarity)
 
-  if (!isInt(draft.elite) || draft.elite < 0 || draft.elite > cap) {
+  if (draft.elite !== null && (!isInt(draft.elite) || draft.elite < 0 || draft.elite > cap)) {
     errors.elite = `${rarity}★ 干员的精英化上限是${maxEliteLabel(rarity)}`
   }
-  if (!isInt(draft.level) || draft.level < 1 || draft.level > MAX_LEVEL) {
+  if (draft.level !== null && (!isInt(draft.level) || draft.level < 1 || draft.level > MAX_LEVEL)) {
     errors.level = `等级需在 1–${MAX_LEVEL} 之间`
   }
-  if (!isInt(draft.potential) || draft.potential < 1 || draft.potential > MAX_POTENTIAL) {
+  if (draft.potential !== null && (!isInt(draft.potential) || draft.potential < 1 || draft.potential > MAX_POTENTIAL)) {
     errors.potential = `潜能需在 1–${MAX_POTENTIAL} 之间`
   }
-  if (!isInt(draft.skillLevel) || draft.skillLevel < 1 || draft.skillLevel > MAX_SKILL_LEVEL) {
+  if (draft.skillLevel !== null && (!isInt(draft.skillLevel) || draft.skillLevel < 1 || draft.skillLevel > MAX_SKILL_LEVEL)) {
     errors.skill_level = `技能等级需在 1–${MAX_SKILL_LEVEL} 之间`
   }
 
-  const masteries = normalizeMasteries(draft)
-  const masteriesFilled = Object.values(masteries).some((level) => level > 0)
+  const masteriesFilled = draft.masteries !== null && Object.values(normalizeMasteries(draft)).some((level) => level > 0)
   if (masteriesFilled && !canEditMasteries(draft)) {
     errors.masteries = '专精只在精二且技能等级 7 时可填'
   }
 
-  const modules = normalizeModules(draft)
-  if (Object.keys(modules).length > 0 && !canEditModules(draft)) {
+  const modulesFilled = draft.modules !== null && Object.keys(normalizeModules(draft)).length > 0
+  if (modulesFilled && !canEditModules(draft)) {
     errors.modules = '模组只在精二时可填'
   }
 
   return errors
 }
 
-function sameRecord(left: Record<string, number>, right: Record<string, number> | undefined): boolean {
-  const keys = new Set([...Object.keys(left), ...Object.keys(right ?? {})])
+function sameRecord(
+  left: Record<string, number> | null,
+  right: Record<string, number> | null | undefined,
+): boolean {
+  if (left === null || right === null || right === undefined) return left === right
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
   for (const key of keys) {
-    if (Number(left[key] ?? 0) !== Number(right?.[key] ?? 0)) return false
+    if (Number(left[key] ?? 0) !== Number(right[key] ?? 0)) return false
   }
   return true
 }
@@ -156,20 +181,31 @@ function sameRecord(left: Record<string, number>, right: Record<string, number> 
 /**
  * 只把改动过的字段放进请求体。精英化降到精二以下时，原本有值的专精与模组会显式清零，
  * 免得服务端留下与精英化不一致的数据。
+ *
+ * 未识别的列（`null`）不写：留空＝未识别，既不兜成 0 / 空表，也不把已经识别的值清回未识别
+ * （规格 §3.2：`PATCH` 里 `null` 与缺省同义）。
  */
 export function buildPatch(row: OperatorRow, draft: OperatorDraft): OperatorPatch {
   const patch: OperatorPatch = {}
   if (draft.own !== row.own) patch.own = draft.own
-  if (draft.elite !== row.elite) patch.elite = draft.elite
-  if (draft.level !== row.level) patch.level = draft.level
-  if (draft.potential !== row.potential) patch.potential = draft.potential
-  if (draft.skillLevel !== row.skill_level) patch.skill_level = draft.skillLevel
+  if (draft.elite !== null && draft.elite !== row.elite) patch.elite = draft.elite
+  if (draft.level !== null && draft.level !== row.level) patch.level = draft.level
+  if (draft.potential !== null && draft.potential !== row.potential) patch.potential = draft.potential
+  if (draft.skillLevel !== null && draft.skillLevel !== row.skill_level) patch.skill_level = draft.skillLevel
 
-  const masteries = canEditMasteries(draft) ? normalizeMasteries(draft) : zeroMasteries()
-  if (!sameRecord(masteries, row.masteries)) patch.masteries = masteries
+  const masteries = draft.masteries === null
+    ? null
+    : canEditMasteries(draft) ? normalizeMasteries(draft) : zeroMasteries()
+  if (!sameRecord(masteries, row.masteries)) {
+    if (masteries !== null) patch.masteries = masteries
+  }
 
-  const modules = canEditModules(draft) ? normalizeModules(draft) : {}
-  if (!sameRecord(modules, row.modules)) patch.modules = modules
+  const modules = draft.modules === null
+    ? null
+    : canEditModules(draft) ? normalizeModules(draft) : {}
+  if (!sameRecord(modules, row.modules)) {
+    if (modules !== null) patch.modules = modules
+  }
 
   return patch
 }
