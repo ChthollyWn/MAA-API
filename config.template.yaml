@@ -82,3 +82,9 @@ sources:
   prts_enabled: true
   # 每分钟请求上限；站点短时限流时会自动退让
   prts_rate_per_minute: 30
+  # 企鹅物流（掉率数据，许可 CC BY-NC 4.0）；关掉后 get_drop_rates 无数据
+  penguin_enabled: true
+  # 主机二选一：penguin-stats.io / penguin-stats.cn；两边内容一致，失败时自动改试另一个
+  penguin_host: penguin-stats.io
+  # 每分钟请求上限；一次查询只取整表，缓存 6 小时
+  penguin_rate_per_minute: 10

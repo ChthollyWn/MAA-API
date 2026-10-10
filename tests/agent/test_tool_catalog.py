@@ -27,6 +27,10 @@ EXPECTED_TOOLS = {
     "get_stage",
     "search_prts",
     "get_prts_page",
+    "get_operator",
+    "get_enemy",
+    "get_item",
+    "get_drop_rates",
 }
 
 
@@ -35,7 +39,7 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 52
+    assert len(actual) == 56
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}

@@ -16,11 +16,14 @@
 4. 关掉 `sources.prts_enabled` 后 `get_activity_stages` 返回本机结果（`source=resource`），
    注入段标题变成降级口径。
 
+加 `--m26` 时再跑 M26 的四项（规格 §6.8）：干员、敌人、材料与掉落率。
+
 成功时末行是 `SMOKE OK`。
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import sys
 import traceback
@@ -38,7 +41,12 @@ from maa_api.agent.knowledge import (  # noqa: E402
 )
 from maa_api.services.external.http import ExternalClient  # noqa: E402
 from maa_api.services.external.prts import PrtsClient  # noqa: E402
+from maa_api.services.external.penguin import PenguinClient  # noqa: E402
 from maa_api.services.game.activities import ActivityService  # noqa: E402
+from maa_api.services.game.drops import DropService  # noqa: E402
+from maa_api.services.game.enemies import EnemyService  # noqa: E402
+from maa_api.services.game.items import ItemService  # noqa: E402
+from maa_api.services.game.operators import OperatorService  # noqa: E402
 from maa_api.services.game.pages import PageService  # noqa: E402
 from maa_api.services.game.stages import StageService  # noqa: E402
 from maa_api.settings import Settings, SourcesSettings  # noqa: E402
@@ -61,7 +69,7 @@ def settings_with_prts(enabled: bool) -> Settings:
     )
 
 
-async def run() -> None:
+async def run(*, m26: bool = False) -> None:
     settings = settings_with_prts(True)
     client = ExternalClient(settings_provider=lambda: settings)
     prts = PrtsClient(client)
@@ -168,15 +176,94 @@ async def run() -> None:
             ACTIVITY_HEADER_PRTS.split("{")[0] in section[0],
             "PRTS 标题与常量不一致",
         )
+        if m26:
+            await run_m26(client)
         await offline_client.aclose()
     finally:
         await client.aclose()
 
 
+async def run_m26(client: Any) -> None:
+    """M26 的四项：干员、敌人、材料、掉落率（规格 §6.8）。"""
+    prts = PrtsClient(client)
+    penguin = PenguinClient(client)
+    operators = OperatorService(prts=prts)
+    enemies = EnemyService(prts=prts)
+    drops = DropService(penguin=penguin)
+    items = ItemService(prts=prts, drops=drops)
+
+    # 1. 干员：6★、三个技能都带专精描述、带模组
+    silver = await operators.get("银灰", sections=["basic", "skills", "modules", "costs"])
+    identity = silver["operator"]
+    require(identity["rarity"] == 6, f"银灰的稀有度不是 6★：{identity}")
+    require(silver["operator"]["char_id"] == "char_172_svrash", f"char_id 不对：{identity}")
+    skills = silver.get("skills") or []
+    require(len(skills) == 3, f"银灰应有三个技能，实际 {len(skills)}")
+    for skill in skills:
+        levels = {level["level"] for level in skill["levels"]}
+        require(
+            {"7", "专精1", "专精2", "专精3"} <= levels,
+            f"{skill['name']} 缺专精描述：{sorted(levels)}",
+        )
+    modules = silver.get("modules") or []
+    require(modules, "银灰没有模组")
+    print(
+        f"[M26-1] get_operator('银灰') → {identity['rarity']}★｜{identity['profession']}"
+        f"｜技能 {len(skills)} 个（都带专精）｜模组 {len(modules)} 个"
+        f"｜精一材料 {len((silver.get('costs') or {}).get('elite', {}).get('精1', []))} 项"
+    )
+
+    # 2. 敌人：源石虫有多级数值（实测两级）
+    slug = await enemies.get("源石虫")
+    levels = slug.get("levels") or []
+    require(len(levels) >= 2, f"源石虫的级数不足：{levels}")
+    require(levels[0].get("hp") is not None, f"源石虫缺少生命值：{levels[0]}")
+    require(
+        levels[-1].get("def") is not None,
+        f"高级别没有用级别 0 补齐：{levels[-1]}",
+    )
+    print(
+        f"[M26-2] get_enemy('源石虫') → {slug['enemy']['index']}｜{slug['enemy']['rank']}"
+        f"｜{len(levels)} 级｜级别 0 生命 {levels[0]['hp']}、级别 {levels[-1]['index']} 生命 "
+        f"{levels[-1]['hp']}｜抗性 {len(levels[-1].get('resistances') or {})} 项"
+    )
+
+    # 3. 材料：配方与掉率前 5
+    item = await items.get("固源岩组")
+    require(item["item"]["item_id"] == "30013", f"itemId 不对：{item['item']}")
+    require(item["recipe"] and item["recipe"]["materials"], "固源岩组没有配方")
+    rates = item.get("drop_rates") or []
+    require(rates, "固源岩组的掉率前 5 为空")
+    require(len(rates) <= 5, f"掉率条数超过 5：{len(rates)}")
+    print(
+        f"[M26-3] get_item('固源岩组') → itemId {item['item']['item_id']}｜配方原料 "
+        f"{item['recipe']['materials']}｜副产物 {len(item['recipe']['byproducts'])} 项"
+        f"｜掉率前 {len(rates)}：{[row['stage_code'] for row in rates]}"
+    )
+
+    # 4. 掉落率：按材料查，首位样本数 ≥ 100
+    table = await drops.item_rates("固源岩组", limit=8)
+    rows = table.get("rows") or []
+    require(rows, "固源岩组的掉落率表为空")
+    top = rows[0]
+    require(
+        not top["small_sample"] and top["times"] >= 100,
+        f"首位的样本数不足：{top}",
+    )
+    print(
+        f"[M26-4] get_drop_rates(item='固源岩组') → 共 {table['rows_total']} 行，首位 "
+        f"{top['stage_code']}（{top['stage_id']}）掉率 {top['rate']:.4f}、样本 {top['times']}、"
+        f"单件期望理智 {top['sanity_per_item']:.2f}"
+    )
+
+
 class Smoke:
+    def __init__(self, *, m26: bool = False) -> None:
+        self.m26 = m26
+
     def run(self) -> int:
         try:
-            asyncio.run(run())
+            asyncio.run(run(m26=self.m26))
         except Exception as exc:  # noqa: BLE001 - 冒烟脚本自己报告失败
             print(f"[prts_smoke] [FAIL] {type(exc).__name__}: {exc}", flush=True)
             traceback.print_exc()
@@ -186,7 +273,12 @@ class Smoke:
 
 
 def main() -> int:
-    return Smoke().run()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--m26", action="store_true", help="额外跑 M26 的干员、敌人、材料与掉落率四项"
+    )
+    args = parser.parse_args()
+    return Smoke(m26=args.m26).run()
 
 
 if __name__ == "__main__":

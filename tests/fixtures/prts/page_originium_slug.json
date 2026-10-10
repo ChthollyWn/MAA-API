@@ -1,0 +1,26 @@
+{
+ "batchcomplete": true,
+ "query": {
+  "pages": [
+   {
+    "pageid": 454,
+    "ns": 0,
+    "title": "源石虫",
+    "revisions": [
+     {
+      "revid": 436999,
+      "parentid": 413885,
+      "timestamp": "2026-10-05T09:53:35Z",
+      "slots": {
+       "main": {
+        "contentmodel": "wikitext",
+        "contentformat": "text/x-wiki",
+        "content": "{{Navigator|敌人一览}}\n<div class=\"nomobile\">[[文件:Avg avg npc 1431 1$1.png|缩略图|<center>源石虫</center>]]</div>\n{{敌人信息/common2\n|id=1\n|名称=源石虫\n|index=B1\n|地位级别=普通\n|描述=野生的被感染生物。这种低智能生物极有可能会被敌方术师操纵，以进入人工设施内发动集群攻击。\n|伤害类型=物理\n|攻击方式=近战\n|行动方式=地面\n|种类=感染生物\n|登场活动=初始\n}}\n==级别0==\n{{敌人信息/levelcontent\n|index=0\n|名称=源石虫\n|地位=普通\n|种类=感染生物\n|描述=野生的被感染生物。\n|攻击方式=近战\n|行动方式=地面\n|数量=1\n|攻击范围半径=\n|最大生命值=550\n|攻击力=130\n|防御力=0\n|法术抗性=0\n|移动速度=1.0\n|攻击速度=100\n|攻击间隔=1.7\n|生命恢复速度=0\n|sp恢复速度=0\n|重量等级=0\n|损伤抵抗=0\n|元素抗性=0\n|基础嘲讽等级=0\n|眩晕抗性=无\n|沉默抗性=无\n|沉睡抗性=无\n|冻结抗性=无\n|浮空抗性=无\n|战栗抗性=无\n|恐惧抗性=无\n|麻痹抗性=无\n|诱导抗性=无\n|传送抗性=无\n|缚地抗性=无\n}}\n\n==级别1==\n{{敌人信息/levelcontent\n|index=1\n|最大生命值=2050\n|攻击力=300\n}}\n==敌人模型==\n{{spine}}<references/>{{敌人导航}}"
+       }
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

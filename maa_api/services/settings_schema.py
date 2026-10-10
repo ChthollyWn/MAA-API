@@ -68,6 +68,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "sources.cache_max_mb": dict(label="缓存内存上限（MB）", group="外部数据源", type="integer", minimum=8, maximum=512, hot_action="none"),
     "sources.prts_enabled": dict(label="启用 PRTS", group="外部数据源", type="boolean", hot_action="none"),
     "sources.prts_rate_per_minute": dict(label="PRTS 每分钟请求上限", group="外部数据源", type="integer", minimum=1, maximum=120, hot_action="none"),
+    # M26 的企鹅物流（掉率）。主机两个内容一致，失败时自动改试另一个。
+    "sources.penguin_enabled": dict(label="启用企鹅物流", group="外部数据源", type="boolean", hot_action="none"),
+    "sources.penguin_host": dict(label="企鹅物流主机", group="外部数据源", type="string", enum=["penguin-stats.io", "penguin-stats.cn"], hot_action="none"),
+    "sources.penguin_rate_per_minute": dict(label="企鹅物流每分钟请求上限", group="外部数据源", type="integer", minimum=1, maximum=60, hot_action="none"),
     "channel.server": dict(label="默认数据服务器", group="渠道", type="string", enum=["CN", "US", "JP", "KR"], hot_action="none"),
     "llm.base_url": dict(label="LLM API 地址", group="LLM", type="string", hot_action="none"),
     "llm.api_key": dict(label="LLM API 密钥", group="LLM", type="string", sensitive=True, hot_action="none"),

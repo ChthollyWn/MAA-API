@@ -1,0 +1,10286 @@
+[
+ {
+  "stageId": "main_04-04",
+  "zoneId": "main_4",
+  "stageType": "MAIN",
+  "code": "4-4",
+  "code_i18n": {
+   "en": "4-4",
+   "ja": "4-4",
+   "ko": "4-4",
+   "zh": "4-4"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "minClearTime": 174000,
+  "dropInfos": [
+   {
+    "itemId": "30073",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30074",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_04-06",
+  "zoneId": "main_4",
+  "stageType": "MAIN",
+  "code": "4-6",
+  "code_i18n": {
+   "en": "4-6",
+   "ja": "4-6",
+   "ko": "4-6",
+   "zh": "4-6"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "minClearTime": 198000,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_04-07",
+  "zoneId": "main_4",
+  "stageType": "MAIN",
+  "code": "4-7",
+  "code_i18n": {
+   "en": "4-7",
+   "ja": "4-7",
+   "ko": "4-7",
+   "zh": "4-7"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "minClearTime": 200000,
+  "dropInfos": [
+   {
+    "itemId": "30083",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30084",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_04-08",
+  "zoneId": "main_4",
+  "stageType": "MAIN",
+  "code": "4-8",
+  "code_i18n": {
+   "en": "4-8",
+   "ja": "4-8",
+   "ko": "4-8",
+   "zh": "4-8"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "minClearTime": 166000,
+  "dropInfos": [
+   {
+    "itemId": "30093",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30094",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_04-09",
+  "zoneId": "main_4",
+  "stageType": "MAIN",
+  "code": "4-9",
+  "code_i18n": {
+   "en": "4-9",
+   "ja": "4-9",
+   "ko": "4-9",
+   "zh": "4-9"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "minClearTime": 216500,
+  "dropInfos": [
+   {
+    "itemId": "30103",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30104",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_04-10",
+  "zoneId": "main_4",
+  "stageType": "MAIN",
+  "code": "4-10",
+  "code_i18n": {
+   "en": "4-10",
+   "ja": "4-10",
+   "ko": "4-10",
+   "zh": "4-10"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "minClearTime": 240500,
+  "dropInfos": [
+   {
+    "itemId": "30063",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30064",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_05-05",
+  "zoneId": "main_5",
+  "stageType": "MAIN",
+  "code": "5-5",
+  "code_i18n": {
+   "en": "5-5",
+   "ja": "5-5",
+   "ko": "5-5",
+   "zh": "5-5"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1562659200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1582700400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1582700400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1582736400000
+   }
+  },
+  "minClearTime": 193000,
+  "dropInfos": [
+   {
+    "itemId": "30043",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30044",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_06-05",
+  "zoneId": "main_6",
+  "stageType": "MAIN",
+  "code": "6-5",
+  "code_i18n": {
+   "en": "6-5",
+   "ja": "6-5",
+   "ko": "6-5",
+   "zh": "6-5"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1577174400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1593500400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1593500400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1593536400000
+   }
+  },
+  "minClearTime": 241000,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "sub_04-4-1",
+  "zoneId": "main_4",
+  "stageType": "SUB",
+  "code": "S4-10",
+  "code_i18n": {
+   "en": "S4-10",
+   "ja": "S4-10",
+   "ko": "S4-10",
+   "zh": "S4-10"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true
+   },
+   "JP": {
+    "exist": true
+   },
+   "KR": {
+    "exist": true
+   },
+   "US": {
+    "exist": true
+   }
+  },
+  "minClearTime": 129000,
+  "dropInfos": [
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "sub_05-4-1",
+  "zoneId": "main_5",
+  "stageType": "SUB",
+  "code": "S5-7",
+  "code_i18n": {
+   "en": "S5-7",
+   "ja": "S5-7",
+   "ko": "S5-7",
+   "zh": "S5-7"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1562659200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1582700400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1582700400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1582736400000
+   }
+  },
+  "minClearTime": 148000,
+  "dropInfos": [
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_07-03",
+  "zoneId": "main_7",
+  "stageType": "MAIN",
+  "code": "7-4",
+  "code_i18n": {
+   "en": "7-4",
+   "ja": "7-4",
+   "ko": "7-4",
+   "zh": "7-4"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1588320000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1609311600000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1609311600000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1609347600000
+   }
+  },
+  "minClearTime": 184000,
+  "dropInfos": [
+   {
+    "itemId": "30033",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30021",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30041",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "2001",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30022",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30042",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "2002",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30023",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31023",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "2003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_07-05",
+  "zoneId": "main_7",
+  "stageType": "MAIN",
+  "code": "7-6",
+  "code_i18n": {
+   "en": "7-6",
+   "ja": "7-6",
+   "ko": "7-6",
+   "zh": "7-6"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1588320000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1609311600000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1609311600000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1609347600000
+   }
+  },
+  "minClearTime": 209000,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "30022",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_07-08",
+  "zoneId": "main_7",
+  "stageType": "MAIN",
+  "code": "7-10",
+  "code_i18n": {
+   "en": "7-10",
+   "ja": "7-10",
+   "ko": "7-10",
+   "zh": "7-10"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1588320000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1609311600000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1609311600000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1609347600000
+   }
+  },
+  "minClearTime": 170000,
+  "dropInfos": [
+   {
+    "itemId": "30103",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "act13d0_05",
+  "zoneId": "act13d0_zone1",
+  "stageType": "ACTIVITY",
+  "code": "FA-5",
+  "code_i18n": {
+   "en": "FA-5",
+   "ja": "FA-5",
+   "ko": "FA-5",
+   "zh": "FA-5"
+  },
+  "apCost": 12,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1600934400000,
+    "closeTime": 1601496000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1616655600000,
+    "closeTime": 1617217200000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1616655600000,
+    "closeTime": 1617217200000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1616691600000,
+    "closeTime": 1617274800000
+   }
+  },
+  "minClearTime": 232000
+ },
+ {
+  "stageId": "a001_01_rep",
+  "zoneId": "act13d2_zone1",
+  "stageType": "ACTIVITY",
+  "code": "GT-1",
+  "code_i18n": {
+   "en": "GT-1",
+   "ja": "GT-1",
+   "ko": "GT-1",
+   "zh": "GT-1"
+  },
+  "apCost": 9,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1601539200000,
+    "closeTime": 1602360000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1606374000000,
+    "closeTime": 1607194800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1606374000000,
+    "closeTime": 1607194800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1606410000000,
+    "closeTime": 1607252400000
+   }
+  },
+  "minClearTime": 139000
+ },
+ {
+  "stageId": "main_08-13",
+  "zoneId": "main_8",
+  "stageType": "MAIN",
+  "code": "R8-11",
+  "code_i18n": {
+   "en": "R8-11",
+   "ja": "R8-11",
+   "ko": "R8-11",
+   "zh": "R8-11"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1604217600000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1619766000000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1619766000000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1619802000000
+   }
+  },
+  "minClearTime": 274000,
+  "dropInfos": [
+   {
+    "itemId": "31033",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31034",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "a001_01_perm",
+  "zoneId": "permanent_sidestory_1_zone1",
+  "stageType": "ACTIVITY",
+  "code": "GT-1",
+  "code_i18n": {
+   "en": "GT-1",
+   "ja": "GT-1",
+   "ko": "GT-1",
+   "zh": "GT-1"
+  },
+  "apCost": 9,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1618473600000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1632967200000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1632967200000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1633003200000
+   }
+  },
+  "minClearTime": 139000,
+  "dropInfos": [
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30021",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30041",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "2001",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "act11d0_04_rep",
+  "zoneId": "act5sre_zone1",
+  "stageType": "ACTIVITY",
+  "code": "TW-4",
+  "code_i18n": {
+   "en": "TW-4",
+   "ja": "TW-4",
+   "ko": "TW-4",
+   "zh": "TW-4"
+  },
+  "apCost": 12,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1623916800000,
+    "closeTime": 1624737600000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1639724400000,
+    "closeTime": 1640545200000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1639724400000,
+    "closeTime": 1640545200000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1639760400000,
+    "closeTime": 1640602800000
+   }
+  },
+  "minClearTime": 175000
+ },
+ {
+  "stageId": "main_09-05",
+  "zoneId": "main_9",
+  "stageType": "MAIN",
+  "code": "9-6",
+  "code_i18n": {
+   "en": "9-6",
+   "ja": "9-6",
+   "ko": "9-6",
+   "zh": "9-6"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1631865600000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1647500400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1647500400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1647536400000
+   }
+  },
+  "minClearTime": 231000,
+  "dropInfos": [
+   {
+    "itemId": "31053",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31054",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_09-17",
+  "zoneId": "main_9",
+  "stageType": "MAIN",
+  "code": "9-19",
+  "code_i18n": {
+   "en": "9-19",
+   "ja": "9-19",
+   "ko": "9-19",
+   "zh": "9-19"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1631865600000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1647500400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1647500400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1647536400000
+   }
+  },
+  "minClearTime": 276000,
+  "dropInfos": [
+   {
+    "itemId": "30103",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_10-05",
+  "zoneId": "main_10_tough",
+  "stageType": "MAIN",
+  "code": "10-6",
+  "code_i18n": {
+   "en": "10-6",
+   "ja": "10-6",
+   "ko": "10-6",
+   "zh": "10-6"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1649923200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1666198800000
+   }
+  },
+  "minClearTime": 182000,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_10-05",
+  "zoneId": "main_10",
+  "stageType": "MAIN",
+  "code": "10-6",
+  "code_i18n": {
+   "en": "10-6",
+   "ja": "10-6",
+   "ko": "10-6",
+   "zh": "10-6"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1649923200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1666198800000
+   }
+  },
+  "minClearTime": 182000,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_10-06",
+  "zoneId": "main_10",
+  "stageType": "MAIN",
+  "code": "10-7",
+  "code_i18n": {
+   "en": "10-7",
+   "ja": "10-7",
+   "ko": "10-7",
+   "zh": "10-7"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1649923200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1666198800000
+   }
+  },
+  "minClearTime": 205000,
+  "dropInfos": [
+   {
+    "itemId": "30083",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30084",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_10-13",
+  "zoneId": "main_10",
+  "stageType": "MAIN",
+  "code": "10-15",
+  "code_i18n": {
+   "en": "10-15",
+   "ja": "10-15",
+   "ko": "10-15",
+   "zh": "10-15"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1649923200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1666198800000
+   }
+  },
+  "minClearTime": 177000,
+  "dropInfos": [
+   {
+    "itemId": "30073",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30074",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_10-13",
+  "zoneId": "main_10_tough",
+  "stageType": "MAIN",
+  "code": "10-15",
+  "code_i18n": {
+   "en": "10-15",
+   "ja": "10-15",
+   "ko": "10-15",
+   "zh": "10-15"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1649923200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1666162800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1666198800000
+   }
+  },
+  "minClearTime": 177000,
+  "dropInfos": [
+   {
+    "itemId": "30073",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30074",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "act12side_04_perm",
+  "zoneId": "permanent_sidestory_9_zone1",
+  "stageType": "ACTIVITY",
+  "code": "DH-4",
+  "code_i18n": {
+   "en": "DH-4",
+   "ja": "DH-4",
+   "ko": "DH-4",
+   "zh": "DH-4"
+  },
+  "apCost": 12,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1659988800000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1678734000000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1678734000000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1678791600000
+   }
+  },
+  "minClearTime": 191000,
+  "dropInfos": [
+   {
+    "itemId": "30031",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 5
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 5
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 3
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 5
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 3
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 5
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 3
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 1,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_11-06",
+  "zoneId": "main_11_tough",
+  "stageType": "MAIN",
+  "code": "11-7",
+  "code_i18n": {
+   "en": "11-7",
+   "ja": "11-7",
+   "ko": "11-7",
+   "zh": "11-7"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 201000,
+  "dropInfos": [
+   {
+    "itemId": "30063",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_11-06",
+  "zoneId": "main_11",
+  "stageType": "MAIN",
+  "code": "11-7",
+  "code_i18n": {
+   "en": "11-7",
+   "ja": "11-7",
+   "ko": "11-7",
+   "zh": "11-7"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 201000,
+  "dropInfos": [
+   {
+    "itemId": "30063",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_11-09",
+  "zoneId": "main_11",
+  "stageType": "MAIN",
+  "code": "11-11",
+  "code_i18n": {
+   "en": "11-11",
+   "ja": "11-11",
+   "ko": "11-11",
+   "zh": "11-11"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 183000,
+  "dropInfos": [
+   {
+    "itemId": "30043",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30044",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_11-09",
+  "zoneId": "main_11_tough",
+  "stageType": "MAIN",
+  "code": "11-11",
+  "code_i18n": {
+   "en": "11-11",
+   "ja": "11-11",
+   "ko": "11-11",
+   "zh": "11-11"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 183000,
+  "dropInfos": [
+   {
+    "itemId": "30043",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30044",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_11-10",
+  "zoneId": "main_11",
+  "stageType": "MAIN",
+  "code": "11-12",
+  "code_i18n": {
+   "en": "11-12",
+   "ja": "11-12",
+   "ko": "11-12",
+   "zh": "11-12"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 211000,
+  "dropInfos": [
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_11-10",
+  "zoneId": "main_11_tough",
+  "stageType": "MAIN",
+  "code": "11-12",
+  "code_i18n": {
+   "en": "11-12",
+   "ja": "11-12",
+   "ko": "11-12",
+   "zh": "11-12"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 211000,
+  "dropInfos": [
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_11-11",
+  "zoneId": "main_11",
+  "stageType": "MAIN",
+  "code": "11-13",
+  "code_i18n": {
+   "en": "11-13",
+   "ja": "11-13",
+   "ko": "11-13",
+   "zh": "11-13"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 196500,
+  "dropInfos": [
+   {
+    "itemId": "30073",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30074",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_11-13",
+  "zoneId": "main_11_tough",
+  "stageType": "MAIN",
+  "code": "11-15",
+  "code_i18n": {
+   "en": "11-15",
+   "ja": "11-15",
+   "ko": "11-15",
+   "zh": "11-15"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 203000,
+  "dropInfos": [
+   {
+    "itemId": "31063",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31064",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_11-13",
+  "zoneId": "main_11",
+  "stageType": "MAIN",
+  "code": "11-15",
+  "code_i18n": {
+   "en": "11-15",
+   "ja": "11-15",
+   "ko": "11-15",
+   "zh": "11-15"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 203000,
+  "dropInfos": [
+   {
+    "itemId": "31063",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31064",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_11-16",
+  "zoneId": "main_11",
+  "stageType": "MAIN",
+  "code": "11-18",
+  "code_i18n": {
+   "en": "11-18",
+   "ja": "11-18",
+   "ko": "11-18",
+   "zh": "11-18"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 219500,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_11-16",
+  "zoneId": "main_11_tough",
+  "stageType": "MAIN",
+  "code": "11-18",
+  "code_i18n": {
+   "en": "11-18",
+   "ja": "11-18",
+   "ko": "11-18",
+   "zh": "11-18"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 219500,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 2
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "sub_09-1-2",
+  "zoneId": "main_9",
+  "stageType": "SUB",
+  "code": "S9-2",
+  "code_i18n": {
+   "en": "S9-2",
+   "ja": "S9-2",
+   "ko": "S9-2",
+   "zh": "S9-2"
+  },
+  "apCost": 18,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1665475200000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1682578800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1682614800000
+   }
+  },
+  "minClearTime": 206000,
+  "dropInfos": [
+   {
+    "itemId": "31063",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_12-04",
+  "zoneId": "main_12",
+  "stageType": "MAIN",
+  "code": "12-5",
+  "code_i18n": {
+   "en": "12-5",
+   "ja": "12-5",
+   "ko": "12-5",
+   "zh": "12-5"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1680768000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1698166800000
+   }
+  },
+  "minClearTime": 192000,
+  "dropInfos": [
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_12-04",
+  "zoneId": "main_12_tough",
+  "stageType": "MAIN",
+  "code": "12-5",
+  "code_i18n": {
+   "en": "12-5",
+   "ja": "12-5",
+   "ko": "12-5",
+   "zh": "12-5"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1680768000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1698166800000
+   }
+  },
+  "minClearTime": 192000,
+  "dropInfos": [
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_12-06",
+  "zoneId": "main_12_tough",
+  "stageType": "MAIN",
+  "code": "12-7",
+  "code_i18n": {
+   "en": "12-7",
+   "ja": "12-7",
+   "ko": "12-7",
+   "zh": "12-7"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1680768000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1698166800000
+   }
+  },
+  "minClearTime": 171000,
+  "dropInfos": [
+   {
+    "itemId": "30103",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30104",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_12-06",
+  "zoneId": "main_12",
+  "stageType": "MAIN",
+  "code": "12-7",
+  "code_i18n": {
+   "en": "12-7",
+   "ja": "12-7",
+   "ko": "12-7",
+   "zh": "12-7"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1680768000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1698166800000
+   }
+  },
+  "minClearTime": 171000,
+  "dropInfos": [
+   {
+    "itemId": "30103",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30104",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_12-10",
+  "zoneId": "main_12_tough",
+  "stageType": "MAIN",
+  "code": "12-12",
+  "code_i18n": {
+   "en": "12-12",
+   "ja": "12-12",
+   "ko": "12-12",
+   "zh": "12-12"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1680768000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1698166800000
+   }
+  },
+  "minClearTime": 240000,
+  "dropInfos": [
+   {
+    "itemId": "31023",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31024",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_12-13",
+  "zoneId": "main_12_tough",
+  "stageType": "MAIN",
+  "code": "12-15",
+  "code_i18n": {
+   "en": "12-15",
+   "ja": "12-15",
+   "ko": "12-15",
+   "zh": "12-15"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1680768000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1698166800000
+   }
+  },
+  "minClearTime": 204000,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_12-15",
+  "zoneId": "main_12_tough",
+  "stageType": "MAIN",
+  "code": "12-17",
+  "code_i18n": {
+   "en": "12-17",
+   "ja": "12-17",
+   "ko": "12-17",
+   "zh": "12-17"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1680768000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1698130800000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1698166800000
+   }
+  },
+  "minClearTime": 225000,
+  "dropInfos": [
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31054",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_13-02",
+  "zoneId": "main_13_tough",
+  "stageType": "MAIN",
+  "code": "13-3",
+  "code_i18n": {
+   "en": "13-3",
+   "ja": "13-3",
+   "ko": "13-3",
+   "zh": "13-3"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1696752000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1710867600000,
+    "closeTime": 62141368179000
+   }
+  },
+  "minClearTime": 173000,
+  "dropInfos": [
+   {
+    "itemId": "30013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_13-04",
+  "zoneId": "main_13_tough",
+  "stageType": "MAIN",
+  "code": "13-5",
+  "code_i18n": {
+   "en": "13-5",
+   "ja": "13-5",
+   "ko": "13-5",
+   "zh": "13-5"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1696752000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1710867600000,
+    "closeTime": 62141368179000
+   }
+  },
+  "minClearTime": 169000,
+  "dropInfos": [
+   {
+    "itemId": "31073",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31074",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_13-04",
+  "zoneId": "main_13",
+  "stageType": "MAIN",
+  "code": "13-5",
+  "code_i18n": {
+   "en": "13-5",
+   "ja": "13-5",
+   "ko": "13-5",
+   "zh": "13-5"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1696752000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1710867600000,
+    "closeTime": 62141368179000
+   }
+  },
+  "minClearTime": 169000,
+  "dropInfos": [
+   {
+    "itemId": "31073",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31074",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_13-08",
+  "zoneId": "main_13_tough",
+  "stageType": "MAIN",
+  "code": "13-10",
+  "code_i18n": {
+   "en": "13-10",
+   "ja": "13-10",
+   "ko": "13-10",
+   "zh": "13-10"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1696752000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1710867600000,
+    "closeTime": 62141368179000
+   }
+  },
+  "minClearTime": 200000,
+  "dropInfos": [
+   {
+    "itemId": "30063",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30064",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_13-13",
+  "zoneId": "main_13",
+  "stageType": "MAIN",
+  "code": "13-15",
+  "code_i18n": {
+   "en": "13-15",
+   "ja": "13-15",
+   "ko": "13-15",
+   "zh": "13-15"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1696752000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1710867600000,
+    "closeTime": 62141368179000
+   }
+  },
+  "minClearTime": 222000,
+  "dropInfos": [
+   {
+    "itemId": "31083",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31084",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_13-13",
+  "zoneId": "main_13_tough",
+  "stageType": "MAIN",
+  "code": "13-15",
+  "code_i18n": {
+   "en": "13-15",
+   "ja": "13-15",
+   "ko": "13-15",
+   "zh": "13-15"
+  },
+  "apCost": 24,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1696752000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1710867600000,
+    "closeTime": 62141368179000
+   }
+  },
+  "minClearTime": 222000,
+  "dropInfos": [
+   {
+    "itemId": "31083",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31084",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_13-14",
+  "zoneId": "main_13_tough",
+  "stageType": "MAIN",
+  "code": "13-16",
+  "code_i18n": {
+   "en": "13-16",
+   "ja": "13-16",
+   "ko": "13-16",
+   "zh": "13-16"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1696752000000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1710831600000,
+    "closeTime": 62141368179000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1710867600000,
+    "closeTime": 62141368179000
+   }
+  },
+  "minClearTime": 285000,
+  "dropInfos": [
+   {
+    "itemId": "30043",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30044",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "act21side_08_rep",
+  "zoneId": "act21sre_zone1",
+  "stageType": "ACTIVITY",
+  "code": "IS-8",
+  "code_i18n": {
+   "en": "IS-8",
+   "ja": "IS-8",
+   "ko": "IS-8",
+   "zh": "IS-8"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1697961600000,
+    "closeTime": 1698782400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1716447600000,
+    "closeTime": 1717268400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1716447600000,
+    "closeTime": 1717268400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1716483600000,
+    "closeTime": 1717326000000
+   }
+  },
+  "minClearTime": 200000
+ },
+ {
+  "stageId": "main_14-07",
+  "zoneId": "main_14",
+  "stageType": "MAIN",
+  "code": "14-8",
+  "code_i18n": {
+   "en": "14-8",
+   "ja": "14-8",
+   "ko": "14-8",
+   "zh": "14-8"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1714550400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1731582000000
+   }
+  },
+  "minClearTime": 165000,
+  "dropInfos": [
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_14-07",
+  "zoneId": "main_14_tough",
+  "stageType": "MAIN",
+  "code": "14-8",
+  "code_i18n": {
+   "en": "14-8",
+   "ja": "14-8",
+   "ko": "14-8",
+   "zh": "14-8"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1714550400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1731582000000
+   }
+  },
+  "minClearTime": 165000,
+  "dropInfos": [
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_14-11",
+  "zoneId": "main_14",
+  "stageType": "MAIN",
+  "code": "14-12",
+  "code_i18n": {
+   "en": "14-12",
+   "ja": "14-12",
+   "ko": "14-12",
+   "zh": "14-12"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1714550400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1731582000000
+   }
+  },
+  "minClearTime": 60000,
+  "dropInfos": [
+   {
+    "itemId": "30043",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_14-11",
+  "zoneId": "main_14_tough",
+  "stageType": "MAIN",
+  "code": "14-12",
+  "code_i18n": {
+   "en": "14-12",
+   "ja": "14-12",
+   "ko": "14-12",
+   "zh": "14-12"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1714550400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1731582000000
+   }
+  },
+  "minClearTime": 60000,
+  "dropInfos": [
+   {
+    "itemId": "30043",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_14-14",
+  "zoneId": "main_14_tough",
+  "stageType": "MAIN",
+  "code": "14-16",
+  "code_i18n": {
+   "en": "14-16",
+   "ja": "14-16",
+   "ko": "14-16",
+   "zh": "14-16"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1714550400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1731582000000
+   }
+  },
+  "minClearTime": 74000,
+  "dropInfos": [
+   {
+    "itemId": "30053",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30054",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_14-14",
+  "zoneId": "main_14",
+  "stageType": "MAIN",
+  "code": "14-16",
+  "code_i18n": {
+   "en": "14-16",
+   "ja": "14-16",
+   "ko": "14-16",
+   "zh": "14-16"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1714550400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1731582000000
+   }
+  },
+  "minClearTime": 74000,
+  "dropInfos": [
+   {
+    "itemId": "30053",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30054",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "tough_14-17",
+  "zoneId": "main_14_tough",
+  "stageType": "MAIN",
+  "code": "14-19",
+  "code_i18n": {
+   "en": "14-19",
+   "ja": "14-19",
+   "ko": "14-19",
+   "zh": "14-19"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1714550400000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1731524400000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1731582000000
+   }
+  },
+  "minClearTime": 190000,
+  "dropInfos": [
+   {
+    "itemId": "31083",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31084",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_15-08",
+  "zoneId": "main_15",
+  "stageType": "MAIN",
+  "code": "15-9",
+  "code_i18n": {
+   "en": "15-9",
+   "ja": "15-9",
+   "ko": "15-9",
+   "zh": "15-9"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1744012800000
+   },
+   "JP": {
+    "exist": true,
+    "openTime": 1758006000000
+   },
+   "KR": {
+    "exist": true,
+    "openTime": 1758006000000
+   },
+   "US": {
+    "exist": true,
+    "openTime": 1758042000000
+   }
+  },
+  "minClearTime": 178000,
+  "dropInfos": [
+   {
+    "itemId": "31093",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31094",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 5
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 3
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 5
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 3
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_16-12",
+  "zoneId": "main_16",
+  "stageType": "MAIN",
+  "code": "16-13",
+  "code_i18n": {
+   "en": "16-13",
+   "ja": "16-13",
+   "ko": "16-13",
+   "zh": "16-13"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1759982400000
+   },
+   "JP": {
+    "exist": false
+   },
+   "KR": {
+    "exist": false
+   },
+   "US": {
+    "exist": false
+   }
+  },
+  "minClearTime": 236000,
+  "recognitionOnly": [
+   "act3mainss_token"
+  ],
+  "dropInfos": [
+   {
+    "itemId": "31013",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31014",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_16-13",
+  "zoneId": "main_16",
+  "stageType": "MAIN",
+  "code": "16-14",
+  "code_i18n": {
+   "en": "16-14",
+   "ja": "16-14",
+   "ko": "16-14",
+   "zh": "16-14"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1759982400000
+   },
+   "JP": {
+    "exist": false
+   },
+   "KR": {
+    "exist": false
+   },
+   "US": {
+    "exist": false
+   }
+  },
+  "minClearTime": 199000,
+  "recognitionOnly": [
+   "act3mainss_token"
+  ],
+  "dropInfos": [
+   {
+    "itemId": "31023",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 0
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_17-04",
+  "zoneId": "main_17",
+  "stageType": "MAIN",
+  "code": "17-5",
+  "code_i18n": {
+   "en": "17-5",
+   "ja": "17-5",
+   "ko": "17-5",
+   "zh": "17-5"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1777608000000
+   },
+   "JP": {
+    "exist": false
+   },
+   "KR": {
+    "exist": false
+   },
+   "US": {
+    "exist": false
+   }
+  },
+  "minClearTime": 195000,
+  "recognitionOnly": [
+   "act4mainss_token"
+  ],
+  "dropInfos": [
+   {
+    "itemId": "31103",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31104",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "3003",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30011",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30012",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30061",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30062",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30063",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31013",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31073",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ },
+ {
+  "stageId": "main_17-10",
+  "zoneId": "main_17",
+  "stageType": "MAIN",
+  "code": "17-11",
+  "code_i18n": {
+   "en": "17-11",
+   "ja": "17-11",
+   "ko": "17-11",
+   "zh": "17-11"
+  },
+  "apCost": 21,
+  "existence": {
+   "CN": {
+    "exist": true,
+    "openTime": 1777608000000
+   },
+   "JP": {
+    "exist": false
+   },
+   "KR": {
+    "exist": false
+   },
+   "US": {
+    "exist": false
+   }
+  },
+  "minClearTime": 160000,
+  "recognitionOnly": [
+   "act4mainss_token"
+  ],
+  "dropInfos": [
+   {
+    "itemId": "31113",
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31114",
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30031",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30032",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30051",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30052",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30093",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "30103",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31033",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31043",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31053",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31083",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "31113",
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "itemId": "furni",
+    "dropType": "FURNITURE",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "NORMAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "SPECIAL_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   },
+   {
+    "dropType": "EXTRA_DROP",
+    "bounds": {
+     "lower": 0,
+     "upper": 1
+    }
+   }
+  ]
+ }
+]

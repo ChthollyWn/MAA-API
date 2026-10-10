@@ -3,7 +3,7 @@
 每个来源固定一组主机、路径、允许的查询参数与限额；请求拼装与白名单复核都在这里，
 工具层与领域层拿不到原始 URL，也不能传入 URL。
 
-M25 只登记 PRTS。后续里程碑往 :data:`SOURCES` 里加企鹅物流、作业站与拆包数据，
+M25 只登记 PRTS；M26 起登记企鹅物流。后续里程碑往 :data:`SOURCES` 里加作业站与拆包数据，
 访问层与缓存层不用改。
 """
 
@@ -28,6 +28,7 @@ __all__ = [
     "cache_level_seconds",
     "get_spec",
     "resolve_source",
+    "validate_host",
 ]
 
 #: 缓存三档（规格 §3.3、S3）：当期数据要新，稳定数据少打站点，拆包关卡文件最稳。
@@ -65,8 +66,12 @@ class SourceSpec:
     #: 展示用的许可说明，进来源信封（规格 §12 的许可与版权）。
     license: str = ""
 
-    def url(self, endpoint: str, params: Mapping[str, str]) -> str:
-        """拼 URL 并复核白名单；端点键、参数名或参数值不合法时抛错。"""
+    def url(self, endpoint: str, params: Mapping[str, str], *, host: str | None = None) -> str:
+        """拼 URL 并复核白名单；端点键、参数名、参数值或主机不合法时抛错。
+
+        `host` 缺省用登记表的第一个主机；显式给主机时必须在该来源的 :attr:`hosts` 里
+        （企鹅物流的 `.io` / `.cn` 靠这个参数切换）。
+        """
         path = self.paths.get(endpoint)
         if path is None:
             raise AppError(
@@ -76,8 +81,8 @@ class SourceSpec:
             )
         cleaned = _validate_params(self, params)
         query = urlencode(cleaned)
-        host = self.hosts[0]
-        return f"https://{host}{path}?{query}" if query else f"https://{host}{path}"
+        chosen = validate_host(self, host)
+        return f"https://{chosen}{path}?{query}" if query else f"https://{chosen}{path}"
 
     def endpoint_path(self, endpoint: str) -> str:
         """端点键 → 路径；未知端点抛错。"""
@@ -89,6 +94,19 @@ class SourceSpec:
                 f"来源 {self.kind} 没有端点 {endpoint}",
                 {"kind": self.kind, "endpoint": endpoint},
             ) from None
+
+
+def validate_host(spec: SourceSpec, host: str | None) -> str:
+    """主机白名单校验：``None`` 取登记表的第一个主机，不在表里抛 ``INVALID_PARAMETER``。"""
+    if host is None:
+        return spec.hosts[0]
+    if host not in spec.hosts:
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            f"来源 {spec.label} 不认识主机 {host}",
+            {"kind": spec.kind, "host": str(host)[:80], "hosts": list(spec.hosts)},
+        )
+    return host
 
 
 def _validate_params(spec: SourceSpec, params: Mapping[str, str]) -> dict[str, str]:
@@ -157,6 +175,9 @@ _PRTS_PARAMS = frozenset(
     }
 )
 
+#: 企鹅物流的固定参数：只读 JSON 接口，`server` 与 `show_closed_zones` 由客户端拼。
+_PENGUIN_PARAMS = frozenset({"server", "stageFilter", "itemFilter", "show_closed_zones"})
+
 SOURCES: dict[str, SourceSpec] = {
     "prts": SourceSpec(
         kind="prts",
@@ -173,6 +194,29 @@ SOURCES: dict[str, SourceSpec] = {
         concurrency=2,
         cache_level=CACHE_STATIC,
         license="PRTS 内容按 CC BY-NC-SA 4.0 提供，版权属于鹰角网络",
+    ),
+    "penguin": SourceSpec(
+        kind="penguin",
+        label="企鹅物流",
+        # 两个主机内容一致；`sources.penguin_host` 选主用主机，失败一次后改试另一个。
+        hosts=("penguin-stats.io", "penguin-stats.cn"),
+        paths={
+            # 四个路径都在 `/PenguinStats/api/v2` 前缀下（实测；少这个前缀会拿到
+            # 前端的 HTML，解析 JSON 时报 EXTERNAL_RESPONSE_INVALID）。
+            "matrix": "/PenguinStats/api/v2/result/matrix",
+            "stages": "/PenguinStats/api/v2/stages",
+            "items": "/PenguinStats/api/v2/items",
+            "period": "/PenguinStats/api/v2/period",
+        },
+        params=_PENGUIN_PARAMS,
+        # 实测 CN 的整表 matrix（含已关闭）是 12,522 行、约 2.3 MB，4 MB 留足余量。
+        max_bytes=4 * 1024 * 1024,
+        connect_timeout=5.0,
+        read_timeout=20.0,
+        rate_per_minute=10,
+        concurrency=2,
+        cache_level=CACHE_STATIC,
+        license="企鹅物流数据按 CC BY-NC 4.0 提供（penguin-stats.io）",
     ),
 }
 
@@ -213,7 +257,7 @@ def resolve_source(kind: str, settings: Settings | None = None) -> ResolvedSourc
     """把登记表与配置合成一个可用来源；被关闭时抛 `EXTERNAL_SOURCE_DISABLED`。
 
     总开关 `sources.enabled` 关掉等于所有来源不可用；来源自己的开关（如
-    `sources.prts_enabled`）单独再判一次。
+    `sources.prts_enabled`、`sources.penguin_enabled`）单独再判一次。
     """
     spec = get_spec(kind)
     settings = settings or get_settings()
@@ -230,7 +274,18 @@ def resolve_source(kind: str, settings: Settings | None = None) -> ResolvedSourc
             "PRTS 数据源已关闭",
             {"kind": kind},
         )
-    rate = sources.prts_rate_per_minute if kind == "prts" else spec.rate_per_minute
+    if kind == "penguin" and not sources.penguin_enabled:
+        raise AppError(
+            ErrorCode.EXTERNAL_SOURCE_DISABLED,
+            "企鹅物流数据源已关闭",
+            {"kind": kind},
+        )
+    if kind == "prts":
+        rate = sources.prts_rate_per_minute
+    elif kind == "penguin":
+        rate = sources.penguin_rate_per_minute
+    else:
+        rate = spec.rate_per_minute
     proxy = settings.proxy if sources.use_proxy else ""
     return ResolvedSource(
         spec=spec,

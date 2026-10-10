@@ -87,6 +87,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "sources.cache_max_mb": ("sources", "cache_max_mb"),
     "sources.prts_enabled": ("sources", "prts_enabled"),
     "sources.prts_rate_per_minute": ("sources", "prts_rate_per_minute"),
+    "sources.penguin_enabled": ("sources", "penguin_enabled"),
+    "sources.penguin_host": ("sources", "penguin_host"),
+    "sources.penguin_rate_per_minute": ("sources", "penguin_rate_per_minute"),
     "channel.client_type": ("channel", "client_type"),
     "channel.server": ("channel", "server"),
     "llm.base_url": ("llm", "base_url"),
@@ -209,6 +212,10 @@ class SourcesSettings(BaseModel):
     cache_max_mb: int = Field(default=64, ge=8, le=512)
     prts_enabled: bool = True
     prts_rate_per_minute: int = Field(default=30, ge=1, le=120)
+    #: M26 企鹅物流。两个主机的内容一致，``.io`` 失败一次后自动改试 ``.cn``（规格 §6.6）。
+    penguin_enabled: bool = True
+    penguin_host: Literal["penguin-stats.io", "penguin-stats.cn"] = "penguin-stats.io"
+    penguin_rate_per_minute: int = Field(default=10, ge=1, le=60)
 
 
 class AgentSettings(BaseModel):

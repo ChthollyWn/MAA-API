@@ -171,8 +171,31 @@ def call(name: str, arguments: dict[str, Any], ctx: ToolContext) -> Any:
     return asyncio.run(scenario())
 
 
-def stage_service(tmp_path: Path, prts: Any) -> StageService:
-    return StageService(prts=prts, index=ActivityIndex(write_layer(tmp_path)), settings_provider=_settings)
+class NoDropService:
+    """掉率服务替身：单测不打网，`get_stage` 的 drops 组只做降级断言。
+
+    M26 起 `StageService` 会去企鹅物流查掉率；不注入就会回落到模块级默认门面（真网络）。
+    """
+
+    def __init__(self, rows: list[dict[str, Any]] | None = None, error: AppError | None = None) -> None:
+        self.rows = rows or []
+        self.error = error
+        self.calls: list[str] = []
+
+    async def stage_drop_rates(self, stage_id: str, *, limit: int = 5, server: str | None = None):
+        self.calls.append(stage_id)
+        if self.error is not None:
+            raise self.error
+        return self.rows
+
+
+def stage_service(tmp_path: Path, prts: Any, *, drops: Any = None) -> StageService:
+    return StageService(
+        prts=prts,
+        index=ActivityIndex(write_layer(tmp_path)),
+        settings_provider=_settings,
+        drops=drops if drops is not None else NoDropService(),
+    )
 
 
 def page_service(routes: dict[str, Any], *, calls: list[httpx.Request] | None = None) -> PageService:
@@ -222,8 +245,12 @@ def test_get_stage_returns_the_prts_fields_enemies_devices_and_drops(tmp_path) -
         {"ask": fixture("ask_stage_info.json"), "revisions": fixture("page_7-18.json")},
         calls=calls,
     )
+    # 注入掉率服务替身：这个用例只服务 PRTS 夹具，不能让 drops 组回落到真网络。
     service = StageService(
-        prts=prts, index=ActivityIndex(write_layer(tmp_path)), settings_provider=_settings
+        prts=prts,
+        index=ActivityIndex(write_layer(tmp_path)),
+        settings_provider=_settings,
+        drops=NoDropService(),
     )
 
     result = call("get_stage", {"stage": "7-18"}, context(stage_service=service))
@@ -264,7 +291,12 @@ def test_get_stage_returns_the_prts_fields_enemies_devices_and_drops(tmp_path) -
     ]
     assert result["drops"]["first"] == ["至纯源石:三星获得", "阿米娅:首次掉落"]
     assert result["drops"]["normal"] == ["异铁组:小概率", "酮凝集:概率掉落"]
-    assert set(result["drops"]) == {"first", "normal", "note"}
+    # M26 起 drops 组多了企鹅物流的掉率（规格 §6.1 第 3 条）；这个用例注入的是空替身，
+    # 所以掉率为空、也没有 rates_unavailable（那是取数失败才有的键）。
+    assert result["drops"]["source"] == "prts"
+    assert result["drops"]["rates"] == []
+    assert "rates_unavailable" not in result["drops"]
+    assert set(result["drops"]) == {"first", "normal", "source", "rates"}
 
     assert result["sources"]
     assert result["sources"][0]["kind"] == "prts"
