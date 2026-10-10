@@ -263,7 +263,7 @@
 ### 3.3 缓存（`cache.py`）
 
 - 进程内 TTL + LRU，**不落盘**；键 =（来源，规范化后的请求参数）。
-- 三档过期时间（可配置，附录 B）：
+- 三档过期时间（可配置，附录 B）。`live` 与 `static` 的配置键在 M25 就有；`cache_level_seconds` 到 M29 才加，在此之前 `level` 档用默认 24 小时：
   - `live`（默认 5 分钟）：当期活动与卡池的 SMW 查询、搜索结果、作业站搜索；
   - `static`（默认 6 小时）：wikitext 页面、Cargo 查询、企鹅物流 matrix / stages / items、作业站单条作业；
   - `level`（默认 24 小时）：拆包关卡文件。
@@ -760,7 +760,7 @@ T1 抓夹具（银灰、史尔特尔、一个 3★ 干员、源石虫、爱国�
 | `get_depot` | SAFE | 参数：`items`（名字或 id 列表，可选）、`category`（可选）。返回：数量、识别时间、是否过期 |
 | `update_operator_box` | 每次确认（Q36） | 参数：`changes: [{operator, own?, elite?, level?, potential?, skill_level?, masteries?, modules?}]`（1–20 条）、`reason`。确认卡片展示逐字段差异；写入后字段来源标 `agent` |
 
-- 策略：`update_operator_box` 走单独的分支，`requires_confirmation=True`、`risk=NONE`，`reasons` 写「修改账号干员数据：N 项改动」，确认 payload 带差异。
+- 策略：`update_operator_box` 走单独的分支，`requires_confirmation=True`、`risk=NONE`，`reasons` 写「修改账号干员数据：N 项改动」，确认 payload 带差异。`ConfirmationCard` 对这个动作渲染逐字段差异，不把 payload 当普通 JSON 展开。`start_upgrade_plan` 的卡片同样在本里程碑做，内容见 §7.7。
 - 提示词（追加到「外部资料」段末尾，不新起段落，见 S22）：「需要账号数据而数据缺失或已过期时，先用 ask_user 建议运行干员识别（OperBox）或仓库识别（Depot），用户同意后再提交；不要假设用户拥有某名干员。」
 
 ### 7.5 REST 与前端「账号数据」页
@@ -909,7 +909,7 @@ T1 抓夹具（银灰、史尔特尔、一个 3★ 干员、源石虫、爱国�
 **`update_user_profile`**（每次确认）：
 
 - 参数：`section`（标题，1–32 字）、`content`（≤ 2000 字）、`mode`（`replace` 或 `append`）。
-- 写入一条自定义的 `profile` 条目 `agent-profile`（标题「Agent 记录的用户档案」），按 `## <section>` 分节；确认卡片展示差异。
+- 写入一条自定义的 `profile` 条目 `agent-profile`（标题「Agent 记录的用户档案」），按 `## <section>` 分节。确认卡片展示改动前后的差异，`ConfirmationCard` 对本动作单独渲染，不把 payload 当普通 JSON 展开。
 
 ### 8.4 集成战略
 
@@ -1041,8 +1041,9 @@ T1 抓夹具（银灰、史尔特尔、一个 3★ 干员、源石虫、爱国�
 ### 9.6 作业授权与策略
 
 - 新确认动作 `grant_copilot_attempts`：
-  - payload：`session_id`、`stage_id`、`stage_code`、`attempts`（1–10，默认 3）、`success`（`three_star` 或 `clear`，默认 `three_star`）、`support`（`fill_one` 或 `none`）、`window_minutes`（默认 60）；
-  - 用户在卡片上可以改尝试次数与成功标准再批准（确认接口为这个动作接受经校验的覆盖参数）。
+  - payload：`session_id`、`stage_id`、`stage_code`、`attempts`（1–10，默认 3）、`success`（`three_star` 或 `clear`，默认 `three_star`）、`support`（`fill_one` 或 `none`）、`window_minutes`（默认取 `agent.copilot_grant_minutes`，即 60）；
+  - 用户在卡片上可以改尝试次数、成功标准和是否允许助战，再批准。有效期只展示，不在卡片上改。确认接口为这个动作接受这三项的覆盖参数。
+- 有效期只在**开始下一次尝试**时检查。已经开始的尝试跑完，即使中途超过有效期也不中断。次数没用完但有效期到了，授权标 `expired`，剩余次数作废。一关打得久、又改了好几版时，10 次尝试可能用不完 60 分钟，这是 Q16 的结果，不是缺陷。
 - 授权记录存 `copilot_grant` 表（附录 E）：状态 `active` / `succeeded` / `exhausted` / `stopped` / `expired` / `revoked` / `interrupted`；每个会话同时最多一个 `active`。
 - 策略（只对 INTERNAL 调用方）：
   - `run_copilot_attempt`，以及 `submit_pipeline` 里含 Copilot 任务的提交，都必须有该会话、该关卡、未过期且有余量的授权；
@@ -1230,7 +1231,7 @@ M25 PRTS 基础层 ──► M26 干员/敌人/材料/掉率 ──► M27 账�
 | jsDelivr 与 GitHub | raw 不通；jsDelivr 偶发 403 与自签证书；GitHub API 配额小 | 镜像列表可配置、按序回退；`level` 档 24 小时缓存 |
 | scipy 依赖 | 镜像体积增加 | docs/15 说明；只在规划时导入 |
 | D1 修复后确认变多 | Mall、Roguelike 默认参数会弹确认 | 这是正确行为；docs/13 记录 |
-| 自动重试是长时间运行的一轮 | 服务重启会丢失这一轮 | 授权标 `interrupted` 并通知；重启后由用户决定是否继续 |
+| 自动重试是长时间运行的一轮 | 服务重启会丢失这一轮；60 分钟有效期可能在次数用完之前到期 | 授权标 `interrupted` 并通知；有效期只在开始下一次尝试时检查（§9.6）；重启后由用户决定是否继续 |
 | 养成计划与已有定时任务争抢理智 | 两边都会用理智 | 创建前检查并在确认卡片上提示 |
 | BlackFlow 支持不完整 | 上游策略还在编写 | 工具描述与提示词写明前置条件 |
 | 外服数据不准 | PRTS 以国服为准 | `region_note`；当期数据走本机 |
