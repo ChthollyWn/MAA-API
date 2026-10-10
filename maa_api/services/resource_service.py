@@ -44,6 +44,12 @@ _INFRAST_ROOMS = {
     "hire",
     "processing",
 }
+#: 上游基建排班协议的产物取值（D4；docs.maa.plus「基建排班协议」，2026-10-10 抓取）。
+_INFRAST_PRODUCTS = frozenset(
+    {"Battle Record", "Pure Gold", "Dualchip", "Originium Shard", "LMD", "Orundum"}
+)
+#: ``period`` 的时间格式：``hh:mm``（00:00–23:59）。
+_INFRAST_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _COPILOT_ROOT_FIELDS = {
     "type", "stage_name", "minimum_required", "doc", "groups", "opers", "actions",
     "buff", "equipment", "strategy", "tool_men", "drops", "blacklist", "stages",
@@ -413,6 +419,86 @@ class ResourceService:
     ) -> dict[str, Any]:
         return await self._list_assets(ResourceAssetKind.INFRAST_PLAN, page=page, size=size, q=q)
 
+    async def resolve_infrast_plan_path(self, filename: str) -> Path:
+        """D3：把自定义基建方案的 ``filename`` 解析成 custom 层下的绝对路径。
+
+        内核按进程工作目录解析 ``filename``，所以执行前必须换成绝对路径（与 Copilot
+        快照同样的做法）。只接受 custom 资源层下的相对 JSON 路径；文件不存在、路径逃逸
+        或含符号链接时抛 ``TASK_PARAM_INVALID``，消息里带上解析后的绝对路径。
+        """
+        name = self._infrast_filename(filename)
+        target = self._infrast_plan_path(name)
+        try:
+            root = (self.resource_root / "maa-layers" / "custom" / "resource").resolve(strict=True)
+            resolved = target.resolve(strict=True)
+            resolved.relative_to(root)
+        except FileNotFoundError as exc:
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                f"找不到基建方案文件：{target}",
+                {"filename": name, "path": str(target)},
+            ) from exc
+        except AppError:
+            raise
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                f"基建方案路径不合法：{name}",
+                {"filename": name, "path": str(target)},
+            ) from exc
+        if not resolved.is_file():
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                f"找不到基建方案文件：{resolved}",
+                {"filename": name, "path": str(resolved)},
+            )
+        return resolved
+
+    async def read_infrast_plan(self, filename: str) -> dict[str, Any]:
+        """读一份自定义基建方案（Q45 选班次要读 ``plans[].period``）。"""
+        path = await self.resolve_infrast_plan_path(filename)
+        try:
+            content = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise AppError(
+                ErrorCode.RESOURCE_LOAD_FAILED,
+                f"基建方案文件读不出来：{path}",
+                {"filename": filename, "path": str(path)},
+            ) from exc
+        if not isinstance(content, dict):
+            raise AppError(
+                ErrorCode.RESOURCE_LOAD_FAILED,
+                f"基建方案文件不是 JSON 对象：{path}",
+                {"filename": filename, "path": str(path)},
+            )
+        return content
+
+    @staticmethod
+    def _infrast_filename(filename: Any) -> str:
+        """校验自定义基建方案的相对路径形状（custom 层下的 ``.json``）。"""
+        if not isinstance(filename, str) or not filename.strip():
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                "自定义换班模式（mode=10000）必须提供 filename",
+                {"filename": filename},
+            )
+        name = filename.strip()
+        if (
+            len(name) > 256
+            or name.startswith("/")
+            or "\\" in name
+            or ":" in name
+            or not name.lower().endswith(".json")
+            or any(part in {"", ".", ".."} for part in name.split("/"))
+            or any(character in name for character in "\r\n\t\x00")
+        ):
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                f"基建方案路径不合法：{name[:120]}",
+                {"filename": name[:120]},
+            )
+        return name
+
     async def register_custom_task(
         self,
         *,
@@ -694,17 +780,34 @@ class ResourceService:
                 or not plan["name"].strip()
             ):
                 raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, "基建方案 plans 项结构无效")
-            if set(plan) - {"name", "description", "description_post", "Fiammetta", "drones", "rooms", "period"}:
+            if set(plan) - {
+                "name",
+                "description",
+                "description_post",
+                "Fiammetta",
+                "drones",
+                "rooms",
+                "period",
+                "duration",
+                "groups",
+            }:
                 raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, "基建 plans 项包含未知字段")
             for field in ("description", "description_post"):
                 if field in plan and not isinstance(plan[field], str):
                     raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, f"基建 plans.{field} 必须是字符串")
+            if "duration" in plan and not _nonnegative_int(plan["duration"]):
+                raise _invalid_json(
+                    ErrorCode.INFRAST_PLAN_INVALID, "基建 duration 必须是非负整数（分钟）"
+                )
+            if "groups" in plan and not _valid_infrast_groups(plan["groups"]):
+                raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, "基建 groups 结构无效")
             if "Fiammetta" in plan and not _valid_fiammetta(plan["Fiammetta"]):
                 raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, "基建 Fiammetta 结构无效")
             if "drones" in plan and not _valid_drones(plan["drones"]):
                 raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, "基建 drones 结构无效")
-            if "rooms" in plan and not _valid_rooms(plan["rooms"]):
-                raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, "基建 rooms 结构无效")
+            # 上游把 rooms 标为必选（缺了内核什么也不做）；键在、内容可为空映射。
+            if "rooms" not in plan or not _valid_rooms(plan["rooms"]):
+                raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, "基建 plans 项缺少有效的 rooms")
             if "period" in plan and not _valid_period(plan["period"]):
                 raise _invalid_json(ErrorCode.INFRAST_PLAN_INVALID, "基建 period 结构无效")
         self._checked_json(dict(content), ErrorCode.INFRAST_PLAN_INVALID)
@@ -1068,19 +1171,47 @@ def _valid_fiammetta(value: Any) -> bool:
 
 
 def _valid_drones(value: Any) -> bool:
-    if not isinstance(value, Mapping) or set(value) - {"room", "index", "enable", "order"}:
+    if not isinstance(value, Mapping) or set(value) - {"room", "index", "enable", "order", "rule"}:
         return False
     index = value.get("index")
     return (
         ("room" not in value or value["room"] in {"trading", "manufacture"})
-        and (
-            "index" not in value
-            or _nonnegative_int(index)
-            or (isinstance(index, str) and index.isdigit())
-        )
+        and ("index" not in value or _infrast_drone_index(index) is not None)
         and ("enable" not in value or isinstance(value["enable"], bool))
         and ("order" not in value or value["order"] in {"pre", "post"})
+        # `rule` 是上游的保留字段，照原样放行（非空字符串）。
+        and (
+            "rule" not in value
+            or (isinstance(value["rule"], str) and 0 < len(value["rule"]) <= 64)
+        )
     )
+
+
+def _infrast_drone_index(value: Any) -> int | None:
+    """``drones.index`` 取 1–5（对应左侧 tab 序号）；也接受数字字符串。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, str) and value.strip().isdigit():
+        number = int(value.strip())
+    else:
+        return None
+    return number if 1 <= number <= 5 else None
+
+
+def _valid_infrast_groups(value: Any) -> bool:
+    """干员编组：``[{name, operators}]``（``use_operator_groups`` 引用编组名）。"""
+    if not isinstance(value, list):
+        return False
+    for group in value:
+        if not isinstance(group, Mapping):
+            return False
+        if not _nonempty_string(group.get("name")):
+            return False
+        if not _string_list(group.get("operators")):
+            return False
+    return True
 
 
 def _valid_rooms(value: Any) -> bool:
@@ -1092,13 +1223,27 @@ def _valid_rooms(value: Any) -> bool:
         for assignment in assignments:
             if not isinstance(assignment, Mapping):
                 return False
-            if set(assignment) - {"skip", "product", "operators", "sort", "autofill"}:
+            if set(assignment) - {
+                "skip",
+                "product",
+                "operators",
+                "sort",
+                "autofill",
+                "candidates",
+                "use_operator_groups",
+            }:
                 return False
             if "skip" in assignment and not isinstance(assignment["skip"], bool):
                 return False
-            if "product" in assignment and not isinstance(assignment["product"], str):
+            if "product" in assignment and assignment["product"] not in _INFRAST_PRODUCTS:
                 return False
             if "operators" in assignment and not _string_list(assignment["operators"]):
+                return False
+            if "candidates" in assignment and not _string_list(assignment["candidates"]):
+                return False
+            if "use_operator_groups" in assignment and not isinstance(
+                assignment["use_operator_groups"], bool
+            ):
                 return False
             for field in ("sort", "autofill"):
                 if field in assignment and not isinstance(assignment[field], bool):
@@ -1198,9 +1343,13 @@ def _count_mapping(value: Any) -> bool:
 
 
 def _valid_period(value: Any) -> bool:
+    """``period``：``[[hh:mm, hh:mm], …]``；跨午夜由第二段或 ``22:00``–``06:00`` 表达。"""
     return isinstance(value, list) and all(
         isinstance(period, list)
         and len(period) == 2
-        and all(isinstance(time_value, str) and bool(time_value) for time_value in period)
+        and all(
+            isinstance(time_value, str) and _INFRAST_TIME.fullmatch(time_value.strip()) is not None
+            for time_value in period
+        )
         for period in value
     )

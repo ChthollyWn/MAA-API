@@ -550,10 +550,10 @@ async def test_operator_invalid_sections_are_rejected_by_the_service() -> None:
     )
 
     with pytest.raises(AppError) as error:
-        await service.get("银灰", sections=["basic", "building"])
+        await service.get("银灰", sections=["basic", "unknown"])
 
     assert error.value.code is ErrorCode.INVALID_PARAMETER
-    assert error.value.details == {"sections": ["basic", "building"]}
+    assert error.value.details == {"sections": ["basic", "unknown"]}
 
 
 # --------------------------------------------------------------------------- #

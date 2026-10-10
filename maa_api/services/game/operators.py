@@ -17,6 +17,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.external.envelope import SourceRef, build_envelope
 from maa_api.services.external.prts import PrtsClient
+from maa_api.services.prts_parse.building import parse_operator_building_skills
 from maa_api.services.prts_parse.operator import (
     MaterialCost,
     OperatorModule,
@@ -37,7 +38,7 @@ __all__ = [
 ]
 
 #: `sections` 的取值域（规格 §6.3）；`building` 在 M28 加入。
-ALL_SECTIONS = ("basic", "stats", "skills", "talents", "potentials", "modules", "costs")
+ALL_SECTIONS = ("basic", "stats", "skills", "talents", "potentials", "modules", "costs", "building")
 DEFAULT_SECTIONS = ("basic", "stats", "skills", "talents", "modules")
 
 #: 单次结果的目标体积上限（规格 §6.3）：超了先砍技能描述与模组文本。
@@ -72,16 +73,42 @@ class OperatorService:
         prts: PrtsClient | None = None,
         settings_provider: Callable[[], Settings] = get_settings,
         battle_data_path: str | Path | None = None,
+        building: Any = None,
     ) -> None:
         self._prts = prts
         self._settings_provider = settings_provider
         self._battle_path = Path(battle_data_path) if battle_data_path else None
+        self._building = building
         self._chars: tuple[_CharEntry, ...] | None = None
         self._ranges: dict[str, list[list[int]]] | None = None
 
     @property
     def prts(self) -> PrtsClient:
         return self._prts or PrtsClient()
+
+    @property
+    def building(self) -> Any:
+        """基建技能数据（M28 的 `building` 段）；缺省用模块默认门面。
+
+        注入了 ``prts``（测试与多来源装配）时复用同一个客户端，别让 `building` 段偷偷
+        走进程默认门面去打真实网络。
+        """
+        if self._building is None:
+            from maa_api.services.game.building import (
+                BuildingService,
+                default_building_service,
+            )
+
+            if self._prts is not None:
+                self._building = BuildingService(prts=self._prts)
+            else:
+                self._building = default_building_service()
+        return self._building
+
+    def char_entry(self, char_id: str) -> _CharEntry | None:
+        """按 char_id 取本机 ``battle_data.json`` 的条目（基建技能的拥有者要用）。"""
+        chars, _ = self._load_battle_data()
+        return next((entry for entry in chars if entry.char_id == char_id), None)
 
     # -- 名字解析 ---------------------------------------------------------
     def _load_battle_data(self) -> tuple[tuple[_CharEntry, ...], dict[str, list[list[int]]]]:
@@ -230,6 +257,7 @@ class OperatorService:
             }
 
         page: OperatorPage | None = None
+        page_wikitext: str | None = None
         sources: list[SourceRef] = []
         unavailable: list[str] = []
         title = entry.name if entry is not None else name
@@ -237,7 +265,8 @@ class OperatorService:
             batch = await self.prts.wikitext([title])
             if batch.pages and not batch.pages[0].missing:
                 sources.extend(batch.source_refs())
-                page = parse_operator_page(batch.pages[0].content, title=batch.pages[0].title)
+                page_wikitext = batch.pages[0].content
+                page = parse_operator_page(page_wikitext, title=batch.pages[0].title)
         except AppError as exc:
             if exc.code in _DEGRADABLE:
                 unavailable.extend(
@@ -286,6 +315,8 @@ class OperatorService:
                 payload["costs"] = _costs(page)
             else:
                 unavailable.append("costs")
+        if "building" in groups:
+            await self._add_building(payload, page_wikitext, unavailable)
 
         if page is None and not unavailable:
             unavailable.append("page")
@@ -293,6 +324,43 @@ class OperatorService:
             build_envelope(sources, unavailable=_dedupe(unavailable))
         )
         return _shrink(payload)
+
+
+    async def _add_building(
+        self,
+        payload: dict[str, Any],
+        wikitext: str | None,
+        unavailable: list[str],
+    ) -> None:
+        """M28 的 `building` 段：干员页 ``{{后勤技能}}` + Cargo 的房间与描述（规格 §8.3）。"""
+        skills = parse_operator_building_skills(wikitext or "")
+        if not skills:
+            unavailable.append("building")
+            return
+        try:
+            info = await self.building.skill_info([skill.name for skill in skills])
+        except AppError as exc:
+            if exc.code not in _DEGRADABLE:
+                raise
+            info = {}
+            unavailable.append("building")
+        rows: list[dict[str, Any]] = []
+        for skill in skills:
+            detail = info.get(skill.name) or {}
+            rows.append(
+                {
+                    "name": skill.name,
+                    "room": detail.get("room"),
+                    "unlock": skill.unlock,
+                    "description": detail.get("description"),
+                    "hints": detail.get("hints") or [],
+                    "efficiency": detail.get("efficiency"),
+                    "slot": skill.slot,
+                }
+            )
+        if any(row["room"] is None for row in rows):
+            unavailable.append("building")
+        payload["building"] = rows
 
 
 def _candidate(entry: _CharEntry) -> dict[str, Any]:

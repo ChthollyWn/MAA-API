@@ -77,6 +77,13 @@ def _truncate(value: str, limit: int) -> str:
 _TOOL_LABELS: dict[str, str] = {
     "click": "在游戏画面点击",
     "get_operator_box": "查我的干员",
+    "get_gacha_pools": "查卡池",
+    "get_story": "查剧情",
+    "get_roguelike_info": "查集成战略",
+    "get_building_skills": "查基建技能",
+    "get_infrast_candidates": "查基建候选干员",
+    "list_infrast_plans": "查基建方案",
+    "update_user_profile": "修改用户档案",
     "get_depot": "查仓库",
     "update_operator_box": "修改干员数据",
     "plan_upgrade": "算养成规划",

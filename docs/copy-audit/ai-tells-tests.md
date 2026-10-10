@@ -1,16 +1,16 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 4498 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 5207 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
 | 绝对化规定腔 | medium | 0 | 61 | 61 |
-| 粗体强调 | medium | 0 | 49 | 49 |
+| 粗体强调 | medium | 0 | 51 | 51 |
 | 「A 而不是 B」对照腔 | high | 0 | 38 | 38 |
 | 破折号当冒号用 | high | 0 | 36 | 36 |
 | 自指式讲解腔 | medium | 0 | 10 | 10 |
-| 省略号 | medium | 0 | 5 | 5 |
+| 省略号 | medium | 0 | 7 | 7 |
 | 「…即可」机器腔 | medium | 0 | 3 | 3 |
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 「首先…其次…」罗列腔 | high | 0 | 1 | 1 |
@@ -29,7 +29,7 @@
 - `tests/api/test_app_skeleton.py:244` 进入 TestClient 即执行 lifespan 第 1–2 步：配置加载 + 迁移到 head。 断言版本行落在**临时库**里（``isolated_db`` 换掉了模块级 engine/session_factory 与三条 UR…（共 164 字）
 - …… 另有 55 条，见 inventory.json
 
-## 粗体强调（medium｜用户可见 0 / 开发向 49）
+## 粗体强调（medium｜用户可见 0 / 开发向 51）
 
 **开发向**
 
@@ -39,7 +39,7 @@
 - `tests/agent/test_knowledge_service.py:208` 三份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。 M18 的 5 个块、M19 的 26 个块与 M24 的 1 个块合起来恰好是全部内置条目。
 - `tests/agent/test_knowledge_service.py:261` §4.6 是内置条目的登记表：条目集合与 frontmatter 必须逐字一致。 三份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记） 或少一条（文件漏了）都要失败。B3 文案审计按规范改写了部分正文（…（共 204 字）
 - `tests/agent/test_knowledge_service.py:1281` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
-- …… 另有 43 条，见 inventory.json
+- …… 另有 45 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 38）
 
@@ -77,13 +77,15 @@
 - `tests/db/test_repositories_log.py:282` 每批最多 ``PURGE_BATCH_SIZE`` 行：两维都分批，单次调用内部循环删完。 monkeypatch 把批上限缩到 2，用 6 行数据逼出多批路径（真按 5000 行造数据 太慢，且批量边界才是这里要钉住的行为）。
 - …… 另有 4 条，见 inventory.json
 
-## 省略号（medium｜用户可见 0 / 开发向 5）
+## 省略号（medium｜用户可见 0 / 开发向 7）
 
 **开发向**
 
 - `tests/agent/test_runtime.py:3159` 正在读取日志……
 - `tests/agent/test_runtime.py:3195` 正在读取日志…… {INTERRUPTED_NOTICE}
 - `tests/agent/test_runtime.py:3576` 正在排查……
+- `tests/services/test_game_roguelike.py:157` {{Cbox2|mdi=true|icon=information-variant-circle|text='''在非标准模式下……'''}} {{收藏品/common |名称=热水壶 |iconId=rogue_6_relic_legac…（共 401 字）
+- `tests/services/test_game_story.py:235` 杜宾：……我也希望是你的错觉。
 - …… 另有 2 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 0 / 开发向 3）

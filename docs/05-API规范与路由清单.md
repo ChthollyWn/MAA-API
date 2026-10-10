@@ -946,11 +946,13 @@ class InfrastInput(TaskInputBase):
                      "10000": "自定义换班（读取用户配置）",
                      "20000": "一键轮换"},
     )
-    facility: list[Literal["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"]] | None = (
+    facility: list[Literal["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm",
+                           "Processing", "Training"]] | None = (
         MaaField(default=["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"],
                  label="要换班的设施（有序）",
                  description="不支持运行中设置。内核必填且无默认值，"
-                             "这里的默认值是本服务的约定（七个设施按标准顺序）")
+                             "这里的默认值是本服务的约定（七个设施按标准顺序）；"
+                             "M28 起枚举补上加工站与训练室，默认值不变")
     )
     drones: Literal["_NotUse", "Money", "SyntheticJade", "CombatRecord",
                     "PureGold", "OriginStone", "Chip"] | None = MaaField(
@@ -1011,13 +1013,13 @@ class PipelineCreate(BaseModel):
 | `CloseDown` | `client_type` 枚举；文档标注"必选，填空则不执行"，实际由全局默认值注入保证非空 |
 | `Fight` | `series` 取 `[-1, 6]`；`medicine`/`expiring_medicine`/`stone`/`times` 非负；`server` 枚举 4 值；`client_type` 枚举；`drops` 为 `dict[str, int]`；`DrGrandet` 别名 |
 | `Recruit` | `select`/`confirm` 为 `list[int]`，元素取 `[1, 6]`；`extra_tags_mode` 取 `{0, 1, 2}`；`recruitment_time` 为 `dict[str, int]`（**键是字符串**，JSON 对象键不能是整数，现有 `dict[int, int]` 的声明在 JSON 层面不成立）；`expedite_times` 仅 `expedite=true` 时有意义；`set_time` 在 `times>0` 的招募与仅计算两条路径都会用到（文档写"仅 `times=0` 时生效"，与源码不符） |
-| `Infrast` | `mode` 取 `{0, 10000, 20000}`；`facility` 元素为 7 值枚举；`drones` 为 7 值枚举；`threshold` 取 `[0, 1]`；`mode=10000` 时 `filename` 与 `plan_index` 必填 |
+| `Infrast` | `mode` 取 `{0, 10000, 20000}`；`facility` 元素为 9 值枚举（M28 补 `Processing` / `Training`，默认仍是 7 个）；`drones` 为 7 值枚举；`threshold` 取 `[0, 1]`；`mode=10000` 时 `filename` 必填；`plan_index` 模型层仍有默认值 `0`，但**请求体里没给这个键**时执行器读方案文件、按本机时区与各班 `period` 选当前班次（M28 的 Q45），都不覆盖时报 `TASK_PARAM_INVALID` |
 | `Mall` | 无数值范围约束；`buy_first`/`blacklist` 为商品中文名字符串列表，不做枚举（商店商品会随活动变化，枚举会过期） |
 | `Award` | 全为布尔，无范围约束 |
-| `Roguelike` | `theme` 枚举 `{Phantom, Mizuki, Sami, Sarkaz}`；`mode` 取 `{0, 1, 4, 5}`，**`2` 已弃用**，传入时 400 `TASK_PARAM_DEPRECATED`，`3` 为开发中同样拒绝；`difficulty` 非负且仅非 `Phantom` 主题生效；`mode=5` 要求 `theme="Sami"`；`start_foldartal_list`/`first_floor_foldartal`/`use_foldartal`/`check_collapsal_paradigms` 仅 `Sami` 生效；`only_start_with_elite_two` 要求 `mode=4` 且 `start_with_elite_two=true`；`use_nonfriend_support` 要求 `use_support=true`；`refresh_trader_with_dice` 仅 `Mizuki` 生效 |
+| `Roguelike` | `theme` 枚举 6 值 `{Phantom, Mizuki, Sami, Sarkaz, JieGarden, BlackFlow}`；`mode` 取 `{0, 1, 2, 3, 4, 5, 6, 7, 10001, 20001, 30001}`，**`2` 已弃用**，传入时 400 `TASK_PARAM_DEPRECATED`，`3` 为开发中同样拒绝，其余模式按主题收口（对齐上游 `RoguelikeConfig.h::is_valid_mode`：通用 0/1/4/6/7，`5` 仅 `Sami`、`10001` 仅 `Sarkaz`、`20001` 仅 `JieGarden`、`30001` 仅 `BlackFlow`，BlackFlow 只接受 0/1/30001）；`difficulty` 取 `≥ -1`（`-1` 表示不指定）；`start_with_elite_two` 仅 `mode=4` 有效（M28 补）；`mode=20001` 必须给 `find_playTime_target`（1–3），反向也要求它只在 `mode=20001` 下出现；`start_foldartal_list` / `first_floor_foldartal` / `use_foldartal` / `check_collapsal_paradigms` 仅 `Sami` 生效（`start_foldartal_list` 还要求 `mode=4`）；`expected_collapsal_paradigms` 要求 `Sami` 且 `mode=5`；`double_check_collapsal_paradigms` 要求 `Sami` 且 `check_collapsal_paradigms=true`（该字段未显式给时按 `mode=5` 判定）；`only_start_with_elite_two` 要求 `mode=4` 且 `start_with_elite_two=true`；`use_nonfriend_support` 要求 `use_support=true`；`refresh_trader_with_dice` 仅 `Mizuki` 生效；`collectible_mode_shopping` / `collectible_mode_squad` / `collectible_mode_start_list` 仅 `mode=4` 生效；`investment_with_more_score` 仅 `mode=1`；`monthly_squad_auto_iterate` / `monthly_squad_check_comms` 仅 `mode=6`；`deep_exploration_auto_iterate` 仅 `mode=7`；`blackflow_strategy` / `blackflow_cultivation_target` 仅 `BlackFlow`；`stop_at_final_boss` 不适用于 `Phantom` |
 | `Reclamation` | `theme` 枚举 `{Fire, Tales}`；`mode` 取 `{0, 1}`；`increment_mode` 取 `{0, 1}`；`num_craft_batches` ≥ 1 |
 
-主题相关的跨字段规则一律实现为 `model_validator` 并抛 `TASK_PARAM_INVALID`，而不是静默忽略。原因是"设了但不生效"是用户最常见的困惑来源：`Roguelike` 在 `Phantom` 主题下设了 `difficulty` 却毫无反应，没有报错的话根本无从察觉。
+主题相关的跨字段规则一律实现为 `model_validator` 并抛 `TASK_PARAM_INVALID`，而不是静默忽略。原因是"设了但不生效"是用户最常见的困惑来源：`Roguelike` 在 `mode=4` 之外设了 `collectible_mode_start_list`（M28 新增的凹开局参数）却毫无反应，没有报错的话根本无从察觉。
 
 ### 7.6 对现有实现的五处修正
 
@@ -1111,7 +1113,7 @@ def export_type_schema(
 | `x-widget` | 控件提示（`select` / `stepper` / `switch` / `tags` / `textarea`） | 选择渲染组件 |
 | `x-enum-labels` | 枚举值到中文的映射 | 下拉选项的显示文案 |
 
-`x-enum-labels` 也挂在**数组元素**的子 schema 上。`Infrast.facility` 的中文设施名（制造站 / 贸易站 / 发电站 / 控制中枢 / 会客室 / 办公室 / 宿舍）写在 `properties.facility.items` 里，而不是 `properties.facility` 顶层：前端渲染多选类字段时要下钻一层取这张映射表。
+`x-enum-labels` 也挂在**数组元素**的子 schema 上。`Infrast.facility` 的中文设施名（制造站 / 贸易站 / 发电站 / 控制中枢 / 会客室 / 办公室 / 宿舍 / 加工站 / 训练室，M28 起后两项）写在 `properties.facility.items` 里，而不是 `properties.facility` 顶层：前端渲染多选类字段时要下钻一层取这张映射表。
 
 取值范围直接用 JSON Schema 原生关键字承载：`minimum` / `maximum`（来自 `ge` / `le`）、`enum`（来自 `Literal`）、`minItems` / `maxItems`。这样前端可以直接把它喂给 `react-hook-form` 之类的库做客户端校验，不必解析自定义字段。
 

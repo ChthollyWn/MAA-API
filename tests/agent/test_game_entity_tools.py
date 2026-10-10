@@ -309,7 +309,7 @@ def test_get_operator_params_reject_unknown_sections_and_skill_detail() -> None:
     with pytest.raises(ValidationError):
         model.model_validate({"name": "银灰", "sections": ["basic", "装备"]})
     with pytest.raises(ValidationError):
-        model.model_validate({"name": "银灰", "sections": ["building"]})
+        model.model_validate({"name": "银灰", "sections": ["unknown"]})
     with pytest.raises(ValidationError):
         model.model_validate({"name": "银灰", "sections": "basic"})
     with pytest.raises(ValidationError):

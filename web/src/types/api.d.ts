@@ -2219,7 +2219,7 @@ export interface components {
             enable: boolean | null;
             /**
              * Facility
-             * @description 要换班的设施，顺序即换班顺序，默认全部（不支持运行中设置）
+             * @description 要换班的设施，顺序即换班顺序；默认不含加工站与训练室（不支持运行中设置）
              * @default [
              *       "Mfg",
              *       "Trade",
@@ -2230,7 +2230,7 @@ export interface components {
              *       "Dorm"
              *     ]
              */
-            facility: ("Mfg" | "Trade" | "Power" | "Control" | "Reception" | "Office" | "Dorm")[] | null;
+            facility: ("Mfg" | "Trade" | "Power" | "Control" | "Reception" | "Office" | "Dorm" | "Processing" | "Training")[] | null;
             /**
              * Filename
              * @description 自定义换班用的配置文件路径（不支持运行中设置）
@@ -3003,12 +3003,91 @@ export interface components {
          */
         RiskLevel: "none" | "consume" | "destructive";
         /**
+         * RoguelikeCollectibleStartList
+         * @description ``collectible_mode_start_list``：凹开局时期望的开局奖励，默认全部关闭。
+         */
+        RoguelikeCollectibleStartList: {
+            /**
+             * Dice
+             * @description 骰子奖励（仅水月主题）
+             * @default false
+             */
+            dice: boolean;
+            /**
+             * Hope
+             * @description 希望奖励（通用；界园主题没有）
+             * @default false
+             */
+            hope: boolean;
+            /**
+             * Hot Water
+             * @description 热水壶奖励（通用）
+             * @default false
+             */
+            hot_water: boolean;
+            /**
+             * Ideas
+             * @description 2 构想奖励（仅萨卡兹主题）
+             * @default false
+             */
+            ideas: boolean;
+            /**
+             * Ingot
+             * @description 源石锭奖励（通用）
+             * @default false
+             */
+            ingot: boolean;
+            /**
+             * Key
+             * @description 钥匙奖励（仅水月主题）
+             * @default false
+             */
+            key: boolean;
+            /**
+             * Random
+             * @description 用全部源石锭换随机收藏品（通用）
+             * @default false
+             */
+            random: boolean;
+            /**
+             * Shield
+             * @description 护盾奖励，约等于额外生命（通用）
+             * @default false
+             */
+            shield: boolean;
+            /**
+             * Ticket
+             * @description 票券奖励（仅界园主题）
+             * @default false
+             */
+            ticket: boolean;
+        };
+        /**
+         * RoguelikeCoreChar
+         * @description ``core_char_list`` 的一项：开局第 N 次招募指定的一名干员。
+         */
+        RoguelikeCoreChar: {
+            /**
+             * Name
+             * @description 干员中文名，无论区服
+             */
+            name: string;
+            /**
+             * Use Support
+             * @description 这一顺位使用助战干员
+             * @default false
+             */
+            use_support: boolean;
+        };
+        /**
          * RoguelikeInput
          * @description 无限刷肉鸽（集成战略）。
          *
          *     主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError``
          *     （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PARAM_DEPRECATED``）
-         *     ——「设了但不生效」必须在提交时就告诉用户，而不是静默忽略。
+         *     ——「设了但不生效」必须在提交时就告诉用户，而不是静默忽略。矩阵对齐上游
+         *     ``RoguelikeConfig.cpp``：模式按主题收口，``start_with_elite_two`` 只许 ``mode=4``，
+         *     ``difficulty`` 在 Phantom 下也允许（``-1`` 表示不指定）。
          * @example {
          *       "investment_enabled": true,
          *       "investments_count": 10,
@@ -3026,21 +3105,74 @@ export interface components {
          *       "name": "Roguelike",
          *       "theme": "Sami"
          *     }
+         * @example {
+         *       "collectible_mode_start_list": {
+         *         "hot_water": true,
+         *         "shield": true
+         *       },
+         *       "core_char_list": [
+         *         {
+         *           "name": "维什戴尔",
+         *           "use_support": true
+         *         },
+         *         {
+         *           "name": "古米",
+         *           "use_support": false
+         *         }
+         *       ],
+         *       "mode": 4,
+         *       "name": "Roguelike",
+         *       "start_with_elite_two": true,
+         *       "theme": "Sarkaz"
+         *     }
          */
         RoguelikeInput: {
             /**
+             * Blackflow Cultivation Target
+             * @description 刷襁褓动物的目标（默认襁褓猫）
+             */
+            blackflow_cultivation_target?: ("swaddled_cat" | "swaddled_feathered_serpent" | "swaddled_dog" | "swaddled_cerberus") | null;
+            /**
+             * Blackflow Strategy
+             * @description 黑流树海的策略；不填按模式与投资推断
+             */
+            blackflow_strategy?: ("baby_animal" | "investment" | "burn_with_investment" | "burn") | null;
+            /**
              * Check Collapsal Paradigms
-             * @description 检测拿到的坍缩范式；不填由内核按模式决定（刷坍缩范式默认开启）
+             * @description 检测拿到的坍缩范式；不填由内核按模式决定
              */
             check_collapsal_paradigms?: boolean | null;
             /**
+             * Collectible Mode Shopping
+             * @description 凹开局时也购物（默认关闭）
+             * @default false
+             */
+            collectible_mode_shopping: boolean | null;
+            /**
+             * Collectible Mode Squad
+             * @description 凹开局使用的分队；不填与开局分队相同
+             */
+            collectible_mode_squad?: string | null;
+            /** @description 凹开局期望的奖励，默认全部关闭 */
+            collectible_mode_start_list?: components["schemas"]["RoguelikeCollectibleStartList"] | null;
+            /**
              * Core Char
-             * @description 开局要借的干员中文名；不填则由内核自动选择
+             * @description 开局要借的干员中文名；不填由内核按练度选择
              */
             core_char?: string | null;
             /**
+             * Core Char List
+             * @description 按顺位指定开局干员，最多三个，职业不能相同
+             */
+            core_char_list?: components["schemas"]["RoguelikeCoreChar"][] | null;
+            /**
+             * Deep Exploration Auto Iterate
+             * @description 深入调查自动切换（仅刷深入调查模式）
+             */
+            deep_exploration_auto_iterate?: boolean | null;
+            /**
              * Difficulty
-             * @description 仅用于傀影以外的主题；不填则选已解锁的最高难度
+             * @description 指定难度等级；-1 表示不指定（默认不指定）
              */
             difficulty?: number | null;
             /**
@@ -3060,6 +3192,11 @@ export interface components {
              */
             expected_collapsal_paradigms?: string[] | null;
             /**
+             * Find Playtime Target
+             * @description 想刷的常乐节点（刷常乐节点模式必填）
+             */
+            find_playTime_target?: (1 | 2 | 3) | null;
+            /**
              * First Floor Foldartal
              * @description 第一层远见想要的密文板；凹到就停止任务
              */
@@ -3071,6 +3208,12 @@ export interface components {
              */
             investment_enabled: boolean | null;
             /**
+             * Investment With More Score
+             * @description 投资后顺便购物（仅刷源石锭模式）
+             * @default false
+             */
+            investment_with_more_score: boolean | null;
+            /**
              * Investments Count
              * @description 投多少次后停止；不填则不限制
              */
@@ -3080,7 +3223,17 @@ export interface components {
              * @description 肉鸽的玩法模式（默认刷分/奖励点数）
              * @default 0
              */
-            mode: (0 | 1 | 2 | 3 | 4 | 5) | null;
+            mode: (0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 10001 | 20001 | 30001) | null;
+            /**
+             * Monthly Squad Auto Iterate
+             * @description 月度小队自动切换（仅刷月度小队模式）
+             */
+            monthly_squad_auto_iterate?: boolean | null;
+            /**
+             * Monthly Squad Check Comms
+             * @description 把月度小队通信也作为切换依据（默认关闭）
+             */
+            monthly_squad_check_comms?: boolean | null;
             /**
              * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
              * @enum {string}
@@ -3115,10 +3268,15 @@ export interface components {
             start_foldartal_list?: string[] | null;
             /**
              * Start With Elite Two
-             * @description 凹开局时顺便凹精二直升（仅「凹开局」，默认关闭）
+             * @description 凹开局时顺便凹精二直升（仅凹开局模式）
              * @default false
              */
             start_with_elite_two: boolean | null;
+            /**
+             * Start With Seed
+             * @description 用固定种子刷钱；留空则不启用
+             */
+            start_with_seed?: string | null;
             /**
              * Starts Count
              * @description 开始探索多少次后停止；不填则不限制
@@ -3126,10 +3284,16 @@ export interface components {
             starts_count?: number | null;
             /**
              * Stop At Final Boss
-             * @description 仅用于傀影以外的主题，第 5 层险路恶敌前停止（默认关闭）
+             * @description 第 5 层险路恶敌前停止；不适用于 Phantom
              * @default false
              */
             stop_at_final_boss: boolean | null;
+            /**
+             * Stop At Max Level
+             * @description 肉鸽等级刷满后停止任务（默认关闭）
+             * @default false
+             */
+            stop_at_max_level: boolean | null;
             /**
              * Stop When Investment Full
              * @description 投资满后自动停止任务（默认关闭）
@@ -3141,10 +3305,10 @@ export interface components {
              * @description 要刷的肉鸽主题（默认傀影与猩红孤钻）
              * @default Phantom
              */
-            theme: ("Phantom" | "Mizuki" | "Sami" | "Sarkaz") | null;
+            theme: ("Phantom" | "Mizuki" | "Sami" | "Sarkaz" | "JieGarden" | "BlackFlow") | null;
             /**
              * Use Foldartal
-             * @description 是否使用密文板；不填由内核按模式决定（刷坍缩范式默认关闭）
+             * @description 是否使用密文板；不填由内核按模式决定
              */
             use_foldartal?: boolean | null;
             /**

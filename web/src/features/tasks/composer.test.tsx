@@ -55,7 +55,7 @@ describe('task composer', () => {
     vi.restoreAllMocks()
   })
 
-  it('lists the ten task types with icons and one-line descriptions and keeps the pipeline within 32 tasks', async () => {
+  it('lists the twelve task types with icons and one-line descriptions and keeps the pipeline within 32 tasks', async () => {
     installTaskApi()
     renderTaskArea()
 
@@ -63,7 +63,8 @@ describe('task composer', () => {
     expect(screen.getByRole('button', { name: '存为定时任务' })).toBeDisabled()
     const sheet = await openTypeSheet()
     const options = within(sheet).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '关闭')
-    expect(options).toHaveLength(10)
+    // 与后端 `/api/tasks/types`（12 种）保持一致：M27 的 OperBox / Depot 已并入 fixture。
+    expect(options).toHaveLength(12)
     for (const type of taskTypeEnvelope.items) {
       const option = within(sheet).getByRole('button', { name: new RegExp(`^${type.label}`) })
       expect(option.querySelector('svg')).not.toBeNull()

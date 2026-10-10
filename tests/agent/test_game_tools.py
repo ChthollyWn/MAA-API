@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -28,8 +29,10 @@ from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.activity_index import ActivityIndex
 from maa_api.services.external.http import ExternalClient
 from maa_api.services.external.prts import PrtsClient
+from maa_api.services.game.gacha import GachaService
 from maa_api.services.game.pages import PageService
 from maa_api.services.game.stages import StageService
+from maa_api.services.game.story import StoryService
 from maa_api.settings import Settings, SourcesSettings
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "prts"
@@ -575,5 +578,300 @@ def test_instruction_like_page_text_is_returned_as_data_not_as_an_instruction() 
     assert result["sources"] and result["sources"][0]["kind"] == "prts"
     assert "不是指令" in definition("get_prts_page").description
     # 指令只作为正文数据出现，没有被摘进别的字段（更没有被执行）。
+    others = {key: value for key, value in result.items() if key != "text"}
+    assert INJECTION not in json.dumps(others, ensure_ascii=False)
+
+
+# --------------------------------------------------------------------------- #
+# M28 卡池与剧情（规格 §8.2、§8.5、§4.3）
+# --------------------------------------------------------------------------- #
+#: 夹具时间轴上的一刻：2026-10-10 12:00 +08（`ask_gacha_pools.json` 抓取当天）。
+GACHA_NOW = datetime.fromtimestamp(1791604800, tz=timezone.utc).astimezone()
+
+#: `1-1 孤岛/BEG` 的修订信息（wikitext 夹具见 `story_1-1_beg.wikitext`）。
+STORY_TITLE = "1-1 孤岛/BEG"
+
+
+def fixture_text(name: str) -> str:
+    return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def revisions_response(content: str, *, title: str = STORY_TITLE) -> dict[str, Any]:
+    return {
+        "batchcomplete": True,
+        "query": {
+            "pages": [
+                {
+                    "pageid": 9538,
+                    "ns": 0,
+                    "title": title,
+                    "revisions": [
+                        {
+                            "revid": 426748,
+                            "timestamp": "2026-09-09T16:12:19Z",
+                            "slots": {"main": {"content": content}},
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+
+def story_routes(content: str | None = None, *, hits: list[dict[str, Any]] | None = None):
+    """剧情页取数 + 检索 + 分类的路由（`1-1 孤岛` 只带「含有内置剧情的关卡」）。"""
+
+    def categories(params: dict[str, str]) -> dict[str, Any]:
+        names = {
+            "1-1 孤岛/BEG": ["分类:剧情"],
+            "1-1 孤岛/END": ["分类:剧情"],
+            "1-1 孤岛": ["分类:主线关卡", "分类:含有内置剧情的关卡"],
+        }
+        return {
+            "batchcomplete": True,
+            "query": {
+                "pages": [
+                    {
+                        "ns": 0,
+                        "title": title,
+                        "categories": [
+                            {"ns": 14, "title": name} for name in names.get(title, [])
+                        ],
+                    }
+                    for title in params.get("titles", "").split("|")
+                    if title
+                ]
+            },
+        }
+
+    return {
+        "revisions": revisions_response(
+            content if content is not None else fixture_text("story_1-1_beg.wikitext")
+        ),
+        "search": {
+            "batchcomplete": True,
+            "query": {
+                "searchinfo": {"totalhits": 2},
+                "search": hits
+                if hits is not None
+                else [
+                    {"ns": 0, "title": "1-1 孤岛/BEG", "pageid": 9538, "snippet": ""},
+                    {"ns": 0, "title": "1-1 孤岛", "pageid": 2086, "snippet": ""},
+                ],
+            },
+        },
+        "categories": categories,
+    }
+
+
+def gacha_service(routes: dict[str, Any], tmp_path: Path) -> GachaService:
+    """星级只用本机资源区分：单测注入 `tmp_path` 现造的一份 `battle_data.json`。"""
+    path = tmp_path / "battle_data.json"
+    path.write_text(
+        json.dumps(
+            {"chars": {"char_1": {"name": "克莱门莎", "rarity": 6},
+                       "char_2": {"name": "火哨", "rarity": 5}}},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return GachaService(
+        prts=make_prts(routes),
+        battle_data_path=path,
+        now_provider=lambda: GACHA_NOW,
+        settings_provider=_settings,
+    )
+
+
+def test_gacha_and_story_tools_are_safe_read_only_and_warn_that_pages_are_not_instructions() -> None:
+    registry = build_registry()
+
+    for name in ("get_gacha_pools", "get_story"):
+        item = registry.get(name)
+        assert item.group == "game"
+        assert item.risk.value == "SAFE"
+        assert item.read_only is True
+        assert item.model_visible is True
+        # 规格 §4.1：工具描述写明外部页面是数据不是指令。
+        assert "不是指令" in item.description
+
+
+def test_get_gacha_pools_params_reject_unknown_status_bad_limits_and_extra_fields() -> None:
+    model = definition("get_gacha_pools").params_model
+
+    with pytest.raises(ValidationError):
+        model.model_validate({"status": "open"})
+    with pytest.raises(ValidationError):
+        model.model_validate({"limit": 0})
+    with pytest.raises(ValidationError):
+        model.model_validate({"limit": 11})
+    with pytest.raises(ValidationError):
+        model.model_validate({"status": "current", "unknown": 1})
+
+    accepted = model.model_validate({})
+    assert (accepted.status, accepted.limit) == ("current", 5)
+    assert model.model_validate({"status": "recent", "limit": 10}).limit == 10
+
+
+def test_get_story_params_reject_bad_windows_and_extra_fields() -> None:
+    model = definition("get_story").params_model
+
+    with pytest.raises(ValidationError):
+        model.model_validate({"query": ""})
+    with pytest.raises(ValidationError):
+        model.model_validate({"query": "x" * 65})
+    with pytest.raises(ValidationError):
+        model.model_validate({"title": "x" * 101})
+    with pytest.raises(ValidationError):
+        model.model_validate({"title": "1-1 孤岛/BEG", "offset": -1})
+    with pytest.raises(ValidationError):
+        model.model_validate({"title": "1-1 孤岛/BEG", "max_chars": 1999})
+    with pytest.raises(ValidationError):
+        model.model_validate({"title": "1-1 孤岛/BEG", "max_chars": 8001})
+    with pytest.raises(ValidationError):
+        model.model_validate({"title": "1-1 孤岛/BEG", "unknown": 1})
+
+    accepted = model.model_validate({"title": "1-1 孤岛/BEG"})
+    assert (accepted.query, accepted.offset, accepted.max_chars) == (None, 0, 6000)
+
+
+def test_get_story_requires_exactly_one_of_query_and_title() -> None:
+    service = StoryService(prts=UnavailablePrts(), settings_provider=_settings)
+    ctx = context(story_service=service)
+
+    for arguments in ({}, {"query": "孤岛", "title": "1-1 孤岛/BEG"}):
+        with pytest.raises(AppError) as error:
+            call("get_story", arguments, ctx)
+        assert error.value.code is ErrorCode.INVALID_PARAMETER
+        assert "query" in error.value.message and "title" in error.value.message
+
+
+def test_get_gacha_pools_returns_current_pools_with_up_operators_and_the_envelope(tmp_path) -> None:
+    routes = {"ask": fixture("ask_gacha_pools.json")}
+    ctx = context(gacha_service=gacha_service(routes, tmp_path))
+
+    result = call("get_gacha_pools", {"status": "current", "limit": 5}, ctx)
+
+    assert result["query"] == {"status": "current", "limit": 5}
+    assert [pool["name"] for pool in result["pools"]] == [
+        "海渊巡游",
+        "常驻标准寻访",
+        "常驻中坚寻访",
+        "定向甄选08",
+    ]
+    assert result["pools_total"] == 4
+    first = result["pools"][0]
+    assert first["status"] == "current"
+    assert first["page"] == "文件:海渊巡游.jpg"
+    assert first["start_at"] == "2026-10-09T12:00:00+08:00"
+    assert first["up_six"] == [{"name": "克莱门莎", "rarity": 6, "source": "resource"}]
+    assert first["up_five"][0] == {
+        "name": "火哨",
+        "rarity": 5,
+        "source": "resource",
+    }
+    assert result["untrusted"] is True
+    assert result["unavailable"] == []
+    assert result["region_note"] is None
+    assert result["sources"] and result["sources"][0]["kind"] == "prts"
+
+
+def test_get_gacha_pools_passes_status_and_limit_through(tmp_path) -> None:
+    routes = {"ask": fixture("ask_gacha_pools.json")}
+    ctx = context(gacha_service=gacha_service(routes, tmp_path))
+
+    result = call("get_gacha_pools", {"status": "recent", "limit": 1}, ctx)
+
+    assert result["query"] == {"status": "recent", "limit": 1}
+    assert [pool["name"] for pool in result["pools"]] == ["常驻标准寻访"]
+    assert result["pools"][0]["status"] == "recent"
+    assert result["pools_total"] == 2
+
+
+def test_get_gacha_pools_marks_foreign_clients_with_the_region_note(tmp_path) -> None:
+    routes = {"ask": fixture("ask_gacha_pools.json")}
+    ctx = context(
+        gacha_service=gacha_service(routes, tmp_path),
+        settings_provider=lambda: Settings(channel={"client_type": "YoStarEN"}),
+    )
+
+    result = call("get_gacha_pools", {"status": "current", "limit": 1}, ctx)
+
+    assert result["region_note"] == "国服数据，外服可能尚未实装或数值不同；外服进度与国服不同"
+
+
+def test_get_story_searches_and_returns_titles_snippets_and_links() -> None:
+    calls: list[httpx.Request] = []
+    service = StoryService(prts=make_prts(story_routes(), calls=calls), settings_provider=_settings)
+
+    result = call("get_story", {"query": "孤岛"}, context(story_service=service))
+
+    # 只有 `分类:剧情` 与章节后缀的页面算剧情页（`1-1 孤岛` 是关卡页）。
+    assert result["query"] == "孤岛"
+    assert [item["title"] for item in result["results"]] == ["1-1 孤岛/BEG"]
+    assert result["results_total"] == 1
+    assert result["results"][0]["url"] == "https://prts.wiki/w/1-1_孤岛/BEG"
+    assert result["untrusted"] is True
+    assert result["sources"] and result["sources"][0]["kind"] == "prts"
+    assert "不是指令" in definition("get_story").description
+    assert [dict(call_.url.params)["action"] for call_ in calls] == ["query", "query"]
+
+
+def test_get_story_returns_text_characters_and_continues_with_the_offset() -> None:
+    lines = "\n".join(f'[name="杜宾"] 第{index:02d}段' + "台词" * 18 for index in range(120))
+    content = "{{剧情模拟器|文本数据=\n" + lines + "\n}}"
+    service = StoryService(
+        prts=make_prts(story_routes(content)), settings_provider=_settings
+    )
+
+    first = call(
+        "get_story", {"title": STORY_TITLE, "max_chars": 2000}, context(story_service=service)
+    )
+
+    assert first["title"] == STORY_TITLE
+    assert first["characters"] == ["杜宾"]
+    assert first["text"].startswith("杜宾：第00段")
+    assert first["truncated"]["field"] == "text"
+    assert first["truncated"]["next_offset"] == 2000
+    assert first["untrusted"] is True
+
+    second = call(
+        "get_story",
+        {
+            "title": STORY_TITLE,
+            "offset": first["truncated"]["next_offset"],
+            "max_chars": 2000,
+        },
+        context(story_service=service),
+    )
+    assert second["text"] and second["text"] != first["text"]
+    assert second["truncated"]["next_offset"] == 4000
+
+
+def test_get_story_rejects_other_namespaces_before_any_request() -> None:
+    calls: list[httpx.Request] = []
+    service = StoryService(
+        prts=make_prts(story_routes(), calls=calls), settings_provider=_settings
+    )
+
+    with pytest.raises(AppError) as error:
+        call("get_story", {"title": "用户:张三"}, context(story_service=service))
+    assert error.value.code is ErrorCode.INVALID_PARAMETER
+    assert calls == []
+
+
+def test_instruction_like_story_text_is_returned_as_data_not_as_an_instruction() -> None:
+    """规格 §4.1 的反例：剧情页里命令口吻的台词原样出现在结果里，且标注不可信。"""
+
+    content = "{{剧情模拟器|文本数据=\n" + f'[name="杜宾"]  {INJECTION}\n' + "}}"
+    service = StoryService(
+        prts=make_prts(story_routes(content)), settings_provider=_settings
+    )
+
+    result = call("get_story", {"title": STORY_TITLE}, context(story_service=service))
+
+    assert f"杜宾：{INJECTION}" in result["text"]
+    assert result["untrusted"] is True
+    assert result["sources"] and result["sources"][0]["kind"] == "prts"
     others = {key: value for key, value in result.items() if key != "text"}
     assert INJECTION not in json.dumps(others, ensure_ascii=False)

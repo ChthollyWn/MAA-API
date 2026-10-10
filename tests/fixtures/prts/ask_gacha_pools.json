@@ -1,0 +1,249 @@
+{
+ "query-continue-offset": 20,
+ "query": {
+  "printrequests": [
+   {
+    "label": "",
+    "key": "",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 2,
+    "format": false
+   },
+   {
+    "label": "寻访名cn",
+    "key": "寻访名cn",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "寻访开启时间cn",
+    "key": "寻访开启时间cn",
+    "redi": "",
+    "typeid": "_dat",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "寻访关闭时间cn",
+    "key": "寻访关闭时间cn",
+    "redi": "",
+    "typeid": "_dat",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "出率提升干员",
+    "key": "出率提升干员",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   }
+  ],
+  "results": {
+   "文件:海渊巡游.jpg": {
+    "printouts": {
+     "寻访名cn": [
+      "海渊巡游"
+     ],
+     "寻访开启时间cn": [
+      {
+       "timestamp": "1791518400",
+       "raw": "1/2026/10/9/4/0/0/0"
+      }
+     ],
+     "寻访关闭时间cn": [
+      {
+       "timestamp": "1792699140",
+       "raw": "1/2026/10/22/19/59/0/0"
+      }
+     ],
+     "出率提升干员": [
+      "克莱门莎",
+      "火哨",
+      "德·托莱多"
+     ]
+    },
+    "fulltext": "文件:海渊巡游.jpg",
+    "fullurl": "//prts.wiki/w/%E6%96%87%E4%BB%B6:%E6%B5%B7%E6%B8%8A%E5%B7%A1%E6%B8%B8.jpg",
+    "namespace": 6,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "文件:干员轮换卡池195.png": {
+    "printouts": {
+     "寻访名cn": [
+      "常驻标准寻访"
+     ],
+     "寻访开启时间cn": [
+      {
+       "timestamp": "1791403200",
+       "raw": "1/2026/10/7/20/0/0/0"
+      }
+     ],
+     "寻访关闭时间cn": [
+      {
+       "timestamp": "1792612740",
+       "raw": "1/2026/10/21/19/59/0/0"
+      }
+     ],
+     "出率提升干员": [
+      "斥罪",
+      "左乐",
+      "和弦",
+      "寒檀",
+      "聆音"
+     ]
+    },
+    "fulltext": "文件:干员轮换卡池195.png",
+    "fullurl": "//prts.wiki/w/%E6%96%87%E4%BB%B6:%E5%B9%B2%E5%91%98%E8%BD%AE%E6%8D%A2%E5%8D%A1%E6%B1%A0195.png",
+    "namespace": 6,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "文件:中坚干员轮换卡池75.jpg": {
+    "printouts": {
+     "寻访名cn": [
+      "常驻中坚寻访"
+     ],
+     "寻访开启时间cn": [
+      {
+       "timestamp": "1790798400",
+       "raw": "1/2026/9/30/20/0/0/0"
+      }
+     ],
+     "寻访关闭时间cn": [
+      {
+       "timestamp": "1792007940",
+       "raw": "1/2026/10/14/19/59/0/0"
+      }
+     ],
+     "出率提升干员": [
+      "银灰",
+      "灵知",
+      "梅尔",
+      "惊蛰",
+      "可颂"
+     ]
+    },
+    "fulltext": "文件:中坚干员轮换卡池75.jpg",
+    "fullurl": "//prts.wiki/w/%E6%96%87%E4%BB%B6:%E4%B8%AD%E5%9D%9A%E5%B9%B2%E5%91%98%E8%BD%AE%E6%8D%A2%E5%8D%A1%E6%B1%A075.jpg",
+    "namespace": 6,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "文件:定向甄选08.JPG": {
+    "printouts": {
+     "寻访名cn": [
+      "定向甄选08"
+     ],
+     "寻访开启时间cn": [
+      {
+       "timestamp": "1790668800",
+       "raw": "1/2026/9/29/8/0/0/0"
+      }
+     ],
+     "寻访关闭时间cn": [
+      {
+       "timestamp": "1791835140",
+       "raw": "1/2026/10/12/19/59/0/0"
+      }
+     ],
+     "出率提升干员": [
+      "Mon3tr",
+      "圣聆初雪",
+      "贝洛内",
+      "真言",
+      "锏",
+      "烛煌",
+      "明椒",
+      "渡桥",
+      "寻澜",
+      "吉星",
+      "响石",
+      "复奏"
+     ]
+    },
+    "fulltext": "文件:定向甄选08.JPG",
+    "fullurl": "//prts.wiki/w/%E6%96%87%E4%BB%B6:%E5%AE%9A%E5%90%91%E7%94%84%E9%80%8908.JPG",
+    "namespace": 6,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "文件:干员轮换卡池194.jpg": {
+    "printouts": {
+     "寻访名cn": [
+      "常驻标准寻访"
+     ],
+     "寻访开启时间cn": [
+      {
+       "timestamp": "1790193600",
+       "raw": "1/2026/9/23/20/0/0/0"
+      }
+     ],
+     "寻访关闭时间cn": [
+      {
+       "timestamp": "1791403140",
+       "raw": "1/2026/10/7/19/59/0/0"
+      }
+     ],
+     "出率提升干员": [
+      "玛恩纳",
+      "涤火杰西卡",
+      "洋灰",
+      "海霓",
+      "录武官"
+     ]
+    },
+    "fulltext": "文件:干员轮换卡池194.jpg",
+    "fullurl": "//prts.wiki/w/%E6%96%87%E4%BB%B6:%E5%B9%B2%E5%91%98%E8%BD%AE%E6%8D%A2%E5%8D%A1%E6%B1%A0194.jpg",
+    "namespace": 6,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "文件:中坚干员轮换卡池74.jpg": {
+    "printouts": {
+     "寻访名cn": [
+      "常驻中坚寻访"
+     ],
+     "寻访开启时间cn": [
+      {
+       "timestamp": "1789588800",
+       "raw": "1/2026/9/16/20/0/0/0"
+      }
+     ],
+     "寻访关闭时间cn": [
+      {
+       "timestamp": "1790798340",
+       "raw": "1/2026/9/30/19/59/0/0"
+      }
+     ],
+     "出率提升干员": [
+      "风笛",
+      "艾雅法拉",
+      "初雪",
+      "苇草",
+      "华法琳"
+     ]
+    },
+    "fulltext": "文件:中坚干员轮换卡池74.jpg",
+    "fullurl": "//prts.wiki/w/%E6%96%87%E4%BB%B6:%E4%B8%AD%E5%9D%9A%E5%B9%B2%E5%91%98%E8%BD%AE%E6%8D%A2%E5%8D%A1%E6%B1%A074.jpg",
+    "namespace": 6,
+    "exists": "1",
+    "displaytitle": ""
+   }
+  },
+  "serializer": "SMW\\Serializers\\QueryResultSerializer",
+  "version": 2,
+  "meta": {
+   "hash": "9802af0a813ebe88c090cb9b0c4d2036",
+   "count": 20,
+   "offset": 0,
+   "source": "",
+   "time": "0.048398"
+  }
+ }
+}

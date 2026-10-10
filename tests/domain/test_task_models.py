@@ -359,17 +359,41 @@ def test_docstring_parity_covers_the_expected_total() -> None:
     assert expected_total == 89, {k: len(v) for k, v in parsed.items()}
 
 
+#: 旧 docstring 之外、上游集成文档 v6.18.0 才记录的参数（D5）。白名单要一起放行，
+#: 否则「示例里的新参数」会被那条防拼写错误的断言误判。
+D5_ROGUELIKE_PARAMS: frozenset[str] = frozenset(
+    {
+        "core_char_list",
+        "stop_at_max_level",
+        "investment_with_more_score",
+        "collectible_mode_shopping",
+        "collectible_mode_squad",
+        "collectible_mode_start_list",
+        "start_with_seed",
+        "monthly_squad_auto_iterate",
+        "monthly_squad_check_comms",
+        "deep_exploration_auto_iterate",
+        "blackflow_strategy",
+        "blackflow_cultivation_target",
+        "find_playTime_target",
+    }
+)
+
+
 @pytest.mark.parametrize("type_name", CORE_TYPE_NAMES)
 def test_to_core_params_only_exports_keys_the_kernel_knows(type_name: str) -> None:
-    """导出的每个键都必须是旧 docstring 记录过的参数名。
+    """导出的每个键都必须是旧 docstring 记录过（或 D5 补录）的参数名。
 
     这条钉住 docs/05 §7.6 的两类拼写缺陷：旧 ``failename`` 与「变量当键」都不可能
     再出现在下发给 ``AsstAppendTask`` 的字典里（``DrGrandet`` 是 docstring 的原名）。
     """
     model = TASK_MODELS[type_name]
+    known = set(_docstring_params()[type_name])
+    if type_name == "Roguelike":
+        known |= D5_ROGUELIKE_PARAMS
     for example in model.model_config["json_schema_extra"]["examples"]:
         params = model.model_validate(example).to_core_params()
-        unknown = set(params) - set(_docstring_params()[type_name])
+        unknown = set(params) - known
         assert not unknown, f"{type_name} 下发了内核不认识的键: {sorted(unknown)}"
 
 
@@ -402,8 +426,16 @@ INVALID_FIELD_PAYLOADS: list[dict[str, Any]] = [
     {"name": "Mall", "reserve_max_credit": "maybe"},
     {"name": "Award", "award": 2},
     {"name": "Roguelike", "theme": "Nope"},
-    {"name": "Roguelike", "difficulty": -1},
-    {"name": "Roguelike", "mode": 6},
+    {"name": "Roguelike", "difficulty": -2},
+    {"name": "Roguelike", "blackflow_strategy": "Nope"},
+    {"name": "Roguelike", "blackflow_cultivation_target": "Nope"},
+    {"name": "Roguelike", "find_playTime_target": 4},
+    {"name": "Roguelike", "core_char_list": {"name": "银灰"}},
+    {"name": "Roguelike", "core_char_list": [{"name": "银灰", "Nope": 1}]},
+    {"name": "Roguelike", "collectible_mode_start_list": {"hot_water": "maybe"}},
+    {"name": "Roguelike", "collectible_mode_start_list": {"Nope": True}},
+    {"name": "Roguelike", "monthly_squad_auto_iterate": "maybe"},
+    {"name": "Roguelike", "start_with_seed": 12345},
     {"name": "Reclamation", "theme": "Nope"},
     {"name": "Reclamation", "mode": 2},
     {"name": "Reclamation", "increment_mode": 2},
@@ -454,8 +486,38 @@ def test_missing_task_type_is_union_tag_not_found() -> None:
         ({"name": "Roguelike", "mode": 3}, ErrorCode.TASK_PARAM_INVALID),
         ({"name": "Roguelike", "mode": 5}, ErrorCode.TASK_PARAM_INVALID),
         ({"name": "Roguelike", "mode": 5, "theme": "Mizuki"}, ErrorCode.TASK_PARAM_INVALID),
-        ({"name": "Roguelike", "difficulty": 3}, ErrorCode.TASK_PARAM_INVALID),
-        ({"name": "Roguelike", "difficulty": 3, "theme": "Phantom"}, ErrorCode.TASK_PARAM_INVALID),
+        # D5：模式按主题收口（上游 RoguelikeConfig.h::is_valid_mode）
+        ({"name": "Roguelike", "mode": 6, "theme": "BlackFlow"}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 4, "theme": "BlackFlow"}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 30001}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 30001, "theme": "Sami"}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 10001}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 10001, "theme": "Sarkaz", "find_playTime_target": 1},
+         ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 20001, "theme": "JieGarden"}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "find_playTime_target": 2}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "theme": "JieGarden", "find_playTime_target": 2},
+         ErrorCode.TASK_PARAM_INVALID),
+        # D5：start_with_elite_two 只许 mode=4（上游 verify_and_load_params）
+        ({"name": "Roguelike", "start_with_elite_two": True}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 1, "start_with_elite_two": True},
+         ErrorCode.TASK_PARAM_INVALID),
+        # D5：只在特定模式下被读取的参数，设了就报错
+        ({"name": "Roguelike", "investment_with_more_score": True}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 0, "collectible_mode_squad": "指挥分队"},
+         ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 0, "collectible_mode_shopping": True},
+         ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 0, "collectible_mode_start_list": {"hot_water": True}},
+         ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "monthly_squad_auto_iterate": True}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "mode": 7, "monthly_squad_check_comms": True},
+         ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "deep_exploration_auto_iterate": True}, ErrorCode.TASK_PARAM_INVALID),
+        ({"name": "Roguelike", "theme": "Sami", "blackflow_strategy": "burn"},
+         ErrorCode.TASK_PARAM_INVALID),
+        # blackflow_cultivation_target 不跟 blackflow_strategy 联动：mode=30001 时
+        # 内核自己推断成 baby_animal，单给目标不算违规（见下方合法清单）。
         (
             {"name": "Roguelike", "stop_at_final_boss": True, "theme": "Phantom"},
             ErrorCode.TASK_PARAM_INVALID,
@@ -540,6 +602,53 @@ VALID_CROSS_FIELD_PAYLOADS: list[dict[str, Any]] = [
     {"name": "Roguelike", "theme": "Mizuki", "mode": 1, "refresh_trader_with_dice": True},
     {"name": "Roguelike", "mode": 4, "start_with_elite_two": True, "only_start_with_elite_two": True},
     {"name": "Roguelike", "use_support": True, "use_nonfriend_support": True},
+    # D5：difficulty 在 Phantom 下允许（-1 表示不指定）
+    {"name": "Roguelike", "difficulty": 3},
+    {"name": "Roguelike", "difficulty": 3, "theme": "Phantom"},
+    {"name": "Roguelike", "difficulty": -1},
+    {"name": "Roguelike", "difficulty": -1, "theme": "Phantom"},
+    # D5：通用模式 6/7 与各主题专属模式
+    {"name": "Roguelike", "mode": 6},
+    {"name": "Roguelike", "mode": 6, "monthly_squad_auto_iterate": True},
+    {"name": "Roguelike", "mode": 6, "monthly_squad_check_comms": True},
+    {"name": "Roguelike", "mode": 7, "deep_exploration_auto_iterate": True},
+    {"name": "Roguelike", "theme": "Sarkaz", "mode": 10001},
+    {"name": "Roguelike", "theme": "JieGarden", "mode": 20001, "find_playTime_target": 1},
+    {"name": "Roguelike", "theme": "JieGarden", "mode": 20001, "find_playTime_target": 3},
+    {"name": "Roguelike", "theme": "BlackFlow", "mode": 30001},
+    {
+        "name": "Roguelike",
+        "theme": "BlackFlow",
+        "mode": 30001,
+        "blackflow_strategy": "baby_animal",
+        "blackflow_cultivation_target": "swaddled_dog",
+    },
+    {
+        "name": "Roguelike",
+        "theme": "BlackFlow",
+        "mode": 1,
+        "investment_enabled": True,
+        "start_with_seed": "12345",
+    },
+    {"name": "Roguelike", "mode": 1, "investment_with_more_score": True, "stop_at_max_level": True},
+    {
+        "name": "Roguelike",
+        "mode": 4,
+        "start_with_elite_two": True,
+        "collectible_mode_squad": "指挥分队",
+        "collectible_mode_shopping": True,
+        "collectible_mode_start_list": {"hot_water": True, "hope": True},
+    },
+    {
+        "name": "Roguelike",
+        "theme": "Sarkaz",
+        "mode": 0,
+        "core_char_list": [
+            {"name": "维什戴尔", "use_support": True},
+            {"name": "古米"},
+        ],
+    },
+    {"name": "Roguelike", "theme": "JieGarden", "mode": 0, "collectible_mode_shopping": False},
     {"name": "Roguelike", "theme": "Sami", "mode": 1, "double_check_collapsal_paradigms": False},
     {"name": "Recruit", "expedite": True, "expedite_times": 3},
     {"name": "Infrast", "mode": 10000, "filename": "plan.json", "plan_index": 0},
@@ -784,7 +893,20 @@ def test_structured_widgets_are_declared() -> None:
     facility = _schema(InfrastInput)["properties"]["facility"]
     assert facility["x-widget"] == "ordered-list"
     items = _non_null_branch(facility)["items"]["enum"]
-    assert set(items) == {"Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"}
+    assert set(items) == {
+        "Mfg",
+        "Trade",
+        "Power",
+        "Control",
+        "Reception",
+        "Office",
+        "Dorm",
+        "Processing",
+        "Training",
+    }
+    labels = _non_null_branch(facility)["items"]["x-enum-labels"]
+    assert labels["Processing"] == "加工站"
+    assert labels["Training"] == "训练室"
 
 
 def test_expedite_times_declares_its_dependency() -> None:
@@ -798,6 +920,74 @@ def test_depends_on_is_exported_for_theme_specific_fields() -> None:
     assert props["use_nonfriend_support"]["x-depends-on"] == {"use_support": True}
     assert props["start_foldartal_list"]["x-depends-on"] == {"theme": "Sami", "mode": 4}
     assert props["refresh_trader_with_dice"]["x-depends-on"] == {"theme": "Mizuki"}
+    # D5：模式专属参数各挂各的依赖
+    assert props["investment_with_more_score"]["x-depends-on"] == {"mode": 1}
+    assert props["start_with_elite_two"]["x-depends-on"] == {"mode": 4}
+    assert props["collectible_mode_start_list"]["x-depends-on"] == {"mode": 4}
+    assert props["monthly_squad_auto_iterate"]["x-depends-on"] == {"mode": 6}
+    assert props["deep_exploration_auto_iterate"]["x-depends-on"] == {"mode": 7}
+    assert props["find_playTime_target"]["x-depends-on"] == {"mode": 20001}
+    assert props["blackflow_strategy"]["x-depends-on"] == {"theme": "BlackFlow"}
+    assert props["blackflow_cultivation_target"]["x-depends-on"] == {
+        "blackflow_strategy": "baby_animal"
+    }
+
+
+def test_roguelike_theme_and_mode_enums_cover_upstream_v618() -> None:
+    """D5：主题 6 值、模式 11 值，模式按主题收口（上游 RoguelikeConfig.h）。"""
+
+    from maa_api.domain.task import (
+        ROGUELIKE_COMMON_MODES,
+        ROGUELIKE_THEMES,
+        ROGUELIKE_THEME_MODES,
+    )
+
+    assert ROGUELIKE_THEMES.__args__ == (
+        "Phantom",
+        "Mizuki",
+        "Sami",
+        "Sarkaz",
+        "JieGarden",
+        "BlackFlow",
+    )
+    assert set(ROGUELIKE_THEME_MODES) == set(ROGUELIKE_THEMES.__args__)
+    assert ROGUELIKE_THEME_MODES["Phantom"] == ROGUELIKE_COMMON_MODES
+    assert ROGUELIKE_THEME_MODES["Sami"] == ROGUELIKE_COMMON_MODES | {5}
+    assert ROGUELIKE_THEME_MODES["Sarkaz"] == ROGUELIKE_COMMON_MODES | {10001}
+    assert ROGUELIKE_THEME_MODES["JieGarden"] == ROGUELIKE_COMMON_MODES | {20001}
+    assert ROGUELIKE_THEME_MODES["BlackFlow"] == frozenset({0, 1, 30001})
+
+    props = _schema(RoguelikeInput)["properties"]
+    themes = _non_null_branch(props["theme"])["enum"]
+    assert set(themes) == set(ROGUELIKE_THEMES.__args__)
+    labels = props["theme"]["x-enum-labels"]
+    assert labels["JieGarden"] == "岁的界园志异"
+    assert labels["BlackFlow"] == "黑流树海"
+    modes = _non_null_branch(props["mode"])["enum"]
+    assert set(modes) == {0, 1, 2, 3, 4, 5, 6, 7, 10001, 20001, 30001}
+    assert props["mode"]["x-enum-labels"]["20001"] == "刷常乐节点（仅 JieGarden）"
+
+
+def test_roguelike_d5_params_are_exported_with_nested_objects() -> None:
+    """D5：新参数按 MAA 原名下发，嵌套对象摊成 dict（`core_char_list` / `collectible_mode_start_list`）。"""
+
+    params = RoguelikeInput(
+        name="Roguelike",
+        mode=4,
+        start_with_elite_two=True,
+        core_char_list=[{"name": "维什戴尔", "use_support": True}],
+        collectible_mode_start_list={"hot_water": True},
+        stop_at_max_level=True,
+    ).to_core_params()
+
+    assert params["core_char_list"] == [{"name": "维什戴尔", "use_support": True}]
+    assert params["collectible_mode_start_list"]["hot_water"] is True
+    assert params["collectible_mode_start_list"]["shield"] is False
+    assert params["stop_at_max_level"] is True
+    assert "blackflow_strategy" not in params  # None 不下发，由内核按模式推断
+    # 未给的旧参数保持内核默认（None 剔除、有默认值的显式下发）
+    assert params["theme"] == "Phantom"
+    assert params["mode"] == 4
 
 
 def test_range_constraints_are_carried_by_json_schema() -> None:

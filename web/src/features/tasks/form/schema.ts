@@ -188,6 +188,10 @@ export function resolveWidget(input: JsonSchema, root: JsonSchema, path: readonl
   if (widget === 'duration-map') return 'duration-map'
   if (type === 'object') return schema.properties ? 'object' : 'key-value'
   if (type === 'array') {
+    // 元素是对象的数组（如 Roguelike.core_char_list）没有专用控件：ListControl 按
+    // `String(item)` 显示，渲染出来是 `[object Object]`，退回 JSON 文本框。
+    const itemSchema = isObject(schema.items) ? normalizeSchema(schema.items as JsonSchema, root).schema : {}
+    if (getType(itemSchema) === 'object') return 'json'
     const hasOptions = arrayItemOptions(schema, root).length > 0
     if (widget === 'tags') return hasOptions ? 'choice-tags' : 'tags'
     if (widget === 'ordered-list') return hasOptions ? 'choice-ordered-list' : 'ordered-list'

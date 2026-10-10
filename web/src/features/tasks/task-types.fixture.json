@@ -331,7 +331,7 @@
               }
             ],
             "default": 0,
-            "description": "最多吃几瓶 48 小时内过期的理智药；当前内核已不再读取（默认 0）",
+            "description": "最多吃几瓶 48 小时内过期的理智药；非 0 时内核会把这些药一起用掉",
             "title": "Expiring Medicine",
             "x-group": "资源消耗",
             "x-label": "最大 48 小时内过期理智药数",
@@ -967,7 +967,9 @@
                     "Control",
                     "Reception",
                     "Office",
-                    "Dorm"
+                    "Dorm",
+                    "Processing",
+                    "Training"
                   ],
                   "type": "string",
                   "x-enum-labels": {
@@ -976,8 +978,10 @@
                     "Mfg": "制造站",
                     "Office": "办公室",
                     "Power": "发电站",
+                    "Processing": "加工站",
                     "Reception": "会客室",
-                    "Trade": "贸易站"
+                    "Trade": "贸易站",
+                    "Training": "训练室"
                   }
                 },
                 "type": "array"
@@ -995,7 +999,7 @@
               "Office",
               "Dorm"
             ],
-            "description": "要换班的设施，顺序即换班顺序，默认全部（不支持运行中设置）",
+            "description": "要换班的设施，顺序即换班顺序；默认不含加工站与训练室（不支持运行中设置）",
             "title": "Facility",
             "x-group": "基础",
             "x-label": "要换班的设施（有序）",
@@ -1442,10 +1446,119 @@
     {
       "name": "Roguelike",
       "label": "自动肉鸽",
-      "description": "无限刷肉鸽（集成战略）。\n\n主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError``\n（``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PARAM_DEPRECATED``）\n——「设了但不生效」必须在提交时就告诉用户，而不是静默忽略。",
+      "description": "无限刷肉鸽（集成战略）。\n\n主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError``\n（``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PARAM_DEPRECATED``）\n——「设了但不生效」必须在提交时就告诉用户，而不是静默忽略。矩阵对齐上游\n``RoguelikeConfig.cpp``：模式按主题收口，``start_with_elite_two`` 只许 ``mode=4``，\n``difficulty`` 在 Phantom 下也允许（``-1`` 表示不指定）。",
       "schema": {
+        "$defs": {
+          "RoguelikeCollectibleStartList": {
+            "additionalProperties": false,
+            "description": "``collectible_mode_start_list``：凹开局时期望的开局奖励，默认全部关闭。",
+            "properties": {
+              "hot_water": {
+                "default": false,
+                "description": "热水壶奖励（通用）",
+                "title": "Hot Water",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "热水壶"
+              },
+              "shield": {
+                "default": false,
+                "description": "护盾奖励，约等于额外生命（通用）",
+                "title": "Shield",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "护盾"
+              },
+              "ingot": {
+                "default": false,
+                "description": "源石锭奖励（通用）",
+                "title": "Ingot",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "源石锭"
+              },
+              "hope": {
+                "default": false,
+                "description": "希望奖励（通用；界园主题没有）",
+                "title": "Hope",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "希望"
+              },
+              "random": {
+                "default": false,
+                "description": "用全部源石锭换随机收藏品（通用）",
+                "title": "Random",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "随机收藏品"
+              },
+              "key": {
+                "default": false,
+                "description": "钥匙奖励（仅水月主题）",
+                "title": "Key",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "钥匙"
+              },
+              "dice": {
+                "default": false,
+                "description": "骰子奖励（仅水月主题）",
+                "title": "Dice",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "骰子"
+              },
+              "ideas": {
+                "default": false,
+                "description": "2 构想奖励（仅萨卡兹主题）",
+                "title": "Ideas",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "构想"
+              },
+              "ticket": {
+                "default": false,
+                "description": "票券奖励（仅界园主题）",
+                "title": "Ticket",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "票券"
+              }
+            },
+            "title": "RoguelikeCollectibleStartList",
+            "type": "object"
+          },
+          "RoguelikeCoreChar": {
+            "additionalProperties": false,
+            "description": "``core_char_list`` 的一项：开局第 N 次招募指定的一名干员。",
+            "properties": {
+              "name": {
+                "description": "干员中文名，无论区服",
+                "maxLength": 32,
+                "title": "Name",
+                "type": "string",
+                "x-group": "基础",
+                "x-label": "干员中文名"
+              },
+              "use_support": {
+                "default": false,
+                "description": "这一顺位使用助战干员",
+                "title": "Use Support",
+                "type": "boolean",
+                "x-group": "基础",
+                "x-label": "借助战"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "title": "RoguelikeCoreChar",
+            "type": "object"
+          }
+        },
         "additionalProperties": false,
-        "description": "无限刷肉鸽（集成战略）。\n\n主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError``\n（``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PARAM_DEPRECATED``）\n——「设了但不生效」必须在提交时就告诉用户，而不是静默忽略。",
+        "description": "无限刷肉鸽（集成战略）。\n\n主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError``\n（``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PARAM_DEPRECATED``）\n——「设了但不生效」必须在提交时就告诉用户，而不是静默忽略。矩阵对齐上游\n``RoguelikeConfig.cpp``：模式按主题收口，``start_with_elite_two`` 只许 ``mode=4``，\n``difficulty`` 在 Phantom 下也允许（``-1`` 表示不指定）。",
         "examples": [
           {
             "investment_enabled": true,
@@ -1463,6 +1576,26 @@
             "mode": 5,
             "name": "Roguelike",
             "theme": "Sami"
+          },
+          {
+            "collectible_mode_start_list": {
+              "hot_water": true,
+              "shield": true
+            },
+            "core_char_list": [
+              {
+                "name": "维什戴尔",
+                "use_support": true
+              },
+              {
+                "name": "古米",
+                "use_support": false
+              }
+            ],
+            "mode": 4,
+            "name": "Roguelike",
+            "start_with_elite_two": true,
+            "theme": "Sarkaz"
           }
         ],
         "properties": {
@@ -1497,7 +1630,9 @@
                   "Phantom",
                   "Mizuki",
                   "Sami",
-                  "Sarkaz"
+                  "Sarkaz",
+                  "JieGarden",
+                  "BlackFlow"
                 ],
                 "type": "string"
               },
@@ -1509,6 +1644,8 @@
             "description": "要刷的肉鸽主题（默认傀影与猩红孤钻）",
             "title": "Theme",
             "x-enum-labels": {
+              "BlackFlow": "黑流树海",
+              "JieGarden": "岁的界园志异",
               "Mizuki": "水月与深蓝之树",
               "Phantom": "傀影与猩红孤钻",
               "Sami": "探索者的银凇止境",
@@ -1527,7 +1664,12 @@
                   2,
                   3,
                   4,
-                  5
+                  5,
+                  6,
+                  7,
+                  10001,
+                  20001,
+                  30001
                 ],
                 "type": "integer"
               },
@@ -1541,10 +1683,15 @@
             "x-enum-labels": {
               "0": "刷分/奖励点数",
               "1": "刷源石锭",
+              "10001": "快速通过第一层（仅 Sarkaz）",
               "2": "已弃用（无法提交）",
+              "20001": "刷常乐节点（仅 JieGarden）",
               "3": "开发中（无法提交）",
+              "30001": "刷襁褓动物（仅 BlackFlow）",
               "4": "凹开局",
-              "5": "刷坍缩范式（仅 Sami）"
+              "5": "刷坍缩范式（仅 Sami）",
+              "6": "刷月度小队",
+              "7": "刷深入调查"
             },
             "x-group": "基础",
             "x-label": "模式",
@@ -1590,10 +1737,28 @@
               }
             ],
             "default": null,
-            "description": "开局要借的干员中文名；不填则由内核自动选择",
+            "description": "开局要借的干员中文名；不填由内核按练度选择",
             "title": "Core Char",
             "x-group": "开局",
             "x-label": "开局干员名"
+          },
+          "core_char_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/RoguelikeCoreChar"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "按顺位指定开局干员，最多三个，职业不能相同",
+            "title": "Core Char List",
+            "x-group": "开局",
+            "x-label": "开局干员顺位"
           },
           "use_support": {
             "anyOf": [
@@ -1646,7 +1811,7 @@
           "difficulty": {
             "anyOf": [
               {
-                "minimum": 0,
+                "minimum": -1,
                 "type": "integer"
               },
               {
@@ -1654,7 +1819,7 @@
               }
             ],
             "default": null,
-            "description": "仅用于傀影以外的主题；不填则选已解锁的最高难度",
+            "description": "指定难度等级；-1 表示不指定（默认不指定）",
             "title": "Difficulty",
             "x-group": "开局",
             "x-label": "指定难度等级"
@@ -1669,8 +1834,11 @@
               }
             ],
             "default": false,
-            "description": "凹开局时顺便凹精二直升（仅「凹开局」，默认关闭）",
+            "description": "凹开局时顺便凹精二直升（仅凹开局模式）",
             "title": "Start With Elite Two",
+            "x-depends-on": {
+              "mode": 4
+            },
             "x-group": "开局",
             "x-label": "凹干员精二直升"
           },
@@ -1734,6 +1902,59 @@
             "x-label": "开局奖励密文板列表",
             "x-widget": "tags"
           },
+          "collectible_mode_shopping": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "description": "凹开局时也购物（默认关闭）",
+            "title": "Collectible Mode Shopping",
+            "x-depends-on": {
+              "mode": 4
+            },
+            "x-group": "凹开局",
+            "x-label": "凹开局启用购物"
+          },
+          "collectible_mode_squad": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "凹开局使用的分队；不填与开局分队相同",
+            "title": "Collectible Mode Squad",
+            "x-depends-on": {
+              "mode": 4
+            },
+            "x-group": "凹开局",
+            "x-label": "凹开局分队"
+          },
+          "collectible_mode_start_list": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RoguelikeCollectibleStartList"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "凹开局期望的奖励，默认全部关闭",
+            "x-depends-on": {
+              "mode": 4
+            },
+            "x-group": "凹开局",
+            "x-label": "凹开局期望的奖励"
+          },
           "use_foldartal": {
             "anyOf": [
               {
@@ -1744,7 +1965,7 @@
               }
             ],
             "default": null,
-            "description": "是否使用密文板；不填由内核按模式决定（刷坍缩范式默认关闭）",
+            "description": "是否使用密文板；不填由内核按模式决定",
             "title": "Use Foldartal",
             "x-depends-on": {
               "theme": "Sami"
@@ -1762,10 +1983,149 @@
               }
             ],
             "default": false,
-            "description": "仅用于傀影以外的主题，第 5 层险路恶敌前停止（默认关闭）",
+            "description": "第 5 层险路恶敌前停止；不适用于 Phantom",
             "title": "Stop At Final Boss",
             "x-group": "主题专属",
             "x-label": "第 5 层险路恶敌前停止"
+          },
+          "stop_at_max_level": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "description": "肉鸽等级刷满后停止任务（默认关闭）",
+            "title": "Stop At Max Level",
+            "x-group": "主题专属",
+            "x-label": "等级刷满后停止"
+          },
+          "refresh_trader_with_dice": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "description": "用骰子刷新商店，用于刷指路鳞（默认关闭）",
+            "title": "Refresh Trader With Dice",
+            "x-depends-on": {
+              "theme": "Mizuki"
+            },
+            "x-group": "主题专属",
+            "x-label": "用骰子刷新商店"
+          },
+          "start_with_seed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "用固定种子刷钱；留空则不启用",
+            "title": "Start With Seed",
+            "x-group": "主题专属",
+            "x-label": "固定种子"
+          },
+          "blackflow_strategy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "baby_animal",
+                  "investment",
+                  "burn_with_investment",
+                  "burn"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "黑流树海的策略；不填按模式与投资推断",
+            "title": "Blackflow Strategy",
+            "x-depends-on": {
+              "theme": "BlackFlow"
+            },
+            "x-enum-labels": {
+              "baby_animal": "培育襁褓动物",
+              "burn": "速通第三层",
+              "burn_with_investment": "投资后速通第三层",
+              "investment": "第一层投资"
+            },
+            "x-group": "主题专属",
+            "x-label": "黑流树海策略",
+            "x-widget": "select"
+          },
+          "blackflow_cultivation_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "swaddled_cat",
+                  "swaddled_feathered_serpent",
+                  "swaddled_dog",
+                  "swaddled_cerberus"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "刷襁褓动物的目标（默认襁褓猫）",
+            "title": "Blackflow Cultivation Target",
+            "x-depends-on": {
+              "blackflow_strategy": "baby_animal"
+            },
+            "x-enum-labels": {
+              "swaddled_cat": "襁褓猫",
+              "swaddled_cerberus": "襁褓三头犬",
+              "swaddled_dog": "襁褓狗",
+              "swaddled_feathered_serpent": "襁褓羽蛇"
+            },
+            "x-group": "主题专属",
+            "x-label": "襁褓动物目标",
+            "x-widget": "select"
+          },
+          "find_playTime_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2,
+                  3
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "想刷的常乐节点（刷常乐节点模式必填）",
+            "title": "Find Playtime Target",
+            "x-depends-on": {
+              "mode": 20001
+            },
+            "x-enum-labels": {
+              "1": "令（掷地有声）",
+              "2": "黍（种因得果）",
+              "3": "年（三缺一）"
+            },
+            "x-group": "主题专属",
+            "x-label": "常乐节点目标",
+            "x-widget": "select"
           },
           "investment_enabled": {
             "anyOf": [
@@ -1813,7 +2173,7 @@
             "x-group": "投资",
             "x-label": "投资满后停止任务"
           },
-          "refresh_trader_with_dice": {
+          "investment_with_more_score": {
             "anyOf": [
               {
                 "type": "boolean"
@@ -1823,13 +2183,67 @@
               }
             ],
             "default": false,
-            "description": "用骰子刷新商店，用于刷指路鳞（默认关闭）",
-            "title": "Refresh Trader With Dice",
+            "description": "投资后顺便购物（仅刷源石锭模式）",
+            "title": "Investment With More Score",
             "x-depends-on": {
-              "theme": "Mizuki"
+              "mode": 1
             },
-            "x-group": "主题专属",
-            "x-label": "用骰子刷新商店"
+            "x-group": "投资",
+            "x-label": "投资后再购物"
+          },
+          "monthly_squad_auto_iterate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "月度小队自动切换（仅刷月度小队模式）",
+            "title": "Monthly Squad Auto Iterate",
+            "x-depends-on": {
+              "mode": 6
+            },
+            "x-group": "月度与调查",
+            "x-label": "月度小队自动切换"
+          },
+          "monthly_squad_check_comms": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "把月度小队通信也作为切换依据（默认关闭）",
+            "title": "Monthly Squad Check Comms",
+            "x-depends-on": {
+              "mode": 6
+            },
+            "x-group": "月度与调查",
+            "x-label": "把月度小队通信作为切换依据"
+          },
+          "deep_exploration_auto_iterate": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "深入调查自动切换（仅刷深入调查模式）",
+            "title": "Deep Exploration Auto Iterate",
+            "x-depends-on": {
+              "mode": 7
+            },
+            "x-group": "月度与调查",
+            "x-label": "深入调查自动切换"
           },
           "check_collapsal_paradigms": {
             "anyOf": [
@@ -1841,7 +2255,7 @@
               }
             ],
             "default": null,
-            "description": "检测拿到的坍缩范式；不填由内核按模式决定（刷坍缩范式默认开启）",
+            "description": "检测拿到的坍缩范式；不填由内核按模式决定",
             "title": "Check Collapsal Paradigms",
             "x-depends-on": {
               "theme": "Sami"
@@ -1897,8 +2311,10 @@
       "groups": [
         "基础",
         "开局",
+        "凹开局",
         "主题专属",
         "投资",
+        "月度与调查",
         "坍缩范式"
       ],
       "runtime_immutable": []
@@ -2065,6 +2481,98 @@
       "runtime_immutable": []
     },
     {
+      "name": "OperBox",
+      "label": "干员识别",
+      "description": "干员识别：读一遍账号里有哪些干员、练到什么程度（规格 §7.2 T1）。\n\n没有参数：``AsstAppendTask(\"OperBox\", {})`` 就能入队（docs/ENVIRONMENT.md\n「MaaCore 内核」节实测）。识别结果经 ``SubTaskExtraInfo`` 回调推给\n:mod:`maa_api.services.account.capture`，识别不了技能等级、专精与模组。",
+      "schema": {
+        "additionalProperties": false,
+        "description": "干员识别：读一遍账号里有哪些干员、练到什么程度（规格 §7.2 T1）。\n\n没有参数：``AsstAppendTask(\"OperBox\", {})`` 就能入队（docs/ENVIRONMENT.md\n「MaaCore 内核」节实测）。识别结果经 ``SubTaskExtraInfo`` 回调推给\n:mod:`maa_api.services.account.capture`，识别不了技能等级、专精与模组。",
+        "examples": [
+          {
+            "name": "OperBox"
+          }
+        ],
+        "properties": {
+          "enable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
+            "title": "Enable",
+            "x-group": "基础",
+            "x-label": "启用本任务"
+          },
+          "name": {
+            "const": "OperBox",
+            "default": "OperBox",
+            "description": "由任务类型选择器决定，不用填",
+            "title": "Name",
+            "type": "string",
+            "x-group": "基础",
+            "x-label": "任务类型"
+          }
+        },
+        "title": "OperBoxInput",
+        "type": "object"
+      },
+      "groups": [
+        "基础"
+      ],
+      "runtime_immutable": []
+    },
+    {
+      "name": "Depot",
+      "label": "仓库识别",
+      "description": "仓库识别：读一遍账号仓库「养成材料」页签的数量（规格 §7.2 T1）。\n\n没有参数，空参数即可入队。识别结果经 ``SubTaskExtraInfo`` 回调整表替换仓库\n数量；龙门币与作战记录不在该页签内。",
+      "schema": {
+        "additionalProperties": false,
+        "description": "仓库识别：读一遍账号仓库「养成材料」页签的数量（规格 §7.2 T1）。\n\n没有参数，空参数即可入队。识别结果经 ``SubTaskExtraInfo`` 回调整表替换仓库\n数量；龙门币与作战记录不在该页签内。",
+        "examples": [
+          {
+            "name": "Depot"
+          }
+        ],
+        "properties": {
+          "enable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
+            "title": "Enable",
+            "x-group": "基础",
+            "x-label": "启用本任务"
+          },
+          "name": {
+            "const": "Depot",
+            "default": "Depot",
+            "description": "由任务类型选择器决定，不用填",
+            "title": "Name",
+            "type": "string",
+            "x-group": "基础",
+            "x-label": "任务类型"
+          }
+        },
+        "title": "DepotInput",
+        "type": "object"
+      },
+      "groups": [
+        "基础"
+      ],
+      "runtime_immutable": []
+    },
+    {
       "name": "Copilot",
       "label": "Copilot 作业",
       "description": "执行已校验并上传的 Copilot 作业。",
@@ -2120,7 +2628,7 @@
       ]
     }
   ],
-  "total": 10,
+  "total": 12,
   "page": 1,
-  "size": 10
+  "size": 12
 }

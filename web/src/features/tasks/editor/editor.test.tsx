@@ -106,9 +106,10 @@ afterEach(() => {
 })
 
 describe('TaskEditor', () => {
-  it('renders a labelled control for every property of the ten fixture task types (T1)', () => {
+  it('renders a labelled control for every property of the twelve fixture task types (T1)', () => {
     installFetch()
-    expect(types).toHaveLength(10)
+    // fixture 与 `GET /api/tasks/types` 一致（M27 的 OperBox / Depot 已并入）。
+    expect(types).toHaveLength(12)
     for (const taskType of types) {
       const { container, unmount } = renderEditor({ taskType })
       for (const [name, field] of Object.entries(taskType.schema.properties as Record<string, JsonSchema>)) {
@@ -525,5 +526,43 @@ describe('TaskEditor', () => {
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(toggle).toHaveTextContent('收起')
+  })
+
+  it('edits the D5 Roguelike fields (character list as JSON, rewards as switches)', () => {
+    const onChange = vi.fn()
+    renderEditor({ taskType: typeByName('Roguelike'), initial: { mode: 4 }, onChange })
+
+    // 对象数组没有专用控件：退回 JSON 文本框，粘贴后立刻写入草稿。
+    const charList = screen.getByLabelText('开局干员顺位')
+    fireEvent.change(charList, { target: { value: '[{"name":"维什戴尔","use_support":true}]' } })
+    expect(onChange).toHaveBeenLastCalledWith({ mode: 4, core_char_list: [{ name: '维什戴尔', use_support: true }] })
+    fireEvent.change(charList, { target: { value: '[' } })
+    expect(screen.getByText('JSON 格式尚未完整或无效。')).toBeInTheDocument()
+
+    // 凹开局的奖励对象逐项渲染成开关，改一项只写这一项。
+    const rewards = screen.getByRole('group', { name: '凹开局期望的奖励' })
+    fireEvent.click(within(rewards).getByRole('switch', { name: '热水壶' }))
+    expect(onChange).toHaveBeenLastCalledWith({
+      mode: 4,
+      core_char_list: [{ name: '维什戴尔', use_support: true }],
+      collectible_mode_start_list: { hot_water: true },
+    })
+  })
+
+  it('disables the mode-specific Roguelike fields until the mode matches', () => {
+    renderEditor({ taskType: typeByName('Roguelike'), initial: { mode: 0 } })
+    expect(screen.getByRole('switch', { name: '投资后再购物' })).toBeDisabled()
+    expect(screen.getByText('需先将「模式」设为「刷源石锭」')).toBeInTheDocument()
+  })
+
+  it('offers 加工站 and 训练室 when adding facilities', () => {
+    const onChange = vi.fn()
+    renderEditor({ taskType: typeByName('Infrast'), initial: { facility: ['Mfg'] }, onChange })
+    const group = screen.getByRole('group', { name: '要换班的设施（有序）' })
+
+    fireEvent.click(within(group).getByRole('button', { name: '添加 加工站' }))
+    expect(onChange).toHaveBeenLastCalledWith({ facility: ['Mfg', 'Processing'] })
+    fireEvent.click(within(group).getByRole('button', { name: '添加 训练室' }))
+    expect(onChange).toHaveBeenLastCalledWith({ facility: ['Mfg', 'Processing', 'Training'] })
   })
 })
