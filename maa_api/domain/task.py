@@ -25,7 +25,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from maa_api.domain.enums import RiskLevel
 from maa_api.domain.errors import AppError, ErrorCode
@@ -35,6 +42,7 @@ __all__ = [
     "ChannelDefaults",
     "CloseDownInput",
     "CopilotInput",
+    "CustomInput",
     "DepotInput",
     "FightInput",
     "InfrastInput",
@@ -192,7 +200,7 @@ class TaskInputBase(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# 11 种任务类型
+# 12 种任务类型（11 种内核内置 + Custom），外加 Copilot 作业
 # --------------------------------------------------------------------------- #
 
 
@@ -1400,11 +1408,75 @@ class DepotInput(TaskInputBase):
     )
 
 
-class CopilotInput(BaseModel):
-    """执行已校验并上传的 Copilot 作业。"""
+class CustomInput(TaskInputBase):
+    """自定义任务（D7、规格 §9.1 第 3 条）：跑 ``tasks.json`` 里已定义的任务链。
+
+    形状照上游 v6.18.0 的 ``CustomTask::set_params``（``src/MaaCore/Task/Interface/
+    CustomTask.cpp`` 与集成文档「任务参数 · ``Custom``」）：
+
+    - ``task_names``（必填，array<string>）：执行数组中**第一个匹配上**的任务及其
+      ``next`` 等；想跑多条就 append 多个 Custom 任务；
+    - ``params``（可选，object）：任务附加参数，目前只有像素画/MiniGame 这类任务读它
+      （``params.pixel_paint`` 等），因此不在这里收窄结构；
+    - ``enable``（可选，默认 true）：继承自 :class:`TaskInputBase`。
+
+    ``task_names`` 里的名字必须在内核的任务表里存在，否则 ``AsstAppendTask`` 返回 0、
+    内核侧直接 ``set_params failed``（``CustomTask::set_params`` 对每个名字做
+    ``Task.get``）；本服务的内置识别任务（``MaaApi@CopilotResult@…``，见
+    :mod:`maa_api.services.copilot.result`）就是靠这条路径运行。
+    """
 
     model_config = _task_config(
-        {"name": "Copilot", "asset_id": "asset-1", "formation": False}
+        {"name": "Custom", "task_names": ["MaaApi@CopilotResult@Start"]},
+        {"name": "Custom", "task_names": ["Custom_MyTask"], "params": {"key": "value"}},
+    )
+
+    name: Literal["Custom"] = MaaField(
+        default="Custom",
+        label="任务类型",
+        description="由任务类型选择器决定，不用填",
+    )
+    task_names: list[str] = MaaField(
+        label="要执行的任务",
+        min_length=1,
+        max_length=16,
+        description="内核 tasks.json 里的任务名列表，执行第一个匹配上的",
+    )
+    params: dict[str, Any] | None = MaaField(
+        default=None,
+        label="任务附加参数",
+        description="任务附加参数（可选），目前只有 MiniGame 类任务会读",
+    )
+
+    @field_validator("task_names")
+    @classmethod
+    def _nonempty_names(cls, value: list[str]) -> list[str]:
+        """每个名字必须是非空字符串：空白名字在内核侧只会得到一次失败。"""
+        cleaned = [str(item).strip() for item in value]
+        if any(not item for item in cleaned):
+            raise ValueError("task_names 里不能有空名字")
+        return cleaned
+
+
+class CopilotInput(BaseModel):
+    """执行已校验并上传的 Copilot 作业。
+
+    ``asset_id`` 是本服务的作业资源 id；内核要的 ``filename`` 由
+    :class:`~maa_api.services.pipeline_runner.PipelineRunner` 在执行前解析（作业 JSON 的
+    协议校验在 :mod:`maa_api.services.copilot.rules`，D2 修复后的口径）。
+
+    ``support_unit_usage`` 是 M29 的自动重试用到的参数（规格 §9.1 第 3 条）：0 不用助战，
+    1 缺一名干员时借助战补位。取值域照上游放宽到 0–3，本里程碑只写 0 / 1。
+    """
+
+    model_config = _task_config(
+        {"name": "Copilot", "asset_id": "asset-1", "formation": False},
+        {
+            "name": "Copilot",
+            "asset_id": "asset-1",
+            "formation": True,
+            "support_unit_usage": 1,
+        },
     )
 
     name: Literal["Copilot"] = MaaField(
@@ -1423,6 +1495,13 @@ class CopilotInput(BaseModel):
         label="重新编队",
         description="执行作业前按作业重新编队（默认关闭）",
     )
+    support_unit_usage: int = MaaField(
+        default=0,
+        label="助战干员使用方式",
+        ge=0,
+        le=3,
+        description="0 不用助战；1 缺一名时借助战补位（仅在重新编队时有效）",
+    )
 
     def to_core_params(self) -> dict[str, Any]:
         """Keep the uploaded id in persisted input params; runner resolves it at append."""
@@ -1433,7 +1512,7 @@ class CopilotInput(BaseModel):
         )
 
 
-#: MaaCore 内置任务与 Copilot 任务输入顺序，共用同一判别联合。
+#: MaaCore 内置任务与 Copilot / Custom 任务输入顺序，共用同一判别联合。
 _TASK_MODEL_TYPES: tuple[type[BaseModel], ...] = (
     StartUpInput,
     CloseDownInput,
@@ -1446,6 +1525,7 @@ _TASK_MODEL_TYPES: tuple[type[BaseModel], ...] = (
     ReclamationInput,
     OperBoxInput,
     DepotInput,
+    CustomInput,
     CopilotInput,
 )
 
@@ -1462,6 +1542,7 @@ TaskInput = Annotated[
     | ReclamationInput
     | OperBoxInput
     | DepotInput
+    | CustomInput
     | CopilotInput,
     Field(discriminator="name"),
 ]
@@ -1484,6 +1565,7 @@ TASK_LABELS: dict[str, str] = {
     "Reclamation": "生息演算",
     "OperBox": "干员识别",
     "Depot": "仓库识别",
+    "Custom": "自定义任务",
     "Copilot": "Copilot 作业",
 }
 
@@ -1500,6 +1582,7 @@ RUNTIME_IMMUTABLE: dict[str, list[str]] = {
     "Reclamation": [],
     "OperBox": [],
     "Depot": [],
+    "Custom": [],
     "Copilot": ["asset_id"],
 }
 
@@ -1520,6 +1603,7 @@ RISK_FIELDS: dict[str, frozenset[str]] = {
     "Reclamation": frozenset(),
     "OperBox": frozenset(),
     "Depot": frozenset(),
+    "Custom": frozenset(),
     "Copilot": frozenset(),
 }
 

@@ -682,44 +682,22 @@ class ResourceService:
         await self._reload()
 
     def _validate_copilot(self, content: Mapping[str, Any]) -> None:
-        if not isinstance(content, Mapping):
-            raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "Copilot 内容必须是 JSON 对象")
-        if set(content) - _COPILOT_ROOT_FIELDS:
-            raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "Copilot 包含未知字段")
-        stage = content.get("stage_name")
-        actions = content.get("actions")
-        opers = content.get("opers", [])
-        groups = content.get("groups", [])
-        if not isinstance(stage, str) or not stage.strip():
-            raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "Copilot 缺少有效的 stage_name")
-        if not _nonempty_string(content.get("minimum_required")):
-            raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "Copilot 缺少有效的 minimum_required")
-        doc = content.get("doc")
-        if not isinstance(doc, Mapping) or not _nonempty_string(doc.get("title")):
-            raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "Copilot doc 必须包含 title")
-        for field in ("details",):
-            if field in doc and not isinstance(doc[field], str):
-                raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, f"Copilot doc.{field} 必须是字符串")
-        for field in ("title_color", "details_color"):
-            if field in doc and not isinstance(doc[field], str):
-                raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, f"Copilot doc.{field} 必须是字符串")
-        if not _valid_operators(opers) or not isinstance(groups, list) or any(
-            not _valid_copilot_group(group) for group in groups
-        ):
-            raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "Copilot 干员与分组结构无效")
-        if "actions" in content:
-            if not isinstance(actions, list) or any(not _valid_copilot_action(action) for action in actions):
-                raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "Copilot actions 结构无效")
-        elif content.get("type") != "SSS":
-            raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "常规 Copilot 作业必须包含 actions 数组")
-        if "type" in content and content["type"] != "SSS":
-            raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, "Copilot type 只支持 SSS 作业")
-        if content.get("type") == "SSS":
-            self._validate_sss_copilot(content)
-        else:
-            for field in ("groups",):
-                if field in content and not isinstance(content[field], list):
-                    raise _invalid_json(ErrorCode.COPILOT_JSON_INVALID, f"Copilot {field} 必须是数组")
+        """Copilot 协议校验（M29 的 D2 修复）。
+
+        口径收敛在 ``services/copilot/rules.py::normalize_content``：它放行作业站原样作业
+        会带的 ``version``/``difficulty``、缺失的 ``doc.title``、``skill=0``、
+        ``skill_usage=3`` 与 action 上的 ``costs`` 等字段，并保持未知顶层字段、缺
+        ``stage_name``/``minimum_required``、越界的 ``skill``/``skill_usage`` 仍然被拒。
+        静态检查（坐标、地块、部署上限、技能序号）在草稿保存路径上做，上传路径不做。
+        """
+        from maa_api.services.copilot.rules import normalize_content
+
+        try:
+            normalize_content(dict(content))
+        except AppError as exc:
+            raise _invalid_json(
+                ErrorCode.COPILOT_JSON_INVALID, exc.message or "Copilot 内容不符合协议"
+            ) from exc
         self._checked_json(dict(content), ErrorCode.COPILOT_JSON_INVALID)
 
     def _validate_sss_copilot(self, content: Mapping[str, Any]) -> None:

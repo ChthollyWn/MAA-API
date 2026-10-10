@@ -193,6 +193,8 @@ curl -X POST http://<host>:8002/api/snippets \
 | `API_SNIPPET_NOT_FOUND` | 404 | API 调试台收藏 id 不存在 |
 | `API_SNIPPET_NAME_CONFLICT` | 409 | API 调试台收藏名称重复 |
 | `COPILOT_JSON_INVALID` | 422 | 作业 JSON 缺必需字段或结构不符 |
+| `COPILOT_GRANT_STAGE_MISMATCH` | 409 | 手上的作业授权只覆盖另一个关卡；`details` 带授权的关卡与本次提交的关卡 |
+| `COPILOT_GRANT_EXHAUSTED` | 409 | 授权的尝试次数已用完（含「次数没用完但有效期已过、剩余次数作废」） |
 | `INFRAST_PLAN_INVALID` | 422 | 基建方案 JSON 结构不符，或引用了不存在的设施名 |
 | `CUSTOM_TASK_INVALID` | 422 | 自定义 task 定义不符合内核 `tasks.json` 的结构约定 |
 | `ASSET_TOO_LARGE` | 400 | 单个资源超过 2 MB 上限 |

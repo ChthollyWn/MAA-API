@@ -499,8 +499,14 @@ def test_status_snapshot_shape() -> None:
     registry.record_failure("prts", code="EXTERNAL_SOURCE_UNAVAILABLE", message="boom")
     registry.record_failure("prts", code="EXTERNAL_SOURCE_UNAVAILABLE", message="boom")
     snapshot = registry.snapshot(lambda kind: {"entries": 0})
-    # M26 起登记表里多了企鹅物流；快照按 SOURCES 的顺序列出。
-    assert [item["kind"] for item in snapshot] == ["prts", "penguin"]
+    # M26 起登记表里多了企鹅物流、M29 起多了作业站与拆包数据；快照按 SOURCES 的顺序列出。
+    assert [item["kind"] for item in snapshot] == [
+        "prts",
+        "penguin",
+        "copilot_site",
+        "gamedata",
+        "gamedata_github",
+    ]
     assert snapshot[0]["consecutive_failures"] == 3
     assert snapshot[0]["cooldown_seconds"] == 60
     assert snapshot[0]["last_error_code"] == "EXTERNAL_SOURCE_UNAVAILABLE"

@@ -1,21 +1,33 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 5207 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 5651 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
+| 粗体强调 | medium | 0 | 61 | 61 |
 | 绝对化规定腔 | medium | 0 | 61 | 61 |
-| 粗体强调 | medium | 0 | 51 | 51 |
-| 「A 而不是 B」对照腔 | high | 0 | 38 | 38 |
-| 破折号当冒号用 | high | 0 | 36 | 36 |
+| 「A 而不是 B」对照腔 | high | 0 | 41 | 41 |
+| 破折号当冒号用 | high | 0 | 40 | 40 |
 | 自指式讲解腔 | medium | 0 | 10 | 10 |
 | 省略号 | medium | 0 | 7 | 7 |
-| 「…即可」机器腔 | medium | 0 | 3 | 3 |
+| 「…即可」机器腔 | medium | 0 | 4 | 4 |
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 「首先…其次…」罗列腔 | high | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 | emoji/符号装饰 | high | 0 | 1 | 1 |
+
+## 粗体强调（medium｜用户可见 0 / 开发向 61）
+
+**开发向**
+
+- `tests/agent/test_activity_tools.py:1` ``get_activity_stages`` 工具（M25 规格 §5.6）。 用假活动服务（返回现造的 :class:`ActivityReport`）与假客户端把参数形态、返回信封与降级路径 写死；本机资源的推断规则由 ``tests…（共 274 字）
+- `tests/agent/test_copilot_site_tools.py:1` 作业站工具（规格 §9.4、§9.5）：注册元信息、参数边界与派发。 `agent/tools/__init__.py` 的接入由 M29 的装配任务做（本任务的写范围不含它），所以这里 自己建一个空注册表调 `register_tools…（共 188 字）
+- `tests/agent/test_game_entity_tools.py:1` M26 的四个游戏数据工具（规格 §6.1、§6.3–§6.5）。 `get_operator`、`get_enemy`、`get_item`、`get_drop_rates` 的注册与参数校验走真注册表； 工具与领域层之间用**假的服务对…（共 403 字）
+- `tests/agent/test_knowledge_service.py:1` M18 Task 4: the knowledge store merges built-in Markdown with user overrides. 规格 §4.1。三条纪律： - 内置条目随代码发布，``agent_knowledg…（共 369 字）
+- `tests/agent/test_knowledge_service.py:208` 三份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。 M18 的 5 个块、M19 的 26 个块与 M24 的 1 个块合起来恰好是全部内置条目。
+- `tests/agent/test_knowledge_service.py:261` §4.6 是内置条目的登记表：条目集合与 frontmatter 必须逐字一致。 三份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记） 或少一条（文件漏了）都要失败。B3 文案审计按规范改写了部分正文（…（共 204 字）
+- …… 另有 55 条，见 inventory.json
 
 ## 绝对化规定腔（medium｜用户可见 0 / 开发向 61）
 
@@ -29,19 +41,7 @@
 - `tests/api/test_app_skeleton.py:244` 进入 TestClient 即执行 lifespan 第 1–2 步：配置加载 + 迁移到 head。 断言版本行落在**临时库**里（``isolated_db`` 换掉了模块级 engine/session_factory 与三条 UR…（共 164 字）
 - …… 另有 55 条，见 inventory.json
 
-## 粗体强调（medium｜用户可见 0 / 开发向 51）
-
-**开发向**
-
-- `tests/agent/test_activity_tools.py:1` ``get_activity_stages`` 工具（M25 规格 §5.6）。 用假活动服务（返回现造的 :class:`ActivityReport`）与假客户端把参数形态、返回信封与降级路径 写死；本机资源的推断规则由 ``tests…（共 274 字）
-- `tests/agent/test_game_entity_tools.py:1` M26 的四个游戏数据工具（规格 §6.1、§6.3–§6.5）。 `get_operator`、`get_enemy`、`get_item`、`get_drop_rates` 的注册与参数校验走真注册表； 工具与领域层之间用**假的服务对…（共 403 字）
-- `tests/agent/test_knowledge_service.py:1` M18 Task 4: the knowledge store merges built-in Markdown with user overrides. 规格 §4.1。三条纪律： - 内置条目随代码发布，``agent_knowledg…（共 369 字）
-- `tests/agent/test_knowledge_service.py:208` 三份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。 M18 的 5 个块、M19 的 26 个块与 M24 的 1 个块合起来恰好是全部内置条目。
-- `tests/agent/test_knowledge_service.py:261` §4.6 是内置条目的登记表：条目集合与 frontmatter 必须逐字一致。 三份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记） 或少一条（文件漏了）都要失败。B3 文案审计按规范改写了部分正文（…（共 204 字）
-- `tests/agent/test_knowledge_service.py:1281` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
-- …… 另有 45 条，见 inventory.json
-
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 38）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 41）
 
 **开发向**
 
@@ -51,19 +51,19 @@
 - `tests/agent/test_runtime.py:1797` 截图必须作为 tool 消息的图片部分，而不是另起一条 user 消息
 - `tests/agent/test_runtime.py:2267` 截图应当作为 tool 消息的多模态 content，而不是另起一条 user 消息
 - `tests/api/conftest.py:1` ``tests/api`` 共享夹具（M3-04 建，M3-05~M3-09 直接用）。 本目录的用例**不得 import ``maa_api.main``**（M3-09 之前它还是旧装配：import 期 读真实配置、建目录，甚至可能…（共 1523 字）
-- …… 另有 32 条，见 inventory.json
+- …… 另有 35 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 36）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 40）
 
 **开发向**
 
 - `tests/agent/test_runtime.py:3461` 规格 §5：批次中途中断后每个 ``tool_calls`` 都有对应 tool 消息。 中断点由测试控制：第一条 tool 消息落库之后、第二条之前挂住这一轮，正好落在 「补历史」的中间窗口上——这是最容易补重复或漏补的一条路径。
 - `tests/agent/test_runtime.py:3953` 轮次失败要留下两样东西：日志里的一行，和会话里的一条说明。 2026-10-09 的实况是两样都没有：用户消息已经落库，回复与错误原因都没留下，用户 第二天只能问「Agent 怎么又不好使了」，而服务端一个字都查不到——`AppError`…（共 147 字）
 - `tests/agent/test_runtime.py:4054` 一次瞬时抖动不能让整个进程永久「能力不足」。 旧实现无条件缓存探查结果：探测失败一次，之后每一轮都在几秒内报「当前模型未通过 function calling 能力检查」，只有重启服务才恢复——用户看到的就是「Agent 又用不了 了，重启…（共 172 字）
+- `tests/agent/test_stage_level_tool.py:1` `get_stage_level_data` 工具（规格 §9.3）：注册元数据、参数校验与 handler。 `agent/tools/__init__.py` 由主 agent 统一装配（M29 期间并行任务同时改工具目录），所以这里 …（共 247 字）
 - `tests/api/conftest.py:1` ``tests/api`` 共享夹具（M3-04 建，M3-05~M3-09 直接用）。 本目录的用例**不得 import ``maa_api.main``**（M3-09 之前它还是旧装配：import 期 读真实配置、建目录，甚至可能…（共 1523 字）
 - `tests/api/test_app_skeleton.py:1` M3-09 应用装配验收：lifespan、CORS、OpenAPI 元数据与尾斜杠（docs/02 §7、docs/05 §11/§5.1/§2.5）。 被测对象是模块级的 :data:`maa_api.main.app`（本卡起 ``t…（共 1215 字）
-- `tests/api/test_auth.py:1` 四渠道 token 鉴权与会话依赖（M3-06；docs/05 §5、§4.1、§5.2、§5.3）。 被测 app 全部在本文件里现搭（``FastAPI(...)`` + M3-04 的 :func:`~maa_api.api.erro…（共 937 字）
-- …… 另有 30 条，见 inventory.json
+- …… 另有 34 条，见 inventory.json
 
 ## 自指式讲解腔（medium｜用户可见 0 / 开发向 10）
 
@@ -88,13 +88,14 @@
 - `tests/services/test_game_story.py:235` 杜宾：……我也希望是你的错觉。
 - …… 另有 2 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 3）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 4）
 
 **开发向**
 
 - `tests/db/test_repositories_pipeline.py:56` 写入即可读；``get_by_idempotency_key`` 只按真实 key 命中，空 key 返回 None。
 - `tests/db/test_repositories_schedule_setting.py:225` 写入即可读；默认值、``template`` 原样存取、入参提交后仍可读。
 - `tests/domain/test_route_inventory.py:1` 全量路由清单契约（docs/05 §6 与 web/openapi.json 的一致性门禁）。 docs/05 §6 是路由清单，`web/openapi.json` 是同一批路由的机器可读投影（由 ``scripts/dump_opena…（共 902 字）
+- `tests/services/test_copilot_notify.py:136` 通知不能因为一个认不出的结果值就发不出去；记一条 warning 即可。
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 2）
 

@@ -373,7 +373,7 @@ describe('schedule editor', () => {
     await waitFor(() => expect(network.find('POST', '/api/schedules')).toHaveLength(1))
     const payload = await json(network.find('POST', '/api/schedules')[0])
     expect(payload.name).toBe('每日剿灭')
-    expect(payload.template).toEqual([{ name: 'Copilot', asset_id: 'copilot-1', formation: false }])
+    expect(payload.template).toEqual([{ name: 'Copilot', asset_id: 'copilot-1', formation: false, support_unit_usage: 0 }])
   })
 
   it('keeps the editor open and marks the name when it is already taken (S4)', async () => {

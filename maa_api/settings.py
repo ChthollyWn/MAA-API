@@ -70,8 +70,15 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "agent.atomic_grant_minutes": ("agent", "atomic_grant_minutes"),
     "agent.auto_diagnose_failures": ("agent", "auto_diagnose_failures"),
     # 账号数据的过期阈值（M27，规格 §7.3、附录 B）：识别结果超过这些天数即提示重新识别。
+    "sources.gamedata_mirrors": ("sources", "gamedata_mirrors"),
+    "sources.gamedata_github_api_fallback": ("sources", "gamedata_github_api_fallback"),
     "agent.box_stale_days": ("agent", "box_stale_days"),
+    "agent.copilot_grant_minutes": ("agent", "copilot_grant_minutes"),
+    "agent.copilot_retention_days": ("agent", "copilot_retention_days"),
+    "agent.copilot_attempt_timeout_minutes": ("agent", "copilot_attempt_timeout_minutes"),
     "agent.depot_stale_days": ("agent", "depot_stale_days"),
+    # 作业研究（M29，规格 §9.6/§9.7/§9.11）：授权窗口、单次尝试的等待上限、
+    # AI 草稿与作业站副本的保留天数。
     "adb.path": ("adb", "path"),
     "adb.address": ("adb", "address"),
     "adb.screenshot_quality": ("adb", "screenshot_quality"),
@@ -87,12 +94,17 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "sources.use_proxy": ("sources", "use_proxy"),
     "sources.cache_live_seconds": ("sources", "cache_live_seconds"),
     "sources.cache_static_seconds": ("sources", "cache_static_seconds"),
+    # M29 拆包关卡文件的缓存时长（附录 B）。
+    "sources.cache_level_seconds": ("sources", "cache_level_seconds"),
     "sources.cache_max_mb": ("sources", "cache_max_mb"),
     "sources.prts_enabled": ("sources", "prts_enabled"),
     "sources.prts_rate_per_minute": ("sources", "prts_rate_per_minute"),
     "sources.penguin_enabled": ("sources", "penguin_enabled"),
     "sources.penguin_host": ("sources", "penguin_host"),
     "sources.penguin_rate_per_minute": ("sources", "penguin_rate_per_minute"),
+    # M29 拆包数据（规格 §9.3、附录 B）。
+    "sources.gamedata_enabled": ("sources", "gamedata_enabled"),
+    "sources.gamedata_rate_per_minute": ("sources", "gamedata_rate_per_minute"),
     "channel.client_type": ("channel", "client_type"),
     "channel.server": ("channel", "server"),
     "llm.base_url": ("llm", "base_url"),
@@ -212,6 +224,18 @@ class SourcesSettings(BaseModel):
     use_proxy: bool = True
     cache_live_seconds: int = Field(default=300, ge=60, le=3600)
     cache_static_seconds: int = Field(default=21600, ge=600, le=86400)
+    #: M29 拆包关卡文件（几个月才变一次）的缓存时长，默认 24 小时（附录 B）。
+    cache_level_seconds: int = Field(default=86400, ge=3600, le=604800)
+    #: 拆包关卡数据的镜像顺序（规格 §9.3）；两个默认镜像都失败时才走 GitHub API。
+    gamedata_mirrors: list[str] = Field(
+        default_factory=lambda: [
+            "https://fastly.jsdelivr.net/gh/Kengxxiao/ArknightsGameData@master",
+            "https://cdn.jsdelivr.net/gh/Kengxxiao/ArknightsGameData@master",
+        ]
+    )
+    gamedata_github_api_fallback: bool = True
+    gamedata_enabled: bool = True
+    gamedata_rate_per_minute: int = Field(default=10, ge=1, le=60)
     cache_max_mb: int = Field(default=64, ge=8, le=512)
     prts_enabled: bool = True
     prts_rate_per_minute: int = Field(default=30, ge=1, le=120)
@@ -236,7 +260,22 @@ class AgentSettings(BaseModel):
     #: 账号数据（M27，规格 §7.3）：干员 / 仓库识别结果超过这些天数即「已过期」，
     #: 概要接口与注入段据此提示重新识别。取值范围见附录 B。
     box_stale_days: int = Field(default=14, ge=1, le=365)
+    #: 作业授权有效期（规格 §9.6）；附录 B 写 10–120，实现放宽到 1–1440 并在 docs/13 §8.44 记偏离。
+    copilot_grant_minutes: int = Field(default=60, ge=1, le=1440)
+    #: AI 草稿与作业站副本的保留天数（§9.11）。
+    copilot_retention_days: int = Field(default=7, ge=1, le=365)
+    #: 一次作业尝试的最长等待（§9.7 第 4 步）。
+    copilot_attempt_timeout_minutes: int = Field(default=20, ge=1, le=60)
     depot_stale_days: int = Field(default=3, ge=1, le=60)
+    #: 作业研究（M29，规格 §9.6/§9.7/§9.11）：``copilot_grant_minutes`` 是作业授权的
+    #: 有效期（``grant_copilot_attempts`` 的 ``window_minutes`` 默认值）；
+    #: ``copilot_attempt_timeout_minutes`` 是 ``run_copilot_attempt`` 阻塞等待的上限；
+    #: ``copilot_retention_days`` 是 AI 草稿 / 作业站副本的保留天数，被
+    #: ``retention_service.cleanup_copilots`` 现读。范围见规格附录 B（授权窗口按
+    #: 实施裁决放宽到 1–1440）。
+    copilot_grant_minutes: int = Field(default=60, ge=1, le=1440)
+    copilot_attempt_timeout_minutes: int = Field(default=20, ge=1, le=60)
+    copilot_retention_days: int = Field(default=7, ge=1, le=365)
 
 
 class DeploymentSettings(BaseModel):

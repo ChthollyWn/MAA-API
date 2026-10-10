@@ -32,6 +32,7 @@ from maa_api.domain.enums import (
     RiskLevel,
 )
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.copilot.grant import GRANT_ACTION
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +264,15 @@ class ConfirmationService:
         resolved_by: str,
         reason: str | None = None,
         request: Any = None,
+        overrides: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """批准或拒绝一条确认。
+
+        ``overrides`` 是作业授权卡片上用户改过的三项（规格 §9.6：尝试次数、成功标准、
+        是否允许助战）。只有 ``action == "grant_copilot_attempts"`` 且被批准时用它；
+        批准后立刻调 :meth:`CopilotGrantService.approve` 写出授权记录 —— 授权的
+        「执行」就是这一次写入，没有别的 worker。
+        """
         async with self.session_factory() as session:
             repo = ConfirmationRepository(session)
             row = await repo.get(confirmation_id)
@@ -351,6 +360,14 @@ class ConfirmationService:
                 )
             await session.commit()
 
+        # 作业授权（M29，规格 §9.6）：批准 ``grant_copilot_attempts`` 就是写出授权记录。
+        # 放在确认已提交之后：授权写失败时确认仍是 approved，用户重批一次即可补齐；
+        # 反过来（授权写了而确认因故回滚）会留下一条没人能撤销的授权，更糟。
+        if approved:
+            await self._apply_copilot_grant_overrides(
+                row, request=request, overrides=overrides
+            )
+
         if not approved:
             self.broadcast("confirm_resolved", self._resolved_event(row, "rejected"))
         event = self._resolution_events.get(confirmation_id)
@@ -358,6 +375,90 @@ class ConfirmationService:
             event.set()
         result = await self.get(confirmation_id)
         return result
+
+    async def _apply_copilot_grant_overrides(
+        self,
+        row: Confirmation,
+        *,
+        request: Any = None,
+        overrides: Mapping[str, Any] | None = None,
+    ) -> None:
+        """把批准写进 ``copilot_grant``（规格 §9.6 的 ``grant_copilot_attempts``）。
+
+        参数来源与优先级：
+
+        - ``attempts`` / ``success`` / ``support``：用户在卡片上改的 ``overrides`` 优先，
+          没给的用确认 ``payload`` 里的预填值（policy 按 ``run_copilot_attempt`` 的参数
+          预填，spec §9.6 的 payload）；
+        - ``session_id`` / ``stage_id`` / ``stage_code`` / ``window_minutes``：确认
+          ``payload``（对话链路），missing 时退回 ``arguments``（REST 直接调
+          ``grant_copilot_attempts`` 工具的形态）；
+        - ``grant_id`` 取确认 id：附录 E「id（= 确认 id）」，重复批准只留一行。
+        """
+        if str(row.action or "") != GRANT_ACTION:
+            return
+        payload = row.payload if isinstance(row.payload, Mapping) else {}
+        arguments = payload.get("arguments")
+        arguments = arguments if isinstance(arguments, Mapping) else {}
+
+        def _pick(key: str) -> Any:
+            value = payload.get(key)
+            return arguments.get(key) if value is None else value
+
+        params: dict[str, Any] = dict(overrides or {})
+        for key in ("attempts", "success", "support", "window_minutes"):
+            if params.get(key) is None:
+                params[key] = _pick(key)
+        session_id = _pick("session_id")
+        if not isinstance(session_id, str) or not session_id:
+            raise AppError(
+                ErrorCode.INVALID_PARAMETER,
+                "作业授权缺少会话，无法批准",
+                {"confirmation_id": row.id},
+            )
+        stage_id = _pick("stage_id") or _pick("stage_code")
+        if not isinstance(stage_id, str) or not stage_id.strip():
+            # 关卡是授权的主键语义之一：没有它没法写出「这一关、几次」的授权。
+            # 不静默跳过，否则用户以为批准了，实际什么都没发生。
+            raise AppError(
+                ErrorCode.INVALID_PARAMETER,
+                "作业授权缺少关卡，无法批准",
+                {"confirmation_id": row.id, "action": row.action},
+            )
+        stage_code = _pick("stage_code")
+        grant = await self._copilot_grant_service(request).approve(
+            session_id,
+            stage_id=str(stage_id).strip(),
+            stage_code=str(stage_code).strip() if stage_code else None,
+            attempts=params.get("attempts"),
+            success=params.get("success"),
+            support=params.get("support"),
+            window_minutes=params.get("window_minutes"),
+            grant_id=row.id,
+        )
+        self.broadcast(
+            "agent_event",
+            {
+                "session_id": session_id,
+                "event": "copilot_grant_changed",
+                "payload": {
+                    "granted": True,
+                    "grant_id": grant.get("id"),
+                    "expires_at": grant.get("expires_at"),
+                    "status": grant.get("status"),
+                },
+            },
+        )
+
+    def _copilot_grant_service(self, request: Any) -> Any:
+        """作业授权服务：优先用装配好的单例；没有就按会话工厂现建。"""
+        state = getattr(getattr(request, "app", None), "state", None)
+        service = getattr(state, "copilot_grant_service", None)
+        if service is not None:
+            return service
+        from maa_api.services.copilot.grant import CopilotGrantService
+
+        return CopilotGrantService(self.session_factory)
 
     async def get(self, confirmation_id: str) -> dict[str, Any]:
         async with self.session_factory() as session:

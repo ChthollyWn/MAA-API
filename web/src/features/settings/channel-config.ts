@@ -30,7 +30,11 @@ export const NOTIFY_EVENTS = [
   { value: 'update_finished', label: '更新完成' },
   { value: 'confirmation_required', label: '需要人工确认' },
   { value: 'upgrade_plan_finished', label: '养成计划完成' },
-] as const satisfies readonly { value: NotifyEventId; label: string }[]
+  // M29 的作业研究结束（规格 §9.9）。生成类型 `NotifyEvent` 还没包含它，所以下面
+  // `satisfies` 的取值多带了这一个字面量；主 agent 跑过 `pnpm gen:api` 之后，
+  // 把它从 `satisfies` 的类型里删掉即可，别的都不用动。
+  { value: 'copilot_research_finished', label: '作业研究结束' },
+] as const satisfies readonly { value: NotifyEventId | 'copilot_research_finished'; label: string }[]
 
 export function isNotifyEvent(value: unknown): value is NotifyEventId {
   return NOTIFY_EVENTS.some((event) => event.value === value)

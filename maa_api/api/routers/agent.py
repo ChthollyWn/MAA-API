@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -35,6 +37,8 @@ from maa_api.domain.enums import AuditStatus, CallerType, RiskLevel
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import get_settings
 from maa_api.services.log_hub import current_request_id
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 _IDEMPOTENCY_LOCKS: dict[tuple[int, str], tuple[asyncio.Lock, int]] = {}
@@ -145,6 +149,31 @@ def _confirmation_service(request: Request):
     return service
 
 
+def _broadcast_grant_change(request: Request, session_id: str, event: str) -> None:
+    """授权撤销后广播一条 ``agent_event``，与 ``ConfirmationService`` 里同形状。
+
+    前端（``web/src/realtime/query-bridge.ts``）按 ``agent_event`` 刷新会话详情；
+    作业授权与原子授权各用各的 ``event`` 名，互不误触。
+    """
+    service = getattr(request.app.state, "confirmation_service", None)
+    broadcast = getattr(service, "broadcast", None)
+    if not callable(broadcast):
+        return
+    broadcast(
+        "agent_event",
+        {
+            "session_id": session_id,
+            "event": event,
+            "payload": {
+                "granted": False,
+                "grant_id": None,
+                "expires_at": None,
+                "status": "revoked",
+            },
+        },
+    )
+
+
 def _agent_runtime(request: Request):
     state = request.app.state
     runtime = getattr(state, "agent_runtime", None)
@@ -217,6 +246,62 @@ def _iso(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _grant_service(request: Request) -> Any:
+    """作业授权服务：优先用装配好的单例，缺省按会话工厂现建。"""
+    service = getattr(request.app.state, "copilot_grant_service", None)
+    if service is not None:
+        return service
+    factory = getattr(request.app.state, "session_factory", None)
+    if factory is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "作业授权功能还在启动中，请稍后重试")
+    from maa_api.services.copilot.grant import CopilotGrantService
+
+    return CopilotGrantService(factory)
+
+
+def copilot_grant_wire(grant: Mapping[str, Any]) -> dict[str, Any]:
+    """作业授权 wire → 会话详情里的 ``copilot_grant``（规格 §9.6，与 ``atomic_grant`` 并列）。
+
+    键名沿用 ``services/copilot/grant.grant_wire`` 的 ``attempts`` / ``used``，前端
+    ``normalizeCopilotGrant`` 按 ``attempts_total`` / ``attempts_used`` 读（两种都认）；
+    这里额外给出规格点名的两个名字，免得前端只认一种。
+    """
+    attempts = int(grant.get("attempts") or 0)
+    used = int(grant.get("used") or 0)
+    expires_at = grant.get("expires_at")
+    if isinstance(expires_at, str):
+        try:
+            expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        except ValueError:
+            expires_at = None
+    return {
+        "grant_id": grant.get("id"),
+        "stage_id": grant.get("stage_id"),
+        "stage_code": grant.get("stage_code"),
+        "attempts_total": attempts,
+        "attempts_used": used,
+        "remaining_attempts": max(attempts - used, 0),
+        "success": grant.get("success"),
+        "support": grant.get("support"),
+        "status": grant.get("status"),
+        # 与 ``atomic_grant.expires_at`` 一样统一成 ``...Z``：前端 Date.parse 两种都认，
+        # 但同一个响应里两种写法看着像两套约定。
+        "expires_at": _iso(expires_at),
+    }
+
+
+async def active_copilot_grant_wire(request: Request, session_id: str) -> dict[str, Any] | None:
+    """该会话当前生效的作业授权；没有 active（或已过期）时为 ``None``。"""
+    try:
+        grant = await _grant_service(request).get_active(session_id)
+    except AppError:
+        raise
+    except Exception:  # noqa: BLE001 - 授权读不到不该让会话详情整体 500
+        logger.warning("读取会话的作业授权失败：%s", session_id, exc_info=True)
+        return None
+    return copilot_grant_wire(grant) if grant else None
+
+
 def session_wire(session: AgentSession) -> dict[str, Any]:
     grant_active = bool(
         session.atomic_grant_id
@@ -243,10 +328,14 @@ def session_wire(session: AgentSession) -> dict[str, Any]:
             if session.atomic_grant_id is not None
             else None
         ),
+        # 作业授权（M29，规格 §9.6）：与 atomic_grant 并列；列表接口不带这个字段
+        # （每行都去查一次授权表不值当），前端在会话详情里补。
+        "copilot_grant": None,
         "created_at": _iso(session.created_at),
         "updated_at": _iso(session.updated_at),
         "last_message_at": _iso(session.last_message_at),
     }
+
 
 
 def message_wire(message: AgentMessage) -> dict[str, Any]:
@@ -678,7 +767,9 @@ async def stream_session_message(
 @router.get(
     "/sessions/{session_id}",
     summary="读取 Agent 会话详情",
-    responses=error_responses("AGENT_SESSION_NOT_FOUND", "UNAUTHORIZED"),
+    responses=error_responses(
+        "AGENT_SESSION_NOT_FOUND", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+    ),
     dependencies=[Depends(require_auth)],
 )
 async def get_session_detail(
@@ -690,6 +781,8 @@ async def get_session_detail(
     if stored is None:
         raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
     wire = session_wire(stored)
+    # 作业授权（M29，规格 §9.6）：与 atomic_grant 并列，前端授权条按它渲染。
+    wire["copilot_grant"] = await active_copilot_grant_wire(request, session_id)
     # ``turn_running`` 是「刷新后仍能停」的真相源（规格 §3.4）。刻意直接读
     # ``app.state.agent_runtime``：为了一个只读字段去现场构造 runtime 会在没装配
     # runtime 的部署里凭空造出一个空运行时（那不是这个端点该做的事）。列表接口不带
@@ -697,6 +790,7 @@ async def get_session_detail(
     runtime = getattr(request.app.state, "agent_runtime", None)
     wire["turn_running"] = bool(runtime is not None and runtime.turn_running(session_id))
     return wire
+
 
 
 @router.post(
@@ -784,7 +878,32 @@ async def list_session_messages(
 )
 async def revoke_atomic_grant(session_id: str, request: Request) -> Response:
     await _confirmation_service(request).revoke_session_grant(session_id)
+    _broadcast_grant_change(request, session_id, "atomic_grant_changed")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/sessions/{session_id}/copilot-grant",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="撤销 Agent 会话的作业授权",
+    description=(
+        "把该会话生效中的作业授权标 `revoked`（规格 §9.6），前端授权条的「撤销」入口。\n\n"
+        "幂等：没有生效中的授权同样返回 204。"
+    ),
+    responses=error_responses(
+        "AGENT_SESSION_NOT_FOUND", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+    ),
+    dependencies=[Depends(require_auth)],
+)
+async def revoke_copilot_grant(session_id: str, request: Request) -> Response:
+    async with _confirmation_service(request).session_factory() as session:
+        exists = await AgentSessionRepository(session).get(session_id)
+    if exists is None:
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
+    await _grant_service(request).revoke(session_id)
+    _broadcast_grant_change(request, session_id, "copilot_grant_changed")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 
 @router.get(

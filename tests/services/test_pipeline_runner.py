@@ -256,7 +256,8 @@ def test_runner_resolves_copilot_path_only_for_core_append(runner_env) -> None:
         assert core.snapshot_content == _copilot()
         assert asst.calls_of("append_task")[0][1] == (
             "Copilot",
-            {"filename": str(expected_path), "formation": False},
+            # M29/D2：重建 core_params 时保留 support_unit_usage（0 不用助战）。
+            {"filename": str(expected_path), "support_unit_usage": 0, "formation": False},
         )
         async with factory() as session:
             stored_task = await session.get(Task, task.id)

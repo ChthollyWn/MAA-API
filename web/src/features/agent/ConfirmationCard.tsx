@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Check, ShieldAlert, X } from 'lucide-react'
 import { api } from '@/api/client'
@@ -8,14 +8,19 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { diffValueText, eliteLabel, fieldLabel } from '@/features/account/format'
+import { CopilotGrantCard, parseCopilotGrantPayload, type CopilotGrantOptions } from '@/features/copilots/CopilotGrantCard'
 import { expiryLabel, pretty } from './format'
 import type { AgentConfirmation } from './types'
-
 export interface ConfirmationCardProps {
   confirmationId: string
   /** 正在提交的是哪个决定；两个按钮都会禁用，只在被点的那个上显示加载。 */
   busy: 'approve' | 'reject' | null
-  onResolve: (id: string, approved: boolean) => void
+  /**
+   * 决定结果。第三个参数只有 `grant_copilot_attempts` 会带：用户在卡片上改过的
+   * 尝试次数 / 成功标准 / 是否允许助战（规格 §9.6）。调用方必须把这三项送进
+   * `POST /api/confirmations/{confirmation_id}` 的覆盖参数里，否则它们会被忽略。
+   */
+  onResolve: (id: string, approved: boolean, overrides?: CopilotGrantOptions) => void
 }
 
 /**
@@ -147,6 +152,13 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
   const profileDiff = toolName === 'update_user_profile' ? parseProfileDiff(payload) : []
   const reason = reasonText(payload)
   const grant = detail?.action === 'grant_atomic_ops'
+  // 作业授权（§9.6、§9.10）：三项可改，改过的值存在本地，批准时作为覆盖参数带回。
+  const copilotGrant = detail?.action === 'grant_copilot_attempts' ? parseCopilotGrantPayload(payload) : null
+  const [grantOverrides, setGrantOverrides] = useState<CopilotGrantOptions | null>(null)
+  const grantChoices: CopilotGrantOptions | null = copilotGrant
+    ? grantOverrides ?? { attempts: copilotGrant.attempts, success: copilotGrant.success, support: copilotGrant.support }
+    : null
+  const heading = grant ? '需要确认此操作' : copilotGrant ? '作业执行授权' : accountTitle ?? '需要确认此操作'
   const approved = detail?.status === 'approved'
   const rejected = detail?.status === 'rejected' || detail?.status === 'expired'
   const grantMinutes = Math.floor(Number(detail?.payload.window_seconds) / 60)
@@ -162,14 +174,20 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h3 id={titleId} className="text-[0.9375rem] font-semibold leading-6">
-                {grant ? '需要确认此操作' : accountTitle ?? '需要确认此操作'}
+                {heading}
               </h3>
               <Badge variant={approved ? 'success' : rejected ? 'danger' : 'warning'} className="tabular-nums">
                 {approved ? '已批准' : rejected ? '已拒绝或过期' : expiryLabel(detail?.expires_at)}
               </Badge>
             </div>
             <p className="break-words text-sm text-muted-foreground">
-              {detail ? (grant ? '会话级屏幕操作授权' : detail.reason) : '正在读取确认详情…'}
+              {detail
+                ? grant
+                  ? '会话级屏幕操作授权'
+                  : copilotGrant
+                    ? detail.reason || '批准后 Agent 可以在这一关自动重试，次数用完就结束。'
+                    : detail.reason
+                : '正在读取确认详情…'}
             </p>
           </div>
         </div>
@@ -245,7 +263,15 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
             ) : null}
           </div>
         ) : null}
-        {!accountTitle && detail?.payload.arguments ? (
+        {copilotGrant && grantChoices ? (
+          <CopilotGrantCard
+            request={copilotGrant}
+            value={grantChoices}
+            onChange={setGrantOverrides}
+            disabled={unavailable}
+          />
+        ) : null}
+        {!accountTitle && !copilotGrant && detail?.payload.arguments ? (
           <details className="group rounded-lg bg-surface-2/70">
             <summary className="flex min-h-10 cursor-pointer list-none items-center px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">查看操作参数</summary>
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border-t border-border/70 px-3 py-2 font-mono text-xs leading-5">{pretty(detail.payload.arguments)}</pre>
@@ -265,7 +291,7 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
             {busy === 'reject' ? null : <X aria-hidden="true" />}
             拒绝
           </Button>
-          <Button type="button" disabled={unavailable} loading={busy === 'approve'} onClick={() => onResolve(confirmationId, true)}>
+          <Button type="button" disabled={unavailable} loading={busy === 'approve'} onClick={() => onResolve(confirmationId, true, grantChoices ?? undefined)}>
             {busy === 'approve' ? null : <Check aria-hidden="true" />}
             {busy === 'approve' ? '正在处理…' : '批准并继续'}
           </Button>

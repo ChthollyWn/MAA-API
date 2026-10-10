@@ -39,6 +39,11 @@ agent:
   # 账号数据（干员识别 / 仓库识别）超过多少天算过期；概要接口与 Agent 注入据此提示重新识别
   box_stale_days: 14
   depot_stale_days: 3
+  # 作业研究（M29）：授权有效期与单次尝试的等待上限，单位分钟
+  copilot_grant_minutes: 60
+  copilot_attempt_timeout_minutes: 20
+  # AI 草稿与作业站副本的保留天数；用户上传的与点过「保留」的永不自动清理
+  copilot_retention_days: 7
 
 # OpenAI 兼容模型；密钥建议通过环境变量或设置页录入，数据库里的密钥由 MAA_LLM_ENCRYPTION_KEY 加密
 llm:
@@ -80,6 +85,16 @@ sources:
   cache_live_seconds: 300
   # 稳定数据（页面正文、SMW/Cargo 查询）的缓存时长，秒
   cache_static_seconds: 21600
+  # 拆包关卡文件（几个月才变一次）的缓存时长，秒
+  cache_level_seconds: 86400
+  # 拆包关卡数据的镜像顺序（M29，规格 §9.3）；都失败且下面开关为真时再走 GitHub API
+  gamedata_mirrors:
+    - https://fastly.jsdelivr.net/gh/Kengxxiao/ArknightsGameData@master
+    - https://cdn.jsdelivr.net/gh/Kengxxiao/ArknightsGameData@master
+  gamedata_github_api_fallback: true
+  # 拆包数据开关与每分钟请求上限（关卡文件、升级经验/龙门币常量表）
+  gamedata_enabled: true
+  gamedata_rate_per_minute: 10
   # 进程内缓存的内存上限（MB），超出按 LRU 淘汰
   cache_max_mb: 64
   prts_enabled: true

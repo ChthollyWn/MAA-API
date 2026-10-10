@@ -22,6 +22,8 @@ __all__ = [
 
 #: 前端允许生成外链的主机（附录 D 最后一行）。
 LINK_HOSTS = (
+    # M29：作业站（作业页是前端路由 https://prts.maa.plus/copilot/<id>）。
+    "prts.maa.plus",
     "prts.wiki",
     "prts.plus",
     "zoot.plus",

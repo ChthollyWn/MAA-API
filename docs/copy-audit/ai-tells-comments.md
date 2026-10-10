@@ -1,23 +1,24 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 9964 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 11012 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 208 | 208 |
-| 「A 而不是 B」对照腔 | high | 0 | 91 | 91 |
-| 破折号当冒号用 | high | 0 | 75 | 75 |
-| 绝对化规定腔 | medium | 0 | 51 | 51 |
-| 自指式讲解腔 | medium | 0 | 11 | 11 |
-| 「…即可」机器腔 | medium | 0 | 11 | 11 |
+| 粗体强调 | medium | 0 | 222 | 222 |
+| 「A 而不是 B」对照腔 | high | 0 | 97 | 97 |
+| 破折号当冒号用 | high | 0 | 86 | 86 |
+| 绝对化规定腔 | medium | 0 | 56 | 56 |
+| 「…即可」机器腔 | medium | 0 | 16 | 16 |
+| 自指式讲解腔 | medium | 0 | 15 | 15 |
 | 宣传词 | medium | 0 | 3 | 3 |
 | 提示腔 | medium | 0 | 3 | 3 |
 | 省略号 | medium | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 0 | 2 | 2 |
-| 「不是…而是…」对照句 | high | 0 | 1 | 1 |
+| 「不是…而是…」对照句 | high | 0 | 2 | 2 |
+| 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 208）
+## 粗体强调（medium｜用户可见 0 / 开发向 222）
 
 **开发向**
 
@@ -27,9 +28,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 202 条，见 inventory.json
+- …… 另有 216 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 91）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 97）
 
 **开发向**
 
@@ -39,9 +40,9 @@
 - `maa_api/agent/runtime.py:1808` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/api/routers/account.py:41` : ``recognition``，见服务层），所以这里用 Literal 而不是自由字符串。
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
-- …… 另有 85 条，见 inventory.json
+- …… 另有 91 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 75）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 86）
 
 **开发向**
 
@@ -51,21 +52,33 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 69 条，见 inventory.json
+- …… 另有 80 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 51）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 56）
 
 **开发向**
 
 - `maa_api/services/account/capture.py:19` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
-- `maa_api/services/external/http.py:187` 主机白名单在发请求之前判：来源登记表里没有的主机一律拒绝。
+- `maa_api/services/copilot/rules.py:72` : ``Click`` / ``Swipe`` 等动作一律放行（Q38）。
+- `maa_api/services/external/http.py:193` 主机白名单在发请求之前判：来源登记表里没有的主机一律拒绝。
 - `maa_api/services/external/prts.py:41` : 标题里一律禁止的字符：它们只可能来自拼接错误或注入尝试。
+- `maa_api/services/external/sources.py:483` : 前缀里出现查询串、片段、``..`` 或编码转义一律拒绝——它们只可能来自拼接错误或注入尝试。
 - `maa_api/services/prts_parse/wikitext.py:73` : 展示文本在**第一个**位置参数的已知模板（其余模板一律取最后一个，见模块 docstring）。
-- `scripts/api_smoke.py:363` 环境变量层优先级高于 yaml：开发机上的 MAA_* 会让结果随环境漂移，一律清掉。
-- `scripts/maa-api-service.sh:130` 只看「是不是 python」确实不够精确，但比「监听中的端口一律算别人的进程」好：
-- …… 另有 45 条，见 inventory.json
+- …… 另有 50 条，见 inventory.json
 
-## 自指式讲解腔（medium｜用户可见 0 / 开发向 11）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 16）
+
+**开发向**
+
+- `maa_api/agent/confirmation.py:364` 放在确认已提交之后：授权写失败时确认仍是 approved，用户重批一次即可补齐；
+- `maa_api/agent/knowledge/__init__.py:844` : M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
+- `maa_api/agent/knowledge/__init__.py:846` : M28：当期卡池读取器（有 `async pools()` 即可）。没装或外服时整段不插。
+- `maa_api/agent/questions.py:198` 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
+- `maa_api/services/copilot/rules.py:330` : 实际比对的成员：``opers`` 是自己，分组是全部成员（任一满足即可）。
+- `maa_api/services/retention_service.py:131` : 「通关即可」也按成功处理。判定不了成功标准时保守处理：宁可留，不误删。
+- …… 另有 10 条，见 inventory.json
+
+## 自指式讲解腔（medium｜用户可见 0 / 开发向 15）
 
 **开发向**
 
@@ -73,21 +86,9 @@
 - `maa_api/main.py:918` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
 - `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
 - `maa_api/services/account/planner.py:22` # 实现裁决（规格没写死、由本模块定，M27 T8）
-- `web/src/components/layout/BrandMark.tsx:9` 插画自带画框与透明留白，所以这里不加圆角容器与内边距，只保留尺寸类；调用方
-- `web/src/components/ui/use-authed-image.ts:102` 依赖收敛成基本类型：调用方每次渲染新建 source 对象也不会重复取图。
-- …… 另有 5 条，见 inventory.json
-
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 11）
-
-**开发向**
-
-- `maa_api/agent/knowledge/__init__.py:844` : M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
-- `maa_api/agent/knowledge/__init__.py:846` : M28：当期卡池读取器（有 `async pools()` 即可）。没装或外服时整段不插。
-- `maa_api/agent/questions.py:198` 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
-- `maa_api/services/retention_service.py:296` 库里的相对路径越界属脏数据：跳过并留一条 debug 即可，不影响这轮清理。
-- `scripts/probe_core_api.py:109` 依赖库以 @rpath/@loader_path 记录，按绝对路径 dlopen 即可解析；
-- `web/src/features/account/api.ts:10` 直接 `api.GET('/api/account/summary')` 即可，函数签名保持不变。
-- …… 另有 5 条，见 inventory.json
+- `maa_api/services/copilot/grant.py:4` *INTERNAL 调用方**生效（策略分支在 ``agent/policy.py``，本模块不判断调用方）：
+- `maa_api/services/copilot/rules.py:117` : 是账号数据的口径；这里要能在不 import 账号层的情况下工作）。
+- …… 另有 9 条，见 inventory.json
 
 ## 宣传词（medium｜用户可见 0 / 开发向 3）
 
@@ -120,9 +121,16 @@
 - `maa_api/db/migrations/env.py:85` ⚠️ 必须在建任何表之前、且写在 connection 上（M2-01 实测）。
 - `maa_api/db/migrations/env.py:88` ⚠️ 紧跟一次 commit，不能省。exec_driver_sql 会 autobegin 一个
 
-## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 1）
+## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 2）
 
 **开发向**
 
 - `tests/db/test_repositories_update_notify_resource.py:517` 这不是缺陷，是「校验按 type 分发的 Pydantic 模型在服务层」的边界。
+- `tests/services/test_upgrade_planner.py:393` M29：升级经验 / 龙门币用内置的官方数值表。显式注入而不是让规划器惰性加载，是为了
+
+## 总结腔（high｜用户可见 0 / 开发向 1）
+
+**开发向**
+
+- `maa_api/services/copilot/notify.py:148` 浏览器推送读 body：同一句话，避免渠道与推送两边文案漂移。
 

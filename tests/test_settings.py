@@ -362,6 +362,15 @@ def test_env_mapping_names_are_pinned() -> None:
         # M27：账号数据的过期阈值（附录 B）。
         "agent.box_stale_days": "MAA_AGENT_BOX_STALE_DAYS",
         "agent.depot_stale_days": "MAA_AGENT_DEPOT_STALE_DAYS",
+        # M29：作业研究的授权窗口、单次尝试超时与作业资源保留天数。
+        "agent.copilot_grant_minutes": "MAA_AGENT_COPILOT_GRANT_MINUTES",
+        "agent.copilot_attempt_timeout_minutes": "MAA_AGENT_COPILOT_ATTEMPT_TIMEOUT_MINUTES",
+        "agent.copilot_retention_days": "MAA_AGENT_COPILOT_RETENTION_DAYS",
+        "sources.cache_level_seconds": "MAA_SOURCES_CACHE_LEVEL_SECONDS",
+        "sources.gamedata_enabled": "MAA_SOURCES_GAMEDATA_ENABLED",
+        "sources.gamedata_rate_per_minute": "MAA_SOURCES_GAMEDATA_RATE_PER_MINUTE",
+        "sources.gamedata_mirrors": "MAA_SOURCES_GAMEDATA_MIRRORS",
+        "sources.gamedata_github_api_fallback": "MAA_SOURCES_GAMEDATA_GITHUB_API_FALLBACK",
     }
 
 
@@ -436,6 +445,135 @@ def test_account_stale_days_have_documented_defaults_and_bounds():
     assert schema_for("agent.depot_stale_days")["minimum"] == 1
     assert schema_for("agent.depot_stale_days")["maximum"] == 60
     assert schema_for("agent.depot_stale_days")["group"] == "Agent"
+
+
+def test_copilot_research_settings_have_documented_defaults_and_bounds() -> None:
+    """M29 作业研究：授权窗口、单次尝试超时与作业资源保留天数（规格 §9.6/§9.7/§9.11）。"""
+    from maa_api.services.settings_schema import schema_for
+
+    default = resolve_settings(env={})
+    assert default.agent.copilot_grant_minutes == 60
+    assert default.agent.copilot_attempt_timeout_minutes == 20
+    assert default.agent.copilot_retention_days == 7
+
+    configured = resolve_settings(
+        {
+            "agent": {
+                "copilot_grant_minutes": 120,
+                "copilot_attempt_timeout_minutes": 45,
+                "copilot_retention_days": 30,
+            }
+        },
+        env={},
+    )
+    assert configured.agent.copilot_grant_minutes == 120
+    assert configured.agent.copilot_attempt_timeout_minutes == 45
+    assert configured.agent.copilot_retention_days == 30
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_AGENT_COPILOT_GRANT_MINUTES": "90",
+            "MAA_AGENT_COPILOT_ATTEMPT_TIMEOUT_MINUTES": "30",
+            "MAA_AGENT_COPILOT_RETENTION_DAYS": "21",
+        }
+    )
+    assert env_layer.agent.copilot_grant_minutes == 90
+    assert env_layer.agent.copilot_attempt_timeout_minutes == 30
+    assert env_layer.agent.copilot_retention_days == 21
+
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"copilot_grant_minutes": 0}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"copilot_grant_minutes": 1441}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"copilot_attempt_timeout_minutes": 0}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"copilot_attempt_timeout_minutes": 61}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"copilot_retention_days": 0}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"copilot_retention_days": 366}}, env={})
+
+    assert schema_for("agent.copilot_grant_minutes")["minimum"] == 1
+    assert schema_for("agent.copilot_grant_minutes")["maximum"] == 1440
+    assert schema_for("agent.copilot_attempt_timeout_minutes")["minimum"] == 1
+    assert schema_for("agent.copilot_attempt_timeout_minutes")["maximum"] == 60
+    assert schema_for("agent.copilot_retention_days")["minimum"] == 1
+    assert schema_for("agent.copilot_retention_days")["maximum"] == 365
+    assert schema_for("agent.copilot_retention_days")["group"] == "Agent"
+
+    # 文档一致性：模板里的三个值就是代码默认值。
+    template = YAML(typ="safe").load(TEMPLATE_PATH.read_text(encoding="utf8"))
+    template_agent = template["agent"]
+    assert template_agent["copilot_grant_minutes"] == 60
+    assert template_agent["copilot_attempt_timeout_minutes"] == 20
+    assert template_agent["copilot_retention_days"] == 7
+
+
+def test_gamedata_settings_have_documented_defaults_and_bounds() -> None:
+    """M29 拆包数据：镜像列表、GitHub 兜底、开关、限流与 level 档缓存（规格 §9.3、附录 B）。"""
+    from maa_api.services.settings_schema import schema_for
+
+    default = resolve_settings(env={})
+    assert default.sources.cache_level_seconds == 86400
+    assert default.sources.gamedata_enabled is True
+    assert default.sources.gamedata_rate_per_minute == 10
+    assert default.sources.gamedata_github_api_fallback is True
+    assert default.sources.gamedata_mirrors == [
+        "https://fastly.jsdelivr.net/gh/Kengxxiao/ArknightsGameData@master",
+        "https://cdn.jsdelivr.net/gh/Kengxxiao/ArknightsGameData@master",
+    ]
+
+    configured = resolve_settings(
+        {
+            "sources": {
+                "cache_level_seconds": 3600,
+                "gamedata_enabled": False,
+                "gamedata_rate_per_minute": 30,
+                "gamedata_github_api_fallback": False,
+                "gamedata_mirrors": ["https://cdn.jsdelivr.net/gh/Other/Repo@main"],
+            }
+        },
+        env={},
+    )
+    assert configured.sources.cache_level_seconds == 3600
+    assert configured.sources.gamedata_enabled is False
+    assert configured.sources.gamedata_rate_per_minute == 30
+    assert configured.sources.gamedata_github_api_fallback is False
+    assert configured.sources.gamedata_mirrors == [
+        "https://cdn.jsdelivr.net/gh/Other/Repo@main"
+    ]
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_SOURCES_CACHE_LEVEL_SECONDS": "7200",
+            "MAA_SOURCES_GAMEDATA_ENABLED": "false",
+            "MAA_SOURCES_GAMEDATA_RATE_PER_MINUTE": "5",
+            "MAA_SOURCES_GAMEDATA_GITHUB_API_FALLBACK": "false",
+        }
+    )
+    assert env_layer.sources.cache_level_seconds == 7200
+    assert env_layer.sources.gamedata_enabled is False
+    assert env_layer.sources.gamedata_rate_per_minute == 5
+    assert env_layer.sources.gamedata_github_api_fallback is False
+
+    # 越界与设置页元数据。
+    with pytest.raises(ValidationError):
+        resolve_settings({"sources": {"cache_level_seconds": 60}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"sources": {"gamedata_rate_per_minute": 0}}, env={})
+    assert schema_for("sources.gamedata_mirrors")["group"] == "外部数据源"
+    assert schema_for("sources.gamedata_mirrors")["type"] == "string_list"
+    assert schema_for("sources.cache_level_seconds")["minimum"] == 3600
+
+    # 文档一致性：模板里的值就是代码默认值。
+    template = YAML(typ="safe").load(TEMPLATE_PATH.read_text(encoding="utf8"))
+    template_sources = template["sources"]
+    assert template_sources["cache_level_seconds"] == 86400
+    assert template_sources["gamedata_enabled"] is True
+    assert template_sources["gamedata_rate_per_minute"] == 10
+    assert template_sources["gamedata_github_api_fallback"] is True
+    assert template_sources["gamedata_mirrors"] == default.sources.gamedata_mirrors
 
 
 def test_log_settings_read_yaml_and_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

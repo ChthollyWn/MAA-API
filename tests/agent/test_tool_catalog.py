@@ -45,6 +45,11 @@ EXPECTED_TOOLS = {
     "list_infrast_plans",
     "update_user_profile",
     "get_roguelike_info",
+    "get_stage_level_data",
+    "search_copilots",
+    "save_copilot_draft",
+    "run_copilot_attempt",
+    "record_copilot_result",
 }
 
 
@@ -53,7 +58,7 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 70
+    assert len(actual) == 75
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}

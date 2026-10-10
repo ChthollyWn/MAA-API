@@ -177,6 +177,11 @@ const TOOL_LABELS: Record<string, string> = {
   send_item_icons: '发送物品图标',
   send_stage_map: '发送关卡示意图',
   send_chart: '发送图表',
+  get_stage_level_data: '查关卡地图与出怪',
+  search_copilots: '搜索作业',
+  save_copilot_draft: '保存作业草稿',
+  run_copilot_attempt: '执行作业尝试',
+  record_copilot_result: '记录作业结果',
 }
 
 export function toolLabel(name: string): string | undefined {
@@ -189,6 +194,8 @@ export function toolLabel(name: string): string | undefined {
 
 /** 前端只为这些主机生成外链（规格 §4.2、附录 D）；其余主机只显示文字。 */
 export const SOURCE_LINK_HOSTS: readonly string[] = [
+  // 作业站（M29）：作业页是前端路由，链接形如 https://prts.maa.plus/copilot/<id>。
+  'prts.maa.plus',
   'prts.wiki',
   'prts.plus',
   'zoot.plus',

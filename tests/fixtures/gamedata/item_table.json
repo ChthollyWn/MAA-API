@@ -1,0 +1,73 @@
+{
+ "items": {
+  "2001": {
+   "itemId": "2001",
+   "name": "基础作战记录",
+   "rarity": "TIER_2",
+   "itemType": "CARD_EXP",
+   "classifyType": "MATERIAL",
+   "sortId": 70004,
+   "buildingProductList": [
+    {
+     "roomType": "MANUFACTURE",
+     "formulaId": "1"
+    }
+   ]
+  },
+  "2002": {
+   "itemId": "2002",
+   "name": "初级作战记录",
+   "rarity": "TIER_3",
+   "itemType": "CARD_EXP",
+   "classifyType": "MATERIAL",
+   "sortId": 70003,
+   "buildingProductList": [
+    {
+     "roomType": "MANUFACTURE",
+     "formulaId": "2"
+    }
+   ]
+  },
+  "2003": {
+   "itemId": "2003",
+   "name": "中级作战记录",
+   "rarity": "TIER_4",
+   "itemType": "CARD_EXP",
+   "classifyType": "MATERIAL",
+   "sortId": 70002,
+   "buildingProductList": [
+    {
+     "roomType": "MANUFACTURE",
+     "formulaId": "3"
+    }
+   ]
+  },
+  "2004": {
+   "itemId": "2004",
+   "name": "高级作战记录",
+   "rarity": "TIER_5",
+   "itemType": "CARD_EXP",
+   "classifyType": "MATERIAL",
+   "sortId": 70001,
+   "buildingProductList": []
+  }
+ },
+ "expItems": {
+  "2001": {
+   "id": "2001",
+   "gainExp": 200
+  },
+  "2002": {
+   "id": "2002",
+   "gainExp": 400
+  },
+  "2003": {
+   "id": "2003",
+   "gainExp": 1000
+  },
+  "2004": {
+   "id": "2004",
+   "gainExp": 2000
+  }
+ }
+}

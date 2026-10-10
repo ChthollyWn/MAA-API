@@ -183,6 +183,59 @@ def test_partial_unique_index_keeps_predicate(inspector, raw):
     raw.commit()
 
 
+def test_copilot_grant_migration_creates_expected_columns(inspector):
+    """M29 的 ``copilot_grant``：附录 E 的字段 + 一条 ``updated_at``（状态机要刷新它）。"""
+    columns = {column["name"] for column in inspector.get_columns("copilot_grant")}
+    assert columns == {
+        "id",
+        "session_id",
+        "stage_id",
+        "stage_code",
+        "status",
+        "attempts",
+        "used",
+        "success",
+        "support",
+        "expires_at",
+        "created_at",
+        "updated_at",
+        "finished_at",
+    }
+    index = {
+        ix["name"]: ix for ix in inspector.get_indexes("copilot_grant")
+    }
+    assert index["uq_copilot_grant_active_session"]["unique"] == 1
+    assert str(
+        index["uq_copilot_grant_active_session"]["dialect_options"].get("sqlite_where")
+    ) == "status = 'active'"
+
+
+def test_copilot_grant_partial_unique_index_keeps_predicate(raw):
+    """语义验证：同一会话可以有多条历史授权，但同时只能有一条 ``active``（规格 §9.6）。"""
+    raw.execute(
+        "insert into agent_session (id, status, model, message_count, prompt_tokens,"
+        " completion_tokens, created_at, updated_at) values ('session-1', 'active',"
+        " 'gpt-test', 0, 0, 0, '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+    )
+
+    def insert(grant_id: str, status: str) -> None:
+        raw.execute(
+            "insert into copilot_grant (id, session_id, stage_id, status, attempts,"
+            " used, success, support, expires_at, created_at, updated_at)"
+            " values (?, 'session-1', 'main_01-07', ?, 3, 0, 'three_star', 'fill_one',"
+            " '2026-01-01 01:00:00', '2026-01-01 00:00:00', '2026-01-01 00:00:00')",
+            (grant_id, status),
+        )
+
+    insert("grant-1", "succeeded")
+    insert("grant-2", "active")
+    with pytest.raises(sqlite3.IntegrityError):
+        insert("grant-3", "active")
+    insert("grant-4", "revoked")
+    raw.commit()
+    assert raw.execute("select count(*) from copilot_grant").fetchone()[0] == 3
+
+
 # ---------------------------------------------------------------------------
 # DDL 事实：AUTOINCREMENT / 外键级联 / server_default / CHECK
 # ---------------------------------------------------------------------------

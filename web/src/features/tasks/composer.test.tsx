@@ -64,7 +64,7 @@ describe('task composer', () => {
     const sheet = await openTypeSheet()
     const options = within(sheet).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '关闭')
     // 与后端 `/api/tasks/types`（12 种）保持一致：M27 的 OperBox / Depot 已并入 fixture。
-    expect(options).toHaveLength(12)
+    expect(options).toHaveLength(13)
     for (const type of taskTypeEnvelope.items) {
       const option = within(sheet).getByRole('button', { name: new RegExp(`^${type.label}`) })
       expect(option.querySelector('svg')).not.toBeNull()

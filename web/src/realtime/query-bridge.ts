@@ -100,7 +100,7 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
       invalidateBatched(queryClient, keys.updates.status())
       break
     case 'agent_event':
-      if (event.data.event === 'atomic_grant_changed') {
+      if (event.data.event === 'atomic_grant_changed' || event.data.event === 'copilot_grant_changed') {
         queryClient.invalidateQueries({ queryKey: keys.agent.all(), refetchType: 'active' })
       } else if (
         event.data.event === 'incident_created'

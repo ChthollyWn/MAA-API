@@ -44,9 +44,9 @@ describe('schedule template whitelist', () => {
 
   it('keeps only asset_id and formation for Copilot (S2)', () => {
     expect(toScheduleTemplate([{ name: 'Copilot', asset_id: 'copilot-1', formation: true, stage_name: '1-7', filename: 'x.json' }]))
-      .toEqual([{ name: 'Copilot', asset_id: 'copilot-1', formation: true }])
+      .toEqual([{ name: 'Copilot', asset_id: 'copilot-1', formation: true, support_unit_usage: 0 }])
     expect(toScheduleTemplate([{ name: 'Copilot', asset_id: 'copilot-1' }]))
-      .toEqual([{ name: 'Copilot', asset_id: 'copilot-1', formation: false }])
+      .toEqual([{ name: 'Copilot', asset_id: 'copilot-1', formation: false, support_unit_usage: 0 }])
   })
 
   it('names the task that cannot be scheduled', () => {
@@ -85,7 +85,7 @@ describe('schedule payload', () => {
 
   it('whitelists the template on the way out', () => {
     expect(buildSchedulePayload(weekly(), [{ name: 'Copilot', asset_id: 'copilot-1', stage_name: '1-7' }]).template)
-      .toEqual([{ name: 'Copilot', asset_id: 'copilot-1', formation: false }])
+      .toEqual([{ name: 'Copilot', asset_id: 'copilot-1', formation: false, support_unit_usage: 0 }])
     expect(() => buildSchedulePayload(weekly(), [{ name: 'SingleStep' }])).toThrow(ScheduleTemplateError)
   })
 })

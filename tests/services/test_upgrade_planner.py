@@ -20,6 +20,7 @@ from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.account import planner
 from maa_api.services.account.planner import UpgradePlanner, UpgradeTarget
 from maa_api.services.external.prts import WikiPage
+from maa_api.services.game.levelup import LevelUpTable
 from maa_api.settings import Settings
 
 # --------------------------------------------------------------------------- #
@@ -389,6 +390,9 @@ def harness(
         index=index,
         depot=depot,
         box=box,
+        # M29：升级经验 / 龙门币用内置的官方数值表。显式注入而不是让规划器惰性加载，是为了
+        # 让这组用例既不打网、也不受真实拆包数据的影响（惰性加载只用于生产装配）。
+        levelup=LevelUpTable.builtin(),
         settings_provider=_settings,
     )
     return Harness(planner=planner_instance, operators=operators, drops=drops,
@@ -821,7 +825,13 @@ async def test_box_record_operators_key_is_accepted() -> None:
     plan = await h.planner.plan([UpgradeTarget("甲", elite=2)], box=box)
 
     assert plan.targets[0]["assumed_current"] is False
-    assert plan.requirements == {FINE: 4, "龙门币": 180000}
+    # M29：精一 1 级 → 精二满级 90 的升级经验与龙门币也进需求
+    # （6★：1,245,000 经验 / 1,192,333 升级龙门币 + 精二 180,000 龙门币）。
+    assert plan.requirements == {
+        FINE: 4,
+        "作战记录": 1_245_000,
+        "龙门币": 180_000 + 1_192_333,
+    }
 
 
 @async_test
@@ -842,7 +852,9 @@ async def test_box_record_makes_targets_incremental() -> None:
         FINE: 4,
         "专精料": 27,  # 一9 + 一10
         BLOCK: 8,  # 模组 2、3 级
-        "龙门币": 180000 + 100000 + 120000,
+        # 精一 60 级 → 精二满级 90 的升级经验与龙门币（M29）
+        "作战记录": 1_018_114,
+        "龙门币": 180000 + 100000 + 120000 + 1_020_765,
     }
 
 
@@ -1071,7 +1083,9 @@ async def test_unspecified_target_fields_mean_no_change() -> None:
 
     plan = await h.planner.plan([UpgradeTarget("甲")], box=box)
 
-    assert plan.requirements == {}
+    # 没写精英/等级 = 不改精英阶段：材料需求为空（`plan.stages` 也为空）。M29 起升级经验与
+    # 龙门币按「当前精英阶段的满级」算，所以精一 1 级仍有可升的级（精一满级 80）。
+    assert plan.requirements == {"作战记录": 495_000, "龙门币": 447_378}
     assert plan.stages == ()
     assert plan.feasible is True
 
@@ -1111,3 +1125,153 @@ async def test_default_upgrade_planner_is_a_shared_planner() -> None:
     assert first is second
     assert first._account_box is not None  # noqa: SLF001 - 只验证装配到位
     assert first._depot is not None  # noqa: SLF001
+
+
+# --------------------------------------------------------------------------- #
+# M29：升级经验与龙门币（规格 §7.6 第 10 条、§9.1 第 10 条）
+#
+# 既有用例不注入 ``levelup``，规划器于是惰性加载「当前可用的表」；为了让本组用例不依赖
+# 真实拆包数据，这里显式注入 `LevelUpTable.builtin()`（内置的官方数值表）。
+# --------------------------------------------------------------------------- #
+
+
+def levelup_planner(*args: Any, **kwargs: Any) -> UpgradePlanner:
+    """照 :func:`harness` 装配，但注入内置的升级经验/龙门币表。"""
+    from maa_api.services.game.levelup import LevelUpTable
+
+    return UpgradePlanner(*args, levelup=LevelUpTable.builtin(), **kwargs)
+
+
+@async_test
+async def test_levelup_costs_are_added_to_requirements() -> None:
+    """升级经验折算成「作战记录」、升级龙门币进 requirements；M27 的「未计入」说明去掉。
+
+    6★ 从精零 1 级练到精一满级 80：内置的官方数值表给出 645,761 经验 / 551,691 龙门币
+    （含精零 1→50 与精一 1→80 两段），加上材料表里的精一龙门币 30,000 与 10 个目标料。
+    """
+    box = FakeBox([box_row("甲", rarity=6, elite=0, level=1)])
+    h = harness(rates={TARGET: [stage_row("main_01-07", "1-7", TARGET, times=1000,
+                                          quantity=1000, ap_cost=6)]}, box=box)
+    h.planner = levelup_planner(
+        operators=h.operators, drops=h.drops, items=FakeItems(h.prts),
+        index=h.index, box=box, settings_provider=_settings,
+    )
+
+    plan = await h.planner.plan([UpgradeTarget("甲", elite=1)], box=box)
+
+    assert plan.requirements[TARGET] == 10
+    assert plan.requirements["作战记录"] == 645_761
+    assert plan.requirements["龙门币"] == 30_000 + 551_691
+    # 只报需求、不参与刷关规划（仓库识别不含这两项，规格 §7.3）。
+    assert "作战记录" not in {row["item"] for row in h.drops.calls}
+    assert not any("未计入升级所需的经验与龙门币" in note for note in plan.notes)
+    assert any("升级经验与龙门币已计入需求" in note for note in plan.notes)
+    row = plan.targets[0]
+    assert row["warnings"] == []
+    assert row["target"]["elite"] == 1
+
+
+@async_test
+async def test_levelup_costs_use_the_target_elite_cap() -> None:
+    """目标等级按**目标精英阶段**的满级算（精一是 80，不是当前阶段的 50）。"""
+    box = FakeBox([box_row("甲", rarity=6, elite=0, level=50)])
+    h = harness(rates={}, box=box)
+    h.planner = levelup_planner(
+        operators=h.operators, drops=h.drops, items=FakeItems(h.prts),
+        index=h.index, box=box, settings_provider=_settings,
+    )
+
+    plan = await h.planner.plan([UpgradeTarget("甲", elite=1)], box=box)
+
+    # 精零已经满级：经验全部来自精一 1→80（495,000），龙门币 447,378 + 精一 30,000。
+    assert plan.requirements["作战记录"] == 495_000
+    assert plan.requirements["龙门币"] == 30_000 + 447_378
+
+
+@async_test
+async def test_levelup_notes_the_builtin_fallback_source() -> None:
+    """用内置表兜底时 notes 写出来源（§3.5：禁止冒充）。"""
+    box = FakeBox([box_row("甲", rarity=6, elite=0, level=1)])
+    h = harness(rates={TARGET: [stage_row("main_01-07", "1-7", TARGET, times=1000,
+                                          quantity=1000, ap_cost=6)]}, box=box)
+    h.planner = levelup_planner(
+        operators=h.operators, drops=h.drops, items=FakeItems(h.prts),
+        index=h.index, box=box, settings_provider=_settings,
+    )
+
+    plan = await h.planner.plan([UpgradeTarget("甲", elite=1)], box=box)
+
+    assert any("内置的官方数值表" in note for note in plan.notes)
+
+
+@async_test
+async def test_unavailable_levelup_table_degrades_per_target() -> None:
+    """表不可用时那一段不计，并在 notes 与 warnings 里说明，其余照常。"""
+    from maa_api.services.game.levelup import LevelUpTable
+
+    box = FakeBox([box_row("甲", rarity=6, elite=0, level=1)])
+    h = harness(rates={TARGET: [stage_row("main_01-07", "1-7", TARGET, times=1000,
+                                          quantity=1000, ap_cost=6)]}, box=box)
+    h.planner = levelup_planner(
+        operators=h.operators, drops=h.drops, items=FakeItems(h.prts),
+        index=h.index, box=box, settings_provider=_settings,
+    )
+    h.planner._levelup = LevelUpTable()  # noqa: SLF001 - 空表 = 不可用
+    h.planner._levelup_loaded = False  # noqa: SLF001
+
+    plan = await h.planner.plan([UpgradeTarget("甲", elite=1)], box=box)
+
+    assert plan.requirements[TARGET] == 10
+    assert "作战记录" not in plan.requirements
+    assert any("未计入升级所需的经验与龙门币" in note for note in plan.notes)
+    assert any("升级经验与龙门币表不可用" in note for note in plan.targets[0]["warnings"])
+
+
+@async_test
+async def test_levelup_is_not_counted_when_nothing_changes() -> None:
+    """目标与当前一致（精零 50 级、不精一）时不产生升级需求。"""
+    box = FakeBox([box_row("甲", rarity=6, elite=0, level=50)])
+    h = harness(default_rates=True, box=box)
+    h.planner = levelup_planner(
+        operators=h.operators, drops=h.drops, items=FakeItems(h.prts),
+        index=h.index, box=box, settings_provider=_settings,
+    )
+
+    plan = await h.planner.plan([UpgradeTarget("甲")], box=box)
+
+    assert plan.requirements == {}
+    assert not any("升级经验与龙门币已计入需求" in note for note in plan.notes)
+    assert any("未计入升级所需的经验与龙门币" in note for note in plan.notes)
+
+
+@async_test
+async def test_levelup_uses_the_account_rarity_curve() -> None:
+    """星级来自账号数据：5★ 精一满级是 70（6★ 是 80），与 6★ 共用一条曲线。"""
+    five = FakeBox([box_row("甲", rarity=5, elite=0, level=1)])
+    h = harness(default_rates=True, box=five)
+    h.planner = levelup_planner(
+        operators=h.operators, drops=h.drops, items=FakeItems(h.prts),
+        index=h.index, box=five, settings_provider=_settings,
+    )
+
+    plan = await h.planner.plan([UpgradeTarget("甲", elite=1)], box=five)
+
+    assert plan.requirements["作战记录"] == 484_561
+    assert plan.requirements["龙门币"] == 20_000 + 390_075
+
+
+@async_test
+async def test_levelup_without_account_record_uses_the_lowest_rarity() -> None:
+    """账号里没有记录（按刚获得算）时星级未知：按 1★ 兜底，宁少不多，并标明来源。"""
+    h = harness(default_rates=True)
+    h.planner = levelup_planner(
+        operators=h.operators, drops=h.drops, items=FakeItems(h.prts),
+        index=h.index, box=None, settings_provider=_settings,
+    )
+
+    plan = await h.planner.plan([UpgradeTarget("甲")], box=None)
+
+    # 1★ 不知道星级时按 1★ 兜底：精零 1→30 的 9,800 经验 / 6,043 龙门币（不能精一）。
+    assert plan.requirements["作战记录"] == 9_800
+    assert plan.requirements["龙门币"] == 6_043
+    assert any("内置的官方数值表" in note for note in plan.notes)

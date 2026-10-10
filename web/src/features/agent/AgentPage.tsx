@@ -20,6 +20,7 @@ import { LiveTurn, QuickPrompts, TranscriptEntryView } from './MessageViews'
 import { QuestionCard } from './QuestionCard'
 import { SessionList } from './SessionList'
 import { CapabilityAlert, ErrorAlert, GrantBar } from './StatusAlerts'
+import type { CopilotGrantOptions } from '@/features/copilots/CopilotGrantCard'
 import { formatTokenCount, grantRemainingLabel, isRecord, parseQuestionOptions, sessionTitle, stringValue, toShownError } from './format'
 import { requestId, streamMessage } from './stream'
 import { buildTranscript } from './transcript'
@@ -220,10 +221,11 @@ export default function AgentPage() {
     onError: (error) => setActionError(toShownError(error)),
   })
   const resolveConfirmation = useMutation({
-    mutationFn: async (input: { id: string; approved: boolean }) => {
+    mutationFn: async (input: { id: string; approved: boolean; overrides?: CopilotGrantOptions }) => {
       const { error, response } = await api.POST('/api/confirmations/{confirmation_id}', {
         params: { path: { confirmation_id: input.id } },
-        body: { approved: input.approved },
+        // 作业授权（M29 §9.6）：批准时可以把尝试次数、成功标准与是否允许助战一起改掉。
+        body: { approved: input.approved, ...(input.overrides ? { overrides: input.overrides } : {}) },
       })
       if (error) throw toApiError(error, response)
       return input
@@ -509,7 +511,8 @@ export default function AgentPage() {
     if (!resolveConfirmation.isPending || variables?.id !== id) return null
     return variables.approved ? 'approve' : 'reject'
   }
-  const resolve = (id: string, approved: boolean) => resolveConfirmation.mutate({ id, approved })
+  const resolve = (id: string, approved: boolean, overrides?: CopilotGrantOptions) =>
+    resolveConfirmation.mutate({ id, approved, overrides })
 
   const stopping = stopTurn.isPending
   // 后端说这一轮还在跑、本地却没有它的流（刷新、切页、换设备回来）：输入栏同样要能停。

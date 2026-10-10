@@ -173,6 +173,9 @@ class NotifyEvent(StrEnum):
     CONFIRMATION_REQUIRED = "confirmation_required"
     # M27：养成计划的材料备齐、定时任务已停（S15）。同样走浏览器推送。
     UPGRADE_PLAN_FINISHED = "upgrade_plan_finished"
+    # M29：作业研究的授权进入终态（规格 §9.9）。渠道与浏览器推送各发一次，
+    # 推送口径由「只用于待确认提醒」放宽到这条事件（docs/13 §8）。
+    COPILOT_RESEARCH_FINISHED = "copilot_research_finished"
 
 
 class AgentRole(StrEnum):
