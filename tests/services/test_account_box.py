@@ -144,7 +144,12 @@ def test_first_recognition_creates_rows_and_records_fields(account_session_facto
             now=NOW,
             recognized_at=NOW,
         )
-        assert result == {"created": 1, "updated": 0, "diffs": 0}
+        assert result == {
+            "created": 1,
+            "updated": 0,
+            "diffs": 0,
+            "kept_owned": [],
+        }
         detail = await service.get_operator("char_002_amiya")
         assert detail["name"] == "阿米娅"
         assert detail["rarity"] == 5
@@ -275,10 +280,15 @@ def test_recognition_does_not_record_a_diff_for_a_value_the_user_already_matched
     asyncio.run(scenario())
 
 
-def test_recognition_marks_operators_missing_from_own_opers_as_not_owned(
+def test_recognition_marks_operators_missing_from_the_owned_set_as_not_owned(
     account_session_factory,
 ):
-    """``all_opers`` 里、这次 ``own_opers`` 里没有的干员 → ``own=False``。"""
+    """``all_opers`` 里、但本次识别为已拥有的那批（``operators``）里没有的 → ``own=False``。
+
+    ``operators`` 在 capture 层由 ``all_opers`` 里 ``own=true`` 的条目拼出（M33 §4.2），
+    不是内核载荷里的 ``own_opers`` 字段——那个只含带练度详情的已拥有干员
+    （同一口径见 `docs/13-决策记录.md` §8.48 二）。
+    """
     _seed(account_session_factory, "char_002_amiya")
     service = _service(account_session_factory)
 
@@ -290,7 +300,12 @@ def test_recognition_marks_operators_missing_from_own_opers_as_not_owned(
             recognized_at=NOW,
         )
         # 两条都在 all_opers 里：一条已有行、一条新建为未拥有。
-        assert result == {"created": 1, "updated": 1, "diffs": 0}
+        assert result == {
+            "created": 1,
+            "updated": 1,
+            "diffs": 0,
+            "kept_owned": [],
+        }
         owned = await service.list_operators(owned_only=True)
         assert [item["char_id"] for item in owned["items"]] == []
         everyone = await service.list_operators(owned_only=False)

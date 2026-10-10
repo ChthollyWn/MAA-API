@@ -981,6 +981,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             depot_service=depot_service,
         )
         app.state.account_capture = account_capture
+        # 回调接线（M33 §4.1）：M27 的采集服务建好后一直没有生产调用方，干员 / 仓库的
+        # 识别结果从来没有落库（docs/13 §8.48）。内核回调在事件循环线程里同步派发，
+        # 接线只做调度，解析与落库都在采集服务里；归属复用 log_context，日志页与账号页
+        # 指向同一条流水线 / 子任务。
+        from maa_api.services.account.callback_wiring import install_account_capture
+
+        install_account_capture(
+            core_client,
+            account_capture,
+            context_provider=pipeline_runner.log_context,
+            client_type_provider=lambda: get_settings().channel.client_type,
+        )
         # 当期卡池（M28）：注入段用；外服不注入（进度与国服不同），由卡池服务自己判。
         from maa_api.services.game.gacha import GachaService
 

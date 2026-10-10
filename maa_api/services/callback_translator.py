@@ -384,12 +384,26 @@ def _mapping_items(value: Any) -> list[Mapping[str, Any]]:
 
 
 def _operbox_count(payload: Mapping[str, Any]) -> int:
-    """``OperBoxInfo`` 的干员数：``own_opers``（已拥有）优先，缺失时退回 ``all_opers``。"""
+    """``OperBoxInfo`` 的干员数：``all_opers`` 里 ``own is True`` 的条数，即「已拥有多少名」。
 
+    不优先数 ``own_opers``：它只收**带练度详情**（elite / level / potential）的已拥有干员，
+    不是拥有总数。真机实测（2026-10-10 17:20 那次回调）``all_opers`` 463 条里 ``own=true``
+    是 383 条、与用户实际拥有数一致，而 ``own_opers`` 只有 380 条——阿米娅的两个形态
+    （``char_002_amiya`` / ``char_1037_amiya3``）与暮落（``char_512_aprot``）是已拥有、
+    却没有练度详情，从不进 ``own_opers``。
+
+    退回顺序：``all_opers`` 缺失、或其中没有任何条目带 ``own`` 字段（旧版内核形状）时，
+    先退回 ``own_opers`` 条数、再退回 ``all_opers`` 条数（两者都只数 Mapping 条目）；
+    都没有时为 0。
+    """
+
+    all_items = _mapping_items(payload.get("all_opers"))
+    if any("own" in item for item in all_items):
+        return sum(1 for item in all_items if item.get("own") is True)
     for key in ("own_opers", "all_opers"):
         items = payload.get(key)
         if isinstance(items, list):
-            return len(items)
+            return len(_mapping_items(items))
     return 0
 
 

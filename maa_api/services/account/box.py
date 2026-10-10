@@ -358,7 +358,8 @@ class OperatorBoxService:
         all_operators: Sequence[str] | None = None,
         now: datetime | None = None,
         recognized_at: datetime | None = None,
-    ) -> dict[str, int]:
+        keep_owned: bool = False,
+    ) -> dict[str, Any]:
         """把一次 ``OperBox`` 识别结果合并进表（规格 §7.3）。
 
         :param operators: ``char_id → {name, rarity, profession, own, elite, level,
@@ -372,7 +373,14 @@ class OperatorBoxService:
         :param recognized_at: 识别时间（默认与 ``now`` 相同）；capture 层传回调时间。
             ``account_recognition.pipeline_id`` / ``task_id`` 有外键，capture 层要传
             真实存在的 id（或 ``None``），这里固定写 ``None``——本层拿不到调用上下文。
-        :returns: ``{"created", "updated", "diffs"}`` 三个计数，供日志与测试断言。
+        :param keep_owned: 收缩保护（M33 规格 §4.3，用户裁决「识别只加不减」）：识别说
+            「未拥有」而行里已经是已拥有时保留 ``True``，并把这些 ``char_id`` 记进
+            返回值的 ``kept_owned``。内核漏行远比玩家真的失去干员常见，误清一次用户要
+            重填整表；真要取消拥有走 ``update_operator_box`` / 手动编辑。保留的值按
+            本次识别状态记进 ``recognized_values`` 与 ``field_sources``。
+        :returns: ``{"created", "updated", "diffs", "kept_owned"}``（前三个是计数，
+            ``kept_owned`` 是被收缩保护留下的 ``char_id`` 列表，按命中顺序、已去重），
+            供日志与测试断言。
         """
         moment = now or _utcnow()
         stamp = recognized_at or moment
@@ -384,6 +392,7 @@ class OperatorBoxService:
             }
         )
         created = updated = diffs = 0
+        kept_owned: list[str] = []
 
         operator_repo, diff_repo_class, recognition_repo = _repositories()
         async with self._session_factory() as session:
@@ -395,6 +404,9 @@ class OperatorBoxService:
             for char_id in targets:
                 incoming = operators.get(char_id)
                 row = await repo.get(char_id)
+                # 本次新建的行不算「库里已有的已拥有」：下面 ``new_row`` 的 ``own=True``
+                # 只是占位（字段循环随后按识别值覆盖），收缩保护不能拿它当依据。
+                is_new = row is None
                 if row is None:
                     if incoming is None:
                         # 只有 all_opers 里的 id、没有任何字段值：留一条「未拥有」，
@@ -416,10 +428,32 @@ class OperatorBoxService:
                 sources = field_sources_wire(getattr(row, "field_sources", None))
                 values: dict[str, Any] = {}
                 for field in RECOGNIZED_FIELDS:
-                    # 这次没识别到的字段沿用行里既有的值；``own`` 特殊：只要 id 出现在
-                    # all_opers 里、又不在 own_opers 里，就是「未拥有」。
-                    if field == "own" and incoming is None:
-                        value: Any = False
+                    # 这次没识别到的字段沿用行里既有的值；``own`` 特殊：所有权只认
+                    # ``all_opers[].own``（``own_opers`` 只补练度详情，2026-10-10 实测
+                    # 有 3 名已拥有却没有详情，见 docs/13 §8.48）。
+                    if field == "own":
+                        if incoming is not None and "own" in incoming:
+                            recognized_own = _coerce_recognized(
+                                "own", incoming.get("own")
+                            )
+                        elif incoming is None:
+                            recognized_own = False
+                        else:
+                            recognized_own = None
+                        if (
+                            keep_owned
+                            and not is_new
+                            and recognized_own is False
+                            and bool(getattr(row, "own", None))
+                        ):
+                            # 收缩保护（M33 规格 §4.3）：识别没看到≠不再拥有。
+                            if char_id not in kept_owned:
+                                kept_owned.append(char_id)
+                            value: Any = True
+                        elif recognized_own is None:
+                            value = getattr(row, "own", None)
+                        else:
+                            value = recognized_own
                     elif incoming is not None and field in incoming:
                         value = _coerce_recognized(field, incoming.get(field))
                     else:
@@ -468,7 +502,12 @@ class OperatorBoxService:
             )
             await session.commit()
 
-        return {"created": created, "updated": updated, "diffs": diffs}
+        return {
+            "created": created,
+            "updated": updated,
+            "diffs": diffs,
+            "kept_owned": kept_owned,
+        }
 
 
 def _repositories() -> tuple[Any, Any, Any]:
