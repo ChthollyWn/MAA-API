@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from maa_api.agent.preconditions import missing_start_up_warning
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRisk
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.repositories.audit import ConfirmationRepository
@@ -177,7 +178,7 @@ class PolicyEngine:
                 return PolicyDecision(
                     True,
                     RiskLevel.CONSUME,
-                    reasons=reasons,
+                    reasons=_with_precondition_reason(name, arguments, reasons),
                     confirmation_action=name,
                 )
             return PolicyDecision(False, RiskLevel.NONE)
@@ -584,6 +585,25 @@ def _as_json_value(value: Any, *, exclude_unset: bool = True) -> Any:
             mode="python", by_alias=True, exclude_unset=exclude_unset
         )
     return value
+
+
+def _with_precondition_reason(
+    name: str, arguments: Any, reasons: tuple[str, ...]
+) -> tuple[str, ...]:
+    """要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。
+
+    只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的
+    ``warnings`` 提醒，策略层不制造新的确认理由——用户裁决是「提醒，不拦」，
+    确认卡片上不出现这条警告的提交照样会走到用户面前。
+    """
+    if name != "submit_pipeline":
+        return reasons
+    value = _as_json_value(arguments)
+    tasks = value.get("tasks") if isinstance(value, Mapping) else None
+    warning = missing_start_up_warning(tasks)
+    if warning is None or warning in reasons:
+        return reasons
+    return (*reasons, warning)
 
 
 def _submits_a_copilot(value: Any) -> bool:

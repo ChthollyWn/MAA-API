@@ -1,8 +1,8 @@
 # Agent 与知识库
 
-共 1127 条。
+共 1153 条。
 
-## knowledge（870）
+## knowledge（894）
 
 
 **maa_api/agent/knowledge/builtin/account-resources.md**
@@ -12,7 +12,7 @@
 - `maa_api/agent/knowledge/builtin/account-resources.md:7` [md-line] 前置判断
 - `maa_api/agent/knowledge/builtin/account-resources.md:8` [md-line] 有流水线在跑、设备未连接、不支持视觉输入时按同一套处理：先说明在跑什么、问他是等它结束还是稍后再查；征得同意后 reconnect_device；读不了画面上的数字就建议在设置里换用支持视觉的模型。
 - `maa_api/agent/knowledge/builtin/account-resources.md:10` [md-line] 读取首页货币
-- `maa_api/agent/knowledge/builtin/account-resources.md:11` [md-line] submit_pipeline 提交 [{"name": "StartUp", "start_game_enabled": true}]，客户端版本不填，用全局默认值。
+- `maa_api/agent/knowledge/builtin/account-resources.md:11` [md-line] submit_pipeline 提交 [{"name": "StartUp", "start_game_enabled": true}]，客户端版本不填，用全局默认值。这一条同时是所有游戏内任务的前提（见 task-preconditions）：游戏没启动时其它任务只会重试到失败。
 - `maa_api/agent/knowledge/builtin/account-resources.md:12` [md-line] wait_pipeline 等它结束。失败或被取消时说明原因并停止，不要改用原子操作硬闯。
 - `maa_api/agent/knowledge/builtin/account-resources.md:13` [md-line] back_to_home，然后 get_screenshot。
 - `maa_api/agent/knowledge/builtin/account-resources.md:14` [md-line] 按 screen-home 的位置读顶栏的龙门币、合成玉、至纯源石。读完先在回复里写出三个数，再做下一步。
@@ -583,7 +583,7 @@
 - `maa_api/agent/knowledge/builtin/playbook-infrast-shift.md:34` [md-line] 用户从别处拿到的方案 JSON（MAA 社区方案等），先 set_infrast_plan 存一遍再引用；不要手改文件名或路径。
 - `maa_api/agent/knowledge/builtin/playbook-infrast-shift.md:36` [md-line] 提交与核对
 - `maa_api/agent/knowledge/builtin/playbook-infrast-shift.md:37` [md-line] 提交前检查：有流水线在跑就先用 ask_user 发卡问用户是等它跑完还是稍后再来；设备未连接就说明情况并征得同意后 reconnect_device；不支持视觉输入就说看不到心情。
-- `maa_api/agent/knowledge/builtin/playbook-infrast-shift.md:38` [md-line] submit_pipeline 提交 `[{"name": "Infrast", "mode": 0, "facility": [...], ...}]`；Infrast 没有消耗类参数，不会因消耗品触发确认，但 set_infrast_plan 会。
+- `maa_api/agent/knowledge/builtin/playbook-infrast-shift.md:38` [md-line] submit_pipeline 提交 `[{"name": "Infrast", "mode": 0, "facility": [...], ...}]`；Infrast 没有消耗类参数，不会因消耗品触发确认，但 set_infrast_plan 会。游戏没启动时前面加一条 `{"name": "StartUp", "…（共 210 字）
 - `maa_api/agent/knowledge/builtin/playbook-infrast-shift.md:39` [md-line] wait_pipeline 等终态；失败或被取消就说明原因并停下，不要改用 click 手点设施；用户坚持时才用原子操作，第一次点击会弹会话授权。
 - `maa_api/agent/knowledge/builtin/playbook-infrast-shift.md:40` [md-line] 核对：get_screenshot 看基建总览与设施详情，确认还进驻着谁、有没有干员仍是注意力涣散；把「动了哪些设施、谁换下来了、还剩哪些涣散干员」写进回复。
 - `maa_api/agent/knowledge/builtin/playbook-infrast-shift.md:41` [md-line] **不要承诺换完立刻回满心情**：宿舍的心情回复速度随等级与氛围值变化，当前数值用 `get_prts_page(title="罗德岛基建/宿舍")` 现查。
@@ -646,7 +646,7 @@
 - `maa_api/agent/knowledge/builtin/playbook-recruit.md:25` [md-line] `first_tags` / `extra_tags_mode` / `skip_robot` 只影响内核挑标签的偏好，按用户明确要求设置，没要求就保持默认。
 - `maa_api/agent/knowledge/builtin/playbook-recruit.md:26` [md-line] `report_to_penguin` / `report_to_yituliu` 及对应 id 按用户已有设置，不要自作主张打开。
 - `maa_api/agent/knowledge/builtin/playbook-recruit.md:28` [md-line] 提交流水线
-- `maa_api/agent/knowledge/builtin/playbook-recruit.md:29` [md-line] submit_pipeline，tasks 里只放需要的那一个 `{"name": "Recruit", ...}`，不要塞 StartUp、Fight 等无关任务。
+- `maa_api/agent/knowledge/builtin/playbook-recruit.md:29` [md-line] submit_pipeline，tasks 里只放需要的那一个 `{"name": "Recruit", ...}`，不要塞用户没要求的 Fight、Infrast 等业务任务；游戏没启动时第一条要加 `{"name": "StartUp", "start_game_enabled": true}`（前提见 task-…（共 175 字）
 - `maa_api/agent/knowledge/builtin/playbook-recruit.md:30` [md-line] expedite=true 时会触发人工确认；先告诉用户这一步会消耗加急许可。
 - `maa_api/agent/knowledge/builtin/playbook-recruit.md:31` [md-line] wait_pipeline 等终态，不要反复 get_pipeline 轮询。
 - `maa_api/agent/knowledge/builtin/playbook-recruit.md:32` [md-line] 失败或被取消就说明原因并停下，不要改用 click 硬闯公招界面；用户坚持时才用原子操作，且第一次点击会弹出会话授权确认。
@@ -676,7 +676,7 @@
 - `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:20` [md-line] 用户给的关卡名有歧义（例如只说「1-7 突袭」）时问清楚要哪个难度，不要猜。
 - `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:21` [md-line] 想确认「理智够不够打 N 次」先自己算：⌊当前理智 ÷ `get_stage` 返回的 `sanity`⌋，再和用户要的次数比。
 - `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:23` [md-line] 4. submit_pipeline 提交 Fight
-- `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:24` [md-line] 形如 `submit_pipeline(tasks=[{"name": "Fight", "stage": "<关卡>", "times": N, "series": 0}])`；一次流水线 1~32 个任务。
+- `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:24` [md-line] 形如 `submit_pipeline(tasks=[{"name": "Fight", "stage": "<关卡>", "times": N, "series": 0}])`；一次流水线 1~32 个任务；游戏没启动时第一条放 `{"name": "StartUp", "start_game_enabled": t…（共 188 字）
 - `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:25` [md-line] 关键参数怎么填：
 - `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:26` [md-line] `stage`：关卡名；剿灭必须 `Annihilation`；当期 SideStory 的后三关必须写完整关卡编号；结尾可加 `Normal` / `Hard` 切换标准与磨难难度。
 - `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:27` [md-line] `times`：战斗次数。不传等于交给内核的默认值（无穷大），会一直刷到理智耗尽——要么按用户说的次数传，要么明确告诉用户这是无限刷。
@@ -951,6 +951,33 @@
 - `maa_api/agent/knowledge/builtin/stage-rules.md:40` [md-line] 每个关卡都标了推荐等级，形如 `LV.10` 或 `精英1 LV.50`，**要用就用 `get_stage` 的 `recommend_level` 字段**，不要照抄举例值。
 - `maa_api/agent/knowledge/builtin/stage-rules.md:41` [md-line] 它只是关卡给出的练度参考，不是硬性门槛。报给用户时说明这是推荐值，不要因为用户练度低于推荐等级就断言打不过，也不要拿它当准入条件。
 
+**maa_api/agent/knowledge/builtin/task-preconditions.md**
+
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:1` [md-line] ---
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:6` [md-line] ---
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:8` [md-line] 先看这一条
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:14` [md-line] 怎么保证前提成立
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:16` [md-line] 流水线的第一条放 `{"name": "StartUp", "start_game_enabled": true}`。游戏已经在主界面时它什么都不做就结束，停在桌面时它会点图标启动，两种情况都不会有害。
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:17` [md-line] 游戏还在启动动画、登录、更新、公告里时不用管，`StartUp` 会等它进到主界面。
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:18` [md-line] 只在用户明确要求关游戏时加 `CloseDown`，它直接关掉客户端，不需要停在某一页。
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:19` [md-line] 设备没连接或没授权时任何任务都跑不了：先看设备状态，把要用户处理的事说清楚。
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:21` [md-line] 每条任务的前提
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:23` [md-line] 任务 · 提交时的前提
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:24` [md-line] --- · ---
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:25` [md-line] `StartUp` · 桌面或任意界面都可以；只有它会启动／唤醒客户端
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:26` [md-line] `Fight`、`Recruit`、`Infrast`、`Mall`、`Award` · 游戏已启动并停在主界面
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:27` [md-line] `Depot`、`OperBox` · 同上；识别结果来自这一步，识别完成账号数据才会更新
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:28` [md-line] `Roguelike`、`Reclamation` · 游戏已启动；入口会从主界面导航进去，停在桌面一样会失败
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:29` [md-line] `Copilot`、自定义任务 · 游戏已启动并停在主界面，作业与自定义 JSON 也是从主界面开始操作
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:30` [md-line] `CloseDown` · 不需要停在某一页；用户没要求关游戏就不要加
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:32` [md-line] 失败长什么样
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:34` [md-line] 日志里同一个任务反复「任务失败」，最后一条是「任务多次失败已跳过」，工具返回 `CORE_COMMAND_FAILED`。
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:35` [md-line] 现场截图是设备桌面、模拟器首页或登录页——这是前提没满足最直接的证据。
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:36` [md-line] 处置：不要原样重试。先看现场截图确认画面，再补一条 `StartUp` 重新提交。重试由内核负责，重复提交同一条流水线没有意义。
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:38` [md-line] 两处容易读错的地方
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:40` [md-line] 有的条目写「tasks 里只放需要的那一个任务，不要塞无关任务」，那是指别把用户没要求的业务任务（`Fight`、`Infrast` 之类）塞进去；`StartUp` 是**前提**不是业务任务，游戏没开时必须加。
+- `maa_api/agent/knowledge/builtin/task-preconditions.md:41` [md-line] 流水线中途失败或被中止后，画面可能停在中途页面。下一条任务前先 `back_to_home` 回到主界面：`StartUp` 的第一步同样要匹配主界面标志，在游戏内页面上补它也一样匹配不到（它只负责从桌面把客户端拉起来）。
+
 **maa_api/agent/knowledge/builtin/trust-and-potential.md**
 
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:1` [md-line] ---
@@ -971,7 +998,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:21` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:22` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（257）
+## agent（259）
 
 
 **maa_api/agent/confirmation.py**
@@ -1080,24 +1107,29 @@
 
 **maa_api/agent/policy.py**
 
-- `maa_api/agent/policy.py:31` [const] set_task_params 无法确定运行中任务的类型与现有参数，按保守策略要求确认
-- `maa_api/agent/policy.py:66` [const] 与现有定时任务争抢理智：
-- `maa_api/agent/policy.py:91` [literal] {CONFLICT_REASON_PREFIX}{'、'.join(labels)}
-- `maa_api/agent/policy.py:192` [literal] {name} 属于需确认的高风险操作
-- `maa_api/agent/policy.py:200` [literal] {name} 尚未配置参数风险规则
-- `maa_api/agent/policy.py:240` [literal] 执行作业尝试需要授权：{payload['attempts']} 次以内
-- `maa_api/agent/policy.py:281` [literal] 修改账号干员数据：{count} 项改动
-- `maa_api/agent/policy.py:286` [literal] 修改账号干员数据：{count} 项改动
-- `maa_api/agent/policy.py:293` [literal] 追加
-- `maa_api/agent/policy.py:293` [literal] 替换
-- `maa_api/agent/policy.py:294` [const] 更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字
-- `maa_api/agent/policy.py:311` [literal] 、
-- `maa_api/agent/policy.py:312` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
-- `maa_api/agent/policy.py:314` [literal] ，每日 {schedule}
-- `maa_api/agent/policy.py:339` [literal] {name} 需要人工确认
-- `maa_api/agent/policy.py:372` [literal] 计划预演返回的不是映射：{type(preview).__name__}
-- `maa_api/agent/policy.py:416` [literal] 当前会话尚未获得有效的原子操作授权
-- `maa_api/agent/policy.py:551` [literal] {name} 是绕过内核识别与容错的原子操作
+- `maa_api/agent/policy.py:32` [const] set_task_params 无法确定运行中任务的类型与现有参数，按保守策略要求确认
+- `maa_api/agent/policy.py:67` [const] 与现有定时任务争抢理智：
+- `maa_api/agent/policy.py:92` [literal] {CONFLICT_REASON_PREFIX}{'、'.join(labels)}
+- `maa_api/agent/policy.py:193` [literal] {name} 属于需确认的高风险操作
+- `maa_api/agent/policy.py:201` [literal] {name} 尚未配置参数风险规则
+- `maa_api/agent/policy.py:241` [literal] 执行作业尝试需要授权：{payload['attempts']} 次以内
+- `maa_api/agent/policy.py:282` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:287` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:294` [literal] 追加
+- `maa_api/agent/policy.py:294` [literal] 替换
+- `maa_api/agent/policy.py:295` [const] 更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字
+- `maa_api/agent/policy.py:312` [literal] 、
+- `maa_api/agent/policy.py:313` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
+- `maa_api/agent/policy.py:315` [literal] ，每日 {schedule}
+- `maa_api/agent/policy.py:340` [literal] {name} 需要人工确认
+- `maa_api/agent/policy.py:373` [literal] 计划预演返回的不是映射：{type(preview).__name__}
+- `maa_api/agent/policy.py:417` [literal] 当前会话尚未获得有效的原子操作授权
+- `maa_api/agent/policy.py:552` [literal] {name} 是绕过内核识别与容错的原子操作
+
+**maa_api/agent/preconditions.py**
+
+- `maa_api/agent/preconditions.py:38` [const] 流水线里没有 StartUp：内核的任务都从主界面起手，游戏没启动或停在桌面时只会反复重试到失败。游戏状态不确定时，把 StartUp（start_game_enabled: true）放在第一条，或先让用户确认游戏已启动。
+- `maa_api/agent/preconditions.py:46` [const] 这个任务需要游戏已启动并停在主界面：先看现场截图，如果画面是设备桌面或登录页，先补一条 StartUp（start_game_enabled: true）再重跑，不要原样重试。
 
 **maa_api/agent/questions.py**
 
@@ -1122,7 +1154,7 @@
 - `maa_api/agent/runtime.py:161` [const] Agent 对话处理失败
 - `maa_api/agent/runtime.py:177` [literal] 当前模型不支持视觉输入；圈选截图已禁用
 - `maa_api/agent/runtime.py:179` [const] 当前模型不支持视觉输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:194` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 2277 字）
+- `maa_api/agent/runtime.py:194` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 2403 字）
 - `maa_api/agent/runtime.py:307` [const] [历史截图已省略
 - `maa_api/agent/runtime.py:309` [literal] ，时间 {captured_at}
 - `maa_api/agent/runtime.py:337` [literal] [截图图像当前不可用，请重新获取截图后再判断画面]
@@ -1166,13 +1198,13 @@
 
 **maa_api/agent/tools/account.py**
 
-- `maa_api/agent/tools/account.py:143` [literal] 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；数据缺失或过期时返回 suggest_recognition，用 ask_user 建议用户跑一次干员识别。
-- `maa_api/agent/tools/account.py:158` [literal] 查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；仓库数据缺失或过期时返回 suggest_recognition。
-- `maa_api/agent/tools/account.py:172` [literal] 修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。
-- `maa_api/agent/tools/account.py:186` [literal] 算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。
-- `maa_api/agent/tools/account.py:200` [literal] 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。
-- `maa_api/agent/tools/account.py:214` [literal] 查养成计划的进度：目标、还缺什么、定时任务 id 与状态。
-- `maa_api/agent/tools/account.py:225` [literal] 停止一个养成计划，并删除它对应的每日定时任务。
+- `maa_api/agent/tools/account.py:143` [literal] 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；数据缺失或过期时返回 suggest_recognition，用 ask_user 建议用户跑一次干员识别；识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task…（共 176 字）
+- `maa_api/agent/tools/account.py:159` [literal] 查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；仓库数据缺失或过期时返回 suggest_recognition；识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。
+- `maa_api/agent/tools/account.py:174` [literal] 修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。
+- `maa_api/agent/tools/account.py:188` [literal] 算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。
+- `maa_api/agent/tools/account.py:202` [literal] 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。
+- `maa_api/agent/tools/account.py:216` [literal] 查养成计划的进度：目标、还缺什么、定时任务 id 与状态。
+- `maa_api/agent/tools/account.py:227` [literal] 停止一个养成计划，并删除它对应的每日定时任务。
 
 **maa_api/agent/tools/activity.py**
 
@@ -1257,15 +1289,15 @@
 
 **maa_api/agent/tools/pipeline.py**
 
-- `maa_api/agent/tools/pipeline.py:78` [literal] 列出 MAA 支持的任务类型、每个任务能填哪些参数，以及运行中改不了的字段。不确定任务名或参数名时用。
-- `maa_api/agent/tools/pipeline.py:87` [literal] 查一条流水线的详情和每个任务的状态。用户问进度、或要看某个任务卡在哪时用。
-- `maa_api/agent/tools/pipeline.py:97` [literal] 等一条流水线结束（完成、失败或取消）或超时再拿结果。提交流水线后需要等结果时用，不要反复调用 get_pipeline。
-- `maa_api/agent/tools/pipeline.py:108` [literal] 翻流水线执行历史。用户问以前跑过什么、上次结果如何时用。
-- `maa_api/agent/tools/pipeline.py:117` [literal] 看当前在跑什么、队列里还排着哪些、按什么优先级排。用户问「还要等多久」时用。
-- `maa_api/agent/tools/pipeline.py:126` [literal] 把任务提交成一条流水线，这是实际动手的入口。提交前先确认设备已连接、参数都来自用户。
-- `maa_api/agent/tools/pipeline.py:134` [literal] 停止当前运行中的流水线。这是不需要确认的救援动作，用户喊停或任务明显跑偏时直接调用。
-- `maa_api/agent/tools/pipeline.py:142` [literal] 改运行中任务支持热更新的参数（消耗类参数仍要确认）。用户想在中途调次数或关卡时用。
-- `maa_api/agent/tools/pipeline.py:150` [literal] 清掉排队中的流水线，正在执行的那条不受影响。用户改主意、不想跑排队的任务时用。
+- `maa_api/agent/tools/pipeline.py:80` [literal] 列出 MAA 支持的任务类型、每个任务能填哪些参数，以及运行中改不了的字段。不确定任务名或参数名时用。
+- `maa_api/agent/tools/pipeline.py:89` [literal] 查一条流水线的详情和每个任务的状态。用户问进度、或要看某个任务卡在哪时用。
+- `maa_api/agent/tools/pipeline.py:99` [literal] 等一条流水线结束（完成、失败或取消）或超时再拿结果。提交流水线后需要等结果时用，不要反复调用 get_pipeline。失败时先看现场截图判断是不是游戏没启动：画面是设备桌面或登录页就先补 StartUp。
+- `maa_api/agent/tools/pipeline.py:111` [literal] 翻流水线执行历史。用户问以前跑过什么、上次结果如何时用。
+- `maa_api/agent/tools/pipeline.py:120` [literal] 看当前在跑什么、队列里还排着哪些、按什么优先级排。用户问「还要等多久」时用。
+- `maa_api/agent/tools/pipeline.py:130` [literal] 把任务提交成一条流水线，这是实际动手的入口。内核任务都从主界面起手，只有 StartUp 会拉起客户端；游戏状态不确定时把 StartUp（start_game_enabled: true）放第一条。提交前先确认设备已连接、参数都来自用户。
+- `maa_api/agent/tools/pipeline.py:142` [literal] 停止当前运行中的流水线。这是不需要确认的救援动作，用户喊停或任务明显跑偏时直接调用。
+- `maa_api/agent/tools/pipeline.py:150` [literal] 改运行中任务支持热更新的参数（消耗类参数仍要确认）。用户想在中途调次数或关卡时用。
+- `maa_api/agent/tools/pipeline.py:158` [literal] 清掉排队中的流水线，正在执行的那条不受影响。用户改主意、不想跑排队的任务时用。
 
 **maa_api/agent/tools/raw.py**
 

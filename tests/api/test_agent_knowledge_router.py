@@ -62,8 +62,10 @@ BUILTIN_IDS = {
     "trust-and-potential",
     # M24 新增的 1 条
     "activity-stage-codes",
+    # M32 新增的 1 条
+    "task-preconditions",
 }
-#: 32 条内置条目在列表里的顺序：先 kind（playbook/screen/rule/glossary/profile），
+#: 33 条内置条目在列表里的顺序（M32 起；M24 起为 32 条）：先 kind（playbook/screen/rule/glossary/profile），
 #: 同 kind 按 id。
 BUILTIN_LIST_ORDER = [
     "account-resources",
@@ -73,6 +75,7 @@ BUILTIN_LIST_ORDER = [
     "playbook-promotion-planning",
     "playbook-recruit",
     "playbook-sanity-planning",
+    "task-preconditions",
     "screen-depot",
     "screen-headhunt",
     "screen-home",

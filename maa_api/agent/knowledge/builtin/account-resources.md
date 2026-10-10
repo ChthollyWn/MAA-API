@@ -8,7 +8,7 @@ when_to_use: 用户问合成玉、至纯源石、龙门币、寻访凭证、抽�
 - 有流水线在跑、设备未连接、不支持视觉输入时按同一套处理：先说明在跑什么、问他是等它结束还是稍后再查；征得同意后 reconnect_device；读不了画面上的数字就建议在设置里换用支持视觉的模型。
 
 ## 读取首页货币
-1. submit_pipeline 提交 [{"name": "StartUp", "start_game_enabled": true}]，客户端版本不填，用全局默认值。
+1. submit_pipeline 提交 [{"name": "StartUp", "start_game_enabled": true}]，客户端版本不填，用全局默认值。这一条同时是所有游戏内任务的前提（见 task-preconditions）：游戏没启动时其它任务只会重试到失败。
 2. wait_pipeline 等它结束。失败或被取消时说明原因并停止，不要改用原子操作硬闯。
 3. back_to_home，然后 get_screenshot。
 4. 按 screen-home 的位置读顶栏的龙门币、合成玉、至纯源石。读完先在回复里写出三个数，再做下一步。

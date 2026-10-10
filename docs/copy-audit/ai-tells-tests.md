@@ -1,12 +1,12 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 5970 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 5982 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 68 | 68 |
-| 绝对化规定腔 | medium | 0 | 65 | 65 |
+| 粗体强调 | medium | 0 | 69 | 69 |
+| 绝对化规定腔 | medium | 0 | 66 | 66 |
 | 「A 而不是 B」对照腔 | high | 0 | 46 | 46 |
 | 破折号当冒号用 | high | 0 | 46 | 46 |
 | 自指式讲解腔 | medium | 0 | 10 | 10 |
@@ -17,7 +17,7 @@
 | 提示腔 | medium | 0 | 1 | 1 |
 | emoji/符号装饰 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 68）
+## 粗体强调（medium｜用户可见 0 / 开发向 69）
 
 **开发向**
 
@@ -26,31 +26,31 @@
 - `tests/agent/test_game_entity_tools.py:1` M26 的四个游戏数据工具（规格 §6.1、§6.3–§6.5）。 `get_operator`、`get_enemy`、`get_item`、`get_drop_rates` 的注册与参数校验走真注册表； 工具与领域层之间用**假的服务对…（共 403 字）
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
 - `tests/agent/test_knowledge_no_numbers.py:1` M30 T4：「无数值」检查测试（规格 §10.3、§10.1）。 规格 ``docs/superpowers/specs/2026-10-09-m25-prts-knowledge.md`` §10.1 把内置知识条目的 数值口径定成「数…（共 807 字）
-- `tests/agent/test_knowledge_no_numbers.py:204` MAA 操作参数里的固定招募时长（Recruit 固定填 `9:00:00`，T1-a §5 第 6 条豁免它）。注意「时长档位 → 稀有度下限」那张表 T1-a §5 明确**不豁免**：`1:00:00` 也不在白名单里（除非它出现在 …（共 134 字）
-- …… 另有 62 条，见 inventory.json
+- `tests/agent/test_knowledge_no_numbers.py:205` MAA 操作参数里的固定招募时长（Recruit 固定填 `9:00:00`，T1-a §5 第 6 条豁免它）。注意「时长档位 → 稀有度下限」那张表 T1-a §5 明确**不豁免**：`1:00:00` 也不在白名单里（除非它出现在 …（共 134 字）
+- …… 另有 63 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 65）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 66）
 
 **开发向**
 
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
-- `tests/agent/test_knowledge_no_numbers.py:165` 界面比例与坐标：screen-* 用「约占横向 50%–93%、纵向 4%–14%」「横向 93%、纵向 89%」描述可点区域，是操作坐标而非游戏数值（T1-b §5 风险 1 明确要求豁免）。判据就是任务书写的「界面描述语境」：必须带 `…（共 179 字）
-- `tests/agent/test_knowledge_no_numbers.py:184` 行内代码：backtick 包起来的一律是工具名、字段名、条目 id 或参数值（`get_prts_page`、`threshold`、`series`、`mode`、`medicine`、`plan_index`、`screen-home…（共 209 字）
-- `tests/agent/test_knowledge_no_numbers.py:573` 规格 §10.3 T4：正文不得出现「数字 + 游戏单位」。
-- `tests/agent/test_knowledge_service.py:1281` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
+- `tests/agent/test_knowledge_no_numbers.py:166` 界面比例与坐标：screen-* 用「约占横向 50%–93%、纵向 4%–14%」「横向 93%、纵向 89%」描述可点区域，是操作坐标而非游戏数值（T1-b §5 风险 1 明确要求豁免）。判据就是任务书写的「界面描述语境」：必须带 `…（共 179 字）
+- `tests/agent/test_knowledge_no_numbers.py:185` 行内代码：backtick 包起来的一律是工具名、字段名、条目 id 或参数值（`get_prts_page`、`threshold`、`series`、`mode`、`medicine`、`plan_index`、`screen-home…（共 209 字）
+- `tests/agent/test_knowledge_no_numbers.py:574` 规格 §10.3 T4：正文不得出现「数字 + 游戏单位」。
+- `tests/agent/test_knowledge_service.py:1287` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
 - `tests/agent/test_llm.py:341` 模型名写错时要能在 details 里看到上游原话，且凭据不得回显。
-- …… 另有 59 条，见 inventory.json
+- …… 另有 60 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 46）
 
 **开发向**
 
 - `tests/agent/test_activity_tools.py:377` 没有装配索引、默认门面也读不到资源时，报的是资源不可用而不是空结果。
-- `tests/agent/test_knowledge_no_numbers.py:165` 界面比例与坐标：screen-* 用「约占横向 50%–93%、纵向 4%–14%」「横向 93%、纵向 89%」描述可点区域，是操作坐标而非游戏数值（T1-b §5 风险 1 明确要求豁免）。判据就是任务书写的「界面描述语境」：必须带 `…（共 179 字）
-- `tests/agent/test_knowledge_no_numbers.py:221` 星级/稀有度/精英阶段/技能等级序号：`1★–6★`、`6★`、`3 星通关`、`精英阶段 0 / 1 / 2`、`精一 / 精二`、`专一~专三`、`技能 1/2/3`、`Lv.` 后跟符号占位。它们是分类标签而非数值；T1-a §5 把…（共 227 字）
-- `tests/agent/test_knowledge_no_numbers.py:261` Markdown 列表项与标题里的序号（`1.`、`-`、`## 第 1 步`）：属于排版而不是数值。只豁免行首那截标记，`- 135 理智` 这种行里的数值仍会命中。
-- `tests/agent/test_knowledge_no_numbers.py:345` 扫一行，返回**全部**候选；被豁免的候选 ``rule_id`` 非 None，其余是命中。 保留两类「整行豁免」：围栏代码块与跨行代码（奇数个反引号）的行，内容是工具调用 示例而不是知识正文；这类行的候选统一记到对应规则名下，便于白名单…（共 171 字）
-- `tests/agent/test_knowledge_service.py:1281` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
+- `tests/agent/test_knowledge_no_numbers.py:166` 界面比例与坐标：screen-* 用「约占横向 50%–93%、纵向 4%–14%」「横向 93%、纵向 89%」描述可点区域，是操作坐标而非游戏数值（T1-b §5 风险 1 明确要求豁免）。判据就是任务书写的「界面描述语境」：必须带 `…（共 179 字）
+- `tests/agent/test_knowledge_no_numbers.py:222` 星级/稀有度/精英阶段/技能等级序号：`1★–6★`、`6★`、`3 星通关`、`精英阶段 0 / 1 / 2`、`精一 / 精二`、`专一~专三`、`技能 1/2/3`、`Lv.` 后跟符号占位。它们是分类标签而非数值；T1-a §5 把…（共 227 字）
+- `tests/agent/test_knowledge_no_numbers.py:262` Markdown 列表项与标题里的序号（`1.`、`-`、`## 第 1 步`）：属于排版而不是数值。只豁免行首那截标记，`- 135 理智` 这种行里的数值仍会命中。
+- `tests/agent/test_knowledge_no_numbers.py:346` 扫一行，返回**全部**候选；被豁免的候选 ``rule_id`` 非 None，其余是命中。 保留两类「整行豁免」：围栏代码块与跨行代码（奇数个反引号）的行，内容是工具调用 示例而不是知识正文；这类行的候选统一记到对应规则名下，便于白名单…（共 171 字）
+- `tests/agent/test_knowledge_service.py:1287` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
 - …… 另有 40 条，见 inventory.json
 
 ## 破折号当冒号用（high｜用户可见 0 / 开发向 46）
@@ -58,7 +58,7 @@
 **开发向**
 
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
-- `tests/agent/test_knowledge_no_numbers.py:478` ``numbers_to_remove`` 里挑出来的真实数值片段 ``(来源, 片段)``。 复核报告这些字段是描述性短语，必须挑掉带注释（→、括号、分号）与不以数值为主体的 条目，只留下「数字 + 单位」或裸百分比形态的片段——它们必须…（共 142 字）
+- `tests/agent/test_knowledge_no_numbers.py:479` ``numbers_to_remove`` 里挑出来的真实数值片段 ``(来源, 片段)``。 复核报告这些字段是描述性短语，必须挑掉带注释（→、括号、分号）与不以数值为主体的 条目，只留下「数字 + 单位」或裸百分比形态的片段——它们必须…（共 142 字）
 - `tests/agent/test_policy_account_write.py:1` 养成计划确认卡片（M31 补口，规格 §7.7）：预演进 payload、冲突进 reasons。 M27 的确认卡片只有 ``summary`` / ``targets`` / ``run_times``，用户按下确认之前看不到 「会和现…（共 374 字）
 - `tests/agent/test_policy_account_write.py:148` 条目的字段缺一个就用另一边，全缺就跳过——不能让确认卡片多一行空话。
 - `tests/agent/test_runtime.py:3461` 规格 §5：批次中途中断后每个 ``tool_calls`` 都有对应 tool 消息。 中断点由测试控制：第一条 tool 消息落库之后、第二条之前挂住这一轮，正好落在 「补历史」的中间窗口上——这是最容易补重复或漏补的一条路径。

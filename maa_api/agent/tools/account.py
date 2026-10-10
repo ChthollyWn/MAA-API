@@ -142,7 +142,8 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），"
                 "以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；"
-                "数据缺失或过期时返回 suggest_recognition，用 ask_user 建议用户跑一次干员识别。"
+                "数据缺失或过期时返回 suggest_recognition，用 ask_user 建议用户跑一次干员识别；"
+                "识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。"
             ),
             params_model=GetOperatorBoxParams,
             handler=get_operator_box,
@@ -156,7 +157,8 @@ def register_tools(registry: ToolRegistry) -> None:
             risk=ToolRisk.SAFE,
             description=(
                 "查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；"
-                "仓库数据缺失或过期时返回 suggest_recognition。"
+                "仓库数据缺失或过期时返回 suggest_recognition；"
+                "识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。"
             ),
             params_model=GetDepotParams,
             handler=get_depot,

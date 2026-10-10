@@ -26,7 +26,7 @@ when_to_use: 用户要你自动公开招募、指定想招的星数或职业、�
 - `report_to_penguin` / `report_to_yituliu` 及对应 id 按用户已有设置，不要自作主张打开。
 
 ## 提交流水线
-1. submit_pipeline，tasks 里只放需要的那一个 `{"name": "Recruit", ...}`，不要塞 StartUp、Fight 等无关任务。
+1. submit_pipeline，tasks 里只放需要的那一个 `{"name": "Recruit", ...}`，不要塞用户没要求的 Fight、Infrast 等业务任务；游戏没启动时第一条要加 `{"name": "StartUp", "start_game_enabled": true}`（前提见 task-preconditions）。
 2. expedite=true 时会触发人工确认；先告诉用户这一步会消耗加急许可。
 3. wait_pipeline 等终态，不要反复 get_pipeline 轮询。
 4. 失败或被取消就说明原因并停下，不要改用 click 硬闯公招界面；用户坚持时才用原子操作，且第一次点击会弹出会话授权确认。

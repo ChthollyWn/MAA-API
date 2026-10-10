@@ -21,7 +21,7 @@ when_to_use: 用户要刷材料、推主线、打活动或剿灭，需要安排�
 - 想确认「理智够不够打 N 次」先自己算：⌊当前理智 ÷ `get_stage` 返回的 `sanity`⌋，再和用户要的次数比。
 
 ## 4. submit_pipeline 提交 Fight
-- 形如 `submit_pipeline(tasks=[{"name": "Fight", "stage": "<关卡>", "times": N, "series": 0}])`；一次流水线 1~32 个任务。
+- 形如 `submit_pipeline(tasks=[{"name": "Fight", "stage": "<关卡>", "times": N, "series": 0}])`；一次流水线 1~32 个任务；游戏没启动时第一条放 `{"name": "StartUp", "start_game_enabled": true}`（见 task-preconditions）。
 - 关键参数怎么填：
   - `stage`：关卡名；剿灭必须 `Annihilation`；当期 SideStory 的后三关必须写完整关卡编号；结尾可加 `Normal` / `Hard` 切换标准与磨难难度。
   - `times`：战斗次数。不传等于交给内核的默认值（无穷大），会一直刷到理智耗尽——要么按用户说的次数传，要么明确告诉用户这是无限刷。
