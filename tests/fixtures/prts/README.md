@@ -38,3 +38,12 @@
 抓取方式同 M25：`scripts/fetch_m26_fixtures.py`（`action=query&prop=revisions&redirects=1`）。
 实测：干员页的 `稀有度` 从 0 开始（`5` = 6★）；材料消耗写作 `{{材料消耗|龙门币|3w}}`（`w` = 万）；
 敌人页只有级别 0 与级别 1 两级，级别 1 只写与级别 0 不同的字段。
+
+## M28 追加（2026-10-10）
+
+| 文件 | 来源与抓取方式 | 抓取日期 |
+|---|---|---|
+| `ask_gacha_pools.json` | `GET https://prts.wiki/api.php?action=ask&query=[[寻访开启时间cn::+]]\|?寻访名cn\|?寻访开启时间cn\|?寻访关闭时间cn\|?出率提升干员\|sort=寻访开启时间cn\|order=desc\|limit=20`，结果裁到最近 6 条（卡池数据实测挂在 `文件:` 页上） | 2026-10-10 |
+| `story_1-1_beg.wikitext` | `action=query&prop=revisions&rvprop=content\|ids\|timestamp&rvslots=main&redirects=1&titles=1-1 孤岛/BEG` 的裸 wikitext（revid 426748） | 2026-10-10 |
+
+抓取方式同 M25/M26 的 httpx 脚本（`action=ask` 与 `action=query&prop=revisions`）。

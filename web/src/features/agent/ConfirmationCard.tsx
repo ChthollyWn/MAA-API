@@ -25,6 +25,14 @@ export interface ConfirmationCardProps {
 const ACCOUNT_TOOL_TITLES: Record<string, string> = {
   update_operator_box: '修改账号干员数据',
   start_upgrade_plan: '启动养成计划',
+  update_user_profile: '修改用户档案',
+}
+
+interface ProfileDiffRow {
+  section: string
+  from: unknown
+  to: unknown
+  mode: string
 }
 
 interface OperatorDiffRow {
@@ -44,6 +52,22 @@ export function parseOperatorDiff(payload: Record<string, unknown>): OperatorDif
   return rows.flatMap((row) => {
     if (!isRecord(row) || typeof row.operator !== 'string' || typeof row.field !== 'string') return []
     return [{ operator: row.operator, field: row.field, from: row.from, to: row.to }]
+  })
+}
+
+/** `update_user_profile` 的 `payload.diff`：`[{section, from, to, mode}]`（§8.3）。 */
+export function parseProfileDiff(payload: Record<string, unknown>): ProfileDiffRow[] {
+  const rows = Array.isArray(payload.diff) ? payload.diff : []
+  return rows.flatMap((row) => {
+    if (!isRecord(row) || typeof row.section !== 'string') return []
+    return [
+      {
+        section: row.section,
+        from: row.from,
+        to: row.to,
+        mode: typeof row.mode === 'string' ? row.mode : 'replace',
+      },
+    ]
   })
 }
 
@@ -120,6 +144,7 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
   // 账号数据的两类确认（§7.4、§7.7）：渲染差异/摘要，不展开成 JSON。
   const operatorDiff = toolName === 'update_operator_box' ? parseOperatorDiff(payload) : []
   const upgradePlan = toolName === 'start_upgrade_plan' ? parseUpgradePlan(payload) : null
+  const profileDiff = toolName === 'update_user_profile' ? parseProfileDiff(payload) : []
   const reason = reasonText(payload)
   const grant = detail?.action === 'grant_atomic_ops'
   const approved = detail?.status === 'approved'
@@ -170,6 +195,29 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
                     <span aria-hidden="true" className="px-1 text-muted-foreground">→</span>
                     <span className="font-medium">{diffValueText(row.field, row.to)}</span>
                   </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {profileDiff.length ? (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">用户档案改动</p>
+            <ul aria-label="用户档案改动" className="space-y-2">
+              {profileDiff.map((row, index) => (
+                <li key={`${row.section}-${index}`} className="rounded-lg border p-2.5">
+                  <p className="text-sm font-medium">
+                    {row.section}
+                    <span className="pl-2 text-footnote font-normal text-muted-foreground">
+                      {row.mode === 'append' ? '追加' : '替换'}
+                    </span>
+                  </p>
+                  {row.from ? (
+                    <p className="whitespace-pre-wrap break-words text-footnote text-muted-foreground line-through">
+                      {String(row.from)}
+                    </p>
+                  ) : null}
+                  <p className="whitespace-pre-wrap break-words text-footnote">{String(row.to ?? '')}</p>
                 </li>
               ))}
             </ul>

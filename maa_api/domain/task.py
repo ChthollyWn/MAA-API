@@ -46,10 +46,17 @@ __all__ = [
     "RECLAMATION_THEMES",
     "RISK_CONSUME",
     "RISK_FIELDS",
+    "ROGUELIKE_BLACKFLOW_STRATEGIES",
+    "ROGUELIKE_COMMON_MODES",
+    "ROGUELIKE_CULTIVATION_TARGETS",
+    "ROGUELIKE_MODES",
     "ROGUELIKE_THEMES",
+    "ROGUELIKE_THEME_MODES",
     "RUNTIME_IMMUTABLE",
     "RecruitInput",
     "ReclamationInput",
+    "RoguelikeCollectibleStartList",
+    "RoguelikeCoreChar",
     "RoguelikeInput",
     "SERVERS",
     "TASK_LABELS",
@@ -70,14 +77,17 @@ CLIENT_TYPES = Literal["Official", "Bilibili", "txwy", "YoStarEN", "YoStarJP", "
 #: 服务器枚举（4 值），影响掉落识别与数据上传。
 SERVERS = Literal["CN", "US", "JP", "KR"]
 
-#: 肉鸽主题枚举（4 值），来自 ``RoguelikeTask`` docstring。
-ROGUELIKE_THEMES = Literal["Phantom", "Mizuki", "Sami", "Sarkaz"]
+#: 肉鸽主题枚举（6 值），来自 ``RoguelikeTask`` docstring 与上游集成文档 v6.18.0。
+ROGUELIKE_THEMES = Literal["Phantom", "Mizuki", "Sami", "Sarkaz", "JieGarden", "BlackFlow"]
 
 #: 生息演算主题枚举（2 值）。
 RECLAMATION_THEMES = Literal["Fire", "Tales"]
 
-#: 基建换班设施枚举（7 值，顺序即换班顺序）。
-INFRAST_FACILITIES = Literal["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"]
+#: 基建换班设施枚举（9 值，顺序即换班顺序）。上游集成文档 v6.18.0 的 `facility` 还有
+#: `AssistantChange`（换助战），它不是房间、不参与换班顺序，本服务不支持。
+INFRAST_FACILITIES = Literal[
+    "Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm", "Processing", "Training"
+]
 
 #: 设施枚举的中文标签。挂在 ``facility`` 的**元素**注解上走 ``x-enum-labels``：
 #: 前端 ``arrayItemOptions()`` 读的是 items 的标签，字段级标签对数组不生效。
@@ -89,6 +99,8 @@ INFRAST_FACILITY_LABELS: dict[str, str] = {
     "Reception": "会客室",
     "Office": "办公室",
     "Dorm": "宿舍",
+    "Processing": "加工站",
+    "Training": "训练室",
 }
 
 #: 无人机用途枚举（7 值）。
@@ -566,7 +578,7 @@ class InfrastInput(TaskInputBase):
         default=["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"],
         label="要换班的设施（有序）",
         widget="ordered-list",
-        description="要换班的设施，顺序即换班顺序，默认全部（不支持运行中设置）",
+        description="要换班的设施，顺序即换班顺序；默认不含加工站与训练室（不支持运行中设置）",
     )
     drones: INFRAST_DRONES | None = MaaField(
         default="_NotUse",
@@ -738,12 +750,77 @@ class AwardInput(TaskInputBase):
     )
 
 
+#: 肉鸽模式枚举（11 值，含两个「能提交但会被校验器拒绝」的值）。
+#:
+#: 上游 ``RoguelikeConfig.h`` 的 ``is_valid_mode``：通用模式是 0/1/4/6/7；
+#: 5 仅 Sami、10001 仅 Sarkaz、20001 仅 JieGarden、30001 仅 BlackFlow；
+#: BlackFlow 只接受 0/1/30001。2 已被上游移除、3 尚未开放，留在这里只为给出
+#: 「已弃用」与「开发中」两种具体错误（否则会落成 pydantic 的 literal_error）。
+ROGUELIKE_MODES = Literal[0, 1, 2, 3, 4, 5, 6, 7, 10001, 20001, 30001]
+
+#: 各主题允许的模式（``RoguelikeConfig.h::is_valid_mode``）。
+ROGUELIKE_COMMON_MODES: frozenset[int] = frozenset({0, 1, 4, 6, 7})
+ROGUELIKE_THEME_MODES: dict[str, frozenset[int]] = {
+    "Phantom": ROGUELIKE_COMMON_MODES,
+    "Mizuki": ROGUELIKE_COMMON_MODES,
+    "Sami": ROGUELIKE_COMMON_MODES | {5},
+    "Sarkaz": ROGUELIKE_COMMON_MODES | {10001},
+    "JieGarden": ROGUELIKE_COMMON_MODES | {20001},
+    "BlackFlow": frozenset({0, 1, 30001}),
+}
+
+#: 黑流树海策略（上游集成文档 v6.18.0；留空时内核按 ``mode`` 与 ``investment_enabled`` 推断）。
+ROGUELIKE_BLACKFLOW_STRATEGIES = Literal[
+    "baby_animal", "investment", "burn_with_investment", "burn"
+]
+
+#: 刷襁褓动物的目标（``blackflow_strategy=baby_animal``）。
+ROGUELIKE_CULTIVATION_TARGETS = Literal[
+    "swaddled_cat", "swaddled_feathered_serpent", "swaddled_dog", "swaddled_cerberus"
+]
+
+
+class RoguelikeCoreChar(BaseModel):
+    """``core_char_list`` 的一项：开局第 N 次招募指定的一名干员。"""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    name: str = MaaField(
+        max_length=32,
+        label="干员中文名",
+        description="干员中文名，无论区服",
+    )
+    use_support: bool = MaaField(
+        default=False,
+        label="借助战",
+        description="这一顺位使用助战干员",
+    )
+
+
+class RoguelikeCollectibleStartList(BaseModel):
+    """``collectible_mode_start_list``：凹开局时期望的开局奖励，默认全部关闭。"""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    hot_water: bool = MaaField(default=False, label="热水壶", description="热水壶奖励（通用）")
+    shield: bool = MaaField(default=False, label="护盾", description="护盾奖励，约等于额外生命（通用）")
+    ingot: bool = MaaField(default=False, label="源石锭", description="源石锭奖励（通用）")
+    hope: bool = MaaField(default=False, label="希望", description="希望奖励（通用；界园主题没有）")
+    random: bool = MaaField(default=False, label="随机收藏品", description="用全部源石锭换随机收藏品（通用）")
+    key: bool = MaaField(default=False, label="钥匙", description="钥匙奖励（仅水月主题）")
+    dice: bool = MaaField(default=False, label="骰子", description="骰子奖励（仅水月主题）")
+    ideas: bool = MaaField(default=False, label="构想", description="2 构想奖励（仅萨卡兹主题）")
+    ticket: bool = MaaField(default=False, label="票券", description="票券奖励（仅界园主题）")
+
+
 class RoguelikeInput(TaskInputBase):
     """无限刷肉鸽（集成战略）。
 
     主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError``
     （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PARAM_DEPRECATED``）
-    ——「设了但不生效」必须在提交时就告诉用户，而不是静默忽略。
+    ——「设了但不生效」必须在提交时就告诉用户，而不是静默忽略。矩阵对齐上游
+    ``RoguelikeConfig.cpp``：模式按主题收口，``start_with_elite_two`` 只许 ``mode=4``，
+    ``difficulty`` 在 Phantom 下也允许（``-1`` 表示不指定）。
     """
 
     model_config = _task_config(
@@ -761,6 +838,17 @@ class RoguelikeInput(TaskInputBase):
             "check_collapsal_paradigms": True,
             "expected_collapsal_paradigms": ["目空一些", "睁眼瞎"],
         },
+        {
+            "name": "Roguelike",
+            "theme": "Sarkaz",
+            "mode": 4,
+            "core_char_list": [
+                {"name": "维什戴尔", "use_support": True},
+                {"name": "古米", "use_support": False},
+            ],
+            "start_with_elite_two": True,
+            "collectible_mode_start_list": {"hot_water": True, "shield": True},
+        },
     )
 
     name: Literal["Roguelike"] = MaaField(
@@ -777,10 +865,12 @@ class RoguelikeInput(TaskInputBase):
             "Mizuki": "水月与深蓝之树",
             "Sami": "探索者的银凇止境",
             "Sarkaz": "萨卡兹的无终奇语",
+            "JieGarden": "岁的界园志异",
+            "BlackFlow": "黑流树海",
         },
         description="要刷的肉鸽主题（默认傀影与猩红孤钻）",
     )
-    mode: Literal[0, 1, 2, 3, 4, 5] | None = MaaField(
+    mode: ROGUELIKE_MODES | None = MaaField(
         default=0,
         label="模式",
         widget="select",
@@ -791,6 +881,11 @@ class RoguelikeInput(TaskInputBase):
             "3": "开发中（无法提交）",
             "4": "凹开局",
             "5": "刷坍缩范式（仅 Sami）",
+            "6": "刷月度小队",
+            "7": "刷深入调查",
+            "10001": "快速通过第一层（仅 Sarkaz）",
+            "20001": "刷常乐节点（仅 JieGarden）",
+            "30001": "刷襁褓动物（仅 BlackFlow）",
         },
         description="肉鸽的玩法模式（默认刷分/奖励点数）",
     )
@@ -808,7 +903,13 @@ class RoguelikeInput(TaskInputBase):
         default=None,
         label="开局干员名",
         group="开局",
-        description="开局要借的干员中文名；不填则由内核自动选择",
+        description="开局要借的干员中文名；不填由内核按练度选择",
+    )
+    core_char_list: list[RoguelikeCoreChar] | None = MaaField(
+        default=None,
+        label="开局干员顺位",
+        group="开局",
+        description="按顺位指定开局干员，最多三个，职业不能相同",
     )
     use_support: bool | None = MaaField(
         default=False,
@@ -833,14 +934,15 @@ class RoguelikeInput(TaskInputBase):
         default=None,
         label="指定难度等级",
         group="开局",
-        ge=0,
-        description="仅用于傀影以外的主题；不填则选已解锁的最高难度",
+        ge=-1,
+        description="指定难度等级；-1 表示不指定（默认不指定）",
     )
     start_with_elite_two: bool | None = MaaField(
         default=False,
         label="凹干员精二直升",
         group="开局",
-        description="凹开局时顺便凹精二直升（仅「凹开局」，默认关闭）",
+        depends_on={"mode": 4},
+        description="凹开局时顺便凹精二直升（仅凹开局模式）",
     )
     only_start_with_elite_two: bool | None = MaaField(
         default=False,
@@ -864,18 +966,95 @@ class RoguelikeInput(TaskInputBase):
         depends_on={"theme": "Sami", "mode": 4},
         description="开局奖励想要的密文板；需搭配「生活至上分队」",
     )
+    collectible_mode_shopping: bool | None = MaaField(
+        default=False,
+        label="凹开局启用购物",
+        group="凹开局",
+        depends_on={"mode": 4},
+        description="凹开局时也购物（默认关闭）",
+    )
+    collectible_mode_squad: str | None = MaaField(
+        default=None,
+        label="凹开局分队",
+        group="凹开局",
+        depends_on={"mode": 4},
+        description="凹开局使用的分队；不填与开局分队相同",
+    )
+    collectible_mode_start_list: RoguelikeCollectibleStartList | None = MaaField(
+        default=None,
+        label="凹开局期望的奖励",
+        group="凹开局",
+        depends_on={"mode": 4},
+        description="凹开局期望的奖励，默认全部关闭",
+    )
     use_foldartal: bool | None = MaaField(
         default=None,
         label="使用密文板",
         group="主题专属",
         depends_on={"theme": "Sami"},
-        description="是否使用密文板；不填由内核按模式决定（刷坍缩范式默认关闭）",
+        description="是否使用密文板；不填由内核按模式决定",
     )
     stop_at_final_boss: bool | None = MaaField(
         default=False,
         label="第 5 层险路恶敌前停止",
         group="主题专属",
-        description="仅用于傀影以外的主题，第 5 层险路恶敌前停止（默认关闭）",
+        description="第 5 层险路恶敌前停止；不适用于 Phantom",
+    )
+    stop_at_max_level: bool | None = MaaField(
+        default=False,
+        label="等级刷满后停止",
+        group="主题专属",
+        description="肉鸽等级刷满后停止任务（默认关闭）",
+    )
+    refresh_trader_with_dice: bool | None = MaaField(
+        default=False,
+        label="用骰子刷新商店",
+        group="主题专属",
+        depends_on={"theme": "Mizuki"},
+        description="用骰子刷新商店，用于刷指路鳞（默认关闭）",
+    )
+    start_with_seed: str | None = MaaField(
+        default=None,
+        label="固定种子",
+        group="主题专属",
+        description="用固定种子刷钱；留空则不启用",
+    )
+    blackflow_strategy: ROGUELIKE_BLACKFLOW_STRATEGIES | None = MaaField(
+        default=None,
+        label="黑流树海策略",
+        group="主题专属",
+        widget="select",
+        depends_on={"theme": "BlackFlow"},
+        enum_labels={
+            "baby_animal": "培育襁褓动物",
+            "investment": "第一层投资",
+            "burn_with_investment": "投资后速通第三层",
+            "burn": "速通第三层",
+        },
+        description="黑流树海的策略；不填按模式与投资推断",
+    )
+    blackflow_cultivation_target: ROGUELIKE_CULTIVATION_TARGETS | None = MaaField(
+        default=None,
+        label="襁褓动物目标",
+        group="主题专属",
+        widget="select",
+        depends_on={"blackflow_strategy": "baby_animal"},
+        enum_labels={
+            "swaddled_cat": "襁褓猫",
+            "swaddled_feathered_serpent": "襁褓羽蛇",
+            "swaddled_dog": "襁褓狗",
+            "swaddled_cerberus": "襁褓三头犬",
+        },
+        description="刷襁褓动物的目标（默认襁褓猫）",
+    )
+    find_playTime_target: Literal[1, 2, 3] | None = MaaField(
+        default=None,
+        label="常乐节点目标",
+        group="主题专属",
+        widget="select",
+        depends_on={"mode": 20001},
+        enum_labels={"1": "令（掷地有声）", "2": "黍（种因得果）", "3": "年（三缺一）"},
+        description="想刷的常乐节点（刷常乐节点模式必填）",
     )
     investment_enabled: bool | None = MaaField(
         default=True,
@@ -896,19 +1075,40 @@ class RoguelikeInput(TaskInputBase):
         group="投资",
         description="投资满后自动停止任务（默认关闭）",
     )
-    refresh_trader_with_dice: bool | None = MaaField(
+    investment_with_more_score: bool | None = MaaField(
         default=False,
-        label="用骰子刷新商店",
-        group="主题专属",
-        depends_on={"theme": "Mizuki"},
-        description="用骰子刷新商店，用于刷指路鳞（默认关闭）",
+        label="投资后再购物",
+        group="投资",
+        depends_on={"mode": 1},
+        description="投资后顺便购物（仅刷源石锭模式）",
+    )
+    monthly_squad_auto_iterate: bool | None = MaaField(
+        default=None,
+        label="月度小队自动切换",
+        group="月度与调查",
+        depends_on={"mode": 6},
+        description="月度小队自动切换（仅刷月度小队模式）",
+    )
+    monthly_squad_check_comms: bool | None = MaaField(
+        default=None,
+        label="把月度小队通信作为切换依据",
+        group="月度与调查",
+        depends_on={"mode": 6},
+        description="把月度小队通信也作为切换依据（默认关闭）",
+    )
+    deep_exploration_auto_iterate: bool | None = MaaField(
+        default=None,
+        label="深入调查自动切换",
+        group="月度与调查",
+        depends_on={"mode": 7},
+        description="深入调查自动切换（仅刷深入调查模式）",
     )
     check_collapsal_paradigms: bool | None = MaaField(
         default=None,
         label="检测坍缩范式",
         group="坍缩范式",
         depends_on={"theme": "Sami"},
-        description="检测拿到的坍缩范式；不填由内核按模式决定（刷坍缩范式默认开启）",
+        description="检测拿到的坍缩范式；不填由内核按模式决定",
     )
     double_check_collapsal_paradigms: bool | None = MaaField(
         default=None,
@@ -946,20 +1146,30 @@ class RoguelikeInput(TaskInputBase):
 
         # 内核默认主题是 Phantom、默认模式是 0；「没传」不等于「不生效」，按默认值判定。
         theme = self.theme if self.theme is not None else "Phantom"
+        mode = self.mode if self.mode is not None else 0
 
-        if self.mode == 5 and theme != "Sami":
+        allowed = ROGUELIKE_THEME_MODES[theme]
+        if mode not in allowed:
             raise AppError(
                 ErrorCode.TASK_PARAM_INVALID,
-                'Roguelike.mode=5 仅适用于 Sami 主题（当前 theme="%s"）' % theme,
-                {"field": "mode", "depends_on": {"theme": "Sami"}},
+                "Roguelike.mode=%d 不适用于 %s 主题；该主题允许的模式：%s"
+                % (mode, theme, "、".join(str(item) for item in sorted(allowed))),
+                {"field": "mode", "theme": theme, "allowed_modes": sorted(allowed)},
             )
-        if self.difficulty is not None and theme == "Phantom":
+
+        if self.find_playTime_target is None and mode == 20001:
             raise AppError(
                 ErrorCode.TASK_PARAM_INVALID,
-                "difficulty 仅在除 Phantom 以外的主题下生效；"
-                "Phantom 主题请去掉 difficulty 或改选其他主题",
-                {"field": "difficulty", "theme": theme},
+                "mode=20001（刷常乐节点）必须给 find_playTime_target（1–3）",
+                {"field": "find_playTime_target", "depends_on": {"mode": 20001}},
             )
+        if self.find_playTime_target is not None and mode != 20001:
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                "find_playTime_target 仅在 mode=20001（刷常乐节点）时有效",
+                {"field": "find_playTime_target", "depends_on": {"mode": 20001}},
+            )
+
         if self.stop_at_final_boss is True and theme == "Phantom":
             raise AppError(
                 ErrorCode.TASK_PARAM_INVALID,
@@ -984,7 +1194,7 @@ class RoguelikeInput(TaskInputBase):
                 'use_foldartal 仅适用于 Sami 主题（当前 theme="%s"）' % theme,
                 {"field": "use_foldartal", "depends_on": {"theme": "Sami"}},
             )
-        if self.start_foldartal_list and not (theme == "Sami" and self.mode == 4):
+        if self.start_foldartal_list and not (theme == "Sami" and mode == 4):
             raise AppError(
                 ErrorCode.TASK_PARAM_INVALID,
                 "start_foldartal_list 仅主题为 Sami 且模式为 4 时有效",
@@ -1000,7 +1210,7 @@ class RoguelikeInput(TaskInputBase):
             effective_check = (
                 self.check_collapsal_paradigms
                 if self.check_collapsal_paradigms is not None
-                else self.mode == 5
+                else mode == 5
             )
             if not (theme == "Sami" and effective_check):
                 raise AppError(
@@ -1012,7 +1222,7 @@ class RoguelikeInput(TaskInputBase):
                         "depends_on": {"theme": "Sami", "check_collapsal_paradigms": True},
                     },
                 )
-        if self.expected_collapsal_paradigms and not (theme == "Sami" and self.mode == 5):
+        if self.expected_collapsal_paradigms and not (theme == "Sami" and mode == 5):
             raise AppError(
                 ErrorCode.TASK_PARAM_INVALID,
                 "expected_collapsal_paradigms 仅在主题为 Sami 且模式为 5 时有效",
@@ -1021,8 +1231,14 @@ class RoguelikeInput(TaskInputBase):
                     "depends_on": {"theme": "Sami", "mode": 5},
                 },
             )
+        if self.start_with_elite_two is True and mode != 4:
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                "start_with_elite_two 仅在 mode=4（凹开局）时有效，当前 mode=%d" % mode,
+                {"field": "start_with_elite_two", "depends_on": {"mode": 4}},
+            )
         if self.only_start_with_elite_two is True and not (
-            self.mode == 4 and self.start_with_elite_two is True
+            mode == 4 and self.start_with_elite_two is True
         ):
             raise AppError(
                 ErrorCode.TASK_PARAM_INVALID,
@@ -1030,6 +1246,56 @@ class RoguelikeInput(TaskInputBase):
                 {
                     "field": "only_start_with_elite_two",
                     "depends_on": {"mode": 4, "start_with_elite_two": True},
+                },
+            )
+        if self.investment_with_more_score is True and mode != 1:
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                "investment_with_more_score 仅在 mode=1（刷源石锭）时有效",
+                {"field": "investment_with_more_score", "depends_on": {"mode": 1}},
+            )
+        if mode != 4:
+            for field, value in (
+                ("collectible_mode_shopping", self.collectible_mode_shopping),
+                ("collectible_mode_squad", self.collectible_mode_squad),
+                ("collectible_mode_start_list", self.collectible_mode_start_list),
+            ):
+                if value is not None and value is not False:
+                    raise AppError(
+                        ErrorCode.TASK_PARAM_INVALID,
+                        "%s 仅在 mode=4（凹开局）时有效" % field,
+                        {"field": field, "depends_on": {"mode": 4}},
+                    )
+        if mode != 6:
+            for field, value in (
+                ("monthly_squad_auto_iterate", self.monthly_squad_auto_iterate),
+                ("monthly_squad_check_comms", self.monthly_squad_check_comms),
+            ):
+                if value is not None:
+                    raise AppError(
+                        ErrorCode.TASK_PARAM_INVALID,
+                        "%s 仅在 mode=6（刷月度小队）时有效" % field,
+                        {"field": field, "depends_on": {"mode": 6}},
+                    )
+        if self.deep_exploration_auto_iterate is not None and mode != 7:
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                "deep_exploration_auto_iterate 仅在 mode=7（刷深入调查）时有效",
+                {"field": "deep_exploration_auto_iterate", "depends_on": {"mode": 7}},
+            )
+        if self.blackflow_strategy is not None and theme != "BlackFlow":
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                'blackflow_strategy 仅适用于 BlackFlow 主题（当前 theme="%s"）' % theme,
+                {"field": "blackflow_strategy", "depends_on": {"theme": "BlackFlow"}},
+            )
+        if self.blackflow_cultivation_target is not None and theme != "BlackFlow":
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                'blackflow_cultivation_target 仅适用于 BlackFlow 主题（当前 theme="%s"）' % theme,
+                {
+                    "field": "blackflow_cultivation_target",
+                    "depends_on": {"theme": "BlackFlow"},
                 },
             )
         if self.use_nonfriend_support is True and self.use_support is not True:

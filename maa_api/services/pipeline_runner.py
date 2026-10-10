@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +38,7 @@ __all__ = [
     "WAIT_POLL_SECONDS",
     "PipelineRunner",
     "build_pipeline_notification",
+    "select_infrast_plan_index",
 ]
 
 logger = logging.getLogger(__name__)
@@ -85,6 +87,75 @@ def _task_display_name(task: Task) -> str:
         return name
     type_name = str(getattr(task, "type_name", "") or "")
     return TASK_LABELS.get(type_name, type_name)
+
+
+#: M28 D3/Q45：自定义换班的模式值（``InfrastInput.mode``）。
+CUSTOM_INFRAST_MODE = 10000
+#: ``period`` 的时间格式：``hh:mm``。
+_INFRAST_TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _is_custom_infrast(params: Mapping[str, Any]) -> bool:
+    """``mode=10000``（自定义换班）——只有它需要 D3 路径与 Q45 选班。"""
+    mode = params.get("mode")
+    if isinstance(mode, bool):
+        return False
+    if isinstance(mode, int):
+        return mode == CUSTOM_INFRAST_MODE
+    if isinstance(mode, str) and mode.strip().isdigit():
+        return int(mode.strip()) == CUSTOM_INFRAST_MODE
+    return False
+
+
+def select_infrast_plan_index(
+    content: Mapping[str, Any], *, moment: datetime | None = None
+) -> int | None:
+    """Q45：方案文件里第一个 ``period`` 覆盖当前时间的班次下标；都不覆盖返回 ``None``。
+
+    ``period`` 是 ``[[hh:mm, hh:mm], …]``；``moment`` 缺省取本机时区的当前时间，跨午夜区间
+    （``22:00``–``06:00``）按「晚于起点或早于终点」判定。起止相同按空区间处理（没有证据
+    表明它表示全天），畸形区间跳过、不影响后面的班次。
+    """
+    plans = content.get("plans") if isinstance(content, Mapping) else None
+    if not isinstance(plans, list):
+        return None
+    now = (moment or datetime.now().astimezone()).astimezone()
+    minute = now.hour * 60 + now.minute
+    for index, plan in enumerate(plans):
+        if not isinstance(plan, Mapping):
+            continue
+        if _period_covers(plan.get("period"), minute=minute):
+            return index
+    return None
+
+
+def _period_covers(period: Any, *, minute: int) -> bool:
+    """某一班的 ``period`` 是否覆盖 ``minute``（一天内的分钟数）。"""
+    if not isinstance(period, list):
+        return False
+    for window in period:
+        if not isinstance(window, (list, tuple)) or len(window) != 2:
+            continue
+        start = _infrast_minute(window[0])
+        end = _infrast_minute(window[1])
+        if start is None or end is None or start == end:
+            continue
+        if start < end:
+            if start <= minute < end:
+                return True
+        elif minute >= start or minute < end:  # 跨午夜
+            return True
+    return False
+
+
+def _infrast_minute(value: Any) -> int | None:
+    """``"HH:MM"`` → 一天内的分钟数；格式不符返回 ``None``。"""
+    if not isinstance(value, str):
+        return None
+    match = _INFRAST_TIME.fullmatch(value.strip())
+    if match is None:
+        return None
+    return int(match.group(1)) * 60 + int(match.group(2))
 
 
 @dataclass(slots=True)
@@ -136,6 +207,7 @@ class PipelineRunner:
         resource_service: Any = None,
         broadcast: Callable[[str, dict[str, Any]], None] | None = None,
         task_timeouts: dict[str, float] | None = None,
+        now_provider: Callable[[], datetime] | None = None,
     ) -> None:
         self.registry = registry
         self.supervisor = supervisor
@@ -144,6 +216,8 @@ class PipelineRunner:
         self.queue_service = queue_service
         self.device_manager = device_manager
         self.resource_service = resource_service
+        #: Q45 选班用的「现在」；测试注入固定时刻，生产用本机时区。
+        self._now_provider = now_provider or (lambda: datetime.now().astimezone())
         self._broadcast = broadcast or (lambda _kind, _data: None)
         self.task_timeouts = dict(TASK_TIMEOUT_SECONDS)
         if task_timeouts:
@@ -1201,6 +1275,43 @@ class PipelineRunner:
             )
         )
 
+    async def _prepare_infrast_params(
+        self, task: Task, core_params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """D3 + Q45：自定义换班的 ``filename`` 与 ``plan_index``。
+
+        - 路径一律换成 custom 层下的绝对路径（内核按进程工作目录解析相对路径）。
+        - ``raw_params`` 里没有显式 ``plan_index`` 时，读方案文件、按本机时区当前时间选第一个
+          覆盖现在的班次；都不覆盖时抛 ``TASK_PARAM_INVALID``。显式给了就保持原语义，连文件
+          内容都不读（少一次 IO，也少一次被坏文件牵连的机会）。
+        """
+        if self.resource_service is None:
+            raise AppError(
+                ErrorCode.SERVICE_UNAVAILABLE,
+                "服务正在启动，请稍后重试",
+                {"task_id": task.id},
+            )
+        filename = core_params.get("filename")
+        explicit_index = "plan_index" in dict(task.raw_params or {})
+        if explicit_index:
+            path = await self.resource_service.resolve_infrast_plan_path(filename)
+            return {**core_params, "filename": str(path)}
+        content = await self.resource_service.read_infrast_plan(filename)
+        moment = self._now_provider()
+        index = select_infrast_plan_index(content, moment=moment)
+        if index is None:
+            raise AppError(
+                ErrorCode.TASK_PARAM_INVALID,
+                "当前时间不在任何班次的 period 内",
+                {
+                    "task_id": task.id,
+                    "filename": filename,
+                    "now": moment.isoformat(),
+                },
+            )
+        path = await self.resource_service.resolve_infrast_plan_path(filename)
+        return {**core_params, "filename": str(path), "plan_index": index}
+
     async def _execute_task(
         self, active: _ActivePipeline, task: Task
     ) -> tuple[str, AppError | None]:
@@ -1273,6 +1384,33 @@ class PipelineRunner:
                     "filename": str(filename),
                     "formation": core_params.get("formation", False),
                 }
+            if task.type_name == "Infrast" and _is_custom_infrast(core_params):
+                # D3：filename 换成 custom 层下的绝对路径；Q45：没给 plan_index 时按
+                # period 选当前班次。两条都在投给内核之前定下来，失败即任务失败。
+                try:
+                    core_params = await self._prepare_infrast_params(task, core_params)
+                except AppError as exc:
+                    await self._set_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=exc.code,
+                        error_message=exc.message,
+                    )
+                    return "failed", exc
+                except Exception as exc:  # noqa: BLE001 - fail closed before append
+                    error = AppError(
+                        ErrorCode.RESOURCE_LOAD_FAILED,
+                        "基建方案文件解析失败，请检查文件后重试",
+                        {"task_id": task.id},
+                    )
+                    logger.warning("基建方案文件解析失败（task_id=%s）：%s", task.id, exc)
+                    await self._set_task_status(
+                        task.id,
+                        TaskStatus.FAILED,
+                        error_code=error.code,
+                        error_message=error.message,
+                    )
+                    return "failed", error
             attempt: _Attempt | None = None
             try:
                 try:

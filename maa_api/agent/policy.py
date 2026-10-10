@@ -29,7 +29,9 @@ ATOMIC_TOOL_NAMES = frozenset(
     {"click", "swipe", "long_press", "input_text", "key_event"}
 )
 #: 每次调用都要人工确认的账号写入（规格 §7.4、§7.7）：风险是 NONE，但要用户看见差异。
-ACCOUNT_WRITE_TOOLS = frozenset({"update_operator_box", "start_upgrade_plan"})
+ACCOUNT_WRITE_TOOLS = frozenset(
+    {"update_operator_box", "start_upgrade_plan", "update_user_profile"}
+)
 
 SAFE_TOOL_NAMES = frozenset(
     {
@@ -168,6 +170,23 @@ class PolicyEngine:
                 confirmation_action=name,
                 extra_payload=payload,
             )
+        if name == "update_user_profile" and isinstance(value, Mapping):
+            section = str(value.get("section") or "")
+            mode = str(value.get("mode") or "replace")
+            action = "追加" if mode == "append" else "替换"
+            summary = f"更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字"
+            return PolicyDecision(
+                True,
+                RiskLevel.NONE,
+                reasons=(summary,),
+                confirmation_action=name,
+                extra_payload={
+                    "summary": summary,
+                    "section": section,
+                    "mode": mode,
+                    "diff": await _profile_diff(value, context),
+                },
+            )
         if name == "start_upgrade_plan" and isinstance(value, Mapping):
             targets = value.get("targets")
             count = len(targets) if isinstance(targets, list) else 0
@@ -293,6 +312,52 @@ async def _operator_diff(
                 }
             )
     return diff
+
+
+async def _profile_diff(
+    value: Mapping[str, Any], context: ToolContext
+) -> list[dict[str, Any]]:
+    """用户档案的改动前后差异：``[{"section", "from", "to"}]``。
+
+    读不到现有条目（没有会话、条目不存在、服务异常）时 ``from`` 为 ``None``：确认卡片
+    仍显示将要写入的内容。
+    """
+    section = str(value.get("section") or "")
+    content = str(value.get("content") or "")
+    mode = str(value.get("mode") or "replace")
+    before = await _current_profile_section(section, context)
+    after = f"{before}{content}" if mode == "append" and before else content
+    if before == after:
+        return []
+    return [{"section": section, "from": before, "to": after, "mode": mode}]
+
+
+async def _current_profile_section(
+    section: str, context: ToolContext
+) -> str | None:
+    """读档案条目里某一节的现有内容；任何失败都返回 ``None``。"""
+    if not section or context.db_session is None:
+        return None
+    try:
+        from maa_api.agent.knowledge import PROFILE_ENTRY_ID, split_profile_sections
+
+        session = context.db_session
+
+        def factory():  # pragma: no cover - 复用调用方已有的会话
+            class _Existing:
+                async def __aenter__(self_inner):
+                    return session
+
+                async def __aexit__(self_inner, *exc):
+                    return False
+
+            return _Existing()
+
+        service = KnowledgeService(factory)
+        entry = await service.read_for_agent(PROFILE_ENTRY_ID)
+        return split_profile_sections(entry.body).get(section)
+    except Exception:  # noqa: BLE001 - 差异只是确认卡片的附加信息
+        return None
 
 
 async def _current_operator(

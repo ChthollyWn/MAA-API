@@ -982,10 +982,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             depot_service=depot_service,
         )
         app.state.account_capture = account_capture
+        # 当期卡池（M28）：注入段用；外服不注入（进度与国服不同），由卡池服务自己判。
+        from maa_api.services.game.gacha import GachaService
+
+        app.state.gacha_service = GachaService(
+            settings_provider=lambda: get_settings()
+        )
+        # 集成战略（M28）：按章节取主题页，供 get_roguelike_info 使用。
+        from maa_api.services.game.roguelike import RoguelikeService
+
+        app.state.roguelike_service = RoguelikeService()
         app.state.knowledge_service = KnowledgeService(
             db_session.session_factory,
             activity_index=activity_index,
             account_reader=app.state.account_summary,
+            gacha_reader=app.state.gacha_service,
         )
         confirmation_factory = getattr(
             app.state, "confirmation_service_factory", ConfirmationService

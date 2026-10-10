@@ -122,9 +122,12 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "start_with_elite_two": False,
         "only_start_with_elite_two": False,
         "stop_at_final_boss": False,
+        "stop_at_max_level": False,
         "investment_enabled": True,
         "stop_when_investment_full": False,
+        "investment_with_more_score": False,
         "refresh_trader_with_dice": False,
+        "collectible_mode_shopping": False,
     },
     "Reclamation": {
         "enable": True,
@@ -161,6 +164,8 @@ SKIPPED: dict[str, tuple[str, ...]] = {
         "squad",
         "roles",
         "core_char",
+        # D5：core_char_list 与 core_char 同传时以前者为准，默认保持 None（不指定顺位）。
+        "core_char_list",
         "starts_count",
         "difficulty",
         "first_floor_foldartal",
@@ -170,6 +175,16 @@ SKIPPED: dict[str, tuple[str, ...]] = {
         "check_collapsal_paradigms",
         "double_check_collapsal_paradigms",
         "expected_collapsal_paradigms",
+        # D5：条件默认值（随主题／模式变），一律保持 None。
+        "collectible_mode_squad",
+        "collectible_mode_start_list",
+        "start_with_seed",
+        "monthly_squad_auto_iterate",
+        "monthly_squad_check_comms",
+        "deep_exploration_auto_iterate",
+        "blackflow_strategy",
+        "blackflow_cultivation_target",
+        "find_playTime_target",
     ),
     "Reclamation": (),
     "OperBox": (),
@@ -198,7 +213,8 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     type_name: (("asset_id",) if type_name == "Copilot" else ()) for type_name in TYPE_NAMES
 }
 
-#: 规格 §5.1 / 计划 Task 1 的中文标签：七个设施，顺序即换班顺序。
+#: 规格 §5.1 / 计划 Task 1 的中文标签，加 M28（D4）补的加工站与训练室：
+#: 九个设施，顺序即换班顺序（`facility` 的默认值仍是前七个，见 DEFAULTS）。
 FACILITY_LABELS: dict[str, str] = {
     "Mfg": "制造站",
     "Trade": "贸易站",
@@ -207,6 +223,8 @@ FACILITY_LABELS: dict[str, str] = {
     "Reception": "会客室",
     "Office": "办公室",
     "Dorm": "宿舍",
+    "Processing": "加工站",
+    "Training": "训练室",
 }
 
 _CJK = re.compile(r"[\u4e00-\u9fff]")

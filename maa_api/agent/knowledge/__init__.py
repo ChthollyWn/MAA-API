@@ -61,10 +61,16 @@ __all__ = [
     "ACTIVITY_HEADER_FALLBACK",
     "ACTIVITY_HEADER_FOREIGN",
     "ACCOUNT_HEADER",
+    "GACHA_HEADER",
     "ACTIVITY_HEADER_PRTS",
     "ACTIVITY_INJECTION_BUDGET_SECONDS",
     "MAX_ACTIVITY_LINES",
     "render_account_lines",
+    "PROFILE_ENTRY_ID",
+    "PROFILE_ENTRY_TITLE",
+    "merge_profile_section",
+    "render_gacha_lines",
+    "split_profile_sections",
     "render_activity_lines",
     "render_activity_section",
     "GLOSSARY_HEADER",
@@ -125,7 +131,18 @@ ACTIVITY_INJECTION_BUDGET_SECONDS = 3.0
 #: 活动名（真数据 101 字）不会触发裁剪；活动名由上游决定、可能很长，超限时按这个数
 #: 裁剪才不会让每轮的固定成本失控（规格 §3.1、§4.3）。
 MAX_ACTIVITY_LINE_CHARS = 120
-#: M27：账号数据段。排在当期活动之后、术语表之前（规格 §4.5 的段落顺序）。
+#: M27/M28：Agent 记录的用户档案（Q44）。基建布局与班次这类「第一次问用户」的信息写在这里，
+#: 以 `## <section>` 分节；工具 `update_user_profile` 与确认卡片的差异计算共用本模块的两个
+#: 纯函数（分节读取与合并）。
+PROFILE_ENTRY_ID = "agent-profile"
+PROFILE_ENTRY_TITLE = "Agent 记录的用户档案"
+_PROFILE_SECTION = re.compile(r"^##[ \t]*(?P<title>.+?)[ \t]*$", re.MULTILINE)
+
+#: M28：当期卡池段。排在当期活动之后、账号数据之前（规格 §4.5 的段落顺序）。
+GACHA_HEADER = "当期卡池（PRTS）："
+#: 每轮最多注入几条卡池（§4.5：3 行）。
+MAX_GACHA_LINES = 3
+#: M27：账号数据段。排在当期卡池之后、术语表之前。
 ACCOUNT_HEADER = "账号数据："
 GLOSSARY_HEADER = "术语表（开发者与用户维护）："
 PROFILE_HEADER = "用户档案（用户维护）："
@@ -277,6 +294,95 @@ def _fallback_line(activity: CurrentActivity) -> str:
         if budget < len(name):
             name = name[: max(budget - 1, 1)] + "…"
     return f"{name}{started}{stages}{tail}"
+
+
+def split_profile_sections(body: str) -> dict[str, str]:
+    """把档案正文按 `## <section>` 切成 `{节名: 正文}`（保序，正文去掉首尾空行）。"""
+    text = body or ""
+    sections: dict[str, str] = {}
+    matches = list(_PROFILE_SECTION.finditer(text))
+    for index, match in enumerate(matches):
+        title = match.group("title").strip()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections[title] = text[match.end() : end].strip()
+    return sections
+
+
+def merge_profile_section(body: str, section: str, content: str, *, mode: str = "replace") -> str:
+    """把一节写进档案正文：`replace` 覆盖、`append` 追加；节不存在就新建。
+
+    返回新的**完整正文**（保持既有节的顺序，新节追加在最后）。空节名按调用方错误处理，
+    这里只做纯字符串处理。
+    """
+    title = (section or "").strip()
+    payload = (content or "").strip()
+    sections = split_profile_sections(body)
+    if mode == "append" and title in sections and sections[title]:
+        sections[title] = f"{sections[title]}\n{payload}".strip()
+    else:
+        sections[title] = payload
+    return "\n\n".join(f"## {name}\n{text}".rstrip() for name, text in sections.items())
+
+
+def render_gacha_lines(summary: Mapping[str, Any] | None) -> list[str]:
+    """当期卡池段（规格 §4.5、§8.2）：每个在开卡池一行，最多 3 行、每行 ≤120 字。
+
+    行格式 ``- 名称｜UP：六星/五星｜至 MM-DD HH:MM``；超长时先省 UP、再截名称。
+    外服由调用方整段不插（卡池进度与国服不同）。
+    """
+    if not isinstance(summary, Mapping):
+        return []
+    pools = summary.get("pools")
+    if not isinstance(pools, list):
+        return []
+    lines: list[str] = []
+    for pool in pools[:MAX_GACHA_LINES]:
+        if not isinstance(pool, Mapping):
+            continue
+        row = _gacha_row(pool)
+        if row:
+            lines.append(row)
+    return lines
+
+
+def _gacha_row(pool: Mapping[str, Any]) -> str | None:
+    """一条卡池：名称、UP 干员、结束时间。"""
+    name = pool.get("name")
+    if not isinstance(name, str) or not name:
+        return None
+    end = _gacha_end(pool.get("end_at"))
+    up = _gacha_up(pool)
+    tail = f"｜UP：{up}｜至 {end}" if up else f"｜至 {end}"
+    budget = MAX_ACTIVITY_LINE_CHARS - len(tail) - 2
+    if len(name) > budget:
+        # 先省 UP（信息量最小），再截名称。
+        tail = f"｜至 {end}"
+        budget = MAX_ACTIVITY_LINE_CHARS - len(tail) - 2
+        if len(name) > budget:
+            name = name[: max(budget - 1, 1)] + "…"
+    return f"- {name}{tail}"
+
+
+def _gacha_end(value: Any) -> str:
+    """结束时间：本机时区的 ``MM-DD HH:MM``；解析不了如实写「时间未知」。"""
+    if not isinstance(value, str) or not value:
+        return "时间未知"
+    moment = _parse_moment(value)
+    if moment is None:
+        return "时间未知"
+    return moment.astimezone().strftime("%m-%d %H:%M")
+
+
+def _gacha_up(pool: Mapping[str, Any]) -> str:
+    """UP 干员：六星在前、五星在后，用 `/` 分隔；没有就返回空串。"""
+    six = [str(item.get("name")) for item in (pool.get("up_six") or []) if isinstance(item, Mapping) and item.get("name")]
+    five = [str(item.get("name")) for item in (pool.get("up_five") or []) if isinstance(item, Mapping) and item.get("name")]
+    parts: list[str] = []
+    if six:
+        parts.append("/".join(six))
+    if five:
+        parts.append("/".join(five))
+    return "、".join(parts)
 
 
 def render_account_lines(summary: Mapping[str, Any] | None) -> list[str]:
@@ -727,6 +833,7 @@ class KnowledgeService:
         activity_index: "ActivityReader | None" = None,
         activity_service: "ActivityReader | None" = None,
         account_reader: Any = None,
+        gacha_reader: Any = None,
     ) -> None:
         self._session_factory = session_factory or db_session.session_factory
         # 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
@@ -736,6 +843,8 @@ class KnowledgeService:
         self._activity_service = activity_service
         #: M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
         self._account_reader = account_reader
+        #: M28：当期卡池读取器（有 `async pools()` 即可）。没装或外服时整段不插。
+        self._gacha_reader = gacha_reader
         #: 「当期活动读不到」的 warning 只在第一次失败时打一次（见 :meth:`_activity_section`）。
         self._activity_failure_logged = False
 
@@ -788,6 +897,9 @@ class KnowledgeService:
         activity = await self._activity_section()
         if activity:
             lines += ["", *activity]
+        gacha = await self._gacha_section()
+        if gacha:
+            lines += ["", GACHA_HEADER, *gacha]
         account = await self._account_section()
         if account:
             lines += ["", ACCOUNT_HEADER, *account]
@@ -819,6 +931,19 @@ class KnowledgeService:
             return []
         self._activity_failure_logged = False
         return render_activity_section(report)
+
+    async def _gacha_section(self) -> list[str]:
+        """当期卡池段（规格 §4.5、§8.2）；外服与读不到时整段不插。"""
+        reader = self._gacha_reader
+        if reader is None:
+            return []
+        try:
+            summary = await reader.pools()
+        except Exception:  # noqa: BLE001 - 卡池只是可选上下文
+            if not self._activity_failure_logged:
+                logger.warning("当期卡池读取失败，本轮起不再注入这一段", exc_info=True)
+            return []
+        return render_gacha_lines(summary)
 
     async def _account_section(self) -> list[str]:
         """账号数据段（规格 §7.8）；读不到或从未识别以外的情况一律不插。

@@ -140,7 +140,7 @@ describe('schema helpers', () => {
   })
 
   it('lists array item options from enums and small integer ranges', () => {
-    expect(arrayItemOptions(normalizeSchema(property('Infrast', 'facility'), {}).schema, {}).map((option) => option.value)).toEqual(['Mfg', 'Trade', 'Power', 'Control', 'Reception', 'Office', 'Dorm'])
+    expect(arrayItemOptions(normalizeSchema(property('Infrast', 'facility'), {}).schema, {}).map((option) => option.value)).toEqual(['Mfg', 'Trade', 'Power', 'Control', 'Reception', 'Office', 'Dorm', 'Processing', 'Training'])
     expect(arrayItemOptions(normalizeSchema(property('Recruit', 'select'), {}).schema, {})).toEqual([1, 2, 3, 4, 5, 6].map((value) => ({ key: String(value), value, label: String(value) })))
     expect(arrayItemOptions(normalizeSchema(property('Mall', 'buy_first'), {}).schema, {})).toEqual([])
     expect(arrayItemOptions({ type: 'array', items: { type: 'integer', minimum: 0, maximum: 100 } }, {})).toEqual([])
@@ -335,5 +335,60 @@ describe('resolveWidget', () => {
     expect(resolve({ type: 'string', 'x-widget': 'select' })).toBe('text')
     expect(resolve({ type: 'string', 'x-widget': 'switch' })).toBe('switch')
     expect(resolve({ type: 'string', enum: ['a', 'b', 'c', 'd'] })).toBe('select')
+  })
+})
+
+describe('M28：集成战略参数与基建设施（D5 / D4）', () => {
+  const roguelikeSchema = () => typeByName('Roguelike').schema
+
+  it('exposes the six themes and eleven modes with Chinese labels', () => {
+    const themes = enumOptions(normalizeSchema(property('Roguelike', 'theme'), roguelikeSchema()).schema)
+    expect(themes.map((option) => option.value)).toEqual(['Phantom', 'Mizuki', 'Sami', 'Sarkaz', 'JieGarden', 'BlackFlow'])
+    expect(themes.at(-1)).toEqual({ key: '"BlackFlow"', value: 'BlackFlow', label: '黑流树海' })
+
+    const modes = enumOptions(normalizeSchema(property('Roguelike', 'mode'), roguelikeSchema()).schema)
+    expect(modes.map((option) => option.value)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 10001, 20001, 30001])
+    expect(modes.find((option) => option.value === 20001)?.label).toBe('刷常乐节点（仅 JieGarden）')
+    expect(modes.find((option) => option.value === 30001)?.label).toBe('刷襁褓动物（仅 BlackFlow）')
+  })
+
+  it('gives every new field a control', () => {
+    expect(widgetOf('Roguelike', 'core_char_list')).toBe('json')
+    expect(widgetOf('Roguelike', 'collectible_mode_start_list')).toBe('object')
+    expect(widgetOf('Roguelike', 'collectible_mode_squad')).toBe('text')
+    expect(widgetOf('Roguelike', 'blackflow_strategy')).toBe('select')
+    expect(widgetOf('Roguelike', 'blackflow_cultivation_target')).toBe('select')
+    expect(widgetOf('Roguelike', 'find_playTime_target')).toBe('select')
+    expect(widgetOf('Roguelike', 'start_with_seed')).toBe('text')
+    expect(widgetOf('Roguelike', 'stop_at_max_level')).toBe('switch')
+    expect(widgetOf('Roguelike', 'investment_with_more_score')).toBe('switch')
+    expect(widgetOf('Roguelike', 'deep_exploration_auto_iterate')).toBe('switch')
+  })
+
+  it('gates the mode- and theme-specific fields on the draft values', () => {
+    const roguelike = schemaProperties(roguelikeSchema())
+    expect(dependencyState(roguelike.investment_with_more_score, {}).satisfied).toBe(false)
+    expect(dependencyHint(dependencyState(roguelike.investment_with_more_score, {}).unmet, roguelike, roguelikeSchema())).toBe('需先将「模式」设为「刷源石锭」')
+    expect(dependencyState(roguelike.collectible_mode_start_list, { mode: 4 }).satisfied).toBe(true)
+    expect(dependencyState(roguelike.collectible_mode_start_list, { mode: 0 }).satisfied).toBe(false)
+    expect(dependencyState(roguelike.find_playTime_target, { mode: 20001 }).satisfied).toBe(true)
+    expect(dependencyState(roguelike.blackflow_strategy, { theme: 'BlackFlow' }).satisfied).toBe(true)
+    expect(dependencyState(roguelike.blackflow_cultivation_target, { theme: 'BlackFlow', blackflow_strategy: 'baby_animal' }).satisfied).toBe(true)
+    expect(dependencyState(roguelike.monthly_squad_auto_iterate, { mode: 6 }).satisfied).toBe(true)
+    expect(dependencyState(roguelike.deep_exploration_auto_iterate, { mode: 7 }).satisfied).toBe(true)
+  })
+
+  it('keeps the collectible reward object complete and labelled', () => {
+    const defs = (roguelikeSchema() as { $defs?: Record<string, JsonSchema> }).$defs ?? {}
+    const rewards = schemaProperties(defs.RoguelikeCollectibleStartList)
+    expect(Object.keys(rewards)).toEqual(['hot_water', 'shield', 'ingot', 'hope', 'random', 'key', 'dice', 'ideas', 'ticket'])
+    expect(rewards.hot_water['x-label']).toBe('热水壶')
+    expect(rewards.ticket.description).toContain('界园')
+  })
+
+  it('offers 加工站 and 训练室 without changing the seven-room default', () => {
+    const options = arrayItemOptions(normalizeSchema(property('Infrast', 'facility'), {}).schema, {})
+    expect(options.map((option) => option.label)).toEqual(['制造站', '贸易站', '发电站', '控制中枢', '会客室', '办公室', '宿舍', '加工站', '训练室'])
+    expect(materializeDefaults(typeByName('Infrast'), {}).facility).toEqual(['Mfg', 'Trade', 'Power', 'Control', 'Reception', 'Office', 'Dorm'])
   })
 })

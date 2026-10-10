@@ -17,6 +17,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.account import register_tools as register_account_tools
     from maa_api.agent.tools.activity import register_tools as register_activity_tools
     from maa_api.agent.tools.device import register_tools as register_device_tools
+    from maa_api.agent.tools.estate import register_tools as register_estate_tools
     from maa_api.agent.tools.game import register_tools as register_game_tools
     from maa_api.agent.tools.interaction import register_tools as register_interaction_tools
     from maa_api.agent.tools.knowledge import register_tools as register_knowledge_tools
@@ -25,6 +26,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.pipeline import register_tools as register_pipeline_tools
     from maa_api.agent.tools.raw import register_tools as register_raw_tools
     from maa_api.agent.tools.resource import register_tools as register_resource_tools
+    from maa_api.agent.tools.roguelike import register_tools as register_roguelike_tools
     from maa_api.agent.tools.schedule import register_tools as register_schedule_tools
     from maa_api.agent.tools.status import register_tools as register_status_tools
 
@@ -34,6 +36,8 @@ def build_registry() -> ToolRegistry:
         register_activity_tools,
         register_game_tools,
         register_account_tools,
+        register_estate_tools,
+        register_roguelike_tools,
         register_media_tools,
         register_pipeline_tools,
         register_device_tools,

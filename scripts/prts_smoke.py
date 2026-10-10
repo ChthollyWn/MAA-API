@@ -17,6 +17,7 @@
    注入段标题变成降级口径。
 
 加 `--m26` 时再跑 M26 的四项（规格 §6.8）：干员、敌人、材料与掉落率。
+加 `--m28` 时再跑 M28 的四项（规格 §8.6）：卡池、基建技能、集成战略与剧情。
 
 成功时末行是 `SMOKE OK`。
 """
@@ -43,7 +44,11 @@ from maa_api.services.external.http import ExternalClient  # noqa: E402
 from maa_api.services.external.prts import PrtsClient  # noqa: E402
 from maa_api.services.external.penguin import PenguinClient  # noqa: E402
 from maa_api.services.game.activities import ActivityService  # noqa: E402
+from maa_api.services.game.building import BuildingService  # noqa: E402
 from maa_api.services.game.drops import DropService  # noqa: E402
+from maa_api.services.game.gacha import GachaService  # noqa: E402
+from maa_api.services.game.roguelike import RoguelikeService  # noqa: E402
+from maa_api.services.game.story import StoryService  # noqa: E402
 from maa_api.services.game.enemies import EnemyService  # noqa: E402
 from maa_api.services.game.items import ItemService  # noqa: E402
 from maa_api.services.game.operators import OperatorService  # noqa: E402
@@ -69,7 +74,7 @@ def settings_with_prts(enabled: bool) -> Settings:
     )
 
 
-async def run(*, m26: bool = False) -> None:
+async def run(*, m26: bool = False, m28: bool = False) -> None:
     settings = settings_with_prts(True)
     client = ExternalClient(settings_provider=lambda: settings)
     prts = PrtsClient(client)
@@ -178,6 +183,8 @@ async def run(*, m26: bool = False) -> None:
         )
         if m26:
             await run_m26(client)
+        if m28:
+            await run_m28(client)
         await offline_client.aclose()
     finally:
         await client.aclose()
@@ -257,13 +264,65 @@ async def run_m26(client: Any) -> None:
     )
 
 
+async def run_m28(client: Any) -> None:
+    """M28 的四项：卡池、基建技能、集成战略、剧情（规格 §8.6）。"""
+    prts = PrtsClient(client)
+    gacha = GachaService(prts=prts)
+    building = BuildingService(prts=prts)
+    roguelike = RoguelikeService(prts=prts)
+    story = StoryService(prts=prts)
+
+    # 1. 当期卡池
+    pools = await gacha.pools(status="current", limit=5)
+    require(pools["pools"], f"当期卡池为空：{pools}")
+    first = pools["pools"][0]
+    require(first.get("end_at"), f"卡池没有结束时间：{first}")
+    print(
+        f"[M28-1] get_gacha_pools → {len(pools['pools'])} 个在开卡池，首位 {first['name']}"
+        f"｜UP 六星 {[item['name'] for item in first.get('up_six') or []]}"
+        f"｜至 {first['end_at']}"
+    )
+
+    # 2. 基建技能
+    skills = await building.skills(operator="银灰")
+    require(skills.get("skills"), f"银灰没有基建技能：{skills}")
+    described = [row for row in skills["skills"] if row.get("description")]
+    require(described, f"基建技能没有描述：{skills}")
+    print(
+        f"[M28-2] get_building_skills(operator='银灰') → {len(skills['skills'])} 条"
+        f"｜首条 {described[0]['name']}（{described[0].get('room')}）："
+        f"{described[0]['description'][:30]}"
+    )
+
+    # 3. 集成战略
+    squads = await roguelike.info(topic="squads")
+    require(squads.get("sections"), f"肉鸽主题没有章节表：{squads}")
+    parsed = (squads.get("fields") or {}).get("squads") or []
+    require(parsed, f"肉鸽分队没有解析出来：{squads.get('fields')}")
+    print(
+        f"[M28-3] get_roguelike_info(topic='squads') → 主题 {squads.get('theme')}"
+        f"｜章节 {len(squads['sections'])} 个｜分队 {len(parsed)} 个"
+        f"｜首个 {parsed[0].get('name')}"
+    )
+
+    # 4. 剧情
+    page = await story.get("1-1 孤岛/BEG", max_chars=2000)
+    require(page.get("text"), f"剧情正文为空：{page}")
+    require(page.get("truncated") or len(page["text"]) <= 2000, f"截断信息缺失：{page}")
+    print(
+        f"[M28-4] get_story('1-1 孤岛/BEG') → {len(page['text'])} 字"
+        f"｜说话人 {len(page.get('characters') or [])} 个｜截断 {bool(page.get('truncated'))}"
+    )
+
+
 class Smoke:
-    def __init__(self, *, m26: bool = False) -> None:
+    def __init__(self, *, m26: bool = False, m28: bool = False) -> None:
         self.m26 = m26
+        self.m28 = m28
 
     def run(self) -> int:
         try:
-            asyncio.run(run(m26=self.m26))
+            asyncio.run(run(m26=self.m26, m28=self.m28))
         except Exception as exc:  # noqa: BLE001 - 冒烟脚本自己报告失败
             print(f"[prts_smoke] [FAIL] {type(exc).__name__}: {exc}", flush=True)
             traceback.print_exc()
@@ -277,8 +336,11 @@ def main() -> int:
     parser.add_argument(
         "--m26", action="store_true", help="额外跑 M26 的干员、敌人、材料与掉落率四项"
     )
+    parser.add_argument(
+        "--m28", action="store_true", help="额外跑 M28 的卡池、基建技能、集成战略与剧情四项"
+    )
     args = parser.parse_args()
-    return Smoke(m26=args.m26).run()
+    return Smoke(m26=args.m26, m28=args.m28).run()
 
 
 if __name__ == "__main__":

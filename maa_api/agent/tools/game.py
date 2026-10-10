@@ -16,17 +16,21 @@ from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, To
 __all__ = [
     "GetDropRatesParams",
     "GetEnemyParams",
+    "GetGachaPoolsParams",
     "GetItemParams",
     "GetOperatorParams",
     "GetPrtsPageParams",
     "GetStageParams",
+    "GetStoryParams",
     "SearchPrtsParams",
     "get_drop_rates",
     "get_enemy",
+    "get_gacha_pools",
     "get_item",
     "get_operator",
     "get_prts_page",
     "get_stage",
+    "get_story",
     "register_tools",
     "search_prts",
 ]
@@ -93,7 +97,18 @@ class GetOperatorParams(BaseModel):
         description="干员的中文名、英文名、日文名或 char_id（如 char_172_svrash）。",
     )
     sections: (
-        list[Literal["basic", "stats", "skills", "talents", "potentials", "modules", "costs"]]
+        list[
+            Literal[
+                "basic",
+                "stats",
+                "skills",
+                "talents",
+                "potentials",
+                "modules",
+                "costs",
+                "building",
+            ]
+        ]
         | None
     ) = Field(
         default=None,
@@ -102,7 +117,8 @@ class GetOperatorParams(BaseModel):
             "basic（职业、分支、特性、标签、位置、获得方式）、stats（各精英阶段满级面板、"
             "部署费用、阻挡数、攻击间隔、攻击范围网格、信赖加成）、skills（技能与专精）、"
             "talents（天赋）、potentials（潜能 2–6）、modules（模组）、costs（精一精二、"
-            "技能升级与专精、模组的材料）。要材料消耗时必须显式带上 costs。"
+            "技能升级与专精、模组的材料）、building（基建技能：名称、房间、解锁条件、"
+            "描述与效率提示）。要材料消耗时必须显式带上 costs。"
         ),
     )
     skill_detail: Literal["max", "all"] = Field(
@@ -149,6 +165,37 @@ class GetDropRatesParams(BaseModel):
     limit: int = Field(default=8, ge=1, le=20, description="返回条数，默认 8，最多 20。")
     include_closed: bool = Field(
         default=False, description="是否包含已关闭活动关卡的统计（默认只看当前开放）。"
+    )
+
+
+class GetGachaPoolsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["current", "recent"] = Field(
+        default="current",
+        description="current 只看在开的卡池（默认），recent 看最近若干个已关闭的。",
+    )
+    limit: int = Field(default=5, ge=1, le=10, description="返回条数，默认 5，最多 10。")
+
+
+class GetStoryParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description="检索剧情：给关键词（关卡名、章节名）返回标题、片段与链接。与 title 二选一。",
+    )
+    title: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="取某页剧本正文：给剧情页标题（如「1-1 孤岛/BEG」）。与 query 二选一。",
+    )
+    offset: int = Field(default=0, ge=0, description="正文起始位置，用于接着上一次读。")
+    max_chars: int = Field(
+        default=6000, ge=2000, le=8000, description="本次最多返回多少字，默认 6000。"
     )
 
 
@@ -260,6 +307,37 @@ def register_tools(registry: ToolRegistry) -> None:
             read_only=True,
         )
     )
+    registry.register(
+        ToolDefinition(
+            name="get_gacha_pools",
+            group="game",
+            risk=ToolRisk.SAFE,
+            description=(
+                "查当期或近期卡池：名称、开始与结束时间、UP 的 6★ 与 5★ 干员"
+                "（星级来自本机资源数据）。status=current 只看在开的（默认），"
+                f"recent 看最近已关闭的。{_UNTRUSTED_NOTE}"
+            ),
+            params_model=GetGachaPoolsParams,
+            handler=get_gacha_pools,
+            read_only=True,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="get_story",
+            group="game",
+            risk=ToolRisk.SAFE,
+            description=(
+                "检索剧情或读剧情正文：给 query 返回剧情页的标题、片段与链接（先用它找标题）；"
+                "给 title 取该页剧本正文（说话人写成「名字：台词」，背景与演出指令已去掉），"
+                "正文超过 max_chars 时给 truncated.next_offset，带 offset 接着读。"
+                f"干员档案、活动简介这类设定文本用 get_prts_page。{_UNTRUSTED_NOTE}"
+            ),
+            params_model=GetStoryParams,
+            handler=get_story,
+            read_only=True,
+        )
+    )
 
 
 async def get_stage(params: GetStageParams, context: ToolContext) -> dict[str, Any]:
@@ -320,6 +398,35 @@ async def get_drop_rates(params: GetDropRatesParams, context: ToolContext) -> di
     return await service.stage_rates(
         params.stage, limit=params.limit, include_closed=params.include_closed
     )
+
+
+async def get_gacha_pools(params: GetGachaPoolsParams, context: ToolContext) -> dict[str, Any]:
+    """查当期或近期卡池（规格 §8.2）。"""
+    service = _service(context, "gacha_service", "maa_api.services.game.gacha")
+    return await service.pools(
+        status=params.status, limit=params.limit, client_type=_client_type(context)
+    )
+
+
+async def get_story(params: GetStoryParams, context: ToolContext) -> dict[str, Any]:
+    """检索剧情或取剧情正文（规格 §8.5）；`query` 与 `title` 必须二选一。"""
+    if (params.query is None) == (params.title is None):
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            "query 与 title 必须二选一：检索剧情用 query，取剧本正文用 title",
+            {"query": params.query, "title": params.title},
+        )
+    service = _service(context, "story_service", "maa_api.services.game.story")
+    if params.title is not None:
+        return await service.get(
+            params.title,
+            offset=params.offset,
+            max_chars=params.max_chars,
+            client_type=_client_type(context),
+        )
+    return await service.search(params.query, client_type=_client_type(context))
 
 
 def _service(context: ToolContext, state_name: str, module: str) -> Any:

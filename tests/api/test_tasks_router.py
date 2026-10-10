@@ -217,11 +217,25 @@ def test_export_uses_ref_template_for_nested_models(
     assert schema["properties"]["inner"]["$ref"] == "#/$defs/Inner"
 
 
-def test_task_schemas_have_no_nested_defs_today() -> None:
-    """当前模型没有嵌套模型，$defs 为空（ref_template 是给将来留的契约）。"""
+def test_only_roguelike_has_nested_defs_for_now() -> None:
+    """嵌套模型目前只有 `Roguelike` 用到（D5 的 `core_char_list` 与凹开局奖励）。
+
+    ref_template 是给将来留的契约：其余任务类型必须保持 `$defs` 为空，新增嵌套模型时
+    要显式改这里的名单（前端解析 `$ref` 的能力由
+    `test_export_uses_ref_template_for_nested_models` 钉住）。
+    """
+    nested = {"Roguelike": {"RoguelikeCoreChar", "RoguelikeCollectibleStartList"}}
     for name, model in tasks.TASK_MODELS.items():
         schema = tasks.export_type_schema(model)["schema"]
-        assert schema.get("$defs", {}) == {}, name
+        assert set(schema.get("$defs", {})) == nested.get(name, set()), name
+    props = tasks.export_type_schema(tasks.TASK_MODELS["Roguelike"])["schema"]["properties"]
+    assert (
+        props["core_char_list"]["anyOf"][0]["items"]["$ref"] == "#/$defs/RoguelikeCoreChar"
+    )
+    assert (
+        props["collectible_mode_start_list"]["anyOf"][0]["$ref"]
+        == "#/$defs/RoguelikeCollectibleStartList"
+    )
 
 
 # ----------------------------------------------------------------------
