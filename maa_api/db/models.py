@@ -1,4 +1,4 @@
-"""SQLModel 表定义：20 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：25 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -977,4 +977,200 @@ class AgentQuestion(SQLModel, table=True):
             "status",
             "created_at",
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M27 账号数据：account_operator / account_operator_diff / account_depot_item /
+# account_recognition / upgrade_plan（规格 §7.3、附录 E）
+#
+# 字段比附录 E 多两列，都是页面与工具已经在用的：``account_operator.profession``
+# （列表与工具的 profession 筛选、编辑抽屉不回改）与 ``account_depot_item.category``
+# （仓库页按分类分组、``get_depot`` 的 category 筛选）。识别回调本身给不出职业，
+# 由 capture 层用本机 ``battle_data.json`` 补。
+# ---------------------------------------------------------------------------
+
+
+def empty_masteries() -> dict[str, int]:
+    """专精列的默认值：三个技能槽都在、都为 0（规格 §7.5 的 wire 形状）。"""
+    return {"1": 0, "2": 0, "3": 0}
+
+
+class AccountOperator(SQLModel, table=True):
+    """账号里的一名干员（规格 §7.3、附录 E）。
+
+    一行同时承载三种来源的值：识别（``own`` / ``elite`` / ``level`` / ``potential``）、
+    手动编辑、Agent 写入。``field_sources`` 记每个字段最后一次是谁写的，
+    ``recognized_values`` 记最近一次识别值：识别覆盖时用它判断「这个字段在上次识别
+    之后有没有被手动改过」，见 :meth:`~maa_api.services.account.box.OperatorBoxService.apply_recognition`。
+
+    ``name`` / ``rarity`` / ``profession`` 允许为空：``all_opers`` 里只有 id、
+    又没有被本机资料认出来的干员行仍然要留（``own=false``），等后续识别或资源补全。
+    """
+
+    __tablename__ = "account_operator"
+
+    char_id: str = Field(primary_key=True, max_length=64)
+    name: str | None = Field(default=None, max_length=64)
+    rarity: int | None = Field(default=None)
+    #: 中文职业（近卫 / 术师 …），来自本机 ``battle_data.json``。
+    profession: str | None = Field(default=None, max_length=16)
+    own: bool = Field(default=False)
+    elite: int = Field(default=0)
+    level: int = Field(default=0)
+    potential: int = Field(default=0)
+    skill_level: int = Field(default=1)
+    masteries: dict[str, int] = Field(
+        default_factory=empty_masteries,
+        sa_column=json_column("masteries", nullable=False),
+    )
+    modules: dict[str, int] = Field(
+        default_factory=dict, sa_column=json_column("modules", nullable=False)
+    )
+    #: 最近一次识别的值（只含识别能覆盖的四个字段）；从未识别为 NULL。
+    recognized_values: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("recognized_values")
+    )
+    #: 字段 → 来源（``recognition`` / ``manual`` / ``agent``）。
+    field_sources: dict[str, str] = Field(
+        default_factory=dict, sa_column=json_column("field_sources", nullable=False)
+    )
+    recognized_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("recognized_at", nullable=True)
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+class AccountOperatorDiff(SQLModel, table=True):
+    """识别覆盖手动值的差异（规格 §7.3、附录 E）。
+
+    只在「字段被手动 / Agent 改过、且手动值与这次识别值不同」时写一条；用户在页面
+    点「知道了」置 ``dismissed_at``（行保留，不删）。
+    """
+
+    __tablename__ = "account_operator_diff"
+
+    id: int | None = Field(default=None, primary_key=True)
+    char_id: str = Field(max_length=64)
+    field: str = Field(max_length=32)
+    #: JSON 列而不是字符串：bool 与 int 要保留原类型（等级 90 与 True 不是一回事）。
+    manual_value: Any | None = Field(default=None, sa_column=json_column("manual_value"))
+    recognized_value: Any | None = Field(
+        default=None, sa_column=json_column("recognized_value")
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    dismissed_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("dismissed_at", nullable=True)
+    )
+
+    __table_args__ = (
+        # 待处理差异列表：dismissed_at IS NULL ORDER BY created_at
+        Index(
+            "ix_account_operator_diff_dismissed_at_created_at",
+            "dismissed_at",
+            "created_at",
+        ),
+    )
+
+
+class AccountDepotItem(SQLModel, table=True):
+    """账号仓库里的一种物品（规格 §7.3、附录 E）。
+
+    整表替换语义：一次 ``DepotInfo``（``done=true``）把这张表换成本次识别到的
+    物品与数量，数量归零的物品直接消失。
+    """
+
+    __tablename__ = "account_depot_item"
+
+    item_id: str = Field(primary_key=True, max_length=64)
+    #: 本机 ``item_index.json`` 的名字；映射不到时保留 ``item_id``。
+    name: str | None = Field(default=None, max_length=64)
+    count: int = Field(default=0)
+    #: ``item_index.json`` 的 ``classifyType``（MATERIAL / NORMAL …）；映射不到为 NULL。
+    category: str | None = Field(default=None, max_length=16)
+    recognized_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("recognized_at")
+    )
+
+
+class AccountRecognition(SQLModel, table=True):
+    """一次账号识别的记录（规格 §7.3、附录 E）：时间、流水线、任务、渠道、数量。"""
+
+    __tablename__ = "account_recognition"
+
+    id: int | None = Field(default=None, primary_key=True)
+    #: ``operbox`` / ``depot``。
+    kind: str = Field(max_length=16)
+    pipeline_id: str | None = Field(
+        default=None,
+        foreign_key="pipeline.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    task_id: str | None = Field(
+        default=None, foreign_key="task.id", ondelete="SET NULL", max_length=36
+    )
+    client_type: str | None = Field(default=None, max_length=16)
+    item_count: int = Field(default=0)
+    recognized_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("recognized_at")
+    )
+
+    __table_args__ = (
+        # 最近一次识别：kind=? ORDER BY recognized_at DESC LIMIT 1
+        Index("ix_account_recognition_kind_recognized_at", "kind", "recognized_at"),
+    )
+
+
+class UpgradePlan(SQLModel, table=True):
+    """养成计划（规格 §7.7、附录 E）：今天先打、剩余写成每日定时任务。
+
+    ``status`` 三态：``active`` / ``completed`` / ``cancelled``（规格 §7.7）。
+    ``requirements`` 是规划算出的需求，``progress`` 是每次 ``Depot`` 识别后的剩余
+    需求与剩余场次；两者都是 JSON，结构由规划层定义，表不做约束。
+    """
+
+    __tablename__ = "upgrade_plan"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    name: str = Field(max_length=64)
+    status: str = Field(default="active", max_length=16)
+    targets: list[Any] = Field(
+        default_factory=list, sa_column=json_column("targets", nullable=False)
+    )
+    requirements: dict[str, Any] = Field(
+        default_factory=dict, sa_column=json_column("requirements", nullable=False)
+    )
+    progress: dict[str, Any] = Field(
+        default_factory=dict, sa_column=json_column("progress", nullable=False)
+    )
+    schedule_id: str | None = Field(
+        default=None,
+        foreign_key="schedule.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    session_id: str | None = Field(
+        default=None,
+        foreign_key="agent_session.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+    completed_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("completed_at", nullable=True)
+    )
+
+    __table_args__ = (
+        # 计划列表：status=? ORDER BY created_at
+        Index("ix_upgrade_plan_status_created_at", "status", "created_at"),
     )

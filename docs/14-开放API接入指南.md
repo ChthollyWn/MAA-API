@@ -201,6 +201,8 @@ curl -X POST http://<host>:8002/api/snippets \
 | `EXTERNAL_SOURCE_RATE_LIMITED` | 429 | 本地令牌桶取不到令牌（最多等 5 秒），或远端返回 429 后的冷却期内（时长取 `Retry-After`，缺省 60 秒、封顶 300 秒） |
 | `EXTERNAL_RESPONSE_INVALID` | 502 | 响应解压后超过来源上限、JSON 无效，或结构与来源约定不符（MediaWiki 的 `{"error": {...}}` 错误体也走这一条） |
 | `GAME_DATA_NOT_FOUND` | 404 | 来源上确实没有这条数据：PRTS 没有这个页面、关卡或搜索结果 |
+| `ACCOUNT_DATA_NOT_FOUND` | 404 | 账号数据里查无此对象：`GET /api/account/operators/{char_id}` 没有该干员的记录，或账号数据尚未识别过 |
+| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（`GET` / `DELETE /api/agent/upgrade-plans/{plan_id}`，M27 后半与前端计划页用） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->
@@ -217,6 +219,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `schedules` | 定时任务 |
 | `settings` | 可视化配置 |
 | `sources` | 外部数据源状态与缓存 |
+| `account` | 账号数据（干员、仓库与养成计划） |
 | `notifications` | 多通道通知 |
 | `resources` | Copilot 作业、基建方案、自定义 task |
 | `snippets` | API 调试台收藏请求 |

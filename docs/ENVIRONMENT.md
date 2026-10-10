@@ -15,6 +15,7 @@
 - 仓库内 venv：`.venv/`（M0-01 建立），解释器 `.venv/bin/python`，已 `pip install -e .`。
 - `poetry lock` 若在受限沙箱下需要 `POETRY_CACHE_DIR=$(mktemp -d)`（默认缓存目录在仓库外）。
 - Node v23.11.0；pnpm 11.1.3。adb 36.0.0 于 `/opt/homebrew/bin/adb`。
+- **本机 poetry 配置的镜像 `mirrors.aliyun.com` 不可达（M27 计划记录，2026-10-10）**：`poetry add` 与 `poetry lock` 都失败，报错是连不上该镜像。注意与上面「受限沙箱里 poetry 装依赖要给 `POETRY_CACHE_DIR`」那条区分：那条的根因是缓存目录不可写（只在 `-v` 输出里出现 `[Errno 1] Operation not permitted`），排查时先给它一个可写的 `POETRY_CACHE_DIR` 再怀疑网络。可用的绕法是 `pip`：`.venv/bin/python -m pip install "scipy>=1.11"`（M27 装的是 scipy 1.18.1 + numpy 2.5.3），`pyproject.toml` 手工加依赖，但 **`poetry.lock` 无法更新**（`grep -c 'name = "scipy"' poetry.lock` 为 0，numpy 也没有）。影响与补救：按锁文件安装的环境（含 `Dockerfile` 的 `poetry install --only main`）没有 scipy，`plan_upgrade` 只能走「线性规划不可用」的降级路径；镜像可达后补跑一次 `poetry lock`（Poetry 2.x 默认只锁新依赖、不升级已锁包）并提交锁文件。见 [13 §8.42](./13-决策记录.md) 九、[15 §8](./15-部署指南.md)。
 
 ## 常驻服务与 `.venv`（2026-10-09 实测）
 
@@ -33,6 +34,7 @@
 - 真机/模拟器已连接：`127.0.0.1:5555`（`adb devices` 可见）。
 - **`AsstMsg` 取值不是 1..12 连号**（v6.17.5 实测）：`InternalError=0`、`InitFailed=1`、`ConnectionInfo=2`、`AllTasksCompleted=3`、`AsyncCallInfo=4`、`Destroyed=5`、`TaskChain*=10000..10004`、`SubTask*=20000..20004`。照连号硬编码会把 `ConnectionInfo`(2) 当成 `TaskChainError`。
 - **`AsstAppendTask` 校验任务必填参数，缺参数时静默返回 0**（不抛异常、无回调）。实测：`("StartUp", {})`→0、`("StartUp", {"client_type":"Official"})`→1；`("Infrast", {})`→0、带 `{"facility":["Mfg"]}`→2；`("Recruit", {})`/`{"times":4}` 均→0；`Award`/`Fight`/`Mall`/`Roguelike`/`OperBox`/`Depot` 空参数即可。`task_id == 0` 必须当失败处理。
+- **`OperBox` / `Depot` 的回调结构（M27，来源是规格 §2.5 引用的上游 `OperBoxRecognitionTask.cpp` / `DepotRecognitionTask.cpp` 与集成文档，不是本机真机实测）**：两条任务的结果都经 `SubTaskExtraInfo` 推送，过程中会发多次 `done=false`，只有最后一次 `done=true` 才是收尾（服务层据此只在 `done=true` 落库）；`what` 分别是 `OperBoxInfo` 与 `DepotInfo`。`OperBoxInfo` 的 `all_opers[]` 给「是否拥有」（id、name、多语言名、rarity、own），`own_opers[]` 额外给 `elite`（0–2）、`level`、`potential`（1–6）——**不识别技能等级、专精、模组**，这三项只能手动或经 Agent 写。`DepotInfo` 的 `data` 是 JSON **字符串**（`{"物品ID": 数量}`，不是对象；旧的 arkplanner / lolicon 格式已不存在），坏 JSON 或空对象按「本次不落库」处理，成功则整表替换仓库数量；仓库识别只看养成材料页签，**龙门币与作战记录不在其中**。落表、合并规则与差异口径见 [13 §8.42](./13-决策记录.md) 三、四，解析实现见 `maa_api/services/account/capture.py`。**真机跑一次 OperBox / Depot 仍是补充证据**（不是里程碑硬门槛）；`scripts/probe_task_defaults.py` 已把两条空参数登记进候选，换内核版本时可复跑上面的入队结论。
 - **M17 复测（v6.17.5，2026-09-28）：append 不需要连设备，可以拿它当「全默认参数能不能被内核接受」的验收入口。** 用 `scripts/probe_task_defaults.py` 实测：`StartUp` 必须给 `client_type`（`StartUpTask.cpp` 里 `Config.get_package_name("")` 失败）；`Recruit` 必须同时给 `select` 与 `confirm`（只给 `times` 也是 0）；`Infrast` 必须给 `facility`（`{"facility":[]}` 能过，未知设施名不能）；`Copilot` 需要能被解析的 `filename`（服务层由 `asset_id` 映射）；`CloseDown`/`Fight`/`Mall`/`Award`/`Roguelike`/`Reclamation` 空参数即可。这解释了「用户什么都不改就提交公招/基建任务会拿到 502 CORE_COMMAND_FAILED」的旧现象：M17 起这三个参数由本服务给出默认值。
 - **`AsstSetUserDir` 要求目录已存在**，否则返回 False；旧封装 `Asst.load()` 把它 `&=` 进返回值，表现为「内核加载失败」。
 - **按绝对路径 `ctypes.CDLL(<dir>/libMaaCore.dylib)` 不依赖 `DYLD_LIBRARY_PATH`**：`env -u DYLD_LIBRARY_PATH` 实测也能 dlopen（依赖走 @loader_path/@rpath）。那条环境变量是冗余保险。

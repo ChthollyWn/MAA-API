@@ -13,6 +13,138 @@ export type Writable<T> = T extends $Read<any> ? never : T extends $Write<infer 
     [K in keyof T as NonNullable<T[K]> extends $Read<any> ? K : never]?: never;
 } : T;
 export interface paths {
+    "/api/account/depot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取仓库
+         * @description 仓库识别结果，按物品分类分组展示的只读列表。
+         *
+         *     - `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数
+         *     - 仓库识别只看养成材料页签，龙门币与作战记录不在其中
+         *     - 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定
+         */
+        get: operations["account_list_account_depot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/account/operator-diffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取识别差异
+         * @description 识别覆盖掉手动值的差异列表：干员、字段、手动值、识别值、时间。
+         *
+         *     - 默认只返回未处理的差异；`include_dismissed=true` 连已「知道了」的一起返回
+         *     - `total` 是未处理差异的总数（不受 `limit` 影响）
+         */
+        get: operations["account_list_account_operator_diffs"];
+        put?: never;
+        post?: never;
+        /**
+         * 标记差异已知
+         * @description 把识别差异标记为已知（页面上的「知道了」）。
+         *
+         *     - 请求体给 `ids` 逐条处理，省略表示全部
+         *     - 幂等：重复标记已处理的差异不计入 `dismissed`
+         *     - 找不到的 id 不报错，只在 `dismissed` 里少计数
+         */
+        delete: operations["account_dismiss_account_operator_diffs"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/account/operators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取干员表
+         * @description 账号识别到的干员列表，带筛选与分页。
+         *
+         *     - 默认只返回已拥有的干员（`owned_only=true`）；未拥有的行来自识别的 `all_opers`
+         *     - `total` 是筛选后的总数，不是当前页条数
+         *     - 每行的 `field_sources` 标出各字段来自识别、手动还是 Agent
+         */
+        get: operations["account_list_account_operators"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/account/operators/{char_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取单名干员
+         * @description 按 `char_id` 读一条干员记录（编辑抽屉打开时用）。
+         */
+        get: operations["account_get_account_operator"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 编辑干员数据
+         * @description 手动编辑一名干员的字段，只写请求体里给出的字段。
+         *
+         *     - 精英化上限按稀有度：1–2★ 精零、3★ 精一、4–6★ 精二
+         *     - 专精只在精二且技能等级 7 时可填；模组只在精二时可填，类型 X/Y/D/A、等级 1–3
+         *     - 写入后这些字段的 `field_sources` 标 `manual`（或 `source=agent`）
+         *     - 下次识别若覆盖了手动值且值不同，会记一条差异并在 `GET /api/account/operator-diffs` 里列出
+         *     - 违反字段约束返回 422 `VALIDATION_ERROR`，`details.field` 指出字段
+         */
+        patch: operations["account_patch_account_operator"];
+        trace?: never;
+    };
+    "/api/account/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取账号数据概要
+         * @description 干员与仓库的计数、识别时间与是否过期，以及未处理的识别差异条数。
+         *
+         *     - 过期阈值由 `agent.box_stale_days`（默认 14 天）与 `agent.depot_stale_days`（默认 3 天）决定
+         *     - 从未识别时 `recognized_at` 为 `null` 且 `stale` 为 `true`
+         */
+        get: operations["account_get_account_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/audits": {
         parameters: {
             query?: never;
@@ -1817,6 +1949,29 @@ export interface components {
             version?: string | null;
         };
         /**
+         * DepotInput
+         * @description 仓库识别：读一遍账号仓库「养成材料」页签的数量（规格 §7.2 T1）。
+         *
+         *     没有参数，空参数即可入队。识别结果经 ``SubTaskExtraInfo`` 回调整表替换仓库
+         *     数量；龙门币与作战记录不在该页签内。
+         * @example {
+         *       "name": "Depot"
+         *     }
+         */
+        DepotInput: {
+            /**
+             * Enable
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
+             * @default true
+             */
+            enable: boolean | null;
+            /**
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            name: "Depot";
+        };
+        /**
          * DeviceHealth
          * @description 设备连接状态与最近一次连接信息。
          */
@@ -2359,11 +2514,128 @@ export interface components {
          * NotifyEvent
          * @enum {string}
          */
-        NotifyEvent: "pipeline_completed" | "pipeline_failed" | "core_crashed" | "device_disconnected" | "update_available" | "update_finished" | "confirmation_required";
+        NotifyEvent: "pipeline_completed" | "pipeline_failed" | "core_crashed" | "device_disconnected" | "update_available" | "update_finished" | "confirmation_required" | "upgrade_plan_finished";
         /** NotifyTestRequest */
         NotifyTestRequest: {
             /** @default pipeline_completed */
             event: components["schemas"]["NotifyEvent"];
+        };
+        /**
+         * OperBoxInput
+         * @description 干员识别：读一遍账号里有哪些干员、练到什么程度（规格 §7.2 T1）。
+         *
+         *     没有参数：``AsstAppendTask("OperBox", {})`` 就能入队（docs/ENVIRONMENT.md
+         *     「MaaCore 内核」节实测）。识别结果经 ``SubTaskExtraInfo`` 回调推给
+         *     :mod:`maa_api.services.account.capture`，识别不了技能等级、专精与模组。
+         * @example {
+         *       "name": "OperBox"
+         *     }
+         */
+        OperBoxInput: {
+            /**
+             * Enable
+             * @description 关掉后执行流水线时会跳过本任务（默认开启）
+             * @default true
+             */
+            enable: boolean | null;
+            /**
+             * @description 由任务类型选择器决定，不用填 (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            name: "OperBox";
+        };
+        /**
+         * OperatorDiffDismissRequest
+         * @description 把差异标记为「知道了」：给 ``ids`` 逐条处理，省略表示全部。
+         * @example {
+         *       "ids": [
+         *         1,
+         *         2
+         *       ]
+         *     }
+         * @example {}
+         */
+        OperatorDiffDismissRequest: {
+            /**
+             * Ids
+             * @description 差异 id 列表；省略或 null 表示全部
+             */
+            ids?: number[] | null;
+        };
+        /**
+         * OperatorPatchRequest
+         * @description 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。
+         *
+         *     取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、
+         *     模组与精英化）在服务层做——它们要看行里既有的值。
+         * @example {
+         *       "elite": 2,
+         *       "level": 90,
+         *       "own": true,
+         *       "potential": 6
+         *     }
+         * @example {
+         *       "elite": 2,
+         *       "level": 80,
+         *       "masteries": {
+         *         "1": 3,
+         *         "2": 3,
+         *         "3": 0
+         *       },
+         *       "modules": {
+         *         "X": 3
+         *       },
+         *       "skill_level": 7,
+         *       "source": "manual"
+         *     }
+         */
+        OperatorPatchRequest: {
+            /**
+             * Elite
+             * @description 精英化等级，上限按稀有度
+             */
+            elite?: number | null;
+            /**
+             * Level
+             * @description 等级
+             */
+            level?: number | null;
+            /**
+             * Masteries
+             * @description 专精等级：技能序号 1–3 → 0–3；只在精二且技能 7 级时可填
+             */
+            masteries?: {
+                [key: string]: number;
+            } | null;
+            /**
+             * Modules
+             * @description 模组等级：类型 X/Y/D/A → 1–3；只在精二时可填
+             */
+            modules?: {
+                [key: string]: number;
+            } | null;
+            /**
+             * Own
+             * @description 是否拥有
+             */
+            own?: boolean | null;
+            /**
+             * Potential
+             * @description 潜能
+             */
+            potential?: number | null;
+            /**
+             * Skill Level
+             * @description 技能等级 1–7
+             */
+            skill_level?: number | null;
+            /**
+             * Source
+             * @description 字段来源标记；Agent 工具写 agent，页面写 manual
+             * @default manual
+             * @enum {string}
+             */
+            source: "manual" | "agent";
         };
         /**
          * PipelineCreate
@@ -2433,7 +2705,7 @@ export interface components {
             /** Priority */
             priority?: number | null;
             /** Tasks */
-            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["CopilotInput"])[];
+            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CopilotInput"])[];
             /** Title */
             title?: string | null;
         };
@@ -2999,7 +3271,7 @@ export interface components {
              */
             skip_if_running: boolean;
             /** Template */
-            template: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["CopilotInput"])[];
+            template: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CopilotInput"])[];
             /**
              * Timezone
              * @default Asia/Shanghai
@@ -3230,7 +3502,7 @@ export interface components {
          */
         TaskValidateRequest: {
             /** Tasks */
-            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["CopilotInput"])[];
+            tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CopilotInput"])[];
         };
         /** ValidationError */
         ValidationError: {
@@ -3254,6 +3526,458 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    account_list_account_depot: {
+        parameters: {
+            query?: {
+                /** @description 物品分类 */
+                category?: string | null;
+                /** @description 物品名片段 */
+                query?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    account_list_account_operator_diffs: {
+        parameters: {
+            query?: {
+                include_dismissed?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    account_dismiss_account_operator_diffs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OperatorDiffDismissRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    account_list_account_operators: {
+        parameters: {
+            query?: {
+                /** @description 干员名片段 */
+                query?: string | null;
+                /** @description 只返回已拥有的干员 */
+                owned_only?: boolean;
+                /** @description 最低稀有度 */
+                rarity_min?: number | null;
+                /** @description 职业，如 近卫 / 医疗 */
+                profession?: string | null;
+                /** @description 最低精英化等级 */
+                elite_min?: number | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    account_get_account_operator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 干员 id，如 char_002_amiya */
+                char_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：ACCOUNT_DATA_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "ACCOUNT_DATA_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    account_patch_account_operator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 干员 id，如 char_002_amiya */
+                char_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：ACCOUNT_DATA_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "ACCOUNT_DATA_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    account_get_account_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     agent_list_audits: {
         parameters: {
             query?: {

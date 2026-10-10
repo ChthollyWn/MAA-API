@@ -15,6 +15,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -56,6 +57,11 @@ BUSINESS_TABLES = {
     "push_subscription",
     "agent_knowledge",
     "agent_question",
+    "account_operator",
+    "account_operator_diff",
+    "account_depot_item",
+    "account_recognition",
+    "upgrade_plan",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -93,6 +99,22 @@ EXPECTED_INDEXES = {
         False,
     ),
     "ix_stage_drop_callback_id": ("stage_drop", ("callback_id",), False),
+    # M27：账号数据的 3 条索引（两张几百行的表按 docs/04 §6 不建索引）。
+    "ix_account_recognition_kind_recognized_at": (
+        "account_recognition",
+        ("kind", "recognized_at"),
+        False,
+    ),
+    "ix_account_operator_diff_dismissed_at_created_at": (
+        "account_operator_diff",
+        ("dismissed_at", "created_at"),
+        False,
+    ),
+    "ix_upgrade_plan_status_created_at": (
+        "upgrade_plan",
+        ("status", "created_at"),
+        False,
+    ),
     "ix_sanity_observation_stage_created_at": (
         "sanity_observation",
         ("stage_code", "created_at"),
@@ -190,6 +212,11 @@ EXPECTED_FK_SET_NULL = {
     ("schedule", "last_pipeline_id"),
     ("agent_session", "atomic_grant_id"),
     ("agent_message", "audit_id"),
+    # M27：账号数据的可空外键同样按 SET NULL 处理（识别记录/计划被删不该带走引用方）。
+    ("account_recognition", "pipeline_id"),
+    ("account_recognition", "task_id"),
+    ("upgrade_plan", "schedule_id"),
+    ("upgrade_plan", "session_id"),
     ("agent_audit", "confirmation_id"),
     ("agent_question", "audit_id"),
     ("agent_audit", "authorized_by_id"),
@@ -230,6 +257,16 @@ EXPECTED_JSON_COLUMNS = {
     ("notify_channel", "config"),
     ("notify_channel", "events"),
     ("resource_asset", "content"),
+    # M27：账号数据的 JSON 列。
+    ("account_operator", "masteries"),
+    ("account_operator", "modules"),
+    ("account_operator", "recognized_values"),
+    ("account_operator", "field_sources"),
+    ("account_operator_diff", "manual_value"),
+    ("account_operator_diff", "recognized_value"),
+    ("upgrade_plan", "targets"),
+    ("upgrade_plan", "requirements"),
+    ("upgrade_plan", "progress"),
     ("resource_asset", "meta"),
     ("api_snippet", "path_params"),
     ("api_snippet", "query"),
@@ -613,13 +650,18 @@ def test_string_columns_declare_documented_widths(table):
         "error_code": 48,
     }
     for name, width in widths.items():
-        if name in MD.tables[table].c:
-            column = MD.tables[table].c[name]
-            assert sql_type(column) == f"VARCHAR({width})", (
-                table,
-                name,
-                sql_type(column),
-            )
+        if name not in MD.tables[table].c:
+            continue
+        column = MD.tables[table].c[name]
+        if not isinstance(column.type, sa.String):
+            # 同名列不一定是字符串：`account_operator.level` 是干员等级（INTEGER），
+            # 这条文档性约束只覆盖状态/来源/阶段这类字符串列。
+            continue
+        assert sql_type(column) == f"VARCHAR({width})", (
+            table,
+            name,
+            sql_type(column),
+        )
 
 
 def test_text_columns_use_text_type():

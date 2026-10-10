@@ -806,6 +806,8 @@ class ConfirmationService:
                     "request_id": context.request_id,
                     "grant": decision.confirmation_action == "grant_atomic_ops",
                     "window_seconds": decision.window_seconds,
+                    # 账号写入的差异/摘要（规格 §7.4）：确认卡片按它渲染，不展开原始 JSON。
+                    **dict(decision.extra_payload or {}),
                 },
                 requested_by=_caller(context.caller),
                 audit_id=None,

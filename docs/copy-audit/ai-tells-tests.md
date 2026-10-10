@@ -1,15 +1,15 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 3978 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 4498 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 绝对化规定腔 | medium | 0 | 60 | 60 |
-| 粗体强调 | medium | 0 | 45 | 45 |
-| 「A 而不是 B」对照腔 | high | 0 | 36 | 36 |
-| 破折号当冒号用 | high | 0 | 35 | 35 |
-| 自指式讲解腔 | medium | 0 | 9 | 9 |
+| 绝对化规定腔 | medium | 0 | 61 | 61 |
+| 粗体强调 | medium | 0 | 49 | 49 |
+| 「A 而不是 B」对照腔 | high | 0 | 38 | 38 |
+| 破折号当冒号用 | high | 0 | 36 | 36 |
+| 自指式讲解腔 | medium | 0 | 10 | 10 |
 | 省略号 | medium | 0 | 5 | 5 |
 | 「…即可」机器腔 | medium | 0 | 3 | 3 |
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
@@ -17,7 +17,7 @@
 | 提示腔 | medium | 0 | 1 | 1 |
 | emoji/符号装饰 | high | 0 | 1 | 1 |
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 60）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 61）
 
 **开发向**
 
@@ -27,9 +27,9 @@
 - `tests/api/__init__.py:1` ``tests/api``：接入层用例（M3-04 起）。 本目录的用例**不得 import ``maa_api.main``**（M3-09 之前它还是旧装配）， 被测 app 一律在用例里用 ``FastAPI()`` 现搭；公共夹具…（共 148 字）
 - `tests/api/conftest.py:1` ``tests/api`` 共享夹具（M3-04 建，M3-05~M3-09 直接用）。 本目录的用例**不得 import ``maa_api.main``**（M3-09 之前它还是旧装配：import 期 读真实配置、建目录，甚至可能…（共 1523 字）
 - `tests/api/test_app_skeleton.py:244` 进入 TestClient 即执行 lifespan 第 1–2 步：配置加载 + 迁移到 head。 断言版本行落在**临时库**里（``isolated_db`` 换掉了模块级 engine/session_factory 与三条 UR…（共 164 字）
-- …… 另有 54 条，见 inventory.json
+- …… 另有 55 条，见 inventory.json
 
-## 粗体强调（medium｜用户可见 0 / 开发向 45）
+## 粗体强调（medium｜用户可见 0 / 开发向 49）
 
 **开发向**
 
@@ -39,9 +39,9 @@
 - `tests/agent/test_knowledge_service.py:208` 三份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。 M18 的 5 个块、M19 的 26 个块与 M24 的 1 个块合起来恰好是全部内置条目。
 - `tests/agent/test_knowledge_service.py:261` §4.6 是内置条目的登记表：条目集合与 frontmatter 必须逐字一致。 三份规格的块并集必须**恰好**覆盖 ``builtin/`` 目录：多一条（规格没登记） 或少一条（文件漏了）都要失败。B3 文案审计按规范改写了部分正文（…（共 204 字）
 - `tests/agent/test_knowledge_service.py:1281` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
-- …… 另有 39 条，见 inventory.json
+- …… 另有 43 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 36）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 38）
 
 **开发向**
 
@@ -51,9 +51,9 @@
 - `tests/agent/test_runtime.py:1797` 截图必须作为 tool 消息的图片部分，而不是另起一条 user 消息
 - `tests/agent/test_runtime.py:2267` 截图应当作为 tool 消息的多模态 content，而不是另起一条 user 消息
 - `tests/api/conftest.py:1` ``tests/api`` 共享夹具（M3-04 建，M3-05~M3-09 直接用）。 本目录的用例**不得 import ``maa_api.main``**（M3-09 之前它还是旧装配：import 期 读真实配置、建目录，甚至可能…（共 1523 字）
-- …… 另有 30 条，见 inventory.json
+- …… 另有 32 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 35）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 36）
 
 **开发向**
 
@@ -63,9 +63,9 @@
 - `tests/api/conftest.py:1` ``tests/api`` 共享夹具（M3-04 建，M3-05~M3-09 直接用）。 本目录的用例**不得 import ``maa_api.main``**（M3-09 之前它还是旧装配：import 期 读真实配置、建目录，甚至可能…（共 1523 字）
 - `tests/api/test_app_skeleton.py:1` M3-09 应用装配验收：lifespan、CORS、OpenAPI 元数据与尾斜杠（docs/02 §7、docs/05 §11/§5.1/§2.5）。 被测对象是模块级的 :data:`maa_api.main.app`（本卡起 ``t…（共 1215 字）
 - `tests/api/test_auth.py:1` 四渠道 token 鉴权与会话依赖（M3-06；docs/05 §5、§4.1、§5.2、§5.3）。 被测 app 全部在本文件里现搭（``FastAPI(...)`` + M3-04 的 :func:`~maa_api.api.erro…（共 937 字）
-- …… 另有 29 条，见 inventory.json
+- …… 另有 30 条，见 inventory.json
 
-## 自指式讲解腔（medium｜用户可见 0 / 开发向 9）
+## 自指式讲解腔（medium｜用户可见 0 / 开发向 10）
 
 **开发向**
 
@@ -75,7 +75,7 @@
 - `tests/core/test_hardware_smoke.py:1` M1-14 真机冒烟测试：真实 MaaCore + 真实设备的加载 / 连接 / 截图 / 原子操作 / 最短任务。 本文件把 M1-13 的命令行脚本（``scripts/core_smoke.py``）固化成可重复执行的 pytest …（共 2531 字）
 - `tests/core/test_worker.py:1` M1-07 ``core/worker.py`` 的端到端测试：真实 spawn 子进程 + 真实 Queue。 这里不加载 MaaCore、不连设备：``boot_config["asst_factory"]`` 指向 ``tests.f…（共 1086 字）
 - `tests/db/test_repositories_log.py:282` 每批最多 ``PURGE_BATCH_SIZE`` 行：两维都分批，单次调用内部循环删完。 monkeypatch 把批上限缩到 2，用 6 行数据逼出多批路径（真按 5000 行造数据 太慢，且批量边界才是这里要钉住的行为）。
-- …… 另有 3 条，见 inventory.json
+- …… 另有 4 条，见 inventory.json
 
 ## 省略号（medium｜用户可见 0 / 开发向 5）
 

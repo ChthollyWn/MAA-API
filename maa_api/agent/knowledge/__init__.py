@@ -60,9 +60,11 @@ __all__ = [
     "ACTIVITY_HEADER",
     "ACTIVITY_HEADER_FALLBACK",
     "ACTIVITY_HEADER_FOREIGN",
+    "ACCOUNT_HEADER",
     "ACTIVITY_HEADER_PRTS",
     "ACTIVITY_INJECTION_BUDGET_SECONDS",
     "MAX_ACTIVITY_LINES",
+    "render_account_lines",
     "render_activity_lines",
     "render_activity_section",
     "GLOSSARY_HEADER",
@@ -123,6 +125,8 @@ ACTIVITY_INJECTION_BUDGET_SECONDS = 3.0
 #: 活动名（真数据 101 字）不会触发裁剪；活动名由上游决定、可能很长，超限时按这个数
 #: 裁剪才不会让每轮的固定成本失控（规格 §3.1、§4.3）。
 MAX_ACTIVITY_LINE_CHARS = 120
+#: M27：账号数据段。排在当期活动之后、术语表之前（规格 §4.5 的段落顺序）。
+ACCOUNT_HEADER = "账号数据："
 GLOSSARY_HEADER = "术语表（开发者与用户维护）："
 PROFILE_HEADER = "用户档案（用户维护）："
 
@@ -273,6 +277,93 @@ def _fallback_line(activity: CurrentActivity) -> str:
         if budget < len(name):
             name = name[: max(budget - 1, 1)] + "…"
     return f"{name}{started}{stages}{tail}"
+
+
+def render_account_lines(summary: Mapping[str, Any] | None) -> list[str]:
+    """账号数据段（规格 §7.8）：一行写干员、一行写仓库，各自 ≤120 字。
+
+    ``summary`` 的键与 `OperatorBoxService.summary()` / `DepotService.summary()` 对齐；
+    缺字段时按「未识别」处理，不编数字。
+    """
+    if not isinstance(summary, Mapping):
+        return []
+    if "operators" not in summary and "depot" not in summary:
+        # 完全没有账号数据（读取器没装配或读不到）时整段不插，不写「暂无」（§4.5）。
+        return []
+    operators = summary.get("operators") if isinstance(summary.get("operators"), Mapping) else {}
+    depot = summary.get("depot") if isinstance(summary.get("depot"), Mapping) else {}
+    lines: list[str] = []
+    operator_line = _operator_line(operators)
+    if operator_line:
+        lines.append(operator_line)
+    depot_line = _depot_line(depot)
+    if depot_line:
+        lines.append(depot_line)
+    return lines
+
+
+def _operator_line(operators: Mapping[str, Any]) -> str | None:
+    """干员那一行：数量、精二数、识别时间与是否过期。"""
+    if not operators.get("recognized"):
+        return "干员：尚未识别（需要时建议运行干员识别）"
+    total = operators.get("total")
+    elite2 = operators.get("elite2")
+    if not isinstance(total, int):
+        return None
+    parts = [f"干员 {total} 名"]
+    if isinstance(elite2, int):
+        parts.append(f"（精二 {elite2}）")
+    stamp = _recognized_stamp(operators)
+    if stamp:
+        parts.append(stamp)
+    return _clip_line("".join(parts), "干员")
+
+
+def _depot_line(depot: Mapping[str, Any]) -> str | None:
+    """仓库那一行：识别时间与是否过期；没识别就如实说。"""
+    if not depot.get("recognized"):
+        return "仓库：尚未识别（需要时建议运行仓库识别）"
+    stamp = _recognized_stamp(depot)
+    if not stamp:
+        return "仓库：已识别"
+    return _clip_line(f"仓库{stamp}", "仓库")
+
+
+def _recognized_stamp(payload: Mapping[str, Any]) -> str | None:
+    """`识别于 10-02（7 天前）`；过期时补一句建议。
+
+    天数由 ``recognized_at`` 现算——``stale_days`` 是配置里的**过期阈值**，不是已过天数，
+    两者混用会把「14 天阈值」写成「（14 天前）」。
+    """
+    raw = payload.get("recognized_at")
+    if not isinstance(raw, str) or not raw:
+        return None
+    moment = _parse_moment(raw)
+    if moment is None:
+        return None
+    local = moment.astimezone()
+    stamp = local.strftime("%m-%d")
+    age = (datetime.now(local.tzinfo).date() - local.date()).days
+    suffix = f"（{age} 天前）" if age >= 0 else ""
+    text = f"识别于 {stamp}{suffix}"
+    if payload.get("stale"):
+        text += "，已过期，建议重新识别"
+    return text
+
+
+def _parse_moment(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _clip_line(text: str, label: str) -> str:
+    """整行 ≤120 字；超了先截断再补省略号。"""
+    line = f"{label}：{text}" if not text.startswith(label) else text
+    if len(line) <= MAX_ACTIVITY_LINE_CHARS:
+        return line
+    return line[: MAX_ACTIVITY_LINE_CHARS - 1] + "…"
 
 
 # ---------------------------------------------------------------------------
@@ -635,6 +726,7 @@ class KnowledgeService:
         builtins: Mapping[str, BuiltinEntry] | None = None,
         activity_index: "ActivityReader | None" = None,
         activity_service: "ActivityReader | None" = None,
+        account_reader: Any = None,
     ) -> None:
         self._session_factory = session_factory or db_session.session_factory
         # 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
@@ -642,6 +734,8 @@ class KnowledgeService:
         self._activity_index = activity_index
         #: M25：外部活动服务（PRTS 优先）。没装时退回 M24 的本机快照口径。
         self._activity_service = activity_service
+        #: M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
+        self._account_reader = account_reader
         #: 「当期活动读不到」的 warning 只在第一次失败时打一次（见 :meth:`_activity_section`）。
         self._activity_failure_logged = False
 
@@ -694,6 +788,9 @@ class KnowledgeService:
         activity = await self._activity_section()
         if activity:
             lines += ["", *activity]
+        account = await self._account_section()
+        if account:
+            lines += ["", ACCOUNT_HEADER, *account]
         for header, kind in sections:
             bodies = [
                 entry.body
@@ -722,6 +819,23 @@ class KnowledgeService:
             return []
         self._activity_failure_logged = False
         return render_activity_section(report)
+
+    async def _account_section(self) -> list[str]:
+        """账号数据段（规格 §7.8）；读不到或从未识别以外的情况一律不插。
+
+        与活动段一样只记一次 warning：账号数据是本服务的表，读失败通常意味着迁移没跑，
+        每轮刷栈没有意义。
+        """
+        reader = self._account_reader
+        if reader is None:
+            return []
+        try:
+            summary = await reader.summary()
+        except Exception:  # noqa: BLE001 - 账号数据只是可选上下文
+            if not self._activity_failure_logged:
+                logger.warning("账号数据读取失败，本轮起不再注入这一段", exc_info=True)
+            return []
+        return render_account_lines(summary)
 
     async def _activity_report(self) -> ActivityReport | None:
         """取当期活动：装了外部服务就走 PRTS（3 s 预算），否则用本机快照。"""

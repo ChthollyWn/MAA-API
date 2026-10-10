@@ -1,6 +1,6 @@
 # Agent 与知识库
 
-共 1142 条。
+共 1164 条。
 
 ## knowledge（937）
 
@@ -1038,7 +1038,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:23` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:24` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（205）
+## agent（227）
 
 
 **maa_api/agent/confirmation.py**
@@ -1058,11 +1058,11 @@
 - `maa_api/agent/confirmation.py:627` [literal] 用户撤销了会话授权
 - `maa_api/agent/confirmation.py:799` [literal] ；
 - `maa_api/agent/confirmation.py:799` [literal] 该操作需要人工确认
-- `maa_api/agent/confirmation.py:843` [literal] 需要确认：{name}
-- `maa_api/agent/confirmation.py:1367` [literal] 确认超时
-- `maa_api/agent/confirmation.py:1374` [literal] 确认超时，已自动拒绝
-- `maa_api/agent/confirmation.py:1540` [literal] 工具执行结果不确定；先查审计记录再决定要不要重试
-- `maa_api/agent/confirmation.py:1541` [literal] Agent 工具调用未能完成
+- `maa_api/agent/confirmation.py:845` [literal] 需要确认：{name}
+- `maa_api/agent/confirmation.py:1369` [literal] 确认超时
+- `maa_api/agent/confirmation.py:1376` [literal] 确认超时，已自动拒绝
+- `maa_api/agent/confirmation.py:1542` [literal] 工具执行结果不确定；先查审计记录再决定要不要重试
+- `maa_api/agent/confirmation.py:1543` [literal] Agent 工具调用未能完成
 
 **maa_api/agent/incidents.py**
 
@@ -1076,35 +1076,44 @@
 
 **maa_api/agent/knowledge/__init__.py**
 
-- `maa_api/agent/knowledge/__init__.py:107` [const] 知识库索引（开发者与用户维护，可作为操作指引；需要时用 read_knowledge 读取全文）：
-- `maa_api/agent/knowledge/__init__.py:111` [const] 当期活动（来自本机活动资源，随资源更新自动变化）：
-- `maa_api/agent/knowledge/__init__.py:113` [const] 当期活动（PRTS，{time} 抓取）：
-- `maa_api/agent/knowledge/__init__.py:115` [const] 当期活动（本机资源包推断，PRTS 暂不可用）：
-- `maa_api/agent/knowledge/__init__.py:117` [const] 当期活动（本机资源包推断；外服进度与国服不同）：
-- `maa_api/agent/knowledge/__init__.py:126` [const] 术语表（开发者与用户维护）：
-- `maa_api/agent/knowledge/__init__.py:127` [const] 用户档案（用户维护）：
-- `maa_api/agent/knowledge/__init__.py:130` [const] 暂无
-- `maa_api/agent/knowledge/__init__.py:160` [literal] ，{snapshot.started_at.isoformat()} 开始
-- `maa_api/agent/knowledge/__init__.py:163` [const] ；关卡代号 {code_range[0]}…{code_range[1]}（共 {len(snapshot.stages)} 关）
-- `maa_api/agent/knowledge/__init__.py:165` [const] ；关卡代号前缀 {snapshot.stage_id_prefix}（共 {len(snapshot.stages)} 关）
-- `maa_api/agent/knowledge/__init__.py:167` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
-- `maa_api/agent/knowledge/__init__.py:168` [const] ；同名代号可能属于别的期次，提交前用 get_activity_stages 核对 stageId。
-- `maa_api/agent/knowledge/__init__.py:176` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
-- `maa_api/agent/knowledge/__init__.py:212` [literal] 时间未知
-- `maa_api/agent/knowledge/__init__.py:213` [literal] ｜至 {end}
-- `maa_api/agent/knowledge/__init__.py:241` [literal] 刚刚
-- `maa_api/agent/knowledge/__init__.py:251` [literal] ，{activity.start_at.astimezone().date().isoformat()} 开始
-- `maa_api/agent/knowledge/__init__.py:258` [const] ；关卡代号 {code_range['first']}…{code_range['last']}（共 {len(activity.stages)} 关）
-- `maa_api/agent/knowledge/__init__.py:262` [const] ；关卡代号前缀 {activity.stage_id_prefix}（共 {len(activity.stages)} 关）
-- `maa_api/agent/knowledge/__init__.py:264` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
-- `maa_api/agent/knowledge/__init__.py:265` [const] ；同名代号可能属于别的期次，提交前用 get_activity_stages 核对 stageId。
-- `maa_api/agent/knowledge/__init__.py:271` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
-- `maa_api/agent/knowledge/__init__.py:306` [literal] id 必须匹配 ^[a-z0-9][a-z0-9-]{1,47}$
-- `maa_api/agent/knowledge/__init__.py:308` [literal] kind 必须是 {list(KNOWLEDGE_KINDS)} 之一
-- `maa_api/agent/knowledge/__init__.py:310` [literal] title 长度必须是 1–{MAX_TITLE_CHARS} 字
-- `maa_api/agent/knowledge/__init__.py:313` [literal] when_to_use 长度必须是 1–{MAX_WHEN_TO_USE_CHARS} 字
-- `maa_api/agent/knowledge/__init__.py:316` [literal] body 长度必须是 1–{MAX_BODY_CHARS} 字
-- `maa_api/agent/knowledge/__init__.py:686` [literal] - {entry.id}｜{entry.title}：{entry.when_to_use}
+- `maa_api/agent/knowledge/__init__.py:109` [const] 知识库索引（开发者与用户维护，可作为操作指引；需要时用 read_knowledge 读取全文）：
+- `maa_api/agent/knowledge/__init__.py:113` [const] 当期活动（来自本机活动资源，随资源更新自动变化）：
+- `maa_api/agent/knowledge/__init__.py:115` [const] 当期活动（PRTS，{time} 抓取）：
+- `maa_api/agent/knowledge/__init__.py:117` [const] 当期活动（本机资源包推断，PRTS 暂不可用）：
+- `maa_api/agent/knowledge/__init__.py:119` [const] 当期活动（本机资源包推断；外服进度与国服不同）：
+- `maa_api/agent/knowledge/__init__.py:129` [const] 账号数据：
+- `maa_api/agent/knowledge/__init__.py:130` [const] 术语表（开发者与用户维护）：
+- `maa_api/agent/knowledge/__init__.py:131` [const] 用户档案（用户维护）：
+- `maa_api/agent/knowledge/__init__.py:134` [const] 暂无
+- `maa_api/agent/knowledge/__init__.py:164` [literal] ，{snapshot.started_at.isoformat()} 开始
+- `maa_api/agent/knowledge/__init__.py:167` [const] ；关卡代号 {code_range[0]}…{code_range[1]}（共 {len(snapshot.stages)} 关）
+- `maa_api/agent/knowledge/__init__.py:169` [const] ；关卡代号前缀 {snapshot.stage_id_prefix}（共 {len(snapshot.stages)} 关）
+- `maa_api/agent/knowledge/__init__.py:171` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
+- `maa_api/agent/knowledge/__init__.py:172` [const] ；同名代号可能属于别的期次，提交前用 get_activity_stages 核对 stageId。
+- `maa_api/agent/knowledge/__init__.py:180` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
+- `maa_api/agent/knowledge/__init__.py:216` [literal] 时间未知
+- `maa_api/agent/knowledge/__init__.py:217` [literal] ｜至 {end}
+- `maa_api/agent/knowledge/__init__.py:245` [literal] 刚刚
+- `maa_api/agent/knowledge/__init__.py:255` [literal] ，{activity.start_at.astimezone().date().isoformat()} 开始
+- `maa_api/agent/knowledge/__init__.py:262` [const] ；关卡代号 {code_range['first']}…{code_range['last']}（共 {len(activity.stages)} 关）
+- `maa_api/agent/knowledge/__init__.py:266` [const] ；关卡代号前缀 {activity.stage_id_prefix}（共 {len(activity.stages)} 关）
+- `maa_api/agent/knowledge/__init__.py:268` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
+- `maa_api/agent/knowledge/__init__.py:269` [const] ；同名代号可能属于别的期次，提交前用 get_activity_stages 核对 stageId。
+- `maa_api/agent/knowledge/__init__.py:275` [const] ；关卡代号未知，问到具体关卡时用 get_activity_stages 带代号查
+- `maa_api/agent/knowledge/__init__.py:308` [literal] 干员：尚未识别（需要时建议运行干员识别）
+- `maa_api/agent/knowledge/__init__.py:313` [literal] 干员 {total} 名
+- `maa_api/agent/knowledge/__init__.py:325` [literal] 仓库：尚未识别（需要时建议运行仓库识别）
+- `maa_api/agent/knowledge/__init__.py:328` [literal] 仓库：已识别
+- `maa_api/agent/knowledge/__init__.py:347` [literal] （{age} 天前）
+- `maa_api/agent/knowledge/__init__.py:348` [const] 识别于 {stamp}{suffix}
+- `maa_api/agent/knowledge/__init__.py:350` [literal] ，已过期，建议重新识别
+- `maa_api/agent/knowledge/__init__.py:363` [literal] {label}：{text}
+- `maa_api/agent/knowledge/__init__.py:397` [literal] id 必须匹配 ^[a-z0-9][a-z0-9-]{1,47}$
+- `maa_api/agent/knowledge/__init__.py:399` [literal] kind 必须是 {list(KNOWLEDGE_KINDS)} 之一
+- `maa_api/agent/knowledge/__init__.py:401` [literal] title 长度必须是 1–{MAX_TITLE_CHARS} 字
+- `maa_api/agent/knowledge/__init__.py:404` [literal] when_to_use 长度必须是 1–{MAX_WHEN_TO_USE_CHARS} 字
+- `maa_api/agent/knowledge/__init__.py:407` [literal] body 长度必须是 1–{MAX_BODY_CHARS} 字
+- `maa_api/agent/knowledge/__init__.py:780` [literal] - {entry.id}｜{entry.title}：{entry.when_to_use}
 
 **maa_api/agent/llm.py**
 
@@ -1131,10 +1140,16 @@
 **maa_api/agent/policy.py**
 
 - `maa_api/agent/policy.py:25` [const] set_task_params 无法确定运行中任务的类型与现有参数，按保守策略要求确认
-- `maa_api/agent/policy.py:127` [literal] {name} 属于需确认的高风险操作
-- `maa_api/agent/policy.py:135` [literal] {name} 尚未配置参数风险规则
-- `maa_api/agent/policy.py:180` [literal] 当前会话尚未获得有效的原子操作授权
-- `maa_api/agent/policy.py:206` [literal] {name} 是绕过内核识别与容错的原子操作
+- `maa_api/agent/policy.py:135` [literal] {name} 属于需确认的高风险操作
+- `maa_api/agent/policy.py:143` [literal] {name} 尚未配置参数风险规则
+- `maa_api/agent/policy.py:162` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:167` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:175` [literal] 、
+- `maa_api/agent/policy.py:176` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
+- `maa_api/agent/policy.py:178` [literal] ，每日 {schedule}
+- `maa_api/agent/policy.py:194` [literal] {name} 需要人工确认
+- `maa_api/agent/policy.py:239` [literal] 当前会话尚未获得有效的原子操作授权
+- `maa_api/agent/policy.py:328` [literal] {name} 是绕过内核识别与容错的原子操作
 
 **maa_api/agent/questions.py**
 
@@ -1159,7 +1174,7 @@
 - `maa_api/agent/runtime.py:161` [const] Agent 对话处理失败
 - `maa_api/agent/runtime.py:177` [literal] 当前模型不支持视觉输入；圈选截图已禁用
 - `maa_api/agent/runtime.py:179` [const] 当前模型不支持视觉输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:194` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 1770 字）
+- `maa_api/agent/runtime.py:194` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 1851 字）
 - `maa_api/agent/runtime.py:307` [const] [历史截图已省略
 - `maa_api/agent/runtime.py:309` [literal] ，时间 {captured_at}
 - `maa_api/agent/runtime.py:337` [literal] [截图图像当前不可用，请重新获取截图后再判断画面]
@@ -1199,7 +1214,17 @@
 
 **maa_api/agent/tools/__init__.py**
 
-- `maa_api/agent/tools/__init__.py:51` [literal] 查人工确认的状态和已经执行完的工具结果。确认卡还没回来、或要确认某个操作到底过没过时用。
+- `maa_api/agent/tools/__init__.py:53` [literal] 查人工确认的状态和已经执行完的工具结果。确认卡还没回来、或要确认某个操作到底过没过时用。
+
+**maa_api/agent/tools/account.py**
+
+- `maa_api/agent/tools/account.py:143` [literal] 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；数据缺失或过期时返回 suggest_recognition，用 ask_user 建议用户跑一次干员识别。
+- `maa_api/agent/tools/account.py:158` [literal] 查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；仓库数据缺失或过期时返回 suggest_recognition。
+- `maa_api/agent/tools/account.py:172` [literal] 修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。
+- `maa_api/agent/tools/account.py:186` [literal] 算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。
+- `maa_api/agent/tools/account.py:200` [literal] 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。
+- `maa_api/agent/tools/account.py:214` [literal] 查养成计划的进度：目标、还缺什么、定时任务 id 与状态。
+- `maa_api/agent/tools/account.py:225` [literal] 停止一个养成计划，并删除它对应的每日定时任务。
 
 **maa_api/agent/tools/activity.py**
 

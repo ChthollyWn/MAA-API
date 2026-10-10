@@ -375,9 +375,16 @@ class ErrorCode(StrEnum):
     # 来源上没有这个页面、关卡、干员或作业
     GAME_DATA_NOT_FOUND = "GAME_DATA_NOT_FOUND"
 
+    # ---- docs/05 §4.17 账号数据（M27）----
+    # 账号数据的查询对象不存在：没有该干员的识别记录（或整体从未识别），或查无此干员
+    ACCOUNT_DATA_NOT_FOUND = "ACCOUNT_DATA_NOT_FOUND"
+
+    # 养成计划 id 不存在
+    UPGRADE_PLAN_NOT_FOUND = "UPGRADE_PLAN_NOT_FOUND"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 109 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 111 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -494,7 +501,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.EXTERNAL_SOURCE_RATE_LIMITED: 429,
     ErrorCode.EXTERNAL_RESPONSE_INVALID: 502,
     ErrorCode.GAME_DATA_NOT_FOUND: 404,
-
+    # 账号数据：查询对象不存在用 404，与其余「id 不存在」的码同口径。
+    ErrorCode.ACCOUNT_DATA_NOT_FOUND: 404,
+    ErrorCode.UPGRADE_PLAN_NOT_FOUND: 404,
 }
 
 

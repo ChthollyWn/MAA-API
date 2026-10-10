@@ -26,6 +26,9 @@ cryptography = ">=39.0.1"
 # jinja2 仍在使用（maa_api/model/core/executor.py 的邮件模板），
 # 是否移除待 07 定稿，见 docs/02 §10 依赖变更
 jinja2 = "^3.0.0"
+# 养成规划的线性规划求解器（M27，规格 §7.6）：`scipy.optimize.linprog` 走 HiGHS。
+# 只在规划时 import，服务启动不加载；镜像体积代价见 docs/15。
+scipy = ">=1.11"
 adbutils = "^2.8.0"
 ruamel-yaml = "^0.18.7"
 apscheduler = "^3.11.0"

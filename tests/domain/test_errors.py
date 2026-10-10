@@ -48,10 +48,12 @@ _DOC_NO_HTTP = "—"
 _SOURCE_MEMBER_RE = re.compile(r'^\s*([A-Z][A-Z0-9_]*) = "\1"\s*$')
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
-#: 总数与绑定数（docs/05 §4 正文：「共 105 条，其中 UPDATE_INTERRUPTED 只落库不返回」）。
-ALL_CODE_COUNT = 110
-HTTP_BOUND_CODE_COUNT = 109
-SECTION_COUNT = 16
+#: 总数与绑定数（docs/05 §4 正文：「共 112 条，其中 UPDATE_INTERRUPTED 只落库不返回」）。
+#: M27 新增 §4.17 的两条（`ACCOUNT_DATA_NOT_FOUND`、`UPGRADE_PLAN_NOT_FOUND`），
+#: 十七张表。
+ALL_CODE_COUNT = 112
+HTTP_BOUND_CODE_COUNT = 111
+SECTION_COUNT = 17
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。
 KERNEL_HTTP_STATUS = {

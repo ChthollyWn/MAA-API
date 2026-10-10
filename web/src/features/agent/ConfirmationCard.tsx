@@ -7,6 +7,7 @@ import { keys } from '@/api/keys'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
+import { diffValueText, eliteLabel, fieldLabel } from '@/features/account/format'
 import { expiryLabel, pretty } from './format'
 import type { AgentConfirmation } from './types'
 
@@ -15,6 +16,87 @@ export interface ConfirmationCardProps {
   /** 正在提交的是哪个决定；两个按钮都会禁用，只在被点的那个上显示加载。 */
   busy: 'approve' | 'reject' | null
   onResolve: (id: string, approved: boolean) => void
+}
+
+/**
+ * 账号数据动作的卡片标题（规格 §7.4、§7.7）；这两类动作不把 payload 当普通 JSON 展开，
+ * 而是渲染逐字段差异 / 计划摘要。
+ */
+const ACCOUNT_TOOL_TITLES: Record<string, string> = {
+  update_operator_box: '修改账号干员数据',
+  start_upgrade_plan: '启动养成计划',
+}
+
+interface OperatorDiffRow {
+  operator: string
+  field: string
+  from: unknown
+  to: unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** `update_operator_box` 的 `payload.diff`：`[{operator, field, from, to}]`。 */
+export function parseOperatorDiff(payload: Record<string, unknown>): OperatorDiffRow[] {
+  const rows = Array.isArray(payload.diff) ? payload.diff : []
+  return rows.flatMap((row) => {
+    if (!isRecord(row) || typeof row.operator !== 'string' || typeof row.field !== 'string') return []
+    return [{ operator: row.operator, field: row.field, from: row.from, to: row.to }]
+  })
+}
+
+function reasonText(payload: Record<string, unknown>): string | null {
+  const args = isRecord(payload.arguments) ? payload.arguments : null
+  return args && typeof args.reason === 'string' && args.reason.trim() ? args.reason : null
+}
+
+function masteryText(value: unknown): string | null {
+  if (!isRecord(value)) return null
+  const parts = ['1', '2', '3'].flatMap((slot) => {
+    const level = Number(value[slot] ?? 0)
+    return level > 0 ? [`S${slot} ${level}`] : []
+  })
+  return parts.length ? parts.join(' · ') : null
+}
+
+/** 一个养成目标的人话描述：精二 · 技能 7 · S2 3 · 模组 X2。 */
+export function upgradeTargetText(target: Record<string, unknown>): string {
+  const parts: string[] = []
+  if (typeof target.elite === 'number') parts.push(eliteLabel(target.elite))
+  if (typeof target.skill_level === 'number') parts.push(`技能 ${target.skill_level}`)
+  const masteries = masteryText(target.masteries)
+  if (masteries) parts.push(masteries)
+  const modules = (Array.isArray(target.modules) ? target.modules : []).flatMap((module) => {
+    if (!isRecord(module) || typeof module.type !== 'string') return []
+    const level = Number(module.level ?? 0)
+    return level > 0 ? [`模组 ${module.type}${level}`] : []
+  })
+  if (modules.length) parts.push(modules.join(' '))
+  return parts.length ? parts.join(' · ') : '不改变养成目标'
+}
+
+interface UpgradePlanView {
+  summary: string | null
+  targets: { name: string; goal: string }[]
+  runTimes: string[]
+}
+
+/** `start_upgrade_plan` 的 `payload.summary` / `targets` / `run_times`。 */
+export function parseUpgradePlan(payload: Record<string, unknown>): UpgradePlanView {
+  const targets = (Array.isArray(payload.targets) ? payload.targets : []).flatMap((target) => {
+    if (!isRecord(target) || typeof target.operator !== 'string') return []
+    return [{ name: target.operator, goal: upgradeTargetText(target) }]
+  })
+  const runTimes = (Array.isArray(payload.run_times) ? payload.run_times : []).filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  )
+  return {
+    summary: typeof payload.summary === 'string' && payload.summary.trim() ? payload.summary : null,
+    targets,
+    runTimes,
+  }
 }
 
 /** 对话里的待确认卡：读确认详情、查看参数，批准并继续或拒绝。 */
@@ -32,6 +114,13 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
     retry: false,
   })
   const detail = confirmation.data
+  const payload = detail?.payload ?? {}
+  const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : detail?.action ?? ''
+  const accountTitle = ACCOUNT_TOOL_TITLES[toolName]
+  // 账号数据的两类确认（§7.4、§7.7）：渲染差异/摘要，不展开成 JSON。
+  const operatorDiff = toolName === 'update_operator_box' ? parseOperatorDiff(payload) : []
+  const upgradePlan = toolName === 'start_upgrade_plan' ? parseUpgradePlan(payload) : null
+  const reason = reasonText(payload)
   const grant = detail?.action === 'grant_atomic_ops'
   const approved = detail?.status === 'approved'
   const rejected = detail?.status === 'rejected' || detail?.status === 'expired'
@@ -47,7 +136,9 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
           </span>
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h3 id={titleId} className="text-[0.9375rem] font-semibold leading-6">需要确认此操作</h3>
+              <h3 id={titleId} className="text-[0.9375rem] font-semibold leading-6">
+                {grant ? '需要确认此操作' : accountTitle ?? '需要确认此操作'}
+              </h3>
               <Badge variant={approved ? 'success' : rejected ? 'danger' : 'warning'} className="tabular-nums">
                 {approved ? '已批准' : rejected ? '已拒绝或过期' : expiryLabel(detail?.expires_at)}
               </Badge>
@@ -63,7 +154,50 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
             批准后本会话获得{grantMinutes > 0 ? ` ${grantMinutes} 分钟` : '限时'}屏幕操作授权，期间的点击、滑动、长按、输入和按键都会记入审计。
           </p>
         ) : null}
-        {detail?.payload.arguments ? (
+        {accountTitle && reason ? <p className="break-words text-sm">理由：{reason}</p> : null}
+        {operatorDiff.length ? (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">逐字段差异</p>
+            <ul aria-label="逐字段差异" className="divide-y overflow-hidden rounded-lg border">
+              {operatorDiff.map((row, index) => (
+                <li key={`${row.operator}-${row.field}-${index}`} className="flex items-center gap-3 p-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{row.operator}</p>
+                    <p className="text-footnote text-muted-foreground">{fieldLabel(row.field)}</p>
+                  </div>
+                  <p className="shrink-0 text-right text-footnote tabular-nums">
+                    <span className="text-muted-foreground line-through">{diffValueText(row.field, row.from)}</span>
+                    <span aria-hidden="true" className="px-1 text-muted-foreground">→</span>
+                    <span className="font-medium">{diffValueText(row.field, row.to)}</span>
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {upgradePlan ? (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">养成计划摘要</p>
+            {upgradePlan.summary ? <p className="break-words text-sm">{upgradePlan.summary}</p> : null}
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-footnote">
+              <dt className="text-muted-foreground">目标</dt>
+              <dd className="tabular-nums">{upgradePlan.targets.length} 个</dd>
+              <dt className="text-muted-foreground">每日时刻</dt>
+              <dd className="tabular-nums">{upgradePlan.runTimes.length ? upgradePlan.runTimes.join('、') : '—'}</dd>
+            </dl>
+            {upgradePlan.targets.length ? (
+              <ul aria-label="养成目标" className="divide-y overflow-hidden rounded-lg border">
+                {upgradePlan.targets.map((target) => (
+                  <li key={target.name} className="flex items-center gap-3 p-2.5 text-footnote">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{target.name}</span>
+                    <span className="shrink-0 text-muted-foreground">{target.goal}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+        {!accountTitle && detail?.payload.arguments ? (
           <details className="group rounded-lg bg-surface-2/70">
             <summary className="flex min-h-10 cursor-pointer list-none items-center px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">查看操作参数</summary>
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border-t border-border/70 px-3 py-2 font-mono text-xs leading-5">{pretty(detail.payload.arguments)}</pre>

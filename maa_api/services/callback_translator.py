@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -81,6 +82,15 @@ EXTRA_INFO_MAP: dict[str, str] = {
     "FightTimes": "已战斗 {times_finished}/{series} 次，消耗理智 {sanity_cost}",
     "ExceededLimit": "已达到次数上限：{task} {exec_times}/{max_times}",
     "StageDrops": "{stars}⭐通关{stage_code} \n掉落统计: \n{drop_statistics}",
+    "OperBoxInfo": "识别到 {count} 名干员",
+    "DepotInfo": "仓库识别完成：{count} 种物品",
+}
+
+#: 账号识别的两条回调（规格 §7.2 T2）：只在收尾（``done=true``）时打 INFO，
+#: 过程回调（``done=false``）降为 DEBUG，免得一次识别刷出几十条同样的行。
+_ACCOUNT_RECOGNITION_MAP: dict[str, str] = {
+    "OperBoxInfo": "干员识别进行中",
+    "DepotInfo": "仓库识别进行中",
 }
 
 _CONNECTION_WARNING = {
@@ -309,6 +319,14 @@ class CallbackTranslator:
             f"{item.get('itemName', '')}: {item.get('quantity', '')}(+{item.get('addQuantity', '')})"
             for item in _mapping_items(nested.get("stats"))
         )
+        progress_label = _ACCOUNT_RECOGNITION_MAP.get(what)
+        if progress_label is not None:
+            account = nested or details
+            values["count"] = (
+                _operbox_count(account) if what == "OperBoxInfo" else _depot_count(account)
+            )
+            if account.get("done") is not True:
+                return [self._record(message, details, progress_label, "DEBUG")]
         return [
             self._record(
                 message,
@@ -363,6 +381,29 @@ def _mapping_items(value: Any) -> list[Mapping[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, Mapping)]
+
+
+def _operbox_count(payload: Mapping[str, Any]) -> int:
+    """``OperBoxInfo`` 的干员数：``own_opers``（已拥有）优先，缺失时退回 ``all_opers``。"""
+
+    for key in ("own_opers", "all_opers"):
+        items = payload.get(key)
+        if isinstance(items, list):
+            return len(items)
+    return 0
+
+
+def _depot_count(payload: Mapping[str, Any]) -> int:
+    """``DepotInfo`` 的物品数：``data`` 是 JSON 字符串，坏 JSON 记 0。"""
+
+    raw = payload.get("data")
+    if not isinstance(raw, str):
+        return 0
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return 0
+    return len(parsed) if isinstance(parsed, dict) else 0
 
 
 def _join(value: Any) -> str:

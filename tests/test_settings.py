@@ -359,6 +359,9 @@ def test_env_mapping_names_are_pinned() -> None:
         "agent.question_timeout_seconds": "MAA_AGENT_QUESTION_TIMEOUT_SECONDS",
         "agent.atomic_grant_minutes": "MAA_AGENT_ATOMIC_GRANT_MINUTES",
         "agent.auto_diagnose_failures": "MAA_AGENT_AUTO_DIAGNOSE_FAILURES",
+        # M27：账号数据的过期阈值（附录 B）。
+        "agent.box_stale_days": "MAA_AGENT_BOX_STALE_DAYS",
+        "agent.depot_stale_days": "MAA_AGENT_DEPOT_STALE_DAYS",
     }
 
 
@@ -399,6 +402,40 @@ def test_agent_confirmation_and_atomic_grant_settings_have_documented_defaults_a
     assert schema_for("agent.grant_confirmation_timeout_seconds")["minimum"] == 1
     assert schema_for("agent.question_timeout_seconds")["minimum"] == 1
     assert schema_for("agent.atomic_grant_minutes")["maximum"] == 60
+
+
+def test_account_stale_days_have_documented_defaults_and_bounds():
+    """M27 账号数据过期阈值：默认值与取值范围照附录 B。"""
+    from maa_api.services.settings_schema import schema_for
+
+    default = resolve_settings(env={})
+    assert default.agent.box_stale_days == 14
+    assert default.agent.depot_stale_days == 3
+
+    configured = resolve_settings(
+        {"agent": {"box_stale_days": 30, "depot_stale_days": 7}}, env={}
+    )
+    assert configured.agent.box_stale_days == 30
+    assert configured.agent.depot_stale_days == 7
+
+    env_layer = resolve_settings(env={"MAA_AGENT_BOX_STALE_DAYS": "21"})
+    assert env_layer.agent.box_stale_days == 21
+
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"box_stale_days": 0}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"box_stale_days": 366}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"depot_stale_days": 0}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"depot_stale_days": 61}}, env={})
+
+    assert schema_for("agent.box_stale_days")["minimum"] == 1
+    assert schema_for("agent.box_stale_days")["maximum"] == 365
+    assert schema_for("agent.box_stale_days")["group"] == "Agent"
+    assert schema_for("agent.depot_stale_days")["minimum"] == 1
+    assert schema_for("agent.depot_stale_days")["maximum"] == 60
+    assert schema_for("agent.depot_stale_days")["group"] == "Agent"
 
 
 def test_log_settings_read_yaml_and_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

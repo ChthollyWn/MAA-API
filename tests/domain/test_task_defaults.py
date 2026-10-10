@@ -33,7 +33,7 @@ from maa_api.domain.task import (
     normalize,
 )
 
-#: 9 种内核任务 + Copilot 的联合顺序（与 ``TaskInput`` 定义顺序一致）。
+#: 11 种内核任务 + Copilot 的联合顺序（与 ``TaskInput`` 定义顺序一致）。
 TYPE_NAMES: tuple[str, ...] = (
     "StartUp",
     "CloseDown",
@@ -44,6 +44,8 @@ TYPE_NAMES: tuple[str, ...] = (
     "Award",
     "Roguelike",
     "Reclamation",
+    "OperBox",
+    "Depot",
     "Copilot",
 )
 
@@ -132,6 +134,13 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "increment_mode": 0,
         "num_craft_batches": 16,
     },
+    # M27 的账号识别任务没有参数，只有基类的 enable。
+    "OperBox": {
+        "enable": True,
+    },
+    "Depot": {
+        "enable": True,
+    },
     "Copilot": {
         "formation": False,
     },
@@ -163,6 +172,8 @@ SKIPPED: dict[str, tuple[str, ...]] = {
         "expected_collapsal_paradigms",
     ),
     "Reclamation": (),
+    "OperBox": (),
+    "Depot": (),
     "Copilot": (),
 }
 
@@ -177,6 +188,8 @@ OVERLAY: dict[str, tuple[str, ...]] = {
     "Award": (),
     "Roguelike": (),
     "Reclamation": (),
+    "OperBox": (),
+    "Depot": (),
     "Copilot": (),
 }
 

@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 110 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 112 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
 
 ```python
 # maa_api/domain/errors.py
@@ -354,6 +354,15 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 
 状态码口径：来源被关闭与取不到都是「现在没有」，用 503；远端 429 与本地限流都透传 429；下游答复了但答复不能用是 502；来源上没有这条数据是 404。可以降级的工具不抛错，返回降级结果并在 `unavailable` 里列出取不到的字段组（`get_activity_stages` 退回本机活动资源、`get_stage` 只回本机能给的字段，[11 §6.6](./11-Agent模块设计.md)）；`search_prts` 与 `get_prts_page` 没有本地兜底，前两个 503 会直接透出。
 
+### 4.17 账号数据（M27）
+
+| 错误码 | HTTP | 含义与触发场景 |
+|---|---|---|
+| `ACCOUNT_DATA_NOT_FOUND` | 404 | 账号数据里查无此对象：`GET /api/account/operators/{char_id}` 没有该干员的记录，或账号数据尚未识别过 |
+| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（`GET` / `DELETE /api/agent/upgrade-plans/{plan_id}`，M27 后半与前端计划页用） |
+
+两个码都是「这条记录不在库里」，与 `GAME_DATA_NOT_FOUND`（来源上没有）区分：账号数据来自本机识别与手动编辑，不查外部来源。字段级编辑约束（精英化上限、专精前置、模组类型与等级）违反时不用新码，走 §4.2 的 `INVALID_PARAMETER`，`details` 带字段名与合法取值。
+
 ## 5. 鉴权设计
 
 ### 5.1 四个渠道与优先级
@@ -415,7 +424,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 103 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 110 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -761,6 +770,30 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 两个端点都 `Depends(require_auth)`。**本组只有状态与缓存清理，没有检索代理**（Q25）：Agent 的工具调用入口沿用既有机制，工具目录照常出现在 `GET /api/agent/tools`，不让本服务变成 PRTS 的代理。M25 只登记 `prts` 一个来源，企鹅物流、作业站与拆包数据在各自里程碑加入。来源开关、限流、缓存时长与是否走代理都由 `sources` 段控制，见 [§4.16](#416-外部数据源m25)、[11 §6.6](./11-Agent模块设计.md) 与 [15 §7](./15-部署指南.md)。
 
 （2 条）
+
+### 6.20 账号数据
+
+| 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
+|---|---|---|---|---|---|
+| GET | `/api/account/summary` | 账号数据概要与是否过期 | 无 | 200 | `UNAUTHORIZED` |
+| GET | `/api/account/operators` | 干员表，默认只返回已拥有 | `query`（名字片段）、`owned_only`（默认 `true`，`false` 时连未拥有的一起列出）、`rarity_min`（1–6）、`profession`、`elite_min`（0–2）、`limit`（1–200，默认 50）、`offset` | 200 | `UNAUTHORIZED` |
+| GET | `/api/account/operators/{char_id}` | 单名干员的完整记录（编辑抽屉打开时读） | 无 | 200 | `ACCOUNT_DATA_NOT_FOUND`、`UNAUTHORIZED` |
+| PATCH | `/api/account/operators/{char_id}` | 手动编辑干员数据 | 只接受可编辑字段，未知字段 422：`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`、`modules`、`source`（`manual` / `agent`，默认 `manual`） | 200 | `ACCOUNT_DATA_NOT_FOUND`、`INVALID_PARAMETER`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
+| GET | `/api/account/operator-diffs` | 识别覆盖手动值的差异 | `include_dismissed`（默认 `false`）、`limit`（1–500，默认 200） | 200 | `UNAUTHORIZED` |
+| DELETE | `/api/account/operator-diffs` | 把差异标记为已知 | `{ids: [int]}` 逐条，或省略＝全部 | 200 | `UNAUTHORIZED` |
+| GET | `/api/account/depot` | 仓库识别结果，按分类分组 | `category`、`query`、`limit`（1–500，默认 100）、`offset` | 200 | `UNAUTHORIZED` |
+
+七个端点都 `Depends(require_auth)`。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent`）。
+
+干员行的字段是 `char_id`、`name`、`rarity`、`profession`、`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`（`{"1": 0..3, "2": …, "3": …}`）、`modules`（模组类型 `X` / `Y` / `D` / `A` → 等级 1–3）、`field_sources`、`recognized_at`、`updated_at`；仓库行的字段是 `item_id`、`name`、`count`、`category`、`recognized_at`。
+
+`PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。识别结果的合并规则见 [11 §6.6](./11-Agent模块设计.md)与规格 §7.3：识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组只由手动或 Agent 写入；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
+
+`source` 只接受 `manual` 与 `agent`：识别写入固定标 `recognition`，客户端不能借这个字段把识别结果伪装成手动值，所以传 `recognition` 是 422（Pydantic 枚举校验）。
+
+单条 `GET` 是编辑抽屉的读口（附录 C 只列了六条，这一条是实现补的读端点），与列表项同形。
+
+（7 条）
 
 ## 7. 任务提交的请求体设计
 
