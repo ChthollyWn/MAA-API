@@ -2,12 +2,12 @@ import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
 
 /**
- * 「账号数据」页的请求层（规格 §7.5、附录 C 的 `/api/account/*`）。
+ * 「账号数据」页的请求层（规格 §7.5、§7.7、附录 C 的 `/api/account/*`）。
  *
- * 这六个端点还没进生成类型 `web/src/types/api.d.ts`（主 agent 会跑 `pnpm gen:api`），
- * 形状按规格冻结，先在本地声明；请求仍走 `api` 客户端，鉴权（`X-Token`）与请求号
- * 由它的中间件照旧加。生成类型落地后，把下面的 `AccountEndpoints` 转写删掉，
- * 直接 `api.GET('/api/account/summary')` 即可，函数签名保持不变。
+ * 前六个端点还没进生成类型 `web/src/types/api.d.ts`（主 agent 会跑 `pnpm gen:api`），
+ * 形状按规格冻结，先在本地声明；养成计划那三个端点已经在生成类型里，但为了这个文件
+ * 只有一层口径，也一并写进下面的 `AccountEndpoints`。请求仍走 `api` 客户端，鉴权
+ * （`X-Token`）与请求号由它的中间件照旧加。转写层删掉后，函数签名保持不变。
  */
 
 /** 字段来源：识别 / 手动 / Agent（§7.3、§7.4）。 */
@@ -109,6 +109,39 @@ export interface DepotListQuery {
   offset: number
 }
 
+/** 养成计划的状态（`GET /api/account/upgrade-plans?status=`）。 */
+export type UpgradePlanStatus = 'active' | 'completed' | 'cancelled'
+
+/**
+ * `start_upgrade_plan` 落库后的计划（服务层 `_plan_wire()`，规格 §7.7）。
+ *
+ * `progress` 按计划阶段长出不同的键——`stages`/`total_sanity`（启动时）、
+ * `missing`（刷新后）、`days_estimated`/`replanned_at`/`closed_dropped`（重新排期后）、
+ * `replan_error`（排期失败时）——所以这里留成宽松映射，页面按需收窄，缺项不炸。
+ */
+export interface UpgradePlan {
+  id: string
+  name: string
+  status: string
+  targets: unknown
+  requirements: unknown
+  progress: Record<string, unknown>
+  schedule_id: string | null
+  session_id: string | null
+  created_at: string | null
+  updated_at: string | null
+  completed_at: string | null
+}
+
+export interface UpgradePlanListPayload {
+  items: UpgradePlan[]
+  total: number
+}
+
+export interface UpgradePlanListQuery {
+  status?: UpgradePlanStatus
+}
+
 interface Result<T> {
   data?: T
   error?: unknown
@@ -121,15 +154,18 @@ interface AccountEndpoints {
     (path: '/api/account/operators', init?: { params?: { query?: OperatorListQuery }; signal?: AbortSignal }): Promise<Result<OperatorListPayload>>
     (path: '/api/account/operator-diffs', init?: { signal?: AbortSignal }): Promise<Result<{ items: OperatorDiff[]; total?: number }>>
     (path: '/api/account/depot', init?: { params?: { query?: DepotListQuery }; signal?: AbortSignal }): Promise<Result<DepotListPayload>>
+    (path: '/api/account/upgrade-plans', init?: { params?: { query?: UpgradePlanListQuery }; signal?: AbortSignal }): Promise<Result<UpgradePlanListPayload>>
+    (path: '/api/account/upgrade-plans/{plan_id}', init: { params: { path: { plan_id: string } }; signal?: AbortSignal }): Promise<Result<UpgradePlan>>
   }
   PATCH: (
     path: '/api/account/operators/{char_id}',
     init: { params: { path: { char_id: string } }; body: OperatorPatch },
   ) => Promise<Result<OperatorRow>>
-  DELETE: (
-    path: '/api/account/operator-diffs',
-    init?: { body?: { ids?: number[] } },
-  ) => Promise<Result<{ dismissed: number }>>
+  DELETE: {
+    (path: '/api/account/operator-diffs', init?: { body?: { ids?: number[] } }): Promise<Result<{ dismissed: number }>>
+    /** 取消计划：后端删掉定时任务并把状态置成 `cancelled`，返回取消后的 wire。 */
+    (path: '/api/account/upgrade-plans/{plan_id}', init: { params: { path: { plan_id: string } } }): Promise<Result<UpgradePlan>>
+  }
 }
 
 const accountApi = api as unknown as AccountEndpoints
@@ -146,6 +182,9 @@ export const accountKeys = {
   diffs: () => [...accountRoot, 'operator-diffs'] as const,
   depotAll: () => [...accountRoot, 'depot'] as const,
   depot: (filters?: Readonly<Record<string, unknown>>) => [...accountRoot, 'depot', filters ?? {}] as const,
+  /** 养成计划列表的整片前缀；`invalidateQueries` 会连带命中将来带筛选参数的键。 */
+  upgradePlansAll: () => [...accountRoot, 'upgrade-plans'] as const,
+  upgradePlans: (filters?: Readonly<Record<string, unknown>>) => [...accountRoot, 'upgrade-plans', filters ?? {}] as const,
 }
 
 const EMPTY_SUMMARY_ENTRY: AccountSummaryEntry = {
@@ -239,4 +278,43 @@ export async function fetchDepot(query: DepotListQuery, signal?: AbortSignal): P
   const { data, error, response } = await accountApi.GET('/api/account/depot', { params: { query }, signal })
   if (error || !data) throw toApiError(error, response)
   return { items: data.items ?? [], total: data.total ?? 0, categories: data.categories ?? [] }
+}
+
+/** 缺项兜底：后端少给一个字段时页面照常渲染，而不是整块炸掉。 */
+export function normalizeUpgradePlan(value: UpgradePlan): UpgradePlan {
+  return {
+    id: typeof value.id === 'string' ? value.id : '',
+    name: typeof value.name === 'string' && value.name ? value.name : '未命名计划',
+    status: typeof value.status === 'string' ? value.status : 'unknown',
+    targets: value.targets ?? [],
+    requirements: value.requirements ?? {},
+    progress: value.progress && typeof value.progress === 'object' ? value.progress : {},
+    schedule_id: value.schedule_id ?? null,
+    session_id: value.session_id ?? null,
+    created_at: value.created_at ?? null,
+    updated_at: value.updated_at ?? null,
+    completed_at: value.completed_at ?? null,
+  }
+}
+
+/** 不带 `status` 时返回全部计划（进行中 / 已完成 / 已取消），列表里按状态分色展示。 */
+export async function fetchUpgradePlans(
+  query: UpgradePlanListQuery = {},
+  signal?: AbortSignal,
+): Promise<UpgradePlanListPayload> {
+  const { data, error, response } = await accountApi.GET('/api/account/upgrade-plans', {
+    params: { query },
+    signal,
+  })
+  if (error || !data) throw toApiError(error, response)
+  return { items: (data.items ?? []).map(normalizeUpgradePlan), total: data.total ?? data.items?.length ?? 0 }
+}
+
+/** 取消计划（`DELETE`）：后端删定时任务并把状态置成 `cancelled`，返回取消后的 wire。 */
+export async function cancelUpgradePlan(planId: string): Promise<UpgradePlan> {
+  const { data, error, response } = await accountApi.DELETE('/api/account/upgrade-plans/{plan_id}', {
+    params: { path: { plan_id: planId } },
+  })
+  if (error || !data) throw toApiError(error, response)
+  return normalizeUpgradePlan(data)
 }

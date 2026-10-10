@@ -199,6 +199,69 @@ async def test_global_switch_disables_everything() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 作业站（M29）：自己的开关与限流键（附录 B）
+# ---------------------------------------------------------------------------
+def test_copilot_site_source_uses_configured_rate() -> None:
+    """默认 20；改 `sources.copilot_site_rate_per_minute` 后 ResolvedSource 跟着变。"""
+    default = resolve_source("copilot_site", Settings(sources=SourcesSettings()))
+    assert default.enabled is True
+    assert default.rate_per_minute == 20
+
+    configured = resolve_source(
+        "copilot_site", Settings(sources=SourcesSettings(copilot_site_rate_per_minute=5))
+    )
+    assert configured.enabled is True
+    assert configured.rate_per_minute == 5
+    # 只影响作业站：同一次配置里别的来源仍取各自的键。
+    assert resolve_source(
+        "prts", Settings(sources=SourcesSettings(copilot_site_rate_per_minute=5))
+    ).rate_per_minute == 30
+
+
+def test_copilot_site_can_be_disabled_alone() -> None:
+    """关掉自己的开关只停作业站，其它来源不受影响；错误码与消息照既有口径。"""
+    settings = Settings(sources=SourcesSettings(copilot_site_enabled=False))
+    with pytest.raises(AppError) as info:
+        resolve_source("copilot_site", settings)
+    assert info.value.code is ErrorCode.EXTERNAL_SOURCE_DISABLED
+    assert info.value.message == "作业站数据源已关闭"
+
+    # 别的来源仍然可用。
+    assert resolve_source("prts", settings).enabled is True
+
+
+def test_global_switch_takes_precedence_over_copilot_site_switch() -> None:
+    """`sources.enabled` 总开关优先：两个开关都关时报总开关的消息。"""
+    settings = Settings(
+        sources=SourcesSettings(enabled=False, copilot_site_enabled=False)
+    )
+    with pytest.raises(AppError) as info:
+        resolve_source("copilot_site", settings)
+    assert info.value.code is ErrorCode.EXTERNAL_SOURCE_DISABLED
+    assert info.value.message == "外部数据源总开关已关闭"
+
+    # 只关总开关、作业站开关为真时同样被总开关挡住。
+    with pytest.raises(AppError) as info:
+        resolve_source(
+            "copilot_site", Settings(sources=SourcesSettings(enabled=False))
+        )
+    assert info.value.message == "外部数据源总开关已关闭"
+
+
+@async_test
+async def test_disabled_copilot_site_is_reported_by_the_client() -> None:
+    """访问层现读设置：关掉作业站后请求直接抛 EXTERNAL_SOURCE_DISABLED。"""
+    settings = Settings(sources=SourcesSettings(copilot_site_enabled=False))
+    client, _ = make_client(json_handler(), settings=settings)
+    try:
+        with pytest.raises(AppError) as info:
+            await client.get_json("copilot_site", "query", {"level_keyword": "1-7"})
+    finally:
+        await client.aclose()
+    assert info.value.code is ErrorCode.EXTERNAL_SOURCE_DISABLED
+
+
+# ---------------------------------------------------------------------------
 # 响应上限与结构
 # ---------------------------------------------------------------------------
 @async_test

@@ -1358,7 +1358,7 @@ M25 PRTS 基础层 ──► M26 干员/敌人/材料/掉率 ──► M27 账�
 |---|---|---|---|---|
 | `agent.box_stale_days` | int | 14 | 1–365 | M27 |
 | `agent.depot_stale_days` | int | 3 | 1–60 | M27 |
-| `agent.copilot_grant_minutes` | int | 60 | 10–120 | M29 |
+| `agent.copilot_grant_minutes` | int | 60 | 1–1440 | M29 |
 
 ---
 
@@ -1390,6 +1390,9 @@ REST 端点：
 | `GET /api/account/operator-diffs` | M27 | 识别覆盖手动值的差异 |
 | `DELETE /api/account/operator-diffs` | M27 | 标记差异已知 |
 | `GET /api/account/depot` | M27 | 仓库 |
+| `GET /api/account/upgrade-plans` | M31 | 养成计划列表（可选 `status`） |
+| `GET /api/account/upgrade-plans/{plan_id}` | M31 | 单条计划 |
+| `DELETE /api/account/upgrade-plans/{plan_id}` | M31 | 取消计划（删定时任务） |
 | `GET /api/resources/copilots/{asset_id}` | M29 | 作业详情（含元数据与尝试记录） |
 | `DELETE /api/resources/copilots/{asset_id}` | M29 | 删除作业 |
 | `POST /api/resources/copilots/{asset_id}/retain` | M29 | 设置或取消「保留」 |
@@ -1403,7 +1406,7 @@ REST 端点：
 
 | 来源 | 主机 | 路径 | 允许的参数与动作 | 里程碑 |
 |---|---|---|---|---|
-| PRTS | `prts.wiki` | `/api.php` | `format=json`、`formatversion=2`；`action=query`（`list=search\|categorymembers`；`prop=revisions\|categories\|info`；`redirects=1`）、`action=ask`、`action=cargoquery`、`action=opensearch`、`action=parse`（仅 `prop=sections`） | M25 |
+| PRTS | `prts.wiki` | `/api.php` | `format=json`、`formatversion=2`；`action=query`（`list=search\|categorymembers`；`prop=revisions\|categories\|info`；`redirects=1`）、`action=ask`、`action=cargoquery`、`action=opensearch`、`action=parse`（`prop=sections` 取章节表；`prop=wikitext` 配 `section=N`、`prop=revid` 按章节取正文，见 docs/13 §8.43） | M25 |
 | 企鹅物流 | `penguin-stats.io`、`penguin-stats.cn` | `/PenguinStats/api/v2/result/matrix`、`/stages`、`/items`、`/period` | `server`、`stageFilter`、`itemFilter`、`show_closed_zones` | M26 |
 | 作业站 | `prts.maa.plus` | `/copilot/query`、`/copilot/get/{数字}` | `level_keyword`、`order_by`、`desc`、`page`、`limit` | M29 |
 | 拆包数据 | `fastly.jsdelivr.net`、`cdn.jsdelivr.net`（及配置的镜像前缀） | `/gh/Kengxxiao/ArknightsGameData@master/zh_CN/gamedata/levels/{obt\|activities}/…json` | 无查询参数 | M29 |
@@ -1425,4 +1428,4 @@ REST 端点：
 | `account_recognition` | M27 | `id`、`kind`（operbox / depot）、`pipeline_id`、`task_id`、`client_type`、`item_count`、`recognized_at` |
 | `upgrade_plan` | M27 | `id`、`name`、`status`（active / completed / cancelled）、`targets`（JSON）、`requirements`（JSON）、`progress`（JSON）、`schedule_id`、`session_id`、`created_at`、`updated_at`、`completed_at` |
 | `copilot_grant` | M29 | `id`（= 确认 id）、`session_id`、`stage_id`、`stage_code`、`attempts_total`、`attempts_used`、`success`、`support`、`status`、`expires_at`、`created_at`、`finished_at`、`final_copilot_id` |
-| `copilot_attempt` | M29 | `id`、`grant_id`、`copilot_id`、`pipeline_id`、`outcome`、`judged_by`（core / model）、`counted`、`screenshot_id`、`evidence`、`started_at`、`finished_at` |
+| ~~`copilot_attempt`~~ | M29 | **不建表**：尝试记录挂在 `resource_asset.meta["attempts"]`（授权 id、作业 id、结果、时间），授权本身在 `copilot_grant`；见 docs/13 §8.44 |

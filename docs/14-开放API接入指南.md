@@ -204,7 +204,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `EXTERNAL_RESPONSE_INVALID` | 502 | 响应解压后超过来源上限、JSON 无效，或结构与来源约定不符（MediaWiki 的 `{"error": {...}}` 错误体也走这一条） |
 | `GAME_DATA_NOT_FOUND` | 404 | 来源上确实没有这条数据：PRTS 没有这个页面、关卡或搜索结果 |
 | `ACCOUNT_DATA_NOT_FOUND` | 404 | 账号数据里查无此对象：`GET /api/account/operators/{char_id}` 没有该干员的记录，或账号数据尚未识别过 |
-| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（计划的工具入口是 `list_upgrade_plans` / `cancel_upgrade_plan`；计划的 REST 端点留给后续里程碑） |
+| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（计划的工具入口是 `list_upgrade_plans` / `cancel_upgrade_plan`，REST 入口见 §6.21「养成计划（M31）」） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->
@@ -229,6 +229,94 @@ curl -X POST http://<host>:8002/api/snippets \
 | `confirmations` | 高风险操作的人工确认 |
 | `ws` | WebSocket 实时通道（文档说明，不可调试） |
 <!-- GENERATED:OPENAPI-TAGS:END -->
+
+### 4.1 任务参数（M28/M29 变更）
+
+本小节是手写补充，记录 M28（卡池、基建排班、集成战略）与 M29（阵容研究）带来的任务参数变化；上面的契约摘要由脚本生成，两条线互不影响。字段的权威定义仍是判别联合 `TaskInput`：`GET /api/tasks/types` 给全部类型的 JSON Schema、`GET /api/tasks/types/{type_name}` 给单个类型、`POST /api/tasks/validate` 只校验不提交（返回规范化后的参数与被注入的默认值）。下面的默认值、取值域与跨字段约束逐条取自模型字段与它上面的 `model_validator`。
+
+#### 4.1.1 集成战略 `Roguelike`
+
+**主题 `theme`（`ROGUELIKE_THEMES`，6 值，默认 `Phantom`）**：`Phantom` 傀影与猩红孤钻、`Mizuki` 水月与深蓝之树、`Sami` 探索者的银凇止境、`Sarkaz` 萨卡兹的无终奇语、`JieGarden` 岁的界园志异、`BlackFlow` 黑流树海。后两个是 M28 新增。
+
+**模式 `mode`（`ROGUELIKE_MODES`，11 值，不传等价于 `0`）**：
+
+- `0` 刷分/奖励点数（默认）
+- `1` 刷源石锭
+- `2` 已弃用（无法提交）：抛 `TASK_PARAM_DEPRECATED`
+- `3` 开发中（无法提交）：抛 `TASK_PARAM_INVALID`
+- `4` 凹开局
+- `5` 刷坍缩范式（仅 Sami）
+- `6` 刷月度小队
+- `7` 刷深入调查
+- `10001` 快速通过第一层（仅 Sarkaz）
+- `20001` 刷常乐节点（仅 JieGarden）
+- `30001` 刷襁褓动物（仅 BlackFlow）
+
+`2` 与 `3` 留在枚举里只是为了给出上面两种具体错误（否则会落成 pydantic 的 literal 错误）。
+
+**主题-模式矩阵**（不在矩阵里的组合抛 `TASK_PARAM_INVALID`，错误消息与 `details.allowed_modes` 里列出该主题允许的模式）：
+
+| 主题 | 允许的 `mode` |
+|---|---|
+| `Phantom`、`Mizuki` | 0、1、4、6、7 |
+| `Sami` | 0、1、4、5、6、7 |
+| `Sarkaz` | 0、1、4、6、7、10001 |
+| `JieGarden` | 0、1、4、6、7、20001 |
+| `BlackFlow` | 0、1、30001 |
+
+**跨字段约束**：
+
+- `start_with_elite_two`（凹干员精二直升）只许 `mode=4`；`only_start_with_elite_two` 还要求 `start_with_elite_two=true`。
+- `difficulty` 的取值域是 `≥ -1`，`-1` 表示不指定；M28 起 `Phantom` 主题同样允许传（旧版「Phantom 拒收」的规则已删除）。
+- `mode=20001` 必须给 `find_playTime_target`（1–3）；反向也要求它只在 `mode=20001` 下出现。
+- `stop_at_final_boss=true` 不适用于 `Phantom`；`refresh_trader_with_dice=true` 仅 `Mizuki`。
+- Sami 专属：`first_floor_foldartal`、`use_foldartal`、`check_collapsal_paradigms`；`start_foldartal_list` 还要 `mode=4`，`expected_collapsal_paradigms` 还要 `mode=5`，`double_check_collapsal_paradigms` 要求 `check_collapsal_paradigms` 为真（没传时按 `mode=5` 推断）。
+- 模式专属：`investment_with_more_score` 仅 `mode=1`；`collectible_mode_shopping` / `collectible_mode_squad` / `collectible_mode_start_list` 仅 `mode=4`；`monthly_squad_auto_iterate` / `monthly_squad_check_comms` 仅 `mode=6`；`deep_exploration_auto_iterate` 仅 `mode=7`；`blackflow_strategy` / `blackflow_cultivation_target` 仅 `BlackFlow`。
+- `use_nonfriend_support=true` 要求 `use_support=true`。
+- 「没传」不等于「不生效」：判定用解析后的值（`theme` 缺省 `Phantom`、`mode` 缺省 `0`）。
+
+**M28 新增的 13 个参数**：
+
+1. `core_char_list`（`array<object>`，默认 `null`）——开局干员顺位，最多三个、职业不能相同；元素是 `{name, use_support}`，`name` 必填（干员中文名、无论区服，≤ 32 字），`use_support` 默认 `false` 表示这一顺位借助战。
+2. `collectible_mode_shopping`（`boolean`，默认 `false`）——凹开局时也购物。
+3. `collectible_mode_squad`（`string`，默认 `null`）——凹开局使用的分队；不填与开局分队相同。
+4. `collectible_mode_start_list`（`object`，默认 `null`，内部 9 个布尔开关各自默认 `false`）——凹开局期望的开局奖励：`hot_water`、`shield`、`ingot`、`hope`、`random` 通用，`key`、`dice` 仅水月，`ideas` 仅萨卡兹，`ticket` 仅界园。
+5. `stop_at_max_level`（`boolean`，默认 `false`）——肉鸽等级刷满后停止任务。
+6. `start_with_seed`（`string`，默认 `null`）——固定种子刷钱；留空不启用。
+7. `blackflow_strategy`（`string` 枚举，默认 `null`）——黑流树海策略：`baby_animal` 培育襁褓动物、`investment` 第一层投资、`burn_with_investment` 投资后速通第三层、`burn` 速通第三层；不填按模式与投资推断。
+8. `blackflow_cultivation_target`（`string` 枚举，默认 `null`）——刷襁褓动物的目标：`swaddled_cat`、`swaddled_feathered_serpent`、`swaddled_dog`、`swaddled_cerberus`。
+9. `find_playTime_target`（`1` / `2` / `3`，默认 `null`）——想刷的常乐节点：`1` 令（掷地有声）、`2` 黍（种因得果）、`3` 年（三缺一）。
+10. `investment_with_more_score`（`boolean`，默认 `false`）——投资后顺便购物（仅刷源石锭模式）。
+11. `monthly_squad_auto_iterate`（`boolean`，默认 `null`）——月度小队自动切换。
+12. `monthly_squad_check_comms`（`boolean`，默认 `null`）——把月度小队通信也作为切换依据。
+13. `deep_exploration_auto_iterate`（`boolean`，默认 `null`）——深入调查自动切换。
+
+（源码：`maa_api/domain/task.py:89`、`:767`、`:770-788`、`:824-1315`；决策：`docs/13` §8.43 五）
+
+#### 4.1.2 基建 `Infrast`
+
+- **设施 `facility`（`INFRAST_FACILITIES`，9 项，顺序即换班顺序）**：`Mfg` 制造站、`Trade` 贸易站、`Power` 发电站、`Control` 控制中枢、`Reception` 会客室、`Office` 办公室、`Dorm` 宿舍、`Processing` 加工站、`Training` 训练室。**默认值仍是 7 项**（`Mfg` / `Trade` / `Power` / `Control` / `Reception` / `Office` / `Dorm`），M28 新增的 `Processing` 与 `Training` 必须显式传；该字段不支持运行中设置。上游 `facility` 还有 `AssistantChange`（换助战），它不是房间、不参与换班顺序，本服务不支持（所以是 9 值而不是 10 值）。
+- **无人机 `drones`（`INFRAST_DRONES`，7 值，默认 `_NotUse`）**：`_NotUse` 不使用、`Money` 龙门币、`SyntheticJade` 合成玉、`CombatRecord` 作战记录、`PureGold` 赤金、`OriginStone` 源石碎片、`Chip` 芯片；自定义换班模式下不生效。
+- **`mode`（3 值，默认 `0`）**：`0` 默认换班（单设施最优解）、`10000` 自定义换班（读取用户配置）、`20000` 一键轮换（会跳过部分设施）。
+- **`mode=10000` 必须给 `filename`**（模型级校验要求 `filename` 与 `plan_index` 都不是 `null`，而 `plan_index` 默认 `0`，所以真正会被拦下的只有「没给 `filename`」或「显式传 `plan_index: null`」），否则抛 `TASK_PARAM_INVALID`。`filename` 是 custom 资源层下的相对 `.json` 路径，服务端在投递给内核之前把它解析成绝对路径 `<resource>/maa-layers/custom/resource/<filename>`——内核按进程工作目录解析相对路径，原样透传大概率找不到文件。路径形状先校验：非绝对路径、不含 `\`、`:`、换行与控制字符、不含空段 / `.` / `..`、长度 ≤ 256；解析后必须仍落在 custom 层内且是文件，否则抛 `TASK_PARAM_INVALID` 并把解析后的路径写进消息。这套改写只对 `mode=10000` 生效，其余模式不碰参数。
+- **`plan_index`（整数，≥ 0，模型默认 `0`）**：用配置文件里的第几个方案。**请求里没有这个键**时（判定看的是原始参数而不是解析后的默认值），执行器会读方案文件、按本机时区当前时间选第一个 `period` 覆盖当前时刻的班次；都不覆盖抛 `TASK_PARAM_INVALID`。显式传（包括 `0`）则保持「用第几个」的原语义，连文件内容都不读（仍解析并校验路径）。
+
+（源码：`maa_api/domain/task.py:96`、`:115`、`:544-651`；`maa_api/services/resource_service.py:422-500`；`maa_api/services/pipeline_runner.py:98`、`:1278-1313`；决策：`docs/13` §8.43 三、四、七、九、2）
+
+#### 4.1.3 自定义任务 `Custom`（M29）
+
+- `task_names`（必填，`array<string>`，1–16 项）：内核 `tasks.json` 里的任务名列表，内核执行**第一个匹配上**的任务及其 `next` 等；想按顺序跑多条就 append 多个 `Custom` 任务。名字必须在内核的任务表里存在，否则 `AsstAppendTask` 返回 0、内核侧直接 `set_params failed`；空白名字在提交时就被拒（每个名字先 strip）。
+- `params`（可选对象）：任务附加参数，目前只有像素画这类 MiniGame 任务读它，因此不在这里收窄结构。
+- `enable`（可选，默认 `true`）：继承自任务输入的公共基类。
+- 本服务的识别任务（`MaaApi@CopilotResult@…`）正是靠这条路运行。
+
+（源码：`maa_api/domain/task.py:1411-1458`；决策：`docs/13` §8.44 五 D7）
+
+#### 4.1.4 执行已上传作业 `Copilot`（M29）
+
+- `support_unit_usage`（整数，0–3，默认 `0`）：`0` 不用助战、`1` 缺一名干员时借助战补位（仅在重新编队 `formation=true` 时有效）。取值域照上游放宽到 0–3，M29 只写 0 / 1。
+
+（源码：`maa_api/domain/task.py:1498-1503`；决策：`docs/13` §8.44 八）
 
 ## 5. REST 端到端调用
 

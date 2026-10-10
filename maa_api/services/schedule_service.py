@@ -238,6 +238,37 @@ class ScheduleService:
         self.queue_service = queue_service
         self.pipeline_runner = pipeline_runner
         self._owned_job_ids: set[str] = set()
+        self._delete_hook: Any = None
+
+    def bind_delete_hook(self, hook: Any) -> None:
+        """后置、可选地注入「定时任务已删除」回调（单参数协程：``schedule_id: str``）。
+
+        照 ``PipelineRunner.bind_finish_hook`` 的口径：服务构造时依赖方可能还不存在
+        （养成计划服务在装配后段才建），所以在装配末尾绑定；未绑定时 :meth:`delete`
+        零开销，回调抛异常只记 warning、不影响删除结果。
+
+        回调是**内联 await** 的（在任务行与 APScheduler job 都删掉之后），所以调用方
+        可以这样用抑制标志保护自己：
+
+        .. code-block:: python
+
+            with suppress_hook():          # 先置标志
+                await schedule_service.delete(schedule_id)   # 钩子在标志内执行
+            await mark_completed()         # 之后再写自己的状态
+
+        顺序反了（先删任务再置标志）会让自己刚写的状态被钩子覆盖；回调里如果再起
+        后台任务，抑制窗口同样不再保证。
+        """
+        self._delete_hook = hook
+
+    async def _notify_deleted(self, schedule_id: str) -> None:
+        hook = getattr(self, "_delete_hook", None)
+        if hook is None:
+            return
+        try:
+            await hook(schedule_id)
+        except Exception:  # noqa: BLE001 - 钩子不能影响删除本身
+            logger.warning("定时任务删除回调失败：%s", schedule_id, exc_info=True)
 
     @staticmethod
     def _job_id(schedule_id: str) -> str:
@@ -388,6 +419,7 @@ class ScheduleService:
                 )
             await session.commit()
         self._remove(schedule_id)
+        await self._notify_deleted(schedule_id)
 
     async def run_now(
         self, schedule_id: str, *, priority: int | None = None

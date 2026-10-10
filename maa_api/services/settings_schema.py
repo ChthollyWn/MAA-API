@@ -107,6 +107,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "sources.penguin_enabled": dict(label="启用企鹅物流", group="外部数据源", type="boolean", hot_action="none"),
     "sources.penguin_host": dict(label="企鹅物流主机", group="外部数据源", type="string", enum=["penguin-stats.io", "penguin-stats.cn"], hot_action="none"),
     "sources.penguin_rate_per_minute": dict(label="企鹅物流每分钟请求上限", group="外部数据源", type="integer", minimum=1, maximum=60, hot_action="none"),
+    # M29 作业站（prts.maa.plus）。关掉后作业搜索与导入直接报来源已关闭（附录 B）。
+    "sources.copilot_site_enabled": dict(label="启用作业站", group="外部数据源", type="boolean", hot_action="none"),
+    "sources.copilot_site_rate_per_minute": dict(label="作业站每分钟请求上限", group="外部数据源", type="integer", minimum=1, maximum=60, hot_action="none"),
     "channel.server": dict(label="默认数据服务器", group="渠道", type="string", enum=["CN", "US", "JP", "KR"], hot_action="none"),
     "llm.base_url": dict(label="LLM API 地址", group="LLM", type="string", hot_action="none"),
     "llm.api_key": dict(label="LLM API 密钥", group="LLM", type="string", sensitive=True, hot_action="none"),

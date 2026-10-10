@@ -1,6 +1,6 @@
 # Agent 与知识库
 
-共 1124 条。
+共 1127 条。
 
 ## knowledge（870）
 
@@ -88,22 +88,22 @@
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:10` [md-line] **采购凭证（红票）**：资源收集「粉碎防御」（AP 关）通关、日常与周常任务、活动奖励、剿灭作战的作战进度、每月签到。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:11` [md-line] **通用凭证（蓝票）**：在【中坚寻访】获得任意干员、在【通用凭证区】兑换任意干员、或兑换任意干员的**中坚**信物时获得。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:12` [md-line] 标准获取规则与中坚获取规则**互不相通**：在非入职规则下获取同一名干员时，入职会改为赠送对应规则的信物。
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:13` [md-line] 签到与各类获取途径各给多少张，用 `get_prts_page(title="采购中心/凭证交易所", section="凭证的获取方式")` 现查；资源关的开放日以游戏内为准。
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:13` [md-line] 签到与各类获取途径各给多少张，用 `get_prts_page(title="采购中心/凭证交易所")` 打开该页、取**凭证的获取方式**节现查（该页正文按 section 分节，**节名随线上页面变动**：先不带 `section` 读一次，按关键词从返回的 `sections` 里挑中那一节，再带 `sectio…（共 182 字）
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:15` [md-line] 满潜信物换凭证
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:16` [md-line] 这是把重复干员变成凭证的主要途径。兑换按钮在凭证交易所左下角「信物兑换凭证」，执行时会把仓库里所有符合条件的信物一次性全数换掉——**动手前先确认没有还要留的信物**。
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:17` [md-line] 干员信物在【资质凭证区】或【高级凭证区】页面操作，中坚信物在【通用凭证区】页面操作。各稀有度换多少张凭证，用对应的 section 现查（`get_prts_page(title="采购中心/凭证交易所", section="资质凭证区")` 等），不要凭记忆报单价。
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:17` [md-line] 干员信物在 `采购中心/凭证交易所` 页的【资质凭证区】或【高级凭证区】节操作，中坚信物在【通用凭证区】节操作。各稀有度换多少张凭证，用 `get_prts_page(title="采购中心/凭证交易所")` 取页内对应节现查（例如**资质凭证区**节，节名以页面现况为准），不要凭记忆报单价。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:18` [md-line] 抽到干员时也会按「这是第几次获得」直接给凭证，标准规则与中坚规则是两张不同的表：规则说明与张数见 `采购中心/凭证交易所` 的 `凭证的获取方式` 节。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:19` [md-line] 公开招募是长期稳定的黄票来源：把 4★ 干员潜能补齐后，再获得就可以把信物换成黄票。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:21` [md-line] 凭证商店能换什么
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:22` [md-line] **资质凭证区**：分阶段解锁的库存，满足本阶段的解锁门槛才进下一阶段，每月按周期重置。阶段划分、每阶段可换内容与单价（寻访凭证、招聘许可、合成玉、龙门币、作战记录、蓝色材料等）用 `get_prts_page(title="采购中心/凭证交易所", section="资质凭证区")` 现查，重置时刻也以页面为准。
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:23` [md-line] **高级凭证区**（同时是独立页面 `高级凭证区`）：寻访凭证/十连寻访凭证、中坚寻访凭证/十连中坚寻访凭证、加急许可、模组数据块按月刷新；常驻标准寻访的 6★/5★ 招聘合同、职业信物、紫色材料随常驻标准寻访同步更换。
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:24` [md-line] 干员寻访凭证与中坚寻访凭证都是**分阶段递增**的阶梯：越往后每张越贵，但整体比单买便宜；要买就得把整个阶梯一次买完，只买前几阶段拿不到后两档的抽数。阶梯价位见 `高级凭证区` 节。
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:25` [md-line] **通用凭证区**：一名 6★ 与一名 5★ 的招聘合同、中坚寻访凭证、往期复刻的 5★ 干员合同与信物、往期复刻时装。可兑换的招聘合同随常驻中坚寻访同步更换，价格与限购见 `get_prts_page(title="采购中心/凭证交易所", section="通用凭证区")`。
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:26` [md-line] **采购凭证区**：芯片助剂、事相碎片、模组数据块、通用信物（传承 / 遗产 / 皇家），以及红票商店专属的干员合同——伊桑、微风、布丁、蜜莓等，名单会不定期追加。价格、限购与名单见 `get_prts_page(title="采购中心/凭证交易所", section="采购凭证区")`，**不要凭记忆报有哪些干员或多…（共 165 字）
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:27` [md-line] **寻访数据契约交换所**（限时）：用寻访数据契约换当期限定 6★ 合同与 5★ 合同，兑换次数不限。它会关闭，剩余契约按固定比例转成寻访参数模型，所以**要在过期前用掉**；兑换门槛与转化比例见 `get_prts_page(title="采购中心/凭证交易所", section="寻访数据契约交换所")` 与 `g…（共 215 字）
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:22` [md-line] **资质凭证区**：分阶段解锁的库存，满足本阶段的解锁门槛才进下一阶段，每月按周期重置。阶段划分、每阶段可换内容与单价（寻访凭证、招聘许可、合成玉、龙门币、作战记录、蓝色材料等）用 `get_prts_page(title="采购中心/凭证交易所")` 取页内**资质凭证区**节现查（节名以页面现况为准），重置时刻也以…（共 165 字）
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:23` [md-line] **高级凭证区**（`采购中心/凭证交易所` 页内的一节）：寻访凭证/十连寻访凭证、中坚寻访凭证/十连中坚寻访凭证、加急许可、模组数据块按月刷新；常驻标准寻访的 6★/5★ 招聘合同、职业信物、紫色材料随常驻标准寻访同步更换。
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:24` [md-line] 干员寻访凭证与中坚寻访凭证都是**分阶段递增**的阶梯：越往后每张越贵，但整体比单买便宜；要买就得把整个阶梯一次买完，只买前几阶段拿不到后两档的抽数。阶梯价位见该页的**高级凭证区**节。
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:25` [md-line] **通用凭证区**：一名 6★ 与一名 5★ 的招聘合同、中坚寻访凭证、往期复刻的 5★ 干员合同与信物、往期复刻时装。可兑换的招聘合同随常驻中坚寻访同步更换，价格与限购见 `get_prts_page(title="采购中心/凭证交易所")` 的**通用凭证区**节（节名以页面现况为准）。
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:26` [md-line] **采购凭证区**：芯片助剂、事相碎片、模组数据块、通用信物（传承 / 遗产 / 皇家），以及红票商店专属的干员合同——伊桑、微风、布丁、蜜莓等，名单会不定期追加。价格、限购与名单见 `get_prts_page(title="采购中心/凭证交易所")` 的**采购凭证区**节（节名以页面现况为准），**不要凭记忆报有…（共 171 字）
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:27` [md-line] **寻访数据契约交换所**（限时）：用寻访数据契约换当期限定 6★ 合同与 5★ 合同，兑换次数不限。它会关闭，剩余契约按固定比例转成寻访参数模型，所以**要在过期前用掉**；兑换门槛与转化比例见 `get_prts_page(title="采购中心/凭证交易所")` 页内的**寻访数据契约交换所**与**寻访参数模型…（共 178 字）
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:29` [md-line] 兑换优先级（PRTS 给新人的建议，可以直接照说）
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:30` [md-line] **黄票（高级凭证）**：不要大量买材料——哪怕它们是更贵重的紫色材料，甚至是 5★/6★ 通用信物。应该**尽量积累黄票**：相较换材料，用黄票换 6★/5★ 招聘合同、或者把寻访凭证阶梯买完备战，都是更好的战略性投资。
-- `maa_api/agent/knowledge/builtin/certificate-shops.md:31` [md-line] 要换寻访凭证，**必须一次性把整个阶梯买完**；只买前几阶段拿不到后两档的抽数，等于白花。具体价位现查 `高级凭证区` 节。
+- `maa_api/agent/knowledge/builtin/certificate-shops.md:31` [md-line] 要换寻访凭证，**必须一次性把整个阶梯买完**；只买前几阶段拿不到后两档的抽数，等于白花。具体价位现查该页的**高级凭证区**节。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:32` [md-line] **绿票（资质凭证）**：先把第一阶段换完（不进下一阶段就跟不上刷新节奏），再去下一阶段按缺什么补蓝色材料；阶段里单价最低的招募凭证/寻访凭证最值得换完，能补齐全干员潜能、还能回收大部分绿票并产出黄票。最后阶段的合成玉档位门槛高，非重氪玩家没必要去，攒着为下个月的第一阶段做准备更实际。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:33` [md-line] **红票（采购凭证）**：优先换精二高星干员要用的**芯片助剂**；注意**四星精二不需要芯片助剂**，别提前囤。有富余再考虑通用信物（信物会被轮换刷新掉）。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:34` [md-line] **蓝票（通用凭证）**：不建议用通用凭证去换中坚寻访凭证，建议直接攒着换干员。也不要往中坚池大量投入合成玉和通用寻访凭证——标准寻访才是主池。
@@ -125,8 +125,8 @@
 - `maa_api/agent/knowledge/builtin/currency-sources.md:15` [md-line] 合成玉：其它来源
 - `maa_api/agent/knowledge/builtin/currency-sources.md:16` [md-line] **至纯源石兑换**：源石可以直接换合成玉，兑换率用 `get_prts_page(title="合成玉")` 或 `get_prts_page(title="至纯源石")` 现查。
 - `maa_api/agent/knowledge/builtin/currency-sources.md:17` [md-line] **基建「搓玉」**：制造站把固源岩或装置加工成源石碎片，贸易站的「源石订单」再把碎片换成合成玉。配方与耗时用 `get_item(name="源石碎片")` 查，贸易站侧的产出档位查 `get_prts_page(title="罗德岛基建/贸易站")`。长期占用制造站并吃龙门币，属于牺牲养成换抽数。
-- `maa_api/agent/knowledge/builtin/currency-sources.md:18` [md-line] **资质凭证区（绿票商店）**：有「合成玉」档位，单价与限购次数用 `get_prts_page(title="采购中心/凭证交易所", section="资质凭证区")` 查。
-- `maa_api/agent/knowledge/builtin/currency-sources.md:19` [md-line] **情报凭证区（紫票商店）**：复刻活动里重复获得的家具、时装会按比例转成情报凭证，每次补货的合成玉用 `get_prts_page(title="采购中心/凭证交易所", section="情报凭证区")` 查。紫票选项里合成玉的单位收益最高。
+- `maa_api/agent/knowledge/builtin/currency-sources.md:18` [md-line] **资质凭证区（绿票商店）**：有「合成玉」档位，单价与限购次数用 `get_prts_page(title="采购中心/凭证交易所")` 取页内**资质凭证区**节查（该页正文按 section 分节，**节名随线上页面变动**：先不带 `section` 读一次，按关键词从返回的 `sections` 里挑中那一节…（共 179 字）
+- `maa_api/agent/knowledge/builtin/currency-sources.md:19` [md-line] **情报凭证区（紫票商店）**：复刻活动里重复获得的家具、时装会按比例转成情报凭证，每次补货的合成玉用 `get_prts_page(title="采购中心/凭证交易所")` 取页内**情报凭证区**节查（节名以页面现况为准）。紫票选项里合成玉的单位收益最高。
 - `maa_api/agent/knowledge/builtin/currency-sources.md:20` [md-line] 官方邮件、活动奖励、主线首通等也会给，但不是稳定周收入。
 - `maa_api/agent/knowledge/builtin/currency-sources.md:22` [md-line] 至纯源石
 - `maa_api/agent/knowledge/builtin/currency-sources.md:23` [md-line] 来源：采购中心充值、**首次通关获取**、活动获取、官方邮件赠送。
@@ -186,7 +186,7 @@
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:15` [md-line] 复刻（同一期活动第二次开）
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:17` [md-line] **关卡进度和首次掉落进度继承上一次**：拿过的首通/首次掉落奖励不会再给；复刻一开始就开放包括 EX 在内的所有关卡，但没打过的新玩家仍要按顺序解锁。
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:18` [md-line] **活动任务的完成进度不继承**，所有任务要重新完成。
-- `maa_api/agent/knowledge/builtin/event-and-rerun.md:19` [md-line] **无法重复获得的那部分奖励，在重复获得时会按比例转成情报凭证**（典型是干员时装、家具），情报凭证在采购中心的情报凭证区消费，比例用 `get_prts_page(title="采购中心/凭证交易所", section="情报凭证区")` 现查。
+- `maa_api/agent/knowledge/builtin/event-and-rerun.md:19` [md-line] **无法重复获得的那部分奖励，在重复获得时会按比例转成情报凭证**（典型是干员时装、家具），情报凭证在采购中心的情报凭证区消费，比例用 `get_prts_page(title="采购中心/凭证交易所")` 取页内**情报凭证区**节现查（该页正文按 section 分节，**节名随线上页面变动**：先不带 `sect…（共 214 字）
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:20` [md-line] 商店和奖励结构会被改动（例如去掉无限池、改有限池与里程碑奖励、取消活动限定日常任务），开放时间也明显比首开短。
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:21` [md-line] 活动干员的获取渠道仍在活动任务/活动商店里，复刻期间商店重新开放，重复拿到的部分按上一条转凭证；具体以当期公告为准。
 - `maa_api/agent/knowledge/builtin/event-and-rerun.md:22` [md-line] 不同活动的复刻细节不一样，回答时以当期公告和游戏内为准，不要拿旧活动的复刻说明套新活动。
@@ -300,7 +300,7 @@
 - `maa_api/agent/knowledge/builtin/headhunt-rules.md:23` [md-line] 常驻标准寻访「**标准选调**」：累计到第一档后，下一个 6★ 必为当期 UP 的 6★ **之一**；到第二档后，下一个 6★ 必为 UP 的**另一名**。各条件当期仅生效一次，池子结束清零；两档阈值见 `寻访规则`。
 - `maa_api/agent/knowledge/builtin/headhunt-rules.md:24` [md-line] 限时标准寻访「**定向选调**」：连续若干次没出该池 UP 的 6★ 时，下一个 6★ 必为该 UP 干员，当期仅一次、池子结束清零；中途出了 6★（哪怕不是 UP）计数清零但不算保底生效。阈值见 `寻访规则`。
 - `maa_api/agent/knowledge/builtin/headhunt-rules.md:25` [md-line] 限定寻访「**必得赠送**」：累计到阈值后额外赠送一份当期限定干员简历，仅一次、需手动领。属额外赠送而非寻访获得，不产数据契约、也不影响下一个 6★ 的概率；计数本期结束清零。
-- `maa_api/agent/knowledge/builtin/headhunt-rules.md:26` [md-line] 限定寻访的**数据契约**：每次寻访都会累积一张寻访数据契约；攒到兑换当期 6★ 招聘合同的门槛、或换 5★ 合同的较低门槛都能换，次数不限。门槛与关闭后转寻访参数模型的比例用 `get_prts_page(title="采购中心/凭证交易所", section="寻访数据契约交换所")` 现查（参数模型不过期）。
+- `maa_api/agent/knowledge/builtin/headhunt-rules.md:26` [md-line] 限定寻访的**数据契约**：每次寻访都会累积一张寻访数据契约；攒到兑换当期 6★ 招聘合同的门槛、或换 5★ 合同的较低门槛都能换，次数不限。门槛与关闭后转寻访参数模型的比例用 `get_prts_page(title="采购中心/凭证交易所")` 取页内**寻访数据契约交换所**节现查（该页正文按 section 分…（共 247 字）
 - `maa_api/agent/knowledge/builtin/headhunt-rules.md:27` [md-line] 联动寻访有硬保底、新年特别十连在池内必得 6★，抽数以游戏内为准。
 - `maa_api/agent/knowledge/builtin/headhunt-rules.md:29` [md-line] 抽一次要花多少
 - `maa_api/agent/knowledge/builtin/headhunt-rules.md:30` [md-line] 单次与十连各要多少合成玉，用 `get_prts_page(title="寻访规则")` 或 `get_prts_page(title="合成玉")` 现查，别凭记忆报价；换算见 gacha-conversion。
@@ -489,7 +489,7 @@
 - `maa_api/agent/knowledge/builtin/operator-progression.md:13` [md-line] 精英化（晋升）
 - `maa_api/agent/knowledge/builtin/operator-progression.md:14` [md-line] 精英化后等级回到 1 级，但面板数值不会重置。带来的效果：解锁更高的等级上限和技能等级上限；几乎所有干员都会扩大攻击范围；部分干员解锁新技能、新天赋或加强原有天赋；可能获得新的后勤技能。晋升到精英阶段 2 还可能解锁新立绘、新语音、新资料，以及模组系统。
 - `maa_api/agent/knowledge/builtin/operator-progression.md:15` [md-line] 精英化消耗分两部分：**固定数额的龙门币**（只跟星级有关）与**该干员专属的材料**。数额与清单用 `get_operator(name=…, sections=["costs"])` 现查，`plan_upgrade` 会算出仓库缺口；不要拿别的干员的清单套。
-- `maa_api/agent/knowledge/builtin/operator-progression.md:16` [md-line] 芯片按干员职业而不是星级：精一必须用对应职业的「芯片」；精二时 4★ 用对应职业的「芯片组」，5★/6★ 用对应职业的「双芯片」。双芯片在基建制造站用「对应职业芯片组 + 芯片助剂」合成（有制造站等级要求），配方用 `get_item` 查。芯片助剂在采购中心兑换，单价用 `get_prts_page(title="采…（共 217 字）
+- `maa_api/agent/knowledge/builtin/operator-progression.md:16` [md-line] 芯片按干员职业而不是星级：精一必须用对应职业的「芯片」；精二时 4★ 用对应职业的「芯片组」，5★/6★ 用对应职业的「双芯片」。双芯片在基建制造站用「对应职业芯片组 + 芯片助剂」合成（有制造站等级要求），配方用 `get_item` 查。芯片助剂在采购中心兑换，单价用 `get_prts_page(title="采…（共 306 字）
 - `maa_api/agent/knowledge/builtin/operator-progression.md:17` [md-line] 精英材料因干员而异，不要凭记忆列清单；同时精二的前置条件是精一满级，成本远高于精一。
 - `maa_api/agent/knowledge/builtin/operator-progression.md:18` [md-line] 要真的去练：先用 `plan_upgrade(targets=…)` 看缺口，再用 `start_upgrade_plan(name=…, targets=…)` 建计划交给 MAA 跑，进度和结果用 `list_upgrade_plans()` 查。
 - `maa_api/agent/knowledge/builtin/operator-progression.md:20` [md-line] 技能等级与专精
@@ -971,7 +971,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:21` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:22` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（254）
+## agent（257）
 
 
 **maa_api/agent/confirmation.py**
@@ -1080,21 +1080,24 @@
 
 **maa_api/agent/policy.py**
 
-- `maa_api/agent/policy.py:25` [const] set_task_params 无法确定运行中任务的类型与现有参数，按保守策略要求确认
-- `maa_api/agent/policy.py:142` [literal] {name} 属于需确认的高风险操作
-- `maa_api/agent/policy.py:150` [literal] {name} 尚未配置参数风险规则
-- `maa_api/agent/policy.py:190` [literal] 执行作业尝试需要授权：{payload['attempts']} 次以内
-- `maa_api/agent/policy.py:231` [literal] 修改账号干员数据：{count} 项改动
-- `maa_api/agent/policy.py:236` [literal] 修改账号干员数据：{count} 项改动
-- `maa_api/agent/policy.py:243` [literal] 追加
-- `maa_api/agent/policy.py:243` [literal] 替换
-- `maa_api/agent/policy.py:244` [const] 更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字
-- `maa_api/agent/policy.py:261` [literal] 、
-- `maa_api/agent/policy.py:262` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
-- `maa_api/agent/policy.py:264` [literal] ，每日 {schedule}
-- `maa_api/agent/policy.py:280` [literal] {name} 需要人工确认
-- `maa_api/agent/policy.py:325` [literal] 当前会话尚未获得有效的原子操作授权
-- `maa_api/agent/policy.py:460` [literal] {name} 是绕过内核识别与容错的原子操作
+- `maa_api/agent/policy.py:31` [const] set_task_params 无法确定运行中任务的类型与现有参数，按保守策略要求确认
+- `maa_api/agent/policy.py:66` [const] 与现有定时任务争抢理智：
+- `maa_api/agent/policy.py:91` [literal] {CONFLICT_REASON_PREFIX}{'、'.join(labels)}
+- `maa_api/agent/policy.py:192` [literal] {name} 属于需确认的高风险操作
+- `maa_api/agent/policy.py:200` [literal] {name} 尚未配置参数风险规则
+- `maa_api/agent/policy.py:240` [literal] 执行作业尝试需要授权：{payload['attempts']} 次以内
+- `maa_api/agent/policy.py:281` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:286` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:293` [literal] 追加
+- `maa_api/agent/policy.py:293` [literal] 替换
+- `maa_api/agent/policy.py:294` [const] 更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字
+- `maa_api/agent/policy.py:311` [literal] 、
+- `maa_api/agent/policy.py:312` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
+- `maa_api/agent/policy.py:314` [literal] ，每日 {schedule}
+- `maa_api/agent/policy.py:339` [literal] {name} 需要人工确认
+- `maa_api/agent/policy.py:372` [literal] 计划预演返回的不是映射：{type(preview).__name__}
+- `maa_api/agent/policy.py:416` [literal] 当前会话尚未获得有效的原子操作授权
+- `maa_api/agent/policy.py:551` [literal] {name} 是绕过内核识别与容错的原子操作
 
 **maa_api/agent/questions.py**
 

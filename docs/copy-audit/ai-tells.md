@@ -1,15 +1,15 @@
 # AI 腔规则命中：用户可见文案
 
-总计 11701 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 11885 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 156 | 281 | 437 |
-| 破折号当冒号用 | high | 32 | 82 | 114 |
-| 「A 而不是 B」对照腔 | high | 14 | 78 | 92 |
-| 绝对化规定腔 | medium | 11 | 53 | 64 |
-| 自指式讲解腔 | medium | 1 | 29 | 30 |
+| 粗体强调 | medium | 159 | 285 | 444 |
+| 破折号当冒号用 | high | 34 | 85 | 119 |
+| 「A 而不是 B」对照腔 | high | 14 | 79 | 93 |
+| 绝对化规定腔 | medium | 11 | 54 | 65 |
+| 自指式讲解腔 | medium | 1 | 30 | 31 |
 | 「…即可」机器腔 | medium | 9 | 19 | 28 |
 | 「不是…而是…」对照句 | high | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 2 | 1 | 3 |
@@ -18,7 +18,7 @@
 | 感叹号 | low | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 156 / 开发向 281）
+## 粗体强调（medium｜用户可见 159 / 开发向 285）
 
 **用户可见**
 
@@ -30,7 +30,7 @@
 - `maa_api/db/models.py:887` Agent 知识库的覆盖层：只存与内置条目**不同**的字段。 内置条目随代码发布（``maa_api/agent/knowledge/builtin/*.md``），这张表里 没有某一行就意味着「用内置的原文」。``id`` 与内置条目相…（共 334 字）
 - `maa_api/db/models.py:921` Agent 主动提问：与 ``confirmation`` **并列**的一等交互（M21 规格 §3.2）。 刻意不复用 ``confirmation`` 表，也不给它加 ``question`` 分支：确认是「授权一次 有风险的操作」（…（共 496 字）
 - `maa_api/db/models.py:1183` 一次作业授权：会话 + 关卡 + 次数 + 有效期（规格 §9.6、附录 E）。 ``id`` 就是那条 ``grant_copilot_attempts`` 确认的 id（附录 E 的「id（= 确认 id）」）， 所以同一次批准重复落库…（共 785 字）
-- …… 另有 148 条，见 inventory.json
+- …… 另有 151 条，见 inventory.json
 
 **开发向**
 
@@ -42,21 +42,21 @@
 - `maa_api/agent/knowledge/__init__.py:879` 拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。 段落顺序：索引 → **当期活动**（M24）→ **当期卡池**（M28）→ **账号数据**（M27） → 术语表全文 → 用户档案全文；三段实时数据（活动…（共 241 字）
 - `maa_api/agent/knowledge/convergence.py:1` M30 T3：删除内置条目后，把幸存下来的用户覆盖行迁移成自定义条目。 为什么需要冻结 ``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL，读的时候 继承内置值（见 :mod:`maa_api.ag…（共 1075 字）
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
-- …… 另有 273 条，见 inventory.json
+- …… 另有 277 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 32 / 开发向 82）
+## 破折号当冒号用（high｜用户可见 34 / 开发向 85）
 
 **用户可见**
 
-- `maa_api/api/routers/account.py:52` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。
+- `web/src/features/agent/ConfirmationCard.tsx:175` ${name}${missing === null ? '' : `：缺 ${missing}`}${counts.length ? `（${counts.join('，')}）` : ''}${tail.length ? `——${tai…（共 139 字）
+- `web/src/features/agent/ConfirmationCard.tsx:175` ——${tail.join('；')}
+- `maa_api/api/routers/account.py:57` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。
 - `maa_api/api/routers/confirmations.py:19` ``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。 尝试次数、成功标准与是否允许助战都能在卡片上改；有效期只展示，**不在**这里。 键名与取值域与 ``services/copilot/grant…（共 254 字）
 - `maa_api/db/models.py:845` Web Push 订阅（M14，docs/09 §13.1）。 ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一 Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新…（共 281 字）
 - `maa_api/domain/task.py:825` 无限刷肉鸽（集成战略）。 主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError`` （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PA…（共 291 字）
 - `maa_api/agent/knowledge/builtin/activity-stage-codes.md:12` **代号**是选关界面上写的那个，形如 `XX-01`、`XX-EX-3`。同一期活动里的代号连编号都不重复，但**跨期次会重名**——同一个代号在不同期活动里指向不同的关。
 - `maa_api/agent/knowledge/builtin/activity-stage-codes.md:29` **活动名推代号是推断，不是查表**：这条只在 `source=resource` 的降级结果上成立。PRTS 可用时活动与关卡的对应关系来自活动页的关卡链接与 `关卡id`，`matched_by` 会说明是靠 `stage_id` 还是…（共 322 字）
-- `maa_api/agent/knowledge/builtin/annihilation-weekly.md:22` 用户说「上限差一点点到不了满」，先让他核对**当期剿灭委托**那一档历练任务是不是还没做——当期委托轮换后这一档最容易漏。
-- `maa_api/agent/knowledge/builtin/annihilation-weekly.md:38` 每周目标是把上限打满：日常周常的合成玉 + 剿灭满上限（见 currency-sources）。打满后按 PRTS 建议改打当期剿灭委托——单局产出更高、需要的作战次数更少。
-- …… 另有 24 条，见 inventory.json
+- …… 另有 26 条，见 inventory.json
 
 **开发向**
 
@@ -66,11 +66,11 @@
 - `maa_api/agent/knowledge/convergence.py:1` M30 T3：删除内置条目后，把幸存下来的用户覆盖行迁移成自定义条目。 为什么需要冻结 ``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL，读的时候 继承内置值（见 :mod:`maa_api.ag…（共 1075 字）
 - `maa_api/agent/knowledge/convergence.py:133` 拆冻结表：``(可用的条目, 写坏了被丢弃的 id)``（坏的各记一条 warning）。 在这里挡住坏数据：后面每个候选都假定 ``frozen`` 四键齐全、不超列宽。被丢弃的 id 由调用方记进 ``skipped``——「冻结表里有…（共 169 字）
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
+- `maa_api/agent/policy.py:346` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/runtime.py:943` 给「用户消息已落库、这一轮没答上」的会话补一条说明。 没有它，这一轮在界面上就等于没发生过：刷新之后只剩用户那句孤零零的话， 看起来像 Agent 把消息吃掉了。只在用户消息已经是最后一条时补——失败发生在 落库之前（未配置 LLM、会话不…（共 171 字）
-- `maa_api/agent/tools/stage_level.py:1` 关卡文件工具（规格 §9.3）：`get_stage_level_data`。 只读、SAFE、不需要设备。参数与返回形状照规格 §9.3：``stage``（必填）、``include`` （``options`` / ``map`` /…（共 434 字）
-- …… 另有 74 条，见 inventory.json
+- …… 另有 77 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 14 / 开发向 78）
+## 「A 而不是 B」对照腔（high｜用户可见 14 / 开发向 79）
 
 **用户可见**
 
@@ -79,7 +79,7 @@
 - `maa_api/db/models.py:845` Web Push 订阅（M14，docs/09 §13.1）。 ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一 Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新…（共 281 字）
 - `maa_api/db/models.py:921` Agent 主动提问：与 ``confirmation`` **并列**的一等交互（M21 规格 §3.2）。 刻意不复用 ``confirmation`` 表，也不给它加 ``question`` 分支：确认是「授权一次 有风险的操作」（…（共 496 字）
 - `maa_api/domain/task.py:825` 无限刷肉鸽（集成战略）。 主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError`` （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PA…（共 291 字）
-- `maa_api/settings.py:282` 反向代理与浏览器来源白名单（M15，docs/09 §12.4）。 首版 HTTPS 入口是 ``tailscale serve``：它是反向代理，请求到达 FastAPI 时 ``X-Forwarded-Proto`` 为 ``https…（共 399 字）
+- `maa_api/settings.py:290` 反向代理与浏览器来源白名单（M15，docs/09 §12.4）。 首版 HTTPS 入口是 ``tailscale serve``：它是反向代理，请求到达 FastAPI 时 ``X-Forwarded-Proto`` 为 ``https…（共 399 字）
 - `maa_api/agent/knowledge/builtin/annihilation-weekly.md:21` 历练任务的条件是「在指定地图单局打到某个击溃数」，每完成一档加一点上限，全部做完才是满上限。档位与增量同在 `关卡一览/常态事务` 的「剿灭作战」节。
 - `maa_api/agent/knowledge/builtin/certificate-shops.md:34` **蓝票（通用凭证）**：不建议用通用凭证去换中坚寻访凭证，建议直接攒着换干员。也不要往中坚池大量投入合成玉和通用寻访凭证——标准寻访才是主池。
 - …… 另有 6 条，见 inventory.json
@@ -94,9 +94,9 @@
 - `maa_api/agent/runtime.py:981` 登记本轮的 task，然后交给 :meth:`_run_turn_body`（规格 §3.1）。 登记放在这里而不是 ``_produce_turn``：自动诊断（``run_incident``）直接调用 本方法、没有 producer，…（共 164 字）
 - `maa_api/agent/tools/activity.py:115` 取指定前缀的关卡表；未知前缀给提示而不是空结果。
 - `maa_api/api/deps.py:307` 记一次鉴权失败；本次即达阈值时进入冷却并抛 429（把调用方的 401 顶掉）。 设计成「达阈值的那次请求直接得到 429」而不是「第 11 次才 429」：docs/05 §4.1 的语义是失败超过阈值即进入冷却期，这一刻起该 IP 已经…（共 127 字）
-- …… 另有 70 条，见 inventory.json
+- …… 另有 71 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 11 / 开发向 53）
+## 绝对化规定腔（medium｜用户可见 11 / 开发向 54）
 
 **用户可见**
 
@@ -116,13 +116,13 @@
 - `maa_api/agent/knowledge/__init__.py:951` 账号数据段（规格 §7.8）；读不到或从未识别以外的情况一律不插。 与活动段一样只记一次 warning：账号数据是本服务的表，读失败通常意味着迁移没跑， 每轮刷栈没有意义。
 - `maa_api/agent/knowledge/convergence.py:166` 把覆盖行就地补全成自定义条目；已经是完整行时返回 ``False``（幂等点）。 只补 NULL 列，用户改过的列不动。``kind`` 一律取冻结值：覆盖行里恒为 NULL， 上一版留下的历史行可能带着别的值，而 kind 从来不可覆盖（…（共 136 字）
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
+- `maa_api/agent/policy.py:346` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/runtime.py:2314` 一批工具调用的指纹：只看名字与参数，用于识别「模型在原地打转」。 不看调用 id：同一批调用每轮都会拿到新的 id，用 id 会让指纹永远不同。
 - `maa_api/agent/tools/activity.py:1` Agent 的当期活动工具：读 PRTS 回答「现在什么活动、这一期有什么关」（规格 §5.6）。 只读、SAFE、不需要设备。国服优先查 PRTS（多个在开活动全部列出），外服或 PRTS 不可用时 退回本机资源包的 M24 推断并如实标…（共 159 字）
 - `maa_api/agent/tools/game.py:1` Agent 的游戏数据工具（规格 §5.7、§5.8、§6.3–§6.5）。 `get_stage`、`search_prts`、`get_prts_page` 是 M25 的通用检索；`get_operator`、`get_enemy`、…（共 240 字）
-- `maa_api/agent/tools/roguelike.py:1` 集成战略工具（规格 §8.4）：`get_roguelike_info`。 只读、SAFE、不需要设备；返回值顶层带来源信封（§3.4），页面内容是外部数据，一律标 ``untrusted``（§4.1）。主题页很大，领域层按章节取（S27…（共 191 字）
-- …… 另有 45 条，见 inventory.json
+- …… 另有 46 条，见 inventory.json
 
-## 自指式讲解腔（medium｜用户可见 1 / 开发向 29）
+## 自指式讲解腔（medium｜用户可见 1 / 开发向 30）
 
 **用户可见**
 
@@ -136,9 +136,9 @@
 - `maa_api/services/account/capture.py:1` MaaCore 账号识别回调的采集（规格 §7.2 T2、§7.3）。 ``OperBox`` / ``Depot`` 的结果通过 ``SubTaskExtraInfo`` 推送，过程中会发多次 ``done=false``，只有最后一次 …（共 1308 字）
 - `maa_api/services/account/planner.py:1` 养成规划（规格 §7.6）：从当前状态到目标状态的增量材料 → 线性规划刷关与合成方案。 数据链： 1. 当前状态：注入的 ``box``（``OperatorBoxService``）→ 没有记录时按「刚获得」； 2. 需求：``Oper…（共 2488 字）
 - `maa_api/services/account/planner.py:277` 本机 ``stages.json`` 的常驻关 ``stageId`` 集合（读不到给空集合，不抛异常）。 按资源层加载链的反向顺序找第一个能读的 ``stages.json``（增量层覆盖基础层）； 按文件签名缓存，资源更新后自动重读。测…（共 146 字）
+- `maa_api/services/account/planner.py:1058` 按「还缺多少材料」重算规划（规格 §7.7：计划流水线结束后重算剩余场次）。 与 :meth:`plan` 只差入口：``needs`` 已经是净需求（需求 − 当前仓库， 由调用方扣好），这里不重算目标增量、也不再扣一次仓库；``disp…（共 277 字）
 - `maa_api/services/activity_index.py:1` 活动索引：从本机活动资源给出「当期活动 + 它的关卡代号」（规格 §4.1）。 这份数据是**会随版本变化**的：M19 把「当期卡池、活动时间」这类内容排除在知识库之外， 所以这里不写死任何活动名或代号，而是每次从资源层现读。资源更新的落…（共 1112 字）
-- `maa_api/services/copilot/attempt.py:1` 一次作业尝试：执行、结果判定、计数与记录（M29，规格 §9.7）。 ``run()`` 的四步（规格 §9.7 的「执行」）： 1. 提交作业任务 ``Copilot(asset_id, formation=true, support_u…（共 1534 字）
-- …… 另有 21 条，见 inventory.json
+- …… 另有 22 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 9 / 开发向 19）
 
@@ -170,7 +170,7 @@
 
 **开发向**
 
-- `maa_api/agent/policy.py:157` 作业授权（规格 §9.6）：INTERNAL 调用方必须先有该会话、该关卡的有效授权。 没有授权不是「报错」而是「弹授权卡片」：`confirmation_action` 用 `grant_copilot_attempts`，尝试次数与成功…（共 159 字）
+- `maa_api/agent/policy.py:207` 作业授权（规格 §9.6）：INTERNAL 调用方必须先有该会话、该关卡的有效授权。 没有授权不是「报错」而是「弹授权卡片」：`confirmation_action` 用 `grant_copilot_attempts`，尝试次数与成功…（共 159 字）
 - `maa_api/db/repositories/agent.py:69` 侧栏会话列表：``last_message_at DESC``，从未发过消息的（NULL）排最后。 同秒并列时用 ``created_at DESC, id DESC`` 兜稳定次序，避免分页/动画里 顺序抖动。``limit`` 至少为 …（共 154 字）
 - `maa_api/db/repositories/update.py:82` 该 ``target`` 当前 ``running`` 的记录；没有返回 ``None``。 部分唯一索引保证每个 target 至多一条 ``running``，所以这里 ``LIMIT 1`` 不是「任选一条」而是唯一解（复用 ``uq…（共 227 字）
 
@@ -189,7 +189,7 @@
 
 **开发向**
 
-- `maa_api/services/external/sources.py:514` 便捷函数：只拼 URL 不发请求（单测断言请求形状用）。
+- `maa_api/services/external/sources.py:523` 便捷函数：只拼 URL 不发请求（单测断言请求形状用）。
 - `maa_api/services/game/levelup.py:354` 便捷入口（规格 §7.6）：经验 / 龙门币 / 来源。 没有显式给 ``table`` 时用内置的官方数值表——这是**同进程的纯函数**，不发网络请求； 拆包表要走 :class:`LevelUpTable` 的 ``from_payl…（共 144 字）
 
 ## 「首先…其次…」罗列腔（high｜用户可见 1 / 开发向 0）

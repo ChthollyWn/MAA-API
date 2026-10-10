@@ -106,3 +106,7 @@ sources:
   penguin_host: penguin-stats.io
   # 每分钟请求上限；一次查询只取整表，缓存 6 小时
   penguin_rate_per_minute: 10
+  # 作业站（prts.maa.plus，M29）；关掉后作业站搜索与导入直接报来源已关闭
+  copilot_site_enabled: true
+  # 每分钟请求上限 1-60；改完立即生效，作业搜索与作业内容下载共用这个桶
+  copilot_site_rate_per_minute: 20

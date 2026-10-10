@@ -117,6 +117,138 @@ export function diffText(diff: OperatorDiff): string {
   return `${fieldLabel(diff.field)}：手动 ${diffValueText(diff.field, diff.manual_value)} → 识别 ${diffValueText(diff.field, diff.recognized_value)}`
 }
 
+/**
+ * 把任意值渲染成紧凑文本：字符串原样，数值/布尔转字符串，别的用一行 JSON。
+ * 后端字段缺失、类型换了形状时卡片只降级不抛错，所以这里吞掉 `JSON.stringify`
+ * 的循环引用异常，再退回 `String()`。
+ */
+export function compactText(value: unknown): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value)
+  try {
+    const text = JSON.stringify(value)
+    if (typeof text === 'string') return text
+  } catch {
+    // 循环引用等：换 String() 再试。
+  }
+  try {
+    return String(value)
+  } catch {
+    return '—'
+  }
+}
+
+/** 宽松取数：数字、数字字符串都认；`null`/空串/布尔/`NaN` 一律 null。 */
+export function finiteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || typeof value === 'boolean') return null
+  if (typeof value === 'string' && !value.trim()) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * 一个养成目标的人话描述：精二 · 技能 7 · S2 3 · 模组 X2。
+ * 字段一个都读不出时返回「不改变养成目标」；非对象输入也不抛错。
+ */
+export function upgradeTargetText(target: unknown): string {
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return '不改变养成目标'
+  const row = target as Record<string, unknown>
+  const parts: string[] = []
+  if (typeof row.elite === 'number') parts.push(eliteLabel(row.elite))
+  if (typeof row.skill_level === 'number') parts.push(`技能 ${row.skill_level}`)
+  const masteries = ['1', '2', '3'].flatMap((slot) => {
+    const level = Number((row.masteries as Record<string, unknown> | undefined)?.[slot] ?? 0)
+    return level > 0 ? [`S${slot} ${level}`] : []
+  })
+  if (masteries.length) parts.push(masteries.join(' · '))
+  const modules = (Array.isArray(row.modules) ? row.modules : []).flatMap((module) => {
+    if (!module || typeof module !== 'object' || Array.isArray(module)) return []
+    const entry = module as Record<string, unknown>
+    if (typeof entry.type !== 'string') return []
+    const level = Number(entry.level ?? 0)
+    return level > 0 ? [`模组 ${entry.type}${level}`] : []
+  })
+  if (modules.length) parts.push(modules.join(' '))
+  return parts.length ? parts.join(' · ') : '不改变养成目标'
+}
+
+const PLAN_STATUS_LABELS: Record<string, string> = {
+  active: '进行中',
+  completed: '已完成',
+  cancelled: '已取消',
+}
+
+/** 养成计划状态文案（§7.7 的 active/completed/cancelled）；没见过的状态原样显示。 */
+export function planStatusLabel(status: string | null | undefined): string {
+  if (!status) return '未知'
+  return PLAN_STATUS_LABELS[status] ?? status
+}
+
+/** 计划的一行关卡（`progress.stages` 与预演 `preview.stages` 是同一形状）。 */
+export interface PlanStageSummary {
+  /** 关卡代号（`stage_code`），读不出时退回 `stage_id` / `stage`。 */
+  label: string
+  runs: number | null
+  /** 这条关卡掉的材料名。 */
+  items: string[]
+  sanity: number | null
+}
+
+/**
+ * 关卡行：`{stage_code, stage_id, runs, sanity, items:[{item_name}]}`。
+ * 形状不认识的行降级成一行文本，不丢信息也不抛错。
+ */
+export function parsePlanStages(value: unknown): PlanStageSummary[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      const text = compactText(row)
+      return text === '—' ? [] : [{ label: text, runs: null, items: [], sanity: null }]
+    }
+    const stage = row as Record<string, unknown>
+    const items = (Array.isArray(stage.items) ? stage.items : []).map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return compactText(item)
+      const entry = item as Record<string, unknown>
+      return compactText(entry.item_name ?? entry.name ?? item)
+    })
+    return [
+      {
+        label: compactText(stage.stage_code ?? stage.stage_id ?? stage.stage ?? '未知关卡'),
+        runs: finiteNumber(stage.runs),
+        items,
+        sanity: finiteNumber(stage.sanity),
+      },
+    ]
+  })
+}
+
+/** 关卡与场次一行话：「1-7 ×5、CE-6 ×12」；空列表返回 null。 */
+export function planStagesText(stages: readonly PlanStageSummary[]): string | null {
+  const parts = stages.map((stage) => (stage.runs === null ? stage.label : `${stage.label} ×${stage.runs}`))
+  return parts.length ? parts.join('、') : null
+}
+
+/** 剩余场次合计（各关卡 `runs` 之和）；一个都读不出时 null。 */
+export function planRunsTotal(stages: readonly PlanStageSummary[]): number | null {
+  const runs = stages.flatMap((stage) => (stage.runs === null ? [] : [stage.runs]))
+  return runs.length ? runs.reduce((sum, value) => sum + value, 0) : null
+}
+
+/**
+ * `progress.missing` / `requirements`：`{固源岩: 12}` → 「固源岩 ×12、聚酸酯 ×3」。
+ * 数量为 0 的条目跳过（已经备齐），没有剩余需求时返回 null。
+ */
+export function missingMaterialsText(missing: unknown): string | null {
+  if (!missing || typeof missing !== 'object' || Array.isArray(missing)) return null
+  const parts = Object.entries(missing as Record<string, unknown>).flatMap(([name, count]) => {
+    const amount = finiteNumber(count)
+    if (amount !== null && amount <= 0) return []
+    return [`${name} ×${compactText(count)}`]
+  })
+  return parts.length ? parts.join('、') : null
+}
+
 function pad(value: number): string {
   return String(value).padStart(2, '0')
 }

@@ -359,7 +359,7 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 | 错误码 | HTTP | 含义与触发场景 |
 |---|---|---|
 | `ACCOUNT_DATA_NOT_FOUND` | 404 | 账号数据里查无此对象：`GET /api/account/operators/{char_id}` 没有该干员的记录，或账号数据尚未识别过 |
-| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（计划的工具入口是 `list_upgrade_plans` / `cancel_upgrade_plan`；计划的 REST 端点留给后续里程碑） |
+| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（计划的工具入口是 `list_upgrade_plans` / `cancel_upgrade_plan`，REST 入口见 §6.21「养成计划（M31）」） |
 
 两个码都是「这条记录不在库里」，与 `GAME_DATA_NOT_FOUND`（来源上没有）区分：账号数据来自本机识别与手动编辑，不查外部来源。字段级编辑约束（精英化上限、专精前置、模组类型与等级）违反时不用新码，走 §4.2 的 `INVALID_PARAMETER`，`details` 带字段名与合法取值。
 
@@ -433,7 +433,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 114 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 117 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -809,6 +809,26 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 单条 `GET` 是编辑抽屉的读口（附录 C 只列了六条，这一条是实现补的读端点），与列表项同形。
 
 （7 条）
+
+### 6.21 养成计划（M31）
+
+| 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
+|---|---|---|---|---|---|
+| GET | `/api/account/upgrade-plans` | 养成计划列表 | `status`（`active` / `completed` / `cancelled`，缺省返回全部） | 200 | `VALIDATION_ERROR`、`UNAUTHORIZED` |
+| GET | `/api/account/upgrade-plans/{plan_id}` | 单条养成计划 | 无 | 200 | `UPGRADE_PLAN_NOT_FOUND`、`UNAUTHORIZED` |
+| DELETE | `/api/account/upgrade-plans/{plan_id}` | 取消计划：删掉名下的定时任务并把状态置 `cancelled` | 无 | 200 | `UPGRADE_PLAN_NOT_FOUND`、`UNAUTHORIZED` |
+
+三个端点都 `Depends(require_auth)`，与 Agent 工具 `list_upgrade_plans` / `cancel_upgrade_plan` 是同一份服务语义（工具目录见 [§6.15](#615-agent)）：启动计划仍然只有 Agent 工具 `start_upgrade_plan` 一条入口，REST 侧只做读与取消。
+
+列表返回 `{items, total}`（不分页，`total` 是筛选后的条数），`items` 与单条的形状一致：`id`、`name`、`status`、`targets`、`requirements`、`progress`、`schedule_id`、`session_id`、`created_at`、`updated_at`、`completed_at`（时间为 ISO 8601，UTC）。`status` 传三态之外的取值是 422 `VALIDATION_ERROR`。
+
+读一次列表就会顺带重算进行中计划的进度，所以 `active` 且材料已齐的计划会在这次读取里变成 `completed`（规格 §7.7 的进度更新）；单条 `GET` 与列表走同一条刷新路径，形状天然一致。完成与取消的口径见 [§4.17](#417-账号数据m27)：计划不存在时列表之外的两个方法是 404 `UPGRADE_PLAN_NOT_FOUND`，`details.plan_id` 给出请求的 id。
+
+`DELETE` 幂等：定时任务已经被删掉时不报错，计划已经是 `cancelled` 时再调一次仍是 200 与同一条计划。取消只影响计划与它名下的定时任务，不会去停正在跑的流水线。
+
+确认卡片里的预演不在这三个端点里：`start_upgrade_plan` 的确认 payload 带 `preview`（预演结果，含 `today_tasks`、`daily_template`、`medicine`、`days_estimated`、`total_sanity`、`stages`、`conflicts`、`unobtainable`、`notes`）与可选的中文冲突理由；预演取不到时降级成 `preview_error` 短字符串，不挡确认（规格 §7.7）。
+
+（3 条）
 
 ## 7. 任务提交的请求体设计
 

@@ -255,3 +255,52 @@ def test_patch_syncs_scheduler_registration_and_delete_removes_only_owned_job():
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_delete_hook_receives_the_id_and_missing_rows_do_not_fire_it():
+    async def scenario():
+        engine, factory = await _database()
+        service = ScheduleService(factory, FakeScheduler(), QueueService(factory), FakeRunner())
+        try:
+            hooks: list[str] = []
+
+            async def hook(schedule_id: str) -> None:
+                hooks.append(schedule_id)
+
+            service.bind_delete_hook(hook)
+            first = await service.create(_write(name="morning"))
+            second = await service.create(_write(name="evening"))
+            await service.delete(first.id)
+            assert hooks == [first.id]
+            with pytest.raises(AppError) as missing:
+                await service.delete("no-such-schedule")
+            assert missing.value.code == ErrorCode.SCHEDULE_NOT_FOUND
+            assert hooks == [first.id], "删不掉的行不该触发回调"
+            await service.delete(second.id)
+            assert hooks == [first.id, second.id]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_delete_hook_failure_only_warns(caplog):
+    async def scenario():
+        engine, factory = await _database()
+        service = ScheduleService(factory, FakeScheduler(), QueueService(factory), FakeRunner())
+        try:
+            async def boom(schedule_id: str) -> None:
+                raise RuntimeError("钩子炸了")
+
+            service.bind_delete_hook(boom)
+            created = await service.create(_write())
+            with caplog.at_level("WARNING"):
+                await service.delete(created.id)  # 回调异常不该影响删除
+            assert (await service.list()).total == 0
+            with pytest.raises(AppError):
+                await service.get(created.id)
+            assert "定时任务删除回调失败" in caplog.text
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
