@@ -1,13 +1,13 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 7886 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 7927 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 189 | 189 |
+| 粗体强调 | medium | 0 | 192 | 192 |
 | 「A 而不是 B」对照腔 | high | 0 | 79 | 79 |
-| 破折号当冒号用 | high | 0 | 61 | 61 |
+| 破折号当冒号用 | high | 0 | 63 | 63 |
 | 绝对化规定腔 | medium | 0 | 46 | 46 |
 | 自指式讲解腔 | medium | 0 | 8 | 8 |
 | 「…即可」机器腔 | medium | 0 | 7 | 7 |
@@ -16,7 +16,7 @@
 | emoji/符号装饰 | high | 0 | 2 | 2 |
 | 「不是…而是…」对照句 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 189）
+## 粗体强调（medium｜用户可见 0 / 开发向 192）
 
 **开发向**
 
@@ -26,21 +26,21 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 183 条，见 inventory.json
+- …… 另有 186 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 79）
 
 **开发向**
 
 - `maa_api/agent/knowledge/__init__.py:522` 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
-- `maa_api/agent/llm.py:31` : 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
-- `maa_api/agent/llm.py:219` 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
-- `maa_api/agent/runtime.py:1682` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
+- `maa_api/agent/llm.py:49` : 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
+- `maa_api/agent/llm.py:327` 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
+- `maa_api/agent/runtime.py:1806` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
 - `maa_api/core/worker.py:283` 跳过而非报错（docs/03 §7）。
 - …… 另有 73 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 61）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 63）
 
 **开发向**
 
@@ -50,7 +50,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 55 条，见 inventory.json
+- …… 另有 57 条，见 inventory.json
 
 ## 绝对化规定腔（medium｜用户可见 0 / 开发向 46）
 

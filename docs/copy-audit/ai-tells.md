@@ -1,13 +1,13 @@
 # AI 腔规则命中：用户可见文案
 
-总计 8450 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 8589 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 136 | 199 | 335 |
-| 「A 而不是 B」对照腔 | high | 13 | 69 | 82 |
-| 破折号当冒号用 | high | 35 | 30 | 65 |
+| 粗体强调 | medium | 136 | 200 | 336 |
+| 「A 而不是 B」对照腔 | high | 13 | 70 | 83 |
+| 破折号当冒号用 | high | 35 | 31 | 66 |
 | 绝对化规定腔 | medium | 7 | 25 | 32 |
 | 「…即可」机器腔 | medium | 4 | 11 | 15 |
 | 自指式讲解腔 | medium | 1 | 7 | 8 |
@@ -17,7 +17,7 @@
 | 感叹号 | low | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 136 / 开发向 199）
+## 粗体强调（medium｜用户可见 136 / 开发向 200）
 
 **用户可见**
 
@@ -37,13 +37,13 @@
 - `maa_api/agent/confirmation.py:855` 没有活跃前端连接时补一条 Web Push。 推送失败**不影响**确认本身：确认已经落库并进入等待，超时机制照常运行。 所以这里吞掉全部异常，只记日志。
 - `maa_api/agent/knowledge/__init__.py:1` Agent 知识库：内置 Markdown + 用户覆盖的合并与注入（规格 §4.1）。 三件事，其余都别往这里塞： - **内置条目**随代码发布，放在 ``builtin/*.md``，frontmatter 用 ruamel.yaml…（共 724 字）
 - `maa_api/agent/knowledge/__init__.py:555` 拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。 段落顺序：索引 → **当期活动**（M24，读不到就整段不插）→ 术语表 → 用户档案。 索引与全文都取生效值；``glossary`` / ``profil…（共 163 字）
+- `maa_api/agent/llm.py:246` Yield each parsed OpenAI SSE chunk in wire order, including usage chunks. 上游抖动（连接层失败、5xx、429、超时）会自动重试：这类失败此前直接变成 「LLM 上游…（共 207 字）
 - `maa_api/agent/media.py:1` 媒体卡契约：``result.media`` 信封与四类卡片的**唯一定义处**。 行为以 ``docs/superpowers/specs/2026-09-29-m23-agent-media-cards.md`` §3.1 为准。 产生…（共 435 字）
 - `maa_api/agent/media.py:165` 把媒体工具结果压成一行占位 JSON（规格 §3.6），返回**字符串**。 ``body`` 既接受工具处理器的返回值（``{"media": [...]}``），也接受落库后的 tool 消息 content（``{"result": …（共 221 字）
 - `maa_api/agent/questions.py:1` Agent 主动提问：带选项的卡片、挂起等待与用户裁决（规格 §3.3）。 与 :class:`~maa_api.agent.confirmation.ConfirmationService` 同构但**独立**：两者 都是「落库先行 + …（共 711 字）
-- `maa_api/agent/questions.py:168` 等这条提问进入终态并返回终态 wire；超时自己收敛，**不抛异常**。 等待事件与轮询两路并行（规格 §3.3）：事件负责「尽快」，轮询负责「不漏」：由 REST 直接回答、或由后台扫描任务置过期的提问不会经过本进程的事件字典。 到 ``…（共 205 字）
-- …… 另有 191 条，见 inventory.json
+- …… 另有 192 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 13 / 开发向 69）
+## 「A 而不是 B」对照腔（high｜用户可见 13 / 开发向 70）
 
 **用户可见**
 
@@ -62,14 +62,14 @@
 - `maa_api/agent/questions.py:1` Agent 主动提问：带选项的卡片、挂起等待与用户裁决（规格 §3.3）。 与 :class:`~maa_api.agent.confirmation.ConfirmationService` 同构但**独立**：两者 都是「落库先行 + …（共 711 字）
 - `maa_api/agent/questions.py:288` 撤回该会话仍挂起的提问：CAS ``pending → cancelled`` 并唤醒等待方（§3.3）。 中断必须让卡片进入终态而不是留着 pending：等待那一轮的协程马上会被取消， 留下的 pending 卡片会一直挂着直到超时，前…（共 213 字）
 - `maa_api/agent/questions.py:541` 校验并归一用户的选择，返回去重后的 label 列表。 四条规则（规格 §3.3）：非空、去重、每一项都在 ``options.label`` 里、 ``multiple=False`` 时只能一项。任何一条不满足都抛 ``QUESTION…（共 180 字）
-- `maa_api/agent/runtime.py:196` 用注入的工厂构造 runtime，并兼容只接一个位置参数的旧工厂。 ``agent_runtime_factory`` 是测试与冒烟脚本的替换点（``app.state`` 上的钩子）， 它们大多写成 ``lambda confirmati…（共 242 字）
-- `maa_api/agent/runtime.py:855` 登记本轮的 task，然后交给 :meth:`_run_turn_body`（规格 §3.1）。 登记放在这里而不是 ``_produce_turn``：自动诊断（``run_incident``）直接调用 本方法、没有 producer，…（共 164 字）
+- `maa_api/agent/runtime.py:220` 用注入的工厂构造 runtime，并兼容只接一个位置参数的旧工厂。 ``agent_runtime_factory`` 是测试与冒烟脚本的替换点（``app.state`` 上的钩子）， 它们大多写成 ``lambda confirmati…（共 242 字）
+- `maa_api/agent/runtime.py:730` 写入能力缓存。 ``probe_failed`` 的语义是「这一次探查请求没跑通」（超时、连接层失败、上游 4xx/5xx），而不是「模型明确不支持」。只有后者能长期缓存：把前者也钉死， 一次抖动就会让之后每一轮都失败在能力检查上。
+- `maa_api/agent/runtime.py:979` 登记本轮的 task，然后交给 :meth:`_run_turn_body`（规格 §3.1）。 登记放在这里而不是 ``_produce_turn``：自动诊断（``run_incident``）直接调用 本方法、没有 producer，…（共 164 字）
 - `maa_api/agent/tools/activity.py:87` 取指定前缀的关卡表；未知前缀给提示而不是空结果。
 - `maa_api/api/deps.py:307` 记一次鉴权失败；本次即达阈值时进入冷却并抛 429（把调用方的 401 顶掉）。 设计成「达阈值的那次请求直接得到 429」而不是「第 11 次才 429」：docs/05 §4.1 的语义是失败超过阈值即进入冷却期，这一刻起该 IP 已经…（共 127 字）
-- `maa_api/api/errors.py:369` 同一状态码下多个错误码声明的头取并集（OpenAPI 的 ``responses`` 按状态码分桶）。 同名头的声明必须一致（例如 429 的三个码共用同一份 ``Retry-After`` 规格）； 不一致说明 :data:`ERROR_…（共 162 字）
-- …… 另有 61 条，见 inventory.json
+- …… 另有 62 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 35 / 开发向 30）
+## 破折号当冒号用（high｜用户可见 35 / 开发向 31）
 
 **用户可见**
 
@@ -85,6 +85,7 @@
 
 **开发向**
 
+- `maa_api/agent/runtime.py:941` 给「用户消息已落库、这一轮没答上」的会话补一条说明。 没有它，这一轮在界面上就等于没发生过：刷新之后只剩用户那句孤零零的话， 看起来像 Agent 把消息吃掉了。只在用户消息已经是最后一条时补——失败发生在 落库之前（未配置 LLM、会话不…（共 171 字）
 - `maa_api/core/asst_protocol.py:45` 异步调用结果所在的消息类型（msg=4）。 ``connect_async`` / ``click`` / ``screencap`` 的成败只能认它： - 关联键 ``async_call_id`` 在回调 JSON **顶层**，与方法…（共 404 字）
 - `maa_api/core/enums.py:64` ``AsstSetInstanceOption`` 的选项键，对应 C 侧 ``InstanceOptionKey``。 ``ClientType = 6`` 是内核实测值（docs/03 §2.3）：**不是** 1 —— 1 那个位置属…（共 238 字）
 - `maa_api/domain/enums.py:85` Agent 主动提问的状态机（M21，规格 §3.2）。 与 ``ConfirmationStatus`` 分开：确认的终态是「批准/拒绝/过期」，提问的终态是 「已答/已跳过/过期」——「跳过」在确认链路里没有对应物，批准也没有。 ``C…（共 202 字）
@@ -92,15 +93,14 @@
 - `maa_api/services/stage_resolver.py:92` 本地关卡索引全部命中，按 ``stageId`` 排序。 匹配顺序是「标识越精确越先」：``stageId`` → ``levelId`` → ``code`` → 中文名。 同一级内大小写不敏感；某一级有命中就不再往下一级找——否则用中文…（共 138 字）
 - `maa_api/services/stage_resolver.py:134` 把注入的路径折算成 ``overview.json``。 装配与测试可以传目录、传 ``overview.json`` 本身，也可以沿用旧名字传同级的 ``stages.json`` —— 后两种都折算到同一处，避免「参数叫 stages …（共 146 字）
 - `scripts/generate_api_guide.py:57` Render every exposed HTTP error with its contract description. docs/05 §4 是错误码说明的单一事实来源，**逐字**搬进指南。M10 时期这里对所有 ``CONFIRM…（共 256 字）
-- `scripts/generate_task_types_fixture.py:2` 从后端 schema 源重新生成前端的任务类型 fixture。 ``web/src/features/tasks/task-types.fixture.json`` 必须与 ``GET /api/tasks/types`` 返回的结构完全…（共 408 字）
-- …… 另有 22 条，见 inventory.json
+- …… 另有 23 条，见 inventory.json
 
 ## 绝对化规定腔（medium｜用户可见 7 / 开发向 25）
 
 **用户可见**
 
 - `maa_api/agent/incidents.py:542` 日志只是观察证据；需要更多细节时使用 get_logs。只有确认适用时才可调用安全恢复工具，不得提交、修改或重启任务。
-- `maa_api/agent/runtime.py:170` 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不…（共 1424 字）
+- `maa_api/agent/runtime.py:194` 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不…（共 1424 字）
 - `maa_api/domain/task.py:929` 主题／模式相关的跨字段规则：一律 fail loud，不静默忽略。
 - `maa_api/agent/knowledge/builtin/infrast-mechanics.md:46` 清理区域提升持有上限，全部清理后最多 235 架。充能不会因达到上限而停止，**超出上限的部分会被丢弃**（所以发电站永远不会「充满停机」），满了就尽快用掉。
 - `maa_api/agent/knowledge/builtin/playbook-drop-lookup.md:20` `runs` 为 0、`items` 为空，只能说明「本服务还没有这些关卡的掉落记录」，绝不等于掉率为 0。
@@ -110,7 +110,7 @@
 **开发向**
 
 - `maa_api/agent/knowledge/__init__.py:118` 内置知识文件不合法：启动时 fail loud，绝不静默跳过。
-- `maa_api/agent/runtime.py:2174` 一批工具调用的指纹：只看名字与参数，用于识别「模型在原地打转」。 不看调用 id：同一批调用每轮都会拿到新的 id，用 id 会让指纹永远不同。
+- `maa_api/agent/runtime.py:2312` 一批工具调用的指纹：只看名字与参数，用于识别「模型在原地打转」。 不看调用 id：同一批调用每轮都会拿到新的 id，用 id 会让指纹永远不同。
 - `maa_api/core/asst_protocol.py:45` 异步调用结果所在的消息类型（msg=4）。 ``connect_async`` / ``click`` / ``screencap`` 的成败只能认它： - 关联键 ``async_call_id`` 在回调 JSON **顶层**，与方法…（共 404 字）
 - `maa_api/core/enums.py:1` MaaCore 内核层枚举：回调消息与实例/静态选项键。 内核 ABI 在 Python 侧的唯一映射表： - 整数值直接来自内核的 ``AsstMsg`` / ``InstanceOptionKey`` / ``StaticOptionK…（共 415 字）
 - `maa_api/core/enums.py:28` 内核回调消息类型，对应 C 侧 ``AsstMsg``。 回调解析的三条实测结论（M1-01，``tests/fixtures/core_probe_findings.md``）： - ``AsyncCallInfo`` 的关联键 ``as…（共 491 字）
@@ -178,13 +178,13 @@
 
 **用户可见**
 
-- `maa_api/agent/runtime.py:170` 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不…（共 1424 字）
+- `maa_api/agent/runtime.py:194` 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不…（共 1424 字）
 
 ## 感叹号（low｜用户可见 0 / 开发向 1）
 
 **开发向**
 
-- `maa_api/agent/runtime.py:2086` 。.!！?？,，;；:：
+- `maa_api/agent/runtime.py:2224` 。.!！?？,，;；:：
 
 ## 提示腔（medium｜用户可见 0 / 开发向 1）
 

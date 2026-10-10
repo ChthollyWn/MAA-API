@@ -67,6 +67,11 @@ def test_llm_settings_default_to_deepseek_flash() -> None:
     assert settings.llm.model == "deepseek-flash"
 
 
+def _single_attempt_client(**kwargs):
+    """只断言错误映射的用例用它：重试有自己的用例覆盖，这里不该被退避拖慢。"""
+    return _client_type()(max_attempts=1, **kwargs)
+
+
 def _chunk(data: dict[str, Any]) -> bytes:
     return f"data: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
 
@@ -199,7 +204,7 @@ def test_non_success_response_maps_to_stable_llm_request_error() -> None:
 
     async def scenario() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            client = _client_type()(
+            client = _single_attempt_client(
                 base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
             )
             with pytest.raises(AppError) as exc_info:
@@ -271,7 +276,7 @@ def test_upstream_context_overflow_maps_to_llm_context_overflow(
 
     async def scenario() -> AppError:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            client = _client_type()(
+            client = _single_attempt_client(
                 base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
             )
             with pytest.raises(AppError) as exc_info:
@@ -315,7 +320,7 @@ def test_rate_limit_and_unrelated_upstream_errors_keep_their_mapping() -> None:
 
     async def scenario(handler) -> AppError:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            client = _client_type()(
+            client = _single_attempt_client(
                 base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
             )
             with pytest.raises(AppError) as exc_info:
@@ -384,7 +389,7 @@ def test_upstream_message_is_truncated_and_absent_when_empty() -> None:
 
     async def scenario(handler) -> dict[str, Any]:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            client = _client_type()(
+            client = _single_attempt_client(
                 base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
             )
             with pytest.raises(AppError) as exc_info:
@@ -438,7 +443,7 @@ def test_malformed_sse_payload_maps_to_stable_llm_request_error(bad_sse: bytes) 
 
     async def scenario() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            client = _client_type()(
+            client = _single_attempt_client(
                 base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
             )
             with pytest.raises(AppError) as exc_info:
@@ -455,7 +460,7 @@ def test_upstream_timeout_maps_to_llm_timeout() -> None:
 
     async def scenario() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            client = _client_type()(
+            client = _single_attempt_client(
                 base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
             )
             with pytest.raises(AppError) as exc_info:
@@ -474,7 +479,7 @@ def _transport_failure(error: httpx.HTTPError) -> AppError:
 
     async def scenario() -> AppError:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            client = _client_type()(
+            client = _single_attempt_client(
                 base_url="https://llm.example/v1", api_key="sk-hidden", http_client=http
             )
             with pytest.raises(AppError) as exc_info:
@@ -567,3 +572,237 @@ def test_client_never_logs_api_key_or_authorization_header(caplog: pytest.LogCap
     asyncio.run(scenario())
     assert "sk-do-not-log" not in caplog.text
     assert "Authorization" not in caplog.text
+
+
+def _ok_stream(chunks: list[dict[str, Any]]) -> httpx.Response:
+    body = b"".join(_chunk(chunk) for chunk in chunks) + b"data: [DONE]\n\n"
+    return httpx.Response(
+        200, headers={"content-type": "text/event-stream"}, content=body
+    )
+
+
+def test_transient_upstream_failure_is_retried_before_giving_up(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """上游 5xx 值得原样重发：此前一次抖动就让整轮对话作废，只能由用户手动重发。"""
+    chunks = [
+        {"choices": [{"index": 0, "delta": {"content": "好了"}, "finish_reason": None}]},
+        {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+    ]
+    seen: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(1)
+        if len(seen) == 1:
+            return httpx.Response(
+                503, json={"error": {"code": "server_error", "message": "overloaded"}}
+            )
+        return _ok_stream(chunks)
+
+    async def scenario() -> list[dict[str, Any]]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1",
+                api_key="sk-do-not-log",
+                http_client=http,
+                retry_backoff_seconds=0.0,
+            )
+            return await _collect(client.stream_chat_completion("m", [], []))
+
+    caplog.set_level(logging.WARNING)
+    observed = asyncio.run(scenario())
+
+    assert observed == chunks
+    assert len(seen) == 2
+    assert "重试" in caplog.text
+    assert "sk-do-not-log" not in caplog.text
+
+
+def test_failure_after_the_first_chunk_is_not_replayed() -> None:
+    """流里已经有内容就不能重试：重放会让用户看到重复文字。"""
+    seen: list[int] = []
+    partial = _chunk(
+        {"choices": [{"index": 0, "delta": {"content": "前半"}, "finish_reason": None}]}
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(1)
+        # 少了结尾的 ``data: [DONE]``：属于「流没读完」，第一次尝试里已经有输出。
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, content=partial
+        )
+
+    async def scenario() -> tuple[list[dict[str, Any]], AppError]:
+        collected: list[dict[str, Any]] = []
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1",
+                api_key="sk-hidden",
+                http_client=http,
+                retry_backoff_seconds=0.0,
+            )
+            with pytest.raises(AppError) as exc_info:
+                async for chunk in client.stream_chat_completion("m", [], []):
+                    collected.append(chunk)
+        return collected, exc_info.value
+
+    collected, error = asyncio.run(scenario())
+
+    assert [chunk["choices"][0]["delta"]["content"] for chunk in collected] == ["前半"]
+    assert error.code == ErrorCode.LLM_REQUEST_FAILED
+    assert len(seen) == 1, "已经吐过内容，重放会重复"
+
+
+@pytest.mark.parametrize(
+    ("status", "payload", "expected_code"),
+    [
+        (
+            400,
+            {
+                "error": {
+                    "code": "invalid_request_error",
+                    "message": "The supported API model names are deepseek-flash, deepseek-v4-pro.",
+                }
+            },
+            ErrorCode.LLM_REQUEST_FAILED,
+        ),
+        (
+            401,
+            {"error": {"code": "invalid_api_key", "message": "invalid key"}},
+            ErrorCode.LLM_REQUEST_FAILED,
+        ),
+        (
+            400,
+            {
+                "error": {
+                    "code": "context_length_exceeded",
+                    "message": "This model's maximum context length is 65536 tokens.",
+                }
+            },
+            ErrorCode.LLM_CONTEXT_OVERFLOW,
+        ),
+    ],
+    ids=["model-name", "bad-key", "context-overflow"],
+)
+def test_client_errors_are_never_retried(
+    status: int, payload: dict[str, Any], expected_code: ErrorCode
+) -> None:
+    """重发一次结果完全一样的错误不该重试：模型名、鉴权、上下文长度都不会自己变好。"""
+    seen: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(1)
+        return httpx.Response(status, json=payload)
+
+    async def scenario() -> AppError:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1",
+                api_key="sk-hidden",
+                http_client=http,
+                retry_backoff_seconds=0.0,
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("m", [], []))
+        return exc_info.value
+
+    error = asyncio.run(scenario())
+
+    assert error.code == expected_code
+    assert len(seen) == 1
+
+
+def test_retries_stop_at_max_attempts_and_raise_the_last_error() -> None:
+    """连接被拒这类传输失败会重试，但次数有上限，最后仍把错误交给上层。"""
+    seen: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(1)
+        raise httpx.ConnectError("[Errno 61] Connection refused")
+
+    async def scenario() -> AppError:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1",
+                api_key="sk-hidden",
+                http_client=http,
+                max_attempts=3,
+                retry_backoff_seconds=0.0,
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("m", [], []))
+        return exc_info.value
+
+    error = asyncio.run(scenario())
+
+    assert error.code == ErrorCode.LLM_REQUEST_FAILED
+    assert error.details["upstream_error"].startswith("连接被拒绝（")
+    assert len(seen) == 3
+
+
+def test_read_timeout_is_retried_only_once() -> None:
+    """超时每次都要烧满 ``timeout_seconds``，因此只多给一次机会。"""
+    seen: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(1)
+        raise httpx.ReadTimeout("slow upstream", request=request)
+
+    async def scenario() -> AppError:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1",
+                api_key="sk-hidden",
+                http_client=http,
+                max_attempts=3,
+                retry_backoff_seconds=0.0,
+            )
+            with pytest.raises(AppError) as exc_info:
+                await _collect(client.stream_chat_completion("m", [], []))
+        return exc_info.value
+
+    error = asyncio.run(scenario())
+
+    assert error.code == ErrorCode.LLM_TIMEOUT
+    assert len(seen) == 2
+
+
+def test_retry_delay_honors_retry_after_and_caps_it() -> None:
+    """429 听上游的 ``Retry-After``，但不能被它拖住太久；其余走指数退避。"""
+    module = importlib.import_module("maa_api.agent.llm")
+
+    async def scenario() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200))
+        ) as http:
+            client = _client_type()(
+                base_url="https://llm.example/v1",
+                api_key="sk-hidden",
+                http_client=http,
+                retry_backoff_seconds=0.5,
+            )
+            assert client._attempts_for(AppError(ErrorCode.LLM_TIMEOUT, "超时")) == module.TIMEOUT_MAX_ATTEMPTS
+            assert client._attempts_for(
+                AppError(ErrorCode.LLM_REQUEST_FAILED, "连接失败")
+            ) == module.DEFAULT_MAX_ATTEMPTS
+
+            limited = AppError(
+                ErrorCode.LLM_RATE_LIMITED, "限流", headers={"Retry-After": "3"}
+            )
+            assert client._retry_delay(limited, 1) == 3.0
+
+            too_long = AppError(
+                ErrorCode.LLM_RATE_LIMITED, "限流", headers={"Retry-After": "9999"}
+            )
+            assert client._retry_delay(too_long, 1) == module.MAX_RETRY_AFTER_SECONDS
+
+            http_date = AppError(
+                ErrorCode.LLM_RATE_LIMITED,
+                "限流",
+                headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"},
+            )
+            assert client._retry_delay(http_date, 2) == 1.0
+
+            assert client._retry_delay(AppError(ErrorCode.LLM_TIMEOUT, "超时"), 1) == 0.5
+
+    asyncio.run(scenario())

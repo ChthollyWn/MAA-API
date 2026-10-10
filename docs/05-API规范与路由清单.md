@@ -670,7 +670,7 @@ Web Push 订阅按 `endpoint` 幂等：浏览器对同一个 Service Worker 重�
 
 LLM 配置（`base_url` / `api_key` / `model`）不在 agent 组下开独立端点，它是 `setting` 表的三个 key，走 `/api/settings`。默认模型为 DeepSeek Flash（`deepseek-flash`），API Key 由服务端用部署环境变量 `MAA_LLM_ENCRYPTION_KEY` 加密后写入 SQLite；端点仍可由用户配置覆盖。
 
-`POST /api/agent/capabilities/check` 以小型工具调用和测试图片分别检查 function calling 与视觉输入。首次发送消息前会自动补做一次缓存检查；工具调用失败则停止对话，视觉失败只禁用截图和原子屏幕操作，并保留文本对话。`degraded_reason` 直接说明失败原因：能力确实缺失时说明缺哪项；上游拒绝探查请求（模型标识不存在、鉴权失败等）时带上已脱敏、截断的上游 `error.message`、HTTP 状态与上游错误码；请求根本没到达上游（TLS 证书校验失败、域名解析失败、连接被拒、流中断）时带上同类结论与已脱敏、截断的原文，见 [13 §8.13](./13-决策记录.md) 与 [13 §8.30](./13-决策记录.md)。
+`POST /api/agent/capabilities/check` 以小型工具调用和测试图片分别检查 function calling 与视觉输入。首次发送消息前会自动补做一次缓存检查；工具调用失败则停止对话，视觉失败只禁用截图和原子屏幕操作，并保留文本对话。结果按 `(model, base_url)` 缓存在进程内存：探查成功的结果不过期，探查本身没跑通的结果只保鲜 60 秒后重新探查，见 [11 §8.1](./11-Agent模块设计.md)。`degraded_reason` 直接说明失败原因：能力确实缺失时说明缺哪项；上游拒绝探查请求（模型标识不存在、鉴权失败等）时带上已脱敏、截断的上游 `error.message`、HTTP 状态与上游错误码；请求根本没到达上游（TLS 证书校验失败、域名解析失败、连接被拒、流中断）时带上同类结论与已脱敏、截断的原文，见 [13 §8.13](./13-决策记录.md) 与 [13 §8.30](./13-决策记录.md)。
 
 `POST /api/agent/sessions/{id}/messages` 以 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`question_required`、`session_title`、`interrupted`、`message_end` 和 `error` 事件流式返回结果。每个会话同一时间只运行一轮；客户端断开不会回滚已提交的工具副作用。
 
