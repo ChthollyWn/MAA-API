@@ -1048,6 +1048,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.info("作业授权：%s 条未结束的授权已标为 interrupted", interrupted)
         except Exception:  # noqa: BLE001 - 启动清理失败不该拦启动
             logger.warning("作业授权的启动清理失败", exc_info=True)
+        # M30：内置条目被删除时，用户覆盖过的行要迁移成同 id 的自定义条目（幂等）。
+        # 本版没有删除任何条目，因此这里是空操作；机制留着，下次删条目时直接生效。
+        from maa_api.agent.knowledge.convergence import migrate_deleted_overrides
+
+        try:
+            migrated = await migrate_deleted_overrides(db_session.session_factory)
+            if migrated["migrated"]:
+                logger.info("知识库覆盖行迁移：%s", migrated["migrated"])
+        except Exception:  # noqa: BLE001 - 迁移失败不该拦启动
+            logger.warning("知识库覆盖行迁移失败", exc_info=True)
         app.state.knowledge_service = KnowledgeService(
             db_session.session_factory,
             activity_index=activity_index,
