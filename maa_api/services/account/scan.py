@@ -715,8 +715,12 @@ class TrainingScanService:
         """
         state = self._state
         try:
-            await self._run_step(st.click_cell_node(row, column), title=_title(f"点开 {name}"))
-            detail = await self._detail_scan()
+            # M38：点开与读详情是同一条链（节点定义里 ``next`` 直接排详情节点），一次提交
+            # 拿到这一页的全部读数，省掉一次提交/排队/终态往返（真机每次约 0.8 秒）。
+            detail = await self._detail_scan(
+                lead=(st.click_cell_node(row, column),),
+                title=_title(f"读 {name} 的详情页"),
+            )
             # 精英化不写库（``apply_detail_scan`` 只收三列），但它是专精/模组的前置条件：
             # 没到精二这两列本来就写不进去（box 会拒），索性不提交，日志也就不会把「规则
             # 拒绝」误报成「读花了」。读数本身仍留在 detail 里（诊断用）。
@@ -764,9 +768,17 @@ class TrainingScanService:
         finally:
             await self._best_effort_back()
 
-    async def _detail_scan(self) -> dict[str, Any]:
-        """读一张详情页：节点读数 + 一帧截图数专精。"""
-        readings = await self._run_chain(st.detail_screen_nodes(), title=_title("读详情页"))
+    async def _detail_scan(
+        self, *, lead: Sequence[str] = (), title: str | None = None
+    ) -> dict[str, Any]:
+        """读一张详情页：节点读数 + 一帧截图数专精。
+
+        ``lead`` 是链首的导航节点（M38：``_scan_cell`` 把「点开这一格」并进来，链还是
+        一条）；不传时只读当前这一页。
+        """
+        readings = await self._run_chain(
+            st.detail_screen_nodes(*lead), title=title or _title("读详情页")
+        )
         image = await self._grab_image()
         masteries = scan_image.mastery_levels_from_image(image) if image is not None else {}
         return {

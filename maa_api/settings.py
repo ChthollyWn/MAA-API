@@ -36,6 +36,7 @@ __all__ = [
     "REPO_ROOT",
     "SETTING_KEYS",
     "AdbSettings",
+    "CoreSettings",
     "DeploymentSettings",
     "NotifySettings",
     "Settings",
@@ -89,6 +90,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "log.persist_maacore_debug_level": ("log", "persist_maacore_debug_level"),
     "adb.connection_config": ("adb", "connection_config"),
     "adb.common_ports": ("adb", "common_ports"),
+    # M38 内核旋钮：识别间隔（毫秒）。开机时由 maa_api.core.kernel_options 生成一层
+    # 资源覆盖内核自带的 500 ms，改完要重启服务才会生效。
+    "core.task_delay": ("core", "task_delay"),
     # ---- 外部数据源（M25，附录 B）。M25 只登记 PRTS 相关键与公共键。----
     "sources.enabled": ("sources", "enabled"),
     "sources.use_proxy": ("sources", "use_proxy"),
@@ -160,6 +164,21 @@ class AdbSettings(BaseModel):
     common_ports: list[int] = Field(
         default_factory=lambda: [5555, 5556, 7555, 16384, 21503, 62001]
     )
+
+
+class CoreSettings(BaseModel):
+    """``config.yaml`` 的 ``core`` 段：内核进程级旋钮（M38，docs/13 §8.53）。
+
+    ``task_delay`` 是 MaaCore 的识别间隔：每个识别节点结束后等这么久再试下一个。
+    内核自带 500 ms，实测它是练度扫描里最大的时间开销——读一屏 16 格 13.3 s；
+    降到 100 ms 后 6.6 s，20 次读屏全部 16/16 命中。0 最快（4.7 s），但整链瞬时
+    占满一个核，所以默认留在 100。
+    """
+
+    #: 未识别的键忽略：后续里程碑会往段里加键，旧文件必须继续能读。
+    model_config = ConfigDict(extra="ignore")
+
+    task_delay: int = Field(default=100, ge=0, le=2000)
 
 
 class ChannelSettings(BaseModel):
@@ -344,6 +363,7 @@ class Settings(BaseModel):
     maa_core_path: str = ""
     proxy: str = ""
     adb: AdbSettings = Field(default_factory=AdbSettings)
+    core: CoreSettings = Field(default_factory=CoreSettings)
     log: LogSettings = Field(default_factory=LogSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)

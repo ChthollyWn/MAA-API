@@ -54,6 +54,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "adb.screenshot_quality": dict(label="截图质量", group="设备", type="integer", minimum=1, maximum=95, hot_action="none"),
     "adb.connection_config": dict(label="ADB 连接配置", group="设备", type="string", enum=_connection_config_names(), hot_action="reconnect"),
     "adb.common_ports": dict(label="模拟器常见端口", group="设备", type="integer[]", minimum=1, maximum=65535, hot_action="none"),
+    # M38 内核识别间隔：开机时写进 resource/maa-layers/custom/resource/config.json，
+    # 所以要重启服务才生效；内核自带的默认值是 500。
+    "core.task_delay": dict(label="内核识别间隔（毫秒）", group="设备", type="integer", minimum=0, maximum=2000, hot_action="restart_required"),
     "log.ring_size": dict(label="日志缓冲条数", group="日志", type="integer", minimum=1, maximum=100000, hot_action="none"),
     "log.batch_size": dict(label="日志刷盘批量", group="日志", type="integer", minimum=1, maximum=10000, hot_action="none"),
     "log.flush_interval": dict(label="日志刷盘间隔", group="日志", type="number", minimum=0.05, maximum=60, hot_action="none"),

@@ -685,14 +685,14 @@ def _detail_batch(
 def _happy_plan(masteries: Mapping[int, int] = {1: 3, 2: 0, 3: 3}) -> list[list[dict[str, Any]]]:
     """「1 名干员、上排第 4 列、精二、技能 7、专精 3/0/3、模组 CHG X 等级 3」的脚本。
 
-    步骤与内核行为一一对应：进列表 → 一次读完整屏卡名 → 点开 → 一次读完详情页 →
-    回列表（``masteries`` 只影响截图那份像素，脚本里用不上，留着当说明书）。
+    步骤与内核行为一一对应：进列表 → 一次读完整屏卡名 → 点开并一次读完详情页 → 回列表
+    （``masteries`` 只影响截图那份像素，脚本里用不上，留着当说明书）。
     """
     return [
         [],  # EnterBox
         _screen_callbacks({BAGPIPE_CELL: "风笛"}),  # 读一屏卡名（16 个节点一次流水线）
-        [],  # ClickTopCol3
-        _detail_batch(),  # 读详情页（SkillLevel + Elite2 + 模组两节点）
+        # M38：点开与读详情并成一条链，一次提交收齐 SkillLevel + Elite2 + 模组两节点
+        _detail_batch(),
         [],  # Back
     ]
 
@@ -727,18 +727,18 @@ def test_a_full_round_reads_writes_and_records(tmp_path: Path):
         assert state["started_at"] is not None and state["finished_at"] is not None
         assert "写入 1 名" in (state["message"] or "")
 
-        # 一步一步的流水线：起手启动 → 进列表 → 读屏 → 点开 → 详情 → 回列表
+        # 一步一步的流水线：起手启动 → 进列表 → 读屏 → 点开并读详情 → 回列表
+        # （M38 把「点开」与「读详情」并成一条链，所以少了单独那一步 ``SkillLevel``）
         assert pipeline.short_nodes() == [
             "StartUp",
             "EnterBox",
             "CardNameTopCol0",
             "ClickTopCol3",
-            "SkillLevel",
             "Back",
         ]
         assert pipeline.titles[0] == "练度扫描：启动游戏"
         assert pipeline.titles[1] == "练度扫描：进干员列表"
-        assert pipeline.titles[4] == "练度扫描：读详情页"
+        assert pipeline.titles[3] == "练度扫描：读 风笛 的详情页"
 
         # 写库：读到什么写什么（专精走截图，模组走节点读数）
         assert box.applied == [
@@ -846,14 +846,14 @@ def test_masteries_and_modules_are_held_back_below_elite_two(tmp_path: Path):
     plan = [
         [],
         _screen_callbacks({BAGPIPE_CELL: "风笛"}),
-        [],
-        # 精一：Elite2 读不出来（没有回调）、Elite1 匹配上（0.95）、模组照样读得到
+        # 精一：Elite2 读不出来（没有回调）、Elite1 匹配上（0.95）。M38 的精英化短路让真机上
+        # 后面两个模组节点根本不会跑，这里仍旧喂进来，压的是服务层的「未到精二不提交」护栏。
         [
             _text_callback("SkillLevel", "7"),
             _score_callback("Elite1", 0.95),
             *_module_callbacks(),
         ],
-        [],
+        [],  # 回列表
     ]
     pipeline = FakePipelineService(plan)
     box = FakeBox(operators=[{"char_id": "char_123_bagpipe", "name": "风笛"}])
@@ -912,17 +912,13 @@ def test_one_broken_cell_does_not_stop_the_round(tmp_path: Path):
     plan = [
         [],  # EnterBox
         _screen_callbacks({("top", 3): "风笛", ("top", 5): "凛御银灰"}),
-        [],  # 点开风笛
-        [],  # 这一步内核报 failed
+        [],  # 点开风笛并读详情：这一步内核报 failed
         [],  # 回列表（这一格的收尾照跑）
-        [],  # 点开凛御银灰
-        _detail_start_callbacks(),  # SkillLevel + Elite2
-        [],  # Elite1
-        [],  # Elite0
-        _module_callbacks(),
+        [*_detail_start_callbacks(), *_module_callbacks()],  # 点开凛御银灰并读详情（一条链）
         [],  # 回列表
     ]
-    pipeline = FakePipelineService(plan, step_status={4: "failed"})
+    # 步号是「非起手的第几步」：1 进列表、2 读屏、3 点开并读详情……M38 合并之后这条是第 3 步。
+    pipeline = FakePipelineService(plan, step_status={3: "failed"})
     box = FakeBox(
         operators=[
             {"char_id": "char_123_bagpipe", "name": "风笛"},
@@ -960,8 +956,7 @@ def test_a_cell_without_a_reading_does_not_hide_the_later_cells(tmp_path: Path):
     plan = [
         [],  # EnterBox
         batch,  # 读一屏卡名（一次流水线，链上读不出来的节点被跳过）
-        [],  # 点开风笛
-        _detail_batch(),
+        _detail_batch(),  # 点开风笛并读这一页（M38：一条链）
         [],  # Back
     ]
     pipeline = FakePipelineService(plan)
@@ -989,12 +984,8 @@ def test_a_target_on_the_next_screen_is_found_after_a_swipe(tmp_path: Path):
         _screen_callbacks({("top", 7): "泥岩"}),  # 第一屏有别的干员、没有目标
         [],  # SwipeNextPage
         _screen_callbacks({BAGPIPE_CELL: "风笛"}),  # 第二屏有
-        [],  # 点开
-        _detail_start_callbacks(),
-        [],
-        [],
-        _module_callbacks(),
-        [],
+        [*_detail_start_callbacks(), *_module_callbacks()],  # 点开并读详情（一条链）
+        [],  # 回列表
     ]
     pipeline = FakePipelineService(plan)
     box = FakeBox(operators=[{"char_id": "char_123_bagpipe", "name": "风笛"}])
@@ -1027,13 +1018,11 @@ def test_a_screen_that_did_not_move_does_not_scan_anyone_twice(tmp_path: Path):
     plan = [
         [],  # EnterBox
         _screen_callbacks({BAGPIPE_CELL: "风笛"}),  # 第一屏：风笛
-        [],  # 点开风笛
-        _detail_start_callbacks(),
+        _detail_start_callbacks(),  # 点开风笛并读详情（一条链）
         [],  # 回列表
         [],  # SwipeNextPage（这一步真机上是「没翻动」）
         _screen_callbacks({BAGPIPE_CELL: "风笛", SILVERASH_CELL: "凛御银灰"}),  # 第二屏：老面孔 + 新人
-        [],  # 点开凛御银灰
-        _detail_start_callbacks(),
+        _detail_start_callbacks(),  # 点开凛御银灰并读详情（一条链）
         [],  # 回列表
     ]
     pipeline = FakePipelineService(plan)
@@ -1073,12 +1062,8 @@ def test_operators_left_over_are_reported_as_skipped(tmp_path: Path):
     plan = [
         [],
         _screen_callbacks({BAGPIPE_CELL: "风笛"}),
-        [],
-        _detail_start_callbacks(),
-        [],
-        [],
-        _module_callbacks(),
-        [],
+        [*_detail_start_callbacks(), *_module_callbacks()],  # 点开并读详情（一条链）
+        [],  # 回列表
     ]
     # 之后一直找不到第二名：每屏都读一遍，直到屏数上限
     for _ in range(12):
@@ -1250,16 +1235,51 @@ def test_every_chain_node_can_fall_through_to_the_rest_of_the_chain():
 
     候选只放紧邻的下一个节点时，精二干员在 ``Elite2`` 命中后试 ``Elite1`` 不中就直接落到
     ``Done``——后面的 ``ModuleCode`` / ``ModuleStage`` 一个都没跑（模组读数空缺）。
+
+    M38 加了精英化短路（:data:`st.ELITE_SHORTCUTS`）：命中一个徽记之后不再试另外两个，
+    所以尾巴按短路表算。
     """
     payload = st.operator_scan_tasks()
+    detail = list(st.detail_screen_nodes())
 
-    for names in (list(st.box_screen_nodes()), list(st.detail_screen_nodes())):
+    for names in (list(st.box_screen_nodes()), detail):
         for index, name in enumerate(names):
             node = payload[name]
-            assert node["next"] == [*names[index + 1 :], st.DONE]
+            override = st.ELITE_SHORTCUTS.get(name)
+            tail = list(names[index + 1 :]) if override is None else list(override)
+            assert node["next"] == [*tail, st.DONE]
             assert node["exceededNext"] == node["next"]
             assert node["maxTimes"] == 1
         assert payload[names[-1]]["next"] == [st.DONE]
+
+
+def test_the_elite_shortcut_skips_the_other_badges():
+    """命中一个精英化徽记之后不再试另外两个：精二直奔模组，精一/精零直接收尾（M38）."""
+    payload = st.operator_scan_tasks()
+    names = st.DETAIL_NODE_NAMES
+
+    assert payload[names["Elite2"]]["next"] == [
+        names["ModuleCode"],
+        names["ModuleStage"],
+        st.DONE,
+    ]
+    # 模组要求精二：低精英化的这一页没有模组可读，白试两次识别。
+    assert payload[names["Elite1"]]["next"] == [st.DONE]
+    assert payload[names["Elite0"]]["next"] == [st.DONE]
+
+
+def test_a_click_node_reads_the_detail_page_in_the_same_chain():
+    """点开与读详情在同一条链里：省掉一次提交、排队与终态往返（M38，真机每次约 0.8 秒）."""
+    payload = st.operator_scan_tasks()
+    tail = [*st.detail_screen_nodes(), st.DONE]
+
+    for row in st.ROW_KEYS:
+        for column in range(st.GRID_COLUMNS):
+            node = payload[st.click_cell_node(row, column)]
+            assert node["next"] == tail
+            assert node["exceededNext"] == tail
+            # 详情页推出来的等待时间就在这一段里，不能再压。
+            assert node["postDelay"] == st.CLICK_POST_DELAY
 
 
 def test_snapshot_shape_matches_the_spec():

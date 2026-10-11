@@ -33,6 +33,7 @@ from maa_api.settings import (
     DEFAULT_CONFIG_PATH,
     ENV_OVERRIDES,
     AdbSettings,
+    CoreSettings,
     Settings,
     SettingsError,
     get_settings,
@@ -201,6 +202,13 @@ def test_adb_defaults_match_config_template() -> None:
     assert defaults.common_ports == template_adb["common_ports"]
 
 
+def test_core_defaults_match_config_template() -> None:
+    """文档一致性门禁：M38 的内核旋钮默认值必须与 config.template.yaml 的 core 段一致。"""
+    template = YAML(typ="safe").load(TEMPLATE_PATH.read_text(encoding="utf8"))
+
+    assert CoreSettings().task_delay == template["core"]["task_delay"]
+
+
 # ----------------------------------------------------------------------
 # 3. 容错
 # ----------------------------------------------------------------------
@@ -331,6 +339,8 @@ def test_env_mapping_names_are_pinned() -> None:
         "log.persist_maacore_debug_level": "MAA_LOG_PERSIST_MAACORE_DEBUG_LEVEL",
         "adb.connection_config": "MAA_ADB_CONNECTION_CONFIG",
         "adb.common_ports": "MAA_ADB_COMMON_PORTS",
+        # M38：内核识别间隔（开机写进资源层，重启生效）。
+        "core.task_delay": "MAA_CORE_TASK_DELAY",
         # M25：外部数据源（全部 hot_action="none"，改完立即生效）。
         "sources.enabled": "MAA_SOURCES_ENABLED",
         "sources.use_proxy": "MAA_SOURCES_USE_PROXY",
@@ -375,6 +385,26 @@ def test_env_mapping_names_are_pinned() -> None:
         "sources.gamedata_mirrors": "MAA_SOURCES_GAMEDATA_MIRRORS",
         "sources.gamedata_github_api_fallback": "MAA_SOURCES_GAMEDATA_GITHUB_API_FALLBACK",
     }
+
+
+def test_kernel_task_delay_has_a_documented_default_and_bounds():
+    """M38 内核识别间隔：默认 100，取值 0–2000，超范围直接拒（docs/13 §8.53）。"""
+    from pydantic import ValidationError
+
+    from maa_api.services.settings_schema import schema_for
+
+    assert resolve_settings(env={}).core.task_delay == 100
+    assert resolve_settings({"core": {"task_delay": 0}}, env={}).core.task_delay == 0
+    assert resolve_settings({"core": {"task_delay": 2000}}, env={}).core.task_delay == 2000
+
+    for bad in (-1, 2001):
+        with pytest.raises(ValidationError):
+            resolve_settings({"core": {"task_delay": bad}}, env={})
+
+    row = schema_for("core.task_delay")
+    assert (row["type"], row["minimum"], row["maximum"]) == ("integer", 0, 2000)
+    # 开机时才把值写进资源层，所以要重启服务才会生效。
+    assert row["hot_action"] == "restart_required"
 
 
 def test_agent_confirmation_and_atomic_grant_settings_have_documented_defaults_and_bounds():
