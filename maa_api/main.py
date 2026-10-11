@@ -496,6 +496,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         from maa_api.core.client import CoreClient
         from maa_api.core.enums import Message
+        from maa_api.core.kernel_options import ensure_task_delay
         from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
         from maa_api.core.supervisor import CoreState, CoreSupervisor
         from maa_api.services.device_service import DeviceManager
@@ -519,6 +520,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         user_dir = core_user_dir()
         layers_root = REPO_ROOT / "resource" / "maa-layers"
         layers_root.mkdir(parents=True, exist_ok=True)
+        # M38：把 core.task_delay 写进 custom 层，内核加载资源时覆盖它自带的识别间隔。
+        # 写不动只记日志（内核退回自带默认值），不影响启动。
+        try:
+            ensure_task_delay(
+                maa_path=maa_path,
+                layers_root=layers_root,
+                task_delay=current_settings.core.task_delay,
+            )
+        except Exception:  # noqa: BLE001 - 提速旋钮的意外不能拖垮启动
+            logger.exception("生成内核资源层配置失败：识别间隔沿用内核默认")
+
         boot_config = {
             "maa_path": str(maa_path),
             "user_dir": str(user_dir),

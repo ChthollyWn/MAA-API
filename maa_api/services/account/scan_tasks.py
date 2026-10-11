@@ -27,6 +27,7 @@ M36 只用「看」，不用「点」：所有节点全部 ``action: DoNothing``
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -266,6 +267,16 @@ MODULE_STAGE = DETAIL_NODE_NAMES["ModuleStage"]
 ELITE_NODE_LEVELS: dict[str, int] = {
     DETAIL_NODE_NAMES[f"Elite{level}"]: level for level in (2, 1, 0)
 }
+#: 精英化命中之后换一条更短的尾巴（M38 提速，docs/13 §8.53）。
+#:
+#: 三个徽记模板互斥，命中一个就没必要再试另外两个：精二命中 ``Elite2`` 后直接进模组，
+#: 精一/精零命中后直接收尾——模组系统要求精二，低精英化试 ``ModuleCode``/``ModuleStage``
+#: 只会白跑两次识别（taskDelay=100 时每次约 0.4 秒）。
+ELITE_SHORTCUTS: dict[str, tuple[str, ...]] = {
+    DETAIL_NODE_NAMES["Elite2"]: (MODULE_CODE, MODULE_STAGE),
+    DETAIL_NODE_NAMES["Elite1"]: (),
+    DETAIL_NODE_NAMES["Elite0"]: (),
+}
 #: 进干员列表页：内核自己的 ``OperBoxBegin`` 链（顺带按「等级」排序）。
 ENTER_BOX = _full("EnterBox")
 #: 返回箭头与翻到下一屏（两个导航节点，不消耗资源）。
@@ -283,8 +294,10 @@ SWIPE_PARAMS = [400, 1, 37, 1]
 
 #: 点开某一格时落点方块的大小：内核里的固定点点击都用小方块（``ClickCorner`` 是 10x10）。
 CLICK_SIZE = 10
-#: 点完等游戏把详情页推出来（真机上半秒左右；给足余量）。
-CLICK_POST_DELAY = 800
+#: 点完等游戏把详情页推出来。M38 把详情节点并进同一条链之后，这一段是**唯一**的渲染等待
+#: （合并前那次流水线之间的 app 往返顺带等掉了渲染），所以只从 800 压到 500——真机上再短就
+#: 有机会在推页动画里 OCR（实测 500 可用，见 docs/13 §8.53）。
+CLICK_POST_DELAY = 500
 
 
 # ---------------------------------------------------------------------------
@@ -324,12 +337,21 @@ def box_screen_nodes() -> tuple[str, ...]:
     return tuple(card_name_node(row, column) for row in ROW_KEYS for column in range(GRID_COLUMNS))
 
 
-def detail_screen_nodes() -> tuple[str, ...]:
-    """读一张详情页的节点链（6 个，顺序见 :data:`DETAIL_NODE_KEYS`）。"""
-    return tuple(DETAIL_NODE_NAMES[key] for key in DETAIL_NODE_KEYS)
+def detail_screen_nodes(*lead: str) -> tuple[str, ...]:
+    """读一张详情页的节点链（6 个，顺序见 :data:`DETAIL_NODE_KEYS`）。
+
+    ``lead`` 是链首的导航节点（M38：把「点开这一格」并进同一条链，省一次提交与终态
+    往返，真机上每次约 0.8 秒）。
+    """
+    return (*lead, *(DETAIL_NODE_NAMES[key] for key in DETAIL_NODE_KEYS))
 
 
-def _chain(nodes: dict[str, dict[str, Any]], names: list[str]) -> None:
+def _chain(
+    nodes: dict[str, dict[str, Any]],
+    names: list[str],
+    *,
+    shortcuts: Mapping[str, Sequence[str]] | None = None,
+) -> None:
     """把一串只读节点接成一条链，每个节点的出路都带 ``Done`` 兜底。
 
     - ``maxTimes: 1``：不重试；
@@ -337,6 +359,8 @@ def _chain(nodes: dict[str, dict[str, Any]], names: list[str]) -> None:
       轮里按顺序依次试这些候选，谁先匹配上就走谁。于是命中的节点继续往下走、**识别不出来
       的节点被直接跳过**（候选里排着后面的节点），链最后必定落在 ``Done``
       （``JustReturn`` + ``Stop``）上干净收尾。
+    - ``shortcuts`` 给某些节点换一条更短的尾巴（M38 的精英化短路，见
+      :data:`ELITE_SHORTCUTS`）：键是节点名，值是它命中后接着要试的节点。
       真机实测（11:56 那轮）：候选只放**紧邻的下一个**节点时，精二的干员在 ``Elite2`` 命中
       后试 ``Elite1`` 不中、就直接落到 ``Done``——后面的 ``ModuleCode`` / ``ModuleStage``
       一次都没跑（模组读数空缺），所以候选必须是整条尾巴。
@@ -346,7 +370,9 @@ def _chain(nodes: dict[str, dict[str, Any]], names: list[str]) -> None:
     for index, name in enumerate(names):
         node = nodes[name]
         node["maxTimes"] = 1
-        following = list(names[index + 1 :])
+        override = (shortcuts or {}).get(name)
+        # 空元组是「到此为止」的有效取值，不能和「没配捷径」混为一谈。
+        following = list(names[index + 1 :] if override is None else override)
         node["next"] = [*following, DONE]
         node["exceededNext"] = [*following, DONE]
 
@@ -372,7 +398,8 @@ def operator_scan_tasks() -> dict[str, dict[str, Any]]:
             # 各一张，一起用免得换主题之后点不动。
             "template": ["Return.png", "Return-White.png"],
             "templThreshold": 0.7,
-            "postDelay": 1500,
+            # M38：1500 → 900。返回箭头点完到列表可读之间没有别的等待，900 是真机复核过的下限。
+            "postDelay": 900,
             "roi": list(BACK_ROI),
             "doc": "回干员列表的返回箭头（导航，不消耗资源）",
             "maxTimes": 1,
@@ -385,7 +412,8 @@ def operator_scan_tasks() -> dict[str, dict[str, Any]]:
             "specificRect": list(SWIPE_FROM),
             "rectMove": list(SWIPE_TO),
             "specialParams": list(SWIPE_PARAMS),
-            "postDelay": 1200,
+            # M38：1200 → 800。翻页动画比返回略长，800 是真机复核过的下限。
+            "postDelay": 800,
             "doc": "列表翻到下一屏（导航；只翻页不点干员，横向从右往左划）",
             "maxTimes": 1,
             "next": [DONE],
@@ -431,6 +459,11 @@ def operator_scan_tasks() -> dict[str, dict[str, Any]]:
 
     # 点开某一格：坐标是卡面中心，走内核自带的 ``ClickRect`` 动作——内核自己点屏幕，
     # 不需要第二个 MaaCore 实例；`algorithm: JustReturn` 表示「一定命中」。
+    #
+    # M38：点开与「读这张详情页」并成同一条链（``next`` 直接排详情节点），省掉一次提交、
+    # 排队与终态确认（真机每次约 0.8 秒）。``postDelay`` 仍是详情页推出来的等待时间，
+    # 所以它不能跟着压——压的就是这一段。
+    detail_names = list(detail_screen_nodes())
     for row in ROW_KEYS:
         for column in range(GRID_COLUMNS):
             x, y = card_center(row, column)
@@ -439,11 +472,11 @@ def operator_scan_tasks() -> dict[str, dict[str, Any]]:
                 "action": "ClickRect",
                 "specificRect": [x, y, CLICK_SIZE, CLICK_SIZE],
                 "postDelay": CLICK_POST_DELAY,
-                "doc": f"点开 {row} 第 {column + 1} 列干员的详情页",
+                "doc": f"点开 {row} 第 {column + 1} 列干员并读这张详情页",
                 "maxTimes": 1,
-                "next": [DONE],
-                "exceededNext": [DONE],
+                "next": [*detail_names, DONE],
+                "exceededNext": [*detail_names, DONE],
             }
 
-    _chain(tasks, list(detail_screen_nodes()))
+    _chain(tasks, detail_names, shortcuts=ELITE_SHORTCUTS)
     return tasks

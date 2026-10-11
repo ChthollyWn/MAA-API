@@ -1,24 +1,24 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12123 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12156 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 278 | 278 |
-| 破折号当冒号用 | high | 0 | 132 | 132 |
+| 粗体强调 | medium | 0 | 279 | 279 |
+| 破折号当冒号用 | high | 0 | 135 | 135 |
 | 「A 而不是 B」对照腔 | high | 0 | 104 | 104 |
 | 绝对化规定腔 | medium | 0 | 62 | 62 |
 | 自指式讲解腔 | medium | 0 | 18 | 18 |
 | 「…即可」机器腔 | medium | 0 | 16 | 16 |
-| 省略号 | medium | 0 | 4 | 4 |
+| 省略号 | medium | 0 | 5 | 5 |
 | 宣传词 | medium | 0 | 3 | 3 |
 | 提示腔 | medium | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 0 | 2 | 2 |
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 278）
+## 粗体强调（medium｜用户可见 0 / 开发向 279）
 
 **开发向**
 
@@ -28,9 +28,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 272 条，见 inventory.json
+- …… 另有 273 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 132）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 135）
 
 **开发向**
 
@@ -40,7 +40,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 126 条，见 inventory.json
+- …… 另有 129 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 104）
 
@@ -71,9 +71,9 @@
 **开发向**
 
 - `maa_api/agent/knowledge/__init__.py:136` : 以 `## <section>` 分节；工具 `update_user_profile` 与确认卡片的差异计算共用本模块的两个
-- `maa_api/main.py:917` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
-- `maa_api/main.py:999` 这里要流水线服务（一步步提交）、内核客户端（取一帧截图数专精亮点）与资源服务
-- `maa_api/main.py:1268` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
+- `maa_api/main.py:929` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
+- `maa_api/main.py:1011` 这里要流水线服务（一步步提交）、内核客户端（取一帧截图数专精亮点）与资源服务
+- `maa_api/main.py:1280` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
 - `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
 - `maa_api/services/account/box.py:684` 常量在仓储层（与 operbox / depot 并列）；本模块刻意不在模块级 import
 - …… 另有 12 条，见 inventory.json
@@ -90,7 +90,7 @@
 - `maa_api/services/retention_service.py:131` : 「通关即可」也按成功处理。判定不了成功标准时保守处理：宁可留，不误删。
 - …… 另有 10 条，见 inventory.json
 
-## 省略号（medium｜用户可见 0 / 开发向 4）
+## 省略号（medium｜用户可见 0 / 开发向 5）
 
 **开发向**
 
@@ -98,6 +98,7 @@
 - `tests/domain/test_errors.py:43` : 表格数据行形如 ``| `CODE` | 404 | 含义…… |``；表头与文字段落都不匹配。
 - `tests/domain/test_route_inventory.py:78` : §6 开头那句：``共 101 条 HTTP 端点……另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。``
 - `tests/domain/test_route_inventory.py:86` : 表格数据行：``| GET | `/api/system/health` | …… |``。
+- `tests/services/test_account_training_scan.py:920` 步号是「非起手的第几步」：1 进列表、2 读屏、3 点开并读详情……M38 合并之后这条是第 3 步。
 
 ## 宣传词（medium｜用户可见 0 / 开发向 3）
 

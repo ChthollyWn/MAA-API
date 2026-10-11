@@ -1,12 +1,12 @@
 # AI 腔规则命中：用户可见文案
 
-总计 12421 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12457 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
 | 粗体强调 | medium | 168 | 319 | 487 |
-| 破折号当冒号用 | high | 36 | 114 | 150 |
+| 破折号当冒号用 | high | 37 | 116 | 153 |
 | 「A 而不是 B」对照腔 | high | 15 | 82 | 97 |
 | 绝对化规定腔 | medium | 12 | 64 | 76 |
 | 自指式讲解腔 | medium | 1 | 35 | 36 |
@@ -44,7 +44,7 @@
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
 - …… 另有 311 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 36 / 开发向 114）
+## 破折号当冒号用（high｜用户可见 37 / 开发向 116）
 
 **用户可见**
 
@@ -54,9 +54,9 @@
 - `maa_api/api/routers/confirmations.py:19` ``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。 尝试次数、成功标准与是否允许助战都能在卡片上改；有效期只展示，**不在**这里。 键名与取值域与 ``services/copilot/grant…（共 254 字）
 - `maa_api/db/models.py:845` Web Push 订阅（M14，docs/09 §13.1）。 ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一 Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新…（共 281 字）
 - `maa_api/domain/task.py:825` 无限刷肉鸽（集成战略）。 主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError`` （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PA…（共 291 字）
+- `maa_api/settings.py:170` ``config.yaml`` 的 ``core`` 段：内核进程级旋钮（M38，docs/13 §8.53）。 ``task_delay`` 是 MaaCore 的识别间隔：每个识别节点结束后等这么久再试下一个。 内核自带 500 ms，…（共 226 字）
 - `maa_api/agent/knowledge/builtin/activity-stage-codes.md:12` **代号**是选关界面上写的那个，形如 `XX-01`、`XX-EX-3`。同一期活动里的代号连编号都不重复，但**跨期次会重名**——同一个代号在不同期活动里指向不同的关。
-- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:29` **活动名推代号是推断，不是查表**：这条只在 `source=resource` 的降级结果上成立。PRTS 可用时活动与关卡的对应关系来自活动页的关卡链接与 `关卡id`，`matched_by` 会说明是靠 `stage_id` 还是…（共 322 字）
-- …… 另有 28 条，见 inventory.json
+- …… 另有 29 条，见 inventory.json
 
 **开发向**
 
@@ -68,7 +68,7 @@
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
 - `maa_api/agent/policy.py:379` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/policy.py:625` 要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。 只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的 ``warnings`` 提醒，策略层不制造新的确…（共 164 字）
-- …… 另有 106 条，见 inventory.json
+- …… 另有 108 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 15 / 开发向 82）
 
@@ -80,7 +80,7 @@
 - `maa_api/db/models.py:845` Web Push 订阅（M14，docs/09 §13.1）。 ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一 Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新…（共 281 字）
 - `maa_api/db/models.py:921` Agent 主动提问：与 ``confirmation`` **并列**的一等交互（M21 规格 §3.2）。 刻意不复用 ``confirmation`` 表，也不给它加 ``question`` 分支：确认是「授权一次 有风险的操作」（…（共 496 字）
 - `maa_api/domain/task.py:825` 无限刷肉鸽（集成战略）。 主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError`` （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PA…（共 291 字）
-- `maa_api/settings.py:290` 反向代理与浏览器来源白名单（M15，docs/09 §12.4）。 首版 HTTPS 入口是 ``tailscale serve``：它是反向代理，请求到达 FastAPI 时 ``X-Forwarded-Proto`` 为 ``https…（共 399 字）
+- `maa_api/settings.py:309` 反向代理与浏览器来源白名单（M15，docs/09 §12.4）。 首版 HTTPS 入口是 ``tailscale serve``：它是反向代理，请求到达 FastAPI 时 ``X-Forwarded-Proto`` 为 ``https…（共 399 字）
 - `maa_api/agent/knowledge/builtin/annihilation-weekly.md:21` 历练任务的条件是「在指定地图单局打到某个击溃数」，每完成一档加一点上限，全部做完才是满上限。档位与增量同在 `关卡一览/常态事务` 的「剿灭作战」节。
 - …… 另有 7 条，见 inventory.json
 
