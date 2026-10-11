@@ -3,7 +3,14 @@ import { render } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import AccountPage from './AccountPage'
-import type { AccountSummary, DepotItem, OperatorDiff, OperatorRow } from './api'
+import type {
+  AccountSummary,
+  DepotItem,
+  OperatorDiff,
+  OperatorRow,
+  TrainingScanState,
+  TrainingScanSubmit,
+} from './api'
 
 /** 账号数据页的测试夹具：按真实查询参数过滤的假后端 + 内存路由渲染。 */
 
@@ -140,6 +147,52 @@ export const SUMMARY: AccountSummary = {
 }
 
 /**
+ * 练度扫描（M36 §4.6）的夹具。
+ *
+ * `IDLE_TRAINING_SCAN`：接口默认状态，`POST`/`GET`/`DELETE` 三个方法的响应同形状。
+ * `RUNNING_TRAINING_SCAN`：正在读第 12 名，`total` 是**契约外**的补充字段（`POST` 才
+ * 返回 `total`，GET 带上时才用它算进度）。
+ */
+export const IDLE_TRAINING_SCAN: TrainingScanState = {
+  status: 'idle',
+  pipeline_id: null,
+  started_at: null,
+  finished_at: null,
+  scanned: 0,
+  updated: 0,
+  skipped: 0,
+  unresolved: 0,
+  mismatched: 0,
+  message: null,
+  total: null,
+}
+
+export const RUNNING_TRAINING_SCAN: TrainingScanState = {
+  status: 'running',
+  pipeline_id: 'pipe-scan-1',
+  started_at: '2026-10-11T01:00:00Z',
+  finished_at: null,
+  scanned: 12,
+  updated: 9,
+  skipped: 3,
+  unresolved: 0,
+  mismatched: 1,
+  message: null,
+  total: 40,
+}
+
+export const TRAINING_SCAN_SUBMIT: TrainingScanSubmit = {
+  pipeline_id: 'pipe-scan-1',
+  total: 40,
+  targets: [
+    { char_id: 'char_002_amiya', name: '阿米娅' },
+    { char_id: 'char_123_knight', name: '临光' },
+  ],
+  deferred: [],
+  unresolved: [],
+}
+
+/**
  * 假后端按真形状应答：`/api/account/summary` 是 `{box, depot}`（`elite_two` 而不是
  * `elite2`、`pending_diffs` 而不是 `diffs`），`operator-diffs` 是 `{items, total}`。
  * 测试继续用页面内部的形状写夹具，这里做一次转写。
@@ -171,6 +224,14 @@ export interface AccountApiOptions {
   categories?: string[]
   patchStatus?: number
   dismissStatus?: number
+  /** `/api/account/training-scan` 的 GET/DELETE 响应；默认 `idle` 空状态。 */
+  trainingScan?: Partial<TrainingScanState>
+  /** `POST /api/account/training-scan` 的 200 响应；默认受理 40 名（`TRAINING_SCAN_SUBMIT`）。 */
+  trainingScanSubmit?: Partial<TrainingScanSubmit>
+  /** 非 0 且 ≥400 时，`POST` 回这个状态码（409 ＝ 已有扫描在跑），`GET`/`DELETE` 不回。 */
+  trainingScanStartStatus?: number
+  /** 受理成功之后 `GET` 再取的响应：演「点完开始扫描 → 第一次轮询」这一段。 */
+  trainingScanAfterStart?: Partial<TrainingScanState>
 }
 
 export interface RecordedAccountRequest {
@@ -191,7 +252,16 @@ export function installAccountApi(options: AccountApiOptions = {}) {
     diffs: [...(options.diffs ?? OPERATOR_DIFFS)],
     depot: [...(options.depot ?? DEPOT_ITEMS)],
     categories: options.categories ?? ['材料', '货币'],
+    trainingScan: { ...IDLE_TRAINING_SCAN, ...options.trainingScan } as TrainingScanState,
   }
+  // 「点完开始扫描 → 第一次轮询」这一段的状态和初始状态不一样：POST 受理前是 `idle`，
+  // 之后才变 `running`。用例可以用 `trainingScanAfterStart` 演这一段。
+  let trainingScanStarted = false
+  const trainingScanState = () =>
+    ({
+      ...state.trainingScan,
+      ...(trainingScanStarted ? options.trainingScanAfterStart : undefined),
+    }) as TrainingScanState
   const requests: RecordedAccountRequest[] = []
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init)
@@ -263,6 +333,26 @@ export function installAccountApi(options: AccountApiOptions = {}) {
       const query = url.searchParams.get('query')
       if (query) items = items.filter((item) => item.name.includes(query) || item.item_id.includes(query))
       return jsonResponse({ items: items.slice(offset, offset + limit), total: items.length, categories: state.categories })
+    }
+
+    // 练度扫描（M36 §4.6）：GET/DELETE 回同一份状态，POST 回受理结果。
+    if (url.pathname === '/api/account/training-scan') {
+      if (request.method === 'GET') return jsonResponse(trainingScanState())
+      if (request.method === 'DELETE') {
+        // 取消后的状态由夹具给；没给就回当前状态（页面只读它，不自己编）。
+        return jsonResponse(trainingScanState())
+      }
+      if (request.method === 'POST') {
+        if (options.trainingScanStartStatus && options.trainingScanStartStatus >= 400) {
+          return jsonResponse(
+            { error: { code: 'CONFLICT', message: '已有练度扫描在跑，先等它结束或取消' } },
+            options.trainingScanStartStatus,
+          )
+        }
+        // 受理成功之后，`GET` 再取的响应切到 `trainingScanAfterStart`。
+        trainingScanStarted = true
+        return jsonResponse({ ...TRAINING_SCAN_SUBMIT, ...options.trainingScanSubmit })
+      }
     }
 
     return jsonResponse({ error: { code: 'NOT_FOUND', message: `Unexpected request ${request.method} ${url.pathname}` } }, 404)

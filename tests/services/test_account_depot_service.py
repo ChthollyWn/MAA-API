@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -19,11 +19,18 @@ from maa_api.settings import Settings
 from maa_api.services.account import depot as depot_module  # noqa: E402
 from maa_api.services.account.depot import DepotService  # noqa: E402
 
-NOW = datetime(2026, 10, 10, 3, 0, 0)
+#: 基时刻取「当前整点」而不是写死日期：``_is_stale`` 读的是真实时钟，写死日期一旦跨过
+#: 「基准日 + 过期天数」就会把「两天前的记录」判成过期（2026-10-11 起这两条用例真红过）。
+NOW = datetime.now(UTC).replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
 
 def _utc(*, days_ago: int = 0) -> datetime:
     return NOW - timedelta(days=days_ago)
+
+
+def _iso(moment: datetime) -> str:
+    """与 ``DepotService`` 出参同款的时间字面量（naive UTC + ``Z``）。"""
+    return moment.isoformat() + "Z"
 
 
 def _settings(*, stale_days: int) -> Settings:
@@ -166,7 +173,7 @@ def test_replace_all_swaps_the_whole_table(depot):
         first = await service.list_items()
         assert first["total"] == 2
         assert [item["item_id"] for item in first["items"]] == ["30012", "30013"]
-        assert first["items"][0]["recognized_at"] == "2026-10-10T03:00:00Z"
+        assert first["items"][0]["recognized_at"] == _iso(NOW)
 
         # 第二次识别里没有 30012 → 整表替换后它必须消失（不是合并）。
         assert (
@@ -290,7 +297,7 @@ def test_summary_uses_the_recognition_record_and_threshold(depot):
         summary = await service.summary()
         assert summary == {
             "total": 1,
-            "recognized_at": "2026-10-08T03:00:00Z",
+            "recognized_at": _iso(_utc(days_ago=2)),
             "stale": False,
             "stale_days": 3,
         }
@@ -348,6 +355,6 @@ def test_summary_reflects_the_current_table_only(depot):
         )
         summary = await service.summary()
         assert summary["total"] == 1
-        assert summary["recognized_at"] == "2026-10-10T04:00:00Z"
+        assert summary["recognized_at"] == _iso(NOW + timedelta(hours=1))
 
     asyncio.run(scenario())

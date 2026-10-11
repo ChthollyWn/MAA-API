@@ -38,6 +38,9 @@ EXPECTED_TOOLS = {
     "start_upgrade_plan",
     "list_upgrade_plans",
     "cancel_upgrade_plan",
+    # M36 练度扫描（规格 §4.7）：提交与取消两个动作工具。
+    "scan_operator_training",
+    "cancel_training_scan",
     "get_gacha_pools",
     "get_story",
     "get_building_skills",
@@ -58,7 +61,7 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 75
+    assert len(actual) == 77
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}

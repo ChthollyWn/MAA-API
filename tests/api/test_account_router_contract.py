@@ -479,7 +479,7 @@ def test_depot_list_passes_filters_and_reports_summary(make_client, tmp_settings
     assert client.get("/api/account/depot?limit=501").status_code == 422
 
 
-def test_router_declares_the_six_documented_paths():
+def test_router_declares_the_documented_paths():
     """附录 C 的路径集合不许漂移（改了路由名 docs/05 §6.20/§6.21 也要改）。"""
     paths = {
         (method, route.path)
@@ -497,6 +497,9 @@ def test_router_declares_the_six_documented_paths():
         ("GET", "/api/account/upgrade-plans"),
         ("GET", "/api/account/upgrade-plans/{plan_id}"),
         ("DELETE", "/api/account/upgrade-plans/{plan_id}"),
+        ("GET", "/api/account/training-scan"),
+        ("POST", "/api/account/training-scan"),
+        ("DELETE", "/api/account/training-scan"),
     }
 
 

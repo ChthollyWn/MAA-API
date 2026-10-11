@@ -993,6 +993,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             context_provider=pipeline_runner.log_context,
             client_type_provider=lambda: get_settings().channel.client_type,
         )
+        # 练度扫描（M36 §4.5）：逐格点开干员、读详情页、把技能等级 / 专精 / 模组写库。
+        # 内核只跑任务表里第一个匹配上的节点，写不出「读屏 → 判断点哪格 → 读详情 →
+        # 回列表 → 翻屏」这种带分支的循环，所以循环留在 Python 侧、由一串小流水线驱动：
+        # 这里要流水线服务（一步步提交）、内核客户端（取一帧截图数专精亮点）与资源服务
+        # （把自定义节点铺进增量层）。
+        from maa_api.services.account.scan import TrainingScanService
+
+        app.state.training_scan_service = TrainingScanService(
+            db_session.session_factory,
+            box=box_service,
+            pipeline_service=pipeline_runner,
+            plans=upgrade_plans,
+            core_client=core_client,
+            resource_service=getattr(app.state, "resource_service", None),
+        )
         # 当期卡池（M28）：注入段用；外服不注入（进度与国服不同），由卡池服务自己判。
         from maa_api.services.game.gacha import GachaService
 

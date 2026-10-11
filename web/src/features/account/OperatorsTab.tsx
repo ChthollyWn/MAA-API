@@ -11,6 +11,7 @@ import { OperatorDiffBanner } from './OperatorDiffBanner'
 import { OperatorEditorSheet } from './OperatorEditorSheet'
 import { OperatorFilterBar } from './OperatorFilterBar'
 import { RecognitionStatus } from './RecognitionStatus'
+import { TrainingScanCard } from './TrainingScanCard'
 import {
   DEFAULT_OPERATOR_FILTERS,
   OPERATOR_PAGE_SIZE,
@@ -94,7 +95,7 @@ function OperatorLine({ row, onEdit }: { row: OperatorRow; onEdit: () => void })
   )
 }
 
-/** 干员页（规格 §7.5）：识别状态 + 差异提示条 + 筛选 + 列表（默认隐藏未拥有）+ 编辑抽屉。 */
+/** 干员页（规格 §7.5、M36 §4.8）：识别状态 + 练度扫描 + 差异提示条 + 筛选 + 列表（默认隐藏未拥有）+ 编辑抽屉。 */
 export function OperatorsTab() {
   const [filters, setFilters] = useState<OperatorFilters>(DEFAULT_OPERATOR_FILTERS)
   const [editing, setEditing] = useState<OperatorRow | null>(null)
@@ -136,6 +137,10 @@ export function OperatorsTab() {
       ) : (
         <LoadingState label="正在读取账号概要…" />
       )}
+
+      {/* 练度扫描是**另一种数据**（技能等级 / 专精 / 模组，M36 §4.8），不是「刷新干员识别」：
+          识别仍由任务触发，这里只给自己的扫描一个入口。 */}
+      <TrainingScanCard />
 
       <OperatorDiffBanner />
 
