@@ -20,11 +20,14 @@ from fastapi import FastAPI
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import account as account_router
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.services.account.scan import TrainingScanStatus
+from maa_api.services.account.scan import TrainingScanMode, TrainingScanStatus
 
-#: 状态响应的完整键集（规格 §4.6 的 GET 形状 + M36 自己补的 `total`/`targets`）。
+#: 状态响应的完整键集（规格 §4.6 的 GET 形状 + M36 自己补的 `total`/`targets`
+#: + M39 自己补的 `mode`/`screens`）。
 STATE_KEYS = {
     "status",
+    "mode",
+    "screens",
     "pipeline_id",
     "started_at",
     "finished_at",
@@ -39,13 +42,15 @@ STATE_KEYS = {
     "deferred",
 }
 
-#: 受理响应的键集（规格 §4.6 的 POST 形状）。
-SUBMIT_KEYS = {"pipeline_id", "total", "targets", "deferred", "unresolved"}
+#: 受理响应的键集（规格 §4.6 的 POST 形状 + M39 自己补的 `mode`）。
+SUBMIT_KEYS = {"pipeline_id", "mode", "total", "targets", "deferred", "unresolved"}
 
 
 def _state(**overrides: Any) -> dict[str, Any]:
     snapshot = {
         "status": TrainingScanStatus.IDLE.value,
+        "mode": TrainingScanMode.SINGLE.value,
+        "screens": 0,
         "pipeline_id": None,
         "started_at": None,
         "finished_at": None,
@@ -77,6 +82,7 @@ class FakeScanService:
             raise self.error
         return {
             "pipeline_id": "pipe-1",
+            "mode": "single",
             "total": 2,
             "targets": [
                 {"char_id": "char_002_amiya", "name": "阿米娅"},
@@ -181,7 +187,12 @@ def test_post_without_body_uses_the_service_defaults(scan_app):
     assert service.calls == [
         (
             "submit",
-            {"limit": 40, "char_ids": None, "include_plan_targets": True},
+            {
+                "mode": TrainingScanMode.SINGLE,
+                "limit": 40,
+                "char_ids": None,
+                "include_plan_targets": True,
+            },
         )
     ]
 
@@ -198,7 +209,12 @@ def test_post_passes_the_body_through(scan_app):
     assert service.calls == [
         (
             "submit",
-            {"limit": 5, "char_ids": ["char_002_amiya"], "include_plan_targets": False},
+            {
+                "mode": TrainingScanMode.SINGLE,
+                "limit": 5,
+                "char_ids": ["char_002_amiya"],
+                "include_plan_targets": False,
+            },
         )
     ]
 

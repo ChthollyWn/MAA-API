@@ -139,6 +139,16 @@ class CancelUpgradePlanParams(BaseModel):
 class ScanOperatorTrainingParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    mode: str = Field(
+        default="single",
+        pattern="^(single|full)$",
+        description=(
+            "扫描类型：single＝按名单点名扫（默认，受 limit 限制，几十分钟以内）；"
+            "full＝全量扫描，从列表第一名开始把每个人的详情页都扫一遍（忽略 limit / "
+            "char_ids / include_plan_targets，可能要跑几十分钟，只在用户明确要求"
+            "「全量扫描」「扫全部干员」时用）。"
+        ),
+    )
     limit: int = Field(
         default=40, ge=1, le=200, description="这一轮最多扫多少位干员，默认 40，最多 200。"
     )
@@ -270,6 +280,9 @@ def register_tools(registry: ToolRegistry) -> None:
                 "跑一轮练度扫描：逐个点开干员详情页，读出技能等级、专精、精英化与模组等级"
                 "并写进账号表。干员识别只给是否拥有、精英化、等级、潜能，这几项只能靠它补；"
                 "用户在问养成规划却发现这些字段未识别时，用它把未知补上。"
+                "`mode=full` 是全量扫描：从列表第一名开始把账号里每个人的详情页都扫一遍，"
+                "用户说「全量扫描」「把所有人的练度都扫一遍」时才用，它忽略 limit / char_ids，"
+                "可能要跑几十分钟（比 single 慢得多）。"
                 "它会占着设备一段时间（用户这期间不能做别的），所以每次都要用户确认；"
                 "提交后立刻返回，扫描在后台跑，进度可以用 get_operator_box 或账号接口查。"
                 "游戏没启动或没停在主界面时先看 task-preconditions。"
@@ -369,6 +382,7 @@ async def scan_operator_training(
     """提交一轮练度扫描。服务要设备与流水线，只能从装配里拿。"""
     service = _scan_service(context)
     return await service.submit(
+        mode=params.mode,
         limit=params.limit,
         char_ids=params.char_ids,
         include_plan_targets=params.include_plan_targets,

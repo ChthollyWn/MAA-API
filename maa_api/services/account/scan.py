@@ -37,7 +37,7 @@ import inspect
 import io
 import logging
 import math
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
@@ -96,6 +96,20 @@ DEFAULT_STARTUP_TIMEOUT_SECONDS = 180.0
 SCREEN_FACTOR = 3
 SCREEN_MARGIN = 3
 
+#: 整屏格数：8 列 × 2 行。全量扫描一屏要点开 16 张详情页（M39 规格 §4.2）。
+CARDS_PER_SCREEN = st.GRID_COLUMNS * len(st.ROW_KEYS)
+
+#: 全量扫描最多翻多少屏（跑飞保护）。真机实测**一次翻页前进几列不固定**（5/6/8 列都可能，
+#: M39 规格 §2），列表尾巴约在第 13 屏，这里留到 60 屏；翻到头会更早收尾。
+FULL_SCAN_MAX_SCREENS = 60
+
+#: 详情页左滑后画面没动时最多再试几次：连着几次都没动就当这一屏到底了（最后一个干员）。
+FULL_SWIPE_RETRIES = 2
+
+#: 全量扫描第一格「点开详情页」的重试次数：点空了后面 15 次左滑会把列表当详情页滑
+#: （真机跑飞过一次），所以点开前后比一次像素，没点开就再点一次。
+FULL_CLICK_RETRIES = 1
+
 #: ``submit`` 等第一步进队列的上限（秒）。等不到就当这一轮没开起来。
 SUBMIT_STARTED_TIMEOUT_SECONDS = 5.0
 
@@ -130,6 +144,46 @@ class TrainingScanStatus(StrEnum):
         return self is TrainingScanStatus.RUNNING
 
 
+class TrainingScanMode(StrEnum):
+    """练度扫描的两类任务（M39 规格 §2）。
+
+    - ``single``：按名单点名扫——读一屏卡名 → 点名到谁才点开谁 → 读详情 → **回列表** →
+      翻屏，直到名单扫完（M36 建成的现状）。
+    - ``full``：全量扫描——不组名单，从列表第一名开始，点开第一格后**不回列表**，一路左滑
+      把这一屏 16 张详情页全扫完，再回列表翻一页继续，直到翻不动（最后一个干员）。
+
+    全量扫描的身份只能来自「这一屏读到的卡名」×「车厢顺序」（:func:`cell_of`）：详情页
+    左下角那个大名字是美术字，OCR 读不出来（M36 规格 §4.1）。
+    """
+
+    SINGLE = "single"
+    FULL = "full"
+
+
+class _ScreenOutcome(StrEnum):
+    """全量扫描里一屏走完后的去向。"""
+
+    DONE = "done"  # 这一屏 16 张都过完了，可以回列表翻下一页
+    LAST = "last"  # 左滑划不动了：这一屏就是最后一屏，整轮收尾
+    SKIP = "skip"  # 第一格没点开详情页（画面还在列表上）：这一屏跳过，别按返回键
+
+
+def _detail_has_reading(detail: Mapping[str, Any]) -> bool:
+    """这一张详情页是不是真读到了东西（用来判断「点开」那一下到底有没有点开）。"""
+    return detail.get("skill_level") is not None or detail.get("elite") is not None
+
+
+def cell_of(index: int) -> tuple[str, int]:
+    """第 ``index`` 张详情页对应的列表格子（M39 规格 §2 的「车厢顺序」）。
+
+    真机实测：点开一屏第一格之后连续左滑，依次经过的是**列优先**顺序——上排第 1 列 →
+    下排第 1 列 → 上排第 2 列 → 下排第 2 列……所以滑第 ``i`` 次（从 0 数）看到的是
+    ``column = i // 2``、``row = top if i % 2 == 0 else bottom``。
+    """
+    rows = len(st.ROW_KEYS)
+    return st.ROW_KEYS[index % rows], index // rows
+
+
 def _title(step: str) -> str:
     """这一步的流水线标题。"""
     return f"{TASK_TITLE_PREFIX}：{step}"
@@ -149,6 +203,7 @@ def _initial_state() -> dict[str, Any]:
     """
     return {
         "status": TrainingScanStatus.IDLE.value,
+        "mode": TrainingScanMode.SINGLE.value,
         "pipeline_id": None,
         "first_pipeline_id": None,
         "started_at": None,
@@ -461,6 +516,7 @@ class TrainingScanService:
     async def submit(
         self,
         *,
+        mode: TrainingScanMode = TrainingScanMode.SINGLE,
         limit: int = DEFAULT_LIMIT,
         char_ids: Sequence[str] | None = None,
         include_plan_targets: bool = True,
@@ -469,7 +525,11 @@ class TrainingScanService:
 
         同一时刻只允许一轮（规格 §4.9）：还在跑就 ``409``。返回时已经确认**第一步**
         进了队列——回一个 ``pipeline_id`` 是空的「受理成功」没有意义。
+
+        ``mode="full"`` 是全量扫描（M39 规格 §3）：不组名单，``limit`` / ``char_ids`` /
+        ``include_plan_targets`` 都不参与，点开列表第一名之后一路左滑扫到底。
         """
+        mode = TrainingScanMode(mode)
         async with self._lock:
             if self.is_running():
                 raise AppError(
@@ -477,14 +537,23 @@ class TrainingScanService:
                     "已经有练度扫描在跑，先等它结束或取消",
                 )
 
-            resolved = await self.resolve_targets(
-                limit=limit, char_ids=char_ids, include_plan_targets=include_plan_targets
-            )
-            if not resolved["targets"]:
-                raise AppError(
-                    ErrorCode.VALIDATION_ERROR,
-                    "这一轮没有可扫的干员：精二名单是空的，先跑一次干员识别，或检查养成计划",
+            if mode is TrainingScanMode.FULL:
+                # 全量扫描没有名单：``total`` 恒为 ``None``（不知道账号里到底有多少人）。
+                resolved: dict[str, Any] = {
+                    "targets": [],
+                    "deferred": [],
+                    "unresolved": [],
+                    "total": None,
+                }
+            else:
+                resolved = await self.resolve_targets(
+                    limit=limit, char_ids=char_ids, include_plan_targets=include_plan_targets
                 )
+                if not resolved["targets"]:
+                    raise AppError(
+                        ErrorCode.VALIDATION_ERROR,
+                        "这一轮没有可扫的干员：精二名单是空的，先跑一次干员识别，或检查养成计划",
+                    )
 
             # 节点先落地再起驱动：驱动一开始就要提交第一步，节点不在内核里就白跑。
             # 幂等语义照 M29 的 ``ensure_tasks``：内容没变不重写，进程内确认过一次就不再
@@ -495,6 +564,7 @@ class TrainingScanService:
             self._state.update(
                 {
                     "status": TrainingScanStatus.RUNNING.value,
+                    "mode": mode.value,
                     "started_at": _iso(datetime.now(timezone.utc)),
                     "total": resolved["total"],
                     "targets": list(resolved["targets"]),
@@ -504,7 +574,7 @@ class TrainingScanService:
             )
             self._started = asyncio.Event()
             self._driver = asyncio.create_task(
-                self._drive(list(resolved["targets"])), name="training-scan"
+                self._drive(list(resolved["targets"]), mode), name="training-scan"
             )
 
         try:
@@ -523,15 +593,21 @@ class TrainingScanService:
         return self.submission()
 
     def snapshot(self) -> dict[str, Any]:
-        """当前状态（规格 §4.6 的 GET 形状）：计数 + 名单，明细不外露。"""
+        """当前状态（规格 §4.6 的 GET 形状）：计数 + 名单，明细不外露。
+
+        ``screens`` 是全量扫描的进度（读了几屏卡名），``total`` 在全量模式下恒为 ``None``
+        ——名单是扫描过程中一屏一屏认出来的，开跑时并不知道有多少人（M39 规格 §3）。
+        """
         state = self._state
         return {
             "status": state["status"],
+            "mode": state["mode"],
             "pipeline_id": state["pipeline_id"],
             "started_at": state["started_at"],
             "finished_at": state["finished_at"],
             "scanned": state["scanned"],
             "updated": state["updated"],
+            "screens": state["screens"],
             "skipped": len(state["skipped"]),
             "unresolved": len(state["unresolved"]),
             "mismatched": len(state["mismatched"]),
@@ -542,11 +618,16 @@ class TrainingScanService:
         }
 
     def submission(self) -> dict[str, Any]:
-        """受理结果（规格 §4.6 的 POST 形状，``pipeline_id`` 是**当前这一步**的流水线）。"""
+        """受理结果（规格 §4.6 的 POST 形状，``pipeline_id`` 是**当前这一步**的流水线）。
+
+        全量扫描那一轮没有名单（M39 §3）：``total`` 是 ``None``（不是 0），免得页面把
+        「一个人都没扫」和「没有名单」混起来。
+        """
         state = self._state
         return {
             "pipeline_id": state["pipeline_id"],
-            "total": state["total"] or 0,
+            "mode": state["mode"],
+            "total": state["total"] if state["total"] is None else (state["total"] or 0),
             "targets": [dict(entry) for entry in state["targets"]],
             "deferred": list(state["deferred"]),
             "unresolved": list(state["unresolved"]),
@@ -578,18 +659,33 @@ class TrainingScanService:
 
     # -- 驱动 --------------------------------------------------------------
 
-    async def _drive(self, targets: Sequence[Mapping[str, str]]) -> None:
+    async def _drive(
+        self,
+        targets: Sequence[Mapping[str, str]],
+        mode: TrainingScanMode = TrainingScanMode.SINGLE,
+    ) -> None:
         """一轮扫描的驱动：起手 → 进列表 → 读屏 → 逐格读详情 → 翻屏 → 收尾写记录。"""
         state = self._state
         position = 0
+        full = mode is TrainingScanMode.FULL
         try:
             await self._start_game()
             await self._enter_box()
-            position = await self._scan(targets)
+            if full:
+                await self._scan_full()
+            else:
+                position = await self._scan(targets)
             state["status"] = TrainingScanStatus.SUCCEEDED.value
-            state["message"] = f"扫完 {state['scanned']} 名干员，写入 {state['updated']} 名"
+            if full:
+                state["message"] = (
+                    f"全量扫描：读了 {state['scanned']} 张详情页，"
+                    f"写入 {state['updated']} 名，翻过 {state['screens']} 屏"
+                )
+            else:
+                state["message"] = f"扫完 {state['scanned']} 名干员，写入 {state['updated']} 名"
             logger.info(
-                "练度扫描完成：名单 %d 名，读屏 %d 次，写入 %d 名，跳过 %d 名",
+                "练度扫描完成（%s）：名单 %d 名，读屏 %d 次，写入 %d 名，跳过 %d 名",
+                mode.value,
                 len(targets),
                 state["screens"],
                 state["updated"],
@@ -694,6 +790,198 @@ class TrainingScanService:
                 )
         return position
 
+    async def _scan_full(self) -> None:
+        """全量扫描（M39 规格 §4.2）：一屏一屏扫，直到翻不动。
+
+        循环：读这一屏卡名 → 点开第一格、连续左滑扫完这一屏 16 张详情页 → 回列表 →
+        翻一页。身份＝这一屏读到的卡名 ×「车厢顺序」（:func:`cell_of`）；详情页左下角
+        那个大名字是美术字读不出来，只能靠列表卡名认人。
+
+        「什么时候收尾」由三条判据兜住（真机跑飞过一次，见 M39 台账）：① 一整屏卡名里
+        没有一个能在干员目录里对上 → 画面多半已经不是干员列表页，立刻报错收尾；② 新一屏
+        读到的名字全是老面孔 → 列表没再往前，正常收尾；③ 屏内连续左滑画面都不动 →
+        已经到最后一名干员，在 :meth:`_scan_screen` 里收尾。
+        """
+        state = self._state
+        catalog = self._catalog() or {}
+        lookup, ambiguous = _name_index(catalog)
+        seen: set[str] = set()
+        while True:
+            if state["cancel_requested"]:
+                raise _Cancelled
+            names = await self._read_box_screen()
+            state["screens"] += 1
+            if not names:
+                if state["screens"] == 1:
+                    # 第一屏一个卡名都没读出来：画面多半不是干员列表页（M37 规格 §4.4）。
+                    raise AppError(
+                        ErrorCode.CORE_COMMAND_FAILED,
+                        f"{_title('读卡名')}一个卡名都没读出来"
+                        "（画面可能不是干员列表页，先让游戏进到干员列表）",
+                    )
+                logger.info("全量扫描：第 %d 屏一个卡名都没读出来，收尾", state["screens"])
+                return
+            fresh = [name for name in names.values() if name not in seen]
+            if seen and not fresh:
+                # 翻页没让列表往前走（真机：翻到头之后画面就停住不动了），这一屏的人都见过。
+                logger.info(
+                    "全量扫描：第 %d 屏读到的名字上面都见过（列表没再往前），收尾",
+                    state["screens"],
+                )
+                return
+            if (lookup or ambiguous) and not any(
+                name in lookup or name in ambiguous for name in names.values()
+            ):
+                # 真机教训：屏内只要有一次点击没点开详情页、或者返回多退了一层，画面就会
+                # 漂到主界面；此后每屏读到的都是主界面碎片（`Lv`、`=xx`、`-----`…），
+                # 一轮能白转几十屏。整屏名字跟干员目录一个都对不上，就当画面不在列表页。
+                raise AppError(
+                    ErrorCode.CORE_COMMAND_FAILED,
+                    f"{_title('读卡名')}第 {state['screens']} 屏读到的卡名一个都对不上"
+                    "（画面可能已经不是干员列表页），这一轮先停",
+                )
+            logger.debug(
+                "全量扫描：第 %d 屏读到 %d 格，其中新面孔 %d 个",
+                state["screens"],
+                len(names),
+                len(fresh),
+            )
+            seen.update(names.values())
+            try:
+                outcome = await self._scan_screen(names, lookup, ambiguous)
+            except BaseException:
+                # 出事也要把设备留在列表页：翻页那一划只能打在干员列表上，
+                # 打在详情页上是不动的（M39 §2）。
+                await self._best_effort_back()
+                raise
+            if outcome is not _ScreenOutcome.SKIP:
+                # 第一格没点开时画面还停在列表上（SKIP），这时候按返回键会直接退出干员列表，
+                # 所以那一支不按返回，直接翻下一页。
+                await self._best_effort_back()
+            if outcome is _ScreenOutcome.LAST:
+                return
+            if state["screens"] >= FULL_SCAN_MAX_SCREENS:
+                logger.info(
+                    "全量扫描：翻到第 %d 屏（上限 %d），收尾", state["screens"], FULL_SCAN_MAX_SCREENS
+                )
+                return
+            await self._swipe_next_page()
+
+    async def _scan_screen(
+        self,
+        names: Mapping[tuple[str, int], str],
+        lookup: Mapping[str, str],
+        ambiguous: Collection[str],
+    ) -> _ScreenOutcome:
+        """这一屏的 16 张详情页：点开第一格，然后一路左滑（M39 规格 §4.2）。
+
+        **先动后记**：每次左滑都拿前后两帧比像素，画面确实换了才把这一张的读数记到
+        ``cell_of(index)`` 那个格子的卡名头上；比不出画面（拿不到截图）就报错收尾——
+        宁可少写几条读数，也不把 A 的练度写到 B 头上。
+        """
+        state = self._state
+        image: Image.Image | None = None
+        for index in range(CARDS_PER_SCREEN):
+            if state["cancel_requested"]:
+                raise _Cancelled
+            row, column = cell_of(index)
+            name = names.get((row, column))
+            if index == 0:
+                # 第一张：点开这一格（M38 起「点开」与「读详情」是同一条链）。点开前后各抓
+                # 一帧比像素、再看详情读数有没有拿到东西：两样都说「没点开」就再点一次。
+                # 点空了（这一格那会儿正好不在卡面上）后面 15 次左滑会把列表当详情页滑，
+                # 一路滑回主界面——真机就是这样跑飞过一次（M39 台账）。
+                before = await self._grab_image()
+                for attempt in range(FULL_CLICK_RETRIES + 1):
+                    if attempt:
+                        logger.info(
+                            "全量扫描：第 %d 屏第一格没点开详情页，第 %d 次重试",
+                            state["screens"],
+                            attempt,
+                        )
+                    detail = await self._detail_scan(
+                        lead=(st.click_cell_node(row, column),),
+                        title=_title(f"读第 {index + 1} 张详情页"),
+                    )
+                    image = detail.get("image")
+                    if scan_image.frame_changed(before, image) is not False or _detail_has_reading(
+                        detail
+                    ):
+                        break
+                else:
+                    # 还站在列表上：这一屏跳过（不按返回键，否则会退出干员列表）。
+                    logger.warning(
+                        "全量扫描：第 %d 屏第一格点了 %d 次都没打开详情页，这一屏跳过",
+                        state["screens"],
+                        FULL_CLICK_RETRIES + 1,
+                    )
+                    return _ScreenOutcome.SKIP
+            else:
+                changed: bool | None = None
+                for attempt in range(FULL_SWIPE_RETRIES + 1):
+                    if attempt:
+                        logger.info(
+                            "全量扫描：第 %d 张左滑后画面没动，第 %d 次重试",
+                            index + 1,
+                            attempt,
+                        )
+                    # 左滑单独一步、读详情单独一步。真机实测（M39 验收）：把两者并成一条链
+                    # 时链尾那一帧永远跟上一张比对不出变化，每张卡片都要白跑一次重试
+                    # （12 张 101 s，8.4 s/张）；拆开走第一次就成了（≈5.7 s/张）。
+                    await self._run_step(st.SWIPE_NEXT_DETAIL, title=_title("详情页左滑"))
+                    detail = await self._detail_scan(title=_title(f"读第 {index + 1} 张详情页"))
+                    fresh = detail.get("image")
+                    changed = scan_image.frame_changed(image, fresh)
+                    image = fresh
+                    if changed is not False:
+                        break
+                if changed is None:
+                    raise AppError(
+                        ErrorCode.CORE_COMMAND_FAILED,
+                        f"{_title('详情页左滑')}拿不到截图，没法确认画面换没换人，这一轮先停",
+                    )
+                if changed is False:
+                    logger.info(
+                        "全量扫描：第 %d 张左滑 %d 次画面都没动，这一屏到底了",
+                        index + 1,
+                        FULL_SWIPE_RETRIES + 1,
+                    )
+                    return _ScreenOutcome.LAST
+            state["scanned"] += 1
+            await self._record_card(index, name, lookup, ambiguous, detail)
+        return _ScreenOutcome.DONE
+
+    async def _record_card(
+        self,
+        index: int,
+        name: str | None,
+        lookup: Mapping[str, str],
+        ambiguous: Collection[str],
+        detail: Mapping[str, Any],
+    ) -> None:
+        """把一张详情页的读数写到它那一格的卡名头上（认不出人就不写）。"""
+        state = self._state
+        if not name:
+            # 这一格卡名没读出来（M36 已知的固定漏检）：认不出是谁，读数不写库。
+            logger.debug("全量扫描：第 %d 格卡名没读出来，这一张的读数不写库", index + 1)
+            return
+        if name in ambiguous:
+            state["unresolved"].append(name)
+            logger.info("全量扫描：%s 在目录里有多个形态，不猜是哪一个，读数不写库", name)
+            return
+        char_id = lookup.get(name)
+        if char_id is None:
+            state["unresolved"].append(name)
+            logger.info("全量扫描：%s 不在干员目录里（多半是新干员），读数不写库", name)
+            return
+        try:
+            await self._write_detail(char_id, name, detail)
+        except AppError as error:
+            # 单个干员写不成不打断整轮（规格 §4.9）：记下来继续滑。
+            reason = str(error.message or error)
+            state["skipped"].append({"char_id": char_id, "name": name, "reason": reason})
+            logger.warning("全量扫描：%s（%s）这一张没写成：%s", name, char_id, reason)
+
     async def _read_box_screen(self) -> dict[tuple[str, int], str]:
         """读一屏卡名 → ``{(行, 列): 干员名}``（读不出来的格不在这张表里）。"""
         readings = await self._run_chain(st.box_screen_nodes(), title=_title("读卡名"))
@@ -721,52 +1009,61 @@ class TrainingScanService:
                 lead=(st.click_cell_node(row, column),),
                 title=_title(f"读 {name} 的详情页"),
             )
-            # 精英化不写库（``apply_detail_scan`` 只收三列），但它是专精/模组的前置条件：
-            # 没到精二这两列本来就写不进去（box 会拒），索性不提交，日志也就不会把「规则
-            # 拒绝」误报成「读花了」。读数本身仍留在 detail 里（诊断用）。
-            elite = detail["elite"]
-            ready = elite is None or elite >= MIN_MASTERY_ELITE
-            if not ready:
-                logger.info(
-                    "练度扫描：%s（%s）只有精英化 %s，专精与模组按未解锁处理（不写库）",
-                    name,
-                    char_id,
-                    elite,
-                )
-            result = await self._box.apply_detail_scan(
-                char_id,
-                skill_level=detail["skill_level"],
-                # 全 0 也是读数，要写；空表只可能是没取到截图，那才当「没读到」。
-                masteries=(detail["masteries"] or None) if ready else None,
-                modules=detail["modules"] if ready else None,
-            )
-            if result is None:
-                state["mismatched"].append({"char_id": char_id, "name": name})
-                logger.info("练度扫描：%s（%s）不在账号表里，读到的不写库", name, char_id)
-                return
-            written = list(result.get("updated") or [])
-            rejected = list(result.get("skipped") or [])
-            if written:
-                state["updated"] += 1
-            if rejected:
-                logger.warning(
-                    "练度扫描：%s（%s）这几个字段读到的值越界/读花了、没写：%s",
-                    name,
-                    char_id,
-                    "、".join(rejected),
-                )
-            logger.info(
-                "练度扫描：%s（%s）%s",
-                name,
-                char_id,
-                "、".join(written) if written else "没有可写的字段",
-            )
+            await self._write_detail(char_id, name, detail)
         except AppError as error:
             reason = str(error.message or error)
             state["skipped"].append({"char_id": char_id, "name": name, "reason": reason})
             logger.warning("练度扫描：%s（%s）这一格没读成：%s", name, char_id, reason)
         finally:
             await self._best_effort_back()
+
+    async def _write_detail(self, char_id: str, name: str, detail: Mapping[str, Any]) -> None:
+        """把一张详情页的读数写进账号表（单人模式与全量模式共用）。
+
+        ``AppError`` 不在这里吞：调用方按自己的口径处理（单人模式记 ``skipped`` 继续下一格，
+        全量模式记 ``skipped`` 继续往下滑）。
+        """
+        state = self._state
+        # 精英化不写库（``apply_detail_scan`` 只收三列），但它是专精/模组的前置条件：
+        # 没到精二这两列本来就写不进去（box 会拒），索性不提交，日志也就不会把「规则
+        # 拒绝」误报成「读花了」。读数本身仍留在 detail 里（诊断用）。
+        elite = detail["elite"]
+        ready = elite is None or elite >= MIN_MASTERY_ELITE
+        if not ready:
+            logger.info(
+                "练度扫描：%s（%s）只有精英化 %s，专精与模组按未解锁处理（不写库）",
+                name,
+                char_id,
+                elite,
+            )
+        result = await self._box.apply_detail_scan(
+            char_id,
+            skill_level=detail["skill_level"],
+            # 全 0 也是读数，要写；空表只可能是没取到截图，那才当「没读到」。
+            masteries=(detail["masteries"] or None) if ready else None,
+            modules=detail["modules"] if ready else None,
+        )
+        if result is None:
+            state["mismatched"].append({"char_id": char_id, "name": name})
+            logger.info("练度扫描：%s（%s）不在账号表里，读到的不写库", name, char_id)
+            return
+        written = list(result.get("updated") or [])
+        rejected = list(result.get("skipped") or [])
+        if written:
+            state["updated"] += 1
+        if rejected:
+            logger.warning(
+                "练度扫描：%s（%s）这几个字段读到的值越界/读花了、没写：%s",
+                name,
+                char_id,
+                "、".join(rejected),
+            )
+        logger.info(
+            "练度扫描：%s（%s）%s",
+            name,
+            char_id,
+            "、".join(written) if written else "没有可写的字段",
+        )
 
     async def _detail_scan(
         self, *, lead: Sequence[str] = (), title: str | None = None
@@ -775,6 +1072,9 @@ class TrainingScanService:
 
         ``lead`` 是链首的导航节点（M38：``_scan_cell`` 把「点开这一格」并进来，链还是
         一条）；不传时只读当前这一页。
+
+        返回里带 ``image``：全量扫描靠它跟上一张比像素，确认左滑真的换人了（M39 规格
+        §4.2）。取不到截图时是 ``None``。
         """
         readings = await self._run_chain(
             st.detail_screen_nodes(*lead), title=title or _title("读详情页")
@@ -786,6 +1086,7 @@ class TrainingScanService:
             "skill_level": _skill_level(readings),
             "masteries": masteries,
             "modules": _module(readings),
+            "image": image,
         }
 
     async def _start_game(self) -> None:

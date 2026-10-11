@@ -158,8 +158,10 @@ export interface paths {
          * @description 一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。
          *
          *     - `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled`
+         *     - `mode` 是这一轮的类型（`single` 点名扫 / `full` 全量扫描），`screens` 是读了几屏卡名
          *     - `scanned` 是已点开的格数，`updated` 是真正写了库的人数（卡名认不出、库里没这行都不算）
          *     - `skipped` / `unresolved` / `mismatched` 是**计数**：卡名对不上、目录里查不到、以及读数与库里已填的值不同
+         *     - `total` 是这一轮的目标人数；`mode=full` 时恒为 `null`（跑到哪算哪）
          *     - `pipeline_id` 是当前这一步的流水线，跑完停在最后一步的 id
          *     - 没扫过时 `status` 是 `idle`，其余字段是 0 / `null`
          */
@@ -170,10 +172,11 @@ export interface paths {
          * @description 受理一轮干员详情练度扫描：逐格点开干员、读详情页、写库。
          *
          *     - 非阻塞：受理成功后立刻返回，扫描在流水线里跑，进度看 `GET /api/account/training-scan`
-         *     - 名单两个来源：账号表里精二及以上的干员、进行中养成计划的目标；合并去重后按 `char_id` 排序取前 `limit` 名，多出来的进 `deferred`（不是失败）
+         *     - `mode=single`（默认）：名单两个来源——账号表里精二及以上的干员、进行中养成计划的目标；合并去重后按 `char_id` 排序取前 `limit` 名，多出来的进 `deferred`
+         *     - `mode=full`：全量扫描，不组名单——从列表第一名开始，点开一格后不再回列表，一路左滑把这一屏所有人的详情页扫完再翻页，直到翻不动。忽略 `limit` / `char_ids` / `include_plan_targets`，`total` 恒为 `null`（跑到哪算哪，可能要几十分钟）
          *     - 名字解析不到 `char_id` 的计划目标进 `unresolved`
          *     - 同一时刻只允许一轮，还在跑时返回 409 `PIPELINE_ALREADY_RUNNING`
-         *     - 名单为空返回 422 `VALIDATION_ERROR`（先跑一次干员识别）
+         *     - `mode=single` 下名单为空返回 422 `VALIDATION_ERROR`（先跑一次干员识别）
          *     - 写库口径：读到什么写什么，没读到的不动（技能等级、专精、模组三列）
          */
         post: operations["account_start_account_training_scan"];
@@ -4045,11 +4048,28 @@ export interface components {
             tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CustomInput"] | components["schemas"]["CopilotInput"])[];
         };
         /**
+         * TrainingScanMode
+         * @description 练度扫描的两类任务（M39 规格 §2）。
+         *
+         *     - ``single``：按名单点名扫——读一屏卡名 → 点名到谁才点开谁 → 读详情 → **回列表** →
+         *       翻屏，直到名单扫完（M36 建成的现状）。
+         *     - ``full``：全量扫描——不组名单，从列表第一名开始，点开第一格后**不回列表**，一路左滑
+         *       把这一屏 16 张详情页全扫完，再回列表翻一页继续，直到翻不动（最后一个干员）。
+         *
+         *     全量扫描的身份只能来自「这一屏读到的卡名」×「车厢顺序」（:func:`cell_of`）：详情页
+         *     左下角那个大名字是美术字，OCR 读不出来（M36 规格 §4.1）。
+         * @enum {string}
+         */
+        TrainingScanMode: "single" | "full";
+        /**
          * TrainingScanRequest
          * @description 受理一轮练度扫描的请求体；整个 body 省略就是「精二名单取默认上限」。
          * @example {}
          * @example {
          *       "limit": 20
+         *     }
+         * @example {
+         *       "mode": "full"
          *     }
          * @example {
          *       "char_ids": [
@@ -4072,10 +4092,15 @@ export interface components {
             include_plan_targets: boolean;
             /**
              * Limit
-             * @description 这一轮最多扫多少名干员（默认 40）
+             * @description 这一轮最多扫多少名干员（默认 40；`mode=full` 时不用）
              * @default 40
              */
             limit: number;
+            /**
+             * @description 扫描类型：`single` 按名单点名扫（默认，受 limit 限制）；`full` 全量扫描——从列表第一名开始，点开一格后一路左滑把每屏所有人扫完，直到翻不动（忽略 limit / char_ids / include_plan_targets，可能要跑几十分钟）
+             * @default single
+             */
+            mode: components["schemas"]["TrainingScanMode"];
         };
         /** ValidationError */
         ValidationError: {

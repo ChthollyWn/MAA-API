@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import pytest
 from PIL import Image
 
+from maa_api.services.account import scan_image
 from maa_api.services.account import scan_tasks as st
 from maa_api.services.account.scan_image import mastery_levels_from_image, scale_box
 
@@ -92,3 +94,55 @@ def test_pip_positions_cover_three_slots_and_three_positions() -> None:
     assert sorted({slot for slot, _position in st.MASTER_PIP_ROIS}) == [1, 2, 3]
     assert set(st.MASTER_PIP_POSITIONS) == {"Top", "BottomRight", "BottomLeft"}
     assert len(st.MASTER_PIP_ROIS) == 9
+
+
+# ---------------------------------------------------------------------------
+# 前后两帧比像素（M39 §4.2）：详情页左滑有没有换人，只看这一条判据
+# ---------------------------------------------------------------------------
+def _solid(value: int, *, size: tuple[int, int] = (640, 360)) -> Image.Image:
+    return Image.new("L", size, value)
+
+
+def test_frame_delta_measures_the_mean_grey_difference() -> None:
+    """全黑 vs 全白：平均差 255（真机「划得动」是 24–48，「划不动」是 0.02）。"""
+    delta = scan_image.frame_delta(_solid(0), _solid(255))
+
+    assert delta == pytest.approx(255.0)
+    assert scan_image.frame_changed(_solid(0), _solid(255)) is True
+
+
+def test_an_identical_frame_counts_as_not_moved() -> None:
+    before = make_screen(lit={1: ("left",)})
+
+    assert scan_image.frame_delta(before, before.copy()) == pytest.approx(0.0)
+    assert scan_image.frame_changed(before, before.copy()) is False
+
+
+def test_noise_stays_below_the_movement_threshold() -> None:
+    """噪声级的差别（一个灰阶）不算「换人了」：阈值取 2.0，比噪声高两个数量级."""
+    before = _solid(100)
+    after = _solid(101)
+
+    assert scan_image.frame_delta(before, after) == pytest.approx(1.0)
+    assert scan_image.frame_changed(before, after) is False
+    assert scan_image.FRAME_CHANGED_MIN_DELTA == pytest.approx(2.0)
+
+
+def test_a_missing_or_mismatched_frame_is_unknown() -> None:
+    """拿不到截图、或两张尺寸不一样：回 ``None``（调用方按「没动」处理）。"""
+    screen = _solid(10)
+
+    assert scan_image.frame_delta(None, screen) is None
+    assert scan_image.frame_delta(screen, None) is None
+    assert scan_image.frame_delta(None, None) is None
+    assert scan_image.frame_delta(screen, _solid(10, size=(320, 180))) is None
+    assert scan_image.frame_changed(None, screen) is None
+    assert scan_image.frame_changed(screen, _solid(10, size=(320, 180))) is None
+
+
+def test_colour_screenshots_are_compared_in_grey() -> None:
+    """真机截图是 RGB（``get_image`` 存下来的 PNG），比的是灰度，不是某个通道."""
+    before = Image.new("RGB", (16, 16), (0, 0, 0))
+    after = Image.new("RGB", (16, 16), (255, 255, 255))
+
+    assert scan_image.frame_delta(before, after) == pytest.approx(255.0)

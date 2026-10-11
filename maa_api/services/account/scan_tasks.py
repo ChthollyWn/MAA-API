@@ -282,6 +282,8 @@ ENTER_BOX = _full("EnterBox")
 #: 返回箭头与翻到下一屏（两个导航节点，不消耗资源）。
 BACK = _full("Back")
 SWIPE_NEXT_PAGE = _full("SwipeNextPage")
+#: M39 全量扫描：详情页左滑到下一名干员（不回列表）。
+SWIPE_NEXT_DETAIL = _full("SwipeNextDetail")
 
 #: 翻屏的起点／终点（内核坐标，4 元组：起点、终点各是一块 100x100 的落点）与时长。
 #: 真机实测：干员列表是**横向翻页**的——手指从右往左划才换屏；竖着划（朝上朝下都试过，
@@ -291,6 +293,15 @@ SWIPE_NEXT_PAGE = _full("SwipeNextPage")
 SWIPE_FROM = (1080, 350, 100, 100)
 SWIPE_TO = (100, 350, 100, 100)
 SWIPE_PARAMS = [400, 1, 37, 1]
+
+#: M39：详情页左滑到下一名干员。起点必须落在**立绘**上——两侧是属性/技能面板，从那里起手
+#: 一格都不动（真机实测 mean 0.00–0.05）；起点再往右（内核 x ≥ 1100）会拖到右侧职业筛选栏上，
+#: 一划就把筛选栏拉开、列表被过滤（探针里踩过一次）。终点选 (250,400)：划完手指停在左半边，
+#: 不会碰到返回箭头，也不会碰到左下的名字美术字。
+DETAIL_SWIPE_FROM = (650, 400, 100, 100)
+DETAIL_SWIPE_TO = (250, 400, 100, 100)
+#: 换人之后画面多久稳定：真机实测 0.9 秒与 1.7 秒两帧逐像素相同，取 900 毫秒。
+DETAIL_SWIPE_POST_DELAY = 900
 
 #: 点开某一格时落点方块的大小：内核里的固定点点击都用小方块（``ClickCorner`` 是 10x10）。
 CLICK_SIZE = 10
@@ -415,6 +426,18 @@ def operator_scan_tasks() -> dict[str, dict[str, Any]]:
             # M38：1200 → 800。翻页动画比返回略长，800 是真机复核过的下限。
             "postDelay": 800,
             "doc": "列表翻到下一屏（导航；只翻页不点干员，横向从右往左划）",
+            "maxTimes": 1,
+            "next": [DONE],
+            "exceededNext": [DONE],
+        },
+        SWIPE_NEXT_DETAIL: {
+            "algorithm": "JustReturn",
+            "action": "Swipe",
+            "specificRect": list(DETAIL_SWIPE_FROM),
+            "rectMove": list(DETAIL_SWIPE_TO),
+            "specialParams": list(SWIPE_PARAMS),
+            "postDelay": DETAIL_SWIPE_POST_DELAY,
+            "doc": "详情页左滑到下一位干员（导航；起点落在立绘上，不回列表）",
             "maxTimes": 1,
             "next": [DONE],
             "exceededNext": [DONE],

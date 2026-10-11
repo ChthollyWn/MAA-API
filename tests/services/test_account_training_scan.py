@@ -29,12 +29,15 @@ from PIL import Image
 
 from maa_api.services.account.scan import TrainingScanStatus
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.account import scan as scan_module
 from maa_api.services.account import scan_image
 from maa_api.services.account import scan_tasks as st
 from maa_api.services.account.capture import OperatorMeta
 from maa_api.services.account.scan import (
+    CARDS_PER_SCREEN,
     MAX_LIMIT,
     SCREEN_MARGIN,
+    TrainingScanMode,
     TrainingScanService,
     _module,
     _name_index,
@@ -42,6 +45,7 @@ from maa_api.services.account.scan import (
     _readings,
     _screen_cap,
     _skill_level,
+    cell_of,
 )
 
 #: 干员目录替身：两套阿米娅专门用来验证「同名多形态不猜」。
@@ -286,11 +290,22 @@ class FakeCoreClient:
 
     真机读数只从实时回调里来（识别结果不进 ``log_entry``），所以替身也照这条路走：
     ``FakePipelineService`` 提交一步时 ``emit`` 这一步的回调。
+
+    :param frames: 全量扫描（M39）要「前后两帧比像素」才能确认左滑换没换人，所以这里
+        可以给一串截图，按取图次数轮着返回（每次都不一样＝画面在动）；只给 ``path``
+        时每次都是同一张，用来复现「左滑划不动」。
     """
 
-    def __init__(self, path: Path | None = None, *, error: AppError | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | None = None,
+        *,
+        error: AppError | None = None,
+        frames: Sequence[Path] | None = None,
+    ) -> None:
         self.path = path
         self.error = error
+        self.frames = list(frames or [])
         self.calls = 0
         self.handlers: dict[str, list[Any]] = {}
         self.emitted: list[Any] = []
@@ -307,6 +322,8 @@ class FakeCoreClient:
         self.calls += 1
         if self.error is not None:
             raise self.error
+        if self.frames:
+            return {"path": str(self.frames[(self.calls - 1) % len(self.frames)])}
         if self.path is None:
             return {}
         return {"path": str(self.path)}
@@ -1288,11 +1305,13 @@ def test_snapshot_shape_matches_the_spec():
 
     assert set(state) == {
         "status",
+        "mode",
         "pipeline_id",
         "started_at",
         "finished_at",
         "scanned",
         "updated",
+        "screens",
         "skipped",
         "unresolved",
         "mismatched",
@@ -1302,7 +1321,9 @@ def test_snapshot_shape_matches_the_spec():
         "deferred",
     }
     assert state["status"] == TrainingScanStatus.IDLE.value
+    assert state["mode"] == TrainingScanMode.SINGLE.value
     assert isinstance(state["scanned"], int)
+    assert isinstance(state["screens"], int)
 
 
 # ---------------------------------------------------------------------------
@@ -1432,3 +1453,372 @@ def test_the_first_screen_must_show_the_operator_list(tmp_path: Path):
         assert "SwipeNextPage" not in pipeline.short_nodes()
 
     asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# M39：全量扫描（规格 §4.2–§4.5）
+# ---------------------------------------------------------------------------
+def _full_screen_plan(
+    names: Mapping[tuple[str, int], str],
+    *,
+    screen_name: str = "screen",
+) -> list[list[dict[str, Any]]]:
+    """一屏全量扫描的脚本：读卡名 → 16 张详情页 → 回列表。
+
+    每张详情页是两条流水线（M39 真机：左滑与读详情务必分开走）；左滑那一步不产读数，
+    所以一批空回调。
+    """
+    plan = [
+        _screen_callbacks(names),  # 读这一屏卡名
+        _detail_batch(),  # 点开这一格（cell_of(0)）读第一张
+    ]
+    for _ in range(CARDS_PER_SCREEN - 1):
+        plan.append([])  # 详情页左滑（不产读数）
+        plan.append(_detail_batch())  # 读这一张
+    plan.append([])  # 回列表（Back）
+    plan.append([])  # 翻到下一屏（SwipeNextPage，同样不产读数）
+    return plan
+
+
+def _frames(tmp_path: Path, count: int = 16) -> list[Path]:
+    """一串「换人了」的详情页截图：专精圆点照画，另外每帧抹一条随帧移动的亮带。
+
+    只画圆点的话前后两帧的平均灰度差不到 1（几个小圆点占不了几个像素），
+    ``scan_image.frame_changed`` 会判成「没动」——真机换人时整张立绘都变了，
+    这条亮带就是那件事的最小替身。
+    """
+    frames: list[Path] = []
+    for index in range(count):
+        path = _detail_image(tmp_path / f"frame{index}.png", {1: 3, 2: 0, 3: 3})
+        with Image.open(path) as image:
+            pixels = image.load()
+            assert pixels is not None
+            # 亮带画在**左半边**：专精圆点在最右边（§4.6 的 ROI），别把读数盖歪了。
+            top = (index % 8) * 90
+            for x in range(0, 600):
+                for y in range(top, top + 90):
+                    pixels[x, y] = (240, 240, 240)
+            image.save(path)
+        frames.append(path)
+    return frames
+
+
+def test_full_round_walks_the_whole_screen_and_stops_at_the_end(tmp_path: Path):
+    """全量扫描：一屏 16 张详情页按「车厢顺序」扫完，翻页后没有新人就收尾（§4.2）。"""
+    frames = _frames(tmp_path)
+    pipeline = FakePipelineService(
+        [
+            [],  # EnterBox
+            *_full_screen_plan({BAGPIPE_CELL: "风笛", SILVERASH_CELL: "凛御银灰"}),
+            _screen_callbacks({BAGPIPE_CELL: "风笛", SILVERASH_CELL: "凛御银灰"}),  # 第 2 屏：老面孔
+        ]
+    )
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        accepted = await service.submit(mode="full")
+
+        # POST 形状：全量扫描没有名单，`total` 是 `null`（§3）
+        assert accepted["mode"] == "full"
+        assert accepted["total"] is None
+        assert accepted["targets"] == []
+        assert accepted["deferred"] == []
+        assert accepted["unresolved"] == []
+
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        # 点了 16 张详情页，但只有两格读出了卡名 → 只写两个人
+        assert state["scanned"] == 16
+        assert state["updated"] == 2
+        assert state["screens"] == 2  # 第二屏整屏都是老面孔 ⇒ 收尾
+        assert state["mode"] == "full"
+        assert state["total"] is None
+        assert "全量扫描" in (state["message"] or "")
+
+        # 身份＝卡名 × 车厢顺序：cell_of(3) 是下排第 2 列、cell_of(6) 是上排第 4 列
+        # （偶数格在上排、奇数格在下排：详情页左滑第 0 张＝上排第 1 格、第 1 张＝下排第 1 格）
+        assert cell_of(0) == ("top", 0)
+        assert cell_of(3) == SILVERASH_CELL
+        assert cell_of(6) == BAGPIPE_CELL
+        assert [item["char_id"] for item in box.applied] == [
+            "char_172_silverash",
+            "char_123_bagpipe",
+        ]
+        for item in box.applied:
+            assert item["skill_level"] == 7
+            assert item["masteries"] == {1: 3, 2: 0, 3: 3}
+            assert item["modules"] == {"X": 3}
+
+        # 一步步的流水线：读名 → 点开第一格 → 15 组「左滑」「读详情」→ 回列表 → 翻页 → 再读名
+        nodes = pipeline.short_nodes()
+        assert nodes[0:3] == ["StartUp", "EnterBox", "CardNameTopCol0"]
+        assert nodes[3] == "ClickTopCol0"
+        assert nodes[4:34] == ["SwipeNextDetail", "SkillLevel"] * 15
+        assert nodes[34:36] == ["Back", "SwipeNextPage"]
+        assert nodes[36] == "CardNameTopCol0"
+        assert pipeline.short_nodes().count("SwipeNextPage") == 1
+        assert pipeline.titles[3] == "练度扫描：读第 1 张详情页"
+        assert pipeline.titles[4] == "练度扫描：详情页左滑"
+        assert pipeline.titles[5] == "练度扫描：读第 2 张详情页"
+        # 一轮只写一条识别记录
+        assert len(box.records) == 1
+
+    asyncio.run(scenario())
+
+
+def test_full_round_stops_when_the_page_is_not_the_operator_list(tmp_path: Path):
+    """整屏卡名跟干员目录一个都对不上 → 画面已经跑歪，立刻失败收尾（§4.2）。
+
+    真机教训（M39 台账）：屏内只要有一次点击没点开详情页、或者返回多退了一层，画面就会
+    漂到主界面；此后每屏读到的都是主界面碎片（`Lv`、`=xx`、`-----`…），而「新面孔」判据
+    永远成立，一轮能白转几十屏（实测 26 屏、零写库）。这条护栏就是那次跑飞的产物。
+    """
+    frames = _frames(tmp_path)
+    pipeline = FakePipelineService(
+        [
+            [],
+            *_full_screen_plan({BAGPIPE_CELL: "风笛"}),
+            # 第 2 屏：主界面碎片，目录里一个都没有
+            _screen_callbacks({("top", 0): "Lv", ("top", 4): "=xx", ("bottom", 0): "-----"}),
+        ]
+    )
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.FAILED.value)
+        state = service.snapshot()
+
+        assert state["screens"] == 2  # 读到第 2 屏就认出来画面不对，不再往下翻
+        assert "对不上" in (state["message"] or "")
+        assert pipeline.short_nodes().count("SwipeNextPage") == 1
+        # 第 1 屏的读数照旧写库，第 2 屏的碎片一个都不写
+        assert [item["char_id"] for item in box.applied] == ["char_123_bagpipe"]
+        assert state["unresolved"] == 0
+
+    asyncio.run(scenario())
+
+
+def test_full_round_skips_a_screen_that_never_opens_a_detail_page(tmp_path: Path):
+    """第一格点不开详情页 → 这一屏跳过，而且**不按返回键**（按了就退出干员列表了）。
+
+    真机教训（M39 台账）：点空一次之后，后面 15 次左滑会把**列表**当详情页滑，最后那次
+    返回直接退回主界面，整轮从第 7 屏起空转到第 33 屏。所以这里点开前后比像素、再看详情
+    读数有没有东西，两样都说「没点开」就重试一次，再不行就跳过这一屏继续翻页。
+    """
+    still = _detail_image(tmp_path / "still.png", {1: 3, 2: 0, 3: 3})
+    pipeline = FakePipelineService(
+        [
+            [],
+            _screen_callbacks({("top", 0): "风笛"}),
+            [],  # 点开第一格：详情链一条读数都没有（点空了）
+            [],  # 重试一次，还是没点开
+            [],  # 翻到下一屏（跳过的那一屏不按返回，所以这里没有 Back）
+            _screen_callbacks({("top", 0): "风笛"}),  # 第 2 屏：老面孔 ⇒ 收尾
+        ]
+    )
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(path=still),
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        assert state["screens"] == 2
+        assert state["scanned"] == 0  # 这一屏一张都没读成
+        assert box.applied == []
+        nodes = pipeline.short_nodes()
+        assert nodes.count("ClickTopCol0") == 2  # 点了两次（第一次 + 重试）
+        assert nodes.count("SwipeNextDetail") == 0  # 没点开就别往下滑
+        assert "Back" not in nodes  # 跳过这一屏时不能按返回键
+        assert "SwipeNextPage" in nodes  # 照常翻下一页
+
+    asyncio.run(scenario())
+
+
+def test_full_round_stops_when_the_carousel_does_not_move(tmp_path: Path):
+    """左滑划不动＝这一屏到底了：重试几次还是没动就收尾，别把读数记到错的人头上（§4.2）。"""
+    image = _detail_image(tmp_path / "still.png", {1: 3, 2: 0, 3: 3})
+    pipeline = FakePipelineService(
+        [
+            [],
+            _screen_callbacks({("top", 0): "风笛"}),
+            _detail_batch(),  # 点开第一格
+            *([[], _detail_batch()] * 3),  # 三次「左滑 + 读详情」都划不动
+            [],  # 回列表（Back）
+        ]
+    )
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(image),  # 每次取图都是同一张 ⇒ 画面没动
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        # 第 1 张（上排第 1 格＝风笛）照常写；第 2 张开始左滑划不动，重试 2 次后收尾
+        assert state["scanned"] == 1
+        assert state["updated"] == 1
+        assert [item["char_id"] for item in box.applied] == ["char_123_bagpipe"]
+        assert state["screens"] == 1
+        nodes = pipeline.short_nodes()
+        assert nodes[3] == "ClickTopCol0"
+        # 每张卡片都是「左滑一条流水线 + 读详情一条流水线」（M39 真机：并成一条链时
+        # 链尾那一帧永远比不出变化）；划不动时照常重试两次，一共 3 组
+        assert nodes[4:10] == ["SwipeNextDetail", "SkillLevel"] * 3
+        # 划不动也要把设备带回列表（不然设备停在详情页）
+        assert nodes[10] == "Back"
+        assert "SwipeNextPage" not in nodes
+
+    asyncio.run(scenario())
+
+
+def test_full_round_counts_unreadable_and_unknown_cards(tmp_path: Path):
+    """卡名读不出来、目录里查不到、同名多形态：都不写库，记进各自的计数（§4.5）。"""
+    frames = _frames(tmp_path)
+    pipeline = FakePipelineService(
+        [
+            [],
+            *_full_screen_plan(
+                {
+                    ("top", 0): "查无此人",  # 不在干员目录里
+                    ("top", 1): "阿米娅",  # 目录里有两个形态 → 不猜
+                    ("top", 2): "风笛",  # 正常
+                }
+            ),
+            _screen_callbacks({("top", 0): "查无此人"}),
+        ]
+    )
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        assert state["scanned"] == 16
+        assert state["updated"] == 1
+        assert state["unresolved"] == 2  # 「查无此人」+「阿米娅」
+        assert [item["char_id"] for item in box.applied] == ["char_123_bagpipe"]
+
+    asyncio.run(scenario())
+
+
+def test_full_round_stops_at_the_screen_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """屏数上限是跑飞保护：到了就收尾，不再翻（§4.2）。"""
+    monkeypatch.setattr(scan_module, "FULL_SCAN_MAX_SCREENS", 1)
+    frames = _frames(tmp_path)
+    pipeline = FakePipelineService([[], *_full_screen_plan({BAGPIPE_CELL: "风笛"})])
+    service = _service(
+        pipeline=pipeline,
+        box=FakeBox(),
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        assert state["screens"] == 1
+        assert state["scanned"] == 16
+        assert "SwipeNextPage" not in pipeline.short_nodes()
+
+    asyncio.run(scenario())
+
+
+def test_full_mode_does_not_need_a_roster(tmp_path: Path):
+    """全量扫描不组名单：账号表空着也照样受理（点名扫会回 422，§4.3）。"""
+    frames = _frames(tmp_path)
+    pipeline = FakePipelineService([[], _screen_callbacks({}), _screen_callbacks({})])
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        plans=FakePlans(),
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        accepted = await service.submit(mode="full")
+
+        assert accepted["total"] is None
+        assert accepted["targets"] == []
+        assert service.snapshot()["mode"] == "full"
+
+        # 第一屏一个卡名都没读出来 → 与点名扫一样的快速失败
+        await _wait_status(service, TrainingScanStatus.FAILED.value)
+        assert "一个卡名都没读出来" in (service.snapshot()["message"] or "")
+
+    asyncio.run(scenario())
+
+
+def test_full_mode_rejects_an_unknown_mode():
+    """`mode` 只认 `single`/`full`，别的值当场报错，不当成 single 静默跑。"""
+    service = _service()
+
+    async def scenario() -> None:
+        with pytest.raises(ValueError):
+            await service.submit(mode="all")
+
+    asyncio.run(scenario())
+
+
+def test_the_detail_swipe_node_starts_on_the_illustration():
+    """详情页左滑的起手必须落在立绘上（M39 §2 的真机结论）。
+
+    起手落在左侧属性面板、或落在右侧技能/模组面板上，这一划纹丝不动（五组变体平均灰度差
+    0.00–0.05）；只有从立绘中间往左划才换人（``(650,400) → (250,400)``，mean 24–48）。
+    起手点还要避开屏幕最右侧的**职业筛选栏**（内核 x ≥ 1100 那一条）——M39 探针把它拖开过
+    一次，列表被过滤、栅格整体左移，卡名只能读到碎片。
+    """
+    payload = st.operator_scan_tasks()
+    node = payload[st.SWIPE_NEXT_DETAIL]
+
+    assert node["algorithm"] == "JustReturn"
+    assert node["action"] == "Swipe"
+    assert node["specificRect"] == list(st.DETAIL_SWIPE_FROM)
+    assert node["rectMove"] == list(st.DETAIL_SWIPE_TO)
+    assert node["specialParams"] == list(st.SWIPE_PARAMS)
+    assert node["postDelay"] == st.DETAIL_SWIPE_POST_DELAY
+    assert node["maxTimes"] == 1
+    assert node["next"] == [st.DONE]
+    assert node["exceededNext"] == [st.DONE]
+
+    # 起手与落点都在立绘区（内核 1280 基准）：左边不碰属性面板、右边不碰技能/筛选栏
+    start_x, start_y = st.DETAIL_SWIPE_FROM[0], st.DETAIL_SWIPE_FROM[1]
+    end_x = st.DETAIL_SWIPE_TO[0]
+    assert 200 < start_x < 900 and end_x < start_x
+    assert 200 < start_y < 600

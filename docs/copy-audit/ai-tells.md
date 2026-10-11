@@ -1,35 +1,36 @@
 # AI 腔规则命中：用户可见文案
 
-总计 12457 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12573 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 168 | 319 | 487 |
-| 破折号当冒号用 | high | 37 | 116 | 153 |
+| 粗体强调 | medium | 168 | 326 | 494 |
+| 破折号当冒号用 | high | 39 | 125 | 164 |
 | 「A 而不是 B」对照腔 | high | 15 | 82 | 97 |
 | 绝对化规定腔 | medium | 12 | 64 | 76 |
 | 自指式讲解腔 | medium | 1 | 35 | 36 |
 | 「…即可」机器腔 | medium | 9 | 19 | 28 |
 | 「不是…而是…」对照句 | high | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 2 | 1 | 3 |
+| 感叹号 | low | 0 | 2 | 2 |
 | 宣传词 | medium | 0 | 2 | 2 |
 | 「首先…其次…」罗列腔 | high | 1 | 0 | 1 |
-| 感叹号 | low | 0 | 1 | 1 |
+| 省略号 | medium | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 168 / 开发向 319）
+## 粗体强调（medium｜用户可见 168 / 开发向 326）
 
 **用户可见**
 
 - `web/src/features/settings/ChannelEditor.tsx:48` 保持 *** 不变即沿用已保存的凭据
 - `maa_api/agent/knowledge/__init__.py:598` PUT 的入参：**完整的生效内容**，不是「本次改动的列」。 调用方读详情、改字段、整份写回，服务层再算哪些列与内置不同。
-- `maa_api/agent/tools/account.py:167` 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、精英化、等…（共 274 字）
+- `maa_api/agent/tools/account.py:177` 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、精英化、等…（共 274 字）
 - `maa_api/agent/tools/interaction.py:43` ``ask_user`` 的参数（规格 §3.1）。 上限（2–6 个选项、选项 80 字、问题 500 字）是**卡片渲染**的约束：一屏放得下的 选项才叫选择题，超出的部分应改成多轮提问或正文询问。
-- `maa_api/api/routers/account.py:72` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
-- `maa_api/api/routers/account.py:127` 干员行：docs/05 §6.20 的字段清单，与单条读取同形。 练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` / ``module…（共 409 字）
-- `maa_api/api/routers/account.py:577` 一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。 - `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled` - `scanned` 是已点开的…（共 317 字）
-- `maa_api/api/routers/account.py:597` 取消正在跑的扫描，返回取消后的状态。 - 已经读到的干员保留（读数早写库了），停止发生在**步与步之间** - 当前这一步的收尾照跑：不会把设备丢在详情页 - 没有在跑时是空操作，原样返回当前状态（不报错）
+- `maa_api/api/routers/account.py:73` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
+- `maa_api/api/routers/account.py:128` 干员行：docs/05 §6.20 的字段清单，与单条读取同形。 练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` / ``module…（共 409 字）
+- `maa_api/api/routers/account.py:592` 一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。 - `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled` - `mode` 是这一轮的类型（…（共 430 字）
+- `maa_api/api/routers/account.py:615` 取消正在跑的扫描，返回取消后的状态。 - 已经读到的干员保留（读数早写库了），停止发生在**步与步之间** - 当前这一步的收尾照跑：不会把设备丢在详情页 - 没有在跑时是空操作，原样返回当前状态（不报错）
 - …… 另有 160 条，见 inventory.json
 
 **开发向**
@@ -42,21 +43,21 @@
 - `maa_api/agent/knowledge/__init__.py:879` 拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。 段落顺序：索引 → **当期活动**（M24）→ **当期卡池**（M28）→ **账号数据**（M27） → 术语表全文 → 用户档案全文；三段实时数据（活动…（共 241 字）
 - `maa_api/agent/knowledge/convergence.py:1` M30 T3：删除内置条目后，把幸存下来的用户覆盖行迁移成自定义条目。 为什么需要冻结 ``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL，读的时候 继承内置值（见 :mod:`maa_api.ag…（共 1075 字）
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
-- …… 另有 311 条，见 inventory.json
+- …… 另有 318 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 37 / 开发向 116）
+## 破折号当冒号用（high｜用户可见 39 / 开发向 125）
 
 **用户可见**
 
 - `web/src/features/agent/ConfirmationCard.tsx:176` ${name}${missing === null ? '' : `：缺 ${missing}`}${counts.length ? `（${counts.join('，')}）` : ''}${tail.length ? `——${tai…（共 139 字）
 - `web/src/features/agent/ConfirmationCard.tsx:176` ——${tail.join('；')}
-- `maa_api/api/routers/account.py:72` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
+- `maa_api/api/routers/account.py:73` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
+- `maa_api/api/routers/account.py:528` 扫描类型：`single` 按名单点名扫（默认，受 limit 限制）；`full` 全量扫描——从列表第一名开始，点开一格后一路左滑把每屏所有人扫完，直到翻不动（忽略 limit / char_ids / include_plan_tar…（共 134 字）
+- `maa_api/api/routers/account.py:551` 受理一轮干员详情练度扫描：逐格点开干员、读详情页、写库。 - 非阻塞：受理成功后立刻返回，扫描在流水线里跑，进度看 `GET /api/account/training-scan` - `mode=single`（默认）：名单两个来源——账…（共 527 字）
 - `maa_api/api/routers/confirmations.py:19` ``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。 尝试次数、成功标准与是否允许助战都能在卡片上改；有效期只展示，**不在**这里。 键名与取值域与 ``services/copilot/grant…（共 254 字）
 - `maa_api/db/models.py:845` Web Push 订阅（M14，docs/09 §13.1）。 ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一 Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新…（共 281 字）
 - `maa_api/domain/task.py:825` 无限刷肉鸽（集成战略）。 主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError`` （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PA…（共 291 字）
-- `maa_api/settings.py:170` ``config.yaml`` 的 ``core`` 段：内核进程级旋钮（M38，docs/13 §8.53）。 ``task_delay`` 是 MaaCore 的识别间隔：每个识别节点结束后等这么久再试下一个。 内核自带 500 ms，…（共 226 字）
-- `maa_api/agent/knowledge/builtin/activity-stage-codes.md:12` **代号**是选关界面上写的那个，形如 `XX-01`、`XX-EX-3`。同一期活动里的代号连编号都不重复，但**跨期次会重名**——同一个代号在不同期活动里指向不同的关。
-- …… 另有 29 条，见 inventory.json
+- …… 另有 31 条，见 inventory.json
 
 **开发向**
 
@@ -68,14 +69,14 @@
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
 - `maa_api/agent/policy.py:379` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/policy.py:625` 要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。 只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的 ``warnings`` 提醒，策略层不制造新的确…（共 164 字）
-- …… 另有 108 条，见 inventory.json
+- …… 另有 117 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 15 / 开发向 82）
 
 **用户可见**
 
 - `web/src/features/tasks/editor/FieldEditor.tsx:252` 提交空值（null），而不是使用默认。
-- `maa_api/agent/tools/account.py:232` 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。练度里未识别的维度不会算成增量，返回的 unknowns 列着这些缺口，要如…（共 133 字）
+- `maa_api/agent/tools/account.py:242` 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。练度里未识别的维度不会算成增量，返回的 unknowns 列着这些缺口，要如…（共 133 字）
 - `maa_api/db/models.py:639` 人工确认；payload 存待执行动作的完整参数而不是引用（docs/04 §5.10）。
 - `maa_api/db/models.py:845` Web Push 订阅（M14，docs/09 §13.1）。 ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一 Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新…（共 281 字）
 - `maa_api/db/models.py:921` Agent 主动提问：与 ``confirmation`` **并列**的一等交互（M21 规格 §3.2）。 刻意不复用 ``confirmation`` 表，也不给它加 ``question`` 分支：确认是「授权一次 有风险的操作」（…（共 496 字）
@@ -185,6 +186,13 @@
 
 - `maa_api/model/core/callback_handler.py:156` {sub_details.get('stars', '')}⭐通关{sub_details.get('stage', {}).get('stageCode', '')} 掉落统计: {drop_statistics}
 
+## 感叹号（low｜用户可见 0 / 开发向 2）
+
+**开发向**
+
+- `maa_api/agent/runtime.py:2226` 。.!！?？,，;；:：
+- `scripts/probe_full_scan.py:265` [probe] 滑 {swipes} 次再返回：列表卡名{'与滑动前一致（位置保持）' if same else '变了！'}
+
 ## 宣传词（medium｜用户可见 0 / 开发向 2）
 
 **开发向**
@@ -198,11 +206,11 @@
 
 - `maa_api/agent/runtime.py:194` 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不…（共 2403 字）
 
-## 感叹号（low｜用户可见 0 / 开发向 1）
+## 省略号（medium｜用户可见 0 / 开发向 1）
 
 **开发向**
 
-- `maa_api/agent/runtime.py:2226` 。.!！?？,，;；:：
+- `maa_api/services/account/scan.py:177` 第 ``index`` 张详情页对应的列表格子（M39 规格 §2 的「车厢顺序」）。 真机实测：点开一屏第一格之后连续左滑，依次经过的是**列优先**顺序——上排第 1 列 → 下排第 1 列 → 上排第 2 列 → 下排第 2 列……所…（共 203 字）
 
 ## 提示腔（medium｜用户可见 0 / 开发向 1）
 
