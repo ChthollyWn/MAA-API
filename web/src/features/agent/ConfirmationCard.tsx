@@ -44,6 +44,7 @@ const ACCOUNT_TOOL_TITLES: Record<string, string> = {
   update_operator_box: '修改账号干员数据',
   start_upgrade_plan: '启动养成计划',
   update_user_profile: '修改用户档案',
+  scan_operator_training: '扫描干员练度',
 }
 
 /** 账号数据类动作的判定：确认卡片与「需要人工确认」面板据此走结构化明细而不是 JSON 展开。 */

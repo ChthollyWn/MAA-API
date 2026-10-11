@@ -31,6 +31,11 @@ describe('toolLabel', () => {
     expect(toolLabel('some_future_tool')).toBeUndefined()
   })
 
+  it('names the two M36 training-scan tools in Chinese', () => {
+    expect(toolLabel('scan_operator_training')).toBe('扫描练度')
+    expect(toolLabel('cancel_training_scan')).toBe('停止练度扫描')
+  })
+
   it('names the five media tools M23 added in Chinese', () => {
     expect(toolLabel('send_screenshot')).toBe('发送截图')
     expect(toolLabel('annotate_screenshot')).toBe('圈选截图')

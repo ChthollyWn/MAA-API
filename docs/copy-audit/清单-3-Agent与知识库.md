@@ -1,8 +1,8 @@
 # Agent 与知识库
 
-共 1154 条。
+共 1161 条。
 
-## knowledge（895）
+## knowledge（896）
 
 
 **maa_api/agent/knowledge/builtin/account-resources.md**
@@ -600,29 +600,30 @@
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:13` [md-line] 用户说不清当前状态时，让他按 screen-operator 打开干员详情页，用 get_screenshot 读画面（干员详情页有等级、精英阶段、潜能、技能、天赋、信赖等信息），不要凭猜。
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:14` [md-line] 干员名先和用户对齐（俗称、别名多，模糊时追问）。
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:15` [md-line] 账号数据里练度列可能是 `null`，那是**未识别**：内核的干员识别只认得是否拥有、精英化、等级与潜能，技能等级、专精、模组只有人（页面或 Agent）补录过才有值。看到 `null` 别说成「技能没升过」「没有专精」，按 `screen-operator` 读画面或让用户补录后再算。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:17` [md-line] 第 2 步：用工具算出所需材料
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:18` [md-line] **本服务有查干员升阶材料的工具，不要再说「没有这个工具」、也不要让用户自己报清单**：
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:19` [md-line] `get_operator("<干员名>", sections=["costs", "potentials"])`：`costs` 给出该干员精英化各阶段的材料与龙门币清单，`potentials` 给出潜能各等级效果（潜能不涉及材料，但用户常一起问）。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:20` [md-line] `plan_upgrade`：把「目标干员 + 目标阶段 + 当前练度」交给它，返回一份养成规划建议（只计算、不提交任务），包含要准备哪些材料与目标关卡。返回里的 `unknowns` 列出「哪个干员的哪个练度维度未识别」，这些维度**不会**被算成增量（也不会按默认值兜底）——先按第 1 步补齐，或把缺口原样告诉用户…（共 170 字）
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:21` [md-line] `get_depot`：核对仓库现有材料，算出「还缺多少」，别把已经够的材料算进刷图计划。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:24` [md-line] 第 3 步：说清去哪刷，优先用真实数据
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:25` [md-line] 先 `get_operator(..., sections=["costs"])` + `plan_upgrade` 拿到材料清单与目标关卡，再逐项定图，不要凭记忆报「某材料最优图」。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:26` [md-line] 某材料具体刷哪张图：`get_drop_rates(item="<材料名>")` 给按 `rate` 排序的关卡列表（行里有 `ap_cost` 与 `sanity_per_item`，可直接比性价比）；它默认只看当前开放的关卡，查已关闭的活动图要传 `include_closed=True`。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:27` [md-line] 本账号实际记录：`get_drop_stats`（`stage="<关卡代号>"`）只看本服务打过的次数与掉落数量；`runs` 为 0 就说明本机没刷过这关，**不要拿它当掉率**，改用 `get_drop_rates` 或让用户给数据。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:28` [md-line] 龙门币、经验（作战记录）、技巧概要、采购凭证（换芯片助剂与模组数据块）、芯片等分别在哪张图刷、今天开不开放：`get_prts_page(title="关卡一览/资源收集")` 会列出每张图的开放星期与固有掉落，用它现查，不要硬编开放日。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:29` [md-line] 关卡代号先用 resolve_stage 确认（支持 code 与 stageId 互查），再进 drop 查询。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:30` [md-line] 版本会调整关卡与开放日，不确定时以游戏内当日开放为准。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:32` [md-line] 第 4 步：帮他把材料刷出来
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:33` [md-line] 提交流水线：submit_pipeline，任务数组通常是 [{"name": "StartUp", "start_game_enabled": true}, {"name": "Fight", "stage": "<关卡>", "series": 0}]。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:34` [md-line] `stage` 支持主线关卡、资源关、剿灭写作 `Annihilation`、活动关要写完整编号；想在标准/磨难之间切换时在关卡名后加 `Normal`/`Hard`（如 `CE-6Hard`）。`stage` 不能在一个运行中的流水线里改。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:35` [md-line] 控制次数与消耗：`times` 限制战斗次数；`series` 是连战次数（`0` = 自动取当前理智可用的最大次数，`-1` = 禁用连战）；要吃药或碎石时填 `medicine` / `stone`，这两个会触发人工确认，必须先向用户说清会消耗什么、得到确认再提交。`expiring_medicine` 已弃用，不…（共 163 字）
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:36` [md-line] 提交后用 wait_pipeline 等结束；失败或被取消时说明原因并停下，不要改用原子点击硬闯。要看进度可以 get_queue 或 get_pipeline。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:37` [md-line] 不确定任务类型或参数时用 list_task_types 查，本服务的任务类型只有 StartUp、CloseDown、Fight、Recruit、Infrast、Mall、Award、Roguelike、Reclamation、Copilot（外加自定义任务），不要编不存在的任务名。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:39` [md-line] 第 5 步：收尾提醒
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:40` [md-line] 龙门币与芯片本都要按开放日排期，一次别只盯一个材料；缺理智时如实报需要的理智量（`get_stage` 的 `sanity` × 次数），自然恢复速度见 `get_prts_page(title="理智")`。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:41` [md-line] 提醒精二之后等级回到 1 级（正常）、精二后还要花大量经验与龙门币才能拉满，性价比不一定高。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:42` [md-line] 专精和模组要占基建训练室、要等真实时间，别指望一次刷完。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:43` [md-line] 汇报时写清：目标阶段、缺什么材料、建议刷哪关（含今天是否开放）、预计理智、需要用户确认的消耗项。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:16` [md-line] 要一次补齐多个干员的技能等级、专精与模组，用 `scan_operator_training` 跑一轮练度扫描：它逐个点开详情页读数并写进账号表，账号里练度大面积未识别时先提议扫一遍。扫描占着设备一段时间（这期间不能做别的），提交前跟用户说清、等他确认；用户说停就 `cancel_training_scan`，已经读到…（共 167 字）
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:18` [md-line] 第 2 步：用工具算出所需材料
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:19` [md-line] **本服务有查干员升阶材料的工具，不要再说「没有这个工具」、也不要让用户自己报清单**：
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:20` [md-line] `get_operator("<干员名>", sections=["costs", "potentials"])`：`costs` 给出该干员精英化各阶段的材料与龙门币清单，`potentials` 给出潜能各等级效果（潜能不涉及材料，但用户常一起问）。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:21` [md-line] `plan_upgrade`：把「目标干员 + 目标阶段 + 当前练度」交给它，返回一份养成规划建议（只计算、不提交任务），包含要准备哪些材料与目标关卡。返回里的 `unknowns` 列出「哪个干员的哪个练度维度未识别」，这些维度**不会**被算成增量（也不会按默认值兜底）——先按第 1 步补齐，或把缺口原样告诉用户…（共 204 字）
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:22` [md-line] `get_depot`：核对仓库现有材料，算出「还缺多少」，别把已经够的材料算进刷图计划。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:25` [md-line] 第 3 步：说清去哪刷，优先用真实数据
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:26` [md-line] 先 `get_operator(..., sections=["costs"])` + `plan_upgrade` 拿到材料清单与目标关卡，再逐项定图，不要凭记忆报「某材料最优图」。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:27` [md-line] 某材料具体刷哪张图：`get_drop_rates(item="<材料名>")` 给按 `rate` 排序的关卡列表（行里有 `ap_cost` 与 `sanity_per_item`，可直接比性价比）；它默认只看当前开放的关卡，查已关闭的活动图要传 `include_closed=True`。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:28` [md-line] 本账号实际记录：`get_drop_stats`（`stage="<关卡代号>"`）只看本服务打过的次数与掉落数量；`runs` 为 0 就说明本机没刷过这关，**不要拿它当掉率**，改用 `get_drop_rates` 或让用户给数据。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:29` [md-line] 龙门币、经验（作战记录）、技巧概要、采购凭证（换芯片助剂与模组数据块）、芯片等分别在哪张图刷、今天开不开放：`get_prts_page(title="关卡一览/资源收集")` 会列出每张图的开放星期与固有掉落，用它现查，不要硬编开放日。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:30` [md-line] 关卡代号先用 resolve_stage 确认（支持 code 与 stageId 互查），再进 drop 查询。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:31` [md-line] 版本会调整关卡与开放日，不确定时以游戏内当日开放为准。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:33` [md-line] 第 4 步：帮他把材料刷出来
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:34` [md-line] 提交流水线：submit_pipeline，任务数组通常是 [{"name": "StartUp", "start_game_enabled": true}, {"name": "Fight", "stage": "<关卡>", "series": 0}]。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:35` [md-line] `stage` 支持主线关卡、资源关、剿灭写作 `Annihilation`、活动关要写完整编号；想在标准/磨难之间切换时在关卡名后加 `Normal`/`Hard`（如 `CE-6Hard`）。`stage` 不能在一个运行中的流水线里改。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:36` [md-line] 控制次数与消耗：`times` 限制战斗次数；`series` 是连战次数（`0` = 自动取当前理智可用的最大次数，`-1` = 禁用连战）；要吃药或碎石时填 `medicine` / `stone`，这两个会触发人工确认，必须先向用户说清会消耗什么、得到确认再提交。`expiring_medicine` 已弃用，不…（共 163 字）
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:37` [md-line] 提交后用 wait_pipeline 等结束；失败或被取消时说明原因并停下，不要改用原子点击硬闯。要看进度可以 get_queue 或 get_pipeline。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:38` [md-line] 不确定任务类型或参数时用 list_task_types 查，本服务的任务类型只有 StartUp、CloseDown、Fight、Recruit、Infrast、Mall、Award、Roguelike、Reclamation、Copilot（外加自定义任务），不要编不存在的任务名。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:40` [md-line] 第 5 步：收尾提醒
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:41` [md-line] 龙门币与芯片本都要按开放日排期，一次别只盯一个材料；缺理智时如实报需要的理智量（`get_stage` 的 `sanity` × 次数），自然恢复速度见 `get_prts_page(title="理智")`。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:42` [md-line] 提醒精二之后等级回到 1 级（正常）、精二后还要花大量经验与龙门币才能拉满，性价比不一定高。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:43` [md-line] 专精和模组要占基建训练室、要等真实时间，别指望一次刷完。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:44` [md-line] 汇报时写清：目标阶段、缺什么材料、建议刷哪关（含今天是否开放）、预计理智、需要用户确认的消耗项。
 
 **maa_api/agent/knowledge/builtin/playbook-recruit.md**
 
@@ -999,7 +1000,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:21` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:22` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（259）
+## agent（265）
 
 
 **maa_api/agent/confirmation.py**
@@ -1109,23 +1110,27 @@
 **maa_api/agent/policy.py**
 
 - `maa_api/agent/policy.py:32` [const] set_task_params 无法确定运行中任务的类型与现有参数，按保守策略要求确认
-- `maa_api/agent/policy.py:67` [const] 与现有定时任务争抢理智：
-- `maa_api/agent/policy.py:92` [literal] {CONFLICT_REASON_PREFIX}{'、'.join(labels)}
-- `maa_api/agent/policy.py:193` [literal] {name} 属于需确认的高风险操作
-- `maa_api/agent/policy.py:201` [literal] {name} 尚未配置参数风险规则
-- `maa_api/agent/policy.py:241` [literal] 执行作业尝试需要授权：{payload['attempts']} 次以内
-- `maa_api/agent/policy.py:282` [literal] 修改账号干员数据：{count} 项改动
-- `maa_api/agent/policy.py:287` [literal] 修改账号干员数据：{count} 项改动
-- `maa_api/agent/policy.py:294` [literal] 追加
-- `maa_api/agent/policy.py:294` [literal] 替换
-- `maa_api/agent/policy.py:295` [const] 更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字
-- `maa_api/agent/policy.py:312` [literal] 、
-- `maa_api/agent/policy.py:313` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
-- `maa_api/agent/policy.py:315` [literal] ，每日 {schedule}
-- `maa_api/agent/policy.py:340` [literal] {name} 需要人工确认
-- `maa_api/agent/policy.py:373` [literal] 计划预演返回的不是映射：{type(preview).__name__}
-- `maa_api/agent/policy.py:417` [literal] 当前会话尚未获得有效的原子操作授权
-- `maa_api/agent/policy.py:552` [literal] {name} 是绕过内核识别与容错的原子操作
+- `maa_api/agent/policy.py:73` [const] 与现有定时任务争抢理智：
+- `maa_api/agent/policy.py:98` [literal] {CONFLICT_REASON_PREFIX}{'、'.join(labels)}
+- `maa_api/agent/policy.py:199` [literal] {name} 属于需确认的高风险操作
+- `maa_api/agent/policy.py:207` [literal] {name} 尚未配置参数风险规则
+- `maa_api/agent/policy.py:247` [literal] 执行作业尝试需要授权：{payload['attempts']} 次以内
+- `maa_api/agent/policy.py:288` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:293` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:300` [literal] 追加
+- `maa_api/agent/policy.py:300` [literal] 替换
+- `maa_api/agent/policy.py:301` [const] 更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字
+- `maa_api/agent/policy.py:318` [literal] 、
+- `maa_api/agent/policy.py:319` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
+- `maa_api/agent/policy.py:321` [literal] ，每日 {schedule}
+- `maa_api/agent/policy.py:349` [const] 扫描干员练度：最多 {limit} 位
+- `maa_api/agent/policy.py:351` [literal] ，名单已指定 {named} 位
+- `maa_api/agent/policy.py:353` [literal] ，含养成计划里的目标
+- `maa_api/agent/policy.py:359` [literal] 扫描期间设备被占用，读到的技能等级、专精与模组会写进账号表
+- `maa_api/agent/policy.py:372` [literal] {name} 需要人工确认
+- `maa_api/agent/policy.py:405` [literal] 计划预演返回的不是映射：{type(preview).__name__}
+- `maa_api/agent/policy.py:449` [literal] 当前会话尚未获得有效的原子操作授权
+- `maa_api/agent/policy.py:584` [literal] {name} 是绕过内核识别与容错的原子操作
 
 **maa_api/agent/preconditions.py**
 
@@ -1199,13 +1204,15 @@
 
 **maa_api/agent/tools/account.py**
 
-- `maa_api/agent/tools/account.py:143` [literal] 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、精英化、等级、潜能），别说成没升过技能或没有专精，用 update_operator_bo…（共 274 字）
-- `maa_api/agent/tools/account.py:162` [literal] 查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；仓库数据缺失或过期时返回 suggest_recognition；识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。
-- `maa_api/agent/tools/account.py:177` [literal] 修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。技能等级、专精、模组识别不出来，只能靠它补录；用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。
-- `maa_api/agent/tools/account.py:192` [literal] 算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。当前练度里未识别的维度不会被算成增量（也不按默认值兜底）：返回的 unknowns 列出这些缺口，先补录或如实告诉用户，不要替用户假定。
-- `maa_api/agent/tools/account.py:208` [literal] 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。练度里未识别的维度不会算成增量，返回的 unknowns 列着这些缺口，要如实告诉用户而不是替他假定。
-- `maa_api/agent/tools/account.py:223` [literal] 查养成计划的进度：目标、还缺什么、定时任务 id 与状态。
-- `maa_api/agent/tools/account.py:234` [literal] 停止一个养成计划，并删除它对应的每日定时任务。
+- `maa_api/agent/tools/account.py:167` [literal] 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、精英化、等级、潜能），别说成没升过技能或没有专精，用 update_operator_bo…（共 274 字）
+- `maa_api/agent/tools/account.py:186` [literal] 查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；仓库数据缺失或过期时返回 suggest_recognition；识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。
+- `maa_api/agent/tools/account.py:201` [literal] 修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。技能等级、专精、模组识别不出来，只能靠它补录；用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。
+- `maa_api/agent/tools/account.py:216` [literal] 算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。当前练度里未识别的维度不会被算成增量（也不按默认值兜底）：返回的 unknowns 列出这些缺口，先补录或如实告诉用户，不要替用户假定。
+- `maa_api/agent/tools/account.py:232` [literal] 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。练度里未识别的维度不会算成增量，返回的 unknowns 列着这些缺口，要如实告诉用户而不是替他假定。
+- `maa_api/agent/tools/account.py:247` [literal] 查养成计划的进度：目标、还缺什么、定时任务 id 与状态。
+- `maa_api/agent/tools/account.py:258` [literal] 停止一个养成计划，并删除它对应的每日定时任务。
+- `maa_api/agent/tools/account.py:270` [literal] 跑一轮练度扫描：逐个点开干员详情页，读出技能等级、专精、精英化与模组等级并写进账号表。干员识别只给是否拥有、精英化、等级、潜能，这几项只能靠它补；用户在问养成规划却发现这些字段未识别时，用它把未知补上。它会占着设备一段时间（用户这期间不能做别的），所以每次都要用户确认；提交后立刻返回，扫描在后台跑，进度可以用 get_…（共 215 字）
+- `maa_api/agent/tools/account.py:288` [literal] 停掉正在跑的练度扫描。已经读到的练度会保留；用户说「别扫了」「停下」时用它。
 
 **maa_api/agent/tools/activity.py**
 

@@ -13,19 +13,23 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 
 __all__ = [
+    "CancelTrainingScanParams",
     "CancelUpgradePlanParams",
     "GetDepotParams",
     "GetOperatorBoxParams",
     "ListUpgradePlansParams",
     "PlanUpgradeParams",
+    "ScanOperatorTrainingParams",
     "StartUpgradePlanParams",
     "UpdateOperatorBoxParams",
+    "cancel_training_scan",
     "cancel_upgrade_plan",
     "get_depot",
     "get_operator_box",
     "list_upgrade_plans",
     "plan_upgrade",
     "register_tools",
+    "scan_operator_training",
     "start_upgrade_plan",
     "update_operator_box",
 ]
@@ -130,6 +134,26 @@ class CancelUpgradePlanParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     plan_id: str = Field(min_length=1, max_length=36)
+
+
+class ScanOperatorTrainingParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(
+        default=40, ge=1, le=200, description="这一轮最多扫多少位干员，默认 40，最多 200。"
+    )
+    include_plan_targets: bool = Field(
+        default=True, description="把养成计划里的目标干员也算进来（默认 true）。"
+    )
+    char_ids: list[str] | None = Field(
+        default=None,
+        max_length=200,
+        description="只扫这些干员（char_id 或名字），留空＝按账号里的干员排。",
+    )
+
+
+class CancelTrainingScanParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 def register_tools(registry: ToolRegistry) -> None:
@@ -237,6 +261,38 @@ def register_tools(registry: ToolRegistry) -> None:
             read_only=False,
         )
     )
+    registry.register(
+        ToolDefinition(
+            name="scan_operator_training",
+            group="account",
+            risk=ToolRisk.CONDITIONAL,
+            description=(
+                "跑一轮练度扫描：逐个点开干员详情页，读出技能等级、专精、精英化与模组等级"
+                "并写进账号表。干员识别只给是否拥有、精英化、等级、潜能，这几项只能靠它补；"
+                "用户在问养成规划却发现这些字段未识别时，用它把未知补上。"
+                "它会占着设备一段时间（用户这期间不能做别的），所以每次都要用户确认；"
+                "提交后立刻返回，扫描在后台跑，进度可以用 get_operator_box 或账号接口查。"
+                "游戏没启动或没停在主界面时先看 task-preconditions。"
+            ),
+            params_model=ScanOperatorTrainingParams,
+            handler=scan_operator_training,
+            read_only=False,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="cancel_training_scan",
+            group="account",
+            risk=ToolRisk.SAFE,
+            description=(
+                "停掉正在跑的练度扫描。已经读到的练度会保留；"
+                "用户说「别扫了」「停下」时用它。"
+            ),
+            params_model=CancelTrainingScanParams,
+            handler=cancel_training_scan,
+            read_only=False,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +363,25 @@ async def cancel_upgrade_plan(params: CancelUpgradePlanParams, context: ToolCont
     return await service.cancel(params.plan_id)
 
 
+async def scan_operator_training(
+    params: ScanOperatorTrainingParams, context: ToolContext
+) -> dict[str, Any]:
+    """提交一轮练度扫描。服务要设备与流水线，只能从装配里拿。"""
+    service = _scan_service(context)
+    return await service.submit(
+        limit=params.limit,
+        char_ids=params.char_ids,
+        include_plan_targets=params.include_plan_targets,
+    )
+
+
+async def cancel_training_scan(
+    params: CancelTrainingScanParams, context: ToolContext
+) -> dict[str, Any]:
+    service = _scan_service(context)
+    return await service.cancel()
+
+
 # ---------------------------------------------------------------------------
 # 内部
 # ---------------------------------------------------------------------------
@@ -336,6 +411,24 @@ def _planner(context: ToolContext) -> Any:
     from maa_api.services.account.planner import default_upgrade_planner
 
     return default_upgrade_planner()
+
+
+def _scan_service(context: ToolContext) -> Any:
+    """练度扫描服务：它要设备、流水线与资源层，不是一个会话工厂能造出来的。
+
+    所以只认装配名（``main.py`` 里的 ``training_scan_service``），拿不到就报装配错误，
+    不走 `_service` 的「按会话工厂现造」兜底。
+    """
+    service = _state(context, "training_scan_service") or _state(
+        context, "account_training_scan_service"
+    )
+    if service is None:
+        from maa_api.domain.errors import AppError, ErrorCode
+
+        raise AppError(
+            ErrorCode.INTERNAL_ERROR, "练度扫描服务尚未装配（缺少 training_scan_service）"
+        )
+    return service
 
 
 def _service(context: ToolContext, state_name: str, module: str, class_name: str) -> Any:

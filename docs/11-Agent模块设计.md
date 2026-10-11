@@ -228,7 +228,7 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 
 三者共用访问层：来源登记与白名单、限流、熔断、进程内缓存、来源信封都在 `maa_api/services/external/`，取数与降级规则见 §6.6。
 
-账号数据组（`account`，M27）：数据来自 MAA 内核的干员识别（`OperBox`）与仓库识别（`Depot`）落库的结果加用户手动修正，不是外部来源。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。`update_operator_box`、`start_upgrade_plan` 与 `update_user_profile` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
+账号数据组（`account`，M27）：数据来自 MAA 内核的干员识别（`OperBox`）与仓库识别（`Depot`）落库的结果加用户手动修正，不是外部来源。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M36 再加两条**（`scan_operator_training` 与 `cancel_training_scan`）：工具总数 75 → 77（对模型可见 74 → 76）。`update_operator_box`、`start_upgrade_plan`、`update_user_profile` 与 `scan_operator_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
 
 | 工具 | risk | 用途 |
 |---|---|---|
@@ -241,6 +241,8 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 | `cancel_upgrade_plan` | SAFE | 停止一个计划：删除它对应的每日定时任务并把计划标 `cancelled`。参数 `plan_id` |
 | `get_infrast_candidates` | SAFE | 按基建布局（`243` / `153` / `252` / `333`）与班次数（2–4）列出每个房间可排班的干员（M28）：只列账号数据里**已拥有且练度已解锁**对应后勤技能的干员（同一槽位只留最高档），按稀有度 / 精英化 / 名字排序，附技能描述与效率提示。另有 `rooms`（可选，只要这些房间）。房间是排班协议的 8 个房间键（贸易站 / 制造站 / 发电站 / 控制中枢 / 会客室 / 办公室 / 宿舍 / 加工站，不含训练室）；账号数据缺失时给 `hint` 提示先跑一次干员识别，取不到的干员页计入 `operators_missing_page` |
 | `update_user_profile` | 每次确认 | 把用户的长期偏好写进自定义知识条目 `agent-profile`（标题「Agent 记录的用户档案」），按 `## <section>` 分节（M28，Q44）。参数 `section`（小节标题，1–32 字）、`content`（≤ 2000 字）、`mode`（`replace` 覆盖该节 / `append` 追加到该节末尾，默认 `replace`）；确认的 `reasons` 形如「更新用户档案「基建布局」：替换 3 字」。首次问清基建布局与班次后写进来，之后由注入段的「用户档案」全文段直接读，不再重复问 |
+| `scan_operator_training` | 每次确认 | 扫描干员练度（M36）：内核逐格点开干员详情页，把技能等级、三个技能的专精等级、模组类型与等级读出来，按识别来源写回账号表。参数 `limit`（1–200，默认 40）、`char_ids`（≤ 200 个名字或 `char_id`，给了就只扫这些）、`include_plan_targets`（默认 `true`，把进行中养成计划的目标一起加入）。名单先取账号表里**已拥有且精二以上**的干员，再并上计划目标，去重排序后截前 `limit` 个；排在后面的记在 `deferred` 里返回。确认理由写明「最多 N 位，含养成计划里的目标」与「扫描期间设备被占用」——扫描期间内核被这条流线占着，用户这期间下的任务要排队（[13 §8.51](./13-决策记录.md)）。读不到就保持 `NULL`（M35 口径），不猜、不兜底 |
+| `cancel_training_scan` | SAFE | 停掉正在跑的练度扫描：对当前那条流水线 `request_cancel`，已完成并写库的部分保留，状态转 `cancelled`。无参数。扫错了、或不想继续占设备时用它（[05 §6.20](./05-API规范与路由清单.md) 的 `DELETE` 端点同义） |
 
 ## 4. PolicyEngine
 

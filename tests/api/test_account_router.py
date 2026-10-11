@@ -33,7 +33,8 @@ pytest.importorskip(
 )
 
 
-#: 六个端点（方法, 路径），鉴权用例逐个打一遍。
+#: 端点（方法, 路径），鉴权用例逐个打一遍。M36 的三个练度扫描端点也在这里过一遍
+#: 鉴权与「服务没装配时 503」；它们的契约细节在 test_account_training_scan_router.py。
 ENDPOINTS = (
     ("GET", "/api/account/summary"),
     ("GET", "/api/account/operators"),
@@ -42,6 +43,9 @@ ENDPOINTS = (
     ("GET", "/api/account/operator-diffs"),
     ("DELETE", "/api/account/operator-diffs"),
     ("GET", "/api/account/depot"),
+    ("GET", "/api/account/training-scan"),
+    ("POST", "/api/account/training-scan"),
+    ("DELETE", "/api/account/training-scan"),
 )
 
 

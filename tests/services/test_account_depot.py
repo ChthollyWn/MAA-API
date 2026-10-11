@@ -31,11 +31,18 @@ pytest.importorskip(
 )
 
 
-NOW = datetime(2026, 10, 10, 3, 0, 0)
+#: 基时刻取「当前整点」而不是写死日期：``_is_stale`` 读的是真实时钟，写死日期一旦跨过
+#: 「基准日 + 过期天数」就会把「两天前的记录」判成过期（2026-10-11 起这条用例真红过）。
+NOW = datetime.now(UTC).replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
 
 def _utc(*, days_ago: int = 0) -> datetime:
     return NOW - timedelta(days=days_ago)
+
+
+def _iso(moment: datetime) -> str:
+    """与 ``DepotService`` 出参同款的时间字面量（naive UTC + ``Z``）。"""
+    return moment.isoformat() + "Z"
 
 
 @pytest.fixture
@@ -76,7 +83,7 @@ def test_replace_all_swaps_the_whole_table(account_session_factory):
         first = await service.list_items()
         assert first["total"] == 2
         assert [item["item_id"] for item in first["items"]] == ["30012", "30013"]
-        assert first["items"][0]["recognized_at"] == "2026-10-10T03:00:00Z"
+        assert first["items"][0]["recognized_at"] == _iso(NOW)
 
         written = await service.replace_all(
             [{"item_id": "30013", "name": "聚酸酯块", "count": 9, "category": "材料"}],
@@ -171,7 +178,7 @@ def test_summary_uses_the_depot_recognition_record_and_threshold(
         )
         summary = await service.summary()
         assert summary["total"] == 1
-        assert summary["recognized_at"] == "2026-10-08T03:00:00Z"
+        assert summary["recognized_at"] == _iso(_utc(days_ago=2))
         assert summary["stale"] is False
         assert (await strict.summary())["stale"] is True
 
@@ -220,6 +227,6 @@ def test_summary_counts_items_written_by_the_recognition_path(
         )
         summary = await service.summary()
         assert summary["total"] == 1
-        assert summary["recognized_at"] == "2026-10-10T04:00:00Z"
+        assert summary["recognized_at"] == _iso(NOW + timedelta(hours=1))
 
     asyncio.run(scenario())

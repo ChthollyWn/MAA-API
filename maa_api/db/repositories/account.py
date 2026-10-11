@@ -38,6 +38,7 @@ from maa_api.db.repositories.base import BaseRepository
 __all__ = [
     "RECOGNITION_KIND_DEPOT",
     "RECOGNITION_KIND_OPERBOX",
+    "RECOGNITION_KIND_TRAINING",
     "AccountDepotItemRepository",
     "AccountOperatorDiffRepository",
     "AccountOperatorRepository",
@@ -45,9 +46,11 @@ __all__ = [
     "OperatorDiffRow",
 ]
 
-#: ``account_recognition.kind`` 的两个取值（规格 §7.3）。
+#: ``account_recognition.kind`` 的取值（规格 §7.3、M36 规格 §4.5）。
 RECOGNITION_KIND_OPERBOX = "operbox"
 RECOGNITION_KIND_DEPOT = "depot"
+#: 干员详情练度扫描（M36）：``item_count`` 是真的写进库的干员数。
+RECOGNITION_KIND_TRAINING = "training"
 
 
 @dataclass(frozen=True, slots=True)

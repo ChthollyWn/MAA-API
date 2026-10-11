@@ -146,6 +146,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/account/training-scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取练度扫描状态
+         * @description 一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。
+         *
+         *     - `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled`
+         *     - `scanned` 是已点开的格数，`updated` 是真正写了库的人数（卡名认不出、库里没这行都不算）
+         *     - `skipped` / `unresolved` / `mismatched` 是**计数**：卡名对不上、目录里查不到、以及读数与库里已填的值不同
+         *     - `pipeline_id` 是当前这一步的流水线，跑完停在最后一步的 id
+         *     - 没扫过时 `status` 是 `idle`，其余字段是 0 / `null`
+         */
+        get: operations["account_get_account_training_scan"];
+        put?: never;
+        /**
+         * 开始练度扫描
+         * @description 受理一轮干员详情练度扫描：逐格点开干员、读详情页、写库。
+         *
+         *     - 非阻塞：受理成功后立刻返回，扫描在流水线里跑，进度看 `GET /api/account/training-scan`
+         *     - 名单两个来源：账号表里精二及以上的干员、进行中养成计划的目标；合并去重后按 `char_id` 排序取前 `limit` 名，多出来的进 `deferred`（不是失败）
+         *     - 名字解析不到 `char_id` 的计划目标进 `unresolved`
+         *     - 同一时刻只允许一轮，还在跑时返回 409 `PIPELINE_ALREADY_RUNNING`
+         *     - 名单为空返回 422 `VALIDATION_ERROR`（先跑一次干员识别）
+         *     - 写库口径：读到什么写什么，没读到的不动（技能等级、专精、模组三列）
+         */
+        post: operations["account_start_account_training_scan"];
+        /**
+         * 取消练度扫描
+         * @description 取消正在跑的扫描，返回取消后的状态。
+         *
+         *     - 已经读到的干员保留（读数早写库了），停止发生在**步与步之间**
+         *     - 当前这一步的收尾照跑：不会把设备丢在详情页
+         *     - 没有在跑时是空操作，原样返回当前状态（不报错）
+         */
+        delete: operations["account_cancel_account_training_scan"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/account/upgrade-plans": {
         parameters: {
             query?: never;
@@ -3999,6 +4044,39 @@ export interface components {
             /** Tasks */
             tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CustomInput"] | components["schemas"]["CopilotInput"])[];
         };
+        /**
+         * TrainingScanRequest
+         * @description 受理一轮练度扫描的请求体；整个 body 省略就是「精二名单取默认上限」。
+         * @example {}
+         * @example {
+         *       "limit": 20
+         *     }
+         * @example {
+         *       "char_ids": [
+         *         "char_002_amiya"
+         *       ],
+         *       "include_plan_targets": false
+         *     }
+         */
+        TrainingScanRequest: {
+            /**
+             * Char Ids
+             * @description 只扫这些干员 id（仍会补上计划目标）；省略表示按精二名单取
+             */
+            char_ids?: string[] | null;
+            /**
+             * Include Plan Targets
+             * @description 是否把进行中养成计划的目标也算进名单
+             * @default true
+             */
+            include_plan_targets: boolean;
+            /**
+             * Limit
+             * @description 这一轮最多扫多少名干员（默认 40）
+             * @default 40
+             */
+            limit: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -4461,6 +4539,262 @@ export interface operations {
                      *         "code": "UNAUTHORIZED",
                      *         "details": {},
                      *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    account_get_account_training_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    account_start_account_training_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TrainingScanRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：PIPELINE_ALREADY_RUNNING */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "PIPELINE_ALREADY_RUNNING",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 下游依赖失败：CORE_COMMAND_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "CORE_COMMAND_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 下游依赖超时：CORE_COMMAND_TIMEOUT */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "CORE_COMMAND_TIMEOUT",
+                     *         "details": {},
+                     *         "message": "下游依赖超时"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    account_cancel_account_training_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
                      *       }
                      *     }
                      */

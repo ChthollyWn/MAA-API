@@ -433,7 +433,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 117 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 120 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -797,8 +797,11 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 | GET | `/api/account/operator-diffs` | 识别覆盖手动值的差异 | `include_dismissed`（默认 `false`）、`limit`（1–500，默认 200） | 200 | `UNAUTHORIZED` |
 | DELETE | `/api/account/operator-diffs` | 把差异标记为已知 | `{ids: [int]}` 逐条，或省略＝全部 | 200 | `UNAUTHORIZED` |
 | GET | `/api/account/depot` | 仓库识别结果，按分类分组 | `category`、`query`、`limit`（1–500，默认 100）、`offset` | 200 | `UNAUTHORIZED` |
+| POST | `/api/account/training-scan` | 提交一次练度扫描（M36）：内核逐格点开干员详情页，读技能等级、三个技能的专精等级与模组类型/等级 | body `{limit?: 1–200 默认 40, char_ids?: ≤200 个名字或 char_id, include_plan_targets?: bool 默认 true}`；非阻塞，返回 `{pipeline_id, total, targets, deferred, unresolved}` | 200 | `PIPELINE_ALREADY_RUNNING`（409，已有扫描在跑）、`SERVICE_UNAVAILABLE`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
+| GET | `/api/account/training-scan` | 扫描状态（页面轮询用） | 无 | 200 | `SERVICE_UNAVAILABLE`、`UNAUTHORIZED` |
+| DELETE | `/api/account/training-scan` | 取消正在跑的扫描 | 无 | 200 | `SERVICE_UNAVAILABLE`、`UNAUTHORIZED` |
 
-七个端点都 `Depends(require_auth)`。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent`）。
+十个端点都 `Depends(require_auth)`。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent`）。
 
 两个只读列表端点（`/operators`、`/depot`）另有 Pydantic 响应模型（`AccountOperatorList` / `AccountDepotList`）把形状写进 `web/openapi.json` 与前端生成类型；此前它们只有 `-> dict`，前端手写的类型覆盖层读错容器键也发现不了——M33 的真机事故就是前端读 `operators`、后端给 `items`，`?? []` 兜成空列表且两边测试各自自洽（见 [13 §8.49](./13-决策记录.md)）。
 
@@ -806,13 +809,15 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 **练度六列可空（M35）**：`elite` / `level` / `potential` / `skill_level` / `masteries` / `modules` 都是 `T | null`，`null` ＝ **未识别**——既没有识别值，也没有 manual / agent 写入（`field_sources` 是唯一台账）。这与「已知的无专精 / 无模组」不同：`{"1": 0, "2": 0, "3": 0}` 与 `{}` 是已知值，`null` 才是不知道。内核的干员识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组在详情页、M36 才扫，所以新识别出来的行这三列就是 `null`。`elite_min` 这类筛选不会命中 `null` 行（SQL 三值逻辑），前端列表与编辑抽屉把 `null` 显示成「未识别」，Agent 侧的 `get_operator_box` / `plan_upgrade` 同样如此；`plan_upgrade` 返回里的 `unknowns` 列出未识别维度，这些维度不进材料增量。见 [13 §8.50](./13-决策记录.md)。
 
-`PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。这些**前置条件只在该字段已知时判**（M35）：精英化或技能等级是 `null`（未识别）时不拦专精 / 模组的补录，否则不知道练度就永远填不进去；已知值照旧拦（精一填专精、技能不满 7 级填专精、精一填模组都是 422）。显式把精英化降到 2 以下仍会清空专精与模组。识别结果的合并规则见 [11 §6.5](./11-Agent模块设计.md)与规格 §7.3：识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组只由手动或 Agent 写入；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
+`PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。这些**前置条件只在该字段已知时判**（M35）：精英化或技能等级是 `null`（未识别）时不拦专精 / 模组的补录，否则不知道练度就永远填不进去；已知值照旧拦（精一填专精、技能不满 7 级填专精、精一填模组都是 422）。显式把精英化降到 2 以下仍会清空专精与模组。识别结果的合并规则见 [11 §6.5](./11-Agent模块设计.md)与规格 §7.3：`OperBox` 识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组由手动、Agent 或 M36 的练度扫描写（`training` 扫描走 `box.apply_detail_scan`，只写本次真读到的字段，来源同样标 `recognition`）；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
 
 `source` 只接受 `manual` 与 `agent`：识别写入固定标 `recognition`，客户端不能借这个字段把识别结果伪装成手动值，所以传 `recognition` 是 422（Pydantic 枚举校验）。
 
 单条 `GET` 是编辑抽屉的读口（附录 C 只列了六条，这一条是实现补的读端点），与列表项同形。
 
-（7 条）
+**练度扫描三个端点（M36）**：`POST` 只负责组装名单、锁住「同一时刻一次扫描」并提交第一步，立刻返回；进度靠 `GET` 轮询（活跃时前端 5 秒一次）。名单取「账号表里已拥有且精二以上」∪「进行中养成计划的目标」，去重排序后截前 `limit` 个，排在后面的记 `deferred`（不是失败），读不出名字的格子记 `unresolved`。`GET` 的 `status` 是 `idle` / `running` / `succeeded` / `failed` / `cancelled`，计数是 `scanned`（实际开过详情页的人数）、`updated`（写进库的人数）、`skipped`（读失败或规则拒绝）、`unresolved`（卡名认不出）、`mismatched`（不在账号表里）。写库一律按识别来源（`field_sources = recognition`），**没读到的字段保持 `null`**（M35 口径），精一以下的干员不提交专精与模组；`DELETE` 只取消当前这条流水线，已写入的部分保留。识别记录新增 `kind = "training"`（[04 §5.18](./04-数据模型与持久化.md)），`item_count` 是本轮改动的干员数。详见 [13 §8.51](./13-决策记录.md) 与规格 §4。
+
+（10 条）
 
 ### 6.21 养成计划（M31）
 

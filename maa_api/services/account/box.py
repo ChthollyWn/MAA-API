@@ -23,11 +23,15 @@ from typing import Any
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.account.rules import (
     BOX_FIELDS,
+    DETAIL_SCAN_FIELDS,
     EDITABLE_FIELDS,
     MASTERY_ELITE_REQUIRED,
     MAX_LEVEL,
+    MAX_MASTERY_LEVEL,
+    MAX_MODULE_LEVEL,
     MAX_POTENTIAL,
     MAX_SKILL_LEVEL,
+    MODULE_TYPES,
     RECOGNITION_SOURCE,
     RECOGNIZED_FIELDS,
     WRITE_SOURCES,
@@ -51,6 +55,7 @@ from maa_api.settings import Settings, get_settings
 
 __all__ = [
     "BOX_FIELDS",
+    "DETAIL_SCAN_FIELDS",
     "EDITABLE_FIELDS",
     "RECOGNIZED_FIELDS",
     "RECOGNITION_SOURCE",
@@ -534,6 +539,164 @@ class OperatorBoxService:
             "diffs": diffs,
             "kept_owned": kept_owned,
         }
+
+    # -- 详情扫描（M36，scan.py 调用）-------------------------------------
+    async def apply_detail_scan(
+        self,
+        char_id: str,
+        *,
+        skill_level: int | None = None,
+        masteries: Mapping[Any, Any] | None = None,
+        modules: Mapping[Any, Any] | None = None,
+        recognized_at: datetime | None = None,
+        source: str = RECOGNITION_SOURCE,
+    ) -> dict[str, Any] | None:
+        """把一次干员详情页的读数写进表（M36 规格 §4.4）。
+
+        与 :meth:`apply_recognition` 的分工：``OperBox`` 回调给「是否拥有 / 精英化 /
+        等级 / 潜能」，详情页给技能等级、专精、模组。这里只动
+        :data:`DETAIL_SCAN_FIELDS` 三列，不碰另外四列——扫描不重读它们，也不该凭详情
+        页的样子去改 ``OperBox`` 的结论。
+
+        ``None`` 一律解释成「这次没读到」：不写，也不把既有值清成未识别。读到的
+        **空映射**是另一回事：``modules={}`` 表示「看过了，没装模组」，要把 ``NULL``
+        落成 ``{}``（M35 规格 §4.5 的「确认没有」与「不知道」是两回事）。
+
+        ``masteries`` / ``modules`` 逐键合并，只动给出来的键。键或值越界（技能序号
+        不在 1–3、专精不在 0–3、模组类型不在 X/Y/D/A、模组等级不在 1–3、技能等级不在
+        1–7）时**不写也不抛**，字段名进 ``skipped``：详情页是游戏的事实，越界只可能是
+        识别读花了，不该拿脏值覆盖库里的值。专精还要至少有一个合法槽位才算「读到了」
+        ——详情页每次都给三个槽位，全是脏键或空映射只能说明这次读花了；模组的空映射
+        例外，那是「看过了，没有模组」的正面读数。
+
+        专精不按稀有度的技能数裁剪（``normalize_masteries`` 在手动编辑时会把多出来的
+        槽位归零）：``rarity`` 可能是 ``NULL``，那时按默认技能数会把真读到的第 2、3
+        技能专精一起丢掉，而详情页只显示这名干员真的有的技能。
+
+        :param char_id: 干员 id。
+        :param skill_level: 「RANK n」读到的技能等级（1–7）。
+        :param masteries: ``{技能序号: 0–3}``。
+        :param modules: ``{模组类型: 1–3}``；``{}`` 表示确认没装。
+        :param recognized_at: 识别时间（默认当前 UTC 时间）。
+        :param source: 写进 ``field_sources`` 的来源，默认 ``recognition``。
+        :returns: ``{"char_id", "updated", "skipped"}``（两个列表都是 ``DETAIL_SCAN_FIELDS``
+            里的字段名，已排序）；表里没有这名干员时回 ``None``——调用方计入
+            ``mismatched``，这里不凭空建行。
+        """
+        moment = recognized_at or _utcnow()
+        operator_repo, _diff_repo, _recognition_repo = _repositories()
+        async with self._session_factory() as session:
+            repo = operator_repo(session)
+            row = await repo.get(char_id)
+            if row is None:
+                return None
+
+            updated: set[str] = set()
+            skipped: set[str] = set()
+
+            if skill_level is not None:
+                level = optional_int(skill_level)
+                if level is None or not 1 <= level <= MAX_SKILL_LEVEL:
+                    skipped.add("skill_level")
+                elif optional_int(getattr(row, "skill_level", None)) != level:
+                    row.skill_level = level
+                    updated.add("skill_level")
+
+            if masteries is not None:
+                if not isinstance(masteries, Mapping):
+                    skipped.add("masteries")
+                else:
+                    before = mastery_wire(getattr(row, "masteries", None))
+                    merged = dict(before or {"1": 0, "2": 0, "3": 0})
+                    read = 0
+                    for key, raw in masteries.items():
+                        slot = optional_int(key)
+                        level = optional_int(raw)
+                        if (
+                            slot not in (1, 2, 3)
+                            or level is None
+                            or not 0 <= level <= MAX_MASTERY_LEVEL
+                        ):
+                            skipped.add("masteries")
+                            continue
+                        read += 1
+                        merged[str(slot)] = level
+                    # 一个合法槽位都没读到就不写：详情页每次都给出三个槽位，空映射或全
+                    # 是脏键只说明这次读花了，不能顺手把三槽写成「无专精」。
+                    if read and merged != before:
+                        row.masteries = merged
+                        updated.add("masteries")
+
+            if modules is not None:
+                if not isinstance(modules, Mapping):
+                    skipped.add("modules")
+                else:
+                    before_modules = module_wire(getattr(row, "modules", None))
+                    merged_modules = dict(before_modules or {})
+                    read = 0
+                    for key, raw in modules.items():
+                        module_type = str(key)
+                        level = optional_int(raw)
+                        if (
+                            module_type not in MODULE_TYPES
+                            or level is None
+                            or not 1 <= level <= MAX_MODULE_LEVEL
+                        ):
+                            skipped.add("modules")
+                            continue
+                        read += 1
+                        merged_modules[module_type] = level
+                    # 空映射是一次正面读数（面板上确实没有模组）；全是脏键则同专精：
+                    # 读花了就只记 ``skipped``，不把 ``NULL`` 说成「确认没装」。
+                    if read or not modules:
+                        if merged_modules != before_modules:
+                            row.modules = merged_modules
+                            updated.add("modules")
+
+            if updated:
+                values = dict(json_mapping(getattr(row, "recognized_values", None)))
+                sources = field_sources_wire(getattr(row, "field_sources", None))
+                for field in updated:
+                    values[field] = getattr(row, field, None)
+                    sources[field] = source
+                row.recognized_values = values
+                row.field_sources = sources
+                row.updated_at = moment
+                await repo.upsert(row)
+                await session.commit()
+
+        return {"char_id": char_id, "updated": sorted(updated), "skipped": sorted(skipped)}
+
+    async def record_training_scan(
+        self,
+        *,
+        updated: int,
+        recognized_at: datetime | None = None,
+        pipeline_id: str | None = None,
+        task_id: str | None = None,
+    ) -> None:
+        """写一条 ``training`` 识别记录（M36 规格 §4.5）。
+
+        ``item_count`` 用**真的写进库的干员数**，不是名单长度：``account_recognition``
+        记的是识别成果，扫到却没读到的干员不算。一次扫描只写一条——``apply_detail_scan``
+        是逐人调用的，不能一人一条。
+        """
+        # 常量在仓储层（与 operbox / depot 并列）；本模块刻意不在模块级 import
+        # ``db.repositories``（见 :func:`_repositories` 的说明）。
+        from maa_api.db.repositories.account import RECOGNITION_KIND_TRAINING
+
+        moment = recognized_at or _utcnow()
+        _operator_repo, _diff_repo, recognition_repo = _repositories()
+        async with self._session_factory() as session:
+            await recognition_repo(session).record(
+                kind=RECOGNITION_KIND_TRAINING,
+                pipeline_id=pipeline_id,
+                task_id=task_id,
+                client_type=None,
+                item_count=int(updated),
+                recognized_at=moment,
+            )
+            await session.commit()
 
 
 def _repositories() -> tuple[Any, Any, Any]:

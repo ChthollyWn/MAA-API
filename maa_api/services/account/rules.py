@@ -20,6 +20,7 @@ from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = [
     "BOX_FIELDS",
+    "DETAIL_SCAN_FIELDS",
     "EDITABLE_FIELDS",
     "MAX_LEVEL",
     "MAX_MASTERY_LEVEL",
@@ -68,6 +69,12 @@ BOX_FIELDS: tuple[str, ...] = (
 
 #: 识别能覆盖的字段（规格 §7.3）：识别结果只动这四个。
 RECOGNIZED_FIELDS: tuple[str, ...] = ("own", "elite", "level", "potential")
+
+#: 详情页扫描通道能覆盖的字段（M36 规格 §4.4）：技能等级、专精、模组。
+#: 与 :data:`RECOGNIZED_FIELDS` 刻意分开——那一份是 ``OperBox`` 回调的口径，
+#: 混在一起会让 ``apply_recognition`` 的字段循环也去写这三列，而内核的 ``OperBox``
+#: 根本读不到它们（M35 规格 §2）。
+DETAIL_SCAN_FIELDS: tuple[str, ...] = ("skill_level", "masteries", "modules")
 
 #: 可为「未识别」的练度列（M35 规格 §4.1）：取值 ``None`` 表示既没有识别值、
 #: 也没有 manual / agent 写入。前端、API 文档与规划层共用这一份字段名。
