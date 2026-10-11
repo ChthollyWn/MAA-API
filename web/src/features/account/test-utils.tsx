@@ -165,6 +165,8 @@ export const IDLE_TRAINING_SCAN: TrainingScanState = {
   skipped: 0,
   unresolved: 0,
   mismatched: 0,
+  realigned: 0,
+  unverified: 0,
   message: null,
   total: null,
 }
@@ -181,6 +183,8 @@ export const RUNNING_TRAINING_SCAN: TrainingScanState = {
   skipped: 3,
   unresolved: 0,
   mismatched: 1,
+  realigned: 0,
+  unverified: 0,
   message: null,
   total: 40,
 }
@@ -198,6 +202,8 @@ export const RUNNING_FULL_TRAINING_SCAN: TrainingScanState = {
   skipped: 1,
   unresolved: 0,
   mismatched: 0,
+  realigned: 2,
+  unverified: 3,
   message: null,
   total: null,
 }

@@ -1,12 +1,12 @@
 # AI 腔规则命中：用户可见文案
 
-总计 12574 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12643 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 168 | 326 | 494 |
-| 破折号当冒号用 | high | 39 | 125 | 164 |
+| 粗体强调 | medium | 168 | 330 | 498 |
+| 破折号当冒号用 | high | 39 | 128 | 167 |
 | 「A 而不是 B」对照腔 | high | 15 | 82 | 97 |
 | 绝对化规定腔 | medium | 12 | 64 | 76 |
 | 自指式讲解腔 | medium | 1 | 35 | 36 |
@@ -19,7 +19,7 @@
 | 省略号 | medium | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 168 / 开发向 326）
+## 粗体强调（medium｜用户可见 168 / 开发向 330）
 
 **用户可见**
 
@@ -29,8 +29,8 @@
 - `maa_api/agent/tools/interaction.py:43` ``ask_user`` 的参数（规格 §3.1）。 上限（2–6 个选项、选项 80 字、问题 500 字）是**卡片渲染**的约束：一屏放得下的 选项才叫选择题，超出的部分应改成多轮提问或正文询问。
 - `maa_api/api/routers/account.py:73` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
 - `maa_api/api/routers/account.py:128` 干员行：docs/05 §6.20 的字段清单，与单条读取同形。 练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` / ``module…（共 409 字）
-- `maa_api/api/routers/account.py:592` 一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。 - `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled` - `mode` 是这一轮的类型（…（共 430 字）
-- `maa_api/api/routers/account.py:615` 取消正在跑的扫描，返回取消后的状态。 - 已经读到的干员保留（读数早写库了），停止发生在**步与步之间** - 当前这一步的收尾照跑：不会把设备丢在详情页 - 没有在跑时是空操作，原样返回当前状态（不报错）
+- `maa_api/api/routers/account.py:592` 一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。 - `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled` - `mode` 是这一轮的类型（…（共 559 字）
+- `maa_api/api/routers/account.py:618` 取消正在跑的扫描，返回取消后的状态。 - 已经读到的干员保留（读数早写库了），停止发生在**步与步之间** - 当前这一步的收尾照跑：不会把设备丢在详情页 - 没有在跑时是空操作，原样返回当前状态（不报错）
 - …… 另有 160 条，见 inventory.json
 
 **开发向**
@@ -43,9 +43,9 @@
 - `maa_api/agent/knowledge/__init__.py:879` 拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。 段落顺序：索引 → **当期活动**（M24）→ **当期卡池**（M28）→ **账号数据**（M27） → 术语表全文 → 用户档案全文；三段实时数据（活动…（共 241 字）
 - `maa_api/agent/knowledge/convergence.py:1` M30 T3：删除内置条目后，把幸存下来的用户覆盖行迁移成自定义条目。 为什么需要冻结 ``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL，读的时候 继承内置值（见 :mod:`maa_api.ag…（共 1075 字）
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
-- …… 另有 318 条，见 inventory.json
+- …… 另有 322 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 39 / 开发向 125）
+## 破折号当冒号用（high｜用户可见 39 / 开发向 128）
 
 **用户可见**
 
@@ -69,7 +69,7 @@
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
 - `maa_api/agent/policy.py:379` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/policy.py:625` 要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。 只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的 ``warnings`` 提醒，策略层不制造新的确…（共 164 字）
-- …… 另有 117 条，见 inventory.json
+- …… 另有 120 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 15 / 开发向 82）
 
@@ -191,7 +191,7 @@
 **开发向**
 
 - `maa_api/agent/runtime.py:2226` 。.!！?？,，;；:：
-- `scripts/probe_full_scan.py:265` [probe] 滑 {swipes} 次再返回：列表卡名{'与滑动前一致（位置保持）' if same else '变了！'}
+- `scripts/probe_full_scan.py:435` [probe] 滑 {swipes} 次再返回：列表卡名{'与滑动前一致（位置保持）' if same else '变了！'}
 
 ## 宣传词（medium｜用户可见 0 / 开发向 2）
 
@@ -210,7 +210,7 @@
 
 **开发向**
 
-- `maa_api/services/account/scan.py:177` 第 ``index`` 张详情页对应的列表格子（M39 规格 §2 的「车厢顺序」）。 真机实测：点开一屏第一格之后连续左滑，依次经过的是**列优先**顺序——上排第 1 列 → 下排第 1 列 → 上排第 2 列 → 下排第 2 列……所…（共 203 字）
+- `maa_api/services/account/scan.py:192` 第 ``index`` 张详情页对应的列表格子（M39 规格 §2 的「车厢顺序」）。 真机实测：点开一屏第一格之后连续左滑，依次经过的是**列优先**顺序——上排第 1 列 → 下排第 1 列 → 上排第 2 列 → 下排第 2 列……所…（共 203 字）
 
 ## 提示腔（medium｜用户可见 0 / 开发向 1）
 

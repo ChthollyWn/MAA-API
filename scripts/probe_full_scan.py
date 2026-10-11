@@ -25,6 +25,7 @@ import io
 import json
 import sys
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,11 @@ for extra in (REPO_ROOT, REPO_ROOT / "scripts"):
 
 import probe_training_scan as p36  # noqa: E402
 from maa_api.services.account import scan_tasks as st  # noqa: E402
+from maa_api.services.account.scan import (  # noqa: E402
+    CARDS_PER_SCREEN,
+    _name_en_hit,
+    cell_of,
+)
 
 #: 一次滑动之后等多久再抓图（判断「多久稳定」用，抓完这一帧还会再抓一帧）。
 STABLE_WAIT = 0.9
@@ -148,8 +154,172 @@ def click_cell(probe: p36.Probe, row: str, column: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 身份核对：详情页左下角的拉丁名
+# ---------------------------------------------------------------------------
+
+#: 只读 ROI：详情页左下角的**拉丁名**（内核 1280x720 基准）。设备（2560x1440）上文字带实测在
+#: x 20–1036、y 912–968：白字带描边，横在中文美术字上方，与上面那行 ★ 不重叠。
+#: 2026-10-11 第二轮：左边从 8 放到 **0**（原来只留 2 个内核像素的余量，`Ines`→`nes`、
+#: `SilverAsh`→`ilverAsh` 这种掉首字母多半就是左边缘切掉的），上下各加 4 像素余量。
+OPER_NAME_EN_ROI = (0, 452, 524, 32)
+#: 探针自己声明的节点名（生产侧 2026-10-11 还没有这个节点，先在这里试）。
+OPER_NAME_EN_NODE = "MaaApi@OperatorScan@ProbeOperNameEn"
+#: name 步的抽样格子：两排各挑几个，覆盖长短名字与不同立绘底色。
+NAME_SAMPLE_CELLS: tuple[tuple[str, int], ...] = (
+    ("top", 0),
+    ("top", 2),
+    ("top", 4),
+    ("top", 7),
+    ("bottom", 0),
+    ("bottom", 3),
+    ("bottom", 6),
+    ("bottom", 7),
+)
+
+
+def name_en_nodes() -> dict[str, dict[str, Any]]:
+    """「读详情页拉丁名」的只读节点（只进探针层，不改生产定义）。"""
+    return {
+        OPER_NAME_EN_NODE: {
+            "algorithm": "OcrDetect",
+            "isAscii": True,
+            "text": [],
+            "roi": list(OPER_NAME_EN_ROI),
+            "action": "DoNothing",
+            "doc": "只读：详情页左下角拉丁名（M39 探针，用来核对身份）",
+        }
+    }
+
+
+def _norm_name(text: str | None) -> str:
+    """比对用归一化：去变音符、去一切非字母数字（``Wiš'adel`` → ``wisadel``）。"""
+    lowered = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in lowered.lower() if ch.isalnum())
+
+
+def expected_names_en() -> dict[str, str]:
+    """本机 ``battle_data.json`` 的「中文名 → 拉丁名」（与生产干员目录同源）。"""
+    for path in (
+        REPO_ROOT / "resource" / "maa-layers" / "repo" / "resource" / "battle_data.json",
+        REPO_ROOT / "resource" / "maa-layers" / "custom" / "resource" / "battle_data.json",
+    ):
+        if path.is_file():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return {
+                str(entry["name"]): str(entry.get("name_en") or "")
+                for entry in payload.get("chars", {}).values()
+                if isinstance(entry, dict) and entry.get("name")
+            }
+    raise SystemExit("找不到 battle_data.json（先确认内核资源在）")
+
+
+# ---------------------------------------------------------------------------
 # 步骤
 # ---------------------------------------------------------------------------
+
+
+def parse_cells(spec: str) -> tuple[tuple[str, int], ...]:
+    """``"top0,bottom3"``（也接受 ``top:0``）→ ``(("top", 0), ("bottom", 3))``。"""
+    cells: list[tuple[str, int]] = []
+    for chunk in (part.strip().replace(":", "") for part in (spec or "").split(",")):
+        if not chunk:
+            continue
+        row = next((key for key in st.ROW_KEYS if chunk.startswith(key)), "")
+        column = chunk[len(row):]
+        if row and column.isdigit():
+            cells.append((row, int(column)))
+    return tuple(cells)
+
+
+def step_name(probe: p36.Probe, *, cells: int, only: tuple[tuple[str, int], ...] = ()) -> dict[str, Any]:
+    """读一屏卡名 → 逐格点开详情 → 只读拉丁名 → 与 ``battle_data`` 的 ``name_en`` 对账。
+
+    对账走**生产口径**的 :func:`maa_api.services.account.scan._name_en_hit`：候选集是这
+    一屏 16 格按扫描顺序（列优先）排出来的拉丁名，跟全量扫描逐张核对时一模一样。
+
+    要证的是：详情页左下角那行拉丁名能不能用内核 ASCII OCR 稳定读出来。读得出来，
+    全量扫描就能在**不回列表**的前提下逐张核对身份——今晚那处甩动漂移正是「滑过去之后
+    没人知道画面里是谁」造成的。
+    """
+    expected = expected_names_en()
+    _, names = p36.read_box(probe, label="name-box")
+    print(f"[probe] 本屏卡名读到 {len(names)}/16 格")
+    # 生产口径的期望表：扫描顺序第 i 张（i 从 0 数）的拉丁名 = 那一格卡名的 name_en。
+    order = {cell_of(index): index for index in range(CARDS_PER_SCREEN)}
+    expected_en = {
+        order[cell]: expected[zh]
+        for cell, zh in names.items()
+        if cell in order and expected.get(zh)
+    }
+    report: dict[str, Any] = {
+        "box": {f"{row}{column}": name for (row, column), name in names.items()},
+        "expected_en": {str(index): name for index, name in expected_en.items()},
+        "cells": [],
+    }
+    sample = only or NAME_SAMPLE_CELLS[: max(1, cells)]
+    hits = 0
+    checked = 0
+    for index, (row, column) in enumerate(sample):
+        zh = names.get((row, column))
+        want = expected.get(zh or "", "")
+        click_cell(probe, row, column)
+        time.sleep(1.4)
+        if index == 0:
+            grab(probe, "name-first")  # 留一帧当证据
+        messages = probe.run_nodes((OPER_NAME_EN_NODE,), label=f"name-{row}{column}")
+        readings = p36._readings(messages)
+        item = readings.get(st.node_key(OPER_NAME_EN_NODE)) or {}
+        text = item.get("text")
+        if isinstance(text, list):
+            text = " ".join(str(part) for part in text)
+        got, exp = _norm_name(str(text or "")), _norm_name(want)
+        # 名字被截断也算对得上（长名字可能超出 ROI）：前缀关系且够长即可。
+        ok = bool(got) and bool(exp) and (got == exp or exp.startswith(got) or got.startswith(exp))
+        # 生产口径：这一格在期望表里时，模糊比对认出来的必须是它自己。
+        cell_index = order.get((row, column))
+        hit = _name_en_hit(str(text or ""), expected_en) if expected_en else None
+        if cell_index in expected_en:
+            checked += 1
+            verdict = "对得上" if hit == cell_index else f"对不上（认成了第 {hit + 1} 张）" if hit is not None else "认不出"
+        else:
+            verdict = "这一格没有期望值（卡名没读出/目录里没拉丁名），生产里不核对"
+        # 对不上时反查「读到的拉丁名是谁」——判断到底是漏读还是真错位。
+        by_en = {_norm_name(en): zh for zh, en in expected.items() if en}
+        seen_as = "" if ok else (by_en.get(got) or next(
+            (zh for key, zh in by_en.items() if key and (key.startswith(got) or got.startswith(key))), ""
+        ))
+        hits += int(ok)
+        print(
+            f"[probe] {row}{column}：卡名 {zh or '—（没读出来）'} → 拉丁名 "
+            f"«{text or ''}»（score={item.get('score')}）期望 «{want}» → "
+            f"{'对得上' if ok else f'对不上（读到的像是 {seen_as or '？'}）'}；{verdict}"
+        )
+        report["cells"].append(
+            {
+                "cell": f"{row}{column}",
+                "zh": zh,
+                "want": want,
+                "got": text,
+                "score": item.get("score"),
+                "ok": ok,
+                "looks_like": seen_as,
+                "scan_index": cell_index,
+                "prod_hit": hit,
+                "prod_ok": hit == cell_index if cell_index in expected_en else None,
+            }
+        )
+        probe.tap_back()
+        time.sleep(1.2)
+    total = len(report["cells"])
+    prod_hits = sum(1 for item in report["cells"] if item["prod_ok"])
+    print(
+        f"\n[probe] 拉丁名对账：前缀比对 {hits}/{total}；生产口径（模糊 + 唯一性）"
+        f"{prod_hits}/{checked} 对得上"
+    )
+    report["hits"] = hits
+    report["prod_hits"] = prod_hits
+    report["checked"] = checked
+    return report
 
 
 def step_variants(probe: p36.Probe) -> dict[str, Any]:
@@ -380,19 +550,20 @@ def main() -> int:
     parser.add_argument("--kernel", default=str(p36.DEFAULT_KERNEL))
     parser.add_argument(
         "--step",
-        choices=("variants", "walk", "detail", "list-swipe", "backsync", "enter", "one", "listend", "sweep"),
+        choices=("variants", "walk", "detail", "list-swipe", "backsync", "enter", "one", "listend", "sweep", "name"),
         default="variants",
     )
     parser.add_argument("--assume", choices=("list", "detail"), default="list")
     parser.add_argument("--row", choices=st.ROW_KEYS, default="top")
     parser.add_argument("--column", type=int, default=0)
     parser.add_argument("--count", type=int, default=3, help="walk 步：滑动次数；sweep 步：最多翻几屏")
+    parser.add_argument("--cells", default="", help="name 步：指定格子，如 top0,bottom3（空则用默认抽样）")
     parser.add_argument("--variant", default="mid", choices=sorted(SWIPE_VARIANTS))
     parser.add_argument("--report", default="/tmp/m39_probe_report.json")
     args = parser.parse_args()
 
     probe = p36.Probe(adb=args.adb, address=args.address, kernel=Path(args.kernel))
-    probe.extra_tasks = swipe_variant_nodes()
+    probe.extra_tasks = {**swipe_variant_nodes(), **name_en_nodes()}
     report: dict[str, Any] = {}
     try:
         probe.start()
@@ -418,6 +589,8 @@ def main() -> int:
             report["sweep"] = step_sweep(probe, max_turns=args.count)
         elif args.step == "one":
             report["one"] = step_one(probe, variant=args.variant, assume=args.assume)
+        elif args.step == "name":
+            report["name"] = step_name(probe, cells=args.count, only=parse_cells(args.cells))
         else:
             report["walk"] = step_walk(probe, count=args.count, variant=args.variant)
         Path(args.report).write_text(

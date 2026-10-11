@@ -161,6 +161,7 @@ export interface paths {
          *     - `mode` 是这一轮的类型（`single` 点名扫 / `full` 全量扫描），`screens` 是读了几屏卡名
          *     - `scanned` 是已点开的格数，`updated` 是真正写了库的人数（卡名认不出、库里没这行都不算）
          *     - `skipped` / `unresolved` / `mismatched` 是**计数**：卡名对不上、目录里查不到、以及读数与库里已填的值不同
+         *     - `realigned` / `unverified` 是 `full` 模式的两个**身份计数**（M40）：前者是「详情页拉丁名跟这一格卡名对不上、回列表重新点开过」的张数，后者是「拉丁名读不出结论、按卡名写库」的张数；`single` 模式恒为 0
          *     - `total` 是这一轮的目标人数；`mode=full` 时恒为 `null`（跑到哪算哪）
          *     - `pipeline_id` 是当前这一步的流水线，跑完停在最后一步的 id
          *     - 没扫过时 `status` 是 `idle`，其余字段是 0 / `null`

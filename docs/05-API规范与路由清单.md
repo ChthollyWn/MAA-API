@@ -798,7 +798,7 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 | DELETE | `/api/account/operator-diffs` | 把差异标记为已知 | `{ids: [int]}` 逐条，或省略＝全部 | 200 | `UNAUTHORIZED` |
 | GET | `/api/account/depot` | 仓库识别结果，按分类分组 | `category`、`query`、`limit`（1–500，默认 100）、`offset` | 200 | `UNAUTHORIZED` |
 | POST | `/api/account/training-scan` | 提交一次练度扫描（M36）：内核逐格点开干员详情页，读技能等级、三个技能的专精等级与模组类型/等级 | body `{mode?: "single" \| "full" 默认 single, limit?: 1–200 默认 40, char_ids?: ≤200 个名字或 char_id, include_plan_targets?: bool 默认 true}`；非阻塞，返回 `{pipeline_id, mode, total, targets, deferred, unresolved}`。`mode=full`（M39）＝全量扫描：不走名单，从列表第一格起一路「左滑换人」，把整张列表的详情页都读一遍，`limit` / `char_ids` / `include_plan_targets` 一律忽略、`total` 恒为 `null`（没有名单），可能跑几十分钟 | 200 | `PIPELINE_ALREADY_RUNNING`（409，已有扫描在跑）、`SERVICE_UNAVAILABLE`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
-| GET | `/api/account/training-scan` | 扫描状态（页面轮询用） | 无；返回里 `mode` 区分两类扫描，`screens` 是已经过去的列表屏数（M39），全量扫描的 `total` 恒为 `null` | 200 | `SERVICE_UNAVAILABLE`、`UNAUTHORIZED` |
+| GET | `/api/account/training-scan` | 扫描状态（页面轮询用） | 无；返回里 `mode` 区分两类扫描，`screens` 是已经过去的列表屏数（M39），全量扫描的 `total` 恒为 `null`；`realigned` / `unverified` 是两个**身份计数**（M40，int）：前者是「详情页拉丁名跟这一格卡名对不上、回列表重锚过」的张数，后者是「拉丁名读不出结论、按卡名写库」的张数（单人模式恒为 0） | 200 | `SERVICE_UNAVAILABLE`、`UNAUTHORIZED` |
 | DELETE | `/api/account/training-scan` | 取消正在跑的扫描 | 无 | 200 | `SERVICE_UNAVAILABLE`、`UNAUTHORIZED` |
 
 十个端点都 `Depends(require_auth)`。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent`）。

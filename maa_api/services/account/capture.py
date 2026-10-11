@@ -113,6 +113,9 @@ class OperatorMeta:
     name: str | None = None
     rarity: int | None = None
     profession: str | None = None
+    #: 拉丁名（详情页左下角那一行的正体，M40 用它核对详情页里是谁）。``battle_data`` 里
+    #: 有个别干员的 ``name_en`` 直接写着中文（如「克莱门莎」），这类当作没有拉丁名。
+    name_en: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -527,6 +530,7 @@ def load_operator_catalog() -> dict[str, OperatorMeta]:
                 name=_text(entry.get("name")),
                 rarity=_in_range(entry.get("rarity"), _RARITY_RANGE),
                 profession=_profession(entry.get("profession")),
+                name_en=_latin_name(entry.get("name_en")),
             )
         break
     return catalog
@@ -629,6 +633,19 @@ def _text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _latin_name(value: Any) -> str | None:
+    """``battle_data`` 的 ``name_en`` → 可用作身份核对的拉丁名；不是拉丁名给 ``None``。
+
+    真机取证（2026-10-11 M40）：详情页左下角那一行是**拉丁名**（``Bagpipe`` /
+    ``Ch'en the Dawnstreak``），而 ``battle_data`` 里个别干员的 ``name_en`` 直接写着中文
+    （「克莱门莎」）。中文当不了拉丁名，用 ``isascii()`` 把这类挡掉。
+    """
+    text = _text(value)
+    if not text or not text.isascii():
+        return None
+    return text if any(char.isalpha() for char in text) else None
 
 
 def _int(value: Any) -> int | None:

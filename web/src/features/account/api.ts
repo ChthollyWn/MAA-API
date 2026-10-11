@@ -222,6 +222,10 @@ export interface TrainingScanState {
   skipped: number
   unresolved: number
   mismatched: number
+  /** 全量扫描里「详情页拉丁名跟这一格卡名对不上、回列表重锚」的张数（M40 §3）。 */
+  realigned: number
+  /** 全量扫描里拉丁名读不出结论、只能按卡名写库的张数（M40 §3）。 */
+  unverified: number
   message: string | null
   /** 全量扫描恒为 `null`（跑到哪算哪）。 */
   total?: number | null
@@ -489,6 +493,8 @@ const IDLE_TRAINING_SCAN: TrainingScanState = {
   skipped: 0,
   unresolved: 0,
   mismatched: 0,
+  realigned: 0,
+  unverified: 0,
   message: null,
   total: null,
 }
@@ -533,6 +539,8 @@ export function normalizeTrainingScanState(value: unknown): TrainingScanState {
     skipped: count(raw.skipped),
     unresolved: count(raw.unresolved),
     mismatched: count(raw.mismatched),
+    realigned: count(raw.realigned),
+    unverified: count(raw.unverified),
     message: text(raw.message),
     // `total` 是**契约外**的补充字段：GET/DELETE 的响应里没写它，后端给了就用它算进度，
     // 没给就是 `null`（页面走不确定态），不要拿 `targets.length` 之类的东西假冒。

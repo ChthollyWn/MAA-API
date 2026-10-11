@@ -33,10 +33,12 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import inspect
 import io
 import logging
 import math
+import unicodedata
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -109,6 +111,19 @@ FULL_SWIPE_RETRIES = 2
 #: 全量扫描第一格「点开详情页」的重试次数：点空了后面 15 次左滑会把列表当详情页滑
 #: （真机跑飞过一次），所以点开前后比一次像素，没点开就再点一次。
 FULL_CLICK_RETRIES = 1
+
+#: 详情页拉丁名核对（M40）：读数与期望名的相似度下限、以及比第二名至少高多少。
+#:
+#: 比的是 ``difflib.SequenceMatcher.ratio()``（归一化之后），不是字符串相等：真机上
+#: ASCII OCR 会掉首字母、粘立绘杂字（`Ines`→`nes`、`Shu`→`ShuT X`、`Nian`→`PTF`），
+#: 所以留了模糊比对的余地，同时用「领先幅度」挡住 `SilverAsh` 与
+#: `SilverAsh the Reignfrost` 这种名字互相像的情况。
+NAME_EN_MIN_SCORE = 0.7
+NAME_EN_MIN_MARGIN = 0.15
+#: 模糊比对要求读数至少有这么多字符：`es`（`Ines` 的残读）这种跟谁都不比，
+#: 免得撞上同一屏里别人的名字。真机实测 `Ines` 掉首字母之后剩 `nes`（3 个字符），
+#: 这种还要能认出来——3 是「短到不能猜」与「短名残读」之间的分界。
+NAME_EN_MIN_FUZZY_LENGTH = 3
 
 #: ``submit`` 等第一步进队列的上限（秒）。等不到就当这一轮没开起来。
 SUBMIT_STARTED_TIMEOUT_SECONDS = 5.0
@@ -211,6 +226,10 @@ def _initial_state() -> dict[str, Any]:
         "scanned": 0,
         "updated": 0,
         "screens": 0,
+        #: 详情页里的人跟卡名对不上、回列表重新点开对齐的次数（M40）。
+        "realigned": 0,
+        #: 读到拉丁名、但跟这一屏谁都不像（核对不出结论）的张数（M40）。
+        "unverified": 0,
         "total": None,
         "message": None,
         "cancel_requested": False,
@@ -257,6 +276,47 @@ def _name_token(raw: str) -> str:
     for suffix in NAME_SUFFIXES:
         token = token.removesuffix(suffix)
     return "".join(token.split())
+
+
+def _name_en_key(text: str | None) -> str:
+    """拉丁名归一化：去变音符、只留字母数字、小写。
+
+    ``Ch'en the Dawnstreak`` → ``chenthedawnstreak``、``Eyjafjalla the Hvít Aska`` →
+    ``eyjafjallathehvitaska``；真机 OCR 常见的粘字/掉字也靠这一步先抹平一层。
+    """
+    folded = unicodedata.normalize("NFKD", text or "")
+    return "".join(char for char in folded.lower() if char.isalnum())
+
+
+def _name_en_hit(reported: str | None, expected: Mapping[int, str]) -> int | None:
+    """详情页那一行拉丁名最像**这一屏**的哪一格；不像、或分不出高下时给 ``None``（M40）。
+
+    比对只在 ``expected``（这一屏读到的卡名对应的拉丁名）里做，不拿整个干员目录来撞：
+    同屏里两个人的名字互相像才会误判，跨屏撞车没有意义。完全相等直接命中；其余按
+    ``difflib`` 相似度取最高，要求 :data:`NAME_EN_MIN_SCORE` 起步、比第二名高
+    :data:`NAME_EN_MIN_MARGIN`，并且读数至少 :data:`NAME_EN_MIN_FUZZY_LENGTH` 个字符
+    （``es`` 这种残读跟谁都不比）。
+    """
+    seen = _name_en_key(reported)
+    if not seen:
+        return None
+    scored: list[tuple[float, int]] = []
+    for index in sorted(expected):
+        key = _name_en_key(expected[index])
+        if not key:
+            continue
+        if key == seen:
+            return index
+        scored.append((difflib.SequenceMatcher(None, seen, key).ratio(), index))
+    if not scored or len(seen) < NAME_EN_MIN_FUZZY_LENGTH:
+        return None
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    best_score, best_index = scored[0]
+    if best_score < NAME_EN_MIN_SCORE:
+        return None
+    if len(scored) > 1 and best_score - scored[1][0] < NAME_EN_MIN_MARGIN:
+        return None
+    return best_index
 
 
 def _readings(callbacks: Iterable[Any]) -> dict[str, dict[str, Any]]:
@@ -608,6 +668,8 @@ class TrainingScanService:
             "scanned": state["scanned"],
             "updated": state["updated"],
             "screens": state["screens"],
+            "realigned": state["realigned"],
+            "unverified": state["unverified"],
             "skipped": len(state["skipped"]),
             "unresolved": len(state["unresolved"]),
             "mismatched": len(state["mismatched"]),
@@ -848,7 +910,7 @@ class TrainingScanService:
             )
             seen.update(names.values())
             try:
-                outcome = await self._scan_screen(names, lookup, ambiguous)
+                outcome = await self._scan_screen(names, lookup, ambiguous, catalog)
             except BaseException:
                 # 出事也要把设备留在列表页：翻页那一划只能打在干员列表上，
                 # 打在详情页上是不动的（M39 §2）。
@@ -872,14 +934,21 @@ class TrainingScanService:
         names: Mapping[tuple[str, int], str],
         lookup: Mapping[str, str],
         ambiguous: Collection[str],
+        catalog: Mapping[str, OperatorMeta],
     ) -> _ScreenOutcome:
         """这一屏的 16 张详情页：点开第一格，然后一路左滑（M39 规格 §4.2）。
 
         **先动后记**：每次左滑都拿前后两帧比像素，画面确实换了才把这一张的读数记到
         ``cell_of(index)`` 那个格子的卡名头上；比不出画面（拿不到截图）就报错收尾——
         宁可少写几条读数，也不把 A 的练度写到 B 头上。
+
+        **再核一遍身份**（M40）：像素只说得清「画面换了」，说不清「换了几张」——详情页左滑
+        是甩动，一次可能前进两张（真机取证：2026-10-11 那轮有 8 个人被写了两遍、部分练度写
+        成了邻居的读数）。所以每一张都用详情页左下角的**拉丁名**跟这一屏的卡名对一遍，
+        对不上就回列表重新点开这一格（见 :meth:`_confirm_card`）。
         """
         state = self._state
+        expected_en = self._expected_name_en(names, lookup, catalog)
         image: Image.Image | None = None
         for index in range(CARDS_PER_SCREEN):
             if state["cancel_requested"]:
@@ -904,6 +973,12 @@ class TrainingScanService:
                         title=_title(f"读第 {index + 1} 张详情页"),
                     )
                     image = detail.get("image")
+                    if _name_en_hit(
+                        str(detail.get("name_en") or ""), expected_en
+                    ) not in (None, index):
+                        # 点开的这一页不是这一格那位：多半点空了、或页面还在推出来。
+                        logger.info("全量扫描：第 %d 屏第一格点开后画面里不是那位，重试", state["screens"])
+                        continue
                     if scan_image.frame_changed(before, image) is not False or _detail_has_reading(
                         detail
                     ):
@@ -947,9 +1022,91 @@ class TrainingScanService:
                         FULL_SWIPE_RETRIES + 1,
                     )
                     return _ScreenOutcome.LAST
+            detail = await self._confirm_card(index, row, column, detail, expected_en)
+            if detail is None:
+                # 回列表重锚过还是对不上：这一张的读数不写库（宁可少写一条，也不写错人）。
+                state["scanned"] += 1
+                state["skipped"].append(
+                    {
+                        "char_id": lookup.get(name) if name else None,
+                        "name": name or "",
+                        "reason": "详情页里的拉丁名跟这一格的卡名对不上，回列表重锚后仍对不上，读数不写库",
+                    }
+                )
+                continue
+            # 重锚过的话，拿重锚那一帧当下一次左滑的「滑动前」（否则会跟错位那一帧比，
+            # 比出来的「画面在动」是假的）。
+            image = detail.get("image") or image
             state["scanned"] += 1
             await self._record_card(index, name, lookup, ambiguous, detail)
         return _ScreenOutcome.DONE
+
+    @staticmethod
+    def _expected_name_en(
+        names: Mapping[tuple[str, int], str],
+        lookup: Mapping[str, str],
+        catalog: Mapping[str, OperatorMeta],
+    ) -> dict[int, str]:
+        """这一屏每一格期望的拉丁名（卡名没读出、或目录里那位没有拉丁名的格子不进表）。"""
+        expected: dict[int, str] = {}
+        for index in range(CARDS_PER_SCREEN):
+            name = names.get(cell_of(index))
+            char_id = lookup.get(name) if name else None
+            meta = catalog.get(char_id) if char_id else None
+            if meta is not None and meta.name_en:
+                expected[index] = meta.name_en
+        return expected
+
+    async def _confirm_card(
+        self,
+        index: int,
+        row: str,
+        column: int,
+        detail: Mapping[str, Any],
+        expected_en: Mapping[int, str],
+    ) -> Mapping[str, Any] | None:
+        """核对这一张详情页是不是 ``expected_en[index]`` 那位；不符就回列表重锚（M40）。
+
+        - 这一格没有期望值、或拉丁名读成谁也认不出的东西：核对不出结论，原样返回读数；
+        - 画面里是这一屏的**别人**（左滑甩过头，一次滑了两张）：回列表重新点开这一格，
+          重锚回来的读数写库；
+        - 重锚点不开、或重锚后还是对不上：给 ``None``，这一张的读数不写库。
+        """
+        state = self._state
+        expected = expected_en.get(index)
+        if not expected:
+            return detail
+        hit = _name_en_hit(str(detail.get("name_en") or ""), expected_en)
+        if hit is None:
+            state["unverified"] += 1
+            logger.debug(
+                "全量扫描：第 %d 张的拉丁名核对不出结论（读到 %r），按卡名写库",
+                index + 1,
+                detail.get("name_en"),
+            )
+            return detail
+        if hit == index:
+            return detail
+        state["realigned"] += 1
+        logger.warning(
+            "全量扫描：第 %d 张画面里是「%s」（不是这一格卡名说的「%s」），回列表重新对齐",
+            index + 1,
+            expected_en.get(hit, "?"),
+            expected,
+        )
+        await self._best_effort_back()
+        try:
+            again = await self._detail_scan(
+                lead=(st.click_cell_node(row, column),),
+                title=_title(f"读第 {index + 1} 张详情页"),
+            )
+        except AppError as error:
+            logger.warning("全量扫描：第 %d 张重新点开失败：%s", index + 1, error.message or error)
+            return None
+        if _name_en_hit(str(again.get("name_en") or ""), expected_en) == index:
+            return again
+        logger.warning("全量扫描：第 %d 张重新点开还是对不上，这一张的读数不写库", index + 1)
+        return None
 
     async def _record_card(
         self,
@@ -1075,6 +1232,9 @@ class TrainingScanService:
 
         返回里带 ``image``：全量扫描靠它跟上一张比像素，确认左滑真的换人了（M39 规格
         §4.2）。取不到截图时是 ``None``。
+
+        也带 ``name_en``：详情页左下角那一行拉丁名（M40）。全量扫描用它核对「这一页是不是
+        卡名说的那个人」——中文大名字是艺术字读不出来，拉丁名读得动。
         """
         readings = await self._run_chain(
             st.detail_screen_nodes(*lead), title=title or _title("读详情页")
@@ -1086,6 +1246,7 @@ class TrainingScanService:
             "skill_level": _skill_level(readings),
             "masteries": masteries,
             "modules": _module(readings),
+            "name_en": _text_of(readings.get(st.node_key(st.OPER_NAME_EN), {})),
             "image": image,
         }
 

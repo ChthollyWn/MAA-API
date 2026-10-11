@@ -1,16 +1,16 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12279 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12347 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 287 | 287 |
-| 破折号当冒号用 | high | 0 | 144 | 144 |
+| 粗体强调 | medium | 0 | 298 | 298 |
+| 破折号当冒号用 | high | 0 | 150 | 150 |
 | 「A 而不是 B」对照腔 | high | 0 | 104 | 104 |
-| 绝对化规定腔 | medium | 0 | 62 | 62 |
+| 绝对化规定腔 | medium | 0 | 63 | 63 |
 | 自指式讲解腔 | medium | 0 | 18 | 18 |
-| 「…即可」机器腔 | medium | 0 | 16 | 16 |
+| 「…即可」机器腔 | medium | 0 | 17 | 17 |
 | 省略号 | medium | 0 | 5 | 5 |
 | 宣传词 | medium | 0 | 3 | 3 |
 | 提示腔 | medium | 0 | 3 | 3 |
@@ -18,7 +18,7 @@
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 287）
+## 粗体强调（medium｜用户可见 0 / 开发向 298）
 
 **开发向**
 
@@ -28,9 +28,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 281 条，见 inventory.json
+- …… 另有 292 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 144）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 150）
 
 **开发向**
 
@@ -40,7 +40,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 138 条，见 inventory.json
+- …… 另有 144 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 104）
 
@@ -54,7 +54,7 @@
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
 - …… 另有 98 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 62）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 63）
 
 **开发向**
 
@@ -62,9 +62,9 @@
 - `maa_api/agent/tools/pipeline.py:216` 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
 - `maa_api/db/migrations/versions/0018_unknown_training.py:47` : 识别永远不写、只有人工/Agent 才能给出的三列。
 - `maa_api/services/account/capture.py:19` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
+- `maa_api/services/account/scan_tasks.py:297` : M40：尾巴一律接到 :data:`OPER_NAME_EN`（拉丁名）上——它是**核对身份**用的，任何精英化
 - `maa_api/services/copilot/rules.py:72` : ``Click`` / ``Swipe`` 等动作一律放行（Q38）。
-- `maa_api/services/external/http.py:193` 主机白名单在发请求之前判：来源登记表里没有的主机一律拒绝。
-- …… 另有 56 条，见 inventory.json
+- …… 另有 57 条，见 inventory.json
 
 ## 自指式讲解腔（medium｜用户可见 0 / 开发向 18）
 
@@ -78,7 +78,7 @@
 - `maa_api/services/account/box.py:684` 常量在仓储层（与 operbox / depot 并列）；本模块刻意不在模块级 import
 - …… 另有 12 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 16）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 17）
 
 **开发向**
 
@@ -88,7 +88,7 @@
 - `maa_api/agent/questions.py:198` 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
 - `maa_api/services/copilot/rules.py:330` : 实际比对的成员：``opers`` 是自己，分组是全部成员（任一满足即可）。
 - `maa_api/services/retention_service.py:131` : 「通关即可」也按成功处理。判定不了成功标准时保守处理：宁可留，不误删。
-- …… 另有 10 条，见 inventory.json
+- …… 另有 11 条，见 inventory.json
 
 ## 省略号（medium｜用户可见 0 / 开发向 5）
 
@@ -98,7 +98,7 @@
 - `tests/domain/test_errors.py:43` : 表格数据行形如 ``| `CODE` | 404 | 含义…… |``；表头与文字段落都不匹配。
 - `tests/domain/test_route_inventory.py:78` : §6 开头那句：``共 101 条 HTTP 端点……另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。``
 - `tests/domain/test_route_inventory.py:86` : 表格数据行：``| GET | `/api/system/health` | …… |``。
-- `tests/services/test_account_training_scan.py:937` 步号是「非起手的第几步」：1 进列表、2 读屏、3 点开并读详情……M38 合并之后这条是第 3 步。
+- `tests/services/test_account_training_scan.py:941` 步号是「非起手的第几步」：1 进列表、2 读屏、3 点开并读详情……M38 合并之后这条是第 3 步。
 
 ## 宣传词（medium｜用户可见 0 / 开发向 3）
 
