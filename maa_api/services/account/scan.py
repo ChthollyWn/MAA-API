@@ -89,6 +89,9 @@ MIN_MASTERY_ELITE = 2
 #: 单步超时（秒）：一步只做一件事，90 秒还没进终态基本是卡住了。
 DEFAULT_STEP_TIMEOUT_SECONDS = 90.0
 
+#: 起手 ``StartUp`` 的超时（秒）：拉客户端比单步慢，冷启动实测 7 秒左右，留足余量。
+DEFAULT_STARTUP_TIMEOUT_SECONDS = 180.0
+
 #: 扫完名单还差人时要多翻几屏：留 3 倍屏数再加 3 屏余量（卡名漏检会让「已扫数」落后）。
 SCREEN_FACTOR = 3
 SCREEN_MARGIN = 3
@@ -327,7 +330,10 @@ class TrainingScanService:
     :param catalog: 干员目录工厂，默认读本机 ``battle_data.json``（测试注入替身）。
     :param list_operators: 读账号表干员列表，默认走 ``box.list_operators``。
     :param resource_service: 资源服务（``resource_root`` + ``reload_resources``）。
+    :param client_type_provider: 取默认渠道（``settings.channel.client_type``），起手
+        ``StartUp`` 用；不给就不带这个字段，交给内核用默认渠道。
     :param step_timeout_seconds: 单步等终态的上限。
+    :param startup_timeout_seconds: 起手 ``StartUp`` 等终态的上限（拉客户端比单步慢）。
     :param screenshot_dir: 给了就把每张详情页截图落盘（排查用），不给不留痕。
     """
 
@@ -340,9 +346,11 @@ class TrainingScanService:
         plans: Any = None,
         core_client: Any = None,
         catalog: Callable[[], dict[str, OperatorMeta]] = default_catalog,
-        list_operators: Callable[..., Mapping[str, Any]] | None = None,
+        list_operators: Callable[..., Any] | None = None,
         resource_service: Any = None,
+        client_type_provider: Callable[[], str | None] | None = None,
         step_timeout_seconds: float = DEFAULT_STEP_TIMEOUT_SECONDS,
+        startup_timeout_seconds: float = DEFAULT_STARTUP_TIMEOUT_SECONDS,
         screenshot_dir: str | Path | None = None,
     ) -> None:
         self._db_session = db_session
@@ -353,7 +361,9 @@ class TrainingScanService:
         self._catalog = catalog
         self._list_operators = list_operators or self._operators_from_box
         self._resource_service = resource_service
+        self._client_type_provider = client_type_provider
         self._step_timeout = float(step_timeout_seconds)
+        self._startup_timeout = float(startup_timeout_seconds)
         self._screenshot_dir = Path(screenshot_dir) if screenshot_dir else None
         self._ensured = False
         self._lock = asyncio.Lock()
@@ -392,13 +402,16 @@ class TrainingScanService:
         unresolved: list[str] = []
 
         for raw in char_ids or ():
-            char_id = str(raw).strip()
-            if not char_id:
+            token = str(raw).strip()
+            if not token:
                 continue
-            meta = catalog.get(char_id)
-            if meta is None or not meta.name:
-                # 目录里没有的 id：连名字都拿不到，认不出卡片，如实记进 unresolved。
-                unresolved.append(char_id)
+            # 允许直接给名字（Agent 工具的 ``char_ids`` 描述就是这么写的）：先按 ``char_id``
+            # 查目录，查不到再按名字索引解析；同名多形态的名字不进名单（不猜是哪一个）。
+            char_id = token if token in catalog else index.get(token)
+            meta = catalog.get(char_id) if char_id else None
+            if char_id is None or meta is None or not meta.name:
+                # 目录里既没有这个 id、也没有这个名字：认不出卡片，如实记进 unresolved。
+                unresolved.append(token)
                 continue
             _add_target(candidates, seen, char_id, meta.name)
 
@@ -418,6 +431,10 @@ class TrainingScanService:
             page = self._list_operators(
                 owned_only=True, elite_min=2, limit=MAX_LIMIT, offset=0
             )
+            if inspect.isawaitable(page):
+                # 默认来源（账号服务的 ``list_operators``）是 async 的：漏 await 会拿到协程，
+                # 这里当空名单处理就会错报「精二名单是空的」（M37 规格 §2.1）。
+                page = await page
             items = page.get("items") if isinstance(page, Mapping) else None
             for item in items or []:
                 if not isinstance(item, Mapping):
@@ -562,10 +579,11 @@ class TrainingScanService:
     # -- 驱动 --------------------------------------------------------------
 
     async def _drive(self, targets: Sequence[Mapping[str, str]]) -> None:
-        """一轮扫描的驱动：进列表 → 读屏 → 逐格读详情 → 翻屏 → 收尾写记录。"""
+        """一轮扫描的驱动：起手 → 进列表 → 读屏 → 逐格读详情 → 翻屏 → 收尾写记录。"""
         state = self._state
         position = 0
         try:
+            await self._start_game()
             await self._enter_box()
             position = await self._scan(targets)
             state["status"] = TrainingScanStatus.SUCCEEDED.value
@@ -630,6 +648,14 @@ class TrainingScanService:
                 raise _Cancelled
             screen = await self._read_box_screen()
             state["screens"] += 1
+            if not screen and state["screens"] == 1:
+                # 第一屏一个卡名都没读出来：画面多半不是干员列表页（M37 规格 §4.4）。
+                # 不快速失败的话，这一轮会安静地跑完再报「全跳过」，用户看到的是「无操作」。
+                raise AppError(
+                    ErrorCode.CORE_COMMAND_FAILED,
+                    f"{_title('读卡名')}一个卡名都没读出来"
+                    "（画面可能不是干员列表页，先让游戏进到干员列表）",
+                )
             matched = 0
             for row in st.ROW_KEYS:
                 for column in range(st.GRID_COLUMNS):
@@ -750,6 +776,29 @@ class TrainingScanService:
             "modules": _module(readings),
         }
 
+    async def _start_game(self) -> None:
+        """起手把客户端拉起来（M37 规格 §4.3）。
+
+        全仓既有口径：MaaCore 的任务都从主界面起手，只有 ``StartUp`` 会拉起客户端
+        （``maa_api/agent/preconditions.py``）。内核实测 ``StartUp`` 只负责拉起 / 等在主界面，
+        **不把游戏内页面带回主界面**，所以进列表仍交给 ``OperBoxBegin`` 链。
+
+        参数按 :class:`~maa_api.domain.task.StartUpInput` 的字段平铺下发（``extra="forbid"``，
+        没有 ``params`` 这个口子）：``start_game_enabled`` 固定为真，``client_type`` 只在
+        取得到默认渠道时才带，取不到就让内核用设置里的渠道。
+        """
+        task: dict[str, Any] = {"name": "StartUp", "start_game_enabled": True}
+        provider = self._client_type_provider
+        client_type = (provider() if callable(provider) else None) or None
+        if client_type:
+            task["client_type"] = client_type
+        await self._run_tasks(
+            [task],
+            title=_title("启动游戏"),
+            timeout=self._startup_timeout,
+            timeout_hint="游戏没起来或设备掉了",
+        )
+
     async def _enter_box(self) -> None:
         """进干员列表页（内核 ``OperBoxBegin`` 链会顺带按「等级」排序）。"""
         await self._run_step(st.ENTER_BOX, title=_title("进干员列表"))
@@ -811,10 +860,24 @@ class TrainingScanService:
         ``callbacks_for`` 回读一条读数都拿不到（只有「开始/完成/全部完成」三条生命周期
         消息，见 ``docs/13`` §8.51）。``callbacks_for`` 那份留着兜底，不做主路径。
         """
+        return await self._run_tasks(
+            [{"name": "Custom", "task_names": [node, st.DONE]}], title=title
+        )
+
+    async def _run_tasks(
+        self,
+        tasks: Sequence[Mapping[str, Any]],
+        *,
+        title: str,
+        timeout: float | None = None,
+        timeout_hint: str = "设备可能掉线或正忙",
+    ) -> dict[str, dict[str, Any]]:
+        """提交一条流水线、等它进终态、收读数（:meth:`_run_step` 与起手 ``StartUp`` 共用）。"""
+        limit = self._step_timeout if timeout is None else float(timeout)
         with self.tap() as tap:
             pipeline_id = await _result_helpers().submit_pipeline(
                 self._pipeline_service,
-                tasks=[{"name": "Custom", "task_names": [node, st.DONE]}],
+                tasks=[dict(task) for task in tasks],
                 title=title,
             )
             if pipeline_id:
@@ -828,12 +891,12 @@ class TrainingScanService:
             if not pipeline_id:
                 raise AppError(ErrorCode.CORE_COMMAND_FAILED, f"{title}没能进队列")
             pipeline, finished = await _result_helpers().wait_pipeline(
-                self._pipeline_service, pipeline_id, timeout_seconds=self._step_timeout
+                self._pipeline_service, pipeline_id, timeout_seconds=limit
             )
             if not finished:
                 raise AppError(
                     ErrorCode.CORE_COMMAND_TIMEOUT,
-                    f"{title}超过 {self._step_timeout:.0f} 秒还没结束（设备可能掉线或正忙）",
+                    f"{title}超过 {limit:.0f} 秒还没结束（{timeout_hint}）",
                 )
             status = str(getattr(pipeline, "status", "") or "")
             if status == PipelineStatus.CANCELLED.value:
@@ -934,9 +997,14 @@ class TrainingScanService:
             updated=updated, pipeline_id=self._state.get("first_pipeline_id")
         )
 
-    def _operators_from_box(self, **kwargs: Any) -> Mapping[str, Any]:
-        """默认的干员列表来源：账号服务的 ``list_operators``。"""
-        return self._box.list_operators(**kwargs)
+    async def _operators_from_box(self, **kwargs: Any) -> Mapping[str, Any]:
+        """默认的干员列表来源：账号服务的 ``list_operators``。
+
+        那个方法是 async 的（M37 规格 §3 根因一）：这里是它的唯一入口，必须等出结果再返回，
+        不能把协程当名单交出去。
+        """
+        page = self._box.list_operators(**kwargs)
+        return await page if inspect.isawaitable(page) else page
 
     async def _plan_operator_names(self) -> list[str]:
         """进行中养成计划的目标干员名（规格 §4.3 的来源二）。"""

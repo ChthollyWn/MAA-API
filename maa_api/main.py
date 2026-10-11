@@ -1007,6 +1007,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             plans=upgrade_plans,
             core_client=core_client,
             resource_service=getattr(app.state, "resource_service", None),
+            # 起手 StartUp 用的默认渠道，与 M33 回调接线同一个来源（M37 §4.3）。
+            client_type_provider=lambda: get_settings().channel.client_type,
         )
         # 当期卡池（M28）：注入段用；外服不注入（进度与国服不同），由卡池服务自己判。
         from maa_api.services.game.gacha import GachaService

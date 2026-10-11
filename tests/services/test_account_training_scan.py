@@ -127,13 +127,24 @@ def _module_callbacks(code: str = "CHG X", stage: str = "3", *, score: float = 0
 # ---------------------------------------------------------------------------
 # 替身
 # ---------------------------------------------------------------------------
+def _task_label(task: Any) -> str:
+    """流水线里一个任务的标签：``Custom`` 取链首节点，其余（起手 ``StartUp``）取任务名。"""
+    names = getattr(task, "task_names", None) or []
+    if names:
+        return str(names[0])
+    return str(getattr(task, "name", "") or "")
+
+
 class FakePipelineService:
     """流水线服务替身：按脚本给每一步发回调，可指定某几步的终态。
 
     :param plan: 第 n 次 ``submit`` 时这一步要发的回调（用完为空）。
-    :param step_status: 第 n 步（从 1 起）的终态，缺省 ``completed``。
+    :param step_status: 第 n 步（从 1 起，**不计起手 ``StartUp``**）的终态，缺省 ``completed``。
     :param client: 内核客户端替身；给了就在提交时把这些回调 ``emit`` 出去（生产路径）。
     :param gate: 给了就卡在 ``wait_terminal`` 上（测并发与取消）。
+
+    每轮第一步是起手的 ``StartUp``（M37 §4.3）：它不产读数、也不吃 :param:`plan`，
+    这样各用例的脚本仍然按「进列表 → 读屏 → …」写。
     """
 
     def __init__(
@@ -157,14 +168,24 @@ class FakePipelineService:
         self.callbacks: dict[str, list[Any]] = {}
         self.cancelled: list[str] = []
         self.cancel_marks_current = True
+        self.node_steps = 0  # 非起手的步数（``step_status`` 按它编号）
+        self.task_payloads: list[list[dict[str, Any]]] = []  # 原样记下每步下发的任务参数
 
     async def submit(self, payload: Any, *, source: Any = None, agent_session_id: Any = None) -> Any:
         step = len(self.submitted) + 1
-        self.submitted.append([task.task_names[0] for task in payload.tasks])
+        labels = [_task_label(task) for task in payload.tasks]
+        self.submitted.append(labels)
+        self.task_payloads.append([task.model_dump(exclude_none=True) for task in payload.tasks])
         self.titles.append(payload.title)
         pipeline_id = f"step-{step}"
-        self.callbacks[pipeline_id] = self.plan.pop(0) if self.plan else []
-        self.status_of[pipeline_id] = self.step_status.get(step, "completed")
+        if "StartUp" in labels:
+            # 起手 StartUp 不产读数（只有生命周期消息），也不占脚本里的「第 n 步」。
+            self.callbacks[pipeline_id] = []
+            self.status_of[pipeline_id] = "completed"
+        else:
+            self.node_steps += 1
+            self.callbacks[pipeline_id] = self.plan.pop(0) if self.plan else []
+            self.status_of[pipeline_id] = self.step_status.get(self.node_steps, "completed")
         if self.client is not None:  # 真机读数只从实时回调里来，替身也走这条路
             for batch in self.callbacks[pipeline_id]:
                 self.client.emit(batch)
@@ -201,15 +222,29 @@ class FakeBox:
         operators: Sequence[Mapping[str, Any]] = (),
         results: Mapping[str, Any] | None = None,
         record_error: Exception | None = None,
+        async_list: bool = False,
     ) -> None:
         self.operators = [dict(item) for item in operators]
         self.results = dict(results or {})
         self.record_error = record_error
+        # 生产里的 ``OperatorBoxService.list_operators`` 是 async 的：漏 await 会拿到协程
+        # 对象、名单静默变空（M37 §2.1）。默认给同步替身，需要复现时打开这个开关。
+        self.async_list = async_list
         self.applied: list[dict[str, Any]] = []
         self.records: list[dict[str, Any]] = []
         self.list_kwargs: dict[str, Any] = {}
 
-    def list_operators(self, **kwargs: Any) -> Mapping[str, Any]:
+    async def _page_later(self, **kwargs: Any) -> Mapping[str, Any]:
+        return self._page_now(**kwargs)
+
+    def list_operators(self, **kwargs: Any) -> Any:
+        """生产里的 ``OperatorBoxService.list_operators`` 是 async 的：``async_list`` 打开时
+        返回协程对象，用来复现「漏 await → 名单静默变空」（M37 §2.1）。"""
+        if self.async_list:
+            return self._page_later(**kwargs)
+        return self._page_now(**kwargs)
+
+    def _page_now(self, **kwargs: Any) -> Mapping[str, Any]:
         self.list_kwargs = kwargs
         offset = int(kwargs.get("offset") or 0)
         limit = kwargs.get("limit")
@@ -323,6 +358,7 @@ def _service(
     core: FakeCoreClient | None = None,
     resource: Any = None,
     catalog: Mapping[str, OperatorMeta] | None = None,
+    client_type: Any = None,
 ) -> TrainingScanService:
     """装配一个全替身的服务（``step_timeout`` 给短一点，卡住能快点报出来）。
 
@@ -341,6 +377,7 @@ def _service(
         catalog=lambda: dict(catalog if catalog is not None else CATALOG),
         resource_service=resource,
         step_timeout_seconds=5.0,
+        client_type_provider=client_type,
     )
 
 
@@ -690,16 +727,18 @@ def test_a_full_round_reads_writes_and_records(tmp_path: Path):
         assert state["started_at"] is not None and state["finished_at"] is not None
         assert "写入 1 名" in (state["message"] or "")
 
-        # 一步一步的流水线：进列表 → 读屏 → 点开 → 详情 → 回列表
+        # 一步一步的流水线：起手启动 → 进列表 → 读屏 → 点开 → 详情 → 回列表
         assert pipeline.short_nodes() == [
+            "StartUp",
             "EnterBox",
             "CardNameTopCol0",
             "ClickTopCol3",
             "SkillLevel",
             "Back",
         ]
-        assert pipeline.titles[0] == "练度扫描：进干员列表"
-        assert pipeline.titles[3] == "练度扫描：读详情页"
+        assert pipeline.titles[0] == "练度扫描：启动游戏"
+        assert pipeline.titles[1] == "练度扫描：进干员列表"
+        assert pipeline.titles[4] == "练度扫描：读详情页"
 
         # 写库：读到什么写什么（专精走截图，模组走节点读数）
         assert box.applied == [
@@ -938,7 +977,7 @@ def test_a_cell_without_a_reading_does_not_hide_the_later_cells(tmp_path: Path):
         await service.submit(limit=10)
         await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
 
-        assert pipeline.short_nodes()[1:3] == ["CardNameTopCol0", "ClickTopCol3"]
+        assert pipeline.short_nodes()[2:4] == ["CardNameTopCol0", "ClickTopCol3"]
         assert service.snapshot()["scanned"] == 1
 
     asyncio.run(scenario())
@@ -947,7 +986,7 @@ def test_a_cell_without_a_reading_does_not_hide_the_later_cells(tmp_path: Path):
 def test_a_target_on_the_next_screen_is_found_after_a_swipe(tmp_path: Path):
     plan = [
         [],  # EnterBox
-        _screen_callbacks({}),  # 第一屏没有目标
+        _screen_callbacks({("top", 7): "泥岩"}),  # 第一屏有别的干员、没有目标
         [],  # SwipeNextPage
         _screen_callbacks({BAGPIPE_CELL: "风笛"}),  # 第二屏有
         [],  # 点开
@@ -1075,7 +1114,7 @@ def test_operators_left_over_are_reported_as_skipped(tmp_path: Path):
 # ---------------------------------------------------------------------------
 def test_a_second_submit_is_rejected_while_running(tmp_path: Path):
     gate = asyncio.Event()
-    pipeline = FakePipelineService([[]], gate=gate)
+    pipeline = FakePipelineService([[], _screen_callbacks({("top", 7): "泥岩"})], gate=gate)
     box = FakeBox(operators=[{"char_id": "char_123_bagpipe", "name": "风笛"}])
     service = _service(pipeline=pipeline, box=box, resource=FakeResourceService(tmp_path / "layer"))
 
@@ -1089,6 +1128,7 @@ def test_a_second_submit_is_rejected_while_running(tmp_path: Path):
         # 放行之后这一轮会自己走完（名单里的那位这次没读出来，按跳过收尾）
         gate.set()
         await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        assert service.snapshot()["skipped"] == 1
 
     asyncio.run(scenario())
 
@@ -1110,8 +1150,8 @@ def test_cancel_stops_the_round_and_keeps_what_was_read(tmp_path: Path):
         # 这一步的终态是 cancelled：驱动会在这里停下，收尾（写识别记录）随后完成
         await _wait_for(lambda: box.records, what="这一轮的识别记录")
 
-        # 取消之后不再往下读：只跑了第一步（进列表）
-        assert pipeline.submitted == [[st.ENTER_BOX]]
+        # 取消之后不再往下读：提交过的只有起手那一步（``submit`` 等它进队列就返回）
+        assert pipeline.submitted == [["StartUp"]]
         # 这一轮的识别记录照写（已写入的练度保留）
         assert len(box.records) == 1
         assert box.records[0]["pipeline_id"] == "step-1"
@@ -1243,3 +1283,132 @@ def test_snapshot_shape_matches_the_spec():
     }
     assert state["status"] == TrainingScanStatus.IDLE.value
     assert isinstance(state["scanned"], int)
+
+
+# ---------------------------------------------------------------------------
+# M37：可用性修复（名单来源、名字参数、起手启动、空屏护栏）
+# ---------------------------------------------------------------------------
+def test_an_async_operator_source_is_awaited(tmp_path: Path):
+    """默认名单来源是 async 的：漏 await 会拿到协程、被当空名单（M37 §2.1）。
+
+    生产实测：``OperatorBoxService.list_operators`` 是 ``async def``，漏 await 之后 103 名精二
+    干员一个都进不了名单，接口回「精二名单是空的」——而单测一直注入同步替身，五轮真机验收
+    又都显式传了 ``char_ids``，这条分支从来没被跑到。
+    """
+    box = FakeBox(operators=[{"char_id": "char_123_bagpipe", "name": "风笛"}], async_list=True)
+    service = _service(box=box, resource=FakeResourceService(tmp_path / "layer"))
+
+    async def scenario() -> None:
+        resolved = await service.resolve_targets(limit=10)
+
+        assert resolved["targets"] == [{"char_id": "char_123_bagpipe", "name": "风笛"}]
+        assert resolved["total"] == 1
+        assert box.list_kwargs == {
+            "owned_only": True,
+            "elite_min": 2,
+            "limit": 200,
+            "offset": 0,
+        }
+
+    asyncio.run(scenario())
+
+
+def test_char_ids_accept_a_name(tmp_path: Path):
+    """``char_ids`` 允许直接给名字（Agent 工具的描述就是这么写的，M37 §2.2）。"""
+    service = _service(resource=FakeResourceService(tmp_path / "layer"))
+
+    async def scenario() -> None:
+        resolved = await service.resolve_targets(
+            limit=10,
+            char_ids=["风笛", "char_172_silverash", "不存在的人"],
+            include_plan_targets=False,
+        )
+
+        assert resolved["targets"] == [
+            {"char_id": "char_123_bagpipe", "name": "风笛"},
+            {"char_id": "char_172_silverash", "name": "凛御银灰"},
+        ]
+        assert resolved["unresolved"] == ["不存在的人"]
+
+    asyncio.run(scenario())
+
+
+def test_the_round_starts_the_client_first(tmp_path: Path):
+    """起手先跑 ``StartUp``（带上默认渠道），再进干员列表（M37 §4.3）。"""
+    pipeline = FakePipelineService(_happy_plan())
+    box = FakeBox(operators=[{"char_id": "char_123_bagpipe", "name": "风笛"}])
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(_detail_image(tmp_path / "detail.png", {1: 3, 2: 0, 3: 3})),
+        resource=FakeResourceService(tmp_path / "layer"),
+        client_type=lambda: "Bilibili",
+    )
+
+    async def scenario() -> None:
+        await service.submit(limit=10)
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+
+        assert pipeline.submitted[0] == ["StartUp"]
+        assert pipeline.task_payloads[0] == [
+            {
+                "enable": True,
+                "name": "StartUp",
+                "start_game_enabled": True,
+                "client_type": "Bilibili",
+            }
+        ]
+        assert pipeline.titles[0] == "练度扫描：启动游戏"
+        assert pipeline.submitted[1] == [st.ENTER_BOX]
+
+    asyncio.run(scenario())
+
+
+def test_the_round_without_a_default_channel_lets_the_core_decide(tmp_path: Path):
+    """取不到默认渠道时不下发 ``client_type``，由内核用设置里的渠道（M37 §4.3）。"""
+    pipeline = FakePipelineService(_happy_plan())
+    box = FakeBox(operators=[{"char_id": "char_123_bagpipe", "name": "风笛"}])
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(_detail_image(tmp_path / "detail.png", {1: 3, 2: 0, 3: 3})),
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        await service.submit(limit=10)
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+
+        assert pipeline.task_payloads[0] == [
+            {"enable": True, "name": "StartUp", "start_game_enabled": True}
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_the_first_screen_must_show_the_operator_list(tmp_path: Path):
+    """第一屏一个卡名都读不出来 → 立刻失败并说清原因（M37 §4.4）。
+
+    修复前这一轮会安静地读完 6 屏再回「全部跳过」，用户界面上看到的是「无操作」。
+    """
+    pipeline = FakePipelineService([[], _screen_callbacks({})])
+    box = FakeBox(operators=[{"char_id": "char_123_bagpipe", "name": "风笛"}])
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(),
+        resource=FakeResourceService(tmp_path / "layer"),
+    )
+
+    async def scenario() -> None:
+        await service.submit(limit=10)
+        await _wait_status(service, TrainingScanStatus.FAILED.value)
+        state = service.snapshot()
+
+        assert "一个卡名都没读出来" in (state["message"] or "")
+        assert state["scanned"] == 0
+        # 快速失败：只读到第一屏就判定画面不对，不再翻屏找。
+        assert pipeline.short_nodes() == ["StartUp", "EnterBox", "CardNameTopCol0"]
+        assert "SwipeNextPage" not in pipeline.short_nodes()
+
+    asyncio.run(scenario())
