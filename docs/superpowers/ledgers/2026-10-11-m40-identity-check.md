@@ -63,7 +63,7 @@
 | 项 | 命令 | 结果 |
 | --- | --- | --- |
 | 后端（本轮面） | `.venv/bin/python -m pytest -q tests/services/test_account_training_scan.py tests/services/test_account_scan_image.py` | **71 passed**（新增 6 例 + 同步 2 例） |
-| 后端（全量） | `.venv/bin/python -m pytest -q` | 进行中（历史基线 `2 failed, 3704 passed, 5 skipped`，两条红是既有真资源用例） |
+| 后端（全量） | `.venv/bin/python -m pytest -q` | 3770 例跑完、**只有 2 例红**：`tests/services/test_activity_index.py::test_real_resource_pack_reports_the_current_activity_and_its_stages` 与 `::test_real_resource_pack_disambiguates_a_repeated_code`（M38 起就存在的真资源用例；本轮 diff 既不碰 `activity_index` 也不碰 `resource/`） |
 | 生成物 | `.venv/bin/python scripts/dump_openapi.py` → `web/openapi.json`；`cd web && pnpm gen:api` → `web/src/types/api.d.ts` | 均已更新（GET 描述多了两个计数） |
 | 生成物校验 | `cd web && pnpm gen:api:check` | `OpenAPI types are up to date.`（exit 0） |
 | 前端类型 | `cd web && pnpm typecheck` | exit 0 |
