@@ -195,6 +195,11 @@ describe('M36 练度扫描的文案与响应兜底', () => {
       '写入 10 名 / 共读 10 名',
       '跳过 1 名 · 名单未解析 2 名 · 卡名不符 3 名',
     ])
+    // M40：全量扫描的两个身份计数也是「为 0 不提」，单位是张（不是名）。
+    expect(trainingScanSummary({ ...scan, realigned: 4, unverified: 5 })).toEqual([
+      '写入 10 名 / 共读 10 名',
+      '重锚 4 张 · 身份未核 5 张',
+    ])
   })
 
   it('状态形状读不出来时落到 idle，页面还能点「开始扫描」', () => {
@@ -228,6 +233,8 @@ describe('M36 练度扫描的文案与响应兜底', () => {
         skipped: 3,
         unresolved: 0,
         mismatched: 1,
+        realigned: 2,
+        unverified: 1,
         message: null,
         total: 40,
         body_echo: text,
@@ -242,7 +249,16 @@ describe('M36 练度扫描的文案与响应兜底', () => {
 
     const state = await fetchTrainingScan()
     expect(calls).toEqual(['POST /api/account/training-scan', 'GET /api/account/training-scan'])
-    expect(state).toMatchObject({ status: 'running', scanned: 12, updated: 9, skipped: 3, mismatched: 1, total: 40 })
+    expect(state).toMatchObject({
+      status: 'running',
+      scanned: 12,
+      updated: 9,
+      skipped: 3,
+      mismatched: 1,
+      realigned: 2,
+      unverified: 1,
+      total: 40,
+    })
   })
 
   it('POST 的请求体带 limit 与 include_plan_targets', async () => {

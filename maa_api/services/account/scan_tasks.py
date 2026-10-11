@@ -96,6 +96,23 @@ SKILL_LEVEL_ROI = (1215, 359, 14, 22)
 ELITE_ROI = (866, 235, 119, 88)
 
 # ---------------------------------------------------------------------------
+# 身份核对：详情页左下角那一行**拉丁名**
+# ---------------------------------------------------------------------------
+#
+# 详情页左下角是「★ 行 + 拉丁名 + 中文美术字」三行。中文那个大名字是艺术字，识别不出来
+# （M36 实测裸 OCR 只回一个「画」，score 0.17），但**拉丁名是规规矩矩的白字描边**，内核
+# ASCII OCR 读得动（M40 真机实测：`Bagpipe` 0.94、`Saileach` 1.00、`Ch'en the Dawnstreak`
+# 0.98）。全量扫描不回列表就想知道「眼前这一页是谁」，只能靠它。
+#
+#: 拉丁名那一行的只读 roi（内核 1280x720 基准）。
+#:
+#: 真机取证（2026-10-11，设备 2560x1440，`/tmp/m39_name_zoom.png`）：白字带在
+#: 设备 x 20–1036、y 912–968，于是内核基准 (10, 456)–(518, 484)。**左边缘留余量**：
+#: 一开始取 x=8，真机上 `Ines` 读成 `nes`、`SilverAsh…` 读成 `ilverAsh…`——都是首字母被
+#: 切掉，把左边放到 0、上下各加 4 像素之后这两例都读全了（M40 真机复核）。
+OPER_NAME_EN_ROI = (0, 452, 524, 32)
+
+# ---------------------------------------------------------------------------
 # 专精：内核那条路读不准，改成**在 Python 里数亮点**
 # ---------------------------------------------------------------------------
 #
@@ -245,10 +262,11 @@ def click_cell_node(row: str, column: int) -> str:
 #:
 #: 顺序有讲究：链上某个节点识别不出东西就会**截断整条链**（真机实测），所以
 #: 「可能读不到」的节点排在后面——模组只有解锁了才有（没解锁时面板是一行灰字
-#: 「模组」），排最后。
+#: 「模组」），拉丁名放**最后**（它是核对身份用的，读不到就只是这一张不核对）。
 #:
-#: 这里**没有**「详情页干员名」节点：详情页那个名字是艺术字（真机实测裸 OCR 只回一个
-#: 「画」，score 0.17），认不出来；干员身份以**列表页卡名**为准（规格 §4.3 裁决）。
+#: 「详情页干员名」= 中文那个大名字是艺术字（真机实测裸 OCR 只回一个「画」，score 0.17），
+#: 认不出来，所以干员身份仍以**列表页卡名**为准（M36 规格 §4.3 裁决）；``OperNameEn``
+#: 读的是同一行位置上的**拉丁名**（M40）：全量扫描不回列表，靠它核对「眼前这一页是谁」。
 DETAIL_NODE_KEYS: tuple[str, ...] = (
     "SkillLevel",
     "Elite2",
@@ -256,6 +274,7 @@ DETAIL_NODE_KEYS: tuple[str, ...] = (
     "Elite0",
     "ModuleCode",
     "ModuleStage",
+    "OperNameEn",
 )
 #: 短名 → 完整节点名（全是我们自己声明的那一套，见下面「读数节点」一节）。
 DETAIL_NODE_NAMES: dict[str, str] = {key: _full(key) for key in DETAIL_NODE_KEYS}
@@ -263,6 +282,8 @@ DETAIL_NODE_NAMES: dict[str, str] = {key: _full(key) for key in DETAIL_NODE_KEYS
 #: 详情页读数节点（供服务层直接用）。
 MODULE_CODE = DETAIL_NODE_NAMES["ModuleCode"]
 MODULE_STAGE = DETAIL_NODE_NAMES["ModuleStage"]
+#: 拉丁名节点（M40）：详情页左下角那一行，用来核对这一页是谁。
+OPER_NAME_EN = DETAIL_NODE_NAMES["OperNameEn"]
 #: 精英化节点 → 等级（三个都跑，分最高的那个就是读到的精英化）。
 ELITE_NODE_LEVELS: dict[str, int] = {
     DETAIL_NODE_NAMES[f"Elite{level}"]: level for level in (2, 1, 0)
@@ -270,12 +291,15 @@ ELITE_NODE_LEVELS: dict[str, int] = {
 #: 精英化命中之后换一条更短的尾巴（M38 提速，docs/13 §8.53）。
 #:
 #: 三个徽记模板互斥，命中一个就没必要再试另外两个：精二命中 ``Elite2`` 后直接进模组，
-#: 精一/精零命中后直接收尾——模组系统要求精二，低精英化试 ``ModuleCode``/``ModuleStage``
+#: 精一/精零命中后跳过模组——模组系统要求精二，低精英化试 ``ModuleCode``/``ModuleStage``
 #: 只会白跑两次识别（taskDelay=100 时每次约 0.4 秒）。
+#:
+#: M40：尾巴一律接到 :data:`OPER_NAME_EN`（拉丁名）上——它是**核对身份**用的，任何精英化
+#: 都要读，所以捷径不能再把它跳过去。
 ELITE_SHORTCUTS: dict[str, tuple[str, ...]] = {
-    DETAIL_NODE_NAMES["Elite2"]: (MODULE_CODE, MODULE_STAGE),
-    DETAIL_NODE_NAMES["Elite1"]: (),
-    DETAIL_NODE_NAMES["Elite0"]: (),
+    DETAIL_NODE_NAMES["Elite2"]: (MODULE_CODE, MODULE_STAGE, OPER_NAME_EN),
+    DETAIL_NODE_NAMES["Elite1"]: (OPER_NAME_EN,),
+    DETAIL_NODE_NAMES["Elite0"]: (OPER_NAME_EN,),
 }
 #: 进干员列表页：内核自己的 ``OperBoxBegin`` 链（顺带按「等级」排序）。
 ENTER_BOX = _full("EnterBox")
@@ -450,6 +474,10 @@ def operator_scan_tasks() -> dict[str, dict[str, Any]]:
             MODULE_STAGE_ROI,
             base_task="NumberOcrReplace",
             doc="只读：模组等级「STAGE n」里的数字",
+        ),
+        OPER_NAME_EN: _ascii_node(
+            OPER_NAME_EN_ROI,
+            doc="只读：详情页左下角的拉丁名（如 Bagpipe）——全量扫描用它核对这一页是谁",
         ),
         DETAIL_NODE_NAMES["SkillLevel"]: _ocr_node(
             SKILL_LEVEL_ROI,

@@ -63,7 +63,8 @@ export function scannedText(scan: TrainingScanState, total: number | null): stri
 
 /**
  * 上次结果摘要：`updated`/`scanned` 与跳过的原因，`skipped`/`unresolved`/`mismatched`
- * 为 0 时不提（§4.8）。
+ * 为 0 时不提（§4.8）；全量扫描另有 `realigned`（拉丁名对不上、回列表重锚过的张数）与
+ * `unverified`（拉丁名读不出结论、按卡名写库的张数），同样为 0 时不提（M40 §3）。
  */
 export function trainingScanSummary(scan: TrainingScanState): string[] {
   const lines = [`写入 ${scan.updated} 名 / 共读 ${scan.scanned} 名`]
@@ -71,6 +72,8 @@ export function trainingScanSummary(scan: TrainingScanState): string[] {
     scan.skipped > 0 ? `跳过 ${scan.skipped} 名` : null,
     scan.unresolved > 0 ? `名单未解析 ${scan.unresolved} 名` : null,
     scan.mismatched > 0 ? `卡名不符 ${scan.mismatched} 名` : null,
+    scan.realigned > 0 ? `重锚 ${scan.realigned} 张` : null,
+    scan.unverified > 0 ? `身份未核 ${scan.unverified} 张` : null,
   ].filter((item): item is string => item !== null)
   if (skipped.length) lines.push(skipped.join(' · '))
   return lines
@@ -127,6 +130,8 @@ export function TrainingScanCard() {
         skipped: 0,
         unresolved: 0,
         mismatched: 0,
+        realigned: 0,
+        unverified: 0,
         message: null,
         total: submitted.mode === 'full' ? null : submitted.total,
       })

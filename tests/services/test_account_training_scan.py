@@ -683,11 +683,13 @@ def _detail_batch(
     elite: int | None = 2,
     modules: bool = True,
     stage_score: float = 0.91,
+    name_en: str | None = None,
 ) -> list[dict[str, Any]]:
     """读一张详情页要发的回调（整条链一次流水线，读不出来的节点没有回调）。
 
     真机上精二干员会把 ``Elite2`` 打中（0.9993），``Elite1`` 的 0.87 低于 0.9 阈值、
-    读不出来；模组那两个节点只有装了模组的干员才有。
+    读不出来；模组那两个节点只有装了模组的干员才有。``name_en`` 是左下角那行拉丁名
+    （M40 身份核对用；读不出来时不给回调）。
     """
     callbacks: list[dict[str, Any]] = []
     if skill is not None:
@@ -696,6 +698,8 @@ def _detail_batch(
         callbacks.append(_score_callback(f"Elite{elite}", 0.9993))
     if modules:
         callbacks.extend(_module_callbacks(score=stage_score))
+    if name_en:
+        callbacks.append(_text_callback("OperNameEn", name_en, rect=(0, 452, 524, 32)))
     return callbacks
 
 
@@ -1271,18 +1275,22 @@ def test_every_chain_node_can_fall_through_to_the_rest_of_the_chain():
 
 
 def test_the_elite_shortcut_skips_the_other_badges():
-    """命中一个精英化徽记之后不再试另外两个：精二直奔模组，精一/精零直接收尾（M38）."""
+    """命中一个精英化徽记之后不再试另外两个：精二直奔模组，精一/精零直接收尾（M38）.
+
+    M40 起短路之后还要读一次详情页左下角的拉丁名（核对这一页是谁），所以尾巴是它。
+    """
     payload = st.operator_scan_tasks()
     names = st.DETAIL_NODE_NAMES
 
     assert payload[names["Elite2"]]["next"] == [
         names["ModuleCode"],
         names["ModuleStage"],
+        names["OperNameEn"],
         st.DONE,
     ]
     # 模组要求精二：低精英化的这一页没有模组可读，白试两次识别。
-    assert payload[names["Elite1"]]["next"] == [st.DONE]
-    assert payload[names["Elite0"]]["next"] == [st.DONE]
+    assert payload[names["Elite1"]]["next"] == [names["OperNameEn"], st.DONE]
+    assert payload[names["Elite0"]]["next"] == [names["OperNameEn"], st.DONE]
 
 
 def test_a_click_node_reads_the_detail_page_in_the_same_chain():
@@ -1315,6 +1323,8 @@ def test_snapshot_shape_matches_the_spec():
         "skipped",
         "unresolved",
         "mismatched",
+        "realigned",
+        "unverified",
         "message",
         "total",
         "targets",
@@ -1324,6 +1334,8 @@ def test_snapshot_shape_matches_the_spec():
     assert state["mode"] == TrainingScanMode.SINGLE.value
     assert isinstance(state["scanned"], int)
     assert isinstance(state["screens"], int)
+    assert state["realigned"] == 0
+    assert state["unverified"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1822,3 +1834,209 @@ def test_the_detail_swipe_node_starts_on_the_illustration():
     end_x = st.DETAIL_SWIPE_TO[0]
     assert 200 < start_x < 900 and end_x < start_x
     assert 200 < start_y < 600
+
+
+# ---------------------------------------------------------------------------
+# M40：拉丁名核对身份（不回列表也能知道这一页是谁）
+#
+# 2026-10-11 那轮全量扫描的真实缺陷：详情页左滑是**甩动**，一次可能前进两张，而「画面换了
+# 没有」判不出「换了几张」——屏内自某张起整体错位，部分干员的练度写成了邻居的读数
+# （``char_502_nblade`` 夜刀 2★ 却存着 3 级模组与 3/3 专精）。修法：详情页左下角那行
+# **拉丁名**（内核 ASCII OCR 读得动，中文大名字是艺术字读不出来）当身份信号，跟这一屏
+# 卡名清单逐张核对，对不上就回列表重新点开这一格。
+# ---------------------------------------------------------------------------
+#: 带拉丁名的目录替身：风笛在 ``cell_of(6)``、凛御银灰在 ``cell_of(3)``。
+EN_CATALOG: dict[str, OperatorMeta] = {
+    "char_123_bagpipe": OperatorMeta(name="风笛", rarity=6, profession="先锋", name_en="Bagpipe"),
+    "char_172_silverash": OperatorMeta(
+        name="凛御银灰", rarity=6, profession="近卫", name_en="SilverAsh the Reignfrost"
+    ),
+}
+
+
+def test_name_en_matching_survives_a_maimed_reading_but_not_a_twin():
+    """拉丁名比对：掉首字母/多一个字母还认得出，粘了杂字或两个都像就不下结论（M40）."""
+    expected = {0: "Bagpipe", 1: "Ines", 2: "Shu"}
+
+    assert scan_module._name_en_hit("Bagpipe", expected) == 0
+    assert scan_module._name_en_hit("Bagipipe", expected) == 0  # 真机 Bagpipe→Bagipipe
+    assert scan_module._name_en_hit("nes", expected) == 1  # 真机 Ines→nes（掉首字母）
+    assert scan_module._name_en_hit("", expected) is None
+    assert scan_module._name_en_hit("ne", expected) is None  # 太短，不猜
+    assert scan_module._name_en_hit("ShuT7T X", expected) is None  # 粘了立绘杂字
+
+    # 本体与异格同名（Bubble/Rubble、Irene/Arene）：两个都像时不说话，宁可当没读到
+    twins = {0: "Bubble", 1: "Rubble"}
+    assert scan_module._name_en_hit("ubble", twins) is None
+    # 这一屏只有一个候选时可以认（真机上同一屏出现同名前缀的概率极低）
+    assert scan_module._name_en_hit("ubble", {0: "Bubble"}) == 0
+
+
+def test_expected_name_en_only_covers_cells_with_a_readable_card_name():
+    """期望值只在这一格卡名读出来、且目录里有拉丁名时才建（M40）."""
+    lookup, _ambiguous = _name_index(EN_CATALOG)
+    names = {BAGPIPE_CELL: "风笛", SILVERASH_CELL: "凛御银灰", ("top", 1): "谁啊"}
+
+    expected = TrainingScanService._expected_name_en(names, lookup, EN_CATALOG)
+
+    assert expected == {6: "Bagpipe", 3: "SilverAsh the Reignfrost"}
+
+
+def _full_screen_plan_with_names(
+    names: Mapping[tuple[str, int], str], reported: Mapping[int, str]
+) -> list[list[dict[str, Any]]]:
+    """``_full_screen_plan`` 的 M40 版：第 ``i`` 张详情页报出 ``reported[i]`` 那行拉丁名。"""
+    plan = [_screen_callbacks(names), _detail_batch(name_en=reported.get(0))]
+    for index in range(1, CARDS_PER_SCREEN):
+        plan.append([])  # 左滑（不产读数）
+        plan.append(_detail_batch(name_en=reported.get(index)))
+    plan.append([])  # 回列表
+    plan.append([])  # 翻到下一屏
+    return plan
+
+
+def test_full_round_writes_when_the_latin_name_agrees(tmp_path: Path):
+    """对得上就照常写库，两个计数器都不动（M40）."""
+    frames = _frames(tmp_path, count=40)
+    names = {BAGPIPE_CELL: "风笛", SILVERASH_CELL: "凛御银灰"}
+    pipeline = FakePipelineService(
+        [
+            [],
+            *_full_screen_plan_with_names(
+                names, {3: "SilverAsh the Reignfrost", 6: "Bagpipe"}
+            ),
+            _screen_callbacks(names),
+        ]
+    )
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+        catalog=EN_CATALOG,
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        assert state["updated"] == 2
+        assert state["realigned"] == 0
+        assert state["unverified"] == 0
+        assert [item["char_id"] for item in box.applied] == [
+            "char_172_silverash",
+            "char_123_bagpipe",
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_full_round_realigns_when_the_carousel_overshoots(tmp_path: Path):
+    """画面里是别人 ⇒ 回列表重新点开这一格，用重锚那一帧的读数写库（M40）.
+
+    真机缺陷：甩动一次滑两张 ⇒ 第 6 张位置上是第 3 格那位。修法是回列表点回第 6 格，
+    拿重锚后的读数写库——写进去的技能等级来自重锚那一帧（4），不是错位那一帧的 7。
+    """
+    frames = _frames(tmp_path, count=40)
+    names = {BAGPIPE_CELL: "风笛", SILVERASH_CELL: "凛御银灰"}
+    plan = _full_screen_plan_with_names(
+        names, {3: "SilverAsh the Reignfrost", 6: "SilverAsh the Reignfrost"}
+    )
+    # 第 6 张错位（画面里是凛御银灰）⇒ 回列表 + 点回这一格 + 重读（这次报风笛、技能 4）
+    plan.insert(2 + (6 - 1) * 2 + 2, [])  # Back
+    plan.insert(2 + (6 - 1) * 2 + 3, _detail_batch(skill="4", name_en="Bagpipe"))
+    pipeline = FakePipelineService([[], *plan, _screen_callbacks(names)])
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+        catalog=EN_CATALOG,
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        assert state["realigned"] == 1
+        assert state["unverified"] == 0
+        assert [item["char_id"] for item in box.applied] == [
+            "char_172_silverash",
+            "char_123_bagpipe",
+        ]
+        written = box.applied[-1]
+        assert written["skill_level"] == 4  # 重锚那一帧的读数
+        nodes = pipeline.short_nodes()
+        assert "Back" in nodes
+        assert "ClickTopCol3" in nodes
+
+    asyncio.run(scenario())
+
+
+def test_full_round_skips_a_card_that_still_does_not_match_after_realigning(tmp_path: Path):
+    """重锚之后还是对不上 ⇒ 这一张的读数不写库，进 ``skipped``，不打断整屏（M40）."""
+    frames = _frames(tmp_path, count=40)
+    names = {BAGPIPE_CELL: "风笛", SILVERASH_CELL: "凛御银灰"}
+    plan = _full_screen_plan_with_names(names, {3: "Bagpipe", 6: "Bagpipe"})
+    # 第 3 张错位（画面里是风笛）⇒ 回列表点回第 3 格，可这次还是报风笛 ⇒ 放弃这一张
+    plan.insert(2 + (3 - 1) * 2 + 2, [])
+    plan.insert(2 + (3 - 1) * 2 + 3, _detail_batch(name_en="Bagpipe"))
+    pipeline = FakePipelineService([[], *plan, _screen_callbacks(names)])
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+        catalog=EN_CATALOG,
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        assert state["realigned"] == 1
+        assert state["updated"] == 1
+        # 重锚之后还是对不上：这一张的读数不写库（快照里的 skipped 是计数）
+        assert [item["char_id"] for item in box.applied] == ["char_123_bagpipe"]
+        assert state["skipped"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_full_round_writes_by_card_name_when_the_latin_name_says_nothing(tmp_path: Path):
+    """拉丁名读成谁也认不出的东西 ⇒ 按卡名照常写库，只把 ``unverified`` 加一（M40）."""
+    frames = _frames(tmp_path, count=40)
+    names = {BAGPIPE_CELL: "风笛"}
+    pipeline = FakePipelineService(
+        [
+            [],
+            *_full_screen_plan_with_names(names, {6: "Sword of the Silent Night"}),
+            _screen_callbacks(names),
+        ]
+    )
+    box = FakeBox()
+    service = _service(
+        pipeline=pipeline,
+        box=box,
+        core=FakeCoreClient(frames=frames),
+        resource=FakeResourceService(tmp_path / "layer"),
+        catalog=EN_CATALOG,
+    )
+
+    async def scenario() -> None:
+        await service.submit(mode="full")
+        await _wait_status(service, TrainingScanStatus.SUCCEEDED.value)
+        state = service.snapshot()
+
+        assert state["unverified"] == 1
+        assert state["realigned"] == 0
+        assert state["updated"] == 1
+        assert [item["char_id"] for item in box.applied] == ["char_123_bagpipe"]
+
+    asyncio.run(scenario())
