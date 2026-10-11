@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { Progress } from '@/components/ui/progress'
 import { Section } from '@/components/ui/section'
@@ -9,6 +10,7 @@ import {
   cancelTrainingScan,
   fetchTrainingScan,
   startTrainingScan,
+  type TrainingScanMode,
   type TrainingScanState,
   type TrainingScanStatus,
 } from './api'
@@ -52,6 +54,10 @@ const STATUS_TEXT_CLASS: Record<TrainingScanStatus, string> = {
 
 /** 「已读 x / y」的 `y`：`total` 已知就带上，未知只写已读数。 */
 export function scannedText(scan: TrainingScanState, total: number | null): string {
+  if (scan.mode === 'full') {
+    // 全量扫描没有名单（`total` 恒为 `null`，M39 §3），进度只能报「读了几张、翻过几屏」。
+    return scan.screens > 0 ? `已读 ${scan.scanned} 张 · 翻过 ${scan.screens} 屏` : `已读 ${scan.scanned} 张`
+  }
   return typeof total === 'number' && total > 0 ? `已读 ${scan.scanned} / ${total}` : `已读 ${scan.scanned}`
 }
 
@@ -79,7 +85,12 @@ export function trainingScanSummary(scan: TrainingScanState): string[] {
  */
 export function trainingScanView(scan: TrainingScanState | undefined, submittedTotal: number | null) {
   const total = typeof scan?.total === 'number' && scan.total > 0 ? scan.total : submittedTotal
-  return { status: scan?.status ?? ('idle' as TrainingScanStatus), total, scan: scan ?? null }
+  return {
+    status: scan?.status ?? ('idle' as TrainingScanStatus),
+    mode: scan?.mode ?? ('single' as TrainingScanMode),
+    total,
+    scan: scan ?? null,
+  }
 }
 
 /**
@@ -90,6 +101,7 @@ export function trainingScanView(scan: TrainingScanState | undefined, submittedT
  */
 export function TrainingScanCard() {
   const queryClient = useQueryClient()
+  const [confirm, confirmElement] = useConfirm()
   const scan = useQuery({
     queryKey: accountKeys.trainingScan(),
     queryFn: ({ signal }) => fetchTrainingScan(signal),
@@ -99,25 +111,45 @@ export function TrainingScanCard() {
   })
 
   const start = useMutation({
-    mutationFn: () => startTrainingScan({}),
+    mutationFn: (mode: TrainingScanMode) => startTrainingScan(mode === 'full' ? { mode: 'full' } : {}),
     onSuccess: async (submitted) => {
       // 受理结果里带 `total`：先把它放进缓存，第一次轮询回来之前也能显示「已读 0 / y」。
+      // 全量扫描的 `total` 是 `null`（没有名单），进度走「已读 x 张 · 翻过 y 屏」。
       queryClient.setQueryData<TrainingScanState>(accountKeys.trainingScan(), {
         status: 'running',
+        mode: submitted.mode,
         pipeline_id: submitted.pipeline_id,
         started_at: null,
         finished_at: null,
         scanned: 0,
         updated: 0,
+        screens: 0,
         skipped: 0,
         unresolved: 0,
         mismatched: 0,
         message: null,
-        total: submitted.total,
+        total: submitted.mode === 'full' ? null : submitted.total,
       })
       await queryClient.invalidateQueries({ queryKey: accountKeys.trainingScan() })
     },
   })
+
+  /**
+   * 全量扫描要跑几十分钟（M39 §4.9），比点名扫重得多，所以先问一句再提交；
+   * 按名单扫是默认口径，仍然一键开始（与 M36 一致）。
+   */
+  const requestFullScan = async () => {
+    const approved = await confirm({
+      title: '全量扫描？',
+      description:
+        '会把干员列表里每个人的详情页都扫一遍（384 人约几十分钟），这段时间设备被占着，不能跑别的任务。'
+        + '中途可以取消，已经读到的练度会保留。',
+      confirmText: '开始全量扫描',
+      cancelText: '再想想',
+    })
+    if (!approved) return
+    start.mutate('full')
+  }
 
   const cancel = useMutation({
     mutationFn: () => cancelTrainingScan(),
@@ -148,11 +180,23 @@ export function TrainingScanCard() {
             variant="soft"
             size="sm"
             className="shrink-0"
-            loading={start.isPending}
+            loading={start.isPending && start.variables !== 'full'}
             disabled={running}
-            onClick={() => start.mutate()}
+            onClick={() => start.mutate('single')}
           >
-            {start.isPending ? '正在提交…' : '开始扫描'}
+            {start.isPending && start.variables !== 'full' ? '正在提交…' : '开始扫描'}
+          </Button>
+          {/* 全量扫描：先二次确认，再提交 `mode=full`（没有名单，一路扫到底）。 */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            loading={start.isPending && start.variables === 'full'}
+            disabled={running}
+            onClick={() => void requestFullScan()}
+          >
+            {start.isPending && start.variables === 'full' ? '正在提交…' : '全量扫描'}
           </Button>
           {/* 只有跑着的时候才有可取消的东西（`DELETE` 转 `request_cancel`）。 */}
           <Button
@@ -192,8 +236,8 @@ export function TrainingScanCard() {
 
             {running ? (
               <Progress
-                value={data?.scanned ?? null}
-                // `total` 未知或为 0 时省略 `max`，进度条走不确定态（`Progress` 的兜底）。
+                // 没有总数（全量扫描，或第一次轮询还没回来）就不假装有分母：走不确定态。
+                value={typeof view.total === 'number' && view.total > 0 ? (data?.scanned ?? null) : null}
                 max={typeof view.total === 'number' && view.total > 0 ? view.total : undefined}
                 label="练度扫描进度"
               />
@@ -234,6 +278,7 @@ export function TrainingScanCard() {
           </>
         )}
       </div>
+      {confirmElement}
     </Section>
   )
 }

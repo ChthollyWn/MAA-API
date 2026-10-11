@@ -183,6 +183,12 @@ export interface UpgradePlanListQuery {
  */
 export type TrainingScanStatus = 'idle' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
+/**
+ * 扫描类型（M39 §3）：`single` 按名单点名扫（受 `limit` 限制），`full` 全量扫描
+ * （从列表第一名开始一路扫到底，忽略 `limit` / `char_ids`，`total` 恒为 `null`）。
+ */
+export type TrainingScanMode = 'single' | 'full'
+
 export interface TrainingScanTarget {
   char_id: string
   name: string
@@ -191,6 +197,8 @@ export interface TrainingScanTarget {
 /** `POST` 的 200 响应：受理后立刻返回，扫描在流水线里跑。 */
 export interface TrainingScanSubmit {
   pipeline_id: string
+  /** 这一轮的类型（M39 §3）。 */
+  mode: TrainingScanMode
   total: number
   targets: TrainingScanTarget[]
   /** 超出 `limit` 没收进本轮名单的干员（不是失败）。 */
@@ -202,20 +210,26 @@ export interface TrainingScanSubmit {
 /** `GET`/`DELETE` 的响应：`total` 后端给就带上，只用来算进度，缺了不炸。 */
 export interface TrainingScanState {
   status: TrainingScanStatus
+  /** 这一轮的类型；老后端不给时按 `single` 认。 */
+  mode: TrainingScanMode
   pipeline_id: string | null
   started_at: string | null
   finished_at: string | null
   scanned: number
   updated: number
+  /** 读了几屏卡名（全量扫描的进度；单人模式也有，只是它一屏一屏地翻）。 */
+  screens: number
   skipped: number
   unresolved: number
   mismatched: number
   message: string | null
+  /** 全量扫描恒为 `null`（跑到哪算哪）。 */
   total?: number | null
 }
 
-/** `POST` 的请求体：三项都可省，默认扫前 40 名精二干员（§4.3）。 */
+/** `POST` 的请求体：都可省，默认按精二名单扫前 40 名（§4.3）；`mode=full` 时只认 `mode`。 */
 export interface TrainingScanRequest {
+  mode?: TrainingScanMode
   limit?: number
   char_ids?: string[]
   include_plan_targets?: boolean
@@ -465,11 +479,13 @@ export async function cancelUpgradePlan(planId: string): Promise<UpgradePlan> {
 
 const IDLE_TRAINING_SCAN: TrainingScanState = {
   status: 'idle',
+  mode: 'single',
   pipeline_id: null,
   started_at: null,
   finished_at: null,
   scanned: 0,
   updated: 0,
+  screens: 0,
   skipped: 0,
   unresolved: 0,
   mismatched: 0,
@@ -478,12 +494,20 @@ const IDLE_TRAINING_SCAN: TrainingScanState = {
 }
 
 const TRAINING_SCAN_STATUSES: readonly TrainingScanStatus[] = ['idle', 'running', 'succeeded', 'failed', 'cancelled']
+const TRAINING_SCAN_MODES: readonly TrainingScanMode[] = ['single', 'full']
 
 /** 只认契约里的五个状态；别的值（后端加了新状态、或形状读错）落到 `idle`，页面照常渲染。 */
 export function normalizeTrainingScanStatus(value: unknown): TrainingScanStatus {
   return typeof value === 'string' && (TRAINING_SCAN_STATUSES as readonly string[]).includes(value)
     ? (value as TrainingScanStatus)
     : 'idle'
+}
+
+/** 只认 `single`/`full`；认不出来按 `single`（老后端不带这个字段，行为与 M38 一致）。 */
+export function normalizeTrainingScanMode(value: unknown): TrainingScanMode {
+  return typeof value === 'string' && (TRAINING_SCAN_MODES as readonly string[]).includes(value)
+    ? (value as TrainingScanMode)
+    : 'single'
 }
 
 /**
@@ -499,17 +523,20 @@ export function normalizeTrainingScanState(value: unknown): TrainingScanState {
   const text = (item: unknown) => (typeof item === 'string' && item ? item : null)
   return {
     status: normalizeTrainingScanStatus(raw.status),
+    mode: normalizeTrainingScanMode(raw.mode),
     pipeline_id: text(raw.pipeline_id),
     started_at: text(raw.started_at),
     finished_at: text(raw.finished_at),
     scanned: count(raw.scanned),
     updated: count(raw.updated),
+    screens: count(raw.screens),
     skipped: count(raw.skipped),
     unresolved: count(raw.unresolved),
     mismatched: count(raw.mismatched),
     message: text(raw.message),
     // `total` 是**契约外**的补充字段：GET/DELETE 的响应里没写它，后端给了就用它算进度，
     // 没给就是 `null`（页面走不确定态），不要拿 `targets.length` 之类的东西假冒。
+    // 全量扫描（M39）后端恒给 `null`——那一轮没有名单，进度只能看 `scanned`。
     total: typeof raw.total === 'number' && Number.isFinite(raw.total) ? raw.total : null,
   }
 }
@@ -519,6 +546,7 @@ export function normalizeTrainingScanSubmit(value: unknown): TrainingScanSubmit 
   const raw = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Partial<TrainingScanSubmit>
   return {
     pipeline_id: typeof raw.pipeline_id === 'string' ? raw.pipeline_id : '',
+    mode: normalizeTrainingScanMode(raw.mode),
     total: typeof raw.total === 'number' && Number.isFinite(raw.total) ? raw.total : 0,
     targets: Array.isArray(raw.targets) ? raw.targets.filter((item): item is TrainingScanTarget => Boolean(item)) : [],
     deferred: Array.isArray(raw.deferred) ? raw.deferred.filter((item): item is string => typeof item === 'string') : [],

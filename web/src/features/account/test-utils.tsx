@@ -155,11 +155,13 @@ export const SUMMARY: AccountSummary = {
  */
 export const IDLE_TRAINING_SCAN: TrainingScanState = {
   status: 'idle',
+  mode: 'single',
   pipeline_id: null,
   started_at: null,
   finished_at: null,
   scanned: 0,
   updated: 0,
+  screens: 0,
   skipped: 0,
   unresolved: 0,
   mismatched: 0,
@@ -169,11 +171,13 @@ export const IDLE_TRAINING_SCAN: TrainingScanState = {
 
 export const RUNNING_TRAINING_SCAN: TrainingScanState = {
   status: 'running',
+  mode: 'single',
   pipeline_id: 'pipe-scan-1',
   started_at: '2026-10-11T01:00:00Z',
   finished_at: null,
   scanned: 12,
   updated: 9,
+  screens: 1,
   skipped: 3,
   unresolved: 0,
   mismatched: 1,
@@ -181,13 +185,41 @@ export const RUNNING_TRAINING_SCAN: TrainingScanState = {
   total: 40,
 }
 
+/** 全量扫描（M39 §3）：没有名单，`total` 恒为 `null`，进度只有 `scanned`/`screens`。 */
+export const RUNNING_FULL_TRAINING_SCAN: TrainingScanState = {
+  status: 'running',
+  mode: 'full',
+  pipeline_id: 'pipe-scan-full-1',
+  started_at: '2026-10-11T02:00:00Z',
+  finished_at: null,
+  scanned: 23,
+  updated: 18,
+  screens: 2,
+  skipped: 1,
+  unresolved: 0,
+  mismatched: 0,
+  message: null,
+  total: null,
+}
+
 export const TRAINING_SCAN_SUBMIT: TrainingScanSubmit = {
   pipeline_id: 'pipe-scan-1',
+  mode: 'single',
   total: 40,
   targets: [
     { char_id: 'char_002_amiya', name: '阿米娅' },
     { char_id: 'char_123_knight', name: '临光' },
   ],
+  deferred: [],
+  unresolved: [],
+}
+
+/** `mode=full` 的受理结果：没有名单、`total` 为 `null`。 */
+export const TRAINING_SCAN_SUBMIT_FULL: TrainingScanSubmit = {
+  pipeline_id: 'pipe-scan-full-1',
+  mode: 'full',
+  total: 0,
+  targets: [],
   deferred: [],
   unresolved: [],
 }

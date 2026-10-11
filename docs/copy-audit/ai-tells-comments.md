@@ -1,12 +1,12 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12156 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12275 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 279 | 279 |
-| 破折号当冒号用 | high | 0 | 135 | 135 |
+| 粗体强调 | medium | 0 | 287 | 287 |
+| 破折号当冒号用 | high | 0 | 144 | 144 |
 | 「A 而不是 B」对照腔 | high | 0 | 104 | 104 |
 | 绝对化规定腔 | medium | 0 | 62 | 62 |
 | 自指式讲解腔 | medium | 0 | 18 | 18 |
@@ -18,7 +18,7 @@
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 279）
+## 粗体强调（medium｜用户可见 0 / 开发向 287）
 
 **开发向**
 
@@ -28,9 +28,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 273 条，见 inventory.json
+- …… 另有 281 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 135）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 144）
 
 **开发向**
 
@@ -40,7 +40,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 129 条，见 inventory.json
+- …… 另有 138 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 104）
 
@@ -50,7 +50,7 @@
 - `maa_api/agent/llm.py:49` : 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
 - `maa_api/agent/llm.py:327` 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
 - `maa_api/agent/runtime.py:1808` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
-- `maa_api/api/routers/account.py:57` : ``recognition``，见服务层），所以这里用 Literal 而不是自由字符串。
+- `maa_api/api/routers/account.py:58` : ``recognition``，见服务层），所以这里用 Literal 而不是自由字符串。
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
 - …… 另有 98 条，见 inventory.json
 
@@ -98,7 +98,7 @@
 - `tests/domain/test_errors.py:43` : 表格数据行形如 ``| `CODE` | 404 | 含义…… |``；表头与文字段落都不匹配。
 - `tests/domain/test_route_inventory.py:78` : §6 开头那句：``共 101 条 HTTP 端点……另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。``
 - `tests/domain/test_route_inventory.py:86` : 表格数据行：``| GET | `/api/system/health` | …… |``。
-- `tests/services/test_account_training_scan.py:920` 步号是「非起手的第几步」：1 进列表、2 读屏、3 点开并读详情……M38 合并之后这条是第 3 步。
+- `tests/services/test_account_training_scan.py:937` 步号是「非起手的第几步」：1 进列表、2 读屏、3 点开并读详情……M38 合并之后这条是第 3 步。
 
 ## 宣传词（medium｜用户可见 0 / 开发向 3）
 

@@ -197,7 +197,12 @@ def test_scan_dispatches_to_the_assembled_service() -> None:
     assert service.calls == [
         (
             "submit",
-            {"limit": 5, "char_ids": ["char_002_amiya"], "include_plan_targets": False},
+            {
+                "mode": "single",
+                "limit": 5,
+                "char_ids": ["char_002_amiya"],
+                "include_plan_targets": False,
+            },
         )
     ]
     assert result["pipeline_id"] == "pipe-1"
@@ -210,7 +215,10 @@ def test_scan_uses_the_defaults_when_nothing_is_given() -> None:
     asyncio.run(call("scan_operator_training", {}, context(training_scan_service=service)))
 
     assert service.calls == [
-        ("submit", {"limit": 40, "char_ids": None, "include_plan_targets": True})
+        (
+            "submit",
+            {"mode": "single", "limit": 40, "char_ids": None, "include_plan_targets": True},
+        )
     ]
 
 

@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 from maa_api.services.account import scan_tasks as st
 
@@ -27,6 +27,11 @@ MIN_MASTERY_LEVEL = 0
 MAX_MASTERY_LEVEL = 3
 #: 技能槽号（1/2/3）。
 SKILL_SLOTS: tuple[int, ...] = (1, 2, 3)
+
+#: M39：「画面动了没有」的判据——两帧平均灰度差 ≥ 这个值就算换了画面。
+#: 真机实测（规格 §2.4）：划不动 0.02–0.05，详情页换人 24.20–48.57，列表翻页 41.92–67.53，
+#: 取 2.0 与噪声、真实变化各留约两个数量级余量。
+FRAME_CHANGED_MIN_DELTA = 2.0
 
 
 def mastery_levels_from_image(image: Image.Image) -> dict[int, int]:
@@ -71,6 +76,27 @@ def is_bright_pip(pixels: Image.Image) -> bool:
         return False
     take = max(1, int(len(values) * st.PIP_SAMPLE_RATIO))
     return sum(values[:take]) / take >= st.PIP_BRIGHT_THRESHOLD
+
+
+def frame_delta(before: Image.Image | None, after: Image.Image | None) -> float | None:
+    """两帧的平均灰度差（0–255）。缺一帧或尺寸不一致就没法比，返回 ``None``。"""
+    if before is None or after is None or before.size != after.size:
+        return None
+    difference = ImageChops.difference(before.convert("L"), after.convert("L"))
+    return float(ImageStat.Stat(difference).mean[0])
+
+
+def frame_changed(before: Image.Image | None, after: Image.Image | None) -> bool | None:
+    """画面换没换人：``True`` 换了、``False`` 没动、``None`` 比不出来（缺帧或尺寸不一致）。
+
+    少一帧时**不猜**——调用方按「没动」处理（宁可少写一条读数，也不把读数写到错的人头上）。
+    """
+    if before is None or after is None:
+        return None
+    delta = frame_delta(before, after)
+    if delta is None:
+        return None
+    return delta >= FRAME_CHANGED_MIN_DELTA
 
 
 def _values(pixels: Image.Image) -> list[int]:

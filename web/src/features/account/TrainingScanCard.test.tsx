@@ -3,13 +3,20 @@ import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   IDLE_TRAINING_SCAN,
+  RUNNING_FULL_TRAINING_SCAN,
   RUNNING_TRAINING_SCAN,
+  TRAINING_SCAN_SUBMIT_FULL,
   installAccountApi,
   jsonResponse,
   renderAccount,
 } from './test-utils'
-import { fetchTrainingScan, normalizeTrainingScanState, startTrainingScan } from './api'
-import { trainingScanSummary } from './TrainingScanCard'
+import {
+  fetchTrainingScan,
+  normalizeTrainingScanState,
+  normalizeTrainingScanSubmit,
+  startTrainingScan,
+} from './api'
+import { scannedText, trainingScanSummary } from './TrainingScanCard'
 
 /**
  * M36「练度扫描」卡片的用例（规格 §4.6、§4.8）。
@@ -256,5 +263,100 @@ describe('M36 练度扫描的文案与响应兜底', () => {
     await startTrainingScan({ limit: 5, char_ids: ['char_002_amiya'] })
 
     expect(bodies).toEqual([{ limit: 5, char_ids: ['char_002_amiya'] }])
+  })
+})
+
+describe('M39 全量扫描', () => {
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('全量扫描：二次确认之后才提交 mode=full', async () => {
+    const api = await renderWithFakeTimers()
+
+    fireEvent.click(within(await card()).getByRole('button', { name: '全量扫描' }))
+
+    // 先弹确认框：这一步要占设备几十分钟，不能点一下就开跑。
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('会把干员列表里每个人的详情页都扫一遍')
+    expect(scanRequests(api.find, 'POST')).toHaveLength(0)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '开始全量扫描' }))
+
+    await waitFor(() => expect(scanRequests(api.find, 'POST')).toHaveLength(1))
+    expect(scanRequests(api.find, 'POST')[0].body).toEqual({ mode: 'full' })
+  })
+
+  it('全量扫描：确认框里点「再想想」不提交', async () => {
+    const api = await renderWithFakeTimers()
+
+    fireEvent.click(within(await card()).getByRole('button', { name: '全量扫描' }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '再想想' }))
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(scanRequests(api.find, 'POST')).toHaveLength(0)
+  })
+
+  it('按名单扫的那颗按钮仍然不带 mode（老口径不变）', async () => {
+    const api = await renderWithFakeTimers()
+
+    fireEvent.click(within(await card()).getByRole('button', { name: '开始扫描' }))
+
+    await waitFor(() => expect(scanRequests(api.find, 'POST')).toHaveLength(1))
+    expect(scanRequests(api.find, 'POST')[0].body).toEqual({})
+  })
+
+  it('全量扫描跑着时：进度写成「已读 x 张 · 翻过 y 屏」，不假装有总数', async () => {
+    await renderWithFakeTimers({ trainingScan: RUNNING_FULL_TRAINING_SCAN })
+
+    const region = await card()
+    expect(within(region).getByTestId('training-scan-status')).toHaveTextContent('进行中')
+    expect(region).toHaveTextContent('已读 23 张 · 翻过 2 屏')
+    expect(region).not.toHaveTextContent('已读 23 /')
+    // `total` 是 `null`（没有名单）⇒ 进度条走不确定态，不给 `aria-valuenow`。
+    expect(within(region).getByRole('progressbar', { name: '练度扫描进度' })).not.toHaveAttribute('aria-valuenow')
+  })
+
+  it('提交全量扫描后先按受理结果渲染：没有总数就不显示「x / y」', async () => {
+    const api = await renderWithFakeTimers({
+      trainingScanSubmit: TRAINING_SCAN_SUBMIT_FULL,
+      // 受理之后第一次轮询回来：全量扫描的 `total` 恒为 `null`。
+      trainingScanAfterStart: { ...RUNNING_FULL_TRAINING_SCAN, scanned: 0, screens: 0, total: null },
+    })
+
+    fireEvent.click(within(await card()).getByRole('button', { name: '全量扫描' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '开始全量扫描' }))
+
+    await waitFor(() => expect(scanRequests(api.find, 'POST')).toHaveLength(1))
+    // 显示的只能是「已读 0 张」：受理结果里没有分母，页面不许自己编一个。
+    await waitFor(async () => expect(await card()).toHaveTextContent('已读 0 张'))
+    expect(await card()).not.toHaveTextContent('已读 0 /')
+  })
+})
+
+describe('M39 全量扫描的文案与兜底', () => {
+  it('全量扫描的进度文案用张数与屏数', () => {
+    const full = { ...RUNNING_FULL_TRAINING_SCAN }
+    expect(scannedText(full, null)).toBe('已读 23 张 · 翻过 2 屏')
+    expect(scannedText({ ...full, scanned: 0, screens: 0 }, null)).toBe('已读 0 张')
+    // 点名扫的文案不变（`total` 已知就带分母）。
+    expect(scannedText(RUNNING_TRAINING_SCAN, 40)).toBe('已读 12 / 40')
+  })
+
+  it('响应里缺 mode/screens 时按 single 与 0 兜底', () => {
+    const state = normalizeTrainingScanState({ status: 'running', scanned: 3 })
+    expect(state.mode).toBe('single')
+    expect(state.screens).toBe(0)
+    expect(normalizeTrainingScanState({ status: 'running', mode: 'weird' }).mode).toBe('single')
+    expect(normalizeTrainingScanState({ status: 'running', mode: 'full' }).mode).toBe('full')
+  })
+
+  it('受理结果里缺 mode 时按 single 认', () => {
+    expect(normalizeTrainingScanSubmit({ pipeline_id: 'p', total: 2 }).mode).toBe('single')
+    expect(normalizeTrainingScanSubmit({ pipeline_id: 'p', mode: 'full' }).mode).toBe('full')
   })
 })
