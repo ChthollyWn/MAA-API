@@ -34,6 +34,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -185,6 +186,70 @@ def _char_sample(char: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _run_chain(client: SklandClient, scan_code: str, report: dict[str, Any]) -> dict[str, Any]:
+    """``scanCode`` → token → code → cred → 角色 → 干员数据；结果填进 ``report``。"""
+    token = await client.token_by_scan_code(scan_code)
+    report["token_by_scan_code"] = {"token_len": len(token)}
+
+    code = await client.grant(token)
+    report["grant"] = {"code_len": len(code)}
+
+    credential = await client.generate_cred(code)
+    report["generate_cred"] = {"cred_len": len(credential.cred), "key_len": len(credential.token)}
+
+    refreshed = await client.refresh(credential)
+    report["refresh"] = {"cred_same": refreshed.cred == credential.cred, "key_len": len(refreshed.token)}
+    credential = refreshed
+
+    roles = await client.binding(credential)
+    report["binding"] = {
+        "role_count": len(roles),
+        "roles": [
+            {
+                "uid_len": len(role.uid),
+                "app_code": role.app_code,
+                "channel_master_id": role.channel_master_id,
+                "nickname_len": len(role.nickname) if role.nickname else 0,
+                "level": role.level,
+                "is_default": role.is_default,
+            }
+            for role in roles
+        ],
+    }
+    if not roles:
+        report["error"] = "binding 里没有 arknights 角色"
+        return report
+
+    role = next((r for r in roles if r.is_default), roles[0])
+    data = await client.player_info(credential, role.uid)
+
+    chars = data.get("chars") or []
+    report["player_info"] = {
+        "top_keys": sorted(data),
+        "status": _shape(data.get("status")),
+        "status_level": (data.get("status") or {}).get("level"),
+        "status_name_len": len((data.get("status") or {}).get("name") or ""),
+        "building_keys": sorted((data.get("building") or {})),
+        "chars_count": len(chars),
+        "char_keys_union": sorted({k for c in chars for k in c}),
+        "char_sample_first": _char_sample(chars[0]) if chars else None,
+        "char_sample_last": _char_sample(chars[-1]) if chars else None,
+        "evolve_phase_values": sorted({c.get("evolvePhase") for c in chars}),
+        "potential_rank_values": sorted({c.get("potentialRank") for c in chars}),
+        "favor_percent_min_max": _min_max([c.get("favorPercent") for c in chars]),
+        "skill_ids_sample": [s.get("id") for c in chars[:3] for s in (c.get("skills") or [])],
+        "equip_ids_sample": [e.get("id") for c in chars[:3] for e in (c.get("equip") or [])],
+        "chars_with_equip": sum(1 for c in chars if c.get("equip")),
+        "char_info_map": _map_shape(data.get("charInfoMap")),
+        "equipment_info_map": _map_shape(data.get("equipmentInfoMap")),
+        "other_map_like_keys": sorted(
+            k for k, v in data.items() if isinstance(v, dict) and k not in ("status", "building")
+        ),
+    }
+    report["credential_left_len"] = {"cred": len(credential.cred), "key": len(credential.token)}
+    return report
+
+
 async def _cmd_poll(args: argparse.Namespace) -> int:
     report: dict[str, Any] = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -199,74 +264,66 @@ async def _cmd_poll(args: argparse.Namespace) -> int:
             report["error"] = "没有拿到 scanCode"
             _dump(report)
             return 1
-
-        token = await client.token_by_scan_code(scan_code)
-        report["token_by_scan_code"] = {"token_len": len(token)}
-
-        code = await client.grant(token)
-        report["grant"] = {"code_len": len(code)}
-
-        credential = await client.generate_cred(code)
-        report["generate_cred"] = {"cred_len": len(credential.cred), "key_len": len(credential.token)}
-
-        refreshed = await client.refresh(credential)
-        report["refresh"] = {"cred_same": refreshed.cred == credential.cred, "key_len": len(refreshed.token)}
-        credential = refreshed
-
-        roles = await client.binding(credential)
-        report["binding"] = {
-            "role_count": len(roles),
-            "roles": [
-                {
-                    "uid_len": len(role.uid),
-                    "app_code": role.app_code,
-                    "channel_master_id": role.channel_master_id,
-                    "nickname_len": len(role.nickname) if role.nickname else 0,
-                    "level": role.level,
-                    "is_default": role.is_default,
-                }
-                for role in roles
-            ],
-        }
-        if not roles:
-            report["error"] = "binding 里没有 arknights 角色"
-            _dump(report)
-            return 1
-
-        role = next((r for r in roles if r.is_default), roles[0])
-        data = await client.player_info(credential, role.uid)
-
-        chars = data.get("chars") or []
-        report["player_info"] = {
-            "top_keys": sorted(data),
-            "status": _shape(data.get("status")),
-            "status_level": (data.get("status") or {}).get("level"),
-            "status_name_len": len((data.get("status") or {}).get("name") or ""),
-            "building_keys": sorted((data.get("building") or {})),
-            "chars_count": len(chars),
-            "char_keys_union": sorted({k for c in chars for k in c}),
-            "char_sample_first": _char_sample(chars[0]) if chars else None,
-            "char_sample_last": _char_sample(chars[-1]) if chars else None,
-            "evolve_phase_values": sorted({c.get("evolvePhase") for c in chars}),
-            "potential_rank_values": sorted({c.get("potentialRank") for c in chars}),
-            "favor_percent_min_max": _min_max([c.get("favorPercent") for c in chars]),
-            "skill_ids_sample": [s.get("id") for c in chars[:3] for s in (c.get("skills") or [])],
-            "equip_ids_sample": [e.get("id") for c in chars[:3] for e in (c.get("equip") or [])],
-            "chars_with_equip": sum(1 for c in chars if c.get("equip")),
-            "char_info_map": _map_shape(data.get("charInfoMap")),
-            "equipment_info_map": _map_shape(data.get("equipmentInfoMap")),
-            "other_map_like_keys": sorted(
-                k for k, v in data.items() if isinstance(v, dict) and k not in ("status", "building")
-            ),
-        }
-        report["credential_left_len"] = {"cred": len(credential.cred), "key": len(credential.token)}
+        report = await _run_chain(client, scan_code, report)
     finally:
         await client.aclose()
 
     _dump(report)
+    if report.get("error"):
+        print(f"\n报告：{OUT_DIR / 'report.json'}（失败：{report['error']}）")
+        return 1
     print(f"\n报告：{OUT_DIR / 'report.json'}")
     print(f"干员数 = {report['player_info']['chars_count']}")
     return 0
+
+
+async def _cmd_watch(args: argparse.Namespace) -> int:
+    """等人扫码：会话过期就自动换一张新码，直到扫到或超时。
+
+    上游的扫码会话实测约 3 分钟失效（§2.1），而人未必正好在屏幕前，所以这里把
+    「生成 → 等 → 过期再生成」串起来；每换一张都会重写并打开 ``qr.png``。
+    """
+    deadline = time.monotonic() + args.minutes * 60
+    client = SklandClient(extra_headers={"platform": PLATFORM_HEADER, "vName": VNAME_HEADER})
+    rounds = 0
+    try:
+        while time.monotonic() < deadline:
+            rounds += 1
+            login = await client.generate_scan()
+            _write_qr(login.scan_url)
+            logger.info(
+                "第 %d 张二维码已写：%s（scan_id=%s）", rounds, OUT_DIR / "qr.png", login.scan_id
+            )
+            if args.open:
+                subprocess.run(["open", str(OUT_DIR / "qr.png")], check=False)
+            try:
+                status, scan_code, msg, trace = await _poll_scan_code(
+                    client, login.scan_id, min(args.session_timeout, max(deadline - time.monotonic(), 1))
+                )
+            except TimeoutError:
+                logger.info("这一张还没人扫（已过期），换一张")
+                continue
+            if not scan_code:
+                logger.info("这一张失效（status=%s），换一张", status)
+                continue
+            report: dict[str, Any] = {
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "scan_id": login.scan_id,
+                "headers": {"platform": PLATFORM_HEADER, "vName": VNAME_HEADER},
+                "scan_status": {"final_status": status, "msg": msg, "trace": trace},
+            }
+            report = await _run_chain(client, scan_code, report)
+            _dump(report)
+            if report.get("error"):
+                print(f"\n报告：{OUT_DIR / 'report.json'}（失败：{report['error']}）")
+                return 1
+            print(f"\n报告：{OUT_DIR / 'report.json'}")
+            print(f"干员数 = {report['player_info']['chars_count']}")
+            return 0
+    finally:
+        await client.aclose()
+    logger.error("等待 %.0f 分钟仍没有扫码（共生成 %d 张码）", args.minutes, rounds)
+    return 1
 
 
 def _map_shape(value: Any) -> dict[str, Any]:
@@ -302,12 +359,23 @@ def main(argv: list[str] | None = None) -> int:
         default=POLL_TIMEOUT_SECONDS,
         help=f"轮询上限秒数（默认 {POLL_TIMEOUT_SECONDS:.0f}；上游会话实测约 3 分钟后失效）",
     )
+    watch = sub.add_parser("watch", help="等人扫码：过期自动换新码，直到扫到或超时")
+    watch.add_argument("--minutes", type=float, default=20.0, help="总等待分钟数（默认 20）")
+    watch.add_argument(
+        "--session-timeout",
+        type=float,
+        default=150.0,
+        help="单张二维码的等待秒数（默认 150，略小于实测的约 180 秒失效窗口）",
+    )
+    watch.add_argument("--no-open", dest="open", action="store_false", help="不自动打开图片")
     args = parser.parse_args(argv)
 
     _setup_logging()
     try:
         if args.cmd == "new":
             return asyncio.run(_cmd_new(args))
+        if args.cmd == "watch":
+            return asyncio.run(_cmd_watch(args))
         return asyncio.run(_cmd_poll(args))
     except AppError as exc:
         logger.error("上游报错：%s（%s）", exc.code, exc.message)
