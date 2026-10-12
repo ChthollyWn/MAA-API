@@ -171,6 +171,7 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 - 签名按 §2.2 的算法实现（`timestamp = int(time.time()) - 1`，HMAC-SHA256 用签名密钥作 key，再 MD5 十六进制串）；头 `cred` / `sign` / `timestamp` / `platform` / `vName`，`User-Agent` 用项目 UA（与 `services/external/http.py` 的取法一致）。
 - 错误归一：鹰角侧 `status != 0`、zonai 侧 `code != 0`（含 401/10002）都抛 `AppError`，码见 §4.6；`message` 只带上游 `msg` / `message`，**不把原始 body 写进日志**（与 `services/external/http.py` 的日志口径一致）。
 - 重试：只对网络层异常与 5xx 重试一次（指数退避），业务码不重试——重复调用取数接口没有副作用，但反复打非官方接口是风控面。
+- **代理只能显式配**：客户端固定 `trust_env=False`（不读环境变量、也不读 macOS 系统代理），要代理就配 `app.proxy`、由服务层传进 `SklandClient(proxy=…)`。真机教训（2026-10-12）：系统 HTTP 代理挂着但不可达时，httpx 会安静地走它并在 5 秒后连接失败，而同一时刻 `curl` 直连是 200——两轮扫码窗口就是这么丢的。
 
 ### 4.4 凭据落库与加密
 

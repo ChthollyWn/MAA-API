@@ -92,7 +92,10 @@ class SklandLoginService:
     async def start(self) -> dict[str, Any]:
         """生成一张二维码：返回 ``session_id`` / ``qr_svg`` / ``payload`` / ``expires_at``。"""
         settings = self._settings_provider()
-        client = self._client_factory(timeout=settings.skland.request_timeout_seconds)
+        client = self._client_factory(
+            timeout=settings.skland.request_timeout_seconds,
+            proxy=settings.proxy or None,
+        )
         try:
             login = await client.generate_scan()
         finally:
@@ -129,7 +132,10 @@ class SklandLoginService:
 
         session.polls += 1
         settings = self._settings_provider()
-        client = self._client_factory(timeout=settings.skland.request_timeout_seconds)
+        client = self._client_factory(
+            timeout=settings.skland.request_timeout_seconds,
+            proxy=settings.proxy or None,
+        )
         try:
             status, scan_code, message = await client.scan_status(session.scan_id)
             if status == 100:
@@ -189,7 +195,10 @@ class SklandLoginService:
     async def bind_manual(self, *, cred: str, token: str) -> list[BindingRole]:
         """手动粘贴 ``cred`` / 签名密钥：先用 ``binding`` 验一次再落库。"""
         settings = self._settings_provider()
-        client = self._client_factory(timeout=settings.skland.request_timeout_seconds)
+        client = self._client_factory(
+            timeout=settings.skland.request_timeout_seconds,
+            proxy=settings.proxy or None,
+        )
         credential = PlainCredential(cred=cred.strip(), token=token.strip())
         try:
             roles = await client.binding(credential)

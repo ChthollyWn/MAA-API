@@ -521,6 +521,32 @@ BINDING_PAYLOAD_NESTED = {
 }
 
 
+def test_client_is_immune_to_system_and_env_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`trust_env=False`：不读环境变量、也不读 macOS 系统代理。
+
+    2026-10-12 的两轮扫码窗口就是这么丢的：系统 HTTP 代理挂着但不可达，httpx 安静地走它、
+    5 秒后连接失败，而同一时刻 curl 直连是 200。代理只能由 `app.proxy` 显式给。
+    """
+    captured: list[dict[str, Any]] = []
+
+    def spy(**kwargs: Any) -> httpx.AsyncClient:
+        captured.append(kwargs)
+        return real_client(**kwargs)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(skland_client.httpx, "AsyncClient", spy)
+
+    plain = SklandClient()
+    assert captured[-1]["trust_env"] is False
+    assert "proxy" not in captured[-1]
+    asyncio.run(plain.aclose())
+
+    proxied = SklandClient(proxy="http://127.0.0.1:9")
+    assert captured[-1]["proxy"] == "http://127.0.0.1:9"
+    assert captured[-1]["trust_env"] is False
+    asyncio.run(proxied.aclose())
+
+
 @async_test
 async def test_binding_parses_the_nested_nickname_and_role_level_shape() -> None:
     upstream = Upstream(as_json(BINDING_PAYLOAD_NESTED))

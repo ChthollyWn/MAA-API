@@ -154,7 +154,11 @@ class SklandSyncService:
             )
         moment = self._now()
 
-        client = self._client_factory(timeout=settings.skland.request_timeout_seconds)
+        client = self._client_factory(
+            timeout=settings.skland.request_timeout_seconds,
+            # 代理只能显式配（`app.proxy`）；客户端一律 `trust_env=False`，不读系统代理。
+            proxy=settings.proxy or None,
+        )
         try:
             refreshed = await client.refresh(SklandCredential(cred=stored.cred, token=stored.token))
             await self._store.touch_credential(refreshed, refreshed_at=moment)

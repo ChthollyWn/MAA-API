@@ -155,21 +155,30 @@ class SklandClient:
         transport: httpx.AsyncBaseTransport | None = None,
         now: Callable[[], float] | None = None,
         extra_headers: Mapping[str, str] | None = None,
+        proxy: str | None = None,
     ) -> None:
         self._now = now if now is not None else time.time
         self._extra_headers: dict[str, str] = dict(
             DEFAULT_EXTRA_HEADERS if extra_headers is None else extra_headers
         )
-        self._client = httpx.AsyncClient(
-            timeout=timeout,
-            transport=transport,
-            headers={
+        # ``trust_env=False``：**不读环境变量、也不读 macOS 系统代理**。系统的 HTTP 代理
+        # 一旦不可达，httpx 会安静地走它并在 5 秒后连接失败（2026-10-12 W0 就是这么丢了两轮
+        # 扫码窗口的：同一时刻 curl 直连 200、httpx 因为系统代理挂了而连不上）。要代理就
+        # 显式配 ``app.proxy``，由服务层传进来。
+        kwargs: dict[str, Any] = {
+            "timeout": timeout,
+            "transport": transport,
+            "trust_env": False,
+            "headers": {
                 "User-Agent": USER_AGENT,
                 # 社区实现如此：只收 gzip、连接不复用。
                 "Accept-Encoding": "gzip",
                 "Connection": "close",
             },
-        )
+        }
+        if proxy:
+            kwargs["proxy"] = proxy
+        self._client = httpx.AsyncClient(**kwargs)
 
     # -- 生命周期 ---------------------------------------------------------
     async def aclose(self) -> None:

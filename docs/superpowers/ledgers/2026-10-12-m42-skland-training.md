@@ -64,6 +64,7 @@
 | **`status=101`「已扫码待确认」（W0 最有价值的一条）** | 11:56:30Z 真机捕获 `{"msg":"已扫码待确认","status":101}`：用户扫码那一刻探针把它当失效换了新码 ⇒ **生产侧也会把它判成 `failed`**（原实现只认 0/100/102）。已修：服务把 101 归 `waiting` + 上游文案、会话不消费；探针继续等同一张码；前端显示「已扫码待确认」。见 §8.61 二、3b |
 | **签名被上游接受、`binding` 401（W0 第二个发现）** | 11:59:03Z：用户扫码确认后 `token_by_scan_code` → `grant` → `generate_cred` → `auth/refresh` 全部 200（**说明签名算法本身对了**），紧接着 `binding` 回 **401**。根因：待签头的形状与社区实现不一致（漏 `dId`、`platform`/`vName` 写了非空值、键序也不同）。修法：`_signing_headers()` 固定四键顺序 `platform → timestamp → dId → vName`、默认空串；golden 签名值随之重算。 |
 | **`binding` 响应形状（W0 第三个发现）** | 同轮按社区 schema 定稿：`data.list[].bindingList[]`（按 `appCode` 分组）、昵称键 `nickName`、等级在 `roles[].level`；旧假设（顶层 `bindingList` + `nickname` + 顶层 `level`）改为兜底路径并补了真形状用例。 |
+| **系统代理坑（W0 第四个发现）** | 12:01 与 12:06 两轮窗口的 `gen_scan` 都是 5 秒超时后连接失败，而同时刻 `curl` 直连 200：httpx 默认 `trust_env=True` 走了本机 macOS 系统代理（当时不可达）。修法：客户端固定 `trust_env=False`，代理只认显式 `app.proxy`；探针加「上游偶发失败等 5 秒重来」的循环，两轮窗口不再被一次抖动掀掉。 |
 | **扫码全链路（待用户执行）** | `grant` → `generate_cred` → `binding` → `player_info` 的真实响应形状**尚未取到**（超过 5 分钟轮询窗口，用户未在二维码有效期内扫码）。`potentialRank + 1`、`SKLAND_MIN_CHARS = 200`、`charInfoMap` 字段名、`equipmentInfoMap` 的类型键名仍是待验证假设，见 §8.61 五。用户扫码后把 `report.json` 的关键形状回填到本表 |
 | 站点可达性 | `as.hypergryph.com` 125 ms、`zonai.skland.com` 141 ms（DNS 21 ms），无需代理 |
 
