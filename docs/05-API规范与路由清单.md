@@ -818,7 +818,7 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 两个只读列表端点（`/operators`、`/depot`）另有 Pydantic 响应模型（`AccountOperatorList` / `AccountDepotList`）把形状写进 `web/openapi.json` 与前端生成类型；此前它们只有 `-> dict`，前端手写的类型覆盖层读错容器键也发现不了——M33 的真机事故就是前端读 `operators`、后端给 `items`，`?? []` 兜成空列表且两边测试各自自洽（见 [13 §8.49](./13-决策记录.md)）。
 
-干员行的字段是 `char_id`、`name`、`rarity`、`profession`、`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`（`{"1": 0..3, "2": …, "3": …}`）、`modules`（模组类型 `X` / `Y` / `D` / `A` → 等级 1–3）、`favor_percent`（信赖 0–200，M42 新增，只有森空岛能给，`null` ＝ 未知）、`field_sources`、`recognized_at`、`updated_at`；仓库行的字段是仓库行的字段是 `item_id`、`name`、`count`、`category`、`recognized_at`。仓库列表的容器还多一个 `categories`：这份识别快照里出现过的全部分类、按名字排序，与 `category` / `query` 两个筛选无关（分页只截取条目，分类清单不随筛选缩水），前端用它填分类下拉。
+干员行的字段是 `char_id`、`name`、`rarity`、`profession`、`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`（`{"1": 0..3, "2": …, "3": …}`）、`modules`（模组类型 `X` / `Y` / `D` / `A` → 等级 1–3）、`favor_percent`（信赖 0–200，M42 新增，只有森空岛能给，`null` ＝ 未知）、`skill_ids`（按槽位的技能 id，M43 新增，`null` ＝ 不知道）、`module_details`（`[{type, level, equip_id, branch, label, type_icon}]`，M43 新增，`label` 形如 `CCR-Y`）、`field_sources`、`recognized_at`、`updated_at`；仓库行的字段是仓库行的字段是 `item_id`、`name`、`count`、`category`、`recognized_at`。仓库列表的容器还多一个 `categories`：这份识别快照里出现过的全部分类、按名字排序，与 `category` / `query` 两个筛选无关（分页只截取条目，分类清单不随筛选缩水），前端用它填分类下拉。
 
 **练度六列可空（M35）**：`elite` / `level` / `potential` / `skill_level` / `masteries` / `modules` 都是 `T | null`，`null` ＝ **未识别**——既没有识别值，也没有 manual / agent 写入（`field_sources` 是唯一台账）。这与「已知的无专精 / 无模组」不同：`{"1": 0, "2": 0, "3": 0}` 与 `{}` 是已知值，`null` 才是不知道。内核的干员识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组在详情页、M36 才扫，所以新识别出来的行这三列就是 `null`。`elite_min` 这类筛选不会命中 `null` 行（SQL 三值逻辑），前端列表与编辑抽屉把 `null` 显示成「未识别」，Agent 侧的 `get_operator_box` / `plan_upgrade` 同样如此；`plan_upgrade` 返回里的 `unknowns` 列出未识别维度，这些维度不进材料增量。见 [13 §8.50](./13-决策记录.md)。
 
@@ -865,7 +865,7 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 六个端点都 `Depends(require_auth)`。响应模型是写全的（不是 `-> dict`）：这几个字段前端要用，写进 `web/openapi.json` 才能由 `pnpm gen:api` 生成类型。**凭据与签名密钥加密落库**（`cryptography.fernet`，密钥取 `skland.credential_key`），明文只在内存里；日志只记端点、状态码与耗时，不记 `cred` / `token` / 响应正文。
 
-练度数据写进同一张 `account_operator`：`evolvePhase → elite`、`level → level`、`potentialRank + 1 → potential`、`mainSkillLvl → skill_level`、`skills[].specializeLevel → masteries{1,2,3}`、`equip[].level → modules{X/Y/D/A}`（类型取同一次响应的 `equipmentInfoMap`）、`favorPercent → favor_percent`；字段来源标 `skland`（`field_sources` 的第四个取值）。用户手改过、且与这次读数不同的字段记一条 `account_operator_diff`。定时同步由配置 `skland.auto_sync_interval_minutes`（默认 0 ＝ 关，非 0 时不低于 60）驱动，**没有前端开关**。
+练度数据写进同一张 `account_operator`：`evolvePhase → elite`、`level → level`、`potentialRank + 1 → potential`、`mainSkillLvl → skill_level`、`skills[].specializeLevel → masteries{1,2,3}`、`equip[].level → modules{X/Y/D/A}` 与 `module_details`（类型与分支码取同一次响应的 `equipmentInfoMap[id].typeIcon`，真机实测形如 `ccr-y`：后缀是类型字母、前缀是分支码；证章 `original` 不进这两处）、`skills[].id → skill_ids`（按槽位）、`favorPercent → favor_percent`；字段来源标 `skland`（`field_sources` 的第四个取值）。用户手改过、且与这次读数不同的字段记一条 `account_operator_diff`。定时同步由配置 `skland.auto_sync_interval_minutes`（默认 0 ＝ 关，非 0 时不低于 60）驱动，**没有前端开关**。
 
 ## 7. 任务提交的请求体设计
 

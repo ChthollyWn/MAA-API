@@ -232,7 +232,7 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 
 | 工具 | risk | 用途 |
 |---|---|---|
-| `get_operator_box` | SAFE | 查账号里的干员与练度。参数 `query`（名字片段）、`owned_only`（默认 `true`，`false` 时连未拥有的一起列出）、`rarity_min`（1–6）、`profession`（中文职业）、`elite_min`（0–2）、`limit`（1–100，默认 50）；返回 `items[]`（`char_id`、名字、稀有度、职业、`own`、精英化、等级、潜能、技能等级、专精、模组、`field_sources`、`recognized_at`、`updated_at`）、`total`、`limit`、`offset`。**没有识别时间 / 是否过期的选项，也没有 `suggest_recognition`**（见 [13 §8.42](./13-决策记录.md) 十、2 与 3） |
+| `get_operator_box` | SAFE | 查账号里的干员与练度。参数 `query`（名字片段）、`owned_only`（默认 `true`，`false` 时连未拥有的一起列出）、`rarity_min`（1–6）、`profession`（中文职业）、`elite_min`（0–2）、`limit`（1–100，默认 50）；返回 `items[]`（`char_id`、名字、稀有度、职业、`own`、精英化、等级、潜能、技能等级、专精、模组、信赖（M42）、技能 id 与模组明细（M43，`skill_ids` / `module_details`）、`field_sources`、`recognized_at`、`updated_at`）、`total`、`limit`、`offset`。**没有识别时间 / 是否过期的选项，也没有 `suggest_recognition`**（见 [13 §8.42](./13-决策记录.md) 十、2 与 3） |
 | `get_depot` | SAFE | 查仓库材料。参数 `items`（名字或 itemId，≤ 50 个）与 `category`；不给 `items` 时返回仓库概要（物品种类数、识别时间、是否过期、阈值口径）。**两个筛选参数目前没有生效**：给 `items` 时按前 N 条返回、`category` 被忽略（[13 §8.42](./13-决策记录.md) 十、10） |
 | `update_operator_box` | 每次确认 | 改账号干员数据。参数 `changes`（1–20 条，每条 `operator` 加至少一个字段：`own` / `elite` 0–2 / `level` 1–90 / `potential` 1–6 / `skill_level` 1–7 / `masteries` / `modules`）与 `reason`；确认卡片逐字段展示「改动前 → 改动后」，写入后字段来源标 `agent` |
 | `plan_upgrade` | SAFE | 算养成规划，只计算不提交任务。参数 `targets`（1–10 个：干员加 `elite` / `skill_level` / `masteries` / `modules`）与 `use_depot`（默认 `true`）；返回每关出击次数与理智、合成清单与合成龙门币、总理智、按每天 240 理智估的天数、预计富余、`unobtainable`（刷不到的材料与获取提示）、`feasible` 与 `notes`。算法与口径见 [13 §8.42](./13-决策记录.md) 七 |
