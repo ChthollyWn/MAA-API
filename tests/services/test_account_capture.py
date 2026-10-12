@@ -45,6 +45,8 @@ from maa_api.services.account.capture import (
     parse_depot_data,
     parse_operbox,
 )
+from maa_api.services.account.depot import DepotService
+from maa_api.settings import Settings
 
 RECOGNIZED_AT = datetime(2026, 10, 2, 8, 30, 0)
 LATER = datetime(2026, 10, 3, 9, 0, 0)
@@ -86,9 +88,20 @@ def _depot(data, done: bool = True) -> dict:
     return {"what": "DepotInfo", "details": {"data": data, "done": done}}
 
 
+def _depot_service_without_guard(factory) -> DepotService:
+    """真 ``DepotService``，只把 M44 的下限护栏关掉（``depot_min_items=0``）。"""
+    settings = Settings()
+    settings.agent.depot_min_items = 0
+    return DepotService(factory, settings_provider=lambda: settings)
+
+
 def _service(factory, **kwargs) -> AccountCaptureService:
     kwargs.setdefault("item_catalog", ITEM_CATALOG)
     kwargs.setdefault("operator_catalog", OPERATOR_CATALOG)
+    # M44 起仓库整表替换默认有下限护栏（``agent.depot_min_items`` = 20）：本文件测的是
+    # 回调链路与整表替换语义、只塞 2 件小表，所以在装配处显式关掉护栏（护栏本身由
+    # ``test_account_depot.py::test_min_items_guard_blocks_a_partial_recognition`` 覆盖）。
+    kwargs.setdefault("depot_service", _depot_service_without_guard(factory))
     return AccountCaptureService(factory, **kwargs)
 
 
@@ -530,6 +543,12 @@ def test_operbox_without_all_opers_does_not_clear_ownership(
 
 
 def test_depot_done_true_replaces_the_whole_table(retention_session_factory) -> None:
+    """``done=true`` 的整表替换语义（含「少了的那件必须消失」）。
+
+    只有 2 件，低于 M44 的默认下限护栏（20）；这里显式关掉护栏测的是替换语义，
+    不是「半截识别不许覆盖」——后者见 ``test_account_depot.py`` 的护栏用例。
+    """
+
     async def scenario() -> None:
         async with retention_session_factory() as session:
             session.add(AccountOperator(char_id="char_002_amiya", name="阿米娅"))
@@ -575,6 +594,8 @@ def test_depot_done_true_replaces_the_whole_table(retention_session_factory) -> 
 def test_depot_bad_json_is_degraded_without_wiping_the_table(
     retention_session_factory,
 ) -> None:
+    """坏载荷降级：不落库、不覆盖（同样显式关掉 M44 下限护栏，见 ``_service``）。"""
+
     async def scenario() -> None:
         await _capture(retention_session_factory, _depot('{"30012": 120}'))
 

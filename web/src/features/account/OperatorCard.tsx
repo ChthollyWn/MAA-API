@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { User } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { AssetImage } from './AssetImage'
 import type { FieldSource, OperatorRow } from './api'
 import {
   RARITY_COLORS,
@@ -9,7 +10,6 @@ import {
   avatarPath,
   moduleTypeGlyph,
   skillIconPath,
-  useAssetUrl,
 } from './assets'
 import {
   SOURCE_HINTS,
@@ -46,33 +46,9 @@ const SOURCE_TONES: Record<FieldSource, 'neutral' | 'success' | 'primary' | 'war
 }
 
 /**
- * 一张资源图：先带 token 取 blob 再转 object URL（`<img src>` 带不了鉴权头），
- * 取不到（未拥有、没有 id、上游没有这张图）时退回占位，绝不把破图留在页面上。
+ * 技能槽位与模组 chip 的拆分（M44：资源图组件搬到了 :mod:`./AssetImage`，仓库页也要用
+ * 同一份；行为与 testid 一字未改）。
  */
-function AssetImage({
-  path,
-  testId,
-  className,
-}: {
-  path: string | null
-  testId: string
-  className: string
-}) {
-  const url = useAssetUrl(path)
-  if (!url) {
-    return (
-      <span
-        aria-hidden="true"
-        data-testid={`${testId}-placeholder`}
-        className="flex size-full items-center justify-center bg-muted text-muted-foreground"
-      >
-        <User className="size-4" />
-      </span>
-    )
-  }
-  return <img src={url} alt="" data-testid={testId} className={className} decoding="async" />
-}
-
 function skillSlots(row: OperatorRow): SkillSlot[] {
   const ids = row.skill_ids ?? []
   const masteries = row.masteries

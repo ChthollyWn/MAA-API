@@ -21,6 +21,7 @@ from maa_api.api.routers import account as account_router
 from maa_api.db import session as db_session
 from maa_api.services.account.box import OperatorBoxService
 from maa_api.services.account.depot import DepotService
+from maa_api.settings import Settings, get_settings
 from maa_api.settings import get_settings
 
 import pytest
@@ -50,6 +51,13 @@ async def _create_schema(engine: AsyncEngine) -> None:
         await connection.run_sync(SQLModel.metadata.create_all)
 
 
+
+def _depot_settings_without_guard() -> Settings:
+    """当前设置去掉仓库下限护栏（深拷贝，避免污染别的用例）。"""
+    settings = get_settings().model_copy(deep=True)
+    settings.agent.depot_min_items = 0
+    return settings
+
 def _build_app(isolated_db: AsyncEngine) -> FastAPI:
     """现搭 app：注册处理器 + 账号路由 + 两个服务（拿临时库的会话工厂）。"""
     asyncio.run(_create_schema(isolated_db))
@@ -58,7 +66,11 @@ def _build_app(isolated_db: AsyncEngine) -> FastAPI:
     app.include_router(account_router.router)
     # 生产装配同款：服务自己拿 session_factory（已被 isolated_db 换成临时库）。
     app.state.account_box_service = OperatorBoxService(db_session.session_factory)
-    app.state.account_depot_service = DepotService(db_session.session_factory)
+    # 仓库下限护栏（M44）默认 20，用例只塞 2 件：这里显式关掉；但仍要**现读**设置
+    # （stale_days 那条用例靠 env override 改它），所以返回的是当前设置的深拷贝。
+    app.state.account_depot_service = DepotService(
+        db_session.session_factory, settings_provider=_depot_settings_without_guard
+    )
     return app
 
 

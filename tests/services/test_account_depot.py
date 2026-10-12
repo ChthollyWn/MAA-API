@@ -61,9 +61,12 @@ def account_session_factory(tmp_path):
     engine.sync_engine.dispose()
 
 
-def _service(factory, *, stale_days: int = 3) -> DepotService:
+def _service(factory, *, stale_days: int = 3, min_items: int = 0) -> DepotService:
+    """本文件里的用例大多写 2–3 件的小表，所以**默认关掉下限护栏**（``min_items=0``）；
+    护栏本身由 ``test_min_items_guard_blocks_a_partial_recognition`` 显式打开覆盖。"""
     settings = Settings()
     settings.agent.depot_stale_days = stale_days
+    settings.agent.depot_min_items = min_items
     return DepotService(factory, settings_provider=lambda: settings)
 
 
@@ -228,5 +231,30 @@ def test_summary_counts_items_written_by_the_recognition_path(
         summary = await service.summary()
         assert summary["total"] == 1
         assert summary["recognized_at"] == _iso(NOW + timedelta(hours=1))
+
+    asyncio.run(scenario())
+
+
+def test_min_items_guard_blocks_a_partial_recognition(account_session_factory):
+    """M44：条目数低于下限时整轮不写——真机实测过 26 件覆盖 77 行的后果。"""
+
+    async def scenario():
+        service = _service(account_session_factory, min_items=20)
+        # 先写一份「完整」的 30 件。
+        full = [{"item_id": f"30{i:03d}", "name": f"物品{i}", "count": i + 1} for i in range(30)]
+        assert await service.replace_all(full) == 30
+
+        # 半截识别（3 件）被护栏拦下：表还在，条数不变。
+        partial = [{"item_id": "3003", "name": "赤金", "count": 1}]
+        assert await service.replace_all(partial) == 0
+        page = await service.list_items()
+        assert page["total"] == 30
+        assert {row["item_id"] for row in page["items"]} == {item["item_id"] for item in full}
+
+        # 关掉护栏（0）时行为回到整表替换。
+        relaxed = _service(account_session_factory, min_items=0)
+        assert await relaxed.replace_all(partial) == 1
+        page = await relaxed.list_items()
+        assert page["total"] == 1
 
     asyncio.run(scenario())

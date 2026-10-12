@@ -61,6 +61,7 @@ __all__ = [
     "OperBoxSnapshot",
     "OperatorMeta",
     "load_item_catalog",
+    "load_item_icons",
     "load_operator_catalog",
     "parse_depot_data",
     "parse_operbox",
@@ -104,6 +105,8 @@ class ItemMeta:
 
     name: str | None = None
     category: str | None = None
+    #: 图标文件名（``3003.png``）；M44 的道具图代理靠它拼上游路径。
+    icon: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -504,10 +507,26 @@ def load_item_catalog() -> dict[str, ItemMeta]:
             if not isinstance(entry, Mapping):
                 continue
             catalog[str(item_id)] = ItemMeta(
-                name=_text(entry.get("name")), category=_text(entry.get("classifyType"))
+                name=_text(entry.get("name")),
+                category=_text(entry.get("classifyType")),
+                icon=_text(entry.get("icon")),
             )
         break
     return catalog
+
+
+def load_item_icons() -> dict[str, str]:
+    """本机 ``item_index.json`` → ``{itemId: icon}``；读不到返回空表。
+
+    M44 的道具图代理用它把 ``item_id`` 解析成图标文件名（``3003`` → ``3003.png``）。
+    读法与 :func:`load_item_catalog` 同一条链（反向遍历资源层、只认第一份能读的文件），
+    没单独再写一套解析；调用时读一次磁盘，没有进程内缓存——换资源后不用重启即可生效。
+    """
+    return {
+        item_id: meta.icon
+        for item_id, meta in load_item_catalog().items()
+        if meta.icon
+    }
 
 
 def load_operator_catalog() -> dict[str, OperatorMeta]:

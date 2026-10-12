@@ -21,10 +21,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 读取游戏资源图（干员头像 / 技能图标）
+         * 读取游戏资源图（干员头像 / 技能图标 / 道具图标）
          * @description 后端代理官方 CDN 的游戏美术资源，并按内容落盘缓存。
          *
-         *     - `kind`：`avatar`（干员头像）或 `skill`（技能图标）
+         *     - `kind`：`avatar`（干员头像）、`skill`（技能图标）或 `item`（道具图标）
+         *     - `asset_id`：`avatar` 是干员 id（`char_002_amiya`）、`skill` 是技能 id（`skchr_amiya_3`）、`item` 是**道具 id**（`3003`、`mod_unlock_token`）——道具的图标文件名由服务端从本机 `item_index.json` 解析，前端不必知道
          *     - 走服务端取图的原因：官方 CDN 有防盗链，浏览器带 `Referer` 会被 403
          *     - 响应可长期缓存（`Cache-Control: public, max-age=604800`），命中缓存时不打上游
          */
@@ -50,7 +51,7 @@ export interface paths {
          *
          *     - `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数
          *     - `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选条件影响；页面用它渲染分类下拉
-         *     - 仓库识别只看养成材料页签，龙门币与作战记录不在其中
+         *     - 识别走仓库的「全部」页签（M44 覆盖层，内置链只点养成材料），整仓道具一起入库
          *     - 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定
          */
         get: operations["account_list_account_depot"];
@@ -4397,9 +4398,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description 资源类型：avatar 或 skill */
+                /** @description 资源类型：avatar、skill 或 item */
                 kind: string;
-                /** @description 干员 id（如 char_002_amiya）或技能 id（如 skchr_amiya_3） */
+                /** @description 干员 id（如 char_002_amiya）、技能 id（如 skchr_amiya_3）或道具 id（如 3003） */
                 asset_id: string;
             };
             cookie?: never;

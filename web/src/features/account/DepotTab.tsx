@@ -4,12 +4,14 @@ import { Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { Input } from '@/components/ui/input'
-import { ListGroup, ListItem } from '@/components/ui/list'
+import { ListGroup } from '@/components/ui/list'
 import { NativeSelect } from '@/components/ui/native-select'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states'
+import { AssetImage } from './AssetImage'
 import { accountKeys, fetchAccountSummary, fetchDepot, type DepotItem } from './api'
+import { itemIconPath } from './assets'
 import { RecognitionStatus } from './RecognitionStatus'
-import { errorText } from './format'
+import { approximateCountHint, errorText, isApproximateCountItem } from './format'
 import { useDebouncedValue } from './use-debounced-value'
 
 const DEPOT_PAGE_SIZE = 100
@@ -27,8 +29,59 @@ function groupByCategory(items: DepotItem[]): [string, DepotItem[]][] {
 }
 
 /**
- * 仓库页（规格 §7.5）：按分类分组的只读列表，显示识别时间与是否过期。
- * 不做「刷新识别」按钮、不做导入导出（§7.10、Q8、Q37）。
+ * 仓库的一行：40px 图标（走本机代理，见 :mod:`./assets` 的 `itemIconPath`）+ 名字 +
+ * 分类 + `× 数量`。
+ *
+ * 图标拿不到（上游没有这张图、索引里没登记这个 id）时留中性占位，绝不留破图；
+ * 数量前带「约」的是顶部资源栏那三件（识别值只到千位，见 `format.ts`）。
+ *
+ * `data-testid` 分三处：整行 `depot-<item_id>`、图标 `depot-icon-<item_id>`（取不到图时是
+ * `depot-icon-<item_id>-placeholder`）、数量 `depot-count-<item_id>`——「有没有图」与
+ * 「数量标没标约」各自断言得清楚。
+ */
+function DepotRow({ item }: { item: DepotItem }) {
+  const approximate = isApproximateCountItem(item.item_id)
+  const hint = approximateCountHint(item.item_id)
+  return (
+    <div
+      data-testid={`depot-${item.item_id}`}
+      className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left"
+    >
+      <span className="relative size-10 shrink-0 overflow-hidden rounded-lg border bg-muted">
+        <AssetImage
+          path={itemIconPath(item.item_id)}
+          testId={`depot-icon-${item.item_id}`}
+          className="size-full object-contain"
+          placeholderIcon={Package}
+          placeholderClassName="size-5"
+        />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[0.9375rem] font-medium leading-5" title={item.name}>
+          {item.name}
+        </span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-footnote text-muted-foreground">
+          <span>{item.category?.trim() || UNCATEGORIZED}</span>
+          <span className="font-mono text-xs" data-testid={`depot-id-${item.item_id}`}>
+            {item.item_id}
+          </span>
+        </span>
+      </span>
+      <span
+        className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground"
+        data-testid={`depot-count-${item.item_id}`}
+      >
+        <span className="tabular-nums" title={hint ?? undefined}>
+          {approximate ? '约 ' : ''}× {item.count}
+        </span>
+      </span>
+    </div>
+  )
+}
+
+/**
+ * 仓库页（规格 §7.5、M44 §4.4）：按分类分组的只读列表，每行显示图标 + 名字 + 分类 + 数量，
+ * 另显示识别时间与是否过期。不做「刷新识别」按钮、不做导入导出（§7.10、Q8、Q37）。
  */
 export function DepotTab() {
   const [category, setCategory] = useState('')
@@ -74,7 +127,7 @@ export function DepotTab() {
           label="仓库识别"
           entry={summary.data.depot}
           unit="种物品"
-          description="只读列表，由任务里的「仓库识别」写入；识别只覆盖养成材料页签，龙门币与作战记录不在其中。"
+          description="只读列表，由任务里的「仓库识别」写入；识别走仓库的「全部」页签，整仓道具一起入库。"
         />
       ) : summary.error ? (
         <InlineAlert tone="warning">读取账号概要失败：{errorText(summary.error)}</InlineAlert>
@@ -121,7 +174,7 @@ export function DepotTab() {
           <EmptyState
             icon={Package}
             title="仓库里没有符合条件的物品"
-            description="识别还没跑过，或者筛选条件太窄。仓库识别只覆盖养成材料页签"
+            description="识别还没跑过，或者筛选条件太窄。仓库识别走「全部」页签"
           />
         </div>
       ) : (
@@ -131,13 +184,7 @@ export function DepotTab() {
           {groups.map(([name, group]) => (
             <ListGroup key={name} title={`${name}（${group.length}）`}>
               {group.map((item) => (
-                <ListItem
-                  key={item.item_id}
-                  title={item.name}
-                  description={<span className="font-mono text-xs">{item.item_id}</span>}
-                  trailing={<span className="tabular-nums">{item.count}</span>}
-                  chevron={false}
-                />
+                <DepotRow key={item.item_id} item={item} />
               ))}
             </ListGroup>
           ))}

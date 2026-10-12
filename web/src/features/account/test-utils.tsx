@@ -150,11 +150,19 @@ export const KNOWN_EMPTY_ROW: OperatorRow = operatorRow({
   field_sources: { own: 'recognition', elite: 'recognition', level: 'recognition', potential: 'recognition', skill_level: 'manual', masteries: 'manual', modules: 'manual' },
 })
 
+/**
+ * 仓库夹具（M27 + M44 §4.4）。
+ *
+ * `4001` 是**龙门币**（顶部资源栏那三件之一）：识别值只到千位，页面要标「约」——所以
+ * 这里的数量故意写成 `4797000` 这种整千的数，与真机上的现场一致。
+ * `99999` 是 `item_index.json` 里**没有**的 id（识别到了但索引里查不到），拿它验占位图。
+ */
 export const DEPOT_ITEMS: DepotItem[] = [
   { item_id: '30011', name: '源岩', count: 42, category: '材料' },
   { item_id: '30012', name: '固源岩', count: 7, category: '材料' },
   { item_id: '30061', name: '聚酸酯', count: 3, category: '材料' },
-  { item_id: '3003', name: '龙门币', count: 120000, category: '货币' },
+  { item_id: '4001', name: '龙门币', count: 4797000, category: '货币' },
+  { item_id: '99999', name: '99999', count: 3, category: null },
 ]
 
 export const OPERATOR_DIFFS: OperatorDiff[] = [
@@ -311,6 +319,11 @@ export interface AccountApiOptions {
   holdSklandSync?: boolean
   /** 非 0 且 ≥400 时，`DELETE /api/skland/binding` 回这个状态码。 */
   sklandUnbindStatus?: number
+  /**
+   * 取图接口 `/api/account/assets/**` 里回 404 的路径（后缀匹配），用来演「这张图取不到」
+   * 的占位。默认所有取图都回一张真 PNG。
+   */
+  assetFailures?: string[]
 }
 
 export interface RecordedAccountRequest {
@@ -318,6 +331,22 @@ export interface RecordedAccountRequest {
   path: string
   url: URL
   body: Record<string, unknown> | undefined
+}
+
+/** 一张最小 PNG（1×1，真实可解码）——取图接口的夹具用它，别拿 JSON 冒充图片。 */
+export const TINY_PNG = Uint8Array.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+  0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+  0x42, 0x60, 0x82,
+])
+
+function pngResponse(body: Uint8Array = TINY_PNG): Response {
+  return new Response(new Blob([new Uint8Array(body)], { type: 'image/png' }), {
+    status: 200,
+    headers: { 'Content-Type': 'image/png' },
+  })
 }
 
 /**
@@ -332,6 +361,11 @@ export function installAccountApi(options: AccountApiOptions = {}) {
     depot: [...(options.depot ?? DEPOT_ITEMS)],
     categories: options.categories ?? ['材料', '货币'],
   }
+  // 取图（M43/M44）：`/api/account/assets/**` 的响应是 PNG、不是 JSON，而且**不计入
+  // `requests`**——既有用例拿 `find('GET', path)` 数的是账号数据端点，图片请求混进去会
+  // 把「请求了几次列表」这类断言搅乱。`assetFailures` 里的路径回 404（占位图用例）。
+  const assetRequests: string[] = []
+  const assetFailures = options.assetFailures ?? []
   // 森空岛状态（M42 §4.6）：扫码 / 手动绑定成功后改口说「已绑定」并带上 `sklandAfterBind`，
   // 解绑之后再改回「未绑定」；同步成功会把摘要写进后续的 `GET /status`。
   const sklandBase: SklandStatus = { ...SKLAND_UNBOUND, ...options.skland }
@@ -356,6 +390,16 @@ export function installAccountApi(options: AccountApiOptions = {}) {
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init)
     const url = new URL(request.url)
+
+    // 取图先拦：它不该进 `requests`，响应体也不是 JSON（见上面 assetRequests 的注释）。
+    if (url.pathname.startsWith('/api/account/assets/')) {
+      assetRequests.push(url.pathname)
+      if (assetFailures.some((path) => url.pathname.endsWith(path))) {
+        return new Response('nope', { status: 404 })
+      }
+      return pngResponse()
+    }
+
     // 请求由 openapi-fetch 包成 Request 后调用 fetch，body 只能从 Request 上读。
     const text = request.method === 'GET' || request.method === 'HEAD' ? '' : await request.clone().text()
     requests.push({
@@ -498,7 +542,15 @@ export function installAccountApi(options: AccountApiOptions = {}) {
 
   const find = (method: string, path: string) =>
     requests.filter((request) => request.method === method && request.path === path)
-  return { requests, fetchMock, state, find, releaseSklandSync: () => releaseSklandSync?.() }
+  return {
+    requests,
+    fetchMock,
+    state,
+    find,
+    /** 取图请求的路径（按发生顺序），用来断言「图标走的是本机代理」。 */
+    assetRequests,
+    releaseSklandSync: () => releaseSklandSync?.(),
+  }
 }
 
 export function renderAccount(path = '/more/account') {
