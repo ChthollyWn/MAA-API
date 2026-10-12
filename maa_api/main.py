@@ -498,6 +498,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         from maa_api.core.client import CoreClient
         from maa_api.core.enums import Message
+        from maa_api.core.depot_overlay import ensure_depot_all_tabs
         from maa_api.core.kernel_options import ensure_task_delay
         from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
         from maa_api.core.supervisor import CoreState, CoreSupervisor
@@ -532,6 +533,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         except Exception:  # noqa: BLE001 - 提速旋钮的意外不能拖垮启动
             logger.exception("生成内核资源层配置失败：识别间隔沿用内核默认")
+        # M44：仓库识别改点「全部」页签（内置链只点养成材料，真机实测少读 2/3 条目）。
+        try:
+            ensure_depot_all_tabs(layers_root=layers_root)
+        except Exception:  # noqa: BLE001 - 页签覆盖的意外不能拖垮启动
+            logger.exception("生成仓库页签覆盖层失败：仓库识别退回内核自带的养成材料页签")
 
         boot_config = {
             "maa_path": str(maa_path),
