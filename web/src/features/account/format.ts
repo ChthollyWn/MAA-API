@@ -31,12 +31,14 @@ export const SOURCE_LABELS: Record<FieldSource, string> = {
   recognition: '识别',
   manual: '手动',
   agent: 'Agent',
+  skland: '森空岛',
 }
 
 export const SOURCE_HINTS: Record<FieldSource, string> = {
   recognition: '由干员识别写入',
   manual: '在账号数据页手动改过',
   agent: '由 Agent 改过',
+  skland: '由森空岛账号数据同步写入',
 }
 
 export function sourceLabel(value: string | undefined | null): string | null {
@@ -100,9 +102,9 @@ export function moduleText(modules: Record<string, number> | null | undefined): 
   return parts.length ? parts.join(' · ') : '—'
 }
 
-/** 一行的字段来源集合（去重、按识别→手动→Agent 排序），用于行内的来源标记。 */
+/** 一行的字段来源集合（去重、按识别→手动→Agent→森空岛排序），用于行内的来源标记。 */
 export function rowSources(row: OperatorRow): FieldSource[] {
-  const order: FieldSource[] = ['recognition', 'manual', 'agent']
+  const order: FieldSource[] = ['recognition', 'manual', 'agent', 'skland']
   const seen = new Set(Object.values(row.field_sources ?? {}))
   return order.filter((source) => seen.has(source))
 }

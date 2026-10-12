@@ -8,14 +8,20 @@ import type {
   DepotItem,
   OperatorDiff,
   OperatorRow,
-  TrainingScanState,
-  TrainingScanSubmit,
+  SklandQrPoll,
+  SklandQrSession,
+  SklandRole,
+  SklandStatus,
+  SklandSyncSummary,
 } from './api'
 
 /** 账号数据页的测试夹具：按真实查询参数过滤的假后端 + 内存路由渲染。 */
 
-export function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+export function jsonResponse(body: unknown, status = 200, headers?: Record<string, string>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...headers },
+  })
 }
 
 const baseRow: OperatorRow = {
@@ -147,88 +153,87 @@ export const SUMMARY: AccountSummary = {
 }
 
 /**
- * 练度扫描（M36 §4.6）的夹具。
+ * 森空岛（M42 §4.6）的夹具。
  *
- * `IDLE_TRAINING_SCAN`：接口默认状态，`POST`/`GET`/`DELETE` 三个方法的响应同形状。
- * `RUNNING_TRAINING_SCAN`：正在读第 12 名，`total` 是**契约外**的补充字段（`POST` 才
- * 返回 `total`，GET 带上时才用它算进度）。
+ * `SKLAND_UNBOUND`：默认状态——没绑定、密钥配好了，卡片走扫码那一条路。
+ * `SKLAND_KEY_MISSING`：`config.yaml` 里没配 `skland.credential_key`，此时连二维码都不该有。
+ * `SKLAND_BOUND`：已绑定，带一个默认角色与上次同步摘要，用来验已绑定视图。
  */
-export const IDLE_TRAINING_SCAN: TrainingScanState = {
-  status: 'idle',
-  mode: 'single',
-  pipeline_id: null,
-  started_at: null,
-  finished_at: null,
-  scanned: 0,
-  updated: 0,
-  screens: 0,
-  skipped: 0,
-  unresolved: 0,
-  mismatched: 0,
-  realigned: 0,
-  unverified: 0,
-  message: null,
-  total: null,
+export const SKLAND_ROLE: SklandRole = {
+  uid: 'uid-1001',
+  app_code: 'arknights',
+  channel_master_id: null,
+  nickname: '罗德岛博士',
+  level: 114,
+  is_default: true,
+  synced_at: '2026-10-12T02:30:00Z',
 }
 
-export const RUNNING_TRAINING_SCAN: TrainingScanState = {
-  status: 'running',
-  mode: 'single',
-  pipeline_id: 'pipe-scan-1',
-  started_at: '2026-10-11T01:00:00Z',
-  finished_at: null,
-  scanned: 12,
-  updated: 9,
-  screens: 1,
-  skipped: 3,
-  unresolved: 0,
-  mismatched: 1,
-  realigned: 0,
-  unverified: 0,
-  message: null,
-  total: 40,
+export const SKLAND_ROLE_ALT: SklandRole = {
+  uid: 'uid-1002',
+  app_code: 'arknights',
+  channel_master_id: '1',
+  nickname: '小号',
+  level: 42,
+  is_default: false,
+  synced_at: null,
 }
 
-/** 全量扫描（M39 §3）：没有名单，`total` 恒为 `null`，进度只有 `scanned`/`screens`。 */
-export const RUNNING_FULL_TRAINING_SCAN: TrainingScanState = {
-  status: 'running',
-  mode: 'full',
-  pipeline_id: 'pipe-scan-full-1',
-  started_at: '2026-10-11T02:00:00Z',
-  finished_at: null,
-  scanned: 23,
-  updated: 18,
-  screens: 2,
-  skipped: 1,
-  unresolved: 0,
-  mismatched: 0,
-  realigned: 2,
-  unverified: 3,
-  message: null,
-  total: null,
+export const SKLAND_SYNC_SUMMARY: SklandSyncSummary = {
+  status: 'succeeded',
+  role: SKLAND_ROLE,
+  synced_at: '2026-10-12T02:30:00Z',
+  total: 383,
+  created: 12,
+  updated: 47,
+  unchanged: 324,
+  ownership_cleared: 3,
+  diffs: 5,
+  dropped_invalid: 0,
+  duration_ms: 820,
 }
 
-export const TRAINING_SCAN_SUBMIT: TrainingScanSubmit = {
-  pipeline_id: 'pipe-scan-1',
-  mode: 'single',
-  total: 40,
-  targets: [
-    { char_id: 'char_002_amiya', name: '阿米娅' },
-    { char_id: 'char_123_knight', name: '临光' },
-  ],
-  deferred: [],
-  unresolved: [],
+export const SKLAND_UNBOUND: SklandStatus = {
+  bound: false,
+  key_configured: true,
+  account: null,
+  roles: [],
+  last_sync_at: null,
+  last_sync: null,
+  last_error: null,
+  min_sync_interval_seconds: 60,
+  min_chars: 200,
+  auto_sync_enabled: false,
+  auto_sync_interval_minutes: 0,
 }
 
-/** `mode=full` 的受理结果：没有名单、`total` 为 `null`。 */
-export const TRAINING_SCAN_SUBMIT_FULL: TrainingScanSubmit = {
-  pipeline_id: 'pipe-scan-full-1',
-  mode: 'full',
-  total: 0,
-  targets: [],
-  deferred: [],
-  unresolved: [],
+export const SKLAND_KEY_MISSING: SklandStatus = { ...SKLAND_UNBOUND, key_configured: false }
+
+export const SKLAND_BOUND: SklandStatus = {
+  ...SKLAND_UNBOUND,
+  bound: true,
+  account: SKLAND_ROLE,
+  roles: [SKLAND_ROLE, SKLAND_ROLE_ALT],
+  last_sync_at: SKLAND_SYNC_SUMMARY.synced_at,
+  last_sync: SKLAND_SYNC_SUMMARY,
 }
+
+/**
+ * 二维码会话：`expires_at` 按夹具生成时刻往后推 3 分钟，倒计时用例不会一渲染就过期
+ * （假计时器用 `shouldAdvanceTime: true`，走的是真实时间）。
+ */
+export const SKLAND_QR_SESSION: SklandQrSession = {
+  session_id: 'qr-1',
+  qr_svg: '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#000"/></svg>',
+  payload: 'https://www.skland.com/hypergryph/login?qrcode=abc',
+  expires_at: new Date(Date.now() + 180_000).toISOString(),
+  poll_interval_ms: 2_000,
+}
+
+export const SKLAND_QR_WAITING: SklandQrPoll = { state: 'waiting', message: null, account: null, roles: [] }
+export const SKLAND_QR_SUCCEEDED: SklandQrPoll = { state: 'succeeded', message: null, account: SKLAND_ROLE, roles: [SKLAND_ROLE] }
+export const SKLAND_QR_EXPIRED: SklandQrPoll = { state: 'expired', message: null, account: null, roles: [] }
+export const SKLAND_QR_FAILED: SklandQrPoll = { state: 'failed', message: '森空岛拒绝了这次登录', account: null, roles: [] }
 
 /**
  * 假后端按真形状应答：`/api/account/summary` 是 `{box, depot}`（`elite_two` 而不是
@@ -262,14 +267,34 @@ export interface AccountApiOptions {
   categories?: string[]
   patchStatus?: number
   dismissStatus?: number
-  /** `/api/account/training-scan` 的 GET/DELETE 响应；默认 `idle` 空状态。 */
-  trainingScan?: Partial<TrainingScanState>
-  /** `POST /api/account/training-scan` 的 200 响应；默认受理 40 名（`TRAINING_SCAN_SUBMIT`）。 */
-  trainingScanSubmit?: Partial<TrainingScanSubmit>
-  /** 非 0 且 ≥400 时，`POST` 回这个状态码（409 ＝ 已有扫描在跑），`GET`/`DELETE` 不回。 */
-  trainingScanStartStatus?: number
-  /** 受理成功之后 `GET` 再取的响应：演「点完开始扫描 → 第一次轮询」这一段。 */
-  trainingScanAfterStart?: Partial<TrainingScanState>
+  /** `GET /api/skland/status` 的响应；默认未绑定（`SKLAND_UNBOUND`）。 */
+  skland?: Partial<SklandStatus>
+  /** `POST /api/skland/login/qrcode` 的 200 响应；默认 `SKLAND_QR_SESSION`。 */
+  sklandQr?: Partial<SklandQrSession>
+  /** 非 0 且 ≥400 时，生成二维码回这个状态码（409 ＝ 没配 `skland.credential_key`）。 */
+  sklandQrStatus?: number
+  /** 轮询 `GET /api/skland/login/qrcode/{session_id}` 的响应；默认 `waiting`。 */
+  sklandQrPoll?: Partial<SklandQrPoll>
+  /**
+   * 扫码成功（或手动绑定成功）之后，`GET /status` 再取的响应。演这一段时记得带上
+   * `bound: true` 与 `account`，否则状态还是「未绑定」。
+   */
+  sklandAfterBind?: Partial<SklandStatus>
+  /** 非 0 且 ≥400 时，`POST /api/skland/login/manual` 回这个状态码（401 ＝ 凭据不对）。 */
+  sklandManualStatus?: number
+  /** 非 0 且 ≥400 时，`POST /api/skland/sync` 回这个状态码（429 ＝ 冷却中、409 ＝ 忙）。 */
+  sklandSyncStatus?: number
+  /** `sklandSyncStatus` 为 429 时回给前端的 `Retry-After` 秒数。 */
+  sklandSyncRetryAfter?: number
+  /** `POST /api/skland/sync` 的 200 响应；默认 `SKLAND_SYNC_SUMMARY`。 */
+  sklandSyncSummary?: Partial<SklandSyncSummary>
+  /**
+   * 把 `POST /api/skland/sync` 的响应挂住不落地，直到用例调用返回的 `releaseSklandSync()`：
+   * 「同步按钮走 loading」这条断言需要一个**看得见**的进行中状态。
+   */
+  holdSklandSync?: boolean
+  /** 非 0 且 ≥400 时，`DELETE /api/skland/binding` 回这个状态码。 */
+  sklandUnbindStatus?: number
 }
 
 export interface RecordedAccountRequest {
@@ -290,16 +315,27 @@ export function installAccountApi(options: AccountApiOptions = {}) {
     diffs: [...(options.diffs ?? OPERATOR_DIFFS)],
     depot: [...(options.depot ?? DEPOT_ITEMS)],
     categories: options.categories ?? ['材料', '货币'],
-    trainingScan: { ...IDLE_TRAINING_SCAN, ...options.trainingScan } as TrainingScanState,
   }
-  // 「点完开始扫描 → 第一次轮询」这一段的状态和初始状态不一样：POST 受理前是 `idle`，
-  // 之后才变 `running`。用例可以用 `trainingScanAfterStart` 演这一段。
-  let trainingScanStarted = false
-  const trainingScanState = () =>
-    ({
-      ...state.trainingScan,
-      ...(trainingScanStarted ? options.trainingScanAfterStart : undefined),
-    }) as TrainingScanState
+  // 森空岛状态（M42 §4.6）：扫码 / 手动绑定成功后改口说「已绑定」并带上 `sklandAfterBind`，
+  // 解绑之后再改回「未绑定」；同步成功会把摘要写进后续的 `GET /status`。
+  const sklandBase: SklandStatus = { ...SKLAND_UNBOUND, ...options.skland }
+  let sklandBoundByLogin = false
+  let sklandUnbound = false
+  let sklandLastSync: SklandSyncSummary | null = sklandBase.last_sync
+  let releaseSklandSync: (() => void) | null = null
+  const heldSync = options.holdSklandSync
+    ? new Promise<void>((resolve) => { releaseSklandSync = resolve })
+    : null
+  const sklandState = (): SklandStatus => {
+    const base = sklandUnbound
+      ? { ...SKLAND_UNBOUND, key_configured: sklandBase.key_configured }
+      : sklandBoundByLogin ? { ...sklandBase, ...options.sklandAfterBind } : { ...sklandBase }
+    return {
+      ...base,
+      last_sync: sklandLastSync,
+      last_sync_at: sklandLastSync?.synced_at ?? base.last_sync_at,
+    }
+  }
   const requests: RecordedAccountRequest[] = []
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init)
@@ -373,24 +409,71 @@ export function installAccountApi(options: AccountApiOptions = {}) {
       return jsonResponse({ items: items.slice(offset, offset + limit), total: items.length, categories: state.categories })
     }
 
-    // 练度扫描（M36 §4.6）：GET/DELETE 回同一份状态，POST 回受理结果。
-    if (url.pathname === '/api/account/training-scan') {
-      if (request.method === 'GET') return jsonResponse(trainingScanState())
-      if (request.method === 'DELETE') {
-        // 取消后的状态由夹具给；没给就回当前状态（页面只读它，不自己编）。
-        return jsonResponse(trainingScanState())
+    // 森空岛（M42 §4.6）：状态、二维码、轮询、手动绑定、同步、解绑六个端点。
+    if (url.pathname === '/api/skland/status' && request.method === 'GET') return jsonResponse(sklandState())
+
+    if (url.pathname === '/api/skland/login/qrcode' && request.method === 'POST') {
+      if (options.sklandQrStatus && options.sklandQrStatus >= 400) {
+        return jsonResponse(
+          {
+            error: {
+              code: 'SKLAND_ENCRYPTION_KEY_INVALID',
+              message: '森空岛凭据加密密钥缺失或不是合法 Fernet key：请在 config.yaml 配 skland.credential_key',
+            },
+          },
+          options.sklandQrStatus,
+        )
       }
-      if (request.method === 'POST') {
-        if (options.trainingScanStartStatus && options.trainingScanStartStatus >= 400) {
-          return jsonResponse(
-            { error: { code: 'CONFLICT', message: '已有练度扫描在跑，先等它结束或取消' } },
-            options.trainingScanStartStatus,
-          )
-        }
-        // 受理成功之后，`GET` 再取的响应切到 `trainingScanAfterStart`。
-        trainingScanStarted = true
-        return jsonResponse({ ...TRAINING_SCAN_SUBMIT, ...options.trainingScanSubmit })
+      return jsonResponse({ ...SKLAND_QR_SESSION, ...options.sklandQr })
+    }
+
+    const qrPoll = url.pathname.match(/^\/api\/skland\/login\/qrcode\/([^/]+)$/)
+    if (qrPoll && request.method === 'GET') {
+      const poll: SklandQrPoll = { ...SKLAND_QR_WAITING, ...options.sklandQrPoll }
+      // 扫到了：后续 `GET /status` 按 `sklandAfterBind` 改口说「已绑定」。
+      if (poll.state === 'succeeded') sklandBoundByLogin = true
+      return jsonResponse(poll)
+    }
+
+    if (url.pathname === '/api/skland/login/manual' && request.method === 'POST') {
+      if (options.sklandManualStatus && options.sklandManualStatus >= 400) {
+        return jsonResponse(
+          { error: { code: 'SKLAND_LOGIN_FAILED', message: '凭据校验失败，请重新获取 cred 与 token' } },
+          options.sklandManualStatus,
+        )
       }
+      sklandBoundByLogin = true
+      return jsonResponse(sklandState())
+    }
+
+    if (url.pathname === '/api/skland/sync' && request.method === 'POST') {
+      if (options.sklandSyncStatus && options.sklandSyncStatus >= 400) {
+        const rateLimited = options.sklandSyncStatus === 429
+        return jsonResponse(
+          {
+            error: {
+              code: rateLimited ? 'RATE_LIMITED' : 'SKLAND_SYNC_BUSY',
+              message: rateLimited ? '同步太频繁，请稍后再试' : '已有同步在跑，先等它结束',
+            },
+          },
+          options.sklandSyncStatus,
+          options.sklandSyncRetryAfter ? { 'Retry-After': String(options.sklandSyncRetryAfter) } : undefined,
+        )
+      }
+      const summary: SklandSyncSummary = { ...SKLAND_SYNC_SUMMARY, ...options.sklandSyncSummary }
+      if (heldSync) await heldSync
+      // 同步成功后，`GET /status` 的 `last_sync` 也跟着变（页面同步后本来就会失效重取）。
+      sklandLastSync = summary
+      return jsonResponse(summary)
+    }
+
+    if (url.pathname === '/api/skland/binding' && request.method === 'DELETE') {
+      if (options.sklandUnbindStatus && options.sklandUnbindStatus >= 400) {
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: '解绑失败' } }, options.sklandUnbindStatus)
+      }
+      sklandBoundByLogin = false
+      sklandUnbound = true
+      return jsonResponse({ bound: false })
     }
 
     return jsonResponse({ error: { code: 'NOT_FOUND', message: `Unexpected request ${request.method} ${url.pathname}` } }, 404)
@@ -399,7 +482,7 @@ export function installAccountApi(options: AccountApiOptions = {}) {
 
   const find = (method: string, path: string) =>
     requests.filter((request) => request.method === method && request.path === path)
-  return { requests, fetchMock, state, find }
+  return { requests, fetchMock, state, find, releaseSklandSync: () => releaseSklandSync?.() }
 }
 
 export function renderAccount(path = '/more/account') {

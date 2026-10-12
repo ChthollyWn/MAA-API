@@ -31,9 +31,9 @@ describe('toolLabel', () => {
     expect(toolLabel('some_future_tool')).toBeUndefined()
   })
 
-  it('names the two M36 training-scan tools in Chinese', () => {
-    expect(toolLabel('scan_operator_training')).toBe('扫描练度')
-    expect(toolLabel('cancel_training_scan')).toBe('停止练度扫描')
+  it('names the two M42 Skland tools in Chinese', () => {
+    expect(toolLabel('get_skland_status')).toBe('查森空岛绑定')
+    expect(toolLabel('sync_skland_training')).toBe('同步森空岛练度')
   })
 
   it('names the five media tools M23 added in Chinese', () => {

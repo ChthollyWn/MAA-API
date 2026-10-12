@@ -11,7 +11,7 @@ import { OperatorDiffBanner } from './OperatorDiffBanner'
 import { OperatorEditorSheet } from './OperatorEditorSheet'
 import { OperatorFilterBar } from './OperatorFilterBar'
 import { RecognitionStatus } from './RecognitionStatus'
-import { TrainingScanCard } from './TrainingScanCard'
+import { SklandBindingCard } from './SklandBindingCard'
 import {
   DEFAULT_OPERATOR_FILTERS,
   OPERATOR_PAGE_SIZE,
@@ -34,10 +34,12 @@ import {
 } from './format'
 import { useDebouncedValue } from './use-debounced-value'
 
-const SOURCE_TONES: Record<FieldSource, 'neutral' | 'success' | 'primary'> = {
+const SOURCE_TONES: Record<FieldSource, 'neutral' | 'success' | 'primary' | 'warning'> = {
   recognition: 'neutral',
   manual: 'primary',
   agent: 'success',
+  // 森空岛（M42）：与识别 / 手动 / Agent 三档都不同色，一眼能看出这条练度是同步来的。
+  skland: 'warning',
 }
 
 function FieldCell({ label, value, unknown = false }: { label: string; value: string; unknown?: boolean }) {
@@ -95,7 +97,7 @@ function OperatorLine({ row, onEdit }: { row: OperatorRow; onEdit: () => void })
   )
 }
 
-/** 干员页（规格 §7.5、M36 §4.8）：识别状态 + 练度扫描 + 差异提示条 + 筛选 + 列表（默认隐藏未拥有）+ 编辑抽屉。 */
+/** 干员页（规格 §7.5、M42 §4.8）：识别状态 + 森空岛绑定/同步 + 差异提示条 + 筛选 + 列表（默认隐藏未拥有）+ 编辑抽屉。 */
 export function OperatorsTab() {
   const [filters, setFilters] = useState<OperatorFilters>(DEFAULT_OPERATOR_FILTERS)
   const [editing, setEditing] = useState<OperatorRow | null>(null)
@@ -138,9 +140,9 @@ export function OperatorsTab() {
         <LoadingState label="正在读取账号概要…" />
       )}
 
-      {/* 练度扫描是**另一种数据**（技能等级 / 专精 / 模组，M36 §4.8），不是「刷新干员识别」：
-          识别仍由任务触发，这里只给自己的扫描一个入口。 */}
-      <TrainingScanCard />
+      {/* 森空岛练度是**另一个写入者**（技能等级 / 专精 / 模组 / 信赖，M42 §4.5），不是
+          「刷新干员识别」：识别仍由任务触发，这里只给绑定与同步一个入口。 */}
+      <SklandBindingCard />
 
       <OperatorDiffBanner />
 
