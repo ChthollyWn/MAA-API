@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  approximateCountHint,
   compactText,
   eliteLabel,
   finiteNumber,
   formatDateTime,
+  isApproximateCountItem,
   masteryText,
   missingMaterialsText,
   moduleText,
@@ -123,5 +125,21 @@ describe('M35 未识别练度', () => {
     expect(moduleText(undefined)).toBe('未识别')
     expect(moduleText({})).toBe('—')
     expect(moduleText({ X: 2, Y: 1 })).toBe('X2 · Y1')
+  })
+})
+
+describe('M44 仓库的近似值标注', () => {
+  it('只有顶部资源栏那三件（龙门币 / 至纯源石 / 合成玉）算「约」', () => {
+    expect(['4001', '4002', '4003'].map(isApproximateCountItem)).toEqual([true, true, true])
+    // 仓库页签里逐件识别的道具数量是准的：不标「约」。
+    for (const itemId of ['3003', '30011', 'mod_unlock_token', '7003', '99999']) {
+      expect(isApproximateCountItem(itemId)).toBe(false)
+    }
+  })
+
+  it('id 两边的空白不改变判定；说明文案只给近似项', () => {
+    expect(isApproximateCountItem(' 4001 ')).toBe(true)
+    expect(approximateCountHint('4001')).toBe('上游识别只给到千位，后三位不准确')
+    expect(approximateCountHint('30011')).toBeNull()
   })
 })

@@ -1,7 +1,8 @@
-"""M43 后续：游戏资源路由（`GET /api/account/assets/{kind}/{asset_id}`）。
+"""M43 后续 / M44 §4.3：游戏资源路由（`GET /api/account/assets/{kind}/{asset_id}`）。
 
 服务层的取图/缓存/白名单在 `tests/services/test_account_assets.py`；这里只管路由：
-鉴权（`<img>` 带不了 token，所以前端用 fetch + blob）、响应类型与长缓存头、越界参数 404。
+鉴权（`<img>` 带不了 token，所以前端用 fetch + blob）、响应类型与长缓存头、越界参数 404，
+以及 M44 的 `kind=item`（收 item_id、图标文件名由服务端解析）。
 """
 
 import httpx
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import account as account_router
+from maa_api.services.account import capture as capture_module
 from maa_api.services.account.assets import GameAssetService
 
 PNG = b"\x89PNG\r\n\x1a\nfake-png-bytes"
@@ -47,3 +49,44 @@ def test_asset_route_serves_png_with_cache_headers_and_requires_auth(tmp_path, m
         client.get("/api/account/assets/avatar/..%2Fetc", headers={"X-Token": "secret-token"}).status_code
         == 404
     )
+
+
+@pytest.mark.parametrize("tmp_settings", ["secret-token"], indirect=True)
+def test_item_route_takes_item_id_and_404s_on_unknown(
+    tmp_path, make_client, tmp_settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`kind=item` 收的是 **item_id**：图标文件名由服务端解析，前端传 id 就行。
+
+    这里把「本机 item_index → icon」换成替身，用例不依赖真资源文件；真正的读法在
+    `tests/services/test_account_assets.py`（服务层）与 `capture.load_item_catalog`。
+    """
+    monkeypatch.setattr(capture_module, "load_item_icons", lambda: {"3003": "3003.png"})
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
+
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(account_router.router)
+    app.state.game_asset_service = GameAssetService(
+        transport=httpx.MockTransport(handler), cache_dir=tmp_path
+    )
+    client = make_client(app)
+
+    ok = client.get("/api/account/assets/item/3003", headers={"X-Token": "secret-token"})
+    assert ok.status_code == 200
+    assert ok.headers["content-type"] == "image/png"
+    assert ok.content == PNG
+    assert seen == ["https://web.hycdn.cn/arknights/game/assets/item/3003.png"]
+
+    # 索引里没有的 id（含别的 kind 的 id）：404，而且不会去猜一个上游地址。
+    for asset_id in ("99999", "char_002_amiya"):
+        assert (
+            client.get(f"/api/account/assets/item/{asset_id}", headers={"X-Token": "secret-token"}).status_code
+            == 404
+        )
+    assert len(seen) == 1
+    assert client.get("/api/account/assets/item/3003").status_code == 401
+

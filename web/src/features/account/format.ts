@@ -310,3 +310,27 @@ export function staleBadgeText(entry: AccountSummaryEntry): string | null {
   if (!entry.recognized) return '未识别'
   return entry.stale ? '已过期' : '已同步'
 }
+
+/**
+ * 顶部资源栏类道具（M44 §3.1.6）：识别值只有千位以上有效，页面上不能当精确值展示。
+ *
+ * 这三件是主界面顶部资源栏上的东西，内核给的数**后三位被截断/取整**（2026-10-12 实测
+ * 4797534 → 4797000、242920 → 242000），所以数量前标「约」；其余道具是在仓库页签里逐件
+ * 识别的，数量是准的，不标。判定写成纯函数是为了单测能直接钉住这三个 id。
+ */
+const APPROXIMATE_COUNT_ITEM_IDS: ReadonlySet<string> = new Set([
+  '4001', // 龙门币
+  '4002', // 至纯源石
+  '4003', // 合成玉
+])
+
+/** 这件道具的数量是不是「约」值（顶部资源栏那三件）。 */
+export function isApproximateCountItem(itemId: string): boolean {
+  return APPROXIMATE_COUNT_ITEM_IDS.has(itemId.trim())
+}
+
+/** 近似值的说明文案，挂在数量的 `title` 上：说得清为什么是「约」，不是含糊其辞。 */
+export function approximateCountHint(itemId: string): string | null {
+  return isApproximateCountItem(itemId) ? '上游识别只给到千位，后三位不准确' : null
+}
+

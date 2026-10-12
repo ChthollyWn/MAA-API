@@ -23,6 +23,16 @@ export function skillIconPath(skillId: string): string {
 }
 
 /**
+ * 道具图标的后端代理路径（M44 §4.4）。`itemId` 如 `3003`、`mod_unlock_token`。
+ *
+ * 传的是 **item_id** 而不是图标文件名：图标叫什么由服务端从本机 `item_index.json` 的
+ * `icon` 字段解析（`3003` → `3003.png`），前端不必知道；解析不到后端回 404，这里就是占位图。
+ */
+export function itemIconPath(itemId: string): string {
+  return `/api/account/assets/item/${encodeURIComponent(itemId)}`
+}
+
+/**
  * 模组类型字母 → 游戏里的显示字形（规格 §2.4，照一图流的口径）：
  * `X` / `Y` 原样，`D` 是 Δ、`A` 是 α。未知类型原样返回，不猜。
  */

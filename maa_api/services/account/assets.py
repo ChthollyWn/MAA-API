@@ -1,14 +1,21 @@
-"""游戏美术资源（干员头像 / 技能图标）的后端代理与磁盘缓存（M43 后续）。
+"""游戏美术资源（干员头像 / 技能图标 / 道具图标）的后端代理与磁盘缓存（M43 后续 + M44 §4.3）。
 
 **为什么不让浏览器直连官方 CDN**：`web.hycdn.cn` 有防盗链——同一张头像，不带 ``Referer``
 是 200，带上 ``Referer`` 立刻 403（2026-10-12 实测，正是页面里头像全变灰占位的原因）。
 浏览器一定会发 ``Referer``，所以图片只能由后端取、前端再从本机服务读。
 
-三条约束：
+四条约束：
 
-- **只代理两类固定资源**：``char/avatar/{charId}.png`` 与 ``char_skill/{skillId}.png``。
-  ``asset_id`` 走严格白名单正则，URL 里不允许出现 ``/``、``..`` 之类的东西——这不是通用
-  代理，拿不到第三个上游路径。
+- **只代理三类固定资源**：``char/avatar/{charId}.png``、``char_skill/{skillId}.png`` 与
+  ``item/{icon}.png``。``asset_id`` 走严格白名单正则，URL 里不允许出现 ``/``、``..``
+  之类的东西——这不是通用代理，拿不到第四个上游路径。
+- **道具的图名由服务端解析**：``kind == "item"`` 时 ``asset_id`` 是 **item_id**
+  （``3003`` / ``mod_unlock_token``），图标文件名从本机 ``item_index.json`` 的 ``icon``
+  字段取（:func:`~maa_api.services.account.capture.load_item_icons`），解析不到就是 404。
+  让服务端解析而不是让前端传文件名：前端不该知道图标叫什么，图标改名也只改一处。
+  这条依赖是**函数内导入**的：``capture`` 会拉 ``maa_api.core.enums``，在模块顶层导入
+  会让 ``import maa_api.main`` 连带拉进内核模块（``tests/api/test_app_skeleton.py``
+  的隔离门禁正是盯这个），而只有真的取道具图时才需要它。
 - **落盘缓存**：命中就直发，不再打上游；缓存目录跟着 ``resource/`` 走（与截图、日志同处），
   换机/清理不心疼，重新拉一次即可。
 - **同一个 key 只拉一次**：进程内按 key 加锁，385 名干员首屏并发请求同一张图时不会重复打
@@ -39,6 +46,8 @@ logger = logging.getLogger(__name__)
 ASSET_KINDS: dict[str, str] = {
     "avatar": "char/avatar",
     "skill": "char_skill",
+    # M44 §4.3：道具图的上游路径就是 ``item/{icon}``（``icon`` 自带 ``.png``）。
+    "item": "item",
 }
 
 #: 上游基址（与 ``docs/13`` §8.63 五的记录同一份事实）。
@@ -93,29 +102,41 @@ class GameAssetService:
 
     # -- 对外 -------------------------------------------------------------
     async def get(self, kind: str, asset_id: str) -> bytes:
-        """取一张图；上游没有这张图时抛 ``ACCOUNT_DATA_NOT_FOUND``（对前端就是 404）。"""
+        """取一张图；上游没有这张图时抛 ``ACCOUNT_DATA_NOT_FOUND``（对前端就是 404）。
+
+        ``kind == "item"`` 时 ``asset_id`` 是 item_id，先解析成图标文件名（解析不到直接
+        404，不打上游）；解析在**取缓存之前**，所以缓存文件也叫 ``{icon}.png``、和上游
+        一一对应。
+        """
         prefix = ASSET_KINDS.get(kind)
-        if prefix is None or not ASSET_ID_PATTERN.match(asset_id):
+        if prefix is None:
             raise self._not_found(kind, asset_id)
 
-        path = self._cache_dir / kind / f"{asset_id}.png"
+        name = _resolve_asset_name(kind, asset_id)
+        # 白名单校验的是**真正拼进 URL 的那个名字**：道具走 icon（同样落在白名单内），
+        # 其余两类就是 asset_id 本身。
+        if name is None or not ASSET_ID_PATTERN.match(name):
+            raise self._not_found(kind, asset_id)
+
+        path = self._cache_dir / kind / _png_filename(name)
         cached = await asyncio.to_thread(_read_bytes, path)
         if cached is not None:
             return cached
 
-        lock = self._locks.setdefault(f"{kind}/{asset_id}", asyncio.Lock())
+        lock = self._locks.setdefault(f"{kind}/{name}", asyncio.Lock())
         async with lock:
             # 等锁期间别人可能已经拉回来了：再查一次盘，避免重复打上游。
             cached = await asyncio.to_thread(_read_bytes, path)
             if cached is not None:
                 return cached
-            payload = await self._download(prefix, kind, asset_id)
+            payload = await self._download(prefix, kind, name, asset_id)
             await asyncio.to_thread(_write_bytes, path, payload)
             return payload
 
     # -- 内部 -------------------------------------------------------------
-    async def _download(self, prefix: str, kind: str, asset_id: str) -> bytes:
-        url = f"{ASSET_BASE_URL}/{prefix}/{asset_id}.png"
+    async def _download(self, prefix: str, kind: str, name: str, asset_id: str) -> bytes:
+        """``name`` 是拼 URL 用的图名，``asset_id`` 是调用方给的 id（错误详情里回它）。"""
+        url = f"{ASSET_BASE_URL}/{prefix}/{_png_filename(name)}"
         try:
             response = await self._client.get(url)
         except httpx.HTTPError as exc:
@@ -161,6 +182,31 @@ class GameAssetService:
             "没有这张游戏资源图",
             {"kind": kind, "asset_id": asset_id},
         )
+
+
+def _resolve_asset_name(kind: str, asset_id: str) -> str | None:
+    """``asset_id`` → 真正用来取图的图名；解析不到返回 ``None``（调用方回 404）。
+
+    只有道具需要这一步：接口收的是 **item_id**（``3003``），而上游要的是
+    ``item_index.json`` 里登记的图标文件名（``3003.png``）。别的类型原样返回，
+    行为与 M43 完全一致（白名单照旧由调用方把关）。
+    """
+    if kind != "item":
+        return asset_id
+    # 函数内导入：`capture` 会拉 `maa_api.core.enums`，放模块顶层会让 import maa_api.main
+    # 连带拉内核模块（见模块 docstring 的第四条与 test_app_skeleton 的隔离断言）。
+    from maa_api.services.account.capture import load_item_icons
+
+    return load_item_icons().get(asset_id)
+
+
+def _png_filename(name: str) -> str:
+    """拼上游 URL 与缓存文件用的名字：图标名自带 ``.png`` 时**不重复补后缀**。
+
+    道具图标来自本机索引，登记的就是 ``3003.png``；头像 / 技能 id 不带后缀，这里补上。
+    两种写法最后都指向同一张图，缓存文件也随之与上游同名（不是 ``3003.png.png``）。
+    """
+    return name if name.lower().endswith(".png") else f"{name}.png"
 
 
 def _read_bytes(path: Path) -> bytes | None:

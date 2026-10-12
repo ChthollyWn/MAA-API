@@ -1,14 +1,14 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12535 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12597 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 298 | 298 |
-| 破折号当冒号用 | high | 0 | 134 | 134 |
-| 「A 而不是 B」对照腔 | high | 0 | 112 | 112 |
-| 绝对化规定腔 | medium | 0 | 66 | 66 |
+| 粗体强调 | medium | 0 | 311 | 311 |
+| 破折号当冒号用 | high | 0 | 139 | 139 |
+| 「A 而不是 B」对照腔 | high | 0 | 114 | 114 |
+| 绝对化规定腔 | medium | 0 | 68 | 68 |
 | 「…即可」机器腔 | medium | 0 | 19 | 19 |
 | 自指式讲解腔 | medium | 0 | 18 | 18 |
 | 省略号 | medium | 0 | 4 | 4 |
@@ -18,7 +18,7 @@
 | emoji/符号装饰 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 298）
+## 粗体强调（medium｜用户可见 0 / 开发向 311）
 
 **开发向**
 
@@ -28,9 +28,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 292 条，见 inventory.json
+- …… 另有 305 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 134）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 139）
 
 **开发向**
 
@@ -40,9 +40,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 128 条，见 inventory.json
+- …… 另有 133 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 112）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 114）
 
 **开发向**
 
@@ -52,19 +52,19 @@
 - `maa_api/agent/runtime.py:1808` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/api/routers/account.py:51` : ``recognition``，见服务层），所以这里用 Literal 而不是自由字符串。
 - `maa_api/assets/depot/README.md:8` *为什么放在仓库里而不是 `resource/`**：`resource/` 不进版本库（AGENTS.md）。覆盖层由启动
-- …… 另有 106 条，见 inventory.json
+- …… 另有 108 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 66）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 68）
 
 **开发向**
 
 - `maa_api/agent/preconditions.py:51` : `StartUp` 的小写形式：判定一律大小写不敏感（规格 §4.1）。
 - `maa_api/agent/tools/pipeline.py:216` 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
 - `maa_api/db/migrations/versions/0018_unknown_training.py:47` : 识别永远不写、只有人工/Agent 才能给出的三列。
-- `maa_api/services/account/assets.py:38` : 资源类型 → 上游路径前缀。顺序即白名单，别的一律 404。
+- `maa_api/services/account/assets.py:45` : 资源类型 → 上游路径前缀。顺序即白名单，别的一律 404。
 - `maa_api/services/account/box.py:784` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
 - `maa_api/services/account/capture.py:19` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
-- …… 另有 60 条，见 inventory.json
+- …… 另有 62 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 0 / 开发向 19）
 

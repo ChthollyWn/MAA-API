@@ -810,7 +810,7 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 | PATCH | `/api/account/operators/{char_id}` | 手动编辑干员数据 | 只接受可编辑字段，未知字段 422：`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`、`modules`、`source`（`manual` / `agent`，默认 `manual`）；练度列传 `null` 与不传同义＝不改（M35，不做「写 `null` 清回未识别」） | 200 | `ACCOUNT_DATA_NOT_FOUND`、`INVALID_PARAMETER`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
 | GET | `/api/account/operator-diffs` | 识别覆盖手动值的差异 | `include_dismissed`（默认 `false`）、`limit`（1–500，默认 200） | 200 | `UNAUTHORIZED` |
 | DELETE | `/api/account/operator-diffs` | 把差异标记为已知 | `{ids: [int]}` 逐条，或省略＝全部 | 200 | `UNAUTHORIZED` |
-| GET | `/api/account/assets/{kind}/{asset_id}` | 游戏资源图（干员头像 / 技能图标）的后端代理 | `kind`（`avatar` / `skill`）、`asset_id`（干员 id 或技能 id） | 200（`image/png`，`Cache-Control: public, max-age=604800`） | `ACCOUNT_DATA_NOT_FOUND`、`SKLAND_UPSTREAM_FAILED`、`UNAUTHORIZED` |
+| GET | `/api/account/assets/{kind}/{asset_id}` | 游戏资源图（干员头像 / 技能图标 / 道具图标）的后端代理 | `kind`（`avatar` / `skill` / `item`）、`asset_id`（干员 id / 技能 id / **道具 id**；道具的图标文件名由服务端从本机 `item_index.json` 解析，解析不到 404） | 200（`image/png`，`Cache-Control: public, max-age=604800`） | `ACCOUNT_DATA_NOT_FOUND`、`SKLAND_UPSTREAM_FAILED`、`UNAUTHORIZED` |
 | GET | `/api/account/depot` | 仓库识别结果，按分类分组 | `category`、`query`、`limit`（1–500，默认 100）、`offset` | 200 | `UNAUTHORIZED` |
 
 （8 条）
