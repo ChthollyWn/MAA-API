@@ -1,8 +1,8 @@
 """账号数据端点（M27，规格 §7.5、附录 C）。
 
 ``/api/account`` 前缀下的端点：概要、干员表（筛选 + 分页）、手动编辑、识别差异
-（列表与「知道了」）、仓库，M31 补的养成计划列表/单条/取消，以及 M36 的练度扫描
-（受理、看进度、取消）。
+（列表与「知道了」）、仓库，以及 M31 补的养成计划列表/单条/取消。M36 的三条练度
+扫描端点（受理、看进度、取消）已在 M42 §4.9 退役，练度读走 ``/api/skland``。
 
 路由层只做三件事：解析查询参数与请求体、取服务、把服务返回的 dict 原样透出。
 字段级编辑约束（精英化上限、专精前置、模组类型与等级）在
@@ -34,13 +34,6 @@ from maa_api.services.account.rules import (
     MAX_SKILL_LEVEL,
     MODULE_TYPES,
 )
-from maa_api.services.account.scan import (
-    DEFAULT_LIMIT as SCAN_DEFAULT_LIMIT,
-    MAX_LIMIT as SCAN_MAX_LIMIT,
-    TrainingScanMode,
-    TrainingScanService,
-)
-
 __all__ = [
     "AccountDepotList",
     "AccountDepotRow",
@@ -48,7 +41,6 @@ __all__ = [
     "AccountOperatorRow",
     "OperatorDiffDismissRequest",
     "OperatorPatchRequest",
-    "TrainingScanRequest",
     "router",
 ]
 
@@ -131,7 +123,7 @@ class AccountOperatorRow(BaseModel):
     ``modules``）可以是 ``null`` ＝ **未识别**（M35）：既没有识别值，也没有 manual /
     agent 写入。内核 OperBox 只识别得到前四个字段里的三个（``elite`` / ``level`` /
     ``potential``），技能等级、专精、模组不在识别范围内，别把 ``null`` 读成 0 级 /
-    技能 1 级 / 无专精。``field_sources`` 的值只有 recognition / manual / agent；
+    技能 1 级 / 无专精。``field_sources`` 的值有 recognition / manual / agent / skland（M42 起多第四个：森空岛同步）；
     ``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。
     """
 
@@ -485,143 +477,3 @@ async def cancel_account_upgrade_plan(
     plan_id: str = Path(description="计划 id"),
 ) -> dict[str, Any]:
     return await _plan_service(request).cancel(plan_id)
-
-
-# ---------------------------------------------------------------------------
-# 练度扫描（M36，规格 §4.6）
-# ---------------------------------------------------------------------------
-
-
-def _scan_service(request: Request) -> TrainingScanService:
-    """取 lifespan 装配的练度扫描服务；键名约定同 :func:`_box_service`。
-
-    ``training_scan_service`` 是 ``main.py`` 的装配名，``account_training_scan_service``
-    是本路由文档里写的名字（测试自搭 app 常用）。
-    """
-    state = request.app.state
-    service = getattr(state, "training_scan_service", None) or getattr(
-        state, "account_training_scan_service", None
-    )
-    if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "练度扫描功能还在启动中，请稍后重试")
-    return service
-
-
-class TrainingScanRequest(BaseModel):
-    """受理一轮练度扫描的请求体；整个 body 省略就是「精二名单取默认上限」。"""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "examples": [
-                {},
-                {"limit": 20},
-                {"mode": "full"},
-                {"char_ids": ["char_002_amiya"], "include_plan_targets": False},
-            ]
-        },
-    )
-
-    mode: TrainingScanMode = Field(
-        default=TrainingScanMode.SINGLE,
-        description=(
-            "扫描类型：`single` 按名单点名扫（默认，受 limit 限制）；"
-            "`full` 全量扫描——从列表第一名开始，点开一格后一路左滑把每屏所有人扫完，"
-            "直到翻不动（忽略 limit / char_ids / include_plan_targets，可能要跑几十分钟）"
-        ),
-    )
-    limit: int = Field(
-        default=SCAN_DEFAULT_LIMIT,
-        ge=1,
-        le=SCAN_MAX_LIMIT,
-        description=f"这一轮最多扫多少名干员（默认 {SCAN_DEFAULT_LIMIT}；`mode=full` 时不用）",
-    )
-    char_ids: list[str] | None = Field(
-        default=None, description="只扫这些干员 id（仍会补上计划目标）；省略表示按精二名单取"
-    )
-    include_plan_targets: bool = Field(
-        default=True, description="是否把进行中养成计划的目标也算进名单"
-    )
-
-
-@router.post(
-    "/training-scan",
-    summary="开始练度扫描",
-    description=(
-        "受理一轮干员详情练度扫描：逐格点开干员、读详情页、写库。\n\n"
-        "- 非阻塞：受理成功后立刻返回，扫描在流水线里跑，进度看 "
-        "`GET /api/account/training-scan`\n"
-        "- `mode=single`（默认）：名单两个来源——账号表里精二及以上的干员、进行中养成"
-        "计划的目标；合并去重后按 `char_id` 排序取前 `limit` 名，多出来的进 `deferred`\n"
-        "- `mode=full`：全量扫描，不组名单——从列表第一名开始，点开一格后不再回列表，"
-        "一路左滑把这一屏所有人的详情页扫完再翻页，直到翻不动。"
-        "忽略 `limit` / `char_ids` / `include_plan_targets`，`total` 恒为 `null`"
-        "（跑到哪算哪，可能要几十分钟）\n"
-        "- 名字解析不到 `char_id` 的计划目标进 `unresolved`\n"
-        "- 同一时刻只允许一轮，还在跑时返回 409 `PIPELINE_ALREADY_RUNNING`\n"
-        "- `mode=single` 下名单为空返回 422 `VALIDATION_ERROR`（先跑一次干员识别）\n"
-        "- 写库口径：读到什么写什么，没读到的不动（技能等级、专精、模组三列）"
-    ),
-    responses=error_responses(
-        "PIPELINE_ALREADY_RUNNING",
-        "VALIDATION_ERROR",
-        "CORE_COMMAND_FAILED",
-        "CORE_COMMAND_TIMEOUT",
-        "SERVICE_UNAVAILABLE",
-        "UNAUTHORIZED",
-    ),
-    dependencies=[Depends(require_auth)],
-)
-async def start_account_training_scan(
-    request: Request,
-    payload: TrainingScanRequest | None = None,
-) -> dict[str, Any]:
-    body = payload or TrainingScanRequest()
-    return await _scan_service(request).submit(
-        mode=body.mode,
-        limit=body.limit,
-        char_ids=body.char_ids,
-        include_plan_targets=body.include_plan_targets,
-    )
-
-
-@router.get(
-    "/training-scan",
-    summary="读取练度扫描状态",
-    description=(
-        "一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。\n\n"
-        "- `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled`\n"
-        "- `mode` 是这一轮的类型（`single` 点名扫 / `full` 全量扫描），"
-        "`screens` 是读了几屏卡名\n"
-        "- `scanned` 是已点开的格数，`updated` 是真正写了库的人数（卡名认不出、"
-        "库里没这行都不算）\n"
-        "- `skipped` / `unresolved` / `mismatched` 是**计数**：卡名对不上、目录里"
-        "查不到、以及读数与库里已填的值不同\n"
-        "- `realigned` / `unverified` 是 `full` 模式的两个**身份计数**（M40）：前者是"
-        "「详情页拉丁名跟这一格卡名对不上、回列表重新点开过」的张数，后者是「拉丁名"
-        "读不出结论、按卡名写库」的张数；`single` 模式恒为 0\n"
-        "- `total` 是这一轮的目标人数；`mode=full` 时恒为 `null`（跑到哪算哪）\n"
-        "- `pipeline_id` 是当前这一步的流水线，跑完停在最后一步的 id\n"
-        "- 没扫过时 `status` 是 `idle`，其余字段是 0 / `null`"
-    ),
-    responses=error_responses("SERVICE_UNAVAILABLE", "UNAUTHORIZED"),
-    dependencies=[Depends(require_auth)],
-)
-async def get_account_training_scan(request: Request) -> dict[str, Any]:
-    return _scan_service(request).snapshot()
-
-
-@router.delete(
-    "/training-scan",
-    summary="取消练度扫描",
-    description=(
-        "取消正在跑的扫描，返回取消后的状态。\n\n"
-        "- 已经读到的干员保留（读数早写库了），停止发生在**步与步之间**\n"
-        "- 当前这一步的收尾照跑：不会把设备丢在详情页\n"
-        "- 没有在跑时是空操作，原样返回当前状态（不报错）"
-    ),
-    responses=error_responses("SERVICE_UNAVAILABLE", "UNAUTHORIZED"),
-    dependencies=[Depends(require_auth)],
-)
-async def cancel_account_training_scan(request: Request) -> dict[str, Any]:
-    return await _scan_service(request).cancel()

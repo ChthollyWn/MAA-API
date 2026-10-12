@@ -1,6 +1,6 @@
 # Agent 与知识库
 
-共 1161 条。
+共 1159 条。
 
 ## knowledge（896）
 
@@ -599,12 +599,12 @@
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:12` [md-line] 精二的前置是精一满级；专精的前置是精英阶段 2。
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:13` [md-line] 用户说不清当前状态时，让他按 screen-operator 打开干员详情页，用 get_screenshot 读画面（干员详情页有等级、精英阶段、潜能、技能、天赋、信赖等信息），不要凭猜。
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:14` [md-line] 干员名先和用户对齐（俗称、别名多，模糊时追问）。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:15` [md-line] 账号数据里练度列可能是 `null`，那是**未识别**：内核的干员识别只认得是否拥有、精英化、等级与潜能，技能等级、专精、模组只有人（页面或 Agent）补录过才有值。看到 `null` 别说成「技能没升过」「没有专精」，按 `screen-operator` 读画面或让用户补录后再算。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:16` [md-line] 要一次补齐多个干员的技能等级、专精与模组，用 `scan_operator_training` 跑一轮练度扫描：它逐个点开详情页读数并写进账号表，账号里练度大面积未识别时先提议扫一遍。扫描占着设备一段时间（这期间不能做别的），提交前跟用户说清、等他确认；用户说停就 `cancel_training_scan`，已经读到…（共 167 字）
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:15` [md-line] 账号数据里练度列可能是 `null`，那是**未识别**：内核的干员识别只认得是否拥有、精英化、等级与潜能，技能等级、专精、模组要靠森空岛同步或人补录过才有值。看到 `null` 别说成「技能没升过」「没有专精」，按 `screen-operator` 读画面、跑一次森空岛同步、或让用户补录后再算。
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:16` [md-line] 要一次补齐多个干员的技能等级、专精与模组，用 `sync_skland_training` 从森空岛同步：它一次性拉回**全部**干员的六项练度与信赖并写进账号表，几秒跑完、不占设备，账号里练度大面积未识别时先提议同步一次。它会覆盖整表（含用户手改过的字段，差异会记在账号页），所以要用户确认；如果 `get_sklan…（共 232 字）
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:18` [md-line] 第 2 步：用工具算出所需材料
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:19` [md-line] **本服务有查干员升阶材料的工具，不要再说「没有这个工具」、也不要让用户自己报清单**：
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:20` [md-line] `get_operator("<干员名>", sections=["costs", "potentials"])`：`costs` 给出该干员精英化各阶段的材料与龙门币清单，`potentials` 给出潜能各等级效果（潜能不涉及材料，但用户常一起问）。
-- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:21` [md-line] `plan_upgrade`：把「目标干员 + 目标阶段 + 当前练度」交给它，返回一份养成规划建议（只计算、不提交任务），包含要准备哪些材料与目标关卡。返回里的 `unknowns` 列出「哪个干员的哪个练度维度未识别」，这些维度**不会**被算成增量（也不会按默认值兜底）——先按第 1 步补齐，或把缺口原样告诉用户…（共 204 字）
+- `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:21` [md-line] `plan_upgrade`：把「目标干员 + 目标阶段 + 当前练度」交给它，返回一份养成规划建议（只计算、不提交任务），包含要准备哪些材料与目标关卡。返回里的 `unknowns` 列出「哪个干员的哪个练度维度未识别」，这些维度**不会**被算成增量（也不会按默认值兜底）——先按第 1 步补齐，或把缺口原样告诉用户…（共 229 字）
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:22` [md-line] `get_depot`：核对仓库现有材料，算出「还缺多少」，别把已经够的材料算进刷图计划。
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:25` [md-line] 第 3 步：说清去哪刷，优先用真实数据
 - `maa_api/agent/knowledge/builtin/playbook-promotion-planning.md:26` [md-line] 先 `get_operator(..., sections=["costs"])` + `plan_upgrade` 拿到材料清单与目标关卡，再逐项定图，不要凭记忆报「某材料最优图」。
@@ -1000,7 +1000,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:21` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:22` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（265）
+## agent（263）
 
 
 **maa_api/agent/confirmation.py**
@@ -1110,27 +1110,25 @@
 **maa_api/agent/policy.py**
 
 - `maa_api/agent/policy.py:32` [const] set_task_params 无法确定运行中任务的类型与现有参数，按保守策略要求确认
-- `maa_api/agent/policy.py:73` [const] 与现有定时任务争抢理智：
-- `maa_api/agent/policy.py:98` [literal] {CONFLICT_REASON_PREFIX}{'、'.join(labels)}
-- `maa_api/agent/policy.py:199` [literal] {name} 属于需确认的高风险操作
-- `maa_api/agent/policy.py:207` [literal] {name} 尚未配置参数风险规则
-- `maa_api/agent/policy.py:247` [literal] 执行作业尝试需要授权：{payload['attempts']} 次以内
-- `maa_api/agent/policy.py:288` [literal] 修改账号干员数据：{count} 项改动
-- `maa_api/agent/policy.py:293` [literal] 修改账号干员数据：{count} 项改动
-- `maa_api/agent/policy.py:300` [literal] 追加
-- `maa_api/agent/policy.py:300` [literal] 替换
-- `maa_api/agent/policy.py:301` [const] 更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字
-- `maa_api/agent/policy.py:318` [literal] 、
-- `maa_api/agent/policy.py:319` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
-- `maa_api/agent/policy.py:321` [literal] ，每日 {schedule}
-- `maa_api/agent/policy.py:349` [const] 扫描干员练度：最多 {limit} 位
-- `maa_api/agent/policy.py:351` [literal] ，名单已指定 {named} 位
-- `maa_api/agent/policy.py:353` [literal] ，含养成计划里的目标
-- `maa_api/agent/policy.py:359` [literal] 扫描期间设备被占用，读到的技能等级、专精与模组会写进账号表
-- `maa_api/agent/policy.py:372` [literal] {name} 需要人工确认
-- `maa_api/agent/policy.py:405` [literal] 计划预演返回的不是映射：{type(preview).__name__}
-- `maa_api/agent/policy.py:449` [literal] 当前会话尚未获得有效的原子操作授权
-- `maa_api/agent/policy.py:584` [literal] {name} 是绕过内核识别与容错的原子操作
+- `maa_api/agent/policy.py:74` [const] 与现有定时任务争抢理智：
+- `maa_api/agent/policy.py:99` [literal] {CONFLICT_REASON_PREFIX}{'、'.join(labels)}
+- `maa_api/agent/policy.py:200` [literal] {name} 属于需确认的高风险操作
+- `maa_api/agent/policy.py:208` [literal] {name} 尚未配置参数风险规则
+- `maa_api/agent/policy.py:248` [literal] 执行作业尝试需要授权：{payload['attempts']} 次以内
+- `maa_api/agent/policy.py:289` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:294` [literal] 修改账号干员数据：{count} 项改动
+- `maa_api/agent/policy.py:301` [literal] 追加
+- `maa_api/agent/policy.py:301` [literal] 替换
+- `maa_api/agent/policy.py:302` [const] 更新用户档案「{section}」：{action} {len(str(value.get('content') or ''))} 字
+- `maa_api/agent/policy.py:319` [literal] 、
+- `maa_api/agent/policy.py:320` [const] 启动养成计划「{value.get('name')}」：{count} 个目标
+- `maa_api/agent/policy.py:322` [literal] ，每日 {schedule}
+- `maa_api/agent/policy.py:345` [const] 从森空岛同步全部干员练度
+- `maa_api/agent/policy.py:351` [literal] 会用森空岛账号数据覆盖练度六列与信赖；被你手动改过、且与这次读数不同的字段会记一条差异，可以在账号页确认
+- `maa_api/agent/policy.py:360` [literal] {name} 需要人工确认
+- `maa_api/agent/policy.py:393` [literal] 计划预演返回的不是映射：{type(preview).__name__}
+- `maa_api/agent/policy.py:437` [literal] 当前会话尚未获得有效的原子操作授权
+- `maa_api/agent/policy.py:572` [literal] {name} 是绕过内核识别与容错的原子操作
 
 **maa_api/agent/preconditions.py**
 
@@ -1204,15 +1202,15 @@
 
 **maa_api/agent/tools/account.py**
 
-- `maa_api/agent/tools/account.py:177` [literal] 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、精英化、等级、潜能），别说成没升过技能或没有专精，用 update_operator_bo…（共 274 字）
-- `maa_api/agent/tools/account.py:196` [literal] 查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；仓库数据缺失或过期时返回 suggest_recognition；识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。
-- `maa_api/agent/tools/account.py:211` [literal] 修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。技能等级、专精、模组识别不出来，只能靠它补录；用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。
-- `maa_api/agent/tools/account.py:226` [literal] 算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。当前练度里未识别的维度不会被算成增量（也不按默认值兜底）：返回的 unknowns 列出这些缺口，先补录或如实告诉用户，不要替用户假定。
-- `maa_api/agent/tools/account.py:242` [literal] 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。练度里未识别的维度不会算成增量，返回的 unknowns 列着这些缺口，要如实告诉用户而不是替他假定。
-- `maa_api/agent/tools/account.py:257` [literal] 查养成计划的进度：目标、还缺什么、定时任务 id 与状态。
-- `maa_api/agent/tools/account.py:268` [literal] 停止一个养成计划，并删除它对应的每日定时任务。
-- `maa_api/agent/tools/account.py:280` [literal] 跑一轮练度扫描：逐个点开干员详情页，读出技能等级、专精、精英化与模组等级并写进账号表。干员识别只给是否拥有、精英化、等级、潜能，这几项只能靠它补；用户在问养成规划却发现这些字段未识别时，用它把未知补上。`mode=full` 是全量扫描：从列表第一名开始把账号里每个人的详情页都扫一遍，用户说「全量扫描」「把所有人的练度…（共 327 字）
-- `maa_api/agent/tools/account.py:301` [literal] 停掉正在跑的练度扫描。已经读到的练度会保留；用户说「别扫了」「停下」时用它。
+- `maa_api/agent/tools/account.py:155` [literal] 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、精英化、等级、潜能），别说成没升过技能或没有专精，用 update_operator_bo…（共 274 字）
+- `maa_api/agent/tools/account.py:174` [literal] 查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；仓库数据缺失或过期时返回 suggest_recognition；识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。
+- `maa_api/agent/tools/account.py:189` [literal] 修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。技能等级、专精、模组识别不出来，只能靠它补录；用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。
+- `maa_api/agent/tools/account.py:204` [literal] 算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。当前练度里未识别的维度不会被算成增量（也不按默认值兜底）：返回的 unknowns 列出这些缺口，先补录或如实告诉用户，不要替用户假定。
+- `maa_api/agent/tools/account.py:220` [literal] 启动养成计划：先提交今天能打的部分，再创建一个每日定时任务按计划刷，材料齐了自动停。需要用户确认一次（确认卡片会列出今天的刷关清单、每日时刻、用药口径与预计天数）。练度里未识别的维度不会算成增量，返回的 unknowns 列着这些缺口，要如实告诉用户而不是替他假定。
+- `maa_api/agent/tools/account.py:235` [literal] 查养成计划的进度：目标、还缺什么、定时任务 id 与状态。
+- `maa_api/agent/tools/account.py:246` [literal] 停止一个养成计划，并删除它对应的每日定时任务。
+- `maa_api/agent/tools/account.py:258` [literal] 查森空岛账号绑定与练度同步的状态：有没有绑定、绑的是哪个角色、上次同步是什么时候、上次失败原因。用户问「练度是不是最新的」「同步成功了吗」「森空岛绑了吗」时用它；没绑定时返回 bound=false，用 ask_user 引导用户到账号页扫码绑定，不要自己编造练度。
+- `maa_api/agent/tools/account.py:274` [literal] 从森空岛同步账号里**全部**干员的练度（精英化、等级、潜能、技能等级、专精、模组、信赖）并写进账号表。干员识别（OperBox）只能给是否拥有、精英化、等级、潜能，其余几项只能靠它补；用户在问养成规划却发现这些字段未识别、或说「同步一下练度」「更新练度」时用它。它不占设备、几秒内跑完，但会用官方账号数据覆盖整表练度（…（共 232 字）
 
 **maa_api/agent/tools/activity.py**
 

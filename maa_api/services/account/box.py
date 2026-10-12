@@ -23,7 +23,6 @@ from typing import Any
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.account.rules import (
     BOX_FIELDS,
-    DETAIL_SCAN_FIELDS,
     EDITABLE_FIELDS,
     MASTERY_ELITE_REQUIRED,
     MAX_LEVEL,
@@ -34,6 +33,8 @@ from maa_api.services.account.rules import (
     MODULE_TYPES,
     RECOGNITION_SOURCE,
     RECOGNIZED_FIELDS,
+    SKLAND_FIELDS,
+    SKLAND_SOURCE,
     WRITE_SOURCES,
     box_row_wire,
     diff_wire,
@@ -55,7 +56,6 @@ from maa_api.settings import Settings, get_settings
 
 __all__ = [
     "BOX_FIELDS",
-    "DETAIL_SCAN_FIELDS",
     "EDITABLE_FIELDS",
     "RECOGNIZED_FIELDS",
     "RECOGNITION_SOURCE",
@@ -540,160 +540,169 @@ class OperatorBoxService:
             "kept_owned": kept_owned,
         }
 
-    # -- 详情扫描（M36，scan.py 调用）-------------------------------------
-    async def apply_detail_scan(
+    # -- 森空岛账号数据（M42，sync.py 调用）--------------------------------
+    async def apply_skland_sync(
         self,
-        char_id: str,
+        updates: Sequence[Any],
         *,
-        skill_level: int | None = None,
-        masteries: Mapping[Any, Any] | None = None,
-        modules: Mapping[Any, Any] | None = None,
-        recognized_at: datetime | None = None,
-        source: str = RECOGNITION_SOURCE,
-    ) -> dict[str, Any] | None:
-        """把一次干员详情页的读数写进表（M36 规格 §4.4）。
+        clear_missing: bool = False,
+        synced_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """把一轮森空岛同步写进表（M42 规格 §4.5）。
 
-        与 :meth:`apply_recognition` 的分工：``OperBox`` 回调给「是否拥有 / 精英化 /
-        等级 / 潜能」，详情页给技能等级、专精、模组。这里只动
-        :data:`DETAIL_SCAN_FIELDS` 三列，不碰另外四列——扫描不重读它们，也不该凭详情
-        页的样子去改 ``OperBox`` 的结论。
+        与 :meth:`apply_recognition` 的分工：``OperBox`` 回调给「拥有 / 精英化 / 等级 /
+        潜能」，森空岛给同一批字段**加上**技能等级、专精、模组与信赖，而且它是账号级
+        权威数据——所以一次同步写 :data:`SKLAND_FIELDS` 里的全部字段，不做字段级拆分。
 
-        ``None`` 一律解释成「这次没读到」：不写，也不把既有值清成未识别。读到的
-        **空映射**是另一回事：``modules={}`` 表示「看过了，没装模组」，要把 ``NULL``
-        落成 ``{}``（M35 规格 §4.5 的「确认没有」与「不知道」是两回事）。
+        ``None`` 一律解释成「这一项上游没给或给了越界值」：不写该列，也不把它标成
+        ``skland`` 来源（来源台账与值必须一致，M35 的口径）。**空映射是正面读数**：
+        ``modules={}`` 表示「确认没装模组」，要把 ``NULL`` 落成 ``{}``；
+        ``masteries`` 的三槽全 0 同理。
 
-        ``masteries`` / ``modules`` 逐键合并，只动给出来的键。键或值越界（技能序号
-        不在 1–3、专精不在 0–3、模组类型不在 X/Y/D/A、模组等级不在 1–3、技能等级不在
-        1–7）时**不写也不抛**，字段名进 ``skipped``：详情页是游戏的事实，越界只可能是
-        识别读花了，不该拿脏值覆盖库里的值。专精还要至少有一个合法槽位才算「读到了」
-        ——详情页每次都给三个槽位，全是脏键或空映射只能说明这次读花了；模组的空映射
-        例外，那是「看过了，没有模组」的正面读数。
+        ``clear_missing`` 决定要不要把「库里已拥有、这一轮 ``chars`` 里没有」的干员置
+        ``own=False``。**默认不动**：只有调用方（
+        :class:`~maa_api.services.skland.sync.SklandSyncService`）确认过这一轮
+        ``len(chars)`` 数量级正常（``SKLAND_MIN_CHARS``）才会传 ``True``——把「什么时候
+        可以清 ``own``」与「怎么清」分开，免得半截响应在这里被当成事实。
 
-        专精不按稀有度的技能数裁剪（``normalize_masteries`` 在手动编辑时会把多出来的
-        槽位归零）：``rarity`` 可能是 ``NULL``，那时按默认技能数会把真读到的第 2、3
-        技能专精一起丢掉，而详情页只显示这名干员真的有的技能。
-
-        :param char_id: 干员 id。
-        :param skill_level: 「RANK n」读到的技能等级（1–7）。
-        :param masteries: ``{技能序号: 0–3}``。
-        :param modules: ``{模组类型: 1–3}``；``{}`` 表示确认没装。
-        :param recognized_at: 识别时间（默认当前 UTC 时间）。
-        :param source: 写进 ``field_sources`` 的来源，默认 ``recognition``。
-        :returns: ``{"char_id", "updated", "skipped"}``（两个列表都是 ``DETAIL_SCAN_FIELDS``
-            里的字段名，已排序）；表里没有这名干员时回 ``None``——调用方计入
-            ``mismatched``，这里不凭空建行。
+        :param updates: :class:`~maa_api.services.skland.mapping.OperatorTrainingUpdate` 列表。
+        :param clear_missing: 是否按这一轮结果收缩所有权。
+        :param synced_at: 同步时间（默认当前 UTC 时间），写进 ``recognized_at``。
+        :returns: ``{"total", "created", "updated", "unchanged", "diffs",
+            "ownership_cleared"}`` 六个计数，供同步摘要与测试断言。
         """
-        moment = recognized_at or _utcnow()
-        operator_repo, _diff_repo, _recognition_repo = _repositories()
+        moment = synced_at or _utcnow()
+        operator_repo, diff_repo_class, _recognition_repo = _repositories()
+        created = updated = unchanged = diffs = cleared = 0
+        seen: set[str] = set()
+
         async with self._session_factory() as session:
             repo = operator_repo(session)
-            row = await repo.get(char_id)
-            if row is None:
-                return None
-
-            updated: set[str] = set()
-            skipped: set[str] = set()
-
-            if skill_level is not None:
-                level = optional_int(skill_level)
-                if level is None or not 1 <= level <= MAX_SKILL_LEVEL:
-                    skipped.add("skill_level")
-                elif optional_int(getattr(row, "skill_level", None)) != level:
-                    row.skill_level = level
-                    updated.add("skill_level")
-
-            if masteries is not None:
-                if not isinstance(masteries, Mapping):
-                    skipped.add("masteries")
+            diff_repo = diff_repo_class(session)
+            for update in updates:
+                char_id = str(getattr(update, "char_id", "") or "")
+                if not char_id:
+                    continue
+                seen.add(char_id)
+                row = await repo.get(char_id)
+                if row is None:
+                    row = repo.new_row(
+                        char_id,
+                        name=getattr(update, "name", None),
+                        rarity=getattr(update, "rarity", None),
+                        profession=getattr(update, "profession", None),
+                        own=True,
+                    )
+                    created += 1
                 else:
-                    before = mastery_wire(getattr(row, "masteries", None))
-                    merged = dict(before or {"1": 0, "2": 0, "3": 0})
-                    read = 0
-                    for key, raw in masteries.items():
-                        slot = optional_int(key)
-                        level = optional_int(raw)
-                        if (
-                            slot not in (1, 2, 3)
-                            or level is None
-                            or not 0 <= level <= MAX_MASTERY_LEVEL
-                        ):
-                            skipped.add("masteries")
-                            continue
-                        read += 1
-                        merged[str(slot)] = level
-                    # 一个合法槽位都没读到就不写：详情页每次都给出三个槽位，空映射或全
-                    # 是脏键只说明这次读花了，不能顺手把三槽写成「无专精」。
-                    if read and merged != before:
-                        row.masteries = merged
-                        updated.add("masteries")
+                    # 目录里有名字/星级/职业就补上（新库或早期识别没认出来的行）。
+                    if getattr(row, "name", None) is None and getattr(update, "name", None):
+                        row.name = update.name
+                    if getattr(row, "rarity", None) is None and getattr(update, "rarity", None):
+                        row.rarity = update.rarity
+                    if (
+                        getattr(row, "profession", None) is None
+                        and getattr(update, "profession", None)
+                    ):
+                        row.profession = update.profession
 
-            if modules is not None:
-                if not isinstance(modules, Mapping):
-                    skipped.add("modules")
-                else:
-                    before_modules = module_wire(getattr(row, "modules", None))
-                    merged_modules = dict(before_modules or {})
-                    read = 0
-                    for key, raw in modules.items():
-                        module_type = str(key)
-                        level = optional_int(raw)
-                        if (
-                            module_type not in MODULE_TYPES
-                            or level is None
-                            or not 1 <= level <= MAX_MODULE_LEVEL
-                        ):
-                            skipped.add("modules")
-                            continue
-                        read += 1
-                        merged_modules[module_type] = level
-                    # 空映射是一次正面读数（面板上确实没有模组）；全是脏键则同专精：
-                    # 读花了就只记 ``skipped``，不把 ``NULL`` 说成「确认没装」。
-                    if read or not modules:
-                        if merged_modules != before_modules:
-                            row.modules = merged_modules
-                            updated.add("modules")
-
-            if updated:
-                values = dict(json_mapping(getattr(row, "recognized_values", None)))
+                previous = json_mapping(getattr(row, "recognized_values", None))
                 sources = field_sources_wire(getattr(row, "field_sources", None))
-                for field in updated:
-                    values[field] = getattr(row, field, None)
-                    sources[field] = source
-                row.recognized_values = values
-                row.field_sources = sources
-                row.updated_at = moment
-                await repo.upsert(row)
-                await session.commit()
+                changed: set[str] = set()
+                for field in SKLAND_FIELDS:
+                    value = getattr(update, field, None)
+                    if value is None:
+                        continue
+                    before = getattr(row, field, None)
+                    if _skland_value_changed(field, before, value):
+                        manual_value = before
+                        # 差异只记「上一次机器读数之后被人改过、且这次与手改值不同」的
+                        # 字段——与 apply_recognition 的四条件同款（规格 §7.3）。
+                        if (
+                            field in previous
+                            and sources.get(field) in WRITE_SOURCES
+                            and manual_value != previous[field]
+                        ):
+                            await diff_repo.create(
+                                char_id=char_id,
+                                field=field,
+                                manual_value=manual_value,
+                                recognized_value=value,
+                                created_at=moment,
+                            )
+                            diffs += 1
+                        setattr(row, field, value)
+                        changed.add(field)
+                    previous[field] = value
+                    sources[field] = SKLAND_SOURCE
 
-        return {"char_id": char_id, "updated": sorted(updated), "skipped": sorted(skipped)}
+                if changed:
+                    row.recognized_values = previous
+                    row.field_sources = sources
+                    row.recognized_at = moment
+                    row.updated_at = moment
+                    await repo.upsert(row)
+                    updated += 1
+                else:
+                    # 值没变也要把「这一轮同步过、来源是森空岛」记下来：字段来源与
+                    # recognized_at 是页面判断「数据有多新」的依据。
+                    row.recognized_values = previous
+                    row.field_sources = sources
+                    row.recognized_at = moment
+                    await repo.upsert(row)
+                    unchanged += 1
 
-    async def record_training_scan(
+            if clear_missing:
+                # 一次取回全部已拥有的行（``limit=None`` ＝ 不限制），只对不在这一轮
+                # ``chars`` 里的那些收缩；未拥有的行本来就该保持未拥有，跳过。
+                for row in await repo.list(owned_only=True):
+                    if row.char_id in seen or not bool(getattr(row, "own", False)):
+                        continue
+                    row.own = False
+                    sources = field_sources_wire(getattr(row, "field_sources", None))
+                    sources["own"] = SKLAND_SOURCE
+                    previous = json_mapping(getattr(row, "recognized_values", None))
+                    previous["own"] = False
+                    row.recognized_values = previous
+                    row.field_sources = sources
+                    row.recognized_at = moment
+                    row.updated_at = moment
+                    await repo.upsert(row)
+                    cleared += 1
+
+            await session.commit()
+
+        return {
+            "total": len(updates),
+            "created": created,
+            "updated": updated,
+            "unchanged": unchanged,
+            "diffs": diffs,
+            "ownership_cleared": cleared,
+        }
+
+    async def record_skland_sync(
         self,
         *,
-        updated: int,
-        recognized_at: datetime | None = None,
-        pipeline_id: str | None = None,
-        task_id: str | None = None,
+        item_count: int,
+        synced_at: datetime | None = None,
     ) -> None:
-        """写一条 ``training`` 识别记录（M36 规格 §4.5）。
+        """写一条 ``skland`` 识别记录（M42 规格 §4.5）。
 
-        ``item_count`` 用**真的写进库的干员数**，不是名单长度：``account_recognition``
-        记的是识别成果，扫到却没读到的干员不算。一次扫描只写一条——``apply_detail_scan``
-        是逐人调用的，不能一人一条。
+        ``item_count`` 是这一轮真的写进库的干员数与清理掉的所有权数之和——与
+        ``training`` 记录同口径：记的是成果，不是名单长度。
         """
-        # 常量在仓储层（与 operbox / depot 并列）；本模块刻意不在模块级 import
-        # ``db.repositories``（见 :func:`_repositories` 的说明）。
-        from maa_api.db.repositories.account import RECOGNITION_KIND_TRAINING
+        from maa_api.db.repositories.account import RECOGNITION_KIND_SKLAND
 
-        moment = recognized_at or _utcnow()
+        moment = synced_at or _utcnow()
         _operator_repo, _diff_repo, recognition_repo = _repositories()
         async with self._session_factory() as session:
             await recognition_repo(session).record(
-                kind=RECOGNITION_KIND_TRAINING,
-                pipeline_id=pipeline_id,
-                task_id=task_id,
+                kind=RECOGNITION_KIND_SKLAND,
+                pipeline_id=None,
+                task_id=None,
                 client_type=None,
-                item_count=int(updated),
+                item_count=int(item_count),
                 recognized_at=moment,
             )
             await session.commit()
@@ -753,3 +762,19 @@ def _coerce_recognized(field: str, value: Any) -> Any:
             return value.strip().lower() in {"1", "true", "yes"}
         return bool(value)
     return _optional_int(value)
+
+
+def _skland_value_changed(field: str, before: Any, value: Any) -> bool:
+    """森空岛同步里「这一列要不要写」的判定（M42 规格 §4.5）。
+
+    JSON 两列先过一遍 wire 归一：库里可能躺着历史形状（``{"1": 3}`` 缺槽位、未知模组
+    类型），直接比字典会把「等价但形状不同」判成变化，白白多记一次 ``updated``。
+    整数与布尔列按原值比；``None``（＝未识别）与任何具体值都算变化。
+    """
+    if field == "masteries":
+        return mastery_wire(before) != value
+    if field == "modules":
+        return module_wire(before) != value
+    if field == "own":
+        return bool(before) is not bool(value)
+    return optional_int(before) != optional_int(value)

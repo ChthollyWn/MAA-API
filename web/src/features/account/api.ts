@@ -1,5 +1,5 @@
 import { api } from '@/api/client'
-import { toApiError } from '@/api/errors'
+import { ApiError, toApiError } from '@/api/errors'
 import type { components } from '@/types/api'
 
 /**
@@ -10,10 +10,13 @@ import type { components } from '@/types/api'
  * `AccountEndpoints` 覆盖层里。其余端点（概要、单条与编辑、差异、养成计划）还没接响应
  * 模型，OpenAPI 里是自由对象，形状按规格在本地声明——往覆盖层里加回上面那两个端点，
  * 等于把这道护栏撤掉。请求仍走 `api` 客户端，鉴权（`X-Token`）与请求号由它的中间件照旧加。
+ *
+ * `/api/skland/*` 六个端点（M42）同理，另起一份 `SklandEndpoints` 覆盖层：它们当时还
+ * 没进 `web/openapi.json`，形状按 M42 规格 §4.6 在本地声明。
  */
 
-/** 字段来源：识别 / 手动 / Agent（§7.3、§7.4）。 */
-export type FieldSource = 'recognition' | 'manual' | 'agent'
+/** 字段来源：识别 / 手动 / Agent / 森空岛（§7.3、§7.4、M42 §4.5）。 */
+export type FieldSource = 'recognition' | 'manual' | 'agent' | 'skland'
 
 /** `GET /api/account/summary` 里干员与仓库各占一份。 */
 export interface AccountSummaryEntry {
@@ -175,68 +178,87 @@ export interface UpgradePlanListQuery {
 }
 
 /**
- * 练度扫描的状态（M36 规格 §4.6）：`POST`/`GET`/`DELETE /api/account/training-scan` 三处同形状。
+ * 森空岛（Skland）绑定与同步（M42 规格 §4.6）。
  *
- * 这与「干员识别」是**两种数据**：识别由任务触发、按 `OperBox` 写精英化/等级/潜能；
- * 练度扫描读干员详情页，补技能等级、专精与模组三列。状态也是分开的（§4.5：不复用
- * `box.recognized_at`），所以这一页可以给自己一个「开始扫描」按钮。
+ * 六个端点当时还没进生成类型（`web/openapi.json` 要等下一次 `dump_openapi.py` +
+ * `pnpm gen:api` 才有），所以路径与响应形状都在下面的 `SklandEndpoints` 覆盖层里声明，
+ * 响应再过一层 `normalizeSkland*` 兜底：形状读不出来时页面按「未绑定 / 没有摘要」渲染，
+ * 既不炸，也不编造数字。
  */
-export type TrainingScanStatus = 'idle' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
-/**
- * 扫描类型（M39 §3）：`single` 按名单点名扫（受 `limit` 限制），`full` 全量扫描
- * （从列表第一名开始一路扫到底，忽略 `limit` / `char_ids`，`total` 恒为 `null`）。
- */
-export type TrainingScanMode = 'single' | 'full'
-
-export interface TrainingScanTarget {
-  char_id: string
-  name: string
+/** 森空岛角色（一个账号下的一个游戏角色）。 */
+export interface SklandRole {
+  uid: string
+  app_code: string
+  channel_master_id: string | null
+  nickname: string | null
+  level: number | null
+  is_default: boolean
+  synced_at: string | null
 }
 
-/** `POST` 的 200 响应：受理后立刻返回，扫描在流水线里跑。 */
-export interface TrainingScanSubmit {
-  pipeline_id: string
-  /** 这一轮的类型（M39 §3）。 */
-  mode: TrainingScanMode
+/** 一轮同步的摘要：`POST /api/skland/sync` 的响应，也是 `status.last_sync` 的形状。 */
+export interface SklandSyncSummary {
+  status: string
+  role: SklandRole
+  synced_at: string
   total: number
-  targets: TrainingScanTarget[]
-  /** 超出 `limit` 没收进本轮名单的干员（不是失败）。 */
-  deferred: string[]
-  /** 名字解析不到 `char_id` 的养成计划目标。 */
-  unresolved: string[]
-}
-
-/** `GET`/`DELETE` 的响应：`total` 后端给就带上，只用来算进度，缺了不炸。 */
-export interface TrainingScanState {
-  status: TrainingScanStatus
-  /** 这一轮的类型；老后端不给时按 `single` 认。 */
-  mode: TrainingScanMode
-  pipeline_id: string | null
-  started_at: string | null
-  finished_at: string | null
-  scanned: number
+  created: number
   updated: number
-  /** 读了几屏卡名（全量扫描的进度；单人模式也有，只是它一屏一屏地翻）。 */
-  screens: number
-  skipped: number
-  unresolved: number
-  mismatched: number
-  /** 全量扫描里「详情页拉丁名跟这一格卡名对不上、回列表重锚」的张数（M40 §3）。 */
-  realigned: number
-  /** 全量扫描里拉丁名读不出结论、只能按卡名写库的张数（M40 §3）。 */
-  unverified: number
-  message: string | null
-  /** 全量扫描恒为 `null`（跑到哪算哪）。 */
-  total?: number | null
+  unchanged: number
+  /** 整轮完整成功时被置成「未拥有」的干员数（§4.5 护栏 ③）。 */
+  ownership_cleared: number
+  /** 与既有 manual / agent 值不同、记进 `AccountOperatorDiff` 的处数。 */
+  diffs: number
+  /** 越界被丢弃的专精 / 模组值处数（§4.5 护栏 ②）。 */
+  dropped_invalid: number
+  duration_ms: number
 }
 
-/** `POST` 的请求体：都可省，默认按精二名单扫前 40 名（§4.3）；`mode=full` 时只认 `mode`。 */
-export interface TrainingScanRequest {
-  mode?: TrainingScanMode
-  limit?: number
-  char_ids?: string[]
-  include_plan_targets?: boolean
+/** `GET /api/skland/status` 与 `POST /api/skland/login/manual` 的响应。 */
+export interface SklandStatus {
+  bound: boolean
+  /** `false` ＝ `config.yaml` 里没配 `skland.credential_key`；这时连二维码都不该显示。 */
+  key_configured: boolean
+  account: SklandRole | null
+  roles: SklandRole[]
+  last_sync_at: string | null
+  last_sync: SklandSyncSummary | null
+  /** 上一轮同步 / 定时任务的失败原因（成功或没跑过时为 `null`）。 */
+  last_error: string | null
+  /** 两次同步之间的最短间隔（秒）；冷却内 `POST /api/skland/sync` 回 429。 */
+  min_sync_interval_seconds: number
+  /** 上游干员数低于这个值时整轮不写（后端护栏，页面只做说明）。 */
+  min_chars: number
+  auto_sync_enabled: boolean
+  auto_sync_interval_minutes: number
+}
+
+/** `POST /api/skland/login/qrcode` 的响应：`qr_svg` 是完整的 SVG 字符串。 */
+export interface SklandQrSession {
+  session_id: string
+  qr_svg: string
+  payload: string
+  expires_at: string
+  /** 轮询周期（毫秒），由后端定；页面照它轮询（§4.8）。 */
+  poll_interval_ms: number
+}
+
+/** 扫码状态四态（§4.6）：只有 `waiting` 需要继续轮询。 */
+export type SklandQrState = 'waiting' | 'succeeded' | 'expired' | 'failed'
+
+/** `GET /api/skland/login/qrcode/{session_id}` 的响应。 */
+export interface SklandQrPoll {
+  state: SklandQrState
+  message: string | null
+  account: SklandRole | null
+  roles: SklandRole[]
+}
+
+/** `POST /api/skland/login/manual` 的请求体：两项都必填，绑前后端会验一次。 */
+export interface SklandManualCredentials {
+  cred: string
+  token: string
 }
 
 interface Result<T> {
@@ -259,12 +281,6 @@ interface AccountEndpoints {
     (path: '/api/account/operator-diffs', init?: { signal?: AbortSignal }): Promise<Result<{ items: OperatorDiff[]; total?: number }>>
     (path: '/api/account/upgrade-plans', init?: { params?: { query?: UpgradePlanListQuery }; signal?: AbortSignal }): Promise<Result<UpgradePlanListPayload>>
     (path: '/api/account/upgrade-plans/{plan_id}', init: { params: { path: { plan_id: string } }; signal?: AbortSignal }): Promise<Result<UpgradePlan>>
-    /** 练度扫描的当前状态；三个方法同形状（规格 §4.6）。 */
-    (path: '/api/account/training-scan', init?: { signal?: AbortSignal }): Promise<Result<TrainingScanState>>
-  }
-  POST: {
-    /** 提交一轮练度扫描：非阻塞，立刻返回受理结果；已有扫描在跑时后端回 409。 */
-    (path: '/api/account/training-scan', init?: { body?: TrainingScanRequest }): Promise<Result<TrainingScanSubmit>>
   }
   PATCH: (
     path: '/api/account/operators/{char_id}',
@@ -274,13 +290,38 @@ interface AccountEndpoints {
     (path: '/api/account/operator-diffs', init?: { body?: { ids?: number[] } }): Promise<Result<{ dismissed: number }>>
     /** 取消计划：后端删掉定时任务并把状态置成 `cancelled`，返回取消后的 wire。 */
     (path: '/api/account/upgrade-plans/{plan_id}', init: { params: { path: { plan_id: string } } }): Promise<Result<UpgradePlan>>
-    /** 取消练度扫描：转 `PipelineRunner.request_cancel`，返回最新状态。 */
-    (path: '/api/account/training-scan'): Promise<Result<TrainingScanState>>
+  }
+}
+
+/**
+ * `/api/skland/*` 的覆盖层（M42 §4.6）：六个端点都按规格在本地声明路径与响应形状。
+ * 键名与后端契约逐字对齐（`qr_svg`、`poll_interval_ms`、`ownership_cleared`…）。
+ */
+interface SklandEndpoints {
+  GET: {
+    (path: '/api/skland/status', init?: { signal?: AbortSignal }): Promise<Result<SklandStatus>>
+    /** 轮询扫码状态；会话不存在时后端回 404（`SKLAND_QR_SESSION_NOT_FOUND`）。 */
+    (path: '/api/skland/login/qrcode/{session_id}', init: { params: { path: { session_id: string } }; signal?: AbortSignal }): Promise<Result<SklandQrPoll>>
+  }
+  POST: {
+    /** 生成扫码会话；没配 `skland.credential_key` 时后端回 409。 */
+    (path: '/api/skland/login/qrcode', init?: { signal?: AbortSignal }): Promise<Result<SklandQrSession>>
+    /** 手动兜底绑定：body 两项必填，凭据不对回 401 `SKLAND_LOGIN_FAILED`。 */
+    (path: '/api/skland/login/manual', init: { body: SklandManualCredentials }): Promise<Result<SklandStatus>>
+    /** 同步练度（**同步执行**，秒级）：忙 409、冷却 429、上游失败 502。 */
+    (path: '/api/skland/sync'): Promise<Result<SklandSyncSummary>>
+  }
+  DELETE: {
+    /** 解绑：删凭据与角色，**不动**已同步的练度。 */
+    (path: '/api/skland/binding'): Promise<Result<{ bound: boolean }>>
   }
 }
 
 /** 覆盖层在前、生成类型在后：没覆盖的路径走 `typeof api` 的签名（`/operators`、`/depot`）。 */
 const accountApi = api as unknown as AccountEndpoints & typeof api
+
+/** skland 六个端点的覆盖层；`/api/skland` 不进 `AccountEndpoints`，另起一份更好读。 */
+const sklandApi = api as unknown as SklandEndpoints & typeof api
 
 /** 与 `keys.all`（`['api']`）同根，方便整片失效；`web/src/api/keys.ts` 由主 agent 统一维护。 */
 const accountRoot = ['api', 'account'] as const
@@ -297,8 +338,16 @@ export const accountKeys = {
   /** 养成计划列表的整片前缀；`invalidateQueries` 会连带命中将来带筛选参数的键。 */
   upgradePlansAll: () => [...accountRoot, 'upgrade-plans'] as const,
   upgradePlans: (filters?: Readonly<Record<string, unknown>>) => [...accountRoot, 'upgrade-plans', filters ?? {}] as const,
-  /** 练度扫描状态（M36 §4.6）：整份状态就一个键，没有筛选参数。 */
-  trainingScan: () => [...accountRoot, 'training-scan'] as const,
+  /**
+   * 森空岛绑定与同步状态（M42 §4.6）：整份状态一个键，扫码成功 / 同步 / 解绑后失效重取。
+   * 端点根是 `/api/skland`，但缓存键挂在账号页这一片下面（`keys.all` 是 `['api']`，
+   * 这一页只有这一处在用，方便整片失效）。
+   */
+  sklandStatus: () => [...accountRoot, 'skland', 'status'] as const,
+  /** 当前这张二维码：一次只有一个会话，重新生成走 `refetch`。 */
+  sklandQr: () => [...accountRoot, 'skland', 'qrcode'] as const,
+  /** 某个扫码会话的轮询结果；`session_id` 进键，换一张二维码自然换缓存。 */
+  sklandQrPoll: (sessionId: string) => [...accountRoot, 'skland', 'qrcode', sessionId, 'poll'] as const,
 }
 
 const EMPTY_SUMMARY_ENTRY: AccountSummaryEntry = {
@@ -481,107 +530,235 @@ export async function cancelUpgradePlan(planId: string): Promise<UpgradePlan> {
   return normalizeUpgradePlan(data)
 }
 
-const IDLE_TRAINING_SCAN: TrainingScanState = {
-  status: 'idle',
-  mode: 'single',
-  pipeline_id: null,
-  started_at: null,
-  finished_at: null,
-  scanned: 0,
-  updated: 0,
-  screens: 0,
-  skipped: 0,
-  unresolved: 0,
-  mismatched: 0,
-  realigned: 0,
-  unverified: 0,
-  message: null,
-  total: null,
-}
+/**
+ * 森空岛六个端点的请求层（M42 §4.6）。
+ *
+ * 端点还没进生成类型，路径与形状由上面的 `SklandEndpoints` 覆盖层声明；下面每个
+ * `normalizeSkland*` 再做一层运行时兜底，读不出来的形状一律落安全默认：状态按
+ * 「未绑定、密钥当作配好了」（真没配时后端的 409 会说明原因）、扫码状态落 `failed`
+ * （既不假装成功，也不无限轮询）、摘要读不出就返回 `null`（页面只说「同步完成」，
+ * 不把空对象渲染成「本轮 0 名」）。
+ */
 
-const TRAINING_SCAN_STATUSES: readonly TrainingScanStatus[] = ['idle', 'running', 'succeeded', 'failed', 'cancelled']
-const TRAINING_SCAN_MODES: readonly TrainingScanMode[] = ['single', 'full']
-
-/** 只认契约里的五个状态；别的值（后端加了新状态、或形状读错）落到 `idle`，页面照常渲染。 */
-export function normalizeTrainingScanStatus(value: unknown): TrainingScanStatus {
-  return typeof value === 'string' && (TRAINING_SCAN_STATUSES as readonly string[]).includes(value)
-    ? (value as TrainingScanStatus)
-    : 'idle'
-}
-
-/** 只认 `single`/`full`；认不出来按 `single`（老后端不带这个字段，行为与 M38 一致）。 */
-export function normalizeTrainingScanMode(value: unknown): TrainingScanMode {
-  return typeof value === 'string' && (TRAINING_SCAN_MODES as readonly string[]).includes(value)
-    ? (value as TrainingScanMode)
-    : 'single'
+const EMPTY_SKLAND_ROLE: SklandRole = {
+  uid: '',
+  app_code: '',
+  channel_master_id: null,
+  nickname: null,
+  level: null,
+  is_default: false,
+  synced_at: null,
 }
 
 /**
- * 状态响应兜底（M36 §4.6）：三个方法同形状，缺项按 0 / `null` 补，页面只读不炸。
- *
- * 这里**不做**「读错键就当 0」的静默兜底——`status` 认不出来说明形状不对，落到 `idle`
- * 让用户还能点「开始扫描」，而不是把空对象渲染成「扫描完成」。
+ * 角色兜底：`uid` 是主键，读不出来就当这条不存在（返回 `null`）——不渲染一个空壳角色。
+ * 数字形态的 `uid` 也认（上游可能给数字），转成字符串。
  */
-export function normalizeTrainingScanState(value: unknown): TrainingScanState {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...IDLE_TRAINING_SCAN }
-  const raw = value as Partial<TrainingScanState>
+export function normalizeSklandRole(value: unknown): SklandRole | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Partial<SklandRole>
+  const uid = typeof raw.uid === 'string'
+    ? raw.uid
+    : typeof raw.uid === 'number' && Number.isFinite(raw.uid) ? String(raw.uid) : ''
+  if (!uid) return null
+  const text = (item: unknown) => (typeof item === 'string' && item ? item : null)
+  return {
+    uid,
+    app_code: typeof raw.app_code === 'string' ? raw.app_code : '',
+    channel_master_id: text(raw.channel_master_id),
+    nickname: text(raw.nickname),
+    level: typeof raw.level === 'number' && Number.isFinite(raw.level) ? raw.level : null,
+    is_default: raw.is_default === true,
+    synced_at: text(raw.synced_at),
+  }
+}
+
+/** 角色列表兜底：认不出的条目直接丢掉（连 `uid` 都没有的行没有任何可展示的信息）。 */
+export function normalizeSklandRoles(value: unknown): SklandRole[] {
+  if (!Array.isArray(value)) return []
+  return value.map(normalizeSklandRole).filter((role): role is SklandRole => role !== null)
+}
+
+/**
+ * 同步摘要兜底：**不像摘要就返回 `null`**（连 `status` 与任一计数都没有）。
+ *
+ * 返回 `null` 时页面只写「同步完成」并刷新状态，不把空对象渲染成「本轮 0 名、没有改动」——
+ * 那正是 M35 修过的「把不知道写成具体值」。
+ */
+export function normalizeSklandSyncSummary(value: unknown): SklandSyncSummary | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Partial<SklandSyncSummary>
+  const counters = ['total', 'created', 'updated', 'unchanged', 'ownership_cleared', 'diffs', 'dropped_invalid', 'duration_ms'] as const
+  const readable = typeof raw.status === 'string' || counters.some((key) => typeof raw[key] === 'number')
+  if (!readable) return null
+  const count = (item: unknown) => (typeof item === 'number' && Number.isFinite(item) ? item : 0)
+  return {
+    status: typeof raw.status === 'string' ? raw.status : '',
+    // 摘要是 `last_sync` 那一栏的形状，页面只用计数；角色读不出来就留空壳，不整条丢掉。
+    role: normalizeSklandRole(raw.role) ?? { ...EMPTY_SKLAND_ROLE },
+    synced_at: typeof raw.synced_at === 'string' ? raw.synced_at : '',
+    total: count(raw.total),
+    created: count(raw.created),
+    updated: count(raw.updated),
+    unchanged: count(raw.unchanged),
+    ownership_cleared: count(raw.ownership_cleared),
+    diffs: count(raw.diffs),
+    dropped_invalid: count(raw.dropped_invalid),
+    duration_ms: count(raw.duration_ms),
+  }
+}
+
+/** 状态整体读不出来时的兜底（`key_configured` 看上一条注释）。 */
+const SKLAND_STATUS_FALLBACK: SklandStatus = {
+  bound: false,
+  key_configured: true,
+  account: null,
+  roles: [],
+  last_sync_at: null,
+  last_sync: null,
+  last_error: null,
+  min_sync_interval_seconds: 0,
+  min_chars: 0,
+  auto_sync_enabled: false,
+  auto_sync_interval_minutes: 0,
+}
+
+/**
+ * 绑定状态响应兜底：缺项按 `false` / `0` / `null` 补，页面只读不炸。
+ *
+ * `bound` 与 `key_configured` 都**只认明确的真值**：读不出来时不假装已绑定（那会显示一个
+ * 并不存在的账号），也不假装没配密钥（那会把用户堵在一条没有出口的死路上）。
+ */
+export function normalizeSklandStatus(value: unknown): SklandStatus {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...SKLAND_STATUS_FALLBACK }
+  const raw = value as Partial<SklandStatus>
   const count = (item: unknown) => (typeof item === 'number' && Number.isFinite(item) ? item : 0)
   const text = (item: unknown) => (typeof item === 'string' && item ? item : null)
   return {
-    status: normalizeTrainingScanStatus(raw.status),
-    mode: normalizeTrainingScanMode(raw.mode),
-    pipeline_id: text(raw.pipeline_id),
-    started_at: text(raw.started_at),
-    finished_at: text(raw.finished_at),
-    scanned: count(raw.scanned),
-    updated: count(raw.updated),
-    screens: count(raw.screens),
-    skipped: count(raw.skipped),
-    unresolved: count(raw.unresolved),
-    mismatched: count(raw.mismatched),
-    realigned: count(raw.realigned),
-    unverified: count(raw.unverified),
-    message: text(raw.message),
-    // `total` 是**契约外**的补充字段：GET/DELETE 的响应里没写它，后端给了就用它算进度，
-    // 没给就是 `null`（页面走不确定态），不要拿 `targets.length` 之类的东西假冒。
-    // 全量扫描（M39）后端恒给 `null`——那一轮没有名单，进度只能看 `scanned`。
-    total: typeof raw.total === 'number' && Number.isFinite(raw.total) ? raw.total : null,
+    bound: raw.bound === true,
+    key_configured: raw.key_configured !== false,
+    account: normalizeSklandRole(raw.account),
+    roles: normalizeSklandRoles(raw.roles),
+    last_sync_at: text(raw.last_sync_at),
+    last_sync: normalizeSklandSyncSummary(raw.last_sync),
+    last_error: text(raw.last_error),
+    min_sync_interval_seconds: count(raw.min_sync_interval_seconds),
+    min_chars: count(raw.min_chars),
+    auto_sync_enabled: raw.auto_sync_enabled === true,
+    auto_sync_interval_minutes: count(raw.auto_sync_interval_minutes),
   }
 }
 
-/** 提交结果归一：`total` 是目标人数，受理后立刻显示，不用等第一次轮询。 */
-export function normalizeTrainingScanSubmit(value: unknown): TrainingScanSubmit {
-  const raw = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Partial<TrainingScanSubmit>
+/** 轮询间隔兜底：响应里读不出来时按规格 §4.8 的 2 秒。 */
+export const DEFAULT_SKLAND_POLL_INTERVAL_MS = 2_000
+
+/** 扫码会话兜底：`session_id` / `qr_svg` 缺失时卡片按「没拿到二维码」处理（不渲染空图）。 */
+export function normalizeSklandQrSession(value: unknown): SklandQrSession {
+  const raw = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Partial<SklandQrSession>
+  const interval = raw.poll_interval_ms
   return {
-    pipeline_id: typeof raw.pipeline_id === 'string' ? raw.pipeline_id : '',
-    mode: normalizeTrainingScanMode(raw.mode),
-    total: typeof raw.total === 'number' && Number.isFinite(raw.total) ? raw.total : 0,
-    targets: Array.isArray(raw.targets) ? raw.targets.filter((item): item is TrainingScanTarget => Boolean(item)) : [],
-    deferred: Array.isArray(raw.deferred) ? raw.deferred.filter((item): item is string => typeof item === 'string') : [],
-    unresolved: Array.isArray(raw.unresolved) ? raw.unresolved.filter((item): item is string => typeof item === 'string') : [],
+    session_id: typeof raw.session_id === 'string' ? raw.session_id : '',
+    qr_svg: typeof raw.qr_svg === 'string' ? raw.qr_svg : '',
+    payload: typeof raw.payload === 'string' ? raw.payload : '',
+    expires_at: typeof raw.expires_at === 'string' ? raw.expires_at : '',
+    poll_interval_ms: typeof interval === 'number' && Number.isFinite(interval) && interval > 0
+      ? interval
+      : DEFAULT_SKLAND_POLL_INTERVAL_MS,
   }
 }
 
-/** 练度扫描的当前状态（`GET`）；`running` 时由页面按 5 s 轮询。 */
-export async function fetchTrainingScan(signal?: AbortSignal): Promise<TrainingScanState> {
-  const { data, error, response } = await accountApi.GET('/api/account/training-scan', { signal })
-  if (error || !data) throw toApiError(error, response)
-  return normalizeTrainingScanState(data)
+const SKLAND_QR_STATES: readonly SklandQrState[] = ['waiting', 'succeeded', 'expired', 'failed']
+
+/**
+ * 只认契约里的四态；读不出来落 `failed`：既不假装扫码成功，也不无限轮询下去，
+ * 用户还能看到「重新生成二维码」。
+ */
+export function normalizeSklandQrState(value: unknown): SklandQrState {
+  return typeof value === 'string' && (SKLAND_QR_STATES as readonly string[]).includes(value)
+    ? (value as SklandQrState)
+    : 'failed'
+}
+
+/** 轮询响应兜底：`message` / `account` / `roles` 缺了就缺着，页面按「没有」渲染。 */
+export function normalizeSklandQrPoll(value: unknown): SklandQrPoll {
+  const raw = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Partial<SklandQrPoll>
+  return {
+    state: normalizeSklandQrState(raw.state),
+    message: typeof raw.message === 'string' && raw.message ? raw.message : null,
+    account: normalizeSklandRole(raw.account),
+    roles: normalizeSklandRoles(raw.roles),
+  }
 }
 
 /**
- * 提交一轮练度扫描（`POST`）：非阻塞，立刻返回受理结果；已有扫描在跑时后端回 409，
- * 错误文案照 `toApiError` 展示（§4.6）。
+ * 同步被 429 拒绝时把 `Retry-After` 并进错误里（§4.6）：`toApiError` 只保留状态码、
+ * 错误码与响应体，响应头在别处读不到，所以这里就地取出来放进 `details`。
  */
-export async function startTrainingScan(body: TrainingScanRequest = {}): Promise<TrainingScanSubmit> {
-  const { data, error, response } = await accountApi.POST('/api/account/training-scan', { body })
-  if (error || !data) throw toApiError(error, response)
-  return normalizeTrainingScanSubmit(data)
+function rateLimited(error: unknown, response: Response): ApiError {
+  const failure = toApiError(error, response)
+  if (failure.status !== 429) return failure
+  const header = response.headers.get('Retry-After')
+  const seconds = header === null ? Number.NaN : Number(header)
+  if (!Number.isFinite(seconds) || seconds <= 0) return failure
+  return new ApiError({
+    message: failure.message,
+    status: failure.status,
+    code: failure.code,
+    details: { retry_after_seconds: seconds },
+    body: failure.body,
+  })
 }
 
-/** 取消练度扫描（`DELETE`）：已读到的部分保留，返回取消后的状态。 */
-export async function cancelTrainingScan(): Promise<TrainingScanState> {
-  const { data, error, response } = await accountApi.DELETE('/api/account/training-scan')
-  if (error || !data) throw toApiError(error, response)
-  return normalizeTrainingScanState(data)
+/** 同步被 429 拒绝时「还要等几秒」；响应头缺失或状态不是 429 时为 `null`。 */
+export function retryAfterSeconds(error: unknown): number | null {
+  const failure = toApiError(error)
+  if (failure.status !== 429 || !failure.details || typeof failure.details !== 'object') return null
+  const value = (failure.details as { retry_after_seconds?: unknown }).retry_after_seconds
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
+
+/** 绑定与同步状态（`GET`）：卡片挂载时读一次，扫码成功 / 同步 / 解绑后再失效重取。 */
+export async function fetchSklandStatus(signal?: AbortSignal): Promise<SklandStatus> {
+  const { data, error, response } = await sklandApi.GET('/api/skland/status', { signal })
+  if (error || !data) throw toApiError(error, response)
+  return normalizeSklandStatus(data)
+}
+
+/** 生成扫码会话（`POST`）；没配 `skland.credential_key` 时后端回 409 `SKLAND_ENCRYPTION_KEY_INVALID`。 */
+export async function startSklandQrLogin(): Promise<SklandQrSession> {
+  const { data, error, response } = await sklandApi.POST('/api/skland/login/qrcode')
+  if (error || !data) throw toApiError(error, response)
+  return normalizeSklandQrSession(data)
+}
+
+/** 轮询扫码状态（`GET`）：`waiting` 时由卡片按 `poll_interval_ms` 再取一次。 */
+export async function pollSklandQrLogin(sessionId: string, signal?: AbortSignal): Promise<SklandQrPoll> {
+  const { data, error, response } = await sklandApi.GET('/api/skland/login/qrcode/{session_id}', {
+    params: { path: { session_id: sessionId } },
+    signal,
+  })
+  if (error || !data) throw toApiError(error, response)
+  return normalizeSklandQrPoll(data)
+}
+
+/** 手动兜底绑定（`POST`）：返回绑定后的状态（同 `GET /status`）；凭据不对回 401。 */
+export async function bindSklandManual(body: SklandManualCredentials): Promise<SklandStatus> {
+  const { data, error, response } = await sklandApi.POST('/api/skland/login/manual', { body })
+  if (error || !data) throw toApiError(error, response)
+  return normalizeSklandStatus(data)
+}
+
+/** 同步一轮练度（`POST`，**同步执行**、秒级）：摘要形状读不出时返回 `null`，页面只刷新状态。 */
+export async function syncSkland(): Promise<SklandSyncSummary | null> {
+  const { data, error, response } = await sklandApi.POST('/api/skland/sync')
+  if (error || !data) throw rateLimited(error, response)
+  return normalizeSklandSyncSummary(data)
+}
+
+/** 解绑（`DELETE`）：删凭据与角色，**不动**已同步的练度（§4.4）。 */
+export async function unbindSkland(): Promise<boolean> {
+  const { data, error, response } = await sklandApi.DELETE('/api/skland/binding')
+  if (error || !data) throw toApiError(error, response)
+  return data.bound === true
+}
+

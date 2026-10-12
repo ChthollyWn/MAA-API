@@ -115,3 +115,15 @@ sources:
   copilot_site_enabled: true
   # 每分钟请求上限 1-60；改完立即生效，作业搜索与作业内容下载共用这个桶
   copilot_site_rate_per_minute: 20
+
+# 森空岛账号数据（M42）。三项都不进设置 API、不落库，只能从这里或环境变量给。
+skland:
+  # 凭据加密密钥（Fernet key）。生成：.venv/bin/python scripts/generate_skland_key.py
+  # 留空即「没配」：绑定端点会回 409 SKLAND_ENCRYPTION_KEY_INVALID，已有凭据也解不开。
+  # 换密钥会让已保存的凭据失效（需要重新扫码绑定），所以先在页面上解绑再换。
+  credential_key: ""
+  # 定时同步间隔（分钟）：0 = 关闭（默认）。非 0 时必须 ≥ 60 —— 这是非官方接口，
+  # 本项目的取舍是「手动为主、定时兜底」，不允许配出比每小时更密的轮询。
+  auto_sync_interval_minutes: 0
+  # 单次出站请求超时（秒）
+  request_timeout_seconds: 15.0

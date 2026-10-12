@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 114 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 121 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
 
 ```python
 # maa_api/domain/errors.py
@@ -372,6 +372,20 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 
 两个码只对 INTERNAL（Agent 会话）调用方出现。没有授权不是错误而是确认：策略层返回 `confirmation_action="grant_copilot_attempts"`，由用户在本轮批准（可改尝试次数、成功标准与是否允许助战），批准后写 `copilot_grant` 表；REST 调用方的 Copilot 提交保持逐次评估、不受授权约束。
 
+### 4.19 森空岛账号数据（M42）
+
+| 错误码 | HTTP | 含义与触发场景 |
+|---|---|---|
+| `SKLAND_NOT_BOUND` | 409 | 还没有绑定森空岛账号（库里没有凭据），而这次请求必须要凭据：`POST /api/skland/sync`。`GET /api/skland/status` 不抛它，只返回 `bound=false` |
+| `SKLAND_LOGIN_EXPIRED` | 409 | 扫码会话到期（TTL 180 秒）、已被消费，或上游判定失效（`scan_status` 回 `status=102`）；用户重新生成一张二维码即可 |
+| `SKLAND_LOGIN_FAILED` | 401 | 手动兜底绑定（`POST /api/skland/login/manual`）提交的 `cred` / 签名密钥被上游拒绝（`401` + `code:10002`） |
+| `SKLAND_QR_SESSION_NOT_FOUND` | 404 | 轮询或消费的 `session_id` 不在内存会话表里：服务重启、已成功消费，或前端传错 id |
+| `SKLAND_UPSTREAM_FAILED` | 502 | 上游答复了但不能用：业务码非 0、`scan_status` 的 `status` 既不是 `0`/`100`/`102`、响应结构不符约定，或整轮 `chars` 数量低于护栏阈值（此时整轮不写库，见 [spec §4.5](./superpowers/specs/2026-10-12-m42-skland-training.md)） |
+| `SKLAND_ENCRYPTION_KEY_INVALID` | 409 | `skland.credential_key` 缺失或不是合法 Fernet key；绑定前必须先配好（行为与 `LLM_ENCRYPTION_KEY_INVALID` 同款） |
+| `SKLAND_SYNC_BUSY` | 409 | 同一时刻已经有一次同步在跑（全局互斥锁没拿到） |
+
+状态码口径：没绑定、会话过期、密钥没配、已有同步在跑都是「这个请求现在不行」，用 409；凭据被上游拒绝是「你没通过认证」，用 401；会话 id 不存在是 404；上游答复了但答复不能用是 502（与 `EXTERNAL_RESPONSE_INVALID` 同口径）。60 秒冷却期内的重复同步提交不走这里的码，用 §4.2 的 `RATE_LIMITED`（429）。
+
 ## 5. 鉴权设计
 
 ### 5.1 四个渠道与优先级
@@ -433,7 +447,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 120 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 123 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -797,27 +811,24 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 | GET | `/api/account/operator-diffs` | 识别覆盖手动值的差异 | `include_dismissed`（默认 `false`）、`limit`（1–500，默认 200） | 200 | `UNAUTHORIZED` |
 | DELETE | `/api/account/operator-diffs` | 把差异标记为已知 | `{ids: [int]}` 逐条，或省略＝全部 | 200 | `UNAUTHORIZED` |
 | GET | `/api/account/depot` | 仓库识别结果，按分类分组 | `category`、`query`、`limit`（1–500，默认 100）、`offset` | 200 | `UNAUTHORIZED` |
-| POST | `/api/account/training-scan` | 提交一次练度扫描（M36）：内核逐格点开干员详情页，读技能等级、三个技能的专精等级与模组类型/等级 | body `{mode?: "single" \| "full" 默认 single, limit?: 1–200 默认 40, char_ids?: ≤200 个名字或 char_id, include_plan_targets?: bool 默认 true}`；非阻塞，返回 `{pipeline_id, mode, total, targets, deferred, unresolved}`。`mode=full`（M39）＝全量扫描：不走名单，从列表第一格起一路「左滑换人」，把整张列表的详情页都读一遍，`limit` / `char_ids` / `include_plan_targets` 一律忽略、`total` 恒为 `null`（没有名单），可能跑几十分钟 | 200 | `PIPELINE_ALREADY_RUNNING`（409，已有扫描在跑）、`SERVICE_UNAVAILABLE`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
-| GET | `/api/account/training-scan` | 扫描状态（页面轮询用） | 无；返回里 `mode` 区分两类扫描，`screens` 是已经过去的列表屏数（M39），全量扫描的 `total` 恒为 `null`；`realigned` / `unverified` 是两个**身份计数**（M40，int）：前者是「详情页拉丁名跟这一格卡名对不上、回列表重锚过」的张数，后者是「拉丁名读不出结论、按卡名写库」的张数（单人模式恒为 0） | 200 | `SERVICE_UNAVAILABLE`、`UNAUTHORIZED` |
-| DELETE | `/api/account/training-scan` | 取消正在跑的扫描 | 无 | 200 | `SERVICE_UNAVAILABLE`、`UNAUTHORIZED` |
 
-十个端点都 `Depends(require_auth)`。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent`）。
+（7 条）
+
+这七个端点都 `Depends(require_auth)`（M36 的三个 `training-scan` 端点已在 M42 随读屏扫描线一起删除，改由 §6.22 的森空岛同步取练度）。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent` / `skland`）。
 
 两个只读列表端点（`/operators`、`/depot`）另有 Pydantic 响应模型（`AccountOperatorList` / `AccountDepotList`）把形状写进 `web/openapi.json` 与前端生成类型；此前它们只有 `-> dict`，前端手写的类型覆盖层读错容器键也发现不了——M33 的真机事故就是前端读 `operators`、后端给 `items`，`?? []` 兜成空列表且两边测试各自自洽（见 [13 §8.49](./13-决策记录.md)）。
 
-干员行的字段是 `char_id`、`name`、`rarity`、`profession`、`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`（`{"1": 0..3, "2": …, "3": …}`）、`modules`（模组类型 `X` / `Y` / `D` / `A` → 等级 1–3）、`field_sources`、`recognized_at`、`updated_at`；仓库行的字段是 `item_id`、`name`、`count`、`category`、`recognized_at`。仓库列表的容器还多一个 `categories`：这份识别快照里出现过的全部分类、按名字排序，与 `category` / `query` 两个筛选无关（分页只截取条目，分类清单不随筛选缩水），前端用它填分类下拉。
+干员行的字段是 `char_id`、`name`、`rarity`、`profession`、`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`（`{"1": 0..3, "2": …, "3": …}`）、`modules`（模组类型 `X` / `Y` / `D` / `A` → 等级 1–3）、`favor_percent`（信赖 0–200，M42 新增，只有森空岛能给，`null` ＝ 未知）、`field_sources`、`recognized_at`、`updated_at`；仓库行的字段是仓库行的字段是 `item_id`、`name`、`count`、`category`、`recognized_at`。仓库列表的容器还多一个 `categories`：这份识别快照里出现过的全部分类、按名字排序，与 `category` / `query` 两个筛选无关（分页只截取条目，分类清单不随筛选缩水），前端用它填分类下拉。
 
 **练度六列可空（M35）**：`elite` / `level` / `potential` / `skill_level` / `masteries` / `modules` 都是 `T | null`，`null` ＝ **未识别**——既没有识别值，也没有 manual / agent 写入（`field_sources` 是唯一台账）。这与「已知的无专精 / 无模组」不同：`{"1": 0, "2": 0, "3": 0}` 与 `{}` 是已知值，`null` 才是不知道。内核的干员识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组在详情页、M36 才扫，所以新识别出来的行这三列就是 `null`。`elite_min` 这类筛选不会命中 `null` 行（SQL 三值逻辑），前端列表与编辑抽屉把 `null` 显示成「未识别」，Agent 侧的 `get_operator_box` / `plan_upgrade` 同样如此；`plan_upgrade` 返回里的 `unknowns` 列出未识别维度，这些维度不进材料增量。见 [13 §8.50](./13-决策记录.md)。
 
-`PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。这些**前置条件只在该字段已知时判**（M35）：精英化或技能等级是 `null`（未识别）时不拦专精 / 模组的补录，否则不知道练度就永远填不进去；已知值照旧拦（精一填专精、技能不满 7 级填专精、精一填模组都是 422）。显式把精英化降到 2 以下仍会清空专精与模组。识别结果的合并规则见 [11 §6.5](./11-Agent模块设计.md)与规格 §7.3：`OperBox` 识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组由手动、Agent 或 M36 的练度扫描写（`training` 扫描走 `box.apply_detail_scan`，只写本次真读到的字段，来源同样标 `recognition`）；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
+`PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。这些**前置条件只在该字段已知时判**（M35）：精英化或技能等级是 `null`（未识别）时不拦专精 / 模组的补录，否则不知道练度就永远填不进去；已知值照旧拦（精一填专精、技能不满 7 级填专精、精一填模组都是 422）。显式把精英化降到 2 以下仍会清空专精与模组。识别结果的合并规则见 [11 §6.5](./11-Agent模块设计.md)与规格 §7.3：`OperBox` 识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组、信赖由手动、Agent 或森空岛同步写（同步走 `box.apply_skland_sync`，来源标 `skland`，见 §6.22）；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
 
 `source` 只接受 `manual` 与 `agent`：识别写入固定标 `recognition`，客户端不能借这个字段把识别结果伪装成手动值，所以传 `recognition` 是 422（Pydantic 枚举校验）。
 
 单条 `GET` 是编辑抽屉的读口（附录 C 只列了六条，这一条是实现补的读端点），与列表项同形。
 
-**练度扫描三个端点（M36）**：`POST` 只负责组装名单、锁住「同一时刻一次扫描」并提交第一步，立刻返回；进度靠 `GET` 轮询（活跃时前端 5 秒一次）。名单取「账号表里已拥有且精二以上」∪「进行中养成计划的目标」，去重排序后截前 `limit` 个，排在后面的记 `deferred`（不是失败），读不出名字的格子记 `unresolved`。`GET` 的 `status` 是 `idle` / `running` / `succeeded` / `failed` / `cancelled`，计数是 `scanned`（实际开过详情页的人数）、`updated`（写进库的人数）、`skipped`（读失败或规则拒绝）、`unresolved`（卡名认不出）、`mismatched`（不在账号表里）。写库一律按识别来源（`field_sources = recognition`），**没读到的字段保持 `null`**（M35 口径），精一以下的干员不提交专精与模组；`DELETE` 只取消当前这条流水线，已写入的部分保留。识别记录新增 `kind = "training"`（[04 §5.18](./04-数据模型与持久化.md)），`item_count` 是本轮改动的干员数。详见 [13 §8.51](./13-决策记录.md) 与规格 §4。
-
-（10 条）
+（M36 那三个读屏扫描端点与其 `screens` / `realigned` 等计数已随扫描线退役，此处不再列出。）
 
 ### 6.21 养成计划（M31）
 
@@ -838,6 +849,23 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 确认卡片里的预演不在这三个端点里：`start_upgrade_plan` 的确认 payload 带 `preview`（预演结果，含 `today_tasks`、`daily_template`、`medicine`、`days_estimated`、`total_sanity`、`stages`、`conflicts`、`unobtainable`、`notes`、`unknowns`）与可选的中文冲突理由；预演取不到时降级成 `preview_error` 短字符串，不挡确认（规格 §7.7）。`unknowns` 与 `start_upgrade_plan` 返回的同名键一样，是练度未识别维度的「待确认」项（元素 `{operator, field, reason}`，M35 起）；`start` 还会把它写进 `progress.unknowns`，所以列表/详情读回来的同一条记录里也能看到，不必重算（规格 §4.7）。
 
 （3 条）
+
+### 6.22 森空岛账号数据（M42）
+
+| 方法 | 路径 | 用途 | 请求要点 | 成功 | 主要错误码 |
+|---|---|---|---|---|---|
+| POST | `/api/skland/login/qrcode` | 生成扫码会话：后端调 `gen_scan/login`，用仓库内零依赖编码器把 `scanUrl` 画成 SVG | 无 | 200 `{session_id, qr_svg, payload, expires_at, poll_interval_ms}` | `SERVICE_UNAVAILABLE`、`SKLAND_ENCRYPTION_KEY_INVALID`（409，没配 `skland.credential_key`）、`SKLAND_UPSTREAM_FAILED`（502） |
+| GET | `/api/skland/login/qrcode/{session_id}` | 轮询扫码结果；确认后一次性走完 `token_by_scan_code` → `grant` → `generate_cred` → `binding` 并落库 | 路径参数是 32 位十六进制会话 id | 200 `{state, message?, account?, roles?}`，`state` 只有四态：`waiting` / `succeeded` / `expired` / `failed`（上游没有「已扫码待确认」的中间态） | `SKLAND_QR_SESSION_NOT_FOUND`（404，会话不在内存表里：重启或已消费）、`SKLAND_UPSTREAM_FAILED`（502） |
+| POST | `/api/skland/login/manual` | 手动兜底绑定（扫码走不通时） | body `{cred, token}`；先用 `binding` 验一次凭据再落库 | 200，与 `GET /api/skland/status` 同形 | `SKLAND_LOGIN_FAILED`（401，上游拒绝）、`SKLAND_ENCRYPTION_KEY_INVALID`（409）、`SKLAND_UPSTREAM_FAILED`（502） |
+| GET | `/api/skland/status` | 绑定与同步状态 | 无 | 200 `{bound, key_configured, account, roles[], last_sync_at, last_sync, last_error, min_sync_interval_seconds, min_chars, auto_sync_enabled, auto_sync_interval_minutes}`；没绑定也回 200（`bound=false` 是状态不是错误） | `SERVICE_UNAVAILABLE` |
+| POST | `/api/skland/sync` | 同步全部干员练度（**同步执行**，实测一次取数 141 ms） | 无 | 200 摘要 `{status, role, synced_at, total, created, updated, unchanged, ownership_cleared, diffs, dropped_invalid, duration_ms}` | `SKLAND_NOT_BOUND`（409）、`SKLAND_SYNC_BUSY`（409，已有同步在跑）、`RATE_LIMITED`（429，60 秒冷却，带 `Retry-After`）、`SKLAND_UPSTREAM_FAILED`（502，含 `chars` 数低于护栏 `min_chars` 时**整轮不写库**）、`SKLAND_ENCRYPTION_KEY_INVALID`（409） |
+| DELETE | `/api/skland/binding` | 解绑：删凭据与角色行 | 无 | 200 `{bound: false}`；**干员练度保留**（它是账号数据） | `SERVICE_UNAVAILABLE` |
+
+（6 条）
+
+六个端点都 `Depends(require_auth)`。响应模型是写全的（不是 `-> dict`）：这几个字段前端要用，写进 `web/openapi.json` 才能由 `pnpm gen:api` 生成类型。**凭据与签名密钥加密落库**（`cryptography.fernet`，密钥取 `skland.credential_key`），明文只在内存里；日志只记端点、状态码与耗时，不记 `cred` / `token` / 响应正文。
+
+练度数据写进同一张 `account_operator`：`evolvePhase → elite`、`level → level`、`potentialRank + 1 → potential`、`mainSkillLvl → skill_level`、`skills[].specializeLevel → masteries{1,2,3}`、`equip[].level → modules{X/Y/D/A}`（类型取同一次响应的 `equipmentInfoMap`）、`favorPercent → favor_percent`；字段来源标 `skland`（`field_sources` 的第四个取值）。用户手改过、且与这次读数不同的字段记一条 `account_operator_diff`。定时同步由配置 `skland.auto_sync_interval_minutes`（默认 0 ＝ 关，非 0 时不低于 60）驱动，**没有前端开关**。
 
 ## 7. 任务提交的请求体设计
 

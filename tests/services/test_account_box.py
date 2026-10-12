@@ -560,6 +560,8 @@ def test_list_operators_filters_and_paginates(account_session_factory):
             "skill_level",
             "masteries",
             "modules",
+            # M42：信赖随六列一起进 wire。
+            "favor_percent",
             "field_sources",
             "recognized_at",
             "updated_at",

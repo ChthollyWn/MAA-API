@@ -384,6 +384,10 @@ def test_env_mapping_names_are_pinned() -> None:
         "sources.gamedata_rate_per_minute": "MAA_SOURCES_GAMEDATA_RATE_PER_MINUTE",
         "sources.gamedata_mirrors": "MAA_SOURCES_GAMEDATA_MIRRORS",
         "sources.gamedata_github_api_fallback": "MAA_SOURCES_GAMEDATA_GITHUB_API_FALLBACK",
+        # M42：森空岛账号数据（凭据密钥、定时同步间隔、请求超时）。
+        "skland.credential_key": "MAA_SKLAND_CREDENTIAL_KEY",
+        "skland.auto_sync_interval_minutes": "MAA_SKLAND_AUTO_SYNC_INTERVAL_MINUTES",
+        "skland.request_timeout_seconds": "MAA_SKLAND_REQUEST_TIMEOUT_SECONDS",
     }
 
 

@@ -386,9 +386,31 @@ class ErrorCode(StrEnum):
     # 养成计划 id 不存在
     UPGRADE_PLAN_NOT_FOUND = "UPGRADE_PLAN_NOT_FOUND"
 
+    # ---- docs/05 §4.19 森空岛账号数据（M42）----
+    # 还没绑定森空岛账号：要同步或读状态，但库里没有凭据
+    SKLAND_NOT_BOUND = "SKLAND_NOT_BOUND"
+
+    # 扫码会话已过期、已被消费，或上游判定失效
+    SKLAND_LOGIN_EXPIRED = "SKLAND_LOGIN_EXPIRED"
+
+    # 手动兜底绑定时凭据被上游拒绝（cred / 签名密钥无效）
+    SKLAND_LOGIN_FAILED = "SKLAND_LOGIN_FAILED"
+
+    # 扫码会话 id 不在内存表里（服务重启、TTL 到期或前端传错）
+    SKLAND_QR_SESSION_NOT_FOUND = "SKLAND_QR_SESSION_NOT_FOUND"
+
+    # 森空岛或鹰角侧答复了但不能用：业务码非 0、响应结构不符约定
+    SKLAND_UPSTREAM_FAILED = "SKLAND_UPSTREAM_FAILED"
+
+    # 凭据加密密钥缺失或不是合法 Fernet key：绑定前必须先配 skland.credential_key
+    SKLAND_ENCRYPTION_KEY_INVALID = "SKLAND_ENCRYPTION_KEY_INVALID"
+
+    # 同一时刻已有一次同步在跑
+    SKLAND_SYNC_BUSY = "SKLAND_SYNC_BUSY"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 111 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 120 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -510,6 +532,16 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     # 账号数据：查询对象不存在用 404，与其余「id 不存在」的码同口径。
     ErrorCode.ACCOUNT_DATA_NOT_FOUND: 404,
     ErrorCode.UPGRADE_PLAN_NOT_FOUND: 404,
+    # 森空岛（M42）：没绑定/会话过期/密钥没配/已有同步在跑都是「请求现在不行」用 409；
+    # 凭据被上游拒绝是「你没通过认证」用 401；会话 id 不存在是 404；上游答复了但不能用
+    # 是 502（与 EXTERNAL_RESPONSE_INVALID 同口径）。
+    ErrorCode.SKLAND_NOT_BOUND: 409,
+    ErrorCode.SKLAND_LOGIN_EXPIRED: 409,
+    ErrorCode.SKLAND_LOGIN_FAILED: 401,
+    ErrorCode.SKLAND_QR_SESSION_NOT_FOUND: 404,
+    ErrorCode.SKLAND_UPSTREAM_FAILED: 502,
+    ErrorCode.SKLAND_ENCRYPTION_KEY_INVALID: 409,
+    ErrorCode.SKLAND_SYNC_BUSY: 409,
 }
 
 

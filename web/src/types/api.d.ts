@@ -146,55 +146,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/account/training-scan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 读取练度扫描状态
-         * @description 一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。
-         *
-         *     - `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled`
-         *     - `mode` 是这一轮的类型（`single` 点名扫 / `full` 全量扫描），`screens` 是读了几屏卡名
-         *     - `scanned` 是已点开的格数，`updated` 是真正写了库的人数（卡名认不出、库里没这行都不算）
-         *     - `skipped` / `unresolved` / `mismatched` 是**计数**：卡名对不上、目录里查不到、以及读数与库里已填的值不同
-         *     - `realigned` / `unverified` 是 `full` 模式的两个**身份计数**（M40）：前者是「详情页拉丁名跟这一格卡名对不上、回列表重新点开过」的张数，后者是「拉丁名读不出结论、按卡名写库」的张数；`single` 模式恒为 0
-         *     - `total` 是这一轮的目标人数；`mode=full` 时恒为 `null`（跑到哪算哪）
-         *     - `pipeline_id` 是当前这一步的流水线，跑完停在最后一步的 id
-         *     - 没扫过时 `status` 是 `idle`，其余字段是 0 / `null`
-         */
-        get: operations["account_get_account_training_scan"];
-        put?: never;
-        /**
-         * 开始练度扫描
-         * @description 受理一轮干员详情练度扫描：逐格点开干员、读详情页、写库。
-         *
-         *     - 非阻塞：受理成功后立刻返回，扫描在流水线里跑，进度看 `GET /api/account/training-scan`
-         *     - `mode=single`（默认）：名单两个来源——账号表里精二及以上的干员、进行中养成计划的目标；合并去重后按 `char_id` 排序取前 `limit` 名，多出来的进 `deferred`
-         *     - `mode=full`：全量扫描，不组名单——从列表第一名开始，点开一格后不再回列表，一路左滑把这一屏所有人的详情页扫完再翻页，直到翻不动。忽略 `limit` / `char_ids` / `include_plan_targets`，`total` 恒为 `null`（跑到哪算哪，可能要几十分钟）
-         *     - 名字解析不到 `char_id` 的计划目标进 `unresolved`
-         *     - 同一时刻只允许一轮，还在跑时返回 409 `PIPELINE_ALREADY_RUNNING`
-         *     - `mode=single` 下名单为空返回 422 `VALIDATION_ERROR`（先跑一次干员识别）
-         *     - 写库口径：读到什么写什么，没读到的不动（技能等级、专精、模组三列）
-         */
-        post: operations["account_start_account_training_scan"];
-        /**
-         * 取消练度扫描
-         * @description 取消正在跑的扫描，返回取消后的状态。
-         *
-         *     - 已经读到的干员保留（读数早写库了），停止发生在**步与步之间**
-         *     - 当前这一步的收尾照跑：不会把设备丢在详情页
-         *     - 没有在跑时是空操作，原样返回当前状态（不报错）
-         */
-        delete: operations["account_cancel_account_training_scan"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/account/upgrade-plans": {
         parameters: {
             query?: never;
@@ -1409,6 +1360,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skland/binding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 解绑森空岛账号
+         * @description 删凭据与角色行；**干员练度保留**（它是账号数据，不随绑定关系消失）。
+         */
+        delete: operations["skland_unbind_skland"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skland/login/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 手动粘贴 cred 绑定（扫码的兜底）
+         * @description 先用 ``binding`` 验一次凭据，再落库；返回与 ``GET /status`` 同形状。
+         */
+        post: operations["skland_bind_skland_manual"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skland/login/qrcode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 生成森空岛扫码登录二维码
+         * @description 生成一张二维码；用户用森空岛 App 扫它并在 App 里确认。
+         */
+        post: operations["skland_start_skland_qr_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skland/login/qrcode/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 轮询扫码结果
+         * @description 轮询一次；``succeeded`` 时凭据已经落库，前端刷新 ``GET /api/skland/status`` 即可。
+         */
+        get: operations["skland_poll_skland_qr_login"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skland/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 森空岛绑定与同步状态
+         * @description 没绑定也返回 200：``bound=false`` 是状态而不是错误。
+         */
+        get: operations["skland_get_skland_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skland/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 同步森空岛练度（同步执行）
+         * @description 跑一轮同步；返回摘要。冷却期内的重复提交回 429，已有同步在跑回 409。
+         */
+        post: operations["skland_sync_skland_training"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/snippets": {
         parameters: {
             query?: never;
@@ -1869,7 +1940,7 @@ export interface components {
          *     ``modules``）可以是 ``null`` ＝ **未识别**（M35）：既没有识别值，也没有 manual /
          *     agent 写入。内核 OperBox 只识别得到前四个字段里的三个（``elite`` / ``level`` /
          *     ``potential``），技能等级、专精、模组不在识别范围内，别把 ``null`` 读成 0 级 /
-         *     技能 1 级 / 无专精。``field_sources`` 的值只有 recognition / manual / agent；
+         *     技能 1 级 / 无专精。``field_sources`` 的值有 recognition / manual / agent / skland（M42 起多第四个：森空岛同步）；
          *     ``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。
          */
         AccountOperatorRow: {
@@ -3845,6 +3916,205 @@ export interface components {
             };
         };
         /**
+         * SklandBindResult
+         * @description 解绑结果。
+         */
+        SklandBindResult: {
+            /**
+             * Bound
+             * @default false
+             */
+            bound: boolean;
+        };
+        /**
+         * SklandManualBindRequest
+         * @description 手动兜底绑定：扫码走不通时粘贴鹰角通行证算出来的 ``cred`` 与签名密钥。
+         */
+        SklandManualBindRequest: {
+            /**
+             * Cred
+             * @description 森空岛 cred
+             */
+            cred: string;
+            /**
+             * Token
+             * @description 签名密钥
+             */
+            token: string;
+        };
+        /**
+         * SklandQrPollResult
+         * @description 轮询结果；``state`` 只有四态，上游没有「已扫码待确认」的中间态。
+         */
+        SklandQrPollResult: {
+            /** @description 成功时的默认角色 */
+            account?: components["schemas"]["SklandRoleRow"] | null;
+            /**
+             * Message
+             * @description 失败或过期时的说明
+             */
+            message?: string | null;
+            /**
+             * Roles
+             * @description 成功时的全部角色
+             */
+            roles?: components["schemas"]["SklandRoleRow"][] | null;
+            /**
+             * State
+             * @description waiting 等待扫码 / succeeded / expired / failed
+             */
+            state: string;
+        };
+        /**
+         * SklandQrStartResult
+         * @description 扫码会话：把 ``qr_svg`` 直接塞进 ``<img src="data:image/svg+xml;…">`` 即可。
+         */
+        SklandQrStartResult: {
+            /**
+             * Expires At
+             * @description 会话失效时间（UTC，ISO8601）
+             */
+            expires_at: string;
+            /**
+             * Payload
+             * @description 二维码里的登录串 hypergryph://scan_login?scanId=…
+             */
+            payload: string;
+            /**
+             * Poll Interval Ms
+             * @description 建议轮询间隔（毫秒）
+             */
+            poll_interval_ms: number;
+            /**
+             * Qr Svg
+             * @description 完整 SVG 文档（后端零依赖生成）
+             */
+            qr_svg: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /**
+         * SklandRoleRow
+         * @description 一个游戏角色（``bindingList`` 的一条）。
+         */
+        SklandRoleRow: {
+            /**
+             * App Code
+             * @description 归属应用，目前只有 `arknights`
+             */
+            app_code: string;
+            /**
+             * Channel Master Id
+             * @description 渠道主 id，上游不给就是 null
+             */
+            channel_master_id?: string | null;
+            /**
+             * Is Default
+             * @description 上游的 isDefault：多角色时同步取它
+             */
+            is_default: boolean;
+            /**
+             * Level
+             * @description 角色等级
+             */
+            level?: number | null;
+            /**
+             * Nickname
+             * @description 角色昵称
+             */
+            nickname?: string | null;
+            /**
+             * Synced At
+             * @description 最近一次成功同步这个角色的时间
+             */
+            synced_at?: string | null;
+            /**
+             * Uid
+             * @description 游戏角色 uid，`player/info` 用它取数
+             */
+            uid: string;
+        };
+        /**
+         * SklandStatusResult
+         * @description 绑定与同步状态。
+         */
+        SklandStatusResult: {
+            account?: components["schemas"]["SklandRoleRow"] | null;
+            /** Auto Sync Enabled */
+            auto_sync_enabled: boolean;
+            /** Auto Sync Interval Minutes */
+            auto_sync_interval_minutes: number;
+            /**
+             * Bound
+             * @description 库里有没有凭据
+             */
+            bound: boolean;
+            /**
+             * Key Configured
+             * @description skland.credential_key 是否已配置且合法
+             */
+            key_configured: boolean;
+            /** Last Error */
+            last_error?: string | null;
+            last_sync?: components["schemas"]["SklandSyncResult"] | null;
+            /** Last Sync At */
+            last_sync_at?: string | null;
+            /** Min Chars */
+            min_chars: number;
+            /** Min Sync Interval Seconds */
+            min_sync_interval_seconds: number;
+            /** Roles */
+            roles?: components["schemas"]["SklandRoleRow"][];
+        };
+        /**
+         * SklandSyncResult
+         * @description 一轮同步的摘要；``status`` 目前恒为 ``succeeded``（失败走错误码）。
+         */
+        SklandSyncResult: {
+            /**
+             * Created
+             * @description 新建的行数
+             */
+            created: number;
+            /**
+             * Diffs
+             * @description 识别覆盖手动值、记了差异的字段数
+             */
+            diffs: number;
+            /**
+             * Dropped Invalid
+             * @description 越界或映射不出、被丢掉的字段项数
+             */
+            dropped_invalid: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /**
+             * Ownership Cleared
+             * @description 被收缩成未拥有的行数
+             */
+            ownership_cleared: number;
+            role: components["schemas"]["SklandRoleRow"];
+            /** Status */
+            status: string;
+            /** Synced At */
+            synced_at: string;
+            /**
+             * Total
+             * @description 这一轮拿到的干员数
+             */
+            total: number;
+            /**
+             * Unchanged
+             * @description 值没变、只刷新同步时间的行数
+             */
+            unchanged: number;
+            /**
+             * Updated
+             * @description 有字段变化的行数
+             */
+            updated: number;
+        };
+        /**
          * SourceCacheStats
          * @description 一个来源的缓存统计。
          */
@@ -4047,61 +4317,6 @@ export interface components {
         TaskValidateRequest: {
             /** Tasks */
             tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["OperBoxInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CustomInput"] | components["schemas"]["CopilotInput"])[];
-        };
-        /**
-         * TrainingScanMode
-         * @description 练度扫描的两类任务（M39 规格 §2）。
-         *
-         *     - ``single``：按名单点名扫——读一屏卡名 → 点名到谁才点开谁 → 读详情 → **回列表** →
-         *       翻屏，直到名单扫完（M36 建成的现状）。
-         *     - ``full``：全量扫描——不组名单，从列表第一名开始，点开第一格后**不回列表**，一路左滑
-         *       把这一屏 16 张详情页全扫完，再回列表翻一页继续，直到翻不动（最后一个干员）。
-         *
-         *     全量扫描的身份只能来自「这一屏读到的卡名」×「车厢顺序」（:func:`cell_of`）：详情页
-         *     左下角那个大名字是美术字，OCR 读不出来（M36 规格 §4.1）。
-         * @enum {string}
-         */
-        TrainingScanMode: "single" | "full";
-        /**
-         * TrainingScanRequest
-         * @description 受理一轮练度扫描的请求体；整个 body 省略就是「精二名单取默认上限」。
-         * @example {}
-         * @example {
-         *       "limit": 20
-         *     }
-         * @example {
-         *       "mode": "full"
-         *     }
-         * @example {
-         *       "char_ids": [
-         *         "char_002_amiya"
-         *       ],
-         *       "include_plan_targets": false
-         *     }
-         */
-        TrainingScanRequest: {
-            /**
-             * Char Ids
-             * @description 只扫这些干员 id（仍会补上计划目标）；省略表示按精二名单取
-             */
-            char_ids?: string[] | null;
-            /**
-             * Include Plan Targets
-             * @description 是否把进行中养成计划的目标也算进名单
-             * @default true
-             */
-            include_plan_targets: boolean;
-            /**
-             * Limit
-             * @description 这一轮最多扫多少名干员（默认 40；`mode=full` 时不用）
-             * @default 40
-             */
-            limit: number;
-            /**
-             * @description 扫描类型：`single` 按名单点名扫（默认，受 limit 限制）；`full` 全量扫描——从列表第一名开始，点开一格后一路左滑把每屏所有人扫完，直到翻不动（忽略 limit / char_ids / include_plan_targets，可能要跑几十分钟）
-             * @default single
-             */
-            mode: components["schemas"]["TrainingScanMode"];
         };
         /** ValidationError */
         ValidationError: {
@@ -4565,262 +4780,6 @@ export interface operations {
                      *         "code": "UNAUTHORIZED",
                      *         "details": {},
                      *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    account_get_account_training_scan: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
-            503: {
-                headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "SERVICE_UNAVAILABLE",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    account_start_account_training_scan: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["TrainingScanRequest"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 与当前状态冲突：PIPELINE_ALREADY_RUNNING */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "PIPELINE_ALREADY_RUNNING",
-                     *         "details": {},
-                     *         "message": "与当前状态冲突"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 参数校验失败：VALIDATION_ERROR */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "VALIDATION_ERROR",
-                     *         "details": {},
-                     *         "message": "参数校验失败"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 下游依赖失败：CORE_COMMAND_FAILED */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "CORE_COMMAND_FAILED",
-                     *         "details": {},
-                     *         "message": "下游依赖失败"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
-            503: {
-                headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "SERVICE_UNAVAILABLE",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 下游依赖超时：CORE_COMMAND_TIMEOUT */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "CORE_COMMAND_TIMEOUT",
-                     *         "details": {},
-                     *         "message": "下游依赖超时"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    account_cancel_account_training_scan: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
-            503: {
-                headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "SERVICE_UNAVAILABLE",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
                      *       }
                      *     }
                      */
@@ -11201,6 +11160,453 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    skland_unbind_skland: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SklandBindResult"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    skland_bind_skland_manual: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SklandManualBindRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SklandStatusResult"];
+                };
+            };
+            /** @description token 缺失或不匹配：SKLAND_LOGIN_FAILED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_LOGIN_FAILED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：SKLAND_ENCRYPTION_KEY_INVALID */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_ENCRYPTION_KEY_INVALID",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 下游依赖失败：SKLAND_UPSTREAM_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_UPSTREAM_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    skland_start_skland_qr_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SklandQrStartResult"];
+                };
+            };
+            /** @description 与当前状态冲突：SKLAND_ENCRYPTION_KEY_INVALID */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_ENCRYPTION_KEY_INVALID",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 下游依赖失败：SKLAND_UPSTREAM_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_UPSTREAM_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    skland_poll_skland_qr_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 扫码会话 id */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SklandQrPollResult"];
+                };
+            };
+            /** @description 资源不存在：SKLAND_QR_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_QR_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 下游依赖失败：SKLAND_UPSTREAM_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_UPSTREAM_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    skland_get_skland_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SklandStatusResult"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    skland_sync_skland_training: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SklandSyncResult"];
+                };
+            };
+            /** @description 与当前状态冲突：SKLAND_NOT_BOUND、SKLAND_SYNC_BUSY、SKLAND_ENCRYPTION_KEY_INVALID */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_NOT_BOUND",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 请求过于频繁：RATE_LIMITED */
+            429: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RATE_LIMITED",
+                     *         "details": {},
+                     *         "message": "请求过于频繁"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 下游依赖失败：SKLAND_UPSTREAM_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_UPSTREAM_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

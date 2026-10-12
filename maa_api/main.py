@@ -64,6 +64,7 @@ from maa_api.api.routers import (
     snippets,
     settings as settings_router,
     schedules,
+    skland,
     sources,
     system,
     tasks,
@@ -270,6 +271,7 @@ TAGS: list[dict[str, str]] = [
     {"name": "settings", "description": "可视化配置"},
     {"name": "sources", "description": "外部数据源状态与缓存"},
     {"name": "account", "description": "账号数据（干员、仓库与养成计划）"},
+    {"name": "skland", "description": "森空岛账号（扫码绑定、练度同步与解绑）"},
     {"name": "notifications", "description": "多通道通知"},
     {"name": "resources", "description": "Copilot 作业、基建方案、自定义 task"},
     {"name": "snippets", "description": "API 调试台收藏请求"},
@@ -1005,23 +1007,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             context_provider=pipeline_runner.log_context,
             client_type_provider=lambda: get_settings().channel.client_type,
         )
-        # 练度扫描（M36 §4.5）：逐格点开干员、读详情页、把技能等级 / 专精 / 模组写库。
-        # 内核只跑任务表里第一个匹配上的节点，写不出「读屏 → 判断点哪格 → 读详情 →
-        # 回列表 → 翻屏」这种带分支的循环，所以循环留在 Python 侧、由一串小流水线驱动：
-        # 这里要流水线服务（一步步提交）、内核客户端（取一帧截图数专精亮点）与资源服务
-        # （把自定义节点铺进增量层）。
-        from maa_api.services.account.scan import TrainingScanService
+        # 森空岛账号数据（M42 §4.4/§4.5/§4.6）：凭据 + 角色两张表由 store 包着，
+        # 同步服务编排取数与写库，登录服务管扫码会话。三者只依赖本机资源与出站 HTTP，
+        # 不碰内核与设备，所以与账号服务一起在这里装配。
+        from maa_api.services.skland.login import SklandLoginService
+        from maa_api.services.skland.store import SklandStore
+        from maa_api.services.skland.sync import SklandSyncService
 
-        app.state.training_scan_service = TrainingScanService(
-            db_session.session_factory,
-            box=box_service,
-            pipeline_service=pipeline_runner,
-            plans=upgrade_plans,
-            core_client=core_client,
-            resource_service=getattr(app.state, "resource_service", None),
-            # 起手 StartUp 用的默认渠道，与 M33 回调接线同一个来源（M37 §4.3）。
-            client_type_provider=lambda: get_settings().channel.client_type,
-        )
+        skland_store = SklandStore(db_session.session_factory)
+        app.state.skland_store = skland_store
+        app.state.skland_sync_service = SklandSyncService(store=skland_store, box=box_service)
+        app.state.skland_login_service = SklandLoginService(store=skland_store)
         # 当期卡池（M28）：注入段用；外服不注入（进度与国服不同），由卡池服务自己判。
         from maa_api.services.game.gacha import GachaService
 
@@ -1262,6 +1258,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             id="maa-retention-startup",
             replace_existing=True,
         )
+
+        # 森空岛定时同步（M42 §4.5）：**默认关**（`skland.auto_sync_interval_minutes = 0`），
+        # 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
+        # 同步本身的互斥锁与冷却在服务层，这里只负责按时戳一下，失败只记 last_error。
+        async def sync_skland_when_enabled() -> None:
+            interval = get_settings().skland.auto_sync_interval_minutes
+            if interval <= 0:
+                return
+            service = getattr(app.state, "skland_sync_service", None)
+            if service is None:
+                return
+            try:
+                await service.sync()
+            except Exception:  # noqa: BLE001 - 定时同步失败不能拖垮调度器
+                logger.warning("森空岛定时同步失败", exc_info=True)
+
+        skland_interval = get_settings().skland.auto_sync_interval_minutes
+        if skland_interval > 0:
+            update_scheduler.add_job(
+                sync_skland_when_enabled,
+                "interval",
+                minutes=skland_interval,
+                id="maa-skland-auto-sync",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+
         update_scheduler.start()
         app.state.update_scheduler = update_scheduler
         from maa_api.services.schedule_service import ScheduleService
@@ -1465,6 +1489,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router)
     app.include_router(sources.router)
     app.include_router(account.router)
+    app.include_router(skland.router)
     app.include_router(confirmations.router)
     app.include_router(questions.router)
     app.include_router(ws_router)
