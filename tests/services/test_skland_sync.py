@@ -273,7 +273,10 @@ def test_sync_writes_training_and_records_the_round(session_factory):
             assert (row.elite, row.level, row.potential) == (2, 80, 6)
             assert row.skill_level == 7
             assert row.masteries == {"1": 3, "2": 0, "3": 0}
-            assert row.modules == {}
+            # 假上游的 equip 用的是 ``eq1``，没有 equipmentInfoMap ⇒ 类型认不出，
+            # 归一返回 ``None``（不知道）而不是 ``{}``（确认没装）。
+            assert row.modules is None
+            assert summary["dropped_invalid"] >= 1
             assert row.favor_percent == 200
             assert row.field_sources["level"] == "skland"
             assert row.recognized_at is not None

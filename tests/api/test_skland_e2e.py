@@ -240,8 +240,7 @@ def test_full_flow_binds_scans_syncs_and_persists(isolated_db, make_client):
             assert row is not None
             assert (row.own, row.elite, row.level, row.potential) == (True, 2, 90, 6)
             assert row.skill_level == 7
-            # 本机 catalog 为空 ⇒ 稀有度退到响应里的 charInfoMap（5★）⇒ 只有两个技能，
-            # 第三槽归零（与 normalize_masteries 同口径）。
+            # 专精槽位取响应里 skills 的个数（3 个），不依赖稀有度是否读得出来。
             assert row.masteries == {"1": 3, "2": 1, "3": 0}
             assert row.modules == {"X": 2}
             assert row.favor_percent == 200

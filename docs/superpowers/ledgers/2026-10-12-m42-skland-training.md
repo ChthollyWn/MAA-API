@@ -26,6 +26,8 @@
 5. **模组类型不信本地资源**：仓库的 `resource/` 里**没有** `uniequip_table.json`（只有 `battle_data.json` 等），`GAMEDATA_FILES` 也不含它，所以 `equip[].id → X/Y/D/A` 只能取**同一次响应**里的 `equipmentInfoMap`（候选键 `type`/`moduleType`/`equipType`/`typeName`，前缀 `MOD_`/`UNIEQUIP_`/`EQUIP_` 归一）。映射不出来计一次 `dropped`，不猜类型。
 6. **`skland.*` 三个 key 全进 `CONFIG_ONLY_SETTING_KEYS`**（不只 `credential_key`）：定时间隔与超时若只进 `SETTING_KEYS`，设置页会根据 schema 自动为它们生成表单控件，等于凭空做出规格 §3.2 明确不做的「前端定时开关」。代价是 `tests/test_vapid_settings.py` 那张钉死的集合要同步。
 
+7. **不依赖未取证形状的两处加固**（W0 未完成时做掉的「从设计上消解」）：① 专精槽位从「按稀有度查 `SKILL_COUNT_BY_RARITY` 截槽」改成 **`len(skills)`**——稀有度要靠 `charInfoMap` 兜底，字段名没确认前按表截槽会把 6★ 的第 2、3 个技能专精写成 `0`（＝「确认没有专精」）；② 模组从「非空 `equip` 一律返回 `{}`」改成 **认不出任何类型时返回 `None`**——`equipmentInfoMap` 的类型键名同样没确认，认不出就落 `{}` 等于宣称「确认没装模组」。两条都补了正反用例（含「部分认出保留已知」与「超过三槽计数」）。
+
 ## 实施中修掉的问题（按发现顺序）
 
 1. **加错误码会被文档门禁拦住**：`tests/domain/test_errors.py` 直接解析 docs/05 §4 的表格并断言 code 集合与数量一致（114 → 121 条、绑定位 113 → 120、表 18 → 19 张），所以「加 7 个 `SKLAND_*`」必须与 docs/05 §4.19 同一次改动落地。这正是仓库「表外的码一个都不许加」的设计，不是额外工作。

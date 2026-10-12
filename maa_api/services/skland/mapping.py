@@ -13,6 +13,8 @@
 - **越界值一律丢**（不夹取、不四舍五入）：``level`` 0–90、``evolvePhase`` 0–2、
   ``potential`` 1–6、``mainSkillLvl`` 1–7、专精 0–3、模组 1–3，越界的那一项留 ``None``
   并计入 ``dropped``——上游改形状时宁可少写一个字段，也不要往库里灌脏值。
+- **「不知道」不许写成「没有」**：``skills`` / ``equip`` 缺字段或整体换形状时留 ``None``；
+  非空 ``equip`` 里一个模组类型都认不出来时也留 ``None``，只有**空列表**才是「确认没有」。
 - **``potentialRank`` 是 0 基**：本项目 ``account_operator.potential`` 是「潜能数」
   （真机库里 384 名已拥有干员中 184 名是 6 ＝ 满潜），所以 ``potential = potentialRank + 1``。
   这条换算由 W0 拿同账号的 OperBox 读数交叉验证（规格 §2.5-1）。
@@ -32,7 +34,6 @@ from maa_api.services.account.rules import (
     MAX_SKILL_LEVEL,
     MIN_MODULE_LEVEL,
     MODULE_TYPES,
-    skill_count,
 )
 
 __all__ = [
@@ -119,7 +120,7 @@ def to_operator_updates(
         )
         potential, drop_potential = _checked(_potential(raw.get("potentialRank")))
         favor, drop_favor = _checked(_int_in_range(raw.get("favorPercent"), 0, MAX_FAVOR_PERCENT))
-        masteries, drop_mastery = _masteries(raw.get("skills"), rarity)
+        masteries, drop_mastery = _masteries(raw.get("skills"))
         modules, drop_module = _modules(raw.get("equip"), equipment_info_map)
         dropped += sum(
             (
@@ -213,22 +214,25 @@ def _potential(raw: Any) -> int | None:
     return value if 1 <= value <= MAX_POTENTIAL else None
 
 
-def _masteries(raw: Any, rarity: int | None) -> tuple[dict[str, int] | None, int]:
+def _masteries(raw: Any) -> tuple[dict[str, int] | None, int]:
     """``skills[]`` → ``{"1": 0, "2": 0, "3": 0}`` 形状；认不出形状返回 ``None``。
 
     ``skills`` 不是列表（上游缺字段）时返回 ``None`` ＝ 不知道；是列表时**空列表也算
-    确认没有**（与接口对精二以下干员的表达一致，规格 §2.3）。槽位按数组顺序对应，
-    超出该稀有度技能数的槽位归零（与 :func:`~maa_api.services.account.rules.normalize_masteries`
-    同口径）。
+    确认没有**（与接口对精二以下干员的表达一致，规格 §2.3）。
+
+    **槽位数取 ``len(skills)`` 而不是按稀有度查表**：响应里就是这名干员真的有的技能，
+    比本机目录可靠——W0 尚未确认 ``charInfoMap`` 的字段名，若稀有度读不出来，按稀有度
+    截槽会把 6★ 的第 2、3 个技能专精写成 0（＝「确认没有专精」），那是拿默认值冒充事实。
+    超过 3 个的条目忽略并计数（技能序号只到 3）。
     """
     if not isinstance(raw, list):
         return None, 0
-    slots = skill_count(rarity)
     result = {"1": 0, "2": 0, "3": 0}
     dropped = 0
     for index, entry in enumerate(raw):
         if index >= 3:
-            break
+            dropped += 1
+            continue
         if not isinstance(entry, Mapping):
             dropped += 1
             continue
@@ -236,7 +240,7 @@ def _masteries(raw: Any, rarity: int | None) -> tuple[dict[str, int] | None, int
         if level is None:
             dropped += 1
             continue
-        result[str(index + 1)] = level if index < slots else 0
+        result[str(index + 1)] = level
     return result, dropped
 
 
@@ -251,6 +255,9 @@ def _modules(
     """
     if not isinstance(raw, list):
         return None, 0
+    if not raw:
+        # 空列表是正面读数：这名干员确实没有已解锁的模组（M35 口径的「确认没有」）。
+        return {}, 0
     result: dict[str, int] = {}
     dropped = 0
     for entry in raw:
@@ -271,6 +278,11 @@ def _modules(
         if level is None:
             continue
         result[module_type] = level
+    if not result:
+        # 非空列表却一个类型都认不出来（多半是 ``equipmentInfoMap`` 换了形状）：返回
+        # ``None`` ＝ 不知道，而不是 ``{}`` ＝ 确认没装。把不知道写成「没有」是这套
+        # 归一里最不能犯的错。
+        return None, dropped
     return result, dropped
 
 

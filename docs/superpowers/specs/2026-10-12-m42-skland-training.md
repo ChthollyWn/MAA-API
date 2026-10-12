@@ -77,8 +77,8 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 | `chars[].level`（0–90） | `level` | 直用（`MAX_LEVEL = 90`，`rules.py:118`） |
 | `chars[].potentialRank`（0–5） | `potential` | **+1**：本项目 `MAX_POTENTIAL = 6`（`rules.py:120`）、wire 样例 `"potential": 6`（`api/routers/account.py:87`），是「潜能等级」而非「潜能数」。W0 用 OperBox 交叉验证（§2.5-1） |
 | `chars[].mainSkillLvl`（1–7） | `skill_level` | 直用（`MAX_SKILL_LEVEL = 7`，`rules.py:115`） |
-| `chars[].skills[].specializeLevel`（0–3） | `masteries` | 键是技能槽位 `"1"`–`"3"`（`MasteryKey`，`api/routers/account.py:63`）：槽位由本机 `character_table` 的技能序映射；`0` 是**确认没有专精**，不是未识别 |
-| `chars[].equip[].level`（0–3） | `modules` | 键是模组类型 `X/Y/D/A`（`MODULE_TYPES`，`rules.py:109`）：类型由本机 `uniequip_table` 的模组 `type` 映射；`locked=true` 或等级 0 → 不写该键 |
+| `chars[].skills[].specializeLevel`（0–3） | `masteries` | 键是技能槽位 `"1"`–`"3"`（`MasteryKey`，`api/routers/account.py:63`）：**槽位数取 `len(skills)`**（响应里就是这名干员真有的技能，不查本机表——稀有度读不出来时按表截槽会把 6★ 的第 2、3 个技能专精写成 0）；`0` 是**确认没有专精**，不是未识别 |
+| `chars[].equip[].level`（0–3） | `modules` | 键是模组类型 `X/Y/D/A`（`MODULE_TYPES`，`rules.py:109`）：类型取**同一次响应**里的 `equipmentInfoMap`（本机资源层没有 `uniequip_table.json`，`GAMEDATA_FILES` 也不含它）；`locked=true` 或等级越界 → 不写该键；**非空 `equip` 里一个类型都认不出来时整列留 `None`（不知道），不落 `{}`（确认没有）**；空 `equip` 列表才是正面读数 `{}` |
 | `chars[].favorPercent`（0–200） | **新列 `favor_percent`** | 直用（本轮唯一新增的练度列） |
 | `data.status.name` / `data.status.level` | `skland_role.nickname` / `level` | 直用 |
 | 不在 `chars` 里的 `char_id` | `own = False` | 只在**整轮完整**时写（§4.5 护栏 ①③） |
@@ -104,8 +104,8 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 
 1. `potentialRank` 与 OperBox 的 `potential` 是否差 1（同账号交叉对照，写进台账）。
 2. `data.charInfoMap` 到底有哪些字段（是否含 `name` / `rarity` / `profession`）。
-3. `skills[].id` 与本机 `character_table` 的 `skillId` 是否同一命名空间（决定槽位映射是否可靠）。
-4. `equip[].id`（形如 `uniequip_002_xxx`）到模组类型 `X/Y/D/A` 的映射表来源与覆盖率。
+3. ~~`skills[].id` 与本机 `character_table` 的 `skillId` 是否同一命名空间~~——**已由设计消解**：槽位数直接取 `len(skills)`，不再依赖本机技能表（`skills[].id` 只用于样例记录）。
+4. `equip[].id`（形如 `uniequip_002_xxx`）到模组类型 `X/Y/D/A` 的映射表来源与覆盖率——**部分消解**：认不出就留 `None`（不知道），不会把「不知道」写成「没有」；覆盖率的实测仍然需要真机。
 5. `bindingList[]` 的真实字段（`uid` / `channelMasterId` / `nickname` / `level` / `isDefault` / `isDeleted`）。
 6. `scan_status` 确认后的 `status` 值与 `data.scanCode` 形状。
 7. `cred` 与签名密钥的有效期、`auth/refresh` 的返回形状与失败语义。

@@ -90,25 +90,37 @@ def test_out_of_range_values_are_dropped_and_counted(overrides):
     assert mapping[field] is None
 
 
-def test_masteries_fill_three_slots_and_truncate_by_rarity():
-    """4–5★ 只有两个技能：第三槽归零（与 ``normalize_masteries`` 同口径）。"""
-    chars = [
-        _char(
-            charId="char_5",
-            skills=[
-                {"id": "a", "specializeLevel": 3},
-                {"id": "b", "specializeLevel": 0},
-                {"id": "c", "specializeLevel": 2},
-            ],
-        )
-    ]
-    updates, dropped = to_operator_updates(chars, catalog={"char_5": Meta(rarity=5)})
+def test_masteries_take_their_slots_from_the_response_not_from_rarity():
+    """槽位数＝``len(skills)``：两技能干员只写两槽，第三个技能真的在就照写。
+
+    这条刻意**不看稀有度**：W0 尚未确认 ``charInfoMap`` 的字段名，稀有度读不出来时按
+    稀有度截槽会把 6★ 的第 3 个技能专精写成 0（＝「确认没有专精」）。
+    """
+    two_skills = [_char(charId="char_5", skills=[
+        {"id": "a", "specializeLevel": 3},
+        {"id": "b", "specializeLevel": 0},
+    ])]
+    updates, dropped = to_operator_updates(two_skills, catalog={"char_5": Meta(rarity=6)})
     (update,) = updates
     assert update.masteries == {"1": 3, "2": 0, "3": 0}
     assert dropped == 0
 
-    updates, _ = to_operator_updates(chars, catalog={"char_5": Meta(rarity=6)})
+    three_skills = [_char(charId="char_6", skills=[
+        {"id": "a", "specializeLevel": 3},
+        {"id": "b", "specializeLevel": 0},
+        {"id": "c", "specializeLevel": 2},
+    ])]
+    # 稀有度完全读不出来（没有 catalog、没有 charInfoMap）也要保住第 3 槽。
+    updates, _ = to_operator_updates(three_skills)
     assert updates[0].masteries == {"1": 3, "2": 0, "3": 2}
+
+
+def test_masteries_ignore_slots_beyond_three_and_count_them():
+    updates, dropped = to_operator_updates(
+        [_char(skills=[{"specializeLevel": 1}] * 4)]
+    )
+    assert updates[0].masteries == {"1": 1, "2": 1, "3": 1}
+    assert dropped == 1
 
 
 def test_masteries_none_when_skills_is_not_a_list_but_empty_list_means_zero():
@@ -116,6 +128,36 @@ def test_masteries_none_when_skills_is_not_a_list_but_empty_list_means_zero():
     assert updates[0].masteries is None
     updates, _ = to_operator_updates([_char(skills=[])])
     assert updates[0].masteries == {"1": 0, "2": 0, "3": 0}
+
+
+def test_unresolvable_modules_stay_unknown_instead_of_none_confirmed():
+    """非空 ``equip`` 却一个类型都认不出 ⇒ ``None``（不知道），不是 ``{}``（确认没有）。"""
+    chars = [_char(equip=[{"id": "uniequip_999_x", "level": 2, "locked": False}])]
+    updates, dropped = to_operator_updates(chars, equipment_info_map={})
+    (update,) = updates
+    assert update.modules is None
+    assert dropped == 1
+
+    # 反面对照：空列表是正面读数，仍然写 ``{}``。
+    updates, dropped = to_operator_updates([_char(equip=[])], equipment_info_map={})
+    assert updates[0].modules == {}
+    assert dropped == 0
+
+
+def test_partially_resolved_modules_keep_what_is_known():
+    chars = [
+        _char(
+            equip=[
+                {"id": "uniequip_002_amiya", "level": 2, "locked": False},
+                {"id": "uniequip_999_x", "level": 1, "locked": False},
+            ]
+        )
+    ]
+    updates, dropped = to_operator_updates(
+        chars, equipment_info_map={"uniequip_002_amiya": {"type": "MOD_X"}}
+    )
+    assert updates[0].modules == {"X": 2}
+    assert dropped == 1
 
 
 def test_modules_come_from_equipment_info_map_and_skip_locked():

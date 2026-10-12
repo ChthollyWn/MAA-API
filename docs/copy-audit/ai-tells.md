@@ -6,8 +6,8 @@
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
 | 粗体强调 | medium | 171 | 326 | 497 |
-| 破折号当冒号用 | high | 37 | 111 | 148 |
-| 「A 而不是 B」对照腔 | high | 16 | 86 | 102 |
+| 破折号当冒号用 | high | 37 | 112 | 149 |
+| 「A 而不是 B」对照腔 | high | 16 | 88 | 104 |
 | 绝对化规定腔 | medium | 12 | 65 | 77 |
 | 自指式讲解腔 | medium | 1 | 39 | 40 |
 | 「…即可」机器腔 | medium | 12 | 20 | 32 |
@@ -44,7 +44,7 @@
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
 - …… 另有 318 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 37 / 开发向 111）
+## 破折号当冒号用（high｜用户可见 37 / 开发向 112）
 
 **用户可见**
 
@@ -68,9 +68,9 @@
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
 - `maa_api/agent/policy.py:367` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/policy.py:613` 要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。 只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的 ``warnings`` 提醒，策略层不制造新的确…（共 164 字）
-- …… 另有 103 条，见 inventory.json
+- …… 另有 104 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 16 / 开发向 86）
+## 「A 而不是 B」对照腔（high｜用户可见 16 / 开发向 88）
 
 **用户可见**
 
@@ -94,7 +94,7 @@
 - `maa_api/agent/runtime.py:981` 登记本轮的 task，然后交给 :meth:`_run_turn_body`（规格 §3.1）。 登记放在这里而不是 ``_produce_turn``：自动诊断（``run_incident``）直接调用 本方法、没有 producer，…（共 164 字）
 - `maa_api/agent/tools/activity.py:115` 取指定前缀的关卡表；未知前缀给提示而不是空结果。
 - `maa_api/api/deps.py:307` 记一次鉴权失败；本次即达阈值时进入冷却并抛 429（把调用方的 401 顶掉）。 设计成「达阈值的那次请求直接得到 429」而不是「第 11 次才 429」：docs/05 §4.1 的语义是失败超过阈值即进入冷却期，这一刻起该 IP 已经…（共 127 字）
-- …… 另有 78 条，见 inventory.json
+- …… 另有 80 条，见 inventory.json
 
 ## 绝对化规定腔（medium｜用户可见 12 / 开发向 65）
 
