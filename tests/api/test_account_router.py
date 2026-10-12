@@ -259,6 +259,22 @@ def test_list_operators_paginates(isolated_db, make_client, tmp_settings):
         assert client.get(f"/api/account/operators?{bad}").status_code == 422
 
 
+def test_operator_list_rows_carry_the_new_columns(isolated_db, make_client, tmp_settings):
+    """列表路由有 `response_model`，行模型漏字段就会**静默丢掉**那一列。
+
+    M42 的 `favor_percent` 就是这么丢的：单条读取返回裸 dict（带上了），列表走
+    `AccountOperatorList` 过滤（没声明就没了）。M43 补模型的同时补上这条断言，
+    免得以后再漏。
+    """
+    app, client = _seeded_client(isolated_db, make_client)
+
+    payload = client.get("/api/account/operators").json()
+    assert payload["items"], "用例前提：至少一行"
+    row = payload["items"][0]
+    for field in ("favor_percent", "skill_ids", "module_details"):
+        assert field in row, f"列表行缺少 {field}（response_model 又漏了吗）"
+
+
 def test_operator_wire_shape_and_single_get(isolated_db, make_client, tmp_settings):
     app, client = _seeded_client(isolated_db, make_client)
 
@@ -277,6 +293,9 @@ def test_operator_wire_shape_and_single_get(isolated_db, make_client, tmp_settin
         "modules",
         # M42 §2.3：信赖是森空岛独有的一列，与六列同口径可空。
         "favor_percent",
+        # M43 §4.3：卡片用的技能 id 与模组明细，同样是「不知道就 None」。
+        "skill_ids",
+        "module_details",
         "field_sources",
         "recognized_at",
         "updated_at",

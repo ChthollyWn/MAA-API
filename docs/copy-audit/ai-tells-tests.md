@@ -1,12 +1,12 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 6307 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 6318 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 88 | 88 |
-| 绝对化规定腔 | medium | 0 | 70 | 70 |
+| 粗体强调 | medium | 0 | 90 | 90 |
+| 绝对化规定腔 | medium | 0 | 71 | 71 |
 | 破折号当冒号用 | high | 0 | 56 | 56 |
 | 「A 而不是 B」对照腔 | high | 0 | 50 | 50 |
 | 自指式讲解腔 | medium | 0 | 10 | 10 |
@@ -17,7 +17,7 @@
 | 提示腔 | medium | 0 | 1 | 1 |
 | emoji/符号装饰 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 88）
+## 粗体强调（medium｜用户可见 0 / 开发向 90）
 
 **开发向**
 
@@ -27,9 +27,9 @@
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
 - `tests/agent/test_knowledge_no_numbers.py:1` M30 T4：「无数值」检查测试（规格 §10.3、§10.1）。 规格 ``docs/superpowers/specs/2026-10-09-m25-prts-knowledge.md`` §10.1 把内置知识条目的 数值口径定成「数…（共 807 字）
 - `tests/agent/test_knowledge_no_numbers.py:205` MAA 操作参数里的固定招募时长（Recruit 固定填 `9:00:00`，T1-a §5 第 6 条豁免它）。注意「时长档位 → 稀有度下限」那张表 T1-a §5 明确**不豁免**：`1:00:00` 也不在白名单里（除非它出现在 …（共 134 字）
-- …… 另有 82 条，见 inventory.json
+- …… 另有 84 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 70）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 71）
 
 **开发向**
 
@@ -39,7 +39,7 @@
 - `tests/agent/test_knowledge_no_numbers.py:574` 规格 §10.3 T4：正文不得出现「数字 + 游戏单位」。
 - `tests/agent/test_knowledge_service.py:1287` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
 - `tests/agent/test_llm.py:341` 模型名写错时要能在 details 里看到上游原话，且凭据不得回显。
-- …… 另有 64 条，见 inventory.json
+- …… 另有 65 条，见 inventory.json
 
 ## 破折号当冒号用（high｜用户可见 0 / 开发向 56）
 

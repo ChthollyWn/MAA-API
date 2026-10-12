@@ -48,6 +48,7 @@ __all__ = [
     "require_bool",
     "require_int",
     "skill_count",
+    "text_list_wire",
     "validation_error",
 ]
 
@@ -65,6 +66,8 @@ BOX_FIELDS: tuple[str, ...] = (
     "masteries",
     "modules",
     "favor_percent",
+    "skill_ids",
+    "module_details",
     "field_sources",
     "recognized_at",
     "updated_at",
@@ -85,6 +88,10 @@ SKLAND_FIELDS: tuple[str, ...] = (
     "masteries",
     "modules",
     "favor_percent",
+    # M43：卡片要用的两列（技能 id 与模组明细）。它们**不可编辑**，进这张表只是为了
+    # 跟着同步一起写与记来源；因为没有手动来源，差异逻辑对它们天然不成立。
+    "skill_ids",
+    "module_details",
 )
 
 #: 可为「未识别」的练度列（M35 规格 §4.1）：取值 ``None`` 表示既没有识别值、
@@ -335,10 +342,52 @@ def box_row_wire(row: Any) -> dict[str, Any]:
         "modules": module_wire(getattr(row, "modules", None)),
         # 信赖（M42）：与六列同口径，``None`` ＝ 未知（没有同步过、或上游没给这一项）。
         "favor_percent": optional_int(getattr(row, "favor_percent", None)),
+        # 卡片资源（M43）：技能 id 与模组明细，同样 ``None`` ＝ 不知道（不是空）。
+        "skill_ids": text_list_wire(getattr(row, "skill_ids", None)),
+        "module_details": module_details_wire(getattr(row, "module_details", None)),
         "field_sources": field_sources_wire(getattr(row, "field_sources", None)),
         "recognized_at": iso_z(getattr(row, "recognized_at", None)),
         "updated_at": iso_z(getattr(row, "updated_at", None)),
     }
+
+
+
+def text_list_wire(value: Any) -> list[str] | None:
+    """字符串列表透传：``None`` / 非列表 ⇒ ``None``（不知道），条目非字符串则跳过。"""
+    if not isinstance(value, list):
+        return None
+    return [item for item in value if isinstance(item, str)]
+
+
+def module_details_wire(value: Any) -> list[dict[str, Any]] | None:
+    """模组明细透传：只保留认识的键，``type`` / ``level`` 缺一不可，否则整条丢掉。
+
+    明细是 M43 卡片显示 ``CCR-X`` 的依据；读侧不重新解释、不补默认值——认不出的条目
+    丢掉比编一个标签好。
+    """
+    if not isinstance(value, list):
+        return None
+    details: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        module_type = item.get("type")
+        level = optional_int(item.get("level"))
+        if not isinstance(module_type, str) or level is None:
+            continue
+        details.append(
+            {
+                "type": module_type,
+                "level": level,
+                "equip_id": item.get("equip_id") if isinstance(item.get("equip_id"), str) else None,
+                "branch": item.get("branch") if isinstance(item.get("branch"), str) else None,
+                "label": item.get("label") if isinstance(item.get("label"), str) else None,
+                "type_icon": (
+                    item.get("type_icon") if isinstance(item.get("type_icon"), str) else None
+                ),
+            }
+        )
+    return details
 
 
 def diff_wire(row: Any) -> dict[str, Any]:

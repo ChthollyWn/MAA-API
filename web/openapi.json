@@ -92,6 +92,69 @@
         "title": "AccountDepotRow",
         "type": "object"
       },
+      "AccountModuleDetail": {
+        "description": "模组明细（M43 §4.3）：卡片显示 ``CCR-X`` 与等级的依据。\n\n``type`` 是类型字母（`X` / `Y` / `D` / `A`），``branch`` 是分支码（`ccr` / `exe` …），\n``label`` 是页面直接显示的标签（`CCR-X`），``type_icon`` 是上游 `typeIcon` 原值\n（`ccr-y`，以后要用第三方图标时按它拼 URL）。``equip_id`` 是模组 id。",
+        "properties": {
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "equip_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Equip Id"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "type_icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Icon"
+          }
+        },
+        "required": [
+          "type",
+          "level"
+        ],
+        "title": "AccountModuleDetail",
+        "type": "object"
+      },
       "AccountOperatorList": {
         "description": "干员表响应（docs/05 §6.20：列表用 ``{items, total, limit, offset}``）。",
         "properties": {
@@ -142,6 +205,17 @@
             ],
             "title": "Elite"
           },
+          "favor_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favor Percent"
+          },
           "field_sources": {
             "additionalProperties": {
               "type": "string"
@@ -173,6 +247,20 @@
               }
             ],
             "title": "Masteries"
+          },
+          "module_details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AccountModuleDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Module Details"
           },
           "modules": {
             "anyOf": [
@@ -246,6 +334,20 @@
               }
             ],
             "title": "Recognized At"
+          },
+          "skill_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Ids"
           },
           "skill_level": {
             "anyOf": [

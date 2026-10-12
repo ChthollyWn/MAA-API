@@ -1,24 +1,24 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12358 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12440 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 278 | 278 |
-| 破折号当冒号用 | high | 0 | 125 | 125 |
+| 粗体强调 | medium | 0 | 287 | 287 |
+| 破折号当冒号用 | high | 0 | 127 | 127 |
 | 「A 而不是 B」对照腔 | high | 0 | 110 | 110 |
 | 绝对化规定腔 | medium | 0 | 64 | 64 |
 | 「…即可」机器腔 | medium | 0 | 19 | 19 |
 | 自指式讲解腔 | medium | 0 | 18 | 18 |
 | 省略号 | medium | 0 | 4 | 4 |
+| 「不是…而是…」对照句 | high | 0 | 3 | 3 |
 | 宣传词 | medium | 0 | 3 | 3 |
 | 提示腔 | medium | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 0 | 2 | 2 |
-| 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 278）
+## 粗体强调（medium｜用户可见 0 / 开发向 287）
 
 **开发向**
 
@@ -28,9 +28,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 272 条，见 inventory.json
+- …… 另有 281 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 125）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 127）
 
 **开发向**
 
@@ -40,7 +40,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 119 条，见 inventory.json
+- …… 另有 121 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 110）
 
@@ -61,9 +61,9 @@
 - `maa_api/agent/preconditions.py:51` : `StartUp` 的小写形式：判定一律大小写不敏感（规格 §4.1）。
 - `maa_api/agent/tools/pipeline.py:216` 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
 - `maa_api/db/migrations/versions/0018_unknown_training.py:47` : 识别永远不写、只有人工/Agent 才能给出的三列。
+- `maa_api/services/account/box.py:784` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
 - `maa_api/services/account/capture.py:19` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
 - `maa_api/services/copilot/rules.py:72` : ``Click`` / ``Swipe`` 等动作一律放行（Q38）。
-- `maa_api/services/external/http.py:193` 主机白名单在发请求之前判：来源登记表里没有的主机一律拒绝。
 - …… 另有 58 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 0 / 开发向 19）
@@ -99,6 +99,14 @@
 - `tests/domain/test_route_inventory.py:80` : §6 开头那句：``共 101 条 HTTP 端点……另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。``
 - `tests/domain/test_route_inventory.py:88` : 表格数据行：``| GET | `/api/system/health` | …… |``。
 
+## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 3）
+
+**开发向**
+
+- `maa_api/services/account/box.py:784` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
+- `tests/db/test_repositories_update_notify_resource.py:517` 这不是缺陷，是「校验按 type 分发的 Pydantic 模型在服务层」的边界。
+- `tests/services/test_upgrade_planner.py:399` M29：升级经验 / 龙门币用内置的官方数值表。显式注入而不是让规划器惰性加载，是为了
+
 ## 宣传词（medium｜用户可见 0 / 开发向 3）
 
 **开发向**
@@ -121,13 +129,6 @@
 
 - `maa_api/db/migrations/env.py:85` ⚠️ 必须在建任何表之前、且写在 connection 上（M2-01 实测）。
 - `maa_api/db/migrations/env.py:88` ⚠️ 紧跟一次 commit，不能省。exec_driver_sql 会 autobegin 一个
-
-## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 2）
-
-**开发向**
-
-- `tests/db/test_repositories_update_notify_resource.py:517` 这不是缺陷，是「校验按 type 分发的 Pydantic 模型在服务层」的边界。
-- `tests/services/test_upgrade_planner.py:399` M29：升级经验 / 龙门币用内置的官方数值表。显式注入而不是让规划器惰性加载，是为了
 
 ## 总结腔（high｜用户可见 0 / 开发向 1）
 

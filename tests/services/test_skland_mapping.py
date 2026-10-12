@@ -117,10 +117,111 @@ def test_masteries_take_their_slots_from_the_response_not_from_rarity():
 
 def test_masteries_ignore_slots_beyond_three_and_count_them():
     updates, dropped = to_operator_updates(
-        [_char(skills=[{"specializeLevel": 1}] * 4)]
+        [_char(skills=[{"id": f"sk{i}", "specializeLevel": 1} for i in range(4)])]
     )
     assert updates[0].masteries == {"1": 1, "2": 1, "3": 1}
+    # 第 4 个槽位在 masteries 与 skill_ids 两处各计一次（同一个越界条目被两条产线看到）。
+    assert dropped == 2
+    assert updates[0].skill_ids == ["sk0", "sk1", "sk2"]
+
+
+# ---------------------------------------------------------------------------
+# M43：技能 id 与模组明细（typeIcon → 类型字母 / 分支码 / 标签）
+# ---------------------------------------------------------------------------
+def test_skill_ids_follow_the_slot_order_and_truncate_at_three():
+    updates, dropped = to_operator_updates(
+        [_char(skills=[{"id": "skchr_amiya_2", "specializeLevel": 3}, {"id": "skchr_amiya_3", "specializeLevel": 0}])]
+    )
+    assert updates[0].skill_ids == ["skchr_amiya_2", "skchr_amiya_3"]
+    assert dropped == 0
+
+    # `skills` 不是列表 ⇒ 不知道（`None`），不是空列表。
+    updates, _ = to_operator_updates([_char(skills="nope")])
+    assert updates[0].skill_ids is None
+
+    # 条目缺 id ⇒ 计一次 dropped，但已解析出来的槽位照留（缺 `specializeLevel` 的那条
+    # 在 masteries 那条产线上也会各计一次，所以总数是 2）。
+    updates, dropped = to_operator_updates([_char(skills=[{"specializeLevel": 1}, {"id": "sk1"}] )])
+    assert updates[0].skill_ids == ["sk1"]
+    assert dropped == 2
+
+
+def test_module_details_carry_branch_label_and_type_icon():
+    """真机实测的 `typeIcon`：`ccr-y` ⇒ 类型 Y、分支 ccr、标签 CCR-Y。"""
+    chars = [
+        _char(
+            equip=[
+                {"id": "uniequip_001_amiya", "level": 1, "locked": False},
+                {"id": "uniequip_002_amiya", "level": 3, "locked": False},
+                {"id": "uniequip_003_amiya", "level": 1, "locked": True},
+            ]
+        )
+    ]
+    map_ = {
+        "uniequip_001_amiya": {"typeIcon": "original"},
+        "uniequip_002_amiya": {"typeIcon": "ccr-y"},
+        "uniequip_003_amiya": {"typeIcon": "ccr-x"},
+    }
+    updates, dropped = to_operator_updates(chars, equipment_info_map=map_)
+    (update,) = updates
+    # 证章（original）不进 modules 也不算 dropped；locked 的那条当没装。
+    assert update.modules == {"Y": 3}
+    assert update.module_details == [
+        {
+            "type": "Y",
+            "level": 3,
+            "equip_id": "uniequip_002_amiya",
+            "branch": "ccr",
+            "label": "CCR-Y",
+            "type_icon": "ccr-y",
+        }
+    ]
+    assert dropped == 0
+
+
+def test_type_icon_variants_are_parsed_or_dropped_never_guessed():
+    """六类写法：正常 / 大写 / 两位分支码 / 未知字母 / 证章 / 缺失。"""
+    map_ = {
+        "u_normal": {"typeIcon": "ccr-y"},
+        "u_upper": {"typeIcon": "dec-X"},
+        "u_short": {"typeIcon": "ra-a"},
+        "u_unknown": {"typeIcon": "so-b"},
+        "u_original": {"typeIcon": "original"},
+        "u_missing": {},
+    }
+    chars = [
+        _char(charId=f"char_{name}", equip=[{"id": name, "level": 2, "locked": False}])
+        for name in map_
+    ]
+    updates, dropped = to_operator_updates(chars, equipment_info_map=map_)
+    by_id = {update.char_id: update for update in updates}
+    assert by_id["char_u_normal"].modules == {"Y": 2}
+    assert by_id["char_u_normal"].module_details[0]["label"] == "CCR-Y"
+    assert by_id["char_u_upper"].modules == {"X": 2}
+    assert by_id["char_u_upper"].module_details[0]["label"] == "DEC-X"
+    assert by_id["char_u_short"].modules == {"A": 2}
+    assert by_id["char_u_short"].module_details[0]["branch"] == "ra"
+    # 未知字母（B）与证章：不写类型；证章是正常状态不计 dropped，未知字母计一次。
+    assert by_id["char_u_unknown"].modules is None
+    assert by_id["char_u_original"].modules is None
+    assert dropped == 2  # u_unknown + u_missing
+
+
+def test_module_details_stay_unknown_when_nothing_resolves():
+    """非空 `equip` 一个都解析不出 ⇒ 明细也是 `None`（不知道），不是空列表。"""
+    updates, dropped = to_operator_updates(
+        [_char(equip=[{"id": "uniequip_999_x", "level": 2, "locked": False}])],
+        equipment_info_map={},
+    )
+    assert updates[0].modules is None
+    assert updates[0].module_details is None
     assert dropped == 1
+
+    # 空 `equip` 才是正面读数：`{}` + 空明细。
+    updates, dropped = to_operator_updates([_char(equip=[])], equipment_info_map={})
+    assert updates[0].modules == {}
+    assert updates[0].module_details == []
+    assert dropped == 0
 
 
 def test_masteries_none_when_skills_is_not_a_list_but_empty_list_means_zero():

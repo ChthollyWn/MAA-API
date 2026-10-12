@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +39,8 @@ from maa_api.services.account.rules import (
     MODULE_TYPES,
 )
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "MAX_FAVOR_PERCENT",
     "MODULE_INFO_TYPE_KEYS",
@@ -50,9 +54,14 @@ __all__ = [
 POTENTIAL_RANK_OFFSET = 1
 #: 信赖百分比上限（游戏里 0–200）。
 MAX_FAVOR_PERCENT = 200
-#: ``equipmentInfoMap`` 里可能承载模组类型的键名。上游只用其中一个，且 W0 才能定稿
-#: （规格 §2.5-4），所以这里按候选顺序找第一个能归一成 X/Y/D/A 的值。
+#: ``equipmentInfoMap`` 里承载模组类型的键名。**真机实测（2026-10-12）就是 ``typeIcon``**，
+#: 值形如 ``ccr-y``（分支码小写 + ``-`` + 类型字母小写），证章是 ``original``；同一 id 的
+#: 值与拆包 ``uniequip_table.json`` **逐字相同**（规格 §2.3）。其余键名只作为上游换写法的兜底。
 MODULE_INFO_TYPE_KEYS: tuple[str, ...] = ("type", "moduleType", "equipType", "typeName")
+#: ``typeIcon`` 的形状：1–4 位分支码 + ``-`` + 一个类型字母（大小写都可能出现，如 ``dec-X``）。
+_MODULE_TYPE_ICON_RE = re.compile(r"^([a-z0-9]{1,4})-([a-z])$", re.IGNORECASE)
+#: 基础模组（证章）的 ``typeIcon``：没有分支码也没有类型字母，不进 ``modules``。
+MODULE_ORIGINAL_ICON = "original"
 #: 模组类型的别名前缀：上游可能给 ``MOD_X`` / ``UNIEQUIP_X`` 这类写法。
 _MODULE_TYPE_PREFIXES: tuple[str, ...] = ("mod_", "uniequip_", "equip_")
 
@@ -73,6 +82,11 @@ class OperatorTrainingUpdate:
     masteries: dict[str, int] | None = None
     modules: dict[str, int] | None = None
     favor_percent: int | None = None
+    #: 按槽位的技能 id（M43）：技能图标的 URL 要用它，``OperBox`` 与手动编辑给不出来。
+    skill_ids: list[str] | None = None
+    #: 模组明细（M43）：``[{type, level, equip_id, branch, label, type_icon}]``，
+    #: 供页面显示 ``CCR-X`` 这类标签；``modules`` 仍是计划层用的 ``{"Y": 3}``。
+    module_details: list[dict[str, Any]] | None = None
 
 
 def to_operator_updates(
@@ -126,7 +140,10 @@ def to_operator_updates(
         potential, drop_potential = _checked(_potential(raw.get("potentialRank")))
         favor, drop_favor = _checked(_int_in_range(raw.get("favorPercent"), 0, MAX_FAVOR_PERCENT))
         masteries, drop_mastery = _masteries(raw.get("skills"))
-        modules, drop_module = _modules(raw.get("equip"), equipment_info_map)
+        skill_ids, drop_skill_ids = _skill_ids(raw.get("skills"))
+        modules, module_details, drop_module = _modules(
+            raw.get("equip"), equipment_info_map
+        )
         dropped += sum(
             (
                 drop_elite,
@@ -135,6 +152,7 @@ def to_operator_updates(
                 drop_potential,
                 drop_favor,
                 drop_mastery,
+                drop_skill_ids,
                 drop_module,
             )
         )
@@ -155,24 +173,63 @@ def to_operator_updates(
                 masteries=masteries,
                 modules=modules,
                 favor_percent=favor,
+                skill_ids=skill_ids,
+                module_details=module_details,
             )
         )
     return updates, dropped
 
 
-def module_type_of(equip_id: str, equipment_info_map: Mapping[str, Any]) -> str | None:
-    """模组 id → 类型 ``X`` / ``Y`` / ``D`` / ``A``；认不出返回 ``None``（不猜）。
+def module_detail_of(
+    equip_id: str, equipment_info_map: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """模组 id → ``{"type", "branch", "label", "type_icon"}``；认不出返回 ``None``（不猜）。
 
-    先看 ``equipmentInfoMap`` 里那条记录的候选键，再把 ``MOD_X`` 这类别名归一成单字母。
+    主路径是 ``typeIcon``（真机实测的字段）：``ccr-y`` ⇒ 类型 ``Y``、分支 ``ccr``、
+    标签 ``CCR-Y``。``original``（证章）返回 ``{"type": None, ...}``——它没有类型字母、
+    不属于 ``modules`` 的取值域，但是**正常状态**（调用方不该计 dropped），所以用
+    ``type=None`` 与「认不出来的 ``None``」区分开。类型字母不在 ``MODULE_TYPES`` 里（如 ``so-b`` 的 ``B``）也返回
+    ``None``：宁可丢掉这一条并计数，也不要往库里写一个前端与计划层都不认识的类型。
     """
     entry = equipment_info_map.get(equip_id)
     if not isinstance(entry, Mapping):
         return None
+    icon = _text(entry.get("typeIcon"))
+    if icon is not None:
+        if icon.lower() == MODULE_ORIGINAL_ICON:
+            # 证章（基础模组）：是**正常状态**，不是「认不出来」——用 ``type=None`` 的明细
+            # 把它与「返回 None」区分开，调用方据此不计 dropped。
+            return {"type": None, "branch": None, "label": None, "type_icon": icon}
+        match = _MODULE_TYPE_ICON_RE.match(icon)
+        if match is not None:
+            branch = match.group(1).lower()
+            letter = match.group(2).upper()
+            if letter in MODULE_TYPES:
+                return {
+                    "type": letter,
+                    "branch": branch,
+                    "label": f"{branch.upper()}-{letter}",
+                    "type_icon": icon,
+                }
+            logger.debug("模组 %s 的类型字母 %s 不在 %s 内，跳过", equip_id, letter, MODULE_TYPES)
+            return None
+    # 兜底：万一上游改回 ``type`` / ``moduleType`` 这类写法（``MOD_X``）。
     for key in MODULE_INFO_TYPE_KEYS:
         normalized = _normalize_module_type(entry.get(key))
         if normalized is not None:
-            return normalized
+            return {
+                "type": normalized,
+                "branch": None,
+                "label": normalized,
+                "type_icon": None,
+            }
     return None
+
+
+def module_type_of(equip_id: str, equipment_info_map: Mapping[str, Any]) -> str | None:
+    """模组 id → 类型 ``X`` / ``Y`` / ``D`` / ``A``；认不出返回 ``None``（不猜）。"""
+    detail = module_detail_of(equip_id, equipment_info_map)
+    return str(detail["type"]) if detail is not None else None
 
 
 # --------------------------------------------------------------------------- #
@@ -249,21 +306,49 @@ def _masteries(raw: Any) -> tuple[dict[str, int] | None, int]:
     return result, dropped
 
 
-def _modules(
-    raw: Any, equipment_info_map: Mapping[str, Any]
-) -> tuple[dict[str, int] | None, int]:
-    """``equip[]`` → ``{"X": 2}`` 形状；认不出形状返回 ``None``。
+def _skill_ids(raw: Any) -> tuple[list[str] | None, int]:
+    """``skills[]`` → 按槽位的技能 id 列表；认不出形状返回 ``None``（不知道）。
 
-    ``locked=true`` 与等级越界（<1 或 >3）都当「没装」，不计入 ``dropped``——那是
-    正常的未解锁状态而不是上游改形状；**类型映射不出来才计一次**（说明
-    ``equipmentInfoMap`` 变了，规格 §2.5-4）。
+    技能图标的 URL 就是 ``char_skill/{skill_id}.png``（规格 §2.2），所以顺序必须与
+    ``masteries`` 的槽位一致：都是 ``skills[]`` 的数组顺序，超过 3 个的条目忽略并计数。
     """
     if not isinstance(raw, list):
         return None, 0
+    ids: list[str] = []
+    dropped = 0
+    for index, entry in enumerate(raw):
+        if index >= 3:
+            dropped += 1
+            continue
+        if not isinstance(entry, Mapping):
+            dropped += 1
+            continue
+        skill_id = _text(entry.get("id"))
+        if skill_id is None:
+            dropped += 1
+            continue
+        ids.append(skill_id)
+    return ids, dropped
+
+
+def _modules(
+    raw: Any, equipment_info_map: Mapping[str, Any]
+) -> tuple[dict[str, int] | None, list[dict[str, Any]] | None, int]:
+    """``equip[]`` → ``({"X": 2}, [明细], dropped)``；认不出形状两处都返回 ``None``。
+
+    - ``locked=true`` 与等级越界（<1 或 >3）都当「没装」：不计入 ``dropped``（那是正常的
+      未解锁状态），也不进 ``modules`` / 明细；
+    - **类型映射不出来才计一次** ``dropped``（说明 ``equipmentInfoMap`` 变了）；
+    - 空列表是**正面读数**：``({}, [], 0)``＝这名干员确实没有已解锁的模组；
+    - 非空列表却一个可解析项都没有 ⇒ ``(None, None, dropped)`` ＝ 不知道，而不是「
+      确认没装」——把不知道写成「没有」是这套归一里最不能犯的错（M42 的护栏）。
+    """
+    if not isinstance(raw, list):
+        return None, None, 0
     if not raw:
-        # 空列表是正面读数：这名干员确实没有已解锁的模组（M35 口径的「确认没有」）。
-        return {}, 0
+        return {}, [], 0
     result: dict[str, int] = {}
+    details: list[dict[str, Any]] = []
     dropped = 0
     for entry in raw:
         if not isinstance(entry, Mapping):
@@ -275,20 +360,31 @@ def _modules(
         if equip_id is None:
             dropped += 1
             continue
-        module_type = module_type_of(equip_id, equipment_info_map)
-        if module_type is None:
+        detail = module_detail_of(equip_id, equipment_info_map)
+        if detail is None:
             dropped += 1
+            continue
+        if detail["type"] is None:
+            # 证章（``original``）：没有类型字母，不进 ``modules``，也不算异常。
             continue
         level = _int_in_range(entry.get("level"), MIN_MODULE_LEVEL, MAX_MODULE_LEVEL)
         if level is None:
             continue
+        module_type = str(detail["type"])
         result[module_type] = level
+        details.append(
+            {
+                "type": module_type,
+                "level": level,
+                "equip_id": equip_id,
+                "branch": detail["branch"],
+                "label": detail["label"],
+                "type_icon": detail["type_icon"],
+            }
+        )
     if not result:
-        # 非空列表却一个类型都认不出来（多半是 ``equipmentInfoMap`` 换了形状）：返回
-        # ``None`` ＝ 不知道，而不是 ``{}`` ＝ 确认没装。把不知道写成「没有」是这套
-        # 归一里最不能犯的错。
-        return None, dropped
-    return result, dropped
+        return None, None, dropped
+    return result, details, dropped
 
 
 def _normalize_module_type(value: Any) -> str | None:

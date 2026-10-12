@@ -138,9 +138,32 @@ class AccountOperatorRow(BaseModel):
     skill_level: int | None = None
     masteries: dict[str, int] | None = None
     modules: dict[str, int] | None = None
+    favor_percent: int | None = None
+    #: 按槽位的技能 id（M43 §4.3）：卡片用 ``char_skill/{skill_id}.png`` 拼技能图标。
+    #: ``null`` ＝ 不知道（没同步过、或上游没给），不是空列表。
+    skill_ids: list[str] | None = None
+    #: 模组明细（M43 §4.3）：``[{type, level, equip_id, branch, label, type_icon}]``，
+    #: 供页面显示 ``CCR-X`` 这类标签；``modules`` 仍只是 ``{"Y": 3}``。
+    module_details: list[AccountModuleDetail] | None = None
     field_sources: dict[str, str] = Field(default_factory=dict)
     recognized_at: str | None = None
     updated_at: str | None = None
+
+
+class AccountModuleDetail(BaseModel):
+    """模组明细（M43 §4.3）：卡片显示 ``CCR-X`` 与等级的依据。
+
+    ``type`` 是类型字母（`X` / `Y` / `D` / `A`），``branch`` 是分支码（`ccr` / `exe` …），
+    ``label`` 是页面直接显示的标签（`CCR-X`），``type_icon`` 是上游 `typeIcon` 原值
+    （`ccr-y`，以后要用第三方图标时按它拼 URL）。``equip_id`` 是模组 id。
+    """
+
+    type: str
+    level: int
+    equip_id: str | None = None
+    branch: str | None = None
+    label: str | None = None
+    type_icon: str | None = None
 
 
 class AccountOperatorList(BaseModel):

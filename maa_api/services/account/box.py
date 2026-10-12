@@ -41,6 +41,8 @@ from maa_api.services.account.rules import (
     elite_cap,
     json_mapping,
     field_sources_wire,
+    module_details_wire,
+    text_list_wire,
     iso_z,
     mastery_wire,
     module_wire,
@@ -777,4 +779,10 @@ def _skland_value_changed(field: str, before: Any, value: Any) -> bool:
         return module_wire(before) != value
     if field == "own":
         return bool(before) is not bool(value)
+    if field == "skill_ids":
+        # M43：列表列。不归一的话会掉进下面的 ``optional_int`` 分支——两侧都变 ``None``，
+        # 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
+        return text_list_wire(before) != text_list_wire(value)
+    if field == "module_details":
+        return module_details_wire(before) != module_details_wire(value)
     return optional_int(before) != optional_int(value)
