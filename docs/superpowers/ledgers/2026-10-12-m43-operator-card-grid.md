@@ -38,7 +38,8 @@
 
 | 门禁 | 结果 |
 | --- | --- |
-| 后端全量 `.venv/bin/python -m pytest -o addopts= -q --tb=no` | **2 failed / 3804 passed / 6 skipped**（265 s）：两条失败都是 `tests/services/test_activity_index.py` 的真资源用例（M24 起既有，docs/13 §8.40），与本轮无关 |
+| 后端全量（分支上）`.venv/bin/python -m pytest -o addopts= -q --tb=no` | **2 failed / 3804 passed / 6 skipped**（265 s）：两条失败都是 `tests/services/test_activity_index.py` 的真资源用例（M24 起既有，docs/13 §8.40），与本轮无关 |
+| 后端全量（合并后 `refactor/v2` 上复跑） | **3 failed / 3803 passed / 6 skipped**（284 s）：除上面两条既有真资源失败外，多一条 `tests/core/test_crash_recovery.py::test_backoff_sequence_grows_then_failed_after_budget`——隔离复跑 1 failed / 14 passed 之外单跑该类全绿，属既有的时序抖动族（与前几轮 `test_incidents.py` / `test_app_skeleton.py` 同类），与本轮改动无关 |
 | 前端 `pnpm gen:api:check` | `OpenAPI types are up to date.` |
 | 前端 `pnpm typecheck` | 0 错误 |
 | 前端 `pnpm test --run` | **76 文件 / 792 例全过**（基线 778 + 新增 14：卡片 11、网格 3） |
