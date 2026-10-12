@@ -79,7 +79,7 @@ def _chars(count: int, **overrides: Any) -> list[dict[str, Any]]:
         "potentialRank": 5,
         "mainSkillLvl": 7,
         "favorPercent": 200,
-        "skills": [{"id": "s1", "specializeLevel": 3}],
+        "skills": [{"id": "skchr_amiya_2", "specializeLevel": 3}],
         "equip": [{"id": "eq1", "level": 2, "locked": False}],
     }
     rows = []
@@ -278,6 +278,10 @@ def test_sync_writes_training_and_records_the_round(session_factory):
             assert row.modules is None
             assert summary["dropped_invalid"] >= 1
             assert row.favor_percent == 200
+            # M43：技能 id 按槽位落库（卡片拼技能图标要用），模组明细在类型认不出时
+            # 与 `modules` 同口径留 NULL（不知道），不是空列表。
+            assert row.skill_ids == ["skchr_amiya_2"]
+            assert row.module_details is None
             assert row.field_sources["level"] == "skland"
             assert row.recognized_at is not None
 
@@ -410,6 +414,47 @@ def test_sync_reports_upstream_failure_without_dropping_the_binding(session_fact
         status = await service.status()
         assert status["bound"] is True  # 偶发失败不该让用户重新扫码
         assert status["last_error"] == "用户未登录"
+
+    asyncio.run(scenario())
+
+
+def test_sync_writes_module_details_with_branch_and_label(session_factory):
+    """M43：`typeIcon` 能解析时，`modules` 与 `module_details` 一起落库。"""
+
+    class TypedClient(FakeClient):
+        async def player_info(self, credential, uid):
+            payload = await super().player_info(credential, uid)
+            payload["equipmentInfoMap"] = {
+                "eq1": {"id": "eq1", "name": "模组", "typeIcon": "ccr-y"},
+                "eq2": {"id": "eq2", "name": "证章", "typeIcon": "original"},
+            }
+            for char in payload["chars"]:
+                char["equip"] = [
+                    {"id": "eq1", "level": 3, "locked": False},
+                    {"id": "eq2", "level": 1, "locked": False},
+                ]
+            return payload
+
+    client = TypedClient(chars=_chars(SKLAND_MIN_CHARS), roles=[_role()])
+    service = _sync_service(session_factory, client)
+
+    async def scenario():
+        await _seed_credential(session_factory)
+        await service.sync()
+
+        async with session_factory() as session:
+            row = await session.get(AccountOperator, "char_0000")
+            assert row.modules == {"Y": 3}
+            assert row.module_details == [
+                {
+                    "type": "Y",
+                    "level": 3,
+                    "equip_id": "eq1",
+                    "branch": "ccr",
+                    "label": "CCR-Y",
+                    "type_icon": "ccr-y",
+                }
+            ]
 
     asyncio.run(scenario())
 

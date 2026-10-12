@@ -1031,6 +1031,17 @@ class AccountOperator(SQLModel, table=True):
     #: 信赖百分比 0–200（M42 §4.5）：森空岛账号数据独有的一列，内核识别给不出来，
     #: 因此与六列一样可为 ``None`` ＝ 未知（老库里的行、以及没同步过的账号）。
     favor_percent: int | None = Field(default=None)
+    #: 按槽位的技能 id（M43 §4.1）：卡片上的技能图标 URL 要用它
+    #: （``char_skill/{skill_id}.png``）。只有森空岛同步写得出来，认不出形状为 ``NULL``。
+    skill_ids: list[str] | None = Field(
+        default=None, sa_column=json_column("skill_ids")
+    )
+    #: 模组明细（M43 §4.1）：``[{type, level, equip_id, branch, label, type_icon}]``，
+    #: 供页面显示 ``CCR-X`` 这类「分支码-类型字母」；``modules`` 仍是计划层用的
+    #: ``{"Y": 3}``。没有同步过、或上游认不出类型时为 ``NULL``（不知道）。
+    module_details: list[dict[str, Any]] | None = Field(
+        default=None, sa_column=json_column("module_details")
+    )
     #: 最近一次识别的值（只含识别能覆盖的四个字段）；从未识别为 NULL。
     recognized_values: dict[str, Any] | None = Field(
         default=None, sa_column=json_column("recognized_values")

@@ -1919,6 +1919,28 @@ export interface components {
             recognized_at?: string | null;
         };
         /**
+         * AccountModuleDetail
+         * @description 模组明细（M43 §4.3）：卡片显示 ``CCR-X`` 与等级的依据。
+         *
+         *     ``type`` 是类型字母（`X` / `Y` / `D` / `A`），``branch`` 是分支码（`ccr` / `exe` …），
+         *     ``label`` 是页面直接显示的标签（`CCR-X`），``type_icon`` 是上游 `typeIcon` 原值
+         *     （`ccr-y`，以后要用第三方图标时按它拼 URL）。``equip_id`` 是模组 id。
+         */
+        AccountModuleDetail: {
+            /** Branch */
+            branch?: string | null;
+            /** Equip Id */
+            equip_id?: string | null;
+            /** Label */
+            label?: string | null;
+            /** Level */
+            level: number;
+            /** Type */
+            type: string;
+            /** Type Icon */
+            type_icon?: string | null;
+        };
+        /**
          * AccountOperatorList
          * @description 干员表响应（docs/05 §6.20：列表用 ``{items, total, limit, offset}``）。
          */
@@ -1948,6 +1970,8 @@ export interface components {
             char_id: string;
             /** Elite */
             elite?: number | null;
+            /** Favor Percent */
+            favor_percent?: number | null;
             /** Field Sources */
             field_sources?: {
                 [key: string]: string;
@@ -1958,6 +1982,8 @@ export interface components {
             masteries?: {
                 [key: string]: number;
             } | null;
+            /** Module Details */
+            module_details?: components["schemas"]["AccountModuleDetail"][] | null;
             /** Modules */
             modules?: {
                 [key: string]: number;
@@ -1974,6 +2000,8 @@ export interface components {
             rarity?: number | null;
             /** Recognized At */
             recognized_at?: string | null;
+            /** Skill Ids */
+            skill_ids?: string[] | null;
             /** Skill Level */
             skill_level?: number | null;
             /** Updated At */
