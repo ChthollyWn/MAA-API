@@ -58,7 +58,8 @@
 5. **未拥有**：`own=false` 的行整体灰显（`grayscale` + `opacity-70`，且色带用灰色而不是稀有度色），**技能与模组整块不画**（不只是不加载图标）。
 6. **加载与失败兜底**：图片 `loading="lazy"` `decoding="async"`；图片加载失败只留占位，不影响布局与信息。
    头像与技能图标都是**装饰性**图片（名字与数值就在旁边，读屏会念到），所以 `alt=""` 而不是重复一遍干员名——规格早先写的「alt 用干员名」按这条改掉。
-7. **测试**：映射单测（typeIcon 各种写法/证章/异常）、同步写入、契约形状、前端卡片与网格用例（含未拥有灰显、专精与模组标签、图片 URL 拼接）。
+7. **测试**：映射单测（typeIcon 各种写法/证章/异常）、同步写入、契约形状、前端卡片与网格用例（含未拥有灰显、专精与模组标签、取图路径）。
+8. **图片代理**（真机修订）：`GET /api/account/assets/{kind}/{asset_id}` 由后端取官方 CDN 图并落盘缓存——官方 CDN 有防盗链，浏览器带 `Referer` 会被 403；前端用带 token 的 `fetch` 取 blob（`<img src>` 带不了鉴权头）。
 8. **文档**：docs/04（两列）、docs/05（行字段）、docs/09（账号页卡片段）、docs/11（`get_operator_box` 返回值描述）、docs/13 §8.63、docs/12 M43 小节、台账与文案基线。
 
 ### 3.2 本里程碑不做
@@ -112,7 +113,8 @@
   - 中部：头像（官方 CDN，`charId` 拼接；`own=false` 时灰显且不加载）；
   - 底部：名字、（精二/精一/精零徽章）等级、潜能；右侧两行——技能（每个槽位一个图标 + 专精数字，专精 0 用弱化样式）与模组（`label` 文本 + 等级，类型字母做小徽章色）。
   - 无 `skill_ids` / `module_details`（老数据或 OperBox-only）时降级：技能只显示槽位与专精数字（不显图标）、模组只显示 `X 3` 这种字母 + 等级。
-- `web/src/features/account/OperatorGrid.tsx`（新）：`grid` 布局（移动 2 列 → 平板 3–4 列 → 桌面 6 列），点击卡片回调 `onSelect(row)`（打开既有编辑抽屉）。
+- `web/src/features/account/OperatorGrid.tsx`（新）：`grid` 布局，列宽 `repeat(auto-fit, minmax(min(360px,100%), 500px))` 居中（一行 1–2 张），点击卡片回调 `onSelect(row)`（打开既有编辑抽屉）。
+  **真机修订**：第一版用的是 2–6 列窄方块卡，真机上文字被挤成竖排，改成宽横卡（照参考实现的干员条）。
 - `OperatorsTab.tsx`：把 `ul` 行列表换成 `OperatorGrid`，条目数、注意保持既有 `data-testid` 或补充新测试；分页按钮文案不变。
 - 新增 `formatModuleLabel(detail)` / `moduleTypeGlyph(type)`（`X→X / Y→Y / D→Δ / A→α`）等纯函数，便于单测。
 - `skillIconUrl(skillId)` / `avatarUrl(charId)` 放在 `features/account/assets.ts`，集中一处便于以后换源。

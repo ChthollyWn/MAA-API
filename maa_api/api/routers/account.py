@@ -17,12 +17,13 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
 
 from maa_api.api.deps import require_auth
 from maa_api.api.errors import error_responses
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.account.assets import ASSET_KINDS, GameAssetService
 from maa_api.services.account.box import OperatorBoxService
 from maa_api.services.account.depot import DepotService
 from maa_api.services.account.plans import UpgradePlanService
@@ -211,6 +212,20 @@ def _box_service(request: Request) -> OperatorBoxService:
     return service
 
 
+def _asset_service(request: Request) -> GameAssetService:
+    """取 lifespan 装配的游戏资源代理服务（M43 后续）。
+
+    没装配时**临时建一个**：它无状态（只有磁盘缓存与一个 httpx 客户端），测试与
+    早期启动路径不必都走一遍 lifespan；长时间运行的实例仍由 lifespan 管，退出时关闭。
+    """
+    state = request.app.state
+    service = getattr(state, "game_asset_service", None)
+    if service is None:
+        service = GameAssetService()
+        state.game_asset_service = service
+    return service
+
+
 def _depot_service(request: Request) -> DepotService:
     """取 lifespan 装配的仓库服务；键名同 :func:`_box_service`。"""
     state = request.app.state
@@ -300,6 +315,39 @@ async def list_account_operators(
         offset=offset,
     )
     return AccountOperatorList(**payload)
+
+
+@router.get(
+    "/assets/{kind}/{asset_id}",
+    summary="读取游戏资源图（干员头像 / 技能图标）",
+    description=(
+        "后端代理官方 CDN 的游戏美术资源，并按内容落盘缓存。\n\n"
+        "- `kind`：`avatar`（干员头像）或 `skill`（技能图标）\n"
+        "- 走服务端取图的原因：官方 CDN 有防盗链，浏览器带 `Referer` 会被 403\n"
+        "- 响应可长期缓存（`Cache-Control: public, max-age=604800`），命中缓存时不打上游"
+    ),
+    responses=error_responses("ACCOUNT_DATA_NOT_FOUND", "SKLAND_UPSTREAM_FAILED", "UNAUTHORIZED"),
+    dependencies=[Depends(require_auth)],
+    response_class=Response,
+)
+async def get_game_asset(
+    request: Request,
+    kind: Annotated[str, Path(description="资源类型：avatar 或 skill")],
+    asset_id: Annotated[str, Path(description="干员 id（如 char_002_amiya）或技能 id（如 skchr_amiya_3）")],
+) -> Response:
+    if kind not in ASSET_KINDS:
+        raise AppError(
+            ErrorCode.ACCOUNT_DATA_NOT_FOUND,
+            "没有这类游戏资源",
+            {"kind": kind},
+        )
+    payload = await _asset_service(request).get(kind, asset_id)
+    return Response(
+        content=payload,
+        media_type="image/png",
+        # 一周：游戏资源只随版本更新，id 相同内容不会变；换 id 就是换 URL。
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
 
 
 @router.get(

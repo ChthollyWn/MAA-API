@@ -5878,6 +5878,97 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/account/assets/{kind}/{asset_id}": {
+      "get": {
+        "description": "后端代理官方 CDN 的游戏美术资源，并按内容落盘缓存。\n\n- `kind`：`avatar`（干员头像）或 `skill`（技能图标）\n- 走服务端取图的原因：官方 CDN 有防盗链，浏览器带 `Referer` 会被 403\n- 响应可长期缓存（`Cache-Control: public, max-age=604800`），命中缓存时不打上游",
+        "operationId": "account_get_game_asset",
+        "parameters": [
+          {
+            "description": "资源类型：avatar 或 skill",
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "description": "资源类型：avatar 或 skill",
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "description": "干员 id（如 char_002_amiya）或技能 id（如 skchr_amiya_3）",
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "description": "干员 id（如 char_002_amiya）或技能 id（如 skchr_amiya_3）",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "ACCOUNT_DATA_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：ACCOUNT_DATA_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_UPSTREAM_FAILED",
+                    "details": {},
+                    "message": "下游依赖失败"
+                  }
+                }
+              }
+            },
+            "description": "下游依赖失败：SKLAND_UPSTREAM_FAILED"
+          }
+        },
+        "summary": "读取游戏资源图（干员头像 / 技能图标）",
+        "tags": [
+          "account"
+        ]
+      }
+    },
     "/api/account/depot": {
       "get": {
         "description": "仓库识别结果，按物品分类分组展示的只读列表。\n\n- `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数\n- `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选条件影响；页面用它渲染分类下拉\n- 仓库识别只看养成材料页签，龙门币与作战记录不在其中\n- 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定",

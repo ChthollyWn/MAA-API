@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { User } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -6,9 +6,10 @@ import type { FieldSource, OperatorRow } from './api'
 import {
   RARITY_COLORS,
   UNOWNED_COLORS,
-  avatarUrl,
+  avatarPath,
   moduleTypeGlyph,
-  skillIconUrl,
+  skillIconPath,
+  useAssetUrl,
 } from './assets'
 import {
   SOURCE_HINTS,
@@ -32,6 +33,7 @@ interface SkillSlot {
 /** 一个模组 chip：`label` 优先（`CCR-Y`），退化成类型字母（`Y`）。 */
 interface ModuleChip {
   key: string
+  glyph: string
   text: string
   level: number
 }
@@ -43,20 +45,32 @@ const SOURCE_TONES: Record<FieldSource, 'neutral' | 'success' | 'primary' | 'war
   skland: 'warning',
 }
 
-/** 图片加载失败或未拥有时用的占位：一个中性图标，保证布局不塌。
- *
- * 刻意**不放名字首字**：那会让同一段文字在 DOM 里出现两次（名字 + 占位），
- * 按文本查询的地方会撞车，读屏也会重复念一遍。 */
-function NamePlaceholder() {
-  return (
-    <span
-      aria-hidden="true"
-      data-testid="operator-avatar-placeholder"
-      className="flex size-full items-center justify-center bg-muted text-muted-foreground"
-    >
-      <User className="size-5" />
-    </span>
-  )
+/**
+ * 一张资源图：先带 token 取 blob 再转 object URL（`<img src>` 带不了鉴权头），
+ * 取不到（未拥有、没有 id、上游没有这张图）时退回占位，绝不把破图留在页面上。
+ */
+function AssetImage({
+  path,
+  testId,
+  className,
+}: {
+  path: string | null
+  testId: string
+  className: string
+}) {
+  const url = useAssetUrl(path)
+  if (!url) {
+    return (
+      <span
+        aria-hidden="true"
+        data-testid={`${testId}-placeholder`}
+        className="flex size-full items-center justify-center bg-muted text-muted-foreground"
+      >
+        <User className="size-4" />
+      </span>
+    )
+  }
+  return <img src={url} alt="" data-testid={testId} className={className} decoding="async" />
 }
 
 function skillSlots(row: OperatorRow): SkillSlot[] {
@@ -84,6 +98,7 @@ function moduleChips(row: OperatorRow): ModuleChip[] {
       .filter((detail) => Number(detail.level) > 0)
       .map((detail) => ({
         key: detail.type,
+        glyph: moduleTypeGlyph(detail.type),
         text: detail.label ?? moduleTypeGlyph(detail.type),
         level: Number(detail.level),
       }))
@@ -93,12 +108,32 @@ function moduleChips(row: OperatorRow): ModuleChip[] {
   return Object.entries(row.modules ?? {})
     .filter(([, level]) => Number(level) > 0)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([type, level]) => ({ key: type, text: moduleTypeGlyph(type), level: Number(level) }))
+    .map(([type, level]) => ({
+      key: type,
+      glyph: moduleTypeGlyph(type),
+      text: moduleTypeGlyph(type),
+      level: Number(level),
+    }))
+}
+
+/** 角标：技能专精与模组等级共用，位置/样式一致，扫视时不会看错列。 */
+function CornerBadge({ value, testId }: { value: string; testId: string }) {
+  return (
+    <span
+      data-testid={testId}
+      className="absolute -left-1 -top-1 rounded bg-background px-1 text-[0.625rem] font-medium tabular-nums leading-4 shadow-sm"
+    >
+      {value}
+    </span>
+  )
 }
 
 /**
- * 一张干员卡（M43 规格 §4.4）：稀有度配色 + 头像 + 精英化/等级/潜能 + 技能图标与专精 +
- * 模组标签与等级。
+ * 一张干员卡（M43 规格 §4.4，按用户 2026-10-12 的反馈改成**宽横卡**）。
+ *
+ * 布局照着参考实现的干员条：左侧 4px 稀有度色带 → 56px 头像 → 名字与精英化/等级/潜能
+ * → 三个技能方框（专精角标）→ 模组方框（等级角标 + 下方 `CCR-X` 标签）。行宽由
+ * :func:`OperatorGrid` 控制在 360–500px，所以文字不会像窄方块卡那样被挤成竖排。
  *
  * 视觉之上仍保留一份 `dl` 的六列练度原文（与卡片上的图形是同一批事实）：M35 要求
  * 「未识别」在页面上如实可见，用图标或徽章把它藏起来就等于又丢了一次事实。
@@ -111,29 +146,22 @@ export function OperatorCard({
   row: OperatorRow
   onSelect: (row: OperatorRow) => void
 }) {
-  // 记哪些图片加载失败：失败就换占位，不留破图（CDN 不可达、离线、id 变更都会走到）。
-  const [broken, setBroken] = useState<string[]>([])
-  const isBroken = (key: string) => broken.includes(key)
-  const markBroken = (key: string) =>
-    setBroken((previous) => (previous.includes(key) ? previous : [...previous, key]))
-
   const colors = row.own
     ? RARITY_COLORS[row.rarity ?? 0] ?? UNOWNED_COLORS
     : UNOWNED_COLORS
   const sources = rowSources(row)
   const slots = useMemo(() => skillSlots(row), [row])
   const chips = useMemo(() => moduleChips(row), [row])
-  const avatarKey = `avatar-${row.char_id}`
-  const showAvatar = row.own && !isBroken(avatarKey)
-
   const unknown = (value: unknown) => value === null || value === undefined
 
   return (
-    <li className="list-none">
+    // testid 分两层：`operator-<id>` 是整行（页面按它读练度原文、找来源徽章），
+    // `operator-card-<id>` 是可点的那块（点击/键盘用例点它）。
+    <li data-testid={`operator-${row.char_id}`}>
       <div
         role="button"
         tabIndex={0}
-        data-testid={`operator-${row.char_id}`}
+        data-testid={`operator-card-${row.char_id}`}
         aria-label={`查看 ${row.name} 的练度`}
         onClick={() => onSelect(row)}
         onKeyDown={(event) => {
@@ -143,117 +171,126 @@ export function OperatorCard({
           }
         }}
         style={{ ['--card-primary' as string]: colors.primary, ['--card-secondary' as string]: colors.secondary }}
-        className={`group flex w-full flex-col gap-2 rounded-xl border bg-card p-2.5 text-left shadow-card transition-colors hover:border-[var(--card-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-xl border bg-card py-2 pl-3 pr-2 text-left shadow-card transition-colors hover:border-[var(--card-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
           row.own ? '' : 'opacity-70 grayscale'
         }`}
       >
-        <div className="flex items-start gap-2.5">
-          {/* 稀有度色带 + 头像：色带让扫视时先认出星级，头像给身份。 */}
-          <span
-            aria-hidden="true"
-            className="h-12 w-1 shrink-0 rounded-full"
-            style={{ background: `linear-gradient(180deg, var(--card-secondary), var(--card-primary))` }}
-          />
-          <span className="relative size-12 shrink-0 overflow-hidden rounded-lg border bg-muted">
-            {showAvatar ? (
-              <img
-                src={avatarUrl(row.char_id)}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                data-testid={`operator-avatar-${row.char_id}`}
-                onError={() => markBroken(avatarKey)}
-                className="size-full object-cover"
-              />
-            ) : (
-              <NamePlaceholder />
+        {/* 左侧稀有度色带（位置与宽度照参考实现：4px 竖条）。 */}
+        <span
+          aria-hidden="true"
+          data-testid={`operator-stripe-${row.char_id}`}
+          className="absolute inset-y-0 left-0 w-1"
+          style={{ background: `linear-gradient(180deg, var(--card-secondary), var(--card-primary))` }}
+        />
+
+        <span className="relative size-14 shrink-0 overflow-hidden rounded-lg border bg-muted">
+          {row.own ? (
+            <AssetImage
+              path={avatarPath(row.char_id)}
+              testId={`operator-avatar-${row.char_id}`}
+              className="size-full object-cover"
+            />
+          ) : (
+            <span
+              aria-hidden="true"
+              data-testid="operator-avatar-placeholder"
+              className="flex size-full items-center justify-center bg-muted text-muted-foreground"
+            >
+              <User className="size-5" />
+            </span>
+          )}
+        </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-[0.9375rem] font-medium" title={row.name}>
+              {row.name}
+            </span>
+            {row.own ? null : <Badge variant="outline">未拥有</Badge>}
+          </span>
+          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-footnote text-muted-foreground">
+            <Badge variant="neutral">{rarityLabel(row.rarity)}</Badge>
+            <span>{professionLabel(row.profession)}</span>
+            <span className="whitespace-nowrap">{eliteLabel(row.elite)}</span>
+            <span className="whitespace-nowrap tabular-nums">
+              {unknown(row.level) ? '等级未识别' : `Lv ${row.level}`}
+            </span>
+            {unknown(row.potential) ? null : (
+              <span className="whitespace-nowrap tabular-nums">潜 {row.potential}</span>
             )}
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-1.5">
-              <span className="truncate text-[0.9375rem] font-medium" title={row.name}>
-                {row.name}
-              </span>
-              {row.own ? null : <Badge variant="outline">未拥有</Badge>}
-              {/* 显式的编辑入口：整卡可点是主路径，但这颗按钮让「能编辑」这件事看得见，
-                  也让键盘/读屏用户不必先理解卡片本身是个按钮。 */}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-auto shrink-0"
-                aria-label={`编辑 ${row.name}`}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onSelect(row)
-                }}
-              >
-                编辑
-              </Button>
-            </span>
-            <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-footnote text-muted-foreground">
-              <Badge variant="neutral">{rarityLabel(row.rarity)}</Badge>
-              <span>{professionLabel(row.profession)}</span>
-            </span>
-          </span>
-        </div>
+        </span>
 
-        {/* 技能：槽位图标 + 专精数字。没有 `skill_ids`（老数据 / 纯识别行）时不画图标，
-            只留槽位编号——不拿别的图冒充；**未拥有的干员整块不画**（规格 §3.1.5：没拥有
-            就谈不上练度，画一排空槽只是噪声）。 */}
+        {/* 技能：方框 + 左上角专精角标。没有 `skill_ids`（老数据 / 纯识别行）时不画图标，
+            只留空框——不拿别的图冒充；未拥有整块不画（规格 §3.1.5）。 */}
         {row.own && slots.length ? (
-          <div className="flex items-center gap-1.5">
-            {slots.map((slot) => {
-              const iconKey = `skill-${row.char_id}-${slot.slot}`
-              const showIcon = row.own && slot.skillId !== null && !isBroken(iconKey)
-              return (
-                <span
-                  key={slot.slot}
-                  data-testid={`operator-skill-${row.char_id}-${slot.slot}`}
-                  className="flex items-center gap-1 rounded-md border bg-muted/40 px-1 py-0.5"
-                >
-                  <span className="relative size-5 shrink-0 overflow-hidden rounded bg-muted">
-                    {showIcon && slot.skillId ? (
-                      <img
-                        src={skillIconUrl(slot.skillId)}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        data-testid={`operator-skill-icon-${row.char_id}-${slot.slot}`}
-                        onError={() => markBroken(iconKey)}
-                        className="size-full object-contain"
-                      />
-                    ) : null}
-                  </span>
-                  <span
-                    className={`text-footnote tabular-nums ${
-                      slot.mastery && slot.mastery > 0 ? 'font-medium text-foreground' : 'text-muted-foreground'
-                    }`}
-                  >
-                    {slot.mastery === null ? '—' : slot.mastery}
-                  </span>
-                </span>
-              )
-            })}
-          </div>
+          <span className="flex shrink-0 items-center gap-2">
+            {slots.map((slot) => (
+              <span
+                key={slot.slot}
+                data-testid={`operator-skill-${row.char_id}-${slot.slot}`}
+                className="relative size-10 shrink-0 rounded-md border bg-muted/40"
+              >
+                <AssetImage
+                  path={slot.skillId ? skillIconPath(slot.skillId) : null}
+                  testId={`operator-skill-icon-${row.char_id}-${slot.slot}`}
+                  className="size-full object-contain p-0.5"
+                />
+                {slot.mastery !== null && slot.mastery > 0 ? (
+                  <CornerBadge
+                    value={String(slot.mastery)}
+                    testId={`operator-skill-mastery-${row.char_id}-${slot.slot}`}
+                  />
+                ) : null}
+              </span>
+            ))}
+          </span>
         ) : null}
 
-        {/* 模组：`CCR-Y` 这类标签 + 等级。图标本轮不做（规格 §3.2）；未拥有同样不画。 */}
+        {/* 模组：方框（类型字形 + 等级角标）+ 下方 `CCR-X` 标签。图标本轮不做（§3.2）。 */}
         {row.own && chips.length ? (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <span className="flex shrink-0 items-start gap-2">
             {chips.map((chip) => (
+              // testid 挂在「方框 + 标签」这一整块上：断言 `CCR-X` 与等级时不关心
+              // 它们在 DOM 里是两层还是三层。
               <span
                 key={chip.key}
                 data-testid={`operator-module-${row.char_id}-${chip.key}`}
-                className="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-footnote tabular-nums"
-                style={{ borderColor: 'var(--card-primary)' }}
+                className="flex w-11 flex-col items-center gap-0.5"
               >
-                <span className="font-medium">{chip.text}</span>
-                <span className="text-muted-foreground">{chip.level}</span>
+                <span
+                  className="relative flex size-10 items-center justify-center rounded-md border text-base"
+                  style={{ borderColor: 'var(--card-primary)' }}
+                >
+                  {chip.glyph}
+                  <CornerBadge
+                    value={String(chip.level)}
+                    testId={`operator-module-level-${row.char_id}-${chip.key}`}
+                  />
+                </span>
+                <span className="w-full truncate text-center text-[0.625rem] text-muted-foreground">
+                  {chip.text}
+                </span>
               </span>
             ))}
-          </div>
+          </span>
         ) : null}
 
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto shrink-0"
+          aria-label={`编辑 ${row.name}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onSelect(row)
+          }}
+        >
+          编辑
+        </Button>
+      </div>
+
+      <div className="mt-1 space-y-0.5 px-2">
         {/* 未识别提示：M35 要求「不知道」在页面上如实可见——技能与模组没有数据时
             说清楚，别让人以为「没专精 / 没模组」。 */}
         {row.masteries === null || row.masteries === undefined || row.modules === null || row.modules === undefined ? (
@@ -268,19 +305,28 @@ export function OperatorCard({
         ) : null}
 
         {/* 六列练度原文：与卡片上的图形是同一批事实，`null` 一律写「未识别」（M35）。 */}
-        <dl className="grid grid-cols-3 gap-x-2 gap-y-0.5 text-footnote">
-          <dt className="text-muted-foreground">精英化</dt>
-          <dd>{eliteLabel(row.elite)}</dd>
-          <dt className="text-muted-foreground">等级</dt>
-          <dd className="tabular-nums">{trainingValueText(row.level)}</dd>
-          <dt className="text-muted-foreground">潜能</dt>
-          <dd className="tabular-nums">{trainingValueText(row.potential)}</dd>
-          <dt className="sr-only">技能等级</dt>
-          <dd className="sr-only">{trainingValueText(row.skill_level)}</dd>
-          <dt className="sr-only">专精</dt>
-          <dd className="sr-only">{masteryText(row.masteries)}</dd>
-          <dt className="sr-only">模组</dt>
-          <dd className="sr-only">{moduleText(row.modules)}</dd>
+        <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-footnote text-muted-foreground">
+          <span>
+            <dt className="inline">精英化</dt> <dd className="inline">{eliteLabel(row.elite)}</dd>
+          </span>
+          <span>
+            <dt className="inline">等级</dt>{' '}
+            <dd className="inline tabular-nums">{trainingValueText(row.level)}</dd>
+          </span>
+          <span>
+            <dt className="inline">潜能</dt>{' '}
+            <dd className="inline tabular-nums">{trainingValueText(row.potential)}</dd>
+          </span>
+          <span>
+            <dt className="inline">技能等级</dt>{' '}
+            <dd className="inline tabular-nums">{trainingValueText(row.skill_level)}</dd>
+          </span>
+          <span>
+            <dt className="inline">专精</dt> <dd className="inline">{masteryText(row.masteries)}</dd>
+          </span>
+          <span>
+            <dt className="inline">模组</dt> <dd className="inline">{moduleText(row.modules)}</dd>
+          </span>
         </dl>
 
         <div className="flex flex-wrap items-center gap-1">

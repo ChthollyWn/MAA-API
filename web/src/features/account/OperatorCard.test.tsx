@@ -1,17 +1,40 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { OperatorCard } from './OperatorCard'
+import { resetAssetCache } from './assets'
 import { operatorRow } from './test-utils'
 
 /**
- * M43 卡片（规格 §7-4）：头像与技能图标走官方 CDN、没有 id 时降级不造假、未拥有灰显且
- * 不加载图片、模组显示 `CCR-X` 这类标签、图片失败换占位、点击与键盘都能打开编辑抽屉。
+ * M43 卡片（规格 §7-4，按用户 2026-10-12 的反馈改成宽横卡）：
+ *
+ * - 头像与技能图标走**本机后端代理**（官方 CDN 有防盗链，带 Referer 会 403），
+ *   所以是用带 `X-Token` 的 `fetch` 取 blob 再转 object URL——`<img src>` 带不了头；
+ * - 没有 `skill_ids` 时不画图标、技能栏整列未知时不画槽位（不装懂）；
+ * - 未拥有整卡灰显且不画技能/模组；
+ * - 模组显示 `CCR-X` 这类标签（没有明细时退化成类型字母）。
  */
 
-afterEach(() => {
-  cleanup()
-})
+const AVATAR_PATH = '/api/account/assets/avatar/char_002_amiya'
+const SKILL_PATH = '/api/account/assets/skill/skchr_amiya_2'
+
+/** 把取图接口换成可控的假实现；`fail` 里的路径会回 404。 */
+function stubAssets(fail: string[] = []) {
+  const calls: string[] = []
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+    calls.push(url)
+    if (fail.some((path) => url.endsWith(path))) {
+      return new Response('nope', { status: 404 })
+    }
+    return new Response(new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }), {
+      status: 200,
+      headers: { 'Content-Type': 'image/png' },
+    })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return { calls, fetchMock }
+}
 
 const RICH = operatorRow({
   char_id: 'char_002_amiya',
@@ -31,99 +54,104 @@ const RICH = operatorRow({
 
 function renderCard(row = RICH, onSelect = vi.fn()) {
   render(<OperatorCard row={row} onSelect={onSelect} />)
-  return { card: screen.getByTestId(`operator-${row.char_id}`), onSelect }
+  return {
+    row: screen.getByTestId(`operator-${row.char_id}`),
+    card: screen.getByTestId(`operator-card-${row.char_id}`),
+    onSelect,
+  }
 }
 
+beforeEach(() => {
+  resetAssetCache()
+  // jsdom 没有 createObjectURL：给一个稳定的假 URL，断言只看「用了 blob URL」。
+  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:asset', revokeObjectURL: () => {} }))
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
 describe('M43 干员卡片', () => {
-  it('头像与技能图标用官方 CDN 模板拼 URL', () => {
+  it('头像与技能图标走本机代理取图，并用 blob URL 渲染', async () => {
+    const { calls } = stubAssets()
     renderCard()
 
-    expect(screen.getByTestId('operator-avatar-char_002_amiya')).toHaveAttribute(
-      'src',
-      'https://web.hycdn.cn/arknights/game/assets/char/avatar/char_002_amiya.png',
-    )
-    expect(screen.getByTestId('operator-skill-icon-char_002_amiya-1')).toHaveAttribute(
-      'src',
-      'https://web.hycdn.cn/arknights/game/assets/char_skill/skchr_amiya_2.png',
-    )
-    expect(screen.getByTestId('operator-skill-icon-char_002_amiya-2')).toHaveAttribute(
-      'src',
-      'https://web.hycdn.cn/arknights/game/assets/char_skill/skchr_amiya_3.png',
-    )
-    // 图片懒加载：一页几十张卡，别在首屏把 CDN 打满。
-    expect(screen.getByTestId('operator-avatar-char_002_amiya')).toHaveAttribute('loading', 'lazy')
-    expect(screen.getByTestId('operator-avatar-char_002_amiya')).toHaveAttribute('decoding', 'async')
+    // 取图请求带上了路径，并且不是直连官方 CDN。
+    await waitFor(() => expect(calls).toContain(AVATAR_PATH))
+    expect(calls).toContain(SKILL_PATH)
+    expect(calls.every((url) => url.startsWith('/api/account/assets/'))).toBe(true)
+
+    const avatar = await screen.findByTestId('operator-avatar-char_002_amiya')
+    expect(avatar).toHaveAttribute('src', 'blob:asset')
+    expect(await screen.findByTestId('operator-skill-icon-char_002_amiya-1')).toBeInTheDocument()
   })
 
-  it('卡片主色按稀有度走：6★ 橙金，稀有度读不出来时用未拥有的灰', () => {
-    const { card } = renderCard()
-    expect(card.style.getPropertyValue('--card-primary')).toBe('#FF6B35')
-    expect(card.style.getPropertyValue('--card-secondary')).toBe('#FF9800')
+  it('取图失败（上游没有这张图）时退回占位，不留破图', async () => {
+    stubAssets([AVATAR_PATH])
+    renderCard()
 
-    cleanup()
-    const { card: grey } = renderCard(operatorRow({ char_id: 'char_010_chen', name: '陈', own: false, rarity: 6 }))
-    // 未拥有优先于稀有度：灰显是「没拥有」的信号，不能被星级颜色盖掉。
-    expect(grey.style.getPropertyValue('--card-primary')).toBe('#4B5563')
+    expect(await screen.findByTestId('operator-avatar-char_002_amiya-placeholder')).toBeInTheDocument()
+    expect(screen.queryByTestId('operator-avatar-char_002_amiya')).not.toBeInTheDocument()
   })
 
-  it('没有 skill_ids 时只降级成槽位与专精数字，不拿别的图冒充', () => {
+  it('没有 skill_ids 时只留空技能框，不拿别的图冒充', async () => {
+    const { calls } = stubAssets()
     renderCard(operatorRow({ char_id: 'char_123_knight', name: '临光', skill_ids: null, masteries: { '1': 2 } }))
 
-    expect(screen.queryByTestId('operator-skill-icon-char_123_knight-1')).not.toBeInTheDocument()
-    // 槽位还在，专精数字还是真值。
-    expect(screen.getByTestId('operator-skill-char_123_knight-1')).toHaveTextContent('2')
-    // 技能栏也整列未知（`skill_ids` 与 `masteries` 都是 null）时**不画槽位**：画三个
-    // 空框等于宣称「这名干员有三个技能」，而这条事实我们并没有。改成一句话说清楚。
+    // 槽位还在，专精角标是真值。
+    expect(screen.getByTestId('operator-skill-char_123_knight-1')).toBeInTheDocument()
+    expect(screen.getByTestId('operator-skill-mastery-char_123_knight-1')).toHaveTextContent('2')
+    expect(calls).not.toContain('/api/account/assets/skill/skchr_amiya_2')
+
+    // 技能栏整列未知（skill_ids 与 masteries 都是 null）时不画槽位：画空框等于宣称
+    // 「这名干员有几个技能」，而这条事实我们并没有。
     cleanup()
     renderCard(operatorRow({ char_id: 'char_4093_frston', name: 'Friston-3', skill_ids: null, masteries: null }))
     expect(screen.queryByTestId('operator-skill-char_4093_frston-1')).not.toBeInTheDocument()
     expect(screen.getByText(/专精未识别/)).toBeInTheDocument()
   })
 
-  it('未拥有：整卡灰显、不加载头像与技能图标', () => {
-    const { card } = renderCard(
-      operatorRow({ char_id: 'char_010_chen', name: '陈', own: false, skill_ids: ['skchr_chen_1'] }),
+  it('未拥有：整卡灰显、不加载头像与技能图标、也不画技能与模组', async () => {
+    const { calls } = stubAssets()
+    const { card, row } = renderCard(
+      operatorRow({ char_id: 'char_010_chen', name: '陈', own: false, skill_ids: ['skchr_chen_1'], modules: { X: 2 } }),
     )
 
     expect(card.className).toContain('grayscale')
     expect(card.className).toContain('opacity-70')
     expect(screen.queryByTestId('operator-avatar-char_010_chen')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('operator-skill-icon-char_010_chen-1')).not.toBeInTheDocument()
-    // 规格 §3.1.5：未拥有不显示技能与模组（不只是不加载图标）。
     expect(screen.queryByTestId('operator-skill-char_010_chen-1')).not.toBeInTheDocument()
     expect(screen.queryByTestId('operator-module-char_010_chen-X')).not.toBeInTheDocument()
-    // 未拥有的标记还在，且练度原文照旧可读。
-    expect(within(card).getByText('未拥有')).toBeInTheDocument()
+    expect(calls).toHaveLength(0)
+    expect(within(row).getByText('未拥有')).toBeInTheDocument()
   })
 
-  it('未拥有且带模组数据时也不画模组 chip（数据可能来自旧的识别行）', () => {
-    renderCard(
-      operatorRow({
-        char_id: 'char_010_chen',
-        name: '陈',
-        own: false,
-        modules: { X: 2 },
-        module_details: [
-          { type: 'X', level: 2, equip_id: 'u', branch: 'ccr', label: 'CCR-X', type_icon: 'ccr-x' },
-        ],
-      }),
-    )
+  it('稀有度色带走的是主色：6★ 橙金，未拥有优先用灰', () => {
+    stubAssets()
+    const { card } = renderCard()
+    expect(card.style.getPropertyValue('--card-primary')).toBe('#FF8A3D')
+    expect(card.style.getPropertyValue('--card-secondary')).toBe('#FFD24A')
 
-    expect(screen.queryByTestId('operator-module-char_010_chen-X')).not.toBeInTheDocument()
+    cleanup()
+    const { card: grey } = renderCard(operatorRow({ char_id: 'char_010_chen', name: '陈', own: false, rarity: 6 }))
+    expect(grey.style.getPropertyValue('--card-primary')).toBe('#4B5563')
   })
 
   it('模组：优先显示 module_details 的 label+等级，只有 modules 时退化成类型字母', () => {
+    stubAssets()
     renderCard()
-
-    expect(screen.getByTestId('operator-module-char_002_amiya-Y')).toHaveTextContent('CCR-Y')
-    expect(screen.getByTestId('operator-module-char_002_amiya-Y')).toHaveTextContent('3')
+    const chip = screen.getByTestId('operator-module-char_002_amiya-Y')
+    expect(chip).toHaveTextContent('CCR-Y')
+    expect(within(chip).getByTestId('operator-module-level-char_002_amiya-Y')).toHaveTextContent('3')
 
     cleanup()
     renderCard(operatorRow({ char_id: 'char_102_texas', name: '德克萨斯', modules: { X: 2 }, module_details: null }))
-    const chip = screen.getByTestId('operator-module-char_102_texas-X')
-    expect(chip).toHaveTextContent('X')
-    expect(chip).toHaveTextContent('2')
-    expect(chip).not.toHaveTextContent('CCR')
+    const fallback = screen.getByTestId('operator-module-char_102_texas-X')
+    expect(fallback).toHaveTextContent('X')
+    expect(fallback).toHaveTextContent('2')
+    expect(fallback).not.toHaveTextContent('CCR')
 
     // 等级 0 是「有这模组但没升级」：不显示 chip（与 moduleText 的口径一致）。
     cleanup()
@@ -131,17 +159,18 @@ describe('M43 干员卡片', () => {
     expect(screen.queryByTestId('operator-module-char_103_angel-X')).not.toBeInTheDocument()
   })
 
-  it('图片加载失败后换占位，页面上不留破图', () => {
-    renderCard()
-    const avatar = screen.getByTestId('operator-avatar-char_002_amiya')
+  it('专精 0 不画角标，专精 3 画「3」', () => {
+    stubAssets()
+    renderCard(
+      operatorRow({ char_id: 'char_002_amiya', name: '阿米娅', masteries: { '1': 3, '2': 0 }, skill_ids: ['a', 'b'] }),
+    )
 
-    fireEvent.error(avatar)
-
-    expect(screen.queryByTestId('operator-avatar-char_002_amiya')).not.toBeInTheDocument()
-    expect(screen.getByTestId('operator-avatar-placeholder')).toBeInTheDocument()
+    expect(screen.getByTestId('operator-skill-mastery-char_002_amiya-1')).toHaveTextContent('3')
+    expect(screen.queryByTestId('operator-skill-mastery-char_002_amiya-2')).not.toBeInTheDocument()
   })
 
   it('点卡片或按回车都触发 onSelect（打开编辑抽屉）', () => {
+    stubAssets()
     const { card, onSelect } = renderCard()
 
     fireEvent.click(card)
@@ -152,6 +181,7 @@ describe('M43 干员卡片', () => {
   })
 
   it('「编辑」按钮是独立入口，点它不会连带触发整卡点击', () => {
+    stubAssets()
     const { onSelect } = renderCard()
 
     fireEvent.click(screen.getByRole('button', { name: '编辑 阿米娅' }))
@@ -160,7 +190,8 @@ describe('M43 干员卡片', () => {
   })
 
   it('M35：未识别在卡片上说清楚，练度原文写「未识别」而不是 0 / —', () => {
-    const { card } = renderCard(
+    stubAssets()
+    const { row } = renderCard(
       operatorRow({
         char_id: 'char_4093_frston',
         name: 'Friston-3',
@@ -170,14 +201,15 @@ describe('M43 干员卡片', () => {
       }),
     )
 
-    expect(within(card).getByText(/专精未识别/)).toBeInTheDocument()
-    expect(within(card).getByText(/模组未识别/)).toBeInTheDocument()
-    expect(within(card).getByText('技能等级').nextElementSibling).toHaveTextContent('未识别')
-    expect(within(card).getByText('模组').nextElementSibling).toHaveTextContent('未识别')
+    expect(within(row).getByText(/专精未识别/)).toBeInTheDocument()
+    expect(within(row).getByText(/模组未识别/)).toBeInTheDocument()
+    expect(within(row).getByText('技能等级').nextElementSibling).toHaveTextContent('未识别')
+    expect(within(row).getByText('模组').nextElementSibling).toHaveTextContent('未识别')
   })
 
   it('字段来源徽章保留（M27/M35 的功能不因换 UI 消失）', () => {
-    const { card } = renderCard(
+    stubAssets()
+    const { row } = renderCard(
       operatorRow({
         char_id: 'char_002_amiya',
         name: '阿米娅',
@@ -185,7 +217,7 @@ describe('M43 干员卡片', () => {
       }),
     )
 
-    expect(within(card).getByTestId('operator-source-char_002_amiya-recognition')).toHaveTextContent('识别')
-    expect(within(card).getByTestId('operator-source-char_002_amiya-skland')).toHaveTextContent('森空岛')
+    expect(within(row).getByTestId('operator-source-char_002_amiya-recognition')).toHaveTextContent('识别')
+    expect(within(row).getByTestId('operator-source-char_002_amiya-skland')).toHaveTextContent('森空岛')
   })
 })

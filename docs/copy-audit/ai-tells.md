@@ -1,16 +1,16 @@
 # AI 腔规则命中：用户可见文案
 
-总计 12726 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12750 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 171 | 332 | 503 |
-| 破折号当冒号用 | high | 37 | 116 | 153 |
+| 粗体强调 | medium | 171 | 334 | 505 |
+| 破折号当冒号用 | high | 37 | 118 | 155 |
 | 「A 而不是 B」对照腔 | high | 16 | 88 | 104 |
 | 绝对化规定腔 | medium | 12 | 65 | 77 |
 | 自指式讲解腔 | medium | 1 | 39 | 40 |
-| 「…即可」机器腔 | medium | 12 | 20 | 32 |
+| 「…即可」机器腔 | medium | 12 | 21 | 33 |
 | 「不是…而是…」对照句 | high | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 2 | 1 | 3 |
 | 宣传词 | medium | 0 | 2 | 2 |
@@ -18,7 +18,7 @@
 | 感叹号 | low | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 171 / 开发向 332）
+## 粗体强调（medium｜用户可见 171 / 开发向 334）
 
 **用户可见**
 
@@ -27,8 +27,8 @@
 - `maa_api/agent/tools/account.py:155` 查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、精英化、等…（共 274 字）
 - `maa_api/agent/tools/account.py:274` 从森空岛同步账号里**全部**干员的练度（精英化、等级、潜能、技能等级、专精、模组、信赖）并写进账号表。干员识别（OperBox）只能给是否拥有、精英化、等级、潜能，其余几项只能靠它补；用户在问养成规划却发现这些字段未识别、或说「同步一下练…（共 232 字）
 - `maa_api/agent/tools/interaction.py:43` ``ask_user`` 的参数（规格 §3.1）。 上限（2–6 个选项、选项 80 字、问题 500 字）是**卡片渲染**的约束：一屏放得下的 选项才叫选择题，超出的部分应改成多轮提问或正文询问。
-- `maa_api/api/routers/account.py:65` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
-- `maa_api/api/routers/account.py:120` 干员行：docs/05 §6.20 的字段清单，与单条读取同形。 练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` / ``module…（共 434 字）
+- `maa_api/api/routers/account.py:66` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
+- `maa_api/api/routers/account.py:121` 干员行：docs/05 §6.20 的字段清单，与单条读取同形。 练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` / ``module…（共 434 字）
 - `maa_api/api/routers/confirmations.py:19` ``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。 尝试次数、成功标准与是否允许助战都能在卡片上改；有效期只展示，**不在**这里。 键名与取值域与 ``services/copilot/grant…（共 254 字）
 - …… 另有 163 条，见 inventory.json
 
@@ -42,15 +42,15 @@
 - `maa_api/agent/knowledge/__init__.py:879` 拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。 段落顺序：索引 → **当期活动**（M24）→ **当期卡池**（M28）→ **账号数据**（M27） → 术语表全文 → 用户档案全文；三段实时数据（活动…（共 241 字）
 - `maa_api/agent/knowledge/convergence.py:1` M30 T3：删除内置条目后，把幸存下来的用户覆盖行迁移成自定义条目。 为什么需要冻结 ``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL，读的时候 继承内置值（见 :mod:`maa_api.ag…（共 1075 字）
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
-- …… 另有 324 条，见 inventory.json
+- …… 另有 326 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 37 / 开发向 116）
+## 破折号当冒号用（high｜用户可见 37 / 开发向 118）
 
 **用户可见**
 
 - `web/src/features/agent/ConfirmationCard.tsx:176` ${name}${missing === null ? '' : `：缺 ${missing}`}${counts.length ? `（${counts.join('，')}）` : ''}${tail.length ? `——${tai…（共 139 字）
 - `web/src/features/agent/ConfirmationCard.tsx:176` ——${tail.join('；')}
-- `maa_api/api/routers/account.py:65` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
+- `maa_api/api/routers/account.py:66` 手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。 取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、 模组与精英化）在服务层做——它们要看行里既有的值。 字段传 ``null`` 与不传同义：**都…（共 215 字）
 - `maa_api/api/routers/confirmations.py:19` ``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。 尝试次数、成功标准与是否允许助战都能在卡片上改；有效期只展示，**不在**这里。 键名与取值域与 ``services/copilot/grant…（共 254 字）
 - `maa_api/db/models.py:845` Web Push 订阅（M14，docs/09 §13.1）。 ``endpoint`` 是推送服务签发的完整 URL，作为幂等键：浏览器重复订阅同一 Service Worker 会拿到相同 endpoint，因此重放注册应当更新而不是新…（共 281 字）
 - `maa_api/domain/task.py:825` 无限刷肉鸽（集成战略）。 主题／模式相关的跨字段规则全部实现为 ``model_validator`` 并抛 ``AppError`` （``TASK_PARAM_INVALID``；``mode=2`` 是已弃用值，抛 ``TASK_PA…（共 291 字）
@@ -68,7 +68,7 @@
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
 - `maa_api/agent/policy.py:367` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/policy.py:613` 要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。 只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的 ``warnings`` 提醒，策略层不制造新的确…（共 164 字）
-- …… 另有 108 条，见 inventory.json
+- …… 另有 110 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 16 / 开发向 88）
 
@@ -140,7 +140,7 @@
 - `maa_api/services/account/planner.py:284` 本机 ``stages.json`` 的常驻关 ``stageId`` 集合（读不到给空集合，不抛异常）。 按资源层加载链的反向顺序找第一个能读的 ``stages.json``（增量层覆盖基础层）； 按文件签名缓存，资源更新后自动重读。测…（共 146 字）
 - …… 另有 31 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 12 / 开发向 20）
+## 「…即可」机器腔（medium｜用户可见 12 / 开发向 21）
 
 **用户可见**
 
@@ -162,9 +162,9 @@
 - `maa_api/core/client.py:145` 主进程侧的内核异步代理（docs/03 §5）。 :param supervisor: :class:`~maa_api.core.supervisor.CoreSupervisor` 或 结构一致的测试替身；只依赖 ``cmd_queue…（共 864 字）
 - `maa_api/db/repositories/update.py:1` ``update_record`` 仓储：三种热更新的历史与并发互斥（docs/04 §5.11、§6、§9）。 四条硬性语义： - **同一 ``target`` 同时只允许一条 ``running`` 记录**，由部分唯一索引 ``uq…（共 1069 字）
 - `maa_api/model/core/task.py:53` 初始化开始唤醒任务。 参数: enable (bool): 是否启用本任务，可选，默认为 True。 client_type (str): 客户端版本，可选，默认为空。 - 可选值包括: "Official", "Bilibili", "t…（共 374 字）
+- `maa_api/services/account/assets.py:1` 游戏美术资源（干员头像 / 技能图标）的后端代理与磁盘缓存（M43 后续）。 **为什么不让浏览器直连官方 CDN**：`web.hycdn.cn` 有防盗链——同一张头像，不带 ``Referer`` 是 200，带上 ``Referer…（共 509 字）
 - `maa_api/services/account/capture.py:1` MaaCore 账号识别回调的采集（规格 §7.2 T2、§7.3）。 ``OperBox`` / ``Depot`` 的结果通过 ``SubTaskExtraInfo`` 推送，过程中会发多次 ``done=false``，只有最后一次 …（共 1308 字）
-- `maa_api/services/account/summary.py:17` 给 `KnowledgeService` 用的只读门面（有 `async summary()` 即可）。
-- …… 另有 12 条，见 inventory.json
+- …… 另有 13 条，见 inventory.json
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 3）
 

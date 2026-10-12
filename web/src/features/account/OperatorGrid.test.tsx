@@ -11,14 +11,13 @@ afterEach(() => {
 })
 
 describe('M43 干员卡片网格', () => {
-  it('按行渲染卡片，并带上响应式列数', () => {
+  it('按行渲染卡片，列宽用 360–500px 的 auto-fit（一行 1–2 张，不挤成窄方块卡）', () => {
     render(<OperatorGrid rows={OPERATORS} onSelect={vi.fn()} />)
 
     const grid = screen.getByTestId('operator-grid')
-    expect(grid.className).toContain('grid-cols-2')
-    expect(grid.className).toContain('sm:grid-cols-3')
-    expect(grid.className).toContain('lg:grid-cols-4')
-    expect(grid.className).toContain('xl:grid-cols-6')
+    // 窄方块卡会把「精英化」这类词挤成竖排，所以断言列宽下限，而不是列数。
+    expect(grid.className).toContain('minmax(min(360px,100%),500px)')
+    expect(grid.className).toContain('justify-center')
     for (const row of OPERATORS) {
       expect(screen.getByTestId(`operator-${row.char_id}`)).toBeInTheDocument()
     }
@@ -35,7 +34,8 @@ describe('M43 干员卡片网格', () => {
     const row = operatorRow({ char_id: 'char_102_texas', name: '德克萨斯' })
     render(<OperatorGrid rows={[row]} onSelect={onSelect} />)
 
-    screen.getByTestId('operator-char_102_texas').click()
+    // `operator-<id>` 是整行容器，可点的方块是 `operator-card-<id>`。
+    screen.getByTestId('operator-card-char_102_texas').click()
 
     expect(onSelect).toHaveBeenCalledWith(row)
   })

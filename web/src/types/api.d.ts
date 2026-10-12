@@ -13,6 +13,30 @@ export type Writable<T> = T extends $Read<any> ? never : T extends $Write<infer 
     [K in keyof T as NonNullable<T[K]> extends $Read<any> ? K : never]?: never;
 } : T;
 export interface paths {
+    "/api/account/assets/{kind}/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取游戏资源图（干员头像 / 技能图标）
+         * @description 后端代理官方 CDN 的游戏美术资源，并按内容落盘缓存。
+         *
+         *     - `kind`：`avatar`（干员头像）或 `skill`（技能图标）
+         *     - 走服务端取图的原因：官方 CDN 有防盗链，浏览器带 `Referer` 会被 403
+         *     - 响应可长期缓存（`Cache-Control: public, max-age=604800`），命中缓存时不打上游
+         */
+        get: operations["account_get_game_asset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/account/depot": {
         parameters: {
             query?: never;
@@ -4368,6 +4392,92 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    account_get_game_asset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 资源类型：avatar 或 skill */
+                kind: string;
+                /** @description 干员 id（如 char_002_amiya）或技能 id（如 skchr_amiya_3） */
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：ACCOUNT_DATA_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "ACCOUNT_DATA_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 下游依赖失败：SKLAND_UPSTREAM_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKLAND_UPSTREAM_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     account_list_account_depot: {
         parameters: {
             query?: {

@@ -60,3 +60,18 @@
 
 - 前置：**重启服务**才会应用迁移 `0019` + `0020`（当前运行中的进程停在 `0018`，`skland_credential` 表与 `favor_percent` / `skill_ids` / `module_details` 三列都还不存在）。
 - 步骤：`config.yaml` 配 `skland.credential_key` → 账号页扫码绑定 → 点「同步练度」→ 看卡片网格与模组标签。
+
+## 真机验收后的两处修订（同日 15:2x–15:4x）
+
+用户发来两张截图对比后确认了两件事，都已在集成分支上修掉：
+
+| 现象 | 根因 | 修法 |
+| --- | --- | --- |
+| 卡片里头像全是灰占位 | 官方 CDN `web.hycdn.cn` **有防盗链**：同一张头像不带 `Referer` 是 200、带上就是 **403**（实测），浏览器一定会带 | 新增 `GET /api/account/assets/{kind}/{asset_id}` 后端代理 + `resource/assets-cache/` 落盘缓存；前端改成「带 token `fetch` → blob → object URL」（鉴权在 `X-Token` 头上，`<img src>` 带不了） |
+| 窄方块卡把「精英化」「等级」挤成竖排、来源徽章叠三行 | 第一版照的是参考仓库里另一种 90px 方块卡，不是截图里那套干员条 | 卡片改成**宽横卡**：列宽 `repeat(auto-fit, minmax(min(360px,100%), 500px))` 居中、一行 1–2 张，头像 56px、技能/模组方框 40px 带左上角标；`dl` 原文与来源徽章挪到卡片下方独立一行 |
+
+顺带确认：用户的账号**已经成功绑定并同步过一次**——库里 385 行有 `skill_ids`、104 行有 `module_details`，凯尔希那条是 `PHY-X 2` / `ISW-A 3`，与截图上的模组标签一致 ⇒ 森空岛接入的端到端链路真机可用。
+
+**门禁（修订后复跑）**：后端 **2 failed / 3814 passed / 6 skipped**（两条仍是 `test_activity_index.py` 的真资源既有失败）；
+前端 `gen:api:check` 当前、`typecheck` 0、**76 文件 792 例**、`build` OK；`dump_openapi.py --check` 当前；文案基线通过。
+新增测试：资源代理服务 5 组（缓存命中、白名单、未知 kind、上游 404、非 PNG 不入缓存）+ 路由 1 组（鉴权/响应头/越界 404）。

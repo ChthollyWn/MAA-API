@@ -487,6 +487,8 @@ def test_router_declares_the_documented_paths():
         for method in route.methods
     }
     assert paths == {
+        # M43 后续：游戏资源图的后端代理（官方 CDN 有防盗链，浏览器直连会被 403）。
+        ("GET", "/api/account/assets/{kind}/{asset_id}"),
         ("GET", "/api/account/summary"),
         ("GET", "/api/account/operators"),
         ("GET", "/api/account/operators/{char_id}"),

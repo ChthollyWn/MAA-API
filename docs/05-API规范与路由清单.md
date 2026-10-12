@@ -447,7 +447,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 123 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 124 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -810,9 +810,10 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 | PATCH | `/api/account/operators/{char_id}` | 手动编辑干员数据 | 只接受可编辑字段，未知字段 422：`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`、`modules`、`source`（`manual` / `agent`，默认 `manual`）；练度列传 `null` 与不传同义＝不改（M35，不做「写 `null` 清回未识别」） | 200 | `ACCOUNT_DATA_NOT_FOUND`、`INVALID_PARAMETER`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
 | GET | `/api/account/operator-diffs` | 识别覆盖手动值的差异 | `include_dismissed`（默认 `false`）、`limit`（1–500，默认 200） | 200 | `UNAUTHORIZED` |
 | DELETE | `/api/account/operator-diffs` | 把差异标记为已知 | `{ids: [int]}` 逐条，或省略＝全部 | 200 | `UNAUTHORIZED` |
+| GET | `/api/account/assets/{kind}/{asset_id}` | 游戏资源图（干员头像 / 技能图标）的后端代理 | `kind`（`avatar` / `skill`）、`asset_id`（干员 id 或技能 id） | 200（`image/png`，`Cache-Control: public, max-age=604800`） | `ACCOUNT_DATA_NOT_FOUND`、`SKLAND_UPSTREAM_FAILED`、`UNAUTHORIZED` |
 | GET | `/api/account/depot` | 仓库识别结果，按分类分组 | `category`、`query`、`limit`（1–500，默认 100）、`offset` | 200 | `UNAUTHORIZED` |
 
-（7 条）
+（8 条）
 
 这七个端点都 `Depends(require_auth)`（M36 的三个 `training-scan` 端点已在 M42 随读屏扫描线一起删除，改由 §6.22 的森空岛同步取练度）。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent` / `skland`）。
 
