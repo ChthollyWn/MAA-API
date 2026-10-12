@@ -33,9 +33,16 @@ def _iso(moment: datetime) -> str:
     return moment.isoformat() + "Z"
 
 
-def _settings(*, stale_days: int) -> Settings:
+def _settings(*, stale_days: int, min_items: int = 0) -> Settings:
+    """用例配置。
+
+    本文件只写 1–5 件的小表，测的是整表替换 / 筛选分页 / 概要语义，不是 M44 的下限
+    护栏，所以 ``depot_min_items`` 默认置 0（显式关护栏）；护栏本身由
+    ``test_account_depot.py::test_min_items_guard_blocks_a_partial_recognition`` 覆盖。
+    """
     settings = Settings()
     settings.agent.depot_stale_days = stale_days
+    settings.agent.depot_min_items = min_items
     return settings
 
 
@@ -157,6 +164,7 @@ def depot(monkeypatch):
 
 
 def test_replace_all_swaps_the_whole_table(depot):
+    """显式关掉下限护栏（``_settings`` 默认 ``min_items=0``）后验整表替换语义。"""
     service, _store, _factory = depot
 
     async def scenario():
@@ -187,7 +195,7 @@ def test_replace_all_swaps_the_whole_table(depot):
         assert second["total"] == 1
         assert second["items"][0]["count"] == 9
 
-        # 识别到空仓库同样合法：整表清空。
+        # 识别到空仓库同样合法：整表清空（关着护栏时，空表是「真空仓库」的表达）。
         assert await service.replace_all([], recognized_at=NOW) == 0
         assert (await service.list_items())["total"] == 0
 
