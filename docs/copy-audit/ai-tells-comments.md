@@ -1,16 +1,16 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12299 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12300 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 268 | 268 |
-| 破折号当冒号用 | high | 0 | 120 | 120 |
+| 粗体强调 | medium | 0 | 271 | 271 |
+| 破折号当冒号用 | high | 0 | 121 | 121 |
 | 「A 而不是 B」对照腔 | high | 0 | 107 | 107 |
 | 绝对化规定腔 | medium | 0 | 63 | 63 |
 | 「…即可」机器腔 | medium | 0 | 19 | 19 |
-| 自指式讲解腔 | medium | 0 | 16 | 16 |
+| 自指式讲解腔 | medium | 0 | 18 | 18 |
 | 省略号 | medium | 0 | 4 | 4 |
 | 宣传词 | medium | 0 | 3 | 3 |
 | 提示腔 | medium | 0 | 3 | 3 |
@@ -18,7 +18,7 @@
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 268）
+## 粗体强调（medium｜用户可见 0 / 开发向 271）
 
 **开发向**
 
@@ -28,9 +28,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 262 条，见 inventory.json
+- …… 另有 265 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 120）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 121）
 
 **开发向**
 
@@ -40,7 +40,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 114 条，见 inventory.json
+- …… 另有 115 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 107）
 
@@ -78,7 +78,7 @@
 - `maa_api/services/copilot/rules.py:330` : 实际比对的成员：``opers`` 是自己，分组是全部成员（任一满足即可）。
 - …… 另有 13 条，见 inventory.json
 
-## 自指式讲解腔（medium｜用户可见 0 / 开发向 16）
+## 自指式讲解腔（medium｜用户可见 0 / 开发向 18）
 
 **开发向**
 
@@ -88,7 +88,7 @@
 - `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
 - `maa_api/services/account/planner.py:23` # 实现裁决（规格没写死、由本模块定，M27 T8）
 - `maa_api/services/copilot/grant.py:4` *INTERNAL 调用方**生效（策略分支在 ``agent/policy.py``，本模块不判断调用方）：
-- …… 另有 10 条，见 inventory.json
+- …… 另有 12 条，见 inventory.json
 
 ## 省略号（medium｜用户可见 0 / 开发向 4）
 

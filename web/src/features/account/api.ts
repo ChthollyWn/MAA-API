@@ -11,8 +11,8 @@ import type { components } from '@/types/api'
  * 模型，OpenAPI 里是自由对象，形状按规格在本地声明——往覆盖层里加回上面那两个端点，
  * 等于把这道护栏撤掉。请求仍走 `api` 客户端，鉴权（`X-Token`）与请求号由它的中间件照旧加。
  *
- * `/api/skland/*` 六个端点（M42）同理，另起一份 `SklandEndpoints` 覆盖层：它们当时还
- * 没进 `web/openapi.json`，形状按 M42 规格 §4.6 在本地声明。
+ * `/api/skland/*` 六个端点（M42）都接了响应模型，形状由生成类型定死，请求直接走 `api`
+ * （W3 期间临时加的手写覆盖层已撤掉，见下面森空岛那一段）。
  */
 
 /** 字段来源：识别 / 手动 / Agent / 森空岛（§7.3、§7.4、M42 §4.5）。 */
@@ -180,10 +180,16 @@ export interface UpgradePlanListQuery {
 /**
  * 森空岛（Skland）绑定与同步（M42 规格 §4.6）。
  *
- * 六个端点当时还没进生成类型（`web/openapi.json` 要等下一次 `dump_openapi.py` +
- * `pnpm gen:api` 才有），所以路径与响应形状都在下面的 `SklandEndpoints` 覆盖层里声明，
- * 响应再过一层 `normalizeSkland*` 兜底：形状读不出来时页面按「未绑定 / 没有摘要」渲染，
- * 既不炸，也不编造数字。
+ * **两层分开**：
+ *
+ * - **wire 层**走生成类型：六个端点在路由上都有 `response_model`，`api`（openapi-fetch）
+ *   的类型来自 `web/src/types/api.d.ts`，路径写错、请求体缺字段都过不了 `pnpm typecheck`
+ *   ——所以这里不再需要手写的路径覆盖层（M42 W3 期间它们还没进 OpenAPI，才临时加的）。
+ * - **视图层**是下面这几个接口：把「可选」归一成「必填 + 可 null」，页面按固定形状渲染；
+ *   由 `normalizeSkland*` 做运行时兜底，形状读不出来时按「未绑定 / 没有摘要」渲染，
+ *   既不炸，也不编造数字。
+ *
+ * 生成类型里 `state` 是普通字符串，前端收窄成四态 `SklandQrState`（唯一的语义加码）。
  */
 
 /** 森空岛角色（一个账号下的一个游戏角色）。 */
@@ -256,10 +262,7 @@ export interface SklandQrPoll {
 }
 
 /** `POST /api/skland/login/manual` 的请求体：两项都必填，绑前后端会验一次。 */
-export interface SklandManualCredentials {
-  cred: string
-  token: string
-}
+export type SklandManualCredentials = components['schemas']['SklandManualBindRequest']
 
 interface Result<T> {
   data?: T
@@ -293,35 +296,8 @@ interface AccountEndpoints {
   }
 }
 
-/**
- * `/api/skland/*` 的覆盖层（M42 §4.6）：六个端点都按规格在本地声明路径与响应形状。
- * 键名与后端契约逐字对齐（`qr_svg`、`poll_interval_ms`、`ownership_cleared`…）。
- */
-interface SklandEndpoints {
-  GET: {
-    (path: '/api/skland/status', init?: { signal?: AbortSignal }): Promise<Result<SklandStatus>>
-    /** 轮询扫码状态；会话不存在时后端回 404（`SKLAND_QR_SESSION_NOT_FOUND`）。 */
-    (path: '/api/skland/login/qrcode/{session_id}', init: { params: { path: { session_id: string } }; signal?: AbortSignal }): Promise<Result<SklandQrPoll>>
-  }
-  POST: {
-    /** 生成扫码会话；没配 `skland.credential_key` 时后端回 409。 */
-    (path: '/api/skland/login/qrcode', init?: { signal?: AbortSignal }): Promise<Result<SklandQrSession>>
-    /** 手动兜底绑定：body 两项必填，凭据不对回 401 `SKLAND_LOGIN_FAILED`。 */
-    (path: '/api/skland/login/manual', init: { body: SklandManualCredentials }): Promise<Result<SklandStatus>>
-    /** 同步练度（**同步执行**，秒级）：忙 409、冷却 429、上游失败 502。 */
-    (path: '/api/skland/sync'): Promise<Result<SklandSyncSummary>>
-  }
-  DELETE: {
-    /** 解绑：删凭据与角色，**不动**已同步的练度。 */
-    (path: '/api/skland/binding'): Promise<Result<{ bound: boolean }>>
-  }
-}
-
 /** 覆盖层在前、生成类型在后：没覆盖的路径走 `typeof api` 的签名（`/operators`、`/depot`）。 */
 const accountApi = api as unknown as AccountEndpoints & typeof api
-
-/** skland 六个端点的覆盖层；`/api/skland` 不进 `AccountEndpoints`，另起一份更好读。 */
-const sklandApi = api as unknown as SklandEndpoints & typeof api
 
 /** 与 `keys.all`（`['api']`）同根，方便整片失效；`web/src/api/keys.ts` 由主 agent 统一维护。 */
 const accountRoot = ['api', 'account'] as const
@@ -533,8 +509,8 @@ export async function cancelUpgradePlan(planId: string): Promise<UpgradePlan> {
 /**
  * 森空岛六个端点的请求层（M42 §4.6）。
  *
- * 端点还没进生成类型，路径与形状由上面的 `SklandEndpoints` 覆盖层声明；下面每个
- * `normalizeSkland*` 再做一层运行时兜底，读不出来的形状一律落安全默认：状态按
+ * 请求直接走生成类型的 `api` 客户端（路径 / 请求体写错过不了 `pnpm typecheck`）；
+ * 下面每个 `normalizeSkland*` 再做一层运行时兜底，读不出来的形状一律落安全默认：状态按
  * 「未绑定、密钥当作配好了」（真没配时后端的 409 会说明原因）、扫码状态落 `failed`
  * （既不假装成功，也不无限轮询）、摘要读不出就返回 `null`（页面只说「同步完成」，
  * 不把空对象渲染成「本轮 0 名」）。
@@ -719,21 +695,21 @@ export function retryAfterSeconds(error: unknown): number | null {
 
 /** 绑定与同步状态（`GET`）：卡片挂载时读一次，扫码成功 / 同步 / 解绑后再失效重取。 */
 export async function fetchSklandStatus(signal?: AbortSignal): Promise<SklandStatus> {
-  const { data, error, response } = await sklandApi.GET('/api/skland/status', { signal })
+  const { data, error, response } = await api.GET('/api/skland/status', { signal })
   if (error || !data) throw toApiError(error, response)
   return normalizeSklandStatus(data)
 }
 
 /** 生成扫码会话（`POST`）；没配 `skland.credential_key` 时后端回 409 `SKLAND_ENCRYPTION_KEY_INVALID`。 */
 export async function startSklandQrLogin(): Promise<SklandQrSession> {
-  const { data, error, response } = await sklandApi.POST('/api/skland/login/qrcode')
+  const { data, error, response } = await api.POST('/api/skland/login/qrcode')
   if (error || !data) throw toApiError(error, response)
   return normalizeSklandQrSession(data)
 }
 
 /** 轮询扫码状态（`GET`）：`waiting` 时由卡片按 `poll_interval_ms` 再取一次。 */
 export async function pollSklandQrLogin(sessionId: string, signal?: AbortSignal): Promise<SklandQrPoll> {
-  const { data, error, response } = await sklandApi.GET('/api/skland/login/qrcode/{session_id}', {
+  const { data, error, response } = await api.GET('/api/skland/login/qrcode/{session_id}', {
     params: { path: { session_id: sessionId } },
     signal,
   })
@@ -743,21 +719,21 @@ export async function pollSklandQrLogin(sessionId: string, signal?: AbortSignal)
 
 /** 手动兜底绑定（`POST`）：返回绑定后的状态（同 `GET /status`）；凭据不对回 401。 */
 export async function bindSklandManual(body: SklandManualCredentials): Promise<SklandStatus> {
-  const { data, error, response } = await sklandApi.POST('/api/skland/login/manual', { body })
+  const { data, error, response } = await api.POST('/api/skland/login/manual', { body })
   if (error || !data) throw toApiError(error, response)
   return normalizeSklandStatus(data)
 }
 
 /** 同步一轮练度（`POST`，**同步执行**、秒级）：摘要形状读不出时返回 `null`，页面只刷新状态。 */
 export async function syncSkland(): Promise<SklandSyncSummary | null> {
-  const { data, error, response } = await sklandApi.POST('/api/skland/sync')
+  const { data, error, response } = await api.POST('/api/skland/sync')
   if (error || !data) throw rateLimited(error, response)
   return normalizeSklandSyncSummary(data)
 }
 
 /** 解绑（`DELETE`）：删凭据与角色，**不动**已同步的练度（§4.4）。 */
 export async function unbindSkland(): Promise<boolean> {
-  const { data, error, response } = await sklandApi.DELETE('/api/skland/binding')
+  const { data, error, response } = await api.DELETE('/api/skland/binding')
   if (error || !data) throw toApiError(error, response)
   return data.bound === true
 }
