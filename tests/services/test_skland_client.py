@@ -48,10 +48,10 @@ AUTH_CODE = "auth-code-abc"
 CLIENT_LOGGER = "maa_api.services.skland.client"
 
 #: 金标签名（十六进制）：用「实现之外的独立算式」算好后钉死，防止实现与测试助手一起漂移。
-GOLDEN_REFRESH_SIGN = "1d8e226a8fd930311e7ef9a828200600"
-GOLDEN_PLAYER_INFO_SIGN = "e501f9d3c7607899ec5a5cf0f7996dfb"
-GOLDEN_POST_SIGN = "78c0d10386f3e0b01709bb817f382894"
-GOLDEN_EXTRA_HEADERS_SIGN = "8084c7688445b3368eea74c58d66614c"
+GOLDEN_REFRESH_SIGN = "5e9c6227c61376659e81bedb9bd27ba0"
+GOLDEN_PLAYER_INFO_SIGN = "3a8108540c7ea98cc90d92f95b036a80"
+GOLDEN_POST_SIGN = "2024c5f480366f676d650ee74fdcf36a"
+GOLDEN_EXTRA_HEADERS_SIGN = "2b6333915fb1b6d8d59121ea8ef9b560"
 
 #: POST 分支用的 body（含引号，验证紧凑 JSON 的转义与待签串一致）。
 POST_BODY: dict[str, Any] = {"code": "a'b", "kind": 1, "nested": {"x": [1, 2]}}
@@ -65,9 +65,17 @@ def expected_sign(
     token: str = TOKEN,
     extra_headers: Mapping[str, str] | None = None,
 ) -> str:
-    """在测试里独立复算一次签名（只照规格 §2.2 的字面算式，不调用被测实现的任何函数）。"""
-    header_for_sign = dict(DEFAULT_EXTRA_HEADERS if extra_headers is None else extra_headers)
-    header_for_sign["timestamp"] = TIMESTAMP
+    """在测试里独立复算一次签名（只照规格 §2.2 的字面算式，不调用被测实现的任何函数）。
+
+    待签头是**固定四键**：``platform`` → ``timestamp`` → ``dId`` → ``vName``（照抄社区
+    现行实现；真机 401 就是早期版本漏了 ``dId``、键序也不对）。调用方传 ``extra_headers``
+    时按同一规则覆盖前三者的取值，多余键追加在后面。
+    """
+    extra = dict(DEFAULT_EXTRA_HEADERS if extra_headers is None else extra_headers)
+    header_for_sign: dict[str, str] = {}
+    for key in ("platform", "timestamp", "dId", "vName"):
+        header_for_sign[key] = TIMESTAMP if key == "timestamp" else str(extra.pop(key, ""))
+    header_for_sign.update(extra)
     secret = (
         path + query_params + TIMESTAMP + json.dumps(header_for_sign, separators=(",", ":"))
     )
@@ -157,8 +165,10 @@ async def test_get_query_string_is_signed_literally() -> None:
     assert str(request.url) == f"{ZONAI_BASE_URL}/api/v1/game/player/info?uid=123456789"
     assert request.headers["cred"] == CRED
     assert request.headers["timestamp"] == TIMESTAMP
-    assert request.headers["platform"] == "1"
-    assert request.headers["vName"] == "1.0.0"
+    # 默认进签名的头照抄社区现行实现：四个键都在、值为空串（dId 没有设备指纹就是空）。
+    assert request.headers["platform"] == ""
+    assert request.headers["dId"] == ""
+    assert request.headers["vName"] == ""
     assert request.headers["sign"] == expected_sign(
         path="/api/v1/game/player/info", query_params="uid=123456789"
     )
@@ -459,6 +469,83 @@ BINDING_PAYLOAD: dict[str, Any] = {
         ]
     },
 }
+
+
+#: **真机形状**（社区现行实现与 `BindingApp` schema 一致）：`data.list[]` 按应用分组，
+#: 每组带 `appCode` / `bindingList[]`；角色条目的昵称键是 `nickName`（大写 N），
+#: 等级在 `roles[].level`。早期实现按「顶层 bindingList + nickname」解析，真机 401 修好后
+#: 紧接着就会在这里解析失败——这条用例就是那次的护栏。
+BINDING_PAYLOAD_NESTED = {
+    "code": 0,
+    "message": "OK",
+    "data": {
+        "list": [
+            {
+                "appCode": "endfield",
+                "appName": "明日方舟：终末地",
+                "defaultUid": "e-1",
+                "bindingList": [{"uid": "e-1", "nickName": "别的游戏"}],
+            },
+            {
+                "appCode": "arknights",
+                "appName": "明日方舟",
+                "defaultUid": "123456789",
+                "bindingList": [
+                    {
+                        "uid": "123456789",
+                        "isOfficial": True,
+                        "isDefault": True,
+                        "channelMasterId": "1",
+                        "channelName": "官服",
+                        "nickName": "罗德岛博士",
+                        "isDelete": False,
+                        "gameName": "明日方舟",
+                        "gameId": 1,
+                        "roles": [
+                            {"serverId": "1", "roleId": "123456789", "nickname": "罗德岛博士", "level": 120}
+                        ],
+                        "defaultRole": None,
+                    },
+                    {
+                        "uid": "987654321",
+                        "isDefault": False,
+                        "channelMasterId": 2,
+                        "nickName": None,
+                        "roles": [{"serverId": "2", "level": 42}],
+                    },
+                ],
+            },
+            "not-a-mapping",
+        ]
+    },
+}
+
+
+@async_test
+async def test_binding_parses_the_nested_nickname_and_role_level_shape() -> None:
+    upstream = Upstream(as_json(BINDING_PAYLOAD_NESTED))
+    client = make_client(upstream)
+
+    roles = await client.binding(SklandCredential(cred=CRED, token=TOKEN))
+
+    assert roles == [
+        BindingRole(
+            uid="123456789",
+            app_code="arknights",
+            channel_master_id="1",
+            nickname="罗德岛博士",
+            level=120,  # 取自 roles[].level，而不是角色条目的顶层（那里没有 level）
+            is_default=True,
+        ),
+        BindingRole(
+            uid="987654321",
+            app_code="arknights",
+            channel_master_id="2",  # 数字形态的渠道 id 转字符串
+            nickname=None,
+            level=42,
+            is_default=False,
+        ),
+    ]
 
 
 @async_test

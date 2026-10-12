@@ -63,7 +63,10 @@ AS_BASE_URL = "https://as.hypergryph.com"
 ZONAI_BASE_URL = "https://zonai.skland.com"
 
 #: 进签名的固定头；缺省值照抄社区实现，**可注入**，W0 真机以实测值覆盖（规格 §2.5-10）。
-DEFAULT_EXTRA_HEADERS: Mapping[str, str] = {"platform": "1", "vName": "1.0.0"}
+DEFAULT_EXTRA_HEADERS: Mapping[str, str] = {"platform": "", "dId": "", "vName": ""}
+#: 进签名的头的**固定顺序**（照抄社区现行实现）：``timestamp`` 插在 ``platform`` 之后。
+#: 待签串是 JSON，键序进 HMAC——顺序错、键少一个（早期版本漏了 ``dId``）都会让服务端
+#: 复核失败：真机实测（2026-10-12 11:59:03Z）表现为 ``binding`` 回 401。
 
 #: 网络异常与 5xx 的退避秒数；测试 monkeypatch 成 0 免等。
 RETRY_BACKOFF_SECONDS = 0.5
@@ -246,37 +249,69 @@ class SklandClient:
     async def binding(self, credential: SklandCredential) -> list[BindingRole]:
         """第 6 步：取绑定角色，只保留 ``appCode == "arknights"`` 的条目。
 
-        ``channelMasterId`` / ``nickname`` / ``level`` 缺省一律容忍（W0 才定稿真实形状，
-        规格 §2.5-5）；缺 ``uid`` 的条目无法使用，跳过。
+        真实形状（社区现行实现与 ``BindingApp`` schema 一致）：``data.list[]`` 是**按应用
+        分组**的，每组带 ``appCode`` 与 ``bindingList[]``；角色条目里的昵称键是
+        ``nickName``（大写 N），等级在 ``roles[].level``（或 ``defaultRole.level``）。
+        早期实现按「顶层就有 ``bindingList``、昵称叫 ``nickname``」解析，真机 401 修好后
+        会紧接着在这里解析失败——所以两种形状都认：嵌套优先，平铺作为兜底（并打一条
+        INFO 说明用了兜底，方便发现上游回退）。
+
+        ``channelMasterId`` / ``nickName`` / ``level`` 缺省一律容忍；缺 ``uid`` 的条目无法
+        使用，跳过并记一条 warning。
         """
         payload = await self._zonai(_BINDING_PATH, credential=credential)
         data = _data_dict(payload, endpoint=_BINDING_PATH)
-        raw_list = data.get("bindingList")
-        if not isinstance(raw_list, list):
-            # 空列表是合法的「没有绑定」；键缺失是形状变了，不当作空。
+
+        nested = data.get("list")
+        flat = data.get("bindingList")
+        if isinstance(nested, list):
+            groups = [item for item in nested if isinstance(item, Mapping)]
+            grouped = True
+        elif isinstance(flat, list):
+            logger.info("森空岛 binding 响应是平铺形状（顶层 bindingList），按兜底路径解析")
+            groups = [
+                {"appCode": _BINDING_APP_CODE, "bindingList": flat, "defaultUid": None}
+            ]
+            grouped = False
+        else:
+            # 空列表是合法的「没有绑定」；两个键都不是列表说明形状变了。
             raise AppError(
                 ErrorCode.SKLAND_UPSTREAM_FAILED,
-                "森空岛接口响应缺少 bindingList",
+                "森空岛接口响应里没有角色列表（list / bindingList 都不是列表）",
                 {"endpoint": _BINDING_PATH},
             )
+
         roles: list[BindingRole] = []
-        for item in raw_list:
-            if not isinstance(item, Mapping) or item.get("appCode") != _BINDING_APP_CODE:
+        for group in groups:
+            if group.get("appCode") not in (None, _BINDING_APP_CODE):
                 continue
-            uid = item.get("uid")
-            if not isinstance(uid, str) or not uid:
-                logger.warning("森空岛 bindingList 有条目缺少 uid，已跳过")
+            entries = group.get("bindingList")
+            if not isinstance(entries, list):
                 continue
-            roles.append(
-                BindingRole(
-                    uid=uid,
-                    app_code=_BINDING_APP_CODE,
-                    channel_master_id=_optional_str(item.get("channelMasterId")),
-                    nickname=_optional_str(item.get("nickname")),
-                    level=_optional_int(item.get("level")),
-                    is_default=bool(item.get("isDefault")),
+            default_uid = _optional_str(group.get("defaultUid"))
+            for item in entries:
+                if not isinstance(item, Mapping):
+                    continue
+                # 平铺兜底那条路里，appCode 挂在条目上（嵌套形状挂在分组上）：两处都判。
+                if item.get("appCode") not in (None, _BINDING_APP_CODE):
+                    continue
+                uid = _optional_str(item.get("uid"))
+                if uid is None:
+                    logger.warning("森空岛绑定条目缺少 uid，已跳过")
+                    continue
+                roles.append(
+                    BindingRole(
+                        uid=uid,
+                        app_code=_BINDING_APP_CODE,
+                        channel_master_id=_optional_str(item.get("channelMasterId")),
+                        nickname=_optional_str(item.get("nickName"))
+                        or _optional_str(item.get("nickname")),
+                        level=_binding_level(item),
+                        is_default=bool(item.get("isDefault")) or default_uid == uid,
+                    )
                 )
-            )
+        if grouped:
+            logger.info("森空岛绑定：解析到 %d 个角色（appCode=%s）", len(roles), _BINDING_APP_CODE)
         return roles
 
     async def player_info(self, credential: SklandCredential, uid: str) -> dict[str, Any]:
@@ -290,6 +325,24 @@ class SklandClient:
         return _data_dict(payload, endpoint=_PLAYER_INFO_PATH)
 
     # -- 签名与发送 -------------------------------------------------------
+    def _signing_headers(self, timestamp: int) -> dict[str, str]:
+        """构造进签名的头：``platform`` → ``timestamp`` → ``dId`` → ``vName``（固定顺序）。
+
+        真机取证与社区现行实现一致（2026-10-12）：四个键**都要在**，``dId`` 在没有设备
+        指纹时是空串；多出来的键（调用方显式传的）按插入顺序追加在后面，保证「签名用的
+        那份」与「发出去的那份」永远是同一个字典。
+        """
+        payload: dict[str, str] = {}
+        for key in ("platform", "timestamp", "dId", "vName"):
+            if key == "timestamp":
+                payload[key] = str(timestamp)
+            else:
+                payload[key] = str(self._extra_headers.get(key, ""))
+        for key, value in self._extra_headers.items():
+            if key not in payload:
+                payload[key] = str(value)
+        return payload
+
     def _signature(
         self, *, path: str, query_params: str, credential: SklandCredential
     ) -> dict[str, str]:
@@ -299,8 +352,7 @@ class SklandClient:
             JSON——由 :meth:`_send` 与「实际发出去的字节」取同一份字符串。
         """
         timestamp = int(self._now()) - 1
-        header_for_sign = dict(self._extra_headers)
-        header_for_sign["timestamp"] = str(timestamp)
+        header_for_sign = self._signing_headers(timestamp)
         secret = (
             path
             + query_params
@@ -311,7 +363,7 @@ class SklandClient:
             credential.token.encode("utf-8"), secret.encode("utf-8"), hashlib.sha256
         ).hexdigest()
         sign = hashlib.md5(digest.encode("utf-8")).hexdigest()
-        # 签名用的那份头原样并进发送头：cred / sign / timestamp / extra_headers。
+        # 签名用的那份头原样并进发送头：cred / sign + 四个进签名的头。
         return {"cred": credential.cred, **header_for_sign, "sign": sign}
 
     async def _send(
@@ -523,6 +575,27 @@ def _required_str(data: Mapping[str, Any], key: str, *, endpoint: str) -> str:
             {"endpoint": endpoint},
         )
     return value
+
+
+def _binding_level(item: Mapping[str, Any]) -> int | None:
+    """角色等级：优先 ``defaultRole.level``，其次 ``roles[0].level``，都没有就 ``None``。
+
+    上游把等级放在「角色 → 服务器角色」这一层（``BindingCharacter.roles[]``），顶层没有
+    ``level`` 键——早期实现直接读顶层，真机上永远是 ``None``。
+    """
+    default_role = item.get("defaultRole")
+    if isinstance(default_role, Mapping):
+        level = _optional_int(default_role.get("level"))
+        if level is not None:
+            return level
+    roles = item.get("roles")
+    if isinstance(roles, list):
+        for role in roles:
+            if isinstance(role, Mapping):
+                level = _optional_int(role.get("level"))
+                if level is not None:
+                    return level
+    return _optional_int(item.get("level"))
 
 
 def _optional_str(value: Any) -> str | None:

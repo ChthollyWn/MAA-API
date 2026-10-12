@@ -54,7 +54,7 @@
 | 4 | `POST as.hypergryph.com/user/oauth2/v2/grant` `{"appCode":"4ca99fa6b56cc2ba","token":…,"type":0}` | `data.code` |
 | 5 | `POST zonai.skland.com/api/v1/user/auth/generate_cred_by_code` `{"code":…,"kind":1}` | `data.cred`（凭证）、`data.token`（**签名密钥**） |
 | 5b | `GET zonai.skland.com/api/v1/auth/refresh`（头带 `cred`） | `data.token`（续期签名密钥） |
-| 6 | `GET zonai.skland.com/api/v1/game/player/binding` | `bindingList[]` 里 `appCode == "arknights"` 的 `uid` |
+| 6 | `GET zonai.skland.com/api/v1/game/player/binding` | `data.list[]` **按应用分组**（每组 `appCode` + `bindingList[]` + `defaultUid`），取 `appCode == "arknights"` 那组；角色条目字段是 `uid` / `channelMasterId` / **`nickName`（大写 N）** / `isDefault` / `roles[].level`（**顶层没有 `level`**） |
 | 7 | `GET zonai.skland.com/api/v1/game/player/info?uid=<uid>` | `data.chars[]`、`data.status`、`data.charInfoMap`、`data.equipmentInfoMap` 等 |
 
 **签名算法**（nonebot-plugin-skland `api/request.py::get_sign_header`，逐字照抄）：
@@ -65,7 +65,7 @@ secret    = path + query_params + str(timestamp) + json.dumps(header_for_sign, s
 sign      = md5(hmac_sha256(token, secret).hexdigest()).hexdigest()
 ```
 
-GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`token` 是第 5 步入库的签名密钥。请求头 `cred` / `sign` / `timestamp` / `platform` / `vName`。
+GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`token` 是第 5 步入库的签名密钥。**待签的那份头是固定四键、固定顺序**：`{"platform":"","timestamp":"<ts>","dId":"","vName":""}`（`dId` 在没有设备指纹时是空串；`use_did=True` 只有签到类接口用）。请求头就是这四个键 + `cred` + `sign`。**真机实测（2026-10-12 11:59:03Z）**：漏掉 `dId`、或把 `platform`/`vName` 写成非空值再签，会让 `binding` 直接回 401。
 
 **dId（设备指纹，`fp-it.portal101.cn` 那套混淆参数）只被签到类接口需要**，本里程碑只读，不碰（§3.2）。
 
@@ -107,12 +107,12 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 2. `data.charInfoMap` 到底有哪些字段（是否含 `name` / `rarity` / `profession`）。
 3. ~~`skills[].id` 与本机 `character_table` 的 `skillId` 是否同一命名空间~~——**已由设计消解**：槽位数直接取 `len(skills)`，不再依赖本机技能表（`skills[].id` 只用于样例记录）。
 4. `equip[].id`（形如 `uniequip_002_xxx`）到模组类型 `X/Y/D/A` 的映射表来源与覆盖率——**部分消解**：认不出就留 `None`（不知道），不会把「不知道」写成「没有」；覆盖率的实测仍然需要真机。
-5. `bindingList[]` 的真实字段（`uid` / `channelMasterId` / `nickname` / `level` / `isDefault` / `isDeleted`）。
+5. ~~`bindingList[]` 的真实字段~~——**已取证**（真机 401 修复后按社区 schema 定稿）：`data.list[].bindingList[]`，字段 `uid` / `channelMasterId` / `nickName` / `isDefault` / `roles[].level`；旧假设（顶层 `bindingList` + `nickname`）作为兜底保留。
 6. ~~`scan_status` 确认后的 `status` 值与 `data.scanCode` 形状~~——**已实测**：中间态 `101`（`msg=已扫码待确认`）已捕获并写进 §2.1/§4.2；确认成功后的 `0` + `data.scanCode` 仍待一次完整扫码。
 7. `cred` 与签名密钥的有效期、`auth/refresh` 的返回形状与失败语义。
 8. `favorPercent` 的取值上限与已拥有但未放进编队的干员是否也在 `chars` 里。
 9. `chars[]` 是否包含未拥有干员（决定 `own=False` 推导是否成立）与常规数量级（决定 §4.5 的 `SKLAND_MIN_CHARS` 阈值）。
-10. 接口头里 `platform` / `vName` 的实际取值（照抄社区实现后再真机验证一次）。
+10. ~~接口头里 `platform` / `vName` 的实际取值~~——**已取证**：四个头（`platform` / `timestamp` / `dId` / `vName`）默认取值都是空串，顺序固定；写成 `1` / `1.0.0` 会被服务端拒（真机 `binding` 401）。
 
 取证脚本：`scripts/probe_skland_login.py`（W0 新增，真机扫码一次，只打印形状与计数，不落库、不写仓库）。
 

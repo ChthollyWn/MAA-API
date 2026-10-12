@@ -115,20 +115,30 @@ class FakeUpstream:
                 return httpx.Response(401, json={"code": 10002, "message": "用户未登录"})
             if self.cred_rejected:
                 return httpx.Response(401, json={"code": 10002, "message": "用户未登录"})
+            # 真机形状：data.list[] 按 appCode 分组，组内 bindingList[]，昵称键 nickName，
+            # 等级在 roles[].level。
             return _json(
                 {
                     "code": 0,
                     "data": {
-                        "bindingList": [
+                        "list": [
                             {
-                                "uid": "1234567890",
-                                "appCode": "arknights",
-                                "channelMasterId": "1",
-                                "nickname": "测试博士",
-                                "level": 120,
-                                "isDefault": True,
+                                "appCode": "endfield",
+                                "bindingList": [{"uid": "9999", "nickName": "终末地角色"}],
                             },
-                            {"uid": "9999", "appCode": "endfield", "isDefault": False},
+                            {
+                                "appCode": "arknights",
+                                "defaultUid": "1234567890",
+                                "bindingList": [
+                                    {
+                                        "uid": "1234567890",
+                                        "channelMasterId": "1",
+                                        "nickName": "测试博士",
+                                        "isDefault": True,
+                                        "roles": [{"serverId": "1", "level": 120}],
+                                    }
+                                ],
+                            },
                         ]
                     },
                 }
