@@ -160,10 +160,18 @@ class SklandSyncService:
             proxy=settings.proxy or None,
         )
         try:
-            refreshed = await client.refresh(SklandCredential(cred=stored.cred, token=stored.token))
-            await self._store.touch_credential(refreshed, refreshed_at=moment)
+            credential = SklandCredential(cred=stored.cred, token=stored.token)
+            try:
+                refreshed = await client.refresh(credential)
+            except AppError as exc:
+                # 续期只是「换一份更新的签名密钥」，不是同步的前置条件：偶发失败（网络抖动、
+                # 上游限流）不该让整轮同步失败。真过期时下一步的签名调用会自己报 401。
+                logger.warning("森空岛密钥续期失败（%s），改用已存的密钥继续", exc.code)
+            else:
+                await self._store.touch_credential(refreshed, refreshed_at=moment)
+                credential = refreshed
 
-            roles = await client.binding(refreshed)
+            roles = await client.binding(credential)
             if not roles:
                 raise AppError(
                     ErrorCode.SKLAND_UPSTREAM_FAILED,
@@ -179,7 +187,7 @@ class SklandSyncService:
                     {"endpoint": "binding"},
                 )
 
-            data = await client.player_info(refreshed, role.uid)
+            data = await client.player_info(credential, role.uid)
             chars = data.get("chars")
             if not isinstance(chars, list):
                 raise AppError(

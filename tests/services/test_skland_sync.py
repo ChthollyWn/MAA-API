@@ -394,8 +394,11 @@ def test_sync_cooldown_and_busy_guard(session_factory):
 
 
 def test_sync_reports_upstream_failure_without_dropping_the_binding(session_factory):
+    # 用 binding 失败代表「上游在同步过程中报错」：续期失败已经不再算整轮失败（见上一条用例）。
     exit_error = AppError(ErrorCode.SKLAND_LOGIN_FAILED, "用户未登录")
-    client = FakeClient(chars=_chars(SKLAND_MIN_CHARS), roles=[_role()], refresh_error=exit_error)
+    client = FakeClient(
+        chars=_chars(SKLAND_MIN_CHARS), roles=[_role()], binding_error=exit_error
+    )
     service = _sync_service(session_factory, client)
 
     async def scenario():
@@ -407,6 +410,28 @@ def test_sync_reports_upstream_failure_without_dropping_the_binding(session_fact
         status = await service.status()
         assert status["bound"] is True  # 偶发失败不该让用户重新扫码
         assert status["last_error"] == "用户未登录"
+
+    asyncio.run(scenario())
+
+
+def test_sync_survives_a_failed_refresh(session_factory):
+    """续期失败不该让整轮同步失败：换用已存的密钥继续（真过期时后面自己会报 401）。"""
+
+    class FlakyRefresh(FakeClient):
+        async def refresh(self, credential):
+            raise AppError(ErrorCode.SKLAND_UPSTREAM_FAILED, "刷新接口挂了")
+
+    client = FlakyRefresh(chars=_chars(SKLAND_MIN_CHARS), roles=[_role()])
+    service = _sync_service(session_factory, client)
+
+    async def scenario():
+        await _seed_credential(session_factory)
+        summary = await service.sync()
+        assert summary["status"] == "succeeded"
+        assert summary["total"] == SKLAND_MIN_CHARS
+        # 绑定关系与凭据都还在，且没有被续期结果覆盖坏。
+        stored = await _store(session_factory).load_credential()
+        assert stored is not None and stored.token == "token-value"
 
     asyncio.run(scenario())
 
