@@ -497,9 +497,6 @@ def test_router_declares_the_documented_paths():
         ("GET", "/api/account/upgrade-plans"),
         ("GET", "/api/account/upgrade-plans/{plan_id}"),
         ("DELETE", "/api/account/upgrade-plans/{plan_id}"),
-        ("GET", "/api/account/training-scan"),
-        ("POST", "/api/account/training-scan"),
-        ("DELETE", "/api/account/training-scan"),
     }
 
 

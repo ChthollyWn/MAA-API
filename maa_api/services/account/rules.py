@@ -20,7 +20,9 @@ from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = [
     "BOX_FIELDS",
-    "DETAIL_SCAN_FIELDS",
+    "KNOWN_SOURCES",
+    "SKLAND_FIELDS",
+    "SKLAND_SOURCE",
     "EDITABLE_FIELDS",
     "MAX_LEVEL",
     "MAX_MASTERY_LEVEL",
@@ -62,6 +64,7 @@ BOX_FIELDS: tuple[str, ...] = (
     "skill_level",
     "masteries",
     "modules",
+    "favor_percent",
     "field_sources",
     "recognized_at",
     "updated_at",
@@ -70,11 +73,19 @@ BOX_FIELDS: tuple[str, ...] = (
 #: 识别能覆盖的字段（规格 §7.3）：识别结果只动这四个。
 RECOGNIZED_FIELDS: tuple[str, ...] = ("own", "elite", "level", "potential")
 
-#: 详情页扫描通道能覆盖的字段（M36 规格 §4.4）：技能等级、专精、模组。
-#: 与 :data:`RECOGNIZED_FIELDS` 刻意分开——那一份是 ``OperBox`` 回调的口径，
-#: 混在一起会让 ``apply_recognition`` 的字段循环也去写这三列，而内核的 ``OperBox``
-#: 根本读不到它们（M35 规格 §2）。
-DETAIL_SCAN_FIELDS: tuple[str, ...] = ("skill_level", "masteries", "modules")
+#: 森空岛账号数据能覆盖的字段（M42 规格 §4.5）：练度六列 + 信赖。
+#: **own 也在里面**：接口返回的就是「已拥有」全集，整轮完整时不在集合里的干员置
+#: ``own=False``（护栏见同步服务的 ``SKLAND_MIN_CHARS``）。
+SKLAND_FIELDS: tuple[str, ...] = (
+    "own",
+    "elite",
+    "level",
+    "potential",
+    "skill_level",
+    "masteries",
+    "modules",
+    "favor_percent",
+)
 
 #: 可为「未识别」的练度列（M35 规格 §4.1）：取值 ``None`` 表示既没有识别值、
 #: 也没有 manual / agent 写入。前端、API 文档与规划层共用这一份字段名。
@@ -99,9 +110,14 @@ EDITABLE_FIELDS: tuple[str, ...] = (
     "modules",
 )
 
-#: 字段来源的取值域：识别、手动、Agent（规格 §7.5 的「字段来源标记」）。
+#: 字段来源的取值域：识别、手动、Agent、森空岛账号数据（M42 规格 §4.5）。
 RECOGNITION_SOURCE = "recognition"
 WRITE_SOURCES: tuple[str, ...] = ("manual", "agent")
+#: 森空岛同步写入的来源标记。它与 ``recognition`` 的区别是**来源不同而不是可信度不同**：
+#: 两者都是「机器读出来的账号事实」，同步覆盖手动值时同样记差异（``account_operator_diff``）。
+SKLAND_SOURCE = "skland"
+#: 全部已知来源取值（读侧的白名单，见 :func:`field_sources_wire`）。
+KNOWN_SOURCES: tuple[str, ...] = (RECOGNITION_SOURCE, *WRITE_SOURCES, SKLAND_SOURCE)
 
 #: 专精等级上限（规格 §7.5：0–3）。
 MAX_MASTERY_LEVEL = 3
@@ -292,7 +308,7 @@ def field_sources_wire(value: Any) -> dict[str, str]:
     for key, raw in json_mapping(value).items():
         field = str(key)
         source = str(raw)
-        if field in known and source in (RECOGNITION_SOURCE, *WRITE_SOURCES):
+        if field in known and source in KNOWN_SOURCES:
             result[field] = source
     return result
 
@@ -317,6 +333,8 @@ def box_row_wire(row: Any) -> dict[str, Any]:
         "skill_level": optional_int(getattr(row, "skill_level", None)),
         "masteries": mastery_wire(getattr(row, "masteries", None)),
         "modules": module_wire(getattr(row, "modules", None)),
+        # 信赖（M42）：与六列同口径，``None`` ＝ 未知（没有同步过、或上游没给这一项）。
+        "favor_percent": optional_int(getattr(row, "favor_percent", None)),
         "field_sources": field_sources_wire(getattr(row, "field_sources", None)),
         "recognized_at": iso_z(getattr(row, "recognized_at", None)),
         "updated_at": iso_z(getattr(row, "updated_at", None)),

@@ -41,7 +41,8 @@ ACCOUNT_WRITE_TOOLS = frozenset(
         "update_operator_box",
         "start_upgrade_plan",
         "update_user_profile",
-        "scan_operator_training",
+        # M42：森空岛同步会覆盖整表练度（含用户手改过的字段），每次都要用户看见。
+        "sync_skland_training",
     }
 )
 
@@ -52,7 +53,7 @@ SAFE_TOOL_NAMES = frozenset(
         "back_to_home",
         "upload_copilot",
         "delete_schedule",
-        "cancel_training_scan",
+        "get_skland_status",
     }
 )
 
@@ -340,31 +341,18 @@ class PolicyEngine:
                 confirmation_action=name,
                 extra_payload=payload,
             )
-        if name == "scan_operator_training" and isinstance(value, Mapping):
-            limit = value.get("limit")
-            limit = limit if isinstance(limit, int) and not isinstance(limit, bool) else 40
-            char_ids = value.get("char_ids")
-            named = len(char_ids) if isinstance(char_ids, list) else 0
-            plan_targets = value.get("include_plan_targets", True) is not False
-            summary = f"扫描干员练度：最多 {limit} 位"
-            if named:
-                summary += f"，名单已指定 {named} 位"
-            if plan_targets:
-                summary += "，含养成计划里的目标"
+        if name == "sync_skland_training":
+            summary = "从森空岛同步全部干员练度"
             return PolicyDecision(
                 True,
                 RiskLevel.NONE,
                 reasons=(
                     summary,
-                    "扫描期间设备被占用，读到的技能等级、专精与模组会写进账号表",
+                    "会用森空岛账号数据覆盖练度六列与信赖；被你手动改过、且与这次读数"
+                    "不同的字段会记一条差异，可以在账号页确认",
                 ),
                 confirmation_action=name,
-                extra_payload={
-                    "summary": summary,
-                    "limit": limit,
-                    "include_plan_targets": plan_targets,
-                    "char_ids": char_ids if isinstance(char_ids, list) else [],
-                },
+                extra_payload={"summary": summary},
             )
         return PolicyDecision(
             True,

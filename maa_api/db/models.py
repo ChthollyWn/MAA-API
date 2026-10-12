@@ -1,4 +1,4 @@
-"""SQLModel 表定义：25 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：28 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -1028,6 +1028,9 @@ class AccountOperator(SQLModel, table=True):
     modules: dict[str, int] | None = Field(
         default=None, sa_column=json_column("modules")
     )
+    #: 信赖百分比 0–200（M42 §4.5）：森空岛账号数据独有的一列，内核识别给不出来，
+    #: 因此与六列一样可为 ``None`` ＝ 未知（老库里的行、以及没同步过的账号）。
+    favor_percent: int | None = Field(default=None)
     #: 最近一次识别的值（只含识别能覆盖的四个字段）；从未识别为 NULL。
     recognized_values: dict[str, Any] | None = Field(
         default=None, sa_column=json_column("recognized_values")
@@ -1248,4 +1251,70 @@ class CopilotGrant(SQLModel, table=True):
         Index("ix_copilot_grant_status_expires_at", "status", "expires_at"),
         # 会话历史：session_id=? ORDER BY created_at
         Index("ix_copilot_grant_session_id_created_at", "session_id", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5.24 skland_credential / skland_role — 森空岛账号（M42 规格 §4.4）
+#
+# 两张表都不建索引：``skland_credential`` 恒为一行、``skland_role`` 是「这个账号在
+# 森空岛绑了几个角色」（个位数），与 M27 的两张账号表同一个判断（docs/04 §6）。
+# ---------------------------------------------------------------------------
+class SklandCredential(SQLModel, table=True):
+    """森空岛账号凭据（单行表，M42 规格 §4.4）。
+
+    ``cred`` 与签名密钥都是**加密后**落库（``cryptography.fernet``，密钥取
+    ``skland.credential_key``）：它们是账号级凭证，明文只允许出现在内存与签名函数里。
+    单行表用固定主键 ``1``，绑定时整行替换（``DELETE`` + ``INSERT`` 的等价语义由仓储层
+    的 ``upsert`` 表达），所以不存在「多个森空岛账号」的历史行。
+    """
+
+    __tablename__ = "skland_credential"
+
+    #: 固定 1：这张表只允许一行，换绑就是覆盖它。
+    id: int = Field(default=1, primary_key=True)
+    #: Fernet 密文（URL-safe base64 字符串）。
+    cred_encrypted: str = Field(sa_column=text_column("cred_encrypted", nullable=False))
+    #: 签名密钥的 Fernet 密文。
+    token_encrypted: str = Field(sa_column=text_column("token_encrypted", nullable=False))
+    #: 首次绑定时间（换绑会刷新）。
+    bound_at: datetime = Field(default_factory=utcnow, sa_column=datetime_column("bound_at"))
+    #: 最近一次 ``auth/refresh`` 续期时间；从未续期为 NULL。
+    refreshed_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("refreshed_at", nullable=True)
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+class SklandRole(SQLModel, table=True):
+    """森空岛账号绑定的一个游戏角色（M42 规格 §4.4）。
+
+    同步时按 ``uid`` 整表替换（绑定接口返回的就是全集），``is_default`` 来自上游
+    ``bindingList[].isDefault``；多角色时同步只取默认角色，其余行留着供页面展示。
+    ``nickname`` / ``level`` 是可空的：上游个别渠道不回这两项。
+    """
+
+    __tablename__ = "skland_role"
+
+    #: 游戏角色 uid（森空岛的 ``player/info?uid=`` 就用它）。
+    uid: str = Field(primary_key=True, max_length=64)
+    #: 归属应用，目前只有 ``arknights``（终末地不在本里程碑范围）。
+    app_code: str = Field(default="arknights", max_length=32)
+    #: 渠道主 id（官服 1 / B 服 2 一类的上游取值），上游不给就是 NULL。
+    channel_master_id: str | None = Field(default=None, max_length=16)
+    nickname: str | None = Field(default=None, max_length=64)
+    level: int | None = Field(default=None)
+    #: 上游的 ``isDefault``：多角色时同步取它。
+    is_default: bool = Field(default=False)
+    #: 最近一次成功同步这个角色的时间；从未同步为 NULL。
+    synced_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("synced_at", nullable=True)
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
     )

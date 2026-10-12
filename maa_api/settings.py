@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
@@ -33,6 +33,7 @@ __all__ = [
     "DEFAULT_CONFIG_PATH",
     "ENV_OVERRIDES",
     "ENV_PREFIX",
+    "MIN_AUTO_SYNC_INTERVAL_MINUTES",
     "REPO_ROOT",
     "SETTING_KEYS",
     "AdbSettings",
@@ -40,6 +41,7 @@ __all__ = [
     "DeploymentSettings",
     "NotifySettings",
     "Settings",
+    "SklandSettings",
     "SourcesSettings",
     "SettingsError",
     "core_user_dir",
@@ -56,6 +58,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 #: 环境变量前缀（docs/04 §5.6 的第三层）。
 ENV_PREFIX = "MAA_"
+#: 定时同步的最短间隔（分钟，M42 规格 §4.5）：森空岛是非官方接口，比每小时更密
+#: 的轮询换不来信息量，只增加风控面。``0`` 表示关闭定时同步（默认）。
+MIN_AUTO_SYNC_INTERVAL_MINUTES = 60
+#: 手动同步的冷却（秒，M42 规格 §4.5）：冷却内的重复提交回 429 ``RATE_LIMITED``。
+SKLAND_MIN_SYNC_INTERVAL_SECONDS = 60
+#: 单次上游取数里 ``chars`` 数量的护栏下限（M42 规格 §4.5）：低于它整轮不写库，
+#: 免得半截响应把整箱干员标成「未拥有」。W0 实测后定稿（当前 200）。
+SKLAND_MIN_CHARS = 200
 
 #: 点分 key → ``Settings`` 字段路径。yaml 的 ``app`` / ``adb`` 段、``setting``
 #: 表的 key 与环境变量都按这张表解析；表里没有的段/键忽略。
@@ -125,15 +135,31 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "deployment.forwarded_allow_ips": ("deployment", "forwarded_allow_ips"),
     "deployment.cors_origins": ("deployment", "cors_origins"),
     "deployment.cors_origin_regex": ("deployment", "cors_origin_regex"),
+    # ---- 森空岛账号数据（M42 规格 §4.4、§4.5）。三项都只从 config.yaml / 环境变量来，
+    # 同时列进 CONFIG_ONLY_SETTING_KEYS：凭据密钥是敏感项，定时间隔与超时不需要 UI
+    # 开关（本里程碑明确不做前端定时开关，见规格 §3.2）。----
+    "skland.credential_key": ("skland", "credential_key"),
+    "skland.auto_sync_interval_minutes": ("skland", "auto_sync_interval_minutes"),
+    "skland.request_timeout_seconds": ("skland", "request_timeout_seconds"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
 #:
-#: 当前只有 VAPID 密钥：多行 PEM 在设置页的单行输入框里回写会丢换行，而
-#: ``sensitive`` 项读取只回 ``***``，用户保存任意其它字段时前端会把 ``***`` 当新值
-#: 提交、静默覆盖真实私钥。它还必须与已签发的订阅保持一致，只能由部署者显式编辑。
+#: VAPID 密钥：多行 PEM 在设置页的单行输入框里回写会丢换行，而 ``sensitive`` 项读取
+#: 只回 ``***``，用户保存任意其它字段时前端会把 ``***`` 当新值提交、静默覆盖真实私钥。
+#: 它还必须与已签发的订阅保持一致，只能由部署者显式编辑。
+#:
+#: 森空岛三项（M42）：``credential_key`` 是凭据加密密钥（同「敏感项不走设置 API」的理由）；
+#: ``auto_sync_interval_minutes`` 与 ``request_timeout_seconds`` 是运维阈值，本里程碑
+#: 不做前端开关（规格 §3.2），放进设置 API 会凭空生成一组没有产品语义的表单控件。
 CONFIG_ONLY_SETTING_KEYS: frozenset[str] = frozenset(
-    {"notify.vapid_private_key", "notify.vapid_subject"}
+    {
+        "notify.vapid_private_key",
+        "notify.vapid_subject",
+        "skland.credential_key",
+        "skland.auto_sync_interval_minutes",
+        "skland.request_timeout_seconds",
+    }
 )
 
 #: 点分 key → 环境变量名（``MAA_`` + 大写、点换下划线）。
@@ -350,6 +376,38 @@ class NotifySettings(BaseModel):
     vapid_subject: str = "mailto:admin@example.com"
 
 
+class SklandSettings(BaseModel):
+    """森空岛账号数据（M42 规格 §3.2、§4.4、§4.5）。
+
+    三项都**只从 ``config.yaml`` / 环境变量来**（登记在 :data:`SETTING_KEYS` 里，
+    段才会被解析；同时列进 :data:`CONFIG_ONLY_SETTING_KEYS`，不进设置 API）：
+
+    - ``credential_key`` 是凭据的 Fernet 密钥。生成方式见 docs/15 与
+      ``scripts/generate_skland_key.py``；为空即「没配」，此时绑定端点回
+      ``SKLAND_ENCRYPTION_KEY_INVALID``，与 ``llm.api_key`` 缺失时同款行为。
+    - ``auto_sync_interval_minutes`` 是定时同步间隔，``0`` ＝ 关闭（默认）。非 0 必须
+      ≥ 60：这是**非官方接口**，本里程碑的取舍是「手动为主、定时兜底」，不允许配出
+      比每小时更密的轮询。
+    - ``request_timeout_seconds`` 是单次出站请求的超时。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    credential_key: str = ""
+    auto_sync_interval_minutes: int = Field(default=0, ge=0, le=1440)
+    request_timeout_seconds: float = Field(default=15.0, ge=1.0, le=60.0)
+
+    @field_validator("auto_sync_interval_minutes")
+    @classmethod
+    def _reject_sub_hourly_interval(cls, value: int) -> int:
+        """``0`` 是关闭；其余取值不许低于 60 分钟（规格 §4.5 的频率护栏）。"""
+        if value != 0 and value < MIN_AUTO_SYNC_INTERVAL_MINUTES:
+            raise ValueError(
+                f"定时同步间隔要么是 0（关闭），要么不低于 {MIN_AUTO_SYNC_INTERVAL_MINUTES} 分钟"
+            )
+        return value
+
+
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -372,6 +430,7 @@ class Settings(BaseModel):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)
     deployment: DeploymentSettings = Field(default_factory=DeploymentSettings)
+    skland: SklandSettings = Field(default_factory=SklandSettings)
 
 
 def resolve_settings(

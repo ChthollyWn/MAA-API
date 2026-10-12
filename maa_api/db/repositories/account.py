@@ -38,6 +38,7 @@ from maa_api.db.repositories.base import BaseRepository
 __all__ = [
     "RECOGNITION_KIND_DEPOT",
     "RECOGNITION_KIND_OPERBOX",
+    "RECOGNITION_KIND_SKLAND",
     "RECOGNITION_KIND_TRAINING",
     "AccountDepotItemRepository",
     "AccountOperatorDiffRepository",
@@ -46,11 +47,14 @@ __all__ = [
     "OperatorDiffRow",
 ]
 
-#: ``account_recognition.kind`` 的取值（规格 §7.3、M36 规格 §4.5）。
+#: ``account_recognition.kind`` 的取值（规格 §7.3、M36 规格 §4.5、M42 规格 §4.5）。
 RECOGNITION_KIND_OPERBOX = "operbox"
 RECOGNITION_KIND_DEPOT = "depot"
-#: 干员详情练度扫描（M36）：``item_count`` 是真的写进库的干员数。
+#: 干员详情练度扫描（M36）：``item_count`` 是真的写进库的干员数。M42 起不再产生新行，
+#: 历史行保留（``kind`` 是纯字符串列，没有枚举约束）。
 RECOGNITION_KIND_TRAINING = "training"
+#: 森空岛账号数据同步（M42）：``item_count`` 是写进库的干员数 + 清掉的所有权数。
+RECOGNITION_KIND_SKLAND = "skland"
 
 
 @dataclass(frozen=True, slots=True)

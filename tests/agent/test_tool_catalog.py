@@ -38,9 +38,9 @@ EXPECTED_TOOLS = {
     "start_upgrade_plan",
     "list_upgrade_plans",
     "cancel_upgrade_plan",
-    # M36 练度扫描（规格 §4.7）：提交与取消两个动作工具。
-    "scan_operator_training",
-    "cancel_training_scan",
+    # M42 森空岛（规格 §4.7）：查绑定状态 + 同步练度。
+    "get_skland_status",
+    "sync_skland_training",
     "get_gacha_pools",
     "get_story",
     "get_building_skills",

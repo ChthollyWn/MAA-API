@@ -125,7 +125,7 @@
         "type": "object"
       },
       "AccountOperatorRow": {
-        "description": "干员行：docs/05 §6.20 的字段清单，与单条读取同形。\n\n练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` /\n``modules``）可以是 ``null`` ＝ **未识别**（M35）：既没有识别值，也没有 manual /\nagent 写入。内核 OperBox 只识别得到前四个字段里的三个（``elite`` / ``level`` /\n``potential``），技能等级、专精、模组不在识别范围内，别把 ``null`` 读成 0 级 /\n技能 1 级 / 无专精。``field_sources`` 的值只有 recognition / manual / agent；\n``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。",
+        "description": "干员行：docs/05 §6.20 的字段清单，与单条读取同形。\n\n练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` /\n``modules``）可以是 ``null`` ＝ **未识别**（M35）：既没有识别值，也没有 manual /\nagent 写入。内核 OperBox 只识别得到前四个字段里的三个（``elite`` / ``level`` /\n``potential``），技能等级、专精、模组不在识别范围内，别把 ``null`` 读成 0 级 /\n技能 1 级 / 无专精。``field_sources`` 的值有 recognition / manual / agent / skland（M42 起多第四个：森空岛同步）；\n``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。",
         "properties": {
           "char_id": {
             "title": "Char Id",
@@ -4923,6 +4923,370 @@
         "title": "SettingUpdateRequest",
         "type": "object"
       },
+      "SklandBindResult": {
+        "description": "解绑结果。",
+        "properties": {
+          "bound": {
+            "default": false,
+            "title": "Bound",
+            "type": "boolean"
+          }
+        },
+        "title": "SklandBindResult",
+        "type": "object"
+      },
+      "SklandManualBindRequest": {
+        "additionalProperties": false,
+        "description": "手动兜底绑定：扫码走不通时粘贴鹰角通行证算出来的 ``cred`` 与签名密钥。",
+        "properties": {
+          "cred": {
+            "description": "森空岛 cred",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Cred",
+            "type": "string"
+          },
+          "token": {
+            "description": "签名密钥",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cred",
+          "token"
+        ],
+        "title": "SklandManualBindRequest",
+        "type": "object"
+      },
+      "SklandQrPollResult": {
+        "description": "轮询结果；``state`` 只有四态，上游没有「已扫码待确认」的中间态。",
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SklandRoleRow"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "成功时的默认角色"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "失败或过期时的说明",
+            "title": "Message"
+          },
+          "roles": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SklandRoleRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "成功时的全部角色",
+            "title": "Roles"
+          },
+          "state": {
+            "description": "waiting 等待扫码 / succeeded / expired / failed",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "SklandQrPollResult",
+        "type": "object"
+      },
+      "SklandQrStartResult": {
+        "description": "扫码会话：把 ``qr_svg`` 直接塞进 ``<img src=\"data:image/svg+xml;…\">`` 即可。",
+        "properties": {
+          "expires_at": {
+            "description": "会话失效时间（UTC，ISO8601）",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "payload": {
+            "description": "二维码里的登录串 hypergryph://scan_login?scanId=…",
+            "title": "Payload",
+            "type": "string"
+          },
+          "poll_interval_ms": {
+            "description": "建议轮询间隔（毫秒）",
+            "title": "Poll Interval Ms",
+            "type": "integer"
+          },
+          "qr_svg": {
+            "description": "完整 SVG 文档（后端零依赖生成）",
+            "title": "Qr Svg",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "qr_svg",
+          "payload",
+          "expires_at",
+          "poll_interval_ms"
+        ],
+        "title": "SklandQrStartResult",
+        "type": "object"
+      },
+      "SklandRoleRow": {
+        "description": "一个游戏角色（``bindingList`` 的一条）。",
+        "properties": {
+          "app_code": {
+            "description": "归属应用，目前只有 `arknights`",
+            "title": "App Code",
+            "type": "string"
+          },
+          "channel_master_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "渠道主 id，上游不给就是 null",
+            "title": "Channel Master Id"
+          },
+          "is_default": {
+            "description": "上游的 isDefault：多角色时同步取它",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "角色等级",
+            "title": "Level"
+          },
+          "nickname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "角色昵称",
+            "title": "Nickname"
+          },
+          "synced_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "最近一次成功同步这个角色的时间",
+            "title": "Synced At"
+          },
+          "uid": {
+            "description": "游戏角色 uid，`player/info` 用它取数",
+            "title": "Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid",
+          "app_code",
+          "is_default"
+        ],
+        "title": "SklandRoleRow",
+        "type": "object"
+      },
+      "SklandStatusResult": {
+        "description": "绑定与同步状态。",
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SklandRoleRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "auto_sync_enabled": {
+            "title": "Auto Sync Enabled",
+            "type": "boolean"
+          },
+          "auto_sync_interval_minutes": {
+            "title": "Auto Sync Interval Minutes",
+            "type": "integer"
+          },
+          "bound": {
+            "description": "库里有没有凭据",
+            "title": "Bound",
+            "type": "boolean"
+          },
+          "key_configured": {
+            "description": "skland.credential_key 是否已配置且合法",
+            "title": "Key Configured",
+            "type": "boolean"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SklandSyncResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync At"
+          },
+          "min_chars": {
+            "title": "Min Chars",
+            "type": "integer"
+          },
+          "min_sync_interval_seconds": {
+            "title": "Min Sync Interval Seconds",
+            "type": "integer"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/SklandRoleRow"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "bound",
+          "key_configured",
+          "min_sync_interval_seconds",
+          "min_chars",
+          "auto_sync_enabled",
+          "auto_sync_interval_minutes"
+        ],
+        "title": "SklandStatusResult",
+        "type": "object"
+      },
+      "SklandSyncResult": {
+        "description": "一轮同步的摘要；``status`` 目前恒为 ``succeeded``（失败走错误码）。",
+        "properties": {
+          "created": {
+            "description": "新建的行数",
+            "title": "Created",
+            "type": "integer"
+          },
+          "diffs": {
+            "description": "识别覆盖手动值、记了差异的字段数",
+            "title": "Diffs",
+            "type": "integer"
+          },
+          "dropped_invalid": {
+            "description": "越界或映射不出、被丢掉的字段项数",
+            "title": "Dropped Invalid",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "ownership_cleared": {
+            "description": "被收缩成未拥有的行数",
+            "title": "Ownership Cleared",
+            "type": "integer"
+          },
+          "role": {
+            "$ref": "#/components/schemas/SklandRoleRow"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "synced_at": {
+            "title": "Synced At",
+            "type": "string"
+          },
+          "total": {
+            "description": "这一轮拿到的干员数",
+            "title": "Total",
+            "type": "integer"
+          },
+          "unchanged": {
+            "description": "值没变、只刷新同步时间的行数",
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "description": "有字段变化的行数",
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "role",
+          "synced_at",
+          "total",
+          "created",
+          "updated",
+          "unchanged",
+          "ownership_cleared",
+          "diffs",
+          "dropped_invalid",
+          "duration_ms"
+        ],
+        "title": "SklandSyncResult",
+        "type": "object"
+      },
       "SourceCacheStats": {
         "description": "一个来源的缓存统计。",
         "properties": {
@@ -5361,72 +5725,6 @@
           "tasks"
         ],
         "title": "TaskValidateRequest",
-        "type": "object"
-      },
-      "TrainingScanMode": {
-        "description": "练度扫描的两类任务（M39 规格 §2）。\n\n- ``single``：按名单点名扫——读一屏卡名 → 点名到谁才点开谁 → 读详情 → **回列表** →\n  翻屏，直到名单扫完（M36 建成的现状）。\n- ``full``：全量扫描——不组名单，从列表第一名开始，点开第一格后**不回列表**，一路左滑\n  把这一屏 16 张详情页全扫完，再回列表翻一页继续，直到翻不动（最后一个干员）。\n\n全量扫描的身份只能来自「这一屏读到的卡名」×「车厢顺序」（:func:`cell_of`）：详情页\n左下角那个大名字是美术字，OCR 读不出来（M36 规格 §4.1）。",
-        "enum": [
-          "single",
-          "full"
-        ],
-        "title": "TrainingScanMode",
-        "type": "string"
-      },
-      "TrainingScanRequest": {
-        "additionalProperties": false,
-        "description": "受理一轮练度扫描的请求体；整个 body 省略就是「精二名单取默认上限」。",
-        "examples": [
-          {},
-          {
-            "limit": 20
-          },
-          {
-            "mode": "full"
-          },
-          {
-            "char_ids": [
-              "char_002_amiya"
-            ],
-            "include_plan_targets": false
-          }
-        ],
-        "properties": {
-          "char_ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "只扫这些干员 id（仍会补上计划目标）；省略表示按精二名单取",
-            "title": "Char Ids"
-          },
-          "include_plan_targets": {
-            "default": true,
-            "description": "是否把进行中养成计划的目标也算进名单",
-            "title": "Include Plan Targets",
-            "type": "boolean"
-          },
-          "limit": {
-            "default": 40,
-            "description": "这一轮最多扫多少名干员（默认 40；`mode=full` 时不用）",
-            "maximum": 200.0,
-            "minimum": 1.0,
-            "title": "Limit",
-            "type": "integer"
-          },
-          "mode": {
-            "$ref": "#/components/schemas/TrainingScanMode",
-            "default": "single",
-            "description": "扫描类型：`single` 按名单点名扫（默认，受 limit 限制）；`full` 全量扫描——从列表第一名开始，点开一格后一路左滑把每屏所有人扫完，直到翻不动（忽略 limit / char_ids / include_plan_targets，可能要跑几十分钟）"
-          }
-        },
-        "title": "TrainingScanRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -6090,258 +6388,6 @@
           }
         },
         "summary": "读取账号数据概要",
-        "tags": [
-          "account"
-        ]
-      }
-    },
-    "/api/account/training-scan": {
-      "delete": {
-        "description": "取消正在跑的扫描，返回取消后的状态。\n\n- 已经读到的干员保留（读数早写库了），停止发生在**步与步之间**\n- 当前这一步的收尾照跑：不会把设备丢在详情页\n- 没有在跑时是空操作，原样返回当前状态（不报错）",
-        "operationId": "account_cancel_account_training_scan",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Account Cancel Account Training Scan",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "SERVICE_UNAVAILABLE",
-                    "details": {},
-                    "message": "服务暂时不可用"
-                  }
-                }
-              }
-            },
-            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0.0,
-                  "type": "integer"
-                }
-              }
-            }
-          }
-        },
-        "summary": "取消练度扫描",
-        "tags": [
-          "account"
-        ]
-      },
-      "get": {
-        "description": "一轮扫描的推进状态；页面在 `running` 时按 5 秒轮询。\n\n- `status`：`idle` / `running` / `succeeded` / `failed` / `cancelled`\n- `mode` 是这一轮的类型（`single` 点名扫 / `full` 全量扫描），`screens` 是读了几屏卡名\n- `scanned` 是已点开的格数，`updated` 是真正写了库的人数（卡名认不出、库里没这行都不算）\n- `skipped` / `unresolved` / `mismatched` 是**计数**：卡名对不上、目录里查不到、以及读数与库里已填的值不同\n- `realigned` / `unverified` 是 `full` 模式的两个**身份计数**（M40）：前者是「详情页拉丁名跟这一格卡名对不上、回列表重新点开过」的张数，后者是「拉丁名读不出结论、按卡名写库」的张数；`single` 模式恒为 0\n- `total` 是这一轮的目标人数；`mode=full` 时恒为 `null`（跑到哪算哪）\n- `pipeline_id` 是当前这一步的流水线，跑完停在最后一步的 id\n- 没扫过时 `status` 是 `idle`，其余字段是 0 / `null`",
-        "operationId": "account_get_account_training_scan",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Account Get Account Training Scan",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "SERVICE_UNAVAILABLE",
-                    "details": {},
-                    "message": "服务暂时不可用"
-                  }
-                }
-              }
-            },
-            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0.0,
-                  "type": "integer"
-                }
-              }
-            }
-          }
-        },
-        "summary": "读取练度扫描状态",
-        "tags": [
-          "account"
-        ]
-      },
-      "post": {
-        "description": "受理一轮干员详情练度扫描：逐格点开干员、读详情页、写库。\n\n- 非阻塞：受理成功后立刻返回，扫描在流水线里跑，进度看 `GET /api/account/training-scan`\n- `mode=single`（默认）：名单两个来源——账号表里精二及以上的干员、进行中养成计划的目标；合并去重后按 `char_id` 排序取前 `limit` 名，多出来的进 `deferred`\n- `mode=full`：全量扫描，不组名单——从列表第一名开始，点开一格后不再回列表，一路左滑把这一屏所有人的详情页扫完再翻页，直到翻不动。忽略 `limit` / `char_ids` / `include_plan_targets`，`total` 恒为 `null`（跑到哪算哪，可能要几十分钟）\n- 名字解析不到 `char_id` 的计划目标进 `unresolved`\n- 同一时刻只允许一轮，还在跑时返回 409 `PIPELINE_ALREADY_RUNNING`\n- `mode=single` 下名单为空返回 422 `VALIDATION_ERROR`（先跑一次干员识别）\n- 写库口径：读到什么写什么，没读到的不动（技能等级、专精、模组三列）",
-        "operationId": "account_start_account_training_scan",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/TrainingScanRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Payload"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Account Start Account Training Scan",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "PIPELINE_ALREADY_RUNNING",
-                    "details": {},
-                    "message": "与当前状态冲突"
-                  }
-                }
-              }
-            },
-            "description": "与当前状态冲突：PIPELINE_ALREADY_RUNNING"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "VALIDATION_ERROR",
-                    "details": {},
-                    "message": "参数校验失败"
-                  }
-                }
-              }
-            },
-            "description": "参数校验失败：VALIDATION_ERROR"
-          },
-          "502": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "CORE_COMMAND_FAILED",
-                    "details": {},
-                    "message": "下游依赖失败"
-                  }
-                }
-              }
-            },
-            "description": "下游依赖失败：CORE_COMMAND_FAILED"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "SERVICE_UNAVAILABLE",
-                    "details": {},
-                    "message": "服务暂时不可用"
-                  }
-                }
-              }
-            },
-            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0.0,
-                  "type": "integer"
-                }
-              }
-            }
-          },
-          "504": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "CORE_COMMAND_TIMEOUT",
-                    "details": {},
-                    "message": "下游依赖超时"
-                  }
-                }
-              }
-            },
-            "description": "下游依赖超时：CORE_COMMAND_TIMEOUT"
-          }
-        },
-        "summary": "开始练度扫描",
         "tags": [
           "account"
         ]
@@ -13428,6 +13474,469 @@
         ]
       }
     },
+    "/api/skland/binding": {
+      "delete": {
+        "description": "删凭据与角色行；**干员练度保留**（它是账号数据，不随绑定关系消失）。",
+        "operationId": "skland_unbind_skland",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SklandBindResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "解绑森空岛账号",
+        "tags": [
+          "skland"
+        ]
+      }
+    },
+    "/api/skland/login/manual": {
+      "post": {
+        "description": "先用 ``binding`` 验一次凭据，再落库；返回与 ``GET /status`` 同形状。",
+        "operationId": "skland_bind_skland_manual",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SklandManualBindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SklandStatusResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_LOGIN_FAILED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：SKLAND_LOGIN_FAILED"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_ENCRYPTION_KEY_INVALID",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：SKLAND_ENCRYPTION_KEY_INVALID"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_UPSTREAM_FAILED",
+                    "details": {},
+                    "message": "下游依赖失败"
+                  }
+                }
+              }
+            },
+            "description": "下游依赖失败：SKLAND_UPSTREAM_FAILED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "手动粘贴 cred 绑定（扫码的兜底）",
+        "tags": [
+          "skland"
+        ]
+      }
+    },
+    "/api/skland/login/qrcode": {
+      "post": {
+        "description": "生成一张二维码；用户用森空岛 App 扫它并在 App 里确认。",
+        "operationId": "skland_start_skland_qr_login",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SklandQrStartResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_ENCRYPTION_KEY_INVALID",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：SKLAND_ENCRYPTION_KEY_INVALID"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_UPSTREAM_FAILED",
+                    "details": {},
+                    "message": "下游依赖失败"
+                  }
+                }
+              }
+            },
+            "description": "下游依赖失败：SKLAND_UPSTREAM_FAILED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "生成森空岛扫码登录二维码",
+        "tags": [
+          "skland"
+        ]
+      }
+    },
+    "/api/skland/login/qrcode/{session_id}": {
+      "get": {
+        "description": "轮询一次；``succeeded`` 时凭据已经落库，前端刷新 ``GET /api/skland/status`` 即可。",
+        "operationId": "skland_poll_skland_qr_login",
+        "parameters": [
+          {
+            "description": "扫码会话 id",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "扫码会话 id",
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SklandQrPollResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_QR_SESSION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：SKLAND_QR_SESSION_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_UPSTREAM_FAILED",
+                    "details": {},
+                    "message": "下游依赖失败"
+                  }
+                }
+              }
+            },
+            "description": "下游依赖失败：SKLAND_UPSTREAM_FAILED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "轮询扫码结果",
+        "tags": [
+          "skland"
+        ]
+      }
+    },
+    "/api/skland/status": {
+      "get": {
+        "description": "没绑定也返回 200：``bound=false`` 是状态而不是错误。",
+        "operationId": "skland_get_skland_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SklandStatusResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "森空岛绑定与同步状态",
+        "tags": [
+          "skland"
+        ]
+      }
+    },
+    "/api/skland/sync": {
+      "post": {
+        "description": "跑一轮同步；返回摘要。冷却期内的重复提交回 429，已有同步在跑回 409。",
+        "operationId": "skland_sync_skland_training",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SklandSyncResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_NOT_BOUND",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：SKLAND_NOT_BOUND、SKLAND_SYNC_BUSY、SKLAND_ENCRYPTION_KEY_INVALID"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RATE_LIMITED",
+                    "details": {},
+                    "message": "请求过于频繁"
+                  }
+                }
+              }
+            },
+            "description": "请求过于频繁：RATE_LIMITED",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKLAND_UPSTREAM_FAILED",
+                    "details": {},
+                    "message": "下游依赖失败"
+                  }
+                }
+              }
+            },
+            "description": "下游依赖失败：SKLAND_UPSTREAM_FAILED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "同步森空岛练度（同步执行）",
+        "tags": [
+          "skland"
+        ]
+      }
+    },
     "/api/snippets": {
       "get": {
         "operationId": "snippets_list_snippets",
@@ -15887,6 +16396,10 @@
     {
       "description": "账号数据（干员、仓库与养成计划）",
       "name": "account"
+    },
+    {
+      "description": "森空岛账号（扫码绑定、练度同步与解绑）",
+      "name": "skland"
     },
     {
       "description": "多通道通知",

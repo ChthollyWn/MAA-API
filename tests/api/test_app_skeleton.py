@@ -292,7 +292,7 @@ def test_openapi_metadata_tags_and_operation_ids(
 
     tag_names = [entry["name"] for entry in spec["tags"]]
     assert tag_names == [entry["name"] for entry in TAGS]
-    assert len(tag_names) == 18
+    assert len(tag_names) == 19  # M42 加 skland
     assert tag_names[0] == "system" and tag_names[-1] == "ws"
 
     ids = _operation_ids(spec)

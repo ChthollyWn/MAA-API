@@ -33,8 +33,7 @@ pytest.importorskip(
 )
 
 
-#: 端点（方法, 路径），鉴权用例逐个打一遍。M36 的三个练度扫描端点也在这里过一遍
-#: 鉴权与「服务没装配时 503」；它们的契约细节在 test_account_training_scan_router.py。
+#: 端点（方法, 路径），鉴权用例逐个打一遍。
 ENDPOINTS = (
     ("GET", "/api/account/summary"),
     ("GET", "/api/account/operators"),
@@ -43,9 +42,6 @@ ENDPOINTS = (
     ("GET", "/api/account/operator-diffs"),
     ("DELETE", "/api/account/operator-diffs"),
     ("GET", "/api/account/depot"),
-    ("GET", "/api/account/training-scan"),
-    ("POST", "/api/account/training-scan"),
-    ("DELETE", "/api/account/training-scan"),
 )
 
 
@@ -279,6 +275,8 @@ def test_operator_wire_shape_and_single_get(isolated_db, make_client, tmp_settin
         "skill_level",
         "masteries",
         "modules",
+        # M42 §2.3：信赖是森空岛独有的一列，与六列同口径可空。
+        "favor_percent",
         "field_sources",
         "recognized_at",
         "updated_at",
@@ -287,6 +285,8 @@ def test_operator_wire_shape_and_single_get(isolated_db, make_client, tmp_settin
     assert payload["skill_level"] is None
     assert payload["masteries"] is None
     assert payload["modules"] is None
+    # M42：没同步过森空岛就没有信赖。
+    assert payload["favor_percent"] is None
     assert payload["field_sources"]["elite"] == "recognition"
 
     missing = client.get("/api/account/operators/char_none")

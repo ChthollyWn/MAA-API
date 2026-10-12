@@ -248,6 +248,8 @@ def test_box_row_wire_passes_unknown_training_through_as_none():
         "skill_level": None,
         "masteries": None,
         "modules": None,
+        # M42 §4.5：信赖与六列同口径，没有同步过就是 None。
+        "favor_percent": None,
         "field_sources": {},
         "recognized_at": None,
         "updated_at": None,

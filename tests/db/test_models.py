@@ -63,6 +63,8 @@ BUSINESS_TABLES = {
     "account_recognition",
     "upgrade_plan",
     "copilot_grant",
+    "skland_credential",
+    "skland_role",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -260,6 +262,9 @@ EXPECTED_TEXT_COLUMNS = {
     ("resource_asset", "description"),
     ("agent_knowledge", "body"),
     ("agent_question", "question"),
+    # M42：森空岛凭据的两列密文（Fernet 字符串，长度随明文变化，不能定宽）。
+    ("skland_credential", "cred_encrypted"),
+    ("skland_credential", "token_encrypted"),
 }
 
 EXPECTED_JSON_COLUMNS = {

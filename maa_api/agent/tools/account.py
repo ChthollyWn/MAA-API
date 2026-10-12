@@ -13,24 +13,24 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 
 __all__ = [
-    "CancelTrainingScanParams",
     "CancelUpgradePlanParams",
+    "GetSklandStatusParams",
     "GetDepotParams",
     "GetOperatorBoxParams",
     "ListUpgradePlansParams",
     "PlanUpgradeParams",
-    "ScanOperatorTrainingParams",
     "StartUpgradePlanParams",
+    "SyncSklandTrainingParams",
     "UpdateOperatorBoxParams",
-    "cancel_training_scan",
     "cancel_upgrade_plan",
     "get_depot",
     "get_operator_box",
+    "get_skland_status",
     "list_upgrade_plans",
     "plan_upgrade",
     "register_tools",
-    "scan_operator_training",
     "start_upgrade_plan",
+    "sync_skland_training",
     "update_operator_box",
 ]
 
@@ -136,33 +136,11 @@ class CancelUpgradePlanParams(BaseModel):
     plan_id: str = Field(min_length=1, max_length=36)
 
 
-class ScanOperatorTrainingParams(BaseModel):
+class GetSklandStatusParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: str = Field(
-        default="single",
-        pattern="^(single|full)$",
-        description=(
-            "扫描类型：single＝按名单点名扫（默认，受 limit 限制，几十分钟以内）；"
-            "full＝全量扫描，从列表第一名开始把每个人的详情页都扫一遍（忽略 limit / "
-            "char_ids / include_plan_targets，可能要跑几十分钟，只在用户明确要求"
-            "「全量扫描」「扫全部干员」时用）。"
-        ),
-    )
-    limit: int = Field(
-        default=40, ge=1, le=200, description="这一轮最多扫多少位干员，默认 40，最多 200。"
-    )
-    include_plan_targets: bool = Field(
-        default=True, description="把养成计划里的目标干员也算进来（默认 true）。"
-    )
-    char_ids: list[str] | None = Field(
-        default=None,
-        max_length=200,
-        description="只扫这些干员（char_id 或名字），留空＝按账号里的干员排。",
-    )
 
-
-class CancelTrainingScanParams(BaseModel):
+class SyncSklandTrainingParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
@@ -273,36 +251,36 @@ def register_tools(registry: ToolRegistry) -> None:
     )
     registry.register(
         ToolDefinition(
-            name="scan_operator_training",
+            name="get_skland_status",
             group="account",
-            risk=ToolRisk.CONDITIONAL,
+            risk=ToolRisk.SAFE,
             description=(
-                "跑一轮练度扫描：逐个点开干员详情页，读出技能等级、专精、精英化与模组等级"
-                "并写进账号表。干员识别只给是否拥有、精英化、等级、潜能，这几项只能靠它补；"
-                "用户在问养成规划却发现这些字段未识别时，用它把未知补上。"
-                "`mode=full` 是全量扫描：从列表第一名开始把账号里每个人的详情页都扫一遍，"
-                "用户说「全量扫描」「把所有人的练度都扫一遍」时才用，它忽略 limit / char_ids，"
-                "可能要跑几十分钟（比 single 慢得多）。"
-                "它会占着设备一段时间（用户这期间不能做别的），所以每次都要用户确认；"
-                "提交后立刻返回，扫描在后台跑，进度可以用 get_operator_box 或账号接口查。"
-                "游戏没启动或没停在主界面时先看 task-preconditions。"
+                "查森空岛账号绑定与练度同步的状态：有没有绑定、绑的是哪个角色、上次同步"
+                "是什么时候、上次失败原因。用户问「练度是不是最新的」「同步成功了吗」"
+                "「森空岛绑了吗」时用它；没绑定时返回 bound=false，用 ask_user 引导用户"
+                "到账号页扫码绑定，不要自己编造练度。"
             ),
-            params_model=ScanOperatorTrainingParams,
-            handler=scan_operator_training,
-            read_only=False,
+            params_model=GetSklandStatusParams,
+            handler=get_skland_status,
+            read_only=True,
         )
     )
     registry.register(
         ToolDefinition(
-            name="cancel_training_scan",
+            name="sync_skland_training",
             group="account",
-            risk=ToolRisk.SAFE,
+            risk=ToolRisk.CONDITIONAL,
             description=(
-                "停掉正在跑的练度扫描。已经读到的练度会保留；"
-                "用户说「别扫了」「停下」时用它。"
+                "从森空岛同步账号里**全部**干员的练度（精英化、等级、潜能、技能等级、"
+                "专精、模组、信赖）并写进账号表。干员识别（OperBox）只能给是否拥有、"
+                "精英化、等级、潜能，其余几项只能靠它补；用户在问养成规划却发现这些字段"
+                "未识别、或说「同步一下练度」「更新练度」时用它。"
+                "它不占设备、几秒内跑完，但会用官方账号数据覆盖整表练度（含用户手改过的"
+                "字段，差异会记在账号页），所以每次都要用户确认；"
+                "没绑定森空岛时先让用户去账号页扫码绑定（见 get_skland_status）。"
             ),
-            params_model=CancelTrainingScanParams,
-            handler=cancel_training_scan,
+            params_model=SyncSklandTrainingParams,
+            handler=sync_skland_training,
             read_only=False,
         )
     )
@@ -376,24 +354,17 @@ async def cancel_upgrade_plan(params: CancelUpgradePlanParams, context: ToolCont
     return await service.cancel(params.plan_id)
 
 
-async def scan_operator_training(
-    params: ScanOperatorTrainingParams, context: ToolContext
+async def get_skland_status(
+    params: GetSklandStatusParams, context: ToolContext
 ) -> dict[str, Any]:
-    """提交一轮练度扫描。服务要设备与流水线，只能从装配里拿。"""
-    service = _scan_service(context)
-    return await service.submit(
-        mode=params.mode,
-        limit=params.limit,
-        char_ids=params.char_ids,
-        include_plan_targets=params.include_plan_targets,
-    )
+    return await _skland_service(context, "sync").status()
 
 
-async def cancel_training_scan(
-    params: CancelTrainingScanParams, context: ToolContext
+async def sync_skland_training(
+    params: SyncSklandTrainingParams, context: ToolContext
 ) -> dict[str, Any]:
-    service = _scan_service(context)
-    return await service.cancel()
+    """跑一轮森空岛同步；几秒内返回摘要（不占设备、不排队）。"""
+    return await _skland_service(context, "sync").sync()
 
 
 # ---------------------------------------------------------------------------
@@ -427,21 +398,18 @@ def _planner(context: ToolContext) -> Any:
     return default_upgrade_planner()
 
 
-def _scan_service(context: ToolContext) -> Any:
-    """练度扫描服务：它要设备、流水线与资源层，不是一个会话工厂能造出来的。
+def _skland_service(context: ToolContext, kind: str) -> Any:
+    """森空岛服务：只认 ``main.py`` 的装配名（``skland_sync_service`` / ``skland_login_service``）。
 
-    所以只认装配名（``main.py`` 里的 ``training_scan_service``），拿不到就报装配错误，
-    不走 `_service` 的「按会话工厂现造」兜底。
+    它带着凭据存储与出站客户端，不是一个会话工厂能现造的，所以拿不到就报装配错误，
+    不走 `_service` 的兜底路径。
     """
-    service = _state(context, "training_scan_service") or _state(
-        context, "account_training_scan_service"
-    )
+    name = {"sync": "skland_sync_service", "login": "skland_login_service"}.get(kind)
+    service = _state(context, name) if name else None
     if service is None:
         from maa_api.domain.errors import AppError, ErrorCode
 
-        raise AppError(
-            ErrorCode.INTERNAL_ERROR, "练度扫描服务尚未装配（缺少 training_scan_service）"
-        )
+        raise AppError(ErrorCode.INTERNAL_ERROR, f"森空岛服务尚未装配（缺少 {name}）")
     return service
 
 
