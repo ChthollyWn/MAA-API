@@ -1,13 +1,13 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12512 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12535 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 290 | 290 |
+| 粗体强调 | medium | 0 | 298 | 298 |
 | 破折号当冒号用 | high | 0 | 134 | 134 |
-| 「A 而不是 B」对照腔 | high | 0 | 111 | 111 |
+| 「A 而不是 B」对照腔 | high | 0 | 112 | 112 |
 | 绝对化规定腔 | medium | 0 | 66 | 66 |
 | 「…即可」机器腔 | medium | 0 | 19 | 19 |
 | 自指式讲解腔 | medium | 0 | 18 | 18 |
@@ -18,7 +18,7 @@
 | emoji/符号装饰 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 290）
+## 粗体强调（medium｜用户可见 0 / 开发向 298）
 
 **开发向**
 
@@ -28,7 +28,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 284 条，见 inventory.json
+- …… 另有 292 条，见 inventory.json
 
 ## 破折号当冒号用（high｜用户可见 0 / 开发向 134）
 
@@ -42,7 +42,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
 - …… 另有 128 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 111）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 112）
 
 **开发向**
 
@@ -51,8 +51,8 @@
 - `maa_api/agent/llm.py:327` 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
 - `maa_api/agent/runtime.py:1808` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/api/routers/account.py:51` : ``recognition``，见服务层），所以这里用 Literal 而不是自由字符串。
-- `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
-- …… 另有 105 条，见 inventory.json
+- `maa_api/assets/depot/README.md:8` *为什么放在仓库里而不是 `resource/`**：`resource/` 不进版本库（AGENTS.md）。覆盖层由启动
+- …… 另有 106 条，见 inventory.json
 
 ## 绝对化规定腔（medium｜用户可见 0 / 开发向 66）
 
@@ -74,7 +74,7 @@
 - `maa_api/agent/knowledge/__init__.py:845` : M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
 - `maa_api/agent/knowledge/__init__.py:847` : M28：当期卡池读取器（有 `async pools()` 即可）。没装或外服时整段不插。
 - `maa_api/agent/questions.py:198` 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
-- `maa_api/main.py:1263` 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
+- `maa_api/main.py:1269` 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
 - `maa_api/services/copilot/rules.py:330` : 实际比对的成员：``opers`` 是自己，分组是全部成员（任一满足即可）。
 - …… 另有 13 条，见 inventory.json
 
@@ -83,8 +83,8 @@
 **开发向**
 
 - `maa_api/agent/knowledge/__init__.py:136` : 以 `## <section>` 分节；工具 `update_user_profile` 与确认卡片的差异计算共用本模块的两个
-- `maa_api/main.py:931` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
-- `maa_api/main.py:1304` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
+- `maa_api/main.py:937` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
+- `maa_api/main.py:1310` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
 - `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
 - `maa_api/services/account/planner.py:23` # 实现裁决（规格没写死、由本模块定，M27 T8）
 - `maa_api/services/copilot/grant.py:4` *INTERNAL 调用方**生效（策略分支在 ``agent/policy.py``，本模块不判断调用方）：

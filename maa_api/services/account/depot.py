@@ -7,11 +7,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from maa_api.settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["DEPOT_FIELDS", "DepotService", "depot_row_wire"]
 
@@ -125,9 +129,13 @@ class DepotService:
     ) -> int:
         """整表替换仓库数量（规格 §7.3），并记一条 ``depot`` 识别记录。
 
+        **下限护栏（M44）**：条目数低于 ``agent.depot_min_items`` 时**整轮不写**、直接
+        返回 0，并记一条 warning。真机实测过没有这道闸的后果：只读到 26 件的那次识别把
+        77 行的整表覆盖成 26 行——半截识别不该有「删除权」。``0`` 关闭护栏。
+
         :param items: 每条给 ``item_id``、``name``、``count``，可选 ``category``；
             同一 ``item_id`` 出现多次时取最后一次（识别结果的最后一条为准）。
-        :returns: 写入的行数。
+        :returns: 写入的行数（被护栏拦下时是 0）。
         """
         stamp = recognized_at or datetime.now(UTC).replace(tzinfo=None)
         rows: list[dict[str, Any]] = []
@@ -156,6 +164,16 @@ class DepotService:
                     "recognized_at": stamp,
                 }
             )
+        min_items = int(getattr(self._settings_provider().agent, "depot_min_items", 0) or 0)
+        if min_items > 0 and len(rows) < min_items:
+            # 不写库、也不记识别记录：这一轮什么都没被当成事实。
+            logger.warning(
+                "仓库识别只读到 %d 件（下限 %d），整轮不写：半截识别不该覆盖整表",
+                len(rows),
+                min_items,
+            )
+            return 0
+
         item_repo, recognition_repo = _repositories()
         async with self._session_factory() as session:
             written = await item_repo(session).replace_all(rows)

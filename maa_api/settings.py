@@ -320,6 +320,9 @@ class AgentSettings(BaseModel):
     #: 一次作业尝试的最长等待（§9.7 第 4 步）。
     copilot_attempt_timeout_minutes: int = Field(default=20, ge=1, le=60)
     depot_stale_days: int = Field(default=3, ge=1, le=60)
+    #: 仓库识别下限护栏（M44）：一次识别的条目数低于它时**整轮不写**，避免半截识别把
+    #: 整表冲掉（真机实测：只读到 26 件的那次把 77 行的表覆盖了）。``0`` ＝ 关闭。
+    depot_min_items: int = Field(default=20, ge=0, le=2000)
     #: 作业研究（M29，规格 §9.6/§9.7/§9.11）：``copilot_grant_minutes`` 是作业授权的
     #: 有效期（``grant_copilot_attempts`` 的 ``window_minutes`` 默认值）；
     #: ``copilot_attempt_timeout_minutes`` 是 ``run_copilot_attempt`` 阻塞等待的上限；
