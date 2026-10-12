@@ -35,6 +35,30 @@
 3. **新列会被 wire 形状门禁拦住**：`favor_percent` 进 `BOX_FIELDS` / `box_row_wire` 后，`tests/services/test_account_box_rules.py` 的整字典断言与 `tests/api/test_account_router.py` 的字段集合断言都会红——两处都已按新契约更新。
 4. **`db/models.py` 的表数注释会过期**：文件头写「25 张业务表」，实际加两张后是 28 张（`SQLModel.metadata.tables` 是权威），已改。
 
+## W0 剩余项与续跑方式（唯一未完成项）
+
+W0 的十项里七项已由真机取证回答（`status` 100/101/102 三段、`scanUrl`、非法 `scanId` 400、
+会话约 3 分钟失效、签名头的真实形状、`binding` 的真实形状、系统代理坑），并直接修掉了三个真 bug
+（见上表与 §8.61）。**剩下四项需要一次成功的「扫码 → 确认 → 取数」**：
+
+1. `potentialRank` 与本地 `potential` 的换算（`+1` 是否成立）——对照数据已备好：
+   本机 OperBox 认出 **384** 名已拥有干员，`potential` 分布 0:3 / 1:71 / 2:49 / 3:36 / 4:19 / 5:22 / **6:184**；
+2. `charInfoMap` 的真实字段名（只影响名称/星级/职业的补全，读不到就留空，不影响练度）；
+3. `equipmentInfoMap` 里承载模组类型的键名（读不到时模组整列留 `NULL`＝不知道，不会写成「没有」）；
+4. 一轮完整同步的真实 `chars` 数量级（验证 `SKLAND_MIN_CHARS = 200` 的余量）。
+
+**续跑（一条命令，25 分钟窗口，过期自动换新码）：**
+
+```bash
+.venv/bin/python scripts/probe_skland_login.py watch --minutes 25 --session-timeout 150
+# 屏幕上的 /tmp/m42_skland/qr.png 用森空岛 App 扫码 → 在 App 里点确认
+# 成功后十项取证落在 /tmp/m42_skland/report.json
+```
+
+拿到 `report.json` 后按 §8.61 五、1 的清单逐条回填本节「真机复核」表与规格 §2.3/§2.5，
+`potentialRank` 对照本机库的 `potential` 分布即可定稿；若发现与假设不符，改
+`services/skland/mapping.py` 的 `POTENTIAL_RANK_OFFSET` 与 `module_type_of` 的候选键。
+
 ## 门禁实测（主 agent 亲自复跑，2026-10-12 11:20–11:35）
 
 | 门禁 | 命令 | 结果 |
