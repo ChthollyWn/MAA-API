@@ -513,6 +513,10 @@ OPERATOR_ROW_FIELDS = {
     "skill_level",
     "masteries",
     "modules",
+    # M42：信赖；M43：卡片用的技能 id 与模组明细。
+    "favor_percent",
+    "skill_ids",
+    "module_details",
     "field_sources",
     "recognized_at",
     "updated_at",

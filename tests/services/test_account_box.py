@@ -560,6 +560,9 @@ def test_list_operators_filters_and_paginates(account_session_factory):
             "skill_level",
             "masteries",
             "modules",
+            # M43：卡片用的技能 id 与模组明细（「不知道」同样是 None）。
+            "skill_ids",
+            "module_details",
             # M42：信赖随六列一起进 wire。
             "favor_percent",
             "field_sources",

@@ -52,6 +52,18 @@ describe('M43 干员卡片', () => {
     )
     // 图片懒加载：一页几十张卡，别在首屏把 CDN 打满。
     expect(screen.getByTestId('operator-avatar-char_002_amiya')).toHaveAttribute('loading', 'lazy')
+    expect(screen.getByTestId('operator-avatar-char_002_amiya')).toHaveAttribute('decoding', 'async')
+  })
+
+  it('卡片主色按稀有度走：6★ 橙金，稀有度读不出来时用未拥有的灰', () => {
+    const { card } = renderCard()
+    expect(card.style.getPropertyValue('--card-primary')).toBe('#FF6B35')
+    expect(card.style.getPropertyValue('--card-secondary')).toBe('#FF9800')
+
+    cleanup()
+    const { card: grey } = renderCard(operatorRow({ char_id: 'char_010_chen', name: '陈', own: false, rarity: 6 }))
+    // 未拥有优先于稀有度：灰显是「没拥有」的信号，不能被星级颜色盖掉。
+    expect(grey.style.getPropertyValue('--card-primary')).toBe('#4B5563')
   })
 
   it('没有 skill_ids 时只降级成槽位与专精数字，不拿别的图冒充', () => {
@@ -74,10 +86,30 @@ describe('M43 干员卡片', () => {
     )
 
     expect(card.className).toContain('grayscale')
+    expect(card.className).toContain('opacity-70')
     expect(screen.queryByTestId('operator-avatar-char_010_chen')).not.toBeInTheDocument()
     expect(screen.queryByTestId('operator-skill-icon-char_010_chen-1')).not.toBeInTheDocument()
+    // 规格 §3.1.5：未拥有不显示技能与模组（不只是不加载图标）。
+    expect(screen.queryByTestId('operator-skill-char_010_chen-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('operator-module-char_010_chen-X')).not.toBeInTheDocument()
     // 未拥有的标记还在，且练度原文照旧可读。
     expect(within(card).getByText('未拥有')).toBeInTheDocument()
+  })
+
+  it('未拥有且带模组数据时也不画模组 chip（数据可能来自旧的识别行）', () => {
+    renderCard(
+      operatorRow({
+        char_id: 'char_010_chen',
+        name: '陈',
+        own: false,
+        modules: { X: 2 },
+        module_details: [
+          { type: 'X', level: 2, equip_id: 'u', branch: 'ccr', label: 'CCR-X', type_icon: 'ccr-x' },
+        ],
+      }),
+    )
+
+    expect(screen.queryByTestId('operator-module-char_010_chen-X')).not.toBeInTheDocument()
   })
 
   it('模组：优先显示 module_details 的 label+等级，只有 modules 时退化成类型字母', () => {

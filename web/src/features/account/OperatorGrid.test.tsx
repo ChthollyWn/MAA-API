@@ -17,6 +17,7 @@ describe('M43 干员卡片网格', () => {
     const grid = screen.getByTestId('operator-grid')
     expect(grid.className).toContain('grid-cols-2')
     expect(grid.className).toContain('sm:grid-cols-3')
+    expect(grid.className).toContain('lg:grid-cols-4')
     expect(grid.className).toContain('xl:grid-cols-6')
     for (const row of OPERATORS) {
       expect(screen.getByTestId(`operator-${row.char_id}`)).toBeInTheDocument()

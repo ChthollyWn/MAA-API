@@ -285,6 +285,9 @@ EXPECTED_JSON_COLUMNS = {
     # M27：账号数据的 JSON 列。
     ("account_operator", "masteries"),
     ("account_operator", "modules"),
+    # M43：卡片用的两列也是 JSON。
+    ("account_operator", "skill_ids"),
+    ("account_operator", "module_details"),
     ("account_operator", "recognized_values"),
     ("account_operator", "field_sources"),
     ("account_operator_diff", "manual_value"),

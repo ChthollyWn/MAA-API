@@ -198,8 +198,9 @@ export function OperatorCard({
         </div>
 
         {/* 技能：槽位图标 + 专精数字。没有 `skill_ids`（老数据 / 纯识别行）时不画图标，
-            只留槽位编号——不拿别的图冒充。 */}
-        {slots.length ? (
+            只留槽位编号——不拿别的图冒充；**未拥有的干员整块不画**（规格 §3.1.5：没拥有
+            就谈不上练度，画一排空槽只是噪声）。 */}
+        {row.own && slots.length ? (
           <div className="flex items-center gap-1.5">
             {slots.map((slot) => {
               const iconKey = `skill-${row.char_id}-${slot.slot}`
@@ -236,8 +237,8 @@ export function OperatorCard({
           </div>
         ) : null}
 
-        {/* 模组：`CCR-Y` 这类标签 + 等级。图标本轮不做（规格 §3.2）。 */}
-        {chips.length ? (
+        {/* 模组：`CCR-Y` 这类标签 + 等级。图标本轮不做（规格 §3.2）；未拥有同样不画。 */}
+        {row.own && chips.length ? (
           <div className="flex flex-wrap items-center gap-1.5">
             {chips.map((chip) => (
               <span

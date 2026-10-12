@@ -55,8 +55,9 @@
 2. **映射**：`services/skland/mapping.py` 从 `typeIcon` 解析类型字母与分支码，产出 `module_details`；`skills[].id` 按槽位记进 `skill_ids`；`modules`（`{"X": 2}`）语义不变（计划层与手动编辑继续用它）。
 3. **契约**：`AccountOperatorRow` 增加 `skill_ids` / `module_details`（可空），重新生成 `web/openapi.json` 与 `web/src/types/api.d.ts`；森空岛同步写入这两列。
 4. **前端**：新增 `OperatorCard`（头像、中文名、稀有度色带、星级、职业、潜能/精英化/等级、技能图标 + 专精、模组标签 + 等级）与 `OperatorGrid`（响应式列数）；`OperatorsTab` 的列表段换成网格，**保留**识别状态条、森空岛绑定卡、差异条、筛选条、分页（「加载更多」）与点卡开编辑抽屉。
-5. **未拥有**：`own=false` 的行整体灰显（去色 + 降低不透明度），不显示技能/模组。
+5. **未拥有**：`own=false` 的行整体灰显（`grayscale` + `opacity-70`，且色带用灰色而不是稀有度色），**技能与模组整块不画**（不只是不加载图标）。
 6. **加载与失败兜底**：图片 `loading="lazy"` `decoding="async"`；图片加载失败只留占位，不影响布局与信息。
+   头像与技能图标都是**装饰性**图片（名字与数值就在旁边，读屏会念到），所以 `alt=""` 而不是重复一遍干员名——规格早先写的「alt 用干员名」按这条改掉。
 7. **测试**：映射单测（typeIcon 各种写法/证章/异常）、同步写入、契约形状、前端卡片与网格用例（含未拥有灰显、专精与模组标签、图片 URL 拼接）。
 8. **文档**：docs/04（两列）、docs/05（行字段）、docs/09（账号页卡片段）、docs/11（`get_operator_box` 返回值描述）、docs/13 §8.63、docs/12 M43 小节、台账与文案基线。
 
