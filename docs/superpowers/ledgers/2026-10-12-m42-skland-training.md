@@ -1,6 +1,6 @@
 # M42 · 退役自定义练度扫描，改用森空岛（Skland）账号练度 · 进度
 
-- 分支：`m42-skland-training`（自 `refactor/v2`，基点 `26bd46d` = tag `v2-m40`），完成后 tag `v2-m42`
+- 分支：`m42-skland-training`（自 `refactor/v2`，基点 `26bd46d` = tag `v2-m40`），已 `--no-ff` 合并回 `refactor/v2`（merge `ecce1a2`）并打 tag **`v2-m42`**；分支内四个提交：`a5abfa6` 后端、`ee61042` 前端、`f2b4093` 文档、`673639c` 文案基线
 - 规格：`docs/superpowers/specs/2026-10-12-m42-skland-training.md`
 - 计划：`docs/superpowers/plans/2026-10-12-m42-skland-training.md`
 - 来源：用户 m00077 要求「去除自定义练度扫描任务，全面接入森空岛扫码获取，不要外源项目依赖，只能参考别的项目，先编写 docs」；m00145 四项裁决（只退役详情扫描 / 自研二维码 / 扫码 + 手动兜底 / 手动为主 + 可选定时）。
