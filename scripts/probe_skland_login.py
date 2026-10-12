@@ -291,7 +291,13 @@ async def _cmd_watch(args: argparse.Namespace) -> int:
     try:
         while time.monotonic() < deadline:
             rounds += 1
-            login = await client.generate_scan()
+            try:
+                login = await client.generate_scan()
+            except AppError as exc:
+                # 上游偶发失败（连接超时、限流）不能把整个窗口掀掉：等几秒再来一张。
+                logger.warning("生成二维码失败（%s），5 秒后重试", exc.message or exc.code)
+                await asyncio.sleep(5)
+                continue
             _write_qr(login.scan_url)
             logger.info(
                 "第 %d 张二维码已写：%s（scan_id=%s）", rounds, OUT_DIR / "qr.png", login.scan_id
@@ -305,6 +311,10 @@ async def _cmd_watch(args: argparse.Namespace) -> int:
             except TimeoutError:
                 logger.info("这一张还没人扫（已过期），换一张")
                 continue
+            except AppError as exc:
+                logger.warning("轮询失败（%s），5 秒后换一张", exc.message or exc.code)
+                await asyncio.sleep(5)
+                continue
             if not scan_code:
                 logger.info("这一张还没有结论（status=%s），换一张", status)
                 continue
@@ -314,7 +324,16 @@ async def _cmd_watch(args: argparse.Namespace) -> int:
                 "headers": {"platform": PLATFORM_HEADER, "vName": VNAME_HEADER},
                 "scan_status": {"final_status": status, "msg": msg, "trace": trace},
             }
-            report = await _run_chain(client, scan_code, report)
+            try:
+                report = await _run_chain(client, scan_code, report)
+            except AppError as exc:
+                # 扫码那一步已经成功，但后半段（换 cred / 取角色 / 取干员）失败：把错误
+                # 记进报告再退出，别让这一次取证白扫（用户还得再扫一遍）。
+                report["error"] = f"{exc.code}: {exc.message}"
+                report["details"] = exc.details
+                _dump(report)
+                print(f"\n报告：{OUT_DIR / 'report.json'}（后半段失败：{report['error']}）")
+                return 1
             _dump(report)
             if report.get("error"):
                 print(f"\n报告：{OUT_DIR / 'report.json'}（失败：{report['error']}）")
