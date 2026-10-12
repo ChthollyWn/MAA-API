@@ -587,23 +587,28 @@ def _required_str(data: Mapping[str, Any], key: str, *, endpoint: str) -> str:
 
 
 def _binding_level(item: Mapping[str, Any]) -> int | None:
-    """角色等级：优先 ``defaultRole.level``，其次 ``roles[0].level``，都没有就 ``None``。
+    """角色等级：**先按渠道对齐**，再退到 ``defaultRole``，最后只在只有一个角色时才取它。
 
-    上游把等级放在「角色 → 服务器角色」这一层（``BindingCharacter.roles[]``），顶层没有
-    ``level`` 键——早期实现直接读顶层，真机上永远是 ``None``。
+    上游把等级放在「角色 → 服务器角色」这一层（``roles[]`` 的 ``serverId`` / ``level``）；
+    ``channelMasterId`` 在顶层。直接取 ``roles[0]`` 会在多服务器（官服 + B 服）账号上把
+    另一条服务器的等级挂到这个 uid 上，所以先按键值对齐。社区实现对明日方舟这条干脆
+    不取等级（B 服/官服混绑时没有唯一答案），这里保留「能对齐就给、对不齐就 None」。
     """
+    channel = _optional_str(item.get("channelMasterId"))
+    roles = [role for role in (item.get("roles") or []) if isinstance(role, Mapping)]
+    if channel is not None:
+        for role in roles:
+            if _optional_str(role.get("serverId")) == channel:
+                level = _optional_int(role.get("level"))
+                if level is not None:
+                    return level
     default_role = item.get("defaultRole")
     if isinstance(default_role, Mapping):
         level = _optional_int(default_role.get("level"))
         if level is not None:
             return level
-    roles = item.get("roles")
-    if isinstance(roles, list):
-        for role in roles:
-            if isinstance(role, Mapping):
-                level = _optional_int(role.get("level"))
-                if level is not None:
-                    return level
+    if len(roles) == 1:
+        return _optional_int(roles[0].get("level"))
     return _optional_int(item.get("level"))
 
 

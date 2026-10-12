@@ -548,6 +548,51 @@ def test_client_is_immune_to_system_and_env_proxies(monkeypatch: pytest.MonkeyPa
 
 
 @async_test
+async def test_binding_level_follows_the_channel_not_the_first_role() -> None:
+    """多服务器账号：只取与 ``channelMasterId`` 对齐的那条服务器等级，对不齐就留 ``None``。
+
+    真机形状里 ``channelMasterId`` 在角色条目上、``level`` 在 ``roles[].serverId`` 那一层；
+    直接取 ``roles[0]`` 会把另一条服务器的等级挂到这个角色上（下面 uid=1 就是那面照妖镜：
+    roles[0] 是 7、对齐 channel 的是 120）。只有一条服务器角色时没有歧义，取它。
+    """
+    payload = {
+        "code": 0,
+        "data": {
+            "list": [
+                {
+                    "appCode": "arknights",
+                    "bindingList": [
+                        {
+                            "uid": "1",
+                            "channelMasterId": "1",
+                            "nickName": "官服号",
+                            "roles": [
+                                {"serverId": "2", "level": 7},
+                                {"serverId": "1", "level": 120},
+                            ],
+                        },
+                        {
+                            # 只有一条服务器角色时没有歧义：即使 serverId 与 channelMasterId
+                            # 对不上（两端编号口径可能不同），也认这唯一的一条。
+                            "uid": "2",
+                            "channelMasterId": "1",
+                            "nickName": "单服务器号",
+                            "roles": [{"serverId": "2", "level": 7}],
+                        },
+                    ],
+                }
+            ]
+        },
+    }
+    upstream = Upstream(as_json(payload))
+    client = make_client(upstream)
+
+    roles = await client.binding(SklandCredential(cred=CRED, token=TOKEN))
+
+    assert [(role.uid, role.level) for role in roles] == [("1", 120), ("2", 7)]
+
+
+@async_test
 async def test_binding_parses_the_nested_nickname_and_role_level_shape() -> None:
     upstream = Upstream(as_json(BINDING_PAYLOAD_NESTED))
     client = make_client(upstream)
