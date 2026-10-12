@@ -5,7 +5,7 @@
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 3214 | 3214 |
+| 粗体强调 | medium | 0 | 3215 | 3215 |
 | 破折号当冒号用 | high | 0 | 640 | 640 |
 | 「A 而不是 B」对照腔 | high | 0 | 286 | 286 |
 | 绝对化规定腔 | medium | 0 | 220 | 220 |
@@ -20,7 +20,7 @@
 | 英文 AI 惯用语 | medium | 0 | 1 | 1 |
 | 宣传词 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 3214）
+## 粗体强调（medium｜用户可见 0 / 开发向 3215）
 
 **开发向**
 
@@ -30,7 +30,7 @@
 - `docs/01-重构总览与现状评估.md:45` **启动期强耦合。** `maa_api/model/core/scheduler.py` 末尾是模块级 `task_scheduler = TaskScheduler()`，构造函数里调 `load_asst()`，而 `load_ass…（共 273 字）
 - `docs/01-重构总览与现状评估.md:47` **单实例且无队列。** 全局一个 MaaCore 实例，`_check_asst_running()` 在运行中直接抛异常拒绝新提交。定时任务撞上手动任务时靠 `if task_scheduler.is_running(): return…（共 149 字）
 - `docs/01-重构总览与现状评估.md:49` **状态全在内存。** `TaskPipeline` 是个 pydantic 模型，`tasks`、`status`、`logs` 都是内存字段。重启丢失全部执行历史，前端刷新看到的是当前进程的瞬时状态。
-- …… 另有 3208 条，见 inventory.json
+- …… 另有 3209 条，见 inventory.json
 
 ## 破折号当冒号用（high｜用户可见 0 / 开发向 640）
 

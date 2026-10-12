@@ -184,7 +184,7 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 
 ### 4.5 同步与写库
 
-- `services/skland/sync.py::SklandSyncService.sync()`：取凭据 → 必要时 `refresh` → `binding` 取 uid → `player_info(uid)` → `mapping.to_operator_updates(chars, catalog, equipment_catalog)` → 单事务写库。
+- `services/skland/sync.py::SklandSyncService.sync()`：取凭据 → `refresh`（**失败不算整轮失败**：只记 warning，继续用已存的密钥；真过期时后面的签名调用会自己报 401） → `binding` 取 uid → `player_info(uid)` → `mapping.to_operator_updates(chars, catalog, equipment_info_map)` → 单事务写库。
 - `services/skland/mapping.py` 是**纯函数**（可脱离数据库单测）：按 §2.3 的表做换算，产出 `list[OperatorTrainingUpdate]`。
 - 写库走新方法 `OperatorBoxService.apply_skland_sync(updates)`，事务与 diff 语义仿 `apply_detail_scan`（`box.py:544-668`）：写 `own / elite / level / potential / skill_level / masteries / modules / favor_percent`，`field_sources[f] = "skland"`，`recognized_at = now`；与既有 `manual` / `agent` 值不同时记 `AccountOperatorDiff`（`recognized_value` 是新值，来源标 `skland`）。
 - **四条硬护栏**：
