@@ -85,6 +85,10 @@ describe('账号请求层的容器键', () => {
       skill_level: null,
       masteries: null,
       modules: null,
+      // M43 新增的三列同样不许兜：不知道就是 null。
+      favor_percent: null,
+      skill_ids: null,
+      module_details: null,
       field_sources: {},
       recognized_at: null,
       updated_at: null,

@@ -35,6 +35,16 @@ export interface AccountSummary {
   diffs: number
 }
 
+/** 模组明细（M43 规格 §4.3）：与后端 `AccountModuleDetail` 同形。 */
+export interface OperatorModuleDetail {
+  type: string
+  level: number
+  equip_id: string | null
+  branch: string | null
+  label: string | null
+  type_icon: string | null
+}
+
 export interface OperatorRow {
   char_id: string
   name: string
@@ -53,6 +63,12 @@ export interface OperatorRow {
   masteries: Record<string, number> | null
   /** 模组类型（X/Y/D/A）→ 等级 1–3；`null` ＝ 未识别。 */
   modules: Record<string, number> | null
+  /** 信赖百分比 0–200（M42）；`null` ＝ 未知（没有同步过）。 */
+  favor_percent: number | null
+  /** 按槽位的技能 id（M43）：卡片用它拼技能图标；`null` ＝ 不知道（不是空列表）。 */
+  skill_ids: string[] | null
+  /** 模组明细（M43）：`label` 形如 `CCR-Y`，供卡片显示分支码；`null` ＝ 不知道。 */
+  module_details: OperatorModuleDetail[] | null
   /** 字段名 → 来源；识别不覆盖技能等级、专精与模组。 */
   field_sources: Record<string, FieldSource>
   recognized_at: string | null
@@ -400,6 +416,18 @@ export function normalizeOperatorRow(row: OperatorRowWire): OperatorRow {
     skill_level: row.skill_level ?? null,
     masteries: row.masteries ?? null,
     modules: row.modules ?? null,
+    favor_percent: row.favor_percent ?? null,
+    skill_ids: row.skill_ids ?? null,
+    module_details: (row.module_details ?? null)
+      ? (row.module_details ?? []).map((detail) => ({
+          type: detail.type,
+          level: detail.level,
+          equip_id: detail.equip_id ?? null,
+          branch: detail.branch ?? null,
+          label: detail.label ?? null,
+          type_icon: detail.type_icon ?? null,
+        }))
+      : null,
     field_sources: (row.field_sources ?? {}) as Record<string, FieldSource>,
     recognized_at: row.recognized_at ?? null,
     updated_at: row.updated_at ?? null,
