@@ -79,8 +79,8 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 | `chars[].potentialRank`（0–5） | `potential` | **+1**：本项目 `MAX_POTENTIAL = 6`（`rules.py:120`）、wire 样例 `"potential": 6`（`api/routers/account.py:87`），是「潜能等级」而非「潜能数」。W0 用 OperBox 交叉验证（§2.5-1） |
 | `chars[].mainSkillLvl`（1–7） | `skill_level` | 直用（`MAX_SKILL_LEVEL = 7`，`rules.py:115`） |
 | `chars[].skills[].specializeLevel`（0–3） | `masteries` | 键是技能槽位 `"1"`–`"3"`（`MasteryKey`，`api/routers/account.py:63`）：**槽位数取 `len(skills)`**（响应里就是这名干员真有的技能，不查本机表——稀有度读不出来时按表截槽会把 6★ 的第 2、3 个技能专精写成 0）；`0` 是**确认没有专精**，不是未识别 |
-| `chars[].equip[].level`（0–3） | `modules` | 键是模组类型 `X/Y/D/A`（`MODULE_TYPES`，`rules.py:109`）：类型取**同一次响应**里的 `equipmentInfoMap`（本机资源层没有 `uniequip_table.json`，`GAMEDATA_FILES` 也不含它）；`locked=true` 或等级越界 → 不写该键；**非空 `equip` 里一个类型都认不出来时整列留 `None`（不知道），不落 `{}`（确认没有）**；空 `equip` 列表才是正面读数 `{}` |
-| `chars[].favorPercent`（0–200） | **新列 `favor_percent`** | 直用（本轮唯一新增的练度列） |
+| `chars[].equip[].level`（0–3） | `modules` | 键是模组类型 `X/Y/D/A`（`MODULE_TYPES`，`rules.py:109`）。**W0 实测：`equipmentInfoMap` 里没有类型键**（每条只有 `id` / `name` / `shiningColor` / `typeIcon`，如 `uniequip_001_absin → typeIcon: "original"`），本机资源层也没有 `uniequip_table.json` ⇒ **M42 起模组列恒为 `None`（不知道）**，只有 `equip` 为空列表时才写 `{}`（确认没装）。补法见 §3.2 |
+| `chars[].favorPercent`（0–200） | **新列 `favor_percent`** | 直用（本轮唯一新增的练度列）；W0 实测区间 0–200 |
 | `data.status.name` / `data.status.level` | `skland_role.nickname` / `level` | 直用 |
 | 不在 `chars` 里的 `char_id` | `own = False` | 只在**整轮完整**时写（§4.5 护栏 ①③） |
 
@@ -103,15 +103,15 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 
 ### 2.5 W0 必须真机取证的十项
 
-1. `potentialRank` 与 OperBox 的 `potential` 是否差 1（同账号交叉对照，写进台账）。
-2. `data.charInfoMap` 到底有哪些字段（是否含 `name` / `rarity` / `profession`）。
+1. ~~`potentialRank` 与 OperBox 的 `potential` 是否差 1~~——**已实测成立**：同一名干员（阿米娅，森空岛 `potentialRank = 5`）在本机库里是满潜 `potential = 6` ⇒ `POTENTIAL_RANK_OFFSET = 1` 定稿；森空岛那侧的取值集合是 0–5，本机是 1–6。
+2. ~~`data.charInfoMap` 到底有哪些字段~~——**已实测**：`id` / `name` / `rarity`（**0 基**，阿米娅 4，本机口径 5）/ `profession` / `subProfessionId` / `subProfessionName` / `appellation`（拉丁名）/ `nationId` / `groupId` / `displayNumber` / `sortId`。
 3. ~~`skills[].id` 与本机 `character_table` 的 `skillId` 是否同一命名空间~~——**已由设计消解**：槽位数直接取 `len(skills)`，不再依赖本机技能表（`skills[].id` 只用于样例记录）。
-4. `equip[].id`（形如 `uniequip_002_xxx`）到模组类型 `X/Y/D/A` 的映射表来源与覆盖率——**部分消解**：认不出就留 `None`（不知道），不会把「不知道」写成「没有」；覆盖率的实测仍然需要真机。
+4. ~~`equip[].id` 到模组类型 `X/Y/D/A` 的映射表来源与覆盖率~~——**已实测为「上游没有」**：`equipmentInfoMap` 的键只有 `id` / `name` / `shiningColor` / `typeIcon`，不含 X/Y/D/A；本机资源层也没有 `uniequip_table.json`。本轮按「不知道」处理（整列 `NULL`），补法见 §3.2。
 5. ~~`bindingList[]` 的真实字段~~——**已取证**（真机 401 修复后按社区 schema 定稿）：`data.list[].bindingList[]`，字段 `uid` / `channelMasterId` / `nickName` / `isDefault` / `roles[].level`；旧假设（顶层 `bindingList` + `nickname`）作为兜底保留。
 6. ~~`scan_status` 确认后的 `status` 值与 `data.scanCode` 形状~~——**已实测**：中间态 `101`（`msg=已扫码待确认`）已捕获并写进 §2.1/§4.2；确认成功后的 `0` + `data.scanCode` 仍待一次完整扫码。
 7. `cred` 与签名密钥的有效期、`auth/refresh` 的返回形状与失败语义。
-8. `favorPercent` 的取值上限与已拥有但未放进编队的干员是否也在 `chars` 里。
-9. `chars[]` 是否包含未拥有干员（决定 `own=False` 推导是否成立）与常规数量级（决定 §4.5 的 `SKLAND_MIN_CHARS` 阈值）。
+8. ~~`favorPercent` 的取值上限~~——**已实测 0–200**（全量最小 0、最大 200）。
+9. ~~`chars[]` 是否包含未拥有干员与常规数量级~~——**已实测**：`chars` 只含已拥有（385 名，同账号 OperBox 认出 384 名，多出的 1 名是新干员）⇒ `own=False` 推导成立，`SKLAND_MIN_CHARS = 200` 有近一倍余量。
 10. ~~接口头里 `platform` / `vName` 的实际取值~~——**已取证**：四个头（`platform` / `timestamp` / `dId` / `vName`）默认取值都是空串，顺序固定；写成 `1` / `1.0.0` 会被服务端拒（真机 `binding` 401）。
 
 取证脚本：`scripts/probe_skland_login.py`（W0 新增，真机扫码一次，只打印形状与计数，不落库、不写仓库）。
@@ -139,6 +139,7 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 - **不做多账号 / 多角色管理**：只绑一个森空岛账号；`bindingList` 多角色时取 `isDefault`，否则取第一个。
 - **不做前端的定时同步开关**：定时走 `config.yaml` 的 `skland.auto_sync_interval_minutes`（与 `agent.box_stale_days` 等阈值同款，运行时可改设置的 UI 不新增）。
 - **不落其余字段**：`gainTime`（获得时间）、皮肤、基建、剿灭、肉鸽、`defaultSkillId`/`defaultEquipId` 本轮都不入库。
+- **不补模组类型表**（W0 实测缺口）：响应里没有「模组 id → X/Y/D/A」的映射，本机资源层也没有 `uniequip_table.json`。本轮模组列保持 `NULL`＝不知道，不猜；要补齐得引入拆包数据（扩 `GAMEDATA_FILES` 白名单或下载该表），属于范围变更，留给用户拍板。
 - **不引入任何第三方依赖**（用户硬约束）：Python 侧与 npm 侧都不加包。
 - **不改既有 wire 形状**：`account_operator` 六列的读写形状、`PATCH` 语义、`AccountOperatorDiff` 协议保持不变。
 

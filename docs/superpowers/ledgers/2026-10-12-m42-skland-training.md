@@ -35,7 +35,7 @@
 3. **新列会被 wire 形状门禁拦住**：`favor_percent` 进 `BOX_FIELDS` / `box_row_wire` 后，`tests/services/test_account_box_rules.py` 的整字典断言与 `tests/api/test_account_router.py` 的字段集合断言都会红——两处都已按新契约更新。
 4. **`db/models.py` 的表数注释会过期**：文件头写「25 张业务表」，实际加两张后是 28 张（`SQLModel.metadata.tables` 是权威），已改。
 
-## W0 剩余项与续跑方式（唯一未完成项）
+## W0 结论（2026-10-12 13:55 收口：十项全部有实证）
 
 W0 的十项里七项已由真机取证回答（`status` 100/101/102 三段、`scanUrl`、非法 `scanId` 400、
 会话约 3 分钟失效、签名头的真实形状、`binding` 的真实形状、系统代理坑），并直接修掉了三个真 bug
@@ -89,6 +89,9 @@ W0 的十项里七项已由真机取证回答（`status` 100/101/102 三段、`s
 | **签名被上游接受、`binding` 401（W0 第二个发现）** | 11:59:03Z：用户扫码确认后 `token_by_scan_code` → `grant` → `generate_cred` → `auth/refresh` 全部 200（**说明签名算法本身对了**），紧接着 `binding` 回 **401**。根因：待签头的形状与社区实现不一致（漏 `dId`、`platform`/`vName` 写了非空值、键序也不同）。修法：`_signing_headers()` 固定四键顺序 `platform → timestamp → dId → vName`、默认空串；golden 签名值随之重算。 |
 | **`binding` 响应形状（W0 第三个发现）** | 同轮按社区 schema 定稿：`data.list[].bindingList[]`（按 `appCode` 分组）、昵称键 `nickName`、等级在 `roles[].level`；旧假设（顶层 `bindingList` + `nickname` + 顶层 `level`）改为兜底路径并补了真形状用例。 |
 | **系统代理坑（W0 第四个发现）** | 12:01 与 12:06 两轮窗口的 `gen_scan` 都是 5 秒超时后连接失败，而同时刻 `curl` 直连 200：httpx 默认 `trust_env=True` 走了本机 macOS 系统代理（当时不可达）。修法：客户端固定 `trust_env=False`，代理只认显式 `app.proxy`；探针加「上游偶发失败等 5 秒重来」的循环，两轮窗口不再被一次抖动掀掉。 |
-| **扫码全链路（待用户执行）** | `grant` → `generate_cred` → `binding` → `player_info` 的真实响应形状**尚未取到**（超过 5 分钟轮询窗口，用户未在二维码有效期内扫码）。`potentialRank + 1`、`SKLAND_MIN_CHARS = 200`、`charInfoMap` 字段名、`equipmentInfoMap` 的类型键名仍是待验证假设，见 §8.61 五。用户扫码后把 `report.json` 的关键形状回填到本表 |
+| **扫码全链路（2026-10-12 13:55:02，第三次扫码成功）** | `scan_status` 轨迹 `100 → 101 → 0`；`token_by_scan_code` token 24 字符；`grant.code` 176 字符；`generate_cred` = 32 字符 cred + 32 字符密钥；`refresh` 只换密钥（`cred_same=true`）；`binding` 2 个 arknights 角色（B 服默认 / 官服），两者 `level` 均为 null；`player_info` **385 名干员**、`potentialRank` 0–5、`evolvePhase` 0–2、`favorPercent` 0–200、341 名带 `equip`、`charInfoMap` 386 条 |
+| **`potentialRank + 1` 定稿** | 阿米娅森空岛侧 `potentialRank=5`，本机库里同一 id 是满潜 `potential=6` ⇒ 换算成立（本机 1–6、森空岛 0–5） |
+| **`charInfoMap.rarity` 是 0 基** | 阿米娅在该表里 4、本机 `battle_data.json` 与库里都是 5 ⇒ 兜底路径 +1（已修，带用例） |
+| **`equipmentInfoMap` 没有模组类型键** | 每条只有 `id` / `name` / `shiningColor` / `typeIcon` ⇒ 模组列恒 `NULL`＝不知道（上轮加固避免了把 341 名有模组的干员写成「确认没装」）；补齐需引入拆包数据，待用户拍板 |
 | 站点可达性 | `as.hypergryph.com` 125 ms、`zonai.skland.com` 141 ms（DNS 21 ms），无需代理 |
 

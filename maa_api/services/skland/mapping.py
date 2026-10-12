@@ -9,7 +9,8 @@
 - **以本机目录为准**：``name`` / ``rarity`` / ``profession`` 取本机 ``battle_data.json``
   的 :class:`~maa_api.services.account.capture.OperatorMeta`（与识别、页面筛选同一份
   事实）；本机没有这名干员时才退到接口自带的 ``charInfoMap``。映射不到就留 ``None``，
-  不猜。
+  不猜。**注意口径差**：本机 ``rarity`` 是 1 基（阿米娅 5），接口 ``charInfoMap.rarity``
+  是 0 基（阿米娅 4），兜底路径 +1 之后才落库（真机实测）。
 - **越界值一律丢**（不夹取、不四舍五入）：``level`` 0–90、``evolvePhase`` 0–2、
   ``potential`` 1–6、``mainSkillLvl`` 1–7、专精 0–3、模组 1–3，越界的那一项留 ``None``
   并计入 ``dropped``——上游改形状时宁可少写一个字段，也不要往库里灌脏值。
@@ -111,7 +112,11 @@ def to_operator_updates(
             6,
         )
         if rarity is None:
-            rarity = _int_in_range(_pick(info, ("rarity",)), 0, 6)
+            # 兜底走接口自带的 ``charInfoMap.rarity``，但它的口径与本机不同：**0 基**
+            # （真机实测 2026-10-12：阿米娅在这张表里是 4，而本机 ``battle_data.json``
+            # 是 5，本机库里存的也是 5）。直接落库会整体小 1，所以这里 +1 再按 1–6 校验。
+            raw_rarity = _int_in_range(_pick(info, ("rarity",)), 0, 5)
+            rarity = raw_rarity + 1 if raw_rarity is not None else None
 
         elite, drop_elite = _checked(_int_in_range(raw.get("evolvePhase"), 0, 2))
         level, drop_level = _checked(_int_in_range(raw.get("level"), 0, MAX_LEVEL))

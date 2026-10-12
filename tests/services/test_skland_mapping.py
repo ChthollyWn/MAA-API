@@ -203,12 +203,27 @@ def test_module_type_normalization(raw, expected):
 
 
 def test_char_info_map_is_the_fallback_for_names_only():
+    """兜底用 ``charInfoMap``，但它的 ``rarity`` 是 **0 基**：4 ⇒ 本机口径的 5。
+
+    真机实测（2026-10-12）：阿米娅在 ``charInfoMap`` 里是 ``rarity: 4``，而本机
+    ``battle_data.json`` 与库里存的是 5。兜底路径不加这一笔就会整体小 1 星。
+    """
     updates, _ = to_operator_updates(
         [_char(charId="char_999_x")],
-        char_info_map={"char_999_x": {"name": "新人", "rarity": 6, "profession": "狙击"}},
+        char_info_map={"char_999_x": {"name": "新人", "rarity": 4, "profession": "狙击"}},
     )
     (update,) = updates
-    assert (update.name, update.rarity, update.profession) == ("新人", 6, "狙击")
+    assert (update.name, update.rarity, update.profession) == ("新人", 5, "狙击")
+
+    # 0 基的 5 ⇒ 本机 6；越界的 6 在 0 基里不存在，直接当读不出（留 None）。
+    updates, _ = to_operator_updates(
+        [_char(charId="char_998_x")], char_info_map={"char_998_x": {"rarity": 5}}
+    )
+    assert updates[0].rarity == 6
+    updates, _ = to_operator_updates(
+        [_char(charId="char_997_x")], char_info_map={"char_997_x": {"rarity": 6}}
+    )
+    assert updates[0].rarity is None
 
 
 def test_local_catalog_wins_over_char_info_map():
