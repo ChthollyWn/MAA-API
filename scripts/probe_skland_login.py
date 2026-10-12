@@ -133,7 +133,9 @@ async def _poll_scan_code(
             last = (status, msg, str(scan_code is not None))
         if status == 0 and scan_code:
             return status, scan_code, msg, trace
-        if status not in (0, 100):
+        # 101 ＝ 已扫码待确认（真机实测 2026-10-12）：继续等同一张码，**不能**当成
+        # 失效去换新码，否则用户刚扫的那张会被自己的探针作废。
+        if status not in (0, 100, 101):
             return status, scan_code, msg, trace
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
     raise TimeoutError(f"轮询 {timeout:.0f} 秒仍未确认扫码")
@@ -304,7 +306,7 @@ async def _cmd_watch(args: argparse.Namespace) -> int:
                 logger.info("这一张还没人扫（已过期），换一张")
                 continue
             if not scan_code:
-                logger.info("这一张失效（status=%s），换一张", status)
+                logger.info("这一张还没有结论（status=%s），换一张", status)
                 continue
             report: dict[str, Any] = {
                 "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),

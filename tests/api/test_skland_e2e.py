@@ -96,6 +96,9 @@ class FakeUpstream:
             self.scan_status_calls += 1
             if self.scan_status_calls == 1:
                 return _json({"msg": "未扫码", "status": 100, "type": "A"})
+            if self.scan_status_calls == 2:
+                # 真机实测的中间态：用户扫了码、还没在 App 里确认。
+                return _json({"msg": "已扫码待确认", "status": 101, "type": "A"})
             return _json(
                 {"data": {"scanCode": "scan-code-1"}, "msg": "OK", "status": 0, "type": "A"}
             )
@@ -218,7 +221,12 @@ def test_full_flow_binds_scans_syncs_and_persists(isolated_db, make_client):
     session_id = start_body["session_id"]
     assert client.get(f"/api/skland/login/qrcode/{session_id}").json()["state"] == "waiting"
 
-    # 3) 第二次轮询：确认 → 走完后半段（token → grant → cred → binding）并落库。
+    # 3) 第二次轮询：用户扫了码但还没确认（101）——仍是 waiting，会话不被消费。
+    scanned = client.get(f"/api/skland/login/qrcode/{session_id}").json()
+    assert scanned["state"] == "waiting"
+    assert scanned["message"] == "已扫码待确认"
+
+    # 4) 第三次轮询：确认 → 走完后半段（token → grant → cred → binding）并落库。
     done = client.get(f"/api/skland/login/qrcode/{session_id}")
     assert done.status_code == 200
     body = done.json()
@@ -226,7 +234,7 @@ def test_full_flow_binds_scans_syncs_and_persists(isolated_db, make_client):
     assert body["account"]["uid"] == "1234567890"
     assert [role["uid"] for role in body["roles"]] == ["1234567890"]  # endfield 那条被过滤
 
-    # 4) 同步：真客户端带签名取数，归一后写库。
+    # 5) 同步：真客户端带签名取数，归一后写库。
     synced = client.post("/api/skland/sync")
     assert synced.status_code == 200, synced.text
     summary = synced.json()
@@ -287,7 +295,8 @@ def test_guard_blocks_a_short_round_through_the_real_client(isolated_db, make_cl
     client = make_client(app)
 
     session_id = client.post("/api/skland/login/qrcode").json()["session_id"]
-    client.get(f"/api/skland/login/qrcode/{session_id}")  # waiting
+    client.get(f"/api/skland/login/qrcode/{session_id}")  # 100 未扫码
+    client.get(f"/api/skland/login/qrcode/{session_id}")  # 101 已扫码待确认
     client.get(f"/api/skland/login/qrcode/{session_id}")  # succeeded → 绑定
 
     response = client.post("/api/skland/sync")

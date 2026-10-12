@@ -99,6 +99,23 @@ describe('M42 森空岛绑定卡片', () => {
     expect(api.find('GET', '/api/skland/status')).toHaveLength(1)
   })
 
+  it('waiting 且带上游文案（已扫码待确认）时把它显示出来，且仍继续轮询', async () => {
+    // 上游在用户扫了码、还没在 App 里确认时回 `status=101`：后端归一成 waiting + message。
+    const api = await renderWithFakeTimers({
+      sklandQr: { poll_interval_ms: 1_000 },
+      sklandQrPoll: { state: 'waiting', message: '已扫码待确认' },
+    })
+
+    const region = await card()
+    expect(await within(region).findByRole('status')).toHaveTextContent('已扫码待确认')
+
+    const before = api.find('GET', QR_POLL_PATH).length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_200)
+    })
+    await waitFor(() => expect(api.find('GET', QR_POLL_PATH).length).toBeGreaterThan(before))
+  })
+
   it('succeeded：刷新状态，换成已绑定视图并停止轮询', async () => {
     const api = await renderWithFakeTimers({
       sklandQrPoll: SKLAND_QR_SUCCEEDED,

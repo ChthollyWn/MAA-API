@@ -176,6 +176,8 @@ export function SklandBindingCard() {
   }, [sessionId])
 
   const qrState = poll.data?.state ?? 'waiting'
+  // 「已扫码待确认」（上游 status=101 时后端归一成 waiting + message）：只在这时显示。
+  const scannedHint = qrState === 'waiting' ? poll.data?.message ?? null : null
   const qrVisible = Boolean(sessionId) && needsQr && qrState !== 'succeeded'
 
   useEffect(() => {
@@ -353,7 +355,13 @@ export function SklandBindingCard() {
             alt="森空岛登录二维码"
           />
           <div className="min-w-0 space-y-1.5 text-footnote text-muted-foreground">
-            <p className="text-sm text-foreground">用森空岛 App 扫码，确认后回到这一页。</p>
+            {/* 上游有「已扫码待确认」这一段（M42 真机实测，status=101）：用户扫完码还
+                要在 App 里点确认，这段时间把上游文案显示出来，免得以为没扫上。 */}
+            {scannedHint ? (
+              <p role="status" className="text-sm text-foreground">{scannedHint}</p>
+            ) : (
+              <p className="text-sm text-foreground">用森空岛 App 扫码，确认后回到这一页。</p>
+            )}
             {remaining ? (
               <p data-testid="skland-qr-remaining" className="tabular-nums">二维码 {remaining} 后失效</p>
             ) : null}

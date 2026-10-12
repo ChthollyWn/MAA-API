@@ -14,8 +14,10 @@
 几十秒内的事，值得为它建表的东西没有；服务重启会话即失效，前端提示重新生成即可。
 每次访问都顺手清掉过期会话，所以内存不会堆积。
 
-上游**没有**「已扫码待确认」这个中间态（未确认时一直回 ``100``），所以状态机只有
-``waiting`` / ``succeeded`` / ``expired`` / ``failed`` 四态，不发明状态。
+状态机只有 ``waiting`` / ``succeeded`` / ``expired`` / ``failed`` 四态（不发明状态），但
+上游的 ``status`` 有三段：``100`` 未扫码、**``101`` 已扫码待确认**（真机实测 2026-10-12，
+msg 原文「已扫码待确认」）、``102`` 已失效。``101`` 归到 ``waiting`` 并带上上游文案——
+它既不是成功也不是失败，会话必须留着继续轮询。
 """
 
 from __future__ import annotations
@@ -132,6 +134,14 @@ class SklandLoginService:
             status, scan_code, message = await client.scan_status(session.scan_id)
             if status == 100:
                 return {"state": "waiting"}
+            if status == 101:
+                # 真机实测（2026-10-12 11:56:30Z，msg='已扫码待确认'）：用户扫了码、还在
+                # App 里确认。这一刻**不能**当成终态——会话要留着继续轮询，前端也只是
+                # 多显示一句提示。
+                return {
+                    "state": "waiting",
+                    "message": message or "已扫码，请在森空岛 App 里确认",
+                }
             if status == 102:
                 self._sessions.pop(session_id, None)
                 return {"state": "expired", "message": message or "二维码已失效，请重新生成"}

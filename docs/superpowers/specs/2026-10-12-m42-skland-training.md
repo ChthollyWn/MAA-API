@@ -30,6 +30,7 @@
 | --- | --- | --- |
 | `POST https://as.hypergryph.com/general/v1/gen_scan/login`，body `{"appCode":"4ca99fa6b56cc2ba"}` | 200（DNS 21 ms，总 125 ms） | `{"data":{"scanId":"e2264fb214643b5df50c9a820c4c1b9f","scanUrl":"hypergryph://scan_login?scanId=e2264fb214643b5df50c9a820c4c1b9f","enableScanAppList":[{"appCode":"4ca99fa6b56cc2ba","name":"森空岛","iconUrl":"https://web.hycdn.cn/…"}]},"msg":"OK","status":0,"type":"A"}` |
 | `GET https://as.hypergryph.com/general/v1/scan_status?scanId=<未扫码>` | 200 | `{"msg":"未扫码","status":100,"type":"A"}` |
+| `GET …/scan_status?scanId=<已扫码未确认>`（**2026-10-12 11:56:30Z 真机捕获**） | 200 | `{"msg":"已扫码待确认","status":101,"type":"A"}` |
 | `GET …/scan_status?scanId=<已失效>` | 200 | `{"msg":"已失效","status":102,"type":"A"}` |
 | `GET …/scan_status?scanId=zzz` | 400 | `{"msg":"Key: 'ScanStatusReq.scanId' Error:Field validation for 'scanId' failed on the 'len' tag"}` |
 | `POST https://as.hypergryph.com/user/auth/v1/token_by_scan_code`，body `{"scanCode":"deadbeef"}` | 200 | `{"msg":"登录失败","status":100,"type":"B"}` |
@@ -37,7 +38,7 @@
 
 从实测得到的四条口径：
 
-1. **鹰角侧（`as.hypergryph.com`）HTTP 恒 200，成败在 body 的 `status`**：`0` 成功、`100` 未扫码/登录失败、`102` 已失效；`type`（`A`/`B`）与业务无关。判定只能看 `status`，不能看 HTTP 码（只有参数长度校验会 400）。
+1. **鹰角侧（`as.hypergryph.com`）HTTP 恒 200，成败在 body 的 `status`**：`0` 成功、`100` 未扫码/登录失败、**`101` 已扫码待确认**（真机捕获，见下表）、`102` 已失效；`type`（`A`/`B`）与业务无关。判定只能看 `status`，不能看 HTTP 码（只有参数长度校验会 400）。
 2. **`gen_scan/login` 直接返回 `scanUrl`**（`hypergryph://scan_login?scanId=<32 hex>`），二维码内容取它，不自己拼串。
 3. `scanId` 是 32 位小写 hex，长度校验在上游做。
 4. **zonai 侧（`zonai.skland.com`）未登录是 HTTP 401 + `code:10002`**；即两侧的错误形状不同，客户端要分开归一。
@@ -48,7 +49,7 @@
 | 步 | 请求 | 关键字段 |
 | --- | --- | --- |
 | 1 | `POST as.hypergryph.com/general/v1/gen_scan/login` `{"appCode":"4ca99fa6b56cc2ba"}` | `data.scanId`、`data.scanUrl` |
-| 2 | `GET as.hypergryph.com/general/v1/scan_status?scanId=`（轮询） | `status`（见 §2.1）、确认后 `data.scanCode` |
+| 2 | `GET as.hypergryph.com/general/v1/scan_status?scanId=`（轮询） | `status`：`100` 未扫码 → **`101` 已扫码待确认**（**不能当终态**，继续轮询同一张码）→ `0` 并给 `data.scanCode`；`102` 已失效 |
 | 3 | `POST as.hypergryph.com/user/auth/v1/token_by_scan_code` `{"scanCode":…}` | `data.token`（鹰角通行证 token） |
 | 4 | `POST as.hypergryph.com/user/oauth2/v2/grant` `{"appCode":"4ca99fa6b56cc2ba","token":…,"type":0}` | `data.code` |
 | 5 | `POST zonai.skland.com/api/v1/user/auth/generate_cred_by_code` `{"code":…,"kind":1}` | `data.cred`（凭证）、`data.token`（**签名密钥**） |
@@ -107,7 +108,7 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 3. ~~`skills[].id` 与本机 `character_table` 的 `skillId` 是否同一命名空间~~——**已由设计消解**：槽位数直接取 `len(skills)`，不再依赖本机技能表（`skills[].id` 只用于样例记录）。
 4. `equip[].id`（形如 `uniequip_002_xxx`）到模组类型 `X/Y/D/A` 的映射表来源与覆盖率——**部分消解**：认不出就留 `None`（不知道），不会把「不知道」写成「没有」；覆盖率的实测仍然需要真机。
 5. `bindingList[]` 的真实字段（`uid` / `channelMasterId` / `nickname` / `level` / `isDefault` / `isDeleted`）。
-6. `scan_status` 确认后的 `status` 值与 `data.scanCode` 形状。
+6. ~~`scan_status` 确认后的 `status` 值与 `data.scanCode` 形状~~——**已实测**：中间态 `101`（`msg=已扫码待确认`）已捕获并写进 §2.1/§4.2；确认成功后的 `0` + `data.scanCode` 仍待一次完整扫码。
 7. `cred` 与签名密钥的有效期、`auth/refresh` 的返回形状与失败语义。
 8. `favorPercent` 的取值上限与已拥有但未放进编队的干员是否也在 `chars` 里。
 9. `chars[]` 是否包含未拥有干员（决定 `own=False` 推导是否成立）与常规数量级（决定 §4.5 的 `SKLAND_MIN_CHARS` 阈值）。
@@ -161,7 +162,7 @@ GET 时 `query_params` 是 URL 查询串，POST 时是 body 的紧凑 JSON；`to
 - 会话存在**服务进程内存**里：`{session_id: {scan_id, created_at, poll_count, status}}`，`SKLAND_QR_TTL_SECONDS = 180`、`SKLAND_QR_POLL_INTERVAL_MS = 2000`、单会话最多 120 次轮询；服务重启会话即失效（用户重新点「扫码绑定」即可，风险表已登记）。
 - `POST /api/skland/login/qrcode`：调 `gen_scan/login` → 用返回的 `scanUrl` 生成 SVG → 返回 `{session_id, qr_svg, payload, expires_at, poll_interval_ms}`。
 - `GET /api/skland/login/qrcode/{session_id}`：按上游 `status` 分流——`0` → 继续走第 3–5 步并落库，返回 `succeeded`；`100` → `waiting`；`102` → `expired`；超时/参数错 → `failed`（带 `message`）。
-- 状态只有 **`waiting` / `succeeded` / `expired` / `failed`** 四态：上游在用户确认前一直回 `100`，**没有「已扫码待确认」的中间态**，前端不发明这个状态（卡片文案只说「等待扫码」）。
+- 状态只有 **`waiting` / `succeeded` / `expired` / `failed`** 四态；上游 `status` 有三段，`100` 与 **`101`（已扫码待确认，真机实测）** 都归 `waiting`——`101` 时把上游文案放进响应的 `message`，前端在二维码旁显示「已扫码待确认」，**不当作失败、也不换码**。
 - 成功落库后**立即销毁会话**，避免同一 `scanId` 被二次消费。
 
 ### 4.3 客户端与签名

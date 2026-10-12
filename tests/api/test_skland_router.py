@@ -269,6 +269,23 @@ def test_qr_login_happy_path_binds_and_then_syncs(isolated_db, make_client):
     assert client.get("/api/skland/status").json()["bound"] is False
 
 
+def test_scanned_but_unconfirmed_keeps_waiting_with_the_upstream_message(isolated_db, make_client):
+    """真机实测的 101「已扫码待确认」：既不是成功也不是失败，会话要留着继续轮询。"""
+    upstream = FakeClient(
+        roles=[_role()], scan_states=[(101, None, "已扫码待确认"), (0, "scan-code-1", "OK")]
+    )
+    _app, _upstream, client = _client(isolated_db, make_client, client=upstream)
+
+    session_id = client.post("/api/skland/login/qrcode").json()["session_id"]
+    body = client.get(f"/api/skland/login/qrcode/{session_id}").json()
+    assert body["state"] == "waiting"
+    assert body["message"] == "已扫码待确认"
+
+    # 同一张码继续轮询：用户确认后就成功（会话没被 101 消费掉）。
+    done = client.get(f"/api/skland/login/qrcode/{session_id}").json()
+    assert done["state"] == "succeeded"
+
+
 def test_expired_qr_reports_expired_state(isolated_db, make_client):
     upstream = FakeClient(scan_states=[(102, None, "已失效")])
     _app, _upstream, client = _client(isolated_db, make_client, client=upstream)

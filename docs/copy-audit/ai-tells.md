@@ -1,12 +1,12 @@
 # AI 腔规则命中：用户可见文案
 
-总计 12667 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12668 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
 | 粗体强调 | medium | 171 | 326 | 497 |
-| 破折号当冒号用 | high | 37 | 112 | 149 |
+| 破折号当冒号用 | high | 37 | 113 | 150 |
 | 「A 而不是 B」对照腔 | high | 16 | 88 | 104 |
 | 绝对化规定腔 | medium | 12 | 65 | 77 |
 | 自指式讲解腔 | medium | 1 | 39 | 40 |
@@ -44,7 +44,7 @@
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
 - …… 另有 318 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 37 / 开发向 112）
+## 破折号当冒号用（high｜用户可见 37 / 开发向 113）
 
 **用户可见**
 
@@ -68,7 +68,7 @@
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
 - `maa_api/agent/policy.py:367` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/policy.py:613` 要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。 只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的 ``warnings`` 提醒，策略层不制造新的确…（共 164 字）
-- …… 另有 104 条，见 inventory.json
+- …… 另有 105 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 16 / 开发向 88）
 
@@ -144,7 +144,7 @@
 
 **用户可见**
 
-- `web/src/features/account/SklandBindingCard.tsx:226` 会删掉保存在本机的 cred 与签名 token，已同步到账号数据的练度保留；需要时重新扫码绑定即可。
+- `web/src/features/account/SklandBindingCard.tsx:228` 会删掉保存在本机的 cred 与签名 token，已同步到账号数据的练度保留；需要时重新扫码绑定即可。
 - `web/src/features/copilots/CopilotGrantCard.tsx:161` 通关即可：二星或三星都算成功。
 - `web/src/features/copilots/format.ts:190` 通关即可
 - `maa_api/agent/tools/copilot_attempt.py:66` 需要申请授权时的成功标准预填：three_star 三星才行 / clear 通关即可。

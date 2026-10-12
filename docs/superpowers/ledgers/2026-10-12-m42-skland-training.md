@@ -61,6 +61,7 @@
 | 二维码生成（W0 探针，真机） | `scripts/probe_skland_login.py new` 跑通：`gen_scan/login` 200、返回 `scanId` 与 `scanUrl`、写出 37×37 模块的 `qr.png`（63 字节 payload、ECC M ⇒ 版本 5） |
 | 会话寿命 | 10:54:10 生成 → 10:57:11 上游回 `status=102 已失效`（轮询 90 次全是 `100 未扫码`）⇒ TTL 取 180 秒有实测依据 |
 | 组合签名客户端可用性 | 探针全程走本项目 `SklandClient`（不是 curl）：`gen_scan` 与 90 次 `scan_status` 全部 200，日志只记端点/状态码/耗时 |
+| **`status=101`「已扫码待确认」（W0 最有价值的一条）** | 11:56:30Z 真机捕获 `{"msg":"已扫码待确认","status":101}`：用户扫码那一刻探针把它当失效换了新码 ⇒ **生产侧也会把它判成 `failed`**（原实现只认 0/100/102）。已修：服务把 101 归 `waiting` + 上游文案、会话不消费；探针继续等同一张码；前端显示「已扫码待确认」。见 §8.61 二、3b |
 | **扫码全链路（待用户执行）** | `grant` → `generate_cred` → `binding` → `player_info` 的真实响应形状**尚未取到**（超过 5 分钟轮询窗口，用户未在二维码有效期内扫码）。`potentialRank + 1`、`SKLAND_MIN_CHARS = 200`、`charInfoMap` 字段名、`equipmentInfoMap` 的类型键名仍是待验证假设，见 §8.61 五。用户扫码后把 `report.json` 的关键形状回填到本表 |
 | 站点可达性 | `as.hypergryph.com` 125 ms、`zonai.skland.com` 141 ms（DNS 21 ms），无需代理 |
 
