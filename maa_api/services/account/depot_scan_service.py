@@ -45,9 +45,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import io
 import logging
+import threading
 import time
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -62,6 +64,7 @@ from maa_api.core.depot_selfscan_overlay import (
     DEPOT_SELF_SCAN_PREFIX,
     DEPOT_SELF_SCAN_START,
 )
+from maa_api.core.enums import Message
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.account.depot_scan import (
     FIRST_SEARCH_MAX,
@@ -716,6 +719,104 @@ class _TurnFailed:
 _TURN_FAILED = _TurnFailed()
 
 
+@dataclass(slots=True)
+class _ChainWait:
+    """一趟链的落点：``event`` 被置位表示内核已经报了结束，``error`` 记失败原因。"""
+
+    event: asyncio.Event
+    error: str | None = None
+
+
+class _ChainCompletionTap:
+    """等内核 ``TaskChainCompleted``（把「滑动何时落定」从睡固定时长改成事件驱动）。
+
+    **为什么可靠**：内核在整条 ``Custom`` 链跑完时才发 ``Message.TaskChainCompleted``
+    （``details.taskid`` 就是 ``append_task`` 的返回值），而链上的 ``@SwipeNextPage``
+    自带 ``postDelay: 1500``、``@Done`` 在它之后 —— 也就是说**这个信号到达时滑动已经
+    落定**。W3a 之前只能「睡 1.5 s 赌它落定了」，现在是等事实（真机实测：W3b 一轮
+    ``@SwipeNextPage`` 从提交到完成约 2.2 s，比 1.5 s 的赌法更晚、更准）。
+
+    两条等价信号都收：``TaskChainCompleted``（正常结束）与 ``AllTasksCompleted``
+    （内核把这一批任务全跑完，``details.finished_tasks`` 里能看到我们的 taskid）；
+    ``TaskChainError`` / ``TaskChainStopped`` 记进 :attr:`_ChainWait.error`。
+
+    内核回调跑在 ``CoreClient`` 的消费线程里，所以唤醒事件循环必须走
+    ``loop.call_soon_threadsafe``（同 ``pipeline_runner`` 的做法）。
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._waits: dict[int, _ChainWait] = {}
+
+    def attach(self, client: Any) -> bool:
+        """订阅 ``CALLBACK``；客户端没有 ``on``（测试替身）时返回 ``False``。"""
+        on = getattr(client, "on", None)
+        if not callable(on):
+            return False
+        try:
+            on("CALLBACK", self._on_callback)
+        except Exception:  # noqa: BLE001 - 订阅不上就退回「等落定」，不影响翻页
+            logger.warning("订阅内核回调失败，翻页退回等固定时长落定", exc_info=True)
+            return False
+        return True
+
+    def expect(self, task_id: int) -> _ChainWait:
+        """登记「我在等这个 taskid 结束」（必须在事件循环里调）。"""
+        wait = _ChainWait(event=asyncio.Event())
+        with self._lock:
+            self._loop = asyncio.get_running_loop()
+            self._waits[task_id] = wait
+        return wait
+
+    def discard(self, task_id: int) -> None:
+        with self._lock:
+            self._waits.pop(task_id, None)
+
+    def _on_callback(self, payload: Any) -> None:
+        """（内核消费线程）收到回调 → 投回事件循环唤醒等待者。"""
+        if not isinstance(payload, Mapping):
+            return
+        try:
+            message = Message(int(payload.get("msg")))
+        except (TypeError, ValueError):
+            return
+        if message not in (
+            Message.TaskChainCompleted,
+            Message.TaskChainError,
+            Message.TaskChainStopped,
+            Message.AllTasksCompleted,
+        ):
+            return
+        details = payload.get("details")
+        details = details if isinstance(details, Mapping) else {}
+        ids: list[int] = []
+        raw_id = details.get("taskid")
+        if isinstance(raw_id, int):
+            ids.append(raw_id)
+        finished = details.get("finished_tasks")
+        if message is Message.AllTasksCompleted and isinstance(finished, (list, tuple)):
+            ids.extend(int(value) for value in finished if isinstance(value, int))
+        error = None
+        if message is Message.TaskChainError:
+            error = str(details.get("taskchain") or details.get("task") or "Custom")
+        with self._lock:
+            loop = self._loop
+            targets = [
+                self._waits[task_id]
+                for task_id in ids
+                if task_id in self._waits
+            ]
+            if error is not None:
+                for wait in targets:
+                    wait.error = f"内核报告任务链失败（{error}）"
+        if loop is None:
+            return
+        for wait in targets:
+            with contextlib.suppress(RuntimeError):  # 事件循环已关闭：等待者自己会超时
+                loop.call_soon_threadsafe(wait.event.set)
+
+
 class DepotChainPager:
     """真机翻页器：提交内核链 ``MaaApi@DepotSelfScan@*``（**不用 adb 硬滑**）。
 
@@ -724,19 +825,28 @@ class DepotChainPager:
     （真机实测连划 4 次拿到 4 个互不重叠的页）；``@Start`` 则负责「已经在仓库页就点
     「全部」，否则用内核 ``DepotBegin`` 导航进仓库」——两个都由内核执行，Python 侧只等它跑完。
 
-    两种提交方式（按 W3b 的真机结论选取，本波离线只保证形状与单测）：
+    **完成判据（W3b 改）**：优先等内核 ``TaskChainCompleted``（:class:`_ChainCompletionTap`，
+    事件驱动）；拿不到这个信号（客户端没有 ``on``、回调丢失）时**保留超时兜底** ——
+    等到 :attr:`completion_seconds` 还不见信号就退回「睡 :attr:`settle_seconds` 落定」，
+    宁可多等一下也不把「还没落定的画面」交出去取帧。链本身报错（``TaskChainError`` /
+    ``TaskChainStopped``）不再当成「翻好了」：抛 :class:`DepotScanError`，由扫描循环记成
+    ``page_turn_failed`` 并保留已经扫到的屏。
+
+    两种提交方式：
 
     - ``submitter``（推荐）：``await submitter(task_name)``，由调用方把链包成一次常规流水线
-      提交（复用流水线的状态机、日志与并发控制）。真机接线在 W3b；
+      提交（复用流水线的状态机、日志与并发控制）；
     - ``client``（兜底）：直接 ``append_task("Custom", {"task_names": [...]})`` + ``start()``，
-      再等 ``ready`` 回True（默认用 ``client.running()`` 轮询）。
+      再等上面那条完成判据。
 
-    :param client: ``CoreClient``（或提供 ``append_task`` / ``start`` 的替身）。
-    :param ready: 翻页完成的判定（异步可调用，返回 ``True`` ＝ 这一趟跑完）。给 W3b 的
-        真机验收与单测注入更精确的判据（例如等内核的 ``TaskChainCompleted`` 回调）。
-    :param settle_seconds: 不注入 ``ready`` 时的等待时长：链上的 ``@SwipeNextPage`` 自带
-        ``postDelay: 1500``，滑动落定后才会写 ``TaskChainCompleted``，所以这里等 1.5 s
-        再取帧（W2 的「取帧太早会拿到过渡态」）。
+    :param client: ``CoreClient``（或提供 ``append_task`` / ``start`` / 可选 ``on`` 的替身）。
+    :param ready: 完成判据的外部注入点（异步可调用，返回 ``True`` ＝ 这一趟跑完）。
+        给了它就完全按它判（单测与离线回放用），不再看内核回调。
+    :param settle_seconds: 兜底等待时长：链上的 ``@SwipeNextPage`` 自带 ``postDelay: 1500``，
+        滑动落定后才会写 ``TaskChainCompleted``（W2 的「取帧太早会拿到过渡态」）。
+    :param completion_seconds: 等 ``TaskChainCompleted`` 的上限；超时就退回
+        ``settle_seconds``（真机实测一趟翻页链约 2.2 s，默认 6 s 留足余量）。
+    :param timeout_seconds: 整趟链的硬上限（含等信号与兜底），超时抛出。
     """
 
     #: 链头（进仓库页 + 点「全部」，幂等：已在「全部」页时点一下没有副作用）。
@@ -751,6 +861,7 @@ class DepotChainPager:
         submitter: Callable[[str], Awaitable[Any]] | None = None,
         ready: Callable[[], Awaitable[bool]] | None = None,
         settle_seconds: float = 1.5,
+        completion_seconds: float = 6.0,
         timeout_seconds: float = 30.0,
     ) -> None:
         if client is None and submitter is None:
@@ -759,7 +870,13 @@ class DepotChainPager:
         self._submitter = submitter
         self._ready = ready
         self._settle_seconds = max(float(settle_seconds), 0.0)
+        self._completion_seconds = max(float(completion_seconds), 0.0)
         self._timeout_seconds = max(float(timeout_seconds), 0.1)
+        self._completion: _ChainCompletionTap | None = None
+        if client is not None:
+            tap = _ChainCompletionTap()
+            if tap.attach(client):
+                self._completion = tap
 
     async def goto_pager_start(self) -> None:
         """先把设备带到仓库「全部」页（链头 ``@Start``）；失败原样抛出。"""
@@ -780,15 +897,33 @@ class DepotChainPager:
             raise DepotScanError(f"内核没有接受自识别任务 {task_name}")
         if not await self._client.start():
             raise DepotScanError(f"内核没有启动自识别任务 {task_name}")
-        await asyncio.wait_for(self._wait_ready(), self._timeout_seconds)
+        await asyncio.wait_for(self._wait_ready(task_id), self._timeout_seconds)
 
-    async def _wait_ready(self) -> None:
-        """等这一趟链跑完：默认只是「等它落定」（滑动有惯性，取帧太早会拿到过渡态）。"""
+    async def _wait_ready(self, task_id: int | None) -> None:
+        """等这一趟链跑完：注入的 ``ready`` → 内核完成回调 → 兜底睡落定。"""
         if self._ready is not None:
             while not await self._ready():
                 await asyncio.sleep(0.05)
             return
-        await asyncio.sleep(self._settle_seconds)
+        if task_id is None or self._completion is None:
+            await asyncio.sleep(self._settle_seconds)
+            return
+        wait = self._completion.expect(task_id)
+        try:
+            await asyncio.wait_for(wait.event.wait(), self._completion_seconds)
+        except TimeoutError:
+            logger.warning(
+                "等内核任务链结束超时（taskid=%s，%.1f s），退回等 %.1f s 落定",
+                task_id,
+                self._completion_seconds,
+                self._settle_seconds,
+            )
+            await asyncio.sleep(self._settle_seconds)
+            return
+        finally:
+            self._completion.discard(task_id)
+        if wait.error:
+            raise DepotScanError(wait.error)
 
 
 def _merge_pages(

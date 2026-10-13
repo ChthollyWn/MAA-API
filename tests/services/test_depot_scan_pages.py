@@ -553,7 +553,7 @@ def test_chain_pager_reports_a_rejected_task() -> None:
 
 
 def test_chain_pager_waits_for_the_injected_readiness() -> None:
-    """``ready`` 注入时按它收尾（W3b 真机可接内核的 TaskChainCompleted 回调）。"""
+    """``ready`` 注入时按它收尾（不再看内核回调）。"""
     client = _FakeClient()
     checks: list[int] = []
 
@@ -565,6 +565,98 @@ def test_chain_pager_waits_for_the_injected_readiness() -> None:
     asyncio.run(pager.next_page())
 
     assert len(checks) == 2
+
+
+class _FakeCallbackClient(_FakeClient):
+    """带 ``on("CALLBACK")`` 的替身：``start()`` 后按脚本发一条结束回调。
+
+    ``message=None`` 表示**永远不发**（覆盖「等不到回调」的超时兜底那条路径）。
+    """
+
+    def __init__(self, *, message: int | None = 10002, delay: float = 0.0) -> None:
+        super().__init__()
+        self.handlers: list[Any] = []
+        self._message = message
+        self._delay = delay
+
+    def on(self, event_type: str, handler: Any) -> None:
+        assert event_type == "CALLBACK"
+        self.handlers.append(handler)
+
+    async def start(self) -> bool:
+        started = await super().start()
+        if self._message is not None:
+            # 直接投一条内核形态的回调（真机上它在 CoreClient 的消费线程里触发）。
+            asyncio.get_running_loop().call_later(
+                self._delay, self.emit, len(self.appended), self._message
+            )
+        return started
+
+    def emit(self, task_id: int, message: int) -> None:
+        payload = {"msg": message, "details": {"taskchain": "Custom", "taskid": task_id}}
+        for handler in list(self.handlers):
+            handler(payload)
+
+
+def test_chain_pager_returns_on_task_chain_completed() -> None:
+    """**正常路径**：内核一报 ``TaskChainCompleted`` 就返回，不等满兜底时长。
+
+    ``settle_seconds`` 特意给 5 s：真按「睡落定」走会明显超时，用例靠耗时把两条路径
+    分开 —— 这正是 W3b 改这件事的目的：滑动已经落定之后不再干等。
+    """
+    client = _FakeCallbackClient(message=10002, delay=0.01)
+    pager = DepotChainPager(client, settle_seconds=5.0, completion_seconds=3.0)
+
+    async def scenario() -> float:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await pager.next_page()
+        return loop.time() - started
+
+    elapsed = asyncio.run(scenario())
+
+    assert client.starts == 1
+    assert elapsed < 1.0, f"没有按完成回调收尾，等了 {elapsed:.2f}s"
+
+
+def test_chain_pager_treats_a_finished_batch_as_completion() -> None:
+    """等价信号：``AllTasksCompleted`` 的 ``finished_tasks`` 里有我们这一条也算完成。"""
+    client = _FakeCallbackClient(message=3, delay=0.01)
+    pager = DepotChainPager(client, settle_seconds=5.0, completion_seconds=3.0)
+
+    async def scenario() -> float:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await pager.next_page()
+        return loop.time() - started
+
+    assert asyncio.run(scenario()) < 1.0
+
+
+def test_chain_pager_falls_back_when_completion_never_arrives() -> None:
+    """**超时路径**：等不到完成回调就退回「睡落定」，不抛异常（翻页照旧可用）。"""
+    client = _FakeCallbackClient(message=None)
+    pager = DepotChainPager(client, settle_seconds=0.05, completion_seconds=0.2)
+
+    async def scenario() -> float:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await pager.next_page()
+        return loop.time() - started
+
+    elapsed = asyncio.run(scenario())
+
+    assert client.starts == 1
+    assert elapsed >= 0.2, f"没有等满完成回调的上限：{elapsed:.2f}s"
+
+
+def test_chain_pager_reports_a_failed_chain() -> None:
+    """链自己报错时不再当成「翻好了」：抛 ``DepotScanError``，由扫描循环收手。"""
+    client = _FakeCallbackClient(message=10000, delay=0.01)
+    pager = DepotChainPager(client, settle_seconds=5.0, completion_seconds=3.0)
+
+    with pytest.raises(DepotScanError):
+        asyncio.run(pager.next_page())
 
 
 def test_pager_requires_a_transport() -> None:
