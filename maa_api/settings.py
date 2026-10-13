@@ -88,6 +88,12 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "agent.copilot_retention_days": ("agent", "copilot_retention_days"),
     "agent.copilot_attempt_timeout_minutes": ("agent", "copilot_attempt_timeout_minutes"),
     "agent.depot_stale_days": ("agent", "depot_stale_days"),
+    # ---- M45 仓库自识别（规格 §2.6、§4.4）。四个旋钮都由识别服务**每次调用现读**，
+    # 改完立即生效，不需要重启（与 agent.* 的账号阈值同一套读法）。----
+    "account.depot_scan_enabled": ("account", "depot_scan_enabled"),
+    "account.depot_scan_top1_min": ("account", "depot_scan_top1_min"),
+    "account.depot_scan_margin_min": ("account", "depot_scan_margin_min"),
+    "account.depot_scan_min_accepted": ("account", "depot_scan_min_accepted"),
     # 作业研究（M29，规格 §9.6/§9.7/§9.11）：授权窗口、单次尝试的等待上限、
     # AI 草稿与作业站副本的保留天数。
     "adb.path": ("adb", "path"),
@@ -334,6 +340,36 @@ class AgentSettings(BaseModel):
     copilot_retention_days: int = Field(default=7, ge=1, le=365)
 
 
+class AccountSettings(BaseModel):
+    """``config.yaml`` 的 ``account`` 段：账号数据的**识别参数**（M45 仓库自识别）。
+
+    M27 起账号数据的旋钮一直借住在 ``agent`` 段（``box_stale_days`` /
+    ``depot_stale_days`` / ``depot_min_items``），那三个是「数据新鲜度与写库闸门」；
+    M45 的四个是识别器自己的参数，规格 §3.1-1 预留的名字就是 ``account.depot_scan_*``，
+    所以开一段自己的，不再往 ``agent`` 里塞。
+
+    四项都由 :class:`~maa_api.services.account.depot_scan_service.DepotScanService`
+    每次调用现读（``hot_action="none"``），改完立即生效：
+
+    - ``depot_scan_enabled`` 默认**关**：M45 的自识别链路要到 W4 真机验收才成立，
+      默认关可以先合进主线而不改变现有仓库识别（内核 ``Depot`` 那一趟）的行为；
+      验收通过后再决定是否翻默认值，或由用户在设置页显式打开。
+    - ``depot_scan_top1_min`` / ``depot_scan_margin_min`` 是 W0-b 实测的双阈值
+      （``0.75`` / ``0.15``）：单看分数分不开真格与半格伪峰（``0.7876`` vs ``0.7907``），
+      加上与第二名的差距才干净分开（``0.1664`` vs ``0.1540``）。
+    - ``depot_scan_min_accepted`` 是整页接受格数下限（默认 ``8``）：低于它识别器只记
+      ``below_min_accepted``，**写不写库由 W3 的合并路径与 M44 的条目数护栏一起决定**。
+      ``24`` 是整页格数（8×3），填满即「一格都不许未知」。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    depot_scan_enabled: bool = False
+    depot_scan_top1_min: float = Field(default=0.75, ge=0.0, le=1.0)
+    depot_scan_margin_min: float = Field(default=0.15, ge=0.0, le=1.0)
+    depot_scan_min_accepted: int = Field(default=8, ge=0, le=24)
+
+
 class DeploymentSettings(BaseModel):
     """反向代理与浏览器来源白名单（M15，docs/09 §12.4）。
 
@@ -428,6 +464,7 @@ class Settings(BaseModel):
     log: LogSettings = Field(default_factory=LogSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    account: AccountSettings = Field(default_factory=AccountSettings)
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)

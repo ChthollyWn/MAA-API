@@ -484,6 +484,61 @@ def test_account_stale_days_have_documented_defaults_and_bounds():
     assert schema_for("agent.depot_stale_days")["group"] == "Agent"
 
 
+def test_depot_self_scan_settings_have_documented_defaults_and_bounds():
+    """M45 仓库自识别：四个旋钮的默认值、取值范围与分组（规格 §2.6、§4.4）。
+
+    默认值必须是 W0-b 实测的那三个（0.75 / 0.15 / 8）＋ ``enabled`` 默认关；
+    取值范围照 ``AccountSettings`` 的字段约束，设置页据此渲染控件。
+    """
+    from maa_api.services.settings_schema import schema_for
+
+    default = resolve_settings(env={})
+    assert default.account.depot_scan_enabled is False
+    assert default.account.depot_scan_top1_min == 0.75
+    assert default.account.depot_scan_margin_min == 0.15
+    assert default.account.depot_scan_min_accepted == 8
+
+    configured = resolve_settings(
+        {
+            "account": {
+                "depot_scan_enabled": True,
+                "depot_scan_top1_min": 0.9,
+                "depot_scan_margin_min": 0.3,
+                "depot_scan_min_accepted": 12,
+            }
+        },
+        env={},
+    )
+    assert configured.account.depot_scan_enabled is True
+    assert configured.account.depot_scan_top1_min == 0.9
+    assert configured.account.depot_scan_margin_min == 0.3
+    assert configured.account.depot_scan_min_accepted == 12
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_ACCOUNT_DEPOT_SCAN_ENABLED": "1",
+            "MAA_ACCOUNT_DEPOT_SCAN_TOP1_MIN": "0.8",
+        }
+    )
+    assert env_layer.account.depot_scan_enabled is True
+    assert env_layer.account.depot_scan_top1_min == 0.8
+
+    for bad in (-0.1, 1.1):
+        with pytest.raises(ValidationError):
+            resolve_settings({"account": {"depot_scan_top1_min": bad}}, env={})
+    for bad in (-1, 25):
+        with pytest.raises(ValidationError):
+            resolve_settings({"account": {"depot_scan_min_accepted": bad}}, env={})
+
+    assert schema_for("account.depot_scan_enabled")["type"] == "boolean"
+    assert schema_for("account.depot_scan_enabled")["group"] == "账号"
+    # 服务每次调用现读，改完立即生效，所以不需要重启。
+    assert schema_for("account.depot_scan_top1_min")["hot_action"] == "none"
+    assert schema_for("account.depot_scan_top1_min")["minimum"] == 0
+    assert schema_for("account.depot_scan_top1_min")["maximum"] == 1
+    assert schema_for("account.depot_scan_min_accepted")["maximum"] == 24
+
+
 def test_copilot_research_settings_have_documented_defaults_and_bounds() -> None:
     """M29 作业研究：授权窗口、单次尝试超时与作业资源保留天数（规格 §9.6/§9.7/§9.11）。"""
     from maa_api.services.settings_schema import schema_for
