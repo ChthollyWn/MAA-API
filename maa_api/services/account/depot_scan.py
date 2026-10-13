@@ -73,8 +73,14 @@
 
 - **尺度只跑 1.0**（``DEFAULT_SCALES = (1.0,)``）：W0-b 三档实测 24/24 都是 1.0 胜，
   三档是 3 倍代价；``DepotScanConfig.scales`` 仍可传 ``(0.95, 1.0, 1.05)`` 当安全网。
-- **阈值/下限还没进设置 API**：全部由 :class:`DepotScanConfig` 承载（W2 接线时再决定
-  要不要暴露成 ``account.depot_scan_*``，免得现在加一批没人读的设置项）。
+- **阈值与下限在 W2 进了设置 API**：``account.depot_scan_top1_min`` / ``depot_scan_margin_min``
+  / ``depot_scan_min_accepted``（默认仍是这里的 ``0.75 / 0.15 / 8``），由
+  :class:`~maa_api.services.account.depot_scan_service.DepotScanService` **每次调用现读**
+  （:meth:`DepotScanService.config_from_settings`）。本模块自己仍然不读设置：它要保持
+  「纯函数、参数全从 :class:`DepotScanConfig` 进来」，方便离线回放与单测。
+- **横向相位逐屏会漂**（W2 真机实测：``x_first`` 在 78–114 px 之间，先验 86.6），所以
+  :func:`fit_lattice` 每屏都要跑；实测有相位偏 +27.7 px 的帧，而 ``FIRST_SEARCH_MAX = 24``
+  只能兜 ±24 px —— 放宽搜索半径是 W3 的事（台账 W2-B）。
 """
 
 from __future__ import annotations
@@ -1331,10 +1337,10 @@ def flatten_scan(scan: PanelScan) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True, slots=True)
 class DepotScanConfig:
-    """识别参数（纯数据，可整套注入；接线时再决定哪些进设置 API）。
+    """识别参数（纯数据，可整套注入）。
 
-    W1 不读设置：接线（W2）与入库（W3）还没落，先把参数放在这里，等真的需要热改
-    再登记 ``account.depot_scan_*``（免得多一批没人读的设置项）。
+    W2 起前三个参数由设置项 ``account.depot_scan_*`` 供给（服务每次调用现读），
+    这里保留默认值是为了「不传配置也能跑」与离线回放：默认值与 W0-b 实测值一致。
     """
 
     #: 接受的分数下限（W0-b：0.75）。

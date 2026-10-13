@@ -43,7 +43,23 @@
   - 一张 fixture 跑一遍 ≤ 1.5 s（用 `time.perf_counter` 断言上限放宽到 3 s，避免 CI 抖动）。
 - **blocked_by**：W0
 
-### W2 任务链 / 取帧接线 + 数量（占设备一轮）
+### W2 任务链 / 取帧接线 + 数量（占设备一轮）—— **已完成（数量除外）**
+
+> **实施结果（2026-10-13 下午，详见台账 W2 节）**：
+> - 已做：取帧接线：`maa_api/services/account/depot_scan_service.py` 的 `DepotScanService`
+>   （默认取帧器走 `DeviceManager.screenshot("adb")`，与 `GET /api/device/screenshot` 同一条路；
+>   错误一律给明确错误码，不返回空结果）；14 例单测。
+> - 已做：任务链：`maa_api/core/depot_selfscan_overlay.py` 生成 `MaaApi@DepotSelfScan.json`
+>   （`@Start` / `@AllTab` / `@EnterDepot` / `@SwipeNextPage` / `@SwipePrevPage` / `@Done`）。
+>   **没有** `@AllTabSelected`：M44 那类选中态模板死在尺寸上，页面对不对由 `min_accepted` 回答。
+> - 已做：设置项：`account.depot_scan_{enabled,top1_min,margin_min,min_accepted}`，默认
+>   `false / 0.75 / 0.15 / 8`。
+> - 已做：多屏取证：**竖向滑动无效、横向一划一页**（几何照内核 `DepotSlowlySwipeToTheRight`）；
+>   格距可复用，**横向相位逐屏漂 ±30 px（实测 78–114 vs 先验 86.6），必须逐屏重拟合**，
+>   且 `FIRST_SEARCH_MAX = 24` 兜不住（q02 那帧复用先验格线 0/24，重拟合后 11 接受）。
+> - 未做：**数量整块挪到 W3**（不在 W2 半做：24 个 `NumberOcrReplace` 的 roi 要按当屏拟合出的
+>   格线现算，翻页后必须动态换 roi；加上内核 OCR 前的 `subtract(item_templ * 0.41)` 任务 JSON
+>   做不到，准确率必然低于内核。理由写进台账 W2 节 D。
 
 - **为什么**：W1 的识别器只吃图；要有人把图送到它面前，还要把数量补上。
 - **写范围**：
@@ -65,6 +81,17 @@
 - **blocked_by**：W1
 
 ### W3 合并入库与页面展示（不占设备）
+
+> **W2 交过来的三件事（必须先做）**：
+> 1. **数量（整块从 W2 挪来）**：24 个 `NumberOcrReplace` 节点的 roi 要按**当屏拟合出的格线**
+>    现算（横向相位逐屏漂 ±30 px，写死 roi 会整体错位），翻页后要能换一批 roi；分组策略照
+>    规格 §2.6——与内核 `DepotInfo` 重叠的 id 用内核数量，只有我们独有的 id 走自己的 OCR，
+>    OCR 读不到就**不写数量**。
+> 2. **逐屏扫描的收口**：一页扫完再翻页（`@SwipeNextPage`），**连续两屏没有新增 id 就停**
+>    （横滑到底会进干员信物区，那里的格线不是 8 列 × 129.92，拟合会 `insufficient`）。
+> 3. **`fit_lattice` 的 x 轴搜索半径放宽**（现在 `FIRST_SEARCH_MAX = 24`，实测偏移到过
+>    +27.7 px）：至少 40 px，或按半列 ≈ 65 px；并补一条「相位偏半列仍能扫出来」的单测。
+>    整轮闸门按**聚合结果**判，别按屏判（末页接受格数会低到 7）。
 
 - **为什么**：识别出来要落库、要在页面上看得见，而且**不能因为新链路把 M44 的护栏绕过**。
 - **写范围**：

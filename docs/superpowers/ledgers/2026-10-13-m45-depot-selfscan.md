@@ -11,8 +11,8 @@
 | --- | --- | --- |
 | W0 | 覆盖层生效性（A）+ Python masked NCC 整页识别（B）+ 规格计划 | **完成**（本文件） |
 | W1 | 识别器实现 + 单测 | **完成**（见下；死代码删除与 M44 改注也在本波） |
-| W2 | 任务链/取帧接线 + 数量 | 待做 |
-| W3 | 合并入库与页面展示 | 待做 |
+| W2 | 任务链/取帧接线 + 数量 | **取帧接线/任务链/设置项完成 + 多屏取证完成**；数量整块留 W3（见 W2 节 D） |
+| W3 | 合并入库与页面展示 | 待做（**含数量分批与逐屏扫描的收口**） |
 | W4 | 文档、门禁、真机验收、`--no-ff` 合并、tag `v2-m45` | 待做 |
 
 ## W0-a：custom 层覆盖同名内核任务到底生效不生效
@@ -268,12 +268,154 @@ mask = 模板灰度 `≥ 1` 再抹右下 `80×50`、尺度固定 `1.0`、判定 
 4. 真机帧的真值是肉眼核对的 15 格，不是逐屏比对的**全量**真值 —— 全仓验证仍按规格 §7.2
    在 W3/W4 做。
 
+## W2：取帧接线 + 任务链 + 多屏取证（2026-10-13 下午，占设备一轮）
+
+**交付（4 个提交）**：`6a45999` 四个设置项；`7a3aa4f` `DepotScanService`（取帧接线）；
+`9e9ed21` 自识别任务链（启动期写进 custom 层）；本文档。
+
+### A：取帧接线（落地形态）
+
+- 新文件 `maa_api/services/account/depot_scan_service.py`，类 `DepotScanService`：
+  - `await scan(*, config=None, force=False) -> DepotScanOutcome`：取帧 → 归一 → 识别 → 统计；
+  - `await scan_frame(frame, *, config=None, backend=None)`：离线回放（W3 的「同一批帧同一结果」用它）；
+  - `config_from_settings()` / `enabled`：每次都现读设置（`account.depot_scan_*`）。
+- **取帧走已有通路，没有新造截图通道**：默认取帧器 `DepotFrameSource(DeviceManager)` 调
+  `DeviceManager.screenshot("adb")` —— 与 `GET /api/device/screenshot` 同一条路：ADB 全分辨率
+  （本机 2560×1440），ADB 失败时 `DeviceManager` 自己退回内核 `AsstAsyncScreencap` + `GET_IMAGE`。
+  真正供货的通道记在 `DepotScanOutcome.backend`。解码（PIL / 内核 JPEG 字节 / RGBA）在服务层做，
+  识别核心仍然只吃像素数组（规格 §3.1 的分工）。
+- 错误语义（单测钉住）：取帧器抛别的异常 → `SCREENSHOT_FAILED`（带 `stage=depot_self_scan`）；
+  设备层 `AppError` 原样上抛（`DEVICE_NOT_CONNECTED` 等）；帧解不出图 → `DepotScanError`；
+  未启用 → `DepotScanDisabled`（`scan(force=True)` 给验收用）。**任何一条都不返回空结果**：
+  空结果会被下游当成「仓库是空的」，与 M44 下限护栏防的是同一类事故。接受格数不足只如实报告
+  `below_min_accepted`，闸门留给 W3。
+- 识别在 `asyncio.to_thread` 里跑（单页 24 格 × 479 模板 ≈ 1.2 s 纯 CPU）。
+
+单测 `tests/services/test_depot_scan_service.py` **14 例**：假取帧器给 W1 那张真机帧、真识别器出
+15 接受 / 6 歧义 / 3 未知；`ScreenshotResult` 形状的通道名、JPEG 字节、async 取帧器、
+`DepotFrameSource` 只转发 `DeviceManager`；取帧失败 / 设备错误透传 / 帧解不出 / 未启用 / force；
+阈值与下限改设置立即生效（同一帧 `top1_min=0.95 + min_accepted=24` ⇒ 接受数下降且 `below_min_accepted=True`）。
+
+### C：设置项
+
+`account.depot_scan_enabled` / `depot_scan_top1_min` / `depot_scan_margin_min` /
+`depot_scan_min_accepted`，默认 `false / 0.75 / 0.15 / 8`（W0-b 实测值；`enabled` 默认关的理由：
+自识别链路要到 W4 真机验收才成立，默认关可以先合进主线而不改变内核那一趟的行为）。
+`SETTING_KEYS` + 新的 `AccountSettings` 段 + `settings_schema.py`（group 账号、hot_action none：
+服务每次调用现读）+ `config.template.yaml` 一段。账号数据的旧旋钮继续留在 `agent` 段
+（那是数据新鲜度与写库闸门），新的四个是识别器参数，所以按规格 §3.1-1 预留的名字新开一段。
+
+### B：多屏滑动取证（真机，模拟器 127.0.0.1:5555）
+
+**过程**：设备本来就在仓库「全部」页。三轮内核会话（脚本 `/tmp/m45w2/run_chain.py`、
+`run_prod.py`，不进版本库），每轮：启动内核（基线资源 + `cache` + `custom` 层）→ 连接 →
+提交 `Custom` 链（探针节点或生产节点）→ 等链跑完 → `client.screencap()` 取帧（**与 W2 服务
+同一条取帧通路**，落 `/tmp/m45w2/frames/*.jpg`，1280×720）。分析脚本 `/tmp/m45w2/analyze.py`
+对每帧跑两遍识别：默认（含拟合）与 `fit_grid=False`（复用先验格线），并用「局部 NCC 全局峰」
+独立量一次行列格心（行窗口 ±80 px、列窗口 ±40 px，避免串到相邻行/列）。
+
+**第一轮：竖向滑动是死路。** `y 1320 → 180`（ADB `input swipe`）、`y 950 → 300`（同上）、
+`input draganddrop`、内核 `Swipe y 570 → 0`（3 行 = 570 px）、`y 620 → 0` 五种姿势，
+4 帧的接受格数 17/17/17/17 且接受 id **完全相同**、实测格线与先验逐位相同 ⇒ **仓库「全部」页
+不响应竖向滑动**。这一轮还排除了「ADB 注入坏了」：同一支 `input` 的 `tap` 能切页签
+（点到「消耗物品」页，17 件道具），只有 swipe 不动。
+
+**第二轮：横向一划一页**（照内核自带 `DepotSlowlySwipeToTheRight` 的几何 `x 1150 → 110`、
+`y 340`、200 ms）。9 帧的结论：
+
+| 帧 | 接受 | 歧义 | 未知 | 拟合 | 实测行线 `first/pitch/残差` | 实测列距 `pitch/残差` | 实测 `x_first` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| q00 基准页 | 17 | 4 | 3 | prior | 157.52 / 158.62 / 2.14 | 129.56 / 1.87 | 105.31 |
+| q01 下一页 | 14 | 7 | 3 | prior | 159.14 / 157.50 / 2.14 | 129.59 / 1.61 | 86.05 |
+| q02 下二页 | **11** | 4 | **9** | **fitted（x_first 108.6）** | 158.22 / 157.87 / 1.22 | 129.66 / **0.36** | **114.33** |
+| q03 下三页 | 21 | 0 | 3 | prior | 159.05 / 157.71 / 2.48 | 129.64 / 1.71 | 107.07 |
+| q04 下四页 | **24** | 0 | 0 | prior | 159.06 / 157.69 / 2.44 | 129.62 / 1.44 | 84.08 |
+| q05 半页横滑 | 23 | 1 | 0 | prior | 158.78 / 157.91 / 1.78 | 129.56 / 1.26 | 85.18 |
+| q06 再下一页 | 9 | 13 | 2 | prior | 158.58 / 158.16 / 1.58 | 129.99 / 0.89 | 77.91 |
+| q07 反向一页 | 23 | 1 | 0 | prior | 158.78 / 157.91 / 1.78 | 129.57 / 1.20 | 88.23 |
+| q08 长距横滑 | 7 | 12 | 5 | prior | 159.00 / 158.00 / 0.00 | 130.01 / 0.72 | 83.26 |
+
+三页相邻的接受 id 集合互不重叠（q00→q01→q02→q03→q04 五页全不重叠）⇒ 一划确实走一页
+（一页宽 = 8 列 × 129.92 ≈ 1039 px，与 1040 px 的位移一致）。半页横滑（510 px）落在
+「上一页与下一页之间」：q05 与 q04 的接受 id 有重叠，q07 反向一页又精确回到 q05
+（23 个 id 逐个相同）。
+
+**结论（回答 W2 要回答的两个问题）**：
+
+1. **格距可以复用，相位必须逐屏重拟合，而且现在这个拟合的搜索半径刚好不够。**
+   列距实测 `129.56–130.01`（残差 ≤ 1.87 px）、行线实测 `157.50–159.14`（残差 ≤ 2.48 px），
+   与内核换算的先验（`129.92 / 158.07`）都在 2 px 级 ⇒ **格距不用逐屏重估**。
+   但**横向相位逐屏在漂**：实测 `x_first` 从 `77.91` 到 `114.33`（先验 `86.6`），极差 36 px。
+   q02 就是漂出窗口余量的那一帧：**复用先验格线（`fit_grid=False`）得到 0 接受 / 0 歧义 /
+   24 未知**，逐屏重拟合后回到 11 接受 / 4 歧义 / 9 未知（那 9 格是页面右侧的空格）。
+   `fit_lattice` 的 `FIRST_SEARCH_MAX = 24` 只能兜住 ±24 px，而这一帧真实偏移 +27.7 px
+   （它修到 +22 px 就顶到搜索边界了）⇒ **W3 要把 x 轴的搜索半径放宽到半列（≈65 px）
+   或至少 40 px**，否则「滑到一半」的页面会整屏判失败。
+2. **逐屏接受格数差异极大（7–24），整轮闸门不能按屏判。** q08 只有 7 格接受、
+   q06 只有 9 格、13 格歧义 ⇒ 若把 W1 的 `min_accepted=8` 按屏判，最后几页会被整屏丢掉。
+   闸门必须在**整轮聚合**之后判（W3 与 M44 的 `agent.depot_min_items` 一起做）。
+3. **「全部」页不是只有道具，横向滑到底会进干员信物区**：第三轮用生产节点连划 5 次
+   （起点是上一轮留下的最后一页），跨过材料区后进入 **干员信物/凭证** 区，那里的格子
+   **不是 8 列 × 129.92 的格线**（画面每行 8 个但更密、首列被裁），24 格全是未知、
+   拟合直接 `insufficient`（分数 ≥ 0.80 的道具不足 3 个）。这正是「该收手了」的信号：
+   生产侧要在「本屏没有新增 id」时停（计划 W2 的「连续两屏新增为空就停」），
+   不能靠固定翻页次数。
+
+**这一轮顺带钉住的两件事**：`@AllTab` 节点真机命中并停在「全部」页（7.3 s 跑完，含一次重试）；
+`@SwipeNextPage` 一划一页（q01–q04 四页互不重叠）。
+
+### 任务链（`MaaApi@DepotSelfScan@*`）
+
+`maa_api/core/depot_selfscan_overlay.py` 在启动期把
+`resource/maa-layers/custom/resource/tasks/MaaApi@DepotSelfScan.json` 写进 custom 层
+（照 M44 `depot_overlay` 的做法，写不动只记日志）。节点：`@Start`（已在仓库页就点「全部」，
+否则 `@EnterDepot` 调内核 `DepotBegin` 进仓库）→ `@AllTab`（`baseTask: DepotAllTab` 继承
+模板/roi/动作，只换走向）→ `@SwipeNextPage` / `@SwipePrevPage` → `@Done`。内核节点一个不覆盖
+（规格 §4.2），识别全在 Python 侧。
+
+**两处真机踩出来的坑（都写进了注释与单测）**：
+
+1. **用 `baseTask` 的节点也必须显式写 `template`**。内核在加载这一层时给每个需要模板的节点
+   找模板，没写就按任务名推 `<任务名>.png`；推出来的文件不存在会**让整层加载失败、内核起不来**
+   （12:36 实测：`Templ load failed, file not exists: MaaApi@DepotSelfScan@AllTab.png` →
+   `TaskData load failed, path: .../custom/resource/tasks` → `CORE_START_FAILED`）。
+   M36 的 `@Back` 也是 `baseTask` + 显式 `template`。
+2. **不加「已选中」确认节点**：M44 的 `DepotAllTabClicked` 死在模板 600×276 > roi 300×138，
+   W1 已删（`e6ffaf3`），不重新引入二进制资产；页面对不对由识别器的 `min_accepted` 回答。
+
+### D：数量读取 —— **W2 未做，整块留 W3**
+
+不半做的理由（规格 §2.6 的数量评估 + 本轮的新证据）：24 个 `NumberOcrReplace` 节点的 roi
+必须落在**这一屏的格心**上，而 B 已经证明横向相位逐屏会漂 ±30 px（q02 那帧偏 27.7 px）——
+roi 只能按「当屏拟合出来的格线」现算，也就是每次翻页都要**动态改任务 JSON 或另写一批节点**，
+再让内核用新 roi 跑 OCR；加上内核 OCR 前会 `subtract(item_templ * 0.41)` 减掉图标美术
+（任务 JSON 做不到，准确率必然低于内核）。这是一件独立的、有风险的活，和「合并入库 + 页面」
+一起放 W3 做，比在 W2 尾巴上塞半个版本更安全。**W2 的边界：只做身份，不写任何数量。**
+
+### 门禁（W2 自跑，2026-10-13）
+
+| 命令 | 尾行 |
+| --- | --- |
+| `.venv/bin/python -m pytest -o addopts= -q tests/services/test_depot_scan.py tests/services/test_depot_scan_service.py` | `44 passed in 18.28s` |
+| `.venv/bin/python -m pytest -o addopts= -q tests/services/ tests/core/ tests/api/test_settings_router.py` | `2 failed, 1907 passed, 5 skipped`（两条都是既有真资源用例 `tests/services/test_activity_index.py`） |
+| `.venv/bin/python scripts/copy_inventory.py --write-baseline && .venv/bin/python scripts/copy_inventory.py --check` | 见提交说明（新设置项标签进基线） |
+
+### W2 改动面
+
+`maa_api/services/account/depot_scan_service.py`（新）、`maa_api/core/depot_selfscan_overlay.py`（新）、
+`maa_api/settings.py`、`maa_api/services/settings_schema.py`、`maa_api/main.py`（一行调用）、
+`config.template.yaml`、`tests/services/test_depot_scan_service.py`（新）、
+`tests/core/test_depot_selfscan_overlay.py`（新）、`tests/test_settings.py`。
+没有 `web/`、没有接口形状变化（`DepotScanService` 还没接 HTTP），所以
+`dump_openapi.py --check` / `pnpm gen:api:check` 不受影响。
+
 ## W0 遗留 / 未取证
 
 1. **M44 W1 需重做验收**（§修正 2）：覆盖机制成立，但「26 → 77」的证据链错了；M44 台账与 `docs/13` §8.64 的对应说法要在 W4 一并更正。
 2. **`DepotAllTabClicked` 死代码**：W1 裁决 = **删掉**（节点 + 自带模板 + 资产目录），`DepotAllTab.next` 覆盖成空链（点完「全部」就地收尾）。见提交 `e6ffaf3`。
 3. **第 8 列的对齐**：W1 已做 —— 拟合出真实相位（真机帧 `x_first ≈ 87`，第 8 列格心 993），边界只作兜底钳制（`CELL_MAX_CLIP = 12`），单测 `test_eighth_column_is_clipped_not_dropped` / `test_clipped_cell_is_still_evaluated` 钉住。
-4. **多屏扫描**：M45 只验证了单屏 24 格。仓库「全部」页需要滑动才能看全，滑动后的网格是否仍可用（尤其首列是否被裁）**未取证**，W2 要处理。
+4. **多屏扫描**：W2 已取证（见上）：竖向滑动无效、横向一划一页；格距可复用，横向相位逐屏漂
+   最多 36 px，必须逐屏重拟合，且 `FIRST_SEARCH_MAX = 24` 要放宽（W3）。
 5. **`7003` 数量 42 没进 DB**：本页 `7003` 数量肉眼是 42，但库里没有这一行；我们的 OCR 路径能不能稳定读出 42 未验证（§数量评估是方案，不是结果）。
 6. **服务重启后的首次提交**：`DEVICE_NOT_CONNECTED`（09:42:18）说明重启后设备重连窗口约 20–25 s，真机实验要等 `uvicorn.err` 出现 `connected（原因 ADB 与内核均已确认连接）` 再提交。
 
