@@ -94,6 +94,8 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "account.depot_scan_top1_min": ("account", "depot_scan_top1_min"),
     "account.depot_scan_margin_min": ("account", "depot_scan_margin_min"),
     "account.depot_scan_min_accepted": ("account", "depot_scan_min_accepted"),
+    "account.depot_scan_max_pages": ("account", "depot_scan_max_pages"),
+    "account.depot_scan_no_new_pages": ("account", "depot_scan_no_new_pages"),
     # 作业研究（M29，规格 §9.6/§9.7/§9.11）：授权窗口、单次尝试的等待上限、
     # AI 草稿与作业站副本的保留天数。
     "adb.path": ("adb", "path"),
@@ -345,10 +347,10 @@ class AccountSettings(BaseModel):
 
     M27 起账号数据的旋钮一直借住在 ``agent`` 段（``box_stale_days`` /
     ``depot_stale_days`` / ``depot_min_items``），那三个是「数据新鲜度与写库闸门」；
-    M45 的四个是识别器自己的参数，规格 §3.1-1 预留的名字就是 ``account.depot_scan_*``，
+    M45 的六个是识别器自己的参数，规格 §3.1-1 预留的名字就是 ``account.depot_scan_*``，
     所以开一段自己的，不再往 ``agent`` 里塞。
 
-    四项都由 :class:`~maa_api.services.account.depot_scan_service.DepotScanService`
+    六项都由 :class:`~maa_api.services.account.depot_scan_service.DepotScanService`
     每次调用现读（``hot_action="none"``），改完立即生效：
 
     - ``depot_scan_enabled`` 默认**关**：M45 的自识别链路要到 W4 真机验收才成立，
@@ -360,6 +362,10 @@ class AccountSettings(BaseModel):
     - ``depot_scan_min_accepted`` 是整页接受格数下限（默认 ``8``）：低于它识别器只记
       ``below_min_accepted``，**写不写库由 W3 的合并路径与 M44 的条目数护栏一起决定**。
       ``24`` 是整页格数（8×3），填满即「一格都不许未知」。
+    - ``depot_scan_max_pages`` / ``depot_scan_no_new_pages`` 是 M45 W3a 逐屏扫描的两个
+      收手条件（默认 ``10`` / ``2``）：横滑到底会进干员信物区（那里的格线不是
+      8 列 × 129.92，W2 实测拟合 ``insufficient``），所以不能靠固定翻页次数，
+      要按「连续几屏没有新增 id」停；页数上限是硬兜底。
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -368,6 +374,10 @@ class AccountSettings(BaseModel):
     depot_scan_top1_min: float = Field(default=0.75, ge=0.0, le=1.0)
     depot_scan_margin_min: float = Field(default=0.15, ge=0.0, le=1.0)
     depot_scan_min_accepted: int = Field(default=8, ge=0, le=24)
+    # 逐屏扫描的两个收手条件（M45 W3a）。``le=50`` 是「再大也没有意义」的兜底：
+    # 一屏 8 列，50 屏 = 400 列道具，远超一个账号的仓库规模。
+    depot_scan_max_pages: int = Field(default=10, ge=1, le=50)
+    depot_scan_no_new_pages: int = Field(default=2, ge=1, le=10)
 
 
 class DeploymentSettings(BaseModel):

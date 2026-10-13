@@ -31,9 +31,10 @@
   > 历史坑：本模块早期把 ``x_first`` 默认值写成 ``104.0``，那其实是 **1280×720 空间**
   > 的数（内核 105）被当成了 1066 空间的数用 —— ``104 * 1066/1280 = 86.6`` 才是本空间的值。
   > 靠窗口余量勉强不漏格，但分数与第 8 列的余量都被白吃掉。现已改成实测值。
-- 拟合用的是**画面自己的 NCC 分数面**：先验格线定标 + 在 ``(first, pitch)`` 网格上找
-  「验证格最高分之和」最大的那条格线；landmark 不足（< :data:`FIT_MIN_LANDMARKS`）就
-  退回先验并在 ``PanelScan.grid_confidence`` 里记 ``insufficient`` —— 不拿一个可疑的格子去猜。
+- 拟合用的是**画面自己的 NCC 分数面**：先验格线定标 + 在相位候选上找「验证格最高分之和」
+  最大的那条格线（**格距锁在先验**，W3a 实测它不用逐帧重估）；landmark 不足
+  （< :data:`FIT_MIN_LANDMARKS`）就退回先验并在 ``PanelScan.grid_confidence`` 里记
+  ``insufficient`` —— 不拿一个可疑的格子去猜。
 
 ## 匹配：mask 是决定性的
 
@@ -79,8 +80,12 @@
   （:meth:`DepotScanService.config_from_settings`）。本模块自己仍然不读设置：它要保持
   「纯函数、参数全从 :class:`DepotScanConfig` 进来」，方便离线回放与单测。
 - **横向相位逐屏会漂**（W2 真机实测：``x_first`` 在 78–114 px 之间，先验 86.6），所以
-  :func:`fit_lattice` 每屏都要跑；实测有相位偏 +27.7 px 的帧，而 ``FIRST_SEARCH_MAX = 24``
-  只能兜 ±24 px —— 放宽搜索半径是 W3 的事（台账 W2-B）。
+  :func:`fit_lattice` **每屏都要跑**；实测有相位偏 +27.7 px 的帧，W3a 起
+  :data:`FIRST_SEARCH_MAX` 放宽到 **40 px**（步长仍 1 px），并可由
+  :attr:`DepotScanConfig.first_search_max` 覆盖。
+- **逐屏扫描**由 :class:`~maa_api.services.account.depot_scan_service.DepotScanService`
+  的 ``scan_all_pages`` 编排：每屏独立 :func:`scan_panel`（各自重新拟合），翻页由注入的
+  「翻页器」做（走内核 ``MaaApi@DepotSelfScan@*`` 链，不用 adb 硬滑）。
 """
 
 from __future__ import annotations
@@ -110,6 +115,7 @@ __all__ = [
     "DEFAULT_PANEL",
     "DEFAULT_SCALES",
     "DEFAULT_TOP1_MIN",
+    "FIRST_SEARCH_MAX",
     "CellResult",
     "ColorFingerprint",
     "DepotScanConfig",
@@ -163,14 +169,23 @@ DEFAULT_MARGIN_MIN = 0.15
 #: 尺度安全网。W0-b 实测 24/24 都是 1.0 胜，默认**只跑 1.0**（三档是 3 倍代价）。
 DEFAULT_SCALES: tuple[float, ...] = (1.0,)
 
-#: 拟合时允许的格距偏差（先验的 ±%）：列 ±7.8 px、行 ±9.5 px。
+#: 探针剖面在预期间隔上多给的余量（先验的 ±%）：列 ±7.8 px、行 ±9.5 px。
+#: **格距本身不拟合**（W3a 裁决，见 :func:`_fit_axis`）：真机实测列距 129.56–130.01、
+#: 行线 157.50–159.14（残差 ≤ 1.87 / 2.48 px），漂的是相位；这个余量只用来把
+#: 「相位偏了之后这一格该在哪儿」的剖面范围留够，不是格距的搜索范围。
 PITCH_TOLERANCE = 0.06
-#: 相位搜索半径（先验格心 ± px）与搜索步长（px）。
-#: 24 px 是「画面整体滚动」的量级：横向窗口余量本来就有 ±20 px，纵向只有 ±4~8 px，
-#: 所以纵向滚动超过几像素就必须靠拟合找回来（见 :func:`_landmarks` 的兜底扫描）。
-FIRST_SEARCH_MAX = 24.0
+#: 相位搜索半径（先验格心 ± px）与搜索步长（px）。**M45 W3a 从 24 放宽到 40**：
+#: W2 真机逐屏取证里横向相位在 ``77.91–114.33`` 之间漂（先验 ``86.6``，极差 36 px，
+#: 台账 W2-B），其中 q02 那帧真实偏移 **+27.7 px** —— 旧的 ±24 只修到 +22 就顶到搜索
+#: 边界，复用先验格线时整屏 0 接受（``fit_grid=False`` ⇒ 0 接受 / 24 未知）。
+#: 40 px 是「实测极差 36 px + 余量」，仍小于半列（``129.92/2 ≈ 65``）：半格错位的
+#: 伪峰靠 :data:`FIT_IMPROVE_MIN` 与双阈值拦，不会因为放宽搜索就误接受
+#: （单测 ``test_phase_fit_never_crosses_half_a_cell`` 钉住这条）。
+#: 纵向窗口余量只有 ±4~8 px，滚动几像素就必须靠拟合找回来（见 :func:`_landmarks`）。
+#: 需要更大/更小的半径时走 :attr:`DepotScanConfig.first_search_max`，不要改这个常量
+#: 的语义（它是「默认值」，也是服务层不传配置时的口径）。
+FIRST_SEARCH_MAX = 40.0
 FIRST_STEP = 1.0
-PITCH_STEP = 0.5
 #: 兜底找 landmark 时把匹配窗口向外扩这么多像素：窗口一大，整体滚动就被窗口自己
 #: 吸收掉，分数照样能过 :data:`FIT_LANDMARK_MIN`（代价是窗口面积变大）。
 FIT_DISCOVERY_PAD = 24
@@ -178,6 +193,9 @@ FIT_DISCOVERY_PAD = 24
 FIT_LANDMARK_MIN = 0.80
 #: landmark 池上限（[`_diverse`] 按「每列最好的 + 每行最好的」挑，去重后取分数最高的这些）。
 FIT_LANDMARK_MAX = 12
+#: 重试走外扩扫描时多收几个（第一趟的候选先占名额，不能把它们挤掉；
+#: 见 :func:`fit_lattice` 的「相位偏出窗口余量时的重试」）。
+FIT_DISCOVERY_EXTRA = 4
 #: 少于这么多张 landmark 就不拟合，直接用先验。
 FIT_MIN_LANDMARKS = 3
 #: 每个验证组（一列/一行）最多用几个 landmark。
@@ -787,7 +805,7 @@ def _classify(
 
 
 # --------------------------------------------------------------------------- #
-# 网格拟合：量相位（内核不给），印证格距（内核给，但换版本要能跟着走）
+# 网格拟合：只量相位（格距用内核常量换算的值，W3a 实测它不用逐帧重估）
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True, slots=True)
 class _Landmark:
@@ -805,10 +823,11 @@ def fit_lattice(
     grid: ItemGrid,
     *,
     cells: Sequence[CellResult] | None = None,
+    first_search_max: float = FIRST_SEARCH_MAX,
 ) -> tuple[ItemGrid, str, tuple[dict[str, Any], ...]]:
-    """拟合格心相位与格距；返回 ``(几何, 置信度, 明细)``。
+    """拟合**格心相位**（格距保持先验）；返回 ``(几何, 置信度, 明细)``。
 
-    置信度三档：``fitted``（改了格线）/ ``prior``（先验本来就是最优，或改进不达门槛）/
+    置信度三档：``fitted``（改了相位）/ ``prior``（先验本来就是最优，或改进不达门槛）/
     ``insufficient``（landmark 不够，没拟合）。
 
     **验证格就是 landmark 自己所在的那几格**，目标值 = 这些道具在候选格线上的最高分之和
@@ -818,19 +837,37 @@ def fit_lattice(
     **为什么是「分数之和」而不是「找峰再回归」**：masked NCC 在窗口内取全位置最大，
     一个道具的「格心 → 最高分」是一条**平台**（宽度 = 窗口余量：横向 ±20 px、纵向 ±4~8 px）
     而不是尖峰，对平台做回归会得到任意斜率；直接问「哪条格线的总分最高」没有这个问题 ——
-    平台内部并列时先验靠 :data:`FIT_IMPROVE_MIN` 胜出，只有先验真的跳出平台（画面滚动、
-    分辨率变化、内核换布局）才会改。
+    平台内部并列时取并列解的**中心**（见 :func:`_fit_axis`），只有先验真的跳出平台
+    （画面滚动、分辨率变化、内核换布局）才会改。
 
     **每格只跑一遍 NCC**：先用 :func:`_axis_profile` 把验证格的分数面压成「格心 → 最高分」
-    的剖面，再在 ``(first, pitch)`` 网格上查表。逐候选重跑 NCC 是 49×32 个候选 × 4 个
-    验证格 ≈ 6000 次全格打分（本机实测几十秒），查表版本与「只算先验那一条格线」同量级，
-    实测 ≈ 0.15 s。
+    的剖面，再在相位候选上查表。逐候选重跑 NCC 是 81 个候选 × 4 个验证格 ≈ 300 次全格打分
+    （本机实测几十秒），查表版本与「只算先验那一条格线」同量级，实测 ≈ 0.15 s。
 
     :param frame: 面板灰度图（``599×1066``，见 :func:`panel_of_frame`）—— 几何都在这个空间。
     :param cells: :func:`scan_panel` 第一趟的结果（landmark 从中挑，省掉一次全页扫描）；
         挑不够时仍会自己扫（见 :func:`_landmarks`）。
+    :param first_search_max: 相位搜索半径（先验格心 ± px）；默认
+        :data:`FIRST_SEARCH_MAX`（40 px，W2 实测横向漂 36 px）。逐屏扫描时由
+        :attr:`DepotScanConfig.first_search_max` 透传，**每一屏都要重新拟合**
+        （W2 的结论：格距可复用、相位必须逐屏重来）。
+
+    **相位偏出窗口余量时的重试**（W3a）：横向窗口余量只有 ±20 px，偏得更多时先验格线
+    上的分数**会掉**（真机 +27.7 px 那帧、合成图上 25 px 都是这样）—— 不是掉到认不出，
+    而是掉到 :data:`FIT_LANDMARK_MIN` 以下，于是「landmark 不够」直接退化成不拟合。
+    所以第二趟改用 :data:`FIT_DISCOVERY_PAD` 外扩窗口的 landmark（窗口一大，整体滚动
+    被窗口自己吸收），**只花在真正需要的那几帧上**。
     """
     landmarks = _landmarks(frame, bank, grid, cells=cells)
+    if len(landmarks) < FIT_MIN_LANDMARKS:
+        landmarks = _landmarks(
+            frame,
+            bank,
+            grid,
+            cells=(),
+            discovery=True,
+            limit=FIT_LANDMARK_MAX + FIT_DISCOVERY_EXTRA,
+        )
     if len(landmarks) < FIT_MIN_LANDMARKS:
         return (
             grid,
@@ -847,7 +884,14 @@ def fit_lattice(
     confidence = "prior"
     # 先竖后横：横向验证窗要落在已经对齐的行心上。
     for axis in ("y", "x"):
-        grid, entry = _fit_axis(frame, bank, grid, landmarks, axis=axis)
+        grid, entry = _fit_axis(
+            frame,
+            bank,
+            grid,
+            landmarks,
+            axis=axis,
+            first_search_max=first_search_max,
+        )
         details.append(entry)
         if entry["adjusted"]:
             confidence = "fitted"
@@ -860,6 +904,7 @@ def _landmarks(
     grid: ItemGrid,
     *,
     cells: Sequence[CellResult] | None = None,
+    discovery: bool = False,
     limit: int = FIT_LANDMARK_MAX,
 ) -> tuple[_Landmark, ...]:
     """「画面里确实有」的道具 —— 拟合的探针（landmark），分数高的优先。
@@ -868,19 +913,22 @@ def _landmarks(
 
     1. 先验格心的 top-1 分数 ≥ :data:`FIT_LANDMARK_MIN`（:func:`scan_panel` 会把第一趟的
        结果直接传进来，这一级免费；独立调用时自己整页扫一遍，≈ 0.9 s）；
-    2. 还不够 ⇒ 说明相位偏了（纵向窗口余量只有 ±4~8 px）。把匹配窗口向外扩
+    2. 还不够 ⇒ 说明相位偏了（横向窗口余量只有 ±20 px）。把匹配窗口向外扩
        :data:`FIT_DISCOVERY_PAD`、只扫首/中/末三列 × 全部行：窗口一大，整体滚动被窗口
        自己吸收，分数照样过门槛（≈ 2.6 s，只在相位偏了的时候付）；
     3. 还是不够 ⇒ 交给调用方按「拟合不出来」处理（``insufficient``），不硬凑。
 
     按名字随手抽模板当探针不行：W1 实测抽出来的 12 张全不在画面上，分数面平在 0.45，
     拿去搜格子只会搜到噪声。
+
+    :param discovery: 跳过第 1 级、直接走第 2 级的外扩扫描
+        （:func:`fit_lattice` 在第一趟凑不够时的重试走这条）。
     """
     found = _landmarks_from_cells(cells, bank) if cells is not None else []
     # 传了 cells（:func:`scan_panel` 的第一趟）就等于已经做过第一级，不再重扫一遍。
-    if len(found) < FIT_MIN_LANDMARKS and cells is None:
+    if not discovery and len(found) < FIT_MIN_LANDMARKS and cells is None:
         found.extend(_landmarks_by_scan(frame, bank, grid, rows=range(grid.rows)))
-    if len(found) < FIT_MIN_LANDMARKS:
+    if discovery or len(found) < FIT_MIN_LANDMARKS:
         found.extend(
             _landmarks_by_scan(
                 frame,
@@ -891,10 +939,12 @@ def _landmarks(
                 pad=FIT_DISCOVERY_PAD,
             )
         )
-    best: dict[int, _Landmark] = {}
+    # 去重键含模板号：同一个模板出现在多个格子上是多个证据（见 :func:`_diverse`）。
+    best: dict[tuple[int, int, int], _Landmark] = {}
     for landmark in found:
-        if landmark.index not in best or landmark.score > best[landmark.index].score:
-            best[landmark.index] = landmark
+        key = (landmark.index, landmark.col, landmark.row)
+        if key not in best or landmark.score > best[key].score:
+            best[key] = landmark
     return tuple(_diverse(best.values(), limit=limit))
 
 
@@ -903,15 +953,20 @@ def _diverse(landmarks: Iterable[_Landmark], *, limit: int) -> list[_Landmark]:
 
     分散是硬要求，不是锦上添花：横向窗口余量有 ±20 px，只有列号相差 ≥ 3 的两个
     landmark 才能把格距差异放大到分数看得见；行距则要靠首末两行。
+
+    **去重按「模板 + 格子」而不是只按格子**（W3a 修）：同一张模板出现在多行（真机常见：
+    一整列都是同一种材料）时，只按 ``(col, row)`` 记会让后写的那一行把前面那一行**顶掉**
+    —— 实测把 6 个 landmark 压成 2 个，于是「够了拟合的探针」变成 ``insufficient``，
+    相位偏出窗口余量时整屏判失败。同一个模板在不同格子上是两个不同的证据，不能合并。
     """
-    chosen: dict[tuple[int, int], _Landmark] = {}
+    chosen: dict[tuple[int, int, int], _Landmark] = {}
     for attribute in ("col", "row"):
         groups: dict[int, list[_Landmark]] = {}
         for landmark in landmarks:
             groups.setdefault(getattr(landmark, attribute), []).append(landmark)
         for group in groups.values():
             top = max(group, key=lambda lm: lm.score)
-            chosen[(top.col, top.row)] = top
+            chosen[(top.index, top.col, top.row)] = top
     ordered = sorted(chosen.values(), key=lambda lm: (-lm.score, lm.col, lm.row))
     return ordered[:limit]
 
@@ -1066,20 +1121,10 @@ def _axis_profile(
     return _sliding_max_1d(values.max(axis=collapse_axis), span), moving_lo
 
 
-def _first_candidates(prior_first: float) -> list[float]:
-    """相位候选：先验 ±:data:`FIRST_SEARCH_MAX`，步长 :data:`FIRST_STEP`。"""
-    offsets = np.arange(-FIRST_SEARCH_MAX, FIRST_SEARCH_MAX + 1e-9, FIRST_STEP)
+def _first_candidates(prior_first: float, search_max: float) -> list[float]:
+    """相位候选：先验 ±``search_max``，步长 :data:`FIRST_STEP`。"""
+    offsets = np.arange(-search_max, search_max + 1e-9, FIRST_STEP)
     return [round(float(prior_first + offset), 2) for offset in offsets]
-
-
-def _pitch_candidates(prior_pitch: float) -> list[float]:
-    """格距候选：先验 ±:data:`PITCH_TOLERANCE`，步长 :data:`PITCH_STEP`。"""
-    values = np.arange(
-        prior_pitch * (1.0 - PITCH_TOLERANCE),
-        prior_pitch * (1.0 + PITCH_TOLERANCE) + 1e-9,
-        PITCH_STEP,
-    )
-    return [round(float(value), 3) for value in values]
 
 
 def _fit_axis(
@@ -1089,8 +1134,17 @@ def _fit_axis(
     landmarks: Sequence[_Landmark],
     *,
     axis: str,
+    first_search_max: float = FIRST_SEARCH_MAX,
 ) -> tuple[ItemGrid, dict[str, Any]]:
-    """一个轴的 ``(first, pitch)`` 搜索；只有比先验高过 :data:`FIT_IMPROVE_MIN` 才采纳。"""
+    """一个轴的**相位**搜索；只有比先验高过 :data:`FIT_IMPROVE_MIN` 才采纳。
+
+    **只量相位，不量格距**（W3a 的实测裁决）：W2 真机逐屏取证里列距 ``129.56–130.01``、
+    行线 ``157.50–159.14``（残差 ≤ 1.87 / 2.48 px），而相位在 ``77.91–114.33`` 之间漂
+    （极差 36 px）—— 格距是内核常量换算来的、可信；相位才是要量的东西（台账 W2-B）。
+    两轴同时搜索会被分数面的平台带偏：把格距缩小几像素能让外侧列重新落进剖面范围，
+    总分反而更高，于是拟合给出「列距缩 6% + 相位偏 10 px」这种整列错位的解
+    （合成满屏实测：锁定格距 21/24，放开格距 15/24）。
+    """
     if axis == "x":
         prior_first, prior_pitch = grid.x_first, grid.x_pitch
         index_of = lambda landmark: landmark.col  # noqa: E731 - 轴上的下标
@@ -1104,8 +1158,8 @@ def _fit_axis(
             fixed = int(round(grid.y_first + grid.y_pitch * landmark.row))
         else:
             fixed = int(round(grid.x_first + grid.x_pitch * landmark.col))
-        lo = int(prior_first - FIRST_SEARCH_MAX + index * prior_pitch * (1.0 - PITCH_TOLERANCE))
-        hi = int(prior_first + FIRST_SEARCH_MAX + index * prior_pitch * (1.0 + PITCH_TOLERANCE))
+        lo = int(prior_first - first_search_max + index * prior_pitch * (1.0 - PITCH_TOLERANCE))
+        hi = int(prior_first + first_search_max + index * prior_pitch * (1.0 + PITCH_TOLERANCE))
         profile, origin = _axis_profile(
             frame,
             _probe_bank(bank, (landmark.index,)),
@@ -1119,6 +1173,12 @@ def _fit_axis(
             probes.append((index, fixed, profile, origin))
 
     def evaluate(first: float, pitch: float) -> float:
+        # **每个 landmark 都必须算得出分数，一个都不许悄悄跳过**（W3a 修）：
+        # 早期版本对「算不出」的 landmark 直接跳过，于是总分只统计了能算的那几个 ——
+        # 一个把外侧列推出剖面范围的格距（例如把列距缩小几像素）会因为「少算几个 0.9」
+        # 反而总分更高，拟合被系统性地带偏（真机相位偏 +27.7 px 时拟合把列距从 129.92
+        # 拉到 122.7，第 8 列整列错位）。现在只要有一个 landmark 算不出就整条格线作废：
+        # 「全都算得出」永远优于「少算一个」。
         total = 0.0
         for index, fixed, profile, origin in probes:
             moving = int(round(first + pitch * index))
@@ -1137,19 +1197,31 @@ def _fit_axis(
         return total
 
     prior_score = evaluate(prior_first, prior_pitch)
-    best_score, best_first, best_pitch = prior_score, prior_first, prior_pitch
-    for pitch in _pitch_candidates(prior_pitch):
-        for first in _first_candidates(prior_first):
-            score = evaluate(first, pitch)
-            if score > best_score + 1e-9:
-                best_score, best_first, best_pitch = score, first, pitch
+    best_score, best_first = prior_score, prior_first
+    for first in _first_candidates(prior_first, first_search_max):
+        score = evaluate(first, prior_pitch)
+        if score > best_score + 1e-9:
+            best_score, best_first = score, first
+    # **平分时取「并列解的中心」，不是取离先验最近的那条**（W3a 修）：分数面在模板能滑动的
+    # 范围里是平台，一大批相位会给出完全相同的总分。取离先验最近的那条会把格线永远钉在
+    # 先验上（平台内先验附近那条总是最近的）；取并列解的中心（极大极小均值）等价于
+    # 「平台位置的平均」，与「找峰再回归」同解。**平台的跨度由搜索半径决定**：半径不够时
+    # 中心会跟着偏（真机 +27.7 px 的帧就是栽在这里，台账 W2-B），这正是把
+    # :data:`FIRST_SEARCH_MAX` 放宽到 40 px 的理由。
+    if math.isfinite(best_score):
+        tie_firsts = [
+            first
+            for first in _first_candidates(prior_first, first_search_max)
+            if abs(evaluate(first, prior_pitch) - best_score) <= 1e-9
+        ]
+        if tie_firsts:
+            best_first = (min(tie_firsts) + max(tie_firsts)) / 2.0
+    best_pitch = prior_pitch
     if not math.isfinite(best_score):
         improved, adjusted = 0.0, False
     else:
         improved = math.inf if not math.isfinite(prior_score) else best_score - prior_score
-        adjusted = improved >= FIT_IMPROVE_MIN and (
-            best_first != prior_first or best_pitch != prior_pitch
-        )
+        adjusted = improved >= FIT_IMPROVE_MIN and best_first != prior_first
     entry: dict[str, Any] = {
         "axis": axis,
         "prior_first": round(prior_first, 3),
@@ -1164,9 +1236,10 @@ def _fit_axis(
     }
     if not adjusted:
         return grid, entry
+    # 只改相位：格距锁在 :func:`load_grid_geometry` 给的值上（见 :func:`_fit_axis` 的说明）。
     if axis == "x":
-        return grid.replace(x_first=best_first, x_pitch=best_pitch), entry
-    return grid.replace(y_first=best_first, y_pitch=best_pitch), entry
+        return grid.replace(x_first=best_first), entry
+    return grid.replace(y_first=best_first), entry
 
 
 # --------------------------------------------------------------------------- #
@@ -1356,8 +1429,13 @@ class DepotScanConfig:
     max_candidates: int = 0
     #: 直接给定几何（``None`` ＝ 用 :func:`load_grid_geometry` 的结果）。
     grid: ItemGrid | None = None
-    #: 是否用画面分数面拟合格距与相位。
+    #: 是否用画面分数面拟合格心相位（格距始终用先验，见 :func:`fit_lattice`）。
     fit_grid: bool = True
+    #: 相位拟合的搜索半径（先验格心 ± px）。默认 :data:`FIRST_SEARCH_MAX` ＝ 40 px：
+    #: W2 真机逐屏实测横向相位漂 ``77.91–114.33``（先验 86.6，极差 36 px），旧的
+    #: ±24 兜不住那帧 +27.7 px 的偏移（复用先验格线时整屏 0 接受）。**逐屏扫描时
+    #: 每一屏都按这个半径重新拟合**，不假设上一屏的格线还能用。
+    first_search_max: float = FIRST_SEARCH_MAX
     #: 每格保留的候选数（够算 margin 与排障）。
     top_k: int = 3
 
@@ -1385,8 +1463,8 @@ def scan_panel(
 ) -> PanelScan:
     """一页画面 → 识别结果（纯函数：无设备、无网络、无数据库）。
 
-    两趟：先按先验格线整页扫一遍（这一趟的 top-1 顺带充当拟合的 landmark），再量相位/
-    格距；**只有格线真的改了才重扫**（拟合只做定位，判决要用全库分数重来一遍）。
+    两趟：先按先验格线整页扫一遍（这一趟的 top-1 顺带充当拟合的 landmark），再量相位
+    （格距锁先验）；**只有格线真的改了才重扫**（拟合只做定位，判决要用全库分数重来一遍）。
 
     :param frame: 面板灰度图（``599×1066``）、游戏坐标图（``720×1280``）或原始截图；
         不是面板尺寸时按 :func:`panel_of_frame` 的口径缩放。
@@ -1404,7 +1482,13 @@ def scan_panel(
     cells = _scan_cells(panel, panel_rgb, banks, scales, grid, config)
     confidence = "prior"
     if config.fit_grid:
-        grid, confidence, _fit_detail = fit_lattice(panel, bank, grid, cells=cells)
+        grid, confidence, _fit_detail = fit_lattice(
+            panel,
+            bank,
+            grid,
+            cells=cells,
+            first_search_max=config.first_search_max,
+        )
         if confidence == "insufficient":
             warnings.append("画面里可用 landmark 不足，网格沿用先验（未拟合）")
         elif grid != prior_grid:

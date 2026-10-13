@@ -379,6 +379,13 @@ def test_env_mapping_names_are_pinned() -> None:
         "agent.copilot_grant_minutes": "MAA_AGENT_COPILOT_GRANT_MINUTES",
         "agent.copilot_attempt_timeout_minutes": "MAA_AGENT_COPILOT_ATTEMPT_TIMEOUT_MINUTES",
         "agent.copilot_retention_days": "MAA_AGENT_COPILOT_RETENTION_DAYS",
+        # M45：仓库自识别（识别参数 + 逐屏扫描的两个收手条件）。
+        "account.depot_scan_enabled": "MAA_ACCOUNT_DEPOT_SCAN_ENABLED",
+        "account.depot_scan_top1_min": "MAA_ACCOUNT_DEPOT_SCAN_TOP1_MIN",
+        "account.depot_scan_margin_min": "MAA_ACCOUNT_DEPOT_SCAN_MARGIN_MIN",
+        "account.depot_scan_min_accepted": "MAA_ACCOUNT_DEPOT_SCAN_MIN_ACCEPTED",
+        "account.depot_scan_max_pages": "MAA_ACCOUNT_DEPOT_SCAN_MAX_PAGES",
+        "account.depot_scan_no_new_pages": "MAA_ACCOUNT_DEPOT_SCAN_NO_NEW_PAGES",
         "sources.cache_level_seconds": "MAA_SOURCES_CACHE_LEVEL_SECONDS",
         "sources.gamedata_enabled": "MAA_SOURCES_GAMEDATA_ENABLED",
         "sources.gamedata_rate_per_minute": "MAA_SOURCES_GAMEDATA_RATE_PER_MINUTE",
@@ -485,10 +492,10 @@ def test_account_stale_days_have_documented_defaults_and_bounds():
 
 
 def test_depot_self_scan_settings_have_documented_defaults_and_bounds():
-    """M45 仓库自识别：四个旋钮的默认值、取值范围与分组（规格 §2.6、§4.4）。
+    """M45 仓库自识别：六个旋钮的默认值、取值范围与分组（规格 §2.6、§4.4）。
 
-    默认值必须是 W0-b 实测的那三个（0.75 / 0.15 / 8）＋ ``enabled`` 默认关；
-    取值范围照 ``AccountSettings`` 的字段约束，设置页据此渲染控件。
+    默认值必须是台账实测的那几个（0.75 / 0.15 / 8，W3a 再加逐屏扫描的 10 / 2）
+    ＋ ``enabled`` 默认关；取值范围照 ``AccountSettings`` 的字段约束，设置页据此渲染控件。
     """
     from maa_api.services.settings_schema import schema_for
 
@@ -497,6 +504,9 @@ def test_depot_self_scan_settings_have_documented_defaults_and_bounds():
     assert default.account.depot_scan_top1_min == 0.75
     assert default.account.depot_scan_margin_min == 0.15
     assert default.account.depot_scan_min_accepted == 8
+    # W3a 逐屏扫描的两个收手条件：页数硬上限 10、连续无新增 2 屏就停。
+    assert default.account.depot_scan_max_pages == 10
+    assert default.account.depot_scan_no_new_pages == 2
 
     configured = resolve_settings(
         {
@@ -505,6 +515,8 @@ def test_depot_self_scan_settings_have_documented_defaults_and_bounds():
                 "depot_scan_top1_min": 0.9,
                 "depot_scan_margin_min": 0.3,
                 "depot_scan_min_accepted": 12,
+                "depot_scan_max_pages": 4,
+                "depot_scan_no_new_pages": 3,
             }
         },
         env={},
@@ -513,6 +525,8 @@ def test_depot_self_scan_settings_have_documented_defaults_and_bounds():
     assert configured.account.depot_scan_top1_min == 0.9
     assert configured.account.depot_scan_margin_min == 0.3
     assert configured.account.depot_scan_min_accepted == 12
+    assert configured.account.depot_scan_max_pages == 4
+    assert configured.account.depot_scan_no_new_pages == 3
 
     env_layer = resolve_settings(
         env={
@@ -529,6 +543,12 @@ def test_depot_self_scan_settings_have_documented_defaults_and_bounds():
     for bad in (-1, 25):
         with pytest.raises(ValidationError):
             resolve_settings({"account": {"depot_scan_min_accepted": bad}}, env={})
+    for bad in (0, 51):
+        with pytest.raises(ValidationError):
+            resolve_settings({"account": {"depot_scan_max_pages": bad}}, env={})
+    for bad in (0, 11):
+        with pytest.raises(ValidationError):
+            resolve_settings({"account": {"depot_scan_no_new_pages": bad}}, env={})
 
     assert schema_for("account.depot_scan_enabled")["type"] == "boolean"
     assert schema_for("account.depot_scan_enabled")["group"] == "账号"
@@ -537,6 +557,8 @@ def test_depot_self_scan_settings_have_documented_defaults_and_bounds():
     assert schema_for("account.depot_scan_top1_min")["minimum"] == 0
     assert schema_for("account.depot_scan_top1_min")["maximum"] == 1
     assert schema_for("account.depot_scan_min_accepted")["maximum"] == 24
+    assert schema_for("account.depot_scan_max_pages")["maximum"] == 50
+    assert schema_for("account.depot_scan_no_new_pages")["maximum"] == 10
 
 
 def test_copilot_research_settings_have_documented_defaults_and_bounds() -> None:

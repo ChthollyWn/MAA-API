@@ -125,12 +125,14 @@ _FIELDS: dict[str, dict[str, Any]] = {
     # M27 账号数据的过期阈值：概要接口与注入段现读设置，改完立即生效。
     "agent.box_stale_days": dict(label="干员识别过期天数", group="Agent", type="integer", minimum=1, maximum=365, hot_action="none"),
     "agent.depot_stale_days": dict(label="仓库识别过期天数", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
-    # M45 仓库自识别（规格 §2.6、§4.4）。四项都是识别服务**每次调用现读**，
+    # M45 仓库自识别（规格 §2.6、§4.4）。六项都是识别服务**每次调用现读**，
     # 所以 hot_action 是 none；默认关闭的理由见 maa_api/settings.py 的 AccountSettings。
     "account.depot_scan_enabled": dict(label="启用仓库自识别", group="账号", type="boolean", hot_action="none"),
     "account.depot_scan_top1_min": dict(label="自识别相似度下限", group="账号", type="number", minimum=0, maximum=1, hot_action="none"),
     "account.depot_scan_margin_min": dict(label="自识别与第二名的差距下限", group="账号", type="number", minimum=0, maximum=1, hot_action="none"),
     "account.depot_scan_min_accepted": dict(label="自识别接受格数下限", group="账号", type="integer", minimum=0, maximum=24, hot_action="none"),
+    "account.depot_scan_max_pages": dict(label="自识别逐屏扫描页数上限", group="账号", type="integer", minimum=1, maximum=50, hot_action="none"),
+    "account.depot_scan_no_new_pages": dict(label="自识别连续无新增的停扫屏数", group="账号", type="integer", minimum=1, maximum=10, hot_action="none"),
     # M29 作业研究：每天 04:00 的清理任务与授权卡片现读这三项，改完立即生效。
     "agent.copilot_retention_days": dict(label="作业草稿保留天数", group="Agent", type="integer", minimum=1, maximum=365, hot_action="none"),
     "agent.copilot_grant_minutes": dict(label="作业授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=1440, hot_action="none"),
