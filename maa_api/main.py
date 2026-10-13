@@ -498,7 +498,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         from maa_api.core.client import CoreClient
         from maa_api.core.enums import Message
-        from maa_api.core.depot_overlay import ensure_depot_all_tabs
+        from maa_api.core.depot_overlay import remove_depot_all_tabs_override
         from maa_api.core.depot_selfscan_overlay import ensure_depot_self_scan
         from maa_api.core.kernel_options import ensure_task_delay
         from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
@@ -534,13 +534,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         except Exception:  # noqa: BLE001 - 提速旋钮的意外不能拖垮启动
             logger.exception("生成内核资源层配置失败：识别间隔沿用内核默认")
-        # M44：仓库识别改点「全部」页签（内置链只点养成材料）。M45 W0 更正：把
-        # 「条目 26 → 77」算成这条覆盖的功劳是错的（26/77 是内核 swipe_and_analyze()
-        # 提前 break），覆盖机制本身的生效性另有实证，真机验收在 M45 W3 重做。
+        # M45 W4：M44 的仓库页签覆盖层已按裁决删除（用户 2026-10-13 批准）。不再生成
+        # `Depot` / `DepotAllTab` 的覆盖，内核回到自带的 `Depot.next = ["DepotMaterialTab"]`；
+        # 同时删掉老检出上残留的覆盖文件 —— 只删代码不给力：文件是启动期写的、不进版本库，
+        # 留着照样被内核加载，而它在「从主界面进仓库」时会把整轮识别打成空结果（台账 W3b-D）。
         try:
-            ensure_depot_all_tabs(layers_root=layers_root)
-        except Exception:  # noqa: BLE001 - 页签覆盖的意外不能拖垮启动
-            logger.exception("生成仓库页签覆盖层失败：仓库识别退回内核自带的养成材料页签")
+            remove_depot_all_tabs_override(layers_root=layers_root)
+        except Exception:  # noqa: BLE001 - 清理失败不能拖垮启动
+            logger.exception("清理 M44 仓库页签覆盖层失败：内核可能仍加载旧的页签覆盖")
         # M45 W2：仓库自识别链（`MaaApi@DepotSelfScan@*`）——全部用我们自己的任务名，
         # 只做「进仓库页 / 点全部 / 翻页」，识别在 Python 侧。写不动只记日志：
         # 自识别不可用，内核那一趟照常。
