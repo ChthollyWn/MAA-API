@@ -2,7 +2,7 @@
 
 - 里程碑：M45
 - 分支：`m45-depot-selfscan`（从 `refactor/v2` 新建，基点 `0670331`）
-- 状态：W0/W1/W2 已完成；**W3 拆成 W3a（不占设备，已完成）与 W3b（占设备，未做）**
+- 状态：W0/W1/W2/W3a **已完成**；**W3b 已完成**（数量读取经真机探针实测后裁决**不做**；真机端到端与 M44 重验收已做，见 §4.7）；W4 收口待做
 - 上游：M44 仓库识别覆盖全部页签 + 道具图（`0670331`，见 `docs/13` §8.64）、M27 仓库识别、M43/M44 资源代理
 - 台账：`docs/superpowers/ledgers/2026-10-13-m45-depot-selfscan.md`
 
@@ -149,10 +149,12 @@ M44 台账记「W1 候选 A 已验证通过（26 → 77 件）」。本轮把内
 
 **阈值建议（写进 W1 的默认值）**：`接受 ⇔ top1 ≥ 0.75 且 (top1 − top2) ≥ 0.15`，否则该格记为「未知」。理由：单看 `top1` 分不开（真格最低 `0.7876` vs 半格伪峰最高 `0.7907`，重叠），但加 `margin` 后真格/半格干净分开（`0.1664` vs `0.1540`）；`ap_supply` 家族这类**近重复模板**正好被 `margin` 拦下，变成「歧义」而不是错误答案。两个阈值都应可配并记进设置。
 
-**数量（格子角标数字）怎么读 —— 评估，不实现**
+**数量（格子角标数字）怎么读 —— 评估与最终裁决**
 
 - **不推荐数字模板匹配**：位数 1–6 可变、有千分位、还有「万/亿/K/M」缩写（内核 `DepotImageAnalyzer::match_quantity` 就是在处理这四种），字号与描边随位数变化 ⇒ 模板数量爆炸且脆弱。
-- **推荐复用内核 OCR 节点**：内核自己就是这么读的 —— `match_quantity` 用 `RegionOCRer` + `set_task_info("NumberOcrReplace")` + `bin_threshold = DepotQuantity.specialParams = [140, 255]` + `use_char_model(false)`（`DepotImageAnalyzer.cpp:330-420`）。我们可以在 custom 层加 24 个 `OcrDetect` 节点（每格一个 roi，`baseTask: NumberOcrReplace`）串成一条 `Custom` 链，走内核现成的 OCR 模型，成本约「24 个 JSON 节点 + 一次取帧」。**已知代价**：内核在 OCR 前会把匹配到的模板按 `0.41` 系数从图标区**减掉**（`cv::subtract`，:362-366）再送 OCR，任务 JSON 做不到这一步 ⇒ 我们的 roi 直接 OCR 会被图标美术干扰，准确率低于内核。因此 W2 的顺序是：**先拿身份、数量分批补**，重叠部分直接用内核 `DepotInfo` 已有的数量，只有内核给不出的那 12 个 id 才走我们自己的 OCR，并且 OCR 失败就**不写数量**（不写 0）。
+- **候选方案：复用内核 OCR 节点**：内核自己就是这么读的 —— `match_quantity` 用 `RegionOCRer` + `set_task_info("NumberOcrReplace")` + `bin_threshold = DepotQuantity.specialParams = [140, 255]` + `use_char_model(false)`（`DepotImageAnalyzer.cpp:330-420`）。我们可以在 custom 层加 24 个 `OcrDetect` 节点（每格一个 roi，`baseTask: NumberOcrReplace`）串成一条 `Custom` 链，走内核现成的 OCR 模型，成本约「24 个 JSON 节点 + 一次取帧」。**已知代价**：内核在 OCR 前会把匹配到的模板按 `0.41` 系数从图标区**减掉**（`cv::subtract`，:362-366）再送 OCR，任务 JSON 做不到这一步 ⇒ 我们的 roi 直接 OCR 会被图标美术干扰，准确率低于内核。
+- **W3b 真机实测（2026-10-13，探针两轮）**：roi 按当屏拟合出的格线现算。① 手工按格微调的 roi（6 格 × 3 变体）：纯数字 15/15 与画面一致，**万/亿缩写 3/3 全错**（`472.2万` → `472.25` / `472.27` / `2.2F`）；② **生产形状的 roi**（拟合格心 + 固定偏移 `110×40` @1280，整页 24 格）：**13 对 / 6 错 / 5 读不出**，其中 `7002 加急许可 1302 → 302`（掉首位，分数仍有 **0.9995**）——「分数门槛 + 纯数字白名单」拦不住。
+- **最终裁决：不做数量 OCR**。自识别独有的 id 一律写 `count = NULL`（页面显示「—」，**不写 0**），数量继续以内核 `DepotInfo` 那一趟为准。理由：**写错一个数量比不写更糟**（页面会把错数字当事实显示），而本方案在生产形状的 roi 下达不到可写库的准确率；根因（内核 OCR 前减模板美术）在任务 JSON 里无解。取证数字与日志行号见台账 W3b-A 节。
 
 ## 3. 范围
 
@@ -164,7 +166,7 @@ M44 台账记「W1 候选 A 已验证通过（26 → 77 件）」。本轮把内
    - 每格 masked NCC 全库打分（原生尺度，`0.95/1.0/1.05` 三点取最优）；
    - 按 §2.6 的 `top1 ≥ 0.75 且 margin ≥ 0.15` 判定接受/未知，输出 top-3。
 2. **任务链与取帧接线**：一条只做「进仓库页 → 取帧（可多屏）→ 离开」的 `Custom` 链，用**我们自己的任务名**（不覆盖内核 `Depot*`）；识别在 Python 侧做，不占内核的 `Depot` 任务。
-3. **数量**：先只保证身份；数量按 §2.6 的分批策略（重叠 id 用内核 `DepotInfo`，新 id 走 24 个 `NumberOcrReplace` OCR 节点），失败就不写。
+3. **数量**：只保证身份；数量按 §2.6 的**最终裁决** —— 自识别独有的 id **不写数量**（`NULL`，页面「—」），与内核重叠的 id 直接用内核 `DepotInfo` 的数量。W3b 的探针实测见 §2.6 与台账 W3b-A。
 4. **合并入库**：识别结果与内核那一趟结果**按 id 合并**（并集；同一 id 两边都有时**取内核的数量** —— 它那一趟真读数量，自识别 W3a 只保证身份），继续走 M44 的**下限护栏**（低于阈值整轮不写）。**W3a 已落地**：`merge_depot_sources` + 迁移 `0021`（`count` 可空、`sources`、识别记录 `detail`）。
 5. **页面展示**：M44 已经做了道具图与「约」标注，M45 只增加新出现的分类（凭证/寻访/家具/货币）在仓库页的正常展示，不新做页面。**W3a 已落地**：每行标来源（`内核` / `自识别`）、数量未知显示「—」、列表上方给覆盖说明与未识别清单。
 
@@ -189,7 +191,7 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
   → 【Python】网格定位（能量谱栅格拟合 + 黄圈连通域交叉验证 + DepotBaseRect 先验）
   → 【Python】每格 masked NCC 全库（479 模板 × {0.95,1.0,1.05}）
   → 【Python】阈值判定：top1 ≥ 0.75 且 margin ≥ 0.15 ⇒ 接受，否则未知
-  → 【Python】数量：重叠 id 取内核 DepotInfo；新 id 走 24 个 NumberOcrReplace OCR 节点
+  → 【Python】数量：重叠 id 取内核 DepotInfo；**自识别独有的 id 不写数量**（W3b 裁决，见 §2.6）
   → 与内核那一趟结果按 id 合并 → DepotService（含 M44 下限护栏）→ account_depot_item
 ```
 
@@ -247,7 +249,22 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
 | 来源与未识别 | 迁移 `0021_depot_sources`：`count` 可空、`sources`、`account_recognition.detail`；`GET /api/account/depot` 多 `source` / `sources` / `unrecognized` / `unrecognized_total` / `coverage` |
 | 页面 | 来源标签、数量未知「—」、覆盖说明、未识别清单（最多 8 个名字）；旧数据不贴标签 |
 
-**W3b 还没做**（占设备一轮）：数量（24 个 `NumberOcrReplace` 节点按当屏拟合出的格线现算 roi）、M44 的真机重验收、以及 `DepotChainPager` 在真机上的完成判据（现在默认「等 1.5 s 落定」，`ready` 回调留给 W3b 接内核的 `TaskChainCompleted`）。
+**W3b 已收口**（占设备，见 §4.7）：数量经探针实测后**裁决不做**（§2.6）；`DepotChainPager` 的完成判据已改成等内核 `TaskChainCompleted`（超时退回等落定）；真机端到端条目数 77 → **96**（内核 77 + 自识别 19）；M44 覆盖层重验收完成 —— **逐 key 生效**，但它在「从主界面进仓库」这条正常路径上会把整轮识别打成空结果，删/改裁决留给 W4。
+
+
+### 4.7 W3b 落地记录（2026-10-13，占设备四轮）
+
+| 项 | 落地形态 |
+| --- | --- |
+| 数量 | **不做**（探针两轮实测：生产形状 roi 24 格里 6 错 5 读不出，含 `1302 → 302` 且分数 0.9995）⇒ 自识别独有的 id 写 `NULL`，页面「—」 |
+| 翻页完成判据 | `_ChainCompletionTap`：订阅 `CALLBACK`、按 `taskid` 等内核 `TaskChainCompleted`（等价 `AllTasksCompleted`），超时退回等落定；链报错抛 `DepotScanError` |
+| 设备争抢 | **会抢**（同流水线下一个任务在 `DepotInfo` 回调开始自识别后 1 s 就占设备）⇒ `_submit()` 退避重试（只重试 `start()`，不重复 `append_task`） |
+| 真机崩溃修复 | 逐屏扫描收尾读 `captured.image.shape`，而真机取帧器给的是 `PIL.Image` ⇒ 8 屏结果全丢；改用逐屏结果里解码好的尺寸 |
+| 真机端到端 | 96 条 ＝ 内核 77 + 自识别 19（`7003/4004/4005/3141/7001/7002` 等全部进库；`7004/3401` 本账号没有）；来源标签、数量「—」、未识别清单经接口字段 + 前端用例核对 |
+| M44 重验收 | `Depot.next` 的 A/B：有覆盖层时日志是 `["DepotAllTab"]`、写不进去时是内核的 `["DepotMaterialTab"]` ⇒ **逐 key 生效**；但该覆盖在「从主界面进仓库」时必然匹配失败（`DepotAllTab.png` 只在未选中态匹配，实测 0.8369 vs 选中态 0.4710）⇒ 20 次重试后 `SubTaskError` + 空 `DepotInfo` + `TaskChainError`（两轮复现） |
+
+**W3b 留给 W4 的裁决**：M44 覆盖层（`MaaApi@DepotAllTabs.json`）**删掉或把 `Depot.next` 改回内核值**
+—— M45 的链路不依赖它，而它在正常路径上会把仓库识别打挂（台账 W3b-D）。
 
 ## 5. 兼容与风险
 
@@ -260,7 +277,7 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
 | 误命中（伪峰） | 半格错位实测最高 `top1 0.7907`，与真格最低 `0.7876` 重叠 | 双阈值（分数 + margin）+ 整页接受数下限；不用单格结果直接写库 |
 | 取帧时机与动画 | 页签切换有动画，取帧太早会拿到过渡态 | 页签点击节点带 `postDelay`，取帧前先确认页签已是选中态（用 M44 已有的选中态思路，但模板尺寸按 roi 裁对） |
 | 运行时资源重载 | `TaskData::clear_tasks()` 不更新已 `get()` 的任务指针（源码注释明说） | 只在**启动期**加载层；运行期 `LOAD_RESOURCE` 之后不复用旧指针（沿用现有 M38/M44 做法） |
-| 数量 OCR 被图标美术干扰 | 内核会 `subtract(item_templ * 0.41)`，任务 JSON 做不到 | 数量读不到就**不写**，不写 0；页面对缺失数量显示「—」而不是「0」 |
+| 数量 OCR 被图标美术干扰 | 内核会 `subtract(item_templ * 0.41)`，任务 JSON 做不到。**W3b 实测确认这条风险成立**：生产形状的 roi 24 格里 6 错 5 读不出，含 `1302 → 302`（分数 0.9995）这种高置信错读 | **不做数量 OCR**（裁决）；数量读不到就不写（`NULL`），页面对缺失数量显示「—」而不是「0」 |
 
 ## 6. 文档同步表
 
@@ -282,6 +299,6 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
    - 接受格 ≥ 18，且 `4002/4003/4001/3003/4006/3141/4004/4005/7001/7002/7003` 全部在接受的 top-1 里；
    - `ap_supply` 那 4 格判为「歧义/未知」而不是给一个 id；
    - 半格错位输入的误接受数为 **0**。
-2. **真机验收（W3b）**：跑完整链路，`account_depot_item` 里出现 `7003/7004/4004/4005/3401/3141`（至少出现本页实际有的那几件），且 5 个基础道具的数量与内核 `DepotInfo` 一致；页面上的来源标签、数量「—」与未识别清单肉眼确认。
+2. **真机验收（W3b，已完成）**：跑完整链路，`account_depot_item` 从 77 涨到 **96 条**（内核 77 + 自识别 19），新增 `3141/4004/4005/7001/7002/7003/EPGS_COIN/REP_COIN/CRISIS_SHOP_COIN_V2/EXTERMINATION_AGENT/classic_gacha/classic_normal_ticket` 等；5 个基础道具数量与内核 `DepotInfo` 逐个相等；`7004/3401` 本账号仓库里确实没有（W0-b 注入召回 `0.9999` 证明链路认得出）。来源标签、数量「—」与未识别清单经接口字段与前端用例核对（台账 W3b-C1/C3）。
 3. **回归**：M44 的下限护栏仍然生效（构造小结果 → 整轮不写）。
 4. **门禁**：`pytest -q`、`dump_openapi.py --check`、`pnpm gen:api:check && pnpm typecheck && pnpm test --run && pnpm build`、`scripts/copy_inventory.py --check` 全过。

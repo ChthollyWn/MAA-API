@@ -13,8 +13,8 @@
 | W1 | 识别器实现 + 单测 | **完成**（见下；死代码删除与 M44 改注也在本波） |
 | W2 | 任务链/取帧接线 + 数量 | **取帧接线/任务链/设置项完成 + 多屏取证完成**；数量整块留 W3（见 W2 节 D） |
 | W3a | 逐屏扫描 + 合并入库 + 页面语义（不占设备） | **完成**（见下 W3a 节） |
-| W3b | 数量读取（OCR roi 现算）+ M44 真机重验收 | 待做（占设备一轮） |
-| W4 | 文档、门禁、真机验收、`--no-ff` 合并、tag `v2-m45` | 待做 |
+| W3b | 数量读取（探针实测后裁决不做）+ 真机端到端 + M44 重验收 | **完成**（见下 W3b 节；占设备四轮） |
+| W4 | 文档、门禁、真机验收、`--no-ff` 合并、tag `v2-m45` | 待做（含 D 节留给主 agent 的覆盖层裁决） |
 
 ## W0-a：custom 层覆盖同名内核任务到底生效不生效
 
@@ -515,6 +515,10 @@ roi 只能按「当屏拟合出来的格线」现算，也就是每次翻页都�
 
 ### 留给 W3b（占设备一轮）
 
+> **W3b 已收口**（见下节），四条逐条回答：1 数量 ⇒ **实测后裁决不做**（A）；
+> 2 完成判据 ⇒ 已接 `TaskChainCompleted`（B）；3 真机端到端 + M44 重验收 ⇒ 已做（C/D）；
+> 4 设备争抢 ⇒ **会发生**，已修提交路径（C2）。
+
 1. **数量**：24 个 `NumberOcrReplace` 节点的 roi 按当屏拟合出的格线现算（翻页后要换一批），
    与内核重叠的 id 直接用内核数量，我们独有的才走 OCR，读不到**不写数量**。
 2. **`DepotChainPager` 的完成判据**：现在默认「等 1.5 s 落定」（链上的 `@SwipeNextPage`
@@ -525,18 +529,254 @@ roi 只能按「当屏拟合出来的格线」现算，也就是每次翻页都�
    `loop.create_task`），但它占着设备 —— 真机上要确认同一条流水线的下一个任务不会在这个
    窗口里抢设备（必要时改成「先写内核那一趟的结果，自识别跑完再补一次合并写」）。
 
+## W3b：真机端到端 + 数量读取 + M44 重验收（2026-10-13，占设备一轮）
+
+**交付（4 个提交）**：`014738c` 翻页完成判据接内核 `TaskChainCompleted`（B）；
+`ee90ff8` 数量 OCR 实测裁决「不做」（A）；`f8259f5` 修逐屏扫描收尾读 PIL 图 `.shape`
+的真机崩溃（C1 第一轮踩到）；`c70660c` 翻页提交遇内核忙时退避重试（C2）。
+
+设备：模拟器 `127.0.0.1:5555`；设置 `account.depot_scan_enabled=true`（`config.yaml`，
+本轮打开）；内核日志 `resource/maa-api/debug/asst.log`、服务日志 `resource/log/`。
+
+### A：数量读取 —— 探针两轮实测后裁决**不做**
+
+探针：临时把 `MaaApi@W3bQty.json` 写进 custom 层（**跑完已删**，不入库；服务重启加载），
+节点形如 `{"baseTask": "NumberOcrReplace", "text": [], "roi": [...], "action": "DoNothing",
+"maxTimes": 1}`，roi 一律**按当屏拟合出来的格线现算**（1066 空间格心 × 1280/1066 + 偏移）。
+
+**探针一**（6 格 × 3 种 roi 变体 ＝ 18 节点；格心用生产识别器在 `/tmp/w3b/page1.jpg` 上
+拟合出来的格线）：
+
+| 真值（肉眼 + 内核 `DepotInfo`） | 紧带 roi（x −25..+72 / y +24..+54 @1280） | 宽带 | 右下象限 |
+| --- | --- | --- | --- |
+| 4002 = 475 | **475**（0.999951） | 475（0.998752） | 475（0.999801） |
+| 7003 = 42 | **42**（0.986288） | 42（0.960114） | 42（0.999760） |
+| 7002 = 1302 | **1302**（0.999990） | 1302（0.999975） | 1N/1ED/**1302**（多候选） |
+| 4001 = 472.2万 | 472.25（0.923594） ✗ | 472.27（0.957317） ✗ | 2.2F（0.830189） ✗ |
+| 3141 = 330 | **330**（0.999993） | 330（0.999887） | 330（0.999882） |
+| 3003 = 3092 | **3092**（0.999991） | 3092（0.999926） | 3092（0.997149） |
+
+⇒ 纯数字 15/15 与画面逐个一致；**万/亿缩写 3/3 全错**（`472.2万` → `472.25` / `472.27` / `2.2F`）。
+
+**探针二**（**生产形状**：格心 + 固定偏移 `110×40` @1280，整页 24 格，一次链跑完；
+结果在 `asst.log:232525-232693`）：**13 对 / 6 错 / 5 读不出**。最要命的一条：
+
+```
+asst.log:232588 [2026-10-13 13:55:16.414][TRC] analyze | OcrDetect MaaApi@W3bQty@r1c8
+                 [{ text: 302, rect: [ 1216, 219, 42, 19 ], score: 0.999491 }]
+```
+
+`r1c8` 是 **7002 加急许可 = 1302**：读成 `302`，**掉首位**，分数还有 **0.9995** ——
+「分数门槛 + 纯数字白名单」这套安全网**拦不住**。其余错读：`24.4万 → 4`（0.969831）、
+`472.2万 → 472.275`（0.897287）、`1.6万 → 1.67`（0.810791）、两格读成字母 `E`/`M`；
+5 格（计数是单个数字 5/2/1/2/5）整格读不出。
+
+**根因**（规格 §5 风险表那条）：内核 `match_quantity` 在 OCR 前会
+`subtract(item_templ * 0.41)` 把匹配到的模板从图标区减掉，任务 JSON 做不到；
+roi 一放大到能兜住逐屏相位漂移（实测 ±30 px），图标美术就进了 OCR 的输入。
+**写错一个数量比不写更糟**（页面会把错数字当事实显示）。
+
+**裁决（2026-10-13，不改对外接口）**：**不做数量 OCR**。自识别独有的 id 一律
+`count = NULL`（页面显示「—」），数量继续以内核 `DepotInfo` 那一趟为准。
+代码里只落文档口径（`depot_scan_service` / `depot_selfscan_overlay` 模块说明），
+规格 §3.1-3 / §4.1 / §5 与 `docs/13` §8.66 同步。
+
+### B：`DepotChainPager` 的完成判据改成事件驱动
+
+- 新增 `_ChainCompletionTap`：订阅 `CoreClient` 的 `CALLBACK`，按 `append_task` 返回的
+  `taskid` 收 `TaskChainCompleted`（等价信号 `AllTasksCompleted.finished_tasks`）；
+  内核回调跑在消费线程 ⇒ `loop.call_soon_threadsafe` 唤醒 `asyncio.Event`。
+- **超时兜底保留**：`completion_seconds`（默认 6 s，真机实测一趟翻页链 **2.8 s**：
+  14:24:39.640 提交 → 14:24:43.207 完成）等不到信号就退回 `settle_seconds` 落定。
+- 链自己报错（`TaskChainError` / `TaskChainStopped`）不再当「翻好了」：抛
+  `DepotScanError` → 扫描循环记 `page_turn_failed` 并保留已扫到的屏。
+- `ready` 注入点保留（离线回放/更精确判据）。单测 4 条：正常路径按回调立即返回
+  （`settle_seconds` 给 5 s，靠耗时把两条路径分开）、`AllTasksCompleted` 等价信号、
+  等不到回调时退回落定（不抛）、链报错抛错。
+
+### C1：真机端到端 —— 条目数 77 → **96**（内核 77 + 自识别 19）
+
+**第一轮先在真机上撞到一个崩溃**：8 屏全部扫完，收尾时 `scan_all_pages` 读
+`captured.image.shape` —— 真机取帧器（`DepotFrameSource` → `DeviceManager.screenshot`）
+给的是 `PIL.Image`，没有 `.shape`。异常被 `_scan_depot` 的兜底吞成「这一轮没有自识别」：
+
+```
+resource/log/2026-10-13.log:1355 2026-10-13 14:05:20 - maa_api.services.account.capture -
+  WARNING - 仓库自识别未完成，本轮只写内核那一趟的结果：
+  AttributeError("'Image' object has no attribute 'shape'")
+```
+
+8 屏结果全丢、库里只写内核那趟的 76 条。**已修**（`f8259f5`，改用逐屏结果里解码好的
+尺寸），并补了「帧源给 PIL 图」的回归用例（改回旧写法即红，已核对）。
+
+修好后正常路径（16:20 那一轮，从游戏主界面进仓库，`Depot.next` 用内核值，
+见 D 的 A/B；详见 §D 的说明）实测：
+
+| 量 | 值 |
+| --- | --- |
+| `account_depot_item` 条目数 | **96**（旧数据 77） |
+| 其中 `source=kernel` | **77**（全部有数量） |
+| 其中 `source=self_scan` | **19**（全部 `count = NULL`，页面「—」） |
+| 基础 5 项数量 | `4001=4722000 / 4002=475 / 4003=244000 / 3003=3092 / 4006=55`，与内核 `DepotInfo` 逐个相等 |
+| 逐屏扫描 | 6 屏，`stop_reason=no_new`，接受 72 / 歧义 12 / 未知 60，整轮达标（`below_min_accepted=false`） |
+| 识别记录 `detail.scanned` | `{"pages": 6, "stop_reason": "no_new", "accepted": 72, "ambiguous": 12, "unknown": 60, "below_min_accepted": false}` |
+
+**新增（自识别独有）的 19 个 id**：
+
+```
+3141 4004 4005 7001 7002 7003 CRISIS_SHOP_COIN_V2 EPGS_COIN EXTERMINATION_AGENT
+REP_COIN classic_gacha classic_normal_ticket randomMaterial_act42side
+randomMaterial_act53side randomMaterial_amiya randomMaterial_message1
+randomMaterial_message2 randomMaterial_message3 randomMaterial_message4
+```
+
+- 任务书点名的 `7003 寻访凭证 / 4004 高级凭证 / 4005 资质凭证 / 3141 源石碎片 /
+  7001 招聘许可 / 7002 加急许可` **全部进来了**（W0-b 的整页识别命中，这次真的落库）。
+- `7004 十连寻访凭证` 与 `3401 家具零件` **不在库里**：本账号的仓库里就没有这两件
+  （W0-b 的注入召回正对照 `top1 = 0.9999` 证明链路认得出它们，是「未观测」不是「失败」）。
+- `source` 是**整份快照**（`account_depot_item.sources` ＝ `{item_id: "kernel"|"self_scan"}`，
+  每行都存同一份，读侧按行取自己那一项）；接口层每行给 `source`，容器给 `sources` / `coverage`。
+- 另一轮（14:29，设备已在仓库内、3 屏就 `no_new`）拿到 88 条（内核 77 + 自识别 11）——
+  **条目数随「这一轮扫到几屏」浮动**，19 与 11 都是真实观测；`no_new` 收手会因起始页不同而提前。
+
+### C2：设备争抢 —— **会**，已修提交路径
+
+真机 `POST /api/pipelines {"tasks":[{"name":"Depot"},{"name":"Award"}]}`（14:24）实测：
+
+```
+asst.log 14:24:30.197 TaskChainCompleted {"taskchain":"Depot","taskid":7}      ← 内核那趟结束，回调里开始自识别
+asst.log 14:24:31.233 TaskChainStart     {"taskchain":"Award","taskid":8}      ← 同流水线下一个任务 1 s 后就抢设备
+asst.log 14:24:39.640 append_task Custom {"task_names":["MaaApi@DepotSelfScan@SwipeNextPage"]}   ← 第 1 次提交
+asst.log 14:24:39.643 append_task Custom {"task_names":["MaaApi@DepotSelfScan@SwipeNextPage"]}   ← 第 2 次（重试）
+asst.log 14:24:40.457 TaskChainCompleted {"taskchain":"Award","taskid":8}
+asst.log 14:24:40.659 run | run subtask 1 / 1 SwipeNextPage                    ← 翻页链到这时才真正跑
+```
+
+⇒ **会抢**：`DepotInfo(done=true)` 的采集任务与流水线下一个任务没有任何串行关系（回调是
+独立 `asyncio.Task`）。后果实测：两次 `start()` 都被拒（内核忙着 `Award`），旧实现当场抛错 →
+`逐屏扫描：1 屏（page_turn_failed）`，自识别独有的 id 从 19 掉到 **11**（96 → 88 行）。
+
+**改法**（`c70660c`）：`_submit()` 在 `timeout_seconds` 预算内按 `retry_delay`（默认 0.5 s）
+**只重试 `start()`**，不重复 `append_task`（重复 append 会把同一趟链排两遍、多滑一页）；
+预算用尽仍被拒才抛 `DepotScanError`。实测同轮 `Award` 9 s 就结束，等一等完全来得及。
+单测 2 条：忙 3 轮后成功（且 append 只有 1 次）、一直忙则到预算报错。
+
+**没有改成「先写内核结果、自识别跑完再合并补写」**：那条备选不消除设备争抢本身
+（下一个任务照样抢），而内核那一趟本来就不会丢 —— `_scan_depot` 一个异常都不外抛，
+合并写始终会把内核的行写进去（本轮争抢下仍写出 77 条内核 + 11 条自识别）；
+真正的失效点是「提交被拒就放弃」，所以修在那里。**遗留**：自识别的翻页链仍是绕过流水线
+队列直接交给内核的（`append_task` + `start`），与同流水线任务并发时只能靠退避错开；
+要彻底串行化得让采集任务与流水线任务共用一把设备锁（W4 可评估）。
+
+### C3：页面（接口 + 页面字段）
+
+`GET /api/account/depot`（14:25 实测，那一轮是争抢后的 88 行）字段：
+
+```
+顶层: categories, coverage, items, limit, offset, sources, total, unrecognized, unrecognized_total
+coverage: {"total": 88, "kernel": 77, "self_scan": 11, "unrecognized": 173,
+           "scanned": {"pages": 1, "stop_reason": "page_turn_failed", ...}}
+每行: {"item_id":"3141","name":"源石碎片","count":null,"category":"NORMAL",
+       "recognized_at":"...","source":"self_scan"}
+```
+
+- 自识别独有的行 `count = null` + `source = self_scan`（页面显示「—」，不是 0）✔
+- 内核的行全部有数量、`source = kernel` ✔；旧数据（无 `sources`）不贴标签 ✔
+- `unrecognized` / `unrecognized_total`（173 = 候选目录里这一轮没识别到的）✔
+- 前端用例（W3a 加的 5 条 + `api.test.ts`）覆盖「—」、来源标签、覆盖说明与未识别清单，
+  本轮 `pnpm test --run` 全绿；页面肉眼确认靠接口字段 + 前端用例两道（本轮没有浏览器截图，
+  GUI 在 19387 是另一个应用，MAA 自己的 Web 端只做了接口与用例核对）。
+
+### D：M44 重验收 —— 覆盖层**逐 key 生效**，但它在「从主界面进仓库」这条正常路径上把仓库识别打挂
+
+**逐 key 生效的直接日志证据**（同一场景 A/B：从游戏主界面提交 `Depot`）：
+
+| 覆盖层 | 日志原文 | 结果 |
+| --- | --- | --- |
+| 在（默认） | `asst.log:236732`（14:13:59.932）`{"class":"asst::ProcessTask","cur_task":"Depot","details":{"cur_retry":0,"retry_times":20,"to_be_recognized":["DepotAllTab"]},"first":["DepotBegin"],"pre_task":"DepotBegin","subtask":"ProcessTask","taskchain":"Depot","taskid":7}` | **我们的** `DepotAllTab`（内核值是 `DepotMaterialTab`）⇒ 覆盖生效 |
+| 写不进去（A/B，临时把目标路径换成目录让 `ensure_depot_all_tabs` 写失败） | `asst.log:243716`（14:20:46.237）同一条日志的 `to_be_recognized` 变成 `["DepotMaterialTab"]` | 内核值 ⇒ 对照成立 |
+
+**但这条覆盖在正常路径上是负面的**（两轮复现：14:13 与 14:17）：
+
+1. `Depot` 命中后（它是「主界面 → 进仓库」的入口，模板 `SwitchTheme@ToggleSettingsMenu.png`），
+   链按我们的 `next` 去找 `DepotAllTab`，**连试 20 次都匹配不上**（14:13:59.932 → 14:14:11.446，
+   `cur_retry` 0 → 20）→ `SubTaskError`。
+2. 重试窗口的截图（`/tmp/w3b/frames/f15.jpg`，14:17:56）显示那一屏**就是仓库页且「全部」页签已选中**。
+   自算 masked NCC：`DepotAllTab.png`（77×34，内核自带模板）在「全部已选中」时最高只有
+   **0.4710**，在「全部未选中」时才是 **0.8369**（= 14:01:40 C++ `analyze_basic_items` 能点中的那次）
+   ⇒ **该模板是未选中态**，`Depot.next = ["DepotAllTab"]` 在「仓库已经停在全部页」时必然失败。
+3. 后果：`analyze_basic_items` 返回 `{"data":"{}","done":true}` + `TaskChainError`
+   （14:13:14.024 / 14:17:18.065），整轮仓库识别**空结果**；采集层空结果护栏拦住不写库
+   ⇒ **M45 自识别也一并没跑**（`_scan_depot` 在空结果判断之后才调用）。
+4. 而 14:01 / 14:09 那两轮之所以成功，是因为设备**本来就在仓库里**：`Depot` 节点没命中
+   （仓库页没有那个模板），`DepotBegin` 的候选直接落到 `DepotMaterialTab`，覆盖层那条
+   `next` 根本没被走到；随后 C++ 自己 `match_templ | DepotAllTab.png score: 0.836907`
+   点了「全部」（14:01:40.199，`rect [516,21,77,34] roi [450,0,300,138]`）。
+
+**条目数对照（覆盖层生效前 vs 后）**：
+
+| 时间 | 覆盖层 | 起始画面 | `Depot.next` 实际值 | 条目数 |
+| --- | --- | --- | --- | --- |
+| 2026-10-12 15:44（`asst.log:148845`） | **无**（覆盖层 10-13 09:20 才写出） | 非仓库页（`Depot` 命中） | `["DepotMaterialTab"]` | **77** |
+| 2026-10-13 08:45（`asst.log:219988`） | 无 | 仓库页内 | 未走到 | **77** |
+| 2026-10-13 14:01 / 14:09 | 有 | 仓库页内（覆盖层被绕过） | 未走到 | 76 / 76 |
+| 2026-10-13 14:13 / 14:17 | 有 | 主界面（覆盖层被走到） | `["DepotAllTab"]` | **空 `{}`** |
+
+⇒ **M44 那条「26 → 77 是页签覆盖的功劳」彻底不成立**（W0 已证 26/77 是内核自身
+`swipe_and_analyze()` 提前 `break`），而 W3b 进一步实测：**这条覆盖在正常路径上把整轮识别
+打成空结果**。`docs/13` §8.64 的「验收挪到 W3 重做」据此改成**已重做，结论是「覆盖本身既
+不是 26→77 的原因，又会在从主界面进仓库时把识别打挂」**。
+
+**留给 W4 的裁决（需要主 agent 定，我没有自行改）**：删掉
+`maa_api/core/depot_overlay.py` 生成的 `MaaApi@DepotAllTabs.json`（M44 的覆盖层），
+或至少把 `Depot.next` 改回内核值。理由：① 它的 `DepotAllTabClicked` 早在 W1 就被判死代码；
+② `Depot.next` 这条在正常路径上打挂识别；③ M45 的链路不依赖它（自己的链用
+`baseTask: DepotAllTab` + 显式 `template`，只在需要点页签时用，且是幂等的可选一步）。
+
+### W3b 门禁与改动面
+
+见文末「## 门禁」一节。改动面：`maa_api/services/account/depot_scan_service.py`、
+`maa_api/core/depot_selfscan_overlay.py`（文档口径）、
+`tests/services/test_depot_scan_pages.py`；没有接口形状变化，没有 `web/` 改动。
+
 ## W0 遗留 / 未取证
 
 1. **M44 W1 需重做验收**（§修正 2）：覆盖机制成立，但「26 → 77」的证据链错了；M44 台账与 `docs/13` §8.64 的对应说法要在 W4 一并更正。
+   > **W3b 已重做**：见 §D —— 覆盖层逐 key 生效有 A/B 日志（`asst.log:236732` vs `243716`），
+   > 但它在「从主界面进仓库」这条正常路径上把整轮识别打成空结果（两轮复现）；
+   > 26/77 与覆盖无关的结论不变。`docs/13` §8.64 已按此改写。
 2. **`DepotAllTabClicked` 死代码**：W1 裁决 = **删掉**（节点 + 自带模板 + 资产目录），`DepotAllTab.next` 覆盖成空链（点完「全部」就地收尾）。见提交 `e6ffaf3`。
 3. **第 8 列的对齐**：W1 已做 —— 拟合出真实相位（真机帧 `x_first ≈ 87`，第 8 列格心 993），边界只作兜底钳制（`CELL_MAX_CLIP = 12`），单测 `test_eighth_column_is_clipped_not_dropped` / `test_clipped_cell_is_still_evaluated` 钉住。
 4. **多屏扫描**：W2 已取证（见上）：竖向滑动无效、横向一划一页；格距可复用，横向相位逐屏漂
    最多 36 px，必须逐屏重拟合，且 `FIRST_SEARCH_MAX = 24` 要放宽（W3）。
 5. **`7003` 数量 42 没进 DB**：本页 `7003` 数量肉眼是 42，但库里没有这一行；我们的 OCR 路径能不能稳定读出 42 未验证（§数量评估是方案，不是结果）。
+   > **W3b 已收口**：`7003` 的身份**已进库**（`source=self_scan`，W3b-C1）；数量仍留 `NULL`
+   > —— 探针在「生产形状 roi」下把 `7002` 的 1302 读成 302（分数 0.9995），数量 OCR 整块裁决不做（§W3b-A）。
 6. **服务重启后的首次提交**：`DEVICE_NOT_CONNECTED`（09:42:18）说明重启后设备重连窗口约 20–25 s，真机实验要等 `uvicorn.err` 出现 `connected（原因 ADB 与内核均已确认连接）` 再提交。
+   > **W3b 实测**：本轮四次 `reload` 的 `connected` 时间分别是 33 / 45 / 36 / 39 / 36 s，
+   > 比 20–25 s 更保守，等 40 s 再提交最稳。
+7. **W3b 新留的两条**：① M44 覆盖层的删/改裁决（见 §D 末尾，**要主 agent 定**）；
+   ② 自识别翻页链绕过流水线队列直接 `append_task`，与同流水线任务并发时只靠退避错开，
+   彻底串行化要一把设备锁（W4 可评估）。另有一条性能观察：真机上一轮 6 屏耗时
+   **128–172 s**（逐屏 8.5–42 s），同一帧在空闲进程里只要 1.3–4.2 s —— 服务进程与
+   模拟器/内核抢 CPU 时慢一个量级，把设备占用窗口从 W3a 估计的 27 s 拉到 2–3 分钟。
 
 ## 门禁
 
 本轮**只改文档**（`docs/superpowers/*`），不动 `maa_api/`、`web/`，`resource/` 是 gitignore 的。因此没有跑后端/前端门禁；W1 起按计划跑。
+
+### W3b 门禁（自跑，2026-10-13）
+
+| 命令 | 尾行 |
+| --- | --- |
+| `.venv/bin/python -m pytest -o addopts= -q tests/services/test_depot_scan.py tests/services/test_depot_scan_service.py` | `44 passed in 21.79s` |
+| 加 `tests/services/test_depot_scan_pages.py`（三条一起） | `77 passed in 59.70s` |
+| `.venv/bin/python -m pytest -o addopts= -q tests/services/ tests/core/ tests/api/` | `2 failed, 2443 passed, 5 skipped, 23 warnings in 197.72s`（两条都是既有真资源用例 `tests/services/test_activity_index.py::test_real_resource_pack_reports_the_current_activity_and_its_stages` / `…disambiguates_a_repeated_code`，M24 起既有） |
+| `cd web && pnpm typecheck && pnpm test --run` | typecheck 无输出（干净）＋ `Test Files 76 passed (76)` / `Tests 803 passed (803)` |
+| `.venv/bin/python scripts/copy_inventory.py --write-baseline && .venv/bin/python scripts/copy_inventory.py --check` | 基线 45 项 + `通过：无回潮，0 项较基线下降` |
+
+真机证据文件都在 `/tmp/w3b/`（探针生成脚本 `make_probe.py`、格线拟合 `fit.py`、
+重试窗口抓帧 `frames/`、`ocr_lines.txt`），**不进版本库**；探针任务文件
+`resource/maa-layers/custom/resource/tasks/MaaApi@W3bQty.json` 跑完已删。
 
 实验脚本与中间产物全部在 `/tmp/m45/`（`ncc_v3.py`、`controls.py`、`controls2.py`、`grid_fit*.py`、`grid_ring.py`、`probe7003.py`、`probe7002*.py`、`r_main.json`、`r_gap.json`、`r_scales.json`、`r_d2.json`、`overlay_grid.png`、`cmp7002.png`），**不进版本库**。
