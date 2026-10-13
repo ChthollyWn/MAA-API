@@ -368,11 +368,12 @@ class DepotService:
 
         :param items: 每条给 ``item_id``、``name``、``count``，可选 ``category``；
             同一 ``item_id`` 出现多次时取最后一次（识别结果的最后一条为准）。
-            ``count`` 允许 ``None`` ＝ 未识别（M45 W3a：自识别只保证身份）。
-        :param item_sources: ``{item_id: "kernel" | "self_scan"}``（M45 W3a）。
-            **不传时整列留 NULL**：这是「内核那一趟照跑照收」的既有路径（自识别未启用、
-            或旧调用方），行为与 M27 完全一致。
+            ``count`` 允许 ``None`` ＝ 未识别（自识别关停后正常路径不会再写这种行，
+            读侧也会把它们过滤掉）。
+        :param item_sources: ``{item_id: "kernel" | "self_scan"}``（M45 W3a 的备档路径）。
+            **不传时整列留 NULL**：这是「内核那一趟照跑照收」的既有路径，行为与 M44 一致。
         :param detail: 写进识别记录的过程事实（来源表、未识别清单、逐屏计数）。
+            M45 关停后默认路径不再传它。
         :returns: 写入的行数（被任一护栏拦下时是 0）。
         """
         stamp = recognized_at or datetime.now(UTC).replace(tzinfo=None)
