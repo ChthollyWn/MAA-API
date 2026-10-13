@@ -10,7 +10,7 @@
 | 波次 | 内容 | 状态 |
 | --- | --- | --- |
 | W0 | 覆盖层生效性（A）+ Python masked NCC 整页识别（B）+ 规格计划 | **完成**（本文件） |
-| W1 | 识别器实现 + 单测 | 待做 |
+| W1 | 识别器实现 + 单测 | **完成**（见下；死代码删除与 M44 改注也在本波） |
 | W2 | 任务链/取帧接线 + 数量 | 待做 |
 | W3 | 合并入库与页面展示 | 待做 |
 | W4 | 文档、门禁、真机验收、`--no-ff` 合并、tag `v2-m45` | 待做 |
@@ -189,11 +189,90 @@ asst.log:221804 [2026-10-13 09:22:43.948][ERR][Px98188][Tx10747] templ size is t
 - **推荐复用内核 OCR 节点**：内核就是这么读的 —— `DepotImageAnalyzer::match_quantity` 用 `RegionOCRer` + `set_task_info("NumberOcrReplace")` + `bin_threshold = DepotQuantity.specialParams = [140,255]` + `use_char_model(false)`（`DepotImageAnalyzer.cpp:330-420`）。我们可以在 custom 层加 24 个 `OcrDetect` 节点（每格一个 roi，`baseTask: NumberOcrReplace`）串一条 `Custom` 链，代价约「24 个 JSON 节点 + 一次取帧」。
 - **已知代价**：内核在 OCR 之前会 `cv::subtract(item_templ * 0.41)` 把匹配到的模板从图标区减掉（`:362-366`），任务 JSON 做不到 ⇒ 我们的 roi 直接 OCR 会被图标美术干扰，**准确率低于内核**。所以 W2 的策略是**先身份、数量分批补**：与内核 `DepotInfo` 重叠的 id 直接用内核数量；只有内核给不出的 12 个 id 才走我们自己的 OCR；OCR 失败就**不写数量**（不写 0）。
 
+## W1：识别器 + 单测（2026-10-13，不占设备）
+
+**交付**（4 个提交）：`e6ffaf3` 删 `DepotAllTabClicked` 死代码 + 覆盖层改成逐 key 只写 `next`；
+`5cf4f62` M44 验收结论改注；`919ad2e` `maa_api/services/account/depot_scan.py`；
+`753c4ad` `tests/services/test_depot_scan.py`（30 例）+ 入库真机帧。
+
+**接口**：`scan_panel(frame, bank, config)` → `PanelScan`（24 格逐格 `status` + top-k 候选 +
+格线 + 置信度）；`flatten_scan(scan)` → 纯 dict
+`{items: {item_id: 分数}, accepted, ambiguous, unknown, below_min_accepted, warnings}`。
+纯函数、可注入（模板库 / 几何 / 资源根都能从参数进来），不碰设备、网络与数据库。
+
+### 实测（本机，`resource/maa-api/debug/interface/2026.10.13-09.22.57.703_raw.png`）
+
+> **注意**：W0 的 `/tmp/d1.jpg`、`/tmp/d2.jpg` 与 `/tmp/m45/` 脚本在本轮开工前被系统重启
+> 清掉了（机器 10:54 重启），所以 W1 的实测改用内核 debug 目录里 09:22 那张 1280×720
+> 仓库「全部」页截图（已裁小入库为 `tests/services/fixtures/depot/depot_all_tab_1280x720.jpg`，
+> 162 KB）。它和 d1 不是同一屏（道具不同），但同样是「全部」页、同样 8×3 格。
+
+| 量 | 值 |
+| --- | --- |
+| 全库 479 模板整页打分 | **0.82 s**（单尺度，窗口 162×132） |
+| 网格拟合 | **0.35 s**（相位偏出窗口余量时先多扫一遍找 landmark，≈ 2.6 s） |
+| 24 格结论 | **15 accepted / 6 ambiguous / 3 unknown** |
+| 真值核对 | 15 个 accepted 逐格肉眼核对全对（见单测里的 `REAL_FRAME_TRUTH`） |
+| 未知的 3 格 | 画面上的美术不在 479 张模板里（top1 0.47~0.53） |
+| 歧义的 6 格 | 全部 `margin ≤ 0.03` 的近重复（`ap_supply_lt_*`、`advanced_material_*`、`randomMaterial_12/13`） |
+| 目标 id | `7003 寻访凭证` 0.9025、`7002 加急许可` 0.9012、`7001 招聘许可` 0.8741、`4004 高级凭证` 0.8999、`4005 资质凭证` 0.9201、`4006 采购凭证` 0.8986 |
+
+### 两处必须记下来的实现修正（都是「按台账跑会错」的地方）
+
+1. **`x_first` 的默认值原本在错误的坐标空间**。模块里写的是 `104.0`，而那是 1280×720 空间
+   的数（内核相位 105）被当成 1066 空间用了 —— 真机帧上量出来的第 1 列格心是 **87**
+   （`104 × 1066/1280 = 86.6`）。相位偏 18 px 时靠 ±20 px 的窗口余量勉强不漏格，但第 8 列
+   只剩 3 px 余量。改成 86.6 后用 21 件道具的**局部 NCC 全局峰**回归复核：列
+   `first 86.95 / pitch 129.57`（残差 ≤ 1.92 px）、行 `first 155.05 / pitch 157.79`
+   （残差 ≤ 2.67 px）⇒ 与内核换算值（129.92 / 158.07）只差 0.3 px 级，格距不必逐帧重估。
+2. **拟合必须是「分数面 + 查表」**。上一位实现逐条候选格线重跑 NCC：`in_panel` 判的是
+   162×132 的窗口 ⇒ 第 8 列永远判死 ⇒ **每条候选都被淘汰，x 轴恒等于先验（拟合等于没有）**；
+   即便不淘汰也要 41×32 个候选 × 4 个验证格 ≈ 5000 次全格打分（本机几十秒）。现在先用
+   `score_surface` 把每个验证格的分数面压成「格心 → 最高分」剖面，再在 (first, pitch) 网格上
+   查表；验证格就是 landmark 自己所在的那几格（每列/每行分数最高的），目标值是
+   「这些道具在候选格线上的最高分之和」。真机帧上相位偏 12/20 px 时拟合能把页面拉回来
+   （识别结果与先验格线一致），相位本来就对时**不动**格线（分数平台内并列 ⇒ 先验胜出）。
+
+### 与台账常量的一致性
+
+全部一致：面板 `1066×599`、单元格 `122`、匹配窗口 `162×132`（外扩 `20/5/20/5`）、
+mask = 模板灰度 `≥ 1` 再抹右下 `80×50`、尺度固定 `1.0`、判定 `top1 ≥ 0.75 且 margin ≥ 0.15`、
+格距 `129.92 / 158.07`（2560 空间的 156×190 换算）。两处**有意的偏离**：
+
+- `DEFAULT_SCALES` 只留 `1.0`（台账三档实测 24/24 都是 1.0 胜，三档是 3 倍代价）；
+  `DepotScanConfig.scales` 仍可传三档。
+- 阈值与候选收窄参数暂时只放在 `DepotScanConfig`，**没进设置 API**（W2 接线时再决定要不要
+  暴露成 `account.depot_scan_*`，现在加只会多一批没人读的配置项）。
+- 另外补了两条台账没有的口径：`CELL_MAX_CLIP = 12`（单元格被面板边缘裁掉 ≤ 12 px 仍照常
+  识别；内核按窗口判边界所以会丢第 8 列）、`min_accepted` 默认 8 只在 `PanelScan` 里记
+  `below_min_accepted` + warning，**写不写库留给 W3**。
+
+### 门禁（W1 自跑，2026-10-13）
+
+| 命令 | 尾行 |
+| --- | --- |
+| `.venv/bin/python -m pytest -o addopts= -q tests/services/test_depot_scan.py tests/core/test_depot_overlay.py` | `33 passed in 8.89s` |
+| `.venv/bin/python -m pytest -o addopts= -q tests/services/ tests/core/` | `2 failed, 1887 passed, 5 skipped in 56.00s`（两条都是既有真资源用例 `tests/services/test_activity_index.py`，M24 起既有） |
+| `.venv/bin/python scripts/copy_inventory.py --write-baseline && .venv/bin/python scripts/copy_inventory.py --check` | `通过：无回潮，0 项较基线下降` |
+
+全量后端没跑（W4 的活）；本轮只动 `maa_api/services/account/depot_scan.py`、
+`maa_api/core/depot_overlay.py`、`maa_api/main.py` 的一行注释、`tests/**` 与 `docs/13`，
+没有 `web/`、没有接口形状变化，所以 `dump_openapi.py --check` / `pnpm gen:api:check` 不受影响。
+
+### 遗留 W1 没做的（顺延给 W2/W3）
+
+1. 阈值/下限没进设置 API（见上）。
+2. 多屏扫描（滑动后重新拟合）没做 —— W2；本轮只保证单屏 8×3 格。
+3. 第 8 列在**真机截图**上是 `993`（右边界 1054 < 1066），拟合之后它本来就在面板内；
+   「裁 3 px 仍评估」这条只有合成图用例（`test_clipped_cell_is_still_evaluated`）。
+4. 真机帧的真值是肉眼核对的 15 格，不是逐屏比对的**全量**真值 —— 全仓验证仍按规格 §7.2
+   在 W3/W4 做。
+
 ## W0 遗留 / 未取证
 
 1. **M44 W1 需重做验收**（§修正 2）：覆盖机制成立，但「26 → 77」的证据链错了；M44 台账与 `docs/13` §8.64 的对应说法要在 W4 一并更正。
-2. **`DepotAllTabClicked` 死代码怎么处理**没裁决：留着（无害，但每次重试会在内核日志刷 ERR）还是删掉（`depot_overlay.py` 与 custom 层两处），留给 W4。
-3. **第 8 列的对齐**：本轮用内核常量 `x_first = 105 + 129i` 时第 8 列 `c8r1` 仍以 `0.9159` 命中 `7002`，说明该列可用；但第 8 列的真正格心（拟合值 `107.5 + 128.2*7 = 1005` vs 常量 `1008`）与图像右边界只有 ~50 px 余量，W1 要用拟合值 + 边界钳制，并把这个位置写成单测。
+2. **`DepotAllTabClicked` 死代码**：W1 裁决 = **删掉**（节点 + 自带模板 + 资产目录），`DepotAllTab.next` 覆盖成空链（点完「全部」就地收尾）。见提交 `e6ffaf3`。
+3. **第 8 列的对齐**：W1 已做 —— 拟合出真实相位（真机帧 `x_first ≈ 87`，第 8 列格心 993），边界只作兜底钳制（`CELL_MAX_CLIP = 12`），单测 `test_eighth_column_is_clipped_not_dropped` / `test_clipped_cell_is_still_evaluated` 钉住。
 4. **多屏扫描**：M45 只验证了单屏 24 格。仓库「全部」页需要滑动才能看全，滑动后的网格是否仍可用（尤其首列是否被裁）**未取证**，W2 要处理。
 5. **`7003` 数量 42 没进 DB**：本页 `7003` 数量肉眼是 42，但库里没有这一行；我们的 OCR 路径能不能稳定读出 42 未验证（§数量评估是方案，不是结果）。
 6. **服务重启后的首次提交**：`DEVICE_NOT_CONNECTED`（09:42:18）说明重启后设备重连窗口约 20–25 s，真机实验要等 `uvicorn.err` 出现 `connected（原因 ADB 与内核均已确认连接）` 再提交。
