@@ -421,6 +421,9 @@ class DepotScanService:
     :param settings_provider: 现读配置（每次调用都读，改设置立即生效）。
     :param bank_provider: 模板库来源，默认 :func:`~...depot_scan.load_item_bank`
         （进程内缓存，换资源后由 ``depot_scan.clear_caches`` 清）。
+    :param pager: 默认翻页器（``scan_all_pages`` 不显式传时用它）。生产在 ``main.py``
+        注入 :class:`DepotChainPager`（提交内核链上的翻页节点）；测试注入离线假翻页器。
+        ``None`` ＝ 不翻页（只扫当前这一屏）。
     """
 
     def __init__(
@@ -429,10 +432,12 @@ class DepotScanService:
         *,
         settings_provider: Callable[[], Settings] = get_settings,
         bank_provider: Callable[..., ItemBank] | None = None,
+        pager: DepotPager | None = None,
     ) -> None:
         self._frame_source = frame_source
         self._settings_provider = settings_provider
         self._bank_provider = bank_provider or load_item_bank
+        self._pager = pager
 
     # -- 配置 -------------------------------------------------------------
     @property
@@ -529,8 +534,9 @@ class DepotScanService:
         参数默认值都引台账数字：``first_search_max`` 40 px（W2-B 相位极差 36 px）、
         页数上限 10、无新增阈值 2（滑到底会进干员信物区，那里的格线不是 8 列 × 129.92）。
 
-        :param pager: 翻页器；``None`` 时只扫当前这一屏（等价 :meth:`scan`，用于「不想翻页」
-            的调用方与离线回放）。协议见 :class:`DepotPager`。
+        :param pager: 翻页器；``None`` 时用装配时注入的那个（``self._pager``），两个都
+            没有就只扫当前这一屏（等价 :meth:`scan`，用于「不想翻页」的调用方与离线回放）。
+            协议见 :class:`DepotPager`。
         :param config: 识别参数（``None`` ＝ 按设置现读）。
         :param sweep: 逐屏扫描参数（``None`` ＝ 按设置现读）。
         :param force: 同 :meth:`scan`，给真机验收与离线回放用。
@@ -543,6 +549,7 @@ class DepotScanService:
                 "仓库自识别未启用（account.depot_scan_enabled=false）"
             )
         sweep = sweep or self.sweep_from_settings()
+        pager = pager or self._pager
         # 每一屏都用同一份参数（含 first_search_max）现读一次，翻页期间改设置也生效。
         page_config = config or self._page_config(sweep)
         started = time.perf_counter()

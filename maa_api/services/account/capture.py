@@ -52,6 +52,9 @@ from maa_api.db.repositories.account import (
     RECOGNITION_KIND_OPERBOX,
     AccountRecognitionRepository,
 )
+# M45 W3a 的两路合并是纯函数（不碰库、不碰设备），放在这里做：采集层已经拿得到
+# 内核那一趟的数据与本机物品索引，服务层只负责把它写下去。
+from maa_api.services.account.depot import enumerate_depot_ids, merge_depot_sources
 from maa_api.services.resource_index import iter_resource_roots
 
 __all__ = [
@@ -166,6 +169,11 @@ class AccountCaptureService:
         ``battle_data.json``（读不到就没有职业）。
     :param box_service / depot_service: 落库服务替身，测试注入；默认按
         ``session_factory`` 现建（构造签名见各自模块）。
+    :param depot_scan: M45 的仓库自识别服务（``DepotScanService`` 或同签名替身）。
+        ``None``（默认）＝ 这条链路不可用，仓库识别退回「只写内核那一趟」——
+        与 M27 的行为**逐字一致**，也是 ``account.depot_scan_enabled=false`` 时的路径。
+        给了它也要看设置开关：开关关着时``scan_all_pages`` 抛 ``DepotScanDisabled``，
+        采集层按「这一轮没有自识别」处理，绝不因此不写内核的结果。
     """
 
     def __init__(
@@ -176,12 +184,14 @@ class AccountCaptureService:
         operator_catalog: Mapping[str, OperatorMeta] | None = None,
         box_service: Any | None = None,
         depot_service: Any | None = None,
+        depot_scan: Any | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._item_catalog = item_catalog
         self._operator_catalog = operator_catalog
         self._box_service = box_service
         self._depot_service = depot_service
+        self._depot_scan = depot_scan
 
     # -- 入口 -------------------------------------------------------------
     async def handle_callback(
@@ -338,23 +348,24 @@ class AccountCaptureService:
             # 数据比留着旧数据危险得多，旧数据与旧识别时间都原样保留。
             return AccountCaptureResult(kind=RECOGNITION_KIND_DEPOT, skipped="bad_payload")
 
+        # M45 W3a：内核那一趟照跑照收，自识别补差集（规格 §4.5）。未启用 / 不可用时
+        # scanned 是 None，合并结果就是「只有内核」——与 M27 的行为逐字一致。
+        scanned, scanned_detail = await self._scan_depot()
         catalog = self._items
-        items = [
-            {
-                "item_id": item_id,
-                "name": (meta.name if meta else None),
-                "count": count,
-                "category": (meta.category if meta else None),
-            }
-            for item_id, count in counts.items()
-            for meta in (catalog.get(item_id),)
-        ]
+        merged = merge_depot_sources(
+            counts,
+            scanned,
+            catalog=catalog,
+            depot_ids=enumerate_depot_ids(catalog),
+        )
         written = await self._depot.replace_all(
-            items,
+            merged.rows,
             recognized_at=created_at,
             pipeline_id=pipeline_id,
             task_id=task_id,
             client_type=client_type,
+            item_sources=merged.sources,
+            detail=merged.detail(scanned=scanned_detail),
         )
         # DepotService 已经写过识别记录（它拿得到上下文），这里再调一次是幂等的：
         # 同 kind 同识别时刻只补上下文，不插第二条。
@@ -369,6 +380,31 @@ class AccountCaptureService:
         return AccountCaptureResult(
             kind=RECOGNITION_KIND_DEPOT, written=True, item_count=int(written)
         )
+
+    async def _scan_depot(self) -> tuple[dict[str, float] | None, dict[str, Any]]:
+        """M45 自识别那一趟（未启用 / 不可用 / 失败都返回「没有」）。
+
+        为什么**绝不因为自识别失败就不写内核的结果**：内核那一趟是既有事实（M27 起就
+        这么写），自识别只是补差集。设备没连、链没生成、页面被点走都只该少补几个 id，
+        不该把整表交白卷。所以这里一个异常都不外抛，只记 warning 并把原因写进 detail。
+        """
+        if self._depot_scan is None:
+            return None, {}
+        try:
+            outcome = await self._depot_scan.scan_all_pages()
+        except Exception as exc:  # noqa: BLE001 - 自识别失败只影响「补哪些 id」
+            logger.warning("仓库自识别未完成，本轮只写内核那一趟的结果：%r", exc)
+            return None, {"error": repr(exc)}
+        run = getattr(outcome, "run", None)
+        detail: dict[str, Any] = {
+            "pages": int(getattr(run, "pages_scanned", 0) or 0),
+            "stop_reason": getattr(run, "stop_reason", None),
+            "accepted": int(getattr(outcome, "accepted", 0) or 0),
+            "ambiguous": int(getattr(outcome, "ambiguous", 0) or 0),
+            "unknown": int(getattr(outcome, "unknown", 0) or 0),
+            "below_min_accepted": bool(getattr(outcome, "below_min_accepted", False)),
+        }
+        return dict(outcome.items), detail
 
     # -- 落库依赖 ---------------------------------------------------------
     async def _record(

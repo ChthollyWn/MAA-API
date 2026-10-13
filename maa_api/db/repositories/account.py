@@ -362,22 +362,45 @@ class AccountDepotItemRepository(BaseRepository):
         """整表替换：先清空再写入本次识别的全部物品。
 
         ``rows`` 每项给 ``item_id``、``name``、``count``、``category``、
-        ``recognized_at``（构造与归一在 :class:`~maa_api.services.account.depot.DepotService`
-        与 ``capture.py``）。同一个 ``item_id`` 出现多次时**取最后一条**（识别结果的
-        后者为准），返回的是去重后真正写入的行数——它同时是识别记录的 ``item_count``。
+        ``recognized_at``，可选 ``source``（``"kernel"`` / ``"self_scan"``，M45 W3a：
+        这一行的身份是谁认出来的）。同一个 ``item_id`` 出现多次时**取最后一条**
+        （识别结果的后者为准），返回的是去重后真正写入的行数——它同时是识别记录的
+        ``item_count``。
+
+        **``count`` 允许为 ``None``**（M45 W3a）：自识别只保证身份、数量要等 W3b 的
+        OCR，这时写 ``NULL`` ＝ 未识别。旧写法 ``int(row.get("count") or 0)`` 会把
+        「不知道」压成 0，正是 M45 要区分的那两件事，所以这里只对非空值做整数归一。
+        ``sources`` 列按行收集成 ``{item_id: source}``；一行都没有来源时留 ``NULL``
+        （旧行为，读侧按「未知来源」处理）。
         """
+        # ``sources`` 的值是整份快照共用的 ``{item_id: 来源}``（每行存一份，读侧按行取
+        # 自己那一项 —— 将来一行一个来源地混写也不会读串）。所以先收齐再写。
+        sources: dict[str, str] = {}
         deduped: dict[str, dict[str, Any]] = {}
         for row in rows:
             item_id = str(row.get("item_id") or "").strip()
             if not item_id:
                 continue
+            count = row.get("count")
+            if count is not None and not isinstance(count, bool):
+                try:
+                    count = int(str(count).strip())
+                except (TypeError, ValueError):
+                    count = None
+            elif isinstance(count, bool):
+                count = int(count)
+            source = str(row.get("source") or "").strip()
+            if source:
+                sources[item_id] = source
             deduped[item_id] = {
                 "item_id": item_id,
                 "name": row.get("name"),
-                "count": int(row.get("count") or 0),
+                "count": None if count is None else max(int(count), 0),
                 "category": row.get("category"),
                 "recognized_at": row.get("recognized_at") or utcnow(),
             }
+        for fields in deduped.values():
+            fields["sources"] = dict(sources) if sources else None
         await self.session.execute(sa_delete(AccountDepotItem))
         if deduped:
             self.session.add_all(
@@ -459,13 +482,17 @@ class AccountRecognitionRepository(BaseRepository):
         pipeline_id: str | None = None,
         task_id: str | None = None,
         client_type: str | None = None,
+        detail: Mapping[str, Any] | None = None,
     ) -> AccountRecognition:
-        """写一条识别记录（时间、流水线、任务、渠道、数量）。
+        """写一条识别记录（时间、流水线、任务、渠道、数量、过程事实）。
 
         同 ``kind`` 同 ``recognized_at`` 的已有记录不重复插，而是把非空的上下文补上：
         识别结果由 ``OperatorBoxService.apply_recognition`` 落库（它拿不到流水线 /
         任务 / 渠道），``capture.py`` 随后带着这三个值再调一次，两次说的是同一次识别。
         补的时候只用非空值，不拿 NULL 覆盖已有值。
+
+        ``detail``（M45 W3a）是这次识别的过程事实（仓库识别放来源表与未识别清单），
+        同样只在非空时覆盖：第二次调用（capture 层补上下文）不该把第一次写的详情抹掉。
         """
         existing = await self.session.scalar(
             select(AccountRecognition)
@@ -483,6 +510,7 @@ class AccountRecognitionRepository(BaseRepository):
                 task_id=task_id,
                 client_type=client_type,
                 item_count=item_count,
+                detail=dict(detail) if detail else None,
                 recognized_at=recognized_at,
             )
             self.session.add(row)
@@ -496,6 +524,8 @@ class AccountRecognitionRepository(BaseRepository):
             existing.client_type = client_type
         if item_count:
             existing.item_count = item_count
+        if detail:
+            existing.detail = dict(detail)
         await self.session.flush()
         return existing
 

@@ -1005,10 +1005,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.account_summary = AccountSummaryReader(
             box=box_service, depot=depot_service
         )
+        # M45 W3a：仓库自识别（逐屏扫描 + 与内核那趟按 id 合并）。**装配不依赖开关**：
+        # 开关（`account.depot_scan_enabled`，默认 false）由服务每次调用现读 —— 关着时
+        # 采集层拿到 `DepotScanDisabled` 就按「这一轮没有自识别」处理，写库路径与 M27
+        # 逐字一致。翻页走内核链 `MaaApi@DepotSelfScan@SwipeNextPage`（不用 adb 硬滑），
+        # 取帧复用 `DeviceManager.screenshot` 那条既有通路。
+        from maa_api.services.account.depot_scan_service import (
+            DepotChainPager,
+            DepotFrameSource,
+            DepotScanService,
+        )
+
+        depot_scan = DepotScanService(
+            DepotFrameSource(device_manager),
+            pager=DepotChainPager(core_client),
+        )
+        app.state.depot_scan_service = depot_scan
         account_capture = AccountCaptureService(
             db_session.session_factory,
             box_service=box_service,
             depot_service=depot_service,
+            depot_scan=depot_scan,
         )
         app.state.account_capture = account_capture
         # 回调接线（M33 §4.1）：M27 的采集服务建好后一直没有生产调用方，干员 / 仓库的
