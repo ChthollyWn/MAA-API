@@ -737,3 +737,24 @@ def test_service_module_exports_the_new_contract() -> None:
     """新公开面（逐屏扫描的配置、结果与翻页器）都在 ``__all__`` 里。"""
     for name in ("DepotSweepConfig", "DepotScanRun", "DepotPager", "DepotChainPager"):
         assert name in service_module.__all__, name
+
+
+def test_sweep_accepts_a_pil_frame_source(synth: SimpleNamespace) -> None:
+    """真机取帧器给的是 ``PIL.Image``（``DeviceManager.screenshot``），不是 ndarray。
+
+    W3b 真机第一轮就是死在这里：``scan_all_pages`` 收尾时读了
+    ``captured.image.shape`` —— PIL 图没有 ``shape``，整轮结果连同 8 屏的识别一起被
+    ``_scan_depot`` 的兜底吞成「这一轮没有自识别」（2026-10-13 14:05:20 的
+    ``AttributeError("'Image' object has no attribute 'shape'")``）。这里钉住：
+    取帧器给 PIL 图时逐屏扫描照常出结果，``frame`` 是解码后的尺寸。
+    """
+    frame = _page(synth, {SYNTH_IDS[0]: (0, 0)})
+    image = Image.fromarray(frame)  # 真机那条通路的形状：PIL 图，没有 .shape
+    service = _service(synth, [image])
+
+    outcome = _run(service, None)
+
+    assert SYNTH_IDS[0] in outcome.items
+    assert outcome.run is not None
+    assert outcome.frame == (frame.shape[1], frame.shape[0])
+

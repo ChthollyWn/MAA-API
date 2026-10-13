@@ -625,7 +625,10 @@ class DepotScanService:
             flat=flat,
             elapsed_ms=elapsed_ms,
             backend=captured.backend,
-            frame=captured.image.shape[1::-1] if pages else (0, 0),
+            # **不能用 ``captured.image``**：设备通路给的是 ``PIL.Image``（真机就是这样），
+            # 只有 ``scan_frame`` 解码后的数组才有 ``shape``。逐屏结果里已经有解码后的
+            # 尺寸（``DepotScanOutcome.frame``），直接取最后一屏的。
+            frame=pages[-1].frame if pages else (0, 0),
             run=replace(run, elapsed_ms=elapsed_ms, warnings=tuple(warnings)),
         )
         logger.info(
