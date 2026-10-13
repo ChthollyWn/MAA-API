@@ -1,12 +1,12 @@
 # AI 腔规则命中：用户可见文案
 
-总计 13035 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 13048 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 179 | 381 | 560 |
-| 破折号当冒号用 | high | 41 | 146 | 187 |
+| 粗体强调 | medium | 179 | 382 | 561 |
+| 破折号当冒号用 | high | 41 | 148 | 189 |
 | 「A 而不是 B」对照腔 | high | 17 | 104 | 121 |
 | 绝对化规定腔 | medium | 13 | 71 | 84 |
 | 自指式讲解腔 | medium | 1 | 43 | 44 |
@@ -18,7 +18,7 @@
 | 感叹号 | low | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 179 / 开发向 381）
+## 粗体强调（medium｜用户可见 179 / 开发向 382）
 
 **用户可见**
 
@@ -42,9 +42,9 @@
 - `maa_api/agent/knowledge/__init__.py:879` 拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。 段落顺序：索引 → **当期活动**（M24）→ **当期卡池**（M28）→ **账号数据**（M27） → 术语表全文 → 用户档案全文；三段实时数据（活动…（共 241 字）
 - `maa_api/agent/knowledge/convergence.py:1` M30 T3：删除内置条目后，把幸存下来的用户覆盖行迁移成自定义条目。 为什么需要冻结 ``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL，读的时候 继承内置值（见 :mod:`maa_api.ag…（共 1075 字）
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
-- …… 另有 373 条，见 inventory.json
+- …… 另有 374 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 41 / 开发向 146）
+## 破折号当冒号用（high｜用户可见 41 / 开发向 148）
 
 **用户可见**
 
@@ -68,7 +68,7 @@
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
 - `maa_api/agent/policy.py:367` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/policy.py:613` 要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。 只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的 ``warnings`` 提醒，策略层不制造新的确…（共 164 字）
-- …… 另有 138 条，见 inventory.json
+- …… 另有 140 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 17 / 开发向 104）
 
@@ -173,7 +173,7 @@
 - `maa_api/agent/policy.py:215` 作业授权（规格 §9.6）：INTERNAL 调用方必须先有该会话、该关卡的有效授权。 没有授权不是「报错」而是「弹授权卡片」：`confirmation_action` 用 `grant_copilot_attempts`，尝试次数与成功…（共 159 字）
 - `maa_api/db/repositories/agent.py:69` 侧栏会话列表：``last_message_at DESC``，从未发过消息的（NULL）排最后。 同秒并列时用 ``created_at DESC, id DESC`` 兜稳定次序，避免分页/动画里 顺序抖动。``limit`` 至少为 …（共 154 字）
 - `maa_api/db/repositories/update.py:82` 该 ``target`` 当前 ``running`` 的记录；没有返回 ``None``。 部分唯一索引保证每个 target 至多一条 ``running``，所以这里 ``LIMIT 1`` 不是「任选一条」而是唯一解（复用 ``uq…（共 227 字）
-- `docs/superpowers/ledgers/2026-10-13-m45-depot-selfscan.md:74` M44 修正 2：26 → 77 **不是**页签覆盖带来的，是内核自身不稳定
+- `docs/superpowers/ledgers/2026-10-13-m45-depot-selfscan.md:75` M44 修正 2：26 → 77 **不是**页签覆盖带来的，是内核自身不稳定
 
 ## emoji/符号装饰（high｜用户可见 2 / 开发向 1）
 

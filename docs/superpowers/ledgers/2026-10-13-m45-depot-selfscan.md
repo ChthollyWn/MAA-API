@@ -12,7 +12,8 @@
 | W0 | 覆盖层生效性（A）+ Python masked NCC 整页识别（B）+ 规格计划 | **完成**（本文件） |
 | W1 | 识别器实现 + 单测 | **完成**（见下；死代码删除与 M44 改注也在本波） |
 | W2 | 任务链/取帧接线 + 数量 | **取帧接线/任务链/设置项完成 + 多屏取证完成**；数量整块留 W3（见 W2 节 D） |
-| W3 | 合并入库与页面展示 | 待做（**含数量分批与逐屏扫描的收口**） |
+| W3a | 逐屏扫描 + 合并入库 + 页面语义（不占设备） | **完成**（见下 W3a 节） |
+| W3b | 数量读取（OCR roi 现算）+ M44 真机重验收 | 待做（占设备一轮） |
 | W4 | 文档、门禁、真机验收、`--no-ff` 合并、tag `v2-m45` | 待做 |
 
 ## W0-a：custom 层覆盖同名内核任务到底生效不生效
@@ -408,6 +409,121 @@ roi 只能按「当屏拟合出来的格线」现算，也就是每次翻页都�
 `tests/core/test_depot_selfscan_overlay.py`（新）、`tests/test_settings.py`。
 没有 `web/`、没有接口形状变化（`DepotScanService` 还没接 HTTP），所以
 `dump_openapi.py --check` / `pnpm gen:api:check` 不受影响。
+
+## W3a：逐屏扫描 + 合并入库 + 页面语义（2026-10-13，不占设备）
+
+**交付（3 个提交）**：`e890b27` 逐屏扫描循环 + 拟合只量相位；`bc97699` 与内核那趟合并入库
+（迁移 `0021`）；`f26303d` 仓库页把「未识别」与「不支持」分开。文档与门禁在本节之后收口。
+
+### A：逐屏扫描循环（`DepotScanService.scan_all_pages`）
+
+- **入口**：`scan_all_pages(pager=None, config=None, sweep=None, force=False)`；`pager` 缺省用
+  装配时注入的那个（`main.py` 注入 `DepotChainPager(core_client)`），两个都没有就只扫当前一屏。
+- **每屏独立**：独立取帧 + 独立 `scan_frame`（**重新拟合格线**）。翻页器返回帧就直接用它
+  （离线回放），返回 `None` 就自己取帧（真机）。翻页**不用 adb 硬滑**：真机走链上的
+  `MaaApi@DepotSelfScan@SwipeNextPage`（`DepotChainPager` 提交 `Custom` + 等落定，
+  `ready` 回调留给 W3b 接内核 `TaskChainCompleted`）。
+- **停止条件**（三者之一，`stop_reason` 如实记）：`page_limit`（默认 10）、
+  `no_new`（**连续 2 屏没有新增 id**）、`unusable`（连续 2 屏接受格数低于
+  `min_page_accepted`＝3）、`page_turn_failed`（翻页器连试两次都抛异常 —— **不作废已扫到的屏**）、
+  `no_pager`（没翻页器，扫一屏就停）。
+- **整轮聚合**：`items` 是并集（同一 id 取分数最高那次），计数是各屏之和，`below_min_accepted`
+  按整轮判 —— W2 实测末页接受格数低到 7，按屏判会把最后几页整屏丢掉。
+  计数器 `DEFAULT_MIN_PAGE_ACCEPTED = 3` 与整轮闸门 `min_accepted`（8）**分开**：后者是
+  「整轮够不够写库」的口径，拿它当「这一屏不是道具格线区」的判据会误伤真实末页。
+- **设置项**：`account.depot_scan_max_pages`（默认 10）/ `account.depot_scan_no_new_pages`
+  （默认 2），服务每次调用现读。
+- **单测** `tests/services/test_depot_scan_pages.py` **26 例**：相位半径与实测漂移、半格错位
+  仍 0 接受、同模板多行不能被顶掉、两屏合并、连续两屏无新增即停、翻页失败保留已扫结果、
+  页数上限、整轮聚合闸门、每屏各自重新拟合、翻页器的提交形状与拒绝/超时、取帧只在需要时发生。
+
+### B：拟合口径的三处修正（都是「按台账跑会错」的地方）
+
+1. **`_fit_axis` 不许跳过算不出的 landmark**：旧实现 `continue`，于是总分只统计能算的那几个
+   —— 把外侧列推出剖面范围的假格距反而总分更高。合成满屏实测：列距被拉到 122.7（真值 130），
+   第 8 列整列错位。现在一个 landmark 算不出就整条格线作废。
+2. **格距不参与搜索**（只量相位）：W2 实测列距 `129.56–130.01`、行线 `157.50–159.14`（残差
+   ≤ 2.5 px），该量的是相位。同一张满屏画面对照：锁定格距 **21/24** 接受，放开格距 **15/24**。
+3. **并列解取平台中心**（不是「离先验最近」）：分数面是平台，取最近的会把格线永远钉在先验上。
+   相位偏移 30 px 的满屏画面：半径 20 px 时量出 105（误差 15）、半径 40 px 时量出 115（误差 5）
+   —— **平台的跨度由搜索半径决定**，这正是 `FIRST_SEARCH_MAX` 24 → 40 的实测依据。
+
+外加一条：`_diverse` 只按 `(col, row)` 去重会把「同一模板铺在多行」压成 1 个 landmark
+（24 格同模板实测只剩 2 个 ⇒ `insufficient`），去重键改成 `(模板, col, row)`。
+
+### C：与内核那趟合并入库（迁移 `0021_depot_sources`）
+
+- **合并语义**（`merge_depot_sources`，纯函数）：并集；两边都有 ⇒ 数量取**内核**（它真读数量，
+  自识别 W3a 只保证身份）；只有自识别有 ⇒ `count=None`（＝未识别，写 `NULL` 不写 0）；
+  两边都没有 ⇒ 不进表，进 `unrecognized` 清单。
+- **来源**：`account_depot_item.sources` ＝ `{item_id: "kernel" | "self_scan"}`（整份快照存每行，
+  读侧按行取自己那一项）；识别记录的 `detail` 记来源表 + 未识别清单 + 逐屏计数。
+- **未识别的候选范围**：`item_index.json` 里 `MATERIAL` / `NORMAL` / `CONSUME` 三类
+  （`MEMENTO` / `NONE` 按机制不进仓库，算进去只会制造噪音）。
+- **未启用时行为不变**：`account.depot_scan_enabled` 默认关；关着时采集层拿到 `DepotScanDisabled`
+  走「没有自识别」那条路，`DepotService.replace_all` 的 `item_sources` 只会有 `kernel`
+  —— 写库路径与 M27 逐字一致。**自识别失败也不影响内核那一趟**（单测钉住）。
+- **迁移**：`account_depot_item.count` 放宽到可空、加 `sources`；`account_recognition` 加 `detail`。
+  三列都可空、不回填。batch 重建显式传 `copy_from`（含索引、且与 batch 开始时的列集合一致），
+  否则 `alembic upgrade --sql` 离线渲染会报 `cannot proceed in --sql mode`。
+- **单测**：`tests/db/test_depot_sources_migration.py` 4 例、
+  `tests/services/test_account_depot_merge.py` 12 例、`tests/services/test_account_capture.py`
+  新增 3 例（合并入库 / 未装配时行为不变 / 自识别失败仍写内核结果）。
+
+### D：仓库页语义（接口 + 页面）
+
+- `GET /api/account/depot` 多四项：每行 `source`；容器 `sources`、`unrecognized` +
+  `unrecognized_total`、`coverage`（都是**整份快照**的事实，与筛选、分页无关）。
+- 页面：每行来源标签（旧数据没有 `sources` 就**不贴标签**，不猜成内核）、数量 `null` 显示
+  「—」并写明「不是 0」、列表上方给覆盖说明（`共 N 种：内核 a、自识别 b（扫了 k 屏）`，
+  有漏项时补「m 种这一轮没识别到（不等于 0）」）与未识别清单（最多 8 个名字）。
+- 已重新生成 `web/openapi.json` + `web/src/types/api.d.ts`（`pnpm gen:api`）；前端新增 5 条用例，
+  `api.test.ts` 的仓库用例改成同时断言四项新字段并加一条「后端少给时给安全默认值」。
+
+### W3a 门禁（自跑，2026-10-13）
+
+| 命令 | 尾行 |
+| --- | --- |
+| `.venv/bin/python -m pytest -o addopts= -q tests/services/test_depot_scan.py tests/services/test_depot_scan_service.py tests/api/test_account_router.py` | `64 passed, 1 warning in 20.81s`（任务书那条还要求 `-q tests/services/test_depot_scan_pages.py`，本波新加，见下） |
+| 同上 + `tests/services/test_depot_scan_pages.py` | 见 W4 收口（W3a 期间每次：`26 passed`） |
+| `.venv/bin/python -m pytest -o addopts= -q tests/services/ tests/core/` | `2 failed, 1948 passed, 5 skipped in 103.61s`（两条都是既有真资源用例 `tests/services/test_activity_index.py`，M24 起既有） |
+| `.venv/bin/python -m pytest -o addopts= -q tests/api/ tests/db/` | `488 passed`（api）+ `282 passed`（db） |
+| `cd web && pnpm typecheck && pnpm test --run` | `Test Files 76 passed (76)` / `Tests 803 passed (803)` |
+| `.venv/bin/python scripts/dump_openapi.py --check` + `pnpm gen:api:check` | `OpenAPI snapshot is current` / `OpenAPI types are up to date` |
+| `.venv/bin/python scripts/copy_inventory.py --write-baseline && --check` | `通过：无回潮，0 项较基线下降` |
+
+**没有跑**（W4 的活）：全量 `pytest -q`、`pnpm build`、`frontend_smoke` / `account_smoke`、
+真机（W3b）。
+
+### W3a 改动面
+
+`maa_api/services/account/depot_scan.py`（拟合口径）、`depot_scan_service.py`（逐屏扫描、翻页器、
+合并结果）、`depot.py`（合并 + 来源 + `depot_state`）、`capture.py`（两路合并接线）、
+`db/models.py` + `db/repositories/account.py` + 迁移 `0021`、`api/routers/account.py`、
+`main.py`（装配 `DepotScanService` + `DepotChainPager`）、`settings.py` / `settings_schema.py` /
+`config.template.yaml`（两个新设置项）、`web/src/features/account/{api.ts,DepotTab.tsx}` 与
+三个测试文件、`web/openapi.json`、`web/src/types/api.d.ts`、docs 04/05/09/12/13、规格/计划。
+**没接真机**（W3b 的活）。
+
+### W3a 顺带修掉的两条假红
+
+1. `tests/test_settings.py::test_env_mapping_names_are_pinned` 的钉死字典里没有 W2 加的
+   `account.depot_scan_*` 四项 —— 从 `6a45999` 起那条用例一直红。
+2. `tests/api/test_account_router.py::test_depot_list_is_read_only_and_filterable` 把识别时刻
+   写死成 `2026-10-10`，跨过 `agent.depot_stale_days`（3 天）之后 `stale` 判 true 就红 ——
+   改成「两小时前的整点」。
+
+### 留给 W3b（占设备一轮）
+
+1. **数量**：24 个 `NumberOcrReplace` 节点的 roi 按当屏拟合出的格线现算（翻页后要换一批），
+   与内核重叠的 id 直接用内核数量，我们独有的才走 OCR，读不到**不写数量**。
+2. **`DepotChainPager` 的完成判据**：现在默认「等 1.5 s 落定」（链上的 `@SwipeNextPage`
+   自带 `postDelay: 1500`）；真机上应改成接内核的 `TaskChainCompleted` 回调。
+3. **M44 的真机重验收** + 本轮 W3a 的真机端到端（来源标签、数量「—」、未识别清单肉眼确认）。
+4. **自识别与流水线的并发**：`DepotInfo(done=true)` 的回调里直接跑逐屏扫描（每屏 ≈ 1.2 s
+   识别 + 1.5 s 落定，10 屏 ≈ 27 s）。回调是独立 `asyncio.Task`（`callback_wiring` 用
+   `loop.create_task`），但它占着设备 —— 真机上要确认同一条流水线的下一个任务不会在这个
+   窗口里抢设备（必要时改成「先写内核那一趟的结果，自识别跑完再补一次合并写」）。
 
 ## W0 遗留 / 未取证
 

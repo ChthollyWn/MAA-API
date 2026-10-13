@@ -2,7 +2,7 @@
 
 - 里程碑：M45
 - 分支：`m45-depot-selfscan`（从 `refactor/v2` 新建，基点 `0670331`）
-- 状态：W0 已完成（实验 + 规格 + 计划），W1 起待实现
+- 状态：W0/W1/W2 已完成；**W3 拆成 W3a（不占设备，已完成）与 W3b（占设备，未做）**
 - 上游：M44 仓库识别覆盖全部页签 + 道具图（`0670331`，见 `docs/13` §8.64）、M27 仓库识别、M43/M44 资源代理
 - 台账：`docs/superpowers/ledgers/2026-10-13-m45-depot-selfscan.md`
 
@@ -165,8 +165,8 @@ M44 台账记「W1 候选 A 已验证通过（26 → 77 件）」。本轮把内
    - 按 §2.6 的 `top1 ≥ 0.75 且 margin ≥ 0.15` 判定接受/未知，输出 top-3。
 2. **任务链与取帧接线**：一条只做「进仓库页 → 取帧（可多屏）→ 离开」的 `Custom` 链，用**我们自己的任务名**（不覆盖内核 `Depot*`）；识别在 Python 侧做，不占内核的 `Depot` 任务。
 3. **数量**：先只保证身份；数量按 §2.6 的分批策略（重叠 id 用内核 `DepotInfo`，新 id 走 24 个 `NumberOcrReplace` OCR 节点），失败就不写。
-4. **合并入库**：识别结果与内核那一趟结果**按 id 合并**（同一 id 取「有数量的那一边」，两边都有数量取我们自己的——因为我们的识别不依赖白名单），继续走 M44 的**下限护栏**（低于阈值整轮不写）。
-5. **页面展示**：M44 已经做了道具图与「约」标注，M45 只增加新出现的分类（凭证/寻访/家具/货币）在仓库页的正常展示，不新做页面。
+4. **合并入库**：识别结果与内核那一趟结果**按 id 合并**（并集；同一 id 两边都有时**取内核的数量** —— 它那一趟真读数量，自识别 W3a 只保证身份），继续走 M44 的**下限护栏**（低于阈值整轮不写）。**W3a 已落地**：`merge_depot_sources` + 迁移 `0021`（`count` 可空、`sources`、识别记录 `detail`）。
+5. **页面展示**：M44 已经做了道具图与「约」标注，M45 只增加新出现的分类（凭证/寻访/家具/货币）在仓库页的正常展示，不新做页面。**W3a 已落地**：每行标来源（`内核` / `自识别`）、数量未知显示「—」、列表上方给覆盖说明与未识别清单。
 
 ### 3.2 本里程碑不做
 
@@ -234,8 +234,20 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
 ### 4.5 与内核那趟结果的合并
 
 - 内核 `DepotInfo` 的 `data` 是 `{item_id: quantity}`，我们的是 `{item_id: {score, margin, rect}}`。
-- 合并规则：**并集**；同一 id 以「有数量的一方」为准；两边都有数量 ⇒ 以我们自己的为准（我们的识别不依赖白名单，也不受 `swipe_and_analyze` 提前 `break` 的影响）；两边都没有数量 ⇒ 入库但数量留空。
+- 合并规则：**并集**；两边都有 ⇒ 数量取**内核**那一趟的（W3a 的自识别只保证身份，数量 OCR 是 W3b 的活，而内核的数量是真读出来的）；只有自识别有 ⇒ 入库但 `count` 留空（＝未识别，页面显示「—」，**不写 0**）；两边都没有 ⇒ 不写这一行，进「未识别」清单。
 - M44 的下限护栏复用：合并后的条目数低于阈值仍然整轮不写。
+
+### 4.6 W3a 落地记录（2026-10-13，不占设备）
+
+| 项 | 落地形态 |
+| --- | --- |
+| 逐屏扫描 | `DepotScanService.scan_all_pages()`：每屏独立取帧 + 独立重新拟合；翻页走注入的 `DepotPager`（真机 `DepotChainPager` 提交链上的 `@SwipeNextPage`）；停在页数上限（默认 10）/ 连续 2 屏无新增 / 翻页失败 |
+| 相位拟合 | `FIRST_SEARCH_MAX` 24 → **40 px**（实测极差 36 px、单帧偏 +27.7 px）；**格距锁定先验不参与搜索**；并列解取平台中心；landmark 一个都不能跳过；`_diverse` 去重键含模板号 |
+| 合并入库 | `merge_depot_sources()`（纯函数）+ `DepotService.replace_all(item_sources=…, detail=…)`；`account.depot_scan_enabled=false` 时采集层完全不碰自识别，写库路径与 M27 逐字一致 |
+| 来源与未识别 | 迁移 `0021_depot_sources`：`count` 可空、`sources`、`account_recognition.detail`；`GET /api/account/depot` 多 `source` / `sources` / `unrecognized` / `unrecognized_total` / `coverage` |
+| 页面 | 来源标签、数量未知「—」、覆盖说明、未识别清单（最多 8 个名字）；旧数据不贴标签 |
+
+**W3b 还没做**（占设备一轮）：数量（24 个 `NumberOcrReplace` 节点按当屏拟合出的格线现算 roi）、M44 的真机重验收、以及 `DepotChainPager` 在真机上的完成判据（现在默认「等 1.5 s 落定」，`ready` 回调留给 W3b 接内核的 `TaskChainCompleted`）。
 
 ## 5. 兼容与风险
 
@@ -270,6 +282,6 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
    - 接受格 ≥ 18，且 `4002/4003/4001/3003/4006/3141/4004/4005/7001/7002/7003` 全部在接受的 top-1 里；
    - `ap_supply` 那 4 格判为「歧义/未知」而不是给一个 id；
    - 半格错位输入的误接受数为 **0**。
-2. **真机验收**：跑完整链路，`account_depot_item` 里出现 `7003/7004/4004/4005/3401/3141`（至少出现本页实际有的那几件），且 5 个基础道具的数量与内核 `DepotInfo` 一致。
+2. **真机验收（W3b）**：跑完整链路，`account_depot_item` 里出现 `7003/7004/4004/4005/3401/3141`（至少出现本页实际有的那几件），且 5 个基础道具的数量与内核 `DepotInfo` 一致；页面上的来源标签、数量「—」与未识别清单肉眼确认。
 3. **回归**：M44 的下限护栏仍然生效（构造小结果 → 整轮不写）。
 4. **门禁**：`pytest -q`、`dump_openapi.py --check`、`pnpm gen:api:check && pnpm typecheck && pnpm test --run && pnpm build`、`scripts/copy_inventory.py --check` 全过。
