@@ -375,6 +375,9 @@ def test_env_mapping_names_are_pinned() -> None:
         # M27：账号数据的过期阈值（附录 B）。
         "agent.box_stale_days": "MAA_AGENT_BOX_STALE_DAYS",
         "agent.depot_stale_days": "MAA_AGENT_DEPOT_STALE_DAYS",
+        # M45 W4：仓库写库的两道闸——绝对下限（未登记进设置 API）与相对上一轮的下降护栏。
+        "agent.depot_drop_min_prev": "MAA_AGENT_DEPOT_DROP_MIN_PREV",
+        "agent.depot_drop_ratio": "MAA_AGENT_DEPOT_DROP_RATIO",
         # M29：作业研究的授权窗口、单次尝试超时与作业资源保留天数。
         "agent.copilot_grant_minutes": "MAA_AGENT_COPILOT_GRANT_MINUTES",
         "agent.copilot_attempt_timeout_minutes": "MAA_AGENT_COPILOT_ATTEMPT_TIMEOUT_MINUTES",
@@ -489,6 +492,40 @@ def test_account_stale_days_have_documented_defaults_and_bounds():
     assert schema_for("agent.depot_stale_days")["minimum"] == 1
     assert schema_for("agent.depot_stale_days")["maximum"] == 60
     assert schema_for("agent.depot_stale_days")["group"] == "Agent"
+
+
+def test_depot_drop_guard_has_documented_defaults_and_bounds():
+    """M45 W4 的下降护栏：默认 ``20 / 0.75``，两项都为 0 时等于关掉。
+
+    0.75 这个默认值有实测依据：真机那次断崖是 96 → 69，而 96 × 0.7 = 67.2 < 69，
+    0.7 拦不住；0.75 的阈值是 72，同时仍放行「自识别没跑、只剩内核那趟」的 96 → 77。
+    """
+    from maa_api.services.settings_schema import schema_for
+
+    default = resolve_settings(env={})
+    assert default.agent.depot_drop_min_prev == 20
+    assert default.agent.depot_drop_ratio == 0.75
+
+    configured = resolve_settings(
+        {"agent": {"depot_drop_min_prev": 0, "depot_drop_ratio": 0.0}}, env={}
+    )
+    assert configured.agent.depot_drop_min_prev == 0
+    assert configured.agent.depot_drop_ratio == 0.0
+
+    env_layer = resolve_settings(env={"MAA_AGENT_DEPOT_DROP_RATIO": "0.9"})
+    assert env_layer.agent.depot_drop_ratio == 0.9
+
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"depot_drop_ratio": 1.1}}, env={})
+    with pytest.raises(ValidationError):
+        resolve_settings({"agent": {"depot_drop_min_prev": -1}}, env={})
+
+    assert schema_for("agent.depot_drop_min_prev")["minimum"] == 0
+    assert schema_for("agent.depot_drop_min_prev")["maximum"] == 5000
+    assert schema_for("agent.depot_drop_min_prev")["group"] == "Agent"
+    assert schema_for("agent.depot_drop_ratio")["minimum"] == 0
+    assert schema_for("agent.depot_drop_ratio")["maximum"] == 1
+    assert schema_for("agent.depot_drop_ratio")["type"] == "number"
 
 
 def test_depot_self_scan_settings_have_documented_defaults_and_bounds():

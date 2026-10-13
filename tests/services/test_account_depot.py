@@ -61,12 +61,23 @@ def account_session_factory(tmp_path):
     engine.sync_engine.dispose()
 
 
-def _service(factory, *, stale_days: int = 3, min_items: int = 0) -> DepotService:
-    """本文件里的用例大多写 2–3 件的小表，所以**默认关掉下限护栏**（``min_items=0``）；
-    护栏本身由 ``test_min_items_guard_blocks_a_partial_recognition`` 显式打开覆盖。"""
+def _service(
+    factory,
+    *,
+    stale_days: int = 3,
+    min_items: int = 0,
+    drop_min_prev: int = 0,
+    drop_ratio: float = 0.75,
+) -> DepotService:
+    """本文件里的用例大多写 2–3 件的小表，所以**默认关掉两道写库护栏**
+    （``min_items=0`` 与 ``drop_min_prev=0``）；护栏本身由
+    ``test_min_items_guard_blocks_a_partial_recognition`` 与
+    ``test_drop_guard_*`` 显式打开覆盖。"""
     settings = Settings()
     settings.agent.depot_stale_days = stale_days
     settings.agent.depot_min_items = min_items
+    settings.agent.depot_drop_min_prev = drop_min_prev
+    settings.agent.depot_drop_ratio = drop_ratio
     return DepotService(factory, settings_provider=lambda: settings)
 
 
@@ -256,5 +267,88 @@ def test_min_items_guard_blocks_a_partial_recognition(account_session_factory):
         assert await relaxed.replace_all(partial) == 1
         page = await relaxed.list_items()
         assert page["total"] == 1
+
+    asyncio.run(scenario())
+
+
+# --------------------------------------------------------------------------- #
+# M45 W4：下降护栏（相对上一轮的断崖）
+# --------------------------------------------------------------------------- #
+def _table(size: int) -> list[dict[str, object]]:
+    return [
+        {"item_id": f"30{i:03d}", "name": f"物品{i}", "count": i + 1} for i in range(size)
+    ]
+
+
+def test_drop_guard_allows_a_small_decrease(account_session_factory):
+    """① 正常小幅下降放行：上一轮 96 → 本轮 80（> 96 × 0.75 = 72）照写。"""
+
+    async def scenario():
+        service = _service(account_session_factory, drop_min_prev=20, drop_ratio=0.75)
+        assert await service.replace_all(_table(96)) == 96
+        assert await service.replace_all(_table(80)) == 80
+        assert (await service.list_items())["total"] == 80
+
+    asyncio.run(scenario())
+
+
+def test_drop_guard_blocks_a_cliff_and_keeps_the_table(account_session_factory):
+    """② 断崖下降拦截且表不变：上一轮 96 → 本轮 69（真机 14:17 那次）。"""
+
+    async def scenario():
+        service = _service(account_session_factory, drop_min_prev=20, drop_ratio=0.75)
+        assert await service.replace_all(_table(96), recognized_at=NOW) == 96
+
+        # 69 越过了绝对下限（agent.depot_min_items 默认 20），但低于 96 × 0.75 = 72。
+        assert await service.replace_all(_table(69)) == 0
+
+        page = await service.list_items()
+        assert page["total"] == 96, "整表保持原样"
+        assert {row["item_id"] for row in page["items"]} == {row["item_id"] for row in _table(96)}
+
+        # 跳过原因要能在识别记录里查到（响应里也带着这一轮的来源/未识别清单）。
+        async with account_session_factory() as session:
+            latest = await AccountRecognitionRepository(session).latest("depot")
+        assert latest is not None and latest.detail is not None
+        assert latest.detail["skipped"]["reason"] == "drop_guard"
+        assert latest.detail["skipped"]["previous"] == 96
+        assert latest.detail["skipped"]["current"] == 69
+        assert latest.detail["skipped"]["min_prev"] == 20
+        assert latest.detail["skipped"]["ratio"] == 0.75
+        # 行内识别时间没变：数据仍是第一次那轮写的。
+        assert {row["recognized_at"] for row in page["items"]} == {_iso(NOW)}
+
+        # 下一轮回到 96 以上照样能写（护栏不是单向锁）。
+        assert await service.replace_all(_table(90)) == 90
+
+    asyncio.run(scenario())
+
+
+def test_drop_guard_ignores_small_or_empty_previous_tables(account_session_factory):
+    """③ 上一轮为空 / 低于 ``min_prev`` 时不拦（新账号、小仓库照写）。"""
+
+    async def scenario():
+        service = _service(account_session_factory, drop_min_prev=20, drop_ratio=0.75)
+
+        # 空表：3 件也照写。
+        assert await service.replace_all(_table(3)) == 3
+        # 上一轮 3 件 < min_prev(20)：降到 1 件同样不拦。
+        assert await service.replace_all(_table(1)) == 1
+        assert (await service.list_items())["total"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_drop_guard_can_be_disabled(account_session_factory):
+    """④ ``ratio=0`` / ``min_prev=0`` 恢复旧行为（整表替换，不看上一轮）。"""
+
+    async def scenario():
+        off_by_ratio = _service(account_session_factory, drop_min_prev=20, drop_ratio=0)
+        assert await off_by_ratio.replace_all(_table(96)) == 96
+        assert await off_by_ratio.replace_all(_table(1)) == 1
+
+        off_by_min_prev = _service(account_session_factory, drop_min_prev=0, drop_ratio=0.75)
+        assert await off_by_min_prev.replace_all(_table(96)) == 96
+        assert await off_by_min_prev.replace_all(_table(1)) == 1
 
     asyncio.run(scenario())

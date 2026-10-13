@@ -88,6 +88,10 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "agent.copilot_retention_days": ("agent", "copilot_retention_days"),
     "agent.copilot_attempt_timeout_minutes": ("agent", "copilot_attempt_timeout_minutes"),
     "agent.depot_stale_days": ("agent", "depot_stale_days"),
+    # M45 W4 仓库写库闸门：上一轮条目数 ≥ depot_drop_min_prev 时，本轮低于
+    # 上一轮 × depot_drop_ratio 就整轮不写（与 agent.depot_min_items 同一族）。
+    "agent.depot_drop_min_prev": ("agent", "depot_drop_min_prev"),
+    "agent.depot_drop_ratio": ("agent", "depot_drop_ratio"),
     # ---- M45 仓库自识别（规格 §2.6、§4.4）。四个旋钮都由识别服务**每次调用现读**，
     # 改完立即生效，不需要重启（与 agent.* 的账号阈值同一套读法）。----
     "account.depot_scan_enabled": ("account", "depot_scan_enabled"),
@@ -331,6 +335,16 @@ class AgentSettings(BaseModel):
     #: 仓库识别下限护栏（M44）：一次识别的条目数低于它时**整轮不写**，避免半截识别把
     #: 整表冲掉（真机实测：只读到 26 件的那次把 77 行的表覆盖了）。``0`` ＝ 关闭。
     depot_min_items: int = Field(default=20, ge=0, le=2000)
+    #: 仓库识别的**下降护栏**（M45 W4）：``depot_min_items`` 只防「这一轮绝对太少」，
+    #: 防不住「上一轮 96 → 本轮 69」这种相对断崖（真机 14:17 那次内核失败后的自动重试
+    #: 就是 69 条把 96 行的整表冲掉，69 > 20 所以绝对下限放行）。规则：上一轮条目数
+    #: ``≥ depot_drop_min_prev`` 且本轮 ``< 上一轮 × depot_drop_ratio`` ⇒ 整轮不写，
+    #: 表保持原样，并把原因写进识别记录的 ``detail.skipped``。
+    #: ``depot_drop_min_prev=0`` 或 ``depot_drop_ratio=0`` 都等于关掉这条规则。
+    #: 默认比例是 **0.75**（不是 0.7）：0.7 的阈值是 96 × 0.7 = 67.2，拦不住实测的
+    #: 96 → 69；0.75 的阈值是 72，同时仍放行「自识别没跑、只剩内核那趟」的 96 → 77。
+    depot_drop_min_prev: int = Field(default=20, ge=0, le=5000)
+    depot_drop_ratio: float = Field(default=0.75, ge=0.0, le=1.0)
     #: 作业研究（M29，规格 §9.6/§9.7/§9.11）：``copilot_grant_minutes`` 是作业授权的
     #: 有效期（``grant_copilot_attempts`` 的 ``window_minutes`` 默认值）；
     #: ``copilot_attempt_timeout_minutes`` 是 ``run_copilot_attempt`` 阻塞等待的上限；

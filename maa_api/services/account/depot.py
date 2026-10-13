@@ -391,6 +391,17 @@ class DepotService:
         返回 0，并记一条 warning。真机实测过没有这道闸的后果：只读到 26 件的那次识别把
         77 行的整表覆盖成 26 行——半截识别不该有「删除权」。``0`` 关闭护栏。
 
+        **下降护栏（M45 W4）**：``agent.depot_min_items`` 防的是「这一轮绝对太少」，
+        防不住「上一轮 96 → 本轮 69」这种相对断崖（真机 14:17 那次内核失败后的自动重试
+        拿到 69 条，越过了绝对下限，把上一轮完整的 96 行冲掉）。规则：上一轮条目数
+        ``≥ agent.depot_drop_min_prev`` 且本轮 ``< 上一轮 × agent.depot_drop_ratio``
+        ⇒ **整表不动**、同样返回 0，并记一条 warning + 识别记录的
+        ``detail["skipped"]``（``{reason, previous, current, min_prev, ratio, at}``）。
+        ``depot_drop_min_prev=0`` 或 ``depot_drop_ratio=0`` 都等于关掉这条规则
+        （``ratio=0`` 时判据 ``current < 0`` 恒假）。**这一轮照样写识别记录**（``item_count=0``
+        + ``detail.skipped``）：这是要让人事后查得到「为什么表没动」，而表的行内
+        ``recognized_at`` 不变 —— 数据时间仍是上一轮，没有被冒充成新的。
+
         :param items: 每条给 ``item_id``、``name``、``count``，可选 ``category``；
             同一 ``item_id`` 出现多次时取最后一次（识别结果的最后一条为准）。
             ``count`` 允许 ``None`` ＝ 未识别（M45 W3a：自识别只保证身份）。
@@ -398,7 +409,7 @@ class DepotService:
             **不传时整列留 NULL**：这是「内核那一趟照跑照收」的既有路径（自识别未启用、
             或旧调用方），行为与 M27 完全一致。
         :param detail: 写进识别记录的过程事实（来源表、未识别清单、逐屏计数）。
-        :returns: 写入的行数（被护栏拦下时是 0）。
+        :returns: 写入的行数（被任一护栏拦下时是 0）。
         """
         stamp = recognized_at or datetime.now(UTC).replace(tzinfo=None)
         rows: list[dict[str, Any]] = []
@@ -438,7 +449,8 @@ class DepotService:
                     **({"source": source} if source else {}),
                 }
             )
-        min_items = int(getattr(self._settings_provider().agent, "depot_min_items", 0) or 0)
+        agent = self._settings_provider().agent
+        min_items = int(getattr(agent, "depot_min_items", 0) or 0)
         if min_items > 0 and len(rows) < min_items:
             # 不写库、也不记识别记录：这一轮什么都没被当成事实。
             logger.warning(
@@ -447,10 +459,45 @@ class DepotService:
                 min_items,
             )
             return 0
+        drop_min_prev = int(getattr(agent, "depot_drop_min_prev", 0) or 0)
+        drop_ratio = float(getattr(agent, "depot_drop_ratio", 0.0) or 0.0)
 
         item_repo, recognition_repo = _repositories()
         async with self._session_factory() as session:
-            written = await item_repo(session).replace_all(rows)
+            repo = item_repo(session)
+            if drop_min_prev > 0 and drop_ratio > 0:
+                previous = await repo.count()
+                if previous >= drop_min_prev and len(rows) < previous * drop_ratio:
+                    logger.warning(
+                        "仓库识别本轮 %d 件、上一轮 %d 件（低于上一轮的 %g 倍），整轮不写："
+                        "下降护栏拦下，表保持原样（要关掉它把 agent.depot_drop_ratio 设 0）",
+                        len(rows),
+                        previous,
+                        drop_ratio,
+                    )
+                    payload: dict[str, Any] = dict(detail) if detail else {}
+                    payload["skipped"] = {
+                        "reason": "drop_guard",
+                        "previous": previous,
+                        "current": len(rows),
+                        "min_prev": drop_min_prev,
+                        "ratio": drop_ratio,
+                        "at": _iso(stamp),
+                    }
+                    # 记一条 ``item_count=0`` 的记录：表没动，但要能查出「这一轮为什么没写」。
+                    # 行内的 ``recognized_at`` 不变 —— 数据时间仍是上一轮。
+                    await recognition_repo(session).record(
+                        kind="depot",
+                        pipeline_id=pipeline_id,
+                        task_id=task_id,
+                        client_type=client_type,
+                        item_count=0,
+                        recognized_at=stamp,
+                        detail=payload,
+                    )
+                    await session.commit()
+                    return 0
+            written = await repo.replace_all(rows)
             await recognition_repo(session).record(
                 kind="depot",
                 pipeline_id=pipeline_id,

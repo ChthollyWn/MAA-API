@@ -44,6 +44,11 @@ agent:
   # 账号数据（干员识别 / 仓库识别）超过多少天算过期；概要接口与 Agent 注入据此提示重新识别
   box_stale_days: 14
   depot_stale_days: 3
+  # 仓库识别的写库闸门：条目数低于下限就整轮不写；上一轮够多（≥ min_prev）时，
+  # 本轮跌到「上一轮 × ratio」以下也整轮不写（两条都给 0 就等于关掉那道闸）
+  depot_min_items: 20
+  depot_drop_min_prev: 20
+  depot_drop_ratio: 0.75
   # 作业研究（M29）：授权有效期与单次尝试的等待上限，单位分钟
   copilot_grant_minutes: 60
   copilot_attempt_timeout_minutes: 20
