@@ -288,6 +288,9 @@ EXPECTED_JSON_COLUMNS = {
     # M43：卡片用的两列也是 JSON。
     ("account_operator", "skill_ids"),
     ("account_operator", "module_details"),
+    # M45 W3a：仓库两路合并的来源表与识别详情。
+    ("account_depot_item", "sources"),
+    ("account_recognition", "detail"),
     ("account_operator", "recognized_values"),
     ("account_operator", "field_sources"),
     ("account_operator_diff", "manual_value"),

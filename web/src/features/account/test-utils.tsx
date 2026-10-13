@@ -151,18 +151,37 @@ export const KNOWN_EMPTY_ROW: OperatorRow = operatorRow({
 })
 
 /**
- * 仓库夹具（M27 + M44 §4.4）。
+ * 仓库夹具（M27 + M44 §4.4 + M45 W3a）。
  *
  * `4001` 是**龙门币**（顶部资源栏那三件之一）：识别值只到千位，页面要标「约」——所以
  * 这里的数量故意写成 `4797000` 这种整千的数，与真机上的现场一致。
- * `99999` 是 `item_index.json` 里**没有**的 id（识别到了但索引里查不到），拿它验占位图。
+ * `99999` 是 `item_index.json` 里**没有**的 id（识别到了但索引里查不到），拿它验占位图，
+ * 同时它是**没有来源**的旧数据（不贴来源标签）。
+ * `7003` 寻访凭证是 M45 的重点：内核白名单外、由自识别补上，**数量还没读到**（W3A 只做
+ * 身份）⇒ `count: null`，页面必须显示「—」而不是 0。
  */
 export const DEPOT_ITEMS: DepotItem[] = [
-  { item_id: '30011', name: '源岩', count: 42, category: '材料' },
-  { item_id: '30012', name: '固源岩', count: 7, category: '材料' },
-  { item_id: '30061', name: '聚酸酯', count: 3, category: '材料' },
-  { item_id: '4001', name: '龙门币', count: 4797000, category: '货币' },
-  { item_id: '99999', name: '99999', count: 3, category: null },
+  { item_id: '30011', name: '源岩', count: 42, category: '材料', source: 'kernel' },
+  { item_id: '30012', name: '固源岩', count: 7, category: '材料', source: 'kernel' },
+  { item_id: '30061', name: '聚酸酯', count: 3, category: '材料', source: 'kernel' },
+  { item_id: '4001', name: '龙门币', count: 4797000, category: '货币', source: 'kernel' },
+  { item_id: '7003', name: '寻访凭证', count: null, category: '凭证', source: 'self_scan' },
+  { item_id: '99999', name: '99999', count: 3, category: null, source: null },
+]
+
+/** 这一轮的覆盖情况（`GET /api/account/depot` 的 `coverage`）。 */
+export const DEPOT_COVERAGE = {
+  total: DEPOT_ITEMS.length,
+  kernel: 4,
+  self_scan: 1,
+  unrecognized: 2,
+  scanned: { pages: 3, stop_reason: 'no_new' },
+}
+
+/** 这一轮没识别到的道具（缺失 ≠ 0 库存，页面要如实说明）。 */
+export const DEPOT_UNRECOGNIZED = [
+  { item_id: '4004', name: '高级凭证' },
+  { item_id: '3401', name: '家具零件' },
 ]
 
 export const OPERATOR_DIFFS: OperatorDiff[] = [
@@ -289,6 +308,12 @@ export interface AccountApiOptions {
   diffs?: OperatorDiff[]
   depot?: DepotItem[]
   categories?: string[]
+  /** 整份快照的来源表（M45 W3a）；默认按 `DEPOT_ITEMS` 的 `source` 推。 */
+  depotSources?: Record<string, string>
+  /** 这一轮没识别到的道具；默认 `DEPOT_UNRECOGNIZED`，传 `[]` 验「一条都不显示」。 */
+  depotUnrecognized?: { item_id: string; name?: string | null }[]
+  /** 覆盖情况；传 `null` 验「后端没给这一项时页面照常渲染」。 */
+  depotCoverage?: typeof DEPOT_COVERAGE | null
   patchStatus?: number
   dismissStatus?: number
   /** `GET /api/skland/status` 的响应；默认未绑定（`SKLAND_UNBOUND`）。 */
@@ -360,6 +385,15 @@ export function installAccountApi(options: AccountApiOptions = {}) {
     diffs: [...(options.diffs ?? OPERATOR_DIFFS)],
     depot: [...(options.depot ?? DEPOT_ITEMS)],
     categories: options.categories ?? ['材料', '货币'],
+    depotSources:
+      options.depotSources ??
+      Object.fromEntries(
+        (options.depot ?? DEPOT_ITEMS)
+          .filter((item) => item.source)
+          .map((item) => [item.item_id, item.source as string]),
+      ),
+    depotUnrecognized: options.depotUnrecognized ?? DEPOT_UNRECOGNIZED,
+    depotCoverage: options.depotCoverage === undefined ? DEPOT_COVERAGE : options.depotCoverage,
   }
   // 取图（M43/M44）：`/api/account/assets/**` 的响应是 PNG、不是 JSON，而且**不计入
   // `requests`**——既有用例拿 `find('GET', path)` 数的是账号数据端点，图片请求混进去会
@@ -466,7 +500,17 @@ export function installAccountApi(options: AccountApiOptions = {}) {
       if (category) items = items.filter((item) => item.category === category)
       const query = url.searchParams.get('query')
       if (query) items = items.filter((item) => item.name.includes(query) || item.item_id.includes(query))
-      return jsonResponse({ items: items.slice(offset, offset + limit), total: items.length, categories: state.categories })
+      return jsonResponse({
+        items: items.slice(offset, offset + limit),
+        total: items.length,
+        categories: state.categories,
+        // M45 W3a：来源表、未识别清单与覆盖统计都是**整份快照**的事实，
+        // 与 `category` / `query` / 分页无关（页面不拿当前页反推整仓）。
+        sources: state.depotSources,
+        unrecognized: state.depotUnrecognized,
+        unrecognized_total: state.depotUnrecognized.length,
+        coverage: state.depotCoverage,
+      })
     }
 
     // 森空岛（M42 §4.6）：状态、二维码、轮询、手动绑定、同步、解绑六个端点。

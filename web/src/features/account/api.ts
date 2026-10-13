@@ -119,17 +119,44 @@ export interface OperatorDiff {
   created_at: string
 }
 
+/**
+ * 仓库一行（M45 W3a 起带来源）。
+ *
+ * `count` 可以是 `null` ＝ **未识别**：M45 的自识别只保证身份，数量要等 W3B 的 OCR。
+ * 页面显示「—」，**不许当成 0** —— 「仓库里没有这件道具」与「不知道有几件」是两件事。
+ * `source`：`kernel`（内核那一趟）/ `self_scan`（自识别补的）/ `null`（旧数据，来源未知）。
+ */
 export interface DepotItem {
   item_id: string
   name: string
-  count: number
+  count: number | null
   category?: string | null
+  source?: string | null
+}
+
+/** 这一轮**没识别到**的一件道具（缺失 ≠ 0 库存，接口层如实列出）。 */
+export interface DepotUnrecognized {
+  item_id: string
+  name?: string | null
+}
+
+/** 这一轮识别的覆盖情况：谁给的、补了多少、还差多少。 */
+export interface DepotCoverage {
+  total: number
+  kernel: number
+  self_scan: number
+  unrecognized: number
+  scanned?: Record<string, unknown>
 }
 
 export interface DepotListPayload {
   items: DepotItem[]
   total: number
   categories: string[]
+  sources: Record<string, string>
+  unrecognized: DepotUnrecognized[]
+  unrecognizedTotal: number
+  coverage: DepotCoverage | null
 }
 
 export interface DepotListQuery {
@@ -478,19 +505,38 @@ function normalizeDepotItem(row: components['schemas']['AccountDepotRow']): Depo
   return {
     item_id: row.item_id,
     name: row.name ?? row.item_id,
-    count: row.count,
+    // `count` 保留 null（未识别）：这一列**不能**兜底成 0，页面按 null 渲染「—」。
+    count: typeof row.count === 'number' ? row.count : null,
     category: row.category ?? null,
+    source: row.source ?? null,
   }
 }
 
 export async function fetchDepot(query: DepotListQuery, signal?: AbortSignal): Promise<DepotListPayload> {
   const { data, error, response } = await accountApi.GET('/api/account/depot', { params: { query }, signal })
   if (error || !data) throw toApiError(error, response)
-  // `categories` 由后端按整份快照给（M34）：分页或筛选时下拉不会缩水。
+  // `categories` / `sources` / `unrecognized` 都由后端按**整份快照**给（M34、M45 W3a）：
+  // 分页或筛选时这几项不会缩水，页面不拿当前页反推整仓事实。
+  const coverage = data.coverage
   return {
     items: (data.items ?? []).map(normalizeDepotItem),
     total: data.total ?? 0,
     categories: data.categories ?? [],
+    sources: data.sources ?? {},
+    unrecognized: (data.unrecognized ?? []).map((entry) => ({
+      item_id: entry.item_id,
+      name: entry.name ?? null,
+    })),
+    unrecognizedTotal: data.unrecognized_total ?? (data.unrecognized ?? []).length,
+    coverage: coverage
+      ? {
+        total: coverage.total ?? 0,
+        kernel: coverage.kernel ?? 0,
+        self_scan: coverage.self_scan ?? 0,
+        unrecognized: coverage.unrecognized ?? 0,
+        scanned: coverage.scanned ?? {},
+      }
+      : null,
   }
 }
 

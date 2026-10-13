@@ -88,6 +88,18 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "agent.copilot_retention_days": ("agent", "copilot_retention_days"),
     "agent.copilot_attempt_timeout_minutes": ("agent", "copilot_attempt_timeout_minutes"),
     "agent.depot_stale_days": ("agent", "depot_stale_days"),
+    # M45 W4 仓库写库闸门：上一轮条目数 ≥ depot_drop_min_prev 时，本轮低于
+    # 上一轮 × depot_drop_ratio 就整轮不写（与 agent.depot_min_items 同一族）。
+    "agent.depot_drop_min_prev": ("agent", "depot_drop_min_prev"),
+    "agent.depot_drop_ratio": ("agent", "depot_drop_ratio"),
+    # ---- M45 仓库自识别（规格 §2.6、§4.4）。四个旋钮都由识别服务**每次调用现读**，
+    # 改完立即生效，不需要重启（与 agent.* 的账号阈值同一套读法）。----
+    "account.depot_scan_enabled": ("account", "depot_scan_enabled"),
+    "account.depot_scan_top1_min": ("account", "depot_scan_top1_min"),
+    "account.depot_scan_margin_min": ("account", "depot_scan_margin_min"),
+    "account.depot_scan_min_accepted": ("account", "depot_scan_min_accepted"),
+    "account.depot_scan_max_pages": ("account", "depot_scan_max_pages"),
+    "account.depot_scan_no_new_pages": ("account", "depot_scan_no_new_pages"),
     # 作业研究（M29，规格 §9.6/§9.7/§9.11）：授权窗口、单次尝试的等待上限、
     # AI 草稿与作业站副本的保留天数。
     "adb.path": ("adb", "path"),
@@ -323,6 +335,16 @@ class AgentSettings(BaseModel):
     #: 仓库识别下限护栏（M44）：一次识别的条目数低于它时**整轮不写**，避免半截识别把
     #: 整表冲掉（真机实测：只读到 26 件的那次把 77 行的表覆盖了）。``0`` ＝ 关闭。
     depot_min_items: int = Field(default=20, ge=0, le=2000)
+    #: 仓库识别的**下降护栏**（M45 W4）：``depot_min_items`` 只防「这一轮绝对太少」，
+    #: 防不住「上一轮 96 → 本轮 69」这种相对断崖（真机 14:17 那次内核失败后的自动重试
+    #: 就是 69 条把 96 行的整表冲掉，69 > 20 所以绝对下限放行）。规则：上一轮条目数
+    #: ``≥ depot_drop_min_prev`` 且本轮 ``< 上一轮 × depot_drop_ratio`` ⇒ 整轮不写，
+    #: 表保持原样，并把原因写进识别记录的 ``detail.skipped``。
+    #: ``depot_drop_min_prev=0`` 或 ``depot_drop_ratio=0`` 都等于关掉这条规则。
+    #: 默认比例是 **0.75**（不是 0.7）：0.7 的阈值是 96 × 0.7 = 67.2，拦不住实测的
+    #: 96 → 69；0.75 的阈值是 72，同时仍放行「自识别没跑、只剩内核那趟」的 96 → 77。
+    depot_drop_min_prev: int = Field(default=20, ge=0, le=5000)
+    depot_drop_ratio: float = Field(default=0.75, ge=0.0, le=1.0)
     #: 作业研究（M29，规格 §9.6/§9.7/§9.11）：``copilot_grant_minutes`` 是作业授权的
     #: 有效期（``grant_copilot_attempts`` 的 ``window_minutes`` 默认值）；
     #: ``copilot_attempt_timeout_minutes`` 是 ``run_copilot_attempt`` 阻塞等待的上限；
@@ -332,6 +354,44 @@ class AgentSettings(BaseModel):
     copilot_grant_minutes: int = Field(default=60, ge=1, le=1440)
     copilot_attempt_timeout_minutes: int = Field(default=20, ge=1, le=60)
     copilot_retention_days: int = Field(default=7, ge=1, le=365)
+
+
+class AccountSettings(BaseModel):
+    """``config.yaml`` 的 ``account`` 段：账号数据的**识别参数**（M45 仓库自识别）。
+
+    M27 起账号数据的旋钮一直借住在 ``agent`` 段（``box_stale_days`` /
+    ``depot_stale_days`` / ``depot_min_items``），那三个是「数据新鲜度与写库闸门」；
+    M45 的六个是识别器自己的参数，规格 §3.1-1 预留的名字就是 ``account.depot_scan_*``，
+    所以开一段自己的，不再往 ``agent`` 里塞。
+
+    六项都由 :class:`~maa_api.services.account.depot_scan_service.DepotScanService`
+    每次调用现读（``hot_action="none"``），改完立即生效：
+
+    - ``depot_scan_enabled`` 默认**关**：M45 的自识别链路要到 W4 真机验收才成立，
+      默认关可以先合进主线而不改变现有仓库识别（内核 ``Depot`` 那一趟）的行为；
+      验收通过后再决定是否翻默认值，或由用户在设置页显式打开。
+    - ``depot_scan_top1_min`` / ``depot_scan_margin_min`` 是 W0-b 实测的双阈值
+      （``0.75`` / ``0.15``）：单看分数分不开真格与半格伪峰（``0.7876`` vs ``0.7907``），
+      加上与第二名的差距才干净分开（``0.1664`` vs ``0.1540``）。
+    - ``depot_scan_min_accepted`` 是整页接受格数下限（默认 ``8``）：低于它识别器只记
+      ``below_min_accepted``，**写不写库由 W3 的合并路径与 M44 的条目数护栏一起决定**。
+      ``24`` 是整页格数（8×3），填满即「一格都不许未知」。
+    - ``depot_scan_max_pages`` / ``depot_scan_no_new_pages`` 是 M45 W3a 逐屏扫描的两个
+      收手条件（默认 ``10`` / ``2``）：横滑到底会进干员信物区（那里的格线不是
+      8 列 × 129.92，W2 实测拟合 ``insufficient``），所以不能靠固定翻页次数，
+      要按「连续几屏没有新增 id」停；页数上限是硬兜底。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    depot_scan_enabled: bool = False
+    depot_scan_top1_min: float = Field(default=0.75, ge=0.0, le=1.0)
+    depot_scan_margin_min: float = Field(default=0.15, ge=0.0, le=1.0)
+    depot_scan_min_accepted: int = Field(default=8, ge=0, le=24)
+    # 逐屏扫描的两个收手条件（M45 W3a）。``le=50`` 是「再大也没有意义」的兜底：
+    # 一屏 8 列，50 屏 = 400 列道具，远超一个账号的仓库规模。
+    depot_scan_max_pages: int = Field(default=10, ge=1, le=50)
+    depot_scan_no_new_pages: int = Field(default=2, ge=1, le=10)
 
 
 class DeploymentSettings(BaseModel):
@@ -428,6 +488,7 @@ class Settings(BaseModel):
     log: LogSettings = Field(default_factory=LogSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    account: AccountSettings = Field(default_factory=AccountSettings)
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)

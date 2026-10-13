@@ -177,23 +177,69 @@ class AccountOperatorList(BaseModel):
 
 
 class AccountDepotRow(BaseModel):
-    """仓库行：物品 id、名字、数量、分类与识别时间。"""
+    """仓库行：物品 id、名字、数量、分类、识别时间与来源（M45 W3a）。
+
+    ``count`` 可以是 ``null`` ＝ **未识别**（M45 的自识别只保证身份、数量要等 W3b 的
+    OCR）。页面据此显示「—」，**不许当成 0** —— 「仓库里没有这件道具」与「不知道有
+    几件」是两件事。``source`` 是 ``kernel`` / ``self_scan`` / ``null``（旧数据）。
+    """
 
     item_id: str
     name: str | None = None
-    count: int
+    count: int | None = None
     category: str | None = None
     recognized_at: str | None = None
+    source: str | None = None
+
+
+class AccountDepotUnrecognized(BaseModel):
+    """这一轮**没识别到**的一件道具（M45 W3a）。
+
+    M45 W0 的定性：``DepotInfo`` 只回 ``{itemId: count}``，**缺失与 0 库存无法区分**；
+    对内核白名单外那批道具（``7003/7004/4004/4005/3401/3141`` 之类）而言，「没进这张表」
+    只说明「这次没识别到」，不能渲染成 0。这份清单就是那份差集。
+    """
+
+    item_id: str
+    name: str | None = None
+
+
+class AccountDepotCoverage(BaseModel):
+    """这一轮识别的覆盖情况（M45 W3a）：谁给的、补了多少、还差多少。"""
+
+    #: 当前快照里的物品种类数。
+    total: int = 0
+    #: 其中内核 ``Depot`` 那一趟给的（带数量）。
+    kernel: int = 0
+    #: 其中 M45 自识别补上的（内核白名单外那批）。
+    self_scan: int = 0
+    #: 这一轮没识别到的种类数（``unrecognized`` 的长度可能被截断到 200）。
+    unrecognized: int = 0
+    #: 自识别这一轮的统计；没跑过（未启用 / 不可用）时是空表。
+    scanned: dict[str, Any] = Field(default_factory=dict)
 
 
 class AccountDepotList(BaseModel):
-    """仓库响应；``categories`` 见 :meth:`DepotService.list_items`。"""
+    """仓库响应；``categories`` / ``sources`` / ``unrecognized`` 见 ``DepotService``。
+
+    - ``categories``：这份快照里出现过的全部分类（按名字排序），不受 ``category`` 与
+      ``query`` 影响，页面用它渲染分类下拉（M34）；
+    - ``sources``：**整份快照**的 ``{item_id: "kernel" | "self_scan"}``，同样不受筛选
+      与分页影响（M45 W3a）；
+    - ``unrecognized`` / ``unrecognized_total``：这一轮没识别到的 id 与总数（M45 W3a），
+      页面显示「未识别」而不是 0；
+    - ``coverage``：上面几项的汇总。
+    """
 
     items: list[AccountDepotRow]
     total: int
     limit: int
     offset: int
     categories: list[str] = Field(default_factory=list)
+    sources: dict[str, str] = Field(default_factory=dict)
+    unrecognized: list[AccountDepotUnrecognized] = Field(default_factory=list)
+    unrecognized_total: int = 0
+    coverage: AccountDepotCoverage = Field(default_factory=AccountDepotCoverage)
 
 
 def _box_service(request: Request) -> OperatorBoxService:
@@ -469,6 +515,15 @@ async def dismiss_account_operator_diffs(
         "- `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选"
         "条件影响；页面用它渲染分类下拉\n"
         "- 识别走仓库的「全部」页签（M44 覆盖层，内置链只点养成材料），整仓道具一起入库\n"
+        "- **M45 起仓库识别是两路合并**（规格 §4.5）：内核 `Depot` 那一趟（95 个材料 + "
+        "5 个基础物品）照跑照收，自识别（`account.depot_scan_enabled` 打开时）逐屏扫描"
+        "补它拿不到的那批道具。每行因此多一个 `source`：`kernel` / `self_scan` / `null`"
+        "（没见过来源的旧数据）\n"
+        "- **`count` 可以是 `null` ＝ 未识别**（自识别只保证身份）：页面显示「—」，"
+        "不许当成 0。`unrecognized` 是这一轮没识别到的 id 清单（含总数），同样"
+        "**不是 0 库存**\n"
+        "- `sources` 与 `unrecognized` 都是**整份快照**的事实，与 `category` / `query` / "
+        "分页无关（与 `categories` 同口径）\n"
         "- 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定"
     ),
     responses=error_responses("VALIDATION_ERROR", "UNAUTHORIZED"),

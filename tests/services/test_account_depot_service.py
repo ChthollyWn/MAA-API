@@ -47,13 +47,14 @@ def _settings(*, stale_days: int, min_items: int = 0) -> Settings:
 
 
 class _Item:
-    """一条仓库行：属性名与 ``account_depot_item`` 的列同名。"""
+    """一条仓库行：属性名与 ``account_depot_item`` 的列同名（含 M45 W3a 的 ``sources``）。"""
 
     def __init__(self, **fields: Any) -> None:
         self.item_id = ""
         self.name: str | None = None
-        self.count = 0
+        self.count: int | None = 0
         self.category: str | None = None
+        self.sources: dict[str, str] | None = None
         self.recognized_at: datetime | None = None
         for key, value in fields.items():
             setattr(self, key, value)
@@ -125,6 +126,17 @@ def _make_fakes(store: dict[str, Any]) -> dict[str, Any]:
                 if row["kind"] == kind
             ]
             return max(stamps) if stamps else None
+
+        async def latest(self, kind: str | None = None) -> dict[str, Any] | None:
+            """最近一条识别记录（M45 W3a 的「未识别清单」从这里读 ``detail``）。"""
+            rows = [
+                row
+                for row in store["recognitions"]
+                if kind is None or row["kind"] == kind
+            ]
+            if not rows:
+                return None
+            return max(rows, key=lambda row: row["recognized_at"])
 
     return {
         "AccountDepotItemRepository": AccountDepotItemRepository,
@@ -337,6 +349,8 @@ def test_replace_all_writes_a_depot_recognition_record(depot):
                 "client_type": "Bilibili",
                 "item_count": 1,
                 "recognized_at": NOW,
+                # M45 W3a：不传 detail 时记 None（旧调用方的形状不变）。
+                "detail": None,
             }
         ]
 

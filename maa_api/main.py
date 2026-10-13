@@ -498,7 +498,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         from maa_api.core.client import CoreClient
         from maa_api.core.enums import Message
-        from maa_api.core.depot_overlay import ensure_depot_all_tabs
+        from maa_api.core.depot_overlay import remove_depot_all_tabs_override
+        from maa_api.core.depot_selfscan_overlay import ensure_depot_self_scan
         from maa_api.core.kernel_options import ensure_task_delay
         from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
         from maa_api.core.supervisor import CoreState, CoreSupervisor
@@ -533,11 +534,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         except Exception:  # noqa: BLE001 - 提速旋钮的意外不能拖垮启动
             logger.exception("生成内核资源层配置失败：识别间隔沿用内核默认")
-        # M44：仓库识别改点「全部」页签（内置链只点养成材料，真机实测少读 2/3 条目）。
+        # M45 W4：M44 的仓库页签覆盖层已按裁决删除（用户 2026-10-13 批准）。不再生成
+        # `Depot` / `DepotAllTab` 的覆盖，内核回到自带的 `Depot.next = ["DepotMaterialTab"]`；
+        # 同时删掉老检出上残留的覆盖文件 —— 只删代码不给力：文件是启动期写的、不进版本库，
+        # 留着照样被内核加载，而它在「从主界面进仓库」时会把整轮识别打成空结果（台账 W3b-D）。
         try:
-            ensure_depot_all_tabs(layers_root=layers_root)
-        except Exception:  # noqa: BLE001 - 页签覆盖的意外不能拖垮启动
-            logger.exception("生成仓库页签覆盖层失败：仓库识别退回内核自带的养成材料页签")
+            remove_depot_all_tabs_override(layers_root=layers_root)
+        except Exception:  # noqa: BLE001 - 清理失败不能拖垮启动
+            logger.exception("清理 M44 仓库页签覆盖层失败：内核可能仍加载旧的页签覆盖")
+        # M45 W2：仓库自识别链（`MaaApi@DepotSelfScan@*`）——全部用我们自己的任务名，
+        # 只做「进仓库页 / 点全部 / 翻页」，识别在 Python 侧。写不动只记日志：
+        # 自识别不可用，内核那一趟照常。
+        try:
+            ensure_depot_self_scan(layers_root=layers_root)
+        except Exception:  # noqa: BLE001 - 自识别链的意外不能拖垮启动
+            logger.exception("生成仓库自识别任务链失败：自识别链路不可用")
 
         boot_config = {
             "maa_path": str(maa_path),
@@ -995,10 +1006,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.account_summary = AccountSummaryReader(
             box=box_service, depot=depot_service
         )
+        # M45 W3a：仓库自识别（逐屏扫描 + 与内核那趟按 id 合并）。**装配不依赖开关**：
+        # 开关（`account.depot_scan_enabled`，默认 false）由服务每次调用现读 —— 关着时
+        # 采集层拿到 `DepotScanDisabled` 就按「这一轮没有自识别」处理，写库路径与 M27
+        # 逐字一致。翻页走内核链 `MaaApi@DepotSelfScan@SwipeNextPage`（不用 adb 硬滑），
+        # 取帧复用 `DeviceManager.screenshot` 那条既有通路。
+        from maa_api.services.account.depot_scan_service import (
+            DepotChainPager,
+            DepotFrameSource,
+            DepotScanService,
+        )
+
+        depot_scan = DepotScanService(
+            DepotFrameSource(device_manager),
+            pager=DepotChainPager(core_client),
+        )
+        app.state.depot_scan_service = depot_scan
         account_capture = AccountCaptureService(
             db_session.session_factory,
             box_service=box_service,
             depot_service=depot_service,
+            depot_scan=depot_scan,
         )
         app.state.account_capture = account_capture
         # 回调接线（M33 §4.1）：M27 的采集服务建好后一直没有生产调用方，干员 / 仓库的

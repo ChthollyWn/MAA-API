@@ -21,6 +21,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -56,6 +58,13 @@ ITEM_CATALOG = {
     "30012": ItemMeta(name="固源岩", category="MATERIAL"),
     "30011": ItemMeta(name="源岩", category="MATERIAL"),
     "4001": ItemMeta(name="龙门币", category="NORMAL"),
+}
+#: M45 W3a 的两路合并用的小目录：一件材料（内核那趟带得到）+ 一件寻访凭证
+#: （``classifyType=NORMAL``，内核白名单外，只有自识别认得出来）。
+M45_CATALOG = {
+    "30012": ItemMeta(name="固源岩", category="MATERIAL"),
+    "4001": ItemMeta(name="龙门币", category="NORMAL"),
+    "7003": ItemMeta(name="寻访凭证", category="NORMAL"),
 }
 OPERATOR_CATALOG = {
     "char_002_amiya": OperatorMeta(name="阿米娅", rarity=5, profession="术师"),
@@ -619,6 +628,140 @@ def test_depot_bad_json_is_degraded_without_wiping_the_table(
 
         async with retention_session_factory() as session:
             assert len(await AccountDepotItemRepository(session).list()) == 1
+
+    asyncio.run(scenario())
+
+
+class _FakeScan:
+    """``DepotScanService`` 的替身：给一组 id（或抛异常），并记下被调用过。"""
+
+    def __init__(self, items: dict[str, float] | None = None, *, error: Exception | None = None) -> None:
+        self.items = items or {}
+        self.error = error
+        self.calls = 0
+
+    async def scan_all_pages(self, **_kwargs: Any) -> Any:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        run = SimpleNamespace(
+            pages_scanned=2,
+            stop_reason="no_new",
+            items=dict(self.items),
+        )
+        return SimpleNamespace(
+            items=dict(self.items),
+            accepted=len(self.items),
+            ambiguous=1,
+            unknown=2,
+            below_min_accepted=False,
+            run=run,
+        )
+
+
+def _scan_service(factory, scan: Any) -> AccountCaptureService:
+    """带 M45 自识别的采集服务（其余注入与 ``_service`` 一致）。"""
+    return AccountCaptureService(
+        factory,
+        item_catalog=M45_CATALOG,
+        operator_catalog=OPERATOR_CATALOG,
+        depot_service=_depot_service_without_guard(factory),
+        depot_scan=scan,
+    )
+
+
+def test_depot_self_scan_is_merged_into_the_kernel_result(
+    retention_session_factory,
+) -> None:
+    """M45 W3a：两路并集入库；同一 id 以内核为准；只有自识别有的写「未识别」。"""
+
+    async def scenario() -> None:
+        scan = _FakeScan({"7003": 0.9025, "30012": 0.88})  # 30012 内核也给了
+        service = _scan_service(retention_session_factory, scan)
+
+        result = await service.handle_callback(
+            _depot('{"30012": 120, "4001": 15}'),
+            message=Message.SubTaskExtraInfo,
+            created_at=RECOGNIZED_AT,
+        )
+
+        assert (result.written, result.item_count) == (True, 3)
+        assert scan.calls == 1
+        async with retention_session_factory() as session:
+            rows = {row.item_id: row for row in await AccountDepotItemRepository(session).list()}
+            # 并集：内核 2 件 + 自识别独有 1 件（30012 不重复）。
+            assert set(rows) == {"30012", "4001", "7003"}
+            # 两边都有 ⇒ 数量与来源都算内核的。
+            assert rows["30012"].count == 120
+            # 只有自识别有 ⇒ 身份入库、数量留 NULL（未识别），名字来自物品索引。
+            assert rows["7003"].count is None
+            assert rows["7003"].name == "寻访凭证"
+            assert rows["7003"].sources == {"7003": "self_scan", "30012": "kernel", "4001": "kernel"}
+
+            latest = await AccountRecognitionRepository(session).latest(
+                RECOGNITION_KIND_DEPOT
+            )
+            assert latest is not None and latest.detail is not None
+            assert latest.detail["sources"]["7003"] == "self_scan"
+            assert latest.detail["sources"]["4001"] == "kernel"
+            assert latest.detail["scanned"]["pages"] == 2
+            assert latest.detail["scanned"]["stop_reason"] == "no_new"
+
+    asyncio.run(scenario())
+
+
+def test_depot_without_a_self_scan_service_behaves_exactly_as_before(
+    retention_session_factory,
+) -> None:
+    """没装配自识别（默认）时：只写内核那一趟的结果，行为与 M27 逐字一致。"""
+
+    async def scenario() -> None:
+        result = await _capture(retention_session_factory, _depot('{"30012": 120}'))
+
+        assert (result.written, result.item_count) == (True, 1)
+        async with retention_session_factory() as session:
+            rows = await AccountDepotItemRepository(session).list()
+            assert [(row.item_id, row.count) for row in rows] == [("30012", 120)]
+            # 来源列照写「内核」；不装配自识别时这一列只会有 kernel（旧数据的 NULL
+            # 只出现在直接调服务层写库的路径上，见 test_account_depot_merge.py）。
+            assert rows[0].sources == {"30012": "kernel"}
+            latest = await AccountRecognitionRepository(session).latest(
+                RECOGNITION_KIND_DEPOT
+            )
+            assert latest is not None
+            assert (latest.detail or {}).get("sources") == {"30012": "kernel"}
+            # 没跑自识别 ⇒ 没有逐屏统计。
+            assert "scanned" not in (latest.detail or {})
+
+    asyncio.run(scenario())
+
+
+def test_depot_self_scan_failure_still_writes_the_kernel_result(
+    retention_session_factory,
+) -> None:
+    """自识别失败（未启用 / 设备掉了）只少补几个 id，绝不因此不写内核那一趟。"""
+
+    async def scenario() -> None:
+        scan = _FakeScan(error=RuntimeError("自识别未启用"))
+        service = _scan_service(retention_session_factory, scan)
+
+        result = await service.handle_callback(
+            _depot('{"30012": 120}'),
+            message=Message.SubTaskExtraInfo,
+            created_at=RECOGNIZED_AT,
+        )
+
+        assert (result.written, result.item_count) == (True, 1)
+        assert scan.calls == 1
+        async with retention_session_factory() as session:
+            rows = await AccountDepotItemRepository(session).list()
+            assert [(row.item_id, row.count) for row in rows] == [("30012", 120)]
+            assert rows[0].sources == {"30012": "kernel"}
+            latest = await AccountRecognitionRepository(session).latest(
+                RECOGNITION_KIND_DEPOT
+            )
+            assert latest is not None and latest.detail is not None
+            assert "自识别未启用" in latest.detail["scanned"]["error"]
 
     asyncio.run(scenario())
 

@@ -108,7 +108,7 @@ describe('账号请求层的容器键', () => {
     expect(payload.total).toBe(1)
   })
 
-  it('仓库列表读 items 与后端按整份快照给的 categories', async () => {
+  it('仓库列表读 items 与后端按整份快照给的 categories / sources / unrecognized', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse({
         items: [
@@ -118,14 +118,28 @@ describe('账号请求层的容器键', () => {
             count: 3,
             category: '材料',
             recognized_at: '2026-10-10T12:08:40Z',
+            source: 'kernel',
           },
           // 映射不到的物品：名字为空，请求层用 item_id 兜底。
           { item_id: '99999', count: 1, category: null, recognized_at: null },
+          // M45 W3a：自识别只认出身份、数量还没读到（`null` ⇒ 页面显示「—」，不是 0）。
+          {
+            item_id: '7003',
+            name: '寻访凭证',
+            count: null,
+            category: '凭证',
+            recognized_at: '2026-10-10T12:08:40Z',
+            source: 'self_scan',
+          },
         ],
-        total: 2,
+        total: 3,
         limit: 100,
         offset: 0,
         categories: ['技巧概要', '材料'],
+        sources: { '30012': 'kernel', '7003': 'self_scan' },
+        unrecognized: [{ item_id: '4004', name: '高级凭证' }],
+        unrecognized_total: 1,
+        coverage: { total: 3, kernel: 2, self_scan: 1, unrecognized: 1, scanned: { pages: 2 } },
       }),
     )
     vi.stubGlobal('fetch', fetchMock)
@@ -133,9 +147,42 @@ describe('账号请求层的容器键', () => {
     const payload = await fetchDepot({ limit: 100, offset: 0 })
 
     expect(payload.items).toEqual([
-      { item_id: '30012', name: '聚酸酯组', count: 3, category: '材料' },
-      { item_id: '99999', name: '99999', count: 1, category: null },
+      { item_id: '30012', name: '聚酸酯组', count: 3, category: '材料', source: 'kernel' },
+      { item_id: '99999', name: '99999', count: 1, category: null, source: null },
+      { item_id: '7003', name: '寻访凭证', count: null, category: '凭证', source: 'self_scan' },
     ])
     expect(payload.categories).toEqual(['技巧概要', '材料'])
+    expect(payload.sources).toEqual({ '30012': 'kernel', '7003': 'self_scan' })
+    expect(payload.unrecognized).toEqual([{ item_id: '4004', name: '高级凭证' }])
+    expect(payload.unrecognizedTotal).toBe(1)
+    expect(payload.coverage).toEqual({
+      total: 3,
+      kernel: 2,
+      self_scan: 1,
+      unrecognized: 1,
+      scanned: { pages: 2 },
+    })
+  })
+
+  it('后端少给 M45 的几项时容器给安全默认值', async () => {
+    // 老版本的后端（或代理截断）只回 items / total / categories：页面不该因此炸掉，
+    // 来源留空、未识别清单为空、覆盖为 null。
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        items: [{ item_id: '30012', name: '聚酸酯组', count: 3 }],
+        total: 1,
+        limit: 100,
+        offset: 0,
+        categories: ['材料'],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const payload = await fetchDepot({ limit: 100, offset: 0 })
+
+    expect(payload.sources).toEqual({})
+    expect(payload.unrecognized).toEqual([])
+    expect(payload.unrecognizedTotal).toBe(0)
+    expect(payload.coverage).toBeNull()
   })
 })

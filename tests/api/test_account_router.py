@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -474,13 +474,18 @@ def test_depot_list_is_read_only_and_filterable(isolated_db, make_client, tmp_se
     app, client = _client(isolated_db, make_client)
     depot = app.state.account_depot_service
 
+    # 识别时刻取「两小时前的整点」而不是写死日期：`stale` 判的是真实时钟，
+    # 写死的日期一旦跨过 `agent.depot_stale_days`（默认 3 天）这条用例就会假红
+    # （同一类问题在 tests/services/test_account_depot_service.py 里已经踩过一次）。
+    stamp = datetime.now().replace(minute=0, second=0, microsecond=0) - timedelta(hours=2)
+
     async def scenario():
         await depot.replace_all(
             [
                 {"item_id": "30012", "name": "聚酸酯组", "count": 3, "category": "材料"},
                 {"item_id": "3231", "name": "技巧概要·卷1", "count": 40, "category": "技巧概要"},
             ],
-            recognized_at=datetime(2026, 10, 10, 3, 0, 0),
+            recognized_at=stamp,
         )
 
     asyncio.run(scenario())
@@ -494,8 +499,11 @@ def test_depot_list_is_read_only_and_filterable(isolated_db, make_client, tmp_se
         "count",
         "category",
         "recognized_at",
+        # M45 W3a：每行带来源（`kernel` / `self_scan` / null）；这次是服务层直接写的，
+        # 没有来源信息 ⇒ null（旧数据的口径）。
+        "source",
     }
-    assert payload["items"][0]["recognized_at"] == "2026-10-10T03:00:00Z"
+    assert payload["items"][0]["recognized_at"] == stamp.isoformat() + "Z"
 
     filtered = client.get("/api/account/depot?category=材料&limit=1").json()
     assert filtered["total"] == 1
@@ -506,5 +514,5 @@ def test_depot_list_is_read_only_and_filterable(isolated_db, make_client, tmp_se
 
     summary = client.get("/api/account/summary").json()["depot"]
     assert summary["total"] == 2
-    assert summary["recognized_at"] == "2026-10-10T03:00:00Z"
+    assert summary["recognized_at"] == stamp.isoformat() + "Z"
     assert summary["stale"] is False
