@@ -8,7 +8,7 @@ import { ListGroup } from '@/components/ui/list'
 import { NativeSelect } from '@/components/ui/native-select'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states'
 import { AssetImage } from './AssetImage'
-import { accountKeys, fetchAccountSummary, fetchDepot, type DepotCoverage, type DepotItem } from './api'
+import { accountKeys, fetchAccountSummary, fetchDepot, type DepotItem } from './api'
 import { itemIconPath } from './assets'
 import { RecognitionStatus } from './RecognitionStatus'
 import { approximateCountHint, errorText, isApproximateCountItem } from './format'
@@ -16,14 +16,8 @@ import { useDebouncedValue } from './use-debounced-value'
 
 const DEPOT_PAGE_SIZE = 100
 const UNCATEGORIZED = '未分类'
-/** 数量的未知占位（M45 W3a）：识别到身份但没读到数量时显示它，**不显示 0**。 */
+/** 数量的未知占位（防御性）：后端只给有明确数量的行，真拿到空值时显示它，**不显示 0**。 */
 const UNKNOWN_COUNT = '—'
-
-/** 来源标签（M45 W3a）：这一行的身份是谁认出来的。未见过来源的旧数据不贴标签。 */
-const SOURCE_LABELS: Record<string, string> = {
-  kernel: '内核',
-  self_scan: '自识别',
-}
 
 function groupByCategory(items: DepotItem[]): [string, DepotItem[]][] {
   const groups = new Map<string, DepotItem[]>()
@@ -38,25 +32,22 @@ function groupByCategory(items: DepotItem[]): [string, DepotItem[]][] {
 
 /**
  * 仓库的一行：40px 图标（走本机代理，见 :mod:`./assets` 的 `itemIconPath`）+ 名字 +
- * 分类 + 来源 + `× 数量`。
+ * 分类 + `× 数量`。
  *
  * 图标拿不到（上游没有这张图、索引里没登记这个 id）时留中性占位，绝不留破图；
  * 数量前带「约」的是顶部资源栏那三件（识别值只到千位，见 `format.ts`）。
  *
- * M45 W3a 起两件事与数量同样重要：
- * - `count === null`（自识别只认出身份、还没读数量）显示 `—`，**不许显示 0**；
- * - 每行贴来源标签（`内核` / `自识别`），旧数据没有来源就留空 —— 不猜成内核。
+ * `count === null` 时显示 `—`（**不许显示 0**）：迁移 `0021` 让这一列可空，正常路径上
+ * 后端不会给这种行（它只返回有明确数量的物品），这是防御性分支。
  *
- * `data-testid` 分四处：整行 `depot-<item_id>`、图标 `depot-icon-<item_id>`（取不到图时是
- * `depot-icon-<item_id>-placeholder`）、数量 `depot-count-<item_id>`、来源
- * `depot-source-<item_id>`——「有没有图」「数量标没标约」「数量是不是未识别」
- * 「来源是哪一路」各自断言得清楚。
+ * `data-testid` 分三处：整行 `depot-<item_id>`、图标 `depot-icon-<item_id>`（取不到图时是
+ * `depot-icon-<item_id>-placeholder`）、数量 `depot-count-<item_id>`——「有没有图」
+ * 「数量标没标约」「数量是不是未知」各自断言得清楚。
  */
 function DepotRow({ item }: { item: DepotItem }) {
   const approximate = isApproximateCountItem(item.item_id)
   const hint = approximateCountHint(item.item_id)
   const unknown = item.count == null
-  const sourceLabel = item.source ? SOURCE_LABELS[item.source] ?? item.source : null
   return (
     <div
       data-testid={`depot-${item.item_id}`}
@@ -80,19 +71,6 @@ function DepotRow({ item }: { item: DepotItem }) {
           <span className="font-mono text-xs" data-testid={`depot-id-${item.item_id}`}>
             {item.item_id}
           </span>
-          {sourceLabel ? (
-            <span
-              className="rounded border px-1 text-[0.6875rem] leading-4"
-              data-testid={`depot-source-${item.item_id}`}
-              title={
-                item.source === 'self_scan'
-                  ? '这一件由本机自识别补上（不在内核的识别名单里）'
-                  : '这一件由内核的仓库识别给出'
-              }
-            >
-              {sourceLabel}
-            </span>
-          ) : null}
         </span>
       </span>
       <span
@@ -101,7 +79,7 @@ function DepotRow({ item }: { item: DepotItem }) {
       >
         <span
           className="tabular-nums"
-          title={unknown ? '识别到这件道具，但这一轮没读到数量（不是 0）' : hint ?? undefined}
+          title={unknown ? '这行没有数量（不是 0）' : hint ?? undefined}
         >
           {unknown ? UNKNOWN_COUNT : `${approximate ? '约 ' : ''}× ${item.count}`}
         </span>
@@ -111,26 +89,11 @@ function DepotRow({ item }: { item: DepotItem }) {
 }
 
 /**
- * 覆盖说明（M45 W3a）：这一轮的物品里内核给了几件、自识别补了几件、还有几件没识别到。
- *
- * 「没识别到」是一个必须说出口的事实：内核的 `DepotInfo` 只回 `{itemId: count}`，
- * 缺失与 0 库存无法区分，页面绝不能把它渲染成「有 0 件」。
- */
-function DepotCoverageNote({ coverage }: { coverage: DepotCoverage }) {
-  const scanned = coverage.scanned ?? {}
-  const pages = typeof scanned.pages === 'number' ? scanned.pages : null
-  return (
-    <p className="px-1 text-footnote tabular-nums text-muted-foreground" data-testid="depot-coverage">
-      共 {coverage.total} 种：内核 {coverage.kernel}、自识别 {coverage.self_scan}
-      {pages ? `（扫了 ${pages} 屏）` : ''}
-      {coverage.unrecognized > 0 ? `；${coverage.unrecognized} 种这一轮没识别到（不等于 0）` : ''}
-    </p>
-  )
-}
-
-/**
  * 仓库页（规格 §7.5、M44 §4.4）：按分类分组的只读列表，每行显示图标 + 名字 + 分类 + 数量，
  * 另显示识别时间与是否过期。不做「刷新识别」按钮、不做导入导出（§7.10、Q8、Q37）。
+ *
+ * 列表只含**有明确数量**的物品（后端口径，用户 2026-10-13 裁决：仓库页只显示内核识别到
+ * 的、有明确数量的东西；M45 的自识别已关停下线，见 `docs/13` §8.68）。
  */
 export function DepotTab() {
   const [category, setCategory] = useState('')
@@ -167,10 +130,6 @@ export function DepotTab() {
   const items = (list.data?.pages ?? []).flatMap((page) => page.items ?? [])
   const total = list.data?.pages.at(-1)?.total ?? items.length
   const categories = list.data?.pages.at(-1)?.categories ?? []
-  // 「整份快照」的三项事实（M45 W3a）：与筛选、分页无关，所以从最后一页取一次。
-  const coverage = list.data?.pages.at(-1)?.coverage ?? null
-  const unrecognized = list.data?.pages.at(-1)?.unrecognized ?? []
-  const unrecognizedTotal = list.data?.pages.at(-1)?.unrecognizedTotal ?? unrecognized.length
   const groups = groupByCategory(items)
 
   return (
@@ -180,7 +139,7 @@ export function DepotTab() {
           label="仓库识别"
           entry={summary.data.depot}
           unit="种物品"
-          description="只读列表，由任务里的「仓库识别」写入；识别走仓库的「全部」页签，整仓道具一起入库。"
+          description="只读列表，由任务里的「仓库识别」写入。"
         />
       ) : summary.error ? (
         <InlineAlert tone="warning">读取账号概要失败：{errorText(summary.error)}</InlineAlert>
@@ -227,21 +186,13 @@ export function DepotTab() {
           <EmptyState
             icon={Package}
             title="仓库里没有符合条件的物品"
-            description="识别还没跑过，或者筛选条件太窄。仓库识别走「全部」页签"
+            description="识别还没跑过，或者筛选条件太窄"
           />
         </div>
       ) : (
         <div className="space-y-4">
           {list.error ? <InlineAlert tone="warning">仓库刷新失败：{errorText(list.error)}</InlineAlert> : null}
           <p className="px-1 text-footnote tabular-nums text-muted-foreground">共 {total} 种物品，按分类展示</p>
-          {coverage ? <DepotCoverageNote coverage={coverage} /> : null}
-          {unrecognized.length > 0 ? (
-            <p className="px-1 text-footnote text-muted-foreground" data-testid="depot-unrecognized">
-              这一轮没识别到 {unrecognizedTotal} 种：
-              {unrecognized.slice(0, 8).map((entry) => entry.name || entry.item_id).join('、')}
-              {unrecognizedTotal > 8 ? ' 等' : ''}（没识别到不等于仓库里没有）
-            </p>
-          ) : null}
           {groups.map(([name, group]) => (
             <ListGroup key={name} title={`${name}（${group.length}）`}>
               {group.map((item) => (

@@ -1,23 +1,23 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 6513 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 6528 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 110 | 110 |
-| 绝对化规定腔 | medium | 0 | 76 | 76 |
-| 破折号当冒号用 | high | 0 | 71 | 71 |
+| 粗体强调 | medium | 0 | 115 | 115 |
+| 绝对化规定腔 | medium | 0 | 77 | 77 |
+| 破折号当冒号用 | high | 0 | 74 | 74 |
 | 「A 而不是 B」对照腔 | high | 0 | 60 | 60 |
 | 自指式讲解腔 | medium | 0 | 10 | 10 |
 | 省略号 | medium | 0 | 7 | 7 |
-| 「…即可」机器腔 | medium | 0 | 4 | 4 |
+| 「…即可」机器腔 | medium | 0 | 5 | 5 |
 | 「不是…而是…」对照句 | high | 0 | 2 | 2 |
 | 「首先…其次…」罗列腔 | high | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 | emoji/符号装饰 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 110）
+## 粗体强调（medium｜用户可见 0 / 开发向 115）
 
 **开发向**
 
@@ -27,9 +27,9 @@
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
 - `tests/agent/test_knowledge_no_numbers.py:1` M30 T4：「无数值」检查测试（规格 §10.3、§10.1）。 规格 ``docs/superpowers/specs/2026-10-09-m25-prts-knowledge.md`` §10.1 把内置知识条目的 数值口径定成「数…（共 807 字）
 - `tests/agent/test_knowledge_no_numbers.py:205` MAA 操作参数里的固定招募时长（Recruit 固定填 `9:00:00`，T1-a §5 第 6 条豁免它）。注意「时长档位 → 稀有度下限」那张表 T1-a §5 明确**不豁免**：`1:00:00` 也不在白名单里（除非它出现在 …（共 134 字）
-- …… 另有 104 条，见 inventory.json
+- …… 另有 109 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 76）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 77）
 
 **开发向**
 
@@ -39,9 +39,9 @@
 - `tests/agent/test_knowledge_no_numbers.py:574` 规格 §10.3 T4：正文不得出现「数字 + 游戏单位」。
 - `tests/agent/test_knowledge_service.py:1287` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
 - `tests/agent/test_llm.py:341` 模型名写错时要能在 details 里看到上游原话，且凭据不得回显。
-- …… 另有 70 条，见 inventory.json
+- …… 另有 71 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 71）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 74）
 
 **开发向**
 
@@ -51,7 +51,7 @@
 - `tests/agent/test_policy_account_write.py:148` 条目的字段缺一个就用另一边，全缺就跳过——不能让确认卡片多一行空话。
 - `tests/agent/test_runtime.py:3461` 规格 §5：批次中途中断后每个 ``tool_calls`` 都有对应 tool 消息。 中断点由测试控制：第一条 tool 消息落库之后、第二条之前挂住这一轮，正好落在 「补历史」的中间窗口上——这是最容易补重复或漏补的一条路径。
 - `tests/agent/test_runtime.py:3953` 轮次失败要留下两样东西：日志里的一行，和会话里的一条说明。 2026-10-09 的实况是两样都没有：用户消息已经落库，回复与错误原因都没留下，用户 第二天只能问「Agent 怎么又不好使了」，而服务端一个字都查不到——`AppError`…（共 147 字）
-- …… 另有 65 条，见 inventory.json
+- …… 另有 68 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 60）
 
@@ -88,13 +88,14 @@
 - `tests/services/test_game_story.py:235` 杜宾：……我也希望是你的错觉。
 - …… 另有 2 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 4）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 5）
 
 **开发向**
 
 - `tests/db/test_repositories_pipeline.py:56` 写入即可读；``get_by_idempotency_key`` 只按真实 key 命中，空 key 返回 None。
 - `tests/db/test_repositories_schedule_setting.py:225` 写入即可读；默认值、``template`` 原样存取、入参提交后仍可读。
 - `tests/domain/test_route_inventory.py:1` 全量路由清单契约（docs/05 §6 与 web/openapi.json 的一致性门禁）。 docs/05 §6 是路由清单，`web/openapi.json` 是同一批路由的机器可读投影（由 ``scripts/dump_opena…（共 902 字）
+- `tests/services/test_account_depot.py:143` 用户 2026-10-13 的口径：读侧只给有明确数量的行，``total`` 与分类同口径。 行是直接写进表的（``replace_all`` 的默认路径写不出 ``count = NULL``，那是自识别 独有的形状）：读侧过滤即可，*…（共 142 字）
 - `tests/services/test_copilot_notify.py:136` 通知不能因为一个认不出的结果值就发不出去；记一条 warning 即可。
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 2）

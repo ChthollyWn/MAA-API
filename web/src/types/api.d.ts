@@ -51,10 +51,8 @@ export interface paths {
          *
          *     - `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数
          *     - `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选条件影响；页面用它渲染分类下拉
-         *     - 识别走仓库的「全部」页签（M44 覆盖层，内置链只点养成材料），整仓道具一起入库
-         *     - **M45 起仓库识别是两路合并**（规格 §4.5）：内核 `Depot` 那一趟（95 个材料 + 5 个基础物品）照跑照收，自识别（`account.depot_scan_enabled` 打开时）逐屏扫描补它拿不到的那批道具。每行因此多一个 `source`：`kernel` / `self_scan` / `null`（没见过来源的旧数据）
-         *     - **`count` 可以是 `null` ＝ 未识别**（自识别只保证身份）：页面显示「—」，不许当成 0。`unrecognized` 是这一轮没识别到的 id 清单（含总数），同样**不是 0 库存**
-         *     - `sources` 与 `unrecognized` 都是**整份快照**的事实，与 `category` / `query` / 分页无关（与 `categories` 同口径）
+         *     - 只返回**有明确数量**的物品（内核 `Depot` 那一趟的结果，约 77 件）：M45 的自识别已于 2026-10-13 按用户要求关停并下线，它写下的 `count = NULL` 行读侧一律排除（`total` 与 `categories` 同口径）
+         *     - `count` 仍是可空列：真出现 `null` 时页面显示「—」，不许当成 0
          *     - 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定
          */
         get: operations["account_list_account_depot"];
@@ -1915,78 +1913,34 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
-         * AccountDepotCoverage
-         * @description 这一轮识别的覆盖情况（M45 W3a）：谁给的、补了多少、还差多少。
-         */
-        AccountDepotCoverage: {
-            /**
-             * Kernel
-             * @default 0
-             */
-            kernel: number;
-            /** Scanned */
-            scanned?: {
-                [key: string]: unknown;
-            };
-            /**
-             * Self Scan
-             * @default 0
-             */
-            self_scan: number;
-            /**
-             * Total
-             * @default 0
-             */
-            total: number;
-            /**
-             * Unrecognized
-             * @default 0
-             */
-            unrecognized: number;
-        };
-        /**
          * AccountDepotList
-         * @description 仓库响应；``categories`` / ``sources`` / ``unrecognized`` 见 ``DepotService``。
+         * @description 仓库响应（docs/05 §6.20：列表用 ``{items, total, limit, offset}``）。
          *
-         *     - ``categories``：这份快照里出现过的全部分类（按名字排序），不受 ``category`` 与
-         *       ``query`` 影响，页面用它渲染分类下拉（M34）；
-         *     - ``sources``：**整份快照**的 ``{item_id: "kernel" | "self_scan"}``，同样不受筛选
-         *       与分页影响（M45 W3a）；
-         *     - ``unrecognized`` / ``unrecognized_total``：这一轮没识别到的 id 与总数（M45 W3a），
-         *       页面显示「未识别」而不是 0；
-         *     - ``coverage``：上面几项的汇总。
+         *     ``items`` 只含**有明确数量**的行（``count IS NOT NULL``）：用户 2026-10-13 的口径是
+         *     「仓库页只显示内核识别到的、有明确数量的物品」，自识别独有的 ``NULL`` 行读侧排除
+         *     （见 `docs/13` §8.68）。``categories`` 是这份快照里出现过的全部分类（按名字排序），
+         *     与 ``category`` / ``query`` 无关，页面用它渲染分类下拉（M34），口径与 ``items`` 一致。
          */
         AccountDepotList: {
             /** Categories */
             categories?: string[];
-            coverage?: components["schemas"]["AccountDepotCoverage"];
             /** Items */
             items: components["schemas"]["AccountDepotRow"][];
             /** Limit */
             limit: number;
             /** Offset */
             offset: number;
-            /** Sources */
-            sources?: {
-                [key: string]: string;
-            };
             /** Total */
             total: number;
-            /** Unrecognized */
-            unrecognized?: components["schemas"]["AccountDepotUnrecognized"][];
-            /**
-             * Unrecognized Total
-             * @default 0
-             */
-            unrecognized_total: number;
         };
         /**
          * AccountDepotRow
-         * @description 仓库行：物品 id、名字、数量、分类、识别时间与来源（M45 W3a）。
+         * @description 仓库行：物品 id、名字、数量、分类与识别时间（规格 §7.5 的只读列表）。
          *
-         *     ``count`` 可以是 ``null`` ＝ **未识别**（M45 的自识别只保证身份、数量要等 W3b 的
-         *     OCR）。页面据此显示「—」，**不许当成 0** —— 「仓库里没有这件道具」与「不知道有
-         *     几件」是两件事。``source`` 是 ``kernel`` / ``self_scan`` / ``null``（旧数据）。
+         *     ``count`` 允许 ``null`` 是**防御性**的：迁移 `0021` 起这一列可空，而 2026-10-13
+         *     之后自识别不再参与写库（见 `docs/13` §8.68），正常路径上不会有这种行 —— 列表读侧
+         *     也已排除它们。真出现时页面显示「—」，**不许当成 0**（「仓库里没有这件道具」与
+         *     「不知道有几件」是两件事）。
          */
         AccountDepotRow: {
             /** Category */
@@ -1999,22 +1953,6 @@ export interface components {
             name?: string | null;
             /** Recognized At */
             recognized_at?: string | null;
-            /** Source */
-            source?: string | null;
-        };
-        /**
-         * AccountDepotUnrecognized
-         * @description 这一轮**没识别到**的一件道具（M45 W3a）。
-         *
-         *     M45 W0 的定性：``DepotInfo`` 只回 ``{itemId: count}``，**缺失与 0 库存无法区分**；
-         *     对内核白名单外那批道具（``7003/7004/4004/4005/3401/3141`` 之类）而言，「没进这张表」
-         *     只说明「这次没识别到」，不能渲染成 0。这份清单就是那份差集。
-         */
-        AccountDepotUnrecognized: {
-            /** Item Id */
-            item_id: string;
-            /** Name */
-            name?: string | null;
         };
         /**
          * AccountModuleDetail

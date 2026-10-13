@@ -1,21 +1,21 @@
-"""账号仓库（Depot 识别）数据服务（M27，规格 §7.3、§7.5；M45 W3a 起两路合并）。
+"""账号仓库（Depot 识别）数据服务（M27，规格 §7.3、§7.5）。
 
 仓库识别是**整表替换**：一次识别把 ``account_depot_item`` 整张表换成这次识别到的物品
 与数量（规格 §7.3）。这里读表、渲染 wire、判过期；解析回调数据与物品名映射在
 ``services/account/capture.py``。
 
-**M45 W3a：两路结果按 id 合并**（规格 §4.5）。内核 ``Depot`` 那一趟（95 个材料 + 5 个
-硬编码基础物品，``DepotRecognitionTask.cpp:45``）照跑照收，M45 的自识别
-（:mod:`maa_api.services.account.depot_scan_service`）把内核白名单外的道具补成差集：
+**读侧口径（2026-10-13 用户裁决）**：仓库页只显示**内核识别到的、有明确数量的**物品
+（约 77 件）。自识别独有的行写 ``count = NULL`` ＝ 未识别，读侧一律排除（``only_counted``）；
+``total`` / ``categories`` 同样按这个口径算。行还在库里，将来真要重开自识别还能用。
 
-- 并集；同一 id 两边都有时以**内核的数量**为准（它给得出数量，自识别这一波只保证身份；
-  数量 OCR 是 W3b 的活）；
-- 自识别独有的 id 写 ``count=None`` ＝ 未识别，**绝不写 0**（页面显示「—」）；
-- 每一行的来源记在 ``sources``（``kernel`` / ``self_scan``），整轮的过程事实记在
-  ``account_recognition.detail``（含「这一轮没覆盖到哪些 id」）。
+**M45 的自识别已按用户要求关停并下线**（``account.depot_scan_enabled`` 默认 false，
+见 `docs/13` §8.68）：理由是没有数量的道具进了页面反而容易误读，M46 的 OCR 复用实验
+又只有 53%、未达止损线。关着时写库路径与 M44 之前**逐字一致**（只写内核那一趟），
+代码与迁移 `0021` 作为备档保留。**注意两处刻意保留的记号**：
 
-``account.depot_scan_enabled`` 为假时自识别整块不参与，这条路径与 M27 的实现**逐字等价**
-（只写内核那一趟的结果），见 :meth:`DepotService.replace_all` 的 ``item_sources`` 默认值。
+- ``replace_all`` 的下降护栏数的是**整表行数**（不按数量过滤），这是 M45 W4 的既有语义；
+- 迁移 `0021` 让 ``count`` 可空、加了 ``sources``，**不回退迁移**（回退有数据风险），
+  ``sources`` 列继续按行记来源，读侧不再把它透出。
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ __all__ = [
     "unrecognized_depot_items",
 ]
 
-#: 一条仓库行对外给出的全部字段（规格 §7.5 的只读列表；M45 W3a 加 ``source``）。
+#: 一条仓库行对外给出的全部字段（规格 §7.5 的只读列表）。
 DEPOT_FIELDS: tuple[str, ...] = (
     "item_id",
     "name",
@@ -54,8 +54,9 @@ DEPOT_FIELDS: tuple[str, ...] = (
 )
 
 #: 来源取值：内核 ``Depot`` 那一趟认出来的（带数量）。
+#: 2026-10-13 起不再进接口（页面只有内核这一路），值仍写进 ``sources`` 列作备档。
 DEPOT_SOURCE_KERNEL = "kernel"
-#: 来源取值：M45 自识别补上的（内核白名单外那批；W3a 阶段数量可能未识别）。
+#: 来源取值：M45 自识别补上的（内核白名单外那批；数量未识别）。已下线，见模块 docstring。
 DEPOT_SOURCE_SELF_SCAN = "self_scan"
 
 #: 仓库里**可能**出现的道具（``item_index.json`` 的 ``classifyType``）。
@@ -97,10 +98,11 @@ def enumerate_depot_ids(catalog: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def depot_row_wire(row: Any, *, source: str | None = None) -> dict[str, Any]:
-    """仓库表行 → 对外形状；``count`` 保留 ``None`` ＝ 未识别（M45 W3a）。
+    """仓库表行 → 对外形状；``count`` 保留 ``None`` ＝ 未识别（防御性，见模块 docstring）。
 
-    ``source`` 从 ``sources`` 列取（``{item_id: ...}``），取不到时留 ``None``：
-    0021 之前的行没有来源信息，读侧按「未知」处理，不猜成内核。
+    ``source`` 从 ``sources`` 列取（``{item_id: ...}``），取不到时留 ``None``。
+    2026-10-13 起这个值**不进接口**（页面只有内核那一路），保留在这里是备档：
+    将来若重开自识别，读侧不用改就能把来源讲清楚。
     """
     item_id = str(getattr(row, "item_id", ""))
     count = getattr(row, "count", None)
@@ -282,10 +284,13 @@ class DepotService:
 
         从未识别时 ``recognized_at`` 为 ``None``、``stale`` 为 ``True``：页面与注入段
         据此提示「尚未识别，建议运行仓库识别」。
+
+        ``total`` 与列表同一个口径：**只数有明确数量的行**（``count IS NULL`` 的自识别
+        独有行不算，见模块 docstring）。
         """
         item_repo, recognition_repo = _repositories()
         async with self._session_factory() as session:
-            total = await item_repo(session).count()
+            total = await item_repo(session).count(only_counted=True)
             recognized_at = await recognition_repo(session).last_at("depot")
         stale_days = int(self._settings_provider().agent.depot_stale_days)
         return {
@@ -303,75 +308,34 @@ class DepotService:
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, Any]:
-        """仓库物品列表，带分类与名字筛选、``total`` 与分页。
+        """仓库物品列表，带分类与名字筛选、``total`` 与分页（规格 §7.5）。
 
         ``limit`` / ``offset`` 由本层夹到合法区间；``total`` 是筛选后的总数。
         ``categories`` 是**整份快照**里出现过的分类（按名字排序），与 ``category`` /
         ``query`` 无关：页面用它渲染分类下拉，分页或筛选时不能缩水（规格 §7.3）。
 
-        M45 W3a 起每行多一个 ``source``（``kernel`` / ``self_scan`` / ``None``），
-        ``count`` 可以是 ``None`` ＝ 未识别。**整份快照**的来源表与「未识别」清单不放
-        这里：它们是整轮的事实，与筛选、分页无关，放在 :meth:`depot_state`（同一份
-        实现，路由只调这一个入口）。
-        """
-        return await self.depot_state(category=category, query=query, limit=limit, offset=offset)
-
-    async def depot_state(
-        self,
-        *,
-        category: str | None = None,
-        query: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> dict[str, Any]:
-        """仓库页要的全部事实：分页后的行 + 整份快照的来源 / 未识别 / 覆盖情况。
-
-        - ``items``：按 ``category`` / ``query`` 筛选、分页后的行（每行带 ``source``）；
-        - ``sources``：**整份快照**的 ``{item_id: 来源}``（与筛选、分页无关）；
-        - ``unrecognized``：这一轮没识别到的 id 清单（``item_id`` + ``name``），
-          来自最近一条 ``depot`` 识别记录的 ``detail``；从没跑过自识别时是空表；
-        - ``unrecognized_total``：清单长度（清单本身截断到 200 条）；
-        - ``coverage``：这一轮的 ``scanned`` 摘要（识别到几种、自识别补了几种、
-          自识别有没有跑）。
+        **只返回有明确数量的行**（``count IS NOT NULL``）：用户 2026-10-13 的口径是
+        「仓库页只显示内核识别的、有明确数量的物品」，自识别独有的 ``NULL`` 行读侧一律
+        不出现（行还在库里，见模块 docstring）。``total`` 与 ``categories`` 同口径。
         """
         limit = max(int(limit), 1)
         offset = max(int(offset), 0)
         cat = (category or "").strip() or None
         text = (query or "").strip() or None
-        item_repo, recognition_repo = _repositories()
+        item_repo, _recognition_repo = _repositories()
         async with self._session_factory() as session:
             repo = item_repo(session)
-            total = await repo.count(category=cat, query=text)
-            rows = await repo.list(category=cat, query=text, limit=limit, offset=offset)
-            categories = await repo.categories()
-            all_rows = await repo.list()
-            latest = await recognition_repo(session).latest("depot")
-        sources = _sources_of(all_rows)
-        detail = getattr(latest, "detail", None)
-        detail = detail if isinstance(detail, Mapping) else {}
-        listed = detail.get("unrecognized")
-        unrecognized = [entry for entry in listed if isinstance(entry, Mapping)] if isinstance(
-            listed, list
-        ) else []
-        coverage = {
-            "total": len(all_rows),
-            "kernel": sum(1 for value in sources.values() if value == DEPOT_SOURCE_KERNEL),
-            "self_scan": sum(1 for value in sources.values() if value == DEPOT_SOURCE_SELF_SCAN),
-            "unrecognized": int(detail.get("unrecognized_total") or len(unrecognized)),
-            "scanned": dict(detail.get("scanned") or {}) if isinstance(
-                detail.get("scanned"), Mapping
-            ) else {},
-        }
+            total = await repo.count(category=cat, query=text, only_counted=True)
+            rows = await repo.list(
+                category=cat, query=text, limit=limit, offset=offset, only_counted=True
+            )
+            categories = await repo.categories(only_counted=True)
         return {
-            "items": [depot_row_wire(row, source=sources.get(str(getattr(row, "item_id", "")))) for row in rows],
+            "items": [depot_row_wire(row) for row in rows],
             "total": total,
             "limit": limit,
             "offset": offset,
             "categories": categories,
-            "sources": dict(sources),
-            "unrecognized": unrecognized,
-            "unrecognized_total": coverage["unrecognized"],
-            "coverage": coverage,
         }
 
     async def replace_all(
@@ -404,11 +368,12 @@ class DepotService:
 
         :param items: 每条给 ``item_id``、``name``、``count``，可选 ``category``；
             同一 ``item_id`` 出现多次时取最后一次（识别结果的最后一条为准）。
-            ``count`` 允许 ``None`` ＝ 未识别（M45 W3a：自识别只保证身份）。
-        :param item_sources: ``{item_id: "kernel" | "self_scan"}``（M45 W3a）。
-            **不传时整列留 NULL**：这是「内核那一趟照跑照收」的既有路径（自识别未启用、
-            或旧调用方），行为与 M27 完全一致。
+            ``count`` 允许 ``None`` ＝ 未识别（自识别关停后正常路径不会再写这种行，
+            读侧也会把它们过滤掉）。
+        :param item_sources: ``{item_id: "kernel" | "self_scan"}``（M45 W3a 的备档路径）。
+            **不传时整列留 NULL**：这是「内核那一趟照跑照收」的既有路径，行为与 M44 一致。
         :param detail: 写进识别记录的过程事实（来源表、未识别清单、逐屏计数）。
+            M45 关停后默认路径不再传它。
         :returns: 写入的行数（被任一护栏拦下时是 0）。
         """
         stamp = recognized_at or datetime.now(UTC).replace(tzinfo=None)
@@ -509,24 +474,6 @@ class DepotService:
             )
             await session.commit()
         return written
-
-
-def _sources_of(rows: Iterable[Any]) -> dict[str, str]:
-    """仓库行 → ``{item_id: 来源}``（旧行的 ``sources`` 是 NULL，直接跳过）。
-
-    来源存在每一行的 ``sources`` JSON 里（值都一样），读的时候按行取自己的那一项：
-    这样即使将来一行一个来源地混写也不会读串。
-    """
-    sources: dict[str, str] = {}
-    for row in rows:
-        item_id = str(getattr(row, "item_id", ""))
-        payload = getattr(row, "sources", None)
-        if not item_id or not isinstance(payload, Mapping):
-            continue
-        value = payload.get(item_id)
-        if value:
-            sources[item_id] = str(value)
-    return sources
 
 
 def _is_stale(recognized_at: datetime | None, stale_days: int) -> bool:

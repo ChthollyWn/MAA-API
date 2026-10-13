@@ -169,11 +169,12 @@ class AccountCaptureService:
         ``battle_data.json``（读不到就没有职业）。
     :param box_service / depot_service: 落库服务替身，测试注入；默认按
         ``session_factory`` 现建（构造签名见各自模块）。
-    :param depot_scan: M45 的仓库自识别服务（``DepotScanService`` 或同签名替身）。
-        ``None``（默认）＝ 这条链路不可用，仓库识别退回「只写内核那一趟」——
-        与 M27 的行为**逐字一致**，也是 ``account.depot_scan_enabled=false`` 时的路径。
-        给了它也要看设置开关：开关关着时``scan_all_pages`` 抛 ``DepotScanDisabled``，
-        采集层按「这一轮没有自识别」处理，绝不因此不写内核的结果。
+    :param depot_scan: 仓库自识别服务（``DepotScanService`` 或同签名替身），M45 的
+        补差集链路。**2026-10-13 起按用户要求关停并下线**（见 `docs/13` §8.68）：设置项
+        ``account.depot_scan_enabled`` 默认 false，关着时 ``scan_all_pages`` 抛
+        ``DepotScanDisabled``，采集层按「这一轮没有自识别」处理，走只写内核 ``Depot``
+        那一趟的路径 —— 与 M44 之前**逐字一致**，绝不因此不写内核的结果。代码保留作备档，
+        用户明确打开设置项时这条链路才参与写库。
     """
 
     def __init__(
@@ -348,25 +349,45 @@ class AccountCaptureService:
             # 数据比留着旧数据危险得多，旧数据与旧识别时间都原样保留。
             return AccountCaptureResult(kind=RECOGNITION_KIND_DEPOT, skipped="bad_payload")
 
-        # M45 W3a：内核那一趟照跑照收，自识别补差集（规格 §4.5）。未启用 / 不可用时
-        # scanned 是 None，合并结果就是「只有内核」——与 M27 的行为逐字一致。
+        # 自识别那一趟（未启用 / 不可用 / 失败都是 None）。有它才走两路合并；没有它时
+        # 走下面那条**逐字保留 M44 形态**的路径：不跑合并纯函数、不给 ``item_sources``
+        # 与 ``detail``，写出去的行只来自内核 ``DepotInfo``。
         scanned, scanned_detail = await self._scan_depot()
         catalog = self._items
-        merged = merge_depot_sources(
-            counts,
-            scanned,
-            catalog=catalog,
-            depot_ids=enumerate_depot_ids(catalog),
-        )
-        written = await self._depot.replace_all(
-            merged.rows,
-            recognized_at=created_at,
-            pipeline_id=pipeline_id,
-            task_id=task_id,
-            client_type=client_type,
-            item_sources=merged.sources,
-            detail=merged.detail(scanned=scanned_detail),
-        )
+        if scanned is None:
+            items = [
+                {
+                    "item_id": item_id,
+                    "name": (meta.name if meta else None),
+                    "count": count,
+                    "category": (meta.category if meta else None),
+                }
+                for item_id, count in counts.items()
+                for meta in (catalog.get(item_id),)
+            ]
+            written = await self._depot.replace_all(
+                items,
+                recognized_at=created_at,
+                pipeline_id=pipeline_id,
+                task_id=task_id,
+                client_type=client_type,
+            )
+        else:
+            merged = merge_depot_sources(
+                counts,
+                scanned,
+                catalog=catalog,
+                depot_ids=enumerate_depot_ids(catalog),
+            )
+            written = await self._depot.replace_all(
+                merged.rows,
+                recognized_at=created_at,
+                pipeline_id=pipeline_id,
+                task_id=task_id,
+                client_type=client_type,
+                item_sources=merged.sources,
+                detail=merged.detail(scanned=scanned_detail),
+            )
         # DepotService 已经写过识别记录（它拿得到上下文），这里再调一次是幂等的：
         # 同 kind 同识别时刻只补上下文，不插第二条。
         await self._record(

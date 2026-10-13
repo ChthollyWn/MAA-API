@@ -499,9 +499,6 @@ def test_depot_list_is_read_only_and_filterable(isolated_db, make_client, tmp_se
         "count",
         "category",
         "recognized_at",
-        # M45 W3a：每行带来源（`kernel` / `self_scan` / null）；这次是服务层直接写的，
-        # 没有来源信息 ⇒ null（旧数据的口径）。
-        "source",
     }
     assert payload["items"][0]["recognized_at"] == stamp.isoformat() + "Z"
 

@@ -416,11 +416,17 @@ class AccountDepotItemRepository(BaseRepository):
         query: str | None = None,
         limit: int | None = None,
         offset: int = 0,
+        only_counted: bool = False,
     ) -> list[AccountDepotItem]:
-        """仓库行列表，按「分类 → item_id」排序（页面按分类分组）。"""
+        """仓库行列表，按「分类 → item_id」排序（页面按分类分组）。
+
+        ``only_counted=True`` 时排除 ``count IS NULL`` 的行（自识别独有的道具：
+        身份入库、数量没读到）。页面只显示有明确数量的物品，读侧用这个开关拿数；
+        写库路径（``replace_all`` 的下降护栏）**不传**，它数的是整表行数。
+        """
         statement = (
             select(AccountDepotItem)
-            .where(*_depot_conditions(category=category, query=query))
+            .where(*_depot_conditions(category=category, query=query, only_counted=only_counted))
             .order_by(AccountDepotItem.category.asc(), AccountDepotItem.item_id.asc())
         )
         if offset:
@@ -430,23 +436,38 @@ class AccountDepotItemRepository(BaseRepository):
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
-    async def count(self, *, category: str | None = None, query: str | None = None) -> int:
-        """筛选后的物品数（页面的 ``total`` 与概要的种类数）。"""
+    async def count(
+        self,
+        *,
+        category: str | None = None,
+        query: str | None = None,
+        only_counted: bool = False,
+    ) -> int:
+        """筛选后的物品数（页面的 ``total`` 与概要的种类数）。
+
+        默认数整表（含 ``count IS NULL`` 的自识别独有行）；页面口径传
+        ``only_counted=True``，与 :meth:`list` 保持一致。
+        """
         statement = (
             select(func.count())
             .select_from(AccountDepotItem)
-            .where(*_depot_conditions(category=category, query=query))
+            .where(*_depot_conditions(category=category, query=query, only_counted=only_counted))
         )
         return int(await self.session.scalar(statement) or 0)
 
-    async def categories(self) -> list[str]:
+    async def categories(self, *, only_counted: bool = False) -> list[str]:
         """整份快照里出现过的分类，按名字排序（页面分类下拉，不受筛选影响）。
 
         ``NULL`` 与空白的分类不返回：它们进不了页面的分类分组，也不该出现在下拉里。
+        ``only_counted=True`` 时只统计有数量的行，与列表口径一致 —— 否则下拉里会出现
+        一个点进去空无一物的分类。
         """
+        conditions: list[Any] = [AccountDepotItem.category.is_not(None)]
+        if only_counted:
+            conditions.append(AccountDepotItem.count.is_not(None))
         statement = (
             select(AccountDepotItem.category)
-            .where(AccountDepotItem.category.is_not(None))
+            .where(*conditions)
             .distinct()
             .order_by(AccountDepotItem.category.asc())
         )
@@ -458,8 +479,13 @@ class AccountDepotItemRepository(BaseRepository):
         ]
 
 
-def _depot_conditions(*, category: str | None, query: str | None) -> list[Any]:
+def _depot_conditions(
+    *, category: str | None, query: str | None, only_counted: bool = False
+) -> list[Any]:
     conditions: list[Any] = []
+    if only_counted:
+        # 自识别独有的行写 NULL ＝ 未识别（0021）。用户口径：仓库页只显示有明确数量的物品。
+        conditions.append(AccountDepotItem.count.is_not(None))
     if category is not None and str(category).strip():
         conditions.append(AccountDepotItem.category == str(category).strip())
     # 名字与 item_id 都参与片段筛选：映射不到的物品 name 就是 item_id，按 id 也能搜到。
