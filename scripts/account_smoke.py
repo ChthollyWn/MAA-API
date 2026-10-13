@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 
+import json
+
 import asyncio
 import sys
 import tempfile
@@ -103,9 +105,26 @@ def depot_callback(*, done: bool, data: str | None = None) -> dict[str, Any]:
         "what": "DepotInfo",
         "details": {
             "done": done,
-            "data": data if data is not None else '{"30012": 42, "30013": 7, "龙门币": 120000}',
+            # M44 起仓库写库有下限护栏（`agent.depot_min_items`，默认 20）：夹具少于这个数
+            # 会被整轮拦下、这一步骤永远红。这里给 24 种物品，够到 30012/30013 两条断言。
+            "data": data if data is not None else _depot_payload(),
         },
     }
+
+
+
+def _depot_payload(extra: dict[str, int] | None = None) -> str:
+    """假 `DepotInfo` 的 payload（`extra` 用来模拟「后来材料备齐」）。
+
+    - 只给 30012 / 30013 / 4001：**刻意不给 30073 扭转醇**——脚本用它当「材料没齐不该
+      完成」的反例（`[4]` 步），随后 `_fill_depot` 才把材料补齐。
+    - M44 起仓库写库有下限护栏 `agent.depot_min_items`（默认 20）：条目数不够会被整轮
+      拦下，所以每份 payload 都补足 21 种填充项（含 `_fill_depot` 那份）。
+    """
+    counts: dict[str, int] = {"30012": 42, "30013": 7, "4001": 1200000}
+    counts.update({f"31{i:03d}": i + 1 for i in range(21)})
+    counts.update(extra or {})
+    return json.dumps(counts, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -568,15 +587,15 @@ async def _latest_operbox_recognition(factory: Any) -> Any:
 
 async def _fill_depot(factory: Any, items: dict[str, int]) -> None:
     """模拟一次仓库识别把材料备齐。"""
-    import json
 
-    payload = json.dumps({_item_id(name): count for name, count in items.items()})
+    # 同一份 payload 生成器：这一步也要越过下限护栏，否则整轮被拦下、「完成」断言永不成立。
+    payload = _depot_payload({_item_id(name): count for name, count in items.items()})
     capture = AccountCaptureService(factory)
     await capture.handle_callback(depot_callback(done=True, data=payload), message=Message.SubTaskExtraInfo)
 
 
 def _item_id(name: str) -> str:
-    return {"固源岩组": "30013", "龙门币": "4001"}.get(name, name)
+    return {"固源岩组": "30013", "龙门币": "4001", "扭转醇": "30073"}.get(name, name)
 
 
 class Smoke:
