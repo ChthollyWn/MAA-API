@@ -533,7 +533,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         except Exception:  # noqa: BLE001 - 提速旋钮的意外不能拖垮启动
             logger.exception("生成内核资源层配置失败：识别间隔沿用内核默认")
-        # M44：仓库识别改点「全部」页签（内置链只点养成材料，真机实测少读 2/3 条目）。
+        # M44：仓库识别改点「全部」页签（内置链只点养成材料）。M45 W0 更正：把
+        # 「条目 26 → 77」算成这条覆盖的功劳是错的（26/77 是内核 swipe_and_analyze()
+        # 提前 break），覆盖机制本身的生效性另有实证，真机验收在 M45 W3 重做。
         try:
             ensure_depot_all_tabs(layers_root=layers_root)
         except Exception:  # noqa: BLE001 - 页签覆盖的意外不能拖垮启动
