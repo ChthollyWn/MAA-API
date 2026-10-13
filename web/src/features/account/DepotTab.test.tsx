@@ -133,3 +133,93 @@ describe('M27 仓库页', () => {
     expect(await screen.findByText('阿米娅')).toBeInTheDocument()
   })
 })
+
+/**
+ * M45 W3a：仓库页要把「未识别」与「不支持/没识别到」讲清楚。
+ *
+ * 三件必须做到的事：
+ * 1. **数量未知显示「—」，不是 0** —— 自识别只保证身份，数量要等 W3B 的 OCR；
+ *    「仓库里没有这件道具」与「不知道有几件」不能混成同一个 0。
+ * 2. **每行说清来源**：内核白名单 / 自识别补的（旧数据没有来源就不贴标签）；
+ * 3. **整份快照的覆盖与未识别清单**：`DepotInfo` 只回 `{itemId: count}`，缺失与
+ *    0 库存无法区分，所以「这一轮没识别到哪些」是一条独立的事实，不能折算成 0。
+ */
+describe('M45 仓库页的来源与未识别', () => {
+  beforeEach(() => {
+    resetAssetCache()
+    vi.stubGlobal(
+      'URL',
+      Object.assign(URL, { createObjectURL: () => 'blob:item-icon', revokeObjectURL: () => {} }),
+    )
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('数量未识别时显示「—」而不是 0', async () => {
+    installAccountApi()
+    renderAccount('/more/account/depot')
+
+    const unknown = await screen.findByTestId('depot-count-7003')
+    expect(unknown).toHaveTextContent('—')
+    expect(unknown).not.toHaveTextContent('0')
+    expect(unknown.querySelector('[title]')).toHaveAttribute(
+      'title',
+      '识别到这件道具，但这一轮没读到数量（不是 0）',
+    )
+    // 读得出数量的那些照常显示数字。
+    expect(screen.getByTestId('depot-count-30011')).toHaveTextContent('× 42')
+  })
+
+  it('每行标出来源，没有来源的旧数据不贴标签', async () => {
+    installAccountApi()
+    renderAccount('/more/account/depot')
+
+    expect(await screen.findByTestId('depot-source-30011')).toHaveTextContent('内核')
+    const selfScan = screen.getByTestId('depot-source-7003')
+    expect(selfScan).toHaveTextContent('自识别')
+    expect(selfScan).toHaveAttribute('title', '这一件由本机自识别补上（不在内核的识别名单里）')
+    // 99999 是 0021 迁移之前写下的行（没有 sources）⇒ 不猜来源、不贴标签。
+    expect(screen.queryByTestId('depot-source-99999')).not.toBeInTheDocument()
+  })
+
+  it('显示这一轮的覆盖情况与没识别到的道具', async () => {
+    installAccountApi()
+    renderAccount('/more/account/depot')
+
+    const coverage = await screen.findByTestId('depot-coverage')
+    expect(coverage).toHaveTextContent('共 6 种：内核 4、自识别 1（扫了 3 屏）')
+    expect(coverage).toHaveTextContent('2 种这一轮没识别到（不等于 0）')
+
+    const unrecognized = screen.getByTestId('depot-unrecognized')
+    expect(unrecognized).toHaveTextContent('这一轮没识别到 2 种：高级凭证、家具零件')
+    expect(unrecognized).toHaveTextContent('没识别到不等于仓库里没有')
+  })
+
+  it('没有未识别项时不显示那一段，后端没给覆盖项时页面照常渲染', async () => {
+    installAccountApi({ depotUnrecognized: [], depotCoverage: null })
+    renderAccount('/more/account/depot')
+
+    await screen.findByTestId('depot-count-30011')
+    expect(screen.queryByTestId('depot-unrecognized')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('depot-coverage')).not.toBeInTheDocument()
+    // 筛选刷新也照常：分类下拉与列表都在。
+    expect(screen.getByRole('heading', { name: '材料（3）' })).toBeInTheDocument()
+  })
+
+  it('未识别清单不随筛选缩水（它是整份快照的事实）', async () => {
+    const { find } = installAccountApi()
+    renderAccount('/more/account/depot')
+    await screen.findByTestId('depot-coverage')
+
+    fireEvent.change(screen.getByLabelText('分类'), { target: { value: '材料' } })
+
+    await waitFor(() =>
+      expect(find('GET', '/api/account/depot').at(-1)?.url.searchParams.get('category')).toBe('材料'),
+    )
+    expect(await screen.findByTestId('depot-unrecognized')).toHaveTextContent('家具零件')
+  })
+})
