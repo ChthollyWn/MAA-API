@@ -14,7 +14,7 @@
 | W2 | 任务链/取帧接线 + 数量 | **取帧接线/任务链/设置项完成 + 多屏取证完成**；数量整块留 W3（见 W2 节 D） |
 | W3a | 逐屏扫描 + 合并入库 + 页面语义（不占设备） | **完成**（见下 W3a 节） |
 | W3b | 数量读取（探针实测后裁决不做）+ 真机端到端 + M44 重验收 | **完成**（见下 W3b 节；占设备四轮） |
-| W4 | 文档、门禁、真机验收、`--no-ff` 合并、tag `v2-m45` | 待做（含 D 节留给主 agent 的覆盖层裁决） |
+| W4 | 删 M44 覆盖层、写库下降护栏、文档、全量门禁、真机复验、`--no-ff` 合并、tag `v2-m45` | **代码/文档/门禁/真机完成**（见下 W4 节）；**合并与 tag 由主 agent 做** |
 
 ## W0-a：custom 层覆盖同名内核任务到底生效不生效
 
@@ -739,6 +739,97 @@ coverage: {"total": 88, "kernel": 77, "self_scan": 11, "unrecognized": 173,
 `maa_api/core/depot_selfscan_overlay.py`（文档口径）、
 `tests/services/test_depot_scan_pages.py`；没有接口形状变化，没有 `web/` 改动。
 
+## W4：删 M44 覆盖层 + 写库下降护栏 + 全量门禁 + 真机复验（2026-10-13）
+
+**交付（3 个提交）**：`00fc389` 删掉 M44 的覆盖层（含陈旧文件清理、`main.py` 接线改名、单测重写）；
+`7457e1e` 写库下降护栏（设置 + 服务 + 单测 + 模板）；最后一个提交是文档与台账（docs 04/12/13/README 与规格/计划/本文件，哈希见 `git log`——写死自己的哈希会随 amend 失效）。
+
+### A：M44 覆盖层删除（修复一，用户 2026-10-13 批准）
+
+- `maa_api/core/depot_overlay.py` 现在只有一个函数 `remove_depot_all_tabs_override(layers_root=…)`：
+  每次启动删掉 `resource/maa-layers/custom/resource/tasks/MaaApi@DepotAllTabs.json`。
+  **只删生成代码不够** —— 文件是启动期写的、`resource/` 不进版本库，老检出上留着照样被内核加载，
+  于是「代码删了、行为还在」；删不掉（只读挂载等）只记 warning，不影响启动。
+- 内核 `Depot.next` 恢复成自带的 `["DepotMaterialTab"]`；M45 不依赖这份覆盖：自识别链
+  用 `baseTask: DepotAllTab` + 显式 `template` 只在需要时点一次「全部」（可选、幂等的一步）。
+- `maa_api/assets/depot/` 与它的 README 在 W1（`e6ffaf3`）已随 `DepotAllTabClicked` 死代码一起删掉，
+  本轮只保留「目录不存在」那条断言，没有别的资产要处理。
+- 单测 `tests/core/test_depot_overlay.py` 4 条：删陈旧文件且**不误删同层其它任务**、不再生成任何覆盖
+  （模块里没有 `DEPOT_OVERLAY_TASKS` / `ensure_depot_all_tabs`）、没东西可清时不创建 custom 层、
+  删不动只记日志返回 `None`。`tests/api/test_app_log_wiring.py` 3 条绿（它跑 lifespan，会真的清一次）。
+
+**真机复验**（2026-10-13 14:47–14:54，模拟器 `127.0.0.1:5555`，服务 8002）：
+
+| 证据 | 位置 | 内容 |
+| --- | --- | --- |
+| 启动清理 | `resource/log/2026-10-13.log:1640`（14:47:02） | 「已删除 M44 的仓库页签覆盖层，仓库识别回到内核自带的养成材料页签：…/MaaApi@DepotAllTabs.json」——复验前**故意把那份覆盖文件按老检出的样子写回去**，reload 后消失 |
+| 目录 | `resource/maa-layers/custom/resource/tasks/` | 不再有 `MaaApi@DepotAllTabs.json`（只剩 `MaaApi@DepotSelfScan.json`、`MaaApi@OperatorScan.json`，以及 W0/W1 的旧探针 `MaaApi@DepotScanProbe.json`，见「遗留」） |
+| 连接 | 14:47:37（reload 后 **35 s**） | 设备 `connected`（复核 W0 遗留 6：20–25 s 偏乐观，等 40 s 稳） |
+| `Depot.next` | `asst.log:253098`（14:49:44.648） | `{"cur_task":"Depot","details":{"cur_retry":0,"retry_times":20,"to_be_recognized":["DepotMaterialTab"]},…}` —— **内核值，第一次尝试就命中**（有覆盖层时这里是 `["DepotAllTab"]`，连试 20 次后 `SubTaskError`） |
+| 非空识别 | `asst.log:254563` / `254567`（14:50:01.836） | `DepotInfo` `done=true`、**77 条**（不再是空 `{}`）；`TaskChainCompleted {"taskchain":"Depot"}`；这一轮没有 `TaskChainError` |
+| 落库 | `account_depot_item` / `account_recognition` | 两轮真机分别写 **101** 行（内核 77 + 自识别 24，10 屏）与 **92** 行（77 + 15，4 屏）；基础 5 项 `4001=4722000 / 4002=475 / 4003=244000 / 3003=3092 / 4006=55` 与内核 `DepotInfo` 逐个相等 |
+
+复验的触发姿势：先把游戏送回主界面（仓库页左上返回箭头），再提交 `POST /api/pipelines {"tasks":[{"name":"Depot"}]}`。
+第一次提交前设备已在仓库内，走的是 `DepotBegin → DepotMaterialTab`（覆盖层那条 `next` 根本没被走到）；
+第二次从主界面提交才走到 `Depot` 节点，也就是上表第三行那条日志 —— 与 W3b 的 A/B 场景同一条路径。
+
+### B：写库下降护栏（修复二，用户 2026-10-13 批准）
+
+- **动机**：14:17 那次内核失败后的流水线自动重试拿到 **69** 条，越过了 `agent.depot_min_items=20`
+  的**绝对**下限，把上一轮完整的 **96** 行整表冲掉。
+- **规则**（`DepotService.replace_all`，与 M44 下限护栏同一处）：上一轮条目数
+  `≥ agent.depot_drop_min_prev`（默认 **20**）且本轮 `< 上一轮 × agent.depot_drop_ratio`
+  ⇒ 整表不动、返回 0、记 warning，并把原因写进识别记录的 `detail.skipped`
+  （`{reason: "drop_guard", previous, current, min_prev, ratio, at}`）。
+  **表没写 ⇒ 行内 `recognized_at` 不变**，数据时间不会被冒充成新的；
+  被拦下的这一轮仍留一条 `item_count=0` 的识别记录，事后查得到「为什么表没动」。
+  `ratio=0` 或 `min_prev=0` 都等于关掉（`ratio=0` 时判据 `current < 0` 恒假）。
+- **默认比例 0.75，不是任务书示例里的 0.7**：96 × 0.7 = 67.2 < 69，0.7 恰恰拦不住这次实测的断崖；
+  0.75 的阈值是 72，同时仍放行「自识别没跑、只剩内核那趟」的 96 → 77 这种正常回退。
+  **这一处偏离示例值，请主 agent 复核**。
+- **设置项**：`agent.depot_drop_min_prev` / `agent.depot_drop_ratio` 进 `SETTING_KEYS`、
+  `AgentSettings`、`settings_schema.py`（group Agent）与 `config.template.yaml`（顺带补上一直没写进模板的
+  `agent.depot_min_items`）；服务写库时现读，改完立即生效。`tests/test_settings.py` 的
+  「env 名称钉死」字典与默认值/边界用例同步（新用例 1 条）。
+- **单测 4 条**（`tests/services/test_account_depot.py`）：① 小幅下降放行（96 → 80）；
+  ② 断崖拦截且表不变（96 → 69，含 `detail.skipped` 五个字段与行内 `recognized_at` 未变，
+  以及「下一轮回升到 90 仍能写」）；③ 上一轮为空或低于 `min_prev` 不拦；④ `ratio=0` 与
+  `min_prev=0` 都恢复旧行为。
+- **已知代价**（写进 `docs/13` §8.64 三）：若下降是长期事实（自识别一直不跑、或真的把三成道具种类用光），
+  表会一直停在上一轮，直到某一轮读数回到阈值以上，或人工把 `depot_drop_ratio` 设 0 放行一次。
+- 真机侧：复验那两轮 88 → 92 → 101 的波动都没被误拦（88 与 92 都远高于 96 × 0.75 = 72 这条线）。
+
+### W4 门禁（自跑，2026-10-13）
+
+| 命令 | 尾行 |
+| --- | --- |
+| `.venv/bin/python -m pytest -o addopts= -q --tb=no` | `2 failed, 3931 passed, 6 skipped, 23 warnings in 241.60s (0:04:01)`；`grep "^FAILED"` = `tests/services/test_activity_index.py::test_real_resource_pack_disambiguates_a_repeated_code` 与 `…::test_real_resource_pack_reports_the_current_activity_and_its_stages`（M24 起既有的两条真资源红，与 M45 无关） |
+| `cd web && pnpm typecheck` | 无输出（干净） |
+| `pnpm test --run` | `Test Files 76 passed (76)` / `Tests 803 passed (803)` |
+| `pnpm build` | `[ok] 损坏的 push 载荷仍然显示通知` / `[sw_harness] SERVICE WORKER OK` |
+| `.venv/bin/python scripts/dump_openapi.py --check` | `OpenAPI snapshot is current: web/openapi.json` |
+| `.venv/bin/python scripts/copy_inventory.py --write-baseline && … --check` | 基线 45 项 + `通过：无回潮，0 项较基线下降` |
+
+本轮改动面：`maa_api/core/depot_overlay.py`、`maa_api/main.py`、`maa_api/settings.py`、
+`maa_api/services/settings_schema.py`、`maa_api/services/account/depot.py`、`config.template.yaml`、
+`tests/core/test_depot_overlay.py`、`tests/services/test_account_depot.py`、`tests/test_settings.py`、
+docs 04/12/13/README、规格/计划/台账与文案基线产物。**没有 `web/` 源码改动、没有接口形状变化**
+（`dump_openapi.py --check` 因此本来就该是 current）。
+
+### W4 遗留（交给主 agent）
+
+1. **合并与 tag**：本轮按要求**没有** merge/tag/push；`m45-depot-selfscan` 上共有 **25 个**待合并提交
+   （`git log --oneline refactor/v2..m45-depot-selfscan`，W0–W4 的全部交付）。
+2. **旧探针文件**：`resource/maa-layers/custom/resource/tasks/MaaApi@DepotScanProbe.json` 是 W0/W1 的探针
+   （`resource/` 内、不入库、不被任何链引用），本轮没动它。它引用的 `Depot/DepotAllTabClicked.png`
+   已在 W1 删除，但内核加载这一层时没有报错（多次 reload 实证），所以只是噪音；要清掉随手 `rm` 即可。
+3. **并发扫描没有串行化**（W3b 遗留 ② 未做）：自识别的翻页链仍绕过流水线队列直接 `append_task`+`start`。
+   本轮复验时连着提交两次 `Depot`，两个采集任务的自识别**同时**在跑（日志 14:48–14:53 两串「逐屏扫描」交错，
+   一轮 10 屏耗时 **313 s**，落库顺序也因此颠倒：先完成的那轮 92 行被后完成的 101 行覆盖）。
+   不影响「内核那趟一定入库」的结论，但要彻底干净得给采集任务与流水线任务共用一把设备锁（W4 明确**没做**）。
+4. **下降护栏的默认值**：0.75（不是 0.7，理由见 B 节），需要主 agent 确认；若要回 0.7，
+   改 `maa_api/settings.py` 的 `depot_drop_ratio` 默认值与 `settings_schema`/模板/单测里的对应数字。
+
 ## W0 遗留 / 未取证
 
 1. **M44 W1 需重做验收**（§修正 2）：覆盖机制成立，但「26 → 77」的证据链错了；M44 台账与 `docs/13` §8.64 的对应说法要在 W4 一并更正。
@@ -764,6 +855,8 @@ coverage: {"total": 88, "kernel": 77, "self_scan": 11, "unrecognized": 173,
 ## 门禁
 
 本轮**只改文档**（`docs/superpowers/*`），不动 `maa_api/`、`web/`，`resource/` 是 gitignore 的。因此没有跑后端/前端门禁；W1 起按计划跑。
+
+> **W4 门禁**（全量后端、前端三件套、OpenAPI 快照、文案基线）见上面 §W4 的「W4 门禁」表。
 
 ### W3b 门禁（自跑，2026-10-13）
 

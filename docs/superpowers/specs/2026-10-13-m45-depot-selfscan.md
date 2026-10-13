@@ -2,7 +2,7 @@
 
 - 里程碑：M45
 - 分支：`m45-depot-selfscan`（从 `refactor/v2` 新建，基点 `0670331`）
-- 状态：W0/W1/W2/W3a **已完成**；**W3b 已完成**（数量读取经真机探针实测后裁决**不做**；真机端到端与 M44 重验收已做，见 §4.7）；W4 收口待做
+- 状态：W0/W1/W2/W3a **已完成**；**W3b 已完成**（数量读取经真机探针实测后裁决**不做**；真机端到端与 M44 重验收已做，见 §4.7）；**W4 已完成**（M44 覆盖层删除、写库下降护栏、文档与全量门禁、真机复验，见 §4.8；`--no-ff` 合并与 tag `v2-m45` 由主 agent 执行）
 - 上游：M44 仓库识别覆盖全部页签 + 道具图（`0670331`，见 `docs/13` §8.64）、M27 仓库识别、M43/M44 资源代理
 - 台账：`docs/superpowers/ledgers/2026-10-13-m45-depot-selfscan.md`
 
@@ -176,7 +176,7 @@ M44 台账记「W1 候选 A 已验证通过（26 → 77 件）」。本轮把内
 2. **不做数量 OCR 的模板相减**：那要改内核 C++。
 3. **不扫非仓库页**：背包/采购中心/信物兑换不碰。
 4. **不做实时/高频识别**：仓库扫描是低频操作，不追求 60 fps，也不放进任何逐帧路径。
-5. **不删除 M44 的覆盖层**：`MaaApi@DepotAllTabs.json` 与 `DepotAllTabClicked.png` 暂时留着（M45 的链路不依赖它），删不删留给 M45 收官时一并裁决。
+5. ~~**不删除 M44 的覆盖层**~~：~~`MaaApi@DepotAllTabs.json` 与 `DepotAllTabClicked.png` 暂时留着~~（M45 的链路不依赖它），删不删留给 M45 收官时一并裁决 —— **W4 已裁决：删掉**（§4.8）：`DepotAllTabClicked.png` 早在 W1 就随死代码一起删了，覆盖层整块删除、内核恢复自带的 `Depot.next`。
 
 ## 4. 设计
 
@@ -217,6 +217,7 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
 - §2.5 已证明同名覆盖**能**生效，但覆盖会**改掉内核链的行为**（M44 就是这么把 `Depot` 的 `next` 改掉的），而 M45 想要的是**并存**：内核那一趟（带 95 个材料的稳定识别 + 数量 OCR）仍然是最好的材料来源，我们只是补它拿不到的。
 - 因此 M45 的节点一律用 `MaaApi@DepotSelfScan@…` 前缀，用 `Custom` 任务调用；`Depot`/`DepotAllTab`/`DepotBegin` 一概不动。
 - 代价：多一条链、多一次取帧；收益：内核升级不会踩到我们、我们出问题也不会让内核那趟变差。
+- **W4 之后连那个「例外」也没有了**：M44 留下的 `Depot` / `DepotAllTab` 覆盖层已整块删除（§4.8），内核链回到出厂形状，M45 与它的唯一关系就是「调它的节点进仓库、读它的结果」。
 
 ### 4.3 网格定位（M45 与内核最大的分歧点）
 
@@ -237,7 +238,8 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
 
 - 内核 `DepotInfo` 的 `data` 是 `{item_id: quantity}`，我们的是 `{item_id: {score, margin, rect}}`。
 - 合并规则：**并集**；两边都有 ⇒ 数量取**内核**那一趟的（W3a 的自识别只保证身份，数量 OCR 是 W3b 的活，而内核的数量是真读出来的）；只有自识别有 ⇒ 入库但 `count` 留空（＝未识别，页面显示「—」，**不写 0**）；两边都没有 ⇒ 不写这一行，进「未识别」清单。
-- M44 的下限护栏复用：合并后的条目数低于阈值仍然整轮不写。
+- M44 的下限护栏复用：合并后的条目数低于 `agent.depot_min_items`（默认 20）仍然整轮不写。
+- **W4 补的第二道闸**：上一轮条目数 ≥ `agent.depot_drop_min_prev`（默认 20）且本轮 < 上一轮 × `agent.depot_drop_ratio`（默认 0.75）时同样整轮不写，并把原因写进识别记录的 `detail.skipped` —— 绝对下限拦不住「上一轮 96 → 本轮 69」这种相对断崖。
 
 ### 4.6 W3a 落地记录（2026-10-13，不占设备）
 
@@ -249,7 +251,7 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
 | 来源与未识别 | 迁移 `0021_depot_sources`：`count` 可空、`sources`、`account_recognition.detail`；`GET /api/account/depot` 多 `source` / `sources` / `unrecognized` / `unrecognized_total` / `coverage` |
 | 页面 | 来源标签、数量未知「—」、覆盖说明、未识别清单（最多 8 个名字）；旧数据不贴标签 |
 
-**W3b 已收口**（占设备，见 §4.7）：数量经探针实测后**裁决不做**（§2.6）；`DepotChainPager` 的完成判据已改成等内核 `TaskChainCompleted`（超时退回等落定）；真机端到端条目数 77 → **96**（内核 77 + 自识别 19）；M44 覆盖层重验收完成 —— **逐 key 生效**，但它在「从主界面进仓库」这条正常路径上会把整轮识别打成空结果，删/改裁决留给 W4。
+**W3b 已收口**（占设备，见 §4.7）：数量经探针实测后**裁决不做**（§2.6）；`DepotChainPager` 的完成判据已改成等内核 `TaskChainCompleted`（超时退回等落定）；真机端到端条目数 77 → **96**（内核 77 + 自识别 19）；M44 覆盖层重验收完成 —— **逐 key 生效**，但它在「从主界面进仓库」这条正常路径上会把整轮识别打成空结果，**W4 已裁决：整块删掉**（§4.8）。
 
 
 ### 4.7 W3b 落地记录（2026-10-13，占设备四轮）
@@ -264,7 +266,7 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
 | M44 重验收 | `Depot.next` 的 A/B：有覆盖层时日志是 `["DepotAllTab"]`、写不进去时是内核的 `["DepotMaterialTab"]` ⇒ **逐 key 生效**；但该覆盖在「从主界面进仓库」时必然匹配失败（`DepotAllTab.png` 只在未选中态匹配，实测 0.8369 vs 选中态 0.4710）⇒ 20 次重试后 `SubTaskError` + 空 `DepotInfo` + `TaskChainError`（两轮复现） |
 
 **W3b 留给 W4 的裁决**：M44 覆盖层（`MaaApi@DepotAllTabs.json`）**删掉或把 `Depot.next` 改回内核值**
-—— M45 的链路不依赖它，而它在正常路径上会把仓库识别打挂（台账 W3b-D）。
+—— M45 的链路不依赖它，而它在正常路径上会把仓库识别打挂（台账 W3b-D）。**W4 已裁决并落地：整块删掉**，见 §4.8。
 
 ## 5. 兼容与风险
 
@@ -289,7 +291,7 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
 | `docs/12` | M45 里程碑小节 |
 | `docs/README.md` | 决策速查表加一行 M45 |
 | `docs/ENVIRONMENT.md` | 若 W1 新增了依赖（希望没有），记在这里；内核几何参数的读取位置也记一条 |
-| `maa_api/core/depot_overlay.py` | 修正 :47-48 的错误注释（逐 key 合并 vs 整条替换），行为不动 |
+| `maa_api/core/depot_overlay.py` | W1 修正了 :47-48 的错误注释（逐 key 合并 vs 整条替换）；**W4 整块删除覆盖层**，模块只剩「启动期清掉老检出上残留的 `MaaApi@DepotAllTabs.json`」|
 | `docs/copy-audit/*` | 仓库页若有新文案，按既有流程更新基线 |
 
 ## 7. 验收
@@ -300,5 +302,5 @@ POST /api/pipelines (Custom: MaaApi@DepotSelfScan@*)      ← 我们自己的任
    - `ap_supply` 那 4 格判为「歧义/未知」而不是给一个 id；
    - 半格错位输入的误接受数为 **0**。
 2. **真机验收（W3b，已完成）**：跑完整链路，`account_depot_item` 从 77 涨到 **96 条**（内核 77 + 自识别 19），新增 `3141/4004/4005/7001/7002/7003/EPGS_COIN/REP_COIN/CRISIS_SHOP_COIN_V2/EXTERMINATION_AGENT/classic_gacha/classic_normal_ticket` 等；5 个基础道具数量与内核 `DepotInfo` 逐个相等；`7004/3401` 本账号仓库里确实没有（W0-b 注入召回 `0.9999` 证明链路认得出）。来源标签、数量「—」与未识别清单经接口字段与前端用例核对（台账 W3b-C1/C3）。
-3. **回归**：M44 的下限护栏仍然生效（构造小结果 → 整轮不写）。
+3. **回归**：两道写库闸仍然生效 —— M44 的下限护栏（构造小结果 → 整轮不写）与 W4 的下降护栏（构造 96 → 69 的断崖 → 整表不动、识别记录里能看到 `detail.skipped`）。
 4. **门禁**：`pytest -q`、`dump_openapi.py --check`、`pnpm gen:api:check && pnpm typecheck && pnpm test --run && pnpm build`、`scripts/copy_inventory.py --check` 全过。

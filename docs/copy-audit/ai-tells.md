@@ -1,15 +1,15 @@
 # AI 腔规则命中：用户可见文案
 
-总计 13068 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 13072 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 179 | 389 | 568 |
-| 破折号当冒号用 | high | 41 | 154 | 195 |
+| 粗体强调 | medium | 179 | 390 | 569 |
+| 破折号当冒号用 | high | 41 | 155 | 196 |
 | 「A 而不是 B」对照腔 | high | 17 | 104 | 121 |
 | 绝对化规定腔 | medium | 13 | 72 | 85 |
-| 自指式讲解腔 | medium | 1 | 43 | 44 |
+| 自指式讲解腔 | medium | 1 | 44 | 45 |
 | 「…即可」机器腔 | medium | 12 | 22 | 34 |
 | 「不是…而是…」对照句 | high | 0 | 4 | 4 |
 | emoji/符号装饰 | high | 2 | 1 | 3 |
@@ -18,7 +18,7 @@
 | 感叹号 | low | 0 | 1 | 1 |
 | 提示腔 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 179 / 开发向 389）
+## 粗体强调（medium｜用户可见 179 / 开发向 390）
 
 **用户可见**
 
@@ -42,9 +42,9 @@
 - `maa_api/agent/knowledge/__init__.py:879` 拼进 system 消息的知识库段（格式见规格 §4.1、M24 §4.3）。 段落顺序：索引 → **当期活动**（M24）→ **当期卡池**（M28）→ **账号数据**（M27） → 术语表全文 → 用户档案全文；三段实时数据（活动…（共 241 字）
 - `maa_api/agent/knowledge/convergence.py:1` M30 T3：删除内置条目后，把幸存下来的用户覆盖行迁移成自定义条目。 为什么需要冻结 ``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL，读的时候 继承内置值（见 :mod:`maa_api.ag…（共 1075 字）
 - `maa_api/agent/knowledge/convergence.py:102` 冻结内容有没有超出列宽；超了就记 warning 并跳过这一条。 只查列宽（写进去会报错的那种），**不查** ``kind`` 的取值域：这里唯一的任务是 把用户的覆盖行补全成完整行，冻结的 kind 就算写歪了也仍然比「留一行残缺的自定…（共 166 字）
-- …… 另有 381 条，见 inventory.json
+- …… 另有 382 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 41 / 开发向 154）
+## 破折号当冒号用（high｜用户可见 41 / 开发向 155）
 
 **用户可见**
 
@@ -68,7 +68,7 @@
 - `maa_api/agent/knowledge/convergence.py:191` 把「内置已删、但用户覆盖过」的行补全成自定义条目，返回 ``{migrated, skipped}``。 ``frozen`` 默认取 :data:`FROZEN_BUILTIN_ENTRIES`；``builtins`` 默认取进程内唯一…（共 384 字）
 - `maa_api/agent/policy.py:367` 问一次计划预演，返回 ``(preview, preview_error)``（规格 §7.7）。 提供者按 ``name`` / ``targets`` / ``run_times`` / ``context`` 四个关键字调用， 与 :…（共 259 字）
 - `maa_api/agent/policy.py:613` 要确认的 ``submit_pipeline`` 再附一条「没有 StartUp」的提醒（规格 §4.5）。 只在**确实要确认**（已经有消耗类理由）时加：不需要确认的提交由工具结果里的 ``warnings`` 提醒，策略层不制造新的确…（共 164 字）
-- …… 另有 146 条，见 inventory.json
+- …… 另有 147 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 17 / 开发向 104）
 
@@ -122,7 +122,7 @@
 - `maa_api/agent/tools/activity.py:1` Agent 的当期活动工具：读 PRTS 回答「现在什么活动、这一期有什么关」（规格 §5.6）。 只读、SAFE、不需要设备。国服优先查 PRTS（多个在开活动全部列出），外服或 PRTS 不可用时 退回本机资源包的 M24 推断并如实标…（共 159 字）
 - …… 另有 64 条，见 inventory.json
 
-## 自指式讲解腔（medium｜用户可见 1 / 开发向 43）
+## 自指式讲解腔（medium｜用户可见 1 / 开发向 44）
 
 **用户可见**
 
@@ -133,12 +133,12 @@
 - `maa_api/agent/preconditions.py:1` M32 任务执行前提护栏（规格 §4.1）：纯函数、无 I/O，供工具层与策略层共用。 MaaCore 的每个任务第一步都匹配主界面标志，**只有 ``StartUp`` 会拉起客户端**： 游戏没启动、或设备停在模拟器桌面／登录页时，提交…（共 235 字）
 - `maa_api/agent/tools/estate.py:1` 基建排班与用户档案工具（规格 §8.3、§7.4、Q44）。 四条工具： - ``get_building_skills``（组 ``game``，SAFE）：按干员、房间或技能名查基建技能； - ``get_infrast_candida…（共 581 字）
 - `maa_api/agent/tools/media.py:1` 媒体工具：把截图、物品图标、关卡示意图与图表卡发给用户。 五个工具都声明 ``ToolRisk.SAFE``（政策引擎直接放行、不弹确认，与 ``get_screenshot`` 同级；调用照常进审计），组 ``media``。``anno…（共 321 字）
+- `maa_api/core/depot_overlay.py:1` M45 W4：清掉 M44 留在 custom 层的仓库页签覆盖（``MaaApi@DepotAllTabs.json``）。 **这里原来做什么**：M44 用一份资源覆盖层把内核 ``Depot.next`` 从 ``DepotMate…（共 1186 字）
 - `maa_api/core/depot_selfscan_overlay.py:1` M45 W2：仓库自识别的任务链（``MaaApi@DepotSelfScan@*``，custom 层覆盖）。 **为什么要一条自己的链**：M45 要在内核那一趟之外再拿一帧自己识别（规格 §4.1）。 链只负责「把设备带到仓库「全部」…（共 2182 字）
 - `maa_api/model/util/utils.py:28` 回调消息 请参考 docs/回调消息.md 注：M1-03 起与新的内核层枚举 maa_api.core.enums.Message 对齐为 IntEnum —— 内核回调给的是 int（``Message(msg)`` 已在用），成员本身…（共 180 字）
 - `maa_api/services/account/callback_wiring.py:1` 账号识别回调的接线（M33，规格 §4.1）。 M27 建好的 :class:`~maa_api.services.account.capture.AccountCaptureService` 在生产代码里 没有任何调用方，干员 / 仓库的…（共 346 字）
 - `maa_api/services/account/capture.py:1` MaaCore 账号识别回调的采集（规格 §7.2 T2、§7.3）。 ``OperBox`` / ``Depot`` 的结果通过 ``SubTaskExtraInfo`` 推送，过程中会发多次 ``done=false``，只有最后一次 …（共 1308 字）
-- `maa_api/services/account/depot_scan.py:1` M45 仓库道具识别核心：自己拟合网格 + 全库 masked NCC + 双阈值判定。 **为什么要自己识别**：内核 `DepotRecognitionTask` 只能给出 ``classifyType == "MATERIAL"`` …（共 4103 字）
-- …… 另有 35 条，见 inventory.json
+- …… 另有 36 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 12 / 开发向 22）
 
