@@ -43,8 +43,12 @@ OCR）仍是最好的材料来源，M45 要与它并存；覆盖会改掉内核�
   加载失败**，内核直接起不来。真机实测（2026-10-13 12:36）：
   ``Templ load failed, file not exists: MaaApi@DepotSelfScan@AllTab.png`` →
   ``TaskData load failed, path: .../custom/resource/tasks`` → ``CORE_START_FAILED``。
-- 数量 OCR 的 24 个 ``NumberOcrReplace`` 节点不在本波（W2 只做身份，规格 §3.1-3），
-  等 W3 的数量分批策略落地。
+- 数量 OCR 的 24 个 ``NumberOcrReplace`` 节点**不做**（W3b 真机实测裁决）：按当屏格线
+  现算 roi 的探针节点在生产形状（格心 + 固定偏移 ``110×40``）下 24 格里 6 格读错
+  （含 ``1302 → 302``，分数 0.9995）、5 格读不出，万/亿缩写系统性读错 —— 内核 OCR 前的
+  ``subtract(item_templ * 0.41)`` 任务 JSON 做不到（规格 §5）。自识别独有的 id 一律
+  不写数量（``NULL``，页面显示「—」）。数字与日志行号见台账 W3b-A 节与
+  ``maa_api.services.account.depot_scan_service`` 的模块文档。
 """
 
 from __future__ import annotations
