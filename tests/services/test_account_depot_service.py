@@ -70,9 +70,12 @@ def _make_fakes(store: dict[str, Any]) -> dict[str, Any]:
             return len(store["items"])
 
         def _filtered(
-            self, *, category: str | None, query: str | None
+            self, *, category: str | None, query: str | None, only_counted: bool = False
         ) -> list[_Item]:
             rows = sorted(store["items"].values(), key=lambda item: item.item_id)
+            if only_counted:
+                # 与真仓储同款：读侧排除 count IS NULL（自识别独有）的行。
+                rows = [row for row in rows if row.count is not None]
             if category:
                 rows = [row for row in rows if row.category == category]
             if query:
@@ -86,9 +89,15 @@ def _make_fakes(store: dict[str, Any]) -> dict[str, Any]:
             return rows
 
         async def count(
-            self, *, category: str | None = None, query: str | None = None
+            self,
+            *,
+            category: str | None = None,
+            query: str | None = None,
+            only_counted: bool = False,
         ) -> int:
-            return len(self._filtered(category=category, query=query))
+            return len(
+                self._filtered(category=category, query=query, only_counted=only_counted)
+            )
 
         async def list(
             self,
@@ -97,17 +106,21 @@ def _make_fakes(store: dict[str, Any]) -> dict[str, Any]:
             query: str | None = None,
             limit: int = 100,
             offset: int = 0,
+            only_counted: bool = False,
         ) -> list[_Item]:
-            rows = self._filtered(category=category, query=query)
+            rows = self._filtered(
+                category=category, query=query, only_counted=only_counted
+            )
             return rows[offset : offset + limit]
 
-        async def categories(self) -> list[str]:
+        async def categories(self, *, only_counted: bool = False) -> list[str]:
             # 真仓储取的是整份快照的 distinct 分类（与筛选无关），这里同样不接筛选参数。
             return sorted(
                 {
                     str(row.category).strip()
                     for row in store["items"].values()
                     if str(row.category or "").strip()
+                    and (row.count is not None or not only_counted)
                 }
             )
 
@@ -263,6 +276,28 @@ def test_list_items_filters_by_category_and_name_with_pagination(depot):
 
         clamped = await service.list_items(limit=0, offset=-3)
         assert clamped["limit"] == 1 and clamped["offset"] == 0
+
+    asyncio.run(scenario())
+
+
+def test_list_items_and_summary_skip_rows_without_a_count(depot):
+    """读侧只给有明确数量的行（用户 2026-10-13 口径）：``NULL`` 行不进列表、不进概要。
+
+    这是**假仓储**版本，验的是服务层的口径选择（真 SQL 过滤见
+    ``test_account_depot.py::test_list_items_and_summary_skip_rows_without_a_count``）。
+    """
+    service, store, _factory = depot
+    store["items"] = {
+        "30012": _Item(item_id="30012", name="聚酸酯组", count=3, category="材料"),
+        "7003": _Item(item_id="7003", name="寻访凭证", count=None, category="凭证"),
+    }
+
+    async def scenario():
+        payload = await service.list_items()
+        assert [item["item_id"] for item in payload["items"]] == ["30012"]
+        assert payload["total"] == 1
+        assert payload["categories"] == ["材料"]
+        assert (await service.summary())["total"] == 1
 
     asyncio.run(scenario())
 

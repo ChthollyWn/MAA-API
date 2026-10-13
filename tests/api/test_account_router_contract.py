@@ -542,12 +542,6 @@ OPERATOR_ROW_FIELDS = {
                 "limit",
                 "offset",
                 "categories",
-                # M45 W3a：整份快照的来源表与「这一轮没识别到」的清单（页面据此显示
-                # 「未识别」而不是 0），外加一份汇总。
-                "sources",
-                "unrecognized",
-                "unrecognized_total",
-                "coverage",
             },
         ),
     ),

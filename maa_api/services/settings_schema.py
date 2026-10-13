@@ -130,8 +130,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "agent.depot_drop_min_prev": dict(label="仓库条目下降护栏生效的上一轮条数", group="Agent", type="integer", minimum=0, maximum=5000, hot_action="none"),
     "agent.depot_drop_ratio": dict(label="仓库条目相对上一轮的最低保留比例", group="Agent", type="number", minimum=0, maximum=1, hot_action="none"),
     # M45 仓库自识别（规格 §2.6、§4.4）。六项都是识别服务**每次调用现读**，
-    # 所以 hot_action 是 none；默认关闭的理由见 maa_api/settings.py 的 AccountSettings。
-    "account.depot_scan_enabled": dict(label="启用仓库自识别", group="账号", type="boolean", hot_action="none"),
+    # 所以 hot_action 是 none；2026-10-13 按用户要求关停并下线、默认关闭的理由见
+    # maa_api/settings.py 的 AccountSettings 与 docs/13 §8.68。
+    "account.depot_scan_enabled": dict(label="启用仓库自识别（已下线，默认关）", group="账号", type="boolean", hot_action="none"),
     "account.depot_scan_top1_min": dict(label="自识别相似度下限", group="账号", type="number", minimum=0, maximum=1, hot_action="none"),
     "account.depot_scan_margin_min": dict(label="自识别与第二名的差距下限", group="账号", type="number", minimum=0, maximum=1, hot_action="none"),
     "account.depot_scan_min_accepted": dict(label="自识别接受格数下限", group="账号", type="integer", minimum=0, maximum=24, hot_action="none"),

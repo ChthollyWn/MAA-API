@@ -16,6 +16,7 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401  # 注册全部表
+from maa_api.db.models import AccountDepotItem
 from maa_api.db.repositories.account import AccountRecognitionRepository
 from maa_api.db.session import make_engine
 from maa_api.services.account.depot import DepotService
@@ -134,6 +135,49 @@ def test_replace_all_normalizes_rows(account_session_factory):
         assert items["30012"]["name"] == "30012"
         assert items["30012"]["count"] == 4
         assert items["30013"]["count"] == 0
+
+    asyncio.run(scenario())
+
+
+def test_list_items_and_summary_skip_rows_without_a_count(account_session_factory):
+    """用户 2026-10-13 的口径：读侧只给有明确数量的行，``total`` 与分类同口径。
+
+    行是直接写进表的（``replace_all`` 的默认路径写不出 ``count = NULL``，那是自识别
+    独有的形状）：读侧过滤即可，**不删行** —— 将来若重开自识别还能用。
+    """
+    service = _service(account_session_factory)
+
+    async def scenario():
+        async with account_session_factory() as session:
+            session.add_all(
+                [
+                    AccountDepotItem(
+                        item_id="30012",
+                        name="聚酸酯组",
+                        count=3,
+                        category="材料",
+                        recognized_at=NOW,
+                    ),
+                    AccountDepotItem(
+                        item_id="7003",
+                        name="寻访凭证",
+                        count=None,  # 自识别独有：身份进去了、数量没读到
+                        category="凭证",
+                        recognized_at=NOW,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        payload = await service.list_items()
+        assert [item["item_id"] for item in payload["items"]] == ["30012"]
+        assert payload["total"] == 1
+        # 分类下拉跟着列表口径走：点进去空无一物的分类不出现。
+        assert payload["categories"] == ["材料"]
+        # 筛选也一样：按没数量的那件搜不到。
+        assert (await service.list_items(query="寻访"))["total"] == 0
+        # 概要与列表同口径（页头的「N 种物品」）。
+        assert (await service.summary())["total"] == 1
 
     asyncio.run(scenario())
 

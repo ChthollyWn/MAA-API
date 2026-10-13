@@ -713,7 +713,7 @@ def test_depot_self_scan_is_merged_into_the_kernel_result(
 def test_depot_without_a_self_scan_service_behaves_exactly_as_before(
     retention_session_factory,
 ) -> None:
-    """没装配自识别（默认）时：只写内核那一趟的结果，行为与 M27 逐字一致。"""
+    """没装配自识别（默认）时：只写内核那一趟的结果，行为与 M44 逐字一致。"""
 
     async def scenario() -> None:
         result = await _capture(retention_session_factory, _depot('{"30012": 120}'))
@@ -722,46 +722,89 @@ def test_depot_without_a_self_scan_service_behaves_exactly_as_before(
         async with retention_session_factory() as session:
             rows = await AccountDepotItemRepository(session).list()
             assert [(row.item_id, row.count) for row in rows] == [("30012", 120)]
-            # 来源列照写「内核」；不装配自识别时这一列只会有 kernel（旧数据的 NULL
-            # 只出现在直接调服务层写库的路径上，见 test_account_depot_merge.py）。
-            assert rows[0].sources == {"30012": "kernel"}
+            # M44 形态：不跑自识别就没有来源表与逐屏统计（两列都留空）。
+            assert rows[0].sources is None
             latest = await AccountRecognitionRepository(session).latest(
                 RECOGNITION_KIND_DEPOT
             )
             assert latest is not None
-            assert (latest.detail or {}).get("sources") == {"30012": "kernel"}
-            # 没跑自识别 ⇒ 没有逐屏统计。
-            assert "scanned" not in (latest.detail or {})
+            assert latest.detail is None
 
     asyncio.run(scenario())
 
 
 def test_depot_self_scan_failure_still_writes_the_kernel_result(
-    retention_session_factory,
+    retention_session_factory, caplog
 ) -> None:
-    """自识别失败（未启用 / 设备掉了）只少补几个 id，绝不因此不写内核那一趟。"""
+    """自识别失败（未启用 / 设备掉了）只少补几个 id，绝不因此不写内核那一趟。
+
+    失败原因这一轮只进 warning：写库路径与没装配自识别时**完全一致**（``sources`` /
+    ``detail`` 都不写），自识别的过程事实不再进识别记录。理由见 `docs/13` §8.68。
+    """
 
     async def scenario() -> None:
         scan = _FakeScan(error=RuntimeError("自识别未启用"))
         service = _scan_service(retention_session_factory, scan)
 
-        result = await service.handle_callback(
-            _depot('{"30012": 120}'),
-            message=Message.SubTaskExtraInfo,
-            created_at=RECOGNIZED_AT,
-        )
+        with caplog.at_level(logging.WARNING):
+            result = await service.handle_callback(
+                _depot('{"30012": 120}'),
+                message=Message.SubTaskExtraInfo,
+                created_at=RECOGNIZED_AT,
+            )
 
         assert (result.written, result.item_count) == (True, 1)
         assert scan.calls == 1
         async with retention_session_factory() as session:
             rows = await AccountDepotItemRepository(session).list()
             assert [(row.item_id, row.count) for row in rows] == [("30012", 120)]
-            assert rows[0].sources == {"30012": "kernel"}
+            # 自识别失败 ⇒ 这一轮没有来源表（写库形状与没装配它时一致）。
+            assert rows[0].sources is None
             latest = await AccountRecognitionRepository(session).latest(
                 RECOGNITION_KIND_DEPOT
             )
-            assert latest is not None and latest.detail is not None
-            assert "自识别未启用" in latest.detail["scanned"]["error"]
+            assert latest is not None
+            assert latest.detail is None
+
+    asyncio.run(scenario())
+
+    assert any("自识别未启用" in record.getMessage() for record in caplog.records)
+
+
+def test_disabled_self_scan_keeps_the_m44_write_path(retention_session_factory) -> None:
+    """设置项关着时（用户 2026-10-13 要求下线自识别）：写库形状回到 M44。
+
+    装配了自识别服务但开关为假 —— 这是生产的默认形态（``main.py`` 装配时不看开关）。
+    判据落在两列上：``sources`` 与识别记录 ``detail`` 都**没有来源表**（走的是不传
+    ``item_sources`` / ``detail`` 的那条路径），而不是「先合并再把结果丢掉」。
+    """
+
+    async def scenario() -> None:
+        scan = _FakeScan(error=RuntimeError("仓库自识别未启用（account.depot_scan_enabled=false）"))
+        service = _scan_service(retention_session_factory, scan)
+
+        result = await service.handle_callback(
+            _depot('{"30012": 120, "4001": 15}'),
+            message=Message.SubTaskExtraInfo,
+            created_at=RECOGNIZED_AT,
+        )
+
+        assert (result.written, result.item_count) == (True, 2)
+        assert scan.calls == 1
+        async with retention_session_factory() as session:
+            rows = await AccountDepotItemRepository(session).list()
+            assert [(row.item_id, row.count) for row in rows] == [
+                ("30012", 120),
+                ("4001", 15),
+            ]
+            # M44 形态：两列都不写（0021 之前的旧行同样长这样）。
+            assert {row.sources for row in rows} == {None}
+            latest = await AccountRecognitionRepository(session).latest(
+                RECOGNITION_KIND_DEPOT
+            )
+            assert latest is not None
+            assert latest.detail is None
+            assert latest.item_count == 2
 
     asyncio.run(scenario())
 
