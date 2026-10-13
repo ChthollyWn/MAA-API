@@ -659,6 +659,56 @@ def test_chain_pager_reports_a_failed_chain() -> None:
         asyncio.run(pager.next_page())
 
 
+class _BusyClient(_FakeCallbackClient):
+    """内核先忙几轮（``start()`` 返回 False）之后才收：同流水线下一个任务抢设备的形态。"""
+
+    def __init__(self, *, busy_rounds: int) -> None:
+        super().__init__(message=10002, delay=0.01)
+        self.busy_rounds = busy_rounds
+        self.start_calls = 0
+
+    async def start(self) -> bool:
+        self.start_calls += 1
+        if self.start_calls <= self.busy_rounds:
+            return False
+        return await super().start()
+
+
+def test_chain_pager_waits_out_a_busy_core() -> None:
+    """**C2 的修复**：设备被同流水线的下一个任务占着时退避重试，而不是当场放弃。
+
+    真机实测（2026-10-13 14:24）：``Award`` 抢在自识别之前跑，两次提交都被内核拒，
+    旧实现直接把逐屏扫描收成 ``page_turn_failed``（只扫 1 屏、自识别独有 id 19 → 11）。
+    """
+    client = _BusyClient(busy_rounds=3)
+    pager = DepotChainPager(
+        client, settle_seconds=0.0, completion_seconds=2.0, retry_delay=0.01
+    )
+
+    asyncio.run(pager.next_page())
+
+    assert client.start_calls == 4  # 前 3 次被拒、第 4 次成功
+    assert len(client.appended) == 1, "重试不能把同一趟链排两遍（会多滑一页）"
+
+
+def test_chain_pager_gives_up_when_the_core_stays_busy() -> None:
+    """内核一直忙着：到预算就明确报错（翻页失败由扫描循环兜成「停在上一屏」）。"""
+    client = _BusyClient(busy_rounds=10_000)
+    pager = DepotChainPager(
+        client,
+        settle_seconds=0.0,
+        completion_seconds=2.0,
+        retry_delay=0.01,
+        timeout_seconds=0.2,
+    )
+
+    with pytest.raises(DepotScanError):
+        asyncio.run(pager.next_page())
+
+    assert len(client.appended) == 1
+
+
+
 def test_pager_requires_a_transport() -> None:
     """既没有 client 也没有 submitter 时立刻报错，而不是运行期才炸。"""
     with pytest.raises(ValueError):

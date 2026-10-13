@@ -861,7 +861,9 @@ class DepotChainPager:
         滑动落定后才会写 ``TaskChainCompleted``（W2 的「取帧太早会拿到过渡态」）。
     :param completion_seconds: 等 ``TaskChainCompleted`` 的上限；超时就退回
         ``settle_seconds``（真机实测一趟翻页链约 2.2 s，默认 6 s 留足余量）。
-    :param timeout_seconds: 整趟链的硬上限（含等信号与兜底），超时抛出。
+    :param retry_delay: 内核忙着别的任务（``start()`` 被拒）时的退避间隔，默认 0.5 s；
+        重试总预算仍是 :attr:`timeout_seconds`（W3b-C2 实测：同流水线的下一个任务会抢设备）。
+    :param timeout_seconds: 整趟链的硬上限（含提交重试、等信号与兜底），超时抛出。
     """
 
     #: 链头（进仓库页 + 点「全部」，幂等：已在「全部」页时点一下没有副作用）。
@@ -877,6 +879,7 @@ class DepotChainPager:
         ready: Callable[[], Awaitable[bool]] | None = None,
         settle_seconds: float = 1.5,
         completion_seconds: float = 6.0,
+        retry_delay: float = 0.5,
         timeout_seconds: float = 30.0,
     ) -> None:
         if client is None and submitter is None:
@@ -886,6 +889,7 @@ class DepotChainPager:
         self._ready = ready
         self._settle_seconds = max(float(settle_seconds), 0.0)
         self._completion_seconds = max(float(completion_seconds), 0.0)
+        self._retry_delay = max(float(retry_delay), 0.0)
         self._timeout_seconds = max(float(timeout_seconds), 0.1)
         self._completion: _ChainCompletionTap | None = None
         if client is not None:
@@ -905,14 +909,37 @@ class DepotChainPager:
         if self._submitter is not None:
             await asyncio.wait_for(self._submitter(task_name), self._timeout_seconds)
             return
-        task_id = await self._client.append_task(
-            "Custom", {"task_names": [task_name]}
-        )
-        if not task_id:
-            raise DepotScanError(f"内核没有接受自识别任务 {task_name}")
-        if not await self._client.start():
-            raise DepotScanError(f"内核没有启动自识别任务 {task_name}")
+        task_id = await self._submit(task_name)
         await asyncio.wait_for(self._wait_ready(task_id), self._timeout_seconds)
+
+    async def _submit(self, task_name: str) -> int:
+        """把链交给内核；内核正忙着别的任务时**退避重试**，别当场认输。
+
+        W3b 真机实测（台账 W3b-C2）：同一个流水线的下一个任务会在自识别跑完之前就抢走
+        设备 —— 14:24:31 `Award` 开始跑，14:24:39 我们的两次提交都被内核拒
+        （``start()`` 返回 false），旧实现立刻抛错、逐屏扫描当场收成 ``page_turn_failed``：
+        只扫到 1 屏，自识别独有的 id 从 19 个掉到 11 个（96 → 88 行）。Award 9 s 后就跑完
+        了，等一等完全来得及，所以在 :attr:`timeout_seconds` 预算内退避重试。
+        **只重试 ``start()``、不重复 ``append_task``**：内核拒的是「启动」，
+        已入队的任务还在队列里（重复 append 会把同一趟链排两遍、多滑一页）。
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._timeout_seconds
+        task_id = 0
+        while True:
+            if not task_id:
+                task_id = await self._client.append_task(
+                    "Custom", {"task_names": [task_name]}
+                )
+                if not task_id:
+                    raise DepotScanError(f"内核没有接受自识别任务 {task_name}")
+            if await self._client.start():
+                return task_id
+            if loop.time() >= deadline:
+                raise DepotScanError(
+                    f"内核没有启动自识别任务 {task_name}（设备被别的任务占着）"
+                )
+            await asyncio.sleep(self._retry_delay)
 
     async def _wait_ready(self, task_id: int | None) -> None:
         """等这一趟链跑完：注入的 ``ready`` → 内核完成回调 → 兜底睡落定。"""
