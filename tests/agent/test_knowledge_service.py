@@ -43,16 +43,17 @@ from maa_api.domain.errors import AppError, ErrorCode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_DIR = REPO_ROOT / "docs" / "superpowers" / "specs"
-#: 内置全文的唯一原文来源：M18 的 5 个块（§4.4：不动）、M19 新增的 26 个、M24 的 1 个
-#: 与 M32 新增的 1 个。
+#: 内置全文的唯一原文来源：M18 的 5 个块（§4.4：不动）、M19 新增的 26 个、M24 的 1 个、
+#: M32 新增的 1 个与 M49 新增的 1 个。
 M18_SPEC_PATH = SPEC_DIR / "2026-09-29-m18-agent-knowledge.md"
 M19_SPEC_PATH = SPEC_DIR / "2026-09-29-m19-agent-knowledge-expansion.md"
 M24_SPEC_PATH = SPEC_DIR / "2026-10-09-m24-activity-knowledge.md"
 M32_SPEC_PATH = SPEC_DIR / "2026-10-10-m32-task-preconditions.md"
+M49_SPEC_PATH = SPEC_DIR / "2026-10-14-m49-stage-clear-playbook.md"
 BUILTIN_DIR = REPO_ROOT / "maa_api" / "agent" / "knowledge" / "builtin"
 
 #: 内置条目的文档化清单：M18 规格 §4.6 的 5 条、M19 §4.1 的 26 条、M24 §4.5 的 1 条、
-#: M32 §4.6 的 1 条。
+#: M32 §4.6 的 1 条、M49 §4.6 的 1 条。
 BUILTIN_IDS = [
     # M18
     "account-resources",
@@ -91,6 +92,8 @@ BUILTIN_IDS = [
     "activity-stage-codes",
     # M32
     "task-preconditions",
+    # M49
+    "playbook-stage-clear",
 ]
 
 INDEX_HEADER = (
@@ -104,7 +107,7 @@ PROFILE_HEADER = "用户档案（用户维护）："
 INDEX_KINDS = ("playbook", "screen", "rule")
 FULLTEXT_KINDS = ("glossary", "profile")
 
-#: 33 条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
+#: 34 条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
 #: glossary/profile），同 kind 内按 id 升序。
 BUILTIN_LIST_ORDER = [
     "account-resources",
@@ -114,6 +117,7 @@ BUILTIN_LIST_ORDER = [
     "playbook-promotion-planning",
     "playbook-recruit",
     "playbook-sanity-planning",
+    "playbook-stage-clear",
     "task-preconditions",
     "screen-depot",
     "screen-headhunt",
@@ -213,10 +217,10 @@ def _write(fields: dict[str, object], body: str = "正文") -> str:
 def _spec_blocks() -> dict[str, str]:
     """四份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。
 
-    M18 的 5 个块、M19 的 26 个块、M24 的 1 个块与 M32 的 1 个块合起来恰好是全部内置条目。
+    M18 的 5 个块、M19 的 26 个块、M24 的 1 个块、M32 的 1 个块与 M49 的 1 个块合起来恰好是全部内置条目。
     """
     keyed: dict[str, str] = {}
-    for path in (M18_SPEC_PATH, M19_SPEC_PATH, M24_SPEC_PATH, M32_SPEC_PATH):
+    for path in (M18_SPEC_PATH, M19_SPEC_PATH, M24_SPEC_PATH, M32_SPEC_PATH, M49_SPEC_PATH):
         text = path.read_text(encoding="utf-8")
         section = text[text.index("### 4.6") : text.index("## 5. 错误与兼容")]
         blocks = re.findall(r"```markdown\n(.*?)```", section, re.DOTALL)
