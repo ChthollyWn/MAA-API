@@ -27,6 +27,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.ops import register_tools as register_ops_tools
     from maa_api.agent.tools.pipeline import register_tools as register_pipeline_tools
     from maa_api.agent.tools.raw import register_tools as register_raw_tools
+    from maa_api.agent.tools.recon import register_tools as register_recon_tools
     from maa_api.agent.tools.resource import register_tools as register_resource_tools
     from maa_api.agent.tools.roguelike import register_tools as register_roguelike_tools
     from maa_api.agent.tools.schedule import register_tools as register_schedule_tools
@@ -53,6 +54,8 @@ def build_registry() -> ToolRegistry:
         register_schedule_tools,
         register_knowledge_tools,
         register_interaction_tools,
+        # M48：只读探索三件套 + 侦察委派（规格 §4.2/§4.3）。
+        register_recon_tools,
     ):
         register(registry)
     registry.register(

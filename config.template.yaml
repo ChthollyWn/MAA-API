@@ -38,6 +38,12 @@ channel:
   client_type: Bilibili
   server: CN
 
+# 工作区：只读探索工具（list_files / read_file / search_code / delegate_recon）的根目录
+workspace:
+  # 只读探索工具的根目录；留空表示关闭探索能力
+  # 相对路径按它解析，解析后必须仍在它里面；.env / config.yaml / *.pem 等密钥文件一律拒读
+  root:
+
 # 流水线失败或内核崩溃后，自动创建可继续追问的诊断会话
 agent:
   auto_diagnose_failures: true
@@ -54,6 +60,12 @@ agent:
   copilot_attempt_timeout_minutes: 20
   # AI 草稿与作业站副本的保留天数；用户上传的与点过「保留」的永不自动清理
   copilot_retention_days: 7
+  # 只读侦察 subagent（M48）：一次委派的步数上限（1-20），用尽照常出报告
+  recon_max_steps: 8
+  # 侦察过程中工具输出的逐次截断（字符，1000-200000）；截断处给出续读偏移
+  recon_output_chars: 20000
+  # 一次侦察的累计字符预算，超出即收尾（字符，10000-2000000）
+  recon_max_chars: 200000
 
 # OpenAI 兼容模型；密钥建议通过环境变量或设置页录入，数据库里的密钥由 MAA_LLM_ENCRYPTION_KEY 加密
 llm:

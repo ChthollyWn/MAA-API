@@ -2,7 +2,7 @@
 
 三组断言：
 
-1. **形状**：``ErrorCode`` 是 StrEnum 且成员名 == 取值；全量 105 条；``ERROR_HTTP_STATUS``
+1. **形状**：``ErrorCode`` 是 StrEnum 且成员名 == 取值；全量 124 条；``ERROR_HTTP_STATUS``
    104 条且 ``UPDATE_INTERRUPTED`` 是唯一没有 HTTP 表达的例外。M1-03 建立的内核层 6 条
    取值与状态码在这一卡里零改动（``KERNEL_HTTP_STATUS`` 是那 6 条的原始硬编码）。
 2. **文档一致性**：重新解析 docs/05 §4 的十六张表（路径从本文件推导，不依赖 CWD），
@@ -38,7 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ERRORS_MODULE_PATH = REPO_ROOT / "maa_api" / "domain" / "errors.py"
 API_SPEC_PATH = REPO_ROOT / "docs" / "05-API规范与路由清单.md"
 
-#: docs/05 §4 的十六条分节标题形如 ``### 4.7 流水线与任务``。
+#: docs/05 §4 的二十条分节标题形如 ``### 4.7 流水线与任务``。
 _DOC_SECTION_RE = re.compile(r"^### 4\.(\d+) (.+)$")
 #: 表格数据行形如 ``| `CODE` | 404 | 含义…… |``；表头与文字段落都不匹配。
 _DOC_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -48,13 +48,14 @@ _DOC_NO_HTTP = "—"
 _SOURCE_MEMBER_RE = re.compile(r'^\s*([A-Z][A-Z0-9_]*) = "\1"\s*$')
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
-#: 总数与绑定数（docs/05 §4 正文：「共 121 条，其中 UPDATE_INTERRUPTED 只落库不返回」）。
+#: 总数与绑定数（docs/05 §4 正文：「共 124 条，其中 UPDATE_INTERRUPTED 只落库不返回」）。
 #: M27 新增 §4.17 的两条（`ACCOUNT_DATA_NOT_FOUND`、`UPGRADE_PLAN_NOT_FOUND`），
 #: M29 新增 §4.18 的两条（`COPILOT_GRANT_STAGE_MISMATCH`、`COPILOT_GRANT_EXHAUSTED`），
-#: M42 新增 §4.19 的七条（森空岛扫码登录与同步），十九张表。
-ALL_CODE_COUNT = 121
-HTTP_BOUND_CODE_COUNT = 120
-SECTION_COUNT = 19
+#: M42 新增 §4.19 的七条（森空岛扫码登录与同步），
+#: M48 新增 §4.20 的三条（只读探索的未配置 / 路径被拒 / 文件过大），二十张表。
+ALL_CODE_COUNT = 124
+HTTP_BOUND_CODE_COUNT = 123
+SECTION_COUNT = 20
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。
 KERNEL_HTTP_STATUS = {
@@ -124,7 +125,7 @@ def test_error_code_is_strenum_with_name_equal_value():
 
 
 def test_all_105_documented_codes_are_defined():
-    """docs/05 §4 共 105 条：表外的码一个都不许加，表内的码一个都不许漏。"""
+    """docs/05 §4 共 124 条：表外的码一个都不许加，表内的码一个都不许漏。"""
     assert len(list(ErrorCode)) == ALL_CODE_COUNT
     assert len({c.value for c in ErrorCode}) == ALL_CODE_COUNT
 
@@ -182,7 +183,7 @@ def test_http_status_table_covers_every_code_except_the_documented_exception():
 
 
 def test_only_update_interrupted_has_no_http_status():
-    """UPDATE_INTERRUPTED 只落库不返回，是 105 条里唯一的例外。"""
+    """UPDATE_INTERRUPTED 只落库不返回，是 124 条里唯一的例外。"""
     assert ErrorCode.UPDATE_INTERRUPTED.value == NO_HTTP_CODE
     assert ErrorCode.UPDATE_INTERRUPTED not in ERROR_HTTP_STATUS
     no_http = {code for code, http, _ in DOC_ROWS if http == _DOC_NO_HTTP}
@@ -241,7 +242,7 @@ def test_fixed_status_bindings_spot_check(code, status):
 # ----------------------------------------------------------------------
 
 def test_docs_section_4_parses_into_fifteen_tables():
-    """解析器本身的门禁：十六条分节、105 行、无重复码。"""
+    """解析器本身的门禁：二十条分节、124 行、无重复码。"""
     assert len(DOC_ROWS) == ALL_CODE_COUNT
     assert len({code for code, _, _ in DOC_ROWS}) == ALL_CODE_COUNT
     assert len({section for _, _, section in DOC_ROWS}) == SECTION_COUNT

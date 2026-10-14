@@ -52,6 +52,11 @@ EXPECTED_TOOLS = {
     "save_copilot_draft",
     "run_copilot_attempt",
     "record_copilot_result",
+    # M48 只读探索组（规格 §4.2、§4.3）：三个探索工具 + 委派侦察。
+    "list_files",
+    "read_file",
+    "search_code",
+    "delegate_recon",
 }
 
 
@@ -61,9 +66,11 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
     # M47 起 ``update_operator_box`` 随内核 ``OperBox`` 识别一起下线（docs/13 §8.70）：
-    # 77 → 76，其中对模型可见的 75（少一个隐藏工具 ``trigger_screencap``）。
-    assert len(actual) == 76
-    assert sum(1 for item in registry.list() if item.model_visible) == 75
+    # 77 → 76。M48 再加入只读探索组 ``recon`` 四个工具（规格 §4.2、docs/13 §8.71）：
+    # 76 → 80，其中对模型可见的 79（少一个隐藏工具 ``trigger_screencap``）。
+    # 规格 §2/§4.4 写的 78/77 少算了两个：76 + 4 = 80、75 + 4 = 79，以实测登记表为准。
+    assert len(actual) == 80
+    assert sum(1 for item in registry.list() if item.model_visible) == 79
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
