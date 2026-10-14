@@ -1,4 +1,8 @@
-"""干员表服务契约（M27 规格 §7.3、§7.5）：合并、覆盖、保留、差异、编辑约束、过期。
+"""干员表服务的读侧契约（M27 规格 §7.3、§7.5）：列表筛选、概要、单条 404。
+
+**M47 起账号干员数据只有一个来源**——森空岛练度同步（``apply_skland_sync``，写侧契约见
+``test_account_box_skland.py``）：内核 ``OperBox`` 识别合并、手动编辑抽屉与识别差异三条
+通道一起下线（docs/13 §8.70），所以本文件只钉读侧。
 
 全部离线：临时 SQLite（``make_engine`` + ``create_all``，``NullPool`` 以便用例里多个
 ``asyncio.run`` 共用一个 engine），不打网、不打真机。时间用手工构造的 naive UTC 值
@@ -8,7 +12,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,16 +20,11 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401  # 注册全部表
-from maa_api.db.repositories.account import (
-    AccountOperatorDiffRepository,
-    AccountOperatorRepository,
-)
+from maa_api.db.repositories.account import AccountOperatorRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.account.box import OperatorBoxService
 from maa_api.settings import Settings
-
-import pytest
 
 #: 依赖并行任务的落地物：仓储模块与五张表。还没落地时整模块 skip，落地后自动变绿
 #: （见本里程碑的交接说明）；不把 ImportError 伪装成用例失败。
@@ -67,44 +66,37 @@ def _service(factory, *, stale_days: int = 14) -> OperatorBoxService:
 
 
 def _seed(factory, char_id: str, **fields) -> None:
-    """直接经仓储写一行（模拟上一次识别或手动编辑留下的状态）。
-
-    ``recognized_level`` 是给测试用的糖：把「上次识别到的等级」与当前的 ``level``
-    分开设，用来构造「识别覆盖了手动值」的场景。``elite < 2`` 时不写专精与模组
-    （编辑约束不允许那种状态存在）。
-    """
-    elite = int(fields.get("elite", 2) or 0)
+    """直接经仓储写一行，形状与一轮森空岛同步落库后的行一致。"""
     defaults: dict[str, object] = dict(
         name="测试干员",
         rarity=6,
         profession="近卫",
         own=True,
-        elite=elite,
+        elite=2,
         level=90,
         potential=6,
         skill_level=7,
-        masteries={"1": 3, "2": 0, "3": 0} if elite >= 2 else {"1": 0, "2": 0, "3": 0},
-        modules={"X": 3} if elite >= 2 else {},
+        masteries={"1": 3, "2": 0, "3": 0},
+        modules={"X": 3},
         recognized_values={
             "own": True,
             "elite": 2,
-            "level": fields.get("recognized_level", 90),
+            "level": 90,
             "potential": 6,
         },
         field_sources={
-            "own": "recognition",
-            "elite": "recognition",
-            "level": "recognition",
-            "potential": "recognition",
-            "skill_level": "manual",
-            "masteries": "manual",
-            "modules": "manual",
+            "own": "skland",
+            "elite": "skland",
+            "level": "skland",
+            "potential": "skland",
+            "skill_level": "skland",
+            "masteries": "skland",
+            "modules": "skland",
         },
         recognized_at=_utc(),
         updated_at=_utc(),
     )
     defaults.update(fields)
-    defaults.pop("recognized_level", None)
 
     async def scenario():
         async with factory() as session:
@@ -116,418 +108,6 @@ def _seed(factory, char_id: str, **fields) -> None:
                 setattr(row, field, value)
             await repo.upsert(row)
             await session.commit()
-
-    asyncio.run(scenario())
-
-
-# ---------------------------------------------------------------------------
-# 识别合并：覆盖 / 保留 / 差异
-# ---------------------------------------------------------------------------
-
-
-def test_first_recognition_creates_rows_and_records_fields(account_session_factory):
-    service = _service(account_session_factory)
-
-    async def scenario():
-        result = await service.apply_recognition(
-            {
-                "char_002_amiya": {
-                    "name": "阿米娅",
-                    "rarity": 5,
-                    "profession": "术师",
-                    "own": True,
-                    "elite": 2,
-                    "level": 80,
-                    "potential": 6,
-                }
-            },
-            now=NOW,
-            recognized_at=NOW,
-        )
-        assert result == {
-            "created": 1,
-            "updated": 0,
-            "diffs": 0,
-            "kept_owned": [],
-        }
-        detail = await service.get_operator("char_002_amiya")
-        assert detail["name"] == "阿米娅"
-        assert detail["rarity"] == 5
-        assert detail["profession"] == "术师"
-        assert detail["elite"] == 2
-        assert detail["level"] == 80
-        assert detail["potential"] == 6
-        # 识别只写它能识别的四个字段的来源；技能相关仍是未知来源。
-        assert detail["field_sources"] == {
-            "own": "recognition",
-            "elite": "recognition",
-            "level": "recognition",
-            "potential": "recognition",
-        }
-        assert detail["recognized_at"] == "2026-10-10T03:00:00Z"
-        assert detail["updated_at"] == "2026-10-10T03:00:00Z"
-        # OperBox 给不出技能等级、专精与模组：这三列保持 NULL＝未识别（M35）。
-        assert detail["skill_level"] is None
-        assert detail["masteries"] is None
-        assert detail["modules"] is None
-
-    asyncio.run(scenario())
-
-
-def test_recognition_overwrites_only_its_fields_and_keeps_manual_ones(
-    account_session_factory,
-):
-    """识别覆盖「是否拥有/精英化/等级/潜能」，技能等级、专精、模组原样保留。"""
-    _seed(account_session_factory, "char_002_amiya", level=90, elite=2)
-    service = _service(account_session_factory)
-
-    async def scenario():
-        result = await service.apply_recognition(
-            {
-                "char_002_amiya": {
-                    "name": "阿米娅",
-                    "rarity": 6,
-                    "own": True,
-                    "elite": 1,
-                    "level": 55,
-                    "potential": 3,
-                }
-            },
-            now=NOW,
-            recognized_at=NOW,
-        )
-        # 手动改过的技能等级/专精/模组与识别值无交集，不产生差异。
-        assert result["diffs"] == 0
-        detail = await service.get_operator("char_002_amiya")
-        assert (detail["elite"], detail["level"], detail["potential"]) == (1, 55, 3)
-        assert detail["skill_level"] == 7
-        assert detail["masteries"] == {"1": 3, "2": 0, "3": 0}
-        assert detail["modules"] == {"X": 3}
-        assert detail["field_sources"]["masteries"] == "manual"
-        assert detail["field_sources"]["level"] == "recognition"
-
-    asyncio.run(scenario())
-
-
-def test_recognition_records_a_diff_when_it_overwrites_a_manual_value(
-    account_session_factory,
-):
-    """上次识别之后手动改了等级、这次识别给了不同值 → 记一条差异并覆盖。"""
-    _seed(
-        account_session_factory,
-        "char_002_amiya",
-        level=55,
-        recognized_level=80,
-        field_sources={
-            "own": "recognition",
-            "elite": "recognition",
-            "level": "manual",
-            "potential": "recognition",
-        },
-    )
-    service = _service(account_session_factory)
-
-    async def scenario():
-        result = await service.apply_recognition(
-            {"char_002_amiya": {"own": True, "elite": 2, "level": 90, "potential": 6}},
-            now=NOW,
-            recognized_at=NOW,
-        )
-        assert result["diffs"] == 1
-        # 识别值生效（页面显示的是最新识别），手动值留在差异里等用户裁决。
-        detail = await service.get_operator("char_002_amiya")
-        assert detail["level"] == 90
-        assert detail["field_sources"]["level"] == "recognition"
-
-        diffs = await service.list_diffs()
-        assert diffs["total"] == 1
-        item = diffs["items"][0]
-        assert item["char_id"] == "char_002_amiya"
-        assert item["field"] == "level"
-        assert item["manual_value"] == 55
-        assert item["recognized_value"] == 90
-        assert item["dismissed_at"] is None
-        assert item["created_at"] == "2026-10-10T03:00:00Z"
-
-    asyncio.run(scenario())
-
-
-def test_recognition_does_not_record_a_diff_for_a_value_the_user_already_matched(
-    account_session_factory,
-):
-    """手动值恰好等于这次识别值：来源变了，但不该打扰用户。"""
-    _seed(
-        account_session_factory,
-        "char_002_amiya",
-        level=90,
-        recognized_level=80,
-        field_sources={
-            "own": "recognition",
-            "elite": "recognition",
-            "level": "manual",
-            "potential": "recognition",
-        },
-    )
-    service = _service(account_session_factory)
-
-    async def scenario():
-        result = await service.apply_recognition(
-            {"char_002_amiya": {"own": True, "elite": 2, "level": 90, "potential": 6}},
-            now=NOW,
-            recognized_at=NOW,
-        )
-        assert result["diffs"] == 0
-        assert (await service.list_diffs())["total"] == 0
-
-    asyncio.run(scenario())
-
-
-def test_recognition_marks_operators_missing_from_the_owned_set_as_not_owned(
-    account_session_factory,
-):
-    """``all_opers`` 里、但本次识别为已拥有的那批（``operators``）里没有的 → ``own=False``。
-
-    ``operators`` 在 capture 层由 ``all_opers`` 里 ``own=true`` 的条目拼出（M33 §4.2），
-    不是内核载荷里的 ``own_opers`` 字段——那个只含带练度详情的已拥有干员
-    （同一口径见 `docs/13-决策记录.md` §8.48 二）。
-    """
-    _seed(account_session_factory, "char_002_amiya")
-    service = _service(account_session_factory)
-
-    async def scenario():
-        result = await service.apply_recognition(
-            {},
-            all_operators=["char_002_amiya", "char_103_angel"],
-            now=NOW,
-            recognized_at=NOW,
-        )
-        # 两条都在 all_opers 里：一条已有行、一条新建为未拥有。
-        assert result == {
-            "created": 1,
-            "updated": 1,
-            "diffs": 0,
-            "kept_owned": [],
-        }
-        owned = await service.list_operators(owned_only=True)
-        assert [item["char_id"] for item in owned["items"]] == []
-        everyone = await service.list_operators(owned_only=False)
-        assert {item["char_id"] for item in everyone["items"]} == {
-            "char_002_amiya",
-            "char_103_angel",
-        }
-        assert all(item["own"] is False for item in everyone["items"])
-
-    asyncio.run(scenario())
-
-
-def test_recognition_without_all_opers_does_not_clear_other_rows(
-    account_session_factory,
-):
-    """旧版内核对调没有 ``all_opers``：不在本次结果里的行必须原样保留。"""
-    _seed(account_session_factory, "char_002_amiya", own=True)
-    service = _service(account_session_factory)
-
-    async def scenario():
-        await service.apply_recognition(
-            {"char_103_angel": {"name": "能天使", "rarity": 6, "own": True}},
-            now=NOW,
-            recognized_at=NOW,
-        )
-        ami = await service.get_operator("char_002_amiya")
-        assert ami["own"] is True
-        assert ami["level"] == 90
-
-    asyncio.run(scenario())
-
-
-# ---------------------------------------------------------------------------
-# 编辑约束（规格 §7.5 的编辑抽屉）
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("rarity", "cap"),
-    [(1, 0), (2, 0), (3, 1), (4, 2), (5, 2), (6, 2)],
-)
-def test_elite_cap_follows_rarity(account_session_factory, rarity, cap):
-    _seed(account_session_factory, "char_x", rarity=rarity, elite=0)
-    service = _service(account_session_factory)
-
-    async def scenario():
-        detail = await service.patch_operator("char_x", {"elite": cap})
-        assert detail["elite"] == cap
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"elite": cap + 1})
-        assert caught.value.code == ErrorCode.VALIDATION_ERROR
-        assert caught.value.http_status == 422
-        if cap < 2:
-            assert caught.value.details == {
-                "field": "elite",
-                "reason": f"{rarity}★ 干员的精英化上限是 {cap}",
-                "allowed": {"maximum": cap, "rarity": rarity},
-            }
-        else:
-            # 4–6★ 的上限就是全表上限 2：越界先撞字段范围。
-            assert caught.value.details == {
-                "field": "elite",
-                "reason": "超出取值范围",
-                "allowed": {"minimum": 0, "maximum": 2},
-            }
-
-    asyncio.run(scenario())
-
-
-def test_masteries_require_elite_two_and_skill_seven(account_session_factory):
-    _seed(account_session_factory, "char_x", elite=1, skill_level=7)
-    service = _service(account_session_factory)
-
-    async def scenario():
-        # 精一：连填都不许。
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"masteries": {"1": 1}})
-        assert caught.value.code == ErrorCode.VALIDATION_ERROR
-        assert caught.value.details["field"] == "masteries"
-
-        # 精二但技能不满 7：同样拒绝。
-        await service.patch_operator("char_x", {"elite": 2, "skill_level": 6})
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"masteries": {"1": 1}})
-        assert caught.value.details["reason"] == "专精要求技能等级为 7"
-
-        # 精二 + 技能 7：可填，且写回 wire 形状 {"1": ..}。
-        detail = await service.patch_operator(
-            "char_x", {"skill_level": 7, "masteries": {"1": 3, "2": 0, "3": 0}}
-        )
-        assert detail["masteries"] == {"1": 3, "2": 0, "3": 0}
-        assert detail["field_sources"]["masteries"] == "manual"
-
-    asyncio.run(scenario())
-
-
-def test_mastery_slots_beyond_the_rarity_skill_count_are_zeroed(
-    account_session_factory,
-):
-    """4★ 只有两个技能：第 3 槽写 3 也归零，别的槽照常。"""
-    _seed(
-        account_session_factory,
-        "char_x",
-        rarity=4,
-        elite=2,
-        skill_level=7,
-        masteries={},
-        modules={},
-    )
-    service = _service(account_session_factory)
-
-    async def scenario():
-        detail = await service.patch_operator(
-            "char_x", {"masteries": {"1": 3, "2": 2, "3": 3}}
-        )
-        assert detail["masteries"] == {"1": 3, "2": 2, "3": 0}
-
-    asyncio.run(scenario())
-
-
-def test_mastery_value_and_key_ranges_are_enforced(account_session_factory):
-    _seed(account_session_factory, "char_x", elite=2, skill_level=7, masteries={})
-    service = _service(account_session_factory)
-
-    async def scenario():
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"masteries": {"1": 4}})
-        assert caught.value.details["allowed"] == {"minimum": 0, "maximum": 3}
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"masteries": {"4": 1}})
-        assert caught.value.details["field"] == "masteries"
-
-    asyncio.run(scenario())
-
-
-def test_modules_require_elite_two_and_fixed_types(account_session_factory):
-    _seed(account_session_factory, "char_x", elite=1)
-    service = _service(account_session_factory)
-
-    async def scenario():
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"modules": {"X": 1}})
-        assert caught.value.details["reason"] == "模组只在精二时可填"
-
-        await service.patch_operator("char_x", {"elite": 2})
-        detail = await service.patch_operator(
-            "char_x", {"modules": {"X": 1, "Y": 2, "D": 3, "A": 1}}
-        )
-        assert detail["modules"] == {"X": 1, "Y": 2, "D": 3, "A": 1}
-
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"modules": {"Z": 1}})
-        assert caught.value.details["allowed"] == {"types": ["X", "Y", "D", "A"]}
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"modules": {"X": 4}})
-        assert caught.value.details["allowed"] == {"minimum": 1, "maximum": 3}
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"modules": {"X": 0}})
-        assert caught.value.details["field"] == "modules.X"
-
-    asyncio.run(scenario())
-
-
-def test_setting_elite_below_two_clears_masteries_and_modules(account_session_factory):
-    _seed(account_session_factory, "char_x", elite=2, masteries={"1": 3}, modules={"X": 3})
-    service = _service(account_session_factory)
-
-    async def scenario():
-        detail = await service.patch_operator("char_x", {"elite": 1})
-        assert detail["masteries"] == {"1": 0, "2": 0, "3": 0}
-        assert detail["modules"] == {}
-        assert detail["field_sources"]["masteries"] == "manual"
-        assert detail["field_sources"]["modules"] == "manual"
-
-    asyncio.run(scenario())
-
-
-def test_patch_marks_field_sources_and_rejects_unknown_fields(
-    account_session_factory,
-):
-    _seed(account_session_factory, "char_x", field_sources={})
-    service = _service(account_session_factory)
-
-    async def scenario():
-        detail = await service.patch_operator(
-            "char_x", {"level": 42, "potential": 2}, source="agent"
-        )
-        assert detail["field_sources"] == {"level": "agent", "potential": "agent"}
-        # 未给的字段不动。
-        assert detail["elite"] == 2
-        assert detail["skill_level"] == 7
-
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"rarity": 6})
-        assert caught.value.code == ErrorCode.VALIDATION_ERROR
-        assert caught.value.details["allowed"]["fields"] == ["rarity"]
-
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"level": 91})
-        assert caught.value.details["field"] == "level"
-
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_x", {"level": True})
-        assert caught.value.details["field"] == "level"
-
-    asyncio.run(scenario())
-
-
-def test_patch_missing_operator_is_404(account_session_factory):
-    service = _service(account_session_factory)
-
-    async def scenario():
-        with pytest.raises(AppError) as caught:
-            await service.get_operator("char_none")
-        assert caught.value.code == ErrorCode.ACCOUNT_DATA_NOT_FOUND
-        assert caught.value.http_status == 404
-
-        with pytest.raises(AppError) as caught:
-            await service.patch_operator("char_none", {"level": 10})
-        assert caught.value.code == ErrorCode.ACCOUNT_DATA_NOT_FOUND
 
     asyncio.run(scenario())
 
@@ -587,7 +167,7 @@ def test_list_operators_filters_and_paginates(account_session_factory):
     asyncio.run(scenario())
 
 
-def test_summary_counts_elite_two_and_pending_diffs(account_session_factory):
+def test_summary_counts_owned_operators_and_elite_two(account_session_factory):
     _seed(account_session_factory, "char_a", elite=2)
     _seed(account_session_factory, "char_b", elite=1)
     _seed(account_session_factory, "char_c", own=False, elite=0)
@@ -598,10 +178,11 @@ def test_summary_counts_elite_two_and_pending_diffs(account_session_factory):
         assert summary["total"] == 2
         assert summary["elite_two"] == 1
         assert summary["unrecognized"] == 1
-        assert summary["pending_diffs"] == 0
         assert summary["stale_days"] == 14
         assert summary["stale"] is False
         assert summary["recognized_at"] == "2026-10-10T03:00:00Z"
+        # M47：差异条随识别 / 手动 / Agent 三条写通道下线，概要不再有 pending_diffs。
+        assert "pending_diffs" not in summary
 
     asyncio.run(scenario())
 
@@ -630,63 +211,21 @@ def test_summary_is_stale_when_nothing_was_ever_recognized(account_session_facto
             "stale": True,
             "stale_days": 14,
             "unrecognized": 0,
-            "pending_diffs": 0,
         }
 
     asyncio.run(scenario())
 
 
-# ---------------------------------------------------------------------------
-# 差异的「知道了」
-# ---------------------------------------------------------------------------
-
-
-def test_dismiss_diffs_marks_selected_or_all(account_session_factory):
+def test_get_operator_missing_row_is_404(account_session_factory):
     service = _service(account_session_factory)
-    for char_id, field, manual, recognized in (
-        ("char_a", "level", 55, 90),
-        ("char_b", "elite", 1, 2),
-        ("char_c", "potential", 1, 6),
-    ):
-        _seed(account_session_factory, char_id, level=manual, elite=1, potential=1)
 
     async def scenario():
-        # 先手工造三条差异（识别路径已在上面覆盖，这里直接写仓储更快）。
-        from maa_api.db.repositories.account import AccountOperatorDiffRepository
-
-        async with account_session_factory() as session:
-            repo = AccountOperatorDiffRepository(session)
-            for char_id, field, manual, recognized in (
-                ("char_a", "level", 55, 90),
-                ("char_b", "elite", 1, 2),
-                ("char_c", "potential", 1, 6),
-            ):
-                await repo.create(
-                    char_id=char_id,
-                    field=field,
-                    manual_value=manual,
-                    recognized_value=recognized,
-                    created_at=NOW,
-                )
-            await session.commit()
-
-        diffs = await service.list_diffs()
-        assert diffs["total"] == 3
-        first_id = diffs["items"][0]["id"]
-
-        assert await service.dismiss_diffs([first_id]) == 1
-        # 幂等：再标记同一条不再计数。
-        assert await service.dismiss_diffs([first_id]) == 0
-        remaining = await service.list_diffs()
-        assert remaining["total"] == 2
-        assert len(remaining["items"]) == 2
-
-        # include_dismissed 把已知的一起列出。
-        everything = await service.list_diffs(include_dismissed=True)
-        assert len(everything["items"]) == 3
-        assert everything["total"] == 2  # total 始终是未处理数
-
-        assert await service.dismiss_diffs(None) == 2
-        assert (await service.list_diffs())["items"] == []
+        with pytest.raises(AppError) as caught:
+            await service.get_operator("char_none")
+        assert caught.value.code == ErrorCode.ACCOUNT_DATA_NOT_FOUND
+        assert caught.value.http_status == 404
+        assert caught.value.details == {"char_id": "char_none"}
+        # M47：提示语指向唯一的写入通道（森空岛同步），不再让人去跑干员识别。
+        assert "森空岛" in caught.value.message
 
     asyncio.run(scenario())

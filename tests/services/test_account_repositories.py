@@ -1,16 +1,17 @@
-"""M27 T3：账号数据四个仓储的行为（规格 §7.3、附录 E、docs/04 §9）。
+"""M27 T3：账号数据仓储的行为（规格 §7.3、附录 E、docs/04 §9）。
 
-覆盖 docs/04 §9 的纪律与规格 §7.3 的四项能力：
+覆盖 docs/04 §9 的纪律与规格 §7.3 的能力：
 
 - **干员**（``AccountOperatorRepository``）：``new_row`` 的建行默认值、按 ``char_id``
   读、全表读取与筛选（名字片段 / 是否拥有 / 稀有度 / 职业 / 精英化）、``upsert`` 单条、
-  ``upsert_many`` 批量写识别值、``last_recognized_at``；
+  ``last_recognized_at``；
 - **仓库**（``AccountDepotItemRepository``）：``replace_all`` 整表替换（同 id 取最后
   一条、空表清空）、按分类与名字读取、``count``；
 - **识别记录**（``AccountRecognitionRepository``）：``record`` 写入 + 补上下文、
-  ``latest`` / ``last_at`` 最近一次（没有记录时 ``None``）；
-- **差异**（``AccountOperatorDiffRepository``）：``create``、``list``（未处理 / 含已知
-  / 限条数，带干员名）、``count_pending``、``dismiss``（选中或全部，幂等）。
+  ``latest`` / ``last_at`` 最近一次（没有记录时 ``None``）。
+
+M47 起差异表（``account_operator_diff``）只留历史行：仓储类随手动 / Agent 写入通道
+下线（docs/13 §8.70），旧表仍由迁移 ``0022`` 之外的读侧忽略。
 
 仓储不 ``commit()``（事务边界由调用方决定）：最后一条用例在回滚后断言库里什么都没
 留下。用例形态是同步测试函数 + ``asyncio.run(scenario())``（本仓无 pytest-asyncio），
@@ -25,12 +26,10 @@ from datetime import datetime
 from maa_api.db.models import AccountOperator, Pipeline, Task
 from maa_api.db.repositories.account import (
     RECOGNITION_KIND_DEPOT,
-    RECOGNITION_KIND_OPERBOX,
+    RECOGNITION_KIND_SKLAND,
     AccountDepotItemRepository,
-    AccountOperatorDiffRepository,
     AccountOperatorRepository,
     AccountRecognitionRepository,
-    OperatorDiffRow,
 )
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.domain.enums import PipelineSource, PipelineStatus, Priority
@@ -93,18 +92,16 @@ def test_operator_repository_reads_filters_and_upserts(retention_session_factory
     async def scenario() -> None:
         async with retention_session_factory() as session:
             repo = AccountOperatorRepository(session)
-            written = await repo.upsert_many(
-                [
-                    _operator("char_002_amiya", "阿米娅", rarity=5, own=True, elite=2, level=80),
-                    _operator("char_123_frost", "霜星", rarity=6, own=False, profession="术师"),
-                    _operator(
-                        "char_010_chen", "陈", rarity=6, own=True, elite=2, level=90,
-                        profession="近卫", recognized_at=STAMP,
-                    ),
-                    _operator("char_009_12f", "12F", rarity=2, own=True, profession="术师"),
-                ]
-            )
-            assert written == 4
+            for row in (
+                _operator("char_002_amiya", "阿米娅", rarity=5, own=True, elite=2, level=80),
+                _operator("char_123_frost", "霜星", rarity=6, own=False, profession="术师"),
+                _operator(
+                    "char_010_chen", "陈", rarity=6, own=True, elite=2, level=90,
+                    profession="近卫", recognized_at=STAMP,
+                ),
+                _operator("char_009_12f", "12F", rarity=2, own=True, profession="术师"),
+            ):
+                await repo.upsert(row)
             await session.commit()
 
         async with retention_session_factory() as session:
@@ -303,23 +300,23 @@ def test_recognition_repository_records_and_reads_the_latest(
                 id="task-1",
                 pipeline_id=pipeline.id,
                 order_index=0,
-                type_name="OperBox",
-                task_name="干员识别",
+                type_name="Depot",
+                task_name="仓库识别",
                 params={},
             )
             await PipelineRepository(session).create(pipeline, [task])
 
             repo = AccountRecognitionRepository(session)
             assert await repo.latest() is None
-            assert await repo.last_at(RECOGNITION_KIND_OPERBOX) is None
+            assert await repo.last_at(RECOGNITION_KIND_DEPOT) is None
             await repo.record(
-                kind=RECOGNITION_KIND_OPERBOX,
+                kind=RECOGNITION_KIND_DEPOT,
                 item_count=312,
                 recognized_at=STAMP,
                 client_type="Official",
             )
             await repo.record(
-                kind=RECOGNITION_KIND_DEPOT,
+                kind=RECOGNITION_KIND_SKLAND,
                 item_count=48,
                 recognized_at=LATER,
             )
@@ -327,18 +324,18 @@ def test_recognition_repository_records_and_reads_the_latest(
 
         async with retention_session_factory() as session:
             repo = AccountRecognitionRepository(session)
-            operbox = await repo.latest(RECOGNITION_KIND_OPERBOX)
-            assert operbox is not None
-            assert (operbox.item_count, operbox.client_type) == (312, "Official")
-            assert await repo.last_at(RECOGNITION_KIND_OPERBOX) == STAMP
-            assert await repo.last_at(RECOGNITION_KIND_DEPOT) == LATER
+            depot = await repo.latest(RECOGNITION_KIND_DEPOT)
+            assert depot is not None
+            assert (depot.item_count, depot.client_type) == (312, "Official")
+            assert await repo.last_at(RECOGNITION_KIND_DEPOT) == STAMP
+            assert await repo.last_at(RECOGNITION_KIND_SKLAND) == LATER
             # 不带 kind 的 latest 取全局最近一条。
-            assert (await repo.latest()).kind == RECOGNITION_KIND_DEPOT
+            assert (await repo.latest()).kind == RECOGNITION_KIND_SKLAND
 
             # 同 kind 同识别时刻：只补上下文，不插第二条（capture 层随后带
             # 流水线 / 任务 / 渠道再调一次）。
             enriched = await repo.record(
-                kind=RECOGNITION_KIND_OPERBOX,
+                kind=RECOGNITION_KIND_DEPOT,
                 item_count=312,
                 recognized_at=STAMP,
                 pipeline_id="pipeline-1",
@@ -353,10 +350,10 @@ def test_recognition_repository_records_and_reads_the_latest(
         async with retention_session_factory() as session:
             repo = AccountRecognitionRepository(session)
             # 补上下文没有插第二条：换一个识别时刻才是新的一条。
-            latest = await repo.latest(RECOGNITION_KIND_OPERBOX)
+            latest = await repo.latest(RECOGNITION_KIND_DEPOT)
             assert latest is not None and latest.pipeline_id == "pipeline-1"
             await repo.record(
-                kind=RECOGNITION_KIND_OPERBOX,
+                kind=RECOGNITION_KIND_DEPOT,
                 item_count=320,
                 recognized_at=LATER,
             )
@@ -364,75 +361,10 @@ def test_recognition_repository_records_and_reads_the_latest(
 
         async with retention_session_factory() as session:
             repo = AccountRecognitionRepository(session)
-            newest = await repo.latest(RECOGNITION_KIND_OPERBOX)
+            newest = await repo.latest(RECOGNITION_KIND_DEPOT)
             assert newest is not None
             assert (newest.item_count, newest.recognized_at) == (320, LATER)
             assert newest.pipeline_id is None
-
-    asyncio.run(scenario())
-
-
-def test_diff_repository_lists_and_dismisses(retention_session_factory) -> None:
-    async def scenario() -> None:
-        async with retention_session_factory() as session:
-            session.add(AccountOperator(char_id="char_002_amiya", name="阿米娅", rarity=5))
-            repo = AccountOperatorDiffRepository(session)
-            await repo.create(
-                char_id="char_002_amiya", field="level", manual_value=90,
-                recognized_value=80, created_at=STAMP,
-            )
-            await repo.create(
-                char_id="char_002_amiya", field="elite", manual_value=2,
-                recognized_value=1, created_at=LATER,
-            )
-            await repo.create(
-                char_id="char_010_chen", field="potential", manual_value=6,
-                recognized_value=5, created_at=LATER,
-            )
-            await session.commit()
-
-        async with retention_session_factory() as session:
-            repo = AccountOperatorDiffRepository(session)
-            assert await repo.count_pending() == 3
-            assert await repo.count_pending(char_id="char_002_amiya") == 2
-            listed = await repo.list()
-            assert all(isinstance(row, OperatorDiffRow) for row in listed)
-            # 时间倒序：最新的在前面。
-            assert [(row.char_id, row.field) for row in listed] == [
-                ("char_010_chen", "potential"),
-                ("char_002_amiya", "elite"),
-                ("char_002_amiya", "level"),
-            ]
-            # 干员名一起带出来（页面不必再查一次）；查不到的干员为 None。
-            assert listed[0].name is None
-            assert listed[-1].name == "阿米娅"
-            assert [row.field for row in await repo.list(char_id="char_002_amiya")] == [
-                "elite",
-                "level",
-            ]
-            assert len(await repo.list(limit=1)) == 1
-
-            first_id = listed[-1].id
-            assert await repo.dismiss([first_id], now=LATER) == 1
-            # 幂等：已经标记过的不再计数。
-            assert await repo.dismiss([first_id], now=LATER) == 0
-            assert await repo.dismiss([], now=LATER) == 0
-            await session.commit()
-
-        async with retention_session_factory() as session:
-            repo = AccountOperatorDiffRepository(session)
-            assert await repo.count_pending() == 2
-            assert [row.field for row in await repo.list()] == ["potential", "elite"]
-            assert len(await repo.list(include_dismissed=True)) == 3
-            # ids=None = 全部未处理的一起「知道了」。
-            assert await repo.dismiss(None, now=LATER) == 2
-            await session.commit()
-
-        async with retention_session_factory() as session:
-            repo = AccountOperatorDiffRepository(session)
-            assert await repo.count_pending() == 0
-            dismissed = await repo.list(include_dismissed=True)
-            assert all(row.dismissed_at == LATER for row in dismissed)
 
     asyncio.run(scenario())
 
@@ -447,11 +379,7 @@ def test_repositories_never_commit_on_their_own(retention_session_factory) -> No
                 [_depot_row("30012", "固源岩", 1)]
             )
             await AccountRecognitionRepository(session).record(
-                kind=RECOGNITION_KIND_OPERBOX, item_count=1, recognized_at=STAMP
-            )
-            await AccountOperatorDiffRepository(session).create(
-                char_id="char_002_amiya", field="level",
-                manual_value=90, recognized_value=80, created_at=STAMP,
+                kind=RECOGNITION_KIND_DEPOT, item_count=1, recognized_at=STAMP
             )
             await session.rollback()
 
@@ -459,6 +387,5 @@ def test_repositories_never_commit_on_their_own(retention_session_factory) -> No
             assert await AccountOperatorRepository(session).count() == 0
             assert await AccountDepotItemRepository(session).count() == 0
             assert await AccountRecognitionRepository(session).latest() is None
-            assert await AccountOperatorDiffRepository(session).count_pending() == 0
 
     asyncio.run(scenario())

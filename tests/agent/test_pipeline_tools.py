@@ -120,7 +120,6 @@ def test_list_task_types_exports_core_and_copilot_task_schemas() -> None:
         "Award",
         "Roguelike",
         "Reclamation",
-        "OperBox",
         "Depot",
         "Custom",
         "Copilot",

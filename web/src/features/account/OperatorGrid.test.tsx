@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { OperatorGrid } from './OperatorGrid'
-import { OPERATORS, operatorRow } from './test-utils'
+import { OPERATORS } from './test-utils'
 
-/** M43 网格（规格 §4.4）：响应式列数、每行一张卡、透传点击回调。 */
+/** M43 网格（规格 §4.4）：响应式列数、每行一张卡；M47 起卡片只读，没有点击回调。 */
 
 afterEach(() => {
   cleanup()
@@ -12,7 +12,7 @@ afterEach(() => {
 
 describe('M43 干员卡片网格', () => {
   it('按行渲染卡片，移动端单列、桌面端双列等宽对齐', () => {
-    render(<OperatorGrid rows={OPERATORS} onSelect={vi.fn()} />)
+    render(<OperatorGrid rows={OPERATORS} />)
 
     const grid = screen.getByTestId('operator-grid')
     expect(grid.className).toContain('grid-cols-1')
@@ -23,19 +23,8 @@ describe('M43 干员卡片网格', () => {
   })
 
   it('空列表渲染成空网格，不报错（空状态由页面负责）', () => {
-    render(<OperatorGrid rows={[]} onSelect={vi.fn()} />)
+    render(<OperatorGrid rows={[]} />)
 
     expect(screen.getByTestId('operator-grid').children).toHaveLength(0)
-  })
-
-  it('透传点击回调：点哪张卡就把哪一行交出去', () => {
-    const onSelect = vi.fn()
-    const row = operatorRow({ char_id: 'char_102_texas', name: '德克萨斯' })
-    render(<OperatorGrid rows={[row]} onSelect={onSelect} />)
-
-    // `operator-<id>` 是整行容器，可点的方块是 `operator-card-<id>`。
-    screen.getByTestId('operator-card-char_102_texas').click()
-
-    expect(onSelect).toHaveBeenCalledWith(row)
   })
 })

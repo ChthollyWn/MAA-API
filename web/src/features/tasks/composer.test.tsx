@@ -63,8 +63,9 @@ describe('task composer', () => {
     expect(screen.getByRole('button', { name: '存为定时任务' })).toBeDisabled()
     const sheet = await openTypeSheet()
     const options = within(sheet).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '关闭')
-    // 与后端 `/api/tasks/types`（12 种）保持一致：M27 的 OperBox / Depot 已并入 fixture。
-    expect(options).toHaveLength(13)
+    // 与后端 `/api/tasks/types`（12 种）保持一致：M27 的 OperBox / Depot 已并入 fixture，
+    // OperBox 又随 M47 从服务侧删除（干员数据只来自森空岛同步）。
+    expect(options).toHaveLength(12)
     for (const type of taskTypeEnvelope.items) {
       const option = within(sheet).getByRole('button', { name: new RegExp(`^${type.label}`) })
       expect(option.querySelector('svg')).not.toBeNull()

@@ -71,6 +71,15 @@ def _box(factory) -> OperatorBoxService:
     return OperatorBoxService(factory, settings_provider=lambda: Settings())
 
 
+async def _seed_operator(factory, char_id: str, **fields: Any) -> None:
+    """直接写一行「同步之前就存在」的干员（M47 起没有识别写入口了）。"""
+    defaults: dict[str, Any] = dict(name="测试干员", rarity=6, own=True, recognized_at=NOW)
+    defaults.update(fields)
+    async with factory() as session:
+        session.add(AccountOperator(char_id=char_id, **defaults))
+        await session.commit()
+
+
 def _chars(count: int, **overrides: Any) -> list[dict[str, Any]]:
     """造 ``count`` 名干员；``char_%04d`` 这种 id 只用于计数类断言。"""
     base = {
@@ -247,19 +256,16 @@ def test_sync_writes_training_and_records_the_round(session_factory):
 
     async def scenario():
         await _seed_credential(session_factory)
-        box = _box(session_factory)
-        await box.apply_recognition(
-            {
-                "char_0000": {
-                    "name": "阿米娅",
-                    "rarity": 5,
-                    "profession": "术师",
-                    "own": True,
-                    "elite": 1,
-                    "level": 50,
-                    "potential": 3,
-                }
-            }
+        # 同步之前库里已经有一行（历史遗留形状），这一轮会整行覆盖它。
+        await _seed_operator(
+            session_factory,
+            "char_0000",
+            name="阿米娅",
+            rarity=5,
+            profession="术师",
+            elite=1,
+            level=50,
+            potential=3,
         )
         summary = await service.sync()
 
@@ -309,9 +315,8 @@ def test_sync_guard_keeps_the_database_untouched(session_factory):
 
     async def scenario():
         await _seed_credential(session_factory)
-        box = _box(session_factory)
-        await box.apply_recognition(
-            {"char_0000": {"own": True, "elite": 2, "level": 90, "potential": 6}}
+        await _seed_operator(
+            session_factory, "char_0000", elite=2, level=90, potential=6
         )
 
         with pytest.raises(AppError) as error:
@@ -340,9 +345,8 @@ def test_sync_clears_ownership_of_missing_operators(session_factory):
 
     async def scenario():
         await _seed_credential(session_factory)
-        box = _box(session_factory)
         # 先造一名「库里已拥有、这一轮 chars 里没有」的干员。
-        await box.apply_recognition({"char_9999": {"own": True, "elite": 2, "level": 90}})
+        await _seed_operator(session_factory, "char_9999", elite=2, level=90)
         # 补一名凑到恰好等于护栏，让这一轮通过护栏并允许收缩。
         client.chars = [*client.chars, {"charId": "char_extra", "level": 1, "evolvePhase": 0}]
         summary = await service.sync()

@@ -33,7 +33,6 @@ EXPECTED_TOOLS = {
     "get_drop_rates",
     "get_operator_box",
     "get_depot",
-    "update_operator_box",
     "plan_upgrade",
     "start_upgrade_plan",
     "list_upgrade_plans",
@@ -61,7 +60,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
 
     actual = {definition.name for definition in registry.list()}
     assert actual == EXPECTED_TOOLS
-    assert len(actual) == 77
+    # M47 起 ``update_operator_box`` 随内核 ``OperBox`` 识别一起下线（docs/13 §8.70）：
+    # 77 → 76，其中对模型可见的 75（少一个隐藏工具 ``trigger_screencap``）。
+    assert len(actual) == 76
+    assert sum(1 for item in registry.list() if item.model_visible) == 75
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}

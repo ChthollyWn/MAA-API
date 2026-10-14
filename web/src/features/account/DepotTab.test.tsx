@@ -95,7 +95,6 @@ describe('M27 仓库页', () => {
       summary: {
         operators: { recognized: false, total: 0, elite2: 0, recognized_at: null, stale: false, stale_days: null, stale_after_days: 14 },
         depot: { recognized: false, total: 0, elite2: 0, recognized_at: null, stale: false, stale_days: null, stale_after_days: 14 },
-        diffs: 0,
       },
     })
     renderAccount('/more/account/depot')
@@ -126,7 +125,7 @@ describe('M27 仓库页', () => {
   })
 
   it('标签页切到仓库再切回干员', async () => {
-    installAccountApi({ diffs: [] })
+    installAccountApi()
     const { router } = renderAccount('/more/account')
     await screen.findByText('阿米娅')
 

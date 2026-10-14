@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { OperatorCard } from './OperatorCard'
 import { resetAssetCache } from './assets'
 import { operatorRow } from './test-utils'
@@ -52,12 +52,11 @@ const RICH = operatorRow({
   ],
 })
 
-function renderCard(row = RICH, onSelect = vi.fn()) {
-  render(<OperatorCard row={row} onSelect={onSelect} />)
+function renderCard(row = RICH) {
+  render(<OperatorCard row={row} />)
   return {
     row: screen.getByTestId(`operator-${row.char_id}`),
     card: screen.getByTestId(`operator-card-${row.char_id}`),
-    onSelect,
   }
 }
 
@@ -169,26 +168,6 @@ describe('M43 干员卡片', () => {
     expect(screen.queryByTestId('operator-skill-mastery-char_002_amiya-2')).not.toBeInTheDocument()
   })
 
-  it('点卡片或按回车都触发 onSelect（打开编辑抽屉）', () => {
-    stubAssets()
-    const { card, onSelect } = renderCard()
-
-    fireEvent.click(card)
-    expect(onSelect).toHaveBeenCalledWith(RICH)
-
-    fireEvent.keyDown(card, { key: 'Enter' })
-    expect(onSelect).toHaveBeenCalledTimes(2)
-  })
-
-  it('「编辑」按钮是独立入口，点它不会连带触发整卡点击', () => {
-    stubAssets()
-    const { onSelect } = renderCard()
-
-    fireEvent.click(screen.getByRole('button', { name: '编辑 阿米娅' }))
-
-    expect(onSelect).toHaveBeenCalledTimes(1)
-  })
-
   it('M35：未识别在卡片上说清楚，练度原文写「未识别」而不是 0 / —', () => {
     stubAssets()
     const { row } = renderCard(
@@ -207,17 +186,18 @@ describe('M43 干员卡片', () => {
     expect(within(row).getByText('模组').nextElementSibling).toHaveTextContent('未识别')
   })
 
-  it('字段来源徽章保留（M27/M35 的功能不因换 UI 消失）', () => {
+  it('字段来源徽章：M47 之后只按真实来源渲染「森空岛」', () => {
     stubAssets()
     const { row } = renderCard(
       operatorRow({
         char_id: 'char_002_amiya',
         name: '阿米娅',
-        field_sources: { elite: 'recognition', masteries: 'skland' },
+        field_sources: { elite: 'skland', masteries: 'skland' },
       }),
     )
 
-    expect(within(row).getByTestId('operator-source-char_002_amiya-recognition')).toHaveTextContent('识别')
-    expect(within(row).getByTestId('operator-source-char_002_amiya-skland')).toHaveTextContent('森空岛')
+    const badge = within(row).getByTestId('operator-source-char_002_amiya-skland')
+    expect(badge).toHaveTextContent('森空岛')
+    expect(within(badge).getByTitle('由森空岛账号数据同步写入')).toBeInTheDocument()
   })
 })

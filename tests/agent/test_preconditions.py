@@ -43,7 +43,7 @@ from maa_api.domain.errors import ErrorCode
 from maa_api.domain.task import (
     TASK_MODELS,
     FightInput,
-    OperBoxInput,
+    DepotInput,
     StartUpInput,
 )
 
@@ -157,7 +157,7 @@ async def _decide_raw(arguments: Any) -> Any:
 
 def test_game_running_task_types_are_derived_from_task_models() -> None:
     assert GAME_RUNNING_TASK_TYPES == frozenset(TASK_MODELS) - {"StartUp", "CloseDown"}
-    assert {"OperBox", "Fight", "Roguelike", "Custom", "Copilot", "Depot"} <= (
+    assert {"Fight", "Roguelike", "Custom", "Copilot", "Depot"} <= (
         GAME_RUNNING_TASK_TYPES
     )
 
@@ -171,7 +171,7 @@ def test_every_game_running_task_type_warns_without_start_up(name: str) -> None:
 
 
 def test_start_up_satisfies_the_running_game_precondition() -> None:
-    tasks = [{"name": "StartUp", "start_game_enabled": True}, {"name": "OperBox"}]
+    tasks = [{"name": "StartUp", "start_game_enabled": True}, {"name": "Depot"}]
 
     assert needs_running_game(tasks) is True
     assert missing_start_up_warning(tasks) is None
@@ -190,15 +190,15 @@ def test_empty_or_unrecognizable_entries_do_not_warn() -> None:
         [{}],
         [{"name": None}],
         [{"nope": "Fight"}],
-        ["OperBox", 42],
+        ["Depot", 42],
     ):
         assert needs_running_game(tasks) is False
         assert missing_start_up_warning(tasks) is None
 
 
 def test_name_matching_ignores_case_and_surrounding_whitespace() -> None:
-    assert missing_start_up_warning([{"name": " operbox "}]) == MISSING_START_UP_WARNING
-    assert missing_start_up_warning([{"name": "OPERBOX"}]) == MISSING_START_UP_WARNING
+    assert missing_start_up_warning([{"name": " depot "}]) == MISSING_START_UP_WARNING
+    assert missing_start_up_warning([{"name": "DEPOT"}]) == MISSING_START_UP_WARNING
     assert missing_start_up_warning([{"name": " startup "}, {"name": "fight"}]) is None
 
 
@@ -211,28 +211,28 @@ def test_task_type_names_reads_dicts_and_models_and_skips_the_rest() -> None:
     tasks = [
         {"name": " Fight "},
         StartUpInput(),
-        OperBoxInput(),
+        DepotInput(),
         {"name": None},
         {"nope": "Fight"},
-        "OperBox",
+        "Depot",
         None,
     ]
 
-    assert task_type_names(tasks) == ["Fight", "StartUp", "OperBox"]
+    assert task_type_names(tasks) == ["Fight", "StartUp", "Depot"]
 
 
 def test_sqlmodel_rows_are_read_through_the_same_name_attribute() -> None:
-    class OperBoxRow(SQLModel):
-        name: str = "OperBox"
+    class DepotRow(SQLModel):
+        name: str = "Depot"
 
-    assert task_type_names([OperBoxRow()]) == ["OperBox"]
-    assert missing_start_up_warning([OperBoxRow()]) == MISSING_START_UP_WARNING
+    assert task_type_names([DepotRow()]) == ["Depot"]
+    assert missing_start_up_warning([DepotRow()]) == MISSING_START_UP_WARNING
 
 
 def test_task_models_and_plain_dicts_are_equivalent_inputs() -> None:
-    assert missing_start_up_warning([OperBoxInput()]) == MISSING_START_UP_WARNING
+    assert missing_start_up_warning([DepotInput()]) == MISSING_START_UP_WARNING
     assert missing_start_up_warning([FightInput(medicine=2)]) == MISSING_START_UP_WARNING
-    assert missing_start_up_warning([StartUpInput(), OperBoxInput()]) is None
+    assert missing_start_up_warning([StartUpInput(), DepotInput()]) is None
 
 
 def test_failure_hint_only_matches_core_command_failed() -> None:
@@ -248,7 +248,7 @@ def test_failure_hint_only_matches_core_command_failed() -> None:
 
 
 def test_submit_pipeline_warns_but_still_submits() -> None:
-    result, received = asyncio.run(_submit({"tasks": [{"name": "OperBox"}]}))
+    result, received = asyncio.run(_submit({"tasks": [{"name": "Depot"}]}))
 
     assert result["warnings"] == [MISSING_START_UP_WARNING]
     assert set(result) == {
@@ -261,14 +261,14 @@ def test_submit_pipeline_warns_but_still_submits() -> None:
     assert result["pipeline_id"] == "pipeline-1"
     assert result["reused"] is False
     # 提醒不拦：任务原样进入流水线服务，没有被改写或补一条 StartUp。
-    assert [task.name for task in received[0].tasks] == ["OperBox"]
+    assert [task.name for task in received[0].tasks] == ["Depot"]
 
 
 def test_submit_pipeline_with_start_up_has_no_warnings_key() -> None:
     arguments = {
         "tasks": [
             {"name": "StartUp", "start_game_enabled": True},
-            {"name": "OperBox"},
+            {"name": "Depot"},
         ]
     }
 
@@ -358,8 +358,8 @@ def test_policy_keeps_the_card_clean_when_start_up_is_present() -> None:
     assert decision.reasons == ("Fight.medicine=2",)
 
 
-def test_policy_does_not_confirm_a_plain_oper_box_submission() -> None:
-    decision = asyncio.run(_decide({"tasks": [{"name": "OperBox"}]}))
+def test_policy_does_not_confirm_a_plain_depot_submission() -> None:
+    decision = asyncio.run(_decide({"tasks": [{"name": "Depot"}]}))
 
     # 提醒不拦：没有消耗类参数就不弹确认卡片，警告只留在工具结果里。
     assert decision.requires_confirmation is False

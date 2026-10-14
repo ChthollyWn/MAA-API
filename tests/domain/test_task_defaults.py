@@ -33,7 +33,8 @@ from maa_api.domain.task import (
     normalize,
 )
 
-#: 11 种内核任务 + Copilot 的联合顺序（与 ``TaskInput`` 定义顺序一致）。
+#: 10 种内核 / 仓库任务 + Copilot 的联合顺序（与 ``TaskInput`` 定义顺序一致）。
+#: M47 起 ``OperBox`` 下线（干员数据唯一来源是森空岛同步，docs/13 §8.70）。
 TYPE_NAMES: tuple[str, ...] = (
     "StartUp",
     "CloseDown",
@@ -44,7 +45,6 @@ TYPE_NAMES: tuple[str, ...] = (
     "Award",
     "Roguelike",
     "Reclamation",
-    "OperBox",
     "Depot",
     "Copilot",
 )
@@ -137,10 +137,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "increment_mode": 0,
         "num_craft_batches": 16,
     },
-    # M27 的账号识别任务没有参数，只有基类的 enable。
-    "OperBox": {
-        "enable": True,
-    },
+    # M27 的仓库识别任务没有参数，只有基类的 enable。
     "Depot": {
         "enable": True,
     },
@@ -191,7 +188,6 @@ SKIPPED: dict[str, tuple[str, ...]] = {
         "find_playTime_target",
     ),
     "Reclamation": (),
-    "OperBox": (),
     "Depot": (),
     "Copilot": (),
 }
@@ -207,7 +203,6 @@ OVERLAY: dict[str, tuple[str, ...]] = {
     "Award": (),
     "Roguelike": (),
     "Reclamation": (),
-    "OperBox": (),
     "Depot": (),
     "Copilot": (),
 }
