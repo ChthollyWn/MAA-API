@@ -1076,6 +1076,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.copilot_draft_service = CopilotDraftService(
             db_session.session_factory,
+            # M51 修：这里原先漏传 resource_service，导致 site_id 导入
+            # （`upload_copilot`）在保存作业草稿时抛 SERVICE_UNAVAILABLE
+            # 「资源服务尚未装配（缺少 resource_service）」。与上面 result 服务同一口径。
+            resource_service=getattr(app.state, "resource_service", None),
             box=app.state.box_service,
             stage_level=getattr(app.state, "stage_level_service", None),
         )
