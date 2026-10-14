@@ -141,7 +141,10 @@ async def save_copilot_draft(
         service = CopilotDraftService(
             _session_factory(context, required=True),
             resource_service=_state(context, "resource_service"),
-            box=_state(context, "operator_box_service"),
+            # M51 修：应用装配的名字是 ``box_service``（main.py 里 `app.state.box_service`），
+            # 原来写 ``operator_box_service`` 永远取到 None，静态检查里「干员在账号里」那几项
+            # 会静默跳过。
+            box=_state(context, "box_service"),
             stage_level=_state(context, "stage_level_service"),
         )
     return await service.save(
