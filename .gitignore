@@ -130,12 +130,17 @@ resource/
 
 # 本地配置：不入库，模板见 config.template.yaml
 config.yaml
+# config.yaml 的本地备份（`config.yaml.bak-<日期>-<时刻>`）：里面是明文凭据，绝不入库。
+config.yaml.bak*
 
 # macOS
 .DS_Store
 
 # superpowers 的临时工作区（执行台账、任务简报、审核材料）；需要留存的台账复制到 docs/superpowers/ledgers/
 .superpowers/
+
+# archify 的架构图工作区（HTML/PNG/JSON 生成物，单份约 2.8 MB）；要交付的图另存到 docs/ 或附件。
+.archify/
 
 # 文案审计的机器可读全量记录（2.8 MB，随时可由 scripts/copy_inventory.py 重建）。
 # 规则命中基线 lint-baseline.json 要入库：它是 --check 防回潮闸门的比较对象。
