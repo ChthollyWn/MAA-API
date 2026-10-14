@@ -1,6 +1,6 @@
 # AI 腔规则命中：用户可见文案
 
-总计 12947 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12976 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
@@ -10,7 +10,7 @@
 | 「A 而不是 B」对照腔 | high | 16 | 92 | 108 |
 | 绝对化规定腔 | medium | 14 | 67 | 81 |
 | 自指式讲解腔 | medium | 1 | 40 | 41 |
-| 「…即可」机器腔 | medium | 12 | 22 | 34 |
+| 「…即可」机器腔 | medium | 11 | 22 | 33 |
 | 「不是…而是…」对照句 | high | 0 | 4 | 4 |
 | emoji/符号装饰 | high | 2 | 1 | 3 |
 | 宣传词 | medium | 0 | 2 | 2 |
@@ -140,11 +140,10 @@
 - `maa_api/services/account/planner.py:1` 养成规划（规格 §7.6）：从当前状态到目标状态的增量材料 → 线性规划刷关与合成方案。 数据链： 1. 当前状态：注入的 ``box``（``OperatorBoxService``）→ 练度列缺值就是**未识别** （``None``，…（共 2566 字）
 - …… 另有 32 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 12 / 开发向 22）
+## 「…即可」机器腔（medium｜用户可见 11 / 开发向 22）
 
 **用户可见**
 
-- `web/src/features/account/SklandBindingCard.tsx:228` 会删掉保存在本机的 cred 与签名 token，已同步到账号数据的练度保留；需要时重新扫码绑定即可。
 - `web/src/features/copilots/CopilotGrantCard.tsx:161` 通关即可：二星或三星都算成功。
 - `web/src/features/copilots/format.ts:190` 通关即可
 - `maa_api/agent/tools/copilot_attempt.py:66` 需要申请授权时的成功标准预填：three_star 三星才行 / clear 通关即可。
@@ -152,7 +151,8 @@
 - `maa_api/api/routers/skland.py:171` 轮询一次；``succeeded`` 时凭据已经落库，前端刷新 ``GET /api/skland/status`` 即可。
 - `maa_api/domain/task.py:244` 切换到已登录的账号，输入登录名的一部分即可；不填则不切换
 - `maa_api/domain/task.py:1396` 仓库识别：读一遍账号仓库「养成材料」页签的数量（规格 §7.2 T1）。 没有参数，空参数即可入队。识别结果经 ``SubTaskExtraInfo`` 回调整表替换仓库 数量；龙门币与作战记录不在该页签内。
-- …… 另有 4 条，见 inventory.json
+- `maa_api/agent/knowledge/builtin/annihilation-weekly.md:14` **长期剿灭委托**是常驻的几张图，按开放顺序解锁：乌萨斯 切尔诺伯格、炎国 龙门外环、炎国 龙门市区。要先通关前一张才解锁下一张，评价达标即可，不必满星；解锁条件与消耗看游戏内界面。
+- …… 另有 3 条，见 inventory.json
 
 **开发向**
 

@@ -115,6 +115,7 @@
   - 无 `skill_ids` / `module_details`（老数据或 OperBox-only）时降级：技能只显示槽位与专精数字（不显图标）、模组只显示 `X 3` 这种字母 + 等级。
 - `web/src/features/account/OperatorGrid.tsx`（新）：`grid` 布局，列宽 `repeat(auto-fit, minmax(min(360px,100%), 500px))` 居中（一行 1–2 张），点击卡片回调 `onSelect(row)`（打开既有编辑抽屉）。
   **真机修订**：第一版用的是 2–6 列窄方块卡，真机上文字被挤成竖排，改成宽横卡（照参考实现的干员条）。
+  **2026-10-14 后续修订（另一个任务）**：账号页排版收敛把列宽公式换成 `grid-cols-1 md:grid-cols-2`、头像 56 → 48px、技能方框 40 → 32px 且专精角标改右上、模组改水平芯片、身份栏补技能等级与信赖胶囊；六列练度的 `dl` 退成 `sr-only`。本节其余参数保留当时的决策原貌，新口径见 [13 §8.69](../../13-决策记录.md)。
 - `OperatorsTab.tsx`：把 `ul` 行列表换成 `OperatorGrid`，条目数、注意保持既有 `data-testid` 或补充新测试；分页按钮文案不变。
 - 新增 `formatModuleLabel(detail)` / `moduleTypeGlyph(type)`（`X→X / Y→Y / D→Δ / A→α`）等纯函数，便于单测。
 - `skillIconUrl(skillId)` / `avatarUrl(charId)` 放在 `features/account/assets.ts`，集中一处便于以后换源。
