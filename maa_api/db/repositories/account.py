@@ -1,24 +1,23 @@
-"""M27 账号数据的四个仓储（规格 §7.3、附录 E、docs/04 §9）。
+"""M27 账号数据的三个仓储（规格 §7.3、附录 E、docs/04 §9）。
 
 分工与纪律（docs/04 §9）：仓储只回答「怎么读写」，不判断「读写意味着什么」。
 
-- **合并规则不在这一层**：识别覆盖哪些字段、什么时候记一条差异、字段来源怎么变，
-  都在 :class:`maa_api.services.account.box.OperatorBoxService`（服务层）里；仓储只
-  提供 ``new_row`` / ``upsert`` 这样的建行与整行写入原语。
-- **不 ``commit()``**：事务边界由调用方（服务层）决定，一次识别要么整体落库、
+- **合并规则不在这一层**：森空岛同步写哪些字段、什么时候收缩所有权，都在
+  :class:`maa_api.services.account.box.OperatorBoxService`（服务层）里；仓储只提供
+  ``new_row`` / ``upsert`` 这样的建行与整行写入原语。
+- **不 ``commit()``**：事务边界由调用方（服务层）决定，一次同步要么整体落库、
   要么整体回滚。
-- **读方法返回 ORM 实例或轻量 dataclass**：差异列表要带干员名，ORM 实例不允许挂
-  未声明的属性（SQLModel 会抛 ``ValueError``），因此
-  :class:`AccountOperatorDiffRepository` 返回 :class:`OperatorDiffRow`。
+- **差异表（``account_operator_diff``）只留历史行**：M47 删掉手动 / Agent 写入与
+  ``OperBox`` 识别之后，不再有任何写入者，差异的读写端点与仓储方法一并下线；
+  表与 ORM 模型保留，供老库里的历史行自证（docs/13 §8.70）。
 
-四个仓储的调用方是 ``services/account/box.py``、``depot.py`` 与 ``capture.py``；
+三个仓储的调用方是 ``services/account/box.py``、``depot.py`` 与 ``capture.py``；
 方法名与关键字参数是与它们约定好的接口，改签名要同步改这三处。
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -29,7 +28,6 @@ from sqlalchemy import update as sa_update
 from maa_api.db.models import (
     AccountDepotItem,
     AccountOperator,
-    AccountOperatorDiff,
     AccountRecognition,
     utcnow,
 )
@@ -37,42 +35,22 @@ from maa_api.db.repositories.base import BaseRepository
 
 __all__ = [
     "RECOGNITION_KIND_DEPOT",
-    "RECOGNITION_KIND_OPERBOX",
     "RECOGNITION_KIND_SKLAND",
     "RECOGNITION_KIND_TRAINING",
     "AccountDepotItemRepository",
-    "AccountOperatorDiffRepository",
     "AccountOperatorRepository",
     "AccountRecognitionRepository",
-    "OperatorDiffRow",
 ]
 
 #: ``account_recognition.kind`` 的取值（规格 §7.3、M36 规格 §4.5、M42 规格 §4.5）。
-RECOGNITION_KIND_OPERBOX = "operbox"
+#: ``operbox``（内核干员识别）自 M47 起不再产生新行，历史行仍留在表里——``kind`` 是
+#: 纯字符串列，没有枚举约束，也不回填。
 RECOGNITION_KIND_DEPOT = "depot"
 #: 干员详情练度扫描（M36）：``item_count`` 是真的写进库的干员数。M42 起不再产生新行，
 #: 历史行保留（``kind`` 是纯字符串列，没有枚举约束）。
 RECOGNITION_KIND_TRAINING = "training"
 #: 森空岛账号数据同步（M42）：``item_count`` 是写进库的干员数 + 清掉的所有权数。
 RECOGNITION_KIND_SKLAND = "skland"
-
-
-@dataclass(frozen=True, slots=True)
-class OperatorDiffRow:
-    """一条差异 + 干员名（页面顶部提示条不再回表查名字）。
-
-    字段名与 ``account_operator_diff`` 的列一一对应，另外多一个 ``name``：
-    :func:`maa_api.services.account.rules.diff_wire` 按属性名读它。
-    """
-
-    id: int
-    char_id: str
-    name: str | None
-    field: str
-    manual_value: Any
-    recognized_value: Any
-    created_at: datetime | None
-    dismissed_at: datetime | None
 
 
 def _text_filter(column: Any, query: str | None) -> Any:
@@ -134,34 +112,6 @@ class AccountOperatorRepository(BaseRepository):
             setattr(existing, column, getattr(row, column))
         await self.session.flush()
         return existing
-
-    async def upsert_many(self, rows: Sequence[AccountOperator]) -> int:
-        """批量写入识别值：一次 ``SELECT ... IN`` 取回已有行，再一次 flush。
-
-        识别一次会给几百名干员写值，逐行走 :meth:`upsert` 是几百次往返；
-        这里把「已有的取回来改、没有的加进去」压成两条语句。
-        :returns: 写入的行数（新增 + 更新）。
-        """
-        if not rows:
-            return 0
-        keys = [row.char_id for row in rows]
-        result = await self.session.execute(
-            select(AccountOperator).where(AccountOperator.char_id.in_(keys))
-        )
-        existing = {row.char_id: row for row in result.scalars().all()}
-        written = 0
-        for row in rows:
-            current = existing.get(row.char_id)
-            if current is None:
-                self.session.add(row)
-            else:
-                for column in AccountOperator.__table__.columns.keys():
-                    if column == "char_id":
-                        continue
-                    setattr(current, column, getattr(row, column))
-            written += 1
-        await self.session.flush()
-        return written
 
     # -- 读取 -------------------------------------------------------------
     async def list(
@@ -253,106 +203,6 @@ def _operator_conditions(
     if name_filter is not None:
         conditions.append(name_filter)
     return conditions
-
-
-class AccountOperatorDiffRepository(BaseRepository):
-    """识别覆盖手动值的差异：写入、列出、标记已知。"""
-
-    async def create(
-        self,
-        *,
-        char_id: str,
-        field: str,
-        manual_value: Any,
-        recognized_value: Any,
-        created_at: datetime | None = None,
-    ) -> AccountOperatorDiff:
-        """写一条差异；``created_at`` 默认取库内时间源（识别回调会传事件时间）。"""
-        row = AccountOperatorDiff(
-            char_id=char_id,
-            field=field,
-            manual_value=manual_value,
-            recognized_value=recognized_value,
-            created_at=created_at or utcnow(),
-        )
-        self.session.add(row)
-        await self.session.flush()
-        return row
-
-    async def list(
-        self,
-        *,
-        include_dismissed: bool = False,
-        char_id: str | None = None,
-        limit: int | None = None,
-    ) -> list[OperatorDiffRow]:
-        """差异列表，按时间倒序（最新的覆盖最先看到），带上干员名。
-
-        ``include_dismissed=False``（默认）只列未处理的：页面顶部提示条用它。
-        """
-        statement = (
-            select(AccountOperatorDiff, AccountOperator.name)
-            .outerjoin(
-                AccountOperator,
-                AccountOperator.char_id == AccountOperatorDiff.char_id,
-            )
-            .order_by(
-                AccountOperatorDiff.created_at.desc(),
-                AccountOperatorDiff.id.desc(),
-            )
-        )
-        if not include_dismissed:
-            statement = statement.where(AccountOperatorDiff.dismissed_at.is_(None))
-        if char_id is not None:
-            statement = statement.where(AccountOperatorDiff.char_id == char_id)
-        if limit is not None:
-            statement = statement.limit(max(int(limit), 0))
-        result = await self.session.execute(statement)
-        return [
-            OperatorDiffRow(
-                id=int(row.id or 0),
-                char_id=row.char_id,
-                name=name,
-                field=row.field,
-                manual_value=row.manual_value,
-                recognized_value=row.recognized_value,
-                created_at=row.created_at,
-                dismissed_at=row.dismissed_at,
-            )
-            for row, name in result.all()
-        ]
-
-    async def count_pending(self, *, char_id: str | None = None) -> int:
-        """未处理的差异条数（页面顶部提示条与账号概要读它）。"""
-        statement = (
-            select(func.count())
-            .select_from(AccountOperatorDiff)
-            .where(AccountOperatorDiff.dismissed_at.is_(None))
-        )
-        if char_id is not None:
-            statement = statement.where(AccountOperatorDiff.char_id == char_id)
-        return int(await self.session.scalar(statement) or 0)
-
-    async def dismiss(
-        self, ids: Sequence[int] | None = None, *, now: datetime | None = None
-    ) -> int:
-        """把差异标记为已知：``ids`` 为 ``None`` 表示全部未处理的。
-
-        :returns: 本次真正改到的条数——已经标记过的不再计数（幂等）。
-        """
-        stamp = now or utcnow()
-        statement = (
-            sa_update(AccountOperatorDiff)
-            .where(AccountOperatorDiff.dismissed_at.is_(None))
-            .values(dismissed_at=stamp)
-        )
-        if ids is not None:
-            selected = [int(item) for item in ids]
-            if not selected:
-                return 0
-            statement = statement.where(AccountOperatorDiff.id.in_(selected))
-        result = await self.session.execute(statement)
-        return int(result.rowcount or 0)
 
 
 class AccountDepotItemRepository(BaseRepository):
@@ -515,8 +365,8 @@ class AccountRecognitionRepository(BaseRepository):
         """写一条识别记录（时间、流水线、任务、渠道、数量、过程事实）。
 
         同 ``kind`` 同 ``recognized_at`` 的已有记录不重复插，而是把非空的上下文补上：
-        识别结果由 ``OperatorBoxService.apply_recognition`` 落库（它拿不到流水线 /
-        任务 / 渠道），``capture.py`` 随后带着这三个值再调一次，两次说的是同一次识别。
+        写库的服务拿不到流水线 / 任务 / 渠道，``capture.py`` 随后带着这三个值再调一次，
+        两次说的是同一次识别。
         补的时候只用非空值，不拿 NULL 覆盖已有值。
 
         ``detail``（M45 W3a）是这次识别的过程事实（仓库识别放来源表与未识别清单），

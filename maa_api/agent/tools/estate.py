@@ -146,7 +146,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "按基建布局（243/153/252/333）与班次数（2–4）列出每个房间可排班的干员："
                 "只列账号数据里已拥有、且练度已解锁对应后勤技能的干员，附技能描述与效率提示。"
-                "编排基建方案前用它；账号数据缺失时会说明，先用 ask_user 建议运行干员识别。"
+                "编排基建方案前用它；账号数据缺失时会说明，先用 ask_user 建议绑定森空岛账号并同步练度。"
             ),
             params_model=GetInfrastCandidatesParams,
             handler=get_infrast_candidates,

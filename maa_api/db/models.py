@@ -994,19 +994,18 @@ class AgentQuestion(SQLModel, table=True):
 class AccountOperator(SQLModel, table=True):
     """账号里的一名干员（规格 §7.3、附录 E）。
 
-    一行同时承载三种来源的值：识别（``own`` / ``elite`` / ``level`` / ``potential``）、
-    手动编辑、Agent 写入。``field_sources`` 记每个字段最后一次是谁写的，
-    ``recognized_values`` 记最近一次识别值：识别覆盖时用它判断「这个字段在上次识别
-    之后有没有被手动改过」，见 :meth:`~maa_api.services.account.box.OperatorBoxService.apply_recognition`。
+    **M47 起只有一个来源**：森空岛练度同步（
+    :meth:`~maa_api.services.account.box.OperatorBoxService.apply_skland_sync`）。历史上
+    还有内核 ``OperBox`` 识别、手动编辑与 Agent 写入，三者随 M47 一起下线（docs/13 §8.70），
+    迁移 ``0022_skland_only_operators`` 把老行清空。``field_sources`` 记每个字段是谁写的，
+    ``recognized_values`` 记最近一次写入的值（M47 起就是最近一次同步）。
 
-    ``name`` / ``rarity`` / ``profession`` 允许为空：``all_opers`` 里只有 id、
-    又没有被本机资料认出来的干员行仍然要留（``own=false``），等后续识别或资源补全。
+    ``name`` / ``rarity`` / ``profession`` 允许为空：上游没给名字、本机资料也映射不到时
+    行仍然要留，等资源补全。
 
     练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` /
-    ``modules``）都可为 **NULL ＝ 未识别**（M35）：既没有识别值，也没有 manual / agent
-    写入。内核的 OperBox 只给得出 ``own`` 与 ``elite`` / ``level`` / ``potential``，
-    技能等级、专精、模组本来就不在识别结果里（见 ``RECOGNIZED_FIELDS``）；把它们当成
-    0 / 1 / 空映射渲染，就是在拿默认值冒充事实。读侧一律原样透传 ``None``，
+    ``modules``）都可为 **NULL ＝ 未识别**（M35）：那次同步没给这一项，或上游给了越界值。
+    把它们当成 0 / 1 / 空映射渲染，就是在拿默认值冒充事实。读侧一律原样透传 ``None``，
     不许再折算成具体值。
     """
 
@@ -1138,7 +1137,7 @@ class AccountRecognition(SQLModel, table=True):
     __tablename__ = "account_recognition"
 
     id: int | None = Field(default=None, primary_key=True)
-    #: ``operbox`` / ``depot``。
+    #: ``depot`` / ``skland``；``operbox`` 与 ``training`` 是历史取值（M47 / M42 起不再产生新行）。
     kind: str = Field(max_length=16)
     pipeline_id: str | None = Field(
         default=None,

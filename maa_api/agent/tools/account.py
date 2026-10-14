@@ -1,14 +1,14 @@
 """Agent 的账号数据工具（规格 §7.4、§7.7）：干员表、仓库、养成规划与计划。
 
-分组 `account`。读接口 SAFE；`update_operator_box` 与 `start_upgrade_plan` 每次确认
-（策略层单独分支，确认卡片按差异/摘要渲染，不把 payload 当普通 JSON 展开）。
+分组 `account`。读接口 SAFE；`start_upgrade_plan` 每次确认（策略层单独分支，
+确认卡片按摘要渲染，不把 payload 当普通 JSON 展开）。
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 
@@ -21,7 +21,6 @@ __all__ = [
     "PlanUpgradeParams",
     "StartUpgradePlanParams",
     "SyncSklandTrainingParams",
-    "UpdateOperatorBoxParams",
     "cancel_upgrade_plan",
     "get_depot",
     "get_operator_box",
@@ -31,34 +30,7 @@ __all__ = [
     "register_tools",
     "start_upgrade_plan",
     "sync_skland_training",
-    "update_operator_box",
 ]
-
-#: 干员编辑条目的字段（与 `OperatorBoxService.patch_operator` 的可编辑字段一致）。
-class OperatorChange(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operator: str = Field(
-        min_length=1, max_length=32, description="干员名或 char_id。"
-    )
-    own: bool | None = Field(default=None, description="是否拥有。")
-    elite: int | None = Field(default=None, ge=0, le=2, description="精英化 0–2。")
-    level: int | None = Field(default=None, ge=1, le=90, description="等级。")
-    potential: int | None = Field(default=None, ge=1, le=6, description="潜能 1–6。")
-    skill_level: int | None = Field(default=None, ge=1, le=7, description="技能等级 1–7。")
-    masteries: dict[Literal["1", "2", "3"], int] | None = Field(
-        default=None, description="专精：技能序号 → 0–3（只在精二且技能 7 级时可填）。"
-    )
-    modules: dict[str, int] | None = Field(
-        default=None,
-        description="模组：类型（X/Y/D/A）→ 等级 1–3（只在精二时可填）。",
-    )
-
-    @model_validator(mode="after")
-    def _at_least_one_field(self) -> "OperatorChange":
-        if not self.model_fields_set - {"operator"}:
-            raise ValueError("每一项改动至少要给一个字段")
-        return self
 
 
 class GetOperatorBoxParams(BaseModel):
@@ -81,17 +53,6 @@ class GetDepotParams(BaseModel):
         default=None, max_length=50, description="要查的物品名或 itemId 列表；留空返回概览。"
     )
     category: str | None = Field(default=None, max_length=16, description="按分类筛选。")
-
-
-class UpdateOperatorBoxParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    changes: list[OperatorChange] = Field(
-        min_length=1, max_length=20, description="要改的干员与字段，1–20 条。"
-    )
-    reason: str = Field(
-        min_length=1, max_length=200, description="为什么要改（会显示在确认卡片上）。"
-    )
 
 
 class UpgradeTarget(BaseModel):
@@ -154,11 +115,9 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "查用户账号里的干员与练度（精英化、等级、潜能、技能等级、专精、模组），"
                 "以及识别时间与是否过期。回答「我有没有这个干员」「我的练度够不够」时先查它；"
-                "技能等级、专精、模组返回 null 表示**未识别**（内核的干员识别只给是否拥有、"
-                "精英化、等级、潜能），别说成没升过技能或没有专精，用 update_operator_box "
-                "补录或让用户确认；"
-                "数据缺失或过期时返回 suggest_recognition，用 ask_user 建议用户跑一次干员识别；"
-                "识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。"
+                "技能等级、专精、模组返回 null 表示**未识别**，别说成没升过技能或没有专精，"
+                "用 sync_skland_training 从森空岛同步；"
+                "数据缺失或过期时用 ask_user 建议用户在账号页绑定森空岛账号并同步练度。"
             ),
             params_model=GetOperatorBoxParams,
             handler=get_operator_box,
@@ -172,27 +131,11 @@ def register_tools(registry: ToolRegistry) -> None:
             risk=ToolRisk.SAFE,
             description=(
                 "查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；"
-                "仓库数据缺失或过期时返回 suggest_recognition；"
                 "识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。"
             ),
             params_model=GetDepotParams,
             handler=get_depot,
             read_only=True,
-        )
-    )
-    registry.register(
-        ToolDefinition(
-            name="update_operator_box",
-            group="account",
-            risk=ToolRisk.SAFE,
-            description=(
-                "修改账号里的干员数据（是否拥有、精英化、等级、潜能、技能等级、专精、模组）。"
-                "技能等级、专精、模组识别不出来，只能靠它补录；"
-                "用户明确要求纠正或补录时才用；每次修改都会弹确认卡片展示改动前后的差异。"
-            ),
-            params_model=UpdateOperatorBoxParams,
-            handler=update_operator_box,
-            read_only=False,
         )
     )
     registry.register(
@@ -204,7 +147,7 @@ def register_tools(registry: ToolRegistry) -> None:
                 "算养成规划：给定目标（精英化、技能等级、专精、模组），算出需要哪些材料、"
                 "去哪几关刷、每关刷几次、总共多少理智、大概几天。只计算，不提交任务。"
                 "当前练度里未识别的维度不会被算成增量（也不按默认值兜底）：返回的 unknowns "
-                "列出这些缺口，先补录或如实告诉用户，不要替用户假定。"
+                "列出这些缺口，先同步练度或如实告诉用户，不要替用户假定。"
             ),
             params_model=PlanUpgradeParams,
             handler=plan_upgrade,
@@ -272,11 +215,10 @@ def register_tools(registry: ToolRegistry) -> None:
             risk=ToolRisk.CONDITIONAL,
             description=(
                 "从森空岛同步账号里**全部**干员的练度（精英化、等级、潜能、技能等级、"
-                "专精、模组、信赖）并写进账号表。干员识别（OperBox）只能给是否拥有、"
-                "精英化、等级、潜能，其余几项只能靠它补；用户在问养成规划却发现这些字段"
-                "未识别、或说「同步一下练度」「更新练度」时用它。"
-                "它不占设备、几秒内跑完，但会用官方账号数据覆盖整表练度（含用户手改过的"
-                "字段，差异会记在账号页），所以每次都要用户确认；"
+                "专精、模组、信赖）并写进账号表，这是账号干员数据的唯一来源；用户在问养成"
+                "规划却发现练度未识别、或说「同步一下练度」「更新练度」时用它。"
+                "它不占设备、几秒内跑完，但会用官方账号数据覆盖整表练度，"
+                "所以每次都要用户确认；"
                 "没绑定森空岛时先让用户去账号页扫码绑定（见 get_skland_status）。"
             ),
             params_model=SyncSklandTrainingParams,
@@ -306,21 +248,6 @@ async def get_depot(params: GetDepotParams, context: ToolContext) -> dict[str, A
     if params.items:
         return await service.list_items(query=None, limit=len(params.items), offset=0)
     return await service.summary()
-
-
-async def update_operator_box(params: UpdateOperatorBoxParams, context: ToolContext) -> dict[str, Any]:
-    """改干员表：逐条落到 `patch_operator`，字段来源标 `agent`。"""
-    service = _service(context, "box_service", "maa_api.services.account.box", "OperatorBoxService")
-    results: list[dict[str, Any]] = []
-    for change in params.changes:
-        payload = change.model_dump(exclude_unset=True, exclude_none=True)
-        operator = payload.pop("operator")
-        results.append(await service.patch_operator(operator, payload, source="agent"))
-    return {
-        "updated": len(results),
-        "operators": results,
-        "reason": params.reason,
-    }
 
 
 async def plan_upgrade(params: PlanUpgradeParams, context: ToolContext) -> dict[str, Any]:

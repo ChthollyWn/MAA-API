@@ -82,14 +82,13 @@ EXTRA_INFO_MAP: dict[str, str] = {
     "FightTimes": "已战斗 {times_finished}/{series} 次，消耗理智 {sanity_cost}",
     "ExceededLimit": "已达到次数上限：{task} {exec_times}/{max_times}",
     "StageDrops": "{stars}⭐通关{stage_code} \n掉落统计: \n{drop_statistics}",
-    "OperBoxInfo": "识别到 {count} 名干员",
     "DepotInfo": "仓库识别完成：{count} 种物品",
 }
 
-#: 账号识别的两条回调（规格 §7.2 T2）：只在收尾（``done=true``）时打 INFO，
-#: 过程回调（``done=false``）降为 DEBUG，免得一次识别刷出几十条同样的行。
+#: 账号识别的回调（规格 §7.2 T2）：只在收尾（``done=true``）时打 INFO，过程回调
+#: （``done=false``）降为 DEBUG，免得一次识别刷出几十条同样的行。M47 起只剩仓库识别：
+#: 干员数据的唯一来源是森空岛同步，``OperBoxInfo`` 不再落库（docs/13 §8.70）。
 _ACCOUNT_RECOGNITION_MAP: dict[str, str] = {
-    "OperBoxInfo": "干员识别进行中",
     "DepotInfo": "仓库识别进行中",
 }
 
@@ -322,9 +321,7 @@ class CallbackTranslator:
         progress_label = _ACCOUNT_RECOGNITION_MAP.get(what)
         if progress_label is not None:
             account = nested or details
-            values["count"] = (
-                _operbox_count(account) if what == "OperBoxInfo" else _depot_count(account)
-            )
+            values["count"] = _depot_count(account)
             if account.get("done") is not True:
                 return [self._record(message, details, progress_label, "DEBUG")]
         return [
@@ -381,30 +378,6 @@ def _mapping_items(value: Any) -> list[Mapping[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, Mapping)]
-
-
-def _operbox_count(payload: Mapping[str, Any]) -> int:
-    """``OperBoxInfo`` 的干员数：``all_opers`` 里 ``own is True`` 的条数，即「已拥有多少名」。
-
-    不优先数 ``own_opers``：它只收**带练度详情**（elite / level / potential）的已拥有干员，
-    不是拥有总数。真机实测（2026-10-10 17:20 那次回调）``all_opers`` 463 条里 ``own=true``
-    是 383 条、与用户实际拥有数一致，而 ``own_opers`` 只有 380 条——阿米娅的两个形态
-    （``char_002_amiya`` / ``char_1037_amiya3``）与暮落（``char_512_aprot``）是已拥有、
-    却没有练度详情，从不进 ``own_opers``。
-
-    退回顺序：``all_opers`` 缺失、或其中没有任何条目带 ``own`` 字段（旧版内核形状）时，
-    先退回 ``own_opers`` 条数、再退回 ``all_opers`` 条数（两者都只数 Mapping 条目）；
-    都没有时为 0。
-    """
-
-    all_items = _mapping_items(payload.get("all_opers"))
-    if any("own" in item for item in all_items):
-        return sum(1 for item in all_items if item.get("own") is True)
-    for key in ("own_opers", "all_opers"):
-        items = payload.get(key)
-        if isinstance(items, list):
-            return len(_mapping_items(items))
-    return 0
 
 
 def _depot_count(payload: Mapping[str, Any]) -> int:

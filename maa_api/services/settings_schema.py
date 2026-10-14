@@ -123,7 +123,7 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "agent.atomic_grant_minutes": dict(label="屏幕操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
     "agent.auto_diagnose_failures": dict(label="自动诊断流水线与内核故障", group="Agent", type="boolean", hot_action="none"),
     # M27 账号数据的过期阈值：概要接口与注入段现读设置，改完立即生效。
-    "agent.box_stale_days": dict(label="干员识别过期天数", group="Agent", type="integer", minimum=1, maximum=365, hot_action="none"),
+    "agent.box_stale_days": dict(label="干员数据过期天数（距上次森空岛同步）", group="Agent", type="integer", minimum=1, maximum=365, hot_action="none"),
     "agent.depot_stale_days": dict(label="仓库识别过期天数", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
     # M45 W4 仓库写库闸门：上一轮条目数够多时，本轮相对上一轮跌得太狠就整轮不写
     # （与 agent.depot_min_items 同一族，服务写库时现读，改完立即生效）。

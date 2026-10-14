@@ -1001,16 +1001,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # 2026-10-14：M45 的仓库自识别（`DepotScanService` 逐屏扫描 + 与内核那趟按 id
         # 合并）已按用户要求连实现一起删除（docs/13 §8.68）；采集层只写内核 `DepotInfo`
         # 那一趟的结果，写库路径与 M44 逐字一致。
+        # M47（docs/13 §8.70）：干员侧的 `OperBox` 采集随任务类型一起下线，采集层只剩
+        # 仓库；干员数据由下面的 `SklandSyncService` 写入，是唯一来源。
         account_capture = AccountCaptureService(
             db_session.session_factory,
-            box_service=box_service,
             depot_service=depot_service,
         )
         app.state.account_capture = account_capture
-        # 回调接线（M33 §4.1）：M27 的采集服务建好后一直没有生产调用方，干员 / 仓库的
-        # 识别结果从来没有落库（docs/13 §8.48）。内核回调在事件循环线程里同步派发，
-        # 接线只做调度，解析与落库都在采集服务里；归属复用 log_context，日志页与账号页
-        # 指向同一条流水线 / 子任务。
+        # 回调接线（M33 §4.1）：M27 的采集服务建好后一直没有生产调用方，识别结果从来没有
+        # 落库（docs/13 §8.48）。内核回调在事件循环线程里同步派发，接线只做调度，解析与
+        # 落库都在采集服务里；归属复用 log_context，日志页与账号页指向同一条流水线 / 子任务。
         from maa_api.services.account.callback_wiring import install_account_capture
 
         install_account_capture(

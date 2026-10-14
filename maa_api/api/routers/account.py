@@ -1,14 +1,11 @@
 """账号数据端点（M27，规格 §7.5、附录 C）。
 
-``/api/account`` 前缀下的端点：概要、干员表（筛选 + 分页）、手动编辑、识别差异
-（列表与「知道了」）、仓库，以及 M31 补的养成计划列表/单条/取消。M36 的三条练度
-扫描端点（受理、看进度、取消）已在 M42 §4.9 退役，练度读走 ``/api/skland``。
+``/api/account`` 前缀下的端点：概要、干员表（筛选 + 分页）、单条干员、游戏资源图、
+仓库，以及 M31 补的养成计划列表/单条/取消。M36 的三条练度扫描端点（受理、看进度、
+取消）已在 M42 §4.9 退役，练度读走 ``/api/skland``；M47 把内核干员识别（``OperBox``）
+与手动编辑一起下线，干员数据**只读**、唯一来源是森空岛同步（docs/13 §8.70）。
 
-路由层只做三件事：解析查询参数与请求体、取服务、把服务返回的 dict 原样透出。
-字段级编辑约束（精英化上限、专精前置、模组类型与等级）在
-:class:`~maa_api.services.account.box.OperatorBoxService` 里判定，违反时抛
-422 ``VALIDATION_ERROR``（``details.field`` 指出是哪一个字段）；路由层不重复实现。
-请求体只接受可编辑字段，未知字段由 ``extra="forbid"`` 拦成 422。
+路由层只做三件事：解析查询参数、取服务、把服务返回的 dict 原样透出。
 
 服务未启动（lifespan 还在装配）时统一回 503 ``SERVICE_UNAVAILABLE``，与其它路由同款。
 """
@@ -18,7 +15,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
+from pydantic import BaseModel, Field
 
 from maa_api.api.deps import require_auth
 from maa_api.api.errors import error_responses
@@ -27,104 +24,30 @@ from maa_api.services.account.assets import ASSET_KINDS, GameAssetService
 from maa_api.services.account.box import OperatorBoxService
 from maa_api.services.account.depot import DepotService
 from maa_api.services.account.plans import UpgradePlanService
-from maa_api.services.account.rules import (
-    MAX_LEVEL,
-    MAX_MASTERY_LEVEL,
-    MAX_MODULE_LEVEL,
-    MAX_POTENTIAL,
-    MAX_SKILL_LEVEL,
-    MODULE_TYPES,
-)
+
 __all__ = [
     "AccountDepotList",
     "AccountDepotRow",
     "AccountOperatorList",
     "AccountOperatorRow",
-    "OperatorDiffDismissRequest",
-    "OperatorPatchRequest",
     "router",
 ]
 
 router = APIRouter(prefix="/api/account", tags=["account"])
-
-#: ``PATCH`` 的 ``source``：只有手动与 Agent 两条写入途径（识别写入固定标
-#: ``recognition``，见服务层），所以这里用 Literal 而不是自由字符串。
-WriteSource = Literal["manual", "agent"]
-
-#: 专精的键是技能序号字符串（wire 形状 ``{"1": 3}``）：用约束把它钉在 1–3，
-#: 越界的键由请求模型挡成 422，服务层不用再猜 ``1`` 与 ``"1"`` 两种写法。
-MasteryKey = Annotated[str, StringConstraints(pattern=r"^[123]$")]
-#: 模组类型只能是 X / Y / D / A（规格 §7.5）。
-ModuleType = Annotated[str, StringConstraints(pattern=r"^[XYDA]$")]
 
 #: 养成计划的三态（规格 §7.7，落在 ``upgrade_plan.status``）；非法值由 FastAPI 挡成
 #: 422 ``VALIDATION_ERROR``，路由层不自己解析。
 PlanStatus = Literal["active", "completed", "cancelled"]
 
 
-class OperatorPatchRequest(BaseModel):
-    """手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。
-
-    取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、
-    模组与精英化）在服务层做——它们要看行里既有的值。
-
-    字段传 ``null`` 与不传同义：**都不修改**。M35 之后读出来可能是 ``null``（＝未识别），
-    但本轮不提供「把已识别的值清回未识别」的写入语义（规格 §3.2），所以读到的 ``null``
-    原样回传不会误清数据。
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "examples": [
-                {"own": True, "elite": 2, "level": 90, "potential": 6},
-                {
-                    "elite": 2,
-                    "level": 80,
-                    "skill_level": 7,
-                    "masteries": {"1": 3, "2": 3, "3": 0},
-                    "modules": {"X": 3},
-                    "source": "manual",
-                },
-            ]
-        },
-    )
-
-    # 用 StrictBool：宽松模式会把 "yes" / 1 静默当 True，页面传错类型时应该报错。
-    own: StrictBool | None = Field(default=None, description="是否拥有")
-    elite: int | None = Field(default=None, ge=0, le=2, description="精英化等级，上限按稀有度")
-    level: int | None = Field(default=None, ge=0, le=MAX_LEVEL, description="等级")
-    potential: int | None = Field(default=None, ge=0, le=MAX_POTENTIAL, description="潜能")
-    skill_level: int | None = Field(
-        default=None, ge=1, le=MAX_SKILL_LEVEL, description="技能等级 1–7"
-    )
-    masteries: dict[MasteryKey, int] | None = Field(
-        default=None,
-        description=(
-            "专精等级：技能序号 1–3 → 0–"
-            f"{MAX_MASTERY_LEVEL}；只在精二且技能 7 级时可填"
-        ),
-    )
-    modules: dict[ModuleType, int] | None = Field(
-        default=None,
-        description=(
-            "模组等级：类型 "
-            f"{'/'.join(MODULE_TYPES)} → 1–{MAX_MODULE_LEVEL}；只在精二时可填"
-        ),
-    )
-    source: WriteSource = Field(
-        default="manual", description="字段来源标记；Agent 工具写 agent，页面写 manual"
-    )
-
-
 class AccountOperatorRow(BaseModel):
     """干员行：docs/05 §6.20 的字段清单，与单条读取同形。
 
-    练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` /
-    ``modules``）可以是 ``null`` ＝ **未识别**（M35）：既没有识别值，也没有 manual /
-    agent 写入。内核 OperBox 只识别得到前四个字段里的三个（``elite`` / ``level`` /
-    ``potential``），技能等级、专精、模组不在识别范围内，别把 ``null`` 读成 0 级 /
-    技能 1 级 / 无专精。``field_sources`` 的值有 recognition / manual / agent / skland（M42 起多第四个：森空岛同步）；
+    M47 起这张表**只由森空岛练度同步写**（``field_sources`` 因此基本只有 ``skland``；
+    ``recognition`` / ``manual`` / ``agent`` / ``training`` 只可能出现在 M47 之前的历史行上，
+    而迁移 `0022` 已经把老行清掉了）。练度六列（``elite`` / ``level`` / ``potential`` /
+    ``skill_level`` / ``masteries`` / ``modules``）可以是 ``null`` ＝ **未识别**：那次同步
+    没给这一项，或上游给了越界值。别把 ``null`` 读成 0 级 / 技能 1 级 / 无专精。
     ``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。
     """
 
@@ -279,10 +202,11 @@ async def _plan_wires(request: Request) -> list[dict[str, Any]]:
     "/summary",
     summary="读取账号数据概要",
     description=(
-        "干员与仓库的计数、识别时间与是否过期，以及未处理的识别差异条数。\n\n"
-        "- 过期阈值由 `agent.box_stale_days`（默认 14 天）与 `agent.depot_stale_days`"
-        "（默认 3 天）决定\n"
-        "- 从未识别时 `recognized_at` 为 `null` 且 `stale` 为 `true`"
+        "干员与仓库的计数、上次写入时间与是否过期。\n\n"
+        "- 干员侧的唯一来源是森空岛练度同步（M47 起），所以 `box.recognized_at` 是"
+        "上次同步时间，阈值看 `agent.box_stale_days`（默认 14 天）\n"
+        "- 仓库侧看 `agent.depot_stale_days`（默认 3 天）\n"
+        "- 从未同步 / 从未识别时 `recognized_at` 为 `null` 且 `stale` 为 `true`"
     ),
     responses=error_responses("UNAUTHORIZED"),
     dependencies=[Depends(require_auth)],
@@ -298,11 +222,12 @@ async def get_account_summary(request: Request) -> dict[str, Any]:
     response_model=AccountOperatorList,
     summary="读取干员表",
     description=(
-        "账号识别到的干员列表，带筛选与分页。\n\n"
-        "- 默认只返回已拥有的干员（`owned_only=true`）；未拥有的行来自识别的"
-        " `all_opers`\n"
+        "账号干员列表，带筛选与分页。\n\n"
+        "- 数据来自森空岛练度同步（M47 起唯一来源），只读\n"
+        "- 默认只返回已拥有的干员（`owned_only=true`）；未拥有的行也留在表里"
+        "（那一轮同步的 `chars` 里没有它）\n"
         "- `total` 是筛选后的总数，不是当前页条数\n"
-        "- 每行的 `field_sources` 标出各字段来自识别、手动还是 Agent"
+        "- 每行的 `field_sources` 标出各字段的来源（M47 之后基本只有 `skland`）"
     ),
     responses=error_responses("VALIDATION_ERROR", "UNAUTHORIZED"),
     dependencies=[Depends(require_auth)],
@@ -376,7 +301,7 @@ async def get_game_asset(
 @router.get(
     "/operators/{char_id}",
     summary="读取单名干员",
-    description="按 `char_id` 读一条干员记录（编辑抽屉打开时用）。",
+    description="按 `char_id` 读一条干员记录（外部 API 读取方与卡片详情用）。",
     responses=error_responses("ACCOUNT_DATA_NOT_FOUND", "UNAUTHORIZED"),
     dependencies=[Depends(require_auth)],
 )
@@ -386,89 +311,6 @@ async def get_account_operator(
 ) -> dict[str, Any]:
     return await _box_service(request).get_operator(char_id)
 
-
-@router.patch(
-    "/operators/{char_id}",
-    summary="编辑干员数据",
-    description=(
-        "手动编辑一名干员的字段，只写请求体里给出的字段。\n\n"
-        "- 精英化上限按稀有度：1–2★ 精零、3★ 精一、4–6★ 精二\n"
-        "- 专精只在精二且技能等级 7 时可填；模组只在精二时可填，类型 X/Y/D/A、"
-        "等级 1–3\n"
-        "- 写入后这些字段的 `field_sources` 标 `manual`（或 `source=agent`）\n"
-        "- 下次识别若覆盖了手动值且值不同，会记一条差异并在"
-        " `GET /api/account/operator-diffs` 里列出\n"
-        "- 违反字段约束返回 422 `VALIDATION_ERROR`，`details.field` 指出字段"
-    ),
-    responses=error_responses(
-        "ACCOUNT_DATA_NOT_FOUND", "VALIDATION_ERROR", "UNAUTHORIZED"
-    ),
-    dependencies=[Depends(require_auth)],
-)
-async def patch_account_operator(
-    payload: OperatorPatchRequest,
-    request: Request,
-    char_id: str = Path(description="干员 id，如 char_002_amiya"),
-) -> dict[str, Any]:
-    values = payload.model_dump(exclude_unset=True, exclude={"source"})
-    return await _box_service(request).patch_operator(
-        char_id, values, source=payload.source
-    )
-
-
-@router.get(
-    "/operator-diffs",
-    summary="读取识别差异",
-    description=(
-        "识别覆盖掉手动值的差异列表：干员、字段、手动值、识别值、时间。\n\n"
-        "- 默认只返回未处理的差异；`include_dismissed=true` 连已「知道了」的一起返回\n"
-        "- `total` 是未处理差异的总数（不受 `limit` 影响）"
-    ),
-    responses=error_responses("VALIDATION_ERROR", "UNAUTHORIZED"),
-    dependencies=[Depends(require_auth)],
-)
-async def list_account_operator_diffs(
-    request: Request,
-    include_dismissed: bool = Query(default=False),
-    limit: int = Query(default=200, ge=1, le=500),
-) -> dict[str, Any]:
-    return await _box_service(request).list_diffs(
-        include_dismissed=include_dismissed, limit=limit
-    )
-
-
-class OperatorDiffDismissRequest(BaseModel):
-    """把差异标记为「知道了」：给 ``ids`` 逐条处理，省略表示全部。"""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={"examples": [{"ids": [1, 2]}, {}]},
-    )
-
-    ids: list[int] | None = Field(
-        default=None, description="差异 id 列表；省略或 null 表示全部"
-    )
-
-
-@router.delete(
-    "/operator-diffs",
-    summary="标记差异已知",
-    description=(
-        "把识别差异标记为已知（页面上的「知道了」）。\n\n"
-        "- 请求体给 `ids` 逐条处理，省略表示全部\n"
-        "- 幂等：重复标记已处理的差异不计入 `dismissed`\n"
-        "- 找不到的 id 不报错，只在 `dismissed` 里少计数"
-    ),
-    responses=error_responses("VALIDATION_ERROR", "UNAUTHORIZED"),
-    dependencies=[Depends(require_auth)],
-)
-async def dismiss_account_operator_diffs(
-    request: Request,
-    payload: OperatorDiffDismissRequest | None = None,
-) -> dict[str, Any]:
-    ids = payload.ids if payload is not None else None
-    dismissed = await _box_service(request).dismiss_diffs(ids)
-    return {"dismissed": dismissed}
 
 
 @router.get(

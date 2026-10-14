@@ -41,7 +41,7 @@ channel:
 # 流水线失败或内核崩溃后，自动创建可继续追问的诊断会话
 agent:
   auto_diagnose_failures: true
-  # 账号数据（干员识别 / 仓库识别）超过多少天算过期；概要接口与 Agent 注入据此提示重新识别
+  # 干员数据（距上次森空岛同步）与仓库数据超过多少天算过期；概要接口与 Agent 注入据此提示重新同步 / 重新识别
   box_stale_days: 14
   depot_stale_days: 3
   # 仓库识别的写库闸门：条目数低于下限就整轮不写；上一轮够多（≥ min_prev）时，

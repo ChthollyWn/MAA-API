@@ -1,19 +1,14 @@
 """MaaCore 账号识别回调的采集（规格 §7.2 T2、§7.3）。
 
-``OperBox`` / ``Depot`` 的结果通过 ``SubTaskExtraInfo`` 推送，过程中会发多次
-``done=false``，只有最后一次 ``done=true`` 才是收尾（规格 §2.5）：
+M47 起只剩内核仓库识别这一条通道（``DepotInfo``，docs/13 §8.70）：结果通过
+``SubTaskExtraInfo`` 推送，过程中会发多次 ``done=false``，只有最后一次 ``done=true``
+才是收尾（规格 §2.5）：
 
-- ``OperBoxInfo``：``all_opers[]``（id、name、rarity、own）更新「是否拥有」，
-  ``own_opers[]``（外加 elite 0–2、level、potential 1–6）更新精英化 / 等级 / 潜能；
-  识别不动技能等级、专精、模组（那是手动或 Agent 的字段）。
 - ``DepotInfo``：``data`` 是 JSON 字符串 ``{"物品ID": 数量}``，**整表替换**仓库数量；
   物品名与本机分类用 ``item_index.json`` 映射，映射不到的保留 id。
 
-两条回调的解析与物品名/职业映射在本模块（纯函数 + 一次磁盘读，可单测），
-落库与合并规则交给 :class:`~maa_api.services.account.box.OperatorBoxService` 与
-:class:`~maa_api.services.account.depot.DepotService`：合并规则（覆盖哪些字段、
-什么时候记差异）只有一份实现，就在服务层。仓库只剩内核 ``DepotInfo`` 这一路数据源
-（M45 的自识别已于 2026-10-14 连实现一起删除，见 `docs/13` §8.68）。本模块额外把
+干员数据的唯一来源是森空岛练度同步（``services/skland/`` → ``OperatorBoxService``
+``apply_skland_sync``）；内核 ``OperBoxInfo`` 不再有解析与落库路径。本模块额外把
 「流水线 / 任务 / 渠道」补进识别记录（服务层拿不到这三个值，见
 :meth:`~maa_api.db.repositories.account.AccountRecognitionRepository.record`）。
 
@@ -50,7 +45,6 @@ from maa_api.core.enums import Message
 from maa_api.db.models import utcnow
 from maa_api.db.repositories.account import (
     RECOGNITION_KIND_DEPOT,
-    RECOGNITION_KIND_OPERBOX,
     AccountRecognitionRepository,
 )
 from maa_api.services.resource_index import iter_resource_roots
@@ -59,19 +53,16 @@ __all__ = [
     "AccountCaptureResult",
     "AccountCaptureService",
     "ItemMeta",
-    "OperBoxSnapshot",
     "OperatorMeta",
     "load_item_catalog",
     "load_item_icons",
     "load_operator_catalog",
     "parse_depot_data",
-    "parse_operbox",
 ]
 
 logger = logging.getLogger(__name__)
 
-#: 两个回调的 ``what``（规格 §7.3）。
-OPERBOX_WHAT = "OperBoxInfo"
+#: 采集回调的 ``what``（规格 §7.3）。M47 起只剩仓库：干员数据唯一来源是森空岛同步。
 DEPOT_WHAT = "DepotInfo"
 
 #: 本机资源文件名（与 ``services/game/items.py``、``services/game/operators.py`` 同源）。
@@ -123,50 +114,32 @@ class OperatorMeta:
 
 
 @dataclass(frozen=True, slots=True)
-class OperBoxSnapshot:
-    """一次 ``OperBoxInfo`` 里某名干员的识别值；``None`` 表示这次没识别该字段。"""
-
-    char_id: str
-    name: str | None = None
-    rarity: int | None = None
-    own: bool | None = None
-    elite: int | None = None
-    level: int | None = None
-    potential: int | None = None
-    #: 这个 id 出现在 ``all_opers`` 里（是否拥有由它说话）。
-    listed_in_all: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class AccountCaptureResult:
     """一次采集的结果：写没写、写了多少、为什么没写。
 
     ``skipped`` 取值：``not_subtask_extra_info``（不是这条回调）、``unsupported``
     （别的 ``what``）、``incomplete``（``done=false`` 的过程回调）、``bad_payload``
-    （结构不符或坏 JSON）、``no_owned_operators``（空识别保护：一个已拥有干员都没识别
-    到，M33 护栏 G1）、``error``（落库时抛了异常，已记 warning）。
+    （结构不符或坏 JSON）、``error``（落库时抛了异常，已记 warning）。
     """
 
     kind: str | None = None
     written: bool = False
     skipped: str | None = None
     item_count: int = 0
-    diff_count: int = 0
-    #: 收缩保护留下的「已拥有」条数（M33 护栏 G2）。
-    kept_count: int = 0
     error: str | None = None
 
 
 class AccountCaptureService:
     """把账号识别的 ``SubTaskExtraInfo`` 落库（规格 §7.2 T2）。
 
+    M47 起只处理内核仓库识别的 ``DepotInfo``：干员数据的唯一来源是森空岛同步
+    （``SklandSyncService`` → :meth:`OperatorBoxService.apply_skland_sync`）。
+
     :param session_factory: ``async_sessionmaker``；落库与写识别记录各开一个会话。
     :param item_catalog: ``itemId → ItemMeta`` 替身，测试注入；默认读本机
         ``item_index.json``（读不到就只保留 id）。
-    :param operator_catalog: ``char_id → OperatorMeta`` 替身，测试注入；默认读本机
-        ``battle_data.json``（读不到就没有职业）。
-    :param box_service / depot_service: 落库服务替身，测试注入；默认按
-        ``session_factory`` 现建（构造签名见各自模块）。
+    :param depot_service: 落库服务替身，测试注入；默认按 ``session_factory`` 现建
+        （构造签名见 :mod:`maa_api.services.account.depot`）。
     """
 
     def __init__(
@@ -174,14 +147,10 @@ class AccountCaptureService:
         session_factory: Callable[[], Any],
         *,
         item_catalog: Mapping[str, ItemMeta] | None = None,
-        operator_catalog: Mapping[str, OperatorMeta] | None = None,
-        box_service: Any | None = None,
         depot_service: Any | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._item_catalog = item_catalog
-        self._operator_catalog = operator_catalog
-        self._box_service = box_service
         self._depot_service = depot_service
 
     # -- 入口 -------------------------------------------------------------
@@ -239,7 +208,9 @@ class AccountCaptureService:
         if not isinstance(callback, Mapping):
             return AccountCaptureResult(skipped="bad_payload")
         what = str(callback.get("what") or "")
-        if what not in (OPERBOX_WHAT, DEPOT_WHAT):
+        if what != DEPOT_WHAT:
+            # M47 起只剩仓库识别这一条通道：干员数据的唯一来源是森空岛同步，
+            # 内核 ``OperBoxInfo`` 不再有落库路径（docs/13 §8.70）。
             return AccountCaptureResult(skipped="unsupported")
         data = callback.get("details")
         if not isinstance(data, Mapping):
@@ -247,80 +218,12 @@ class AccountCaptureService:
         if data.get("done") is not True:
             # done=false 是过程回调：只在收尾时写入（规格 §7.3）。
             return AccountCaptureResult(kind=_kind_of(what), skipped="incomplete")
-        context = {
-            "created_at": created_at,
-            "pipeline_id": pipeline_id,
-            "task_id": task_id,
-            "client_type": client_type,
-        }
-        if what == OPERBOX_WHAT:
-            return await self._capture_operbox(data, **context)
-        return await self._capture_depot(data, **context)
-
-    # -- OperBox ----------------------------------------------------------
-    async def _capture_operbox(
-        self,
-        data: Mapping[str, Any],
-        *,
-        created_at: datetime,
-        pipeline_id: str | None,
-        task_id: str | None,
-        client_type: str | None,
-    ) -> AccountCaptureResult:
-        snapshots = parse_operbox(data)
-        if not snapshots:
-            return AccountCaptureResult(kind=RECOGNITION_KIND_OPERBOX, skipped="bad_payload")
-
-        # 空识别（M33 护栏 G1，规格 §4.3）：游戏没启动时内核照样发 ``done=true``，只是
-        # ``all_opers`` 里一个 ``own=true`` 都没有（实测 16:26–16:29 那四次）。这种载荷
-        # 落库会把整表标成「未拥有」——比留着旧数据危险得多，直接跳过、只记一条 warning。
-        operators = _operators_payload(snapshots, self._operators)
-        all_ids = [item.char_id for item in snapshots if item.listed_in_all]
-        owned = sum(1 for item in operators.values() if item.get("own"))
-        if owned == 0:
-            logger.warning(
-                "干员识别没有识别到任何已拥有干员（all_opers %d 条），本次不更新账号数据"
-                "（M33 空识别保护）；请确认游戏已启动并停在干员列表页",
-                len(all_ids),
-            )
-            return AccountCaptureResult(
-                kind=RECOGNITION_KIND_OPERBOX, skipped="no_owned_operators"
-            )
-
-        result = await self._box.apply_recognition(
-            operators,
-            all_operators=all_ids,
-            now=created_at,
-            recognized_at=created_at,
-            # 收缩保护（M33 护栏 G2，规格 §4.3，用户裁决「识别只加不减」）：识别没看到
-            # 的已拥有干员保留为已拥有，只记日志提示；取消拥有走手动 / Agent 编辑。
-            keep_owned=True,
-        )
-        result = result or {}
-        kept_owned = [str(char_id) for char_id in result.get("kept_owned") or ()]
-        if kept_owned:
-            names = _operator_names(snapshots)
-            logger.warning(
-                "干员识别少了 %d 名库里已拥有的干员（%s%s），已按「识别只加不减」保留为"
-                "已拥有；确实不再拥有时请用 update_operator_box 修改",
-                len(kept_owned),
-                "、".join(names.get(char_id, char_id) for char_id in kept_owned[:5]),
-                " 等" if len(kept_owned) > 5 else "",
-            )
-        await self._record(
-            RECOGNITION_KIND_OPERBOX,
-            item_count=owned,
-            recognized_at=created_at,
+        return await self._capture_depot(
+            data,
+            created_at=created_at,
             pipeline_id=pipeline_id,
             task_id=task_id,
             client_type=client_type,
-        )
-        return AccountCaptureResult(
-            kind=RECOGNITION_KIND_OPERBOX,
-            written=True,
-            item_count=owned,
-            diff_count=int(result.get("diffs") or 0),
-            kept_count=len(kept_owned),
         )
 
     # -- Depot ------------------------------------------------------------
@@ -402,20 +305,6 @@ class AccountCaptureService:
         return self._item_catalog
 
     @property
-    def _operators(self) -> Mapping[str, OperatorMeta]:
-        if self._operator_catalog is None:
-            self._operator_catalog = load_operator_catalog()
-        return self._operator_catalog
-
-    @property
-    def _box(self) -> Any:
-        if self._box_service is None:
-            from maa_api.services.account.box import OperatorBoxService
-
-            self._box_service = OperatorBoxService(self._session_factory)
-        return self._box_service
-
-    @property
     def _depot(self) -> Any:
         if self._depot_service is None:
             from maa_api.services.account.depot import DepotService
@@ -427,49 +316,6 @@ class AccountCaptureService:
 # --------------------------------------------------------------------------- #
 # 纯解析（可脱离数据库单测）
 # --------------------------------------------------------------------------- #
-def parse_operbox(data: Mapping[str, Any]) -> list[OperBoxSnapshot] | None:
-    """``OperBoxInfo`` 的 details → 按 char_id 去重的快照列表；结构不符返回 ``None``。
-
-    ``all_opers`` 先给「是否拥有」（加上 name / rarity），``own_opers`` 再用
-    elite / level / potential 覆盖它（同 id 时后者为准）。两个列表都没有、
-    或一条有效记录都没有时返回 ``None``：这不该被当成「一个干员都没有」。
-    """
-    all_entries = _entries(data.get("all_opers"))
-    own_entries = _entries(data.get("own_opers"))
-    if all_entries is None and own_entries is None:
-        return None
-
-    merged: dict[str, OperBoxSnapshot] = {}
-    for entry in all_entries or ():
-        char_id = _char_id(entry)
-        if char_id is None:
-            continue
-        merged[char_id] = OperBoxSnapshot(
-            char_id=char_id,
-            name=_text(entry.get("name")),
-            rarity=_in_range(entry.get("rarity"), _RARITY_RANGE),
-            own=_bool(entry.get("own")),
-            listed_in_all=True,
-        )
-    for entry in own_entries or ():
-        char_id = _char_id(entry)
-        if char_id is None:
-            continue
-        previous = merged.get(char_id)
-        merged[char_id] = OperBoxSnapshot(
-            char_id=char_id,
-            name=_text(entry.get("name")) or (previous.name if previous else None),
-            rarity=_in_range(entry.get("rarity"), _RARITY_RANGE)
-            or (previous.rarity if previous else None),
-            own=True,
-            elite=_in_range(entry.get("elite"), _ELITE_RANGE),
-            level=_in_range(entry.get("level"), _LEVEL_RANGE),
-            potential=_in_range(entry.get("potential"), _POTENTIAL_RANGE),
-            listed_in_all=bool(previous and previous.listed_in_all),
-        )
-    return list(merged.values()) or None
-
-
 def parse_depot_data(data: Mapping[str, Any]) -> dict[str, int] | None:
     """``DepotInfo`` 的 details → ``{物品ID: 数量}``；坏 JSON 或空结果返回 ``None``。
 
@@ -583,58 +429,6 @@ def _profession(value: Any) -> str | None:
     return _PROFESSION_CN.get(text, text)
 
 
-def _operators_payload(
-    snapshots: Sequence[OperBoxSnapshot],
-    catalog: Mapping[str, OperatorMeta],
-) -> dict[str, dict[str, Any]]:
-    """快照 → ``OperatorBoxService.apply_recognition`` 的 ``operators`` 形参。
-
-    ``own`` 一定给：``all_opers`` 里、这次 ``own_opers`` 里没有的干员要明确落成
-    未拥有。name / rarity / profession 用回调值优先、本机资料兜底（职业只有本机
-    资料有）；识别不了精英化 / 等级 / 潜能的条目就不带这三个键，服务层会沿用行里
-    既有的值。
-    """
-    payload: dict[str, dict[str, Any]] = {}
-    for item in snapshots:
-        meta = catalog.get(item.char_id)
-        values: dict[str, Any] = {"own": bool(item.own)}
-        name = item.name or (meta.name if meta else None)
-        rarity = item.rarity or (meta.rarity if meta else None)
-        profession = meta.profession if meta else None
-        if name:
-            values["name"] = name
-        if rarity:
-            values["rarity"] = rarity
-        if profession:
-            values["profession"] = profession
-        for field in ("elite", "level", "potential"):
-            value = getattr(item, field)
-            if value is not None:
-                values[field] = value
-        payload[item.char_id] = values
-    return payload
-
-
-def _operator_names(snapshots: Sequence[OperBoxSnapshot]) -> dict[str, str]:
-    """``char_id → 名字``，只用于收缩保护的日志提示（回调没给名字就退回 id）。"""
-    return {item.char_id: item.name for item in snapshots if item.name}
-
-
-def _entries(value: Any) -> list[Mapping[str, Any]] | None:
-    """回调里的一个列表字段：不是 list 时返回 ``None``（缺失 ≠ 空表）。"""
-    if not isinstance(value, list):
-        return None
-    return [item for item in value if isinstance(item, Mapping)]
-
-
-def _char_id(entry: Mapping[str, Any]) -> str | None:
-    for key in ("id", "charId", "char_id"):
-        text = _text(entry.get(key))
-        if text:
-            return text
-    return None
-
-
 def _is_extra_info(message: Any) -> bool:
     try:
         return int(message) == int(Message.SubTaskExtraInfo)
@@ -643,8 +437,6 @@ def _is_extra_info(message: Any) -> bool:
 
 
 def _kind_of(what: str) -> str | None:
-    if what == OPERBOX_WHAT:
-        return RECOGNITION_KIND_OPERBOX
     if what == DEPOT_WHAT:
         return RECOGNITION_KIND_DEPOT
     return None
@@ -681,11 +473,6 @@ def _int(value: Any) -> int | None:
         except ValueError:
             return None
     return None
-
-
-def _bool(value: Any) -> bool | None:
-    """只认真布尔：``own`` 认错方向的代价比「这次不更新」大得多。"""
-    return value if isinstance(value, bool) else None
 
 
 def _in_range(value: Any, bounds: tuple[int, int]) -> int | None:

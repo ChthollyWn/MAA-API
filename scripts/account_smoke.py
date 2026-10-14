@@ -4,15 +4,16 @@
 
 用**假内核回调**与假外部来源跑通整条链路，不打真机、不打网：
 
-1. 识别：`OperBoxInfo`（`done=false` 忽略、`done=true` 落库）与 `DepotInfo`（整表替换）；
-2. 页面数据：`OperatorBoxService` / `DepotService` 读回干员表、仓库与识别时间；
+1. 采集：`DepotInfo`（`done=false` 忽略、`done=true` 整表替换）与森空岛同步写入干员数据；
+   **M47 负向**：`OperBoxInfo` 回调现在被忽略（干员识别通道已下线）；
+2. 页面数据：`OperatorBoxService` / `DepotService` 读回干员表、仓库与写入时间；
 3. 规划：`plan_upgrade`（线性规划）给出关卡、次数与理智，随后 `start_upgrade_plan`
    的确认后动作——今天的流水线 + 每日定时任务；
 4. 进度重算（规格 §7.7）：材料不齐时按剩余需求重跑规划，更新**同一条**定时任务的 Fight 次数；
 5. 模拟完成：仓库备齐 → 计划标完成、定时任务被删除、发 `upgrade_plan_finished` 通知；
 6. 计划列表与取消；
 7. 删除定时任务（规格 §7.7）：用户在任务页删掉每日任务 → 计划同步标为已取消；
-8. 识别覆盖手动值的差异；
+8. M47 只读口径：干员的写路径（`patch_operator` / 差异读写）确实已经消失；
 9. 接线（M33 §4.1）：注册好的 CALLBACK 处理器收到**真实事件**后异步落库
    （不是直接调 `handle_callback`），识别记录带上流水线上下文与渠道。
 
@@ -47,7 +48,7 @@ from maa_api.db.models import (  # noqa: E402
 )
 from maa_api.core.enums import Message  # noqa: E402
 from maa_api.db.repositories.account import (  # noqa: E402
-    RECOGNITION_KIND_OPERBOX,
+    RECOGNITION_KIND_DEPOT,
     AccountRecognitionRepository,
 )
 from maa_api.db.session import make_engine  # noqa: E402
@@ -56,6 +57,7 @@ from maa_api.services.account.callback_wiring import install_account_capture  # 
 from maa_api.services.account.capture import AccountCaptureService  # noqa: E402
 from maa_api.services.account.depot import DepotService  # noqa: E402
 from maa_api.services.account.plans import UpgradePlanService  # noqa: E402
+from maa_api.services.skland.mapping import OperatorTrainingUpdate  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker  # noqa: E402
 from sqlalchemy.pool import NullPool  # noqa: E402
 from sqlalchemy import event  # noqa: E402
@@ -82,7 +84,11 @@ def require(condition: Any, message: str) -> None:
 # 假内核回调
 # ---------------------------------------------------------------------------
 def operbox_callback(*, done: bool, own: list[dict[str, Any]]) -> dict[str, Any]:
-    """`SubTaskExtraInfo` 的 OperBoxInfo 形状（字段取自上游 `OperBoxRecognitionTask`）。"""
+    """`SubTaskExtraInfo` 的 OperBoxInfo 形状（字段取自上游 `OperBoxRecognitionTask`）。
+
+    M47 起这条通道已下线（干员数据只来自森空岛同步），脚本只用它做**负向**断言：
+    采集层应当忽略它、一行都不落库。
+    """
     return {
         "msg": int(Message.SubTaskExtraInfo),
         "what": "OperBoxInfo",
@@ -293,43 +299,68 @@ async def run() -> None:
 
             box = OperatorBoxService(factory)
             depot = DepotService(factory)
-            capture = AccountCaptureService(
-                factory, box_service=box, depot_service=depot
-            )
+            capture = AccountCaptureService(factory, depot_service=depot)
 
-            # 1. 识别：done=false 忽略，done=true 落库
-            progress = await capture.handle_callback(
-                operbox_callback(done=False, own=[]), message=Message.SubTaskExtraInfo
+            # 1a. M47 负向：内核 OperBox 回调不再落库（干员数据只来自森空岛同步）
+            ignored = await capture.handle_callback(
+                operbox_callback(done=True, own=[]), message=Message.SubTaskExtraInfo
             )
-            require(progress.kind == "operbox", f"未识别为 operbox：{progress}")
+            require(
+                ignored.skipped == "unsupported" and not ignored.written,
+                f"OperBoxInfo 现在应被忽略：{ignored}",
+            )
             require(
                 await _count(factory, AccountOperator) == 0,
-                "done=false 的识别不该落库",
+                "OperBoxInfo 不该再写干员表",
             )
-            finished = await capture.handle_callback(
-                operbox_callback(
-                    done=True,
-                    own=[
-                        {
-                            "id": "char_172_svrash",
-                            "name": "银灰",
-                            "own": True,
-                            "elite": 1,
-                            "level": 60,
-                            "potential": 2,
-                            "rarity": 6,
-                        }
-                    ],
-                ),
-                message=Message.SubTaskExtraInfo,
+            print("[1a] OperBoxInfo 已被忽略（skipped=unsupported），干员表 0 行")
+
+            # 1b. 干员数据：森空岛同步（M47 起唯一来源）
+            applied = await box.apply_skland_sync(
+                [
+                    OperatorTrainingUpdate(
+                        char_id="char_172_svrash",
+                        own=True,
+                        name="银灰",
+                        rarity=6,
+                        profession="近卫",
+                        elite=1,
+                        level=60,
+                        potential=2,
+                        skill_level=7,
+                        masteries={"1": 3, "2": 0, "3": 0},
+                        modules={},
+                        favor_percent=180,
+                    ),
+                    OperatorTrainingUpdate(
+                        char_id="char_002_amiya",
+                        own=True,
+                        name="阿米娅",
+                        rarity=5,
+                        profession="术师",
+                        elite=2,
+                        level=80,
+                        potential=6,
+                        skill_level=7,
+                        masteries={"1": 3, "2": 3, "3": 0},
+                        modules={"X": 1},
+                        favor_percent=200,
+                    ),
+                ],
+                clear_missing=False,
             )
-            require(finished.written, f"done=true 没有落库：{finished}")
-            require(await _count(factory, AccountOperator) == 3, "all_opers 应落三行")
+            require(applied["created"] == 2, f"同步应新建两行：{applied}")
+            require("diffs" not in applied, f"同步摘要不该再有差异计数：{applied}")
             saved = await box.get_operator("char_172_svrash")
-            require(saved["elite"] == 1 and saved["level"] == 60, f"识别值不对：{saved}")
-            require(saved["profession"] == "近卫", f"职业没补上：{saved}")
-            print(f"[1] 识别落库：干员 {await _count(factory, AccountOperator)} 行，"
-                  f"银灰 精一 {saved['level']} 级、潜能 {saved['potential']}、职业 {saved['profession']}")
+            require(saved["elite"] == 1 and saved["level"] == 60, f"同步值不对：{saved}")
+            require(saved["profession"] == "近卫", f"职业没写上：{saved}")
+            require(
+                saved["field_sources"].get("level") == "skland",
+                f"来源应标 skland：{saved['field_sources']}",
+            )
+            print(f"[1b] 森空岛同步：干员 {await _count(factory, AccountOperator)} 行，"
+                  f"银灰 精一 {saved['level']} 级、潜能 {saved['potential']}、"
+                  f"职业 {saved['profession']}、来源 {saved['field_sources'].get('level')}")
 
             depot_result = await capture.handle_callback(
                 depot_callback(done=True), message=Message.SubTaskExtraInfo
@@ -467,35 +498,15 @@ async def run() -> None:
             print(f"[7] 删除定时任务：{third['schedule_id']} → 计划 {after_delete['status']}"
                   f"｜已完成计划仍是 completed")
 
-            # 8. 差异（识别覆盖手动值）
-            await box.patch_operator("char_172_svrash", {"level": 80}, source="manual")
-            await capture.handle_callback(
-                operbox_callback(
-                    done=True,
-                    own=[
-                        {
-                            "id": "char_172_svrash",
-                            "name": "银灰",
-                            "own": True,
-                            "elite": 2,
-                            "level": 85,
-                            "potential": 3,
-                            "rarity": 6,
-                        }
-                    ],
-                ),
-                message=Message.SubTaskExtraInfo,
+            # 8. M47 只读口径：写路径与差异链路确实已经不存在
+            for gone in ("patch_operator", "list_diffs", "dismiss_diffs", "apply_recognition"):
+                require(not hasattr(box, gone), f"M47 起 OperatorBoxService 不该还有 {gone}")
+            summary_wire = await box.summary()
+            require(
+                "pending_diffs" not in summary_wire,
+                f"概要里不该再有差异计数：{summary_wire}",
             )
-            diffs = await box.list_diffs()
-            require(diffs["total"] >= 1, f"识别覆盖手动值应记差异：{diffs}")
-            first = diffs["items"][0]
-            print(f"[8] 差异：{diffs['total']} 条（{first['field']}："
-                  f"{first['manual_value']} → {first['recognized_value']}）")
-            dismissed = await box.dismiss_diffs(None)
-            require(dismissed >= 1, f"「知道了」没有标记：{dismissed}")
-            remaining = await box.list_diffs()
-            require(not remaining["items"], f"标记后不该还有未处理差异：{remaining}")
-            print(f"[8] 「知道了」标记 {dismissed} 条；未处理差异清零")
+            print("[8] 干员写路径已下线（无 patch_operator / list_diffs / apply_recognition）")
 
             # 9. M33 接线：注册好的 CALLBACK 处理器收到真实事件后异步落库。
             #    M27 的教训：直接调 `handle_callback` 的冒烟盯不住「谁在生产侧调用它」，
@@ -512,25 +523,11 @@ async def run() -> None:
                 {
                     "msg": int(Message.SubTaskExtraInfo),
                     "details": {
-                        "class": "asst::OperBoxRecognitionTask",
-                        "what": "OperBoxInfo",
+                        "class": "asst::DepotRecognitionTask",
+                        "what": "DepotInfo",
                         "details": {
                             "done": True,
-                            "all_opers": [
-                                {
-                                    "id": "char_010_chen",
-                                    "name": "陈",
-                                    "rarity": 6,
-                                    "own": True,
-                                },
-                                {
-                                    "id": "char_124_kroos",
-                                    "name": "克洛丝",
-                                    "rarity": 3,
-                                    "own": False,
-                                },
-                            ],
-                            "own_opers": [],
+                            "data": _depot_payload({"30073": 12}),
                         },
                     },
                 }
@@ -538,7 +535,7 @@ async def run() -> None:
             # 处理器只创建任务（不阻塞消费线程），所以这里让出事件循环等它落库。
             wired = None
             for _ in range(50):
-                wired = await _latest_operbox_recognition(factory)
+                wired = await _latest_depot_recognition(factory)
                 if wired is not None and wired.pipeline_id == "pipeline-smoke":
                     break
                 await asyncio.sleep(0.01)
@@ -548,10 +545,8 @@ async def run() -> None:
                 == ("pipeline-smoke", "task-smoke", "Bilibili"),
                 f"识别记录应带流水线上下文与渠道：{wired}",
             )
-            chen = await box.get_operator("char_010_chen")
-            require(chen["own"] is True, f"接线后陈应是已拥有：{chen}")
             print(f"[9] CALLBACK 接线：识别记录 {wired.kind} 带 pipeline={wired.pipeline_id}"
-                  f"｜task={wired.task_id}｜渠道={wired.client_type}｜陈 own={chen['own']}")
+                  f"｜task={wired.task_id}｜渠道={wired.client_type}")
 
             # 清理
             require(await _count(factory, UpgradePlan) == 3, "计划行数不对")
@@ -578,11 +573,11 @@ async def _count(factory: Any, model: Any) -> int:
         return int(result.scalar() or 0)
 
 
-async def _latest_operbox_recognition(factory: Any) -> Any:
-    """最新一条干员识别记录（接线那步靠它确认事件真的落库了）。"""
+async def _latest_depot_recognition(factory: Any) -> Any:
+    """最新一条仓库识别记录（接线那步靠它确认事件真的落库了）。"""
 
     async with factory() as session:
-        return await AccountRecognitionRepository(session).latest(RECOGNITION_KIND_OPERBOX)
+        return await AccountRecognitionRepository(session).latest(RECOGNITION_KIND_DEPOT)
 
 
 async def _fill_depot(factory: Any, items: dict[str, int]) -> None:
