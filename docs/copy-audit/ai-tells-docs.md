@@ -1,6 +1,6 @@
 # AI 腔规则命中：docs 与 README 正文（逐行统计）
 
-总计 14878 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 14886 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
@@ -9,7 +9,7 @@
 | 破折号当冒号用 | high | 0 | 770 | 770 |
 | 「A 而不是 B」对照腔 | high | 0 | 304 | 304 |
 | 绝对化规定腔 | medium | 0 | 245 | 245 |
-| 「…即可」机器腔 | medium | 0 | 80 | 80 |
+| 「…即可」机器腔 | medium | 0 | 81 | 81 |
 | 「不是…而是…」对照句 | high | 0 | 24 | 24 |
 | 自指式讲解腔 | medium | 0 | 23 | 23 |
 | 省略号 | medium | 0 | 6 | 6 |
@@ -68,7 +68,7 @@
 - `docs/04-数据模型与持久化.md:82` 会话管理遵循两条纪律。HTTP 请求通过依赖注入拿到 `AsyncSession`，请求结束即关闭；后台任务（`PipelineRunner`、`LogHub` 刷盘、清理任务）**各自开新会话**，绝不跨任务共享——`AsyncSessi…（共 238 字）
 - …… 另有 239 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 80）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 81）
 
 **开发向**
 
@@ -78,7 +78,7 @@
 - `docs/05-API规范与路由清单.md:725` **中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`，其中 `inter…（共 660 字）
 - `docs/06-实时日志与WebSocket.md:420` 内核热更新导致子进程重启时，MaaCore 会重新初始化日志系统并追加到同一个 `asst.log`（`LoadFileStream` 后接 `log_init_info`，可从实测日志开头的 `MaaCore Process Start`…（共 148 字）
 - `docs/07-热更新方案.md:53` **当前版本号**从内核自身取。现有做法是 `Asst.load()` 后调 `Asst().get_version()`——这在重构后**不可行**，因为主进程绝不加载 `libMaaCore`（[02-系统架构设计 §1](./02-系…（共 247 字）
-- …… 另有 74 条，见 inventory.json
+- …… 另有 75 条，见 inventory.json
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 24）
 
