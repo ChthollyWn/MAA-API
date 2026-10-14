@@ -1,16 +1,16 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 13034 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12704 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 385 | 385 |
-| 破折号当冒号用 | high | 0 | 159 | 159 |
-| 「A 而不是 B」对照腔 | high | 0 | 122 | 122 |
-| 绝对化规定腔 | medium | 0 | 72 | 72 |
-| 自指式讲解腔 | medium | 0 | 20 | 20 |
+| 粗体强调 | medium | 0 | 332 | 332 |
+| 破折号当冒号用 | high | 0 | 148 | 148 |
+| 「A 而不是 B」对照腔 | high | 0 | 116 | 116 |
+| 绝对化规定腔 | medium | 0 | 69 | 69 |
 | 「…即可」机器腔 | medium | 0 | 19 | 19 |
+| 自指式讲解腔 | medium | 0 | 19 | 19 |
 | 省略号 | medium | 0 | 4 | 4 |
 | 「不是…而是…」对照句 | high | 0 | 3 | 3 |
 | 宣传词 | medium | 0 | 3 | 3 |
@@ -18,7 +18,7 @@
 | emoji/符号装饰 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 385）
+## 粗体强调（medium｜用户可见 0 / 开发向 332）
 
 **开发向**
 
@@ -28,9 +28,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 379 条，见 inventory.json
+- …… 另有 326 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 159）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 148）
 
 **开发向**
 
@@ -40,9 +40,9 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 153 条，见 inventory.json
+- …… 另有 142 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 122）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 116）
 
 **开发向**
 
@@ -52,31 +52,19 @@
 - `maa_api/agent/runtime.py:1808` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/api/routers/account.py:51` : ``recognition``，见服务层），所以这里用 Literal 而不是自由字符串。
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
-- …… 另有 116 条，见 inventory.json
+- …… 另有 110 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 72）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 69）
 
 **开发向**
 
 - `maa_api/agent/preconditions.py:51` : `StartUp` 的小写形式：判定一律大小写不敏感（规格 §4.1）。
 - `maa_api/agent/tools/pipeline.py:216` 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
-- `maa_api/core/depot_selfscan_overlay.py:72` : 节点前缀：M45 的链一律用它，内核节点一个都不碰（规格 §4.2）。
 - `maa_api/db/migrations/versions/0018_unknown_training.py:47` : 识别永远不写、只有人工/Agent 才能给出的三列。
 - `maa_api/services/account/assets.py:45` : 资源类型 → 上游路径前缀。顺序即白名单，别的一律 404。
 - `maa_api/services/account/box.py:784` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
-- …… 另有 66 条，见 inventory.json
-
-## 自指式讲解腔（medium｜用户可见 0 / 开发向 20）
-
-**开发向**
-
-- `maa_api/agent/knowledge/__init__.py:136` : 以 `## <section>` 分节；工具 `update_user_profile` 与确认卡片的差异计算共用本模块的两个
-- `maa_api/core/depot_overlay.py:23` *所以本模块现在只做一件事：删掉磁盘上已经写出的那份覆盖文件。** 只删代码不行 ——
-- `maa_api/main.py:948` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
-- `maa_api/main.py:1338` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
-- `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
-- `maa_api/services/account/depot_scan.py:142` : 内核工作分辨率（``DepotMatchData.roi``）：本模块的坐标空间。
-- …… 另有 14 条，见 inventory.json
+- `maa_api/services/account/capture.py:20` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
+- …… 另有 63 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 0 / 开发向 19）
 
@@ -86,8 +74,20 @@
 - `maa_api/agent/knowledge/__init__.py:845` : M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
 - `maa_api/agent/knowledge/__init__.py:847` : M28：当期卡池读取器（有 `async pools()` 即可）。没装或外服时整段不插。
 - `maa_api/agent/questions.py:198` 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
-- `maa_api/main.py:1297` 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
+- `maa_api/main.py:1275` 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
 - `maa_api/services/copilot/rules.py:330` : 实际比对的成员：``opers`` 是自己，分组是全部成员（任一满足即可）。
+- …… 另有 13 条，见 inventory.json
+
+## 自指式讲解腔（medium｜用户可见 0 / 开发向 19）
+
+**开发向**
+
+- `maa_api/agent/knowledge/__init__.py:136` : 以 `## <section>` 分节；工具 `update_user_profile` 与确认卡片的差异计算共用本模块的两个
+- `maa_api/core/depot_overlay.py:16` *所以本模块只做一件事：删掉磁盘上已经写出的那几份任务文件。** 只删代码不行 ——
+- `maa_api/main.py:940` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
+- `maa_api/main.py:1316` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
+- `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
+- `maa_api/services/account/planner.py:23` # 实现裁决（规格没写死、由本模块定，M27 T8）
 - …… 另有 13 条，见 inventory.json
 
 ## 省略号（medium｜用户可见 0 / 开发向 4）
