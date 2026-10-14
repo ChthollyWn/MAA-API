@@ -361,7 +361,7 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 | `ACCOUNT_DATA_NOT_FOUND` | 404 | 账号数据里查无此对象：`GET /api/account/operators/{char_id}` 没有该干员的记录，或账号数据尚未识别过 |
 | `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（计划的工具入口是 `list_upgrade_plans` / `cancel_upgrade_plan`，REST 入口见 §6.21「养成计划（M31）」） |
 
-两个码都是「这条记录不在库里」，与 `GAME_DATA_NOT_FOUND`（来源上没有）区分：账号数据来自本机识别与手动编辑，不查外部来源。字段级编辑约束（精英化上限、专精前置、模组类型与等级）违反时不用新码，走 §4.2 的 `INVALID_PARAMETER`，`details` 带字段名与合法取值。
+两个码都是「这条记录不在库里」，与 `GAME_DATA_NOT_FOUND`（来源上没有）区分：账号数据来自本机库表（干员来自森空岛同步、仓库来自内核识别），不查外部来源。字段级编辑约束（精英化上限、专精前置、模组类型与等级）违反时不用新码，走 §4.2 的 `INVALID_PARAMETER`，`details` 带字段名与合法取值。
 
 ### 4.18 作业研究（M29）
 
@@ -447,7 +447,7 @@ const ws = new WebSocket(`ws://${host}/api/ws?token=${token}`);
 
 ## 6. 全量路由清单
 
-共 124 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
+共 121 条 HTTP 端点（与 web/openapi.json 的 operation 数一致，由 tests/domain/test_route_inventory.py 守着），另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。`core_id` 查询参数在所有内核相关端点上可选，缺省 `default`，为多实例扩展预留，下表不再逐条重复。
 
 ### 6.1 system
 
@@ -806,16 +806,13 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 |---|---|---|---|---|---|
 | GET | `/api/account/summary` | 账号数据概要与是否过期 | 无 | 200 | `UNAUTHORIZED` |
 | GET | `/api/account/operators` | 干员表，默认只返回已拥有 | `query`（名字片段）、`owned_only`（默认 `true`，`false` 时连未拥有的一起列出）、`rarity_min`（1–6）、`profession`、`elite_min`（0–2）、`limit`（1–200，默认 50）、`offset` | 200 | `UNAUTHORIZED` |
-| GET | `/api/account/operators/{char_id}` | 单名干员的完整记录（编辑抽屉打开时读） | 无 | 200 | `ACCOUNT_DATA_NOT_FOUND`、`UNAUTHORIZED` |
-| PATCH | `/api/account/operators/{char_id}` | 手动编辑干员数据 | 只接受可编辑字段，未知字段 422：`own`、`elite`、`level`、`potential`、`skill_level`、`masteries`、`modules`、`source`（`manual` / `agent`，默认 `manual`）；练度列传 `null` 与不传同义＝不改（M35，不做「写 `null` 清回未识别」） | 200 | `ACCOUNT_DATA_NOT_FOUND`、`INVALID_PARAMETER`、`VALIDATION_ERROR`、`UNAUTHORIZED` |
-| GET | `/api/account/operator-diffs` | 识别覆盖手动值的差异 | `include_dismissed`（默认 `false`）、`limit`（1–500，默认 200） | 200 | `UNAUTHORIZED` |
-| DELETE | `/api/account/operator-diffs` | 把差异标记为已知 | `{ids: [int]}` 逐条，或省略＝全部 | 200 | `UNAUTHORIZED` |
+| GET | `/api/account/operators/{char_id}` | 单名干员的完整记录（外部 API 读取方用） | 无 | 200 | `ACCOUNT_DATA_NOT_FOUND`、`UNAUTHORIZED` |
 | GET | `/api/account/assets/{kind}/{asset_id}` | 游戏资源图（干员头像 / 技能图标 / 道具图标）的后端代理 | `kind`（`avatar` / `skill` / `item`）、`asset_id`（干员 id / 技能 id / **道具 id**；道具的图标文件名由服务端从本机 `item_index.json` 解析，解析不到 404） | 200（`image/png`，`Cache-Control: public, max-age=604800`） | `ACCOUNT_DATA_NOT_FOUND`、`SKLAND_UPSTREAM_FAILED`、`UNAUTHORIZED` |
 | GET | `/api/account/depot` | 仓库识别结果，按分类分组 | `category`、`query`、`limit`（1–500，默认 100）、`offset` | 200 | `UNAUTHORIZED` |
 
-（8 条）
+（5 条）
 
-这七个端点都 `Depends(require_auth)`（M36 的三个 `training-scan` 端点已在 M42 随读屏扫描线一起删除，改由 §6.22 的森空岛同步取练度）。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（各字段来自 `recognition` / `manual` / `agent` / `skland`）。
+这五个端点都 `Depends(require_auth)`（M36 的三个 `training-scan` 端点已在 M42 随读屏扫描线一起删除，改由 §6.22 的森空岛同步取练度；**M47 又删掉了干员的写路径**——`PATCH /operators/{char_id}` 与 `operator-diffs` 两个端点随手动编辑与内核 `OperBox` 识别一起下线，见 [13 §8.70](./13-决策记录.md)）。列表用 `{items, total, limit, offset}`（§3.2 的 offset 口径，与 `page`/`size` 的两套分页并存），单条响应给出干员的全量字段与 `field_sources`（M47 之后只会是 `skland`，其余取值是历史）。
 
 两个只读列表端点（`/operators`、`/depot`）另有 Pydantic 响应模型（`AccountOperatorList` / `AccountDepotList`）把形状写进 `web/openapi.json` 与前端生成类型；此前它们只有 `-> dict`，前端手写的类型覆盖层读错容器键也发现不了——M33 的真机事故就是前端读 `operators`、后端给 `items`，`?? []` 兜成空列表且两边测试各自自洽（见 [13 §8.49](./13-决策记录.md)）。
 
@@ -823,13 +820,11 @@ catch-all 必须是**最后注册**的路由，且显式排除 `/api`、`/static
 
 **仓库的「未识别」不等于 0（M45 W3a）**：`count` 可以是 `null`。内核的 `DepotInfo` 只回 `{itemId: count}`，**缺失与 0 库存无法区分**；对内核白名单外那批道具（`7003/7004/4004/4005/3401/3141` 都是 `classifyType == "NORMAL"`，内核永远拿不到）而言，「没进这张表」只说明「这一轮没识别到」。所以接口把三件事分开讲：这一行是谁认出来的（`source`）、数量知不知道（`count` 为 `null` 时页面显示「—」）、这一轮漏了哪些（`unrecognized`）。见 [13 §8.65](./13-决策记录.md) 与 [04 §5.20](./04-数据模型与持久化.md)。
 
-**练度六列可空（M35）**：`elite` / `level` / `potential` / `skill_level` / `masteries` / `modules` 都是 `T | null`，`null` ＝ **未识别**——既没有识别值，也没有 manual / agent 写入（`field_sources` 是唯一台账）。这与「已知的无专精 / 无模组」不同：`{"1": 0, "2": 0, "3": 0}` 与 `{}` 是已知值，`null` 才是不知道。内核的干员识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组在详情页、M36 才扫，所以新识别出来的行这三列就是 `null`。`elite_min` 这类筛选不会命中 `null` 行（SQL 三值逻辑），前端列表与编辑抽屉把 `null` 显示成「未识别」，Agent 侧的 `get_operator_box` / `plan_upgrade` 同样如此；`plan_upgrade` 返回里的 `unknowns` 列出未识别维度，这些维度不进材料增量。见 [13 §8.50](./13-决策记录.md)。
+**练度六列可空（M35）**：`elite` / `level` / `potential` / `skill_level` / `masteries` / `modules` 都是 `T | null`，`null` ＝ **未识别**——那次森空岛同步没给这一项，或上游给了越界值（`field_sources` 是唯一台账）。这与「已知的无专精 / 无模组」不同：`{"1": 0, "2": 0, "3": 0}` 与 `{}` 是已知值，`null` 才是不知道。`elite_min` 这类筛选不会命中 `null` 行（SQL 三值逻辑），前端列表把 `null` 显示成「未识别」，Agent 侧的 `get_operator_box` / `plan_upgrade` 同样如此；`plan_upgrade` 返回里的 `unknowns` 列出未识别维度，这些维度不进材料增量。见 [13 §8.50](./13-决策记录.md)。
 
-`PATCH` 的字段级约束由服务层判定（[§4.17](#417-账号数据m27)）：精英化上限按稀有度（1–2★ 精零、3★ 精一、4–6★ 精二）、专精要求精二且技能等级 7、模组要求精二且等级 1–3。这些**前置条件只在该字段已知时判**（M35）：精英化或技能等级是 `null`（未识别）时不拦专精 / 模组的补录，否则不知道练度就永远填不进去；已知值照旧拦（精一填专精、技能不满 7 级填专精、精一填模组都是 422）。显式把精英化降到 2 以下仍会清空专精与模组。识别结果的合并规则见 [11 §6.5](./11-Agent模块设计.md)与规格 §7.3：`OperBox` 识别只覆盖「是否拥有、精英化、等级、潜能」，技能等级、专精、模组、信赖由手动、Agent 或森空岛同步写（同步走 `box.apply_skland_sync`，来源标 `skland`，见 §6.22）；被识别覆盖掉的手动值记一条差异，页面顶部提示，可逐条或全部「知道了」。`agent.box_stale_days`（默认 14）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
+**干员数据只有一个写入者（M47）**：账号级同步走 `box.apply_skland_sync`（来源标 `skland`，见 §6.22），它一次写 `own` + 练度六列 + `favor_percent` + `skill_ids` / `module_details`，并在这一轮响应完整时把不在名单里的干员收缩成未拥有。没有手动 / Agent 的字段级写入，也没有「识别覆盖手改值」的差异，所以差异表只剩历史行。`agent.box_stale_days`（默认 14，标签是「距上次森空岛同步」）与 `agent.depot_stale_days`（默认 3）是两个过期阈值，见 [§4.16](#416-外部数据源m25) 同级的设置分组与附录 B。
 
-`source` 只接受 `manual` 与 `agent`：识别写入固定标 `recognition`，客户端不能借这个字段把识别结果伪装成手动值，所以传 `recognition` 是 422（Pydantic 枚举校验）。
-
-单条 `GET` 是编辑抽屉的读口（附录 C 只列了六条，这一条是实现补的读端点），与列表项同形。
+单条 `GET` 是给外部读取方的读端点（附录 C 只列了六条，这一条是实现补的），与列表项同形。
 
 （M36 那三个读屏扫描端点与其 `screens` / `realigned` 等计数已随扫描线退役，此处不再列出。）
 
@@ -1061,9 +1056,9 @@ class InfrastInput(TaskInputBase):
 TaskInput = Annotated[
     StartUpInput | CloseDownInput | FightInput | RecruitInput | InfrastInput
     | MallInput | AwardInput | RoguelikeInput | ReclamationInput
-    # M27 起：OperBoxInput | DepotInput
-    # M29 起：CustomInput | CopilotInput（共 13 种：11 种内核内置 + Custom + Copilot）
-    | OperBoxInput | DepotInput | CustomInput | CopilotInput,
+    # M27 起：DepotInput（OperBoxInput 已于 M47 删除：干员数据只来自森空岛同步）
+    # M29 起：CustomInput | CopilotInput（共 12 种：10 种内核内置 + Custom + Copilot）
+    | DepotInput | CustomInput | CopilotInput,
     Field(discriminator="name"),
 ]
 

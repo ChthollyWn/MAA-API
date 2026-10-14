@@ -2481,52 +2481,6 @@
       "runtime_immutable": []
     },
     {
-      "name": "OperBox",
-      "label": "干员识别",
-      "description": "干员识别：读一遍账号里有哪些干员、练到什么程度（规格 §7.2 T1）。\n\n没有参数：``AsstAppendTask(\"OperBox\", {})`` 就能入队（docs/ENVIRONMENT.md\n「MaaCore 内核」节实测）。识别结果经 ``SubTaskExtraInfo`` 回调推给\n:mod:`maa_api.services.account.capture`，识别不了技能等级、专精与模组。",
-      "schema": {
-        "additionalProperties": false,
-        "description": "干员识别：读一遍账号里有哪些干员、练到什么程度（规格 §7.2 T1）。\n\n没有参数：``AsstAppendTask(\"OperBox\", {})`` 就能入队（docs/ENVIRONMENT.md\n「MaaCore 内核」节实测）。识别结果经 ``SubTaskExtraInfo`` 回调推给\n:mod:`maa_api.services.account.capture`，识别不了技能等级、专精与模组。",
-        "examples": [
-          {
-            "name": "OperBox"
-          }
-        ],
-        "properties": {
-          "enable": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": true,
-            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
-            "title": "Enable",
-            "x-group": "基础",
-            "x-label": "启用本任务"
-          },
-          "name": {
-            "const": "OperBox",
-            "default": "OperBox",
-            "description": "由任务类型选择器决定，不用填",
-            "title": "Name",
-            "type": "string",
-            "x-group": "基础",
-            "x-label": "任务类型"
-          }
-        },
-        "title": "OperBoxInput",
-        "type": "object"
-      },
-      "groups": [
-        "基础"
-      ],
-      "runtime_immutable": []
-    },
-    {
       "name": "Depot",
       "label": "仓库识别",
       "description": "仓库识别：读一遍账号仓库「养成材料」页签的数量（规格 §7.2 T1）。\n\n没有参数，空参数即可入队。识别结果经 ``SubTaskExtraInfo`` 回调整表替换仓库\n数量；龙门币与作战记录不在该页签内。",
@@ -2733,7 +2687,7 @@
       ]
     }
   ],
-  "total": 13,
+  "total": 12,
   "page": 1,
-  "size": 13
+  "size": 12
 }

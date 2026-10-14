@@ -228,13 +228,12 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 
 三者共用访问层：来源登记与白名单、限流、熔断、进程内缓存、来源信封都在 `maa_api/services/external/`，取数与降级规则见 §6.6。
 
-账号数据组（`account`，M27）：数据来自 MAA 内核的干员识别（`OperBox`）与仓库识别（`Depot`）落库的结果加用户手动修正，不是外部来源。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M42 把 M36 的两条读屏扫描工具换成森空岛两条**（`get_skland_status` 与 `sync_skland_training`）：工具总数仍 77（对模型可见 76）。`update_operator_box`、`start_upgrade_plan`、`update_user_profile` 与 `sync_skland_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
+账号数据组（`account`，M27）：干员数据来自森空岛练度同步、仓库数据来自内核 `Depot` 识别落库的结果，不是外部来源（M47 起内核干员识别与手动修正都已下线，见 [13 §8.70](./13-决策记录.md)）。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M42 把 M36 的两条读屏扫描工具换成森空岛两条**（`get_skland_status` 与 `sync_skland_training`）：工具总数仍 77（对模型可见 76）。**M47 删掉 `update_operator_box`**（干员数据只来自森空岛同步，手动 / Agent 补录下线）：工具总数 77 → 76、对模型可见 76 → 75。`start_upgrade_plan`、`update_user_profile` 与 `sync_skland_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
 
 | 工具 | risk | 用途 |
 |---|---|---|
 | `get_operator_box` | SAFE | 查账号里的干员与练度。参数 `query`（名字片段）、`owned_only`（默认 `true`，`false` 时连未拥有的一起列出）、`rarity_min`（1–6）、`profession`（中文职业）、`elite_min`（0–2）、`limit`（1–100，默认 50）；返回 `items[]`（`char_id`、名字、稀有度、职业、`own`、精英化、等级、潜能、技能等级、专精、模组、信赖（M42）、技能 id 与模组明细（M43，`skill_ids` / `module_details`）、`field_sources`、`recognized_at`、`updated_at`）、`total`、`limit`、`offset`。**没有识别时间 / 是否过期的选项，也没有 `suggest_recognition`**（见 [13 §8.42](./13-决策记录.md) 十、2 与 3） |
 | `get_depot` | SAFE | 查仓库材料。参数 `items`（名字或 itemId，≤ 50 个）与 `category`；不给 `items` 时返回仓库概要（物品种类数、识别时间、是否过期、阈值口径）。**两个筛选参数目前没有生效**：给 `items` 时按前 N 条返回、`category` 被忽略（[13 §8.42](./13-决策记录.md) 十、10） |
-| `update_operator_box` | 每次确认 | 改账号干员数据。参数 `changes`（1–20 条，每条 `operator` 加至少一个字段：`own` / `elite` 0–2 / `level` 1–90 / `potential` 1–6 / `skill_level` 1–7 / `masteries` / `modules`）与 `reason`；确认卡片逐字段展示「改动前 → 改动后」，写入后字段来源标 `agent` |
 | `plan_upgrade` | SAFE | 算养成规划，只计算不提交任务。参数 `targets`（1–10 个：干员加 `elite` / `skill_level` / `masteries` / `modules`）与 `use_depot`（默认 `true`）；返回每关出击次数与理智、合成清单与合成龙门币、总理智、按每天 240 理智估的天数、预计富余、`unobtainable`（刷不到的材料与获取提示）、`feasible` 与 `notes`。算法与口径见 [13 §8.42](./13-决策记录.md) 七 |
 | `start_upgrade_plan` | 每次确认 | 启动养成计划：先提交今天的流水线（只用现有理智），再创建每日定时任务（自然恢复加 48 小时内过期的理智药）。参数 `name`、`targets`、`run_times`（默认 `["08:00", "20:00"]`，1–4 项）；返回计划、今天的流水线、定时任务 id、总理智与预计天数、`conflicts`（已有的用理智定时任务） |
 | `list_upgrade_plans` | SAFE | 查养成计划与进度：目标、还缺什么材料、定时任务 id 与状态；读取时顺带重算进行中计划的进度。无参数 |
@@ -242,7 +241,7 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 | `get_infrast_candidates` | SAFE | 按基建布局（`243` / `153` / `252` / `333`）与班次数（2–4）列出每个房间可排班的干员（M28）：只列账号数据里**已拥有且练度已解锁**对应后勤技能的干员（同一槽位只留最高档），按稀有度 / 精英化 / 名字排序，附技能描述与效率提示。另有 `rooms`（可选，只要这些房间）。房间是排班协议的 8 个房间键（贸易站 / 制造站 / 发电站 / 控制中枢 / 会客室 / 办公室 / 宿舍 / 加工站，不含训练室）；账号数据缺失时给 `hint` 提示先跑一次干员识别，取不到的干员页计入 `operators_missing_page` |
 | `update_user_profile` | 每次确认 | 把用户的长期偏好写进自定义知识条目 `agent-profile`（标题「Agent 记录的用户档案」），按 `## <section>` 分节（M28，Q44）。参数 `section`（小节标题，1–32 字）、`content`（≤ 2000 字）、`mode`（`replace` 覆盖该节 / `append` 追加到该节末尾，默认 `replace`）；确认的 `reasons` 形如「更新用户档案「基建布局」：替换 3 字」。首次问清基建布局与班次后写进来，之后由注入段的「用户档案」全文段直接读，不再重复问 |
 | `get_skland_status` | SAFE | 查森空岛账号绑定与练度同步状态（M42）：`bound`、`key_configured`、绑定角色（`uid` / 昵称 / 等级 / 渠道）、上次同步时间与摘要、上次失败原因、同步频率护栏参数（`min_sync_interval_seconds`、`min_chars`）与定时同步开关。无参数。用户问「练度是不是最新的」「森空岛绑了吗」时用它；`bound=false` 时引导用户到【更多 → 账号数据】页扫码绑定，别自己编造练度 |
-| `sync_skland_training` | 每次确认 | 从森空岛同步**全部**干员的练度（M42）：精英化、等级、潜能、技能等级、专精、模组与信赖，一次取回、几秒跑完、不占设备，覆盖整表并以来源 `skland` 写回；被用户手改过、且与这次读数不同的字段会记一条差异（账号页可确认）。无参数。确认理由写明「从森空岛同步全部干员练度」与「会覆盖练度六列与信赖」。没绑定（`SKLAND_NOT_BOUND`）、上游不可用（`SKLAND_UPSTREAM_FAILED`）、60 秒冷却内重复（`RATE_LIMITED`）与已有同步在跑（`SKLAND_SYNC_BUSY`）各有独立的错误码；干员识别（OperBox）仍给「是否拥有 / 精英化 / 等级 / 潜能」，两者来源不同、互不冲突 |
+| `sync_skland_training` | 每次确认 | 从森空岛同步**全部**干员的练度（M42）：精英化、等级、潜能、技能等级、专精、模组与信赖，一次取回、几秒跑完、不占设备，覆盖整表并以来源 `skland` 写回——**M47 起这是账号干员数据的唯一来源**（手动编辑与差异通道已下线）。无参数。确认理由写明「从森空岛同步全部干员练度」与「会覆盖整表练度（精英化、等级、潜能、技能等级、专精、模组与信赖）」。没绑定（`SKLAND_NOT_BOUND`）、上游不可用（`SKLAND_UPSTREAM_FAILED`）、60 秒冷却内重复（`RATE_LIMITED`）与已有同步在跑（`SKLAND_SYNC_BUSY`）各有独立的错误码；干员识别（OperBox）仍给「是否拥有 / 精英化 / 等级 / 潜能」，两者来源不同、互不冲突 |
 
 ## 4. PolicyEngine
 

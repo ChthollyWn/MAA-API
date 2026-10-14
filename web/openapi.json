@@ -194,7 +194,7 @@
         "type": "object"
       },
       "AccountOperatorRow": {
-        "description": "干员行：docs/05 §6.20 的字段清单，与单条读取同形。\n\n练度六列（``elite`` / ``level`` / ``potential`` / ``skill_level`` / ``masteries`` /\n``modules``）可以是 ``null`` ＝ **未识别**（M35）：既没有识别值，也没有 manual /\nagent 写入。内核 OperBox 只识别得到前四个字段里的三个（``elite`` / ``level`` /\n``potential``），技能等级、专精、模组不在识别范围内，别把 ``null`` 读成 0 级 /\n技能 1 级 / 无专精。``field_sources`` 的值有 recognition / manual / agent / skland（M42 起多第四个：森空岛同步）；\n``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。",
+        "description": "干员行：docs/05 §6.20 的字段清单，与单条读取同形。\n\nM47 起这张表**只由森空岛练度同步写**（``field_sources`` 因此基本只有 ``skland``；\n``recognition`` / ``manual`` / ``agent`` / ``training`` 只可能出现在 M47 之前的历史行上，\n而迁移 `0022` 已经把老行清掉了）。练度六列（``elite`` / ``level`` / ``potential`` /\n``skill_level`` / ``masteries`` / ``modules``）可以是 ``null`` ＝ **未识别**：那次同步\n没给这一项，或上游给了越界值。别把 ``null`` 读成 0 级 / 技能 1 级 / 无专精。\n``name``、``rarity``、``profession`` 在映射不到的干员上也可以是 ``null``。",
         "properties": {
           "char_id": {
             "title": "Char Id",
@@ -2560,217 +2560,6 @@
         "title": "NotifyTestRequest",
         "type": "object"
       },
-      "OperBoxInput": {
-        "additionalProperties": false,
-        "description": "干员识别：读一遍账号里有哪些干员、练到什么程度（规格 §7.2 T1）。\n\n没有参数：``AsstAppendTask(\"OperBox\", {})`` 就能入队（docs/ENVIRONMENT.md\n「MaaCore 内核」节实测）。识别结果经 ``SubTaskExtraInfo`` 回调推给\n:mod:`maa_api.services.account.capture`，识别不了技能等级、专精与模组。",
-        "examples": [
-          {
-            "name": "OperBox"
-          }
-        ],
-        "properties": {
-          "enable": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": true,
-            "description": "关掉后执行流水线时会跳过本任务（默认开启）",
-            "title": "Enable",
-            "x-group": "基础",
-            "x-label": "启用本任务"
-          },
-          "name": {
-            "const": "OperBox",
-            "default": "OperBox",
-            "description": "由任务类型选择器决定，不用填",
-            "title": "Name",
-            "type": "string",
-            "x-group": "基础",
-            "x-label": "任务类型"
-          }
-        },
-        "title": "OperBoxInput",
-        "type": "object"
-      },
-      "OperatorDiffDismissRequest": {
-        "additionalProperties": false,
-        "description": "把差异标记为「知道了」：给 ``ids`` 逐条处理，省略表示全部。",
-        "examples": [
-          {
-            "ids": [
-              1,
-              2
-            ]
-          },
-          {}
-        ],
-        "properties": {
-          "ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "差异 id 列表；省略或 null 表示全部",
-            "title": "Ids"
-          }
-        },
-        "title": "OperatorDiffDismissRequest",
-        "type": "object"
-      },
-      "OperatorPatchRequest": {
-        "additionalProperties": false,
-        "description": "手动编辑一名干员的请求体：只接受可编辑字段，未给的字段不动。\n\n取值域在这里做第一层（类型与范围），跨字段约束（精英化与稀有度、专精与技能等级、\n模组与精英化）在服务层做——它们要看行里既有的值。\n\n字段传 ``null`` 与不传同义：**都不修改**。M35 之后读出来可能是 ``null``（＝未识别），\n但本轮不提供「把已识别的值清回未识别」的写入语义（规格 §3.2），所以读到的 ``null``\n原样回传不会误清数据。",
-        "examples": [
-          {
-            "elite": 2,
-            "level": 90,
-            "own": true,
-            "potential": 6
-          },
-          {
-            "elite": 2,
-            "level": 80,
-            "masteries": {
-              "1": 3,
-              "2": 3,
-              "3": 0
-            },
-            "modules": {
-              "X": 3
-            },
-            "skill_level": 7,
-            "source": "manual"
-          }
-        ],
-        "properties": {
-          "elite": {
-            "anyOf": [
-              {
-                "maximum": 2.0,
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "精英化等级，上限按稀有度",
-            "title": "Elite"
-          },
-          "level": {
-            "anyOf": [
-              {
-                "maximum": 90.0,
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "等级",
-            "title": "Level"
-          },
-          "masteries": {
-            "anyOf": [
-              {
-                "patternProperties": {
-                  "^[123]$": {
-                    "type": "integer"
-                  }
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "专精等级：技能序号 1–3 → 0–3；只在精二且技能 7 级时可填",
-            "title": "Masteries"
-          },
-          "modules": {
-            "anyOf": [
-              {
-                "patternProperties": {
-                  "^[XYDA]$": {
-                    "type": "integer"
-                  }
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "模组等级：类型 X/Y/D/A → 1–3；只在精二时可填",
-            "title": "Modules"
-          },
-          "own": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "是否拥有",
-            "title": "Own"
-          },
-          "potential": {
-            "anyOf": [
-              {
-                "maximum": 6.0,
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "潜能",
-            "title": "Potential"
-          },
-          "skill_level": {
-            "anyOf": [
-              {
-                "maximum": 7.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "技能等级 1–7",
-            "title": "Skill Level"
-          },
-          "source": {
-            "default": "manual",
-            "description": "字段来源标记；Agent 工具写 agent，页面写 manual",
-            "enum": [
-              "manual",
-              "agent"
-            ],
-            "title": "Source",
-            "type": "string"
-          }
-        },
-        "title": "OperatorPatchRequest",
-        "type": "object"
-      },
       "OverridesRequest": {
         "additionalProperties": false,
         "description": "``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。\n\n尝试次数、成功标准与是否允许助战都能在卡片上改；有效期只展示，**不在**这里。\n键名与取值域与 ``services/copilot/grant.py`` 的常量一一对应（1–10 /\n``three_star`` / ``clear`` / ``fill_one`` / ``none``）。``extra=\"forbid\"``：\n拼错的键是 422，不静默忽略 —— 用户以为改了次数而实际没改是最坏的结果。",
@@ -2913,7 +2702,6 @@
                   "Fight": "#/components/schemas/FightInput",
                   "Infrast": "#/components/schemas/InfrastInput",
                   "Mall": "#/components/schemas/MallInput",
-                  "OperBox": "#/components/schemas/OperBoxInput",
                   "Reclamation": "#/components/schemas/ReclamationInput",
                   "Recruit": "#/components/schemas/RecruitInput",
                   "Roguelike": "#/components/schemas/RoguelikeInput",
@@ -2948,9 +2736,6 @@
                 },
                 {
                   "$ref": "#/components/schemas/ReclamationInput"
-                },
-                {
-                  "$ref": "#/components/schemas/OperBoxInput"
                 },
                 {
                   "$ref": "#/components/schemas/DepotInput"
@@ -4893,7 +4678,6 @@
                   "Fight": "#/components/schemas/FightInput",
                   "Infrast": "#/components/schemas/InfrastInput",
                   "Mall": "#/components/schemas/MallInput",
-                  "OperBox": "#/components/schemas/OperBoxInput",
                   "Reclamation": "#/components/schemas/ReclamationInput",
                   "Recruit": "#/components/schemas/RecruitInput",
                   "Roguelike": "#/components/schemas/RoguelikeInput",
@@ -4928,9 +4712,6 @@
                 },
                 {
                   "$ref": "#/components/schemas/ReclamationInput"
-                },
-                {
-                  "$ref": "#/components/schemas/OperBoxInput"
                 },
                 {
                   "$ref": "#/components/schemas/DepotInput"
@@ -5333,11 +5114,6 @@
             "title": "Created",
             "type": "integer"
           },
-          "diffs": {
-            "description": "识别覆盖手动值、记了差异的字段数",
-            "title": "Diffs",
-            "type": "integer"
-          },
           "dropped_invalid": {
             "description": "越界或映射不出、被丢掉的字段项数",
             "title": "Dropped Invalid",
@@ -5388,7 +5164,6 @@
           "updated",
           "unchanged",
           "ownership_cleared",
-          "diffs",
           "dropped_invalid",
           "duration_ms"
         ],
@@ -5773,7 +5548,6 @@
                   "Fight": "#/components/schemas/FightInput",
                   "Infrast": "#/components/schemas/InfrastInput",
                   "Mall": "#/components/schemas/MallInput",
-                  "OperBox": "#/components/schemas/OperBoxInput",
                   "Reclamation": "#/components/schemas/ReclamationInput",
                   "Recruit": "#/components/schemas/RecruitInput",
                   "Roguelike": "#/components/schemas/RoguelikeInput",
@@ -5808,9 +5582,6 @@
                 },
                 {
                   "$ref": "#/components/schemas/ReclamationInput"
-                },
-                {
-                  "$ref": "#/components/schemas/OperBoxInput"
                 },
                 {
                   "$ref": "#/components/schemas/DepotInput"
@@ -6086,152 +5857,9 @@
         ]
       }
     },
-    "/api/account/operator-diffs": {
-      "delete": {
-        "description": "把识别差异标记为已知（页面上的「知道了」）。\n\n- 请求体给 `ids` 逐条处理，省略表示全部\n- 幂等：重复标记已处理的差异不计入 `dismissed`\n- 找不到的 id 不报错，只在 `dismissed` 里少计数",
-        "operationId": "account_dismiss_account_operator_diffs",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/OperatorDiffDismissRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Payload"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Account Dismiss Account Operator Diffs",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "VALIDATION_ERROR",
-                    "details": {},
-                    "message": "参数校验失败"
-                  }
-                }
-              }
-            },
-            "description": "参数校验失败：VALIDATION_ERROR"
-          }
-        },
-        "summary": "标记差异已知",
-        "tags": [
-          "account"
-        ]
-      },
-      "get": {
-        "description": "识别覆盖掉手动值的差异列表：干员、字段、手动值、识别值、时间。\n\n- 默认只返回未处理的差异；`include_dismissed=true` 连已「知道了」的一起返回\n- `total` 是未处理差异的总数（不受 `limit` 影响）",
-        "operationId": "account_list_account_operator_diffs",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "include_dismissed",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Include Dismissed",
-              "type": "boolean"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 200,
-              "maximum": 500,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Account List Account Operator Diffs",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "VALIDATION_ERROR",
-                    "details": {},
-                    "message": "参数校验失败"
-                  }
-                }
-              }
-            },
-            "description": "参数校验失败：VALIDATION_ERROR"
-          }
-        },
-        "summary": "读取识别差异",
-        "tags": [
-          "account"
-        ]
-      }
-    },
     "/api/account/operators": {
       "get": {
-        "description": "账号识别到的干员列表，带筛选与分页。\n\n- 默认只返回已拥有的干员（`owned_only=true`）；未拥有的行来自识别的 `all_opers`\n- `total` 是筛选后的总数，不是当前页条数\n- 每行的 `field_sources` 标出各字段来自识别、手动还是 Agent",
+        "description": "账号干员列表，带筛选与分页。\n\n- 数据来自森空岛练度同步（M47 起唯一来源），只读\n- 默认只返回已拥有的干员（`owned_only=true`）；未拥有的行也留在表里（那一轮同步的 `chars` 里没有它）\n- `total` 是筛选后的总数，不是当前页条数\n- 每行的 `field_sources` 标出各字段的来源（M47 之后基本只有 `skland`）",
         "operationId": "account_list_account_operators",
         "parameters": [
           {
@@ -6394,7 +6022,7 @@
     },
     "/api/account/operators/{char_id}": {
       "get": {
-        "description": "按 `char_id` 读一条干员记录（编辑抽屉打开时用）。",
+        "description": "按 `char_id` 读一条干员记录（外部 API 读取方与卡片详情用）。",
         "operationId": "account_get_account_operator",
         "parameters": [
           {
@@ -6465,98 +6093,11 @@
         "tags": [
           "account"
         ]
-      },
-      "patch": {
-        "description": "手动编辑一名干员的字段，只写请求体里给出的字段。\n\n- 精英化上限按稀有度：1–2★ 精零、3★ 精一、4–6★ 精二\n- 专精只在精二且技能等级 7 时可填；模组只在精二时可填，类型 X/Y/D/A、等级 1–3\n- 写入后这些字段的 `field_sources` 标 `manual`（或 `source=agent`）\n- 下次识别若覆盖了手动值且值不同，会记一条差异并在 `GET /api/account/operator-diffs` 里列出\n- 违反字段约束返回 422 `VALIDATION_ERROR`，`details.field` 指出字段",
-        "operationId": "account_patch_account_operator",
-        "parameters": [
-          {
-            "description": "干员 id，如 char_002_amiya",
-            "in": "path",
-            "name": "char_id",
-            "required": true,
-            "schema": {
-              "description": "干员 id，如 char_002_amiya",
-              "title": "Char Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OperatorPatchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Account Patch Account Operator",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "ACCOUNT_DATA_NOT_FOUND",
-                    "details": {},
-                    "message": "资源不存在"
-                  }
-                }
-              }
-            },
-            "description": "资源不存在：ACCOUNT_DATA_NOT_FOUND"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "VALIDATION_ERROR",
-                    "details": {},
-                    "message": "参数校验失败"
-                  }
-                }
-              }
-            },
-            "description": "参数校验失败：VALIDATION_ERROR"
-          }
-        },
-        "summary": "编辑干员数据",
-        "tags": [
-          "account"
-        ]
       }
     },
     "/api/account/summary": {
       "get": {
-        "description": "干员与仓库的计数、识别时间与是否过期，以及未处理的识别差异条数。\n\n- 过期阈值由 `agent.box_stale_days`（默认 14 天）与 `agent.depot_stale_days`（默认 3 天）决定\n- 从未识别时 `recognized_at` 为 `null` 且 `stale` 为 `true`",
+        "description": "干员与仓库的计数、上次写入时间与是否过期。\n\n- 干员侧的唯一来源是森空岛练度同步（M47 起），所以 `box.recognized_at` 是上次同步时间，阈值看 `agent.box_stale_days`（默认 14 天）\n- 仓库侧看 `agent.depot_stale_days`（默认 3 天）\n- 从未同步 / 从未识别时 `recognized_at` 为 `null` 且 `stale` 为 `true`",
         "operationId": "account_get_account_summary",
         "responses": {
           "200": {
