@@ -44,6 +44,7 @@ __all__ = [
     "SklandSettings",
     "SourcesSettings",
     "SettingsError",
+    "WorkspaceSettings",
     "core_user_dir",
     "get_settings",
     "load_settings",
@@ -145,6 +146,14 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "skland.credential_key": ("skland", "credential_key"),
     "skland.auto_sync_interval_minutes": ("skland", "auto_sync_interval_minutes"),
     "skland.request_timeout_seconds": ("skland", "request_timeout_seconds"),
+    # ---- 只读探索与侦察（M48 规格 §4.1）。四项都只从 config.yaml / 环境变量来，
+    # 同时列进 CONFIG_ONLY_SETTING_KEYS：``workspace.root`` 是宿主机绝对路径，放开给
+    # 设置 API 等于让任何持有访问令牌的人把 agent 的只读窗口指向任意目录；三个预算是
+    # 运维阈值，前端没有对应的产品语义（与 M42 的 skland 三项同款理由）。----
+    "workspace.root": ("workspace", "root"),
+    "agent.recon_max_steps": ("agent", "recon_max_steps"),
+    "agent.recon_output_chars": ("agent", "recon_output_chars"),
+    "agent.recon_max_chars": ("agent", "recon_max_chars"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -156,6 +165,10 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
 #: 森空岛三项（M42）：``credential_key`` 是凭据加密密钥（同「敏感项不走设置 API」的理由）；
 #: ``auto_sync_interval_minutes`` 与 ``request_timeout_seconds`` 是运维阈值，本里程碑
 #: 不做前端开关（规格 §3.2），放进设置 API 会凭空生成一组没有产品语义的表单控件。
+#:
+#: 只读探索四项（M48）：``workspace.root`` 是宿主机绝对路径，放开给设置 API 等于让任何
+#: 持有访问令牌的人把 agent 的只读窗口指向任意目录（探索工具只拦越界读，拦不住
+#: 「把根设到别处」）；三个 ``recon_*`` 预算是运维阈值，与 skland 两项同理没有前端语义。
 CONFIG_ONLY_SETTING_KEYS: frozenset[str] = frozenset(
     {
         "notify.vapid_private_key",
@@ -163,6 +176,10 @@ CONFIG_ONLY_SETTING_KEYS: frozenset[str] = frozenset(
         "skland.credential_key",
         "skland.auto_sync_interval_minutes",
         "skland.request_timeout_seconds",
+        "workspace.root",
+        "agent.recon_max_steps",
+        "agent.recon_output_chars",
+        "agent.recon_max_chars",
     }
 )
 
@@ -346,6 +363,21 @@ class AgentSettings(BaseModel):
     copilot_grant_minutes: int = Field(default=60, ge=1, le=1440)
     copilot_attempt_timeout_minutes: int = Field(default=20, ge=1, le=60)
     copilot_retention_days: int = Field(default=7, ge=1, le=365)
+    #: 只读侦察 subagent（M48 规格 §4.1、§4.4）的三个预算上限，每次委派现读，改完立即生效。
+    #: - ``recon_max_steps``：子 agent 的步数上限，默认 8。一次「查清楚某件事」实测多在
+    #:   10 步内，上限 20 是护栏：再往上不会更准，只会在同一个问题上打转。步数用尽照常
+    #:   出报告并在 ``budget`` 里标出来，不报错给父 agent。
+    #: - ``recon_output_chars``：单次工具输出的截断长度，默认 20_000 字符。仓库里的文件
+    #:   普遍比它长，所以截断不是丢弃——返回 ``truncated.next_offset`` 让模型续读。
+    #:   上限 200_000 的理由：再大就等于把整个文件一次性塞进子 agent 的上下文，
+    #:   正是这个里程碑要治的病。
+    #: - ``recon_max_chars``：一次侦察的累计字符预算，默认 200_000，超出立即收尾并置
+    #:   ``budget.exhausted=true``。它兜住「每一步都不大、步数一多总量失控」的情形，
+    #:   因此必须显著大于单次截断值；下限 10_000 保证至少能读完几个文件，上限
+    #:   2_000_000 是硬天花板（约 1M token 量级），不允许配出更大的单次侦察。
+    recon_max_steps: int = Field(default=8, ge=1, le=20)
+    recon_output_chars: int = Field(default=20000, ge=1000, le=200000)
+    recon_max_chars: int = Field(default=200000, ge=10000, le=2000000)
 
 
 class DeploymentSettings(BaseModel):
@@ -425,6 +457,23 @@ class SklandSettings(BaseModel):
         return value
 
 
+class WorkspaceSettings(BaseModel):
+    """只读探索工具的工作区根目录（M48 规格 §4.1）。
+
+    ``root`` 是 ``list_files`` / ``read_file`` / ``search_code`` / ``delegate_recon``
+    四个工具唯一的取数边界：相对路径按它解析，``resolve()`` 之后必须仍在它里面
+    （软链接按解析后的真实路径判定），任何越界都在读之前拦下。
+
+    **默认空串 ＝ 关闭探索能力**：四个工具一律回 ``WORKSPACE_NOT_CONFIGURED``，
+    而不是退化成「按进程 CWD 解析」。服务被 launchd / systemd 拉起时 CWD 往往是
+    ``/``，静默退化等于把整个文件系统交给模型；要开启就显式写一个目录。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    root: str = ""
+
+
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -448,6 +497,8 @@ class Settings(BaseModel):
     notify: NotifySettings = Field(default_factory=NotifySettings)
     deployment: DeploymentSettings = Field(default_factory=DeploymentSettings)
     skland: SklandSettings = Field(default_factory=SklandSettings)
+    #: M48 只读探索工具的根目录；``root`` 为空串即关闭探索能力（见 WorkspaceSettings）。
+    workspace: WorkspaceSettings = Field(default_factory=WorkspaceSettings)
 
 
 def resolve_settings(

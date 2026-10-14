@@ -391,6 +391,11 @@ def test_env_mapping_names_are_pinned() -> None:
         "skland.credential_key": "MAA_SKLAND_CREDENTIAL_KEY",
         "skland.auto_sync_interval_minutes": "MAA_SKLAND_AUTO_SYNC_INTERVAL_MINUTES",
         "skland.request_timeout_seconds": "MAA_SKLAND_REQUEST_TIMEOUT_SECONDS",
+        # M48：只读探索与侦察（工作区根目录、步数上限与两层字符预算）。
+        "workspace.root": "MAA_WORKSPACE_ROOT",
+        "agent.recon_max_steps": "MAA_AGENT_RECON_MAX_STEPS",
+        "agent.recon_output_chars": "MAA_AGENT_RECON_OUTPUT_CHARS",
+        "agent.recon_max_chars": "MAA_AGENT_RECON_MAX_CHARS",
     }
 
 

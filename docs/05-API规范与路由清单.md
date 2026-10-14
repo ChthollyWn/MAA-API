@@ -145,7 +145,7 @@ REST `mode=sync` 会等待确认和执行完成；`mode=async` 立即返回 202 
 
 ## 4. 错误码表
 
-错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 121 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
+错误码定义在 `maa_api/domain/errors.py` 的 `ErrorCode(StrEnum)` 中，与领域异常一一对应；`maa_api/api/errors.py` 注册异常处理器，把领域异常翻译成上表的状态码与统一错误体。共 124 条，其中 `UPDATE_INTERRUPTED` 只落库不返回，不占 HTTP 表达；`ENDPOINT_REMOVED` 有 410 绑定，但实现不注册旧端点存根，当前没有任何路径会抛出它（见 [§12](#12-废弃端点与迁移)）。
 
 ```python
 # maa_api/domain/errors.py
@@ -385,6 +385,16 @@ tool-calling 循环的非错误终态**不是错误**：会话正常结束并返
 | `SKLAND_SYNC_BUSY` | 409 | 同一时刻已经有一次同步在跑（全局互斥锁没拿到） |
 
 状态码口径：没绑定、会话过期、密钥没配、已有同步在跑都是「这个请求现在不行」，用 409；凭据被上游拒绝是「你没通过认证」，用 401；会话 id 不存在是 404；上游答复了但答复不能用是 502（与 `EXTERNAL_RESPONSE_INVALID` 同口径）。60 秒冷却期内的重复同步提交不走这里的码，用 §4.2 的 `RATE_LIMITED`（429）。
+
+### 4.20 只读探索与侦察（M48）
+
+| 错误码 | HTTP | 含义与触发场景 |
+|---|---|---|
+| `WORKSPACE_NOT_CONFIGURED` | 503 | 没配工作区根目录（`workspace.root` 为空或指向不存在的目录），而这次调用需要读工作区：`list_files` / `read_file` / `search_code` / `delegate_recon` 四个工具都抛它。留空即关闭探索能力，不做静默降级 |
+| `WORKSPACE_PATH_DENIED` | 403 | 路径被判为不可读：越出工作区根目录（含 `..`、绝对路径、指向外面的软链接）、命中密钥名单（`.env` / `config.yaml` / `*.pem` / `*.key` / `id_rsa*` / `*credential*` / `*secret*` / `.dsh/`）、是二进制、不是 UTF-8 文本，或正文里出现疑似私钥与凭据。白名单外的 git 动作（如 `push` / `checkout`）也用它 |
+| `WORKSPACE_FILE_TOO_LARGE` | 400 | 单个文件超过只读探索的 2 MiB 上限；改用 `search_code` 定位后再读片段 |
+
+状态码口径：没配工作区是「这个能力现在不可用」，与 `CORE_NOT_READY` 同口径用 503；路径被拒是「你不许读这个」用 403（与 `CONFIRMATION_REJECTED` 同口径）；文件过大是「这个请求本身不对」用 400。目录不存在、以及「要列举的路径其实是文件」走 §4.2 的 `NOT_FOUND` 与 `INVALID_PARAMETER`，不另立码。
 
 ## 5. 鉴权设计
 

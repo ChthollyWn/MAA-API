@@ -228,7 +228,7 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 
 三者共用访问层：来源登记与白名单、限流、熔断、进程内缓存、来源信封都在 `maa_api/services/external/`，取数与降级规则见 §6.6。
 
-账号数据组（`account`，M27）：干员数据来自森空岛练度同步、仓库数据来自内核 `Depot` 识别落库的结果，不是外部来源（M47 起内核干员识别与手动修正都已下线，见 [13 §8.70](./13-决策记录.md)）。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M42 把 M36 的两条读屏扫描工具换成森空岛两条**（`get_skland_status` 与 `sync_skland_training`）：工具总数仍 77（对模型可见 76）。**M47 删掉 `update_operator_box`**（干员数据只来自森空岛同步，手动 / Agent 补录下线）：工具总数 77 → 76、对模型可见 76 → 75。`start_upgrade_plan`、`update_user_profile` 与 `sync_skland_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
+账号数据组（`account`，M27）：干员数据来自森空岛练度同步、仓库数据来自内核 `Depot` 识别落库的结果，不是外部来源（M47 起内核干员识别与手动修正都已下线，见 [13 §8.70](./13-决策记录.md)）。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M42 把 M36 的两条读屏扫描工具换成森空岛两条**（`get_skland_status` 与 `sync_skland_training`）：工具总数仍 77（对模型可见 76）。**M47 删掉 `update_operator_box`**（干员数据只来自森空岛同步，手动 / Agent 补录下线）：工具总数 77 → 76、对模型可见 76 → 75。**M48 再加入只读探索组 `recon` 四条**（§8.6）：工具总数 76 → 80、对模型可见 75 → 79；隐藏工具仍然只有 `trigger_screencap` 一条。`start_upgrade_plan`、`update_user_profile` 与 `sync_skland_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
 
 | 工具 | risk | 用途 |
 |---|---|---|
@@ -242,6 +242,17 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 | `update_user_profile` | 每次确认 | 把用户的长期偏好写进自定义知识条目 `agent-profile`（标题「Agent 记录的用户档案」），按 `## <section>` 分节（M28，Q44）。参数 `section`（小节标题，1–32 字）、`content`（≤ 2000 字）、`mode`（`replace` 覆盖该节 / `append` 追加到该节末尾，默认 `replace`）；确认的 `reasons` 形如「更新用户档案「基建布局」：替换 3 字」。首次问清基建布局与班次后写进来，之后由注入段的「用户档案」全文段直接读，不再重复问 |
 | `get_skland_status` | SAFE | 查森空岛账号绑定与练度同步状态（M42）：`bound`、`key_configured`、绑定角色（`uid` / 昵称 / 等级 / 渠道）、上次同步时间与摘要、上次失败原因、同步频率护栏参数（`min_sync_interval_seconds`、`min_chars`）与定时同步开关。无参数。用户问「练度是不是最新的」「森空岛绑了吗」时用它；`bound=false` 时引导用户到【更多 → 账号数据】页扫码绑定，别自己编造练度 |
 | `sync_skland_training` | 每次确认 | 从森空岛同步**全部**干员的练度（M42）：精英化、等级、潜能、技能等级、专精、模组与信赖，一次取回、几秒跑完、不占设备，覆盖整表并以来源 `skland` 写回——**M47 起这是账号干员数据的唯一来源**（手动编辑与差异通道已下线）。无参数。确认理由写明「从森空岛同步全部干员练度」与「会覆盖整表练度（精英化、等级、潜能、技能等级、专精、模组与信赖）」。没绑定（`SKLAND_NOT_BOUND`）、上游不可用（`SKLAND_UPSTREAM_FAILED`）、60 秒冷却内重复（`RATE_LIMITED`）与已有同步在跑（`SKLAND_SYNC_BUSY`）各有独立的错误码；干员识别（OperBox）仍给「是否拥有 / 精英化 / 等级 / 潜能」，两者来源不同、互不冲突 |
+
+只读探索组（`recon`，M48）：全部 `SAFE`、`read_only=True`，**没有任何写能力**——不写文件、不改仓库、不跑测试、不碰 shell、不碰设备。根目录、边界口径与预算见 §8.6，错误码表见 [05 §4.20](./05-API规范与路由清单.md)
+
+| 工具 | risk | 用途 |
+|---|---|---|
+| `list_files` | SAFE | 列工作区里的目录与文件（带字节数）。密钥名单里的条目标 `blocked: true` 但仍列出来 |
+| `read_file` | SAFE | 读工作区里一个文本文件的片段；超出上限给 `truncated.next_offset` 续读。二进制、超大与密钥文件拒读 |
+| `search_code` | SAFE | 按正则搜代码与文档（`mode=content`），或查本地 git 的只读信息（`mode=git`，动作限 `status_local` / `diff_local` / `log_path` / `blame_path`） |
+| `delegate_recon` | SAFE | 把「查清楚某个问题」整段交给只读侦察 subagent：它在工作区里多步搜索、读文件、查 git，父会话只收一份带 `path:line` 证据的报告（§8.6） |
+
+M48 加入本组四条后工具总数 76 → **80**、对模型可见 75 → **79**（隐藏工具仍然只有 `trigger_screencap` 一条）。四个工具和其它工具一样出现在 `GET /api/agent/tools` 的清单里，但本轮不新增 REST 路由，OpenAPI 快照不变。
 
 ## 4. PolicyEngine
 
@@ -620,6 +631,8 @@ M23 起另有一段「给用户看东西」：自己截的图只用于判断，�
 
 M32 起在「工具怎么用」里补一句任务前提：MaaCore 的每个任务都从主界面起手，只有 `StartUp` 会启动或唤醒客户端，游戏没启动就提交只会重试到失败，不确定当前画面就把 `StartUp` 放在流水线第一条；「外部资料」里建议跑干员识别（`OperBox`）或仓库识别（`Depot`）的那句同时要求提交前确认游戏已启动并停在主界面（见 `task-preconditions`）。细节不写进提示词，留在知识条目里。
 
+M48 起在同一段里补一段「查仓库」：服务自己的实现、配置项、资源文件、迁移脚本、测试用例这类问题用 `delegate_recon` 交给只读侦察 subagent 去查，它只回一份带证据（`路径:行号`）的报告、过程不占本会话上下文；要翻好几个文件才能回答的问题都走它，位置已经确定、只看一两个文件时直接 `read_file`，别为省事外包；报告里没有证据的结论不要当成事实，报告写「没查清」就如实告诉用户卡在哪，不要自己猜一个答案（§8.6）。
+
 ### 8.5 对话界面（M16）
 
 - 布局。手机上是全高对话，整页滚动，输入栏固定在底部；桌面（≥1024px）是左侧会话栏 + 右侧对话区的固定高度两栏，对话在右侧卡片内滚动。当前会话用 `?session_id=` 表示。标题栏显示当前会话标题，右侧是「会话列表」按钮（手机上打开会话面板）与「Agent 操作」菜单（检查模型能力、新建会话）。会话列表每行显示标题、自动诊断徽章、消息数、模型与更新时间；删除收在行内「更多操作」里并需确认，确认文案写明消息会一起删除、这个会话的屏幕操作授权会被撤销。没有会话时显示「新建会话」空状态；空会话显示三条快捷提示，点选只填入输入框、不直接发送。当前会话的模型与 token 累计显示在对话顶部。
@@ -634,9 +647,33 @@ M32 起在「工具怎么用」里补一句任务前提：MaaCore 的每个任�
 - 提问卡（M21）。Agent 发出提问时，本轮的工具条下方出现选择卡：`multiple` 决定单选或多选，选好点「提交」，也可以点「跳过」；卡片按 `expires_at` 倒计时，到期后整卡禁用并显示「提问已超时，本轮已结束」。刷新或切页回来时本会话未回答的提问仍在（本会话待答卡，10 秒轮询，与本轮去重），输入栏状态行显示「请先回答上方的问题」：它与确认状态行并存的优先级是确认 > 提问 > 「Agent 正在处理…」。提问卡只在对话页内：不进全局待确认面板、不进标题栏胶囊，也不做 Web Push。界面细节与取舍见 [09 §6.4](./09-前端重构方案.md#64-agent-agent)。
 - 消息分页。服务端按 `seq` 升序分页，所以先读第一页拿到 `total`，再读最后一页（每页 200 条，即服务端上限）；最后一页不满 200 条时顺带读前一页，免得打开会话只看到一两条。点对话顶部的「加载更早的消息」读前一页，插入后保持阅读位置。刷新只重读已加载窗口的最后一页及之后新出现的页，保留用户已加载的更早页；总数变小时整窗重读。这修复了 M13 遗留的「长会话只显示最早 200 条」（[13 §8.7](./13-决策记录.md)）。规格原写上滑到顶部也会自动加载，实现只有按钮（[13 §8.12](./13-决策记录.md)）。
 
+### 8.6 只读探索与侦察 subagent（M48）
+
+M48 之前内置 Agent 的工具全是游戏域工具，`maa_api/agent/` 里没有任何读文件、列目录、grep 的能力：涉及仓库事实的问题（实现在哪、这段报错从哪来、这个资源文件或迁移谁写的）只能凭知识库与外部来源回答。M48 给内置 Agent 一组只读探索工具，再用一个侦察 subagent 把长探索挡在父会话之外，决策与被否决的替代方案见 [13 §8.71](./13-决策记录.md)。
+
+**工作区与边界。** 四个工具唯一的取数边界是顶层配置 `workspace.root`（`maa_api/settings.py` 的 `WorkspaceSettings.root`，默认空串）。空串＝关闭探索能力：四个工具一律 `WORKSPACE_NOT_CONFIGURED`（503），不退化成「按进程 CWD 解析」——服务被 launchd / systemd 拉起时 CWD 往往是 `/`，静默退化等于把整个文件系统交给模型。路径一律相对根目录解析，`resolve()` 之后必须仍在根目录内，软链接按解析后的真实路径判定；越界、命中密钥名单、二进制、非 UTF-8 正文一律 `WORKSPACE_PATH_DENIED`（403）。密钥名单是**拒读**而不是省略（`.env`、`.env.*`、`config.yaml`、`config.*.yaml`、`*.pem`、`*.key`、`id_rsa*`、`id_ed25519*`、`*credential*`、`*secret*`、`.dsh/*`），正文里出现 PEM 私钥头或 `api_key` / `access_token` / `secret` 这类赋值（`_SECRET_BODY_PATTERN`）同样拒读；目录列举时这些条目标 `blocked: true` 但仍列出来，让模型知道存在、不要去试。单文件超 2 MiB（`MAX_FILE_BYTES`）拒读 `WORKSPACE_FILE_TOO_LARGE`（400）并提示改用 `search_code` 定位；二进制判定看前 8 KiB（`BINARY_PROBE_BYTES`）是否含 NUL。忽略目录（`IGNORED_DIRS`：`.git` / `.venv` / `node_modules` / `__pycache__` / `.pytest_cache` / `.superpowers` / `.archify` / `.idea` / `.mypy_cache` / `.ruff_cache` / `.pnpm-store` / `dist` / `build` / `coverage`）在**被进入之前**剪掉，不靠事后过滤；`resource/lib`（二进制库）走 `IGNORED_RELATIVE_PREFIXES` 整块跳过。目录列举与搜索结果另有硬上限 `MAX_RESULTS_CAP = 100`。
+
+**三个探索工具**（`maa_api/agent/recon/explore.py`，由 `maa_api/agent/tools/recon.py` 的 `register_tools(registry)` 接进 `build_registry()`）：
+
+- `list_files`：参数 `path`（默认 `.`）、`depth`（1–3，默认 1，上限 `MAX_DEPTH_CAP`）、`pattern`（可选文件名 glob）。返回 `root`、`path`、`entries[]`（`path` 相对根目录、`kind` 是 `file` / `dir`、`bytes`、`blocked`）与 `truncated`（超 100 条时 `reason=max_results`）。
+- `read_file`：参数 `path`、`offset`（字符偏移，默认 0）、`max_chars`（默认取 `agent.recon_output_chars`，且**只能往下要**：传更大的值会被夹到 `agent.recon_output_chars`）。返回 `path`、`text`、`bytes`、`chars`（全文长度）、`start_line`（`offset` 所在行号）与 `truncated.next_offset`：单次结果不会超过 `agent.recon_output_chars`，带上 `next_offset` 续读即可拼回全文。
+- `search_code`：参数 `mode`（`content` 默认 / `git`）、`pattern`、`path`（默认 `.`）、`glob`、`max_results`（默认 40，上限 100）、`context_lines`（0–3，默认 0），`mode=git` 时另给 `action`。`mode=content` 用 `re` 对根目录内的可读文本做正则搜索，返回 `pattern`、`matches[]`（`path`、`line`、`column`、`text` 含上下文行）、`scanned_files` 与 `truncated`，正则非法抛 `TOOL_ARGS_INVALID`；`mode=git` 走下面的四个只读动作。
+
+**git 只给四个只读动作。** `mode=git` 用 `git -C <root>` 执行，`action` 只允许 `status_local` / `diff_local` / `log_path` / `blame_path`（`GIT_ACTIONS`），路径范围由 `path` 决定（`git diff --stat -- <path>` 这类），返回 `action`、`argv`、`exit_code`、`output`（失败时是 stderr）与 `truncated`（按 `agent.recon_output_chars` 截断）。白名单外的动作（`push` / `fetch` / `checkout` / `clean` / `reset` 与一切远端操作）一律 `WORKSPACE_PATH_DENIED`；非 git 仓库、本机没有 git、git 超 20 秒未返回都是 `EXTERNAL_SOURCE_UNAVAILABLE`。把内容检索与 git 检索收在一个 `mode` 参数里而不是单开第五个工具，是因为 M48 前工具目录已经有 76 个，能不加就不加（[13 §8.71](./13-决策记录.md) D3）。
+
+**预算三件套。** `agent.recon_max_steps`（默认 8，1–20）、`agent.recon_output_chars`（默认 20 000，1000–200 000）、`agent.recon_max_chars`（默认 200 000，10 000–2 000 000），在 `config.yaml` 里配，每次委派现读、改完立即生效。四项（含 `workspace.root`）都登记在 `SETTING_KEYS`，同时列进 `CONFIG_ONLY_SETTING_KEYS`——不进设置 API，宿主机路径与运维阈值只从 `config.yaml` / 环境变量来（[13 §8.71](./13-决策记录.md) D1b）。子循环（`maa_api/agent/recon/runner.py`）每步一次流式补全，只带三个只读工具的 schema（`RECON_TOOL_NAMES`），一步最多执行 4 个调用（`MAX_CALLS_PER_STEP`）；累计字符到顶立即收尾并置 `budget.exhausted=true`，单步超时 60 秒（`RECON_TIMEOUT_SECONDS`），步数硬顶 20（`RECON_MAX_STEPS_CAP`）。三层任何一层到顶都是「收尾并说明未完成」，不是抛错给父 agent。
+
+**委派与深度 1。** `delegate_recon`（`maa_api/agent/recon/delegate.py`）的参数是 `question`（必填，1–500 字）、`hints`（可选，最多 5 条）、`max_steps`（可选，1–20，不填取 `agent.recon_max_steps`）；handler 从 `context.request.app.state` 取 `agent_runtime` 与 `settings_provider`（缺一 → `AGENT_DISABLED`），调 `AgentRuntime.recon(question, hints=…, max_steps=…, settings=…)`（`maa_api/agent/runtime.py`）。子 agent 只拿 `list_files` / `read_file` / `search_code` 三个工具——`delegate_recon` 不在其中，所以**深度固定为 1**，派不出孙 agent；子循环也不参与 `_run_turn_body` 的会话状态：不占会话锁、不写 `agent_message`、不碰设备。子 agent 的系统提示词（`runner.SYSTEM_PROMPT`）要求每条结论带 `path:line` 证据、查不到就写进 `uncertainties`、只回答给定问题不扩大范围。子 agent 的工具处理器同样要读 `ctx.request.app.state.settings_provider`，`runner.dispatch_tool` 为此只造一个含这一项的最小 request——**不透传父 agent 的真实 state**，否则子 agent 就顺着拿到了设备与确认服务。子 agent 的工具调用**不单独落审计**：对模型可见的动作只有父 agent 那一次 `delegate_recon`（它本身在派发层被审计），子 agent 只读工作区、没有设备与写路径（[13 §8.71](./13-决策记录.md) 七）。
+
+**父会话只收报告。** `delegate_recon` 的返回值就是父上下文能看到的全部内容：`question`、`summary`（≤ 1500 字符，`SUMMARY_MAX_CHARS`）、`findings[]`（每条 `title` ≤ 200、`detail` ≤ 600、`evidence[]` 是 `path:line` 字符串，最多 4 条证据、8 条结论）、`uncertainties[]`（≤ 6 条）、`steps_used`、`stopped`（`answered` / `budget` / `max_steps`）与 `budget`（`max_steps` / `max_chars` / `output_chars` / `chars_used` / `exhausted`）。子 agent 的对话、读出的文件正文、被截断的原始工具输出都不进父历史；收尾 JSON 解析失败时退化成「最后一段文本当 summary、`findings` 为空」并在 `uncertainties` 里说明，不抛错给父 agent；预算耗尽与步数用尽同样收尾，并在 `uncertainties` 里写明报告可能不完整。工具描述里也写明门槛：涉及仓库事实且要翻好几个文件时才委派，只有一两个文件的确定位置直接 `read_file`，报告里没有证据的结论不要当成事实。
+
+这么切的动机有一份本机实测对照：DSH 会话 `session-d8cf968c`（M47，2026-10-14）的 turn 3 一步跑了 299 个步骤、85 分钟，单步重读上下文从 125k 涨到 447k token，全会话 130.1M token 里 93.2M 花在这一个 turn 上，其中 99.8% 是把前文反复重喂（模型真正写出的只有 0.25M）。**这是 DSH 会话的实测，用作动机而非 MAA-API 的指标**；MAA-API 侧值不值得用同样的委派方式，要等真实使用数字再判。
+
 ## 9. 审计
 
 按决策全量落库。每次工具调用（无论来自内置 Agent 还是 REST）写一条 `agent_audit` 记录：调用方类型与身份、会话 id、工具名、完整入参、风险判定结果、是否需要确认与确认结果、执行状态、结果摘要、耗时、错误码。
+
+M48 的侦察 subagent 是唯一的例外：子 agent 的 `list_files` / `read_file` / `search_code` 调用走 `registry.execute`，不单独落审计——对模型可见的动作只有父 agent 那一次 `delegate_recon`，它本身照常被审计（§8.6、[13 §8.71](./13-决策记录.md) 七）。
 
 入参可能含大对象（Copilot 作业 JSON、自定义 task 定义），存储时对超过阈值的字段做截断并保留哈希，完整内容另存到文件。
 

@@ -408,6 +408,16 @@ class ErrorCode(StrEnum):
     # 同一时刻已有一次同步在跑
     SKLAND_SYNC_BUSY = "SKLAND_SYNC_BUSY"
 
+    # ---- docs/05 §4.20 只读探索与侦察（M48）----
+    # 没配工作区根目录（workspace.root 为空）：探索类工具与侦察 subagent 都不可用
+    WORKSPACE_NOT_CONFIGURED = "WORKSPACE_NOT_CONFIGURED"
+
+    # 路径被判为不可读：越出工作区、命中密钥名单、是二进制、或不是 UTF-8 文本
+    WORKSPACE_PATH_DENIED = "WORKSPACE_PATH_DENIED"
+
+    # 单文件超过只读探索的上限（2 MiB）：改用 search_code 定位后再读片段
+    WORKSPACE_FILE_TOO_LARGE = "WORKSPACE_FILE_TOO_LARGE"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
 #: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 120 条。
@@ -542,6 +552,12 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.SKLAND_UPSTREAM_FAILED: 502,
     ErrorCode.SKLAND_ENCRYPTION_KEY_INVALID: 409,
     ErrorCode.SKLAND_SYNC_BUSY: 409,
+    # 没配工作区是「这个能力现在不可用」，与 CORE_NOT_READY 同口径用 503；
+    # 路径被拒是「你不许读这个」用 403（与 CONFIRMATION_REJECTED 同口径）；
+    # 文件过大是「这个请求本身不对」用 400。
+    ErrorCode.WORKSPACE_NOT_CONFIGURED: 503,
+    ErrorCode.WORKSPACE_PATH_DENIED: 403,
+    ErrorCode.WORKSPACE_FILE_TOO_LARGE: 400,
 }
 
 

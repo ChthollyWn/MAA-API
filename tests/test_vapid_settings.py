@@ -29,13 +29,18 @@ def test_vapid_keys_are_config_only_not_settings_api_keys() -> None:
     )
 
     # 这张表是「哪几个 key 刻意不进设置 API」的完整清单：M15 的 VAPID 两条，
-    # M42 的森空岛三条（凭据密钥敏感、定时间隔与超时不做前端开关，规格 §3.2）。
+    # M42 的森空岛三条（凭据密钥敏感、定时间隔与超时不做前端开关，规格 §3.2），
+    # M48 的只读探索四条（工作区根目录是宿主机路径、三个预算是运维阈值，规格 §4.1）。
     assert CONFIG_ONLY_SETTING_KEYS == {
         "notify.vapid_private_key",
         "notify.vapid_subject",
         "skland.credential_key",
         "skland.auto_sync_interval_minutes",
         "skland.request_timeout_seconds",
+        "workspace.root",
+        "agent.recon_max_steps",
+        "agent.recon_output_chars",
+        "agent.recon_max_chars",
     }
     for key in CONFIG_ONLY_SETTING_KEYS:
         assert key in SETTING_KEYS, f"{key} 必须留在 SETTING_KEYS 里，否则 yaml 段会被忽略"
