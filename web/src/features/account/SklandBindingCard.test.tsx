@@ -229,7 +229,9 @@ describe('M42 森空岛绑定卡片', () => {
 
     const region = await card()
     expect(await within(region).findByTestId('skland-account')).toHaveTextContent('罗德岛博士 · 114 级 · 共 2 个角色')
-    expect(within(region).getByText(/^上次同步 \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)).toBeInTheDocument()
+    // 时间取账号数据自己的「同步于 …」（概要的 recognized_at）；森空岛状态里的
+    // `last_sync_at` 只在概要还没回来时兜底。
+    expect(within(region).getByText(/^同步于 \d{4}-\d{2}-\d{2} \d{2}:\d{2}/)).toBeInTheDocument()
     expect(within(region).getByText('本轮 383 名：新增 12 · 更新 47 · 未变 324')).toBeInTheDocument()
     expect(within(region).getByText('清掉未拥有 3 名')).toBeInTheDocument()
     expect(within(region).getByText('耗时 0.8 秒')).toBeInTheDocument()

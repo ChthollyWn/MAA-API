@@ -53,6 +53,15 @@
 
 负向对照：`OperBox` 提交被任务校验拒绝（类型不在 `TASK_MODELS`）；`PATCH /api/account/operators/{char_id}` 与 `operator-diffs` 不在 OpenAPI paths；干员页 DOM 无「编辑」入口与差异条（前端用例）。
 
+## 收口（tag 之后）
+
+用户看到干员页顶部**两张卡都在讲森空岛**（左：被我改口径的旧状态卡；右：绑定/同步卡），要求合并。已按「合并成一张」落地：
+
+- `SklandBindingCard` 自己取 `GET /api/account/summary`，标题行加语态点与「已同步 / 已过期 / 未识别」徽章，卡内一行放「共 N 名（精二 M）」+「同步于 …」（没数据时写「还没有同步过练度」，未绑定再补一句「绑定后点『同步练度』写入」）；过期时一条警示指向右上角的按钮。
+- `OperatorsTab` 不再渲染 `RecognitionStatus`（该组件仍服务仓库页），删掉那张状态卡与顶部双列网格；「刷新干员列表」改为同时失效 `accountKeys.summary()`。
+- 测试：`OperatorsTab.test` 的两条断言改成合并后的结构；`SklandBindingCard.test` 的「上次同步 …」改成账号数据自己的「同步于 …」（`last_sync_at` 只在概要未回来时兜底，`sklandLastSyncText` 随之删除）。
+- 门禁：`pnpm typecheck` 0、`pnpm test --run` 74 文件 763 例、`pnpm build`（含 SW harness）全绿。
+
 ## 遗留
 
 - `confirmation` 卡片的 `update_operator_box` 分支删除后，账号组只剩 `start_upgrade_plan` / `update_user_profile` / `sync_skland_training` 三处确认；`ConfirmationCard` 的 `isAccountTool` 判定同步收窄。

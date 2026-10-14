@@ -1,15 +1,15 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12355 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12366 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 328 | 328 |
+| 粗体强调 | medium | 0 | 329 | 329 |
 | 破折号当冒号用 | high | 0 | 132 | 132 |
 | 「A 而不是 B」对照腔 | high | 0 | 108 | 108 |
 | 绝对化规定腔 | medium | 0 | 67 | 67 |
-| 自指式讲解腔 | medium | 0 | 20 | 20 |
+| 自指式讲解腔 | medium | 0 | 21 | 21 |
 | 「…即可」机器腔 | medium | 0 | 19 | 19 |
 | 「不是…而是…」对照句 | high | 0 | 5 | 5 |
 | 省略号 | medium | 0 | 4 | 4 |
@@ -18,7 +18,7 @@
 | emoji/符号装饰 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 328）
+## 粗体强调（medium｜用户可见 0 / 开发向 329）
 
 **开发向**
 
@@ -28,7 +28,7 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 322 条，见 inventory.json
+- …… 另有 323 条，见 inventory.json
 
 ## 破折号当冒号用（high｜用户可见 0 / 开发向 132）
 
@@ -66,7 +66,7 @@
 - `maa_api/services/account/capture.py:15` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
 - …… 另有 61 条，见 inventory.json
 
-## 自指式讲解腔（medium｜用户可见 0 / 开发向 20）
+## 自指式讲解腔（medium｜用户可见 0 / 开发向 21）
 
 **开发向**
 
@@ -76,7 +76,7 @@
 - `maa_api/main.py:1316` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
 - `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
 - `maa_api/services/account/planner.py:23` # 实现裁决（规格没写死、由本模块定，M27 T8）
-- …… 另有 14 条，见 inventory.json
+- …… 另有 15 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 0 / 开发向 19）
 

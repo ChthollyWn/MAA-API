@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { QrCode, RefreshCw, Unlink } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { Badge, StatusDot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Field } from '@/components/ui/field'
@@ -14,6 +14,7 @@ import {
   DEFAULT_SKLAND_POLL_INTERVAL_MS,
   accountKeys,
   bindSklandManual,
+  fetchAccountSummary,
   fetchSklandStatus,
   pollSklandQrLogin,
   retryAfterSeconds,
@@ -24,14 +25,21 @@ import {
   type SklandStatus,
   type SklandSyncSummary,
 } from './api'
-import { errorText, formatDateTime } from './format'
+import {
+  errorText,
+  recognitionText,
+  recognizedCountText,
+  staleBadgeText,
+} from './format'
 
 /**
- * 「森空岛练度」卡片（M42 规格 §4.8）：扫码绑定森空岛账号，再从这里同步官方练度数据。
+ * 「森空岛练度」卡片（M42 规格 §4.8，M47 合并状态）：扫码绑定森空岛账号、同步官方练度，
+ * **同时**显示这份数据的状态（同步时间、是否过期、规模）。
  *
- * 数据来自森空岛接口，卡片提供「绑定」与「同步」两个动作（同步是同步执行的 POST，
- * 等待期间按钮走 loading）。技能等级 / 专精 / 模组写进 `account_operator` 后，
- * 干员列表的字段来源徽章会显示「森空岛」（`FieldSource = 'skland'`）。
+ * M47 之前这里是「绑定/同步」一张、干员页顶部另有一张「干员识别」状态卡（内核任务写的，
+ * 与森空岛是两个数据源）。内核识别删掉之后两者是同一份数据，于是并成一张：标题行给
+ * 状态点与过期徽章，账号行给「共 N 名（精二 M）· 同步于 …」，动作按钮仍在右上角。
+ * 仓库页的「仓库识别」状态卡与本组件无关，仍用 `RecognitionStatus`。
  */
 
 const KEY_COMMAND = '.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
@@ -62,12 +70,6 @@ export function sklandAccountLine(account: SklandRole | null, roles: SklandRole[
   const name = account ? sklandRoleText(account) : '已绑定'
   const level = typeof account?.level === 'number' ? ` · ${account.level} 级` : ''
   return `${name}${level} · 共 ${roles.length} 个角色`
-}
-
-/** 上次同步时间：没有就写「还没有同步过」。 */
-export function sklandLastSyncText(lastSyncAt: string | null | undefined): string {
-  const at = formatDateTime(lastSyncAt)
-  return at ? `上次同步 ${at}` : '还没有同步过'
 }
 
 /**
@@ -117,6 +119,19 @@ export function SklandBindingCard() {
     queryFn: ({ signal }) => fetchSklandStatus(signal),
     retry: false,
   })
+
+  // 干员数据的概况（同步时间 / 是否过期 / 已拥有与精二数）：M47 起唯一来源就是下面这个
+  // 同步动作，所以这张卡自己取、自己失效，不再由干员页另开一张状态卡。
+  const summary = useQuery({
+    queryKey: accountKeys.summary(),
+    queryFn: ({ signal }) => fetchAccountSummary(signal),
+    retry: false,
+  })
+  const entry = summary.data?.operators
+  const staleBadge = entry ? staleBadgeText(entry) : null
+  const statusTone = !entry || !entry.recognized ? 'neutral' : entry.stale ? 'warning' : 'success'
+  const countText = entry ? recognizedCountText(entry, '名') : null
+  const syncedAtText = entry ? recognitionText(entry, '同步于') : null
 
   const data = status.data
   const bound = data?.bound === true
@@ -280,8 +295,13 @@ export function SklandBindingCard() {
             </span>
           ) : null}
         </div>
-        <span className="tabular-nums text-muted-foreground">{sklandLastSyncText(data.last_sync_at)}</span>
       </div>
+
+      {entry?.stale ? (
+        <InlineAlert tone="warning" role="status">
+          账号数据已超过 {entry.stale_after_days} 天没同步，需要时点右上角「同步练度」刷新。
+        </InlineAlert>
+      ) : null}
 
       {data.last_sync ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-footnote tabular-nums text-muted-foreground">
@@ -371,11 +391,13 @@ export function SklandBindingCard() {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
+          <StatusDot tone={statusTone} />
           <h2 id="skland-binding-title" className="text-sm font-semibold text-foreground">
             森空岛练度
           </h2>
+          {staleBadge ? <Badge variant={statusTone}>{staleBadge}</Badge> : null}
           <InfoHint label="森空岛练度说明">
-            {bound && data ? syncHint(data) : '用森空岛账号同步技能等级、专精、模组与信赖；不占设备、不读屏。'}
+            {bound && data ? syncHint(data) : '干员数据的唯一来源：用森空岛账号同步技能等级、专精、模组与信赖；不占设备、不读屏。'}
           </InfoHint>
         </div>
         {bound ? (
@@ -405,6 +427,24 @@ export function SklandBindingCard() {
           </div>
         ) : null}
       </div>
+
+      {/* 账号数据的现状（M47 起这张卡同时承担旧「干员识别」状态卡的职责）：
+          规模、同步时间、以及没数据时该做什么——绑定与否都显示 */}
+      {entry ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-footnote">
+          {countText ? (
+            <span className="rounded-md bg-surface-2 px-2 py-0.5 font-medium tabular-nums text-foreground">
+              {countText}
+            </span>
+          ) : null}
+          <span className="tabular-nums text-muted-foreground">
+            {entry.recognized ? syncedAtText : '还没有同步过练度'}
+          </span>
+          {!bound ? (
+            <span className="text-muted-foreground">绑定森空岛账号后点「同步练度」写入干员数据。</span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div>{body}</div>
 

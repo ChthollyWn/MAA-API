@@ -95,8 +95,10 @@ describe('M27 干员页', () => {
     installAccountApi()
     renderAccount('/more/account')
 
-    expect(await screen.findByLabelText('森空岛练度同步')).toHaveTextContent('同步于')
-    expect(screen.getByText('共 3 名（精二 1）')).toBeInTheDocument()
+    // M47 起状态与绑定/同步动作在同一张卡里（不再另开一张「干员识别」状态卡）；
+    // 卡片先出现、概要后到，所以等的是那行「同步于 …」。
+    expect(await screen.findByText(/^同步于 \d{4}-\d{2}-\d{2}/)).toBeInTheDocument()
+    expect(screen.getByLabelText('森空岛练度')).toHaveTextContent('共 3 名（精二 1）')
     expect(screen.queryByRole('button', { name: /刷新识别/ })).not.toBeInTheDocument()
   })
 
@@ -109,7 +111,9 @@ describe('M27 干员页', () => {
     })
     renderAccount('/more/account')
 
-    expect(await screen.findByLabelText('森空岛练度同步')).toHaveTextContent('尚未识别')
+    // 没绑定时卡片自己说「还没有同步过练度」，标题行的徽章标「未识别」
+    expect(await screen.findByText('还没有同步过练度')).toBeInTheDocument()
+    expect(screen.getByLabelText('森空岛练度')).toHaveTextContent('未识别')
   })
 
   it('每张卡片只标「森空岛」这一个来源', async () => {
