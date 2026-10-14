@@ -362,16 +362,18 @@ class AccountDepotItemRepository(BaseRepository):
         """整表替换：先清空再写入本次识别的全部物品。
 
         ``rows`` 每项给 ``item_id``、``name``、``count``、``category``、
-        ``recognized_at``，可选 ``source``（``"kernel"`` / ``"self_scan"``，M45 W3a：
-        这一行的身份是谁认出来的）。同一个 ``item_id`` 出现多次时**取最后一条**
-        （识别结果的后者为准），返回的是去重后真正写入的行数——它同时是识别记录的
-        ``item_count``。
+        ``recognized_at``，可选 ``source``（``sources`` 列的历史取值 ``"kernel"`` /
+        ``"self_scan"``）。同一个 ``item_id`` 出现多次时**取最后一条**（识别结果的
+        后者为准），返回的是去重后真正写入的行数——它同时是识别记录的 ``item_count``。
 
-        **``count`` 允许为 ``None``**（M45 W3a）：自识别只保证身份、数量要等 W3b 的
-        OCR，这时写 ``NULL`` ＝ 未识别。旧写法 ``int(row.get("count") or 0)`` 会把
-        「不知道」压成 0，正是 M45 要区分的那两件事，所以这里只对非空值做整数归一。
-        ``sources`` 列按行收集成 ``{item_id: source}``；一行都没有来源时留 ``NULL``
-        （旧行为，读侧按「未知来源」处理）。
+        **``count`` 允许为 ``None``**：``NULL`` ＝ 未识别（历史上是自识别只保证身份、
+        数量没读到的那批行）。旧写法 ``int(row.get("count") or 0)`` 会把「不知道」压成 0，
+        而「仓库里没有这件道具」与「不知道有几件」是两件事，所以这里只对非空值做整数归一。
+
+        ``sources`` 列按行收集成 ``{item_id: source}``；一行都没有来源时留 ``NULL``。
+        该列自 2026-10-14 起**保留为历史、当前无人写**（写它的自识别已删除实现，
+        见 `docs/13` §8.68）：调用方不传 ``source`` 时整列就是 ``NULL``，与 0021 之前的
+        旧行同形，读侧按「来源未知」处理。
         """
         # ``sources`` 的值是整份快照共用的 ``{item_id: 来源}``（每行存一份，读侧按行取
         # 自己那一项 —— 将来一行一个来源地混写也不会读串）。所以先收齐再写。
@@ -420,8 +422,8 @@ class AccountDepotItemRepository(BaseRepository):
     ) -> list[AccountDepotItem]:
         """仓库行列表，按「分类 → item_id」排序（页面按分类分组）。
 
-        ``only_counted=True`` 时排除 ``count IS NULL`` 的行（自识别独有的道具：
-        身份入库、数量没读到）。页面只显示有明确数量的物品，读侧用这个开关拿数；
+        ``only_counted=True`` 时排除 ``count IS NULL`` 的行（历史上自识别只认了身份、
+        数量没读到的那批）。页面只显示有明确数量的物品，读侧用这个开关拿数；
         写库路径（``replace_all`` 的下降护栏）**不传**，它数的是整表行数。
         """
         statement = (
@@ -445,7 +447,7 @@ class AccountDepotItemRepository(BaseRepository):
     ) -> int:
         """筛选后的物品数（页面的 ``total`` 与概要的种类数）。
 
-        默认数整表（含 ``count IS NULL`` 的自识别独有行）；页面口径传
+        默认数整表（含历史残留的 ``count IS NULL`` 行）；页面口径传
         ``only_counted=True``，与 :meth:`list` 保持一致。
         """
         statement = (
@@ -484,7 +486,7 @@ def _depot_conditions(
 ) -> list[Any]:
     conditions: list[Any] = []
     if only_counted:
-        # 自识别独有的行写 NULL ＝ 未识别（0021）。用户口径：仓库页只显示有明确数量的物品。
+        # 历史行写 NULL ＝ 未识别（0021）。用户口径：仓库页只显示有明确数量的物品。
         conditions.append(AccountDepotItem.count.is_not(None))
     if category is not None and str(category).strip():
         conditions.append(AccountDepotItem.category == str(category).strip())

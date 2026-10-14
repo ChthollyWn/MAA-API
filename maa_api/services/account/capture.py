@@ -12,8 +12,9 @@
 两条回调的解析与物品名/职业映射在本模块（纯函数 + 一次磁盘读，可单测），
 落库与合并规则交给 :class:`~maa_api.services.account.box.OperatorBoxService` 与
 :class:`~maa_api.services.account.depot.DepotService`：合并规则（覆盖哪些字段、
-什么时候记差异）只有一份实现，就在服务层。本模块额外把「流水线 / 任务 / 渠道」
-补进识别记录（服务层拿不到这三个值，见
+什么时候记差异）只有一份实现，就在服务层。仓库只剩内核 ``DepotInfo`` 这一路数据源
+（M45 的自识别已于 2026-10-14 连实现一起删除，见 `docs/13` §8.68）。本模块额外把
+「流水线 / 任务 / 渠道」补进识别记录（服务层拿不到这三个值，见
 :meth:`~maa_api.db.repositories.account.AccountRecognitionRepository.record`）。
 
 **采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
@@ -52,9 +53,6 @@ from maa_api.db.repositories.account import (
     RECOGNITION_KIND_OPERBOX,
     AccountRecognitionRepository,
 )
-# M45 W3a 的两路合并是纯函数（不碰库、不碰设备），放在这里做：采集层已经拿得到
-# 内核那一趟的数据与本机物品索引，服务层只负责把它写下去。
-from maa_api.services.account.depot import enumerate_depot_ids, merge_depot_sources
 from maa_api.services.resource_index import iter_resource_roots
 
 __all__ = [
@@ -169,12 +167,6 @@ class AccountCaptureService:
         ``battle_data.json``（读不到就没有职业）。
     :param box_service / depot_service: 落库服务替身，测试注入；默认按
         ``session_factory`` 现建（构造签名见各自模块）。
-    :param depot_scan: 仓库自识别服务（``DepotScanService`` 或同签名替身），M45 的
-        补差集链路。**2026-10-13 起按用户要求关停并下线**（见 `docs/13` §8.68）：设置项
-        ``account.depot_scan_enabled`` 默认 false，关着时 ``scan_all_pages`` 抛
-        ``DepotScanDisabled``，采集层按「这一轮没有自识别」处理，走只写内核 ``Depot``
-        那一趟的路径 —— 与 M44 之前**逐字一致**，绝不因此不写内核的结果。代码保留作备档，
-        用户明确打开设置项时这条链路才参与写库。
     """
 
     def __init__(
@@ -185,14 +177,12 @@ class AccountCaptureService:
         operator_catalog: Mapping[str, OperatorMeta] | None = None,
         box_service: Any | None = None,
         depot_service: Any | None = None,
-        depot_scan: Any | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._item_catalog = item_catalog
         self._operator_catalog = operator_catalog
         self._box_service = box_service
         self._depot_service = depot_service
-        self._depot_scan = depot_scan
 
     # -- 入口 -------------------------------------------------------------
     async def handle_callback(
@@ -349,45 +339,27 @@ class AccountCaptureService:
             # 数据比留着旧数据危险得多，旧数据与旧识别时间都原样保留。
             return AccountCaptureResult(kind=RECOGNITION_KIND_DEPOT, skipped="bad_payload")
 
-        # 自识别那一趟（未启用 / 不可用 / 失败都是 None）。有它才走两路合并；没有它时
-        # 走下面那条**逐字保留 M44 形态**的路径：不跑合并纯函数、不给 ``item_sources``
-        # 与 ``detail``，写出去的行只来自内核 ``DepotInfo``。
-        scanned, scanned_detail = await self._scan_depot()
+        # 整表替换的输入只有内核 ``DepotInfo`` 这一趟（M27 起就是这么写的，M44 收起
+        # 自识别之后**逐字一致**）：物品名与分类用本机 ``item_index.json`` 映射，
+        # 映射不到的保留 id。写库的两道护栏在 ``DepotService.replace_all`` 里。
         catalog = self._items
-        if scanned is None:
-            items = [
-                {
-                    "item_id": item_id,
-                    "name": (meta.name if meta else None),
-                    "count": count,
-                    "category": (meta.category if meta else None),
-                }
-                for item_id, count in counts.items()
-                for meta in (catalog.get(item_id),)
-            ]
-            written = await self._depot.replace_all(
-                items,
-                recognized_at=created_at,
-                pipeline_id=pipeline_id,
-                task_id=task_id,
-                client_type=client_type,
-            )
-        else:
-            merged = merge_depot_sources(
-                counts,
-                scanned,
-                catalog=catalog,
-                depot_ids=enumerate_depot_ids(catalog),
-            )
-            written = await self._depot.replace_all(
-                merged.rows,
-                recognized_at=created_at,
-                pipeline_id=pipeline_id,
-                task_id=task_id,
-                client_type=client_type,
-                item_sources=merged.sources,
-                detail=merged.detail(scanned=scanned_detail),
-            )
+        items = [
+            {
+                "item_id": item_id,
+                "name": (meta.name if meta else None),
+                "count": count,
+                "category": (meta.category if meta else None),
+            }
+            for item_id, count in counts.items()
+            for meta in (catalog.get(item_id),)
+        ]
+        written = await self._depot.replace_all(
+            items,
+            recognized_at=created_at,
+            pipeline_id=pipeline_id,
+            task_id=task_id,
+            client_type=client_type,
+        )
         # DepotService 已经写过识别记录（它拿得到上下文），这里再调一次是幂等的：
         # 同 kind 同识别时刻只补上下文，不插第二条。
         await self._record(
@@ -402,32 +374,6 @@ class AccountCaptureService:
             kind=RECOGNITION_KIND_DEPOT, written=True, item_count=int(written)
         )
 
-    async def _scan_depot(self) -> tuple[dict[str, float] | None, dict[str, Any]]:
-        """M45 自识别那一趟（未启用 / 不可用 / 失败都返回「没有」）。
-
-        为什么**绝不因为自识别失败就不写内核的结果**：内核那一趟是既有事实（M27 起就
-        这么写），自识别只是补差集。设备没连、链没生成、页面被点走都只该少补几个 id，
-        不该把整表交白卷。所以这里一个异常都不外抛，只记 warning 并把原因写进 detail。
-        """
-        if self._depot_scan is None:
-            return None, {}
-        try:
-            outcome = await self._depot_scan.scan_all_pages()
-        except Exception as exc:  # noqa: BLE001 - 自识别失败只影响「补哪些 id」
-            logger.warning("仓库自识别未完成，本轮只写内核那一趟的结果：%r", exc)
-            return None, {"error": repr(exc)}
-        run = getattr(outcome, "run", None)
-        detail: dict[str, Any] = {
-            "pages": int(getattr(run, "pages_scanned", 0) or 0),
-            "stop_reason": getattr(run, "stop_reason", None),
-            "accepted": int(getattr(outcome, "accepted", 0) or 0),
-            "ambiguous": int(getattr(outcome, "ambiguous", 0) or 0),
-            "unknown": int(getattr(outcome, "unknown", 0) or 0),
-            "below_min_accepted": bool(getattr(outcome, "below_min_accepted", False)),
-        }
-        return dict(outcome.items), detail
-
-    # -- 落库依赖 ---------------------------------------------------------
     async def _record(
         self,
         kind: str,

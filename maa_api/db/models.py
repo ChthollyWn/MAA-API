@@ -1098,14 +1098,16 @@ class AccountDepotItem(SQLModel, table=True):
     整表替换语义：一次 ``DepotInfo``（``done=true``）把这张表换成本次识别到的
     物品与数量，数量归零的物品直接消失。
 
-    M45 W3a 起有两列承载「这一行是谁给的」（迁移 ``0021_depot_sources``）：
+    迁移 ``0021_depot_sources`` 留下的两列改动仍在（**不回退迁移**）：
 
-    - ``count`` **可空**：内核 ``DepotInfo`` 给得出数量就是整数；M45 的自识别只保证
-      身份、数量要等 W3b 的 OCR，这时写 ``NULL`` ＝ 未识别。**绝不拿 0 冒充** ——
+    - ``count`` **可空**：内核 ``DepotInfo`` 给得出数量就是整数；历史上 M45 的自识别
+      只保证身份、数量没读到，那批行写 ``NULL`` ＝ 未识别。**绝不拿 0 冒充** ——
       「仓库里没有这件道具」与「不知道有几件」是两件事，页面据 ``NULL`` 显示「—」。
-    - ``sources``：``{item_id: "kernel" | "self_scan"}``，说明这一行的身份是谁认出来的
-      （内核白名单 / M45 自识别）。整列可空：迁移之前的行没有来源信息，读侧按「未知」
-      处理，不回填、不猜。
+      自识别已于 2026-10-14 连实现一起删除（`docs/13` §8.68），此后不再产生新的
+      ``NULL`` 行，读侧仍按 ``count IS NOT NULL`` 过滤。
+    - ``sources``：``{item_id: "kernel" | "self_scan"}``，曾经说明这一行的身份是谁认出来
+      的。**保留为历史、当前无人写**（默认路径整列留 ``NULL``）；迁移之前的旧行同样是
+      ``NULL`` ＝ 来源未知，读侧不回填、不猜。
     """
 
     __tablename__ = "account_depot_item"
@@ -1113,11 +1115,11 @@ class AccountDepotItem(SQLModel, table=True):
     item_id: str = Field(primary_key=True, max_length=64)
     #: 本机 ``item_index.json`` 的名字；映射不到时保留 ``item_id``。
     name: str | None = Field(default=None, max_length=64)
-    #: 数量；``NULL`` ＝ 未识别（M45 W3a 起可空，见类文档）。
+    #: 数量；``NULL`` ＝ 未识别（0021 起可空，见类文档；新行不会再写 NULL）。
     count: int | None = Field(default=None)
     #: ``item_index.json`` 的 ``classifyType``（MATERIAL / NORMAL …）；映射不到为 NULL。
     category: str | None = Field(default=None, max_length=16)
-    #: ``{item_id: "kernel" | "self_scan"}``；旧行是 NULL。
+    #: ``{item_id: "kernel" | "self_scan"}``；保留列、当前无人写，旧行是 NULL。
     sources: dict[str, Any] | None = Field(default=None, sa_column=json_column("sources"))
     recognized_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("recognized_at")
@@ -1127,10 +1129,10 @@ class AccountDepotItem(SQLModel, table=True):
 class AccountRecognition(SQLModel, table=True):
     """一次账号识别的记录（规格 §7.3、附录 E）：时间、流水线、任务、渠道、数量。
 
-    ``detail``（M45 W3a，迁移 ``0021_depot_sources``）放这次识别的**过程事实**：
-    仓库识别写 ``{"sources": {...}, "unrecognized": [...], "scanned": {...}}``
-    —— 哪些 id 是内核给的、哪些是自识别补的、自识别这一轮没覆盖到哪些 id。
-    整列可空：旧行没有这些信息，读侧按「来源未知」处理。
+    ``detail``（迁移 ``0021_depot_sources``）放这次识别的**过程事实**：M45 的仓库
+    自识别写过 ``{"sources": {...}, "unrecognized": [...], "scanned": {...}}``；
+    自识别删除实现后（2026-10-14）只剩写库护栏被拦下时的
+    ``{"skipped": {reason: "drop_guard", …}}``。整列可空：旧行没有这些信息。
     """
 
     __tablename__ = "account_recognition"
