@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { User } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
@@ -9,7 +10,9 @@ import { NativeSelect } from '@/components/ui/native-select'
 import { ResponsiveSheet } from '@/components/ui/sheet'
 import { SwitchRow } from '@/components/ui/switch'
 import { toast } from '@/components/ui/toaster'
+import { AssetImage } from './AssetImage'
 import { accountKeys, patchOperator, type FieldSource, type OperatorPatch, type OperatorRow } from './api'
+import { avatarPath, moduleTypeGlyph, RARITY_COLORS, skillIconPath, UNOWNED_COLORS } from './assets'
 import {
   MAX_LEVEL,
   MAX_MODULE_LEVEL,
@@ -56,10 +59,12 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
   const eliteCap = maxElite(row.rarity)
   const masteriesEditable = canEditMasteries(draft)
   const modulesEditable = canEditModules(draft)
+  const colors = draft.own
+    ? RARITY_COLORS[row.rarity ?? 0] ?? UNOWNED_COLORS
+    : UNOWNED_COLORS
 
   const set = <K extends keyof OperatorDraft>(key: K, value: OperatorDraft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
-  // 未识别（`null`）的整列在用户填了任意一档后就算「补录」：整列从 null 变成具体映射。
   const setMastery = (slot: string, level: number) =>
     setDraft((current) => ({
       ...current,
@@ -85,9 +90,6 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
     },
   })
 
-  // 精英化或技能等级落到**已知的**不允许状态时，把专精与模组就地清零：控件同时禁用，
-  // 保存时也就不会提交与精英化不一致的值。未识别（`null`）时两者都放行，也不清零——
-  // 「不知道」不是「有专精」，清成 0 反而是把未知写成「无专精」。
   useEffect(() => {
     setDraft((current) => {
       const next = { ...current }
@@ -129,143 +131,200 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
         </div>
       )}
     >
-      <div className="space-y-5 pt-1">
-        <SwitchRow
-          label="已拥有"
-          description="未拥有的干员不参与养成规划"
-          checked={draft.own}
-          onCheckedChange={(checked) => set('own', checked)}
-        />
-
-        <Field
-          label="精英化"
-          htmlFor={`${baseId}-elite`}
-          labelAside={<SourceTag source={fieldSource(row, 'elite')} field="elite" />}
-          description={`${row.rarity}★ 干员的精英化上限是${maxEliteLabel(row.rarity)}`}
-          error={errors.elite}
+      <div className="space-y-4 pt-1">
+        {/* 顶部干员概览与持有开关 */}
+        <div
+          className="relative overflow-hidden rounded-xl border bg-surface-2/40 p-3.5 pl-4"
+          style={{ ['--card-primary' as string]: colors.primary, ['--card-secondary' as string]: colors.secondary }}
         >
-          <NativeSelect
-            id={`${baseId}-elite`}
-            value={draft.elite === null ? '' : String(draft.elite)}
-            onChange={(event) => set('elite', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
-          >
-            {/* 未识别只在行里本来就没值时出现：已识别的值不能从页面清回未识别（规格 §3.2）。 */}
-            {row.elite == null ? <option value="">{UNKNOWN_TEXT}</option> : null}
-            {Array.from({ length: eliteCap + 1 }, (_, elite) => (
-              <option key={elite} value={elite}>{['精零', '精一', '精二'][elite]}</option>
-            ))}
-          </NativeSelect>
-        </Field>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="等级"
-            htmlFor={`${baseId}-level`}
-            labelAside={<SourceTag source={fieldSource(row, 'level')} field="level" />}
-            error={errors.level}
-          >
-            <Input
-              id={`${baseId}-level`}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={MAX_LEVEL}
-              placeholder={UNKNOWN_TEXT}
-              value={draft.level === null ? '' : draft.level}
-              onChange={(event) => set('level', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
-            />
-          </Field>
-          <Field
-            label="潜能"
-            htmlFor={`${baseId}-potential`}
-            labelAside={<SourceTag source={fieldSource(row, 'potential')} field="potential" />}
-            error={errors.potential}
-          >
-            <Input
-              id={`${baseId}-potential`}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={MAX_POTENTIAL}
-              placeholder={UNKNOWN_TEXT}
-              value={draft.potential === null ? '' : draft.potential}
-              onChange={(event) => set('potential', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
-            />
-          </Field>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="技能等级"
-            htmlFor={`${baseId}-skill`}
-            labelAside={<SourceTag source={fieldSource(row, 'skill_level')} field="skill_level" />}
-            error={errors.skill_level}
-          >
-            <NativeSelect
-              id={`${baseId}-skill`}
-              value={draft.skillLevel === null ? '' : String(draft.skillLevel)}
-              onChange={(event) => set('skillLevel', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
-            >
-              {row.skill_level == null ? <option value="">{UNKNOWN_TEXT}</option> : null}
-              {Array.from({ length: MAX_SKILL_LEVEL }, (_, index) => index + 1).map((level) => (
-                <option key={level} value={level}>{level} 级</option>
-              ))}
-            </NativeSelect>
-          </Field>
-          <Field
-            label="技能数"
-            htmlFor={`${baseId}-skill-count`}
-            description="只影响下面专精输入的数量"
-          >
-            <NativeSelect
-              id={`${baseId}-skill-count`}
-              value={String(draft.skillCount)}
-              onChange={(event) => set('skillCount', Number(event.currentTarget.value))}
-            >
-              {SKILL_SLOTS.map((_, index) => index + 1).map((count) => (
-                <option key={count} value={count}>{count} 个</option>
-              ))}
-            </NativeSelect>
-          </Field>
-        </div>
-
-        <fieldset className="space-y-2">
-          <legend className="flex items-center gap-2 text-sm font-medium">
-            专精
-            <SourceTag source={fieldSource(row, 'masteries')} field="masteries" />
-          </legend>
-          <p className="text-footnote text-muted-foreground">
-            {!masteriesEditable
-              ? '专精只在精二且技能等级 7 时可填。'
-              : draft.masteries === null
-                ? '未识别：填任意一档即视为补录；0 表示未专精，最高 3 级。'
-                : '0 表示未专精，最高 3 级。'}
-          </p>
-          <div className="grid grid-cols-3 gap-3">
-            {SKILL_SLOTS.slice(0, draft.skillCount).map((slot) => (
-              <label key={slot} className="space-y-1 text-footnote text-muted-foreground">
-                <span className="block">S{slot}</span>
-                <NativeSelect
-                  aria-label={`S${slot} 专精`}
-                  disabled={!masteriesEditable}
-                  value={draft.masteries === null ? '' : String(draft.masteries[slot] ?? 0)}
-                  onChange={(event) => {
-                    // 选中「未识别」不改动草稿：没有「把已填的专精清回未识别」的语义（规格 §3.2）。
-                    if (event.currentTarget.value === '') return
-                    setMastery(slot, Number(event.currentTarget.value))
-                  }}
-                >
-                  {draft.masteries === null ? <option value="">{UNKNOWN_TEXT}</option> : null}
-                  {[0, 1, 2, 3].map((level) => <option key={level} value={level}>{level}</option>)}
-                </NativeSelect>
-              </label>
-            ))}
+          <span
+            aria-hidden="true"
+            className="absolute inset-y-0 left-0 w-1"
+            style={{ background: `linear-gradient(180deg, var(--card-secondary), var(--card-primary))` }}
+          />
+          <div className="mb-3 flex items-center gap-3 border-b border-border/60 pb-3">
+            <span className="relative size-12 shrink-0 overflow-hidden rounded-xl border bg-muted">
+              {draft.own ? (
+                <AssetImage
+                  path={avatarPath(row.char_id)}
+                  testId={`editor-avatar-${row.char_id}`}
+                  className="size-full object-cover"
+                />
+              ) : (
+                <span className="flex size-full items-center justify-center bg-muted text-muted-foreground">
+                  <User className="size-5" />
+                </span>
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="truncate text-base font-semibold">{row.name}</span>
+                <Badge variant="neutral">{rarityLabel(row.rarity)}</Badge>
+              </div>
+              <p className="mt-0.5 text-footnote text-muted-foreground">
+                {professionLabel(row.profession)}
+                {typeof row.favor_percent === 'number' ? ` · 信赖 ${row.favor_percent}%` : ''}
+              </p>
+            </div>
           </div>
-          {errors.masteries ? <p className="text-footnote font-medium text-danger">{errors.masteries}</p> : null}
-        </fieldset>
+          <SwitchRow
+            label="已拥有"
+            description="未拥有的干员不参与养成规划"
+            checked={draft.own}
+            onCheckedChange={(checked) => set('own', checked)}
+          />
+        </div>
 
-        <fieldset className="space-y-2">
-          <legend className="flex items-center gap-2 text-sm font-medium">
+        {/* 基础练度分组 */}
+        <div className="space-y-4 rounded-xl border bg-card p-3.5 shadow-card">
+          <h3 className="text-sm font-semibold text-foreground">基础练度</h3>
+          <Field
+            label="精英化"
+            htmlFor={`${baseId}-elite`}
+            labelAside={<SourceTag source={fieldSource(row, 'elite')} field="elite" />}
+            description={`${row.rarity}★ 干员的精英化上限是${maxEliteLabel(row.rarity)}`}
+            error={errors.elite}
+          >
+            <NativeSelect
+              id={`${baseId}-elite`}
+              value={draft.elite === null ? '' : String(draft.elite)}
+              onChange={(event) => set('elite', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
+            >
+              {row.elite == null ? <option value="">{UNKNOWN_TEXT}</option> : null}
+              {Array.from({ length: eliteCap + 1 }, (_, elite) => (
+                <option key={elite} value={elite}>{['精零', '精一', '精二'][elite]}</option>
+              ))}
+            </NativeSelect>
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field
+              label="等级"
+              htmlFor={`${baseId}-level`}
+              labelAside={<SourceTag source={fieldSource(row, 'level')} field="level" />}
+              error={errors.level}
+            >
+              <Input
+                id={`${baseId}-level`}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={MAX_LEVEL}
+                placeholder={UNKNOWN_TEXT}
+                value={draft.level === null ? '' : draft.level}
+                onChange={(event) => set('level', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
+              />
+            </Field>
+            <Field
+              label="潜能"
+              htmlFor={`${baseId}-potential`}
+              labelAside={<SourceTag source={fieldSource(row, 'potential')} field="potential" />}
+              error={errors.potential}
+            >
+              <Input
+                id={`${baseId}-potential`}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={MAX_POTENTIAL}
+                placeholder={UNKNOWN_TEXT}
+                value={draft.potential === null ? '' : draft.potential}
+                onChange={(event) => set('potential', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
+              />
+            </Field>
+          </div>
+        </div>
+
+        {/* 技能与专精分组 */}
+        <div className="space-y-4 rounded-xl border bg-card p-3.5 shadow-card">
+          <h3 className="text-sm font-semibold text-foreground">技能与专精</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <Field
+              label="技能等级"
+              htmlFor={`${baseId}-skill`}
+              labelAside={<SourceTag source={fieldSource(row, 'skill_level')} field="skill_level" />}
+              error={errors.skill_level}
+            >
+              <NativeSelect
+                id={`${baseId}-skill`}
+                value={draft.skillLevel === null ? '' : String(draft.skillLevel)}
+                onChange={(event) => set('skillLevel', event.currentTarget.value === '' ? null : Number(event.currentTarget.value))}
+              >
+                {row.skill_level == null ? <option value="">{UNKNOWN_TEXT}</option> : null}
+                {Array.from({ length: MAX_SKILL_LEVEL }, (_, index) => index + 1).map((level) => (
+                  <option key={level} value={level}>{level} 级</option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field
+              label="技能数"
+              htmlFor={`${baseId}-skill-count`}
+              description="决定下方专精槽位数"
+            >
+              <NativeSelect
+                id={`${baseId}-skill-count`}
+                value={String(draft.skillCount)}
+                onChange={(event) => set('skillCount', Number(event.currentTarget.value))}
+              >
+                {SKILL_SLOTS.map((_, index) => index + 1).map((count) => (
+                  <option key={count} value={count}>{count} 个</option>
+                ))}
+              </NativeSelect>
+            </Field>
+          </div>
+
+          <fieldset className="space-y-2 border-t border-border/60 pt-3">
+            <legend className="flex items-center gap-2 text-sm font-medium">
+              专精
+              <SourceTag source={fieldSource(row, 'masteries')} field="masteries" />
+            </legend>
+            <p className="text-footnote text-muted-foreground">
+              {!masteriesEditable
+                ? '专精只在精二且技能等级 7 时可填。'
+                : draft.masteries === null
+                  ? '未识别：填任意一档算作补录；0 表示未专精，最高 3 级。'
+                  : '0 表示未专精，最高 3 级。'}
+            </p>
+            <div className="grid grid-cols-3 gap-2.5">
+              {SKILL_SLOTS.slice(0, draft.skillCount).map((slot, index) => {
+                const skillId = row.skill_ids?.[index] ?? null
+                return (
+                  <label key={slot} className="space-y-1.5 rounded-lg bg-surface-2/50 p-2 text-footnote text-muted-foreground">
+                    <span className="flex items-center gap-1.5 font-medium text-foreground">
+                      {draft.own && skillId ? (
+                        <span className="size-5 shrink-0 overflow-hidden rounded border bg-muted">
+                          <AssetImage
+                            path={skillIconPath(skillId)}
+                            testId={`editor-skill-icon-${row.char_id}-${slot}`}
+                            className="size-full object-contain"
+                          />
+                        </span>
+                      ) : null}
+                      <span>S{slot}</span>
+                    </span>
+                    <NativeSelect
+                      aria-label={`S${slot} 专精`}
+                      disabled={!masteriesEditable}
+                      value={draft.masteries === null ? '' : String(draft.masteries[slot] ?? 0)}
+                      onChange={(event) => {
+                        if (event.currentTarget.value === '') return
+                        setMastery(slot, Number(event.currentTarget.value))
+                      }}
+                    >
+                      {draft.masteries === null ? <option value="">{UNKNOWN_TEXT}</option> : null}
+                      {[0, 1, 2, 3].map((level) => <option key={level} value={level}>{level}</option>)}
+                    </NativeSelect>
+                  </label>
+                )
+              })}
+            </div>
+            {errors.masteries ? <p className="text-footnote font-medium text-danger">{errors.masteries}</p> : null}
+          </fieldset>
+        </div>
+
+        {/* 模组分组 */}
+        <fieldset className="space-y-2.5 rounded-xl border bg-card p-3.5 shadow-card">
+          <legend className="flex items-center gap-2 text-sm font-semibold text-foreground">
             模组
             <SourceTag source={fieldSource(row, 'modules')} field="modules" />
           </legend>
@@ -273,19 +332,21 @@ export function OperatorEditorSheet({ row, onClose }: OperatorEditorSheetProps) 
             {!modulesEditable
               ? '模组只在精二时可填。'
               : draft.modules === null
-                ? '未识别：填任意一个类型即视为补录；类型固定为 X / Y / D / A，等级 1–3。'
+                ? '未识别：填任意一个类型算作补录；类型固定为 X / Y / D / A，等级 1–3。'
                 : '类型固定为 X / Y / D / A，等级 1–3。'}
           </p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             {MODULE_TYPES.map((type) => (
-              <label key={type} className="space-y-1 text-footnote text-muted-foreground">
-                <span className="block">{type} 模组</span>
+              <label key={type} className="space-y-1.5 rounded-lg bg-surface-2/50 p-2 text-footnote text-muted-foreground">
+                <span className="flex items-center justify-between font-medium text-foreground">
+                  <span>{type} 模组</span>
+                  <span className="font-mono text-xs text-muted-foreground">{moduleTypeGlyph(type)}</span>
+                </span>
                 <NativeSelect
                   aria-label={`${type} 模组等级`}
                   disabled={!modulesEditable}
                   value={draft.modules === null ? '' : String(draft.modules[type] ?? 0)}
                   onChange={(event) => {
-                    // 同专精：选中「未识别」不改动草稿，没有清回未知的写入语义。
                     if (event.currentTarget.value === '') return
                     setModule(type, Number(event.currentTarget.value))
                   }}

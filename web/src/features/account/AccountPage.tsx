@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from 'react-router'
+import { Package, Users } from 'lucide-react'
 import { Page } from '@/components/layout/Page'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { DepotTab } from './DepotTab'
@@ -13,9 +14,9 @@ export const ACCOUNT_PATHS: Record<AccountView, string> = {
 }
 
 const options = [
-  { value: 'operators', label: '干员' },
-  { value: 'depot', label: '仓库' },
-] as const satisfies readonly { value: AccountView; label: string }[]
+  { value: 'operators', label: '干员', icon: Users },
+  { value: 'depot', label: '仓库', icon: Package },
+] as const satisfies readonly { value: AccountView; label: string; icon: typeof Users }[]
 
 /** 路径 → 标签页；`/more/account/operators` 也当作干员页。 */
 export function accountView(pathname: string): AccountView {
@@ -42,11 +43,13 @@ export default function AccountPage() {
   const location = useLocation()
   const view = accountView(location.pathname)
   return (
-    <Page title="账号数据" back="/more" toolbar={<AccountAreaNav value={view} />}>
-      {view === 'depot' ? <DepotTab /> : <OperatorsTab />}
-      {/* 养成计划与当前标签页无关，两个标签页下都显示（规格 §7.7）。 */}
-      <div className="mt-6">
-        <UpgradePlansSection />
+    <Page title="账号数据" back="/more" width="wide" toolbar={<AccountAreaNav value={view} />}>
+      <div className="space-y-6 pb-4">
+        {view === 'depot' ? <DepotTab /> : <OperatorsTab />}
+        {/* 养成计划与当前标签页无关，两个标签页下都显示（规格 §7.7）。 */}
+        <div className="border-t pt-6">
+          <UpgradePlansSection />
+        </div>
       </div>
     </Page>
   )

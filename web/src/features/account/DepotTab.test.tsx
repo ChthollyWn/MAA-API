@@ -115,6 +115,14 @@ describe('M27 仓库页', () => {
 
     fireEvent.change(screen.getByPlaceholderText('搜索物品名或 id'), { target: { value: '源岩' } })
     await waitFor(() => expect(find('GET', '/api/account/depot').at(-1)?.url.searchParams.get('query')).toBe('源岩'))
+
+    // 点击清除按钮可一键重置分类与搜索词
+    fireEvent.click(screen.getByRole('button', { name: '清除' }))
+    await waitFor(() => {
+      const last = find('GET', '/api/account/depot').at(-1)
+      expect(last?.url.searchParams.get('category')).toBeNull()
+      expect(last?.url.searchParams.get('query')).toBeNull()
+    })
   })
 
   it('标签页切到仓库再切回干员', async () => {

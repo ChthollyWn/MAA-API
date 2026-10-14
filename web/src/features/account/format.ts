@@ -24,6 +24,21 @@ const PROFESSION_CN: Record<string, string> = {
   SPECIAL: '特种',
 }
 
+/** 本机仓库分类码（`item_index.json` 的 `classifyType`）→ 中文展示名；已是中文则原样保留。 */
+const DEPOT_CATEGORY_CN: Record<string, string> = {
+  MATERIAL: '养成材料',
+  NORMAL: '基础物品',
+  CONSUME: '消耗品',
+  MEMENTO: '纪念品',
+  NONE: '其他',
+}
+
+export function depotCategoryLabel(category: string | null | undefined): string {
+  const trimmed = category?.trim()
+  if (!trimmed) return '未分类'
+  return DEPOT_CATEGORY_CN[trimmed.toUpperCase()] ?? trimmed
+}
+
 /** 筛选下拉的选项（§7.5「按职业筛选」）；顺序照游戏里的职业表。 */
 export const PROFESSIONS: readonly string[] = ['先锋', '近卫', '狙击', '重装', '医疗', '辅助', '术师', '特种']
 

@@ -123,11 +123,11 @@ function PlanCard({
   const updatedAt = formatDateTime(plan.updated_at)
   const completedAt = plan.status === 'completed' ? formatDateTime(plan.completed_at) : null
   return (
-    <li className="space-y-2.5 rounded-xl border bg-card p-4 shadow-card">
+    <li className="space-y-3 rounded-xl border bg-card p-4 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
-          <h3 className="break-words text-[0.9375rem] font-semibold leading-6">{plan.name}</h3>
-          <p className="text-footnote text-muted-foreground">
+          <h3 className="break-words text-base font-semibold leading-6">{plan.name}</h3>
+          <p className="text-footnote tabular-nums text-muted-foreground">
             {[
               createdAt ? `创建于 ${createdAt}` : null,
               updatedAt ? `更新于 ${updatedAt}` : null,
@@ -141,33 +141,33 @@ function PlanCard({
       </div>
 
       {targets.length ? (
-        <ul aria-label="养成目标" className="divide-y overflow-hidden rounded-lg border">
+        <ul aria-label="养成目标" className="divide-y overflow-hidden rounded-lg border bg-surface-2/30">
           {targets.map((target, index) => (
-            <li key={`${target.name}-${index}`} className="flex items-center gap-3 p-2.5 text-footnote">
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{target.name}</span>
-              {target.goal ? <span className="shrink-0 text-muted-foreground">{target.goal}</span> : null}
+            <li key={`${target.name}-${index}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-footnote">
+              <span className="min-w-0 truncate text-sm font-medium text-foreground">{target.name}</span>
+              {target.goal ? <span className="shrink-0 font-medium text-muted-foreground">{target.goal}</span> : null}
             </li>
           ))}
         </ul>
       ) : null}
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-footnote">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg bg-surface-2/50 p-3 text-footnote">
         <dt className="text-muted-foreground">缺失材料</dt>
-        <dd className="break-words">{progress.missing ?? '无'}</dd>
+        <dd className="break-words font-medium text-foreground">{progress.missing ?? '无'}</dd>
         <dt className="text-muted-foreground">剩余场次</dt>
-        <dd className="break-words tabular-nums">{progress.stages ?? '—'}</dd>
+        <dd className="break-words tabular-nums text-foreground">{progress.stages ?? '—'}</dd>
         {progress.usage ? (
           <>
             <dt className="text-muted-foreground">计划用量</dt>
-            <dd className="tabular-nums">{progress.usage}</dd>
+            <dd className="tabular-nums text-foreground">{progress.usage}</dd>
           </>
         ) : null}
         <dt className="text-muted-foreground">定时任务</dt>
-        <dd className="break-all font-mono text-[0.8125rem]">{plan.schedule_id ?? '未创建'}</dd>
+        <dd className="break-all font-mono text-[0.8125rem] text-foreground">{plan.schedule_id ?? '未创建'}</dd>
         {progress.replannedAt ? (
           <>
             <dt className="text-muted-foreground">重新排期</dt>
-            <dd className="tabular-nums">{progress.replannedAt}</dd>
+            <dd className="tabular-nums text-foreground">{progress.replannedAt}</dd>
           </>
         ) : null}
       </dl>
@@ -177,7 +177,7 @@ function PlanCard({
       ) : null}
       {progress.scheduleNote ? <p className="text-footnote text-muted-foreground">{progress.scheduleNote}</p> : null}
 
-      {/* §4.7「待确认」：未识别的维度算不进材料增量，这里逐条说清是哪一位的哪一维。 */}
+      {/* §4.7「待确认」：未识别的维度算不进材料增量，逐条说清是哪一位的哪一维。 */}
       {progress.unknowns.length || progress.unknownNotes.length ? (
         <InlineAlert tone="warning" title="待确认">
           {progress.unknowns.length ? (
@@ -199,7 +199,7 @@ function PlanCard({
       ) : null}
 
       {plan.status === 'active' ? (
-        <div className="flex justify-end">
+        <div className="flex justify-end border-t border-border/60 pt-2.5">
           <Button
             type="button"
             variant="outline"
@@ -264,20 +264,24 @@ export function UpgradePlansSection() {
       {plans.isPending ? (
         <LoadingState label="正在读取养成计划…" />
       ) : plans.error ? (
-        <ErrorState
-          title="读取养成计划失败"
-          message={`读取养成计划失败：${toApiError(plans.error).message}`}
-          onRetry={() => void plans.refetch()}
-          retrying={plans.isFetching}
-        />
+        <div className="rounded-xl border bg-card shadow-card">
+          <ErrorState
+            title="读取养成计划失败"
+            message={`读取养成计划失败：${toApiError(plans.error).message}`}
+            onRetry={() => void plans.refetch()}
+            retrying={plans.isFetching}
+          />
+        </div>
       ) : items.length === 0 ? (
-        <EmptyState
-          icon={CalendarClock}
-          title="还没有养成计划"
-          description="让 Agent 用 start_upgrade_plan 计划一次刷关，开始后计划与它的每日定时任务会显示在这里。"
-        />
+        <div className="rounded-xl border bg-card shadow-card">
+          <EmptyState
+            icon={CalendarClock}
+            title="还没有养成计划"
+            description="让 Agent 用 start_upgrade_plan 计划一次刷关，开始后计划与它的每日定时任务会显示在这里。"
+          />
+        </div>
       ) : (
-        <ul aria-label="养成计划列表" className="space-y-2">
+        <ul aria-label="养成计划列表" className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {items.map((plan) => (
             <PlanCard
               key={plan.id || plan.name}

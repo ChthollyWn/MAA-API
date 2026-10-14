@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
-import { User } from 'lucide-react'
+import { Pencil, User } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { AssetImage } from './AssetImage'
 import type { FieldSource, OperatorRow } from './api'
 import {
@@ -45,10 +46,6 @@ const SOURCE_TONES: Record<FieldSource, 'neutral' | 'success' | 'primary' | 'war
   skland: 'warning',
 }
 
-/**
- * 技能槽位与模组 chip 的拆分（M44：资源图组件搬到了 :mod:`./AssetImage`，仓库页也要用
- * 同一份；行为与 testid 一字未改）。
- */
 function skillSlots(row: OperatorRow): SkillSlot[] {
   const ids = row.skill_ids ?? []
   const masteries = row.masteries
@@ -59,8 +56,6 @@ function skillSlots(row: OperatorRow): SkillSlot[] {
     slots.push({
       slot,
       skillId: ids[index] ?? null,
-      // 专精 0 与「未识别」是两件事：`masteries` 为 `null` 时这里是 `null`（未识别），
-      // 有映射时缺槽位按 0 算（与 `masteryText` 同口径）。
       mastery: masteries ? Number(masteries[String(slot)] ?? 0) : null,
     })
   }
@@ -79,8 +74,6 @@ function moduleChips(row: OperatorRow): ModuleChip[] {
         level: Number(detail.level),
       }))
   }
-  // 老数据（只有 `modules`）与手动填写的模组没有明细：退化成「类型字母 + 等级」，
-  // 不伪造 `CCR-` 这种分支码。
   return Object.entries(row.modules ?? {})
     .filter(([, level]) => Number(level) > 0)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -92,12 +85,12 @@ function moduleChips(row: OperatorRow): ModuleChip[] {
     }))
 }
 
-/** 角标：技能专精与模组等级共用，位置/样式一致，扫视时不会看错列。 */
+/** 角标：技能专精与模组等级共用，位置与样式一致。 */
 function CornerBadge({ value, testId }: { value: string; testId: string }) {
   return (
     <span
       data-testid={testId}
-      className="absolute -left-1 -top-1 rounded bg-background px-1 text-[0.625rem] font-medium tabular-nums leading-4 shadow-sm"
+      className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded bg-primary px-1 text-[0.625rem] font-semibold tabular-nums leading-4 text-primary-foreground shadow-sm"
     >
       {value}
     </span>
@@ -105,15 +98,11 @@ function CornerBadge({ value, testId }: { value: string; testId: string }) {
 }
 
 /**
- * 一张干员卡（M43 规格 §4.4，按用户 2026-10-12 的反馈改成**宽横卡**）。
+ * 一张干员卡（M43 规格 §4.4）：
  *
- * 布局照着参考实现的干员条：左侧 4px 稀有度色带 → 56px 头像 → 名字与精英化/等级/潜能
- * → 三个技能方框（专精角标）→ 模组方框（等级角标 + 下方 `CCR-X` 标签）。行宽由
- * :func:`OperatorGrid` 控制在 360–500px，所以文字不会像窄方块卡那样被挤成竖排。
- *
- * 视觉之上仍保留一份 `dl` 的六列练度原文（与卡片上的图形是同一批事实）：M35 要求
- * 「未识别」在页面上如实可见，用图标或徽章把它藏起来就等于又丢了一次事实。
- * 未拥有（`own=false`）的干员整卡灰显、不加载头像与技能图标。
+ * 采用固定两段式卡片结构：
+ * 1. 顶部身份栏：左侧头像 + 姓名/星级/职业/基础练度，右侧来源徽章 + 编辑按钮（不放技能框，保证小屏名字永不挤压折行）；
+ * 2. 底部装备与状态栏：等高对齐的技能图标（带专精角标）与水平模组芯片（带等级角标与分支码），以及未识别提示。
  */
 export function OperatorCard({
   row,
@@ -129,11 +118,16 @@ export function OperatorCard({
   const slots = useMemo(() => skillSlots(row), [row])
   const chips = useMemo(() => moduleChips(row), [row])
   const unknown = (value: unknown) => value === null || value === undefined
+  const hasVisualEquipment = row.own && (slots.length > 0 || chips.length > 0)
+  const unrecognizedHint = [
+    row.masteries === null || row.masteries === undefined ? '专精未识别' : null,
+    row.modules === null || row.modules === undefined ? '模组未识别' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
-    // testid 分两层：`operator-<id>` 是整行（页面按它读练度原文、找来源徽章），
-    // `operator-card-<id>` 是可点的那块（点击/键盘用例点它）。
-    <li data-testid={`operator-${row.char_id}`}>
+    <li data-testid={`operator-${row.char_id}`} className="flex">
       <div
         role="button"
         tabIndex={0}
@@ -147,11 +141,12 @@ export function OperatorCard({
           }
         }}
         style={{ ['--card-primary' as string]: colors.primary, ['--card-secondary' as string]: colors.secondary }}
-        className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-xl border bg-card py-2 pl-3 pr-2 text-left shadow-card transition-colors hover:border-[var(--card-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-          row.own ? '' : 'opacity-70 grayscale'
-        }`}
+        className={cn(
+          'group relative flex w-full flex-col justify-between gap-2.5 overflow-hidden rounded-xl border bg-card p-3 pl-3.5 text-left shadow-card transition-[border-color,box-shadow,background-color] hover:border-[var(--card-primary)] hover:bg-surface-2/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          row.own ? '' : 'opacity-70 grayscale',
+        )}
       >
-        {/* 左侧稀有度色带（位置与宽度照参考实现：4px 竖条）。 */}
+        {/* 左侧稀有度色带 */}
         <span
           aria-hidden="true"
           data-testid={`operator-stripe-${row.char_id}`}
@@ -159,171 +154,185 @@ export function OperatorCard({
           style={{ background: `linear-gradient(180deg, var(--card-secondary), var(--card-primary))` }}
         />
 
-        <span className="relative size-14 shrink-0 overflow-hidden rounded-lg border bg-muted">
-          {row.own ? (
-            <AssetImage
-              path={avatarPath(row.char_id)}
-              testId={`operator-avatar-${row.char_id}`}
-              className="size-full object-cover"
-            />
-          ) : (
-            <span
-              aria-hidden="true"
-              data-testid="operator-avatar-placeholder"
-              className="flex size-full items-center justify-center bg-muted text-muted-foreground"
-            >
-              <User className="size-5" />
-            </span>
-          )}
-        </span>
-
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <span className="truncate text-[0.9375rem] font-medium" title={row.name}>
-              {row.name}
-            </span>
-            {row.own ? null : <Badge variant="outline">未拥有</Badge>}
-          </span>
-          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-footnote text-muted-foreground">
-            <Badge variant="neutral">{rarityLabel(row.rarity)}</Badge>
-            <span>{professionLabel(row.profession)}</span>
-            <span className="whitespace-nowrap">{eliteLabel(row.elite)}</span>
-            <span className="whitespace-nowrap tabular-nums">
-              {unknown(row.level) ? '等级未识别' : `Lv ${row.level}`}
-            </span>
-            {unknown(row.potential) ? null : (
-              <span className="whitespace-nowrap tabular-nums">潜 {row.potential}</span>
-            )}
-          </span>
-        </span>
-
-        {/* 技能：方框 + 左上角专精角标。没有 `skill_ids`（老数据 / 纯识别行）时不画图标，
-            只留空框——不拿别的图冒充；未拥有整块不画（规格 §3.1.5）。 */}
-        {row.own && slots.length ? (
-          <span className="flex shrink-0 items-center gap-2">
-            {slots.map((slot) => (
-              <span
-                key={slot.slot}
-                data-testid={`operator-skill-${row.char_id}-${slot.slot}`}
-                className="relative size-10 shrink-0 rounded-md border bg-muted/40"
-              >
+        {/* 第一行：头像 + 姓名与核心练度 + 右侧来源徽章与编辑入口 */}
+        <div className="flex items-start justify-between gap-2.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <span className="relative size-12 shrink-0 overflow-hidden rounded-xl border bg-muted">
+              {row.own ? (
                 <AssetImage
-                  path={slot.skillId ? skillIconPath(slot.skillId) : null}
-                  testId={`operator-skill-icon-${row.char_id}-${slot.slot}`}
-                  className="size-full object-contain p-0.5"
+                  path={avatarPath(row.char_id)}
+                  testId={`operator-avatar-${row.char_id}`}
+                  className="size-full object-cover"
                 />
-                {slot.mastery !== null && slot.mastery > 0 ? (
-                  <CornerBadge
-                    value={String(slot.mastery)}
-                    testId={`operator-skill-mastery-${row.char_id}-${slot.slot}`}
-                  />
-                ) : null}
-              </span>
-            ))}
-          </span>
-        ) : null}
-
-        {/* 模组：方框（类型字形 + 等级角标）+ 下方 `CCR-X` 标签。图标本轮不做（§3.2）。 */}
-        {row.own && chips.length ? (
-          <span className="flex shrink-0 items-start gap-2">
-            {chips.map((chip) => (
-              // testid 挂在「方框 + 标签」这一整块上：断言 `CCR-X` 与等级时不关心
-              // 它们在 DOM 里是两层还是三层。
-              <span
-                key={chip.key}
-                data-testid={`operator-module-${row.char_id}-${chip.key}`}
-                className="flex w-11 flex-col items-center gap-0.5"
-              >
+              ) : (
                 <span
-                  className="relative flex size-10 items-center justify-center rounded-md border text-base"
-                  style={{ borderColor: 'var(--card-primary)' }}
+                  aria-hidden="true"
+                  data-testid="operator-avatar-placeholder"
+                  className="flex size-full items-center justify-center bg-muted text-muted-foreground"
                 >
-                  {chip.glyph}
-                  <CornerBadge
-                    value={String(chip.level)}
-                    testId={`operator-module-level-${row.char_id}-${chip.key}`}
-                  />
+                  <User className="size-5" />
                 </span>
-                <span className="w-full truncate text-center text-[0.625rem] text-muted-foreground">
-                  {chip.text}
+              )}
+            </span>
+
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="truncate text-[0.9375rem] font-semibold leading-5 text-foreground" title={row.name}>
+                  {row.name}
                 </span>
-              </span>
-            ))}
-          </span>
-        ) : null}
+                <Badge variant="neutral" className="px-1.5 py-0 text-[0.6875rem] tabular-nums">
+                  {rarityLabel(row.rarity)}
+                </Badge>
+                <span className="text-xs text-muted-foreground">{professionLabel(row.profession)}</span>
+                {row.own ? null : <Badge variant="outline">未拥有</Badge>}
+              </div>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto shrink-0"
-          aria-label={`编辑 ${row.name}`}
-          onClick={(event) => {
-            event.stopPropagation()
-            onSelect(row)
-          }}
-        >
-          编辑
-        </Button>
-      </div>
+              {/* 核心练度单行胶囊流（视觉呈现，不重复堆叠 6 个小盒子） */}
+              <div aria-hidden="true" className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
+                <span className={cn('font-medium', !unknown(row.elite) && 'text-foreground')}>
+                  {unknown(row.elite) ? '精英未识别' : eliteLabel(row.elite)}
+                </span>
+                <span className="text-border-strong">·</span>
+                <span className={cn('font-medium', !unknown(row.level) && 'text-foreground')}>
+                  {unknown(row.level) ? '等级未识别' : `Lv.${row.level}`}
+                </span>
+                <span className="text-border-strong">·</span>
+                <span>{unknown(row.potential) ? '潜能未识别' : `潜能 ${row.potential}`}</span>
+                <span className="text-border-strong">·</span>
+                <span>{unknown(row.skill_level) ? '技能未识别' : `技能 Lv.${row.skill_level}`}</span>
+                {typeof row.favor_percent === 'number' ? (
+                  <>
+                    <span className="text-border-strong">·</span>
+                    <span>信赖 {row.favor_percent}%</span>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </div>
 
-      <div className="mt-1 space-y-0.5 px-2">
-        {/* 未识别提示：M35 要求「不知道」在页面上如实可见——技能与模组没有数据时
-            说清楚，别让人以为「没专精 / 没模组」。 */}
-        {row.masteries === null || row.masteries === undefined || row.modules === null || row.modules === undefined ? (
-          <p className="text-footnote text-muted-foreground">
-            {[
-              row.masteries === null || row.masteries === undefined ? '专精未识别' : null,
-              row.modules === null || row.modules === undefined ? '模组未识别' : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
-        ) : null}
-
-        {/* 六列练度原文：与卡片上的图形是同一批事实，`null` 一律写「未识别」（M35）。 */}
-        <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-footnote text-muted-foreground">
-          <span>
-            <dt className="inline">精英化</dt> <dd className="inline">{eliteLabel(row.elite)}</dd>
-          </span>
-          <span>
-            <dt className="inline">等级</dt>{' '}
-            <dd className="inline tabular-nums">{trainingValueText(row.level)}</dd>
-          </span>
-          <span>
-            <dt className="inline">潜能</dt>{' '}
-            <dd className="inline tabular-nums">{trainingValueText(row.potential)}</dd>
-          </span>
-          <span>
-            <dt className="inline">技能等级</dt>{' '}
-            <dd className="inline tabular-nums">{trainingValueText(row.skill_level)}</dd>
-          </span>
-          <span>
-            <dt className="inline">专精</dt> <dd className="inline">{masteryText(row.masteries)}</dd>
-          </span>
-          <span>
-            <dt className="inline">模组</dt> <dd className="inline">{moduleText(row.modules)}</dd>
-          </span>
-        </dl>
-
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="sr-only">字段来源</span>
-          {sources.length ? (
-            sources.map((source) => (
-              <Badge
-                key={source}
-                variant={SOURCE_TONES[source]}
-                data-testid={`operator-source-${row.char_id}-${source}`}
-              >
-                <span title={SOURCE_HINTS[source]}>{SOURCE_LABELS[source]}</span>
-              </Badge>
-            ))
-          ) : (
-            <span className="text-footnote text-muted-foreground">未记录来源</span>
-          )}
-          {unknown(row.recognized_at) ? null : (
-            <span className="text-footnote text-muted-foreground">已同步</span>
-          )}
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 min-h-8 shrink-0 px-2 text-xs text-muted-foreground group-hover:text-foreground"
+              aria-label={`编辑 ${row.name}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                onSelect(row)
+              }}
+            >
+              <Pencil aria-hidden="true" className="size-3.5!" />
+              编辑
+            </Button>
+          </div>
         </div>
+
+        {/* 第二行：技能图标槽位 + 等高水平模组芯片 + 来源徽章 */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {hasVisualEquipment ? (
+              <>
+                {slots.length ? (
+                  <span className="flex items-center gap-1.5">
+                    {slots.map((slot) => (
+                      <span
+                        key={slot.slot}
+                        data-testid={`operator-skill-${row.char_id}-${slot.slot}`}
+                        className="relative size-8 shrink-0 rounded-lg border bg-surface-2/70"
+                      >
+                        <AssetImage
+                          path={slot.skillId ? skillIconPath(slot.skillId) : null}
+                          testId={`operator-skill-icon-${row.char_id}-${slot.slot}`}
+                          className="size-full rounded-lg object-contain p-0.5"
+                        />
+                        {slot.mastery !== null && slot.mastery > 0 ? (
+                          <CornerBadge
+                            value={String(slot.mastery)}
+                            testId={`operator-skill-mastery-${row.char_id}-${slot.slot}`}
+                          />
+                        ) : null}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+
+                {chips.length ? (
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    {chips.map((chip) => (
+                      <span
+                        key={chip.key}
+                        data-testid={`operator-module-${row.char_id}-${chip.key}`}
+                        className="relative inline-flex h-8 items-center gap-1 rounded-lg border bg-surface-2/50 px-2 text-xs"
+                        style={{ borderColor: 'var(--card-primary)' }}
+                      >
+                        <span className="font-semibold text-foreground">{chip.glyph}</span>
+                        {chip.text !== chip.glyph ? (
+                          <span className="font-mono text-[0.6875rem] text-muted-foreground">{chip.text}</span>
+                        ) : null}
+                        <CornerBadge
+                          value={String(chip.level)}
+                          testId={`operator-module-level-${row.char_id}-${chip.key}`}
+                        />
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
+
+            {unrecognizedHint ? (
+              <span className="text-footnote text-muted-foreground">{unrecognizedHint}</span>
+            ) : null}
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center gap-1">
+            <span className="sr-only">字段来源</span>
+            {sources.length ? (
+              sources.map((source) => (
+                <Badge
+                  key={source}
+                  variant={SOURCE_TONES[source]}
+                  data-testid={`operator-source-${row.char_id}-${source}`}
+                >
+                  <span title={SOURCE_HINTS[source]}>{SOURCE_LABELS[source]}</span>
+                </Badge>
+              ))
+            ) : (
+              <span className="text-footnote text-muted-foreground">未记录来源</span>
+            )}
+            {unknown(row.recognized_at) ? null : (
+              <span className="sr-only">已同步</span>
+            )}
+          </div>
+        </div>
+
+        {/* 六列练度结构化定义列表（供无障碍与 M35 契约精确读取，`null` 写「未识别」） */}
+        <dl className="sr-only">
+          <div>
+            <dt>精英化</dt>
+            <dd>{eliteLabel(row.elite)}</dd>
+          </div>
+          <div>
+            <dt>等级</dt>
+            <dd>{trainingValueText(row.level)}</dd>
+          </div>
+          <div>
+            <dt>潜能</dt>
+            <dd>{trainingValueText(row.potential)}</dd>
+          </div>
+          <div>
+            <dt>技能等级</dt>
+            <dd>{trainingValueText(row.skill_level)}</dd>
+          </div>
+          <div>
+            <dt>专精</dt>
+            <dd>{masteryText(row.masteries)}</dd>
+          </div>
+          <div>
+            <dt>模组</dt>
+            <dd>{moduleText(row.modules)}</dd>
+          </div>
+        </dl>
       </div>
     </li>
   )

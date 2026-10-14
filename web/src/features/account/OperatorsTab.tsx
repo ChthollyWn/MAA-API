@@ -53,83 +53,89 @@ export function OperatorsTab() {
   const searching = effectiveFilters.query !== filters.query || list.isFetching
 
   return (
-    <div className="space-y-4 pb-4">
-      {summary.data ? (
-        <RecognitionStatus
-          label="干员识别"
-          entry={summary.data.operators}
-          unit="名"
-          description="数据由任务里的「干员识别」写入；这一页不提供刷新识别按钮。"
-        />
-      ) : summary.error ? (
-        <InlineAlert tone="warning">读取账号概要失败：{errorText(summary.error)}</InlineAlert>
-      ) : (
-        <LoadingState label="正在读取账号概要…" />
-      )}
+    <div className="space-y-3.5">
+      {/* 顶部数据源状态区：桌面端双列并排，移动端紧凑堆叠 */}
+      <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:items-start">
+        {summary.data ? (
+          <RecognitionStatus
+            label="干员识别"
+            entry={summary.data.operators}
+            unit="名"
+            description="数据由任务里的「干员识别」写入；这一页不提供刷新识别按钮。"
+          />
+        ) : summary.error ? (
+          <InlineAlert tone="warning">读取账号概要失败：{errorText(summary.error)}</InlineAlert>
+        ) : (
+          <LoadingState label="正在读取账号概要…" />
+        )}
 
-      {/* 森空岛练度是**另一个写入者**（技能等级 / 专精 / 模组 / 信赖，M42 §4.5），不是
-          「刷新干员识别」：识别仍由任务触发，这里只给绑定与同步一个入口。 */}
-      <SklandBindingCard />
+        <SklandBindingCard />
+      </div>
 
       <OperatorDiffBanner />
 
-      <OperatorFilterBar
-        filters={filters}
-        onFiltersChange={setFilters}
-        onClear={() => setFilters(DEFAULT_OPERATOR_FILTERS)}
-        busy={searching}
-      />
+      <Section
+        title="干员"
+        description={list.isPending ? '正在加载列表…' : `共 ${total} 名 · 每页 ${OPERATOR_PAGE_SIZE} 名`}
+        actions={(
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="刷新干员列表"
+            onClick={() => {
+              void list.refetch()
+              void summary.refetch()
+            }}
+          >
+            {list.isRefetching && !list.isFetchingNextPage ? <Spinner /> : <RefreshCw aria-hidden="true" />}
+          </Button>
+        )}
+      >
+        <OperatorFilterBar
+          filters={filters}
+          onFiltersChange={setFilters}
+          onClear={() => setFilters(DEFAULT_OPERATOR_FILTERS)}
+          busy={searching}
+        />
 
-      {list.isPending ? (
-        <LoadingState label="正在读取干员…" />
-      ) : list.error && rows.length === 0 ? (
-        <div className="rounded-xl border bg-card shadow-card">
-          <ErrorState
-            title="干员列表读取失败"
-            message={errorText(list.error)}
-            onRetry={() => void list.refetch()}
-            retrying={list.isFetching}
-          />
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="rounded-xl border bg-card shadow-card">
-          <EmptyState
-            icon={Users}
-            title="没有符合条件的干员"
-            description={filters.owned === 'unowned'
-              ? '当前页没有未拥有的干员；可以继续加载或换一页筛选条件'
-              : '试试放宽筛选，或者先运行「干员识别」任务'}
-          />
-        </div>
-      ) : (
-        <Section
-          title="干员"
-          description={`共 ${total} 名 · 每页 ${OPERATOR_PAGE_SIZE} 名`}
-          actions={(
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="刷新干员列表"
-              onClick={() => {
-                void list.refetch()
-                void summary.refetch()
-              }}
-            >
-              {list.isRefetching && !list.isFetchingNextPage ? <Spinner /> : <RefreshCw aria-hidden="true" />}
-            </Button>
-          )}
-        >
-          {list.error ? <InlineAlert tone="warning">列表刷新失败：{errorText(list.error)}</InlineAlert> : null}
-          <OperatorGrid rows={rows} onSelect={setEditing} />
-          {list.hasNextPage ? (
-            <Button variant="outline" className="w-full" loading={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
-              {list.isFetchingNextPage ? '正在加载…' : '加载更多'}
-            </Button>
-          ) : (
-            <p className="py-1 text-center text-footnote text-muted-foreground">已显示全部 {rows.length} 名</p>
-          )}
-        </Section>
-      )}
+        {list.error && rows.length > 0 ? (
+          <InlineAlert tone="warning">列表刷新失败：{errorText(list.error)}</InlineAlert>
+        ) : null}
+
+        {list.isPending ? (
+          <LoadingState label="正在读取干员…" />
+        ) : list.error && rows.length === 0 ? (
+          <div className="rounded-xl border bg-card shadow-card">
+            <ErrorState
+              title="干员列表读取失败"
+              message={errorText(list.error)}
+              onRetry={() => void list.refetch()}
+              retrying={list.isFetching}
+            />
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="rounded-xl border bg-card shadow-card">
+            <EmptyState
+              icon={Users}
+              title="没有符合条件的干员"
+              description={filters.owned === 'unowned'
+                ? '当前页没有未拥有的干员；可以继续加载或换一页筛选条件'
+                : '试试放宽筛选，或者先运行「干员识别」任务'}
+            />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <OperatorGrid rows={rows} onSelect={setEditing} />
+            {list.hasNextPage ? (
+              <Button variant="outline" className="w-full" loading={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
+                {list.isFetchingNextPage ? '正在加载…' : '加载更多'}
+              </Button>
+            ) : (
+              <p className="py-1 text-center text-footnote text-muted-foreground">已显示全部 {rows.length} 名</p>
+            )}
+          </div>
+        )}
+      </Section>
 
       {editing ? <OperatorEditorSheet key={editing.char_id} row={editing} onClose={() => setEditing(null)} /> : null}
     </div>

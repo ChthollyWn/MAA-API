@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { QrCode, RefreshCw, Unlink } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Field } from '@/components/ui/field'
+import { InfoHint } from '@/components/ui/info-hint'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { Input } from '@/components/ui/input'
-import { Section } from '@/components/ui/section'
 import { ResponsiveSheet } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/states'
 import {
@@ -27,22 +29,14 @@ import { errorText, formatDateTime } from './format'
 /**
  * 「森空岛练度」卡片（M42 规格 §4.8）：扫码绑定森空岛账号，再从这里同步官方练度数据。
  *
- * 这一块是 M36「练度扫描」（读干员详情页）的替代品：数据来自森空岛而不是读屏，所以卡片
- * 只有「绑定 → 同步」两件事，没有扫描那套状态机（同步是**同步执行**的 `POST`，秒级，
- * 等待期间按钮走 `loading`）。技能等级 / 专精 / 模组写进 `account_operator` 后，
+ * 数据来自森空岛接口，卡片提供「绑定」与「同步」两个动作（同步是同步执行的 POST，
+ * 等待期间按钮走 loading）。技能等级 / 专精 / 模组写进 `account_operator` 后，
  * 干员列表的字段来源徽章会显示「森空岛」（`FieldSource = 'skland'`）。
- *
- * 三条渲染路径：没配 `skland.credential_key`（连二维码都不给，直接说怎么配）、
- * 未绑定（二维码 + 轮询 + 手动 cred 兜底）、已绑定（账号、上次同步摘要、同步与解绑）。
  */
 
-/**
- * 没配 `skland.credential_key` 时给用户的生成命令（§4.4）：与后端「密钥缺失时回 409」
- * 配套，在这一页就能看到要做什么，不用去翻文档。密钥只写进 `config.yaml`，不走设置 API。
- */
 const KEY_COMMAND = '.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
 
-/** 二维码剩余有效期的倒计时：`2:57`；`expires_at` 读不出来给 `null`（不假装有倒计时）。 */
+/** 二维码剩余有效期的倒计时：`2:57`；`expires_at` 读不出来给 `null`。 */
 export function qrRemainingText(expiresAt: string | null | undefined, now: number): string | null {
   if (!expiresAt) return null
   const deadline = new Date(expiresAt).getTime()
@@ -51,34 +45,34 @@ export function qrRemainingText(expiresAt: string | null | undefined, now: numbe
   return `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`
 }
 
-/** 本地倒计时是否已经走到 0（后端还没来得及把状态改成 `expired` 时也要给出口）。 */
+/** 本地倒计时是否已经走到 0。 */
 export function qrExpired(expiresAt: string | null | undefined, now: number): boolean {
   if (!expiresAt) return false
   const deadline = new Date(expiresAt).getTime()
   return !Number.isNaN(deadline) && deadline <= now
 }
 
-/** 角色的显示名：昵称优先，缺了退回 `uid`（`uid` 一定有，兜底里保证过）。 */
+/** 角色的显示名：昵称优先，缺了退回 `uid`。 */
 export function sklandRoleText(role: SklandRole): string {
   return role.nickname ?? role.uid
 }
 
-/** 已绑定那一行：昵称 · 等级 · 角色数；读不出的项就不提。 */
+/** 已绑定那一行：昵称 · 等级 · 角色数；读不出的项不提。 */
 export function sklandAccountLine(account: SklandRole | null, roles: SklandRole[]): string {
   const name = account ? sklandRoleText(account) : '已绑定'
   const level = typeof account?.level === 'number' ? ` · ${account.level} 级` : ''
   return `${name}${level} · 共 ${roles.length} 个角色`
 }
 
-/** 上次同步时间：没有就写「还没有同步过」，不写一个空时间。 */
+/** 上次同步时间：没有就写「还没有同步过」。 */
 export function sklandLastSyncText(lastSyncAt: string | null | undefined): string {
   const at = formatDateTime(lastSyncAt)
   return at ? `上次同步 ${at}` : '还没有同步过'
 }
 
 /**
- * 上次同步摘要：**只提非零项**（§4.8）。全零时写「没有改动」，不排一行 0；
- * `duration_ms` 单独一行（有耗时才算）。
+ * 上次同步摘要：只提非零项（§4.8）。全零时写「没有改动」；
+ * `duration_ms` 单独一项。
  */
 export function sklandSyncSummaryLines(summary: SklandSyncSummary): string[] {
   const changed = [
@@ -105,7 +99,6 @@ function syncHint(status: SklandStatus): string {
   return `${cooldown}同步会写技能等级、专精、模组与信赖，字段来源标成「森空岛」；上游数据可能比游戏内慢一步。`
 }
 
-/** 二维码这一块要就地显示的问题；没有问题时返回 `null`（正常渲染二维码或等待态）。 */
 interface QrProblem {
   tone: 'danger' | 'warning'
   title: string
@@ -118,7 +111,6 @@ export function SklandBindingCard() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [cred, setCred] = useState('')
   const [token, setToken] = useState('')
-  // 倒计时用的「现在」：只在二维码显示着的时候每秒走一格（见下面的 effect）。
   const [now, setNow] = useState(() => Date.now())
 
   const status = useQuery({
@@ -132,13 +124,6 @@ export function SklandBindingCard() {
   const keyConfigured = data?.key_configured !== false
   const needsQr = Boolean(data) && keyConfigured && !bound
 
-  /**
-   * 二维码：未绑定时自动生成一张（`POST /api/skland/login/qrcode`）。
-   *
-   * 用 `useQuery` 而不是 `useMutation`：同一张二维码只该生成一次，react-query 的键去重与
-   * 缓存正好是这个语义；「重新生成二维码」＝ `regenerateQr()`。`gcTime: 0` 保证离开这一页
-   * 再回来时是**新**二维码，而不是上次那张已经过期的。
-   */
   const qr = useQuery({
     queryKey: accountKeys.sklandQr(),
     queryFn: () => startSklandQrLogin(),
@@ -157,8 +142,6 @@ export function SklandBindingCard() {
     queryFn: ({ signal }) => pollSklandQrLogin(sessionId, signal),
     enabled: needsQr && Boolean(sessionId),
     retry: false,
-    // 只在等扫码的时候轮询（`waiting` 或第一次响应还没回来），其余状态一律停掉；
-    // 周期用响应给的 `poll_interval_ms`，不自己定一个。
     refetchInterval: (query) => {
       const state = query.state.data?.state
       const active = needsQr
@@ -169,14 +152,12 @@ export function SklandBindingCard() {
     },
   })
 
-  // 换了会话就把倒计时的基准时间对齐一次（否则先渲染的旧 `now` 会让倒计时偏长）。
   useEffect(() => {
     if (!sessionId) return
     setNow(Date.now())
   }, [sessionId])
 
   const qrState = poll.data?.state ?? 'waiting'
-  // 「已扫码待确认」（上游 status=101 时后端归一成 waiting + message）：只在这时显示。
   const scannedHint = qrState === 'waiting' ? poll.data?.message ?? null : null
   const qrVisible = Boolean(sessionId) && needsQr && qrState !== 'succeeded'
 
@@ -186,7 +167,6 @@ export function SklandBindingCard() {
     return () => window.clearInterval(timer)
   }, [qrVisible])
 
-  // 扫码成功：把状态重取一次，绑定视图自己会顶上来（轮询这时已经停了）。
   const qrSucceeded = poll.data?.state === 'succeeded'
   useEffect(() => {
     if (!qrSucceeded) return
@@ -198,7 +178,12 @@ export function SklandBindingCard() {
   const sync = useMutation({
     mutationFn: () => syncSkland(),
     onSuccess: async () => {
-      await invalidateStatus()
+      await Promise.all([
+        invalidateStatus(),
+        queryClient.invalidateQueries({ queryKey: accountKeys.operatorsAll() }),
+        queryClient.invalidateQueries({ queryKey: accountKeys.summary() }),
+        queryClient.invalidateQueries({ queryKey: accountKeys.diffs() }),
+      ])
     },
   })
 
@@ -215,7 +200,6 @@ export function SklandBindingCard() {
   const unbind = useMutation({
     mutationFn: () => unbindSkland(),
     onSuccess: async () => {
-      // 解绑后再回到未绑定：丢掉缓存里的旧二维码，让卡片重新生成一张。
       queryClient.removeQueries({ queryKey: accountKeys.sklandQr() })
       await invalidateStatus()
     },
@@ -225,7 +209,7 @@ export function SklandBindingCard() {
     const approved = await confirm({
       title: '解绑森空岛账号？',
       description:
-        '会删掉保存在本机的 cred 与签名 token，已同步到账号数据的练度保留；需要时重新扫码绑定即可。',
+        '会删掉保存在本机的 cred 与签名 token，已同步到账号数据的练度保留；需要时重新扫码绑定。',
       confirmText: '解绑',
       cancelText: '再想想',
       tone: 'danger',
@@ -237,12 +221,6 @@ export function SklandBindingCard() {
   const expired = qrExpired(session?.expires_at, now)
   const remaining = qrRemainingText(session?.expires_at, now)
 
-  /**
-   * 重新生成一张二维码：先把上一张的轮询结果丢掉。
-   *
-   * 后端的会话 id 每次都是新的（键自然换掉），但旧结果留着的话，万一会话 id 复用，
-   * 新二维码会直接卡在上一张的 `expired` / `failed` 上——那时轮询已经停了，扫也白扫。
-   */
   const regenerateQr = async () => {
     if (sessionId) queryClient.removeQueries({ queryKey: accountKeys.sklandQrPoll(sessionId) })
     await qr.refetch()
@@ -281,38 +259,47 @@ export function SklandBindingCard() {
       {errorText(status.error)}
     </InlineAlert>
   ) : !keyConfigured ? (
-    <>
+    <div className="space-y-2.5">
       <InlineAlert tone="warning" title="还没有配凭据加密密钥">
         先在 <code>config.yaml</code> 里配 <code>skland.credential_key</code>，再回到这一页扫码绑定；
         密钥没配好之前，后端不会接受绑定请求。
       </InlineAlert>
       <p className="text-footnote text-muted-foreground">生成一个密钥（写进 <code>config.yaml</code> 的 <code>skland.credential_key</code>）：</p>
-      <code data-testid="skland-key-command" className="block overflow-x-auto rounded-lg bg-surface-2 px-2.5 py-2 text-footnote">
+      <code data-testid="skland-key-command" className="block overflow-x-auto rounded-lg bg-surface-2 px-3 py-2 font-mono text-xs">
         {KEY_COMMAND}
       </code>
-    </>
+    </div>
   ) : bound ? (
-    <>
-      <p data-testid="skland-account" className="text-[0.9375rem] font-medium">
-        {sklandAccountLine(data.account, data.roles)}
-      </p>
-      {data.roles.length > 1 ? (
-        <p className="text-footnote text-muted-foreground">
-          {data.roles.map((role) => (role.is_default ? `${sklandRoleText(role)}（默认）` : sklandRoleText(role))).join('、')}
-        </p>
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-footnote">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span data-testid="skland-account" className="font-medium text-foreground">
+            {sklandAccountLine(data.account, data.roles)}
+          </span>
+          {data.roles.length > 1 ? (
+            <span className="text-muted-foreground">
+              （{data.roles.map((role) => (role.is_default ? `${sklandRoleText(role)}（默认）` : sklandRoleText(role))).join('、')}）
+            </span>
+          ) : null}
+        </div>
+        <span className="tabular-nums text-muted-foreground">{sklandLastSyncText(data.last_sync_at)}</span>
+      </div>
+
+      {data.last_sync ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-footnote tabular-nums text-muted-foreground">
+          {sklandSyncSummaryLines(data.last_sync).map((line, index) => (
+            <span key={line} className="inline-flex items-center gap-2">
+              {index > 0 ? <span aria-hidden="true" className="text-border-strong">·</span> : null}
+              <span>{line}</span>
+            </span>
+          ))}
+        </div>
       ) : null}
-      <p className="text-footnote tabular-nums text-muted-foreground">{sklandLastSyncText(data.last_sync_at)}</p>
-      {data.last_sync
-        ? sklandSyncSummaryLines(data.last_sync).map((line) => (
-          <p key={line} className="text-footnote tabular-nums text-muted-foreground">{line}</p>
-        ))
-        : null}
 
       {data.last_error ? (
         <InlineAlert tone="warning" title="上次同步失败">{data.last_error}</InlineAlert>
       ) : null}
 
-      {/* 同步 / 解绑的失败就地显示，不吞掉：409 忙、429 冷却（带 `Retry-After`）都走这里。 */}
       {sync.error ? (
         <InlineAlert tone="danger" title="同步失败">
           {errorText(sync.error)}{retrySeconds ? `（还要等 ${retrySeconds} 秒）` : ''}
@@ -321,11 +308,9 @@ export function SklandBindingCard() {
       {unbind.error ? (
         <InlineAlert tone="danger" title="解绑失败">{errorText(unbind.error)}</InlineAlert>
       ) : null}
-
-      <p className="text-footnote text-muted-foreground">{syncHint(data)}</p>
-    </>
+    </div>
   ) : (
-    <>
+    <div className="space-y-3">
       {qrProblem ? (
         <InlineAlert
           tone={qrProblem.tone}
@@ -339,75 +324,91 @@ export function SklandBindingCard() {
           {qrProblem.message}
         </InlineAlert>
       ) : !session ? (
-        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+        <p role="status" className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
           <Spinner />
           正在生成二维码…
         </p>
       ) : qrState === 'succeeded' ? (
-        <p role="status" className="text-sm">已扫码，正在读取账号数据…</p>
+        <p role="status" className="py-2 text-sm font-medium">已扫码，正在读取账号数据…</p>
       ) : (
-        <div className="flex flex-wrap items-start gap-4">
-          {/* `qr_svg` 是后端生成的完整 SVG：走 data URI，**不用** `dangerouslySetInnerHTML`。 */}
+        <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
           <img
-            // 白底是为了深色主题下也扫得出来（SVG 自己可能是透明底）。
-            className="size-40 shrink-0 rounded-lg border bg-white p-1.5"
+            className="size-36 shrink-0 rounded-xl border bg-white p-2 shadow-sm sm:size-40"
             src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(session.qr_svg)}`}
             alt="森空岛登录二维码"
           />
-          <div className="min-w-0 space-y-1.5 text-footnote text-muted-foreground">
-            {/* 上游有「已扫码待确认」这一段（M42 真机实测，status=101）：用户扫完码还
-                要在 App 里点确认，这段时间把上游文案显示出来，免得以为没扫上。 */}
-            {scannedHint ? (
-              <p role="status" className="text-sm text-foreground">{scannedHint}</p>
-            ) : (
-              <p className="text-sm text-foreground">用森空岛 App 扫码，确认后回到这一页。</p>
-            )}
+          <div className="min-w-0 flex-1 space-y-2 text-center text-footnote text-muted-foreground sm:pt-1 sm:text-left">
+            <div className="flex items-center justify-center gap-1.5 sm:justify-start">
+              <QrCode aria-hidden="true" className="size-4 text-primary-text" />
+              {scannedHint ? (
+                <p role="status" className="text-sm font-medium text-foreground">{scannedHint}</p>
+              ) : (
+                <p className="text-sm font-medium text-foreground">用森空岛 App 扫码，确认后回到这一页。</p>
+              )}
+            </div>
             {remaining ? (
-              <p data-testid="skland-qr-remaining" className="tabular-nums">二维码 {remaining} 后失效</p>
+              <div>
+                <Badge variant="neutral" data-testid="skland-qr-remaining" className="tabular-nums">
+                  二维码 {remaining} 后失效
+                </Badge>
+              </div>
             ) : null}
             <p>cred 与 token 只保存在本机；随时可以解绑。</p>
           </div>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 border-t pt-2">
-        <Button variant="outline" size="sm" onClick={() => setSheetOpen(true)}>手动输入 cred</Button>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2.5">
         <span className="text-footnote text-muted-foreground">扫码不可用时，可以粘贴 cred 与签名 token 绑定。</span>
+        <Button variant="outline" size="sm" onClick={() => setSheetOpen(true)}>手动输入 cred</Button>
       </div>
-    </>
+    </div>
   )
 
   return (
-    <Section
-      title="森空岛练度"
+    <section
       id="skland-binding"
-      description="用森空岛账号同步技能等级、专精、模组与信赖；不占设备、不读屏。"
-      actions={bound ? (
-        <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            variant="soft"
-            size="sm"
-            className="shrink-0"
-            loading={sync.isPending}
-            onClick={() => sync.mutate()}
-          >
-            {sync.isPending ? '正在同步…' : '同步练度'}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            loading={unbind.isPending}
-            onClick={() => void requestUnbind()}
-          >
-            {unbind.isPending ? '正在解绑…' : '解绑'}
-          </Button>
-        </div>
-      ) : undefined}
+      aria-labelledby="skland-binding-title"
+      className="space-y-2 rounded-xl border bg-card px-3.5 py-2.5 shadow-card"
     >
-      <div className="space-y-2 rounded-xl border bg-card p-3.5 shadow-card">{body}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <h2 id="skland-binding-title" className="text-sm font-semibold text-foreground">
+            森空岛练度
+          </h2>
+          <InfoHint label="森空岛练度说明">
+            {bound && data ? syncHint(data) : '用森空岛账号同步技能等级、专精、模组与信赖；不占设备、不读屏。'}
+          </InfoHint>
+        </div>
+        {bound ? (
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="soft"
+              size="sm"
+              className="h-7 min-h-7 shrink-0 px-2.5 text-xs"
+              loading={sync.isPending}
+              onClick={() => sync.mutate()}
+            >
+              {sync.isPending ? null : <RefreshCw aria-hidden="true" className="size-3.5!" />}
+              {sync.isPending ? '正在同步…' : '同步练度'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 min-h-7 shrink-0 px-2.5 text-xs"
+              loading={unbind.isPending}
+              onClick={() => void requestUnbind()}
+            >
+              {unbind.isPending ? null : <Unlink aria-hidden="true" className="size-3.5!" />}
+              {unbind.isPending ? '正在解绑…' : '解绑'}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      <div>{body}</div>
 
       <ResponsiveSheet
         open={sheetOpen}
@@ -473,7 +474,7 @@ export function SklandBindingCard() {
       </ResponsiveSheet>
 
       {confirmElement}
-    </Section>
+    </section>
   )
 }
 

@@ -11,13 +11,12 @@ afterEach(() => {
 })
 
 describe('M43 干员卡片网格', () => {
-  it('按行渲染卡片，列宽用 360–500px 的 auto-fit（一行 1–2 张，不挤成窄方块卡）', () => {
+  it('按行渲染卡片，移动端单列、桌面端双列等宽对齐', () => {
     render(<OperatorGrid rows={OPERATORS} onSelect={vi.fn()} />)
 
     const grid = screen.getByTestId('operator-grid')
-    // 窄方块卡会把「精英化」这类词挤成竖排，所以断言列宽下限，而不是列数。
-    expect(grid.className).toContain('minmax(min(360px,100%),500px)')
-    expect(grid.className).toContain('justify-center')
+    expect(grid.className).toContain('grid-cols-1')
+    expect(grid.className).toContain('md:grid-cols-2')
     for (const row of OPERATORS) {
       expect(screen.getByTestId(`operator-${row.char_id}`)).toBeInTheDocument()
     }

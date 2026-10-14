@@ -47,6 +47,14 @@ describe('M27 干员页', () => {
       expect(last?.url.searchParams.get('profession')).toBe('重装')
       expect(last?.url.searchParams.get('elite_min')).toBe('2')
     })
+
+    // 生效条件显示可单独移除的芯片，点击可逐项撤销筛选
+    fireEvent.click(screen.getByRole('button', { name: '移除筛选：职业：重装' }))
+    await waitFor(() => {
+      const last = operatorsRequests(find).at(-1)
+      expect(last?.url.searchParams.get('profession')).toBeNull()
+      expect(last?.url.searchParams.get('rarity_min')).toBe('6')
+    })
   })
 
   it('持有筛选切到「全部」后带 owned_only=false 并显示未拥有的干员', async () => {
