@@ -2,7 +2,7 @@
 
 - 规格：[docs/superpowers/specs/2026-10-14-m48-readonly-recon-subagent.md](../specs/2026-10-14-m48-readonly-recon-subagent.md)
 - 计划：[docs/superpowers/plans/2026-10-14-m48-readonly-recon-subagent.md](../plans/2026-10-14-m48-readonly-recon-subagent.md)
-- 分支：`m48-subagent`（基点 `refactor/v2` = `f9d6d7a`），tag `v2-m48`
+- 分支：`m48-subagent`（基点 `refactor/v2` = `f9d6d7a`），提交 `06fe62d`，合并提交 `2c773db`（`--no-ff`），tag `v2-m48`
 - 决策记录：[docs/13 §8.71](../../13-决策记录.md)
 - 来源：用户 2026-10-14「还有一个问题，你看我最新的 agent 会话，你发现了什么问题」→「有大量的重复响应，而且上下文很快就占满了，相比于 dsh，非常不耐用，最后没有完成我的任务」→ 在三条方案里选「交给 subagent」
 
