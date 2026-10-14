@@ -144,6 +144,7 @@ export function DepotTab() {
           entry={summary.data.depot}
           unit="种物品"
           description="只读列表，由任务里的「仓库识别」写入。"
+          staleHint="数据已超过 {days} 天，需要时请在任务里运行「仓库识别」重新识别。"
         />
       ) : summary.error ? (
         <InlineAlert tone="warning">读取账号概要失败：{errorText(summary.error)}</InlineAlert>

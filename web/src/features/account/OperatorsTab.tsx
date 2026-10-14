@@ -5,9 +5,7 @@ import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { Section } from '@/components/ui/section'
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/ui/states'
-import { accountKeys, fetchAccountSummary, fetchOperators, type OperatorRow } from './api'
-import { OperatorDiffBanner } from './OperatorDiffBanner'
-import { OperatorEditorSheet } from './OperatorEditorSheet'
+import { accountKeys, fetchAccountSummary, fetchOperators } from './api'
 import { OperatorFilterBar } from './OperatorFilterBar'
 import { OperatorGrid } from './OperatorGrid'
 import { RecognitionStatus } from './RecognitionStatus'
@@ -23,11 +21,12 @@ import {
 import { errorText } from './format'
 import { useDebouncedValue } from './use-debounced-value'
 
-/** 干员页（规格 §7.5、M42 §4.8、M43 §4.4）：识别状态 + 森空岛绑定/同步 + 差异提示条 + 筛选 +
- * **卡片网格**（默认隐藏未拥有）+ 编辑抽屉。点卡片打开抽屉，其余段落与 M42 一致。 */
+/** 干员页（M47 只读版）：森空岛同步状态 + 绑定/同步卡片 + 筛选 + **卡片网格**。
+ *
+ * M47 起干员数据的唯一来源是森空岛练度同步：页面不再有编辑抽屉、差异条与来源标记，
+ * 内核 `OperBox` 识别任务也随之下线（docs/13 §8.70）。 */
 export function OperatorsTab() {
   const [filters, setFilters] = useState<OperatorFilters>(DEFAULT_OPERATOR_FILTERS)
-  const [editing, setEditing] = useState<OperatorRow | null>(null)
   // 搜索防抖：输入停下 300 ms 才换查询键，别的筛选立即生效。
   const debouncedQuery = useDebouncedValue(filters.query, 300)
   const effectiveFilters = useMemo<OperatorFilters>(() => ({ ...filters, query: debouncedQuery }), [filters, debouncedQuery])
@@ -58,10 +57,12 @@ export function OperatorsTab() {
       <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:items-start">
         {summary.data ? (
           <RecognitionStatus
-            label="干员识别"
+            label="森空岛练度同步"
             entry={summary.data.operators}
             unit="名"
-            description="数据由任务里的「干员识别」写入；这一页不提供刷新识别按钮。"
+            description="干员数据只来自森空岛同步；未绑定时先在右边绑定账号，再点「同步练度」。"
+            staleHint="数据已超过 {days} 天没同步，需要时请在右边的卡片里点「同步练度」。"
+            recognizedPrefix="同步于"
           />
         ) : summary.error ? (
           <InlineAlert tone="warning">读取账号概要失败：{errorText(summary.error)}</InlineAlert>
@@ -71,8 +72,6 @@ export function OperatorsTab() {
 
         <SklandBindingCard />
       </div>
-
-      <OperatorDiffBanner />
 
       <Section
         title="干员"
@@ -120,12 +119,12 @@ export function OperatorsTab() {
               title="没有符合条件的干员"
               description={filters.owned === 'unowned'
                 ? '当前页没有未拥有的干员；可以继续加载或换一页筛选条件'
-                : '试试放宽筛选，或者先运行「干员识别」任务'}
+                : '试试放宽筛选；还没有数据的话，先绑定森空岛账号并同步练度'}
             />
           </div>
         ) : (
           <div className="space-y-3">
-            <OperatorGrid rows={rows} onSelect={setEditing} />
+            <OperatorGrid rows={rows} />
             {list.hasNextPage ? (
               <Button variant="outline" className="w-full" loading={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
                 {list.isFetchingNextPage ? '正在加载…' : '加载更多'}
@@ -136,8 +135,6 @@ export function OperatorsTab() {
           </div>
         )}
       </Section>
-
-      {editing ? <OperatorEditorSheet key={editing.char_id} row={editing} onClose={() => setEditing(null)} /> : null}
     </div>
   )
 }

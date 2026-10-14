@@ -1,10 +1,9 @@
 import { useMemo } from 'react'
-import { Pencil, User } from 'lucide-react'
+import { User } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { AssetImage } from './AssetImage'
-import type { FieldSource, OperatorRow } from './api'
+import type { OperatorRow } from './api'
 import {
   RARITY_COLORS,
   UNOWNED_COLORS,
@@ -39,7 +38,8 @@ interface ModuleChip {
   level: number
 }
 
-const SOURCE_TONES: Record<FieldSource, 'neutral' | 'success' | 'primary' | 'warning'> = {
+/** 来源徽章的配色。M47 起实际只会用到 `skland`（森空岛），其余三个取值留给老响应。 */
+const SOURCE_TONES: Record<string, 'neutral' | 'success' | 'primary' | 'warning'> = {
   recognition: 'neutral',
   manual: 'primary',
   agent: 'success',
@@ -98,19 +98,14 @@ function CornerBadge({ value, testId }: { value: string; testId: string }) {
 }
 
 /**
- * 一张干员卡（M43 规格 §4.4）：
+ * 一张干员卡（M43 规格 §4.4、M47 只读版）：
  *
  * 采用固定两段式卡片结构：
- * 1. 顶部身份栏：左侧头像 + 姓名/星级/职业/基础练度，右侧来源徽章 + 编辑按钮（不放技能框，保证小屏名字永不挤压折行）；
+ * 1. 顶部身份栏：左侧头像 + 姓名/星级/职业/基础练度，右侧来源徽章（M47 起干员数据只有
+ *    森空岛一个来源，所以是一枚固定的「森空岛」，也没有编辑入口）；
  * 2. 底部装备与状态栏：等高对齐的技能图标（带专精角标）与水平模组芯片（带等级角标与分支码），以及未识别提示。
  */
-export function OperatorCard({
-  row,
-  onSelect,
-}: {
-  row: OperatorRow
-  onSelect: (row: OperatorRow) => void
-}) {
+export function OperatorCard({ row }: { row: OperatorRow }) {
   const colors = row.own
     ? RARITY_COLORS[row.rarity ?? 0] ?? UNOWNED_COLORS
     : UNOWNED_COLORS
@@ -129,20 +124,10 @@ export function OperatorCard({
   return (
     <li data-testid={`operator-${row.char_id}`} className="flex">
       <div
-        role="button"
-        tabIndex={0}
         data-testid={`operator-card-${row.char_id}`}
-        aria-label={`查看 ${row.name} 的练度`}
-        onClick={() => onSelect(row)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onSelect(row)
-          }
-        }}
         style={{ ['--card-primary' as string]: colors.primary, ['--card-secondary' as string]: colors.secondary }}
         className={cn(
-          'group relative flex w-full flex-col justify-between gap-2.5 overflow-hidden rounded-xl border bg-card p-3 pl-3.5 text-left shadow-card transition-[border-color,box-shadow,background-color] hover:border-[var(--card-primary)] hover:bg-surface-2/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'relative flex w-full flex-col justify-between gap-2.5 overflow-hidden rounded-xl border bg-card p-3 pl-3.5 text-left shadow-card',
           row.own ? '' : 'opacity-70 grayscale',
         )}
       >
@@ -210,21 +195,6 @@ export function OperatorCard({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 min-h-8 shrink-0 px-2 text-xs text-muted-foreground group-hover:text-foreground"
-              aria-label={`编辑 ${row.name}`}
-              onClick={(event) => {
-                event.stopPropagation()
-                onSelect(row)
-              }}
-            >
-              <Pencil aria-hidden="true" className="size-3.5!" />
-              编辑
-            </Button>
-          </div>
         </div>
 
         {/* 第二行：技能图标槽位 + 等高水平模组芯片 + 来源徽章 */}
@@ -291,17 +261,14 @@ export function OperatorCard({
               sources.map((source) => (
                 <Badge
                   key={source}
-                  variant={SOURCE_TONES[source]}
+                  variant={SOURCE_TONES[source] ?? 'skland'}
                   data-testid={`operator-source-${row.char_id}-${source}`}
                 >
-                  <span title={SOURCE_HINTS[source]}>{SOURCE_LABELS[source]}</span>
+                  <span title={SOURCE_HINTS[source]}>{SOURCE_LABELS[source] ?? source}</span>
                 </Badge>
               ))
             ) : (
               <span className="text-footnote text-muted-foreground">未记录来源</span>
-            )}
-            {unknown(row.recognized_at) ? null : (
-              <span className="sr-only">已同步</span>
             )}
           </div>
         </div>
