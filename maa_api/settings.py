@@ -92,14 +92,6 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     # 上一轮 × depot_drop_ratio 就整轮不写（与 agent.depot_min_items 同一族）。
     "agent.depot_drop_min_prev": ("agent", "depot_drop_min_prev"),
     "agent.depot_drop_ratio": ("agent", "depot_drop_ratio"),
-    # ---- M45 仓库自识别（规格 §2.6、§4.4）。四个旋钮都由识别服务**每次调用现读**，
-    # 改完立即生效，不需要重启（与 agent.* 的账号阈值同一套读法）。----
-    "account.depot_scan_enabled": ("account", "depot_scan_enabled"),
-    "account.depot_scan_top1_min": ("account", "depot_scan_top1_min"),
-    "account.depot_scan_margin_min": ("account", "depot_scan_margin_min"),
-    "account.depot_scan_min_accepted": ("account", "depot_scan_min_accepted"),
-    "account.depot_scan_max_pages": ("account", "depot_scan_max_pages"),
-    "account.depot_scan_no_new_pages": ("account", "depot_scan_no_new_pages"),
     # 作业研究（M29，规格 §9.6/§9.7/§9.11）：授权窗口、单次尝试的等待上限、
     # AI 草稿与作业站副本的保留天数。
     "adb.path": ("adb", "path"),
@@ -356,46 +348,6 @@ class AgentSettings(BaseModel):
     copilot_retention_days: int = Field(default=7, ge=1, le=365)
 
 
-class AccountSettings(BaseModel):
-    """``config.yaml`` 的 ``account`` 段：账号数据的**识别参数**（M45 仓库自识别）。
-
-    M27 起账号数据的旋钮一直借住在 ``agent`` 段（``box_stale_days`` /
-    ``depot_stale_days`` / ``depot_min_items``），那三个是「数据新鲜度与写库闸门」；
-    M45 的六个是识别器自己的参数，规格 §3.1-1 预留的名字就是 ``account.depot_scan_*``，
-    所以开一段自己的，不再往 ``agent`` 里塞。
-
-    六项都由 :class:`~maa_api.services.account.depot_scan_service.DepotScanService`
-    每次调用现读（``hot_action="none"``），改完立即生效：
-
-    - ``depot_scan_enabled`` 默认**关**，2026-10-13 按用户要求**关停并下线**：自识别
-      独有的道具没有数量，页面反而容易误读（M46 的 OCR 复用实验 53% 未达止损线，
-      见 `docs/13` §8.68）。关着时仓库识别的写库路径与 M44 之前**逐字一致**
-      （只写内核 ``Depot`` 那一趟），读侧也只返回有数量的行。代码与迁移 `0021`
-      作为备档保留，用户明确要求时才打开。
-    - ``depot_scan_top1_min`` / ``depot_scan_margin_min`` 是 W0-b 实测的双阈值
-      （``0.75`` / ``0.15``）：单看分数分不开真格与半格伪峰（``0.7876`` vs ``0.7907``），
-      加上与第二名的差距才干净分开（``0.1664`` vs ``0.1540``）。
-    - ``depot_scan_min_accepted`` 是整页接受格数下限（默认 ``8``）：低于它识别器只记
-      ``below_min_accepted``，**写不写库由 W3 的合并路径与 M44 的条目数护栏一起决定**。
-      ``24`` 是整页格数（8×3），填满即「一格都不许未知」。
-    - ``depot_scan_max_pages`` / ``depot_scan_no_new_pages`` 是 M45 W3a 逐屏扫描的两个
-      收手条件（默认 ``10`` / ``2``）：横滑到底会进干员信物区（那里的格线不是
-      8 列 × 129.92，W2 实测拟合 ``insufficient``），所以不能靠固定翻页次数，
-      要按「连续几屏没有新增 id」停；页数上限是硬兜底。
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    depot_scan_enabled: bool = False
-    depot_scan_top1_min: float = Field(default=0.75, ge=0.0, le=1.0)
-    depot_scan_margin_min: float = Field(default=0.15, ge=0.0, le=1.0)
-    depot_scan_min_accepted: int = Field(default=8, ge=0, le=24)
-    # 逐屏扫描的两个收手条件（M45 W3a）。``le=50`` 是「再大也没有意义」的兜底：
-    # 一屏 8 列，50 屏 = 400 列道具，远超一个账号的仓库规模。
-    depot_scan_max_pages: int = Field(default=10, ge=1, le=50)
-    depot_scan_no_new_pages: int = Field(default=2, ge=1, le=10)
-
-
 class DeploymentSettings(BaseModel):
     """反向代理与浏览器来源白名单（M15，docs/09 §12.4）。
 
@@ -490,7 +442,6 @@ class Settings(BaseModel):
     log: LogSettings = Field(default_factory=LogSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
-    account: AccountSettings = Field(default_factory=AccountSettings)
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
