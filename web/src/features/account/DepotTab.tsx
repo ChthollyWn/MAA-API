@@ -93,7 +93,8 @@ function DepotRow({ item }: { item: DepotItem }) {
  * 另显示识别时间与是否过期。不做「刷新识别」按钮、不做导入导出（§7.10、Q8、Q37）。
  *
  * 列表只含**有明确数量**的物品（后端口径，用户 2026-10-13 裁决：仓库页只显示内核识别到
- * 的、有明确数量的东西；M45 的自识别已关停下线，见 `docs/13` §8.68）。
+ * 的、有明确数量的东西；M45 的自识别已关停下线、2026-10-14 连后端实现一起删除，
+ * 见 `docs/13` §8.68）。
  */
 export function DepotTab() {
   const [category, setCategory] = useState('')

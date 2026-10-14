@@ -158,7 +158,8 @@ export const KNOWN_EMPTY_ROW: OperatorRow = operatorRow({
  * `99999` 是 `item_index.json` 里**没有**的 id（识别到了但索引里查不到），拿它验占位图。
  *
  * 每一行都**有数量**：后端（用户 2026-10-13 裁决）只返回有明确数量的物品，M45 自识别
- * 写下的 `count = NULL` 行读侧不出现，页面也不再有来源标签与覆盖说明（见 `docs/13` §8.68）。
+ * 写下的 `count = NULL` 行读侧不出现（自识别 2026-10-14 已连实现一起删除），页面也不再
+ * 有来源标签与覆盖说明（见 `docs/13` §8.68）。
  */
 export const DEPOT_ITEMS: DepotItem[] = [
   { item_id: '30011', name: '源岩', count: 42, category: '材料' },

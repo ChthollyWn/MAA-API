@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "AccountDepotList": {
-        "description": "仓库响应（docs/05 §6.20：列表用 ``{items, total, limit, offset}``）。\n\n``items`` 只含**有明确数量**的行（``count IS NOT NULL``）：用户 2026-10-13 的口径是\n「仓库页只显示内核识别到的、有明确数量的物品」，自识别独有的 ``NULL`` 行读侧排除\n（见 `docs/13` §8.68）。``categories`` 是这份快照里出现过的全部分类（按名字排序），\n与 ``category`` / ``query`` 无关，页面用它渲染分类下拉（M34），口径与 ``items`` 一致。",
+        "description": "仓库响应（docs/05 §6.20：列表用 ``{items, total, limit, offset}``）。\n\n``items`` 只含**有明确数量**的行（``count IS NOT NULL``）：用户 2026-10-13 的口径是\n「仓库页只显示内核识别到的、有明确数量的物品」，历史上自识别写下的 ``NULL`` 行读侧\n排除（见 `docs/13` §8.68）。``categories`` 是这份快照里出现过的全部分类（按名字排序），\n与 ``category`` / ``query`` 无关，页面用它渲染分类下拉（M34），口径与 ``items`` 一致。",
         "properties": {
           "categories": {
             "items": {
@@ -41,7 +41,7 @@
         "type": "object"
       },
       "AccountDepotRow": {
-        "description": "仓库行：物品 id、名字、数量、分类与识别时间（规格 §7.5 的只读列表）。\n\n``count`` 允许 ``null`` 是**防御性**的：迁移 `0021` 起这一列可空，而 2026-10-13\n之后自识别不再参与写库（见 `docs/13` §8.68），正常路径上不会有这种行 —— 列表读侧\n也已排除它们。真出现时页面显示「—」，**不许当成 0**（「仓库里没有这件道具」与\n「不知道有几件」是两件事）。",
+        "description": "仓库行：物品 id、名字、数量、分类与识别时间（规格 §7.5 的只读列表）。\n\n``count`` 允许 ``null`` 是**防御性**的：迁移 `0021` 起这一列可空，而写这一列的那条\n自识别链路已于 2026-10-13 关停、2026-10-14 连实现一起删除（见 `docs/13` §8.68），\n正常路径上不会有这种行 —— 列表读侧也已排除它们。真出现时页面显示「—」，\n**不许当成 0**（「仓库里没有这件道具」与「不知道有几件」是两件事）。",
         "properties": {
           "category": {
             "anyOf": [
@@ -5977,7 +5977,7 @@
     },
     "/api/account/depot": {
       "get": {
-        "description": "仓库识别结果，按物品分类分组展示的只读列表。\n\n- `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数\n- `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选条件影响；页面用它渲染分类下拉\n- 只返回**有明确数量**的物品（内核 `Depot` 那一趟的结果，约 77 件）：M45 的自识别已于 2026-10-13 按用户要求关停并下线，它写下的 `count = NULL` 行读侧一律排除（`total` 与 `categories` 同口径）\n- `count` 仍是可空列：真出现 `null` 时页面显示「—」，不许当成 0\n- 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定",
+        "description": "仓库识别结果，按物品分类分组展示的只读列表。\n\n- `category` 与 `query` 都是筛选条件，`total` 是筛选后的总数\n- `categories` 是这份快照里出现过的全部分类（按名字排序），不受两个筛选条件影响；页面用它渲染分类下拉\n- 只返回**有明确数量**的物品（内核 `Depot` 那一趟的结果，约 77 件）：M45 的自识别已于 2026-10-13 关停、2026-10-14 删除实现，它写下的 `count = NULL` 行读侧一律排除（`total` 与 `categories` 同口径）\n- `count` 仍是可空列：真出现 `null` 时页面显示「—」，不许当成 0\n- 识别时间是整表替换时写下的，`stale` 按 `agent.depot_stale_days` 判定",
         "operationId": "account_list_account_depot",
         "parameters": [
           {
