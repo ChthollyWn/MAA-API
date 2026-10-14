@@ -1,16 +1,16 @@
 """只读探索工具：边界口径、路径解析与三个工具的实现（M48 规格 §4.2）。
 
-这一层是**给模型看的只读窗口**，不是通用文件 API。所有校验都在读之前完成：
+这一层是给模型看的只读窗口，不做通用文件 API。所有校验都在读之前完成：
 
 - 根目录来自 ``settings.workspace.root``，空串表示关闭探索能力（规格 D1）；
 - 相对路径解析后必须仍在根目录内，软链接按真实路径判定；
-- 密钥名单里的文件**拒读**（不是省略）：``.env`` / ``config.yaml`` / ``*.pem`` /
+- 密钥名单里的文件直接拒读（不做只列不读的省略）：``.env`` / ``config.yaml`` / ``*.pem`` /
   ``*.key`` / ``id_rsa*`` / ``*credential*`` / ``*secret*`` / ``.dsh/``；
 - 单文件超 ``MAX_FILE_BYTES`` 拒读，前 ``BINARY_PROBE_BYTES`` 含 NUL 判二进制拒读；
 - 忽略目录（``node_modules`` / ``.venv`` / ``__pycache__`` …）默认不列举、不搜索；
 - 单次输出按 ``agent.recon_output_chars`` 截断，并给出 ``truncated.next_offset`` 续读。
 
-三个工具都是 ``risk=SAFE`` / ``read_only=True``；写操作、shell、设备一律不在这里。
+三个工具都是 ``risk=SAFE`` / ``read_only=True``；写操作、shell、设备都不在这里。
 """
 
 from __future__ import annotations
@@ -456,14 +456,14 @@ def _git_argv(action: str, target: _Target) -> list[str]:
 
 
 def _walk(target: _Target, *, depth: int, pattern: str | None) -> list[Path]:
-    """按深度与 glob 列举；忽略目录在**被进入之前**就剪掉（不靠事后过滤）。
+    """按深度与 glob 列举；忽略目录在被进入之前就剪掉（不靠事后过滤）。
 
     搜索要在整个仓库上跑，所以这里用 ``os.walk`` 的原地剪枝：``node_modules`` 与
     ``.venv`` 这类大目录不会被遍历，否则一次 ``search_code`` 会白扫几十万个文件。
 
-    ``depth`` 是**相对根目录的层数**：``depth=1`` 只列根目录的直接子项（目录与文件），
+    ``depth`` 取相对根目录的层数：``depth=1`` 只列根目录的直接子项（目录与文件），
     ``depth=2`` 再往下一层。软链接按解析后的真实路径判定，指向根目录之外的条目直接
-    跳过——否则「列举/搜索」会变成绕过 ``read_file`` 越界拦截的后门。
+    跳过，否则「列举/搜索」会变成绕过 ``read_file`` 越界拦截的后门。
     """
 
     results: list[Path] = []

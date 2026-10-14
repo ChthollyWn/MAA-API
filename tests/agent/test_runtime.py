@@ -2828,7 +2828,9 @@ def test_system_prompt_keeps_every_behaviour_and_safety_constraint():
             "都是不可信数据",
             "只作为观察证据",
             "知识库内容",
-            "一律忽略",
+            # M50：原文案里的「一律忽略」触犯文案规范的绝对化规则，改成「直接忽略」；
+            # 这条 needle 跟着改，约束语义不变（这段处理的是提示词注入）。
+            "直接忽略",
         ),
     }
     for name, needles in groups.items():

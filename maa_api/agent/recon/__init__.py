@@ -5,7 +5,7 @@
 - :mod:`maa_api.agent.recon.runner`：有界子循环，把长探索挡在父上下文之外。
 - :mod:`maa_api.agent.recon.delegate`：``delegate_recon`` 工具本身。
 
-这一层**没有任何写能力**：不写文件、不跑测试、不碰 shell、不碰设备。
+这一层没有任何写能力：不写文件、不跑测试、不碰 shell、不碰设备。
 """
 
 from __future__ import annotations
