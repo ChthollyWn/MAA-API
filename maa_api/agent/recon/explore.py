@@ -50,7 +50,7 @@ BINARY_PROBE_BYTES = 8 * 1024
 MAX_RESULTS_CAP = 100
 #: ``list_files`` 的 ``depth`` 上限。
 MAX_DEPTH_CAP = 3
-#: git 只读动作白名单。远端操作、checkout、clean、reset 一律不在其中（规格 D3）。
+#: git 只读动作白名单。远端操作、checkout、clean、reset 都不在其中（规格 D3）。
 GIT_ACTIONS = ("status_local", "diff_local", "log_path", "blame_path")
 #: 每个 git 动作对应的参数白名单：键是动作，值是允许附加的位置参数个数上限。
 _GIT_ACTION_ARGS: dict[str, int] = {
@@ -104,7 +104,7 @@ _GIT_TIMEOUT_SECONDS = 20
 
 
 def resolve_root(settings: Any) -> Path:
-    """取工作区根目录；未配置时按规格 D1 直接报错，而不是静默降级。"""
+    """取工作区根目录；未配置时按规格 D1 直接报错，不做静默降级。"""
 
     workspace = getattr(settings, "workspace", None)
     raw = str(getattr(workspace, "root", "") or "").strip()

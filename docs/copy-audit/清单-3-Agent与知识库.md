@@ -1,8 +1,8 @@
 # Agent 与知识库
 
-共 1156 条。
+共 1193 条。
 
-## knowledge（896）
+## knowledge（925）
 
 
 **maa_api/agent/knowledge/builtin/account-resources.md**
@@ -697,6 +697,38 @@
 - `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:41` [md-line] 回复里写清「打了几次、消耗多少理智、拿到什么、还剩多少理智」；没读到的数字说没读到，不要推算后当成观测值。
 - `maa_api/agent/knowledge/builtin/playbook-sanity-planning.md:42` [md-line] 理智不够导致任务停在补充理智界面（`medicine`/`stone` 为 0 时）要如实说明，并用 ask_user 发卡让用户选吃药、碎石还是等自然恢复。
 
+**maa_api/agent/knowledge/builtin/playbook-stage-clear.md**
+
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:1` [md-line] ---
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:6` [md-line] ---
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:7` [md-line] 原则
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:10` [md-line] 1. 动手前先看现状
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:11` [md-line] get_system_status / get_queue：有流水线在跑就不要抢，先说清在跑什么，再用 ask_user 发卡问是等它结束还是稍后再来。设备没连接就说明情况，征得同意后 reconnect_device。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:12` [md-line] resolve_stage 确认关卡代号能对上；用户给的名字有歧义（例如只说「1-7 突袭」）就问清难度，不要猜。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:14` [md-line] 2. 先搜现成作业
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:15` [md-line] search_copilots(stage=<关卡>, limit=5, only_feasible=true)：按关卡搜作业站并用账号现有干员筛。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:16` [md-line] 看每条的可行性档：
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:17` [md-line] ok：直接用。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:18` [md-line] missing_one：缺一名、可借助战。先问用户同不同意借助战（借了就不用自己有这名干员），再继续。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:19` [md-line] infeasible：缺口名单列了缺谁、缺多少练度，如实告诉用户，别硬跑。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:20` [md-line] 选中后用 save_copilot_draft(site_id=<作业站编号>, note=<出处与思路>) 存成本地资源。保存只做校验、不执行，也不占设备。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:21` [md-line] 保存会跑静态检查：坐标在地图内且落在可部署格、近战远程与地块匹配、干员在账号里或是唯一允许的助战补位、部署数不超过关卡上限、技能序号不超过技能数。失败抛 COPILOT_JSON_INVALID 并逐条给 violations。照 violations 改，不要原样重试。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:23` [md-line] 3. 搜不到就自己写一份
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:24` [md-line] 先用 get_stage_level_data 拿这关的地图、出怪与部署上限，别凭记忆画格子。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:25` [md-line] 用 save_copilot_draft(content=<作业 JSON>, note=<思路>) 保存。作业 JSON 是 MAA 的自动战斗协议：部署序列 + 技能时机，字段与候选取值以 list_task_types 里 Copilot 的 schema 为准。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:26` [md-line] 静态检查只管部署项。Click / Swipe 这两类动作不校验，风险留给运行时；写这类动作前先用 get_screenshot 确认当前画面与坐标系。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:27` [md-line] 写不出可行方案（缺干员、缺练度、卡在某个节点）就直说卡在哪，并给出还差什么，不要为了交差塞一份跑不通的作业。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:29` [md-line] 4. 执行
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:30` [md-line] 先 stop_pipeline 停掉在跑的流水线，再把游戏停到「开始行动」界面并截图确认：run_copilot_attempt 从那里开始打。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:31` [md-line] run_copilot_attempt(copilot_id=<草稿 id>, support=<是否借助战>) 需要授权，没授权先申请 grant_copilot_attempts；被拒绝就说明情况并问用户下一步，不要重试同一张卡。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:32` [md-line] 返回 not_started 表示战斗没开始（不在开始行动界面、编队失败或干员缺失），这一次不计次：把游戏停对位置、截图确认后再试。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:33` [md-line] 结果里 outcome=unknown 表示内核没认出来，用 record_copilot_result 看截图补判，并如实标明是模型判定。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:35` [md-line] 5. 失败之后
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:36` [md-line] 读动作日志摘要判断是「练度不够」还是「时机不对」，再决定改哪一步；不要放弃作业改去点屏幕，也不要原样重复同一份。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:37` [md-line] 同一关的尝试次数由授权决定；COPILOT_GRANT_EXHAUSTED 就是用完了，停下并告诉用户。换了关卡要重新申请授权（COPILOT_GRANT_STAGE_MISMATCH）。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:38` [md-line] 收尾按用户要求汇总：每份作业试了几次、结果是什么、判定方是谁、最后用的哪一份。
+- `maa_api/agent/knowledge/builtin/playbook-stage-clear.md:40` [md-line] 原子操作的位置
+
 **maa_api/agent/knowledge/builtin/recruit-tags.md**
 
 - `maa_api/agent/knowledge/builtin/recruit-tags.md:1` [md-line] ---
@@ -1000,7 +1032,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:21` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:22` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（260）
+## agent（268）
 
 
 **maa_api/agent/confirmation.py**
@@ -1143,60 +1175,77 @@
 - `maa_api/agent/questions.py:245` [literal] 用户选择：
 - `maa_api/agent/questions.py:245` [literal] 、
 
+**maa_api/agent/recon/delegate.py**
+
+- `maa_api/agent/recon/delegate.py:52` [literal] 把「查清楚某个问题」交给只读侦察 subagent：它会在工作区里搜代码、读文件、查 git，最后只回一份带证据（路径:行号）的报告。适合需要翻好几个文件才能回答的问题（实现在哪、这段报错从哪来、这个字段谁写的）。只有一两个文件的确定位置就直接 read_file，不要为省事外包。报告里没有证据的结论不要当成事实。
+
+**maa_api/agent/recon/explore.py**
+
+- `maa_api/agent/recon/explore.py:562` [literal] 列举工作区里的目录与文件（带大小）。看不清结构时先列一层，再决定读哪个文件；被禁止读取的条目会标 blocked，不要尝试读它们。
+- `maa_api/agent/recon/explore.py:576` [literal] 读工作区里一个文本文件的片段。内容超出上限时返回 truncated.next_offset，带上它接着读就能拼回全文；二进制、超大文件与密钥文件会被拒绝。
+- `maa_api/agent/recon/explore.py:590` [literal] 在工作区里按正则搜代码与文档（mode=content），或查只读的本地 git 信息（mode=git，动作限 status_local / diff_local / log_path / blame_path）。比逐个读文件快得多，先搜再读。
+
+**maa_api/agent/recon/runner.py**
+
+- `maa_api/agent/recon/runner.py:35` [const] 你是 MAA-API 的只读侦察员。你的上层 agent 让你查清一个具体问题，你只负责查、不负责改。 规矩： - 只能用 list_files / read_file / search_code 三个只读工具。不能写文件、不能跑测试、不能碰设备。 - 每条结论都要带证据，证据写成 `相对路径:行号`（例如 `maa_…（共 583 字）
+- `maa_api/agent/recon/runner.py:387` [literal] 要查清的问题：{question}
+- `maa_api/agent/recon/runner.py:389` [literal] 可以先看的地方：
+- `maa_api/agent/recon/runner.py:389` [literal] ；
+
 **maa_api/agent/runtime.py**
 
-- `maa_api/agent/runtime.py:77` [const] 提问超时了，本轮结束。重新说一遍需求，我会再发一次提问。
-- `maa_api/agent/runtime.py:78` [const] 你跳过了这次提问，本轮结束。
-- `maa_api/agent/runtime.py:92` [const] 用不超过 12 个字概括用户这次要解决的问题，作为会话标题。只输出标题本身：不要引号、不要句末标点、不要任何解释或前后缀。
-- `maa_api/agent/runtime.py:104` [const] 知识库暂不可用
-- `maa_api/agent/runtime.py:126` [const] 本轮已被你中断。
-- `maa_api/agent/runtime.py:135` [literal] 本轮已被中断，该调用未完成
-- `maa_api/agent/runtime.py:157` [const] 这条消息已保留，可以直接重发。
-- `maa_api/agent/runtime.py:158` [const] 这条消息已保留；请开启新会话或删减内容后再试。
-- `maa_api/agent/runtime.py:161` [const] Agent 对话处理失败
-- `maa_api/agent/runtime.py:177` [literal] 当前模型不支持视觉输入；圈选截图已禁用
-- `maa_api/agent/runtime.py:179` [const] 当前模型不支持视觉输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:194` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 2412 字）
-- `maa_api/agent/runtime.py:307` [const] [历史截图已省略
-- `maa_api/agent/runtime.py:309` [literal] ，时间 {captured_at}
-- `maa_api/agent/runtime.py:337` [literal] [截图图像当前不可用，请重新获取截图后再判断画面]
-- `maa_api/agent/runtime.py:345` [literal] 未知时间
-- `maa_api/agent/runtime.py:395` [literal] 暂不可用
-- `maa_api/agent/runtime.py:597` [literal] 会话没有持有活动轮次锁
-- `maa_api/agent/runtime.py:665` [const] 自动诊断暂不可用（{exc.code}）：{exc.message}。故障记录已保存，修好 LLM 配置或模型能力后可以继续在本会话里问。
-- `maa_api/agent/runtime.py:674` [literal] 自动诊断已被你中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
-- `maa_api/agent/runtime.py:677` [literal] 自动诊断在服务关闭时中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
-- `maa_api/agent/runtime.py:685` [const] 自动诊断暂不可用（LLM_REQUEST_FAILED）。故障记录已保存，检查 LLM 配置和服务日志后可以继续在本会话里问。
-- `maa_api/agent/runtime.py:753` [literal] 数据库中的 LLM API Key 无法解密；请配置有效的 YAML/env API Key
-- `maa_api/agent/runtime.py:755` [literal] 当前 LLM 配置不可用，无法检查模型能力
-- `maa_api/agent/runtime.py:773` [literal] 请先配置 LLM base_url、api_key 和 model
-- `maa_api/agent/runtime.py:866` [const] 当前模型不支持图片输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:965` [literal] 本轮没有完成（{code}）：{message or '原因未知'}。{tail}
-- `maa_api/agent/runtime.py:1061` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
-- `maa_api/agent/runtime.py:1134` [literal] LLM 返回了无效的工具调用。
-- `maa_api/agent/runtime.py:1224` [literal] 确认没有通过
-- `maa_api/agent/runtime.py:1240` [const] 确认被拒绝或过期了，我不会重试。要换个方案吗？
-- `maa_api/agent/runtime.py:1458` [literal] 内置 Agent 不提供该工具，请用 get_screenshot
-- `maa_api/agent/runtime.py:1468` [literal] 此自动诊断会话不允许调用该工具
-- `maa_api/agent/runtime.py:1586` [literal] 确认请求已被拒绝
-- `maa_api/agent/runtime.py:1628` [literal] 前一项操作未获确认，本项未执行。
-- `maa_api/agent/runtime.py:1658` [literal] 提问服务尚未启动
-- `maa_api/agent/runtime.py:1851` [literal] {TITLE_PROMPT} 用户的问题： {seed}
-- `maa_api/agent/runtime.py:2218` [literal] 「
-- `maa_api/agent/runtime.py:2218` [literal] 」
-- `maa_api/agent/runtime.py:2218` [literal] 《
-- `maa_api/agent/runtime.py:2218` [literal] 》
-- `maa_api/agent/runtime.py:2222` [literal] 会话标题
-- `maa_api/agent/runtime.py:2222` [literal] 标题
-- `maa_api/agent/runtime.py:2223` [literal] ：
-- `maa_api/agent/runtime.py:2380` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
-- `maa_api/agent/runtime.py:2381` [const] 当前模型无法进行 Agent 对话
-- `maa_api/agent/runtime.py:2387` [literal] ，
-- `maa_api/agent/runtime.py:2415` [literal] {prefix}：{'；'.join(parts)}
+- `maa_api/agent/runtime.py:82` [const] 提问超时了，本轮结束。重新说一遍需求，我会再发一次提问。
+- `maa_api/agent/runtime.py:83` [const] 你跳过了这次提问，本轮结束。
+- `maa_api/agent/runtime.py:97` [const] 用不超过 12 个字概括用户这次要解决的问题，作为会话标题。只输出标题本身：不要引号、不要句末标点、不要任何解释或前后缀。
+- `maa_api/agent/runtime.py:109` [const] 知识库暂不可用
+- `maa_api/agent/runtime.py:136` [const] 本轮已被你中断。
+- `maa_api/agent/runtime.py:145` [literal] 本轮已被中断，该调用未完成
+- `maa_api/agent/runtime.py:167` [const] 这条消息已保留，可以直接重发。
+- `maa_api/agent/runtime.py:168` [const] 这条消息已保留；请开启新会话或删减内容后再试。
+- `maa_api/agent/runtime.py:171` [const] Agent 对话处理失败
+- `maa_api/agent/runtime.py:187` [literal] 当前模型不支持视觉输入；圈选截图已禁用
+- `maa_api/agent/runtime.py:189` [const] 当前模型不支持视觉输入；截图和原子屏幕操作已禁用
+- `maa_api/agent/runtime.py:204` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 2634 字）
+- `maa_api/agent/runtime.py:319` [const] [历史截图已省略
+- `maa_api/agent/runtime.py:321` [literal] ，时间 {captured_at}
+- `maa_api/agent/runtime.py:349` [literal] [截图图像当前不可用，请重新获取截图后再判断画面]
+- `maa_api/agent/runtime.py:357` [literal] 未知时间
+- `maa_api/agent/runtime.py:407` [literal] 暂不可用
+- `maa_api/agent/runtime.py:609` [literal] 会话没有持有活动轮次锁
+- `maa_api/agent/runtime.py:677` [const] 自动诊断暂不可用（{exc.code}）：{exc.message}。故障记录已保存，修好 LLM 配置或模型能力后可以继续在本会话里问。
+- `maa_api/agent/runtime.py:686` [literal] 自动诊断已被你中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
+- `maa_api/agent/runtime.py:689` [literal] 自动诊断在服务关闭时中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
+- `maa_api/agent/runtime.py:697` [const] 自动诊断暂不可用（LLM_REQUEST_FAILED）。故障记录已保存，检查 LLM 配置和服务日志后可以继续在本会话里问。
+- `maa_api/agent/runtime.py:765` [literal] 数据库中的 LLM API Key 无法解密；请配置有效的 YAML/env API Key
+- `maa_api/agent/runtime.py:767` [literal] 当前 LLM 配置不可用，无法检查模型能力
+- `maa_api/agent/runtime.py:785` [literal] 请先配置 LLM base_url、api_key 和 model
+- `maa_api/agent/runtime.py:928` [const] 当前模型不支持图片输入；截图和原子屏幕操作已禁用
+- `maa_api/agent/runtime.py:1027` [literal] 本轮没有完成（{code}）：{message or '原因未知'}。{tail}
+- `maa_api/agent/runtime.py:1123` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
+- `maa_api/agent/runtime.py:1196` [literal] LLM 返回了无效的工具调用。
+- `maa_api/agent/runtime.py:1286` [literal] 确认没有通过
+- `maa_api/agent/runtime.py:1302` [const] 确认被拒绝或过期了，我不会重试。要换个方案吗？
+- `maa_api/agent/runtime.py:1520` [literal] 内置 Agent 不提供该工具，请用 get_screenshot
+- `maa_api/agent/runtime.py:1530` [literal] 此自动诊断会话不允许调用该工具
+- `maa_api/agent/runtime.py:1648` [literal] 确认请求已被拒绝
+- `maa_api/agent/runtime.py:1690` [literal] 前一项操作未获确认，本项未执行。
+- `maa_api/agent/runtime.py:1720` [literal] 提问服务尚未启动
+- `maa_api/agent/runtime.py:1913` [literal] {TITLE_PROMPT} 用户的问题： {seed}
+- `maa_api/agent/runtime.py:2280` [literal] 「
+- `maa_api/agent/runtime.py:2280` [literal] 」
+- `maa_api/agent/runtime.py:2280` [literal] 《
+- `maa_api/agent/runtime.py:2280` [literal] 》
+- `maa_api/agent/runtime.py:2284` [literal] 会话标题
+- `maa_api/agent/runtime.py:2284` [literal] 标题
+- `maa_api/agent/runtime.py:2285` [literal] ：
+- `maa_api/agent/runtime.py:2442` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
+- `maa_api/agent/runtime.py:2443` [const] 当前模型无法进行 Agent 对话
+- `maa_api/agent/runtime.py:2449` [literal] ，
+- `maa_api/agent/runtime.py:2477` [literal] {prefix}：{'；'.join(parts)}
 
 **maa_api/agent/tools/__init__.py**
 
-- `maa_api/agent/tools/__init__.py:63` [literal] 查人工确认的状态和已经执行完的工具结果。确认卡还没回来、或要确认某个操作到底过没过时用。
+- `maa_api/agent/tools/__init__.py:66` [literal] 查人工确认的状态和已经执行完的工具结果。确认卡还没回来、或要确认某个操作到底过没过时用。
 
 **maa_api/agent/tools/account.py**
 

@@ -3,7 +3,7 @@
 §10.1 要求把删掉的数值换成「工具调用或 PRTS 页面指引」，本文件只做**可达性**断言，
 不打网、不读网络缓存：
 
-1. 从 33 个内置条目正文里解析出所有 `get_prts_page(title="…")`（或裸 `title="…"`）
+1. 从 34 个内置条目正文里解析出所有 `get_prts_page(title="…")`（或裸 `title="…"`）
    形式指向的 PRTS 页面标题，断言每个标题都在 `tests/fixtures/prts/page_titles.json`
    白名单里 —— 该白名单是 T1 复核报告用 `action=query&redirects=1` 实测「页面存在」
    的结论（抓取日期 2026-10-10，见 tests/fixtures/prts/README.md）。
@@ -40,7 +40,7 @@ TOOL_CALL = re.compile(r"\b([a-z][a-z0-9_]*)\s*\(")
 
 def _bodies() -> dict[str, str]:
     entries = load_builtins()
-    assert len(entries) == 33, f"内置条目数应为 33，实际 {len(entries)}"
+    assert len(entries) == 34, f"内置条目数应为 34，实际 {len(entries)}"
     return {entry_id: entry.body for entry_id, entry in entries.items()}
 
 

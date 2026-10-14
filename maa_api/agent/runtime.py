@@ -107,7 +107,7 @@ STUCK_REPEAT_LIMIT = 2
 STUCK_EXEMPT_TOOLS = frozenset({"wait_pipeline"})
 #: 知识库段生成失败时的降级文本：这一轮照常进行，但模型要知道索引不可用（规格 §4.1）。
 KNOWLEDGE_UNAVAILABLE = "知识库暂不可用"
-#: 侦察 subagent 的步数硬上限（M48 规格 D4）：超过这个数就不是「侦察」而是「重写一遍」。
+#: 侦察 subagent 的步数硬上限（M48 规格 D4）：超过这个数就从「侦察」变成「重写一遍」。
 RECON_MAX_STEPS_CAP = 20
 #: 侦察单步的超时。比正常对话短：侦察是只读且可重来的，宁可让它带着不确定项收尾，
 #: 也不要父 agent 的一次工具调用把整轮拖住。
