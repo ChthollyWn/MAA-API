@@ -2,7 +2,7 @@
 
 父 agent 调一次 ``delegate_recon``，这里的子循环最多跑 ``max_steps`` 步：
 每步一次流式补全，只带 ``list_files`` / ``read_file`` / ``search_code`` 三个只读工具。
-子 agent 的对话、被读出来的文件正文、被截断的原始输出**都不进入父会话历史**——
+子 agent 的对话、被读出来的文件正文、被截断的原始输出都不进入父会话历史；
 父会话只收到一份结构化报告（结论 + ``path:line`` 证据 + 不确定项 + 预算用量）。
 
 预算三层（规格 D4）：步数上限、单次工具输出截断、整轮累计字符预算。任何一层到顶都
@@ -139,9 +139,9 @@ async def dispatch_tool(
     """执行一次子 agent 工具调用，把结构化结果压成一句可回灌的 JSON。
 
     这里刻意不接受 ``ToolContext``：子 agent 的工具只需要设置（工作区根目录），
-    没有数据库会话、没有设备、没有确认服务——拿不到就写不了。工具处理器读的是
+    没有数据库会话、没有设备、没有确认服务，拿不到就写不了。工具处理器读的是
     ``ctx.request.app.state.settings_provider``，所以这里造一个只含这一项的最小
-    request：**不要**把父 agent 的真实 state 透给子 agent，否则它就顺着拿到设备与确认服务。
+    request：不要把父 agent 的真实 state 透给子 agent，否则它就顺着拿到设备与确认服务。
     """
 
     context = ToolContext(
