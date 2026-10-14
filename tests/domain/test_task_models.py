@@ -48,7 +48,6 @@ from maa_api.domain.task import (
     MaaField,
     MallInput,
     NormalizedTask,
-    OperBoxInput,
     PipelineCreate,
     RecruitInput,
     ReclamationInput,
@@ -72,7 +71,6 @@ MODEL_TYPES: tuple[type[BaseModel], ...] = (
     AwardInput,
     RoguelikeInput,
     ReclamationInput,
-    OperBoxInput,
     DepotInput,
     CustomInput,
     CopilotInput,
@@ -201,7 +199,7 @@ def _case_id(value: Any) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def test_task_input_union_has_eleven_core_and_two_resource_tasks_in_order() -> None:
+def test_task_input_union_has_ten_core_and_two_resource_tasks_in_order() -> None:
     models = get_args(get_args(TaskInput)[0])
     assert [model.model_fields["name"].default for model in models] == list(TYPE_NAMES)
     assert set(TASK_MODELS) == set(TYPE_NAMES)
@@ -210,9 +208,9 @@ def test_task_input_union_has_eleven_core_and_two_resource_tasks_in_order() -> N
 def test_task_labels_are_exactly_the_core_task_names() -> None:
     expected = _core_task_names()
     assert expected, "旧 task.py 的 task_name 解析为空，正则可能失效"
-    # M27 的两个账号识别任务没有旧 ``task.py`` 类，标签在规格 §7.2 T1 里给定。
+    # M27 的仓库识别任务没有旧 ``task.py`` 类，标签在规格 §7.2 T1 里给定；M47 起
+    # 干员数据唯一来源是森空岛同步，``OperBox`` 已下线（docs/13 §8.70）。
     assert TASK_LABELS == expected | {
-        "OperBox": "干员识别",
         "Depot": "仓库识别",
         # M29 的自定义任务（D7）：内核 ``CustomTask`` 的中文名。
         "Custom": "自定义任务",
@@ -238,7 +236,6 @@ def test_risk_fields_match_docs_13_exactly() -> None:
         "Infrast",
         "Award",
         "Reclamation",
-        "OperBox",
         "Depot",
     ):
         assert RISK_FIELDS[type_name] == frozenset()

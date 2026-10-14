@@ -99,7 +99,6 @@ class SklandSyncResult(BaseModel):
     updated: int = Field(description="有字段变化的行数")
     unchanged: int = Field(description="值没变、只刷新同步时间的行数")
     ownership_cleared: int = Field(description="被收缩成未拥有的行数")
-    diffs: int = Field(description="识别覆盖手动值、记了差异的字段数")
     dropped_invalid: int = Field(description="越界或映射不出、被丢掉的字段项数")
     duration_ms: int
 

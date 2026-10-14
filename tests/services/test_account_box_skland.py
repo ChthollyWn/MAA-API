@@ -1,13 +1,17 @@
 """M42 §4.5：``OperatorBoxService.apply_skland_sync`` 的写库语义（真实 SQLite）。
 
 与 ``test_skland_sync.py`` 的分工：那边测编排（护栏、冷却、凭据），这边测这一层的
-四件事——写哪些列、``None`` 不动列、来源标记、以及**覆盖手动值时记差异**。
+三件事——写哪些列、``None`` 不动列、来源标记。
+
+**M47 起这是账号干员数据的唯一写入者**（docs/13 §8.70）：内核 `OperBox` 识别、手动
+编辑与 Agent 补录三条通道一起下线，所以这里不再有「覆盖手动值时记差异」这类用例；
+反过来钉住的是「同步不再产生 ``account_operator_diff`` 新行、旧行原样留作历史」。
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -23,6 +27,7 @@ from maa_api.services.skland.mapping import OperatorTrainingUpdate
 from maa_api.settings import Settings
 
 NOW = datetime(2026, 10, 12, 4, 30, 0)
+LATER = datetime(2026, 10, 13, 4, 0, 0)
 
 
 @pytest.fixture
@@ -47,6 +52,24 @@ def _box(factory) -> OperatorBoxService:
 
 def _update(char_id: str, **fields: Any) -> OperatorTrainingUpdate:
     return OperatorTrainingUpdate(char_id=char_id, **fields)
+
+
+def _seed(factory, char_id: str, **fields: Any) -> None:
+    """直接写一行「历史状态」——M47 之前可能由识别 / 手动 / Agent 留下的形状。"""
+
+    async def scenario() -> None:
+        defaults: dict[str, Any] = dict(name="测试干员", rarity=6, own=True, recognized_at=NOW)
+        defaults.update(fields)
+        async with factory() as session:
+            session.add(AccountOperator(char_id=char_id, **defaults))
+            await session.commit()
+
+    asyncio.run(scenario())
+
+
+async def _diff_rows(factory) -> list[AccountOperatorDiff]:
+    async with factory() as session:
+        return list((await session.execute(select(AccountOperatorDiff))).scalars().all())
 
 
 def test_skland_sync_writes_every_field_and_marks_the_source(session_factory):
@@ -75,9 +98,10 @@ def test_skland_sync_writes_every_field_and_marks_the_source(session_factory):
             "created": 1,
             "updated": 1,
             "unchanged": 0,
-            "diffs": 0,
             "ownership_cleared": 0,
         }
+        # M47：同步不再产生差异行，摘要里也没有 diffs 键。
+        assert "diffs" not in summary
 
         async with session_factory() as session:
             row = await session.get(AccountOperator, "char_002_amiya")
@@ -90,27 +114,27 @@ def test_skland_sync_writes_every_field_and_marks_the_source(session_factory):
             )
             assert row.favor_percent == 200
             assert set(row.field_sources.values()) == {"skland"}
+            assert row.recognized_at == NOW
+
+        assert await _diff_rows(session_factory) == []
 
     asyncio.run(scenario())
 
 
 def test_skland_sync_leaves_none_fields_untouched(session_factory):
     """``None`` 是「上游没给这一项」：不写列、也不改来源标记。"""
+    # 老库里的行：历史来源是 recognition（M47 前内核识别的口径），M47 后读侧仍认它。
+    _seed(
+        session_factory,
+        "char_002_amiya",
+        elite=2,
+        level=90,
+        potential=6,
+        field_sources={"elite": "recognition", "level": "recognition"},
+    )
 
     async def scenario():
         box = _box(session_factory)
-        await box.apply_recognition(
-            {
-                "char_002_amiya": {
-                    "name": "阿米娅",
-                    "rarity": 5,
-                    "own": True,
-                    "elite": 2,
-                    "level": 90,
-                    "potential": 6,
-                }
-            }
-        )
         await box.apply_skland_sync(
             [_update("char_002_amiya", level=None, elite=None, favor_percent=120)],
             synced_at=NOW,
@@ -118,7 +142,7 @@ def test_skland_sync_leaves_none_fields_untouched(session_factory):
 
         async with session_factory() as session:
             row = await session.get(AccountOperator, "char_002_amiya")
-            assert row.level == 90  # 上游没给等级，识别值原样留着
+            assert row.level == 90  # 上游没给等级，旧值原样留着
             assert row.elite == 2
             assert row.favor_percent == 120
             assert row.field_sources["level"] == "recognition"
@@ -127,47 +151,61 @@ def test_skland_sync_leaves_none_fields_untouched(session_factory):
     asyncio.run(scenario())
 
 
-def test_skland_sync_records_a_diff_when_it_overrides_a_manual_edit(session_factory):
-    """手动改过的字段被森空岛纠正：记一条差异，让页面上能看见。"""
+def test_skland_sync_overwrites_a_legacy_manual_value_without_a_new_diff(
+    session_factory,
+):
+    """M47：同步能覆盖历史手动值，但**不再**写 ``account_operator_diff`` 新行。
+
+    旧行是历史，既不改也不删（迁移 ``0022`` 只清 ``account_operator``）。
+    """
+    _seed(
+        session_factory,
+        "char_002_amiya",
+        level=55,
+        field_sources={"level": "manual"},
+    )
 
     async def scenario():
         box = _box(session_factory)
-        await box.apply_recognition(
-            {"char_002_amiya": {"own": True, "elite": 2, "level": 90, "potential": 6}}
-        )
-        await box.patch_operator("char_002_amiya", {"level": 55}, source="manual")
-
         await box.apply_skland_sync([_update("char_002_amiya", level=90)], synced_at=NOW)
 
         async with session_factory() as session:
             row = await session.get(AccountOperator, "char_002_amiya")
             assert row.level == 90
             assert row.field_sources["level"] == "skland"
-            diffs = (
-                await session.execute(select(AccountOperatorDiff))
-            ).scalars().all()
-            assert [(d.char_id, d.field, d.manual_value, d.recognized_value) for d in diffs] == [
-                ("char_002_amiya", "level", 55, 90)
-            ]
+
+        assert await _diff_rows(session_factory) == []
 
     asyncio.run(scenario())
 
 
-def test_skland_sync_does_not_record_a_diff_for_recognition_overwrites(session_factory):
-    """识别值被同步覆盖不算差异（差异只在「人手改过」时产生）。"""
+def test_skland_sync_keeps_historical_diff_rows(session_factory):
+    """已经躺在表里的差异行是历史：同步既不新增、也不改动它们。"""
+
+    _seed(session_factory, "char_002_amiya", level=55)
 
     async def scenario():
-        box = _box(session_factory)
-        await box.apply_recognition(
-            {"char_002_amiya": {"own": True, "elite": 2, "level": 80, "potential": 6}}
-        )
-        await box.apply_skland_sync([_update("char_002_amiya", level=90)], synced_at=NOW)
-
         async with session_factory() as session:
-            diffs = (
-                await session.execute(select(AccountOperatorDiff))
-            ).scalars().all()
-            assert diffs == []
+            session.add(
+                AccountOperatorDiff(
+                    char_id="char_002_amiya",
+                    field="level",
+                    manual_value=55,
+                    recognized_value=90,
+                    created_at=NOW,
+                )
+            )
+            await session.commit()
+
+        box = _box(session_factory)
+        await box.apply_skland_sync([_update("char_002_amiya", level=90)], synced_at=LATER)
+
+        rows = await _diff_rows(session_factory)
+        assert [(row.char_id, row.field, row.manual_value, row.recognized_value) for row in rows] == [
+            ("char_002_amiya", "level", 55, 90)
+        ]
+        assert rows[0].dismissed_at is None
+        assert rows[0].created_at == NOW  # 旧行的时间戳没被同步改写
 
     asyncio.run(scenario())
 
@@ -176,25 +214,24 @@ def test_skland_sync_counts_unchanged_rows_and_refreshes_the_stamp(session_facto
     async def scenario():
         box = _box(session_factory)
         await box.apply_skland_sync([_update("char_002_amiya", level=90)], synced_at=NOW)
-        later = datetime(2026, 10, 13, 4, 0, 0)
         summary = await box.apply_skland_sync(
-            [_update("char_002_amiya", level=90)], synced_at=later
+            [_update("char_002_amiya", level=90)], synced_at=LATER
         )
         assert summary["unchanged"] == 1 and summary["updated"] == 0
 
         async with session_factory() as session:
             row = await session.get(AccountOperator, "char_002_amiya")
-            assert row.recognized_at == later
+            assert row.recognized_at == LATER
 
     asyncio.run(scenario())
 
 
 def test_skland_sync_never_clears_ownership_without_permission(session_factory):
     """默认 ``clear_missing=False``：即使库里有一名不在本轮 ``chars`` 里的干员，也不动它。"""
+    _seed(session_factory, "char_9999", level=90, own=True)
 
     async def scenario():
         box = _box(session_factory)
-        await box.apply_recognition({"char_9999": {"own": True, "level": 90}})
         summary = await box.apply_skland_sync(
             [_update("char_0001", level=90)], synced_at=NOW
         )
@@ -207,9 +244,10 @@ def test_skland_sync_never_clears_ownership_without_permission(session_factory):
 
 
 def test_skland_sync_can_clear_ownership_when_asked(session_factory):
+    _seed(session_factory, "char_9999", level=90, own=True)
+
     async def scenario():
         box = _box(session_factory)
-        await box.apply_recognition({"char_9999": {"own": True, "level": 90}})
         summary = await box.apply_skland_sync(
             [_update("char_0001", level=90)], clear_missing=True, synced_at=NOW
         )

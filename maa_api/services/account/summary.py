@@ -1,7 +1,8 @@
 """账号数据概要读取器（规格 §7.8）：把干员与仓库的概要拼成注入段要的形状。
 
-干员的 `summary()` 给的是「总数 / 精二数 / 识别时间 / 是否过期」，注入段要的是
-「识别到多少名干员、精二多少、什么时候识别的」——两者一一对应，这里只做翻译与合并。
+干员的 `summary()` 给的是「总数 / 精二数 / 同步时间 / 是否过期」——M47 起账号干员数据
+的唯一来源是森空岛同步，所以这里的「识别到多少名干员、精二多少、什么时候同步的」
+就是森空岛那次同步的结果。
 """
 
 from __future__ import annotations
@@ -52,7 +53,6 @@ class AccountSummaryReader:
             "elite2": raw.get("elite_two", raw.get("elite2")),
             "recognized_at": recognized_at,
             "stale": bool(raw.get("stale")),
-            "pending_diffs": raw.get("pending_diffs"),
         }
 
     async def _depot_summary(self) -> dict[str, Any]:

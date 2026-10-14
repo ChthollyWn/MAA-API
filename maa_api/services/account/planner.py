@@ -1383,7 +1383,7 @@ class UpgradePlanner:
             labels = "、".join(UNKNOWN_TRAINING_LABELS[field] for field in missing)
             unknown_note = (
                 f"「{target.operator}」的{labels}未识别，未计入相应增量；"
-                "跑一次干员识别，或用 Agent/页面补录练度后再算"
+                "先在账号页绑定森空岛账号并同步练度后再算"
             )
             row["warnings"].append(unknown_note)
             if unknown_note not in notes:

@@ -1,7 +1,7 @@
 import { toApiError } from '@/api/errors'
-import type { AccountSummaryEntry, FieldSource, OperatorDiff, OperatorRow } from './api'
+import type { AccountSummaryEntry, OperatorRow } from './api'
 
-/** 账号数据页的纯格式化：职业、精英化、专精与模组摘要、字段来源、识别时间与过期文案。 */
+/** 账号数据页的纯格式化：职业、精英化、专精与模组摘要、字段来源、同步时间与过期文案。 */
 
 /** 就地显示的错误文案；连不上服务时给中文说明，而不是浏览器的英文报错。 */
 export function errorText(error: unknown): string {
@@ -42,23 +42,27 @@ export function depotCategoryLabel(category: string | null | undefined): string 
 /** 筛选下拉的选项（§7.5「按职业筛选」）；顺序照游戏里的职业表。 */
 export const PROFESSIONS: readonly string[] = ['先锋', '近卫', '狙击', '重装', '医疗', '辅助', '术师', '特种']
 
-export const SOURCE_LABELS: Record<FieldSource, string> = {
+/**
+ * 字段来源的展示名（M47 §8.70）：干员数据现在只有一个写入者，所以卡面上实际只会出现
+ * 「森空岛」。其余三个取值留着是为了老库/老响应不至于渲染成裸英文。
+ */
+export const SOURCE_LABELS: Record<string, string> = {
+  skland: '森空岛',
   recognition: '识别',
   manual: '手动',
   agent: 'Agent',
-  skland: '森空岛',
 }
 
-export const SOURCE_HINTS: Record<FieldSource, string> = {
-  recognition: '由干员识别写入',
-  manual: '在账号数据页手动改过',
-  agent: '由 Agent 改过',
+export const SOURCE_HINTS: Record<string, string> = {
   skland: '由森空岛账号数据同步写入',
+  recognition: '由内核干员识别写入（该通道 M47 已下线）',
+  manual: '在账号数据页手动改过（该通道 M47 已下线）',
+  agent: '由 Agent 改过（该通道 M47 已下线）',
 }
 
 export function sourceLabel(value: string | undefined | null): string | null {
   if (!value) return null
-  return SOURCE_LABELS[value as FieldSource] ?? value
+  return SOURCE_LABELS[value] ?? value
 }
 
 export function rarityLabel(rarity: number): string {
@@ -71,8 +75,8 @@ export function professionLabel(value: string | null | undefined): string {
 }
 
 /**
- * 未识别（M35）：练度六列读到 `null` 时页面写的词。内核 OperBox 只识别
- * `elite` / `level` / `potential`，技能等级、专精、模组只有人工或 Agent 写过才有值。
+ * 未识别（M35）：练度六列读到 `null` 时页面写的词。M47 起干员数据的唯一来源是森空岛
+ * 同步，某一项没给或越界就是「未识别」——不要折算成 0 级 / 技能 1 级 / 无专精。
  */
 export const UNKNOWN_TEXT = '未识别'
 
@@ -117,17 +121,11 @@ export function moduleText(modules: Record<string, number> | null | undefined): 
   return parts.length ? parts.join(' · ') : '—'
 }
 
-/** 一行的字段来源集合（去重、按识别→手动→Agent→森空岛排序），用于行内的来源标记。 */
-export function rowSources(row: OperatorRow): FieldSource[] {
-  const order: FieldSource[] = ['recognition', 'manual', 'agent', 'skland']
-  const seen = new Set(Object.values(row.field_sources ?? {}))
+/** 一行的字段来源集合（去重，森空岛优先），用于卡片上的来源标记。 */
+export function rowSources(row: OperatorRow): string[] {
+  const order = ['skland', 'recognition', 'manual', 'agent']
+  const seen = new Set<string>(Object.values(row.field_sources ?? {}))
   return order.filter((source) => seen.has(source))
-}
-
-/** 每个字段各自的来源，用于编辑抽屉里的逐字段标注。 */
-export function fieldSource(row: OperatorRow, field: string): FieldSource | null {
-  const value = row.field_sources?.[field]
-  return value ?? null
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -142,18 +140,6 @@ const FIELD_LABELS: Record<string, string> = {
 
 export function fieldLabel(field: string): string {
   return FIELD_LABELS[field] ?? field
-}
-
-/** 差异条里把值渲染成人话：布尔转「已拥有/未拥有」，精英化转「精二」。 */
-export function diffValueText(field: string, value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—'
-  if (field === 'own' && typeof value === 'boolean') return value ? '已拥有' : '未拥有'
-  if (field === 'elite') return eliteLabel(Number(value))
-  return String(value)
-}
-
-export function diffText(diff: OperatorDiff): string {
-  return `${fieldLabel(diff.field)}：手动 ${diffValueText(diff.field, diff.manual_value)} → 识别 ${diffValueText(diff.field, diff.recognized_value)}`
 }
 
 /**
@@ -304,13 +290,13 @@ export function formatDateTime(value: string | null | undefined): string | null 
  * 识别时间与过期状态（规格 §7.8 的口径）：
  * 从未识别 → 「尚未识别」；否则「识别于 …（N 天前）」，过期再补一句建议重新识别。
  */
-export function recognitionText(entry: AccountSummaryEntry): string {
+export function recognitionText(entry: AccountSummaryEntry, prefix = '识别于'): string {
   if (!entry.recognized) return '尚未识别'
   const at = formatDateTime(entry.recognized_at) ?? '未知时间'
   const days = entry.stale_days
   const ago = days === null || days === undefined ? '' : days <= 0 ? '（今天）' : `（${days} 天前）`
   const stale = entry.stale ? `，已超过 ${entry.stale_after_days} 天` : ''
-  return `识别于 ${at}${ago}${stale}`
+  return `${prefix} ${at}${ago}${stale}`
 }
 
 /** 概览行：「共 312 名（精二 85）」；没识别过就不报数。 */

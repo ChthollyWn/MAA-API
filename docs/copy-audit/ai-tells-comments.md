@@ -1,36 +1,36 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12650 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12355 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 325 | 325 |
-| 破折号当冒号用 | high | 0 | 143 | 143 |
-| 「A 而不是 B」对照腔 | high | 0 | 112 | 112 |
+| 粗体强调 | medium | 0 | 328 | 328 |
+| 破折号当冒号用 | high | 0 | 132 | 132 |
+| 「A 而不是 B」对照腔 | high | 0 | 108 | 108 |
 | 绝对化规定腔 | medium | 0 | 67 | 67 |
+| 自指式讲解腔 | medium | 0 | 20 | 20 |
 | 「…即可」机器腔 | medium | 0 | 19 | 19 |
-| 自指式讲解腔 | medium | 0 | 19 | 19 |
+| 「不是…而是…」对照句 | high | 0 | 5 | 5 |
 | 省略号 | medium | 0 | 4 | 4 |
-| 「不是…而是…」对照句 | high | 0 | 3 | 3 |
 | 宣传词 | medium | 0 | 3 | 3 |
 | 提示腔 | medium | 0 | 3 | 3 |
 | emoji/符号装饰 | high | 0 | 2 | 2 |
 | 总结腔 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 325）
+## 粗体强调（medium｜用户可见 0 / 开发向 328）
 
 **开发向**
 
-- `maa_api/agent/knowledge/__init__.py:1027` 读全表是为了返回**写入后的生效内容**（合并内置值），不再有上限判定：
+- `maa_api/agent/knowledge/__init__.py:1029` 读全表是为了返回**写入后的生效内容**（合并内置值），不再有上限判定：
 - `maa_api/agent/knowledge/builtin/operator-classes.md:12` *先锋 —— 对部署有更佳效果的职业**。部署费用普遍较低或适中，能产出额外部署费用，多用于开局展开阵型和补给费用。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:20` *近卫 —— 近战攻击为主的输出职业**。人数最多的职业，地面输出的主要来源。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:36` *狙击 —— 擅长远程物理攻击的输出职业**。在高台造成物理伤害，主要职责之一是打空中单位。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
-- …… 另有 319 条，见 inventory.json
+- …… 另有 322 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 143）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 132）
 
 **开发向**
 
@@ -40,19 +40,19 @@
 - `maa_api/agent/knowledge/builtin/operator-classes.md:48` *术师 —— 擅长远程法术攻击的输出职业**。在高台（乃至全局）提供法术输出。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:59` *医疗 —— 提供治疗、回复生命的职业**。高台单位，俗称「奶妈」。
 - `maa_api/agent/knowledge/builtin/operator-classes.md:68` *重装 —— 高生命值与防御力的职业**。在地面阻挡多个敌人，俗称「坦克」「T」。
-- …… 另有 137 条，见 inventory.json
+- …… 另有 126 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 112）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 108）
 
 **开发向**
 
-- `maa_api/agent/knowledge/__init__.py:840` 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
+- `maa_api/agent/knowledge/__init__.py:842` 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
 - `maa_api/agent/llm.py:49` : 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
 - `maa_api/agent/llm.py:327` 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
 - `maa_api/agent/runtime.py:1808` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
-- `maa_api/api/routers/account.py:51` : ``recognition``，见服务层），所以这里用 Literal 而不是自由字符串。
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
-- …… 另有 106 条，见 inventory.json
+- `maa_api/core/worker.py:283` 跳过而非报错（docs/03 §7）。
+- …… 另有 102 条，见 inventory.json
 
 ## 绝对化规定腔（medium｜用户可见 0 / 开发向 67）
 
@@ -62,23 +62,11 @@
 - `maa_api/agent/tools/pipeline.py:216` 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
 - `maa_api/db/migrations/versions/0018_unknown_training.py:47` : 识别永远不写、只有人工/Agent 才能给出的三列。
 - `maa_api/services/account/assets.py:45` : 资源类型 → 上游路径前缀。顺序即白名单，别的一律 404。
-- `maa_api/services/account/box.py:784` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
-- `maa_api/services/account/capture.py:20` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
+- `maa_api/services/account/box.py:367` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
+- `maa_api/services/account/capture.py:15` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
 - …… 另有 61 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 19）
-
-**开发向**
-
-- `maa_api/agent/confirmation.py:364` 放在确认已提交之后：授权写失败时确认仍是 approved，用户重批一次即可补齐；
-- `maa_api/agent/knowledge/__init__.py:845` : M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
-- `maa_api/agent/knowledge/__init__.py:847` : M28：当期卡池读取器（有 `async pools()` 即可）。没装或外服时整段不插。
-- `maa_api/agent/questions.py:198` 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
-- `maa_api/main.py:1275` 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
-- `maa_api/services/copilot/rules.py:330` : 实际比对的成员：``opers`` 是自己，分组是全部成员（任一满足即可）。
-- …… 另有 13 条，见 inventory.json
-
-## 自指式讲解腔（medium｜用户可见 0 / 开发向 19）
+## 自指式讲解腔（medium｜用户可见 0 / 开发向 20）
 
 **开发向**
 
@@ -88,7 +76,29 @@
 - `maa_api/main.py:1316` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
 - `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
 - `maa_api/services/account/planner.py:23` # 实现裁决（规格没写死、由本模块定，M27 T8）
+- …… 另有 14 条，见 inventory.json
+
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 19）
+
+**开发向**
+
+- `maa_api/agent/confirmation.py:364` 放在确认已提交之后：授权写失败时确认仍是 approved，用户重批一次即可补齐；
+- `maa_api/agent/knowledge/__init__.py:847` : M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
+- `maa_api/agent/knowledge/__init__.py:849` : M28：当期卡池读取器（有 `async pools()` 即可）。没装或外服时整段不插。
+- `maa_api/agent/questions.py:198` 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
+- `maa_api/main.py:1275` 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
+- `maa_api/services/copilot/rules.py:330` : 实际比对的成员：``opers`` 是自己，分组是全部成员（任一满足即可）。
 - …… 另有 13 条，见 inventory.json
+
+## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 5）
+
+**开发向**
+
+- `maa_api/services/account/box.py:367` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
+- `tests/db/test_repositories_update_notify_resource.py:517` 这不是缺陷，是「校验按 type 分发的 Pydantic 模型在服务层」的边界。
+- `tests/db/test_skland_only_operators_migration.py:193` 降级不会把行变回来：这不是遗漏，是迁移文档写明的语义。
+- `tests/services/test_account_capture.py:153` 干员表、识别记录、差异表都没被碰过；warning 也没记（不是错误，是已知的旁路）。
+- `tests/services/test_upgrade_planner.py:399` M29：升级经验 / 龙门币用内置的官方数值表。显式注入而不是让规划器惰性加载，是为了
 
 ## 省略号（medium｜用户可见 0 / 开发向 4）
 
@@ -98,14 +108,6 @@
 - `tests/domain/test_errors.py:43` : 表格数据行形如 ``| `CODE` | 404 | 含义…… |``；表头与文字段落都不匹配。
 - `tests/domain/test_route_inventory.py:80` : §6 开头那句：``共 101 条 HTTP 端点……另有 1 条 WebSocket（§6.2）与 4 条静态与文档入口（§6.17）。``
 - `tests/domain/test_route_inventory.py:88` : 表格数据行：``| GET | `/api/system/health` | …… |``。
-
-## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 3）
-
-**开发向**
-
-- `maa_api/services/account/box.py:784` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
-- `tests/db/test_repositories_update_notify_resource.py:517` 这不是缺陷，是「校验按 type 分发的 Pydantic 模型在服务层」的边界。
-- `tests/services/test_upgrade_planner.py:399` M29：升级经验 / 龙门币用内置的官方数值表。显式注入而不是让规划器惰性加载，是为了
 
 ## 宣传词（medium｜用户可见 0 / 开发向 3）
 

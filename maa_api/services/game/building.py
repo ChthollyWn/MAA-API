@@ -376,7 +376,7 @@ class BuildingService:
         }
         if "account" in unavailable:
             payload["hint"] = (
-                "账号里没有已拥有的干员记录，先用 ask_user 建议用户运行一次干员识别（OperBox）"
+                "账号里没有已拥有的干员记录，先用 ask_user 建议用户在账号页绑定森空岛账号并同步练度"
                 "再查候选。"
             )
         payload.update(build_envelope([_SKILL_TABLE_REF], unavailable=payload["unavailable"]))

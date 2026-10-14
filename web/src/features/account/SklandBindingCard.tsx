@@ -83,7 +83,6 @@ export function sklandSyncSummaryLines(summary: SklandSyncSummary): string[] {
   const lines = [`本轮 ${summary.total} 名：${changed.length ? changed.join(' · ') : '没有改动'}`]
   const extra = [
     summary.ownership_cleared > 0 ? `清掉未拥有 ${summary.ownership_cleared} 名` : null,
-    summary.diffs > 0 ? `记下差异 ${summary.diffs} 处` : null,
     summary.dropped_invalid > 0 ? `丢弃越界值 ${summary.dropped_invalid} 处` : null,
   ].filter((item): item is string => item !== null)
   if (extra.length) lines.push(extra.join(' · '))
@@ -182,7 +181,6 @@ export function SklandBindingCard() {
         invalidateStatus(),
         queryClient.invalidateQueries({ queryKey: accountKeys.operatorsAll() }),
         queryClient.invalidateQueries({ queryKey: accountKeys.summary() }),
-        queryClient.invalidateQueries({ queryKey: accountKeys.diffs() }),
       ])
     },
   })

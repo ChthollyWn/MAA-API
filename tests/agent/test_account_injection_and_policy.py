@@ -43,88 +43,6 @@ async def _decide(name: str, arguments: dict[str, Any], *, db_session: Any = Non
 
 
 @async_test
-async def test_update_operator_box_always_requires_confirmation_without_database() -> None:
-    """没有会话时也要确认：差异为空，但卡片照弹（fail closed）。"""
-    decision = await _decide(
-        "update_operator_box",
-        {
-            "changes": [{"operator": "银灰", "elite": 2, "level": 90}],
-            "reason": "用户说他精二了",
-        },
-    )
-    assert decision.requires_confirmation is True
-    assert decision.risk is RiskLevel.NONE
-    assert decision.confirmation_action == "update_operator_box"
-    assert decision.reasons == ("修改账号干员数据：1 项改动",)
-    assert decision.extra_payload is not None
-    assert decision.extra_payload["diff"] == []
-    assert decision.extra_payload["summary"] == "修改账号干员数据：1 项改动"
-
-
-@async_test
-async def test_update_operator_box_reports_the_field_diff_when_readable() -> None:
-    """能读到当前行时，payload 带逐字段差异（旧值 → 新值）。"""
-
-    class FakeBox:
-        def __init__(self, factory: Any) -> None:
-            self._factory = factory
-
-        async def get_operator(self, char_id: str) -> dict[str, Any]:
-            assert self._factory is not None
-            return {"char_id": char_id, "elite": 0, "level": 1, "own": True}
-
-    import maa_api.services.account.box as box_module
-
-    original = getattr(box_module, "OperatorBoxService", None)
-    box_module.OperatorBoxService = FakeBox  # type: ignore[attr-defined]
-    try:
-        decision = await _decide(
-            "update_operator_box",
-            {
-                "changes": [{"operator": "银灰", "elite": 2, "level": 90}],
-                "reason": "补录",
-            },
-            db_session=object(),
-        )
-    finally:
-        if original is not None:
-            box_module.OperatorBoxService = original  # type: ignore[attr-defined]
-    assert decision.extra_payload is not None
-    diff = decision.extra_payload["diff"]
-    assert [item["field"] for item in diff] == ["elite", "level"]
-    assert diff[0] == {"operator": "银灰", "field": "elite", "from": 0, "to": 2}
-    assert diff[1] == {"operator": "银灰", "field": "level", "from": 1, "to": 90}
-
-
-@async_test
-async def test_update_operator_box_skips_fields_that_do_not_change() -> None:
-    """新旧值相同时不进差异列表。"""
-
-    class FakeBox:
-        def __init__(self, factory: Any) -> None:
-            pass
-
-        async def get_operator(self, char_id: str) -> dict[str, Any]:
-            return {"char_id": char_id, "elite": 2, "level": 90}
-
-    import maa_api.services.account.box as box_module
-
-    original = getattr(box_module, "OperatorBoxService", None)
-    box_module.OperatorBoxService = FakeBox  # type: ignore[attr-defined]
-    try:
-        decision = await _decide(
-            "update_operator_box",
-            {"changes": [{"operator": "银灰", "elite": 2}], "reason": "确认"},
-            db_session=object(),
-        )
-    finally:
-        if original is not None:
-            box_module.OperatorBoxService = original  # type: ignore[attr-defined]
-    assert decision.extra_payload is not None
-    assert decision.extra_payload["diff"] == []
-
-
-@async_test
 async def test_start_upgrade_plan_confirmation_carries_a_summary() -> None:
     decision = await _decide(
         "start_upgrade_plan",
@@ -174,7 +92,7 @@ def test_render_account_lines_matches_the_spec_shape() -> None:
         }
     )
     assert lines[0].startswith("干员 312 名（精二 85）识别于 10-02（")
-    assert lines[0].endswith("天前），已过期，建议重新识别")
+    assert lines[0].endswith("天前），已过期")
     assert lines[1].startswith("仓库识别于 10-08（")
     assert lines[1].endswith("天前）")
     assert all(len(line) <= 120 for line in lines)
@@ -185,7 +103,7 @@ def test_render_account_lines_says_never_recognized() -> None:
         {"operators": {"recognized": False}, "depot": {"recognized": False}}
     )
     assert lines == [
-        "干员：尚未识别（需要时建议运行干员识别）",
+        "干员：尚未同步（需要时建议在账号页绑定森空岛账号并同步练度）",
         "仓库：尚未识别（需要时建议运行仓库识别）",
     ]
 

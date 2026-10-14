@@ -123,22 +123,6 @@ def _payload(what: str) -> dict:
     }
 
 
-def _operbox_payload(
-    *,
-    all_opers: list | None = None,
-    own_opers: list | None = None,
-    done: bool = True,
-) -> dict:
-    """``OperBoxInfo`` 的 ``SubTaskExtraInfo`` 载荷；没给的两个列表就不放进 ``details``。"""
-
-    details: dict = {"done": done}
-    if all_opers is not None:
-        details["all_opers"] = all_opers
-    if own_opers is not None:
-        details["own_opers"] = own_opers
-    return {"what": "OperBoxInfo", "details": details}
-
-
 @pytest.mark.parametrize("what", sorted(CONNECTION_MAP))
 def test_every_connection_mapping_is_reachable(
     translator: CallbackTranslator, what: str
@@ -341,131 +325,56 @@ def test_stage_drops_formatting_and_sanity_mapping(
     assert sanity.source == "task" and sanity.level == "INFO"
 
 
-def test_operbox_count_reads_own_from_all_opers_not_own_opers(
+def test_depot_progress_callback_is_debug_and_the_final_one_is_info(
     translator: CallbackTranslator,
 ) -> None:
-    """真机 2026-10-10 17:20 那次：``all_opers`` 463 条里 ``own=true`` 383 条、``own_opers`` 380 条。
+    """账号识别的进度与收尾（规格 §7.2 T2）：``done=false`` 只记 DEBUG。
 
-    「已拥有多少名」只能看 ``all_opers`` 的 ``own``：那 3 名已拥有、却因为内核没给练度详情
-    而从不进 ``own_opers``（阿米娅的两个形态与暮落）。按 ``own_opers`` 数会少报 3 名。
+    M47 起 ``_ACCOUNT_RECOGNITION_MAP`` 里只剩 ``DepotInfo``（干员数据的唯一来源是
+    森空岛同步，内核 ``OperBoxInfo`` 不再落库，docs/13 §8.70）。
     """
-
-    detail_less = ["char_002_amiya", "char_1037_amiya3", "char_512_aprot"]
-    owned = detail_less + [f"char_{index:04d}_owned" for index in range(380)]
-    all_opers = [
-        {"id": char_id, "name": char_id, "own": True, "rarity": 3} for char_id in owned
-    ] + [
-        {"id": f"char_{index:04d}_missing", "name": f"未拥有{index}", "own": False, "rarity": 3}
-        for index in range(463 - len(owned))
-    ]
-    own_opers = [
-        {"id": char_id, "own": True, "elite": 0, "level": 1, "potential": 1, "rarity": 3}
-        for char_id in owned
-        if char_id not in detail_less
-    ]
-    assert len(all_opers) == 463 and len(own_opers) == 380
-
-    record = translator.translate(
+    in_progress = translator.translate(
         Message.SubTaskExtraInfo,
-        _operbox_payload(all_opers=all_opers, own_opers=own_opers),
+        {"what": "DepotInfo", "details": {"data": '{"30012": 120}', "done": False}},
     )[0]
+    assert (in_progress.content, in_progress.level) == ("仓库识别进行中", "DEBUG")
 
-    assert record.content == "识别到 383 名干员"
-    assert record.level == "INFO"
+    finished = translator.translate(
+        Message.SubTaskExtraInfo,
+        {"what": "DepotInfo", "details": {"data": '{"30012": 120, "4001": 15}', "done": True}},
+    )[0]
+    assert (finished.content, finished.level) == ("仓库识别完成：2 种物品", "INFO")
+
+    # 收尾回调也给不出合法物品数时记 0，不抛异常。
+    broken = translator.translate(
+        Message.SubTaskExtraInfo,
+        {"what": "DepotInfo", "details": {"data": "{不是 JSON", "done": True}},
+    )[0]
+    assert (broken.content, broken.level) == ("仓库识别完成：0 种物品", "INFO")
 
 
-def test_operbox_count_is_zero_when_nothing_is_owned(
+def test_operbox_callback_is_no_longer_mapped(
     translator: CallbackTranslator,
 ) -> None:
-    """游戏没启动的那次失败尝试：``all_opers`` 每条 ``own`` 都是 false → 0。"""
+    """M47：``OperBoxInfo`` 从 ``EXTRA_INFO_MAP`` 与 ``_ACCOUNT_RECOGNITION_MAP`` 一起删除。
 
-    all_opers = [
-        {"id": f"char_{index:04d}_missing", "name": f"未拥有{index}", "own": False, "rarity": 3}
-        for index in range(463)
-    ]
-    record = translator.translate(
-        Message.SubTaskExtraInfo,
-        _operbox_payload(all_opers=all_opers, own_opers=[]),
-    )[0]
+    载荷里的 ``count`` 曾经由 ``_operbox_count`` 从 ``all_opers`` 数出来；现在它退化
+    成一条通用的「未映射回调」，不再有专属文案。
+    """
+    payload = {
+        "what": "OperBoxInfo",
+        "details": {
+            "done": True,
+            "all_opers": [{"id": "char_002_amiya", "name": "阿米娅", "own": True}],
+            "own_opers": [{"id": "char_002_amiya", "own": True, "level": 80}],
+        },
+    }
 
-    assert record.content == "识别到 0 名干员"
-    assert record.level == "INFO"
+    record = translator.translate(Message.SubTaskExtraInfo, payload)[0]
 
-    # 只要 all_opers 带 own 字段，计数就只看 own，不再退回 own_opers 的条数
-    # （真实数据里 own_opers ⊆ all_opers 的 own=true，这种形状只为固定口径）。
-    fallback_free = translator.translate(
-        Message.SubTaskExtraInfo,
-        _operbox_payload(all_opers=all_opers, own_opers=[{"id": "char_002_amiya", "own": True}]),
-    )[0]
-
-    assert fallback_free.content == "识别到 0 名干员"
-
-
-def test_operbox_count_falls_back_to_own_opers_without_all_opers(
-    translator: CallbackTranslator,
-) -> None:
-    """旧版内核不带 ``all_opers``：退回 ``own_opers`` 条数。"""
-
-    own_opers = [
-        {"id": "char_002_amiya", "own": True, "elite": 0, "level": 1, "potential": 1, "rarity": 3},
-        {"id": "char_512_aprot", "own": True, "elite": 1, "level": 50, "potential": 3, "rarity": 5},
-    ]
-
-    record = translator.translate(
-        Message.SubTaskExtraInfo,
-        _operbox_payload(own_opers=own_opers),
-    )[0]
-
-    assert record.content == "识别到 2 名干员"
-    assert record.level == "INFO"
-
-
-def test_operbox_count_falls_back_when_all_opers_has_no_own_field(
-    translator: CallbackTranslator,
-) -> None:
-    """``all_opers`` 在、但没有任何条目带 ``own`` 字段：退回 ``own_opers``，不能数成 0。"""
-
-    all_opers = [
-        {"id": f"char_{index:04d}_legacy", "name": f"旧内核{index}", "rarity": 3}
-        for index in range(463)
-    ]
-    legacy_own = [{"id": "char_002_amiya", "own": True, "level": 1}]
-
-    with_own_opers = translator.translate(
-        Message.SubTaskExtraInfo,
-        _operbox_payload(all_opers=all_opers, own_opers=legacy_own),
-    )[0]
-    only_all_opers = translator.translate(
-        Message.SubTaskExtraInfo,
-        _operbox_payload(all_opers=all_opers),
-    )[0]
-
-    assert with_own_opers.content == "识别到 1 名干员"
-    assert only_all_opers.content == "识别到 463 名干员"
-    assert with_own_opers.level == only_all_opers.level == "INFO"
-
-
-def test_operbox_count_ignores_malformed_lists(
-    translator: CallbackTranslator,
-) -> None:
-    """非 list（或列表里混着非 Mapping）按缺省处理：既不数错，也不抛异常。"""
-
-    not_a_list = translator.translate(
-        Message.SubTaskExtraInfo,
-        _operbox_payload(all_opers="nope", own_opers=[{"id": "char_002_amiya", "own": True}]),
-    )[0]
-    nothing_usable = translator.translate(
-        Message.SubTaskExtraInfo,
-        _operbox_payload(all_opers="nope", own_opers="nope"),
-    )[0]
-    mixed = translator.translate(
-        Message.SubTaskExtraInfo,
-        _operbox_payload(all_opers=[{"id": "char_002_amiya", "own": True}, "junk"]),
-    )[0]
-
-    assert not_a_list.content == "识别到 1 名干员"
-    assert nothing_usable.content == "识别到 0 名干员"
-    assert mixed.content == "识别到 1 名干员"
+    assert record.content == "未映射回调 SubTaskExtraInfo.OperBoxInfo"
+    assert record.level == "DEBUG"
+    assert "识别到" not in record.content
 
 
 def test_unknown_subtask_names_stay_identifiable(

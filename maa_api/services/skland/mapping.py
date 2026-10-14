@@ -18,7 +18,7 @@
   非空 ``equip`` 里一个模组类型都认不出来时也留 ``None``，只有**空列表**才是「确认没有」。
 - **``potentialRank`` 是 0 基**：本项目 ``account_operator.potential`` 是「潜能数」
   （真机库里 384 名已拥有干员中 184 名是 6 ＝ 满潜），所以 ``potential = potentialRank + 1``。
-  这条换算由 W0 拿同账号的 OperBox 读数交叉验证（规格 §2.5-1）。
+  这条换算由 W0 拿同账号的干员识别读数交叉验证（该通道 M47 已下线，仅作历史；规格 §2.5-1）。
 """
 
 from __future__ import annotations
@@ -82,7 +82,8 @@ class OperatorTrainingUpdate:
     masteries: dict[str, int] | None = None
     modules: dict[str, int] | None = None
     favor_percent: int | None = None
-    #: 按槽位的技能 id（M43）：技能图标的 URL 要用它，``OperBox`` 与手动编辑给不出来。
+    #: 按槽位的技能 id（M43）：技能图标的 URL 要用它，内核识别与手动编辑都不给这一列
+    #: （两者 M47 已下线）。
     skill_ids: list[str] | None = None
     #: 模组明细（M43）：``[{type, level, equip_id, branch, label, type_icon}]``，
     #: 供页面显示 ``CCR-X`` 这类标签；``modules`` 仍是计划层用的 ``{"Y": 3}``。

@@ -595,7 +595,10 @@ def test_candidates_reports_missing_account_data(tmp_path: Path) -> None:
     result = asyncio.run(scenario())
     assert result["owned_total"] == 0
     assert "account" in result["unavailable"]
-    assert "干员识别" in result["hint"]
+    assert result["hint"] == (
+        "账号里没有已拥有的干员记录，先用 ask_user 建议用户在账号页绑定森空岛账号并同步练度"
+        "再查候选。"
+    )
     assert all(item["candidates"] == [] for item in result["rooms"])
 
 

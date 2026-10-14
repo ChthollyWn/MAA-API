@@ -225,7 +225,7 @@ class SklandSyncService:
 
         duration_ms = int((time.monotonic() - started) * 1000)
         logger.info(
-            "森空岛同步完成：角色=%s 干员=%d 丢弃字段=%d 新建=%d 更新=%d 未变=%d 清所有权=%d 差异=%d 耗时=%dms",
+            "森空岛同步完成：角色=%s 干员=%d 丢弃字段=%d 新建=%d 更新=%d 未变=%d 清所有权=%d 耗时=%dms",
             role.uid[-6:],
             applied["total"],
             dropped,
@@ -233,7 +233,6 @@ class SklandSyncService:
             applied["updated"],
             applied["unchanged"],
             applied["ownership_cleared"],
-            applied["diffs"],
             duration_ms,
         )
         return {
@@ -245,7 +244,6 @@ class SklandSyncService:
             "updated": int(applied["updated"]),
             "unchanged": int(applied["unchanged"]),
             "ownership_cleared": int(applied["ownership_cleared"]),
-            "diffs": int(applied["diffs"]),
             "dropped_invalid": dropped,
             "duration_ms": duration_ms,
         }

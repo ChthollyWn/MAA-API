@@ -1,8 +1,11 @@
-"""账号数据 REST 契约（M27 规格 §7.5、附录 C）：鉴权、分页、筛选、PATCH 校验与 404。
+"""账号数据 REST 契约（M27 规格 §7.5、附录 C）：鉴权、分页、筛选与 404。
 
 与 ``test_account_router.py`` 的分工：本文件用**假服务**驱动真实路由代码，因此不依赖
 ``db/models.py`` 与 ``db/repositories/account.py`` 是否已经落地；那边用临时 SQLite 跑
 同一个路由的端到端版本。两边都跑通，说明路由的契约与服务的实现是同一份语义。
+
+M47 起账号干员数据只读（docs/13 §8.70）：``PATCH /operators/{char_id}`` 与两条
+``/operator-diffs`` 从冻结路径集里删除，假服务也不再有那三个方法。
 
 app 是现搭的（``tests/api`` 的纪律：不 import ``maa_api.main``）；路由注册由 main.py
 负责，这里显式 ``include_router``，所以本文件在路由还没接进 main 时也能独立跑。
@@ -19,14 +22,11 @@ from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import account as account_router
 from maa_api.domain.errors import AppError, ErrorCode
 
-#: 七个端点（方法, 路径）：六个在附录 C 里，另加编辑抽屉用的单条 GET。
+#: 四个只读端点（方法, 路径）：附录 C 的账号段（M47 起没有写端点）。
 ENDPOINTS = (
     ("GET", "/api/account/summary"),
     ("GET", "/api/account/operators"),
     ("GET", "/api/account/operators/char_002_amiya"),
-    ("PATCH", "/api/account/operators/char_002_amiya"),
-    ("GET", "/api/account/operator-diffs"),
-    ("DELETE", "/api/account/operator-diffs"),
     ("GET", "/api/account/depot"),
 )
 
@@ -37,7 +37,6 @@ class FakeBoxService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
         self.rows: dict[str, dict] = {}
-        self.diffs: list[dict] = []
 
     async def summary(self) -> dict:
         self.calls.append(("summary", {}))
@@ -48,7 +47,6 @@ class FakeBoxService:
             "stale": False,
             "stale_days": 14,
             "unrecognized": 1,
-            "pending_diffs": len(self.diffs),
         }
 
     async def list_operators(self, **kwargs) -> dict:
@@ -65,39 +63,10 @@ class FakeBoxService:
         if char_id not in self.rows:
             raise AppError(
                 ErrorCode.ACCOUNT_DATA_NOT_FOUND,
-                "账号数据里没有这名干员的记录，请先运行一次干员识别",
+                "账号数据里没有这名干员的记录，请先在账号页绑定森空岛账号并同步练度",
                 {"char_id": char_id},
             )
         return self.rows[char_id]
-
-    async def patch_operator(self, char_id: str, payload, *, source: str = "manual") -> dict:
-        self.calls.append(
-            ("patch_operator", {"char_id": char_id, "payload": dict(payload), "source": source})
-        )
-        if char_id not in self.rows:
-            raise AppError(
-                ErrorCode.ACCOUNT_DATA_NOT_FOUND,
-                "账号数据里没有这名干员的记录，请先运行一次干员识别",
-                {"char_id": char_id},
-            )
-        if payload.get("elite", 0) > 2:
-            raise AppError(
-                ErrorCode.VALIDATION_ERROR,
-                "字段 elite 不满足约束：超出取值范围",
-                {"field": "elite", "reason": "超出取值范围", "allowed": {"minimum": 0, "maximum": 2}},
-            )
-        return {**self.rows[char_id], **{k: v for k, v in payload.items()}}
-
-    async def list_diffs(self, *, include_dismissed: bool = False, limit: int = 200) -> dict:
-        self.calls.append(
-            ("list_diffs", {"include_dismissed": include_dismissed, "limit": limit})
-        )
-        items = [row for row in self.diffs if include_dismissed or row["dismissed_at"] is None]
-        return {"items": items, "total": len(self.diffs)}
-
-    async def dismiss_diffs(self, ids=None) -> int:
-        self.calls.append(("dismiss_diffs", {"ids": ids}))
-        return 0 if not self.diffs else len(self.diffs)
 
 
 class FakeDepotService:
@@ -137,7 +106,7 @@ def _operator_row(char_id: str = "char_002_amiya") -> dict:
         "skill_level": 7,
         "masteries": {"1": 3, "2": 0, "3": 0},
         "modules": {"X": 1},
-        "field_sources": {"elite": "recognition"},
+        "field_sources": {"elite": "skland"},
         "recognized_at": "2026-10-10T03:00:00Z",
         "updated_at": "2026-10-10T03:00:00Z",
     }
@@ -202,7 +171,8 @@ def test_summary_combines_box_and_depot(make_client, tmp_settings):
     payload = response.json()
     assert payload["box"]["total"] == 2
     assert payload["box"]["elite_two"] == 1
-    assert payload["box"]["pending_diffs"] == 0
+    # M47：差异条随写通道下线，概要里没有 pending_diffs。
+    assert "pending_diffs" not in payload["box"]
     assert payload["depot"] == {
         "total": 0,
         "recognized_at": "2026-10-10T03:00:00Z",
@@ -290,152 +260,27 @@ def test_get_operator_404_and_detail(make_client, tmp_settings):
 
 
 # ---------------------------------------------------------------------------
-# PATCH：请求体形状与校验
+# 已删除的写端点
 # ---------------------------------------------------------------------------
-
-
-def test_patch_passes_only_given_fields_and_source(make_client, tmp_settings):
-    app, box, _depot = _app()
-    box.rows["char_002_amiya"] = _operator_row()
-    client = make_client(app)
-
-    response = client.patch(
-        "/api/account/operators/char_002_amiya",
-        json={"level": 42, "masteries": {"1": 3}, "source": "agent"},
-    )
-    assert response.status_code == 200
-    _name, kwargs = box.calls[-1]
-    assert kwargs == {
-        "char_id": "char_002_amiya",
-        "payload": {"level": 42, "masteries": {"1": 3}},
-        "source": "agent",
-    }
-    # source 不进 payload（它是写入来源，不是字段）。
-    assert "source" not in kwargs["payload"]
-
-
-def test_patch_defaults_source_to_manual(make_client, tmp_settings):
-    app, box, _depot = _app()
-    box.rows["char_002_amiya"] = _operator_row()
-    client = make_client(app)
-
-    assert client.patch(
-        "/api/account/operators/char_002_amiya", json={"own": False}
-    ).status_code == 200
-    assert box.calls[-1][1]["source"] == "manual"
 
 
 @pytest.mark.parametrize(
-    "body",
-    [
-        {"rarity": 6},          # 不可编辑字段（extra="forbid"）
-        {"name": "别的名字"},     # 同上
-        {"elite": 3},           # 字段范围
-        {"level": 91},
-        {"potential": 7},
-        {"skill_level": 8},
-        {"skill_level": 0},
-        {"masteries": {"4": 1}},  # 专精键只能是 1..3
-        {"modules": {"Z": 1}},    # 模组类型只能是 X/Y/D/A
-        {"source": "recognition"},  # 只能 manual / agent
-        {"own": "yes"},           # 布尔字段不收字符串
-    ],
+    ("method", "path", "status"),
+    (
+        # PATCH 没了，但同一路径的 GET 还在 → 405。
+        ("PATCH", "/api/account/operators/char_002_amiya", 405),
+        ("GET", "/api/account/operator-diffs", 404),
+        ("DELETE", "/api/account/operator-diffs", 404),
+    ),
 )
-def test_patch_rejects_bad_request_bodies(make_client, tmp_settings, body):
-    app, box, _depot = _app()
-    box.rows["char_002_amiya"] = _operator_row()
+def test_removed_write_endpoints_are_not_routed(
+    make_client, tmp_settings, method, path, status
+):
+    """M47：手动编辑与识别差异两条写通道下线（docs/13 §8.70）。"""
+    app, _box, _depot = _app()
     client = make_client(app)
 
-    response = client.patch("/api/account/operators/char_002_amiya", json=body)
-    assert response.status_code == 422, body
-    assert _error(response)["code"] == "VALIDATION_ERROR"
-
-
-def test_patch_surfaces_service_validation_error(make_client, tmp_settings):
-    """服务层的跨字段约束（专精要精二且技能 7）以 422 + details.field 透出。
-
-    这类约束请求模型表达不了（要看行里既有的精英化与技能等级），所以由服务层抛，
-    路由层不做二次包装。
-    """
-    app, box, _depot = _app()
-    box.rows["char_x"] = _operator_row("char_x")
-
-    async def _reject(char_id, payload, *, source="manual"):
-        raise AppError(
-            ErrorCode.VALIDATION_ERROR,
-            "字段 masteries 不满足约束：专精要求技能等级为 7",
-            {
-                "field": "masteries",
-                "reason": "专精要求技能等级为 7",
-                "allowed": {"skill_level_required": 7},
-            },
-        )
-
-    box.patch_operator = _reject  # type: ignore[method-assign]
-    client = make_client(app)
-
-    response = client.patch("/api/account/operators/char_x", json={"masteries": {"1": 3}})
-    assert response.status_code == 422
-    error = _error(response)
-    assert error["code"] == "VALIDATION_ERROR"
-    assert error["details"]["field"] == "masteries"
-
-
-# ---------------------------------------------------------------------------
-# 差异
-# ---------------------------------------------------------------------------
-
-
-def test_list_diffs_defaults_and_flags(make_client, tmp_settings):
-    app, box, _depot = _app()
-    box.diffs.append(
-        {
-            "id": 1,
-            "char_id": "char_002_amiya",
-            "name": "阿米娅",
-            "field": "level",
-            "manual_value": 42,
-            "recognized_value": 80,
-            "created_at": "2026-10-10T03:00:00Z",
-            "dismissed_at": None,
-        }
-    )
-    client = make_client(app)
-
-    default = client.get("/api/account/operator-diffs").json()
-    assert default["total"] == 1
-    assert default["items"][0]["field"] == "level"
-    assert box.calls[-1][1] == {"include_dismissed": False, "limit": 200}
-
-    flagged = client.get("/api/account/operator-diffs?include_dismissed=true&limit=5")
-    assert flagged.status_code == 200
-    assert box.calls[-1][1] == {"include_dismissed": True, "limit": 5}
-
-    assert client.get("/api/account/operator-diffs?limit=501").status_code == 422
-
-
-def test_dismiss_diffs_with_and_without_ids(make_client, tmp_settings):
-    app, box, _depot = _app()
-    box.diffs.append({"id": 1, "dismissed_at": None})
-    client = make_client(app)
-
-    selected = client.request(
-        "DELETE", "/api/account/operator-diffs", json={"ids": [1, 2]}
-    )
-    assert selected.status_code == 200
-    assert selected.json() == {"dismissed": 1}
-    assert box.calls[-1][1] == {"ids": [1, 2]}
-
-    # 不带请求体 = 全部（ids 透传 None）。
-    everything = client.request("DELETE", "/api/account/operator-diffs")
-    assert everything.status_code == 200
-    assert box.calls[-1][1] == {"ids": None}
-
-    # 未知字段仍然被挡。
-    assert (
-        client.request("DELETE", "/api/account/operator-diffs", json={"all": True}).status_code
-        == 422
-    )
+    assert client.request(method, path, json={}).status_code == status
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +325,11 @@ def test_depot_list_passes_filters_and_reports_summary(make_client, tmp_settings
 
 
 def test_router_declares_the_documented_paths():
-    """附录 C 的路径集合不许漂移（改了路由名 docs/05 §6.20/§6.21 也要改）。"""
+    """附录 C 的路径集合不许漂移（改了路由名 docs/05 §6.20/§6.21 也要改）。
+
+    M47 起 ``PATCH /operators/{char_id}`` 与两条 ``/operator-diffs`` 已下线
+    （docs/13 §8.70）；路径集是冻结的，重新加回来会在这里红。
+    """
     paths = {
         (method, route.path)
         for route in account_router.router.routes
@@ -492,9 +341,6 @@ def test_router_declares_the_documented_paths():
         ("GET", "/api/account/summary"),
         ("GET", "/api/account/operators"),
         ("GET", "/api/account/operators/{char_id}"),
-        ("PATCH", "/api/account/operators/{char_id}"),
-        ("GET", "/api/account/operator-diffs"),
-        ("DELETE", "/api/account/operator-diffs"),
         ("GET", "/api/account/depot"),
         ("GET", "/api/account/upgrade-plans"),
         ("GET", "/api/account/upgrade-plans/{plan_id}"),

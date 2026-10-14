@@ -6,7 +6,6 @@ import AccountPage from './AccountPage'
 import type {
   AccountSummary,
   DepotItem,
-  OperatorDiff,
   OperatorRow,
   SklandQrPoll,
   SklandQrSession,
@@ -102,10 +101,9 @@ export const OPERATORS: OperatorRow[] = [
 /**
  * M35 未识别练度夹具。
  *
- * `UNKNOWN_SKILL_ROW`：识别到了精英化 / 等级 / 潜能（内核 OperBox 只给得出这三个），
- * 技能等级、专精、模组三列是 `null` ＝ **未识别**——这正是 M35 之前被渲染成
- * 「技能 1 级 / 无专精 / 无模组」的现场。
- * `UNKNOWN_ALL_ROW`：只有 `all_opers` 条目、没有详情的干员，六列全未识别。
+ * `UNKNOWN_SKILL_ROW`：同步给到了精英化 / 等级 / 潜能，但技能等级、专精、模组三列是
+ * `null` ＝ **未识别**——这正是 M35 之前被渲染成「技能 1 级 / 无专精 / 无模组」的现场。
+ * `UNKNOWN_ALL_ROW`：行里只有身份、没有练度详情，六列全未识别。
  */
 export const UNKNOWN_SKILL_ROW: OperatorRow = operatorRow({
   char_id: 'char_4093_frston',
@@ -182,15 +180,9 @@ export const DEPOT_ITEM_WITHOUT_COUNT: DepotItem = {
   category: '凭证',
 }
 
-export const OPERATOR_DIFFS: OperatorDiff[] = [
-  { id: 11, char_id: 'char_002_amiya', name: '阿米娅', field: 'elite', manual_value: 1, recognized_value: 2, created_at: '2026-10-08T03:00:00Z' },
-  { id: 12, char_id: 'char_002_amiya', name: '阿米娅', field: 'level', manual_value: 60, recognized_value: 80, created_at: '2026-10-08T03:00:00Z' },
-]
-
 export const SUMMARY: AccountSummary = {
   operators: { recognized: true, total: 3, elite2: 1, recognized_at: '2026-10-02T03:00:00Z', stale: false, stale_days: 2, stale_after_days: 14 },
   depot: { recognized: true, total: 4, elite2: 0, recognized_at: '2026-09-01T03:00:00Z', stale: true, stale_days: 40, stale_after_days: 14 },
-  diffs: OPERATOR_DIFFS.length,
 }
 
 /**
@@ -229,7 +221,6 @@ export const SKLAND_SYNC_SUMMARY: SklandSyncSummary = {
   updated: 47,
   unchanged: 324,
   ownership_cleared: 3,
-  diffs: 5,
   dropped_invalid: 0,
   duration_ms: 820,
 }
@@ -278,8 +269,7 @@ export const SKLAND_QR_FAILED: SklandQrPoll = { state: 'failed', message: '森�
 
 /**
  * 假后端按真形状应答：`/api/account/summary` 是 `{box, depot}`（`elite_two` 而不是
- * `elite2`、`pending_diffs` 而不是 `diffs`），`operator-diffs` 是 `{items, total}`。
- * 测试继续用页面内部的形状写夹具，这里做一次转写。
+ * `elite2`）。测试继续用页面内部的形状写夹具，这里做一次转写。
  */
 function toRawSummary(summary: AccountSummary) {
   return {
@@ -289,7 +279,6 @@ function toRawSummary(summary: AccountSummary) {
       recognized_at: summary.operators.recognized ? summary.operators.recognized_at : null,
       stale: summary.operators.stale,
       stale_days: summary.operators.stale_after_days,
-      pending_diffs: summary.diffs,
     },
     depot: {
       total: summary.depot.total,
@@ -303,11 +292,8 @@ function toRawSummary(summary: AccountSummary) {
 export interface AccountApiOptions {
   summary?: AccountSummary
   operators?: OperatorRow[]
-  diffs?: OperatorDiff[]
   depot?: DepotItem[]
   categories?: string[]
-  patchStatus?: number
-  dismissStatus?: number
   /** `GET /api/skland/status` 的响应；默认未绑定（`SKLAND_UNBOUND`）。 */
   skland?: Partial<SklandStatus>
   /** `POST /api/skland/login/qrcode` 的 200 响应；默认 `SKLAND_QR_SESSION`。 */
@@ -367,14 +353,12 @@ function pngResponse(body: Uint8Array = TINY_PNG): Response {
 }
 
 /**
- * 假后端：干员与仓库的筛选按查询参数处理，`PATCH` 会改内存里的那一行，
- * 这样「保存后刷新列表」能看到新值。
+ * 假后端：干员与仓库的筛选按查询参数处理（M47 起干员表只读，没有写路径）。
  */
 export function installAccountApi(options: AccountApiOptions = {}) {
   const state = {
     summary: options.summary ?? SUMMARY,
     operators: (options.operators ?? OPERATORS).map((row) => ({ ...row })),
-    diffs: [...(options.diffs ?? OPERATOR_DIFFS)],
     depot: [...(options.depot ?? DEPOT_ITEMS)],
     categories: options.categories ?? ['材料', '货币'],
   }
@@ -444,35 +428,6 @@ export function installAccountApi(options: AccountApiOptions = {}) {
       if (query) rows = rows.filter((row) => row.name.includes(query))
       // 容器键与真后端一致：`{items, total, limit, offset}`（路由的 `response_model`）。
       return jsonResponse({ items: rows.slice(offset, offset + limit), total: rows.length, limit, offset })
-    }
-
-    const patch = url.pathname.match(/^\/api\/account\/operators\/([^/]+)$/)
-    if (patch && request.method === 'PATCH') {
-      if (options.patchStatus && options.patchStatus >= 400) {
-        return jsonResponse({ error: { code: 'VALIDATION_ERROR', message: '编辑约束不满足' } }, options.patchStatus)
-      }
-      const body = text ? (JSON.parse(text) as Partial<OperatorRow>) : {}
-      const current = state.operators.find((row) => row.char_id === patch[1])
-      if (!current) return jsonResponse({ error: { code: 'NOT_FOUND', message: '没有这名干员' } }, 404)
-      const updated: OperatorRow = { ...current, ...body }
-      state.operators = state.operators.map((row) => (row.char_id === patch[1] ? updated : row))
-      return jsonResponse(updated)
-    }
-
-    if (url.pathname === '/api/account/operator-diffs' && request.method === 'GET') {
-      // 后端返回 `{items, total}`（`web/src/features/account/api.ts` 的转写层）。
-      return jsonResponse({ items: state.diffs, total: state.diffs.length })
-    }
-    if (url.pathname === '/api/account/operator-diffs' && request.method === 'DELETE') {
-      if (options.dismissStatus && options.dismissStatus >= 400) {
-        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: '标记失败' } }, options.dismissStatus)
-      }
-      const body = text ? (JSON.parse(text) as { ids?: number[] }) : {}
-      const ids = body.ids ?? []
-      const dismissed = ids.length ? state.diffs.filter((diff) => ids.includes(diff.id)).length : state.diffs.length
-      state.diffs = ids.length ? state.diffs.filter((diff) => !ids.includes(diff.id)) : []
-      state.summary = { ...state.summary, diffs: state.diffs.length }
-      return jsonResponse({ dismissed })
     }
 
     if (url.pathname === '/api/account/depot') {

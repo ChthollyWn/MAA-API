@@ -132,7 +132,6 @@ const TOOL_LABELS: Record<string, string> = {
   list_infrast_plans: '查基建方案',
   update_user_profile: '修改用户档案',
   get_depot: '查仓库',
-  update_operator_box: '修改干员数据',
   plan_upgrade: '算养成规划',
   start_upgrade_plan: '启动养成计划',
   list_upgrade_plans: '查养成计划',

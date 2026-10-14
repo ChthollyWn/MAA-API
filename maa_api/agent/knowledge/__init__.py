@@ -412,7 +412,7 @@ def render_account_lines(summary: Mapping[str, Any] | None) -> list[str]:
 def _operator_line(operators: Mapping[str, Any]) -> str | None:
     """干员那一行：数量、精二数、识别时间与是否过期。"""
     if not operators.get("recognized"):
-        return "干员：尚未识别（需要时建议运行干员识别）"
+        return "干员：尚未同步（需要时建议在账号页绑定森空岛账号并同步练度）"
     total = operators.get("total")
     elite2 = operators.get("elite2")
     if not isinstance(total, int):
@@ -437,8 +437,10 @@ def _depot_line(depot: Mapping[str, Any]) -> str | None:
 
 
 def _recognized_stamp(payload: Mapping[str, Any]) -> str | None:
-    """`识别于 10-02（7 天前）`；过期时补一句建议。
+    """`识别于 10-02（7 天前）`；过期时补「，已过期」。
 
+    过期只说「已过期」，不写「建议重新识别」：干员行与仓库行共用这个函数，前者靠
+    森空岛同步更新、后者靠仓库识别更新，点其中一种方式都会说错另一边。
     天数由 ``recognized_at`` 现算——``stale_days`` 是配置里的**过期阈值**，不是已过天数，
     两者混用会把「14 天阈值」写成「（14 天前）」。
     """
@@ -454,7 +456,7 @@ def _recognized_stamp(payload: Mapping[str, Any]) -> str | None:
     suffix = f"（{age} 天前）" if age >= 0 else ""
     text = f"识别于 {stamp}{suffix}"
     if payload.get("stale"):
-        text += "，已过期，建议重新识别"
+        text += "，已过期"
     return text
 
 

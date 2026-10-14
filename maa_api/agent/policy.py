@@ -35,13 +35,12 @@ CONSUMPTION_UNDETERMINED_REASON = (
 ATOMIC_TOOL_NAMES = frozenset(
     {"click", "swipe", "long_press", "input_text", "key_event"}
 )
-#: 每次调用都要人工确认的账号写入（规格 §7.4、§7.7）：风险是 NONE，但要用户看见差异。
+#: 每次调用都要人工确认的账号写入（规格 §7.4、§7.7）：风险是 NONE，但要用户看见改动。
 ACCOUNT_WRITE_TOOLS = frozenset(
     {
-        "update_operator_box",
         "start_upgrade_plan",
         "update_user_profile",
-        # M42：森空岛同步会覆盖整表练度（含用户手改过的字段），每次都要用户看见。
+        # M42：森空岛同步会覆盖整表练度（M47 起是干员数据的唯一来源），每次都要用户看见。
         "sync_skland_training",
     }
 )
@@ -115,7 +114,7 @@ class PolicyDecision:
     confirmation_action: str | None = None
     authorized_by: str | None = None
     window_seconds: int | None = None
-    #: 写进确认 payload 的附加内容（如 `update_operator_box` 的逐字段差异）。
+    #: 写进确认 payload 的附加内容（如 `update_user_profile` 的改动前后内容）。
     extra_payload: Mapping[str, Any] | None = None
 
 
@@ -274,27 +273,8 @@ class PolicyEngine:
     async def _evaluate_account_write(
         self, name: str, arguments: Any, context: ToolContext
     ) -> PolicyDecision:
-        """账号写入的确认：风险 NONE，但每次都弹卡片，并带上改动前后的差异。
-
-        `update_operator_box` 的差异按「当前值 → 目标值」逐字段算（Q36：写入前让用户
-        看见差异）；读不到当前值时只列目标值，不因为读失败而跳过确认。
-        """
+        """账号写入的确认：风险 NONE，但每次都弹卡片，并带上改动前后的差异。"""
         value = _as_json_value(arguments, exclude_unset=False)
-        payload: dict[str, Any] | None = None
-        if name == "update_operator_box" and isinstance(value, Mapping):
-            changes = value.get("changes")
-            count = len(changes) if isinstance(changes, list) else 0
-            payload = {
-                "diff": await _operator_diff(changes, context),
-                "summary": f"修改账号干员数据：{count} 项改动",
-            }
-            return PolicyDecision(
-                True,
-                RiskLevel.NONE,
-                reasons=(f"修改账号干员数据：{count} 项改动",),
-                confirmation_action=name,
-                extra_payload=payload,
-            )
         if name == "update_user_profile" and isinstance(value, Mapping):
             section = str(value.get("section") or "")
             mode = str(value.get("mode") or "replace")
@@ -348,8 +328,8 @@ class PolicyEngine:
                 RiskLevel.NONE,
                 reasons=(
                     summary,
-                    "会用森空岛账号数据覆盖练度六列与信赖；被你手动改过、且与这次读数"
-                    "不同的字段会记一条差异，可以在账号页确认",
+                    "会用森空岛账号数据覆盖整表练度（精英化、等级、潜能、技能等级、"
+                    "专精、模组与信赖），这是账号干员数据的唯一来源",
                 ),
                 confirmation_action=name,
                 extra_payload={"summary": summary},
@@ -456,43 +436,6 @@ class PolicyEngine:
         )
 
 
-async def _operator_diff(
-    changes: Any, context: ToolContext
-) -> list[dict[str, Any]]:
-    """逐字段差异：``[{"operator", "field", "from", "to"}]``。
-
-    读不到当前值（没有会话、没有该干员、服务未装配）时 ``from`` 为 ``None``：确认卡片
-    仍然显示「将要改成什么」，只是没有旧值可比。
-    """
-    if not isinstance(changes, list) or context.db_session is None:
-        return []
-    diff: list[dict[str, Any]] = []
-    for change in changes:
-        if not isinstance(change, Mapping):
-            continue
-        operator = change.get("operator")
-        if not isinstance(operator, str) or not operator:
-            continue
-        current = await _current_operator(operator, context)
-        for field, value in change.items():
-            if field == "operator" or value is None:
-                # 模型带默认值时 `exclude_unset=False` 会把没填的字段也 dump 成 None；
-                # 那不是「要改成 None」，而是「没提这个字段」。
-                continue
-            before = current.get(field) if isinstance(current, Mapping) else None
-            if before == value:
-                continue
-            diff.append(
-                {
-                    "operator": operator,
-                    "field": field,
-                    "from": before,
-                    "to": value,
-                }
-            )
-    return diff
-
-
 async def _profile_diff(
     value: Mapping[str, Any], context: ToolContext
 ) -> list[dict[str, Any]]:
@@ -535,32 +478,6 @@ async def _current_profile_section(
         service = KnowledgeService(factory)
         entry = await service.read_for_agent(PROFILE_ENTRY_ID)
         return split_profile_sections(entry.body).get(section)
-    except Exception:  # noqa: BLE001 - 差异只是确认卡片的附加信息
-        return None
-
-
-async def _current_operator(
-    operator: str, context: ToolContext
-) -> Mapping[str, Any] | None:
-    """读当前干员行；任何失败都返回 ``None``（确认照常进行）。"""
-    try:
-        from maa_api.services.account.box import OperatorBoxService
-
-        session = context.db_session
-
-        def factory():  # pragma: no cover - 直接复用调用方已有的会话
-            class _Existing:
-                async def __aenter__(self_inner):
-                    return session
-
-                async def __aexit__(self_inner, *exc):
-                    return False
-
-            return _Existing()
-
-        service = OperatorBoxService(factory)
-        row = await service.get_operator(operator)
-        return row if isinstance(row, Mapping) else None
     except Exception:  # noqa: BLE001 - 差异只是确认卡片的附加信息
         return None
 

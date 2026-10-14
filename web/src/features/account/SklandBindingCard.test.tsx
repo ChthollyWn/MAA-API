@@ -231,7 +231,7 @@ describe('M42 森空岛绑定卡片', () => {
     expect(await within(region).findByTestId('skland-account')).toHaveTextContent('罗德岛博士 · 114 级 · 共 2 个角色')
     expect(within(region).getByText(/^上次同步 \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)).toBeInTheDocument()
     expect(within(region).getByText('本轮 383 名：新增 12 · 更新 47 · 未变 324')).toBeInTheDocument()
-    expect(within(region).getByText('清掉未拥有 3 名 · 记下差异 5 处')).toBeInTheDocument()
+    expect(within(region).getByText('清掉未拥有 3 名')).toBeInTheDocument()
     expect(within(region).getByText('耗时 0.8 秒')).toBeInTheDocument()
     // `dropped_invalid` 为 0 时不提（§4.8）。
     expect(region).not.toHaveTextContent('丢弃越界值')
@@ -245,7 +245,7 @@ describe('M42 森空岛绑定卡片', () => {
       skland: SKLAND_BOUND,
       // 同步的响应先挂住：这样「进行中」这一段是确定的，不是抢在请求回来之前断言。
       holdSklandSync: true,
-      sklandSyncSummary: { created: 20, updated: 0, unchanged: 300, ownership_cleared: 0, diffs: 0, duration_ms: 1_500 },
+      sklandSyncSummary: { created: 20, updated: 0, unchanged: 300, ownership_cleared: 0, duration_ms: 1_500 },
     })
 
     const region = await card()
@@ -319,7 +319,6 @@ describe('M42 干员列表的森空岛来源徽章', () => {
 
   it('field_sources 带 skland 时行内显示「森空岛」，提示写明是同步写进来的', async () => {
     installAccountApi({
-      diffs: [],
       skland: SKLAND_BOUND,
       operators: [
         operatorRow({
@@ -335,9 +334,6 @@ describe('M42 干员列表的森空岛来源徽章', () => {
     const badge = await screen.findByTestId('operator-source-char_002_amiya-skland')
     expect(badge).toHaveTextContent('森空岛')
     expect(within(badge).getByTitle('由森空岛账号数据同步写入')).toBeInTheDocument()
-    // 三档旧来源照旧，排序是识别 → 手动 → Agent → 森空岛。
-    expect(screen.getByTestId('operator-source-char_002_amiya-recognition')).toHaveTextContent('识别')
-    expect(screen.queryByTestId('operator-source-char_002_amiya-manual')).not.toBeInTheDocument()
   })
 })
 
@@ -355,7 +351,6 @@ describe('M42 文案与响应兜底', () => {
       updated: 0,
       unchanged: 0,
       ownership_cleared: 0,
-      diffs: 0,
       dropped_invalid: 0,
       duration_ms: 0,
     }
@@ -431,7 +426,7 @@ describe('M42 文案与响应兜底', () => {
     expect(await startSklandQrLogin()).toMatchObject({ session_id: 'qr-1', poll_interval_ms: 2_000 })
     expect(await pollSklandQrLogin('qr-1')).toMatchObject({ state: 'waiting', roles: [] })
     expect(await bindSklandManual({ cred: 'c', token: 't' })).toMatchObject({ bound: true })
-    expect(await syncSkland()).toMatchObject({ status: 'succeeded', total: 383, created: 12, diffs: 5 })
+    expect(await syncSkland()).toMatchObject({ status: 'succeeded', total: 383, created: 12 })
     expect(await unbindSkland()).toBe(false)
 
     expect(calls).toEqual([

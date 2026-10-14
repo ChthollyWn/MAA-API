@@ -11,9 +11,9 @@ function json(body: unknown, status = 200): Response {
 function confirmation(overrides: Record<string, unknown>) {
   return {
     confirmation_id: 'confirm-1',
-    action: 'update_operator_box',
+    action: 'submit_pipeline',
     risk_level: 'none',
-    reason: '修改账号干员数据：2 项改动',
+    reason: '提交流水线：1 个任务',
     status: 'pending',
     requested_by: 'internal',
     expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -41,32 +41,6 @@ describe('M27 确认卡片', () => {
     cleanup()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
-  })
-
-  it('update_operator_box 渲染逐字段差异，不展开成 JSON', async () => {
-    renderCard(confirmation({
-      payload: {
-        tool_name: 'update_operator_box',
-        arguments: { changes: [{ operator: '阿米娅', elite: 2 }], reason: '手动修正识别结果' },
-        diff: [
-          { operator: '阿米娅', field: 'elite', from: 1, to: 2 },
-          { operator: '阿米娅', field: 'level', from: 60, to: 80 },
-        ],
-        summary: '修改账号干员数据：2 项改动',
-      },
-    }))
-
-    expect(await screen.findByText('修改账号干员数据')).toBeInTheDocument()
-    const rows = await screen.findByLabelText('逐字段差异')
-    expect(rows).toHaveTextContent('阿米娅')
-    expect(rows).toHaveTextContent('精英化')
-    expect(rows).toHaveTextContent('精一')
-    expect(rows).toHaveTextContent('精二')
-    expect(rows).toHaveTextContent('等级')
-    expect(rows).toHaveTextContent('60')
-    expect(rows).toHaveTextContent('80')
-    expect(screen.getByText('理由：手动修正识别结果')).toBeInTheDocument()
-    expect(screen.queryByText('查看操作参数')).not.toBeInTheDocument()
   })
 
   it('start_upgrade_plan 渲染摘要：目标数与每日时刻', async () => {

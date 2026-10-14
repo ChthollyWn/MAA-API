@@ -15,7 +15,10 @@ import type { components } from '@/types/api'
  * （W3 期间临时加的手写覆盖层已撤掉，见下面森空岛那一段）。
  */
 
-/** 字段来源：识别 / 手动 / Agent / 森空岛（§7.3、§7.4、M42 §4.5）。 */
+/**
+ * 字段来源。M47 起干员数据只有森空岛同步一个写入者（docs/13 §8.70），其余三个取值
+ * 只可能出现在 M47 之前的历史响应里；读侧照旧原样透传，不猜、不改写。
+ */
 export type FieldSource = 'recognition' | 'manual' | 'agent' | 'skland'
 
 /** `GET /api/account/summary` 里干员与仓库各占一份。 */
@@ -32,7 +35,6 @@ export interface AccountSummaryEntry {
 export interface AccountSummary {
   operators: AccountSummaryEntry
   depot: AccountSummaryEntry
-  diffs: number
 }
 
 /** 模组明细（M43 规格 §4.3）：与后端 `AccountModuleDetail` 同形。 */
@@ -51,9 +53,9 @@ export interface OperatorRow {
   rarity: number
   own: boolean
   /**
-   * 练度六列（M35）：`null` ＝ **未识别**，既没有识别值也没有 manual / agent 写入。
-   * 展示层必须写「未识别」，不许折算成 0 级 / 技能 1 级 / 无专精；内核 OperBox 只
-   * 识别 `elite` / `level` / `potential`，技能等级、专精、模组只有人工或 Agent 写过才有值。
+   * 练度六列（M35）：`null` ＝ **未识别**，即那次森空岛同步没给这一项（或上游给了越界值）。
+   * 展示层必须写「未识别」，不许折算成 0 级 / 技能 1 级 / 无专精（M47 起干员数据只有
+   * 森空岛一个来源，没有第二条写入通道）。
    */
   elite: number | null
   level: number | null
@@ -96,27 +98,6 @@ export interface OperatorListQuery {
   elite_min?: number
   limit: number
   offset: number
-}
-
-/** `PATCH /api/account/operators/{char_id}`：只含要改的字段。 */
-export interface OperatorPatch {
-  own?: boolean
-  elite?: number
-  level?: number
-  potential?: number
-  skill_level?: number
-  masteries?: Record<string, number>
-  modules?: Record<string, number>
-}
-
-export interface OperatorDiff {
-  id: number
-  char_id: string
-  name: string
-  field: string
-  manual_value: unknown
-  recognized_value: unknown
-  created_at: string
 }
 
 /**
@@ -237,8 +218,6 @@ export interface SklandSyncSummary {
   unchanged: number
   /** 整轮完整成功时被置成「未拥有」的干员数（§4.5 护栏 ③）。 */
   ownership_cleared: number
-  /** 与既有 manual / agent 值不同、记进 `AccountOperatorDiff` 的处数。 */
-  diffs: number
   /** 越界被丢弃的专精 / 模组值处数（§4.5 护栏 ②）。 */
   dropped_invalid: number
   duration_ms: number
@@ -304,16 +283,10 @@ interface Result<T> {
 interface AccountEndpoints {
   GET: {
     (path: '/api/account/summary', init?: { signal?: AbortSignal }): Promise<Result<AccountSummaryRaw>>
-    (path: '/api/account/operator-diffs', init?: { signal?: AbortSignal }): Promise<Result<{ items: OperatorDiff[]; total?: number }>>
     (path: '/api/account/upgrade-plans', init?: { params?: { query?: UpgradePlanListQuery }; signal?: AbortSignal }): Promise<Result<UpgradePlanListPayload>>
     (path: '/api/account/upgrade-plans/{plan_id}', init: { params: { path: { plan_id: string } }; signal?: AbortSignal }): Promise<Result<UpgradePlan>>
   }
-  PATCH: (
-    path: '/api/account/operators/{char_id}',
-    init: { params: { path: { char_id: string } }; body: OperatorPatch },
-  ) => Promise<Result<OperatorRow>>
   DELETE: {
-    (path: '/api/account/operator-diffs', init?: { body?: { ids?: number[] } }): Promise<Result<{ dismissed: number }>>
     /** 取消计划：后端删掉定时任务并把状态置成 `cancelled`，返回取消后的 wire。 */
     (path: '/api/account/upgrade-plans/{plan_id}', init: { params: { path: { plan_id: string } } }): Promise<Result<UpgradePlan>>
   }
@@ -331,7 +304,6 @@ export const accountKeys = {
   /** 干员列表的整片前缀；`invalidateQueries` 会连带命中所有带筛选参数的键。 */
   operatorsAll: () => [...accountRoot, 'operators'] as const,
   operators: (filters?: Readonly<Record<string, unknown>>) => [...accountRoot, 'operators', filters ?? {}] as const,
-  diffs: () => [...accountRoot, 'operator-diffs'] as const,
   depotAll: () => [...accountRoot, 'depot'] as const,
   depot: (filters?: Readonly<Record<string, unknown>>) => [...accountRoot, 'depot', filters ?? {}] as const,
   /** 养成计划列表的整片前缀；`invalidateQueries` 会连带命中将来带筛选参数的键。 */
@@ -365,7 +337,7 @@ const EMPTY_SUMMARY_ENTRY: AccountSummaryEntry = {
  * `pnpm gen:api` 之后可以按生成的类型替换这层转写。
  */
 interface AccountSummaryRaw {
-  box?: { total?: number; elite_two?: number; recognized_at?: string | null; stale?: boolean; stale_days?: number; pending_diffs?: number }
+  box?: { total?: number; elite_two?: number; recognized_at?: string | null; stale?: boolean; stale_days?: number }
   depot?: { total?: number; recognized_at?: string | null; stale?: boolean; stale_days?: number }
 }
 
@@ -393,7 +365,6 @@ export function normalizeSummary(value: AccountSummaryRaw | undefined): AccountS
       stale: depot.stale ?? !depot.recognized_at,
       stale_after_days: depot.stale_days ?? 0,
     },
-    diffs: box.pending_diffs ?? 0,
   }
 }
 
@@ -454,30 +425,6 @@ export async function fetchOperators(query: OperatorListQuery, signal?: AbortSig
     limit: data.limit ?? query.limit,
     offset: data.offset ?? query.offset,
   }
-}
-
-export async function patchOperator(charId: string, body: OperatorPatch): Promise<OperatorRow> {
-  const { data, error, response } = await accountApi.PATCH('/api/account/operators/{char_id}', {
-    params: { path: { char_id: charId } },
-    body,
-  })
-  if (error || !data) throw toApiError(error, response)
-  return data
-}
-
-export async function fetchOperatorDiffs(signal?: AbortSignal): Promise<OperatorDiff[]> {
-  const { data, error, response } = await accountApi.GET('/api/account/operator-diffs', { signal })
-  if (error || !data) throw toApiError(error, response)
-  return data.items ?? []
-}
-
-/** 传 `ids` 只标记这几条；不传（或空数组）＝全部标记已知（规格 §7.4）。 */
-export async function dismissOperatorDiffs(ids?: number[]): Promise<number> {
-  const { data, error, response } = ids?.length
-    ? await accountApi.DELETE('/api/account/operator-diffs', { body: { ids } })
-    : await accountApi.DELETE('/api/account/operator-diffs')
-  if (error) throw toApiError(error, response)
-  return data?.dismissed ?? 0
 }
 
 /** 仓库行兜底：映射不到的物品名为空，页面按 `item_id` 展示（服务层也这么兜）。 */
@@ -601,7 +548,7 @@ export function normalizeSklandRoles(value: unknown): SklandRole[] {
 export function normalizeSklandSyncSummary(value: unknown): SklandSyncSummary | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const raw = value as Partial<SklandSyncSummary>
-  const counters = ['total', 'created', 'updated', 'unchanged', 'ownership_cleared', 'diffs', 'dropped_invalid', 'duration_ms'] as const
+  const counters = ['total', 'created', 'updated', 'unchanged', 'ownership_cleared', 'dropped_invalid', 'duration_ms'] as const
   const readable = typeof raw.status === 'string' || counters.some((key) => typeof raw[key] === 'number')
   if (!readable) return null
   const count = (item: unknown) => (typeof item === 'number' && Number.isFinite(item) ? item : 0)
@@ -615,7 +562,6 @@ export function normalizeSklandSyncSummary(value: unknown): SklandSyncSummary | 
     updated: count(raw.updated),
     unchanged: count(raw.unchanged),
     ownership_cleared: count(raw.ownership_cleared),
-    diffs: count(raw.diffs),
     dropped_invalid: count(raw.dropped_invalid),
     duration_ms: count(raw.duration_ms),
   }

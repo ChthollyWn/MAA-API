@@ -197,7 +197,7 @@ const UNKNOWN_NOTES_PLAN = {
     ...ACTIVE_PLAN.progress,
     notes: [
       '合成按 PRTS 材料页的加工站配方（需求闭包递归取）',
-      '圣约送葬人的专精未识别，未计入材料增量；跑一次干员识别或用 Agent/页面补录后再算',
+      '「圣约送葬人」的专精未识别，未计入相应增量；先在账号页绑定森空岛账号并同步练度后再算',
     ],
   },
 }
@@ -271,7 +271,7 @@ describe('M35 待确认项（§4.7）', () => {
 
     expect(await screen.findByText('待确认')).toBeInTheDocument()
     expect(
-      screen.getByText('圣约送葬人的专精未识别，未计入材料增量；跑一次干员识别或用 Agent/页面补录后再算'),
+      screen.getByText('「圣约送葬人」的专精未识别，未计入相应增量；先在账号页绑定森空岛账号并同步练度后再算'),
     ).toBeInTheDocument()
     expect(screen.queryByText('合成按 PRTS 材料页的加工站配方（需求闭包递归取）')).not.toBeInTheDocument()
   })

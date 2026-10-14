@@ -205,6 +205,13 @@ curl -X POST http://<host>:8002/api/snippets \
 | `GAME_DATA_NOT_FOUND` | 404 | 来源上确实没有这条数据：PRTS 没有这个页面、关卡或搜索结果 |
 | `ACCOUNT_DATA_NOT_FOUND` | 404 | 账号数据里查无此对象：`GET /api/account/operators/{char_id}` 没有该干员的记录，或账号数据尚未识别过 |
 | `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（计划的工具入口是 `list_upgrade_plans` / `cancel_upgrade_plan`，REST 入口见 §6.21「养成计划（M31）」） |
+| `SKLAND_NOT_BOUND` | 409 | 还没有绑定森空岛账号（库里没有凭据），而这次请求必须要凭据：`POST /api/skland/sync`。`GET /api/skland/status` 不抛它，只返回 `bound=false` |
+| `SKLAND_LOGIN_EXPIRED` | 409 | 扫码会话到期（TTL 180 秒）、已被消费，或上游判定失效（`scan_status` 回 `status=102`）；用户重新生成一张二维码即可 |
+| `SKLAND_LOGIN_FAILED` | 401 | 手动兜底绑定（`POST /api/skland/login/manual`）提交的 `cred` / 签名密钥被上游拒绝（`401` + `code:10002`） |
+| `SKLAND_QR_SESSION_NOT_FOUND` | 404 | 轮询或消费的 `session_id` 不在内存会话表里：服务重启、已成功消费，或前端传错 id |
+| `SKLAND_UPSTREAM_FAILED` | 502 | 上游答复了但不能用：业务码非 0、`scan_status` 的 `status` 既不是 `0`/`100`/`102`、响应结构不符约定，或整轮 `chars` 数量低于护栏阈值（此时整轮不写库，见 [spec §4.5](./superpowers/specs/2026-10-12-m42-skland-training.md)） |
+| `SKLAND_ENCRYPTION_KEY_INVALID` | 409 | `skland.credential_key` 缺失或不是合法 Fernet key；绑定前必须先配好（行为与 `LLM_ENCRYPTION_KEY_INVALID` 同款） |
+| `SKLAND_SYNC_BUSY` | 409 | 同一时刻已经有一次同步在跑（全局互斥锁没拿到） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->
@@ -222,6 +229,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `settings` | 可视化配置 |
 | `sources` | 外部数据源状态与缓存 |
 | `account` | 账号数据（干员、仓库与养成计划） |
+| `skland` | 森空岛账号（扫码绑定、练度同步与解绑） |
 | `notifications` | 多通道通知 |
 | `resources` | Copilot 作业、基建方案、自定义 task |
 | `snippets` | API 调试台收藏请求 |

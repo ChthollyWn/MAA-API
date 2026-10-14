@@ -108,8 +108,8 @@ afterEach(() => {
 describe('TaskEditor', () => {
   it('renders a labelled control for every property of the twelve fixture task types (T1)', () => {
     installFetch()
-    // fixture 与 `GET /api/tasks/types` 一致（M27 的 OperBox / Depot 已并入）。
-    expect(types).toHaveLength(13)
+    // fixture 与 `GET /api/tasks/types` 一致（M27 的 OperBox / Depot 已并入；OperBox 于 M47 删除）。
+    expect(types).toHaveLength(12)
     for (const taskType of types) {
       const { container, unmount } = renderEditor({ taskType })
       for (const [name, field] of Object.entries(taskType.schema.properties as Record<string, JsonSchema>)) {

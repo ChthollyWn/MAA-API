@@ -9,8 +9,6 @@ import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import {
   compactText,
-  diffValueText,
-  fieldLabel,
   finiteNumber,
   parsePlanStages,
   planRunsTotal,
@@ -37,11 +35,11 @@ export interface ConfirmationCardProps {
 }
 
 /**
- * 账号数据动作的卡片标题（规格 §7.4、§7.7）；这两类动作不把 payload 当普通 JSON 展开，
- * 而是渲染逐字段差异 / 计划摘要。
+ * 账号数据动作的卡片标题（规格 §7.4、§7.7）；这三类动作不把 payload 当普通 JSON 展开，
+ * 而是渲染计划摘要 / 档案改动。M47 删掉 `update_operator_box` 之后，干员数据不再有
+ * 需要人工确认的写入动作（docs/13 §8.70）。
  */
 const ACCOUNT_TOOL_TITLES: Record<string, string> = {
-  update_operator_box: '修改账号干员数据',
   start_upgrade_plan: '启动养成计划',
   update_user_profile: '修改用户档案',
   sync_skland_training: '同步森空岛练度',
@@ -59,24 +57,8 @@ interface ProfileDiffRow {
   mode: string
 }
 
-interface OperatorDiffRow {
-  operator: string
-  field: string
-  from: unknown
-  to: unknown
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-/** `update_operator_box` 的 `payload.diff`：`[{operator, field, from, to}]`。 */
-export function parseOperatorDiff(payload: Record<string, unknown>): OperatorDiffRow[] {
-  const rows = Array.isArray(payload.diff) ? payload.diff : []
-  return rows.flatMap((row) => {
-    if (!isRecord(row) || typeof row.operator !== 'string' || typeof row.field !== 'string') return []
-    return [{ operator: row.operator, field: row.field, from: row.from, to: row.to }]
-  })
 }
 
 /** `update_user_profile` 的 `payload.diff`：`[{section, from, to, mode}]`（§8.3）。 */
@@ -358,36 +340,15 @@ export function AccountActionDetails({
   /** 已显示的确认理由；后端把冲突提示拼在这里，命中时不再重复渲染一遍。 */
   reason?: string | null
 }) {
-  const operatorDiff = toolName === 'update_operator_box' ? parseOperatorDiff(payload) : []
   const profileDiff = toolName === 'update_user_profile' ? parseProfileDiff(payload) : []
   const upgradePlan = toolName === 'start_upgrade_plan' ? parseUpgradePlan(payload) : null
   const preview = parseUpgradePreview(payload.preview)
   const conflictsInReason = Boolean(reason && reason.includes(CONFLICT_REASON_PREFIX))
   // 预演失败时后端只给一句话（`preview_error`）：保留摘要，末尾轻描淡写地说明预演不可用。
   const previewError = typeof payload.preview_error === 'string' && payload.preview_error.trim() ? payload.preview_error : null
-  if (!operatorDiff.length && !profileDiff.length && !upgradePlan) return null
+  if (!profileDiff.length && !upgradePlan) return null
   return (
     <div className="space-y-3">
-      {operatorDiff.length ? (
-        <div className="space-y-1.5">
-          <p className="text-sm font-medium">逐字段差异</p>
-          <ul aria-label="逐字段差异" className="divide-y overflow-hidden rounded-lg border">
-            {operatorDiff.map((row, index) => (
-              <li key={`${row.operator}-${row.field}-${index}`} className="flex items-center gap-3 p-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{row.operator}</p>
-                  <p className="text-footnote text-muted-foreground">{fieldLabel(row.field)}</p>
-                </div>
-                <p className="shrink-0 text-right text-footnote tabular-nums">
-                  <span className="text-muted-foreground line-through">{diffValueText(row.field, row.from)}</span>
-                  <span aria-hidden="true" className="px-1 text-muted-foreground">→</span>
-                  <span className="font-medium">{diffValueText(row.field, row.to)}</span>
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       {profileDiff.length ? (
         <div className="space-y-1.5">
           <p className="text-sm font-medium">用户档案改动</p>
