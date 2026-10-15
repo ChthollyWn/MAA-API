@@ -530,6 +530,68 @@ def test_model_context_keeps_every_turn_by_default_even_beyond_the_removed_cap()
     assert len(json.dumps(context, ensure_ascii=False)) > old_default_cap
 
 
+def test_historical_reasoning_is_kept_only_for_the_newest_assistant_message():
+    """M52：历史思考内容只回灌最后一条，且不超过预算。
+
+    复现 2026-10-14「运行yw-1不用代理」会话的形态：多条 assistant 各带超长思考，
+    最后一次请求的 prompt 涨到 103 万 token。上游只要求「刚生成的那条」带
+    ``reasoning_content``，历史条目回灌等于按轮次重复计费。
+    """
+    from maa_api.agent.runtime import HISTORICAL_REASONING_CHARS, build_model_context
+
+    history: list[AgentMessage] = []
+    seq = 0
+    for turn in range(4):
+        history.append(
+            AgentMessage(session_id="s", seq=seq, role="user", content=f"第 {turn} 轮")
+        )
+        seq += 1
+        history.append(
+            AgentMessage(
+                session_id="s",
+                seq=seq,
+                role="assistant",
+                content=f"第 {turn} 轮回答",
+                reasoning_content="思" * 100_000,
+                tool_calls=[
+                    {
+                        "id": f"call_{turn}",
+                        "type": "function",
+                        "function": {"name": "get_screenshot", "arguments": "{}"},
+                    }
+                ],
+            )
+        )
+        seq += 1
+        history.append(
+            AgentMessage(
+                session_id="s",
+                seq=seq,
+                role="tool",
+                content="ok",
+                tool_call_id=f"call_{turn}",
+                tool_name="get_screenshot",
+            )
+        )
+        seq += 1
+
+    context = build_model_context(history, system_prompt="sys")
+
+    assistants = [m for m in context if m["role"] == "assistant"]
+    assert len(assistants) == 4, "轮次一条都不能丢"
+    kept = [m for m in assistants if m.get("reasoning_content")]
+    assert len(kept) == 1, "只有最后一条 assistant 保留思考内容"
+    assert kept[0] is assistants[-1]
+    assert len(kept[0]["reasoning_content"]) == HISTORICAL_REASONING_CHARS, "保留量按预算截尾"
+    # 原始历史被削掉 40 万字，回灌量只剩一个预算
+    raw = sum(len(m.reasoning_content or "") for m in history)
+    assert raw == 400_000
+    assert (
+        sum(len(m.get("reasoning_content") or "") for m in assistants)
+        == HISTORICAL_REASONING_CHARS
+    )
+
+
 def test_explicit_max_context_chars_still_trims_and_overflows():
     """显式传正整数时保持老语义：先丢最早的完整轮次，连最后一轮都装不下就报 400。"""
     from maa_api.agent.runtime import build_model_context
