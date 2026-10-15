@@ -71,10 +71,14 @@ class _TurnDraft:
 
 
 DEFAULT_MAX_ITERATIONS: int | None = None
-#: 会话上下文长度上限。``None``＝**不设本地上限**（默认）：注入多少历史以模型自身的
-#: 上下文窗口为准，装不下时由上游拒绝，再映射成 ``LLM_CONTEXT_OVERFLOW``（见 ``llm.py``）。
-#: 正整数只用于测试与需要受限的调用方，语义是「按字符数丢掉最早的完整轮次」。
-DEFAULT_MAX_CONTEXT_CHARS: int | None = None
+#: 会话上下文长度上限（字符）。正整数时按「丢掉最早的完整轮次」裁剪，最近一个完整
+#: 工具轮次与最后一轮受保护；连它们都装不下才抛 ``LLM_CONTEXT_OVERFLOW``。
+#:
+#: M53 起默认 **400 000 字符**（不再是「不设上限」）。原因：2026-10-14 的
+#: 「运行yw-1不用代理」会话里 prompt 涨到 1 030 502 token、单步 114 秒，而唯一的
+#: 兜底是上游拒绝，那时整个会话已经废了。400 000 字符按该会话实测的 3.3 字/token
+#: 折算约 12 万 token，留出余量；裁剪是渐进的（丢最早的完整轮次），不是一刀切失败。
+DEFAULT_MAX_CONTEXT_CHARS: int | None = 400_000
 DEFAULT_CONFIRMATION_POLL_SECONDS = 0.25
 #: ``ask_user`` 未获回答时的两种收尾文案（规格 §3.5）。过期文案**不写时长**：
 #: ``agent.question_timeout_seconds`` 可配置，把「10 分钟」写死在正文里会在改配置后
