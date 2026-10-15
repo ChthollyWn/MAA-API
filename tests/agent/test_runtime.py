@@ -498,16 +498,16 @@ def test_model_context_redacts_credentials_preserves_only_latest_screenshot_and_
     asyncio.run(scenario())
 
 
-def test_model_context_keeps_every_turn_by_default_even_beyond_the_removed_cap():
-    """M20 用户裁决：不设本地上限，默认参数下历史整段发给模型，一轮都不丢。
+def test_model_context_trims_oldest_turns_within_the_default_cap():
+    """M53：默认就有上限（400 000 字符），超出时丢最早的完整轮次，最后一轮始终保留。
 
-    历史总长刻意超过被删掉的旧默认上限（1,000,000 字符）：旧实现会从这里开始丢掉
-    最早的完整轮次，现在必须一条不少地保留。
+    M20 曾裁决「不设本地上限」，M53 改掉它：2026-10-14 的「运行yw-1不用代理」会话里
+    prompt 涨到 1 030 502 token、单步 114 秒，唯一兜底是上游拒绝，那时会话已经废了。
     """
     from maa_api.agent.runtime import DEFAULT_MAX_CONTEXT_CHARS, build_model_context
 
-    assert DEFAULT_MAX_CONTEXT_CHARS is None
-    old_default_cap = 1_000_000
+    assert DEFAULT_MAX_CONTEXT_CHARS == 400_000
+    # 每轮 30 000 字 × 40 轮 ≈ 120 万字，明显超过默认上限
     history = [
         AgentMessage(
             session_id="s",
@@ -520,14 +520,14 @@ def test_model_context_keeps_every_turn_by_default_even_beyond_the_removed_cap()
 
     context = build_model_context(history, system_prompt="sys")
 
-    # system + 全部历史，一条都不许少
-    assert len(context) == 1 + len(history)
+    # 系统段在最前，历史被裁到上限之内，且最后一轮（第 39 条）一定还在
     assert context[0]["role"] == "system"
-    for index, message in enumerate(history):
-        assert context[index + 1]["role"] == message.role
-        assert context[index + 1]["content"] == message.content
-    # 真的超过了旧上限：证明「没丢轮次」不是因为历史本来就不够长
-    assert len(json.dumps(context, ensure_ascii=False)) > old_default_cap
+    assert len(context) < 1 + len(history), "超过默认上限必须裁剪"
+    assert len(json.dumps(context, ensure_ascii=False)) <= DEFAULT_MAX_CONTEXT_CHARS * 1.1
+    assert context[-1]["content"] == history[-1].content
+    # 丢的是最早的轮次，不是中间的
+    kept = [m["content"] for m in context[1:]]
+    assert kept == [m.content for m in history[-len(kept):]]
 
 
 def test_historical_reasoning_is_kept_only_for_the_newest_assistant_message():
@@ -616,12 +616,15 @@ def test_explicit_max_context_chars_still_trims_and_overflows():
 
 
 def test_agent_runtime_context_cap_validation_accepts_none_and_rejects_zero():
-    """``max_context_chars`` 要么 None（默认不裁），要么 ≥ 1。"""
-    from maa_api.agent.runtime import AgentRuntime
+    """``max_context_chars`` 要么 None（显式关掉本地裁剪），要么 ≥ 1；默认 400 000。"""
+    from maa_api.agent.runtime import DEFAULT_MAX_CONTEXT_CHARS, AgentRuntime
 
     # 只验证构造参数：非法值在碰到 session_factory / confirmation_service 之前就抛出。
     default_runtime = AgentRuntime(None, None)  # type: ignore[arg-type]
-    assert default_runtime.max_context_chars is None
+    assert default_runtime.max_context_chars == DEFAULT_MAX_CONTEXT_CHARS == 400_000
+    # None 仍然表示「显式关掉本地裁剪」，只是不再是默认值
+    uncapped = AgentRuntime(None, None, max_context_chars=None)  # type: ignore[arg-type]
+    assert uncapped.max_context_chars is None
     capped = AgentRuntime(None, None, max_context_chars=1)  # type: ignore[arg-type]
     assert capped.max_context_chars == 1
     for invalid in (0, -1):

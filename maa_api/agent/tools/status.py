@@ -37,6 +37,12 @@ class GetLogsParams(BaseModel):
     pipeline_id: str | None = None
     limit: int = Field(default=100, ge=1, le=200)
     after_id: int | None = Field(default=None, ge=0)
+    #: M53：单条日志正文的截断长度。内核的 DEBUG 行可以很长（实测单次查询最大
+    #: 41 432 字），整段回灌会按轮次重复计费；要看全文传 detail="full"。
+    content_chars: int = Field(default=200, ge=40, le=2000)
+    #: M53：``compact``（默认）只给定位用的最小字段，``full`` 保留 logger 与附件
+    #: 等完整投影。多数排查只需要「哪一行、什么级别、大致说了什么」。
+    detail: Literal["compact", "full"] = "compact"
 
 
 class ResolveStageParams(BaseModel):
@@ -87,7 +93,11 @@ def register_tools(registry: ToolRegistry) -> None:
             name="get_logs",
             group="status",
             risk=ToolRisk.SAFE,
-            description="查历史日志。排查失败原因、核对任务执行细节时用。",
+            description=(
+                "查历史日志。排查失败原因、核对任务执行细节时用。"
+                "默认每条正文截到 200 字、只回定位用的字段；要看全文就传 detail=\"full\" "
+                "并调大 content_chars，翻页用 page.next_cursor。"
+            ),
             params_model=GetLogsParams,
             handler=get_logs,
             read_only=True,
@@ -203,7 +213,10 @@ async def get_logs(params: GetLogsParams, ctx: ToolContext) -> dict[str, Any]:
         size=params.limit,
     )
     return {
-        "items": [_log_wire(row) for row in rows],
+        "items": [
+            _log_wire(row, content_chars=params.content_chars, detail=params.detail)
+            for row in rows
+        ],
         "page": {
             "next_cursor": rows[-1].id if rows and has_more else None,
             "has_more": has_more,
@@ -270,22 +283,34 @@ def _naive_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(UTC).replace(tzinfo=None)
 
 
-def _log_wire(row: Any) -> dict[str, Any]:
+def _log_wire(row: Any, *, content_chars: int, detail: str = "compact") -> dict[str, Any]:
+    """一条日志的对外形态；正文按 ``content_chars`` 截断（M53）。
+
+    截断只影响回灌给模型的那一份：库里保留全文，需要时用 ``after_id`` 翻页或调大
+    ``content_chars`` 重查。
+    """
+
     created_at = row.created_at
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=UTC)
     meta = row.meta or {}
-    return {
+    text = str(row.content or "")
+    truncated = len(text) > content_chars
+    wire: dict[str, Any] = {
         "id": row.id,
         "ts": created_at.timestamp(),
         "source": SOURCE_DB_TO_WIRE[LogSource(row.source)],
         "level": str(row.level).upper(),
-        "content": row.content,
-        "pipeline_id": row.pipeline_id,
-        "task_id": row.task_id,
-        "logger": meta.get("logger"),
-        "attachment": meta.get("attachment"),
+        "content": text[:content_chars],
     }
+    if truncated:
+        wire["content_truncated"] = True
+    if detail == "full":
+        wire["pipeline_id"] = row.pipeline_id
+        wire["task_id"] = row.task_id
+        wire["logger"] = meta.get("logger")
+        wire["attachment"] = meta.get("attachment")
+    return wire
 
 
 def _service_version() -> str:
