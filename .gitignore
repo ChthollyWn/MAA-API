@@ -147,3 +147,6 @@ config.yaml.bak*
 docs/copy-audit/inventory.json
 # 抽取器运行期的中间文件（正常结束会自行删除）。
 .copy-inventory-web.json
+
+# Agent 调试产物（截图/地图等），不进版本库
+debug/

@@ -129,6 +129,12 @@ INCIDENT_ALLOWED_TOOLS = frozenset(
     }
 )
 SSE_KEEPALIVE_SECONDS = 10.0
+#: 回灌给上游的**历史**思考内容预算（字符，M52 规格 §4.1）。思考模式下 assistant
+#: 消息缺 ``reasoning_content`` 会被上游拒绝，但把每一轮的思考都原样送回去会指数级
+#: 烧上下文：2026-10-14 的「运行yw-1不用代理」会话里，单轮思考到 29.7 万字、53 条
+#: assistant 合计 344 万字，最后一次请求的 prompt 涨到 103 万 token，单步延迟 114 秒。
+#: 现行口径：只有**最后一条** assistant 保留思考内容，且保留量不超过这个预算。
+HISTORICAL_REASONING_CHARS = 20_000
 #: 用户主动中断一轮时的收尾（规格 §3.1）。
 #: ``finish_reason`` 的新取值；落库列宽 24 够用，且该列没有枚举约束。
 INTERRUPTED_FINISH_REASON = "interrupted"
@@ -402,8 +408,12 @@ def build_model_context(
             outgoing["tool_calls"] = calls
         model_history.append(redact_remote_data(outgoing))
 
-    summary_text = json.dumps(
-        redact_remote_data(status_summary), ensure_ascii=False, default=str
+    # M52：历史思考内容只保留最后一条，且按预算截尾。协议要求「思考模式下 assistant
+    # 消息不能缺 reasoning_content」指的是刚生成的那一条；把每一轮的思考都回灌是
+    # 纯粹的重复计费（历史条目只留在库里供审计）。
+    _trim_historical_reasoning(model_history)
+
+    summary_text = json.dumps(        redact_remote_data(status_summary), ensure_ascii=False, default=str
     ) if status_summary is not None else "暂不可用"
     sections = [system_prompt]
     if knowledge_context:
@@ -2210,6 +2220,41 @@ class AgentRuntime:
 def sse_event(event: str, data: Any) -> str:
     safe = redact_remote_data(data)
     return f"event: {event}\ndata: {json.dumps(safe, ensure_ascii=False, separators=(',', ':'), default=str)}\n\n"
+
+
+def _trim_historical_reasoning(
+    messages: list[dict[str, Any]],
+    *,
+    budget: int = HISTORICAL_REASONING_CHARS,
+) -> None:
+    """只保留最后一条 assistant 的思考内容，且不超过 ``budget`` 字符（M52 规格 §4.1）。
+
+    上游的硬要求是「思考模式下 assistant 消息缺 ``reasoning_content`` 会被拒绝」——
+    它约束的是**刚生成那一条**。历史条目里的思考只对审计有意义，回灌等于把同一批
+    思考按轮次重复计费（实测单轮 29.7 万字、53 条合计 344 万字）。
+
+    截尾而不是截头：思考的结论在开头，最后一段才是「我打算怎么动手」，对下一轮的
+    定位最有用；截尾同时保证上限。
+    """
+
+    last_assistant = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if str(messages[index].get("role")) == "assistant"
+            and messages[index].get("reasoning_content")
+        ),
+        None,
+    )
+    for index, message in enumerate(messages):
+        if str(message.get("role")) != "assistant":
+            continue
+        if index != last_assistant:
+            message.pop("reasoning_content", None)
+            continue
+        thinking = message["reasoning_content"]
+        if isinstance(thinking, str) and len(thinking) > budget:
+            message["reasoning_content"] = thinking[-budget:]
 
 
 def _message_dict(message: AgentMessage | Mapping[str, Any]) -> dict[str, Any]:
