@@ -69,7 +69,12 @@ def register_tools(registry: ToolRegistry) -> None:
             name="update_resource",
             group="ops",
             risk=ToolRisk.DANGEROUS,
-            description="更新活动资源（活动关卡与图片等本地资源）。用户要更新活动资源时用。",
+            description=(
+                "更新活动资源（活动关卡与图片等本地资源）。只在用户明确要求更新，"
+                "或 Fight 等任务需要新关卡的导航与地块数据时用；执行作业站作业不需要它"
+                "（Copilot 只要求画面停在关卡「开始行动」页）。更新可能要几分钟，"
+                "网络拿不到 manifest 时会失败。"
+            ),
             params_model=UpdateResourceParams,
             handler=update_resource,
         ),

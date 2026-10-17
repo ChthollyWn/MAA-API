@@ -50,6 +50,11 @@ class ToolDefinition:
     #: 是否把工具暴露给内置 Agent 的模型。注册表、REST 目录与调用入口不受影响，
     #: 只有 runtime 生成 tools schema 与派发模型调用时会看这个标记（规格 §4.4）。
     model_visible: bool = True
+    #: 模型侧的参数 schema 覆盖（M56，docs/13 §8.79）。``None`` 时用完整 Pydantic schema；
+    #: 给 ``submit_pipeline`` 这类「参数里嵌着 12 种任务完整图」的工具准备一份紧凑版，
+    #: 避免每次请求都把同一份 36 KB 的 ``$defs`` 重复发三遍。**只影响模型看到的
+    #: tools 声明**：校验仍走 ``params_model``，``export_schema``/OpenAPI 也仍用完整版。
+    model_schema: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.risk, ToolRisk):
@@ -61,6 +66,8 @@ class ToolDefinition:
             raise TypeError("read_only must be a bool")
         if not isinstance(self.model_visible, bool):
             raise TypeError("model_visible must be a bool")
+        if self.model_schema is not None and not isinstance(self.model_schema, Mapping):
+            raise TypeError("model_schema must be a mapping or None")
 
 
 class ToolRegistry:

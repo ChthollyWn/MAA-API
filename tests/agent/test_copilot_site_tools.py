@@ -111,7 +111,8 @@ def test_build_registry_exposes_both_tools() -> None:
 def test_schema_exports_the_expected_parameters() -> None:
     schema = {item["name"]: item for item in registry().export_schema()}
     search = schema["search_copilots"]["inputSchema"]["properties"]
-    assert set(search) == {"stage", "limit", "order", "only_feasible"}
+    assert set(search) == {"stage", "limit", "order", "only_feasible", "include_content"}
+    assert search["include_content"]["default"] is None
     assert search["limit"]["default"] == 5
     assert search["limit"]["minimum"] == 1
     assert search["limit"]["maximum"] == 10
@@ -162,10 +163,25 @@ def test_search_dispatches_to_the_assembled_service() -> None:
         {"stage": "1-7", "limit": 3, "order": "views", "only_feasible": False},
         context(copilot_service=service),
     )
+    # 内置 Agent 默认不带作业正文（M56 §4.3）；显式传 include_content 时以调用方为准。
     assert service.calls == [
-        {"stage": "1-7", "limit": 3, "order": "views", "only_feasible": False}
+        {
+            "stage": "1-7",
+            "limit": 3,
+            "order": "views",
+            "only_feasible": False,
+            "include_content": False,
+        }
     ]
     assert result["kwargs"]["stage"] == "1-7"
+
+    explicit = FakeSearch()
+    call(
+        "search_copilots",
+        {"stage": "1-7", "include_content": True},
+        context(copilot_service=explicit),
+    )
+    assert explicit.calls[0]["include_content"] is True
 
 
 def test_draft_dispatches_with_the_session_id() -> None:

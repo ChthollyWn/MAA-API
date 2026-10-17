@@ -359,6 +359,24 @@ def test_handler_passes_question_hints_and_steps_to_the_runtime(ws: Path) -> Non
     assert payload == runtime.report
 
 
+def test_handler_awaits_an_async_settings_provider(ws: Path) -> None:
+    """M56 热修：装配层接的 ``SettingService.refresh`` 返回协程，必须 await。"""
+
+    runtime = FakeRuntime()
+    settings = settings_for(ws)
+
+    async def provider():
+        return settings
+
+    payload = call(
+        {"question": "这个报错从哪来"},
+        context(agent_runtime=runtime, settings_provider=provider),
+    )
+
+    assert runtime.calls[0]["settings"] is settings
+    assert payload == runtime.report
+
+
 def test_handler_leaves_max_steps_unset_for_the_server_default(ws: Path) -> None:
     runtime = FakeRuntime()
 

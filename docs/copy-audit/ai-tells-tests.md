@@ -1,13 +1,13 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 6384 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 6472 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 101 | 101 |
-| 绝对化规定腔 | medium | 0 | 76 | 76 |
-| 破折号当冒号用 | high | 0 | 67 | 67 |
+| 粗体强调 | medium | 0 | 102 | 102 |
+| 绝对化规定腔 | medium | 0 | 75 | 75 |
+| 破折号当冒号用 | high | 0 | 70 | 70 |
 | 「A 而不是 B」对照腔 | high | 0 | 51 | 51 |
 | 自指式讲解腔 | medium | 0 | 13 | 13 |
 | 省略号 | medium | 0 | 7 | 7 |
@@ -17,7 +17,7 @@
 | 提示腔 | medium | 0 | 1 | 1 |
 | emoji/符号装饰 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 101）
+## 粗体强调（medium｜用户可见 0 / 开发向 102）
 
 **开发向**
 
@@ -27,9 +27,9 @@
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
 - `tests/agent/test_knowledge_no_numbers.py:1` M30 T4：「无数值」检查测试（规格 §10.3、§10.1）。 规格 ``docs/superpowers/specs/2026-10-09-m25-prts-knowledge.md`` §10.1 把内置知识条目的 数值口径定成「数…（共 807 字）
 - `tests/agent/test_knowledge_no_numbers.py:205` MAA 操作参数里的固定招募时长（Recruit 固定填 `9:00:00`，T1-a §5 第 6 条豁免它）。注意「时长档位 → 稀有度下限」那张表 T1-a §5 明确**不豁免**：`1:00:00` 也不在白名单里（除非它出现在 …（共 134 字）
-- …… 另有 95 条，见 inventory.json
+- …… 另有 96 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 76）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 75）
 
 **开发向**
 
@@ -39,19 +39,19 @@
 - `tests/agent/test_knowledge_no_numbers.py:574` 规格 §10.3 T4：正文不得出现「数字 + 游戏单位」。
 - `tests/agent/test_knowledge_service.py:1291` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
 - `tests/agent/test_llm.py:341` 模型名写错时要能在 details 里看到上游原话，且凭据不得回显。
-- …… 另有 70 条，见 inventory.json
+- …… 另有 69 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 67）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 70）
 
 **开发向**
 
+- `tests/agent/test_history_audit.py:1` M55：会话历史里 ``tool_calls`` 与 tool 消息的配对巡检。 `scripts/agent_history_audit.py` 是只读巡检：它不参与主链路，所以必须有自己的用例 证明「它真的能发现孤儿」——否则下次出的绿…（共 215 字）
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
 - `tests/agent/test_knowledge_no_numbers.py:479` ``numbers_to_remove`` 里挑出来的真实数值片段 ``(来源, 片段)``。 复核报告这些字段是描述性短语，必须挑掉带注释（→、括号、分号）与不以数值为主体的 条目，只留下「数字 + 单位」或裸百分比形态的片段——它们必须…（共 142 字）
+- `tests/agent/test_log_output_budget.py:1` M53：``get_logs`` 的输出预算（正文截断 + compact 投影）。 背景：2026-10-14 的「运行yw-1不用代理」会话里 ``get_logs`` 被调 17 次、合计 203 661 字，单条最大 41 432 …（共 211 字）
 - `tests/agent/test_policy_account_write.py:1` 养成计划确认卡片（M31 补口，规格 §7.7）：预演进 payload、冲突进 reasons。 M27 的确认卡片只有 ``summary`` / ``targets`` / ``run_times``，用户按下确认之前看不到 「会和现…（共 374 字）
 - `tests/agent/test_policy_account_write.py:148` 条目的字段缺一个就用另一边，全缺就跳过——不能让确认卡片多一行空话。
-- `tests/agent/test_recon_explore.py:1` M48 只读探索工具（规格 §4.2）的验收用例。 覆盖：未配置工作区、路径越界与软链接、密钥名单、二进制与超大文件、忽略目录、 ``read_file`` 的分段续读、``search_code`` 的正则/上下文/上限与 git 白名单…（共 348 字）
-- `tests/agent/test_recon_explore.py:548` 规格 §4.2：``max_chars`` 默认取 ``recon_output_chars``、上限同——只能往下要。
-- …… 另有 61 条，见 inventory.json
+- …… 另有 64 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 51）
 
@@ -71,7 +71,7 @@
 
 - `tests/agent/test_activity_tools.py:1` ``get_activity_stages`` 工具（M25 规格 §5.6）。 用假活动服务（返回现造的 :class:`ActivityReport`）与假客户端把参数形态、返回信封与降级路径 写死；本机资源的推断规则由 ``tests…（共 274 字）
 - `tests/agent/test_llm.py:71` 只断言错误映射的用例用它：重试有自己的用例覆盖，这里不该被退避拖慢。
-- `tests/agent/test_recon_explore.py:647` 白名单外的动作一律拒绝（规格 D3）。这里不要求是仓库：动作校验在读路径之前。
+- `tests/agent/test_recon_explore.py:681` 白名单外的动作一律拒绝（规格 D3）。这里不要求是仓库：动作校验在读路径之前。
 - `tests/api/test_system_router.py:76` 无前缀 include 本模块也要得到完整路径。 不按 ``{r.path for r in app.routes}`` 断言：fastapi 0.141 的 ``include_router`` 是惰性的，``app.routes`` 里…（共 215 字）
 - `tests/core/test_hardware_smoke.py:1` M1-14 真机冒烟测试：真实 MaaCore + 真实设备的加载 / 连接 / 截图 / 原子操作 / 最短任务。 本文件把 M1-13 的命令行脚本（``scripts/core_smoke.py``）固化成可重复执行的 pytest …（共 2531 字）
 - `tests/core/test_worker.py:1` M1-07 ``core/worker.py`` 的端到端测试：真实 spawn 子进程 + 真实 Queue。 这里不加载 MaaCore、不连设备：``boot_config["asst_factory"]`` 指向 ``tests.f…（共 1086 字）
@@ -81,9 +81,9 @@
 
 **开发向**
 
-- `tests/agent/test_runtime.py:3159` 正在读取日志……
-- `tests/agent/test_runtime.py:3195` 正在读取日志…… {INTERRUPTED_NOTICE}
-- `tests/agent/test_runtime.py:3576` 正在排查……
+- `tests/agent/test_runtime.py:3468` 正在读取日志……
+- `tests/agent/test_runtime.py:3504` 正在读取日志…… {INTERRUPTED_NOTICE}
+- `tests/agent/test_runtime.py:3885` 正在排查……
 - `tests/services/test_game_roguelike.py:157` {{Cbox2|mdi=true|icon=information-variant-circle|text='''在非标准模式下……'''}} {{收藏品/common |名称=热水壶 |iconId=rogue_6_relic_legac…（共 401 字）
 - `tests/services/test_game_story.py:235` 杜宾：……我也希望是你的错觉。
 - …… 另有 2 条，见 inventory.json
@@ -109,7 +109,7 @@
 
 **开发向**
 
-- `tests/agent/test_runtime.py:2843` 不用「首先/其次/最后/另外」
+- `tests/agent/test_runtime.py:3127` 不用「首先/其次/最后/另外」
 
 ## 提示腔（medium｜用户可见 0 / 开发向 1）
 

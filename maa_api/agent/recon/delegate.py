@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -68,7 +69,7 @@ async def delegate_recon(
     """取运行时与设置，跑一次侦察；工作区未配置时直接报错（规格 D1）。"""
 
     runtime = _required_attr(ctx, "agent_runtime", "Agent 运行时尚未装配")
-    settings = _settings(ctx)
+    settings = await _settings(ctx)
     return await runtime.recon(
         params.question,
         hints=list(params.hints),
@@ -77,12 +78,24 @@ async def delegate_recon(
     )
 
 
-def _settings(ctx: ToolContext) -> Any:
+async def _settings(ctx: ToolContext) -> Any:
+    """``app.state.settings_provider`` 的结果；``SettingService.refresh`` 是 async 的。
+
+    M56 热修：装配层接的是 ``setting_service.refresh``（协程函数），这里原先直接返回
+    调用结果，模型拿到的是协程对象——``budget_from_settings`` 随即炸掉，实机上表现为
+    ``delegate_recon`` 报「设置服务尚未启动」并把三个只读探索工具一起拖死
+    （2026-10-17 会话里模型试了 ``search_code`` / ``list_files`` / ``delegate_recon``
+    各一次，全部 AGENT_DISABLED）。同步 provider（测试里的 lambda）照旧支持。
+    """
+
     state = _state(ctx)
     provider = getattr(state, "settings_provider", None)
     if not callable(provider):
         raise AppError(ErrorCode.AGENT_DISABLED, "设置服务尚未启动")
-    return provider()
+    value = provider()
+    if inspect.isawaitable(value):
+        value = await value
+    return value
 
 
 def _required_attr(ctx: ToolContext, name: str, message: str) -> Any:

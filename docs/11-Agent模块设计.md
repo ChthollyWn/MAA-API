@@ -224,7 +224,7 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 | `get_building_skills` | SAFE | 查基建（后勤）技能（M28），`operator`、`room`、`skill` **三选一**：按干员给该干员的技能与解锁条件，按房间列出该房间的技能，按技能名给房间、清洗后的描述与拥有者。技能描述与房间来自 Cargo `building_skill2` 整表（按 10 个房间分块、进程内缓存），拥有者来自干员页 `{{后勤技能}}`（`后勤技能名` SMW 反查实测取不到，走批量干员页），`owners_approximate` 标拥有者是否只是近似；房间接受中文名或内核键（`Manufacture` / `trading` / `Trade` 这类写法都认） |
 | `get_roguelike_info` | SAFE | 查集成战略（M28）。参数 `theme`（默认最新一期 BlackFlow；也接受 `JieGarden` 这类主题键或主题页标题）、`topic`（`overview` 默认 / `squads` / `relic` / `section`）、`name`（藏品名或章节标题 / 序号）。主题页 170–261 KB，一律按章节取（`action=parse&prop=sections` 加 `section=N`）；`overview` 给 `{{活动信息}}` 字段与开场白，`squads` 给分队表的名称 / 效果 / 解锁条件，`relic` 给单件藏品的售价与各主题效果（不给 `name` 时返回「收藏品一览」节并标 `unavailable=["relic_list"]`），`section` 按标题或序号取一节。BlackFlow 的结果带 `notes` 说明上游策略尚不完整 |
 | `get_stage_level_data` | SAFE | 查一关的地图与出怪时间线（M29，数据来自拆包镜像、GitHub API 兜底）：部署上限、目标点耐久、初始 / 最大 COST、回费间隔、逐格地块网格（与 `send_stage_map` 同一套编码，区分高台 / 地面 / 不可部署 / 红蓝门 / 特殊地块）、被波次用到的路线（起点、终点、途经点与停留时间）、出怪时间线（时刻秒、敌人 key、数量、间隔、路线编号；`enemy_name` 是 `null`，要名字用 `get_enemy(key)` 查 PRTS）。参数 `stage`（1–64 字：代号、stageId、levelId 或中文名）、`include`（`options` / `map` / `routes` / `waves` 的子集，默认全部）、`wave_detail`（`summary` 默认把同波里连续的同敌人同路线动作合并，`full` 每个动作一条）。**坐标已换算成 MAA 作业的 `location`（`[x, y]`，原点左上）**，模型不必自己换算；结果 ≤ 24 KB，超出先合并波次、再截断路线并写 `truncated`。要发给用户看的示意图仍用 `send_stage_map` |
-| `search_copilots` | SAFE | 按关卡搜作业站（`prts.maa.plus`）的自动战斗作业并用账号干员筛（M29）：参数 `stage`（代号 / stageId / 中文名）、`limit`（1–10，默认 5）、`order`（`hot` 默认 / `views` / `id`）、`only_feasible`（默认 `true`）。每份作业给作业站 id、标题、上传者、浏览量、好评率、可行性档（`ok` / `missing_one` 缺一名可借助战 / `infeasible`）、缺口名单与逐项练度对照，排序「缺口数 → 好评率 → 热度」，链接是 `https://prts.maa.plus/copilot/<id>`；列表里的 `content` 不含 `actions`（站点自己省的），要执行或细看用 `save_copilot_draft(site_id=…)`。作业站不可用时按 §6.6 的降级口径返回空列表 + `unavailable=["copilot_site"]`，不抛错 |
+| `search_copilots` | SAFE | 按关卡搜作业站（`prts.maa.plus`）的自动战斗作业并用账号干员筛（M29）：参数 `stage`（代号 / stageId / 中文名；本机索引认不出的新关卡直接传 PRTS 的「关卡id」，如 `act52side_ex08`）、`limit`（1–10，默认 5）、`order`（`hot` 默认 / `views` / `id`）、`only_feasible`（默认 `true`）、`include_content`（M56：内置 Agent 默认 `false`，REST 默认 `true`）。每份作业给作业站 id、标题、上传者、浏览量、好评率、可行性档（`ok` / `missing_one` 缺一名可借助战 / `infeasible`）、缺口名单与逐项练度对照，排序「缺口数 → 好评率 → 热度」，链接是 `https://prts.maa.plus/copilot/<id>`；列表里的 `content` 不含 `actions`（站点自己省的），要执行或细看用 `save_copilot_draft(site_id=…)`。作业站不可用时按 §6.6 的降级口径返回空列表 + `unavailable=["copilot_site"]`，不抛错 |
 
 三者共用访问层：来源登记与白名单、限流、熔断、进程内缓存、来源信封都在 `maa_api/services/external/`，取数与降级规则见 §6.6。
 
@@ -232,7 +232,7 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 
 | 工具 | risk | 用途 |
 |---|---|---|
-| `get_operator_box` | SAFE | 查账号里的干员与练度。参数 `query`（名字片段）、`owned_only`（默认 `true`，`false` 时连未拥有的一起列出）、`rarity_min`（1–6）、`profession`（中文职业）、`elite_min`（0–2）、`limit`（1–100，默认 50）；返回 `items[]`（`char_id`、名字、稀有度、职业、`own`、精英化、等级、潜能、技能等级、专精、模组、信赖（M42）、技能 id 与模组明细（M43，`skill_ids` / `module_details`）、`field_sources`、`recognized_at`、`updated_at`）、`total`、`limit`、`offset`。**没有识别时间 / 是否过期的选项，也没有 `suggest_recognition`**（见 [13 §8.42](./13-决策记录.md) 十、2 与 3） |
+| `get_operator_box` | SAFE | 查账号里的干员与练度。参数 `query`（名字片段）、`owned_only`（默认 `true`，`false` 时连未拥有的一起列出）、`rarity_min`（1–6）、`profession`（中文职业）、`elite_min`（0–2）、`limit`（1–100，默认 50）、`offset`（M56 翻页）。REST 返回 `items[]` 的完整卡片字段（`char_id`、名字、稀有度、职业、`own`、精英化、等级、潜能、技能等级、专精、模组、信赖（M42）、技能 id 与模组明细（M43，`skill_ids` / `module_details`）、`field_sources`、`recognized_at`、`updated_at`）与 `total` / `limit` / `offset`；**内置 Agent 走精简投影**（M56：去掉卡片明细字段，12 000 字预算 + `next_offset`，单个干员详情用 `get_operator`）。**没有识别时间 / 是否过期的选项，也没有 `suggest_recognition`**（见 [13 §8.42](./13-决策记录.md) 十、2 与 3） |
 | `get_depot` | SAFE | 查仓库材料。参数 `items`（名字或 itemId，≤ 50 个）与 `category`；不给 `items` 时返回仓库概要（物品种类数、识别时间、是否过期、阈值口径）。**两个筛选参数目前没有生效**：给 `items` 时按前 N 条返回、`category` 被忽略（[13 §8.42](./13-决策记录.md) 十、10） |
 | `plan_upgrade` | SAFE | 算养成规划，只计算不提交任务。参数 `targets`（1–10 个：干员加 `elite` / `skill_level` / `masteries` / `modules`）与 `use_depot`（默认 `true`）；返回每关出击次数与理智、合成清单与合成龙门币、总理智、按每天 240 理智估的天数、预计富余、`unobtainable`（刷不到的材料与获取提示）、`feasible` 与 `notes`。算法与口径见 [13 §8.42](./13-决策记录.md) 七 |
 | `start_upgrade_plan` | 每次确认 | 启动养成计划：先提交今天的流水线（只用现有理智），再创建每日定时任务（自然恢复加 48 小时内过期的理智药）。参数 `name`、`targets`、`run_times`（默认 `["08:00", "20:00"]`，1–4 项）；返回计划、今天的流水线、定时任务 id、总理智与预计天数、`conflicts`（已有的用理智定时任务） |
@@ -541,6 +541,8 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 
 执行前由 `ResourceService` 重新校验资产 kind、schema、checksum 和源文件。外置作业不得有 symlink 路径组件；inline 和外置作业都复制到 `resource/agent-assets/copilot/runs/<uuid>/operation.json`，每个 run 目录权限为 `0700`。MaaCore 只收到该私有快照的绝对路径；流水线结束、失败、取消或内核崩溃后，`PipelineRunner` 清理快照。解析或快照写入失败时任务以稳定错误状态失败，不会调用 MaaCore；不以普通 Fight 关卡替代 Copilot。
 
+**执行前置只有「画面停在这关的开始行动页」，与本机资源版本无关（M56）。** 投给内核的 Copilot 参数只有作业文件路径、`formation` 与 `support_unit_usage`（`attempt.py` 重建 `core_params` 时把 `stage_name` 丢在资产 `meta` 里，只用于授权与展示），内核按作业 JSON 自己走部署序列；本机资源里没有这一关（新活动的 EX 关、`resolve_stage` / `get_stage` 报找不到）不影响执行。2026-10-17 的会话里模型把「关卡索引解析不出」误读成「Copilot 跑不了」，先调了 `update_resource`（因网络拿不到 manifest 失败，白等两分钟），又反复失败重试；提示词、`update_resource` 描述与 `playbook-stage-clear` 已写明这条边界。新关卡要搜作业站时，用 `search_prts` 拿到「关卡id」直接传给 `search_copilots(stage=…)`，不要在本地索引上绕。
+
 ### 7.3 注入自定义 tasks.json task 定义
 
 这是最强也最危险的一层。MAA 的 `tasks.json` 是一套完整的任务 DSL，支持模板图片匹配、OCR 文本识别、点击偏移、任务跳转、前后置条件等。注入自定义 task 定义意味着 agent 可以扩展 MAA 本身的识别与操作逻辑，用来应对 MAA 尚未适配的新活动。
@@ -587,7 +589,7 @@ schema 校验。注入前校验 JSON 结构。格式错误的 task 定义可能�
     就要连着等几次；混合批次里含任意别的工具时照旧计数
 ```
 
-不设步数上限，也不设会话上下文上限。单轮迭代次数不限（实施后按用户要求移除了原来的 12 次上限）：一次故障排查往往要读几十轮日志与截图，按次数截断会把本该跑完的诊断切在半路。会话上下文同样不再按字符数预裁剪（M20）：历史整段发给模型，装不下时由上游拒绝，服务端映射成 `LLM_CONTEXT_OVERFLOW`（400）。真正兜底的是上面的原地打转检测与截图只留最近一张：它们替代步数上限与字符数上限成为「停不下来」的保险。`build_model_context` 与 `AgentRuntime` 仍保留 `max_context_chars` 参数（显式传正整数就按老语义丢掉最早的完整轮次），但默认是 `None`。
+不设步数上限。单轮迭代次数不限（实施后按用户要求移除了原来的 12 次上限）：一次故障排查往往要读几十轮日志与截图，按次数截断会把本该跑完的诊断切在半路。会话上下文有本地预算（M53 起默认 400 000 **有效字符**，M56 校正口径）：预算把 system 段、工具声明（`envelope_chars`）与历史一起算，截图按 `IMAGE_CONTEXT_CHARS` 折算而不是按 base64 长度；超预算时逐级裁剪——先剪枝超大工具结果（头 + 省略标记 + 尾），再丢最早的完整用户轮次，整场只有一个用户轮次的工具循环则在该轮内丢最早的工具往返——最近一个完整工具轮次与最后一轮受保护，连它们都装不下才报 `LLM_CONTEXT_OVERFLOW`（400）。真正兜底的是上面的原地打转检测与截图只留最近一张。`max_context_chars` 参数保留：`None` 表示显式关掉本地裁剪，正整数按上述语义裁剪。
 
 流式输出经 SSE 推给前端，事件为 `message_start`、`text_delta`、`tool_start`、`tool_result`、`confirmation_required`、`question_required`、`session_title`、`interrupted`（本轮被用户中断，见 §8.5）、`message_end`、`error`。前端据此把文字与工具调用按到达顺序渲染（工具调用是可折叠的紧凑条）；会话历史、确认、授权状态与撤销也在 `/agent` 对话页提供，界面见 §8.5。
 
@@ -609,11 +611,15 @@ schema 校验。注入前校验 JSON 结构。格式错误的 task 定义可能�
 
 媒体结果回灌压成占位（M23）。媒体工具（`MEDIA_TOOL_NAMES`）的结果落库不变，但回灌模型时压成一行占位（`media_sent`，保留卡片类型与标题），否则图表规格与 tile 网格每轮重复占 token。两条细节是硬要求：失败结果保留 `error` 原文：模型看不到越界原因就没法自愈，`INVALID_PARAMETER`（例如「总点数 812 超过 600」）本来指望模型据此改参数再来一次；tool 消息本身与 `tool_call_id` 必须保留，否则带 `tool_calls` 的 assistant 消息结构不完整、上游直接 400。`get_screenshot` 的视觉回灌语义一行未改：仍然只把最新一张喂给多模态模型，媒体卡只影响给用户看的路径。
 
+模型侧工具声明瘦身（M56）。工具的完整 Pydantic schema 会进 `/api/agent/tools` 与 OpenAPI（REST 契约），但**不必原样发给模型**。`ToolDefinition.model_schema` 允许为单个工具提供模型侧覆盖：`submit_pipeline` / `create_schedule` / `update_schedule` 的参数里嵌着 12 种内核任务的完整字段图，原先各带一份 36 KB 的 `$defs`、三份合计约 110 KB，占首次请求 64 497 token 的六成；模型侧只保留「任务对象 = 必填 `name` + 其余字段问 `list_task_types`」，执行仍由完整 Pydantic 模型校验。瘦身后模型侧工具声明从 159 598 字降到 53 074 字。
+
+工具输出预算（M56）。大结果不设上限就会一次吃掉几万 token：`get_operator_box` 实机一次回 64 598 字（干员列表带 `skill_ids` / `module_details` / `field_sources` 卡片明细），`search_copilots` 每条结果带 1–2 KB 作业正文。现在内置 Agent 走精简投影：干员列表只留判断「有没有、练度够不够」的字段，超过 12 000 字按条裁剪并给 `next_offset`；作业站列表默认不带正文（REST 工具 API 形状不变），要正文用 `save_copilot_draft(site_id=…)`。工具描述写明这两个口径，模型才知道什么时候该取详情。
+
 状态摘要注入。每次请求在 system prompt（以及 §6.7 的知识库段）后追加一段当前状态摘要（内核状态、设备状态、当前流水线与进度、队列长度、最近一次错误），避免 agent 为了知道"现在在干什么"而反复调工具。摘要由服务端生成，成本远低于工具往返。M18 起摘要的第一项是 `now`：服务端本地时间，ISO 8601 带时区偏移，模型必须知道「现在」才能把截图时间与问题对齐。
 
 知识库注入。与状态摘要同一时机生成，包含索引、当期活动、当期卡池、账号数据、术语表与用户档案各段（哪段读不到就不插），顺序与信任边界见 §6.7。知识库段读不出来时降级为「知识库暂不可用」，不阻塞本轮。
 
-历史截断。超过 token 预算时从最旧的消息开始丢弃，但保留 system prompt 与最近一次完整的工具调用轮次（避免出现 tool_call 没有对应 tool 结果的残缺结构，这会让部分 API 直接报错）。
+历史截断（M56 起三级）。预算按有效字符计：截图 base64 折算成视觉成本，工具声明计入固定开销。第一级把超过 8 000 字的**历史工具结果**剪成「头 3 000 字 + 省略标记 + 尾 1 000 字」，tool 消息与 `tool_call_id` 保留，协议结构不变；第二级按用户轮次丢最早的；第三级对「整场只有一个用户消息」的长工具循环丢掉最早的工具往返。每一级都保护最近一个完整工具轮次，避免出现 tool_call 没有对应 tool 结果的残缺结构（这会让部分 API 直接报错）。
 
 成本记录。每次调用记录 prompt/completion token 数入 `agent_message`，会话级累计并在会话详情显示（界面按百万单位读，精确值看 `total_tokens`）。单轮迭代次数不限；命中原地打转检测时以正常 `stuck_loop` 结束并告知用户。
 
@@ -705,4 +711,4 @@ M48 的侦察 subagent 是唯一的例外：子 agent 的 `list_files` / `read_f
 
 与内核的控制权冲突。agent 的原子操作和 MaaCore 的自动化会互相干扰。§4.3 把 `stop_pipeline` 设为免确认、提示词要求先停流水线再操作、以及 [02-系统架构设计 §5.3](./02-系统架构设计.md) 的 409 拒绝共同构成防护，但无法完全排除人为绕过（`force=true`）。
 
-成本失控。tool-calling 循环的轮数与每轮的截图 token 都会放大成本。截图只留最近一张、原地打转检测和会话 token 用量记录共同控制；不设步数上限、也不设会话上下文上限都是有意的取舍（M13 与 M20 的用户裁决：长诊断要跑几十轮，历史不该被悄悄丢掉），代价是失控时靠打转检测与上游的窗口报错兜底，而不是靠次数或字符数。首选默认模型 DeepSeek Flash。
+成本失控。tool-calling 循环的轮数与每轮的截图 token 都会放大成本。现在由四层控制：截图只留最近一张、工具声明与输出都有预算（M56）、会话上下文按有效字符逐级裁剪（M53 起有上限、M56 校正）、原地打转检测。仍然不设步数上限（M13 的用户裁决：长诊断要跑几十轮），但历史不再无限增长；失控时靠打转检测与本地预算兜底，而不是等上游窗口报错。首选默认模型 DeepSeek Flash。
