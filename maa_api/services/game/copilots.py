@@ -111,12 +111,17 @@ class CopilotService:
         order: str = "hot",
         only_feasible: bool = True,
         include_content: bool = True,
+        compact: bool = False,
     ) -> dict[str, Any]:
-        """按关卡搜作业并按账号干员筛选（规格 §9.4、M56 §4.3）。
+        """按关卡搜作业并按账号干员筛选（规格 §9.4、M56 §4.3、M57 §8.80）。
 
         ``include_content=False`` 时不带每条结果的作业正文：内置 Agent 只需要
         ``site_id``、标题、可行性、缺谁与评分；正文（每条 1–2 KB）留给
         ``save_copilot_draft(site_id=…)`` 取。REST 工具 API 默认仍为 ``True``。
+
+        ``compact=True``（内置 Agent 默认）进一步把每条结果压成「选作业要用的字段」：
+        评分/热度/正文摘要、逐项练度明细都不回，operators 只留名字（每次调用曾回
+        14 361 字，见 docs/13 §8.80）。
         """
         page_size = _limit(limit)
         only_ok = bool(only_feasible)
@@ -177,7 +182,8 @@ class CopilotService:
             notes.append(
                 "本机关卡索引没能把 stage 解析成 stageId，下面的结果是作业站按原文模糊搜的，"
                 "可能不是同一关；新活动关可先用 search_prts 找到「关卡id」再传 stageId"
-                "（形如 act52side_ex08），不需要更新资源。"
+                "（形如 act52side_ex08）。搜索本身不需要更新资源；但执行前要确认内核资源"
+                "认识该关卡，否则 run_copilot_attempt 会报 Not support stage，需要先更新资源。"
             )
 
         payload: dict[str, Any] = {
@@ -190,8 +196,9 @@ class CopilotService:
                 "only_feasible": only_ok,
                 "limit": page_size,
                 "include_content": include_content,
+                "compact": compact,
             },
-            "results": results,
+            "results": [_compact_row(item) for item in results] if compact else results,
             "total": total,
             "candidates": len(data.rows),
             "site_total": data.total,
@@ -200,11 +207,16 @@ class CopilotService:
             "tiers": tiers,
             "note": "\n".join(notes) if notes else None,
             "hint": (
-                "列表不含作业正文（省体积）；要执行或细看用 "
-                "save_copilot_draft(site_id=…) 拉完整作业。"
-                if not include_content
-                else "列表里的 content 不含 actions（省体积）；要执行或细看用 "
-                "save_copilot_draft(site_id=…) 拉完整作业。"
+                "列表是精简投影（不含作业正文/热度/练度明细）；要执行用 "
+                "save_copilot_draft(site_id=…) 拉完整作业，要完整列表就调小 limit 或换 order。"
+                if compact
+                else (
+                    "列表不含作业正文（省体积）；要执行或细看用 "
+                    "save_copilot_draft(site_id=…) 拉完整作业。"
+                    if not include_content
+                    else "列表里的 content 不含 actions（省体积）；要执行或细看用 "
+                    "save_copilot_draft(site_id=…) 拉完整作业。"
+                )
             ),
             **build_envelope([data.source_ref()], unavailable=unavailable),
         }
@@ -374,13 +386,45 @@ def _size(payload: Any) -> int:
     return len(json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8"))
 
 
+def _compact_row(item: Mapping[str, Any]) -> dict[str, Any]:
+    """一条作业结果 → 内置 Agent 的精简投影（M57，docs/13 §8.80）。
+
+    模型选作业只需要：编号、标题、可行性、缺谁、评分与更新时间。评分比例、热度分、
+    站点正文摘要、逐项练度明细都不回；operators 只留名字。
+    """
+    operators = item.get("operators") or []
+    return {
+        "site_id": item.get("site_id"),
+        "title": item.get("title"),
+        "uploader": item.get("uploader"),
+        "views": item.get("views"),
+        "rating_level": item.get("rating_level"),
+        "upload_time": item.get("upload_time"),
+        "stage_name": item.get("stage_name"),
+        "difficulty": item.get("difficulty"),
+        "feasible": item.get("feasible"),
+        "tier": item.get("tier"),
+        "missing_count": item.get("missing_count"),
+        "missing": list(item.get("missing") or []),
+        "note": item.get("note"),
+        "link": item.get("link"),
+        "operators": [
+            str(operator.get("name"))
+            for operator in operators
+            if isinstance(operator, Mapping) and operator.get("name")
+        ],
+    }
+
+
 def _shrink(payload: dict[str, Any]) -> dict[str, Any]:
     """体积超 24 KB 时按「先砍校验细节、再砍条数」的顺序收敛（规格 §4.4）。"""
     if _size(payload) <= MAX_RESULT_BYTES:
         return payload
     for item in payload.get("results") or []:
         for operator in item.get("operators") or []:
-            operator["requirements"] = []
+            # compact 投影里 operators 是字符串，没有可砍的字段。
+            if isinstance(operator, dict):
+                operator["requirements"] = []
     if _size(payload) <= MAX_RESULT_BYTES:
         payload["truncated"] = {
             "field": "operators.requirements",

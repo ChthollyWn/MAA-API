@@ -16,6 +16,7 @@ from maa_api.agent.tools.task_schema import pipeline_model_schema
 from maa_api.db.models import Pipeline, Task
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.domain.enums import (
+    CallerType,
     PipelineSource,
     PipelineStatus,
     TaskStatus,
@@ -33,6 +34,24 @@ __all__ = ["SetTaskParams", "WaitPipelineParams", "register_tools"]
 
 class EmptyParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ListTaskTypesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+        description="只看一种任务类型（如 Copilot、Fight）；不填列出全部。",
+    )
+    detail: Literal["compact", "full"] | None = Field(
+        default=None,
+        description=(
+            "compact 只给参数名与一行说明（省 token）；full 给完整 schema（含取值与默认值）。"
+            "内置 Agent 默认 compact，REST 默认 full。"
+        ),
+    )
 
 
 class GetPipelineParams(BaseModel):
@@ -78,8 +97,12 @@ def register_tools(registry: ToolRegistry) -> None:
             name="list_task_types",
             group="pipeline",
             risk=ToolRisk.SAFE,
-            description="列出 MAA 支持的任务类型、每个任务能填哪些参数，以及运行中改不了的字段。不确定任务名或参数名时用。",
-            params_model=EmptyParams,
+            description=(
+                "列出 MAA 支持的任务类型与参数。默认 compact：只给参数名与一行说明；"
+                "要完整 schema（取值、默认值）时传 name=<任务类型> 和 detail=\"full\"。"
+                "不确定任务名或参数名时用。"
+            ),
+            params_model=ListTaskTypesParams,
             handler=list_task_types,
             read_only=True,
         ),
@@ -166,20 +189,42 @@ def register_tools(registry: ToolRegistry) -> None:
         registry.register(definition)
 
 
-async def list_task_types(_params: EmptyParams, _ctx: ToolContext) -> dict[str, Any]:
-    items = []
-    for name, model in TASK_MODELS.items():
-        schema = model.model_json_schema(ref_template="#/$defs/{model}")
-        items.append(
-            {
-                "name": name,
-                "label": TASK_LABELS[name],
-                "description": (model.__doc__ or "").strip(),
-                "schema": schema,
-                "runtime_immutable": list(RUNTIME_IMMUTABLE[name]),
-            }
+async def list_task_types(
+    params: ListTaskTypesParams, ctx: ToolContext
+) -> dict[str, Any]:
+    """列出任务类型与参数（M57 compact 默认，docs/13 §8.80）。
+
+    旧实现一次回 12 种任务的完整 schema（34 384 字）：2026-10-17 实机会话里一次调用
+    给 prompt 增加了 12 207 token，并且之后每次请求都重复计费。模型多数时候只需要
+    「有哪些任务、参数叫什么」，取值细节再按需查单种任务。
+    """
+    detail = params.detail or (
+        "compact" if ctx.caller is CallerType.INTERNAL else "full"
+    )
+    if params.name is not None and params.name not in TASK_MODELS:
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            f"未知任务类型：{params.name}",
+            {"可选": list(TASK_MODELS)},
         )
-    return {"items": items}
+    names = [params.name] if params.name is not None else list(TASK_MODELS)
+    items = []
+    for name in names:
+        model = TASK_MODELS[name]
+        item: dict[str, Any] = {
+            "name": name,
+            "label": TASK_LABELS[name],
+            "description": (model.__doc__ or "").strip(),
+            "runtime_immutable": list(RUNTIME_IMMUTABLE[name]),
+        }
+        if detail == "full":
+            item["schema"] = model.model_json_schema(ref_template="#/$defs/{model}")
+        else:
+            item["param_names"] = sorted(
+                (model.model_json_schema().get("properties") or {}).keys()
+            )
+        items.append(item)
+    return {"items": items, "detail": detail}
 
 
 async def get_pipeline(params: GetPipelineParams, ctx: ToolContext) -> dict[str, Any]:

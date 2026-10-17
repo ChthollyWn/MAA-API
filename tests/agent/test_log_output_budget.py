@@ -11,7 +11,12 @@ from __future__ import annotations
 import asyncio
 
 from maa_api.agent.registry import ToolContext
-from maa_api.agent.tools.status import GetLogsParams, _log_wire
+from maa_api.agent.tools.status import (
+    MAX_LOG_RESULT_CHARS,
+    GetLogsParams,
+    _log_wire,
+    _trim_log_items,
+)
 
 
 class _Row:
@@ -63,6 +68,27 @@ def test_log_wire_full_keeps_everything_and_marks_no_truncation() -> None:
     full = _log_wire(long_row, content_chars=2_000, detail="full")
     assert len(full["content"]) == 2_000
     assert full["content_truncated"] is True
+
+
+def test_log_items_are_trimmed_to_the_total_budget_from_the_oldest_end() -> None:
+    """M57：参数层单条预算之外再加一层总预算（实测 40×600 字 = 6 140 字）。"""
+
+    items = [
+        {"id": index, "ts": 1.0, "source": "service", "level": "info", "content": "x" * 300}
+        for index in range(40)
+    ]
+    result = _trim_log_items(items)
+
+    assert result["dropped"] > 0
+    assert 1 <= len(result["items"]) < len(items)
+    assert sum(len(item["content"]) for item in result["items"]) <= MAX_LOG_RESULT_CHARS
+    # order=desc：保最新（id 大的在前），丢最旧。
+    assert result["items"][0]["id"] == 0
+    assert result["items"][-1]["id"] == len(result["items"]) - 1
+    assert result["truncated"]["dropped"] == result["dropped"]
+
+    short = [{"id": 1, "content": "ok"}]
+    assert _trim_log_items(short) == {"items": short, "dropped": 0}
 
 
 def test_get_logs_params_defaults_are_bounded() -> None:

@@ -16,6 +16,7 @@ def build_registry() -> ToolRegistry:
     # parameter/context helpers without creating a package initialization cycle.
     from maa_api.agent.tools.account import register_tools as register_account_tools
     from maa_api.agent.tools.activity import register_tools as register_activity_tools
+    from maa_api.agent.tools.catalog import register_tools as register_catalog_tools
     from maa_api.agent.tools.copilot_attempt import register_tools as register_copilot_attempt_tools
     from maa_api.agent.tools.copilot_site import register_tools as register_copilot_site_tools
     from maa_api.agent.tools.device import register_tools as register_device_tools
@@ -56,6 +57,8 @@ def build_registry() -> ToolRegistry:
         register_interaction_tools,
         # M48：只读探索三件套 + 侦察委派（规格 §4.2/§4.3）。
         register_recon_tools,
+        # M57：工具目录 + 按需开启扩展组（docs/13 §8.80）。
+        register_catalog_tools,
     ):
         register(registry)
     registry.register(

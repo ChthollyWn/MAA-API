@@ -1,11 +1,11 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 6472 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 6497 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 102 | 102 |
+| 粗体强调 | medium | 0 | 103 | 103 |
 | 绝对化规定腔 | medium | 0 | 75 | 75 |
 | 破折号当冒号用 | high | 0 | 70 | 70 |
 | 「A 而不是 B」对照腔 | high | 0 | 51 | 51 |
@@ -17,7 +17,7 @@
 | 提示腔 | medium | 0 | 1 | 1 |
 | emoji/符号装饰 | high | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 102）
+## 粗体强调（medium｜用户可见 0 / 开发向 103）
 
 **开发向**
 
@@ -27,7 +27,7 @@
 - `tests/agent/test_knowledge_convergence.py:1` M30 T3：删除内置条目时的覆盖行迁移（规格 §10.1 最后一条、§10.3 的 T3）。 背景：``agent_knowledge`` 的覆盖行只存与内置**不同**的列，其余为 NULL。内置条目 一旦从 ``builtin/*.m…（共 719 字）
 - `tests/agent/test_knowledge_no_numbers.py:1` M30 T4：「无数值」检查测试（规格 §10.3、§10.1）。 规格 ``docs/superpowers/specs/2026-10-09-m25-prts-knowledge.md`` §10.1 把内置知识条目的 数值口径定成「数…（共 807 字）
 - `tests/agent/test_knowledge_no_numbers.py:205` MAA 操作参数里的固定招募时长（Recruit 固定填 `9:00:00`，T1-a §5 第 6 条豁免它）。注意「时长档位 → 稀有度下限」那张表 T1-a §5 明确**不豁免**：`1:00:00` 也不在白名单里（除非它出现在 …（共 134 字）
-- …… 另有 96 条，见 inventory.json
+- …… 另有 97 条，见 inventory.json
 
 ## 绝对化规定腔（medium｜用户可见 0 / 开发向 75）
 
@@ -57,7 +57,7 @@
 
 **开发向**
 
-- `tests/agent/test_activity_tools.py:377` 没有装配索引、默认门面也读不到资源时，报的是资源不可用而不是空结果。
+- `tests/agent/test_activity_tools.py:383` 没有装配索引、默认门面也读不到资源时，报的是资源不可用而不是空结果。
 - `tests/agent/test_knowledge_no_numbers.py:166` 界面比例与坐标：screen-* 用「约占横向 50%–93%、纵向 4%–14%」「横向 93%、纵向 89%」描述可点区域，是操作坐标而非游戏数值（T1-b §5 风险 1 明确要求豁免）。判据就是任务书写的「界面描述语境」：必须带 `…（共 179 字）
 - `tests/agent/test_knowledge_no_numbers.py:222` 星级/稀有度/精英阶段/技能等级序号：`1★–6★`、`6★`、`3 星通关`、`精英阶段 0 / 1 / 2`、`精一 / 精二`、`专一~专三`、`技能 1/2/3`、`Lv.` 后跟符号占位。它们是分类标签而非数值；T1-a §5 把…（共 227 字）
 - `tests/agent/test_knowledge_no_numbers.py:262` Markdown 列表项与标题里的序号（`1.`、`-`、`## 第 1 步`）：属于排版而不是数值。只豁免行首那截标记，`- 135 理智` 这种行里的数值仍会命中。
@@ -81,9 +81,9 @@
 
 **开发向**
 
-- `tests/agent/test_runtime.py:3468` 正在读取日志……
-- `tests/agent/test_runtime.py:3504` 正在读取日志…… {INTERRUPTED_NOTICE}
-- `tests/agent/test_runtime.py:3885` 正在排查……
+- `tests/agent/test_runtime.py:3596` 正在读取日志……
+- `tests/agent/test_runtime.py:3632` 正在读取日志…… {INTERRUPTED_NOTICE}
+- `tests/agent/test_runtime.py:4013` 正在排查……
 - `tests/services/test_game_roguelike.py:157` {{Cbox2|mdi=true|icon=information-variant-circle|text='''在非标准模式下……'''}} {{收藏品/common |名称=热水壶 |iconId=rogue_6_relic_legac…（共 401 字）
 - `tests/services/test_game_story.py:235` 杜宾：……我也希望是你的错觉。
 - …… 另有 2 条，见 inventory.json
@@ -109,7 +109,7 @@
 
 **开发向**
 
-- `tests/agent/test_runtime.py:3127` 不用「首先/其次/最后/另外」
+- `tests/agent/test_runtime.py:3251` 不用「首先/其次/最后/另外」
 
 ## 提示腔（medium｜用户可见 0 / 开发向 1）
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from importlib.metadata import version
 import io
+import json
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -20,7 +21,18 @@ from maa_api.services.log_hub import SOURCE_DB_TO_WIRE, SOURCE_WIRE_TO_DB
 from maa_api.services.stage_resolver import StageResolver
 from maa_api.settings import get_settings
 
-__all__ = ["GetDropStatsParams", "GetLogsParams", "ResolveStageParams", "register_tools"]
+__all__ = [
+    "GetDropStatsParams",
+    "GetLogsParams",
+    "MAX_LOG_RESULT_CHARS",
+    "ResolveStageParams",
+    "register_tools",
+]
+
+#: ``get_logs`` 单次返回的总字符预算（M57，docs/13 §8.80）。
+#: 2026-10-17 实机会话里一次 ``limit=40, content_chars=600`` 回了 6 140 字并进入每一轮
+#: 上下文。预算按序列化后的 items 算，超了从最旧的行开始丢（order=desc，保新不保旧）。
+MAX_LOG_RESULT_CHARS = 4_000
 
 
 class EmptyParams(BaseModel):
@@ -75,7 +87,11 @@ def register_tools(registry: ToolRegistry) -> None:
             name="get_screenshot",
             group="status",
             risk=ToolRisk.SAFE,
-            description="截取当前设备画面。要读游戏界面上的数字、确认画面状态，或执行点击前确认位置时用。",
+            description=(
+                "截取当前设备画面。要读游戏界面上的数字、确认画面状态，或执行点击前确认位置时用。"
+                "发往模型的副本会叠加像素坐标网格：格宽为图宽的 1/10，每个标签就是原图像素坐标，"
+                "click 直接按网格读数（归档与发给用户的图不带网格）。"
+            ),
             params_model=EmptyParams,
             handler=get_screenshot,
             read_only=True,
@@ -212,17 +228,53 @@ async def get_logs(params: GetLogsParams, ctx: ToolContext) -> dict[str, Any]:
         order="desc",
         size=params.limit,
     )
-    return {
-        "items": [
+    trimmed = _trim_log_items(
+        [
             _log_wire(row, content_chars=params.content_chars, detail=params.detail)
             for row in rows
-        ],
+        ]
+    )
+    items = trimmed["items"]
+    return {
+        "items": items,
         "page": {
-            "next_cursor": rows[-1].id if rows and has_more else None,
-            "has_more": has_more,
+            "next_cursor": rows[len(items) - 1].id if rows and (has_more or trimmed["dropped"]) else None,
+            "has_more": bool(has_more or trimmed["dropped"]),
             "limit": params.limit,
         },
+        **({"truncated": trimmed["truncated"]} if "truncated" in trimmed else {}),
     }
+
+
+def _trim_log_items(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """把日志行裁到 :data:`MAX_LOG_RESULT_CHARS` 以内（保最新、从最旧丢）。
+
+    参数层已经有单条正文预算；这里再加一层总预算，避免「40 条 × 600 字」这种
+    参数组合把一次查询变成几万字的持久上下文。
+    """
+    if _log_items_chars(items) <= MAX_LOG_RESULT_CHARS:
+        return {"items": items, "dropped": 0}
+    kept = list(items)
+    while len(kept) > 1 and _log_items_chars(kept) > MAX_LOG_RESULT_CHARS:
+        kept.pop()
+    dropped = len(items) - len(kept)
+    return {
+        "items": kept,
+        "dropped": dropped,
+        "truncated": {
+            "field": "items",
+            "returned": len(kept),
+            "dropped": dropped,
+            "note": (
+                f"本次查询超过 {MAX_LOG_RESULT_CHARS} 字预算，已从最旧的行开始省略；"
+                "要更早的行用 after_id 翻页或缩小 limit/content_chars。"
+            ),
+        },
+    }
+
+
+def _log_items_chars(items: list[dict[str, Any]]) -> int:
+    return len(json.dumps(items, ensure_ascii=False, default=str))
 
 
 async def resolve_stage(params: ResolveStageParams, ctx: ToolContext) -> dict[str, Any]:

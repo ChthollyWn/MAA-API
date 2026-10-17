@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +110,7 @@ class StageResolver:
         if exact:
             return sorted(exact, key=lambda item: str(item["stage_id"]))
         # 注意：overview.json 的值是驼峰（``stageId`` / ``levelId``），返回给上层才转蛇形。
-        for field in ("levelId", "code", "name"):
+        for field in ("levelId", "code"):
             matches = [
                 _candidate(stage)
                 for stage in stages
@@ -118,6 +119,27 @@ class StageResolver:
             ]
             if matches:
                 return _deduplicated(matches)
+        # M57：紧凑别名（``ywex8`` → ``YW-EX-8``）。用户按键入习惯写「活动前缀 + EX +
+        # 数字」、或用下划线/省略分隔符时，把查询和目标 code 都去掉分隔符再比一次。
+        # 只对 ``code`` 做，不会误伤 stageId 或中文名。
+        compact = _compact_stage_key(key)
+        if compact:
+            alias_matches = [
+                _candidate(stage)
+                for stage in stages
+                if isinstance(stage.get("code"), str)
+                and _compact_stage_key(str(stage["code"])) == compact
+            ]
+            if alias_matches:
+                return _deduplicated(alias_matches)
+        name_matches = [
+            _candidate(stage)
+            for stage in stages
+            if isinstance(stage.get("name"), str)
+            and str(stage["name"]).casefold() == needle
+        ]
+        if name_matches:
+            return _deduplicated(name_matches)
         return []
 
     def _load_overview(self) -> list[dict[str, Any]] | None:
@@ -145,6 +167,11 @@ class StageResolver:
         if path.name in {OVERVIEW_FILENAME, "stages.json"} and path.parent.name != OVERVIEW_DIRECTORY:
             return path.parent / OVERVIEW_DIRECTORY / OVERVIEW_FILENAME
         return path
+
+
+def _compact_stage_key(value: str) -> str:
+    """关卡代号归一化：去掉空白/下划线/连字符并小写（``YW-EX-8`` → ``ywex8``）。"""
+    return re.sub(r"[\s_\-]+", "", value).casefold()
 
 
 def _candidate(stage: dict[str, Any]) -> dict[str, Any]:

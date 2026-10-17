@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import importlib.util
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -164,6 +165,73 @@ def test_restart_core_tool_uses_maintenance_service_and_returns_summary() -> Non
     )
 
     assert result == {"status": "ready", "generation": 8}
+
+
+def test_wait_update_blocks_until_terminal_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M57：更新是异步的，``wait_update`` 负责阻塞到终态，替代反复 get_versions。"""
+    module = _module("ops")
+    registry = ToolRegistry()
+    module.register_tools(registry)
+    monkeypatch.setattr(module, "WAIT_UPDATE_POLL_SECONDS", 0.0)
+
+    class Updates:
+        def __init__(self):
+            self.calls = 0
+
+        async def get(self, update_id):
+            self.calls += 1
+            terminal = self.calls > 1
+            return SimpleNamespace(
+                id=update_id,
+                target="resource",
+                channel="repo",
+                status="success" if terminal else "running",
+                phase="download" if not terminal else None,
+                progress=100 if terminal else 40,
+                bytes_total=10,
+                bytes_done=10 if terminal else 4,
+                from_version="2026-10-09",
+                to_version="2026-10-16",
+                error_code=None,
+                error_message=None,
+                finished_at=datetime(2026, 10, 17, tzinfo=UTC) if terminal else None,
+            )
+
+    updates = Updates()
+    result = asyncio.run(
+        registry.execute(
+            "wait_update",
+            {"update_id": "update-1", "timeout_seconds": 5},
+            _context(SimpleNamespace(update_service=updates)),
+        )
+    )
+
+    assert result["finished"] is True
+    assert result["update"]["status"] == "success"
+    assert result["update"]["progress"] == 100
+    assert result["update"]["finished_at"]
+    assert updates.calls >= 2
+
+
+def test_wait_update_reports_when_nothing_is_running() -> None:
+    module = _module("ops")
+    registry = ToolRegistry()
+    module.register_tools(registry)
+
+    class Updates:
+        async def status(self, *, refresh=False):
+            return {"updates": {}, "running": None}
+
+    result = asyncio.run(
+        registry.execute(
+            "wait_update", {"timeout_seconds": 5}, _context(SimpleNamespace(update_service=Updates()))
+        )
+    )
+
+    assert result["finished"] is True
+    assert result["update"] is None
+    assert result["note"] == "当前没有进行中的更新"
+    assert result["waited_seconds"] >= 0
 
 
 def test_schedule_tools_delegate_crud_and_preserve_consumption_confirmation_policy() -> None:

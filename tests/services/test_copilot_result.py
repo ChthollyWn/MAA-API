@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -339,6 +340,21 @@ def test_judge_accepts_strings_and_log_entries():
         },
     )
     assert service.judge([entry]) == "clear"
+
+
+def test_judge_reads_the_hit_marker_from_real_kernel_envelopes():
+    """真实内核信封：完整任务名在 ``details.pre_task``，``details.details.task`` 只有 ``Hit``。
+
+    夹具是从 2026-10-17 实机会话的 ``log_entry.meta`` 原样（uuid 脱敏）取样。修这个
+    解析之前，本仓库所有作业尝试（历史 4 次）都被判成 ``unknown``，模型只能靠看截图/
+    问用户兜底。
+    """
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "agent" / "copilot_result_hit_callbacks.json"
+    callbacks = json.loads(fixture.read_text(encoding="utf-8"))
+    service = CopilotResultService()
+    assert service.judge([callbacks["three_star"]]) == "three_star"
+    assert service.judge([callbacks["adverse_three_star"]]) == "three_star"
+    assert service.judge([callbacks["start_button"]]) == "not_started"
 
 
 def test_judge_first_marker_in_sequence_order_wins():

@@ -583,6 +583,106 @@ def test_model_context_redacts_credentials_preserves_only_latest_screenshot_and_
     asyncio.run(scenario())
 
 
+def test_model_context_renders_copilot_attempt_settlement_screenshot():
+    """M57：``run_copilot_attempt`` 的结算截图也要作为图像回灌模型。
+
+    2026-10-17 的实机会话里模型只拿到 ``screenshot_id``，看不到图，只能
+    ``send_screenshot`` 发给用户再由 ``ask_user`` 人工判读（docs/13 §8.80）。
+    """
+    from maa_api.agent.runtime import build_model_context
+
+    attempt_payload = {
+        "result": {
+            "attempt_id": "a1",
+            "outcome": "unknown",
+            "screenshot_id": "settlement-1",
+            "data": "c2V0dGxlbWVudA==",
+        }
+    }
+    history = [
+        AgentMessage(session_id="s", seq=0, role="user", content="打 YW-EX-8"),
+        AgentMessage(
+            session_id="s",
+            seq=1,
+            role="assistant",
+            tool_calls=[
+                {
+                    "id": "attempt-1",
+                    "type": "function",
+                    "function": {"name": "run_copilot_attempt", "arguments": "{}"},
+                }
+            ],
+        ),
+        AgentMessage(
+            session_id="s",
+            seq=2,
+            role="tool",
+            content=json.dumps(attempt_payload),
+            tool_call_id="attempt-1",
+            tool_name="run_copilot_attempt",
+        ),
+        AgentMessage(session_id="s", seq=3, role="user", content="结果如何？"),
+    ]
+
+    context = build_model_context(history, system_prompt="sys")
+    tool_message = next(message for message in context if message.get("role") == "tool")
+    content = tool_message["content"]
+    assert isinstance(content, list)
+    assert "run_copilot_attempt" in content[0]["text"]
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"].startswith("data:image/")
+    assert '"outcome":"unknown"' in content[0]["text"]
+
+
+def test_model_context_keeps_old_attempt_result_json_but_drops_its_screenshot():
+    """旧结算结果只省略图像；``outcome`` 等 JSON 信息不能一起吞掉。"""
+    from maa_api.agent.runtime import build_model_context
+
+    def attempt(seq: int, call_id: str, outcome: str, image: str) -> list[AgentMessage]:
+        return [
+            AgentMessage(
+                session_id="s",
+                seq=seq,
+                role="assistant",
+                tool_calls=[
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": "run_copilot_attempt", "arguments": "{}"},
+                    }
+                ],
+            ),
+            AgentMessage(
+                session_id="s",
+                seq=seq + 1,
+                role="tool",
+                content=json.dumps(
+                    {"result": {"outcome": outcome, "screenshot_id": f"s{seq}", "data": image}}
+                ),
+                tool_call_id=call_id,
+                tool_name="run_copilot_attempt",
+            ),
+        ]
+
+    history = [
+        AgentMessage(session_id="s", seq=0, role="user", content="打两关"),
+        *attempt(1, "attempt-1", "three_star", "b2xk"),
+        *attempt(3, "attempt-2", "unknown", "bmV3"),
+        AgentMessage(session_id="s", seq=5, role="user", content="继续"),
+    ]
+    context = build_model_context(history, system_prompt="sys")
+    tool_messages = [message for message in context if message.get("role") == "tool"]
+    assert len(tool_messages) == 2
+    newest = tool_messages[1]["content"]
+    assert isinstance(newest, list)
+    assert newest[1]["type"] == "image_url"
+    oldest = tool_messages[0]["content"]
+    assert isinstance(oldest, str)
+    assert '"outcome":"three_star"' in oldest
+    assert "历史截图已省略" in oldest
+    assert "data:image" not in oldest
+
+
 def test_model_context_trims_oldest_turns_within_the_default_cap():
     """M53：默认就有上限（400 000 字符），超出时丢最早的完整轮次，最后一轮始终保留。
 
@@ -2079,9 +2179,15 @@ def test_screenshot_tool_result_is_archived_by_id_and_only_latest_image_goes_ups
             assert len(image_parts) == 1, "截图必须作为 tool 消息的图片部分，而不是另起一条 user 消息"
             image_url = image_parts[0]["image_url"]["url"]
             assert image_url.startswith("data:image/jpeg;base64,")
-            assert base64.b64decode(image_url.partition(",")[2]) == (
-                tmp_path / screenshot_record.path
-            ).read_bytes()
+            from PIL import Image
+
+            upstream_bytes = base64.b64decode(image_url.partition(",")[2])
+            archived_path = tmp_path / screenshot_record.path
+            assert Image.open(io.BytesIO(upstream_bytes)).size == Image.open(
+                archived_path
+            ).size
+            # M57：发给模型的副本叠了坐标网格（docs/13 §8.80），字节不再等于落库原图。
+            assert upstream_bytes != archived_path.read_bytes()
             # 截图的 tool 消息必须紧跟其 tool_calls，中间不能再插消息（上游会 400）。
             conversation = llm.turns[1][1]
             calls_index = next(
@@ -2877,6 +2983,24 @@ def test_status_summary_prepends_now_to_a_custom_context_provider_payload():
     asyncio.run(scenario())
 
 
+def test_local_resource_version_reads_the_repo_layer_without_network(tmp_path):
+    """M57：状态摘要带本机资源版本，只读 version.json、不做网络检查。"""
+    from types import SimpleNamespace
+
+    from maa_api.agent.runtime import _local_resource_version
+
+    root = tmp_path / "resource"
+    version_dir = root / "maa-layers" / "repo" / "resource"
+    version_dir.mkdir(parents=True)
+    (version_dir / "version.json").write_text(
+        json.dumps({"last_updated": "2026-10-09 23:31:13.000"}), encoding="utf-8"
+    )
+    state = SimpleNamespace(resource_service=SimpleNamespace(resource_root=str(root)))
+    assert _local_resource_version(state) == "2026-10-09 23:31:13.000"
+    assert _local_resource_version(SimpleNamespace(resource_service=None)) is None
+    assert _local_resource_version(SimpleNamespace()) is None
+
+
 def test_clean_title_strips_model_noise_and_caps_the_length():
     from maa_api.agent.runtime import TITLE_MAX_CHARS, _clean_title
 
@@ -3133,29 +3257,33 @@ def test_system_prompt_keeps_every_behaviour_and_safety_constraint():
         assert needle in SYSTEM_PROMPT, needle
 
 
-def test_system_prompt_says_copilot_needs_the_stage_page_not_a_resource_update():
-    """M56 §4.6：用户 2026-10-17 问「为什么用作业还要更新资源」。
+def test_system_prompt_says_copilot_execution_needs_the_stage_in_the_kernel_resource():
+    """M57 更正 M56 §4.6：作业执行**需要**内核资源认识这一关。
 
-    作业执行只要求画面停在关卡「开始行动」页；本机资源版本与 resolve_stage 的失败
-    不影响 Copilot。提示词、工具描述与知识条目三处都要说清，否则模型会照着
-    「关卡先过 resolve_stage」的旧习惯去更新资源。
+    2026-10-17 的实机会话证明 M56 的静态结论不成立：内核会读作业 JSON 的
+    ``stage_name`` 并在资源里校验，缺失时直接 ``Not support stage`` 拒绝任务
+    （资源更新到 10-16 后同一份作业跑通）。提示词、工具描述与知识条目三处都要
+    说清「搜索不需要更新、执行需要内核认识关卡」，才不会先跑失败一次。
     """
 
     from maa_api.agent.knowledge import builtin_entries
     from maa_api.agent.runtime import SYSTEM_PROMPT
     from maa_api.agent.tools import build_registry
 
-    assert "不要为了用作业去更新资源" in SYSTEM_PROMPT
+    assert "执行需要内核资源认识这一关" in SYSTEM_PROMPT
     assert "开始行动" in SYSTEM_PROMPT
     assert "act52side_ex08" in SYSTEM_PROMPT
+    assert "搜索作业本身不需要更新资源" in SYSTEM_PROMPT
+    assert "wait_update" in SYSTEM_PROMPT
 
     description = build_registry().get("update_resource").description
-    assert "执行作业站作业不需要它" in description
+    assert "Not support stage" in description
+    assert "wait_update" in description
 
     body = builtin_entries()["playbook-stage-clear"].body
-    assert "作业执行不依赖本机资源版本" in body
-    assert "不要为了用作业去 update_resource" in body
-    assert "不需要更新资源" in body
+    assert "执行需要内核资源认识这一关" in body
+    assert "Not support stage" in body
+    assert "不需要更新资源" in body  # 搜索这一步确实不需要，保留了
 
 
 # ----------------------------------------------------------------------

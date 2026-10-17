@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 from datetime import UTC, datetime
@@ -12,6 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.domain.errors import AppError, ErrorCode
+
+#: 点击后等待画面稳定的时间（M57，docs/13 §8.80）。
+#: 点击和截图之间至少隔一段动画时间，避免模型拍到过渡帧误判「没点中」。
+CLICK_SETTLE_SECONDS = 0.35
 
 
 class EmptyParams(BaseModel):
@@ -136,6 +141,9 @@ async def _click(params: ClickParams, context: ToolContext) -> dict[str, Any]:
     await _run_atomic(
         context, "click", lambda manager: manager.click(params.x, params.y)
     )
+    # 点击后界面切换有动画：模型紧接着 get_screenshot 时经常拍到过渡帧，会误判成
+    # 「没点中」并连续补点（2026-10-17 实机会话因此 12 次点击 11 次打空）。
+    await asyncio.sleep(CLICK_SETTLE_SECONDS)
     return {"ok": True, "backend": "core", "x": params.x, "y": params.y}
 
 
@@ -211,7 +219,8 @@ def register_tools(registry: ToolRegistry) -> None:
         (
             "click",
             ToolRisk.DANGEROUS,
-            "点击屏幕坐标（用 get_screenshot 返回图像的像素坐标）。"
+            "点击屏幕坐标（用 get_screenshot 返回图像的像素坐标；模型侧截图带坐标网格，"
+            "按网格标签读数）。点击后自动等 350ms 让画面稳定再返回。"
             "只有当任务编排做不到、或用户明确要求手点时用；用前先停掉流水线并重新截图。",
             ClickParams,
             _click,

@@ -17,7 +17,7 @@ EXPECTED_TOOLS = {
     "get_device_status", "reconnect_device", "list_devices", "list_copilots",
     "upload_copilot", "list_custom_tasks", "register_custom_task",
     "remove_custom_task", "set_infrast_plan", "check_updates", "update_core",
-    "update_resource", "update_game", "restart_core", "list_schedules",
+    "update_resource", "update_game", "wait_update", "restart_core", "list_schedules",
     "create_schedule", "update_schedule", "delete_schedule",
     "check_confirmation", "read_knowledge", "ask_user",
     # M23 媒体组（规格 §3.2）。
@@ -58,6 +58,9 @@ EXPECTED_TOOLS = {
     "read_file",
     "search_code",
     "delegate_recon",
+    # M57：工具目录 + 按需开启扩展组（docs/13 §8.80）。
+    "list_tool_groups",
+    "enable_tool_group",
 }
 
 
@@ -68,10 +71,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     assert actual == EXPECTED_TOOLS
     # M47 起 ``update_operator_box`` 随内核 ``OperBox`` 识别一起下线（docs/13 §8.70）：
     # 77 → 76。M48 再加入只读探索组 ``recon`` 四个工具（规格 §4.2、docs/13 §8.71）：
-    # 76 → 80，其中对模型可见的 79（少一个隐藏工具 ``trigger_screencap``）。
-    # 规格 §2/§4.4 写的 78/77 少算了两个：76 + 4 = 80、75 + 4 = 79，以实测登记表为准。
-    assert len(actual) == 80
-    assert sum(1 for item in registry.list() if item.model_visible) == 79
+    # 76 → 80；M57 加工具目录两条（list_tool_groups / enable_tool_group）→ 83，
+    # 其中对模型可见的 82（少一个隐藏工具 ``trigger_screencap``）。
+    assert len(actual) == 83
+    assert sum(1 for item in registry.list() if item.model_visible) == 82
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
@@ -461,3 +464,88 @@ def test_ask_user_rest_invocation_fails_with_invalid_parameter():
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_deferred_tool_groups_stay_hidden_until_the_session_enables_them() -> None:
+    """M57：扩展组默认不暴露，``enable_tool_group`` 按会话开启（docs/13 §8.80）。
+
+    80 个工具声明约 4.9 万字符，占单次上下文约 1/3；账户/基建/媒体/运维/定时/侦察
+    六组约 2.1 万字符默认不发，核心任务用不到它们。
+    """
+    from types import SimpleNamespace
+
+    from maa_api.agent.runtime import AgentRuntime
+
+    registry = build_registry()
+    runtime = AgentRuntime(None, SimpleNamespace(registry=registry))  # type: ignore[arg-type]
+
+    allowed = runtime.session_allowed_tools("session-1")
+    assert "get_screenshot" in allowed
+    assert "list_tool_groups" in allowed
+    assert "enable_tool_group" in allowed
+    assert "get_operator_box" not in allowed
+    assert "update_resource" not in allowed
+
+    runtime.enable_tool_groups("session-1", {"account"})
+    assert "get_operator_box" in runtime.session_allowed_tools("session-1")
+    # 按会话隔离：别的会话不受影响。
+    assert "get_operator_box" not in runtime.session_allowed_tools("session-2")
+
+    core = runtime._tool_schemas(
+        registry, allowed_tools=runtime.session_allowed_tools("session-2")
+    )
+    full = runtime._tool_schemas(registry)
+    assert len(core) < len(full)
+    assert len(json.dumps(core, ensure_ascii=False)) < len(
+        json.dumps(full, ensure_ascii=False)
+    ) * 0.75
+
+    catalog = runtime.tool_group_catalog("session-2")
+    assert catalog["deferred_groups"]["account"]["enabled"] is False
+    assert catalog["deferred_groups"]["ops"]["enabled"] is False
+    assert "wait_update" in catalog["deferred_groups"]["ops"]["tools"]
+
+    from maa_api.agent.runtime import SYSTEM_PROMPT
+
+    assert "enable_tool_group" in SYSTEM_PROMPT
+    assert "list_tool_groups" in SYSTEM_PROMPT
+
+
+def test_catalog_tools_list_and_enable_groups_through_the_runtime() -> None:
+    """两条元工具走注册表派发：list 看目录、enable 开组、未知组报参数错误。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    import pytest
+
+    from maa_api.agent.registry import ToolContext
+    from maa_api.agent.runtime import AgentRuntime
+    from maa_api.domain.enums import CallerType
+    from maa_api.domain.errors import AppError
+
+    registry = build_registry()
+    runtime = AgentRuntime(None, SimpleNamespace(registry=registry))  # type: ignore[arg-type]
+    context = ToolContext(
+        caller=CallerType.INTERNAL,
+        session_id="session-1",
+        request_id="catalog-test",
+        request=SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(agent_runtime=runtime))
+        ),
+        db_session=None,
+    )
+
+    catalog = asyncio.run(registry.execute("list_tool_groups", {}, context))
+    assert "account" in catalog["deferred_groups"]
+    assert catalog["deferred_groups"]["account"]["enabled"] is False
+    assert "核心组工具始终可用" in catalog["note"]
+
+    enabled = asyncio.run(
+        registry.execute("enable_tool_group", {"group": "account"}, context)
+    )
+    assert enabled["deferred_groups"]["account"]["enabled"] is True
+    assert enabled["enabled_groups"] == ["account"]
+    assert "下一步起" in enabled["note"]
+
+    with pytest.raises(AppError):
+        asyncio.run(registry.execute("enable_tool_group", {"group": "nope"}, context))

@@ -90,7 +90,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | 工具 | 用途 |
 |---|---|
 | `get_system_status` | 服务、内核、设备三层状态一次性返回 |
-| `get_screenshot` | 当前画面。返回临时 URL 或 base64，含分辨率与时间戳；**自己不产生媒体卡**——它的图只作为工具调用卡内的「附件」展示，会话级媒体卡只由 `send_*` 五个工具产生（§5.5） |
+| `get_screenshot` | 当前画面。返回临时 URL 或 base64，含分辨率与时间戳；**自己不产生媒体卡**——它的图只作为工具调用卡内的「附件」展示，会话级媒体卡只由 `send_*` 五个工具产生（§5.5）。M57 起发往模型的副本叠加像素坐标网格（格宽 = 图宽/10，标签即原图坐标；落库与发给用户的图不变），见 §8.2 |
 | `get_versions` | 内核 / 活动资源 / 游戏本体的当前与最新版本 |
 | `get_logs` | 查日志，按来源、级别、时间范围、关联流水线过滤 |
 | `resolve_stage` | 关卡名 / code / stageId 互查，见 §2.2 |
@@ -100,7 +100,7 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 
 | 工具 | risk | 用途 |
 |---|---|---|
-| `list_task_types` | SAFE | MaaCore 内置任务与 Copilot 的完整参数 schema、取值范围、中文说明 |
+| `list_task_types` | SAFE | MaaCore 内置任务与 Copilot 的参数清单。M57 起默认 **compact**：只给 `name` / `label` / 描述 / `param_names` / `runtime_immutable`（旧实现一次回 34 384 字完整 schema，一次调用给 prompt 增加 12 207 token 且之后每轮重复计费）；要看完整取值与默认值时传 `name=<任务类型>` 与 `detail="full"`（REST 默认仍 full） |
 | `get_pipeline` | SAFE | 某条流水线的详情与任务级状态 |
 | `wait_pipeline` | SAFE | 等待指定流水线结束（完成 / 失败 / 取消）或超时，返回终态与各任务状态。参数 `pipeline_id` 与 `timeout_seconds`（默认 300，范围 5–600）；M32 起终态失败且错误码为 `CORE_COMMAND_FAILED` 时结果多一个 `hint`（先看现场截图，画面是桌面就先补 `StartUp`） |
 | `list_pipelines` | SAFE | 执行历史，分页 |
@@ -110,11 +110,18 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | `set_task_params` | CONDITIONAL | 运行中修改任务参数 |
 | `cancel_queued` | SAFE | 取消排队中未开始的条目 |
 
+工具目录组（`catalog`，M57）：`SAFE`、只读。这两条固定常驻，是扩展工具组的入口
+
+| 工具 | risk | 用途 |
+|---|---|---|
+| `list_tool_groups` | SAFE | 列出默认不暴露的扩展组（账户 / 基建 / 运维 / 定时 / 侦察）、每组工具名与本会话已开启哪些 |
+| `enable_tool_group` | SAFE | 开启一个扩展组，本会话后续步骤即可见并调用。M57 起这五个组约 1.6 万字符默认不发；核心组（含媒体组）始终可见，见 §8.2 |
+
 原子操作组：除安全白名单外，内置 Agent 需会话级授权，REST 调用逐次确认
 
 | 工具 | 实现 |
 |---|---|
-| `click` | MaaCore `AsstAsyncClick` |
+| `click` | MaaCore `AsstAsyncClick`。M57 起返回前等 350ms 让画面稳定（模型点完立刻截图会拍到过渡帧、误判「没点中」而连点）；模型侧截图带坐标网格，按网格读数即可 |
 | `swipe` | ADB |
 | `long_press` | ADB |
 | `input_text` | ADB |
@@ -144,8 +151,8 @@ async def submit_pipeline(params: SubmitPipelineParams, ctx: ToolContext) -> Sub
 | `set_infrast_plan` | DANGEROUS | 自定义基建换班方案（覆盖既有方案）。M28 起校验对齐上游排班协议：`rooms` 必填、`product` 只许六个值、`drones.index` 取 1–5、`period` 为 `HH:MM`，并放行 `duration` / `groups` / `candidates` / `use_operator_groups` / `drones.rule` |
 | `list_infrast_plans` | SAFE | 已保存的自定义基建方案：文件名、标题、班次数、各班 `period` 与是否读得出来（读不出来给 `error`，不整条失败）。要新建或更新方案前先看一遍，避免覆盖同名方案；写入仍用 `set_infrast_plan`（M28 加入） |
 | `save_copilot_draft` | SAFE | 把一份作业存成 `kind=copilot` 的资源（M29）：`content`（AI 写的作业 JSON）与 `site_id`（作业站编号）**二选一**，另有 `parent_id`（父版本，记版本链）与 `note`（≤ 200 字）。保存前跑协议校验（D2 修复后的口径）与静态检查（坐标在地图内且落在可部署格、近战远程与地块匹配、干员在账号里或是唯一允许的助战补位、部署数 ≤ 上限、技能序号 ≤ 技能数；`Click` / `Swipe` 不限），失败抛 `COPILOT_JSON_INVALID`（`details.violations` 逐条列出）；本机没有地块或干员数据时记 `skipped` 而不算失败。只保存、不执行 |
-| `run_copilot_attempt` | SAFE（策略层要求授权） | 执行一次作业尝试（M29）：提交 `Copilot(asset_id, formation=true, support_unit_usage=0 / 1)`、跑内核结算识别、退出结算回「开始行动」，阻塞最长 20 分钟（`agent.copilot_attempt_timeout_minutes`，超时记 `error`）。参数 `copilot_id`、`support`（不填按授权里的设置）、`grant_attempts` 与 `success`（**只在需要申请授权时用于预填**，批准后以授权为准）。返回尝试编号、结果、判定方、截图 id、剩余次数、授权状态与动作日志摘要（≤ 40 行）。**INTERNAL 调用方必须有该会话、该关卡的有效授权**，没有就返回 `confirmation_action="grant_copilot_attempts"` 弹授权卡；关卡不符 `COPILOT_GRANT_STAGE_MISMATCH`、次数用完 `COPILOT_GRANT_EXHAUSTED`；REST 调用方逐次评估、不消耗授权（返回里没有剩余次数） |
-| `record_copilot_result` | SAFE | 内核识别不出结果（`outcome=unknown`）时由模型看截图补判（M29）：`attempt_id`、`outcome`（`three_star` / `two_star` / `clear` / `failed`）、`evidence`（≤ 200 字）。**只允许在 `unknown` 的尝试上调用**，判定方记 `model`，前端与通知都标「模型判定」 |
+| `run_copilot_attempt` | SAFE（策略层要求授权） | 执行一次作业尝试（M29）：提交 `Copilot(asset_id, formation=true, support_unit_usage=0 / 1)`、跑内核结算识别、退出结算回「开始行动」，阻塞最长 20 分钟（`agent.copilot_attempt_timeout_minutes`，超时记 `error`）。参数 `copilot_id`、`support`（不填按授权里的设置）、`grant_attempts` 与 `success`（**只在需要申请授权时用于预填**，批准后以授权为准）。返回尝试编号、结果、判定方、截图 id、剩余次数、授权状态与动作日志摘要（≤ 40 行）。**INTERNAL 调用方必须有该会话、该关卡的有效授权**，没有就返回 `confirmation_action="grant_copilot_attempts"` 弹授权卡；关卡不符 `COPILOT_GRANT_STAGE_MISMATCH`、次数用完 `COPILOT_GRANT_EXHAUSTED`；REST 调用方逐次评估、不消耗授权（返回里没有剩余次数）。M57 起结算识别的 `@Hit` 标记按真实内核信封解析（完整任务名在 `details.pre_task`），`three_star` / `two_star` / `clear` / `failed` 由内核直接判定、无需再截图复核；`outcome=unknown` 时才用 `record_copilot_result`，且返回的结算截图会作为图片回灌模型（不必 `send_screenshot` 给用户问，见 §8.2） |
+| `record_copilot_result` | SAFE | 内核识别不出结果（`outcome=unknown`）时由模型看截图补判（M29；M57 起只用于 unknown，截图模型可见）：`attempt_id`、`outcome`（`three_star` / `two_star` / `clear` / `failed`）、`evidence`（≤ 200 字）。**只允许在 `unknown` 的尝试上调用**，判定方记 `model`，前端与通知都标「模型判定」 |
 
 M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面三条**（`save_copilot_draft` / `run_copilot_attempt` / `record_copilot_result`）——它们操作的是同一批 `kind=copilot` 的资源与 `asset_id`，所以按「操作哪类资源」归入本组，而不是规格附录 A 设想的 `research` 组（见 [13 §8.44](./13-决策记录.md) 十、2）。加上 `game` 组的两条，工具总数 70 → 75（对模型可见 69 → 74）。
 
@@ -155,7 +162,8 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 |---|---|---|
 | `check_updates` | SAFE | 检查三个目标是否有新版本 |
 | `update_core` | DANGEROUS | 内核热更新，会重启子进程 |
-| `update_resource` | DANGEROUS | 活动资源更新 |
+| `update_resource` | DANGEROUS | 活动资源更新。M57 更正 M56：作业/Fight 需要**内核资源认识关卡**（内核读作业 JSON 的 `stage_name`，缺失时以 `Not support stage` 拒绝任务），资源旧时先问用户更新；搜索作业本身不需要更新。异步执行，提交后用 `wait_update` 等结束 |
+| `wait_update` | SAFE | M57 新增：等一次更新（`update_id`，不填等当前在跑的）到终态或超时，返回进度、终态与错误；跨轮有效，连续等待不计入原地打转 |
 | `update_game` | DANGEROUS | 下载并安装游戏 APK |
 | `restart_core` | DANGEROUS | 重启 MaaCore 子进程 |
 
@@ -204,7 +212,7 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 
 | 工具 | risk | 用途 |
 |---|---|---|
-| `get_activity_stages` | SAFE | 查当期活动与它的关卡代号，或按 `stageId` / 代号 / 中文名 / `levelId` 查某一关属于哪一期活动。两个参数都可选：`stage`（1–64 字）查单关；`prefix`（2–32 字）取某一组关卡（只接受返回里出现过的前缀）。都不给就列当期活动。M25 起**国服优先查 PRTS**：在开的多个活动全部列出（各自带结束时间、代号区间与关卡表），返回带来源信封与出处；外服或 PRTS 不可用时退回本机活动资源（`version.json` 的 `activity` 段 + `Arknights-Tile-Pos/overview.json` + `tasks/Stages/` 的文件名），标 `source=resource`。无论哪条路径都不写死当期数据 |
+| `get_activity_stages` | SAFE | 查当期活动与它的关卡代号，或按 `stageId` / 代号 / 中文名 / `levelId` 查某一关属于哪一期活动。两个参数都可选：`stage`（1–64 字）查单关；`prefix`（2–32 字）取某一组关卡（只接受返回里出现过的前缀）。都不给就列当期活动；M57 起内置 Agent 默认 `detail="compact"`（关卡只留 `code` / `name` / `stage_id`，REST 默认 full）。M25 起**国服优先查 PRTS**：在开的多个活动全部列出（各自带结束时间、代号区间与关卡表），返回带来源信封与出处；外服或 PRTS 不可用时退回本机活动资源（`version.json` 的 `activity` 段 + `Arknights-Tile-Pos/overview.json` + `tasks/Stages/` 的文件名），标 `source=resource`。无论哪条路径都不写死当期数据 |
 
 当期活动怎么推出来（`maa_api/services/activity_index.py`）。包内**没有**活动名到关卡代号的映射表，中文关卡名与活动名之间也没有字符关系，所以只在能解释得通时给答案：从活动名里提期数（`#3` / `第三期`）→ 前缀按 `^([a-z]+)(\d+)([a-z]+)$` 拆出期数与模式后缀，只留期数相等、全部关卡在 `activities/` 命名空间、且有字母后缀的（无后缀的干扰项出局，当期 9 个候选收敛到 3 个）→ 按「主关数 → 关卡总数 → 前缀字典序」排序取第一名：唯一候选是 `confidence="high"`，多个候选是 `low` 且第一名进 `stages`、其余进 `alternatives`（`related` 另列同一类玩法的其它期次），提不到期数或没有合格前缀是 `none`（`stages` 为空数组、不给代号）。返回值同时带 `matched_by`、`stage_id_prefix`、`code_range`、`navigation`（`tasks/Stages/<前缀>.json` 存在与否，只描述资源现状，不预测 Fight 能不能过）与 `resource_updated_at`，让模型知道结论是怎么来的。查单关返回 `matches[]`（全部候选，每条带 `is_current` 与期数 `period`）；查询按 `stageId` → `code` → 中文名 → `levelId` 分级匹配，某一级有命中就不再往下找，并回报命中的哪一级（`matched_field`）。这条分级带来一个已知边界：一个词既是某关的代号、又是另一关的中文名时只返回代号那一级（实测「切尔诺伯格」），要查另一关得用它的代号或 `stageId`；取舍理由是本工具的主要问法是代号与 `stageId`，取并集会把两关混在一起返回。查不到是空数组加一句提示，不是错误。**边界**：活动名不带期数时给不出代号，这一条如实写在返回值与文档里，见 [13 §8.38](./13-决策记录.md)。M25 起这条本机推断只在 **PRTS 不可用或外服**时走（结果标 `source=resource`），国服的主路径是 PRTS：在开的多个活动全部列出，实施细节与实测偏离见 [13 §8.40](./13-决策记录.md)。
 
@@ -224,11 +232,11 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 | `get_building_skills` | SAFE | 查基建（后勤）技能（M28），`operator`、`room`、`skill` **三选一**：按干员给该干员的技能与解锁条件，按房间列出该房间的技能，按技能名给房间、清洗后的描述与拥有者。技能描述与房间来自 Cargo `building_skill2` 整表（按 10 个房间分块、进程内缓存），拥有者来自干员页 `{{后勤技能}}`（`后勤技能名` SMW 反查实测取不到，走批量干员页），`owners_approximate` 标拥有者是否只是近似；房间接受中文名或内核键（`Manufacture` / `trading` / `Trade` 这类写法都认） |
 | `get_roguelike_info` | SAFE | 查集成战略（M28）。参数 `theme`（默认最新一期 BlackFlow；也接受 `JieGarden` 这类主题键或主题页标题）、`topic`（`overview` 默认 / `squads` / `relic` / `section`）、`name`（藏品名或章节标题 / 序号）。主题页 170–261 KB，一律按章节取（`action=parse&prop=sections` 加 `section=N`）；`overview` 给 `{{活动信息}}` 字段与开场白，`squads` 给分队表的名称 / 效果 / 解锁条件，`relic` 给单件藏品的售价与各主题效果（不给 `name` 时返回「收藏品一览」节并标 `unavailable=["relic_list"]`），`section` 按标题或序号取一节。BlackFlow 的结果带 `notes` 说明上游策略尚不完整 |
 | `get_stage_level_data` | SAFE | 查一关的地图与出怪时间线（M29，数据来自拆包镜像、GitHub API 兜底）：部署上限、目标点耐久、初始 / 最大 COST、回费间隔、逐格地块网格（与 `send_stage_map` 同一套编码，区分高台 / 地面 / 不可部署 / 红蓝门 / 特殊地块）、被波次用到的路线（起点、终点、途经点与停留时间）、出怪时间线（时刻秒、敌人 key、数量、间隔、路线编号；`enemy_name` 是 `null`，要名字用 `get_enemy(key)` 查 PRTS）。参数 `stage`（1–64 字：代号、stageId、levelId 或中文名）、`include`（`options` / `map` / `routes` / `waves` 的子集，默认全部）、`wave_detail`（`summary` 默认把同波里连续的同敌人同路线动作合并，`full` 每个动作一条）。**坐标已换算成 MAA 作业的 `location`（`[x, y]`，原点左上）**，模型不必自己换算；结果 ≤ 24 KB，超出先合并波次、再截断路线并写 `truncated`。要发给用户看的示意图仍用 `send_stage_map` |
-| `search_copilots` | SAFE | 按关卡搜作业站（`prts.maa.plus`）的自动战斗作业并用账号干员筛（M29）：参数 `stage`（代号 / stageId / 中文名；本机索引认不出的新关卡直接传 PRTS 的「关卡id」，如 `act52side_ex08`）、`limit`（1–10，默认 5）、`order`（`hot` 默认 / `views` / `id`）、`only_feasible`（默认 `true`）、`include_content`（M56：内置 Agent 默认 `false`，REST 默认 `true`）。每份作业给作业站 id、标题、上传者、浏览量、好评率、可行性档（`ok` / `missing_one` 缺一名可借助战 / `infeasible`）、缺口名单与逐项练度对照，排序「缺口数 → 好评率 → 热度」，链接是 `https://prts.maa.plus/copilot/<id>`；列表里的 `content` 不含 `actions`（站点自己省的），要执行或细看用 `save_copilot_draft(site_id=…)`。作业站不可用时按 §6.6 的降级口径返回空列表 + `unavailable=["copilot_site"]`，不抛错 |
+| `search_copilots` | SAFE | 按关卡搜作业站（`prts.maa.plus`）的自动战斗作业并用账号干员筛（M29）：参数 `stage`（代号 / stageId / 中文名；本机索引认不出的新关卡直接传 PRTS 的「关卡id」，如 `act52side_ex08`）、`limit`（1–10，默认 5）、`order`（`hot` 默认 / `views` / `id`）、`only_feasible`（默认 `true`）、`include_content`（M56：内置 Agent 默认 `false`，REST 默认 `true`）、`compact`（M57：内置 Agent 默认 `true`，REST 默认 `false`——只回选作业要用的字段，operators 只留名字）。每份作业给作业站 id、标题、上传者、浏览量、好评率、可行性档（`ok` / `missing_one` 缺一名可借助战 / `infeasible`）、缺口名单与逐项练度对照，排序「缺口数 → 好评率 → 热度」，链接是 `https://prts.maa.plus/copilot/<id>`；列表里的 `content` 不含 `actions`（站点自己省的），要执行或细看用 `save_copilot_draft(site_id=…)`。**M57 更正**：搜索不需要更新资源，但执行前要确认内核资源认识该关卡，否则 `Not support stage`（先 `update_resource`，用 `wait_update` 等结束）。作业站不可用时按 §6.6 的降级口径返回空列表 + `unavailable=["copilot_site"]`，不抛错 |
 
 三者共用访问层：来源登记与白名单、限流、熔断、进程内缓存、来源信封都在 `maa_api/services/external/`，取数与降级规则见 §6.6。
 
-账号数据组（`account`，M27）：干员数据来自森空岛练度同步、仓库数据来自内核 `Depot` 识别落库的结果，不是外部来源（M47 起内核干员识别与手动修正都已下线，见 [13 §8.70](./13-决策记录.md)）。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M42 把 M36 的两条读屏扫描工具换成森空岛两条**（`get_skland_status` 与 `sync_skland_training`）：工具总数仍 77（对模型可见 76）。**M47 删掉 `update_operator_box`**（干员数据只来自森空岛同步，手动 / Agent 补录下线）：工具总数 77 → 76、对模型可见 76 → 75。**M48 再加入只读探索组 `recon` 四条**（§8.6）：工具总数 76 → 80、对模型可见 75 → 79；隐藏工具仍然只有 `trigger_screencap` 一条。`start_upgrade_plan`、`update_user_profile` 与 `sync_skland_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
+账号数据组（`account`，M27）：干员数据来自森空岛练度同步、仓库数据来自内核 `Depot` 识别落库的结果，不是外部来源（M47 起内核干员识别与手动修正都已下线，见 [13 §8.70](./13-决策记录.md)）。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M42 把 M36 的两条读屏扫描工具换成森空岛两条**（`get_skland_status` 与 `sync_skland_training`）：工具总数仍 77（对模型可见 76）。**M47 删掉 `update_operator_box`**（干员数据只来自森空岛同步，手动 / Agent 补录下线）：工具总数 77 → 76、对模型可见 76 → 75。**M48 再加入只读探索组 `recon` 四条**（§8.6）：工具总数 76 → 80、对模型可见 75 → 79；隐藏工具仍然只有 `trigger_screencap` 一条。**M57 加入工具目录两条**（`list_tool_groups` / `enable_tool_group`）：工具总数 80 → 83、对模型可见 82（83 条里只有 `trigger_screencap` 隐藏）；其中账户 / 基建 / 运维 / 定时 / 侦察五组默认不进模型声明，由 `enable_tool_group` 按会话开启。`start_upgrade_plan`、`update_user_profile` 与 `sync_skland_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
 
 | 工具 | risk | 用途 |
 |---|---|---|
@@ -541,7 +549,7 @@ Copilot 是 MAA 的自动战斗协议，用 JSON 描述干员部署序列与技�
 
 执行前由 `ResourceService` 重新校验资产 kind、schema、checksum 和源文件。外置作业不得有 symlink 路径组件；inline 和外置作业都复制到 `resource/agent-assets/copilot/runs/<uuid>/operation.json`，每个 run 目录权限为 `0700`。MaaCore 只收到该私有快照的绝对路径；流水线结束、失败、取消或内核崩溃后，`PipelineRunner` 清理快照。解析或快照写入失败时任务以稳定错误状态失败，不会调用 MaaCore；不以普通 Fight 关卡替代 Copilot。
 
-**执行前置只有「画面停在这关的开始行动页」，与本机资源版本无关（M56）。** 投给内核的 Copilot 参数只有作业文件路径、`formation` 与 `support_unit_usage`（`attempt.py` 重建 `core_params` 时把 `stage_name` 丢在资产 `meta` 里，只用于授权与展示），内核按作业 JSON 自己走部署序列；本机资源里没有这一关（新活动的 EX 关、`resolve_stage` / `get_stage` 报找不到）不影响执行。2026-10-17 的会话里模型把「关卡索引解析不出」误读成「Copilot 跑不了」，先调了 `update_resource`（因网络拿不到 manifest 失败，白等两分钟），又反复失败重试；提示词、`update_resource` 描述与 `playbook-stage-clear` 已写明这条边界。新关卡要搜作业站时，用 `search_prts` 拿到「关卡id」直接传给 `search_copilots(stage=…)`，不要在本地索引上绕。
+**执行前置有两条**：画面停在这关自己的「开始行动」页，且内核资源认识这一关（M57 更正 M56）。投给内核的任务参数只有作业文件路径、`formation` 与 `support_unit_usage`，但内核会读取私有快照 `operation.json` 里的 `stage_name` 并在自己的资源里查表；查不到时 `AsstAppendTask` 直接返回 0、日志写 `Not support stage`，整个 Copilot 任务被拒绝。2026-10-17 的实机会话（`747bd6b6`）第一次尝试就是因此失败：资源停在 2026-10-09，10-16 才开放的活动关不在表里；按用户同意把资源更新到 2026-10-16 后同一份作业直接跑通。M56 §8.79 二「执行不需要更新资源」的结论建立在代码静态推断上，已被这次真机推翻，M56 写进提示词 / `update_resource` 描述 / `playbook-stage-clear` 的对应句子已在 M57 全部更正。正确姿势：搜索作业不需要更新（用 `search_prts` 拿到「关卡id」直接传给 `search_copilots(stage=…)`）；执行前若本机索引查不到新关卡，先 `get_versions` 看资源版本、问用户是否更新（`update_resource`，异步的用 `wait_update` 等结束），再跑作业。
 
 ### 7.3 注入自定义 tasks.json task 定义
 
@@ -611,15 +619,23 @@ schema 校验。注入前校验 JSON 结构。格式错误的 task 定义可能�
 
 媒体结果回灌压成占位（M23）。媒体工具（`MEDIA_TOOL_NAMES`）的结果落库不变，但回灌模型时压成一行占位（`media_sent`，保留卡片类型与标题），否则图表规格与 tile 网格每轮重复占 token。两条细节是硬要求：失败结果保留 `error` 原文：模型看不到越界原因就没法自愈，`INVALID_PARAMETER`（例如「总点数 812 超过 600」）本来指望模型据此改参数再来一次；tool 消息本身与 `tool_call_id` 必须保留，否则带 `tool_calls` 的 assistant 消息结构不完整、上游直接 400。`get_screenshot` 的视觉回灌语义一行未改：仍然只把最新一张喂给多模态模型，媒体卡只影响给用户看的路径。
 
+工具分组按需暴露（M57）。82 个可见工具声明约 4.9 万字符、每次请求都发，占单次上下文约 1/3。M57 起账户 / 基建 / 运维 / 定时 / 侦察五个扩展组默认不暴露（实测 16 080 字符），模型需要时用 `list_tool_groups` 看目录、`enable_tool_group` 按会话开启（状态存进程内，跨轮有效、重启回到默认）；核心组与媒体组始终可见。同时 `_tool_schemas` 统一去掉 Pydantic 自动生成的 `title` 键。模型侧声明：全量 49 812 → 核心 33 732 字符（-32.3%）。
+
 模型侧工具声明瘦身（M56）。工具的完整 Pydantic schema 会进 `/api/agent/tools` 与 OpenAPI（REST 契约），但**不必原样发给模型**。`ToolDefinition.model_schema` 允许为单个工具提供模型侧覆盖：`submit_pipeline` / `create_schedule` / `update_schedule` 的参数里嵌着 12 种内核任务的完整字段图，原先各带一份 36 KB 的 `$defs`、三份合计约 110 KB，占首次请求 64 497 token 的六成；模型侧只保留「任务对象 = 必填 `name` + 其余字段问 `list_task_types`」，执行仍由完整 Pydantic 模型校验。瘦身后模型侧工具声明从 159 598 字降到 53 074 字。
 
-工具输出预算（M56）。大结果不设上限就会一次吃掉几万 token：`get_operator_box` 实机一次回 64 598 字（干员列表带 `skill_ids` / `module_details` / `field_sources` 卡片明细），`search_copilots` 每条结果带 1–2 KB 作业正文。现在内置 Agent 走精简投影：干员列表只留判断「有没有、练度够不够」的字段，超过 12 000 字按条裁剪并给 `next_offset`；作业站列表默认不带正文（REST 工具 API 形状不变），要正文用 `save_copilot_draft(site_id=…)`。工具描述写明这两个口径，模型才知道什么时候该取详情。
+工具输出预算（M56，M57 扩面）。大结果不设上限就会一次吃掉几万 token：`get_operator_box` 实机一次回 64 598 字（干员列表带 `skill_ids` / `module_details` / `field_sources` 卡片明细），`search_copilots` 每条结果带 1–2 KB 作业正文。现在内置 Agent 走精简投影：干员列表只留判断「有没有、练度够不够」的字段，超过 12 000 字按条裁剪并给 `next_offset`；作业站列表默认不带正文（REST 工具 API 形状不变），要正文用 `save_copilot_draft(site_id=…)`。工具描述写明这两个口径，模型才知道什么时候该取详情。M57 继续补齐四个实测大头：`list_task_types` 默认 compact（只给参数名，`name` + `detail="full"` 看完整 schema，旧实现一次 +12 207 token 且留存 60 次）；`search_copilots` 内置 Agent 精简投影（operators 只留名字）；`get_activity_stages` compact（关卡只留 `code` / `name` / `stage_id`）；`get_logs` 加 4 000 字总预算（从最旧的行开始丢，`page.has_more` 置真，给翻页提示）。
 
-状态摘要注入。每次请求在 system prompt（以及 §6.7 的知识库段）后追加一段当前状态摘要（内核状态、设备状态、当前流水线与进度、队列长度、最近一次错误），避免 agent 为了知道"现在在干什么"而反复调工具。摘要由服务端生成，成本远低于工具往返。M18 起摘要的第一项是 `now`：服务端本地时间，ISO 8601 带时区偏移，模型必须知道「现在」才能把截图时间与问题对齐。
+结算截图回灌（M57）。`run_copilot_attempt` 的结果里带 `screenshot_id`，M57 起它与 `get_screenshot` 一起走「最新一张截图作为图像回灌」的路径（`SCREENSHOT_RESULT_TOOLS`）：结果 JSON 原样保留、只把图像数据并进同一条 tool 消息；历史结算截图换成占位。此前它只落在库里，模型看不到，只能 `send_screenshot` 发给用户再 `ask_user` 问结果。
+
+截图坐标网格（M57）。发往模型的截图副本叠加像素坐标网格（格宽 = 图宽/10，标签是原图像素坐标），落库与发给用户的图不变。背景：2026-10-17 会话里模型按视觉估计点击坐标，突袭结算后地图上 12 次点击 11 次打空（模型自述「显示 2048、原图 2560」与 y 坐标错位）；同轮给 `click` 加了 350ms 画面稳定等待。
+
+状态摘要注入。每次请求在 system prompt（以及 §6.7 的知识库段）后追加一段当前状态摘要（内核状态、设备状态、当前流水线与进度、队列长度、最近一次错误、**M57 起还有 `resource_version`**——只读 repo 层 `version.json`，不做网络检查，供模型判断新关卡是否要先更新资源），避免 agent 为了知道"现在在干什么"而反复调工具。摘要由服务端生成，成本远低于工具往返。M18 起摘要的第一项是 `now`：服务端本地时间，ISO 8601 带时区偏移，模型必须知道「现在」才能把截图时间与问题对齐。
 
 知识库注入。与状态摘要同一时机生成，包含索引、当期活动、当期卡池、账号数据、术语表与用户档案各段（哪段读不到就不插），顺序与信任边界见 §6.7。知识库段读不出来时降级为「知识库暂不可用」，不阻塞本轮。
 
 历史截断（M56 起三级）。预算按有效字符计：截图 base64 折算成视觉成本，工具声明计入固定开销。第一级把超过 8 000 字的**历史工具结果**剪成「头 3 000 字 + 省略标记 + 尾 1 000 字」，tool 消息与 `tool_call_id` 保留，协议结构不变；第二级按用户轮次丢最早的；第三级对「整场只有一个用户消息」的长工具循环丢掉最早的工具往返。每一级都保护最近一个完整工具轮次，避免出现 tool_call 没有对应 tool 结果的残缺结构（这会让部分 API 直接报错）。
+
+异步更新的等待（M57）。`update_resource` 等更新是后台任务，模型以前只能反复 `get_versions` 轮询；轮询拿不到变化时会触发「原地打转」硬停（2026-10-17 会话里 4 次相同 `get_versions` 后整轮结束，用户只能等更新完再手动说一句）。M57 新增 `wait_update`：阻塞到终态或超时、返回 `phase` / `progress` / `bytes_done` / 错误；连续只用 `wait_update` / `wait_pipeline` 的批次不计入打转。
 
 成本记录。每次调用记录 prompt/completion token 数入 `agent_message`，会话级累计并在会话详情显示（界面按百万单位读，精确值看 `total_tokens`）。单轮迭代次数不限；命中原地打转检测时以正常 `stuck_loop` 结束并告知用户。
 
@@ -711,4 +727,4 @@ M48 的侦察 subagent 是唯一的例外：子 agent 的 `list_files` / `read_f
 
 与内核的控制权冲突。agent 的原子操作和 MaaCore 的自动化会互相干扰。§4.3 把 `stop_pipeline` 设为免确认、提示词要求先停流水线再操作、以及 [02-系统架构设计 §5.3](./02-系统架构设计.md) 的 409 拒绝共同构成防护，但无法完全排除人为绕过（`force=true`）。
 
-成本失控。tool-calling 循环的轮数与每轮的截图 token 都会放大成本。现在由四层控制：截图只留最近一张、工具声明与输出都有预算（M56）、会话上下文按有效字符逐级裁剪（M53 起有上限、M56 校正）、原地打转检测。仍然不设步数上限（M13 的用户裁决：长诊断要跑几十轮），但历史不再无限增长；失控时靠打转检测与本地预算兜底，而不是等上游窗口报错。首选默认模型 DeepSeek Flash。
+成本失控。tool-calling 循环的轮数与每轮的截图 token 都会放大成本。现在由五层控制：截图只留最近一张、工具声明分组按需暴露与去冗余键（M57）、工具声明与输出都有预算（M56，M57 扩面）、会话上下文按有效字符逐级裁剪（M53 起有上限、M56 校正）、原地打转检测（异步等待类工具豁免）。仍然不设步数上限（M13 的用户裁决：长诊断要跑几十轮），但历史不再无限增长；失控时靠打转检测与本地预算兜底，而不是等上游窗口报错。首选默认模型 DeepSeek Flash。
