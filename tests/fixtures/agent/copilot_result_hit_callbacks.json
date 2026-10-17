@@ -1,0 +1,92 @@
+{
+  "three_star": {
+    "msg": 20003,
+    "details": {
+      "class": "asst::ProcessTask",
+      "details": {
+        "exec_times": 1,
+        "max_times": 1,
+        "task": "Hit"
+      },
+      "first": [
+        "MaaApi@CopilotResult@Start"
+      ],
+      "pre_task": "MaaApi@CopilotResult@ThreeStar@Hit",
+      "subtask": "ProcessTask",
+      "taskchain": "Custom",
+      "taskid": 2,
+      "uuid": "00000000-0000-0000-0000-000000000000",
+      "what": "ExceededLimit"
+    },
+    "class": "asst::ProcessTask",
+    "first": [
+      "MaaApi@CopilotResult@Start"
+    ],
+    "pre_task": "MaaApi@CopilotResult@ThreeStar@Hit",
+    "subtask": "ProcessTask",
+    "taskchain": "Custom",
+    "taskid": 2,
+    "uuid": "00000000-0000-0000-0000-000000000000",
+    "what": "ExceededLimit"
+  },
+  "adverse_three_star": {
+    "msg": 20003,
+    "details": {
+      "class": "asst::ProcessTask",
+      "details": {
+        "exec_times": 1,
+        "max_times": 1,
+        "task": "Hit"
+      },
+      "first": [
+        "MaaApi@CopilotResult@Start"
+      ],
+      "pre_task": "MaaApi@CopilotResult@Adverse@Hit",
+      "subtask": "ProcessTask",
+      "taskchain": "Custom",
+      "taskid": 5,
+      "uuid": "00000000-0000-0000-0000-000000000000",
+      "what": "ExceededLimit"
+    },
+    "class": "asst::ProcessTask",
+    "first": [
+      "MaaApi@CopilotResult@Start"
+    ],
+    "pre_task": "MaaApi@CopilotResult@Adverse@Hit",
+    "subtask": "ProcessTask",
+    "taskchain": "Custom",
+    "taskid": 5,
+    "uuid": "00000000-0000-0000-0000-000000000000",
+    "what": "ExceededLimit"
+  },
+  "start_button": {
+    "msg": 20003,
+    "details": {
+      "class": "asst::ProcessTask",
+      "details": {
+        "exec_times": 1,
+        "max_times": 1,
+        "task": "Hit"
+      },
+      "first": [
+        "MaaApi@CopilotResult@Start"
+      ],
+      "pre_task": "MaaApi@CopilotResult@StartButton@Hit",
+      "subtask": "ProcessTask",
+      "taskchain": "Custom",
+      "taskid": 1,
+      "uuid": "00000000-0000-0000-0000-000000000000",
+      "what": "ExceededLimit"
+    },
+    "class": "asst::ProcessTask",
+    "first": [
+      "MaaApi@CopilotResult@Start"
+    ],
+    "pre_task": "MaaApi@CopilotResult@StartButton@Hit",
+    "subtask": "ProcessTask",
+    "taskchain": "Custom",
+    "taskid": 1,
+    "uuid": "00000000-0000-0000-0000-000000000000",
+    "what": "ExceededLimit"
+  }
+}

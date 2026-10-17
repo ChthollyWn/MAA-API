@@ -1,6 +1,6 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12643 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12695 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
@@ -49,8 +49,8 @@
 - `maa_api/agent/knowledge/__init__.py:842` 构造即加载：内置文件坏了要在装配处（启动）就炸，而不是等第一次请求
 - `maa_api/agent/llm.py:49` : 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
 - `maa_api/agent/llm.py:327` 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
-- `maa_api/agent/runtime.py:92` : 压力出现时先把大结果换成「头 + 省略标记 + 尾」，而不是直接丢整轮。
-- `maa_api/agent/runtime.py:1978` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
+- `maa_api/agent/runtime.py:93` : 压力出现时先把大结果换成「头 + 省略标记 + 尾」，而不是直接丢整轮。
+- `maa_api/agent/runtime.py:2001` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
 - …… 另有 104 条，见 inventory.json
 
@@ -59,7 +59,7 @@
 **开发向**
 
 - `maa_api/agent/preconditions.py:51` : `StartUp` 的小写形式：判定一律大小写不敏感（规格 §4.1）。
-- `maa_api/agent/tools/pipeline.py:218` 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
+- `maa_api/agent/tools/pipeline.py:263` 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
 - `maa_api/db/migrations/versions/0018_unknown_training.py:47` : 识别永远不写、只有人工/Agent 才能给出的三列。
 - `maa_api/services/account/assets.py:45` : 资源类型 → 上游路径前缀。顺序即白名单，别的一律 404。
 - `maa_api/services/account/box.py:367` 于是这一列**永远不会被写**（不是报错，是静默不写，更难发现）。
@@ -121,7 +121,7 @@
 
 **开发向**
 
-- `maa_api/services/stage_resolver.py:111` 注意：overview.json 的值是驼峰（``stageId`` / ``levelId``），返回给上层才转蛇形。
+- `maa_api/services/stage_resolver.py:112` 注意：overview.json 的值是驼峰（``stageId`` / ``levelId``），返回给上层才转蛇形。
 - `scripts/spike_subprocess_isolation.py:181` 注意：user_dir 必须已存在，否则 AsstSetUserDir 返回 False。
 - `tests/api/test_app_skeleton.py:304` 注意：iter_route_contexts 对内置 /docs、/openapi.json 等给的是 RouteContext
 

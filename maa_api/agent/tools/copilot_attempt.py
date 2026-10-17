@@ -98,7 +98,9 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "执行一次自动战斗作业尝试：提交作业任务、识别结算结果、退出结算回到「开始行动」。"
                 "需要先拿到作业授权（没有授权时先申请 grant_copilot_attempts）；"
-                "一次尝试最多阻塞 20 分钟。返回尝试编号、结果、判定方、截图 id、剩余次数与动作日志摘要。"
+                "一次尝试最多阻塞 20 分钟。内核能识别时直接返回 three_star/two_star/clear/"
+                "failed（无需再截图复核），outcome=unknown 才要用 record_copilot_result；"
+                "返回里附的结算截图模型可见。"
             ),
             params_model=RunCopilotAttemptParams,
             handler=run_copilot_attempt,
@@ -108,8 +110,9 @@ def register_tools(registry: ToolRegistry) -> None:
             group="resource",
             risk=ToolRisk.SAFE,
             description=(
-                "记录一次「内核没能识别出结算结果」（outcome=unknown）的尝试结果，判定方记为模型。"
-                "先看 run_copilot_attempt 返回的截图或 get_screenshot，再在三/二星、通关、失败之间选一个。"
+                "只用于「内核没能识别出结算结果」（outcome=unknown）的尝试：看 run_copilot_attempt "
+                "返回的结算截图（模型可见，不用发给用户问），在三/二星、通关、失败之间选一个；"
+                "内核已判定的尝试不要再调它。"
             ),
             params_model=RecordCopilotResultParams,
             handler=record_copilot_result,

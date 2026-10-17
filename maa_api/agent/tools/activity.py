@@ -6,11 +6,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
+from maa_api.domain.enums import CallerType
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.activity_index import (
     MAX_STAGES,
@@ -45,6 +46,13 @@ class GetActivityStagesParams(BaseModel):
         pattern=PREFIX_PATTERN,
         description="指定 stageId 前缀取这一组关卡；用于上面返回的候选里挑一组时。",
     )
+    detail: Literal["compact", "full"] | None = Field(
+        default=None,
+        description=(
+            "compact 只保留关卡 code/name/stage_id（省 token，内置 Agent 默认）；"
+            "full 给完整记录（含 level_id 等，REST 默认）。"
+        ),
+    )
 
 
 def register_tools(registry: ToolRegistry) -> None:
@@ -58,6 +66,7 @@ def register_tools(registry: ToolRegistry) -> None:
                 "查当期有哪些活动、各自什么时候结束、这一期有哪些关卡，以及某个关卡代号属于哪一期。"
                 "用户提到活动、当期关卡、或问「这关现在能不能打」时先查一次；"
                 "提交 Fight 前用它拿到准确的关卡代号。数据来自 PRTS，返回里带出处。"
+                "默认 compact（关卡只给 code/name/stage_id）；需要 level_id 等完整字段时传 detail=\"full\"。"
             ),
             params_model=GetActivityStagesParams,
             handler=get_activity_stages,
@@ -74,10 +83,13 @@ async def get_activity_stages(
         return await _find_stage(params.stage, context)
     if params.prefix is not None:
         return await _stages_of_prefix(params.prefix, context)
-    return await _report(context)
+    detail = params.detail or (
+        "compact" if context.caller is CallerType.INTERNAL else "full"
+    )
+    return await _report(context, detail=detail)
 
 
-async def _report(context: ToolContext) -> dict[str, Any]:
+async def _report(context: ToolContext, *, detail: str = "full") -> dict[str, Any]:
     """当期活动报告（PRTS 优先，外服/不可用退回本机）。"""
     service = _activity_service(context)
     report = await service.current(detail="full", client_type=_client_type(context))
@@ -89,7 +101,43 @@ async def _report(context: ToolContext) -> dict[str, Any]:
             region_note=report.region_note,
         )
     )
+    if detail == "compact":
+        payload = _compact_report(payload)
     return payload
+
+
+def _compact_report(payload: dict[str, Any]) -> dict[str, Any]:
+    """活动报告的精简投影（M57，docs/13 §8.80）。
+
+    实测一次当期活动报告 6 513 字：两个在开活动合计 44 关，每个关卡都带
+    ``level_id``。模型找关卡只需要 ``code`` / ``name`` / ``stage_id``。
+    """
+    activities: list[dict[str, Any]] = []
+    for activity in payload.get("activities") or []:
+        if not isinstance(activity, dict):
+            continue
+        stages = [
+            {
+                "code": stage.get("code"),
+                "name": stage.get("name"),
+                "stage_id": stage.get("stage_id"),
+            }
+            for stage in activity.get("stages") or []
+            if isinstance(stage, dict)
+        ]
+        # 只砍 stages 里没人用的 level_id，其余字段（含本地降级的 confidence /
+        # alternatives / related）全部保留：这些正是降级时要如实告诉用户的。
+        compact_activity = {
+            key: value for key, value in activity.items() if key != "stages"
+        }
+        compact_activity["stages"] = stages
+        activities.append(compact_activity)
+    return {
+        **payload,
+        "activities": activities,
+        "detail": "compact",
+        "hint": "关卡只保留了 code/name/stage_id；要 level_id 等完整字段用 detail=\"full\"。",
+    }
 
 
 async def _find_stage(stage: str, context: ToolContext) -> dict[str, Any]:

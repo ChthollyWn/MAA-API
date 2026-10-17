@@ -19,6 +19,9 @@ from maa_api.settings import get_settings
 
 __all__ = [
     "AnnotationResult",
+    "GRID_DIVISIONS",
+    "GRID_LINE_COLOR",
+    "draw_coordinate_grid",
     "find_cjk_font",
     "render_annotation",
     "store_screenshot",
@@ -27,6 +30,15 @@ __all__ = [
 _STORE_LOCK = threading.RLock()
 _THUMBNAIL_EDGE = 320
 _THUMBNAIL_QUALITY = 60
+
+#: 坐标网格的线色（琥珀色，在深色与浅色截图上都看得见）。
+GRID_LINE_COLOR = (255, 196, 0)
+#: 网格标签颜色。
+GRID_LABEL_COLOR = (255, 236, 160)
+#: 半透明网格覆盖层的 alpha。
+GRID_LINE_ALPHA = 132
+#: 每张图横向/纵向的格数（``width / GRID_DIVISIONS`` 为格宽）。
+GRID_DIVISIONS = 10
 
 #: 标注框颜色（规格 §3.3 的红）。
 ANNOTATION_BOX_COLOR = "#e5484d"
@@ -85,6 +97,42 @@ def find_cjk_font(size: int) -> ImageFont.FreeTypeFont | None:
         except (OSError, ValueError):
             continue
     return None
+
+
+def draw_coordinate_grid(image: Any, *, divisions: int = GRID_DIVISIONS) -> Image.Image:
+    """在截图上叠加带原始像素坐标刻度的网格（M57，docs/13 §8.80）。
+
+    视觉模型从缩略图估计点击坐标经常差几十像素：2026-10-17 的实机会话里，突袭结算
+    后 12 次点击有 11 次打空（Y 方向差 ~80px）。网格把「图上看到的位置」换算成
+    ``click`` 需要的原图像素坐标，标签直接写像素值，不需要模型自己乘缩放比。
+
+    网格只影响发给模型的图像副本，落库/发给用户的截图保持原样。任何解码或绘制失败
+    都原样返回：网格是增强信息，不该让截图失败。
+    """
+    decoded = _decode_image(image).convert("RGBA")
+    width, height = decoded.size
+    if width < 2 or height < 2:
+        return decoded.convert("RGB")
+    divisions = max(int(divisions), 1)
+    step_x = max(round(width / divisions), 1)
+    step_y = max(round(height / divisions), 1)
+    line_width = max(1, round(min(width, height) / 720))
+    font_size = max(12, round(min(width, height) / 48))
+    try:
+        font: ImageFont.ImageFont | ImageFont.FreeTypeFont = ImageFont.load_default(size=font_size)
+    except TypeError:  # Pillow < 10.1 没有 size 参数
+        font = ImageFont.load_default()  # type: ignore[assignment]
+    overlay = Image.new("RGBA", decoded.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    line_color = (*GRID_LINE_COLOR, GRID_LINE_ALPHA)
+    label_color = (*GRID_LABEL_COLOR, 255)
+    for x in range(step_x, width, step_x):
+        draw.line([(x, 0), (x, height)], fill=line_color, width=line_width)
+        draw.text((x + 3, 3), str(x), fill=label_color, font=font)
+    for y in range(step_y, height, step_y):
+        draw.line([(0, y), (width, y)], fill=line_color, width=line_width)
+        draw.text((3, y + 1), str(y), fill=label_color, font=font)
+    return Image.alpha_composite(decoded, overlay).convert("RGB")
 
 
 def render_annotation(

@@ -132,3 +132,26 @@ def test_invalid_image_and_quality_fail_clearly(resource_root: Path) -> None:
         image_module.store_screenshot(object())
     with pytest.raises(ValueError, match="质量"):
         image_module.store_screenshot(Image.new("RGB", (1, 1)), quality=100)
+
+
+def test_draw_coordinate_grid_keeps_size_and_marks_original_pixel_coordinates() -> None:
+    """M57：模型侧截图副本叠加像素坐标网格（docs/13 §8.80）。
+
+    网格线画在 ``width/10`` / ``height/10`` 的整数倍上，标签写原始像素值，让视觉模型
+    不用自己乘缩放比就能读出 ``click`` 需要的坐标。
+    """
+    original = Image.new("RGB", (640, 360), (20, 20, 30))
+    gridded = image_module.draw_coordinate_grid(original)
+
+    assert gridded.size == original.size
+    assert gridded.mode == "RGB"
+    # 640/10=64 与 360/10=36：格线与标签都要落在画面上。
+    assert gridded.getpixel((64, 100)) != original.getpixel((64, 100))
+    assert gridded.getpixel((100, 36)) != original.getpixel((100, 36))
+    changed = sum(
+        1
+        for y in range(0, original.height, 3)
+        for x in range(0, original.width, 3)
+        if gridded.getpixel((x, y)) != original.getpixel((x, y))
+    )
+    assert changed > 100  # 格线 + 标签，而不是只改了几个像素

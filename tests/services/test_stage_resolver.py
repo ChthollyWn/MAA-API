@@ -297,3 +297,39 @@ def test_missing_index_degrades_to_no_candidates(tmp_path) -> None:
 
     assert result["resolved"] is None
     assert result["candidates_total"] == 0
+
+
+def test_compact_aliases_resolve_activity_ex_stages(tmp_path) -> None:
+    """M57：``ywex8`` 这类紧凑写法要能直接解析成 ``YW-EX-8``。
+
+    2026-10-17 的实机会话里用户输入 ``ywex8``，解析失败后模型先猜成 YW-8、又翻 PRTS
+    才找回 YW-EX-8，多花了 5 次工具调用。
+    """
+    path = _overview(
+        tmp_path,
+        [
+            {
+                "code": "YW-8",
+                "stageId": "act52side_08",
+                "levelId": "activities/act52side/level_act52side_08",
+                "name": "鳞的记忆",
+            },
+            {
+                "code": "YW-EX-8",
+                "stageId": "act52side_ex08",
+                "levelId": "activities/act52side/level_act52side_ex08",
+                "name": "一件失物",
+            },
+        ],
+    )
+    resolver = _resolver(path)
+
+    for query in ("ywex8", "YWEX8", "yw_ex_8", "YW-EX-8"):
+        result = asyncio.run(resolver.resolve(query))
+        assert result["resolved"]["stage_id"] == "act52side_ex08", query
+        assert result["candidates_total"] == 1, query
+
+    plain = asyncio.run(resolver.resolve("yw8"))
+    assert plain["resolved"]["stage_id"] == "act52side_08"
+    # 中文名仍然按名字匹配。
+    assert asyncio.run(resolver.resolve("一件失物"))["resolved"]["stage_id"] == "act52side_ex08"

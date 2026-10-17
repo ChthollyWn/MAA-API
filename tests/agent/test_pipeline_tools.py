@@ -103,7 +103,8 @@ def test_pipeline_group_registers_the_documented_status_and_control_tools() -> N
     )
 
 
-def test_list_task_types_exports_core_and_copilot_task_schemas() -> None:
+def test_list_task_types_defaults_to_a_compact_catalog_for_the_agent() -> None:
+    """M57：默认 compact，避免一次调用把 34K 字 schema 塞进每一轮上下文。"""
     registry = _register_pipeline()
 
     result = asyncio.run(
@@ -124,8 +125,32 @@ def test_list_task_types_exports_core_and_copilot_task_schemas() -> None:
         "Custom",
         "Copilot",
     ]
-    assert result["items"][2]["schema"]["properties"]["stage"]["anyOf"][0]["type"] == "string"
+    assert result["detail"] == "compact"
+    assert "stage" in result["items"][2]["param_names"]
+    assert "schema" not in result["items"][2]
     assert "runtime_immutable" in result["items"][2]
+
+    fig = asyncio.run(
+        registry.execute(
+            "list_task_types", {"name": "Fight", "detail": "full"}, _context()
+        )
+    )
+    assert [item["name"] for item in fig["items"]] == ["Fight"]
+    assert (
+        fig["items"][0]["schema"]["properties"]["stage"]["anyOf"][0]["type"]
+        == "string"
+    )
+
+    rest_context = ToolContext(
+        caller=CallerType.REST,
+        session_id=None,
+        request_id="pipeline-rest",
+        request=SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace())),
+        db_session=None,
+    )
+    rest = asyncio.run(registry.execute("list_task_types", {}, rest_context))
+    assert rest["detail"] == "full"
+    assert "schema" in rest["items"][0]
 
 
 def test_get_pipeline_returns_the_stored_pipeline_and_task_details(monkeypatch) -> None:

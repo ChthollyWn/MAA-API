@@ -438,10 +438,14 @@ def _dispatch(asst: Any, type_name: Optional[str], payload: dict) -> Any:
     if type_name == "APPEND_TASK":
         task_id = asst.append_task(payload["type_name"], payload.get("params"))
         if not task_id:
-            # 内核校验必填参数，缺参数时静默返回 0（不抛异常、无回调，）：
+            # 内核校验必填参数或关卡时静默返回 0（不抛异常、无回调）：
             # task_id == 0 必须当失败上报，不能当作正常结果。
+            # 文案必须可行动：旧文案只说「缺少必填参数？」曾把 2026-10-17 的模型
+            # 引去查任务 schema，而真正原因是资源包缺这个新关卡（Not support stage）。
             raise CoreWorkerError(
-                f"内核拒绝任务 {payload['type_name']!r}（task_id=0，缺少必填参数？）"
+                f"内核拒绝任务 {payload['type_name']!r}（task_id=0）：参数不被内核接受，"
+                "或资源包缺这次任务需要的关卡（新活动关常见 Not support stage，先查内核日志确认；"
+                "作业/Fight 需要内核认识关卡，更新活动资源后再试）"
             )
         return task_id
 

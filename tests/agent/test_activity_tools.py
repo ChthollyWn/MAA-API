@@ -253,6 +253,12 @@ def test_without_arguments_returns_two_open_activities_with_the_source_envelope(
     assert second["code_range"] == {"first": "YW-1", "last": "YW-8", "count": 8}
     assert second["source"] == "prts"
 
+    # M57：内置 Agent 默认 compact，关卡只保留 code/name/stage_id。
+    assert result["detail"] == "compact"
+    assert set(first["stages"][0]) == {"code", "name", "stage_id"}
+    assert "level_id" not in first["stages"][0]
+    assert "detail" in result["hint"]
+
     assert result["fallback_reason"] is None
     assert result["region_note"] is None
     assert [item["kind"] for item in result["sources"]] == ["prts", "prts"]

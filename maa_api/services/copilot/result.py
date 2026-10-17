@@ -339,20 +339,44 @@ class CallbackSignal:
     task: str | None
     details: Mapping[str, Any] = field(default_factory=dict)
 
+    def _task_candidates(self) -> tuple[str, ...]:
+        """任务名候选（按可信度排序）。
+
+        ``ExceededLimit`` 的真实信封里 ``details.details.task`` 只有任务定义名
+        ``"Hit"``，完整任务链节点在 ``details.pre_task``（形如
+        ``MaaApi@CopilotResult@ThreeStar@Hit``）。2026-10-17 的实机会话曾因此把
+        每一次结算都判成 ``unknown``（数据库 log_entry#378416 / #381544）；真实信封
+        夹具见 ``tests/fixtures/agent/copilot_result_hit_callbacks.json``。
+        """
+        candidates: list[str] = []
+        if self.task:
+            candidates.append(self.task)
+        pre_task = self.details.get("pre_task")
+        if isinstance(pre_task, str) and pre_task:
+            candidates.append(pre_task)
+        return tuple(candidates)
+
     @property
     def marker(self) -> str | None:
         """识别标记对应的 outcome；不是识别标记（含 ``@Hit``）时返回 ``None``。"""
-        task = self.task or ""
-        if task.endswith(HIT_SUFFIX):
-            task = task[: -len(HIT_SUFFIX)]
-        if task.startswith(f"{RESULT_TASK_PREFIX}@"):
-            return CASE_OUTCOMES.get(task)
+        for candidate in self._task_candidates():
+            task = candidate
+            if task.endswith(HIT_SUFFIX):
+                task = task[: -len(HIT_SUFFIX)]
+            if task.startswith(f"{RESULT_TASK_PREFIX}@"):
+                outcome = CASE_OUTCOMES.get(task)
+                if outcome is not None:
+                    return outcome
         return None
 
     @property
     def kernel_signal(self) -> str | None:
         """内核 copilot 结算链上的任务名 → outcome。"""
-        return KERNEL_RESULT_SIGNALS.get(self.task or "")
+        for candidate in self._task_candidates():
+            outcome = KERNEL_RESULT_SIGNALS.get(candidate)
+            if outcome is not None:
+                return outcome
+        return None
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

@@ -111,8 +111,16 @@ def test_build_registry_exposes_both_tools() -> None:
 def test_schema_exports_the_expected_parameters() -> None:
     schema = {item["name"]: item for item in registry().export_schema()}
     search = schema["search_copilots"]["inputSchema"]["properties"]
-    assert set(search) == {"stage", "limit", "order", "only_feasible", "include_content"}
+    assert set(search) == {
+        "stage",
+        "limit",
+        "order",
+        "only_feasible",
+        "include_content",
+        "compact",
+    }
     assert search["include_content"]["default"] is None
+    assert search["compact"]["default"] is None
     assert search["limit"]["default"] == 5
     assert search["limit"]["minimum"] == 1
     assert search["limit"]["maximum"] == 10
@@ -171,6 +179,7 @@ def test_search_dispatches_to_the_assembled_service() -> None:
             "order": "views",
             "only_feasible": False,
             "include_content": False,
+            "compact": True,
         }
     ]
     assert result["kwargs"]["stage"] == "1-7"
@@ -182,6 +191,20 @@ def test_search_dispatches_to_the_assembled_service() -> None:
         context(copilot_service=explicit),
     )
     assert explicit.calls[0]["include_content"] is True
+    assert explicit.calls[0]["compact"] is True
+
+    rest_style = FakeSearch()
+    rest_context = context(copilot_service=rest_style)
+    rest_context = ToolContext(
+        caller=CallerType.REST,
+        session_id=None,
+        request_id="rest",
+        request=rest_context.request,
+        db_session=None,
+    )
+    call("search_copilots", {"stage": "1-7"}, rest_context)
+    assert rest_style.calls[0]["include_content"] is True
+    assert rest_style.calls[0]["compact"] is False
 
 
 def test_draft_dispatches_with_the_session_id() -> None:

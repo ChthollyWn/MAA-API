@@ -278,6 +278,54 @@ async def test_all_owned_and_trained_is_ok() -> None:
 
 
 @async_test
+async def test_compact_projection_keeps_only_selection_fields() -> None:
+    """M57：内置 Agent 默认走精简投影；REST 形状不变（docs/13 §8.80）。"""
+    row = make_row(
+        1,
+        content(
+            [
+                {
+                    "name": "稀音",
+                    "skill": 2,
+                    "skill_usage": 0,
+                    "requirements": {"elite": 1, "level": 45, "skill_level": 7},
+                }
+            ]
+        ),
+        views=321,
+        rating_level=9,
+    )
+    svc, _site, _index = service([row])
+
+    result = await svc.search(stage="1-7", include_content=False, compact=True)
+    (item,) = result["results"]
+    assert set(item) == {
+        "site_id",
+        "title",
+        "uploader",
+        "views",
+        "rating_level",
+        "upload_time",
+        "stage_name",
+        "difficulty",
+        "feasible",
+        "tier",
+        "missing_count",
+        "missing",
+        "note",
+        "link",
+        "operators",
+    }
+    assert item["operators"] == ["稀音"]
+    assert result["query"]["compact"] is True
+    assert "精简投影" in result["hint"]
+
+    full = await svc.search(stage="1-7")
+    assert "hot_score" in full["results"][0]
+    assert full["query"]["compact"] is False
+
+
+@async_test
 async def test_one_missing_oper_is_missing_one() -> None:
     row = make_row(
         2,
