@@ -1,6 +1,7 @@
 """M11 exposes exactly the implemented docs/11 §3.2 tool catalog."""
 
 import asyncio
+import json
 
 import pytest
 
@@ -78,6 +79,66 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     assert "game" in {definition.group for definition in registry.list()}
     assert "account" in {definition.group for definition in registry.list()}
     assert "run_copilot" not in actual
+
+
+def test_model_side_tool_schemas_use_compact_task_objects_and_stay_small():
+    """M56：模型侧不再重复三份 36 KB 的任务图（docs/13 §8.79）。
+
+    实测 2026-10-17 的会话首请求 64 497 token 里约六成来自 79 个工具声明，其中
+    ``submit_pipeline``/``create_schedule``/``update_schedule`` 各带一份完全相同的
+    ``$defs``（12 种任务的完整字段图，各 36 KB）。模型只需要知道「任务对象 = 必填
+    name」，字段细节由 ``list_task_types`` 按需查。
+    """
+
+    from maa_api.agent.runtime import AgentRuntime
+    from maa_api.domain.errors import AppError, ErrorCode
+
+    registry = build_registry()
+    schemas = AgentRuntime(None, None)._tool_schemas(registry)  # type: ignore[arg-type]
+    by_name = {item["function"]["name"]: item["function"] for item in schemas}
+    total = len(json.dumps(schemas, ensure_ascii=False))
+    # 紧凑化之前是 159 598 字符；留出余量后仍应远低于此。
+    assert total < 70_000
+    for name in ("submit_pipeline", "create_schedule", "update_schedule"):
+        parameters = by_name[name]["parameters"]
+        assert "$defs" not in parameters
+        task_items = (
+            parameters["properties"]["tasks"]["items"]
+            if name == "submit_pipeline"
+            else parameters["properties"]["template"]["items"]
+        )
+        assert task_items["required"] == ["name"]
+        enum = task_items["properties"]["name"]["enum"]
+        assert "Fight" in enum and "Copilot" in enum and "StartUp" in enum
+        assert len(enum) == 12
+
+    # 校验仍是完整 Pydantic 模型：紧凑 schema 不是放松约束。
+    pipeline = registry.validate(
+        "submit_pipeline", {"tasks": [{"name": "Fight", "stage": "1-7"}]}
+    )
+    assert pipeline.tasks[0].name == "Fight"
+    schedule = registry.validate(
+        "create_schedule",
+        {"name": "日常", "cron": "0 4 * * *", "template": [{"name": "StartUp"}]},
+    )
+    assert schedule.template[0].name == "StartUp"
+    with pytest.raises(AppError) as excinfo:
+        registry.validate(
+            "create_schedule",
+            {"name": "坏任务", "cron": "* * * *", "template": [{"name": "Nope"}]},
+        )
+    assert excinfo.value.code == ErrorCode.TOOL_ARGS_INVALID
+
+
+def test_rest_catalog_still_exports_the_full_task_graph():
+    """REST 目录 / OpenAPI 快照不因模型侧紧凑化而变（M56，docs/13 §8.79）。"""
+
+    registry = build_registry()
+    exported = {item["name"]: item for item in registry.export_schema()}
+    submit = exported["submit_pipeline"]["inputSchema"]
+    assert "$defs" in submit
+    assert "FightInput" in submit["$defs"]
+    assert len(json.dumps(submit, ensure_ascii=False)) > 30_000
 
 
 def test_read_knowledge_is_registered_as_a_safe_read_only_knowledge_tool():

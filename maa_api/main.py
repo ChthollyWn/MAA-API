@@ -437,6 +437,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     await setting_service.refresh()
     app.state.setting_service = setting_service
+    # 工具层（侦察/账号/作业搜索等）统一从 app.state 取设置与数据库会话。
+    # 2026-10-17 的实机会话暴露过这两个装配缺口：``delegate_recon``/``search_code``/
+    # ``list_files`` 全部报「设置服务尚未启动」，``search_copilots`` 因 session_factory
+    # 为空拿不到账号干员表、把每份作业都判成「未拥有」。补在这里，而不是让每个工具
+    # 各写一份兜底（M56，docs/13 §8.79）。
+    # 设置用**同步**的 ``get_settings``：``SettingService.refresh`` 已经把 DB 覆盖层
+    # 合并进进程缓存（update/reset 都会再 refresh），而工具层多数是同步读。
+    app.state.settings_provider = get_settings
+    app.state.session_factory = db_session.session_factory
     # 免鉴权模式必须显式可见，且应反映 DB 覆盖后的有效配置。
     warn_if_auth_disabled()
 
@@ -1094,6 +1103,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             draft_service=app.state.copilot_draft_service,
             box=app.state.box_service,
         )
+        # 作业站搜索（M29 §9.4 的读侧）：`search_copilots` 原先按 `app.state.copilot_service`
+        # 取服务，但装配从未设置它，兜底构造又没带账号干员表 → 实机上每份作业都被判成
+        # 「未拥有」、只回 infeasible，模型于是自己去拉了整张干员表还试图更新资源
+        # （2026-10-17 会话，M56 §8.79）。这里把搜索服务与其它作业服务一起装配。
+        from maa_api.services.game.copilots import CopilotService
+
+        app.state.copilot_service = CopilotService(
+            db_session.session_factory,
+            box=app.state.box_service,
+            stage_index=activity_index,
+        )
         try:
             interrupted = await grant_service.mark_stale_active()
             if interrupted:
@@ -1376,6 +1396,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent_incident_service",
             "agent_ops_service",
             "resource_service",
+            "copilot_service",
+            "settings_provider",
+            "session_factory",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)
@@ -1451,6 +1474,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent_incident_service",
             "agent_ops_service",
             "resource_service",
+            "copilot_service",
+            "settings_provider",
+            "session_factory",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)

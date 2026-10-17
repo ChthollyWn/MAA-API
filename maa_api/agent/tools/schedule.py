@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
+from maa_api.agent.tools.task_schema import schedule_model_schema
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.schedule_service import ScheduleWrite
 
@@ -40,6 +41,7 @@ def register_tools(registry: ToolRegistry) -> None:
             risk=ToolRisk.CONDITIONAL,
             description="新建并启用一个定时任务。建之前先和用户对齐时间与任务内容；模板里有消耗类参数时会弹人工确认。",
             params_model=ScheduleWrite,
+            model_schema=schedule_model_schema(),
             handler=create_schedule,
         ),
         ToolDefinition(
@@ -48,6 +50,7 @@ def register_tools(registry: ToolRegistry) -> None:
             risk=ToolRisk.CONDITIONAL,
             description="整条改掉一个定时任务（全量覆盖，没传的字段会按默认值走）。模板含消耗类参数时需要确认。",
             params_model=UpdateScheduleParams,
+            model_schema=schedule_model_schema(update=True),
             handler=update_schedule,
         ),
         ToolDefinition(

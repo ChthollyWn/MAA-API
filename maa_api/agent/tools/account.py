@@ -6,11 +6,14 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
+from maa_api.domain.enums import CallerType
 
 __all__ = [
     "CancelUpgradePlanParams",
@@ -18,6 +21,7 @@ __all__ = [
     "GetDepotParams",
     "GetOperatorBoxParams",
     "ListUpgradePlansParams",
+    "OPERATOR_BOX_BUDGET_CHARS",
     "PlanUpgradeParams",
     "StartUpgradePlanParams",
     "SyncSklandTrainingParams",
@@ -32,6 +36,31 @@ __all__ = [
     "sync_skland_training",
 ]
 
+#: 内置 Agent 的干员列表输出预算（字符，M56，docs/13 §8.79）。
+#:
+#: 2026-10-17 的会话里 ``get_operator_box(limit=100, owned_only=true, rarity_min=6)``
+#: 一次回了 64 598 字（约 26 000 token）——占掉整场会话增量的三分之一，而模型实际
+#: 只需要「有没有这名干员、练到什么程度」。列表回归紧凑投影 + 预算，完整卡片字段
+#: （skill_ids / module_details / field_sources）留给 ``get_operator`` 单查。
+OPERATOR_BOX_BUDGET_CHARS = 12_000
+
+#: 紧凑投影保留的字段：判断「有没有、练度够不够」够用，不含卡片资源明细。
+_COMPACT_OPERATOR_FIELDS = (
+    "char_id",
+    "name",
+    "rarity",
+    "profession",
+    "own",
+    "elite",
+    "level",
+    "potential",
+    "skill_level",
+    "masteries",
+    "modules",
+    "favor_percent",
+)
+
+
 
 class GetOperatorBoxParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -44,6 +73,11 @@ class GetOperatorBoxParams(BaseModel):
     profession: str | None = Field(default=None, max_length=16, description="职业筛选。")
     elite_min: int | None = Field(default=None, ge=0, le=2, description="最低精英化。")
     limit: int = Field(default=50, ge=1, le=100, description="返回条数，默认 50，最多 100。")
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="跳过前几条（配合返回的 next_offset 翻页）；默认 0。",
+    )
 
 
 class GetDepotParams(BaseModel):
@@ -118,6 +152,8 @@ def register_tools(registry: ToolRegistry) -> None:
                 "技能等级、专精、模组返回 null 表示**未识别**，别说成没升过技能或没有专精，"
                 "用 sync_skland_training 从森空岛同步；"
                 "数据缺失或过期时用 ask_user 建议用户在账号页绑定森空岛账号并同步练度。"
+                "列表是精简投影（不含技能 id、模组明细、字段来源），要单个干员的完整卡片用 "
+                "get_operator；超大列表按 next_offset 翻页。"
             ),
             params_model=GetOperatorBoxParams,
             handler=get_operator_box,
@@ -233,14 +269,61 @@ def register_tools(registry: ToolRegistry) -> None:
 # ---------------------------------------------------------------------------
 async def get_operator_box(params: GetOperatorBoxParams, context: ToolContext) -> dict[str, Any]:
     service = _service(context, "box_service", "maa_api.services.account.box", "OperatorBoxService")
-    return await service.list_operators(
+    listing = await service.list_operators(
         query=params.query,
         owned_only=params.owned_only,
         rarity_min=params.rarity_min,
         profession=params.profession,
         elite_min=params.elite_min,
         limit=params.limit,
+        offset=params.offset,
     )
+    # REST 调用方保持既有 wire 形状（工具 API 是公开面）；内置 Agent 走紧凑投影 +
+    # 预算，因为它读列表的目的是判断「有没有、练度够不够」，不是渲染卡片。
+    if context.caller is not CallerType.INTERNAL:
+        return listing
+    return _compact_operator_listing(listing, offset=params.offset)
+
+
+def _compact_operator_listing(
+    listing: Mapping[str, Any],
+    *,
+    offset: int,
+    budget_chars: int = OPERATOR_BOX_BUDGET_CHARS,
+) -> dict[str, Any]:
+    """把 ``list_operators`` 的结果压成模型够用的形状并守住字符预算（M56 §4.3）。"""
+    raw_items = listing.get("items")
+    items = [item for item in raw_items or [] if isinstance(item, Mapping)]
+    compact = [
+        {field: item[field] for field in _COMPACT_OPERATOR_FIELDS if field in item}
+        for item in items
+    ]
+    total = listing.get("total")
+    page = {
+        "items": compact,
+        "total": total,
+        "limit": listing.get("limit", len(compact)),
+        "offset": offset,
+        "fields": list(_COMPACT_OPERATOR_FIELDS),
+        "hint": "精简投影；单个干员的完整卡片用 get_operator(char_id=…)。",
+    }
+
+    def size(payload: Mapping[str, Any]) -> int:
+        return len(json.dumps(payload, ensure_ascii=False, default=str))
+
+    truncated = False
+    while compact and size(page) > budget_chars:
+        compact.pop()
+        truncated = True
+    if truncated:
+        page["truncated"] = {
+            "returned": len(compact),
+            "note": "超过输出预算，只保留靠前的若干条；用 query/profession 缩小范围或按 next_offset 翻页。",
+        }
+    returned = len(compact)
+    if isinstance(total, int) and offset + returned < total:
+        page["next_offset"] = offset + returned
+    return page
 
 
 async def get_depot(params: GetDepotParams, context: ToolContext) -> dict[str, Any]:

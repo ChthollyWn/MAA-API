@@ -110,8 +110,14 @@ class CopilotService:
         limit: int = DEFAULT_LIMIT,
         order: str = "hot",
         only_feasible: bool = True,
+        include_content: bool = True,
     ) -> dict[str, Any]:
-        """按关卡搜作业并按账号干员筛选（规格 §9.4）。"""
+        """按关卡搜作业并按账号干员筛选（规格 §9.4、M56 §4.3）。
+
+        ``include_content=False`` 时不带每条结果的作业正文：内置 Agent 只需要
+        ``site_id``、标题、可行性、缺谁与评分；正文（每条 1–2 KB）留给
+        ``save_copilot_draft(site_id=…)`` 取。REST 工具 API 默认仍为 ``True``。
+        """
         page_size = _limit(limit)
         only_ok = bool(only_feasible)
         query_stage = str(stage or "").strip()
@@ -122,7 +128,7 @@ class CopilotService:
         fetch = min(max(page_size * _CANDIDATE_FACTOR, page_size), _CANDIDATE_CAP)
 
         unavailable: list[str] = []
-        note: str | None = None
+        notes: list[str] = []
         try:
             data = await self.site_client.query(
                 stage=keyword, order=order, page=1, limit=fetch
@@ -142,7 +148,10 @@ class CopilotService:
             )
 
         box = await self._box_index()
-        evaluated = [_evaluate_row(row, box=box) for row in data.rows]
+        evaluated = [
+            _evaluate_row(row, box=box, include_content=include_content)
+            for row in data.rows
+        ]
         # tiers 报的是**候选**里的分布（过滤之前），这样 only_feasible=true 时也能看出
         # 站点上到底有几份是缺人的、几份是打不了的。
         tiers = {tier: sum(1 for item in evaluated if item["tier"] == tier) for tier in TIERS}
@@ -160,7 +169,16 @@ class CopilotService:
         results = rows[:page_size]
         if box is None:
             unavailable.append("account_box")
-            note = "账号干员数据取不到：这一页按「未拥有」算，只做参考"
+            notes.append("账号干员数据取不到：这一页按「未拥有」算，只做参考")
+        if resolved["stage_id"] is None:
+            # 本机索引没解析出来时，站点搜索用的是原文关键词，结果是模糊匹配。
+            # 2026-10-17 的会话里这被模型读成「作业站数据有问题」，还白白更新了一次资源；
+            # 说清楚：新活动关可以先从 PRTS 拿「关卡id」再传 stageId。
+            notes.append(
+                "本机关卡索引没能把 stage 解析成 stageId，下面的结果是作业站按原文模糊搜的，"
+                "可能不是同一关；新活动关可先用 search_prts 找到「关卡id」再传 stageId"
+                "（形如 act52side_ex08），不需要更新资源。"
+            )
 
         payload: dict[str, Any] = {
             "query": {
@@ -171,6 +189,7 @@ class CopilotService:
                 "order": order,
                 "only_feasible": only_ok,
                 "limit": page_size,
+                "include_content": include_content,
             },
             "results": results,
             "total": total,
@@ -179,9 +198,12 @@ class CopilotService:
             "site_page": data.page,
             "has_next": data.has_next,
             "tiers": tiers,
-            "note": note,
+            "note": "\n".join(notes) if notes else None,
             "hint": (
-                "列表里的 content 不含 actions（省体积）；要执行或细看用 "
+                "列表不含作业正文（省体积）；要执行或细看用 "
+                "save_copilot_draft(site_id=…) 拉完整作业。"
+                if not include_content
+                else "列表里的 content 不含 actions（省体积）；要执行或细看用 "
                 "save_copilot_draft(site_id=…) 拉完整作业。"
             ),
             **build_envelope([data.source_ref()], unavailable=unavailable),
@@ -280,9 +302,12 @@ def _limit(limit: Any) -> int:
 
 
 def _evaluate_row(
-    row: CopilotRow, *, box: Mapping[str, Mapping[str, Any]] | None
+    row: CopilotRow,
+    *,
+    box: Mapping[str, Mapping[str, Any]] | None,
+    include_content: bool = True,
 ) -> dict[str, Any]:
-    """一行作业 → 工具返回里的一条结果（不含动作）。"""
+    """一行作业 → 工具返回里的一条结果（不含动作；M56 起可省去正文）。"""
     content = row.parse_content()
     checks: tuple[rules.OperatorCheck, ...] = ()
     if content is None:
@@ -294,8 +319,8 @@ def _evaluate_row(
         missing = rules.missing_operator_names(checks)
         tier = rules.tier_of(len(missing))
         note = rules.SUPPORT_NOTE if tier == "missing_one" else None
-    summary = _content_summary(content)
-    return {
+    summary = _content_summary(content, include_content=include_content)
+    result = {
         "site_id": row.site_id,
         "title": summary.get("title"),
         "uploader": row.uploader,
@@ -316,11 +341,15 @@ def _evaluate_row(
         "missing": missing,
         "note": note,
         "operators": [check.as_dict() for check in checks],
-        "content": summary.get("content"),
     }
+    if include_content:
+        result["content"] = summary.get("content")
+    return result
 
 
-def _content_summary(content: Mapping[str, Any] | None) -> dict[str, Any]:
+def _content_summary(
+    content: Mapping[str, Any] | None, *, include_content: bool = True
+) -> dict[str, Any]:
     """列表里的 ``content``：**不含** ``actions``（规格 §9.4）。"""
     if content is None:
         return {"content": None}
@@ -328,14 +357,17 @@ def _content_summary(content: Mapping[str, Any] | None) -> dict[str, Any]:
     title = None
     if isinstance(doc, Mapping) and isinstance(doc.get("title"), str):
         title = doc["title"]
-    trimmed = {key: value for key, value in content.items() if key != "actions"}
-    return {
+    summary: dict[str, Any] = {
         "title": title,
         "stage_name": content.get("stage_name"),
         "difficulty": content.get("difficulty"),
         "minimum_required": content.get("minimum_required"),
-        "content": trimmed,
     }
+    if include_content:
+        summary["content"] = {
+            key: value for key, value in content.items() if key != "actions"
+        }
+    return summary
 
 
 def _size(payload: Any) -> int:

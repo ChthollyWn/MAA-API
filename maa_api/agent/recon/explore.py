@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import inspect
 import os
 import re
 import subprocess
@@ -540,14 +541,22 @@ class SearchCodeParams(BaseModel):
     )
 
 
-def _required_settings(ctx: ToolContext) -> Any:
-    """工具设置来自 ``app.state.settings_provider``（与其它工具同一口径）。"""
+async def _required_settings(ctx: ToolContext) -> Any:
+    """工具设置来自 ``app.state.settings_provider``（与其它工具同一口径）。
+
+    M56 热修：``SettingService.refresh`` 是 async 的，装配层接进来的 provider 返回协程；
+    这里如果不 await，``list_dir``/``read_text``/``search_content`` 会在设置对象上
+    拿不到工作区根而报错（实机表现是三个探索工具全 AGENT_DISABLED）。
+    """
 
     state = getattr(getattr(ctx.request, "app", None), "state", None)
     provider = getattr(state, "settings_provider", None)
     if not callable(provider):
         raise AppError(ErrorCode.AGENT_DISABLED, "设置服务尚未启动")
-    return provider()
+    value = provider()
+    if inspect.isawaitable(value):
+        value = await value
+    return value
 
 
 def register_tools(registry: ToolRegistry) -> None:
@@ -599,15 +608,15 @@ def register_tools(registry: ToolRegistry) -> None:
 
 
 async def _list_files(params: ListFilesParams, ctx: ToolContext) -> dict[str, Any]:
-    return list_dir(_required_settings(ctx), params)
+    return list_dir(await _required_settings(ctx), params)
 
 
 async def _read_file(params: ReadFileParams, ctx: ToolContext) -> dict[str, Any]:
-    return read_text(_required_settings(ctx), params)
+    return read_text(await _required_settings(ctx), params)
 
 
 async def _search_code(params: SearchCodeParams, ctx: ToolContext) -> dict[str, Any]:
-    settings = _required_settings(ctx)
+    settings = await _required_settings(ctx)
     if params.mode == "git":
         return await asyncio.to_thread(search_git, settings, params)
     return await asyncio.to_thread(search_content, settings, params)

@@ -347,6 +347,91 @@ def test_tool_call_round_trip_uses_confirmation_service_and_persists_audit_link(
     asyncio.run(scenario())
 
 
+def test_turn_draft_does_not_accumulate_text_and_reasoning_across_tool_steps():
+    """M56：同一条用户消息里的多次模型调用各自只落自己的文本与思考。
+
+    2026-10-17 的实机会话里 `_TurnDraft` 跨工具步复用，落库的 content 与
+    reasoning_content 是逐级累积的（21→42→100→…→581 字 / 67→21 798 字），
+    既是重复计费，也让「历史只回灌最后一条思考」的预算被撑满、模型每轮复读旧思考。
+    """
+
+    async def scenario():
+        class PingParams(BaseModel):
+            model_config = ConfigDict(extra="forbid")
+
+        async def ping(_params, _context):
+            return {"ok": True}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="ping",
+                group="status",
+                risk=ToolRisk.SAFE,
+                description="Ping.",
+                params_model=PingParams,
+                handler=ping,
+                read_only=True,
+            )
+        )
+
+        def _step(call_id: str, text: str, reasoning: str):
+            return [
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": text, "reasoning_content": reasoning},
+                            "finish_reason": None,
+                        }
+                    ]
+                },
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": call_id,
+                                        "type": "function",
+                                        "function": {"name": "ping", "arguments": "{}"},
+                                    }
+                                ]
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ]
+                },
+            ]
+
+        runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
+            [
+                _step("call-1", "第一步", "先看看"),
+                _step("call-2", "第二步", "再看一次"),
+                _text_response("完成"),
+            ],
+            registry=registry,
+        )
+        try:
+            assert await runtime.acquire_session(session_id) is True
+            [_chunk async for _chunk in runtime.stream_message(session_id, "走两步", None)]
+            async with factory() as session:
+                messages = await AgentMessageRepository(session).list_by_session(session_id)
+            assistants = [item for item in messages if item.role == "assistant"]
+            assert [item.content for item in assistants] == ["第一步", "第二步", "完成"]
+            assert [item.reasoning_content for item in assistants] == [
+                "先看看",
+                "再看一次",
+                None,
+            ]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_malformed_tool_arguments_stop_before_any_tool_dispatch():
     async def scenario():
         class EmptyParams(BaseModel):
@@ -613,6 +698,138 @@ def test_explicit_max_context_chars_still_trims_and_overflows():
         build_model_context(history, system_prompt="sys", max_context_chars=1)
     assert info.value.code is ErrorCode.LLM_CONTEXT_OVERFLOW
     assert info.value.http_status == 400
+
+
+def _context_tool_round(call_id: str, size: int, *, name: str = "get_logs") -> list[dict[str, Any]]:
+    return [
+        {
+            "role": "assistant",
+            "content": "查一下",
+            "tool_calls": [
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": call_id,
+            "tool_name": name,
+            "content": "x" * size,
+        },
+    ]
+
+
+def test_context_budget_treats_base64_screenshots_as_visual_tokens_not_chars():
+    """M56 §4.5：30 万字符的截图 data URL 不是 30 万字符的上下文成本。
+
+    2026-10-17 的会话最后一轮带了一张 247 KB 的 JPEG（base64 约 33 万字符），本地
+    400 000 字符上限把它当原文计入，于是 prompt 只有 14 万 token（上游窗口 1M）却
+    报「上下文超限」。图片按 :data:`IMAGE_CONTEXT_CHARS` 折算后不应再误报。
+    """
+    from maa_api.agent.runtime import _context_size, build_model_context
+
+    payload = {
+        "format": "jpeg",
+        "width": 2560,
+        "height": 1440,
+        "screenshot_id": "shot-1",
+        "captured_at": "2026-10-17T12:00:00Z",
+        "data": "A" * 300_000,
+    }
+    history = [
+        {"role": "user", "content": "看画面"},
+        {
+            "role": "assistant",
+            "content": "好",
+            "tool_calls": [
+                {
+                    "id": "shot-call",
+                    "type": "function",
+                    "function": {"name": "get_screenshot", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "shot-call",
+            "tool_name": "get_screenshot",
+            "content": json.dumps({"result": payload}, ensure_ascii=False),
+        },
+        {"role": "assistant", "content": "看到了"},
+    ]
+
+    context = build_model_context(history, system_prompt="sys", max_context_chars=60_000)
+    tool_message = next(message for message in context if message["role"] == "tool")
+    assert isinstance(tool_message["content"], list)
+    assert any(part.get("type") == "image_url" for part in tool_message["content"])
+    # 原始 JSON 远超上限（这正是旧口径误报的原因），有效预算却在 cap 内。
+    assert len(json.dumps(context, ensure_ascii=False)) > 300_000
+    assert _context_size([context[0]], context[1:]) <= 60_000
+
+
+def test_context_budget_counts_the_tool_envelope():
+    """工具声明是每轮重复的固定开销，必须计入预算（M56 §4.5）。"""
+    from maa_api.agent.runtime import build_model_context
+
+    history = [{"role": "user", "content": "hi"}]
+    with pytest.raises(AppError) as info:
+        build_model_context(
+            history,
+            system_prompt="sys",
+            max_context_chars=10_000,
+            envelope_chars=20_000,
+        )
+    assert info.value.code is ErrorCode.LLM_CONTEXT_OVERFLOW
+
+
+def test_context_budget_prunes_old_oversized_tool_results_before_dropping_rounds():
+    """第一级裁剪：大工具结果换成头+省略标记+尾，轮次不丢（M56 §4.5）。"""
+    from maa_api.agent.runtime import build_model_context
+
+    history = [
+        {"role": "user", "content": "开始"},
+        *_context_tool_round("call-old", 60_000),
+        *_context_tool_round("call-new", 200),
+        {"role": "assistant", "content": "结论"},
+    ]
+
+    context = build_model_context(history, system_prompt="sys", max_context_chars=30_000)
+    tool_messages = [message for message in context if message["role"] == "tool"]
+    assert len(tool_messages) == 2, "剪枝够用时不丢工具轮次"
+    assert "工具结果中间已省略" in tool_messages[0]["content"]
+    assert tool_messages[0]["content"].startswith("x" * 100)
+    assert tool_messages[1]["content"] == "x" * 200, "最近一轮原样保留"
+
+
+def test_context_budget_drops_oldest_tool_rounds_within_a_single_user_turn():
+    """整场只有一个 user 消息时，旧策略永远无可丢弃；M56 改为丢最早的工具往返。"""
+    from maa_api.agent.runtime import build_model_context
+
+    history = [{"role": "user", "content": "开始"}]
+    for index in range(1, 5):
+        history.extend(_context_tool_round(f"call-{index}", 20_000))
+    history.append({"role": "assistant", "content": "结论"})
+
+    context = build_model_context(history, system_prompt="sys", max_context_chars=12_000)
+    serialized = json.dumps(context, ensure_ascii=False)
+    assert "开始" in serialized, "用户消息必须保留"
+    calls = {
+        call["id"]
+        for message in context
+        if message["role"] == "assistant"
+        for call in (message.get("tool_calls") or [])
+    }
+    replies = {
+        message.get("tool_call_id")
+        for message in context
+        if message["role"] == "tool"
+    }
+    assert calls == replies, "不能留下没有 tool 回复的 tool_calls（上游 400）"
+    assert "call-4" in calls, "最近一轮工具往返受保护"
+    assert len(calls) < 4, "必须在同一用户轮次内丢掉最早的往返"
 
 
 def test_agent_runtime_context_cap_validation_accepts_none_and_rejects_zero():
@@ -2914,6 +3131,31 @@ def test_system_prompt_keeps_every_behaviour_and_safety_constraint():
         "默认不超过 3 句",
     ):
         assert needle in SYSTEM_PROMPT, needle
+
+
+def test_system_prompt_says_copilot_needs_the_stage_page_not_a_resource_update():
+    """M56 §4.6：用户 2026-10-17 问「为什么用作业还要更新资源」。
+
+    作业执行只要求画面停在关卡「开始行动」页；本机资源版本与 resolve_stage 的失败
+    不影响 Copilot。提示词、工具描述与知识条目三处都要说清，否则模型会照着
+    「关卡先过 resolve_stage」的旧习惯去更新资源。
+    """
+
+    from maa_api.agent.knowledge import builtin_entries
+    from maa_api.agent.runtime import SYSTEM_PROMPT
+    from maa_api.agent.tools import build_registry
+
+    assert "不要为了用作业去更新资源" in SYSTEM_PROMPT
+    assert "开始行动" in SYSTEM_PROMPT
+    assert "act52side_ex08" in SYSTEM_PROMPT
+
+    description = build_registry().get("update_resource").description
+    assert "执行作业站作业不需要它" in description
+
+    body = builtin_entries()["playbook-stage-clear"].body
+    assert "作业执行不依赖本机资源版本" in body
+    assert "不要为了用作业去 update_resource" in body
+    assert "不需要更新资源" in body
 
 
 # ----------------------------------------------------------------------

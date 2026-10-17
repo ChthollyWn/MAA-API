@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from maa_api.agent.preconditions import failure_hint, missing_start_up_warning
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
+from maa_api.agent.tools.task_schema import pipeline_model_schema
 from maa_api.db.models import Pipeline, Task
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.domain.enums import (
@@ -133,6 +134,7 @@ def register_tools(registry: ToolRegistry) -> None:
                 "提交前先确认设备已连接、参数都来自用户。"
             ),
             params_model=PipelineCreate,
+            model_schema=pipeline_model_schema(),
             handler=submit_pipeline,
         ),
         ToolDefinition(

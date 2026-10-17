@@ -160,6 +160,40 @@ def test_configured_workspace_is_reported_as_usable(ws: Path) -> None:
     assert explore.is_configured(settings_for(ws)) is True
 
 
+def test_async_settings_provider_is_awaited(ws: Path) -> None:
+    """M56 热修：``SettingService.refresh`` 是 async，装配层接进来的 provider 返回协程。
+
+    实机表现（2026-10-17）：未 await 时三个只读探索工具全部报
+    ``AGENT_DISABLED``「设置服务尚未启动」，模型连试三次都没拿到工作区。
+    """
+
+    async def scenario() -> None:
+        settings = settings_for(ws)
+        (ws / "a.txt").write_text("x", encoding="utf-8")
+
+        async def provider():
+            return settings
+
+        ctx = ToolContext(
+            CallerType.INTERNAL,
+            None,
+            None,
+            SimpleNamespace(
+                app=SimpleNamespace(state=SimpleNamespace(settings_provider=provider))
+            ),
+            None,
+        )
+        payload = await build_registry().execute("list_files", {}, ctx)
+        assert payload["root"] == str(ws.resolve())
+        assert [item["path"] for item in payload["entries"]] == ["a.txt"]
+
+        # 同步 provider 仍然可用（测试里大多数用例是这一种）。
+        sync_ctx = context(settings)
+        assert await build_registry().execute("list_files", {}, sync_ctx) == payload
+
+    asyncio.run(scenario())
+
+
 # --------------------------------------------------------------------------- #
 # 路径越界与软链接
 # --------------------------------------------------------------------------- #
