@@ -6,7 +6,9 @@
 
 全部离线：临时 SQLite（``make_engine`` + ``create_all``，``NullPool`` 以便用例里多个
 ``asyncio.run`` 共用一个 engine），不打网、不打真机。时间用手工构造的 naive UTC 值
-（库内统一 naive UTC，docs/04 §3.2），因此过期判定不需要冻结时钟。
+（库内统一 naive UTC，docs/04 §3.2）；过期判定读的是真实时钟，所以把服务层的
+``_utcnow`` 冻结到 :data:`NOW`，否则测试会随真实日期推移而失效（2026-10-19 起
+``recognized_at`` 与真实 now 的差值越过 14 天阈值，两条概要用例就是这样翻红的）。
 """
 
 from __future__ import annotations
@@ -39,6 +41,12 @@ NOW = datetime(2026, 10, 10, 3, 0, 0)
 
 def _utc(*, days_ago: int = 0) -> datetime:
     return NOW - timedelta(days=days_ago)
+
+
+@pytest.fixture(autouse=True)
+def _freeze_box_clock(monkeypatch):
+    """种子时间都以固定 :data:`NOW` 为基准，过期判定用的真实时钟必须一起冻结。"""
+    monkeypatch.setattr("maa_api.services.account.box._utcnow", lambda: NOW)
 
 
 @pytest.fixture

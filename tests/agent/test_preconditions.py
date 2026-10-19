@@ -2,7 +2,8 @@
 
 护栏只提醒、不拦：``submit_pipeline`` 照常提交，只是结果里多一条可选的
 ``warnings``；``wait_pipeline`` 在 ``CORE_COMMAND_FAILED`` 失败时多一条可选的
-``hint``；策略层只在**本来就要弹确认卡片**时把同一条警告追加到 ``reasons`` 末尾。
+``hint``，等待超时（M58）另有一条「先看画面再决定续等」的 ``hint``；策略层只在
+**本来就要弹确认卡片**时把同一条警告追加到 ``reasons`` 末尾。
 
 本文件不引入 pytest-asyncio（仓库没有这个依赖）：异步路径一律写成同步测试函数
 加 ``asyncio.run(...)``，与 ``tests/agent/test_pipeline_tools.py``
@@ -24,10 +25,12 @@ from maa_api.agent.preconditions import (
     FAILURE_HINT,
     GAME_RUNNING_TASK_TYPES,
     MISSING_START_UP_WARNING,
+    WAIT_TIMEOUT_HINT,
     failure_hint,
     missing_start_up_warning,
     needs_running_game,
     task_type_names,
+    wait_timeout_hint,
 )
 from maa_api.agent.registry import ToolContext
 from maa_api.agent.tools import build_registry
@@ -122,13 +125,13 @@ async def _submit(arguments: dict[str, Any]) -> tuple[dict[str, Any], list[Any]]
     return result, received
 
 
-async def _wait(row: Any) -> dict[str, Any]:
+async def _wait(row: Any, *, finished: bool = True) -> dict[str, Any]:
     class Runner:
         async def wait_terminal(
             self, pipeline_id: str, _timeout_seconds: int, **_kwargs: Any
         ) -> tuple[Any, bool]:
             assert pipeline_id == "pipeline-1"
-            return row, True
+            return row, finished
 
     return await build_registry().execute(
         "wait_pipeline",
@@ -242,6 +245,11 @@ def test_failure_hint_only_matches_core_command_failed() -> None:
         assert failure_hint(code) is None
 
 
+def test_wait_timeout_hint_only_matches_unfinished_waits() -> None:
+    assert wait_timeout_hint(False) == WAIT_TIMEOUT_HINT
+    assert wait_timeout_hint(True) is None
+
+
 # --------------------------------------------------------------------------- #
 # 工具层（规格 §4.5：提醒不拦，未命中不出现可选键）
 # --------------------------------------------------------------------------- #
@@ -299,6 +307,16 @@ def test_wait_pipeline_hints_after_the_core_command_failure() -> None:
     assert set(result) == {"finished", "waited_seconds", "pipeline", "hint"}
 
 
+def test_wait_pipeline_timeout_hints_to_check_the_screen_first() -> None:
+    """M58：等待超时给「先截图、再决定续等/停车」的处置提示，而不是静默返回。"""
+
+    result = asyncio.run(_wait(_terminal(status=PipelineStatus.RUNNING), finished=False))
+
+    assert result["finished"] is False
+    assert result["hint"] == WAIT_TIMEOUT_HINT
+    assert set(result) == {"finished", "waited_seconds", "pipeline", "hint"}
+
+
 def test_wait_pipeline_success_or_other_errors_have_no_hint_key() -> None:
     completed = _terminal(status=PipelineStatus.COMPLETED)
     crashed = _terminal(
@@ -319,6 +337,10 @@ def test_wait_pipeline_description_mentions_the_screenshot_check() -> None:
 
     assert "截图" in description
     assert "没启动" in description
+    # M58：等待超时先看画面，且等待期间没有中间输出要点出来。
+    assert "超时" in description
+    assert "finished=false" in description
+    assert "等待期间不会产生新的输出" in description
 
 
 # --------------------------------------------------------------------------- #

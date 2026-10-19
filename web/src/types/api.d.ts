@@ -4121,7 +4121,6 @@ export interface components {
          * StartUpInput
          * @description 开始唤醒：启动客户端并进入游戏。
          * @example {
-         *       "client_type": "Official",
          *       "name": "StartUp",
          *       "start_game_enabled": true
          *     }

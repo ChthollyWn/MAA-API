@@ -1,6 +1,6 @@
 # AI 腔规则命中：测试内的中文断言（改文案的连带影响面）
 
-总计 6497 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 6512 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
@@ -8,7 +8,7 @@
 | 粗体强调 | medium | 0 | 103 | 103 |
 | 绝对化规定腔 | medium | 0 | 75 | 75 |
 | 破折号当冒号用 | high | 0 | 70 | 70 |
-| 「A 而不是 B」对照腔 | high | 0 | 51 | 51 |
+| 「A 而不是 B」对照腔 | high | 0 | 52 | 52 |
 | 自指式讲解腔 | medium | 0 | 13 | 13 |
 | 省略号 | medium | 0 | 7 | 7 |
 | 「…即可」机器腔 | medium | 0 | 5 | 5 |
@@ -53,7 +53,7 @@
 - `tests/agent/test_policy_account_write.py:148` 条目的字段缺一个就用另一边，全缺就跳过——不能让确认卡片多一行空话。
 - …… 另有 64 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 51）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 52）
 
 **开发向**
 
@@ -63,7 +63,7 @@
 - `tests/agent/test_knowledge_no_numbers.py:262` Markdown 列表项与标题里的序号（`1.`、`-`、`## 第 1 步`）：属于排版而不是数值。只豁免行首那截标记，`- 135 理智` 这种行里的数值仍会命中。
 - `tests/agent/test_knowledge_no_numbers.py:346` 扫一行，返回**全部**候选；被豁免的候选 ``rule_id`` 非 None，其余是命中。 保留两类「整行豁免」：围栏代码块与跨行代码（奇数个反引号）的行，内容是工具调用 示例而不是知识正文；这类行的候选统一记到对应规则名下，便于白名单…（共 171 字）
 - `tests/agent/test_knowledge_service.py:1291` Agent 看得到的东西里不得写死**这一期**的数据：当期活动名与它的 stageId 前缀。 口径与 M19 §4.3「不写会随版本失效的内容」一致。扫描三处 Agent 可见面：内置知识 条目（每轮注入索引、`read_knowled…（共 416 字）
-- …… 另有 45 条，见 inventory.json
+- …… 另有 46 条，见 inventory.json
 
 ## 自指式讲解腔（medium｜用户可见 0 / 开发向 13）
 
@@ -81,9 +81,9 @@
 
 **开发向**
 
-- `tests/agent/test_runtime.py:3596` 正在读取日志……
-- `tests/agent/test_runtime.py:3632` 正在读取日志…… {INTERRUPTED_NOTICE}
-- `tests/agent/test_runtime.py:4013` 正在排查……
+- `tests/agent/test_runtime.py:3658` 正在读取日志……
+- `tests/agent/test_runtime.py:3694` 正在读取日志…… {INTERRUPTED_NOTICE}
+- `tests/agent/test_runtime.py:4075` 正在排查……
 - `tests/services/test_game_roguelike.py:157` {{Cbox2|mdi=true|icon=information-variant-circle|text='''在非标准模式下……'''}} {{收藏品/common |名称=热水壶 |iconId=rogue_6_relic_legac…（共 401 字）
 - `tests/services/test_game_story.py:235` 杜宾：……我也希望是你的错觉。
 - …… 另有 2 条，见 inventory.json
@@ -109,7 +109,7 @@
 
 **开发向**
 
-- `tests/agent/test_runtime.py:3251` 不用「首先/其次/最后/另外」
+- `tests/agent/test_runtime.py:3313` 不用「首先/其次/最后/另外」
 
 ## 提示腔（medium｜用户可见 0 / 开发向 1）
 

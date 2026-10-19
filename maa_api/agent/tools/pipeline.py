@@ -10,7 +10,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from maa_api.agent.preconditions import failure_hint, missing_start_up_warning
+from maa_api.agent.preconditions import (
+    failure_hint,
+    missing_start_up_warning,
+    wait_timeout_hint,
+)
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.agent.tools.task_schema import pipeline_model_schema
 from maa_api.db.models import Pipeline, Task
@@ -64,7 +68,15 @@ class WaitPipelineParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pipeline_id: str = Field(min_length=1, max_length=36)
-    timeout_seconds: float = Field(default=300, ge=5, le=600)
+    timeout_seconds: float = Field(
+        default=120,
+        ge=5,
+        le=600,
+        description=(
+            "单次最多等这么久（秒）。先用短窗口看一次状态（默认 120），"
+            "确认任务还在跑之后再续等，最多 600；等待期间不会有新的输出。"
+        ),
+    )
 
 
 class ListPipelinesParams(BaseModel):
@@ -122,6 +134,8 @@ def register_tools(registry: ToolRegistry) -> None:
             description=(
                 "等一条流水线结束（完成、失败或取消）或超时再拿结果。"
                 "提交流水线后需要等结果时用，不要反复调用 get_pipeline。"
+                "等待期间不会产生新的输出，预计要等超过一分钟时先在回复里告诉用户在等什么。"
+                "超时返回 finished=false 与 hint：先看现场截图确认画面，再决定续等、停车或换方案。"
                 "失败时先看现场截图判断是不是游戏没启动：画面是设备桌面或登录页就先补 StartUp。"
             ),
             params_model=WaitPipelineParams,
@@ -261,7 +275,9 @@ async def wait_pipeline(
     }
     # M32 §4.5：终态失败的处置提示只在 `CORE_COMMAND_FAILED` 时出现；
     # 取不到 error 结构（如超时返回的运行中快照）一律按「不提示」处理。
-    hint = failure_hint(_error_code(wire))
+    # M58：超时（finished=False）改给「先截图看画面再决定」的固定提示，
+    # 两条 hint 互斥，避免模型在没看现场的情况下原样再等五分钟（docs/13 §8.81）。
+    hint = wait_timeout_hint(finished) or failure_hint(_error_code(wire))
     if hint is not None:
         result["hint"] = hint
     return result
