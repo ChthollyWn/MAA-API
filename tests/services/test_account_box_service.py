@@ -36,6 +36,12 @@ def _utc(*, days_ago: int = 0) -> datetime:
     return NOW - timedelta(days=days_ago)
 
 
+@pytest.fixture(autouse=True)
+def _freeze_box_clock(monkeypatch):
+    """种子时间都以固定 :data:`NOW` 为基准，过期判定用的真实时钟必须一起冻结。"""
+    monkeypatch.setattr(box_module, "_utcnow", lambda: NOW)
+
+
 class _Row:
     """一条干员行：属性名与 ``account_operator`` 的列同名。"""
 

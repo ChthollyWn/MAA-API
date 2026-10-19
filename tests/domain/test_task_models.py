@@ -1024,6 +1024,18 @@ def test_examples_are_present_and_self_validating(model: type[Any]) -> None:
         model.model_validate(example)
 
 
+def test_start_up_example_does_not_pin_a_client_channel() -> None:
+    """M58：渠道不填就套用设置默认，示例写死具体渠道会被模型当成默认值照抄。
+
+    2026-10-20 的会话里模型照抄了示例里的 ``Official``，本机却是 B 服，内核启动
+    命令直接失败（docs/13 §8.81）。
+    """
+    examples = StartUpInput.model_config["json_schema_extra"]["examples"]
+
+    assert examples
+    assert all("client_type" not in example for example in examples)
+
+
 def test_pipeline_create_example_runs_through_the_discriminated_union() -> None:
     example = PipelineCreate.model_config["json_schema_extra"]["examples"][0]
     pipeline = PipelineCreate.model_validate(example)

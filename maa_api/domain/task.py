@@ -206,8 +206,11 @@ class TaskInputBase(BaseModel):
 class StartUpInput(TaskInputBase):
     """开始唤醒：启动客户端并进入游戏。"""
 
+    # 示例里不写 client_type：它不填就套用设置里的默认渠道，写死一个具体渠道会被
+    # 模型当成默认值照抄。2026-10-20 的会话里模型就把 B 服机器猜成了官服，内核的
+    # 启动命令报 Activity 不存在，流水线空转了 13 分钟（docs/13 §8.81）。
     model_config = _task_config(
-        {"name": "StartUp", "client_type": "Official", "start_game_enabled": True}
+        {"name": "StartUp", "start_game_enabled": True}
     )
 
     name: Literal["StartUp"] = MaaField(

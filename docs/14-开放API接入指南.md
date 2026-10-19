@@ -212,6 +212,9 @@ curl -X POST http://<host>:8002/api/snippets \
 | `SKLAND_UPSTREAM_FAILED` | 502 | 上游答复了但不能用：业务码非 0、`scan_status` 的 `status` 既不是 `0`/`100`/`102`、响应结构不符约定，或整轮 `chars` 数量低于护栏阈值（此时整轮不写库，见 [spec §4.5](./superpowers/specs/2026-10-12-m42-skland-training.md)） |
 | `SKLAND_ENCRYPTION_KEY_INVALID` | 409 | `skland.credential_key` 缺失或不是合法 Fernet key；绑定前必须先配好（行为与 `LLM_ENCRYPTION_KEY_INVALID` 同款） |
 | `SKLAND_SYNC_BUSY` | 409 | 同一时刻已经有一次同步在跑（全局互斥锁没拿到） |
+| `WORKSPACE_NOT_CONFIGURED` | 503 | 没配工作区根目录（`workspace.root` 为空或指向不存在的目录），而这次调用需要读工作区：`list_files` / `read_file` / `search_code` / `delegate_recon` 四个工具都抛它。留空即关闭探索能力，不做静默降级 |
+| `WORKSPACE_PATH_DENIED` | 403 | 路径被判为不可读：越出工作区根目录（含 `..`、绝对路径、指向外面的软链接）、命中密钥名单（`.env` / `config.yaml` / `*.pem` / `*.key` / `id_rsa*` / `*credential*` / `*secret*` / `.dsh/`）、是二进制、不是 UTF-8 文本，或正文里出现疑似私钥与凭据。白名单外的 git 动作（如 `push` / `checkout`）也用它 |
+| `WORKSPACE_FILE_TOO_LARGE` | 400 | 单个文件超过只读探索的 2 MiB 上限；改用 `search_code` 定位后再读片段 |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->

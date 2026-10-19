@@ -18,6 +18,7 @@ from sqlmodel import SQLModel
 
 from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.policy import PolicyEngine
+from maa_api.agent.preconditions import WAIT_TIMEOUT_HINT
 from maa_api.agent.registry import ToolContext, ToolRegistry, ToolRisk
 from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
 from maa_api.db.repositories.pipeline import PipelineRepository, TaskRepository
@@ -466,13 +467,16 @@ def test_wait_pipeline_is_a_bounded_safe_read_only_tool() -> None:
     assert definition.group == "pipeline"
     assert definition.risk is ToolRisk.SAFE
     assert definition.read_only is True
+    # M58：默认等待从 300 秒降到 120 秒，超时结果带「先看画面」的固定 hint。
     assert definition.description == (
         "等一条流水线结束（完成、失败或取消）或超时再拿结果。"
         "提交流水线后需要等结果时用，不要反复调用 get_pipeline。"
+        "等待期间不会产生新的输出，预计要等超过一分钟时先在回复里告诉用户在等什么。"
+        "超时返回 finished=false 与 hint：先看现场截图确认画面，再决定续等、停车或换方案。"
         "失败时先看现场截图判断是不是游戏没启动：画面是设备桌面或登录页就先补 StartUp。"
     )
 
-    assert registry.validate("wait_pipeline", {"pipeline_id": "pipeline-1"}).timeout_seconds == 300
+    assert registry.validate("wait_pipeline", {"pipeline_id": "pipeline-1"}).timeout_seconds == 120
     for timeout in (4, 601):
         with pytest.raises(AppError) as excinfo:
             registry.validate(
@@ -533,6 +537,8 @@ def test_wait_pipeline_timeout_is_a_normal_result_not_an_error() -> None:
     assert result["finished"] is False
     assert result["pipeline"]["status"] == "running"
     assert "error" not in result
+    # M58：超时不再只是「安静地返回运行中快照」，而是带一条先看画面的处置提示。
+    assert result["hint"] == WAIT_TIMEOUT_HINT
 
 
 def test_wait_pipeline_never_touches_the_tool_database_session() -> None:
@@ -659,7 +665,7 @@ def test_wait_pipeline_rejects_an_unknown_pipeline_id_without_waiting(
 
         assert excinfo.value.code is ErrorCode.PIPELINE_NOT_FOUND
         assert excinfo.value.details == {"pipeline_id": "missing-pipeline"}
-        # 默认 timeout 是 300 秒：未知 id 必须立刻失败，不能等满超时。
+        # 默认 timeout 是 120 秒：未知 id 必须立刻失败，不能等满超时。
         assert elapsed < 0.5
 
     asyncio.run(scenario())

@@ -237,7 +237,7 @@ SYSTEM_PROMPT = """你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArk
 
 不做什么：只做用户说的事，不替他决定（没让关游戏就不要加 CloseDown），不做他没要的额外优化。同一个问题不重复解释，前面说过的内容不再复述。
 
-工具怎么用：一次工具调用解决的事不要拆成多轮；连续几步没有新信息就停下说明卡在哪里，不要重复同样的调用。等流水线结束用 wait_pipeline，等异步更新用 wait_update；关卡先过 resolve_stage；知识用 read_knowledge。工具分核心组与扩展组：账户（account）/基建（estate）/运维与更新（ops）/定时任务（schedule）/代码侦察（recon）默认不暴露以省上下文，需要时先 list_tool_groups 看、再 enable_tool_group 打开（本会话生效；查仓库的 delegate_recon 在 recon 组、更新维护在 ops 组）。做事顺序：优先高层任务编排，其次自定义任务，最后才用原子屏幕操作。开始操作游戏前先截图确认画面。MaaCore 的每个任务都从主界面起手，只有 StartUp 会启动或唤醒客户端：游戏没启动就提交任务只会重试到失败，不确定当前画面就把 StartUp 放在流水线第一条。MaaCore 不提供滑动和独立 OCR 能力，需要时按工具清单里现有的能力做。
+工具怎么用：一次工具调用解决的事不要拆成多轮；连续几步没有新信息就停下说明卡在哪里，不要重复同样的调用。等流水线结束用 wait_pipeline，等异步更新用 wait_update；wait_pipeline 单次默认只等 120 秒，超时会返回 finished=false：先 get_screenshot 看画面，再决定续等、停车或换方案；预计要等超过一分钟时，先在回复里告诉用户在等什么、最多等多久。关卡先过 resolve_stage；知识用 read_knowledge。工具分核心组与扩展组：账户（account）/基建（estate）/运维与更新（ops）/定时任务（schedule）/代码侦察（recon）默认不暴露以省上下文，需要时先 list_tool_groups 看、再 enable_tool_group 打开（本会话生效；查仓库的 delegate_recon 在 recon 组、更新维护在 ops 组）。做事顺序：优先高层任务编排，其次自定义任务，最后才用原子屏幕操作。开始操作游戏前先截图确认画面。MaaCore 的每个任务都从主界面起手，只有 StartUp 会启动或唤醒客户端：游戏没启动就提交任务只会重试到失败，不确定当前画面就把 StartUp 放在流水线第一条。提交任务时 client_type 与 server 不填就沿用设置默认，状态摘要里的 channel 就是当前生效值；用户没指定渠道时不要自己填，更不要猜。MaaCore 不提供滑动和独立 OCR 能力，需要时按工具清单里现有的能力做。
 
 需要用户定参数时：只要某个参数要在候选之间选定（客户端渠道、刷哪一关、刷几次、是否碎石或用药、用哪套基建方案），用 ask_user 发选择卡片，不要在正文里让用户打字回答。选项最多 6 个，候选写进各自的 label，问题只说清要决定什么；先发卡再动手，卡片没回来之前不要提交任务。selected 就是用户的裁决，直接照它执行，不要再确认一遍。跳过或超时都会结束本轮，不要重发同一张卡。需要用户补一段文字、或者没有候选可列的开放问题，才用正文提问。
 
@@ -2255,6 +2255,10 @@ class AgentRuntime:
                 summary["device"] = device_manager.snapshot()
             except Exception:  # noqa: BLE001 - status is optional context only
                 summary["device"] = "unavailable"
+        # M58：当前生效的默认渠道。2026-10-20 的会话里模型看不到渠道，把 StartUp 的
+        # client_type 猜成 Official，而本机只装了 B 服客户端，内核启动命令直接失败，
+        # 整条流水线空转了 13 分钟（docs/13 §8.81）。
+        summary["channel"] = await self._effective_channel(request)
         queue_service = getattr(state, "queue_service", None)
         if queue_service is not None:
             try:
@@ -2317,6 +2321,42 @@ class AgentRuntime:
         # 避免先跑一次失败（2026-10-17 实机会话里因此多花了十几分钟）。
         summary["resource_version"] = _local_resource_version(state)
         return summary
+
+    async def _effective_channel(self, request: Any) -> dict[str, Any] | None:
+        """状态摘要里的生效默认渠道（M58，docs/13 §8.81）。
+
+        渠道默认值与 ``_effective_settings`` 同一来源（设置页落库覆盖后的
+        ``Settings.channel``），但**失败不抛**：状态摘要只是可选的观察数据，读不到
+        设置不该让整轮对话失败。测试注入的 settings_provider 返回非 Settings 对象时
+        也按「取不到」处理，由模型自己决定要不要问用户。
+        """
+        try:
+            settings: Any
+            if self.settings_provider is not None:
+                settings = self.settings_provider(request)
+                if inspect.isawaitable(settings):
+                    settings = await settings
+            else:
+                state = (
+                    getattr(getattr(request, "app", None), "state", None)
+                    if request is not None
+                    else None
+                )
+                provider = getattr(state, "settings_provider", None)
+                if callable(provider):
+                    settings = provider()
+                    if inspect.isawaitable(settings):
+                        settings = await settings
+                else:
+                    settings = get_settings()
+            channel = getattr(settings, "channel", None)
+            client_type = getattr(channel, "client_type", None)
+            server = getattr(channel, "server", None)
+            if client_type is None or server is None:
+                return None
+            return {"client_type": str(client_type), "server": str(server)}
+        except Exception:  # noqa: BLE001 - status is optional context only
+            return None
 
     async def _archive_screenshot_result(
         self, result: Mapping[str, Any], db_session: AsyncSession
