@@ -115,3 +115,32 @@ describe('agent question events keep the pending question list fresh', () => {
     expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.pendingQuestions(), refetchType: 'active' })
   })
 })
+
+describe('agent grant events refresh only the session detail', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('does not invalidate the message window while a turn is streaming (M59)', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    for (const event of ['atomic_grant_changed', 'copilot_grant_changed'] as const) {
+      handleServerEvent(
+        {
+          type: 'agent_event',
+          data: { session_id: 'session-1', event, payload: { granted: true } },
+        },
+        queryClient,
+      )
+      vi.advanceTimersByTime(300)
+    }
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.session('session-1'), refetchType: 'active' })
+    // 直播中重取历史会把本轮已落库的消息带回窗口，和实时副本重复渲染。
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.messages('session-1'), refetchType: 'active' })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.all(), refetchType: 'active' })
+  })
+})

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
+import { keys } from '@/api/keys'
 import AgentPage from './AgentPage'
 
 type Json = Record<string, unknown>
@@ -244,6 +245,12 @@ function LocationProbe() {
   return <output data-testid="location">{location.search}</output>
 }
 
+/** 模拟浏览器后退/前进之外的用户切会话动作：同一路由只换 query（M59 会话绑定用例）。 */
+function SessionSwitchProbe() {
+  const navigate = useNavigate()
+  return <button type="button" onClick={() => navigate('/agent?session_id=session-2')}>切换会话</button>
+}
+
 function renderPage(path = '/agent?session_id=session-1') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
@@ -252,7 +259,7 @@ function renderPage(path = '/agent?session_id=session-1') {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/agent" element={<><AgentPage /><LocationProbe /></>} />
+          <Route path="/agent" element={<><AgentPage /><LocationProbe /><SessionSwitchProbe /></>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -481,6 +488,226 @@ describe('Agent conversation page', () => {
     expect(screen.getByRole('region', { name: '本轮消息' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
     expect(screen.getByText(/等待你确认/)).toBeInTheDocument()
+  })
+
+  it('renders one copy of the turn when history refreshes while the stream is still live (M59)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    const api = createAgentApi({
+      messages: { 'session-1': toolHistory },
+      stream: () => {
+        held = heldStream([
+          // 服务端先落库本轮用户消息，再推 message_start：它带着这条消息的 id。
+          event('message_start', { session_id: 'session-1', message_id: 201, seq: 4, capability_status: 'ready' }),
+          event('text_delta', { text: '先看看设备。' }),
+        ])
+        return held.response
+      },
+    })
+    const { queryClient } = renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '检查一下' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('先看看设备。')).toBeInTheDocument()
+
+    // 直播中服务端继续落库；任意一次历史刷新（窗口重新聚焦、M59 前授权事件的整片
+    // 失效）都会把本轮已落库的消息带进历史窗口，和实时副本撞车。
+    api.state.messages['session-1'] = [
+      ...toolHistory,
+      { id: 201, session_id: 'session-1', seq: 4, role: 'user', content: '检查一下', created_at: '2026-09-27T10:02:00Z' },
+      { id: 202, session_id: 'session-1', seq: 5, role: 'assistant', content: '先看看设备。', created_at: '2026-09-27T10:02:01Z' },
+    ]
+    const before = api.messagePages().length
+    act(() => { void queryClient.invalidateQueries({ queryKey: keys.agent.messages('session-1') }) })
+    await waitFor(() => expect(api.messagePages().length).toBeGreaterThan(before))
+
+    // 回归：实时副本与历史各画一遍就会重复；本轮消息只由实时副本出这一份。
+    await waitFor(() => expect(screen.getAllByText('检查一下')).toHaveLength(1))
+    expect(screen.getAllByText('先看看设备。')).toHaveLength(1)
+    expect(screen.getAllByText('分析刚才的失败')).toHaveLength(1)
+
+    act(() => {
+      held?.push([event('message_end', { session_id: 'session-1', finish_reason: 'stop' })])
+      held?.close()
+    })
+    // 收尾仍按既有逻辑：历史刷新完成后丢弃实时副本，不闪空也不重复。
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
+    expect(screen.getAllByText('检查一下')).toHaveLength(1)
+    expect(screen.getAllByText('先看看设备。')).toHaveLength(1)
+  })
+
+  it('drops the live copy when the pending confirmation was resolved outside this page (M59)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    const confirmation = {
+      confirmation_id: 'confirm-9',
+      action: 'grant_atomic_ops',
+      risk_level: 'atomic',
+      reason: '需要点击游戏画面',
+      payload: { tool_name: 'click', arguments: { x: 10, y: 20 }, session_id: 'session-1', window_seconds: 900 },
+      status: 'pending',
+      expires_at: '2026-09-27T10:20:00Z',
+    }
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      confirmations: { 'confirm-9': confirmation },
+      stream: () => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', message_id: 301, seq: 1, capability_status: 'ready' }),
+          event('tool_start', { tool_call_id: 'call-9', name: 'click', arguments: confirmation.payload.arguments }),
+          event('confirmation_required', { tool_call_id: 'call-9', name: 'click', confirmation_id: 'confirm-9', expires_at: confirmation.expires_at }),
+        ])
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '点一下开始' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
+
+    // 别处（全局面板、推送或另一个标签页）拒绝或让它过期：后端把终态作为
+    // tool_result 回给模型，本轮随后结束。确认卡不能再挂着，否则收尾时这一轮
+    // 会因「确认仍挂着」被保留，与刚刷新到的历史重复显示。
+    api.state.messages['session-1'] = [
+      { id: 301, session_id: 'session-1', seq: 1, role: 'user', content: '点一下开始', created_at: '2026-09-27T10:02:00Z' },
+      { id: 302, session_id: 'session-1', seq: 2, role: 'assistant', content: '确认被拒绝或过期了，我不会重试。', created_at: '2026-09-27T10:02:01Z' },
+    ]
+    act(() => {
+      held?.push([
+        event('tool_result', { tool_call_id: 'call-9', name: 'click', error: { code: 'CONFIRMATION_EXPIRED', message: '确认请求已过期' } }),
+        event('text_delta', { text: '确认被拒绝或过期了，我不会重试。' }),
+        event('message_end', { session_id: 'session-1', finish_reason: 'confirmation_resolved' }),
+      ])
+      held?.close()
+    })
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
+    expect(screen.queryByRole('heading', { name: '需要确认此操作' })).not.toBeInTheDocument()
+    expect(screen.getAllByText('确认被拒绝或过期了，我不会重试。')).toHaveLength(1)
+  })
+
+  it('uses message_start to hide this turn once history catches up from an empty window (M59)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      stream: () => {
+        held = heldStream([event('text_delta', { text: '先看看设备。' })])
+        return held.response
+      },
+    })
+    const { queryClient } = renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '检查一下' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('先看看设备。')).toBeInTheDocument()
+
+    // 发送时历史窗口还是空的，边界退化为「不去重」；服务端随后落库本轮消息，
+    // 一次刷新把它们带进历史。
+    api.state.messages['session-1'] = [
+      { id: 501, session_id: 'session-1', seq: 1, role: 'user', content: '检查一下', created_at: '2026-09-27T10:02:00Z' },
+      { id: 502, session_id: 'session-1', seq: 2, role: 'assistant', content: '先看看设备。', created_at: '2026-09-27T10:02:01Z' },
+    ]
+    const before = api.messagePages().length
+    act(() => { void queryClient.invalidateQueries({ queryKey: keys.agent.messages('session-1') }) })
+    await waitFor(() => expect(api.messagePages().length).toBeGreaterThan(before))
+
+    // message_start 把边界收敛到本轮用户消息的前一条，501/502 让位，只剩实时副本一份。
+    act(() => {
+      held?.push([event('message_start', { session_id: 'session-1', message_id: 501, seq: 1, capability_status: 'ready' })])
+    })
+    await waitFor(() => expect(screen.getAllByText('检查一下')).toHaveLength(1))
+    expect(screen.getAllByText('先看看设备。')).toHaveLength(1)
+  })
+
+  it('keeps a pending confirmation when an unrelated tool reports its result (M59)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    const confirmation = {
+      confirmation_id: 'confirm-10',
+      action: 'grant_atomic_ops',
+      risk_level: 'atomic',
+      reason: '需要点击游戏画面',
+      payload: { tool_name: 'click', arguments: { x: 10, y: 20 }, session_id: 'session-1', window_seconds: 900 },
+      status: 'pending',
+      expires_at: '2026-09-27T10:20:00Z',
+    }
+    const api = createAgentApi({
+      messages: { 'session-1': [] },
+      confirmations: { 'confirm-10': confirmation },
+      stream: () => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', message_id: 601, seq: 1, capability_status: 'ready' }),
+          event('tool_start', { tool_call_id: 'call-10', name: 'click', arguments: confirmation.payload.arguments }),
+          event('confirmation_required', { tool_call_id: 'call-10', name: 'click', confirmation_id: 'confirm-10', expires_at: confirmation.expires_at }),
+          event('tool_start', { tool_call_id: 'call-shot', name: 'get_screenshot', arguments: {} }),
+        ])
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '点一下开始' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
+
+    // 同一批里另一个工具的结果先回来：它不负责这张确认卡，卡必须还在。
+    act(() => {
+      held?.push([event('tool_result', { tool_call_id: 'call-shot', name: 'get_screenshot', result: { format: 'jpeg' } })])
+    })
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(screen.getByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
+
+    // 等确认这次调用自己的终态回来，才摘卡并收尾。
+    api.state.messages['session-1'] = [
+      { id: 601, session_id: 'session-1', seq: 1, role: 'user', content: '点一下开始', created_at: '2026-09-27T10:02:00Z' },
+      { id: 602, session_id: 'session-1', seq: 2, role: 'assistant', content: '确认被拒绝或过期了，我不会重试。', created_at: '2026-09-27T10:02:01Z' },
+    ]
+    act(() => {
+      held?.push([
+        event('tool_result', { tool_call_id: 'call-10', name: 'click', error: { code: 'CONFIRMATION_EXPIRED', message: '确认请求已过期' } }),
+        event('text_delta', { text: '确认被拒绝或过期了，我不会重试。' }),
+        event('message_end', { session_id: 'session-1', finish_reason: 'confirmation_resolved' }),
+      ])
+      held?.close()
+    })
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '需要确认此操作' })).not.toBeInTheDocument())
+    expect(screen.getAllByText('确认被拒绝或过期了，我不会重试。')).toHaveLength(1)
+  })
+
+  it('shows the other session history after navigating away from a live turn (M59)', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    createAgentApi({
+      sessions: [makeSession(), makeSession({ session_id: 'session-2', title: '另一个会话' })],
+      messages: {
+        'session-1': [],
+        'session-2': [
+          { id: 700, session_id: 'session-2', seq: 1, role: 'user', content: '另一个会话的问题', created_at: '2026-09-27T10:02:00Z' },
+          { id: 701, session_id: 'session-2', seq: 2, role: 'assistant', content: '另一个会话的回答', created_at: '2026-09-27T10:02:01Z' },
+        ],
+      },
+      stream: () => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', message_id: 601, seq: 1, capability_status: 'ready' }),
+          event('text_delta', { text: '先看看设备。' }),
+        ])
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '检查一下' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('先看看设备。')).toBeInTheDocument()
+
+    // 后退/前进换会话不经过 selectSession：上一个会话的边界（600）不能拿来过滤
+    // session-2 的历史（700/701 都大于它），它的实时副本也不能继续挂在下面。
+    fireEvent.click(screen.getByRole('button', { name: '切换会话' }))
+    expect(await screen.findByText('另一个会话的回答')).toBeInTheDocument()
+    expect(screen.getByText('另一个会话的问题')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
   })
 
   it('asks through a card inside the live turn and keeps the same turn going after the answer (M21)', async () => {

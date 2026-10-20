@@ -101,7 +101,13 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
       break
     case 'agent_event':
       if (event.data.event === 'atomic_grant_changed' || event.data.event === 'copilot_grant_changed') {
-        queryClient.invalidateQueries({ queryKey: keys.agent.all(), refetchType: 'active' })
+        // 授权条的数据只在会话详情里。整片失效 `keys.agent.all()` 会连消息窗口一起重取，
+        // 直播中把本轮已落库的消息带回历史，与实时副本重复渲染（M59，见 09 §6.4）。
+        const sessionId = event.data.session_id
+        invalidateBatched(
+          queryClient,
+          typeof sessionId === 'string' && sessionId ? keys.agent.session(sessionId) : keys.agent.sessions(),
+        )
       } else if (
         event.data.event === 'incident_created'
         || event.data.event === 'incident_finished'
