@@ -1,6 +1,6 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12713 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12754 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
@@ -9,7 +9,7 @@
 | 破折号当冒号用 | high | 0 | 136 | 136 |
 | 「A 而不是 B」对照腔 | high | 0 | 110 | 110 |
 | 绝对化规定腔 | medium | 0 | 69 | 69 |
-| 自指式讲解腔 | medium | 0 | 23 | 23 |
+| 自指式讲解腔 | medium | 0 | 22 | 22 |
 | 「…即可」机器腔 | medium | 0 | 19 | 19 |
 | 「不是…而是…」对照句 | high | 0 | 5 | 5 |
 | 省略号 | medium | 0 | 4 | 4 |
@@ -66,7 +66,7 @@
 - `maa_api/services/account/capture.py:15` *采集失败绝不影响流水线回调**：:meth:`AccountCaptureService.handle_callback` 吞掉
 - …… 另有 63 条，见 inventory.json
 
-## 自指式讲解腔（medium｜用户可见 0 / 开发向 23）
+## 自指式讲解腔（medium｜用户可见 0 / 开发向 22）
 
 **开发向**
 
@@ -76,7 +76,7 @@
 - `maa_api/main.py:1340` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
 - `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
 - `maa_api/services/account/planner.py:23` # 实现裁决（规格没写死、由本模块定，M27 T8）
-- …… 另有 17 条，见 inventory.json
+- …… 另有 16 条，见 inventory.json
 
 ## 「…即可」机器腔（medium｜用户可见 0 / 开发向 19）
 

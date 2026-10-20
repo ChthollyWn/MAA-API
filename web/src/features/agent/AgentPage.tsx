@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
 import { ArrowDown, Bot, CircleHelp, Gauge, MessagesSquare, SquarePen, TriangleAlert } from 'lucide-react'
@@ -141,7 +141,16 @@ export default function AgentPage() {
   const conversation = selectedSession.data
   const selectedRow = sessionRows.find((row) => row.session_id === selectedId)
   const history = messages.items
-  const entries = useMemo(() => buildTranscript(history), [history])
+  // 实时副本在屏时，本轮已落库的消息由实时副本负责渲染；历史里同一批消息必须让位，
+  // 否则直播中任意一次历史刷新（窗口重新聚焦、M59 前授权事件的整片失效）都会把本轮
+  // 内容再画一遍。边界来自 turn.baseMessageId（见 types.ts 与 send()），并且只对副本
+  // 所属的会话生效（M59：URL 后退/前进换会话时不能拿别人的边界过滤）。
+  const liveBaseId = turn !== null && turn.sessionId === selectedId ? turn.baseMessageId : undefined
+  const visibleHistory = useMemo(
+    () => (liveBaseId === undefined ? history : history.filter((message) => message.id <= liveBaseId)),
+    [history, liveBaseId],
+  )
+  const entries = useMemo(() => buildTranscript(visibleHistory), [visibleHistory])
   const sessionPending = pendingConfirmations.data ?? []
   const otherPending = sessionPending.filter((item) => item.confirmation_id !== turn?.pendingConfirmation)
   // 已经在本轮工具条下方展示过的那张卡不再重复渲染（刷新后本轮没了，才由这里接管）。
@@ -313,7 +322,7 @@ export default function AgentPage() {
     onError: (error) => setActionError(toShownError(error)),
   })
 
-  const lastMessageId = history.at(-1)?.id
+  const lastMessageId = visibleHistory.at(-1)?.id
   const tailKey = [
     lastMessageId ?? 'none',
     turn
@@ -339,6 +348,22 @@ export default function AgentPage() {
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
+  // URL 后退/前进换会话走的是同一路由只改 query，绕过 selectSession。别的会话的实时
+  // 副本不能继续挂在当前会话下面，也不能继续用它的边界过滤当前会话的历史（M59）。
+  // 用 layout effect：清理落在绘制之前，避免绘制出一帧串会话的实时副本。
+  useLayoutEffect(() => {
+    if (!turn || turn.sessionId === selectedId) return
+    abortRef.current?.abort()
+    abortRef.current = null
+    setTurn(null)
+  }, [selectedId, turn])
+
+  // 换会话时把上一个会话的错误提示也清掉（URL 后退/前进同样绕过 selectSession）。
+  useEffect(() => {
+    setTurnError(null)
+    setActionError(null)
+  }, [selectedId])
+
   const confirmDelete = async (session: AgentSession) => {
     const title = sessionTitle(session)
     const ok = await confirm({
@@ -359,7 +384,21 @@ export default function AgentPage() {
     const controller = new AbortController()
     abortRef.current = controller
     setTurnError(null)
-    setTurn({ userText: content, assistantText: '', tools: [], segments: [], pendingConfirmation: null, pendingQuestion: null, running: true, error: null })
+    // 发送瞬间的历史上界：历史尚未加载完、或上一轮的收尾刷新还在路上时先取最大值
+    // （本轮落库的消息随后由 message_start 收敛成精确边界）。宁可短暂不去重，也不能
+    // 拿一份落后的历史把上一轮刚落库的消息挡在实时副本外（M59）。
+    setTurn({
+      sessionId,
+      userText: content,
+      assistantText: '',
+      tools: [],
+      segments: [],
+      pendingConfirmation: null,
+      pendingQuestion: null,
+      running: true,
+      baseMessageId: messages.query.isFetching ? Number.MAX_SAFE_INTEGER : history.at(-1)?.id ?? Number.MAX_SAFE_INTEGER,
+      error: null,
+    })
     scroll.scrollToBottom()
     const handleEvent = (name: string, rawData: unknown) => {
       const data = isRecord(rawData) ? rawData : {}
@@ -379,15 +418,25 @@ export default function AgentPage() {
         // 超时/跳过更是本轮到此为止。不清的话实时副本会连同整轮内容一直挂在历史下面。
         const questionResult = isRecord(data.result) ? data.result : null
         const resolvedQuestionId = stringValue(data.name) === 'ask_user' ? stringValue(questionResult?.question_id) : ''
-        setTurn((current) => current ? {
-          ...current,
-          pendingQuestion: resolvedQuestionId && current.pendingQuestion?.question_id === resolvedQuestionId
-            ? null
-            : current.pendingQuestion,
-          tools: current.tools.map((tool) => tool.toolCallId === data.tool_call_id
-            ? { ...tool, result: rawData, auditId: typeof data.audit_id === 'number' ? data.audit_id : undefined }
-            : tool),
-        } : current)
+        const resultToolCallId = stringValue(data.tool_call_id)
+        setTurn((current) => {
+          if (!current) return current
+          // 确认卡同理：tool_result 说明这次调用的确认已被处置（本页批准、别处拒绝或
+          // 过期），卡片必须撤下。否则收尾时这一轮会因「确认仍挂着」被保留，与刚刷新
+          // 到的历史重复显示（M59）。
+          const resolvedConfirmation = current.pendingConfirmation !== null
+            && current.tools.some((tool) => tool.toolCallId === resultToolCallId && tool.confirmationId === current.pendingConfirmation)
+          return {
+            ...current,
+            pendingConfirmation: resolvedConfirmation ? null : current.pendingConfirmation,
+            pendingQuestion: resolvedQuestionId && current.pendingQuestion?.question_id === resolvedQuestionId
+              ? null
+              : current.pendingQuestion,
+            tools: current.tools.map((tool) => tool.toolCallId === data.tool_call_id
+              ? { ...tool, result: rawData, auditId: typeof data.audit_id === 'number' ? data.audit_id : undefined }
+              : tool),
+          }
+        })
       } else if (name === 'confirmation_required') {
         const confirmationId = stringValue(data.confirmation_id)
         setTurn((current) => current ? {
@@ -432,9 +481,17 @@ export default function AgentPage() {
       } else if (name === 'error') {
         const message = stringValue(data.message, '本轮回复失败，请重试。')
         setTurn((current) => current ? { ...current, error: message } : current)
-        // 普通回合出错时服务端不会把错误写成消息，这里不单独存下来，实时副本一清空就看不到了。
+        // 本轮错误独立存放：实时副本清空后仍要看见。服务端对「用户消息已落库但这一轮
+        // 没答上」的故障会补一条 finish_reason=turn_error 的说明消息（runtime 的
+        // _record_turn_failure），历史里另有一份，两者用途不同（M59 复核更正旧注释）。
         setTurnError({ message, code: stringValue(data.code) || undefined })
       } else if (name === 'message_start') {
+        // 服务端先落库本轮用户消息再开发流，这条事件带回它的 id：本轮及之后的消息
+        // id 都大于 message_id - 1，用它把历史里的同一批消息挡在实时副本外（M59）。
+        const startMessageId = typeof data.message_id === 'number' ? data.message_id : undefined
+        if (startMessageId !== undefined && startMessageId > 0) {
+          setTurn((current) => current ? { ...current, baseMessageId: startMessageId - 1 } : current)
+        }
         const degradedReason = stringValue(data.degraded_reason)
         if (degradedReason && degradedReason !== dismissedReasonRef.current) {
           setCapability((current) => ({
