@@ -105,6 +105,7 @@ _TOOL_LABELS: dict[str, str] = {
     "delete_schedule": "删除定时任务",
     "restart_core": "重启内核",
     "update_core": "更新内核",
+    "scan_proxy_channels": "探测本机代理",
     "reconnect_device": "重连设备",
     "stop_pipeline": "停止流水线",
     "back_to_home": "返回游戏主界面",

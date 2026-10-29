@@ -1026,6 +1026,8 @@ class ResourceUpdateWorkflow:
         self.reload_pending = False
         self.downloader = downloader
         self.download_prefix = download_prefix
+        # M61：按更新任务临时挂上的下载客户端；None 时用共享 http_client。
+        self.download_client: Any = None
         self.progress = progress
         self.disk_usage = disk_usage
 
@@ -1049,7 +1051,7 @@ class ResourceUpdateWorkflow:
             return stage_ota(check, self.temp_root)
         if check.channel == ResourceChannel.REPO:
             return await stage_repo_overlay(
-                self.http_client,
+                self.download_client or self.http_client,
                 check,
                 self.temp_root,
                 downloader=self.downloader,
@@ -1076,7 +1078,7 @@ class ResourceUpdateWorkflow:
             version=previous.version,
         )
         return await stage_repo_overlay(
-            self.http_client,
+            self.download_client or self.http_client,
             check,
             self.temp_root,
             downloader=self.downloader,

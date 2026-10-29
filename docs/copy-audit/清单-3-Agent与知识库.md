@@ -1,6 +1,6 @@
 # Agent 与知识库
 
-共 1241 条。
+共 1245 条。
 
 ## knowledge（940）
 
@@ -1047,7 +1047,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:21` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:22` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（301）
+## agent（305）
 
 
 **maa_api/agent/confirmation.py**
@@ -1221,46 +1221,46 @@
 - `maa_api/agent/runtime.py:197` [const] Agent 对话处理失败
 - `maa_api/agent/runtime.py:213` [literal] 当前模型不支持视觉输入；圈选截图已禁用
 - `maa_api/agent/runtime.py:219` [const] 当前模型不支持视觉输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:234` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 3327 字）
-- `maa_api/agent/runtime.py:354` [const] [历史截图已省略
-- `maa_api/agent/runtime.py:356` [literal] ，时间 {captured_at}
-- `maa_api/agent/runtime.py:368` [literal] [本次结果附带的历史截图已省略]
-- `maa_api/agent/runtime.py:393` [literal] [截图图像当前不可用，请重新获取截图后再判断画面]
-- `maa_api/agent/runtime.py:401` [literal] 未知时间
-- `maa_api/agent/runtime.py:455` [literal] 暂不可用
-- `maa_api/agent/runtime.py:721` [literal] 会话没有持有活动轮次锁
-- `maa_api/agent/runtime.py:789` [const] 自动诊断暂不可用（{exc.code}）：{exc.message}。故障记录已保存，修好 LLM 配置或模型能力后可以继续在本会话里问。
-- `maa_api/agent/runtime.py:798` [literal] 自动诊断已被你中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
-- `maa_api/agent/runtime.py:801` [literal] 自动诊断在服务关闭时中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
-- `maa_api/agent/runtime.py:809` [const] 自动诊断暂不可用（LLM_REQUEST_FAILED）。故障记录已保存，检查 LLM 配置和服务日志后可以继续在本会话里问。
-- `maa_api/agent/runtime.py:877` [literal] 数据库中的 LLM API Key 无法解密；请配置有效的 YAML/env API Key
-- `maa_api/agent/runtime.py:879` [literal] 当前 LLM 配置不可用，无法检查模型能力
-- `maa_api/agent/runtime.py:897` [literal] 请先配置 LLM base_url、api_key 和 model
-- `maa_api/agent/runtime.py:1043` [const] 当前模型不支持图片输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:1142` [literal] 本轮没有完成（{code}）：{message or '原因未知'}。{tail}
-- `maa_api/agent/runtime.py:1238` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
-- `maa_api/agent/runtime.py:1327` [literal] LLM 返回了无效的工具调用。
-- `maa_api/agent/runtime.py:1417` [literal] 确认没有通过
-- `maa_api/agent/runtime.py:1433` [const] 确认被拒绝或过期了，我不会重试。要换个方案吗？
-- `maa_api/agent/runtime.py:1651` [literal] 内置 Agent 不提供该工具，请用 get_screenshot
-- `maa_api/agent/runtime.py:1661` [literal] 此自动诊断会话不允许调用该工具
-- `maa_api/agent/runtime.py:1779` [literal] 确认请求已被拒绝
-- `maa_api/agent/runtime.py:1821` [literal] 前一项操作未获确认，本项未执行。
-- `maa_api/agent/runtime.py:1851` [literal] 提问服务尚未启动
-- `maa_api/agent/runtime.py:2044` [literal] {TITLE_PROMPT} 用户的问题： {seed}
-- `maa_api/agent/runtime.py:2196` [literal] 扩展组默认不暴露以省上下文；需要时用 enable_tool_group 打开，核心组工具始终可用。
-- `maa_api/agent/runtime.py:2650` [literal] 「
-- `maa_api/agent/runtime.py:2650` [literal] 」
-- `maa_api/agent/runtime.py:2650` [literal] 《
-- `maa_api/agent/runtime.py:2650` [literal] 》
-- `maa_api/agent/runtime.py:2654` [literal] 会话标题
-- `maa_api/agent/runtime.py:2654` [literal] 标题
-- `maa_api/agent/runtime.py:2655` [literal] ：
-- `maa_api/agent/runtime.py:2765` [const] {content[:head]} [... 工具结果中间已省略 {removed} 字；原文保留在会话记录里，需要时可重新调用工具 ...] {content[-tail:]}
-- `maa_api/agent/runtime.py:2949` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
-- `maa_api/agent/runtime.py:2950` [const] 当前模型无法进行 Agent 对话
-- `maa_api/agent/runtime.py:2956` [literal] ，
-- `maa_api/agent/runtime.py:2984` [literal] {prefix}：{'；'.join(parts)}
+- `maa_api/agent/runtime.py:234` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 3790 字）
+- `maa_api/agent/runtime.py:356` [const] [历史截图已省略
+- `maa_api/agent/runtime.py:358` [literal] ，时间 {captured_at}
+- `maa_api/agent/runtime.py:370` [literal] [本次结果附带的历史截图已省略]
+- `maa_api/agent/runtime.py:395` [literal] [截图图像当前不可用，请重新获取截图后再判断画面]
+- `maa_api/agent/runtime.py:403` [literal] 未知时间
+- `maa_api/agent/runtime.py:457` [literal] 暂不可用
+- `maa_api/agent/runtime.py:723` [literal] 会话没有持有活动轮次锁
+- `maa_api/agent/runtime.py:791` [const] 自动诊断暂不可用（{exc.code}）：{exc.message}。故障记录已保存，修好 LLM 配置或模型能力后可以继续在本会话里问。
+- `maa_api/agent/runtime.py:800` [literal] 自动诊断已被你中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
+- `maa_api/agent/runtime.py:803` [literal] 自动诊断在服务关闭时中断，故障记录已保存。可以继续在本会话里问；已经派发出去的操作不会自动重放。
+- `maa_api/agent/runtime.py:811` [const] 自动诊断暂不可用（LLM_REQUEST_FAILED）。故障记录已保存，检查 LLM 配置和服务日志后可以继续在本会话里问。
+- `maa_api/agent/runtime.py:879` [literal] 数据库中的 LLM API Key 无法解密；请配置有效的 YAML/env API Key
+- `maa_api/agent/runtime.py:881` [literal] 当前 LLM 配置不可用，无法检查模型能力
+- `maa_api/agent/runtime.py:899` [literal] 请先配置 LLM base_url、api_key 和 model
+- `maa_api/agent/runtime.py:1045` [const] 当前模型不支持图片输入；截图和原子屏幕操作已禁用
+- `maa_api/agent/runtime.py:1144` [literal] 本轮没有完成（{code}）：{message or '原因未知'}。{tail}
+- `maa_api/agent/runtime.py:1240` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
+- `maa_api/agent/runtime.py:1329` [literal] LLM 返回了无效的工具调用。
+- `maa_api/agent/runtime.py:1419` [literal] 确认没有通过
+- `maa_api/agent/runtime.py:1435` [const] 确认被拒绝或过期了，我不会重试。要换个方案吗？
+- `maa_api/agent/runtime.py:1653` [literal] 内置 Agent 不提供该工具，请用 get_screenshot
+- `maa_api/agent/runtime.py:1663` [literal] 此自动诊断会话不允许调用该工具
+- `maa_api/agent/runtime.py:1781` [literal] 确认请求已被拒绝
+- `maa_api/agent/runtime.py:1823` [literal] 前一项操作未获确认，本项未执行。
+- `maa_api/agent/runtime.py:1853` [literal] 提问服务尚未启动
+- `maa_api/agent/runtime.py:2046` [literal] {TITLE_PROMPT} 用户的问题： {seed}
+- `maa_api/agent/runtime.py:2198` [literal] 扩展组默认不暴露以省上下文；需要时用 enable_tool_group 打开，核心组工具始终可用。
+- `maa_api/agent/runtime.py:2652` [literal] 「
+- `maa_api/agent/runtime.py:2652` [literal] 」
+- `maa_api/agent/runtime.py:2652` [literal] 《
+- `maa_api/agent/runtime.py:2652` [literal] 》
+- `maa_api/agent/runtime.py:2656` [literal] 会话标题
+- `maa_api/agent/runtime.py:2656` [literal] 标题
+- `maa_api/agent/runtime.py:2657` [literal] ：
+- `maa_api/agent/runtime.py:2767` [const] {content[:head]} [... 工具结果中间已省略 {removed} 字；原文保留在会话记录里，需要时可重新调用工具 ...] {content[-tail:]}
+- `maa_api/agent/runtime.py:2951` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
+- `maa_api/agent/runtime.py:2952` [const] 当前模型无法进行 Agent 对话
+- `maa_api/agent/runtime.py:2958` [literal] ，
+- `maa_api/agent/runtime.py:2986` [literal] {prefix}：{'；'.join(parts)}
 
 **maa_api/agent/tools/__init__.py**
 
@@ -1362,15 +1362,19 @@
 
 **maa_api/agent/tools/ops.py**
 
-- `maa_api/agent/tools/ops.py:72` [literal] 查内核、活动资源和游戏本体有没有新版本。用户问要不要更新时先查一次。
-- `maa_api/agent/tools/ops.py:82` [literal] 更新 MaaCore，过程会重启内核，正在跑的流水线会被中断。更新是异步的，调用后用 wait_update 等它结束。
-- `maa_api/agent/tools/ops.py:93` [literal] 更新活动资源（活动关卡与图片等本地资源）。用在：用户明确要求；或内核因为不认识这个关卡而拒绝执行（作业/Fight 都会报 Not support stage：Copilot 任务会读作业里的 stage_name 并在内核资源里校验）；或 Fight 需要新关卡的地块数据。注意：搜索作业站本身不需要更新资源。更新是异…（共 210 字）
-- `maa_api/agent/tools/ops.py:106` [literal] 下载并安装游戏本体 APK。用户要升级游戏客户端时用。
-- `maa_api/agent/tools/ops.py:115` [literal] 等一次更新（update_resource/update_core/update_game 返回的 update_id）结束或超时，返回终态与进度。更新是异步的：提交后用它等结果，不要反复 get_versions。超时返回 finished=false，更新仍在跑，可以再调一次。
-- `maa_api/agent/tools/ops.py:127` [literal] 重启 MaaCore，会先停掉队列与运行中的流水线。
-- `maa_api/agent/tools/ops.py:185` [literal] 当前没有进行中的更新
-- `maa_api/agent/tools/ops.py:197` [literal] 还在跑；可以再调用一次 wait_update 继续等
-- `maa_api/agent/tools/ops.py:249` [literal] 更新在后台异步执行：用 wait_update(update_id=…) 等它结束，不要反复 get_versions。
+- `maa_api/agent/tools/ops.py:32` [const] 本次更新下载使用的代理，如 http://127.0.0.1:7897。不填=自动探测本机可用代理，探测不到就直连。只想用某个特定代理时先 scan_proxy_channels 看地址再填。
+- `maa_api/agent/tools/ops.py:36` [const] 没有显式 proxy 时是否自动探测本机代理。用户说「别用代理」时传 false，强制本次更新直连。
+- `maa_api/agent/tools/ops.py:40` [const] 本次更新的 GitHub 下载加速前缀，如 https://ghfast.top/ ；不填=用设置里的值。只有在确实需要下载加速、且用户同意用某个加速服务时才填。
+- `maa_api/agent/tools/ops.py:116` [literal] 查内核、活动资源和游戏本体有没有新版本。用户问要不要更新时先查一次。
+- `maa_api/agent/tools/ops.py:126` [literal] 更新 MaaCore，过程会重启内核，正在跑的流水线会被中断。更新是异步的，调用后用 wait_update 等它结束。
+- `maa_api/agent/tools/ops.py:137` [literal] 更新活动资源（活动关卡与图片等本地资源）。用在：用户明确要求；或内核因为不认识这个关卡而拒绝执行（作业/Fight 都会报 Not support stage：Copilot 任务会读作业里的 stage_name 并在内核资源里校验）；或 Fight 需要新关卡的地块数据。注意：搜索作业站本身不需要更新资源。更新是异…（共 210 字）
+- `maa_api/agent/tools/ops.py:150` [literal] 下载并安装游戏本体 APK。用户要升级游戏客户端时用。
+- `maa_api/agent/tools/ops.py:159` [literal] 只读地扫描宿主机上可能的代理通道：设置里的 app.proxy、环境变量、macOS 系统代理、本机常见代理端口（Clash/V2Ray 等）上的监听服务，并逐个探测经它访问 GitHub 与更新接口是否可用；同时探测设置里的下载加速前缀。更新下载卡住/失败时先用它看本机有没有可用代理，再把看中的地址作为 proxy …（共 191 字）
+- `maa_api/agent/tools/ops.py:174` [literal] 等一次更新（update_resource/update_core/update_game 返回的 update_id）结束或超时，返回终态与进度。更新是异步的：提交后用它等结果，不要反复 get_versions。超时返回 finished=false，更新仍在跑，可以再调一次。
+- `maa_api/agent/tools/ops.py:186` [literal] 重启 MaaCore，会先停掉队列与运行中的流水线。
+- `maa_api/agent/tools/ops.py:281` [literal] 当前没有进行中的更新
+- `maa_api/agent/tools/ops.py:293` [literal] 还在跑；可以再调用一次 wait_update 继续等
+- `maa_api/agent/tools/ops.py:357` [literal] 更新在后台异步执行：用 wait_update(update_id=…) 等它结束，不要反复 get_versions。
 
 **maa_api/agent/tools/pipeline.py**
 

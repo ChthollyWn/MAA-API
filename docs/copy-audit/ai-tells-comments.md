@@ -1,6 +1,6 @@
 # AI 腔规则命中：源码注释（维护者可见）
 
-总计 12771 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 12808 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
@@ -50,7 +50,7 @@
 - `maa_api/agent/llm.py:49` : 所以这条映射是用户唯一能看出「窗口装不下」的地方，而不是笼统的请求失败。
 - `maa_api/agent/llm.py:327` 把上游的拒绝翻译成可读的 400，而不是笼统的「请求失败」。
 - `maa_api/agent/runtime.py:93` : 压力出现时先把大结果换成「头 + 省略标记 + 尾」，而不是直接丢整轮。
-- `maa_api/agent/runtime.py:2001` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
+- `maa_api/agent/runtime.py:2003` 标题跟着会话自己的模型走，而不是当前设置里的模型：会话的 model/base_url 是
 - `maa_api/core/client.py:621` shield：超时由这里显式 set_exception，而不是让 wait_for 取消 Future，
 - …… 另有 104 条，见 inventory.json
 
@@ -72,8 +72,8 @@
 
 - `maa_api/agent/knowledge/__init__.py:136` : 以 `## <section>` 分节；工具 `update_user_profile` 与确认卡片的差异计算共用本模块的两个
 - `maa_api/core/depot_overlay.py:16` *所以本模块只做一件事：删掉磁盘上已经写出的那几份任务文件。** 只删代码不行 ——
-- `maa_api/main.py:949` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
-- `maa_api/main.py:1340` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
+- `maa_api/main.py:956` 账号服务在本函数后面才装配（通知绑定更早）；拿不到就由计划服务按会话工厂
+- `maa_api/main.py:1347` 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
 - `maa_api/model/util/updater.py:129` 请求的是https://ota.maa.plus/MaaAssistantArknights/api/version/stable.json，或其他版本类型对应的url
 - `maa_api/services/account/planner.py:23` # 实现裁决（规格没写死、由本模块定，M27 T8）
 - …… 另有 16 条，见 inventory.json
@@ -86,7 +86,7 @@
 - `maa_api/agent/knowledge/__init__.py:847` : M27：账号数据读取器（有 `async summary()` 即可）。没装时整段不插。
 - `maa_api/agent/knowledge/__init__.py:849` : M28：当期卡池读取器（有 `async pools()` 即可）。没装或外服时整段不插。
 - `maa_api/agent/questions.py:198` 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
-- `maa_api/main.py:1299` 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
+- `maa_api/main.py:1306` 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
 - `maa_api/services/copilot/rules.py:330` : 实际比对的成员：``opers`` 是自己，分组是全部成员（任一满足即可）。
 - …… 另有 13 条，见 inventory.json
 

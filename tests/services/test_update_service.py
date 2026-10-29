@@ -24,7 +24,7 @@ from maa_api.db.repositories.update import UpdateRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import ResourceChannel, UpdatePhase, UpdateStatus, UpdateTarget
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.services import update_service as update_service_module
+from maa_api.services import update_network as update_network_module
 from maa_api.services.log_hub import current_pipeline_id, current_request_id
 from maa_api.services.update_service import (
     UPDATE_HTTP_TIMEOUT_SECONDS,
@@ -852,7 +852,7 @@ def test_update_http_client_is_bounded_and_uses_explicit_proxy_only(monkeypatch)
             captured.update(kwargs)
             super().__init__(**kwargs)
 
-    monkeypatch.setattr(update_service_module.httpx, "AsyncClient", RecordingClient)
+    monkeypatch.setattr(update_network_module.httpx, "AsyncClient", RecordingClient)
 
     async def scenario() -> None:
         client = create_update_http_client("http://127.0.0.1:7897")
@@ -874,3 +874,138 @@ def test_update_http_client_is_bounded_and_uses_explicit_proxy_only(monkeypatch)
             await plain.aclose()
 
     asyncio.run(scenario())
+
+
+def _fake_plan(prefix: str = "https://ghfast.top") -> SimpleNamespace:
+    closed = {"value": False}
+
+    async def aclose() -> None:
+        closed["value"] = True
+
+    plan = SimpleNamespace(
+        client=SimpleNamespace(closed=closed),
+        download_prefix=prefix,
+        public=lambda: {
+            "proxy": None,
+            "proxy_source": "local",
+            "auto_proxy": True,
+            "fallback_note": None,
+            "download_prefix": prefix,
+            "probe": None,
+        },
+        aclose=aclose,
+    )
+    return plan
+
+
+def test_network_plan_applies_download_client_prefix_and_releases(update_db_factory):
+    """M61：任务级网络计划挂到 workflow 下载上，任务结束还原并关闭客户端。"""
+
+    plan = _fake_plan()
+    seen: dict[str, Any] = {}
+
+    class Workflow:
+        def __init__(self) -> None:
+            self.download_client = None
+            self.download_prefix = "https://old.example"
+
+        async def check(self):
+            return {"current": "v1", "latest": "v2", "available": True}
+
+        async def update(self, *, channel: str, force: bool = False):
+            seen["client"] = self.download_client
+            seen["prefix"] = self.download_prefix
+            return SimpleNamespace(version="v2")
+
+    workflow = Workflow()
+
+    async def resolver(options):
+        assert options.get("channel") == "stable"
+        return plan
+
+    service = UpdateService(
+        update_db_factory, core_workflow=workflow, network_resolver=resolver
+    )
+
+    async def scenario():
+        record = await service.start(UpdateTarget.CORE, {"channel": "stable"})
+        await asyncio.wait_for(service._tasks[record.id], timeout=2)
+        assert seen["client"] is plan.client
+        assert seen["prefix"] == "https://ghfast.top"
+        assert workflow.download_client is None
+        assert workflow.download_prefix == "https://old.example"
+        assert plan.client.closed["value"] is True
+        stored = await service.get(record.id)
+        assert stored.status == UpdateStatus.SUCCESS
+        log = json.loads(stored.log or "{}")
+        assert log["network"] == plan.public()
+
+    asyncio.run(scenario())
+
+
+def test_network_resolver_failure_keeps_update_working(update_db_factory):
+    """决策失败只降级为共享客户端，不让更新任务失败。"""
+
+    class Workflow:
+        def __init__(self) -> None:
+            self.download_client = None
+            self.download_prefix = None
+            self.updated = False
+
+        async def check(self):
+            return {"current": "v1", "latest": "v2", "available": True}
+
+        async def update(self, *, channel: str, force: bool = False):
+            self.updated = True
+            return SimpleNamespace(version="v2")
+
+    workflow = Workflow()
+
+    async def resolver(options):
+        raise RuntimeError("探测模块炸了")
+
+    service = UpdateService(
+        update_db_factory, core_workflow=workflow, network_resolver=resolver
+    )
+
+    async def scenario():
+        record = await service.start(UpdateTarget.CORE, {"channel": "stable"})
+        await asyncio.wait_for(service._tasks[record.id], timeout=2)
+        stored = await service.get(record.id)
+        assert stored.status == UpdateStatus.SUCCESS
+        assert workflow.updated is True
+        assert workflow.download_client is None
+
+    asyncio.run(scenario())
+
+
+def test_start_rejects_invalid_network_options(update_db_factory):
+    service = UpdateService(update_db_factory)
+
+    async def scenario():
+        with pytest.raises(AppError) as error:
+            await service.start(UpdateTarget.CORE, {"proxy": "ftp://127.0.0.1:2000"})
+        assert error.value.code == ErrorCode.INVALID_PARAMETER
+        with pytest.raises(AppError) as error:
+            await service.start(
+                UpdateTarget.CORE, {"download_prefix": "not a url"}
+            )
+        assert error.value.code == ErrorCode.INVALID_PARAMETER
+
+    asyncio.run(scenario())
+
+
+def test_public_options_mask_proxy_credentials() -> None:
+    public = UpdateService._public_options(
+        {
+            "channel": "stable",
+            "proxy": "http://user:pass@127.0.0.1:7897",
+            "auto_proxy": False,
+            "_caller": "agent",
+        }
+    )
+    assert public == {
+        "channel": "stable",
+        "proxy": "http://***@127.0.0.1:7897",
+        "auto_proxy": False,
+    }

@@ -774,3 +774,34 @@ def test_workflow_rollback_requires_unique_valid_backup(tmp_path: Path) -> None:
         await workflow.http_client.aclose()
 
     asyncio.run(run())
+
+
+def test_download_client_override_takes_precedence(tmp_path: Path) -> None:
+    """M61：任务级 download_client 优先于共享 http_client。"""
+
+    async def run() -> None:
+        archive = _valid_archive()
+        captured: dict[str, Any] = {}
+
+        async def download(url: str, dest: str | Path, **kwargs: Any) -> Path:
+            captured.update(kwargs)
+            path = Path(dest)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(archive)
+            return path
+
+        workflow, target, backup, _ = _workflow(
+            tmp_path, archive, download=download
+        )
+        marker = object()
+        workflow.download_client = marker
+        try:
+            await workflow.update()
+        finally:
+            workflow.download_client = None
+            await workflow.http_client.aclose()
+
+        assert captured["client"] is marker
+        assert (target / "libMaaCore.dylib").is_file()
+
+    asyncio.run(run())

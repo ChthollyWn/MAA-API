@@ -12,7 +12,7 @@ import pytest
 
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolContext, ToolRegistry, ToolRisk
-from maa_api.domain.enums import CallerType, RiskLevel
+from maa_api.domain.enums import CallerType, ResourceChannel, RiskLevel
 from maa_api.domain.errors import AppError
 
 
@@ -328,3 +328,92 @@ def test_schedule_group_registration_uses_schedule_service_crud_contract() -> No
         "update_schedule",
         "delete_schedule",
     }
+
+
+def test_update_tools_forward_network_overrides_to_update_service() -> None:
+    """M61：proxy / auto_proxy / download_prefix 作为任务级选项透传。"""
+
+    module = _module("ops")
+    registry = ToolRegistry()
+    module.register_tools(registry)
+
+    class Updates:
+        def __init__(self) -> None:
+            self.started: list[tuple[str, dict, str]] = []
+
+        async def start(self, target, options=None, caller="manual"):
+            self.started.append((str(target), dict(options or {}), caller))
+            return SimpleNamespace(id="update-2", target=target, status="running")
+
+    updates = Updates()
+    context = _context(SimpleNamespace(update_service=updates))
+    asyncio.run(
+        registry.execute(
+            "update_core",
+            {
+                "proxy": "http://127.0.0.1:7897",
+                "auto_proxy": False,
+                "download_prefix": "https://ghfast.top/",
+            },
+            context,
+        )
+    )
+    asyncio.run(
+        registry.execute(
+            "update_resource",
+            {"channel": "repo", "auto_proxy": False},
+            context,
+        )
+    )
+    assert updates.started[0] == (
+        "core",
+        {
+            "channel": "stable",
+            "force": False,
+            "version": None,
+            "proxy": "http://127.0.0.1:7897",
+            "auto_proxy": False,
+            "download_prefix": "https://ghfast.top/",
+        },
+        "agent",
+    )
+    assert updates.started[1][1] == {
+        "channel": ResourceChannel.REPO,
+        "force": False,
+        "auto_proxy": False,
+    }
+
+
+def test_scan_proxy_channels_tool_delegates_to_discovery(monkeypatch) -> None:
+    """M61：scan 工具把参数与当前设置交给发现模块（只读，不写设置）。"""
+
+    module = _module("ops")
+    registry = ToolRegistry()
+    module.register_tools(registry)
+    settings = SimpleNamespace(proxy="", updates=SimpleNamespace(download_prefix=""))
+    captured: dict = {}
+
+    async def fake_discover(**kwargs):
+        captured.update(kwargs)
+        return {"channels": [{"url": "http://127.0.0.1:7897"}], "recommended": None}
+
+    monkeypatch.setattr(module, "discover_proxy_channels", fake_discover)
+    context = _context(
+        SimpleNamespace(settings_provider=lambda: settings)
+    )
+    result = asyncio.run(
+        registry.execute(
+            "scan_proxy_channels",
+            {"refresh": True, "prefixes": ["https://ghfast.top"]},
+            context,
+        )
+    )
+    assert result["channels"] == [{"url": "http://127.0.0.1:7897"}]
+    assert captured["settings"] is settings
+    assert captured["force"] is True
+    assert captured["extra_prefixes"] == ["https://ghfast.top"]
+    definition = next(
+        item for item in registry.list("ops") if item.name == "scan_proxy_channels"
+    )
+    assert definition.read_only is True
+    assert definition.risk is ToolRisk.SAFE

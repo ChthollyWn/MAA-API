@@ -399,6 +399,8 @@ class GameUpdateService:
             transport=transport, follow_redirects=True, timeout=30.0
         )
         self._owns_client = http_client is None
+        # M61：按更新任务临时挂上的下载客户端；None 时用 ``_client``。
+        self.download_client: httpx.AsyncClient | None = None
         self._download_file = download_file or downloader.download
         self._disk_usage = disk_usage
         self.package_names = dict(DEFAULT_PACKAGE_NAMES)
@@ -534,7 +536,7 @@ class GameUpdateService:
                     attempt_target,
                     expected_size=expected_size,
                     on_progress=on_progress,
-                    client=self._client,
+                    client=self.download_client or self._client,
                 )
                 if inspect.isawaitable(result):
                     result = await result
