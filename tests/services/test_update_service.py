@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -23,8 +24,13 @@ from maa_api.db.repositories.update import UpdateRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import ResourceChannel, UpdatePhase, UpdateStatus, UpdateTarget
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services import update_service as update_service_module
 from maa_api.services.log_hub import current_pipeline_id, current_request_id
-from maa_api.services.update_service import UpdateService
+from maa_api.services.update_service import (
+    UPDATE_HTTP_TIMEOUT_SECONDS,
+    UpdateService,
+    create_update_http_client,
+)
 
 
 @pytest.fixture
@@ -811,6 +817,15 @@ def test_progress_broadcast_throttle_and_db_write_interval(update_db_factory):
         async with update_db_factory() as session:
             stored = await session.get(UpdateRecord, record.id)
             assert stored.progress == 0
+        # 阶段变化必须立即落库：距上次写入不到 5 秒，但 downloading → applying
+        # 若不落库，刷新页面后会一直显示旧阶段（M60 实机「检查中 / 0%」的成因）。
+        now[0] = 100.9
+        await service._emit_progress(
+            record.id, UpdateTarget.CORE, {"phase": "applying"},
+        )
+        async with update_db_factory() as session:
+            stored = await session.get(UpdateRecord, record.id)
+            assert stored.phase == UpdatePhase.APPLYING
         now[0] = 105.1
         await service._emit_progress(
             record.id, UpdateTarget.CORE,
@@ -819,5 +834,43 @@ def test_progress_broadcast_throttle_and_db_write_interval(update_db_factory):
         async with update_db_factory() as session:
             stored = await session.get(UpdateRecord, record.id)
             assert stored.progress == 2 and stored.bytes_done == 2
+
+    asyncio.run(scenario())
+
+
+def test_update_http_client_is_bounded_and_uses_explicit_proxy_only(monkeypatch):
+    """更新时间链路的共享客户端契约（M60）。
+
+    有限超时让卡死变成可重试的失败；``trust_env=False`` + 显式 ``proxy`` 保证
+    同一个更新在服务重启前后走同一条链路（不隐式读 macOS 系统代理）。
+    """
+    captured: dict[str, Any] = {}
+    real_client = httpx.AsyncClient
+
+    class RecordingClient(real_client):  # type: ignore[misc, valid-type]
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(update_service_module.httpx, "AsyncClient", RecordingClient)
+
+    async def scenario() -> None:
+        client = create_update_http_client("http://127.0.0.1:7897")
+        try:
+            assert captured["follow_redirects"] is True
+            assert captured["timeout"] == UPDATE_HTTP_TIMEOUT_SECONDS
+            assert captured["proxy"] == "http://127.0.0.1:7897"
+            assert captured["trust_env"] is False
+            assert client.timeout.read is not None
+            assert client.trust_env is False
+        finally:
+            await client.aclose()
+
+        plain = create_update_http_client()
+        try:
+            assert captured["proxy"] is None
+            assert captured["trust_env"] is False
+        finally:
+            await plain.aclose()
 
     asyncio.run(scenario())

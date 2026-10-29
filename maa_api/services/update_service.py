@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+import httpx
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +57,28 @@ _TERMINAL_STATUSES = {
     UpdateStatus.CANCELLED,
     UpdateStatus.SKIPPED,
 }
+
+#: 更新时间链路共享 HTTP 客户端的超时（秒）。按**单次网络操作**计，不是整包
+#: 总时长：下载的流式响应只要还有分片在流动就不会触发读超时。
+UPDATE_HTTP_TIMEOUT_SECONDS = 30.0
+
+
+def create_update_http_client(proxy: str = "") -> httpx.AsyncClient:
+    """构建更新时间链路共用的 HTTP 客户端（版本检查、元数据与下载都用它）。
+
+    - **有限超时**：卡死的连接必须在 :data:`UPDATE_HTTP_TIMEOUT_SECONDS` 内失败，
+      才能进入下载器的传输层重试与多源回退。自建 ``timeout=None`` 客户端时，
+      一次卡住的 GitHub 请求会永远等下去（M60 实机事故：内核更新卡在 0% 一个半小时）。
+    - **代理只能显式配**（docs/07 §2.3 的 ``app.proxy``）：``trust_env=False``
+      不读环境变量与 macOS 系统代理。否则同一个更新在服务重启前后可能走不同
+      链路——检查走系统代理、下载直连，正是 M60 现场的样子。
+    """
+    return httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=UPDATE_HTTP_TIMEOUT_SECONDS,
+        proxy=proxy or None,
+        trust_env=False,
+    )
 
 
 async def _call(callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -1227,7 +1250,13 @@ class UpdateService:
         if percent is not None:
             state["ws_percent"] = percent
 
-        if now - state["db_at"] >= _DB_INTERVAL_SECONDS:
+        # 阶段变化必须立即落库：5 秒节流只服务于同一阶段内的百分比刷新。
+        # M60 现场「downloading」紧跟在「checking」后 1 秒多发出、被节流吞掉，
+        # 之后下载卡死没有新事件，刷新页面后记录一直显示「检查中 / 0%」。
+        if (
+            state["db_phase"] != phase.value
+            or now - state["db_at"] >= _DB_INTERVAL_SECONDS
+        ):
             try:
                 async with self.session_factory() as session:
                     await UpdateRepository(session).update_progress(

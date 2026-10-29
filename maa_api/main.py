@@ -44,7 +44,6 @@ from typing import Any, Protocol
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import httpx
 
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import (
@@ -790,14 +789,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             STARTUP_DELAY_SECONDS,
             run_retention,
         )
-        from maa_api.services.update_service import UpdateService
+        from maa_api.services.update_service import (
+            UpdateService,
+            create_update_http_client,
+        )
 
         current_settings = get_settings()
-        update_http_client = httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=30.0,
-            proxy=current_settings.proxy or None,
-        )
+        # 检查、元数据与下载共用同一个客户端：有限超时 + 显式 app.proxy
+        # （trust_env=False，不隐式读系统代理）。见 services/update_service.py。
+        update_http_client = create_update_http_client(current_settings.proxy)
         update_temp = REPO_ROOT / "resource" / "temp" / "updates"
         update_temp.mkdir(parents=True, exist_ok=True)
 

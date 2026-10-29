@@ -5,7 +5,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from maa_api.util.downloader import describe_download_error, download
+from maa_api.util.downloader import (
+    DEFAULT_TIMEOUT,
+    _new_default_client,
+    describe_download_error,
+    download,
+)
 
 
 class ChunkStream(httpx.AsyncByteStream):
@@ -450,3 +455,26 @@ def test_validation_failure_is_not_retried(tmp_path: Path) -> None:
         )
 
     assert len(requests) == 1
+
+
+def test_default_client_is_bounded_and_ignores_system_proxy() -> None:
+    """自建客户端必须有界超时且不读系统代理（M60）。
+
+    卡死的判定完全依赖网络层超时抛异常：``timeout=None`` 时「TCP 已连上、响应
+    不来」永远不会失败，docs/07 §5.4 的重试与 §2.3 的多源回退都触发不了。代理
+    也只能显式配，否则同一个更新在重启前后会走不同链路。
+    """
+
+    async def scenario() -> None:
+        client = _new_default_client()
+        try:
+            assert client.timeout.connect == DEFAULT_TIMEOUT.connect
+            assert client.timeout.read == DEFAULT_TIMEOUT.read
+            assert client.timeout.write == DEFAULT_TIMEOUT.write
+            assert client.timeout.pool == DEFAULT_TIMEOUT.pool
+            assert client.timeout.read is not None
+            assert client.trust_env is False
+        finally:
+            await client.aclose()
+
+    asyncio.run(scenario())

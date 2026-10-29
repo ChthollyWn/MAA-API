@@ -20,6 +20,12 @@ _CHUNK_SIZE = 1024 * 1024
 #: 默认 3 次重试：0.5s → 1s → 2s，依据 docs/07 热更新方案 §5.4
 #: 「HTTP 请求与下载分片失败时由下载器自身重试（指数退避，最多 3 次）」。
 RETRY_BACKOFF_SECONDS: tuple[float, ...] = (0.5, 1.0, 2.0)
+#: 调用方没传 ``client`` 时下载器自建客户端的网络超时。**不能是 ``None``**：
+#: 国内直连 GitHub 的典型故障是「TCP 连接已建立、响应一个字节都不来」（M60
+#: 实机：内核更新在 0% 卡了一个半小时），没有读超时就不会抛异常，docs/07
+#: §5.4 的传输层重试与 §2.3 的多源回退都触发不了。超时按**单次网络操作**计，
+#: 不是整包总时长：只要还有分片在流动，大文件下载不会因总时长超限被打断。
+DEFAULT_TIMEOUT = httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=15.0)
 #: 对第三方站点发请求时统一使用的浏览器 UA。**不能省**：httpx 默认发
 #: ``python-httpx/<版本>``，B 站 WAF 会以 412 直接拒绝该 UA（``game_update`` 的
 #: 渠道检查曾因此失败），其它 CDN 也可能有同类规则。
@@ -197,6 +203,24 @@ async def _download_once(
     return destination
 
 
+def _new_default_client(
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> httpx.AsyncClient:
+    """调用方没传 ``client`` 时自建的下载客户端。
+
+    - 必须有界超时（:data:`DEFAULT_TIMEOUT`）：卡死要变成超时，才能触发重试与多源回退；
+    - ``trust_env=False``：代理只能显式配（docs/07 §2.3 的 ``app.proxy``），不读
+      环境变量与 macOS 系统代理。否则同一个更新在服务重启前后可能走不同链路，
+      M60 实机就是这样：检查请求走代理、下载却直连 GitHub 并卡死。
+    """
+    return httpx.AsyncClient(
+        transport=transport,
+        follow_redirects=True,
+        timeout=DEFAULT_TIMEOUT,
+        trust_env=False,
+    )
+
+
 async def download(
     url: str,
     dest: str | Path,
@@ -235,6 +259,11 @@ async def download(
     supplied client remains owned by its caller. Progress callbacks receive
     ``(downloaded_bytes, total_bytes)``; ``total_bytes`` is zero when unknown.
     Synchronous and asynchronous callbacks are supported.
+
+    When neither ``client`` nor ``transport`` is supplied the downloader builds
+    its own client with :data:`DEFAULT_TIMEOUT` and ``trust_env=False`` (bounded
+    timeouts, explicit proxy only). Callers that already own a configured client
+    should pass it so the download shares their timeout and proxy policy.
     """
     destination = Path(dest)
     partial = destination.with_suffix(destination.suffix + ".part")
@@ -264,11 +293,7 @@ async def download(
         partial.unlink(missing_ok=True)
 
     owns_client = client is None
-    http_client = client or httpx.AsyncClient(
-        transport=transport,
-        follow_redirects=True,
-        timeout=None,
-    )
+    http_client = client or _new_default_client(transport)
 
     try:
         attempt = 0
