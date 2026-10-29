@@ -16,8 +16,9 @@ EXPECTED_TOOLS = {
     "long_press", "input_text", "key_event", "back_to_home", "trigger_screencap",
     "get_device_status", "reconnect_device", "list_devices", "list_copilots",
     "upload_copilot", "list_custom_tasks", "register_custom_task",
-    "remove_custom_task", "set_infrast_plan", "check_updates", "update_core",
-    "update_resource", "update_game", "wait_update", "restart_core", "list_schedules",
+    "remove_custom_task", "set_infrast_plan", "check_updates", "scan_proxy_channels",
+    "update_core", "update_resource", "update_game", "wait_update", "restart_core",
+    "list_schedules",
     "create_schedule", "update_schedule", "delete_schedule",
     "check_confirmation", "read_knowledge", "ask_user",
     # M23 媒体组（规格 §3.2）。
@@ -72,9 +73,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # M47 起 ``update_operator_box`` 随内核 ``OperBox`` 识别一起下线（docs/13 §8.70）：
     # 77 → 76。M48 再加入只读探索组 ``recon`` 四个工具（规格 §4.2、docs/13 §8.71）：
     # 76 → 80；M57 加工具目录两条（list_tool_groups / enable_tool_group）→ 83，
-    # 其中对模型可见的 82（少一个隐藏工具 ``trigger_screencap``）。
-    assert len(actual) == 83
-    assert sum(1 for item in registry.list() if item.model_visible) == 82
+    # M61 加宿主机代理通道发现 ``scan_proxy_channels`` → 84，其中对模型可见的 83
+    # （少一个隐藏工具 ``trigger_screencap``）。
+    assert len(actual) == 84
+    assert sum(1 for item in registry.list() if item.model_visible) == 83
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
@@ -504,11 +506,15 @@ def test_deferred_tool_groups_stay_hidden_until_the_session_enables_them() -> No
     assert catalog["deferred_groups"]["account"]["enabled"] is False
     assert catalog["deferred_groups"]["ops"]["enabled"] is False
     assert "wait_update" in catalog["deferred_groups"]["ops"]["tools"]
+    assert "scan_proxy_channels" in catalog["deferred_groups"]["ops"]["tools"]
 
     from maa_api.agent.runtime import SYSTEM_PROMPT
 
     assert "enable_tool_group" in SYSTEM_PROMPT
     assert "list_tool_groups" in SYSTEM_PROMPT
+    # M61：更新下载网络决策指引在系统提示词里（docs/13 §8.84）。
+    assert "scan_proxy_channels" in SYSTEM_PROMPT
+    assert "auto_proxy" in SYSTEM_PROMPT
 
 
 def test_catalog_tools_list_and_enable_groups_through_the_runtime() -> None:

@@ -161,11 +161,14 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 | 工具 | risk | 用途 |
 |---|---|---|
 | `check_updates` | SAFE | 检查三个目标是否有新版本 |
-| `update_core` | DANGEROUS | 内核热更新，会重启子进程 |
-| `update_resource` | DANGEROUS | 活动资源更新。M57 更正 M56：作业/Fight 需要**内核资源认识关卡**（内核读作业 JSON 的 `stage_name`，缺失时以 `Not support stage` 拒绝任务），资源旧时先问用户更新；搜索作业本身不需要更新。异步执行，提交后用 `wait_update` 等结束 |
-| `wait_update` | SAFE | M57 新增：等一次更新（`update_id`，不填等当前在跑的）到终态或超时，返回进度、终态与错误；跨轮有效，连续等待不计入原地打转 |
-| `update_game` | DANGEROUS | 下载并安装游戏 APK |
+| `update_core` | DANGEROUS | 内核热更新，会重启子进程。M61 起可选 `proxy` / `auto_proxy` / `download_prefix`（只影响本次下载，不写设置） |
+| `update_resource` | DANGEROUS | 活动资源更新。M57 更正 M56：作业/Fight 需要**内核资源认识关卡**（内核读作业 JSON 的 `stage_name`，缺失时以 `Not support stage` 拒绝任务），资源旧时先问用户更新；搜索作业本身不需要更新。异步执行，提交后用 `wait_update` 等结束。M61 起同样支持网络参数 |
+| `wait_update` | SAFE | M57 新增：等一次更新（`update_id`，不填等当前在跑的）到终态或超时，返回进度、终态与错误；跨轮有效，连续等待不计入原地打转。M61 起结果带 `network`（本次实际走的下载通道） |
+| `update_game` | DANGEROUS | 下载并安装游戏 APK（M61 起支持 `proxy` / `auto_proxy`） |
+| `scan_proxy_channels` | SAFE | **M61 新增**、只读：扫描宿主机可能的代理通道（设置 `app.proxy`、环境变量、macOS 系统代理、本机常见代理端口上的监听服务），逐个探测经它访问 GitHub 与更新接口是否可用；同时探测设置里的下载加速前缀，并可用 `prefixes` 额外验证最多 3 个候选前缀。可选 `refresh` 跳过 30 秒缓存。不写任何设置 |
 | `restart_core` | DANGEROUS | 重启 MaaCore 子进程 |
+
+**M61 更新下载网络。** 用户的本机代理不一定常开，内核/资源/游戏更新的「下载」是唯一可能被网络卡住的一步。每次更新任务开始时，`UpdateService` 通过组合根注入的 `resolve_update_network` 生成**任务级下载网络计划**：优先级为「任务参数 `proxy` → 设置 `app.proxy` → 自动发现的可用本机代理 → 直连」；显式代理探测不可用时按 `auto_proxy` 决定是否再试自动发现，最后降级直连并写 `fallback_note`。自动发现**只采用本机端口扫描到且到 GitHub 探测可用的 http 代理**，不隐式采用系统代理或环境变量（避免 M60 那种「重启前后走不同链路」）。计划的客户端只挂在下载阶段（`download_client`），检查请求仍走启动时的共享客户端；任务结束还原并关闭客户端，`update_record.log.network` 记录 `proxy / proxy_source / fallback_note / download_prefix / probe`（代理账号密码脱敏），`wait_update` 会把它带回来。系统提示词新增「更新下载与网络」段：下载卡住时先 `scan_proxy_channels`，再按用户意愿传 `proxy`；用户说「别用代理」就传 `auto_proxy=false`；加速前缀先用 `prefixes` 验证再作为 `download_prefix` 传。工具总数 83 → 84（对模型可见 82 → 83；84 里仍只有 `trigger_screencap` 一条隐藏），前端工具中文名与推送通知标题同步为「探测本机代理」。
 
 定时任务组（`schedule`）
 
@@ -236,7 +239,7 @@ M28 加入 `list_infrast_plans` 后工具总数 63 → 64。**M29 加入上面�
 
 三者共用访问层：来源登记与白名单、限流、熔断、进程内缓存、来源信封都在 `maa_api/services/external/`，取数与降级规则见 §6.6。
 
-账号数据组（`account`，M27）：干员数据来自森空岛练度同步、仓库数据来自内核 `Depot` 识别落库的结果，不是外部来源（M47 起内核干员识别与手动修正都已下线，见 [13 §8.70](./13-决策记录.md)）。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M42 把 M36 的两条读屏扫描工具换成森空岛两条**（`get_skland_status` 与 `sync_skland_training`）：工具总数仍 77（对模型可见 76）。**M47 删掉 `update_operator_box`**（干员数据只来自森空岛同步，手动 / Agent 补录下线）：工具总数 77 → 76、对模型可见 76 → 75。**M48 再加入只读探索组 `recon` 四条**（§8.6）：工具总数 76 → 80、对模型可见 75 → 79；隐藏工具仍然只有 `trigger_screencap` 一条。**M57 加入工具目录两条**（`list_tool_groups` / `enable_tool_group`）：工具总数 80 → 83、对模型可见 82（83 条里只有 `trigger_screencap` 隐藏）；其中账户 / 基建 / 运维 / 定时 / 侦察五组默认不进模型声明，由 `enable_tool_group` 按会话开启。`start_upgrade_plan`、`update_user_profile` 与 `sync_skland_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
+账号数据组（`account`，M27）：干员数据来自森空岛练度同步、仓库数据来自内核 `Depot` 识别落库的结果，不是外部来源（M47 起内核干员识别与手动修正都已下线，见 [13 §8.70](./13-决策记录.md)）。加入这七条后工具总数 56 → 63（对模型可见 55 → 62；只有 `trigger_screencap` 一条 `model_visible=False`）。M28 再加两条（`get_infrast_candidates` 与 `update_user_profile`）到 70（对模型可见 69）。**M42 把 M36 的两条读屏扫描工具换成森空岛两条**（`get_skland_status` 与 `sync_skland_training`）：工具总数仍 77（对模型可见 76）。**M47 删掉 `update_operator_box`**（干员数据只来自森空岛同步，手动 / Agent 补录下线）：工具总数 77 → 76、对模型可见 76 → 75。**M48 再加入只读探索组 `recon` 四条**（§8.6）：工具总数 76 → 80、对模型可见 75 → 79；隐藏工具仍然只有 `trigger_screencap` 一条。**M57 加入工具目录两条**（`list_tool_groups` / `enable_tool_group`）：工具总数 80 → 83、对模型可见 82（83 条里只有 `trigger_screencap` 隐藏）；其中账户 / 基建 / 运维 / 定时 / 侦察五组默认不进模型声明，由 `enable_tool_group` 按会话开启。**M61 加入宿主机代理通道发现 `scan_proxy_channels`**（`ops` 组）：工具总数 83 → 84、对模型可见 83（84 条里仍只有 `trigger_screencap` 隐藏）。`start_upgrade_plan`、`update_user_profile` 与 `sync_skland_training` 每次确认（`risk=NONE`，理由见 §4），其余 `SAFE`。
 
 | 工具 | risk | 用途 |
 |---|---|---|

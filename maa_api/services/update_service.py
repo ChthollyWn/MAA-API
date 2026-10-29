@@ -2,7 +2,9 @@
 
 The individual workflows own network, validation, filesystem and device details.
 This service owns update records, one in-process maintenance lock, progress events,
-inspection caching, retry policy and scheduled availability notifications.
+inspection caching, retry policy, scheduled availability notifications, and the
+per-job download network plan (M61: ``network_resolver`` decides proxy / direct /
+download prefix for the download phase only).
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-import httpx
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +45,13 @@ from maa_api.services.core_update import (
 )
 from maa_api.services.game_update import validate_apk
 from maa_api.services.log_hub import create_task_without_request_id
+from maa_api.services.update_network import (
+    UPDATE_HTTP_TIMEOUT_SECONDS,
+    create_update_http_client,
+    mask_proxy_url,
+    normalize_prefix,
+    normalize_proxy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,27 +66,7 @@ _TERMINAL_STATUSES = {
     UpdateStatus.SKIPPED,
 }
 
-#: 更新时间链路共享 HTTP 客户端的超时（秒）。按**单次网络操作**计，不是整包
-#: 总时长：下载的流式响应只要还有分片在流动就不会触发读超时。
-UPDATE_HTTP_TIMEOUT_SECONDS = 30.0
-
-
-def create_update_http_client(proxy: str = "") -> httpx.AsyncClient:
-    """构建更新时间链路共用的 HTTP 客户端（版本检查、元数据与下载都用它）。
-
-    - **有限超时**：卡死的连接必须在 :data:`UPDATE_HTTP_TIMEOUT_SECONDS` 内失败，
-      才能进入下载器的传输层重试与多源回退。自建 ``timeout=None`` 客户端时，
-      一次卡住的 GitHub 请求会永远等下去（M60 实机事故：内核更新卡在 0% 一个半小时）。
-    - **代理只能显式配**（docs/07 §2.3 的 ``app.proxy``）：``trust_env=False``
-      不读环境变量与 macOS 系统代理。否则同一个更新在服务重启前后可能走不同
-      链路——检查走系统代理、下载直连，正是 M60 现场的样子。
-    """
-    return httpx.AsyncClient(
-        follow_redirects=True,
-        timeout=UPDATE_HTTP_TIMEOUT_SECONDS,
-        proxy=proxy or None,
-        trust_env=False,
-    )
+__all__ = ["UPDATE_HTTP_TIMEOUT_SECONDS", "UpdateService", "create_update_http_client"]
 
 
 async def _call(callback: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -152,6 +140,7 @@ class UpdateService:
         notify: Any = None,
         prepare_update: Callable[[UpdateTarget, Mapping[str, Any]], Any] | None = None,
         resource_layers_loaded: Callable[[], Any] | None = None,
+        network_resolver: Callable[[Mapping[str, Any]], Any] | None = None,
         temp_root: str | Path = Path("resource") / "temp" / "updates",
         cache_ttl: float = _NOTIFICATION_CACHE_SECONDS,
         clock: Callable[[], float] = time.monotonic,
@@ -164,6 +153,12 @@ class UpdateService:
         self.notify = notify
         self.prepare_update = prepare_update
         self.resource_layers_loaded = resource_layers_loaded
+        #: M61：每次更新开始时由组合根注入的下载网络决策（返回
+        #: ``update_network.UpdateNetworkPlan``）；``None`` 时全部沿用启动时的
+        #: 共享客户端（旧行为，测试与轻量装配无需网络探测）。
+        self.network_resolver = network_resolver
+        self._network_plans: dict[str, Any] = {}
+        self._network_prefix_saved: dict[str, list[tuple[Any, str | None]]] = {}
         self._process_id = uuid.uuid4().hex
         self.temp_root = Path(temp_root)
         self.cache_ttl = max(float(cache_ttl), 0.0)
@@ -255,6 +250,7 @@ class UpdateService:
         selected = UpdateTarget(target)
         opts = dict(options or {})
         opts.setdefault("_caller", self._caller(caller))
+        self._validate_network_options(opts)
         if self._lock.locked():
             raise await self._already_running_error()
         # asyncio.Lock acquisition is immediate if still unlocked; no await is
@@ -439,6 +435,10 @@ class UpdateService:
                 and options.get("_operation") == "rollback"
             )
             retry_staged = options.get("_retry_staged") or []
+            # M61：下载网络计划要在检查与下载之前就绪（回滚不下载，跳过）。
+            await self._resolve_network_plan(
+                update_id, options, skip=is_core_rollback
+            )
             if is_core_rollback:
                 workflow = self._required_workflow(UpdateTarget.CORE)
                 current = None
@@ -574,6 +574,10 @@ class UpdateService:
             self._options.pop(update_id, None)
             self._tasks.pop(update_id, None)
             self._progress_state.pop(update_id, None)
+            try:
+                await self._release_network_plan(update_id)
+            except Exception:
+                logger.exception("释放更新网络客户端失败（%s）", update_id)
             if self._lock.locked():
                 self._lock.release()
 
@@ -1372,6 +1376,80 @@ class UpdateService:
             raise RuntimeError(f"{target.value} update workflow is not configured")
         return workflow
 
+    # ---- per-job download network (M61) ------------------------------------
+
+    @staticmethod
+    def _validate_network_options(options: Mapping[str, Any]) -> None:
+        """校验任务级网络参数；非法值在**拿锁之前**拒绝（400 而不是后台失败）。"""
+
+        proxy = options.get("proxy")
+        if proxy is not None:
+            try:
+                options["proxy"] = normalize_proxy(str(proxy))  # type: ignore[index]
+            except ValueError as exc:
+                raise AppError(
+                    ErrorCode.INVALID_PARAMETER, str(exc), {"field": "proxy"}
+                ) from exc
+        prefix = options.get("download_prefix")
+        if prefix is not None:
+            try:
+                options["download_prefix"] = normalize_prefix(str(prefix))  # type: ignore[index]
+            except ValueError as exc:
+                raise AppError(
+                    ErrorCode.INVALID_PARAMETER, str(exc), {"field": "download_prefix"}
+                ) from exc
+        auto_proxy = options.get("auto_proxy")
+        if auto_proxy is not None:
+            options["auto_proxy"] = bool(auto_proxy)  # type: ignore[index]
+
+    def _workflows(self) -> list[Any]:
+        return [
+            workflow
+            for workflow in (self.core_workflow, self.resource_workflow, self.game_workflow)
+            if workflow is not None
+        ]
+
+    async def _resolve_network_plan(
+        self, update_id: str, options: Mapping[str, Any], *, skip: bool
+    ) -> Any:
+        """问组合根要本次下载的网络计划并挂到各 workflow 上；失败按直连降级。"""
+
+        if skip or self.network_resolver is None:
+            return None
+        try:
+            plan = await _call(self.network_resolver, options)
+        except Exception:
+            logger.exception("更新网络决策失败，本次按直连继续")
+            return None
+        if plan is None:
+            return None
+        client = getattr(plan, "client", None)
+        prefix = getattr(plan, "download_prefix", None)
+        saved: list[tuple[Any, str | None]] = []
+        for workflow in self._workflows():
+            if client is not None and hasattr(workflow, "download_client"):
+                workflow.download_client = client
+            if hasattr(workflow, "download_prefix"):
+                saved.append((workflow, workflow.download_prefix))
+                workflow.download_prefix = prefix
+        self._network_plans[update_id] = plan
+        self._network_prefix_saved[update_id] = saved
+        await self._save_log(
+            update_id, {"options": self._public_options(options)}
+        )
+        return plan
+
+    async def _release_network_plan(self, update_id: str) -> None:
+        plan = self._network_plans.pop(update_id, None)
+        saved = self._network_prefix_saved.pop(update_id, [])
+        for workflow in self._workflows():
+            if hasattr(workflow, "download_client"):
+                workflow.download_client = None
+        for workflow, previous in saved:
+            workflow.download_prefix = previous
+        if plan is not None:
+            await plan.aclose()
+
     # ---- resource metadata ------------------------------------------------
 
     async def _resource_metadata(self) -> dict[str, ResourceAsset | None]:
@@ -1623,6 +1701,11 @@ class UpdateService:
         return pending
 
     async def _save_log(self, update_id: str, value: dict[str, Any]) -> None:
+        plan = self._network_plans.get(update_id)
+        if plan is not None:
+            # 网络计划随每次日志写入一起保存：资源分阶段日志会整份覆盖 log，
+            # 合并进来才不会被后续写入抹掉。
+            value = {**value, "network": plan.public()}
         encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
         async with self.session_factory() as session:
             record = await UpdateRepository(session).get(update_id)
@@ -1632,11 +1715,14 @@ class UpdateService:
 
     @staticmethod
     def _public_options(options: Mapping[str, Any]) -> dict[str, Any]:
-        return {
+        public = {
             key: _value(value)
             for key, value in options.items()
             if not key.startswith("_") and isinstance(_value(value), (str, int, float, bool, type(None)))
         }
+        if isinstance(public.get("proxy"), str) and public["proxy"]:
+            public["proxy"] = mask_proxy_url(public["proxy"])
+        return public
 
     @staticmethod
     def _record_channel(target: UpdateTarget, options: Mapping[str, Any]) -> str | None:

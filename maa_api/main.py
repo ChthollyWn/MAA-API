@@ -789,6 +789,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             STARTUP_DELAY_SECONDS,
             run_retention,
         )
+        from maa_api.services.update_network import resolve_update_network
         from maa_api.services.update_service import (
             UpdateService,
             create_update_http_client,
@@ -916,6 +917,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async def authorize_preparation(target: Any, options: dict[str, Any]) -> None:
             await wait_for_pipeline_idle(target, options)
 
+        async def resolve_update_network_for_job(options: Any) -> Any:
+            # M61：每次任务现读设置（代理/前缀改完不用重启），并探测本机可用
+            # 代理；下载阶段用返回的客户端，检查请求仍走共享 update_http_client。
+            return await resolve_update_network(options, settings=get_settings())
+
         update_service_factory = getattr(app.state, "update_service_factory", UpdateService)
         update_service = update_service_factory(
             db_session.session_factory,
@@ -926,6 +932,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             notify=notify_service,
             prepare_update=authorize_preparation,
             resource_layers_loaded=resource_layers_loaded,
+            network_resolver=resolve_update_network_for_job,
             temp_root=update_temp,
         )
         app.state.update_service = update_service

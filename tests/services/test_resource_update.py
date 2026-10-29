@@ -678,3 +678,39 @@ def test_failed_repo_restart_rolls_back_disk_and_restarts_old_resource_view(
         ) == {"version": "old"}
 
     asyncio.run(scenario())
+
+
+def test_stage_uses_per_job_download_client(tmp_path: Path, monkeypatch) -> None:
+    """M61：资源仓库归档下载走任务级 download_client，未设置时回退共享 client。"""
+
+    from maa_api.services import resource_update as resource_update_module
+
+    async def scenario() -> None:
+        received: list[Any] = []
+
+        async def fake_stage(client, check, staging_root, **kwargs):
+            received.append(client)
+            return StagedResource(ResourceChannel.REPO, tmp_path / "staged", version="v")
+
+        monkeypatch.setattr(
+            resource_update_module, "stage_repo_overlay", fake_stage
+        )
+        async with _mock_client({}) as client:
+            workflow = ResourceUpdateWorkflow(
+                http_client=client,
+                maa_path=tmp_path / "lib" / "maa" / "Darwin",
+                layers_root=tmp_path / "layers",
+                temp_root=tmp_path / "temp",
+            )
+            check = ResourceCheck(ResourceChannel.REPO, changed=True, version="v")
+            marker = object()
+            workflow.download_client = marker
+            try:
+                await workflow.stage(check)
+            finally:
+                workflow.download_client = None
+            await workflow.stage(check)
+        assert received[0] is marker
+        assert received[1] is client
+
+    asyncio.run(scenario())

@@ -505,6 +505,9 @@ class CoreUpdateWorkflow:
         self.current_version = current_version
         self.before_start = before_start
         self.download_prefix = download_prefix
+        # M61：按更新任务临时挂上的下载客户端（代理/直连由 UpdateService 决定）；
+        # ``None`` 时回退到共享 ``http_client``（检查也用同一个）。
+        self.download_client: Any = None
         self.downloader = downloader
         self.progress = progress
         self.disk_usage = disk_usage
@@ -573,10 +576,10 @@ class CoreUpdateWorkflow:
                     expected_size=release.asset_size,
                     on_progress=download_progress,
                     resume=True,
-                    # 复用更新链路共享的 client：它带着有限超时与显式 app.proxy
-                    # （docs/07 §2.3）。M60 实机事故就是这里漏传：下载器自建了
-                    # 一个 timeout=None 的客户端直连 GitHub，卡死后再也没有重试。
-                    client=self.http_client,
+                    # 优先用本次任务决定的下载客户端（M61：代理自适应/直连），
+                    # 否则回退到共享 client。M60 实机事故就是这里漏传：下载器
+                    # 自建了 timeout=None 的客户端直连 GitHub，卡死后再也没有重试。
+                    client=self.download_client or self.http_client,
                 )
                 if not archive_path.is_file() or archive_path.stat().st_size != release.asset_size:
                     actual = archive_path.stat().st_size if archive_path.is_file() else 0

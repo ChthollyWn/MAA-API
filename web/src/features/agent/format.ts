@@ -159,6 +159,7 @@ const TOOL_LABELS: Record<string, string> = {
   register_custom_task: '登记自定义任务',
   remove_custom_task: '移除自定义任务',
   check_updates: '检查更新',
+  scan_proxy_channels: '探测本机代理',
   update_core: '更新内核',
   update_resource: '更新资源',
   update_game: '更新游戏',

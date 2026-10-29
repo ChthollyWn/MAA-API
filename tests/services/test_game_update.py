@@ -633,3 +633,41 @@ def test_bilibili_requests_send_a_user_agent_the_waf_accepts(tmp_path: Path) -> 
     assert all(agent == downloader.BROWSER_USER_AGENT for agent in seen), seen
     assert not any(agent and agent.startswith("python-httpx") for agent in seen)
 
+
+
+def test_download_latest_uses_per_job_download_client(tmp_path: Path) -> None:
+    """M61：APK 下载走任务级 download_client。"""
+
+    apk = synthetic_apk()
+    payload = bili_payload(apk)
+
+    async def run() -> None:
+        captured: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url == httpx.URL(BILIBILI_INFO_URL):
+                return httpx.Response(200, json=payload)
+            raise AssertionError("the injected downloader owns APK transfer")
+
+        async def fake_download(url: str, dest: Path, **kwargs: object) -> Path:
+            captured.update(kwargs)
+            dest.write_bytes(apk)
+            return dest
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        service = GameUpdateService(
+            FakeDeviceManager(),
+            http_client=client,
+            download_file=fake_download,
+            disk_usage=lambda _path: SimpleNamespace(free=len(apk) * 2),
+        )
+        marker = object()
+        service.download_client = marker
+        try:
+            await service.download_latest(BILIBILI_CHANNEL, tmp_path / "game.apk")
+        finally:
+            service.download_client = None
+            await client.aclose()
+        assert captured["client"] is marker
+
+    asyncio.run(run())
