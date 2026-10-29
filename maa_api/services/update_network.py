@@ -389,11 +389,23 @@ async def _discover(
         candidates.append(("local", url))
 
     deduped: list[tuple[str, str]] = []
-    seen: set[str] = set()
+    index_by_url: dict[str, int] = {}
     for source, url in candidates:
-        if url in seen:
+        position = index_by_url.get(url)
+        if position is not None:
+            # 同一地址同时出现在系统代理/环境变量与本机监听端口里时，按本机代理
+            # 记：自动决策只采用本机扫描到并探测可用的代理，不能因为先收集到
+            # system/env 就丢掉了「它就是本机 127.0.0.1 上的代理」这个事实。
+            if source == "local" and deduped[position][0] in {"system", "env"}:
+                previous = deduped[position][0]
+                deduped[position] = ("local", url)
+                logger.debug(
+                    "代理 %s 同时是 %s 与本机监听，按本机代理处理",
+                    mask_proxy_url(url),
+                    previous,
+                )
             continue
-        seen.add(url)
+        index_by_url[url] = len(deduped)
         deduped.append((source, url))
 
     probe = prober or _probe_channel
@@ -512,7 +524,7 @@ async def discover_proxy_channels(
         "listening_ports": summary["listening_ports"],
         "notes": [
             "更新链路只在下载阶段使用代理；检查请求不受影响。",
-            "系统代理与环境变量只作展示，不会自动采用；要用就把地址作为 proxy 传给 update_core/update_resource。",
+            "系统代理与环境变量本身只作展示，不会自动采用；同一地址如果也在本机监听端口里，只算一条本机代理，自动模式会验证后采用。",
             "自动模式只会采用本机端口扫描发现且到 GitHub 探测可用的 http 代理。",
             "下载加速前缀只探测了根地址是否可达，不代表一定能代理 GitHub 资产。",
         ],
