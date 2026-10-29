@@ -1,6 +1,6 @@
 # Agent 与知识库
 
-共 1240 条。
+共 1241 条。
 
 ## knowledge（940）
 
@@ -1047,7 +1047,7 @@
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:21` [md-line] 部分干员不能用通用信物提升潜能（例如 1★ 小车、剧情限定的阿米娅）。
 - `maa_api/agent/knowledge/builtin/trust-and-potential.md:22` [md-line] 判断建议：潜能对大部分干员是锦上添花而非刚需；新手期不建议拿采购中心的凭证去买通用信物换潜能，同样的资源换其它物资提升更大。
 
-## agent（300）
+## agent（301）
 
 
 **maa_api/agent/confirmation.py**
@@ -1177,8 +1177,9 @@
 
 **maa_api/agent/preconditions.py**
 
-- `maa_api/agent/preconditions.py:38` [const] 流水线里没有 StartUp：内核的任务都从主界面起手，游戏没启动或停在桌面时只会反复重试到失败。游戏状态不确定时，把 StartUp（start_game_enabled: true）放在第一条，或先让用户确认游戏已启动。
-- `maa_api/agent/preconditions.py:46` [const] 这个任务需要游戏已启动并停在主界面：先看现场截图，如果画面是设备桌面或登录页，先补一条 StartUp（start_game_enabled: true）再重跑，不要原样重试。
+- `maa_api/agent/preconditions.py:41` [const] 流水线里没有 StartUp：内核的任务都从主界面起手，游戏没启动或停在桌面时只会反复重试到失败。游戏状态不确定时，把 StartUp（start_game_enabled: true）放在第一条，或先让用户确认游戏已启动。
+- `maa_api/agent/preconditions.py:49` [const] 这个任务需要游戏已启动并停在主界面：先看现场截图，如果画面是设备桌面或登录页，先补一条 StartUp（start_game_enabled: true）再重跑，不要原样重试。
+- `maa_api/agent/preconditions.py:58` [const] 等待超时，流水线还没结束。先 get_screenshot 看现场画面：画面显示任务确实在跑就续等（timeout_seconds 可以加大，最多 600）；画面是设备桌面、登录页或与任务无关时，先 stop_pipeline 停车再排查，不要原样反复等待。
 
 **maa_api/agent/questions.py**
 
@@ -1220,7 +1221,7 @@
 - `maa_api/agent/runtime.py:197` [const] Agent 对话处理失败
 - `maa_api/agent/runtime.py:213` [literal] 当前模型不支持视觉输入；圈选截图已禁用
 - `maa_api/agent/runtime.py:219` [const] 当前模型不支持视觉输入；截图和原子屏幕操作已禁用
-- `maa_api/agent/runtime.py:234` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 3135 字）
+- `maa_api/agent/runtime.py:234` [const] 你是 MAA-API 内置 Agent，帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。 怎么说话：先给结论或直接动手，不写「好的」「当然」「我来帮您」，不复述用户的问题，不用「首先/其次/最后/另外」，不写免责声明，不用 emoji，…（共 3327 字）
 - `maa_api/agent/runtime.py:354` [const] [历史截图已省略
 - `maa_api/agent/runtime.py:356` [literal] ，时间 {captured_at}
 - `maa_api/agent/runtime.py:368` [literal] [本次结果附带的历史截图已省略]
@@ -1248,18 +1249,18 @@
 - `maa_api/agent/runtime.py:1851` [literal] 提问服务尚未启动
 - `maa_api/agent/runtime.py:2044` [literal] {TITLE_PROMPT} 用户的问题： {seed}
 - `maa_api/agent/runtime.py:2196` [literal] 扩展组默认不暴露以省上下文；需要时用 enable_tool_group 打开，核心组工具始终可用。
-- `maa_api/agent/runtime.py:2610` [literal] 「
-- `maa_api/agent/runtime.py:2610` [literal] 」
-- `maa_api/agent/runtime.py:2610` [literal] 《
-- `maa_api/agent/runtime.py:2610` [literal] 》
-- `maa_api/agent/runtime.py:2614` [literal] 会话标题
-- `maa_api/agent/runtime.py:2614` [literal] 标题
-- `maa_api/agent/runtime.py:2615` [literal] ：
-- `maa_api/agent/runtime.py:2725` [const] {content[:head]} [... 工具结果中间已省略 {removed} 字；原文保留在会话记录里，需要时可重新调用工具 ...] {content[-tail:]}
-- `maa_api/agent/runtime.py:2909` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
-- `maa_api/agent/runtime.py:2910` [const] 当前模型无法进行 Agent 对话
-- `maa_api/agent/runtime.py:2916` [literal] ，
-- `maa_api/agent/runtime.py:2944` [literal] {prefix}：{'；'.join(parts)}
+- `maa_api/agent/runtime.py:2650` [literal] 「
+- `maa_api/agent/runtime.py:2650` [literal] 」
+- `maa_api/agent/runtime.py:2650` [literal] 《
+- `maa_api/agent/runtime.py:2650` [literal] 》
+- `maa_api/agent/runtime.py:2654` [literal] 会话标题
+- `maa_api/agent/runtime.py:2654` [literal] 标题
+- `maa_api/agent/runtime.py:2655` [literal] ：
+- `maa_api/agent/runtime.py:2765` [const] {content[:head]} [... 工具结果中间已省略 {removed} 字；原文保留在会话记录里，需要时可重新调用工具 ...] {content[-tail:]}
+- `maa_api/agent/runtime.py:2949` [literal] 当前模型未通过 function calling 能力检查，无法进行 Agent 对话
+- `maa_api/agent/runtime.py:2950` [const] 当前模型无法进行 Agent 对话
+- `maa_api/agent/runtime.py:2956` [literal] ，
+- `maa_api/agent/runtime.py:2984` [literal] {prefix}：{'；'.join(parts)}
 
 **maa_api/agent/tools/__init__.py**
 
@@ -1373,16 +1374,16 @@
 
 **maa_api/agent/tools/pipeline.py**
 
-- `maa_api/agent/tools/pipeline.py:101` [literal] 列出 MAA 支持的任务类型与参数。默认 compact：只给参数名与一行说明；要完整 schema（取值、默认值）时传 name=<任务类型> 和 detail="full"。不确定任务名或参数名时用。
-- `maa_api/agent/tools/pipeline.py:113` [literal] 查一条流水线的详情和每个任务的状态。用户问进度、或要看某个任务卡在哪时用。
-- `maa_api/agent/tools/pipeline.py:123` [literal] 等一条流水线结束（完成、失败或取消）或超时再拿结果。提交流水线后需要等结果时用，不要反复调用 get_pipeline。失败时先看现场截图判断是不是游戏没启动：画面是设备桌面或登录页就先补 StartUp。
-- `maa_api/agent/tools/pipeline.py:135` [literal] 翻流水线执行历史。用户问以前跑过什么、上次结果如何时用。
-- `maa_api/agent/tools/pipeline.py:144` [literal] 看当前在跑什么、队列里还排着哪些、按什么优先级排。用户问「还要等多久」时用。
-- `maa_api/agent/tools/pipeline.py:154` [literal] 把任务提交成一条流水线，这是实际动手的入口。内核任务都从主界面起手，只有 StartUp 会拉起客户端；游戏状态不确定时把 StartUp（start_game_enabled: true）放第一条。提交前先确认设备已连接、参数都来自用户。
-- `maa_api/agent/tools/pipeline.py:167` [literal] 停止当前运行中的流水线。这是不需要确认的救援动作，用户喊停或任务明显跑偏时直接调用。
-- `maa_api/agent/tools/pipeline.py:175` [literal] 改运行中任务支持热更新的参数（消耗类参数仍要确认）。用户想在中途调次数或关卡时用。
-- `maa_api/agent/tools/pipeline.py:183` [literal] 清掉排队中的流水线，正在执行的那条不受影响。用户改主意、不想跑排队的任务时用。
-- `maa_api/agent/tools/pipeline.py:208` [literal] 可选
+- `maa_api/agent/tools/pipeline.py:113` [literal] 列出 MAA 支持的任务类型与参数。默认 compact：只给参数名与一行说明；要完整 schema（取值、默认值）时传 name=<任务类型> 和 detail="full"。不确定任务名或参数名时用。
+- `maa_api/agent/tools/pipeline.py:125` [literal] 查一条流水线的详情和每个任务的状态。用户问进度、或要看某个任务卡在哪时用。
+- `maa_api/agent/tools/pipeline.py:135` [literal] 等一条流水线结束（完成、失败或取消）或超时再拿结果。提交流水线后需要等结果时用，不要反复调用 get_pipeline。等待期间不会产生新的输出，预计要等超过一分钟时先在回复里告诉用户在等什么。超时返回 finished=false 与 hint：先看现场截图确认画面，再决定续等、停车或换方案。失败时先看现场截图判断是…（共 191 字）
+- `maa_api/agent/tools/pipeline.py:149` [literal] 翻流水线执行历史。用户问以前跑过什么、上次结果如何时用。
+- `maa_api/agent/tools/pipeline.py:158` [literal] 看当前在跑什么、队列里还排着哪些、按什么优先级排。用户问「还要等多久」时用。
+- `maa_api/agent/tools/pipeline.py:168` [literal] 把任务提交成一条流水线，这是实际动手的入口。内核任务都从主界面起手，只有 StartUp 会拉起客户端；游戏状态不确定时把 StartUp（start_game_enabled: true）放第一条。提交前先确认设备已连接、参数都来自用户。
+- `maa_api/agent/tools/pipeline.py:181` [literal] 停止当前运行中的流水线。这是不需要确认的救援动作，用户喊停或任务明显跑偏时直接调用。
+- `maa_api/agent/tools/pipeline.py:189` [literal] 改运行中任务支持热更新的参数（消耗类参数仍要确认）。用户想在中途调次数或关卡时用。
+- `maa_api/agent/tools/pipeline.py:197` [literal] 清掉排队中的流水线，正在执行的那条不受影响。用户改主意、不想跑排队的任务时用。
+- `maa_api/agent/tools/pipeline.py:222` [literal] 可选
 
 **maa_api/agent/tools/raw.py**
 

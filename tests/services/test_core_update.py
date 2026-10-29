@@ -530,6 +530,37 @@ def test_download_fallback_uses_prefix_mirrors_then_github_and_deduplicates(
     asyncio.run(run())
 
 
+def test_download_reuses_shared_update_http_client(tmp_path: Path) -> None:
+    """内核下载必须复用更新链路共享的 client（M60）。
+
+    下载器自建 client 会丢掉有限超时与显式 ``app.proxy``：M60 实机里它直连
+    GitHub 卡死，而且不会超时，重试与回退都触发不了。
+    """
+
+    async def run() -> None:
+        archive = _valid_archive()
+        captured: dict[str, Any] = {}
+
+        async def download(url: str, dest: str | Path, **kwargs: Any) -> Path:
+            captured.update(kwargs)
+            path = Path(dest)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(archive)
+            return path
+
+        workflow, target, backup, _ = _workflow(
+            tmp_path, archive, download=download
+        )
+
+        await workflow.update()
+        assert captured["client"] is workflow.http_client
+        assert (target / "libMaaCore.dylib").is_file()
+        assert (backup / "old-core.marker").is_file()
+        await workflow.http_client.aclose()
+
+    asyncio.run(run())
+
+
 def test_valid_archive_is_cached_for_retry_after_install_failure(tmp_path: Path) -> None:
     async def run() -> None:
         archive = _valid_archive()
