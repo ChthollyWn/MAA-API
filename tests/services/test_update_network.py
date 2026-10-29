@@ -111,7 +111,8 @@ def test_discover_dedupes_sources_sorts_by_usability_and_caches() -> None:
             "http://127.0.0.1:7897",
             "http://127.0.0.1:1080",
         ]
-        assert first["channels"][0]["source"] == "system"
+        # 7897 同时来自系统代理与本机监听，M62 起按本机代理记（自动模式可用）。
+        assert first["channels"][0]["source"] == "local"
         assert first["recommended"]["url"] == "http://127.0.0.1:7897"
         assert first["listening_ports"] == [
             "http://127.0.0.1:7897",
@@ -122,7 +123,7 @@ def test_discover_dedupes_sources_sorts_by_usability_and_caches() -> None:
             settings=_settings(), prober=prober, prefix_prober=_no_prefix_probe
         )
         assert probes == [
-            ("http://127.0.0.1:7897", "system"),
+            ("http://127.0.0.1:7897", "local"),
             ("http://127.0.0.1:1080", "local"),
         ]
         assert second["channels"] == first["channels"]
@@ -335,3 +336,69 @@ def test_resolve_reads_settings_proxy_and_prefix_live() -> None:
 
 async def _unexpected_discover(settings=None):
     raise AssertionError("不应触发自动发现")
+
+
+def test_discover_upgrades_system_proxy_port_to_local_when_also_listening() -> None:
+    """同一地址又在本机监听时按本机代理记（M62）。"""
+
+    async def scenario():
+        async def system_reader() -> list[str]:
+            return ["http://127.0.0.1:7897"]
+
+        async def port_scanner() -> list[str]:
+            return ["http://127.0.0.1:7897"]
+
+        async def prober(url: str, source: str) -> net.ProxyChannel:
+            return net.ProxyChannel(
+                source=source,
+                url=url,
+                reachable=True,
+                github_ok=True,
+                update_api_ok=True,
+                latency_ms=10,
+            )
+
+        result = await net.discover_proxy_channels(
+            settings=_settings(),
+            force=True,
+            env={},
+            system_reader=system_reader,
+            port_scanner=port_scanner,
+            prober=prober,
+            prefix_prober=_no_prefix_probe,
+        )
+        assert len(result["channels"]) == 1
+        assert result["channels"][0]["source"] == "local"
+        assert result["recommended"]["source"] == "local"
+
+    run(scenario())
+
+
+def test_resolve_auto_uses_discovered_local_proxy() -> None:
+    """没有显式代理时，自动发现到的本机代理直接用于本次下载（M61/M62）。"""
+
+    async def scenario():
+        async def discoverer(settings=None) -> list[net.ProxyChannel]:
+            return [
+                net.ProxyChannel(
+                    source="local",
+                    url="http://127.0.0.1:7897",
+                    github_ok=True,
+                    update_api_ok=True,
+                    latency_ms=11,
+                )
+            ]
+
+        closures: list[str] = []
+        plan = await net.resolve_update_network(
+            {},
+            settings=_settings(),
+            discoverer=discoverer,
+            client_factory=lambda proxy: (closures.append(proxy), FakeClient())[1],
+        )
+        assert closures == ["http://127.0.0.1:7897"]
+        assert plan.proxy == "http://127.0.0.1:7897"
+        assert plan.proxy_source == "local"
+        await plan.aclose()
+
+    run(scenario())
