@@ -1,23 +1,64 @@
-<p align="center">
-  <img src="docs/assets/logo-512.png" alt="MAA-API" width="160" />
-</p>
+<!-- markdownlint-disable -->
+
+<div align="center">
+
+<img alt="LOGO" src="docs/assets/logo-512.png" width="180" />
 
 # MAA-API
 
-以 MaaAssistantArknights 为内核的 FastAPI 服务，自带 Web 控制台、开放 API 与内置 Agent。
-重构方案与决策见 [docs/](docs/README.md)。
+<br>
+<div>
+    <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-%233776AB?logo=python&logoColor=white">
+    <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.138%2B-%23009688?logo=fastapi&logoColor=white">
+</div>
+<div>
+    <img alt="platform" src="https://img.shields.io/badge/platform-Docker%20%7C%20Linux%20%7C%20macOS-blueviolet">
+    <img alt="MaaCore" src="https://img.shields.io/badge/MaaCore-MaaAssistantArknights-%230066CC">
+    <img alt="license" src="https://img.shields.io/github/license/ChthollyWn/MAA-API">
+</div>
+<div>
+    <img alt="commit activity" src="https://img.shields.io/github/commit-activity/m/ChthollyWn/MAA-API?color=%23ff69b4">
+    <img alt="last commit" src="https://img.shields.io/github/last-commit/ChthollyWn/MAA-API?color=%2374b9ff">
+    <img alt="stars" src="https://img.shields.io/github/stars/ChthollyWn/MAA-API?style=social">
+</div>
+<br>
 
-> 非官方粉丝作品：《明日方舟》角色与相关素材版权归 Hypergryph / Studio Montagne 所有，本项目与鹰角网络无隶属关系。
+[文档](docs/README.md) | [开放 API](docs/14-开放API接入指南.md) | [部署指南](docs/15-部署指南.md) | [决策记录](docs/13-决策记录.md)
 
-## Copilot 作业
+MAA-API 是 MaaAssistantArknights 的非官方 Web 服务封装
 
-通过 Agent 的 `upload_copilot` 保存并校验作业 JSON，再把返回的资产 ID 作为 `Copilot` 任务提交到流水线或定时任务。每次执行都会从已校验的资产生成独立私有快照；MaaCore 读取这份快照，源文件在解析后被修改或删除不影响当前运行。资源路径任一组件是 symlink 时会拒绝执行，快照在流水线结束后清理。Copilot 使用自己的任务类型，不会被替换成普通 Fight 关卡。
+以 MaaCore 为内核，自带 Web 控制台、开放 API 与内置 Agent
 
-## 内置 Agent
+把明日方舟的日常任务，变成可编排、可调用、可远程管理的服务 ✿✿ヽ(°▽°)ノ✿
 
-`/agent` 支持自然语言对话、流水线和定时任务编排、日志分析、自动故障诊断与安全恢复。默认模型为 DeepSeek Flash（`deepseek-flash`，`https://api.deepseek.com`）；base URL、API Key 和模型可在设置页修改。`api.deepseek.com` 目前只接受 `deepseek-flash` 与 `deepseek-v4-pro`，模型标识写错会被上游以 400 拒绝。数据库中保存的 API Key 由 `MAA_LLM_ENCRYPTION_KEY` Fernet 主密钥加密，因此要使用设置页保存 LLM 密钥时必须配置并持久保管该环境变量。流水线与 schedule 编辑器可从已保存资源中选择 Copilot 作业。
+</div>
 
-## Docker 镜像
+<!-- markdownlint-restore -->
+
+MaaCore 负责截图识别与操作游戏，本项目负责任务调度、数据持久化、Web 界面与开放 API。它不是 MAA 客户端的替代品，而是给你的脚本、面板和自动化流程提供一个稳定的 HTTP / WebSocket 入口。
+
+## 亮点功能
+
+- 🖥️ **Web 控制台**：移动端优先的 PWA 界面，任务队列、流水线与定时任务编排，设备画面、实时日志与任务结果一站查看
+- 🔌 **开放 API**：REST + WebSocket，`/openapi.json` 契约与内置调试台，token 鉴权与来源限流，接入见 [开放 API 指南](docs/14-开放API接入指南.md)
+- 🤖 **内置 Agent**：自然语言对话与任务编排、日志分析、失败自动诊断与安全恢复；工具调用带确认与审计
+- 🧩 **MaaCore 内核**：复用 MAA 的识别与操作能力，支持 Copilot 作业快照、内核 / 资源 / 游戏更新
+- 📊 **账号数据**：森空岛练度同步，干员与仓库只读视图（练度、潜能、模组与资源统计）
+- 🌐 **多端与推送**：PWA 安装、Web Push 通知、Tailscale Serve HTTPS 接入
+- 🚀 **部署友好**：单进程、单端口（默认 8002）、SQLite 持久化，Docker / 裸机两种部署形态
+- 🧠 **网络自适应**：更新下载自动探测系统代理与本机代理、可配下载前缀；Agent 也能按自然语言选择代理与加速
+
+## 快速开始
+
+### 准备工作
+
+- Python 3.11+（开发环境用 3.13）与 [Poetry](https://python-poetry.org/)
+- Node.js 22+ 与 pnpm（Docker 构建已内置；本机构建前端需要）
+- 一台已连接 ADB 的安卓设备或模拟器
+- 首次启动会自动检查并下载 MaaCore 到 `resource/`，也可以在 `config.yaml` 的 `app.maa_core_path` 指定本地内核目录
+- 复制配置模板并按需填写：`cp config.template.yaml config.yaml`（`config.yaml` 已在 `.gitignore` 中，不会被提交）
+
+### Docker 部署
 
 镜像构建会自动执行 Vite 前端构建，再把产物复制到 Python 运行镜像：
 
@@ -41,7 +82,7 @@ sudo docker run -d -p 8002:8002 --name maa-api \
 
 镜像从 `config.template.yaml` 创建默认 `/app/config.yaml`。可用 `MAA_APP_ACCESS_TOKEN` 设置 API 访问令牌；配置 `MAA_LLM_ENCRYPTION_KEY` 后可在设置页加密保存 DeepSeek API Key。更换该主密钥会导致旧数据库密钥无法解密；运行数据与 MaaCore 下载内容保存在挂载的 `resource/` 中。
 
-## 裸机启动
+### 本机启动
 
 第一次启动后端前先生成静态前端产物：
 
@@ -51,70 +92,67 @@ cd ..
 poetry run uvicorn maa_api.main:app --host 0.0.0.0 --port 8002
 ```
 
-## macOS 开机自启（LaunchAgent）
+## 配置
 
-用 launchd 让服务常驻：登录即起、进程退出即被拉起。管理命令都在 [maa-api-service.sh](scripts/maa-api-service.sh)：
+配置文件是 `config.yaml`（模板 `config.template.yaml`），也支持用环境变量覆盖同名配置项：`MAA_` + 点分 key 的大写、点换下划线（如 `app.access_token` → `MAA_APP_ACCESS_TOKEN`）。常用项：
+
+| 环境变量 | 作用 |
+|---|---|
+| `MAA_APP_ACCESS_TOKEN` | API 访问令牌；留空则免鉴权 |
+| `MAA_LLM_ENCRYPTION_KEY` | 设置页加密保存 LLM API Key 用的 Fernet 主密钥；必须持久保存，更换后旧密钥无法解密 |
+| `MAA_LLM_API_KEY` | LLM API Key（也可在设置页保存） |
+| `MAA_APP_MAA_CORE_PATH` | MaaCore 目录，等价于 `config.yaml` 的 `app.maa_core_path` |
+| `MAA_HOST` / `MAA_PORT` | 启动脚本的监听地址 / 端口（默认 `0.0.0.0:8002`） |
+
+数据库、日志、MaaCore 下载内容与截图都落在 `resource/`；备份与迁移时带上这个目录即可。完整配置项与默认值见 [config.template.yaml](config.template.yaml)。
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [文档索引](docs/README.md) | 重构方案、文档目录与决策速查表 |
+| [01-重构总览与现状评估](docs/01-重构总览与现状评估.md) | 重构目标、范围边界与验收标准 |
+| [02-系统架构设计](docs/02-系统架构设计.md) | 进程模型、IPC、任务队列与模块划分 |
+| [11-Agent 模块设计](docs/11-Agent模块设计.md) | 内置 Agent、工具清单、安全确认与审计 |
+| [13-决策记录](docs/13-决策记录.md) | 每项决策的选择、理由与实施偏离 |
+| [14-开放 API 接入指南](docs/14-开放API接入指南.md) | REST / WebSocket 的调用、鉴权与错误处理 |
+| [15-部署指南](docs/15-部署指南.md) | Tailscale Serve、HTTPS、Web Push 与故障排查 |
+
+## 开发
 
 ```bash
-./scripts/maa-api-service.sh install      # 安装并启动（可反复执行，用于更新配置）
-./scripts/maa-api-service.sh status       # 加载状态、PID、端口监听、日志位置
-./scripts/maa-api-service.sh logs 80      # 看应用日志与启动期兜底日志
-./scripts/maa-api-service.sh logs -f      # 持续跟随
-./scripts/maa-api-service.sh reload       # 改了 config.yaml 之后重启生效
-./scripts/maa-api-service.sh stop         # 停止当前实例
-./scripts/maa-api-service.sh disable      # 真正停用：停止且不再被拉起
+# 后端测试
+.venv/bin/python -m pytest -q
+
+# 前端检查（在 web/ 下）
+pnpm gen:api:check && pnpm typecheck && pnpm test --run && pnpm build
+
+# OpenAPI 契约快照
+.venv/bin/python scripts/dump_openapi.py --check
 ```
 
-| 命令 | 作用 |
-|---|---|
-| `install` | 渲染模板 → 校验语法 → 安装到 `~/Library/LaunchAgents/` → 启动 |
-| `uninstall` | 停止并删除 LaunchAgent（`--purge-logs` 顺带删除兜底日志） |
-| `start` / `stop` | 加载并启动 / 停止并卸载；`stop` 后 KeepAlive 仍启用 |
-| `restart` / `reload` | 重启服务，等价于 `launchctl kickstart -k` |
-| `enable` / `disable` | 允许 / 禁止自启并立即停止 |
-| `status` / `logs` / `paths` / `check` | 看状态、看日志、打印路径、只体检不改状态 |
+`scripts/*_smoke.py` 是各子系统的端到端冒烟，成功时末行是 `SMOKE OK`；环境陷阱（如 macOS 没有 `timeout`）记录在 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)。
 
-- plist 的唯一事实来源是 [local.maa-api.plist.template](scripts/launchd/local.maa-api.plist.template)：不要直接编辑 `~/Library/LaunchAgents/local.maa-api.plist`，改模板后重新 `install`。
-- `stop` 不等于停服：KeepAlive 会把它拉回来，要彻底停用请用 `disable`（这也是它的设计语义：常驻）。
-- 改 `config.yaml` 后必须 `reload`，launchd 起的实例没有终端可 Ctrl-C。
-- 日志分两处：应用日志在 `resource/log/YYYY-MM-DD.log`；`resource/log/uvicorn.err` 只在「Python 还没起来就死」时才有内容（venv 被删、`config.yaml` 语法错）。脚本每次启动前会把后者截到最后 2MB。
-- 换端口：`MAA_PORT=<端口> ./scripts/maa-api-service.sh install`，同时要保证 [start-maa-api.sh](scripts/start-maa-api.sh) 拿到同一个 `MAA_PORT`（模板已把它写进 plist 的环境变量）。
-- launchd 只存在于 macOS。Linux 用 systemd，容器用 `--restart unless-stopped`（见上一节），不要与 LaunchAgent 同时跑：两者会抢同一个 8002 端口与同一个 SQLite 库。
+目录结构：`maa_api/` 是 FastAPI 服务（api、services、agent、domain、model），`web/` 是 React 前端（构建产物输出到 `static/`），`scripts/` 放启动、门禁与冒烟脚本，`docs/` 是重构方案与决策记录。
 
-## 手机与 PWA
+分支模型：`master` 是对外稳定分支，`dev` 是开发集成分支；新工作从 `dev` 拉分支，完成后 `git merge --no-ff` 回 `dev`，发布时合入 `master`。约定详见 [AGENTS.md](AGENTS.md)。
 
-手机可通过同一网络访问主机地址。若要启用 Service Worker、离线外壳与 Chromium 安装提示，请通过 Tailscale Serve 的 HTTPS 地址访问；直接使用局域网 HTTP 仍可打开页面和调用 API，但浏览器会禁用这些安全上下文能力。iOS 仍可从 Safari 分享菜单手动添加到主屏幕。Web Push 已接入（M14），需要 HTTPS 入口与 VAPID 密钥。
+## 参与贡献
 
-## 用 superpowers 推进里程碑
+欢迎提 [Issue](https://github.com/ChthollyWn/MAA-API/issues) 和 Pull Request。提交前请先跑上面「开发」一节的门禁；会改变对外行为或与 [决策记录](docs/13-决策记录.md) 冲突的改动，先开 Issue 讨论。
 
-后续里程碑（范围见 [docs/12](docs/12-实施计划与里程碑.md)）在 Codex 中用 superpowers 插件推进。项目约定写在 [AGENTS.md](AGENTS.md)，下面的提示词只需把 `<N>` 换成里程碑编号。
+## 许可
 
-### 第一步：在计划模式里理清范围
+本项目自身代码与文档采用 [GNU Affero General Public License v3.0 only](LICENSE)（AGPL-3.0-only）授权，版权归 ChthollyWn 所有。品牌插画、游戏素材与第三方数据不在该授权范围内，见下方「声明」。
 
-```text
-/plan 使用 superpowers 开发执行方案中的 M<N>。规格以 docs/12 的 M<N> 一节及其引用的专题文档为准，已定决策见 docs/README.md 与 docs/13（含 §8）；只问文档没覆盖、互相冲突或需要先实测的地方。最后给我一份一页的 M<N> 简报：范围与非目标、硬约束、需要先验证的假设、硬验收命令、需要真机的补充检查。
-```
+- 网络部署：按 AGPL §13，需要向通过网络使用本服务的用户提供对应源码；修改后再对外部署，同样需要公开修改后的源码。
+- 内核与资源：MaaCore、MaaResource 等来自 [MaaAssistantArknights](https://github.com/MaaAssistantArknights/MaaAssistantArknights)，版权归 MAA Team，使用与再分发还须遵守 AGPL-3.0-only 与 [MAA 用户协议](https://github.com/MaaAssistantArknights/MaaAssistantArknights/blob/dev-v2/terms-of-service.md)。本仓库不随附 MaaCore 二进制，首次启动时从 MAA 官方发布下载。
+- 第三方数据：企鹅物流数据按 CC BY-NC 4.0 提供；PRTS 作业站、森空岛等按各自站点条款使用。
 
-回答它的问题，确认简报后进入下一步。
+## 声明
 
-### 第二步：设为目标，让它执行到底
+- 本项目是非官方粉丝作品，与鹰角网络、MaaAssistantArknights 官方均无隶属关系；仅供学习交流使用
+- 《明日方舟》的角色、游戏素材与相关商标版权归 Hypergryph / Studio Montagne 所有
+- 仓库中的品牌插画与 logo 为项目自用标识，版权归画稿作者所有，未经许可不得用于商业用途
 
-```text
-/goal 按计划模式里确认的 M<N> 简报完成 M<N>：先把简报写成 spec 并提交（视为已批准，不用再等我审），再用 writing-plans 写计划（不需要我审，执行方式用 subagent-driven），然后执行。收尾按 AGENTS.md 直接本地合并并打 v2-m<N> tag，不用问我合并方式；涉及前端时，前端验收至少在干净克隆上跑一次。只有 AGENTS.md 规定要问我的情况才停下。
-```
-
-它只会在 AGENTS.md 规定必须问你的地方暂停。结束后读它的报告：验收结果、替你做过的裁决、推迟处理的问题。
-
-### 大里程碑：换新会话执行
-
-M11、M13 这类大里程碑，确认简报后先在普通模式里说"把刚才确认的简报写成 spec，再写计划，都提交后停下"，然后新开一个会话执行，让主控从干净的上下文开始：
-
-```text
-/goal 用 subagent-driven-development 执行 docs/superpowers/plans/<计划文件>.md，完成后按 AGENTS.md 收尾，不用问我合并方式；涉及前端时，前端验收至少在干净克隆上跑一次。
-```
-
-执行中断或会话过长时，新开一个会话接着做：
-
-```text
-继续用 subagent-driven-development 执行 docs/superpowers/plans/<计划文件>.md。先读它的台账和 git log，从第一个未完成的任务接着做。
-```
+如果觉得这个项目对你有帮助，帮忙点个 Star 吧！这就是对我们最大的支持了~（网页右上角的小星星）

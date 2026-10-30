@@ -1,36 +1,37 @@
 # AI 腔规则命中：docs 与 README 正文（逐行统计）
 
-总计 15546 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 15565 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 4357 | 4357 |
+| 粗体强调 | medium | 0 | 4374 | 4374 |
 | 破折号当冒号用 | high | 0 | 825 | 825 |
-| 「A 而不是 B」对照腔 | high | 0 | 331 | 331 |
-| 绝对化规定腔 | medium | 0 | 265 | 265 |
-| 「…即可」机器腔 | medium | 0 | 86 | 86 |
+| 「A 而不是 B」对照腔 | high | 0 | 332 | 332 |
+| 绝对化规定腔 | medium | 0 | 266 | 266 |
+| 「…即可」机器腔 | medium | 0 | 88 | 88 |
 | 「不是…而是…」对照句 | high | 0 | 29 | 29 |
 | 自指式讲解腔 | medium | 0 | 23 | 23 |
+| emoji/符号装饰 | high | 0 | 13 | 13 |
 | 省略号 | medium | 0 | 6 | 6 |
-| emoji/符号装饰 | high | 0 | 5 | 5 |
 | 提示腔 | medium | 0 | 4 | 4 |
 | 「值得注意的是」式过渡 | high | 0 | 2 | 2 |
 | 宣传词 | medium | 0 | 2 | 2 |
+| 感叹号 | low | 0 | 1 | 1 |
 | 口播腔 | high | 0 | 1 | 1 |
 | 英文 AI 惯用语 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 4357）
+## 粗体强调（medium｜用户可见 0 / 开发向 4374）
 
 **开发向**
 
 - `AGENTS.md:14` 公开仓库 `github.com/ChthollyWn/MAA-API`：**master** 是对外稳定分支（仓库默认分支），**dev** 是开发集成分支（当前仅本地，未推送；需要公开时再推同名分支）。
-- `docs/01-重构总览与现状评估.md:21` 因此这是一次**重写而非改造**：后端执行层重写，`static/` 整体废弃，引入 SQLite 与子进程隔离。
-- `docs/01-重构总览与现状评估.md:34` | pydantic | **1.10.21** | **v1，不是 v2** |
-- `docs/01-重构总览与现状评估.md:39` pydantic 仍在 v1 是个容易被忽略但影响工作量的事实。现有代码的 `super().dict(*args, **kwargs)`（`task.py` 的 `to_dict`）、在 `__init__` 里 `super().__i…（共 269 字）
-- `docs/01-重构总览与现状评估.md:45` **启动期强耦合。** `maa_api/model/core/scheduler.py` 末尾是模块级 `task_scheduler = TaskScheduler()`，构造函数里调 `load_asst()`，而 `load_ass…（共 273 字）
-- `docs/01-重构总览与现状评估.md:47` **单实例且无队列。** 全局一个 MaaCore 实例，`_check_asst_running()` 在运行中直接抛异常拒绝新提交。定时任务撞上手动任务时靠 `if task_scheduler.is_running(): return…（共 149 字）
-- …… 另有 4351 条，见 inventory.json
+- `README.md:42` 🖥️ **Web 控制台**：移动端优先的 PWA 界面，任务队列、流水线与定时任务编排，设备画面、实时日志与任务结果一站查看
+- `README.md:43` 🔌 **开放 API**：REST + WebSocket，`/openapi.json` 契约与内置调试台，token 鉴权与来源限流，接入见 [开放 API 指南](docs/14-开放API接入指南.md)
+- `README.md:44` 🤖 **内置 Agent**：自然语言对话与任务编排、日志分析、失败自动诊断与安全恢复；工具调用带确认与审计
+- `README.md:45` 🧩 **MaaCore 内核**：复用 MAA 的识别与操作能力，支持 Copilot 作业快照、内核 / 资源 / 游戏更新
+- `README.md:46` 📊 **账号数据**：森空岛练度同步，干员与仓库只读视图（练度、潜能、模组与资源统计）
+- …… 另有 4368 条，见 inventory.json
 
 ## 破折号当冒号用（high｜用户可见 0 / 开发向 825）
 
@@ -44,7 +45,7 @@
 - `docs/03-MaaCore内核层设计.md:223` 与现有 `callback_handler.handle_message` 的关键差异：不在回调线程里做业务判断。现在的实现会在回调线程内更新流水线状态、拼接日志、甚至 `raise ResponseException`（见 `handle…（共 182 字）
 - …… 另有 819 条，见 inventory.json
 
-## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 331）
+## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 332）
 
 **开发向**
 
@@ -54,31 +55,31 @@
 - `docs/01-重构总览与现状评估.md:82` 类体里的尾随逗号会让默认值变成元组 `(None,)` 而非 `None`，与声明的类型不符。
 - `docs/01-重构总览与现状评估.md:94` **枚举值硬编码在 Python 里会随内核版本过时。** 最典型的是 `Roguelike.theme`（当前硬编码 `Phantom` / `Mizuki` / `Sami` / `Sarkaz`），MAA 每次新增肉鸽主题都需要改代码…（共 214 字）
 - `docs/01-重构总览与现状评估.md:156` 配置文件 `config.yaml` 的结构会扩展（新增渠道默认值、LLM 配置、通知通道、重试参数等），但可视化设置页的配置项落库而非写回 YAML，两者的优先级关系见 [08-ADB连接与账号渠道](./08-ADB连接与账号渠道.md…（共 122 字）
-- …… 另有 325 条，见 inventory.json
+- …… 另有 326 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 265）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 266）
 
 **开发向**
 
 - `AGENTS.md:19` 仓库已公开：config.yaml、resource/、.venv/、web/node_modules/ 都不进版本库；提交前检查敏感信息，绝不把真实密钥、凭据、个人身份信息写进代码或文档。
 - `AGENTS.md:32` `python` 不在 PATH，一律用 `.venv/bin/python`。
+- `README.md:156` 仓库中的品牌插画与 logo 为项目自用标识，版权归画稿作者所有，未经许可不得用于商业用途
 - `docs/01-重构总览与现状评估.md:17` 开放 API 受阻于响应格式。所有接口一律返回 HTTP 200，业务码塞在 body 的 `code` 字段里，这个格式在 OpenAPI 与 agent 场景下无法表达错误语义。
 - `docs/02-系统架构设计.md:48` 主进程**绝不加载** `libMaaCore`。所有涉及内核的操作都编码为命令投递给子进程。这条纪律是子进程隔离能成立的前提，一旦主进程里出现 `ctypes.CDLL(libMaaCore)`，内核热更新与崩溃隔离就同时失效。
 - `docs/03-MaaCore内核层设计.md:220` pass # 回调线程内绝不抛异常，否则可能直接崩内核
-- `docs/03-MaaCore内核层设计.md:315` **内核未就绪时的行为。** 子进程处于 `STARTING` / `RESTARTING` / `CRASHED` / `FAILED` 时，所有业务命令直接抛领域异常（对应 `CORE_NOT_READY` / `CORE_RESTAR…（共 247 字）
-- …… 另有 259 条，见 inventory.json
+- …… 另有 260 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 86）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 88）
 
 **开发向**
 
 - `AGENTS.md:18` 默认不 push：提交到本地即可。用户明确要求推送时，push 当前分支到 origin 的同名分支，不必再确认一次；没有明确要求就不要推。
+- `README.md:107` 数据库、日志、MaaCore 下载内容与截图都落在 `resource/`；备份与迁移时带上这个目录即可。完整配置项与默认值见 [config.template.yaml](config.template.yaml)。
 - `docs/04-数据模型与持久化.md:9` 数据库文件位于 `resource/maa_api.db`。选这个位置的原因有三：`resource/` 已在 `.gitignore` 中被整体忽略，数据库及其 WAL 副产品不会误入版本库；`resource/` 已是运行期数据的既有落…（共 178 字）
 - `docs/05-API规范与路由清单.md:380` | `SKLAND_LOGIN_EXPIRED` | 409 | 扫码会话到期（TTL 180 秒）、已被消费，或上游判定失效（`scan_status` 回 `status=102`）；用户重新生成一张二维码即可 |
 - `docs/05-API规范与路由清单.md:735` **中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`，其中 `inter…（共 660 字）
 - `docs/06-实时日志与WebSocket.md:420` 内核热更新导致子进程重启时，MaaCore 会重新初始化日志系统并追加到同一个 `asst.log`（`LoadFileStream` 后接 `log_init_info`，可从实测日志开头的 `MaaCore Process Start`…（共 148 字）
-- `docs/07-热更新方案.md:53` **当前版本号**从内核自身取。现有做法是 `Asst.load()` 后调 `Asst().get_version()`——这在重构后**不可行**，因为主进程绝不加载 `libMaaCore`（[02-系统架构设计 §1](./02-系…（共 247 字）
-- …… 另有 80 条，见 inventory.json
+- …… 另有 82 条，见 inventory.json
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 29）
 
@@ -104,6 +105,18 @@
 - `docs/04-数据模型与持久化.md:1372` 截图文件保留 7 天，同时受总大小上限约束（默认 512 MB）。两个维度依次执行：先按 7 天删，删完若总量仍超上限，再按 `created_at` 升序继续删最旧的；文件被删时给记录打 `deleted_at`，记录本身按 90 天随流…（共 422 字）
 - …… 另有 17 条，见 inventory.json
 
+## emoji/符号装饰（high｜用户可见 0 / 开发向 13）
+
+**开发向**
+
+- `README.md:42` 🖥️ **Web 控制台**：移动端优先的 PWA 界面，任务队列、流水线与定时任务编排，设备画面、实时日志与任务结果一站查看
+- `README.md:43` 🔌 **开放 API**：REST + WebSocket，`/openapi.json` 契约与内置调试台，token 鉴权与来源限流，接入见 [开放 API 指南](docs/14-开放API接入指南.md)
+- `README.md:44` 🤖 **内置 Agent**：自然语言对话与任务编排、日志分析、失败自动诊断与安全恢复；工具调用带确认与审计
+- `README.md:45` 🧩 **MaaCore 内核**：复用 MAA 的识别与操作能力，支持 Copilot 作业快照、内核 / 资源 / 游戏更新
+- `README.md:46` 📊 **账号数据**：森空岛练度同步，干员与仓库只读视图（练度、潜能、模组与资源统计）
+- `README.md:47` 🌐 **多端与推送**：PWA 安装、Web Push 通知、Tailscale Serve HTTPS 接入
+- …… 另有 7 条，见 inventory.json
+
 ## 省略号（medium｜用户可见 0 / 开发向 6）
 
 **开发向**
@@ -114,16 +127,6 @@
 - `docs/ENVIRONMENT.md:430` ``| `CODE` | 404 | 含义…… |`` 的行共 92 行 / 14 张表，HTTP 列为 `—` 的只有 `UPDATE_INTERRUPTED`。
 - `docs/superpowers/plans/2026-09-28-m17-task-param-defaults.md:64` docs/09 §7.3/§603/§656：把「未改动的字段不进草稿……控件显示内核默认值并标「默认」」改写为新的物化 + 预填 + 显式下发模型，并保留「服务端不预设内核默认值」这条历史理由的说明（现在由 §8 的偏离条目承接）。
 - `docs/superpowers/specs/2026-10-09-m25-prts-knowledge.md:134` | 当期活动用 SMW 查询取，时间同时给 `timestamp`（Unix 秒）与 `raw`（UTC） | `action=ask&query=[[分类:有活动信息的页面]][[!分类:集成战略]]\|?名称缩短\|?活动开始时间\|?…（共 239 字）
-
-## emoji/符号装饰（high｜用户可见 0 / 开发向 5）
-
-**开发向**
-
-- `docs/06-实时日志与WebSocket.md:189` | `StageDrops` | `{details.stars}`⭐通关`{details.stage.stageCode}` <br>掉落统计: <br>`{掉落明细}` |
-- `docs/superpowers/ledgers/2026-10-13-m45-depot-selfscan.md:149` | 真格（接受的那 18 格） | 0.7876 – 0.9372 | 0.1664 – 0.3964 | 18/18 接受 ✅ |
-- `docs/superpowers/ledgers/2026-10-13-m45-depot-selfscan.md:150` | 未知道具格（c8r2/c8r3） | 0.5665 / 0.5846 | 0.0269 / 0.0582 | 0/2 接受 ✅ |
-- `docs/superpowers/ledgers/2026-10-13-m45-depot-selfscan.md:151` | **半格错位（落行间空白带）24 个位置** | 最高 **0.7907** | 最高 **0.1540** | **误接受 0/24** ✅ |
-- `docs/superpowers/specs/2026-09-29-m19-agent-knowledge-expansion.md:927` get_logs（`source=["task"]`）里能看到每次「已战斗 x/y 次，消耗理智 N」，以及每条「{星级}⭐通关{关卡代号} 掉落统计」。
 
 ## 提示腔（medium｜用户可见 0 / 开发向 4）
 
@@ -147,6 +150,12 @@
 
 - `docs/09-前端重构方案.md:1189` Chrome DevTools 的端口转发。Android 手机用 USB 连电脑，在 `chrome://inspect` 里配端口转发，手机上的 `localhost:8002` 映射到电脑能访问的地址，从而落进 `localhost`…（共 176 字）
 - `docs/13-决策记录.md:2417` **四、对照 DSH（`app.asar` 内的 `@deepseek-ai/dsh-*` 包）为什么它「丝滑」。** 不是模型窗口更大，而是上下文生产与消费两侧都有预算，且压缩只动历史、不动 envelope：
+
+## 感叹号（low｜用户可见 0 / 开发向 1）
+
+**开发向**
+
+- `README.md:158` 如果觉得这个项目对你有帮助，帮忙点个 Star 吧！这就是对我们最大的支持了~（网页右上角的小星星）
 
 ## 口播腔（high｜用户可见 0 / 开发向 1）
 

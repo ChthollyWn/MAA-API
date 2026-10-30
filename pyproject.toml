@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "以 MaaAssistantArknights 为内核的 FastAPI 服务"
 authors = ["ChthollyWn <85938618+ChthollyWn@users.noreply.github.com>"]
 readme = "README.md"
+license = "AGPL-3.0-only"
 
 [tool.poetry.dependencies]
 python = "^3.11"
