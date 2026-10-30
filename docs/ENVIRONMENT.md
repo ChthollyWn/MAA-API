@@ -79,7 +79,7 @@
 
 ## 编排与执行环境
 
-- 分支 `refactor/v2`；`dev` 停在 `139c4bc`，是回滚锚点。
+- 分支 `master`（对外稳定，公开仓库默认分支）与 `dev`（开发集成，当前本地）；旧 `refactor/v2` 与老 `dev`（`139c4bc`）只保留在旧私有仓库归档与本地备份中（2026-10-30 历史清理，见 [13 §8.86](./13-决策记录.md)）。
 - worker 由编排器以 `dsh --profile headless` 一次性进程执行，每个 worker 是全新上下文。
 - Node 23 下官方 `dsh` bin 因 `import.meta.main` 为 undefined 而静默 no-op，必须走包装器 `~/.local/bin/dsh-start.mjs`。
 - worker 以 `DSH_PERMISSION_MODE=danger-full-access` 运行（无人值守不能卡审批：headless 没有审批应答方，`approval: ask` 会 fail closed）。
