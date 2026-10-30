@@ -1,7 +1,13 @@
+<p align="center">
+  <img src="docs/assets/logo-512.png" alt="MAA-API" width="160" />
+</p>
+
 # MAA-API
 
 以 MaaAssistantArknights 为内核的 FastAPI 服务，自带 Web 控制台、开放 API 与内置 Agent。
 重构方案与决策见 [docs/](docs/README.md)。
+
+> 非官方粉丝作品：《明日方舟》角色与相关素材版权归 Hypergryph / Studio Montagne 所有，本项目与鹰角网络无隶属关系。
 
 ## Copilot 作业
 
