@@ -1,15 +1,15 @@
 # AI 腔规则命中：docs 与 README 正文（逐行统计）
 
-总计 15521 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
+总计 15540 条文本。命中按规则汇总，「用户可见」只统计界面/对外文案，
 「开发向」是注释、docstring、内部常量（维护者看得到，终端用户看不到）。
 
 | 规则 | 严重度 | 用户可见 | 开发向 | 合计 |
 |---|---|---|---|---|
-| 粗体强调 | medium | 0 | 4336 | 4336 |
-| 破折号当冒号用 | high | 0 | 826 | 826 |
+| 粗体强调 | medium | 0 | 4352 | 4352 |
+| 破折号当冒号用 | high | 0 | 825 | 825 |
 | 「A 而不是 B」对照腔 | high | 0 | 331 | 331 |
-| 绝对化规定腔 | medium | 0 | 264 | 264 |
-| 「…即可」机器腔 | medium | 0 | 85 | 85 |
+| 绝对化规定腔 | medium | 0 | 265 | 265 |
+| 「…即可」机器腔 | medium | 0 | 86 | 86 |
 | 「不是…而是…」对照句 | high | 0 | 29 | 29 |
 | 自指式讲解腔 | medium | 0 | 23 | 23 |
 | 省略号 | medium | 0 | 6 | 6 |
@@ -20,29 +20,29 @@
 | 口播腔 | high | 0 | 1 | 1 |
 | 英文 AI 惯用语 | medium | 0 | 1 | 1 |
 
-## 粗体强调（medium｜用户可见 0 / 开发向 4336）
+## 粗体强调（medium｜用户可见 0 / 开发向 4352）
 
 **开发向**
 
+- `AGENTS.md:14` 公开仓库 `github.com/ChthollyWn/MAA-API`：**master** 是对外稳定分支（仓库默认分支），**dev** 是开发集成分支（当前仅本地，未推送；需要公开时再推同名分支）。
 - `docs/01-重构总览与现状评估.md:21` 因此这是一次**重写而非改造**：后端执行层重写，`static/` 整体废弃，引入 SQLite 与子进程隔离。
 - `docs/01-重构总览与现状评估.md:34` | pydantic | **1.10.21** | **v1，不是 v2** |
 - `docs/01-重构总览与现状评估.md:39` pydantic 仍在 v1 是个容易被忽略但影响工作量的事实。现有代码的 `super().dict(*args, **kwargs)`（`task.py` 的 `to_dict`）、在 `__init__` 里 `super().__i…（共 269 字）
 - `docs/01-重构总览与现状评估.md:45` **启动期强耦合。** `maa_api/model/core/scheduler.py` 末尾是模块级 `task_scheduler = TaskScheduler()`，构造函数里调 `load_asst()`，而 `load_ass…（共 273 字）
 - `docs/01-重构总览与现状评估.md:47` **单实例且无队列。** 全局一个 MaaCore 实例，`_check_asst_running()` 在运行中直接抛异常拒绝新提交。定时任务撞上手动任务时靠 `if task_scheduler.is_running(): return…（共 149 字）
-- `docs/01-重构总览与现状评估.md:49` **状态全在内存。** `TaskPipeline` 是个 pydantic 模型，`tasks`、`status`、`logs` 都是内存字段。重启丢失全部执行历史，前端刷新看到的是当前进程的瞬时状态。
-- …… 另有 4330 条，见 inventory.json
+- …… 另有 4346 条，见 inventory.json
 
-## 破折号当冒号用（high｜用户可见 0 / 开发向 826）
+## 破折号当冒号用（high｜用户可见 0 / 开发向 825）
 
 **开发向**
 
-- `AGENTS.md:16` 不要合并到 dev，也不要把 dev 拉进任何分支——dev 是旧线，与 v2 无关。
 - `docs/01-重构总览与现状评估.md:51` **截图以 base64 内嵌日志。** `pipeline.py` 的 `append_img_log` 把整张 JPEG 的 base64 塞进日志内容，前端通过 `GET /api/maa/pipeline` 全量拉取。一条流水线跑完…（共 163 字）
 - `docs/01-重构总览与现状评估.md:102` **连接失败的回调事件名拼错，该日志从未触发过。** `callback_handler.py` 的 `connection_map` 里键是 `ConnectFaild`，而 MaaCore 实际发出的是 `ConnectFailed`（…（共 226 字）
 - `docs/02-系统架构设计.md:135` `LOAD_RESOURCE` 的 300 秒是从原定的 120 秒上调的。原值是按"基础资源 + 一个 15 KB 的 OTA `tasks.json`"估的，而现在这条命令一次要跑完整条加载链——基础资源加上三个增量层，其中通道 B 的…（共 272 字）
 - `docs/02-系统架构设计.md:197` **不抢占**意味着：正在执行的流水线不会被更高优先级的新提交打断。用户若想立刻插队，需显式调用停止接口终止当前流水线，再提交新的 —— 这个动作在前端是一个明确的按钮，不是隐式行为。
 - `docs/02-系统架构设计.md:311` 启动 `CoreSupervisor`，**不阻塞等待** —— 子进程在后台走"校验版本 → 加载资源 → 连接设备"
-- …… 另有 820 条，见 inventory.json
+- `docs/03-MaaCore内核层设计.md:223` 与现有 `callback_handler.handle_message` 的关键差异：不在回调线程里做业务判断。现在的实现会在回调线程内更新流水线状态、拼接日志、甚至 `raise ResponseException`（见 `handle…（共 182 字）
+- …… 另有 819 条，见 inventory.json
 
 ## 「A 而不是 B」对照腔（high｜用户可见 0 / 开发向 331）
 
@@ -56,29 +56,29 @@
 - `docs/01-重构总览与现状评估.md:156` 配置文件 `config.yaml` 的结构会扩展（新增渠道默认值、LLM 配置、通知通道、重试参数等），但可视化设置页的配置项落库而非写回 YAML，两者的优先级关系见 [08-ADB连接与账号渠道](./08-ADB连接与账号渠道.md…（共 122 字）
 - …… 另有 325 条，见 inventory.json
 
-## 绝对化规定腔（medium｜用户可见 0 / 开发向 264）
+## 绝对化规定腔（medium｜用户可见 0 / 开发向 265）
 
 **开发向**
 
-- `AGENTS.md:29` `python` 不在 PATH，一律用 `.venv/bin/python`。
+- `AGENTS.md:19` 仓库已公开：config.yaml、resource/、.venv/、web/node_modules/ 都不进版本库；提交前检查敏感信息，绝不把真实密钥、凭据、个人身份信息写进代码或文档。
+- `AGENTS.md:32` `python` 不在 PATH，一律用 `.venv/bin/python`。
 - `docs/01-重构总览与现状评估.md:17` 开放 API 受阻于响应格式。所有接口一律返回 HTTP 200，业务码塞在 body 的 `code` 字段里，这个格式在 OpenAPI 与 agent 场景下无法表达错误语义。
 - `docs/02-系统架构设计.md:48` 主进程**绝不加载** `libMaaCore`。所有涉及内核的操作都编码为命令投递给子进程。这条纪律是子进程隔离能成立的前提，一旦主进程里出现 `ctypes.CDLL(libMaaCore)`，内核热更新与崩溃隔离就同时失效。
 - `docs/03-MaaCore内核层设计.md:220` pass # 回调线程内绝不抛异常，否则可能直接崩内核
 - `docs/03-MaaCore内核层设计.md:315` **内核未就绪时的行为。** 子进程处于 `STARTING` / `RESTARTING` / `CRASHED` / `FAILED` 时，所有业务命令直接抛领域异常（对应 `CORE_NOT_READY` / `CORE_RESTAR…（共 247 字）
-- `docs/04-数据模型与持久化.md:82` 会话管理遵循两条纪律。HTTP 请求通过依赖注入拿到 `AsyncSession`，请求结束即关闭；后台任务（`PipelineRunner`、`LogHub` 刷盘、清理任务）**各自开新会话**，绝不跨任务共享——`AsyncSessi…（共 238 字）
-- …… 另有 258 条，见 inventory.json
+- …… 另有 259 条，见 inventory.json
 
-## 「…即可」机器腔（medium｜用户可见 0 / 开发向 85）
+## 「…即可」机器腔（medium｜用户可见 0 / 开发向 86）
 
 **开发向**
 
-- `AGENTS.md:15` 默认不 push：提交到本地即可。用户明确要求推送时，push 当前分支到 origin 的同名分支（refactor/v2），不必再确认一次；没有明确要求就不要推。
+- `AGENTS.md:18` 默认不 push：提交到本地即可。用户明确要求推送时，push 当前分支到 origin 的同名分支，不必再确认一次；没有明确要求就不要推。
 - `docs/04-数据模型与持久化.md:9` 数据库文件位于 `resource/maa_api.db`。选这个位置的原因有三：`resource/` 已在 `.gitignore` 中被整体忽略，数据库及其 WAL 副产品不会误入版本库；`resource/` 已是运行期数据的既有落…（共 178 字）
 - `docs/05-API规范与路由清单.md:380` | `SKLAND_LOGIN_EXPIRED` | 409 | 扫码会话到期（TTL 180 秒）、已被消费，或上游判定失效（`scan_status` 回 `status=102`）；用户重新生成一张二维码即可 |
 - `docs/05-API规范与路由清单.md:735` **中断本轮（M22）。** `POST /api/agent/sessions/{id}/interrupt` 幂等：返回 `{"session_id", "interrupted", "turn_running"}`，其中 `inter…（共 660 字）
 - `docs/06-实时日志与WebSocket.md:420` 内核热更新导致子进程重启时，MaaCore 会重新初始化日志系统并追加到同一个 `asst.log`（`LoadFileStream` 后接 `log_init_info`，可从实测日志开头的 `MaaCore Process Start`…（共 148 字）
 - `docs/07-热更新方案.md:53` **当前版本号**从内核自身取。现有做法是 `Asst.load()` 后调 `Asst().get_version()`——这在重构后**不可行**，因为主进程绝不加载 `libMaaCore`（[02-系统架构设计 §1](./02-系…（共 247 字）
-- …… 另有 79 条，见 inventory.json
+- …… 另有 80 条，见 inventory.json
 
 ## 「不是…而是…」对照句（high｜用户可见 0 / 开发向 29）
 

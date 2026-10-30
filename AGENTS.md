@@ -1,6 +1,6 @@
 # MAA-API
 
-以 MaaAssistantArknights 为内核的 FastAPI 服务，正在进行 v2 重构。M0–M9 已完成，后续里程碑见 docs/12。
+以 MaaAssistantArknights 为内核的 FastAPI 服务。v2 重构 M0–M62 已完成并合入 master；实施计划见 docs/12，决策与偏离见 docs/13。
 
 ## 规格与决策
 
@@ -11,9 +11,12 @@
 
 ## 分支与发布
 
-- 集成分支是 refactor/v2。每个里程碑从它新建 `m<N>-<简短英文名>` 分支，完成后用 `git merge --no-ff` 合并回 refactor/v2，并打 `v2-m<N>` tag。
-- 默认不 push：提交到本地即可。用户明确要求推送时，push 当前分支到 origin 的同名分支（refactor/v2），不必再确认一次；没有明确要求就不要推。
-- 不要合并到 dev，也不要把 dev 拉进任何分支——dev 是旧线，与 v2 无关。
+- 公开仓库 `github.com/ChthollyWn/MAA-API`：**master** 是对外稳定分支（仓库默认分支），**dev** 是开发集成分支（当前仅本地，未推送；需要公开时再推同名分支）。
+- 日常工作从 dev 新建 `<简短英文名>` 分支；完成后用 `git merge --no-ff` 合并回 dev。里程碑完成时打 `v2-m<N>` tag。
+- 发布时把 dev 合入 master 并推送 master；里程碑分支与临时分支不推。
+- 本地分支只保留 master 与 dev 两个；临时分支用完即删。历史 tag（`v2-m*`）已公开，不要改写已发布历史。
+- 默认不 push：提交到本地即可。用户明确要求推送时，push 当前分支到 origin 的同名分支，不必再确认一次；没有明确要求就不要推。
+- 仓库已公开：config.yaml、resource/、.venv/、web/node_modules/ 都不进版本库；提交前检查敏感信息，绝不把真实密钥、凭据、个人身份信息写进代码或文档。
 - 不使用 worktree：.venv、config.yaml、resource/、web/node_modules 都不进版本库，新 worktree 里没有。直接在当前检出上切分支工作。
 
 ## 命令
