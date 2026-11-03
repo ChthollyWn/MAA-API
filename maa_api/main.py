@@ -60,6 +60,7 @@ from maa_api.api.routers import (
     queue,
     questions,
     resources,
+    runs,
     screenshots,
     snippets,
     settings as settings_router,
@@ -1568,6 +1569,7 @@ def create_app() -> FastAPI:
     app.include_router(snippets.router)
     app.include_router(agent.router)
     app.include_router(knowledge.router)
+    app.include_router(runs.router)
     app.include_router(agent_specs.router)
     app.include_router(sources.router)
     app.include_router(account.router)
