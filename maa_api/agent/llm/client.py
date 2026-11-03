@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 import httpx
@@ -242,6 +242,9 @@ class OpenAICompatibleClient:
         model: str,
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
+        *,
+        response_format: Mapping[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield each parsed OpenAI SSE chunk in wire order, including usage chunks.
 
@@ -249,6 +252,9 @@ class OpenAICompatibleClient:
         「LLM 上游请求失败」，一轮对话就此作废，用户只能自己重发。重试的边界是
         **还没有吐出任何 chunk**：一旦有内容流过，重放会让用户看到重复文本，
         所以那时原样抛出，交给上层收尾。
+
+        ``response_format``、``max_tokens`` 为 ``None`` 时请求体与 v2 逐字节相同；
+        非 ``None`` 时分别写进请求体的同名字段（M67 §4.2.1）。
         """
         if not self.base_url or not self.api_key:
             raise AppError(ErrorCode.LLM_NOT_CONFIGURED, "LLM 配置不完整")
@@ -258,7 +264,13 @@ class OpenAICompatibleClient:
             attempt += 1
             emitted = False
             try:
-                async for chunk in self._stream_chat_completion_once(model, messages, tools):
+                async for chunk in self._stream_chat_completion_once(
+                    model,
+                    messages,
+                    tools,
+                    response_format=response_format,
+                    max_tokens=max_tokens,
+                ):
                     emitted = True
                     yield chunk
                 return
@@ -284,15 +296,23 @@ class OpenAICompatibleClient:
         model: str,
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
+        *,
+        response_format: Mapping[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """发送一次请求并逐块产出；重试策略不在这里，见 :meth:`stream_chat_completion`。"""
-        body = {
+        body: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "tools": tools,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        # 只有调用方明确要求时才加键：两个参数都为 None 时，请求体与 v2 逐字节相同。
+        if response_format is not None:
+            body["response_format"] = dict(response_format)
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Accept": "text/event-stream",

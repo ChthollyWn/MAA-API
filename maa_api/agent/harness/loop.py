@@ -138,10 +138,14 @@ def select_stop(
     return pending
 
 
-def _total(current: int | None, extra: int | None) -> int | None:
-    if extra is None:
-        return current
-    return extra if current is None else current + extra
+def _reported_tokens(value: int) -> int | None:
+    """归一口径下「上游没给 usage」与 0 都是 0；落库沿用 v2 的 ``None`` 语义。
+
+    ``collect_completion`` 在没有 usage 块时产出全 0 的 ``Usage``（M67 §4.2.2），
+    而 v2 的 ``agent_message.prompt_tokens`` / ``completion_tokens`` 在没有 usage 时
+    是 ``NULL``。M65 的 parity golden 钉住了后者，所以写库前把 0 还原成 ``None``。
+    """
+    return value or None
 
 
 class AgentLoop:
@@ -210,8 +214,12 @@ class AgentLoop:
                             role="assistant",
                             content=response.text or INVALID_TOOL_CALL_TEXT,
                             reasoning_content=response.reasoning or None,
-                            prompt_tokens=response.usage.prompt_tokens,
-                            completion_tokens=response.usage.completion_tokens,
+                            prompt_tokens=_reported_tokens(
+                                response.usage.prompt_tokens
+                            ),
+                            completion_tokens=_reported_tokens(
+                                response.usage.completion_tokens
+                            ),
                             finish_reason=response.upstream_finish_reason,
                             latency_ms=response.latency_ms,
                         )
@@ -220,10 +228,7 @@ class AgentLoop:
             except StopRun as stop:
                 await self._finish_stop(ctx, stop.reason, stop.text)
                 return RunOutcome(stop.status, stop.reason, stop.text, usage=usage)
-            usage.prompt_tokens = _total(usage.prompt_tokens, response.usage.prompt_tokens)
-            usage.completion_tokens = _total(
-                usage.completion_tokens, response.usage.completion_tokens
-            )
+            usage = usage + response.usage
 
             if not response.tool_calls:
                 await self._transcript.append(
@@ -231,8 +236,10 @@ class AgentLoop:
                     role="assistant",
                     content=response.text,
                     reasoning_content=response.reasoning or None,
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
+                    prompt_tokens=_reported_tokens(response.usage.prompt_tokens),
+                    completion_tokens=_reported_tokens(
+                        response.usage.completion_tokens
+                    ),
                     finish_reason=response.upstream_finish_reason,
                     latency_ms=response.latency_ms,
                 )
@@ -249,8 +256,8 @@ class AgentLoop:
                 content=response.text or None,
                 reasoning_content=response.reasoning or None,
                 tool_calls=response.raw_tool_calls,
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens=response.usage.completion_tokens,
+                prompt_tokens=_reported_tokens(response.usage.prompt_tokens),
+                completion_tokens=_reported_tokens(response.usage.completion_tokens),
                 finish_reason=response.upstream_finish_reason,
                 latency_ms=response.latency_ms,
             )

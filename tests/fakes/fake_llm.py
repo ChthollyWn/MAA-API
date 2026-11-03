@@ -40,14 +40,21 @@ FakeResponse = (
 
 
 class FakeLLM:
-    """按队列作答的 OpenAI 兼容流，并记录每次请求的 ``(model, messages, tools)``。"""
+    """按队列作答的 OpenAI 兼容流，并记录每次请求的 ``(model, messages, tools)``。
+
+    M67 §4.2.1 起客户端多出 ``response_format``、``max_tokens`` 两个仅关键字参数；
+    这里用 ``**options`` 收下，形状不变的 ``requests`` 保持既有用例口径，选项另存
+    ``request_options``（每次调用追加一项，未传时是空字典）。
+    """
 
     def __init__(self, responses: Iterable[FakeResponse]) -> None:
         self.responses = list(responses)
         self.requests: list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]] = []
+        self.request_options: list[dict[str, Any]] = []
 
-    async def stream_chat_completion(self, model, messages, tools):
+    async def stream_chat_completion(self, model, messages, tools, **options):
         self.requests.append((model, list(messages), list(tools)))
+        self.request_options.append(dict(options))
         if not self.responses:
             # 队列空掉时按会话标题请求作答：标题是首轮收流前的一次额外调用（无工具、
             # 无系统提示词）。绝大多数用例只关心对话那条链路，不必为每条脚本多排一份。

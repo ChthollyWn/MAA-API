@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from maa_api.agent.llm.usage import Usage
 from maa_api.agent.specs.schema import AgentSpec
 from maa_api.domain.enums import CallerType
 
@@ -46,12 +47,6 @@ class TurnDraft:
         self.text.clear()
         self.reasoning.clear()
         self.pending_tool_calls.clear()
-
-
-@dataclass(slots=True)
-class Usage:
-    prompt_tokens: int | None = None
-    completion_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
