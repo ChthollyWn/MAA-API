@@ -7,8 +7,12 @@ from typing import Any
 
 import pytest
 
-from maa_api.agent.harness.chunks import collect_completion
-from maa_api.agent.harness.context import TurnDraft, Usage
+from maa_api.agent.harness.chunks import (
+    collect_completion,
+    parse_arguments,
+    parse_tool_call,
+)
+from maa_api.agent.harness.context import ToolCall, TurnDraft, Usage
 from maa_api.domain.errors import AppError, ErrorCode
 
 
@@ -118,3 +122,39 @@ def test_collect_completion_rejects_a_non_mapping_chunk():
     assert caught.value.message == "LLM 返回了无效的响应块"
     # 报错前已经流出去的文本仍在 draft 上：收尾要靠它补历史。
     assert draft.text == ["ok"]
+
+
+def test_parse_tool_call_requires_a_name_and_an_id():
+    with pytest.raises(AppError) as caught:
+        parse_tool_call({"id": "call-1", "function": {"arguments": "{}"}})
+    assert caught.value.code is ErrorCode.LLM_REQUEST_FAILED
+    assert caught.value.message == "LLM 返回了无效的工具调用"
+
+    with pytest.raises(AppError) as caught:
+        parse_tool_call({"id": "", "function": {"name": "lookup"}})
+    assert caught.value.code is ErrorCode.LLM_REQUEST_FAILED
+    assert caught.value.message == "LLM 返回的工具调用缺少 id"
+
+    # 合法调用解析成 ToolCall：参数原文原样保留，缺省参数按 v2 是 "{}"。
+    assert parse_tool_call(
+        {"id": "call-2", "function": {"name": "lookup", "arguments": '{"key": "a"}'}}
+    ) == ToolCall(id="call-2", name="lookup", raw_arguments='{"key": "a"}')
+    assert parse_tool_call({"id": "call-3", "function": {"name": "lookup"}}) == ToolCall(
+        id="call-3", name="lookup", raw_arguments="{}"
+    )
+
+
+def test_parse_arguments_rejects_invalid_json_and_non_objects():
+    with pytest.raises(AppError) as caught:
+        parse_arguments('{"broken":')
+    assert caught.value.code is ErrorCode.LLM_REQUEST_FAILED
+    assert caught.value.message == "LLM 返回了无效的工具参数 JSON"
+
+    with pytest.raises(AppError) as caught:
+        parse_arguments('["not", "an", "object"]')
+    assert caught.value.code is ErrorCode.LLM_REQUEST_FAILED
+    assert caught.value.message == "LLM 工具参数必须是 JSON 对象"
+
+    # 字符串与已经是对象的值都接受（v2 原样）。
+    assert parse_arguments('{"key": "a"}') == {"key": "a"}
+    assert parse_arguments({"key": "a"}) == {"key": "a"}

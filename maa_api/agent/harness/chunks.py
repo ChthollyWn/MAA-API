@@ -1,21 +1,29 @@
 """流式 chunk 解析与一次模型调用的完整收流（规格 §4.2.7）。
 
 ``merge_tool_call_deltas``、``chunk_tool_calls`` 是 v2 ``runtime`` 的原样搬运；
-``collect_completion`` 是 v2 ``AgentRuntime._complete`` 的函数版：逐块转发
-``text_delta``，把文本与思考直接攒进 ``draft``（中断就发生在这个循环里），返回
-:class:`ModelResponse`。
+``parse_tool_call`` / ``parse_arguments`` 校验模型给的调用与参数原文（v2
+``_parse_tool_call`` / ``_parse_arguments``）；``collect_completion`` 是 v2
+``AgentRuntime._complete`` 的函数版：逐块转发 ``text_delta``，把文本与思考直接攒进
+``draft``（中断就发生在这个循环里），返回 :class:`ModelResponse`。
 """
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from maa_api.agent.harness.context import EmitFn, ModelResponse, TurnDraft, Usage
+from maa_api.agent.harness.context import EmitFn, ModelResponse, ToolCall, TurnDraft, Usage
 from maa_api.domain.errors import AppError, ErrorCode
 
-__all__ = ["chunk_tool_calls", "collect_completion", "merge_tool_call_deltas"]
+__all__ = [
+    "chunk_tool_calls",
+    "collect_completion",
+    "merge_tool_call_deltas",
+    "parse_arguments",
+    "parse_tool_call",
+]
 
 
 def merge_tool_call_deltas(deltas: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -57,6 +65,36 @@ def chunk_tool_calls(chunk: Mapping[str, Any]) -> list[dict[str, Any]]:
             if isinstance(calls, list):
                 found.extend(call for call in calls if isinstance(call, Mapping))
     return found
+
+
+def parse_tool_call(call: Mapping[str, Any]) -> ToolCall:
+    """把一条 OpenAI 形态的 ``tool_calls`` 条目校验成 :class:`ToolCall`。
+
+    校验与报错与 v2 ``_parse_tool_call`` 一字不改：模型给的参数原文先原样保留，
+    ``execute_batch`` 派发前才解析（v2 先落 assistant 消息再解析参数）。
+    """
+    function = call.get("function")
+    if not isinstance(function, Mapping) or not isinstance(function.get("name"), str):
+        raise AppError(ErrorCode.LLM_REQUEST_FAILED, "LLM 返回了无效的工具调用")
+    call_id = call.get("id")
+    if not isinstance(call_id, str) or not call_id:
+        raise AppError(ErrorCode.LLM_REQUEST_FAILED, "LLM 返回的工具调用缺少 id")
+    return ToolCall(
+        id=call_id,
+        name=function["name"],
+        raw_arguments=function.get("arguments", "{}"),
+    )
+
+
+def parse_arguments(value: Any) -> dict[str, Any]:
+    """把模型给的参数原文解析成对象；坏 JSON 或非对象抛 ``LLM_REQUEST_FAILED``。"""
+    try:
+        arguments = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        raise AppError(ErrorCode.LLM_REQUEST_FAILED, "LLM 返回了无效的工具参数 JSON") from None
+    if not isinstance(arguments, dict):
+        raise AppError(ErrorCode.LLM_REQUEST_FAILED, "LLM 工具参数必须是 JSON 对象")
+    return arguments
 
 
 async def collect_completion(

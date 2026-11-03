@@ -1,12 +1,15 @@
 """v2 会话的上下文组装与内置中间件（M65 规格 §4.2.9）。
 
 上半部分从 ``runtime.py`` 原样搬来：``build_model_context`` 及其预算、截图与裁剪
-辅助。下半部分是中间件；``ContextLayoutMiddleware`` 要到 T8 才接进链，这里先提供
-实现，行为与 v2 ``_run_turn_body`` 里直接调用 ``build_model_context`` 完全一致。
+辅助。下半部分是内置中间件与它们的辅助：``TraceMiddleware`` 只占位；
+``ContextLayoutMiddleware``、``LoopGuardMiddleware``、``ClarificationMiddleware``、
+``PolicyMiddleware`` 都要到 T8 才接进链。T7 先在旧循环里直接用链上的 Clarification
+与 Policy，行为与 v2 ``_ask_user`` / ``_execute_tool_batch`` 完全一致。
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -14,12 +17,19 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from maa_api.agent.harness.context import ModelRequest, RunContext
-from maa_api.agent.harness.middleware import Middleware
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from maa_api.agent.harness.context import ModelRequest, RunContext, ToolCall, ToolOutcome
+from maa_api.agent.harness.middleware import CallNext, Middleware
+from maa_api.agent.harness.toolexec import app_error_wire
 from maa_api.agent.media import MEDIA_TOOL_NAMES, compact_media_result
 from maa_api.agent.redaction import redact_remote_data
+from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.agent.specs.registry import builtin_spec
-from maa_api.db.models import AgentMessage
+from maa_api.db.models import AgentMessage, Screenshot
+from maa_api.db.repositories.log import ScreenshotRepository
+from maa_api.db.session import describe_database_error, run_with_busy_retry
+from maa_api.domain.enums import CallerType, ScreenshotBackend, ScreenshotTrigger
 from maa_api.domain.errors import AppError, ErrorCode
 
 logger = logging.getLogger(__name__)
@@ -616,3 +626,386 @@ class ContextLayoutMiddleware(Middleware):
             vision_enabled=ctx.vision_enabled,
         )
         return req
+
+
+# --------------------------------------------------------------------------- #
+# 提问、确认与打转检测（T7，规格 §4.2.9）
+# --------------------------------------------------------------------------- #
+#: ``ask_user`` 未获回答时的两种收尾文案（规格 §3.5）。过期文案**不写时长**：
+#: ``agent.question_timeout_seconds`` 可配置，把「10 分钟」写死在正文里会在改配置后
+#: 失真；卡片上的倒计时本来就由 ``expires_at`` 驱动，用户看得到具体剩余时间。
+QUESTION_EXPIRED_TEXT = "提问超时了，本轮结束。重新说一遍需求，我会再发一次提问。"
+QUESTION_SKIPPED_TEXT = "你跳过了这次提问，本轮结束。"
+QUESTION_UNANSWERED_REASONS = frozenset({"expired", "skipped"})
+#: 连续多少轮出现完全相同的工具调用就判定为原地打转。设为 2 表示「同一批调用连着
+#: 出现三次」：模型偶尔重复一次是正常重试，连着三次说明它已经拿不到新信息了。
+STUCK_REPEAT_LIMIT = 2
+#: 整批只含这些工具时不参与原地打转计数：等长任务本来就要连着等几次（规格 §4.2）。
+#: ``wait_update`` 同 ``wait_pipeline``：异步更新要等几分钟，连等几轮是正常节奏（M57）。
+STUCK_EXEMPT_TOOLS = frozenset({"wait_pipeline", "wait_update"})
+#: 判定原地打转后写给用户的那句话（v2 原样，字面拼接顺序不换）。
+STUCK_LOOP_TEXT = (
+    "连续几轮发出了一样的工具调用，看来拿不到新信息了。我先停下，告诉我下一步查什么。"
+)
+
+
+def exempt_from_stuck_loop(calls: Sequence[Mapping[str, Any]]) -> bool:
+    """整批只含豁免工具（当前只有 ``wait_pipeline`` / ``wait_update``）时为真。
+
+    「只含」是刻意的：批里只要夹了别的工具，模型这一轮就拿到了新信息，照常计数。
+    空批次返回 False（调用点只在有工具调用时才会走到这里）。
+    """
+    return bool(calls) and all(call.get("name") in STUCK_EXEMPT_TOOLS for call in calls)
+
+
+def calls_signature(calls: Sequence[Mapping[str, Any]]) -> str:
+    """一批工具调用的指纹：只看名字与参数，用于识别「模型在原地打转」。
+
+    不看调用 id：同一批调用每轮都会拿到新的 id，用 id 会让指纹永远不同。
+    """
+    return json.dumps(
+        sorted(
+            [
+                str(call.get("name", "")),
+                json.dumps(call.get("arguments"), sort_keys=True, default=str),
+            ]
+            for call in calls
+        ),
+        ensure_ascii=False,
+    )
+
+
+def request_id_of(request: Any) -> str | None:
+    """当前请求的追踪 id（v2 ``_request_id``）；取不到返回 ``None``。"""
+    state = getattr(request, "state", None)
+    value = getattr(state, "request_id", None)
+    if value is not None:
+        return str(value)
+    try:
+        from maa_api.services.log_hub import current_request_id
+
+        return current_request_id.get()
+    except Exception:  # noqa: BLE001 - request tracing is optional
+        return None
+
+
+async def archive_screenshot_result(
+    result: Mapping[str, Any], db_session: AsyncSession
+) -> dict[str, Any]:
+    """Store screenshot bytes as an archive and keep only its id in messages."""
+    image_data = result.get("data") or result.get("image") or result.get("base64")
+    if not isinstance(image_data, str) or not image_data:
+        raise AppError(ErrorCode.SCREENSHOT_FAILED, "截图结果不包含图像数据")
+    if image_data.startswith("data:image/"):
+        image_data = image_data.partition(",")[2]
+    try:
+        image_bytes = base64.b64decode(image_data, validate=True)
+    except (ValueError, TypeError):
+        raise AppError(ErrorCode.SCREENSHOT_FAILED, "截图数据格式无效") from None
+
+    from maa_api.util.image import store_screenshot
+
+    stored = await asyncio.to_thread(store_screenshot, image_bytes)
+    relative_path = f"image/screenshot/{stored['sha256'][:2]}/{stored['sha256']}.jpg"
+    try:
+        backend = ScreenshotBackend(str(result.get("backend", "adb")))
+    except ValueError:
+        backend = ScreenshotBackend.ADB
+    screenshot = await ScreenshotRepository(db_session).create(
+        Screenshot(
+            trigger=ScreenshotTrigger.AGENT,
+            backend=backend,
+            path=relative_path,
+            format="jpg",
+            width=int(stored["width"]),
+            height=int(stored["height"]),
+            size_bytes=int(stored["bytes"]),
+        )
+    )
+    archived = {
+        key: value for key, value in result.items() if key not in {"data", "image", "base64"}
+    }
+    archived["screenshot_id"] = screenshot.id
+    archived["sha256"] = stored["sha256"]
+    archived["full_url"] = stored["full_url"]
+    archived["thumb_url"] = stored["thumb_url"]
+    # 契约（本轮裁决）：``result.media`` 只由五个 ``send_*`` 媒体工具产生。
+    # agent 自己截的图不主动发卡，前端从这四个键把它渲染成「工具卡内的附件」；
+    # 用户明确要求看画面时才由模型调 send_screenshot / annotate_screenshot 发图。
+    return archived
+
+
+class LoopGuardMiddleware(Middleware):
+    """识别「模型在原地打转」，只预约结束、不打断这一批（规格 §4.2.9）。
+
+    v2 的第三批相同调用是**先执行、落库，再以 ``stuck_loop`` 收尾**的
+    （``test_tool_loop_stops_when_the_model_repeats_the_same_calls`` 断言
+    ``invoked == [1, 1, 1]``），所以在 ``after_model`` 直接结束会少执行一批：
+    这里只写 ``ctx.pending_stop``，由循环在本批落库之后收尾。
+    """
+
+    name = "loop_guard"
+
+    async def after_model(self, ctx: RunContext, resp: ModelResponse) -> ModelResponse:
+        if not resp.tool_calls:
+            return resp
+        # 用原始参数字符串，与 v2 一致：同一批调用每轮的 id 都不同。
+        calls = [{"name": call.name, "arguments": call.raw_arguments} for call in resp.tool_calls]
+        if exempt_from_stuck_loop(calls):
+            # 整批只等流水线：不计数，也不清零（否则「等一次、查一次」交替就能绕开）。
+            return resp
+        state = ctx.state.setdefault(self.name, {"last_signature": None, "repeats": 0})
+        signature = calls_signature(calls)
+        state["repeats"] = state["repeats"] + 1 if signature == state["last_signature"] else 0
+        state["last_signature"] = signature
+        if state["repeats"] >= STUCK_REPEAT_LIMIT:
+            ctx.stop_after_batch("stuck_loop", STUCK_LOOP_TEXT)
+        return resp
+
+
+class ClarificationMiddleware(Middleware):
+    """``ask_user`` 的落库 → 挂起 → 用户裁决链路（规格 §3.5、§4.2.9）。
+
+    提问不走确认服务：它没有策略判定、不需要授权。不是 ``ask_user`` 就原样交给
+    下一个中间件；同一批里后面的调用照常执行（v2 已知行为，本里程碑不修）。
+    """
+
+    name = "clarification"
+    applies_to = frozenset({"orchestrator", "worker"})
+
+    def __init__(self, *, question_service: Any, registry: ToolRegistry) -> None:
+        self.question_service = question_service
+        self.registry = registry
+
+    async def wrap_tool(
+        self, ctx: RunContext, call: ToolCall, call_next: CallNext
+    ) -> ToolOutcome:
+        if call.name != "ask_user":
+            return await call_next(call)
+        service = self.question_service
+        if service is None:
+            return ToolOutcome(
+                status="error",
+                audit_id=None,
+                error={
+                    "code": ErrorCode.AGENT_DISABLED.value,
+                    "message": "提问服务尚未启动",
+                },
+            )
+        try:
+            params = self.registry.validate("ask_user", call.arguments or {})
+        except AppError as exc:
+            return ToolOutcome(
+                status="error",
+                audit_id=(exc.details or {}).get("audit_id"),
+                error=app_error_wire(exc),
+            )
+        wire, audit_id = await service.create(
+            session_id=ctx.session_id,
+            tool_call_id=call.id,
+            question=params.question,
+            options=params.options,
+            multiple=params.multiple,
+            request_id=request_id_of(ctx.request),
+        )
+        question_id = str(wire["question_id"])
+        await ctx.emit(
+            "question_required",
+            {
+                "tool_call_id": call.id,
+                "question_id": question_id,
+                "question": wire["question"],
+                "options": wire["options"],
+                "multiple": wire["multiple"],
+                "expires_at": wire["expires_at"],
+            },
+        )
+        answer = await service.wait(question_id)
+        if ctx.interrupted_now():
+            # 撤回提问会把等待方唤醒到终态 ``cancelled``，但本轮的结局是中断，不是
+            # 「提问没答成」：按后者收尾会让用户按了停止却收到一句「提问超时」。
+            raise asyncio.CancelledError()
+        status = str(answer.get("status") or "")
+        if status == "answered":
+            return ToolOutcome(
+                status="ok",
+                audit_id=audit_id,
+                result={
+                    "status": "answered",
+                    "selected": list(answer.get("selection") or []),
+                    "question_id": question_id,
+                },
+            )
+        reason = status if status in QUESTION_UNANSWERED_REASONS else "expired"
+        return ToolOutcome(
+            status="ok",
+            audit_id=audit_id,
+            result={"status": reason, "question_id": question_id},
+            stop_run=True,
+            stop_reason="question_unanswered",
+            stop_text=(
+                QUESTION_SKIPPED_TEXT if reason == "skipped" else QUESTION_EXPIRED_TEXT
+            ),
+        )
+
+
+class PolicyMiddleware(Middleware):
+    """策略判定、确认与等待；链上的执行器（不调 ``call_next``，规格 §4.2.9）。
+
+    等待循环一字不改地从 v2 ``_execute_tool_batch`` 搬来：每轮轮询前后都查
+    ``ctx.interrupted_now()``，中断时自己抛 ``CancelledError``，本轮按中断收尾。
+    """
+
+    name = "policy"
+
+    def __init__(
+        self,
+        *,
+        confirmation_service: Any,
+        session_factory: Any,
+        poll_seconds: float,
+    ) -> None:
+        self.confirmation_service = confirmation_service
+        self.session_factory = session_factory
+        self.poll_seconds = poll_seconds
+
+    async def wrap_tool(
+        self, ctx: RunContext, call: ToolCall, call_next: CallNext
+    ) -> ToolOutcome:
+        arguments = call.arguments if call.arguments is not None else {}
+        context = ToolContext(
+            caller=CallerType.INTERNAL,
+            session_id=ctx.session_id,
+            request_id=request_id_of(ctx.request),
+            request=ctx.request,
+            db_session=None,
+        )
+        loop = asyncio.get_running_loop()
+        terminal: asyncio.Future[dict[str, Any]] = loop.create_future()
+
+        async def on_prepare(_db: AsyncSession, audit_id: int, result: Any) -> Any:
+            if call.name == "get_screenshot" and isinstance(result, Mapping):
+                try:
+                    # 归档写落在审计事务里，会被同进程其它写者（日志刷盘、
+                    # 确认扫描、流水线收尾）抢锁；独立 SAVEPOINT + 有限重试
+                    # 让「database is locked」不再直接毁掉这张截图。
+                    return await run_with_busy_retry(
+                        _db,
+                        lambda: archive_screenshot_result(result, _db),
+                    )
+                except AppError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - never persist inline image bytes
+                    detail = describe_database_error(exc)
+                    logger.warning("Agent screenshot archive failed: %s", detail)
+                    raise AppError(
+                        ErrorCode.SCREENSHOT_FAILED,
+                        "截图归档失败；图片未写入审计记录",
+                        {
+                            "audit_id": audit_id,
+                            "cause": type(exc).__name__,
+                            "detail": detail,
+                        },
+                    ) from None
+            return result
+
+        async def on_committed(
+            _audit_id: int, _response_status: int, body: dict[str, Any]
+        ) -> None:
+            if not terminal.done():
+                terminal.set_result(body)
+
+        try:
+            async with self.session_factory() as policy_session:
+                policy_context = ToolContext(
+                    caller=context.caller,
+                    session_id=context.session_id,
+                    request_id=context.request_id,
+                    request=context.request,
+                    db_session=policy_session,
+                )
+                # 每次调用现取 ``invoke``：测试会替换替身服务的这个方法。
+                accepted = await self.confirmation_service.invoke(
+                    call.name,
+                    arguments,
+                    policy_context,
+                    mode="async",
+                    on_audit_prepare=on_prepare,
+                    on_audit_committed=on_committed,
+                )
+        except AppError as exc:
+            return ToolOutcome(
+                status="error",
+                audit_id=(exc.details or {}).get("audit_id"),
+                error=app_error_wire(exc),
+            )
+        audit_id = accepted.get("audit_id")
+        confirmation_id = accepted.get("confirmation_id")
+        if accepted.get("status") == "awaiting_confirmation":
+            await ctx.emit(
+                "confirmation_required",
+                {
+                    "tool_call_id": call.id,
+                    "name": call.name,
+                    "confirmation_id": confirmation_id,
+                    "audit_id": audit_id,
+                    "expires_at": accepted.get("expires_at"),
+                },
+            )
+
+        while not terminal.done():
+            if ctx.interrupted_now():
+                # 本轮已被用户中断。这里必须**自己**抛 CancelledError：中断会同时
+                # 把待确认撤回（状态变 rejected），若让下面的分支先读到它，这一批
+                # 会被当成「用户拒绝」，本轮以「我不会重试该操作」正常收尾：那与
+                # 「用户按了停止」是两回事。真实的 task.cancel() 也会落到同一个
+                # 取消分支里收尾。
+                raise asyncio.CancelledError()
+            if confirmation_id:
+                state = await self.confirmation_service.get(confirmation_id)
+                # 撤确认与取消本轮之间有一小段并发窗口：如果读到的正是中断造成的
+                # 「已拒绝」，本轮的结局仍然是中断；这里再判一次就覆盖了这个窗口。
+                if ctx.interrupted_now():
+                    raise asyncio.CancelledError()
+                status = state.get("status")
+                if status == "rejected":
+                    error = AppError(
+                        ErrorCode.CONFIRMATION_REJECTED,
+                        state.get("resolved_reason") or "确认请求已被拒绝",
+                        {"audit_id": audit_id, "confirmation_id": confirmation_id},
+                    )
+                    return ToolOutcome(
+                        status="rejected",
+                        audit_id=audit_id,
+                        error=app_error_wire(error),
+                    )
+                if status == "expired":
+                    error = AppError(
+                        ErrorCode.CONFIRMATION_EXPIRED,
+                        "确认请求已过期",
+                        {"audit_id": audit_id, "confirmation_id": confirmation_id},
+                    )
+                    return ToolOutcome(
+                        status="expired",
+                        audit_id=audit_id,
+                        error=app_error_wire(error),
+                    )
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(terminal), timeout=self.poll_seconds
+                )
+            except TimeoutError:
+                continue
+
+        body = terminal.result()
+        if "__idempotency_error__" in body:
+            return ToolOutcome(
+                status="error",
+                audit_id=audit_id,
+                error=body["__idempotency_error__"],
+            )
+        return ToolOutcome(
+            status="ok",
+            audit_id=audit_id,
+            result=body.get("result"),
+        )
