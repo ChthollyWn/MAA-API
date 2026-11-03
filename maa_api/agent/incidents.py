@@ -22,7 +22,13 @@ from maa_api.agent.runtime import INCIDENT_ALLOWED_TOOLS
 from maa_api.db.models import AgentMessage, AgentSession, Pipeline, Task, utcnow
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
 from maa_api.db.repositories.log import LogRepository, ScreenshotRepository
-from maa_api.domain.enums import LogLevel, LogSource, PipelineStatus, ScreenshotTrigger
+from maa_api.domain.enums import (
+    AgentSessionKind,
+    LogLevel,
+    LogSource,
+    PipelineStatus,
+    ScreenshotTrigger,
+)
 from maa_api.domain.errors import ErrorCode
 from maa_api.settings import Settings, get_settings
 
@@ -359,6 +365,7 @@ class AgentIncidentService:
                     AgentSession(
                         title=title[:64],
                         status="active",
+                        kind=AgentSessionKind.INCIDENT,
                         model=(
                             str(settings.llm.model)
                             if llm_configured

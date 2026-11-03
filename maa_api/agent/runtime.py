@@ -16,7 +16,14 @@ import inspect
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Collection,
+    Mapping,
+    Sequence,
+)
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -70,10 +77,16 @@ from maa_api.agent.recon.runner import (
     run_recon,
 )
 from maa_api.agent.registry import ToolRegistry
+from maa_api.agent.runs import RunService
 from maa_api.agent.specs.registry import builtin_spec
-from maa_api.db.models import AgentMessage, new_uuid, utcnow
-from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
+from maa_api.db.models import AgentMessage, AgentRun, new_uuid, utcnow
+from maa_api.db.repositories.agent import (
+    AgentMessageRepository,
+    AgentRunRepository,
+    AgentSessionRepository,
+)
 from maa_api.db.repositories.log import ScreenshotRepository
+from maa_api.domain.enums import AgentRole, AgentRunKind, AgentRunStatus
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import Settings, get_settings
 
@@ -146,6 +159,11 @@ TURN_FAILURE_NOTICE_OVERFLOW_TAIL = "这条消息已保留；请开启新会话�
 #: 非 AppError 的意外异常对外只说这一句，细节只进日志：SSE 与落库的消息都会给用户看，
 #: 不该把内部异常文本暴露出去。
 TURN_FAILURE_GENERIC_MESSAGE = "Agent 对话处理失败"
+#: 门面这一轮建出的运行用哪一个内置代理定义（docs/v3/specs/m66-durable-runs §4.2.4）。
+LEGACY_CHAT_AGENT = "legacy_chat"
+LEGACY_INCIDENT_AGENT = "legacy_incident"
+#: ``_save_incident_failure`` 落库的 ``finish_reason``（v2 就是 ``incident_error``）。
+INCIDENT_FAILED_FINISH_REASON = "incident_error"
 _SSE_END = object()
 # 视觉探查用的 64×64 纯蓝 PNG（132 字节）。1×1 的 PNG 会被上游以
 # "You have uploaded an unsupported image" 当成无效图片拒收，从而把支持视觉的模型
@@ -188,6 +206,71 @@ def call_runtime_factory(
     return factory(confirmation_service)
 
 
+class _LegacyRunTracker:
+    """v2 门面这一轮的事件出口：原样转发事件，顺带记下 finish_reason、在等人时切运行状态。
+
+    事件名是 v2 SSE 的稳定契约，所以这里按事件名判断「等确认/等提问」与「恢复执行」，
+    不依赖 M65 内部重构（规格 §4.2.5）。``set_status`` 失败只记 warning：状态是运行的
+    观测信息，不能因为一次数据库抖动把已经跑起来的一轮打断。
+    """
+
+    #: 出现这些事件说明这一轮在等人：确认或提问已经发给前端。
+    _WAITING_EVENTS = frozenset({"confirmation_required", "question_required"})
+    #: 等待期间出现这些事件说明人已经答过、这一轮继续跑。
+    _RESUMING_EVENTS = frozenset({"tool_result", "text_delta", "tool_start"})
+
+    def __init__(
+        self,
+        run_service: RunService | None,
+        run_id: str,
+        emit: Callable[[str, Any], Awaitable[Any]],
+    ) -> None:
+        self._run_service = run_service
+        self.run_id = run_id
+        self._emit = emit
+        self._waiting = False
+        self._finish_reason: str | None = None
+
+    async def __call__(self, event: str, data: Any) -> None:
+        """先按事件名处理状态与 finish_reason，再原样转发事件。
+
+        顺序与规格 §4.2.4 的措辞（先转发、后处理）相反，但 SSE 的内容、顺序与字段
+        完全不变，只是把状态写放在消费者看到事件之前。原因：v2 的测试大量使用
+        ``sqlite+aiosqlite:///:memory:`` + ``StaticPool``，所有 session 共用同一条
+        SQLite 连接；消费者一收到事件就写库（回答提问、批准确认），若生产者在同一
+        时刻也在写，两边的事务会互相破坏（实测：提问的回答提交丢失，回答接口返回
+        ``pending``）。先写状态让消费者永远在写完状态之后才启动。
+        """
+        if event in self._WAITING_EVENTS:
+            self._waiting = True
+            await self._set_status(AgentRunStatus.WAITING_HUMAN)
+        elif self._waiting and event in self._RESUMING_EVENTS:
+            self._waiting = False
+            await self._set_status(AgentRunStatus.RUNNING)
+        elif event == "message_end":
+            reason = data.get("finish_reason") if isinstance(data, Mapping) else None
+            self._finish_reason = str(reason) if reason else "stop"
+        await self._emit(event, data)
+
+    def outcome(self) -> tuple[AgentRunStatus, str]:
+        """这一轮的终态：``stuck_loop`` 记失败，其余按上游给的 finish_reason 记成功。"""
+        reason = self._finish_reason or "stop"
+        if reason == "stuck_loop":
+            return AgentRunStatus.FAILED, reason
+        return AgentRunStatus.SUCCEEDED, reason
+
+    async def _set_status(self, status: AgentRunStatus) -> None:
+        service = self._run_service
+        if service is None:
+            return
+        try:
+            await service.set_status(self.run_id, status)
+        except Exception:  # noqa: BLE001 - 状态只是观测信息，不打断这一轮
+            logger.warning(
+                "Agent 运行状态切换失败：run=%s status=%s", self.run_id, status, exc_info=True
+            )
+
+
 class AgentRuntime:
     """Persist conversations and route every model tool call through confirmation."""
 
@@ -204,6 +287,7 @@ class AgentRuntime:
         max_iterations: int | None = DEFAULT_MAX_ITERATIONS,
         max_context_chars: int | None = DEFAULT_MAX_CONTEXT_CHARS,
         confirmation_poll_seconds: float = DEFAULT_CONFIRMATION_POLL_SECONDS,
+        run_service: RunService | None = None,
     ) -> None:
         # None 表示不设步数上限（默认）；正整数只用于测试与需要受限的调用方。
         if max_iterations is not None and max_iterations < 1:
@@ -227,16 +311,29 @@ class AgentRuntime:
         self.max_iterations = max_iterations
         self.max_context_chars = max_context_chars
         self.confirmation_poll_seconds = confirmation_poll_seconds
+        # 装配层（``main.py`` 的 lifespan）先建 runtime、后建 ``RunService``，用
+        # ``bind_run_service`` 换进来；直接构造的调用方（测试、冒烟）在这里自建一份。
+        # ``session_factory`` 为 ``None`` 的替身（只测侦察）没有运行服务。
+        self.run_service = (
+            run_service
+            if run_service is not None
+            else (
+                RunService(session_factory, boot_id=new_uuid())
+                if session_factory is not None
+                else None
+            )
+        )
         self._locked_sessions: set[str] = set()
         self._turn_tasks: set[asyncio.Task[None]] = set()
         self._queue_waiters: set[asyncio.Task[Any]] = set()
-        #: 会话 → 正在跑这一轮的 task。进程内的真相源：``acquire_session``
-        #: 只说明「有一轮占着锁」，刷新后的前端要的是「现在还有东西在跑」。
-        self._active_turns: dict[str, asyncio.Task[Any]] = {}
-        #: 被用户**主动**中断的会话。只有在这里的会话，取消才会走「中断收尾」；
+        #: 会话 → 本轮运行的 id；运行 id → 跑这一轮的 task。两者都在
+        #: ``_begin_legacy_run`` 里登记，``_forget_run`` 里一起清掉。
+        self._current_runs: dict[str, str] = {}
+        self._run_tasks: dict[str, asyncio.Task[Any]] = {}
+        #: 被用户**主动**中断的 run_id。只有在这里的运行，取消才会走「中断收尾」；
         #: 别的 CancelledError（服务关闭、上层取消）原样抛出，两种语义不能混。
         self._interrupted: set[str] = set()
-        #: 已经进入中断收尾的会话。``interrupt_turn`` 靠它避免再 cancel 一次：
+        #: 已经进入中断收尾的 run_id。``interrupt_turn`` 靠它避免再 cancel 一次：
         #: 第二次 cancel 会打在收尾自己的 ``await`` 上（写库、发事件），把「补历史」
         #: 打断成半截。
         self._interrupt_settling: set[str] = set()
@@ -247,11 +344,31 @@ class AgentRuntime:
         #: 失败态能力结果的过期时刻（``time.monotonic()``）。成功态不登记，永不过期。
         self._capability_expiry: dict[tuple[str, str], float] = {}
 
+    def bind_run_service(self, run_service: RunService) -> None:
+        """把装配层建好的 ``RunService`` 换进来（构造在先、服务在后，见 §4.2.6）。
+
+        有运行在跑时不换：``_begin_legacy_run`` 已经用旧服务建了行，换掉之后终态会
+        写到另一个服务的跟踪表里。
+        """
+        if self._current_runs:
+            raise RuntimeError("有运行在跑，不能替换 RunService")
+        self.run_service = run_service
+
     async def acquire_session(self, session_id: str) -> bool:
-        """Claim a single in-process turn slot for one persisted session."""
+        """进程内快路径先占位；再看库里有没有别的活动运行，两者冲突时以库为准。"""
         if session_id in self._locked_sessions:
             return False
         self._locked_sessions.add(session_id)
+        if self.run_service is None:
+            return True
+        try:
+            active = await self.run_service.active_run(session_id)
+        except BaseException:
+            self._locked_sessions.discard(session_id)
+            raise
+        if active is not None:
+            self._locked_sessions.discard(session_id)
+            return False
         return True
 
     def release_session(self, session_id: str) -> None:
@@ -265,7 +382,8 @@ class AgentRuntime:
         登记的那一小段里，锁在但没有任何执行。刷新后的前端要据此恢复停止入口，所以
         只认活动 task。
         """
-        task = self._active_turns.get(session_id)
+        run_id = self._current_runs.get(session_id)
+        task = self._run_tasks.get(run_id) if run_id is not None else None
         return task is not None and not task.done()
 
     async def interrupt_turn(self, session_id: str) -> bool:
@@ -280,8 +398,9 @@ class AgentRuntime:
         变成一个真的副作用。取消之后再撤一次：这一小段窗口里刚创建的确认/审计
         （比如刚派发出去的工具）也要一起撤回。
         """
-        task = self._active_turns.get(session_id)
-        if task is None or task.done():
+        run_id = self._current_runs.get(session_id)
+        task = self._run_tasks.get(run_id) if run_id is not None else None
+        if run_id is None or task is None or task.done():
             # 没有活动轮次：锁还在只可能是「REST 已拿锁、producer 还没登记」。释放它，
             # 否则这个会话会一直 409，而实际上没有任何东西在跑。仍然撤一次在飞调用：
             # 上一轮如果异常收场，挂着的确认/提问不该在这次「停止」之后还能复活。
@@ -290,11 +409,11 @@ class AgentRuntime:
             return False
         # 重复点「停止」时不重复 cancel：第二次 cancel 会打在收尾协程自己的 await 上，
         # 把「落库 + 发事件」的收尾打断，反而留下半截历史。
-        already_interrupting = session_id in self._interrupted
-        self._interrupted.add(session_id)
+        already_interrupting = run_id in self._interrupted
+        self._interrupted.add(run_id)
         try:
             await self._abort_in_flight_calls(session_id)
-            if not already_interrupting and session_id not in self._interrupt_settling:
+            if not already_interrupting and run_id not in self._interrupt_settling:
                 task.cancel()
             await asyncio.wait({task}, timeout=INTERRUPT_GRACE_SECONDS)
             await self._abort_in_flight_calls(session_id)
@@ -302,7 +421,8 @@ class AgentRuntime:
             # 收尾期间标记必须一直有效（收尾协程靠它判断这是主动中断）；task 结束后
             # 再清，避免把它留给下一个同会话的轮次。
             if task.done():
-                self._clear_interrupt(session_id)
+                self._interrupted.discard(run_id)
+                self._interrupt_settling.discard(run_id)
         return True
 
     def _interrupted_now(self, session_id: str) -> bool:
@@ -311,15 +431,101 @@ class AgentRuntime:
         登记与返回在同一段同步代码里，所以 ``interrupt_turn`` 不可能在收尾已经启动
         之后再插进来 cancel 一次（它先查这个集合再决定要不要 cancel）。
         """
-        if session_id not in self._interrupted:
+        run_id = self._current_runs.get(session_id)
+        if run_id is None or run_id not in self._interrupted:
             return False
-        self._interrupt_settling.add(session_id)
+        self._interrupt_settling.add(run_id)
         return True
 
     def _clear_interrupt(self, session_id: str) -> None:
-        """一轮结束后清掉中断标记：留着会让下一个同会话轮次把自己也当成被中断。"""
-        self._interrupted.discard(session_id)
-        self._interrupt_settling.discard(session_id)
+        """一轮结束后清掉中断标记：留着会让下一个同会话轮次把自己也当成被中断。
+
+        新代码统一走 :meth:`_forget_run`；保留这个方法是为了兼容按会话清理的旧调用点。
+        """
+        run_id = self._current_runs.get(session_id)
+        if run_id is not None:
+            self._interrupted.discard(run_id)
+            self._interrupt_settling.discard(run_id)
+
+    async def _begin_legacy_run(
+        self, session_id: str, *, agent_name: str, trigger_seq: int | None = None
+    ) -> AgentRun:
+        """建本轮运行（``kind=legacy_turn``），登记 ``_current_runs`` 与 ``_run_tasks``。
+
+        ``model`` 取会话当前的 model；``spec_version`` 取内置代理定义的哈希。会话上
+        已有活动运行（进程内锁漏掉、库里还有）时按 v2 的对外契约报
+        ``AGENT_SESSION_BUSY``：v2 前端与测试只认这个码，``RUN_ALREADY_ACTIVE`` 是
+        v3 运行端点用的。
+        """
+        service = self.run_service
+        if service is None or self.session_factory is None:  # pragma: no cover - 装配缺陷
+            raise RuntimeError("没有运行服务，无法建立运行")
+        async with self.session_factory() as session:
+            stored = await AgentSessionRepository(session).get(session_id)
+        model = stored.model if stored is not None else None
+        try:
+            run = await service.start(
+                agent_name=agent_name,
+                kind=AgentRunKind.LEGACY_TURN,
+                session_id=session_id,
+                trigger_seq=trigger_seq,
+                model=model,
+                spec_version=builtin_spec(agent_name).spec_version,
+            )
+        except AppError as exc:
+            if exc.code == ErrorCode.RUN_ALREADY_ACTIVE:
+                raise AppError(
+                    ErrorCode.AGENT_SESSION_BUSY,
+                    "该会话还有一轮消息未结束，请等它结束后再发送",
+                    exc.details,
+                ) from exc
+            raise
+        self._current_runs[session_id] = run.id
+        task = asyncio.current_task()
+        if task is not None:
+            self._run_tasks[run.id] = task
+        return run
+
+    async def _end_legacy_run(
+        self,
+        run: AgentRun | None,
+        status: AgentRunStatus,
+        finish_reason: str,
+        *,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """写本轮终态；``run`` 为 ``None`` 时什么都不做。
+
+        写库失败只记 warning：终态是观测信息，不能阻塞下一轮。可以重复调用
+        （``RunService.finish`` 幂等）。``finally`` 里一定 ``_forget_run``：终态先落库、
+        再放进程内占位，紧接着的下一条消息才不会在 ``acquire_session`` 里看到上一轮
+        还是活动态。
+        """
+        if run is None:
+            return
+        try:
+            service = self.run_service
+            if service is not None:
+                await service.finish(
+                    run.id,
+                    status=status,
+                    finish_reason=finish_reason,
+                    error_code=error_code,
+                    error_message=error_message,
+                )
+        except Exception:  # noqa: BLE001 - 终态写失败不阻塞下一轮
+            logger.warning("Agent 运行终态写入失败：run=%s", run.id, exc_info=True)
+        finally:
+            self._forget_run(run.session_id, run.id)
+
+    def _forget_run(self, session_id: str | None, run_id: str) -> None:
+        """从三张进程内表里清掉这条运行；``_current_runs`` 只删指向它的那一项。"""
+        self._interrupted.discard(run_id)
+        self._interrupt_settling.discard(run_id)
+        self._run_tasks.pop(run_id, None)
+        if session_id is not None and self._current_runs.get(session_id) == run_id:
+            self._current_runs.pop(session_id, None)
 
     async def _abort_in_flight_calls(self, session_id: str) -> None:
         """撤回该会话本轮在等/在跑的工具与挂起的提问。
@@ -402,6 +608,7 @@ class AgentRuntime:
         async def ignore_event(_event: str, _data: Any) -> None:
             return None
 
+        run: AgentRun | None = None
         try:
             async with self.session_factory() as session:
                 history = await AgentMessageRepository(session).list_by_session(session_id)
@@ -414,15 +621,22 @@ class AgentRuntime:
                     ErrorCode.AGENT_SESSION_NOT_FOUND,
                     "自动诊断会话没有可继续的用户消息",
                 )
+            run = await self._begin_legacy_run(
+                session_id,
+                agent_name=LEGACY_INCIDENT_AGENT,
+                trigger_seq=last_user.seq,
+            )
+            tracker = _LegacyRunTracker(self.run_service, run.id, ignore_event)
             await self._run_turn(
                 session_id,
                 last_user.content or "",
                 request,
-                ignore_event,
+                tracker,
                 persist_user=False,
                 allowed_tools=allowed,
-                spec_name="legacy_incident",
+                spec_name=LEGACY_INCIDENT_AGENT,
             )
+            await self._end_legacy_run(run, *tracker.outcome())
             return {"status": "completed"}
         except AppError as exc:
             explanation = (
@@ -430,18 +644,30 @@ class AgentRuntime:
                 "故障记录已保存，修好 LLM 配置或模型能力后可以继续在本会话里问。"
             )
             await self._save_incident_failure(session_id, explanation)
+            await self._end_legacy_run(
+                run,
+                AgentRunStatus.FAILED,
+                INCIDENT_FAILED_FINISH_REASON,
+                error_code=str(exc.code),
+                error_message=explanation,
+            )
             return {"status": "failed", "code": str(exc.code)}
         except asyncio.CancelledError:
             # 同一个中断端点也能停自动诊断，但它的话术不能沿用「服务关闭」那套：
             # 用户按的是停止，不是我们关机（规格 §2.2）。
+            interrupted = run is not None and run.id in self._interrupted
             explanation = (
                 "自动诊断已被你中断，故障记录已保存。可以继续在本会话里问；"
                 "已经派发出去的操作不会自动重放。"
-                if session_id in self._interrupted
+                if interrupted
                 else "自动诊断在服务关闭时中断，故障记录已保存。可以继续在本会话里问；"
                 "已经派发出去的操作不会自动重放。"
             )
             await self._save_incident_failure(session_id, explanation)
+            if interrupted:
+                await self._end_legacy_run(
+                    run, AgentRunStatus.INTERRUPTED, INTERRUPTED_FINISH_REASON
+                )
             raise
         except Exception as exc:  # noqa: BLE001 - preserve the durable incident conversation
             logger.warning("自动诊断执行失败：%s", type(exc).__name__)
@@ -450,10 +676,18 @@ class AgentRuntime:
                 "检查 LLM 配置和服务日志后可以继续在本会话里问。"
             )
             await self._save_incident_failure(session_id, explanation)
+            await self._end_legacy_run(
+                run,
+                AgentRunStatus.FAILED,
+                INCIDENT_FAILED_FINISH_REASON,
+                error_code=str(ErrorCode.LLM_REQUEST_FAILED),
+                error_message=explanation,
+            )
             return {"status": "failed", "code": str(ErrorCode.LLM_REQUEST_FAILED)}
         finally:
+            if run is not None:
+                self._forget_run(session_id, run.id)
             self.release_session(session_id)
-            self._clear_interrupt(session_id)
 
     async def _save_incident_failure(self, session_id: str, explanation: str) -> None:
         try:
@@ -461,7 +695,7 @@ class AgentRuntime:
                 session_id,
                 role="assistant",
                 content=explanation,
-                finish_reason="incident_error",
+                finish_reason=INCIDENT_FAILED_FINISH_REASON,
             )
         except Exception as exc:  # noqa: BLE001 - don't replace the original diagnostic result
             logger.warning("无法保存自动诊断说明：%s", type(exc).__name__)
@@ -711,8 +945,13 @@ class AgentRuntime:
         async def emit(event: str, data: Any) -> None:
             await queue.put(sse_event(event, data))
 
+        run: AgentRun | None = None
         try:
-            await self._run_turn(session_id, content, request, emit)
+            run = await self._begin_legacy_run(session_id, agent_name=LEGACY_CHAT_AGENT)
+            tracker = _LegacyRunTracker(self.run_service, run.id, emit)
+            await self._run_turn(session_id, content, request, tracker)
+            # 先结束运行再生成标题：标题不是这一轮的一部分，运行的时长与终态只算对话本身。
+            await self._end_legacy_run(run, *tracker.outcome())
             # 首轮回答完成后补标题，位置在 message_end 之后、收流之前：前端拿到
             # session_title 就能立刻回填，不用为标题再轮询一次。
             await self._generate_session_title(session_id, request, emit)
@@ -721,6 +960,13 @@ class AgentRuntime:
             # 事件随页面一起消失，第二天再问「Agent 怎么又不好使了」就无从查起。
             logger.warning("Agent 轮次失败：session=%s %s", session_id, _error_brief(exc))
             await self._record_turn_failure(session_id, exc.code, exc.message)
+            await self._end_legacy_run(
+                run,
+                AgentRunStatus.FAILED,
+                TURN_FAILED_FINISH_REASON,
+                error_code=str(exc.code),
+                error_message=exc.message,
+            )
             await emit(
                 "error",
                 {
@@ -733,6 +979,11 @@ class AgentRuntime:
             # 主动中断的收尾已经在 ``_run_turn`` 里做完，这里只把取消继续抛出；
             # 被动断开（客户端断网/关页面）不会走到这里：producer 是 detached 的，
             # SSE 消费端的取消与它无关。
+            if run is not None and run.id in self._interrupted:
+                await self._end_legacy_run(
+                    run, AgentRunStatus.INTERRUPTED, INTERRUPTED_FINISH_REASON
+                )
+            # 不是用户中断（服务关闭）时不写终态：下次启动由 RunRecovery 收尾并补恢复提示。
             raise
         except Exception as exc:  # noqa: BLE001 - keep an SSE stream from leaking details
             logger.exception(
@@ -740,6 +991,13 @@ class AgentRuntime:
             )
             await self._record_turn_failure(
                 session_id, ErrorCode.LLM_REQUEST_FAILED, TURN_FAILURE_GENERIC_MESSAGE
+            )
+            await self._end_legacy_run(
+                run,
+                AgentRunStatus.FAILED,
+                TURN_FAILED_FINISH_REASON,
+                error_code=str(ErrorCode.LLM_REQUEST_FAILED),
+                error_message=TURN_FAILURE_GENERIC_MESSAGE,
             )
             await emit(
                 "error",
@@ -749,9 +1007,9 @@ class AgentRuntime:
                 },
             )
         finally:
+            if run is not None:
+                self._forget_run(session_id, run.id)
             self.release_session(session_id)
-            # 中断标记随这一轮一起结束：留着会让下一个同会话轮次把自己也当成被中断。
-            self._clear_interrupt(session_id)
             await queue.put(_SSE_END)
 
     async def _record_turn_failure(
@@ -796,28 +1054,22 @@ class AgentRuntime:
         allowed_tools: Collection[str] | None = None,
         spec_name: str = "legacy_chat",
     ) -> None:
-        """登记本轮的 task，然后交给 :meth:`_run_turn_body`（规格 §3.1）。
+        """把这一轮交给 :meth:`_run_turn_body`（规格 §3.1）。
 
-        登记放在这里而不是 ``_produce_turn``：自动诊断（``run_incident``）直接调用
-        本方法、没有 producer，同一个中断端点也要能停它。注销只认自己那把 task，
-        避免把同一会话下一轮的登记抹掉。
+        运行与 task 的登记已提前到 :meth:`_begin_legacy_run`：生命周期的发起方是
+        ``_produce_turn`` / ``run_incident``，本方法只负责跑循环。自动诊断没有
+        producer，同一个中断端点也能停它——靠的是 ``_begin_legacy_run`` 登记的那把
+        task（就是调用方的 task）。
         """
-        task = asyncio.current_task()
-        if task is not None:
-            self._active_turns[session_id] = task
-        try:
-            await self._run_turn_body(
-                session_id,
-                content,
-                request,
-                emit,
-                persist_user=persist_user,
-                allowed_tools=allowed_tools,
-                spec_name=spec_name,
-            )
-        finally:
-            if self._active_turns.get(session_id) is task:
-                self._active_turns.pop(session_id, None)
+        await self._run_turn_body(
+            session_id,
+            content,
+            request,
+            emit,
+            persist_user=persist_user,
+            allowed_tools=allowed_tools,
+            spec_name=spec_name,
+        )
 
     async def _run_turn_body(
         self,
@@ -911,7 +1163,12 @@ class AgentRuntime:
             await emit(event.name, event.data)
 
         bus.subscribe(forward)
-        run_id = new_uuid()  # M65 不落库
+        # 本轮运行的真实 id（由 ``_begin_legacy_run`` 建出）：消息落库靠它带
+        # ``run_id``，运行树与查询端点也靠它。门面这一轮的运行都是根节点，
+        # ``root_run_id`` 就是自己、没有父运行（M70 的子代理才会不同）。
+        run_id = self._current_runs.get(session_id)
+        if run_id is None:  # pragma: no cover - 调用方必须先 _begin_legacy_run
+            raise AppError(ErrorCode.INTERNAL_ERROR, "本轮运行尚未登记")
         ctx = RunContext(
             run_id=run_id,
             root_run_id=run_id,
@@ -1006,6 +1263,9 @@ class AgentRuntime:
         finish_reason: str | None = None,
         latency_ms: int | None = None,
     ) -> AgentMessage:
+        # 这一轮运行里写出的每条非用户消息都带 ``run_id``；用户消息是触发这一轮的
+        # 输入而不是产物，运行用 ``trigger_seq`` 指向它（规格 §4.2.4 第 11 步）。
+        run_id = self._current_runs.get(session_id)
         now = utcnow()
         async with self.session_factory() as session:
             sessions = AgentSessionRepository(session)
@@ -1029,9 +1289,12 @@ class AgentRuntime:
                     completion_tokens=completion_tokens,
                     finish_reason=finish_reason,
                     latency_ms=latency_ms,
+                    run_id=None if role == AgentRole.USER else run_id,
                     created_at=now,
                 )
             )
+            if run_id is not None and role == AgentRole.USER:
+                await AgentRunRepository(session).set_trigger_seq_if_missing(run_id, seq)
             stored_session.message_count += 1
             stored_session.updated_at = now
             stored_session.last_message_at = now

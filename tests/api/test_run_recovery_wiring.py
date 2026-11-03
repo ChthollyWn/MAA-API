@@ -32,9 +32,9 @@ PREVIOUS_BOOT = "previous-boot"
 
 
 class _BindableRuntime:
-    """lifespan 的 runtime 替身：T5 才在 ``AgentRuntime`` 上加 ``bind_run_service``。
+    """lifespan 的 runtime 替身：第二遍 lifespan 只需要装配调用 ``bind_run_service``。
 
-    T4 只验证装配会调用这个钩子；替身没有真实运行能力，启动路径不需要它。
+    真实绑定由第一条用例用默认 app 覆盖；启动恢复这条路径不需要 runtime 有运行能力。
     """
 
     def __init__(self) -> None:
@@ -60,10 +60,14 @@ def _lifespan(app):
 
 
 def test_lifespan_sets_boot_id_and_run_service(tmp_settings, isolated_db) -> None:
-    """``boot_id`` 与 ``RunService`` 必须由 lifespan 建出并绑定到 runtime。"""
+    """``boot_id`` 与 ``RunService`` 必须由 lifespan 建出并绑定到 runtime。
+
+    T5 起 ``AgentRuntime`` 有真实的 ``bind_run_service``，这里用默认 app 验证真实绑定：
+    装配层换进来的必须是 ``app.state.run_service`` 同一个对象，而不是 runtime 自建
+    的那份占位服务。
+    """
 
     app = create_app()
-    app.state.agent_runtime_factory = _runtime_factory
     with _lifespan(app):
         boot_id = app.state.boot_id
         assert isinstance(boot_id, str)
