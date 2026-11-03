@@ -17,11 +17,11 @@
 
 ### 1.1 现状（实施前核实的事实）
 
-- `agent_message`（[models.py:501](../../../maa_api/db/models.py#L501)）只有 15 列，**没有任何附件/媒体列**；结构化信息只能靠 `tool_calls` 列与 `role="tool"` 的 JSON 文本表达。
-- 一张图都不显示：`get_screenshot` 的归档结果里**已经有** `screenshot_id` / `sha256` / `thumb_url` / `full_url`（[runtime.py:1898-1901](../../../maa_api/agent/runtime.py#L1898)），前端 `ToolCallBar` 只把它当 JSON 打印，且整条工具条在默认折叠的 `<details>` 里（[ToolCallBar.tsx:28](../../../web/src/features/agent/ToolCallBar.tsx#L28)）。
-- 图片通路已存在：`store_screenshot()` 内容寻址落盘（[util/image.py:24](../../../maa_api/util/image.py#L24)），`GET /api/images/{sha256}/thumb|full`（[screenshots.py:176](../../../maa_api/api/routers/screenshots.py#L176)）与 `GET /api/screenshots/{id}`（同文件 :115）都要鉴权；材料图标端点 `GET /api/resources/items/icon?item_id=`（[resources.py:244](../../../maa_api/api/routers/resources.py#L244)）也已存在。
-- **截图只有两个写入点**：agent 工具（`trigger=agent`，[runtime.py:1882](../../../maa_api/agent/runtime.py#L1882)）与前端手动存档（`trigger=manual`，[device.py:304](../../../maa_api/api/routers/device.py#L304)）。`crash` 只被读（[incidents.py:561](../../../maa_api/agent/incidents.py#L561)），`task_snapshot` **只有枚举没有写入点**，`LogRecord.attachment` 也**只有读侧**（[log_hub.py:425](../../../maa_api/services/log_hub.py#L425)）。本机库实测：截图 61 行全是 `agent`，`pipeline_id` 全为空，所以 `GET /api/pipelines/{id}/screenshots` 永远是空的。
-- `store_screenshot()` 不传 `quality` 时用 `adb.screenshot_quality`（默认 **25**，[settings.py:187](../../../maa_api/settings.py#L187)）重新编码；`get_screenshot` 先在内存里按 85 编码，落盘时仍被 25 覆盖。
+- `agent_message`（[models.py:501](../../../../maa_api/db/models.py#L501)）只有 15 列，**没有任何附件/媒体列**；结构化信息只能靠 `tool_calls` 列与 `role="tool"` 的 JSON 文本表达。
+- 一张图都不显示：`get_screenshot` 的归档结果里**已经有** `screenshot_id` / `sha256` / `thumb_url` / `full_url`（[runtime.py:1898-1901](../../../../maa_api/agent/runtime.py#L1898)），前端 `ToolCallBar` 只把它当 JSON 打印，且整条工具条在默认折叠的 `<details>` 里（[ToolCallBar.tsx:28](../../../../web/src/features/agent/ToolCallBar.tsx#L28)）。
+- 图片通路已存在：`store_screenshot()` 内容寻址落盘（[util/image.py:24](../../../../maa_api/util/image.py#L24)），`GET /api/images/{sha256}/thumb|full`（[screenshots.py:176](../../../../maa_api/api/routers/screenshots.py#L176)）与 `GET /api/screenshots/{id}`（同文件 :115）都要鉴权；材料图标端点 `GET /api/resources/items/icon?item_id=`（[resources.py:244](../../../../maa_api/api/routers/resources.py#L244)）也已存在。
+- **截图只有两个写入点**：agent 工具（`trigger=agent`，[runtime.py:1882](../../../../maa_api/agent/runtime.py#L1882)）与前端手动存档（`trigger=manual`，[device.py:304](../../../../maa_api/api/routers/device.py#L304)）。`crash` 只被读（[incidents.py:561](../../../../maa_api/agent/incidents.py#L561)），`task_snapshot` **只有枚举没有写入点**，`LogRecord.attachment` 也**只有读侧**（[log_hub.py:425](../../../../maa_api/services/log_hub.py#L425)）。本机库实测：截图 61 行全是 `agent`，`pipeline_id` 全为空，所以 `GET /api/pipelines/{id}/screenshots` 永远是空的。
+- `store_screenshot()` 不传 `quality` 时用 `adb.screenshot_quality`（默认 **25**，[settings.py:187](../../../../maa_api/settings.py#L187)）重新编码；`get_screenshot` 先在内存里按 85 编码，落盘时仍被 25 覆盖。
 - 前端 `markdown.tsx` 明确不支持图片（刻意的），`transcript.ts` 只认 user / assistant / tool 三种条目；M21 的提问卡不是消息，是「独立表 + 独立事件 + 独立 REST」。
 - `web/package.json` 里没有任何图表库；`index.css` 没有图表色板 token。
 
@@ -104,9 +104,9 @@
 | `send_stage_map` | ✔ | `stage`、`caption?` | 关卡布局示意图（本地 tile 数据） |
 | `send_chart` | ✔ | 见 §3.5 | 结构化图表卡 |
 
-- 全部 `ToolRisk.SAFE` → 策略引擎直接放行（[policy.py:112](../../../maa_api/agent/policy.py#L112)），**不弹确认**，与 `get_screenshot` 同级；调用照常进审计。
-- `annotate_screenshot` 会写文件与数据库行，故 `read_only=False`（决定批内是否并发，[runtime.py:1261](../../../maa_api/agent/runtime.py#L1261)），其余四个为 `read_only=True`。
-- **`annotate_screenshot` 进 `SCREEN_TOOL_NAMES`**：视觉降级时从模型 schema 隐藏（[runtime.py:1738](../../../maa_api/agent/runtime.py#L1738)）并在派发处拦截（:1302）——模型看不见画面就不可能圈对位置。其余四个不进：它们服务的是用户的眼睛，视觉降级时仍应可用。拦截文案要按工具名生成（现在写死「截图和原子屏幕操作已禁用」，不该把圈选说成原子操作）。
+- 全部 `ToolRisk.SAFE` → 策略引擎直接放行（[policy.py:112](../../../../maa_api/agent/policy.py#L112)），**不弹确认**，与 `get_screenshot` 同级；调用照常进审计。
+- `annotate_screenshot` 会写文件与数据库行，故 `read_only=False`（决定批内是否并发，[runtime.py:1261](../../../../maa_api/agent/runtime.py#L1261)），其余四个为 `read_only=True`。
+- **`annotate_screenshot` 进 `SCREEN_TOOL_NAMES`**：视觉降级时从模型 schema 隐藏（[runtime.py:1738](../../../../maa_api/agent/runtime.py#L1738)）并在派发处拦截（:1302）——模型看不见画面就不可能圈对位置。其余四个不进：它们服务的是用户的眼睛，视觉降级时仍应可用。拦截文案要按工具名生成（现在写死「截图和原子屏幕操作已禁用」，不该把圈选说成原子操作）。
 - `trigger` 只接受 `agent` / `manual` / `task_snapshot` / `crash` / `update` 五个枚举值。
 - REST 调用与内置会话走同一条注册表路径，五个工具的返回值都不依赖 runtime 的 `on_audit_prepare` 钩子，所以 REST 与内置会话拿到同样的 JSON（**例外**：既有 `get_screenshot` 的归档只发生在 runtime 钩子里，REST 仍返回 base64——保持既有行为，不改）。
 
@@ -130,7 +130,7 @@
 ### 3.4 `send_stage_map` 的数据链
 
 1. **索引**：`<资源根>/Arknights-Tile-Pos/overview.json` 是 **dict**（4186 键，键＝`f"{stageId}-{levelId.replace('/','-')}"`），值含 `code` / `stageId` / `levelId` / `filename` / `width` / `height` / `name`；实测 `filename` 100% 等于 `<键>.json`。
-2. **资源根按内核的真实加载链查找**：基础层 `<maa_path>/resource`，其上叠加 `resource/maa-layers/cache/resource` 与 `resource/maa-layers/custom/resource`（后者覆盖前者）。注意 `maa-layers/repo/resource` **不是运行时增量层**——它在资源更新时就被合并进 `<maa_path>/resource`（[main.py:545-559](../../../maa_api/main.py#L545)），且本机上 `repo/`、`custom/` 未必存在，查找要容忍目录缺失。`overview.json` 与关卡文件都在同一个胜出层里取。
+2. **资源根按内核的真实加载链查找**：基础层 `<maa_path>/resource`，其上叠加 `resource/maa-layers/cache/resource` 与 `resource/maa-layers/custom/resource`（后者覆盖前者）。注意 `maa-layers/repo/resource` **不是运行时增量层**——它在资源更新时就被合并进 `<maa_path>/resource`（[main.py:545-559](../../../../maa_api/main.py#L545)），且本机上 `repo/`、`custom/` 未必存在，查找要容忍目录缺失。`overview.json` 与关卡文件都在同一个胜出层里取。
 3. **关卡定位与平局规则**：`code` 并不唯一（4186 关里 2133 个不同 code，其中 944 个对应多关：`1-7` 对应 2 条、`ISW-NO` 对应 554 条）。规则是：query 精确等于某条 `stageId` 或 `levelId`（大小写不敏感）→ 直接命中；否则按 `code` 命中；多个命中时按 `stageId` 字典序取第一条，并把 `stage_id` 与候选数 `candidates` 一起返回（模型可以用 `stageId` 精确重指）。都没命中 → 交给既有 `StageResolver` 试别名 → 仍无 → `RESOURCE_ASSET_NOT_FOUND`。
 4. **文件读取**：先用 overview 的 `filename`；磁盘上没有时按目录列表建一次索引，用前缀 `f"{stageId}-"` 匹配（**不要**用含 `/` 的 `levelId` 拼 glob，那样永远匹配不到）。
 5. **归一化（单格 3 个字符）**：`<地形><可部署><高度>`。
@@ -155,7 +155,7 @@ caption: ≤ 300 字；source: ≤ 200 字（数据来源，例如 get_drop_stat
 - `line` / `bar`：`len(values) == len(categories)`；`pie` 只用第一条 series。
 - 数值必须是有限数（`NaN` / `Infinity` 拒绝），允许 `null` 表示断点。
 - **上限是共同约束，优先按逐项检查、再按总量检查**：总点数 ≤ 600、序列化后 ≤ 24 KB。两级都要满足——按最大允许输入（6×200 点 5 位整数 ≈ 8 KB）估算，合法输入不会撞上限，但规格把两条都写成硬约束，超限一律 `INVALID_PARAMETER`，message 指明是哪一项、实际多大（让模型自己改一版重发）。
-- 为什么自己守大小：docs/04 §5.8 要求 tool content 落库前截断到 32 KB，但**代码里没有强制**（[repositories/agent.py:226](../../../maa_api/db/repositories/agent.py#L226) 明确写成「调用方纪律」），所以 M23 的三个产出方（图表 ≤ 24 KB、tile 网格 ≤ 8 KB、图片卡只是 URL）必须自己保证单条结果远低于 32 KB。
+- 为什么自己守大小：docs/04 §5.8 要求 tool content 落库前截断到 32 KB，但**代码里没有强制**（[repositories/agent.py:226](../../../../maa_api/db/repositories/agent.py#L226) 明确写成「调用方纪律」），所以 M23 的三个产出方（图表 ≤ 24 KB、tile 网格 ≤ 8 KB、图片卡只是 URL）必须自己保证单条结果远低于 32 KB。
 - 服务端只**校验与转发**，不做聚合、不补数据：数据真实性靠提示词约束（§3.7），来源写进 `source` 展示在卡片脚注。
 
 ### 3.6 模型上下文压缩
@@ -164,7 +164,7 @@ caption: ≤ 300 字；source: ≤ 200 字（数据来源，例如 get_drop_stat
 
 ### 3.7 提示词
 
-在系统提示词的「能力边界与操作顺序」与「安全数据边界」之间插入一节（**位置受 [test_runtime.py:2580](../../../tests/agent/test_runtime.py#L2580) 的段落顺序断言约束，不能插到那两段之后**）：
+在系统提示词的「能力边界与操作顺序」与「安全数据边界」之间插入一节（**位置受 [test_runtime.py:2580](../../../../tests/agent/test_runtime.py#L2580) 的段落顺序断言约束，不能插到那两段之后**）：
 
 - 要给用户看画面用 `send_screenshot`；只靠文字说不清时用 `annotate_screenshot` 把关键区域放大并画框，坐标用原图归一化值。
 - 数据分布与趋势用 `send_chart`，**数据必须来自工具真实返回**（`get_drop_stats` / `list_pipelines` / `get_logs` / `list_schedules` 等），`source` 写明出处；没数据就说没有，不许编。
@@ -193,7 +193,7 @@ caption: ≤ 300 字；source: ≤ 200 字（数据来源，例如 get_drop_stat
 - **落库**：`Screenshot(trigger=task_snapshot, pipeline_id, task_id, backend, format="jpg", width, height, size_bytes, path)`，文件走 `store_screenshot()` 内容寻址（与手动存档共用质量 25 的默认值，避免磁盘膨胀）。
 - **容错（硬要求）**：截图失败（设备忙 / adb 断开 / 内核崩）只记一条 WARNING 日志，**不改变任务终态、不重试、不影响流水线结果**；带超时，不能拖慢任务收尾。
 - **并发**：在任务终态收敛后、下一个任务开始前执行；设备访问走既有 `DeviceManager.screenshot`（adb 优先、失败回落 MaaCore），不新建设备通道，也不与 MaaCore 的 screencap 并行抢设备。
-- **可见性**：读取侧不用改——`GET /api/pipelines/{id}/screenshots`（[pipelines.py:403](../../../maa_api/api/routers/pipelines.py#L403)）与前端 `PipelineScreenshots` 组件早已就位，M23 之后它们不再永远是空的。
+- **可见性**：读取侧不用改——`GET /api/pipelines/{id}/screenshots`（[pipelines.py:403](../../../../maa_api/api/routers/pipelines.py#L403)）与前端 `PipelineScreenshots` 组件早已就位，M23 之后它们不再永远是空的。
 - **保留**：沿用既有保留策略清理，不新增配额。
 
 ### 3.10 任务失败的日志附件截图
@@ -201,7 +201,7 @@ caption: ≤ 300 字；source: ≤ 200 字（数据来源，例如 get_drop_stat
 - **时机**：任务进入 `failed` 或 `skipped` 终态时，把该任务的终态截图挂到它的失败日志上（`completed` 不挂）。
 - **复用同一张图**：与 §3.9 的留档是同一次截图（内容寻址天然去重），`screenshot` 行只有一条（`trigger=task_snapshot`），日志附件引用它的 `sha256` / `screenshot_id`。
 - **附件形状**：`{"kind": "screenshot", "sha256": …, "thumb_url": "/api/images/<sha>/thumb", "full_url": "/api/images/<sha>/full", "screenshot_id": …}`，与前端 `logs/format.ts` 的 `logImage()` 认的字段一致（它只认本服务的这三种地址，外域忽略）。
-- **日志落点**：按既有日志写入路径落一条 `source=task` 的 ERROR/INFO 记录（具体级别与文案由实施任务定），`meta.attachment` 走 [log_hub.py:425](../../../maa_api/services/log_hub.py#L425) 已有的读侧拼装，不新增字段。
+- **日志落点**：按既有日志写入路径落一条 `source=task` 的 ERROR/INFO 记录（具体级别与文案由实施任务定），`meta.attachment` 走 [log_hub.py:425](../../../../maa_api/services/log_hub.py#L425) 已有的读侧拼装，不新增字段。
 - **失败即降级**：截图失败就不带附件写普通失败日志，不报错、不重试。
 - 前端日志页的附件显示与全屏查看已经实现，本里程碑不改前端日志页。
 

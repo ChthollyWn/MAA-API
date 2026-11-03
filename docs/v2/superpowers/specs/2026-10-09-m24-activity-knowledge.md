@@ -58,7 +58,7 @@
 
 ### 4.1 数据来源与解析规则
 
-新增 `maa_api/services/activity_index.py`，只读三处数据，**层序沿用** [`iter_resource_roots()`](../../../maa_api/services/resource_index.py)（基础层 → `cache` → `custom`，读的时候反向遍历、后加载的覆盖前面的；`repo/` 不是运行时层，资源更新时已经被合并进基础层，所以 `source` 只会出现这三层之一），与 `stage_layout.py` 同一口径：
+新增 `maa_api/services/activity_index.py`，只读三处数据，**层序沿用** [`iter_resource_roots()`](../../../../maa_api/services/resource_index.py)（基础层 → `cache` → `custom`，读的时候反向遍历、后加载的覆盖前面的；`repo/` 不是运行时层，资源更新时已经被合并进基础层，所以 `source` 只会出现这三层之一），与 `stage_layout.py` 同一口径：
 
 1. `<层>/version.json` 的 `activity.name` / `activity.time` —— 当期活动名与开始时间（epoch 秒）。
 2. `<层>/Arknights-Tile-Pos/overview.json` —— 关卡全表。
