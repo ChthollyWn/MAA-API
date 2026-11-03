@@ -1264,11 +1264,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.context_layout = ContextLayout(TokenEstimator())
 
-        # M68：追踪记录器排在 M67 的四件之后（docs/v3/02 §5）。exporter 在 T7 接
-        # OTLP；这里先传 None，写库本身仍然走后台批量，不占运行关键路径。
+        # M68：追踪记录器排在 M67 的四件之后（docs/v3/02 §5）。OTLP exporter 只在
+        # 配了 trace.otlp_endpoint 且装了 otlp extra 时存在；写库本身仍然走后台批量，
+        # 不占运行关键路径（10 §5.1）。
         from maa_api.agent.trace import SpanRecorder
+        from maa_api.agent.trace.otlp import build_exporter
 
-        span_recorder = SpanRecorder(db_session.session_factory, exporter=None)
+        span_recorder = SpanRecorder(
+            db_session.session_factory,
+            exporter=build_exporter(get_settings(), service_version=service_version()),
+        )
         await span_recorder.start()
         app.state.span_recorder = span_recorder
 

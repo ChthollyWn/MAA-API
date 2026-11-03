@@ -35,6 +35,14 @@ ruamel-yaml = "^0.18.7"
 apscheduler = "^3.11.0"
 requests = { version = "^2.31.0", extras = ["socks"] }
 tqdm = "^4.67.1"
+# 可选 OTLP 导出（M68，docs/v3/16 §12）：只在配置了 trace.otlp_endpoint 时延迟
+# 导入，基础安装不带。选 HTTP/protobuf 而不是 gRPC：Langfuse 只收 HTTP，Phoenix 的
+# HTTP 入口也收 protobuf，而 gRPC 导出器要额外带体积很大的 grpcio。
+opentelemetry-sdk = { version = ">=1.30,<2", optional = true }
+opentelemetry-exporter-otlp-proto-http = { version = ">=1.30,<2", optional = true }
+
+[tool.poetry.extras]
+otlp = ["opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-http"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8"

@@ -26,7 +26,7 @@ from collections import deque
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -35,6 +35,10 @@ from maa_api.db.repositories.trace import TraceSpanRepository
 from maa_api.db.session import run_with_busy_retry
 from maa_api.domain.enums import SpanKind
 from maa_api.settings import Settings, get_settings
+
+if TYPE_CHECKING:
+    from maa_api.agent.trace.otlp import OtlpExporter
+
 
 __all__ = [
     "CLOSE_TIMEOUT_SECONDS",
@@ -352,7 +356,7 @@ class SpanRecorder:
         session_factory: async_sessionmaker[AsyncSession],
         *,
         settings_provider: Callable[[], Settings] = get_settings,
-        exporter: Any | None = None,
+        exporter: OtlpExporter | None = None,
         flush_interval: float = FLUSH_INTERVAL_SECONDS,
         batch_size: int = FLUSH_BATCH_SIZE,
         max_pending: int = MAX_PENDING_SPANS,
@@ -385,6 +389,7 @@ class SpanRecorder:
         self._spawned: set[asyncio.Task[None]] = set()
         self._closed = False
         self._last_write_warning: float | None = None
+        self._last_export_warning: float | None = None
 
     # ------------------------------------------------------------------
     # 状态与入队
@@ -670,6 +675,20 @@ class SpanRecorder:
             MAX_WRITE_ATTEMPTS,
         )
 
+    def _warn_export_failure(self, *, exc_info: bool = False) -> None:
+        """导出失败一分钟最多一条 warning（10 §5.5）。"""
+        now = time.monotonic()
+        if (
+            self._last_export_warning is not None
+            and now - self._last_export_warning < 60
+        ):
+            return
+        self._last_export_warning = now
+        logger.warning(
+            "span 导出失败（失败批次重试一次后丢弃），详见 trace 记录器的计数",
+            exc_info=exc_info,
+        )
+
     # ------------------------------------------------------------------
     # 导出队列（T7 接 OTLP；这里只留接口）
     # ------------------------------------------------------------------
@@ -717,7 +736,7 @@ class SpanRecorder:
                     self._export_pending.appendleft(item)
                 raise
             except Exception:  # noqa: BLE001 - 导出失败只计数
-                logger.warning("span 导出失败", exc_info=True)
+                self._warn_export_failure(exc_info=True)
                 ok = False
             if ok:
                 self._exported += len(batch)
