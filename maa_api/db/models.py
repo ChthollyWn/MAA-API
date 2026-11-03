@@ -1,11 +1,11 @@
-"""SQLModel 表定义：29 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：31 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
 - **命名约定必须在任何表类定义之前设置。** 表定义之后再设置时，无名
   ``Index`` / ``UniqueConstraint`` / 外键不会跟随约定名（见 ``tests/fixtures/db_probe_findings.md`` §6.1）。
 - **主键分两类。** 对外暴露的资源用 36 字符 UUID 字符串；高频追加表
-  （``log_entry`` / ``agent_message`` / ``agent_audit``）用
+  （``log_entry`` / ``agent_message`` / ``agent_audit`` / ``cost_ledger``）用
   ``INTEGER PRIMARY KEY AUTOINCREMENT``，靠 ``__table_args__`` 里的
   ``{'sqlite_autoincrement': True}`` 才会在 DDL 里落下 ``AUTOINCREMENT``
   关键字：只写 ``primary_key=True`` 是不够的。缺了它，
@@ -52,6 +52,9 @@ from maa_api.domain.enums import (
     AgentSessionKind,
     AgentSessionStatus,
     ConfirmationStatus,
+    DynamicContextPosition,
+    ModelProfileKind,
+    ModelProvider,
     PipelineStatus,
     Priority,
     QuestionStatus,
@@ -612,6 +615,88 @@ class AgentRun(SQLModel, table=True):
         ),
         Index("ix_agent_run_session_id_started_at", "session_id", "started_at"),
         Index("ix_agent_run_root_run_id", "root_run_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# model_profile — 模型档案（v3 docs/03 §4.1）
+# ---------------------------------------------------------------------------
+class ModelProfile(SQLModel, table=True):
+    """模型档案（v3 docs/03 §4.1）；`default` 不入表，由 `llm.*` 合成。"""
+
+    __tablename__ = "model_profile"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    name: str = Field(max_length=48)
+    kind: str = Field(default=ModelProfileKind.CHAT, max_length=16)
+    provider: str = Field(default=ModelProvider.OPENAI_COMPATIBLE, max_length=24)
+    base_url: str | None = Field(default=None, max_length=255)
+    api_key_encrypted: str | None = Field(
+        default=None, sa_column=text_column("api_key_encrypted")
+    )
+    model: str = Field(max_length=128)
+    context_window: int | None = Field(default=None)
+    max_output_tokens: int | None = Field(default=None)
+    supports_vision: bool | None = Field(default=None)
+    supports_tools: bool = Field(default=True)
+    supports_json_schema: bool | None = Field(default=None)
+    dynamic_context_position: str = Field(
+        default=DynamicContextPosition.TAIL_SYSTEM, max_length=16
+    )
+    price_input: float | None = Field(default=None)
+    price_cached_input: float | None = Field(default=None)
+    price_output: float | None = Field(default=None)
+    currency: str = Field(default="CNY", max_length=8)
+    embedding_dim: int | None = Field(default=None)
+    local_model_path: str | None = Field(default=None, max_length=255)
+    enabled: bool = Field(default=True)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+    __table_args__ = (UniqueConstraint("name", name="uq_model_profile_name"),)
+
+
+# ---------------------------------------------------------------------------
+# cost_ledger — 一次模型调用一行（v3 docs/03 §4.2）
+# ---------------------------------------------------------------------------
+class CostLedgerEntry(SQLModel, table=True):
+    """一次模型调用一行（v3 docs/03 §4.2）；高频追加，自增主键。"""
+
+    __tablename__ = "cost_ledger"
+
+    # 高频追加表：必须是 INTEGER PRIMARY KEY AUTOINCREMENT（§3.1）
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: str | None = Field(
+        default=None, foreign_key="agent_run.id", ondelete="SET NULL", max_length=36
+    )
+    session_id: str | None = Field(
+        default=None,
+        foreign_key="agent_session.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    agent_name: str = Field(max_length=32)
+    role: str = Field(max_length=24)
+    model_profile: str = Field(max_length=48)
+    model: str = Field(max_length=128)
+    prompt_tokens: int = Field(default=0)
+    cached_tokens: int = Field(default=0)
+    completion_tokens: int = Field(default=0)
+    reasoning_tokens: int = Field(default=0)
+    cost_micros: int = Field(default=0)
+    currency: str = Field(max_length=8)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_cost_ledger_created_at", "created_at"),
+        Index("ix_cost_ledger_agent_name_created_at", "agent_name", "created_at"),
+        {"sqlite_autoincrement": True},
     )
 
 
