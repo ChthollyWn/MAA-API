@@ -279,6 +279,24 @@ class ErrorCode(StrEnum):
     # 会话历史超出模型上下文窗口，需新建会话或裁剪历史
     LLM_CONTEXT_OVERFLOW = "LLM_CONTEXT_OVERFLOW"
 
+    # 模型档案不存在：名字查不到、已停用，或角色指向的档案类型与角色不符
+    MODEL_PROFILE_NOT_FOUND = "MODEL_PROFILE_NOT_FOUND"
+
+    # 模型档案名重复，或试图新建保留名 `default`（它由 `llm.*` 设置合成）
+    MODEL_PROFILE_EXISTS = "MODEL_PROFILE_EXISTS"
+
+    # 模型档案正被某个 `llm.role_*` 引用，不能删除或停用
+    MODEL_PROFILE_IN_USE = "MODEL_PROFILE_IN_USE"
+
+    # `default` 档案由 `llm.*` 设置合成，不能修改或删除
+    MODEL_PROFILE_READONLY = "MODEL_PROFILE_READONLY"
+
+    # 结构化输出两次都没有通过本地校验
+    STRUCTURED_OUTPUT_INVALID = "STRUCTURED_OUTPUT_INVALID"
+
+    # 这次运行或今天的模型成本已达到预算上限
+    BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+
     # ---- 知识库 ----
     # 知识条目 id 不存在，或（read_knowledge）已被停用
     KNOWLEDGE_NOT_FOUND = "KNOWLEDGE_NOT_FOUND"
@@ -429,7 +447,7 @@ class ErrorCode(StrEnum):
 
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 120 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 132 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -513,6 +531,12 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.LLM_RATE_LIMITED: 429,
     ErrorCode.LLM_ENCRYPTION_KEY_INVALID: 503,
     ErrorCode.LLM_CONTEXT_OVERFLOW: 400,
+    ErrorCode.MODEL_PROFILE_NOT_FOUND: 404,
+    ErrorCode.MODEL_PROFILE_EXISTS: 409,
+    ErrorCode.MODEL_PROFILE_IN_USE: 409,
+    ErrorCode.MODEL_PROFILE_READONLY: 409,
+    ErrorCode.STRUCTURED_OUTPUT_INVALID: 502,
+    ErrorCode.BUDGET_EXCEEDED: 429,
     ErrorCode.KNOWLEDGE_NOT_FOUND: 404,
     ErrorCode.KNOWLEDGE_BUILTIN_READONLY: 409,
     ErrorCode.QUESTION_NOT_FOUND: 404,

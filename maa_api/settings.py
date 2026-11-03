@@ -132,6 +132,21 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "llm.base_url": ("llm", "base_url"),
     "llm.api_key": ("llm", "api_key"),
     "llm.model": ("llm", "model"),
+    # ---- 模型层（M67 规格 §4.4）：九个角色各指向一个模型档案，空串用 default 档案 ----
+    "llm.role_orchestrator": ("llm", "role_orchestrator"),
+    "llm.role_worker": ("llm", "role_worker"),
+    "llm.role_subagent": ("llm", "role_subagent"),
+    "llm.role_summarizer": ("llm", "role_summarizer"),
+    "llm.role_title": ("llm", "role_title"),
+    "llm.role_trigger_eval": ("llm", "role_trigger_eval"),
+    "llm.role_memory": ("llm", "role_memory"),
+    "llm.role_vision": ("llm", "role_vision"),
+    "llm.role_embedding": ("llm", "role_embedding"),
+    # 成本预算（元，0 为不限）与上下文窗口兜底值；都是可热改的产品设置。
+    "budget.daily_cost_limit": ("budget", "daily_cost_limit"),
+    "budget.per_run_cost_limit": ("budget", "per_run_cost_limit"),
+    "budget.warn_ratio": ("budget", "warn_ratio"),
+    "context.fallback_context_tokens": ("context", "fallback_context_tokens"),
     # VAPID 密钥仍需登记在这张表里：`config.yaml` 与环境变量两层都靠它驱动解析，
     # 表里没有的段会被整个忽略（notify 段曾因此静默读不到值）。
     # 它们被 CONFIG_ONLY_SETTING_KEYS 排除在设置 API 之外。
@@ -254,6 +269,37 @@ class LLMSettings(BaseModel):
     # 上游只接受 deepseek-flash 与 deepseek-v4-pro；deepseek-flash 同时支持
     # function calling 与图片输入，因此作为默认值。模型名写错会被上游 400 拒绝。
     model: str = "deepseek-flash"
+    # M67 模型层：九个角色各指向一个模型档案（建档在设置页「模型档案」）。
+    # 空串表示用 default 档案，也就是上面这组 llm.* 设置；role_embedding 的
+    # 空串另表示「不使用远端向量」。
+    role_orchestrator: str = ""
+    role_worker: str = ""
+    role_subagent: str = ""
+    role_summarizer: str = ""
+    role_title: str = ""
+    role_trigger_eval: str = ""
+    role_memory: str = ""
+    role_vision: str = ""
+    role_embedding: str = ""
+
+
+class BudgetSettings(BaseModel):
+    """模型成本预算（M67 规格 §4.4）：单位元，0 表示不限。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    daily_cost_limit: float = Field(default=0.0, ge=0, le=100000)
+    per_run_cost_limit: float = Field(default=0.0, ge=0, le=10000)
+    warn_ratio: float = Field(default=0.8, ge=0.1, le=1.0)
+
+
+class ContextSettings(BaseModel):
+    """上下文窗口的兜底值（M67 规格 §4.4）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: 模型档案没写 context_window 时按它计算可用窗口。
+    fallback_context_tokens: int = Field(default=128000, ge=8000, le=2000000)
 
 
 class LogSettings(BaseModel):
@@ -505,6 +551,9 @@ class Settings(BaseModel):
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    #: M67 成本预算与上下文窗口兜底值（都不是 config-only，可在设置页改）。
+    budget: BudgetSettings = Field(default_factory=BudgetSettings)
+    context: ContextSettings = Field(default_factory=ContextSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)
     deployment: DeploymentSettings = Field(default_factory=DeploymentSettings)
     skland: SklandSettings = Field(default_factory=SklandSettings)

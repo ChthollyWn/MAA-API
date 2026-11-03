@@ -190,6 +190,30 @@ EXPECTED_VALUES = {
         "OTA_RESOURCE": "ota_resource",
         "REPO_RESOURCE": "repo_resource",
     },
+    # M67 模型层（docs/03 §4.1、§13）。
+    "ModelProfileKind": {
+        "CHAT": "chat",
+        "EMBEDDING": "embedding",
+    },
+    "ModelProvider": {
+        "OPENAI_COMPATIBLE": "openai_compatible",
+        "LOCAL_ONNX": "local_onnx",
+    },
+    "ModelRole": {
+        "ORCHESTRATOR": "orchestrator",
+        "WORKER": "worker",
+        "SUBAGENT": "subagent",
+        "SUMMARIZER": "summarizer",
+        "TITLE": "title",
+        "TRIGGER_EVAL": "trigger_eval",
+        "MEMORY": "memory",
+        "VISION": "vision",
+        "EMBEDDING": "embedding",
+    },
+    "DynamicContextPosition": {
+        "TAIL_SYSTEM": "tail_system",
+        "TAIL_USER": "tail_user",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。
