@@ -266,3 +266,21 @@ class DynamicContextPosition(StrEnum):
 
     TAIL_SYSTEM = "tail_system"
     TAIL_USER = "tail_user"
+
+
+# ---- M68 运行追踪（v3 docs/03 §5.1） ----
+
+
+class SpanKind(StrEnum):
+    """``trace_span.kind``（v3 03 §5.1、10 §2.2）。"""
+
+    LLM = "llm"
+    TOOL = "tool"
+    RETRIEVAL = "retrieval"
+    POLICY = "policy"
+    CONFIRMATION = "confirmation"
+    MEMORY = "memory"
+    COMPACTION = "compaction"
+    LEASE = "lease"
+    DELEGATE = "delegate"
+    OTHER = "other"

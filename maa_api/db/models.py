@@ -1,4 +1,4 @@
-"""SQLModel 表定义：31 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：32 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -696,6 +696,44 @@ class CostLedgerEntry(SQLModel, table=True):
     __table_args__ = (
         Index("ix_cost_ledger_created_at", "created_at"),
         Index("ix_cost_ledger_agent_name_created_at", "agent_name", "created_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+# ---------------------------------------------------------------------------
+# trace_span — 运行追踪的一个 span（v3 docs/03 §5.1）
+# ---------------------------------------------------------------------------
+class TraceSpan(SQLModel, table=True):
+    """运行追踪的一个 span（v3 03 §5.1）；结束时整行写入，属性键见 v3 10 §2。"""
+
+    __tablename__ = "trace_span"
+
+    id: int | None = Field(default=None, primary_key=True)
+    trace_id: str = Field(max_length=36)
+    span_id: str = Field(max_length=16)
+    parent_span_id: str | None = Field(default=None, max_length=16)
+    run_id: str | None = Field(
+        default=None, foreign_key="agent_run.id", ondelete="CASCADE", max_length=36
+    )
+    name: str = Field(max_length=64)
+    kind: str = Field(max_length=16)
+    status: str = Field(max_length=16)
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("attributes", nullable=False, server_default="'{}'"),
+    )
+    started_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("started_at")
+    )
+    ended_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("ended_at", nullable=True)
+    )
+    duration_ms: int | None = Field(default=None)
+
+    __table_args__ = (
+        UniqueConstraint("trace_id", "span_id", name="uq_trace_span_trace_id_span_id"),
+        Index("ix_trace_span_run_id", "run_id"),
+        Index("ix_trace_span_started_at", "started_at"),
         {"sqlite_autoincrement": True},
     )
 

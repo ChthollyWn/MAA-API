@@ -69,6 +69,8 @@ BUSINESS_TABLES = {
     # M67：模型档案与成本账本（v3 docs/03 §4.1、§4.2）。
     "model_profile",
     "cost_ledger",
+    # M68：运行追踪（v3 docs/03 §5.1）。
+    "trace_span",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -93,6 +95,7 @@ AUTOINCREMENT_TABLES = [
     "agent_audit",
     "agent_idempotency",
     "cost_ledger",
+    "trace_span",
 ]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
@@ -223,6 +226,9 @@ EXPECTED_INDEXES = {
         ("agent_name", "created_at"),
         False,
     ),
+    # M68：运行追踪的两条索引（按运行取整条 trace、按保留期清理）。
+    "ix_trace_span_run_id": ("trace_span", ("run_id",), False),
+    "ix_trace_span_started_at": ("trace_span", ("started_at",), False),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -239,6 +245,8 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_push_subscription_endpoint": ("push_subscription", ("endpoint",)),
     # M67：档案名唯一（default 档案不入表，不在这里）。
     "uq_model_profile_name": ("model_profile", ("name",)),
+    # M68：同一条 trace 里的 span id 唯一。
+    "uq_trace_span_trace_id_span_id": ("trace_span", ("trace_id", "span_id")),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -249,6 +257,8 @@ EXPECTED_FK_CASCADE = {
     ("agent_question", "session_id"),
     # M66：运行随会话删除（规范 §4.1.2）。
     ("agent_run", "session_id"),
+    # M68：运行删了，它名下的 span 一起删。
+    ("trace_span", "run_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -351,6 +361,8 @@ EXPECTED_JSON_COLUMNS = {
     ("agent_question", "selection"),
     # M66：运行的自由结构元数据（成本、简历等由服务层定义）。
     ("agent_run", "meta"),
+    # M68：span 的属性字典（v3 10 §2 定义键，表不做约束）。
+    ("trace_span", "attributes"),
 }
 
 
@@ -415,7 +427,7 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
 def test_metadata_has_exactly_26_business_tables():
-    """31 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+    """32 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
