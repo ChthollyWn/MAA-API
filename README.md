@@ -92,6 +92,8 @@ cd ..
 poetry run uvicorn maa_api.main:app --host 0.0.0.0 --port 8002
 ```
 
+需要从手机等外部设备访问、或要安装 PWA 与接收 Web Push 时，按 [15-部署指南](docs/15-部署指南.md) 用 Tailscale Serve 提供 HTTPS 入口：浏览器打开的是 Tailscale Serve 的 HTTPS 地址，安全上下文才成立（局域网 IP + HTTP 不满足 PWA 与推送的要求）。
+
 ## 配置
 
 配置文件是 `config.yaml`（模板 `config.template.yaml`），也支持用环境变量覆盖同名配置项：`MAA_` + 点分 key 的大写、点换下划线（如 `app.access_token` → `MAA_APP_ACCESS_TOKEN`）。常用项：
