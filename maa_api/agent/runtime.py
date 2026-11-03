@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.confirmation import ConfirmationService
+from maa_api.agent.harness.events import sse_event
 from maa_api.agent.llm import OpenAICompatibleClient
 from maa_api.agent.media import (
     MEDIA_TOOL_NAMES,
@@ -2415,11 +2416,6 @@ class AgentRuntime:
             content_value, ensure_ascii=False, separators=(",", ":")
         )
         return messages
-
-
-def sse_event(event: str, data: Any) -> str:
-    safe = redact_remote_data(data)
-    return f"event: {event}\ndata: {json.dumps(safe, ensure_ascii=False, separators=(',', ':'), default=str)}\n\n"
 
 
 def _trim_historical_reasoning(
