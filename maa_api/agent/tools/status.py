@@ -95,6 +95,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=EmptyParams,
             handler=get_screenshot,
             read_only=True,
+            device="read",
         ),
         ToolDefinition(
             name="get_versions",
