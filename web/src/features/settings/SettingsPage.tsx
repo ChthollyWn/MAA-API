@@ -7,6 +7,7 @@ import { ListGroup, ListItem } from '@/components/ui/list'
 import { EmptyState } from '@/components/ui/states'
 import { useAuth } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
+import { ModelsSection } from '@/features/models/ModelsSection'
 import { AgentCapabilityCheck } from './AgentCapabilityCheck'
 import { KnowledgeSection } from './knowledge/KnowledgeSection'
 import { AccessSection, AppearanceSection, themeLabel } from './LocalSections'
@@ -83,6 +84,12 @@ function SectionPage({ section }: { section: SettingsSection }) {
       )
     case 'agent':
       return <SchemaSection section={section} intro={<AgentCapabilityCheck />} />
+    case 'models':
+      return (
+        <Page title={section.title} back={SETTINGS_INDEX_PATH} width="narrow">
+          <ModelsSection />
+        </Page>
+      )
     case 'sources':
       // 状态面板与 schema 驱动的开关同页：面板在上，字段在下（规格 §5.11）。
       return <SchemaSection section={section} intro={<SourcesStatus />} />

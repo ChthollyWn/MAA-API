@@ -51,6 +51,8 @@ export const keys = {
     auditList: (filters?: Readonly<Record<string, unknown>>) =>
       [...root, 'agent', 'audits', filters ?? {}] as const,
     auditDetail: (id: number) => [...root, 'agent', 'audits', 'detail', id] as const,
+    modelProfiles: () => [...root, 'agent', 'model-profiles'] as const,
+    modelRoles: () => [...root, 'agent', 'model-roles'] as const,
     confirmations: () => [...root, 'confirmations'] as const,
     pendingConfirmations: () => [...root, 'confirmations', 'pending'] as const,
     /** 本会话待答的提问（Agent 主动提问卡）；按会话再分一段，便于整片失效。 */

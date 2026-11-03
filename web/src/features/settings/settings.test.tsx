@@ -48,6 +48,8 @@ const SCHEMA: SchemaItem[] = [
   { key: 'llm.base_url', label: 'LLM API 地址', group: 'LLM', type: 'string', hot_action: 'none' },
   { key: 'llm.api_key', label: 'LLM API 密钥', group: 'LLM', type: 'string', sensitive: true, hot_action: 'none' },
   { key: 'llm.model', label: 'LLM 模型', group: 'LLM', type: 'string', hot_action: 'none' },
+  { key: 'llm.role_worker', label: 'Worker 使用的模型档案', group: 'LLM', type: 'string', hot_action: 'none' },
+  { key: 'llm.role_embedding', label: '向量使用的模型档案', group: 'LLM', type: 'string', hot_action: 'none' },
   { key: 'agent.auto_diagnose_failures', label: '自动诊断流水线与内核故障', group: 'Agent', type: 'boolean', hot_action: 'none' },
   { key: 'deployment.cors_origins', label: '附加浏览器来源白名单', group: '部署', type: 'string[]', hot_action: 'restart_required' },
 ]
@@ -67,6 +69,8 @@ const VALUES: ValueItem[] = [
   { key: 'llm.base_url', value: 'https://api.deepseek.com', source: 'default' },
   { key: 'llm.api_key', value: '***', source: 'env' },
   { key: 'llm.model', value: 'deepseek-flash', source: 'default' },
+  { key: 'llm.role_worker', value: '', source: 'default' },
+  { key: 'llm.role_embedding', value: '', source: 'default' },
   { key: 'agent.auto_diagnose_failures', value: true, source: 'default' },
   { key: 'deployment.cors_origins', value: [], source: 'default' },
 ]
@@ -200,6 +204,7 @@ describe('settings index', () => {
       [/^访问 token/, 'access'],
       [/^设备与渠道/, 'device'],
       [/^LLM 与 Agent/, 'agent'],
+      [/^模型档案/, 'models'],
       [/^通知/, 'notifications'],
       [/^更新与日志/, 'maintenance'],
       [/^应用与部署/, 'system'],
@@ -229,6 +234,15 @@ describe('settings index', () => {
     fireEvent.click(other)
     expect(await screen.findByRole('switch', { name: '实验功能预览' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '实验' })).toBeInTheDocument()
+  })
+
+  it('keeps role bindings out of the LLM section', async () => {
+    installApi()
+    renderSettings(['/more/settings/agent'])
+
+    expect(await screen.findByLabelText('LLM 模型')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Worker 使用的模型档案')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('向量使用的模型档案')).not.toBeInTheDocument()
   })
 
   it('explains an unknown section and links back to the index', async () => {
