@@ -12,8 +12,8 @@ from maa_api.domain.errors import ERROR_HTTP_STATUS, ErrorCode
 from maa_api.main import TAGS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GUIDE_PATH = REPO_ROOT / "docs" / "14-开放API接入指南.md"
-ERROR_SPEC_PATH = REPO_ROOT / "docs" / "05-API规范与路由清单.md"
+GUIDE_PATH = REPO_ROOT / "docs" / "v2" / "14-开放API接入指南.md"
+ERROR_SPEC_PATH = REPO_ROOT / "docs" / "v2" / "05-API规范与路由清单.md"
 _ERROR_ROW = re.compile(
     r"^\|\s*`([A-Z0-9_]+)`\s*\|\s*\d{3}\s*\|\s*(.+?)\s*\|\s*$"
 )
