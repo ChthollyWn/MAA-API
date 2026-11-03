@@ -76,6 +76,17 @@ llm:
   base_url: https://api.deepseek.com
   api_key:
   model: deepseek-flash
+  # 各角色使用的模型档案名（设置页「模型档案」里建），空表示使用上面这组默认设置
+  role_orchestrator:
+  role_worker:
+  role_subagent:
+  role_summarizer:
+  role_title:
+  role_trigger_eval:
+  role_memory:
+  role_vision:
+  # 空表示不使用远端向量
+  role_embedding:
 
 # 邮件通知
 smtp:
@@ -148,3 +159,13 @@ skland:
   auto_sync_interval_minutes: 0
   # 单次出站请求超时（秒）
   request_timeout_seconds: 15.0
+
+# 模型成本预算，单位为元，0 为不限；花费达到上限的 warn_ratio 时告警
+budget:
+  daily_cost_limit: 0
+  per_run_cost_limit: 0
+  warn_ratio: 0.8
+
+# 上下文：模型档案没写窗口大小时按这个值计算
+context:
+  fallback_context_tokens: 128000

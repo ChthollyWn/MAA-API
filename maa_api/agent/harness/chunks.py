@@ -14,7 +14,8 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from maa_api.agent.harness.context import EmitFn, ModelResponse, ToolCall, TurnDraft, Usage
+from maa_api.agent.harness.context import EmitFn, ModelResponse, ToolCall, TurnDraft
+from maa_api.agent.llm.usage import normalize_usage
 from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = [
@@ -24,6 +25,45 @@ __all__ = [
     "parse_arguments",
     "parse_tool_call",
 ]
+
+#: usage 里直接取用的顶层 token 计数。
+_USAGE_SCALAR_FIELDS = (
+    "prompt_tokens",
+    "completion_tokens",
+    "cached_tokens",
+    "prompt_cache_hit_tokens",
+    "prompt_cache_miss_tokens",
+)
+#: usage 的嵌套 details：``{外层键: 内层字段}``。
+_USAGE_DETAIL_FIELDS = (
+    ("prompt_tokens_details", "cached_tokens"),
+    ("completion_tokens_details", "reasoning_tokens"),
+)
+
+
+def _is_token_count(value: Any) -> bool:
+    """非负 ``int``（排除 ``bool``）才算一个可收的 token 计数。"""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _merge_usage(target: dict[str, Any], source: Mapping[str, Any]) -> None:
+    """把一块 usage 的合法计数并进 ``target``，保留每个字段最后一个合法值。
+
+    v2 的收流口径是「后一块给了非法值时不覆盖前一块的合法值」；整块取最后一个带
+    usage 的映射做不到这一点（M65 ``test_harness_chunks`` 钉着），所以按字段合并，
+    再交给 :func:`normalize_usage` 统一归一。
+    """
+    for key in _USAGE_SCALAR_FIELDS:
+        value = source.get(key)
+        if _is_token_count(value):
+            target[key] = value
+    for key, field in _USAGE_DETAIL_FIELDS:
+        details = source.get(key)
+        if not isinstance(details, Mapping):
+            continue
+        value = details.get(field)
+        if _is_token_count(value):
+            target.setdefault(key, {})[field] = value
 
 
 def merge_tool_call_deltas(deltas: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -116,7 +156,7 @@ async def collect_completion(
     # 里面，等本函数返回再取文本已经来不及了（规格 §3.1）。
     text_parts: list[str] = draft.text if draft is not None else []
     reasoning_parts: list[str] = draft.reasoning if draft is not None else []
-    usage: dict[str, int] = {}
+    raw_usage: dict[str, Any] = {}
     finish_reason: str | None = None
     started = time.monotonic()
     async for chunk in client.stream_chat_completion(model, messages, tools):
@@ -142,17 +182,11 @@ async def collect_completion(
                 finish_reason = reason
         chunk_usage = chunk.get("usage")
         if isinstance(chunk_usage, Mapping):
-            for key in ("prompt_tokens", "completion_tokens"):
-                value = chunk_usage.get(key)
-                if isinstance(value, int) and value >= 0:
-                    usage[key] = value
+            _merge_usage(raw_usage, chunk_usage)
     return ModelResponse(
         text="".join(text_parts),
         reasoning="".join(reasoning_parts),
-        usage=Usage(
-            prompt_tokens=usage.get("prompt_tokens"),
-            completion_tokens=usage.get("completion_tokens"),
-        ),
+        usage=normalize_usage(raw_usage),
         upstream_finish_reason=finish_reason,
         latency_ms=int((time.monotonic() - started) * 1000),
         raw_tool_calls=merge_tool_call_deltas(fragments),

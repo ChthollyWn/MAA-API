@@ -228,3 +228,41 @@ class ResourceAssetKind(StrEnum):
     CUSTOM_TASK = "custom_task"      # 增量注入的 tasks.json task 定义
     OTA_RESOURCE = "ota_resource"    # 通道 A 下发的文件，每个清单条目一行
     REPO_RESOURCE = "repo_resource"  # 通道 B 的仓库同步，整体一行
+
+
+# ---- M67 模型层（docs/03 §4.1、§13） ----
+
+
+class ModelProfileKind(StrEnum):
+    """模型档案类型：对话或向量。"""
+
+    CHAT = "chat"
+    EMBEDDING = "embedding"
+
+
+class ModelProvider(StrEnum):
+    """模型档案的接入方式：OpenAI 兼容接口或本机 ONNX。"""
+
+    OPENAI_COMPATIBLE = "openai_compatible"
+    LOCAL_ONNX = "local_onnx"
+
+
+class ModelRole(StrEnum):
+    """调用模型的九个角色，顺序决定角色设置的展示顺序。"""
+
+    ORCHESTRATOR = "orchestrator"
+    WORKER = "worker"
+    SUBAGENT = "subagent"
+    SUMMARIZER = "summarizer"
+    TITLE = "title"
+    TRIGGER_EVAL = "trigger_eval"
+    MEMORY = "memory"
+    VISION = "vision"
+    EMBEDDING = "embedding"
+
+
+class DynamicContextPosition(StrEnum):
+    """动态上下文的落点：尾部系统消息或并入最后一条用户消息。"""
+
+    TAIL_SYSTEM = "tail_system"
+    TAIL_USER = "tail_user"

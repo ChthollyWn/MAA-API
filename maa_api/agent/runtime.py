@@ -55,21 +55,29 @@ from maa_api.agent.harness.builtin_middleware import (
     build_model_context,
 )
 from maa_api.agent.harness.chunks import (
-    chunk_tool_calls,
     collect_completion,
     merge_tool_call_deltas,
 )
 from maa_api.agent.harness.context import ModelRequest, ModelResponse, RunContext
 from maa_api.agent.harness.events import RunEvent, RunEventBus, sse_event
 from maa_api.agent.harness.loop import (
+    BUDGET_EXCEEDED_FINISH_REASON,
     INTERRUPTED_FINISH_REASON,
     INTERRUPTED_NOTICE,
     INTERRUPTED_TOOL_STUB,
     AgentLoop,
 )
-from maa_api.agent.harness.middleware import MiddlewareChain
+from maa_api.agent.harness.middleware import Middleware, MiddlewareChain
 from maa_api.agent.harness.toolexec import SCREEN_TOOL_NAMES
 from maa_api.agent.llm import OpenAICompatibleClient
+from maa_api.agent.llm.budget import BudgetMiddleware
+from maa_api.agent.llm.profiles import (
+    _VISION_PROBE_MARKER,
+    _VISION_PROBE_PNG,
+    _VISION_PROBE_PROMPT,
+    probe_tool_calling,
+    probe_vision,
+)
 from maa_api.agent.redaction import redact_remote_data
 from maa_api.agent.recon.runner import (
     ReconDeps,
@@ -165,18 +173,6 @@ LEGACY_INCIDENT_AGENT = "legacy_incident"
 #: ``_save_incident_failure`` 落库的 ``finish_reason``（v2 就是 ``incident_error``）。
 INCIDENT_FAILED_FINISH_REASON = "incident_error"
 _SSE_END = object()
-# 视觉探查用的 64×64 纯蓝 PNG（132 字节）。1×1 的 PNG 会被上游以
-# "You have uploaded an unsupported image" 当成无效图片拒收，从而把支持视觉的模型
-# 误判成不支持；也不能只用「有没有返回文本」判定，因为不接受图片的模型会回一句
-# "Unable to view image content" 而照样有文本。所以这里用能被识别的纯色图，并要求
-# 模型答出颜色。
-_VISION_PROBE_PNG = (
-    "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAS0lEQVR42u3PQQkAAAgAsetf"
-    "WiP4FgYrsGqeExAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ"
-    "EBA4LMf88OL0EKXAAAAAAElFTkSuQmCC"
-)
-_VISION_PROBE_PROMPT = "What color is this image? Answer with one word."
-_VISION_PROBE_MARKER = "blue"
 
 SYSTEM_PROMPT = builtin_spec("legacy_chat").body
 
@@ -647,7 +643,11 @@ class AgentRuntime:
             await self._end_legacy_run(
                 run,
                 AgentRunStatus.FAILED,
-                INCIDENT_FAILED_FINISH_REASON,
+                (
+                    BUDGET_EXCEEDED_FINISH_REASON
+                    if exc.code == ErrorCode.BUDGET_EXCEEDED
+                    else INCIDENT_FAILED_FINISH_REASON
+                ),
                 error_code=str(exc.code),
                 error_message=explanation,
             )
@@ -844,62 +844,12 @@ class AgentRuntime:
                 )
             }
         )
-        tool_calling = False
-        vision = False
-        tool_error: AppError | None = None
-        vision_error: AppError | None = None
+        tool_calling, tool_error = False, None
+        vision, vision_error = False, None
         client, owned = self._make_client(probe_settings)
         try:
-            probe_tool = {
-                "type": "function",
-                "function": {
-                    "name": "capability_probe",
-                    "description": "No-op capability probe. Return this function call; it is never executed.",
-                    "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
-                },
-            }
-            chunks: list[dict[str, Any]] = []
-            try:
-                async for chunk in client.stream_chat_completion(
-                    model,
-                    [{"role": "user", "content": "Call capability_probe with an empty object to confirm function calling support."}],
-                    [probe_tool],
-                ):
-                    chunks.append(chunk)
-                probed_calls = merge_tool_call_deltas(
-                    [call for chunk in chunks for call in chunk_tool_calls(chunk)]
-                )
-                tool_calling = any(
-                    call.get("function", {}).get("name") == "capability_probe"
-                    for call in probed_calls
-                )
-            except AppError as exc:
-                tool_error = exc
-
-            image_message = [
-                {"type": "text", "text": _VISION_PROBE_PROMPT},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{_VISION_PROBE_PNG}"},
-                },
-            ]
-            vision_text: list[str] = []
-            try:
-                async for chunk in client.stream_chat_completion(
-                    model, [{"role": "user", "content": image_message}], []
-                ):
-                    vision_text.extend(
-                        choice["delta"]["content"]
-                        for choice in chunk.get("choices") or []
-                        if isinstance(choice, Mapping)
-                        and isinstance(choice.get("delta"), Mapping)
-                        and isinstance(choice["delta"].get("content"), str)
-                    )
-                # 只看「有没有文本」会把「我看不到图片」也算成支持视觉，必须核对内容。
-                vision = _VISION_PROBE_MARKER in "".join(vision_text).casefold()
-            except AppError as exc:
-                vision_error = exc
-                vision = False
+            tool_calling, tool_error = await probe_tool_calling(client, model)
+            vision, vision_error = await probe_vision(client, model)
         finally:
             if owned:
                 await client.aclose()
@@ -963,7 +913,11 @@ class AgentRuntime:
             await self._end_legacy_run(
                 run,
                 AgentRunStatus.FAILED,
-                TURN_FAILED_FINISH_REASON,
+                (
+                    BUDGET_EXCEEDED_FINISH_REASON
+                    if exc.code == ErrorCode.BUDGET_EXCEEDED
+                    else TURN_FAILED_FINISH_REASON
+                ),
                 error_code=str(exc.code),
                 error_message=exc.message,
             )
@@ -1214,8 +1168,16 @@ class AgentRuntime:
                 ),
             )
 
+        # 成本账本由 lifespan 挂在 ``app.state``（T8）；没装配时预算中间件不进链。
+        cost_ledger = getattr(
+            getattr(getattr(request, "app", None), "state", None),
+            "cost_ledger",
+            None,
+        )
         loop = AgentLoop(
-            chain=self._legacy_chain(),
+            chain=self._legacy_chain(
+                cost_ledger=cost_ledger, settings_provider=lambda: settings
+            ),
             transcript=_LegacyTranscript(self, vision_enabled=vision_enabled),
             call_model=call_model,
             tool_schemas=tool_schemas,
@@ -1227,12 +1189,26 @@ class AgentRuntime:
             if owned:
                 await client.aclose()
 
-    def _legacy_chain(self) -> MiddlewareChain:
-        """v2 会话的中间件链（05 §5.2 的子集：1、3、13、17、19）。"""
-        return MiddlewareChain.for_kind(
-            "worker",
+    def _legacy_chain(
+        self,
+        *,
+        cost_ledger: Any = None,
+        settings_provider: Callable[[], Any] | None = None,
+    ) -> MiddlewareChain:
+        """v2 会话的中间件链（05 §5.2 的子集：1、2、3、13、17、19）。
+
+        ``BudgetMiddleware`` 只在装配了成本账本时插入第 2 位：没有账本就无从检查
+        预算，v2 的链保持原样（默认 0 上限时同样不产生任何行为差异）。
+        """
+        middlewares: list[Middleware] = [TraceMiddleware()]
+        if cost_ledger is not None:
+            middlewares.append(
+                BudgetMiddleware(
+                    ledger=cost_ledger, settings_provider=settings_provider
+                )
+            )
+        middlewares.extend(
             [
-                TraceMiddleware(),
                 ContextLayoutMiddleware(),
                 LoopGuardMiddleware(),
                 ClarificationMiddleware(
@@ -1244,8 +1220,9 @@ class AgentRuntime:
                     session_factory=self.session_factory,
                     poll_seconds=self.confirmation_poll_seconds,
                 ),
-            ],
+            ]
         )
+        return MiddlewareChain.for_kind("worker", middlewares)
 
     async def _persist_message(
         self,

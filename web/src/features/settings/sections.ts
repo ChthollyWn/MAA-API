@@ -1,7 +1,7 @@
-import { Bell, BookOpen, Bot, Globe, KeyRound, Palette, Server, SlidersHorizontal, Smartphone, Wrench, type LucideIcon } from 'lucide-react'
+import { Bell, BookOpen, Bot, Cpu, Globe, KeyRound, Palette, Server, SlidersHorizontal, Smartphone, Wrench, type LucideIcon } from 'lucide-react'
 import type { SettingField } from './schema'
 
-export type SettingsSectionId = 'appearance' | 'access' | 'device' | 'agent' | 'knowledge' | 'notifications' | 'sources' | 'maintenance' | 'system' | 'other'
+export type SettingsSectionId = 'appearance' | 'access' | 'device' | 'agent' | 'models' | 'knowledge' | 'notifications' | 'sources' | 'maintenance' | 'system' | 'other'
 
 export interface SettingsSection {
   id: SettingsSectionId
@@ -17,6 +17,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'access', title: '访问 token', summary: '替换或清除保存的 token', icon: KeyRound, scope: 'local' },
   { id: 'device', title: '设备与渠道', summary: '设备地址、连接方式与默认渠道', icon: Smartphone, scope: 'server' },
   { id: 'agent', title: 'LLM 与 Agent', summary: '模型接口、确认时限与自动诊断', icon: Bot, scope: 'server' },
+  { id: 'models', title: '模型档案', summary: '模型接口、角色分配与价格', icon: Cpu, scope: 'server' },
   { id: 'knowledge', title: 'Agent 知识库', summary: '操作剧本、界面知识与用户档案', icon: BookOpen, scope: 'server' },
   { id: 'notifications', title: '通知', summary: 'Web 推送与通知通道', icon: Bell, scope: 'server' },
   { id: 'sources', title: '外部数据源', summary: 'PRTS 等外部来源的开关、状态与缓存', icon: Globe, scope: 'server' },
@@ -53,7 +54,8 @@ export function findSection(id: string | undefined): SettingsSection | undefined
 }
 
 export function fieldsForSection(fields: readonly SettingField[], id: SettingsSectionId): SettingField[] {
-  return fields.filter((field) => sectionForGroup(field.group) === id)
+  // 角色档案在「模型档案」分区里按角色选择，不再作为 LLM 分区的文本框出现。
+  return fields.filter((field) => !field.key.startsWith('llm.role_') && sectionForGroup(field.group) === id)
 }
 
 export interface FieldGroup {

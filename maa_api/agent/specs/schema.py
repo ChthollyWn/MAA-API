@@ -7,12 +7,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 __all__ = [
-    "AGENT_KINDS", "DEVICE_LEVELS", "MODEL_ROLES", "RISK_CEILINGS", "SPEC_NAME_PATTERN",
-    "AgentKind", "AgentSpec", "AgentSpecBudget", "AgentSpecFrontmatter", "DeviceLevel",
-    "ModelRoleName", "RiskCeiling",
+    "AGENT_KINDS", "DEVICE_LEVELS", "LEGACY_SPEC_NAMES", "MODEL_ROLES", "RISK_CEILINGS",
+    "SPEC_NAME_PATTERN", "AgentKind", "AgentSpec", "AgentSpecBudget", "AgentSpecFrontmatter",
+    "DeviceLevel", "ModelRoleName", "RiskCeiling",
 ]
 
 SPEC_NAME_PATTERN = r"^[a-z][a-z0-9_]{1,31}$"
+#: v2 门面的两个代理定义：布局、能力探查与选模型方式保持 v2（M67 规格 §4.2.4）。
+LEGACY_SPEC_NAMES = frozenset({"legacy_chat", "legacy_incident"})
 AgentKind = Literal["orchestrator", "worker", "subagent", "background"]
 AGENT_KINDS: tuple[str, ...] = ("orchestrator", "worker", "subagent", "background")
 #: 与 ModelRole 枚举同值；枚举建好之前先用字面量。

@@ -66,6 +66,9 @@ BUSINESS_TABLES = {
     "skland_credential",
     "skland_role",
     "agent_run",
+    # M67：模型档案与成本账本（v3 docs/03 §4.1、§4.2）。
+    "model_profile",
+    "cost_ledger",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -82,8 +85,15 @@ UUID_PK_TABLES = [
     "agent_question",
     "copilot_grant",
     "agent_run",
+    "model_profile",
 ]
-AUTOINCREMENT_TABLES = ["log_entry", "agent_message", "agent_audit", "agent_idempotency"]
+AUTOINCREMENT_TABLES = [
+    "log_entry",
+    "agent_message",
+    "agent_audit",
+    "agent_idempotency",
+    "cost_ledger",
+]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
 EXPECTED_INDEXES = {
@@ -206,6 +216,13 @@ EXPECTED_INDEXES = {
         False,
     ),
     "ix_agent_run_root_run_id": ("agent_run", ("root_run_id",), False),
+    # M67：成本账本的两条索引（按时间清理 / 区间汇总、按代理分组汇总）。
+    "ix_cost_ledger_created_at": ("cost_ledger", ("created_at",), False),
+    "ix_cost_ledger_agent_name_created_at": (
+        "cost_ledger",
+        ("agent_name", "created_at"),
+        False,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -220,6 +237,8 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_resource_asset_kind_name": ("resource_asset", ("kind", "name")),
     "uq_api_snippet_name": ("api_snippet", ("name",)),
     "uq_push_subscription_endpoint": ("push_subscription", ("endpoint",)),
+    # M67：档案名唯一（default 档案不入表，不在这里）。
+    "uq_model_profile_name": ("model_profile", ("name",)),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -262,6 +281,9 @@ EXPECTED_FK_SET_NULL = {
     ("agent_session", "parent_session_id"),
     ("agent_run", "parent_run_id"),
     ("agent_message", "run_id"),
+    # M67：运行与会话删了，成本账本仍要留着（预算与历史汇总）。
+    ("cost_ledger", "run_id"),
+    ("cost_ledger", "session_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -285,6 +307,8 @@ EXPECTED_TEXT_COLUMNS = {
     ("skland_credential", "token_encrypted"),
     # M66：运行错误描述与流水线/任务同一写法（长度不定，用 TEXT）。
     ("agent_run", "error_message"),
+    # M67：档案密文长度随明文变化，不能定宽。
+    ("model_profile", "api_key_encrypted"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -391,7 +415,7 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
 def test_metadata_has_exactly_26_business_tables():
-    """29 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+    """31 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
@@ -486,7 +510,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """36 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """38 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
@@ -626,7 +650,7 @@ def test_no_standalone_low_cardinality_indexes():
 
 @pytest.mark.parametrize("table", AUTOINCREMENT_TABLES)
 def test_hot_write_tables_keep_index_budget(table):
-    """三张高频写表索引总数 ≤ 3（索引 + 唯一约束）。"""
+    """高频写表索引总数 ≤ 3（索引 + 唯一约束）。"""
     table_obj = MD.tables[table]
     uniques = sum(
         1 for c in table_obj.constraints if isinstance(c, UniqueConstraint)
@@ -938,6 +962,14 @@ def test_no_sa_enum_columns():
             assert not isinstance(column.type, Enum), (table.name, column.name)
 
 
+# 按表的列宽例外：docs/v3/03 §3.2 给 ``agent_run.finish_reason`` 定的是 32，
+# §4.2 给 ``cost_ledger.role`` 定的是 24；其余表的同名列仍按上面的通用宽度。
+COLUMN_WIDTH_OVERRIDES: dict[tuple[str, str], int] = {
+    ("agent_run", "finish_reason"): 32,
+    ("cost_ledger", "role"): 24,
+}
+
+
 @pytest.mark.parametrize("table", sorted(BUSINESS_TABLES))
 def test_string_columns_declare_documented_widths(table):
     """状态/来源/级别 16、阶段/角色 24、错误码 48 的列宽是给 Alembic 的文档（§3.3）。"""
@@ -956,8 +988,6 @@ def test_string_columns_declare_documented_widths(table):
         "finish_reason": 24,
         "error_code": 48,
     }
-    # 按表的列宽例外：docs/03 给 agent_run.finish_reason 定的是 32，其余表仍是 24。
-    overrides = {("agent_run", "finish_reason"): 32}
     for name, width in widths.items():
         if name not in MD.tables[table].c:
             continue
@@ -966,8 +996,8 @@ def test_string_columns_declare_documented_widths(table):
             # 同名列不一定是字符串：`account_operator.level` 是干员等级（INTEGER），
             # 这条文档性约束只覆盖状态/来源/阶段这类字符串列。
             continue
-        expected = overrides.get((table, name), width)
-        assert sql_type(column) == f"VARCHAR({expected})", (
+        width = COLUMN_WIDTH_OVERRIDES.get((table, name), width)
+        assert sql_type(column) == f"VARCHAR({width})", (
             table,
             name,
             sql_type(column),
@@ -1189,3 +1219,108 @@ def test_agent_knowledge_orm_defaults(engine):
 def test_screenshot_trigger_column_is_quoted_in_ddl(conn):
     """``trigger`` 是 SQLite 保留字，必须被引用；否则建表就炸。"""
     assert '"TRIGGER" VARCHAR(16) NOT NULL' in ddl(conn, "screenshot")
+
+
+# ---------------------------------------------------------------------------
+# M67：模型档案与成本账本（v3 docs/03 §4.1、§4.2）
+# ---------------------------------------------------------------------------
+def test_model_profile_name_is_unique(engine):
+    """同名档案由 ``uq_model_profile_name`` 兜底（``default`` 不入表，name 仍唯一）。"""
+    with Session(engine) as session:
+        session.add(models.ModelProfile(name="main", model="gpt-test"))
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(models.ModelProfile(name="main", model="other-model"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    with Session(engine) as session:
+        rows = session.scalars(select(models.ModelProfile)).all()
+        assert [row.model for row in rows] == ["gpt-test"]
+
+
+def test_cost_ledger_autoincrement_and_fk_set_null(engine):
+    """账本自增且尾部删除后 id 不复用；删运行/会话只把两个外键置空。"""
+    with Session(engine) as session:
+        session.add(models.AgentSession(id="session-cost", model="gpt-test"))
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            models.AgentRun(
+                id="run-cost",
+                session_id="session-cost",
+                root_run_id="run-cost",
+                agent_name="legacy_chat",
+                kind="legacy_turn",
+                boot_id="boot-1",
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        first = models.CostLedgerEntry(
+            run_id="run-cost",
+            session_id="session-cost",
+            agent_name="legacy_chat",
+            role="worker",
+            model_profile="main",
+            model="gpt-test",
+            currency="CNY",
+        )
+        session.add(first)
+        session.commit()
+        first_id = first.id
+
+        second = models.CostLedgerEntry(
+            agent_name="legacy_chat",
+            role="worker",
+            model_profile="main",
+            model="gpt-test",
+            currency="CNY",
+        )
+        session.add(second)
+        session.commit()
+        second_id = second.id
+        session.delete(second)
+        session.commit()
+
+    assert first_id is not None and second_id is not None
+    assert second_id > first_id
+
+    # 删掉尾部行后继续追加：AUTOINCREMENT 让新 id 严格大于被删掉的 id；
+    # 只有 INTEGER PRIMARY KEY 时 SQLite 会取 max(rowid)+1，把 2 复用掉。
+    with Session(engine) as session:
+        third = models.CostLedgerEntry(
+            agent_name="legacy_chat",
+            role="worker",
+            model_profile="main",
+            model="gpt-test",
+            currency="CNY",
+        )
+        session.add(third)
+        session.commit()
+        assert third.id > second_id
+
+    # 删运行：账本行还在，run_id 置空。
+    with Session(engine) as session:
+        session.delete(session.get(models.AgentRun, "run-cost"))
+        session.commit()
+
+    with Session(engine) as session:
+        row = session.get(models.CostLedgerEntry, first_id)
+        assert row is not None
+        assert row.run_id is None
+        assert row.session_id == "session-cost"
+
+    # 删会话：session_id 也置空，账本行比主体活得久。
+    with Session(engine) as session:
+        session.delete(session.get(models.AgentSession, "session-cost"))
+        session.commit()
+
+    with Session(engine) as session:
+        row = session.get(models.CostLedgerEntry, first_id)
+        assert row is not None
+        assert row.session_id is None

@@ -360,6 +360,20 @@ def test_env_mapping_names_are_pinned() -> None:
         "llm.base_url": "MAA_LLM_BASE_URL",
         "llm.api_key": "MAA_LLM_API_KEY",
         "llm.model": "MAA_LLM_MODEL",
+        # M67：九个角色各指向的模型档案，以及成本预算与上下文窗口兜底值。
+        "llm.role_orchestrator": "MAA_LLM_ROLE_ORCHESTRATOR",
+        "llm.role_worker": "MAA_LLM_ROLE_WORKER",
+        "llm.role_subagent": "MAA_LLM_ROLE_SUBAGENT",
+        "llm.role_summarizer": "MAA_LLM_ROLE_SUMMARIZER",
+        "llm.role_title": "MAA_LLM_ROLE_TITLE",
+        "llm.role_trigger_eval": "MAA_LLM_ROLE_TRIGGER_EVAL",
+        "llm.role_memory": "MAA_LLM_ROLE_MEMORY",
+        "llm.role_vision": "MAA_LLM_ROLE_VISION",
+        "llm.role_embedding": "MAA_LLM_ROLE_EMBEDDING",
+        "budget.daily_cost_limit": "MAA_BUDGET_DAILY_COST_LIMIT",
+        "budget.per_run_cost_limit": "MAA_BUDGET_PER_RUN_COST_LIMIT",
+        "budget.warn_ratio": "MAA_BUDGET_WARN_RATIO",
+        "context.fallback_context_tokens": "MAA_CONTEXT_FALLBACK_CONTEXT_TOKENS",
         "notify.vapid_private_key": "MAA_NOTIFY_VAPID_PRIVATE_KEY",
         "notify.vapid_subject": "MAA_NOTIFY_VAPID_SUBJECT",
         "deployment.forwarded_allow_ips": "MAA_DEPLOYMENT_FORWARDED_ALLOW_IPS",
@@ -742,6 +756,128 @@ def test_run_heartbeat_settings_have_documented_defaults_and_bounds() -> None:
     schema_keys = {item["key"] for item in SETTINGS_SCHEMA}
     assert "agent.run_heartbeat_seconds" not in schema_keys
     assert "agent.run_stale_seconds" not in schema_keys
+
+
+def test_model_layer_settings_have_documented_defaults_and_bounds() -> None:
+    """M67 模型层：13 个键都进设置 API，默认值、范围与模板照 spec §4.4。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import (
+        CONFIG_ONLY_SETTING_KEYS,
+        BudgetSettings,
+        ContextSettings,
+    )
+
+    roles = (
+        "orchestrator",
+        "worker",
+        "subagent",
+        "summarizer",
+        "title",
+        "trigger_eval",
+        "memory",
+        "vision",
+        "embedding",
+    )
+    new_keys = {f"llm.role_{role}" for role in roles} | {
+        "budget.daily_cost_limit",
+        "budget.per_run_cost_limit",
+        "budget.warn_ratio",
+        "context.fallback_context_tokens",
+    }
+
+    default = resolve_settings(env={})
+    assert [getattr(default.llm, f"role_{role}") for role in roles] == [""] * len(roles)
+    assert default.budget == BudgetSettings()
+    assert default.budget.daily_cost_limit == 0.0
+    assert default.budget.per_run_cost_limit == 0.0
+    assert default.budget.warn_ratio == 0.8
+    assert default.context == ContextSettings()
+    assert default.context.fallback_context_tokens == 128000
+
+    configured = resolve_settings(
+        {
+            "llm": {"role_orchestrator": "planner"},
+            "budget": {
+                "daily_cost_limit": 12.5,
+                "per_run_cost_limit": 2,
+                "warn_ratio": 0.5,
+            },
+            "context": {"fallback_context_tokens": 64000},
+        },
+        env={},
+    )
+    assert configured.llm.role_orchestrator == "planner"
+    assert configured.budget.daily_cost_limit == 12.5
+    assert configured.budget.per_run_cost_limit == 2.0
+    assert configured.budget.warn_ratio == 0.5
+    assert configured.context.fallback_context_tokens == 64000
+
+    for bad in (-1, 100001):
+        with pytest.raises(ValidationError):
+            resolve_settings({"budget": {"daily_cost_limit": bad}}, env={})
+    for bad in (-1, 10001):
+        with pytest.raises(ValidationError):
+            resolve_settings({"budget": {"per_run_cost_limit": bad}}, env={})
+    for bad in (0.09, 1.01):
+        with pytest.raises(ValidationError):
+            resolve_settings({"budget": {"warn_ratio": bad}}, env={})
+    for bad in (7999, 2000001):
+        with pytest.raises(ValidationError):
+            resolve_settings({"context": {"fallback_context_tokens": bad}}, env={})
+
+    schema = {item["key"]: item for item in SETTINGS_SCHEMA}
+    assert not (new_keys & CONFIG_ONLY_SETTING_KEYS)
+    assert new_keys <= set(schema)
+    labels = {
+        "orchestrator": "总控使用的模型档案",
+        "worker": "Worker 使用的模型档案",
+        "subagent": "子代理使用的模型档案",
+        "summarizer": "摘要使用的模型档案",
+        "title": "标题使用的模型档案",
+        "trigger_eval": "事件研判使用的模型档案",
+        "memory": "记忆整理使用的模型档案",
+        "vision": "视觉使用的模型档案",
+        "embedding": "向量使用的模型档案",
+    }
+    for role, label in labels.items():
+        row = schema[f"llm.role_{role}"]
+        assert row["label"] == label
+        assert (row["group"], row["type"], row["hot_action"]) == ("LLM", "string", "none")
+        description = "空表示不使用远端向量" if role == "embedding" else "空表示使用默认档案"
+        assert row["description"] == description
+
+    daily = schema["budget.daily_cost_limit"]
+    assert (
+        daily["group"], daily["type"], daily["minimum"], daily["maximum"],
+        daily["description"], daily["hot_action"],
+    ) == ("LLM", "number", 0, 100000, "0 为不限", "none")
+    per_run = schema["budget.per_run_cost_limit"]
+    assert (
+        per_run["group"], per_run["type"], per_run["minimum"], per_run["maximum"],
+        per_run["description"], per_run["hot_action"],
+    ) == ("LLM", "number", 0, 10000, "0 为不限", "none")
+    ratio = schema["budget.warn_ratio"]
+    assert (
+        ratio["group"], ratio["type"], ratio["minimum"], ratio["maximum"],
+        ratio["hot_action"],
+    ) == ("LLM", "number", 0.1, 1, "none")
+    context_row = schema_for("context.fallback_context_tokens")
+    assert (
+        context_row["group"], context_row["type"], context_row["minimum"],
+        context_row["maximum"], context_row["description"], context_row["hot_action"],
+    ) == ("Agent", "integer", 8000, 2000000, "模型档案没写窗口时使用", "none")
+
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert [template["llm"][f"role_{role}"] for role in roles] == [None] * len(roles)
+    assert template["budget"] == {
+        "daily_cost_limit": 0,
+        "per_run_cost_limit": 0,
+        "warn_ratio": 0.8,
+    }
+    assert template["context"] == {"fallback_context_tokens": 128000}
+    assert "# 各角色使用的模型档案名（设置页「模型档案」里建），空表示使用上面这组默认设置" in template_text
+    assert "# 空表示不使用远端向量" in template_text
 
 
 def test_log_settings_read_yaml_and_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

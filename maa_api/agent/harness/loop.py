@@ -33,6 +33,7 @@ from maa_api.agent.registry import ToolRegistry
 from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = [
+    "BUDGET_EXCEEDED_FINISH_REASON",
     "INTERRUPTED_FINISH_REASON",
     "INTERRUPTED_NOTICE",
     "INTERRUPTED_TOOL_STUB",
@@ -50,6 +51,8 @@ logger = logging.getLogger(__name__)
 #: 用户主动中断一轮时的收尾（规格 §3.1）。
 #: ``finish_reason`` 的新取值；落库列宽 24 够用，且该列没有枚举约束。
 INTERRUPTED_FINISH_REASON = "interrupted"
+#: 预算超限时的收尾（M67 规格 §4.2.5）：``agent_run.finish_reason`` 的取值。
+BUDGET_EXCEEDED_FINISH_REASON = "budget_exceeded"
 #: 中断时追加到部分文本之后的标记；没有部分文本时它就是全部内容。
 INTERRUPTED_NOTICE = "本轮已被你中断。"
 #: 中断在历史里补的 tool 桩消息。**硬要求**：assistant 的 ``tool_calls`` 缺对应
@@ -138,10 +141,14 @@ def select_stop(
     return pending
 
 
-def _total(current: int | None, extra: int | None) -> int | None:
-    if extra is None:
-        return current
-    return extra if current is None else current + extra
+def _reported_tokens(value: int) -> int | None:
+    """归一口径下「上游没给 usage」与 0 都是 0；落库沿用 v2 的 ``None`` 语义。
+
+    ``collect_completion`` 在没有 usage 块时产出全 0 的 ``Usage``（M67 §4.2.2），
+    而 v2 的 ``agent_message.prompt_tokens`` / ``completion_tokens`` 在没有 usage 时
+    是 ``NULL``。M65 的 parity golden 钉住了后者，所以写库前把 0 还原成 ``None``。
+    """
+    return value or None
 
 
 class AgentLoop:
@@ -155,12 +162,15 @@ class AgentLoop:
         call_model: ModelCall,
         tool_schemas: ToolSchemaProvider,
         registry: ToolRegistry,
+        cost_ledger: Any = None,
     ) -> None:
         self._chain = chain
         self._transcript = transcript
         self._call_model = call_model
         self._tool_schemas = tool_schemas
         self._registry = registry
+        # 成本账本：显式注入优先（测试），否则每次模型调用后从 ctx.app.state 取。
+        self._cost_ledger = cost_ledger
 
     async def run(self, ctx: RunContext) -> RunOutcome:
         await self._chain.on_run_start(ctx)
@@ -172,6 +182,16 @@ class AgentLoop:
                 raise
             await self._finish_interrupted(ctx)
             await self._safe_run_end(ctx, RunOutcome("interrupted", INTERRUPTED_FINISH_REASON))
+            raise
+        except AppError as exc:
+            # 预算超限要单独标记收尾原因（规格 §4.2.5）；门面照常按 AppError 发
+            # error 事件并写运行终态，所以这里只映射 on_run_end 看到的原因后继续抛。
+            reason = (
+                BUDGET_EXCEEDED_FINISH_REASON
+                if exc.code == ErrorCode.BUDGET_EXCEEDED
+                else "error"
+            )
+            await self._safe_run_end(ctx, RunOutcome("failed", reason))
             raise
         except Exception:
             await self._safe_run_end(ctx, RunOutcome("failed", "error"))
@@ -197,6 +217,8 @@ class AgentLoop:
             try:
                 request = await self._chain.before_model(ctx, request)
                 response = await self._call_model(ctx, request)
+                # 每次模型调用返回后、after_model 链之前记账（M67 规格 §4.5.1）。
+                await self._record_cost(ctx, request, response)
                 if response.raw_tool_calls:
                     try:
                         response.tool_calls = [
@@ -210,8 +232,12 @@ class AgentLoop:
                             role="assistant",
                             content=response.text or INVALID_TOOL_CALL_TEXT,
                             reasoning_content=response.reasoning or None,
-                            prompt_tokens=response.usage.prompt_tokens,
-                            completion_tokens=response.usage.completion_tokens,
+                            prompt_tokens=_reported_tokens(
+                                response.usage.prompt_tokens
+                            ),
+                            completion_tokens=_reported_tokens(
+                                response.usage.completion_tokens
+                            ),
                             finish_reason=response.upstream_finish_reason,
                             latency_ms=response.latency_ms,
                         )
@@ -220,10 +246,7 @@ class AgentLoop:
             except StopRun as stop:
                 await self._finish_stop(ctx, stop.reason, stop.text)
                 return RunOutcome(stop.status, stop.reason, stop.text, usage=usage)
-            usage.prompt_tokens = _total(usage.prompt_tokens, response.usage.prompt_tokens)
-            usage.completion_tokens = _total(
-                usage.completion_tokens, response.usage.completion_tokens
-            )
+            usage = usage + response.usage
 
             if not response.tool_calls:
                 await self._transcript.append(
@@ -231,8 +254,10 @@ class AgentLoop:
                     role="assistant",
                     content=response.text,
                     reasoning_content=response.reasoning or None,
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
+                    prompt_tokens=_reported_tokens(response.usage.prompt_tokens),
+                    completion_tokens=_reported_tokens(
+                        response.usage.completion_tokens
+                    ),
                     finish_reason=response.upstream_finish_reason,
                     latency_ms=response.latency_ms,
                 )
@@ -249,8 +274,8 @@ class AgentLoop:
                 content=response.text or None,
                 reasoning_content=response.reasoning or None,
                 tool_calls=response.raw_tool_calls,
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens=response.usage.completion_tokens,
+                prompt_tokens=_reported_tokens(response.usage.prompt_tokens),
+                completion_tokens=_reported_tokens(response.usage.completion_tokens),
                 finish_reason=response.upstream_finish_reason,
                 latency_ms=response.latency_ms,
             )
@@ -321,6 +346,34 @@ class AgentLoop:
             ctx.steps += 1
             if ctx.spec.max_steps and ctx.steps >= ctx.spec.max_steps:
                 return RunOutcome("succeeded", "max_steps", usage=usage)
+
+    async def _record_cost(
+        self, ctx: RunContext, request: ModelRequest, response: ModelResponse
+    ) -> None:
+        """把这次调用记进成本账本；没有账本、没有档案或写库失败都不影响这一轮。
+
+        legacy 定义在 T7 接上档案解析之前 ``request.profile`` 是 ``None``：没有档案
+        就算不出价格，跳过记账（T7 之后 legacy 走 ``default`` 档案）。账本是观测
+        与预算的数据源，写失败只记日志，不能把一次已经答完的模型调用变成失败。
+        """
+        ledger = self._cost_ledger
+        if ledger is None:
+            state = getattr(ctx.app, "state", None)
+            ledger = getattr(state, "cost_ledger", None)
+        profile = getattr(request, "profile", None)
+        if ledger is None or profile is None:
+            return
+        try:
+            await ledger.record(
+                run_id=ctx.run_id,
+                session_id=ctx.session_id,
+                agent_name=ctx.spec.name,
+                role=ctx.spec.model_role,
+                profile=profile,
+                usage=response.usage,
+            )
+        except Exception:  # noqa: BLE001 - 记账失败不能盖过模型回答
+            logger.warning("成本账本写入失败：run=%s", ctx.run_id, exc_info=True)
 
     async def _finish_stop(
         self, ctx: RunContext, reason: str, text: str | None

@@ -176,14 +176,15 @@ describe('knowledge settings section', () => {
     expect(children.some((route) => route.path === 'more/settings/knowledge/:entryId')).toBe(true)
   })
 
-  it('lists the section right after the Agent section', async () => {
+  it('lists the section after the Agent and model sections', async () => {
     installApi()
     renderKnowledge(['/more/settings'])
 
     const link = await screen.findByRole('link', { name: /^Agent 知识库/ })
     expect(link).toHaveAttribute('href', '/more/settings/knowledge')
     const hrefs = screen.getAllByRole('link').map((item) => item.getAttribute('href'))
-    expect(hrefs.indexOf('/more/settings/knowledge')).toBe(hrefs.indexOf('/more/settings/agent') + 1)
+    expect(hrefs.indexOf('/more/settings/models')).toBe(hrefs.indexOf('/more/settings/agent') + 1)
+    expect(hrefs.indexOf('/more/settings/knowledge')).toBe(hrefs.indexOf('/more/settings/models') + 1)
   })
 
   it('groups the entries by kind and shows where each one comes from', async () => {

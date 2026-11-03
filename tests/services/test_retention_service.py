@@ -31,6 +31,7 @@ from maa_api.db import session as db_session_module
 from maa_api.db.models import (
     AgentRun,
     AgentSession,
+    CostLedgerEntry,
     LogEntry,
     Pipeline,
     Screenshot,
@@ -440,5 +441,51 @@ def test_retention_keeps_agent_runs(retention_session_factory) -> None:
         runs = await _all(retention_session_factory, AgentRun)
         assert [item.id for item in runs] == [run_id]
         assert runs[0].status == AgentRunStatus.SUCCEEDED
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# 成本账本（M67）
+# ---------------------------------------------------------------------------
+def test_cost_ledger_purged_after_365_days(retention_session_factory) -> None:
+    """超过 365 天的成本账本行删除，窗口内的保留；既有五个键语义不变。"""
+    now = utcnow()
+
+    def ledger(created_at: datetime) -> CostLedgerEntry:
+        return CostLedgerEntry(
+            agent_name="legacy_chat",
+            role="worker",
+            model_profile="default",
+            model="retention-model",
+            prompt_tokens=10,
+            completion_tokens=2,
+            cost_micros=100,
+            currency="CNY",
+            created_at=created_at,
+        )
+
+    async def scenario():
+        await _insert(
+            retention_session_factory,
+            [
+                ledger(now - timedelta(days=366)),
+                ledger(now - timedelta(days=364)),
+            ],
+        )
+        out = await r.run_retention(session_factory=retention_session_factory)
+        assert out["cost_ledger_deleted"] == 1, out
+        # M2/M29 的五个键仍在，语义不变。
+        for key in (
+            "logs_deleted",
+            "pipelines_deleted",
+            "screenshots_deleted",
+            "temp_files_deleted",
+            "copilots_deleted",
+        ):
+            assert isinstance(out[key], int), out
+        rows = await _all(retention_session_factory, CostLedgerEntry)
+        assert len(rows) == 1
+        assert rows[0].created_at > now - timedelta(days=365)
 
     asyncio.run(scenario())
