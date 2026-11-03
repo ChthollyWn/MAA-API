@@ -23,7 +23,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from maa_api.agent.runtime import INCIDENT_ALLOWED_TOOLS
+from maa_api.agent.runtime import INCIDENT_ALLOWED_TOOLS, SYSTEM_PROMPT
 from maa_api.core.enums import Message
 from maa_api.services.pipeline_runner import PipelineRunner
 from tests.fakes.fake_asst import FakeAsst, SUCCESS_SCRIPT
@@ -784,6 +784,28 @@ def run(*, keep_temp: bool = False) -> None:
             f"REST 审计字段不匹配：{safe_audit!r}",
         )
         print("[ok] REST 工具鉴权、真实 SAFE 调用、run_copilot 缺席与审计回查")
+
+        spec_list = _check_response(
+            client.get("/api/agent/specs", headers=headers), 200, "代理定义列表"
+        )
+        spec_names = [item["name"] for item in spec_list["items"]]
+        _require(
+            spec_names == ["legacy_chat", "legacy_incident", "recon"],
+            f"代理定义列表不匹配：{spec_names!r}",
+        )
+        chat_spec = _check_response(
+            client.get("/api/agent/specs/legacy_chat", headers=headers),
+            200,
+            "代理定义详情",
+        )
+        _require(chat_spec["body"] == SYSTEM_PROMPT, "legacy_chat 正文与 v2 系统提示词不一致")
+        missing_spec = client.get("/api/agent/specs/nope", headers=headers)
+        _require(
+            missing_spec.status_code == 404
+            and missing_spec.json().get("error", {}).get("code") == "AGENT_SPEC_NOT_FOUND",
+            f"未知代理定义不匹配：{missing_spec.status_code} {missing_spec.text[:240]}",
+        )
+        print("[ok] 代理定义列表、legacy_chat 正文与未知名字的 404")
 
         # 2. Create a persisted internal session through the production REST API.
         session_body = _check_response(
