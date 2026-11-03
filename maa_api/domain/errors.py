@@ -242,6 +242,12 @@ class ErrorCode(StrEnum):
     # 本轮已被用户中断，该工具调用被取消、未完成。只落在审计的 error_code 上
     AGENT_TURN_INTERRUPTED = "AGENT_TURN_INTERRUPTED"
 
+    # 没有这个运行
+    RUN_NOT_FOUND = "RUN_NOT_FOUND"
+
+    # 该会话已有运行在进行。v2 会话的发消息端点仍返回 AGENT_SESSION_BUSY
+    RUN_ALREADY_ACTIVE = "RUN_ALREADY_ACTIVE"
+
     # 没有这个代理定义
     AGENT_SPEC_NOT_FOUND = "AGENT_SPEC_NOT_FOUND"
 
@@ -495,6 +501,8 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.AGENT_SESSION_NOT_FOUND: 404,
     ErrorCode.AGENT_SESSION_BUSY: 409,
     ErrorCode.AGENT_TURN_INTERRUPTED: 409,
+    ErrorCode.RUN_NOT_FOUND: 404,
+    ErrorCode.RUN_ALREADY_ACTIVE: 409,
     ErrorCode.AGENT_SPEC_NOT_FOUND: 404,
     ErrorCode.TOOL_NOT_FOUND: 404,
     ErrorCode.TOOL_ARGS_INVALID: 422,
