@@ -22,6 +22,12 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.confirmation import ConfirmationService
+from maa_api.agent.harness.chunks import (
+    chunk_tool_calls,
+    collect_completion,
+    merge_tool_call_deltas,
+)
+from maa_api.agent.harness.context import TurnDraft
 from maa_api.agent.harness.events import sse_event
 from maa_api.agent.llm import OpenAICompatibleClient
 from maa_api.agent.media import (
@@ -56,21 +62,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-
-class _TurnDraft:
-    """一轮里「模型已经生成、但还没落库」的内容。
-
-    为什么不能等 ``_complete`` 返回再拿文本：中断就发生在它返回之前。部分文本必须
-    和别的消息一样持久化，否则前端已经看到的那些字在刷新后消失，下一轮的历史也与
-    用户看到的对话不一致。``pending_tool_calls`` 记的是这一批里**还没有**对应 tool
-    消息的调用，中断时据此补桩。
-    """
-
-    def __init__(self) -> None:
-        self.text: list[str] = []
-        self.reasoning: list[str] = []
-        self.pending_tool_calls: list[dict[str, Any]] = []
 
 
 DEFAULT_MAX_ITERATIONS: int | None = None
@@ -244,34 +235,6 @@ def call_runtime_factory(
     if accepts_keyword:
         return factory(confirmation_service, question_service=question_service)
     return factory(confirmation_service)
-
-
-def merge_tool_call_deltas(deltas: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Join OpenAI tool-call name, id and argument fragments by tool-call index."""
-    merged: dict[int, dict[str, Any]] = {}
-    for fragment in deltas:
-        try:
-            index = int(fragment.get("index", 0))
-        except (TypeError, ValueError):
-            index = 0
-        target = merged.setdefault(
-            index,
-            {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
-        )
-        call_id = fragment.get("id")
-        if isinstance(call_id, str):
-            target["id"] += call_id
-        if isinstance(fragment.get("type"), str):
-            target["type"] = fragment["type"]
-        function = fragment.get("function")
-        if isinstance(function, Mapping):
-            name = function.get("name")
-            arguments = function.get("arguments")
-            if isinstance(name, str):
-                target["function"]["name"] += name
-            if isinstance(arguments, str):
-                target["function"]["arguments"] += arguments
-    return [merged[index] for index in sorted(merged)]
 
 
 def build_model_context(
@@ -958,7 +921,7 @@ class AgentRuntime:
                 ):
                     chunks.append(chunk)
                 probed_calls = merge_tool_call_deltas(
-                    [call for chunk in chunks for call in _chunk_tool_calls(chunk)]
+                    [call for chunk in chunks for call in chunk_tool_calls(chunk)]
                 )
                 tool_calling = any(
                     call.get("function", {}).get("name") == "capability_probe"
@@ -1224,7 +1187,7 @@ class AgentRuntime:
         client, owned = self._make_client(client_settings)
         # 本轮「已生成未落库」的内容：中断收尾要靠它把部分文本补进历史、给批次里
         # 还没落库的调用补 tool 桩消息（规格 §3.1）。
-        draft = _TurnDraft()
+        draft = TurnDraft()
         try:
             # 迭代次数默认不设上限：一次故障排查可能要读几十次日志与截图，按次数截断会
             # 把一个本该跑完的诊断硬切在中间。上下文有本地上限（默认 400 000 有效字符，
@@ -1270,15 +1233,10 @@ class AgentRuntime:
                     envelope_chars=len(json.dumps(tools, ensure_ascii=False)),
                     vision_enabled=bool(capabilities["vision"]),
                 )
-                (
-                    text,
-                    reasoning,
-                    call_deltas,
-                    usage,
-                    finish_reason,
-                    latency_ms,
-                ) = await self._complete(client, model, messages, tools, emit, draft)
-                calls = merge_tool_call_deltas(call_deltas)
+                resp = await collect_completion(
+                    client, model, messages, tools, emit=emit, draft=draft
+                )
+                calls = resp.raw_tool_calls
                 if calls:
                     try:
                         parsed_calls = [_parse_tool_call(call) for call in calls]
@@ -1289,24 +1247,24 @@ class AgentRuntime:
                         await self._persist_message(
                             session_id,
                             role="assistant",
-                            content=text or "LLM 返回了无效的工具调用。",
-                            reasoning_content=reasoning or None,
-                            prompt_tokens=usage.get("prompt_tokens"),
-                            completion_tokens=usage.get("completion_tokens"),
-                            finish_reason=finish_reason,
-                            latency_ms=latency_ms,
+                            content=resp.text or "LLM 返回了无效的工具调用。",
+                            reasoning_content=resp.reasoning or None,
+                            prompt_tokens=resp.usage.prompt_tokens,
+                            completion_tokens=resp.usage.completion_tokens,
+                            finish_reason=resp.upstream_finish_reason,
+                            latency_ms=resp.latency_ms,
                         )
                         raise
                     await self._persist_message(
                         session_id,
                         role="assistant",
-                        content=text or None,
-                        reasoning_content=reasoning or None,
+                        content=resp.text or None,
+                        reasoning_content=resp.reasoning or None,
                         tool_calls=calls,
-                        prompt_tokens=usage.get("prompt_tokens"),
-                        completion_tokens=usage.get("completion_tokens"),
-                        finish_reason=finish_reason,
-                        latency_ms=latency_ms,
+                        prompt_tokens=resp.usage.prompt_tokens,
+                        completion_tokens=resp.usage.completion_tokens,
+                        finish_reason=resp.upstream_finish_reason,
+                        latency_ms=resp.latency_ms,
                     )
                     # 批次从这里开始「在飞」：tool 消息要等整批跑完才逐条落库，
                     # 中断发生时 draft 里剩下的就是需要补桩的调用。
@@ -1421,14 +1379,14 @@ class AgentRuntime:
                 await self._persist_message(
                     session_id,
                     role="assistant",
-                    content=text,
-                    reasoning_content=reasoning or None,
-                    prompt_tokens=usage.get("prompt_tokens"),
-                    completion_tokens=usage.get("completion_tokens"),
-                    finish_reason=finish_reason,
-                    latency_ms=latency_ms,
+                    content=resp.text,
+                    reasoning_content=resp.reasoning or None,
+                    prompt_tokens=resp.usage.prompt_tokens,
+                    completion_tokens=resp.usage.completion_tokens,
+                    finish_reason=resp.upstream_finish_reason,
+                    latency_ms=resp.latency_ms,
                 )
-                await emit("message_end", {"session_id": session_id, "finish_reason": finish_reason or "stop"})
+                await emit("message_end", {"session_id": session_id, "finish_reason": resp.upstream_finish_reason or "stop"})
                 return
         except asyncio.CancelledError:
             # 只有本会话被标记为「用户主动中断」时才做收尾；别的取消（服务关闭、
@@ -1442,7 +1400,7 @@ class AgentRuntime:
                 await client.aclose()
 
     async def _finish_interrupted_turn(
-        self, session_id: str, emit: Callable[[str, Any], Any], draft: _TurnDraft
+        self, session_id: str, emit: Callable[[str, Any], Any], draft: TurnDraft
     ) -> None:
         """用户中断后的收尾：补历史 → 发 SSE（规格 §3.1）。
 
@@ -1516,60 +1474,6 @@ class AgentRuntime:
             for message in history
             if message.role == "tool" and message.tool_call_id
         }
-
-    async def _complete(
-        self,
-        client: Any,
-        model: str,
-        messages: Sequence[dict[str, Any]],
-        tools: Sequence[dict[str, Any]],
-        emit: Callable[[str, Any], Any],
-        draft: _TurnDraft | None = None,
-    ) -> tuple[str, str, list[dict[str, Any]], dict[str, int], str | None, int]:
-        fragments: list[dict[str, Any]] = []
-        # 文本与思考内容直接攒在 draft 上（同一批 list）：中断就发生在这个 async for
-        # 里面，等本方法返回再取文本已经来不及了（规格 §3.1）。
-        text_parts: list[str] = draft.text if draft is not None else []
-        reasoning_parts: list[str] = draft.reasoning if draft is not None else []
-        usage: dict[str, int] = {}
-        finish_reason: str | None = None
-        started = time.monotonic()
-        async for chunk in client.stream_chat_completion(model, messages, tools):
-            if not isinstance(chunk, Mapping):
-                raise AppError(ErrorCode.LLM_REQUEST_FAILED, "LLM 返回了无效的响应块")
-            for call in _chunk_tool_calls(chunk):
-                fragments.append(call)
-            for choice in chunk.get("choices") or []:
-                if not isinstance(choice, Mapping):
-                    continue
-                delta = choice.get("delta") or {}
-                if isinstance(delta, Mapping):
-                    value = delta.get("content")
-                    if isinstance(value, str) and value:
-                        text_parts.append(value)
-                        await emit("text_delta", {"text": value})
-                    # 思考模式的思考内容：不展示给用户，但必须累积下来随消息持久化，
-                    # 否则下一轮回传缺失、上游以 400 拒绝（见 migration 0013）。
-                    thinking = delta.get("reasoning_content")
-                    if isinstance(thinking, str) and thinking:
-                        reasoning_parts.append(thinking)
-                reason = choice.get("finish_reason")
-                if isinstance(reason, str):
-                    finish_reason = reason
-            chunk_usage = chunk.get("usage")
-            if isinstance(chunk_usage, Mapping):
-                for key in ("prompt_tokens", "completion_tokens"):
-                    value = chunk_usage.get(key)
-                    if isinstance(value, int) and value >= 0:
-                        usage[key] = value
-        return (
-            "".join(text_parts),
-            "".join(reasoning_parts),
-            fragments,
-            usage,
-            finish_reason,
-            int((time.monotonic() - started) * 1000),
-        )
 
     async def _execute_tool_batch(
         self,
@@ -2779,20 +2683,6 @@ def _drop_oldest_tool_rounds(messages: list[dict[str, Any]]) -> list[dict[str, A
     if len(reduced) >= len(messages):
         return None
     return reduced
-
-
-
-def _chunk_tool_calls(chunk: Mapping[str, Any]) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-    for choice in chunk.get("choices") or []:
-        if not isinstance(choice, Mapping):
-            continue
-        delta = choice.get("delta") or {}
-        if isinstance(delta, Mapping):
-            calls = delta.get("tool_calls") or []
-            if isinstance(calls, list):
-                found.extend(call for call in calls if isinstance(call, Mapping))
-    return found
 
 
 def _parse_tool_call(call: Mapping[str, Any]) -> dict[str, Any]:
