@@ -485,6 +485,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     run_service = None
     agent_runtime = None
     incident_service = None
+    span_recorder = None
     device_start_task: asyncio.Task[Any] | None = None
     device_start_generation: int | None = None
     lifecycle_tasks: set[asyncio.Task[Any]] = set()
@@ -1263,6 +1264,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.context_layout = ContextLayout(TokenEstimator())
 
+        # M68：追踪记录器排在 M67 的四件之后（docs/v3/02 §5）。exporter 在 T7 接
+        # OTLP；这里先传 None，写库本身仍然走后台批量，不占运行关键路径。
+        from maa_api.agent.trace import SpanRecorder
+
+        span_recorder = SpanRecorder(db_session.session_factory, exporter=None)
+        await span_recorder.start()
+        app.state.span_recorder = span_recorder
+
         incident_factory = getattr(app.state, "agent_incident_service_factory", None)
         incident_options = {
             "settings_provider": setting_service.refresh,
@@ -1446,6 +1455,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.exception("清理启动失败的 MaaCore 子进程时出错")
         if core_client is not None:
             core_client.close()
+        if span_recorder is not None:
+            await span_recorder.close()
         if hasattr(app.state, "setting_service"):
             del app.state.setting_service
         for attribute in (
@@ -1464,6 +1475,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent_ops_service",
             "resource_service",
             "copilot_service",
+            "span_recorder",
             "settings_provider",
             "session_factory",
         ):
@@ -1519,6 +1531,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await game_update_service.aclose()
         if update_http_client is not None:
             await update_http_client.aclose()
+        if span_recorder is not None:
+            await span_recorder.close()
         await stop_logging(tailer_task, hub)
         import maa_api.db.session as db_session
 
@@ -1546,6 +1560,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent_ops_service",
             "resource_service",
             "copilot_service",
+            "span_recorder",
             "settings_provider",
             "session_factory",
         ):

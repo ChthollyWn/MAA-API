@@ -158,10 +158,22 @@ async def collect_completion(
     reasoning_parts: list[str] = draft.reasoning if draft is not None else []
     raw_usage: dict[str, Any] = {}
     finish_reason: str | None = None
+    # 第一个带字符串 ``model`` / ``id`` 的分片决定响应模型与响应 id（M68 §4.2.3）；
+    # 后续分片重复携带时不再覆盖，与 OpenAI 的流式约定一致。
+    response_model: str | None = None
+    response_id: str | None = None
     started = time.monotonic()
     async for chunk in client.stream_chat_completion(model, messages, tools):
         if not isinstance(chunk, Mapping):
             raise AppError(ErrorCode.LLM_REQUEST_FAILED, "LLM 返回了无效的响应块")
+        if response_model is None:
+            value = chunk.get("model")
+            if isinstance(value, str):
+                response_model = value
+        if response_id is None:
+            value = chunk.get("id")
+            if isinstance(value, str):
+                response_id = value
         fragments.extend(chunk_tool_calls(chunk))
         for choice in chunk.get("choices") or []:
             if not isinstance(choice, Mapping):
@@ -190,4 +202,6 @@ async def collect_completion(
         upstream_finish_reason=finish_reason,
         latency_ms=int((time.monotonic() - started) * 1000),
         raw_tool_calls=merge_tool_call_deltas(fragments),
+        model=response_model,
+        response_id=response_id,
     )
