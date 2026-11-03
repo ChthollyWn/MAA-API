@@ -35,6 +35,7 @@
 - FastAPI 0.141 下 include 进来的路由对象没有 `.path`，取路由路径用 `set(app.openapi()['paths'])`。
 - 依赖真机、模拟器或真实内核的检查（如 `DYLD_LIBRARY_PATH=$PWD/resource/lib/maa/Darwin .venv/bin/python scripts/core_smoke.py`）不能作为硬性验证，只作补充检查并记录证据。
 - 本机没有 ripgrep（`rg` 不在 PATH）；v3 spec 里的 `rg` 命令改用 `grep -rn`。
+- `pytest.ini` 的 `addopts` 已经是 `-q`；命令行再带 `-q` 会变成 `-qq`，日志里没有 passed/failed 汇总行。要看计数时用 `.venv/bin/python -m pytest -o addopts= -q`。
 
 ## 对 superpowers 流程的项目约定
 
