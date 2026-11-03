@@ -194,7 +194,7 @@ describe('API console', () => {
     expect(locations.at(-1)?.pathname).toBe('/more/api-console/guide')
     expect(screen.getByRole('heading', { name: '开放 API 接入指南' })).toBeInTheDocument()
     expect(screen.getByText(/仅凭 cookie 的请求只允许/)).toBeInTheDocument()
-    const routeGuideLink = screen.getAllByRole('link', { name: /05-API规范与路由清单/ })[0]
+    const routeGuideLink = screen.getAllByRole('link', { name: /14-现行接口清单/ })[0]
     expect(routeGuideLink).toHaveAttribute('href', '/docs')
     expect(routeGuideLink).toHaveTextContent('/docs')
   })

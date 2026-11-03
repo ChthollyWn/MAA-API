@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from 'react'
-import guideMarkdown from '../../../../docs/v2/14-开放API接入指南.md?raw'
+import guideMarkdown from '../../../../docs/v3/15-开放API接入指南.md?raw'
 
 const headingClass = {
   h2: 'text-title font-semibold tracking-tight',
