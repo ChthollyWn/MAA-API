@@ -1332,3 +1332,84 @@ def test_agent_visible_sources_carry_no_version_sensitive_data() -> None:
         text = path.read_text(encoding="utf-8")
         for needle in needles:
             assert needle not in text, f"{path.name} 里出现了当期数据 {needle!r}"
+
+
+def test_stable_and_dynamic_context_split_the_render(tmp_path) -> None:
+    """M67 §4.5.2：稳定段与动态段各管一半，合起来仍是 ``render_context()`` 的旧字节。"""
+
+    from maa_api.agent.knowledge import ACCOUNT_HEADER, GACHA_HEADER
+
+    class _Gacha:
+        async def pools(self):
+            return {
+                "pools": [
+                    {
+                        "name": "限定寻访",
+                        "end_at": "2026-10-20T03:59:59+00:00",
+                        "up_six": [{"name": "维什戴尔"}],
+                        "up_five": [{"name": "伺夜"}],
+                    }
+                ]
+            }
+
+    class _Account:
+        async def summary(self):
+            return {
+                "operators": {
+                    "recognized": True,
+                    "total": 300,
+                    "elite2": 90,
+                    "recognized_at": "2026-10-01T00:00:00+00:00",
+                },
+                "depot": {
+                    "recognized": True,
+                    "recognized_at": "2026-10-01T00:00:00+00:00",
+                },
+            }
+
+    engine = db_session.make_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'split.db'}", poolclass=NullPool
+    )
+    asyncio.run(_create_all(engine))
+    factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    service = KnowledgeService(
+        factory,
+        activity_index=_FixedActivity(_activity_snapshot()),
+        gacha_reader=_Gacha(),
+        account_reader=_Account(),
+    )
+
+    async def scenario():
+        stable = await service.render_stable_context()
+        dynamic = await service.render_dynamic_context()
+        context = await service.render_context()
+
+        # 稳定段：索引、术语表、用户档案；没有活动、卡池、账号。
+        assert INDEX_HEADER in stable
+        assert GLOSSARY_HEADER in stable
+        assert PROFILE_HEADER in stable
+        assert "screen-home" in stable
+        assert "示例活动#3 副标题" not in stable
+        assert ACTIVITY_HEADER not in stable
+        assert GACHA_HEADER not in stable
+        assert ACCOUNT_HEADER not in stable
+
+        # 动态段：当期活动、卡池、账号；没有索引与全文段。
+        assert ACTIVITY_HEADER_FALLBACK in dynamic
+        assert "示例活动#3 副标题" in dynamic
+        assert GACHA_HEADER in dynamic and "限定寻访" in dynamic
+        assert ACCOUNT_HEADER in dynamic and "干员 300 名" in dynamic
+        assert INDEX_HEADER not in dynamic
+        assert GLOSSARY_HEADER not in dynamic
+        assert PROFILE_HEADER not in dynamic
+
+        # render_context() 仍是旧顺序与旧字节：索引 → 动态三段 → 术语表/档案。
+        glossary_at = stable.index(GLOSSARY_HEADER)
+        index_part = stable[:glossary_at].rstrip("\n")
+        fulltext_part = stable[glossary_at:]
+        assert context == f"{index_part}\n\n{dynamic}\n\n{fulltext_part}"
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        engine.sync_engine.dispose()

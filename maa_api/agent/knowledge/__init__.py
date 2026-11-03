@@ -884,36 +884,80 @@ class KnowledgeService:
         → 术语表全文 → 用户档案全文；三段实时数据（活动 / 卡池 / 账号）读不到时**整段不插**。
         索引与全文都取生效值；``glossary`` / ``profile`` 有多条启用时按 id 顺序全部注入。
         索引、术语表、用户档案为空时写「暂无」。三层口径见 docs/11 §6.7。
+
+        M67 起内部拆成稳定段（索引、术语表、档案）与动态段（活动、卡池、账号）：
+        :meth:`render_stable_context` 与 :meth:`render_dynamic_context` 复用同一批
+        内部函数，本方法的输出逐字节不变，留给 legacy 布局使用。
         """
+        enabled = await self._enabled_entries()
+        lines = self._index_section(enabled)
+        for section in await self._dynamic_sections():
+            lines += ["", *section]
+        lines += self._fulltext_section(enabled)
+        return "\n".join(lines)
+
+    async def render_stable_context(self) -> str:
+        """稳定段：索引 + 术语表 + 用户档案（v3 06 §2.5，M67 §4.5.2）。
+
+        为空的段写 :data:`EMPTY_SECTION`；格式与 :meth:`render_context` 里对应部分
+        逐字相同。这一段放进 system，同一运行内不变。
+        """
+        enabled = await self._enabled_entries()
+        return "\n".join(
+            [*self._index_section(enabled), *self._fulltext_section(enabled)]
+        )
+
+    async def render_dynamic_context(self) -> str:
+        """动态段：当期活动、当期卡池、账号数据（v3 06 §2.5，M67 §4.5.2）。
+
+        段间空一行；读不到的段不插；三段都读不到时返回 ``""``。这一段放进动态尾部。
+        """
+        sections = await self._dynamic_sections()
+        return "\n\n".join("\n".join(section) for section in sections)
+
+    async def _enabled_entries(self) -> list[_EffectiveEntry]:
         async with self._session_factory() as session:
             rows = await AgentKnowledgeRepository(session).all()
-        enabled = [entry for entry in _merge(rows, self._builtins).values() if entry.enabled]
+        return [entry for entry in _merge(rows, self._builtins).values() if entry.enabled]
 
+    @staticmethod
+    def _index_section(enabled: list[_EffectiveEntry]) -> list[str]:
+        """索引段：标题 + 索引行（空时「暂无」）。"""
         index_lines = [
             f"- {entry.id}｜{entry.title}：{entry.when_to_use}"
             for entry in _sorted(item for item in enabled if item.kind in INDEX_KINDS)
         ]
+        return [INDEX_HEADER, *(index_lines or [EMPTY_SECTION])]
+
+    @staticmethod
+    def _fulltext_section(enabled: list[_EffectiveEntry]) -> list[str]:
+        """全文段：术语表与用户档案；每段前空一行，空段写「暂无」。"""
         sections = (
             (GLOSSARY_HEADER, FULLTEXT_KINDS[0]),
             (PROFILE_HEADER, FULLTEXT_KINDS[1]),
         )
-        lines = [INDEX_HEADER, *(index_lines or [EMPTY_SECTION])]
-        activity = await self._activity_section()
-        if activity:
-            lines += ["", *activity]
-        gacha = await self._gacha_section()
-        if gacha:
-            lines += ["", GACHA_HEADER, *gacha]
-        account = await self._account_section()
-        if account:
-            lines += ["", ACCOUNT_HEADER, *account]
+        lines: list[str] = []
         for header, kind in sections:
             bodies = [
                 entry.body
                 for entry in _sorted(item for item in enabled if item.kind == kind)
             ]
             lines += ["", header, "\n\n".join(bodies) if bodies else EMPTY_SECTION]
-        return "\n".join(lines)
+        return lines
+
+    async def _dynamic_sections(self) -> list[list[str]]:
+        """动态段的内容（每段含自己的标题）；读不到的段整段不插。"""
+        sections: list[list[str]] = []
+        activity = await self._activity_section()
+        if activity:
+            sections.append(activity)
+        gacha = await self._gacha_section()
+        if gacha:
+            sections.append([GACHA_HEADER, *gacha])
+        account = await self._account_section()
+        if account:
+            sections.append([ACCOUNT_HEADER, *account])
+        return sections
 
     async def _activity_section(self) -> list[str]:
         """当期活动段（标题 + 正文行）；读不出来时返回空列表（整段不插）。
