@@ -242,6 +242,9 @@ class ErrorCode(StrEnum):
     # 本轮已被用户中断，该工具调用被取消、未完成。只落在审计的 error_code 上
     AGENT_TURN_INTERRUPTED = "AGENT_TURN_INTERRUPTED"
 
+    # 没有这个代理定义
+    AGENT_SPEC_NOT_FOUND = "AGENT_SPEC_NOT_FOUND"
+
     # `ToolRegistry` 中没有该工具名
     TOOL_NOT_FOUND = "TOOL_NOT_FOUND"
 
@@ -492,6 +495,7 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.AGENT_SESSION_NOT_FOUND: 404,
     ErrorCode.AGENT_SESSION_BUSY: 409,
     ErrorCode.AGENT_TURN_INTERRUPTED: 409,
+    ErrorCode.AGENT_SPEC_NOT_FOUND: 404,
     ErrorCode.TOOL_NOT_FOUND: 404,
     ErrorCode.TOOL_ARGS_INVALID: 422,
     ErrorCode.TOOL_EXECUTION_FAILED: 500,

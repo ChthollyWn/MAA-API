@@ -1143,12 +1143,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             account_reader=app.state.account_summary,
             gacha_reader=app.state.gacha_service,
         )
+        tool_registry = build_registry()
         confirmation_factory = getattr(
             app.state, "confirmation_service_factory", ConfirmationService
         )
         confirmation_service = confirmation_factory(
             db_session.session_factory,
-            build_registry(),
+            tool_registry,
             policy=PolicyEngine(
                 atomic_grant_minutes=current_settings.agent.atomic_grant_minutes,
                 # 养成计划的确认卡片预演（M31）：确认 `start_upgrade_plan` 前把
@@ -1207,6 +1208,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         )
         app.state.agent_runtime = agent_runtime
+        from maa_api.agent.specs.registry import AgentSpecRegistry
+
+        agent_spec_registry = AgentSpecRegistry(tool_registry)
+        agent_spec_registry.load()  # 内置定义坏了属于代码错误，直接中止启动
+        app.state.agent_spec_registry = agent_spec_registry
         incident_factory = getattr(app.state, "agent_incident_service_factory", None)
         incident_options = {
             "settings_provider": setting_service.refresh,
