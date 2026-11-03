@@ -17,9 +17,22 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Callable, Mapping, Sequence
 
+from maa_api.agent.harness.builtin_middleware import TraceMiddleware
+from maa_api.agent.harness.context import (
+    ModelRequest,
+    ModelResponse,
+    RunContext,
+    StopRun,
+    ToolCall,
+    ToolOutcome,
+    Usage,
+)
+from maa_api.agent.harness.loop import AgentLoop, MemoryTranscript
+from maa_api.agent.harness.middleware import CallNext, Middleware, MiddlewareChain
 from maa_api.agent.recon import explore
 from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.agent.specs.registry import builtin_spec
+from maa_api.db.models import new_uuid
 from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = ["ReconBudget", "ReconDeps", "ReconStep", "budget_from_settings", "run_recon"]
@@ -181,7 +194,7 @@ async def run_recon(
     :returns: ``{question, summary, findings, uncertainties, steps_used, budget}``。
     """
 
-    explore.resolve_root(deps.settings)
+    explore.resolve_root(deps.settings)  # 未配置工作区仍在调用模型之前报错
     tools = registry if registry is not None else _recon_registry()
     schemas = recon_tool_schemas(tools)
     budget = ReconBudget(
@@ -189,72 +202,144 @@ async def run_recon(
         max_chars=deps.max_chars,
         output_chars=deps.output_chars,
     )
-    runner = step_runner or _default_step_runner
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": _question_block(question, hints)},
-    ]
-
-    steps: list[ReconStep] = []
-    stopped: str | None = None
-    for index in range(budget.max_steps):
-        budget.steps = index + 1
-        step = await runner(deps, messages, schemas)
-        steps.append(step)
-        if not budget.spend(step.text or ""):
-            stopped = "budget"
-            break
-        # 只放行白名单里的工具；这一步同时把内部形态（name/arguments 在顶层）折成
-        # 回灌模型要的 OpenAI 形态，下一步不可信的调用名在这里就被丢掉。
-        parts = [_call_parts(call) for call in step.calls]
-        allowed = [part for part in parts if part[0] in RECON_TOOL_NAMES]
-        if not allowed:
-            stopped = "answered"
-            break
-        selected = allowed[:MAX_CALLS_PER_STEP]
-        messages.append(
-            {
-                "role": "assistant",
-                "content": step.text or "",
-                "tool_calls": [
-                    {
-                        "id": call_id,
-                        "type": "function",
-                        "function": {
-                            "name": name,
-                            "arguments": json.dumps(arguments, ensure_ascii=False),
-                        },
-                    }
-                    for name, call_id, arguments in selected
-                ],
-            }
+    if deps.max_steps < 1:  # v2 的 for 循环一步都不走
+        return _report(
+            question=question, final_text="", budget=budget, stopped="max_steps"
         )
-        for name, call_id, arguments in selected:
-            payload = await dispatch_tool(tools, deps.settings, name, arguments)
-            body = payload[: budget.output_chars]
-            if not budget.spend(body):
-                stopped = "budget"
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "content": body,
-                }
-            )
-            if stopped == "budget":
-                break
-        if stopped == "budget":
-            break
-    else:
-        stopped = "max_steps"
+    runner = step_runner or _default_step_runner
+    steps: list[ReconStep] = []
 
-    final_text = steps[-1].text if steps else ""
+    async def call_model(ctx: RunContext, req: ModelRequest) -> ModelResponse:
+        """一次流式补全，并把白名单内的调用折成回灌模型要的 OpenAI 形态。"""
+
+        step = await runner(deps, req.messages, req.tools)
+        steps.append(step)
+        parts = [_call_parts(call) for call in step.calls]
+        allowed = [part for part in parts if part[0] in RECON_TOOL_NAMES][
+            :MAX_CALLS_PER_STEP
+        ]
+        return ModelResponse(
+            text=step.text or "",
+            reasoning="",
+            usage=Usage(
+                step.usage.get("prompt_tokens"), step.usage.get("completion_tokens")
+            ),
+            upstream_finish_reason=None,
+            latency_ms=0,
+            raw_tool_calls=[
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(arguments, ensure_ascii=False),
+                    },
+                }
+                for name, call_id, arguments in allowed
+            ],
+        )
+
+    # 预算仍取 agent.recon_*：定义里的 max_steps 只是默认值，这里按本次调用覆盖。
+    spec = builtin_spec("recon").model_copy(update={"max_steps": deps.max_steps})
+    run_id = new_uuid()  # M65 不落库
+    ctx = RunContext(
+        run_id=run_id,
+        root_run_id=run_id,
+        parent_run_id=None,
+        session_id=None,
+        ticket_id=None,
+        spec=spec,
+        parallel_tools=False,
+    )
+    # recon 链不挂 ContextLayout / LoopGuard / Policy：侦察不脱敏、不注入状态、不进审计，
+    # 也没有打转检测（20 步相同调用照常跑完）。parallel_tools=False 让工具逐件串行派发。
+    loop = AgentLoop(
+        chain=MiddlewareChain(
+            [
+                TraceMiddleware(),
+                ReconBudgetMiddleware(budget),
+                ReconDispatchMiddleware(registry=tools, settings=deps.settings),
+            ]
+        ),
+        transcript=MemoryTranscript(
+            [
+                {"role": "system", "content": spec.body},
+                {"role": "user", "content": _question_block(question, hints)},
+            ]
+        ),
+        call_model=call_model,
+        tool_schemas=lambda _ctx: schemas,
+        registry=tools,
+    )
+    outcome = await loop.run(ctx)
+    stopped = {
+        "stop": "answered",
+        "budget": "budget",
+        "max_steps": "max_steps",
+    }[outcome.finish_reason]
     return _report(
         question=question,
-        final_text=final_text,
+        final_text=steps[-1].text if steps else "",
         budget=budget,
-        stopped=stopped or "max_steps",
+        stopped=stopped,
     )
+
+
+class ReconBudgetMiddleware(Middleware):
+    """三层预算（步数、单次输出截断、整轮字符）的中间件（规格 §4.2.12）。
+
+    ``before_model`` 记一步（v2 的 ``budget.steps = index + 1``）；``after_model``
+    先把模型正文记账，超了就不派发工具。``wrap_tool`` 负责单条输出截断与整轮累计，
+    预算用尽后同批后面的调用直接 skipped，与 v2 的串行 ``for`` 循环一致。
+    """
+
+    name = "recon_budget"
+    applies_to = frozenset({"subagent"})
+
+    def __init__(self, budget: ReconBudget) -> None:
+        self.budget = budget
+
+    async def before_model(self, ctx: RunContext, req: ModelRequest) -> ModelRequest:
+        self.budget.steps += 1
+        return req
+
+    async def after_model(self, ctx: RunContext, resp: ModelResponse) -> ModelResponse:
+        # 文本先记账：超预算就不把这次响应交给工具执行。
+        if not self.budget.spend(resp.text or ""):
+            raise StopRun("budget")
+        return resp
+
+    async def wrap_tool(
+        self, ctx: RunContext, call: ToolCall, call_next: CallNext
+    ) -> ToolOutcome:
+        if self.budget.exhausted:
+            return ToolOutcome(status="skipped", content="")
+        outcome = await call_next(call)
+        outcome.content = (outcome.content or "")[: self.budget.output_chars]
+        if not self.budget.spend(outcome.content):
+            outcome.stop_run, outcome.stop_reason = True, "budget"
+        return outcome
+
+
+class ReconDispatchMiddleware(Middleware):
+    """链上的执行器：把一次调用交给 :func:`dispatch_tool`（规格 §4.2.12）。"""
+
+    name = "recon_dispatch"
+    applies_to = frozenset({"subagent"})
+
+    def __init__(self, *, registry: ToolRegistry, settings: Any) -> None:
+        self.registry = registry
+        self.settings = settings
+
+    async def wrap_tool(
+        self, ctx: RunContext, call: ToolCall, call_next: CallNext
+    ) -> ToolOutcome:
+        return ToolOutcome(
+            status="ok",
+            content=await dispatch_tool(
+                self.registry, self.settings, call.name, call.arguments or {}
+            ),
+        )
 
 
 def _recon_registry() -> ToolRegistry:
