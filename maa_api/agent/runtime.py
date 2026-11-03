@@ -61,14 +61,16 @@ from maa_api.agent.harness.chunks import (
 from maa_api.agent.harness.context import ModelRequest, ModelResponse, RunContext
 from maa_api.agent.harness.events import RunEvent, RunEventBus, sse_event
 from maa_api.agent.harness.loop import (
+    BUDGET_EXCEEDED_FINISH_REASON,
     INTERRUPTED_FINISH_REASON,
     INTERRUPTED_NOTICE,
     INTERRUPTED_TOOL_STUB,
     AgentLoop,
 )
-from maa_api.agent.harness.middleware import MiddlewareChain
+from maa_api.agent.harness.middleware import Middleware, MiddlewareChain
 from maa_api.agent.harness.toolexec import SCREEN_TOOL_NAMES
 from maa_api.agent.llm import OpenAICompatibleClient
+from maa_api.agent.llm.budget import BudgetMiddleware
 from maa_api.agent.llm.profiles import (
     _VISION_PROBE_MARKER,
     _VISION_PROBE_PNG,
@@ -641,7 +643,11 @@ class AgentRuntime:
             await self._end_legacy_run(
                 run,
                 AgentRunStatus.FAILED,
-                INCIDENT_FAILED_FINISH_REASON,
+                (
+                    BUDGET_EXCEEDED_FINISH_REASON
+                    if exc.code == ErrorCode.BUDGET_EXCEEDED
+                    else INCIDENT_FAILED_FINISH_REASON
+                ),
                 error_code=str(exc.code),
                 error_message=explanation,
             )
@@ -907,7 +913,11 @@ class AgentRuntime:
             await self._end_legacy_run(
                 run,
                 AgentRunStatus.FAILED,
-                TURN_FAILED_FINISH_REASON,
+                (
+                    BUDGET_EXCEEDED_FINISH_REASON
+                    if exc.code == ErrorCode.BUDGET_EXCEEDED
+                    else TURN_FAILED_FINISH_REASON
+                ),
                 error_code=str(exc.code),
                 error_message=exc.message,
             )
@@ -1158,8 +1168,16 @@ class AgentRuntime:
                 ),
             )
 
+        # 成本账本由 lifespan 挂在 ``app.state``（T8）；没装配时预算中间件不进链。
+        cost_ledger = getattr(
+            getattr(getattr(request, "app", None), "state", None),
+            "cost_ledger",
+            None,
+        )
         loop = AgentLoop(
-            chain=self._legacy_chain(),
+            chain=self._legacy_chain(
+                cost_ledger=cost_ledger, settings_provider=lambda: settings
+            ),
             transcript=_LegacyTranscript(self, vision_enabled=vision_enabled),
             call_model=call_model,
             tool_schemas=tool_schemas,
@@ -1171,12 +1189,26 @@ class AgentRuntime:
             if owned:
                 await client.aclose()
 
-    def _legacy_chain(self) -> MiddlewareChain:
-        """v2 会话的中间件链（05 §5.2 的子集：1、3、13、17、19）。"""
-        return MiddlewareChain.for_kind(
-            "worker",
+    def _legacy_chain(
+        self,
+        *,
+        cost_ledger: Any = None,
+        settings_provider: Callable[[], Any] | None = None,
+    ) -> MiddlewareChain:
+        """v2 会话的中间件链（05 §5.2 的子集：1、2、3、13、17、19）。
+
+        ``BudgetMiddleware`` 只在装配了成本账本时插入第 2 位：没有账本就无从检查
+        预算，v2 的链保持原样（默认 0 上限时同样不产生任何行为差异）。
+        """
+        middlewares: list[Middleware] = [TraceMiddleware()]
+        if cost_ledger is not None:
+            middlewares.append(
+                BudgetMiddleware(
+                    ledger=cost_ledger, settings_provider=settings_provider
+                )
+            )
+        middlewares.extend(
             [
-                TraceMiddleware(),
                 ContextLayoutMiddleware(),
                 LoopGuardMiddleware(),
                 ClarificationMiddleware(
@@ -1188,8 +1220,9 @@ class AgentRuntime:
                     session_factory=self.session_factory,
                     poll_seconds=self.confirmation_poll_seconds,
                 ),
-            ],
+            ]
         )
+        return MiddlewareChain.for_kind("worker", middlewares)
 
     async def _persist_message(
         self,

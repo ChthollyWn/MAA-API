@@ -36,6 +36,9 @@
   :func:`cleanup_copilots`（可单跑），:func:`run_retention` 把它并进同一轮，结果落在
   返回值的 ``copilots_deleted`` 上。作业文件（``resource_asset.path``）在记录提交之后
   才删：先删文件再删记录，中途失败会留下一行指向不存在的文件，那比留一个孤儿文件更糟。
+- 成本账本（M67，规格 §4.2.5）：``cost_ledger`` 超过 ``COST_LEDGER_RETENTION_DAYS``
+  （365）天的行删除，结果落在返回值的 ``cost_ledger_deleted`` 上。账本行只追加、
+  run/session 外键都是 ``SET NULL``，可以独立按时间清理。
 
 删十万行的一条 DELETE 会长时间持有 SQLite 写锁，期间 ``LogHub`` 刷盘只能在
 ``busy_timeout`` 上排队。因此日志走 ``LogRepository.purge``（内部每批 ``LIMIT 5000``、
@@ -72,6 +75,7 @@ from maa_api.db.models import (
     Task,
     utcnow,
 )
+from maa_api.db.repositories.cost import CostLedgerRepository
 from maa_api.db.repositories.log import LogRepository, ScreenshotRepository
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.repositories.resource import ResourceAssetRepository
@@ -139,6 +143,11 @@ COPILOT_ATTEMPT_SUCCESS_KEYS = ("success", "succeeded", "is_success")
 #: 引用判定要读的授权表（M29 由另一条工作流建；表还没落库时这一维自动跳过）。
 COPILOT_GRANT_TABLE = "copilot_grant"
 
+# --- 成本账本（M67，规格 §4.2.5）-----------------------------------------
+#: 成本流水保留天数。按价格与用量复盘一年的模型花费足够，再久的数据对预算与
+#: 成本趋势没有意义；比流水线（90 天）长，是因为账本行小且要支持年度对比。
+COST_LEDGER_RETENTION_DAYS = 365
+
 
 async def run_retention(
     *,
@@ -150,10 +159,12 @@ async def run_retention(
     :data:`session.session_factory`（运行时取模块属性，测试可注入临时库）。
     资源根目录同样在运行时从 ``session.DB_PATH.parent`` 推导。
 
-    返回 dict 含这五个 key（前四个是 M2 起的既有形状，lifespan 与测试都依赖）：
+    返回 dict 含这六个 key（前四个是 M2 起的既有形状，lifespan 与测试都依赖）：
     ``logs_deleted`` / ``pipelines_deleted`` / ``screenshots_deleted`` /
     ``temp_files_deleted``，都是 int；M29 起多一个 ``copilots_deleted``
-    （作业资源，:func:`cleanup_copilots` 的同一段逻辑），既有四个 key 的语义不变。
+    （作业资源，:func:`cleanup_copilots` 的同一段逻辑），M67 起多一个
+    ``cost_ledger_deleted``（超过 :data:`COST_LEDGER_RETENTION_DAYS` 的成本账本行），
+    既有五个 key 的语义不变。
     其中 ``screenshots_deleted`` 计的是
     **文件被清理并打了 ``deleted_at``** 的截图条数，不含随后按 90 天口径删掉的
     记录条数（后者只进日志）。异常原样抛出，不在本层吞掉。
@@ -167,6 +178,7 @@ async def run_retention(
         "screenshots_deleted": 0,
         "temp_files_deleted": 0,
         "copilots_deleted": 0,
+        "cost_ledger_deleted": 0,
     }
 
     async with factory() as db:
@@ -240,13 +252,26 @@ async def run_retention(
         )
         await _incremental_vacuum(db)
 
+        # 6) 成本账本：超过 365 天的流水（M67 规格 §4.2.5）。账本只追加、没有
+        #    外键依赖（run/session 都是 SET NULL），可以独立按时间清理。
+        result["cost_ledger_deleted"] = await CostLedgerRepository(db).purge_before(
+            now - timedelta(days=COST_LEDGER_RETENTION_DAYS)
+        )
+        await db.commit()
+        logger.info(
+            "保留策略：已删除 %d 条成本账本记录", result["cost_ledger_deleted"]
+        )
+        await _incremental_vacuum(db)
+
     logger.info(
-        "保留策略执行完成：日志 %s 条、流水线 %s 条、截图 %s 个、临时文件 %s 个、作业 %s 份",
+        "保留策略执行完成：日志 %s 条、流水线 %s 条、截图 %s 个、临时文件 %s 个、"
+        "作业 %s 份、成本账本 %s 条",
         result["logs_deleted"],
         result["pipelines_deleted"],
         result["screenshots_deleted"],
         result["temp_files_deleted"],
         result["copilots_deleted"],
+        result["cost_ledger_deleted"],
     )
     return result
 
