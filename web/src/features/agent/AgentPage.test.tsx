@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { keys } from '@/api/keys'
 import AgentPage from './AgentPage'
+import { NETWORK_ERROR_MESSAGE } from './stream'
 
 type Json = Record<string, unknown>
 
@@ -91,6 +92,8 @@ function heldStream(frames: string[]) {
     response,
     push: (more: string[]) => controller?.enqueue(encoder.encode(more.join(''))),
     close: () => controller?.close(),
+    /** 读流途中以连接层错误结束：手机切网、锁屏冻结后恢复时浏览器就是这样失败的。 */
+    fail: (error: unknown = new TypeError('network error')) => controller?.error(error),
   }
 }
 
@@ -952,6 +955,105 @@ describe('Agent conversation page', () => {
     expect(api.sentMessages()).toHaveLength(1)
   })
 
+  it('localizes a network failure before the server accepted the message and puts the draft back', async () => {
+    // 浏览器给的原文（network error）不能出现在界面上；这条请求确实没被受理，回填草稿是对的。
+    let held: ReturnType<typeof heldStream> | null = null
+    createAgentApi({
+      messages: { 'session-1': [] },
+      stream: () => {
+        held = heldStream([])
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '查看设备' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(held).not.toBeNull())
+    await act(async () => { held?.fail(new TypeError('network error')) })
+
+    expect(await screen.findByText(NETWORK_ERROR_MESSAGE)).toBeInTheDocument()
+    expect(screen.queryByText(/network error/)).not.toBeInTheDocument()
+    expect(composer).toHaveValue('查看设备')
+    // 错误提示可以关掉，不必靠重发消息来清。
+    fireEvent.click(screen.getByRole('button', { name: '关闭错误提示' }))
+    await waitFor(() => expect(screen.queryByText(NETWORK_ERROR_MESSAGE)).not.toBeInTheDocument())
+  })
+
+  it('does not report a stream lost after the server accepted the turn as a send failure', async () => {
+    // 用户消息已经落库（收到了 message_start），之后的断流是被动断开：后端会继续跑完，
+    // 不能回填草稿（诱导重发）也不能弹红色错误（docs/13 §8.90）。
+    let held: ReturnType<typeof heldStream> | null = null
+    const api = createAgentApi({
+      sessions: [makeSession({ message_count: 0, total_tokens: 0 })],
+      messages: { 'session-1': [] },
+      stream: (content) => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', message_id: 101, capability_status: 'ready' }),
+          event('text_delta', { text: '正在处理。' }),
+        ])
+        // 服务端这一轮还在跑；用户消息已经落库，历史里能看到。
+        api.state.messages['session-1'] = [
+          { id: 101, session_id: 'session-1', seq: 0, role: 'user', content, created_at: '2026-09-27T10:02:00Z' },
+        ]
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '看看定时任务' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('正在处理。')).toBeInTheDocument()
+
+    await act(async () => { held?.fail(new TypeError('network error')) })
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
+    expect(composer).toHaveValue('')
+    expect(screen.queryByText(/network error/)).not.toBeInTheDocument()
+    expect(screen.queryByText(NETWORK_ERROR_MESSAGE)).not.toBeInTheDocument()
+    expect(screen.getAllByText('看看定时任务')).toHaveLength(1)
+    expect(api.sentMessages()).toHaveLength(1)
+  })
+
+  it('treats a stream that breaks after message_end as a finished turn', async () => {
+    // 复现手机事故：一条流已经把整轮推完（message_end 到了），只是收尾时连接断了。
+    // 这不能算发送失败，也不能把发出去的话塞回输入框。
+    let held: ReturnType<typeof heldStream> | null = null
+    const api = createAgentApi({
+      sessions: [makeSession({ message_count: 0, total_tokens: 0 })],
+      messages: { 'session-1': [] },
+      stream: (content) => {
+        held = heldStream([
+          event('message_start', { session_id: 'session-1', message_id: 101, capability_status: 'ready' }),
+          event('text_delta', { text: '已改好三条定时任务。' }),
+          event('message_end', { session_id: 'session-1', finish_reason: 'stop' }),
+        ])
+        api.state.messages['session-1'] = [
+          { id: 101, session_id: 'session-1', seq: 0, role: 'user', content, created_at: '2026-09-27T10:02:00Z' },
+          { id: 102, session_id: 'session-1', seq: 1, role: 'assistant', content: '已改好三条定时任务。', created_at: '2026-09-27T10:02:01Z' },
+        ]
+        return held.response
+      },
+    })
+    renderPage()
+
+    const composer = await screen.findByRole('textbox', { name: composerName })
+    fireEvent.change(composer, { target: { value: '把签到开关打开' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('已改好三条定时任务。')).toBeInTheDocument()
+
+    await act(async () => { held?.fail(new TypeError('network error')) })
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
+    expect(composer).toHaveValue('')
+    expect(screen.queryByText(/network error/)).not.toBeInTheDocument()
+    expect(screen.queryByText(NETWORK_ERROR_MESSAGE)).not.toBeInTheDocument()
+    expect(screen.getAllByText('已改好三条定时任务。')).toHaveLength(1)
+    expect(api.sentMessages()).toHaveLength(1)
+  })
+
   it('reads the last page of a long conversation first and loads earlier pages above it, keeping the scroll position (AG3)', async () => {
     const long: Json[] = Array.from({ length: 600 }, (_, index) => ({
       id: index + 1,
@@ -1427,6 +1529,34 @@ describe('Agent conversation page', () => {
     // 停止后重新取回 turn_running=false，输入栏回到可发送。
     await waitFor(() => expect(screen.queryByText('本轮仍在后台执行')).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument()
+  })
+
+  it('refreshes the history when a background turn finishes without a local stream', async () => {
+    // 本地没有那条流（刷新/换设备回来，或流被被动断开后丢弃）：详情轮询看到 turn_running
+    // 落下后要自己补一次刷新，把这一轮的结果接上，不能等用户手动刷新页面。
+    const api = createAgentApi({
+      sessions: [makeSession({ turn_running: true, message_count: 0, total_tokens: 0 })],
+      messages: { 'session-1': [] },
+    })
+    const { queryClient } = renderPage()
+
+    expect(await screen.findByText('本轮仍在后台执行')).toBeInTheDocument()
+
+    await act(async () => {
+      api.state.sessions = api.state.sessions.map((item) => (
+        item.session_id === 'session-1'
+          ? { ...item, turn_running: false, message_count: 2, total_tokens: 42, last_message_at: '2026-09-28T03:00:00Z' }
+          : item
+      ))
+      api.state.messages['session-1'] = [
+        { id: 101, session_id: 'session-1', seq: 0, role: 'user', content: '看看定时任务', created_at: '2026-09-28T02:59:00Z' },
+        { id: 102, session_id: 'session-1', seq: 1, role: 'assistant', content: '三条都已打开。', created_at: '2026-09-28T03:00:00Z' },
+      ]
+      queryClient.setQueryData(keys.agent.session('session-1'), api.state.sessions[0])
+    })
+
+    expect(await screen.findByText('三条都已打开。')).toBeInTheDocument()
+    expect(screen.queryByText('本轮仍在后台执行')).not.toBeInTheDocument()
   })
 
   it('points at the stop entry when the session is busy (409 AGENT_SESSION_BUSY, M22)', async () => {

@@ -80,6 +80,10 @@ export default function AgentPage() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   // 用户关掉过的降级原因：之后每轮 message_start 带回同样的原因时不再弹出。
   const dismissedReasonRef = useRef<string | null>(null)
+  // 会话详情轮询看到过的 turn_running：没有本地流的一轮跑完时，靠它的下落补一次历史刷新。
+  const lastTurnRunningRef = useRef<{ sessionId: string | null; running: boolean } | null>(null)
+  // 被动断开、本地实时副本丢弃的那个会话：等详情轮询确认这一轮不在跑之后补一次刷新。
+  const detachedTurnRef = useRef<string | null>(null)
 
   const sessions = useQuery({
     queryKey: keys.agent.sessions({ page: 1, size: 50 }),
@@ -362,7 +366,26 @@ export default function AgentPage() {
   useEffect(() => {
     setTurnError(null)
     setActionError(null)
+    detachedTurnRef.current = null
   }, [selectedId])
+
+  // 没有本地流的一轮（刷新/换设备回来，或本地流被被动断开后丢弃）跑完时，消息窗口不会
+  // 自己更新：详情轮询看到 turn_running 从 true 落到 false 后补一次失效，让最终回答接上。
+  // 被动断开的那一轮还可能「没被观察到 running 就已经结束」，所以另留一个待补刷新标记。
+  useEffect(() => {
+    const running = Boolean(conversation?.turn_running)
+    const previous = lastTurnRunningRef.current
+    lastTurnRunningRef.current = { sessionId: selectedId ?? null, running }
+    if (!selectedId) return
+    if (detachedTurnRef.current !== null && detachedTurnRef.current !== selectedId) {
+      detachedTurnRef.current = null
+    }
+    const finishedFromRunning = previous?.sessionId === selectedId && previous.running && !running
+    const finishedAfterDetach = detachedTurnRef.current === selectedId && conversation !== undefined && !running
+    if (!finishedFromRunning && !finishedAfterDetach) return
+    detachedTurnRef.current = null
+    void invalidateTurnQueries(selectedId)
+  }, [conversation, selectedId])
 
   const confirmDelete = async (session: AgentSession) => {
     const title = sessionTitle(session)
@@ -383,6 +406,9 @@ export default function AgentPage() {
     setActionError(null)
     const controller = new AbortController()
     abortRef.current = controller
+    // 服务端先落库用户消息再开发流：收到 message_start 就说明这条消息已经发出去了。
+    // 之后的读流失败属于「被动断开」，不能按发送失败处理（docs/13 §8.90）。
+    let accepted = false
     setTurnError(null)
     // 发送瞬间的历史上界：历史尚未加载完、或上一轮的收尾刷新还在路上时先取最大值
     // （本轮落库的消息随后由 message_start 收敛成精确边界）。宁可短暂不去重，也不能
@@ -488,6 +514,7 @@ export default function AgentPage() {
       } else if (name === 'message_start') {
         // 服务端先落库本轮用户消息再开发流，这条事件带回它的 id：本轮及之后的消息
         // id 都大于 message_id - 1，用它把历史里的同一批消息挡在实时副本外（M59）。
+        accepted = true
         const startMessageId = typeof data.message_id === 'number' ? data.message_id : undefined
         if (startMessageId !== undefined && startMessageId > 0) {
           setTurn((current) => current ? { ...current, baseMessageId: startMessageId - 1 } : current)
@@ -518,9 +545,19 @@ export default function AgentPage() {
       setTurn((current) => current ? { ...current, running: false } : current)
     } catch (error) {
       if (controller.signal.aborted) return
+      // 服务端已经受理这一轮（收到 message_start）后的读流失败属于被动断开：后端会
+      // 继续跑完并落库（docs/11 §8.5 的既定语义）。这里不能回填草稿（消息其实已经
+      // 发出，回填会诱导重发、多跑一轮），也不弹红色错误；收尾交给 finally 的失效
+      // 重取，仍在跑的那一轮由 turn_running 轮询恢复「本轮仍在后台执行」（M22）。
+      if (accepted) {
+        detachedTurnRef.current = sessionId
+        setTurn((current) => current ? { ...current, running: false } : current)
+        return
+      }
       const code = error instanceof ApiError ? error.code : undefined
       // 409 AGENT_SESSION_BUSY：这个会话还有一轮在跑（别处发的，或本地 turn_running
       // 还没刷到）。文案必须指向输入栏那个「停止」，否则用户只能对着「会话忙」发呆。
+      // 连接层失败已在 stream.ts 换成中文文案，界面拿不到浏览器自己的错误原文。
       const message = code === 'AGENT_SESSION_BUSY'
         ? '该会话仍有一轮在跑，可先停止它'
         : error instanceof Error ? error.message : '本轮回复失败，请重试。'
@@ -670,7 +707,7 @@ export default function AgentPage() {
       {otherQuestions.map((item) => (
         <QuestionCard key={item.question_id} question={item} onResolved={resolveQuestion} />
       ))}
-      {turnError ? <ErrorAlert error={turnError} /> : null}
+      {turnError ? <ErrorAlert error={turnError} onDismiss={() => setTurnError(null)} /> : null}
     </div>
   )
 
