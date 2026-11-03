@@ -170,6 +170,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=SendScreenshotParams,
             handler=send_screenshot,
             read_only=True,
+            device="read",
         )
     )
     registry.register(
@@ -185,6 +186,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=AnnotateScreenshotParams,
             handler=annotate_screenshot,
             read_only=False,
+            device="read",
         )
     )
     registry.register(

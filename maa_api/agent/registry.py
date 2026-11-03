@@ -6,7 +6,7 @@ import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -35,6 +35,11 @@ class ToolContext:
 
 ToolHandler = Callable[[BaseModel, ToolContext], Any]
 
+#: 工具对设备的占用等级。与 ``maa_api/agent/specs/schema.py`` 同值，但两处互不导入
+#: （由 ``test_device_levels_are_the_same_in_both_modules`` 钉住）。
+DeviceLevel = Literal["none", "read", "exclusive"]
+DEVICE_LEVELS: tuple[str, ...] = ("none", "read", "exclusive")
+
 
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
@@ -55,6 +60,15 @@ class ToolDefinition:
     #: 避免每次请求都把同一份 36 KB 的 ``$defs`` 重复发三遍。**只影响模型看到的
     #: tools 声明**：校验仍走 ``params_model``，``export_schema``/OpenAPI 也仍用完整版。
     model_schema: Mapping[str, Any] | None = None
+    #: 设备占用等级（规格 §4.2.16）：``exclusive`` 的工具要独占设备；高于代理定义
+    #: device 的工具不能进它的工具集。
+    device: DeviceLevel = "none"
+    #: 结果是否可在不重新执行的情况下重新取回（M74 赋值）。
+    refetchable: bool = False
+    #: 输出是否属于不可信输入（M80 赋值）。
+    untrusted_output: bool = False
+    #: 是否出现在 REST 工具目录。``False`` 时目录不列，REST 调用报 TOOL_NOT_FOUND。
+    rest_visible: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.risk, ToolRisk):
@@ -68,6 +82,14 @@ class ToolDefinition:
             raise TypeError("model_visible must be a bool")
         if self.model_schema is not None and not isinstance(self.model_schema, Mapping):
             raise TypeError("model_schema must be a mapping or None")
+        if self.device not in DEVICE_LEVELS:
+            raise ValueError(f"unsupported device level: {self.device!r}")
+        if not isinstance(self.refetchable, bool):
+            raise TypeError("refetchable must be a bool")
+        if not isinstance(self.untrusted_output, bool):
+            raise TypeError("untrusted_output must be a bool")
+        if not isinstance(self.rest_visible, bool):
+            raise TypeError("rest_visible must be a bool")
 
 
 class ToolRegistry:

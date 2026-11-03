@@ -555,3 +555,61 @@ def test_catalog_tools_list_and_enable_groups_through_the_runtime() -> None:
 
     with pytest.raises(AppError):
         asyncio.run(registry.execute("enable_tool_group", {"group": "nope"}, context))
+
+
+def test_device_levels_follow_the_contract() -> None:
+    """M65 §4.2.16：v2 工具的设备占用等级按契约赋值，其余保持 none。"""
+    registry = build_registry()
+    by_device: dict[str, list[str]] = {"none": [], "read": [], "exclusive": []}
+    for definition in registry.list():
+        by_device[definition.device].append(definition.name)
+
+    assert set(by_device["exclusive"]) == {
+        "click",
+        "swipe",
+        "long_press",
+        "input_text",
+        "key_event",
+        "back_to_home",
+        "run_copilot_attempt",
+        "update_game",
+    }
+    assert set(by_device["read"]) == {
+        "trigger_screencap",
+        "get_screenshot",
+        "send_screenshot",
+        "annotate_screenshot",
+    }
+    assert len(by_device["exclusive"]) == 8
+    assert len(by_device["read"]) == 4
+    assert len(by_device["none"]) == len(registry.list()) - 12
+
+
+def test_extension_fields_keep_v2_defaults() -> None:
+    """M65 §4.2.16：v2 工具保持 REST 可见，refetchable/untrusted_output 默认关闭。"""
+    definitions = build_registry().list()
+    assert definitions
+    assert all(definition.rest_visible is True for definition in definitions)
+    assert all(definition.refetchable is False for definition in definitions)
+    assert all(definition.untrusted_output is False for definition in definitions)
+
+
+def test_tool_definition_rejects_an_unknown_device_level() -> None:
+    """M65 §4.2.16：device 只接受 none/read/exclusive，其余取值初始化即报错。"""
+    from pydantic import BaseModel
+
+    from maa_api.agent.registry import ToolDefinition, ToolRisk
+
+    class _Params(BaseModel):
+        pass
+
+    with pytest.raises(ValueError, match="unsupported device level"):
+        ToolDefinition(
+            name="bad_device",
+            group="ops",
+            risk=ToolRisk.SAFE,
+            description="bad device level",
+            params_model=_Params,
+            handler=lambda _params, _context: None,
+            device="write",  # type: ignore[arg-type]
+        )

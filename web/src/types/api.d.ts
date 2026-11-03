@@ -453,6 +453,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/specs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取代理定义列表 */
+        get: operations["agent_list_specs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/specs/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取代理定义详情 */
+        get: operations["agent_get_spec"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/tools": {
         parameters: {
             query?: never;
@@ -4118,6 +4152,103 @@ export interface components {
             sources: components["schemas"]["SourceStatus"][];
         };
         /**
+         * SpecBudget
+         * @description 单次运行的预算上限。
+         */
+        SpecBudget: {
+            /** Max Cost Per Run */
+            max_cost_per_run: number;
+        };
+        /**
+         * SpecDetail
+         * @description 详情：列表字段之外再加定义文件里其余 8 个字段与正文提示词。
+         */
+        SpecDetail: {
+            /** Body */
+            body: string;
+            budget: components["schemas"]["SpecBudget"];
+            /** Deferred Groups */
+            deferred_groups: string[];
+            /** Delegates */
+            delegates: string[];
+            /** Description */
+            description: string;
+            /**
+             * Device
+             * @enum {string}
+             */
+            device: "none" | "read" | "exclusive";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "orchestrator" | "worker" | "subagent" | "background";
+            /** Max Steps */
+            max_steps: number;
+            /**
+             * Model Role
+             * @enum {string}
+             */
+            model_role: "orchestrator" | "worker" | "subagent" | "summarizer" | "title" | "trigger_eval" | "memory" | "vision" | "embedding";
+            /** Name */
+            name: string;
+            /** Output Schema */
+            output_schema: string | null;
+            /**
+             * Risk Ceiling
+             * @enum {string}
+             */
+            risk_ceiling: "none" | "consume" | "destructive";
+            /** Skills */
+            skills: string[];
+            /** Spec Version */
+            spec_version: string;
+            /** Title */
+            title: string;
+            /** Tools */
+            tools: string[];
+            /** Version */
+            version: number;
+        };
+        /**
+         * SpecList
+         * @description 列表响应：``items`` 按 ``name`` 排序。
+         */
+        SpecList: {
+            /** Items */
+            items: components["schemas"]["SpecSummary"][];
+        };
+        /**
+         * SpecSummary
+         * @description 列表项：一个代理定义的身份、种类、工具与版本。
+         */
+        SpecSummary: {
+            /** Delegates */
+            delegates: string[];
+            /** Description */
+            description: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "orchestrator" | "worker" | "subagent" | "background";
+            /**
+             * Model Role
+             * @enum {string}
+             */
+            model_role: "orchestrator" | "worker" | "subagent" | "summarizer" | "title" | "trigger_eval" | "memory" | "vision" | "embedding";
+            /** Name */
+            name: string;
+            /** Spec Version */
+            spec_version: string;
+            /** Title */
+            title: string;
+            /** Tools */
+            tools: string[];
+            /** Version */
+            version: number;
+        };
+        /**
          * StartUpInput
          * @description 开始唤醒：启动客户端并进入游戏。
          * @example {
@@ -6267,6 +6398,152 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_specs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpecList"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_spec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 代理定义名字，可用的名字见列表端点 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpecDetail"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SPEC_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SPEC_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }

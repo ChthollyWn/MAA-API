@@ -53,9 +53,10 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: M27 新增 §4.17 的两条（`ACCOUNT_DATA_NOT_FOUND`、`UPGRADE_PLAN_NOT_FOUND`），
 #: M29 新增 §4.18 的两条（`COPILOT_GRANT_STAGE_MISMATCH`、`COPILOT_GRANT_EXHAUSTED`），
 #: M42 新增 §4.19 的七条（森空岛扫码登录与同步），
-#: M48 新增 §4.20 的三条（只读探索的未配置 / 路径被拒 / 文件过大），二十张表。
-ALL_CODE_COUNT = 124
-HTTP_BOUND_CODE_COUNT = 123
+#: M48 新增 §4.20 的三条（只读探索的未配置 / 路径被拒 / 文件过大），二十张表）；
+#: M65 新增 `AGENT_SPEC_NOT_FOUND`。
+ALL_CODE_COUNT = 125
+HTTP_BOUND_CODE_COUNT = 124
 SECTION_COUNT = 20
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。

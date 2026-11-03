@@ -931,3 +931,76 @@ def test_interrupt_route_stops_a_real_runtime_turn(tmp_path):
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_rest_hidden_tools_are_absent_from_the_catalog_and_not_invocable():
+    """M65 §4.2.16：rest_visible=False 的工具不出现在 REST 目录，调用报 TOOL_NOT_FOUND。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+
+        invoked = []
+
+        async def hidden_handler(_params, _context):
+            invoked.append(True)
+            return {"ok": True}
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolDefinition(
+                name="hidden_action",
+                group="ops",
+                risk=ToolRisk.SAFE,
+                description="hidden test action",
+                params_model=Args,
+                handler=hidden_handler,
+                rest_visible=False,
+            )
+        )
+        service = ConfirmationService(factory, registry, policy=PolicyEngine())
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.main import request_trace_headers
+        from maa_api.api.routers import agent
+
+        app.middleware("http")(request_trace_headers)
+        app.include_router(agent.router)
+        app.state.confirmation_service = service
+        app.state.session_factory = factory
+
+        async def get_test_session():
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = get_test_session
+        set_settings(
+            Settings(
+                llm=LLMSettings(
+                    base_url="https://llm.test/v1", api_key="k", model="m"
+                )
+            )
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            listed = client.get("/api/agent/tools").json()
+            assert listed == {"items": [], "total": 0}
+
+            response = client.post(
+                "/api/agent/tools/hidden_action/invoke",
+                json={"arguments": {"value": 1}, "mode": "sync"},
+            )
+            assert response.status_code == 404
+            assert response.json()["error"]["code"] == "TOOL_NOT_FOUND"
+            assert invoked == []
+        finally:
+            client.__exit__(None, None, None)
+            set_settings(None)
+            await engine.dispose()
+
+    asyncio.run(scenario())

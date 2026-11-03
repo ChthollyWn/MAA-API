@@ -104,6 +104,7 @@ def register_tools(registry: ToolRegistry) -> None:
             ),
             params_model=RunCopilotAttemptParams,
             handler=run_copilot_attempt,
+            device="exclusive",
         ),
         ToolDefinition(
             name="record_copilot_result",

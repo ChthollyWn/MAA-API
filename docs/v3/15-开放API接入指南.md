@@ -159,6 +159,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `AGENT_SESSION_NOT_FOUND` | 404 | 会话 id 不存在 |
 | `AGENT_SESSION_BUSY` | 409 | 该会话上一轮 tool-calling 循环尚未结束 |
 | `AGENT_TURN_INTERRUPTED` | 409 | 本轮被用户中断，该工具调用被取消、未完成（M22）。只落在审计的 `error_code` 上，中断端点本身返回 200 + `interrupted` |
+| `AGENT_SPEC_NOT_FOUND` | 404 | 没有这个代理定义（`GET /api/agent/specs/{name}` 的名字不存在） |
 | `TOOL_NOT_FOUND` | 404 | `ToolRegistry` 中没有该工具名 |
 | `TOOL_ARGS_INVALID` | 422 | 工具参数不满足其 JSON Schema |
 | `TOOL_EXECUTION_FAILED` | 500 | 工具实现内部抛出未预期异常。被工具调用的下游错误（内核、设备）按其本身的码原样上抛，不包成这个码 |

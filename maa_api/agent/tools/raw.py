@@ -271,5 +271,6 @@ def register_tools(registry: ToolRegistry) -> None:
                 params_model=params_model,
                 handler=handler,
                 model_visible=name not in hidden_tools,
+                device="read" if name == "trigger_screencap" else "exclusive",
             )
         )

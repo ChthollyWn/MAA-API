@@ -149,6 +149,16 @@ def _confirmation_service(request: Request):
     return service
 
 
+def _ensure_rest_visible(service: Any, name: str) -> None:
+    """REST 侧把隐藏工具当作未知工具；未知名字仍交给 ``service.invoke`` 报错。"""
+    try:
+        definition = service.registry.get(name)
+    except AppError:
+        return
+    if not definition.rest_visible:
+        raise AppError(ErrorCode.TOOL_NOT_FOUND, f"未知工具：{name}")
+
+
 def _broadcast_grant_change(request: Request, session_id: str, event: str) -> None:
     """授权撤销后广播一条 ``agent_event``，与 ``ConfirmationService`` 里同形状。
 
@@ -393,7 +403,7 @@ async def list_tools(
     risk_level: str | None = Query(default=None),
 ) -> dict[str, Any]:
     service = _confirmation_service(request)
-    definitions = service.registry.list()
+    definitions = [definition for definition in service.registry.list() if definition.rest_visible]
     items = [
         {
             "name": definition.name,
@@ -448,6 +458,7 @@ async def invoke_tool(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     service = _confirmation_service(request)
+    _ensure_rest_visible(service, name)
     context = ToolContext(CallerType.REST, None, current_request_id.get(), request, session)
     if idempotency_key is None:
         result = await service.invoke(name, payload.arguments, context, mode=payload.mode)

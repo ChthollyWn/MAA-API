@@ -150,6 +150,7 @@ def register_tools(registry: ToolRegistry) -> None:
             description="下载并安装游戏本体 APK。用户要升级游戏客户端时用。",
             params_model=UpdateGameParams,
             handler=update_game,
+            device="exclusive",
         ),
         ToolDefinition(
             name="scan_proxy_channels",
