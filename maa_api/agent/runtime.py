@@ -1,6 +1,9 @@
-"""会话级 LLM 对话循环、上下文保护与具名 SSE 事件。
+"""v2 会话门面：会话锁、中断、能力探查、标题与失败说明，以及具名 SSE 事件。
 
-事件：``message_start`` / ``text_delta`` / ``tool_start`` / ``tool_result`` /
+一轮里的步进循环交给 :class:`maa_api.agent.harness.loop.AgentLoop`：本模块只保留
+v2 的前置步骤（配置与会话检查、用户消息落库、能力探查、``message_start``、状态摘要、
+知识库段、建客户端）与收尾（失败说明、标题生成）。事件列表不变：
+``message_start`` / ``text_delta`` / ``tool_start`` / ``tool_result`` /
 ``confirmation_required`` / ``question_required`` / ``session_title`` /
 ``message_end`` / ``error``。
 """
@@ -30,35 +33,35 @@ from maa_api.agent.harness.builtin_middleware import (
     QUESTION_SKIPPED_TEXT,
     SCREENSHOT_RESULT_TOOLS,
     STUCK_EXEMPT_TOOLS,
-    STUCK_LOOP_TEXT,
     STUCK_REPEAT_LIMIT,
     TOOL_RESULT_PRUNE_HEAD,
     TOOL_RESULT_PRUNE_TAIL,
     TOOL_RESULT_PRUNE_THRESHOLD,
     ClarificationMiddleware,
+    ContextLayoutMiddleware,
+    LoopGuardMiddleware,
     PolicyMiddleware,
+    TraceMiddleware,
     _context_size,
     _message_dict,
     _screenshot_payload,
     build_model_context,
-    calls_signature,
-    exempt_from_stuck_loop,
 )
 from maa_api.agent.harness.chunks import (
     chunk_tool_calls,
     collect_completion,
     merge_tool_call_deltas,
-    parse_tool_call,
 )
-from maa_api.agent.harness.context import RunContext, ToolOutcome, TurnDraft
-from maa_api.agent.harness.events import sse_event
+from maa_api.agent.harness.context import ModelRequest, ModelResponse, RunContext
+from maa_api.agent.harness.events import RunEvent, RunEventBus, sse_event
+from maa_api.agent.harness.loop import (
+    INTERRUPTED_FINISH_REASON,
+    INTERRUPTED_NOTICE,
+    INTERRUPTED_TOOL_STUB,
+    AgentLoop,
+)
 from maa_api.agent.harness.middleware import MiddlewareChain
-from maa_api.agent.harness.toolexec import (
-    SCREEN_TOOL_NAMES,
-    app_error_wire,
-    execute_batch,
-    json_text,
-)
+from maa_api.agent.harness.toolexec import SCREEN_TOOL_NAMES
 from maa_api.agent.llm import OpenAICompatibleClient
 from maa_api.agent.redaction import redact_remote_data
 from maa_api.agent.recon.runner import (
@@ -113,22 +116,12 @@ RECON_MAX_STEPS_CAP = 20
 RECON_TIMEOUT_SECONDS = 60.0
 INCIDENT_ALLOWED_TOOLS = frozenset(builtin_spec("legacy_incident").tools)
 SSE_KEEPALIVE_SECONDS = 10.0
-#: 用户主动中断一轮时的收尾（规格 §3.1）。
-#: ``finish_reason`` 的新取值；落库列宽 24 够用，且该列没有枚举约束。
-INTERRUPTED_FINISH_REASON = "interrupted"
-#: 中断时追加到部分文本之后的标记；没有部分文本时它就是全部内容。
-INTERRUPTED_NOTICE = "本轮已被你中断。"
+#: 用户主动中断一轮时的收尾（规格 §3.1）：``INTERRUPTED_FINISH_REASON``、
+#: ``INTERRUPTED_NOTICE``、``INTERRUPTED_TOOL_STUB`` 已搬到 ``harness.loop``，
+#: 这里从新位置再导出，名字与值都不变。
 #: 等 producer 收尾的宽限时长：收尾要写库、发 SSE，得给够时间；但一次「停止」的
 #: HTTP 请求不能被一个卡住的收尾永久挂住，所以仍要设上限。
 INTERRUPT_GRACE_SECONDS = 5.0
-#: 中断在历史里补的 tool 桩消息。**硬要求**：assistant 的 ``tool_calls`` 缺对应
-#: tool 消息会让下一轮请求结构不完整，上游直接 400。
-INTERRUPTED_TOOL_STUB = {
-    "error": {
-        "code": str(ErrorCode.AGENT_TURN_INTERRUPTED),
-        "message": "本轮已被中断，该调用未完成",
-    }
-}
 #: 能力探查**失败**（请求被上游拒绝、超时、连接层失败）时结果的最长存活时间。
 #: 探查成功的结果不设过期：模型能力不会因为一次抖动而改变，改 ``config.yaml`` 仍然
 #: 要重启服务才会重新探查（docs/13 §8.13）。失败态必须过期，否则一次瞬时抖动会把
@@ -428,6 +421,7 @@ class AgentRuntime:
                 ignore_event,
                 persist_user=False,
                 allowed_tools=allowed,
+                spec_name="legacy_incident",
             )
             return {"status": "completed"}
         except AppError as exc:
@@ -800,6 +794,7 @@ class AgentRuntime:
         *,
         persist_user: bool = True,
         allowed_tools: Collection[str] | None = None,
+        spec_name: str = "legacy_chat",
     ) -> None:
         """登记本轮的 task，然后交给 :meth:`_run_turn_body`（规格 §3.1）。
 
@@ -818,6 +813,7 @@ class AgentRuntime:
                 emit,
                 persist_user=persist_user,
                 allowed_tools=allowed_tools,
+                spec_name=spec_name,
             )
         finally:
             if self._active_turns.get(session_id) is task:
@@ -832,6 +828,7 @@ class AgentRuntime:
         *,
         persist_user: bool = True,
         allowed_tools: Collection[str] | None = None,
+        spec_name: str = "legacy_chat",
     ) -> None:
         settings = await self.ensure_configured(request, session_id)
         async with self.session_factory() as session:
@@ -903,39 +900,87 @@ class AgentRuntime:
             }
         )
         client, owned = self._make_client(client_settings)
-        # 本轮的运行上下文与中间件链（字段形状同规格 §4.2.11）。T7 仍由下面的旧循环
-        # 驱动，链上只装 T7 搬完的 Clarification / Policy；T8 起改成 AgentLoop.run。
-        # 每轮现取门面上的服务属性：测试在构造后替换的替身照样生效。
+        # 本轮的运行上下文与中间件链（规格 §4.2.11）：循环交给 AgentLoop，门面只做
+        # v2 的前置步骤与收尾。每轮现取门面上的服务属性：测试在构造后替换的替身照样生效。
         registry = self.confirmation_service.registry
         vision_enabled = bool(capabilities["vision"])
-        run_id = new_uuid()
-        # 本轮「已生成未落库」的内容：中断收尾要靠它把部分文本补进历史、给批次里
-        # 还没落库的调用补 tool 桩消息（规格 §3.1）。
-        draft = TurnDraft()
+        # 本轮的 emit 统一走事件总线：事件名、字段与顺序仍与 v2 逐字一致。
+        bus = RunEventBus()
+
+        async def forward(event: RunEvent) -> None:
+            await emit(event.name, event.data)
+
+        bus.subscribe(forward)
+        run_id = new_uuid()  # M65 不落库
         ctx = RunContext(
             run_id=run_id,
             root_run_id=run_id,
             parent_run_id=None,
             session_id=session_id,
             ticket_id=None,
-            spec=builtin_spec("legacy_chat"),
+            spec=builtin_spec(spec_name),
             app=getattr(request, "app", None),
             request=request,
-            # T7 先直接用 v2 的 emit：事件名、字段与顺序一个字节都不变。
-            emit=emit,
+            emit=bus.emit,
             interrupted_now=lambda: self._interrupted_now(session_id),
             allowed_tools=(
                 frozenset(allowed_tools) if allowed_tools is not None else None
             ),
             vision_enabled=vision_enabled,
-            draft=draft,
         )
-        chain = MiddlewareChain.for_kind(
+        # 上下文组装中间件的三个入参由门面每轮写一次（v2 直接调 build_model_context）。
+        ctx.state[ContextLayoutMiddleware.name] = {
+            "knowledge_context": knowledge_context,
+            "status_summary": summary,
+            "max_context_chars": self.max_context_chars,
+        }
+
+        async def call_model(run: RunContext, req: ModelRequest) -> ModelResponse:
+            return await collect_completion(
+                client,
+                model,
+                req.messages,
+                req.tools,
+                emit=run.emit,
+                draft=run.draft,
+            )
+
+        def tool_schemas(run: RunContext) -> list[dict[str, Any]]:
+            # 每步现算：本轮里开启的扩展组下一步生效。
+            return self._tool_schemas(
+                registry,
+                vision_enabled=run.vision_enabled,
+                allowed_tools=(
+                    allowed_tools
+                    if allowed_tools is not None
+                    else self.session_allowed_tools(session_id)
+                ),
+            )
+
+        loop = AgentLoop(
+            chain=self._legacy_chain(),
+            transcript=_LegacyTranscript(self, vision_enabled=vision_enabled),
+            call_model=call_model,
+            tool_schemas=tool_schemas,
+            registry=registry,
+        )
+        try:
+            await loop.run(ctx)
+        finally:
+            if owned:
+                await client.aclose()
+
+    def _legacy_chain(self) -> MiddlewareChain:
+        """v2 会话的中间件链（05 §5.2 的子集：1、3、13、17、19）。"""
+        return MiddlewareChain.for_kind(
             "worker",
             [
+                TraceMiddleware(),
+                ContextLayoutMiddleware(),
+                LoopGuardMiddleware(),
                 ClarificationMiddleware(
                     question_service=self.question_service,
-                    registry=registry,
+                    registry=self.confirmation_service.registry,
                 ),
                 PolicyMiddleware(
                     confirmation_service=self.confirmation_service,
@@ -944,290 +989,6 @@ class AgentRuntime:
                 ),
             ],
         )
-        try:
-            # 迭代次数默认不设上限：一次故障排查可能要读几十次日志与截图，按次数截断会
-            # 把一个本该跑完的诊断硬切在中间。上下文有本地上限（默认 400 000 有效字符，
-            # 见 build_model_context）做渐进裁剪，真正的硬兜底还有下面的「重复调用」检测。
-            iteration = 0
-            last_signature: str | None = None
-            repeats = 0
-            while True:
-                iteration += 1
-                # 每次模型调用都是一条**独立的** assistant 消息：draft 必须从空白开始。
-                # 它原先在本轮开始时创建一次后跨迭代复用，于是第 N 步落库的 content /
-                # reasoning 里带着前 N-1 步已经落库的全文（实测 2026-10-17 会话里
-                # content 21→42→100→…→581 字、reasoning 67→21 798 字逐级复制）。
-                # 后果有两层：库里每条 assistant 都重复计费，且「只回灌最后一条思考」
-                # 的预算被撑满 20 000 字、模型每轮都在复读自己的旧思考。中断收尾只关心
-                # **当前这一次调用**已经流出去的部分，所以每次调用前清空是正确语义。
-                draft.text.clear()
-                draft.reasoning.clear()
-                draft.pending_tool_calls.clear()
-                async with self.session_factory() as session:
-                    history = await AgentMessageRepository(session).list_by_session(session_id)
-                history_for_model = (
-                    await self._hydrate_latest_screenshot(history)
-                    if vision_enabled
-                    else history
-                )
-                # 工具声明先算：它是每轮都重复发的固定开销（79 个工具约 5.3 万字符），
-                # 必须计入上下文预算，否则本地裁剪只会在历史里收缩、对最大的那块视而不见。
-                tools = self._tool_schemas(
-                    registry,
-                    vision_enabled=vision_enabled,
-                    allowed_tools=(
-                        allowed_tools
-                        if allowed_tools is not None
-                        else self.session_allowed_tools(session_id)
-                    ),
-                )
-                messages = build_model_context(
-                    history_for_model,
-                    knowledge_context=knowledge_context,
-                    status_summary=summary,
-                    max_context_chars=self.max_context_chars,
-                    envelope_chars=len(json.dumps(tools, ensure_ascii=False)),
-                    vision_enabled=vision_enabled,
-                )
-                resp = await collect_completion(
-                    client, model, messages, tools, emit=emit, draft=draft
-                )
-                calls = resp.raw_tool_calls
-                if calls:
-                    try:
-                        parsed_calls = [parse_tool_call(call) for call in calls]
-                    except AppError:
-                        # A malformed call without a usable id cannot be stored as
-                        # an OpenAI tool_calls message; keep any accompanying text
-                        # as a normal assistant record instead.
-                        await self._persist_message(
-                            session_id,
-                            role="assistant",
-                            content=resp.text or "LLM 返回了无效的工具调用。",
-                            reasoning_content=resp.reasoning or None,
-                            prompt_tokens=resp.usage.prompt_tokens,
-                            completion_tokens=resp.usage.completion_tokens,
-                            finish_reason=resp.upstream_finish_reason,
-                            latency_ms=resp.latency_ms,
-                        )
-                        raise
-                    await self._persist_message(
-                        session_id,
-                        role="assistant",
-                        content=resp.text or None,
-                        reasoning_content=resp.reasoning or None,
-                        tool_calls=calls,
-                        prompt_tokens=resp.usage.prompt_tokens,
-                        completion_tokens=resp.usage.completion_tokens,
-                        finish_reason=resp.upstream_finish_reason,
-                        latency_ms=resp.latency_ms,
-                    )
-                    # 批次从这里开始「在飞」：tool 消息要等整批跑完才逐条落库，
-                    # 中断发生时 draft 里剩下的就是需要补桩的调用。
-                    draft.pending_tool_calls = list(parsed_calls)
-                    try:
-                        outcomes = await execute_batch(
-                            ctx, parsed_calls, chain=chain, registry=registry
-                        )
-                    except AppError as exc:
-                        # A bad argument in any member aborts the whole batch. Add
-                        # matching tool replies so the persisted conversation stays
-                        # a valid OpenAI message sequence and no call can be retried.
-                        for call in parsed_calls:
-                            result_message = await self._persist_message(
-                                session_id,
-                                role="tool",
-                                content=json_text({"error": app_error_wire(exc)}),
-                                tool_call_id=call.id,
-                                tool_name=call.name,
-                            )
-                            await emit(
-                                "tool_result",
-                                {
-                                    "tool_call_id": call.id,
-                                    "name": call.name,
-                                    "message_id": result_message.id,
-                                    "error": app_error_wire(exc),
-                                },
-                            )
-                        draft.pending_tool_calls = []
-                        raise
-                    unanswered: ToolOutcome | None = None
-                    confirmation_terminal: ToolOutcome | None = None
-                    for index, (call, outcome) in enumerate(
-                        zip(parsed_calls, outcomes, strict=True)
-                    ):
-                        body = outcome.body()
-                        tool_message = await self._persist_message(
-                            session_id,
-                            role="tool",
-                            content=json_text(body),
-                            tool_call_id=call.id,
-                            tool_name=call.name,
-                            audit_id=outcome.audit_id,
-                        )
-                        # 这一条已经落库，从「待补桩」里去掉：中断正好落在这一条与下
-                        # 一条之间时，只补还没写的那几条，历史不会出现重复的 tool 消息。
-                        draft.pending_tool_calls = list(parsed_calls[index + 1 :])
-                        await emit(
-                            "tool_result",
-                            {
-                                "tool_call_id": call.id,
-                                "name": call.name,
-                                "message_id": tool_message.id,
-                                "audit_id": outcome.audit_id,
-                                **body,
-                            },
-                        )
-                        # 收尾优先级：最后一个没答成的提问 → 第一个确认终态
-                        # （v2 逐个覆盖 unanswered，确认只留第一个）。
-                        if outcome.stop_reason == "question_unanswered":
-                            unanswered = outcome
-                        elif (
-                            outcome.stop_reason == "confirmation_resolved"
-                            and confirmation_terminal is None
-                        ):
-                            confirmation_terminal = outcome
-                    if unanswered is not None:
-                        # 用户跳过了，或等到超时：模型不再有发言机会（用户裁决 §1.3），
-                        # 但 tool 消息与 tool_result 已经写出去，历史仍是完整的一轮。
-                        await self._finish_with_text(
-                            session_id,
-                            unanswered.stop_text,
-                            emit,
-                            "question_unanswered",
-                        )
-                        return
-                    if confirmation_terminal is not None:
-                        await self._finish_with_text(
-                            session_id,
-                            confirmation_terminal.stop_text,
-                            emit,
-                            "confirmation_resolved",
-                        )
-                        return
-                    # 没有步数上限，就必须认得出「模型在原地打转」：连续三轮发出完全相同的
-                    # 工具调用说明它没有获得新信息，再跑下去只是烧 token。
-                    # 例外：整批只等流水线的调用不算打转，长任务连着等几次是正常节奏。
-                    # 这种批次也不重置 last_signature / repeats：否则模型「等一次、
-                    # 查一次」交替就能永远清空计数，把保险绕过去。
-                    # 指纹用原始参数字符串：T8 的 LoopGuardMiddleware 也是这个口径。
-                    call_signatures = [
-                        {"name": call.name, "arguments": call.raw_arguments}
-                        for call in parsed_calls
-                    ]
-                    signature = calls_signature(call_signatures)
-                    if not exempt_from_stuck_loop(call_signatures):
-                        repeats = repeats + 1 if signature == last_signature else 0
-                        last_signature = signature
-                        if repeats >= STUCK_REPEAT_LIMIT:
-                            await self._finish_with_text(
-                                session_id,
-                                STUCK_LOOP_TEXT,
-                                emit,
-                                "stuck_loop",
-                            )
-                            return
-                    continue
-
-                await self._persist_message(
-                    session_id,
-                    role="assistant",
-                    content=resp.text,
-                    reasoning_content=resp.reasoning or None,
-                    prompt_tokens=resp.usage.prompt_tokens,
-                    completion_tokens=resp.usage.completion_tokens,
-                    finish_reason=resp.upstream_finish_reason,
-                    latency_ms=resp.latency_ms,
-                )
-                await emit("message_end", {"session_id": session_id, "finish_reason": resp.upstream_finish_reason or "stop"})
-                return
-        except asyncio.CancelledError:
-            # 只有本会话被标记为「用户主动中断」时才做收尾；别的取消（服务关闭、
-            # 上层任务被取消）原样抛出，不在关闭路径上多写一条对话消息。
-            if not self._interrupted_now(session_id):
-                raise
-            await self._finish_interrupted_turn(session_id, emit, draft)
-            raise
-        finally:
-            if owned:
-                await client.aclose()
-
-    async def _finish_interrupted_turn(
-        self, session_id: str, emit: Callable[[str, Any], Any], draft: TurnDraft
-    ) -> None:
-        """用户中断后的收尾：补历史 → 发 SSE（规格 §3.1）。
-
-        三件事，缺一不可：
-
-        1. 给这一批里还没落库的工具调用补 tool 桩消息。**顺序在标记消息之前**：
-           assistant 的 ``tool_calls`` 与对应 tool 消息必须相邻，隔一条普通 assistant
-           消息就是结构不合法，上游会 400。
-        2. 把**已经流出去**的部分文本连同中断标记落成一条 assistant 消息
-           （``finish_reason="interrupted"``）。不重复 emit 那段文本：前端已经逐字
-           收到过，再发一遍会在界面上出现两遍。
-        3. 发 ``interrupted`` 再发 ``message_end``，让 SSE 正常收尾（锁与
-           ``_SSE_END`` 由 ``_produce_turn`` 的 finally 照旧处理）。
-
-        每一步都吞异常只记日志：收尾失败也不能让取消变成一次「对话失败」，否则
-        ``_produce_turn`` 会走 error 分支，把一次主动中断显示成错误。
-        """
-        persisted = await self._persisted_tool_call_ids(session_id)
-        for call in draft.pending_tool_calls:
-            if call.id in persisted:
-                # 取消正好落在这一条的落库过程中：它可能已经写进去了，补桩前先回库
-                # 确认，避免同一个 tool_call_id 出现两条 tool 消息。
-                continue
-            try:
-                await self._persist_message(
-                    session_id,
-                    role="tool",
-                    content=json_text(INTERRUPTED_TOOL_STUB),
-                    tool_call_id=call.id,
-                    tool_name=call.name,
-                )
-            except Exception:  # noqa: BLE001 - 见 docstring
-                logger.warning(
-                    "中断收尾：补 tool 桩消息失败 session=%s call=%s",
-                    session_id,
-                    call.id,
-                    exc_info=True,
-                )
-        draft.pending_tool_calls.clear()
-        partial = "".join(draft.text).strip()
-        content = f"{partial}\n\n{INTERRUPTED_NOTICE}" if partial else INTERRUPTED_NOTICE
-        try:
-            await self._persist_message(
-                session_id,
-                role="assistant",
-                content=content,
-                reasoning_content="".join(draft.reasoning) or None,
-                finish_reason=INTERRUPTED_FINISH_REASON,
-            )
-        except Exception:  # noqa: BLE001 - 见 docstring
-            logger.warning("中断收尾：写入中断消息失败 session=%s", session_id, exc_info=True)
-        await emit(
-            "interrupted",
-            {"session_id": session_id, "finish_reason": INTERRUPTED_FINISH_REASON},
-        )
-        await emit(
-            "message_end",
-            {"session_id": session_id, "finish_reason": INTERRUPTED_FINISH_REASON},
-        )
-
-    async def _persisted_tool_call_ids(self, session_id: str) -> set[str]:
-        """已经落库的 tool 消息对应的 ``tool_call_id`` 集合。"""
-        try:
-            async with self.session_factory() as session:
-                history = await AgentMessageRepository(session).list_by_session(session_id)
-        except Exception:  # noqa: BLE001 - 读不到就按「都没写进去」补桩，宁多勿缺
-            logger.warning("中断收尾：读取历史失败 session=%s", session_id, exc_info=True)
-            return set()
-        return {
-            str(message.tool_call_id)
-            for message in history
-            if message.role == "tool" and message.tool_call_id
-        }
 
     async def _persist_message(
         self,
@@ -1280,22 +1041,6 @@ class AgentRuntime:
                 stored_session.completion_tokens += completion_tokens
             await session.commit()
             return stored
-
-    async def _finish_with_text(
-        self,
-        session_id: str,
-        content: str,
-        emit: Callable[[str, Any], Any],
-        finish_reason: str,
-    ) -> None:
-        await self._persist_message(
-            session_id,
-            role="assistant",
-            content=content,
-            finish_reason=finish_reason,
-        )
-        await emit("text_delta", {"text": content})
-        await emit("message_end", {"session_id": session_id, "finish_reason": finish_reason})
 
     async def _generate_session_title(
         self,
@@ -1730,6 +1475,42 @@ class AgentRuntime:
             content_value, ensure_ascii=False, separators=(",", ":")
         )
         return messages
+
+
+class _LegacyTranscript:
+    """v2 会话的消息存取：读写都经过门面，测试对门面方法的替换照样生效。"""
+
+    def __init__(self, runtime: AgentRuntime, *, vision_enabled: bool) -> None:
+        self._runtime = runtime
+        self.vision_enabled = vision_enabled
+
+    async def load(self, ctx: RunContext) -> list[dict[str, Any]]:
+        async with self._runtime.session_factory() as session:
+            history = await AgentMessageRepository(session).list_by_session(ctx.session_id)
+        if self.vision_enabled:
+            return await self._runtime._hydrate_latest_screenshot(history)
+        # build_model_context 的第一步本来就把 ORM 行转成 dict。
+        return [_message_dict(message) for message in history]
+
+    async def append(self, ctx: RunContext, *, role: str, **fields: Any) -> AgentMessage:
+        # 每次都现取 ``_persist_message``：中断补桩用例会在构造后替换它。
+        return await self._runtime._persist_message(ctx.session_id, role=role, **fields)
+
+    async def persisted_tool_call_ids(self, ctx: RunContext) -> set[str]:
+        """已经落库的 tool 消息对应的 ``tool_call_id`` 集合（v2 原样）。"""
+        try:
+            async with self._runtime.session_factory() as session:
+                history = await AgentMessageRepository(session).list_by_session(ctx.session_id)
+        except Exception:  # noqa: BLE001 - 读不到就按「都没写进去」补桩，宁多勿缺
+            logger.warning(
+                "中断收尾：读取历史失败 session=%s", ctx.session_id, exc_info=True
+            )
+            return set()
+        return {
+            str(message.tool_call_id)
+            for message in history
+            if message.role == "tool" and message.tool_call_id
+        }
 
 
 #: 模型侧工具声明里统一丢掉的 JSON Schema 键（M57）。``title`` 是 Pydantic 为每个
