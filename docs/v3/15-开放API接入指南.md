@@ -171,6 +171,12 @@ curl -X POST http://<host>:8002/api/snippets \
 | `LLM_RATE_LIMITED` | 429 | 上游 429 透传，`Retry-After` 沿用上游值 |
 | `LLM_ENCRYPTION_KEY_INVALID` | 503 | 缺少或配置错误的 `MAA_LLM_ENCRYPTION_KEY`，无法解密数据库里的 LLM API 密钥；设置正确的主密钥，或在设置页重新录入 API 密钥 |
 | `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史或知识库内容超出模型自身的上下文长度（本地不按字符数预裁剪），需开启新会话或缩短内容 |
+| `MODEL_PROFILE_NOT_FOUND` | 404 | 没有这个模型档案（M67）。档案名不存在、已停用，或角色指向的档案类型与角色不符 |
+| `MODEL_PROFILE_EXISTS` | 409 | 已有同名模型档案，或新建名为 `default` 的档案（M67）。`default` 由 `llm.*` 设置合成，不入表 |
+| `MODEL_PROFILE_IN_USE` | 409 | 档案正被某个 `llm.role_*` 引用，不能删除或停用（M67）。`details.roles` 列出引用它的角色 |
+| `MODEL_PROFILE_READONLY` | 409 | `default` 档案由 `llm.*` 设置合成，不能修改或删除（M67） |
+| `STRUCTURED_OUTPUT_INVALID` | 502 | 模型两次都没有给出符合要求的结构化输出（M67） |
+| `BUDGET_EXCEEDED` | 429 | 这次运行或今天的模型成本已达到预算上限（M67） |
 | `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
 | `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
 | `QUESTION_NOT_FOUND` | 404 | 提问 id 不存在 |
