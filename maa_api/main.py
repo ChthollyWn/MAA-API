@@ -49,6 +49,7 @@ from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import (
     account,
     agent,
+    agent_specs,
     atomic,
     confirmations,
     device,
@@ -1542,6 +1543,7 @@ def create_app() -> FastAPI:
     app.include_router(snippets.router)
     app.include_router(agent.router)
     app.include_router(knowledge.router)
+    app.include_router(agent_specs.router)
     app.include_router(sources.router)
     app.include_router(account.router)
     app.include_router(skland.router)

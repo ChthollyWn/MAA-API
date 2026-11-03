@@ -5355,6 +5355,253 @@
         "title": "SourcesStatusResponse",
         "type": "object"
       },
+      "SpecBudget": {
+        "description": "单次运行的预算上限。",
+        "properties": {
+          "max_cost_per_run": {
+            "title": "Max Cost Per Run",
+            "type": "number"
+          }
+        },
+        "required": [
+          "max_cost_per_run"
+        ],
+        "title": "SpecBudget",
+        "type": "object"
+      },
+      "SpecDetail": {
+        "description": "详情：列表字段之外再加定义文件里其余 8 个字段与正文提示词。",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/SpecBudget"
+          },
+          "deferred_groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deferred Groups",
+            "type": "array"
+          },
+          "delegates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Delegates",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "device": {
+            "enum": [
+              "none",
+              "read",
+              "exclusive"
+            ],
+            "title": "Device",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "orchestrator",
+              "worker",
+              "subagent",
+              "background"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "max_steps": {
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "model_role": {
+            "enum": [
+              "orchestrator",
+              "worker",
+              "subagent",
+              "summarizer",
+              "title",
+              "trigger_eval",
+              "memory",
+              "vision",
+              "embedding"
+            ],
+            "title": "Model Role",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_schema": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
+          },
+          "risk_ceiling": {
+            "enum": [
+              "none",
+              "consume",
+              "destructive"
+            ],
+            "title": "Risk Ceiling",
+            "type": "string"
+          },
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skills",
+            "type": "array"
+          },
+          "spec_version": {
+            "title": "Spec Version",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "kind",
+          "description",
+          "model_role",
+          "tools",
+          "delegates",
+          "version",
+          "spec_version",
+          "deferred_groups",
+          "device",
+          "risk_ceiling",
+          "max_steps",
+          "skills",
+          "output_schema",
+          "budget",
+          "body"
+        ],
+        "title": "SpecDetail",
+        "type": "object"
+      },
+      "SpecList": {
+        "description": "列表响应：``items`` 按 ``name`` 排序。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SpecSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SpecList",
+        "type": "object"
+      },
+      "SpecSummary": {
+        "description": "列表项：一个代理定义的身份、种类、工具与版本。",
+        "properties": {
+          "delegates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Delegates",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "orchestrator",
+              "worker",
+              "subagent",
+              "background"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_role": {
+            "enum": [
+              "orchestrator",
+              "worker",
+              "subagent",
+              "summarizer",
+              "title",
+              "trigger_eval",
+              "memory",
+              "vision",
+              "embedding"
+            ],
+            "title": "Model Role",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spec_version": {
+            "title": "Spec Version",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "kind",
+          "description",
+          "model_role",
+          "tools",
+          "delegates",
+          "version",
+          "spec_version"
+        ],
+        "title": "SpecSummary",
+        "type": "object"
+      },
       "StartUpInput": {
         "additionalProperties": false,
         "description": "开始唤醒：启动客户端并进入游戏。",
@@ -8059,6 +8306,159 @@
           }
         },
         "summary": "发送 Agent 消息并接收 SSE 事件",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/specs": {
+      "get": {
+        "operationId": "agent_list_specs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取代理定义列表",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/specs/{name}": {
+      "get": {
+        "operationId": "agent_get_spec",
+        "parameters": [
+          {
+            "description": "代理定义名字，可用的名字见列表端点",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "代理定义名字，可用的名字见列表端点",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SPEC_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：AGENT_SPEC_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取代理定义详情",
         "tags": [
           "agent"
         ]
