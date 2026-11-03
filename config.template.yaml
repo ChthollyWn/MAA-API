@@ -66,6 +66,10 @@ agent:
   recon_output_chars: 20000
   # 一次侦察的累计字符预算，超出即收尾（字符，10000-2000000）
   recon_max_chars: 200000
+  # 代理运行的心跳间隔（秒，5-120）；心跳超过 run_stale_seconds（秒，30-600）的运行视为失联，
+  # 失联判定至少按心跳间隔的 3 倍算
+  run_heartbeat_seconds: 15
+  run_stale_seconds: 90
 
 # OpenAI 兼容模型；密钥建议通过环境变量或设置页录入，数据库里的密钥由 MAA_LLM_ENCRYPTION_KEY 加密
 llm:

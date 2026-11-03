@@ -20,11 +20,18 @@ Chat Completions（docs/04 §5.8），重建上下文只需要 ``SELECT`` 后改
   ``DESC`` 时排最后，但这里显式写 ``IS NULL`` 排序键，不依赖方言的默认行为）。
 """
 
+from collections.abc import Collection
 from datetime import datetime
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import and_, case, delete, func, select, update
 
-from maa_api.db.models import AgentIdempotency, AgentMessage, AgentSession, utcnow
+from maa_api.db.models import (
+    AgentIdempotency,
+    AgentMessage,
+    AgentRun,
+    AgentSession,
+    utcnow,
+)
 from maa_api.db.repositories.base import BaseRepository, Page
 
 
@@ -276,3 +283,141 @@ class AgentMessageRepository(BaseRepository):
             .where(*conditions)
         )
         return await self.paginate(stmt, count_stmt, page=page, size=size)
+
+
+#: 活动态：同一会话至多一条（部分唯一索引 ``uq_agent_run_active_session`` 兜底）。
+ACTIVE_RUN_STATUSES: frozenset[str] = frozenset({"running", "waiting_human"})
+#: 终态：``RunService.finish`` 写过之后不再变化；历史行不受部分唯一索引限制。
+TERMINAL_RUN_STATUSES: frozenset[str] = frozenset(
+    {"succeeded", "failed", "interrupted", "cancelled"}
+)
+
+
+class AgentRunRepository(BaseRepository):
+    """``agent_run`` 的读写；状态机与收尾语义在 ``RunService``。仓储不提交事务。"""
+
+    async def create(self, run: AgentRun) -> AgentRun:
+        """``merge + flush``，与 :meth:`AgentSessionRepository.create` 同一写法。"""
+        stored = await self.session.merge(run)
+        await self.session.flush()
+        return stored
+
+    async def get(self, run_id: str) -> AgentRun | None:
+        """按主键取运行；``populate_existing=True`` 与 :meth:`AgentSessionRepository.get` 同理。"""
+        return await self.session.get(AgentRun, run_id, populate_existing=True)
+
+    async def get_active_for_session(self, session_id: str) -> AgentRun | None:
+        """``WHERE session_id = ? AND status IN 活动态``；部分唯一索引保证至多一行。"""
+        result = await self.session.execute(
+            select(AgentRun).where(
+                AgentRun.session_id == session_id,
+                AgentRun.status.in_(ACTIVE_RUN_STATUSES),
+            )
+        )
+        return result.scalars().first()
+
+    async def list_active_from_other_boots(self, boot_id: str) -> list[AgentRun]:
+        """别的进程（``boot_id`` 不同）留下的活动运行，按 ``started_at, id`` 升序。"""
+        result = await self.session.execute(
+            select(AgentRun)
+            .where(
+                AgentRun.status.in_(ACTIVE_RUN_STATUSES),
+                AgentRun.boot_id != boot_id,
+            )
+            .order_by(AgentRun.started_at.asc(), AgentRun.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_tree(self, root_run_id: str) -> list[AgentRun]:
+        """同一棵运行树的全部节点，按 ``started_at, id`` 升序（走 ``ix_agent_run_root_run_id``）。"""
+        result = await self.session.execute(
+            select(AgentRun)
+            .where(AgentRun.root_run_id == root_run_id)
+            .order_by(AgentRun.started_at.asc(), AgentRun.id.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_page(
+        self, *, session_id: str | None, root_only: bool, page: int, size: int
+    ) -> Page[AgentRun]:
+        """可选 ``session_id`` 等值过滤；``root_only`` 时只要根节点；``started_at DESC``。"""
+        conditions = []
+        if session_id is not None:
+            conditions.append(AgentRun.session_id == session_id)
+        if root_only:
+            conditions.append(AgentRun.id == AgentRun.root_run_id)
+        stmt = (
+            select(AgentRun)
+            .where(*conditions)
+            .order_by(AgentRun.started_at.desc(), AgentRun.id.desc())
+        )
+        count_stmt = (
+            select(func.count()).select_from(AgentRun).where(*conditions)
+        )
+        return await self.paginate(stmt, count_stmt, page=page, size=size)
+
+    async def touch_heartbeat(self, run_ids: Collection[str], now: datetime) -> int:
+        """把给定运行的 ``heartbeat_at`` 刷成 ``now``；只改活动态的行，返回 rowcount。"""
+        ids = [str(run_id) for run_id in run_ids]
+        if not ids:
+            return 0
+        result = await self.session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id.in_(ids),
+                AgentRun.status.in_(ACTIVE_RUN_STATUSES),
+            )
+            .values(heartbeat_at=now)
+        )
+        return max(int(result.rowcount or 0), 0)
+
+    async def set_status_if_active(self, run_id: str, status: str) -> bool:
+        """活动态 → ``status``；运行已结束或不存在时返回 ``False``。"""
+        result = await self.session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.status.in_(ACTIVE_RUN_STATUSES),
+            )
+            .values(status=status)
+        )
+        return result.rowcount > 0
+
+    async def set_trigger_seq_if_missing(self, run_id: str, seq: int) -> None:
+        """只在 ``trigger_seq`` 还为 NULL 时写入（用户消息的 ``seq`` 只认第一次）。"""
+        await self.session.execute(
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.trigger_seq.is_(None))
+            .values(trigger_seq=seq)
+        )
+
+    async def usage_totals(self, run_id: str) -> tuple[int, int, int]:
+        """按 ``agent_message.run_id`` 汇总 ``(prompt_tokens, completion_tokens, steps)``。
+
+        ``steps`` 只数 ``role='assistant'`` 且 ``latency_ms`` 不为空的行——真正的
+        模型调用；中断收尾、失败说明这类补写的助手消息没有 ``latency_ms``。三项
+        缺省为 0。
+        """
+        result = await self.session.execute(
+            select(
+                func.coalesce(func.sum(AgentMessage.prompt_tokens), 0),
+                func.coalesce(func.sum(AgentMessage.completion_tokens), 0),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    AgentMessage.role == "assistant",
+                                    AgentMessage.latency_ms.is_not(None),
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+            ).where(AgentMessage.run_id == run_id)
+        )
+        prompt, completion, steps = result.one()
+        return int(prompt or 0), int(completion or 0), int(steps or 0)

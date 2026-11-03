@@ -154,6 +154,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "agent.recon_max_steps": ("agent", "recon_max_steps"),
     "agent.recon_output_chars": ("agent", "recon_output_chars"),
     "agent.recon_max_chars": ("agent", "recon_max_chars"),
+    # ---- 运行心跳与失联判定（M66 规格 §4.4）：运维阈值，只从 config.yaml / 环境变量来 ----
+    "agent.run_heartbeat_seconds": ("agent", "run_heartbeat_seconds"),
+    "agent.run_stale_seconds": ("agent", "run_stale_seconds"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -169,6 +172,8 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
 #: 只读探索四项（M48）：``workspace.root`` 是宿主机绝对路径，放开给设置 API 等于让任何
 #: 持有访问令牌的人把 agent 的只读窗口指向任意目录（探索工具只拦越界读，拦不住
 #: 「把根设到别处」）；三个 ``recon_*`` 预算是运维阈值，与 skland 两项同理没有前端语义。
+#:
+#: 运行心跳两项（M66）：运维阈值，前端没有对应的产品语义。
 CONFIG_ONLY_SETTING_KEYS: frozenset[str] = frozenset(
     {
         "notify.vapid_private_key",
@@ -180,6 +185,8 @@ CONFIG_ONLY_SETTING_KEYS: frozenset[str] = frozenset(
         "agent.recon_max_steps",
         "agent.recon_output_chars",
         "agent.recon_max_chars",
+        "agent.run_heartbeat_seconds",
+        "agent.run_stale_seconds",
     }
 )
 
@@ -378,6 +385,10 @@ class AgentSettings(BaseModel):
     recon_max_steps: int = Field(default=8, ge=1, le=20)
     recon_output_chars: int = Field(default=20000, ge=1000, le=200000)
     recon_max_chars: int = Field(default=200000, ge=10000, le=2000000)
+    #: 活动运行每隔这么多秒刷新一次 agent_run.heartbeat_at。
+    run_heartbeat_seconds: int = Field(default=15, ge=5, le=120)
+    #: 心跳超过这个时长的运行视为失联；实际阈值不低于心跳间隔的 3 倍。
+    run_stale_seconds: int = Field(default=90, ge=30, le=600)
 
 
 class DeploymentSettings(BaseModel):

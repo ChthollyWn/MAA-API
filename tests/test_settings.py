@@ -396,6 +396,9 @@ def test_env_mapping_names_are_pinned() -> None:
         "agent.recon_max_steps": "MAA_AGENT_RECON_MAX_STEPS",
         "agent.recon_output_chars": "MAA_AGENT_RECON_OUTPUT_CHARS",
         "agent.recon_max_chars": "MAA_AGENT_RECON_MAX_CHARS",
+        # M66：运行心跳与失联判定（config-only 的运维阈值）。
+        "agent.run_heartbeat_seconds": "MAA_AGENT_RUN_HEARTBEAT_SECONDS",
+        "agent.run_stale_seconds": "MAA_AGENT_RUN_STALE_SECONDS",
     }
 
 
@@ -712,6 +715,33 @@ def test_copilot_site_settings_have_documented_defaults_and_bounds() -> None:
     assert template_sources["copilot_site_enabled"] is True
     assert template_sources["copilot_site_rate_per_minute"] == 20
     assert "# 作业站（prts.maa.plus，M29）" in template_text
+
+
+def test_run_heartbeat_settings_have_documented_defaults_and_bounds() -> None:
+    """M66 运行心跳：默认 15 / 90，yaml 可覆盖，越界拒绝，两个键都不进设置 API。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA
+
+    default = resolve_settings(env={})
+    assert default.agent.run_heartbeat_seconds == 15
+    assert default.agent.run_stale_seconds == 90
+
+    configured = resolve_settings(
+        {"agent": {"run_heartbeat_seconds": 30, "run_stale_seconds": 300}},
+        env={},
+    )
+    assert configured.agent.run_heartbeat_seconds == 30
+    assert configured.agent.run_stale_seconds == 300
+
+    for bad in (4, 121):
+        with pytest.raises(ValidationError):
+            resolve_settings({"agent": {"run_heartbeat_seconds": bad}}, env={})
+    for bad in (29, 601):
+        with pytest.raises(ValidationError):
+            resolve_settings({"agent": {"run_stale_seconds": bad}}, env={})
+
+    schema_keys = {item["key"] for item in SETTINGS_SCHEMA}
+    assert "agent.run_heartbeat_seconds" not in schema_keys
+    assert "agent.run_stale_seconds" not in schema_keys
 
 
 def test_log_settings_read_yaml_and_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

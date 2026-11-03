@@ -337,6 +337,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出代理运行 */
+        get: operations["agent_list_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取运行与子运行树 */
+        get: operations["agent_get_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/sessions": {
         parameters: {
             query?: never;
@@ -2039,6 +2073,16 @@ export interface components {
             updated_at?: string | null;
         };
         /**
+         * AgentRunKind
+         * @enum {string}
+         */
+        AgentRunKind: "orchestrator_turn" | "worker_turn" | "subagent" | "trigger_eval" | "compaction" | "memory_extract" | "title" | "watchdog_check" | "eval_case" | "legacy_turn";
+        /**
+         * AgentRunStatus
+         * @enum {string}
+         */
+        AgentRunStatus: "running" | "waiting_human" | "succeeded" | "failed" | "interrupted" | "cancelled";
+        /**
          * AnswerRequest
          * @description ``POST /api/agent/questions/{id}`` 的入参。
          *
@@ -3712,6 +3756,155 @@ export interface components {
              * @default false
              */
             use_support: boolean | null;
+        };
+        /**
+         * RunDetail
+         * @description 运行详情与子运行树（深度不超过 3）。
+         */
+        RunDetail: {
+            /** Agent Name */
+            agent_name: string;
+            /** Boot Id */
+            boot_id: string;
+            /** Cached Tokens */
+            cached_tokens: number;
+            /** Children */
+            children?: components["schemas"]["RunDetail"][];
+            /** Completion Tokens */
+            completion_tokens: number;
+            /** Cost Micros */
+            cost_micros: number;
+            /** Currency */
+            currency: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Finish Reason */
+            finish_reason: string | null;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string | null;
+            /**
+             * Heartbeat At
+             * Format: date-time
+             */
+            heartbeat_at: string | null;
+            kind: components["schemas"]["AgentRunKind"];
+            /** Meta */
+            meta: {
+                [key: string]: unknown;
+            } | null;
+            /** Model */
+            model: string | null;
+            /** Model Profile */
+            model_profile: string | null;
+            /** Parent Run Id */
+            parent_run_id: string | null;
+            /** Prompt Tokens */
+            prompt_tokens: number;
+            /** Reasoning Tokens */
+            reasoning_tokens: number;
+            /** Root Run Id */
+            root_run_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Session Id */
+            session_id: string | null;
+            /** Spec Version */
+            spec_version: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string | null;
+            status: components["schemas"]["AgentRunStatus"];
+            /** Steps */
+            steps: number;
+            /**
+             * Ticket Id
+             * @description 所属工单；工单功能上线前恒为空
+             */
+            ticket_id?: string | null;
+            /** Trigger Seq */
+            trigger_seq: number | null;
+        };
+        /** RunPage */
+        RunPage: {
+            /** Items */
+            items: components["schemas"]["RunSummary"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * RunSummary
+         * @description 一次代理调用的摘要。
+         */
+        RunSummary: {
+            /** Agent Name */
+            agent_name: string;
+            /** Cached Tokens */
+            cached_tokens: number;
+            /** Completion Tokens */
+            completion_tokens: number;
+            /** Cost Micros */
+            cost_micros: number;
+            /** Currency */
+            currency: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Finish Reason */
+            finish_reason: string | null;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string | null;
+            /**
+             * Heartbeat At
+             * Format: date-time
+             */
+            heartbeat_at: string | null;
+            kind: components["schemas"]["AgentRunKind"];
+            /** Model */
+            model: string | null;
+            /** Model Profile */
+            model_profile: string | null;
+            /** Parent Run Id */
+            parent_run_id: string | null;
+            /** Prompt Tokens */
+            prompt_tokens: number;
+            /** Reasoning Tokens */
+            reasoning_tokens: number;
+            /** Root Run Id */
+            root_run_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Session Id */
+            session_id: string | null;
+            /** Spec Version */
+            spec_version: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string | null;
+            status: components["schemas"]["AgentRunStatus"];
+            /** Steps */
+            steps: number;
+            /**
+             * Ticket Id
+             * @description 所属工单；工单功能上线前恒为空
+             */
+            ticket_id?: string | null;
+            /** Trigger Seq */
+            trigger_seq: number | null;
         };
         /** SchedulePage */
         SchedulePage: {
@@ -5724,6 +5917,190 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_list_runs: {
+        parameters: {
+            query?: {
+                /** @description 只看这个会话的运行 */
+                session_id?: string | null;
+                /** @description 只看这个工单的运行；工单功能上线前返回空列表 */
+                ticket_id?: string | null;
+                /** @description 只列根运行（不含子运行） */
+                root_only?: boolean;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 运行 id */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：RUN_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RUN_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

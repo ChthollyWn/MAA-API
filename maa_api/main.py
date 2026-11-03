@@ -60,6 +60,7 @@ from maa_api.api.routers import (
     queue,
     questions,
     resources,
+    runs,
     screenshots,
     snippets,
     settings as settings_router,
@@ -480,6 +481,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     resource_service = None
     confirmation_service = None
     question_service = None
+    run_service = None
     agent_runtime = None
     incident_service = None
     device_start_task: asyncio.Task[Any] | None = None
@@ -1213,7 +1215,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         agent_spec_registry = AgentSpecRegistry(tool_registry)
         agent_spec_registry.load()  # 内置定义坏了属于代码错误，直接中止启动
+        app.state.boot_id = str(uuid.uuid4())
         app.state.agent_spec_registry = agent_spec_registry
+
+        from maa_api.agent.runs import RunRecovery, RunService
+
+        run_service = RunService(db_session.session_factory, boot_id=app.state.boot_id)
+        app.state.run_service = run_service
+        bind_run_service = getattr(agent_runtime, "bind_run_service", None)
+        if callable(bind_run_service):
+            bind_run_service(run_service)
+        recovered = await RunRecovery(
+            db_session.session_factory, boot_id=app.state.boot_id
+        ).recover()
+        if recovered:
+            logger.warning(
+                "服务重启：上一进程留下的 %d 个运行已标为中断", len(recovered)
+            )
         incident_factory = getattr(app.state, "agent_incident_service_factory", None)
         incident_options = {
             "settings_provider": setting_service.refresh,
@@ -1365,6 +1383,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await question_service.close()
         if confirmation_service is not None:
             await confirmation_service.close()
+        if run_service is not None:
+            await run_service.close()
         if schedule_service is not None:
             await schedule_service.close()
         if update_scheduler is not None and update_scheduler.running:
@@ -1406,6 +1426,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "update_scheduler",
             "confirmation_service",
             "question_service",
+            "run_service",
+            "boot_id",
             "agent_runtime",
             "agent_incident_service",
             "agent_ops_service",
@@ -1434,6 +1456,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await question_service.close()
         if confirmation_service is not None:
             await confirmation_service.close()
+        if run_service is not None:
+            await run_service.close()
         if schedule_service is not None:
             await schedule_service.close()
         if update_scheduler is not None and update_scheduler.running:
@@ -1484,6 +1508,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "update_scheduler",
             "confirmation_service",
             "question_service",
+            "run_service",
+            "boot_id",
             "agent_runtime",
             "agent_incident_service",
             "agent_ops_service",
@@ -1543,6 +1569,7 @@ def create_app() -> FastAPI:
     app.include_router(snippets.router)
     app.include_router(agent.router)
     app.include_router(knowledge.router)
+    app.include_router(runs.router)
     app.include_router(agent_specs.router)
     app.include_router(sources.router)
     app.include_router(account.router)

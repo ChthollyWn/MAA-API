@@ -28,9 +28,18 @@ import pytest
 from sqlalchemy import select
 
 from maa_api.db import session as db_session_module
-from maa_api.db.models import LogEntry, Pipeline, Screenshot, utcnow
+from maa_api.db.models import (
+    AgentRun,
+    AgentSession,
+    LogEntry,
+    Pipeline,
+    Screenshot,
+    utcnow,
+)
 from maa_api.db.repositories import log as log_repo_module
 from maa_api.domain.enums import (
+    AgentRunKind,
+    AgentRunStatus,
     LogLevel,
     LogSource,
     PipelineSource,
@@ -387,3 +396,49 @@ def test_errors_are_not_swallowed(
 
     with pytest.raises(RuntimeError, match="purge 失败"):
         asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# 代理运行：不在保留策略范围内
+# ---------------------------------------------------------------------------
+def test_retention_keeps_agent_runs(retention_session_factory) -> None:
+    """运行表没有保留规则：400 天前结束的运行在清理后仍在（03 §14）。"""
+    now = utcnow()
+    run_id = "retention-agent-run"
+    finished_at = now - timedelta(days=400)
+
+    async def scenario():
+        # 运行与会话没有 ORM relationship，先落会话再落运行（外键已开启）。
+        await _insert(
+            retention_session_factory,
+            [
+                AgentSession(
+                    id="retention-agent-session",
+                    model="retention-model",
+                    created_at=now - timedelta(days=400),
+                )
+            ],
+        )
+        await _insert(
+            retention_session_factory,
+            [
+                AgentRun(
+                    id=run_id,
+                    session_id="retention-agent-session",
+                    root_run_id=run_id,
+                    agent_name="legacy_chat",
+                    kind=AgentRunKind.LEGACY_TURN,
+                    status=AgentRunStatus.SUCCEEDED,
+                    boot_id="retention-boot",
+                    started_at=now - timedelta(days=400, minutes=5),
+                    heartbeat_at=finished_at,
+                    finished_at=finished_at,
+                )
+            ],
+        )
+        await r.run_retention(session_factory=retention_session_factory)
+        runs = await _all(retention_session_factory, AgentRun)
+        assert [item.id for item in runs] == [run_id]
+        assert runs[0].status == AgentRunStatus.SUCCEEDED
+
+    asyncio.run(scenario())

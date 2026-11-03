@@ -202,6 +202,18 @@ def build_model_context(
             )
             continue
 
+        if role == "system":
+            # 不是所有 OpenAI 兼容服务都接受历史中间的 system 消息
+            model_history.append(
+                redact_remote_data(
+                    {
+                        "role": "user",
+                        "content": f"【系统】{message.get('content') or ''}",
+                    }
+                )
+            )
+            continue
+
         outgoing: dict[str, Any] = {"role": role}
         for key in ("content", "reasoning_content", "tool_call_id", "name"):
             if key in message and message[key] is not None:

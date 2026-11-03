@@ -1,4 +1,4 @@
-"""SQLModel 表定义：28 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：29 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -40,6 +40,7 @@ from sqlalchemy import (
     DateTime,
     Index,
     Integer,
+    String,
     Text,
     UniqueConstraint,
     text,
@@ -47,6 +48,8 @@ from sqlalchemy import (
 from sqlmodel import Field, SQLModel
 
 from maa_api.domain.enums import (
+    AgentRunStatus,
+    AgentSessionKind,
     AgentSessionStatus,
     ConfirmationStatus,
     PipelineStatus,
@@ -484,6 +487,16 @@ class AgentSession(SQLModel, table=True):
     last_message_at: datetime | None = Field(
         default=None, sa_column=datetime_column("last_message_at", nullable=True)
     )
+    kind: str = Field(
+        default=AgentSessionKind.CHAT,
+        sa_column=Column("kind", String(16), nullable=False, server_default=text("'chat'")),
+    )
+    parent_session_id: str | None = Field(
+        default=None, foreign_key="agent_session.id", ondelete="SET NULL", max_length=36
+    )
+    archived_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("archived_at", nullable=True)
+    )
 
     __table_args__ = (
         # 会话列表：ORDER BY last_message_at DESC
@@ -491,6 +504,7 @@ class AgentSession(SQLModel, table=True):
         # An incident event is durable across process restarts; multiple normal
         # conversations keep NULL and remain unrestricted by SQLite uniqueness.
         Index("uq_agent_session_incident_key", "incident_key", unique=True),
+        Index("ix_agent_session_kind_status", "kind", "status"),
     )
 
 
@@ -531,11 +545,73 @@ class AgentMessage(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("created_at")
     )
+    run_id: str | None = Field(
+        default=None, foreign_key="agent_run.id", ondelete="SET NULL", max_length=36
+    )
 
     __table_args__ = (
         # 会话消息：session_id=? ORDER BY seq（唯一，兼作索引）
         UniqueConstraint("session_id", "seq", name="uq_agent_message_session_seq"),
+        Index("ix_agent_message_run_id", "run_id"),
         {"sqlite_autoincrement": True},
+    )
+
+
+# ---------------------------------------------------------------------------
+# agent_run — 一次代理调用（docs/v3/03 §3.2）
+# ---------------------------------------------------------------------------
+class AgentRun(SQLModel, table=True):
+    """一次代理调用；同一会话至多一个 running / waiting_human 的运行。"""
+
+    __tablename__ = "agent_run"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    session_id: str | None = Field(
+        default=None, foreign_key="agent_session.id", ondelete="CASCADE", max_length=36
+    )
+    parent_run_id: str | None = Field(
+        default=None, foreign_key="agent_run.id", ondelete="SET NULL", max_length=36
+    )
+    root_run_id: str = Field(max_length=36)
+    agent_name: str = Field(max_length=32)
+    spec_version: str | None = Field(default=None, max_length=16)
+    kind: str = Field(max_length=24)
+    status: str = Field(default=AgentRunStatus.RUNNING, max_length=16)
+    trigger_seq: int | None = Field(default=None)
+    model: str | None = Field(default=None, max_length=128)
+    model_profile: str | None = Field(default=None, max_length=48)
+    prompt_tokens: int = Field(default=0)
+    completion_tokens: int = Field(default=0)
+    cached_tokens: int = Field(default=0)
+    reasoning_tokens: int = Field(default=0)
+    cost_micros: int = Field(default=0)
+    currency: str | None = Field(default=None, max_length=8)
+    steps: int = Field(default=0)
+    finish_reason: str | None = Field(default=None, max_length=32)
+    error_code: str | None = Field(default=None, max_length=48)
+    error_message: str | None = Field(default=None, sa_column=text_column("error_message"))
+    boot_id: str = Field(max_length=36)
+    heartbeat_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("heartbeat_at", nullable=True)
+    )
+    started_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("started_at")
+    )
+    finished_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("finished_at", nullable=True)
+    )
+    meta: dict[str, Any] | None = Field(default=None, sa_column=json_column("meta"))
+
+    __table_args__ = (
+        # 部分唯一索引：终态的历史行不受限，同一会话同时只能有一条活动运行。
+        Index(
+            "uq_agent_run_active_session",
+            "session_id",
+            unique=True,
+            sqlite_where=text("status IN ('running', 'waiting_human')"),
+        ),
+        Index("ix_agent_run_session_id_started_at", "session_id", "started_at"),
+        Index("ix_agent_run_root_run_id", "root_run_id"),
     )
 
 
