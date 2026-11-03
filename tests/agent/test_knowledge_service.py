@@ -42,7 +42,7 @@ from maa_api.db.models import AgentKnowledge
 from maa_api.domain.errors import AppError, ErrorCode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SPEC_DIR = REPO_ROOT / "docs" / "superpowers" / "specs"
+SPEC_DIR = REPO_ROOT / "docs" / "v2" / "superpowers" / "specs"
 #: 内置全文的唯一原文来源：M18 的 5 个块（§4.4：不动）、M19 新增的 26 个、M24 的 1 个、
 #: M32 新增的 1 个与 M49 新增的 1 个。
 M18_SPEC_PATH = SPEC_DIR / "2026-09-29-m18-agent-knowledge.md"

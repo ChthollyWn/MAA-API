@@ -36,7 +36,7 @@ from maa_api.domain.errors import ERROR_HTTP_STATUS, AppError, ErrorCode
 #: 仓库根：tests/domain/test_errors.py → parents[2]。不依赖 CWD。
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ERRORS_MODULE_PATH = REPO_ROOT / "maa_api" / "domain" / "errors.py"
-API_SPEC_PATH = REPO_ROOT / "docs" / "05-API规范与路由清单.md"
+API_SPEC_PATH = REPO_ROOT / "docs" / "v2" / "05-API规范与路由清单.md"
 
 #: docs/05 §4 的二十条分节标题形如 ``### 4.7 流水线与任务``。
 _DOC_SECTION_RE = re.compile(r"^### 4\.(\d+) (.+)$")

@@ -136,7 +136,7 @@ config.yaml.bak*
 # macOS
 .DS_Store
 
-# superpowers 的临时工作区（执行台账、任务简报、审核材料）；需要留存的台账复制到 docs/superpowers/ledgers/
+# superpowers 的临时工作区（执行台账、任务简报、审核材料）；需要留存的台账复制到 docs/v2/superpowers/ledgers/（v2）或 docs/v3/ledgers/（v3）
 .superpowers/
 
 # archify 的架构图工作区（HTML/PNG/JSON 生成物，单份约 2.8 MB）；要交付的图另存到 docs/ 或附件。

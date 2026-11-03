@@ -1,6 +1,6 @@
 # M17 · 任务参数默认值（schema 声明 + 前端预填 + 显式下发）
 
-> 关联：[05-API规范与路由清单](./../05-API规范与路由清单.md) §7/§8/§9、[09-前端重构方案](./../09-前端重构方案.md) §7.3、[04-数据模型与持久化](./../04-数据模型与持久化.md) §5.2、[13-决策记录](./../13-决策记录.md) §8。
+> 关联：[05-API规范与路由清单](../05-API规范与路由清单.md) §7/§8/§9、[09-前端重构方案](../09-前端重构方案.md) §7.3、[04-数据模型与持久化](../04-数据模型与持久化.md) §5.2、[13-决策记录](../13-决策记录.md) §8。
 
 ## 1. 目标与用户决策
 
@@ -67,7 +67,7 @@ OK  Mall/Award/Roguelike/Reclamation {} → 非 0
 
 | 字段 | 默认值 | 依据 |
 |---|---|---|
-| `Recruit.select` | `[1, 4, 5]` | 内核必填；取值沿用旧前端 `createTasks` 的日常预设（[09 §15.3](./../09-前端重构方案.md)） |
+| `Recruit.select` | `[1, 4, 5]` | 内核必填；取值沿用旧前端 `createTasks` 的日常预设（[09 §15.3](../09-前端重构方案.md)） |
 | `Recruit.confirm` | `[2, 3, 4, 5]` | 同上 |
 | `Infrast.facility` | `["Mfg","Trade","Power","Control","Reception","Office","Dorm"]` | 内核必填；「全部设施按标准顺序换班」是中性默认（旧前端 `createTasks` 与 `resource/daily_task_template.json` 同值） |
 
@@ -75,7 +75,7 @@ OK  Mall/Award/Roguelike/Reclamation {} → 非 0
 
 ### 3.4 渠道字段：动态默认值 overlay
 
-`client_type`（StartUp / CloseDown / Fight）与 `server`（Fight / Recruit）在模型里**保持 `default=None`**：服务端按 `model_fields_set` 注入设置表里的全局渠道默认值（[05 §9](./../05-API规范与路由清单.md)），这条行为不变。前端要预填的是**当前生效值**，因此：
+`client_type`（StartUp / CloseDown / Fight）与 `server`（Fight / Recruit）在模型里**保持 `default=None`**：服务端按 `model_fields_set` 注入设置表里的全局渠道默认值（[05 §9](../05-API规范与路由清单.md)），这条行为不变。前端要预填的是**当前生效值**，因此：
 
 - `GET /api/tasks/types` 与 `GET /api/tasks/types/{type_name}` 在返回的 schema 里，给这两个字段注入**当前生效**的 `default`（`load_channel_defaults` → `ChannelDefaults`，默认 `Bilibili` / `CN`）；
 - OpenAPI 快照不受影响（overlay 只作用于这两个响应），pydantic 模型与 `POST /api/pipelines` / `/validate` 的默认语义不变；
