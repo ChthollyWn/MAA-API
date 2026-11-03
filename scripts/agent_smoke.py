@@ -360,7 +360,9 @@ def _wait_for_pipeline(client: Any, pipeline_id: str, headers: dict[str, str]) -
     raise SmokeFailure(f"流水线未在 12s 内进入终态：{last!r}")
 
 
-def _check_builtin_conversation(client: Any, headers: dict[str, str], fake_llm: _SmokeLLM) -> None:
+def _check_builtin_conversation(
+    client: Any, headers: dict[str, str], fake_llm: _SmokeLLM
+) -> str:
     capability = _check_response(
         client.post("/api/agent/capabilities/check", headers=headers),
         200,
@@ -426,6 +428,7 @@ def _check_builtin_conversation(client: Any, headers: dict[str, str], fake_llm: 
         and len(fake_llm.requests) == 3,
         f"Agent token 用量或 Fake LLM 往返次数错误：{stored!r}",
     )
+    return session_id
 
 
 def _check_copilot_pipeline_and_schedule(client: Any, headers: dict[str, str]) -> None:
@@ -541,7 +544,9 @@ def _check_copilot_pipeline_and_schedule(client: Any, headers: dict[str, str]) -
     )
 
 
-def _check_failure_incident(client: Any, headers: dict[str, str], fake_llm: _SmokeLLM) -> None:
+def _check_failure_incident(
+    client: Any, headers: dict[str, str], fake_llm: _SmokeLLM
+) -> str:
     failed = _check_response(
         client.post(
             "/api/pipelines",
@@ -619,6 +624,75 @@ def _check_failure_incident(client: Any, headers: dict[str, str], fake_llm: _Smo
         f"多出={sorted(incident_tool_names - set(INCIDENT_ALLOWED_TOOLS))}",
     )
     print("[ok] 流水线失败自动诊断、稳定错误上下文与安全工具 schema")
+    return incident_session["session_id"]
+
+
+def _check_runs(
+    client: Any,
+    headers: dict[str, str],
+    chat_session_id: str,
+    incident_session_id: str,
+) -> None:
+    """M66：对话与自动诊断各落一条已结束的运行，运行树为空。"""
+    chat_runs = _check_response(
+        client.get(
+            "/api/agent/runs",
+            params={"session_id": chat_session_id},
+            headers=headers,
+        ),
+        200,
+        "对话会话运行列表",
+    )
+    chat_items = chat_runs.get("items", [])
+    _require(
+        chat_runs.get("total") == 1 and len(chat_items) == 1,
+        f"对话会话应恰好一条运行：{chat_runs!r}",
+    )
+    chat_run = chat_items[0]
+    # token 数与 ``_check_builtin_conversation`` 对会话用量的断言同源：都来自
+    # ``_SmokeLLM`` 第 3 次响应的 usage（11 / 6）。
+    _require(
+        chat_run.get("kind") == "legacy_turn"
+        and chat_run.get("agent_name") == "legacy_chat"
+        and chat_run.get("status") == "succeeded"
+        and chat_run.get("finish_reason") == "stop"
+        and chat_run.get("steps") == 1
+        and chat_run.get("prompt_tokens") == 11
+        and chat_run.get("completion_tokens") == 6,
+        f"对话运行字段不匹配：{chat_run!r}",
+    )
+    detail = _check_response(
+        client.get(f"/api/agent/runs/{chat_run['run_id']}", headers=headers),
+        200,
+        "对话运行详情",
+    )
+    _require(detail.get("children") == [], f"对话运行不应有子运行：{detail!r}")
+
+    # 自动诊断在后台任务里跑：消息落库先于运行终态，给终态一个短窗口。
+    deadline = time.monotonic() + 8.0
+    incident_runs: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        incident_runs = _check_response(
+            client.get(
+                "/api/agent/runs",
+                params={"session_id": incident_session_id},
+                headers=headers,
+            ),
+            200,
+            "自动诊断会话运行列表",
+        )
+        incident_items = incident_runs.get("items", [])
+        if (
+            incident_runs.get("total") == 1
+            and len(incident_items) == 1
+            and incident_items[0].get("agent_name") == "legacy_incident"
+            and incident_items[0].get("status") == "succeeded"
+        ):
+            break
+        time.sleep(0.05)
+    else:
+        raise SmokeFailure(f"自动诊断运行未在 8s 内成功结束：{incident_runs!r}")
+    print("[ok] 运行记录：对话与自动诊断各一条已结束的运行")
 
 
 def run(*, keep_temp: bool = False) -> None:
@@ -720,11 +794,18 @@ def run(*, keep_temp: bool = False) -> None:
         # external endpoint or MaaCore is contacted by this smoke path.
         fake_llm = _SmokeLLM()
         main_module.app.state.agent_runtime.client_factory = lambda _settings: fake_llm
-        _check_builtin_conversation(client, {"X-Token": TOKEN}, fake_llm)
+        chat_session_id = _check_builtin_conversation(
+            client, {"X-Token": TOKEN}, fake_llm
+        )
         print("[ok] 内置 Agent Fake LLM 能力自检、SSE 对话、消息持久化与 token 用量")
         _check_copilot_pipeline_and_schedule(client, {"X-Token": TOKEN})
         print("[ok] Copilot 验证上传、资源列表、共享流水线入队与 schedule 持久化")
-        _check_failure_incident(client, {"X-Token": TOKEN}, fake_llm)
+        incident_session_id = _check_failure_incident(
+            client, {"X-Token": TOKEN}, fake_llm
+        )
+        _check_runs(
+            client, {"X-Token": TOKEN}, chat_session_id, incident_session_id
+        )
 
         # 1. Real REST tool catalog and a SAFE tool invocation, with auth contract.
         catalog_response = client.get("/api/agent/tools")
