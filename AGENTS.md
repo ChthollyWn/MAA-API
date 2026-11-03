@@ -27,6 +27,7 @@
 - OpenAPI 快照检查：`.venv/bin/python scripts/dump_openapi.py --check`。改了后端接口，先运行不带 `--check` 的同一命令重新生成，再 `cd web && pnpm gen:api`。
 - 前端集成冒烟（需先 `pnpm build`）：`.venv/bin/python scripts/frontend_smoke.py`
 - `scripts/*_smoke.py` 是各子系统的端到端冒烟，成功时末行是 `SMOKE OK`。
+- 文档断链检查：`.venv/bin/python scripts/check_doc_links.py`，末行 `BROKEN 0` 表示没有基线之外的断链；`--all` 列出全部断链（含 `scripts/doc_links_baseline.txt` 里的已知项）。
 
 ## 环境陷阱（完整记录见 docs/ENVIRONMENT.md）
 

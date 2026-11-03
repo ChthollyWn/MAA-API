@@ -23,7 +23,7 @@
 </div>
 <br>
 
-[文档](docs/README.md) | [开放 API](docs/v2/14-开放API接入指南.md) | [部署指南](docs/v2/15-部署指南.md) | [决策记录](docs/v2/13-决策记录.md)
+[文档](docs/README.md) | [开放 API](docs/v3/15-开放API接入指南.md) | [部署指南](docs/v3/16-部署指南.md) | [决策记录](docs/v2/13-决策记录.md)
 
 MAA-API 是 MaaAssistantArknights 的非官方 Web 服务封装
 
@@ -40,7 +40,7 @@ MaaCore 负责截图识别与操作游戏，本项目负责任务调度、数据
 ## 亮点功能
 
 - 🖥️ **Web 控制台**：移动端优先的 PWA 界面，任务队列、流水线与定时任务编排，设备画面、实时日志与任务结果一站查看
-- 🔌 **开放 API**：REST + WebSocket，`/openapi.json` 契约与内置调试台，token 鉴权与来源限流，接入见 [开放 API 指南](docs/v2/14-开放API接入指南.md)
+- 🔌 **开放 API**：REST + WebSocket，`/openapi.json` 契约与内置调试台，token 鉴权与来源限流，接入见 [开放 API 指南](docs/v3/15-开放API接入指南.md)
 - 🤖 **内置 Agent**：自然语言对话与任务编排、日志分析、失败自动诊断与安全恢复；工具调用带确认与审计
 - 🧩 **MaaCore 内核**：复用 MAA 的识别与操作能力，支持 Copilot 作业快照、内核 / 资源 / 游戏更新
 - 📊 **账号数据**：森空岛练度同步，干员与仓库只读视图（练度、潜能、模组与资源统计）
@@ -92,7 +92,7 @@ cd ..
 poetry run uvicorn maa_api.main:app --host 0.0.0.0 --port 8002
 ```
 
-需要从手机等外部设备访问、或要安装 PWA 与接收 Web Push 时，按 [15-部署指南](docs/v2/15-部署指南.md) 用 Tailscale Serve 提供 HTTPS 入口：浏览器打开的是 Tailscale Serve 的 HTTPS 地址，安全上下文才成立（局域网 IP + HTTP 不满足 PWA 与推送的要求）。
+需要从手机等外部设备访问、或要安装 PWA 与接收 Web Push 时，按 [16-部署指南](docs/v3/16-部署指南.md) 用 Tailscale Serve 提供 HTTPS 入口：浏览器打开的是 Tailscale Serve 的 HTTPS 地址，安全上下文才成立（局域网 IP + HTTP 不满足 PWA 与推送的要求）。
 
 ## 配置
 
@@ -118,8 +118,8 @@ poetry run uvicorn maa_api.main:app --host 0.0.0.0 --port 8002
 | [02-系统架构设计](docs/v2/02-系统架构设计.md) | 进程模型、IPC、任务队列与模块划分 |
 | [11-Agent 模块设计](docs/v2/11-Agent模块设计.md) | 内置 Agent、工具清单、安全确认与审计 |
 | [13-决策记录](docs/v2/13-决策记录.md) | 每项决策的选择、理由与实施偏离 |
-| [14-开放 API 接入指南](docs/v2/14-开放API接入指南.md) | REST / WebSocket 的调用、鉴权与错误处理 |
-| [15-部署指南](docs/v2/15-部署指南.md) | Tailscale Serve、HTTPS、Web Push 与故障排查 |
+| [15-开放 API 接入指南](docs/v3/15-开放API接入指南.md) | REST / WebSocket 的调用、鉴权与错误处理 |
+| [16-部署指南](docs/v3/16-部署指南.md) | Tailscale Serve、HTTPS、Web Push 与故障排查 |
 
 ## 开发
 

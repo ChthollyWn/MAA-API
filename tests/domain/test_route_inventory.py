@@ -33,7 +33,8 @@ from pathlib import Path
 
 #: 仓库根：tests/domain/test_route_inventory.py → parents[2]。不依赖 CWD。
 REPO_ROOT = Path(__file__).resolve().parents[2]
-API_SPEC_PATH = REPO_ROOT / "docs" / "v2" / "05-API规范与路由清单.md"
+#: 现行清单在 docs/v3/14；docs/v2/05 已冻结。
+API_SPEC_PATH = REPO_ROOT / "docs" / "v3" / "14-现行接口清单.md"
 OPENAPI_PATH = REPO_ROOT / "web" / "openapi.json"
 
 #: §6 的小节总数（6.1–6.21）；解析结果对不上说明文档结构变了、门禁已经失效。

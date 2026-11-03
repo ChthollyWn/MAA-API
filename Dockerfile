@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml poetry.lock ./
-RUN pip install --no-cache-dir poetry -i https://mirrors.aliyun.com/pypi/simple/ \
+RUN pip install --no-cache-dir "poetry>=2.1,<3" -i https://mirrors.aliyun.com/pypi/simple/ \
     && poetry install --no-root --only main --no-interaction
 
 COPY maa_api/ ./maa_api/

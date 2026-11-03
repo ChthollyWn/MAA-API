@@ -1,4 +1,4 @@
-"""Generate the marked error-code and OpenAPI-tag tables in docs/14."""
+"""Generate the marked error-code and OpenAPI-tag tables in docs/v3/15."""
 
 from __future__ import annotations
 
@@ -12,15 +12,15 @@ from maa_api.domain.errors import ERROR_HTTP_STATUS, ErrorCode
 from maa_api.main import TAGS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GUIDE_PATH = REPO_ROOT / "docs" / "v2" / "14-开放API接入指南.md"
-ERROR_SPEC_PATH = REPO_ROOT / "docs" / "v2" / "05-API规范与路由清单.md"
+GUIDE_PATH = REPO_ROOT / "docs" / "v3" / "15-开放API接入指南.md"
+ERROR_SPEC_PATH = REPO_ROOT / "docs" / "v3" / "14-现行接口清单.md"
 _ERROR_ROW = re.compile(
     r"^\|\s*`([A-Z0-9_]+)`\s*\|\s*\d{3}\s*\|\s*(.+?)\s*\|\s*$"
 )
 
 
 def parse_error_descriptions(markdown: str) -> dict[str, str]:
-    """Read the authoritative human descriptions from docs/05 tables."""
+    """Read the authoritative human descriptions from docs/v3/14 §4 tables."""
     descriptions: dict[str, str] = {}
     for line in markdown.splitlines():
         match = _ERROR_ROW.match(line)
@@ -56,14 +56,14 @@ def render_error_table(
 ) -> str:
     """Render every exposed HTTP error with its contract description.
 
-    docs/05 §4 是错误码说明的单一事实来源，**逐字**搬进指南。M10 时期这里对所有
+    docs/v3/14 §4 是错误码说明的单一事实来源，**逐字**搬进指南。M10 时期这里对所有
     ``CONFIRMATION_`` / ``AGENT_`` / ``TOOL_`` / ``LLM_`` 前缀的码统一改写成
     「预留错误码；对应功能未交付」——那些功能在 M11/M13 就交付了，这段替换之后
     只剩误导（19 行指南说自家已上线的错误码「未交付」），M22 收尾时删掉。
     """
     missing = [code for code in codes if code not in source_rows]
     if missing:
-        raise ValueError(f"缺少错误码说明（docs/05）：{', '.join(missing)}")
+        raise ValueError(f"缺少错误码说明（docs/v3/14 §4）：{', '.join(missing)}")
     lines = ["| 错误码 | HTTP | 含义与触发场景 |", "|---|---:|---|"]
     for code in codes:
         description = source_rows[code]
@@ -109,7 +109,7 @@ def generated_guide(source: str, error_spec: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="fail if docs/14 is stale")
+    parser.add_argument("--check", action="store_true", help="fail if docs/v3/15 is stale")
     parser.add_argument("guide", nargs="?", type=Path, default=GUIDE_PATH)
     args = parser.parse_args()
     guide_path = args.guide if args.guide.is_absolute() else REPO_ROOT / args.guide

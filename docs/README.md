@@ -10,3 +10,5 @@
 | [copy-audit/](copy-audit/规范-文案规范.md) | 文案规范与审计基线 |
 | [assets/](assets/) | 文档用图片 |
 | [ideas/](ideas/) | 立项讨论稿 |
+
+v3 的现行接口清单、开放 API 接入指南与部署指南在 [docs/v3/14–16](v3/14-现行接口清单.md)，M64 起随实现更新。

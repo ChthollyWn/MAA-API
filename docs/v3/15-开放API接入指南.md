@@ -1,0 +1,478 @@
+# 开放 API 接入指南
+
+本指南面向调用 MAA-API 的脚本、服务和浏览器客户端。调试台的「接入指南」页面复用本文件内容；接口字段的权威定义仍是同服务上的 `/openapi.json` 与 `/docs`。
+
+## 1. Base URL 与版本兼容
+
+默认 Base URL 为 `http://<host>:8002`。REST 路由在 `/api` 下，实时日志 WebSocket 为 `/api/ws`。调试台的 Base URL 留空时使用同源相对路径；填写其他地址时，专用 WebSocket 也使用该地址推导出的 `/api/ws`。
+
+PWA 的 Service Worker、Push API 与 Notification API 要求安全上下文。远程或局域网部署必须通过 HTTPS 提供页面；`localhost` / `127.0.0.1` 的 HTTP 开发访问是浏览器允许的特例。部署约束与路径见 [09 §12](../v2/09-前端重构方案.md#12-pwa-的安全上下文约束与部署路径)。
+
+本项目处于 v2 重构阶段，接口允许破坏性变更。集成方应固定服务版本，并在升级时检查 `/openapi.json` 的差异。
+
+## 2. 鉴权
+
+`access_token` 配置后，按以下适用场景携带同一个 token。服务端按 `Authorization`、`X-Token`、query、cookie 的优先级取第一个非空值；无效值不会回退到后续渠道，因此不要同时发送多个渠道的凭据。
+
+| 渠道 | 请求形式 | 适用场景 |
+|---|---|---|
+| Bearer（首选） | `Authorization: Bearer <token>` | 脚本、curl、服务间 REST 调用 |
+| `X-Token` | `X-Token: <token>` | 客户端不能为此 API 使用 `Authorization` 头时（请求中不要同时带无效的 `Authorization`），以及浏览器 SPA 等集成 |
+| Query | `?token=<token>` | 仅作为不能带自定义头、也没有 cookie 的 WebSocket 握手兜底；token 会进入 URL 与服务端 access log |
+| Cookie | `maa_token=<token>` | 浏览器直接导航、文档/静态资源请求与 WebSocket 握手；仅凭 cookie 的 REST 请求限于 `GET` / `HEAD` |
+
+```bash
+# 脚本与 REST 客户端优先使用 Bearer。
+curl -H 'Authorization: Bearer <token>' http://<host>:8002/api/system/health
+
+# 如果客户端不能为此 API 使用 Authorization，改用 X-Token；不要同时发送无效的 Authorization。
+curl -H 'X-Token: <token>' http://<host>:8002/api/system/health
+
+# 模拟浏览器只读请求；cookie 由浏览器自动携带。写请求不能只靠此 cookie 鉴权。
+curl -b 'maa_token=<token>' http://<host>:8002/api/system/health
+```
+
+仅凭 cookie 的请求只允许 `GET`、`HEAD` 和 WebSocket 升级；写请求应使用 `Authorization` 或 `X-Token`。query token 只为浏览器 WebSocket 无法带请求头、且没有 cookie 的情况保留；它可能进入服务端 URL/access log，调试台历史会将其剔除，但仍不适合日常 REST 调用。WebSocket 的 cookie 与 query 示例见 §6。
+
+未配置 `access_token` 时，服务处于免鉴权模式；可通过 `GET /api/system/health` 的 `auth_enabled` 判断。
+
+## 3. REST 调用与错误处理
+
+成功响应直接返回资源体。创建 API 收藏使用 `201 Created`，响应带 `Location`；删除使用 `204 No Content`。
+
+```bash
+curl -X POST http://<host>:8002/api/snippets \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "查询健康状态",
+    "method": "GET",
+    "path": "/api/system/health"
+  }'
+```
+
+收藏路由为：
+
+| 方法 | 路径 | 结果 |
+|---|---|---|
+| GET | `/api/snippets` | 收藏列表 |
+| POST | `/api/snippets` | 创建，201 |
+| GET | `/api/snippets/{snippet_id}` | 单个收藏 |
+| PUT | `/api/snippets/{snippet_id}` | 更新 |
+| DELETE | `/api/snippets/{snippet_id}` | 删除，204 |
+
+收藏名称会先 trim，随后按 1–64 字符校验，并区分大小写唯一。不存在返回 404，重名返回 409。收藏、调试历史与导出的 cURL 不会保存 `Authorization`、`X-Token`、`Cookie`、API key、password、secret 类凭据头或 query 的 `token`。JSON request body 保持原值供重放及导出，不会递归脱敏；不要在 body 中放入不希望写入收藏/历史或复制到 cURL 的业务密钥。
+
+非 2xx 响应统一使用以下结构：
+
+```json
+{
+  "error": {
+    "code": "...",
+    "message": "中文错误说明",
+    "details": {}
+  }
+}
+```
+
+客户端应先处理 HTTP 状态码，再按 `error.code` 决定是否提示、等待状态变化或修正参数。错误码与完整路由表见 [14-现行接口清单](./14-现行接口清单.md)。日志类需求请使用 WebSocket，避免高频轮询。
+
+### 3.1 限流与轮询
+
+当前没有针对正常业务流量的通用请求限流。现有 `RATE_LIMITED` 只保护鉴权：同一来源 IP 在 60 秒内连续鉴权失败达到默认 10 次后进入 60 秒冷却期；冷却期内该 IP 对非豁免端点的请求均返回 `429` 和 `Retry-After`。一次成功鉴权会清除该 IP 的失败计数。队列已满等业务错误也可能返回 `429`，应结合 `error.code` 区分。
+
+轮询流水线或设备等状态时，建议间隔至少 2 秒，并在重试时加入退避；日志使用 WebSocket 实时订阅，需要补历史时使用日志查询接口，不要高频轮询日志。
+
+## 4. 自动生成的契约摘要
+
+下列两个区块由 `scripts/generate_api_guide.py` 从错误码枚举/状态映射、[14-现行接口清单](./14-现行接口清单.md) 的权威错误说明和同服务的 `/openapi.json` tag 元数据生成。不要手工编辑标记间内容。
+
+这些表是错误码与 tag 元数据摘要，不是已交付路由清单；错误码枚举与 tag 列表含 Agent 与人工确认相关项，不代表这些模块已有可调用 endpoint。M10 当前可调用的 REST 路由以同服务 `/openapi.json` 的 `paths` 为准；Agent 工具接口与人工确认接口以当前服务 OpenAPI 为准。
+
+<!-- GENERATED:ERROR-CODES:START -->
+| 错误码 | HTTP | 含义与触发场景 |
+|---|---:|---|
+| `UNAUTHORIZED` | 401 | token 缺失或与 `access_token` 不匹配。四个渠道都没取到有效 token 时返回 |
+| `FORBIDDEN` | 403 | 身份有效但动作被策略拒绝：非同源请求试图仅凭 cookie 执行写操作 |
+| `RATE_LIMITED` | 429 | 同一来源 IP 连续鉴权失败超过阈值（默认 10 次/分钟）后的冷却期 |
+| `MALFORMED_JSON` | 400 | 请求体不是合法 JSON，或 `Content-Type` 与实际内容不符 |
+| `VALIDATION_ERROR` | 422 | Pydantic 字段校验失败。`details.fields` 为 FastAPI 原生的字段级错误数组 |
+| `INVALID_PARAMETER` | 400 | 结构合法但语义不成立：未知的设置项 key、互斥参数同时出现、枚举字符串不在取值域 |
+| `INVALID_PAGINATION` | 400 | `page < 1`、`size` 超过 200，或同时传了 `page` 与 `after_id` |
+| `NOT_FOUND` | 404 | 未被更具体的码覆盖的资源缺失，兜底用 |
+| `ENDPOINT_REMOVED` | 410 | 重构前旧端点的错误码；实现不注册旧端点存根，当前没有路径会抛出它（见 §12） |
+| `INTERNAL_ERROR` | 500 | 未捕获异常。`details` 只带一个 `trace_id`，堆栈进日志表 |
+| `DATABASE_ERROR` | 500 | SQLite 写锁超时、磁盘写满、schema 不匹配 |
+| `SERVICE_UNAVAILABLE` | 503 | 服务处于启动中或关闭中，尚未/不再接受业务请求 |
+| `CORE_NOT_READY` | 503 | 子进程处于 `STOPPED` / `STARTING`，资源尚未加载完。`details.state` 带具体状态 |
+| `CORE_RESTARTING` | 503 | 子进程处于 `RESTARTING`，通常发生在内核热更新期间 |
+| `CORE_CRASHED` | 503 | 子进程已崩溃且未恢复。同时用作被中断流水线的 `error_code` |
+| `CORE_START_FAILED` | 500 | 连续崩溃达到退避上限进入 `FAILED`，自动重启已停止，需人工介入 |
+| `CORE_COMMAND_FAILED` | 502 | 命令投递到子进程但执行失败（如 `AsstAppendTask` 返回 0）。`details.cmd` 带命令类型 |
+| `CORE_COMMAND_TIMEOUT` | 504 | 命令在超时内未收到 `CMD_RESULT`。超时不代表子进程已死，仍由心跳判定；命令可能仍在执行，客户端应查状态而非重试 |
+| `CORE_NOT_FOUND` | 404 | `core_id` 不存在。首版只有 `default`，为多实例扩展预留 |
+| `RESOURCE_LOAD_FAILED` | 500 | `LOAD_RESOURCE` 失败，通常是 MAA 资源目录缺失或损坏 |
+| `MAP_LEVEL_KEY_UNAVAILABLE` | 503 | `AsstGetMapLevelKey` 不可用。该 API 属实验性接口，本地内核未导出或调用异常时优雅降级 |
+| `DEVICE_NOT_CONNECTED` | 503 | 设备状态机不在已连接态。任务执行前预检失败也报这个 |
+| `ADB_CONNECT_FAILED` | 502 | `adb connect` 或 `AsstAsyncConnect` 失败。`details` 带 `address` 与已尝试次数 |
+| `ADB_NOT_FOUND` | 500 | 配置的 `adb.path` 不存在或不可执行，属本地环境问题 |
+| `ADB_COMMAND_FAILED` | 502 | ADB 原子操作（swipe / 长按 / 输入文本 / 按键）执行失败 |
+| `DEVICE_SCAN_FAILED` | 502 | `adb devices` 列举失败，通常是 adb server 未启动 |
+| `DEVICE_RESOLUTION_UNSUPPORTED` | 503 | 设备已连上但分辨率不被内核支持，自动化无法进行。`details` 带实际分辨率 |
+| `SCREENSHOT_FAILED` | 502 | 内核 `AsstAsyncScreencap` 或 ADB 截屏失败。`details.backend` 指明是哪条通道 |
+| `SCREENSHOT_NOT_FOUND` | 404 | 截图 id 不存在 |
+| `SCREENSHOT_EXPIRED` | 410 | 记录存在但文件已被保留策略清理（`screenshot.deleted_at` 非空） |
+| `PIPELINE_NOT_FOUND` | 404 | id 不存在，或已被 90 天/500 条保留策略清理 |
+| `PIPELINE_ALREADY_RUNNING` | 409 | 流水线运行中执行原子操作（未带 `force=true`），或试图启动第二条流水线 |
+| `PIPELINE_NOT_CANCELLABLE` | 409 | 目标流水线已处于终态，无可取消 |
+| `PIPELINE_EMPTY` | 400 | 提交的 `tasks` 数组为空 |
+| `PIPELINE_TOO_MANY_TASKS` | 400 | 单条流水线任务数超过 32 |
+| `TASK_NOT_FOUND` | 404 | 任务 id 不存在 |
+| `UNKNOWN_TASK_TYPE` | 400 | `name` 字段不在 9 种 MaaCore 内置任务或 `Copilot` 类型内，discriminated union 匹配失败 |
+| `TASK_PARAM_INVALID` | 422 | 跨字段规则不满足：`mode=10000` 缺 `filename`、`mode=5` 但 `theme != "Sami"`、`series` 越界 |
+| `TASK_PARAM_DEPRECATED` | 400 | 使用了内核已弃用的参数值，如 `Roguelike.mode=2` |
+| `TASK_NOT_RUNTIME_MUTABLE` | 409 | 对运行中的任务修改了标注"不支持运行中设置"的参数（`stage`、`facility`、`shopping` 等） |
+| `IDEMPOTENCY_KEY_CONFLICT` | 409 | 同一 `Idempotency-Key` 被用于内容不同的两次提交 |
+| `QUEUE_FULL` | 429 | 待执行流水线数超过上限（默认 50）。带 `Retry-After` |
+| `QUEUE_PAUSED` | 409 | 队列被暂停（维护或更新期间）时提交，需先 resume |
+| `QUEUE_ITEM_NOT_PENDING` | 409 | 调整优先级或移出队列的目标已不是 `PENDING` 状态 |
+| `UPDATE_NOT_FOUND` | 404 | 更新记录 id 不存在 |
+| `UPDATE_ALREADY_RUNNING` | 409 | 同一 `target` 已有进行中的更新，由部分唯一索引在库层拦住 |
+| `UPDATE_BLOCKED_BY_PIPELINE` | 409 | 队列非空或有流水线运行中，且请求未带 `force=true` |
+| `ALREADY_LATEST_VERSION` | 409 | 当前已是最新版本且未带 `force=true` |
+| `UPDATE_MANIFEST_UNAVAILABLE` | 502 | 版本清单接口不可达（内核版本 API、OTA 资源清单、游戏版本接口） |
+| `UPDATE_DOWNLOAD_FAILED` | 502 | 下载中断或返回非 2xx |
+| `UPDATE_CHECKSUM_MISMATCH` | 502 | 下载产物校验和不符，判定为传输损坏或源被污染 |
+| `UPDATE_EXTRACT_FAILED` | 500 | 解压或覆盖文件失败，通常是磁盘空间或权限问题 |
+| `UPDATE_ROLLBACK_FAILED` | 500 | 更新失败后回滚也失败，内核目录可能处于不一致状态，必须人工处理 |
+| `UPDATE_NOT_CANCELLABLE` | 409 | 更新已进入不可中断阶段（覆盖文件、重启内核）后请求取消 |
+| `UPDATE_DISK_INSUFFICIENT` | 500 | 下载前的磁盘预检不通过，按 §2 归入"本地环境故障"。`details` 带 `required_bytes` 与 `available_bytes`，让用户自己判断要清理多少 |
+| `UPDATE_QUEUE_BUSY_TIMEOUT` | 409 | 等待队列空闲超时（默认 30 分钟）且请求未带 `force_interrupt=true` |
+| `GAME_INSTALL_FAILED` | 502 | `adb install` 返回失败，`details.adb_output` 带原始输出 |
+| `GAME_VERSION_UNKNOWN` | 502 | `dumpsys` 解析不出已安装版本，无法做版本对比 |
+| `CONFIRMATION_REQUIRED` | 202 | 操作命中消耗类或破坏类策略，已创建确认请求。**唯一出现在 2xx 响应中的码**，位于 202 的正常响应体而非错误体；操作等待确认时作为 202 正常响应返回 |
+| `CONFIRMATION_NOT_FOUND` | 404 | 确认请求 id 不存在 |
+| `CONFIRMATION_EXPIRED` | 409 | 超时未响应，已自动拒绝。默认超时按风险分级：消耗类与破坏类 10 分钟，原子操作会话授权 120 秒 |
+| `CONFIRMATION_REJECTED` | 403 | 用户明确拒绝。`details.reason` 带拒绝原因 |
+| `CONFIRMATION_ALREADY_RESOLVED` | 409 | 重复批准或拒绝已进入终态的确认请求 |
+| `AGENT_DISABLED` | 503 | Agent 模块未启用 |
+| `AGENT_SESSION_NOT_FOUND` | 404 | 会话 id 不存在 |
+| `AGENT_SESSION_BUSY` | 409 | 该会话上一轮 tool-calling 循环尚未结束 |
+| `AGENT_TURN_INTERRUPTED` | 409 | 本轮被用户中断，该工具调用被取消、未完成（M22）。只落在审计的 `error_code` 上，中断端点本身返回 200 + `interrupted` |
+| `TOOL_NOT_FOUND` | 404 | `ToolRegistry` 中没有该工具名 |
+| `TOOL_ARGS_INVALID` | 422 | 工具参数不满足其 JSON Schema |
+| `TOOL_EXECUTION_FAILED` | 500 | 工具实现内部抛出未预期异常。被工具调用的下游错误（内核、设备）按其本身的码原样上抛，不包成这个码 |
+| `LLM_NOT_CONFIGURED` | 503 | `base_url` / `api_key` / `model` 三项未配齐 |
+| `LLM_REQUEST_FAILED` | 502 | 上游返回非 2xx。`details.upstream_status` 保留；`details.upstream_code` 仅包含已知白名单码 |
+| `LLM_TIMEOUT` | 504 | 上游在超时内未返回 |
+| `LLM_RATE_LIMITED` | 429 | 上游 429 透传，`Retry-After` 沿用上游值 |
+| `LLM_ENCRYPTION_KEY_INVALID` | 503 | 缺少或配置错误的 `MAA_LLM_ENCRYPTION_KEY`，无法解密数据库里的 LLM API 密钥；设置正确的主密钥，或在设置页重新录入 API 密钥 |
+| `LLM_CONTEXT_OVERFLOW` | 400 | 会话历史或知识库内容超出模型自身的上下文长度（本地不按字符数预裁剪），需开启新会话或缩短内容 |
+| `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
+| `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
+| `QUESTION_NOT_FOUND` | 404 | 提问 id 不存在 |
+| `QUESTION_ALREADY_ANSWERED` | 409 | 重复回答已 answered / skipped 的提问 |
+| `QUESTION_EXPIRED` | 409 | 回答已过期的提问 |
+| `QUESTION_SELECTION_INVALID` | 400 | 空选择、选项不在 options.label 里、或单选提交多项 |
+| `SCHEDULE_NOT_FOUND` | 404 | 定时任务 id 不存在 |
+| `SCHEDULE_CRON_INVALID` | 400 | cron 表达式 APScheduler 无法解析，或 `timezone` 不是合法 IANA 时区名 |
+| `SCHEDULE_NAME_CONFLICT` | 409 | 名称重复，撞 `schedule.name` 唯一约束 |
+| `SETTING_KEY_UNKNOWN` | 400 | key 不在 `settings_schema` 内 |
+| `SETTING_VALUE_INVALID` | 422 | 值类型或取值范围不符合该项的 schema |
+| `SETTING_READONLY` | 403 | 试图修改只能从 `config.yaml` 或环境变量设置的项（`app.access_token`、`app.maa_core_path`、`adb.path`） |
+| `SETTING_APPLY_FAILED` | 500 | 值已入库但热生效动作失败，如改完 ADB 地址后重连失败。`details.applied` 标明是否已落库 |
+| `NOTIFY_CHANNEL_NOT_FOUND` | 404 | 通道 id 不存在 |
+| `NOTIFY_CHANNEL_CONFLICT` | 409 | `(type, name)` 重复 |
+| `NOTIFY_CONFIG_INVALID` | 422 | 通道配置不满足该类型的 schema，如 webhook 缺 `url`、bark 缺 `device_key` |
+| `NOTIFY_SEND_FAILED` | 502 | 测试发送或实际推送失败。`details` 带上游响应 |
+| `PUSH_NOT_CONFIGURED` | 503 | 未配置 VAPID 私钥，或配置的私钥不可解析。Web Push 端点与投递都不可用 |
+| `PUSH_SUBSCRIPTION_INVALID` | 422 | 订阅形状不合法：`endpoint` 不是 https 绝对 URL、`keys.p256dh` 不是 65 octet 未压缩 P-256 点或不在曲线上、`keys.auth` 不是 16 octet |
+| `PUSH_SUBSCRIPTION_NOT_FOUND` | 404 | 订阅 id 不存在 |
+| `RESOURCE_ASSET_NOT_FOUND` | 404 | Copilot 作业 / 基建方案 / 自定义 task 不存在 |
+| `RESOURCE_ASSET_CONFLICT` | 409 | `(kind, name)` 重复 |
+| `API_SNIPPET_NOT_FOUND` | 404 | API 调试台收藏 id 不存在 |
+| `API_SNIPPET_NAME_CONFLICT` | 409 | API 调试台收藏名称重复 |
+| `COPILOT_JSON_INVALID` | 422 | 作业 JSON 缺必需字段或结构不符 |
+| `COPILOT_GRANT_STAGE_MISMATCH` | 409 | 手上的作业授权只覆盖另一个关卡；`details` 带授权的关卡与本次提交的关卡 |
+| `COPILOT_GRANT_EXHAUSTED` | 409 | 授权的尝试次数已用完（含「次数没用完但有效期已过、剩余次数作废」） |
+| `INFRAST_PLAN_INVALID` | 422 | 基建方案 JSON 结构不符，或引用了不存在的设施名 |
+| `CUSTOM_TASK_INVALID` | 422 | 自定义 task 定义不符合内核 `tasks.json` 的结构约定 |
+| `ASSET_TOO_LARGE` | 400 | 单个资源超过 2 MB 上限 |
+| `EXTERNAL_SOURCE_DISABLED` | 503 | 来源被配置关闭：`sources.enabled` 为 `false`，或该来源自己的开关为 `false`（如 `sources.prts_enabled`）。可以降级的工具（`get_activity_stages`、`get_stage`）改用本机兜底、不抛它；没有本地兜底的查询（`search_prts`、`get_prts_page`）直接抛 |
+| `EXTERNAL_SOURCE_UNAVAILABLE` | 503 | 网络错误、连接或读取超时、上游 5xx，或该来源正在熔断冷却中（同一来源连续 3 次失败后暂停 60 秒） |
+| `EXTERNAL_SOURCE_RATE_LIMITED` | 429 | 本地令牌桶取不到令牌（最多等 5 秒），或远端返回 429 后的冷却期内（时长取 `Retry-After`，缺省 60 秒、封顶 300 秒） |
+| `EXTERNAL_RESPONSE_INVALID` | 502 | 响应解压后超过来源上限、JSON 无效，或结构与来源约定不符（MediaWiki 的 `{"error": {...}}` 错误体也走这一条） |
+| `GAME_DATA_NOT_FOUND` | 404 | 来源上确实没有这条数据：PRTS 没有这个页面、关卡或搜索结果 |
+| `ACCOUNT_DATA_NOT_FOUND` | 404 | 账号数据里查无此对象：`GET /api/account/operators/{char_id}` 没有该干员的记录，或账号数据尚未识别过 |
+| `UPGRADE_PLAN_NOT_FOUND` | 404 | 养成计划 id 不存在（计划的工具入口是 `list_upgrade_plans` / `cancel_upgrade_plan`，REST 入口见 §6.21「养成计划（M31）」） |
+| `SKLAND_NOT_BOUND` | 409 | 还没有绑定森空岛账号（库里没有凭据），而这次请求必须要凭据：`POST /api/skland/sync`。`GET /api/skland/status` 不抛它，只返回 `bound=false` |
+| `SKLAND_LOGIN_EXPIRED` | 409 | 扫码会话到期（TTL 180 秒）、已被消费，或上游判定失效（`scan_status` 回 `status=102`）；用户重新生成一张二维码即可 |
+| `SKLAND_LOGIN_FAILED` | 401 | 手动兜底绑定（`POST /api/skland/login/manual`）提交的 `cred` / 签名密钥被上游拒绝（`401` + `code:10002`） |
+| `SKLAND_QR_SESSION_NOT_FOUND` | 404 | 轮询或消费的 `session_id` 不在内存会话表里：服务重启、已成功消费，或前端传错 id |
+| `SKLAND_UPSTREAM_FAILED` | 502 | 上游答复了但不能用：业务码非 0、`scan_status` 的 `status` 既不是 `0`/`100`/`102`、响应结构不符约定，或整轮 `chars` 数量低于护栏阈值（此时整轮不写库，见 [spec §4.5](../v2/superpowers/specs/2026-10-12-m42-skland-training.md)） |
+| `SKLAND_ENCRYPTION_KEY_INVALID` | 409 | `skland.credential_key` 缺失或不是合法 Fernet key；绑定前必须先配好（行为与 `LLM_ENCRYPTION_KEY_INVALID` 同款） |
+| `SKLAND_SYNC_BUSY` | 409 | 同一时刻已经有一次同步在跑（全局互斥锁没拿到） |
+| `WORKSPACE_NOT_CONFIGURED` | 503 | 没配工作区根目录（`workspace.root` 为空或指向不存在的目录），而这次调用需要读工作区：`list_files` / `read_file` / `search_code` / `delegate_recon` 四个工具都抛它。留空即关闭探索能力，不做静默降级 |
+| `WORKSPACE_PATH_DENIED` | 403 | 路径被判为不可读：越出工作区根目录（含 `..`、绝对路径、指向外面的软链接）、命中密钥名单（`.env` / `config.yaml` / `*.pem` / `*.key` / `id_rsa*` / `*credential*` / `*secret*` / `.dsh/`）、是二进制、不是 UTF-8 文本，或正文里出现疑似私钥与凭据。白名单外的 git 动作（如 `push` / `checkout`）也用它 |
+| `WORKSPACE_FILE_TOO_LARGE` | 400 | 单个文件超过只读探索的 2 MiB 上限；改用 `search_code` 定位后再读片段 |
+<!-- GENERATED:ERROR-CODES:END -->
+
+<!-- GENERATED:OPENAPI-TAGS:START -->
+| OpenAPI tag | 说明 |
+|---|---|
+| `system` | 健康检查、服务信息、日志查询 |
+| `pipelines` | 流水线提交、查询与取消 |
+| `queue` | 队列快照与优先级调整 |
+| `tasks` | 任务类型与参数 schema |
+| `device` | 设备状态、重连与原子操作 |
+| `core` | 内核状态与原生能力 |
+| `screenshots` | 截图归档与读取 |
+| `updates` | 内核、资源与游戏热更新 |
+| `schedules` | 定时任务 |
+| `settings` | 可视化配置 |
+| `sources` | 外部数据源状态与缓存 |
+| `account` | 账号数据（干员、仓库与养成计划） |
+| `skland` | 森空岛账号（扫码绑定、练度同步与解绑） |
+| `notifications` | 多通道通知 |
+| `resources` | Copilot 作业、基建方案、自定义 task |
+| `snippets` | API 调试台收藏请求 |
+| `agent` | 工具清单、会话与审计 |
+| `confirmations` | 高风险操作的人工确认 |
+| `ws` | WebSocket 实时通道（文档说明，不可调试） |
+<!-- GENERATED:OPENAPI-TAGS:END -->
+
+### 4.1 任务参数（M28/M29 变更）
+
+本小节是手写补充，记录 M28（卡池、基建排班、集成战略）与 M29（阵容研究）带来的任务参数变化；上面的契约摘要由脚本生成，两条线互不影响。字段的权威定义仍是判别联合 `TaskInput`：`GET /api/tasks/types` 给全部类型的 JSON Schema、`GET /api/tasks/types/{type_name}` 给单个类型、`POST /api/tasks/validate` 只校验不提交（返回规范化后的参数与被注入的默认值）。下面的默认值、取值域与跨字段约束逐条取自模型字段与它上面的 `model_validator`。
+
+#### 4.1.1 集成战略 `Roguelike`
+
+**主题 `theme`（`ROGUELIKE_THEMES`，6 值，默认 `Phantom`）**：`Phantom` 傀影与猩红孤钻、`Mizuki` 水月与深蓝之树、`Sami` 探索者的银凇止境、`Sarkaz` 萨卡兹的无终奇语、`JieGarden` 岁的界园志异、`BlackFlow` 黑流树海。后两个是 M28 新增。
+
+**模式 `mode`（`ROGUELIKE_MODES`，11 值，不传等价于 `0`）**：
+
+- `0` 刷分/奖励点数（默认）
+- `1` 刷源石锭
+- `2` 已弃用（无法提交）：抛 `TASK_PARAM_DEPRECATED`
+- `3` 开发中（无法提交）：抛 `TASK_PARAM_INVALID`
+- `4` 凹开局
+- `5` 刷坍缩范式（仅 Sami）
+- `6` 刷月度小队
+- `7` 刷深入调查
+- `10001` 快速通过第一层（仅 Sarkaz）
+- `20001` 刷常乐节点（仅 JieGarden）
+- `30001` 刷襁褓动物（仅 BlackFlow）
+
+`2` 与 `3` 留在枚举里只是为了给出上面两种具体错误（否则会落成 pydantic 的 literal 错误）。
+
+**主题-模式矩阵**（不在矩阵里的组合抛 `TASK_PARAM_INVALID`，错误消息与 `details.allowed_modes` 里列出该主题允许的模式）：
+
+| 主题 | 允许的 `mode` |
+|---|---|
+| `Phantom`、`Mizuki` | 0、1、4、6、7 |
+| `Sami` | 0、1、4、5、6、7 |
+| `Sarkaz` | 0、1、4、6、7、10001 |
+| `JieGarden` | 0、1、4、6、7、20001 |
+| `BlackFlow` | 0、1、30001 |
+
+**跨字段约束**：
+
+- `start_with_elite_two`（凹干员精二直升）只许 `mode=4`；`only_start_with_elite_two` 还要求 `start_with_elite_two=true`。
+- `difficulty` 的取值域是 `≥ -1`，`-1` 表示不指定；M28 起 `Phantom` 主题同样允许传（旧版「Phantom 拒收」的规则已删除）。
+- `mode=20001` 必须给 `find_playTime_target`（1–3）；反向也要求它只在 `mode=20001` 下出现。
+- `stop_at_final_boss=true` 不适用于 `Phantom`；`refresh_trader_with_dice=true` 仅 `Mizuki`。
+- Sami 专属：`first_floor_foldartal`、`use_foldartal`、`check_collapsal_paradigms`；`start_foldartal_list` 还要 `mode=4`，`expected_collapsal_paradigms` 还要 `mode=5`，`double_check_collapsal_paradigms` 要求 `check_collapsal_paradigms` 为真（没传时按 `mode=5` 推断）。
+- 模式专属：`investment_with_more_score` 仅 `mode=1`；`collectible_mode_shopping` / `collectible_mode_squad` / `collectible_mode_start_list` 仅 `mode=4`；`monthly_squad_auto_iterate` / `monthly_squad_check_comms` 仅 `mode=6`；`deep_exploration_auto_iterate` 仅 `mode=7`；`blackflow_strategy` / `blackflow_cultivation_target` 仅 `BlackFlow`。
+- `use_nonfriend_support=true` 要求 `use_support=true`。
+- 「没传」不等于「不生效」：判定用解析后的值（`theme` 缺省 `Phantom`、`mode` 缺省 `0`）。
+
+**M28 新增的 13 个参数**：
+
+1. `core_char_list`（`array<object>`，默认 `null`）——开局干员顺位，最多三个、职业不能相同；元素是 `{name, use_support}`，`name` 必填（干员中文名、无论区服，≤ 32 字），`use_support` 默认 `false` 表示这一顺位借助战。
+2. `collectible_mode_shopping`（`boolean`，默认 `false`）——凹开局时也购物。
+3. `collectible_mode_squad`（`string`，默认 `null`）——凹开局使用的分队；不填与开局分队相同。
+4. `collectible_mode_start_list`（`object`，默认 `null`，内部 9 个布尔开关各自默认 `false`）——凹开局期望的开局奖励：`hot_water`、`shield`、`ingot`、`hope`、`random` 通用，`key`、`dice` 仅水月，`ideas` 仅萨卡兹，`ticket` 仅界园。
+5. `stop_at_max_level`（`boolean`，默认 `false`）——肉鸽等级刷满后停止任务。
+6. `start_with_seed`（`string`，默认 `null`）——固定种子刷钱；留空不启用。
+7. `blackflow_strategy`（`string` 枚举，默认 `null`）——黑流树海策略：`baby_animal` 培育襁褓动物、`investment` 第一层投资、`burn_with_investment` 投资后速通第三层、`burn` 速通第三层；不填按模式与投资推断。
+8. `blackflow_cultivation_target`（`string` 枚举，默认 `null`）——刷襁褓动物的目标：`swaddled_cat`、`swaddled_feathered_serpent`、`swaddled_dog`、`swaddled_cerberus`。
+9. `find_playTime_target`（`1` / `2` / `3`，默认 `null`）——想刷的常乐节点：`1` 令（掷地有声）、`2` 黍（种因得果）、`3` 年（三缺一）。
+10. `investment_with_more_score`（`boolean`，默认 `false`）——投资后顺便购物（仅刷源石锭模式）。
+11. `monthly_squad_auto_iterate`（`boolean`，默认 `null`）——月度小队自动切换。
+12. `monthly_squad_check_comms`（`boolean`，默认 `null`）——把月度小队通信也作为切换依据。
+13. `deep_exploration_auto_iterate`（`boolean`，默认 `null`）——深入调查自动切换。
+
+（源码：`maa_api/domain/task.py:89`、`:767`、`:770-788`、`:824-1315`；决策：`docs/13` §8.43 五）
+
+#### 4.1.2 基建 `Infrast`
+
+- **设施 `facility`（`INFRAST_FACILITIES`，9 项，顺序即换班顺序）**：`Mfg` 制造站、`Trade` 贸易站、`Power` 发电站、`Control` 控制中枢、`Reception` 会客室、`Office` 办公室、`Dorm` 宿舍、`Processing` 加工站、`Training` 训练室。**默认值仍是 7 项**（`Mfg` / `Trade` / `Power` / `Control` / `Reception` / `Office` / `Dorm`），M28 新增的 `Processing` 与 `Training` 必须显式传；该字段不支持运行中设置。上游 `facility` 还有 `AssistantChange`（换助战），它不是房间、不参与换班顺序，本服务不支持（所以是 9 值而不是 10 值）。
+- **无人机 `drones`（`INFRAST_DRONES`，7 值，默认 `_NotUse`）**：`_NotUse` 不使用、`Money` 龙门币、`SyntheticJade` 合成玉、`CombatRecord` 作战记录、`PureGold` 赤金、`OriginStone` 源石碎片、`Chip` 芯片；自定义换班模式下不生效。
+- **`mode`（3 值，默认 `0`）**：`0` 默认换班（单设施最优解）、`10000` 自定义换班（读取用户配置）、`20000` 一键轮换（会跳过部分设施）。
+- **`mode=10000` 必须给 `filename`**（模型级校验要求 `filename` 与 `plan_index` 都不是 `null`，而 `plan_index` 默认 `0`，所以真正会被拦下的只有「没给 `filename`」或「显式传 `plan_index: null`」），否则抛 `TASK_PARAM_INVALID`。`filename` 是 custom 资源层下的相对 `.json` 路径，服务端在投递给内核之前把它解析成绝对路径 `<resource>/maa-layers/custom/resource/<filename>`——内核按进程工作目录解析相对路径，原样透传大概率找不到文件。路径形状先校验：非绝对路径、不含 `\`、`:`、换行与控制字符、不含空段 / `.` / `..`、长度 ≤ 256；解析后必须仍落在 custom 层内且是文件，否则抛 `TASK_PARAM_INVALID` 并把解析后的路径写进消息。这套改写只对 `mode=10000` 生效，其余模式不碰参数。
+- **`plan_index`（整数，≥ 0，模型默认 `0`）**：用配置文件里的第几个方案。**请求里没有这个键**时（判定看的是原始参数而不是解析后的默认值），执行器会读方案文件、按本机时区当前时间选第一个 `period` 覆盖当前时刻的班次；都不覆盖抛 `TASK_PARAM_INVALID`。显式传（包括 `0`）则保持「用第几个」的原语义，连文件内容都不读（仍解析并校验路径）。
+
+（源码：`maa_api/domain/task.py:96`、`:115`、`:544-651`；`maa_api/services/resource_service.py:422-500`；`maa_api/services/pipeline_runner.py:98`、`:1278-1313`；决策：`docs/13` §8.43 三、四、七、九、2）
+
+#### 4.1.3 自定义任务 `Custom`（M29）
+
+- `task_names`（必填，`array<string>`，1–16 项）：内核 `tasks.json` 里的任务名列表，内核执行**第一个匹配上**的任务及其 `next` 等；想按顺序跑多条就 append 多个 `Custom` 任务。名字必须在内核的任务表里存在，否则 `AsstAppendTask` 返回 0、内核侧直接 `set_params failed`；空白名字在提交时就被拒（每个名字先 strip）。
+- `params`（可选对象）：任务附加参数，目前只有像素画这类 MiniGame 任务读它，因此不在这里收窄结构。
+- `enable`（可选，默认 `true`）：继承自任务输入的公共基类。
+- 本服务的识别任务（`MaaApi@CopilotResult@…`）正是靠这条路运行。
+
+（源码：`maa_api/domain/task.py:1411-1458`；决策：`docs/13` §8.44 五 D7）
+
+#### 4.1.4 执行已上传作业 `Copilot`（M29）
+
+- `support_unit_usage`（整数，0–3，默认 `0`）：`0` 不用助战、`1` 缺一名干员时借助战补位（仅在重新编队 `formation=true` 时有效）。取值域照上游放宽到 0–3，M29 只写 0 / 1。
+
+（源码：`maa_api/domain/task.py:1498-1503`；决策：`docs/13` §8.44 八）
+
+## 5. REST 端到端调用
+
+下面的 shell 示例使用 Bash、`curl` 与 Python 3。设置 `BASE_URL`；鉴权已启用时再设置 `TOKEN`。示例会实际执行一场 1-7 战斗，请在已连接且可接受执行任务的设备上运行。
+
+### 5.1 提交流水线并等待完成
+
+`POST /api/pipelines` 返回 `202` 与 `pipeline_id`；随后按该 id 读取详情。状态值为小写的 `pending`、`running`、`completed`、`failed`、`cancelled`；终态是后三者。这里每 2 秒轮询一次。客户端也可改为订阅下方的 `pipeline_status` WebSocket 事件。
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL="${BASE_URL:-http://localhost:8002}"
+auth_header="Authorization: Bearer ${TOKEN:-}"
+
+accepted=$(curl -sS -X POST "$BASE_URL/api/pipelines" \
+  -H "$auth_header" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"API 接入示例","tasks":[{"name":"Fight","stage":"1-7","times":1,"medicine":0,"stone":0}]}')
+pipeline_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["pipeline_id"])' <<<"$accepted")
+printf 'pipeline_id=%s\n' "$pipeline_id"
+
+for ((attempt = 0; attempt < 1800; attempt++)); do
+  detail=$(curl -sS "$BASE_URL/api/pipelines/$pipeline_id" -H "$auth_header")
+  status=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$detail")
+  printf 'status=%s\n' "$status"
+  case "$status" in
+    completed) break ;;
+    failed|cancelled) printf '%s\n' "$detail"; exit 1 ;;
+  esac
+  sleep 2
+done
+if [[ "$status" == pending || "$status" == running ]]; then
+  printf '流水线仍在运行，停止本地轮询：%s\n' "$pipeline_id" >&2
+  exit 1
+fi
+```
+
+若客户端可能因超时重发提交请求，可为首次请求增加稳定的 `Idempotency-Key` 头；相同 key 与相同内容会复用原流水线，不同内容会返回 `409 IDEMPOTENCY_KEY_CONFLICT`。
+
+### 5.2 执行点击；遇到流水线时先取消并等待
+
+点击、滑动与长按的坐标都是**设备原始像素**，与 `GET /api/device/screenshot` 原图（以及 Agent 的 `get_screenshot`）的 `width` / `height` 同一坐标系。服务端只在设备管理器里换算一次：点击按「高 / 720」换成 MaaCore 基准坐标，1280×720 设备上两者相同，其他分辨率下，按旧语义（MaaCore 基准坐标）编写的调用方需要把坐标乘以「高 / 720」。分辨率未知时点击返回 `503 DEVICE_NOT_CONNECTED`，坐标超出画面返回 `400 INVALID_PARAMETER`。
+
+点击使用 MaaCore 通道，不进入队列。流水线运行中默认拒绝，返回 `409 PIPELINE_ALREADY_RUNNING`，`details.pipeline_id` 标明冲突的流水线。建议先读取当前流水线，发起取消并轮询至终态，再重试点击：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL="${BASE_URL:-http://localhost:8002}"
+auth_header="Authorization: Bearer ${TOKEN:-}"
+
+current=$(curl -sS "$BASE_URL/api/pipelines/current" -H "$auth_header")
+pipeline_id=$(python3 -c 'import json,sys; p=json.load(sys.stdin).get("pipeline"); print(p["id"] if p else "")' <<<"$current")
+if [[ -n "$pipeline_id" ]]; then
+  curl -sS -X DELETE "$BASE_URL/api/pipelines/$pipeline_id" -H "$auth_header"
+  for ((attempt = 0; attempt < 1800; attempt++)); do
+    detail=$(curl -sS "$BASE_URL/api/pipelines/$pipeline_id" -H "$auth_header")
+    status=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$detail")
+    printf 'pipeline status=%s\n' "$status"
+    case "$status" in
+      completed|failed|cancelled) break ;;
+    esac
+    sleep 2
+  done
+  if [[ "$status" == pending || "$status" == running ]]; then
+    printf '取消尚未进入终态；未执行点击。流水线：%s\n' "$pipeline_id" >&2
+    exit 1
+  fi
+fi
+
+curl -i -X POST "$BASE_URL/api/device/click" \
+  -H "$auth_header" \
+  -H 'Content-Type: application/json' \
+  -d '{"x":500,"y":700}'
+```
+
+原子操作也支持 `force: true`，它会越过流水线互斥检查；运行中的流水线仍继续。当前手动 REST 路径会写强制介入警告日志，但不会创建 `agent_audit` 记录。此说明只针对手动 REST 请求；Agent 工具调用的审计按 M11 的 Agent 工作流契约处理。应只在明确需要并能接受并发触控冲突时使用。卡死救援也应先停止流水线，确认它已进入终态，再执行点击或其他原子操作（见 [02 §5.3](../v2/02-系统架构设计.md#53-原子操作的并发)）。
+
+## 6. WebSocket 实时通道
+
+浏览器 WebSocket 不能设置 `Authorization` 或 `X-Token`，因此使用 cookie 或 query token：
+
+```javascript
+const ws = new WebSocket('ws://<host>:8002/api/ws?token=<token>')
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data)
+  if (message.type === 'log') {
+    console.log(message.data)
+    // 持久化 id 与 stream_id，重连时作为 last_seen_id / last_seen_stream_id 续传。
+  } else if (message.type === 'log_batch') {
+    console.log('补发日志', message.data.records, 'truncated:', message.data.truncated)
+  } else if (message.type === 'pipeline_status') {
+    console.log('流水线状态', message.data)
+  } else if (message.type === 'subscribed') {
+    console.log('订阅已生效', message.data)
+  } else if (message.type === 'server_ping') {
+    ws.send(JSON.stringify({ type: 'pong', data: { t: message.data.t } }))
+  }
+}
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: 'subscribe',
+    req_id: 'logs-1',
+    data: {
+      channels: ['log', 'pipeline_status', 'task_status', 'queue_changed', 'core_status', 'device_status', 'update_progress', 'update_available'],
+      log_filter: { sources: ['task', 'service'], min_level: 'INFO', pipeline_id: null }
+    }
+  }))
+}
+```
+
+WebSocket URL 也可带 `last_seen_id=<最大已处理日志 id>&last_seen_stream_id=<对应实例标识>`。查询游标会立即订阅 `log` 并补发该实例中 id 更大的日志；之后仍可发送 `subscribe` 设置期望频道。也可省略 URL 游标、改在首次 `subscribe.data.last_seen_id` 与 `subscribe.data.last_seen_stream_id` 中传游标。服务实例标识改变时服务端忽略旧 id 并从当前缓冲补发；未提供实例标识的旧客户端若游标高于当前缓冲也会收到现有缓冲及截断提示。上一实例未持久化的日志无法恢复。若未提供游标，只接收新消息。使用 query token 时，token 可能进入访问日志；同源浏览器可先用头部 token 调用 `POST /api/system/auth/cookie` 建立 HttpOnly cookie，再通过 cookie 握手。
+
+所有服务端消息使用 `{type, ts, data}` 信封；请求/应答还可能带 `req_id`。客户端 `subscribe` 的频道名单会整体替换旧订阅；`unsubscribe` 移除指定频道。`log_filter` 可设 `sources`（`task` / `service` / `core`）、`min_level`（`DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`，也接受 `WARN`）与 `pipeline_id`。订阅确认 `subscribed.data` 含实际 `channels`、补发条数 `backfilled`、截断标记 `truncated` 与当前 `stream_id`。
+
+M10 当前会发送以下事件：
+
+| `type` | `data` 摘要 |
+|---|---|
+| `log` | 单条日志：`id`、`stream_id`、`source`、`level`、`content`、`pipeline_id`、`task_id`、`request_id`、`logger`、`attachment`。日志来源为 `task`、`service`、`core`。 |
+| `log_batch` | 连接补发日志：`records` 为上述日志记录数组，`stream_id` 标识服务进程实例，`truncated` 表示环形缓冲是否不足以覆盖游标到当前的整个缺口。 |
+| `pipeline_status` | `pipeline_id`、小写 `status`、`source`、`priority`、`progress {total, completed, failed}`、Unix 秒 `started_at` / `finished_at`、`error {code, message}` 或 `null`。 |
+| `task_status` | `pipeline_id`、`task_id`、`task_name`、`type_name`、小写 `status`、`retry_count`、`max_retries`、`error`。 |
+| `queue_changed` | `running`（当前执行项或 `null`）、`pending`（排队项数组）、`counts {pending, running}` 与 `paused`。每个队列项含 `pipeline_id`、`name`、`source`、`priority`、`status`、`created_at`。 |
+| `core_status` | `core_id`、`state`、`pid`、`generation`。 |
+| `device_status` | `core_id`、`state`、`address`、`uuid`、`resolution`、`last_connected_at`、`retry`、`last_error`。 |
+| `update_progress` | `update_id`、`target`（`core` / `resource` / `game`）、`phase`（`checking` / `downloading` / `verifying` / `waiting_idle` / `applying` / `restarting` / `failed` / `done`）、`percent`、`downloaded`、`total`、`speed`、`eta`、`message`、`error`；部分进度字段可为 `null`。 |
+| `update_available` | `targets` 数组，列出有更新的目标及其 `target`、`current`、`latest`；资源/游戏目标可能含 `channel`。没有可用更新时不会发该事件。 |
+| `server_shutdown` | 服务关闭通知，`data` 为空对象；随后以 close code `1001` 关闭连接。 |
+
+协议控制帧不需要订阅频道：`server_ping` 的 `data` 为 `{t}`；`subscribed` 回应 `subscribe` / `unsubscribe`，`data` 为 `{channels, backfilled, truncated, stream_id}`；服务端收到客户端 `ping` 后回 `pong` 并原样回带 `data.t`；格式或频道错误以 `error` 应答，`data` 为 `{code, message}`，若请求带 `req_id` 则应答也带回。客户端每 30 秒发送 `ping` 可检测 RTT；服务端也每 30 秒发 `server_ping`，客户端应如示例回送 `pong` 并原样带回 `data.t`。90 秒无客户端消息或连续两次未响应服务端心跳会关闭连接。鉴权失败 close code 为 `4401`，超过连接数上限为 `4429`；协议连续 10 条非法消息以 `1008` 关闭，慢客户端可能以 `1011` 关闭。
+
+`confirm_request`、`confirm_resolved`、`agent_event`、`question_request`、`question_resolved` 都是**已交付**的业务频道：人工确认在创建与处置时发布前两者，Agent 的会话授权与自动诊断发布 `agent_event`，Agent 提问在发卡与终结时发布后两者。载荷与语义见 [06-实时日志与WebSocket §7.3](../v2/06-实时日志与WebSocket.md#73-业务事件) 与 [11-Agent模块设计 §5](../v2/11-Agent模块设计.md)。
+
+将最新处理的 `log.data.id` 与对应的 `stream_id` 一起持久化，并在重连时作为 `last_seen_id`、`last_seen_stream_id` 传回。服务端默认的内存环形缓冲为最近 2,000 条日志；若返回 `truncated: true`，用 `GET /api/system/logs?after_id=<旧游标>&before_id=<缓冲最早 id>&order=asc&size=1000` 从数据库补齐，再继续流式接收。`log` 实时事件中的 `id` 在同一 `stream_id` 内单调递增，补发条件为 `id > last_seen_id`。服务重启后 `stream_id` 会变化，服务端会忽略旧实例游标并从当前缓冲补发；上一实例内存中未持久化的日志无法恢复，调用方应提示存在跨实例历史缺口。重连退避建议 1、2、4、8 秒递增至 30 秒，并加入抖动。更完整的消息定义见 [06-实时日志与WebSocket §7](../v2/06-实时日志与WebSocket.md#7-websocket-协议)。
+
+请求日志可用 `X-Request-Id` 与调试台请求对应；服务会在响应头回显该值，并暴露 `X-Response-Time-Ms`。当响应体含 `pipeline_id` 时，调试台会继续筛选该流水线的日志。
+
+## 7. 交付范围与维护方式
+
+本指南描述**当前已交付**的 REST 与 WebSocket 接口，覆盖到 M22（Agent 主动提问与中断本轮）。全量路由清单以 [14-现行接口清单 §6](./14-现行接口清单.md) 为准，那份清单与 `web/openapi.json` 的 operation 集合由 `tests/domain/test_route_inventory.py` 逐一守住。
+
+本指南里的错误码表与 OpenAPI tag 表是**生成物**：由 `scripts/generate_api_guide.py` 从 `docs/05` 的错误码表与 `maa_api.main.TAGS` 生成，说明文字逐字取自 docs/05，不在这里另行改写或加注。改动实现后依次跑 `scripts/dump_openapi.py`、`scripts/generate_api_guide.py`，两个 `--check` 与 `tests/domain/test_route_inventory.py` 都必须退出码 0。
