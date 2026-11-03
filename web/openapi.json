@@ -5494,6 +5494,33 @@
         "title": "RunPage",
         "type": "object"
       },
+      "RunSpansResponse": {
+        "description": "运行所在的整条 trace：按 ``(started_at, id)`` 升序，最多 :data:`MAX_TRACE_SPANS`。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SpanOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "trace_id",
+          "items",
+          "truncated"
+        ],
+        "title": "RunSpansResponse",
+        "type": "object"
+      },
       "RunSummary": {
         "description": "一次代理调用的摘要。",
         "properties": {
@@ -6717,6 +6744,94 @@
           "sources"
         ],
         "title": "SourcesStatusResponse",
+        "type": "object"
+      },
+      "SpanOut": {
+        "description": "一个 span 的对外形状（M68 规格 §4.3）；时间与 ``RunSummary`` 一样带 ``Z``。",
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "title": "Attributes",
+            "type": "object"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_span_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Span Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "span_id": {
+            "title": "Span Id",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "span_id",
+          "parent_span_id",
+          "run_id",
+          "name",
+          "kind",
+          "status",
+          "attributes",
+          "started_at",
+          "ended_at",
+          "duration_ms"
+        ],
+        "title": "SpanOut",
         "type": "object"
       },
       "SpecBudget": {
@@ -10032,6 +10147,80 @@
           }
         },
         "summary": "读取运行与子运行树",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/runs/{run_id}/spans": {
+      "get": {
+        "operationId": "agent_list_run_spans",
+        "parameters": [
+          {
+            "description": "运行 id",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "运行 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunSpansResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RUN_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：RUN_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "读取运行所在的整条追踪",
         "tags": [
           "agent"
         ]

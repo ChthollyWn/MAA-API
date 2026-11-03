@@ -35,6 +35,7 @@ from maa_api.db.models import (
     LogEntry,
     Pipeline,
     Screenshot,
+    TraceSpan,
     utcnow,
 )
 from maa_api.db.repositories import log as log_repo_module
@@ -487,5 +488,56 @@ def test_cost_ledger_purged_after_365_days(retention_session_factory) -> None:
         rows = await _all(retention_session_factory, CostLedgerEntry)
         assert len(rows) == 1
         assert rows[0].created_at > now - timedelta(days=365)
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# 运行追踪（M68）
+# ---------------------------------------------------------------------------
+def test_run_retention_purges_trace_spans_older_than_retention_days(
+    retention_session_factory, monkeypatch
+) -> None:
+    """超过 ``trace.retention_days``（默认 14）的 span 删除，窗口内的保留。"""
+    from maa_api.settings import Settings
+
+    monkeypatch.setattr(r, "get_settings", lambda: Settings())
+    now = utcnow()
+    assert r.TRACE_RETENTION_DAYS == 14
+    assert r._trace_retention_days() == 14
+
+    def span(span_id: str, started_at: datetime) -> TraceSpan:
+        return TraceSpan(
+            trace_id="retention-trace",
+            span_id=span_id,
+            name="tool.execute",
+            kind="tool",
+            status="ok",
+            started_at=started_at,
+        )
+
+    async def scenario():
+        await _insert(
+            retention_session_factory,
+            [
+                span("old-span", now - timedelta(days=15)),
+                span("fresh-span", now - timedelta(days=2)),
+            ],
+        )
+        out = await r.run_retention(session_factory=retention_session_factory)
+        # 新键在；M67 的成本账本键也在（每一步都算过，值为 0 也是 int）。
+        assert out["trace_spans_deleted"] == 1, out
+        for key in (
+            "logs_deleted",
+            "pipelines_deleted",
+            "screenshots_deleted",
+            "temp_files_deleted",
+            "copilots_deleted",
+            "cost_ledger_deleted",
+            "trace_spans_deleted",
+        ):
+            assert isinstance(out[key], int), out
+        rows = await _all(retention_session_factory, TraceSpan)
+        assert [row.span_id for row in rows] == ["fresh-span"]
 
     asyncio.run(scenario())
