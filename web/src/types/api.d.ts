@@ -238,6 +238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/costs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 汇总模型调用成本
+         * @description ``since <= created_at < until``；默认按服务器本地日期分组。
+         */
+        get: operations["agent_summarize_costs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/knowledge": {
         parameters: {
             query?: never;
@@ -280,6 +300,95 @@ export interface paths {
          *     ``enabled=false``。
          */
         delete: operations["agent_delete_knowledge_entry"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/model-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取模型档案列表
+         * @description ``default`` 在最前，其余按 ``name`` 升序。
+         */
+        get: operations["agent_list_model_profiles"];
+        put?: never;
+        /**
+         * 新建模型档案
+         * @description 成功时带 ``Location`` 指向新档案。
+         */
+        post: operations["agent_create_model_profile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/model-profiles/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取模型档案 */
+        get: operations["agent_get_model_profile"];
+        /**
+         * 修改模型档案
+         * @description 字段全部可选；``api_key="***"`` 表示不改，``""`` 表示清除。
+         */
+        put: operations["agent_update_model_profile"];
+        post?: never;
+        /**
+         * 删除模型档案
+         * @description 被角色引用时返回 409 ``MODEL_PROFILE_IN_USE``，``default`` 不可删除。
+         */
+        delete: operations["agent_delete_model_profile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/model-profiles/{name}/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 探查模型档案的能力
+         * @description 依次探查工具调用、视觉、JSON Schema 与尾部缓存位置，并写回档案。
+         */
+        post: operations["agent_probe_model_profile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/model-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取角色到模型档案的绑定
+         * @description 九个角色各一行；``embedding`` 未设置时 ``profile`` 与 ``model`` 都是 null。
+         */
+        get: operations["agent_list_model_roles"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2415,6 +2524,51 @@ export interface components {
             version?: string | null;
         };
         /**
+         * CostGroupView
+         * @description 一种分组口径下的一行：key 是日期 / 代理名 / 模型名 / 角色名。
+         */
+        CostGroupView: {
+            /**
+             * Cached Tokens
+             * @default 0
+             */
+            cached_tokens: number;
+            /**
+             * Calls
+             * @default 0
+             */
+            calls: number;
+            /**
+             * Completion Tokens
+             * @default 0
+             */
+            completion_tokens: number;
+            /**
+             * Cost Micros
+             * @default 0
+             */
+            cost_micros: number;
+            /** Key */
+            key: string;
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+        };
+        /**
+         * CostSummaryView
+         * @description 成本汇总（``GET /api/agent/costs`` 的响应体）。
+         */
+        CostSummaryView: {
+            /** Currency */
+            currency: string;
+            /** Groups */
+            groups: components["schemas"]["CostGroupView"][];
+            /** Total Micros */
+            total_micros: number;
+        };
+        /**
          * CustomInput
          * @description 自定义任务（D7、规格 §9.1 第 3 条）：跑 ``tasks.json`` 里已定义的任务链。
          *
@@ -3012,6 +3166,199 @@ export interface components {
              */
             shopping: boolean | null;
         };
+        /**
+         * ModelProfileCreate
+         * @description 新建档案；跨字段约束见 :meth:`_check_connection`。
+         */
+        ModelProfileCreate: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Context Window */
+            context_window?: number | null;
+            /**
+             * Currency
+             * @default CNY
+             */
+            currency: string;
+            /**
+             * Dynamic Context Position
+             * @default tail_system
+             * @enum {string}
+             */
+            dynamic_context_position: "tail_system" | "tail_user";
+            /** Embedding Dim */
+            embedding_dim?: number | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Kind
+             * @default chat
+             * @enum {string}
+             */
+            kind: "chat" | "embedding";
+            /** Local Model Path */
+            local_model_path?: string | null;
+            /** Max Output Tokens */
+            max_output_tokens?: number | null;
+            /** Model */
+            model: string;
+            /** Name */
+            name: string;
+            /** Price Cached Input */
+            price_cached_input?: number | null;
+            /** Price Input */
+            price_input?: number | null;
+            /** Price Output */
+            price_output?: number | null;
+            /**
+             * Provider
+             * @default openai_compatible
+             * @enum {string}
+             */
+            provider: "openai_compatible" | "local_onnx";
+            /**
+             * Supports Tools
+             * @default true
+             */
+            supports_tools: boolean;
+        };
+        /**
+         * ModelProfileList
+         * @description ``GET /api/agent/model-profiles`` 的响应体。
+         */
+        ModelProfileList: {
+            /** Items */
+            items: components["schemas"]["ModelProfileView"][];
+        };
+        /**
+         * ModelProfileUpdate
+         * @description 修改档案；字段全部可选，实际改哪些字段看 ``model_fields_set``。
+         */
+        ModelProfileUpdate: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Context Window */
+            context_window?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Dynamic Context Position */
+            dynamic_context_position?: ("tail_system" | "tail_user") | null;
+            /** Embedding Dim */
+            embedding_dim?: number | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Kind */
+            kind?: ("chat" | "embedding") | null;
+            /** Local Model Path */
+            local_model_path?: string | null;
+            /** Max Output Tokens */
+            max_output_tokens?: number | null;
+            /** Model */
+            model?: string | null;
+            /** Price Cached Input */
+            price_cached_input?: number | null;
+            /** Price Input */
+            price_input?: number | null;
+            /** Price Output */
+            price_output?: number | null;
+            /** Provider */
+            provider?: ("openai_compatible" | "local_onnx") | null;
+            /** Supports Tools */
+            supports_tools?: boolean | null;
+        };
+        /**
+         * ModelProfileView
+         * @description 档案的对外视图：密钥只给 ``"***"``，``default`` 的 id 与时间戳为 null。
+         */
+        ModelProfileView: {
+            /** Api Key */
+            api_key: "***" | null;
+            /** Base Url */
+            base_url: string | null;
+            /** Context Window */
+            context_window: number | null;
+            /** Created At */
+            created_at: string | null;
+            /** Currency */
+            currency: string;
+            /**
+             * Dynamic Context Position
+             * @enum {string}
+             */
+            dynamic_context_position: "tail_system" | "tail_user";
+            /** Embedding Dim */
+            embedding_dim: number | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "chat" | "embedding";
+            /** Local Model Path */
+            local_model_path: string | null;
+            /** Max Output Tokens */
+            max_output_tokens: number | null;
+            /** Model */
+            model: string;
+            /** Name */
+            name: string;
+            /** Price Cached Input */
+            price_cached_input: number | null;
+            /** Price Input */
+            price_input: number | null;
+            /** Price Output */
+            price_output: number | null;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "openai_compatible" | "local_onnx";
+            /** Readonly */
+            readonly: boolean;
+            /** Supports Json Schema */
+            supports_json_schema: boolean | null;
+            /** Supports Tools */
+            supports_tools: boolean;
+            /** Supports Vision */
+            supports_vision: boolean | null;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /**
+         * ModelRoleItem
+         * @description 一个角色当前生效的设置值、解析出的模型与来源。
+         */
+        ModelRoleItem: {
+            /** Model */
+            model: string | null;
+            /** Profile */
+            profile: string | null;
+            /** Role */
+            role: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "setting" | "default";
+        };
+        /**
+         * ModelRolesView
+         * @description ``GET /api/agent/model-roles`` 的响应体；``items`` 按 ``ModelRole`` 顺序。
+         */
+        ModelRolesView: {
+            /** Items */
+            items: components["schemas"]["ModelRoleItem"][];
+        };
         /** NotifyChannelRequest */
         NotifyChannelRequest: {
             /** Config */
@@ -3137,6 +3484,20 @@ export interface components {
         PriorityRequest: {
             /** Priority */
             priority: number;
+        };
+        /**
+         * ProbeResultView
+         * @description ``POST /api/agent/model-profiles/{name}/probe`` 的响应体。
+         */
+        ProbeResultView: {
+            /** Latency Ms */
+            latency_ms: number;
+            /** Supports Json Schema */
+            supports_json_schema: boolean | null;
+            /** Supports Tools */
+            supports_tools: boolean | null;
+            /** Supports Vision */
+            supports_vision: boolean | null;
         };
         /**
          * PushSubscribeRequest
@@ -5295,6 +5656,100 @@ export interface operations {
             };
         };
     };
+    agent_summarize_costs: {
+        parameters: {
+            query?: {
+                /** @description 起始时间（含），ISO 8601；缺省为 7 天前 */
+                since?: string | null;
+                /** @description 结束时间（不含），ISO 8601；缺省为现在 */
+                until?: string | null;
+                /** @description 分组口径：day / agent / model / role */
+                group_by?: string;
+                /** @description 三位大写币种；缺省取区间内账本行最多的币种 */
+                currency?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostSummaryView"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     agent_list_knowledge: {
         parameters: {
             query?: never;
@@ -5576,6 +6031,711 @@ export interface operations {
                      *         "code": "VALIDATION_ERROR",
                      *         "details": {},
                      *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_model_profiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProfileList"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_create_model_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelProfileCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProfileView"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：MODEL_PROFILE_EXISTS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MODEL_PROFILE_EXISTS",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：LLM_ENCRYPTION_KEY_INVALID、SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "LLM_ENCRYPTION_KEY_INVALID",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_model_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 模型档案名字 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProfileView"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：MODEL_PROFILE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MODEL_PROFILE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_update_model_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 模型档案名字 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProfileView"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：MODEL_PROFILE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MODEL_PROFILE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：MODEL_PROFILE_READONLY、MODEL_PROFILE_IN_USE */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MODEL_PROFILE_READONLY",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：LLM_ENCRYPTION_KEY_INVALID、SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "LLM_ENCRYPTION_KEY_INVALID",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_delete_model_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 模型档案名字 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：MODEL_PROFILE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MODEL_PROFILE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：MODEL_PROFILE_READONLY、MODEL_PROFILE_IN_USE */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MODEL_PROFILE_READONLY",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_probe_model_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 模型档案名字 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProbeResultView"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：MODEL_PROFILE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MODEL_PROFILE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 请求过于频繁：LLM_RATE_LIMITED */
+            429: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "LLM_RATE_LIMITED",
+                     *         "details": {},
+                     *         "message": "请求过于频繁"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 下游依赖失败：LLM_REQUEST_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "LLM_REQUEST_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID、SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "LLM_NOT_CONFIGURED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 下游依赖超时：LLM_TIMEOUT */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "LLM_TIMEOUT",
+                     *         "details": {},
+                     *         "message": "下游依赖超时"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_model_roles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelRolesView"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
                      *       }
                      *     }
                      */

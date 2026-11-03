@@ -55,6 +55,7 @@ from maa_api.api.routers import (
     device,
     knowledge,
     logs,
+    model_profiles,
     notifications,
     pipelines,
     queue,
@@ -1232,6 +1233,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.warning(
                 "服务重启：上一进程留下的 %d 个运行已标为中断", len(recovered)
             )
+
+        # M67 模型层：第 4 位（docs/v3/02 §5），在 run_service 之后、M68 的
+        # span_recorder 之前。档案服务与角色路由共用同一个 client_factory 钩子：
+        # AgentRuntime 已装配时用它的工厂（测试与冒烟脚本注入的替身），否则现建
+        # OpenAI 兼容客户端。成本账本把预算告警接到 WebSocket 的 agent_event。
+        from maa_api.agent.context.layout import ContextLayout
+        from maa_api.agent.context.tokens import TokenEstimator
+        from maa_api.agent.llm.cost import CostLedger
+        from maa_api.agent.llm.profiles import ModelProfileService
+        from maa_api.agent.llm.roles import ModelRouter
+
+        runtime_client_factory = lambda: getattr(  # noqa: E731 - 与装配层其它 provider 同款
+            getattr(app.state, "agent_runtime", None), "client_factory", None
+        )
+        app.state.model_profile_service = ModelProfileService(
+            db_session.session_factory,
+            client_factory_provider=runtime_client_factory,
+        )
+        app.state.model_router = ModelRouter(
+            app.state.model_profile_service,
+            client_factory_provider=runtime_client_factory,
+        )
+        app.state.cost_ledger = CostLedger(
+            db_session.session_factory,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+        )
+        app.state.context_layout = ContextLayout(TokenEstimator())
+
         incident_factory = getattr(app.state, "agent_incident_service_factory", None)
         incident_options = {
             "settings_provider": setting_service.refresh,
@@ -1569,6 +1600,7 @@ def create_app() -> FastAPI:
     app.include_router(snippets.router)
     app.include_router(agent.router)
     app.include_router(knowledge.router)
+    app.include_router(model_profiles.router)
     app.include_router(runs.router)
     app.include_router(agent_specs.router)
     app.include_router(sources.router)
