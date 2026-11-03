@@ -191,6 +191,37 @@ class AgentSessionStatus(StrEnum):
     ERROR = "error"
 
 
+class AgentSessionKind(StrEnum):
+    CHAT = "chat"
+    INCIDENT = "incident"
+    ORCHESTRATOR = "orchestrator"
+    WORKER = "worker"
+    SUBAGENT = "subagent"
+    BACKGROUND = "background"
+
+
+class AgentRunKind(StrEnum):
+    ORCHESTRATOR_TURN = "orchestrator_turn"
+    WORKER_TURN = "worker_turn"
+    SUBAGENT = "subagent"
+    TRIGGER_EVAL = "trigger_eval"
+    COMPACTION = "compaction"
+    MEMORY_EXTRACT = "memory_extract"
+    TITLE = "title"
+    WATCHDOG_CHECK = "watchdog_check"
+    EVAL_CASE = "eval_case"
+    LEGACY_TURN = "legacy_turn"
+
+
+class AgentRunStatus(StrEnum):
+    RUNNING = "running"
+    WAITING_HUMAN = "waiting_human"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    INTERRUPTED = "interrupted"
+    CANCELLED = "cancelled"
+
+
 class ResourceAssetKind(StrEnum):
     COPILOT = "copilot"              # Copilot 作业 JSON
     INFRAST_PLAN = "infrast_plan"    # 自定义基建方案

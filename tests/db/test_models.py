@@ -65,6 +65,7 @@ BUSINESS_TABLES = {
     "copilot_grant",
     "skland_credential",
     "skland_role",
+    "agent_run",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -80,6 +81,7 @@ UUID_PK_TABLES = [
     "push_subscription",
     "agent_question",
     "copilot_grant",
+    "agent_run",
 ]
 AUTOINCREMENT_TABLES = ["log_entry", "agent_message", "agent_audit", "agent_idempotency"]
 
@@ -194,6 +196,16 @@ EXPECTED_INDEXES = {
         False,
     ),
     "uq_update_record_running_target": ("update_record", ("target",), True),
+    # M66：运行树的 5 条索引（agent_session 一条、agent_message 一条、agent_run 三条）。
+    "ix_agent_session_kind_status": ("agent_session", ("kind", "status"), False),
+    "ix_agent_message_run_id": ("agent_message", ("run_id",), False),
+    "uq_agent_run_active_session": ("agent_run", ("session_id",), True),
+    "ix_agent_run_session_id_started_at": (
+        "agent_run",
+        ("session_id", "started_at"),
+        False,
+    ),
+    "ix_agent_run_root_run_id": ("agent_run", ("root_run_id",), False),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -216,6 +228,8 @@ EXPECTED_FK_CASCADE = {
     ("agent_message", "session_id"),
     ("agent_idempotency", "audit_id"),
     ("agent_question", "session_id"),
+    # M66：运行随会话删除（规范 §4.1.2）。
+    ("agent_run", "session_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -244,6 +258,10 @@ EXPECTED_FK_SET_NULL = {
     ("agent_audit", "authorized_by_id"),
     ("agent_audit", "session_id"),
     ("confirmation", "audit_id"),
+    # M66：运行树的自引用与会话→父会话、消息→运行都按 SET NULL 处理。
+    ("agent_session", "parent_session_id"),
+    ("agent_run", "parent_run_id"),
+    ("agent_message", "run_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -265,6 +283,8 @@ EXPECTED_TEXT_COLUMNS = {
     # M42：森空岛凭据的两列密文（Fernet 字符串，长度随明文变化，不能定宽）。
     ("skland_credential", "cred_encrypted"),
     ("skland_credential", "token_encrypted"),
+    # M66：运行错误描述与流水线/任务同一写法（长度不定，用 TEXT）。
+    ("agent_run", "error_message"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -305,6 +325,8 @@ EXPECTED_JSON_COLUMNS = {
     ("api_snippet", "body"),
     ("agent_question", "options"),
     ("agent_question", "selection"),
+    # M66：运行的自由结构元数据（成本、简历等由服务层定义）。
+    ("agent_run", "meta"),
 }
 
 
@@ -369,7 +391,7 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
 def test_metadata_has_exactly_26_business_tables():
-    """26 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+    """29 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
@@ -464,7 +486,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """31 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """36 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
@@ -628,6 +650,81 @@ def test_update_record_uses_partial_unique_index(conn):
     ] == []
 
 
+def test_agent_run_uses_partial_unique_index(conn, engine):
+    """同一会话至多一条 running / waiting_human 运行，终态历史可堆积（M66 §4.1.2）。"""
+    table = MD.tables["agent_run"]
+    active = [i for i in table.indexes if i.name == "uq_agent_run_active_session"]
+    assert len(active) == 1 and active[0].unique
+    assert active[0].dialect_options["sqlite"].get("where") is not None
+    assert "WHERE" in ddl(conn, "uq_agent_run_active_session")
+    assert "STATUS IN ('RUNNING', 'WAITING_HUMAN')" in ddl(
+        conn, "uq_agent_run_active_session"
+    )
+
+    with Session(engine) as session:
+        session.add(models.AgentSession(id="session-run", model="gpt-test"))
+        session.commit()
+
+    # 运行与消息的外键没有 ORM relationship，先落会话再落运行。
+    with Session(engine) as session:
+        session.add(
+            models.AgentRun(
+                id="run-succeeded",
+                session_id="session-run",
+                root_run_id="run-succeeded",
+                agent_name="legacy_chat",
+                kind="legacy_turn",
+                status="succeeded",
+                boot_id="boot-1",
+            )
+        )
+        session.add(
+            models.AgentRun(
+                id="run-running",
+                session_id="session-run",
+                root_run_id="run-running",
+                agent_name="legacy_chat",
+                kind="legacy_turn",
+                boot_id="boot-1",
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            models.AgentRun(
+                id="run-waiting",
+                session_id="session-run",
+                root_run_id="run-waiting",
+                agent_name="legacy_chat",
+                kind="legacy_turn",
+                status="waiting_human",
+                boot_id="boot-1",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    # session_id 为空的运行（研判/摘要等）不受约束：多个 NULL 不互斥。
+    with Session(engine) as session:
+        for index in range(2):
+            session.add(
+                models.AgentRun(
+                    id=f"run-global-{index}",
+                    root_run_id=f"run-global-{index}",
+                    agent_name="legacy_incident",
+                    kind="legacy_turn",
+                    boot_id="boot-1",
+                )
+            )
+        session.commit()
+        active_global = session.scalars(
+            select(models.AgentRun).where(models.AgentRun.session_id.is_(None))
+        ).all()
+        assert len(active_global) == 2
+
+
 # ---------------------------------------------------------------------------
 # 外键与级联（docs/04 §3.4）
 # ---------------------------------------------------------------------------
@@ -702,6 +799,83 @@ def test_deleting_agent_session_cascades_messages(engine):
     with Session(engine) as session:
         assert session.get(models.AgentSession, session_id) is None
         assert session.get(models.AgentMessage, message_id) is None
+
+
+def test_deleting_session_cascades_runs_and_nulls_message_run_id(engine):
+    """运行随会话删除；删运行只把消息的 run_id 置空（M66 §4.1.2）。"""
+    with Session(engine) as session:
+        session.add(models.AgentSession(id="session-kept", model="gpt-test"))
+        session.add(models.AgentSession(id="session-doomed", model="gpt-test"))
+        session.commit()
+
+    # 运行按表名排序会先于 agent_session 插入，先落会话再落运行。
+    with Session(engine) as session:
+        session.add(
+            models.AgentRun(
+                id="run-kept",
+                session_id="session-kept",
+                root_run_id="run-kept",
+                agent_name="legacy_chat",
+                kind="legacy_turn",
+                boot_id="boot-1",
+            )
+        )
+        session.add(
+            models.AgentRun(
+                id="run-doomed",
+                session_id="session-doomed",
+                root_run_id="run-doomed",
+                agent_name="legacy_chat",
+                kind="legacy_turn",
+                boot_id="boot-1",
+            )
+        )
+        session.commit()
+
+    # 运行与消息的外键没有 ORM relationship，先落会话与运行再落消息。
+    with Session(engine) as session:
+        session.add(
+            models.AgentMessage(
+                session_id="session-kept",
+                seq=0,
+                role="assistant",
+                content="kept",
+                run_id="run-kept",
+            )
+        )
+        session.add(
+            models.AgentMessage(
+                session_id="session-doomed",
+                seq=0,
+                role="assistant",
+                content="doomed",
+                run_id="run-doomed",
+            )
+        )
+        session.commit()
+
+    # 删运行：消息比运行活得久，run_id 置空。
+    with Session(engine) as session:
+        session.delete(session.get(models.AgentRun, "run-kept"))
+        session.commit()
+
+    with Session(engine) as session:
+        kept_message = session.scalars(
+            select(models.AgentMessage).where(
+                models.AgentMessage.session_id == "session-kept"
+            )
+        ).one()
+        assert kept_message.content == "kept"
+        assert kept_message.run_id is None
+
+    # 删会话：运行随会话级联删除。
+    with Session(engine) as session:
+        session.delete(session.get(models.AgentSession, "session-doomed"))
+        session.commit()
+
+    with Session(engine) as session:
+        assert session.get(models.AgentRun, "run-doomed") is None
+        assert session.get(models.AgentSession, "session-doomed") is None
 
 
 # ---------------------------------------------------------------------------
@@ -782,6 +956,8 @@ def test_string_columns_declare_documented_widths(table):
         "finish_reason": 24,
         "error_code": 48,
     }
+    # 按表的列宽例外：docs/03 给 agent_run.finish_reason 定的是 32，其余表仍是 24。
+    overrides = {("agent_run", "finish_reason"): 32}
     for name, width in widths.items():
         if name not in MD.tables[table].c:
             continue
@@ -790,7 +966,8 @@ def test_string_columns_declare_documented_widths(table):
             # 同名列不一定是字符串：`account_operator.level` 是干员等级（INTEGER），
             # 这条文档性约束只覆盖状态/来源/阶段这类字符串列。
             continue
-        assert sql_type(column) == f"VARCHAR({width})", (
+        expected = overrides.get((table, name), width)
+        assert sql_type(column) == f"VARCHAR({expected})", (
             table,
             name,
             sql_type(column),
@@ -959,6 +1136,39 @@ def test_schedule_and_agent_session_defaults(engine):
         assert agent_session.completion_tokens == 0
         assert agent_session.atomic_grant_id is None
         assert agent_session.last_message_at is None
+
+
+def test_agent_run_orm_defaults(engine):
+    """只写必填列：status=running、五个计数为 0、started_at 是 naive UTC（M66 §4.1.2）。"""
+    with Session(engine) as session:
+        session.add(
+            models.AgentRun(
+                root_run_id="root-run",
+                agent_name="legacy_chat",
+                kind="legacy_turn",
+                boot_id="boot-1",
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        row = session.scalars(select(models.AgentRun)).one()
+        assert row.status == "running"
+        assert row.prompt_tokens == 0
+        assert row.completion_tokens == 0
+        assert row.cached_tokens == 0
+        assert row.reasoning_tokens == 0
+        assert row.cost_micros == 0
+        assert row.steps == 0
+        assert row.finished_at is None
+        assert row.heartbeat_at is None
+        assert row.session_id is None
+        assert row.parent_run_id is None
+        assert row.meta is None
+        assert row.started_at.tzinfo is None
+        assert (
+            datetime.now(UTC).replace(tzinfo=None) - row.started_at
+        ).total_seconds() < 10
 
 
 def test_agent_knowledge_orm_defaults(engine):
