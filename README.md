@@ -23,7 +23,7 @@
 </div>
 <br>
 
-[文档](docs/v2/README.md) | [开放 API](docs/v2/14-开放API接入指南.md) | [部署指南](docs/v2/15-部署指南.md) | [决策记录](docs/v2/13-决策记录.md)
+[文档](docs/README.md) | [开放 API](docs/v2/14-开放API接入指南.md) | [部署指南](docs/v2/15-部署指南.md) | [决策记录](docs/v2/13-决策记录.md)
 
 MAA-API 是 MaaAssistantArknights 的非官方 Web 服务封装
 
@@ -112,7 +112,8 @@ poetry run uvicorn maa_api.main:app --host 0.0.0.0 --port 8002
 
 | 文档 | 内容 |
 |---|---|
-| [文档索引](docs/v2/README.md) | 重构方案、文档目录与决策速查表 |
+| [文档索引](docs/README.md) | v2 与 v3 文档目录、跨版本说明 |
+| [v3 方案](docs/v3/README.md) | SuperAgent 改造：总控与工单、运行时、知识检索、主动性与 IM |
 | [01-重构总览与现状评估](docs/v2/01-重构总览与现状评估.md) | 重构目标、范围边界与验收标准 |
 | [02-系统架构设计](docs/v2/02-系统架构设计.md) | 进程模型、IPC、任务队列与模块划分 |
 | [11-Agent 模块设计](docs/v2/11-Agent模块设计.md) | 内置 Agent、工具清单、安全确认与审计 |
@@ -135,7 +136,7 @@ pnpm gen:api:check && pnpm typecheck && pnpm test --run && pnpm build
 
 `scripts/*_smoke.py` 是各子系统的端到端冒烟，成功时末行是 `SMOKE OK`；环境陷阱（如 macOS 没有 `timeout`）记录在 [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)。
 
-目录结构：`maa_api/` 是 FastAPI 服务（api、services、agent、domain、model），`web/` 是 React 前端（构建产物输出到 `static/`），`scripts/` 放启动、门禁与冒烟脚本，`docs/` 是重构方案与决策记录。
+目录结构：`maa_api/` 是 FastAPI 服务（api、services、agent、domain、model），`web/` 是 React 前端（构建产物输出到 `static/`），`scripts/` 放启动、门禁与冒烟脚本，`docs/` 是文档索引与 v2、v3 两套方案（v2 冻结在 `docs/v2/`，v3 在 `docs/v3/`）。
 
 分支模型：`master` 是对外稳定分支，`dev` 是开发集成分支；新工作从 `dev` 拉分支，完成后 `git merge --no-ff` 回 `dev`，发布时合入 `master`。约定详见 [AGENTS.md](AGENTS.md)。
 
