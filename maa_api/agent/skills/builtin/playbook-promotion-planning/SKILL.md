@@ -1,8 +1,10 @@
 ---
 id: playbook-promotion-planning
-kind: playbook
 title: 养成规划（精二与专精）
-when_to_use: 用户说想把某干员精一/精二/专精，或问「练他需要什么材料、去哪刷、能不能帮我刷」时
+description: 用户说想把某干员精一/精二/专精，或问「练他需要什么材料、去哪刷、能不能帮我刷」时
+tools: [get_operator, get_depot, plan_upgrade, get_drop_rates, get_skland_status, sync_skland_training, submit_pipeline, ask_user]
+agents: [general, planner]
+version: 1
 ---
 ## 前置判断
 - 有流水线在跑、设备未连接、不支持视觉输入时按同一套处理：先说明在跑什么再用 ask_user 发卡问是等它结束还是稍后；征得同意后 reconnect_device；读不了画面上的材料清单就让用户直接报缺什么材料，或建议换用支持视觉的模型。

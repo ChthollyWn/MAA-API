@@ -1,15 +1,17 @@
 ---
 id: playbook-sanity-planning
-kind: playbook
 title: 理智规划与刷图
-when_to_use: 用户要刷材料、推主线、打活动或剿灭，需要安排理智怎么花，或要提交 Fight 任务时
+description: 用户要刷材料、推主线、打活动或剿灭，需要安排理智怎么花，或要提交 Fight 任务时
+tools: [get_activity_stages, get_stage, resolve_stage, get_drop_stats, submit_pipeline, wait_pipeline, ask_user]
+agents: [general, daily_ops, planner]
+version: 1
 ---
 ## 1. 先看现状，不要直接开刷
 - get_system_status / get_queue：有流水线在跑就不要打断，先说清在跑什么、用 ask_user 发卡问是等它结束还是稍后再来；设备未连接就说明情况，征得同意后 reconnect_device。
 - 读理智：back_to_home → get_screenshot，按 screen-home 读「终端 TERMINAL」里的「当前理智/上限」。把这两个数先写在回复里，再决定下一步。
 
 ## 2. 按用户目标选图
-- 刷材料：走 playbook-drop-lookup 的流程选图；不要在没查数据的情况下点名「最优图」。
+- 刷材料：走技能 playbook-drop-lookup 的流程选图；不要在没查数据的情况下点名「最优图」。
 - 推主线：问清推到哪一关、用 Normal 还是 Hard，不要替用户决定打哪关。
 - 打活动：先用 `get_activity_stages` 看当前开放的关卡列表，只推荐表里真有的；拿不准就直说拿不准。
 - 剿灭：Fight 的 `stage` 必须填 `Annihilation`。选哪张图、理智怎么算、每周合成玉上限怎么涨，见 annihilation-weekly；本服务只负责把 `stage` 传对。
@@ -21,7 +23,7 @@ when_to_use: 用户要刷材料、推主线、打活动或剿灭，需要安排�
 - 想确认「理智够不够打 N 次」先自己算：⌊当前理智 ÷ `get_stage` 返回的 `sanity`⌋，再和用户要的次数比。
 
 ## 4. submit_pipeline 提交 Fight
-- 形如 `submit_pipeline(tasks=[{"name": "Fight", "stage": "<关卡>", "times": N, "series": 0}])`；一次流水线 1~32 个任务；游戏没启动时第一条放 `{"name": "StartUp", "start_game_enabled": true}`（见 task-preconditions）。
+- 形如 `submit_pipeline(tasks=[{"name": "Fight", "stage": "<关卡>", "times": N, "series": 0}])`；一次流水线 1~32 个任务；游戏没启动时第一条放 `{"name": "StartUp", "start_game_enabled": true}`（见技能 task-preconditions）。
 - 关键参数怎么填：
   - `stage`：关卡名；剿灭必须 `Annihilation`；当期 SideStory 的后三关必须写完整关卡编号；结尾可加 `Normal` / `Hard` 切换标准与磨难难度。
   - `times`：战斗次数。不传等于交给内核的默认值（无穷大），会一直刷到理智耗尽——要么按用户说的次数传，要么明确告诉用户这是无限刷。
