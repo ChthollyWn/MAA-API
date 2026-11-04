@@ -437,6 +437,7 @@ async def run_agent(
             request.tools,
             emit=run_ctx.emit,
             draft=run_ctx.draft,
+            run_id=run_ctx.run_id,
         )
 
     def tool_schemas(run_ctx: RunContext) -> list[dict[str, Any]]:

@@ -145,6 +145,7 @@ async def collect_completion(
     *,
     emit: EmitFn,
     draft: TurnDraft | None = None,
+    run_id: str | None = None,
 ) -> ModelResponse:
     """读完整条流式应答，返回合并后的 :class:`ModelResponse`。
 
@@ -183,7 +184,11 @@ async def collect_completion(
                 value = delta.get("content")
                 if isinstance(value, str) and value:
                     text_parts.append(value)
-                    await emit("text_delta", {"text": value})
+                    # v3 的每个 SSE 事件都带 run_id（04 §3）；v2 传 None 保持原样。
+                    delta_event: dict[str, Any] = {"text": value}
+                    if run_id is not None:
+                        delta_event["run_id"] = run_id
+                    await emit("text_delta", delta_event)
                 # 思考模式的思考内容：不展示给用户，但必须累积下来随消息持久化，
                 # 否则下一轮回传缺失、上游以 400 拒绝（见 migration 0013）。
                 thinking = delta.get("reasoning_content")
