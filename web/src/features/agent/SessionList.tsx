@@ -35,6 +35,7 @@ export function SessionList({ sessions, selectedId, onSelect, onDelete, deleting
                 {time ? <time dateTime={updatedAt ?? undefined} className="shrink-0 text-xs text-muted-foreground tabular-nums">{time}</time> : null}
               </span>
               <span className="mt-1 flex min-w-0 items-center gap-1.5">
+                {session.kind === 'orchestrator' || session.archived_at ? <Badge variant="primary">已归档的总控</Badge> : null}
                 {session.incident_key ? <Badge variant="warning">自动诊断</Badge> : null}
                 <span className="min-w-0 truncate text-footnote text-muted-foreground">{session.message_count ?? 0} 条消息 · {session.model || '模型未配置'}</span>
               </span>

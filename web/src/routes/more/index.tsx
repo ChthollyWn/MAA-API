@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { LogOut, Monitor, Moon, Sun } from 'lucide-react'
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
-import { secondaryNav } from '@/components/layout/nav'
+import { NAV_GROUP_TITLES, secondaryNav, type NavGroup } from '@/components/layout/nav'
 import { Page } from '@/components/layout/Page'
 import { PwaSecurityNotice } from '@/components/pwa/PwaSecurityNotice'
 import { StatusDot } from '@/components/ui/badge'
@@ -30,8 +30,13 @@ const realtimeText = {
   OFFLINE: { label: '已断开', tone: 'danger' },
 } as const
 
-const operations = secondaryNav.filter((item) => item.to !== '/more/settings')
-const system = secondaryNav.filter((item) => item.to === '/more/settings')
+const navGroups = (Object.keys(NAV_GROUP_TITLES) as NavGroup[])
+  .map((group) => ({
+    group,
+    title: NAV_GROUP_TITLES[group],
+    items: secondaryNav.filter((item) => item.group === group),
+  }))
+  .filter((group) => group.items.length > 0)
 
 export default function MorePage() {
   const navigate = useNavigate()
@@ -72,17 +77,13 @@ export default function MorePage() {
   return (
     <Page title="更多" width="narrow">
       <div className="space-y-6 pb-4">
-        <ListGroup title="运维">
-          {operations.map(({ to, label, icon, description }) => (
-            <ListItem key={to} to={to} icon={icon} iconTone="primary" title={label} description={description} />
-          ))}
-        </ListGroup>
-
-        <ListGroup title="系统">
-          {system.map(({ to, label, icon, description }) => (
-            <ListItem key={to} to={to} icon={icon} iconTone="primary" title={label} description={description} />
-          ))}
-        </ListGroup>
+        {navGroups.map(({ group, title, items }) => (
+          <ListGroup key={group} title={title}>
+            {items.map(({ to, label, icon, description }) => (
+              <ListItem key={to} to={to} icon={icon} iconTone="primary" title={label} description={description} />
+            ))}
+          </ListGroup>
+        ))}
 
         <ListGroup title="外观">
           <div className="p-3">

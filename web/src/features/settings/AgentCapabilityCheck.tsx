@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { CircleCheck, CircleX, Sparkles, TriangleAlert } from 'lucide-react'
+import { CircleCheck, CircleHelp, CircleX, Sparkles } from 'lucide-react'
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
 import { Badge } from '@/components/ui/badge'
@@ -7,23 +7,33 @@ import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { errorText } from './format'
 
-interface CapabilityResult {
-  model?: string
-  tool_calling?: boolean
-  vision?: boolean
-  ready?: boolean
-  status?: string
-  degraded_reason?: string | null
+/** `POST /api/agent/model-profiles/{name}/probe` 的响应体。 */
+interface ProbeResult {
+  latency_ms: number
+  supports_tools: boolean | null
+  supports_vision: boolean | null
+  supports_json_schema: boolean | null
 }
 
-/** Agent 分区顶部：按已保存的 LLM 设置检查工具调用与视觉输入。 */
+/** 探测结果是三态：`null` 表示这次没有探出确定结论，写成「未知」。 */
+function AvailabilityBadge({ label, value }: { label: string; value: boolean | null }) {
+  if (value === null) {
+    return <Badge variant="neutral"><CircleHelp aria-hidden="true" />{label}：未知</Badge>
+  }
+  return value
+    ? <Badge variant="success"><CircleCheck aria-hidden="true" />{label}：可用</Badge>
+    : <Badge variant="danger"><CircleX aria-hidden="true" />{label}：不可用</Badge>
+}
+
+/** Agent 分区顶部：探测 default 模型档案的工具调用、视觉输入与结构化输出。 */
 export function AgentCapabilityCheck() {
   const check = useMutation({
-    mutationFn: async () => {
-      // @ts-expect-error M72 T11：v2 能力检查端点已删除，组件在 T11 改走模型档案探测。
-      const { data, error, response } = await api.POST('/api/agent/capabilities/check')
+    mutationFn: async (): Promise<ProbeResult> => {
+      const { data, error, response } = await api.POST('/api/agent/model-profiles/{name}/probe', {
+        params: { path: { name: 'default' } },
+      })
       if (error) throw toApiError(error, response)
-      return data as unknown as CapabilityResult
+      return data as ProbeResult
     },
   })
   const result = check.data
@@ -48,19 +58,12 @@ export function AgentCapabilityCheck() {
         </InlineAlert>
       ) : null}
       {result ? (
-        <div role="status" className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={result.tool_calling ? 'success' : 'danger'}>
-              {result.tool_calling ? <CircleCheck aria-hidden="true" /> : <CircleX aria-hidden="true" />}
-              工具调用：{result.tool_calling ? '可用' : '不可用'}
-            </Badge>
-            <Badge variant={result.vision ? 'success' : 'warning'}>
-              {result.vision ? <CircleCheck aria-hidden="true" /> : <TriangleAlert aria-hidden="true" />}
-              视觉输入：{result.vision ? '可用' : '不可用'}
-            </Badge>
-            {result.model ? <span className="text-footnote text-muted-foreground">模型：{result.model}</span> : null}
-          </div>
-          {result.degraded_reason ? <p className="text-footnote text-muted-foreground">{result.degraded_reason}</p> : null}
+        <div role="status" className="flex flex-wrap items-center gap-2">
+          {/* 工具调用探测只有「探到 / 没探到」两种结论（§4.6.6 的 T11 第 7 步）。 */}
+          <AvailabilityBadge label="工具调用" value={result.supports_tools === true} />
+          <AvailabilityBadge label="视觉输入" value={result.supports_vision} />
+          <AvailabilityBadge label="结构化输出" value={result.supports_json_schema} />
+          <span className="text-footnote text-muted-foreground">响应 {result.latency_ms} ms</span>
         </div>
       ) : null}
     </section>

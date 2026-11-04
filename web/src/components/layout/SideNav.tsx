@@ -1,6 +1,6 @@
 import { Link, NavLink } from 'react-router'
 import { BrandMark } from '@/components/layout/BrandMark'
-import { primaryNav, secondaryNav, type NavItem } from '@/components/layout/nav'
+import { NAV_GROUP_TITLES, primaryNav, secondaryNav, type NavGroup, type NavItem } from '@/components/layout/nav'
 import { StatusDot } from '@/components/ui/badge'
 import { useRealtimeStatus } from '@/realtime/RealtimeProvider'
 import { cn } from '@/lib/utils'
@@ -44,10 +44,14 @@ export function SideNav() {
         <div className="flex flex-col gap-0.5">
           {primaryNav.map((item) => <SideLink key={item.to} {...item} />)}
         </div>
-        <div className="flex flex-col gap-0.5">
-          <p className="px-3 pb-1.5 text-xs font-medium text-muted-foreground">系统</p>
-          {secondaryNav.map(({ description: _description, ...item }) => <SideLink key={item.to} {...item} />)}
-        </div>
+        {(Object.keys(NAV_GROUP_TITLES) as NavGroup[]).map((group) => (
+          <div key={group} className="flex flex-col gap-0.5">
+            <p className="px-3 pb-1.5 text-xs font-medium text-muted-foreground">{NAV_GROUP_TITLES[group]}</p>
+            {secondaryNav
+              .filter((item) => item.group === group)
+              .map(({ description: _description, group: _group, ...item }) => <SideLink key={item.to} {...item} />)}
+          </div>
+        ))}
       </nav>
       <div className="flex shrink-0 items-center gap-2 border-t px-5 py-3 text-xs text-muted-foreground" role="status">
         <StatusDot tone={tone} pulse={realtime.status === 'RECONNECTING'} />
