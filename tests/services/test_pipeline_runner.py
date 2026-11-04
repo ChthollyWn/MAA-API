@@ -7,9 +7,11 @@ import hashlib
 import json
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
@@ -17,12 +19,26 @@ from sqlmodel import SQLModel
 import maa_api.db.models  # noqa: F401
 from maa_api.agent.incidents import AgentIncidentService
 from maa_api.agent.lease import ClaimGate
+from maa_api.agent.specs.registry import AgentSpecRegistry
+from maa_api.agent.tickets.inbox import InboxService
+from maa_api.agent.tickets.service import TicketService
+from maa_api.agent.tickets.threads import ThreadRouter
+from maa_api.agent.tools import build_registry
+from maa_api.agent.workers.service import WorkerService
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
 from maa_api.db import session as db_session
-from maa_api.db.models import AgentSession, Pipeline, ResourceAsset, Task, utcnow
-from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
+from maa_api.db.models import (
+    AgentInbox,
+    AgentSession,
+    Pipeline,
+    ResourceAsset,
+    Task,
+    Ticket,
+    utcnow,
+)
 from maa_api.db.repositories.log import ScreenshotRepository
 from maa_api.db.repositories.pipeline import PipelineRepository
+from maa_api.db.repositories.ticket import MandateRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import (
     PipelineSource,
@@ -53,6 +69,7 @@ from tests.fakes.fake_asst import (
 )
 
 ASSET_ID = "a" * 32
+BOOT_ID = "11111111-1111-4111-8111-111111111111"
 
 
 def _copilot() -> dict:
@@ -121,15 +138,6 @@ class SimpleSupervisor:
     generation = 1
 
 
-class FakeIncidentRuntime:
-    def __init__(self):
-        self.calls = []
-
-    async def run_incident(self, session_id, request, allowed_tools):
-        self.calls.append((session_id, request, frozenset(allowed_tools)))
-        return {"status": "completed"}
-
-
 class FakeNotifyService:
     """Collects terminal notifications; ``fail`` simulates a broken transport."""
 
@@ -165,6 +173,92 @@ class FakeLeaseGate:
     async def preempt(self, reason, *, detail=None):
         self.preempt_calls.append((reason, detail))
         return None
+
+
+class _TicketTitler:
+    async def title_for(self, _text: str) -> str:
+        return "自动标题"
+
+
+def _build_incident_service(factory, runner) -> AgentIncidentService:
+    """按生产装配的最小形状构造诊断工单服务（真实工单 / 收件箱 / Worker 会话）。"""
+    registry = AgentSpecRegistry(build_registry())
+    registry.load()
+    inbox_service = InboxService(factory)
+    thread_router = ThreadRouter(factory, inbox_service)
+    ticket_service = TicketService(
+        factory,
+        inbox_service=inbox_service,
+        thread_router=thread_router,
+        spec_registry=registry,
+    )
+    state = SimpleNamespace(
+        ticket_service=ticket_service,
+        inbox_service=inbox_service,
+    )
+    app = SimpleNamespace(state=state)
+    worker_service = WorkerService(
+        app=app,
+        session_factory=factory,
+        spec_registry=registry,
+        run_service=None,
+        inbox_service=inbox_service,
+        ticket_service=ticket_service,
+        thread_router=thread_router,
+        delegation=None,
+        titler=_TicketTitler(),
+        event_bus=None,
+    )
+    state.worker_service = worker_service
+    # 这些用例只验证建单与收件箱，不让诊断 Worker 真跑一轮。
+    worker_service.wake = lambda _session_id: None  # type: ignore[method-assign]
+    return AgentIncidentService(
+        factory,
+        None,
+        settings_provider=lambda: Settings(),
+        pipeline_runner=runner,
+        request=SimpleNamespace(app=app),
+        boot_id=BOOT_ID,
+    )
+
+
+async def _assert_diagnose_ticket(
+    factory, incident_key: str, *, brief_contains: tuple[str, ...] = ()
+) -> Ticket:
+    """断言该事件键只对应一张 diagnose 工单，且委托与任务说明符合 M73 规格。"""
+    async with factory() as session:
+        result = await session.execute(
+            select(Ticket)
+            .where(Ticket.kind == "diagnose")
+            .order_by(Ticket.created_at.asc(), Ticket.id.asc())
+        )
+        tickets = list(result.scalars().all())
+    assert len(tickets) == 1, [ticket.result for ticket in tickets]
+    ticket = tickets[0]
+    assert ticket.kind == "diagnose"
+    assert ticket.origin == "system"
+    assert ticket.result is not None
+    assert ticket.result["incident_key"] == incident_key
+    async with factory() as session:
+        mandate = await MandateRepository(session).get_by_ticket(ticket.id)
+        result = await session.execute(
+            select(AgentInbox)
+            .where(AgentInbox.session_id == ticket.worker_session_id)
+            .order_by(AgentInbox.id.asc())
+        )
+        items = list(result.scalars().all())
+    assert mandate is not None
+    assert str(mandate.strength) == "inferred"
+    assert str(mandate.risk_ceiling) == "none"
+    texts = [
+        str((item.payload or {}).get("text") or "")
+        for item in items
+        if str(item.kind) == "system" and (item.payload or {}).get("text")
+    ]
+    assert texts and texts[0].startswith("自动诊断：")
+    for expected in brief_contains:
+        assert any(expected in text for text in texts), (expected, texts)
+    return ticket
 
 
 async def _create_schema(engine) -> None:
@@ -477,14 +571,7 @@ def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline
         )
         runner, asst, core = make(session_factory_override=interleave_factory)
         runner._loop = asyncio.get_running_loop()
-        incident_runtime = FakeIncidentRuntime()
-        incidents = AgentIncidentService(
-            factory,
-            incident_runtime,
-            settings_provider=lambda: Settings(),
-            pipeline_runner=runner,
-            boot_id="11111111-1111-4111-8111-111111111111",
-        )
+        incidents = _build_incident_service(factory, runner)
         runner.bind_incident_service(incidents)
         event_state.update(
             runner=runner,
@@ -502,16 +589,16 @@ def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline
 
         assert asst.calls_of("append_task") == []
         assert runner.core_crashed_pipeline_ids(1) == (claimed.id,)
-        assert len(incident_runtime.calls) == 1
         async with factory() as session:
             stored_pipeline = await session.get(Pipeline, claimed.id)
             stored_task = await session.get(Task, "task-claimed-crash")
-            sessions = await AgentSessionRepository(session).list_recent()
         assert stored_pipeline.status == PipelineStatus.FAILED
         assert stored_pipeline.error_code == ErrorCode.CORE_CRASHED
         assert stored_task.status == TaskStatus.FAILED
-        assert len(sessions) == 1
-        assert sessions[0].incident_key == "pipeline:pipeline-claimed-crash"
+        # 两次崩溃通知都在建单前被流水线领取吸收，最终只落一张流水线诊断工单。
+        await _assert_diagnose_ticket(
+            factory, f"pipeline:{claimed.id}", brief_contains=(claimed.id,)
+        )
         await runner.stop()
         asst.stop()
 
@@ -555,14 +642,7 @@ def test_core_crash_staged_during_empty_claim_becomes_idle_incident(
     async def scenario() -> None:
         runner, asst, _core = make()
         runner._loop = asyncio.get_running_loop()
-        incident_runtime = FakeIncidentRuntime()
-        incidents = AgentIncidentService(
-            factory,
-            incident_runtime,
-            settings_provider=lambda: Settings(),
-            pipeline_runner=runner,
-            boot_id="11111111-1111-4111-8111-111111111111",
-        )
+        incidents = _build_incident_service(factory, runner)
         runner.bind_incident_service(incidents)
         result_state = {}
 
@@ -581,13 +661,12 @@ def test_core_crash_staged_during_empty_claim_becomes_idle_incident(
         assert result_state["coalesced"].session_id is None
         await asyncio.gather(*tuple(runner._incident_tasks))
 
-        async with factory() as session:
-            sessions = await AgentSessionRepository(session).list_recent()
-        assert len(sessions) == 1
-        assert sessions[0].incident_key == (
-            "core:default:11111111-1111-4111-8111-111111111111:1"
+        # 领取为空后，领取期间暂存的崩溃成为一张空闲内核诊断工单。
+        await _assert_diagnose_ticket(
+            factory,
+            f"core:default:{BOOT_ID}:1",
+            brief_contains=("MaaCore 崩溃",),
         )
-        assert len(incident_runtime.calls) == 1
         await runner.stop()
         asst.stop()
 
@@ -630,14 +709,7 @@ def test_core_crash_during_failed_claim_is_scheduled_after_claim_marker_clears(
         )
         runner, asst, _core = make(session_factory_override=session_factory)
         runner._loop = asyncio.get_running_loop()
-        incident_runtime = FakeIncidentRuntime()
-        incidents = AgentIncidentService(
-            factory,
-            incident_runtime,
-            settings_provider=lambda: Settings(),
-            pipeline_runner=runner,
-            boot_id="11111111-1111-4111-8111-111111111111",
-        )
+        incidents = _build_incident_service(factory, runner)
         runner.bind_incident_service(incidents)
         state.update(runner=runner, incidents=incidents, armed=True)
 
@@ -649,13 +721,8 @@ def test_core_crash_during_failed_claim_is_scheduled_after_claim_marker_clears(
         assert state["core_result"].session_id is None
         async with factory() as session:
             stored = await session.get(Pipeline, pipeline.id)
-            sessions = await AgentSessionRepository(session).list_recent()
         assert stored.status == PipelineStatus.PENDING
-        assert len(sessions) == 1
-        assert sessions[0].incident_key == (
-            "core:default:11111111-1111-4111-8111-111111111111:1"
-        )
-        assert len(incident_runtime.calls) == 1
+        await _assert_diagnose_ticket(factory, f"core:default:{BOOT_ID}:1")
         await runner.stop()
         asst.stop()
 
@@ -692,23 +759,7 @@ def test_claim_commit_applied_before_error_uses_pipeline_incident_if_release_fai
         )
         runner, asst, _core = make(session_factory_override=session_factory)
         runner._loop = asyncio.get_running_loop()
-        class ContextRuntime(FakeIncidentRuntime):
-            async def run_incident(self, session_id, request, allowed_tools):
-                async with factory() as session:
-                    messages = await AgentMessageRepository(session).list_by_session(
-                        session_id
-                    )
-                self.initial_context = json.loads(messages[0].content or "{}")
-                return await super().run_incident(session_id, request, allowed_tools)
-
-        incidents_runtime = ContextRuntime()
-        incidents = AgentIncidentService(
-            factory,
-            incidents_runtime,
-            settings_provider=lambda: Settings(),
-            pipeline_runner=runner,
-            boot_id="11111111-1111-4111-8111-111111111111",
-        )
+        incidents = _build_incident_service(factory, runner)
         runner.bind_incident_service(incidents)
         state.update(runner=runner, incidents=incidents, armed=True)
 
@@ -731,28 +782,27 @@ def test_claim_commit_applied_before_error_uses_pipeline_incident_if_release_fai
         )
         async with factory() as session:
             stored = await session.get(Pipeline, pipeline.id)
-            sessions = await AgentSessionRepository(session).list_recent()
         assert stored.status == PipelineStatus.FAILED
         assert stored.error_code == ErrorCode.CORE_CRASHED
-        assert incidents_runtime.initial_context["failure_object"]["error_code"] == (
-            ErrorCode.CORE_CRASHED.value
-        )
         assert state["coalesced"].session_id is None
         assert late_core.session_id is None
         assert late_core.status == "coalesced_with_failed_pipeline_claim"
-        assert len(sessions) == 1
-        assert sessions[0].incident_key == f"pipeline:{pipeline.id}"
-        assert len(incidents_runtime.calls) == 1
+        # 迟到的崩溃被领取失败的流水线诊断工单吸收，说明里带着 CORE_CRASHED。
+        await _assert_diagnose_ticket(
+            factory,
+            f"pipeline:{pipeline.id}",
+            brief_contains=("错误码: CORE_CRASHED",),
+        )
         await runner.stop()
         asst.stop()
 
     asyncio.run(scenario())
 
 
-def test_failed_claim_crash_record_error_still_creates_diagnosis_session(
+def test_failed_claim_crash_record_error_still_creates_diagnose_ticket(
     runner_env, monkeypatch
 ) -> None:
-    """崩溃现场写入失败不能连带跳过诊断会话（否则开着自动诊断却毫无记录）。"""
+    """崩溃现场写入失败不能连带跳过诊断工单（否则开着自动诊断却毫无记录）。"""
     factory, resource_root, make = runner_env
 
     async def scenario() -> None:
@@ -780,14 +830,7 @@ def test_failed_claim_crash_record_error_still_creates_diagnosis_session(
         )
         runner, asst, _core = make(session_factory_override=session_factory)
         runner._loop = asyncio.get_running_loop()
-        incident_runtime = FakeIncidentRuntime()
-        incidents = AgentIncidentService(
-            factory,
-            incident_runtime,
-            settings_provider=lambda: Settings(),
-            pipeline_runner=runner,
-            boot_id="11111111-1111-4111-8111-111111111111",
-        )
+        incidents = _build_incident_service(factory, runner)
         runner.bind_incident_service(incidents)
         state["armed"] = True
 
@@ -809,11 +852,9 @@ def test_failed_claim_crash_record_error_still_creates_diagnosis_session(
 
         async with factory() as session:
             stored = await session.get(Pipeline, pipeline.id)
-            sessions = await AgentSessionRepository(session).list_recent()
         assert stored.status == PipelineStatus.FAILED
-        assert len(sessions) == 1, "崩溃现场写入失败时仍必须创建诊断会话"
-        assert sessions[0].incident_key == f"pipeline:{pipeline.id}"
-        assert len(incident_runtime.calls) == 1
+        # 崩溃现场写入失败只影响保真度，诊断工单仍然要建。
+        await _assert_diagnose_ticket(factory, f"pipeline:{pipeline.id}")
         await runner.stop()
         asst.stop()
 
@@ -891,14 +932,7 @@ def test_late_failed_claim_crash_updates_its_pipeline_during_newer_active_genera
             {"pipeline_id": "new-pipeline", "core_epoch": 2, "core_crashed": False, "task": None},
         )()
         runner._claim_failure_pipeline_by_generation[1] = pipeline.id
-        incident_runtime = FakeIncidentRuntime()
-        incidents = AgentIncidentService(
-            factory,
-            incident_runtime,
-            settings_provider=lambda: Settings(),
-            pipeline_runner=runner,
-            boot_id="11111111-1111-4111-8111-111111111111",
-        )
+        incidents = _build_incident_service(factory, runner)
         runner.bind_incident_service(incidents)
 
         runner.notify_core_crash({"generation": 1, "reason": "process_exit"})
@@ -910,14 +944,11 @@ def test_late_failed_claim_crash_updates_its_pipeline_during_newer_active_genera
 
         async with factory() as session:
             stored = await session.get(Pipeline, pipeline.id)
-            sessions = await AgentSessionRepository(session).list_recent()
         assert stored.status == PipelineStatus.FAILED
         assert stored.error_code == ErrorCode.CORE_CRASHED
         assert runner._active.core_crashed is False
         assert coalesced.session_id is None
-        assert len(sessions) == 1
-        assert sessions[0].incident_key == f"pipeline:{pipeline.id}"
-        assert len(incident_runtime.calls) == 1
+        await _assert_diagnose_ticket(factory, f"pipeline:{pipeline.id}")
         runner._active = None
         await runner.stop()
         asst.stop()
