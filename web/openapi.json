@@ -418,7 +418,7 @@
         "type": "object"
       },
       "AgentMessageItem": {
-        "description": "v2 ``message_wire`` 的全部字段 + M70 的运行 / 收件箱归属。",
+        "description": "v2 ``message_wire`` 的全部字段 + 运行 / 收件箱归属（M70、M72）。",
         "properties": {
           "audit_id": {
             "anyOf": [
@@ -482,6 +482,27 @@
               }
             ],
             "title": "Inbox Id"
+          },
+          "inbox_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InboxKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inbox_thread_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbox Thread Key"
           },
           "latency_ms": {
             "anyOf": [
@@ -2229,6 +2250,18 @@
         ],
         "title": "HumanActionOut",
         "type": "object"
+      },
+      "InboxKind": {
+        "description": "总控收件箱条目的种类。",
+        "enum": [
+          "user_message",
+          "report",
+          "thread_event",
+          "system",
+          "trigger"
+        ],
+        "title": "InboxKind",
+        "type": "string"
       },
       "InfrastInput": {
         "additionalProperties": false,
@@ -6738,41 +6771,6 @@
         "title": "ScheduleWrite",
         "type": "object"
       },
-      "SessionCreateRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "title": {
-            "anyOf": [
-              {
-                "maxLength": 64,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          }
-        },
-        "title": "SessionCreateRequest",
-        "type": "object"
-      },
-      "SessionMessageRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "content": {
-            "maxLength": 32000,
-            "minLength": 1,
-            "title": "Content",
-            "type": "string"
-          }
-        },
-        "required": [
-          "content"
-        ],
-        "title": "SessionMessageRequest",
-        "type": "object"
-      },
       "SettingResetRequest": {
         "additionalProperties": false,
         "properties": {
@@ -9347,66 +9345,6 @@
         ]
       }
     },
-    "/api/agent/capabilities/check": {
-      "post": {
-        "operationId": "agent_check_capabilities",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Agent Check Capabilities",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "AGENT_DISABLED",
-                    "details": {},
-                    "message": "服务暂时不可用"
-                  }
-                }
-              }
-            },
-            "description": "服务暂时不可用：AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0.0,
-                  "type": "integer"
-                }
-              }
-            }
-          }
-        },
-        "summary": "检查 Agent 模型能力",
-        "tags": [
-          "agent"
-        ]
-      }
-    },
     "/api/agent/costs": {
       "get": {
         "description": "``since <= created_at < until``；默认按服务器本地日期分组。",
@@ -11757,84 +11695,6 @@
         "tags": [
           "agent"
         ]
-      },
-      "post": {
-        "operationId": "agent_create_session",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SessionCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Agent Create Session",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "LLM_NOT_CONFIGURED",
-                    "details": {},
-                    "message": "服务暂时不可用"
-                  }
-                }
-              }
-            },
-            "description": "服务暂时不可用：LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
-          }
-        },
-        "summary": "创建 Agent 会话",
-        "tags": [
-          "agent"
-        ]
       }
     },
     "/api/agent/sessions/{session_id}": {
@@ -12143,93 +12003,6 @@
         ]
       }
     },
-    "/api/agent/sessions/{session_id}/interrupt": {
-      "post": {
-        "description": "中断该会话正在执行的一轮。\n\n幂等：没有活动轮次时返回 200 且 ``interrupted=false``。只中断这一轮，\n不影响流水线与队列。",
-        "operationId": "agent_interrupt_session_turn",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Agent Interrupt Session Turn",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "AGENT_SESSION_NOT_FOUND",
-                    "details": {},
-                    "message": "资源不存在"
-                  }
-                }
-              }
-            },
-            "description": "资源不存在：AGENT_SESSION_NOT_FOUND"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "AGENT_DISABLED",
-                    "details": {},
-                    "message": "服务暂时不可用"
-                  }
-                }
-              }
-            },
-            "description": "服务暂时不可用：AGENT_DISABLED"
-          }
-        },
-        "summary": "中断该会话正在执行的一轮",
-        "tags": [
-          "agent"
-        ]
-      }
-    },
     "/api/agent/sessions/{session_id}/messages": {
       "get": {
         "operationId": "agent_list_session_messages",
@@ -12334,119 +12107,6 @@
           }
         },
         "summary": "按序读取 Agent 会话消息",
-        "tags": [
-          "agent"
-        ]
-      },
-      "post": {
-        "operationId": "agent_stream_session_message",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SessionMessageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "UNAUTHORIZED",
-                    "details": {},
-                    "message": "token 缺失或不匹配"
-                  }
-                }
-              }
-            },
-            "description": "token 缺失或不匹配：UNAUTHORIZED"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "AGENT_SESSION_NOT_FOUND",
-                    "details": {},
-                    "message": "资源不存在"
-                  }
-                }
-              }
-            },
-            "description": "资源不存在：AGENT_SESSION_NOT_FOUND"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "AGENT_SESSION_BUSY",
-                    "details": {},
-                    "message": "与当前状态冲突"
-                  }
-                }
-              }
-            },
-            "description": "与当前状态冲突：AGENT_SESSION_BUSY"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error": {
-                    "code": "AGENT_DISABLED",
-                    "details": {},
-                    "message": "服务暂时不可用"
-                  }
-                }
-              }
-            },
-            "description": "服务暂时不可用：AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
-          }
-        },
-        "summary": "发送 Agent 消息并接收 SSE 事件",
         "tags": [
           "agent"
         ]

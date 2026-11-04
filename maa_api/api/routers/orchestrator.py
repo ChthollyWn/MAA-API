@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
+from maa_api.agent.mentions import MentionContext, render_reference_block
 from maa_api.agent.orchestrator.stream import RunEventStream
 from maa_api.api.deps import get_session, require_auth
 from maa_api.api.errors import error_responses
@@ -27,7 +28,7 @@ from maa_api.api.schemas.agent_v3 import (
     OrchestratorStateModel,
     agent_message_item,
 )
-from maa_api.db.repositories.agent import AgentMessageRepository
+from maa_api.db.repositories.agent import AgentMessageRepository, load_inbox_meta
 from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = ["router"]
@@ -103,8 +104,12 @@ async def send_orchestrator_message(
     session = await service.ensure_session()
     stream = RunEventStream(request.app, session_id=str(session.id))
     try:
+        block = await render_reference_block(
+            payload.mentions,
+            MentionContext(request.app.state, request.app.state.session_factory),
+        )
         posted = await service.post_user_message(
-            payload.content,
+            payload.content + block,
             [mention.model_dump() for mention in payload.mentions or []],
         )
     except BaseException:
@@ -137,8 +142,12 @@ async def list_orchestrator_messages(
     result = await AgentMessageRepository(session).list_page(
         str(current.id), after_seq=after_seq, page=page, size=size
     )
+    inbox_meta = await load_inbox_meta(
+        session,
+        {item.inbox_id for item in result.items if item.inbox_id is not None},
+    )
     return AgentMessagePage(
-        items=[agent_message_item(item) for item in result.items],
+        items=[agent_message_item(item, inbox_meta) for item in result.items],
         total=result.total,
         page=result.page,
         size=result.size,

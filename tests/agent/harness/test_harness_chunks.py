@@ -158,3 +158,33 @@ def test_parse_arguments_rejects_invalid_json_and_non_objects():
     # 字符串与已经是对象的值都接受（v2 原样）。
     assert parse_arguments('{"key": "a"}') == {"key": "a"}
     assert parse_arguments({"key": "a"}) == {"key": "a"}
+
+
+def test_v3_text_delta_carries_run_id_but_v2_stays_unchanged():
+    """M72 §4.5.1：v3 的每个 SSE 事件都带 run_id（04 §3）；v2 不传时保持原形状。"""
+
+    def collect(*, run_id: str | None) -> list[tuple[str, dict[str, Any]]]:
+        emitted: list[tuple[str, dict[str, Any]]] = []
+
+        async def emit(name, data):
+            emitted.append((name, data))
+
+        client = _StreamingClient(
+            {"choices": [{"index": 0, "delta": {"content": "好"}, "finish_reason": "stop"}]}
+        )
+
+        async def scenario() -> None:
+            await collect_completion(
+                client,
+                "m",
+                [{"role": "user", "content": "x"}],
+                [],
+                emit=emit,
+                run_id=run_id,
+            )
+
+        asyncio.run(scenario())
+        return emitted
+
+    assert collect(run_id="r-1") == [("text_delta", {"text": "好", "run_id": "r-1"})]
+    assert collect(run_id=None) == [("text_delta", {"text": "好"})]

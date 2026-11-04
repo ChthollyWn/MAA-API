@@ -221,23 +221,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/agent/capabilities/check": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** 检查 Agent 模型能力 */
-        post: operations["agent_check_capabilities"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/agent/costs": {
         parameters: {
             query?: never;
@@ -612,8 +595,7 @@ export interface paths {
         /** 分页读取 Agent 会话 */
         get: operations["agent_list_sessions"];
         put?: never;
-        /** 创建 Agent 会话 */
-        post: operations["agent_create_session"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -677,29 +659,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/agent/sessions/{session_id}/interrupt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 中断该会话正在执行的一轮
-         * @description 中断该会话正在执行的一轮。
-         *
-         *     幂等：没有活动轮次时返回 200 且 ``interrupted=false``。只中断这一轮，
-         *     不影响流水线与队列。
-         */
-        post: operations["agent_interrupt_session_turn"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/agent/sessions/{session_id}/messages": {
         parameters: {
             query?: never;
@@ -710,8 +669,7 @@ export interface paths {
         /** 按序读取 Agent 会话消息 */
         get: operations["agent_list_session_messages"];
         put?: never;
-        /** 发送 Agent 消息并接收 SSE 事件 */
-        post: operations["agent_stream_session_message"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2430,7 +2388,7 @@ export interface components {
         };
         /**
          * AgentMessageItem
-         * @description v2 ``message_wire`` 的全部字段 + M70 的运行 / 收件箱归属。
+         * @description v2 ``message_wire`` 的全部字段 + 运行 / 收件箱归属（M70、M72）。
          */
         AgentMessageItem: {
             /** Audit Id */
@@ -2447,6 +2405,9 @@ export interface components {
             id: number;
             /** Inbox Id */
             inbox_id: number | null;
+            inbox_kind?: components["schemas"]["InboxKind"] | null;
+            /** Inbox Thread Key */
+            inbox_thread_key?: string | null;
             /** Latency Ms */
             latency_ms: number | null;
             /** Prompt Tokens */
@@ -3204,6 +3165,12 @@ export interface components {
              */
             type: "confirmation" | "question" | "decision";
         };
+        /**
+         * InboxKind
+         * @description 总控收件箱条目的种类。
+         * @enum {string}
+         */
+        InboxKind: "user_message" | "report" | "thread_event" | "system" | "trigger";
         /**
          * InfrastInput
          * @description 基建换班：默认换班、自定义换班与一键轮换。
@@ -4836,16 +4803,6 @@ export interface components {
              */
             timezone: string;
         };
-        /** SessionCreateRequest */
-        SessionCreateRequest: {
-            /** Title */
-            title?: string | null;
-        };
-        /** SessionMessageRequest */
-        SessionMessageRequest: {
-            /** Content */
-            content: string;
-        };
         /** SettingResetRequest */
         SettingResetRequest: {
             /** Keys */
@@ -6217,66 +6174,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    agent_check_capabilities: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 服务暂时不可用：AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID */
-            503: {
-                headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_DISABLED",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
                 };
             };
         };
@@ -8458,79 +8355,6 @@ export interface operations {
             };
         };
     };
-    agent_create_session: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SessionCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description 服务暂时不可用：LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID */
-            503: {
-                headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "LLM_NOT_CONFIGURED",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
     agent_get_session_detail: {
         parameters: {
             query?: never;
@@ -8835,93 +8659,6 @@ export interface operations {
             };
         };
     };
-    agent_interrupt_session_turn: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_SESSION_NOT_FOUND",
-                     *         "details": {},
-                     *         "message": "资源不存在"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description 服务暂时不可用：AGENT_DISABLED */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_DISABLED",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
     agent_list_session_messages: {
         parameters: {
             query?: {
@@ -8991,115 +8728,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    agent_stream_session_message: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SessionMessageRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_SESSION_NOT_FOUND",
-                     *         "details": {},
-                     *         "message": "资源不存在"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 与当前状态冲突：AGENT_SESSION_BUSY */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_SESSION_BUSY",
-                     *         "details": {},
-                     *         "message": "与当前状态冲突"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description 服务暂时不可用：AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID */
-            503: {
-                headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_DISABLED",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
                 };
             };
         };

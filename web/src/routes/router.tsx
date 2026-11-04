@@ -27,8 +27,19 @@ const AuditPage = lazy(() => import('@/features/audit/AuditPage'))
 const RunsPage = lazy(() => import('@/features/runs/RunsPage'))
 const RunDetailPage = lazy(() => import('@/features/runs/RunDetailPage'))
 const CostsPage = lazy(() => import('@/features/costs/CostsPage'))
-const AgentPage = lazy(() => import('@/features/agent/AgentPage'))
+const ConsolePage = lazy(() => import('@/features/console/ConsolePage'))
+const TicketsPage = lazy(() => import('@/features/tickets/TicketsPage'))
+const TicketDetailPage = lazy(() => import('@/features/tickets/TicketDetailPage'))
+const AgentsPage = lazy(() => import('@/features/agents/AgentsPage'))
+const AgentDetailPage = lazy(() => import('@/features/agents/AgentDetailPage'))
+const LegacySessionsPage = lazy(() => import('@/features/agent/LegacySessionsPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
+
+/** v2 的 /agent 深链（含 ?session_id=）落到只读查看器。 */
+function AgentRedirect() {
+  const location = useLocation()
+  return <Navigate to={{ pathname: '/more/sessions', search: location.search, hash: location.hash }} replace />
+}
 
 /** 定时任务从「更多」迁到了「任务」下；旧地址重定向，并保留 API 调试台带来的预填 state。 */
 function SchedulesRedirect() {
@@ -116,7 +127,9 @@ export const routeConfig: RouteObject[] = [
     path: '/',
     element: <ShellLayout />,
     children: [
-      { index: true, element: page(<DashboardPage />) },
+      { index: true, element: page(<ConsolePage />) },
+      { path: 'tickets', element: page(<TicketsPage />) },
+      { path: 'tickets/:ticketId', element: page(<TicketDetailPage />) },
       { path: 'tasks', element: page(<TasksPage />) },
       { path: 'tasks/queue', element: page(<TasksPage />) },
       { path: 'tasks/history', element: page(<TasksPage />) },
@@ -125,8 +138,12 @@ export const routeConfig: RouteObject[] = [
       { path: 'tasks/schedules/new', element: page(<ScheduleEditorPage />) },
       { path: 'tasks/schedules/:scheduleId', element: page(<ScheduleEditorPage />) },
       { path: 'logs/*', element: page(<LogsPage />) },
-      { path: 'agent/*', element: page(<AgentPage />) },
+      { path: 'agent/*', element: <AgentRedirect /> },
       { path: 'more', element: page(<MorePage />) },
+      { path: 'more/status', element: page(<DashboardPage />) },
+      { path: 'more/agents', element: page(<AgentsPage />) },
+      { path: 'more/agents/:name', element: page(<AgentDetailPage />) },
+      { path: 'more/sessions', element: page(<LegacySessionsPage />) },
       { path: 'more/account', element: page(<AccountPage />) },
       { path: 'more/account/depot', element: page(<AccountPage />) },
       { path: 'more/copilots', element: page(<CopilotsPage />) },

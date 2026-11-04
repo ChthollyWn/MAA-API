@@ -70,11 +70,34 @@ export const keys = {
     pendingConfirmations: () => [...root, 'confirmations', 'pending'] as const,
     /** 本会话待答的提问（Agent 主动提问卡）；按会话再分一段，便于整片失效。 */
     pendingQuestions: () => [...root, 'agent', 'questions', 'pending'] as const,
-    tickets: (filters?: Readonly<Record<string, unknown>>) =>
-      [...root, 'agent', 'tickets', filters ?? {}] as const,
-    ticket: (ticketId: string) => [...root, 'agent', 'tickets', 'detail', ticketId] as const,
-    ticketReports: (ticketId: string, filters?: Readonly<Record<string, unknown>>) =>
-      [...root, 'agent', 'tickets', ticketId, 'reports', filters ?? {}] as const,
+    /** 指挥台上「待你处理」的全局待答提问。 */
+    attentionQuestions: () => [...root, 'agent', 'questions', 'pending', 'all'] as const,
+    /** @ 提及的干员候选；query 进 key，防抖后的不同查询各有一份缓存。 */
+    mentionCandidates: (type: string, query: string) =>
+      [...root, 'agent', 'mentions', type, query] as const,
+    orchestrator: {
+      all: () => [...root, 'agent', 'orchestrator'] as const,
+      state: () => [...root, 'agent', 'orchestrator', 'state'] as const,
+      messages: () => [...root, 'agent', 'orchestrator', 'messages'] as const,
+    },
+    tickets: {
+      all: () => [...root, 'agent', 'tickets'] as const,
+      lists: () => [...root, 'agent', 'tickets', 'list'] as const,
+      list: (filters: Readonly<Record<string, unknown>>) =>
+        [...root, 'agent', 'tickets', 'list', filters] as const,
+      scope: (ticketId: string) =>
+        [...root, 'agent', 'tickets', 'detail', ticketId] as const,
+      detail: (ticketId: string) =>
+        [...root, 'agent', 'tickets', 'detail', ticketId, 'summary'] as const,
+      reports: (ticketId: string) =>
+        [...root, 'agent', 'tickets', 'detail', ticketId, 'reports'] as const,
+      messagesAll: (ticketId: string) =>
+        [...root, 'agent', 'tickets', 'detail', ticketId, 'messages'] as const,
+      messages: (ticketId: string, includeSubagents: boolean) =>
+        [...root, 'agent', 'tickets', 'detail', ticketId, 'messages', includeSubagents] as const,
+      runs: (ticketId: string) =>
+        [...root, 'agent', 'tickets', 'detail', ticketId, 'runs'] as const,
+    },
     deviceLease: () => [...root, 'agent', 'device-lease'] as const,
   },
 } as const

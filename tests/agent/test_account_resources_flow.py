@@ -58,6 +58,7 @@ from tests.fakes.fake_llm import (
     tool_response,
     turn_events,
 )
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 MODEL = "test-model"
 BASE_URL = "https://llm.test/v1"
@@ -293,7 +294,7 @@ async def _run_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Flow:
         assert await runtime.acquire_session(SESSION_ID) is True
         chunks = [
             chunk
-            async for chunk in runtime.stream_message(SESSION_ID, QUESTION, request)
+            async for chunk in stream_legacy_turn(runtime, SESSION_ID, QUESTION, request)
         ]
 
         events = turn_events(chunks)

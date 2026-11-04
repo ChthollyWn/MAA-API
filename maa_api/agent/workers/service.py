@@ -426,9 +426,19 @@ class WorkerService:
     # 工单内对话
     # ------------------------------------------------------------------
     async def post_user_message(
-        self, ticket_id: str, content: str, mentions: list[dict]
+        self,
+        ticket_id: str,
+        content: str,
+        mentions: list[dict],
+        *,
+        notify_content: str | None = None,
     ) -> PostedMessage:
-        """用户在工单里直接说话：落消息、唤醒 Worker、给总控留 passive 摘要。"""
+        """用户在工单里直接说话：落消息、唤醒 Worker、给总控留 passive 摘要。
+
+        ``content`` 是写库的正文（可能带 M72 的【引用】段）；给总控的 passive
+        摘要只引用用户原话，所以调用方另传 ``notify_content``，缺省与 ``content``
+        相同（直接调用服务时没有展开段）。
+        """
         ticket = await self.require_open_ticket(ticket_id)
         await self.ensure_ready(ticket)
         session = await self.ensure_worker_session(ticket)
@@ -446,9 +456,12 @@ class WorkerService:
         self._priorities[session.id] = int(ticket.priority)
         await self._yield_pending_question(session.id)
         if self._orchestrator is not None:
+            excerpt = str(
+                content if notify_content is None else notify_content
+            )[:_NOTIFY_EXCERPT_CHARS]
             try:
                 await self._orchestrator.notify(
-                    f"用户在工单「{ticket.title}」里说：{str(content)[:_NOTIFY_EXCERPT_CHARS]}",
+                    f"用户在工单「{ticket.title}」里说：{excerpt}",
                     passive=True,
                     ref_id=f"ticket:{ticket.id}:msg:{seq}",
                     ticket_id=ticket.id,

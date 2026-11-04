@@ -44,6 +44,7 @@ from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRe
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import AgentSettings, LLMSettings, Settings, WorkspaceSettings
 from tests.fakes.fake_llm import FakeLLM, parse_events, text_response, tool_response
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 GOLDEN_PATH = Path(__file__).parent / "golden" / "legacy_parity.json"
 REGENERATE_ENV = "MAA_REGENERATE_PARITY"
@@ -302,7 +303,7 @@ class _Harness:
         assert runtime is not None
         assert await runtime.acquire_session(SESSION_ID)
         frames: list[str] = []
-        async for frame in runtime.stream_message(SESSION_ID, content, None):
+        async for frame in stream_legacy_turn(runtime, SESSION_ID, content, None):
             frames.append(frame)
             if frame.startswith(":"):
                 continue

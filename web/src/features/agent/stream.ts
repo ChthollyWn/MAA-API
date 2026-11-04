@@ -33,16 +33,22 @@ function toNetworkError(error: unknown, signal: AbortSignal): unknown {
   return new ApiError({ message: NETWORK_ERROR_MESSAGE, cause: error })
 }
 
+/** `detach`：服务端已受理但本端不读流（排队消息），拿到 2xx 后取消响应体。 */
+export interface StreamSseOptions {
+  detach?: boolean
+}
+
 /**
- * 发送一条消息并逐个回调 SSE 事件。非 2xx 抛出带错误码的 `ApiError`。
+ * 向 `path` 发一条 JSON 请求体并逐个回调 SSE 事件。非 2xx 抛出带错误码的 `ApiError`。
  * 断开连接不会停止服务端这一轮（后台 producer 会继续），所以这里只负责读流。
  * 连接层失败（fetch 被拒或读流中断）也抛 `ApiError`，把浏览器自己的错误原文挡在界面之外。
  */
-export async function streamMessage(
-  sessionId: string,
-  content: string,
+export async function streamSse(
+  path: string,
+  body: unknown,
   signal: AbortSignal,
   onEvent: (name: string, data: unknown) => void,
+  options: StreamSseOptions = {},
 ): Promise<void> {
   const headers = new Headers({
     Accept: 'text/event-stream',
@@ -53,11 +59,11 @@ export async function streamMessage(
   if (token) headers.set('X-Token', token)
   let response: Response
   try {
-    response = await globalThis.fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages`, {
+    response = await globalThis.fetch(path, {
       method: 'POST',
       credentials: 'same-origin',
       headers,
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(body),
       signal,
     })
   } catch (error) {
@@ -65,9 +71,13 @@ export async function streamMessage(
   }
   if (!response.ok) {
     if (response.status === 401) useAuth.getState().onUnauthorized()
-    let body: unknown
-    try { body = await response.json() as unknown } catch { body = null }
-    throw toApiError(body, response)
+    let errorBody: unknown
+    try { errorBody = await response.json() as unknown } catch { errorBody = null }
+    throw toApiError(errorBody, response)
+  }
+  if (options.detach) {
+    await response.body?.cancel()
+    return
   }
   if (!response.body) throw new Error('服务没有返回可读取的 SSE 消息流。')
   try {

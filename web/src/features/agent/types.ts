@@ -19,6 +19,10 @@ export interface AgentSession {
   updated_at?: string | null
   last_message_at?: string | null
   incident_key?: string | null
+  /** 会话种类（v3）：`chat`、`incident`、`orchestrator`、`worker`、`subagent` 等。 */
+  kind?: string | null
+  /** 总控重新开始时旧会话的归档时间；有值即「已归档的总控」。 */
+  archived_at?: string | null
 }
 
 export interface AgentToolCall {
@@ -102,45 +106,6 @@ export interface ToolTrace {
   result?: unknown
   confirmationId?: string
   auditId?: number
-}
-
-/** 本轮内容按到达顺序排列：一段回复文字或一次工具调用。 */
-export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tool'; toolCallId: string }
-
-/** 正在进行（或刚结束、尚未被历史取代）的一轮对话的实时副本。 */
-export interface StreamingTurn {
-  /** 这一轮属于哪个会话（M59）：URL 后退/前进切换会话时，别的会话的副本不能继续渲染。 */
-  sessionId: string
-  userText: string
-  assistantText: string
-  tools: ToolTrace[]
-  segments: TurnSegment[]
-  pendingConfirmation: string | null
-  /** 本轮正挂着、等用户选择的提问；同一轮不会有第二个（后端是阻塞等待）。 */
-  pendingQuestion: AgentQuestionPrompt | null
-  running: boolean
-  /**
-   * 本轮开始前的历史消息 id 上界（M59）。本轮已落库的消息 id 都大于它；实时副本
-   * 在屏时，历史里这些消息不再渲染，否则直播中任意一次历史刷新都会让本轮重复。
-   * 发送时先记下当时历史窗口的最后一条，服务端 `message_start` 带回用户消息 id 后
-   * 收敛成它的前一条（更精确，且不依赖发送瞬间历史是否已加载完）。
-   */
-  baseMessageId: number
-  /**
-   * 本轮已被中断（M22）：本地点了「停止」，或收到 SSE `interrupted`（别的标签页/
-   * 设备停的）。它不是失败——状态行只说「本轮已停止」，不弹错误。
-   */
-  interrupted?: boolean
-  error: string | null
-}
-
-export interface CapabilityResult {
-  model?: string
-  ready?: boolean
-  tool_calling?: boolean
-  vision?: boolean
-  status?: string
-  degraded_reason?: string | null
 }
 
 export interface PageEnvelope<T> {

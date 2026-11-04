@@ -40,6 +40,7 @@ from maa_api.domain.enums import (
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import BudgetSettings, LLMSettings, Settings
 from tests.fakes.fake_llm import FakeLLM, parse_events
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 MODEL = "budget-model"
 BASE_URL = "https://llm.test/v1"
@@ -199,8 +200,8 @@ def test_run_limit_stops_before_the_next_call() -> None:
             assert await runtime.acquire_session("session-budget") is True
             chunks = [
                 chunk
-                async for chunk in runtime.stream_message(
-                    "session-budget", "早上好", request
+                async for chunk in stream_legacy_turn(
+                    runtime, "session-budget", "早上好", request
                 )
             ]
             runtime.release_session("session-budget")

@@ -128,14 +128,12 @@ function installApi(options: ApiOptions = {}) {
       }
       return json({ items: [...values.values()], total: values.size })
     }
-    if (url.pathname === '/api/agent/capabilities/check') {
+    if (url.pathname === '/api/agent/model-profiles/default/probe') {
       return json({
-        model: 'deepseek-flash',
-        tool_calling: true,
-        vision: false,
-        ready: true,
-        status: 'vision_degraded',
-        degraded_reason: '模型暂不支持图片输入',
+        supports_tools: true,
+        supports_vision: false,
+        supports_json_schema: null,
+        latency_ms: 320,
       })
     }
     if (url.pathname === '/api/system/health') return json({ status: 'ok', auth_enabled: true, version: 'test' })
@@ -354,8 +352,9 @@ describe('schema-driven sections', () => {
 
     expect(await screen.findByText('工具调用：可用')).toBeInTheDocument()
     expect(screen.getByText('视觉输入：不可用')).toBeInTheDocument()
-    expect(screen.getByText('模型暂不支持图片输入')).toBeInTheDocument()
-    expect(api.requests.some((request) => request.method === 'POST' && request.path === '/api/agent/capabilities/check')).toBe(true)
+    expect(screen.getByText('结构化输出：未知')).toBeInTheDocument()
+    expect(screen.getByText('响应 320 ms')).toBeInTheDocument()
+    expect(api.requests.some((request) => request.method === 'POST' && request.path === '/api/agent/model-profiles/default/probe')).toBe(true)
   })
 
   it('shows a retryable error when the settings cannot be read', async () => {
@@ -438,7 +437,7 @@ describe('schema-driven sections', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('已保存但生效失败')
     expect(alert).toHaveTextContent('配置已保留，请检查设备连接或相关进程。')
-    expect(within(alert).getByRole('link', { name: '查看设备状态' })).toHaveAttribute('href', '/')
+    expect(within(alert).getByRole('link', { name: '查看设备状态' })).toHaveAttribute('href', '/more/status')
     await waitFor(() => expect(screen.queryByText('有 1 项未保存的更改')).not.toBeInTheDocument())
     expect(screen.getByLabelText('设备地址')).toHaveValue('10.0.0.9:5555')
   })

@@ -23,10 +23,12 @@ Chat Completions（docs/04 §5.8），重建上下文只需要 ``SELECT`` 后改
 from collections.abc import Collection
 from datetime import datetime
 
-from sqlalchemy import and_, case, delete, func, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from maa_api.db.models import (
     AgentIdempotency,
+    AgentInbox,
     AgentMessage,
     AgentRun,
     AgentSession,
@@ -113,9 +115,13 @@ class AgentSessionRepository(BaseRepository):
         *,
         page: int = 1,
         size: int = 20,
-        kinds: Collection[str] | None = None,
+        legacy_only: bool = False,
     ) -> Page[AgentSession]:
-        """分页读会话；``kinds`` 给定时只列这些种类（v2 路由按 chat/incident 过滤）。"""
+        """分页读会话；``legacy_only=True`` 时只列旧会话（M72 规格 §4.2）。
+
+        旧会话是 chat、incident 两类，加上已归档的 orchestrator（``archived_at``
+        非空）。排序不变；计数语句带同样的条件，``total`` 是过滤后的总数。
+        """
         stmt = select(AgentSession).order_by(
             AgentSession.last_message_at.is_(None).asc(),
             AgentSession.last_message_at.desc(),
@@ -123,10 +129,16 @@ class AgentSessionRepository(BaseRepository):
             AgentSession.id.desc(),
         )
         count_stmt = select(func.count()).select_from(AgentSession)
-        if kinds is not None:
-            allowed = [str(kind) for kind in kinds]
-            stmt = stmt.where(AgentSession.kind.in_(allowed))
-            count_stmt = count_stmt.where(AgentSession.kind.in_(allowed))
+        if legacy_only:
+            conditions = or_(
+                AgentSession.kind.in_(["chat", "incident"]),
+                and_(
+                    AgentSession.kind == "orchestrator",
+                    AgentSession.archived_at.is_not(None),
+                ),
+            )
+            stmt = stmt.where(conditions)
+            count_stmt = count_stmt.where(conditions)
         return await self.paginate(stmt, count_stmt, page=page, size=size)
 
     async def delete(self, session_id: str) -> bool:
@@ -189,6 +201,27 @@ class AgentSessionRepository(BaseRepository):
             )
         )
         return result.rowcount > 0
+
+
+async def load_inbox_meta(
+    session: AsyncSession, inbox_ids: Collection[int]
+) -> dict[int, tuple[str, str | None]]:
+    """收件箱项 id → ``(kind, thread_key)``，供消息 wire 填收件箱归属字段。
+
+    空集合直接返回 ``{}``，不发查询（M72 规格 §4.2）。
+    """
+    ids = {int(inbox_id) for inbox_id in inbox_ids}
+    if not ids:
+        return {}
+    rows = await session.execute(
+        select(AgentInbox.id, AgentInbox.kind, AgentInbox.thread_key).where(
+            AgentInbox.id.in_(ids)
+        )
+    )
+    return {
+        int(inbox_id): (str(kind), thread_key)
+        for inbox_id, kind, thread_key in rows.all()
+    }
 
 
 class AgentIdempotencyRepository(BaseRepository):

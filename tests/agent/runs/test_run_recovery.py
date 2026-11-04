@@ -36,6 +36,7 @@ from maa_api.db.session import make_engine
 from maa_api.domain.enums import AgentRunKind, AgentRunStatus
 from maa_api.settings import AgentSettings, LLMSettings, Settings
 from tests.fakes.fake_llm import FakeLLM, text_response
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 CURRENT_BOOT = "boot-current"
 PREVIOUS_BOOT = "boot-previous"
@@ -456,7 +457,7 @@ def test_recovered_session_next_turn_sends_valid_history() -> None:
             assert await runtime.acquire_session(session_id) is True
             chunks = [
                 chunk
-                async for chunk in runtime.stream_message(session_id, "继续", None)
+                async for chunk in stream_legacy_turn(runtime, session_id, "继续", None)
             ]
             assert any("event: message_end" in chunk for chunk in chunks)
             assert len(llm.turns) == 1

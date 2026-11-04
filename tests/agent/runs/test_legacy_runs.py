@@ -1,8 +1,8 @@
 """v2 门面接入持久化运行的用例（M66，docs/v3/specs/m66-durable-runs §4.2.4、§6）。
 
-一个用例一个库：内存库 + ``StaticPool`` 覆盖绝大多数路径，需要真实并发（HTTP 409）
-的用例改走文件库。v2 的 ``tests/agent/test_runtime.py`` 与 ``test_incidents.py``
-一个断言都不改；这里从外部观察运行行、消息的 ``run_id`` 与终态。
+一个用例一个库：内存库 + ``StaticPool`` 覆盖绝大多数路径，需要真实并发（同一会话
+第二轮被拒）的用例改走文件库。v2 的 ``tests/agent/test_runtime.py`` 与
+``test_incidents.py`` 一个断言都不改；这里从外部观察运行行、消息的 ``run_id`` 与终态。
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -30,7 +29,6 @@ from maa_api.agent.runs.recovery import RECOVERY_FINISH_REASON
 from maa_api.agent.runtime import AgentRuntime
 from maa_api.agent.specs.registry import builtin_spec
 from maa_api.agent.tools.raw import ClickParams
-from maa_api.api.errors import register_exception_handlers
 from maa_api.db import session as db_session
 from maa_api.db.models import (
     AgentMessage,
@@ -47,7 +45,7 @@ from maa_api.db.repositories.agent import (
 )
 from maa_api.domain.enums import AgentRunKind, AgentRunStatus, AgentSessionKind
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.settings import LLMSettings, Settings, set_settings
+from maa_api.settings import LLMSettings, Settings
 from tests.fakes.fake_llm import (
     FakeLLM,
     parse_events,
@@ -55,6 +53,7 @@ from tests.fakes.fake_llm import (
     tool_call,
     tool_response,
 )
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 MODEL = "legacy-model"
 BASE_URL = "https://llm.test/v1"
@@ -231,7 +230,7 @@ def test_chat_turn_records_one_succeeded_legacy_run() -> None:
         try:
             assert await harness.runtime.acquire_session(harness.session_id) is True
             await _drain(
-                harness.runtime.stream_message(harness.session_id, "早上好", None)
+                stream_legacy_turn(harness.runtime, harness.session_id, "早上好", None)
             )
             run = await _single_run(harness)
             assert run.kind == AgentRunKind.LEGACY_TURN
@@ -268,7 +267,7 @@ def test_turn_messages_carry_run_id_but_user_message_does_not() -> None:
         try:
             assert await harness.runtime.acquire_session(harness.session_id) is True
             await _drain(
-                harness.runtime.stream_message(harness.session_id, "查一下状态", None)
+                stream_legacy_turn(harness.runtime, harness.session_id, "查一下状态", None)
             )
             run = await _single_run(harness)
             messages = await _messages(harness)
@@ -349,7 +348,7 @@ def test_turn_failure_records_failed_run_with_error_code() -> None:
         try:
             assert await harness.runtime.acquire_session(harness.session_id) is True
             await _drain(
-                harness.runtime.stream_message(harness.session_id, "你好", None)
+                stream_legacy_turn(harness.runtime, harness.session_id, "你好", None)
             )
             run = await _single_run(harness)
             assert run.status == AgentRunStatus.FAILED
@@ -377,7 +376,7 @@ def test_stuck_loop_records_failed_run() -> None:
         try:
             assert await harness.runtime.acquire_session(harness.session_id) is True
             chunks = await _drain(
-                harness.runtime.stream_message(harness.session_id, "继续", None)
+                stream_legacy_turn(harness.runtime, harness.session_id, "继续", None)
             )
             events = parse_events(chunks)
             assert events[-1][0] == "message_end"
@@ -436,8 +435,8 @@ def test_interrupt_records_interrupted_run_and_next_turn_starts(tmp_path) -> Non
         harness.runtime.client_factory = lambda _settings: llm
         try:
             assert await harness.runtime.acquire_session(harness.session_id) is True
-            stream = harness.runtime.stream_message(
-                harness.session_id, "帮我看看为什么失败", None
+            stream = stream_legacy_turn(
+                harness.runtime, harness.session_id, "帮我看看为什么失败", None
             )
             await _next_event(stream, "text_delta")
             await asyncio.wait_for(llm.blocked.wait(), timeout=5)
@@ -453,8 +452,8 @@ def test_interrupt_records_interrupted_run_and_next_turn_starts(tmp_path) -> Non
             assert await harness.runtime.acquire_session(harness.session_id) is True
             await asyncio.wait_for(
                 _drain(
-                    harness.runtime.stream_message(
-                        harness.session_id, "继续", None
+                    stream_legacy_turn(
+                        harness.runtime, harness.session_id, "继续", None
                     )
                 ),
                 timeout=5,
@@ -524,8 +523,8 @@ def test_confirmation_wait_sets_waiting_human_then_running() -> None:
         harness.runtime.client_factory = lambda _settings: llm
         try:
             assert await harness.runtime.acquire_session(harness.session_id) is True
-            stream = harness.runtime.stream_message(
-                harness.session_id, "帮我点一下", None
+            stream = stream_legacy_turn(
+                harness.runtime, harness.session_id, "帮我点一下", None
             )
             required = await _next_event(stream, "confirmation_required")
             run = await _single_run(harness)
@@ -584,8 +583,8 @@ class _BusyLLM:
         }
 
 
-def test_second_message_while_turn_running_gets_409(tmp_path) -> None:
-    """同一会话并发两条消息：第二条 409 AGENT_SESSION_BUSY，库里只有一条运行。"""
+def test_second_message_while_turn_running_is_rejected(tmp_path) -> None:
+    """同一会话并发两条消息：第二条拿到 AGENT_SESSION_BUSY，库里只有一条运行。"""
 
     async def scenario():
         harness = await _harness(
@@ -593,54 +592,35 @@ def test_second_message_while_turn_running_gets_409(tmp_path) -> None:
         )
         llm = _BusyLLM()
         harness.runtime.client_factory = lambda _settings: llm
-
-        from fastapi import FastAPI
-
-        from maa_api.api.routers import agent
-
-        app = FastAPI()
-        register_exception_handlers(app)
-        app.include_router(agent.router)
-        app.state.agent_runtime = harness.runtime
-        app.state.confirmation_service = harness.confirmations
-        app.state.session_factory = harness.factory
-        transport = httpx.ASGITransport(app=app)
-        set_settings(Settings())
         try:
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as client:
+            assert await harness.runtime.acquire_session(harness.session_id) is True
 
-                async def first_turn() -> str:
-                    async with client.stream(
-                        "POST",
-                        f"/api/agent/sessions/{harness.session_id}/messages",
-                        json={"content": "第一条"},
-                    ) as response:
-                        assert response.status_code == 200
-                        return "".join(
-                            [part async for part in response.aiter_text()]
-                        )
-
-                task = asyncio.create_task(first_turn())
-                await asyncio.wait_for(llm.blocked.wait(), timeout=5)
-                while not harness.runtime.turn_running(harness.session_id):
-                    await asyncio.sleep(0.01)
-
-                second = await client.post(
-                    f"/api/agent/sessions/{harness.session_id}/messages",
-                    json={"content": "第二条"},
+            async def first_turn() -> list[str]:
+                return await _drain(
+                    stream_legacy_turn(
+                        harness.runtime, harness.session_id, "第一条", None
+                    )
                 )
-                assert second.status_code == 409
-                assert second.json()["error"]["code"] == "AGENT_SESSION_BUSY"
 
-                llm.release.set()
-                body = await asyncio.wait_for(task, timeout=10)
-                assert "event: message_end" in body
+            task = asyncio.create_task(first_turn())
+            await asyncio.wait_for(llm.blocked.wait(), timeout=5)
+            while not harness.runtime.turn_running(harness.session_id):
+                await asyncio.sleep(0.01)
 
+            second = await _drain(
+                stream_legacy_turn(
+                    harness.runtime, harness.session_id, "第二条", None
+                )
+            )
+            assert len(second) == 1
+            assert "event: error" in second[0]
+            assert "AGENT_SESSION_BUSY" in second[0]
+
+            llm.release.set()
+            body = "".join(await asyncio.wait_for(task, timeout=10))
+            assert "event: message_end" in body
             assert len(await _runs(harness)) == 1
         finally:
-            set_settings(None)
             await harness.close()
 
     asyncio.run(scenario())
@@ -723,7 +703,7 @@ def test_legacy_sse_events_are_unchanged() -> None:
         try:
             assert await harness.runtime.acquire_session(harness.session_id) is True
             chunks = await _drain(
-                harness.runtime.stream_message(harness.session_id, "早上好", None)
+                stream_legacy_turn(harness.runtime, harness.session_id, "早上好", None)
             )
             events = parse_events(chunks)
             assert [name for name, _data in events] == [
@@ -756,7 +736,7 @@ def test_legacy_sse_events_are_unchanged() -> None:
         try:
             assert await harness.runtime.acquire_session(harness.session_id) is True
             chunks = await _drain(
-                harness.runtime.stream_message(harness.session_id, "查一下", None)
+                stream_legacy_turn(harness.runtime, harness.session_id, "查一下", None)
             )
             events = parse_events(chunks)
             starts = [data for name, data in events if name == "tool_start"]

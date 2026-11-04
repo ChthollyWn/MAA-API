@@ -65,14 +65,14 @@ describe('App shell navigation', () => {
     renderWithRouter(<AppShell />)
 
     const navigation = screen.getByRole('navigation', { name: '主导航' })
-    const expected = { 首页: '/', 任务: '/tasks', 日志: '/logs', Agent: '/agent', 更多: '/more' }
+    const expected = { 指挥台: '/', 工单: '/tickets', 任务: '/tasks', 日志: '/logs', 更多: '/more' }
     for (const [label, href] of Object.entries(expected)) {
       expect(within(navigation).getByRole('link', { name: label })).toHaveAttribute('href', href)
     }
     expect(within(navigation).getAllByRole('link')).toHaveLength(5)
     expect(navigation.className).toContain('pb-safe')
     expect(screen.getByRole('main').className).toContain('var(--nav-offset)')
-    expect(within(navigation).getByRole('link', { name: '首页' })).toHaveAttribute('aria-current', 'page')
+    expect(within(navigation).getByRole('link', { name: '指挥台' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('switches to a sidebar that also lists the secondary destinations on desktop', () => {
@@ -82,7 +82,7 @@ describe('App shell navigation', () => {
     const navigations = screen.getAllByRole('navigation', { name: '主导航' })
     expect(navigations).toHaveLength(1)
     const sidebar = navigations[0]!
-    for (const label of ['首页', '任务', '日志', 'Agent', '更多', '热更新', 'Agent 审计', 'API 调试台', '设置']) {
+    for (const label of ['指挥台', '工单', '任务', '日志', '更多', '代理定义', '旧会话', '运行状态', '热更新', 'Agent 审计', 'API 调试台', '设置']) {
       expect(within(sidebar).getByRole('link', { name: label })).toBeInTheDocument()
     }
     expect(screen.getByRole('link', { name: 'MAA-API 首页' })).toHaveAttribute('href', '/')

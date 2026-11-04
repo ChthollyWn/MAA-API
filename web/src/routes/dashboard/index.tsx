@@ -10,7 +10,7 @@ export default function DashboardPage() {
   const dashboard = useDashboard()
 
   return (
-    <Page title="首页" width="wide" hideConfirmationEntry>
+    <Page title="运行状态" back="/more" width="wide" hideConfirmationEntry>
       <div className="grid gap-5 pb-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start lg:gap-6">
         <div className="space-y-5">
           <PendingBanner />

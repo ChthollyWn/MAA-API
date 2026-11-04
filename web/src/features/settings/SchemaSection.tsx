@@ -36,8 +36,8 @@ function isApplyFailure(error: unknown): boolean {
 
 function SectionNotice({ notice, sectionId }: { notice: Notice; sectionId: SettingsSection['id'] }) {
   if (notice.kind === 'apply-failed') {
-    // 只有设备相关的设置会触发热生效；已经在设备分区时引导去首页看设备状态与重连。
-    const guide = sectionId === 'device' ? { to: '/', label: '查看设备状态' } : { to: sectionPath('device'), label: '前往设备设置' }
+    // 只有设备相关的设置会触发热生效；已经在设备分区时引导去「运行状态」看设备与重连。
+    const guide = sectionId === 'device' ? { to: '/more/status', label: '查看设备状态' } : { to: sectionPath('device'), label: '前往设备设置' }
     return (
       <InlineAlert
         tone="warning"
