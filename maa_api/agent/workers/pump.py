@@ -34,6 +34,7 @@ from maa_api.db.repositories.agent import (
     AgentMessageRepository,
     AgentSessionRepository,
 )
+from maa_api.domain.enums import AgentRunStatus
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import get_settings
 
@@ -454,15 +455,72 @@ async def run_agent(
         registry=registry,
         cost_ledger=getattr(app_state, "cost_ledger", None),
     )
+    run_service = getattr(app_state, "run_service", None)
+    # 子代理运行由 DelegationService 在 finalize_output（可能含结构化重试）之后写
+    # 终态；总控与 Worker 的运行没有别的所有者，由这里统一落库。
+    owns_run = parent is None
     try:
-        return await loop.run(
+        outcome = await loop.run(
             ctx,
             run=run,
             inbox_items=list(inbox_items),
             cancel_event=cancel_event,
         )
+    except asyncio.CancelledError:
+        # 中断 / 取消时 AgentLoop 已发 run_end 后原样抛出；运行终态由调用方写
+        # （05 §2.3、M70 §4.5.7 的「运行终态由调用方按 cancelled 写」）。
+        if owns_run and cancel_event is not None and cancel_event.is_set():
+            reason = cancel_reason()
+            await _finish_run(
+                run_service,
+                run.id,
+                status=(
+                    AgentRunStatus.CANCELLED
+                    if reason == "cancelled"
+                    else AgentRunStatus.INTERRUPTED
+                ),
+                finish_reason=reason,
+            )
+        raise
+    else:
+        # 成功路径此前没有任何调用方写终态，导致每条 v3 运行都停在 running，
+        # 服务的 finally 只能按 failed 收尾。总控与 Worker 由统一入口在这里落库。
+        if owns_run:
+            await _finish_run(
+                run_service,
+                run.id,
+                status=_outcome_status(outcome.status),
+                finish_reason=outcome.finish_reason,
+            )
+        return outcome
     finally:
         await handle.aclose()
+
+
+def _outcome_status(status: str) -> AgentRunStatus:
+    """``RunOutcome.status`` 的字符串到运行行状态；未知值按失败处理。"""
+    try:
+        return AgentRunStatus(status)
+    except ValueError:
+        return AgentRunStatus.FAILED
+
+
+async def _finish_run(
+    run_service: Any,
+    run_id: str,
+    *,
+    status: AgentRunStatus,
+    finish_reason: str,
+) -> None:
+    """写运行终态；没装配运行服务（单元测试的轻量 app）时什么都不做。"""
+    if run_service is None:
+        return
+    try:
+        await run_service.finish(
+            run_id, status=status, finish_reason=finish_reason
+        )
+    except Exception:  # noqa: BLE001 - 终态是观测信息，写失败不盖过本轮结果
+        logger.warning("Agent 运行终态写入失败：run=%s", run_id, exc_info=True)
 
 
 def _allowed_tools(runtime, registry, spec, session_id: str) -> set[str]:

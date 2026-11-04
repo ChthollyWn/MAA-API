@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 from sqlalchemy import select, update
 
-from maa_api.agent.harness.context import RunContext, RunOutcome
+from maa_api.agent.harness.context import CURRENT_RUN, RunContext, RunOutcome
 from maa_api.agent.harness.events import RunEvent, RunEventBus
 from maa_api.agent.specs.registry import AgentSpecError
 from maa_api.agent.tickets.inbox import InboxService
@@ -913,7 +913,7 @@ class WorkerService:
         return pump
 
     async def _close_pump(self, session_id: str) -> None:
-        pump = self._pumps.pop(session_id, None)
+        pump = self._pumps.get(session_id)
         if pump is None:
             return
         current = asyncio.current_task()
@@ -922,8 +922,46 @@ class WorkerService:
             # 一轮 Worker 在 report 的 handler 里收尾时，当前任务就是泵的这一轮；
             # 在这里 cancel 会把自己也取消掉。移除引用即可：这一轮返回后泵循环
             # 发现没有工作会自己退出，服务关闭时也不需要再关一次。
+            self._pumps.pop(session_id, None)
             return
+        run = CURRENT_RUN.get()
+        if (
+            turn_task is not None
+            and not turn_task.done()
+            and run is not None
+            and run.session_id == session_id
+        ):
+            # report 在 toolexec 的 gather 子任务里结束工单：它不是泵的这一轮，
+            # 但这一轮正在等它。直接 cancel 会把正在收尾的运行打断（实测终态
+            # 从 report_submitted 变成 failed/error），等这一轮结束再关泵。
+            self._schedule_pump_close(session_id)
+            return
+        self._pumps.pop(session_id, None)
         await pump.close()
+
+    def _schedule_pump_close(self, session_id: str) -> None:
+        try:
+            task = asyncio.create_task(
+                self._close_pump_after_turn(session_id),
+                name=f"close-pump-{session_id}",
+            )
+        except RuntimeError:
+            logger.warning("没有事件循环，泵 %s 不能延后关闭", session_id)
+            return
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _close_pump_after_turn(self, session_id: str) -> None:
+        """等当前一轮真正结束后再关闭并移除泵（终态 report 的收尾路径）。"""
+        pump = self._pumps.get(session_id)
+        if pump is None:
+            return
+        turn_task = getattr(pump, "_turn_task", None)
+        if turn_task is not None and not turn_task.done():
+            await asyncio.wait({turn_task})
+        pump = self._pumps.pop(session_id, None)
+        if pump is not None:
+            await pump.close()
 
     async def _abort_calls(self, session_id: str) -> None:
         """撤回该 Worker 会话与 active 子代理会话的挂起确认与提问（§4.5.1）。"""
