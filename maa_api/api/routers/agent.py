@@ -407,6 +407,10 @@ def audit_wire(audit: AgentAudit) -> dict[str, Any]:
         "confirmation_id": audit.confirmation_id,
         "authorized_by_id": audit.authorized_by_id,
         "duration_ms": audit.duration_ms,
+        # M71 §4.3：审计归属三列；REST 调用与不经代理运行的调用为 null。
+        "run_id": audit.run_id,
+        "ticket_id": audit.ticket_id,
+        "agent_name": audit.agent_name,
         "created_at": _iso(audit.created_at),
     }
 
@@ -947,6 +951,7 @@ async def list_audits(
     audit_status: AuditStatus | None = Query(default=None, alias="status"),
     risk_level: RiskLevel | None = Query(default=None),
     since: datetime | None = Query(default=None),
+    ticket_id: str | None = Query(default=None),
     page: int = Query(default=1),
     size: int = Query(default=20),
     session: AsyncSession = Depends(get_session),
@@ -958,6 +963,7 @@ async def list_audits(
         status=audit_status,
         risk_level=risk_level,
         since=since,
+        ticket_id=ticket_id,
         page=page,
         size=size,
     )

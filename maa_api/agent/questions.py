@@ -29,6 +29,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.origin import origin_wire, ticket_titles
+from maa_api.agent.registry import ToolOrigin
 from maa_api.db.models import AgentAudit, AgentQuestion, utcnow
 from maa_api.db.repositories.audit import AuditRepository
 from maa_api.db.repositories.question import AgentQuestionRepository
@@ -86,6 +88,7 @@ class QuestionService:
         options: Sequence[Any],
         multiple: bool,
         request_id: str | None = None,
+        origin: ToolOrigin | None = None,
     ) -> tuple[dict[str, Any], int]:
         """落一条提问与它对应的审计行，返回 ``(wire, audit_id)``。
 
@@ -93,10 +96,14 @@ class QuestionService:
         任何东西（没有风险等级），但「问过什么、用户答了什么」必须和普通工具调用一样
         可审计。答案落定后由 :meth:`answer` / :meth:`skip` / :meth:`expire_due` 把这一
         行推到终态，因此不存在「提问已 answered 而审计还 pending」的中间态。
+        ``origin`` 是发起提问的代理运行（M71 §4.2）；REST 直接提问时为空。
         """
         now = self.clock()
         expires_at = now + timedelta(seconds=self.timeout_seconds)
         normalized = _normalize_options(options)
+        origin_run_id = origin.run_id if origin is not None else None
+        origin_ticket_id = origin.ticket_id if origin is not None else None
+        origin_agent = origin.agent if origin is not None else None
         async with self.session_factory() as session:
             row = await AgentQuestionRepository(session).create(
                 AgentQuestion(
@@ -108,6 +115,9 @@ class QuestionService:
                     status=QuestionStatus.PENDING,
                     expires_at=expires_at,
                     created_at=now,
+                    origin_run_id=origin_run_id,
+                    origin_ticket_id=origin_ticket_id,
+                    origin_agent=origin_agent,
                 )
             )
             audit = await AuditRepository(session).create(
@@ -123,12 +133,16 @@ class QuestionService:
                     status=AuditStatus.PENDING,
                     risk_level=RiskLevel.NONE,
                     session_id=session_id,
+                    run_id=origin_run_id,
+                    ticket_id=origin_ticket_id,
+                    agent_name=origin_agent,
                     created_at=now,
                 )
             )
             row.audit_id = audit.id
             await session.flush()
-            wire = self._wire(row)
+            titles = await ticket_titles(session, [origin_ticket_id])
+            wire = self._wire(row, titles)
             audit_id = int(audit.id)
             await session.commit()
         self._broadcast("question_request", dict(wire))
@@ -140,7 +154,8 @@ class QuestionService:
             row = await AgentQuestionRepository(session).get(question_id)
             if row is None:
                 raise AppError(ErrorCode.QUESTION_NOT_FOUND, "提问不存在")
-            return self._wire(row)
+            titles = await ticket_titles(session, [row.origin_ticket_id])
+            return self._wire(row, titles)
 
     async def list(
         self,
@@ -155,8 +170,11 @@ class QuestionService:
             result = await AgentQuestionRepository(session).list(
                 session_id=session_id, status=status, page=page, size=size
             )
+            titles = await ticket_titles(
+                session, [row.origin_ticket_id for row in result.items]
+            )
             return {
-                "items": [self._wire(row) for row in result.items],
+                "items": [self._wire(row, titles) for row in result.items],
                 "total": result.total,
                 "page": result.page,
                 "size": result.size,
@@ -173,7 +191,7 @@ class QuestionService:
         """
         row = await self._load(question_id)
         if row.status != QuestionStatus.PENDING:
-            return self._wire(row)
+            return await self.get(question_id)
         deadline = _as_utc(row.expires_at)
         event = self._resolution_events.get(question_id)
         if event is None:
@@ -194,7 +212,7 @@ class QuestionService:
                     break
                 current = await self._load(question_id)
                 if current.status != QuestionStatus.PENDING:
-                    return self._wire(current)
+                    return await self.get(question_id)
             # 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
             expired = await self._expire_now(question_id)
             if expired is not None:
@@ -304,8 +322,11 @@ class QuestionService:
                     AuditStatus.REJECTED,
                     result_summary=CANCELLED_SUMMARY,
                 )
+            titles = await ticket_titles(
+                session, [row.origin_ticket_id for row in rows]
+            )
             await session.commit()
-            wires = [self._wire(row) for row in rows]
+            wires = [self._wire(row, titles) for row in rows]
         # 广播与唤醒放在事务提交之后：等待方被唤醒后会立刻重读库，此时终态必须已经可见。
         for wire in wires:
             self._broadcast_resolved(wire, "cancelled")
@@ -339,8 +360,11 @@ class QuestionService:
                     error_code=str(ErrorCode.QUESTION_EXPIRED),
                     result_summary=EXPIRED_SUMMARY,
                 )
+            titles = await ticket_titles(
+                session, [row.origin_ticket_id for row in rows]
+            )
             await session.commit()
-            wires = [self._wire(row) for row in rows]
+            wires = [self._wire(row, titles) for row in rows]
         self._broadcast_expired(wires)
         return ids
 
@@ -427,8 +451,11 @@ class QuestionService:
                     error_code=str(ErrorCode.QUESTION_EXPIRED),
                     result_summary=summary,
                 )
+            titles = await ticket_titles(
+                session, [row.origin_ticket_id for row in rows]
+            )
             await session.commit()
-            return [self._wire(row) for row in rows]
+            return [self._wire(row, titles) for row in rows]
 
     async def _finish_audit(
         self,
@@ -469,8 +496,10 @@ class QuestionService:
             self._broadcast_resolved(wire, "expired")
 
     @staticmethod
-    def _wire(row: AgentQuestion) -> dict[str, Any]:
-        """REST 与 SSE 共用的提问形状（规格 §3.3）。"""
+    def _wire(
+        row: AgentQuestion, titles: Mapping[str, str] | None = None
+    ) -> dict[str, Any]:
+        """REST 与 SSE 共用的提问形状（规格 §3.3；origin 自 M71 §4.2）。"""
         return {
             "question_id": row.id,
             "session_id": row.session_id,
@@ -491,6 +520,12 @@ class QuestionService:
             "expires_at": _wire_time(row.expires_at),
             "answered_at": _wire_time(row.answered_at),
             "answered_by": row.answered_by,
+            "origin": origin_wire(
+                run_id=row.origin_run_id,
+                ticket_id=row.origin_ticket_id,
+                agent=row.origin_agent,
+                titles=titles or {},
+            ),
         }
 
 
