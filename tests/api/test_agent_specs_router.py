@@ -56,7 +56,7 @@ SPEC_NAMES = [
     "verifier",
 ]
 #: 各定义的版本号；M71 给 ``general`` 加了设备租约工具与通用 Worker 提示，升到 2。
-EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {"general": 2}
+EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {"general": 2, "orchestrator": 2}
 
 
 def _specs_client(make_client, *, with_registry: bool = True):
