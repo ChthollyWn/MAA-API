@@ -1157,7 +1157,7 @@ def test_incident_allowed_action_still_uses_confirmation_service(tmp_path):
             )
             # 已知 flake（M68 记录，docs/v3/13 §8.26；M71 §8.44 再加固）：整包满载下
             # 调度停顿可能超过 15 秒，单跑与整文件重跑均通过；放宽到 30 秒，断言不变。
-            await asyncio.wait_for(run, timeout=30)
+            await asyncio.wait_for(run, timeout=60)
         finally:
             if "run" in locals() and not run.done():
                 run.cancel()
