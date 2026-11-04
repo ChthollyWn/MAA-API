@@ -16,8 +16,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from maa_api.agent.runs import RunNode
-from maa_api.db.models import AgentMessage, AgentRun
-from maa_api.domain.enums import AgentRunKind, AgentRunStatus, InboxKind
+from maa_api.db.models import AgentMessage, AgentRun, RunPlan
+from maa_api.domain.enums import (
+    AgentRunKind,
+    AgentRunStatus,
+    InboxKind,
+    PlanItemStatus,
+    PlanStatus,
+)
 
 __all__ = [
     "AgentMessageCreate",
@@ -26,12 +32,16 @@ __all__ = [
     "Mention",
     "OrchestratorInterruptResult",
     "OrchestratorStateModel",
+    "PlanApprovalRequest",
+    "PlanItemOut",
+    "PlanOut",
     "RunDetail",
     "RunPage",
     "RunSummary",
     "TicketCancelRequest",
     "TicketInterruptResult",
     "agent_message_item",
+    "plan_out",
     "run_detail",
     "run_summary",
 ]
@@ -261,4 +271,64 @@ def agent_message_item(
         inbox_id=message.inbox_id,
         inbox_kind=InboxKind(inbox[0]) if inbox is not None else None,
         inbox_thread_key=inbox[1] if inbox is not None else None,
+    )
+
+
+# ----------------------------------------------------------------------
+# M75 计划端点（规格 §4.3）：PlanOut 与批准请求
+# ----------------------------------------------------------------------
+class PlanItemOut(BaseModel):
+    """计划里的一步；``id`` 是 8 位十六进制、同计划唯一。"""
+
+    id: str
+    title: str
+    status: PlanItemStatus
+    note: str | None = None
+
+
+class PlanOut(BaseModel):
+    """``GET .../plan`` 与批准端点的响应（spec §4.3）。"""
+
+    id: str
+    session_id: str
+    ticket_id: str | None
+    title: str
+    items: list[PlanItemOut]
+    status: PlanStatus
+    approved_by: str | None
+    approved_at: str | None
+
+
+class PlanApprovalRequest(BaseModel):
+    """批准或退回一份待批准计划；退回可带原因。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool
+    reason: str | None = Field(default=None, max_length=200)
+
+
+def plan_out(plan: RunPlan) -> PlanOut:
+    """``run_plan`` 行 → 对外模型；步骤按库里的顺序输出。"""
+    items: list[PlanItemOut] = []
+    for raw in plan.items or ():
+        if not isinstance(raw, Mapping):
+            continue
+        items.append(
+            PlanItemOut(
+                id=str(raw.get("id") or ""),
+                title=str(raw.get("title") or ""),
+                status=PlanItemStatus(str(raw.get("status") or "pending")),
+                note=raw.get("note"),
+            )
+        )
+    return PlanOut(
+        id=str(plan.id),
+        session_id=str(plan.session_id),
+        ticket_id=plan.ticket_id,
+        title=plan.title,
+        items=items,
+        status=PlanStatus(str(plan.status)),
+        approved_by=plan.approved_by,
+        approved_at=_utc_z(plan.approved_at),
     )

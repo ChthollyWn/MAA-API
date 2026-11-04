@@ -61,6 +61,7 @@ from maa_api.api.routers import (
     notifications,
     orchestrator,
     pipelines,
+    plans,
     queue,
     questions,
     resources,
@@ -1318,6 +1319,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.ticket_service = ticket_service
         await ticket_service.forward_pending_reports()
 
+        # M75：计划服务挂在工单服务之后；工单进终态时把它名下未结束的计划改成
+        # abandoned（spec §4.5）。``plan_service`` 由 ``update_plan`` 工具、
+        # ``PlanMiddleware`` 与计划端点共用。
+        from maa_api.agent.plans.service import PlanService
+
+        plan_service = PlanService(db_session.session_factory)
+        app.state.plan_service = plan_service
+        ticket_service.add_end_listener(plan_service.on_ticket_ended)
+
         # M71 §4.5.9：设备租约在工单服务之后、Worker 之前装配。恢复阶段清理过
         # 上一进程的租约；这里起扫描任务、绑定队列闸门，并注册工单结束监听。
         from maa_api.agent.lease import DeviceLeaseService
@@ -1628,6 +1638,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "question_service",
             "run_service",
             "ticket_service",
+            "plan_service",
             "thread_router",
             "inbox_service",
             "worker_service",
@@ -1740,6 +1751,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "question_service",
             "run_service",
             "ticket_service",
+            "plan_service",
             "thread_router",
             "inbox_service",
             "worker_service",
@@ -1828,6 +1840,7 @@ def create_app() -> FastAPI:
     app.include_router(snippets.router)
     app.include_router(agent.router)
     app.include_router(agent_sessions.router)
+    app.include_router(plans.router)
     app.include_router(orchestrator.router)
     app.include_router(knowledge.router)
     app.include_router(model_profiles.router)

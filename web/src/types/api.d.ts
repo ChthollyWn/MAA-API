@@ -716,6 +716,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/sessions/{session_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读 Worker 会话当前未结束的计划
+         * @description 当前计划；没有未结束计划时返回 ``null``。
+         */
+        get: operations["agent_get_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/sessions/{session_id}/plan/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 批准或退回待批准的计划
+         * @description ``approved=true`` 转 ``active``，``false`` 退回 ``draft``；都写收件箱并唤醒。
+         */
+        post: operations["agent_approve_plan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/specs": {
         parameters: {
             query?: never;
@@ -3985,6 +4025,62 @@ export interface components {
             /** Title */
             title?: string | null;
         };
+        /**
+         * PlanApprovalRequest
+         * @description 批准或退回一份待批准计划；退回可带原因。
+         */
+        PlanApprovalRequest: {
+            /** Approved */
+            approved: boolean;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * PlanItemOut
+         * @description 计划里的一步；``id`` 是 8 位十六进制、同计划唯一。
+         */
+        PlanItemOut: {
+            /** Id */
+            id: string;
+            /** Note */
+            note?: string | null;
+            status: components["schemas"]["PlanItemStatus"];
+            /** Title */
+            title: string;
+        };
+        /**
+         * PlanItemStatus
+         * @description 计划步骤的状态。
+         * @enum {string}
+         */
+        PlanItemStatus: "pending" | "in_progress" | "done" | "cancelled";
+        /**
+         * PlanOut
+         * @description ``GET .../plan`` 与批准端点的响应（spec §4.3）。
+         */
+        PlanOut: {
+            /** Approved At */
+            approved_at: string | null;
+            /** Approved By */
+            approved_by: string | null;
+            /** Id */
+            id: string;
+            /** Items */
+            items: components["schemas"]["PlanItemOut"][];
+            /** Session Id */
+            session_id: string;
+            status: components["schemas"]["PlanStatus"];
+            /** Ticket Id */
+            ticket_id: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * PlanStatus
+         * @description 计划的状态机（v3 spec §4.5）。
+         * @enum {string}
+         */
+        PlanStatus: "draft" | "awaiting_approval" | "active" | "done" | "abandoned";
         /** PriorityRequest */
         PriorityRequest: {
             /** Priority */
@@ -9041,6 +9137,204 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_get_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Worker 会话 id */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"] | null;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_approve_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Worker 会话 id */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND、PLAN_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：PLAN_NOT_AWAITING_APPROVAL */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "PLAN_NOT_AWAITING_APPROVAL",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

@@ -8,12 +8,14 @@ M71 改成了 ``maa_api.agent.lease.LeaseMiddleware``（设备租约，确认通
   高于上限就拒绝，被拦的调用不进 ``ConfirmationService``，不建确认与审计行。
 - ``ReportMiddleware``：``report`` 必须是一批调用的最后一个且一批只有一个；成功时
   以 ``report_submitted`` 收尾本轮。``ensure_report`` 是「一轮结束却没有汇报」的
-  兜底：失败补 ``blocked``，其余补 ``progress``；幂等，WorkerService 也调。
+  兜底：计划待批准时补 ``waiting``（``human_action`` 指向计划），失败补 ``blocked``，
+  其余补 ``progress``；幂等，WorkerService 也调。
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from maa_api.agent.harness.context import (
@@ -24,6 +26,7 @@ from maa_api.agent.harness.context import (
     ToolOutcome,
 )
 from maa_api.agent.harness.middleware import CallNext, Middleware
+from maa_api.agent.harness.plan import PENDING_HUMAN_ACTION_KEY
 from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.agent.tickets.mandates import ceiling_risk
 from maa_api.agent.tickets.reports import HumanAction, ReportInput
@@ -37,6 +40,8 @@ __all__ = [
     "MISSING_MANDATE_MESSAGE",
     "REPORT_NOT_LAST_MESSAGE",
     "RISK_LABELS",
+    "WAITING_PLAN_PROMPT",
+    "WAITING_PLAN_SUMMARY",
     "MandateMiddleware",
     "ReportMiddleware",
     "ensure_report",
@@ -62,6 +67,9 @@ INVALID_IDS_KEY = "report.invalid_ids"
 ENSURED_KEY = "report.ensured"
 EMPTY_FINAL_TEXT = "本轮没有输出"
 FAILED_REPORT_PROMPT = "要让 Worker 再试一次，还是取消这个工单？"
+#: 计划待批准时代交的 waiting 汇报（spec §4.5、06 §7.1）。
+WAITING_PLAN_SUMMARY = "等待批准计划"
+WAITING_PLAN_PROMPT = "批准计划？"
 
 
 def _error(code: ErrorCode, message: str, details: dict[str, Any] | None = None) -> ToolOutcome:
@@ -194,9 +202,10 @@ def _app_state(ctx: RunContext) -> Any:
 async def ensure_report(ctx: RunContext, outcome: RunOutcome) -> None:
     """一轮结束却没有汇报时的兜底（spec §4.5.11）：幂等，WorkerService 也调。
 
-    已提交、已补过、取消或工单已结束时什么都不做；``failed`` 补 ``blocked``（会转发
-    给总控），其余补 ``progress``（不转发）。汇报经 ``TicketService.record_report``
-    落库，并在 v3 运行上发 ``report`` 事件。
+    已提交、已补过、取消或工单已结束时什么都不做。计划仍待批准时补 ``waiting``
+    （``human_action.ref_id`` 是计划 id，工单已经指向同一份计划则不再重复）；
+    ``failed`` 补 ``blocked``（会转发给总控），其余补 ``progress``（不转发）。汇报
+    经 ``TicketService.record_report`` 落库，并在 v3 运行上发 ``report`` 事件。
     """
     if ctx.state.get(SUBMITTED_KEY) is not None:
         return
@@ -223,7 +232,35 @@ async def ensure_report(ctx: RunContext, outcome: RunOutcome) -> None:
         ctx.state[ENSURED_KEY] = True
         return
 
-    if str(outcome.status) == "failed":
+    pending = ctx.state.get(PENDING_HUMAN_ACTION_KEY)
+    existing_action = (
+        ticket.human_action if isinstance(ticket.human_action, Mapping) else {}
+    )
+    if (
+        isinstance(pending, Mapping)
+        and pending.get("type") == "decision"
+        and pending.get("ref_id")
+    ):
+        ref_id = str(pending["ref_id"])
+        if str(existing_action.get("ref_id") or "") == ref_id:
+            # 工单上已经是这份计划的待办：上一轮补过 waiting，不再写第二条。
+            ctx.state[ENSURED_KEY] = True
+            return
+        report = ReportInput(
+            status=ReportStatus.WAITING,
+            summary=WAITING_PLAN_SUMMARY,
+            human_action=HumanAction(
+                type="decision",
+                prompt=str(pending.get("prompt") or WAITING_PLAN_PROMPT),
+                ref_id=ref_id,
+            ),
+            details={
+                "auto": True,
+                "finish_reason": outcome.finish_reason,
+                "plan_id": ref_id,
+            },
+        )
+    elif str(outcome.status) == "failed":
         reason = FAILURE_LABELS.get(outcome.finish_reason, FAILURE_LABELS["error"])
         report = ReportInput(
             status=ReportStatus.BLOCKED,

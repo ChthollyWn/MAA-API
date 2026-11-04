@@ -4351,6 +4351,162 @@
         "title": "PipelineCreate",
         "type": "object"
       },
+      "PlanApprovalRequest": {
+        "additionalProperties": false,
+        "description": "批准或退回一份待批准计划；退回可带原因。",
+        "properties": {
+          "approved": {
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "approved"
+        ],
+        "title": "PlanApprovalRequest",
+        "type": "object"
+      },
+      "PlanItemOut": {
+        "description": "计划里的一步；``id`` 是 8 位十六进制、同计划唯一。",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlanItemStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status"
+        ],
+        "title": "PlanItemOut",
+        "type": "object"
+      },
+      "PlanItemStatus": {
+        "description": "计划步骤的状态。",
+        "enum": [
+          "pending",
+          "in_progress",
+          "done",
+          "cancelled"
+        ],
+        "title": "PlanItemStatus",
+        "type": "string"
+      },
+      "PlanOut": {
+        "description": "``GET .../plan`` 与批准端点的响应（spec §4.3）。",
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlanItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlanStatus"
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "ticket_id",
+          "title",
+          "items",
+          "status",
+          "approved_by",
+          "approved_at"
+        ],
+        "title": "PlanOut",
+        "type": "object"
+      },
+      "PlanStatus": {
+        "description": "计划的状态机（v3 spec §4.5）。",
+        "enum": [
+          "draft",
+          "awaiting_approval",
+          "active",
+          "done",
+          "abandoned"
+        ],
+        "title": "PlanStatus",
+        "type": "string"
+      },
       "PriorityRequest": {
         "additionalProperties": false,
         "properties": {
@@ -12462,6 +12618,230 @@
           }
         },
         "summary": "按序读取 Agent 会话消息",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/sessions/{session_id}/plan": {
+      "get": {
+        "description": "当前计划；没有未结束计划时返回 ``null``。",
+        "operationId": "agent_get_plan",
+        "parameters": [
+          {
+            "description": "Worker 会话 id",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Worker 会话 id",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PlanOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Agent Get Plan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SESSION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：AGENT_SESSION_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读 Worker 会话当前未结束的计划",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/sessions/{session_id}/plan/approval": {
+      "post": {
+        "description": "``approved=true`` 转 ``active``，``false`` 退回 ``draft``；都写收件箱并唤醒。",
+        "operationId": "agent_approve_plan",
+        "parameters": [
+          {
+            "description": "Worker 会话 id",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "Worker 会话 id",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SESSION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：AGENT_SESSION_NOT_FOUND、PLAN_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "PLAN_NOT_AWAITING_APPROVAL",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：PLAN_NOT_AWAITING_APPROVAL"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "批准或退回待批准的计划",
         "tags": [
           "agent"
         ]
