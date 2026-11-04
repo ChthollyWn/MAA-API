@@ -14,6 +14,9 @@
 
 图片不参与校准（v3 06 §3.2）：各服务对图片的计价差别太大，样本里含图片会污染
 比例。
+
+M74 起本模块还给出 :func:`budget_for`：档案的窗口、输出预留、自动压缩阈值与
+溢出线；清理与压缩中间件共用同一口径（v3 06 §3.3）。
 """
 
 from __future__ import annotations
@@ -22,7 +25,12 @@ import json
 import math
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - 只用于类型标注，避免 context ↔ llm/settings 循环
+    from maa_api.agent.llm.profiles import ResolvedProfile
+    from maa_api.settings import Settings
 
 __all__ = [
     "CALIBRATION_ALPHA",
@@ -31,11 +39,14 @@ __all__ = [
     "CALIBRATION_SAMPLE_BOUNDS",
     "CJK_PATTERN",
     "CJK_TOKENS_PER_CHAR",
+    "DEFAULT_OUTPUT_RESERVE",
     "IMAGE_TOKENS",
     "MESSAGE_OVERHEAD_TOKENS",
     "OTHER_TOKENS_PER_CHAR",
     "TOOL_OVERHEAD_TOKENS",
+    "ContextBudget",
     "TokenEstimator",
+    "budget_for",
     "estimate_text",
 ]
 
@@ -57,6 +68,9 @@ CALIBRATION_BOUNDS = (0.5, 2.0)
 CALIBRATION_SAMPLE_BOUNDS = (0.25, 4.0)
 #: raw_estimate 低于此值时不校准：太小的请求受固定开销与缓存计量影响太大。
 CALIBRATION_MIN_RAW = 500
+
+#: 档案没写 ``max_output_tokens`` 时给输出预留的 token（v3 06 §3.3、M74）。
+DEFAULT_OUTPUT_RESERVE = 8192
 
 #: CJK 判定（规格逐字给定）。
 CJK_PATTERN = re.compile(
@@ -172,3 +186,49 @@ class TokenEstimator:
         updated = min(max(updated, low), high)
         self._ratios[tuple(key)] = updated
         return updated
+
+
+@dataclass(frozen=True, slots=True)
+class ContextBudget:
+    """一个模型档案的上下文预算（v3 06 §3.3、M74 §4.2.3）。
+
+    ``window`` 是档案的上下文窗口（没写时用 ``context.fallback_context_tokens``）；
+    ``output_reserve`` 给模型输出留出空间；``trigger_tokens`` 是自动压缩的阈值，
+    ``overflow_tokens`` 是硬溢出线，超过它由清理中间件抛 ``LLM_CONTEXT_OVERFLOW``。
+    """
+
+    window: int
+    output_reserve: int
+    trigger_tokens: int
+    overflow_tokens: int
+
+
+def budget_for(profile: ResolvedProfile, settings: Settings) -> ContextBudget:
+    """按档案窗口与压缩比例算预算（v3 06 §3.3）。
+
+    ``trigger_tokens = min(compaction_ratio × window, window − output_reserve)``：
+    压缩阈值不能高过溢出线，否则会先撞上溢出、压缩永远来不及生效。
+    """
+    fallback = int(settings.context.fallback_context_tokens)
+    # 真档案是 :class:`ResolvedProfile`（有 ``window`` 方法）；测试里的轻量替身
+    # 只有 ``context_window`` 字段，按同一口径兜底。
+    resolve_window = getattr(profile, "window", None)
+    if callable(resolve_window):
+        window = int(resolve_window(fallback))
+    else:
+        window = int(getattr(profile, "context_window", None) or fallback)
+    window = max(window, 0)
+    max_output = getattr(profile, "max_output_tokens", None)
+    output_reserve = min(
+        int(max_output or DEFAULT_OUTPUT_RESERVE), window // 4
+    )
+    overflow_tokens = max(window - output_reserve, 0)
+    trigger_tokens = min(
+        int(settings.context.compaction_ratio * window), overflow_tokens
+    )
+    return ContextBudget(
+        window=window,
+        output_reserve=output_reserve,
+        trigger_tokens=max(trigger_tokens, 0),
+        overflow_tokens=overflow_tokens,
+    )
