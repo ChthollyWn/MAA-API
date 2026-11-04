@@ -221,7 +221,8 @@ class RunContext:
         """是否按 M70 §4.3.2 的 v3 事件名发事件。
 
         ``legacy_turn`` 运行即便带了运行行也继续用 v2 事件名：v2 SSE 仍由
-        ``AgentRuntime.stream_message`` 输出，不能混进 v3 的名字。
+        ``maa_api.agent.legacy_turn.stream_legacy_turn`` 按原样输出，不能混进
+        v3 的名字。
         """
         kind = self.run_kind
         return kind is not None and kind != AgentRunKind.LEGACY_TURN.value

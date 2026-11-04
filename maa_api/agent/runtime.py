@@ -17,7 +17,6 @@ import json
 import logging
 import time
 from collections.abc import (
-    AsyncIterator,
     Awaitable,
     Callable,
     Collection,
@@ -619,34 +618,6 @@ class AgentRuntime:
                 if stored.status != "active":
                     raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话已结束")
         return settings
-
-    async def stream_message(
-        self, session_id: str, content: str, request: Any
-    ) -> AsyncIterator[str]:
-        """Produce named SSE events. Caller acquires the session slot first."""
-        if session_id not in self._locked_sessions:
-            yield sse_event("error", {"code": str(ErrorCode.AGENT_SESSION_BUSY), "message": "会话没有持有活动轮次锁"})
-            return
-        queue: asyncio.Queue[Any] = asyncio.Queue()
-        producer = asyncio.create_task(
-            self._produce_turn(queue, session_id, content, request),
-            name=f"agent-turn-{session_id}",
-        )
-        self._turn_tasks.add(producer)
-        producer.add_done_callback(self._forget_turn_task)
-        while True:
-            waiter = asyncio.create_task(queue.get())
-            self._queue_waiters.add(waiter)
-            waiter.add_done_callback(self._forget_queue_waiter)
-            while not waiter.done():
-                await asyncio.wait((waiter,), timeout=SSE_KEEPALIVE_SECONDS)
-                if not waiter.done():
-                    yield ": keep-alive\n\n"
-            item = waiter.result()
-            if item is _SSE_END:
-                await asyncio.gather(producer, return_exceptions=True)
-                return
-            yield item
 
     async def run_incident(
         self,

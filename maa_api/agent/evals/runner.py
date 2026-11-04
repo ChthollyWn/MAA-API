@@ -39,6 +39,7 @@ from maa_api.agent.evals.graders import (
     grade_case,
 )
 from maa_api.agent.evals.scenario import AnswerSpec, Scenario, Suite
+from maa_api.agent.legacy_turn import stream_legacy_turn
 from maa_api.agent.llm.client import OpenAICompatibleClient
 from maa_api.db.models import AgentMessage, AgentRun, AgentSession
 from maa_api.db.repositories.agent import AgentSessionRepository
@@ -272,7 +273,7 @@ def _split_frames(raw: str) -> list[str]:
 async def drive_legacy_session(
     eval_app: EvalApp, scenario: Scenario, recorder: CaseRecorder
 ) -> None:
-    """用 ``AgentRuntime.stream_message`` 驱动一个 v2 会话，按场景策略处理人机交互。"""
+    """用 ``stream_legacy_turn`` 驱动一个 v2 会话，按场景策略处理人机交互。"""
     app = eval_app.app
     runtime = app.state.agent_runtime
     confirmations = app.state.confirmation_service
@@ -302,7 +303,9 @@ async def drive_legacy_session(
             await runtime.ensure_configured(request, session_id)
             pending = ""
             user_answered = False
-            async for chunk in runtime.stream_message(session_id, turn.user, request):
+            async for chunk in stream_legacy_turn(
+                runtime, session_id, turn.user, request
+            ):
                 pending += chunk
                 while "\n\n" in pending:
                     frame, pending = pending.split("\n\n", 1)

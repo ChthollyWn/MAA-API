@@ -29,6 +29,7 @@ from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepositor
 from maa_api.domain.enums import CallerType
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import ChannelSettings, LLMSettings, Settings
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 
 class FakeLLM:
@@ -217,7 +218,7 @@ def test_text_turn_persists_user_before_request_and_records_usage_in_order():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "早上好", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "早上好", None)]
             events = _events(_event_stream(chunks))
 
             # 对话事件按序到达；会话标题是收尾的额外一件事（这条会话本来没有标题）。
@@ -263,7 +264,7 @@ def test_remote_context_redacts_nested_secrets_but_keeps_the_sqlite_message_raw(
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, raw_content, None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, raw_content, None)]
             assert _turn_events(chunks)[-1][0] == "message_end"
             sent = llm.turns[0][1][-1]["content"]
             assert "ordinary-secret-value" not in sent
@@ -317,7 +318,7 @@ def test_tool_call_round_trip_uses_confirmation_service_and_persists_audit_link(
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "当前关卡？", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "当前关卡？", None)]
             events = _events(_event_stream(chunks))
             assert invoked == ["stage"]
             assert [event for event, _data in _turn_events(chunks)] == [
@@ -416,7 +417,7 @@ def test_turn_draft_does_not_accumulate_text_and_reasoning_across_tool_steps():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            [_chunk async for _chunk in runtime.stream_message(session_id, "走两步", None)]
+            [_chunk async for _chunk in stream_legacy_turn(runtime, session_id, "走两步", None)]
             async with factory() as session:
                 messages = await AgentMessageRepository(session).list_by_session(session_id)
             assistants = [item for item in messages if item.role == "assistant"]
@@ -467,7 +468,7 @@ def test_malformed_tool_arguments_stop_before_any_tool_dispatch():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "go", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "go", None)]
             events = _events(_event_stream(chunks))
             assert events[-1][0] == "error"
             assert events[-1][1]["code"] == "LLM_REQUEST_FAILED"
@@ -971,7 +972,7 @@ def test_status_summary_and_log_instructions_are_remote_data_not_tool_commands()
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "请看日志", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "请看日志", None)]
             first_messages = llm.turns[0][1]
             system = first_messages[0]["content"]
             assert '"queue": 3' in system
@@ -1071,7 +1072,7 @@ def test_tool_loop_has_no_step_limit_and_finishes_the_model_answer():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "继续", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "继续", None)]
             events = _events(_event_stream(chunks))
             assert len(llm.turns) == rounds + 1, "20 轮工具调用之后仍应继续请求模型"
             assert invoked == list(range(rounds))
@@ -1128,7 +1129,7 @@ def test_tool_loop_stops_when_the_model_repeats_the_same_calls():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "继续", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "继续", None)]
             events = _events(_event_stream(chunks))
             assert _turn_events(chunks)[-1][0] == "message_end"
             assert _turn_events(chunks)[-1][1]["finish_reason"] == "stuck_loop"
@@ -1215,7 +1216,7 @@ def test_only_wait_pipeline_batches_are_exempt_from_the_stuck_loop_detector():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "等它结束", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "等它结束", None)]
             assert _turn_events(chunks)[-1][0] == "message_end"
             assert _turn_events(chunks)[-1][1]["finish_reason"] == "stop"
             assert invoked == ["pipeline-1"] * 3
@@ -1241,7 +1242,7 @@ def test_identical_get_pipeline_batches_still_count_as_a_stuck_loop():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "查一下", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "查一下", None)]
             assert _turn_events(chunks)[-1][1]["finish_reason"] == "stuck_loop"
             assert invoked == ["pipeline-1"] * 3
             assert len(llm.turns) == 3, len(llm.turns)
@@ -1265,7 +1266,7 @@ def test_mixed_batches_containing_wait_pipeline_still_count_as_a_stuck_loop():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "继续", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "继续", None)]
             assert _turn_events(chunks)[-1][1]["finish_reason"] == "stuck_loop"
             assert len(llm.turns) == 3, len(llm.turns)
         finally:
@@ -1314,7 +1315,7 @@ def test_only_read_only_tool_batches_run_concurrently_and_mixed_batches_keep_mod
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "go", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "go", None)]
             assert _turn_events(chunks)[-1][0] == "message_end"
             assert max_active == (2 if read_only else 1)
             if not read_only:
@@ -1382,7 +1383,7 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
             image = llm.requests[1][1][0]["content"][1]
             assert image["image_url"]["url"].startswith("data:image/png;base64,")
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "hi", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "hi", None)]
             assert _turn_events(chunks)[-1][0] == "message_end"
         finally:
             await engine.dispose()
@@ -1398,7 +1399,7 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
             assert result["status"] == "tool_calling_unavailable"
             assert result["degraded_reason"] == "当前模型未通过 function calling 能力检查，无法进行 Agent 对话"
             assert await no_tools.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in no_tools.stream_message(session_id, "hi", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(no_tools, session_id, "hi", None)]
             error_event = _events(_event_stream(chunks))[-1]
             assert error_event[0] == "error"
             assert error_event[1]["code"] == "LLM_REQUEST_FAILED"
@@ -1426,7 +1427,7 @@ def test_capability_probe_distinguishes_tool_calling_from_vision_support():
             assert await vision_degraded.acquire_session(session_id) is True
             chunks = [
                 chunk
-                async for chunk in vision_degraded.stream_message(session_id, "你好", None)
+                async for chunk in stream_legacy_turn(vision_degraded, session_id, "你好", None)
             ]
             events = _events(_event_stream(chunks))
             assert _turn_events(chunks)[-1][0] == "message_end"
@@ -1522,7 +1523,7 @@ def test_first_turn_auto_probes_and_vision_degradation_filters_and_rejects_scree
         try:
             assert await runtime.acquire_session(session_id) is True
             first_chunks = [
-                chunk async for chunk in runtime.stream_message(session_id, "请看屏幕", None)
+                chunk async for chunk in stream_legacy_turn(runtime, session_id, "请看屏幕", None)
             ]
             first_events = _events(_event_stream(first_chunks))
             assert len(llm.turns) == 2
@@ -1544,7 +1545,7 @@ def test_first_turn_auto_probes_and_vision_degradation_filters_and_rejects_scree
 
             assert await runtime.acquire_session(session_id) is True
             second_chunks = [
-                chunk async for chunk in runtime.stream_message(session_id, "继续聊文本", None)
+                chunk async for chunk in stream_legacy_turn(runtime, session_id, "继续聊文本", None)
             ]
             assert _turn_events(second_chunks)[-1][0] == "message_end"
             assert len(llm.turns) == 3
@@ -1628,7 +1629,7 @@ def test_vision_degraded_session_sends_text_only_for_archived_screenshot_history
             assert capability["vision"] is False
             assert await runtime.acquire_session(session_id) is True
             chunks = [
-                chunk async for chunk in runtime.stream_message(session_id, "继续看历史", None)
+                chunk async for chunk in stream_legacy_turn(runtime, session_id, "继续看历史", None)
             ]
             assert _turn_events(chunks)[-1][0] == "message_end"
             conversation_messages = llm.turns[-1][1]
@@ -1751,7 +1752,7 @@ def test_tool_reply_and_next_round_wait_until_audit_terminal_transaction_commits
         runtime.confirmation_service = DelayedAuditConfirmationService()
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "状态如何？", None)
+            stream = stream_legacy_turn(runtime, session_id, "状态如何？", None)
             first = await stream.__anext__()
             assert "event: message_start" in first
 
@@ -1876,7 +1877,7 @@ def test_confirmation_wait_keeps_sse_alive_and_rejection_does_not_retry_tool():
         monkeypatch.setattr(runtime_module, "SSE_KEEPALIVE_SECONDS", 0.01)
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "do it", None)
+            stream = stream_legacy_turn(runtime, session_id, "do it", None)
             received = []
             confirmation_id = None
             while confirmation_id is None:
@@ -1964,7 +1965,7 @@ def test_file_sqlite_internal_click_approval_persists_policy_grant_and_audit_att
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "点击确认按钮", None)
+            stream = stream_legacy_turn(runtime, session_id, "点击确认按钮", None)
             received: list[str] = []
             confirmation = None
             while confirmation is None:
@@ -2051,7 +2052,7 @@ def test_stream_disconnect_does_not_cancel_an_already_dispatched_tool():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "write the value", None)
+            stream = stream_legacy_turn(runtime, session_id, "write the value", None)
             first = await stream.__anext__()
             assert "event: message_start" in first
             await stream.aclose()
@@ -2136,7 +2137,7 @@ def test_screenshot_tool_result_is_archived_by_id_and_only_latest_image_goes_ups
         # archive and tool audit together while the runtime persists its reply.
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "看一下", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "看一下", None)]
             assert _turn_events(chunks)[-1][0] == "message_end"
             async with factory() as session:
                 messages = await AgentMessageRepository(session).list_by_session(session_id)
@@ -2271,7 +2272,7 @@ def test_screenshot_archive_insert_failure_isolated_and_persists_failed_audit_wi
         try:
             assert await runtime.acquire_session(session_id) is True
             chunks = [
-                chunk async for chunk in runtime.stream_message(session_id, "看看屏幕", None)
+                chunk async for chunk in stream_legacy_turn(runtime, session_id, "看看屏幕", None)
             ]
             events = _events(_event_stream(chunks))
             assert _turn_events(chunks)[-1][0] == "message_end"
@@ -2374,7 +2375,7 @@ def test_screenshot_archive_retries_sqlite_busy_instead_of_losing_the_image(tmp_
         try:
             assert await runtime.acquire_session(session_id) is True
             chunks = [
-                chunk async for chunk in runtime.stream_message(session_id, "看看屏幕", None)
+                chunk async for chunk in stream_legacy_turn(runtime, session_id, "看看屏幕", None)
             ]
             events = _events(_event_stream(chunks))
             results = [
@@ -2744,7 +2745,7 @@ def test_thinking_mode_reasoning_is_persisted_and_sent_back_on_the_next_request(
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "查日志", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "查日志", None)]
             assert _turn_events(chunks)[-1][0] == "message_end"
 
             # 1) 思考内容随 assistant 消息落库，且不污染正文。
@@ -2782,7 +2783,7 @@ def test_first_turn_generates_a_session_title_from_the_user_question():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "帮我加一个周一早上的剿灭任务", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "帮我加一个周一早上的剿灭任务", None)]
             events = _events(_event_stream(chunks))
 
             # 顺序：对话正常收尾之后才是标题事件，标题事件之后流就结束了。
@@ -2824,7 +2825,7 @@ def test_second_turn_does_not_regenerate_an_existing_title():
                 await session.commit()
 
             assert await runtime.acquire_session(session_id) is True
-            first = [chunk async for chunk in runtime.stream_message(session_id, "第一问", None)]
+            first = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "第一问", None)]
             assert [event for event, _data in _events(_event_stream(first))] == [
                 "message_start",
                 "text_delta",
@@ -2833,7 +2834,7 @@ def test_second_turn_does_not_regenerate_an_existing_title():
             assert len(llm.requests) == 1, "有标题时不该多出一次调用"
 
             assert await runtime.acquire_session(session_id) is True
-            second = [chunk async for chunk in runtime.stream_message(session_id, "第二问", None)]
+            second = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "第二问", None)]
             assert "session_title" not in [event for event, _data in _events(_event_stream(second))]
             assert len(llm.requests) == 2
 
@@ -2858,7 +2859,7 @@ def test_title_failure_does_not_break_the_finished_turn():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "查一下", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "查一下", None)]
             events = _events(_event_stream(chunks))
 
             assert [event for event, _data in events] == [
@@ -2927,7 +2928,7 @@ def test_forged_hidden_tool_call_is_rejected_without_confirmation_or_audit():
             assert await runtime.acquire_session(session_id) is True
             chunks = [
                 chunk
-                async for chunk in runtime.stream_message(session_id, "截一张图", None)
+                async for chunk in stream_legacy_turn(runtime, session_id, "截一张图", None)
             ]
             assert invoked == []
             tool_results = [
@@ -3132,7 +3133,7 @@ def test_turn_system_message_orders_prompt_knowledge_then_status_summary():
             assert await runtime.acquire_session(session_id) is True
             chunks = [
                 chunk
-                async for chunk in runtime.stream_message(session_id, "你好", None)
+                async for chunk in stream_legacy_turn(runtime, session_id, "你好", None)
             ]
             assert _turn_events(chunks)[-1][0] == "message_end"
             messages = llm.turns[0][1]
@@ -3166,7 +3167,7 @@ def test_knowledge_render_failure_degrades_the_section_without_stopping_the_turn
             with caplog.at_level(logging.WARNING, logger="maa_api.agent.runtime"):
                 chunks = [
                     chunk
-                    async for chunk in runtime.stream_message(session_id, "你好", None)
+                    async for chunk in stream_legacy_turn(runtime, session_id, "你好", None)
                 ]
             assert _turn_events(chunks)[-1][0] == "message_end"
             system = llm.turns[0][1][0]["content"]
@@ -3405,7 +3406,7 @@ def test_ask_user_emits_question_required_and_continues_the_same_turn_with_the_a
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "帮我刷点东西", None)
+            stream = stream_legacy_turn(runtime, session_id, "帮我刷点东西", None)
             received: list[str] = []
             required = await _next_named_event(stream, received, "question_required")
 
@@ -3486,7 +3487,7 @@ def test_ask_user_timeout_finishes_the_turn_with_question_unanswered():
             assert await runtime.acquire_session(session_id) is True
             chunks = [
                 chunk
-                async for chunk in runtime.stream_message(session_id, "帮我刷点东西", None)
+                async for chunk in stream_legacy_turn(runtime, session_id, "帮我刷点东西", None)
             ]
             events = _turn_events(chunks)
 
@@ -3528,7 +3529,7 @@ def test_ask_user_skip_finishes_the_turn_with_question_unanswered():
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "帮我刷点东西", None)
+            stream = stream_legacy_turn(runtime, session_id, "帮我刷点东西", None)
             received: list[str] = []
             required = await _next_named_event(stream, received, "question_required")
             await runtime.question_service.skip(required["question_id"])
@@ -3566,7 +3567,7 @@ def test_ask_user_without_a_question_service_reports_agent_disabled():
             assert await runtime.acquire_session(session_id) is True
             chunks = [
                 chunk
-                async for chunk in runtime.stream_message(session_id, "帮我刷点东西", None)
+                async for chunk in stream_legacy_turn(runtime, session_id, "帮我刷点东西", None)
             ]
             events = _turn_events(chunks)
 
@@ -3659,7 +3660,7 @@ def test_interrupt_during_llm_stream_keeps_partial_text_and_closes_the_stream(tm
         runtime.client_factory = lambda _settings: llm
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "帮我看看为什么失败", None)
+            stream = stream_legacy_turn(runtime, session_id, "帮我看看为什么失败", None)
             received: list[str] = []
             delta = await _next_named_event(stream, received, "text_delta")
             assert delta["text"] == "正在读取日志……"
@@ -3766,7 +3767,7 @@ def test_interrupt_while_waiting_for_confirmation_rejects_it_and_never_executes(
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "点一下", None)
+            stream = stream_legacy_turn(runtime, session_id, "点一下", None)
             received: list[str] = []
             required = await _next_named_event(stream, received, "confirmation_required")
             confirmation_id = required["confirmation_id"]
@@ -3857,7 +3858,7 @@ def test_interrupt_while_waiting_for_a_pipeline_cancels_the_worker_and_fails_the
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "等它跑完", request)
+            stream = stream_legacy_turn(runtime, session_id, "等它跑完", request)
             received: list[str] = []
             await _next_named_event(stream, received, "tool_start")
             await asyncio.wait_for(started.wait(), timeout=5)
@@ -3910,7 +3911,7 @@ def test_interrupt_while_a_question_is_pending_cancels_the_card(tmp_path):
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "帮我刷点东西", None)
+            stream = stream_legacy_turn(runtime, session_id, "帮我刷点东西", None)
             received: list[str] = []
             required = await _next_named_event(stream, received, "question_required")
             question_id = required["question_id"]
@@ -4019,7 +4020,7 @@ def test_interrupt_mid_batch_completes_the_history_and_the_next_request(tmp_path
         runtime._persist_message = held_persist
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "两个都跑一下", None)
+            stream = stream_legacy_turn(runtime, session_id, "两个都跑一下", None)
 
             async def drain() -> list[str]:
                 return [chunk async for chunk in stream]
@@ -4050,7 +4051,7 @@ def test_interrupt_mid_batch_completes_the_history_and_the_next_request(tmp_path
             runtime._persist_message = original_persist
             assert await runtime.acquire_session(session_id) is True
             follow_up = [
-                chunk async for chunk in runtime.stream_message(session_id, "继续", None)
+                chunk async for chunk in stream_legacy_turn(runtime, session_id, "继续", None)
             ]
             assert _turn_events(follow_up)[-1][1]["finish_reason"] == "stop"
             assert len(llm.turns) == 2
@@ -4118,7 +4119,7 @@ def test_passive_disconnect_leaves_the_turn_running_until_an_explicit_interrupt(
         runtime.client_factory = lambda _settings: llm
         try:
             assert await runtime.acquire_session(session_id) is True
-            stream = runtime.stream_message(session_id, "长问题", None)
+            stream = stream_legacy_turn(runtime, session_id, "长问题", None)
             received: list[str] = []
             await _next_named_event(stream, received, "text_delta")
             await asyncio.wait_for(llm.blocked.wait(), timeout=5)
@@ -4242,7 +4243,7 @@ def test_vision_degradation_hides_and_blocks_annotate_screenshot_by_tool_name():
             assert capability["vision"] is False
             assert await runtime.acquire_session(session_id) is True
             chunks = [
-                chunk async for chunk in runtime.stream_message(session_id, "圈一下理智条", None)
+                chunk async for chunk in stream_legacy_turn(runtime, session_id, "圈一下理智条", None)
             ]
             events = _events(_event_stream(chunks))
 
@@ -4412,7 +4413,7 @@ def test_media_tool_result_reaches_sse_and_the_stored_message():
         try:
             assert await runtime.acquire_session(session_id) is True
             chunks = [
-                chunk async for chunk in runtime.stream_message(session_id, "发个掉落图", None)
+                chunk async for chunk in stream_legacy_turn(runtime, session_id, "发个掉落图", None)
             ]
             events = _events(_event_stream(chunks))
             result_event = next(data for event, data in events if event == "tool_result")
@@ -4464,7 +4465,7 @@ def test_turn_failure_is_logged_and_leaves_a_notice_in_the_session(
             with caplog.at_level(logging.WARNING, logger="maa_api.agent.runtime"):
                 assert await runtime.acquire_session(session_id) is True
                 chunks = [
-                    chunk async for chunk in runtime.stream_message(session_id, "你好", None)
+                    chunk async for chunk in stream_legacy_turn(runtime, session_id, "你好", None)
                 ]
             events = _events(_event_stream(chunks))
             assert events[-1][0] == "error"
@@ -4499,7 +4500,7 @@ def test_context_overflow_notice_points_at_a_new_session_instead_of_a_resend() -
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            chunks = [chunk async for chunk in runtime.stream_message(session_id, "接着聊", None)]
+            chunks = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "接着聊", None)]
             assert _events(_event_stream(chunks))[-1][0] == "error"
 
             async with factory() as session:
@@ -4582,14 +4583,14 @@ def test_transient_probe_failure_does_not_disable_the_agent_until_restart(
         )
         try:
             assert await runtime.acquire_session(session_id) is True
-            first = [chunk async for chunk in runtime.stream_message(session_id, "在吗", None)]
+            first = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "在吗", None)]
             first_events = _events(_event_stream(first))
             assert first_events[-1][0] == "error"
             assert first_events[-1][1]["code"] == "LLM_REQUEST_FAILED"
             assert llm.turns == [], "能力探查失败时不该把消息发给模型"
 
             assert await runtime.acquire_session(session_id) is True
-            second = [chunk async for chunk in runtime.stream_message(session_id, "再问一次", None)]
+            second = [chunk async for chunk in stream_legacy_turn(runtime, session_id, "再问一次", None)]
             second_events = [event for event, _data in _turn_events(second)]
             assert "error" not in second_events
             assert second_events == ["message_start", "text_delta", "message_end"]

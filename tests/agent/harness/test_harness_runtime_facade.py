@@ -28,6 +28,7 @@ from maa_api.db.models import AgentMessage, AgentSession
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
 from maa_api.settings import LLMSettings, Settings, WorkspaceSettings
 from tests.fakes.fake_llm import FakeLLM
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 #: §4.2.2「再导出」列：名字 → 新位置。
 MOVED_NAMES: dict[str, Any] = {
@@ -138,14 +139,14 @@ def test_chat_and_incident_turns_run_with_their_definitions(tmp_path, monkeypatc
         try:
             assert await runtime.acquire_session("chat") is True
             _frames = [
-                frame async for frame in runtime.stream_message("chat", "你好", None)
+                frame async for frame in stream_legacy_turn(runtime, "chat", "你好", None)
             ]
             result = await runtime.run_incident("incident", None, {"get_logs"})
             assert result == {"status": "completed"}
         finally:
             await engine.dispose()
 
-        # stream_message 是普通会话，run_incident 是自动诊断：各自带自己的定义。
+        # legacy_turn 是普通会话，run_incident 是自动诊断：各自带自己的定义。
         assert seen == ["legacy_chat", "legacy_incident"]
 
     asyncio.run(scenario())

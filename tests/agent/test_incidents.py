@@ -25,6 +25,7 @@ from maa_api.db.models import AgentMessage, AgentSession, LogEntry, Pipeline, Sc
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import LLMSettings, Settings
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 
 class FakeRuntime:
@@ -576,8 +577,8 @@ def test_incident_configuration_failure_is_saved_as_assistant_explanation(tmp_pa
             assert await runtime.acquire_session(result.session_id)
             chunks = [
                 chunk
-                async for chunk in runtime.stream_message(
-                    result.session_id, "继续诊断", None
+                async for chunk in stream_legacy_turn(
+                    runtime, result.session_id, "继续诊断", None
                 )
             ]
             assert llm.models == ["test-model"]

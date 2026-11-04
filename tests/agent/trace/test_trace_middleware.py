@@ -56,6 +56,7 @@ from maa_api.db.session import make_engine
 from maa_api.domain.enums import AgentRunKind, SpanKind
 from maa_api.settings import LLMSettings, Settings, TraceSettings
 from tests.fakes.fake_llm import FakeLLM, tool_call, tool_response
+from tests.fakes.legacy_turn import stream_legacy_turn
 
 
 # --------------------------------------------------------------------------- #
@@ -832,8 +833,8 @@ def test_legacy_chat_turn_writes_spans(tmp_path: Path) -> None:
             assert await runtime.acquire_session("session-1") is True
             chunks = [
                 chunk
-                async for chunk in runtime.stream_message(
-                    "session-1", "当前关卡？", request
+                async for chunk in stream_legacy_turn(
+                    runtime, "session-1", "当前关卡？", request
                 )
             ]
             assert any("message_end" in chunk for chunk in chunks)
