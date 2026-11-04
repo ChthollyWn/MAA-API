@@ -8519,18 +8519,16 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            /** @description 服务暂时不可用：AGENT_DISABLED */
             503: {
                 headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
                     /**
                      * @example {
                      *       "error": {
-                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "code": "AGENT_DISABLED",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }
@@ -8607,18 +8605,16 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            /** @description 服务暂时不可用：AGENT_DISABLED */
             503: {
                 headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
                     /**
                      * @example {
                      *       "error": {
-                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "code": "AGENT_DISABLED",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }
@@ -8718,18 +8714,16 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            /** @description 服务暂时不可用：AGENT_DISABLED */
             503: {
                 headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
                     /**
                      * @example {
                      *       "error": {
-                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "code": "AGENT_DISABLED",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }
