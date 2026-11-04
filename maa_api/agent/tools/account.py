@@ -158,6 +158,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetOperatorBoxParams,
             handler=get_operator_box,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -172,6 +173,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetDepotParams,
             handler=get_depot,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -188,6 +190,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=PlanUpgradeParams,
             handler=plan_upgrade,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -215,6 +218,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListUpgradePlansParams,
             handler=list_upgrade_plans,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -242,6 +246,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetSklandStatusParams,
             handler=get_skland_status,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(

@@ -86,12 +86,12 @@ class CancelTicketParams(BaseModel):
 def register_tools(registry: ToolRegistry) -> None:
     """注册 ``tickets`` 组的五个工具；全部不进 REST 目录。"""
 
-    for name, description, params_model, handler, read_only in (
-        ("create_ticket", CREATE_TICKET_DESCRIPTION, CreateTicketParams, create_ticket, False),
-        ("send_to_ticket", SEND_TO_TICKET_DESCRIPTION, SendToTicketParams, send_to_ticket, False),
-        ("list_tickets", LIST_TICKETS_DESCRIPTION, ListTicketsParams, list_tickets, True),
-        ("get_ticket", GET_TICKET_DESCRIPTION, GetTicketParams, get_ticket, True),
-        ("cancel_ticket", CANCEL_TICKET_DESCRIPTION, CancelTicketParams, cancel_ticket, False),
+    for name, description, params_model, handler, read_only, refetchable in (
+        ("create_ticket", CREATE_TICKET_DESCRIPTION, CreateTicketParams, create_ticket, False, False),
+        ("send_to_ticket", SEND_TO_TICKET_DESCRIPTION, SendToTicketParams, send_to_ticket, False, False),
+        ("list_tickets", LIST_TICKETS_DESCRIPTION, ListTicketsParams, list_tickets, True, True),
+        ("get_ticket", GET_TICKET_DESCRIPTION, GetTicketParams, get_ticket, True, True),
+        ("cancel_ticket", CANCEL_TICKET_DESCRIPTION, CancelTicketParams, cancel_ticket, False, False),
     ):
         registry.register(
             ToolDefinition(
@@ -102,6 +102,7 @@ def register_tools(registry: ToolRegistry) -> None:
                 params_model=params_model,
                 handler=handler,
                 read_only=read_only,
+                refetchable=refetchable,
                 rest_visible=False,
             )
         )

@@ -75,6 +75,24 @@ EXPECTED_TOOLS = {
     "release_device",
 }
 
+#: M74 §5 T3：旧上下文里可以换成占位、需要时重新调用的工具（06 §5.1）。
+EXPECTED_REFETCHABLE = frozenset({
+    "get_system_status", "get_screenshot", "get_versions", "get_logs",
+    "resolve_stage", "get_drop_stats", "get_stage_level_data",
+    "get_activity_stages",
+    "get_stage", "search_prts", "get_operator", "get_enemy", "get_item",
+    "get_drop_rates", "get_prts_page", "get_gacha_pools", "get_story",
+    "get_operator_box", "get_depot", "plan_upgrade", "list_upgrade_plans",
+    "get_skland_status", "get_building_skills", "get_infrast_candidates",
+    "list_infrast_plans", "search_copilots", "get_roguelike_info",
+    "list_task_types", "get_pipeline", "wait_pipeline", "list_pipelines",
+    "get_queue", "get_device_status", "list_devices", "list_copilots",
+    "list_custom_tasks", "check_updates", "scan_proxy_channels",
+    "wait_update", "list_schedules", "read_knowledge", "list_files",
+    "read_file", "search_code", "list_tool_groups", "check_confirmation",
+    "list_tickets", "get_ticket",
+})
+
 
 def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner():
     registry = build_registry()
@@ -599,7 +617,7 @@ def test_device_levels_follow_the_contract() -> None:
 
 
 def test_extension_fields_keep_v2_defaults() -> None:
-    """M65 §4.2.16：v2 工具保持 REST 可见，refetchable/untrusted_output 默认关闭。"""
+    """M65 §4.2.16：v2 工具保持 REST 可见；untrusted_output 默认关闭（M74 单独赋 refetchable）。"""
     definitions = build_registry().list()
     assert definitions
     v3_only = {
@@ -622,8 +640,25 @@ def test_extension_fields_keep_v2_defaults() -> None:
     assert {
         definition.name for definition in definitions if not definition.rest_visible
     } == v3_only
-    assert all(definition.refetchable is False for definition in definitions)
     assert all(definition.untrusted_output is False for definition in definitions)
+
+
+def test_refetchable_tools_are_pinned() -> None:
+    """M74 §5 T3：可重取工具恰为清单里的 48 个，且都是只读。"""
+
+    definitions = build_registry().list()
+    refetchable = {
+        definition.name for definition in definitions if definition.refetchable
+    }
+
+    assert len(EXPECTED_REFETCHABLE) == 48
+    assert refetchable == EXPECTED_REFETCHABLE
+    assert refetchable <= EXPECTED_TOOLS
+    assert all(
+        definition.read_only is True
+        for definition in definitions
+        if definition.refetchable
+    )
 
 
 def test_tool_definition_rejects_an_unknown_device_level() -> None:

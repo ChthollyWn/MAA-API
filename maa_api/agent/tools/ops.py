@@ -117,6 +117,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=CheckUpdatesParams,
             handler=check_updates,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="update_core",
@@ -166,6 +167,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ScanProxyChannelsParams,
             handler=scan_proxy_channels,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="wait_update",
@@ -179,6 +181,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=WaitUpdateParams,
             handler=wait_update,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="restart_core",

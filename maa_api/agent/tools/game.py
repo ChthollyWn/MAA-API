@@ -214,6 +214,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetStageParams,
             handler=get_stage,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -229,6 +230,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=SearchPrtsParams,
             handler=search_prts,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -245,6 +247,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetOperatorParams,
             handler=get_operator,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -260,6 +263,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetEnemyParams,
             handler=get_enemy,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -275,6 +279,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetItemParams,
             handler=get_item,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -290,6 +295,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetDropRatesParams,
             handler=get_drop_rates,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -305,6 +311,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetPrtsPageParams,
             handler=get_prts_page,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -320,6 +327,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetGachaPoolsParams,
             handler=get_gacha_pools,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -336,6 +344,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetStoryParams,
             handler=get_story,
             read_only=True,
+            refetchable=True,
         )
     )
 

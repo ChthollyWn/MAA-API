@@ -53,6 +53,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListAssetsParams,
             handler=list_copilots,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="upload_copilot",
@@ -78,6 +79,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListAssetsParams,
             handler=list_custom_tasks,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="register_custom_task",

@@ -34,6 +34,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListSchedulesParams,
             handler=list_schedules,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="create_schedule",

@@ -117,6 +117,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListTaskTypesParams,
             handler=list_task_types,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="get_pipeline",
@@ -126,6 +127,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetPipelineParams,
             handler=get_pipeline,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="wait_pipeline",
@@ -141,6 +143,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=WaitPipelineParams,
             handler=wait_pipeline,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="list_pipelines",
@@ -150,6 +153,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListPipelinesParams,
             handler=list_pipelines,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="get_queue",
@@ -159,6 +163,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=EmptyParams,
             handler=get_queue,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="submit_pipeline",
