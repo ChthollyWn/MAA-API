@@ -1,7 +1,7 @@
 """``maa_api/domain/enums.py`` 的契约测试（docs/04 §4）。
 
 三件事：取值快照与文档逐字一致、``StrEnum`` 语义成立（可直接进 JSON/响应体）、
-``PipelineStatus.is_terminal`` 状态机正确。
+``PipelineStatus`` / ``TicketStatus`` 的 ``is_terminal`` 状态机正确。
 """
 
 import enum
@@ -227,6 +227,60 @@ EXPECTED_VALUES = {
         "DELEGATE": "delegate",
         "OTHER": "other",
     },
+    # M69 工单领域（v3 specs/m69 §4.1）。
+    "TicketStatus": {
+        "OPEN": "open",
+        "WAITING": "waiting",
+        "BLOCKED": "blocked",
+        "DONE": "done",
+        "FAILED": "failed",
+        "CANCELLED": "cancelled",
+    },
+    "TicketOrigin": {
+        "USER": "user",
+        "TRIGGER": "trigger",
+        "GOAL": "goal",
+        "WATCHDOG": "watchdog",
+        "SYSTEM": "system",
+    },
+    "MandateStrength": {
+        "EXPLICIT": "explicit",
+        "INFERRED": "inferred",
+    },
+    "EventSource": {
+        "WEB": "web",
+        "IM_TELEGRAM": "im_telegram",
+        "IM_FEISHU": "im_feishu",
+        "IM_DINGTALK": "im_dingtalk",
+        "IM_QQ": "im_qq",
+        "PIPELINE": "pipeline",
+        "CORE": "core",
+        "DEVICE": "device",
+        "SCHEDULE": "schedule",
+        "SYSTEM": "system",
+        "WATCHDOG": "watchdog",
+        "GOAL": "goal",
+    },
+    "ReportStatus": {
+        "PROGRESS": "progress",
+        "WAITING": "waiting",
+        "READY": "ready",
+        "BLOCKED": "blocked",
+        "FAILED": "failed",
+        "DROPPED": "dropped",
+    },
+    "InboxKind": {
+        "USER_MESSAGE": "user_message",
+        "REPORT": "report",
+        "THREAD_EVENT": "thread_event",
+        "SYSTEM": "system",
+        "TRIGGER": "trigger",
+    },
+    "InboxStatus": {
+        "PENDING": "pending",
+        "CONSUMED": "consumed",
+        "DROPPED": "dropped",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。
@@ -236,6 +290,7 @@ NON_PERSISTED = ("CoreStatus", "DeviceStatus")
 CORE_ONLY = ("Message", "InstanceOptionKey", "StaticOptionKey")
 
 TERMINAL_PIPELINE_STATUSES = {"completed", "failed", "cancelled"}
+TERMINAL_TICKET_STATUSES = {"done", "failed", "cancelled"}
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_VALUES))
@@ -278,6 +333,15 @@ def test_pipeline_status_is_terminal():
         assert member.is_terminal is (member.value in TERMINAL_PIPELINE_STATUSES)
     assert enums.PipelineStatus.PENDING.is_terminal is False
     assert enums.PipelineStatus.RUNNING.is_terminal is False
+
+
+def test_ticket_status_is_terminal():
+    """只有 done、failed、cancelled 是终态（M69 规格 §4.1）。"""
+    for member in enums.TicketStatus:
+        assert member.is_terminal is (member.value in TERMINAL_TICKET_STATUSES)
+    assert enums.TicketStatus.OPEN.is_terminal is False
+    assert enums.TicketStatus.WAITING.is_terminal is False
+    assert enums.TicketStatus.BLOCKED.is_terminal is False
 
 
 def test_status_enum_alignment_and_renames():

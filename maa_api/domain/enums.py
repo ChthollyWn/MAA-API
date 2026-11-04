@@ -284,3 +284,84 @@ class SpanKind(StrEnum):
     LEASE = "lease"
     DELEGATE = "delegate"
     OTHER = "other"
+
+
+# ---- M69 工单领域（v3 specs/m69 §4.1） ----
+
+
+class TicketStatus(StrEnum):
+    """工单状态机（M69 规格 §4.5）。"""
+
+    OPEN = "open"
+    WAITING = "waiting"
+    BLOCKED = "blocked"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in (TicketStatus.DONE, TicketStatus.FAILED, TicketStatus.CANCELLED)
+
+
+class TicketOrigin(StrEnum):
+    """工单的来源：用户、触发器、目标、看门狗或系统。"""
+
+    USER = "user"
+    TRIGGER = "trigger"
+    GOAL = "goal"
+    WATCHDOG = "watchdog"
+    SYSTEM = "system"
+
+
+class MandateStrength(StrEnum):
+    """委托强度：显式授权或推断授权。"""
+
+    EXPLICIT = "explicit"
+    INFERRED = "inferred"
+
+
+class EventSource(StrEnum):
+    """事件来源渠道。"""
+
+    WEB = "web"
+    IM_TELEGRAM = "im_telegram"
+    IM_FEISHU = "im_feishu"
+    IM_DINGTALK = "im_dingtalk"
+    IM_QQ = "im_qq"
+    PIPELINE = "pipeline"
+    CORE = "core"
+    DEVICE = "device"
+    SCHEDULE = "schedule"
+    SYSTEM = "system"
+    WATCHDOG = "watchdog"
+    GOAL = "goal"
+
+
+class ReportStatus(StrEnum):
+    """Worker 汇报的状态。"""
+
+    PROGRESS = "progress"
+    WAITING = "waiting"
+    READY = "ready"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    DROPPED = "dropped"
+
+
+class InboxKind(StrEnum):
+    """总控收件箱条目的种类。"""
+
+    USER_MESSAGE = "user_message"
+    REPORT = "report"
+    THREAD_EVENT = "thread_event"
+    SYSTEM = "system"
+    TRIGGER = "trigger"
+
+
+class InboxStatus(StrEnum):
+    """收件箱条目的消费状态。"""
+
+    PENDING = "pending"
+    CONSUMED = "consumed"
+    DROPPED = "dropped"

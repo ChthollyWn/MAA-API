@@ -55,9 +55,10 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: M42 新增 §4.19 的七条（森空岛扫码登录与同步），
 #: M48 新增 §4.20 的三条（只读探索的未配置 / 路径被拒 / 文件过大），二十张表）；
 #: M65 新增 `AGENT_SPEC_NOT_FOUND`；M66 在 §4.11 加 `RUN_NOT_FOUND`、`RUN_ALREADY_ACTIVE`；
-#: M67 在 §4.11 加 6 个模型层的码（档案 CRUD、结构化输出、成本预算）。
-ALL_CODE_COUNT = 133
-HTTP_BOUND_CODE_COUNT = 132
+#: M67 在 §4.11 加 6 个模型层的码（档案 CRUD、结构化输出、成本预算）；
+#: M69 在 §4.11 加工单两条（`TICKET_NOT_FOUND`、`TICKET_ENDED`）。
+ALL_CODE_COUNT = 135
+HTTP_BOUND_CODE_COUNT = 134
 SECTION_COUNT = 20
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。
