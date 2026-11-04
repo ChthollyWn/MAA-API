@@ -42,7 +42,7 @@ from maa_api.db.repositories.agent import (
 from maa_api.domain.enums import EventSource, TicketOrigin
 from maa_api.domain.errors import AppError, ErrorCode
 
-#: ``TicketDetail`` 的 8 个字段（与 M69 的 test_tickets_router 同口径，M71 加 ``lease``）。
+#: ``TicketDetail`` 的 9 个字段（M71 加 ``lease``，M80 加 ``forked_from``）。
 DETAIL_FIELDS = {
     "ticket",
     "result",
@@ -52,8 +52,9 @@ DETAIL_FIELDS = {
     "worker_session_id",
     "turn_running",
     "lease",
+    "forked_from",
 }
-#: ``AgentMessageItem`` 的 19 个字段（M72 加 ``inbox_kind``、``inbox_thread_key``）。
+#: ``AgentMessageItem`` 的 20 个字段（M80 加 ``superseded_at``）。
 MESSAGE_FIELDS = {
     "id",
     "session_id",
@@ -74,6 +75,7 @@ MESSAGE_FIELDS = {
     "inbox_id",
     "inbox_kind",
     "inbox_thread_key",
+    "superseded_at",
 }
 
 _SPECS: dict[str, tuple[str, str]] = {

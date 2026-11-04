@@ -42,8 +42,8 @@ STATE_FIELDS = {
     "pending_inbox",
     "archived_count",
 }
-#: ``AgentMessageItem`` 的 19 个字段（v2 message_wire + run_id、inbox_id、
-#: M72 的 inbox_kind、inbox_thread_key）。
+#: ``AgentMessageItem`` 的 20 个字段（v2 message_wire + run_id、inbox_id、
+#: M72 的 inbox_kind、inbox_thread_key、M80 的 superseded_at）。
 MESSAGE_FIELDS = {
     "id",
     "session_id",
@@ -64,6 +64,7 @@ MESSAGE_FIELDS = {
     "inbox_id",
     "inbox_kind",
     "inbox_thread_key",
+    "superseded_at",
 }
 
 

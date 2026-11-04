@@ -37,6 +37,7 @@ __all__ = [
     "ArtifactOut",
     "ArtifactPage",
     "ArtifactPinRequest",
+    "ForkRequest",
     "MemoryOut",
     "MemoryPage",
     "MemoryReviewRequest",
@@ -47,6 +48,9 @@ __all__ = [
     "PlanApprovalRequest",
     "PlanItemOut",
     "PlanOut",
+    "RewindRequest",
+    "RewindResultOut",
+    "RewindSideEffectOut",
     "RunDetail",
     "RunPage",
     "RunSummary",
@@ -241,6 +245,8 @@ class AgentMessageItem(BaseModel):
     inbox_id: int | None
     inbox_kind: InboxKind | None = None
     inbox_thread_key: str | None = None
+    #: 被回溯取代的时刻（M80）；非空的消息不进上下文，前端默认折叠。
+    superseded_at: str | None = None
 
 
 class AgentMessagePage(BaseModel):
@@ -286,7 +292,53 @@ def agent_message_item(
         inbox_id=message.inbox_id,
         inbox_kind=InboxKind(inbox[0]) if inbox is not None else None,
         inbox_thread_key=inbox[1] if inbox is not None else None,
+        superseded_at=_utc_z(message.superseded_at),
     )
+
+
+# ----------------------------------------------------------------------
+# M80 回溯与分叉（规格 §4.3）：RewindRequest / RewindResultOut / ForkRequest
+# ----------------------------------------------------------------------
+class RewindRequest(BaseModel):
+    """回溯请求：保留到 ``to_seq``（含）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    to_seq: int = Field(ge=-1, description="保留到这条消息（含）；-1 只用于总控会话")
+    dry_run: bool = Field(default=False, description="只计算影响，不写库")
+
+
+class RewindSideEffectOut(BaseModel):
+    """回溯范围内已经发生、不会被撤销的一次工具调用。"""
+
+    seq: int
+    tool_name: str
+    audit_id: int | None
+    #: 「流水线 1f3e9a2c」「工单「日常」」；取不到为 ``null``。
+    detail: str | None
+
+
+class RewindResultOut(BaseModel):
+    """一次回溯的结果（``dry_run`` 时只报告不写库）。"""
+
+    session_id: str
+    to_seq: int
+    dry_run: bool
+    superseded: int
+    superseded_events: int
+    checkpoints_invalidated: int
+    checkpoint_reactivated: str | None
+    plan_abandoned: bool
+    side_effects: list[RewindSideEffectOut]
+    notice_message_id: int | None
+
+
+class ForkRequest(BaseModel):
+    """分叉请求：在 ``at_seq`` 这条消息（含）处分叉出新工单。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    at_seq: int = Field(ge=0, description="分叉处的消息 seq（含）")
 
 
 # ----------------------------------------------------------------------

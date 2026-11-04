@@ -333,19 +333,27 @@ class AgentMessageRepository(BaseRepository):
         return list(result.scalars().all())
 
     async def list_after_seq(
-        self, session_id: str, after_seq: int
+        self, session_id: str, after_seq: int, *, include_superseded: bool = False
     ) -> list[AgentMessage]:
         """取 ``seq > after_seq`` 的消息，**按 ``seq`` 升序**（检查点之后的历史）。
 
         ``after_seq`` 是压缩检查点的 ``upto_seq``：加载历史时摘要消息替代它之前的
         全部消息，只读检查点之后的部分；没有检查点时传 ``-1`` 即全部消息。
+
+        与 :meth:`list_by_session` 同一口径，默认排除被回溯取代的消息（M80
+        §4.5.7）：检查点之后被取代的部分同样不再进上下文，压缩摘要也不该把
+        它们当成还在生效的历史。传 ``include_superseded=True`` 的调用方要自己
+        决定怎么处理。
         """
+        conditions = [
+            AgentMessage.session_id == session_id,
+            AgentMessage.seq > after_seq,
+        ]
+        if not include_superseded:
+            conditions.append(AgentMessage.superseded_at.is_(None))
         result = await self.session.execute(
             select(AgentMessage)
-            .where(
-                AgentMessage.session_id == session_id,
-                AgentMessage.seq > after_seq,
-            )
+            .where(*conditions)
             .order_by(AgentMessage.seq.asc())
         )
         return list(result.scalars().all())

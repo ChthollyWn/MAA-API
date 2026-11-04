@@ -560,6 +560,17 @@
             "title": "Session Id",
             "type": "string"
           },
+          "superseded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded At"
+          },
           "tool_call_id": {
             "anyOf": [
               {
@@ -2548,6 +2559,47 @@
           }
         },
         "title": "ForceRequest",
+        "type": "object"
+      },
+      "ForkRequest": {
+        "additionalProperties": false,
+        "description": "分叉请求：在 ``at_seq`` 这条消息（含）处分叉出新工单。",
+        "properties": {
+          "at_seq": {
+            "description": "分叉处的消息 seq（含）",
+            "minimum": 0.0,
+            "title": "At Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at_seq"
+        ],
+        "title": "ForkRequest",
+        "type": "object"
+      },
+      "ForkedFrom": {
+        "description": "分叉来源：源工单与分叉处的消息 seq（由 Worker 会话的两列反查）。",
+        "properties": {
+          "at_seq": {
+            "title": "At Seq",
+            "type": "integer"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "title",
+          "at_seq"
+        ],
+        "title": "ForkedFrom",
         "type": "object"
       },
       "GameUpdateRequest": {
@@ -6299,6 +6351,148 @@
         "title": "RetryRequest",
         "type": "object"
       },
+      "RewindRequest": {
+        "additionalProperties": false,
+        "description": "回溯请求：保留到 ``to_seq``（含）。",
+        "properties": {
+          "dry_run": {
+            "default": false,
+            "description": "只计算影响，不写库",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "to_seq": {
+            "description": "保留到这条消息（含）；-1 只用于总控会话",
+            "minimum": -1.0,
+            "title": "To Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to_seq"
+        ],
+        "title": "RewindRequest",
+        "type": "object"
+      },
+      "RewindResultOut": {
+        "description": "一次回溯的结果（``dry_run`` 时只报告不写库）。",
+        "properties": {
+          "checkpoint_reactivated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Reactivated"
+          },
+          "checkpoints_invalidated": {
+            "title": "Checkpoints Invalidated",
+            "type": "integer"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "notice_message_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Message Id"
+          },
+          "plan_abandoned": {
+            "title": "Plan Abandoned",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "side_effects": {
+            "items": {
+              "$ref": "#/components/schemas/RewindSideEffectOut"
+            },
+            "title": "Side Effects",
+            "type": "array"
+          },
+          "superseded": {
+            "title": "Superseded",
+            "type": "integer"
+          },
+          "superseded_events": {
+            "title": "Superseded Events",
+            "type": "integer"
+          },
+          "to_seq": {
+            "title": "To Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "to_seq",
+          "dry_run",
+          "superseded",
+          "superseded_events",
+          "checkpoints_invalidated",
+          "checkpoint_reactivated",
+          "plan_abandoned",
+          "side_effects",
+          "notice_message_id"
+        ],
+        "title": "RewindResultOut",
+        "type": "object"
+      },
+      "RewindSideEffectOut": {
+        "description": "回溯范围内已经发生、不会被撤销的一次工具调用。",
+        "properties": {
+          "audit_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Id"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "tool_name",
+          "audit_id",
+          "detail"
+        ],
+        "title": "RewindSideEffectOut",
+        "type": "object"
+      },
       "RiskLevel": {
         "enum": [
           "none",
@@ -9638,6 +9832,16 @@
       "TicketDetail": {
         "description": "工单详情：摘要、结果、委托、订阅、最近 5 条汇报与 Worker 是否在跑。",
         "properties": {
+          "forked_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForkedFrom"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lease": {
             "anyOf": [
               {
@@ -15385,6 +15589,133 @@
         ]
       }
     },
+    "/api/agent/sessions/{session_id}/rewind": {
+      "post": {
+        "description": "取代目标之后的消息、作废之后的检查点与计划；副作用逐条列出。",
+        "operationId": "agent_rewind_session",
+        "parameters": [
+          {
+            "description": "会话 id",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "会话 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RewindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RewindResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "REWIND_TARGET_INVALID",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：REWIND_TARGET_INVALID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SESSION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：AGENT_SESSION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_ENDED",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：TICKET_ENDED、RUN_ALREADY_ACTIVE"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "回到指定消息",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/agent/skills": {
       "get": {
         "operationId": "agent_list_skills",
@@ -16156,6 +16487,127 @@
           }
         },
         "summary": "取消工单",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/tickets/{ticket_id}/fork": {
+      "post": {
+        "description": "复制到 ``at_seq`` 为止的历史与同一份委托，新工单从 ``open`` 开始。",
+        "operationId": "agent_fork_ticket",
+        "parameters": [
+          {
+            "description": "源工单 id",
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "description": "源工单 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetail"
+                }
+              }
+            },
+            "description": "Created",
+            "headers": {
+              "Location": {
+                "description": "新工单的 URI",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "REWIND_TARGET_INVALID",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：REWIND_TARGET_INVALID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：TICKET_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "从这条消息分叉工单",
         "tags": [
           "agent"
         ]
