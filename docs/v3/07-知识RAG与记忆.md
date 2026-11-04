@@ -182,7 +182,7 @@ score(d) = Σ_i 1 / (k + rank_i(d))      k = 60，rank 从 1 起
 
 各来源的要点：
 
-- MAA 文档。仓库默认分支是 `dev-v2`，`docs/zh-cn/` 下有 49 个 Markdown 文件、约 435 KB（2026-11-02 实测）。仓库约 1.3 GB，jsDelivr 对它返回 301 跳转到 `raw.githubusercontent.com`，而后者在本机网络下连接被重置，所以只走 GitHub API：先读 `contents/docs` 拿到 `zh-cn` 目录的树 sha，再读 `git/trees/<sha>?recursive=1` 拿到文件清单与每个文件的 blob sha，最后按需读 `git/blobs/<sha>`（base64）。blob sha 就是文档的 `version`，没变的文件不再下载。GitHub API 不登录时每个 IP 每小时 60 次，首次全量约 51 次；限额用完时本次同步记错误、下次继续。走 `sources.use_proxy` 与 `app.proxy` 的代理设置。
+- MAA 文档。仓库默认分支是 `dev-v2`，`docs/zh-cn/` 下有 49 个 Markdown 文件、约 435 KB（2026-11-02 实测）；其中 6 个不足 200 B 的目录页不索引，实际入索引 43 篇。仓库约 1.3 GB，jsDelivr 对它返回 301 跳转到 `raw.githubusercontent.com`，而后者在本机网络下连接被重置，所以只走 GitHub API：先读 `contents/docs` 拿到 `zh-cn` 目录的树 sha，再读 `git/trees/<sha>?recursive=1` 拿到文件清单与每个文件的 blob sha，最后按需读 `git/blobs/<sha>`（base64）。blob sha 就是文档的 `version`，没变的文件不再下载。GitHub API 不登录时每个 IP 每小时 60 次，首次全量约 51 次；限额用完时本次同步记错误、下次继续。走 `sources.use_proxy` 与 `app.proxy` 的代理设置。
 - PRTS。种子页默认 10 个（理智、公开招募、罗德岛基建、信赖值、游戏数据基础、采购中心、干员模组一览、危机合约、集成战略、保全派驻，2026-11-02 实测都存在），一次 wikitext 请求取完。`get_prts_page` 每成功读一页，整页正文就进 `prts` 来源，最多保留 500 页，超出时删最早抓取的随读页。正文用 v2 的 wikitext 清洗函数。
 - 拆包数据。取 `character_table.json`（约 15 MB）、`item_table.json`、`enemy_handbook_table.json`（各约 1.8 MB）三张表，经 `fastly.jsdelivr.net` 镜像下载。只收可获得的干员（438 名）、`MATERIAL` 与 `CONSUME` 两类道具（1017 个）、图鉴里可见的敌人（1761 个），每个实体一张卡片、一篇文档。卡片只写名称、星级、职业、标签、特性、用途与获取方式这类描述性字段，不写属性数值；数值仍由 `get_operator`、`get_item`、`get_enemy` 现查。大表不进外部访问层的内存缓存。
 - 作业站。只索引元数据：关卡、作业标题与说明、干员与技能、上传者、浏览量与好评率、链接。不索引 `actions`（具体操作步骤），作业本身仍用 `search_copilots` 现查。关卡取当期活动的关卡与来源配置里额外列出的关卡，每关最多 10 份。
