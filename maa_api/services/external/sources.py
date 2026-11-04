@@ -22,6 +22,7 @@ __all__ = [
     "CACHE_LIVE",
     "CACHE_STATIC",
     "GAMEDATA_API_HOSTS",
+    "GAMEDATA_CORPUS_FILES",
     "GAMEDATA_DEFAULT_MIRRORS",
     "GAMEDATA_FILES",
     "MAX_PARAM_CHARS",
@@ -362,6 +363,40 @@ SOURCES: dict[str, SourceSpec] = {
         cache_level=CACHE_LEVEL,
         license="拆包数据来自 Kengxxiao/ArknightsGameData，版权属于鹰角网络",
     ),
+    "maa_docs": SourceSpec(
+        kind="maa_docs",
+        label="MAA 文档",
+        hosts=("api.github.com",),
+        paths={
+            "docs_dir": "/repos/MaaAssistantArknights/MaaAssistantArknights/contents/docs",
+            "tree": "/repos/MaaAssistantArknights/MaaAssistantArknights/git/trees/{tree_sha}",
+            "blob": "/repos/MaaAssistantArknights/MaaAssistantArknights/git/blobs/{blob_sha}",
+        },
+        params=frozenset({"ref", "recursive", "tree_sha", "blob_sha"}),
+        # 2026-11-02 实测 docs/zh-cn 的递归目录树约 15 KB、最大文件 56 KB（base64 后约 76 KB）
+        max_bytes=2 * 1024 * 1024,
+        connect_timeout=5.0,
+        read_timeout=20.0,
+        rate_per_minute=20,
+        concurrency=2,
+        cache_level=CACHE_STATIC,
+        license="MAA 文档按 AGPL-3.0 发布（MaaAssistantArknights）",
+    ),
+    "gamedata_corpus": SourceSpec(
+        kind="gamedata_corpus",
+        label="拆包数据（语料）",
+        hosts=("fastly.jsdelivr.net", "cdn.jsdelivr.net"),
+        paths={"excel": "/zh_CN/gamedata/excel"},
+        params=frozenset(),
+        # 2026-11-02 实测 character_table.json 为 15.5 MB
+        max_bytes=24 * 1024 * 1024,
+        connect_timeout=5.0,
+        read_timeout=60.0,
+        rate_per_minute=4,
+        concurrency=1,
+        cache_level=CACHE_LEVEL,
+        license="拆包数据来自 Kengxxiao/ArknightsGameData，版权属于鹰角网络",
+    ),
 }
 
 #: 拆包数据的默认镜像前缀（附录 B）：主机 + 仓库路径，客户端在后面拼白名单路径。
@@ -381,6 +416,11 @@ GAMEDATA_API_HOSTS: frozenset[str] = frozenset(
 #: `item_table.json`（作战记录的 `expItems` 折算值）。不取 15 MB 的 `character_table.json`
 #: 与 `enemy_database.json`。
 GAMEDATA_FILES: frozenset[str] = frozenset({"gamedata_const.json", "item_table.json"})
+
+#: 语料用的三张 excel 表（M77）。只给语料刷新用，工具仍走 GAMEDATA_FILES。
+GAMEDATA_CORPUS_FILES: frozenset[str] = frozenset(
+    {"character_table.json", "item_table.json", "enemy_handbook_table.json"}
+)
 
 
 def get_spec(kind: str) -> SourceSpec:
@@ -449,7 +489,10 @@ def resolve_source(kind: str, settings: Settings | None = None) -> ResolvedSourc
             "作业站数据源已关闭",
             {"kind": kind},
         )
-    if kind in {"gamedata", "gamedata_github"} and not sources.gamedata_enabled:
+    if (
+        kind in {"gamedata", "gamedata_github", "gamedata_corpus"}
+        and not sources.gamedata_enabled
+    ):
         raise AppError(
             ErrorCode.EXTERNAL_SOURCE_DISABLED,
             "拆包数据源已关闭",
@@ -461,7 +504,7 @@ def resolve_source(kind: str, settings: Settings | None = None) -> ResolvedSourc
         rate = sources.penguin_rate_per_minute
     elif kind == "copilot_site":
         rate = sources.copilot_site_rate_per_minute
-    elif kind in {"gamedata", "gamedata_github"}:
+    elif kind in {"gamedata", "gamedata_github", "gamedata_corpus"}:
         rate = sources.gamedata_rate_per_minute
     else:
         # 没有专属限流键的来源走登记表的默认值；目前登记表里的来源都有专属键。

@@ -173,6 +173,7 @@ class ExternalClient:
         host: str | None = None,
         origin: str | None = None,
         suffix: str = "",
+        cache: bool = True,
     ) -> ExternalResult:
         """取一个端点的 JSON；带缓存、限流、重试、熔断与旧值回退。
 
@@ -182,6 +183,8 @@ class ExternalClient:
             同一份内容有多个前缀）。主机仍要过白名单。
         :param suffix: 接在端点路径后面的相对路径（拆包数据的 ``zh_CN/gamedata/...``）；
             它同时进缓存键，所以同一端点的不同文件不会互相覆盖。
+        :param cache: 为 ``False`` 时不读缓存、不写缓存、失败也不回退旧值；同键并发合并
+            照旧。大表与目录树用它，避免占用进程内缓存。
 
         :raises AppError: `EXTERNAL_SOURCE_DISABLED`（来源被关闭）、
             `EXTERNAL_SOURCE_RATE_LIMITED`（等不到令牌或远端 429 冷却中）、
@@ -199,7 +202,7 @@ class ExternalClient:
         level = cache_level if cache_level in CACHE_LEVELS else source.spec.cache_level
         ttl = source.cache_level_seconds.get(level, source.cache_level_seconds["static"])
 
-        hit = self.cache.get(key)
+        hit = self.cache.get(key) if cache else None
         if hit is not None and not hit.stale:
             logger.debug(
                 "外部取数命中缓存 kind=%s endpoint=%s", kind, endpoint
@@ -222,7 +225,7 @@ class ExternalClient:
         task: asyncio.Future[ExternalResult] = asyncio.get_running_loop().create_future()
         self._inflight[key] = task
         try:
-            result = await self._fetch(source, key, endpoint, url, ttl)
+            result = await self._fetch(source, key, endpoint, url, ttl, cache=cache)
         except BaseException as exc:  # noqa: BLE001 - 失败要发给等同一键的调用方
             if not task.done():
                 task.set_exception(exc)
@@ -244,6 +247,8 @@ class ExternalClient:
         endpoint: str,
         url: str,
         ttl: int,
+        *,
+        cache: bool = True,
     ) -> ExternalResult:
         kind = source.kind
         remaining = self.status.cooldown_remaining(kind)
@@ -263,7 +268,7 @@ class ExternalClient:
                 kind, code=str(exc.code), message=exc.message or "", retries=retries
             )
             self._log(source, endpoint, None, started, None, cached=False, error=str(exc.code))
-            stale = self.cache.get(key, allow_stale=True)
+            stale = self.cache.get(key, allow_stale=True) if cache else None
             if stale is not None:
                 # 刷新失败回退到 24 小时内的旧值，标 stale 并带原抓取时间（S26）。
                 logger.warning(
@@ -288,7 +293,8 @@ class ExternalClient:
             )
             raise _unavailable(kind, str(exc)) from exc
 
-        self.cache.put(key, kind, data, ttl=ttl)
+        if cache:
+            self.cache.put(key, kind, data, ttl=ttl)
         self.status.record_success(kind, bytes_read=bytes_read, retries=retries)
         self._log(source, endpoint, response.status_code, started, bytes_read, cached=False)
         return ExternalResult(

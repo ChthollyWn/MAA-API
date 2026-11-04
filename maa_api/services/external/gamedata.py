@@ -44,6 +44,7 @@ from maa_api.services.external.http import (
 from maa_api.services.external.sources import (
     CACHE_LEVEL,
     GAMEDATA_API_HOSTS,
+    GAMEDATA_CORPUS_FILES,
     GAMEDATA_FILES,
     gamedata_github_fallback_enabled,
     gamedata_mirror_origins,
@@ -54,12 +55,14 @@ from maa_api.settings import Settings, get_settings
 
 __all__ = [
     "EXCEL_PREFIX",
+    "GAMEDATA_CORPUS_KIND",
     "GAMEDATA_KIND",
     "GAMEDATA_LICENSE_TITLE",
     "LEVEL_ID_PATTERN",
     "LEVELS_PREFIX",
     "GamedataClient",
     "GamedataData",
+    "validate_corpus_table",
     "validate_excel_name",
     "validate_level_id",
 ]
@@ -72,6 +75,9 @@ EXCEL_PREFIX = "zh_CN/gamedata/excel"
 
 #: 来源 kind（登记在 ``sources.SOURCES``）。
 GAMEDATA_KIND = "gamedata"
+
+#: 语料来源 kind（只给大表刷新用：只走镜像、不进缓存、不走 GitHub 兜底）。
+GAMEDATA_CORPUS_KIND = "gamedata_corpus"
 
 #: 兜底来源 kind（GitHub API）与它的主机（附录 D 的兜底行）。
 GITHUB_KIND = "gamedata_github"
@@ -168,6 +174,18 @@ def validate_excel_name(name: str) -> str:
     return cleaned
 
 
+def validate_corpus_table(name: str) -> str:
+    """语料表文件名白名单校验：只允许 :data:`GAMEDATA_CORPUS_FILES` 里的名字。"""
+    cleaned = str(name or "").strip()
+    if cleaned not in GAMEDATA_CORPUS_FILES:
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            f"只允许取这些语料表：{'、'.join(sorted(GAMEDATA_CORPUS_FILES))}",
+            {"name": cleaned[:80]},
+        )
+    return cleaned
+
+
 class GamedataClient:
     """拆包数据的只读客户端；所有请求都经 `ExternalClient`。"""
 
@@ -201,27 +219,51 @@ class GamedataClient:
         cleaned = validate_excel_name(name)
         return await self._fetch("excel", cleaned, title=cleaned)
 
+    async def corpus_table(self, name: str) -> GamedataData:
+        """取一张语料用的大表；只走镜像，不进缓存，也不走 GitHub 兜底。"""
+        cleaned = validate_corpus_table(name)
+        return await self._fetch(
+            "excel",
+            cleaned,
+            title=cleaned,
+            kind=GAMEDATA_CORPUS_KIND,
+            cache=False,
+            allow_github=False,
+        )
+
     # -- 取数 -------------------------------------------------------------
     async def _fetch(
-        self, endpoint: str, relative_path: str, *, title: str, github_path: str = ""
+        self,
+        endpoint: str,
+        relative_path: str,
+        *,
+        title: str,
+        github_path: str = "",
+        kind: str = GAMEDATA_KIND,
+        cache: bool = True,
+        allow_github: bool = True,
     ) -> GamedataData:
         """按镜像顺序 + GitHub 兜底取一个文件；404 与「取不到」分开报。
 
         :param relative_path: 接在端点登记路径后面的部分（镜像 URL 用它，也进缓存键）。
         :param github_path: GitHub 兜底用的仓库相对路径（缺省由端点前缀与
             ``relative_path`` 拼，见 :meth:`_github`）。
+        :param kind: 来源 kind；既有调用用 :data:`GAMEDATA_KIND`，语料大表用
+            :data:`GAMEDATA_CORPUS_KIND`。
+        :param cache: 传给访问层；``False`` 时不读不写缓存、失败不回退旧值。
+        :param allow_github: 为 ``False`` 时跳过 GitHub 兜底那一段。
         """
         sources = self._settings_provider().sources
         # 来源级校验（总开关、gamedata 开关）在发请求之前做，且只做一次：
         # `resolve_source` 抛的 EXTERNAL_SOURCE_DISABLED 不该降级成「文件不存在」。
-        resolve_source(GAMEDATA_KIND, self._settings_provider())
+        resolve_source(kind, self._settings_provider())
 
         attempts: list[AppError] = []
         not_found = 0
         for origin in gamedata_mirror_origins(sources):
             try:
                 result = await self.client.get_json(
-                    GAMEDATA_KIND,
+                    kind,
                     endpoint,
                     # 路径只能走路径：实测 jsDelivr 对 `…@master?path=…` 直接回 HTTP 400。
                     # 端点登记的路径是 `/zh_CN/gamedata/<levels|excel>`，拼在镜像前缀后面。
@@ -230,6 +272,7 @@ class GamedataClient:
                     host=_host_of(origin),
                     origin=origin,
                     suffix=relative_path,
+                    cache=cache,
                 )
             except AppError as exc:
                 if exc.code not in _FALLBACK_CODES:
@@ -240,7 +283,7 @@ class GamedataClient:
                 continue
             return _wrap(result, via=origin)
 
-        if gamedata_github_fallback_enabled(sources):
+        if allow_github and gamedata_github_fallback_enabled(sources):
             try:
                 result = await self._github(endpoint, github_path or relative_path)
             except AppError as exc:
