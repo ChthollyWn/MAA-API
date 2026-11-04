@@ -17,6 +17,10 @@
 - §0 #10 **不符合**：M70 的 `MandateMiddleware` 直接比较 `decision.risk`，没有用 `09 §2.3` 的 `ceiling_risk` 规则（`grant_atomic_ops` 应按 consume 计）。**裁决**：这是 M70 的实现缺陷，M71 内修（G6 的 T7 第 4 步前先改 `MandateMiddleware` 用 `ceiling_risk(decision.risk, decision.confirmation_action)`），记 13 §8。
 - §0 #12、#13 无匹配 → T7 第 4 步（子代理策略身份）与 T11（工单结束撤销授权）要做。
 - §0 #16 的命中只有 M70 文件里的 M71 前瞻注释与 `__pycache__`，不是实现，忽略。
+- **规格缺口裁决**（digest 读取代码核对后确认，记 13 §8）：
+  1. M70 的 `DeviceGateMiddleware`/`DeviceGate`（`workers/middleware.py`/`workers/device_gate.py`、`app.state.device_gate`、`WorkerService._device_gate`、`pump.py`、`main.py` 装配与测试）在注释里写明「M71 用 DeviceLeaseService 与 LeaseMiddleware 替换并删除」，但 M71 spec 写范围没列。**裁决**：M71 删除旧设备门并改全部接线/测试，否则双层互斥且旧门无 TTL 会阻塞新闸门。
+  2. 中间件链构造处在 `maa_api/agent/runtime.py`（`build_agent_chain` 与 v2 `_build_chain`），不是 spec 写的 `builtin_middleware.py`（类定义）。
+  3. §0 #16 的命中是注释，不是实现；§0 #7 两条 `ClarificationMiddleware(` 只改 v3 链。
 - 基线：全量 pytest 与 capability replay 结果见台账（预期 3 条真资源既有失败、capability 6/6）。
 
 ## Global Constraints
@@ -69,7 +73,7 @@
 
 ### Task 4（G4）: 执行前回调与 LeaseMiddleware（spec T5）
 
-**Files:** `maa_api/agent/confirmation.py`、`maa_api/agent/lease.py`（`LeaseMiddleware`/`holder_for`）、`maa_api/agent/harness/builtin_middleware.py`（`PolicyMiddleware` 组合钩子与链构造）、新建 `tests/agent/test_confirmation_before_execute.py`、`tests/agent/lease/test_lease_middleware.py`
+**Files:** `maa_api/agent/confirmation.py`、`maa_api/agent/lease.py`（`LeaseMiddleware`/`holder_for`）、`maa_api/agent/harness/builtin_middleware.py`（`PolicyMiddleware` 组合钩子）、`maa_api/agent/runtime.py`（`build_agent_chain`/v2 `_build_chain`；v3 链插 `LeaseMiddleware`；**删除 `DeviceGateMiddleware`/`DeviceGate` 与 `app.state.device_gate`/`WorkerService._device_gate`/`pump.py` 引用**，同步 `main.py` 装配与受影响测试）、新建 `tests/agent/test_confirmation_before_execute.py`、`tests/agent/lease/test_lease_middleware.py`
 
 - [ ] `invoke(..., on_before_execute=)` 在确认通过后、执行前调用（None 时路径不变）；`LeaseMiddleware` 经 `ctx.state["policy.before_execute"]` 登记并使用租约；等确认/提问期间不占租约；隐式租约在根运行结束时释放。
 - [ ] 验证：`pytest tests/agent` → 0。
