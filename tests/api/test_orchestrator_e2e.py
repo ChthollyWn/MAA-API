@@ -54,7 +54,7 @@ from tests.fakes.lifespan import install_fake_lifespan
 from tests.fakes.scripted_llm import Hold, ScriptedLLM, install_llm, route_by_marker
 
 #: 异步等待期限（spec §6 风险表：所有等待都有 8 秒期限）。
-WAIT_SECONDS = 8.0
+WAIT_SECONDS = 20.0  # 满载全量下异步转述/唤醒可能超过 8s（M76 §8.85 加固）
 #: 轮询间隔。
 POLL_SECONDS = 0.02
 
