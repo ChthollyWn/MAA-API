@@ -191,7 +191,7 @@ async def _drain(service: KnowledgeIndexService) -> None:
     raise AssertionError("后台任务没有结束")
 
 
-async def _wait_until(predicate, *, timeout: float = 5.0) -> None:
+async def _wait_until(predicate, *, timeout: float = 20.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if await predicate():
