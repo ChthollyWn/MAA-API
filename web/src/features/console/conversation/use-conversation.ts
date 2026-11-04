@@ -276,8 +276,14 @@ export function useConversation(
     let failed = false
     try {
       await streamSse(endpoints.streamPath, body, controller.signal, (name, data) => {
+        const event = toSseV3Event(name, data)
+        // 服务端用 SSE error 事件回的错误也要显示在实时副本之外：流收尾丢弃副本后，
+        // 用户仍要看见失败原因（与 v2 的 turnError 同语义）。
+        if (event.type === 'error') {
+          setError({ message: event.message, code: event.code || undefined })
+        }
         setLive((current) => current && current.scopeKey === scopeKey
-          ? reduceLiveTurn(current, toSseV3Event(name, data))
+          ? reduceLiveTurn(current, event)
           : current)
       })
       setLive((current) => current ? finishLiveTurn(current) : current)

@@ -244,7 +244,10 @@ export function ConversationComposer({
     status = scope.kind === 'orchestrator' ? '总控正在处理收到的消息' : 'Worker 正在后台执行'
   }
 
-  const busy = Boolean(controller.live?.running && !draft.trim()) || controller.stopping
+  // 没有本地流、但后端说还有一轮在跑（刷新/换设备回来）时同样要能停：M22 的停止入口
+  // 不能只依赖本地实时副本。
+  const backgroundRunning = !controller.live && controller.canStop && !controller.stopping
+  const busy = Boolean(controller.live?.running && !draft.trim()) || controller.stopping || backgroundRunning
   const orchestrator = scope.kind === 'orchestrator'
 
   const assistPanel = assistToken?.trigger === '@'
