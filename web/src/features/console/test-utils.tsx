@@ -252,6 +252,10 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       if (sub === 'messages' && request.method === 'GET') {
         return pageOf(state.ticketMessages[ticketId!] ?? [], page, size)
       }
+      if (sub === 'messages' && request.method === 'POST') {
+        return options.stream?.(body as Json, recorded)
+          ?? sse([event('run_end', { run_id: 'run-1', finish_reason: 'stop' })])
+      }
       if (sub === 'reports' && request.method === 'GET') {
         return pageOf(state.reports[ticketId!] ?? [], page, size)
       }
