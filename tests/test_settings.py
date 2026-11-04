@@ -439,6 +439,12 @@ def test_env_mapping_names_are_pinned() -> None:
         "rag.top_k": "MAA_RAG_TOP_K",
         "rag.chunk_chars": "MAA_RAG_CHUNK_CHARS",
         "rag.chunk_overlap": "MAA_RAG_CHUNK_OVERLAP",
+        # M77：外部语料四个开关与刷新时间（都不是 config-only）。
+        "rag.maa_docs_enabled": "MAA_RAG_MAA_DOCS_ENABLED",
+        "rag.prts_enabled": "MAA_RAG_PRTS_ENABLED",
+        "rag.gamedata_enabled": "MAA_RAG_GAMEDATA_ENABLED",
+        "rag.copilot_site_enabled": "MAA_RAG_COPILOT_SITE_ENABLED",
+        "rag.refresh_cron": "MAA_RAG_REFRESH_CRON",
     }
 
 
@@ -956,7 +962,7 @@ def test_workspace_plan_settings_have_documented_defaults_and_bounds() -> None:
 
 
 def test_rag_settings_have_documented_defaults_and_bounds() -> None:
-    """M76 检索层：五项默认值、范围、互斥与设置 API 元数据（spec §4.4）。"""
+    """M76/M77 检索层：默认值、范围、互斥、cron 与设置 API 元数据（spec §4.4）。"""
     from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
     from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, RagSettings
 
@@ -967,6 +973,11 @@ def test_rag_settings_have_documented_defaults_and_bounds() -> None:
     assert default.rag.top_k == 8
     assert default.rag.chunk_chars == 800
     assert default.rag.chunk_overlap == 100
+    assert default.rag.maa_docs_enabled is True
+    assert default.rag.prts_enabled is True
+    assert default.rag.gamedata_enabled is True
+    assert default.rag.copilot_site_enabled is False
+    assert default.rag.refresh_cron == "0 4 * * *"
 
     configured = resolve_settings(
         {
@@ -1059,7 +1070,36 @@ def test_rag_settings_have_documented_defaults_and_bounds() -> None:
             row["minimum"], row["maximum"], row["hot_action"],
         ) == (label, "Agent", "integer", minimum, maximum, "none")
 
-    # 文档一致性：模板里的五项值与注释逐字照 spec §4.4。
+    # M77 外部语料：四个开关无热更新动作，刷新 cron 要重启服务；标签/说明逐字照 spec。
+    corpus_keys = {
+        "rag.maa_docs_enabled",
+        "rag.prts_enabled",
+        "rag.gamedata_enabled",
+        "rag.copilot_site_enabled",
+        "rag.refresh_cron",
+    }
+    assert corpus_keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (corpus_keys & CONFIG_ONLY_SETTING_KEYS)
+    for key, label in (
+        ("rag.maa_docs_enabled", "检索 MAA 文档"),
+        ("rag.prts_enabled", "检索 PRTS 页面"),
+        ("rag.gamedata_enabled", "检索拆包实体卡"),
+        ("rag.copilot_site_enabled", "检索作业站作业"),
+    ):
+        row = schema_for(key)
+        assert (
+            row["label"], row["group"], row["type"], row["hot_action"],
+        ) == (label, "Agent", "boolean", "none")
+    cron_row = schema_for("rag.refresh_cron")
+    assert (
+        cron_row["label"], cron_row["group"], cron_row["type"],
+        cron_row["hot_action"], cron_row["description"],
+    ) == (
+        "语料刷新时间（cron）", "Agent", "string", "restart_required",
+        "五段 cron，按本机时区；改完重启服务生效",
+    )
+
+    # 文档一致性：模板里的值与注释逐字照 spec §4.4（M77 追加五个外部语料键）。
     template_text = TEMPLATE_PATH.read_text(encoding="utf8")
     template = YAML(typ="safe").load(template_text)
     assert template["rag"] == {
@@ -1068,6 +1108,11 @@ def test_rag_settings_have_documented_defaults_and_bounds() -> None:
         "top_k": 8,
         "chunk_chars": 800,
         "chunk_overlap": 100,
+        "maa_docs_enabled": True,
+        "prts_enabled": True,
+        "gamedata_enabled": True,
+        "copilot_site_enabled": False,
+        "refresh_cron": "0 4 * * *",
     }
     assert "# 知识检索总开关" in template_text
     assert (
@@ -1076,6 +1121,26 @@ def test_rag_settings_have_documented_defaults_and_bounds() -> None:
     ) in template_text
     assert "# 每次检索返回的条数（1–30）" in template_text
     assert "# 分块长度与相邻分块的重叠字数；改了以后下次同步时重建分块" in template_text
+    assert "# 外部语料开关：关闭后不抓取、不参与检索（出站请求另受 sources.* 管）" in template_text
+    assert "# 语料刷新时间，五段 cron，本机时区；改完重启服务生效" in template_text
+
+
+def test_rag_refresh_cron_rejects_garbage() -> None:
+    """M77：refresh_cron 交给 APScheduler 解析，解析不了的串在加载时就拒绝（spec §4.4）。"""
+    from maa_api.settings import RagSettings
+
+    assert (
+        resolve_settings({"rag": {"refresh_cron": "30 4 * * *"}}, env={})
+        .rag.refresh_cron
+        == "30 4 * * *"
+    )
+    for bad in ("every day", "0 4 * *", "61 4 * * *", ""):
+        with pytest.raises(ValidationError):
+            resolve_settings({"rag": {"refresh_cron": bad}}, env={})
+    with pytest.raises(ValidationError):
+        RagSettings(refresh_cron="every day")
+    with pytest.raises(ValidationError):
+        resolve_settings(env={"MAA_RAG_REFRESH_CRON": "every day"})
 
 
 def test_gamedata_settings_have_documented_defaults_and_bounds() -> None:

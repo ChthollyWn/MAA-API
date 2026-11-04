@@ -74,6 +74,46 @@ function defaultSources(): SourceState[] {
   ]
 }
 
+/** M77：外部来源带许可，开关状态由设置段控制。 */
+function externalSources(): SourceState[] {
+  return [
+    {
+      id: 'maa-docs',
+      kind: 'maa_docs',
+      title: 'MAA 官方文档',
+      enabled: true,
+      setting_enabled: true,
+      searchable_by_default: true,
+      trusted: false,
+      license: 'AGPL-3.0（MaaAssistantArknights）',
+      status: 'idle',
+      error: null,
+      doc_count: 43,
+      chunk_count: 612,
+      vector_count: 0,
+      last_indexed_at: '2026-11-03T04:00:41Z',
+      config: { ref: 'dev-v2', path: 'docs/zh-cn' },
+    },
+    {
+      id: 'copilot-site',
+      kind: 'copilot_site',
+      title: '作业站作业',
+      enabled: true,
+      setting_enabled: false,
+      searchable_by_default: true,
+      trusted: false,
+      license: '作业版权属于各自的作业作者',
+      status: 'idle',
+      error: null,
+      doc_count: 0,
+      chunk_count: 0,
+      vector_count: 0,
+      last_indexed_at: null,
+      config: { extra_stage_ids: [], per_stage_limit: 10 },
+    },
+  ]
+}
+
 function defaultEmbedding(): Json {
   return {
     provider: 'none',
@@ -344,5 +384,23 @@ describe('retrieval settings section', () => {
     await waitFor(() => expect(router.state.location.search).toBe('?tab=sources'))
     expect(await screen.findByText('内置知识')).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: '检索来源' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('external sources show license and setting state', async () => {
+    installApi({ sources: [...defaultSources(), ...externalSources()] })
+    renderRetrieval(SOURCES_PATH)
+
+    const docs = within(await screen.findByTestId('source-maa-docs'))
+    expect(docs.getByText('MAA 官方文档')).toBeInTheDocument()
+    expect(docs.getByText('许可：AGPL-3.0（MaaAssistantArknights）')).toBeInTheDocument()
+    expect(docs.getByRole('switch', { name: '启用「MAA 官方文档」' })).toBeEnabled()
+
+    // 没有许可的来源不渲染这一行。
+    expect(within(screen.getByTestId('source-builtin')).queryByText(/^许可：/)).not.toBeInTheDocument()
+
+    const copilot = within(screen.getByTestId('source-copilot-site'))
+    expect(copilot.getByText('许可：作业版权属于各自的作业作者')).toBeInTheDocument()
+    expect(copilot.getByRole('switch', { name: '启用「作业站作业」' })).toBeDisabled()
+    expect(copilot.getByText('已在设置里关闭')).toBeInTheDocument()
   })
 })

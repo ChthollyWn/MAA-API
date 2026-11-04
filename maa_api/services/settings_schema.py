@@ -147,6 +147,13 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "rag.top_k": dict(label="检索返回条数", group="Agent", type="integer", minimum=1, maximum=30, hot_action="none"),
     "rag.chunk_chars": dict(label="分块长度（字）", group="Agent", type="integer", minimum=200, maximum=4000, hot_action="none"),
     "rag.chunk_overlap": dict(label="分块重叠（字）", group="Agent", type="integer", minimum=0, maximum=1000, hot_action="none"),
+    # M77 外部语料：四个开关检索/刷新时现读；刷新 cron 在启动时注册任务，改完要重启。
+    "rag.maa_docs_enabled": dict(label="检索 MAA 文档", group="Agent", type="boolean", hot_action="none"),
+    "rag.prts_enabled": dict(label="检索 PRTS 页面", group="Agent", type="boolean", hot_action="none"),
+    "rag.gamedata_enabled": dict(label="检索拆包实体卡", group="Agent", type="boolean", hot_action="none"),
+    "rag.copilot_site_enabled": dict(label="检索作业站作业", group="Agent", type="boolean", hot_action="none"),
+    "rag.refresh_cron": dict(label="语料刷新时间（cron）", group="Agent", type="string", hot_action="restart_required",
+        description="五段 cron，按本机时区；改完重启服务生效"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

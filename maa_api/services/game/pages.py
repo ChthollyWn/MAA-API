@@ -35,10 +35,11 @@
 from __future__ import annotations
 
 import html
+import logging
 import re
 from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import datetime
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Awaitable, Callable, Iterable, Mapping, Sequence
 from urllib.parse import quote_plus
 
 from maa_api.domain.errors import AppError, ErrorCode
@@ -67,6 +68,7 @@ __all__ = [
     "TEXT_MIN_CHARS",
     "PageService",
     "classify_kind",
+    "clean_page_text",
     "clean_section_title",
     "dataclass_to_dict",
     "default_page_service",
@@ -121,6 +123,8 @@ _WHITESPACE = re.compile(r"\s+")
 #: 正文里的章节标题行（独占一行、首尾 `=` 数量一致）。
 _HEADING = re.compile(r"^(={1,6})[ \t]*(.+?)[ \t]*\1[ \t]*$", re.M)
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True, slots=True)
 class _RawPage:
@@ -137,11 +141,16 @@ class PageService:
 
     def __init__(self, *, prts: PrtsClient | None = None) -> None:
         self._prts = prts
+        self._listeners: list[Callable[[WikiPage, datetime], Awaitable[None]]] = []
 
     @property
     def prts(self) -> PrtsClient:
         """PRTS 客户端；缺省现建一个（底层走进程内单例的连接）。"""
         return self._prts or PrtsClient()
+
+    def add_listener(self, listener: Callable[[WikiPage, datetime], Awaitable[None]]) -> None:
+        """注册页面监听者（M77 §4.2）：每次 `page()` 取数成功后按注册顺序调用。"""
+        self._listeners.append(listener)
 
     # -- 检索 -------------------------------------------------------------
     async def search(self, query: str, *, limit: int = 5) -> dict[str, Any]:
@@ -200,6 +209,7 @@ class PageService:
         """取一个页面的结构化字段、章节表与正文（规格 §5.8）。"""
         self._validate_window(offset=offset, max_chars=max_chars)
         raw = await self._load(title)
+        await self._notify(raw)
         body, sections = self._select(raw, section=section)
         text = _clean_text(body)
         window, truncated = _window(text, offset=offset, max_chars=max_chars)
@@ -242,6 +252,16 @@ class PageService:
         categories = await self._fetch_categories(page.title)
         sections = await self._fetch_sections(page.title)
         return _RawPage(batch=batch, page=page, categories=categories, sections=sections)
+
+    async def _notify(self, raw: _RawPage) -> None:
+        """逐个通知监听者；单个监听者失败只记 debug，不影响 `page()` 的返回（M77 §4.2）。"""
+        for listener in tuple(self._listeners):
+            try:
+                await listener(raw.page, raw.batch.result.fetched_at)
+            except Exception:
+                logger.debug(
+                    "页面监听器 %r 处理「%s」失败", listener, raw.page.title, exc_info=True
+                )
 
     async def _fetch_categories(self, title: str) -> tuple[str, ...]:
         """分类：取不到给空表（`kind` 落回「其他」）。"""
@@ -370,6 +390,11 @@ def clean_section_title(value: str) -> str:
     text = _TAG.sub("", str(value or ""))
     text = _unescape(text)
     return _WHITESPACE.sub(" ", text).strip()
+
+
+def clean_page_text(content: str) -> str:
+    """正文清洗的公开入口（M77 §4.2）：行为与 `_clean_text` 逐字一致。"""
+    return _clean_text(content)
 
 
 def _clean_text(body: str) -> str:

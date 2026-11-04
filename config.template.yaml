@@ -214,6 +214,13 @@ rag:
   # 分块长度与相邻分块的重叠字数；改了以后下次同步时重建分块
   chunk_chars: 800
   chunk_overlap: 100
+  # 外部语料开关：关闭后不抓取、不参与检索（出站请求另受 sources.* 管）
+  maa_docs_enabled: true
+  prts_enabled: true
+  gamedata_enabled: true
+  copilot_site_enabled: false
+  # 语料刷新时间，五段 cron，本机时区；改完重启服务生效
+  refresh_cron: "0 4 * * *"
 
 # 运行追踪：每次代理调用的步骤、耗时与用量
 trace:
