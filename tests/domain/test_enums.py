@@ -330,6 +330,12 @@ EXPECTED_VALUES = {
         "HISTORY": "history",
         "MEMORY": "memory",
     },
+    # M78：技能行的来历（v3 specs/m78 §4.1）。
+    "SkillOrigin": {
+        "OVERRIDE": "override",
+        "USER": "user",
+        "GENERATED": "generated",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。

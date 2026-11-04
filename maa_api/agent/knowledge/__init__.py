@@ -10,7 +10,7 @@
   内置**不同**的列，其余为 NULL，读取时继承内置值；``kind`` 不可覆盖。写入时若
   没有任何字段与内置不同且处于启用状态，就删掉这一行（「恢复默认」）。
 - **注入**：:meth:`KnowledgeService.render_context` 返回拼进 system 消息的那段
-  文本：索引（playbook / screen / rule，先按 kind 再按 id 排序）+ 当期活动（M24）+
+  文本：索引（screen / rule，以及用户自建的 playbook，先按 kind 再按 id 排序）+ 当期活动（M24）+
   当期卡池（M28）+ 账号数据（M27）+ 术语表全文 + 用户档案全文；三段实时数据各自
   读不到时整段不插。三层口径见 docs/11 §6.7。
 
@@ -80,6 +80,7 @@ __all__ = [
     "GLOSSARY_HEADER",
     "PROFILE_HEADER",
     "KNOWLEDGE_KINDS",
+    "MIGRATED_TO_SKILLS",
     "MAX_BODY_CHARS",
     "MAX_TITLE_CHARS",
     "MAX_WHEN_TO_USE_CHARS",
@@ -106,6 +107,22 @@ BUILTIN_DIRNAME = "builtin"
 KNOWLEDGE_KINDS = ("playbook", "screen", "rule", "glossary", "profile")
 INDEX_KINDS = ("playbook", "screen", "rule")
 FULLTEXT_KINDS = ("glossary", "profile")
+
+#: M78：从知识库迁成内置技能的条目 id（``skills/builtin/<id>/SKILL.md``）。
+#: 知识库不再收录它们；读取时指向 ``load_skill``，写入时报内置只读。
+MIGRATED_TO_SKILLS: frozenset[str] = frozenset(
+    {
+        "account-resources",
+        "playbook-daily-weekly",
+        "playbook-drop-lookup",
+        "playbook-infrast-shift",
+        "playbook-promotion-planning",
+        "playbook-recruit",
+        "playbook-sanity-planning",
+        "playbook-stage-clear",
+        "task-preconditions",
+    }
+)
 
 #: ``id`` 是 URL 路径段，只允许小写字母、数字与中划线，2–48 个字符。
 ENTRY_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,47}$")
@@ -795,6 +812,15 @@ def _not_found(entry_id: str) -> AppError:
     )
 
 
+def _migrated_to_skill(entry_id: str) -> AppError:
+    """M78：这 9 个 id 已迁成技能，知识库读取统一指向 ``load_skill``。"""
+    return AppError(
+        ErrorCode.KNOWLEDGE_NOT_FOUND,
+        f"「{entry_id}」已改成技能，用 load_skill 加载",
+        {"entry_id": entry_id, "skill_id": entry_id},
+    )
+
+
 def _override_row(
     entry_id: str, payload: KnowledgeWrite, builtin: BuiltinEntry, now: datetime
 ) -> AgentKnowledge | None:
@@ -881,16 +907,33 @@ class KnowledgeService:
         self._change_listeners.append(listener)
 
     async def get_entry(self, entry_id: str) -> KnowledgeDetail:
-        """一条条目的完整生效内容；未知 id 抛 ``KNOWLEDGE_NOT_FOUND``。"""
+        """一条条目的完整生效内容；未知 id 抛 ``KNOWLEDGE_NOT_FOUND``。
+
+        M78 起 9 个已迁成技能的 id 不再出现在知识库里，合并结果里没有它们时
+        报「已改成技能」，消息与 details 指向 ``load_skill``。
+        """
         entry = await self._load(entry_id)
         if entry is None:
+            if entry_id in MIGRATED_TO_SKILLS:
+                raise _migrated_to_skill(entry_id)
             raise _not_found(entry_id)
         return _detail(entry, self._builtins)
 
     async def read_for_agent(self, entry_id: str) -> KnowledgeEntry:
-        """给 ``read_knowledge`` 工具用：未启用与未知一样，都当不存在。"""
+        """给 ``read_knowledge`` 工具用：未启用与未知一样，都当不存在。
+
+        M78 起 9 个已迁成技能的 id 报「已改成技能，用 load_skill 加载」。
+        """
         entry = await self._load(entry_id)
-        if entry is None or not entry.enabled:
+        if entry is None:
+            if entry_id in MIGRATED_TO_SKILLS:
+                raise _migrated_to_skill(entry_id)
+            raise AppError(
+                ErrorCode.KNOWLEDGE_NOT_FOUND,
+                "知识条目不存在或已停用",
+                {"entry_id": entry_id},
+            )
+        if not entry.enabled:
             raise AppError(
                 ErrorCode.KNOWLEDGE_NOT_FOUND,
                 "知识条目不存在或已停用",
@@ -1048,7 +1091,17 @@ class KnowledgeService:
 
     # -- 写 ---------------------------------------------------------------
     async def put_entry(self, entry_id: str, payload: KnowledgeWrite) -> KnowledgeDetail:
-        """写入完整的生效内容：新建自定义条目，或修改、停用内置条目。"""
+        """写入完整的生效内容：新建自定义条目，或修改、停用内置条目。
+
+        M78 起 9 个已迁成技能的 id 拒绝写入（``KNOWLEDGE_BUILTIN_READONLY``）：
+        它们的内容归技能页维护。
+        """
+        if entry_id in MIGRATED_TO_SKILLS:
+            raise AppError(
+                ErrorCode.KNOWLEDGE_BUILTIN_READONLY,
+                "这个 id 已改成技能，到技能页修改",
+                {"entry_id": entry_id},
+            )
         problems = _field_problems(
             entry_id, payload.kind, payload.title, payload.when_to_use, payload.body
         )

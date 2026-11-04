@@ -53,15 +53,14 @@ M49_SPEC_PATH = SPEC_DIR / "2026-10-14-m49-stage-clear-playbook.md"
 BUILTIN_DIR = REPO_ROOT / "maa_api" / "agent" / "knowledge" / "builtin"
 
 #: 内置条目的文档化清单：M18 规格 §4.6 的 5 条、M19 §4.1 的 26 条、M24 §4.5 的 1 条、
-#: M32 §4.6 的 1 条、M49 §4.6 的 1 条。
+#: M32 §4.6 的 1 条、M49 §4.6 的 1 条，去掉 M78 迁成技能的 9 条后剩 25 条。
 BUILTIN_IDS = [
-    # M18
-    "account-resources",
+    # M18（account-resources 已迁成技能，见 MIGRATED_TO_SKILLS）
     "screen-home",
     "screen-depot",
     "gacha-conversion",
     "glossary",
-    # M19（§4.1 表格顺序）
+    # M19（§4.1 表格顺序；6 条 playbook 已迁成技能）
     "headhunt-rules",
     "currency-sources",
     "certificate-shops",
@@ -69,32 +68,35 @@ BUILTIN_IDS = [
     "sanity-system",
     "stage-rules",
     "drop-efficiency",
-    "playbook-sanity-planning",
-    "playbook-drop-lookup",
     "operator-progression",
     "trust-and-potential",
     "operator-classes",
-    "playbook-promotion-planning",
     "screen-operator",
     "recruit-tags",
-    "playbook-recruit",
     "screen-recruit",
     "infrast-mechanics",
-    "playbook-infrast-shift",
     "screen-infrast",
     "screen-terminal",
     "screen-headhunt",
     "screen-store",
     "event-and-rerun",
-    "playbook-daily-weekly",
     "glossary-terms",
     # M24
     "activity-stage-codes",
-    # M32
-    "task-preconditions",
-    # M49
-    "playbook-stage-clear",
 ]
+
+#: M78：从知识库迁成内置技能的 9 条（``skills/builtin/<id>/SKILL.md``）。
+MIGRATED_TO_SKILLS = {
+    "account-resources",
+    "playbook-daily-weekly",
+    "playbook-drop-lookup",
+    "playbook-infrast-shift",
+    "playbook-promotion-planning",
+    "playbook-recruit",
+    "playbook-sanity-planning",
+    "playbook-stage-clear",
+    "task-preconditions",
+}
 
 INDEX_HEADER = (
     "知识库索引（开发者与用户维护，可作为操作指引；需要时用 read_knowledge 读取全文）："
@@ -107,18 +109,9 @@ PROFILE_HEADER = "用户档案（用户维护）："
 INDEX_KINDS = ("playbook", "screen", "rule")
 FULLTEXT_KINDS = ("glossary", "profile")
 
-#: 34 条内置条目在 ``list_entries()`` 里的顺序：先 kind（playbook/screen/rule/
-#: glossary/profile），同 kind 内按 id 升序。
+#: 25 条内置条目在 ``list_entries()`` 里的顺序：先 kind（screen/rule/glossary/profile；
+#: playbook 已全部迁成技能），同 kind 内按 id 升序。
 BUILTIN_LIST_ORDER = [
-    "account-resources",
-    "playbook-daily-weekly",
-    "playbook-drop-lookup",
-    "playbook-infrast-shift",
-    "playbook-promotion-planning",
-    "playbook-recruit",
-    "playbook-sanity-planning",
-    "playbook-stage-clear",
-    "task-preconditions",
     "screen-depot",
     "screen-headhunt",
     "screen-home",
@@ -217,7 +210,9 @@ def _write(fields: dict[str, object], body: str = "正文") -> str:
 def _spec_blocks() -> dict[str, str]:
     """四份规格 §4.6 的 markdown 代码块**并集**，按 frontmatter 里的 id 索引。
 
-    M18 的 5 个块、M19 的 26 个块、M24 的 1 个块、M32 的 1 个块与 M49 的 1 个块合起来恰好是全部内置条目。
+    M18 的 5 个块、M19 的 26 个块、M24 的 1 个块、M32 的 1 个块与 M49 的 1 个块
+    合起来是 M78 之前的全部 34 个内置条目；M78 把其中 9 个迁成技能后，知识目录里
+    只剩 ``all_blocks - MIGRATED_TO_SKILLS`` 的 25 个。
     """
     keyed: dict[str, str] = {}
     for path in (M18_SPEC_PATH, M19_SPEC_PATH, M24_SPEC_PATH, M32_SPEC_PATH, M49_SPEC_PATH):
@@ -275,9 +270,16 @@ def test_builtin_files_match_the_spec_registry_and_frontmatter():
     跨文件重复段落、超长句），所以正文不再要求与规格逐字相同；``id``、``kind``、
     ``title``、``when_to_use`` 仍是契约。
     """
-    blocks = _spec_blocks()
+    all_blocks = _spec_blocks()
     files = sorted(BUILTIN_DIR.glob("*.md"))
     # 用集合比较：文件名的排序（glossary-terms.md 在 glossary.md 之前）不是契约。
+    # M78：规格块并集仍登记着迁成技能的 9 条；减去它们后必须恰好等于知识目录。
+    assert set(MIGRATED_TO_SKILLS) <= set(all_blocks)
+    blocks = {
+        entry_id: block
+        for entry_id, block in all_blocks.items()
+        if entry_id not in MIGRATED_TO_SKILLS
+    }
     assert set(blocks) == {path.stem for path in files}
     assert sorted(blocks) == sorted(builtin_entries())
     for entry_id, block in blocks.items():
@@ -1135,6 +1137,47 @@ def test_read_for_agent_returns_the_effective_body(harness):
         assert entry.body == "改过的正文"
         assert entry.when_to_use == "需要读货币时"
         assert entry.modified is True
+
+    asyncio.run(scenario())
+
+
+def test_migrated_ids_redirect_to_load_skill(harness):
+    """M78 §6：迁成技能的 id 不再从知识库读，报错指向 ``load_skill``。"""
+    service, _ = harness
+
+    async def scenario():
+        with pytest.raises(AppError) as info:
+            await service.read_for_agent("playbook-recruit")
+        assert info.value.code is ErrorCode.KNOWLEDGE_NOT_FOUND
+        assert info.value.http_status == 404
+        assert info.value.details == {
+            "entry_id": "playbook-recruit",
+            "skill_id": "playbook-recruit",
+        }
+        assert "load_skill" in info.value.message
+
+    asyncio.run(scenario())
+
+
+def test_put_entry_rejects_migrated_ids(harness):
+    """M78 §6：迁成技能的 id 在知识库写入时是内置只读。"""
+    service, factory = harness
+
+    async def scenario():
+        with pytest.raises(AppError) as info:
+            await service.put_entry(
+                "task-preconditions",
+                KnowledgeWrite(
+                    kind="playbook",
+                    title="任务执行前提",
+                    when_to_use="提交游戏内任务前",
+                    body="改过的正文",
+                ),
+            )
+        assert info.value.code is ErrorCode.KNOWLEDGE_BUILTIN_READONLY
+        assert info.value.http_status == 409
+        assert info.value.details == {"entry_id": "task-preconditions"}
+        assert await _rows(factory) == {}
 
     asyncio.run(scenario())
 

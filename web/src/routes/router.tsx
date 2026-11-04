@@ -32,6 +32,8 @@ const TicketsPage = lazy(() => import('@/features/tickets/TicketsPage'))
 const TicketDetailPage = lazy(() => import('@/features/tickets/TicketDetailPage'))
 const AgentsPage = lazy(() => import('@/features/agents/AgentsPage'))
 const AgentDetailPage = lazy(() => import('@/features/agents/AgentDetailPage'))
+const SkillsPage = lazy(() => import('@/routes/skills'))
+const SkillEditorPage = lazy(() => import('@/routes/skills/editor'))
 const LegacySessionsPage = lazy(() => import('@/features/agent/LegacySessionsPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
 
@@ -147,6 +149,9 @@ export const routeConfig: RouteObject[] = [
       { path: 'more/account', element: page(<AccountPage />) },
       { path: 'more/account/depot', element: page(<AccountPage />) },
       { path: 'more/copilots', element: page(<CopilotsPage />) },
+      { path: 'more/skills', element: page(<SkillsPage />) },
+      { path: 'more/skills/new', element: page(<SkillEditorPage />) },
+      { path: 'more/skills/:skillId', element: page(<SkillEditorPage />) },
       { path: 'more/schedules/*', element: <SchedulesRedirect /> },
       { path: 'more/api-console/guide', element: page(<ApiConsolePage />) },
       { path: 'more/api-console', element: page(<ApiConsolePage />) },

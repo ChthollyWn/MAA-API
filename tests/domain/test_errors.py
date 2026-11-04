@@ -63,8 +63,10 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: M75 在 §4.11 加产物与计划四条（`ARTIFACT_*`、`PLAN_*`）。
 #: M76 在 §4.11 加检索相关四条（`KNOWLEDGE_SOURCE_*`、`EMBEDDING_UNAVAILABLE`、
 #: `RETRIEVAL_QUERY_INVALID`；后两者由 G2 预置代码，本卡一并登记进文档）。
-ALL_CODE_COUNT = 150
-HTTP_BOUND_CODE_COUNT = 149
+#: M78 在 §4.11 加技能三条（`SKILL_NOT_FOUND`、`SKILL_BUILTIN_READONLY`、
+#: `SKILL_INVALID`；代码由 G3 预置，本卡登记计数与文档）。
+ALL_CODE_COUNT = 153
+HTTP_BOUND_CODE_COUNT = 152
 SECTION_COUNT = 20
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。

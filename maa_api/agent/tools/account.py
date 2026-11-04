@@ -168,7 +168,7 @@ def register_tools(registry: ToolRegistry) -> None:
             risk=ToolRisk.SAFE,
             description=(
                 "查用户仓库里的材料数量与识别时间。做养成规划、判断材料够不够时用它；"
-                "识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见 task-preconditions）。"
+                "识别是游戏内任务，提交前要确认游戏已启动并停在主界面（见技能 task-preconditions）。"
             ),
             params_model=GetDepotParams,
             handler=get_depot,

@@ -1,5 +1,6 @@
 import {
   Activity,
+  BookMarked,
   Bot,
   Boxes,
   ClipboardList,
@@ -49,6 +50,7 @@ export const secondaryNav: readonly (NavItem & { description: string; group: Nav
   { to: '/more/updates', label: '热更新', icon: Download, description: '内核、活动资源与游戏版本', group: 'ops' },
   { to: '/more/account', label: '账号数据', icon: Boxes, description: '森空岛练度同步、仓库识别与养成计划', group: 'ops' },
   { to: '/more/copilots', label: '作业', icon: Swords, description: '作业来源、版本链与每次尝试的结果', group: 'ops' },
+  { to: '/more/skills', label: '技能', icon: BookMarked, description: 'Agent 按需加载的做事方法', group: 'ops' },
   { to: '/more/audit', label: 'Agent 审计', icon: ClipboardList, description: '工具调用、确认结果与流水线', group: 'ops' },
   { to: '/more/api-console', label: 'API 调试台', icon: CodeXml, description: '选接口、发请求、看日志', group: 'ops' },
   { to: '/more/settings', label: '设置', icon: Settings2, description: '设备、客户端渠道、LLM、通知与服务接入', group: 'system' },

@@ -42,15 +42,18 @@ from maa_api.agent.knowledge import (
     builtin_entries,
     load_builtins,
 )
+from maa_api.agent.skills import builtin_skills
 from maa_api.db import session as db_session
 from maa_api.domain.errors import AppError, ErrorCode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SDD_DIR = REPO_ROOT / ".superpowers" / "sdd" / "2026-10-10-m30-knowledge-convergence"
 
-# 33 个内置条目（M30 T1 复核时的 32 条 + M32 新增的 task-preconditions）；
-# 数量对不上说明条目被增删，扫描口径要重核。
-EXPECTED_ENTRY_COUNT = 34
+# 25 个内置知识条目（M30 T1 复核时的 32 条 + M32 的 1 条 + M49 的 1 条，
+# 去掉 M78 迁成技能的 9 条）；数量对不上说明条目被增删，扫描口径要重核。
+# 技能正文另扫，见 ``scan_entries()`` 的 ``skill:<id>`` 键。
+EXPECTED_ENTRY_COUNT = 25
+EXPECTED_SKILL_COUNT = 9
 FULLTEXT_ENTRY_COUNT = 2  # glossary 与 glossary-terms：全文注入，不占索引行
 
 # 反例来源：两份复核报告的逐条处置表。仓库内只留 `id` 与 `numbers_to_remove` 两列的快照
@@ -265,7 +268,7 @@ WHITELIST: tuple[tuple[str, re.Pattern[str], str], ...] = (
     _rule(
         "cross_reference",
         r"\b[a-z][a-z0-9-]*-[a-z0-9-]+\b",
-        "条目 id 与交叉引用（`screen-home`、`playbook-drop-lookup`）：连字符不是区间，"
+        "条目 id 与交叉引用（`screen-home`、`screen-terminal`）：连字符不是区间，"
         "数字是 id 的一部分。",
     ),
 )
@@ -285,7 +288,7 @@ WHITELIST_PROBES: dict[str, str] = {
     "stage_code": "1-7 与 CE-6 都能打，活动关是 act25side_08；B1、1F 是楼层",
     "version_and_date": "从 v6.8.0 起支持（2020-06-09 修订）",
     "markdown_marker": "1. 先 get_screenshot\n- 再核对",
-    "cross_reference": "界面位置见 screen-home，撞名见 playbook-infrast-shift。",
+    "cross_reference": "界面位置见 screen-home，撞名见 screen-terminal。",
     "level_transition": "精英化后等级回到 1 级；【专属模组】2 级和 3 级在 1 级基础上强化天赋。",
 }
 
@@ -423,9 +426,17 @@ def scan_text(entry_id: str, text: str) -> list[Hit]:
 
 
 def scan_entries() -> dict[str, list[Hit]]:
-    return {
+    """扫内置知识条目与技能正文；技能键写 ``skill:<id>``，与条目 id 分开。"""
+    scanned = {
         entry_id: scan_text(entry_id, entry.body) for entry_id, entry in load_builtins().items()
     }
+    scanned.update(
+        {
+            f"skill:{skill_id}": scan_text(f"skill:{skill_id}", skill.body)
+            for skill_id, skill in builtin_skills().items()
+        }
+    )
+    return scanned
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +550,9 @@ def test_builtin_entries_are_scannable():
     entries = load_builtins()
     assert len(entries) == EXPECTED_ENTRY_COUNT, sorted(entries)
     assert all(entry.body.strip() for entry in entries.values())
+    skills = builtin_skills()
+    assert len(skills) == EXPECTED_SKILL_COUNT, sorted(skills)
+    assert all(skill.body.strip() for skill in skills.values())
 
 
 def test_whitelist_patterns_match_their_probes():
@@ -554,9 +568,12 @@ def test_whitelist_patterns_match_their_probes():
 
 def test_whitelist_rules_actually_exempt_something_in_the_builtins():
     """白名单不许「空转」：每条规则都要在收录的文本样本里真的豁免掉至少一个候选。"""
+    skills = builtin_skills()
     transcripts = [
         *(entry.body for entry in load_builtins().values()),
         *(entry.when_to_use for entry in load_builtins().values()),
+        *(skill.body for skill in skills.values()),
+        *(skill.description for skill in skills.values()),
         *HANDWRITTEN_REVERSE,
         *WHITELIST_PROBES.values(),
     ]

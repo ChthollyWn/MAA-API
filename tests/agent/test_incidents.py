@@ -1232,7 +1232,7 @@ def test_diagnosis_turn_injects_the_knowledge_index_and_can_read_an_entry(tmp_pa
         knowledge = KnowledgeService(factory)
         confirmations = ConfirmationService(factory, build_registry(), policy=PolicyEngine())
         llm = FakeLLM(
-            [_read_knowledge_response("account-resources"), _text_response("已按剧本检查。")]
+            [_read_knowledge_response("screen-home"), _text_response("已按剧本检查。")]
         )
         settings = Settings(
             llm=LLMSettings(base_url="https://llm.test/v1", api_key="secret", model="test")
@@ -1269,7 +1269,7 @@ def test_diagnosis_turn_injects_the_knowledge_index_and_can_read_an_entry(tmp_pa
             system = llm.requests[0][0][0]["content"]
             assert llm.requests[0][0][0]["role"] == "system"
             assert "知识库索引（开发者与用户维护" in system
-            assert "- account-resources｜查询账号资源" in system
+            assert "- screen-home｜首页布局" in system
             assert system.index("你是 MAA-API 内置 Agent") < system.index("知识库索引（")
             assert system.index("知识库索引（") < system.index("当前服务状态摘要")
 
@@ -1278,10 +1278,10 @@ def test_diagnosis_turn_injects_the_knowledge_index_and_can_read_an_entry(tmp_pa
             tool_messages = [message for message in messages if message.role == "tool"]
             assert len(tool_messages) == 1
             payload = json.loads(tool_messages[0].content)["result"]
-            assert payload["id"] == "account-resources"
-            assert payload["kind"] == "playbook"
+            assert payload["id"] == "screen-home"
+            assert payload["kind"] == "screen"
             assert payload["source"] == "builtin"
-            assert payload["body"].startswith("## 前置判断")
+            assert payload["body"].startswith("位置用占截图宽、高的比例表示")
             assert payload["updated_at"] is None
         finally:
             await engine.dispose()

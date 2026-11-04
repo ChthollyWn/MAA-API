@@ -1,4 +1,4 @@
-"""SQLModel 表定义：44 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：45 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -1519,6 +1519,34 @@ event.listen(
     "before_drop",
     DDL("DROP TABLE IF EXISTS knowledge_chunk_fts").execute_if(dialect="sqlite"),
 )
+
+
+# ---------------------------------------------------------------------------
+# M78 技能：agent_skill（v3 specs/m78 §4.1）
+# ---------------------------------------------------------------------------
+class AgentSkill(SQLModel, table=True):
+    """技能的覆盖层：内置技能在代码里，表里只存覆盖、用户技能与生成的草稿（03 §10.1）。
+
+    覆盖行的 NULL 列继承内置值；与内置完全一致且启用时不留行。表只有几十行、每轮全量读，不建索引。
+    """
+
+    __tablename__ = "agent_skill"
+
+    id: str = Field(primary_key=True, max_length=48)
+    title: str | None = Field(default=None, max_length=32)
+    description: str | None = Field(default=None, max_length=200)
+    body: str | None = Field(default=None, sa_column=text_column("body"))
+    tools: list[str] | None = Field(default=None, sa_column=json_column("tools"))
+    agents: list[str] | None = Field(default=None, sa_column=json_column("agents"))
+    origin: str = Field(max_length=16)
+    status: str = Field(default="active", max_length=16)
+    enabled: bool = Field(default=True)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
 
 
 # ---------------------------------------------------------------------------

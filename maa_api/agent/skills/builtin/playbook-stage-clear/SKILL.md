@@ -1,8 +1,10 @@
 ---
 id: playbook-stage-clear
-kind: playbook
 title: 攻克指定关卡
-when_to_use: 用户要过某一关、卡关、或问「怎么打这关」时
+description: 用户要过某一关、卡关、或问「怎么打这关」时
+tools: [search_copilots, get_stage_level_data, save_copilot_draft, run_copilot_attempt, record_copilot_result, search_prts, get_stage, resolve_stage, update_resource, wait_update, ask_user]
+agents: [general, copilot]
+version: 1
 ---
 ## 原则
 让内核去打，agent 只负责找方案或写方案。MaaCore 没有滑动与独立 OCR 能力，原子操作打不了关卡；历史截图不保留图像，逐格点击意味着每一步都要重新截图、重新认，又慢又容易断。顺序固定：先搜现成作业，搜不到再自己写一份，最后才考虑原子操作。

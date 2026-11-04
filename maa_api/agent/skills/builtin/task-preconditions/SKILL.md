@@ -1,8 +1,10 @@
 ---
 id: task-preconditions
-kind: playbook
 title: 任务执行前提与游戏状态
-when_to_use: 提交流水线前、跑识别或任务反复失败时：确认游戏已启动并停在主界面
+description: 提交流水线前、跑识别或任务反复失败时：确认游戏已启动并停在主界面
+tools: [get_screenshot, back_to_home, submit_pipeline]
+agents: [general, daily_ops, copilot, diagnose]
+version: 1
 ---
 
 ## 先看这一条

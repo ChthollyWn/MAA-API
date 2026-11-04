@@ -222,6 +222,10 @@ rag:
   # 语料刷新时间，五段 cron，本机时区；改完重启服务生效
   refresh_cron: "0 4 * * *"
 
+skills:
+  # 关闭后 Agent 看不到技能索引，也不能加载技能
+  enabled: true
+
 # 运行追踪：每次代理调用的步骤、耗时与用量
 trace:
   enabled: true

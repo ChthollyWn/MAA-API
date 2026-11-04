@@ -7805,6 +7805,349 @@
         "title": "SettingUpdateRequest",
         "type": "object"
       },
+      "SkillBuiltinView": {
+        "description": "内置技能的原文快照，供界面对比与恢复。",
+        "properties": {
+          "agents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "tools",
+          "agents",
+          "body",
+          "version"
+        ],
+        "title": "SkillBuiltinView",
+        "type": "object"
+      },
+      "SkillDetail": {
+        "description": "详情：生效正文 + 内置原文快照（自定义技能为 ``None``）。",
+        "properties": {
+          "agents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "body_chars": {
+            "title": "Body Chars",
+            "type": "integer"
+          },
+          "builtin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillBuiltinView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "modified": {
+            "title": "Modified",
+            "type": "boolean"
+          },
+          "source": {
+            "enum": [
+              "builtin",
+              "user",
+              "generated"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "active"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "tools",
+          "agents",
+          "source",
+          "modified",
+          "status",
+          "enabled",
+          "body_chars",
+          "files",
+          "version",
+          "updated_at",
+          "body",
+          "builtin"
+        ],
+        "title": "SkillDetail",
+        "type": "object"
+      },
+      "SkillList": {
+        "description": "列表响应：列表项不含正文，只给字数与来源。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SkillSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SkillList",
+        "type": "object"
+      },
+      "SkillSummary": {
+        "description": "列表项：不含正文，只给字数与来源（规格 §4.2 的 REST 列表）。",
+        "properties": {
+          "agents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "body_chars": {
+            "title": "Body Chars",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "modified": {
+            "title": "Modified",
+            "type": "boolean"
+          },
+          "source": {
+            "enum": [
+              "builtin",
+              "user",
+              "generated"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "active"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "tools",
+          "agents",
+          "source",
+          "modified",
+          "status",
+          "enabled",
+          "body_chars",
+          "files",
+          "version",
+          "updated_at"
+        ],
+        "title": "SkillSummary",
+        "type": "object"
+      },
+      "SkillWriteRequest": {
+        "additionalProperties": false,
+        "description": "``PUT`` 的入参：完整的生效内容。\n\n继承服务层的 :class:`~maa_api.agent.skills.registry.SkillWrite`（字段名一致），\n这里只补 REST 层的 ``extra=\"forbid\"``；长度与工具 / 代理的校验在服务层，\n失败统一报 400 ``SKILL_INVALID``。",
+        "properties": {
+          "agents": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tools": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "body"
+        ],
+        "title": "SkillWriteRequest",
+        "type": "object"
+      },
       "SklandBindResult": {
         "description": "解绑结果。",
         "properties": {
@@ -14314,6 +14657,272 @@
           }
         },
         "summary": "批准或退回待批准的计划",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/skills": {
+      "get": {
+        "operationId": "agent_list_skills",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          }
+        },
+        "summary": "读取技能列表",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/skills/{skill_id}": {
+      "delete": {
+        "description": "删除自定义技能，或撤销对内置技能的修改（恢复默认）。\n\n内置技能没有覆盖可删时返回 409 ``SKILL_BUILTIN_READONLY``；要停用它请写入\n``enabled=false``。",
+        "operationId": "agent_delete_skill",
+        "parameters": [
+          {
+            "description": "技能 id",
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "description": "技能 id",
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKILL_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：SKILL_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKILL_BUILTIN_READONLY",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：SKILL_BUILTIN_READONLY"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "删除技能",
+        "tags": [
+          "agent"
+        ]
+      },
+      "get": {
+        "operationId": "agent_get_skill",
+        "parameters": [
+          {
+            "description": "技能 id",
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "description": "技能 id",
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKILL_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：SKILL_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "读取技能详情",
+        "tags": [
+          "agent"
+        ]
+      },
+      "put": {
+        "description": "写入完整的生效内容：新建自定义技能，或修改 / 停用内置技能。\n\n内容不合法（含 id 不符合模式、未知工具或代理）返回 400 ``SKILL_INVALID``，\n``details`` 带 ``field`` 与 ``reason``，未知工具与代理另带 ``unknown``。",
+        "operationId": "agent_put_skill",
+        "parameters": [
+          {
+            "description": "技能 id",
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "description": "技能 id",
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SKILL_INVALID",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：SKILL_INVALID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "写入技能",
         "tags": [
           "agent"
         ]

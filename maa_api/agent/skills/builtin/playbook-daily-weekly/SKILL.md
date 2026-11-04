@@ -1,18 +1,20 @@
 ---
 id: playbook-daily-weekly
-kind: playbook
 title: 日常与周常清单
-when_to_use: 用户问每天/每周该做什么，或要拼一条日常周常流水线时
+description: 用户问每天/每周该做什么，或要拼一条日常周常流水线时
+tools: [submit_pipeline, get_prts_page]
+agents: [orchestrator, general, daily_ops]
+version: 1
 ---
 任务名一律用本服务的名字：`StartUp`（开始唤醒）、`Fight`（刷理智）、`Recruit`（自动公招）、`Infrast`（基建换班）、`Mall`（获取信用及购物）、`Award`（领取奖励）、`CloseDown`（关闭游戏）、`Roguelike`（自动肉鸽）、`Reclamation`（生息演算）、`Copilot`（作业）。没有叫「收菜」「领任务」的独立任务名，那些动作落在 `Infrast` 和 `Award` 里。
 
 ## 每天
 推荐顺序（`StartUp` 之后）：
 1. `Award`：领每日任务奖励。日常任务按「印章需求」逐层自动领取，做够就自动给；奖励里有合成玉、采购凭证、招聘许可、加急许可、常态事务代理卡等（明细见 currency-sources）。
-2. `Infrast`：基建换班 + 收菜。收取制造站产物和贸易站订单，把心情耗尽的干员换下来——「注意力涣散」会让加成失效。队列与心情机制见 infrast-mechanics，排班看 playbook-infrast-shift。
-3. `Recruit`：公开招募。它是稳定刷资质凭证/高级凭证的来源，也能完成日常与周常的招募类任务；参数怎么填见 playbook-recruit，标签怎么看见 recruit-tags。默认参数下不消耗加急许可。
+2. `Infrast`：基建换班 + 收菜。收取制造站产物和贸易站订单，把心情耗尽的干员换下来——「注意力涣散」会让加成失效。队列与心情机制见 infrast-mechanics，排班看技能 playbook-infrast-shift。
+3. `Recruit`：公开招募。它是稳定刷资质凭证/高级凭证的来源，也能完成日常与周常的招募类任务；参数怎么填见技能 playbook-recruit，标签怎么看见 recruit-tags。默认参数下不消耗加急许可。
 4. `Mall`：信用交易所。**信用几点清算、上限多少，以 `get_prts_page(title="采购中心")` 与 screen-store 为准**，不要凭记忆报固定值。
-5. `Fight`：把理智用掉，顺手完成「通关任意关卡若干次」；打哪张图见 playbook-sanity-planning 与 playbook-drop-lookup。
+5. `Fight`：把理智用掉，顺手完成「通关任意关卡若干次」；打哪张图见技能 playbook-sanity-planning 与技能 playbook-drop-lookup。
 6. `CloseDown`：只在用户明确要关游戏时加。
 
 ## 每周

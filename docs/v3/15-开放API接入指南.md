@@ -192,6 +192,9 @@ curl -X POST http://<host>:8002/api/snippets \
 | `KNOWLEDGE_SOURCE_BUSY` | 409 | 来源正在建立索引，不能再次触发重建（M76） |
 | `EMBEDDING_UNAVAILABLE` | 503 | 向量服务不可用（M76）：没有可用的 embedding 档案、缺本地依赖或模型文件，或远端拒绝、超时、限流。检索内部捕获它并降级为只走全文，端点不因此报错 |
 | `RETRIEVAL_QUERY_INVALID` | 400 | 检索词不合法（M76）：去掉首尾空白后为空或超过 500 字，`top_k` 不在 1–30，或 `sources` 里有未注册的来源。`details` 带 `field` 与 `reason`，未知来源另带 `unknown` |
+| `SKILL_NOT_FOUND` | 404 | 技能 id 不存在、已停用、草稿，或不对当前代理开放（含 `skills.enabled` 关闭）（M78） |
+| `SKILL_BUILTIN_READONLY` | 409 | 内置技能没有覆盖可删（删除即恢复默认，没改过就没有可恢复的内容）（M78） |
+| `SKILL_INVALID` | 400 | 技能内容不合法（M78）：id / 标题 / 说明 / 正文越界，或引用了未知工具与代理。`details` 带 `field` 与 `reason`，未知工具与代理另带 `unknown` |
 | `QUESTION_NOT_FOUND` | 404 | 提问 id 不存在 |
 | `QUESTION_ALREADY_ANSWERED` | 409 | 重复回答已 answered / skipped 的提问 |
 | `QUESTION_EXPIRED` | 409 | 回答已过期的提问 |

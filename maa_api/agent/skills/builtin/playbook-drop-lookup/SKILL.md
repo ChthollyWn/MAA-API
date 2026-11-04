@@ -1,8 +1,10 @@
 ---
 id: playbook-drop-lookup
-kind: playbook
 title: 查掉落与选图
-when_to_use: 用户问某个材料去哪刷、某关卡掉什么，或要比较两张图的掉落收益时
+description: 用户问某个材料去哪刷、某关卡掉什么，或要比较两张图的掉落收益时
+tools: [resolve_stage, get_drop_rates, get_drop_stats, search_prts, get_prts_page]
+agents: [general, daily_ops, planner, analyst]
+version: 1
 ---
 ## 回答「这关掉什么」
 1. resolve_stage 确认关卡代号（code / stageId），不要直接拿用户的口语名去查。

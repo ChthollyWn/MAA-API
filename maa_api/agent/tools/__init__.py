@@ -35,6 +35,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.resource import register_tools as register_resource_tools
     from maa_api.agent.tools.roguelike import register_tools as register_roguelike_tools
     from maa_api.agent.tools.schedule import register_tools as register_schedule_tools
+    from maa_api.agent.tools.skills import register_tools as register_skills_tools
     from maa_api.agent.tools.stage_level import register_tools as register_stage_level_tools
     from maa_api.agent.tools.status import register_tools as register_status_tools
     from maa_api.agent.tools.tickets import register_tools as register_ticket_tools
@@ -59,6 +60,8 @@ def build_registry() -> ToolRegistry:
         register_ops_tools,
         register_schedule_tools,
         register_knowledge_tools,
+        # M78：技能工具接在知识工具之后（规格 §4.2）。
+        register_skills_tools,
         register_interaction_tools,
         # M48：只读探索三件套 + 侦察委派（规格 §4.2/§4.3）。
         register_recon_tools,

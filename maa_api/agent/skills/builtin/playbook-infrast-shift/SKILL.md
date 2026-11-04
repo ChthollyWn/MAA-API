@@ -1,8 +1,10 @@
 ---
 id: playbook-infrast-shift
-kind: playbook
 title: 基建换班实操
-when_to_use: 用户要你换基建班次、问该不该换班、或要保存与使用自定义基建排班方案时
+description: 用户要你换基建班次、问该不该换班、或要保存与使用自定义基建排班方案时
+tools: [list_infrast_plans, set_infrast_plan, submit_pipeline, wait_pipeline, get_screenshot, ask_user]
+agents: [general, daily_ops, planner]
+version: 1
 ---
 基建机制细节见 infrast-mechanics，界面位置见 screen-infrast。
 
@@ -35,7 +37,7 @@ Infrast 的 `mode`：
 
 ## 提交与核对
 1. 提交前检查：有流水线在跑就先用 ask_user 发卡问用户是等它跑完还是稍后再来；设备未连接就说明情况并征得同意后 reconnect_device；不支持视觉输入就说看不到心情。
-2. submit_pipeline 提交 `[{"name": "Infrast", "mode": 0, "facility": [...], ...}]`；Infrast 没有消耗类参数，不会因消耗品触发确认，但 set_infrast_plan 会。游戏没启动时前面加一条 `{"name": "StartUp", "start_game_enabled": true}`（见 task-preconditions）。
+2. submit_pipeline 提交 `[{"name": "Infrast", "mode": 0, "facility": [...], ...}]`；Infrast 没有消耗类参数，不会因消耗品触发确认，但 set_infrast_plan 会。游戏没启动时前面加一条 `{"name": "StartUp", "start_game_enabled": true}`（见技能 task-preconditions）。
 3. wait_pipeline 等终态；失败或被取消就说明原因并停下，不要改用 click 手点设施；用户坚持时才用原子操作，第一次点击会弹会话授权。
 4. 核对：get_screenshot 看基建总览与设施详情，确认还进驻着谁、有没有干员仍是注意力涣散；把「动了哪些设施、谁换下来了、还剩哪些涣散干员」写进回复。
 6. **不要承诺换完立刻回满心情**：宿舍的心情回复速度随等级与氛围值变化，当前数值用 `get_prts_page(title="罗德岛基建/宿舍")` 现查。

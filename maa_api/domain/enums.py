@@ -441,3 +441,14 @@ class KnowledgeSourceKind(StrEnum):
     COPILOT_SITE = "copilot_site"
     HISTORY = "history"
     MEMORY = "memory"
+
+
+# ---- M78 技能（v3 specs/m78 §4.1） ----
+
+
+class SkillOrigin(StrEnum):
+    """agent_skill 行的来历。"""
+
+    OVERRIDE = "override"  # 覆盖内置技能，只存与内置不同的列
+    USER = "user"  # 用户自建，字段必填
+    GENERATED = "generated"  # M95 经验沉淀生成

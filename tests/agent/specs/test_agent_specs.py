@@ -63,6 +63,8 @@ M71_TOOLS = frozenset({"hold_device", "release_device"})
 M75_TOOLS = frozenset({"read_artifact", "write_note", "update_plan"})
 #: M76 的检索工具：注册表里有，但不属于 v2 会话（M76 §4.7）。
 M76_TOOLS = frozenset({"search_knowledge"})
+#: M78 的技能工具：注册表里有，v2 会话不加载（M78 §4.2）。
+M78_TOOLS = frozenset({"load_skill", "read_skill_file"})
 BUILTIN_SPEC_NAMES = [
     "analyst",
     "copilot",
@@ -133,11 +135,12 @@ def test_legacy_chat_lists_every_v2_registered_tool_in_registration_order():
     spec = builtin_spec("legacy_chat")
     definitions = build_registry().list()
 
-    assert len(definitions) == 97
+    assert len(definitions) == 99
     assert spec.tools == tuple(
         definition.name
         for definition in definitions
-        if definition.name not in M70_TOOLS | M71_TOOLS | M75_TOOLS | M76_TOOLS
+        if definition.name
+        not in M70_TOOLS | M71_TOOLS | M75_TOOLS | M76_TOOLS | M78_TOOLS
     )
     assert spec.deferred_groups == tuple(sorted(DEFERRED_TOOL_GROUPS))
     assert set(DEFERRED_TOOL_GROUPS) <= set(spec.deferred_groups)

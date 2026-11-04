@@ -138,7 +138,7 @@ export function KnowledgeSection() {
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
       <Section
         title="知识条目"
-        hint="Agent 每轮都会带上这份索引，正文由它在需要时用 read_knowledge 读取。"
+        hint="Agent 每轮都会带上这份索引，正文在需要时读取。做事步骤已移到技能页。"
         actions={entries.length ? (
           <Button asChild variant="soft" size="sm">
             <Link to={NEW_KNOWLEDGE_PATH}><Plus aria-hidden="true" />新建</Link>

@@ -58,15 +58,16 @@ SPEC_NAMES = [
 ]
 #: 各定义的版本号；M71 给 ``general`` 加了设备租约工具与通用 Worker 提示，升到 2。
 #: M75 §4.7：七个 Worker 各加三个工作记忆工具，``general`` 升到 3、其余升到 2。
+#: M78 §4.7：八个总控与 Worker 定义各加两个技能工具，版本再 +1。
 EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
-    "analyst": 2,
-    "copilot": 2,
-    "daily_ops": 2,
-    "diagnose": 2,
-    "general": 4,
-    "ops": 2,
-    "orchestrator": 3,
-    "planner": 2,
+    "analyst": 3,
+    "copilot": 3,
+    "daily_ops": 3,
+    "diagnose": 3,
+    "general": 5,
+    "ops": 3,
+    "orchestrator": 4,
+    "planner": 3,
     "researcher": 2,
 }
 

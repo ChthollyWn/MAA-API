@@ -79,6 +79,9 @@ EXPECTED_TOOLS = {
     "read_artifact",
     "write_note",
     "update_plan",
+    # M78：技能加载与附属文件读取，只在代理运行里可用。
+    "load_skill",
+    "read_skill_file",
 }
 
 #: M74 §5 T3：旧上下文里可以换成占位、需要时重新调用的工具（06 §5.1）。
@@ -96,7 +99,7 @@ EXPECTED_REFETCHABLE = frozenset({
     "list_custom_tasks", "check_updates", "scan_proxy_channels",
     "wait_update", "list_schedules", "read_knowledge", "list_files",
     "read_file", "search_code", "list_tool_groups", "check_confirmation",
-    "list_tickets", "get_ticket", "search_knowledge",
+    "list_tickets", "get_ticket", "search_knowledge", "read_skill_file",
 })
 
 
@@ -113,10 +116,12 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # 模型可见 90（七个都可见，只是不进 REST 目录）。M71 加两个设备租约工具 → 93，
     # 模型可见 92（同样都可见，只是不进 REST 目录）。M75 T2 加续读与笔记两个工具
     # → 95，模型可见 94；T3 的 ``update_plan`` 再各加一 → 96 / 95。M76 加
-    # ``search_knowledge`` → 97 / 96。
-    assert len(actual) == 97
-    assert sum(1 for item in registry.list() if item.model_visible) == 96
+    # ``search_knowledge`` → 97 / 96。M78 加技能两个工具 → 99 / 98（都不进 REST
+    # 目录，但对模型可见）。
+    assert len(actual) == 99
+    assert sum(1 for item in registry.list() if item.model_visible) == 98
     assert "knowledge" in {definition.group for definition in registry.list()}
+    assert "skills" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
     assert "activity" in {definition.group for definition in registry.list()}
@@ -643,6 +648,9 @@ def test_extension_fields_keep_v2_defaults() -> None:
         "read_artifact",
         "write_note",
         "update_plan",
+        # M78 的技能工具同样只在代理运行里可用。
+        "load_skill",
+        "read_skill_file",
     }
     assert all(
         definition.rest_visible
@@ -656,14 +664,14 @@ def test_extension_fields_keep_v2_defaults() -> None:
 
 
 def test_refetchable_tools_are_pinned() -> None:
-    """M74 §5 T3：可重取工具恰为清单里的 49 个，且都是只读。"""
+    """M74 §5 T3：可重取工具恰为清单里的 50 个（M78 加 ``read_skill_file``），且都是只读。"""
 
     definitions = build_registry().list()
     refetchable = {
         definition.name for definition in definitions if definition.refetchable
     }
 
-    assert len(EXPECTED_REFETCHABLE) == 49
+    assert len(EXPECTED_REFETCHABLE) == 50
     assert refetchable == EXPECTED_REFETCHABLE
     assert refetchable <= EXPECTED_TOOLS
     assert all(

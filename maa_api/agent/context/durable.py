@@ -62,8 +62,9 @@ _OPEN_TICKET_STATUSES = (
 class DurableState(BaseModel):
     """压缩时不经过模型的确定性状态（v3 06 §4.4）。
 
-    ``plan`` / ``notes`` / ``skills`` 是 M75 / M78 的预留字段，M74 只填 ``skills``
-    （从 ``ctx.state["skills"]["loaded"]`` 取），其余保持空。
+    ``plan`` / ``notes`` / ``skills`` 是 M75 / M78 的字段：``skills`` 每轮开始时
+    从 ``ctx.state["skills.active"]`` 的 id 填入（``list[str]`` 契约不变），其余
+    由后续里程碑填写。
     """
 
     #: {id, title, status, last_report_status}；Worker 才有。
@@ -362,12 +363,22 @@ class DurableContextMiddleware(Middleware):
             session_kind=ctx.spec.kind,
             ticket_id=ctx.ticket_id,
         )
-        # M78 会把已加载技能写进 ctx.state["skills"]；这里只做转发，不改技能逻辑。
-        skills = ctx.state.get("skills")
-        if isinstance(skills, Mapping):
-            loaded = skills.get("loaded")
-            if isinstance(loaded, (list, tuple)):
-                state.skills = [str(item) for item in loaded]
+        # M78：技能中间件把已激活技能写在 ctx.state["skills.active"]（每项
+        # {"id","version","loaded_seq"}）；DurableState.skills 沿用 list[str] 契约。
+        # 没有这个键时回退 M74 预留的旧形状 {"skills": {"loaded": [...]}}。
+        active = ctx.state.get("skills.active")
+        if isinstance(active, (list, tuple)):
+            state.skills = [
+                str(item["id"])
+                for item in active
+                if isinstance(item, Mapping) and item.get("id")
+            ]
+        else:
+            skills = ctx.state.get("skills")
+            if isinstance(skills, Mapping):
+                loaded = skills.get("loaded")
+                if isinstance(loaded, (list, tuple)):
+                    state.skills = [str(item) for item in loaded]
         ctx.state["durable"] = state
 
     async def before_model(self, ctx: RunContext, req: ModelRequest) -> ModelRequest:

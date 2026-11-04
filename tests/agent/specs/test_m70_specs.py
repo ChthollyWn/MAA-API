@@ -34,6 +34,8 @@ WORKER_TOOLS = {"report", "delegate", "hold_device", "release_device"}
 WORKSPACE_TOOLS = {"update_plan", "write_note", "read_artifact"}
 #: M76 §4.7：``general`` 与 ``researcher`` 追加的知识检索工具。
 KNOWLEDGE_TOOLS = {"search_knowledge"}
+#: M78 §4.7：八个总控与 Worker 定义末尾追加的技能工具。
+SKILL_TOOLS = {"load_skill", "read_skill_file"}
 TICKET_TOOLS = {
     "create_ticket",
     "send_to_ticket",
@@ -93,6 +95,7 @@ def test_general_tools_equal_legacy_chat_minus_delegate_recon_plus_worker_tools(
         | WORKER_TOOLS
         | WORKSPACE_TOOLS
         | KNOWLEDGE_TOOLS
+        | SKILL_TOOLS
     )
     assert set(general.tools) == expected
     assert "delegate_recon" not in general.tools

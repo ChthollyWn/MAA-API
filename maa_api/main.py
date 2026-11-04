@@ -73,6 +73,7 @@ from maa_api.api.routers import (
     settings as settings_router,
     schedules,
     skland,
+    skills,
     sources,
     system,
     tasks,
@@ -1413,6 +1414,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             knowledge_index_service.on_knowledge_changed
         )
 
+        # M78：技能注册表在检索层之后装配（02 §5 第 9 步）。工具名与代理种类来自
+        # 运行时两个注册表，构造时校验内置技能引用的工具与代理；预加载校验同样
+        # fail loud（``SkillBuiltinError`` 写清代理与技能），坏了就中止启动。
+        # AgentRuntime 建得比检索层早，注册表建好后挂进去，运行时的 ``build_chain``
+        # 才拿得到 ``SkillsMiddleware``；回放 / legacy 路径不挂，链位置不变。
+        from maa_api.agent.skills import SkillRegistry
+
+        skill_registry = SkillRegistry(
+            db_session.session_factory,
+            tool_names={definition.name for definition in build_registry().list()},
+            agent_kinds={
+                spec.name: spec.kind
+                for spec in app.state.agent_spec_registry.list()
+            },
+        )
+        skill_registry.validate_preloads(app.state.agent_spec_registry.list())
+        app.state.skill_registry = skill_registry
+        agent_runtime.skill_registry = skill_registry
+
         # M71 §4.5.9：设备租约在工单服务之后、Worker 之前装配。恢复阶段清理过
         # 上一进程的租约；这里起扫描任务、绑定队列闸门，并注册工单结束监听。
         from maa_api.agent.lease import DeviceLeaseService
@@ -1767,6 +1787,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "plan_service",
             "knowledge_index_service",
             "retriever",
+            "skill_registry",
             "thread_router",
             "inbox_service",
             "worker_service",
@@ -1886,6 +1907,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "plan_service",
             "knowledge_index_service",
             "retriever",
+            "skill_registry",
             "thread_router",
             "inbox_service",
             "worker_service",
@@ -1979,6 +2001,7 @@ def create_app() -> FastAPI:
     app.include_router(orchestrator.router)
     app.include_router(knowledge.router)
     app.include_router(knowledge_index.router)
+    app.include_router(skills.router)
     app.include_router(model_profiles.router)
     app.include_router(runs.router)
     app.include_router(agent_specs.router)
