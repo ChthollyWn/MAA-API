@@ -2388,7 +2388,7 @@ export interface components {
         };
         /**
          * AgentMessageItem
-         * @description v2 ``message_wire`` 的全部字段 + M70 的运行 / 收件箱归属。
+         * @description v2 ``message_wire`` 的全部字段 + 运行 / 收件箱归属（M70、M72）。
          */
         AgentMessageItem: {
             /** Audit Id */
@@ -2405,6 +2405,9 @@ export interface components {
             id: number;
             /** Inbox Id */
             inbox_id: number | null;
+            inbox_kind?: components["schemas"]["InboxKind"] | null;
+            /** Inbox Thread Key */
+            inbox_thread_key?: string | null;
             /** Latency Ms */
             latency_ms: number | null;
             /** Prompt Tokens */
@@ -3162,6 +3165,12 @@ export interface components {
              */
             type: "confirmation" | "question" | "decision";
         };
+        /**
+         * InboxKind
+         * @description 总控收件箱条目的种类。
+         * @enum {string}
+         */
+        InboxKind: "user_message" | "report" | "thread_event" | "system" | "trigger";
         /**
          * InfrastInput
          * @description 基建换班：默认换班、自定义换班与一键轮换。

@@ -45,7 +45,7 @@ DETAIL_FIELDS = {
     "turn_running",
     "lease",
 }
-#: ``AgentMessageItem`` 的 17 个字段。
+#: ``AgentMessageItem`` 的 19 个字段（M72 加 ``inbox_kind``、``inbox_thread_key``）。
 MESSAGE_FIELDS = {
     "id",
     "session_id",
@@ -64,6 +64,8 @@ MESSAGE_FIELDS = {
     "created_at",
     "run_id",
     "inbox_id",
+    "inbox_kind",
+    "inbox_thread_key",
 }
 
 _SPECS: dict[str, tuple[str, str]] = {

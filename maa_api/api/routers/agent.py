@@ -31,6 +31,7 @@ from maa_api.db.repositories.agent import (
     AgentIdempotencyRepository,
     AgentMessageRepository,
     AgentSessionRepository,
+    load_inbox_meta,
 )
 from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepository
 from maa_api.domain.enums import AgentSessionKind, AuditStatus, CallerType, RiskLevel
@@ -311,11 +312,15 @@ def session_wire(session: AgentSession) -> dict[str, Any]:
         "created_at": _iso(session.created_at),
         "updated_at": _iso(session.updated_at),
         "last_message_at": _iso(session.last_message_at),
+        # M72 §4.1：旧会话查看器区分「旧会话」与「已归档的总控」。
+        "kind": str(session.kind),
+        "archived_at": _iso(session.archived_at),
     }
 
 
-
-def message_wire(message: AgentMessage) -> dict[str, Any]:
+def message_wire(
+    message: AgentMessage, inbox: tuple[str, str | None] | None = None
+) -> dict[str, Any]:
     return {
         "id": message.id,
         "session_id": message.session_id,
@@ -334,6 +339,11 @@ def message_wire(message: AgentMessage) -> dict[str, Any]:
         "finish_reason": message.finish_reason,
         "latency_ms": message.latency_ms,
         "created_at": _iso(message.created_at),
+        # M72 §4.1：运行归属与收件箱归属；收件箱元信息由调用方批量预取。
+        "run_id": message.run_id,
+        "inbox_id": message.inbox_id,
+        "inbox_kind": inbox[0] if inbox is not None else None,
+        "inbox_thread_key": inbox[1] if inbox is not None else None,
     }
 
 
@@ -652,7 +662,7 @@ async def list_sessions(
 ) -> dict[str, Any]:
     _page(page, size)
     result = await AgentSessionRepository(session).list_page(
-        page=page, size=size, kinds=_V2_SESSION_KINDS
+        page=page, size=size, legacy_only=True
     )
     return {
         "items": [session_wire(item) for item in result.items],
@@ -729,8 +739,15 @@ async def list_session_messages(
     result = await AgentMessageRepository(session).list_page(
         session_id, after_seq=after_seq, page=page, size=size
     )
+    inbox_meta = await load_inbox_meta(
+        session,
+        {item.inbox_id for item in result.items if item.inbox_id is not None},
+    )
     return {
-        "items": [message_wire(item) for item in result.items],
+        "items": [
+            message_wire(item, inbox_meta.get(item.inbox_id))
+            for item in result.items
+        ],
         "total": result.total,
         "page": result.page,
         "size": result.size,

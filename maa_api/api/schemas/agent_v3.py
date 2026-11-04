@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -16,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from maa_api.agent.runs import RunNode
 from maa_api.db.models import AgentMessage, AgentRun
-from maa_api.domain.enums import AgentRunKind, AgentRunStatus
+from maa_api.domain.enums import AgentRunKind, AgentRunStatus, InboxKind
 
 __all__ = [
     "AgentMessageCreate",
@@ -194,7 +195,7 @@ class TicketInterruptResult(BaseModel):
 
 
 class AgentMessageItem(BaseModel):
-    """v2 ``message_wire`` 的全部字段 + M70 的运行 / 收件箱归属。"""
+    """v2 ``message_wire`` 的全部字段 + 运行 / 收件箱归属（M70、M72）。"""
 
     id: int
     session_id: str
@@ -213,6 +214,8 @@ class AgentMessageItem(BaseModel):
     created_at: str
     run_id: str | None
     inbox_id: int | None
+    inbox_kind: InboxKind | None = None
+    inbox_thread_key: str | None = None
 
 
 class AgentMessagePage(BaseModel):
@@ -224,8 +227,20 @@ class AgentMessagePage(BaseModel):
     size: int
 
 
-def agent_message_item(message: AgentMessage) -> AgentMessageItem:
-    """``agent_message`` 行 → 对外模型；时间统一成 ``...Z``。"""
+def agent_message_item(
+    message: AgentMessage,
+    inbox_meta: Mapping[int, tuple[str, str | None]] | None = None,
+) -> AgentMessageItem:
+    """``agent_message`` 行 → 对外模型；时间统一成 ``...Z``。
+
+    ``inbox_meta`` 是调用方用 :func:`load_inbox_meta` 一次性批量取回的
+    ``inbox_id → (kind, thread_key)``；没有收件箱归属时两个字段为 ``None``。
+    """
+    inbox = (
+        inbox_meta.get(int(message.inbox_id))
+        if inbox_meta is not None and message.inbox_id is not None
+        else None
+    )
     return AgentMessageItem(
         id=int(message.id or 0),
         session_id=message.session_id,
@@ -244,4 +259,6 @@ def agent_message_item(message: AgentMessage) -> AgentMessageItem:
         created_at=_utc_z(message.created_at) or "",
         run_id=message.run_id,
         inbox_id=message.inbox_id,
+        inbox_kind=InboxKind(inbox[0]) if inbox is not None else None,
+        inbox_thread_key=inbox[1] if inbox is not None else None,
     )

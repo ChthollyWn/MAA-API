@@ -42,7 +42,8 @@ STATE_FIELDS = {
     "pending_inbox",
     "archived_count",
 }
-#: ``AgentMessageItem`` 的 17 个字段（v2 message_wire + run_id、inbox_id）。
+#: ``AgentMessageItem`` 的 19 个字段（v2 message_wire + run_id、inbox_id、
+#: M72 的 inbox_kind、inbox_thread_key）。
 MESSAGE_FIELDS = {
     "id",
     "session_id",
@@ -61,6 +62,8 @@ MESSAGE_FIELDS = {
     "created_at",
     "run_id",
     "inbox_id",
+    "inbox_kind",
+    "inbox_thread_key",
 }
 
 
@@ -346,3 +349,56 @@ def test_list_messages_interrupt_and_reset(
     refused = client.post("/api/agent/orchestrator/reset")
     assert refused.status_code == 409, refused.text
     assert _error(refused)["code"] == "RUN_ALREADY_ACTIVE"
+
+
+def test_orchestrator_messages_carry_inbox_kind_and_thread_key(
+    orchestrator_env, make_client
+):
+    """M72 §4.1：v3 列表带收件箱归属；普通用户消息两个字段为 null。"""
+    client = _client(orchestrator_env, make_client)
+    session_id = client.get("/api/agent/orchestrator").json()["session_id"]
+
+    async def seed() -> int:
+        async with orchestrator_env.factory() as session:
+            inbox_item = AgentInbox(
+                session_id=session_id,
+                kind="report",
+                thread_key="ticket:t1",
+                payload={"text": "工单汇报"},
+            )
+            session.add(inbox_item)
+            await session.commit()
+            repository = AgentMessageRepository(session)
+            await repository.create(
+                AgentMessage(
+                    session_id=session_id,
+                    seq=0,
+                    role="user",
+                    content="普通用户消息",
+                )
+            )
+            await repository.create(
+                AgentMessage(
+                    session_id=session_id,
+                    seq=1,
+                    role="user",
+                    content="【工单汇报】做完了",
+                    inbox_id=int(inbox_item.id),
+                )
+            )
+            await session.commit()
+        return int(inbox_item.id)
+
+    inbox_id = asyncio.run(seed())
+
+    list_response = client.get("/api/agent/orchestrator/messages")
+    assert list_response.status_code == 200, list_response.text
+    items = list_response.json()["items"]
+    assert [item["seq"] for item in items] == [0, 1]
+    assert items[0]["content"] == "普通用户消息"
+    assert items[0]["inbox_id"] is None
+    assert items[0]["inbox_kind"] is None
+    assert items[0]["inbox_thread_key"] is None
+    assert items[1]["inbox_id"] == inbox_id
+    assert items[1]["inbox_kind"] == "report"
+    assert items[1]["inbox_thread_key"] == "ticket:t1"

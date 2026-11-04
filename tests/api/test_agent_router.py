@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -15,6 +16,8 @@ import maa_api.db.models  # noqa: F401
 from maa_api.db.models import (
     AgentAudit,
     AgentIdempotency,
+    AgentInbox,
+    AgentMessage,
     AgentRun,
     AgentSession,
     Ticket,
@@ -687,6 +690,179 @@ def test_list_audits_filters_by_ticket_and_returns_origin_columns():
             ]
             assert len(nulls) == 1
             assert (nulls[0]["run_id"], nulls[0]["agent_name"]) == (None, None)
+        finally:
+            client.__exit__(None, None, None)
+            set_settings(None)
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_legacy_session_list_hides_v3_sessions():
+    """M72 §4.2：旧会话列表只列 chat、incident 与已归档的总控。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as db:
+            db.add_all(
+                [
+                    AgentSession(id="legacy-chat", model="m", kind="chat"),
+                    AgentSession(id="legacy-incident", model="m", kind="incident"),
+                    AgentSession(
+                        id="active-orchestrator", model="m", kind="orchestrator"
+                    ),
+                    AgentSession(
+                        id="archived-orchestrator",
+                        model="m",
+                        kind="orchestrator",
+                        archived_at=datetime(2026, 11, 1, 12, 0, 0),
+                    ),
+                    AgentSession(id="worker-session", model="m", kind="worker"),
+                    AgentSession(id="subagent-session", model="m", kind="subagent"),
+                ]
+            )
+            await db.commit()
+
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.api.routers import agent
+
+        app.include_router(agent.router)
+
+        async def get_test_session():
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = get_test_session
+        set_settings(Settings())
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            listed = client.get("/api/agent/sessions?size=50")
+            assert listed.status_code == 200, listed.text
+            payload = listed.json()
+            assert payload["total"] == 3
+            items = {item["session_id"]: item for item in payload["items"]}
+            assert set(items) == {
+                "legacy-chat",
+                "legacy-incident",
+                "archived-orchestrator",
+            }
+            for item in items.values():
+                assert "kind" in item
+                assert "archived_at" in item
+            assert (items["legacy-chat"]["kind"], items["legacy-chat"]["archived_at"]) == (
+                "chat",
+                None,
+            )
+            assert items["legacy-incident"]["kind"] == "incident"
+            archived = items["archived-orchestrator"]
+            assert archived["kind"] == "orchestrator"
+            assert archived["archived_at"].endswith("Z")
+        finally:
+            client.__exit__(None, None, None)
+            set_settings(None)
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_message_wire_exposes_run_and_inbox_fields():
+    """M72 §4.1：v2 消息 wire 带运行与收件箱归属四个字段。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as db:
+            db.add(AgentSession(id="wire-session", model="m"))
+            await db.commit()
+            db.add(
+                AgentRun(
+                    id="wire-run",
+                    root_run_id="wire-run",
+                    session_id="wire-session",
+                    agent_name="orchestrator",
+                    kind="orchestrator_turn",
+                    boot_id="boot-test",
+                )
+            )
+            inbox = AgentInbox(
+                session_id="wire-session",
+                kind="report",
+                thread_key="ticket:t1",
+                payload={"text": "汇报"},
+            )
+            db.add(inbox)
+            await db.commit()
+            inbox_id = int(inbox.id)
+            db.add_all(
+                [
+                    AgentMessage(
+                        session_id="wire-session",
+                        seq=0,
+                        role="user",
+                        content="普通消息",
+                        run_id="wire-run",
+                    ),
+                    AgentMessage(
+                        session_id="wire-session",
+                        seq=1,
+                        role="user",
+                        content="【工单汇报】做完了",
+                        inbox_id=inbox_id,
+                    ),
+                ]
+            )
+            await db.commit()
+
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.api.routers import agent
+
+        app.include_router(agent.router)
+
+        async def get_test_session():
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = get_test_session
+        set_settings(Settings())
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            response = client.get("/api/agent/sessions/wire-session/messages")
+            assert response.status_code == 200, response.text
+            items = response.json()["items"]
+            assert [item["seq"] for item in items] == [0, 1]
+            for item in items:
+                assert {
+                    "run_id",
+                    "inbox_id",
+                    "inbox_kind",
+                    "inbox_thread_key",
+                } <= set(item)
+            plain = items[0]
+            assert (
+                plain["run_id"],
+                plain["inbox_id"],
+                plain["inbox_kind"],
+                plain["inbox_thread_key"],
+            ) == ("wire-run", None, None, None)
+            report = items[1]
+            assert (
+                report["inbox_id"],
+                report["inbox_kind"],
+                report["inbox_thread_key"],
+            ) == (inbox_id, "report", "ticket:t1")
         finally:
             client.__exit__(None, None, None)
             set_settings(None)

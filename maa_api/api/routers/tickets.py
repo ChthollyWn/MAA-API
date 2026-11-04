@@ -46,7 +46,7 @@ from maa_api.db.models import (
     Ticket,
     TicketReport,
 )
-from maa_api.db.repositories.agent import AgentMessageRepository
+from maa_api.db.repositories.agent import AgentMessageRepository, load_inbox_meta
 from maa_api.db.repositories.ticket import TicketRepository
 from maa_api.domain.enums import (
     EventSource,
@@ -477,8 +477,12 @@ async def list_ticket_messages(
     result = await AgentMessageRepository(session).paginate(
         stmt, count_stmt, page=page, size=size
     )
+    inbox_meta = await load_inbox_meta(
+        session,
+        {item.inbox_id for item in result.items if item.inbox_id is not None},
+    )
     return AgentMessagePage(
-        items=[agent_message_item(item) for item in result.items],
+        items=[agent_message_item(item, inbox_meta) for item in result.items],
         total=result.total,
         page=result.page,
         size=result.size,
