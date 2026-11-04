@@ -241,6 +241,8 @@ class PipelineRunner:
         self._loop: asyncio.AbstractEventLoop | None = None
         self.incident_service: Any = None
         self.notify_service: Any = None
+        #: 设备租约闸门（M71 §4.5.4）；未绑定时行为与 v2 完全一致。
+        self._lease_gate: Any = None
         # 留档截图的日志附件只能走 ``LogHub.offer``：stdlib 日志渠道不搬运
         # ``attachment``。绑定是后置且可选的（同 ``bind_notify_service``）。
         self._log_hub: Any = None
@@ -342,6 +344,15 @@ class PipelineRunner:
         built after the runner, and tests substitute runners without it.
         """
         self._finish_hook = hook
+
+    def bind_lease_gate(self, gate: Any) -> None:
+        """Bind the device lease gate (M71 §4.5.4).
+
+        Late/optional binding like ``bind_notify_service``: ``DeviceLeaseService``
+        is built in the lifespan after the runner. The gate only needs the
+        coroutine methods ``claim_gate()`` and ``preempt(reason, detail=...)``.
+        """
+        self._lease_gate = gate
 
     def bind_log_hub(self, hub: Any) -> None:
         """Bind the log hub so task snapshots can carry log attachments.
@@ -869,6 +880,13 @@ class PipelineRunner:
                 return None, []
             if self.queue_service is not None and self.queue_service.paused:
                 return None, []
+            gate = None
+            if self._lease_gate is not None:
+                try:
+                    gate = await self._lease_gate.claim_gate()
+                except Exception:  # noqa: BLE001 - 本轮不领，下一轮再试
+                    logger.exception("读取设备租约闸门失败，本轮不领取流水线")
+                    return None, []
             generation = getattr(self.supervisor, "generation", None)
             self._claiming_core_epoch = (
                 int(generation) if generation is not None else None
@@ -890,6 +908,9 @@ class PipelineRunner:
                     pipeline = await repo.claim_next(
                         self.core_id,
                         core_epoch=generation,
+                        allowed_session_ids=(
+                            gate.allowed_session_ids if gate is not None else None
+                        ),
                     )
                     if pipeline is None:
                         self._claimed_pipeline = None
@@ -923,6 +944,12 @@ class PipelineRunner:
                 # Count the claim as complete only after the session context
                 # exits successfully; __aexit__ can itself fail.
                 claim_completed = True
+                if (
+                    pipeline is not None
+                    and gate is not None
+                    and pipeline.source == PipelineSource.MANUAL
+                ):
+                    await self._preempt_for_manual(pipeline.id)
                 return (pipeline, tasks) if pipeline is not None else (None, [])
             except BaseException:
                 if pipeline is not None and self._claimed_pipeline is pipeline:
@@ -1009,6 +1036,25 @@ class PipelineRunner:
                         )
                 finally:
                     self._claiming_core_epoch = None
+
+    async def _preempt_for_manual(self, pipeline_id: str) -> None:
+        """手动提交的流水线出队时先抢占设备租约（M71 §4.5.4）。
+
+        抢占失败只记日志：租约服务不该让一次领取变成失败领取（状态回退与
+        释放分支都只该处理领取本身的问题）。
+        """
+        gate = self._lease_gate
+        if gate is None:
+            return
+        try:
+            await gate.preempt(
+                "manual_pipeline",
+                detail=f"用户手动提交的流水线 {pipeline_id} 开始执行",
+            )
+        except Exception:  # noqa: BLE001 - 抢占失败不能影响领取结果
+            logger.exception(
+                "领取手动流水线时抢占设备租约失败（pipeline_id=%s）", pipeline_id
+            )
 
     async def _execute_pipeline(
         self, pipeline: Pipeline, tasks: list[Task]
