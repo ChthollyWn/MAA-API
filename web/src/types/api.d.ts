@@ -647,6 +647,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 分页读取工单 */
+        get: operations["agent_list_tickets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/tickets/{ticket_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取工单详情 */
+        get: operations["agent_get_ticket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/tickets/{ticket_id}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 分页读取工单汇报 */
+        get: operations["agent_list_ticket_reports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/tools": {
         parameters: {
             query?: never;
@@ -2710,6 +2761,12 @@ export interface components {
             next_at: number | null;
         };
         /**
+         * EventSource
+         * @description 事件来源渠道。
+         * @enum {string}
+         */
+        EventSource: "web" | "im_telegram" | "im_feishu" | "im_dingtalk" | "im_qq" | "pipeline" | "core" | "device" | "schedule" | "system" | "watchdog" | "goal";
+        /**
          * FightInput
          * @description 刷理智：刷指定关卡，支持理智药、碎石与连战。
          * @example {
@@ -2857,6 +2914,21 @@ export interface components {
             status: string;
             /** Version */
             version: string;
+        };
+        /**
+         * HumanActionOut
+         * @description 待人工处理的动作；``type`` 决定前端弹哪一种卡片。
+         */
+        HumanActionOut: {
+            /** Prompt */
+            prompt: string;
+            /** Ref Id */
+            ref_id?: string | null;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "confirmation" | "question" | "decision";
         };
         /**
          * InfrastInput
@@ -3183,6 +3255,33 @@ export interface components {
              */
             shopping: boolean | null;
         };
+        /**
+         * MandateOut
+         * @description 工单的委托（建单时写入，此后不可变）。
+         */
+        MandateOut: {
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Policy Version */
+            policy_version: string | null;
+            risk_ceiling: components["schemas"]["RiskLevel"];
+            /** Rule Id */
+            rule_id: string | null;
+            /** Scope */
+            scope: string;
+            /** Sender */
+            sender: string | null;
+            source: components["schemas"]["EventSource"];
+            strength: components["schemas"]["MandateStrength"];
+        };
+        /**
+         * MandateStrength
+         * @description 委托强度：显式授权或推断授权。
+         * @enum {string}
+         */
+        MandateStrength: "explicit" | "inferred";
         /**
          * ModelProfileCreate
          * @description 新建档案；跨字段约束见 :meth:`_check_connection`。
@@ -3763,6 +3862,12 @@ export interface components {
              */
             yituliu_id?: string | null;
         };
+        /**
+         * ReportStatus
+         * @description Worker 汇报的状态。
+         * @enum {string}
+         */
+        ReportStatus: "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped";
         /** ResolveRequest */
         ResolveRequest: {
             /** Approved */
@@ -4899,6 +5004,20 @@ export interface components {
              */
             start_game_enabled: boolean | null;
         };
+        /**
+         * SubscriptionOut
+         * @description 工单对某个话题键的订阅；停用后保留行。
+         */
+        SubscriptionOut: {
+            /** Active */
+            active: boolean;
+            /** Created At */
+            created_at: string;
+            /** Ended At */
+            ended_at: string | null;
+            /** Thread Key */
+            thread_key: string;
+        };
         /** SwipeRequest */
         SwipeRequest: {
             /**
@@ -4957,6 +5076,116 @@ export interface components {
         TaskValidateRequest: {
             /** Tasks */
             tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CustomInput"] | components["schemas"]["CopilotInput"])[];
+        };
+        /**
+         * TicketDetail
+         * @description 工单详情：摘要、结果、委托、订阅、最近 5 条汇报与 Worker 是否在跑。
+         */
+        TicketDetail: {
+            mandate: components["schemas"]["MandateOut"];
+            /** Recent Reports */
+            recent_reports: components["schemas"]["TicketReportOut"][];
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            } | null;
+            /** Subscriptions */
+            subscriptions: components["schemas"]["SubscriptionOut"][];
+            ticket: components["schemas"]["TicketSummary"];
+            /** Turn Running */
+            turn_running: boolean;
+            /** Worker Session Id */
+            worker_session_id: string | null;
+        };
+        /**
+         * TicketOrigin
+         * @description 工单的来源：用户、触发器、目标、看门狗或系统。
+         * @enum {string}
+         */
+        TicketOrigin: "user" | "trigger" | "goal" | "watchdog" | "system";
+        /**
+         * TicketPage
+         * @description 工单列表的分页信封。
+         */
+        TicketPage: {
+            /** Items */
+            items: components["schemas"]["TicketSummary"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * TicketReportOut
+         * @description 一次 Worker 汇报的对外形状。
+         */
+        TicketReportOut: {
+            /** Created At */
+            created_at: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            } | null;
+            /** Forwarded */
+            forwarded: boolean;
+            human_action: components["schemas"]["HumanActionOut"] | null;
+            /** Id */
+            id: number;
+            /** Run Id */
+            run_id: string | null;
+            status: components["schemas"]["ReportStatus"];
+            /** Summary */
+            summary: string;
+            /** Ticket Id */
+            ticket_id: string;
+        };
+        /**
+         * TicketReportPage
+         * @description 工单汇报的分页信封。
+         */
+        TicketReportPage: {
+            /** Items */
+            items: components["schemas"]["TicketReportOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * TicketStatus
+         * @description 工单状态机（M69 规格 §4.5）。
+         * @enum {string}
+         */
+        TicketStatus: "open" | "waiting" | "blocked" | "done" | "failed" | "cancelled";
+        /**
+         * TicketSummary
+         * @description 工单列表项与详情里的工单摘要。
+         */
+        TicketSummary: {
+            /** Created At */
+            created_at: string;
+            /** Ended At */
+            ended_at: string | null;
+            human_action: components["schemas"]["HumanActionOut"] | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            last_report_status: components["schemas"]["ReportStatus"] | null;
+            origin: components["schemas"]["TicketOrigin"];
+            /** Priority */
+            priority: number;
+            status: components["schemas"]["TicketStatus"];
+            /** Summary */
+            summary: string | null;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -8177,6 +8406,301 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "AGENT_SPEC_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_tickets: {
+        parameters: {
+            query?: {
+                /** @description 只看这些状态，可重复表示并集 */
+                status?: components["schemas"]["TicketStatus"][] | null;
+                /** @description 只看这个代理定义的工单 */
+                kind?: string | null;
+                /** @description 只看这个来源的工单 */
+                origin?: components["schemas"]["TicketOrigin"] | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 工单 id */
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：TICKET_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "TICKET_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_ticket_reports: {
+        parameters: {
+            query?: {
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path: {
+                /** @description 工单 id */
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketReportPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：TICKET_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "TICKET_NOT_FOUND",
                      *         "details": {},
                      *         "message": "资源不存在"
                      *       }
