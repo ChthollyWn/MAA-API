@@ -1369,15 +1369,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             schedule_connection()
             await confirm_resource_load()
 
-        # 第 8 步：M70 总控与 Worker（docs/v3/02 §5）。顺序是「事件总线 hub 与设备门
-        # → 标题 / 委派 → Worker → 总控」：Worker 建单时要问总控当前会话，总控的
-        # 通知与唤醒又要经过 Worker，所以两个服务最后互相 bind。M71 的
+        # 第 8 步：M70 总控与 Worker（docs/v3/02 §5）。顺序是「事件总线 hub → 标题 /
+        # 委派 → Worker → 总控」：Worker 建单时要问总控当前会话，总控的通知与唤醒
+        # 又要经过 Worker，所以两个服务最后互相 bind。M71 的
         # `device_lease_service` 将来插在这一段前面。
         from maa_api.agent.harness.events import RunEventBus
         from maa_api.agent.orchestrator.service import OrchestratorService
         from maa_api.agent.orchestrator.stream import AgentRunBroadcaster
         from maa_api.agent.workers.delegation import DelegationService
-        from maa_api.agent.workers.device_gate import DeviceGate
         from maa_api.agent.workers.pump import WakeDispatcher
         from maa_api.agent.workers.service import WorkerService
         from maa_api.agent.workers.titler import TicketTitler
@@ -1386,8 +1385,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # per-run 总线并原样转发到这里（M70 §4.5.8 的 run_id 归属）。
         run_event_bus = RunEventBus()
         app.state.run_event_bus = run_event_bus
-        device_gate = DeviceGate()
-        app.state.device_gate = device_gate
         ticket_titler = TicketTitler(
             spec_registry=app.state.agent_spec_registry,
             run_service=run_service,
@@ -1413,7 +1410,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ticket_service=ticket_service,
             thread_router=thread_router,
             delegation=delegation_service,
-            device_gate=device_gate,
             titler=ticket_titler,
             event_bus=run_event_bus,
         )
@@ -1611,7 +1607,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "worker_service",
             "orchestrator_service",
             "delegation_service",
-            "device_gate",
             "ticket_titler",
             "agent_run_broadcaster",
             "run_event_bus",
@@ -1715,7 +1710,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "worker_service",
             "orchestrator_service",
             "delegation_service",
-            "device_gate",
             "ticket_titler",
             "agent_run_broadcaster",
             "run_event_bus",

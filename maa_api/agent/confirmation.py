@@ -50,6 +50,9 @@ ABORT_WORKER_GRACE_SECONDS = 5.0
 AuditTerminalCallback = Callable[[AsyncSession, int, int, dict[str, Any]], Any]
 AuditPrepareCallback = Callable[[AsyncSession, int, Any], Any]
 AuditCommittedCallback = Callable[[int, int, dict[str, Any]], Any]
+#: 确认通过之后、执行之前的回调（M71 §4.2 第 1 条）；参数是审计 id，抛出
+#: ``AppError`` 即中止执行并落 failed 审计。``LeaseMiddleware`` 用它取设备租约。
+BeforeExecuteCallback = Callable[[int], Any]
 
 
 class ConfirmationService:
@@ -114,6 +117,7 @@ class ConfirmationService:
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
         on_audit_committed: AuditCommittedCallback | None = None,
+        on_before_execute: BeforeExecuteCallback | None = None,
     ) -> dict[str, Any]:
         return await self._invoke(
             name,
@@ -124,6 +128,7 @@ class ConfirmationService:
             on_audit_terminal=on_audit_terminal,
             on_audit_prepare=on_audit_prepare,
             on_audit_committed=on_audit_committed,
+            on_before_execute=on_before_execute,
         )
 
     async def _invoke(
@@ -137,6 +142,7 @@ class ConfirmationService:
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
         on_audit_committed: AuditCommittedCallback | None = None,
+        on_before_execute: BeforeExecuteCallback | None = None,
     ) -> dict[str, Any]:
         if mode not in {"sync", "async"}:
             raise AppError(ErrorCode.INVALID_PARAMETER, "mode 必须为 sync 或 async")
@@ -163,6 +169,7 @@ class ConfirmationService:
                     on_audit_terminal,
                     on_audit_prepare,
                     on_audit_committed,
+                    on_before_execute=on_before_execute,
                 ),
                 name=f"agent-confirm-{confirmation_id}",
             )
@@ -233,6 +240,7 @@ class ConfirmationService:
                     on_audit_terminal=on_audit_terminal,
                     on_audit_prepare=on_audit_prepare,
                     on_audit_committed=on_audit_committed,
+                    on_before_execute=on_before_execute,
                 ),
                 name=f"agent-tool-{audit_id}",
             )
@@ -252,6 +260,7 @@ class ConfirmationService:
                 on_audit_terminal=on_audit_terminal,
                 on_audit_prepare=on_audit_prepare,
                 on_audit_committed=on_audit_committed,
+                on_before_execute=on_before_execute,
             )
         except AppError as exc:
             exc.details = {**(exc.details or {}), "audit_id": audit_id}
@@ -1012,6 +1021,7 @@ class ConfirmationService:
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
         on_audit_committed: AuditCommittedCallback | None = None,
+        on_before_execute: BeforeExecuteCallback | None = None,
     ) -> None:
         expires_at = self._confirmation_expiry(decision.confirmation_action)
         remaining = max((expires_at - self.clock()).total_seconds(), 0)
@@ -1062,6 +1072,7 @@ class ConfirmationService:
                 on_audit_terminal=on_audit_terminal,
                 on_audit_prepare=on_audit_prepare,
                 on_audit_committed=on_audit_committed,
+                on_before_execute=on_before_execute,
             )
         except AppError as exc:
             # Detached confirmation workers persist failures on the audit row;
@@ -1105,10 +1116,16 @@ class ConfirmationService:
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
         on_audit_committed: AuditCommittedCallback | None = None,
+        on_before_execute: BeforeExecuteCallback | None = None,
     ) -> Any:
         started = time.monotonic()
         definition = self.registry.get(name)
         try:
+            # 执行前钩子（M71 §4.2 第 3 条）：确认通过之后、开会话执行之前。抛出的
+            # ``AppError`` 由下面的分支落 failed 审计；取消走 CancelledError 分支。
+            # 钩子耗时不计入工具的执行时长。
+            await _call_before_execute(on_before_execute, audit_id)
+            started = time.monotonic()
             async with self.session_factory() as db_session:
                 # ``replace`` 保留 origin：执行期新会话只换 db_session，代理来源不能丢。
                 execution_context = dataclasses.replace(context, db_session=db_session)
@@ -1598,6 +1615,17 @@ def _caller(value: CallerType | str) -> CallerType:
 async def _notify_audit_created(
     callback: Callable[[int], Any] | None, audit_id: int
 ) -> None:
+    if callback is None:
+        return
+    result = callback(audit_id)
+    if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+        await result
+
+
+async def _call_before_execute(
+    callback: BeforeExecuteCallback | None, audit_id: int
+) -> None:
+    """调用执行前回调；同步与异步回调都接受（写法同 ``_notify_audit_created``）。"""
     if callback is None:
         return
     result = callback(audit_id)

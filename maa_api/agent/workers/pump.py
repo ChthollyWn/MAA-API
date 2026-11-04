@@ -421,7 +421,7 @@ async def run_agent(
     )
     chain = runtime.build_chain(
         spec.kind,
-        device_gate=getattr(app_state, "device_gate", None),
+        device_lease_service=getattr(app_state, "device_lease_service", None),
         cost_ledger=getattr(app_state, "cost_ledger", None),
         settings_provider=get_settings,
     )

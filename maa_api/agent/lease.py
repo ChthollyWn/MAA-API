@@ -14,12 +14,15 @@
   记号能在「没有行」时插入；其余的人重读或按 ``poll_seconds`` 定时醒来，因此
   租约过期、外部删除都能在有限时间内被发现。
 
-本模块在 T4 只包含数据类与服务；``LeaseMiddleware`` 与其运行接线在 T5。
+本模块包含数据类、:class:`DeviceLeaseService` 与 :class:`LeaseMiddleware`；中间件
+经 ``ctx.state["policy.before_execute"]`` 登记执行前钩子，由 ``PolicyMiddleware``
+在确认通过之后、执行之前调用（M71 §4.5.5）。
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from collections import deque
 from collections.abc import Callable, Mapping
@@ -29,7 +32,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy.exc import IntegrityError
 
-from maa_api.agent.harness.context import RunContext
+from maa_api.agent.harness.context import (
+    RunContext,
+    RunOutcome,
+    ToolCall,
+    ToolOutcome,
+)
+from maa_api.agent.harness.middleware import CallNext, Middleware
+from maa_api.agent.registry import ToolRegistry
 from maa_api.db.models import DeviceLease, new_uuid, utcnow
 from maa_api.db.repositories.lease import DeviceLeaseRepository
 from maa_api.db.repositories.ticket import TicketRepository
@@ -629,3 +639,113 @@ class DeviceLeaseService:
             self._on_released()
         except Exception:  # noqa: BLE001 - 唤醒失败不应影响租约本身
             logger.exception("设备租约释放回调失败")
+
+
+class LeaseMiddleware(Middleware):
+    """写设备工具的执行前取租约（M71 §4.5.5，05 §5.2 第 16 位）。
+
+    链上位于 ``ClarificationMiddleware`` 之前、``PolicyMiddleware`` 外侧：它不是
+    执行器，只往 ``ctx.state["policy.before_execute"]`` 登记本调用的回调，由
+    ``PolicyMiddleware`` 在确认通过之后、执行之前调用。因此等确认、等提问期间
+    不占设备（与 M70 ``DeviceGateMiddleware`` 的「先取门再确认」相反）。
+    """
+
+    name = "lease"
+    applies_to = frozenset({"worker", "subagent"})
+
+    def __init__(
+        self, lease_service: DeviceLeaseService | None, registry: ToolRegistry
+    ) -> None:
+        self.lease_service = lease_service
+        self.registry = registry
+
+    async def wrap_tool(
+        self, ctx: RunContext, call: ToolCall, call_next: CallNext
+    ) -> ToolOutcome:
+        try:
+            definition = self.registry.get(call.name)
+        except AppError:
+            # 未知工具交给内层按 v2 口径报 TOOL_NOT_FOUND。
+            return await call_next(call)
+        if definition.device != "exclusive":
+            return await call_next(call)
+
+        service = self.lease_service
+        holder = holder_for(ctx)
+        hooks = ctx.state.setdefault("policy.before_execute", {})
+        #: 钩子取到租约后解析出 TTL；续期任务据此算间隔（不 sleep 真实 TTL）。
+        ttl_seconds: asyncio.Future[float] = (
+            asyncio.get_running_loop().create_future()
+        )
+
+        async def acquire_hook(audit_id: int) -> None:
+            if service is None:
+                raise AppError(
+                    ErrorCode.DEVICE_LEASE_BUSY,
+                    "设备租约服务尚未启动，请稍后重试",
+                    {
+                        "reason": "lease_service_unavailable",
+                        "audit_id": audit_id,
+                    },
+                )
+            lease = await service.acquire(holder, purpose=call.name)
+            if not ttl_seconds.done():
+                ttl_seconds.set_result(
+                    (lease.expires_at - lease.heartbeat_at).total_seconds()
+                )
+
+        hooks.setdefault(call.id, []).append(acquire_hook)
+        renewal = (
+            asyncio.create_task(
+                self._renew_loop(holder, ttl_seconds),
+                name=f"agent-lease-renew-{call.id}",
+            )
+            if service is not None
+            else None
+        )
+        try:
+            outcome = await call_next(call)
+        finally:
+            if renewal is not None:
+                renewal.cancel()
+                await asyncio.gather(renewal, return_exceptions=True)
+            current = ctx.state.get("policy.before_execute")
+            if isinstance(current, dict):
+                current.pop(call.id, None)
+        if (
+            outcome.error is not None
+            and outcome.error.get("code") == ErrorCode.DEVICE_LEASE_PREEMPTED.value
+        ):
+            return dataclasses.replace(
+                outcome, stop_run=True, stop_reason="lease_preempted"
+            )
+        return outcome
+
+    async def _renew_loop(
+        self, holder: LeaseHolder, ttl_seconds: asyncio.Future[float]
+    ) -> None:
+        """取到租约后每 ``max(ttl/3, 5)`` 秒续期；异常只记日志。"""
+        ttl = await ttl_seconds
+        interval = max(ttl / 3.0, 5.0)
+        assert self.lease_service is not None  # 只有服务存在时才会起这个任务
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self.lease_service.renew(holder)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - 续期失败留待过期扫描兜底
+                logger.exception("设备租约续期失败：%s", holder.key)
+
+    async def on_run_end(self, ctx: RunContext, outcome: RunOutcome) -> None:
+        """根运行结束时释放隐式租约并清掉抢占记号；子代理结束不释放。"""
+        if ctx.run_id != ctx.root_run_id:
+            return
+        service = self.lease_service
+        if service is None:
+            return
+        try:
+            await service.release_run(ctx.root_run_id, reason="run_ended")
+        except Exception:  # noqa: BLE001 - 收尾释放失败不能把一轮结束变成异常
+            logger.exception("根运行结束时释放设备租约失败")
+        service.clear_preempted(holder_for(ctx).key)

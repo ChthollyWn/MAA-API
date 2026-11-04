@@ -1,12 +1,11 @@
-"""Worker 与子代理的三个中间件（M70 规格 §4.5.5、§4.5.6、§4.5.11）。
+"""Worker 与子代理的两个中间件（M70 规格 §4.5.5、§4.5.11）。
 
-链上的位置见 05 §5.2：14 ``MandateMiddleware``、16 ``DeviceGateMiddleware``（临时，
-M71 换成租约）、18 ``ReportMiddleware``。总控链不挂这三个（``applies_to`` 已排除）。
+链上的位置见 05 §5.2：14 ``MandateMiddleware``、18 ``ReportMiddleware``；第 16 位在
+M71 改成了 ``maa_api.agent.lease.LeaseMiddleware``（设备租约，确认通过后才取）。
+总控链不挂这些（``applies_to`` 已排除）。
 
 - ``MandateMiddleware``：委托的风险上限。策略引擎给出的 ``PolicyDecision.risk``
   高于上限就拒绝，被拦的调用不进 ``ConfirmationService``，不建确认与审计行。
-- ``DeviceGateMiddleware``：``device == "exclusive"`` 的工具先取设备门；拿门在确认
-  之前，等确认期间仍占着门（M71 改成确认之后才取）。
 - ``ReportMiddleware``：``report`` 必须是一批调用的最后一个且一批只有一个；成功时
   以 ``report_submitted`` 收尾本轮。``ensure_report`` 是「一轮结束却没有汇报」的
   兜底：失败补 ``blocked``，其余补 ``progress``；幂等，WorkerService 也调。
@@ -28,7 +27,6 @@ from maa_api.agent.harness.middleware import CallNext, Middleware
 from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.agent.tickets.reports import HumanAction, ReportInput
 from maa_api.agent.workers.cards import RISK_RANK
-from maa_api.agent.workers.device_gate import DeviceGate
 from maa_api.domain.enums import CallerType, ReportStatus, TicketStatus
 from maa_api.domain.errors import AppError, ErrorCode
 
@@ -38,7 +36,6 @@ __all__ = [
     "MISSING_MANDATE_MESSAGE",
     "REPORT_NOT_LAST_MESSAGE",
     "RISK_LABELS",
-    "DeviceGateMiddleware",
     "MandateMiddleware",
     "ReportMiddleware",
     "ensure_report",
@@ -142,51 +139,6 @@ class MandateMiddleware(Middleware):
         except AppError:
             # 与 v2 策略层直接抛错同口径：内层 PolicyMiddleware 会再评估并报同一个错。
             return None
-
-
-class DeviceGateMiddleware(Middleware):
-    """写设备工具先取设备门（05 §5.2 第 16 位，spec §4.5.6）。
-
-    只有 ``device == "exclusive"`` 的工具取门；持有到这一轮运行结束，由
-    ``_run_turn`` 的 finally 与 ``on_ticket_ended`` 释放。子代理与 Worker 用同一个
-    工单 id，因此可重入。M71 用 ``LeaseMiddleware`` 替换并删除本类。
-    """
-
-    name = "device_gate"
-    applies_to = frozenset({"worker", "subagent"})
-
-    def __init__(
-        self, *, registry: ToolRegistry, device_gate: DeviceGate | None = None
-    ) -> None:
-        self.registry = registry
-        self._device_gate = device_gate
-
-    def _gate(self, ctx: RunContext) -> DeviceGate | None:
-        """构造时注入优先；否则从运行所属的 ``app.state`` 取装配好的门。"""
-        if self._device_gate is not None:
-            return self._device_gate
-        state = getattr(getattr(ctx, "app", None), "state", None)
-        return getattr(state, "device_gate", None)
-
-    async def wrap_tool(
-        self, ctx: RunContext, call: ToolCall, call_next: CallNext
-    ) -> ToolOutcome:
-        try:
-            definition = self.registry.get(call.name)
-        except AppError:
-            return await call_next(call)
-        if definition.device != "exclusive" or not ctx.ticket_id:
-            return await call_next(call)
-        gate = self._gate(ctx)
-        if gate is None:
-            # 装配缺失时 fail closed：独占工具没有门就不能保证互斥。
-            return _error(
-                ErrorCode.SERVICE_UNAVAILABLE,
-                "设备门尚未启动，独占设备的工具不能执行",
-                {"tool": call.name, "ticket_id": ctx.ticket_id},
-            )
-        await gate.acquire(ctx.ticket_id)
-        return await call_next(call)
 
 
 class ReportMiddleware(Middleware):

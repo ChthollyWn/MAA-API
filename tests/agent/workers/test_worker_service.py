@@ -21,7 +21,6 @@ from maa_api.agent.tickets.service import TicketService
 from maa_api.agent.tickets.threads import ThreadRouter
 from maa_api.agent.tools.report import ReportParams
 from maa_api.agent.runs.service import RunService
-from maa_api.agent.workers.device_gate import DeviceGate
 from maa_api.agent.workers.pump import TurnHandle
 from maa_api.agent.workers.service import WorkerService
 from maa_api.db.models import (
@@ -175,7 +174,6 @@ class _Harness:
             spec_registry=self.registry,
             broadcast=self._record,
         )
-        self.gate = DeviceGate()
         self.profile_router = _ProfileRouter()
         self.titler = _Titler()
         self.run_service = run_service or _RunService()
@@ -197,7 +195,6 @@ class _Harness:
             ticket_service=self.ticket_service,
             thread_router=self.router,
             delegation=SimpleNamespace(),
-            device_gate=self.gate,
             titler=self.titler,
             event_bus=self.bus,
         )
@@ -654,7 +651,6 @@ def test_cancel_interrupts_drops_inbox_keeps_pipeline_and_notifies(tmp_path) -> 
             harness.service._run_turn = blocking_turn  # type: ignore[method-assign]
             harness.service.wake(worker_session_id)
             await asyncio.wait_for(started.wait(), timeout=3.0)
-            await harness.gate.acquire(ticket_id)
 
             detail = await harness.service.cancel(
                 ticket_id, reason="不做了", actor="user"
@@ -663,7 +659,6 @@ def test_cancel_interrupts_drops_inbox_keeps_pipeline_and_notifies(tmp_path) -> 
             assert str(detail.ticket.status) == TicketStatus.CANCELLED.value
             assert reasons == ["cancelled"]
             assert await _pending_count(factory, worker_session_id) == 0
-            assert harness.gate.owner is None
             stored = await _ticket(factory, ticket_id)
             assert stored is not None
             assert stored.result == {"cancelled_by": "user", "reason": "不做了"}
@@ -694,7 +689,7 @@ def test_cancel_interrupts_drops_inbox_keeps_pipeline_and_notifies(tmp_path) -> 
         engine.sync_engine.dispose()
 
 
-def test_ready_report_ends_ticket_and_releases_gate(tmp_path) -> None:
+def test_ready_report_ends_ticket(tmp_path) -> None:
     engine, factory = asyncio.run(make_session_factory(tmp_path / "ready.db"))
     try:
 
@@ -711,7 +706,6 @@ def test_ready_report_ends_ticket_and_releases_gate(tmp_path) -> None:
             )
             harness = _Harness(factory)
             await harness.router.subscribe(ticket_id, f"pipeline:{new_uuid()}")
-            await harness.gate.acquire(ticket_id)
             run_id = await seed_run(
                 factory, session_id=worker_session_id, ticket_id=ticket_id
             )
@@ -738,7 +732,6 @@ def test_ready_report_ends_ticket_and_releases_gate(tmp_path) -> None:
             assert isinstance(result["report_id"], int)
             assert result["ticket_status"] == TicketStatus.DONE.value
             assert result["forwarded"] is True
-            assert harness.gate.owner is None
 
             stored = await _ticket(factory, ticket_id)
             assert stored is not None
@@ -813,7 +806,7 @@ def test_terminal_report_inside_running_pump_does_not_cancel_the_turn(tmp_path) 
 def test_run_turn_claims_inbox_persists_messages_and_fills_report(
     tmp_path, monkeypatch
 ) -> None:
-    """一轮真跑：领收件箱、落消息、收尾补汇报、释放设备门（§4.5.3 七步）。"""
+    """一轮真跑：领收件箱、落消息、收尾补汇报（§4.5.3 七步）。"""
     engine, factory = asyncio.run(make_session_factory(tmp_path / "turn.db"))
     try:
 
@@ -827,7 +820,6 @@ def test_run_turn_claims_inbox_persists_messages_and_fills_report(
                 InboxKind.SYSTEM,
                 payload={"text": "开始干活", "passive": False},
             )
-            await harness.gate.acquire(ticket_id)
             seen: dict = {}
 
             async def fake_run_agent(
@@ -871,7 +863,6 @@ def test_run_turn_claims_inbox_persists_messages_and_fills_report(
                 ("progress", "干完了")
             ]
             assert reports[0].details == {"auto": True, "finish_reason": "stop"}
-            assert harness.gate.owner is None
             # 假运行没有自己收尾运行行：finally 按失败收掉，不留 running 行。
             stored_run = await run_service.get(handle.run_id)
             assert stored_run is not None

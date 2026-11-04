@@ -32,11 +32,9 @@ from maa_api.agent.tickets.inbox import InboxService
 from maa_api.agent.tickets.service import TicketService
 from maa_api.agent.tickets.threads import ThreadRouter
 from maa_api.agent.tools import build_registry
-from maa_api.agent.workers.device_gate import DeviceGate
 from maa_api.agent.workers.middleware import (
     MISSING_MANDATE_MESSAGE,
     REPORT_NOT_LAST_MESSAGE,
-    DeviceGateMiddleware,
     MandateMiddleware,
     ReportMiddleware,
     ensure_report,
@@ -470,29 +468,6 @@ def test_missing_report_adds_progress_and_failed_run_adds_blocked(tmp_path) -> N
         engine.sync_engine.dispose()
 
 
-def test_device_gate_middleware_only_wraps_exclusive_tools() -> None:
-    async def scenario() -> None:
-        registry = build_registry()
-        gate = DeviceGate()
-        middleware = DeviceGateMiddleware(registry=registry, device_gate=gate)
-        ctx = _context()
-        seen: list[tuple[str, str | None]] = []
-
-        async def inner(call: ToolCall) -> ToolOutcome:
-            seen.append((call.name, gate.owner))
-            return ToolOutcome(status="ok", result={})
-
-        await middleware.wrap_tool(
-            ctx, _call("shot-1", "get_screenshot", {}), inner
-        )
-        assert gate.owner is None
-        await middleware.wrap_tool(ctx, _call("click-1", "click", {"x": 1, "y": 2}), inner)
-        assert gate.owner == "ticket-1"
-        assert seen == [("get_screenshot", None), ("click", "ticket-1")]
-
-    asyncio.run(scenario())
-
-
 def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() -> None:
     confirmations = ConfirmationService(None, build_registry())
     runtime = AgentRuntime(None, confirmations)
@@ -502,7 +477,7 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "context_layout",
         "loop_guard",
         "mandate",
-        "device_gate",
+        "lease",
         "clarification",
         "report",
         "policy",
@@ -513,7 +488,7 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "context_layout",
         "loop_guard",
         "mandate",
-        "device_gate",
+        "lease",
         "policy",
     )
     # 总控链里没有这三个。

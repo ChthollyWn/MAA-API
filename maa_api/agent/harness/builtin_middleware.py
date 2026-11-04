@@ -14,7 +14,7 @@ import base64
 import io
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -1565,6 +1565,27 @@ class ClarificationMiddleware(Middleware):
         )
 
 
+def _compose_before_execute(
+    hooks: Sequence[Any] | None,
+) -> Callable[[int], Any] | None:
+    """把本调用登记的执行前回调组合成一个回调（M71 §4.5.5）。
+
+    外层中间件（``LeaseMiddleware``）往 ``ctx.state["policy.before_execute"]`` 的
+    列表里追加回调，这里按追加顺序逐个 await。列表为空时返回 ``None``，``invoke``
+    不收到新参数，v2 路径的行为与改动前完全一致。
+    """
+    if not hooks:
+        return None
+
+    async def run(audit_id: int) -> None:
+        for hook in tuple(hooks):
+            result = hook(audit_id)
+            if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+                await result
+
+    return run
+
+
 class PolicyMiddleware(Middleware):
     """策略判定、确认与等待；链上的执行器（不调 ``call_next``，规格 §4.2.9）。
 
@@ -1588,6 +1609,16 @@ class PolicyMiddleware(Middleware):
     async def wrap_tool(
         self, ctx: RunContext, call: ToolCall, call_next: CallNext
     ) -> ToolOutcome:
+        try:
+            return await self._run_tool(ctx, call)
+        finally:
+            # 执行前钩子只服务于本次调用：调用结束（含异常与取消）就摘掉，不能让
+            # 同一个 call id 的回调留到下一轮（§4.5.5）。
+            hooks = ctx.state.get("policy.before_execute")
+            if isinstance(hooks, dict):
+                hooks.pop(call.id, None)
+
+    async def _run_tool(self, ctx: RunContext, call: ToolCall) -> ToolOutcome:
         arguments = call.arguments if call.arguments is not None else {}
         context = ToolContext(
             caller=CallerType.INTERNAL,
@@ -1595,6 +1626,10 @@ class PolicyMiddleware(Middleware):
             request_id=request_id_of(ctx.request),
             request=ctx.request,
             db_session=None,
+        )
+        before_hooks = ctx.state.get("policy.before_execute")
+        before_execute = _compose_before_execute(
+            before_hooks.get(call.id) if isinstance(before_hooks, dict) else None
         )
         loop = asyncio.get_running_loop()
         terminal: asyncio.Future[dict[str, Any]] = loop.create_future()
@@ -1641,6 +1676,11 @@ class PolicyMiddleware(Middleware):
                     db_session=policy_session,
                 )
                 # 每次调用现取 ``invoke``：测试会替换替身服务的这个方法。
+                # 只有外层中间件登记过执行前钩子时才传这个参数，空列表时调用形状
+                # 与 M70 及之前逐字一致（M71 §4.2 第 2 条）。
+                invoke_kwargs: dict[str, Any] = {}
+                if before_execute is not None:
+                    invoke_kwargs["on_before_execute"] = before_execute
                 accepted = await self.confirmation_service.invoke(
                     call.name,
                     arguments,
@@ -1648,6 +1688,7 @@ class PolicyMiddleware(Middleware):
                     mode="async",
                     on_audit_prepare=on_prepare,
                     on_audit_committed=on_committed,
+                    **invoke_kwargs,
                 )
         except AppError as exc:
             return ToolOutcome(

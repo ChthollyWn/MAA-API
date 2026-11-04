@@ -21,7 +21,6 @@ from maa_api.agent.runs import RunService
 from maa_api.agent.tickets.inbox import InboxService
 from maa_api.agent.tickets.service import TicketService
 from maa_api.agent.tickets.threads import ThreadRouter
-from maa_api.agent.workers.device_gate import DeviceGate
 from maa_api.agent.workers.service import WorkerService
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import tickets as tickets_router
@@ -134,7 +133,6 @@ def messages_env(isolated_db, tmp_settings):
         ticket_service=service,
         thread_router=thread_router,
         delegation=None,
-        device_gate=DeviceGate(),
         titler=None,
         event_bus=None,
     )
