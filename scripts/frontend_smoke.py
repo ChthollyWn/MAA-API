@@ -84,6 +84,13 @@ def main() -> int:
         if not value.startswith("/") or not (STATIC_ROOT / value.lstrip("/")).is_file()
     ]
     check(not missing_icons, f"manifest icons exist in the build output: {missing_icons}")
+    check(
+        any(
+            "指挥台" in path.read_text(encoding="utf-8")
+            for path in STATIC_ROOT.rglob("*.js")
+        ),
+        "built JS bundle contains the console title (指挥台)",
+    )
 
     sw_text = sw_path.read_text(encoding="utf-8") if sw_path.is_file() else ""
     check(
@@ -99,17 +106,38 @@ def main() -> int:
         # Do not enter the context manager: acceptance must not start MaaCore, ADB, or DB jobs.
         client = TestClient(app, raise_server_exceptions=False)
         root = client.get("/", headers={"Accept": "text/html"})
-        deep_link = client.get("/logs/task", headers={"Accept": "text/html"})
+        deep_links = (
+            "/logs/task",
+            "/tickets/smoke-ticket",
+            "/more/sessions",
+            "/more/agents/orchestrator",
+            "/agent?session_id=x",
+        )
+        deep_responses = [
+            client.get(path, headers={"Accept": "text/html"}) for path in deep_links
+        ]
         unknown_api = client.get("/api/m8-smoke-not-a-route", headers={"Accept": "text/html"})
         missing_asset = client.get(
             "/assets/m8-smoke-not-a-file.js", headers={"Accept": "application/javascript"}
         )
         post_fallback = client.post("/logs/task", headers={"Accept": "text/html"})
         docs = client.get("/docs", headers={"Accept": "text/html"})
+        removed_capability = client.post("/api/agent/capabilities/check")
+        removed_interrupt = client.post("/api/agent/sessions/smoke/interrupt")
+        removed_session_create = client.post("/api/agent/sessions")
+
+        def error_code(response) -> object:
+            try:
+                return response.json().get("error", {}).get("code")
+            except (AttributeError, ValueError):
+                return None
 
         check(root.status_code == 200 and "<div id=\"root\"></div>" in root.text, "root serves the SPA entry")
         check(
-            deep_link.status_code == 200 and deep_link.content == root.content,
+            all(
+                response.status_code == 200 and response.content == root.content
+                for response in deep_responses
+            ),
             "deep SPA navigations fall back to the same entry document",
         )
         check(
@@ -117,6 +145,20 @@ def main() -> int:
             and unknown_api.headers.get("content-type", "").startswith("application/json")
             and unknown_api.json().get("error", {}).get("code") == "NOT_FOUND",
             "unknown API paths stay JSON 404 responses",
+        )
+        check(
+            removed_capability.status_code == 404
+            and error_code(removed_capability) == "NOT_FOUND",
+            "removed v2 capability check stays a JSON 404",
+        )
+        check(
+            removed_interrupt.status_code == 404
+            and error_code(removed_interrupt) == "NOT_FOUND",
+            "removed v2 session interrupt stays a JSON 404",
+        )
+        check(
+            removed_session_create.status_code == 405,
+            "removed v2 session creation returns 405",
         )
         check(
             missing_asset.status_code == 404
@@ -127,7 +169,10 @@ def main() -> int:
         check(docs.status_code == 200 and "swagger-ui" in docs.text, "FastAPI docs keep priority")
         check(root.headers.get("cache-control") == "no-cache", "SPA entry uses no-cache")
         check(
-            deep_link.headers.get("cache-control") == "no-cache",
+            all(
+                response.headers.get("cache-control") == "no-cache"
+                for response in deep_responses
+            ),
             "deep navigation document uses no-cache",
         )
 

@@ -3,8 +3,9 @@
 
 使用生产 ``create_app()`` 装配与应用 lifespan、真实 REST routers、ToolRegistry、
 ConfirmationService、ResourceService 和临时 SQLite。MaaCore、ADB 与外部网络不启动；
-测试用生命周期适配器只替代 MaaCore 与设备边界。一个仅在本脚本注册且不进入 OpenAPI 的路由，
-用于验证内部原子工具授权；内置 LLM 会话由 Fake LLM 驱动。
+测试用生命周期适配器只替代 MaaCore 与设备边界。两个仅在本脚本注册且不进入 OpenAPI
+的路由分别用于验证内部原子工具授权、以及 v2 写端点删除后创建旧会话；总控对话与
+自动诊断由 Fake LLM 驱动。
 
 成功时最后一行严格为 ``SMOKE OK``；失败返回非零并输出 ``[FAIL]``。
 """
@@ -36,54 +37,82 @@ if str(REPO_ROOT) not in sys.path:
 TOKEN = "m11-agent-smoke-token"
 TEMP_PREFIX = "maa-api-agent-smoke-"
 
+#: M67 自动探查的固定请求文本（与 ``maa_api/agent/llm/profiles.py`` 一致）。
+_JSON_SCHEMA_PROBE_PROMPT = "Return a JSON object with ok set to true."
+_TAIL_PROBE_SYSTEM = "You are a probe. Reply with OK."
+
 
 class SmokeFailure(RuntimeError):
     """An acceptance assertion failed."""
 
 
 class _SmokeLLM:
-    """Small OpenAI-compatible stream for capability probes and a final reply."""
+    """Small OpenAI-compatible stream for capability probes and scripted replies."""
 
     def __init__(self) -> None:
         self.requests: list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]] = []
+        self.tool_probe_response = [
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "smoke-capability-probe",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "capability_probe",
+                                        "arguments": "{}",
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            }
+        ]
+        self.vision_probe_response = [
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        # 视觉探查问的是「这张图是什么颜色」，探针图是纯蓝 64×64 PNG；
+                        # 运行时按回复里有没有 `blue` 判定模型是否真能读图
+                        # （maa_api/agent/llm/profiles.py 的 `_VISION_PROBE_MARKER`）。
+                        "delta": {"content": "blue"},
+                        "finish_reason": None,
+                    }
+                ]
+            }
+        ]
+        self.json_schema_probe_response = [
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": '{"ok": true}'},
+                        "finish_reason": None,
+                    }
+                ]
+            },
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+        ]
+        self.tail_probe_response = [
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "OK"},
+                        "finish_reason": None,
+                    }
+                ]
+            },
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+        ]
         self.responses = [
-            [
-                {
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {
-                                "tool_calls": [
-                                    {
-                                        "index": 0,
-                                        "id": "smoke-capability-probe",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "capability_probe",
-                                            "arguments": "{}",
-                                        },
-                                    }
-                                ]
-                            },
-                            "finish_reason": "tool_calls",
-                        }
-                    ]
-                }
-            ],
-            [
-                {
-                    "choices": [
-                        {
-                            "index": 0,
-                            # 视觉探查问的是「这张图是什么颜色」，探针图是纯蓝 64×64 PNG；
-                            # 运行时按回复里有没有 `blue` 判定模型是否真能读图
-                            # （maa_api/agent/runtime.py 的 `_VISION_PROBE_MARKER`）。
-                            "delta": {"content": "blue"},
-                            "finish_reason": None,
-                        }
-                    ]
-                }
-            ],
             [
                 {
                     "choices": [
@@ -116,11 +145,45 @@ class _SmokeLLM:
             ],
         ]
 
-    async def stream_chat_completion(self, model, messages, tools):
+    async def stream_chat_completion(self, model, messages, tools, **options):
         self.requests.append((model, list(messages), list(tools)))
-        if not self.responses:
-            raise SmokeFailure("Fake LLM response budget exhausted")
-        for chunk in self.responses.pop(0):
+        tool_names = {
+            str(tool.get("function", {}).get("name"))
+            for tool in tools
+            if isinstance(tool, dict)
+        }
+        text = "\n".join(
+            "".join(
+                str(part.get("text") or "")
+                for part in message["content"]
+                if isinstance(part, dict)
+            )
+            if isinstance(message.get("content"), list)
+            else str(message.get("content") or "")
+            for message in messages
+        )
+        if "capability_probe" in tool_names:
+            chunks = self.tool_probe_response
+        elif any(
+            isinstance(message.get("content"), list)
+            and any(
+                isinstance(part, dict) and part.get("type") == "image_url"
+                for part in message["content"]
+            )
+            for message in messages
+        ):
+            chunks = self.vision_probe_response
+        elif options.get("response_format") is not None or (
+            _JSON_SCHEMA_PROBE_PROMPT in text
+        ):
+            chunks = self.json_schema_probe_response
+        elif _TAIL_PROBE_SYSTEM in text:
+            chunks = self.tail_probe_response
+        else:
+            if not self.responses:
+                raise SmokeFailure("Fake LLM response budget exhausted")
+            chunks = self.responses.pop(0)
+        for chunk in chunks:
             yield chunk
 
 
@@ -151,6 +214,8 @@ def _install_internal_invoke_probe(app: Any) -> None:
 
     from maa_api.agent.registry import ToolContext
     from maa_api.api.deps import get_session, require_auth
+    from maa_api.db.models import AgentSession
+    from maa_api.db.repositories.agent import AgentSessionRepository
     from maa_api.domain.enums import CallerType
     from maa_api.services.log_hub import current_request_id
 
@@ -158,6 +223,10 @@ def _install_internal_invoke_probe(app: Any) -> None:
         model_config = ConfigDict(extra="forbid")
         arguments: dict[str, Any]
         mode: str = "async"
+
+    class ProbeLegacySessionRequest(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        title: str
 
     async def invoke_internal(
         session_id: str,
@@ -182,6 +251,24 @@ def _install_internal_invoke_probe(app: Any) -> None:
             response.status_code = status.HTTP_202_ACCEPTED
         return result
 
+    async def create_legacy_session(
+        payload: ProbeLegacySessionRequest,
+        response: Response,
+        session: Any = Depends(get_session),
+        _authenticated: Any = Depends(require_auth),
+    ) -> dict[str, str]:
+        del _authenticated
+        stored = await AgentSessionRepository(session).create(
+            AgentSession(
+                title=payload.title,
+                model="smoke",
+                base_url="http://smoke.invalid",
+            )
+        )
+        await session.commit()
+        response.status_code = status.HTTP_201_CREATED
+        return {"session_id": stored.id}
+
     # With postponed annotations, locally defined request/model types are not
     # resolvable through FastAPI's module-global namespace. Bind their concrete
     # types before the endpoint is registered.
@@ -195,10 +282,23 @@ def _install_internal_invoke_probe(app: Any) -> None:
         "_authenticated": Any,
         "return": dict[str, Any],
     }
+    create_legacy_session.__annotations__ = {
+        "payload": ProbeLegacySessionRequest,
+        "response": Response,
+        "session": Any,
+        "_authenticated": Any,
+        "return": dict[str, str],
+    }
 
     app.add_api_route(
         "/__smoke/internal-sessions/{session_id}/tools/{name}/invoke",
         invoke_internal,
+        methods=["POST"],
+        include_in_schema=False,
+    )
+    app.add_api_route(
+        "/__smoke/legacy-sessions",
+        create_legacy_session,
         methods=["POST"],
         include_in_schema=False,
     )
@@ -241,72 +341,101 @@ def _wait_for_pipeline(client: Any, pipeline_id: str, headers: dict[str, str]) -
 
 
 def _check_builtin_conversation(
-    client: Any, headers: dict[str, str], fake_llm: _SmokeLLM
+    client: Any, headers: dict[str, str]
 ) -> str:
-    capability = _check_response(
-        client.post("/api/agent/capabilities/check", headers=headers),
+    state = _check_response(
+        client.get("/api/agent/orchestrator", headers=headers),
         200,
-        "内置 Agent 模型能力自检",
+        "总控状态",
     )
+    session_id = state.get("session_id")
     _require(
-        capability.get("tool_calling") is True and capability.get("vision") is True,
-        f"Fake LLM 能力自检结果不匹配：{capability!r}",
+        isinstance(session_id, str) and session_id,
+        f"总控状态缺少 session_id：{state!r}",
     )
-    session = _check_response(
-        client.post(
-            "/api/agent/sessions",
-            json={"title": "M13 built-in Agent smoke"},
-            headers=headers,
-        ),
-        201,
-        "内置 Agent 会话创建",
-    )
-    session_id = session["session_id"]
     response = client.post(
-        f"/api/agent/sessions/{session_id}/messages",
+        "/api/agent/orchestrator/messages",
         json={"content": "请简短确认本轮 smoke 对话。"},
         headers=headers,
     )
     _require(
         response.status_code == 200
         and response.headers.get("content-type", "").startswith("text/event-stream"),
-        f"内置 Agent 消息应返回 SSE：{response.status_code} {response.text[:400]}",
+        f"总控消息应返回 SSE：{response.status_code} {response.text[:400]}",
     )
     stream = response.text
-    for event_name in ("message_start", "text_delta", "message_end"):
-        _require(f"event: {event_name}\n" in stream, f"Agent SSE 缺少 {event_name}")
+    for event_name in ("run_start", "text_delta", "run_end"):
+        _require(f"event: {event_name}\n" in stream, f"总控 SSE 缺少 {event_name}")
     # 计划要求验证 SSE 事件顺序，而不只是成员存在：断言三个事件的首次出现位置递增。
-    positions = [stream.index(f"event: {name}\n") for name in ("message_start", "text_delta", "message_end")]
+    positions = [
+        stream.index(f"event: {name}\n")
+        for name in ("run_start", "text_delta", "run_end")
+    ]
     _require(
         positions == sorted(positions) and len(set(positions)) == 3,
-        f"Agent SSE 事件顺序不正确：{positions}",
+        f"总控 SSE 事件顺序不正确：{positions}",
     )
-    _require("Fake LLM 已完成本轮 smoke 对话。" in stream, "Agent SSE 未返回 Fake LLM 文本")
+    _require(
+        "Fake LLM 已完成本轮 smoke 对话。" in stream,
+        "总控 SSE 未返回 Fake LLM 文本",
+    )
 
-    messages = _check_response(
-        client.get(
-            f"/api/agent/sessions/{session_id}/messages",
-            params={"page": 1, "size": 20},
-            headers=headers,
-        ),
-        200,
-        "内置 Agent 消息历史",
-    )
+    messages: dict[str, Any] = {}
+    deadline = time.monotonic() + 8.0
+    while time.monotonic() < deadline:
+        messages = _check_response(
+            client.get(
+                "/api/agent/orchestrator/messages",
+                params={"page": 1, "size": 20},
+                headers=headers,
+            ),
+            200,
+            "总控消息历史",
+        )
+        if [
+            item.get("role") for item in messages.get("items", [])
+        ][-2:] == ["user", "assistant"]:
+            break
+        time.sleep(0.025)
     _require(
-        [item.get("role") for item in messages.get("items", [])]
+        [item.get("role") for item in messages.get("items", [])][-2:]
         == ["user", "assistant"],
-        f"Agent 消息历史顺序不正确：{messages!r}",
+        f"总控消息历史最后两条角色不正确：{messages!r}",
     )
-    stored = _check_response(
-        client.get(f"/api/agent/sessions/{session_id}", headers=headers),
-        200,
-        "内置 Agent token 用量回查",
-    )
+
+    runs: dict[str, Any] = {}
+    deadline = time.monotonic() + 8.0
+    while time.monotonic() < deadline:
+        runs = _check_response(
+            client.get(
+                "/api/agent/runs",
+                params={"session_id": session_id, "page": 1, "size": 5},
+                headers=headers,
+            ),
+            200,
+            "总控运行列表",
+        )
+        items = runs.get("items", [])
+        if (
+            items
+            and items[0].get("prompt_tokens") == 11
+            and items[0].get("completion_tokens") == 6
+        ):
+            break
+        time.sleep(0.025)
+    items = runs.get("items", [])
     _require(
-        stored.get("prompt_tokens") == 11
-        and stored.get("completion_tokens") == 6
-        and len(fake_llm.requests) == 3,
-        f"Agent token 用量或 Fake LLM 往返次数错误：{stored!r}",
+        bool(items)
+        and items[0].get("prompt_tokens") == 11
+        and items[0].get("completion_tokens") == 6,
+        f"总控运行用量不正确：{runs!r}",
+    )
+
+    removed = client.post("/api/agent/capabilities/check", headers=headers)
+    _require(
+        removed.status_code == 404,
+        "v2 能力自检端点应返回 404，"
+        f"实际 {removed.status_code}: {removed.text[:240]}",
     )
     return session_id
 
@@ -427,6 +556,7 @@ def _check_copilot_pipeline_and_schedule(client: Any, headers: dict[str, str]) -
 def _check_failure_incident(
     client: Any, headers: dict[str, str], fake_llm: _SmokeLLM
 ) -> str:
+    before = len(fake_llm.requests)
     failed = _check_response(
         client.post(
             "/api/pipelines",
@@ -466,11 +596,11 @@ def _check_failure_incident(
         if (
             incident_session is not None
             and incident_session.get("message_count", 0) >= 2
-            and len(fake_llm.requests) >= 4
+            and len(fake_llm.requests) - before >= 1
         ):
-            # 诊断轮次以 assistant 结论结束；Fake LLM 已收到第 4 次请求说明该轮
-            # 已跑完。此前这里等的是 message_count >= 3，普通文本回复的会话只有
-            # 「user 现场 + assistant 结论」两条，永远达不到，白等满 8 秒。
+            # 诊断轮次以 assistant 结论结束。此前这里等的是 message_count >= 3，
+            # 普通文本回复的会话只有「user 现场 + assistant 结论」两条，永远达
+            # 不到，白等满 8 秒。请求数用相对计数，不依赖前面步骤的往返次数。
             break
         time.sleep(0.05)
     _require(incident_session is not None, "流水线失败没有创建自动诊断会话")
@@ -488,9 +618,11 @@ def _check_failure_incident(
         initial.get("failure_object", {}).get("error_code") == "RESOURCE_ASSET_NOT_FOUND",
         f"自动诊断现场未包含稳定错误码：{initial!r}",
     )
+    new_requests = len(fake_llm.requests) - before
     _require(
-        len(fake_llm.requests) == 4 and bool(fake_llm.requests[-1][2]),
-        "自动诊断没有调用受限安全工具集的 Fake LLM 往返",
+        new_requests >= 1 and bool(fake_llm.requests[-1][2]),
+        "自动诊断没有调用受限安全工具集的 Fake LLM 往返："
+        f"新增请求={new_requests}",
     )
     # 断言精确集合而不是「排除三个危险工具」：只排除几个名字的话，click / swipe /
     # restart_core / delete_schedule 之类的工具即使泄漏进诊断 schema 也测不出来。
@@ -513,7 +645,7 @@ def _check_runs(
     chat_session_id: str,
     incident_session_id: str,
 ) -> None:
-    """M66：对话与自动诊断各落一条已结束的运行，运行树为空。"""
+    """M66：总控对话与自动诊断各落一条已结束的运行，运行树为空。"""
     chat_runs = _check_response(
         client.get(
             "/api/agent/runs",
@@ -521,32 +653,32 @@ def _check_runs(
             headers=headers,
         ),
         200,
-        "对话会话运行列表",
+        "总控会话运行列表",
     )
     chat_items = chat_runs.get("items", [])
     _require(
         chat_runs.get("total") == 1 and len(chat_items) == 1,
-        f"对话会话应恰好一条运行：{chat_runs!r}",
+        f"总控会话应恰好一条运行：{chat_runs!r}",
     )
     chat_run = chat_items[0]
-    # token 数与 ``_check_builtin_conversation`` 对会话用量的断言同源：都来自
-    # ``_SmokeLLM`` 第 3 次响应的 usage（11 / 6）。
+    # token 数与 ``_check_builtin_conversation`` 对运行用量的断言同源：都来自
+    # ``_SmokeLLM`` 首条回复的 usage（11 / 6）。
     _require(
-        chat_run.get("kind") == "legacy_turn"
-        and chat_run.get("agent_name") == "legacy_chat"
+        chat_run.get("kind") == "orchestrator_turn"
+        and chat_run.get("agent_name") == "orchestrator"
         and chat_run.get("status") == "succeeded"
         and chat_run.get("finish_reason") == "stop"
         and chat_run.get("steps") == 1
         and chat_run.get("prompt_tokens") == 11
         and chat_run.get("completion_tokens") == 6,
-        f"对话运行字段不匹配：{chat_run!r}",
+        f"总控运行字段不匹配：{chat_run!r}",
     )
     detail = _check_response(
         client.get(f"/api/agent/runs/{chat_run['run_id']}", headers=headers),
         200,
-        "对话运行详情",
+        "总控运行详情",
     )
-    _require(detail.get("children") == [], f"对话运行不应有子运行：{detail!r}")
+    _require(detail.get("children") == [], f"总控运行不应有子运行：{detail!r}")
 
     # 自动诊断在后台任务里跑：消息落库先于运行终态，给终态一个短窗口。
     deadline = time.monotonic() + 8.0
@@ -572,7 +704,7 @@ def _check_runs(
         time.sleep(0.05)
     else:
         raise SmokeFailure(f"自动诊断运行未在 8s 内成功结束：{incident_runs!r}")
-    print("[ok] 运行记录：对话与自动诊断各一条已结束的运行")
+    print("[ok] 运行记录：总控对话与自动诊断各一条已结束的运行")
 
 
 def run(*, keep_temp: bool = False) -> None:
@@ -670,9 +802,9 @@ def run(*, keep_temp: bool = False) -> None:
         fake_llm = _SmokeLLM()
         main_module.app.state.agent_runtime.client_factory = lambda _settings: fake_llm
         chat_session_id = _check_builtin_conversation(
-            client, {"X-Token": TOKEN}, fake_llm
+            client, {"X-Token": TOKEN}
         )
-        print("[ok] 内置 Agent Fake LLM 能力自检、SSE 对话、消息持久化与 token 用量")
+        print("[ok] 总控 Fake LLM 对话、SSE v3 事件顺序、消息持久化与运行用量")
         _check_copilot_pipeline_and_schedule(client, {"X-Token": TOKEN})
         print("[ok] Copilot 验证上传、资源列表、共享流水线入队与 schedule 持久化")
         incident_session_id = _check_failure_incident(
@@ -775,15 +907,15 @@ def run(*, keep_temp: bool = False) -> None:
         )
         print("[ok] 代理定义列表、legacy_chat 正文与未知名字的 404")
 
-        # 2. Create a persisted internal session through the production REST API.
+        # 2. v2 写端点已删除；用冒烟专用路由经同一 session factory 建旧会话。
         session_body = _check_response(
             client.post(
-                "/api/agent/sessions",
+                "/__smoke/legacy-sessions",
                 json={"title": "M11 smoke authorization"},
                 headers=headers,
             ),
             201,
-            "Agent 会话创建",
+            "旧会话创建",
         )
         session_id = session_body["session_id"]
 
