@@ -62,6 +62,14 @@ EXPECTED_TOOLS = {
     # M57：工具目录 + 按需开启扩展组（docs/13 §8.80）。
     "list_tool_groups",
     "enable_tool_group",
+    # M70：Worker 与工单工具，不进 REST 目录。
+    "report",
+    "delegate",
+    "create_ticket",
+    "send_to_ticket",
+    "list_tickets",
+    "get_ticket",
+    "cancel_ticket",
 }
 
 
@@ -74,9 +82,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # 77 → 76。M48 再加入只读探索组 ``recon`` 四个工具（规格 §4.2、docs/13 §8.71）：
     # 76 → 80；M57 加工具目录两条（list_tool_groups / enable_tool_group）→ 83，
     # M61 加宿主机代理通道发现 ``scan_proxy_channels`` → 84，其中对模型可见的 83
-    # （少一个隐藏工具 ``trigger_screencap``）。
-    assert len(actual) == 84
-    assert sum(1 for item in registry.list() if item.model_visible) == 83
+    # （少一个隐藏工具 ``trigger_screencap``）。M70 加七个 Worker 与工单工具 → 91，
+    # 模型可见 90（七个都可见，只是不进 REST 目录）。
+    assert len(actual) == 91
+    assert sum(1 for item in registry.list() if item.model_visible) == 90
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
@@ -589,7 +598,23 @@ def test_extension_fields_keep_v2_defaults() -> None:
     """M65 §4.2.16：v2 工具保持 REST 可见，refetchable/untrusted_output 默认关闭。"""
     definitions = build_registry().list()
     assert definitions
-    assert all(definition.rest_visible is True for definition in definitions)
+    v3_only = {
+        "report",
+        "delegate",
+        "create_ticket",
+        "send_to_ticket",
+        "list_tickets",
+        "get_ticket",
+        "cancel_ticket",
+    }
+    assert all(
+        definition.rest_visible
+        for definition in definitions
+        if definition.name not in v3_only
+    )
+    assert {
+        definition.name for definition in definitions if not definition.rest_visible
+    } == v3_only
     assert all(definition.refetchable is False for definition in definitions)
     assert all(definition.untrusted_output is False for definition in definitions)
 

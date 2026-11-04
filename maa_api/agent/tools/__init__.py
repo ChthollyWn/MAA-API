@@ -26,14 +26,17 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.knowledge import register_tools as register_knowledge_tools
     from maa_api.agent.tools.media import register_tools as register_media_tools
     from maa_api.agent.tools.ops import register_tools as register_ops_tools
+    from maa_api.agent.tools.delegate import register_tools as register_delegate_tools
     from maa_api.agent.tools.pipeline import register_tools as register_pipeline_tools
     from maa_api.agent.tools.raw import register_tools as register_raw_tools
     from maa_api.agent.tools.recon import register_tools as register_recon_tools
+    from maa_api.agent.tools.report import register_tools as register_report_tools
     from maa_api.agent.tools.resource import register_tools as register_resource_tools
     from maa_api.agent.tools.roguelike import register_tools as register_roguelike_tools
     from maa_api.agent.tools.schedule import register_tools as register_schedule_tools
     from maa_api.agent.tools.stage_level import register_tools as register_stage_level_tools
     from maa_api.agent.tools.status import register_tools as register_status_tools
+    from maa_api.agent.tools.tickets import register_tools as register_ticket_tools
 
     registry = ToolRegistry()
     for register in (
@@ -59,6 +62,10 @@ def build_registry() -> ToolRegistry:
         register_recon_tools,
         # M57：工具目录 + 按需开启扩展组（docs/13 §8.80）。
         register_catalog_tools,
+        # M70：Worker 与工单工具（规格 §4.2.2、§4.5.11），不进 REST 目录。
+        register_report_tools,
+        register_delegate_tools,
+        register_ticket_tools,
     ):
         register(registry)
     registry.register(

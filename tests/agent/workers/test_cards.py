@@ -147,6 +147,8 @@ def test_worker_catalog_lists_only_non_legacy_workers():
 def test_ticket_card_shows_scope_ceiling_and_delegates():
     registry = _FakeRegistry(
         [
+            # 先放真实定义，再用测试替身覆盖同名项（M70 起内置定义里已有同名子代理）。
+            *builtin_specs().values(),
             _spec(
                 "general",
                 kind="worker",
@@ -156,7 +158,6 @@ def test_ticket_card_shows_scope_ceiling_and_delegates():
                 risk_ceiling="consume",
             ),
             *_subagents(),
-            *builtin_specs().values(),
         ]
     )
     spec = registry.get("general")

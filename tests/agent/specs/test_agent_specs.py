@@ -45,15 +45,43 @@ INCIDENT_TOOLS = [
     "reconnect_device",
     "back_to_home",
 ]
+#: M70 的七个 Worker/工单工具：注册表里有，但不属于 v2 会话（§4.5.12）。
+M70_TOOLS = frozenset(
+    {
+        "report",
+        "delegate",
+        "create_ticket",
+        "send_to_ticket",
+        "list_tickets",
+        "get_ticket",
+        "cancel_ticket",
+    }
+)
+BUILTIN_SPEC_NAMES = [
+    "general",
+    "legacy_chat",
+    "legacy_incident",
+    "navigator",
+    "orchestrator",
+    "recon",
+    "researcher",
+    "titler",
+    "verifier",
+]
 
 BUILTIN_DIR = resources.files(BUILTIN_PACKAGE).joinpath(BUILTIN_DIRNAME)
 
 
-def test_builtin_specs_load_three_definitions_sorted_by_name():
+def test_builtin_specs_load_nine_definitions_sorted_by_name():
     specs = builtin_specs()
 
-    assert list(specs) == ["legacy_chat", "legacy_incident", "recon"]
-    assert {spec.kind for spec in specs.values()} == {"worker", "subagent"}
+    assert list(specs) == BUILTIN_SPEC_NAMES
+    assert {spec.kind for spec in specs.values()} == {
+        "background",
+        "orchestrator",
+        "subagent",
+        "worker",
+    }
 
 
 def test_spec_version_is_the_first_12_hex_of_the_file_sha256():
@@ -88,12 +116,16 @@ def test_legacy_incident_shares_the_prompt_and_lists_the_twelve_recovery_tools()
     assert runtime.INCIDENT_ALLOWED_TOOLS == frozenset(INCIDENT_TOOLS)
 
 
-def test_legacy_chat_lists_every_registered_tool_in_registration_order():
+def test_legacy_chat_lists_every_v2_registered_tool_in_registration_order():
     spec = builtin_spec("legacy_chat")
     definitions = build_registry().list()
 
-    assert len(definitions) == 84
-    assert spec.tools == tuple(definition.name for definition in definitions)
+    assert len(definitions) == 91
+    assert spec.tools == tuple(
+        definition.name
+        for definition in definitions
+        if definition.name not in M70_TOOLS
+    )
     assert spec.deferred_groups == tuple(sorted(DEFERRED_TOOL_GROUPS))
     assert set(DEFERRED_TOOL_GROUPS) <= set(spec.deferred_groups)
 
@@ -104,11 +136,7 @@ def test_registry_load_validates_tools_against_the_tool_registry():
 
     registry.load()
 
-    assert [spec.name for spec in registry.list()] == [
-        "legacy_chat",
-        "legacy_incident",
-        "recon",
-    ]
+    assert [spec.name for spec in registry.list()] == BUILTIN_SPEC_NAMES
     assert [spec.name for spec in registry.list()] == sorted(spec.name for spec in registry.list())
 
     missing = ToolRegistry()

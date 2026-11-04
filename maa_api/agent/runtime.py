@@ -86,7 +86,7 @@ from maa_api.agent.recon.runner import (
 )
 from maa_api.agent.registry import ToolRegistry
 from maa_api.agent.runs import RunService
-from maa_api.agent.specs.registry import builtin_spec
+from maa_api.agent.specs.registry import builtin_spec, builtin_specs
 from maa_api.db.models import AgentMessage, AgentRun, new_uuid, utcnow
 from maa_api.db.repositories.agent import (
     AgentMessageRepository,
@@ -175,6 +175,14 @@ INCIDENT_FAILED_FINISH_REASON = "incident_error"
 _SSE_END = object()
 
 SYSTEM_PROMPT = builtin_spec("legacy_chat").body
+#: 只属于 v3 代理定义（orchestrator/worker/subagent/background）、不能进 v2 会话声明
+#: 的工具（M70 §4.5.12）：交集之外的自定义工具（测试/嵌入的最小注册表）照旧可用。
+V3_ONLY_TOOL_NAMES = frozenset(
+    name
+    for spec in builtin_specs().values()
+    if not spec.name.startswith("legacy_")
+    for name in spec.tools
+) - frozenset(builtin_spec(LEGACY_CHAT_AGENT).tools)
 
 
 def call_runtime_factory(
@@ -1476,6 +1484,7 @@ class AgentRuntime:
             definition.name
             for definition in registry.list()
             if definition.model_visible
+            and definition.name not in V3_ONLY_TOOL_NAMES
             and (
                 definition.group not in DEFERRED_TOOL_GROUPS
                 or definition.group in enabled
@@ -1491,6 +1500,9 @@ class AgentRuntime:
         core_groups: set[str] = set()
         for definition in registry.list():
             if not definition.model_visible:
+                continue
+            # v2 会话的目录不列 v3 专属工具（M70 §4.5.12）。
+            if definition.name in V3_ONLY_TOOL_NAMES:
                 continue
             if definition.group in DEFERRED_TOOL_GROUPS:
                 deferred.setdefault(definition.group, []).append(definition.name)
