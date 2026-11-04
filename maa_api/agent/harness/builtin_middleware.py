@@ -38,7 +38,7 @@ from maa_api.agent.llm.cost import compute_cost_micros
 from maa_api.agent.media import MEDIA_TOOL_NAMES, compact_media_result
 from maa_api.agent.redaction import redact_remote_data
 from maa_api.agent.registry import ToolContext, ToolRegistry
-from maa_api.agent.specs.registry import builtin_spec
+from maa_api.agent.specs.registry import builtin_common_prompt, builtin_spec
 from maa_api.agent.specs.schema import LEGACY_SPEC_NAMES
 from maa_api.agent.trace import (
     DELEGATE_TOOLS,
@@ -1115,6 +1115,15 @@ def _layout_service_for(ctx: RunContext) -> ContextLayout:
     return ContextLayout(_estimator_for(ctx))
 
 
+def _common_prompt_for(ctx: RunContext) -> str:
+    """共用约定：优先用启动时加载的注册表，未装配时读包内的同一份文件。"""
+    registry = getattr(_app_state(ctx), "agent_spec_registry", None)
+    prompt = getattr(registry, "common_prompt", None)
+    if isinstance(prompt, str) and prompt:
+        return prompt
+    return builtin_common_prompt()
+
+
 async def _knowledge_contexts(app_state: Any) -> tuple[str, str]:
     """稳定段与动态段；旧测试替身（只有 ``render_context``）退回 v2 的单段。
 
@@ -1280,11 +1289,15 @@ class ContextLayoutMiddleware(Middleware):
             ensure_ascii=False,
             default=str,
         )
+        system: list[Segment] = [Segment("spec", ctx.spec.body)]
+        if ctx.spec.kind != "background" and not ctx.spec.name.startswith("legacy_"):
+            system.append(Segment("common", _common_prompt_for(ctx)))
+        role_card = ctx.state.get("role_card")
+        if role_card:
+            system.append(Segment("card", str(role_card).strip()))
+        system.append(Segment("knowledge", str(layout_state.get("stable") or "")))
         parts = ContextParts(
-            system=[
-                Segment("spec", ctx.spec.body),
-                Segment("knowledge", str(layout_state.get("stable") or "")),
-            ],
+            system=system,
             history=prepared,
             tail=[
                 Segment("status", f"状态摘要：{summary_text}"),

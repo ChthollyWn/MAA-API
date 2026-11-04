@@ -22,17 +22,22 @@ from maa_api.domain.errors import AppError, ErrorCode
 __all__ = [
     "BUILTIN_DIRNAME",
     "BUILTIN_PACKAGE",
+    "COMMON_FILENAME",
     "DEFERRED_GROUP_SPECS",
     "AgentSpecError",
     "AgentSpecRegistry",
+    "builtin_common_prompt",
     "builtin_spec",
     "builtin_specs",
     "load_builtin_specs",
+    "load_common_prompt",
     "parse_spec_file",
 ]
 
 BUILTIN_PACKAGE = "maa_api.agent.specs"
 BUILTIN_DIRNAME = "builtin"
+#: 各定义共用的约定；放在 ``specs/`` 根目录，不是一份代理定义（M70 §4.5.10）。
+COMMON_FILENAME = "common.md"
 #: 只有这两个代理可以按需开启扩展工具组。
 DEFERRED_GROUP_SPECS = frozenset({"legacy_chat", "general"})
 
@@ -144,8 +149,47 @@ def _check_cross_definition(specs: Mapping[str, AgentSpec]) -> None:
                 )
 
 
+def load_common_prompt(root: Traversable | None = None) -> str:
+    """读 ``common.md`` 的正文（M70 §4.5.10）；文件缺失或为空时启动失败。
+
+    默认读 ``specs/common.md``。测试传自定义定义目录时先找该目录下的
+    ``common.md``，没有就用包内的那一份；扫描定义只认 ``builtin/*.md``，所以
+    ``common.md`` 不会被当成代理定义。
+    """
+    if root is not None:
+        candidate = root.joinpath(COMMON_FILENAME)
+        path = (
+            candidate
+            if candidate.is_file()
+            else resources.files(BUILTIN_PACKAGE).joinpath(COMMON_FILENAME)
+        )
+    else:
+        path = resources.files(BUILTIN_PACKAGE).joinpath(COMMON_FILENAME)
+    if not path.is_file():
+        raise AgentSpecError(f"共用约定文件 {COMMON_FILENAME} 缺失：{path}")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AgentSpecError(
+            f"共用约定 {COMMON_FILENAME} 不是合法 UTF-8：{exc}"
+        ) from exc
+    prompt = text.strip()
+    if not prompt:
+        raise AgentSpecError(f"共用约定 {COMMON_FILENAME} 不能为空")
+    return prompt
+
+
+@lru_cache(maxsize=1)
+def builtin_common_prompt() -> str:
+    """包内的共用约定（按文件内容只读一次）。"""
+    return load_common_prompt()
+
+
 def load_builtin_specs(root: Traversable | None = None) -> dict[str, AgentSpec]:
-    """读一个目录下的全部 ``*.md``，按 name 排序返回规则 1–15 都通过的定义。"""
+    """读一个目录下的全部 ``*.md``，按 name 排序返回规则 1–15 都通过的定义。
+
+    默认只扫描 ``specs/builtin/*.md``；``specs/common.md`` 是共用约定，不是定义。
+    """
     directory = (
         root
         if root is not None
@@ -188,9 +232,18 @@ class AgentSpecRegistry:
         self._tool_registry = tool_registry
         self._root = root
         self._specs: dict[str, AgentSpec] | None = None
+        self._common_prompt: str | None = None
+
+    @property
+    def common_prompt(self) -> str:
+        """``common.md`` 全文；未加载就抛 :class:`AgentSpecError`。"""
+        if self._common_prompt is None:
+            raise AgentSpecError("代理定义尚未加载")
+        return self._common_prompt
 
     def load(self) -> None:
-        """解析全部定义并检查规则 16–17；任何失败都不留下半加载状态。"""
+        """解析全部定义与共用约定并检查规则 16–17；失败不留下半加载状态。"""
+        common_prompt = load_common_prompt(self._root)
         specs = load_builtin_specs(self._root)
         tools = {definition.name: definition for definition in self._tool_registry.list()}
         for spec in specs.values():
@@ -208,6 +261,7 @@ class AgentSpecRegistry:
                         f"高于代理定义的 {spec.device}",
                     )
         self._specs = specs
+        self._common_prompt = common_prompt
 
     def list(self) -> list[AgentSpec]:
         """按 name 排序的全部定义；未加载就抛 :class:`AgentSpecError`。"""
