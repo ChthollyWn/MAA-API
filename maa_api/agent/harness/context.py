@@ -8,15 +8,18 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from maa_api.agent.llm.usage import Usage
 from maa_api.agent.specs.schema import AgentSpec
-from maa_api.domain.enums import CallerType
+from maa_api.domain.enums import AgentRunKind, CallerType
+from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = [
+    "CURRENT_RUN",
     "EmitFn",
     "ModelRequest",
     "ModelResponse",
@@ -28,10 +31,39 @@ __all__ = [
     "ToolStatus",
     "TurnDraft",
     "Usage",
+    "require_run",
 ]
 
 EmitFn = Callable[[str, Any], Awaitable[None]]
 ToolStatus = Literal["ok", "error", "awaiting", "rejected", "expired", "skipped"]
+
+#: 当前正在执行的工具调用所属的运行（M70 §4.2.2）。``toolexec`` 在调 handler 前
+#: set、之后 reset；并发分支各自在自己的任务上下文里 set，互不串台。
+CURRENT_RUN: ContextVar[RunContext | None] = ContextVar("CURRENT_RUN", default=None)
+
+
+def require_run(
+    *, kinds: frozenset[str] | set[str], message: str | None = None
+) -> RunContext:
+    """取当前工具调用所属的运行；不在运行里或代理种类不符时抛 ``INVALID_PARAMETER``。
+
+    ``kinds`` 比较的是 ``ctx.spec.kind``（``orchestrator`` / ``worker`` /
+    ``subagent`` / ``background``），不是 ``agent_run.kind``。
+    """
+    ctx = CURRENT_RUN.get()
+    if ctx is None:
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            message or "这个工具只能在 Agent 运行里调用",
+            {"kinds": sorted(kinds)},
+        )
+    if ctx.spec.kind not in kinds:
+        raise AppError(
+            ErrorCode.INVALID_PARAMETER,
+            message or "当前代理不能调用这个工具",
+            {"kinds": sorted(kinds), "agent_kind": str(ctx.spec.kind)},
+        )
+    return ctx
 
 
 @dataclass(slots=True)
@@ -129,6 +161,11 @@ def _never() -> bool:
     return False
 
 
+def _interrupted_reason() -> str:
+    """默认取消原因：M65 只有用户主动中断，M70 的工单取消由调用方注入 ``cancelled``。"""
+    return "interrupted"
+
+
 async def _discard(_name: str, _data: Any) -> None:
     return None
 
@@ -160,7 +197,31 @@ class RunContext:
     parallel_tools: bool = True
     draft: TurnDraft = field(default_factory=TurnDraft)
     pending_stop: tuple[str, str | None] | None = None
+    #: 调用方建好的运行行（M70）：有它才按 v3 事件名发 ``run_start`` / ``run_end`` /
+    #: ``message_persisted``；v2 门面不传，事件名与行为逐字不变。
+    run: Any = None
+    #: 取消原因回调（M70 §4.5.1）：``interrupted`` 或 ``cancelled``。
+    cancel_reason: Callable[[], str] = _interrupted_reason
 
     def stop_after_batch(self, reason: str, text: str | None = None) -> None:
         """当前这批工具执行、落库完之后结束本次运行。"""
         self.pending_stop = (reason, text)
+
+    @property
+    def run_kind(self) -> str | None:
+        """调用方建好的运行行的种类；没有运行行（v2 门面、recon）时为 ``None``。"""
+        run = self.run
+        if run is None:
+            return None
+        kind = run.get("kind") if isinstance(run, Mapping) else getattr(run, "kind", None)
+        return None if kind is None else str(kind)
+
+    @property
+    def emits_v3_events(self) -> bool:
+        """是否按 M70 §4.3.2 的 v3 事件名发事件。
+
+        ``legacy_turn`` 运行即便带了运行行也继续用 v2 事件名：v2 SSE 仍由
+        ``AgentRuntime.stream_message`` 输出，不能混进 v3 的名字。
+        """
+        kind = self.run_kind
+        return kind is not None and kind != AgentRunKind.LEGACY_TURN.value

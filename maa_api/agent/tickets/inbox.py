@@ -21,10 +21,15 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.tickets.threads import parse_thread_key
-from maa_api.db.models import AgentInbox, utcnow
+from maa_api.db.models import AgentInbox, AgentMessage, utcnow
+from maa_api.db.repositories.agent import (
+    AgentMessageRepository,
+    AgentSessionRepository,
+)
 from maa_api.db.repositories.ticket import AgentInboxRepository
 from maa_api.domain.enums import InboxKind, InboxStatus
 from maa_api.domain.errors import AppError, ErrorCode
@@ -86,6 +91,22 @@ def _normalize_payload(payload: Mapping[str, Any] | None) -> dict[str, Any]:
     return normalized
 
 
+#: 汇报状态与人工待办类型的中文（M70 §4.5.9）。
+_REPORT_STATUS_LABELS: Mapping[str, str] = {
+    "progress": "进行中",
+    "waiting": "等待用户",
+    "ready": "已完成",
+    "blocked": "受阻",
+    "failed": "失败",
+    "dropped": "已放弃",
+}
+_HUMAN_ACTION_LABELS: Mapping[str, str] = {
+    "confirmation": "确认",
+    "question": "回答",
+    "decision": "决定",
+}
+
+
 class InboxService:
     """``agent_inbox`` 的写入与领取；事务边界由本服务自己掌握。"""
 
@@ -135,12 +156,74 @@ class InboxService:
             await session.commit()
 
         # 提交之后才通知：监听者在回调里开新会话必须能读到该项。
+        self._notify(session_id)
+        return item
+
+    def _notify(self, session_id: str) -> None:
+        """提交之后按注册顺序通知；单个监听者失败只记日志（M69 §4.5.5）。"""
         for listener in tuple(self._listeners):
             try:
                 listener(session_id)
             except Exception:
                 logger.exception("收件箱监听者失败（会话 %s）", session_id)
-        return item
+
+    async def put_user_message(
+        self,
+        session_id: str,
+        *,
+        content: str,
+        thread_key: str | None = None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> tuple[AgentInbox, AgentMessage]:
+        """同一事务写用户消息与 ``user_message`` 收件箱项（M70 §4.5.2）。
+
+        用户消息的 ``run_id`` 与 ``inbox_id`` 为空；收件箱项的 ``ref_id`` 是消息
+        ``seq``，``payload.message_id`` 指向刚落库的消息。提交后通知监听者。
+        """
+        if thread_key:
+            parse_thread_key(thread_key)
+        normalized = _normalize_payload(payload)
+        normalized.setdefault("text", content)
+
+        now = self._clock()
+        async with self._session_factory() as session:
+            stored_session = await AgentSessionRepository(session).get(session_id)
+            if stored_session is None:
+                raise AppError(
+                    ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在"
+                )
+            messages = AgentMessageRepository(session)
+            seq = await messages.next_seq(session_id)
+            message = await messages.create(
+                AgentMessage(
+                    session_id=session_id,
+                    seq=seq,
+                    role="user",
+                    content=content,
+                    run_id=None,
+                    inbox_id=None,
+                    created_at=now,
+                )
+            )
+            normalized["message_id"] = int(message.id)
+            item = await AgentInboxRepository(session).create(
+                AgentInbox(
+                    session_id=session_id,
+                    kind=str(InboxKind.USER_MESSAGE),
+                    thread_key=thread_key,
+                    ref_id=str(seq),
+                    payload=normalized,
+                    status=InboxStatus.PENDING,
+                    created_at=now,
+                )
+            )
+            stored_session.message_count += 1
+            stored_session.updated_at = now
+            stored_session.last_message_at = now
+            await session.commit()
+
+        self._notify(session_id)
+        return item, message
 
     async def claim(
         self, session_id: str, *, run_id: str, limit: int = 50
@@ -179,3 +262,60 @@ class InboxService:
         """该会话 pending 项条数。"""
         async with self._session_factory() as session:
             return await AgentInboxRepository(session).count_pending(session_id)
+
+    async def count_pending(self, session_id: str) -> int:
+        """``pending_count`` 的 M70 名字（§3.3 表里的 ``count_pending``）。"""
+        return await self.pending_count(session_id)
+
+    async def has_active_pending(self, session_id: str) -> bool:
+        """是否存在会单独唤醒一轮的 pending 项（M70 §4.5.9）。
+
+        ``system`` 项且 ``payload.passive`` 为真时不算活跃工作：它不单独起一轮，
+        但会被下一次 ``claim`` 一起领走。判定在 SQLite 里用 ``json_extract`` 做，
+        避免把整页项读进内存。
+        """
+        passive = func.coalesce(func.json_extract(AgentInbox.payload, "$.passive"), 0)
+        statement = (
+            select(func.count())
+            .select_from(AgentInbox)
+            .where(
+                AgentInbox.session_id == session_id,
+                AgentInbox.status == InboxStatus.PENDING,
+                ~and_(AgentInbox.kind == InboxKind.SYSTEM, passive == 1),
+            )
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(statement)
+            return int(result.scalar_one()) > 0
+
+    def render(self, item: AgentInbox) -> str | None:
+        """把一条收件箱项转成消息正文（M70 §4.5.9）；``user_message`` 返回 ``None``。"""
+        kind = str(item.kind)
+        payload = item.payload or {}
+        if kind == InboxKind.USER_MESSAGE:
+            return None
+        if kind == InboxKind.REPORT:
+            title = payload.get("ticket_title") or payload.get("title") or ""
+            ticket_kind = payload.get("ticket_kind") or payload.get("kind") or ""
+            status = _REPORT_STATUS_LABELS.get(
+                str(payload.get("status")), str(payload.get("status") or "")
+            )
+            text = (
+                f"【工单汇报】工单「{title}」（{ticket_kind}，"
+                f"ticket_id={payload.get('ticket_id')}）{status}："
+                f"{payload.get('summary') or ''}"
+            )
+            action = payload.get("human_action")
+            if isinstance(action, Mapping):
+                action_type = _HUMAN_ACTION_LABELS.get(
+                    str(action.get("type")), str(action.get("type") or "")
+                )
+                text += f"\n需要用户处理（{action_type}）：{action.get('prompt') or ''}"
+            return text
+        if kind in (InboxKind.THREAD_EVENT, InboxKind.TRIGGER):
+            return (
+                f"【事件】{item.thread_key or ''}：{payload.get('summary') or ''}"
+            )
+        if kind == InboxKind.SYSTEM:
+            return f"【系统】{payload.get('text') or ''}"
+        return None

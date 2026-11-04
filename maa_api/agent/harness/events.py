@@ -14,7 +14,33 @@ from typing import Any
 
 from maa_api.agent.redaction import redact_remote_data
 
-__all__ = ["RunEvent", "RunEventBus", "RunEventSink", "sse_event"]
+__all__ = [
+    "SSE_V3_EVENTS",
+    "RunEvent",
+    "RunEventBus",
+    "RunEventSink",
+    "sse_event",
+]
+
+#: SSE v3 转发的事件名（M70 §4.3.2）。总线内部事件 ``message_persisted`` 不在其中：
+#: 它只给 WS 广播器用，T12 的 ``RunEventStream`` 按这个集合过滤。
+SSE_V3_EVENTS = frozenset(
+    {
+        "run_start",
+        "text_delta",
+        "tool_start",
+        "tool_result",
+        "confirmation_required",
+        "question_required",
+        "subagent_start",
+        "subagent_end",
+        "report",
+        "ticket_created",
+        "interrupted",
+        "run_end",
+        "error",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +62,17 @@ class RunEventBus:
         self.run_id = run_id
         self._sinks: list[RunEventSink] = []
 
-    def subscribe(self, sink: RunEventSink) -> None:
+    def subscribe(self, sink: RunEventSink) -> Callable[[], None]:
+        """登记一个 sink，返回退订函数（M70 §3.3：SSE 流断开时退订）。"""
         self._sinks.append(sink)
+
+        def unsubscribe() -> None:
+            try:
+                self._sinks.remove(sink)
+            except ValueError:  # 已经退订过：幂等
+                pass
+
+        return unsubscribe
 
     async def emit(self, name: str, data: Any) -> None:
         event = RunEvent(name=name, data=data, run_id=self.run_id)

@@ -62,6 +62,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "BLOCKED_AFTER_RESTART_PROMPT",
     "BLOCKED_AFTER_RESTART_SUMMARY",
+    "OrchestratorResolver",
     "ReportOutcome",
     "TicketDetailData",
     "TicketEndListener",
@@ -95,6 +96,8 @@ _PRIORITIES = (0, 1, 2)
 
 
 TicketEndListener = Callable[["TicketEnded"], Awaitable[None] | None]
+#: 汇报转发目标的解析函数：返回「当前活动的总控会话」id（M70 §3.3）。
+OrchestratorResolver = Callable[[], Awaitable[str | None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,10 +183,25 @@ class TicketService:
         self._broadcast = broadcast
         self._clock = clock
         self._end_listeners: list[TicketEndListener] = []
+        self._orchestrator_resolver: OrchestratorResolver | None = None
 
     def add_end_listener(self, listener: TicketEndListener) -> None:
         """注册工单结束监听者；按注册顺序在广播之后调用。"""
         self._end_listeners.append(listener)
+
+    def bind_orchestrator_resolver(self, resolver: OrchestratorResolver) -> None:
+        """注入汇报转发的目标解析函数（M70 §3.3）：解析函数优先于工单上的会话 id。
+
+        总控重置后旧会话会归档，汇报要进「当前活动的总控会话」；解析函数由装配
+        方（``OrchestratorService.current_session_id``）提供，本服务不猜。
+        """
+        self._orchestrator_resolver = resolver
+
+    async def _report_session_id(self, ticket: Ticket) -> str | None:
+        """汇报的目标会话：绑定了解析函数就用它，否则沿用 M69 的工单会话 id。"""
+        if self._orchestrator_resolver is not None:
+            return await self._orchestrator_resolver()
+        return ticket.orchestrator_session_id
 
     def _publish_ticket(self, event: str, ticket: Ticket) -> None:
         """广播 ``ticket_status``；没有广播函数或广播失败都不影响服务。"""
@@ -438,7 +456,7 @@ class TicketService:
                 thread_key=f"ticket:{ticket_id}",
                 ref_id=str(stored_report.id),
                 payload=report_inbox_payload(ticket, stored_report),
-                preferred_session_id=ticket.orchestrator_session_id,
+                preferred_session_id=await self._report_session_id(ticket),
             )
             if forwarded_inbox_id is not None:
                 async with self._session_factory() as session:
@@ -558,7 +576,7 @@ class TicketService:
                 thread_key=f"ticket:{ticket.id}",
                 ref_id=str(report.id),
                 payload=report_inbox_payload(ticket, report),
-                preferred_session_id=ticket.orchestrator_session_id,
+                preferred_session_id=await self._report_session_id(ticket),
             )
             if inbox_id is None:
                 break
