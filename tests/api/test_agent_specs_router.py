@@ -55,6 +55,7 @@ SPEC_NAMES = [
     "researcher",
     "summarizer",
     "titler",
+    "trigger_evaluator",
     "verifier",
 ]
 #: 各定义的版本号；M71 给 ``general`` 加了设备租约工具与通用 Worker 提示，升到 2。
@@ -93,7 +94,7 @@ def _error(response):
 # ---------------------------------------------------------------------------
 # 成功路径
 # ---------------------------------------------------------------------------
-def test_list_specs_returns_the_seventeen_builtin_definitions(make_client, tmp_settings):
+def test_list_specs_returns_the_eighteen_builtin_definitions(make_client, tmp_settings):
     client = _specs_client(make_client)
 
     response = client.get("/api/agent/specs")

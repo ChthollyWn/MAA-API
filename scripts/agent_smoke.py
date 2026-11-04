@@ -895,7 +895,7 @@ def run(*, keep_temp: bool = False) -> None:
         )
         spec_names = [item["name"] for item in spec_list["items"]]
         _require(
-            # M79 起共十七份定义：M70 的九份 + 六份专职 Worker + 摘要代理 + 记忆整理，按 name 排序。
+            # M81 起共十八份定义：M79 的十七份 + 事件研判代理，按 name 排序。
             spec_names
             == [
                 "analyst",
@@ -914,6 +914,7 @@ def run(*, keep_temp: bool = False) -> None:
                 "researcher",
                 "summarizer",
                 "titler",
+                "trigger_evaluator",
                 "verifier",
             ],
             f"代理定义列表不匹配：{spec_names!r}",

@@ -84,13 +84,14 @@ BUILTIN_SPEC_NAMES = [
     "researcher",
     "summarizer",
     "titler",
+    "trigger_evaluator",
     "verifier",
 ]
 
 BUILTIN_DIR = resources.files(BUILTIN_PACKAGE).joinpath(BUILTIN_DIRNAME)
 
 
-def test_builtin_specs_load_seventeen_definitions_sorted_by_name():
+def test_builtin_specs_load_eighteen_definitions_sorted_by_name():
     specs = builtin_specs()
 
     assert list(specs) == BUILTIN_SPEC_NAMES
