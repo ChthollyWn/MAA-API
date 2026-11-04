@@ -51,6 +51,7 @@ from maa_api.api.routers import (
     agent,
     agent_sessions,
     agent_specs,
+    artifacts,
     atomic,
     confirmations,
     device,
@@ -1319,12 +1320,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.ticket_service = ticket_service
         await ticket_service.forward_pending_reports()
 
-        # M75：计划服务挂在工单服务之后；工单进终态时把它名下未结束的计划改成
-        # abandoned（spec §4.5）。``plan_service`` 由 ``update_plan`` 工具、
-        # ``PlanMiddleware`` 与计划端点共用。
+        # M75：产物服务与计划服务在工单服务之后装配。``artifact_service`` 由
+        # ``SpillMiddleware``、``write_note`` / ``read_artifact`` 与产物端点共用；
+        # ``plan_service`` 由 ``update_plan`` 工具、``PlanMiddleware`` 与计划端点共用。
+        # 两者的状态变更都广播 ``agent_event``，让前端的产物与计划查询失效。
+        from maa_api.agent.artifacts.service import ArtifactService
         from maa_api.agent.plans.service import PlanService
 
-        plan_service = PlanService(db_session.session_factory)
+        artifact_service = ArtifactService(
+            db_session.session_factory,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+        )
+        app.state.artifact_service = artifact_service
+        plan_service = PlanService(
+            db_session.session_factory,
+            settings_provider=get_settings,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+        )
         app.state.plan_service = plan_service
         ticket_service.add_end_listener(plan_service.on_ticket_ended)
 
@@ -1638,6 +1654,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "question_service",
             "run_service",
             "ticket_service",
+            "artifact_service",
             "plan_service",
             "thread_router",
             "inbox_service",
@@ -1751,6 +1768,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "question_service",
             "run_service",
             "ticket_service",
+            "artifact_service",
             "plan_service",
             "thread_router",
             "inbox_service",
@@ -1841,6 +1859,7 @@ def create_app() -> FastAPI:
     app.include_router(agent.router)
     app.include_router(agent_sessions.router)
     app.include_router(plans.router)
+    app.include_router(artifacts.router)
     app.include_router(orchestrator.router)
     app.include_router(knowledge.router)
     app.include_router(model_profiles.router)

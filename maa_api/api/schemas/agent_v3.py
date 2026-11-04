@@ -16,10 +16,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from maa_api.agent.runs import RunNode
-from maa_api.db.models import AgentMessage, AgentRun, RunPlan
+from maa_api.db.models import AgentMessage, AgentRun, Artifact, RunPlan
 from maa_api.domain.enums import (
     AgentRunKind,
     AgentRunStatus,
+    ArtifactKind,
+    ArtifactStorage,
     InboxKind,
     PlanItemStatus,
     PlanStatus,
@@ -29,6 +31,10 @@ __all__ = [
     "AgentMessageCreate",
     "AgentMessageItem",
     "AgentMessagePage",
+    "ArtifactDetailOut",
+    "ArtifactOut",
+    "ArtifactPage",
+    "ArtifactPinRequest",
     "Mention",
     "OrchestratorInterruptResult",
     "OrchestratorStateModel",
@@ -41,6 +47,8 @@ __all__ = [
     "TicketCancelRequest",
     "TicketInterruptResult",
     "agent_message_item",
+    "artifact_detail_out",
+    "artifact_out",
     "plan_out",
     "run_detail",
     "run_summary",
@@ -271,6 +279,75 @@ def agent_message_item(
         inbox_id=message.inbox_id,
         inbox_kind=InboxKind(inbox[0]) if inbox is not None else None,
         inbox_thread_key=inbox[1] if inbox is not None else None,
+    )
+
+
+# ----------------------------------------------------------------------
+# M75 产物端点（规格 §4.3）：ArtifactOut / ArtifactDetailOut / ArtifactPage
+# ----------------------------------------------------------------------
+class ArtifactOut(BaseModel):
+    """产物元数据；列表不返回正文。"""
+
+    id: str
+    ticket_id: str | None
+    session_id: str | None
+    kind: ArtifactKind
+    title: str
+    mime: str
+    size_bytes: int
+    storage: ArtifactStorage
+    pinned: bool
+    created_at: str
+
+
+class ArtifactDetailOut(ArtifactOut):
+    """产物详情：正文最多 64 KiB，超出时 ``truncated=true``。"""
+
+    content: str
+    truncated: bool
+
+
+class ArtifactPage(BaseModel):
+    """产物分页信封，与 04 §1 的统一分页形状一致。"""
+
+    items: list[ArtifactOut]
+    total: int
+    page: int
+    size: int
+
+
+class ArtifactPinRequest(BaseModel):
+    """置顶或取消置顶（规格 §4.3）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pinned: bool
+
+
+def artifact_out(artifact: Artifact) -> ArtifactOut:
+    """``artifact`` 行 → 列表/置顶端点的对外模型。"""
+    return ArtifactOut(
+        id=str(artifact.id),
+        ticket_id=artifact.ticket_id,
+        session_id=artifact.session_id,
+        kind=ArtifactKind(str(artifact.kind)),
+        title=artifact.title,
+        mime=artifact.mime,
+        size_bytes=artifact.size_bytes,
+        storage=ArtifactStorage(str(artifact.storage)),
+        pinned=bool(artifact.pinned),
+        created_at=_utc_z(artifact.created_at) or "",
+    )
+
+
+def artifact_detail_out(
+    artifact: Artifact, *, content: str, truncated: bool
+) -> ArtifactDetailOut:
+    """详情端点：元数据 + 截断后的正文。"""
+    return ArtifactDetailOut(
+        **artifact_out(artifact).model_dump(),
+        content=content,
+        truncated=truncated,
     )
 
 

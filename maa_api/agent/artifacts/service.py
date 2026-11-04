@@ -11,8 +11,10 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -73,11 +75,14 @@ class ArtifactService:
         session_factory: async_sessionmaker[AsyncSession],
         *,
         resource_root: Path | str | None = None,
+        broadcast: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._resource_root = (
             None if resource_root is None else Path(resource_root)
         )
+        #: ``ws_manager.broadcast`` 的注入；测试可传记录器。
+        self._broadcast = broadcast
 
     @property
     def resource_root(self) -> Path:
@@ -140,7 +145,31 @@ class ArtifactService:
             if written is not None:
                 written.unlink(missing_ok=True)
             raise
+        await self._broadcast_created(artifact)
         return artifact
+
+    async def _broadcast_created(self, artifact: Artifact) -> None:
+        """广播 ``agent_event`` / ``artifact_created``；广播失败只记日志。"""
+        if self._broadcast is None:
+            return
+        payload = {
+            "session_id": artifact.session_id,
+            "event": "artifact_created",
+            "payload": {
+                "run_id": artifact.run_id,
+                "artifact_id": str(artifact.id),
+                "kind": _kind_value(artifact.kind),
+                "title": artifact.title,
+            },
+        }
+        try:
+            result = self._broadcast("agent_event", payload)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # noqa: BLE001 - 产物已落库，通知失败不能回滚写入
+            logger.warning(
+                "产物创建事件广播失败：artifact=%s", artifact.id, exc_info=True
+            )
 
     def _write_file(self, artifact_id: str, body: bytes) -> Path:
         """先写 ``.part`` 再 ``os.replace``；返回最终路径。"""

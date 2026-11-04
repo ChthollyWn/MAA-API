@@ -46,6 +46,9 @@
   ``dropped``）且 ``consumed_at`` 超过 ``INBOX_RETENTION_DAYS``（30）天的项删除，
   结果落在返回值的 ``agent_inbox_deleted`` 上。``pending`` 项不按时间清理，
   ``ticket``、``mandate``、``ticket_report``、``thread_subscription`` 不自动删除。
+- 产物（M75，规格 §4.5）：``kind='spill'``、``pinned=false`` 且 ``created_at``
+  早于 30 天的行删除；文件存储时同时删 ``resource/artifacts/<id>``，结果落在
+  返回值的 ``artifacts_deleted`` 上。笔记与报告不自动删。
 
 删十万行的一条 DELETE 会长时间持有 SQLite 写锁，期间 ``LogHub`` 刷盘只能在
 ``busy_timeout`` 上排队。因此日志走 ``LogRepository.purge``（内部每批 ``LIMIT 5000``、
@@ -73,6 +76,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.artifacts.service import ArtifactService
 from maa_api.db import session
 from maa_api.db.models import (
     Pipeline,
@@ -183,7 +187,8 @@ async def run_retention(
     ``cost_ledger_deleted``（超过 :data:`COST_LEDGER_RETENTION_DAYS` 的成本账本行），
     M68 起多一个 ``trace_spans_deleted``（超过 ``trace.retention_days`` 的追踪行），
     M69 起多一个 ``agent_inbox_deleted``（超过 :data:`INBOX_RETENTION_DAYS` 的已处理
-    收件箱项），既有七个 key 的语义不变。
+    收件箱项），M75 起多一个 ``artifacts_deleted``（超过 30 天的未置顶 spill），
+    既有八个 key 的语义不变。
     其中 ``screenshots_deleted`` 计的是
     **文件被清理并打了 ``deleted_at``** 的截图条数，不含随后按 90 天口径删掉的
     记录条数（后者只进日志）。异常原样抛出，不在本层吞掉。
@@ -200,6 +205,7 @@ async def run_retention(
         "cost_ledger_deleted": 0,
         "trace_spans_deleted": 0,
         "agent_inbox_deleted": 0,
+        "artifacts_deleted": 0,
     }
 
     async with factory() as db:
@@ -318,9 +324,21 @@ async def run_retention(
             await asyncio.sleep(BATCH_PAUSE_SECONDS)
         await _incremental_vacuum(db)
 
+        # 9) 产物：删除 kind=spill、未置顶且超过 30 天的行与文件（M75 规格 §4.5）。
+        #    笔记与报告不自动删；置顶的 spill 与最近 30 天的都不动。
+        result["artifacts_deleted"] = await ArtifactService(
+            factory, resource_root=resource_root
+        ).cleanup_spilled(now=now)
+        logger.info(
+            "保留策略：已删除 %d 份过期 spill 产物", result["artifacts_deleted"]
+        )
+        if result["artifacts_deleted"]:
+            await asyncio.sleep(BATCH_PAUSE_SECONDS)
+        await _incremental_vacuum(db)
+
     logger.info(
         "保留策略执行完成：日志 %s 条、流水线 %s 条、截图 %s 个、临时文件 %s 个、"
-        "作业 %s 份、成本账本 %s 条、追踪 span %s 条、收件箱项 %s 条",
+        "作业 %s 份、成本账本 %s 条、追踪 span %s 条、收件箱项 %s 条、产物 %s 份",
         result["logs_deleted"],
         result["pipelines_deleted"],
         result["screenshots_deleted"],
@@ -329,6 +347,7 @@ async def run_retention(
         result["cost_ledger_deleted"],
         result["trace_spans_deleted"],
         result["agent_inbox_deleted"],
+        result["artifacts_deleted"],
     )
     return result
 

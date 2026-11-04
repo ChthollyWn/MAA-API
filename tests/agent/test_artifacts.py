@@ -376,3 +376,49 @@ def test_write_note_cannot_overwrite_another_ticket(tmp_path) -> None:
             engine.sync_engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_put_broadcasts_artifact_created(tmp_path) -> None:
+    """写入成功后广播 ``agent_event`` / ``artifact_created``（spec §4.6）。"""
+
+    async def scenario() -> None:
+        engine, factory = await make_session_factory(tmp_path / "event.db")
+        try:
+            ticket_id = await _seed_ticket(factory, "事件")
+            session_id = await seed_session(factory, kind="worker", ticket_id=ticket_id)
+            run_id = await seed_run(factory, session_id=session_id, ticket_id=ticket_id)
+            events: list[tuple[str, dict]] = []
+
+            async def broadcast(message_type: str, data: dict) -> None:
+                events.append((message_type, data))
+
+            service = ArtifactService(
+                factory, resource_root=tmp_path / "resource", broadcast=broadcast
+            )
+            artifact = await service.put(
+                kind="note",
+                title="事件笔记",
+                body="正文".encode(),
+                session_id=session_id,
+                ticket_id=ticket_id,
+                run_id=run_id,
+            )
+            assert events == [
+                (
+                    "agent_event",
+                    {
+                        "session_id": session_id,
+                        "event": "artifact_created",
+                        "payload": {
+                            "run_id": run_id,
+                            "artifact_id": str(artifact.id),
+                            "kind": "note",
+                            "title": "事件笔记",
+                        },
+                    },
+                )
+            ]
+        finally:
+            engine.sync_engine.dispose()
+
+    asyncio.run(scenario())

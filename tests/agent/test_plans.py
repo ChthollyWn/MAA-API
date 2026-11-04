@@ -581,3 +581,83 @@ def test_waiting_report_when_plan_pending(tmp_path) -> None:
             engine.sync_engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_plan_service_broadcasts_plan_updated(tmp_path) -> None:
+    """创建/更新/批准/退回/完成/放弃都广播 ``plan_updated``（spec §4.6）。"""
+
+    async def scenario() -> None:
+        engine, factory = await make_session_factory(tmp_path / "plan-event.db")
+        try:
+            session_id = await seed_session(factory, kind="worker")
+            events: list[tuple[str, dict]] = []
+
+            async def broadcast(message_type: str, data: dict) -> None:
+                events.append((message_type, data))
+
+            service = PlanService(
+                factory,
+                approval_mode="complex",
+                complex_min_steps=4,
+                broadcast=broadcast,
+            )
+
+            def last() -> dict:
+                message_type, data = events[-1]
+                assert message_type == "agent_event"
+                assert data["event"] == "plan_updated"
+                assert data["session_id"] == session_id
+                assert data["payload"]["run_id"] is None
+                return data["payload"]
+
+            plan = await service.create_or_update(
+                session_id=session_id,
+                ticket_id=None,
+                title=TITLE,
+                items=_items(3),
+            )
+            assert last()["plan_id"] == str(plan.id)
+            assert last()["status"] == "active"
+
+            await service.create_or_update(
+                session_id=session_id,
+                ticket_id=None,
+                title=TITLE,
+                items=[
+                    {"id": item["id"], "title": item["title"], "status": "done"}
+                    for item in plan.items
+                ],
+            )
+            assert last()["status"] == "done"
+            assert {item["status"] for item in last()["items"]} == {"done"}
+
+            pending = await service.create_or_update(
+                session_id=session_id,
+                ticket_id=None,
+                title=TITLE,
+                items=_items(4),
+            )
+            assert last()["status"] == "awaiting_approval"
+
+            await service.approve(pending.id)
+            assert last()["status"] == "active"
+
+            await service.mark_done(pending.id)
+            assert last()["status"] == "done"
+
+            again = await service.create_or_update(
+                session_id=session_id,
+                ticket_id=None,
+                title=TITLE,
+                items=_items(4),
+            )
+            await service.reject(again.id, reason="步骤不对")
+            assert last()["status"] == "draft"
+
+            await service.abandon(again.id)
+            assert last()["status"] == "abandoned"
+            assert len(events) >= 7
+        finally:
+            engine.sync_engine.dispose()
+
+    asyncio.run(scenario())

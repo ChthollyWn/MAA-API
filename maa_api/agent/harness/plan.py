@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from maa_api.agent.context.layout import (
@@ -89,8 +89,16 @@ class PlanMiddleware(Middleware):
     name = "plan"
     applies_to = frozenset({"worker"})
 
-    def __init__(self, *, registry: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        registry: Any = None,
+        settings_provider: Callable[[], Any] | None = None,
+    ) -> None:
         self.registry = registry
+        # 与 SpillMiddleware 同一口径：链路由 runtime 传入设置读取器；计划策略本身
+        # 由 ``PlanService`` 在提交时现读（缺省 complex / 4）。
+        self.settings_provider = settings_provider
 
     # ------------------------------------------------------------------
     # 模型调用前：尾部与待批准状态

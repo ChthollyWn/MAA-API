@@ -259,7 +259,9 @@ def build_agent_chain(
             ),
             # M75：计划在清理之后、外置之前。批准前的工具过滤要在策略引擎之前
             # 返回（不会误弹确认），尾部 plan 段也由它每步刷新。
-            PlanMiddleware(registry=registry),
+            PlanMiddleware(
+                registry=registry, settings_provider=settings_provider
+            ),
             # M75：外置在清理之后、打转检测之前；工具结果先由内层 Policy 落审计，
             # 这里只改给模型与 SSE 的副本。
             SpillMiddleware(settings_provider=settings_provider),

@@ -136,6 +136,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "context.compaction_ratio": dict(label="自动压缩的窗口比例", group="Agent", type="number", minimum=0.3, maximum=0.95, hot_action="none"),
     "context.keep_recent_turns": dict(label="压缩时保留的最近轮次", group="Agent", type="integer", minimum=1, maximum=10, hot_action="none"),
     "context.clear_tool_results_after": dict(label="保留原文的最近工具往返数", group="Agent", type="integer", minimum=1, maximum=20, description="更早的可重新获取的结果会成批换成占位", hot_action="none"),
+    # M75 工作记忆：外置阈值与计划批准策略，外置/计划每次现读。
+    "context.spill_threshold_chars": dict(label="工具输出外置阈值（字符）", group="Agent", type="integer", minimum=1000, maximum=100000, description="工具结果超过这个长度就存成产物", hot_action="none"),
+    "plan.approval_mode": dict(label="计划批准模式", group="Agent", type="string", enum=["always", "complex", "never"], description="always 都要批准、complex 只对复杂计划、never 都不批准", hot_action="none"),
+    "plan.complex_min_steps": dict(label="复杂计划的最小步骤数", group="Agent", type="integer", minimum=2, maximum=20, description="步骤数达到这个值算复杂计划", hot_action="none"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

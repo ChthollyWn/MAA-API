@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 import secrets
@@ -223,11 +224,14 @@ class PlanService:
         settings_provider: Callable[[], Any] | None = None,
         approval_mode: str | None = None,
         complex_min_steps: int | None = None,
+        broadcast: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings_provider = settings_provider
         self._approval_mode = approval_mode
         self._complex_min_steps = complex_min_steps
+        #: ``ws_manager.broadcast`` 的注入；测试可传记录器。
+        self._broadcast = broadcast
 
     # ------------------------------------------------------------------
     # 读
@@ -305,6 +309,7 @@ class PlanService:
                     plan.approved_by = None
                     plan.approved_at = None
             await db.commit()
+            await self._broadcast_updated(plan)
             return plan
 
     async def approve(
@@ -320,6 +325,7 @@ class PlanService:
             plan.approved_at = now
             plan.updated_at = now
             await db.commit()
+            await self._broadcast_updated(plan)
             return plan
 
     async def reject(self, plan_id: str, *, reason: str | None = None) -> RunPlan:
@@ -334,6 +340,7 @@ class PlanService:
             if reason:
                 logger.info("计划被退回：plan=%s reason=%s", plan_id, reason)
             await db.commit()
+            await self._broadcast_updated(plan)
             return plan
 
     async def abandon(self, plan_id: str) -> RunPlan:
@@ -344,6 +351,7 @@ class PlanService:
                 plan.status = PlanStatus.ABANDONED.value
                 plan.updated_at = utcnow()
                 await db.commit()
+                await self._broadcast_updated(plan)
             return plan
 
     async def mark_done(self, plan_id: str) -> RunPlan:
@@ -354,6 +362,7 @@ class PlanService:
                 plan.status = PlanStatus.DONE.value
                 plan.updated_at = utcnow()
                 await db.commit()
+                await self._broadcast_updated(plan)
             return plan
 
     async def abandon_for_ticket(self, ticket_id: str) -> int:
@@ -372,6 +381,8 @@ class PlanService:
                 plan.updated_at = now
             if rows:
                 await db.commit()
+                for plan in rows:
+                    await self._broadcast_updated(plan)
             return len(rows)
 
     async def on_ticket_ended(self, ended: Any) -> int:
@@ -384,6 +395,33 @@ class PlanService:
     # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
+    async def _broadcast_updated(self, plan: RunPlan) -> None:
+        """广播 ``agent_event`` / ``plan_updated``；广播失败只记日志。
+
+        ``run_plan`` 没有 ``run_id`` 列，载荷里的 ``run_id`` 恒为 ``None``
+        （04 §4.2 允许）。
+        """
+        if self._broadcast is None:
+            return
+        payload = {
+            "session_id": str(plan.session_id),
+            "event": "plan_updated",
+            "payload": {
+                "run_id": None,
+                "plan_id": str(plan.id),
+                "status": str(plan.status),
+                "items": [dict(item) for item in plan.items or ()],
+            },
+        }
+        try:
+            result = self._broadcast("agent_event", payload)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # noqa: BLE001 - 计划已落库，通知失败不能回滚写入
+            logger.warning(
+                "计划更新事件广播失败：plan=%s", plan.id, exc_info=True
+            )
+
     def _policy(self) -> tuple[str, int]:
         if self._approval_mode is None or self._complex_min_steps is None:
             mode, steps = resolve_plan_policy(self._settings_provider)

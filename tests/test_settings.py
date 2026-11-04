@@ -429,6 +429,10 @@ def test_env_mapping_names_are_pinned() -> None:
         "context.compaction_ratio": "MAA_CONTEXT_COMPACTION_RATIO",
         "context.keep_recent_turns": "MAA_CONTEXT_KEEP_RECENT_TURNS",
         "context.clear_tool_results_after": "MAA_CONTEXT_CLEAR_TOOL_RESULTS_AFTER",
+        # M75：外置阈值与计划批准策略（都不是 config-only）。
+        "context.spill_threshold_chars": "MAA_CONTEXT_SPILL_THRESHOLD_CHARS",
+        "plan.approval_mode": "MAA_PLAN_APPROVAL_MODE",
+        "plan.complex_min_steps": "MAA_PLAN_COMPLEX_MIN_STEPS",
     }
 
 
@@ -860,6 +864,91 @@ def test_compaction_settings_have_documented_defaults_and_bounds() -> None:
     assert "# 最近几个工具往返的结果保留原文，更早的可重新获取的结果成批换成占位" in template_text
 
 
+def test_workspace_plan_settings_have_documented_defaults_and_bounds() -> None:
+    """M75 工作记忆：8000 / complex / 4，范围 1000–100000、枚举、2–20（spec §4.4）。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, ContextSettings, PlanSettings
+
+    default = resolve_settings(env={})
+    assert default.context.spill_threshold_chars == 8000
+    assert default.plan == PlanSettings()
+    assert default.plan.approval_mode == "complex"
+    assert default.plan.complex_min_steps == 4
+    # 三项都不是 config-only：设置页可改，计划/外置每次现读。
+    keys = {
+        "context.spill_threshold_chars",
+        "plan.approval_mode",
+        "plan.complex_min_steps",
+    }
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+
+    configured = resolve_settings(
+        {
+            "context": {"spill_threshold_chars": 12000},
+            "plan": {"approval_mode": "always", "complex_min_steps": 2},
+        },
+        env={},
+    )
+    assert configured.context.spill_threshold_chars == 12000
+    assert configured.plan.approval_mode == "always"
+    assert configured.plan.complex_min_steps == 2
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_CONTEXT_SPILL_THRESHOLD_CHARS": "100000",
+            "MAA_PLAN_APPROVAL_MODE": "never",
+            "MAA_PLAN_COMPLEX_MIN_STEPS": "20",
+        }
+    )
+    assert env_layer.context.spill_threshold_chars == 100000
+    assert env_layer.plan.approval_mode == "never"
+    assert env_layer.plan.complex_min_steps == 20
+
+    # 越界与非法枚举拒绝；边界值本身合法。
+    for section, field, value in (
+        ("context", "spill_threshold_chars", 999),
+        ("context", "spill_threshold_chars", 100001),
+        ("plan", "approval_mode", "sometimes"),
+        ("plan", "complex_min_steps", 1),
+        ("plan", "complex_min_steps", 21),
+    ):
+        with pytest.raises(ValidationError):
+            resolve_settings({section: {field: value}}, env={})
+    assert resolve_settings(
+        {"context": {"spill_threshold_chars": 1000}}, env={}
+    ).context.spill_threshold_chars == 1000
+    assert resolve_settings(
+        {"plan": {"complex_min_steps": 20}}, env={}
+    ).plan.complex_min_steps == 20
+    assert ContextSettings().spill_threshold_chars == 8000
+
+    # 设置 API：三项都登记、分组 Agent、无热更新动作，类型/范围与代码一致。
+    spill_row = schema_for("context.spill_threshold_chars")
+    assert (
+        spill_row["group"], spill_row["type"], spill_row["minimum"],
+        spill_row["maximum"], spill_row["hot_action"],
+    ) == ("Agent", "integer", 1000, 100000, "none")
+    mode_row = schema_for("plan.approval_mode")
+    assert (
+        mode_row["group"], mode_row["type"], mode_row["enum"], mode_row["hot_action"],
+    ) == ("Agent", "string", ["always", "complex", "never"], "none")
+    steps_row = schema_for("plan.complex_min_steps")
+    assert (
+        steps_row["group"], steps_row["type"], steps_row["minimum"],
+        steps_row["maximum"], steps_row["hot_action"],
+    ) == ("Agent", "integer", 2, 20, "none")
+
+    # 文档一致性：模板里的三项值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["context"]["spill_threshold_chars"] == 8000
+    assert template["plan"] == {"approval_mode": "complex", "complex_min_steps": 4}
+    assert "# 工具输出超过这个字符数就外置成产物，上下文里只留指针" in template_text
+    assert "# always 都要批准、complex 只对复杂计划、never 都不批准" in template_text
+    assert "# 步骤数达到这个值算复杂计划" in template_text
+
+
 def test_gamedata_settings_have_documented_defaults_and_bounds() -> None:
     """M29 拆包数据：镜像列表、GitHub 兜底、开关、限流与 level 档缓存（规格 §9.3、附录 B）。"""
     from maa_api.services.settings_schema import schema_for
@@ -1133,6 +1222,7 @@ def test_model_layer_settings_have_documented_defaults_and_bounds() -> None:
         "compaction_ratio": 0.75,
         "keep_recent_turns": 2,
         "clear_tool_results_after": 3,
+        "spill_threshold_chars": 8000,
     }
     assert "# 各角色使用的模型档案名（设置页「模型档案」里建），空表示使用上面这组默认设置" in template_text
     assert "# 空表示不使用远端向量" in template_text
