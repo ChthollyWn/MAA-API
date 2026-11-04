@@ -57,6 +57,8 @@ M70_TOOLS = frozenset(
         "cancel_ticket",
     }
 )
+#: M71 的两个设备租约工具：注册表里有，但不属于 v2 会话（M71 §4.2）。
+M71_TOOLS = frozenset({"hold_device", "release_device"})
 BUILTIN_SPEC_NAMES = [
     "general",
     "legacy_chat",
@@ -120,11 +122,11 @@ def test_legacy_chat_lists_every_v2_registered_tool_in_registration_order():
     spec = builtin_spec("legacy_chat")
     definitions = build_registry().list()
 
-    assert len(definitions) == 91
+    assert len(definitions) == 93
     assert spec.tools == tuple(
         definition.name
         for definition in definitions
-        if definition.name not in M70_TOOLS
+        if definition.name not in M70_TOOLS | M71_TOOLS
     )
     assert spec.deferred_groups == tuple(sorted(DEFERRED_TOOL_GROUPS))
     assert set(DEFERRED_TOOL_GROUPS) <= set(spec.deferred_groups)

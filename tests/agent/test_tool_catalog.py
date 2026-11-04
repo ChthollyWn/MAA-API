@@ -70,6 +70,9 @@ EXPECTED_TOOLS = {
     "list_tickets",
     "get_ticket",
     "cancel_ticket",
+    # M71：设备租约工具，不进 REST 目录。
+    "hold_device",
+    "release_device",
 }
 
 
@@ -83,9 +86,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # 76 → 80；M57 加工具目录两条（list_tool_groups / enable_tool_group）→ 83，
     # M61 加宿主机代理通道发现 ``scan_proxy_channels`` → 84，其中对模型可见的 83
     # （少一个隐藏工具 ``trigger_screencap``）。M70 加七个 Worker 与工单工具 → 91，
-    # 模型可见 90（七个都可见，只是不进 REST 目录）。
-    assert len(actual) == 91
-    assert sum(1 for item in registry.list() if item.model_visible) == 90
+    # 模型可见 90（七个都可见，只是不进 REST 目录）。M71 加两个设备租约工具 → 93，
+    # 模型可见 92（同样都可见，只是不进 REST 目录）。
+    assert len(actual) == 93
+    assert sum(1 for item in registry.list() if item.model_visible) == 92
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
@@ -606,6 +610,9 @@ def test_extension_fields_keep_v2_defaults() -> None:
         "list_tickets",
         "get_ticket",
         "cancel_ticket",
+        # M71 的设备租约工具同样只在代理运行里可用。
+        "hold_device",
+        "release_device",
     }
     assert all(
         definition.rest_visible
