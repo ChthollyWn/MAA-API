@@ -634,6 +634,8 @@ class Compactor:
         self._local_layout: ContextLayout | None = None
         #: 压缩后记忆抽取的后台任务；持有引用避免任务被回收（M79 §4.2、§8）。
         self._memory_tasks: set[asyncio.Task[Any]] = set()
+        #: 检查点写 ``history`` 来源的后台任务（M79 §4.5、07 §6）。
+        self._history_tasks: set[asyncio.Task[Any]] = set()
 
     # ---- 延迟解析的装配依赖 ------------------------------------------------ #
     def _lazy(self, name: str) -> Any:
@@ -1035,6 +1037,32 @@ class Compactor:
                 "压缩后记忆抽取失败：session=%s", session_id, exc_info=True
             )
 
+    def _invalidate_memory_cache(self, session_id: str) -> None:
+        """压缩后让 ``MemoryInjectionMiddleware`` 下一轮重新选择（07 §5.4）。"""
+        cache = self._lazy("memory_injection_cache")
+        if cache is None:
+            return
+        try:
+            cache.invalidate(session_id)
+        except Exception:  # noqa: BLE001 - 失效失败不能影响压缩
+            logger.warning("失效记忆注入缓存失败：session=%s", session_id, exc_info=True)
+
+    def _schedule_history_index(self, checkpoint_id: str) -> None:
+        """检查点提交后异步写 ``checkpoint:<id>`` 文档；失败只记日志。"""
+        history_indexer = self._lazy("history_indexer")
+        if history_indexer is None:
+            return
+        try:
+            task = asyncio.create_task(
+                history_indexer.index_checkpoint(checkpoint_id),
+                name=f"history-index-checkpoint-{checkpoint_id}",
+            )
+        except RuntimeError:  # pragma: no cover - 正常压缩总在事件循环里
+            logger.warning("检查点历史索引没有事件循环：checkpoint=%s", checkpoint_id)
+            return
+        self._history_tasks.add(task)
+        task.add_done_callback(self._history_tasks.discard)
+
     async def compact(
         self,
         *,
@@ -1173,6 +1201,10 @@ class Compactor:
                 upto_seq=upto_seq,
                 parent_run_id=run_id,
             )
+            # M79：检查点换掉之后总控的记忆选择必须重选（07 §5.4）；检查点正文
+            # 异步写进 ``history`` 来源。两者失败都不影响压缩结果。
+            self._invalidate_memory_cache(session_id)
+            self._schedule_history_index(checkpoint_id)
             return CompactionResult(
                 checkpoint_id=checkpoint_id,
                 skipped=False,

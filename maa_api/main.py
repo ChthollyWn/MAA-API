@@ -1414,6 +1414,60 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             knowledge_index_service.on_knowledge_changed
         )
 
+        # M79：长期记忆在检索层之后装配。``history`` / ``memory`` 两个推送式来源
+        # 先注册（``start()`` 时补来源行），记忆服务把审核通过的行写进 ``memory``
+        # 来源；工单终态接抽取与历史索引，注入缓存由 Compactor 在压缩后失效。
+        from maa_api.agent.memory import MemoryService
+        from maa_api.agent.memory.extract import extract_candidates
+        from maa_api.agent.memory.history_index import HistoryIndexer
+        from maa_api.agent.memory.inject import MemoryInjectionCache
+        from maa_api.agent.memory.sources import build_memory_sources
+
+        for source in build_memory_sources():
+            knowledge_index_service.register(source)
+
+        def write_memory_documents(documents: Any) -> Any:
+            """记忆索引写入：正文、``external_id=memory:<id>``、版本由服务给。"""
+            return knowledge_index_service.push_documents("memory", documents)
+
+        def remove_memory_documents(external_ids: list[str]) -> Any:
+            """记忆删除/取代后的索引清理（``push_documents`` 只写不删）。"""
+            return knowledge_index_service.remove_documents("memory", external_ids)
+
+        memory_service = MemoryService(
+            db_session.session_factory,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+            index_writer=write_memory_documents,
+            index_remover=remove_memory_documents,
+            settings_provider=get_settings,
+        )
+        app.state.memory_service = memory_service
+        app.state.memory_injection_cache = MemoryInjectionCache()
+
+        async def extract_ticket_memory(ended: Any) -> None:
+            """工单终态后的候选抽取；失败只记日志（规格 §8）。"""
+            await extract_candidates(
+                memory_service,
+                session_factory=db_session.session_factory,
+                router=app.state.model_router,
+                ledger=app.state.cost_ledger,
+                run_service=run_service,
+                ticket_id=ended.ticket_id,
+                knowledge_service=app.state.knowledge_service,
+                spec_registry=app.state.agent_spec_registry,
+            )
+
+        ticket_service.bind_memory_extractor(extract_ticket_memory)
+
+        history_indexer = HistoryIndexer(
+            db_session.session_factory,
+            index_service=knowledge_index_service,
+        )
+        app.state.history_indexer = history_indexer
+        ticket_service.add_end_listener(history_indexer.on_ticket_ended)
+
         # M78：技能注册表在检索层之后装配（02 §5 第 9 步）。工具名与代理种类来自
         # 运行时两个注册表，构造时校验内置技能引用的工具与代理；预加载校验同样
         # fail loud（``SkillBuiltinError`` 写清代理与技能），坏了就中止启动。
@@ -1705,6 +1759,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M76：首次同步排在第 9 步末尾而不是装配点，避开与定时任务装载等启动
         # 写入的 SQLite 写锁竞争；同步本身仍在后台跑。
         await knowledge_index_service.start()
+        # M79：启动时把已有的 v2 诊断会话扫一次写进 ``history`` 来源；之后不再
+        # 新增（07 §6）。失败只记日志，不阻塞启动。
+        history_indexer = getattr(app.state, "history_indexer", None)
+        if history_indexer is not None:
+            try:
+                await history_indexer.index_incidents()
+            except Exception:  # noqa: BLE001 - 历史补索引失败不能拖垮启动
+                logger.warning("启动扫描诊断会话失败", exc_info=True)
         # M77 §4.5：来源行由 ``start()`` 里的 ``ensure_source`` 补齐，首次同步任务
         # 必须在它之后再快照 ``never_indexed()``，否则拿不到来源行；120 秒后各跑一
         # 次，与同时到点的定时刷新撞上时后到的一方看到忙碌就跳过。
@@ -1805,6 +1867,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "resource_service",
             "copilot_service",
             "span_recorder",
+            "memory_service",
+            "memory_injection_cache",
+            "history_indexer",
             "compactor",
             "settings_provider",
             "session_factory",
@@ -1924,6 +1989,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "resource_service",
             "copilot_service",
             "span_recorder",
+            "memory_service",
+            "memory_injection_cache",
+            "history_indexer",
             "compactor",
             "settings_provider",
             "session_factory",

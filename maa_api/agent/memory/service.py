@@ -66,6 +66,8 @@ _UNSET: Any = object()
 
 #: ``index_writer``：接收一批 SourceDocument，返回任意值（可等待）。
 IndexWriter = Callable[[list[SourceDocument]], Awaitable[Any] | Any]
+#: ``index_remover``：接收 ``memory:<id>`` 外部 id 列表，从 ``memory`` 来源删文档。
+IndexRemover = Callable[[list[str]], Awaitable[Any] | Any]
 Broadcast = Callable[[str, dict[str, Any]], Awaitable[Any] | Any]
 
 
@@ -147,12 +149,14 @@ class MemoryService:
         *,
         broadcast: Broadcast | None = None,
         index_writer: IndexWriter | None = None,
+        index_remover: IndexRemover | None = None,
         settings_provider: Callable[[], Any] = get_settings,
         clock: Callable[[], datetime] = utcnow,
     ) -> None:
         self._session_factory = session_factory
         self._broadcast = broadcast
         self._index_writer = index_writer
+        self._index_remover = index_remover
         self._settings_provider = settings_provider
         self._clock = clock
 
@@ -261,6 +265,8 @@ class MemoryService:
             await session.commit()
 
         if stored.status == MemoryStatus.ACTIVE.value:
+            if stored.supersedes_id is not None:
+                await self._remove_index([stored.supersedes_id])
             await self._write_index(stored)
         await self._publish(stored)
         return stored
@@ -327,7 +333,10 @@ class MemoryService:
             await session.commit()
 
         if approved:
+            old_id = memory.supersedes_id
             await self._write_index(memory)
+            if old_id is not None:
+                await self._remove_index([old_id])
         return memory
 
     async def update_memory(
@@ -386,6 +395,7 @@ class MemoryService:
             await session.commit()
         if not deleted:
             raise _not_found(memory_id)
+        await self._remove_index([memory_id])
 
     # -- 注入辅助 -------------------------------------------------------
     async def active_for_injection(
@@ -510,7 +520,9 @@ class MemoryService:
         if self._index_writer is None:
             return
         document = SourceDocument(
-            external_id=memory.id,
+            # 外部 id 带 ``memory:`` 前缀（M79 规格 §4.5、G3 交接）：history 用
+            # ``ticket:`` / ``checkpoint:`` / ``incident:``，两个来源的 id 空间不混。
+            external_id=f"memory:{memory.id}",
             title=_preview(memory.content),
             text=memory.content,
             version=memory.updated_at.isoformat(),
@@ -528,6 +540,26 @@ class MemoryService:
         except Exception:  # noqa: BLE001 - 记忆已落库，索引失败不能回滚写入
             logger.warning(
                 "记忆写索引失败：memory=%s", memory.id, exc_info=True
+            )
+
+    async def _remove_index(self, memory_ids: Iterable[str]) -> None:
+        """从 ``memory`` 来源删掉这些记忆的文档（删除、被取代时）。
+
+        ``push_documents`` 只写不删，所以 G3 给 ``KnowledgeIndexService`` 加了
+        ``remove_documents``；装配方不传 ``index_remover`` 时（T1 的局部测试）跳过。
+        """
+        if self._index_remover is None:
+            return
+        external_ids = [f"memory:{memory_id}" for memory_id in memory_ids]
+        if not external_ids:
+            return
+        try:
+            result = self._index_remover(external_ids)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # noqa: BLE001 - 记忆已落库/已删，索引清理失败只记日志
+            logger.warning(
+                "记忆清理索引失败：%s", external_ids, exc_info=True
             )
 
     async def _publish(self, memory: MemoryItem) -> None:

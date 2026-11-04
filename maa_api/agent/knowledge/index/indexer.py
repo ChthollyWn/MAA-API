@@ -369,6 +369,44 @@ class KnowledgeIndexService:
             chunks=chunks,
         )
 
+    async def remove_documents(
+        self, source_id: str, external_ids: Sequence[str]
+    ) -> int:
+        """按外部 id 删除某个来源的文档，返回删除篇数（M79 G3 的最小清理接口）。
+
+        推送式来源（``memory``）写完不会再由同步对账，所以删除与取代时得显式清掉
+        旧文档；与 :meth:`push_documents` 共用每来源锁与忙标记。分块与 FTS 行随外键
+        级联删除，``index_version`` 加一让向量缓存下次重建。
+        """
+        self.source(source_id)
+        wanted = list(dict.fromkeys(str(item) for item in external_ids if item))
+        if not wanted:
+            return 0
+        async with self._source_lock(source_id):
+            self._busy.add(source_id)
+            try:
+                async with self._session_factory() as session:
+                    repository = KnowledgeIndexRepository(session)
+                    existing = await repository.documents_of(source_id)
+                    internal = [
+                        existing[external_id].id
+                        for external_id in wanted
+                        if external_id in existing
+                    ]
+                    if not internal:
+                        return 0
+                    deleted = await repository.delete_documents(internal)
+                    await session.commit()
+                if deleted:
+                    self._index_version += 1
+                return deleted
+            finally:
+                self._busy.discard(source_id)
+                if not self._closed:
+                    next_force = self._dirty.pop(source_id, None)
+                    if next_force is not None:
+                        self.request_sync(source_id, force=next_force)
+
     async def refresh_all(self) -> dict[str, str]:
         """定时刷新所有语料来源，返回 ``{source_id: "ok" | "skipped" | "error"}``。
 
