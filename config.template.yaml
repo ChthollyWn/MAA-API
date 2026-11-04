@@ -71,6 +71,12 @@ agent:
   run_heartbeat_seconds: 15
   run_stale_seconds: 90
 
+# 提示注入防护：off 只打标不检测，rules 用规则检测，rules_llm 在规则命中或内容出自他人时再请便宜模型复核
+guard:
+  injection_detection: rules
+  # true：检测到可疑指令就整段拦截，Agent 看不到这段内容；false：只打标，之后的写操作逐次确认
+  block_on_detect: false
+
 # 设备租约：代理写设备前要先拿到租约，同一时刻只有一个工单能用设备
 lease:
   # 租约有效期（秒，60-3600）；持有者操作设备时自动续期，到期自动释放

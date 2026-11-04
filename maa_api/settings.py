@@ -181,6 +181,10 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "memory.auto_extract": ("memory", "auto_extract"),
     "memory.require_review": ("memory", "require_review"),
     "memory.max_injection_tokens": ("memory", "max_injection_tokens"),
+    # ---- 提示注入防护（M80 规格 §4.4）：两项都不是 config-only，扫描与降权
+    # 每次现读，改完立即生效。----
+    "guard.injection_detection": ("guard", "injection_detection"),
+    "guard.block_on_detect": ("guard", "block_on_detect"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -442,6 +446,15 @@ class MemorySettings(BaseModel):
     auto_extract: bool = True
     require_review: bool = True
     max_injection_tokens: int = Field(default=1500, ge=0, le=8000)
+
+
+class GuardSettings(BaseModel):
+    """提示注入防护（M80）：检测模式与命中后的处理。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    injection_detection: Literal["off", "rules", "rules_llm"] = "rules"
+    block_on_detect: bool = False
 
 
 class TraceSettings(BaseModel):
@@ -768,6 +781,8 @@ class Settings(BaseModel):
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
     #: M79 长期记忆四项（都不是 config-only，抽取/注入/remember 每次现读）。
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    #: M80 提示注入防护两项（都不是 config-only，扫描与降权每次现读）。
+    guard: GuardSettings = Field(default_factory=GuardSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

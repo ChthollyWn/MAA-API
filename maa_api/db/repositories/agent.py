@@ -309,16 +309,25 @@ class AgentMessageRepository(BaseRepository):
         )
         return int(result.scalar_one()) + 1
 
-    async def list_by_session(self, session_id: str) -> list[AgentMessage]:
+    async def list_by_session(
+        self, session_id: str, *, include_superseded: bool = False
+    ) -> list[AgentMessage]:
         """取一个会话的全部消息，**按 ``seq`` 升序**（上下文重建的输入）。
 
         按 ``seq`` 而不是 ``id`` / ``created_at``：``seq`` 是会话内唯一的逻辑
         序号，同一条 assistant 消息里的多个 tool_call 结果是按序追加的；``id``
         单调但跨会话共享序列，两者顺序一致只是巧合。
+
+        默认排除被回溯取代的消息（``superseded_at`` 非空，M80）：它们不再进
+        上下文。需要完整轨迹的历史索引、分叉来源与前端审计传
+        ``include_superseded=True``。
         """
+        conditions = [AgentMessage.session_id == session_id]
+        if not include_superseded:
+            conditions.append(AgentMessage.superseded_at.is_(None))
         result = await self.session.execute(
             select(AgentMessage)
-            .where(AgentMessage.session_id == session_id)
+            .where(*conditions)
             .order_by(AgentMessage.seq.asc())
         )
         return list(result.scalars().all())
