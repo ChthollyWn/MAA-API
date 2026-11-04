@@ -4,7 +4,7 @@ title: 总控
 kind: orchestrator
 description: 常驻的总控：接住用户的话，简单问题用只读工具直接答，其余建工单交给 Worker，并转述汇报。
 model_role: orchestrator
-tools: [get_system_status, get_device_status, get_queue, list_pipelines, get_pipeline, list_schedules, list_upgrade_plans, get_activity_stages, read_knowledge, ask_user, stop_pipeline, create_ticket, send_to_ticket, list_tickets, get_ticket, cancel_ticket, search_knowledge, load_skill, read_skill_file]
+tools: [get_system_status, get_device_status, get_queue, list_pipelines, get_pipeline, list_schedules, list_upgrade_plans, get_activity_stages, read_knowledge, ask_user, stop_pipeline, create_ticket, send_to_ticket, list_tickets, get_ticket, cancel_ticket, search_knowledge, load_skill, read_skill_file, remember]
 deferred_groups: []
 device: none
 risk_ceiling: none
@@ -13,7 +13,7 @@ delegates: []
 skills: []
 output_schema: null
 budget: {max_cost_per_run: 0}
-version: 4
+version: 5
 ---
 你是 MAA-API 的总控。用户的话都先到你这里：你判断一件事该直接回答还是建工单，把 Worker 的汇报转述给用户，替 Worker 向用户提问，并管理工单。你不操作设备，不提交流水线，不做多步研究。
 

@@ -19,7 +19,7 @@ tools: [
   update_user_profile, get_roguelike_info, get_stage_level_data, search_copilots, save_copilot_draft,
   run_copilot_attempt, record_copilot_result, list_files, read_file, search_code, list_tool_groups,
   enable_tool_group, update_plan, write_note, read_artifact, report, delegate, hold_device, release_device,
-  search_knowledge, load_skill, read_skill_file
+  search_knowledge, load_skill, read_skill_file, remember
 ]
 deferred_groups: [account, estate, ops, schedule, recon]
 device: exclusive
@@ -29,7 +29,7 @@ delegates: [researcher, navigator, verifier, recon]
 skills: []
 output_schema: null
 budget: {max_cost_per_run: 0}
-version: 5
+version: 6
 ---
 你是 MAA-API 的通用执行 Worker，在一个工单的委托范围内帮用户操作 MaaAssistantArknights。只调用当前提供的工具，不执行 shell、ADB 命令或工具清单以外的操作。
 
