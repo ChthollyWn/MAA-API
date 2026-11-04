@@ -445,6 +445,8 @@ def test_env_mapping_names_are_pinned() -> None:
         "rag.gamedata_enabled": "MAA_RAG_GAMEDATA_ENABLED",
         "rag.copilot_site_enabled": "MAA_RAG_COPILOT_SITE_ENABLED",
         "rag.refresh_cron": "MAA_RAG_REFRESH_CRON",
+        # M78：技能总开关（不是 config-only）。
+        "skills.enabled": "MAA_SKILLS_ENABLED",
     }
 
 
@@ -1123,6 +1125,36 @@ def test_rag_settings_have_documented_defaults_and_bounds() -> None:
     assert "# 分块长度与相邻分块的重叠字数；改了以后下次同步时重建分块" in template_text
     assert "# 外部语料开关：关闭后不抓取、不参与检索（出站请求另受 sources.* 管）" in template_text
     assert "# 语料刷新时间，五段 cron，本机时区；改完重启服务生效" in template_text
+
+
+def test_skills_settings_have_documented_default_and_metadata() -> None:
+    """M78 技能总开关：默认值、分层与设置 API 元数据（spec §4.4）。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, SkillsSettings
+
+    default = resolve_settings(env={})
+    assert default.skills == SkillsSettings()
+    assert default.skills.enabled is True
+
+    configured = resolve_settings({"skills": {"enabled": False}}, env={})
+    assert configured.skills.enabled is False
+
+    env_layer = resolve_settings(env={"MAA_SKILLS_ENABLED": "false"})
+    assert env_layer.skills.enabled is False
+
+    # 设置 API：登记、分组 Agent、布尔、无热更新动作；不是 config-only。
+    assert {"skills.enabled"} <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert "skills.enabled" not in CONFIG_ONLY_SETTING_KEYS
+    row = schema_for("skills.enabled")
+    assert (
+        row["label"], row["group"], row["type"], row["hot_action"],
+    ) == ("启用技能", "Agent", "boolean", "none")
+
+    # 文档一致性：模板里的值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["skills"] == {"enabled": True}
+    assert "# 关闭后 Agent 看不到技能索引，也不能加载技能" in template_text
 
 
 def test_rag_refresh_cron_rejects_garbage() -> None:

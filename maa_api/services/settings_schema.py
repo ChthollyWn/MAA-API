@@ -154,6 +154,8 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "rag.copilot_site_enabled": dict(label="检索作业站作业", group="Agent", type="boolean", hot_action="none"),
     "rag.refresh_cron": dict(label="语料刷新时间（cron）", group="Agent", type="string", hot_action="restart_required",
         description="五段 cron，按本机时区；改完重启服务生效"),
+    # M78 技能：总开关，中间件与 load_skill 每次现读。
+    "skills.enabled": dict(label="启用技能", group="Agent", type="boolean", hot_action="none"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

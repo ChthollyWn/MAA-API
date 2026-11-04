@@ -916,6 +916,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取技能列表 */
+        get: operations["agent_list_skills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/skills/{skill_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取技能详情 */
+        get: operations["agent_get_skill"];
+        /**
+         * 写入技能
+         * @description 写入完整的生效内容：新建自定义技能，或修改 / 停用内置技能。
+         *
+         *     内容不合法（含 id 不符合模式、未知工具或代理）返回 400 ``SKILL_INVALID``，
+         *     ``details`` 带 ``field`` 与 ``reason``，未知工具与代理另带 ``unknown``。
+         */
+        put: operations["agent_put_skill"];
+        post?: never;
+        /**
+         * 删除技能
+         * @description 删除自定义技能，或撤销对内置技能的修改（恢复默认）。
+         *
+         *     内置技能没有覆盖可删时返回 409 ``SKILL_BUILTIN_READONLY``；要停用它请写入
+         *     ``enabled=false``。
+         */
+        delete: operations["agent_delete_skill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/specs": {
         parameters: {
             query?: never;
@@ -5428,6 +5476,144 @@ export interface components {
             items: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * SkillBuiltinView
+         * @description 内置技能的原文快照，供界面对比与恢复。
+         */
+        SkillBuiltinView: {
+            /** Agents */
+            agents: string[];
+            /** Body */
+            body: string;
+            /** Description */
+            description: string;
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Tools */
+            tools: string[];
+            /** Version */
+            version: number;
+        };
+        /**
+         * SkillDetail
+         * @description 详情：生效正文 + 内置原文快照（自定义技能为 ``None``）。
+         */
+        SkillDetail: {
+            /** Agents */
+            agents: string[];
+            /** Body */
+            body: string;
+            /** Body Chars */
+            body_chars: number;
+            builtin: components["schemas"]["SkillBuiltinView"] | null;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Files */
+            files: string[];
+            /** Id */
+            id: string;
+            /** Modified */
+            modified: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "builtin" | "user" | "generated";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "active";
+            /** Title */
+            title: string;
+            /** Tools */
+            tools: string[];
+            /** Updated At */
+            updated_at: string | null;
+            /** Version */
+            version: number | null;
+        };
+        /**
+         * SkillList
+         * @description 列表响应：列表项不含正文，只给字数与来源。
+         */
+        SkillList: {
+            /** Items */
+            items: components["schemas"]["SkillSummary"][];
+        };
+        /**
+         * SkillSummary
+         * @description 列表项：不含正文，只给字数与来源（规格 §4.2 的 REST 列表）。
+         */
+        SkillSummary: {
+            /** Agents */
+            agents: string[];
+            /** Body Chars */
+            body_chars: number;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Files */
+            files: string[];
+            /** Id */
+            id: string;
+            /** Modified */
+            modified: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "builtin" | "user" | "generated";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "active";
+            /** Title */
+            title: string;
+            /** Tools */
+            tools: string[];
+            /** Updated At */
+            updated_at: string | null;
+            /** Version */
+            version: number | null;
+        };
+        /**
+         * SkillWriteRequest
+         * @description ``PUT`` 的入参：完整的生效内容。
+         *
+         *     继承服务层的 :class:`~maa_api.agent.skills.registry.SkillWrite`（字段名一致），
+         *     这里只补 REST 层的 ``extra="forbid"``；长度与工具 / 代理的校验在服务层，
+         *     失败统一报 400 ``SKILL_INVALID``。
+         */
+        SkillWriteRequest: {
+            /**
+             * Agents
+             * @default []
+             */
+            agents: string[];
+            /** Body */
+            body: string;
+            /** Description */
+            description: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Title */
+            title: string;
+            /**
+             * Tools
+             * @default []
+             */
+            tools: string[];
         };
         /**
          * SklandBindResult
@@ -10387,6 +10573,268 @@ export interface operations {
                      *     }
                      */
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_skills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillList"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_skill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 技能 id */
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDetail"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：SKILL_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKILL_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_put_skill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 技能 id */
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDetail"];
+                };
+            };
+            /** @description 请求不成立：SKILL_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKILL_INVALID",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_delete_skill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 技能 id */
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：SKILL_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKILL_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：SKILL_BUILTIN_READONLY */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SKILL_BUILTIN_READONLY",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

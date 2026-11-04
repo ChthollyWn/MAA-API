@@ -173,6 +173,8 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "rag.gamedata_enabled": ("rag", "gamedata_enabled"),
     "rag.copilot_site_enabled": ("rag", "copilot_site_enabled"),
     "rag.refresh_cron": ("rag", "refresh_cron"),
+    # ---- 技能（M78 规格 §4.4）：总开关，中间件与 load_skill 每次现读。----
+    "skills.enabled": ("skills", "enabled"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -404,6 +406,18 @@ class RagSettings(BaseModel):
         """五段 cron，用 APScheduler 自己解析一遍；解析不了就拒绝。"""
         CronTrigger.from_crontab(value)
         return value
+
+
+class SkillsSettings(BaseModel):
+    """技能（M78 规格 §4.4）。
+
+    关闭后 Agent 看不到技能索引，也不能加载技能；中间件与 ``load_skill``
+    每次现读，改完立即生效。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
 
 
 class TraceSettings(BaseModel):
@@ -726,6 +740,8 @@ class Settings(BaseModel):
     plan: PlanSettings = Field(default_factory=PlanSettings)
     #: M76 检索层：开关、向量服务与分块参数（都不是 config-only，检索/同步时现读）。
     rag: RagSettings = Field(default_factory=RagSettings)
+    #: M78 技能总开关（不是 config-only，中间件与 load_skill 每次现读）。
+    skills: SkillsSettings = Field(default_factory=SkillsSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)
