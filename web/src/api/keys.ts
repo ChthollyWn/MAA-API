@@ -53,6 +53,19 @@ export const keys = {
     auditDetail: (id: number) => [...root, 'agent', 'audits', 'detail', id] as const,
     modelProfiles: () => [...root, 'agent', 'model-profiles'] as const,
     modelRoles: () => [...root, 'agent', 'model-roles'] as const,
+    specs: {
+      all: () => [...root, 'agent', 'specs'] as const,
+      detail: (name: string) => [...root, 'agent', 'specs', 'detail', name] as const,
+    },
+    runs: {
+      all: () => [...root, 'agent', 'runs'] as const,
+      list: (filters?: Readonly<Record<string, unknown>>) =>
+        [...root, 'agent', 'runs', 'list', filters ?? {}] as const,
+      detail: (runId: string) => [...root, 'agent', 'runs', 'detail', runId] as const,
+      spans: (runId: string) => [...root, 'agent', 'runs', 'detail', runId, 'spans'] as const,
+    },
+    costs: (filters?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'costs', filters ?? {}] as const,
     confirmations: () => [...root, 'confirmations'] as const,
     pendingConfirmations: () => [...root, 'confirmations', 'pending'] as const,
     /** 本会话待答的提问（Agent 主动提问卡）；按会话再分一段，便于整片失效。 */

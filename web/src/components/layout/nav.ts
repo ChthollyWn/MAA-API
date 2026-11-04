@@ -1,7 +1,9 @@
 import {
+  Activity,
   Bot,
   Boxes,
   ClipboardList,
+  Coins,
   CodeXml,
   Download,
   House,
@@ -35,6 +37,8 @@ export const secondaryNav: readonly (NavItem & { description: string })[] = [
   { to: '/more/updates', label: '热更新', icon: Download, description: '内核、活动资源与游戏版本' },
   { to: '/more/account', label: '账号数据', icon: Boxes, description: '森空岛练度同步、仓库识别与养成计划' },
   { to: '/more/copilots', label: '作业', icon: Swords, description: '作业来源、版本链与每次尝试的结果' },
+  { to: '/more/runs', label: '运行追踪', icon: Activity, description: '每次代理调用的步骤、耗时与用量' },
+  { to: '/more/costs', label: '成本', icon: Coins, description: '按天、代理、模型统计模型费用' },
   { to: '/more/audit', label: 'Agent 审计', icon: ClipboardList, description: '工具调用、确认结果与流水线' },
   { to: '/more/api-console', label: 'API 调试台', icon: CodeXml, description: '选接口、发请求、看日志' },
   { to: '/more/settings', label: '设置', icon: Settings2, description: '设备、客户端渠道、LLM、通知与服务接入' },
