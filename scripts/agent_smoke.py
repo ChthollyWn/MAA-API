@@ -13,7 +13,6 @@ ConfirmationService、ResourceService 和临时 SQLite。MaaCore、ADB 与外部
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import sys
@@ -23,7 +22,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from maa_api.agent.runtime import INCIDENT_ALLOWED_TOOLS, SYSTEM_PROMPT
+from maa_api.agent.runtime import SYSTEM_PROMPT
+from maa_api.agent.specs.registry import builtin_spec
 from maa_api.core.enums import Message
 from tests.fakes.lifespan import (
     FAKE_LIFESPAN_STATE_NAMES,
@@ -578,74 +578,90 @@ def _check_failure_incident(
         f"缺失 Copilot 未产生稳定失败状态：{pipeline!r}",
     )
     deadline = time.monotonic() + 8.0
-    incident_session: dict[str, Any] | None = None
+    diagnose: dict[str, Any] | None = None
     while time.monotonic() < deadline:
-        sessions = _check_response(
-            client.get("/api/agent/sessions", params={"page": 1, "size": 50}, headers=headers),
-            200,
-            "自动诊断会话列表",
-        )
-        incident_session = next(
-            (
-                item
-                for item in sessions.get("items", [])
-                if item.get("incident_key") == f"pipeline:{failed['pipeline_id']}"
+        tickets = _check_response(
+            client.get(
+                "/api/agent/tickets",
+                params={"kind": "diagnose", "size": 50},
+                headers=headers,
             ),
-            None,
+            200,
+            "诊断工单列表",
         )
-        if (
-            incident_session is not None
-            and incident_session.get("message_count", 0) >= 2
-            and len(fake_llm.requests) - before >= 1
-        ):
-            # 诊断轮次以 assistant 结论结束。此前这里等的是 message_count >= 3，
-            # 普通文本回复的会话只有「user 现场 + assistant 结论」两条，永远达
-            # 不到，白等满 8 秒。请求数用相对计数，不依赖前面步骤的往返次数。
+        for item in tickets.get("items", []):
+            detail = _check_response(
+                client.get(f"/api/agent/tickets/{item['id']}", headers=headers),
+                200,
+                "诊断工单详情",
+            )
+            if (detail.get("result") or {}).get("incident_key") == (
+                f"pipeline:{failed['pipeline_id']}"
+            ):
+                diagnose = detail
+                break
+        if diagnose is not None and len(fake_llm.requests) - before >= 1:
             break
         time.sleep(0.05)
-    _require(incident_session is not None, "流水线失败没有创建自动诊断会话")
+    _require(diagnose is not None, "流水线失败没有创建 diagnose 工单")
+    ticket = diagnose.get("ticket", {})
+    _require(
+        ticket.get("kind") == "diagnose"
+        and ticket.get("origin") == "system"
+        and diagnose.get("mandate", {}).get("strength") == "inferred"
+        and diagnose.get("mandate", {}).get("risk_ceiling") == "none",
+        f"诊断工单来源/委托/上限不匹配：{diagnose!r}",
+    )
+    worker_session_id = diagnose.get("worker_session_id")
+    _require(
+        isinstance(worker_session_id, str) and bool(worker_session_id),
+        f"诊断工单没有 Worker 会话：{diagnose!r}",
+    )
     history = _check_response(
         client.get(
-            f"/api/agent/sessions/{incident_session['session_id']}/messages",
+            f"/api/agent/tickets/{ticket['id']}/messages",
             params={"page": 1, "size": 20},
             headers=headers,
         ),
         200,
-        "自动诊断消息回查",
+        "诊断工单消息回查",
     )
-    initial = json.loads(history.get("items", [{}])[0].get("content") or "{}")
+    context = "\n".join(
+        str(item.get("content") or "") for item in history.get("items", [])
+    )
     _require(
-        initial.get("failure_object", {}).get("error_code") == "RESOURCE_ASSET_NOT_FOUND",
-        f"自动诊断现场未包含稳定错误码：{initial!r}",
+        "RESOURCE_ASSET_NOT_FOUND" in context,
+        f"诊断工单消息未包含稳定错误码：{history!r}",
     )
     new_requests = len(fake_llm.requests) - before
     _require(
         new_requests >= 1 and bool(fake_llm.requests[-1][2]),
-        "自动诊断没有调用受限安全工具集的 Fake LLM 往返："
+        "自动诊断没有调用诊断工具集的 Fake LLM 往返："
         f"新增请求={new_requests}",
     )
-    # 断言精确集合而不是「排除三个危险工具」：只排除几个名字的话，click / swipe /
-    # restart_core / delete_schedule 之类的工具即使泄漏进诊断 schema 也测不出来。
-    incident_tool_names = {
+    # 断言精确集合而不是「排除几个危险工具」：只排除名字的话，click / swipe /
+    # restart_core / submit_pipeline 之类的工具即使泄漏进诊断 schema 也测不出来。
+    diagnose_tool_names = {
         item["function"]["name"] for item in fake_llm.requests[-1][2]
     }
+    allowed_tools = set(builtin_spec("diagnose").tools)
     _require(
-        incident_tool_names == set(INCIDENT_ALLOWED_TOOLS),
-        "自动诊断工具集与 INCIDENT_ALLOWED_TOOLS 不一致："
-        f"缺少={sorted(set(INCIDENT_ALLOWED_TOOLS) - incident_tool_names)} "
-        f"多出={sorted(incident_tool_names - set(INCIDENT_ALLOWED_TOOLS))}",
+        diagnose_tool_names == allowed_tools,
+        "诊断 Worker 工具集与 diagnose 定义不一致："
+        f"缺少={sorted(allowed_tools - diagnose_tool_names)} "
+        f"多出={sorted(diagnose_tool_names - allowed_tools)}",
     )
-    print("[ok] 流水线失败自动诊断、稳定错误上下文与安全工具 schema")
-    return incident_session["session_id"]
+    print("[ok] 流水线失败建 diagnose 工单、稳定错误上下文与安全工具 schema")
+    return worker_session_id
 
 
 def _check_runs(
     client: Any,
     headers: dict[str, str],
     chat_session_id: str,
-    incident_session_id: str,
+    diagnose_session_id: str,
 ) -> None:
-    """M66：总控对话与自动诊断各落一条已结束的运行，运行树为空。"""
+    """M66：总控对话与诊断 Worker 各落一条已结束的运行，运行树为空。"""
     chat_runs = _check_response(
         client.get(
             "/api/agent/runs",
@@ -680,31 +696,32 @@ def _check_runs(
     )
     _require(detail.get("children") == [], f"总控运行不应有子运行：{detail!r}")
 
-    # 自动诊断在后台任务里跑：消息落库先于运行终态，给终态一个短窗口。
+    # 诊断 Worker 在后台跑：消息落库先于运行终态，给终态一个短窗口。
     deadline = time.monotonic() + 8.0
-    incident_runs: dict[str, Any] = {}
+    diagnose_runs: dict[str, Any] = {}
     while time.monotonic() < deadline:
-        incident_runs = _check_response(
+        diagnose_runs = _check_response(
             client.get(
                 "/api/agent/runs",
-                params={"session_id": incident_session_id},
+                params={"session_id": diagnose_session_id},
                 headers=headers,
             ),
             200,
-            "自动诊断会话运行列表",
+            "诊断 Worker 运行列表",
         )
-        incident_items = incident_runs.get("items", [])
+        diagnose_items = diagnose_runs.get("items", [])
         if (
-            incident_runs.get("total") == 1
-            and len(incident_items) == 1
-            and incident_items[0].get("agent_name") == "legacy_incident"
-            and incident_items[0].get("status") == "succeeded"
+            diagnose_runs.get("total") == 1
+            and len(diagnose_items) == 1
+            and diagnose_items[0].get("agent_name") == "diagnose"
+            and diagnose_items[0].get("kind") == "worker_turn"
+            and diagnose_items[0].get("status") == "succeeded"
         ):
             break
         time.sleep(0.05)
     else:
-        raise SmokeFailure(f"自动诊断运行未在 8s 内成功结束：{incident_runs!r}")
-    print("[ok] 运行记录：总控对话与自动诊断各一条已结束的运行")
+        raise SmokeFailure(f"诊断 Worker 运行未在 8s 内成功结束：{diagnose_runs!r}")
+    print("[ok] 运行记录：总控对话与诊断 Worker 各一条已结束的运行")
 
 
 def run(*, keep_temp: bool = False) -> None:
@@ -807,11 +824,11 @@ def run(*, keep_temp: bool = False) -> None:
         print("[ok] 总控 Fake LLM 对话、SSE v3 事件顺序、消息持久化与运行用量")
         _check_copilot_pipeline_and_schedule(client, {"X-Token": TOKEN})
         print("[ok] Copilot 验证上传、资源列表、共享流水线入队与 schedule 持久化")
-        incident_session_id = _check_failure_incident(
+        diagnose_session_id = _check_failure_incident(
             client, {"X-Token": TOKEN}, fake_llm
         )
         _check_runs(
-            client, {"X-Token": TOKEN}, chat_session_id, incident_session_id
+            client, {"X-Token": TOKEN}, chat_session_id, diagnose_session_id
         )
 
         # 1. Real REST tool catalog and a SAFE tool invocation, with auth contract.
@@ -878,14 +895,20 @@ def run(*, keep_temp: bool = False) -> None:
         )
         spec_names = [item["name"] for item in spec_list["items"]]
         _require(
-            # M70 起共九份定义：v2 的三份 + 总控 / Worker / 四个子代理 / 标题。
+            # M73 起共十五份定义：M70 的九份 + 六份专职 Worker，按 name 排序。
             spec_names
             == [
+                "analyst",
+                "copilot",
+                "daily_ops",
+                "diagnose",
                 "general",
                 "legacy_chat",
                 "legacy_incident",
                 "navigator",
+                "ops",
                 "orchestrator",
+                "planner",
                 "recon",
                 "researcher",
                 "titler",
