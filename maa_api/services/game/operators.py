@@ -33,6 +33,8 @@ __all__ = [
     "ALL_SECTIONS",
     "DEFAULT_SECTIONS",
     "OperatorService",
+    "POSITION_CN",
+    "PROFESSION_CN",
     "default_operator_service",
     "render_range_grid",
 ]
@@ -434,6 +436,10 @@ _PROFESSION_CN = {
 }
 
 _POSITION_CN = {"MELEE": "近战位", "RANGED": "远程位"}
+
+#: 公开别名（M77 §4.2）：供知识语料与测试复用同一张中文名表。
+PROFESSION_CN = _PROFESSION_CN
+POSITION_CN = _POSITION_CN
 
 
 def _profession_cn(value: str | None) -> str | None:
