@@ -1,4 +1,11 @@
-"""Durable, deduplicated failure sessions with a fixed safe recovery tool set."""
+"""Durable, deduplicated diagnose tickets opened by pipeline failures and core crashes.
+
+M73 起自动诊断不再新建 ``incident`` 会话并同步跑一轮：失败会被写成一张
+``kind='diagnose'`` 的工单（``origin=system``、推断委托、风险上限 ``none``），交
+给工单自己的 Worker 会话诊断。同一个事件键只对应一张进行中的诊断工单；再次失败
+只在同一张工单的收件箱里追加一条 ``system`` 说明，不会重复诊断（M73 规格 §4.1、
+§4.5）。
+"""
 
 from __future__ import annotations
 
@@ -14,27 +21,40 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
 from uuid import uuid4
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.runtime import INCIDENT_ALLOWED_TOOLS
-from maa_api.db.models import AgentMessage, AgentSession, Pipeline, Task, utcnow
-from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
+from maa_api.db.models import AgentInbox, Pipeline, Task, Ticket
 from maa_api.db.repositories.log import LogRepository, ScreenshotRepository
+from maa_api.db.repositories.ticket import TicketRepository
 from maa_api.domain.enums import (
-    AgentSessionKind,
+    InboxKind,
     LogLevel,
     LogSource,
     PipelineStatus,
     ScreenshotTrigger,
+    TicketStatus,
 )
 from maa_api.domain.errors import ErrorCode
-from maa_api.settings import Settings, get_settings
+from maa_api.settings import get_settings
 
 __all__ = ["AgentIncidentService", "INCIDENT_ALLOWED_TOOLS", "IncidentResult"]
 
 logger = logging.getLogger(__name__)
+
+#: 诊断工单的委托范围（M73 规格 §4.5 的原文）。
+_DIAGNOSE_SCOPE = (
+    "只诊断这一次故障并给出下一步。不提交消耗类任务，不改设置，不重装内核。"
+)
+#: 去重只看进行中的诊断工单；终态工单不挡下一次失败。
+_ACTIVE_TICKET_STATUSES = (
+    TicketStatus.OPEN.value,
+    TicketStatus.WAITING.value,
+    TicketStatus.BLOCKED.value,
+)
+#: Worker 收件箱正文的上限（``TicketService.attach_worker_session`` 允许 4000 字）。
+_MAX_BRIEF_CHARS = 3800
 
 _ERROR_SOURCES = {
     "task": LogSource.MAA_TASK,
@@ -79,19 +99,22 @@ def _safe_crash_value(value: Any) -> Any:
     return value
 
 
-def _parse_json_object(value: str | None) -> dict[str, Any] | None:
-    if not value:
-        return None
-    try:
-        payload = json.loads(value)
-    except (TypeError, ValueError):
-        return None
-    return payload if isinstance(payload, dict) else None
+def _one_line(value: Any, limit: int = 300) -> str:
+    return str(value or "").replace("\r", " ").replace("\n", " ").strip()[:limit]
+
+
+def _join_brief(lines: list[str]) -> str:
+    """拼出收件箱正文；超长时只截断正文，标题与关键字段都在前几行。"""
+    return "\n".join(line for line in lines if line)[:_MAX_BRIEF_CHARS]
 
 
 @dataclass(frozen=True, slots=True)
 class IncidentResult:
-    """Outcome of processing an event; session_id is null when disabled/suppressed."""
+    """Outcome of processing an event; ``session_id`` is the diagnose ticket id.
+
+    字段名沿用 M73 之前的口径（调用方 ``main.py`` / ``PipelineRunner`` 的签名
+    不变）；失败改建工单后它填工单 id，而不是旧诊断会话 id。
+    """
 
     session_id: str | None
     created: bool
@@ -100,7 +123,7 @@ class IncidentResult:
 
 
 class AgentIncidentService:
-    """Create one durable, user-visible conversation for each stable failure key."""
+    """Open one diagnose ticket for each stable failure key, never twice at once."""
 
     def __init__(
         self,
@@ -115,6 +138,8 @@ class AgentIncidentService:
         boot_id: str | None = None,
     ) -> None:
         self.session_factory = session_factory
+        #: 保留构造参数：v2 诊断会话的执行入口仍在运行时的旧路径里，但本服务
+        #: 不再调用它（M73 规格 §4.5）。测试与回放仍可直接用 runtime。
         self.runtime = runtime
         self.settings_provider = settings_provider
         self.pipeline_runner = pipeline_runner
@@ -126,134 +151,28 @@ class AgentIncidentService:
         self.boot_id = boot_id or str(uuid4())
         self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
 
+    # ------------------------------------------------------------------
+    # 两个公开入口
+    # ------------------------------------------------------------------
     async def pipeline_failed(self, pipeline_id: str) -> IncidentResult:
         """Diagnose a failed pipeline once under ``pipeline:<id>``."""
         pipeline_key = f"pipeline:{pipeline_id}"
-        async with self._key_lock(pipeline_key):
-            existing = await self._existing(pipeline_key)
-            if existing is not None:
-                await self._refresh_existing_pipeline_context(
-                    existing.id, pipeline_id
-                )
-                return IncidentResult(existing.id, False, pipeline_key, "existing")
-            if not await self._enabled():
-                return IncidentResult(None, False, pipeline_key, "disabled")
+        if not await self._enabled():
+            return IncidentResult(None, False, pipeline_key, "disabled")
 
-            incident = await self._pipeline_context(pipeline_id)
-            if incident is None:
-                return IncidentResult(None, False, pipeline_key, "missing")
-            title = str(incident["failure_object"].get("title") or pipeline_id)
-            return await self._create_and_run(
-                key=pipeline_key,
-                title=f"[自动诊断] 流水线失败：{title}",
-                request_content=incident,
-            )
-
-    async def _refresh_existing_pipeline_context(
-        self, session_id: str, pipeline_id: str
-    ) -> None:
-        """Append one same-key context update if a claim failure later becomes CORE_CRASHED."""
-        acquire = getattr(self.runtime, "acquire_session", None)
-        release = getattr(self.runtime, "release_session", None)
-        owns_runtime_lock = False
-        if callable(acquire):
-            while not owns_runtime_lock:
-                owns_runtime_lock = bool(await acquire(session_id))
-                if owns_runtime_lock:
-                    break
-                await asyncio.sleep(0.05)
-        try:
-            incident = await self._pipeline_context(pipeline_id)
-            if incident is None:
-                return
-            failure = incident.get("failure_object")
-            if not isinstance(failure, dict) or failure.get("error_code") != ErrorCode.CORE_CRASHED.value:
-                return
-            generation = failure.get("core_generation")
-            update_key = f"pipeline:{pipeline_id}:core:{generation}"
-            async with self.session_factory() as session:
-                sessions = AgentSessionRepository(session)
-                stored_session = await sessions.get(session_id)
-                if stored_session is None:
-                    return
-                messages = AgentMessageRepository(session)
-                history = await messages.list_by_session(session_id)
-                if any(
-                    message.role == "user"
-                    and isinstance(parsed := _parse_json_object(message.content), dict)
-                    and parsed.get("incident_update_key") == update_key
-                    for message in history
-                ):
-                    return
-                initial_context = next(
-                    (
-                        _parse_json_object(message.content)
-                        for message in history
-                        if message.role == "user"
-                    ),
-                    None,
-                )
-                initial_failure = (
-                    initial_context.get("failure_object")
-                    if isinstance(initial_context, dict)
-                    else None
-                )
-                if (
-                    isinstance(initial_failure, dict)
-                    and initial_failure.get("error_code")
-                    == ErrorCode.CORE_CRASHED.value
-                ):
-                    return
-                update_context = {
-                    "incident_type": "pipeline_core_crash_update",
-                    "incident_update_key": update_key,
-                    "failure_object": failure,
-                    "task_status": incident.get("task_status", []),
-                    "error_log_index": incident.get("error_log_index", {}),
-                    "crash_screenshot_snapshots": incident.get(
-                        "crash_screenshot_snapshots", []
-                    ),
-                    "next_step": incident.get("next_step"),
-                }
-                now = utcnow()
-                await messages.create(
-                    AgentMessage(
-                        session_id=session_id,
-                        seq=await messages.next_seq(session_id),
-                        role="user",
-                        content=json.dumps(
-                            update_context,
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                        ),
-                        created_at=now,
-                    )
-                )
-                await messages.create(
-                    AgentMessage(
-                        session_id=session_id,
-                        seq=await messages.next_seq(session_id),
-                        role="assistant",
-                        content=(
-                            "诊断期间这条流水线关联到内核崩溃，最新状态和日志已经补进本会话。"
-                            "要重新分析就继续提问。"
-                        ),
-                        finish_reason="incident_context_update",
-                        created_at=now,
-                    )
-                )
-                stored_session.message_count += 2
-                stored_session.updated_at = now
-                stored_session.last_message_at = now
-                await session.commit()
-            self._emit(
-                session_id,
-                "incident_context_updated",
-                {"incident_key": f"pipeline:{pipeline_id}"},
-            )
-        finally:
-            if owns_runtime_lock and callable(release):
-                release(session_id)
+        incident = await self._pipeline_context(pipeline_id)
+        if incident is None:
+            return IncidentResult(None, False, pipeline_key, "missing")
+        failure = incident["failure_object"]
+        title = f"[自动诊断] 流水线失败：{failure.get('title') or pipeline_id}"
+        result = await self._open_or_append(
+            pipeline_key, title, self._pipeline_brief(incident)
+        )
+        if not result.created and result.session_id is not None:
+            # 同一流水线的失败可能先以普通错误入库、稍后才落成 CORE_CRASHED；
+            # 把迟到的崩溃现场补进同一张工单，而不是再开一张。
+            await self._refresh_existing_pipeline_context(result.session_id, pipeline_id)
+        return result
 
     async def core_crashed(
         self, generation: int, record: dict[str, Any] | None
@@ -296,23 +215,117 @@ class AgentIncidentService:
             return await self.pipeline_failed(crashed_pipeline)
 
         core_key = f"core:{self.core_id}:{self.boot_id}:{int(generation)}"
-        async with self._key_lock(core_key):
-            existing = await self._existing(core_key)
+        if not await self._enabled():
+            return IncidentResult(None, False, core_key, "disabled")
+        context = await self._core_context(generation, record or {})
+        return await self._open_or_append(
+            core_key,
+            f"[自动诊断] MaaCore 崩溃：第 {int(generation)} 代",
+            self._core_brief(generation, context),
+        )
+
+    # ------------------------------------------------------------------
+    # 建单 / 追加
+    # ------------------------------------------------------------------
+    async def _open_or_append(
+        self, incident_key: str, title: str, brief: str
+    ) -> IncidentResult:
+        """Open a diagnose ticket, or append the brief to the active one for ``key``."""
+        if not await self._enabled():
+            return IncidentResult(None, False, incident_key, "disabled")
+
+        async with self._key_lock(incident_key):
+            existing = await self._active_diagnose_ticket(incident_key)
             if existing is not None:
-                return IncidentResult(existing.id, False, core_key, "existing")
-            if not await self._enabled():
-                return IncidentResult(None, False, core_key, "disabled")
-            context = await self._core_context(generation, record or {})
-            return await self._create_and_run(
-                key=core_key,
-                title=f"[自动诊断] MaaCore 崩溃：第 {int(generation)} 代",
-                request_content=context,
+                await self._append_to_ticket(existing, brief)
+                return IncidentResult(existing.id, False, incident_key, "existing")
+
+            worker_service, ticket_service, _inbox = self._v3_services()
+            opened = await worker_service.open_ticket(
+                kind="diagnose",
+                title=title,
+                brief=brief,
+                scope=_DIAGNOSE_SCOPE,
+                origin="system",
+                strength="inferred",
+                source="system",
+                sender=None,
+                incident_key=None,
+                brief_header="自动诊断：",
+            )
+            ticket_id = str(opened.ticket_id)
+            # 去重键在工单落库之后写；建单与写键之间失败时最多多一张空诊断单，
+            # 不会漏掉失败事件本身。
+            await ticket_service.update_result(
+                ticket_id, {"incident_key": incident_key}
+            )
+            self._emit(
+                ticket_id, "incident_created", {"incident_key": incident_key}
+            )
+            return IncidentResult(ticket_id, True, incident_key, "created")
+
+    async def _refresh_existing_pipeline_context(
+        self, ticket_id: str, pipeline_id: str
+    ) -> None:
+        """Append one late CORE_CRASHED update to the already-open diagnose ticket."""
+        ticket = await self._get_ticket(ticket_id)
+        if ticket is None:
+            return
+        incident = await self._pipeline_context(pipeline_id)
+        if incident is None:
+            return
+        failure = incident.get("failure_object")
+        if (
+            not isinstance(failure, dict)
+            or failure.get("error_code") != ErrorCode.CORE_CRASHED.value
+        ):
+            return
+        generation = failure.get("core_generation")
+        update_key = f"pipeline:{pipeline_id}:core:{generation}"
+        if await self._inbox_has_ref(ticket.worker_session_id, update_key):
+            return
+        appended = await self._append_to_ticket(
+            ticket,
+            self._late_crash_brief(incident, update_key),
+            ref_id=update_key,
+        )
+        if appended:
+            self._emit(
+                ticket.id,
+                "incident_context_updated",
+                {"incident_key": f"pipeline:{pipeline_id}"},
             )
 
+    async def _append_to_ticket(
+        self, ticket: Ticket, brief: str, *, ref_id: str | None = None
+    ) -> bool:
+        """Write one ``system`` item into the ticket's Worker inbox and wake it."""
+        session_id = ticket.worker_session_id
+        if not session_id:
+            logger.warning("诊断工单 %s 还没有 Worker 会话，无法追加诊断说明", ticket.id)
+            return False
+        worker_service, _ticket_service, inbox_service = self._v3_services()
+        await inbox_service.put(
+            session_id,
+            InboxKind.SYSTEM,
+            thread_key=f"ticket:{ticket.id}",
+            ref_id=ref_id or f"incident:{ticket.id}",
+            payload={"text": brief},
+        )
+        try:
+            worker_service.wake(session_id)
+        except Exception as exc:  # noqa: BLE001 - 唤醒失败不影响已经落库的说明
+            logger.warning("唤醒诊断工单 %s 的 Worker 失败：%s", ticket.id, type(exc).__name__)
+        return True
+
+    # ------------------------------------------------------------------
+    # 查询与装配接缝
+    # ------------------------------------------------------------------
     @asynccontextmanager
     async def _key_lock(self, key: str) -> AsyncIterator[None]:
-        # Locks only suppress same-process duplicate model calls. The persisted
-        # unique index remains authoritative across processes and restarts.
+        # Locks only suppress same-process duplicate ticket creation. Cross-process
+        # duplicates are not guarded by a unique index in M73 (spec §4.1 only
+        # deduplicates among active diagnose tickets).
         lock, users = self._locks.get(key, (asyncio.Lock(), 0))
         self._locks[key] = (lock, users + 1)
         try:
@@ -342,151 +355,207 @@ class AgentIncidentService:
         enabled = getattr(agent, "auto_diagnose_failures", True)
         return enabled is True
 
-    async def _existing(self, key: str) -> AgentSession | None:
-        async with self.session_factory() as session:
-            return await AgentSessionRepository(session).get_by_incident_key(key)
+    def _v3_services(self) -> tuple[Any, Any, Any]:
+        """Resolve ticket services lazily: IncidentService 先于 WorkerService 装配。"""
+        state = getattr(getattr(self.request, "app", None), "state", None)
+        worker_service = getattr(state, "worker_service", None)
+        ticket_service = getattr(state, "ticket_service", None)
+        inbox_service = getattr(state, "inbox_service", None)
+        if worker_service is None or ticket_service is None or inbox_service is None:
+            raise RuntimeError("诊断工单服务尚未装配")
+        return worker_service, ticket_service, inbox_service
 
-    async def _create_and_run(
-        self,
-        *,
-        key: str,
-        title: str,
-        request_content: dict[str, Any],
-    ) -> IncidentResult:
-        settings = await self._settings_for_snapshot()
-        llm_configured = bool(
-            settings.llm.base_url and settings.llm.api_key and settings.llm.model
-        )
-        session_id: str | None = None
-        try:
-            async with self.session_factory() as session:
-                sessions = AgentSessionRepository(session)
-                created = await sessions.create(
-                    AgentSession(
-                        title=title[:64],
-                        status="active",
-                        kind=AgentSessionKind.INCIDENT,
-                        model=(
-                            str(settings.llm.model)
-                            if llm_configured
-                            else "unconfigured"
-                        ),
-                        base_url=(settings.llm.base_url if llm_configured else None),
-                        incident_key=key,
-                    )
-                )
-                session_id = created.id
-                message_repo = AgentMessageRepository(session)
-                await message_repo.create(
-                    AgentMessage(
-                        session_id=session_id,
-                        seq=await message_repo.next_seq(session_id),
-                        role="user",
-                        content=json.dumps(
-                            request_content,
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                            default=str,
-                        ),
-                    )
-                )
-                message_count = 1
-                for screenshot in request_content.get("crash_screenshot_snapshots", []):
-                    if not screenshot.get("available"):
-                        continue
-                    screenshot_id = str(screenshot["screenshot_id"])
-                    tool_call_id = f"incident-screenshot-{screenshot_id}"[:64]
-                    await message_repo.create(
-                        AgentMessage(
-                            session_id=session_id,
-                            seq=await message_repo.next_seq(session_id),
-                            role="assistant",
-                            tool_calls=[
-                                {
-                                    "id": tool_call_id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": "get_screenshot",
-                                        "arguments": "{}",
-                                    },
-                                }
-                            ],
-                        )
-                    )
-                    message_count += 1
-                    snapshot_result = {
-                        "screenshot_id": screenshot_id,
-                        "format": screenshot.get("format", "jpg"),
-                        "width": screenshot.get("width"),
-                        "height": screenshot.get("height"),
-                        "captured_at": screenshot.get("created_at"),
-                        "snapshot_source": "existing_crash_archive",
-                    }
-                    await message_repo.create(
-                        AgentMessage(
-                            session_id=session_id,
-                            seq=await message_repo.next_seq(session_id),
-                            role="tool",
-                            content=json.dumps(
-                                {"result": snapshot_result},
-                                ensure_ascii=False,
-                                separators=(",", ":"),
-                            ),
-                            tool_call_id=tool_call_id,
-                            tool_name="get_screenshot",
-                        )
-                    )
-                    message_count += 1
-                created.message_count = message_count
-                now = utcnow()
-                created.updated_at = now
-                created.last_message_at = now
-                await session.commit()
-        except IntegrityError:
-            # This may be a concurrent process that committed first. Never run
-            # a second LLM request for its already-reserved durable key.
-            async with self.session_factory() as session:
-                winner = await AgentSessionRepository(session).get_by_incident_key(key)
-            if winner is None:
-                raise
-            return IncidentResult(winner.id, False, key, "existing")
-
-        assert session_id is not None
-        self._emit(session_id, "incident_created", {"incident_key": key})
-        result: dict[str, Any]
-        try:
-            result = await self.runtime.run_incident(
-                session_id, self.request, INCIDENT_ALLOWED_TOOLS
+    async def _active_diagnose_ticket(self, incident_key: str) -> Ticket | None:
+        statement = (
+            select(Ticket)
+            .where(
+                Ticket.kind == "diagnose",
+                Ticket.status.in_(_ACTIVE_TICKET_STATUSES),
+                func.json_extract(Ticket.result, "$.incident_key") == incident_key,
             )
-            if not isinstance(result, dict):
-                result = {"status": "completed"}
-        except Exception as exc:  # noqa: BLE001 - the incident must remain visible
-            logger.warning("自动诊断会话执行失败：%s", type(exc).__name__)
-            result = {"status": "failed", "code": "LLM_REQUEST_FAILED"}
-        status = str(result.get("status", "completed"))
-        self._emit(session_id, "incident_finished", {"incident_key": key, "status": status})
-        return IncidentResult(session_id, True, key, status)
+            .order_by(Ticket.created_at.asc(), Ticket.id.asc())
+            .limit(1)
+        )
+        async with self.session_factory() as session:
+            result = await session.execute(statement)
+            return result.scalar_one_or_none()
 
-    async def _settings_for_snapshot(self) -> Settings:
-        provider = self.settings_provider
-        try:
-            value = provider() if provider is not None else get_settings()
-            if inspect.isawaitable(value):
-                value = await value
-        except Exception as exc:  # noqa: BLE001 - config failures must not erase the session
-            logger.warning("读取诊断会话配置失败：%s", type(exc).__name__)
-            value = get_settings()
-        return value if isinstance(value, Settings) else get_settings()
+    async def _get_ticket(self, ticket_id: str) -> Ticket | None:
+        async with self.session_factory() as session:
+            return await TicketRepository(session).get(ticket_id)
 
-    def _emit(self, session_id: str, event: str, payload: dict[str, Any]) -> None:
+    async def _inbox_has_ref(self, session_id: str | None, ref_id: str) -> bool:
+        if not session_id:
+            return False
+        statement = (
+            select(AgentInbox.id)
+            .where(
+                AgentInbox.session_id == session_id,
+                AgentInbox.ref_id == ref_id,
+            )
+            .limit(1)
+        )
+        async with self.session_factory() as session:
+            result = await session.execute(statement)
+            return result.scalar_one_or_none() is not None
+
+    def _emit(self, ticket_id: str, event: str, payload: dict[str, Any]) -> None:
         try:
+            # ``session_id`` 是 M67 以来 WS 事件的外层字段；诊断改建单后填工单 id。
             self.broadcast(
                 "agent_event",
-                {"session_id": session_id, "event": event, "payload": payload},
+                {"session_id": ticket_id, "event": event, "payload": payload},
             )
         except Exception as exc:  # noqa: BLE001 - websocket fanout must not lose the incident
             logger.debug("广播 Agent incident 事件失败：%s", type(exc).__name__)
 
+    # ------------------------------------------------------------------
+    # 正文
+    # ------------------------------------------------------------------
+    def _pipeline_brief(self, incident: Mapping[str, Any]) -> str:
+        failure = incident.get("failure_object") or {}
+        lines = [
+            "自动诊断：这条流水线失败了，请按工单范围诊断并给出下一步。",
+            f"流水线：{failure.get('title') or '（无标题）'}",
+            f"pipeline_id: {failure.get('pipeline_id')}",
+            f"终态: {failure.get('status')}",
+            f"错误码: {failure.get('error_code') or '（无）'}",
+            f"错误摘要: {_one_line(failure.get('summary')) or '（无）'}",
+            "来源: {source}；core_id: {core_id}；core_generation: {generation}".format(
+                source=failure.get("source"),
+                core_id=failure.get("core_id"),
+                generation=failure.get("core_generation"),
+            ),
+        ]
+        lines.extend(self._failed_task_lines(incident))
+        lines.extend(self._error_log_lines(incident))
+        lines.extend(self._crash_screenshot_lines(incident))
+        next_step = incident.get("next_step")
+        if next_step:
+            lines.append(str(next_step))
+        return _join_brief(lines)
+
+    def _core_brief(self, generation: int, incident: Mapping[str, Any]) -> str:
+        failure = incident.get("failure_object") or {}
+        summary = failure.get("summary") or {}
+        lines = [
+            "自动诊断：MaaCore 崩溃了，请按工单范围诊断并给出下一步。",
+            f"core_id: {failure.get('core_id')}",
+            f"generation: {failure.get('generation')}（第 {int(generation)} 代）",
+            f"错误码: {failure.get('error_code')}",
+            "reason: {}；exitcode: {}；attempt: {}；pid: {}；at: {}".format(
+                summary.get("reason"),
+                summary.get("exitcode"),
+                summary.get("attempt"),
+                summary.get("pid"),
+                summary.get("at"),
+            ),
+        ]
+        lines.extend(self._safe_json_lines("崩溃详情", summary.get("detail")))
+        lines.extend(self._safe_json_lines("最近内核事件", summary.get("recent_events")))
+        lines.extend(self._error_log_lines(incident))
+        lines.extend(self._crash_screenshot_lines(incident))
+        next_step = incident.get("next_step")
+        if next_step:
+            lines.append(str(next_step))
+        return _join_brief(lines)
+
+    def _late_crash_brief(
+        self, incident: Mapping[str, Any], update_key: str
+    ) -> str:
+        failure = incident.get("failure_object") or {}
+        lines = [
+            "自动诊断：这张工单先前诊断的流水线后来确认是内核崩溃，补充最新状态。",
+            f"更新键: {update_key}",
+            f"流水线：{failure.get('title') or '（无标题）'}",
+            f"pipeline_id: {failure.get('pipeline_id')}",
+            f"终态: {failure.get('status')}",
+            f"错误码: {failure.get('error_code') or '（无）'}",
+            f"错误摘要: {_one_line(failure.get('summary')) or '（无）'}",
+            "core_id: {core_id}；core_generation: {generation}".format(
+                core_id=failure.get("core_id"),
+                generation=failure.get("core_generation"),
+            ),
+        ]
+        lines.extend(self._failed_task_lines(incident))
+        lines.extend(self._error_log_lines(incident))
+        lines.extend(self._crash_screenshot_lines(incident))
+        next_step = incident.get("next_step")
+        if next_step:
+            lines.append(str(next_step))
+        return _join_brief(lines)
+
+    @staticmethod
+    def _failed_task_lines(incident: Mapping[str, Any]) -> list[str]:
+        tasks = incident.get("task_status") or []
+        failed = [
+            task
+            for task in tasks
+            if task.get("error_code") or task.get("status") in ("failed", "cancelled")
+        ]
+        if not failed:
+            return []
+        parts = [
+            "{name}({type})={status}/{error}".format(
+                name=task.get("name"),
+                type=task.get("type"),
+                status=task.get("status"),
+                error=task.get("error_code") or "无错误码",
+            )
+            for task in failed[:10]
+        ]
+        return ["失败任务: " + "；".join(parts)]
+
+    @staticmethod
+    def _error_log_lines(incident: Mapping[str, Any]) -> list[str]:
+        logs = incident.get("error_log_index") or {}
+        lines: list[str] = []
+        for name in ("task", "service", "core"):
+            index = logs.get(name) or {}
+            total = int(index.get("total") or 0)
+            if not total:
+                continue
+            snippets = [
+                _one_line(item.get("content"))
+                for item in (index.get("items") or [])[:3]
+                if item.get("content")
+            ]
+            line = f"{name} 最近错误 {total} 条"
+            if snippets:
+                line += "：" + " | ".join(snippets)
+            lines.append(line)
+        return lines
+
+    @staticmethod
+    def _crash_screenshot_lines(incident: Mapping[str, Any]) -> list[str]:
+        snapshots = [
+            item
+            for item in (incident.get("crash_screenshot_snapshots") or [])
+            if item.get("available")
+        ]
+        if not snapshots:
+            return []
+        parts = [
+            "{id}（{format}，{width}x{height}）".format(
+                id=item.get("screenshot_id"),
+                format=item.get("format"),
+                width=item.get("width"),
+                height=item.get("height"),
+            )
+            for item in snapshots[:5]
+        ]
+        return ["崩溃截图（可用，按 id 用 get_screenshot 查看）: " + "；".join(parts)]
+
+    @staticmethod
+    def _safe_json_lines(label: str, value: Any) -> list[str]:
+        if value in (None, {}, []):
+            return []
+        text = json.dumps(value, ensure_ascii=False, default=str)
+        return [f"{label}: {_one_line(text, 800)}"]
+
+    # ------------------------------------------------------------------
+    # 上下文
+    # ------------------------------------------------------------------
     async def _pipeline_context(self, pipeline_id: str) -> dict[str, Any] | None:
         async with self.session_factory() as session:
             pipeline = await session.get(Pipeline, pipeline_id, populate_existing=True)

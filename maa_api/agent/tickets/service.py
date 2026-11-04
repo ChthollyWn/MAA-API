@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Awaitable, Callable, Collection, Iterable
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -325,6 +325,30 @@ class TicketService:
             raise _not_found(ticket_id)
         return ticket
 
+    async def update_result(
+        self, ticket_id: str, patch: Mapping[str, Any]
+    ) -> Ticket | None:
+        """把 ``patch`` 合并进 ``ticket.result`` 并保存；不触发汇报逻辑。
+
+        只合并顶层键：已有键保留，``patch`` 的同名键覆盖。工单不存在返回
+        ``None``。诊断工单用它写 ``incident_key``（M73 规格 §4.1）；终态汇报写
+        ``result`` 时也走合并，保证 ``incident_key`` 不会被删掉。
+        """
+        if not isinstance(patch, Mapping):
+            raise _invalid("patch 必须是 JSON 对象")
+        now = self._clock()
+        async with self._session_factory() as session:
+            tickets = TicketRepository(session)
+            ticket = await tickets.get(ticket_id)
+            if ticket is None:
+                return None
+            merged = dict(ticket.result or {})
+            merged.update(dict(patch))
+            ticket.result = merged
+            ticket.updated_at = now
+            await session.commit()
+            return ticket
+
     async def detail(self, ticket_id: str) -> TicketDetailData:
         """工单详情：委托、订阅、最近 5 条汇报与 Worker 运行状态。"""
         async with self._session_factory() as session:
@@ -427,7 +451,11 @@ class TicketService:
                 "updated_at": now,
             }
             if target_status in _RESULT_STATUSES:
-                values["result"] = details
+                # 合并而不是覆盖：诊断工单的 ``incident_key`` 写在建单时，终态
+                # 汇报不得把它删掉（M73 规格 §4.1）。
+                merged_result = dict(ticket.result or {})
+                merged_result.update(details or {})
+                values["result"] = merged_result or None
             if terminal:
                 values["ended_at"] = now
 

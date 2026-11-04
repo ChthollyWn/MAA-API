@@ -1,51 +1,54 @@
-"""Failure incidents are durable, deduplicated, and run with a restricted tool set."""
+"""Failure incidents open durable diagnose tickets; same key never diagnoses twice."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 from collections.abc import Iterable
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool, StaticPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
 from maa_api.agent.confirmation import ConfirmationService
+from maa_api.agent.harness.events import RunEventBus
 from maa_api.agent.incidents import AgentIncidentService, INCIDENT_ALLOWED_TOOLS
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.agent.runtime import AgentRuntime
+from maa_api.agent.runs.service import RunService
+from maa_api.agent.specs.registry import AgentSpecRegistry
+from maa_api.agent.tickets.inbox import InboxService
+from maa_api.agent.tickets.service import TicketService
+from maa_api.agent.tickets.threads import ThreadRouter
 from maa_api.agent.tools import build_registry
+from maa_api.agent.workers.service import WorkerService
 from maa_api.db import session as db_session
-from maa_api.db.models import AgentMessage, AgentSession, LogEntry, Pipeline, Screenshot, Task
+from maa_api.db.models import (
+    AgentAudit,
+    AgentInbox,
+    AgentMessage,
+    AgentSession,
+    Confirmation,
+    LogEntry,
+    Mandate,
+    Pipeline,
+    Screenshot,
+    Task,
+    Ticket,
+)
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
+from maa_api.db.repositories.ticket import MandateRepository, TicketRepository
+from maa_api.domain.enums import TicketStatus
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import LLMSettings, Settings
 from tests.fakes.legacy_turn import stream_legacy_turn
-
-
-class FakeRuntime:
-    def __init__(self, session_factory):
-        self.session_factory = session_factory
-        self.calls: list[tuple[str, Any, frozenset[str]]] = []
-
-    async def run_incident(self, session_id, request, allowed_tools):
-        self.calls.append((session_id, request, frozenset(allowed_tools)))
-        async with self.session_factory() as session:
-            repo = AgentMessageRepository(session)
-            await repo.create(
-                AgentMessage(
-                    session_id=session_id,
-                    seq=await repo.next_seq(session_id),
-                    role="assistant",
-                    content="检查完成。",
-                )
-            )
-            await session.commit()
 
 
 class ActiveRunner:
@@ -145,17 +148,168 @@ def _make_pipeline(pipeline_id: str, *, core_epoch=None, error_code="CORE_CRASHE
     )
 
 
-async def _incident_harness(tmp_path, *, enabled=True, runner=None, runtime=None):
+def _tool_calls_with_arguments(*calls: tuple[str, dict[str, Any]]):
+    """一批带参数的模型工具调用（一个 chunk 里给出全部 tool_calls）。"""
+    return [
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": index,
+                                "id": f"call-{index}",
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": json.dumps(args, ensure_ascii=False),
+                                },
+                            }
+                            for index, (name, args) in enumerate(calls)
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+    ]
+
+
+def _diagnose_turn(pipeline_id: str, *, status: str = "ready", summary: str = "已定位。"):
+    """诊断 Worker 的一轮脚本：先看流水线，再给出结论。"""
+    return _tool_calls_with_arguments(
+        ("get_pipeline", {"pipeline_id": pipeline_id}),
+        ("report", {"status": status, "summary": summary}),
+    )
+
+
+class _Titler:
+    async def title_for(self, _text: str) -> str:
+        return "自动标题"
+
+
+class _ModelHandle:
+    def __init__(self, llm: FakeLLM) -> None:
+        self.client = llm
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _ModelRouter:
+    """把诊断 Worker 的模型调用交给 FakeLLM；档案只用于会话行。"""
+
+    profile = SimpleNamespace(
+        name="default",
+        kind="chat",
+        provider="openai_compatible",
+        model="test-model",
+        base_url="https://llm.test/v1",
+        api_key="sk-test",
+        context_window=None,
+        max_output_tokens=None,
+        supports_vision=True,
+        supports_tools=True,
+        supports_json_schema=True,
+        dynamic_context_position="tail_system",
+        price_input=None,
+        price_cached_input=None,
+        price_output=None,
+        currency="USD",
+        embedding_dim=None,
+        local_model_path=None,
+        readonly=False,
+        key=("default", "test-model"),
+    )
+
+    def __init__(self, llm: FakeLLM) -> None:
+        self.llm = llm
+        self.roles: list[str] = []
+
+    async def resolve(self, role: str) -> Any:
+        self.roles.append(str(role))
+        return self.profile
+
+    async def resolve_for_spec(self, _spec: Any, **_kwargs: Any) -> Any:
+        return self.profile
+
+    def client_for(self, _profile: Any) -> _ModelHandle:
+        return _ModelHandle(self.llm)
+
+
+class _Harness:
+    """诊断链路的临时装配：真实工单 / Worker 服务 + FakeLLM。"""
+
+    def __init__(self, *, engine, factory, service, llm, router, worker_service):
+        self.engine = engine
+        self.factory = factory
+        self.service = service
+        self.llm = llm
+        self.router = router
+        self.worker_service = worker_service
+        self.events: list[tuple[str, dict[str, Any]]] = []
+
+    async def close(self) -> None:
+        await self.worker_service.close()
+        await self.engine.dispose()
+
+
+async def _incident_harness(
+    tmp_path,
+    *,
+    enabled: bool = True,
+    runner=None,
+    llm_responses: Iterable[list[dict[str, Any]]] = (),
+    boot_id: str | None = None,
+    core_id: str = "default",
+) -> _Harness:
     engine = db_session.make_engine(
         f"sqlite+aiosqlite:///{tmp_path / 'incidents.db'}", poolclass=NullPool
     )
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    async def create_schema():
-        async with engine.begin() as connection:
-            await connection.run_sync(SQLModel.metadata.create_all)
+    async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
 
-    await create_schema()
-    actual_runtime = runtime or FakeRuntime(factory)
+    registry = AgentSpecRegistry(build_registry())
+    registry.load()
+    inbox_service = InboxService(factory)
+    thread_router = ThreadRouter(factory, inbox_service)
+    ticket_service = TicketService(
+        factory,
+        inbox_service=inbox_service,
+        thread_router=thread_router,
+        spec_registry=registry,
+    )
+    confirmations = ConfirmationService(factory, build_registry())
+    runtime = AgentRuntime(factory, confirmations, question_service=None)
+    llm = FakeLLM(llm_responses)
+    model_router = _ModelRouter(llm)
+    run_service = RunService(factory, boot_id="m73-t2-boot")
+    event_bus = RunEventBus()
+    state = SimpleNamespace(
+        agent_runtime=runtime,
+        model_router=model_router,
+        run_event_bus=event_bus,
+        run_service=run_service,
+        ticket_service=ticket_service,
+        inbox_service=inbox_service,
+        agent_spec_registry=registry,
+    )
+    app = SimpleNamespace(state=state)
+    worker_service = WorkerService(
+        app=app,
+        session_factory=factory,
+        spec_registry=registry,
+        run_service=run_service,
+        inbox_service=inbox_service,
+        ticket_service=ticket_service,
+        thread_router=thread_router,
+        delegation=SimpleNamespace(),
+        titler=_Titler(),
+        event_bus=event_bus,
+    )
+    state.worker_service = worker_service
 
     def settings_provider():
         agent = Settings().agent.model_copy(
@@ -165,113 +319,283 @@ async def _incident_harness(tmp_path, *, enabled=True, runner=None, runtime=None
 
     service = AgentIncidentService(
         factory,
-        actual_runtime,
+        runtime,
         settings_provider=settings_provider,
         pipeline_runner=runner or ActiveRunner(),
+        request=SimpleNamespace(app=app),
+        core_id=core_id,
+        boot_id=boot_id,
     )
-    return service, factory, actual_runtime, engine
+    harness = _Harness(
+        engine=engine,
+        factory=factory,
+        service=service,
+        llm=llm,
+        router=model_router,
+        worker_service=worker_service,
+    )
+    service.broadcast = lambda kind, payload: harness.events.append((kind, payload))
+    return harness
 
 
-def test_pipeline_failure_replay_reuses_persisted_incident_and_does_not_recall_llm(tmp_path):
+def _disable_worker_wake(harness: _Harness) -> None:
+    """多数用只验证建单/收件箱，不让诊断 Worker 真跑一轮。"""
+    harness.worker_service.wake = lambda _session_id: None  # type: ignore[method-assign]
+
+
+async def _seed_failed_pipeline(
+    factory,
+    pipeline_id: str = "pipeline-1",
+    *,
+    core_epoch=None,
+    error_code: str = "TASK_FAILED",
+):
+    async with factory() as session:
+        session.add(_make_pipeline(pipeline_id, core_epoch=core_epoch, error_code=error_code))
+        await session.flush()
+        session.add(
+            Task(
+                id=f"task-{pipeline_id}",
+                pipeline_id=pipeline_id,
+                order_index=0,
+                type_name="Fight",
+                task_name="Fight",
+                params={},
+                status="failed",
+                error_code="TASK_FAILED",
+                error_message="task ended in error",
+            )
+        )
+        await session.flush()
+        for source in ("maa_task", "server", "maacore_debug"):
+            session.add(
+                LogEntry(
+                    source=source,
+                    level="error",
+                    content=f"{source} diagnostic detail",
+                    pipeline_id=pipeline_id,
+                )
+            )
+        session.add(
+            Screenshot(
+                id=f"crash-shot-{pipeline_id}",
+                pipeline_id=pipeline_id,
+                task_id=f"task-{pipeline_id}",
+                trigger="crash",
+                backend="core",
+                path="image/screenshot/ab/archive.jpg",
+                format="jpg",
+                width=16,
+                height=16,
+                size_bytes=32,
+            )
+        )
+        await session.commit()
+
+
+async def _ticket(factory, ticket_id: str) -> Ticket | None:
+    async with factory() as session:
+        return await TicketRepository(session).get(ticket_id)
+
+
+async def _mandate(factory, ticket_id: str) -> Mandate | None:
+    async with factory() as session:
+        return await MandateRepository(session).get_by_ticket(ticket_id)
+
+
+async def _ticket_count(factory) -> int:
+    async with factory() as session:
+        return int(
+            (await session.execute(select(func.count()).select_from(Ticket))).scalar_one()
+        )
+
+
+async def _tickets(factory) -> list[Ticket]:
+    async with factory() as session:
+        result = await session.execute(select(Ticket).order_by(Ticket.created_at.asc()))
+        return list(result.scalars().all())
+
+
+async def _inbox_items(factory, session_id: str) -> list[AgentInbox]:
+    async with factory() as session:
+        result = await session.execute(
+            select(AgentInbox)
+            .where(AgentInbox.session_id == session_id)
+            .order_by(AgentInbox.id.asc())
+        )
+        return list(result.scalars().all())
+
+
+async def _system_texts(factory, session_id: str) -> list[str]:
+    return [
+        str((item.payload or {}).get("text") or "")
+        for item in await _inbox_items(factory, session_id)
+        if str(item.kind) == "system" and (item.payload or {}).get("text")
+    ]
+
+
+def _pending_items(items: list[AgentInbox]) -> list[AgentInbox]:
+    return [item for item in items if str(item.status) == "pending"]
+
+
+async def _messages(factory, session_id: str) -> list[AgentMessage]:
+    async with factory() as session:
+        return await AgentMessageRepository(session).list_by_session(session_id)
+
+
+async def _wait_until(predicate, *, timeout: float = 10.0, message: str = "条件未成立"):
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if await predicate():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(message)
+
+
+async def _wait_for_ticket(
+    factory, ticket_id: str, status: TicketStatus, *, timeout: float = 10.0
+) -> Ticket:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        ticket = await _ticket(factory, ticket_id)
+        if ticket is not None and str(ticket.status) == status.value:
+            return ticket
+        await asyncio.sleep(0.01)
+    ticket = await _ticket(factory, ticket_id)
+    raise AssertionError(
+        f"工单 {ticket_id} 没有在期限内变成 {status.value}；当前={getattr(ticket, 'status', None)}"
+    )
+
+
+def test_pipeline_failure_opens_one_diagnose_ticket(tmp_path):
+    """一次失败只开一张诊断工单；同一键重放只追加收件箱，不重复诊断。"""
+
     async def scenario():
-        service, factory, runtime, engine = await _incident_harness(tmp_path)
-        events = []
-        service.broadcast = lambda kind, payload: events.append((kind, payload))
+        harness = await _incident_harness(
+            tmp_path, llm_responses=[_diagnose_turn("pipeline-1")]
+        )
         try:
-            async with factory() as session:
-                session.add(_make_pipeline("pipeline-1", error_code="TASK_FAILED"))
-                await session.flush()
-                session.add(
-                    Task(
-                        id="task-1",
-                        pipeline_id="pipeline-1",
-                        order_index=0,
-                        type_name="Fight",
-                        task_name="Fight",
-                        params={},
-                        status="failed",
-                        error_code="TASK_FAILED",
-                        error_message="task ended in error",
-                    )
-                )
-                await session.flush()
-                for source in ("maa_task", "server", "maacore_debug"):
-                    session.add(
-                        LogEntry(
-                            source=source,
-                            level="error",
-                            content=f"{source} diagnostic detail",
-                            pipeline_id="pipeline-1",
-                        )
-                    )
-                session.add(
-                    Screenshot(
-                        id="crash-shot-1",
-                        pipeline_id="pipeline-1",
-                        task_id="task-1",
-                        trigger="crash",
-                        backend="core",
-                        path="image/screenshot/ab/archive.jpg",
-                        format="jpg",
-                        width=16,
-                        height=16,
-                        size_bytes=32,
-                    )
-                )
-                await session.commit()
+            await _seed_failed_pipeline(harness.factory)
 
             first, second = await asyncio.gather(
-                service.pipeline_failed("pipeline-1"),
-                service.pipeline_failed("pipeline-1"),
+                harness.service.pipeline_failed("pipeline-1"),
+                harness.service.pipeline_failed("pipeline-1"),
             )
 
             assert first.session_id == second.session_id
-            assert first.created is True
-            assert second.created is False
-            assert len(runtime.calls) == 1
-            assert [event[1]["event"] for event in events] == [
-                "incident_created", "incident_finished"
+            assert first.incident_key == "pipeline:pipeline-1"
+            assert {first.created, second.created} == {True, False}
+            # 建单阶段不调用模型；失败先落成一张可见的工单。
+            assert harness.llm.requests == []
+            assert await _ticket_count(harness.factory) == 1
+
+            ticket = await _ticket(harness.factory, first.session_id)
+            assert ticket is not None
+            assert ticket.kind == "diagnose"
+            assert ticket.origin == "system"
+            assert ticket.result is not None
+            assert ticket.result["incident_key"] == "pipeline:pipeline-1"
+            mandate = await _mandate(harness.factory, ticket.id)
+            assert mandate is not None
+            assert str(mandate.strength) == "inferred"
+            assert str(mandate.risk_ceiling) == "none"
+            assert mandate.scope == (
+                "只诊断这一次故障并给出下一步。不提交消耗类任务，不改设置，不重装内核。"
+            )
+
+            system_texts = await _system_texts(harness.factory, ticket.worker_session_id)
+            assert len(system_texts) == 2
+            assert system_texts[0].startswith("自动诊断：")
+            assert "pipeline-1" in system_texts[0]
+            assert "终态: failed" in system_texts[0]
+            assert "错误码: TASK_FAILED" in system_texts[0]
+            assert "crash-shot-pipeline-1" in system_texts[0]
+            assert "pipeline-1" in system_texts[1]
+
+            # 诊断 Worker 真跑一轮：get_pipeline 后 report(ready)。
+            harness.worker_service.wake(ticket.worker_session_id)
+            done = await _wait_for_ticket(
+                harness.factory, ticket.id, TicketStatus.DONE
+            )
+            assert len(harness.llm.requests) == 1
+            session_id = ticket.worker_session_id
+
+            async def tools_persisted() -> bool:
+                messages = await _messages(harness.factory, session_id)
+                return len(
+                    [message for message in messages if message.role == "tool"]
+                ) >= 2
+
+            await _wait_until(tools_persisted, message="诊断工具结果没有落库")
+            messages = await _messages(harness.factory, session_id)
+            tool_messages = [message for message in messages if message.role == "tool"]
+            assert [message.tool_name for message in tool_messages] == [
+                "get_pipeline",
+                "report",
             ]
-            assert runtime.calls[0][2] == INCIDENT_ALLOWED_TOOLS
-            async with factory() as session:
-                messages = await AgentMessageRepository(session).list_by_session(first.session_id)
-                stored = await AgentSessionRepository(session).get(first.session_id)
-            assert stored.incident_key == "pipeline:pipeline-1"
-            assert stored.title.startswith("[自动诊断]")
-            assert [message.role for message in messages] == [
-                "user", "assistant", "tool", "assistant"
+            payload = json.loads(tool_messages[0].content)
+            assert payload["result"]["id"] == "pipeline-1"
+            # 终态汇报不得删掉建单时写入的 incident_key（规格 §4.1）。
+            assert done.result is not None
+            assert done.result["incident_key"] == "pipeline:pipeline-1"
+            report_events = [
+                data for kind, data in harness.events if kind == "agent_event"
             ]
-            assert "TASK_FAILED" in messages[0].content
-            assert "status" in messages[0].content
-            context = json.loads(messages[0].content)
-            assert set(context["error_log_index"]) == {"task", "service", "core"}
-            snapshot_result = json.loads(messages[2].content)["result"]
-            assert snapshot_result["screenshot_id"] == "crash-shot-1"
-            assert snapshot_result["snapshot_source"] == "existing_crash_archive"
-            assert "base64" not in "".join(message.content or "" for message in messages)
+            assert [event["event"] for event in report_events] == ["incident_created"]
         finally:
-            await engine.dispose()
+            await harness.close()
 
     asyncio.run(scenario())
 
 
-def test_late_core_crash_updates_the_existing_pipeline_incident_context(tmp_path):
+def test_same_key_appends_inbox(tmp_path):
+    """同一 pipeline 再失败一次：工单数不变，Worker 收件箱多一条 system。"""
+
     async def scenario():
-        service, factory, default_runtime, engine = await _incident_harness(tmp_path)
-        runtime = default_runtime
-        runtime.acquire_attempts = 0
-        runtime.releases = 0
-        async def acquire_session(_session_id):
-            runtime.acquire_attempts += 1
-            return runtime.acquire_attempts >= 3
-        runtime.acquire_session = acquire_session
-        runtime.release_session = lambda _session_id: setattr(
-            runtime, "releases", runtime.releases + 1
-        )
-        events = []
-        service.broadcast = lambda kind, payload: events.append((kind, payload))
+        harness = await _incident_harness(tmp_path)
+        _disable_worker_wake(harness)
         try:
-            async with factory() as session:
+            await _seed_failed_pipeline(harness.factory)
+
+            first = await harness.service.pipeline_failed("pipeline-1")
+            first_ticket = await _ticket(harness.factory, first.session_id)
+            first_items = _pending_items(
+                await _inbox_items(harness.factory, first_ticket.worker_session_id)
+            )
+            assert len(first_items) == 1
+
+            replay = await harness.service.pipeline_failed("pipeline-1")
+
+            assert replay.created is False
+            assert replay.session_id == first.session_id
+            assert await _ticket_count(harness.factory) == 1
+            ticket = await _ticket(harness.factory, first.session_id)
+            items = _pending_items(
+                await _inbox_items(harness.factory, ticket.worker_session_id)
+            )
+            assert len(items) == len(first_items) + 1
+            assert str(items[-1].kind) == "system"
+            assert "pipeline-1" in items[-1].payload["text"]
+            assert "错误码: TASK_FAILED" in items[-1].payload["text"]
+            async with harness.factory() as session:
+                sessions = await AgentSessionRepository(session).list_recent()
+            assert len([item for item in sessions if str(item.kind) == "worker"]) == 1
+        finally:
+            await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_late_core_crash_updates_the_existing_pipeline_ticket(tmp_path):
+    """迟到的 CORE_CRASHED 补进同一张诊断工单的收件箱，不再开新单。"""
+
+    async def scenario():
+        harness = await _incident_harness(tmp_path)
+        _disable_worker_wake(harness)
+        try:
+            async with harness.factory() as session:
                 session.add(
                     _make_pipeline(
                         "pipeline-late-core",
@@ -281,242 +605,298 @@ def test_late_core_crash_updates_the_existing_pipeline_incident_context(tmp_path
                 )
                 await session.commit()
 
-            first = await service.pipeline_failed("pipeline-late-core")
-            async with factory() as session:
+            first = await harness.service.pipeline_failed("pipeline-late-core")
+            async with harness.factory() as session:
                 pipeline = await session.get(Pipeline, "pipeline-late-core")
                 pipeline.error_code = ErrorCode.CORE_CRASHED.value
                 pipeline.error_message = "MaaCore 子进程在 claim 清理期间崩溃"
                 await session.commit()
 
-            replay = await service.pipeline_failed("pipeline-late-core")
-            async with factory() as session:
-                messages = await AgentMessageRepository(session).list_by_session(
-                    first.session_id
-                )
-                sessions = await AgentSessionRepository(session).list_recent()
+            replay = await harness.service.pipeline_failed("pipeline-late-core")
+            third = await harness.service.pipeline_failed("pipeline-late-core")
 
             assert replay.session_id == first.session_id
             assert replay.created is False
-            assert [message.role for message in messages] == [
-                "user", "assistant", "user", "assistant"
-            ]
-            update = json.loads(messages[2].content)
-            assert update["incident_type"] == "pipeline_core_crash_update"
-            assert update["failure_object"]["error_code"] == ErrorCode.CORE_CRASHED.value
-            assert update["incident_update_key"] == (
-                "pipeline:pipeline-late-core:core:4"
+            assert third.session_id == first.session_id
+            assert await _ticket_count(harness.factory) == 1
+            ticket = await _ticket(harness.factory, first.session_id)
+            items = _pending_items(
+                await _inbox_items(harness.factory, ticket.worker_session_id)
             )
-            assert len(sessions) == 1
-            assert len(runtime.calls) == 1
-            assert runtime.acquire_attempts == 3
-            assert runtime.releases == 1
-            assert [event[1]["event"] for event in events] == [
-                "incident_created",
-                "incident_finished",
-                "incident_context_updated",
+            update_key = "pipeline:pipeline-late-core:core:4"
+            updates = [item for item in items if item.ref_id == update_key]
+            assert len(updates) == 1
+            update = updates[0].payload["text"]
+            assert "pipeline-late-core" in update
+            assert "CORE_CRASHED" in update
+            assert update_key in update
+            # 重放本身也追加一条「这条流水线又失败了」的说明。
+            generic = [
+                item
+                for item in items
+                if item.ref_id == f"incident:{ticket.id}"
             ]
+            assert len(items) == 4
+            assert len(generic) == 2
+            events = [
+                data["event"] for _kind, data in harness.events
+                if _kind == "agent_event"
+            ]
+            assert events.count("incident_created") == 1
+            assert events.count("incident_context_updated") == 1
         finally:
-            await engine.dispose()
+            await harness.close()
 
     asyncio.run(scenario())
 
 
 def test_idle_core_generation_is_deduplicated_and_active_pipeline_is_coalesced(tmp_path):
     async def scenario():
-        service, factory, runtime, engine = await _incident_harness(tmp_path)
+        harness = await _incident_harness(tmp_path)
+        _disable_worker_wake(harness)
         try:
-            first = await service.core_crashed(17, {"reason": "process_exit"})
-            second = await service.core_crashed(17, {"reason": "process_exit"})
+            first = await harness.service.core_crashed(17, {"reason": "process_exit"})
+            second = await harness.service.core_crashed(17, {"reason": "process_exit"})
             assert first.session_id == second.session_id
             assert first.session_id is not None
             assert first.created is True and second.created is False
-            assert len(runtime.calls) == 1
-            async with factory() as session:
-                stored = await AgentSessionRepository(session).get(first.session_id)
-            assert stored.incident_key == f"core:default:{service.boot_id}:17"
-
-            service.pipeline_runner.active_pipeline_id = "pipeline-active"
-            service.pipeline_runner.active_pipeline_epoch = 18
-            coalesced = await service.core_crashed(18, {"reason": "process_exit"})
-            assert coalesced.session_id is None
-            assert len(runtime.calls) == 1
-        finally:
-            await engine.dispose()
-
-    asyncio.run(scenario())
-
-
-def test_unique_key_resolves_cross_service_creation_race_before_second_llm_call(tmp_path):
-    async def scenario():
-        service_one, factory, runtime_one, engine = await _incident_harness(tmp_path)
-        runtime_two = FakeRuntime(factory)
-        service_two = AgentIncidentService(
-            factory,
-            runtime_two,
-            settings_provider=lambda: Settings(),
-            pipeline_runner=ActiveRunner(),
-        )
-        async with factory() as session:
-            session.add(_make_pipeline("pipeline-race", error_code="TASK_FAILED"))
-            await session.commit()
-
-        both_checked = asyncio.Event()
-        check_lock = asyncio.Lock()
-        checked = 0
-        for service in (service_one, service_two):
-            original = service._existing
-
-            async def synchronized_existing(key, original=original):
-                nonlocal checked
-                result = await original(key)
-                async with check_lock:
-                    checked += 1
-                    if checked == 2:
-                        both_checked.set()
-                await both_checked.wait()
-                return result
-
-            service._existing = synchronized_existing
-
-        try:
-            first, second = await asyncio.wait_for(
-                asyncio.gather(
-                    service_one.pipeline_failed("pipeline-race"),
-                    service_two.pipeline_failed("pipeline-race"),
-                ),
-                timeout=5,
+            assert await _ticket_count(harness.factory) == 1
+            ticket = await _ticket(harness.factory, first.session_id)
+            assert ticket.kind == "diagnose"
+            assert ticket.result["incident_key"] == (
+                f"core:default:{harness.service.boot_id}:17"
             )
-            assert first.session_id == second.session_id
-            assert sum(len(runtime.calls) for runtime in (runtime_one, runtime_two)) == 1
-            assert first.created != second.created
+
+            harness.service.pipeline_runner.active_pipeline_id = "pipeline-active"
+            harness.service.pipeline_runner.active_pipeline_epoch = 18
+            coalesced = await harness.service.core_crashed(18, {"reason": "process_exit"})
+            assert coalesced.session_id is None
+            assert coalesced.status == "coalesced_with_active_pipeline"
+            assert await _ticket_count(harness.factory) == 1
         finally:
-            await engine.dispose()
+            await harness.close()
 
     asyncio.run(scenario())
 
 
 def test_idle_core_crash_uses_current_boot_same_generation_pipeline_incident(tmp_path):
     async def scenario():
-        service, factory, runtime, engine = await _incident_harness(tmp_path)
+        harness = await _incident_harness(tmp_path)
+        _disable_worker_wake(harness)
         try:
-            async with factory() as session:
-                session.add(_make_pipeline("pipeline-crashed", core_epoch=23))
-                session.add(
-                    Task(
-                        id="task-crashed",
-                        pipeline_id="pipeline-crashed",
-                        order_index=0,
-                        type_name="Fight",
-                        task_name="Fight",
-                        params={},
-                        status="failed",
-                        error_code="CORE_CRASHED",
-                    )
-                )
-                await session.commit()
-            service.pipeline_runner.crashed_pipeline_ids[23] = {"pipeline-crashed"}
+            await _seed_failed_pipeline(
+                harness.factory,
+                "pipeline-crashed",
+                core_epoch=23,
+                error_code=ErrorCode.CORE_CRASHED.value,
+            )
+            harness.service.pipeline_runner.crashed_pipeline_ids[23] = {
+                "pipeline-crashed"
+            }
 
-            result = await service.core_crashed(23, {"reason": "process_exit"})
+            result = await harness.service.core_crashed(23, {"reason": "process_exit"})
             assert result.session_id is not None
-            assert len(runtime.calls) == 1
-            async with factory() as session:
-                stored = await AgentSessionRepository(session).get(result.session_id)
-            assert stored.incident_key == "pipeline:pipeline-crashed"
+            assert await _ticket_count(harness.factory) == 1
+            ticket = await _ticket(harness.factory, result.session_id)
+            assert ticket.kind == "diagnose"
+            assert ticket.result["incident_key"] == "pipeline:pipeline-crashed"
         finally:
-            await engine.dispose()
+            await harness.close()
 
     asyncio.run(scenario())
 
 
 def test_core_incident_key_separates_service_boots_but_replays_within_one_boot(tmp_path):
     async def scenario():
-        _unused_service, factory, _unused_runtime, engine = await _incident_harness(tmp_path)
-        runtime_one = FakeRuntime(factory)
-        runtime_two = FakeRuntime(factory)
-        service_one = AgentIncidentService(
-            factory,
-            runtime_one,
-            settings_provider=lambda: Settings(),
-            pipeline_runner=ActiveRunner(),
-        )
+        harness = await _incident_harness(tmp_path)
+        _disable_worker_wake(harness)
+        other_boot = "22222222-2222-4222-8222-222222222222"
         service_two = AgentIncidentService(
-            factory,
-            runtime_two,
-            settings_provider=lambda: Settings(),
+            harness.factory,
+            harness.service.runtime,
+            settings_provider=harness.service.settings_provider,
             pipeline_runner=ActiveRunner(),
+            request=harness.service.request,
+            boot_id=other_boot,
         )
         try:
-            assert UUID(service_one.boot_id) != UUID(service_two.boot_id)
-            first = await service_one.core_crashed(17, {"reason": "process_exit"})
-            replay = await service_one.core_crashed(17, {"reason": "process_exit"})
+            assert UUID(harness.service.boot_id) != UUID(service_two.boot_id)
+            first = await harness.service.core_crashed(17, {"reason": "process_exit"})
+            replay = await harness.service.core_crashed(17, {"reason": "process_exit"})
             after_restart = await service_two.core_crashed(17, {"reason": "process_exit"})
 
             assert first.session_id == replay.session_id
             assert after_restart.session_id != first.session_id
             assert first.incident_key == (
-                f"core:default:{service_one.boot_id}:17"
+                f"core:default:{harness.service.boot_id}:17"
             )
-            assert after_restart.incident_key == (
-                f"core:default:{service_two.boot_id}:17"
-            )
-            assert len(runtime_one.calls) == 1
-            assert len(runtime_two.calls) == 1
+            assert after_restart.incident_key == f"core:default:{other_boot}:17"
+            assert await _ticket_count(harness.factory) == 2
+            first_ticket = await _ticket(harness.factory, first.session_id)
+            second_ticket = await _ticket(harness.factory, after_restart.session_id)
+            assert first_ticket.result["incident_key"] == first.incident_key
+            assert second_ticket.result["incident_key"] == after_restart.incident_key
         finally:
-            await engine.dispose()
+            await harness.close()
 
     asyncio.run(scenario())
 
 
 def test_new_boot_does_not_coalesce_old_core_epoch_pipeline(tmp_path):
     async def scenario():
-        service, factory, runtime, engine = await _incident_harness(tmp_path)
+        harness = await _incident_harness(tmp_path)
+        _disable_worker_wake(harness)
         try:
-            async with factory() as session:
-                session.add(_make_pipeline("pipeline-old-boot", core_epoch=17))
-                session.add(
-                    Task(
-                        id="task-old-boot",
-                        pipeline_id="pipeline-old-boot",
-                        order_index=0,
-                        type_name="Fight",
-                        task_name="Fight",
-                        params={},
-                        status="failed",
-                        error_code="CORE_CRASHED",
-                    )
-                )
-                await session.commit()
+            await _seed_failed_pipeline(
+                harness.factory, "pipeline-old-boot", core_epoch=17
+            )
 
-            result = await service.core_crashed(17, {"reason": "process_exit"})
+            result = await harness.service.core_crashed(17, {"reason": "process_exit"})
 
             assert result.session_id is not None
-            assert result.incident_key == f"core:default:{service.boot_id}:17"
-            assert len(runtime.calls) == 1
-            async with factory() as session:
-                stored = await AgentSessionRepository(session).get(result.session_id)
-            assert stored.incident_key != "pipeline:pipeline-old-boot"
+            assert result.incident_key == f"core:default:{harness.service.boot_id}:17"
+            ticket = await _ticket(harness.factory, result.session_id)
+            assert ticket.result["incident_key"] == result.incident_key
+            assert ticket.result["incident_key"] != "pipeline:pipeline-old-boot"
         finally:
-            await engine.dispose()
+            await harness.close()
 
     asyncio.run(scenario())
 
 
-def test_disabled_auto_diagnosis_does_not_create_session_or_call_runtime(tmp_path):
+def test_auto_diagnose_off_opens_nothing(tmp_path):
     async def scenario():
-        service, factory, runtime, engine = await _incident_harness(tmp_path, enabled=False)
+        harness = await _incident_harness(tmp_path, enabled=False)
         try:
-            result = await service.core_crashed(3, {"reason": "process_exit"})
-            assert result.session_id is None
-            assert runtime.calls == []
-            async with factory() as session:
+            await _seed_failed_pipeline(harness.factory)
+            pipeline_result = await harness.service.pipeline_failed("pipeline-1")
+            core_result = await harness.service.core_crashed(3, {"reason": "process_exit"})
+
+            assert pipeline_result.session_id is None
+            assert pipeline_result.status == "disabled"
+            assert core_result.session_id is None
+            assert core_result.status == "disabled"
+            assert await _ticket_count(harness.factory) == 0
+            assert harness.llm.requests == []
+            async with harness.factory() as session:
                 assert await AgentSessionRepository(session).list_recent() == []
+            async with harness.factory() as session:
+                inbox_count = int(
+                    (
+                        await session.execute(
+                            select(func.count()).select_from(AgentInbox)
+                        )
+                    ).scalar_one()
+                )
+            assert inbox_count == 0
         finally:
-            await engine.dispose()
+            await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_inferred_mandate_blocks_consumption(tmp_path):
+    """诊断工单是推断委托、上限 none：带理智药的提交被拦且不建确认。"""
+
+    async def scenario():
+        harness = await _incident_harness(
+            tmp_path,
+            llm_responses=[
+                _tool_calls_with_arguments(
+                    (
+                        "submit_pipeline",
+                        {
+                            "title": "试一下",
+                            "tasks": [
+                                {
+                                    "name": "Fight",
+                                    "stage": "1-7",
+                                    "times": 1,
+                                    "medicine": 1,
+                                }
+                            ],
+                        },
+                    ),
+                    (
+                        "report",
+                        {
+                            "status": "blocked",
+                            "summary": "超出委托范围，不能用药。",
+                            "human_action": {
+                                "type": "decision",
+                                "prompt": "要另开工单允许用药吗？",
+                            },
+                        },
+                    ),
+                )
+            ],
+        )
+        try:
+            await _seed_failed_pipeline(harness.factory)
+            result = await harness.service.pipeline_failed("pipeline-1")
+            ticket = await _ticket(harness.factory, result.session_id)
+            harness.worker_service.wake(ticket.worker_session_id)
+
+            blocked = await _wait_for_ticket(
+                harness.factory, ticket.id, TicketStatus.BLOCKED
+            )
+            assert blocked.last_report_status == "blocked"
+            mandate = await _mandate(harness.factory, ticket.id)
+            assert str(mandate.strength) == "inferred"
+            assert str(mandate.risk_ceiling) == "none"
+
+            async def submit_persisted() -> bool:
+                messages = await _messages(
+                    harness.factory, ticket.worker_session_id
+                )
+                return any(
+                    message.role == "tool"
+                    and message.tool_name == "submit_pipeline"
+                    for message in messages
+                )
+
+            await _wait_until(submit_persisted, message="submit_pipeline 的工具结果没有落库")
+            messages = await _messages(harness.factory, ticket.worker_session_id)
+            submits = [
+                message
+                for message in messages
+                if message.role == "tool" and message.tool_name == "submit_pipeline"
+            ]
+            assert len(submits) == 1
+            assert json.loads(submits[0].content)["error"]["code"] == (
+                "MANDATE_SCOPE_EXCEEDED"
+            )
+            async with harness.factory() as session:
+                confirmations = int(
+                    (
+                        await session.execute(
+                            select(func.count()).select_from(Confirmation)
+                        )
+                    ).scalar_one()
+                )
+                audits = int(
+                    (
+                        await session.execute(
+                            select(func.count())
+                            .select_from(AgentAudit)
+                            .where(
+                                AgentAudit.session_id == ticket.worker_session_id,
+                                AgentAudit.tool_name == "submit_pipeline",
+                            )
+                        )
+                    ).scalar_one()
+                )
+            assert confirmations == 0
+            assert audits == 0
+        finally:
+            await harness.close()
 
     asyncio.run(scenario())
 
 
 def test_incident_configuration_failure_is_saved_as_assistant_explanation(tmp_path):
+    """v2 诊断会话的直接回放入口仍保底：LLM 未配置时先落一条可见说明。"""
+
     async def scenario():
         settings_state = {
             "value": Settings(
@@ -539,25 +919,39 @@ def test_incident_configuration_failure_is_saved_as_assistant_explanation(tmp_pa
             confirmations,
             settings_provider=lambda _request: settings_state["value"],
         )
-        service = AgentIncidentService(
-            factory,
-            runtime,
-            settings_provider=lambda: settings_state["value"],
-        )
         try:
             async with factory() as session:
-                session.add(_make_pipeline("pipeline-config", error_code="TASK_FAILED"))
+                await AgentSessionRepository(session).create(
+                    AgentSession(
+                        id="incident-config",
+                        title="自动诊断",
+                        kind="incident",
+                        model="unconfigured",
+                        base_url=None,
+                        incident_key="pipeline:pipeline-config",
+                    )
+                )
+                await AgentMessageRepository(session).create(
+                    AgentMessage(
+                        session_id="incident-config",
+                        seq=0,
+                        role="user",
+                        content='{"incident_type":"pipeline_failure","failure_object":{}}',
+                    )
+                )
                 await session.commit()
-            result = await service.pipeline_failed("pipeline-config")
+
+            result = await runtime.run_incident(
+                "incident-config", None, INCIDENT_ALLOWED_TOOLS
+            )
+            assert result["status"] == "failed"
             async with factory() as session:
-                messages = await AgentMessageRepository(session).list_by_session(result.session_id)
+                messages = await AgentMessageRepository(session).list_by_session(
+                    "incident-config"
+                )
             assert [message.role for message in messages] == ["user", "assistant"]
             assert "LLM" in messages[1].content
             assert "api_key" in messages[1].content
-            async with factory() as session:
-                stored = await AgentSessionRepository(session).get(result.session_id)
-            assert stored.model == "unconfigured"
-            assert stored.base_url is None
 
             settings_state["value"] = Settings(
                 llm=LLMSettings(
@@ -574,17 +968,17 @@ def test_incident_configuration_failure_is_saved_as_assistant_explanation(tmp_pa
                 "status": "ready",
                 "degraded_reason": None,
             }
-            assert await runtime.acquire_session(result.session_id)
+            assert await runtime.acquire_session("incident-config")
             chunks = [
                 chunk
                 async for chunk in stream_legacy_turn(
-                    runtime, result.session_id, "继续诊断", None
+                    runtime, "incident-config", "继续诊断", None
                 )
             ]
             assert llm.models == ["test-model"]
             assert "event: message_end" in "".join(chunks)
             async with factory() as session:
-                stored = await AgentSessionRepository(session).get(result.session_id)
+                stored = await AgentSessionRepository(session).get("incident-config")
             assert stored.model == "test-model"
             assert stored.base_url == "https://llm.test/v1"
         finally:

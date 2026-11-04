@@ -39,18 +39,24 @@ DETAIL_FIELDS = LIST_FIELDS | {
     "body",
 }
 SPEC_NAMES = [
+    "analyst",
+    "copilot",
+    "daily_ops",
+    "diagnose",
     "general",
     "legacy_chat",
     "legacy_incident",
     "navigator",
+    "ops",
     "orchestrator",
+    "planner",
     "recon",
     "researcher",
     "titler",
     "verifier",
 ]
 #: 各定义的版本号；M71 给 ``general`` 加了设备租约工具与通用 Worker 提示，升到 2。
-EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {"general": 2}
+EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {"general": 2, "orchestrator": 2}
 
 
 def _specs_client(make_client, *, with_registry: bool = True):
@@ -72,7 +78,7 @@ def _error(response):
 # ---------------------------------------------------------------------------
 # 成功路径
 # ---------------------------------------------------------------------------
-def test_list_specs_returns_the_nine_builtin_definitions(make_client, tmp_settings):
+def test_list_specs_returns_the_fifteen_builtin_definitions(make_client, tmp_settings):
     client = _specs_client(make_client)
 
     response = client.get("/api/agent/specs")
