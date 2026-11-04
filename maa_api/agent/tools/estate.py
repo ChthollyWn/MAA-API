@@ -137,6 +137,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_building_skills,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -153,6 +154,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_infrast_candidates,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -168,6 +170,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=list_infrast_plans,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(

@@ -113,6 +113,7 @@ class ConfirmationService:
         context: ToolContext,
         *,
         mode: str = "sync",
+        require_confirmation: Mapping[str, Any] | None = None,
         on_audit_created: Callable[[int], Any] | None = None,
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
@@ -124,6 +125,7 @@ class ConfirmationService:
             arguments,
             context,
             mode=mode,
+            require_confirmation=require_confirmation,
             on_audit_created=on_audit_created,
             on_audit_terminal=on_audit_terminal,
             on_audit_prepare=on_audit_prepare,
@@ -138,6 +140,7 @@ class ConfirmationService:
         context: ToolContext,
         *,
         mode: str,
+        require_confirmation: Mapping[str, Any] | None = None,
         on_audit_created: Callable[[int], Any] | None = None,
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
@@ -149,6 +152,14 @@ class ConfirmationService:
         definition = self.registry.get(name)
         params = self.registry.validate(name, arguments)
         decision = await self.policy.evaluate(definition, params, context)
+        if require_confirmation is not None:
+            # M80 §4.5.3：降权期间由中间件要求逐次确认。``None`` 时一个字节都不改。
+            decision = _force_confirmation(
+                decision,
+                definition.name,
+                str(require_confirmation.get("reason") or ""),
+                require_confirmation.get("guard") or {},
+            )
         if decision.requires_confirmation:
             confirmation_id, audit_id = await self._create_confirmation(
                 definition.name, arguments, context, decision
@@ -1269,6 +1280,48 @@ class ConfirmationService:
             await session.commit()
             return int(row.id)
 
+    async def record_rejection(
+        self,
+        name: str,
+        arguments: Mapping[str, Any],
+        context: ToolContext,
+        error: AppError | Mapping[str, Any],
+    ) -> int:
+        """记录一次降权拒绝：落一条终态 ``rejected`` 审计行（规格 §4.5.3、§4.5.6）。
+
+        拒绝发生在策略求值之前，没有 ``PolicyDecision``，风险等级按 ``NONE`` 记；
+        错误码与说明取 ``error``（``AppError`` 或工具结果的 ``error`` 字典）。
+        返回审计 id，调用方把它放进 ``ToolOutcome.audit_id``。
+        """
+        if isinstance(error, AppError):
+            code = error.code
+            message = error.message
+        else:
+            code = error.get("code") or ErrorCode.PROMPT_INJECTION_BLOCKED
+            message = str(error.get("message") or "")
+        origin = context.origin
+        async with self.session_factory() as session:
+            row = await AuditRepository(session).create(
+                AgentAudit(
+                    caller=_caller(context.caller),
+                    caller_detail=_caller_detail(context),
+                    tool_name=name,
+                    request_id=context.request_id,
+                    arguments=dict(arguments),
+                    status=AuditStatus.REJECTED,
+                    risk_level=RiskLevel.NONE,
+                    error_code=str(code),
+                    result_summary=message or None,
+                    session_id=context.session_id,
+                    run_id=origin.run_id if origin is not None else None,
+                    ticket_id=origin.ticket_id if origin is not None else None,
+                    agent_name=origin.agent if origin is not None else None,
+                    created_at=self.clock(),
+                )
+            )
+            await session.commit()
+            return int(row.id)
+
     async def _complete_sync_idempotency_error(
         self,
         session: AsyncSession,
@@ -1606,6 +1659,35 @@ class ConfirmationService:
                 else None
             ),
         }
+
+
+def _force_confirmation(
+    decision: PolicyDecision,
+    name: str,
+    reason: str,
+    guard: Mapping[str, Any],
+) -> PolicyDecision:
+    """降权期间：会话授权与原子操作授权窗口不生效，一律逐次确认（规格 §4.5.3）。"""
+    extra = {**dict(decision.extra_payload or {}), "guard": dict(guard)}
+    if decision.requires_confirmation and decision.confirmation_action not in (
+        None,
+        "grant_atomic_ops",
+    ):
+        # 本来就逐次确认（含作业授权卡）：保留原卡，只追加原因。
+        return dataclasses.replace(
+            decision, reasons=(*decision.reasons, reason), extra_payload=extra
+        )
+    # 不需要确认、已被会话授权或作业授权覆盖、或者本来要申请原子操作授权窗口：
+    # 改成只批这一次。确认动作等于工具名时 ``_wait_and_execute`` 不写授权窗口。
+    return PolicyDecision(
+        True,
+        decision.risk,
+        reasons=(reason,),
+        confirmation_action=name,
+        authorized_by=None,
+        window_seconds=None,
+        extra_payload=extra,
+    )
 
 
 def _caller(value: CallerType | str) -> CallerType:

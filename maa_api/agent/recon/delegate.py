@@ -59,6 +59,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=DelegateReconParams,
             handler=delegate_recon,
             read_only=True,
+            untrusted_output=True,
         )
     )
 
