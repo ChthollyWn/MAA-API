@@ -83,7 +83,11 @@ class SourceDocument:
 
 
 class CorpusSource(Protocol):
-    """一个可索引的来源（内置知识、自定义知识，M77 起还有外部语料）。"""
+    """一个可索引的来源（内置知识、自定义知识，M77 起还有外部语料）。
+
+    下列成员对 M76 的两个条目来源是可选成员：服务一律用 ``getattr`` 取，
+    缺省行为分别是「不参与定时刷新」「不调 ``start``/``close``/``prune``」。
+    """
 
     source_id: str
     kind: KnowledgeSourceKind
@@ -94,7 +98,19 @@ class CorpusSource(Protocol):
     setting_key: str | None
     full_listing: bool
 
+    #: 参与 ``refresh_all`` 定时刷新（缺省 False）。
+    scheduled_refresh: bool
+
     def validate_config(self, config: Mapping[str, Any]) -> dict[str, Any]: ...
+
+    #: 服务 ``start()`` 时调，用来挂监听器、起自己的后台任务（缺省不调）。
+    async def start(self, index: "KnowledgeIndexService") -> None: ...
+
+    #: 服务 ``close()`` 时调，收掉 ``start()`` 起的东西（缺省不调）。
+    async def close(self) -> None: ...
+
+    #: 同步成功后调，按配置删掉该来源的过期文档并返回删除数（缺省不调）。
+    async def prune(self, config: Mapping[str, Any]) -> int: ...
 
     async def list_refs(
         self, config: Mapping[str, Any]
@@ -170,6 +186,10 @@ class KnowledgeIndexService:
         self._busy: set[str] = set()
         self._dirty: dict[str, bool] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._source_locks: dict[str, asyncio.Lock] = {}
+        self._source_rows: dict[str, tuple[bool, datetime | None]] = {}
+        self._failed_sources: set[str] = set()
+        self._refreshing = False
         self._embedding_lock = asyncio.Lock()
         self._embedding_task: asyncio.Task[Any] | None = None
         self._embedding_retry_at: float | None = None
@@ -198,17 +218,26 @@ class KnowledgeIndexService:
 
     # -- 生命周期 -------------------------------------------------------
     async def start(self) -> None:
-        """补齐来源行、清理残留的 ``indexing``，然后后台跑首次同步。"""
+        """补齐来源行、清理残留的 ``indexing``，启动来源，然后后台跑首次同步。"""
         async with self._session_factory() as session:
             repository = KnowledgeIndexRepository(session)
             for source in self._sources.values():
                 await repository.ensure_source(source)
             await repository.reset_indexing()
             await session.commit()
+        self._source_rows = await self._load_source_rows()
+        for source in self._sources.values():
+            start_source = getattr(source, "start", None)
+            if start_source is None:
+                continue
+            try:
+                await start_source(self)
+            except Exception:  # noqa: BLE001 - 外部语料起不来时其余来源照常工作
+                logger.warning("启动检索来源 %s 失败", source.source_id, exc_info=True)
         self._spawn(self._startup_index())
 
     async def close(self) -> None:
-        """取消并等待后台任务；之后不再排新任务。"""
+        """取消并等待后台任务，再收掉来源；之后不再排新任务。"""
         self._closed = True
         tasks = [task for task in self._tasks if not task.done()]
         for task in tasks:
@@ -217,6 +246,23 @@ class KnowledgeIndexService:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
         self._embedding_task = None
+        # 本服务的后台任务停掉后再关来源：来源的消费者可能正在等 push 的锁。
+        for source in self._sources.values():
+            close_source = getattr(source, "close", None)
+            if close_source is None:
+                continue
+            try:
+                await close_source()
+            except Exception:  # noqa: BLE001 - 一个来源关不掉不影响其余收尾
+                logger.warning("关闭检索来源 %s 失败", source.source_id, exc_info=True)
+
+    async def _load_source_rows(self) -> dict[str, tuple[bool, datetime | None]]:
+        """读一次来源行的 ``(enabled, last_indexed_at)`` 缓存，供 ``never_indexed`` 用。"""
+        async with self._session_factory() as session:
+            rows = await KnowledgeIndexRepository(session).list_sources()
+            states = {row.id: (bool(row.enabled), row.last_indexed_at) for row in rows}
+        self._source_rows = states
+        return states
 
     async def _startup_index(self) -> None:
         try:
@@ -255,7 +301,142 @@ class KnowledgeIndexService:
     async def _run_sync(self, source_id: str, force: bool) -> None:
         await self._sync_body(source_id, force)
 
+    async def push_documents(
+        self, source_id: str, docs: Sequence[SourceDocument]
+    ) -> SyncSummary:
+        """推送式写入：等该来源锁，按同步的同一套规则写文档，不删任何文档。
+
+        与 ``sync_source`` 共用每来源锁与忙标记：同步进行中时等待；推送期间到达的
+        同步请求看到忙只记脏标记。写完排一次 ``ensure_embeddings``。正文没变时只
+        刷新抓取时间与版本（``touch_documents``）。
+        """
+        source = self.source(source_id)
+        items = list(docs)
+        async with self._source_lock(source_id):
+            self._busy.add(source_id)
+            try:
+                summary = await self._push_body(source, items)
+            finally:
+                self._busy.discard(source_id)
+                if not self._closed:
+                    next_force = self._dirty.pop(source_id, None)
+                    if next_force is not None:
+                        self.request_sync(source_id, force=next_force)
+                    self._schedule_embeddings()
+        return summary
+
+    async def _push_body(
+        self, source: CorpusSource, docs: Sequence[SourceDocument]
+    ) -> SyncSummary:
+        source_id = source.source_id
+        rag = self._settings_provider().rag
+        signature = chunker_signature(int(rag.chunk_chars), int(rag.chunk_overlap))
+        rebuilt = unchanged = chunks = 0
+        async with self._session_factory() as session:
+            repository = KnowledgeIndexRepository(session)
+            await repository.ensure_source(source)
+            existing = await repository.documents_of(source_id)
+            await session.commit()
+        for doc in docs:
+            content_hash = _sha256(doc.text)
+            old = existing.get(doc.external_id)
+            if (
+                old is not None
+                and old.content_hash == content_hash
+                and old.meta.get("chunker") == signature
+            ):
+                await self._touch_document(old.id, doc)
+                unchanged += 1
+                continue
+            drafts = chunk_markdown(
+                doc.text,
+                max_chars=int(rag.chunk_chars),
+                overlap=int(rag.chunk_overlap),
+            )
+            await self._write_document(
+                source_id, doc, drafts, content_hash, signature
+            )
+            rebuilt += 1
+            chunks += len(drafts)
+        if rebuilt:
+            self._index_version += 1
+        return SyncSummary(
+            source_id=source_id,
+            fetched=len(docs),
+            rebuilt=rebuilt,
+            unchanged=unchanged,
+            deleted=0,
+            chunks=chunks,
+        )
+
+    async def refresh_all(self) -> dict[str, str]:
+        """定时刷新所有语料来源，返回 ``{source_id: "ok" | "skipped" | "error"}``。
+
+        ``rag.enabled`` 为假时直接返回空；依次同步 ``scheduled_refresh``、来源行
+        启用、且开关设置为真的来源，一个来源失败不影响下一个；最后补一次向量。
+        已有一次刷新在跑时返回 ``{}``（single-flight）。
+        """
+        if self._refreshing:
+            return {}
+        settings = self._settings_provider()
+        rag = getattr(settings, "rag", None)
+        if not bool(getattr(rag, "enabled", True)):
+            return {}
+        self._refreshing = True
+        results: dict[str, str] = {}
+        try:
+            rows = await self._load_source_rows()
+            for source in self._sources.values():
+                if not bool(getattr(source, "scheduled_refresh", False)):
+                    continue
+                source_id = source.source_id
+                enabled, _ = rows.get(source_id, (True, None))
+                if not enabled or not _setting_enabled(
+                    settings, getattr(source, "setting_key", None)
+                ):
+                    results[source_id] = "skipped"
+                    continue
+                if self.is_busy(source_id):
+                    results[source_id] = "skipped"
+                    continue
+                self._failed_sources.discard(source_id)
+                await self.sync_source(source_id)
+                results[source_id] = (
+                    "error" if source_id in self._failed_sources else "ok"
+                )
+            await self.ensure_embeddings()
+            return results
+        finally:
+            self._refreshing = False
+
+    def never_indexed(self) -> list[str]:
+        """从未建过索引、来源行启用且开关为真的定时来源 id（读缓存的来源行）。"""
+        settings = self._settings_provider()
+        result: list[str] = []
+        for source in self._sources.values():
+            if not bool(getattr(source, "scheduled_refresh", False)):
+                continue
+            state = self._source_rows.get(source.source_id)
+            if state is None or not state[0] or state[1] is not None:
+                continue
+            if _setting_enabled(settings, getattr(source, "setting_key", None)):
+                result.append(source.source_id)
+        return result
+
     async def _sync_body(self, source_id: str, force: bool) -> SyncSummary:
+        """拿每来源锁再同步；推送写入期间同步请求会在这里等锁。"""
+        lock = self._source_lock(source_id)
+        try:
+            await lock.acquire()
+        except BaseException:  # noqa: BLE001 - 等锁被取消时要把忙标记还回去
+            self._busy.discard(source_id)
+            raise
+        try:
+            return await self._sync_locked(source_id, force)
+        finally:
+            lock.release()
+
+    async def _sync_locked(self, source_id: str, force: bool) -> SyncSummary:
         source = self.source(source_id)
         fetched = rebuilt = unchanged = deleted = chunks = 0
         try:
@@ -314,7 +495,11 @@ class KnowledgeIndexService:
                         repository = KnowledgeIndexRepository(session)
                         deleted = await repository.delete_documents(stale)
                         await session.commit()
+            prune = getattr(source, "prune", None)
+            if prune is not None:
+                deleted += int(await prune(config))
             await self._finish_sync(source_id, model)
+            self._failed_sources.discard(source_id)
             return SyncSummary(
                 source_id=source_id,
                 fetched=fetched,
@@ -326,6 +511,7 @@ class KnowledgeIndexService:
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - 失败落 error，旧文档保留
+            self._failed_sources.add(source_id)
             logger.warning(
                 "同步检索来源 %s 失败：%s", source_id, _error_message(exc), exc_info=True
             )
@@ -429,6 +615,14 @@ class KnowledgeIndexService:
 
     def _mark_dirty(self, source_id: str, force: bool) -> None:
         self._dirty[source_id] = self._dirty.get(source_id, False) or force
+
+    def _source_lock(self, source_id: str) -> asyncio.Lock:
+        """每来源一把锁：同步与推送写入共用，保证同一来源同一时刻只有一方写。"""
+        lock = self._source_locks.get(source_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._source_locks[source_id] = lock
+        return lock
 
     # -- 向量 -----------------------------------------------------------
     async def ensure_embeddings(self) -> int:
@@ -536,3 +730,15 @@ def _batches(items: Sequence[DocumentRef], size: int) -> list[list[DocumentRef]]
 
 def _embedding_text(title: str, heading: str | None, text: str) -> str:
     return f"{title}\n{heading or ''}\n{text}"
+
+
+def _setting_enabled(settings: Any, key: str | None) -> bool:
+    """按 ``rag.prts_enabled`` 这样的点分键读设置；没有这类开关的来源视为开启。"""
+    if not key:
+        return True
+    value: Any = settings
+    for part in key.split("."):
+        value = getattr(value, part, None)
+        if value is None:
+            return False
+    return bool(value)
