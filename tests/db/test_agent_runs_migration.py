@@ -24,9 +24,6 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlmodel import SQLModel
-
-import maa_api.db.models  # noqa: F401  必须 import 才能注册全部表供比对
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"
@@ -67,6 +64,36 @@ AGENT_MESSAGE_0022_COLUMNS = [
     "latency_ms",
     "created_at",
     "reasoning_content",
+]
+#: 0023 建出的 agent_run 列序。M69 的 0026 会给它加 ``ticket_id``；本用例只验
+#: 0023 这一步的形状，所以按当时的历史清单钉死，不跟当前模型 metadata 漂移。
+AGENT_RUN_0023_COLUMNS = [
+    "id",
+    "session_id",
+    "parent_run_id",
+    "root_run_id",
+    "agent_name",
+    "spec_version",
+    "kind",
+    "status",
+    "trigger_seq",
+    "model",
+    "model_profile",
+    "prompt_tokens",
+    "completion_tokens",
+    "cached_tokens",
+    "reasoning_tokens",
+    "cost_micros",
+    "currency",
+    "steps",
+    "finish_reason",
+    "error_code",
+    "error_message",
+    "boot_id",
+    "heartbeat_at",
+    "started_at",
+    "finished_at",
+    "meta",
 ]
 
 #: agent_run 的非空列（无 server_default），测试里按它拼 INSERT。
@@ -204,9 +231,7 @@ def test_upgrade_creates_agent_run_and_marks_incident_sessions(tmp_path: Path) -
             for row in conn.execute("select id, kind from agent_session")
         }
         assert kinds == {"session-chat": "chat", "session-incident": "incident"}
-        assert _columns(conn, "agent_run") == [
-            column.name for column in SQLModel.metadata.tables["agent_run"].columns
-        ]
+        assert _columns(conn, "agent_run") == AGENT_RUN_0023_COLUMNS
     finally:
         conn.close()
 
@@ -405,9 +430,7 @@ def test_repeated_upgrade_and_downgrade_to_base_then_upgrade(tmp_path: Path) -> 
     conn = _connect(db_path)
     try:
         assert _revision(conn) == HEAD_REVISION
-        assert _columns(conn, "agent_run") == [
-            column.name for column in SQLModel.metadata.tables["agent_run"].columns
-        ]
+        assert _columns(conn, "agent_run") == AGENT_RUN_0023_COLUMNS
         assert "AUTOINCREMENT" in _ddl(conn, "agent_message")
     finally:
         conn.close()

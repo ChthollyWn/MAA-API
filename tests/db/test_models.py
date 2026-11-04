@@ -71,6 +71,12 @@ BUSINESS_TABLES = {
     "cost_ledger",
     # M68：运行追踪（v3 docs/03 §5.1）。
     "trace_span",
+    # M69：工单领域五表（v3 M69 规格 §4.1）。
+    "ticket",
+    "mandate",
+    "ticket_report",
+    "thread_subscription",
+    "agent_inbox",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -88,6 +94,9 @@ UUID_PK_TABLES = [
     "copilot_grant",
     "agent_run",
     "model_profile",
+    # M69：工单与委托的 id 是对外暴露的 36 字符 UUID。
+    "ticket",
+    "mandate",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -96,6 +105,10 @@ AUTOINCREMENT_TABLES = [
     "agent_idempotency",
     "cost_ledger",
     "trace_span",
+    # M69：汇报、订阅与收件箱都是高频追加表。
+    "ticket_report",
+    "thread_subscription",
+    "agent_inbox",
 ]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
@@ -229,6 +242,24 @@ EXPECTED_INDEXES = {
     # M68：运行追踪的两条索引（按运行取整条 trace、按保留期清理）。
     "ix_trace_span_run_id": ("trace_span", ("run_id",), False),
     "ix_trace_span_started_at": ("trace_span", ("started_at",), False),
+    # M69：工单列表/汇报流/订阅/收件箱各一条查询索引。
+    "ix_ticket_status_updated_at": ("ticket", ("status", "updated_at"), False),
+    "ix_ticket_kind_created_at": ("ticket", ("kind", "created_at"), False),
+    "ix_ticket_report_ticket_id_created_at": (
+        "ticket_report",
+        ("ticket_id", "created_at"),
+        False,
+    ),
+    "ix_thread_subscription_thread_key_active": (
+        "thread_subscription",
+        ("thread_key", "active"),
+        False,
+    ),
+    "ix_agent_inbox_session_id_status_id": (
+        "agent_inbox",
+        ("session_id", "status", "id"),
+        False,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -247,6 +278,12 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_model_profile_name": ("model_profile", ("name",)),
     # M68：同一条 trace 里的 span id 唯一。
     "uq_trace_span_trace_id_span_id": ("trace_span", ("trace_id", "span_id")),
+    # M69：一个工单一份委托；同一工单对同一话题键只有一行订阅。
+    "uq_mandate_ticket_id": ("mandate", ("ticket_id",)),
+    "uq_thread_subscription_ticket_id_thread_key": (
+        "thread_subscription",
+        ("ticket_id", "thread_key"),
+    ),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -259,6 +296,11 @@ EXPECTED_FK_CASCADE = {
     ("agent_run", "session_id"),
     # M68：运行删了，它名下的 span 一起删。
     ("trace_span", "run_id"),
+    # M69：工单删了，它的委托、汇报与订阅没有独立存在的意义。
+    ("mandate", "ticket_id"),
+    ("ticket_report", "ticket_id"),
+    ("thread_subscription", "ticket_id"),
+    ("agent_inbox", "session_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -294,6 +336,14 @@ EXPECTED_FK_SET_NULL = {
     # M67：运行与会话删了，成本账本仍要留着（预算与历史汇总）。
     ("cost_ledger", "run_id"),
     ("cost_ledger", "session_id"),
+    # M69：工单/收件箱被清理时，历史会话、运行与消息仍要留着，只是不再关联。
+    ("ticket", "orchestrator_session_id"),
+    ("ticket", "worker_session_id"),
+    ("ticket_report", "run_id"),
+    ("agent_inbox", "consumed_run_id"),
+    ("agent_session", "ticket_id"),
+    ("agent_run", "ticket_id"),
+    ("agent_message", "inbox_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -319,6 +369,10 @@ EXPECTED_TEXT_COLUMNS = {
     ("agent_run", "error_message"),
     # M67：档案密文长度随明文变化，不能定宽。
     ("model_profile", "api_key_encrypted"),
+    # M69：工单摘要与委托范围长度不定（scope 最多 2000 字）。
+    ("ticket", "summary"),
+    ("mandate", "scope"),
+    ("ticket_report", "summary"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -363,6 +417,12 @@ EXPECTED_JSON_COLUMNS = {
     ("agent_run", "meta"),
     # M68：span 的属性字典（v3 10 §2 定义键，表不做约束）。
     ("trace_span", "attributes"),
+    # M69：工单的人审动作/结果、汇报的载荷与收件箱事件。
+    ("ticket", "human_action"),
+    ("ticket", "result"),
+    ("ticket_report", "human_action"),
+    ("ticket_report", "details"),
+    ("agent_inbox", "payload"),
 }
 
 
@@ -427,7 +487,7 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
 def test_metadata_has_exactly_26_business_tables():
-    """32 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+    """37 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
@@ -522,7 +582,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """38 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """43 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:

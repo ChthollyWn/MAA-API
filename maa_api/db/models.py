@@ -1,4 +1,4 @@
-"""SQLModel 表定义：32 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：37 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -53,6 +53,7 @@ from maa_api.domain.enums import (
     AgentSessionStatus,
     ConfirmationStatus,
     DynamicContextPosition,
+    InboxStatus,
     ModelProfileKind,
     ModelProvider,
     PipelineStatus,
@@ -60,6 +61,7 @@ from maa_api.domain.enums import (
     QuestionStatus,
     RiskLevel,
     TaskStatus,
+    TicketStatus,
     UpdateStatus,
 )
 
@@ -500,6 +502,9 @@ class AgentSession(SQLModel, table=True):
     archived_at: datetime | None = Field(
         default=None, sa_column=datetime_column("archived_at", nullable=True)
     )
+    ticket_id: str | None = Field(
+        default=None, foreign_key="ticket.id", ondelete="SET NULL", max_length=36
+    )
 
     __table_args__ = (
         # 会话列表：ORDER BY last_message_at DESC
@@ -550,6 +555,9 @@ class AgentMessage(SQLModel, table=True):
     )
     run_id: str | None = Field(
         default=None, foreign_key="agent_run.id", ondelete="SET NULL", max_length=36
+    )
+    inbox_id: int | None = Field(
+        default=None, foreign_key="agent_inbox.id", ondelete="SET NULL"
     )
 
     __table_args__ = (
@@ -604,6 +612,9 @@ class AgentRun(SQLModel, table=True):
         default=None, sa_column=datetime_column("finished_at", nullable=True)
     )
     meta: dict[str, Any] | None = Field(default=None, sa_column=json_column("meta"))
+    ticket_id: str | None = Field(
+        default=None, foreign_key="ticket.id", ondelete="SET NULL", max_length=36
+    )
 
     __table_args__ = (
         # 部分唯一索引：终态的历史行不受限，同一会话同时只能有一条活动运行。
@@ -734,6 +745,159 @@ class TraceSpan(SQLModel, table=True):
         UniqueConstraint("trace_id", "span_id", name="uq_trace_span_trace_id_span_id"),
         Index("ix_trace_span_run_id", "run_id"),
         Index("ix_trace_span_started_at", "started_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+# ---------------------------------------------------------------------------
+# M69 工单领域：ticket / mandate / ticket_report / thread_subscription /
+# agent_inbox（v3 M69 规格 §4.1）。工单结束不是删除：三张引用 ticket 的表都
+# 随 ticket 级联删除，会话/运行/收件箱的关联列用 SET NULL 保留历史行。
+# ---------------------------------------------------------------------------
+class Ticket(SQLModel, table=True):
+    """一份授权工作；状态机见 M69 规格 §4.5。"""
+
+    __tablename__ = "ticket"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    title: str = Field(max_length=64)
+    kind: str = Field(max_length=32)  # Worker 代理定义的 name
+    status: str = Field(default=TicketStatus.OPEN, max_length=16)
+    origin: str = Field(max_length=16)
+    priority: int = Field(default=1)
+    orchestrator_session_id: str | None = Field(
+        default=None, foreign_key="agent_session.id", ondelete="SET NULL", max_length=36
+    )
+    worker_session_id: str | None = Field(
+        default=None, foreign_key="agent_session.id", ondelete="SET NULL", max_length=36
+    )
+    summary: str | None = Field(default=None, sa_column=text_column("summary"))
+    last_report_status: str | None = Field(default=None, max_length=16)
+    human_action: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("human_action")
+    )
+    result: dict[str, Any] | None = Field(default=None, sa_column=json_column("result"))
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+    ended_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("ended_at", nullable=True)
+    )
+
+    __table_args__ = (
+        Index("ix_ticket_status_updated_at", "status", "updated_at"),
+        Index("ix_ticket_kind_created_at", "kind", "created_at"),
+    )
+
+
+class Mandate(SQLModel, table=True):
+    """工单的委托：建单时写入，此后不可变（仓储不提供更新方法）。"""
+
+    __tablename__ = "mandate"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    ticket_id: str = Field(foreign_key="ticket.id", ondelete="CASCADE", max_length=36)
+    scope: str = Field(sa_column=text_column("scope", nullable=False))
+    strength: str = Field(max_length=16)
+    source: str = Field(max_length=16)
+    sender: str | None = Field(default=None, max_length=128)
+    rule_id: str | None = Field(default=None, max_length=48)
+    risk_ceiling: str = Field(max_length=16)
+    policy_version: str | None = Field(default=None, max_length=16)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (UniqueConstraint("ticket_id", name="uq_mandate_ticket_id"),)
+
+
+class TicketReport(SQLModel, table=True):
+    """Worker 对工单的一次汇报；汇报状态映射见 M69 规格 §4.2。"""
+
+    __tablename__ = "ticket_report"
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticket_id: str = Field(foreign_key="ticket.id", ondelete="CASCADE", max_length=36)
+    run_id: str | None = Field(
+        default=None, foreign_key="agent_run.id", ondelete="SET NULL", max_length=36
+    )
+    status: str = Field(max_length=16)
+    summary: str = Field(sa_column=text_column("summary", nullable=False))
+    human_action: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("human_action")
+    )
+    details: dict[str, Any] | None = Field(default=None, sa_column=json_column("details"))
+    forwarded: bool = Field(default=False)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_ticket_report_ticket_id_created_at", "ticket_id", "created_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+class ThreadSubscription(SQLModel, table=True):
+    """一个工单对某个话题键的订阅；停用保留行，重新订阅时复用同一行。"""
+
+    __tablename__ = "thread_subscription"
+
+    id: int | None = Field(default=None, primary_key=True)
+    ticket_id: str = Field(foreign_key="ticket.id", ondelete="CASCADE", max_length=36)
+    thread_key: str = Field(max_length=160)
+    active: bool = Field(default=True)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    ended_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("ended_at", nullable=True)
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticket_id",
+            "thread_key",
+            name="uq_thread_subscription_ticket_id_thread_key",
+        ),
+        Index("ix_thread_subscription_thread_key_active", "thread_key", "active"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+class AgentInbox(SQLModel, table=True):
+    """代理收件箱：外部事件、汇报与系统提示在领取前先落库（M69 规格 §4.5.5）。"""
+
+    __tablename__ = "agent_inbox"
+
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: str = Field(
+        foreign_key="agent_session.id", ondelete="CASCADE", max_length=36
+    )
+    kind: str = Field(max_length=24)
+    thread_key: str | None = Field(default=None, max_length=160)
+    ref_id: str | None = Field(default=None, max_length=64)
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("payload", nullable=False, server_default="'{}'"),
+    )
+    status: str = Field(default=InboxStatus.PENDING, max_length=16)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    # 进入终态（消费或丢弃）的时间，保留策略按它算。
+    consumed_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("consumed_at", nullable=True)
+    )
+    consumed_run_id: str | None = Field(
+        default=None, foreign_key="agent_run.id", ondelete="SET NULL", max_length=36
+    )
+
+    __table_args__ = (
+        Index("ix_agent_inbox_session_id_status_id", "session_id", "status", "id"),
         {"sqlite_autoincrement": True},
     )
 
