@@ -1,4 +1,4 @@
-"""SQLModel 表定义：39 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：44 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -34,15 +34,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
+    DDL,
     JSON,
     CheckConstraint,
     Column,
     DateTime,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
+    event,
     text,
 )
 from sqlmodel import Field, SQLModel
@@ -1386,6 +1389,136 @@ class AgentQuestion(SQLModel, table=True):
             "created_at",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# M76 检索索引：knowledge_source / knowledge_document / knowledge_chunk
+# （v3 docs/03 §9、specs/m76 §4.1）
+#
+# FTS5 虚拟表与三个触发器不进元数据：生产路径由迁移 0030 建，``create_all`` 测试
+# 路径靠下面的 event.listen 在 knowledge_chunk 建表后执行同样的 SQL。删除分块表
+# 之前要先删虚拟表：触发器会写它，反过来的顺序会写到一张不存在的表。
+# ---------------------------------------------------------------------------
+class KnowledgeSource(SQLModel, table=True):
+    """检索来源：每个来源一行，由 KnowledgeIndexService.start() 按已注册的来源补齐。"""
+
+    __tablename__ = "knowledge_source"
+
+    id: str = Field(primary_key=True, max_length=48)
+    kind: str = Field(max_length=24)
+    title: str = Field(max_length=64)
+    enabled: bool = Field(default=True)
+    trusted: bool = Field(default=False)
+    license: str | None = Field(default=None, max_length=64)
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("config", nullable=False, server_default="'{}'"),
+    )
+    status: str = Field(default="idle", max_length=16)
+    error: str | None = Field(default=None, sa_column=text_column("error"))
+    doc_count: int = Field(default=0)
+    chunk_count: int = Field(default=0)
+    last_indexed_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("last_indexed_at", nullable=True)
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+class KnowledgeDocument(SQLModel, table=True):
+    """来源里的一篇文档；content_hash 不变就不重建分块。"""
+
+    __tablename__ = "knowledge_document"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "external_id",
+            name="uq_knowledge_document_source_id_external_id",
+        ),
+    )
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    source_id: str = Field(
+        foreign_key="knowledge_source.id", ondelete="CASCADE", max_length=48
+    )
+    external_id: str = Field(max_length=255)
+    title: str = Field(max_length=255)
+    url: str | None = Field(default=None, max_length=512)
+    content_hash: str = Field(max_length=64)
+    version: str | None = Field(default=None, max_length=64)
+    fetched_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("fetched_at", nullable=True)
+    )
+    meta: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("meta", nullable=False, server_default="'{}'"),
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+class KnowledgeChunk(SQLModel, table=True):
+    """文档的一个分块；id 同时是 knowledge_chunk_fts 的 rowid。"""
+
+    __tablename__ = "knowledge_chunk"
+    __table_args__ = (
+        Index("ix_knowledge_chunk_document_id_ord", "document_id", "ord"),
+        Index("ix_knowledge_chunk_embedding_model", "embedding_model"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    document_id: str = Field(
+        foreign_key="knowledge_document.id", ondelete="CASCADE", max_length=36
+    )
+    ord: int
+    heading: str | None = Field(default=None, max_length=255)
+    text: str = Field(sa_column=text_column("text", nullable=False))
+    char_count: int
+    embedding: bytes | None = Field(
+        default=None, sa_column=Column("embedding", LargeBinary, nullable=True)
+    )
+    embedding_model: str | None = Field(default=None, max_length=128)
+    embedding_dim: int | None = Field(default=None)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+
+#: create_all 路径的 FTS5 对象；迁移 0030 里有同样的语句（去掉 IF NOT EXISTS），
+#: tests/db/test_initial_migration.py 比对两条路径建出的 sqlite_master.sql。
+KNOWLEDGE_FTS_DDL: tuple[str, ...] = (
+    "CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunk_fts USING fts5("
+    "text, heading, content='knowledge_chunk', content_rowid='id', tokenize='trigram')",
+    "CREATE TRIGGER IF NOT EXISTS knowledge_chunk_ai AFTER INSERT ON knowledge_chunk BEGIN "
+    "INSERT INTO knowledge_chunk_fts(rowid, text, heading) VALUES (new.id, new.text, new.heading); END",
+    "CREATE TRIGGER IF NOT EXISTS knowledge_chunk_ad AFTER DELETE ON knowledge_chunk BEGIN "
+    "INSERT INTO knowledge_chunk_fts(knowledge_chunk_fts, rowid, text, heading) "
+    "VALUES ('delete', old.id, old.text, old.heading); END",
+    "CREATE TRIGGER IF NOT EXISTS knowledge_chunk_au AFTER UPDATE ON knowledge_chunk BEGIN "
+    "INSERT INTO knowledge_chunk_fts(knowledge_chunk_fts, rowid, text, heading) "
+    "VALUES ('delete', old.id, old.text, old.heading); "
+    "INSERT INTO knowledge_chunk_fts(rowid, text, heading) VALUES (new.id, new.text, new.heading); END",
+)
+for _statement in KNOWLEDGE_FTS_DDL:
+    event.listen(
+        KnowledgeChunk.__table__,
+        "after_create",
+        DDL(_statement).execute_if(dialect="sqlite"),
+    )
+event.listen(
+    KnowledgeChunk.__table__,
+    "before_drop",
+    DDL("DROP TABLE IF EXISTS knowledge_chunk_fts").execute_if(dialect="sqlite"),
+)
 
 
 # ---------------------------------------------------------------------------

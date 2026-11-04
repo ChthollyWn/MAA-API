@@ -84,6 +84,10 @@ BUSINESS_TABLES = {
     # M75：产物与计划（v3 docs/03 §8.2、§8.3）。
     "artifact",
     "run_plan",
+    # M76：检索索引三表（v3 docs/03 §9）。FTS 虚拟表与影子表不进业务表。
+    "knowledge_source",
+    "knowledge_document",
+    "knowledge_chunk",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -109,6 +113,8 @@ UUID_PK_TABLES = [
     # M75：产物与计划 id 对外暴露，是 36 字符 UUID。
     "artifact",
     "run_plan",
+    # M76：文档 id 是对外暴露的 36 字符 UUID；来源 id 是短名字，分块是自增主键。
+    "knowledge_document",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -121,6 +127,8 @@ AUTOINCREMENT_TABLES = [
     "ticket_report",
     "thread_subscription",
     "agent_inbox",
+    # M76：分块的 id 同时是 FTS5 的 rowid，清理后不能复用。
+    "knowledge_chunk",
 ]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
@@ -296,6 +304,17 @@ EXPECTED_INDEXES = {
         False,
     ),
     "uq_run_plan_session_id_active": ("run_plan", ("session_id",), True),
+    # M76：按文档取有序分块、按向量模型找缺向量的分块（v3 docs/03 §9.3）。
+    "ix_knowledge_chunk_document_id_ord": (
+        "knowledge_chunk",
+        ("document_id", "ord"),
+        False,
+    ),
+    "ix_knowledge_chunk_embedding_model": (
+        "knowledge_chunk",
+        ("embedding_model",),
+        False,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -322,6 +341,11 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
     ),
     # M71：租约 id 对外暴露，必须唯一（device_id 主键保证容量 1）。
     "uq_device_lease_lease_id": ("device_lease", ("lease_id",)),
+    # M76：同一来源里 external_id 唯一（条目 id、页面标题或 URL）。
+    "uq_knowledge_document_source_id_external_id": (
+        "knowledge_document",
+        ("source_id", "external_id"),
+    ),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -343,6 +367,9 @@ EXPECTED_FK_CASCADE = {
     ("compaction_checkpoint", "session_id"),
     # M75：会话删了，它的计划一起删。
     ("run_plan", "session_id"),
+    # M76：来源删了文档一起删，文档删了分块一起删。
+    ("knowledge_document", "source_id"),
+    ("knowledge_chunk", "document_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -435,6 +462,9 @@ EXPECTED_TEXT_COLUMNS = {
     ("compaction_checkpoint", "summary"),
     # M75：产物正文长度不定（<=256 KiB 直接进库），用 TEXT。
     ("artifact", "content"),
+    # M76：来源错误描述与分块正文长度不定，用 TEXT。
+    ("knowledge_source", "error"),
+    ("knowledge_chunk", "text"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -491,6 +521,26 @@ EXPECTED_JSON_COLUMNS = {
     # M75：产物的自由结构元数据与计划的步骤列表。
     ("artifact", "meta"),
     ("run_plan", "items"),
+    # M76：来源的配置与文档的自由结构元数据（服务层定义键）。
+    ("knowledge_source", "config"),
+    ("knowledge_document", "meta"),
+}
+
+# FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
+# ``models.KNOWLEDGE_FTS_DDL`` 的监听器建，生产路径由迁移 0030 建。
+# 名字 → sqlite_master.type。
+FTS_OBJECTS = {
+    "knowledge_chunk_fts": "table",
+    "knowledge_chunk_ai": "trigger",
+    "knowledge_chunk_ad": "trigger",
+    "knowledge_chunk_au": "trigger",
+}
+# FTS5 虚拟表自己的影子表；随虚拟表一起由 SQLite 创建/删除。
+FTS_SHADOW_TABLES = {
+    "knowledge_chunk_fts_data",
+    "knowledge_chunk_fts_idx",
+    "knowledge_chunk_fts_docsize",
+    "knowledge_chunk_fts_config",
 }
 
 
@@ -554,9 +604,70 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_26_business_tables():
-    """39 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+def test_metadata_has_exactly_44_business_tables():
+    """44 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
+    # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
+    fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
+    assert not (set(MD.tables) & fts_names)
+
+
+def test_create_all_also_creates_fts_objects(engine, db_path):
+    """``create_all`` 路径也建出 FTS5 虚拟表与三个触发器，且写入即进索引。"""
+    with sqlite3.connect(db_path) as conn:
+        params = ", ".join("?" * len(FTS_OBJECTS))
+        actual = dict(
+            conn.execute(
+                f"select name, type from sqlite_master where name in ({params})",
+                tuple(FTS_OBJECTS),
+            ).fetchall()
+        )
+        assert actual == FTS_OBJECTS
+        shadow = {
+            row[0]
+            for row in conn.execute(
+                "select name from sqlite_master where type='table'"
+                " and name like 'knowledge_chunk_fts_%'"
+            )
+        }
+        assert shadow == FTS_SHADOW_TABLES
+
+        conn.execute(
+            "insert into knowledge_source (id, kind, title, enabled, trusted,"
+            " config, status, doc_count, chunk_count, created_at, updated_at)"
+            " values ('builtin', 'builtin', '内置知识', 1, 1, '{}', 'idle', 1, 1,"
+            " '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+        )
+        conn.execute(
+            "insert into knowledge_document (id, source_id, external_id, title,"
+            " content_hash, meta, created_at, updated_at)"
+            " values ('doc-1', 'builtin', 'entry-1', '掉落与刷图效率', 'hash', '{}',"
+            " '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+        )
+        conn.execute(
+            "insert into knowledge_chunk (document_id, ord, heading, text,"
+            " char_count, created_at)"
+            " values ('doc-1', 0, '常驻最优图的判断', '以 1-7 刷固源岩为推荐做法', 14,"
+            " '2026-01-01 00:00:00')"
+        )
+        conn.commit()
+
+        rowids = [
+            row[0]
+            for row in conn.execute(
+                "select rowid from knowledge_chunk_fts"
+                " where knowledge_chunk_fts match '\"固源岩\"'"
+            )
+        ]
+        chunk_id = conn.execute("select id from knowledge_chunk").fetchone()[0]
+        assert rowids == [chunk_id]
+
+
+def test_knowledge_chunk_embedding_is_blob():
+    """向量列是 BLOB（float32 小端序）且可空；没有向量时为空。"""
+    column = MD.tables["knowledge_chunk"].c.embedding
+    assert sql_type(column) == "BLOB"
+    assert column.nullable is True
 
 
 def test_agent_idempotency_request_mode_is_nullable_for_legacy_rows():

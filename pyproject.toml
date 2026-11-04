@@ -30,6 +30,8 @@ jinja2 = "^3.0.0"
 # 养成规划的线性规划求解器（M27，规格 §7.6）：`scipy.optimize.linprog` 走 HiGHS。
 # 只在规划时 import，服务启动不加载；镜像体积代价见 docs/15。
 scipy = ">=1.11"
+# 向量矩阵运算（M76，V3-D42）：此前只是 scipy 的传递依赖，检索层直接 import 就必须显式声明。
+numpy = ">=2.0"
 adbutils = "^2.8.0"
 ruamel-yaml = "^0.18.7"
 apscheduler = "^3.11.0"
@@ -40,9 +42,14 @@ tqdm = "^4.67.1"
 # HTTP 入口也收 protobuf，而 gRPC 导出器要额外带体积很大的 grpcio。
 opentelemetry-sdk = { version = ">=1.30,<2", optional = true }
 opentelemetry-exporter-otlp-proto-http = { version = ">=1.30,<2", optional = true }
+# 本地 ONNX 向量（M76，V3-D60）：只在 `rag.embedding_provider=local` 且第一次 embed 时
+# 才 import，基础安装与远端 embedding 都不需要；模型文件不随包下载（见 docs/v3/16）。
+onnxruntime = { version = ">=1.20", optional = true }
+tokenizers = { version = ">=0.20", optional = true }
 
 [tool.poetry.extras]
 otlp = ["opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-http"]
+embed-local = ["onnxruntime", "tokenizers"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8"

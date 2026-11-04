@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
@@ -41,6 +41,7 @@ __all__ = [
     "DeploymentSettings",
     "LeaseSettings",
     "NotifySettings",
+    "RagSettings",
     "Settings",
     "SklandSettings",
     "SourcesSettings",
@@ -158,6 +159,13 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "context.spill_threshold_chars": ("context", "spill_threshold_chars"),
     "plan.approval_mode": ("plan", "approval_mode"),
     "plan.complex_min_steps": ("plan", "complex_min_steps"),
+    # ---- 检索层（M76 规格 §4.4）：五项都不是 config-only，检索每次现读，改完立即
+    # 生效；分块参数改了以后由下次同步重建。
+    "rag.enabled": ("rag", "enabled"),
+    "rag.embedding_provider": ("rag", "embedding_provider"),
+    "rag.top_k": ("rag", "top_k"),
+    "rag.chunk_chars": ("rag", "chunk_chars"),
+    "rag.chunk_overlap": ("rag", "chunk_overlap"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -353,6 +361,24 @@ class PlanSettings(BaseModel):
 
     approval_mode: Literal["always", "complex", "never"] = "complex"
     complex_min_steps: int = Field(default=4, ge=2, le=20)
+
+
+class RagSettings(BaseModel):
+    """检索层（M76）。每次检索现读，改完立即生效；分块参数改了以后由下次同步重建。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    embedding_provider: Literal["none", "remote", "local"] = "none"
+    top_k: int = Field(default=8, ge=1, le=30)
+    chunk_chars: int = Field(default=800, ge=200, le=4000)
+    chunk_overlap: int = Field(default=100, ge=0, le=1000)
+
+    @model_validator(mode="after")
+    def _overlap_below_chunk(self) -> "RagSettings":
+        if self.chunk_overlap >= self.chunk_chars:
+            raise ValueError("chunk_overlap 必须小于 chunk_chars")
+        return self
 
 
 class TraceSettings(BaseModel):
@@ -673,6 +699,8 @@ class Settings(BaseModel):
     context: ContextSettings = Field(default_factory=ContextSettings)
     #: M75 计划模式的批准策略（不是 config-only，计划提交时现读）。
     plan: PlanSettings = Field(default_factory=PlanSettings)
+    #: M76 检索层：开关、向量服务与分块参数（都不是 config-only，检索/同步时现读）。
+    rag: RagSettings = Field(default_factory=RagSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

@@ -33,6 +33,8 @@ from tests.db.test_models import (
     EXPECTED_FK_SET_NULL,
     EXPECTED_INDEXES,
     EXPECTED_UNIQUE_CONSTRAINTS,
+    FTS_OBJECTS,
+    FTS_SHADOW_TABLES,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -92,14 +94,56 @@ def table_names(db_path: Path) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# 建表：16 张表、列、索引
+# 建表：44 张表、列、索引
 # ---------------------------------------------------------------------------
 def test_upgrade_creates_all_business_tables(head_db):
-    """16 张业务表全部建出，外加 Alembic 自己的版本表。"""
+    """44 张业务表全部建出，外加 Alembic 自己的版本表。"""
     names = table_names(head_db)
     assert BUSINESS_TABLES <= names, sorted(BUSINESS_TABLES - names)
     assert "alembic_version" in names
     assert set(SQLModel.metadata.tables) <= names
+
+
+def _fts_objects(db_path: Path) -> dict[str, str]:
+    """``sqlite_master`` 里的 FTS5 对象：名字 → 类型（只查 M76 的四个）。"""
+    params = ", ".join("?" * len(FTS_OBJECTS))
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        return dict(
+            conn.execute(
+                f"select name, type from sqlite_master where name in ({params})",
+                tuple(FTS_OBJECTS),
+            ).fetchall()
+        )
+
+
+def test_fts_objects_exist_after_upgrade(head_db, raw):
+    """迁移 0030 建出虚拟表与三个触发器；虚拟表是 FTS5 + trigram。"""
+    assert _fts_objects(head_db) == FTS_OBJECTS
+    fts_ddl = ddl(raw, "knowledge_chunk_fts")
+    assert "USING FTS5" in fts_ddl
+    assert "TOKENIZE='TRIGRAM'" in fts_ddl
+    # 外部内容表：正文取自 knowledge_chunk，rowid 就是分块 id。
+    assert "CONTENT='KNOWLEDGE_CHUNK'" in fts_ddl
+    assert "CONTENT_ROWID='ID'" in fts_ddl
+
+
+def test_fts_ddl_matches_metadata_listener(head_db, tmp_path):
+    """迁移与 ``create_all`` 监听器建出的四个对象 SQL 去掉空白后逐字相同。"""
+    create_all_db = tmp_path / "create_all.db"
+    engine = create_engine(f"sqlite:///{create_all_db}")
+    SQLModel.metadata.create_all(engine)
+    engine.dispose()
+
+    def fts_sqls(db_path: Path) -> dict[str, str]:
+        params = ", ".join("?" * len(FTS_OBJECTS))
+        with contextlib.closing(sqlite3.connect(db_path)) as conn:
+            rows = conn.execute(
+                f"select name, sql from sqlite_master where name in ({params})",
+                tuple(FTS_OBJECTS),
+            ).fetchall()
+            return {name: "".join((sql or "").split()) for name, sql in rows}
+
+    assert fts_sqls(head_db) == fts_sqls(create_all_db)
 
 
 def test_columns_match_model_metadata(inspector):
@@ -307,16 +351,30 @@ def test_head_revision_is_recorded_and_upgrade_is_idempotent(alembic_cfg, raw):
 
 
 def test_downgrade_to_base_drops_every_table_then_upgrade_restores(alembic_cfg, head_db):
-    """downgrade base 把 16 张表删干净，且能再次 upgrade（docs/12 §4）。"""
+    """downgrade base 把 44 张表与 FTS 对象删干净，且能再次 upgrade（docs/12 §4）。"""
     command.downgrade(alembic_cfg, "base")
     left = table_names(head_db)
     assert not (BUSINESS_TABLES & left), sorted(BUSINESS_TABLES & left)
+    # FTS 对象与它的影子表不在元数据里，只查 BUSINESS_TABLES 会漏掉漏删的虚拟表。
+    assert _fts_objects(head_db) == {}
     with contextlib.closing(sqlite3.connect(head_db)) as conn:
         assert conn.execute("select version_num from alembic_version").fetchall() == []
+    fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
+    params = ", ".join("?" * len(fts_names))
+    with contextlib.closing(sqlite3.connect(head_db)) as conn:
+        leftovers = {
+            row[0]
+            for row in conn.execute(
+                f"select name from sqlite_master where name in ({params})",
+                tuple(fts_names),
+            )
+        }
+    assert leftovers == set()
 
     command.upgrade(alembic_cfg, "head")
     names = table_names(head_db)
     assert BUSINESS_TABLES <= names, sorted(BUSINESS_TABLES - names)
+    assert _fts_objects(head_db) == FTS_OBJECTS
 
 
 def test_offline_mode_renders_sql_without_creating_db(alembic_cfg, db_path):
@@ -329,4 +387,5 @@ def test_offline_mode_renders_sql_without_creating_db(alembic_cfg, db_path):
     assert "CREATE TABLE pipeline" in sql
     assert "AUTOINCREMENT" in sql
     assert "WHERE status = 'running'" in sql
+    assert "CREATE VIRTUAL TABLE knowledge_chunk_fts" in sql
     assert not db_path.exists(), "离线模式不应创建数据库文件"

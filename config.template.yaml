@@ -204,6 +204,17 @@ plan:
   # 步骤数达到这个值算复杂计划
   complex_min_steps: 4
 
+rag:
+  # 知识检索总开关
+  enabled: true
+  # 向量服务：none 只用全文检索；remote 用 llm.role_embedding 指向的档案；local 用本地 ONNX 档案
+  embedding_provider: none
+  # 每次检索返回的条数（1–30）
+  top_k: 8
+  # 分块长度与相邻分块的重叠字数；改了以后下次同步时重建分块
+  chunk_chars: 800
+  chunk_overlap: 100
+
 # 运行追踪：每次代理调用的步骤、耗时与用量
 trace:
   enabled: true

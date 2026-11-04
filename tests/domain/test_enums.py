@@ -319,6 +319,17 @@ EXPECTED_VALUES = {
         "DONE": "done",
         "CANCELLED": "cancelled",
     },
+    # M76：检索来源的种类（v3 specs/m76 §4.1、docs/v3/03 §13）。
+    "KnowledgeSourceKind": {
+        "BUILTIN": "builtin",
+        "USER": "user",
+        "MAA_DOCS": "maa_docs",
+        "PRTS": "prts",
+        "GAMEDATA": "gamedata",
+        "COPILOT_SITE": "copilot_site",
+        "HISTORY": "history",
+        "MEMORY": "memory",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。
