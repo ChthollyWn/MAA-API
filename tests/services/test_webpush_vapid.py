@@ -83,8 +83,11 @@ def test_signature_is_raw_jws_not_der() -> None:
     from maa_api.services.webpush_crypto import b64url_decode  # noqa: PLC0415
 
     signature = b64url_decode(token.split(".")[2])
+    # ES256 的 JWS 签名固定 64 octet（DER 是 70–72 字节且首字节 0x30）。raw R||S 的
+    # 首字节是随机的，约 1/256 会恰好等于 0x30，所以不能用 startswith 判断；用长度 +
+    # 公钥验证往返来证明 raw 编码（M70 验收发现原断言有概率误报）。
     assert len(signature) == 64
-    assert not signature.startswith(b"\x30")  # DER SEQUENCE 头，出现即说明没转换
+    assert vapid.verify_vapid_token(token, public_b64)["aud"] == "https://x.test"
 
 
 def test_rejects_non_p256_key() -> None:
