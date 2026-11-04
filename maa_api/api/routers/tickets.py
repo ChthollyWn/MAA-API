@@ -2,7 +2,7 @@
 
 三条端点都从 ``app.state.ticket_service`` 取启动时装配好的
 :class:`~maa_api.agent.tickets.service.TicketService`；服务尚未装配（进程启动中、
-或测试只装了路由）返回 503 ``SERVICE_UNAVAILABLE``，与 ``routers/runs.py`` 同口径。
+或测试只装了路由）返回 503 ``AGENT_DISABLED``（spec §4.3 的口径）。
 分页参数与分页范围在路由层判断（400 ``INVALID_PAGINATION``），工单是否存在交给
 服务层抛 404 ``TICKET_NOT_FOUND``（详情缺委托是装配错误，照旧抛 ``RuntimeError``）。
 
@@ -145,7 +145,7 @@ def _service(request: Request) -> TicketService:
     """取工单服务；装配层还没设置时返回 503。"""
     service = getattr(request.app.state, "ticket_service", None)
     if service is None:
-        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工单服务还在启动中，请稍后重试")
+        raise AppError(ErrorCode.AGENT_DISABLED, "工单服务还在启动中，请稍后重试")
     return service
 
 
@@ -244,7 +244,7 @@ def _ticket_detail(data: TicketDetailData) -> TicketDetail:
     response_model=TicketPage,
     summary="分页读取工单",
     responses=error_responses(
-        "INVALID_PAGINATION", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+        "INVALID_PAGINATION", "AGENT_DISABLED", "UNAUTHORIZED"
     ),
     dependencies=[Depends(require_auth)],
 )
@@ -279,7 +279,7 @@ async def list_tickets(
     response_model=TicketDetail,
     summary="读取工单详情",
     responses=error_responses(
-        "TICKET_NOT_FOUND", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+        "TICKET_NOT_FOUND", "AGENT_DISABLED", "UNAUTHORIZED"
     ),
     dependencies=[Depends(require_auth)],
 )
@@ -295,7 +295,7 @@ async def get_ticket(
     response_model=TicketReportPage,
     summary="分页读取工单汇报",
     responses=error_responses(
-        "TICKET_NOT_FOUND", "INVALID_PAGINATION", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+        "TICKET_NOT_FOUND", "INVALID_PAGINATION", "AGENT_DISABLED", "UNAUTHORIZED"
     ),
     dependencies=[Depends(require_auth)],
 )

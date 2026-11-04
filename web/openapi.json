@@ -11770,23 +11770,14 @@
               "application/json": {
                 "example": {
                   "error": {
-                    "code": "SERVICE_UNAVAILABLE",
+                    "code": "AGENT_DISABLED",
                     "details": {},
                     "message": "服务暂时不可用"
                   }
                 }
               }
             },
-            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
+            "description": "服务暂时不可用：AGENT_DISABLED"
           }
         },
         "summary": "分页读取工单",
@@ -11867,23 +11858,14 @@
               "application/json": {
                 "example": {
                   "error": {
-                    "code": "SERVICE_UNAVAILABLE",
+                    "code": "AGENT_DISABLED",
                     "details": {},
                     "message": "服务暂时不可用"
                   }
                 }
               }
             },
-            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
+            "description": "服务暂时不可用：AGENT_DISABLED"
           }
         },
         "summary": "读取工单详情",
@@ -12002,23 +11984,14 @@
               "application/json": {
                 "example": {
                   "error": {
-                    "code": "SERVICE_UNAVAILABLE",
+                    "code": "AGENT_DISABLED",
                     "details": {},
                     "message": "服务暂时不可用"
                   }
                 }
               }
             },
-            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
-            "headers": {
-              "Retry-After": {
-                "description": "建议的重试等待秒数（整数）",
-                "schema": {
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
+            "description": "服务暂时不可用：AGENT_DISABLED"
           }
         },
         "summary": "分页读取工单汇报",

@@ -368,7 +368,7 @@ def test_ticket_routes_report_503_without_a_service(
         response = client.get(path)
         assert response.status_code == 503, response.text
         error = _error(response)
-        assert error["code"] == "SERVICE_UNAVAILABLE"
+        assert error["code"] == "AGENT_DISABLED"
         assert error["message"] == "工单服务还在启动中，请稍后重试"
 
 
