@@ -487,6 +487,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     update_scheduler = None
     schedule_service = None
     resource_service = None
+    knowledge_index_service = None
     confirmation_service = None
     question_service = None
     run_service = None
@@ -1263,6 +1264,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.agent.llm.cost import CostLedger
         from maa_api.agent.llm.profiles import ModelProfileService
         from maa_api.agent.llm.roles import ModelRouter
+        from maa_api.agent.llm.usage import Usage
 
         runtime_client_factory = lambda: getattr(  # noqa: E731 - 与装配层其它 provider 同款
             getattr(app.state, "agent_runtime", None), "client_factory", None
@@ -1344,6 +1346,62 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.plan_service = plan_service
         ticket_service.add_end_listener(plan_service.on_ticket_ended)
+
+        # M76 第 9 步：检索层排在 ``artifact_service`` 之后。``EmbeddingResolver``
+        # 按当前 RAG 设置解析向量服务（用量记进成本账本）；索引服务注册内置与
+        # 自定义两个来源，``start()`` 在后台建首次索引；``retriever`` 给
+        # ``search_knowledge`` 工具与 REST 测试检索共用。
+        from maa_api.agent.knowledge.index.embeddings import EmbeddingResolver
+        from maa_api.agent.knowledge.index.entries import KnowledgeEntrySource
+        from maa_api.agent.knowledge.index.indexer import KnowledgeIndexService
+        from maa_api.agent.knowledge.index.retriever import Retriever
+
+        async def record_embedding_usage(tokens: int) -> None:
+            """远端向量服务的用量入账；没有运行归属，``run_id`` 留空。"""
+            ledger = getattr(app.state, "cost_ledger", None)
+            if ledger is None:
+                return
+            try:
+                profile = await app.state.model_router.resolve("embedding")
+                await ledger.record(
+                    run_id=None,
+                    session_id=None,
+                    # 查询向量与建索引用同一个 provider，调用方上下文传不进
+                    # provider，统一记在索引服务名下（偏差由任务报告说明）。
+                    agent_name="knowledge_index",
+                    role="embedding",
+                    profile=profile,
+                    usage=Usage(prompt_tokens=tokens),
+                )
+            except Exception:  # noqa: BLE001 - 记账失败不能拖垮检索
+                logger.warning("记录向量服务用量失败", exc_info=True)
+
+        embedding_resolver = EmbeddingResolver(
+            db_session.session_factory,
+            settings_provider=get_settings,
+            model_router=app.state.model_router,
+            on_usage=record_embedding_usage,
+        )
+        knowledge_index_service = KnowledgeIndexService(
+            db_session.session_factory,
+            settings_provider=get_settings,
+            embeddings=embedding_resolver,
+        )
+        knowledge_index_service.register(
+            KnowledgeEntrySource(app.state.knowledge_service, "builtin")
+        )
+        knowledge_index_service.register(
+            KnowledgeEntrySource(app.state.knowledge_service, "user")
+        )
+        app.state.knowledge_index_service = knowledge_index_service
+        app.state.retriever = Retriever(
+            db_session.session_factory,
+            index=knowledge_index_service,
+            settings_provider=get_settings,
+        )
+        app.state.knowledge_service.add_change_listener(
+            knowledge_index_service.on_knowledge_changed
+        )
 
         # M71 §4.5.9：设备租约在工单服务之后、Worker 之前装配。恢复阶段清理过
         # 上一进程的租约；这里起扫描任务、绑定队列闸门，并注册工单结束监听。
@@ -1592,6 +1650,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if upgrade_plans is not None:
             upgrade_plans.bind_schedule_service(schedule_service)
             schedule_service.bind_delete_hook(upgrade_plans.on_schedule_deleted)
+
+        # M76：首次同步排在第 9 步末尾而不是装配点，避开与定时任务装载等启动
+        # 写入的 SQLite 写锁竞争；同步本身仍在后台跑。
+        await knowledge_index_service.start()
     except BaseException:
         shutdown_started = True
         # v3 关闭顺序（M70 §5 T13）：先停总控与 Worker，再停它们依赖的确认 / 提问 /
@@ -1610,6 +1672,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await confirmation_service.close()
         if run_service is not None:
             await run_service.close()
+        # M76：检索索引服务要排在关闭调度器之前停；它取消后台同步/补向量任务。
+        if knowledge_index_service is not None:
+            await knowledge_index_service.close()
         if schedule_service is not None:
             await schedule_service.close()
         if update_scheduler is not None and update_scheduler.running:
@@ -1657,6 +1722,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "ticket_service",
             "artifact_service",
             "plan_service",
+            "knowledge_index_service",
+            "retriever",
             "thread_router",
             "inbox_service",
             "worker_service",
@@ -1715,6 +1782,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await confirmation_service.close()
         if run_service is not None:
             await run_service.close()
+        # M76：检索索引服务要排在关闭调度器之前停；它取消后台同步/补向量任务。
+        if knowledge_index_service is not None:
+            await knowledge_index_service.close()
         if schedule_service is not None:
             await schedule_service.close()
         if update_scheduler is not None and update_scheduler.running:
@@ -1771,6 +1841,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "ticket_service",
             "artifact_service",
             "plan_service",
+            "knowledge_index_service",
+            "retriever",
             "thread_router",
             "inbox_service",
             "worker_service",

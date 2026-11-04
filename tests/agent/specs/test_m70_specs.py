@@ -32,6 +32,8 @@ MARKERS = {
 WORKER_TOOLS = {"report", "delegate", "hold_device", "release_device"}
 #: M75 §4.7：七个 Worker 在 ``report`` 前追加的三个工作记忆工具。
 WORKSPACE_TOOLS = {"update_plan", "write_note", "read_artifact"}
+#: M76 §4.7：``general`` 与 ``researcher`` 追加的知识检索工具。
+KNOWLEDGE_TOOLS = {"search_knowledge"}
 TICKET_TOOLS = {
     "create_ticket",
     "send_to_ticket",
@@ -86,7 +88,12 @@ def test_general_tools_equal_legacy_chat_minus_delegate_recon_plus_worker_tools(
     general = builtin_spec("general")
     legacy = builtin_spec("legacy_chat")
 
-    expected = (set(legacy.tools) - {"delegate_recon"}) | WORKER_TOOLS | WORKSPACE_TOOLS
+    expected = (
+        (set(legacy.tools) - {"delegate_recon"})
+        | WORKER_TOOLS
+        | WORKSPACE_TOOLS
+        | KNOWLEDGE_TOOLS
+    )
     assert set(general.tools) == expected
     assert "delegate_recon" not in general.tools
     assert TICKET_TOOLS.isdisjoint(general.tools)

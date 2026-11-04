@@ -425,10 +425,13 @@ class EmbeddingResolver:
         *,
         settings_provider: Callable[[], Any],
         model_router: Any,
+        on_usage: Callable[[int], Awaitable[None]] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._settings_provider = settings_provider
         self._model_router = model_router
+        # 远端向量服务的用量出口（M76 T9）：装配层把它接到成本账本。
+        self._on_usage = on_usage
         self._status = EmbeddingStatus(
             provider="none", model=None, status="disabled", error=None
         )
@@ -495,6 +498,7 @@ class EmbeddingResolver:
                 api_key=profile.api_key,
                 model=profile.model,
                 dim=profile.embedding_dim,
+                on_usage=self._on_usage,
             )
             self._remember(key, provider)
         self._status = EmbeddingStatus(

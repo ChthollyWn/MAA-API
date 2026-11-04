@@ -21,6 +21,8 @@ EXPECTED_TOOLS = {
     "list_schedules",
     "create_schedule", "update_schedule", "delete_schedule",
     "check_confirmation", "read_knowledge", "ask_user",
+    # M76：知识检索工具（规格 §4.2）。
+    "search_knowledge",
     # M23 媒体组（规格 §3.2）。
     "send_screenshot", "annotate_screenshot", "send_item_icons",
     "send_stage_map", "send_chart",
@@ -94,7 +96,7 @@ EXPECTED_REFETCHABLE = frozenset({
     "list_custom_tasks", "check_updates", "scan_proxy_channels",
     "wait_update", "list_schedules", "read_knowledge", "list_files",
     "read_file", "search_code", "list_tool_groups", "check_confirmation",
-    "list_tickets", "get_ticket",
+    "list_tickets", "get_ticket", "search_knowledge",
 })
 
 
@@ -110,9 +112,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # （少一个隐藏工具 ``trigger_screencap``）。M70 加七个 Worker 与工单工具 → 91，
     # 模型可见 90（七个都可见，只是不进 REST 目录）。M71 加两个设备租约工具 → 93，
     # 模型可见 92（同样都可见，只是不进 REST 目录）。M75 T2 加续读与笔记两个工具
-    # → 95，模型可见 94；T3 的 ``update_plan`` 再各加一 → 96 / 95。
-    assert len(actual) == 96
-    assert sum(1 for item in registry.list() if item.model_visible) == 95
+    # → 95，模型可见 94；T3 的 ``update_plan`` 再各加一 → 96 / 95。M76 加
+    # ``search_knowledge`` → 97 / 96。
+    assert len(actual) == 97
+    assert sum(1 for item in registry.list() if item.model_visible) == 96
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
@@ -653,14 +656,14 @@ def test_extension_fields_keep_v2_defaults() -> None:
 
 
 def test_refetchable_tools_are_pinned() -> None:
-    """M74 §5 T3：可重取工具恰为清单里的 48 个，且都是只读。"""
+    """M74 §5 T3：可重取工具恰为清单里的 49 个，且都是只读。"""
 
     definitions = build_registry().list()
     refetchable = {
         definition.name for definition in definitions if definition.refetchable
     }
 
-    assert len(EXPECTED_REFETCHABLE) == 48
+    assert len(EXPECTED_REFETCHABLE) == 49
     assert refetchable == EXPECTED_REFETCHABLE
     assert refetchable <= EXPECTED_TOOLS
     assert all(
