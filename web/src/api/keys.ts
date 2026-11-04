@@ -70,5 +70,10 @@ export const keys = {
     pendingConfirmations: () => [...root, 'confirmations', 'pending'] as const,
     /** 本会话待答的提问（Agent 主动提问卡）；按会话再分一段，便于整片失效。 */
     pendingQuestions: () => [...root, 'agent', 'questions', 'pending'] as const,
+    tickets: (filters?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'tickets', filters ?? {}] as const,
+    ticket: (ticketId: string) => [...root, 'agent', 'tickets', 'detail', ticketId] as const,
+    ticketReports: (ticketId: string, filters?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'tickets', ticketId, 'reports', filters ?? {}] as const,
   },
 } as const

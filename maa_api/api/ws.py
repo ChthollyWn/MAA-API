@@ -38,6 +38,7 @@ CHANNELS = frozenset(
         "update_progress",
         "update_available",
         "agent_event",
+        "ticket_status",
         "server_shutdown",
     }
 )
