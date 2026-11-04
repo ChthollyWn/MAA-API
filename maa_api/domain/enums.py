@@ -365,3 +365,21 @@ class InboxStatus(StrEnum):
     PENDING = "pending"
     CONSUMED = "consumed"
     DROPPED = "dropped"
+
+
+# ---- M74 压缩检查点（v3 specs/m74 §4.1） ----
+
+
+class CompactionTrigger(StrEnum):
+    """检查点的触发方式：运行内自动压缩或用户手动压缩。"""
+
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
+class CheckpointStatus(StrEnum):
+    """检查点的状态：生效、被更新的检查点取代，或因会话重写而失效。"""
+
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    INVALIDATED = "invalidated"
