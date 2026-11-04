@@ -39,6 +39,7 @@ __all__ = [
     "ContextLayout",
     "ContextParts",
     "Segment",
+    "load_history",
     "merge_tail",
     "parts_of",
     "put_segment",
@@ -197,6 +198,75 @@ def _breakpoint(
     return None, None
 
 
+def _session_factory_for(ctx: RunContext) -> Any:
+    """取装配层注入的会话工厂；测试与局部运行允许没有。"""
+    state = getattr(getattr(ctx, "app", None), "state", None)
+    factory = getattr(state, "session_factory", None)
+    if factory is None:
+        runtime = getattr(state, "agent_runtime", None)
+        factory = getattr(runtime, "session_factory", None)
+    return factory
+
+
+async def load_history(
+    ctx: RunContext, *, profile: ResolvedProfile
+) -> tuple[list[dict[str, Any]], str | None]:
+    """读 active 检查点之后的历史，供非 legacy 的布局使用（M74 规格 §4.5.1）。
+
+    没有检查点时取全部消息；有检查点时只取 ``seq > upto_seq`` 的消息，并把检查点
+    的摘要正文作为第一条 ``role='user'`` 消息插在最前面。视觉可用时回填最新一张
+    截图，再交给 :func:`prepare_history_messages` 做落库消息 → 模型消息的转换。
+
+    返回 ``(history, checkpoint_id)``，并把 ``checkpoint_id`` 记进
+    ``ctx.state["context_layout"]``：断点原因与自动压缩的并发检查都靠它。
+    ``profile`` 是为保持装配口径的完整签名（读历史不依赖档案），这里不使用。
+    """
+    del profile  # 读历史不需要档案；签名保留以便调用方只传一份上下文
+    state = ctx.state.setdefault("context_layout", {})
+    state["checkpoint_id"] = None
+    session_id = getattr(ctx, "session_id", None)
+    factory = _session_factory_for(ctx)
+    if session_id is None or factory is None:
+        return [], None
+
+    from maa_api.db.repositories.agent import AgentMessageRepository
+    from maa_api.db.repositories.compaction import CompactionCheckpointRepository
+
+    async with factory() as session:
+        checkpoint = await CompactionCheckpointRepository(
+            session
+        ).active_for_session(session_id)
+        after = checkpoint.upto_seq if checkpoint is not None else -1
+        messages = await AgentMessageRepository(session).list_after_seq(
+            session_id, after
+        )
+        checkpoint_id = checkpoint.id if checkpoint is not None else None
+        summary = checkpoint.summary if checkpoint is not None else None
+
+    rows: Any = messages
+    if ctx.vision_enabled:
+        runtime = getattr(
+            getattr(getattr(ctx, "app", None), "state", None),
+            "agent_runtime",
+            None,
+        )
+        hydrate = getattr(runtime, "_hydrate_latest_screenshot", None)
+        if hydrate is not None:
+            try:
+                rows = await hydrate(rows)
+            except Exception:  # noqa: BLE001 - 截图只是可选上下文
+                logger.warning("回填最新截图失败，按无图历史组装上下文", exc_info=True)
+
+    # 延迟导入：builtin_middleware 依赖本模块，顶层 import 会成环。
+    from maa_api.agent.harness.builtin_middleware import prepare_history_messages
+
+    history = prepare_history_messages(rows, vision_enabled=ctx.vision_enabled)
+    if summary is not None:
+        history.insert(0, {"role": "user", "content": summary})
+    state["checkpoint_id"] = checkpoint_id
+    return history, checkpoint_id
+
+
 class ContextLayout:
     """把 :class:`ContextParts` 渲染成请求，并记录前缀断点。"""
 
@@ -241,13 +311,38 @@ class ContextLayout:
         system_hash = _digest(rendered[0]["content"]) if rendered else _digest("")
         history_hashes = [_digest(message) for message in parts.history]
         state = ctx.state.setdefault("context_layout", {})
-        break_reason, break_index = _breakpoint(
-            state.get("prefix"), tools_hash, system_hash, history_hashes
+        previous = state.get("prefix")
+        # 断点原因（M74 规格 §4.5.1）：检查点换了 → checkpoint；清理边界比上一次
+        # 大 → clearing；否则沿用 M67 的字节比较。比较对象是「上一次真正渲染出去
+        # 的请求」记录在 prefix 里的值，而不是本次中间件刚写进 state 的值。
+        checkpoint_id = state.get("checkpoint_id")
+        previous_checkpoint = (
+            previous.get("checkpoint_id") if isinstance(previous, Mapping) else None
         )
+        clear_boundary = int(state.get("clear_boundary") or 0)
+        previous_boundary = (
+            int(previous.get("clear_boundary") or 0)
+            if isinstance(previous, Mapping)
+            else 0
+        )
+        m67_reason, m67_index = _breakpoint(
+            previous, tools_hash, system_hash, history_hashes
+        )
+        if m67_reason is None:
+            # 没有断点时不因为边界前进（清理计划未达收益阈值）或检查点不变而虚报。
+            break_reason, break_index = None, None
+        elif previous_checkpoint != checkpoint_id:
+            break_reason, break_index = "checkpoint", None
+        elif clear_boundary > previous_boundary:
+            break_reason, break_index = "clearing", None
+        else:
+            break_reason, break_index = m67_reason, m67_index
         state["prefix"] = {
             "tools_hash": tools_hash,
             "system_hash": system_hash,
             "history_hashes": history_hashes,
+            "checkpoint_id": checkpoint_id,
+            "clear_boundary": clear_boundary,
         }
         if break_reason is not None:
             state["breaks"] = int(state.get("breaks", 0)) + 1

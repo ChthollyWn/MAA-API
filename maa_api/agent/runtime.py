@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.context.clearing import ToolResultClearingMiddleware
+from maa_api.agent.context.compaction import CompactionMiddleware
 from maa_api.agent.context.durable import DurableContextMiddleware
 from maa_api.agent.harness.builtin_middleware import (
     AGENT_SCREENSHOT_GRID,
@@ -235,9 +236,8 @@ def build_agent_chain(
     三个都声明了 ``applies_to``，``MiddlewareChain.for_kind`` 会把它们从总控链裁掉。
     ``cost_ledger`` 存在时 ``BudgetMiddleware`` 仍在第 2 位（与门面一致）。
 
-    M74 把 durable 与工具结果清理放到第 6、8 位；第 7 位留给 M74 后续任务的
-    ``CompactionMiddleware``，它必须落在「收集 durable」之后、「清理」之前
-    （压缩阈值按清理后的请求估算，06 §5.2）。
+    M74 把 durable、压缩与工具结果清理放到第 6、7、8 位：压缩必须落在
+    「收集 durable」之后、「清理」之前（压缩阈值按清理后的请求估算，06 §5.2）。
     """
     registry = confirmation_service.registry
     middlewares: list[Middleware] = [TraceMiddleware()]
@@ -249,6 +249,7 @@ def build_agent_chain(
         [
             ContextLayoutMiddleware(),
             DurableContextMiddleware(),
+            CompactionMiddleware(settings_provider=settings_provider),
             ToolResultClearingMiddleware(
                 registry=registry, settings_provider=settings_provider
             ),

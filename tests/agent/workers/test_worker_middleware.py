@@ -483,6 +483,7 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "trace",
         "context_layout",
         "durable_context",
+        "compaction",
         "tool_result_clearing",
         "loop_guard",
         "mandate",
@@ -491,7 +492,7 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "report",
         "policy",
     )
-    # 子代理没有 durable（只给总控与 Worker）与 report（18 号只给 Worker），
+    # 子代理没有 durable 与压缩（只给总控与 Worker）与 report（18 号只给 Worker），
     # 但清理（8 号）与 14/16 号都在。
     assert runtime.build_chain("subagent").names == (
         "trace",
@@ -502,11 +503,12 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "lease",
         "policy",
     )
-    # 总控链里没有 Worker 的三个（14/16/18），但 6/8 号都在。
+    # 总控链里没有 Worker 的三个（14/16/18），但 6/7/8 号都在。
     assert runtime.build_chain("orchestrator").names == (
         "trace",
         "context_layout",
         "durable_context",
+        "compaction",
         "tool_result_clearing",
         "loop_guard",
         "clarification",

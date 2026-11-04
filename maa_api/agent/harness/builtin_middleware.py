@@ -22,7 +22,12 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from maa_api.agent.context.layout import ContextLayout, ContextParts, Segment
+from maa_api.agent.context.layout import (
+    ContextLayout,
+    ContextParts,
+    Segment,
+    load_history,
+)
 from maa_api.agent.context.tokens import TokenEstimator
 from maa_api.agent.harness.context import (
     ModelRequest,
@@ -54,7 +59,6 @@ from maa_api.db.repositories.log import ScreenshotRepository
 from maa_api.db.session import describe_database_error, run_with_busy_retry
 from maa_api.domain.enums import (
     CallerType,
-    DynamicContextPosition,
     ScreenshotBackend,
     ScreenshotTrigger,
     SpanKind,
@@ -1209,8 +1213,9 @@ class ContextLayoutMiddleware(Middleware):
     ``app.state.model_router`` 时还会按会话快照解析档案（供成本记账），消息字节不变。
 
     其余定义在 ``on_run_start`` 里按 v3 06 §2 取稳定段、动态段与状态摘要，在
-    ``before_model`` 里用 :class:`ContextLayout` 渲染；M67 仍按 v2 的字符预算
-    （:data:`DEFAULT_MAX_CONTEXT_CHARS`）兜底裁剪历史，M74 才换成 token 预算。
+    ``before_model`` 里用 :class:`ContextLayout` 渲染。M74 起历史经
+    :func:`load_history` 从 active 检查点之后读取，字符预算只留在 legacy 路径；
+    新代理的 token 预算、清理与压缩由后续中间件负责。
     """
 
     name = "context_layout"
@@ -1281,10 +1286,15 @@ class ContextLayoutMiddleware(Middleware):
             )
         layout_state = ctx.state.get(self.name) or {}
         service = _layout_service_for(ctx)
-        history = await _hydrate_history(ctx, req.messages)
-        prepared = prepare_history_messages(
-            history, vision_enabled=ctx.vision_enabled
-        )
+        # M74 起非 legacy 路径从检查点之后读历史（token 预算由清理中间件兜底）；
+        # 没有会话工厂的局部运行（MemoryTranscript、单测）退回请求里的消息。
+        history, checkpoint_id = await load_history(ctx, profile=profile)
+        if not history and req.messages:
+            history = prepare_history_messages(
+                await _hydrate_history(ctx, req.messages),
+                vision_enabled=ctx.vision_enabled,
+            )
+        ctx.state.setdefault("context_layout", {})["checkpoint_id"] = checkpoint_id
         summary_text = json.dumps(
             redact_remote_data(layout_state.get("status")),
             ensure_ascii=False,
@@ -1299,7 +1309,7 @@ class ContextLayoutMiddleware(Middleware):
         system.append(Segment("knowledge", str(layout_state.get("stable") or "")))
         parts = ContextParts(
             system=system,
-            history=prepared,
+            history=history,
             tail=[
                 Segment("status", f"状态摘要：{summary_text}"),
                 Segment("knowledge", str(layout_state.get("dynamic") or "")),
@@ -1309,22 +1319,6 @@ class ContextLayoutMiddleware(Middleware):
         )
         req = service.apply(ctx, req, parts, profile=profile)
         req.profile = profile
-
-        # M67 到 M73 仍按 v2 的字符预算裁剪（M74 换成 token 预算）：固定开销是 system
-        # 与 tail_system 时的尾部消息，历史之外的工具声明也计入。
-        fixed: list[dict[str, Any]] = [req.messages[0]]
-        if parts.position == DynamicContextPosition.TAIL_SYSTEM.value:
-            fixed.append(req.messages[-1])
-        trimmed = trim_history_to_char_budget(
-            fixed,
-            prepared,
-            max_context_chars=DEFAULT_MAX_CONTEXT_CHARS,
-            envelope_chars=len(json.dumps(parts.tools, ensure_ascii=False)),
-        )
-        if trimmed != prepared:
-            parts.history = trimmed
-            req = service.apply(ctx, req, parts, profile=profile)
-            req.profile = profile
         return req
 
     async def after_model(self, ctx: RunContext, resp: ModelResponse) -> ModelResponse:
