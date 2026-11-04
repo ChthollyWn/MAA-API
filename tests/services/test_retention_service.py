@@ -29,6 +29,7 @@ from sqlalchemy import select
 
 from maa_api.db import session as db_session_module
 from maa_api.db.models import (
+    AgentInbox,
     AgentRun,
     AgentSession,
     CostLedgerEntry,
@@ -42,6 +43,8 @@ from maa_api.db.repositories import log as log_repo_module
 from maa_api.domain.enums import (
     AgentRunKind,
     AgentRunStatus,
+    InboxKind,
+    InboxStatus,
     LogLevel,
     LogSource,
     PipelineSource,
@@ -539,5 +542,66 @@ def test_run_retention_purges_trace_spans_older_than_retention_days(
             assert isinstance(out[key], int), out
         rows = await _all(retention_session_factory, TraceSpan)
         assert [row.span_id for row in rows] == ["fresh-span"]
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# Agent 收件箱（M69）
+# ---------------------------------------------------------------------------
+def test_agent_inbox_purged_after_30_days(retention_session_factory) -> None:
+    """已处理超过 30 天的收件箱项删除；窗口内的与 pending 保留（规格 §4.5.7）。"""
+    now = utcnow()
+    assert r.INBOX_RETENTION_DAYS == 30
+    session_id = "retention-inbox-session"
+
+    def inbox(status: InboxStatus, *, consumed_days: float | None) -> AgentInbox:
+        return AgentInbox(
+            session_id=session_id,
+            kind=InboxKind.REPORT,
+            payload={"event": "report"},
+            status=status,
+            created_at=now - timedelta(days=40),
+            consumed_at=(
+                None
+                if consumed_days is None
+                else now - timedelta(days=consumed_days)
+            ),
+        )
+
+    async def scenario():
+        await _insert(
+            retention_session_factory,
+            [
+                AgentSession(
+                    id=session_id,
+                    model="retention-model",
+                    created_at=now - timedelta(days=40),
+                )
+            ],
+        )
+        await _insert(
+            retention_session_factory,
+            [
+                # 31 天前消费 / 丢弃：超过 30 天，删除。
+                inbox(InboxStatus.CONSUMED, consumed_days=31),
+                inbox(InboxStatus.DROPPED, consumed_days=31),
+                # 29 天前消费：窗口内，保留。
+                inbox(InboxStatus.CONSUMED, consumed_days=29),
+                # 40 天前创建但仍 pending：不按时间清理，保留。
+                inbox(InboxStatus.PENDING, consumed_days=None),
+            ],
+        )
+        out = await r.run_retention(session_factory=retention_session_factory)
+        assert out["agent_inbox_deleted"] == 2, out
+        assert isinstance(out["agent_inbox_deleted"], int)
+        rows = await _all(retention_session_factory, AgentInbox)
+        assert [row.status for row in rows] == [
+            InboxStatus.CONSUMED.value,
+            InboxStatus.PENDING.value,
+        ]
+        assert rows[0].consumed_at is not None
+        assert rows[0].consumed_at > now - timedelta(days=30)
+        assert rows[1].consumed_at is None
 
     asyncio.run(scenario())

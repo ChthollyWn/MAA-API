@@ -1,13 +1,17 @@
 """启动时收尾上一进程留下的运行，并让被打断的会话能继续。
 
 一条运行的生命周期归发起方（docs/v3/13 §8），进程退出时不会有人替它写终态：
-还在 ``running`` / ``waiting_human`` 的行只能由**下一次启动**收尾。收尾分两步，
-顺序不能反（与 v2 ``_finish_interrupted_turn`` 同一条硬约束）：
+还在 ``running`` / ``waiting_human`` 的行只能由**下一次启动**收尾。收尾分三步，
+前两步顺序不能反（与 v2 ``_finish_interrupted_turn`` 同一条硬约束）：
 
 1. 给最后一批 ``tool_calls`` 里没有 tool 回复的调用补桩：assistant 的
    ``tool_calls`` 缺对应 tool 消息，下一轮请求结构不完整，上游直接 400。
 2. 追加一条 ``role='system'`` 的恢复提示，告诉模型「刚才被打断了，先看现场」。
    喂给模型时由 ``build_model_context`` 转成 ``【系统】…`` 的 user 行。
+3. 运行如果属于某个工单（``agent_run.ticket_id``），在写运行终态的同一事务里把
+   ``open`` / ``waiting`` 的工单改成 ``blocked``，并补一条 ``forwarded=false`` 的
+   汇报（M69 规格 §4.5.6）。此时 ``ticket_service`` 还没装配，不广播、不转发；
+   lifespan 装配完服务后调用 ``forward_pending_reports`` 补转。
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.tickets.service import block_tickets_after_restart
 from maa_api.db.models import AgentMessage, AgentRun, utcnow
 from maa_api.db.repositories.agent import (
     ACTIVE_RUN_STATUSES,
@@ -119,6 +124,9 @@ class RunRecovery:
             run = await runs.get(run_id)
             if run is None or run.status not in ACTIVE_RUN_STATUSES:
                 return False
+            # 与 ``list_active_from_other_boots`` 同一筛选条件：这条运行如果属于
+            # 某个工单，先记下 id；提交前在写运行终态的同一事务里改工单（§4.5.6）。
+            ticket_ids = [run.ticket_id] if run.ticket_id else []
             prompt_tokens, completion_tokens, steps = await runs.usage_totals(run_id)
             now = self._clock()
             run.status = AgentRunStatus.INTERRUPTED
@@ -134,6 +142,8 @@ class RunRecovery:
                     session_row.message_count += appended
                     session_row.updated_at = now
                     session_row.last_message_at = now
+            if ticket_ids:
+                await block_tickets_after_restart(session, ticket_ids, now=now)
             await session.commit()
         logger.warning("服务重启：运行 %s 已标为中断", run_id)
         return True

@@ -1278,6 +1278,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await span_recorder.start()
         app.state.span_recorder = span_recorder
 
+        # M69：工单领域三件套按 docs/v3/02 §5 的第 6 步装配。RunRecovery 发生在本段
+        # 之前，那时 ticket_service 还不存在，所以恢复只改库、不广播；这里装配完成后
+        # 补转重启期间落库、还没进总控收件箱的汇报（规格 §4.5.6/§4.5.8）。
+        from maa_api.agent.tickets.inbox import InboxService
+        from maa_api.agent.tickets.service import TicketService
+        from maa_api.agent.tickets.threads import ThreadRouter
+
+        app.state.inbox_service = inbox_service = InboxService(
+            db_session.session_factory
+        )
+        app.state.thread_router = thread_router = ThreadRouter(
+            db_session.session_factory, inbox_service
+        )
+        ticket_service = TicketService(
+            db_session.session_factory,
+            inbox_service=inbox_service,
+            thread_router=thread_router,
+            spec_registry=app.state.agent_spec_registry,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+        )
+        app.state.ticket_service = ticket_service
+        await ticket_service.forward_pending_reports()
+
         incident_factory = getattr(app.state, "agent_incident_service_factory", None)
         incident_options = {
             "settings_provider": setting_service.refresh,
@@ -1475,6 +1500,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "confirmation_service",
             "question_service",
             "run_service",
+            "ticket_service",
+            "thread_router",
+            "inbox_service",
             "boot_id",
             "agent_runtime",
             "agent_incident_service",
@@ -1560,6 +1588,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "confirmation_service",
             "question_service",
             "run_service",
+            "ticket_service",
+            "thread_router",
+            "inbox_service",
             "boot_id",
             "agent_runtime",
             "agent_incident_service",

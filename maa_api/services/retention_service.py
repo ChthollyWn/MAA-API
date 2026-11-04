@@ -42,6 +42,10 @@
 - 运行追踪（M68，规格 §4.2.5）：``trace_span`` 超过 ``trace.retention_days``
   （1–90，默认 14）天的行删除，结果落在返回值的 ``trace_spans_deleted`` 上。span
   只按开始时间清理，运行本身与成本账本都不受影响。
+- Agent 收件箱（M69，规格 §4.5.7）：``agent_inbox`` 里已经处理（``consumed`` /
+  ``dropped``）且 ``consumed_at`` 超过 ``INBOX_RETENTION_DAYS``（30）天的项删除，
+  结果落在返回值的 ``agent_inbox_deleted`` 上。``pending`` 项不按时间清理，
+  ``ticket``、``mandate``、``ticket_report``、``thread_subscription`` 不自动删除。
 
 删十万行的一条 DELETE 会长时间持有 SQLite 写锁，期间 ``LogHub`` 刷盘只能在
 ``busy_timeout`` 上排队。因此日志走 ``LogRepository.purge``（内部每批 ``LIMIT 5000``、
@@ -82,6 +86,7 @@ from maa_api.db.repositories.cost import CostLedgerRepository
 from maa_api.db.repositories.log import LogRepository, ScreenshotRepository
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.repositories.resource import ResourceAssetRepository
+from maa_api.db.repositories.ticket import AgentInboxRepository
 from maa_api.db.repositories.trace import TRACE_PURGE_BATCH_SIZE, TraceSpanRepository
 from maa_api.domain.enums import (
     LogSource,
@@ -156,6 +161,10 @@ COST_LEDGER_RETENTION_DAYS = 365
 #: 兜底保留天数；实际取值是 ``trace.retention_days``（1–90，默认 14）。
 TRACE_RETENTION_DAYS = 14
 
+# --- Agent 收件箱（M69，规格 §4.5.7）--------------------------------------
+#: 已处理（consumed / dropped）收件箱项的保留天数；pending 项不按时间清理。
+INBOX_RETENTION_DAYS = 30
+
 
 async def run_retention(
     *,
@@ -167,13 +176,14 @@ async def run_retention(
     :data:`session.session_factory`（运行时取模块属性，测试可注入临时库）。
     资源根目录同样在运行时从 ``session.DB_PATH.parent`` 推导。
 
-    返回 dict 含这七个 key（前四个是 M2 起的既有形状，lifespan 与测试都依赖）：
+    返回 dict 含这八个 key（前四个是 M2 起的既有形状，lifespan 与测试都依赖）：
     ``logs_deleted`` / ``pipelines_deleted`` / ``screenshots_deleted`` /
     ``temp_files_deleted``，都是 int；M29 起多一个 ``copilots_deleted``
     （作业资源，:func:`cleanup_copilots` 的同一段逻辑），M67 起多一个
     ``cost_ledger_deleted``（超过 :data:`COST_LEDGER_RETENTION_DAYS` 的成本账本行），
     M68 起多一个 ``trace_spans_deleted``（超过 ``trace.retention_days`` 的追踪行），
-    既有六个 key 的语义不变。
+    M69 起多一个 ``agent_inbox_deleted``（超过 :data:`INBOX_RETENTION_DAYS` 的已处理
+    收件箱项），既有七个 key 的语义不变。
     其中 ``screenshots_deleted`` 计的是
     **文件被清理并打了 ``deleted_at``** 的截图条数，不含随后按 90 天口径删掉的
     记录条数（后者只进日志）。异常原样抛出，不在本层吞掉。
@@ -189,6 +199,7 @@ async def run_retention(
         "copilots_deleted": 0,
         "cost_ledger_deleted": 0,
         "trace_spans_deleted": 0,
+        "agent_inbox_deleted": 0,
     }
 
     async with factory() as db:
@@ -291,9 +302,25 @@ async def run_retention(
         )
         await _incremental_vacuum(db)
 
+        # 8) Agent 收件箱：已处理（consumed / dropped）超过 30 天的项删除（M69
+        #    规格 §4.5.7）。pending 不按时间清理；工单、委托、汇报与订阅都不在这里
+        #    删，工单历史要留给总控与人工复盘。
+        inbox_repo = AgentInboxRepository(db)
+        result["agent_inbox_deleted"] = await inbox_repo.purge_finished_before(
+            now - timedelta(days=INBOX_RETENTION_DAYS)
+        )
+        await db.commit()
+        logger.info(
+            "保留策略：已删除 %d 条已处理的 Agent 收件箱项",
+            result["agent_inbox_deleted"],
+        )
+        if result["agent_inbox_deleted"]:
+            await asyncio.sleep(BATCH_PAUSE_SECONDS)
+        await _incremental_vacuum(db)
+
     logger.info(
         "保留策略执行完成：日志 %s 条、流水线 %s 条、截图 %s 个、临时文件 %s 个、"
-        "作业 %s 份、成本账本 %s 条、追踪 span %s 条",
+        "作业 %s 份、成本账本 %s 条、追踪 span %s 条、收件箱项 %s 条",
         result["logs_deleted"],
         result["pipelines_deleted"],
         result["screenshots_deleted"],
@@ -301,6 +328,7 @@ async def run_retention(
         result["copilots_deleted"],
         result["cost_ledger_deleted"],
         result["trace_spans_deleted"],
+        result["agent_inbox_deleted"],
     )
     return result
 
