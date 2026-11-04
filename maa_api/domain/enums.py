@@ -452,3 +452,24 @@ class SkillOrigin(StrEnum):
     OVERRIDE = "override"  # 覆盖内置技能，只存与内置不同的列
     USER = "user"  # 用户自建，字段必填
     GENERATED = "generated"  # M95 经验沉淀生成
+
+
+# ---- M79 长期记忆（v3 specs/m79 §4.1、v3 docs/03 §10.2） ----
+
+
+class MemoryKind(StrEnum):
+    """记忆的种类（07 §5.1）：稳定事实、一次经历、验证过的做法。"""
+
+    SEMANTIC = "semantic"
+    EPISODIC = "episodic"
+    PROCEDURAL = "procedural"
+
+
+class MemoryStatus(StrEnum):
+    """记忆的状态：待审核、生效、拒绝、被取代、过期。"""
+
+    PROPOSED = "proposed"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+    SUPERSEDED = "superseded"
+    EXPIRED = "expired"

@@ -336,6 +336,19 @@ EXPECTED_VALUES = {
         "USER": "user",
         "GENERATED": "generated",
     },
+    # M79：长期记忆的种类与状态（v3 specs/m79 §4.1、docs/v3/03 §10.2）。
+    "MemoryKind": {
+        "SEMANTIC": "semantic",
+        "EPISODIC": "episodic",
+        "PROCEDURAL": "procedural",
+    },
+    "MemoryStatus": {
+        "PROPOSED": "proposed",
+        "ACTIVE": "active",
+        "REJECTED": "rejected",
+        "SUPERSEDED": "superseded",
+        "EXPIRED": "expired",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。

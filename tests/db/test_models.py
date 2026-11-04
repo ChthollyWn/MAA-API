@@ -90,6 +90,8 @@ BUSINESS_TABLES = {
     "knowledge_chunk",
     # M78：技能覆盖层（v3 specs/m78 §4.1）。
     "agent_skill",
+    # M79：长期记忆（v3 specs/m79 §4.1、docs/v3/03 §10.2）。
+    "memory_item",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -117,6 +119,8 @@ UUID_PK_TABLES = [
     "run_plan",
     # M76：文档 id 是对外暴露的 36 字符 UUID；来源 id 是短名字，分块是自增主键。
     "knowledge_document",
+    # M79：记忆 id 对外暴露（审核/更新/删除端点都在路径里）。
+    "memory_item",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -317,6 +321,9 @@ EXPECTED_INDEXES = {
         ("embedding_model",),
         False,
     ),
+    # M79：记忆列表按状态/种类过滤、按分类键过滤去重（v3 docs/03 §10.2）。
+    "ix_memory_item_status_kind": ("memory_item", ("status", "kind"), False),
+    "ix_memory_item_subject": ("memory_item", ("subject",), False),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -431,6 +438,11 @@ EXPECTED_FK_SET_NULL = {
     ("artifact", "ticket_id"),
     ("artifact", "run_id"),
     ("run_plan", "ticket_id"),
+    # M79：记忆比工单/会话/运行与被取代的旧记忆活得久（03 §14 不自动删）。
+    ("memory_item", "source_ticket_id"),
+    ("memory_item", "source_session_id"),
+    ("memory_item", "source_run_id"),
+    ("memory_item", "supersedes_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -469,6 +481,8 @@ EXPECTED_TEXT_COLUMNS = {
     ("knowledge_chunk", "text"),
     # M78：技能正文长度不定，用 TEXT。
     ("agent_skill", "body"),
+    # M79：记忆正文不超过 500 字，但长度按内容变化，用 TEXT（03 §10.2）。
+    ("memory_item", "content"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -611,8 +625,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_45_business_tables():
-    """45 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_46_business_tables():
+    """46 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
@@ -768,7 +782,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """47 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """54 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
