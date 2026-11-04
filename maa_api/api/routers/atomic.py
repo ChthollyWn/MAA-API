@@ -16,6 +16,7 @@ from maa_api.api.deps import (
     require_auth,
 )
 from maa_api.api.errors import error_responses
+from maa_api.api.routers.device_lease import preempt_device
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.domain.errors import AppError, ErrorCode
 
@@ -94,6 +95,7 @@ async def click_device(
     # 设备像素经 DeviceManager.click 换算成 MaaCore 基准坐标：不再直接调用内核
     # 客户端，坐标系与越界校验的唯一归属是设备管理器。
     manager = _device_manager(request)
+    await preempt_device(request, "rest_atomic")
     async with runner.operation_lock:
         await _ensure_atomic_allowed(
             operation="click", force=payload.force, session=session
@@ -112,12 +114,14 @@ async def click_device(
     tags=["core"],
 )
 async def back_to_home(
+    request: Request,
     payload: ForceRequest | None = None,
     runner=Depends(get_pipeline_runner),
     registry=Depends(get_core_registry),
     session: AsyncSession = Depends(get_session),
 ):
     force = payload.force if payload is not None else False
+    await preempt_device(request, "rest_atomic")
     async with runner.operation_lock:
         await _ensure_atomic_allowed(
             operation="back_to_home", force=force, session=session

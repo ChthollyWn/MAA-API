@@ -34,7 +34,7 @@ from maa_api.db.repositories.agent import (
 from maa_api.domain.enums import EventSource, TicketOrigin
 from maa_api.domain.errors import AppError, ErrorCode
 
-#: ``TicketDetail`` 的 7 个字段（与 M69 的 test_tickets_router 同口径）。
+#: ``TicketDetail`` 的 8 个字段（与 M69 的 test_tickets_router 同口径，M71 加 ``lease``）。
 DETAIL_FIELDS = {
     "ticket",
     "result",
@@ -43,6 +43,7 @@ DETAIL_FIELDS = {
     "recent_reports",
     "worker_session_id",
     "turn_running",
+    "lease",
 }
 #: ``AgentMessageItem`` 的 17 个字段。
 MESSAGE_FIELDS = {

@@ -1632,6 +1632,121 @@
         "title": "DeviceHealth",
         "type": "object"
       },
+      "DeviceLeaseOut": {
+        "description": "当前设备租约的对外形状；与 ``DeviceLeaseService.wire`` 一一对应。",
+        "properties": {
+          "acquired_at": {
+            "title": "Acquired At",
+            "type": "string"
+          },
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "explicit": {
+            "title": "Explicit",
+            "type": "boolean"
+          },
+          "heartbeat_at": {
+            "title": "Heartbeat At",
+            "type": "string"
+          },
+          "holder_agent": {
+            "title": "Holder Agent",
+            "type": "string"
+          },
+          "lease_id": {
+            "title": "Lease Id",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Id"
+          },
+          "ticket_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Title"
+          }
+        },
+        "required": [
+          "device_id",
+          "lease_id",
+          "ticket_id",
+          "ticket_title",
+          "run_id",
+          "holder_agent",
+          "purpose",
+          "explicit",
+          "acquired_at",
+          "expires_at",
+          "heartbeat_at"
+        ],
+        "title": "DeviceLeaseOut",
+        "type": "object"
+      },
+      "DeviceLeaseState": {
+        "description": "``GET`` 的响应：是否持有、租约详情与排队人数。",
+        "properties": {
+          "held": {
+            "title": "Held",
+            "type": "boolean"
+          },
+          "lease": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceLeaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waiters": {
+            "title": "Waiters",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "held",
+          "lease",
+          "waiters"
+        ],
+        "title": "DeviceLeaseState",
+        "type": "object"
+      },
       "DeviceRetryHealth": {
         "description": "自动重连状态：已尝试次数、上限与下次重连时间（epoch 秒）。",
         "properties": {
@@ -7877,6 +7992,16 @@
       "TicketDetail": {
         "description": "工单详情：摘要、结果、委托、订阅、最近 5 条汇报与 Worker 是否在跑。",
         "properties": {
+          "lease": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceLeaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "mandate": {
             "$ref": "#/components/schemas/MandateOut"
           },
@@ -7932,7 +8057,8 @@
           "subscriptions",
           "recent_reports",
           "worker_session_id",
-          "turn_running"
+          "turn_running",
+          "lease"
         ],
         "title": "TicketDetail",
         "type": "object"
@@ -9056,6 +9182,22 @@
           },
           {
             "in": "query",
+            "name": "ticket_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ticket Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "page",
             "required": false,
             "schema": {
@@ -9413,6 +9555,97 @@
           }
         },
         "summary": "汇总模型调用成本",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/device-lease": {
+      "delete": {
+        "description": "用户接管设备：删掉当前租约并给持有者留一次性抢占记号，没有租约时同样返回 204。",
+        "operationId": "agent_release_device_lease",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "人工释放设备租约",
+        "tags": [
+          "agent"
+        ]
+      },
+      "get": {
+        "description": "当前租约状态；没有租约时 ``lease`` 为 ``null``。",
+        "operationId": "agent_get_device_lease",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceLeaseState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "读取设备租约",
         "tags": [
           "agent"
         ]

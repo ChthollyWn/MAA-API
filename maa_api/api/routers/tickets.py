@@ -30,6 +30,7 @@ from maa_api.agent.orchestrator.stream import RunEventStream
 from maa_api.agent.tickets.service import TicketDetailData, TicketService
 from maa_api.api.deps import get_session, require_auth
 from maa_api.api.errors import error_responses
+from maa_api.api.routers.device_lease import DeviceLeaseOut
 from maa_api.api.schemas.agent_v3 import (
     AgentMessageCreate,
     AgentMessagePage,
@@ -150,6 +151,8 @@ class TicketDetail(BaseModel):
     recent_reports: list[TicketReportOut]
     worker_session_id: str | None
     turn_running: bool
+    #: 当前设备租约属于本工单时填，否则为 ``null``（M71 §4.3）。
+    lease: DeviceLeaseOut | None
 
 
 class TicketPage(BaseModel):
@@ -267,7 +270,9 @@ def _report_out(report: TicketReport) -> TicketReportOut:
     )
 
 
-def _ticket_detail(data: TicketDetailData) -> TicketDetail:
+def _ticket_detail(
+    data: TicketDetailData, *, lease: DeviceLeaseOut | None = None
+) -> TicketDetail:
     return TicketDetail(
         ticket=_ticket_summary(data.ticket),
         result=data.ticket.result,
@@ -276,6 +281,7 @@ def _ticket_detail(data: TicketDetailData) -> TicketDetail:
         recent_reports=[_report_out(item) for item in data.recent_reports],
         worker_session_id=data.ticket.worker_session_id,
         turn_running=data.turn_running,
+        lease=lease,
     )
 
 
@@ -327,7 +333,14 @@ async def get_ticket(
     request: Request,
     ticket_id: str = Path(min_length=1, max_length=36, description="工单 id"),
 ) -> TicketDetail:
-    return _ticket_detail(await _service(request).detail(ticket_id))
+    data = await _service(request).detail(ticket_id)
+    lease: DeviceLeaseOut | None = None
+    lease_service = getattr(request.app.state, "device_lease_service", None)
+    if lease_service is not None:
+        row = await lease_service.current()
+        if row is not None and row.ticket_id == ticket_id:
+            lease = DeviceLeaseOut.model_validate(await lease_service.wire(row))
+    return _ticket_detail(data, lease=lease)
 
 
 @router.get(

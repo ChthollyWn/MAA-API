@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from maa_api.api.deps import get_pipeline_runner, get_session, require_auth
 from maa_api.api.errors import error_responses
+from maa_api.api.routers.device_lease import preempt_device
 from maa_api.db.models import Screenshot
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.repositories.log import ScreenshotRepository
@@ -349,6 +350,7 @@ async def _run_atomic(
     call: Any,
 ) -> dict[str, Any]:
     manager = _device_manager(request)
+    await preempt_device(request, "rest_atomic")
     async with runner.operation_lock:
         await _ensure_atomic_allowed(
             operation=operation, force=force, session=session

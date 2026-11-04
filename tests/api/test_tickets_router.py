@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
 
+from maa_api.agent.lease import DeviceLeaseService
 from maa_api.agent.tickets.inbox import InboxService
 from maa_api.agent.tickets.reports import parse_report
 from maa_api.agent.tickets.service import TicketService
@@ -25,6 +26,7 @@ from maa_api.agent.tickets.threads import ThreadRouter
 from maa_api.api import deps
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import tickets as tickets_router
+from maa_api.db.models import DeviceLease, utcnow
 from maa_api.domain.enums import EventSource, ReportStatus, TicketOrigin
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.main import create_app
@@ -45,7 +47,7 @@ SUMMARY_FIELDS = {
     "updated_at",
     "ended_at",
 }
-#: ``TicketDetail`` 的 7 个字段。
+#: ``TicketDetail`` 的 8 个字段（M71 §4.3 加 ``lease``）。
 DETAIL_FIELDS = {
     "ticket",
     "result",
@@ -54,6 +56,7 @@ DETAIL_FIELDS = {
     "recent_reports",
     "worker_session_id",
     "turn_running",
+    "lease",
 }
 #: ``MandateOut`` 的 9 个字段。
 MANDATE_FIELDS = {
@@ -291,6 +294,62 @@ def test_get_ticket_not_found(tickets_env, make_client, tmp_settings):
     error = _error(response)
     assert error["code"] == "TICKET_NOT_FOUND"
     assert error["details"]["ticket_id"] == "nope"
+
+
+def test_ticket_detail_includes_current_lease(
+    tickets_env, make_client, tmp_settings
+):
+    """M71 §4.3：当前租约属于本工单时填 ``lease``，别的工单持有时为 null。"""
+    ticket, _ = _create(tickets_env)
+    other, _ = _create(tickets_env, title="另一个工单")
+    service = DeviceLeaseService(tickets_env.factory, boot_id="boot-test")
+
+    def seed(ticket_id: str) -> None:
+        """直接写租约行：``current()`` 的清理广播与这里要断言的形状无关。"""
+
+        async def write() -> None:
+            async with tickets_env.factory() as db:
+                existing = await db.get(DeviceLease, "default")
+                if existing is not None:
+                    await db.delete(existing)
+                    await db.commit()
+                db.add(
+                    DeviceLease(
+                        device_id="default",
+                        ticket_id=ticket_id,
+                        holder_agent="daily_ops",
+                        purpose="click",
+                        expires_at=utcnow() + timedelta(minutes=5),
+                        boot_id="boot-test",
+                    )
+                )
+                await db.commit()
+
+        asyncio.run(write())
+
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(tickets_router.router)
+    app.state.ticket_service = tickets_env.service
+    app.state.device_lease_service = service
+    client = make_client(app)
+
+    seed(other.id)
+    response = client.get(f"/api/agent/tickets/{ticket.id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["lease"] is None
+
+    seed(ticket.id)
+    response = client.get(f"/api/agent/tickets/{ticket.id}")
+    assert response.status_code == 200, response.text
+    lease = response.json()["lease"]
+    assert lease is not None
+    assert lease["ticket_id"] == ticket.id
+    assert lease["ticket_title"] == "日常"
+    assert lease["holder_agent"] == "daily_ops"
+    assert lease["acquired_at"].endswith("Z")
+    assert lease["expires_at"].endswith("Z")
+    assert lease["heartbeat_at"].endswith("Z")
 
 
 # ---------------------------------------------------------------------------
