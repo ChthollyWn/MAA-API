@@ -77,6 +77,8 @@ BUSINESS_TABLES = {
     "ticket_report",
     "thread_subscription",
     "agent_inbox",
+    # M71：设备租约（v3 M71 规格 §4.1）。
+    "device_lease",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -189,6 +191,12 @@ EXPECTED_INDEXES = {
         ("tool_name", "created_at"),
         False,
     ),
+    # M71：工单审计流（agent_audit 的索引加唯一约束合计正好 3 条）。
+    "ix_agent_audit_ticket_id_created_at": (
+        "agent_audit",
+        ("ticket_id", "created_at"),
+        False,
+    ),
     "ix_agent_idempotency_created_at": (
         "agent_idempotency",
         ("created_at",),
@@ -284,6 +292,8 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
         "thread_subscription",
         ("ticket_id", "thread_key"),
     ),
+    # M71：租约 id 对外暴露，必须唯一（device_id 主键保证容量 1）。
+    "uq_device_lease_lease_id": ("device_lease", ("lease_id",)),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -344,6 +354,15 @@ EXPECTED_FK_SET_NULL = {
     ("agent_session", "ticket_id"),
     ("agent_run", "ticket_id"),
     ("agent_message", "inbox_id"),
+    # M71：租约随设备/工单/运行清理只解除关联；确认与提问保留发起来源，审计保留归属。
+    ("device_lease", "ticket_id"),
+    ("device_lease", "run_id"),
+    ("confirmation", "origin_run_id"),
+    ("confirmation", "origin_ticket_id"),
+    ("agent_question", "origin_run_id"),
+    ("agent_question", "origin_ticket_id"),
+    ("agent_audit", "run_id"),
+    ("agent_audit", "ticket_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -487,7 +506,7 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
 def test_metadata_has_exactly_26_business_tables():
-    """37 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+    """38 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
@@ -582,7 +601,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """43 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """46 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:

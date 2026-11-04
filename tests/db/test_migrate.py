@@ -249,6 +249,11 @@ def test_mcp_audit_scopes_migration_preserves_legacy_rows_and_downgrades(db_path
             "select scopes from agent_audit where id = ?", (legacy_id,)
         ).fetchone()[0] is None
 
+    # ORM 的 SELECT 包含模型上的全部列，只能在 schema 与模型一致的 head 上读；
+    # 0010 的 scopes 迁移本身仍由上面的原始 SQL 断言覆盖。M71 给 agent_audit 加了
+    # run_id / ticket_id / agent_name，旧版本 schema 不再能喂给当前模型。
+    command.upgrade(cfg, "head")
+
     engine = create_engine(f"sqlite:///{db_path}")
     with SyncSession(engine) as orm_session:
         legacy_audit = orm_session.get(AgentAudit, legacy_id)

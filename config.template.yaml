@@ -71,6 +71,13 @@ agent:
   run_heartbeat_seconds: 15
   run_stale_seconds: 90
 
+# 设备租约：代理写设备前要先拿到租约，同一时刻只有一个工单能用设备
+lease:
+  # 租约有效期（秒，60-3600）；持有者操作设备时自动续期，到期自动释放
+  ttl_seconds: 600
+  # 设备被占用时排队等待的时长（秒，0-600）；等不到就报设备忙
+  wait_seconds: 30
+
 # 总控：新消息到达后等这么久再开始处理，窗口内到达的消息合并成一轮（毫秒，0-5000）
 orchestrator:
   batch_window_ms: 800

@@ -39,6 +39,7 @@ __all__ = [
     "AdbSettings",
     "CoreSettings",
     "DeploymentSettings",
+    "LeaseSettings",
     "NotifySettings",
     "Settings",
     "SklandSettings",
@@ -183,6 +184,10 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "orchestrator.batch_window_ms": ("orchestrator", "batch_window_ms"),
     "worker.max_concurrent": ("worker", "max_concurrent"),
     "delegation.max_parallel": ("delegation", "max_parallel"),
+    # ---- 设备租约（M71 规格 §4.4）：有效期与排队等待时长。都不是 config-only，
+    # 服务每次取租约 / 续期时现读，改完立即生效。----
+    "lease.ttl_seconds": ("lease", "ttl_seconds"),
+    "lease.wait_seconds": ("lease", "wait_seconds"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -497,6 +502,20 @@ class DelegationSettings(BaseModel):
     max_parallel: int = Field(default=3, ge=1, le=8)
 
 
+class LeaseSettings(BaseModel):
+    """设备租约（M71 规格 §4.4）：有效期与设备被占用时的排队等待时长。
+
+    两个值都由 ``DeviceLeaseService`` 每次用到时现读，改完立即生效。
+    ``ttl_seconds`` 是租约的有效期（到期自动释放）；``wait_seconds`` 是
+    ``acquire`` 排队等设备的上限，等不到就报 ``DEVICE_LEASE_BUSY``。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    wait_seconds: int = Field(default=30, ge=0, le=600)
+
+
 class DeploymentSettings(BaseModel):
     """反向代理与浏览器来源白名单（M15，docs/09 §12.4）。
 
@@ -612,6 +631,8 @@ class Settings(BaseModel):
     orchestrator: OrchestratorSettings = Field(default_factory=OrchestratorSettings)
     worker: WorkerSettings = Field(default_factory=WorkerSettings)
     delegation: DelegationSettings = Field(default_factory=DelegationSettings)
+    #: M71 设备租约的有效期与排队等待时长（都不是 config-only）。
+    lease: LeaseSettings = Field(default_factory=LeaseSettings)
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
