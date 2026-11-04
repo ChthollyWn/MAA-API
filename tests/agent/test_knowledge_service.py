@@ -1413,3 +1413,82 @@ def test_stable_and_dynamic_context_split_the_render(tmp_path) -> None:
         asyncio.run(scenario())
     finally:
         engine.sync_engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# M76：检索索引的变更回调与带正文的条目列表（spec §4.2、§6）
+# ---------------------------------------------------------------------------
+def test_change_listeners_run_after_commit(harness):
+    service, factory = harness
+    calls: list[tuple[str, str, bool]] = []
+
+    async def recording(entry_id: str) -> None:
+        # 监听器里重新开会话读：能读到行就证明回调发生在 commit 之后。
+        calls.append((entry_id, "recording", entry_id in await _rows(factory)))
+
+    async def broken(entry_id: str) -> None:
+        calls.append((entry_id, "broken", True))
+        raise RuntimeError("索引服务挂了，但不该影响写入返回")
+
+    service.add_change_listener(recording)
+
+    async def scenario():
+        created = await service.put_entry(
+            "farm-1-7",
+            KnowledgeWrite(
+                kind="playbook",
+                title="刷 1-7",
+                when_to_use="用户要刷固源岩时",
+                body="正文",
+            ),
+        )
+        assert created.id == "farm-1-7"
+        assert calls == [("farm-1-7", "recording", True)]
+
+        service.add_change_listener(broken)
+        await service.delete_entry("farm-1-7")
+        assert calls[1] == ("farm-1-7", "recording", False)
+        assert calls[2] == ("farm-1-7", "broken", True)
+        assert await _rows(factory) == {}
+
+    asyncio.run(scenario())
+
+
+def test_list_effective_returns_bodies_including_disabled(harness):
+    service, _ = harness
+
+    async def scenario():
+        builtin = builtin_entries()["screen-home"]
+        await service.put_entry(
+            "screen-home",
+            KnowledgeWrite(
+                kind=builtin.kind,
+                title=builtin.title,
+                when_to_use=builtin.when_to_use,
+                body=builtin.body,
+                enabled=False,
+            ),
+        )
+        await service.put_entry(
+            "farm-1-7",
+            KnowledgeWrite(
+                kind="playbook",
+                title="刷 1-7",
+                when_to_use="用户要刷固源岩时",
+                body="## 步骤\n1. submit_pipeline",
+                enabled=False,
+            ),
+        )
+
+        summaries = await service.list_entries()
+        effective = await service.list_effective()
+        assert [entry.id for entry in effective] == [item.id for item in summaries]
+        assert all(entry.body for entry in effective)
+
+        by_id = {entry.id: entry for entry in effective}
+        assert by_id["screen-home"].enabled is False
+        assert by_id["screen-home"].body == builtin.body
+        assert by_id["farm-1-7"].enabled is False
+        assert by_id["farm-1-7"].body == "## 步骤\n1. submit_pipeline"
+
+    asyncio.run(scenario())
