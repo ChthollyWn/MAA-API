@@ -614,6 +614,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/retrieval/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 检索知识与已建索引的资料
+         * @description 按内容检索；向量服务失败只体现在 ``vector`` 上，不影响全文结果。
+         */
+        get: operations["agent_search_retrieval"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/retrieval/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取检索来源与向量状态
+         * @description 列出已注册来源的开关、状态与计数，以及全库补向量进度。
+         */
+        get: operations["agent_list_retrieval_sources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/retrieval/sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 更新检索来源的开关与配置
+         * @description 改 ``enabled`` 或整份 ``config``；``config`` 先交来源自己的校验。
+         */
+        put: operations["agent_update_retrieval_source"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/retrieval/sources/{source_id}/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 重建检索来源的索引
+         * @description 后台重建：先校验全文索引，再排一次强制同步；同步中返回 409。
+         */
+        post: operations["agent_reindex_retrieval_source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/runs": {
         parameters: {
             query?: never;
@@ -3307,6 +3387,30 @@ export interface components {
             next_at: number | null;
         };
         /**
+         * EmbeddingStatusView
+         * @description 向量服务的状态与全库补向量进度。
+         */
+        EmbeddingStatusView: {
+            /** Embedded Chunks */
+            embedded_chunks: number;
+            /** Error */
+            error: string | null;
+            /** Model */
+            model: string | null;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "none" | "remote" | "local";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "disabled" | "ready" | "indexing" | "unavailable";
+            /** Total Chunks */
+            total_chunks: number;
+        };
+        /**
          * EventSource
          * @description 事件来源渠道。
          * @enum {string}
@@ -4514,6 +4618,19 @@ export interface components {
             yituliu_id?: string | null;
         };
         /**
+         * ReindexAccepted
+         * @description ``POST reindex`` 已排队；真正的重建在后台进行。
+         */
+        ReindexAccepted: {
+            /** Source Id */
+            source_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "indexing";
+        };
+        /**
          * ReportStatus
          * @description Worker 汇报的状态。
          * @enum {string}
@@ -4558,6 +4675,136 @@ export interface components {
         RetainRequest: {
             /** Retain */
             retain: boolean;
+        };
+        /**
+         * RetrievalHit
+         * @description 一条检索结果：分块内容 + 出处 + 两路名次与融合分数。
+         */
+        RetrievalHit: {
+            /** Chunk Id */
+            chunk_id: number;
+            /** Document Id */
+            document_id: string;
+            /** Fetched At */
+            fetched_at: string | null;
+            /** Fts Rank */
+            fts_rank: number | null;
+            /** Heading */
+            heading: string | null;
+            /** License */
+            license: string | null;
+            /** Score */
+            score: number;
+            /** Snippet */
+            snippet: string;
+            /** Source Id */
+            source_id: string;
+            /** Source Title */
+            source_title: string;
+            /** Text */
+            text: string;
+            /** Title */
+            title: string;
+            /** Trusted */
+            trusted: boolean;
+            /** Url */
+            url: string | null;
+            /** Vector Rank */
+            vector_rank: number | null;
+            /** Version */
+            version: string | null;
+        };
+        /**
+         * RetrievalResult
+         * @description 一次检索的结果；``vector`` 说明向量路走到了哪一步。
+         */
+        RetrievalResult: {
+            /** Enabled */
+            enabled: boolean;
+            /** Hits */
+            hits: components["schemas"]["RetrievalHit"][];
+            /** Query */
+            query: string;
+            /** Skipped Sources */
+            skipped_sources: string[];
+            /** Sources */
+            sources: string[];
+            /** Took Ms */
+            took_ms: number;
+            /** Top K */
+            top_k: number;
+            /**
+             * Vector
+             * @enum {string}
+             */
+            vector: "used" | "disabled" | "unavailable" | "empty";
+            /** Vector Model */
+            vector_model: string | null;
+        };
+        /**
+         * RetrievalSourceList
+         * @description 来源列表与全局向量状态。
+         */
+        RetrievalSourceList: {
+            embedding: components["schemas"]["EmbeddingStatusView"];
+            /** Items */
+            items: components["schemas"]["RetrievalSourceView"][];
+        };
+        /**
+         * RetrievalSourceUpdate
+         * @description ``PUT`` 的入参：两个字段都可选，但至少要改一项。
+         */
+        RetrievalSourceUpdate: {
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Enabled */
+            enabled?: boolean | null;
+        };
+        /**
+         * RetrievalSourceView
+         * @description 一个检索来源的完整对外形状：元数据、开关、状态与三类计数。
+         */
+        RetrievalSourceView: {
+            /** Chunk Count */
+            chunk_count: number;
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Doc Count */
+            doc_count: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Error */
+            error: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Last Indexed At
+             * Format: date-time
+             */
+            last_indexed_at: string | null;
+            /** License */
+            license: string | null;
+            /** Searchable By Default */
+            searchable_by_default: boolean;
+            /** Setting Enabled */
+            setting_enabled: boolean | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "idle" | "indexing" | "error";
+            /** Title */
+            title: string;
+            /** Trusted */
+            trusted: boolean;
+            /** Vector Count */
+            vector_count: number;
         };
         /** RetryRequest */
         RetryRequest: {
@@ -8779,6 +9026,283 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "QUESTION_ALREADY_ANSWERED",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_search_retrieval: {
+        parameters: {
+            query: {
+                /** @description 检索词，去掉首尾空白后 1–500 字 */
+                q: string;
+                /** @description 逗号分隔的来源 id；省略时检索默认可检索来源 */
+                sources?: string | null;
+                /** @description 返回条数，1–30；省略时用设置值 */
+                top_k?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalResult"];
+                };
+            };
+            /** @description 请求不成立：RETRIEVAL_QUERY_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RETRIEVAL_QUERY_INVALID",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_list_retrieval_sources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalSourceList"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_update_retrieval_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 检索来源 id */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetrievalSourceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalSourceView"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：KNOWLEDGE_SOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "KNOWLEDGE_SOURCE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_reindex_retrieval_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 检索来源 id */
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReindexAccepted"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：KNOWLEDGE_SOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "KNOWLEDGE_SOURCE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：KNOWLEDGE_SOURCE_BUSY */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "KNOWLEDGE_SOURCE_BUSY",
                      *         "details": {},
                      *         "message": "与当前状态冲突"
                      *       }

@@ -57,6 +57,7 @@ from maa_api.api.routers import (
     device,
     device_lease,
     knowledge,
+    knowledge_index,
     logs,
     model_profiles,
     notifications,
@@ -1862,6 +1863,7 @@ def create_app() -> FastAPI:
     app.include_router(artifacts.router)
     app.include_router(orchestrator.router)
     app.include_router(knowledge.router)
+    app.include_router(knowledge_index.router)
     app.include_router(model_profiles.router)
     app.include_router(runs.router)
     app.include_router(agent_specs.router)
