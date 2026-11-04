@@ -82,6 +82,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=EmptyParams,
             handler=get_system_status,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="get_screenshot",
@@ -95,6 +96,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=EmptyParams,
             handler=get_screenshot,
             read_only=True,
+            refetchable=True,
             device="read",
         ),
         ToolDefinition(
@@ -105,6 +107,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=EmptyParams,
             handler=get_versions,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="get_logs",
@@ -118,6 +121,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetLogsParams,
             handler=get_logs,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="resolve_stage",
@@ -127,6 +131,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ResolveStageParams,
             handler=resolve_stage,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="get_drop_stats",
@@ -136,6 +141,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetDropStatsParams,
             handler=get_drop_stats,
             read_only=True,
+            refetchable=True,
         ),
     )
     for definition in definitions:

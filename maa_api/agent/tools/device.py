@@ -136,6 +136,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=EmptyParams,
             handler=_get_device_status,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -147,6 +148,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListDevicesParams,
             handler=_list_devices,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(

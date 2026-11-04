@@ -20,6 +20,7 @@ import { useConversationScroll } from '@/features/agent/use-conversation-scroll'
 import { ConversationComposer } from '@/features/console/conversation/ConversationComposer'
 import { ConversationView } from '@/features/console/conversation/ConversationView'
 import { ticketEndpoints, useConversation } from '@/features/console/conversation/use-conversation'
+import { checkpointsQueryOptions } from '@/features/compaction/api'
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/media'
 import { ActivityTree } from './ActivityTree'
 import {
@@ -91,8 +92,11 @@ function TicketDetail({ ticketId }: { ticketId: string }) {
   const ended = ticket ? ENDED_STATUSES.includes(ticket.status) : false
   const specTitles = useSpecTitles()
   const lease = useQuery(deviceLeaseQuery)
+  // M74 §4.6：压缩标记跟工单的 Worker 会话走，不用工单 id。
+  const workerSessionId = detail.data?.workerSessionId ?? null
+  const checkpoints = useQuery(checkpointsQueryOptions(workerSessionId))
 
-  const controller = useConversation(ticketEndpoints(ticketId), {
+  const controller = useConversation(ticketEndpoints(ticketId, workerSessionId), {
     turnRunning: detail.data?.turnRunning === true,
     enabled: true,
   })
@@ -258,6 +262,7 @@ function TicketDetail({ ticketId }: { ticketId: string }) {
       history={controller.visible}
       mainSessionId={detail.data?.workerSessionId ?? null}
       specTitles={specTitles}
+      checkpoints={checkpoints.data ?? []}
       live={controller.live}
       showOptimisticUser={controller.showOptimisticUser}
       queued={controller.queued}
@@ -281,6 +286,7 @@ function TicketDetail({ ticketId }: { ticketId: string }) {
         controller={controller}
         docked={!desktop}
         textareaRef={textareaRef}
+        sessionId={workerSessionId}
         disabledReason={ENDED_REASON}
       />
       <p className="pb-3 text-center text-footnote">
@@ -298,6 +304,7 @@ function TicketDetail({ ticketId }: { ticketId: string }) {
       controller={controller}
       docked={!desktop}
       textareaRef={textareaRef}
+      sessionId={workerSessionId}
     />
   )
 

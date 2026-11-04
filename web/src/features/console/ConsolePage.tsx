@@ -13,6 +13,7 @@ import { InlineAlert } from '@/components/ui/inline-alert'
 import { toast } from '@/components/ui/toaster'
 import type { ShownError } from '@/features/agent/types'
 import { useConversationScroll } from '@/features/agent/use-conversation-scroll'
+import { checkpointsQueryOptions } from '@/features/compaction/api'
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/media'
 import { ActiveTicketsPanel } from './ActiveTicketsPanel'
 import { ActiveTicketsStrip } from './ActiveTicketsStrip'
@@ -62,7 +63,9 @@ export default function ConsolePage() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const state = useQuery(orchestratorStateQuery)
-  const controller = useConversation(orchestratorEndpoints(), {
+  const sessionId = state.data?.session_id ?? null
+  const checkpoints = useQuery(checkpointsQueryOptions(sessionId))
+  const controller = useConversation(orchestratorEndpoints(sessionId), {
     turnRunning: Boolean(state.data?.turn_running),
     enabled: true,
   })
@@ -208,6 +211,7 @@ export default function ConsolePage() {
       history={controller.visible}
       mainSessionId={state.data?.session_id ?? null}
       specTitles={specTitles}
+      checkpoints={checkpoints.data ?? []}
       live={controller.live}
       showOptimisticUser={controller.showOptimisticUser}
       queued={controller.queued}
@@ -230,6 +234,7 @@ export default function ConsolePage() {
       controller={controller}
       docked={!desktop}
       textareaRef={textareaRef}
+      sessionId={sessionId}
       overlay={overlay}
       seed={seed ?? undefined}
     />

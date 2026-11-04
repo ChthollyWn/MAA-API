@@ -73,6 +73,7 @@ BUILTIN_SPEC_NAMES = [
     "planner",
     "recon",
     "researcher",
+    "summarizer",
     "titler",
     "verifier",
 ]
@@ -80,7 +81,7 @@ BUILTIN_SPEC_NAMES = [
 BUILTIN_DIR = resources.files(BUILTIN_PACKAGE).joinpath(BUILTIN_DIRNAME)
 
 
-def test_builtin_specs_load_fifteen_definitions_sorted_by_name():
+def test_builtin_specs_load_sixteen_definitions_sorted_by_name():
     specs = builtin_specs()
 
     assert list(specs) == BUILTIN_SPEC_NAMES

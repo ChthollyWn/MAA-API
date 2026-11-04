@@ -29,11 +29,13 @@ import {
   userMessageArrived,
   type LiveTurn,
 } from './live-turn'
-import { toSseV3Event } from './sse'
+import { toSseCompactionEvent, toSseV3Event } from './sse'
 import type { MentionDraft, V3Message } from './types'
 
 export interface ConversationEndpoints {
   scopeKey: string
+  /** 主会话 id；M74 的压缩检查点按它取，未知时为空。 */
+  sessionId: string | null
   messagesKey: QueryKey
   /** 总控：orchestrator.state；工单：tickets.detail(id)。发送/停止收尾后一起失效。 */
   stateKey: QueryKey
@@ -56,9 +58,10 @@ async function interruptOrchestrator(): Promise<void> {
   if (error) throw toApiError(error, response)
 }
 
-export function orchestratorEndpoints(): ConversationEndpoints {
+export function orchestratorEndpoints(sessionId: string | null = null): ConversationEndpoints {
   return {
     scopeKey: 'orchestrator',
+    sessionId,
     messagesKey: keys.agent.orchestrator.messages(),
     stateKey: keys.agent.orchestrator.state(),
     streamPath: '/api/agent/orchestrator/messages',
@@ -87,9 +90,10 @@ async function interruptTicket(ticketId: string): Promise<void> {
 }
 
 /** 工单会话：消息带子代理（`include_subagents=true`），流与中断都走该工单的端点。 */
-export function ticketEndpoints(ticketId: string): ConversationEndpoints {
+export function ticketEndpoints(ticketId: string, sessionId: string | null = null): ConversationEndpoints {
   return {
     scopeKey: `ticket:${ticketId}`,
+    sessionId,
     messagesKey: keys.agent.tickets.messages(ticketId, true),
     stateKey: keys.agent.tickets.detail(ticketId),
     streamPath: `/api/agent/tickets/${encodeURIComponent(ticketId)}/messages`,
@@ -276,6 +280,13 @@ export function useConversation(
     let failed = false
     try {
       await streamSse(endpoints.streamPath, body, controller.signal, (name, data) => {
+        // M74 §4.6：压缩只让检查点标记重取，不失效消息窗口（直播中整片失效会重复渲染，M59）。
+        if (toSseCompactionEvent(name, data)) {
+          if (endpoints.sessionId) {
+            void queryClient.invalidateQueries({ queryKey: keys.agent.checkpoints(endpoints.sessionId) })
+          }
+          return
+        }
         const event = toSseV3Event(name, data)
         // 服务端用 SSE error 事件回的错误也要显示在实时副本之外：流收尾丢弃副本后，
         // 用户仍要看见失败原因（与 v2 的 turnError 同语义）。

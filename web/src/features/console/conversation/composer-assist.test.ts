@@ -19,7 +19,7 @@ describe('M72 composer assist', () => {
     expect(findAssistToken('/stop 一下', 10)).toBeNull()
     expect(findAssistToken('/STOP', 5)).toBeNull()
 
-    expect(matchSlashCommands('/').map((command) => command.name)).toEqual(['stop', 'tickets', 'help'])
+    expect(matchSlashCommands('/').map((command) => command.name)).toEqual(['stop', 'tickets', 'compact', 'help'])
     expect(matchSlashCommands('/st').map((command) => command.name)).toEqual(['stop'])
     expect(matchSlashCommands('/stop 一下')).toEqual([])
     expect(matchSlashCommands('hello /')).toEqual([])

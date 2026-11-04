@@ -132,6 +132,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "budget.per_run_cost_limit": dict(label="单次运行成本上限（元）", group="LLM", type="number", minimum=0, maximum=10000, description="0 为不限", hot_action="none"),
     "budget.warn_ratio": dict(label="成本告警比例", group="LLM", type="number", minimum=0.1, maximum=1, hot_action="none"),
     "context.fallback_context_tokens": dict(label="默认上下文窗口（token）", group="Agent", type="integer", minimum=8000, maximum=2000000, description="模型档案没写窗口时使用", hot_action="none"),
+    # M74 压缩：自动压缩阈值、保留的最近轮次与工具结果清理边界，压缩/清理时现读。
+    "context.compaction_ratio": dict(label="自动压缩的窗口比例", group="Agent", type="number", minimum=0.3, maximum=0.95, hot_action="none"),
+    "context.keep_recent_turns": dict(label="压缩时保留的最近轮次", group="Agent", type="integer", minimum=1, maximum=10, hot_action="none"),
+    "context.clear_tool_results_after": dict(label="保留原文的最近工具往返数", group="Agent", type="integer", minimum=1, maximum=20, description="更早的可重新获取的结果会成批换成占位", hot_action="none"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

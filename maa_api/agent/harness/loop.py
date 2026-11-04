@@ -36,6 +36,7 @@ __all__ = [
     "BUDGET_EXCEEDED_FINISH_REASON",
     "CANCELLED_FINISH_REASON",
     "CANCELLED_STATUS",
+    "CONTEXT_OVERFLOW_FINISH_REASON",
     "INTERRUPTED_FINISH_REASON",
     "INTERRUPTED_NOTICE",
     "INTERRUPTED_TOOL_STUB",
@@ -61,6 +62,8 @@ CANCELLED_FINISH_REASON = "cancelled"
 MESSAGE_PERSISTED_EVENT = "message_persisted"
 #: 预算超限时的收尾（M67 规格 §4.2.5）：``agent_run.finish_reason`` 的取值。
 BUDGET_EXCEEDED_FINISH_REASON = "budget_exceeded"
+#: 清理后仍超过窗口时的收尾（M74 规格 §4.2.4、§4.5.5）：``finish_reason`` 的取值。
+CONTEXT_OVERFLOW_FINISH_REASON = "context_overflow"
 #: 中断时追加到部分文本之后的标记；没有部分文本时它就是全部内容。
 INTERRUPTED_NOTICE = "本轮已被你中断。"
 #: 中断在历史里补的 tool 桩消息。**硬要求**：assistant 的 ``tool_calls`` 缺对应
@@ -229,12 +232,17 @@ class AgentLoop:
             await self._emit_run_end(ctx, outcome)
             raise
         except AppError as exc:
-            # 预算超限要单独标记收尾原因（规格 §4.2.5）；门面照常按 AppError 发
-            # error 事件并写运行终态，所以这里只映射 on_run_end 看到的原因后继续抛。
+            # 预算超限与上下文溢出要单独标记收尾原因（M67 §4.2.5、M74 §4.2.4）；
+            # 门面照常按 AppError 发 error 事件并写运行终态，所以这里只映射
+            # on_run_end 看到的原因后继续抛；``error_code`` 由调用方取 ``exc.code``。
             reason = (
                 BUDGET_EXCEEDED_FINISH_REASON
                 if exc.code == ErrorCode.BUDGET_EXCEEDED
-                else "error"
+                else (
+                    CONTEXT_OVERFLOW_FINISH_REASON
+                    if exc.code == ErrorCode.LLM_CONTEXT_OVERFLOW
+                    else "error"
+                )
             )
             await self._safe_run_end(ctx, RunOutcome("failed", reason))
             raise

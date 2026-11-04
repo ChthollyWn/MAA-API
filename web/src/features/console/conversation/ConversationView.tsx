@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { Fragment, useMemo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { toApiError } from '@/api/errors'
@@ -7,6 +7,9 @@ import { AssistantText } from '@/features/agent/MessageViews'
 import { ErrorAlert } from '@/features/agent/StatusAlerts'
 import type { ToolView } from '@/features/agent/transcript'
 import { ToolCallBar } from '@/features/agent/ToolCallBar'
+import { CompactionMarker } from '@/features/compaction/CompactionMarker'
+import type { CheckpointView } from '@/features/compaction/api'
+import { insertMarkers } from '@/features/compaction/insert-markers'
 import type { ConfirmationResolver } from './card-resolvers'
 import { DelegateToolBar } from './DelegateToolBar'
 import { InboxEventCard } from './InboxEventCard'
@@ -25,6 +28,8 @@ export interface ConversationViewProps {
   history: readonly V3Message[]
   mainSessionId: string | null
   specTitles: ReadonlyMap<string, string>
+  /** 压缩检查点（M74 §4.6）；不传时与 M73 的渲染一致。 */
+  checkpoints?: readonly CheckpointView[]
   live?: LiveTurn | null
   showOptimisticUser?: boolean
   queued?: readonly { localId: string; text: string }[]
@@ -97,12 +102,15 @@ function ConversationEntryView({ entry, subRuns, specTitles, currentTicketId }: 
 /**
  * 会话历史视图（M72 §4.6.3）：只收数据，不依赖 `useConversation`，旧会话查看器也能用。
  * 渲染顺序固定为「加载更早」→ 历史条目 → 实时副本 → 排队气泡 → leftovers → 错误。
+ * M74 起检查点标记按 `insertMarkers` 插在历史条目之间；有标记时按标记把历史切块渲染，
+ * 以免把工具调用与其结果拆到标记两侧。
  */
 export function ConversationView({
   scope,
   history,
   mainSessionId,
   specTitles,
+  checkpoints,
   live,
   showOptimisticUser,
   queued,
@@ -114,10 +122,32 @@ export function ConversationView({
   leftovers,
 }: ConversationViewProps) {
   const currentTicketId = scope.kind === 'ticket' ? scope.ticketId : undefined
-  const { entries, subRuns } = useMemo(
-    () => buildConversationEntries(history, { mainSessionId, currentTicketId }),
-    [history, mainSessionId, currentTicketId],
-  )
+  const { blocks, subRuns } = useMemo(() => {
+    const full = buildConversationEntries(history, { mainSessionId, currentTicketId })
+    const main = mainSessionId
+      ? history.filter((message) => message.session_id === mainSessionId)
+      : history
+    const pending: { key: string; checkpoint: CheckpointView | null; messages: V3Message[] }[] = []
+    let block: (typeof pending)[number] | null = null
+    for (const item of insertMarkers(main, checkpoints ?? [])) {
+      if (item.kind === 'checkpoint') {
+        if (block) pending.push(block)
+        block = { key: item.key, checkpoint: item.checkpoint, messages: [] }
+      } else {
+        if (!block) block = { key: item.key, checkpoint: null, messages: [] }
+        block.messages.push(item.message)
+      }
+    }
+    if (block) pending.push(block)
+    return {
+      blocks: pending.map((entry) => ({
+        ...entry,
+        entries: buildConversationEntries(entry.messages, { mainSessionId, currentTicketId }).entries,
+      })),
+      subRuns: full.subRuns,
+    }
+  }, [history, mainSessionId, currentTicketId, checkpoints])
+  const entryCount = blocks.reduce((count, block) => count + block.entries.length, 0)
 
   return (
     <div className="space-y-4">
@@ -138,16 +168,21 @@ export function ConversationView({
       {earlier?.error ? (
         <InlineAlert tone="danger">读取更早的消息失败：{toApiError(earlier.error).message}</InlineAlert>
       ) : null}
-      {entries.map((entry) => (
-        <ConversationEntryView
-          key={entry.key}
-          entry={entry}
-          subRuns={subRuns}
-          specTitles={specTitles}
-          currentTicketId={currentTicketId}
-        />
+      {blocks.map((block) => (
+        <Fragment key={block.key}>
+          {block.checkpoint ? <CompactionMarker checkpoint={block.checkpoint} /> : null}
+          {block.entries.map((entry) => (
+            <ConversationEntryView
+              key={entry.key}
+              entry={entry}
+              subRuns={subRuns}
+              specTitles={specTitles}
+              currentTicketId={currentTicketId}
+            />
+          ))}
+        </Fragment>
       ))}
-      {entries.length === 0 && !live ? emptyState : null}
+      {entryCount === 0 && !live ? emptyState : null}
       {live && resolver ? (
         <LiveTurnView
           turn={live}

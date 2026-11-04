@@ -41,6 +41,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ReadKnowledgeParams,
             handler=read_knowledge,
             read_only=True,
+            refetchable=True,
         )
     )
 

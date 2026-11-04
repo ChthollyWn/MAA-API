@@ -425,6 +425,10 @@ def test_env_mapping_names_are_pinned() -> None:
         # M71：设备租约的有效期与排队等待时长（都不是 config-only）。
         "lease.ttl_seconds": "MAA_LEASE_TTL_SECONDS",
         "lease.wait_seconds": "MAA_LEASE_WAIT_SECONDS",
+        # M74：压缩阈值、保留的最近轮次与工具结果清理边界（都不是 config-only）。
+        "context.compaction_ratio": "MAA_CONTEXT_COMPACTION_RATIO",
+        "context.keep_recent_turns": "MAA_CONTEXT_KEEP_RECENT_TURNS",
+        "context.clear_tool_results_after": "MAA_CONTEXT_CLEAR_TOOL_RESULTS_AFTER",
     }
 
 
@@ -759,6 +763,103 @@ def test_lease_settings_have_documented_defaults_and_bounds() -> None:
     assert template["lease"] == {"ttl_seconds": 600, "wait_seconds": 30}
 
 
+def test_compaction_settings_have_documented_defaults_and_bounds() -> None:
+    """M74 压缩：0.75 / 2 / 3，范围 0.3–0.95、1–10、1–20（spec §4.4）。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, ContextSettings
+
+    default = resolve_settings(env={})
+    assert default.context == ContextSettings()
+    assert default.context.fallback_context_tokens == 128000
+    assert default.context.compaction_ratio == 0.75
+    assert default.context.keep_recent_turns == 2
+    assert default.context.clear_tool_results_after == 3
+
+    configured = resolve_settings(
+        {
+            "context": {
+                "compaction_ratio": 0.5,
+                "keep_recent_turns": 6,
+                "clear_tool_results_after": 12,
+            }
+        },
+        env={},
+    )
+    assert configured.context.compaction_ratio == 0.5
+    assert configured.context.keep_recent_turns == 6
+    assert configured.context.clear_tool_results_after == 12
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_CONTEXT_COMPACTION_RATIO": "0.9",
+            "MAA_CONTEXT_KEEP_RECENT_TURNS": "1",
+            "MAA_CONTEXT_CLEAR_TOOL_RESULTS_AFTER": "20",
+        }
+    )
+    assert env_layer.context.compaction_ratio == 0.9
+    assert env_layer.context.keep_recent_turns == 1
+    assert env_layer.context.clear_tool_results_after == 20
+
+    # 越界拒绝：三项各试上下界外一格，并钉住边界值本身合法。
+    for section, field, value in (
+        ("context", "compaction_ratio", 0.29),
+        ("context", "compaction_ratio", 0.96),
+        ("context", "keep_recent_turns", 0),
+        ("context", "keep_recent_turns", 11),
+        ("context", "clear_tool_results_after", 0),
+        ("context", "clear_tool_results_after", 21),
+    ):
+        with pytest.raises(ValidationError):
+            resolve_settings({section: {field: value}}, env={})
+    for value in (0.3, 0.95):
+        assert (
+            resolve_settings({"context": {"compaction_ratio": value}}, env={})
+            .context.compaction_ratio
+            == value
+        )
+    assert resolve_settings(
+        {"context": {"keep_recent_turns": 10, "clear_tool_results_after": 1}}, env={}
+    ).context.keep_recent_turns == 10
+
+    # 设置 API：三项都登记、分组 Agent、无热更新动作，类型/范围与代码一致。
+    keys = {
+        "context.compaction_ratio",
+        "context.keep_recent_turns",
+        "context.clear_tool_results_after",
+    }
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+    ratio_row = schema_for("context.compaction_ratio")
+    assert (
+        ratio_row["label"], ratio_row["group"], ratio_row["type"],
+        ratio_row["minimum"], ratio_row["maximum"], ratio_row["hot_action"],
+    ) == ("自动压缩的窗口比例", "Agent", "number", 0.3, 0.95, "none")
+    turns_row = schema_for("context.keep_recent_turns")
+    assert (
+        turns_row["label"], turns_row["group"], turns_row["type"],
+        turns_row["minimum"], turns_row["maximum"], turns_row["hot_action"],
+    ) == ("压缩时保留的最近轮次", "Agent", "integer", 1, 10, "none")
+    clearing_row = schema_for("context.clear_tool_results_after")
+    assert (
+        clearing_row["label"], clearing_row["group"], clearing_row["type"],
+        clearing_row["minimum"], clearing_row["maximum"],
+        clearing_row["description"], clearing_row["hot_action"],
+    ) == (
+        "保留原文的最近工具往返数", "Agent", "integer", 1, 20,
+        "更早的可重新获取的结果会成批换成占位", "none",
+    )
+
+    # 文档一致性：模板里的三个值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)["context"]
+    assert template["compaction_ratio"] == 0.75
+    assert template["keep_recent_turns"] == 2
+    assert template["clear_tool_results_after"] == 3
+    assert "# 估算的上下文达到模型窗口的这个比例时自动压缩较早的消息" in template_text
+    assert "# 压缩时原样保留最近几个用户轮次" in template_text
+    assert "# 最近几个工具往返的结果保留原文，更早的可重新获取的结果成批换成占位" in template_text
+
+
 def test_gamedata_settings_have_documented_defaults_and_bounds() -> None:
     """M29 拆包数据：镜像列表、GitHub 兜底、开关、限流与 level 档缓存（规格 §9.3、附录 B）。"""
     from maa_api.services.settings_schema import schema_for
@@ -1027,7 +1128,12 @@ def test_model_layer_settings_have_documented_defaults_and_bounds() -> None:
         "per_run_cost_limit": 0,
         "warn_ratio": 0.8,
     }
-    assert template["context"] == {"fallback_context_tokens": 128000}
+    assert template["context"] == {
+        "fallback_context_tokens": 128000,
+        "compaction_ratio": 0.75,
+        "keep_recent_turns": 2,
+        "clear_tool_results_after": 3,
+    }
     assert "# 各角色使用的模型档案名（设置页「模型档案」里建），空表示使用上面这组默认设置" in template_text
     assert "# 空表示不使用远端向量" in template_text
 

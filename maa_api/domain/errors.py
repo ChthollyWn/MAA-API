@@ -321,6 +321,9 @@ class ErrorCode(StrEnum):
     # 这次运行或今天的模型成本已达到预算上限
     BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
 
+    # 压缩失败
+    COMPACTION_FAILED = "COMPACTION_FAILED"
+
     # ---- 知识库 ----
     # 知识条目 id 不存在，或（read_knowledge）已被停用
     KNOWLEDGE_NOT_FOUND = "KNOWLEDGE_NOT_FOUND"
@@ -626,6 +629,8 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.WORKSPACE_NOT_CONFIGURED: 503,
     ErrorCode.WORKSPACE_PATH_DENIED: 403,
     ErrorCode.WORKSPACE_FILE_TOO_LARGE: 400,
+    # M74 压缩：手动压缩拿不到可用摘要时是「下游答复了但不能用」，用 502。
+    ErrorCode.COMPACTION_FAILED: 502,
 }
 
 

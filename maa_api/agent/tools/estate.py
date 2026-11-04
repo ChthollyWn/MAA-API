@@ -136,6 +136,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetBuildingSkillsParams,
             handler=get_building_skills,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -151,6 +152,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetInfrastCandidatesParams,
             handler=get_infrast_candidates,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -165,6 +167,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListInfrastPlansParams,
             handler=list_infrast_plans,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(

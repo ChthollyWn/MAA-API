@@ -49,6 +49,7 @@ from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import (
     account,
     agent,
+    agent_sessions,
     agent_specs,
     atomic,
     confirmations,
@@ -1644,6 +1645,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "resource_service",
             "copilot_service",
             "span_recorder",
+            "compactor",
             "settings_provider",
             "session_factory",
         ):
@@ -1656,8 +1658,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 第 7 步：从 DB 装载定时任务，启动 APScheduler
     # 第 8 步：注册 ToolRegistry，并装配 Agent 工具服务。
 
-    # 第 9 步：yield 之后 uvicorn 才开始接受 HTTP 请求；子进程 READY 与设备连接
-    # 均在后台发生，不阻塞 HTTP 服务的启动。
+    # 第 9 步：装配压缩器，随后 yield；uvicorn 才开始接受 HTTP 请求，子进程
+    # READY 与设备连接均在后台发生，不阻塞 HTTP 服务的启动。
+    from maa_api.agent.context.compaction import Compactor
+
+    app.state.compactor = Compactor(
+        app.state,
+        db_session.session_factory,
+        broadcast=lambda message_type, data: ws_manager.broadcast(message_type, data),
+    )
     try:
         yield
     finally:
@@ -1747,6 +1756,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "resource_service",
             "copilot_service",
             "span_recorder",
+            "compactor",
             "settings_provider",
             "session_factory",
         ):
@@ -1817,6 +1827,7 @@ def create_app() -> FastAPI:
     app.include_router(schedules.router)
     app.include_router(snippets.router)
     app.include_router(agent.router)
+    app.include_router(agent_sessions.router)
     app.include_router(orchestrator.router)
     app.include_router(knowledge.router)
     app.include_router(model_profiles.router)

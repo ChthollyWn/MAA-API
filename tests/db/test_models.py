@@ -79,6 +79,8 @@ BUSINESS_TABLES = {
     "agent_inbox",
     # M71：设备租约（v3 M71 规格 §4.1）。
     "device_lease",
+    # M74：压缩检查点（v3 M74 规格 §4.1）。
+    "compaction_checkpoint",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -99,6 +101,8 @@ UUID_PK_TABLES = [
     # M69：工单与委托的 id 是对外暴露的 36 字符 UUID。
     "ticket",
     "mandate",
+    # M74：检查点 id 对外暴露（SSE / WS 都带它）。
+    "compaction_checkpoint",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -268,6 +272,12 @@ EXPECTED_INDEXES = {
         ("session_id", "status", "id"),
         False,
     ),
+    # M74：按会话取检查点列表（created_at 降序）。
+    "ix_compaction_checkpoint_session_id_created_at": (
+        "compaction_checkpoint",
+        ("session_id", "created_at"),
+        False,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -311,6 +321,8 @@ EXPECTED_FK_CASCADE = {
     ("ticket_report", "ticket_id"),
     ("thread_subscription", "ticket_id"),
     ("agent_inbox", "session_id"),
+    # M74：会话删了，它的检查点一起删（检查点没有独立存在的意义）。
+    ("compaction_checkpoint", "session_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -363,6 +375,8 @@ EXPECTED_FK_SET_NULL = {
     ("agent_question", "origin_ticket_id"),
     ("agent_audit", "run_id"),
     ("agent_audit", "ticket_id"),
+    # M74：产出摘要的运行被清理时检查点仍要留着，只解除关联。
+    ("compaction_checkpoint", "run_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -392,6 +406,8 @@ EXPECTED_TEXT_COLUMNS = {
     ("ticket", "summary"),
     ("mandate", "scope"),
     ("ticket_report", "summary"),
+    # M74：渲染后的摘要长度不定，用 TEXT。
+    ("compaction_checkpoint", "summary"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -442,6 +458,9 @@ EXPECTED_JSON_COLUMNS = {
     ("ticket_report", "human_action"),
     ("ticket_report", "details"),
     ("agent_inbox", "payload"),
+    # M74：结构性摘要与压缩时收集的 durable 状态。
+    ("compaction_checkpoint", "summary_json"),
+    ("compaction_checkpoint", "durable"),
 }
 
 
@@ -506,7 +525,7 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
 def test_metadata_has_exactly_26_business_tables():
-    """38 张业务表；alembic_version 由 Alembic 维护，不计入。"""
+    """39 张业务表；alembic_version 由 Alembic 维护，不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
 
 
@@ -601,7 +620,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """46 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """47 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:

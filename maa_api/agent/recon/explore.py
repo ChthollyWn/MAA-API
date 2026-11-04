@@ -574,6 +574,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ListFilesParams,
             handler=_list_files,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -588,6 +589,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=ReadFileParams,
             handler=_read_file,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(
@@ -603,6 +605,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=SearchCodeParams,
             handler=_search_code,
             read_only=True,
+            refetchable=True,
         )
     )
 

@@ -71,6 +71,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetActivityStagesParams,
             handler=get_activity_stages,
             read_only=True,
+            refetchable=True,
         )
     )
 

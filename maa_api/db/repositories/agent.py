@@ -323,6 +323,24 @@ class AgentMessageRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
+    async def list_after_seq(
+        self, session_id: str, after_seq: int
+    ) -> list[AgentMessage]:
+        """取 ``seq > after_seq`` 的消息，**按 ``seq`` 升序**（检查点之后的历史）。
+
+        ``after_seq`` 是压缩检查点的 ``upto_seq``：加载历史时摘要消息替代它之前的
+        全部消息，只读检查点之后的部分；没有检查点时传 ``-1`` 即全部消息。
+        """
+        result = await self.session.execute(
+            select(AgentMessage)
+            .where(
+                AgentMessage.session_id == session_id,
+                AgentMessage.seq > after_seq,
+            )
+            .order_by(AgentMessage.seq.asc())
+        )
+        return list(result.scalars().all())
+
     async def list_page(
         self,
         session_id: str,

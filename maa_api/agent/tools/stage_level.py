@@ -75,6 +75,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetStageLevelDataParams,
             handler=get_stage_level_data,
             read_only=True,
+            refetchable=True,
         )
     )
 

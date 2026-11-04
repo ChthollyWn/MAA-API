@@ -51,6 +51,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=EmptyParams,
             handler=list_tool_groups,
             read_only=True,
+            refetchable=True,
         )
     )
     registry.register(

@@ -8,7 +8,10 @@ import {
   type RefObject,
 } from 'react'
 import { useNavigate } from 'react-router'
+import { toApiError } from '@/api/errors'
+import { toast } from '@/components/ui/toaster'
 import { Composer } from '@/features/agent/Composer'
+import { useCompactSession } from '@/features/compaction/api'
 import { ComposerAssist, type MentionGroup } from './ComposerAssist'
 import { matchSlashCommands, parseSlashCommand, type SlashCommandName } from './commands'
 import {
@@ -27,6 +30,8 @@ export interface ConversationComposerProps {
   controller: ConversationController
   docked: boolean
   textareaRef: RefObject<HTMLTextAreaElement | null>
+  /** 当前会话 id；`/compact` 用它调手动压缩。 */
+  sessionId?: string | null
   /** 「回到底部」按钮；提及与命令面板由组件自己叠加。 */
   overlay?: ReactNode
   /** 工单已结束时传入：不渲染输入栏，改渲染这句提示。 */
@@ -48,11 +53,13 @@ export function ConversationComposer({
   controller,
   docked,
   textareaRef,
+  sessionId,
   overlay,
   disabledReason,
   seed,
 }: ConversationComposerProps) {
   const navigate = useNavigate()
+  const compactSession = useCompactSession(sessionId)
   const [draft, setDraft] = useState('')
   const [mentions, setMentions] = useState<MentionDraft[]>([])
   const [assistToken, setAssistToken] = useState<AssistToken | null>(null)
@@ -138,6 +145,20 @@ export function ConversationComposer({
     if (name === 'tickets') {
       setHelpOpen(false)
       void navigate('/tickets')
+      return
+    }
+    if (name === 'compact') {
+      setHelpOpen(false)
+      compactSession.mutate(undefined, {
+        onSuccess: (result) => {
+          toast.success(result.skipped ? '没有可压缩的消息' : '已压缩上下文')
+        },
+        onError: (error) => {
+          // 服务端 COMPACTION_FAILED 的 message 本身以「压缩失败：」开头，避免叠两次。
+          const reason = toApiError(error).message.replace(/^压缩失败：/, '')
+          toast.error(`压缩失败：${reason}`)
+        },
+      })
       return
     }
     setHelpOpen(true)

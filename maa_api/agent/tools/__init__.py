@@ -81,6 +81,7 @@ def build_registry() -> ToolRegistry:
             params_model=CheckConfirmationParams,
             handler=check_confirmation,
             read_only=True,
+            refetchable=True,
         )
     )
     return registry

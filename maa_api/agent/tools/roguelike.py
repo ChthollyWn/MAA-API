@@ -69,6 +69,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=GetRoguelikeInfoParams,
             handler=get_roguelike_info,
             read_only=True,
+            refetchable=True,
         )
     )
 

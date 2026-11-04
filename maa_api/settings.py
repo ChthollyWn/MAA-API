@@ -148,6 +148,11 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "budget.per_run_cost_limit": ("budget", "per_run_cost_limit"),
     "budget.warn_ratio": ("budget", "warn_ratio"),
     "context.fallback_context_tokens": ("context", "fallback_context_tokens"),
+    # ---- 压缩（M74 规格 §4.4）：自动压缩阈值、保留的最近轮次与工具结果清理边界。
+    # 三者都不是 config-only，压缩与清理每次请求时现读，改完立即生效。----
+    "context.compaction_ratio": ("context", "compaction_ratio"),
+    "context.keep_recent_turns": ("context", "keep_recent_turns"),
+    "context.clear_tool_results_after": ("context", "clear_tool_results_after"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -315,12 +320,18 @@ class BudgetSettings(BaseModel):
 
 
 class ContextSettings(BaseModel):
-    """上下文窗口的兜底值（M67 规格 §4.4）。"""
+    """上下文窗口的兜底值与压缩阈值（M67、M74 规格 §4.4）。"""
 
     model_config = ConfigDict(extra="ignore")
 
     #: 模型档案没写 context_window 时按它计算可用窗口。
     fallback_context_tokens: int = Field(default=128000, ge=8000, le=2000000)
+    #: 估算的上下文达到模型窗口的这个比例时自动压缩较早的消息（M74）。
+    compaction_ratio: float = Field(default=0.75, ge=0.3, le=0.95)
+    #: 压缩时原样保留最近几个用户轮次（M74）。
+    keep_recent_turns: int = Field(default=2, ge=1, le=10)
+    #: 最近几个工具往返的结果保留原文，更早的可重新获取的结果成批换成占位（M74）。
+    clear_tool_results_after: int = Field(default=3, ge=1, le=20)
 
 
 class TraceSettings(BaseModel):

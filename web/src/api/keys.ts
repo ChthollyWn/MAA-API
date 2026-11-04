@@ -45,6 +45,9 @@ export const keys = {
       [...root, 'agent', 'sessions', 'detail', sessionId] as const,
     messages: (sessionId: string) =>
       [...root, 'agent', 'sessions', sessionId, 'messages'] as const,
+    /** 压缩检查点（M74 §4.6）：只随 `compaction` / `compaction_created` 失效。 */
+    checkpoints: (sessionId: string) =>
+      [...root, 'agent', 'checkpoints', sessionId] as const,
     capabilities: () => [...root, 'agent', 'capabilities'] as const,
     tools: () => [...root, 'agent', 'tools'] as const,
     audits: () => [...root, 'agent', 'audits'] as const,

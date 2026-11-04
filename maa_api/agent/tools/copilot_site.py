@@ -116,6 +116,7 @@ def register_tools(registry: ToolRegistry) -> None:
             params_model=SearchCopilotsParams,
             handler=search_copilots,
             read_only=True,
+            refetchable=True,
         ),
         ToolDefinition(
             name="save_copilot_draft",

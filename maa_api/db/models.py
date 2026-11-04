@@ -1,4 +1,4 @@
-"""SQLModel 表定义：38 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：39 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -51,6 +51,7 @@ from maa_api.domain.enums import (
     AgentRunStatus,
     AgentSessionKind,
     AgentSessionStatus,
+    CheckpointStatus,
     ConfirmationStatus,
     DynamicContextPosition,
     InboxStatus,
@@ -1796,3 +1797,46 @@ class DeviceLease(SQLModel, table=True):
     boot_id: str = Field(max_length=36)
 
     __table_args__ = (UniqueConstraint("lease_id", name="uq_device_lease_lease_id"),)
+
+
+# ---------------------------------------------------------------------------
+# 5.26 compaction_checkpoint — 压缩检查点（M74 规格 §4.1）
+# ---------------------------------------------------------------------------
+class CompactionCheckpoint(SQLModel, table=True):
+    """压缩检查点（v3 docs/03 §8.1）：seq ≤ upto_seq 的消息由 summary 替代。"""
+
+    __tablename__ = "compaction_checkpoint"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    session_id: str = Field(
+        foreign_key="agent_session.id", ondelete="CASCADE", max_length=36
+    )
+    run_id: str | None = Field(
+        default=None,
+        foreign_key="agent_run.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    #: 检查点覆盖到的最后一条消息的 seq；之后的消息仍按原样加载。
+    upto_seq: int
+    #: 渲染后的摘要消息正文（读历史时整条塞进第一条 user 消息）。
+    summary: str = Field(sa_column=text_column("summary", nullable=False))
+    #: 结构性摘要（degraded 等元信息与 refs），供前端与调试读取。
+    summary_json: dict[str, Any] = Field(
+        sa_column=json_column("summary_json", nullable=False)
+    )
+    #: 压缩时确定性收集的 durable 状态（工单、委托、待确认等）。
+    durable: dict[str, Any] = Field(sa_column=json_column("durable", nullable=False))
+    tokens_before: int
+    tokens_after: int
+    #: 产出这份摘要的模型档案名；机械摘要为空。
+    model: str | None = Field(default=None, max_length=128)
+    trigger: str = Field(max_length=16)
+    status: str = Field(default=CheckpointStatus.ACTIVE, max_length=16)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_compaction_checkpoint_session_id_created_at", "session_id", "created_at"),
+    )

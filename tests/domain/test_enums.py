@@ -281,6 +281,16 @@ EXPECTED_VALUES = {
         "CONSUMED": "consumed",
         "DROPPED": "dropped",
     },
+    # M74：压缩检查点的触发方式与状态（v3 specs/m74 §4.1）。
+    "CompactionTrigger": {
+        "AUTO": "auto",
+        "MANUAL": "manual",
+    },
+    "CheckpointStatus": {
+        "ACTIVE": "active",
+        "SUPERSEDED": "superseded",
+        "INVALIDATED": "invalidated",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。
