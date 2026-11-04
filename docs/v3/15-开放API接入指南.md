@@ -185,6 +185,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `MODEL_PROFILE_READONLY` | 409 | `default` 档案由 `llm.*` 设置合成，不能修改或删除（M67） |
 | `STRUCTURED_OUTPUT_INVALID` | 502 | 模型两次都没有给出符合要求的结构化输出（M67） |
 | `BUDGET_EXCEEDED` | 429 | 这次运行或今天的模型成本已达到预算上限（M67） |
+| `COMPACTION_FAILED` | 502 | 手动压缩拿不到可用的摘要，检查点没有写入（M74） |
 | `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
 | `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
 | `QUESTION_NOT_FOUND` | 404 | 提问 id 不存在 |
