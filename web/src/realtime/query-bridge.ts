@@ -119,6 +119,13 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
           invalidateBatched(queryClient, keys.agent.session(sessionId))
           invalidateBatched(queryClient, keys.agent.messages(sessionId))
         }
+      } else if (event.data.event === 'compaction_created') {
+        // M74 §4.6：压缩只影响检查点标记。不失效消息窗口——直播中整片失效会把本轮
+        // 已落库的消息带回历史，与实时副本重复渲染（M59，见 09 §6.4）。
+        const sessionId = event.data.session_id
+        if (typeof sessionId === 'string' && sessionId) {
+          invalidateBatched(queryClient, keys.agent.checkpoints(sessionId))
+        }
       } else if (event.data.event === 'lease_changed') {
         // 设备租约（M71 §4.3）：租约条与持有者工单的详情各取各的。payload.lease 在
         // 释放/过期时可能是 null，所以只有拿得到 ticket_id 才顺带失效工单详情。

@@ -67,7 +67,8 @@ function toQuestion(data: Record<string, unknown>): AgentQuestionPrompt {
  * - `data` 不是对象按 `{}` 处理；字符串缺省为空串，数字不是 number 时按类型给 `null` 或 `0`。
  * - 除 `ticket_created`、`error` 外，缺 `run_id` 的事件一律归成 `unknown`：前端靠运行 id
  *   把事件放进正确的实时副本，猜归属比丢弃更糟。
- * - 名字不认识（含 M74/M75 的新事件）也归成 `unknown`，由 reducer 原样忽略。
+ * - 名字不认识（含 M75 的新事件）也归成 `unknown`，由 reducer 原样忽略。
+ * - M74 的 `compaction` 不进实时副本，单独由 `toSseCompactionEvent` 归一。
  */
 export function toSseV3Event(name: string, data: unknown): SseV3Event {
   const record = isRecord(data) ? data : {}
@@ -158,5 +159,35 @@ export function toSseV3Event(name: string, data: unknown): SseV3Event {
       }
     default:
       return { type: 'unknown', name }
+  }
+}
+
+/**
+ * SSE `compaction`（M74 §4.3）：运行内压缩完成，只用于失效检查点，不进实时副本。
+ * `run_id` 是触发压缩的那次运行，不要求非空——调用方只关心要不要刷新。
+ */
+export interface SseCompactionEvent {
+  type: 'compaction'
+  runId: string
+  checkpointId: string
+  tokensBefore: number
+  tokensAfter: number
+}
+
+/**
+ * `compaction` 单独归一：它没有实时副本可改，只让调用方失效 checkpoints key。
+ * 这样 `toSseV3Event` 的「不认识的事件归 unknown」口径对既有事件保持不变。
+ */
+export function toSseCompactionEvent(name: string, data: unknown): SseCompactionEvent | null {
+  if (name !== 'compaction') return null
+  const record = isRecord(data) ? data : {}
+  const tokens = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : 0
+  return {
+    type: 'compaction',
+    runId: stringValue(record.run_id),
+    checkpointId: stringValue(record.checkpoint_id),
+    tokensBefore: tokens(record.tokens_before),
+    tokensAfter: tokens(record.tokens_after),
   }
 }

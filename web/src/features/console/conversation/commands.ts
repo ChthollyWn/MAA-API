@@ -1,5 +1,5 @@
-/** 输入栏的斜杠命令（M72 §4.5.6）。 */
-export type SlashCommandName = 'stop' | 'tickets' | 'help'
+/** 输入栏的斜杠命令（M72 §4.5.6；M74 §4.6 加 `/compact`）。 */
+export type SlashCommandName = 'stop' | 'tickets' | 'compact' | 'help'
 
 export interface SlashCommand {
   name: SlashCommandName
@@ -10,6 +10,7 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'stop', label: '/stop', description: '停止本轮' },
   { name: 'tickets', label: '/tickets', description: '打开工单列表' },
+  { name: 'compact', label: '/compact', description: '压缩较早的消息' },
   { name: 'help', label: '/help', description: '查看命令与引用' },
 ]
 

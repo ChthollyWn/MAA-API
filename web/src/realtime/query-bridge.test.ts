@@ -417,3 +417,49 @@ describe('reconnect reloads the v3 conversation state', () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.deviceLease(), refetchType: 'active' })
   })
 })
+
+describe('compaction marks the checkpoint list stale', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('only invalidates the checkpoints key of the compacted session', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: 'session-1',
+          event: 'compaction_created',
+          payload: {
+            checkpoint_id: 'c-9',
+            run_id: 'r-7',
+            trigger: 'auto',
+            tokens_before: 98213,
+            tokens_after: 21455,
+            upto_seq: 412,
+            degraded: false,
+          },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.checkpoints('session-1'),
+      refetchType: 'active',
+    })
+    // M74 §4.6：压缩不失效消息窗口与整片会话，避免直播中重复渲染（M59）。
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.messages('session-1'),
+      refetchType: 'active',
+    })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.all(), refetchType: 'active' })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.checkpoints('session-2'), refetchType: 'active' })
+  })
+})
