@@ -18,7 +18,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'device', title: '设备与渠道', summary: '设备地址、连接方式与默认渠道', icon: Smartphone, scope: 'server' },
   { id: 'agent', title: 'LLM 与 Agent', summary: '模型接口、确认时限与自动诊断', icon: Bot, scope: 'server' },
   { id: 'models', title: '模型档案', summary: '模型接口、角色分配与价格', icon: Cpu, scope: 'server' },
-  { id: 'knowledge', title: 'Agent 知识库', summary: '操作剧本、界面知识与用户档案', icon: BookOpen, scope: 'server' },
+  { id: 'knowledge', title: 'Agent 知识库', summary: '知识条目、检索来源与用户档案', icon: BookOpen, scope: 'server' },
   { id: 'notifications', title: '通知', summary: 'Web 推送与通知通道', icon: Bell, scope: 'server' },
   { id: 'sources', title: '外部数据源', summary: 'PRTS 等外部来源的开关、状态与缓存', icon: Globe, scope: 'server' },
   { id: 'maintenance', title: '更新与日志', summary: '更新检查、下载前缀与日志级别', icon: Wrench, scope: 'server' },
