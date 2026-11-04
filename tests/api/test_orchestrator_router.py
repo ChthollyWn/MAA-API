@@ -116,6 +116,8 @@ def orchestrator_env(isolated_db, tmp_settings):
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(orchestrator_router.router)
+    # M72：消息路由用 app.state.session_factory 展开【引用】段（生产由 lifespan 设置）。
+    app.state.session_factory = factory
 
     router = _ModelRouter()
     run_service = RunService(factory, boot_id="test-boot")
@@ -254,14 +256,20 @@ def test_mentions_are_stored_in_inbox_payload(
         return items, messages
 
     items, messages = asyncio.run(load())
+    # M72：写库正文 = 原文 + 展开后的【引用】段；这里两个提及都读不到，写成失败行。
+    expanded = (
+        "按这个做\n\n【引用】\n"
+        "- 知识「刷关知识」（读取失败）\n"
+        "- 工单「日常」（读取失败）"
+    )
     assert [item.kind for item in items] == ["user_message"]
     assert items[0].payload["mentions"] == mentions
-    assert items[0].payload["text"] == "按这个做"
+    assert items[0].payload["text"] == expanded
     assert stream.tracked == items[0].id
     # 用户消息在写入时已落库：run_id / inbox_id 为空，转出的消息才有。
     assert len(messages) == 1
     assert messages[0].role == "user"
-    assert messages[0].content == "按这个做"
+    assert messages[0].content == expanded
     assert messages[0].run_id is None
     assert messages[0].inbox_id is None
 
@@ -402,3 +410,54 @@ def test_orchestrator_messages_carry_inbox_kind_and_thread_key(
     assert items[1]["inbox_id"] == inbox_id
     assert items[1]["inbox_kind"] == "report"
     assert items[1]["inbox_thread_key"] == "ticket:t1"
+
+
+def test_orchestrator_message_stores_expanded_mentions(
+    orchestrator_env, make_client, fake_streams
+):
+    """M72 §6：带知识提及发送；写库正文以原文开头，并带【引用】与知识行。"""
+    _configure(orchestrator_env)
+    entry = SimpleNamespace(
+        id="k-1", title="刷关知识", when_to_use="刷关前", body="先看关卡"
+    )
+
+    class _KnowledgeService:
+        async def read_for_agent(self, entry_id: str):
+            assert entry_id == "k-1"
+            return entry
+
+    orchestrator_env.app.state.knowledge_service = _KnowledgeService()
+    client = _client(orchestrator_env, make_client)
+
+    response = client.post(
+        "/api/agent/orchestrator/messages",
+        json={
+            "content": "照这个刷",
+            "mentions": [
+                {"type": "knowledge", "id": "k-1", "label": "刷关知识"}
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    stream = fake_streams[0]
+
+    async def load():
+        async with orchestrator_env.factory() as session:
+            return (
+                (
+                    await session.execute(
+                        select(AgentMessage)
+                        .where(AgentMessage.session_id == stream.session_id)
+                        .order_by(AgentMessage.seq.asc())
+                    )
+                )
+                .scalars()
+                .first()
+            )
+
+    message = asyncio.run(load())
+    assert message is not None
+    assert message.content == (
+        "照这个刷\n\n【引用】\n"
+        "- 知识「刷关知识」（k-1）：刷关前。正文节选：先看关卡"
+    )

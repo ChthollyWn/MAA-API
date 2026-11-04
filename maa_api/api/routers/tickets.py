@@ -26,6 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
+from maa_api.agent.mentions import MentionContext, render_reference_block
 from maa_api.agent.orchestrator.stream import RunEventStream
 from maa_api.agent.tickets.service import TicketDetailData, TicketService
 from maa_api.api.deps import get_session, require_auth
@@ -397,10 +398,15 @@ async def send_ticket_message(
     session = await service.ensure_worker_session(ticket)
     stream = RunEventStream(request.app, session_id=str(session.id))
     try:
+        block = await render_reference_block(
+            payload.mentions,
+            MentionContext(request.app.state, request.app.state.session_factory),
+        )
         posted = await service.post_user_message(
             ticket_id,
-            payload.content,
+            payload.content + block,
             [mention.model_dump() for mention in payload.mentions or []],
+            notify_content=payload.content,
         )
     except BaseException:
         stream.close()

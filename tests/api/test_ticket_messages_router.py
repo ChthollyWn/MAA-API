@@ -14,9 +14,11 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401  # 注册全部表
+from maa_api.agent.orchestrator.service import OrchestratorService
 from maa_api.agent.runs import RunService
 from maa_api.agent.tickets.inbox import InboxService
 from maa_api.agent.tickets.service import TicketService
@@ -25,7 +27,13 @@ from maa_api.agent.workers.service import WorkerService
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import tickets as tickets_router
 from maa_api.db import session as db_session
-from maa_api.db.models import AgentMessage, AgentRun, AgentSession, Ticket
+from maa_api.db.models import (
+    AgentInbox,
+    AgentMessage,
+    AgentRun,
+    AgentSession,
+    Ticket,
+)
 from maa_api.db.repositories.agent import (
     AgentMessageRepository,
     AgentRunRepository,
@@ -363,3 +371,122 @@ def test_list_ticket_messages_with_subagents(messages_env, make_client):
     empty = client.get(f"/api/agent/tickets/{empty_ticket.id}/messages")
     assert empty.status_code == 200, empty.text
     assert empty.json() == {"items": [], "total": 0, "page": 1, "size": 20}
+
+
+def test_ticket_message_summary_excludes_reference_block(
+    messages_env, make_client, monkeypatch
+):
+    """M72 §6：写库正文带【引用】段，给总控的 passive 摘要只引用原话。"""
+    messages_env.app.state.session_factory = messages_env.factory
+
+    class _KnowledgeService:
+        async def read_for_agent(self, entry_id: str):
+            return SimpleNamespace(
+                id=entry_id,
+                title="刷关知识",
+                when_to_use="刷关前",
+                body="先看关卡",
+            )
+
+    messages_env.app.state.knowledge_service = _KnowledgeService()
+
+    orchestrator = OrchestratorService(
+        app=messages_env.app,
+        session_factory=messages_env.factory,
+        spec_registry=_registry(),
+        run_service=RunService(messages_env.factory, boot_id="test-boot"),
+        inbox_service=InboxService(messages_env.factory),
+        ticket_service=messages_env.service,
+        question_service=None,
+        confirmation_service=None,
+        model_router=None,
+        event_bus=None,
+    )
+    messages_env.worker.bind_orchestrator(orchestrator)
+
+    class _FakeStream:
+        def __init__(self, app, *, session_id: str) -> None:
+            self.session_id = session_id
+            self.tracked: int | None = None
+
+        def track(self, inbox_id: int) -> None:
+            self.tracked = int(inbox_id)
+
+        def close(self) -> None:
+            return None
+
+        async def frames(self):
+            if False:  # pragma: no cover - 只为让类型成为异步生成器
+                yield ""
+
+    monkeypatch.setattr(tickets_router, "RunEventStream", _FakeStream)
+    ticket = _create(messages_env, title="日常")
+    client = _client(messages_env, make_client)
+
+    response = client.post(
+        f"/api/agent/tickets/{ticket.id}/messages",
+        json={
+            "content": "先刷 1-7",
+            "mentions": [
+                {"type": "knowledge", "id": "k-1", "label": "刷关知识"}
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    async def load():
+        async with messages_env.factory() as session:
+            orchestrator_session = (
+                (
+                    await session.execute(
+                        select(AgentSession).where(
+                            AgentSession.kind == "orchestrator"
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            worker_messages = (
+                (
+                    await session.execute(
+                        select(AgentMessage)
+                        .join(
+                            AgentSession,
+                            AgentMessage.session_id == AgentSession.id,
+                        )
+                        .where(
+                            AgentSession.ticket_id == ticket.id,
+                            AgentSession.kind == "worker",
+                        )
+                        .order_by(AgentMessage.seq.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            items = (
+                (
+                    await session.execute(
+                        select(AgentInbox)
+                        .where(
+                            AgentInbox.session_id == str(orchestrator_session.id)
+                        )
+                        .order_by(AgentInbox.id.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return worker_messages, items
+
+    worker_messages, items = asyncio.run(load())
+    assert worker_messages[0].content == (
+        "先刷 1-7\n\n【引用】\n"
+        "- 知识「刷关知识」（k-1）：刷关前。正文节选：先看关卡"
+    )
+    system_items = [item for item in items if str(item.kind) == "system"]
+    assert len(system_items) == 1
+    summary = system_items[0].payload["text"]
+    assert summary == "用户在工单「日常」里说：先刷 1-7"
+    assert "【引用】" not in summary

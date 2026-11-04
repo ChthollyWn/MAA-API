@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
+from maa_api.agent.mentions import MentionContext, render_reference_block
 from maa_api.agent.orchestrator.stream import RunEventStream
 from maa_api.api.deps import get_session, require_auth
 from maa_api.api.errors import error_responses
@@ -103,8 +104,12 @@ async def send_orchestrator_message(
     session = await service.ensure_session()
     stream = RunEventStream(request.app, session_id=str(session.id))
     try:
+        block = await render_reference_block(
+            payload.mentions,
+            MentionContext(request.app.state, request.app.state.session_factory),
+        )
         posted = await service.post_user_message(
-            payload.content,
+            payload.content + block,
             [mention.model_dump() for mention in payload.mentions or []],
         )
     except BaseException:
