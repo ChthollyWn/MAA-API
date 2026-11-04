@@ -81,6 +81,11 @@ export interface ConsoleApiState {
   specDetails: Record<string, Json>
   lease: Json
   modelRoles: Json
+  /** 默认计划；`plans` 里按会话覆盖。 */
+  plan: Json | null
+  plans: Record<string, Json | null>
+  artifacts: Json[]
+  artifactDetails: Record<string, Json>
 }
 
 export interface OverrideContext {
@@ -113,6 +118,14 @@ export interface ConsoleApiOptions {
   specDetails?: Record<string, Json>
   lease?: Json
   modelRoles?: Json
+  /** 计划（M75）：默认 `null`；多会话用 `plans` 按会话覆盖。 */
+  plan?: Json | null
+  plans?: Record<string, Json | null>
+  /** 产物列表（M75）；`artifactDetails` 提供抽屉正文，缺省时回落到列表项。 */
+  artifacts?: Json[]
+  artifactDetails?: Record<string, Json>
+  /** 返回 Promise 时，计划批准/退回要等它完成才响应（锁「请求中禁用」）。 */
+  holdPlanApproval?: () => Promise<void> | undefined
   knowledge?: Json[]
   pipelines?: Json[]
   operators?: Json[]
@@ -156,7 +169,21 @@ function makeState(options: ConsoleApiOptions): ConsoleApiState {
     specDetails: options.specDetails ?? {},
     lease: options.lease ?? { held: false, lease: null, waiters: 0 },
     modelRoles: options.modelRoles ?? { items: [] },
+    plan: options.plan ?? null,
+    plans: { ...(options.plans ?? {}) },
+    artifacts: options.artifacts ?? [],
+    artifactDetails: { ...(options.artifactDetails ?? {}) },
   }
+}
+
+/** 按会话取计划；`plans` 没写这个会话时回落到默认 `plan`。 */
+function planOf(state: ConsoleApiState, sessionId: string): Json | null {
+  return sessionId in state.plans ? state.plans[sessionId] ?? null : state.plan
+}
+
+function setPlanOf(state: ConsoleApiState, sessionId: string, plan: Json | null): void {
+  if (sessionId in state.plans) state.plans[sessionId] = plan
+  else state.plan = plan
 }
 
 function pageOf(items: unknown[], page: number, size: number): Response {
@@ -369,6 +396,67 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
         if (detail) detail.status = approved ? 'approved' : 'rejected'
         options.onResolve?.(id, approved)
         return json({ confirmation_id: id, status: approved ? 'approved' : 'rejected' })
+      }
+    }
+
+    const planMatch = /^\/api\/agent\/sessions\/([^/]+)\/plan(\/approval)?$/.exec(url.pathname)
+    if (planMatch) {
+      const sessionId = decodeURIComponent(planMatch[1]!)
+      if (!planMatch[2] && request.method === 'GET') {
+        return json(planOf(state, sessionId))
+      }
+      if (planMatch[2] && request.method === 'POST') {
+        await options.holdPlanApproval?.()
+        const input = (body ?? {}) as Json
+        const current = planOf(state, sessionId)
+        if (!current) {
+          return json({ error: { code: 'PLAN_NOT_FOUND', message: '计划不存在' } }, 404)
+        }
+        const approved = Boolean(input.approved)
+        const next = {
+          ...current,
+          status: approved ? 'active' : 'draft',
+          approved_by: approved ? 'console' : null,
+          approved_at: approved ? '2026-10-01T10:00:00Z' : null,
+        }
+        setPlanOf(state, sessionId, next)
+        return json(next)
+      }
+    }
+
+    if (url.pathname === '/api/agent/artifacts' && request.method === 'GET') {
+      const ticketId = url.searchParams.get('ticket_id')
+      const sessionId = url.searchParams.get('session_id')
+      const kind = url.searchParams.get('kind')
+      let items = state.artifacts
+      if (ticketId) items = items.filter((item) => item.ticket_id === ticketId)
+      if (sessionId) items = items.filter((item) => item.session_id === sessionId)
+      if (kind) items = items.filter((item) => item.kind === kind)
+      return pageOf(items, page, size)
+    }
+
+    const artifactMatch = /^\/api\/agent\/artifacts\/([^/]+?)(\/content|\/pin)?$/.exec(url.pathname)
+    if (artifactMatch) {
+      const artifactId = decodeURIComponent(artifactMatch[1]!)
+      const sub = artifactMatch[2]
+      const detail = state.artifactDetails[artifactId]
+        ?? state.artifacts.find((item) => item.id === artifactId)
+      if (!detail) {
+        return json({ error: { code: 'ARTIFACT_NOT_FOUND', message: '产物不存在' } }, 404)
+      }
+      if (!sub && request.method === 'GET') return json(detail)
+      if (sub === '/content' && request.method === 'GET') {
+        return new Response(String(detail.content ?? ''), {
+          status: 200,
+          headers: { 'Content-Type': String(detail.mime ?? 'text/plain') },
+        })
+      }
+      if (sub === '/pin' && request.method === 'PUT') {
+        const pinned = Boolean((body as Json | undefined)?.pinned)
+        const next = { ...detail, pinned }
+        state.artifacts = state.artifacts.map((item) => (item.id === artifactId ? next : item))
+        state.artifactDetails[artifactId] = next
+        return json(next)
       }
     }
 

@@ -6,7 +6,7 @@ description: 诊断一次流水线失败或内核崩溃，给出可执行的下�
 model_role: worker
 tools: [get_system_status, get_device_status, get_logs, get_screenshot, get_pipeline, get_queue,
   list_pipelines, get_drop_stats, read_knowledge, stop_pipeline, reconnect_device, back_to_home,
-  get_versions, send_screenshot, annotate_screenshot, report, delegate]
+  get_versions, send_screenshot, annotate_screenshot, update_plan, write_note, read_artifact, report, delegate]
 deferred_groups: []
 device: exclusive
 risk_ceiling: none
@@ -15,7 +15,7 @@ delegates: [recon]
 skills: []
 output_schema: null
 budget: {max_cost_per_run: 0}
-version: 1
+version: 2
 ---
 你在一张工单里工作。委托范围、风险上限写在工单卡上，超出就停下来汇报 blocked，不要试探。
 每轮结束调用 report。有结果用 ready，要用户决定用 waiting，做不下去用 blocked，执行中用 progress。

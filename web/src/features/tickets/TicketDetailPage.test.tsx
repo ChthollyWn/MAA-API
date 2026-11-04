@@ -418,4 +418,40 @@ describe('M72 工单页', () => {
     expect(await screen.findByText('另一个工单的回复')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole('region', { name: '本轮消息' })).not.toBeInTheDocument())
   })
+
+  it('shows the worker plan and artifacts in the sidebar', async () => {
+    stubMedia((query) => query === DESKTOP)
+    createConsoleApi({
+      ticketDetails: { t1: baseDetail({ ticket: baseTicket({ status: 'waiting' }) }) },
+      ticketMessages: { t1: [] },
+      plan: {
+        id: 'p1',
+        session_id: 'w1',
+        ticket_id: 't1',
+        title: '清日常',
+        items: [{ id: 's1', title: '提交剿灭', status: 'in_progress', note: null }],
+        status: 'awaiting_approval',
+        approved_by: null,
+        approved_at: null,
+      },
+      artifacts: [{
+        id: 'a1',
+        ticket_id: 't1',
+        session_id: 'w1',
+        kind: 'note',
+        title: '作战笔记',
+        mime: 'text/markdown',
+        size_bytes: 512,
+        storage: 'db',
+        pinned: false,
+        created_at: '2026-10-01T09:30:00Z',
+      }],
+    })
+    renderDetail()
+
+    const sidebar = await screen.findByRole('complementary', { name: '工单侧栏' })
+    expect(await within(sidebar).findByText('清日常')).toBeInTheDocument()
+    expect(within(sidebar).getByRole('button', { name: '批准' })).toBeInTheDocument()
+    expect(await within(sidebar).findByText('作战笔记')).toBeInTheDocument()
+  })
 })

@@ -24,7 +24,8 @@ WORKERS = {
             "set_task_params", "cancel_queued", "get_drop_stats", "back_to_home", "list_schedules",
             "list_infrast_plans", "read_knowledge", "get_activity_stages", "get_stage",
             "get_drop_rates", "send_screenshot", "send_chart", "check_confirmation", "ask_user",
-            "report", "delegate", "hold_device", "release_device",
+            "update_plan", "write_note", "read_artifact", "report", "delegate",
+            "hold_device", "release_device",
         ),
     },
     "copilot": {
@@ -38,7 +39,8 @@ WORKERS = {
             "get_operator", "get_operator_box", "search_prts", "get_prts_page", "get_screenshot",
             "annotate_screenshot", "send_screenshot", "send_stage_map", "submit_pipeline",
             "get_pipeline", "wait_pipeline", "stop_pipeline", "back_to_home", "update_resource",
-            "wait_update", "read_knowledge", "ask_user", "report", "delegate", "hold_device",
+            "wait_update", "read_knowledge", "ask_user", "update_plan", "write_note",
+            "read_artifact", "report", "delegate", "hold_device",
             "release_device",
         ),
     },
@@ -55,7 +57,7 @@ WORKERS = {
             "get_infrast_candidates", "list_infrast_plans", "set_infrast_plan", "list_schedules",
             "create_schedule", "update_schedule", "delete_schedule", "update_user_profile",
             "get_operator", "read_knowledge", "send_chart", "send_item_icons", "ask_user",
-            "report", "delegate",
+            "update_plan", "write_note", "read_artifact", "report", "delegate",
         ),
     },
     "diagnose": {
@@ -67,7 +69,7 @@ WORKERS = {
             "get_system_status", "get_device_status", "get_logs", "get_screenshot", "get_pipeline",
             "get_queue", "list_pipelines", "get_drop_stats", "read_knowledge", "stop_pipeline",
             "reconnect_device", "back_to_home", "get_versions", "send_screenshot",
-            "annotate_screenshot", "report", "delegate",
+            "annotate_screenshot", "update_plan", "write_note", "read_artifact", "report", "delegate",
         ),
     },
     "analyst": {
@@ -78,7 +80,8 @@ WORKERS = {
         "tools": (
             "list_pipelines", "get_pipeline", "get_drop_stats", "get_logs", "get_drop_rates",
             "get_item", "get_stage", "get_operator_box", "get_depot", "list_upgrade_plans",
-            "send_chart", "send_item_icons", "read_knowledge", "report", "delegate",
+            "send_chart", "send_item_icons", "read_knowledge", "update_plan", "write_note",
+            "read_artifact", "report", "delegate",
         ),
     },
     "ops": {
@@ -90,16 +93,19 @@ WORKERS = {
             "check_updates", "scan_proxy_channels", "update_core", "update_resource",
             "update_game", "wait_update", "restart_core", "get_versions", "get_system_status",
             "get_device_status", "reconnect_device", "list_devices", "get_logs", "read_knowledge",
-            "ask_user", "report",
+            "ask_user", "update_plan", "write_note", "read_artifact", "report",
         ),
     },
 }
 
-#: ``diagnose`` 在 v2 诊断工具之外追加的五个（§4.7.4、05 §3.2）。
+#: ``diagnose`` 在 v2 诊断工具之外追加的八个（§4.7.4、05 §3.2）。
 DIAGNOSE_EXTRA_TOOLS = (
     "get_versions",
     "send_screenshot",
     "annotate_screenshot",
+    "update_plan",
+    "write_note",
+    "read_artifact",
     "report",
     "delegate",
 )
@@ -124,7 +130,7 @@ def test_six_workers_match_contract():
         assert spec.risk_ceiling == expected["risk_ceiling"]
         assert spec.delegates == expected["delegates"]
         assert spec.tools == expected["tools"]
-        assert spec.version == 1
+        assert spec.version == 2
         assert spec.max_steps == 0
         assert spec.output_schema is None
         assert spec.budget.max_cost_per_run == 0

@@ -6,7 +6,7 @@ description: 检查更新、切换本次下载代理、更新内核或资源或�
 model_role: worker
 tools: [check_updates, scan_proxy_channels, update_core, update_resource, update_game, wait_update,
   restart_core, get_versions, get_system_status, get_device_status, reconnect_device, list_devices,
-  get_logs, read_knowledge, ask_user, report]
+  get_logs, read_knowledge, ask_user, update_plan, write_note, read_artifact, report]
 deferred_groups: []
 device: exclusive
 risk_ceiling: destructive
@@ -15,7 +15,7 @@ delegates: []
 skills: []
 output_schema: null
 budget: {max_cost_per_run: 0}
-version: 1
+version: 2
 ---
 你在一张工单里工作。委托范围、风险上限写在工单卡上，超出就停下来汇报 blocked，不要试探。
 每轮结束调用 report。有结果用 ready，要用户决定用 waiting，做不下去用 blocked，执行中用 progress。

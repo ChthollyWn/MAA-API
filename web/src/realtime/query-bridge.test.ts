@@ -463,3 +463,70 @@ describe('compaction marks the checkpoint list stale', () => {
     expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.checkpoints('session-2'), refetchType: 'active' })
   })
 })
+
+describe('workspace events refresh the plan and artifact queries', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('invalidates only the plan of the updated session', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: 'w-1',
+          event: 'plan_updated',
+          payload: {
+            run_id: null,
+            plan_id: 'p-1',
+            status: 'awaiting_approval',
+            items: [{ id: 'a1', title: '提交剿灭', status: 'pending', note: '' }],
+          },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.plan('w-1'),
+      refetchType: 'active',
+    })
+    // M75 §4.6：计划不动消息窗口、工单详情与整片会话，避免直播中重复渲染（M59）。
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.plan('w-2'), refetchType: 'active' })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.all(), refetchType: 'active' })
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.detail('t-1'),
+      refetchType: 'active',
+    })
+  })
+
+  it('invalidates every artifact list because the payload has no ticket_id', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: 'w-1',
+          event: 'artifact_created',
+          payload: { run_id: 'r-1', artifact_id: 'a-1', kind: 'spill', title: 'get_logs 的输出' },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.artifactsAll(),
+      refetchType: 'active',
+    })
+  })
+})
