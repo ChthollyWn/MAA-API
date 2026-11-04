@@ -4,7 +4,7 @@
 本服务负责三件事：
 
 - 建单：查代理定义、补标题、把 ``worker_session_id`` 与会话里的任务说明写进库；
-- 跑一轮：领收件箱、装配工单卡与委托上限、调 ``run_agent``，收尾时补汇报并释放设备门；
+- 跑一轮：领收件箱、装配工单卡与委托上限、调 ``run_agent``，收尾时补汇报；
 - 收口：汇报进终态、取消、工单结束后的收尾（丢收件箱、关泵、停订阅）。
 
 外部依赖都从构造参数注入，测试可以只给临时库与几个替身；``app.state`` 上只读
@@ -36,7 +36,6 @@ from maa_api.agent.workers.cards import (
     persist_inbox_messages,
     ticket_card,
 )
-from maa_api.agent.workers.device_gate import DeviceGate
 from maa_api.agent.workers.middleware import ensure_report
 from maa_api.agent.workers.pump import (
     SWEEP_INTERVAL_SECONDS,
@@ -169,7 +168,6 @@ class WorkerService:
         ticket_service: TicketService,
         thread_router: ThreadRouter,
         delegation: Any,
-        device_gate: DeviceGate,
         titler: Any,
         event_bus: RunEventBus | None,
     ) -> None:
@@ -182,7 +180,6 @@ class WorkerService:
         self._thread_router = thread_router
         #: M70 只保存，T10 的 DelegationService 才是它的使用者。
         self._delegation = delegation
-        self._device_gate = device_gate
         self._titler = titler
         self._event_bus = event_bus
         self._orchestrator: Any = None
@@ -582,7 +579,7 @@ class WorkerService:
         reason: str | None,
         actor: Literal["user", "orchestrator"],
     ) -> Any:
-        """取消工单：停代理、丢收件箱、释放设备门，已提交的流水线不停（§4.5.7）。"""
+        """取消工单：停代理、丢收件箱，已提交的流水线不停（§4.5.7）。"""
         ticket = await self.require_open_ticket(ticket_id)
         cancelled = await self._ticket_service.cancel(
             ticket_id, reason=reason or "用户取消"
@@ -619,7 +616,7 @@ class WorkerService:
         return await self._ticket_service.detail(ticket_id)
 
     async def on_ticket_ended(self, ticket_id: str, *, abort_calls: bool) -> None:
-        """工单结束后的收尾（§4.5.7）：撤回调用、丢收件箱、释放门、停会话与泵。"""
+        """工单结束后的收尾（§4.5.7）：撤回调用、丢收件箱、停会话与泵。"""
         ticket = await self._get_ticket(ticket_id)
         if ticket is None:
             return
@@ -631,10 +628,6 @@ class WorkerService:
                 await self._inbox.drop_pending(session_id)
             except Exception:  # noqa: BLE001 - 收尾尽力而为
                 logger.exception("工单 %s 丢弃 Worker 收件箱失败", ticket_id)
-        try:
-            await self._device_gate.release(ticket_id)
-        except Exception:  # noqa: BLE001 - 释放设备门失败不能挡收尾
-            logger.exception("工单 %s 释放设备门失败", ticket_id)
         if session_id:
             await self._finish_sessions(session_id)
             await self._close_pump(session_id)
@@ -792,10 +785,6 @@ class WorkerService:
                 await ensure_report(ctx, outcome)
             except Exception:  # noqa: BLE001 - 补汇报失败不能把收尾变成异常
                 logger.exception("工单 %s 补汇报失败", ticket.id)
-            try:
-                await self._device_gate.release(ticket.id)
-            except Exception:  # noqa: BLE001
-                logger.exception("工单 %s 释放设备门失败", ticket.id)
         return True
 
     # ------------------------------------------------------------------

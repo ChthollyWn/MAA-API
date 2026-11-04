@@ -106,6 +106,16 @@ class RunRecovery:
             runs = await AgentRunRepository(session).list_active_from_other_boots(
                 self.boot_id
             )
+        # M71 §4.5.8 第 4 步：上一进程留下的设备租约同样作废（表里至多一行）。
+        from maa_api.db.repositories.lease import DeviceLeaseRepository
+
+        async with self.session_factory() as session:
+            deleted_leases = await DeviceLeaseRepository(session).delete_other_boots(
+                self.boot_id
+            )
+            await session.commit()
+        if deleted_leases:
+            logger.warning("服务重启：清理了上一进程留下的 %d 条设备租约", deleted_leases)
         recovered: list[str] = []
         for run in runs:
             try:

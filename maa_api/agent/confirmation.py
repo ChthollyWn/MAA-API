@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import time
@@ -12,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.origin import origin_wire, ticket_titles
 from maa_api.agent.policy import PolicyDecision, PolicyEngine
 from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.db.models import AgentAudit, AgentSession, Confirmation, utcnow
@@ -48,6 +50,9 @@ ABORT_WORKER_GRACE_SECONDS = 5.0
 AuditTerminalCallback = Callable[[AsyncSession, int, int, dict[str, Any]], Any]
 AuditPrepareCallback = Callable[[AsyncSession, int, Any], Any]
 AuditCommittedCallback = Callable[[int, int, dict[str, Any]], Any]
+#: 确认通过之后、执行之前的回调（M71 §4.2 第 1 条）；参数是审计 id，抛出
+#: ``AppError`` 即中止执行并落 failed 审计。``LeaseMiddleware`` 用它取设备租约。
+BeforeExecuteCallback = Callable[[int], Any]
 
 
 class ConfirmationService:
@@ -112,6 +117,7 @@ class ConfirmationService:
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
         on_audit_committed: AuditCommittedCallback | None = None,
+        on_before_execute: BeforeExecuteCallback | None = None,
     ) -> dict[str, Any]:
         return await self._invoke(
             name,
@@ -122,6 +128,7 @@ class ConfirmationService:
             on_audit_terminal=on_audit_terminal,
             on_audit_prepare=on_audit_prepare,
             on_audit_committed=on_audit_committed,
+            on_before_execute=on_before_execute,
         )
 
     async def _invoke(
@@ -135,6 +142,7 @@ class ConfirmationService:
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
         on_audit_committed: AuditCommittedCallback | None = None,
+        on_before_execute: BeforeExecuteCallback | None = None,
     ) -> dict[str, Any]:
         if mode not in {"sync", "async"}:
             raise AppError(ErrorCode.INVALID_PARAMETER, "mode 必须为 sync 或 async")
@@ -161,6 +169,7 @@ class ConfirmationService:
                     on_audit_terminal,
                     on_audit_prepare,
                     on_audit_committed,
+                    on_before_execute=on_before_execute,
                 ),
                 name=f"agent-confirm-{confirmation_id}",
             )
@@ -231,6 +240,7 @@ class ConfirmationService:
                     on_audit_terminal=on_audit_terminal,
                     on_audit_prepare=on_audit_prepare,
                     on_audit_committed=on_audit_committed,
+                    on_before_execute=on_before_execute,
                 ),
                 name=f"agent-tool-{audit_id}",
             )
@@ -250,6 +260,7 @@ class ConfirmationService:
                 on_audit_terminal=on_audit_terminal,
                 on_audit_prepare=on_audit_prepare,
                 on_audit_committed=on_audit_committed,
+                on_before_execute=on_before_execute,
             )
         except AppError as exc:
             exc.details = {**(exc.details or {}), "audit_id": audit_id}
@@ -466,7 +477,8 @@ class ConfirmationService:
             if row is None:
                 raise AppError(ErrorCode.CONFIRMATION_NOT_FOUND, "确认请求不存在")
             audit = await AuditRepository(session).get(row.audit_id) if row.audit_id else None
-            return self._confirmation_wire(row, audit)
+            titles = await ticket_titles(session, [row.origin_ticket_id])
+            return self._confirmation_wire(row, audit, titles)
 
     async def list(
         self,
@@ -479,8 +491,13 @@ class ConfirmationService:
             result = await ConfirmationRepository(session).list(
                 status=status, page=page, size=size
             )
+            titles = await ticket_titles(
+                session, [row.origin_ticket_id for row in result.items]
+            )
             return {
-                "items": [self._confirmation_wire(row) for row in result.items],
+                "items": [
+                    self._confirmation_wire(row, titles=titles) for row in result.items
+                ],
                 "total": result.total,
                 "page": result.page,
                 "size": result.size,
@@ -881,6 +898,10 @@ class ConfirmationService:
             else self.confirmation_timeout_seconds
         )
         expires_at = now + timedelta(seconds=timeout)
+        origin = context.origin
+        origin_run_id = origin.run_id if origin is not None else None
+        origin_ticket_id = origin.ticket_id if origin is not None else None
+        origin_agent = origin.agent if origin is not None else None
         audit = AgentAudit(
             caller=_caller(context.caller),
             caller_detail=_caller_detail(context),
@@ -891,6 +912,9 @@ class ConfirmationService:
             risk_level=decision.risk,
             authorized_by_id=decision.authorized_by,
             session_id=context.session_id,
+            run_id=origin_run_id,
+            ticket_id=origin_ticket_id,
+            agent_name=origin_agent,
             created_at=now,
         )
         async with self.session_factory() as session:
@@ -913,6 +937,9 @@ class ConfirmationService:
                 requested_by=_caller(context.caller),
                 audit_id=None,
                 expires_at=expires_at,
+                origin_run_id=origin_run_id,
+                origin_ticket_id=origin_ticket_id,
+                origin_agent=origin_agent,
             )
             confirmation = await ConfirmationRepository(session).create(confirmation)
             audit.confirmation_id = confirmation.id
@@ -920,6 +947,7 @@ class ConfirmationService:
             audit.confirmation_id = confirmation.id
             confirmation.audit_id = audit.id
             await session.flush()
+            titles = await ticket_titles(session, [origin_ticket_id])
             await session.commit()
 
         event = {
@@ -935,6 +963,12 @@ class ConfirmationService:
             "tool": name,
             "params": dict(arguments),
             "expires_at": expires_at.replace(tzinfo=UTC).timestamp(),
+            "origin": origin_wire(
+                run_id=origin_run_id,
+                ticket_id=origin_ticket_id,
+                agent=origin_agent,
+                titles=titles,
+            ),
         }
         self.broadcast("confirm_request", event)
         await self._push_confirmation(confirmation, name, dict(arguments))
@@ -987,6 +1021,7 @@ class ConfirmationService:
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
         on_audit_committed: AuditCommittedCallback | None = None,
+        on_before_execute: BeforeExecuteCallback | None = None,
     ) -> None:
         expires_at = self._confirmation_expiry(decision.confirmation_action)
         remaining = max((expires_at - self.clock()).total_seconds(), 0)
@@ -1037,6 +1072,7 @@ class ConfirmationService:
                 on_audit_terminal=on_audit_terminal,
                 on_audit_prepare=on_audit_prepare,
                 on_audit_committed=on_audit_committed,
+                on_before_execute=on_before_execute,
             )
         except AppError as exc:
             # Detached confirmation workers persist failures on the audit row;
@@ -1080,18 +1116,19 @@ class ConfirmationService:
         on_audit_terminal: AuditTerminalCallback | None = None,
         on_audit_prepare: AuditPrepareCallback | None = None,
         on_audit_committed: AuditCommittedCallback | None = None,
+        on_before_execute: BeforeExecuteCallback | None = None,
     ) -> Any:
         started = time.monotonic()
         definition = self.registry.get(name)
         try:
+            # 执行前钩子（M71 §4.2 第 3 条）：确认通过之后、开会话执行之前。抛出的
+            # ``AppError`` 由下面的分支落 failed 审计；取消走 CancelledError 分支。
+            # 钩子耗时不计入工具的执行时长。
+            await _call_before_execute(on_before_execute, audit_id)
+            started = time.monotonic()
             async with self.session_factory() as db_session:
-                execution_context = ToolContext(
-                    context.caller,
-                    context.session_id,
-                    context.request_id,
-                    context.request,
-                    db_session,
-                )
+                # ``replace`` 保留 origin：执行期新会话只换 db_session，代理来源不能丢。
+                execution_context = dataclasses.replace(context, db_session=db_session)
                 result = await self.registry.execute(name, arguments, execution_context)
             await self._complete_audit(
                 audit_id,
@@ -1212,6 +1249,7 @@ class ConfirmationService:
         decision: PolicyDecision,
     ) -> int:
         async with self.session_factory() as session:
+            origin = context.origin
             row = await AuditRepository(session).create(
                 AgentAudit(
                     caller=_caller(context.caller),
@@ -1222,6 +1260,9 @@ class ConfirmationService:
                     status=AuditStatus.PENDING,
                     risk_level=decision.risk,
                     session_id=context.session_id,
+                    run_id=origin.run_id if origin is not None else None,
+                    ticket_id=origin.ticket_id if origin is not None else None,
+                    agent_name=origin.agent if origin is not None else None,
                     created_at=self.clock(),
                 )
             )
@@ -1528,7 +1569,10 @@ class ConfirmationService:
 
     @classmethod
     def _confirmation_wire(
-        cls, row: Confirmation, audit: AgentAudit | None = None
+        cls,
+        row: Confirmation,
+        audit: AgentAudit | None = None,
+        titles: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         return {
             "confirmation_id": row.id,
@@ -1544,6 +1588,12 @@ class ConfirmationService:
             "expires_at": _wire_time(row.expires_at),
             "created_at": _wire_time(row.created_at),
             "resolved_at": _wire_time(row.resolved_at),
+            "origin": origin_wire(
+                run_id=row.origin_run_id,
+                ticket_id=row.origin_ticket_id,
+                agent=row.origin_agent,
+                titles=titles or {},
+            ),
             "execution": (
                 {
                     "status": str(audit.status),
@@ -1565,6 +1615,17 @@ def _caller(value: CallerType | str) -> CallerType:
 async def _notify_audit_created(
     callback: Callable[[int], Any] | None, audit_id: int
 ) -> None:
+    if callback is None:
+        return
+    result = callback(audit_id)
+    if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+        await result
+
+
+async def _call_before_execute(
+    callback: BeforeExecuteCallback | None, audit_id: int
+) -> None:
+    """调用执行前回调；同步与异步回调都接受（写法同 ``_notify_audit_created``）。"""
     if callback is None:
         return
     result = callback(audit_id)

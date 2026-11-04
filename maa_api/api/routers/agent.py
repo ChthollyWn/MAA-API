@@ -20,6 +20,7 @@ from starlette.responses import StreamingResponse
 from maa_api.agent.registry import ToolContext
 from maa_api.api.deps import get_session, require_auth
 from maa_api.api.errors import error_responses
+from maa_api.api.routers.device_lease import preempt_device
 from maa_api.db.models import (
     AgentAudit,
     AgentIdempotency,
@@ -165,6 +166,26 @@ def _ensure_rest_visible(service: Any, name: str) -> None:
         return
     if not definition.rest_visible:
         raise AppError(ErrorCode.TOOL_NOT_FOUND, f"未知工具：{name}")
+
+
+def _rest_preempt_hook(service: Any, name: str, request: Request) -> Any:
+    """REST 调用独占设备工具时的执行前抢占钩子（规格 §4.5.3）。
+
+    只在工具定义 ``device == "exclusive"`` 时返回钩子；``registry.get`` 抛
+    ``AppError``（未知工具）时不挂钩子，让 ``invoke`` 照旧报 ``TOOL_NOT_FOUND``。
+    钩子在确认通过之后、handler 执行之前调用，因此待确认期间租约仍然保留。
+    """
+    try:
+        definition = service.registry.get(name)
+    except AppError:
+        return None
+    if definition.device != "exclusive":
+        return None
+
+    async def preempt_before_execute(_audit_id: int) -> None:
+        await preempt_device(request, "rest_tool")
+
+    return preempt_before_execute
 
 
 def _broadcast_grant_change(request: Request, session_id: str, event: str) -> None:
@@ -407,6 +428,10 @@ def audit_wire(audit: AgentAudit) -> dict[str, Any]:
         "confirmation_id": audit.confirmation_id,
         "authorized_by_id": audit.authorized_by_id,
         "duration_ms": audit.duration_ms,
+        # M71 §4.3：审计归属三列；REST 调用与不经代理运行的调用为 null。
+        "run_id": audit.run_id,
+        "ticket_id": audit.ticket_id,
+        "agent_name": audit.agent_name,
         "created_at": _iso(audit.created_at),
     }
 
@@ -479,8 +504,15 @@ async def invoke_tool(
     service = _confirmation_service(request)
     _ensure_rest_visible(service, name)
     context = ToolContext(CallerType.REST, None, current_request_id.get(), request, session)
+    before_execute = _rest_preempt_hook(service, name, request)
     if idempotency_key is None:
-        result = await service.invoke(name, payload.arguments, context, mode=payload.mode)
+        result = await service.invoke(
+            name,
+            payload.arguments,
+            context,
+            mode=payload.mode,
+            on_before_execute=before_execute,
+        )
         if payload.mode == "async" or result.get("status") == "awaiting_confirmation":
             response.status_code = status.HTTP_202_ACCEPTED
         return result
@@ -604,6 +636,7 @@ async def invoke_tool(
                 mode=payload.mode,
                 on_audit_created=persist_audit_link,
                 on_audit_terminal=persist_audit_terminal,
+                on_before_execute=before_execute,
             )
         except AppError as exc:
             audit_id = (exc.details or {}).get("audit_id")
@@ -947,6 +980,7 @@ async def list_audits(
     audit_status: AuditStatus | None = Query(default=None, alias="status"),
     risk_level: RiskLevel | None = Query(default=None),
     since: datetime | None = Query(default=None),
+    ticket_id: str | None = Query(default=None),
     page: int = Query(default=1),
     size: int = Query(default=20),
     session: AsyncSession = Depends(get_session),
@@ -958,6 +992,7 @@ async def list_audits(
         status=audit_status,
         risk_level=risk_level,
         since=since,
+        ticket_id=ticket_id,
         page=page,
         size=size,
     )

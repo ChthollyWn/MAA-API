@@ -36,6 +36,8 @@ QUESTION_FIELDS = {
     "expires_at",
     "answered_at",
     "answered_by",
+    # M71 §4.2：提问 wire 加来源（REST 提问为 null），字段本身始终存在。
+    "origin",
 }
 SESSION_ID = "session-1"
 OPTIONS = [

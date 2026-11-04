@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, delete, func, select, update
+from sqlalchemy import Select, delete, func, or_, select, update
 
 from maa_api.db.models import Pipeline, Task, utcnow
 from maa_api.db.repositories.base import BaseRepository, Page
@@ -131,26 +131,46 @@ class PipelineRepository(BaseRepository):
         count_stmt = select(func.count()).select_from(Pipeline).where(*conditions)
         return await self.paginate(items_stmt, count_stmt, page=page, size=size)
 
-    async def _next_pending_id(self, core_id: str) -> str | None:
+    async def _next_pending_id(
+        self,
+        core_id: str,
+        allowed_session_ids: frozenset[str] | None = None,
+    ) -> str | None:
         """取下一个候选流水线 id：``core_id + status='pending'``，按
         ``priority ASC, created_at ASC``（复用 ``ix_pipeline_dequeue``）。
 
         只取 id、不加锁：并发安全由 :meth:`claim_next` 的条件更新保证。
+
+        ``allowed_session_ids`` 是设备租约闸门（M71 §4.5.4）：不为 ``None`` 时只
+        领手动提交与这些会话的流水线（集合为空就只剩手动提交）；``None`` 表示
+        没有租约，条件与排序和 v2 完全一致。
         """
+        conditions: list[Any] = [
+            Pipeline.core_id == core_id,
+            Pipeline.status == PipelineStatus.PENDING,
+            (Pipeline.deferred_until.is_(None)) | (Pipeline.deferred_until <= utcnow()),
+        ]
+        if allowed_session_ids is not None:
+            conditions.append(
+                or_(
+                    Pipeline.source == PipelineSource.MANUAL,
+                    Pipeline.agent_session_id.in_(allowed_session_ids),
+                )
+            )
         result = await self.session.execute(
             select(Pipeline.id)
-            .where(
-                Pipeline.core_id == core_id,
-                Pipeline.status == PipelineStatus.PENDING,
-                (Pipeline.deferred_until.is_(None)) | (Pipeline.deferred_until <= utcnow()),
-            )
+            .where(*conditions)
             .order_by(Pipeline.priority.asc(), Pipeline.created_at.asc())
             .limit(1)
         )
         return result.scalar_one_or_none()
 
     async def claim_next(
-        self, core_id: str = "default", *, core_epoch: int | None = None
+        self,
+        core_id: str = "default",
+        *,
+        core_epoch: int | None = None,
+        allowed_session_ids: frozenset[str] | None = None,
     ) -> Pipeline | None:
         """原子地领取下一条待执行流水线；没有可领的返回 ``None``。
 
@@ -165,8 +185,16 @@ class PipelineRepository(BaseRepository):
         ``core_epoch`` 是执行时子进程的启动世代号（docs/04 §5.1），用于事后
         把 ``task.maa_task_id`` 归位到某一次内核运行； ``PipelineRunner``
         领取时传入，缺省不写（NULL）。
+
+        ``allowed_session_ids`` 原样透传给 :meth:`_next_pending_id`（设备租约
+        闸门，M71 §4.5.4）；缺省 ``None`` 时不加来源过滤。
         """
-        candidate_id = await self._next_pending_id(core_id)
+        if allowed_session_ids is None:
+            candidate_id = await self._next_pending_id(core_id)
+        else:
+            candidate_id = await self._next_pending_id(
+                core_id, allowed_session_ids=allowed_session_ids
+            )
         if candidate_id is None:
             return None
 

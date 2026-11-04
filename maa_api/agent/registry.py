@@ -23,6 +23,15 @@ class ToolRisk(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class ToolOrigin:
+    """发起这次调用的代理运行；REST 与不经代理运行的调用没有它。"""
+
+    run_id: str
+    ticket_id: str | None
+    agent: str
+
+
+@dataclass(frozen=True, slots=True)
 class ToolContext:
     """Request-scoped dependencies and identity shared by a tool handler."""
 
@@ -31,6 +40,8 @@ class ToolContext:
     request_id: str | None
     request: Any
     db_session: Any
+    #: 写进审计、确认与提问的代理来源（M71 §4.2）；REST 调用为 ``None``。
+    origin: ToolOrigin | None = None
 
 
 ToolHandler = Callable[[BaseModel, ToolContext], Any]

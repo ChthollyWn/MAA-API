@@ -235,4 +235,75 @@ describe('M11 pending confirmations panel', () => {
 
     expect(await screen.findByText('submit_pipeline')).toBeInTheDocument()
   })
+
+  it('shows the ticket and agent that raised a confirmation (M71)', async () => {
+    const withOrigin = {
+      ...pendingConfirmation,
+      caller: { kind: 'internal', name: 'worker', session_id: 'session-1' },
+      origin: { ticket_id: 'ticket-1', ticket_title: '日常清理', agent: 'worker', run_id: 'run-1' },
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init)
+      const url = new URL(request.url)
+      if (url.pathname === '/api/confirmations' && request.method === 'GET') {
+        return json({ items: [withOrigin], total: 1, page: 1, size: 20 })
+      }
+      if (url.pathname === '/api/agent/specs') {
+        return json({ items: [{ name: 'worker', title: '执行代理' }] })
+      }
+      return json({ error: { code: 'NOT_FOUND', message: 'not found' } }, 404)
+    })
+
+    renderPanel(fetchMock)
+
+    expect(await screen.findByText('来自工单「日常清理」（执行代理）')).toBeInTheDocument()
+    // 有来源时替换「调用方」行，而不是再挂一行。
+    expect(screen.queryByText(/调用方：/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the caller line and skips the specs request without an origin (M71)', async () => {
+    const paths: string[] = []
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init)
+      const url = new URL(request.url)
+      paths.push(url.pathname)
+      if (url.pathname === '/api/confirmations' && request.method === 'GET') {
+        return json({ items: [pendingConfirmation], total: 1, page: 1, size: 20 })
+      }
+      return json({ error: { code: 'NOT_FOUND', message: 'not found' } }, 404)
+    })
+
+    renderPanel(fetchMock)
+
+    expect(await screen.findByText('调用方：REST 调用')).toBeInTheDocument()
+    expect(paths).not.toContain('/api/agent/specs')
+  })
+
+  it('falls back to the raw agent name when specs cannot be read (M71)', async () => {
+    const withOrigin = {
+      ...pendingConfirmation,
+      origin: { ticket_id: 'ticket-1', ticket_title: '日常清理', agent: 'worker', run_id: 'run-1' },
+    }
+    let specsReads = 0
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init)
+      const url = new URL(request.url)
+      if (url.pathname === '/api/confirmations' && request.method === 'GET') {
+        return json({ items: [withOrigin], total: 1, page: 1, size: 20 })
+      }
+      if (url.pathname === '/api/agent/specs') {
+        specsReads += 1
+        return json({ error: { code: 'INTERNAL_ERROR', message: 'specs down' } }, 500)
+      }
+      return json({ error: { code: 'NOT_FOUND', message: 'not found' } }, 404)
+    })
+
+    renderPanel(fetchMock)
+
+    expect(await screen.findByText('来自工单「日常清理」（worker）')).toBeInTheDocument()
+    await waitFor(() => expect(specsReads).toBe(1))
+    // 读不到定义不是错误界面：卡片照常显示，仍然用原名。
+    expect(screen.getByText('来自工单「日常清理」（worker）')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '批准' })).toBeInTheDocument()
+  })
 })

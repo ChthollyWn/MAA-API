@@ -24,6 +24,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.game import register_tools as register_game_tools
     from maa_api.agent.tools.interaction import register_tools as register_interaction_tools
     from maa_api.agent.tools.knowledge import register_tools as register_knowledge_tools
+    from maa_api.agent.tools.lease import lease_tools as build_lease_tools
     from maa_api.agent.tools.media import register_tools as register_media_tools
     from maa_api.agent.tools.ops import register_tools as register_ops_tools
     from maa_api.agent.tools.delegate import register_tools as register_delegate_tools
@@ -68,6 +69,9 @@ def build_registry() -> ToolRegistry:
         register_ticket_tools,
     ):
         register(registry)
+    # M71：设备租约工具（规格 §4.2），接在 M70 新工具之后，不进 REST 目录。
+    for definition in build_lease_tools():
+        registry.register(definition)
     registry.register(
         ToolDefinition(
             name="check_confirmation",

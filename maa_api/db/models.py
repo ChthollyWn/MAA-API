@@ -1,4 +1,4 @@
-"""SQLModel 表定义：37 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：38 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -958,11 +958,27 @@ class AgentAudit(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("created_at")
     )
+    #: M71：这次工具调用属于哪个代理运行 / 工单；REST 调用与不经代理运行的调用为 NULL。
+    run_id: str | None = Field(
+        default=None,
+        foreign_key="agent_run.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    ticket_id: str | None = Field(
+        default=None,
+        foreign_key="ticket.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    agent_name: str | None = Field(default=None, max_length=32)
 
     __table_args__ = (
         # 审计查询：可选 caller / tool_name 过滤，按 created_at DESC
         Index("ix_agent_audit_caller_created_at", "caller", "created_at"),
         Index("ix_agent_audit_tool_name_created_at", "tool_name", "created_at"),
+        # M71 工单审计流：ticket_id=? ORDER BY created_at
+        Index("ix_agent_audit_ticket_id_created_at", "ticket_id", "created_at"),
         {"sqlite_autoincrement": True},
     )
 
@@ -1029,6 +1045,20 @@ class Confirmation(SQLModel, table=True):
     resolved_at: datetime | None = Field(
         default=None, sa_column=datetime_column("resolved_at", nullable=True)
     )
+    #: M71：发起这次确认的代理运行 / 工单；REST 直接发起的确认没有。
+    origin_run_id: str | None = Field(
+        default=None,
+        foreign_key="agent_run.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    origin_ticket_id: str | None = Field(
+        default=None,
+        foreign_key="ticket.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    origin_agent: str | None = Field(default=None, max_length=32)
 
     __table_args__ = (
         # 待确认列表与超时扫描共用：status='pending' [AND expires_at < ?]
@@ -1329,6 +1359,20 @@ class AgentQuestion(SQLModel, table=True):
     answered_at: datetime | None = Field(
         default=None, sa_column=datetime_column("answered_at", nullable=True)
     )
+    #: M71：发起这次提问的代理运行 / 工单；REST 直接发起的提问没有。
+    origin_run_id: str | None = Field(
+        default=None,
+        foreign_key="agent_run.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    origin_ticket_id: str | None = Field(
+        default=None,
+        foreign_key="ticket.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    origin_agent: str | None = Field(default=None, max_length=32)
 
     __table_args__ = (
         # 超时扫描：status='pending' [AND expires_at < ?]
@@ -1713,3 +1757,42 @@ class SklandRole(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("updated_at")
     )
+
+
+# ---------------------------------------------------------------------------
+# 5.25 device_lease — 设备租约（M71 规格 §4.1）
+# ---------------------------------------------------------------------------
+class DeviceLease(SQLModel, table=True):
+    """设备的独占使用权；主键 device_id 保证容量 1，释放即删除行。"""
+
+    __tablename__ = "device_lease"
+
+    device_id: str = Field(primary_key=True, max_length=32)
+    lease_id: str = Field(default_factory=new_uuid, max_length=36)
+    ticket_id: str | None = Field(
+        default=None,
+        foreign_key="ticket.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    #: 隐式租约：负责释放它的根运行；显式租约（``hold_device``）也有。
+    run_id: str | None = Field(
+        default=None,
+        foreign_key="agent_run.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    #: 第一次取得租约的代理定义名。
+    holder_agent: str = Field(max_length=32)
+    purpose: str = Field(max_length=120)
+    explicit: bool = Field(default=False)
+    acquired_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("acquired_at")
+    )
+    expires_at: datetime = Field(sa_column=datetime_column("expires_at"))
+    heartbeat_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("heartbeat_at")
+    )
+    boot_id: str = Field(max_length=36)
+
+    __table_args__ = (UniqueConstraint("lease_id", name="uq_device_lease_lease_id"),)

@@ -258,6 +258,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/device-lease": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取设备租约
+         * @description 当前租约状态；没有租约时 ``lease`` 为 ``null``。
+         */
+        get: operations["agent_get_device_lease"];
+        put?: never;
+        post?: never;
+        /**
+         * 人工释放设备租约
+         * @description 用户接管设备：删掉当前租约并给持有者留一次性抢占记号，没有租约时同样返回 204。
+         */
+        delete: operations["agent_release_device_lease"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/knowledge": {
         parameters: {
             query?: never;
@@ -2960,6 +2984,45 @@ export interface components {
             uuid?: string | null;
         };
         /**
+         * DeviceLeaseOut
+         * @description 当前设备租约的对外形状；与 ``DeviceLeaseService.wire`` 一一对应。
+         */
+        DeviceLeaseOut: {
+            /** Acquired At */
+            acquired_at: string;
+            /** Device Id */
+            device_id: string;
+            /** Expires At */
+            expires_at: string;
+            /** Explicit */
+            explicit: boolean;
+            /** Heartbeat At */
+            heartbeat_at: string;
+            /** Holder Agent */
+            holder_agent: string;
+            /** Lease Id */
+            lease_id: string;
+            /** Purpose */
+            purpose: string;
+            /** Run Id */
+            run_id: string | null;
+            /** Ticket Id */
+            ticket_id: string | null;
+            /** Ticket Title */
+            ticket_title: string | null;
+        };
+        /**
+         * DeviceLeaseState
+         * @description ``GET`` 的响应：是否持有、租约详情与排队人数。
+         */
+        DeviceLeaseState: {
+            /** Held */
+            held: boolean;
+            lease: components["schemas"]["DeviceLeaseOut"] | null;
+            /** Waiters */
+            waiters: number;
+        };
+        /**
          * DeviceRetryHealth
          * @description 自动重连状态：已尝试次数、上限与下次重连时间（epoch 秒）。
          */
@@ -5344,6 +5407,7 @@ export interface components {
          * @description 工单详情：摘要、结果、委托、订阅、最近 5 条汇报与 Worker 是否在跑。
          */
         TicketDetail: {
+            lease: components["schemas"]["DeviceLeaseOut"] | null;
             mandate: components["schemas"]["MandateOut"];
             /** Recent Reports */
             recent_reports: components["schemas"]["TicketReportOut"][];
@@ -6020,6 +6084,7 @@ export interface operations {
                 status?: components["schemas"]["AuditStatus"] | null;
                 risk_level?: components["schemas"]["RiskLevel"] | null;
                 since?: string | null;
+                ticket_id?: string | null;
                 page?: number;
                 size?: number;
             };
@@ -6300,6 +6365,116 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_device_lease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceLeaseState"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：AGENT_DISABLED */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_release_device_lease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：AGENT_DISABLED */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_DISABLED",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }

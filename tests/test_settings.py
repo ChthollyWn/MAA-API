@@ -422,6 +422,9 @@ def test_env_mapping_names_are_pinned() -> None:
         "orchestrator.batch_window_ms": "MAA_ORCHESTRATOR_BATCH_WINDOW_MS",
         "worker.max_concurrent": "MAA_WORKER_MAX_CONCURRENT",
         "delegation.max_parallel": "MAA_DELEGATION_MAX_PARALLEL",
+        # M71：设备租约的有效期与排队等待时长（都不是 config-only）。
+        "lease.ttl_seconds": "MAA_LEASE_TTL_SECONDS",
+        "lease.wait_seconds": "MAA_LEASE_WAIT_SECONDS",
     }
 
 
@@ -703,6 +706,57 @@ def test_orchestrator_worker_delegation_settings_have_documented_defaults_and_bo
     assert template["orchestrator"]["batch_window_ms"] == 800
     assert template["worker"]["max_concurrent"] == 4
     assert template["delegation"]["max_parallel"] == 3
+
+
+def test_lease_settings_have_documented_defaults_and_bounds() -> None:
+    """M71 设备租约：默认 600/30 秒，范围 60–3600 与 0–600（spec §4.4）。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, LeaseSettings
+
+    default = resolve_settings(env={})
+    assert default.lease == LeaseSettings()
+    assert default.lease.ttl_seconds == 600
+    assert default.lease.wait_seconds == 30
+
+    configured = resolve_settings(
+        {"lease": {"ttl_seconds": 1800, "wait_seconds": 120}}, env={}
+    )
+    assert configured.lease.ttl_seconds == 1800
+    assert configured.lease.wait_seconds == 120
+
+    env_layer = resolve_settings(
+        env={"MAA_LEASE_TTL_SECONDS": "60", "MAA_LEASE_WAIT_SECONDS": "0"}
+    )
+    assert env_layer.lease.ttl_seconds == 60
+    assert env_layer.lease.wait_seconds == 0
+
+    for section, field, value in (
+        ("lease", "ttl_seconds", 59),
+        ("lease", "ttl_seconds", 3601),
+        ("lease", "wait_seconds", -1),
+        ("lease", "wait_seconds", 601),
+    ):
+        with pytest.raises(ValidationError):
+            resolve_settings({section: {field: value}}, env={})
+
+    # 设置 API：两项都登记、分组 Agent、无热更新动作，界面上下限与代码范围一致。
+    keys = {row["key"] for row in SETTINGS_SCHEMA}
+    assert {"lease.ttl_seconds", "lease.wait_seconds"} <= keys
+    assert not ({"lease.ttl_seconds", "lease.wait_seconds"} & CONFIG_ONLY_SETTING_KEYS)
+    ttl_row = schema_for("lease.ttl_seconds")
+    assert (
+        ttl_row["label"], ttl_row["group"], ttl_row["type"],
+        ttl_row["minimum"], ttl_row["maximum"], ttl_row["hot_action"],
+    ) == ("设备租约有效期（秒）", "Agent", "integer", 60, 3600, "none")
+    wait_row = schema_for("lease.wait_seconds")
+    assert (
+        wait_row["label"], wait_row["group"], wait_row["type"],
+        wait_row["minimum"], wait_row["maximum"], wait_row["hot_action"],
+    ) == ("设备租约排队等待（秒）", "Agent", "integer", 0, 600, "none")
+
+    # 文档一致性：模板里的两个值就是代码默认值。
+    template = YAML(typ="safe").load(TEMPLATE_PATH.read_text(encoding="utf8"))
+    assert template["lease"] == {"ttl_seconds": 600, "wait_seconds": 30}
 
 
 def test_gamedata_settings_have_documented_defaults_and_bounds() -> None:

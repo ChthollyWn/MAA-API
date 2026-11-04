@@ -13,7 +13,13 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
-from maa_api.db.models import AgentAudit, AgentIdempotency, AgentSession
+from maa_api.db.models import (
+    AgentAudit,
+    AgentIdempotency,
+    AgentRun,
+    AgentSession,
+    Ticket,
+)
 from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolDefinition, ToolRegistry, ToolRisk
@@ -1113,6 +1119,114 @@ def test_v2_session_routes_ignore_v3_sessions(tmp_path):
             revoked = client.delete("/api/agent/sessions/v3-worker/atomic-grant")
             assert revoked.status_code == 204, revoked.text
             assert confirmation.revoked == ["v3-worker"]
+        finally:
+            client.__exit__(None, None, None)
+            set_settings(None)
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_list_audits_filters_by_ticket_and_returns_origin_columns():
+    """M71 §4.3：`GET /api/agent/audits` 按 ticket_id 过滤，并返回归属三列。"""
+
+    async def scenario():
+        engine = db_session.make_engine(
+            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+
+        session_id, run_id = "audit-session", "audit-run"
+        first_ticket, second_ticket = "audit-ticket-1", "audit-ticket-2"
+        async with factory() as db:
+            db.add(AgentSession(id=session_id, model="test-model"))
+            db.add(Ticket(id=first_ticket, title="日常", kind="daily_ops", origin="user"))
+            db.add(Ticket(id=second_ticket, title="刷本", kind="daily_ops", origin="user"))
+            await db.commit()
+            db.add(
+                AgentRun(
+                    id=run_id,
+                    root_run_id=run_id,
+                    session_id=session_id,
+                    agent_name="daily_ops",
+                    kind="worker_turn",
+                    boot_id="boot-test",
+                )
+            )
+            await db.commit()
+            audits = AuditRepository(db)
+            await audits.create(
+                AgentAudit(
+                    caller=CallerType.INTERNAL,
+                    tool_name="click",
+                    status="success",
+                    run_id=run_id,
+                    ticket_id=first_ticket,
+                    agent_name="daily_ops",
+                )
+            )
+            await audits.create(
+                AgentAudit(
+                    caller=CallerType.REST,
+                    tool_name="get_status",
+                    status="success",
+                    ticket_id=second_ticket,
+                    agent_name="daily_ops",
+                )
+            )
+            await audits.create(
+                AgentAudit(
+                    caller=CallerType.REST, tool_name="get_version", status="success"
+                )
+            )
+            await db.commit()
+
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.api.routers import agent
+
+        app.include_router(agent.router)
+
+        async def get_test_session():
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = get_test_session
+        set_settings(Settings())
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            filtered = client.get(
+                "/api/agent/audits", params={"ticket_id": first_ticket}
+            )
+            assert filtered.status_code == 200, filtered.text
+            payload = filtered.json()
+            assert payload["total"] == 1
+            item = payload["items"][0]
+            assert (item["run_id"], item["ticket_id"], item["agent_name"]) == (
+                run_id,
+                first_ticket,
+                "daily_ops",
+            )
+
+            second = client.get(
+                "/api/agent/audits", params={"ticket_id": second_ticket}
+            ).json()
+            assert second["total"] == 1
+            assert second["items"][0]["ticket_id"] == second_ticket
+            assert second["items"][0]["run_id"] is None
+
+            everything = client.get("/api/agent/audits").json()
+            assert everything["total"] == 3
+            for audit in everything["items"]:
+                assert {"run_id", "ticket_id", "agent_name"} <= set(audit)
+            nulls = [
+                audit for audit in everything["items"] if audit["ticket_id"] is None
+            ]
+            assert len(nulls) == 1
+            assert (nulls[0]["run_id"], nulls[0]["agent_name"]) == (None, None)
         finally:
             client.__exit__(None, None, None)
             set_settings(None)

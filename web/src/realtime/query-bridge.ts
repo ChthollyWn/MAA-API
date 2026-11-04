@@ -119,6 +119,20 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
           invalidateBatched(queryClient, keys.agent.session(sessionId))
           invalidateBatched(queryClient, keys.agent.messages(sessionId))
         }
+      } else if (event.data.event === 'lease_changed') {
+        // 设备租约（M71 §4.3）：租约条与持有者工单的详情各取各的。payload.lease 在
+        // 释放/过期时可能是 null，所以只有拿得到 ticket_id 才顺带失效工单详情。
+        invalidateBatched(queryClient, keys.agent.deviceLease())
+        const payload = event.data.payload
+        const lease = payload && typeof payload === 'object'
+          ? (payload as Record<string, unknown>).lease
+          : null
+        const ticketId = lease && typeof lease === 'object'
+          ? (lease as Record<string, unknown>).ticket_id
+          : null
+        if (typeof ticketId === 'string' && ticketId) {
+          invalidateBatched(queryClient, keys.agent.ticket(ticketId))
+        }
       }
       break
     // 工单状态：列表、详情、汇报三段各取各的；不整片失效 `keys.agent.all()`。

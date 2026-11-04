@@ -89,13 +89,12 @@ def test_lifespan_wires_finish_hook_fanout(tmp_settings, isolated_db) -> None:
 def test_lifespan_wires_m70_orchestrator_and_worker_services(
     tmp_settings, isolated_db
 ) -> None:
-    """M70 第 8 步：hub、设备门、委派、Worker、总控与广播器都要挂上并对齐。"""
+    """M70 第 8 步：hub、委派、Worker、总控与广播器都要挂上并对齐。"""
 
     from maa_api.agent.harness.events import RunEventBus
     from maa_api.agent.orchestrator.service import OrchestratorService
     from maa_api.agent.orchestrator.stream import AgentRunBroadcaster
     from maa_api.agent.workers.delegation import DelegationService
-    from maa_api.agent.workers.device_gate import DeviceGate
     from maa_api.agent.workers.service import WorkerService
     from maa_api.agent.workers.titler import TicketTitler
 
@@ -105,7 +104,6 @@ def test_lifespan_wires_m70_orchestrator_and_worker_services(
         assert isinstance(hub, RunEventBus), "lifespan 没有设置 app.state.run_event_bus"
         # hub 只做分发，不带运行归属；每轮运行自己建带 run_id 的 per-run 总线。
         assert hub.run_id is None
-        assert isinstance(app.state.device_gate, DeviceGate)
         assert isinstance(app.state.ticket_titler, TicketTitler)
         assert isinstance(app.state.delegation_service, DelegationService)
         assert isinstance(app.state.worker_service, WorkerService)
@@ -125,3 +123,17 @@ def _lifespan(app):
     from fastapi.testclient import TestClient
 
     return TestClient(app, raise_server_exceptions=False)
+
+def test_lifespan_wires_device_lease_service(tmp_settings, isolated_db) -> None:
+    """设备租约服务要挂到 app.state，并绑定为 PipelineRunner 的领取闸门。"""
+
+    from maa_api.agent.lease import DeviceLeaseService
+
+    app = create_app()
+    with _lifespan(app):
+        service = getattr(app.state, "device_lease_service", None)
+        assert isinstance(service, DeviceLeaseService), (
+            "lifespan 没有设置 app.state.device_lease_service"
+        )
+        runner = app.state.pipeline_runner
+        assert getattr(runner, "_lease_gate", None) is service

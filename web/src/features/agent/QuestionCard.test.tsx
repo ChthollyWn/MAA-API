@@ -209,4 +209,41 @@ describe('agent question card', () => {
     // 真失败不该把卡锁死：选择还在，可以再试一次。
     expect(screen.getByRole('button', { name: '提交' })).toBeEnabled()
   })
+
+  it('shows the ticket and agent that raised the question (M71)', async () => {
+    installApi((request) => {
+      if (request.path === '/api/agent/specs') {
+        return json({ items: [{ name: 'worker', title: '执行代理' }] })
+      }
+      return submitted(makeQuestion())
+    })
+    renderCard(makeQuestion({
+      origin: { ticket_id: 'ticket-1', ticket_title: '日常清理', agent: 'worker', run_id: 'run-1' },
+    }))
+
+    expect(await screen.findByText('来自工单「日常清理」（执行代理）')).toBeInTheDocument()
+  })
+
+  it('names only the agent when the run belongs to no ticket (M71)', async () => {
+    installApi((request) => {
+      if (request.path === '/api/agent/specs') {
+        return json({ items: [{ name: 'worker', title: '执行代理' }] })
+      }
+      return submitted(makeQuestion())
+    })
+    renderCard(makeQuestion({
+      origin: { ticket_id: null, ticket_title: null, agent: 'worker', run_id: 'run-1' },
+    }))
+
+    expect(await screen.findByText('来自执行代理')).toBeInTheDocument()
+  })
+
+  it('does not request specs for a question without an origin (M71)', async () => {
+    const requests = installApi(() => submitted(makeQuestion()))
+    renderCard(makeQuestion())
+
+    await act(async () => { await Promise.resolve() })
+
+    expect(requests.some((request) => request.path === '/api/agent/specs')).toBe(false)
+  })
 })

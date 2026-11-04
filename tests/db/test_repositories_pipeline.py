@@ -21,7 +21,7 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
-from maa_api.db.models import Pipeline, Schedule, Task, utcnow
+from maa_api.db.models import AgentSession, Pipeline, Schedule, Task, utcnow
 from maa_api.db.repositories.pipeline import PipelineRepository, TaskRepository
 from maa_api.domain.enums import PipelineSource, PipelineStatus, Priority, TaskStatus
 
@@ -210,6 +210,70 @@ def test_claim_next_priority_then_fifo(db_session_factory):
             assert await repo.claim_next() is None
             assert await repo.count_pending() == 0
             assert (await repo.current()).id == low.id
+
+    asyncio.run(scenario())
+
+
+def test_claim_next_with_allowed_sessions(db_session_factory):
+    """设备租约闸门（M71 §4.5.4）：只领手动与 allowed 会话的流水线，排序照旧。
+
+    ``allowed_session_ids=None`` 不加来源过滤（v2 行为不变）；空集合只剩手动
+    提交。
+    """
+
+    async def scenario():
+        async with db_session_factory() as session:
+            repo = PipelineRepository(session)
+            now = utcnow()
+            session.add(AgentSession(id="session-allowed", model="test-model"))
+            session.add(AgentSession(id="session-other", model="test-model"))
+            scheduled = _pipeline(
+                title="scheduled",
+                source=PipelineSource.SCHEDULED,
+                priority=Priority.SCHEDULED,
+                created_at=now - timedelta(minutes=30),
+            )
+            other = _pipeline(
+                title="other-agent",
+                source=PipelineSource.AGENT,
+                priority=Priority.AGENT,
+                agent_session_id="session-other",
+                created_at=now - timedelta(minutes=20),
+            )
+            allowed = _pipeline(
+                title="allowed-agent",
+                source=PipelineSource.AGENT,
+                priority=Priority.AGENT,
+                agent_session_id="session-allowed",
+                created_at=now - timedelta(minutes=10),
+            )
+            manual = _pipeline(title="manual", created_at=now)
+            for pipeline in (scheduled, other, allowed, manual):
+                await repo.create(pipeline, [_task(pipeline.id)])
+            await session.commit()
+
+            allowed_gate = frozenset({"session-allowed"})
+            first = await repo.claim_next(allowed_session_ids=allowed_gate)
+            assert first is not None and first.id == manual.id  # 手动优先级最高
+            assert await repo.mark_terminal(manual.id, PipelineStatus.COMPLETED)
+            second = await repo.claim_next(allowed_session_ids=allowed_gate)
+            assert second is not None and second.id == allowed.id
+            assert await repo.mark_terminal(allowed.id, PipelineStatus.COMPLETED)
+
+            # 空集合只剩手动提交：两条非手动都还在排队，领不到。
+            assert await repo.claim_next(allowed_session_ids=frozenset()) is None
+            assert await repo.count_pending() == 2
+
+            # 换成另一个会话的闸门就领到它（即便它入队更早、优先级相同）。
+            third = await repo.claim_next(
+                allowed_session_ids=frozenset({"session-other"})
+            )
+            assert third is not None and third.id == other.id
+            assert await repo.mark_terminal(other.id, PipelineStatus.COMPLETED)
+
+            # 未绑闸门（None）不加来源过滤：定时任务照常出队。
+            fourth = await repo.claim_next()
+            assert fourth is not None and fourth.id == scheduled.id
 
     asyncio.run(scenario())
 

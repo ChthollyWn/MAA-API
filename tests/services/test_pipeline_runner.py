@@ -16,6 +16,7 @@ from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
 from maa_api.agent.incidents import AgentIncidentService
+from maa_api.agent.lease import ClaimGate
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
 from maa_api.db import session as db_session
 from maa_api.db.models import AgentSession, Pipeline, ResourceAsset, Task, utcnow
@@ -141,6 +142,29 @@ class FakeNotifyService:
             raise RuntimeError("通知通道全部失败")
         self.events.append((str(event), dict(payload or {})))
         return {"matched": 1, "sent": 1, "failed": 0}
+
+
+class FakeLeaseGate:
+    """可控的设备租约闸门：``allowed_session_ids=None`` 表示没有租约。"""
+
+    def __init__(self) -> None:
+        self.allowed_session_ids: frozenset[str] | None = None
+        self.error: Exception | None = None
+        self.preempt_calls: list[tuple[str, str | None]] = []
+
+    async def claim_gate(self) -> ClaimGate | None:
+        if self.error is not None:
+            raise self.error
+        if self.allowed_session_ids is None:
+            return None
+        return ClaimGate(
+            lease_id="lease-test",
+            allowed_session_ids=self.allowed_session_ids,
+        )
+
+    async def preempt(self, reason, *, detail=None):
+        self.preempt_calls.append((reason, detail))
+        return None
 
 
 async def _create_schema(engine) -> None:
@@ -2023,5 +2047,136 @@ def test_crashed_task_snapshot_is_archived_with_error_log(snapshot_env) -> None:
 
         await runner.stop()
         asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_claim_gate_defers_scheduled_pipeline_while_lease_held(runner_env) -> None:
+    """M71 §4.5.4：有租约时只领持有者工单的流水线，定时任务被推迟。"""
+
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(AgentSession(id="session-holder", model="test-model"))
+            session.add(
+                Pipeline(
+                    id="pipeline-scheduled",
+                    source=PipelineSource.SCHEDULED,
+                    priority=Priority.SCHEDULED,
+                    status=PipelineStatus.PENDING,
+                    task_count=0,
+                    created_at=utcnow() - timedelta(minutes=5),
+                )
+            )
+            session.add(
+                Pipeline(
+                    id="pipeline-holder",
+                    source=PipelineSource.AGENT,
+                    priority=Priority.AGENT,
+                    status=PipelineStatus.PENDING,
+                    task_count=0,
+                    agent_session_id="session-holder",
+                    created_at=utcnow(),
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        gate = FakeLeaseGate()
+        gate.allowed_session_ids = frozenset({"session-holder"})
+        runner.bind_lease_gate(gate)
+        try:
+            pipeline, tasks = await runner._claim_next()
+            assert pipeline is not None and pipeline.id == "pipeline-holder"
+            assert tasks == []
+
+            # 持有者的流水线结束之后，定时任务仍被闸门挡着。
+            async with factory() as session:
+                marks = PipelineRepository(session)
+                assert await marks.mark_terminal(
+                    "pipeline-holder", PipelineStatus.COMPLETED
+                )
+                await session.commit()
+            assert await runner._claim_next() == (None, [])
+
+            # 闸门读到「没有租约」后定时任务照常出队。
+            gate.allowed_session_ids = None
+            pipeline, _tasks = await runner._claim_next()
+            assert pipeline is not None and pipeline.id == "pipeline-scheduled"
+        finally:
+            await runner.stop()
+            asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_claim_gate_preempts_before_manual_pipeline(runner_env) -> None:
+    """M71 §4.5.4：领到手动提交且闸门非空时，先抢占设备租约。"""
+
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-manual",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.PENDING,
+                    task_count=0,
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        gate = FakeLeaseGate()
+        gate.allowed_session_ids = frozenset()
+        runner.bind_lease_gate(gate)
+        try:
+            pipeline, _tasks = await runner._claim_next()
+            assert pipeline is not None and pipeline.id == "pipeline-manual"
+            assert len(gate.preempt_calls) == 1
+            reason, detail = gate.preempt_calls[0]
+            assert reason == "manual_pipeline"
+            assert "pipeline-manual" in (detail or "")
+        finally:
+            await runner.stop()
+            asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_claim_gate_error_skips_round(runner_env) -> None:
+    """M71 §4.5.4：闸门读租约出错时本轮不领，流水线仍是 pending。"""
+
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-gate-error",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.PENDING,
+                    task_count=0,
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        gate = FakeLeaseGate()
+        gate.error = RuntimeError("租约库不可用")
+        runner.bind_lease_gate(gate)
+        try:
+            assert await runner._claim_next() == (None, [])
+            async with factory() as session:
+                stored = await session.get(Pipeline, "pipeline-gate-error")
+            assert stored is not None
+            assert stored.status == PipelineStatus.PENDING
+        finally:
+            await runner.stop()
+            asst.stop()
 
     asyncio.run(scenario())

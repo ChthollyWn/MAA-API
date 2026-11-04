@@ -69,6 +69,7 @@ from maa_api.agent.harness.loop import (
 )
 from maa_api.agent.harness.middleware import Middleware, MiddlewareChain
 from maa_api.agent.harness.toolexec import SCREEN_TOOL_NAMES
+from maa_api.agent.lease import LeaseMiddleware
 from maa_api.agent.llm import OpenAICompatibleClient
 from maa_api.agent.llm.budget import BudgetMiddleware
 from maa_api.agent.llm.profiles import (
@@ -88,7 +89,6 @@ from maa_api.agent.registry import ToolRegistry
 from maa_api.agent.runs import RunService
 from maa_api.agent.specs.registry import builtin_spec, builtin_specs
 from maa_api.agent.workers.middleware import (
-    DeviceGateMiddleware,
     MandateMiddleware,
     ReportMiddleware,
 )
@@ -223,15 +223,15 @@ def build_agent_chain(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     question_service: Any = None,
     confirmation_poll_seconds: float = DEFAULT_CONFIRMATION_POLL_SECONDS,
-    device_gate: Any = None,
+    device_lease_service: Any = None,
     cost_ledger: Any = None,
     settings_provider: Callable[[], Any] | None = None,
 ) -> MiddlewareChain:
     """v3 运行（总控 / Worker / 子代理）的中间件链（05 §5.2）。
 
     在 legacy 五元链的基础位置上按序插入 M70 的三个：14 ``MandateMiddleware``、
-    16 ``DeviceGateMiddleware``、18 ``ReportMiddleware``。三个都声明了
-    ``applies_to``，``MiddlewareChain.for_kind`` 会把它们从总控链裁掉。
+    16 ``LeaseMiddleware``（M71 取代 M70 临时的设备门）、18 ``ReportMiddleware``。
+    三个都声明了 ``applies_to``，``MiddlewareChain.for_kind`` 会把它们从总控链裁掉。
     ``cost_ledger`` 存在时 ``BudgetMiddleware`` 仍在第 2 位（与门面一致）。
     """
     registry = confirmation_service.registry
@@ -249,7 +249,10 @@ def build_agent_chain(
                 confirmation_service=confirmation_service,
                 session_factory=session_factory,
             ),
-            DeviceGateMiddleware(registry=registry, device_gate=device_gate),
+            LeaseMiddleware(
+                lease_service=device_lease_service,
+                registry=registry,
+            ),
             ClarificationMiddleware(
                 question_service=question_service,
                 registry=registry,
@@ -1291,7 +1294,7 @@ class AgentRuntime:
         self,
         kind: str,
         *,
-        device_gate: Any = None,
+        device_lease_service: Any = None,
         cost_ledger: Any = None,
         settings_provider: Callable[[], Any] | None = None,
     ) -> MiddlewareChain:
@@ -1302,7 +1305,7 @@ class AgentRuntime:
             session_factory=self.session_factory,
             question_service=self.question_service,
             confirmation_poll_seconds=self.confirmation_poll_seconds,
-            device_gate=device_gate,
+            device_lease_service=device_lease_service,
             cost_ledger=cost_ledger,
             settings_provider=settings_provider,
         )

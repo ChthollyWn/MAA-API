@@ -58,6 +58,17 @@ export interface AgentQuestionOption {
 }
 
 /**
+ * 确认与提问的发起方（M71 §4.2）。REST 直接发起的请求没有 origin（`null`），
+ * 代理运行发起的才带这四个字段；没有工单的运行两个工单字段为 `null`。
+ */
+export interface AgentOrigin {
+  ticket_id: string | null
+  ticket_title: string | null
+  agent: string | null
+  run_id: string | null
+}
+
+/**
  * 提问卡的渲染输入。SSE `question_required` 只带这几个字段（服务端刻意不带
  * session_id/status 等），本会话待答卡拿到的是完整 wire，因此卡片按这个子集取字段，
  * 两种来源都能直接传进来。
@@ -68,9 +79,11 @@ export interface AgentQuestionPrompt {
   options: AgentQuestionOption[]
   multiple: boolean
   expires_at: string
+  /** 发起这次提问的代理运行（M71）；REST 直接提问时没有这个字段。 */
+  origin?: AgentOrigin | null
 }
 
-/** 服务端落库的提问 wire（REST 与 SSE 共用，12 个字段）。 */
+/** 服务端落库的提问 wire（REST 与 SSE 共用，13 个字段）。 */
 export interface AgentQuestion extends AgentQuestionPrompt {
   session_id: string
   tool_call_id: string

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from maa_api.api.deps import (
     require_auth,
 )
 from maa_api.api.errors import error_responses
+from maa_api.api.routers.device_lease import preempt_device
 from maa_api.db.models import Pipeline, Screenshot, Task
 from maa_api.db.repositories.log import LogRepository, ScreenshotRepository
 from maa_api.db.repositories.pipeline import PipelineRepository, TaskRepository
@@ -149,6 +150,7 @@ class RetryRequest(BaseModel):
 )
 async def submit_pipeline(
     payload: PipelineCreate,
+    request: Request,
     queue_service=Depends(get_queue_service),
     runner=Depends(get_pipeline_runner),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -159,6 +161,7 @@ async def submit_pipeline(
         idempotency_key=idempotency_key,
     )
     if not reused:
+        await preempt_device(request, "manual_pipeline")
         await runner.publish_pipeline(pipeline.id)
         await runner.publish_queue_changed()
     return {
@@ -257,9 +260,20 @@ async def get_pipeline(
 )
 async def cancel_pipeline(
     pipeline_id: str,
+    request: Request,
     runner=Depends(get_pipeline_runner),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    # 先读状态：request_cancel 对 pending 会直接改成 cancelled，之后就看不出
+    # 「停止的是不是正在运行的流水线」了。
+    pipeline = await PipelineRepository(session).get(pipeline_id)
+    running = (
+        pipeline is not None
+        and PipelineStatus(pipeline.status) is PipelineStatus.RUNNING
+    )
     await runner.request_cancel(pipeline_id)
+    if running:
+        await preempt_device(request, "stop_pipeline")
     return {"pipeline_id": pipeline_id, "status": "cancellation_requested"}
 
 
@@ -279,6 +293,7 @@ async def cancel_pipeline(
 )
 async def retry_pipeline(
     pipeline_id: str,
+    request: Request,
     payload: RetryRequest | None = None,
     queue_service=Depends(get_queue_service),
     runner=Depends(get_pipeline_runner),
@@ -312,6 +327,7 @@ async def retry_pipeline(
         retry_of_id=previous.id,
     )
     if not reused:
+        await preempt_device(request, "manual_pipeline")
         await runner.publish_pipeline(pipeline.id)
         await runner.publish_queue_changed()
     return {

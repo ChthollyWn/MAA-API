@@ -176,14 +176,16 @@ class AuditRepository(BaseRepository):
         status: AuditStatus | str | None = None,
         risk_level: RiskLevel | str | None = None,
         since: datetime | None = None,
+        ticket_id: str | None = None,
         page: int = 1,
         size: int = 20,
     ) -> Page[AgentAudit]:
-        """审计分页：可选 ``caller`` / ``tool_name`` 过滤，按 ``created_at DESC``。
+        """审计分页：可选 ``caller`` / ``tool_name`` / ``ticket_id`` 过滤，按 ``created_at DESC``。
 
         排序与两个过滤条件刻意贴着 ``ix_agent_audit_caller_created_at`` /
         ``ix_agent_audit_tool_name_created_at``（docs/04 §6 的审计页形态）来写，
-        不额外发明查询形态；同秒并列用 ``id DESC`` 兜稳定次序。
+        不额外发明查询形态；同秒并列用 ``id DESC`` 兜稳定次序。``ticket_id`` 走
+        M71 加的 ``ix_agent_audit_ticket_id_created_at``（工单页的调用流水）。
         """
         conditions: list[Any] = []
         if caller is not None:
@@ -196,6 +198,8 @@ class AuditRepository(BaseRepository):
             conditions.append(AgentAudit.risk_level == RiskLevel(risk_level))
         if since is not None:
             conditions.append(AgentAudit.created_at >= since)
+        if ticket_id is not None:
+            conditions.append(AgentAudit.ticket_id == ticket_id)
 
         items_stmt = (
             select(AgentAudit)

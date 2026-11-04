@@ -155,6 +155,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "orchestrator.batch_window_ms": dict(label="总控合并窗口（毫秒）", group="Agent", type="integer", minimum=0, maximum=5000, hot_action="none", description="新消息到达后等这么久再处理，窗口内的消息合并成一轮"),
     "worker.max_concurrent": dict(label="同时运行的 Worker 上限", group="Agent", type="integer", minimum=1, maximum=16, hot_action="none"),
     "delegation.max_parallel": dict(label="并行委派上限", group="Agent", type="integer", minimum=1, maximum=8, hot_action="none", description="一批调用里同时执行的只读子代理个数"),
+    # M71 设备租约：有效期与排队等待时长，服务每次取租约 / 续期时现读，改完立即生效。
+    "lease.ttl_seconds": dict(label="设备租约有效期（秒）", group="Agent", type="integer", minimum=60, maximum=3600, hot_action="none"),
+    "lease.wait_seconds": dict(label="设备租约排队等待（秒）", group="Agent", type="integer", minimum=0, maximum=600, hot_action="none"),
     # 下面两项只从 config.yaml 提供，不出现在设置 API 的响应里（见 CONFIG_ONLY_SETTING_KEYS）。
     # 这里保留元数据是为了让这张表覆盖全部 key，加 key 时不会漏掉归属与说明。
     "notify.vapid_private_key": dict(label="Web Push VAPID 私钥", group="通知", type="string", sensitive=True, hot_action="restart_required"),

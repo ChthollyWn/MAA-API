@@ -49,6 +49,8 @@ SPEC_NAMES = [
     "titler",
     "verifier",
 ]
+#: 各定义的版本号；M71 给 ``general`` 加了设备租约工具与通用 Worker 提示，升到 2。
+EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {"general": 2}
 
 
 def _specs_client(make_client, *, with_registry: bool = True):
@@ -81,7 +83,7 @@ def test_list_specs_returns_the_nine_builtin_definitions(make_client, tmp_settin
     for item in items:
         assert set(item) == LIST_FIELDS
         assert re.fullmatch(r"[0-9a-f]{12}", item["spec_version"])
-        assert item["version"] == 1
+        assert item["version"] == EXPECTED_VERSIONS[item["name"]]
     by_name = {item["name"]: item for item in items}
     assert by_name["legacy_chat"]["kind"] == "worker"
     assert by_name["recon"]["kind"] == "subagent"

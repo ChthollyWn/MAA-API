@@ -14,7 +14,7 @@ import base64
 import io
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -36,8 +36,9 @@ from maa_api.agent.harness.middleware import CallNext, Middleware
 from maa_api.agent.harness.toolexec import app_error_wire
 from maa_api.agent.llm.cost import compute_cost_micros
 from maa_api.agent.media import MEDIA_TOOL_NAMES, compact_media_result
+from maa_api.agent.origin import bubble_human_request, settle_human_request
 from maa_api.agent.redaction import redact_remote_data
-from maa_api.agent.registry import ToolContext, ToolRegistry
+from maa_api.agent.registry import ToolContext, ToolOrigin, ToolRegistry
 from maa_api.agent.specs.registry import builtin_common_prompt, builtin_spec
 from maa_api.agent.specs.schema import LEGACY_SPEC_NAMES
 from maa_api.agent.trace import (
@@ -1479,6 +1480,34 @@ class LoopGuardMiddleware(Middleware):
         return resp
 
 
+#: 子代理的策略身份（M71 §4.5.7）：父 Worker 会话 id，由 ``PolicyMiddleware.on_run_start``
+#: 读一次子代理会话的 ``parent_session_id`` 写入；其余代理直接用 ``ctx.session_id``。
+POLICY_SESSION_KEY = "policy.session_id"
+
+
+def _policy_session_id(ctx: RunContext) -> str | None:
+    """策略、审计与授权使用的会话 id：子代理是父 Worker 会话，其余是自身会话。"""
+    stored = ctx.state.get(POLICY_SESSION_KEY)
+    return stored if isinstance(stored, str) and stored else ctx.session_id
+
+
+def _tool_origin(ctx: RunContext) -> ToolOrigin | None:
+    """本次工具调用的来源（M71 §4.5.7）；v2 门面的运行没有它，保持 v2 行为。
+
+    v2 会话同样经过 ``PolicyMiddleware``，但它们的 ``RunContext`` 没有 M70 起的运行行
+    （``ctx.run is None``）。给它们补 origin 会改变 v2 的 SSE 帧、确认 wire 与审计列，
+    与「v2 无 origin 路径行为不变」冲突；v3 的总控 / Worker / 子代理由 ``pump`` 建
+    运行行，一律带 origin（总控没有工单时 ``ticket_id`` 为 ``None``）。
+    """
+    if ctx.run is None:
+        return None
+    return ToolOrigin(
+        run_id=ctx.run_id,
+        ticket_id=ctx.ticket_id,
+        agent=ctx.spec.name,
+    )
+
+
 class ClarificationMiddleware(Middleware):
     """``ask_user`` 的落库 → 挂起 → 用户裁决链路（规格 §3.5、§4.2.9）。
 
@@ -1516,27 +1545,47 @@ class ClarificationMiddleware(Middleware):
                 audit_id=(exc.details or {}).get("audit_id"),
                 error=app_error_wire(exc),
             )
+        origin = _tool_origin(ctx)
+        # 没有 origin 的调用（v2 门面、REST）保持原来的调用形状：不传这个关键字，
+        # 既有的提问服务替身与 v2 行为都不变。
+        create_kwargs: dict[str, Any] = {"origin": origin} if origin is not None else {}
         wire, audit_id = await service.create(
-            session_id=ctx.session_id,
+            session_id=_policy_session_id(ctx),
             tool_call_id=call.id,
             question=params.question,
             options=params.options,
             multiple=params.multiple,
             request_id=request_id_of(ctx.request),
+            **create_kwargs,
         )
         question_id = str(wire["question_id"])
-        await ctx.emit(
-            "question_required",
-            {
-                "tool_call_id": call.id,
-                "question_id": question_id,
-                "question": wire["question"],
-                "options": wire["options"],
-                "multiple": wire["multiple"],
-                "expires_at": wire["expires_at"],
-            },
+        event: dict[str, Any] = {
+            "tool_call_id": call.id,
+            "question_id": question_id,
+            "question": wire["question"],
+            "options": wire["options"],
+            "multiple": wire["multiple"],
+            "expires_at": wire["expires_at"],
+        }
+        if wire.get("origin") is not None:
+            event["origin"] = wire["origin"]
+        await ctx.emit("question_required", event)
+        # 等人时让出隐式租约，并把「有提问待办」冒泡到工单与总控（M71 §4.5.6）。
+        # origin 为空时冒泡函数只做租约那一步，提问本身不受影响。
+        await bubble_human_request(
+            _app_state(ctx),
+            origin,
+            root_run_id=ctx.root_run_id,
+            kind="question",
+            ref_id=question_id,
+            prompt=str(wire.get("question") or ""),
         )
-        answer = await service.wait(question_id)
+        try:
+            answer = await service.wait(question_id)
+        finally:
+            # 提问进入终态（回答、跳过、过期、中断）后把工单从 waiting 改回 open；
+            # origin 没有工单时什么也不做。
+            await settle_human_request(_app_state(ctx), origin, ref_id=question_id)
         if ctx.interrupted_now():
             # 撤回提问会把等待方唤醒到终态 ``cancelled``，但本轮的结局是中断，不是
             # 「提问没答成」：按后者收尾会让用户按了停止却收到一句「提问超时」。
@@ -1565,6 +1614,27 @@ class ClarificationMiddleware(Middleware):
         )
 
 
+def _compose_before_execute(
+    hooks: Sequence[Any] | None,
+) -> Callable[[int], Any] | None:
+    """把本调用登记的执行前回调组合成一个回调（M71 §4.5.5）。
+
+    外层中间件（``LeaseMiddleware``）往 ``ctx.state["policy.before_execute"]`` 的
+    列表里追加回调，这里按追加顺序逐个 await。列表为空时返回 ``None``，``invoke``
+    不收到新参数，v2 路径的行为与改动前完全一致。
+    """
+    if not hooks:
+        return None
+
+    async def run(audit_id: int) -> None:
+        for hook in tuple(hooks):
+            result = hook(audit_id)
+            if asyncio.iscoroutine(result) or isinstance(result, asyncio.Future):
+                await result
+
+    return run
+
+
 class PolicyMiddleware(Middleware):
     """策略判定、确认与等待；链上的执行器（不调 ``call_next``，规格 §4.2.9）。
 
@@ -1585,16 +1655,54 @@ class PolicyMiddleware(Middleware):
         self.session_factory = session_factory
         self.poll_seconds = poll_seconds
 
+    async def on_run_start(self, ctx: RunContext) -> None:
+        """子代理的策略身份：读一次自己会话的父 Worker 会话（M71 §4.5.7）。
+
+        子代理的审计、原子操作与作业授权、提交的流水线都要挂在父 Worker 会话上，
+        只有 ``run_id`` / ``agent_name`` 记子代理自己。读不到时留空，
+        :func:`_policy_session_id` 退回 ``ctx.session_id``（不因一次读库失败让整轮失败）。
+        """
+        if ctx.spec.kind != "subagent" or not ctx.session_id:
+            return
+        try:
+            async with self.session_factory() as db:
+                session = await AgentSessionRepository(db).get(ctx.session_id)
+        except Exception:  # noqa: BLE001 - 读不到父会话时退回自身会话
+            logger.warning(
+                "读取子代理会话的父会话失败：session=%s", ctx.session_id, exc_info=True
+            )
+            return
+        parent_session_id = getattr(session, "parent_session_id", None)
+        if isinstance(parent_session_id, str) and parent_session_id:
+            ctx.state[POLICY_SESSION_KEY] = parent_session_id
+
     async def wrap_tool(
         self, ctx: RunContext, call: ToolCall, call_next: CallNext
     ) -> ToolOutcome:
+        try:
+            return await self._run_tool(ctx, call)
+        finally:
+            # 执行前钩子只服务于本次调用：调用结束（含异常与取消）就摘掉，不能让
+            # 同一个 call id 的回调留到下一轮（§4.5.5）。
+            hooks = ctx.state.get("policy.before_execute")
+            if isinstance(hooks, dict):
+                hooks.pop(call.id, None)
+
+    async def _run_tool(self, ctx: RunContext, call: ToolCall) -> ToolOutcome:
         arguments = call.arguments if call.arguments is not None else {}
+        origin = _tool_origin(ctx)
+        session_id = _policy_session_id(ctx)
         context = ToolContext(
             caller=CallerType.INTERNAL,
-            session_id=ctx.session_id,
+            session_id=session_id,
             request_id=request_id_of(ctx.request),
             request=ctx.request,
             db_session=None,
+            origin=origin,
+        )
+        before_hooks = ctx.state.get("policy.before_execute")
+        before_execute = _compose_before_execute(
+            before_hooks.get(call.id) if isinstance(before_hooks, dict) else None
         )
         loop = asyncio.get_running_loop()
         terminal: asyncio.Future[dict[str, Any]] = loop.create_future()
@@ -1639,8 +1747,14 @@ class PolicyMiddleware(Middleware):
                     request_id=context.request_id,
                     request=context.request,
                     db_session=policy_session,
+                    origin=context.origin,
                 )
                 # 每次调用现取 ``invoke``：测试会替换替身服务的这个方法。
+                # 只有外层中间件登记过执行前钩子时才传这个参数，空列表时调用形状
+                # 与 M70 及之前逐字一致（M71 §4.2 第 2 条）。
+                invoke_kwargs: dict[str, Any] = {}
+                if before_execute is not None:
+                    invoke_kwargs["on_before_execute"] = before_execute
                 accepted = await self.confirmation_service.invoke(
                     call.name,
                     arguments,
@@ -1648,6 +1762,7 @@ class PolicyMiddleware(Middleware):
                     mode="async",
                     on_audit_prepare=on_prepare,
                     on_audit_committed=on_committed,
+                    **invoke_kwargs,
                 )
         except AppError as exc:
             return ToolOutcome(
@@ -1657,71 +1772,95 @@ class PolicyMiddleware(Middleware):
             )
         audit_id = accepted.get("audit_id")
         confirmation_id = accepted.get("confirmation_id")
-        if accepted.get("status") == "awaiting_confirmation":
-            await ctx.emit(
-                "confirmation_required",
-                {
-                    "tool_call_id": call.id,
-                    "name": call.name,
-                    "confirmation_id": confirmation_id,
-                    "audit_id": audit_id,
-                    "expires_at": accepted.get("expires_at"),
-                },
-            )
-
-        while not terminal.done():
-            if ctx.interrupted_now():
-                # 本轮已被用户中断。这里必须**自己**抛 CancelledError：中断会同时
-                # 把待确认撤回（状态变 rejected），若让下面的分支先读到它，这一批
-                # 会被当成「用户拒绝」，本轮以「我不会重试该操作」正常收尾：那与
-                # 「用户按了停止」是两回事。真实的 task.cancel() 也会落到同一个
-                # 取消分支里收尾。
-                raise asyncio.CancelledError()
-            if confirmation_id:
-                state = await self.confirmation_service.get(confirmation_id)
-                # 撤确认与取消本轮之间有一小段并发窗口：如果读到的正是中断造成的
-                # 「已拒绝」，本轮的结局仍然是中断；这里再判一次就覆盖了这个窗口。
-                if ctx.interrupted_now():
-                    raise asyncio.CancelledError()
-                status = state.get("status")
-                if status == "rejected":
-                    error = AppError(
-                        ErrorCode.CONFIRMATION_REJECTED,
-                        state.get("resolved_reason") or "确认请求已被拒绝",
-                        {"audit_id": audit_id, "confirmation_id": confirmation_id},
-                    )
-                    return ToolOutcome(
-                        status="rejected",
-                        audit_id=audit_id,
-                        error=app_error_wire(error),
-                    )
-                if status == "expired":
-                    error = AppError(
-                        ErrorCode.CONFIRMATION_EXPIRED,
-                        "确认请求已过期",
-                        {"audit_id": audit_id, "confirmation_id": confirmation_id},
-                    )
-                    return ToolOutcome(
-                        status="expired",
-                        audit_id=audit_id,
-                        error=app_error_wire(error),
-                    )
-            try:
-                await asyncio.wait_for(
-                    asyncio.shield(terminal), timeout=self.poll_seconds
-                )
-            except TimeoutError:
-                continue
-
-        body = terminal.result()
-        if "__idempotency_error__" in body:
-            return ToolOutcome(
-                status="error",
-                audit_id=audit_id,
-                error=body["__idempotency_error__"],
-            )
-        return ToolOutcome(
-            status="ok",
-            audit_id=audit_id,
-            result=body.get("result"),
+        pending_confirmation = accepted.get("status") == "awaiting_confirmation" and bool(
+            confirmation_id
         )
+        app_state = _app_state(ctx)
+        if pending_confirmation:
+            detail = await self.confirmation_service.get(str(confirmation_id))
+            event: dict[str, Any] = {
+                "tool_call_id": call.id,
+                "name": call.name,
+                "confirmation_id": confirmation_id,
+                "audit_id": audit_id,
+                "expires_at": accepted.get("expires_at"),
+            }
+            # SSE 的 origin 取自确认详情（M71 §4.5.6）；v2 没有 origin 时不加这个键，
+            # 保持 v2 的 SSE 帧逐字不变。
+            if detail.get("origin") is not None:
+                event["origin"] = detail["origin"]
+            await ctx.emit("confirmation_required", event)
+            # 等人时让出隐式租约，并把「有确认待办」冒泡到工单与总控（§4.5.6）。
+            await bubble_human_request(
+                app_state,
+                origin,
+                root_run_id=ctx.root_run_id,
+                kind="confirmation",
+                ref_id=str(confirmation_id),
+                prompt=str(detail.get("reason") or "该操作需要人工确认"),
+            )
+
+        try:
+            while not terminal.done():
+                if ctx.interrupted_now():
+                    # 本轮已被用户中断。这里必须**自己**抛 CancelledError：中断会同时
+                    # 把待确认撤回（状态变 rejected），若让下面的分支先读到它，这一批
+                    # 会被当成「用户拒绝」，本轮以「我不会重试该操作」正常收尾：那与
+                    # 「用户按了停止」是两回事。真实的 task.cancel() 也会落到同一个
+                    # 取消分支里收尾。
+                    raise asyncio.CancelledError()
+                if confirmation_id:
+                    state = await self.confirmation_service.get(confirmation_id)
+                    # 撤确认与取消本轮之间有一小段并发窗口：如果读到的正是中断造成的
+                    # 「已拒绝」，本轮的结局仍然是中断；这里再判一次就覆盖了这个窗口。
+                    if ctx.interrupted_now():
+                        raise asyncio.CancelledError()
+                    status = state.get("status")
+                    if status == "rejected":
+                        error = AppError(
+                            ErrorCode.CONFIRMATION_REJECTED,
+                            state.get("resolved_reason") or "确认请求已被拒绝",
+                            {"audit_id": audit_id, "confirmation_id": confirmation_id},
+                        )
+                        return ToolOutcome(
+                            status="rejected",
+                            audit_id=audit_id,
+                            error=app_error_wire(error),
+                        )
+                    if status == "expired":
+                        error = AppError(
+                            ErrorCode.CONFIRMATION_EXPIRED,
+                            "确认请求已过期",
+                            {"audit_id": audit_id, "confirmation_id": confirmation_id},
+                        )
+                        return ToolOutcome(
+                            status="expired",
+                            audit_id=audit_id,
+                            error=app_error_wire(error),
+                        )
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(terminal), timeout=self.poll_seconds
+                    )
+                except TimeoutError:
+                    continue
+
+            body = terminal.result()
+            if "__idempotency_error__" in body:
+                return ToolOutcome(
+                    status="error",
+                    audit_id=audit_id,
+                    error=body["__idempotency_error__"],
+                )
+            return ToolOutcome(
+                status="ok",
+                audit_id=audit_id,
+                result=body.get("result"),
+            )
+        finally:
+            # 确认进入终态（批准、拒绝、过期、中断）后把工单从 waiting 改回 open；
+            # origin 没有工单时什么也不做。
+            if pending_confirmation:
+                await settle_human_request(
+                    app_state, origin, ref_id=str(confirmation_id)
+                )
