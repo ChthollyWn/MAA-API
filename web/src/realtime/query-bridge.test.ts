@@ -144,3 +144,44 @@ describe('agent grant events refresh only the session detail', () => {
     expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.all(), refetchType: 'active' })
   })
 })
+
+describe('ticket events keep the ticket queries fresh', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('invalidates ticket list, detail and reports on ticket_status', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'ticket_status',
+        data: {
+          event: 'report_created',
+          ticket_id: 'ticket-1',
+          title: '日常',
+          kind: 'daily_ops',
+          status: 'done',
+          last_report_status: 'ready',
+          summary: '日常做完了',
+          human_action: null,
+        },
+      },
+      queryClient,
+    )
+    // 失效是攒批的（250ms 窗口），推进计时器才会真正发出。
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.tickets(), refetchType: 'active' })
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.ticket('ticket-1'), refetchType: 'active' })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.ticketReports('ticket-1'),
+      refetchType: 'active',
+    })
+    // 工单事件不进确认链路。
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.pendingConfirmations(), refetchType: 'active' })
+  })
+})

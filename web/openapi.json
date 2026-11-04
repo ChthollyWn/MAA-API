@@ -1417,6 +1417,25 @@
         "title": "DeviceRetryHealth",
         "type": "object"
       },
+      "EventSource": {
+        "description": "事件来源渠道。",
+        "enum": [
+          "web",
+          "im_telegram",
+          "im_feishu",
+          "im_dingtalk",
+          "im_qq",
+          "pipeline",
+          "core",
+          "device",
+          "schedule",
+          "system",
+          "watchdog",
+          "goal"
+        ],
+        "title": "EventSource",
+        "type": "string"
+      },
       "FightInput": {
         "additionalProperties": false,
         "description": "刷理智：刷指定关卡，支持理智药、碎石与连战。",
@@ -1813,6 +1832,41 @@
           "version"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "HumanActionOut": {
+        "description": "待人工处理的动作；``type`` 决定前端弹哪一种卡片。",
+        "properties": {
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "ref_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Id"
+          },
+          "type": {
+            "enum": [
+              "confirmation",
+              "question",
+              "decision"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "prompt"
+        ],
+        "title": "HumanActionOut",
         "type": "object"
       },
       "InfrastInput": {
@@ -2576,6 +2630,87 @@
         },
         "title": "MallInput",
         "type": "object"
+      },
+      "MandateOut": {
+        "description": "工单的委托（建单时写入，此后不可变）。",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "risk_ceiling": {
+            "$ref": "#/components/schemas/RiskLevel"
+          },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "sender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender"
+          },
+          "source": {
+            "$ref": "#/components/schemas/EventSource"
+          },
+          "strength": {
+            "$ref": "#/components/schemas/MandateStrength"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "strength",
+          "source",
+          "sender",
+          "rule_id",
+          "risk_ceiling",
+          "policy_version",
+          "created_at"
+        ],
+        "title": "MandateOut",
+        "type": "object"
+      },
+      "MandateStrength": {
+        "description": "委托强度：显式授权或推断授权。",
+        "enum": [
+          "explicit",
+          "inferred"
+        ],
+        "title": "MandateStrength",
+        "type": "string"
       },
       "ModelProfileCreate": {
         "additionalProperties": false,
@@ -4255,6 +4390,19 @@
         },
         "title": "RecruitInput",
         "type": "object"
+      },
+      "ReportStatus": {
+        "description": "Worker 汇报的状态。",
+        "enum": [
+          "progress",
+          "waiting",
+          "ready",
+          "blocked",
+          "failed",
+          "dropped"
+        ],
+        "title": "ReportStatus",
+        "type": "string"
       },
       "ResolveRequest": {
         "additionalProperties": false,
@@ -7184,6 +7332,42 @@
         "title": "StartUpInput",
         "type": "object"
       },
+      "SubscriptionOut": {
+        "description": "工单对某个话题键的订阅；停用后保留行。",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "thread_key": {
+            "title": "Thread Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_key",
+          "active",
+          "created_at",
+          "ended_at"
+        ],
+        "title": "SubscriptionOut",
+        "type": "object"
+      },
       "SwipeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -7329,6 +7513,325 @@
           "tasks"
         ],
         "title": "TaskValidateRequest",
+        "type": "object"
+      },
+      "TicketDetail": {
+        "description": "工单详情：摘要、结果、委托、订阅、最近 5 条汇报与 Worker 是否在跑。",
+        "properties": {
+          "mandate": {
+            "$ref": "#/components/schemas/MandateOut"
+          },
+          "recent_reports": {
+            "items": {
+              "$ref": "#/components/schemas/TicketReportOut"
+            },
+            "title": "Recent Reports",
+            "type": "array"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "subscriptions": {
+            "items": {
+              "$ref": "#/components/schemas/SubscriptionOut"
+            },
+            "title": "Subscriptions",
+            "type": "array"
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/TicketSummary"
+          },
+          "turn_running": {
+            "title": "Turn Running",
+            "type": "boolean"
+          },
+          "worker_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Session Id"
+          }
+        },
+        "required": [
+          "ticket",
+          "result",
+          "mandate",
+          "subscriptions",
+          "recent_reports",
+          "worker_session_id",
+          "turn_running"
+        ],
+        "title": "TicketDetail",
+        "type": "object"
+      },
+      "TicketOrigin": {
+        "description": "工单的来源：用户、触发器、目标、看门狗或系统。",
+        "enum": [
+          "user",
+          "trigger",
+          "goal",
+          "watchdog",
+          "system"
+        ],
+        "title": "TicketOrigin",
+        "type": "string"
+      },
+      "TicketPage": {
+        "description": "工单列表的分页信封。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TicketSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "TicketPage",
+        "type": "object"
+      },
+      "TicketReportOut": {
+        "description": "一次 Worker 汇报的对外形状。",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "forwarded": {
+            "title": "Forwarded",
+            "type": "boolean"
+          },
+          "human_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HumanActionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ticket_id",
+          "run_id",
+          "status",
+          "summary",
+          "human_action",
+          "details",
+          "forwarded",
+          "created_at"
+        ],
+        "title": "TicketReportOut",
+        "type": "object"
+      },
+      "TicketReportPage": {
+        "description": "工单汇报的分页信封。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TicketReportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "TicketReportPage",
+        "type": "object"
+      },
+      "TicketStatus": {
+        "description": "工单状态机（M69 规格 §4.5）。",
+        "enum": [
+          "open",
+          "waiting",
+          "blocked",
+          "done",
+          "failed",
+          "cancelled"
+        ],
+        "title": "TicketStatus",
+        "type": "string"
+      },
+      "TicketSummary": {
+        "description": "工单列表项与详情里的工单摘要。",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "human_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HumanActionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_report_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/TicketOrigin"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "kind",
+          "status",
+          "origin",
+          "priority",
+          "summary",
+          "last_report_status",
+          "human_action",
+          "created_at",
+          "updated_at",
+          "ended_at"
+        ],
+        "title": "TicketSummary",
         "type": "object"
       },
       "ValidationError": {
@@ -11122,6 +11625,376 @@
           }
         },
         "summary": "读取代理定义详情",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/tickets": {
+      "get": {
+        "operationId": "agent_list_tickets",
+        "parameters": [
+          {
+            "description": "只看这些状态，可重复表示并集",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/TicketStatus"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只看这些状态，可重复表示并集",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "只看这个代理定义的工单",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只看这个代理定义的工单",
+              "title": "Kind"
+            }
+          },
+          {
+            "description": "只看这个来源的工单",
+            "in": "query",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TicketOrigin"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只看这个来源的工单",
+              "title": "Origin"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–200",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–200",
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PAGINATION",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PAGINATION"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "分页读取工单",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/tickets/{ticket_id}": {
+      "get": {
+        "operationId": "agent_get_ticket",
+        "parameters": [
+          {
+            "description": "工单 id",
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "description": "工单 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：TICKET_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "读取工单详情",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/tickets/{ticket_id}/reports": {
+      "get": {
+        "operationId": "agent_list_ticket_reports",
+        "parameters": [
+          {
+            "description": "工单 id",
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "description": "工单 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–200",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–200",
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketReportPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PAGINATION",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PAGINATION"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：TICKET_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "分页读取工单汇报",
         "tags": [
           "agent"
         ]

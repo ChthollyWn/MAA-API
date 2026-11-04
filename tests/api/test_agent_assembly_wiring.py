@@ -15,6 +15,9 @@
 
 from __future__ import annotations
 
+from maa_api.agent.tickets.inbox import InboxService
+from maa_api.agent.tickets.service import TicketService
+from maa_api.agent.tickets.threads import ThreadRouter
 from maa_api.main import create_app
 from maa_api.services.game.copilots import CopilotService
 from maa_api.settings import Settings
@@ -47,6 +50,26 @@ def test_lifespan_wires_session_factory_and_copilot_search_service(tmp_settings,
         # 装上了才能按账号筛作业；``_box_index`` 在 box 缺失时返回 None、整页判不可行。
         assert service.box is not None
         assert service.stage_index is not None
+
+
+def test_lifespan_wires_ticket_services(tmp_settings, isolated_db) -> None:
+    """工单三件套必须挂到 ``app.state``，且 TicketService 复用同一个 InboxService。"""
+
+    app = create_app()
+    with _lifespan(app):
+        inbox_service = getattr(app.state, "inbox_service", None)
+        thread_router = getattr(app.state, "thread_router", None)
+        ticket_service = getattr(app.state, "ticket_service", None)
+        assert isinstance(inbox_service, InboxService), (
+            "lifespan 没有设置 app.state.inbox_service"
+        )
+        assert isinstance(thread_router, ThreadRouter), (
+            "lifespan 没有设置 app.state.thread_router"
+        )
+        assert isinstance(ticket_service, TicketService), (
+            "lifespan 没有设置 app.state.ticket_service"
+        )
+        assert ticket_service._inbox_service is inbox_service
 
 
 def _lifespan(app):

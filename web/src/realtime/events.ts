@@ -34,6 +34,17 @@ export interface TaskStatus {
   [key: string]: unknown
 }
 
+export interface TicketStatusEvent {
+  event: 'ticket_created' | 'ticket_updated' | 'report_created'
+  ticket_id: string
+  title: string
+  kind: string
+  status: string
+  last_report_status: string | null
+  summary?: string | null
+  human_action?: { type: string; prompt: string; ref_id?: string | null } | null
+}
+
 export type ServerEvent =
   | WsEnvelope<'log', LogRecord>
   | WsEnvelope<'log_batch', LogBatch>
@@ -49,6 +60,7 @@ export type ServerEvent =
   | WsEnvelope<'update_progress', Record<string, unknown> & { update_id: string }>
   | WsEnvelope<'update_available', Record<string, unknown>>
   | WsEnvelope<'agent_event', Record<string, unknown>>
+  | WsEnvelope<'ticket_status', TicketStatusEvent>
   | WsEnvelope<'server_shutdown', Record<string, unknown>>
   | WsEnvelope<'subscribed', { channels?: string[]; backfilled?: number; truncated?: boolean; stream_id?: string | null }>
   | WsEnvelope<'pong', { t?: number }>
@@ -67,6 +79,7 @@ export const REALTIME_STATE_CHANNELS = [
   'update_progress',
   'update_available',
   'agent_event',
+  'ticket_status',
 ] as const
 
 export const REALTIME_CHANNELS = ['log', ...REALTIME_STATE_CHANNELS] as const

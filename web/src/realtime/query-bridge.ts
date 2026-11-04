@@ -121,6 +121,12 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
         }
       }
       break
+    // 工单状态：列表、详情、汇报三段各取各的；不整片失效 `keys.agent.all()`。
+    case 'ticket_status':
+      invalidateBatched(queryClient, keys.agent.tickets())
+      invalidateBatched(queryClient, keys.agent.ticket(event.data.ticket_id))
+      invalidateBatched(queryClient, keys.agent.ticketReports(event.data.ticket_id))
+      break
     case 'subscribed':
       // Reconnect acknowledgement follows a possible WS gap; reload persisted
       // approval/audit state so missed terminal events cannot leave stale cards.

@@ -137,6 +137,39 @@ def test_subscribe_replaces_filter_and_backfills_only_matching_records(
         assert socket.receive_json()["type"] == "core_status"
 
 
+def test_ticket_status_channel_can_be_subscribed(ws_app, tmp_settings, make_client):
+    app, manager = ws_app
+    client = make_client(app)
+
+    with client.websocket_connect("/api/ws") as socket:
+        socket.send_json(
+            {"type": "subscribe", "req_id": "ts-1", "data": {"channels": ["ticket_status"]}}
+        )
+        subscribed = socket.receive_json()
+        assert subscribed["type"] == "subscribed"
+        assert subscribed["req_id"] == "ts-1"
+
+        # 另一个只订阅 core_status 的会话用来验证频道过滤。
+        with client.websocket_connect("/api/ws") as other:
+            other.send_json(
+                {"type": "subscribe", "req_id": "ts-2", "data": {"channels": ["core_status"]}}
+            )
+            assert other.receive_json()["type"] == "subscribed"
+
+            manager.broadcast(
+                "ticket_status",
+                {"event": "ticket_created", "ticket_id": "t-1", "status": "open"},
+            )
+            event = socket.receive_json()
+            assert event["type"] == "ticket_status"
+            assert event["data"]["event"] == "ticket_created"
+            assert event["data"]["ticket_id"] == "t-1"
+
+            # 没订阅 ticket_status 的会话收不到它：给它的下一条仍然是 core_status。
+            manager.broadcast("core_status", {"state": "ready"})
+            assert other.receive_json()["type"] == "core_status"
+
+
 def test_replay_marks_records_truncated_when_cursor_predates_ring(
     ws_app, tmp_settings, make_client
 ):

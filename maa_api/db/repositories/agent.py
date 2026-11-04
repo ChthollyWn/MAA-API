@@ -72,6 +72,24 @@ class AgentSessionRepository(BaseRepository):
         )
         return result.scalar_one_or_none()
 
+    async def get_active_orchestrator(self) -> AgentSession | None:
+        """当前活动的总控会话：``kind='orchestrator' AND status='active' AND archived_at IS NULL``。
+
+        按 ``created_at DESC`` 取一条（``id DESC`` 兜同刻稳定次序）。归档、finished
+        与其它 kind 的会话都不算。
+        """
+        result = await self.session.execute(
+            select(AgentSession)
+            .where(
+                AgentSession.kind == "orchestrator",
+                AgentSession.status == "active",
+                AgentSession.archived_at.is_(None),
+            )
+            .order_by(AgentSession.created_at.desc(), AgentSession.id.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
     async def list_recent(self, limit: int = 20) -> list[AgentSession]:
         """侧栏会话列表：``last_message_at DESC``，从未发过消息的（NULL）排最后。
 
