@@ -33,6 +33,7 @@ from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.context.clearing import ToolResultClearingMiddleware
 from maa_api.agent.context.compaction import CompactionMiddleware
 from maa_api.agent.context.durable import DurableContextMiddleware
+from maa_api.agent.guard import InjectionGuardMiddleware
 from maa_api.agent.harness.builtin_middleware import (
     AGENT_SCREENSHOT_GRID,
     DEFAULT_MAX_CONTEXT_CHARS,
@@ -283,6 +284,14 @@ def build_agent_chain(
             # M75：外置在清理之后、打转检测之前；工具结果先由内层 Policy 落审计，
             # 这里只改给模型与 SSE 的副本。
             SpillMiddleware(settings_provider=settings_provider),
+            # M80：注入防护在 Spill 之内、LoopGuard 之前（第 11 位）：先拿到完整结果
+            # 扫描打标，再由外层 Spill 决定是否外置并保留标记。
+            InjectionGuardMiddleware(
+                registry=registry,
+                confirmation_service=confirmation_service,
+                session_factory=session_factory,
+                settings_provider=settings_provider or get_settings,
+            ),
             LoopGuardMiddleware(),
             MandateMiddleware(
                 registry=registry,

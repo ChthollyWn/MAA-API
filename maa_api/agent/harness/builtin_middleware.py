@@ -29,6 +29,7 @@ from maa_api.agent.context.layout import (
     load_history,
 )
 from maa_api.agent.context.tokens import TokenEstimator
+from maa_api.agent.guard.render import render_tool_content
 from maa_api.agent.harness.context import (
     ModelRequest,
     ModelResponse,
@@ -296,6 +297,11 @@ def prepare_history_messages(
         calls = message.get("tool_calls")
         if calls:
             outgoing["tool_calls"] = calls
+        if role == "tool" and isinstance(outgoing.get("content"), str):
+            # M80 §4.5.2：带 guard 标记的 tool 消息在这里包成「外部数据」。
+            outgoing["content"] = render_tool_content(
+                outgoing["content"], message.get("tool_name")
+            )
         model_history.append(redact_remote_data(outgoing))
 
     # M52：历史思考内容只保留最后一条，且按预算截尾。协议要求「思考模式下 assistant
@@ -1749,6 +1755,13 @@ class PolicyMiddleware(Middleware):
                 invoke_kwargs: dict[str, Any] = {}
                 if before_execute is not None:
                     invoke_kwargs["on_before_execute"] = before_execute
+                # M80 §4.5.3：降权期间防护中间件在这里登记逐次确认；取走即删，
+                # 同一个 call id 不会留到下一轮。
+                pending_confirmations = ctx.state.get("policy.require_confirmation")
+                if isinstance(pending_confirmations, dict):
+                    required = pending_confirmations.pop(call.id, None)
+                    if required is not None:
+                        invoke_kwargs["require_confirmation"] = required
                 accepted = await self.confirmation_service.invoke(
                     call.name,
                     arguments,

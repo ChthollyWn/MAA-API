@@ -491,6 +491,8 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "plan",
         # M75：外置紧接计划之后。
         "spill",
+        # M80：注入防护在 Spill 之内、LoopGuard 之前（链的第 11 位）。
+        "injection_guard",
         "loop_guard",
         "mandate",
         "lease",
@@ -506,6 +508,7 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "context_layout",
         "tool_result_clearing",
         "spill",
+        "injection_guard",
         "loop_guard",
         "mandate",
         "lease",
@@ -520,6 +523,7 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "compaction",
         "tool_result_clearing",
         "spill",
+        "injection_guard",
         "loop_guard",
         "clarification",
         "policy",
