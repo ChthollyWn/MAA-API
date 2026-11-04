@@ -60,8 +60,9 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: M70 在 §4.11 加总控/Worker 三条（委托上限与委派两条）；
 #: M71 在 §4.11 加设备租约三条（忙、被接管、未持有）；
 #: M74 在 §4.11 加压缩失败一条（`COMPACTION_FAILED`）。
-ALL_CODE_COUNT = 142
-HTTP_BOUND_CODE_COUNT = 141
+#: M75 在 §4.11 加产物与计划四条（`ARTIFACT_*`、`PLAN_*`）。
+ALL_CODE_COUNT = 146
+HTTP_BOUND_CODE_COUNT = 145
 SECTION_COUNT = 20
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。

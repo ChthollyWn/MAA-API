@@ -291,6 +291,34 @@ EXPECTED_VALUES = {
         "SUPERSEDED": "superseded",
         "INVALIDATED": "invalidated",
     },
+    # M75：产物与计划（v3 specs/m75 §4.1）。
+    "ArtifactKind": {
+        "NOTE": "note",
+        "SPILL": "spill",
+        "REPORT": "report",
+        "CHART": "chart",
+        "TABLE": "table",
+        "FILE": "file",
+        "FORM": "form",
+        "DASHBOARD": "dashboard",
+    },
+    "ArtifactStorage": {
+        "DB": "db",
+        "FILE": "file",
+    },
+    "PlanStatus": {
+        "DRAFT": "draft",
+        "AWAITING_APPROVAL": "awaiting_approval",
+        "ACTIVE": "active",
+        "DONE": "done",
+        "ABANDONED": "abandoned",
+    },
+    "PlanItemStatus": {
+        "PENDING": "pending",
+        "IN_PROGRESS": "in_progress",
+        "DONE": "done",
+        "CANCELLED": "cancelled",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。
