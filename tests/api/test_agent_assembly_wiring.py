@@ -123,3 +123,17 @@ def _lifespan(app):
     from fastapi.testclient import TestClient
 
     return TestClient(app, raise_server_exceptions=False)
+
+def test_lifespan_wires_device_lease_service(tmp_settings, isolated_db) -> None:
+    """设备租约服务要挂到 app.state，并绑定为 PipelineRunner 的领取闸门。"""
+
+    from maa_api.agent.lease import DeviceLeaseService
+
+    app = create_app()
+    with _lifespan(app):
+        service = getattr(app.state, "device_lease_service", None)
+        assert isinstance(service, DeviceLeaseService), (
+            "lifespan 没有设置 app.state.device_lease_service"
+        )
+        runner = app.state.pipeline_runner
+        assert getattr(runner, "_lease_gate", None) is service

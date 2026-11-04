@@ -1931,7 +1931,7 @@
  "recon_runtime_budget": {
   "report": {
    "budget": {
-    "chars_used": 356,
+    "chars_used": 68,
     "exhausted": false,
     "max_chars": 200000,
     "max_steps": 2,
@@ -1965,7 +1965,7 @@
     "tools": [
      {
       "function": {
-       "description": "列举工作区里的目录与文件（带大小）。看不清结构时先列一层，再决定读哪个文件；被禁止读取的条目会标 blocked，不要尝试读它们。",
+       "description": "假的 list_files",
        "name": "list_files",
        "parameters": {
         "additionalProperties": false,
@@ -2008,7 +2008,7 @@
      },
      {
       "function": {
-       "description": "读工作区里一个文本文件的片段。内容超出上限时返回 truncated.next_offset，带上它接着读就能拼回全文；二进制、超大文件与密钥文件会被拒绝。",
+       "description": "假的 read_file",
        "name": "read_file",
        "parameters": {
         "additionalProperties": false,
@@ -2053,7 +2053,7 @@
      },
      {
       "function": {
-       "description": "在工作区里按正则搜代码与文档（mode=content），或查只读的本地 git 信息（mode=git，动作限 status_local / diff_local / log_path / blame_path）。比逐个读文件快得多，先搜再读。",
+       "description": "假的 search_code",
        "name": "search_code",
        "parameters": {
         "additionalProperties": false,
@@ -2158,7 +2158,7 @@
       ]
      },
      {
-      "content": "{\"root\": \"<ws>\", \"path\": \".\", \"entries\": [], \"truncated\": null}",
+      "content": "{\"ok\": true, \"tool\": \"list_files\"}",
       "role": "tool",
       "tool_call_id": "call-1"
      }
@@ -2167,7 +2167,7 @@
     "tools": [
      {
       "function": {
-       "description": "列举工作区里的目录与文件（带大小）。看不清结构时先列一层，再决定读哪个文件；被禁止读取的条目会标 blocked，不要尝试读它们。",
+       "description": "假的 list_files",
        "name": "list_files",
        "parameters": {
         "additionalProperties": false,
@@ -2210,7 +2210,7 @@
      },
      {
       "function": {
-       "description": "读工作区里一个文本文件的片段。内容超出上限时返回 truncated.next_offset，带上它接着读就能拼回全文；二进制、超大文件与密钥文件会被拒绝。",
+       "description": "假的 read_file",
        "name": "read_file",
        "parameters": {
         "additionalProperties": false,
@@ -2255,7 +2255,7 @@
      },
      {
       "function": {
-       "description": "在工作区里按正则搜代码与文档（mode=content），或查只读的本地 git 信息（mode=git，动作限 status_local / diff_local / log_path / blame_path）。比逐个读文件快得多，先搜再读。",
+       "description": "假的 search_code",
        "name": "search_code",
        "parameters": {
         "additionalProperties": false,

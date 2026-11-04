@@ -939,14 +939,25 @@ async def _scenario_recon_runtime_budget(tmp_path: Path) -> dict[str, Any]:
         settings_provider=lambda _request=None: settings,
         client_factory=lambda _settings: client,
     )
-    report = await runtime.recon("列一下文件")
+    # 真实 explore 工具的结果会嵌入工作区绝对路径，``chars_used`` 随 pytest tmp 目录
+    # 名长度漂移（M71 全量跑暴露）。这里换成固定结果的记录注册表，预算数字与目录名
+    # 无关；golden 只重录本场景一次（13 §8.44）。
+    from unittest.mock import patch
+
+    from maa_api.agent.recon import runner as recon_runner
+
+    calls: list[dict[str, Any]] = []
+    recorded = _recording_recon_registry(calls)
+    with patch.object(recon_runner, "_recon_registry", lambda: recorded):
+        report = await runtime.recon("列一下文件")
     norm = _normalizer_for(tmp_path)
+    normalized = norm.value(_json_copy(report))
     return {
         "requests": [
             _request(model, messages, tools, norm)
             for model, messages, tools in client.requests
         ],
-        "report": norm.value(_json_copy(report)),
+        "report": normalized,
     }
 
 

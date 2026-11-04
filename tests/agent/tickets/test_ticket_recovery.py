@@ -161,3 +161,42 @@ def test_run_recovery_blocks_tickets_of_interrupted_runs(v3_factory) -> None:
         assert await _reports(v3_factory, done_id) == []
 
     asyncio.run(scenario())
+
+def test_recovery_deletes_leases_of_previous_boot(v3_factory) -> None:
+    """上一进程留下的设备租约在启动恢复时删除，本进程的保留（M71 §4.5.8）。"""
+    from maa_api.agent.lease import LEASE_DEVICE_ID
+    from maa_api.db.repositories.lease import DeviceLeaseRepository
+
+    async def seed_lease(boot_id: str) -> None:
+        from maa_api.db.models import DeviceLease, utcnow
+
+        async with v3_factory() as db:
+            db.add(
+                DeviceLease(
+                    device_id=LEASE_DEVICE_ID,
+                    lease_id="lease-" + boot_id,
+                    holder_agent="general",
+                    purpose="test",
+                    explicit=False,
+                    acquired_at=utcnow(),
+                    expires_at=utcnow(),
+                    heartbeat_at=utcnow(),
+                    boot_id=boot_id,
+                )
+            )
+            await db.commit()
+
+    async def scenario() -> None:
+        await seed_lease(PREVIOUS_BOOT)
+        assert await DeviceLeaseRepository(v3_factory()).get(LEASE_DEVICE_ID) is not None
+        await RunRecovery(v3_factory, boot_id=CURRENT_BOOT).recover()
+        async with v3_factory() as db:
+            assert await DeviceLeaseRepository(db).get(LEASE_DEVICE_ID) is None
+
+        # 本进程的租约不受恢复影响
+        await seed_lease(CURRENT_BOOT)
+        await RunRecovery(v3_factory, boot_id=CURRENT_BOOT).recover()
+        async with v3_factory() as db:
+            assert await DeviceLeaseRepository(db).get(LEASE_DEVICE_ID) is not None
+
+    asyncio.run(scenario())

@@ -760,9 +760,9 @@ def test_incident_allowed_action_still_uses_confirmation_service(tmp_path):
                 resolved_by="test",
                 reason="test confirms the standard policy gate is active",
             )
-            # 已知 flake（M68 记录，docs/v3/13 §8.26）：整包负载下 2 秒可能不够，
-            # 单跑与整文件重跑均通过；放宽到 5 秒，断言不变。
-            await asyncio.wait_for(run, timeout=5)
+            # 已知 flake（M68 记录，docs/v3/13 §8.26；M71 §8.44 再加固）：整包满载下
+            # 调度停顿可能超过 15 秒，单跑与整文件重跑均通过；放宽到 30 秒，断言不变。
+            await asyncio.wait_for(run, timeout=30)
         finally:
             if "run" in locals() and not run.done():
                 run.cancel()

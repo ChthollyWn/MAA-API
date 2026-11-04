@@ -163,6 +163,9 @@ curl -X POST http://<host>:8002/api/snippets \
 | `RUN_ALREADY_ACTIVE` | 409 | 该会话已有运行在进行（M66）。v2 会话的发消息端点仍返回 `AGENT_SESSION_BUSY` |
 | `TICKET_NOT_FOUND` | 404 | 没有这个工单 |
 | `TICKET_ENDED` | 409 | 工单已结束，不能再改 |
+| `DEVICE_LEASE_BUSY` | 409 | 设备正被其他工单使用（M71）。取租约等待超时，`details` 带 `holder_ticket_id`、`holder_agent`、`expires_at`、`waited_seconds` |
+| `DEVICE_LEASE_PREEMPTED` | 409 | 设备已被用户接管（M71）。持有者被抢占后第一次取租约，`details.reason` 带抢占原因 |
+| `DEVICE_LEASE_NOT_HELD` | 409 | 没有持有设备租约（M71）。`release_device` 没有可释放的租约 |
 | `MANDATE_SCOPE_EXCEEDED` | 403 | 超出工单委托的风险上限 |
 | `DELEGATION_NOT_ALLOWED` | 403 | 该代理不能委派这个子代理 |
 | `DELEGATION_DEPTH_EXCEEDED` | 409 | 委派深度超过上限 |
