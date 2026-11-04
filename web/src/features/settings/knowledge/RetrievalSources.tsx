@@ -97,6 +97,9 @@ function SourceRow({
             </span>
             {updated ? <span>更新于 {updated}</span> : null}
           </div>
+          {source.license ? (
+            <p className="break-words text-footnote text-muted-foreground">许可：{source.license}</p>
+          ) : null}
           {source.status === 'error' && source.error ? (
             <p className="break-words text-footnote text-danger">{source.error}</p>
           ) : null}
