@@ -101,6 +101,18 @@ export interface MemoryProposedEvent {
   }
 }
 
+// M80 §4.3：回溯提交后广播，其他标签页据此重拉该会话的消息窗口。
+export interface SessionRewoundEvent {
+  event: 'session_rewound'
+  session_id: string
+  payload: {
+    session_id: string
+    to_seq: number
+    superseded: number
+    notice_message_id: number | null
+  }
+}
+
 export type ServerEvent =
   | WsEnvelope<'log', LogRecord>
   | WsEnvelope<'log_batch', LogBatch>

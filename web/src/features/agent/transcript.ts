@@ -1,3 +1,4 @@
+import { parseToolGuard, type ToolGuard } from '@/features/rewind/GuardBadge'
 import { isRecord, parseJson, stringValue } from './format'
 import type { AgentMessage, JsonRecord, ToolTrace } from './types'
 
@@ -12,6 +13,8 @@ export interface ToolView {
   status: ToolStatus
   errorMessage?: string
   auditId?: number
+  /** 提示注入标记（M80 §4.6）：历史取 tool 消息 JSON 的 `guard`，直播取 SSE `tool_result`。 */
+  guard?: ToolGuard
   /** 只有结果、对应的调用不在已加载消息里（在更早的页）时单独显示。 */
   standalone: boolean
 }
@@ -47,7 +50,14 @@ export function buildTranscript(messages: readonly AgentMessage[]): TranscriptEn
       entries.push({
         kind: 'tool',
         key: `result-${message.id}`,
-        tool: { name: message.tool_name ?? '调用', result, ...resultStatus(result), auditId: message.audit_id ?? undefined, standalone: true },
+        tool: {
+          name: message.tool_name ?? '调用',
+          result,
+          ...resultStatus(result),
+          auditId: message.audit_id ?? undefined,
+          guard: parseToolGuard(result),
+          standalone: true,
+        },
       })
       continue
     }
@@ -69,6 +79,7 @@ export function buildTranscript(messages: readonly AgentMessage[]): TranscriptEn
           result,
           ...(resultMessage ? resultStatus(result) : { status: 'missing' as const }),
           auditId: resultMessage?.audit_id ?? undefined,
+          guard: parseToolGuard(result),
           standalone: false,
         },
       })
@@ -77,12 +88,13 @@ export function buildTranscript(messages: readonly AgentMessage[]): TranscriptEn
   return entries
 }
 
-/** 流事件里的结果带着调用编号、消息编号等字段；只取工具返回体，与历史里的工具消息一致。 */
-function toolBody(data: unknown): unknown {
+/** 流事件里的结果带着调用编号、消息编号等字段；只取工具返回体（含 `guard` 摘要），与历史里的工具消息一致。 */
+export function toolBody(data: unknown): unknown {
   if (!isRecord(data) || !('result' in data || 'error' in data)) return data
   const body: JsonRecord = {}
   if ('result' in data) body.result = data.result
   if ('error' in data) body.error = data.error
+  if ('guard' in data) body.guard = data.guard
   return body
 }
 
@@ -90,7 +102,7 @@ export function liveToolView(trace: ToolTrace, running: boolean): ToolView {
   const base = { name: trace.name, arguments: trace.arguments, auditId: trace.auditId, standalone: false }
   if (trace.result !== undefined) {
     const result = toolBody(trace.result)
-    return { ...base, result, ...resultStatus(result) }
+    return { ...base, result, ...resultStatus(result), guard: parseToolGuard(result) }
   }
   if (trace.confirmationId) return { ...base, status: 'awaiting' }
   return { ...base, status: running ? 'running' : 'missing' }

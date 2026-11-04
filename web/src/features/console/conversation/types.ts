@@ -15,6 +15,8 @@ export interface V3Message extends AgentMessage {
   inbox_id?: number | null
   inbox_kind?: InboxKind | null
   inbox_thread_key?: string | null
+  /** 回溯后被取代的时刻（M80）；非空的消息不进上下文，前端默认折叠。 */
+  superseded_at?: string | null
 }
 
 /** 确认与提问的发起方（M71 §4.2）；REST 直接发起时为 `null`。 */

@@ -16,6 +16,7 @@ import {
   type PlanStageSummary,
 } from '@/features/account/format'
 import { CopilotGrantCard, parseCopilotGrantPayload, type CopilotGrantOptions } from '@/features/copilots/CopilotGrantCard'
+import { ConfirmationGuardAlert } from '@/features/rewind/GuardBadge'
 import { expiryLabel, pretty } from './format'
 import type { AgentConfirmation } from './types'
 
@@ -437,6 +438,8 @@ export function ConfirmationCard({ confirmationId, busy, onResolve }: Confirmati
   return (
     <article aria-labelledby={titleId} aria-live="polite" className="overflow-hidden rounded-xl border bg-card shadow-card">
       <div className="space-y-3 p-4">
+        {/* 降权期间的强制确认（M80 §4.6）：先说明可疑来源，再看这次要确认什么。 */}
+        <ConfirmationGuardAlert guard={detail?.payload.guard} />
         <div className="flex items-start gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-full bg-warning-soft text-warning">
             <ShieldAlert aria-hidden="true" className="size-[1.125rem]" />

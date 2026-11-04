@@ -563,3 +563,75 @@ describe('workspace events refresh the plan and artifact queries', () => {
     })
   })
 })
+
+describe('session_rewound refreshes the rewound session messages', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('invalidates the session messages and the mounted ticket message window', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+    // 工单消息窗口的 key 是工单 id：从已缓存的工单详情反查 Worker 会话。
+    queryClient.setQueryData(keys.agent.tickets.detail('t-1'), { workerSessionId: 'w-1' })
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: 'w-1',
+          event: 'session_rewound',
+          payload: { session_id: 'w-1', to_seq: 3, superseded: 2, notice_message_id: 10 },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    // M80 §4.6：该会话的消息窗口重拉；不整片失效 agent 前缀（M59）。
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.messages('w-1'),
+      refetchType: 'active',
+    })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.messagesAll('t-1'),
+      refetchType: 'active',
+    })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.all(), refetchType: 'active' })
+  })
+
+  it('invalidates the orchestrator message window when the session matches', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+    queryClient.setQueryData(keys.agent.orchestrator.state(), { session_id: 'main' })
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: 'main',
+          event: 'session_rewound',
+          payload: { session_id: 'main', to_seq: 1, superseded: 3, notice_message_id: null },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.orchestrator.messages(),
+      refetchType: 'active',
+    })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.orchestrator.state(),
+      refetchType: 'active',
+    })
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.detail('t-1'),
+      refetchType: 'active',
+    })
+  })
+})
