@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -51,6 +51,9 @@ from maa_api.services.game.activities import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: 知识条目变更监听器：在 ``put_entry`` / ``delete_entry`` 提交之后调用。
+KnowledgeChangeListener = Callable[[str], Awaitable[None]]
 
 __all__ = [
     "BUILTIN_PACKAGE",
@@ -84,6 +87,7 @@ __all__ = [
     "BuiltinEntry",
     "KnowledgeBuiltinError",
     "KnowledgeBuiltinView",
+    "KnowledgeChangeListener",
     "KnowledgeDetail",
     "KnowledgeEntry",
     "KnowledgeService",
@@ -850,6 +854,8 @@ class KnowledgeService:
         self._gacha_reader = gacha_reader
         #: 「当期活动读不到」的 warning 只在第一次失败时打一次（见 :meth:`_activity_section`）。
         self._activity_failure_logged = False
+        #: M76：条目写完后通知检索索引重建受影响的文档。
+        self._change_listeners: list[KnowledgeChangeListener] = []
 
     # -- 读 ---------------------------------------------------------------
     async def list_entries(self) -> list[KnowledgeSummary]:
@@ -858,6 +864,21 @@ class KnowledgeService:
             rows = await AgentKnowledgeRepository(session).all()
         merged = _merge(rows, self._builtins)
         return [_summary(entry) for entry in _sorted(merged.values())]
+
+    async def list_effective(self) -> list[KnowledgeEntry]:
+        """全部合并后的条目（含正文与未启用的），按 kind、id 排序。
+
+        与 :meth:`list_entries` 同源同序，只是带 ``body``：检索索引需要正文，
+        停用条目也要列出来（来源据此把索引里的旧文档删掉）。
+        """
+        async with self._session_factory() as session:
+            rows = await AgentKnowledgeRepository(session).all()
+        merged = _merge(rows, self._builtins)
+        return [_full(entry) for entry in _sorted(merged.values())]
+
+    def add_change_listener(self, listener: KnowledgeChangeListener) -> None:
+        """注册条目变更回调；在写入提交之后逐个 ``await``。"""
+        self._change_listeners.append(listener)
 
     async def get_entry(self, entry_id: str) -> KnowledgeDetail:
         """一条条目的完整生效内容；未知 id 抛 ``KNOWLEDGE_NOT_FOUND``。"""
@@ -1084,6 +1105,7 @@ class KnowledgeService:
                 await repository.upsert(proposed)
             await session.commit()
 
+        await self._notify_changed(entry_id)
         return _detail(effective[entry_id], self._builtins)
 
     async def delete_entry(self, entry_id: str) -> None:
@@ -1102,8 +1124,22 @@ class KnowledgeService:
                 raise _not_found(entry_id)
             await repository.delete(entry_id)
             await session.commit()
+        await self._notify_changed(entry_id)
 
     # -- 内部 -------------------------------------------------------------
+    async def _notify_changed(self, entry_id: str) -> None:
+        """提交后通知监听器；监听器失败只记 warning，不影响写操作的返回。"""
+        for listener in self._change_listeners:
+            try:
+                await listener(entry_id)
+            except Exception:  # noqa: BLE001 - 索引失败不能回滚知识条目写入
+                logger.warning(
+                    "知识条目变更监听器 %r 处理 %s 失败",
+                    listener,
+                    entry_id,
+                    exc_info=True,
+                )
+
     async def _load(self, entry_id: str) -> _EffectiveEntry | None:
         async with self._session_factory() as session:
             row = await AgentKnowledgeRepository(session).get(entry_id)

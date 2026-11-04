@@ -433,6 +433,12 @@ def test_env_mapping_names_are_pinned() -> None:
         "context.spill_threshold_chars": "MAA_CONTEXT_SPILL_THRESHOLD_CHARS",
         "plan.approval_mode": "MAA_PLAN_APPROVAL_MODE",
         "plan.complex_min_steps": "MAA_PLAN_COMPLEX_MIN_STEPS",
+        # M76：检索层开关、向量服务与分块参数（都不是 config-only）。
+        "rag.enabled": "MAA_RAG_ENABLED",
+        "rag.embedding_provider": "MAA_RAG_EMBEDDING_PROVIDER",
+        "rag.top_k": "MAA_RAG_TOP_K",
+        "rag.chunk_chars": "MAA_RAG_CHUNK_CHARS",
+        "rag.chunk_overlap": "MAA_RAG_CHUNK_OVERLAP",
     }
 
 
@@ -947,6 +953,129 @@ def test_workspace_plan_settings_have_documented_defaults_and_bounds() -> None:
     assert "# 工具输出超过这个字符数就外置成产物，上下文里只留指针" in template_text
     assert "# always 都要批准、complex 只对复杂计划、never 都不批准" in template_text
     assert "# 步骤数达到这个值算复杂计划" in template_text
+
+
+def test_rag_settings_have_documented_defaults_and_bounds() -> None:
+    """M76 检索层：五项默认值、范围、互斥与设置 API 元数据（spec §4.4）。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, RagSettings
+
+    default = resolve_settings(env={})
+    assert default.rag == RagSettings()
+    assert default.rag.enabled is True
+    assert default.rag.embedding_provider == "none"
+    assert default.rag.top_k == 8
+    assert default.rag.chunk_chars == 800
+    assert default.rag.chunk_overlap == 100
+
+    configured = resolve_settings(
+        {
+            "rag": {
+                "enabled": False,
+                "embedding_provider": "local",
+                "top_k": 30,
+                "chunk_chars": 4000,
+                "chunk_overlap": 1000,
+            }
+        },
+        env={},
+    )
+    assert configured.rag.enabled is False
+    assert configured.rag.embedding_provider == "local"
+    assert configured.rag.top_k == 30
+    assert configured.rag.chunk_chars == 4000
+    assert configured.rag.chunk_overlap == 1000
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_RAG_ENABLED": "false",
+            "MAA_RAG_EMBEDDING_PROVIDER": "remote",
+            "MAA_RAG_TOP_K": "1",
+            "MAA_RAG_CHUNK_CHARS": "200",
+            "MAA_RAG_CHUNK_OVERLAP": "0",
+        }
+    )
+    assert env_layer.rag.enabled is False
+    assert env_layer.rag.embedding_provider == "remote"
+    assert env_layer.rag.top_k == 1
+    assert env_layer.rag.chunk_chars == 200
+    assert env_layer.rag.chunk_overlap == 0
+
+    # 越界与非法枚举拒绝；边界值本身合法。
+    for section, field, value in (
+        ("rag", "top_k", 0),
+        ("rag", "top_k", 31),
+        ("rag", "chunk_chars", 199),
+        ("rag", "chunk_chars", 4001),
+        ("rag", "chunk_overlap", -1),
+        ("rag", "chunk_overlap", 1001),
+        ("rag", "embedding_provider", "openai"),
+    ):
+        with pytest.raises(ValidationError):
+            resolve_settings({section: {field: value}}, env={})
+    assert resolve_settings(
+        {"rag": {"chunk_chars": 200, "chunk_overlap": 199}}, env={}
+    ).rag.chunk_overlap == 199
+    assert RagSettings().enabled is True
+
+    # 互斥：重叠不小于分块长度时拒绝（spec §4.4 的模型校验器）。
+    with pytest.raises(ValidationError):
+        RagSettings(chunk_chars=800, chunk_overlap=800)
+    with pytest.raises(ValidationError):
+        resolve_settings({"rag": {"chunk_chars": 200, "chunk_overlap": 200}}, env={})
+
+    # 设置 API：五项都登记、分组 Agent、无热更新动作，enum/范围/说明逐字照 spec。
+    keys = {
+        "rag.enabled",
+        "rag.embedding_provider",
+        "rag.top_k",
+        "rag.chunk_chars",
+        "rag.chunk_overlap",
+    }
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+    enabled_row = schema_for("rag.enabled")
+    assert (
+        enabled_row["label"], enabled_row["group"], enabled_row["type"],
+        enabled_row["hot_action"],
+    ) == ("启用知识检索", "Agent", "boolean", "none")
+    provider_row = schema_for("rag.embedding_provider")
+    assert (
+        provider_row["label"], provider_row["group"], provider_row["type"],
+        provider_row["enum"], provider_row["description"], provider_row["hot_action"],
+    ) == (
+        "向量服务", "Agent", "string", ["none", "remote", "local"],
+        "none 只用全文检索；remote 用 LLM 设置里 embedding 角色的档案；local 用本地 ONNX 档案",
+        "none",
+    )
+    for key, label, minimum, maximum in (
+        ("rag.top_k", "检索返回条数", 1, 30),
+        ("rag.chunk_chars", "分块长度（字）", 200, 4000),
+        ("rag.chunk_overlap", "分块重叠（字）", 0, 1000),
+    ):
+        row = schema_for(key)
+        assert (
+            row["label"], row["group"], row["type"],
+            row["minimum"], row["maximum"], row["hot_action"],
+        ) == (label, "Agent", "integer", minimum, maximum, "none")
+
+    # 文档一致性：模板里的五项值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["rag"] == {
+        "enabled": True,
+        "embedding_provider": "none",
+        "top_k": 8,
+        "chunk_chars": 800,
+        "chunk_overlap": 100,
+    }
+    assert "# 知识检索总开关" in template_text
+    assert (
+        "# 向量服务：none 只用全文检索；remote 用 llm.role_embedding 指向的档案；"
+        "local 用本地 ONNX 档案"
+    ) in template_text
+    assert "# 每次检索返回的条数（1–30）" in template_text
+    assert "# 分块长度与相邻分块的重叠字数；改了以后下次同步时重建分块" in template_text
 
 
 def test_gamedata_settings_have_documented_defaults_and_bounds() -> None:

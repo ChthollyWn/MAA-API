@@ -61,8 +61,10 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: M71 在 §4.11 加设备租约三条（忙、被接管、未持有）；
 #: M74 在 §4.11 加压缩失败一条（`COMPACTION_FAILED`）。
 #: M75 在 §4.11 加产物与计划四条（`ARTIFACT_*`、`PLAN_*`）。
-ALL_CODE_COUNT = 146
-HTTP_BOUND_CODE_COUNT = 145
+#: M76 在 §4.11 加检索相关四条（`KNOWLEDGE_SOURCE_*`、`EMBEDDING_UNAVAILABLE`、
+#: `RETRIEVAL_QUERY_INVALID`；后两者由 G2 预置代码，本卡一并登记进文档）。
+ALL_CODE_COUNT = 150
+HTTP_BOUND_CODE_COUNT = 149
 SECTION_COUNT = 20
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。

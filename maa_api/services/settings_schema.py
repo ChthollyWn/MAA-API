@@ -140,6 +140,13 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "context.spill_threshold_chars": dict(label="工具输出外置阈值（字符）", group="Agent", type="integer", minimum=1000, maximum=100000, description="工具结果超过这个长度就存成产物", hot_action="none"),
     "plan.approval_mode": dict(label="计划批准模式", group="Agent", type="string", enum=["always", "complex", "never"], description="always 都要批准、complex 只对复杂计划、never 都不批准", hot_action="none"),
     "plan.complex_min_steps": dict(label="复杂计划的最小步骤数", group="Agent", type="integer", minimum=2, maximum=20, description="步骤数达到这个值算复杂计划", hot_action="none"),
+    # M76 检索层：开关、向量服务与分块参数，检索/同步时现读，改完立即生效。
+    "rag.enabled": dict(label="启用知识检索", group="Agent", type="boolean", hot_action="none"),
+    "rag.embedding_provider": dict(label="向量服务", group="Agent", type="string", enum=["none", "remote", "local"], hot_action="none",
+        description="none 只用全文检索；remote 用 LLM 设置里 embedding 角色的档案；local 用本地 ONNX 档案"),
+    "rag.top_k": dict(label="检索返回条数", group="Agent", type="integer", minimum=1, maximum=30, hot_action="none"),
+    "rag.chunk_chars": dict(label="分块长度（字）", group="Agent", type="integer", minimum=200, maximum=4000, hot_action="none"),
+    "rag.chunk_overlap": dict(label="分块重叠（字）", group="Agent", type="integer", minimum=0, maximum=1000, hot_action="none"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

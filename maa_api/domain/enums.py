@@ -425,3 +425,19 @@ class PlanItemStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     DONE = "done"
     CANCELLED = "cancelled"
+
+
+# ---- M76 检索索引（v3 specs/m76 §4.1） ----
+
+
+class KnowledgeSourceKind(StrEnum):
+    """检索来源的种类；来源 id 把下划线换成连字符（maa_docs → maa-docs）。"""
+
+    BUILTIN = "builtin"
+    USER = "user"
+    MAA_DOCS = "maa_docs"
+    PRTS = "prts"
+    GAMEDATA = "gamedata"
+    COPILOT_SITE = "copilot_site"
+    HISTORY = "history"
+    MEMORY = "memory"

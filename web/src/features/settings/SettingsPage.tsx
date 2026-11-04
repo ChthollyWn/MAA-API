@@ -9,7 +9,7 @@ import { useAuth } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { ModelsSection } from '@/features/models/ModelsSection'
 import { AgentCapabilityCheck } from './AgentCapabilityCheck'
-import { KnowledgeSection } from './knowledge/KnowledgeSection'
+import { KnowledgePartition } from './knowledge/KnowledgePartition'
 import { AccessSection, AppearanceSection, themeLabel } from './LocalSections'
 import { NotificationChannels } from './NotificationChannels'
 import { PushNotifications } from './PushNotifications'
@@ -97,7 +97,7 @@ function SectionPage({ section }: { section: SettingsSection }) {
       // 知识库不是设置项：它有自己的列表与整页编辑器，不走设置 schema。
       return (
         <Page title={section.title} back={SETTINGS_INDEX_PATH} width="narrow">
-          <KnowledgeSection />
+          <KnowledgePartition />
         </Page>
       )
     default:

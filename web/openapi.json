@@ -2175,6 +2175,70 @@
         "title": "DeviceRetryHealth",
         "type": "object"
       },
+      "EmbeddingStatusView": {
+        "description": "向量服务的状态与全库补向量进度。",
+        "properties": {
+          "embedded_chunks": {
+            "title": "Embedded Chunks",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "enum": [
+              "none",
+              "remote",
+              "local"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "disabled",
+              "ready",
+              "indexing",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_chunks": {
+            "title": "Total Chunks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "status",
+          "error",
+          "total_chunks",
+          "embedded_chunks"
+        ],
+        "title": "EmbeddingStatusView",
+        "type": "object"
+      },
       "EventSource": {
         "description": "事件来源渠道。",
         "enum": [
@@ -5410,6 +5474,26 @@
         "title": "RecruitInput",
         "type": "object"
       },
+      "ReindexAccepted": {
+        "description": "``POST reindex`` 已排队；真正的重建在后台进行。",
+        "properties": {
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "indexing",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "status"
+        ],
+        "title": "ReindexAccepted",
+        "type": "object"
+      },
       "ReportStatus": {
         "description": "Worker 汇报的状态。",
         "enum": [
@@ -5504,6 +5588,392 @@
           "retain"
         ],
         "title": "RetainRequest",
+        "type": "object"
+      },
+      "RetrievalHit": {
+        "description": "一条检索结果：分块内容 + 出处 + 两路名次与融合分数。",
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "integer"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "fts_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fts Rank"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_title": {
+            "title": "Source Title",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trusted": {
+            "title": "Trusted",
+            "type": "boolean"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "vector_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vector Rank"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "document_id",
+          "source_id",
+          "source_title",
+          "trusted",
+          "title",
+          "heading",
+          "url",
+          "version",
+          "fetched_at",
+          "license",
+          "snippet",
+          "text",
+          "score",
+          "fts_rank",
+          "vector_rank"
+        ],
+        "title": "RetrievalHit",
+        "type": "object"
+      },
+      "RetrievalResult": {
+        "description": "一次检索的结果；``vector`` 说明向量路走到了哪一步。",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievalHit"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "skipped_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped Sources",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "took_ms": {
+            "title": "Took Ms",
+            "type": "integer"
+          },
+          "top_k": {
+            "title": "Top K",
+            "type": "integer"
+          },
+          "vector": {
+            "enum": [
+              "used",
+              "disabled",
+              "unavailable",
+              "empty"
+            ],
+            "title": "Vector",
+            "type": "string"
+          },
+          "vector_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vector Model"
+          }
+        },
+        "required": [
+          "query",
+          "top_k",
+          "enabled",
+          "vector",
+          "vector_model",
+          "sources",
+          "skipped_sources",
+          "hits",
+          "took_ms"
+        ],
+        "title": "RetrievalResult",
+        "type": "object"
+      },
+      "RetrievalSourceList": {
+        "description": "来源列表与全局向量状态。",
+        "properties": {
+          "embedding": {
+            "$ref": "#/components/schemas/EmbeddingStatusView"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RetrievalSourceView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "embedding"
+        ],
+        "title": "RetrievalSourceList",
+        "type": "object"
+      },
+      "RetrievalSourceUpdate": {
+        "additionalProperties": false,
+        "description": "``PUT`` 的入参：两个字段都可选，但至少要改一项。",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          }
+        },
+        "title": "RetrievalSourceUpdate",
+        "type": "object"
+      },
+      "RetrievalSourceView": {
+        "description": "一个检索来源的完整对外形状：元数据、开关、状态与三类计数。",
+        "properties": {
+          "chunk_count": {
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "doc_count": {
+            "title": "Doc Count",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_indexed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "date-time",
+            "title": "Last Indexed At"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "searchable_by_default": {
+            "title": "Searchable By Default",
+            "type": "boolean"
+          },
+          "setting_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setting Enabled"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "indexing",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trusted": {
+            "title": "Trusted",
+            "type": "boolean"
+          },
+          "vector_count": {
+            "title": "Vector Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "enabled",
+          "setting_enabled",
+          "searchable_by_default",
+          "trusted",
+          "license",
+          "status",
+          "error",
+          "doc_count",
+          "chunk_count",
+          "vector_count",
+          "last_indexed_at",
+          "config"
+        ],
+        "title": "RetrievalSourceView",
         "type": "object"
       },
       "RetryRequest": {
@@ -12302,6 +12772,325 @@
           }
         },
         "summary": "跳过 Agent 提问",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/retrieval/search": {
+      "get": {
+        "description": "按内容检索；向量服务失败只体现在 ``vector`` 上，不影响全文结果。",
+        "operationId": "agent_search_retrieval",
+        "parameters": [
+          {
+            "description": "检索词，去掉首尾空白后 1–500 字",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "检索词，去掉首尾空白后 1–500 字",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "逗号分隔的来源 id；省略时检索默认可检索来源",
+            "in": "query",
+            "name": "sources",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "逗号分隔的来源 id；省略时检索默认可检索来源",
+              "title": "Sources"
+            }
+          },
+          {
+            "description": "返回条数，1–30；省略时用设置值",
+            "in": "query",
+            "name": "top_k",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "返回条数，1–30；省略时用设置值",
+              "title": "Top K"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrievalResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RETRIEVAL_QUERY_INVALID",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：RETRIEVAL_QUERY_INVALID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "检索知识与已建索引的资料",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/retrieval/sources": {
+      "get": {
+        "description": "列出已注册来源的开关、状态与计数，以及全库补向量进度。",
+        "operationId": "agent_list_retrieval_sources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrievalSourceList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          }
+        },
+        "summary": "读取检索来源与向量状态",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/retrieval/sources/{source_id}": {
+      "put": {
+        "description": "改 ``enabled`` 或整份 ``config``；``config`` 先交来源自己的校验。",
+        "operationId": "agent_update_retrieval_source",
+        "parameters": [
+          {
+            "description": "检索来源 id",
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "description": "检索来源 id",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetrievalSourceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrievalSourceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "KNOWLEDGE_SOURCE_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：KNOWLEDGE_SOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          }
+        },
+        "summary": "更新检索来源的开关与配置",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/retrieval/sources/{source_id}/reindex": {
+      "post": {
+        "description": "后台重建：先校验全文索引，再排一次强制同步；同步中返回 409。",
+        "operationId": "agent_reindex_retrieval_source",
+        "parameters": [
+          {
+            "description": "检索来源 id",
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "description": "检索来源 id",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReindexAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "KNOWLEDGE_SOURCE_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：KNOWLEDGE_SOURCE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "KNOWLEDGE_SOURCE_BUSY",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：KNOWLEDGE_SOURCE_BUSY"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "重建检索来源的索引",
         "tags": [
           "agent"
         ]
