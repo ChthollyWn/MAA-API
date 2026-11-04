@@ -12,4 +12,6 @@ from maa_api.agent.llm.schemas.subagent_report import (  # noqa: F401
 from maa_api.agent.llm.schemas.title import Title  # noqa: F401
 from maa_api.agent.llm.schemas.verifier_verdict import VerifierVerdict  # noqa: F401
 
+from maa_api.agent.llm.schemas import compaction_summary  # noqa: F401
+
 __all__ = ["SubagentFinding", "SubagentReport", "Title", "VerifierVerdict"]
