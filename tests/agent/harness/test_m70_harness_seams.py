@@ -251,3 +251,132 @@ def test_message_persisted_is_on_bus_but_not_sse() -> None:
     # v2 运行（没有运行行）事件名与 M65 一样，不出现 v3 的内部事件。
     _outcome, _transcript, _model, v2_events, _ctx = _run(run_kind=None)
     assert [event.name for event in v2_events] == ["message_end"]
+
+
+def test_per_run_bus_forwards_events_with_run_id_to_the_hub() -> None:
+    """M70 的 run_id 归属接缝：per-run 总线把同一个事件原样转给 hub。
+
+    装配层的 hub 是 ``RunEventBus(run_id=None)``，SSE / WS 订阅它。``ticket_created``
+    这类 data 里不带 run_id 的事件只有靠 per-run 总线补上的 ``RunEvent.run_id`` 才能
+    归属到具体运行（G10 交回的已知问题）。
+    """
+    received: list[RunEvent] = []
+    hub = RunEventBus()
+
+    async def sink(event: RunEvent) -> None:
+        received.append(event)
+
+    hub.subscribe(sink)
+    run_bus = RunEventBus(run_id="run-1", hub=hub)
+
+    asyncio.run(run_bus.emit("ticket_created", {"ticket_id": "t-1"}))
+
+    assert [event.name for event in received] == ["ticket_created"]
+    assert received[0].run_id == "run-1"
+    assert received[0].data == {"ticket_id": "t-1"}
+    assert hub.run_id is None
+    # `forward_to` 与构造参数同义；换 hub 后旧 hub 不再收到。
+    other: list[RunEvent] = []
+
+    async def other_sink(event: RunEvent) -> None:
+        other.append(event)
+
+    replacement = RunEventBus()
+    replacement.subscribe(other_sink)
+    run_bus.forward_to(replacement)
+    asyncio.run(run_bus.emit("report", {"run_id": "run-1"}))
+    assert [event.run_id for event in other] == ["run-1"]
+    assert [event.name for event in received] == ["ticket_created"]
+
+
+def test_run_agent_always_emits_on_a_per_run_bus_forwarded_to_the_hub(
+    monkeypatch,
+) -> None:
+    """``run_agent`` 不能直接复用 hub：即使 hub 已装配，也要建带 run_id 的总线。"""
+
+    from maa_api.agent.workers import pump as pump_module
+
+    captured: list[RunContext] = []
+
+    class _Loop:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def run(self, ctx: RunContext, **_kwargs: Any) -> RunOutcome:
+            captured.append(ctx)
+            return RunOutcome("succeeded", "stop")
+
+    monkeypatch.setattr(pump_module, "AgentLoop", _Loop)
+
+    class _Handle:
+        client = object()
+
+        async def aclose(self) -> None:
+            return None
+
+    class _Router:
+        async def resolve_for_spec(self, *_args: Any, **_kwargs: Any) -> Any:
+            return SimpleNamespace(model="m")
+
+        def client_for(self, _profile: Any) -> _Handle:
+            return _Handle()
+
+    class _Runtime:
+        session_factory = object()
+        confirmation_service = SimpleNamespace(registry=object())
+
+        def build_chain(self, *_args: Any, **_kwargs: Any) -> list[Any]:
+            return []
+
+        def _tool_schemas(self, *_args: Any, **_kwargs: Any) -> list[Any]:
+            return []
+
+    received: list[RunEvent] = []
+    hub = RunEventBus()
+
+    async def sink(event: RunEvent) -> None:
+        received.append(event)
+
+    hub.subscribe(sink)
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            agent_runtime=_Runtime(),
+            model_router=_Router(),
+            run_event_bus=hub,
+        )
+    )
+    spec = SimpleNamespace(kind="orchestrator", name="orchestrator", tools=[])
+    session = SimpleNamespace(
+        id="session-1", model=None, base_url=None, ticket_id=None
+    )
+    run = SimpleNamespace(
+        id="run-1",
+        root_run_id="run-1",
+        parent_run_id=None,
+        session_id="session-1",
+        ticket_id=None,
+        kind="orchestrator_turn",
+    )
+    state: dict[str, Any] = {}
+
+    asyncio.run(
+        pump_module.run_agent(
+            app,
+            spec,
+            session,
+            run,
+            inbox_items=[],
+            cancel_event=asyncio.Event(),
+            cancel_reason=lambda: "interrupted",
+            state=state,
+        )
+    )
+
+    ctx = captured[0]
+    assert state["harness.ctx"] is ctx
+    asyncio.run(ctx.emit("ticket_created", {"ticket_id": "t-1"}))
+
+    assert [event.name for event in received] == ["ticket_created"]
+    assert received[0].run_id == "run-1"
+    assert received[0].data == {"ticket_id": "t-1"}
+    assert hub.run_id is None

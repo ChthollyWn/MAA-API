@@ -57,6 +57,7 @@ from maa_api.api.routers import (
     logs,
     model_profiles,
     notifications,
+    orchestrator,
     pipelines,
     queue,
     questions,
@@ -487,6 +488,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     agent_runtime = None
     incident_service = None
     span_recorder = None
+    worker_service = None
+    orchestrator_service = None
+    agent_run_broadcaster = None
     device_start_task: asyncio.Task[Any] | None = None
     device_start_generation: int | None = None
     lifecycle_tasks: set[asyncio.Task[Any]] = set()
@@ -1365,6 +1369,91 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             schedule_connection()
             await confirm_resource_load()
 
+        # 第 8 步：M70 总控与 Worker（docs/v3/02 §5）。顺序是「事件总线 hub 与设备门
+        # → 标题 / 委派 → Worker → 总控」：Worker 建单时要问总控当前会话，总控的
+        # 通知与唤醒又要经过 Worker，所以两个服务最后互相 bind。M71 的
+        # `device_lease_service` 将来插在这一段前面。
+        from maa_api.agent.harness.events import RunEventBus
+        from maa_api.agent.orchestrator.service import OrchestratorService
+        from maa_api.agent.orchestrator.stream import AgentRunBroadcaster
+        from maa_api.agent.workers.delegation import DelegationService
+        from maa_api.agent.workers.device_gate import DeviceGate
+        from maa_api.agent.workers.pump import WakeDispatcher
+        from maa_api.agent.workers.service import WorkerService
+        from maa_api.agent.workers.titler import TicketTitler
+
+        # hub 只做分发，不带运行归属：每轮运行由 `run_agent` 建带 run_id 的
+        # per-run 总线并原样转发到这里（M70 §4.5.8 的 run_id 归属）。
+        run_event_bus = RunEventBus()
+        app.state.run_event_bus = run_event_bus
+        device_gate = DeviceGate()
+        app.state.device_gate = device_gate
+        ticket_titler = TicketTitler(
+            spec_registry=app.state.agent_spec_registry,
+            run_service=run_service,
+            model_router=app.state.model_router,
+        )
+        app.state.ticket_titler = ticket_titler
+        delegation_service = DelegationService(
+            app=app,
+            session_factory=db_session.session_factory,
+            spec_registry=app.state.agent_spec_registry,
+            run_service=run_service,
+            model_router=app.state.model_router,
+            span_recorder=span_recorder,
+            event_bus=run_event_bus,
+        )
+        app.state.delegation_service = delegation_service
+        worker_service = WorkerService(
+            app=app,
+            session_factory=db_session.session_factory,
+            spec_registry=app.state.agent_spec_registry,
+            run_service=run_service,
+            inbox_service=inbox_service,
+            ticket_service=ticket_service,
+            thread_router=thread_router,
+            delegation=delegation_service,
+            device_gate=device_gate,
+            titler=ticket_titler,
+            event_bus=run_event_bus,
+        )
+        app.state.worker_service = worker_service
+        orchestrator_service = OrchestratorService(
+            app=app,
+            session_factory=db_session.session_factory,
+            spec_registry=app.state.agent_spec_registry,
+            run_service=run_service,
+            inbox_service=inbox_service,
+            ticket_service=ticket_service,
+            question_service=question_service,
+            confirmation_service=confirmation_service,
+            model_router=app.state.model_router,
+            event_bus=run_event_bus,
+        )
+        app.state.orchestrator_service = orchestrator_service
+        worker_service.bind_orchestrator(orchestrator_service)
+        ticket_service.bind_orchestrator_resolver(
+            orchestrator_service.current_session_id
+        )
+        inbox_service.add_listener(
+            WakeDispatcher(
+                db_session.session_factory,
+                orchestrator=orchestrator_service,
+                workers=worker_service,
+            )
+        )
+        app.state.finish_hooks.add(
+            "ticket_threads", worker_service.on_pipeline_finished
+        )
+        agent_run_broadcaster = AgentRunBroadcaster(
+            run_event_bus,
+            lambda message_type, data: ws_manager.broadcast(message_type, data),
+        )
+        agent_run_broadcaster.start()
+        app.state.agent_run_broadcaster = agent_run_broadcaster
+        await worker_service.start()
+        await orchestrator_service.start()
+
         # One local-time scheduler owns both daily availability checks and the
         # existing retention jobs. Checks never download or block pipeline work.
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -1458,6 +1547,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             schedule_service.bind_delete_hook(upgrade_plans.on_schedule_deleted)
     except BaseException:
         shutdown_started = True
+        # v3 关闭顺序（M70 §5 T13）：先停总控与 Worker，再停它们依赖的确认 / 提问 /
+        # 运行服务；广播器退订事件总线。变量在函数开头初始化为 None。
+        if orchestrator_service is not None:
+            await orchestrator_service.close()
+        if worker_service is not None:
+            await worker_service.close()
+        if agent_run_broadcaster is not None:
+            agent_run_broadcaster.stop()
         if question_service is not None:
             await question_service.close()
         if confirmation_service is not None:
@@ -1511,6 +1608,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "ticket_service",
             "thread_router",
             "inbox_service",
+            "worker_service",
+            "orchestrator_service",
+            "delegation_service",
+            "device_gate",
+            "ticket_titler",
+            "agent_run_broadcaster",
+            "run_event_bus",
             "boot_id",
             "agent_runtime",
             "finish_hooks",
@@ -1538,6 +1642,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         # 关闭顺序：停止消费 / 收尾当前任务 → 关闭子进程 → 关闭 WS/tailer → 刷盘。
         shutdown_started = True
+        # v3 关闭顺序（M70 §5 T13）：总控 / Worker 先停（会等运行收尾），随后停
+        # 它们依赖的确认 / 提问 / 运行服务；广播器退订事件总线。
+        if orchestrator_service is not None:
+            await orchestrator_service.close()
+        if worker_service is not None:
+            await worker_service.close()
+        if agent_run_broadcaster is not None:
+            agent_run_broadcaster.stop()
         if question_service is not None:
             await question_service.close()
         if confirmation_service is not None:
@@ -1600,6 +1712,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "ticket_service",
             "thread_router",
             "inbox_service",
+            "worker_service",
+            "orchestrator_service",
+            "delegation_service",
+            "device_gate",
+            "ticket_titler",
+            "agent_run_broadcaster",
+            "run_event_bus",
             "boot_id",
             "agent_runtime",
             "finish_hooks",
@@ -1661,6 +1780,7 @@ def create_app() -> FastAPI:
     app.include_router(schedules.router)
     app.include_router(snippets.router)
     app.include_router(agent.router)
+    app.include_router(orchestrator.router)
     app.include_router(knowledge.router)
     app.include_router(model_profiles.router)
     app.include_router(runs.router)

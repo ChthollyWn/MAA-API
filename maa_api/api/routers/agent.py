@@ -33,7 +33,7 @@ from maa_api.db.repositories.agent import (
     AgentSessionRepository,
 )
 from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepository
-from maa_api.domain.enums import AuditStatus, CallerType, RiskLevel
+from maa_api.domain.enums import AgentSessionKind, AuditStatus, CallerType, RiskLevel
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import get_settings
 from maa_api.services.log_hub import current_request_id
@@ -44,6 +44,14 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 _IDEMPOTENCY_LOCKS: dict[tuple[int, str], tuple[asyncio.Lock, int]] = {}
 IDEMPOTENCY_WAIT_POLLS = 200
 IDEMPOTENCY_POLL_SECONDS = 0.05
+#: v2 门面只认这两种会话（M70 规格 §4.5.12 第 3 条）：其余种类是 M70 之后
+#: 的 v3 会话，列表不列，发消息 / 中断 / 删除按「不存在」处理；读详情、读消息与
+#: 撤销授权不过滤（M73 要用 Worker 会话 id 调）。
+_V2_SESSION_KINDS = frozenset(
+    {AgentSessionKind.CHAT.value, AgentSessionKind.INCIDENT.value}
+)
+#: 非 v2 会话的固定 404 文案（规格 §4.5.12 第 3 条）。
+_V2_SESSION_NOT_FOUND_MESSAGE = "会话不存在或不是旧版会话"
 
 
 class InvokeRequest(BaseModel):
@@ -246,6 +254,17 @@ class _LockedSessionStreamingResponse(StreamingResponse):
 def _page(page: int, size: int) -> None:
     if page < 1 or size < 1 or size > 200:
         raise AppError(ErrorCode.INVALID_PAGINATION, "page 不能小于 1，size 需在 1–200 之间")
+
+
+def _v2_session_or_404(stored: AgentSession | None) -> AgentSession:
+    """v2 路由只认 chat / incident；其它种类与不存在一样返回 404（M70 §4.5.12）。"""
+    if stored is None:
+        raise AppError(
+            ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试"
+        )
+    if str(stored.kind) not in _V2_SESSION_KINDS:
+        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, _V2_SESSION_NOT_FOUND_MESSAGE)
+    return stored
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -672,7 +691,9 @@ async def list_sessions(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     _page(page, size)
-    result = await AgentSessionRepository(session).list_page(page=page, size=size)
+    result = await AgentSessionRepository(session).list_page(
+        page=page, size=size, kinds=_V2_SESSION_KINDS
+    )
     return {
         "items": [session_wire(item) for item in result.items],
         "total": result.total,
@@ -754,8 +775,7 @@ async def stream_session_message(
         factory = _confirmation_service(request).session_factory
     async with factory() as db_session:
         exists = await AgentSessionRepository(db_session).get(session_id)
-    if exists is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
+    _v2_session_or_404(exists)
     if not await runtime.acquire_session(session_id):
         raise AppError(
             ErrorCode.AGENT_SESSION_BUSY, "该会话还有一轮消息未结束，请等它结束后再发送"
@@ -823,8 +843,7 @@ async def interrupt_session_turn(
     不影响流水线与队列。
     """
     runtime = _agent_runtime(request)
-    if await AgentSessionRepository(session).get(session_id) is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
+    _v2_session_or_404(await AgentSessionRepository(session).get(session_id))
     interrupted = await runtime.interrupt_turn(session_id)
     return {
         "session_id": session_id,
@@ -844,8 +863,7 @@ async def delete_session(session_id: str, request: Request) -> Response:
     service = _confirmation_service(request)
     async with service.session_factory() as session:
         exists = await AgentSessionRepository(session).get(session_id)
-    if exists is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
+    _v2_session_or_404(exists)
     await service.revoke_session_grant(session_id)
     async with service.session_factory() as session:
         await AgentSessionRepository(session).delete(session_id)

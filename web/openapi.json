@@ -385,6 +385,252 @@
         "title": "AccountOperatorRow",
         "type": "object"
       },
+      "AgentMessageCreate": {
+        "additionalProperties": false,
+        "description": "两条 SSE 端点共用的消息请求体。",
+        "properties": {
+          "content": {
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "mentions": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Mention"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mentions"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "AgentMessageCreate",
+        "type": "object"
+      },
+      "AgentMessageItem": {
+        "description": "v2 ``message_wire`` 的全部字段 + M70 的运行 / 收件箱归属。",
+        "properties": {
+          "audit_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Id"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inbox_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbox Id"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "reasoning_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Content"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Id"
+          },
+          "tool_calls": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "seq",
+          "role",
+          "content",
+          "reasoning_content",
+          "tool_calls",
+          "tool_call_id",
+          "tool_name",
+          "audit_id",
+          "prompt_tokens",
+          "completion_tokens",
+          "finish_reason",
+          "latency_ms",
+          "created_at",
+          "run_id",
+          "inbox_id"
+        ],
+        "title": "AgentMessageItem",
+        "type": "object"
+      },
+      "AgentMessagePage": {
+        "description": "消息分页信封；按 ``seq``（总控）或 ``id``（工单含子代理）升序。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMessageItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "AgentMessagePage",
+        "type": "object"
+      },
       "AgentRunKind": {
         "enum": [
           "orchestrator_turn",
@@ -2712,6 +2958,41 @@
         "title": "MandateStrength",
         "type": "string"
       },
+      "Mention": {
+        "description": "一条 @ 引用；``type`` 决定前端去哪类对象里跳转。",
+        "properties": {
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "knowledge",
+              "operator",
+              "stage",
+              "pipeline",
+              "ticket"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "label"
+        ],
+        "title": "Mention",
+        "type": "object"
+      },
       "ModelProfileCreate": {
         "additionalProperties": false,
         "description": "新建档案；跨字段约束见 :meth:`_check_connection`。",
@@ -3497,6 +3778,64 @@
           }
         },
         "title": "NotifyTestRequest",
+        "type": "object"
+      },
+      "OrchestratorInterruptResult": {
+        "description": "中断总控当前一轮的结果；没有活动轮次时 ``interrupted=false``。",
+        "properties": {
+          "interrupted": {
+            "title": "Interrupted",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "turn_running": {
+            "title": "Turn Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_id",
+          "interrupted",
+          "turn_running"
+        ],
+        "title": "OrchestratorInterruptResult",
+        "type": "object"
+      },
+      "OrchestratorStateModel": {
+        "description": "总控会话的对外状态（``GET /api/agent/orchestrator``）。",
+        "properties": {
+          "archived_count": {
+            "title": "Archived Count",
+            "type": "integer"
+          },
+          "pending_inbox": {
+            "title": "Pending Inbox",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "turn_running": {
+            "title": "Turn Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_id",
+          "status",
+          "turn_running",
+          "pending_inbox",
+          "archived_count"
+        ],
+        "title": "OrchestratorStateModel",
         "type": "object"
       },
       "OverridesRequest": {
@@ -7515,6 +7854,26 @@
         "title": "TaskValidateRequest",
         "type": "object"
       },
+      "TicketCancelRequest": {
+        "additionalProperties": false,
+        "description": "取消工单的请求体；不写原因时服务层用「用户取消」。",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "TicketCancelRequest",
+        "type": "object"
+      },
       "TicketDetail": {
         "description": "工单详情：摘要、结果、委托、订阅、最近 5 条汇报与 Worker 是否在跑。",
         "properties": {
@@ -7576,6 +7935,30 @@
           "turn_running"
         ],
         "title": "TicketDetail",
+        "type": "object"
+      },
+      "TicketInterruptResult": {
+        "description": "中断工单当前一轮的结果；幂等。",
+        "properties": {
+          "interrupted": {
+            "title": "Interrupted",
+            "type": "boolean"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "turn_running": {
+            "title": "Turn Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "interrupted",
+          "turn_running"
+        ],
+        "title": "TicketInterruptResult",
         "type": "object"
       },
       "TicketOrigin": {
@@ -10020,6 +10403,365 @@
         ]
       }
     },
+    "/api/agent/orchestrator": {
+      "get": {
+        "description": "当前总控会话的状态；没有活动会话时先建一个（规格 §4.3.1）。",
+        "operationId": "agent_get_orchestrator",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrchestratorStateModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "读取总控状态",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/orchestrator/interrupt": {
+      "post": {
+        "description": "幂等：没有活动轮次时返回 200 且 ``interrupted=false``。",
+        "operationId": "agent_interrupt_orchestrator",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrchestratorInterruptResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "中断总控正在执行的一轮",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/orchestrator/messages": {
+      "get": {
+        "operationId": "agent_list_orchestrator_messages",
+        "parameters": [
+          {
+            "description": "只取 seq 更大的消息",
+            "in": "query",
+            "name": "after_seq",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": -1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只取 seq 更大的消息",
+              "title": "After Seq"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–200",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–200",
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMessagePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PAGINATION",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PAGINATION"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "分页读取当前总控会话的消息",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "description": "校验请求 → 订阅事件 → 写用户消息 → 返回这条消息的 SSE 流。",
+        "operationId": "agent_send_orchestrator_message",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentMessageCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "LLM_NOT_CONFIGURED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID、AGENT_DISABLED",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "向总控发送消息并以 SSE 接收事件",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/orchestrator/reset": {
+      "post": {
+        "description": "换一个新会话；运行中或还有未处理消息时 409。",
+        "operationId": "agent_reset_orchestrator",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrchestratorStateModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RUN_ALREADY_ACTIVE",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：RUN_ALREADY_ACTIVE"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "重新开始总控会话",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/agent/questions": {
       "get": {
         "operationId": "agent_list_questions",
@@ -11869,6 +12611,486 @@
           }
         },
         "summary": "读取工单详情",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/tickets/{ticket_id}/cancel": {
+      "post": {
+        "description": "停掉 Worker 与子代理（已提交的流水线不停），返回取消后的工单详情。",
+        "operationId": "agent_cancel_ticket",
+        "parameters": [
+          {
+            "description": "工单 id",
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "description": "工单 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：TICKET_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_ENDED",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：TICKET_ENDED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "取消工单",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/tickets/{ticket_id}/interrupt": {
+      "post": {
+        "description": "幂等：没有活动轮次时返回 200 且 ``interrupted=false``。",
+        "operationId": "agent_interrupt_ticket",
+        "parameters": [
+          {
+            "description": "工单 id",
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "description": "工单 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketInterruptResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：TICKET_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "中断工单正在执行的一轮",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/tickets/{ticket_id}/messages": {
+      "get": {
+        "description": "Worker 会话的消息；``include_subagents`` 时加上子代理会话，按 id 升序。",
+        "operationId": "agent_list_ticket_messages",
+        "parameters": [
+          {
+            "description": "工单 id",
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "description": "工单 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "只取 Worker 会话里 seq 更大的消息",
+            "in": "query",
+            "name": "after_seq",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": -1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只取 Worker 会话里 seq 更大的消息",
+              "title": "After Seq"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–200",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–200",
+              "title": "Size",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "是否带上该 Worker 会话的子代理消息",
+            "in": "query",
+            "name": "include_subagents",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "是否带上该 Worker 会话的子代理消息",
+              "title": "Include Subagents",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMessagePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PAGINATION",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PAGINATION"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：TICKET_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED"
+          }
+        },
+        "summary": "分页读取工单的消息",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "description": "校验工单与 LLM 配置 → 订阅事件 → 写用户消息 → 返回这条消息的 SSE 流。",
+        "operationId": "agent_send_ticket_message",
+        "parameters": [
+          {
+            "description": "工单 id",
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "description": "工单 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentMessageCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：TICKET_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_ENDED",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：TICKET_ENDED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "LLM_NOT_CONFIGURED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：LLM_NOT_CONFIGURED、AGENT_DISABLED",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "向工单发送消息并以 SSE 接收事件",
         "tags": [
           "agent"
         ]

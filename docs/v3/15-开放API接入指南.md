@@ -163,6 +163,9 @@ curl -X POST http://<host>:8002/api/snippets \
 | `RUN_ALREADY_ACTIVE` | 409 | 该会话已有运行在进行（M66）。v2 会话的发消息端点仍返回 `AGENT_SESSION_BUSY` |
 | `TICKET_NOT_FOUND` | 404 | 没有这个工单 |
 | `TICKET_ENDED` | 409 | 工单已结束，不能再改 |
+| `MANDATE_SCOPE_EXCEEDED` | 403 | 超出工单委托的风险上限 |
+| `DELEGATION_NOT_ALLOWED` | 403 | 该代理不能委派这个子代理 |
+| `DELEGATION_DEPTH_EXCEEDED` | 409 | 委派深度超过上限 |
 | `AGENT_SPEC_NOT_FOUND` | 404 | 没有这个代理定义（`GET /api/agent/specs/{name}` 的名字不存在） |
 | `TOOL_NOT_FOUND` | 404 | `ToolRegistry` 中没有该工具名 |
 | `TOOL_ARGS_INVALID` | 422 | 工具参数不满足其 JSON Schema |

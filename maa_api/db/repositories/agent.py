@@ -108,7 +108,14 @@ class AgentSessionRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
-    async def list_page(self, *, page: int = 1, size: int = 20) -> Page[AgentSession]:
+    async def list_page(
+        self,
+        *,
+        page: int = 1,
+        size: int = 20,
+        kinds: Collection[str] | None = None,
+    ) -> Page[AgentSession]:
+        """分页读会话；``kinds`` 给定时只列这些种类（v2 路由按 chat/incident 过滤）。"""
         stmt = select(AgentSession).order_by(
             AgentSession.last_message_at.is_(None).asc(),
             AgentSession.last_message_at.desc(),
@@ -116,6 +123,10 @@ class AgentSessionRepository(BaseRepository):
             AgentSession.id.desc(),
         )
         count_stmt = select(func.count()).select_from(AgentSession)
+        if kinds is not None:
+            allowed = [str(kind) for kind in kinds]
+            stmt = stmt.where(AgentSession.kind.in_(allowed))
+            count_stmt = count_stmt.where(AgentSession.kind.in_(allowed))
         return await self.paginate(stmt, count_stmt, page=page, size=size)
 
     async def delete(self, session_id: str) -> bool:

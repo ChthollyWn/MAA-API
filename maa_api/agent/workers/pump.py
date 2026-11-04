@@ -384,11 +384,11 @@ async def run_agent(
     else:
         root_run_id = getattr(run, "root_run_id", None) or run.id
         parent_run_id = getattr(run, "parent_run_id", None)
-        bus = getattr(app_state, "run_event_bus", None)
-        if bus is None:
-            # T12/T13 装配总线之前，事件没有订阅者；先给一个带 run_id 的本地总线，
-            # 免得 v3 事件名落到 v2 的出口上。
-            bus = RunEventBus(run_id=run.id)
+        # 一律用带 run_id 的 per-run 总线：`ticket_created` 等事件的 data 里没有
+        # run_id，若直接复用装配层 `run_id=None` 的 hub，SSE 与 WS 就无法归属。
+        # 事件由 per-run 总线原样转发给 hub（M70 §4.5.8）。
+        hub = getattr(app_state, "run_event_bus", None)
+        bus = RunEventBus(run_id=run.id, hub=hub)
         emit = bus.emit
 
     ctx = RunContext(
