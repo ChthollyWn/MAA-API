@@ -480,6 +480,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs/{run_id}/spans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取运行所在的整条追踪 */
+        get: operations["agent_list_run_spans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/sessions": {
         parameters: {
             query?: never;
@@ -4204,6 +4221,18 @@ export interface components {
             total: number;
         };
         /**
+         * RunSpansResponse
+         * @description 运行所在的整条 trace：按 ``(started_at, id)`` 升序，最多 :data:`MAX_TRACE_SPANS`。
+         */
+        RunSpansResponse: {
+            /** Items */
+            items: components["schemas"]["SpanOut"][];
+            /** Trace Id */
+            trace_id: string;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
          * RunSummary
          * @description 一次代理调用的摘要。
          */
@@ -4704,6 +4733,34 @@ export interface components {
         SourcesStatusResponse: {
             /** Sources */
             sources: components["schemas"]["SourceStatus"][];
+        };
+        /**
+         * SpanOut
+         * @description 一个 span 的对外形状（M68 规格 §4.3）；时间与 ``RunSummary`` 一样带 ``Z``。
+         */
+        SpanOut: {
+            /** Attributes */
+            attributes: {
+                [key: string]: unknown;
+            };
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Parent Span Id */
+            parent_span_id: string | null;
+            /** Run Id */
+            run_id: string | null;
+            /** Span Id */
+            span_id: string;
+            /** Started At */
+            started_at: string;
+            /** Status */
+            status: string;
         };
         /**
          * SpecBudget
@@ -7261,6 +7318,74 @@ export interface operations {
                      *     }
                      */
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_run_spans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 运行 id */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSpansResponse"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：RUN_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RUN_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

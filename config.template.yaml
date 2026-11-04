@@ -169,3 +169,13 @@ budget:
 # 上下文：模型档案没写窗口大小时按这个值计算
 context:
   fallback_context_tokens: 128000
+
+# 运行追踪：每次代理调用的步骤、耗时与用量
+trace:
+  enabled: true
+  # 超过这么多天的追踪记录由每天 04:00 的清理任务删除
+  retention_days: 14
+  # 导出到 Langfuse 或 Phoenix：填完整的 traces 地址（以 /v1/traces 结尾），留空不导出；需要安装 otlp 依赖
+  otlp_endpoint:
+  # 导出请求头，写成 k=v,k=v；值里的逗号写成 %2C
+  otlp_headers:

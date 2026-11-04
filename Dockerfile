@@ -20,8 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml poetry.lock ./
+# 可选依赖 extra（M68 起，docs/v3/16 §12）：默认不装；需要 OTLP 导出时用
+# --build-arg MAA_EXTRAS="otlp" 构建。空值展开成零个参数，安装命令与原来一致。
+ARG MAA_EXTRAS=""
 RUN pip install --no-cache-dir "poetry>=2.1,<3" -i https://mirrors.aliyun.com/pypi/simple/ \
-    && poetry install --no-root --only main --no-interaction
+    && poetry install --no-root --only main --no-interaction ${MAA_EXTRAS:+--extras "$MAA_EXTRAS"}
 
 COPY maa_api/ ./maa_api/
 COPY scripts/ ./scripts/

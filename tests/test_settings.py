@@ -374,6 +374,11 @@ def test_env_mapping_names_are_pinned() -> None:
         "budget.per_run_cost_limit": "MAA_BUDGET_PER_RUN_COST_LIMIT",
         "budget.warn_ratio": "MAA_BUDGET_WARN_RATIO",
         "context.fallback_context_tokens": "MAA_CONTEXT_FALLBACK_CONTEXT_TOKENS",
+        # M68：运行追踪（导出两项是 config-only，但环境变量映射仍需登记）。
+        "trace.enabled": "MAA_TRACE_ENABLED",
+        "trace.retention_days": "MAA_TRACE_RETENTION_DAYS",
+        "trace.otlp_endpoint": "MAA_TRACE_OTLP_ENDPOINT",
+        "trace.otlp_headers": "MAA_TRACE_OTLP_HEADERS",
         "notify.vapid_private_key": "MAA_NOTIFY_VAPID_PRIVATE_KEY",
         "notify.vapid_subject": "MAA_NOTIFY_VAPID_SUBJECT",
         "deployment.forwarded_allow_ips": "MAA_DEPLOYMENT_FORWARDED_ALLOW_IPS",
@@ -878,6 +883,65 @@ def test_model_layer_settings_have_documented_defaults_and_bounds() -> None:
     assert template["context"] == {"fallback_context_tokens": 128000}
     assert "# 各角色使用的模型档案名（设置页「模型档案」里建），空表示使用上面这组默认设置" in template_text
     assert "# 空表示不使用远端向量" in template_text
+
+
+def test_trace_settings_have_documented_defaults_and_bounds() -> None:
+    """M68 运行追踪：四个键（两条 config-only）、默认值、范围与模板照 spec §4.4。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, TraceSettings
+
+    default = resolve_settings(env={})
+    assert default.trace == TraceSettings()
+    assert default.trace.enabled is True
+    assert default.trace.retention_days == 14
+    assert default.trace.otlp_endpoint == ""
+    assert default.trace.otlp_headers == ""
+
+    configured = resolve_settings(
+        {
+            "trace": {
+                "enabled": False,
+                "retention_days": 30,
+                "otlp_endpoint": "http://127.0.0.1:6006/v1/traces",
+                "otlp_headers": "Authorization=Bearer%20token,x-scope=dev",
+            }
+        },
+        env={},
+    )
+    assert configured.trace.enabled is False
+    assert configured.trace.retention_days == 30
+    assert configured.trace.otlp_endpoint == "http://127.0.0.1:6006/v1/traces"
+    assert configured.trace.otlp_headers == "Authorization=Bearer%20token,x-scope=dev"
+
+    for bad in (0, 91):
+        with pytest.raises(ValidationError):
+            resolve_settings({"trace": {"retention_days": bad}}, env={})
+
+    schema = {item["key"]: item for item in SETTINGS_SCHEMA}
+    assert {"trace.enabled", "trace.retention_days"} <= set(schema)
+    config_only = {"trace.otlp_endpoint", "trace.otlp_headers"}
+    assert not (config_only & set(schema))
+    assert config_only <= CONFIG_ONLY_SETTING_KEYS
+
+    enabled = schema_for("trace.enabled")
+    assert (
+        enabled["label"], enabled["group"], enabled["type"], enabled["hot_action"],
+    ) == ("记录运行追踪", "Agent", "boolean", "none")
+    retention = schema_for("trace.retention_days")
+    assert (
+        retention["label"], retention["group"], retention["type"],
+        retention["minimum"], retention["maximum"], retention["hot_action"],
+    ) == ("运行追踪保留天数", "Agent", "integer", 1, 90, "none")
+
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["trace"] == {
+        "enabled": True,
+        "retention_days": 14,
+        "otlp_endpoint": None,
+        "otlp_headers": None,
+    }
+    assert "# 超过这么多天的追踪记录由每天 04:00 的清理任务删除" in template_text
 
 
 def test_log_settings_read_yaml_and_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

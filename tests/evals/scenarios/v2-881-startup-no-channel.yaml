@@ -1,0 +1,43 @@
+{
+  "id": "v2-881-startup-no-channel",
+  "title": "StartUp 不带渠道由服务端补默认",
+  "suite": "capability",
+  "agent": "legacy_chat",
+  "source": "v2 13 §8.81",
+  "tags": [
+    "pipeline"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "turns": [
+    {
+      "user": "帮我启动游戏。"
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "submit_pipeline"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "pipelines": {
+        "count": 1
+      }
+    },
+    {
+      "grader": "llm_judge",
+      "rubric": "回答要说明已提交启动，并提到服务端会按默认渠道拉起客户端。",
+      "pass_score": 0.5
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 8
+  }
+}

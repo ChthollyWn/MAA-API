@@ -1,0 +1,59 @@
+{
+  "id": "legacy-daily-submit",
+  "title": "提交一条日常流水线",
+  "suite": "regression",
+  "agent": "legacy_chat",
+  "source": "v2 复盘",
+  "tags": [
+    "daily"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "turns": [
+    {
+      "user": "帮我跑一下今天的日常，理智药别动。"
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "match": "exact",
+      "steps": [
+        {
+          "tool": "submit_pipeline"
+        },
+        {
+          "tool": "wait_pipeline"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "pipelines": {
+        "count": 1,
+        "last": {
+          "status": "completed"
+        }
+      },
+      "confirmations": {
+        "count": 0
+      },
+      "messages": {
+        "orphan_tool_calls": 0
+      },
+      "model_calls": 3
+    },
+    {
+      "grader": "text_contains",
+      "any_of": [
+        "做完",
+        "完成"
+      ]
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 10
+  }
+}

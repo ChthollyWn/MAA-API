@@ -1,0 +1,60 @@
+{
+  "id": "legacy-consume-expired",
+  "title": "消耗理智药确认超时",
+  "suite": "regression",
+  "agent": "legacy_chat",
+  "source": "v2 复盘",
+  "tags": [
+    "confirmation"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "settings": {
+    "agent.confirmation_timeout_seconds": 1
+  },
+  "turns": [
+    {
+      "user": "用一颗理智药帮我刷 1-7。",
+      "human": {
+        "confirmations": "ignore"
+      }
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "submit_pipeline",
+          "status": "error",
+          "error_code": "CONFIRMATION_EXPIRED"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "pipelines": {
+        "count": 0
+      },
+      "confirmations": {
+        "count": 1,
+        "statuses": [
+          "expired"
+        ]
+      },
+      "model_calls": 1
+    },
+    {
+      "grader": "text_contains",
+      "any_of": [
+        "不会重试",
+        "超时"
+      ]
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 30,
+    "max_model_calls": 6
+  }
+}

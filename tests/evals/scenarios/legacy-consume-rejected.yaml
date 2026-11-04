@@ -1,0 +1,57 @@
+{
+  "id": "legacy-consume-rejected",
+  "title": "消耗理智药被用户拒绝",
+  "suite": "regression",
+  "agent": "legacy_chat",
+  "source": "v2 复盘",
+  "tags": [
+    "confirmation"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "turns": [
+    {
+      "user": "用一颗理智药帮我刷 1-7。",
+      "human": {
+        "confirmations": "reject"
+      }
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "submit_pipeline",
+          "status": "error",
+          "error_code": "CONFIRMATION_REJECTED"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "pipelines": {
+        "count": 0
+      },
+      "confirmations": {
+        "count": 1,
+        "statuses": [
+          "rejected"
+        ]
+      },
+      "model_calls": 1
+    },
+    {
+      "grader": "text_contains",
+      "any_of": [
+        "不会重试",
+        "没有执行"
+      ]
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 30,
+    "max_model_calls": 6
+  }
+}

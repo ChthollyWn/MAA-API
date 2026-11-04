@@ -132,6 +132,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "budget.per_run_cost_limit": dict(label="单次运行成本上限（元）", group="LLM", type="number", minimum=0, maximum=10000, description="0 为不限", hot_action="none"),
     "budget.warn_ratio": dict(label="成本告警比例", group="LLM", type="number", minimum=0.1, maximum=1, hot_action="none"),
     "context.fallback_context_tokens": dict(label="默认上下文窗口（token）", group="Agent", type="integer", minimum=8000, maximum=2000000, description="模型档案没写窗口时使用", hot_action="none"),
+    # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
+    "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
+    "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),
     "agent.confirmation_timeout_seconds": dict(label="Agent 确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.grant_confirmation_timeout_seconds": dict(label="屏幕操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.question_timeout_seconds": dict(label="Agent 提问等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),

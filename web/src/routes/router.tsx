@@ -24,6 +24,9 @@ const AccountPage = lazy(() => import('@/routes/account'))
 const CopilotsPage = lazy(() => import('@/routes/copilots'))
 const ApiConsolePage = lazy(() => import('@/features/api-console'))
 const AuditPage = lazy(() => import('@/features/audit/AuditPage'))
+const RunsPage = lazy(() => import('@/features/runs/RunsPage'))
+const RunDetailPage = lazy(() => import('@/features/runs/RunDetailPage'))
+const CostsPage = lazy(() => import('@/features/costs/CostsPage'))
 const AgentPage = lazy(() => import('@/features/agent/AgentPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
 
@@ -130,6 +133,9 @@ export const routeConfig: RouteObject[] = [
       { path: 'more/schedules/*', element: <SchedulesRedirect /> },
       { path: 'more/api-console/guide', element: page(<ApiConsolePage />) },
       { path: 'more/api-console', element: page(<ApiConsolePage />) },
+      { path: 'more/runs', element: page(<RunsPage />) },
+      { path: 'more/runs/:runId', element: page(<RunDetailPage />) },
+      { path: 'more/costs', element: page(<CostsPage />) },
       { path: 'more/audit', element: page(<AuditPage />) },
       { path: 'more/updates', element: page(<UpdatesPage />) },
       { path: 'more/settings', element: page(<SettingsPage />) },

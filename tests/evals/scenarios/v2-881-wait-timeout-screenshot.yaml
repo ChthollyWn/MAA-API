@@ -1,0 +1,49 @@
+{
+  "id": "v2-881-wait-timeout-screenshot",
+  "title": "等待超时先截图再决定",
+  "suite": "capability",
+  "agent": "legacy_chat",
+  "source": "v2 13 §8.81",
+  "tags": [
+    "wait"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "world": {
+    "core_script": "stuck"
+  },
+  "turns": [
+    {
+      "user": "跑一下 1-7，等它结束。"
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "submit_pipeline"
+        },
+        {
+          "tool": "wait_pipeline"
+        },
+        {
+          "tool": "get_screenshot"
+        },
+        {
+          "tool": "stop_pipeline"
+        }
+      ]
+    },
+    {
+      "grader": "llm_judge",
+      "rubric": "回答要说明等待超时，并说明截图后决定停车排查。",
+      "pass_score": 0.5
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 120,
+    "max_model_calls": 10
+  }
+}

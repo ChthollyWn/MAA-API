@@ -1,10 +1,10 @@
 """v2 会话的上下文组装与内置中间件（M65 规格 §4.2.9）。
 
 上半部分从 ``runtime.py`` 原样搬来：``build_model_context`` 及其预算、截图与裁剪
-辅助。下半部分是内置中间件与它们的辅助：``TraceMiddleware`` 只占位；
-``ContextLayoutMiddleware``、``LoopGuardMiddleware``、``ClarificationMiddleware``、
-``PolicyMiddleware`` 都要到 T8 才接进链。T7 先在旧循环里直接用链上的 Clarification
-与 Policy，行为与 v2 ``_ask_user`` / ``_execute_tool_batch`` 完全一致。
+辅助。下半部分是内置中间件与它们的辅助：``TraceMiddleware`` 记运行追踪的
+``agent.run`` / ``llm.chat`` / 工具 span 树（M68），``ContextLayoutMiddleware``、
+``LoopGuardMiddleware``、``ClarificationMiddleware``、``PolicyMiddleware`` 从 T8
+起接进链；v2 会话经 ``AgentRuntime._legacy_chain`` 使用同一套链。
 """
 
 from __future__ import annotations
@@ -15,9 +15,11 @@ import io
 import json
 import logging
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from maa_api.agent.context.layout import ContextLayout, ContextParts, Segment
@@ -26,17 +28,26 @@ from maa_api.agent.harness.context import (
     ModelRequest,
     ModelResponse,
     RunContext,
+    RunOutcome,
     ToolCall,
     ToolOutcome,
 )
 from maa_api.agent.harness.middleware import CallNext, Middleware
 from maa_api.agent.harness.toolexec import app_error_wire
+from maa_api.agent.llm.cost import compute_cost_micros
 from maa_api.agent.media import MEDIA_TOOL_NAMES, compact_media_result
 from maa_api.agent.redaction import redact_remote_data
 from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.agent.specs.registry import builtin_spec
 from maa_api.agent.specs.schema import LEGACY_SPEC_NAMES
-from maa_api.db.models import AgentMessage, Screenshot
+from maa_api.agent.trace import (
+    DELEGATE_TOOLS,
+    SpanHandle,
+    current_span,
+    reset_span,
+    use_span,
+)
+from maa_api.db.models import AgentAudit, AgentMessage, Confirmation, Screenshot, utcnow
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.repositories.log import ScreenshotRepository
 from maa_api.db.session import describe_database_error, run_with_busy_retry
@@ -45,6 +56,7 @@ from maa_api.domain.enums import (
     DynamicContextPosition,
     ScreenshotBackend,
     ScreenshotTrigger,
+    SpanKind,
 )
 from maa_api.domain.errors import AppError, ErrorCode
 
@@ -679,10 +691,392 @@ def _drop_oldest_tool_rounds(messages: list[dict[str, Any]]) -> list[dict[str, A
     return reduced
 
 
+def gen_ai_system(provider: str, base_url: str | None) -> str:
+    """``gen_ai.system`` 的取值（10 §2.4）：DeepSeek 主机名写 ``deepseek``。
+
+    其余 OpenAI 兼容服务统一写 ``openai``（表示走的是兼容协议）；本机 ONNX 模型
+    没有上游，写语义约定里的 ``_OTHER``。
+    """
+    if provider == "local_onnx":
+        return "_OTHER"
+    host = (urlparse(base_url or "").hostname or "").lower()
+    return "deepseek" if "deepseek" in host else "openai"
+
+
+def _server_attributes(base_url: str | None) -> dict[str, Any]:
+    """``server.address`` / ``server.port``：只写主机与端口，不写路径与查询串。"""
+    parsed = urlparse(base_url or "")
+    attributes: dict[str, Any] = {}
+    if parsed.hostname:
+        attributes["server.address"] = parsed.hostname
+    if parsed.port is not None:
+        attributes["server.port"] = parsed.port
+    return attributes
+
+
+def _profile_attributes(profile: Any) -> dict[str, Any]:
+    """模型档案相关的 llm 属性；没有档案时返回空字典。"""
+    if profile is None:
+        return {}
+    attributes: dict[str, Any] = {
+        "maa.model.profile": profile.name,
+        "gen_ai.system": gen_ai_system(profile.provider, profile.base_url),
+        "gen_ai.request.model": profile.model,
+    }
+    if profile.max_output_tokens is not None:
+        attributes["gen_ai.request.max_tokens"] = profile.max_output_tokens
+    attributes.update(_server_attributes(profile.base_url))
+    return attributes
+
+
+def _structured_schema_name(req: ModelRequest) -> str | None:
+    """``response_format["json_schema"]["name"]``；没有结构化输出时返回 ``None``。"""
+    fmt = req.response_format
+    if not isinstance(fmt, Mapping):
+        return None
+    schema = fmt.get("json_schema")
+    if not isinstance(schema, Mapping):
+        return None
+    name = schema.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def _trace_recorder(ctx: RunContext) -> Any | None:
+    """从 ``app.state.span_recorder`` 取记录器；取不到或追踪关闭时返回 ``None``。"""
+    recorder = getattr(_app_state(ctx), "span_recorder", None)
+    if recorder is None:
+        return None
+    try:
+        return recorder if recorder.enabled else None
+    except Exception:  # noqa: BLE001 - 追踪开关读不出来按关闭处理
+        logger.warning("读取追踪开关失败，本钩子不记 span", exc_info=True)
+        return None
+
+
+async def _derive_confirmation_span(
+    recorder: Any,
+    ctx: RunContext,
+    audit_id: int,
+    *,
+    parent: SpanHandle,
+) -> None:
+    """工具结束后按审计记录派生 ``confirmation.wait``（§4.2.2）。
+
+    查不到确认（安全工具直接执行、审计没有 ``confirmation_id``）就不记；查询失败
+    只记日志——派生是观测补充，不能影响已经结束的工具调用。
+    """
+    factory = getattr(_app_state(ctx), "session_factory", None)
+    if factory is None:
+        return
+    try:
+        async with factory() as session:
+            result = await session.execute(
+                select(Confirmation)
+                .join(AgentAudit, AgentAudit.confirmation_id == Confirmation.id)
+                .where(AgentAudit.id == audit_id)
+            )
+            confirmation = result.scalars().first()
+    except Exception:  # noqa: BLE001 - 派生 span 失败只记日志
+        logger.warning("派生确认 span 失败：audit=%s", audit_id, exc_info=True)
+        return
+    if confirmation is None:
+        return
+    started_at = confirmation.created_at
+    ended_at = confirmation.resolved_at or confirmation.expires_at
+    if started_at is None or ended_at is None:
+        return
+    recorder.record_span(
+        "confirmation.wait",
+        SpanKind.CONFIRMATION,
+        trace_id=parent.trace_id,
+        run_id=ctx.run_id,
+        parent_span_id=parent.span_id,
+        started_at=started_at,
+        ended_at=ended_at,
+        attributes={
+            "maa.confirmation.id": confirmation.id,
+            "maa.confirmation.status": confirmation.status,
+            "maa.audit.id": audit_id,
+        },
+    )
+
+
 class TraceMiddleware(Middleware):
-    """M68 填实现；M65 只占住链上的位置（规格 §4.2.9）。"""
+    """运行追踪的 span 树（M68 规格 §4.2.2、10 §2）。
+
+    钩子只从 ``app.state.span_recorder`` 取记录器；取不到或 ``trace.enabled`` 为假
+    时全部直通，v2 会话与侦察在没有装配追踪时行为完全不变。``agent.run`` 是根，
+    ``llm.chat`` 与工具 span 挂在它下面；委派时子运行的 ``agent.run`` 通过
+    ``current_span()`` 自然挂到 ``delegate.subagent`` 上。所有属性只写元数据，
+    消息正文、推理内容、工具参数与结果都不进 span（10 §2.3）。
+    """
 
     name = "trace"
+
+    async def on_run_start(self, ctx: RunContext) -> None:
+        recorder = _trace_recorder(ctx)
+        if recorder is None:
+            return
+        parent = current_span()
+        # 跨 trace 的父忽略：收件箱唤醒的 Worker 会继承到总控的上下文，但它们
+        # 属于两条 trace（10 §3.2）。
+        if parent is not None and parent.trace_id != ctx.root_run_id:
+            parent = None
+        run_span = recorder.start_span(
+            "agent.run",
+            SpanKind.OTHER,
+            trace_id=ctx.root_run_id,
+            run_id=ctx.run_id,
+            parent=parent,
+            attributes={
+                "gen_ai.operation.name": "invoke_agent",
+                "gen_ai.agent.name": ctx.spec.name,
+                "maa.agent.name": ctx.spec.name,
+                "maa.agent.kind": ctx.spec.kind,
+                "maa.spec.version": ctx.spec.spec_version,
+                "gen_ai.conversation.id": ctx.session_id,
+                "maa.ticket.id": ctx.ticket_id,
+            },
+        )
+        ctx.state["trace.run_span"] = run_span
+        ctx.state["trace.token"] = use_span(run_span)
+        ctx.state["trace.cost_micros"] = 0
+        ctx.state["trace.cost_currency"] = None
+
+    async def before_model(self, ctx: RunContext, req: ModelRequest) -> ModelRequest:
+        """记下这次调用的开始墙钟与档案；不改请求。"""
+        recorder = _trace_recorder(ctx)
+        if recorder is None:
+            return req
+        run_span = ctx.state.get("trace.run_span")
+        if not isinstance(run_span, SpanHandle):
+            return req
+        model_state = ctx.state.get("model")
+        profile = (
+            model_state.get("profile") if isinstance(model_state, Mapping) else None
+        )
+        ctx.state["trace.llm"] = {
+            "started_at": utcnow(),
+            "profile": profile,
+            "structured": bool(req.response_format),
+            "schema": _structured_schema_name(req),
+        }
+        return req
+
+    async def after_model(self, ctx: RunContext, resp: ModelResponse) -> ModelResponse:
+        """把一次成功的模型调用记成 ``llm.chat``；失败只记日志。"""
+        pending = ctx.state.pop("trace.llm", None)
+        recorder = _trace_recorder(ctx)
+        run_span = ctx.state.get("trace.run_span")
+        if (
+            recorder is None
+            or not isinstance(pending, Mapping)
+            or not isinstance(run_span, SpanHandle)
+        ):
+            return resp
+        try:
+            end = utcnow()
+            latency = getattr(resp, "latency_ms", None)
+            if isinstance(latency, int) and latency >= 0:
+                started_at = end - timedelta(milliseconds=latency)
+            else:
+                latency = int((end - pending["started_at"]).total_seconds() * 1000)
+                started_at = pending["started_at"]
+            profile = pending.get("profile")
+            usage = resp.usage
+            attributes: dict[str, Any] = {
+                "gen_ai.operation.name": "chat",
+                "maa.agent.name": ctx.spec.name,
+                **_profile_attributes(profile),
+                "gen_ai.output.type": "json" if pending.get("structured") else "text",
+                "gen_ai.usage.input_tokens": usage.prompt_tokens,
+                "gen_ai.usage.output_tokens": usage.completion_tokens,
+                "maa.usage.cached_tokens": usage.cached_tokens,
+                "maa.llm.latency_ms": max(latency, 0),
+            }
+            if usage.reasoning_tokens:
+                attributes["maa.usage.reasoning_tokens"] = usage.reasoning_tokens
+            if pending.get("schema"):
+                attributes["maa.structured.schema"] = pending["schema"]
+            if getattr(resp, "model", None):
+                attributes["gen_ai.response.model"] = resp.model
+            if getattr(resp, "response_id", None):
+                attributes["gen_ai.response.id"] = resp.response_id
+            if resp.upstream_finish_reason:
+                attributes["gen_ai.response.finish_reasons"] = [
+                    resp.upstream_finish_reason
+                ]
+            if profile is not None:
+                cost = compute_cost_micros(usage, profile)
+                attributes["maa.cost.micros"] = cost
+                attributes["maa.cost.currency"] = profile.currency
+                currency = ctx.state.get("trace.cost_currency")
+                if currency is None:
+                    ctx.state["trace.cost_currency"] = profile.currency
+                if currency in (None, profile.currency):
+                    ctx.state["trace.cost_micros"] = (
+                        ctx.state.get("trace.cost_micros", 0) + cost
+                    )
+            recorder.record_span(
+                "llm.chat",
+                SpanKind.LLM,
+                trace_id=run_span.trace_id,
+                run_id=ctx.run_id,
+                parent_span_id=run_span.span_id,
+                started_at=started_at,
+                ended_at=end,
+                status="ok",
+                attributes=attributes,
+            )
+        except Exception:  # noqa: BLE001 - 追踪失败不能让模型调用失败
+            logger.warning("记录 llm.chat span 失败：run=%s", ctx.run_id, exc_info=True)
+        return resp
+
+    async def wrap_tool(
+        self, ctx: RunContext, call: ToolCall, call_next: CallNext
+    ) -> ToolOutcome:
+        """给一次工具调用包一层 ``tool.execute`` / ``delegate.subagent``。"""
+        recorder = _trace_recorder(ctx)
+        run_span = ctx.state.get("trace.run_span")
+        if recorder is None or not isinstance(run_span, SpanHandle):
+            return await call_next(call)
+        delegate = call.name in DELEGATE_TOOLS
+        name = "delegate.subagent" if delegate else "tool.execute"
+        kind = SpanKind.DELEGATE if delegate else SpanKind.TOOL
+        handle = recorder.start_span(
+            name,
+            kind,
+            trace_id=run_span.trace_id,
+            run_id=ctx.run_id,
+            parent=run_span,
+            attributes={
+                "gen_ai.operation.name": "execute_tool",
+                "gen_ai.tool.name": call.name,
+                "gen_ai.tool.call.id": call.id,
+                "gen_ai.tool.type": "function",
+                "maa.agent.name": ctx.spec.name,
+            },
+        )
+        token = use_span(handle)
+        try:
+            outcome = await call_next(call)
+        except BaseException as exc:
+            error_type = (
+                "interrupted"
+                if isinstance(exc, asyncio.CancelledError)
+                else type(exc).__name__
+            )
+            handle.end(status="error", attributes={"error.type": error_type})
+            raise
+        finally:
+            reset_span(token)
+        attributes: dict[str, Any] = {"maa.tool.status": outcome.status}
+        if outcome.audit_id is not None:
+            attributes["maa.audit.id"] = outcome.audit_id
+        error = outcome.error
+        if isinstance(error, Mapping) and error.get("code") is not None:
+            attributes["error.type"] = error["code"]
+        result = outcome.result if isinstance(outcome.result, Mapping) else {}
+        if call.name == "ask_user" and result.get("question_id"):
+            attributes["maa.question.id"] = result["question_id"]
+        arguments = call.arguments if isinstance(call.arguments, Mapping) else {}
+        if delegate:
+            if arguments.get("agent"):
+                attributes["maa.subagent.name"] = arguments["agent"]
+            if result.get("run_id"):
+                attributes["maa.subagent.run_id"] = result["run_id"]
+        handle.end(
+            status="error" if outcome.status == "error" else "ok",
+            attributes=attributes,
+        )
+        if outcome.audit_id is not None and outcome.status in {
+            "ok",
+            "error",
+            "rejected",
+            "expired",
+        }:
+            recorder.spawn(
+                _derive_confirmation_span(
+                    recorder, ctx, int(outcome.audit_id), parent=handle
+                )
+            )
+        return outcome
+
+    async def on_run_end(self, ctx: RunContext, outcome: RunOutcome) -> None:
+        """结束 ``agent.run``；模型调用抛错时补记一条 error 的 ``llm.chat``。"""
+        token = ctx.state.pop("trace.token", None)
+        run_span = ctx.state.pop("trace.run_span", None)
+        pending = ctx.state.pop("trace.llm", None)
+        recorder = _trace_recorder(ctx)
+        try:
+            if recorder is None or not isinstance(run_span, SpanHandle):
+                return
+            if isinstance(pending, Mapping):
+                self._record_failed_llm(ctx, recorder, run_span, pending, outcome)
+            usage = outcome.usage
+            attributes: dict[str, Any] = {
+                "maa.run.status": outcome.status,
+                "maa.run.finish_reason": outcome.finish_reason,
+                "maa.run.steps": ctx.steps,
+                "gen_ai.usage.input_tokens": usage.prompt_tokens,
+                "gen_ai.usage.output_tokens": usage.completion_tokens,
+                "maa.usage.cached_tokens": usage.cached_tokens,
+            }
+            if usage.reasoning_tokens:
+                attributes["maa.usage.reasoning_tokens"] = usage.reasoning_tokens
+            currency = ctx.state.get("trace.cost_currency")
+            if currency is not None:
+                attributes["maa.cost.micros"] = ctx.state.get("trace.cost_micros", 0)
+                attributes["maa.cost.currency"] = currency
+            if outcome.status == "failed":
+                attributes["error.type"] = outcome.finish_reason or "error"
+            run_span.end(
+                status="error" if outcome.status == "failed" else "ok",
+                attributes=attributes,
+            )
+        except Exception:  # noqa: BLE001 - 收尾不能盖过运行本身的结果
+            logger.warning("记录 agent.run span 失败：run=%s", ctx.run_id, exc_info=True)
+        finally:
+            if token is not None:
+                try:
+                    reset_span(token)
+                except (ValueError, RuntimeError):  # pragma: no cover - 上下文已换
+                    logger.debug("复原当前 span 的 token 失败", exc_info=True)
+
+    @staticmethod
+    def _record_failed_llm(
+        ctx: RunContext,
+        recorder: Any,
+        run_span: SpanHandle,
+        pending: Mapping[str, Any],
+        outcome: Any,
+    ) -> None:
+        """模型调用抛错时补记 ``status=error`` 的 llm span（§4.2.2）。"""
+        started_at = pending.get("started_at") or utcnow()
+        end = utcnow()
+        attributes: dict[str, Any] = {
+            "gen_ai.operation.name": "chat",
+            "maa.agent.name": ctx.spec.name,
+            **_profile_attributes(pending.get("profile")),
+            "gen_ai.output.type": "json" if pending.get("structured") else "text",
+            "error.type": outcome.finish_reason or "error",
+            "maa.llm.latency_ms": max(
+                0, int((end - started_at).total_seconds() * 1000)
+            ),
+        }
+        if pending.get("schema"):
+            attributes["maa.structured.schema"] = pending["schema"]
+        recorder.record_span(
+            "llm.chat",
+            SpanKind.LLM,
+            trace_id=run_span.trace_id,
+            run_id=ctx.run_id,
+            parent_span_id=run_span.span_id,
+            started_at=started_at,
+            ended_at=end,
+            status="error",
+            attributes=attributes,
+        )
 
 
 #: 知识库读失败时稳定段的占位；与 ``runtime.KNOWLEDGE_UNAVAILABLE`` 同一个字符串。

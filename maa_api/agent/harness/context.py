@@ -80,6 +80,10 @@ class ModelResponse:
     raw_tool_calls: list[dict[str, Any]] = field(default_factory=list)
     #: loop 从 ``raw_tool_calls`` 解析出来的调用。
     tool_calls: list[ToolCall] = field(default_factory=list)
+    #: 流式分片里的 ``model``（M68 §4.2.3）：写进 ``gen_ai.response.model``。
+    model: str | None = None
+    #: 流式分片里的 ``id``（M68 §4.2.3）：写进 ``gen_ai.response.id``。
+    response_id: str | None = None
 
 
 @dataclass(slots=True)

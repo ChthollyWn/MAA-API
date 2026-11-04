@@ -1,0 +1,2 @@
+{"type": "header", "format": 1, "scenario": "legacy-question-timeout", "source": "handwritten", "recorded_at": "2026-11-04T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "v2 复盘"}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-ask-1", "name": "ask_user", "arguments": {"question": "刷哪一关？", "options": [{"label": "1-7"}, {"label": "CE-6"}]}}], "finish_reason": "tool_calls"}}

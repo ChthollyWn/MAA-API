@@ -147,6 +147,12 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "budget.per_run_cost_limit": ("budget", "per_run_cost_limit"),
     "budget.warn_ratio": ("budget", "warn_ratio"),
     "context.fallback_context_tokens": ("context", "fallback_context_tokens"),
+    # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
+    # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
+    "trace.enabled": ("trace", "enabled"),
+    "trace.retention_days": ("trace", "retention_days"),
+    "trace.otlp_endpoint": ("trace", "otlp_endpoint"),
+    "trace.otlp_headers": ("trace", "otlp_headers"),
     # VAPID 密钥仍需登记在这张表里：`config.yaml` 与环境变量两层都靠它驱动解析，
     # 表里没有的段会被整个忽略（notify 段曾因此静默读不到值）。
     # 它们被 CONFIG_ONLY_SETTING_KEYS 排除在设置 API 之外。
@@ -189,6 +195,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
 #: 「把根设到别处」）；三个 ``recon_*`` 预算是运维阈值，与 skland 两项同理没有前端语义。
 #:
 #: 运行心跳两项（M66）：运维阈值，前端没有对应的产品语义。
+#:
+#: 运行追踪导出两项（M68）：``otlp_endpoint`` 与 ``otlp_headers`` 带凭据性质，
+#: 且改了要重启才重新装配 exporter；设置页只放开关与保留天数（规格 §4.4）。
 CONFIG_ONLY_SETTING_KEYS: frozenset[str] = frozenset(
     {
         "notify.vapid_private_key",
@@ -202,6 +211,8 @@ CONFIG_ONLY_SETTING_KEYS: frozenset[str] = frozenset(
         "agent.recon_max_chars",
         "agent.run_heartbeat_seconds",
         "agent.run_stale_seconds",
+        "trace.otlp_endpoint",
+        "trace.otlp_headers",
     }
 )
 
@@ -300,6 +311,24 @@ class ContextSettings(BaseModel):
 
     #: 模型档案没写 context_window 时按它计算可用窗口。
     fallback_context_tokens: int = Field(default=128000, ge=8000, le=2000000)
+
+
+class TraceSettings(BaseModel):
+    """运行追踪（M68 规格 §4.4）。
+
+    开关与保留天数进设置 API、可热改；``otlp_endpoint`` / ``otlp_headers`` 只从
+    ``config.yaml`` / 环境变量来（见 :data:`CONFIG_ONLY_SETTING_KEYS`）：导出地址
+    与请求头带凭据性质，且改了要重启才重新装配 exporter，不适合放进设置页。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    retention_days: int = Field(default=14, ge=1, le=90)
+    #: 完整的 traces 地址（以 /v1/traces 结尾）；空串表示不导出。
+    otlp_endpoint: str = ""
+    #: 导出请求头，写成 ``k=v,k=v``；值里的逗号写成 %2C。
+    otlp_headers: str = ""
 
 
 class LogSettings(BaseModel):
@@ -554,6 +583,8 @@ class Settings(BaseModel):
     #: M67 成本预算与上下文窗口兜底值（都不是 config-only，可在设置页改）。
     budget: BudgetSettings = Field(default_factory=BudgetSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
+    #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
+    trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)
     deployment: DeploymentSettings = Field(default_factory=DeploymentSettings)
     skland: SklandSettings = Field(default_factory=SklandSettings)

@@ -1,0 +1,2 @@
+{"type": "header", "format": 1, "scenario": "v2-878-interrupt-mid-batch", "source": "handwritten", "recorded_at": "2026-11-04T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "v2 13 §8.78"}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-b2-1", "name": "get_device_status", "arguments": {}}, {"id": "call-b2-2", "name": "get_versions", "arguments": {}}], "finish_reason": "tool_calls"}}

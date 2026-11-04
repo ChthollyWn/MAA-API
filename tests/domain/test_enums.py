@@ -214,6 +214,19 @@ EXPECTED_VALUES = {
         "TAIL_SYSTEM": "tail_system",
         "TAIL_USER": "tail_user",
     },
+    # M68 运行追踪（v3 docs/03 §5.1、10 §2.2）。
+    "SpanKind": {
+        "LLM": "llm",
+        "TOOL": "tool",
+        "RETRIEVAL": "retrieval",
+        "POLICY": "policy",
+        "CONFIRMATION": "confirmation",
+        "MEMORY": "memory",
+        "COMPACTION": "compaction",
+        "LEASE": "lease",
+        "DELEGATE": "delegate",
+        "OTHER": "other",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。
