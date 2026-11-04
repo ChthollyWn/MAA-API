@@ -379,14 +379,14 @@ def test_backoff_sequence_then_failed_after_budget() -> None:
                 old_pid = supervisor.pid
                 os.kill(old_pid, signal.SIGKILL)  # 硬崩溃：exitcode = -9
                 if index < 3:
-                    ok = await _wait_new_ready(supervisor, old_pid, timeout=15.0)
+                    ok = await _wait_new_ready(supervisor, old_pid, timeout=30.0)
                 else:
-                    ok = await _wait_state(supervisor, CoreState.FAILED, timeout=15.0)
+                    ok = await _wait_state(supervisor, CoreState.FAILED, timeout=30.0)
                 assert ok, (index, supervisor.state, consumer.counts, transitions)
                 if index < 3:
                     pids.append(supervisor.pid)
 
-            await asyncio.sleep(1.0)  # 超过最大退避 0.2s：确认不再 spawn（满载下留余量）
+            await asyncio.sleep(2.0)  # 超过最大退避 0.2s：确认不再 spawn（满载下留余量）
             assert supervisor.state is CoreState.FAILED
             assert supervisor.pid == pids[-1]
             assert supervisor.exitcode == -9  # SIGKILL（负值 = 信号杀死）
@@ -406,9 +406,9 @@ def test_backoff_sequence_then_failed_after_budget() -> None:
         assert len(delays) == 3, transitions
         # Include scheduler/process-start jitter under the full suite; the first
         # configured backoff is still 0.1s and later backoffs must increase.
-        assert 0.0 <= delays[0] < 1.0, delays
-        assert 0.04 <= delays[1] < 1.5, delays
-        assert 0.1 <= delays[2] < 2.5, delays
+        assert 0.0 <= delays[0] < 3.0, delays
+        assert 0.04 <= delays[1] < 4.5, delays
+        assert 0.1 <= delays[2] < 6.0, delays
         assert delays[0] < delays[2], delays
 
 

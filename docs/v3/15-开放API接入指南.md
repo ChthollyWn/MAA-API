@@ -233,6 +233,10 @@ curl -X POST http://<host>:8002/api/snippets \
 | `WORKSPACE_NOT_CONFIGURED` | 503 | 没配工作区根目录（`workspace.root` 为空或指向不存在的目录），而这次调用需要读工作区：`list_files` / `read_file` / `search_code` / `delegate_recon` 四个工具都抛它。留空即关闭探索能力，不做静默降级 |
 | `WORKSPACE_PATH_DENIED` | 403 | 路径被判为不可读：越出工作区根目录（含 `..`、绝对路径、指向外面的软链接）、命中密钥名单（`.env` / `config.yaml` / `*.pem` / `*.key` / `id_rsa*` / `*credential*` / `*secret*` / `.dsh/`）、是二进制、不是 UTF-8 文本，或正文里出现疑似私钥与凭据。白名单外的 git 动作（如 `push` / `checkout`）也用它 |
 | `WORKSPACE_FILE_TOO_LARGE` | 400 | 单个文件超过只读探索的 2 MiB 上限；改用 `search_code` 定位后再读片段 |
+| `ARTIFACT_NOT_FOUND` | 404 | 没有这个产物，或读取范围越出工单（M75） |
+| `ARTIFACT_TOO_LARGE` | 413 | 产物超过 16 MiB 上限（M75） |
+| `PLAN_NOT_FOUND` | 404 | 没有进行中的计划（M75） |
+| `PLAN_NOT_AWAITING_APPROVAL` | 409 | 计划不在待批准状态（M75） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->
