@@ -69,7 +69,8 @@ def register_tools(registry: ToolRegistry) -> None:
             group="knowledge",
             risk=ToolRisk.SAFE,
             description=(
-                "按内容检索知识库与已建索引的资料，返回带出处的片段。"
+                "按内容检索知识库与已建索引的资料（MAA 文档、PRTS 页面、拆包实体卡、"
+                "作业站作业元数据），返回带出处的片段。"
                 "不知道该读哪条知识、或要找规则与做法的线索时用；数值仍要用对应工具现查。"
             ),
             params_model=SearchKnowledgeParams,

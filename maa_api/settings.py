@@ -24,6 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
@@ -166,6 +167,12 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "rag.top_k": ("rag", "top_k"),
     "rag.chunk_chars": ("rag", "chunk_chars"),
     "rag.chunk_overlap": ("rag", "chunk_overlap"),
+    # ---- 外部语料（M77 规格 §4.4）：四个开关现读、refresh_cron 启动时注册任务。----
+    "rag.maa_docs_enabled": ("rag", "maa_docs_enabled"),
+    "rag.prts_enabled": ("rag", "prts_enabled"),
+    "rag.gamedata_enabled": ("rag", "gamedata_enabled"),
+    "rag.copilot_site_enabled": ("rag", "copilot_site_enabled"),
+    "rag.refresh_cron": ("rag", "refresh_cron"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -364,7 +371,11 @@ class PlanSettings(BaseModel):
 
 
 class RagSettings(BaseModel):
-    """检索层（M76）。每次检索现读，改完立即生效；分块参数改了以后由下次同步重建。"""
+    """检索层（M76，M77 加四个外部语料开关与刷新时间）。
+
+    每次检索现读，改完立即生效；分块参数改了以后由下次同步重建。``refresh_cron``
+    在启动时读一次注册定时刷新，改完要重启服务才生效。
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -373,12 +384,26 @@ class RagSettings(BaseModel):
     top_k: int = Field(default=8, ge=1, le=30)
     chunk_chars: int = Field(default=800, ge=200, le=4000)
     chunk_overlap: int = Field(default=100, ge=0, le=1000)
+    #: M77 四个外部语料开关：关闭后不抓取、不参与检索（出站请求另受 sources.* 管）。
+    maa_docs_enabled: bool = True
+    prts_enabled: bool = True
+    gamedata_enabled: bool = True
+    copilot_site_enabled: bool = False
+    #: M77 语料刷新时间：五段 cron，本机时区；启动时注册任务，改完要重启服务。
+    refresh_cron: str = "0 4 * * *"
 
     @model_validator(mode="after")
     def _overlap_below_chunk(self) -> "RagSettings":
         if self.chunk_overlap >= self.chunk_chars:
             raise ValueError("chunk_overlap 必须小于 chunk_chars")
         return self
+
+    @field_validator("refresh_cron")
+    @classmethod
+    def _valid_cron(cls, value: str) -> str:
+        """五段 cron，用 APScheduler 自己解析一遍；解析不了就拒绝。"""
+        CronTrigger.from_crontab(value)
+        return value
 
 
 class TraceSettings(BaseModel):

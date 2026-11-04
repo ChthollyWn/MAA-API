@@ -1355,6 +1355,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.agent.knowledge.index.entries import KnowledgeEntrySource
         from maa_api.agent.knowledge.index.indexer import KnowledgeIndexService
         from maa_api.agent.knowledge.index.retriever import Retriever
+        from maa_api.agent.knowledge.sources import build_external_sources
 
         async def record_embedding_usage(tokens: int) -> None:
             """远端向量服务的用量入账；没有运行归属，``run_id`` 留空。"""
@@ -1393,6 +1394,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         knowledge_index_service.register(
             KnowledgeEntrySource(app.state.knowledge_service, "user")
         )
+        # M77 §4.5：四个外部语料在 ``start()`` 之前注册，启动时由 ``ensure_source``
+        # 补齐来源行。仓库没有 ``app.state.activity_service``（M77 接缝裁决 2），
+        # 传 None 由作业站来源内部回落 ``default_activity_service()``。
+        for source in build_external_sources(
+            session_factory=db_session.session_factory,
+            settings_provider=get_settings,
+            activity_service=getattr(app.state, "activity_service", None),
+        ):
+            knowledge_index_service.register(source)
         app.state.knowledge_index_service = knowledge_index_service
         app.state.retriever = Retriever(
             db_session.session_factory,
@@ -1600,6 +1610,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             replace_existing=True,
         )
 
+        # M77 §4.5：外部语料按 rag.refresh_cron（默认每天 04:00）依次刷新并补向量。
+        # cron 启动时解析一次；设置层的校验器已拒绝非法值，这里仍兜底回落默认值。
+        async def refresh_corpora() -> None:
+            service = getattr(app.state, "knowledge_index_service", None)
+            if service is not None:
+                await service.refresh_all()
+
+        try:
+            rag_trigger = CronTrigger.from_crontab(get_settings().rag.refresh_cron)
+        except ValueError:
+            logger.warning("rag.refresh_cron 无法解析，改用默认的 0 4 * * *")
+            rag_trigger = CronTrigger.from_crontab("0 4 * * *")
+        update_scheduler.add_job(
+            refresh_corpora,
+            rag_trigger,
+            id="maa-rag-refresh",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+
         # 森空岛定时同步（M42 §4.5）：**默认关**（`skland.auto_sync_interval_minutes = 0`），
         # 配成 ≥ 60 分钟才注册。每 tick 现读配置，所以改配置文件后重启一次即可生效；
         # 同步本身的互斥锁与冷却在服务层，这里只负责按时戳一下，失败只记 last_error。
@@ -1654,6 +1685,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M76：首次同步排在第 9 步末尾而不是装配点，避开与定时任务装载等启动
         # 写入的 SQLite 写锁竞争；同步本身仍在后台跑。
         await knowledge_index_service.start()
+        # M77 §4.5：来源行由 ``start()`` 里的 ``ensure_source`` 补齐，首次同步任务
+        # 必须在它之后再快照 ``never_indexed()``，否则拿不到来源行；120 秒后各跑一
+        # 次，与同时到点的定时刷新撞上时后到的一方看到忙碌就跳过。
+        for source_id in knowledge_index_service.never_indexed():
+            update_scheduler.add_job(
+                knowledge_index_service.sync_source,
+                "date",
+                run_date=datetime.now(timezone.utc) + timedelta(seconds=120),
+                args=[source_id],
+                id=f"maa-rag-first-sync-{source_id}",
+                replace_existing=True,
+            )
     except BaseException:
         shutdown_started = True
         # v3 关闭顺序（M70 §5 T13）：先停总控与 Worker，再停它们依赖的确认 / 提问 /
