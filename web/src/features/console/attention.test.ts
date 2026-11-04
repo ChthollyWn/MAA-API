@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentQuestion } from '@/features/agent/types'
 import type { Confirmation } from '@/features/confirmations/ConfirmationsPanel'
+import type { MemoryItem } from '@/features/memory/api'
 import { buildAttentionItems, originLabel } from './attention'
 import { toTicketView } from './api'
-import { makeConfirmation, makeQuestion, makeTicket } from './test-utils'
+import { makeConfirmation, makeMemory, makeQuestion, makeTicket } from './test-utils'
 
 const NOW = Date.parse('2026-09-27T10:00:00Z')
 
@@ -110,6 +111,41 @@ describe('M72 待你处理', () => {
     })
 
     expect(items.map((item) => item.id)).toEqual(['q-open', 't-open'])
+  })
+
+  it('adds one pending-memory entry between questions and tickets', () => {
+    const memory = (overrides: Record<string, unknown>) =>
+      makeMemory(overrides) as unknown as MemoryItem
+    const items = buildAttentionItems({
+      confirmations: [confirmation({ confirmation_id: 'confirm-1' })],
+      questions: [question({ question_id: 'q-1' })],
+      memories: [
+        memory({ id: 'm1', content: '刷图不用源石' }),
+        memory({ id: 'm2', content: 'ADB 掉线先重连' }),
+        // 已生效的不出现在待你处理里。
+        memory({ id: 'm3', status: 'active', content: '已生效' }),
+      ],
+      tickets: [ticket({ id: 't-blocked', status: 'blocked' })],
+    })
+
+    expect(items.map((item) => item.kind)).toEqual([
+      'confirmation',
+      'question',
+      'memory',
+      'ticket',
+    ])
+    const entry = items.find((item) => item.kind === 'memory')
+    expect(entry).toMatchObject({
+      id: 'memory-proposed',
+      count: 2,
+      previews: ['刷图不用源石', 'ADB 掉线先重连'],
+    })
+    // 没有待审核记忆时这一项不出现。
+    expect(buildAttentionItems({
+      confirmations: [],
+      questions: [],
+      tickets: [],
+    }).some((item) => item.kind === 'memory')).toBe(false)
   })
 
   it('labels the origin of a card', () => {

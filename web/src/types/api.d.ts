@@ -392,6 +392,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/memories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出长期记忆 */
+        get: operations["agent_list_memories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/memories/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 修改一条生效中的记忆
+         * @description 改一条 ``active`` 记忆的 ``content``、``subject`` 或 ``expires_at``。
+         *
+         *     不存在的记忆返回 404 ``MEMORY_NOT_FOUND``；不是生效中或一个字段都没传时由
+         *     服务层报 400 ``INVALID_PARAMETER``。``expires_at`` 传 ``null`` 表示清空。
+         */
+        put: operations["agent_update_memory"];
+        post?: never;
+        /**
+         * 删除一条记忆
+         * @description 物理删除一条记忆（03 §14 不自动删，用户在这里删）；不存在报 404。
+         */
+        delete: operations["agent_delete_memory"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/memories/{memory_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 审核一条待审记忆
+         * @description 批准或拒绝一条 ``proposed`` 记忆。
+         *
+         *     ``approved=true`` 改为 ``active``，带 ``content`` 时顺手改写正文；``false``
+         *     改为 ``rejected``。已经不在 ``proposed`` 返回 409 ``MEMORY_NOT_PROPOSED``。
+         *     取代关系不由请求体传入：批准时若 ``supersedes_id`` 指向一条生效中的记忆，
+         *     服务层把那条改为 ``superseded``。
+         */
+        post: operations["agent_review_memory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/model-profiles": {
         parameters: {
             query?: never;
@@ -3986,6 +4055,112 @@ export interface components {
          * @enum {string}
          */
         MandateStrength: "explicit" | "inferred";
+        /**
+         * MemoryKind
+         * @description 记忆的种类（07 §5.1）：稳定事实、一次经历、验证过的做法。
+         * @enum {string}
+         */
+        MemoryKind: "semantic" | "episodic" | "procedural";
+        /**
+         * MemoryOut
+         * @description 一条长期记忆的全部列（03 §10.2）；时间统一渲染成 ``...Z``。
+         *
+         *     没有 ``pinned`` 列，不要加（规格 §4.3）。
+         */
+        MemoryOut: {
+            /** Confidence */
+            confidence: number | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["MemoryKind"];
+            /**
+             * Last Used At
+             * Format: date-time
+             */
+            last_used_at: string | null;
+            /**
+             * Reviewed At
+             * Format: date-time
+             */
+            reviewed_at: string | null;
+            /** Reviewed By */
+            reviewed_by: string | null;
+            /** Source Run Id */
+            source_run_id: string | null;
+            /** Source Session Id */
+            source_session_id: string | null;
+            /** Source Ticket Id */
+            source_ticket_id: string | null;
+            status: components["schemas"]["MemoryStatus"];
+            /** Subject */
+            subject: string | null;
+            /** Supersedes Id */
+            supersedes_id: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string | null;
+            /** Use Count */
+            use_count: number;
+        };
+        /**
+         * MemoryPage
+         * @description 记忆分页信封，与 04 §1 的统一分页形状一致。
+         */
+        MemoryPage: {
+            /** Items */
+            items: components["schemas"]["MemoryOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * MemoryReviewRequest
+         * @description ``POST .../review`` 的入参：批准可顺手改写正文，拒绝只改状态。
+         */
+        MemoryReviewRequest: {
+            /** Approved */
+            approved: boolean;
+            /** Content */
+            content?: string | null;
+        };
+        /**
+         * MemoryStatus
+         * @description 记忆的状态：待审核、生效、拒绝、被取代、过期。
+         * @enum {string}
+         */
+        MemoryStatus: "proposed" | "active" | "rejected" | "superseded" | "expired";
+        /**
+         * MemoryUpdateRequest
+         * @description ``PUT`` 的入参：三项都可选，但至少要改一项（服务层报参数错误）。
+         *
+         *     ``subject`` 与 ``expires_at`` 显式传 ``null`` 表示清空；路由用
+         *     ``model_fields_set`` 区分「没传」与「传了 null」。
+         */
+        MemoryUpdateRequest: {
+            /** Content */
+            content?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Subject */
+            subject?: string | null;
+        };
         /**
          * Mention
          * @description 一条 @ 引用；``type`` 决定前端去哪类对象里跳转。
@@ -7829,6 +8004,348 @@ export interface operations {
                      *     }
                      */
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_memories: {
+        parameters: {
+            query?: {
+                /** @description 按状态过滤（proposed/active/rejected/superseded/expired）；不传返回全部状态 */
+                status?: string | null;
+                /** @description 按种类过滤（semantic/episodic/procedural） */
+                kind?: string | null;
+                /** @description 在正文与分类键里做子串匹配 */
+                q?: string | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_update_memory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 记忆 id */
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：MEMORY_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MEMORY_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_delete_memory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 记忆 id */
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：MEMORY_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MEMORY_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_review_memory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 记忆 id */
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：MEMORY_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MEMORY_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：MEMORY_NOT_PROPOSED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "MEMORY_NOT_PROPOSED",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

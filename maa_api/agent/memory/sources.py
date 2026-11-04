@@ -11,8 +11,8 @@
 - ``scheduled_refresh=False``：不参加 ``rag.refresh_cron`` 的全量刷新；
 - ``searchable_by_default=False``：默认检索不查历史与记忆，调用方必须显式
   ``sources=["history"]`` / ``sources=["memory"]``（07 §2.4、§6）；
-- ``trusted=False``：历史正文混有工具输出与外部页面的转述，按不可信处理；记忆
-  在来源级也沿用同一口径（M79 规格只对 history 明说，G3 裁决统一为 false）。
+- ``trusted``：历史正文混有工具输出与外部页面的转述，按不可信处理（``False``）；
+  记忆是用户逐条审核过才生效的，按可信处理（``True``，07 §2.5）。
 
 来源的启用开关（``knowledge_source.enabled``）仍由检索层判断。
 """
@@ -81,11 +81,16 @@ class HistoryCorpusSource(_PushOnlySource):
 
 
 class MemoryCorpusSource(_PushOnlySource):
-    """用户审核过的长期记忆（07 §3、§5）。"""
+    """用户审核过的长期记忆（07 §3、§5）。
+
+    记忆只有审核通过才写进索引，内容来自用户确认，所以来源级 ``trusted=True``
+    （07 §2.5）；历史仍按不可信处理。
+    """
 
     source_id = "memory"
     kind = KnowledgeSourceKind.MEMORY
     title = _MEMORY_TITLE
+    trusted = True
 
 
 def build_memory_sources() -> tuple[HistoryCorpusSource, MemoryCorpusSource]:

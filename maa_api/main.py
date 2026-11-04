@@ -59,6 +59,7 @@ from maa_api.api.routers import (
     knowledge,
     knowledge_index,
     logs,
+    memories,
     model_profiles,
     notifications,
     orchestrator,
@@ -2070,6 +2071,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router)
     app.include_router(knowledge_index.router)
     app.include_router(skills.router)
+    app.include_router(memories.router)
     app.include_router(model_profiles.router)
     app.include_router(runs.router)
     app.include_router(agent_specs.router)

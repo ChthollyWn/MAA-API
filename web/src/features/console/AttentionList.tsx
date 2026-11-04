@@ -69,6 +69,28 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
               </li>
             )
           }
+          if (item.kind === 'memory') {
+            return (
+              <li key={`memory-${item.id}`} data-attention-kind="memory" data-attention-id={item.id}>
+                <Link
+                  to="/more/memories"
+                  className="block rounded-xl border bg-card px-3.5 py-3 shadow-card transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 break-words text-sm font-medium text-foreground">
+                      {item.count} 条记忆待审核
+                    </span>
+                    <Badge variant="primary">记忆</Badge>
+                  </span>
+                  {item.previews.map((preview) => (
+                    <span key={preview} className="mt-1 block truncate text-footnote text-muted-foreground">
+                      {preview}
+                    </span>
+                  ))}
+                </Link>
+              </li>
+            )
+          }
           const ticket = item.ticket
           return (
             <li key={`ticket-${item.id}`} data-attention-kind="ticket" data-attention-id={item.id}>

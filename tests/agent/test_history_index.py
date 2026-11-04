@@ -366,18 +366,20 @@ def test_index_failure_retries_three_times(db_session_factory, caplog) -> None:
 # 来源适配器与记忆索引清理
 # ---------------------------------------------------------------------------
 def test_push_only_sources_and_memory_index_cleanup(db_session_factory) -> None:
-    """history/memory 来源默认不可检索；记忆写 ``memory:<id>``，删除/取代时清理。"""
+    """history/memory 来源默认不可检索；记忆可信（07 §2.5）；写入/清理走 ``memory:<id>``。"""
     factory = db_session_factory
 
     async def scenario() -> None:
         history_source, memory_source = build_memory_sources()
         for source in (history_source, memory_source):
             assert source.searchable_by_default is False
-            assert source.trusted is False
             assert source.scheduled_refresh is False
             assert source.full_listing is False
             assert await source.list_refs({}) == []
             assert await source.fetch([], {}) == []
+        # 历史混有工具输出与外部转述，不可信；记忆是用户审核过的，可信（07 §2.5）。
+        assert history_source.trusted is False
+        assert memory_source.trusted is True
         assert history_source.kind is KnowledgeSourceKind.HISTORY
         assert memory_source.kind is KnowledgeSourceKind.MEMORY
         assert history_source.source_id == "history"

@@ -86,6 +86,12 @@ export const keys = {
     pendingQuestions: () => [...root, 'agent', 'questions', 'pending'] as const,
     /** 指挥台上「待你处理」的全局待答提问。 */
     attentionQuestions: () => [...root, 'agent', 'questions', 'pending', 'all'] as const,
+    /** 长期记忆（M79 §4.6）：整片前缀，`memory_proposed` 一次失效本页与待审核清单。 */
+    memories: () => [...root, 'agent', 'memories'] as const,
+    /** 记忆页的完整列表（不传 status，客户端分三组）。 */
+    memoryList: () => [...root, 'agent', 'memories', 'list'] as const,
+    /** 指挥台「待你处理」里的待审核记忆。 */
+    attentionMemories: () => [...root, 'agent', 'memories', 'pending'] as const,
     /** @ 提及的干员候选；query 进 key，防抖后的不同查询各有一份缓存。 */
     mentionCandidates: (type: string, query: string) =>
       [...root, 'agent', 'mentions', type, query] as const,

@@ -89,6 +89,18 @@ export interface ArtifactCreatedEvent {
   }
 }
 
+// M79 §4.5：写入 proposed（或 require_review=false 直接生效）时广播的记忆提议。
+// 载荷只带 id、种类与正文前 80 字；卡片正文由记忆页重新读取。
+export interface MemoryProposedEvent {
+  event: 'memory_proposed'
+  session_id: string | null
+  payload: {
+    id: string
+    kind: string
+    preview: string
+  }
+}
+
 export type ServerEvent =
   | WsEnvelope<'log', LogRecord>
   | WsEnvelope<'log_batch', LogBatch>

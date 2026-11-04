@@ -1,11 +1,14 @@
 import type { AgentQuestion } from '@/features/agent/types'
 import type { Confirmation } from '@/features/confirmations/ConfirmationsPanel'
+import type { MemoryItem } from '@/features/memory/api'
 import type { TicketView } from './api'
 import type { Origin } from './conversation/types'
 
 export type AttentionItem =
   | { kind: 'confirmation'; id: string; confirmation: Confirmation; origin: Origin | null }
   | { kind: 'question'; id: string; question: AgentQuestion; origin: Origin | null }
+  /** 待审核记忆合成一项，文案「N 条记忆待审核」（M79 规格 §4.5）。 */
+  | { kind: 'memory'; id: string; count: number; previews: string[] }
   | { kind: 'ticket'; id: string; ticket: TicketView }
 
 function originOf(value: unknown): Origin | null {
@@ -39,16 +42,18 @@ type SortedItem = { group: number; item: AttentionItem; expires: number; updated
  * 1. 工单已经被一张确认/提问覆盖（`human_action.ref_id` 命中、或它的 id 就是卡片来源的
  *    `origin.ticket_id`）就不再单列；被 `excludeIds` 排除的卡片仍然参与覆盖计算，
  *    否则实时副本里的卡会让同一张卡在侧栏里再出现一次。
- * 2. 顺序：确认 → 提问 → blocked 工单 → waiting 工单；确认与提问按过期时间升序
- *    （读不出的排最后），工单按更新时间降序。
+ * 2. 顺序：确认 → 提问 → 待审核记忆 → blocked 工单 → waiting 工单；确认与提问按
+ *    过期时间升序（读不出的排最后），工单按更新时间降序。
  */
 export function buildAttentionItems(input: {
   confirmations: readonly Confirmation[]
   questions: readonly AgentQuestion[]
   tickets: readonly TicketView[]
+  /** 待审核（proposed）的记忆；合成一项入口，不逐条列卡片（M79 §4.5）。 */
+  memories?: readonly MemoryItem[]
   excludeIds?: ReadonlySet<string>
 }): AttentionItem[] {
-  const { confirmations, questions, tickets, excludeIds } = input
+  const { confirmations, questions, tickets, memories = [], excludeIds } = input
   const coveredRefs = new Set<string>()
   const coveredTickets = new Set<string>()
   for (const confirmation of confirmations) {
@@ -94,13 +99,28 @@ export function buildAttentionItems(input: {
     })
   }
 
+  const pendingMemories = memories.filter((memory) => memory.status === 'proposed')
+  if (pendingMemories.length > 0) {
+    sorted.push({
+      group: 2,
+      item: {
+        kind: 'memory',
+        id: 'memory-proposed',
+        count: pendingMemories.length,
+        previews: pendingMemories.slice(0, 3).map((memory) => memory.content),
+      },
+      expires: Number.POSITIVE_INFINITY,
+      updated: 0,
+    })
+  }
+
   for (const ticket of tickets) {
     if (ticket.status !== 'blocked' && ticket.status !== 'waiting') continue
     if (coveredTickets.has(ticket.id)) continue
     const refId = ticket.humanAction?.ref_id
     if (refId && coveredRefs.has(refId)) continue
     sorted.push({
-      group: ticket.status === 'blocked' ? 2 : 3,
+      group: ticket.status === 'blocked' ? 3 : 4,
       item: { kind: 'ticket', id: ticket.id, ticket },
       expires: Number.POSITIVE_INFINITY,
       updated: updatedAt(ticket.updatedAt),

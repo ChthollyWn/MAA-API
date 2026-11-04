@@ -226,6 +226,16 @@ skills:
   # 关闭后 Agent 看不到技能索引，也不能加载技能
   enabled: true
 
+memory:
+  # 关闭后不抽取、不注入，remember 返回工具错误 memory_disabled
+  enabled: true
+  # 关闭后只保留 remember 入口
+  auto_extract: true
+  # 关闭后提议直接生效，审核人记 auto，仍发 memory_proposed
+  require_review: true
+  # 注入预算，0–8000，用 M67 的 token 估算
+  max_injection_tokens: 1500
+
 # 运行追踪：每次代理调用的步骤、耗时与用量
 trace:
   enabled: true
