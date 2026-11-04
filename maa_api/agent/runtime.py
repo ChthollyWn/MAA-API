@@ -91,6 +91,7 @@ from maa_api.agent.recon.runner import (
 )
 from maa_api.agent.registry import ToolRegistry
 from maa_api.agent.runs import RunService
+from maa_api.agent.skills.middleware import SkillsMiddleware
 from maa_api.agent.specs.registry import builtin_spec, builtin_specs
 from maa_api.agent.workers.middleware import (
     MandateMiddleware,
@@ -230,6 +231,7 @@ def build_agent_chain(
     device_lease_service: Any = None,
     cost_ledger: Any = None,
     settings_provider: Callable[[], Any] | None = None,
+    skill_registry: Any = None,
 ) -> MiddlewareChain:
     """v3 运行（总控 / Worker / 子代理）的中间件链（05 §5.2）。
 
@@ -252,6 +254,13 @@ def build_agent_chain(
     middlewares.extend(
         [
             ContextLayoutMiddleware(),
+            # M78：技能索引与补回正文紧接布局之后；第 5 位，Durable 之前（05 §5.2）。
+            # 没有注册表（回放、局部测试）时跳过，链的其余位置不变。
+            *(
+                [SkillsMiddleware(skill_registry, session_factory=session_factory)]
+                if skill_registry is not None
+                else []
+            ),
             DurableContextMiddleware(),
             CompactionMiddleware(settings_provider=settings_provider),
             ToolResultClearingMiddleware(
@@ -372,6 +381,7 @@ class AgentRuntime:
         max_context_chars: int | None = DEFAULT_MAX_CONTEXT_CHARS,
         confirmation_poll_seconds: float = DEFAULT_CONFIRMATION_POLL_SECONDS,
         run_service: RunService | None = None,
+        skill_registry: Any = None,
     ) -> None:
         # None 表示不设步数上限（默认）；正整数只用于测试与需要受限的调用方。
         if max_iterations is not None and max_iterations < 1:
@@ -392,6 +402,8 @@ class AgentRuntime:
         # 刻意**不**回落到 ``app.state``：``None`` 的语义是「这个部署没有提问能力」，
         # 要报 AGENT_DISABLED（规格 §3.5）；隐式回落会让「没装上」表现成「装上了」。
         self.question_service = question_service
+        # M78：装配层在 lifespan 里建好技能注册表后再挂进来（构造参数优先）。
+        self.skill_registry = skill_registry
         self.max_iterations = max_iterations
         self.max_context_chars = max_context_chars
         self.confirmation_poll_seconds = confirmation_poll_seconds
@@ -1302,6 +1314,7 @@ class AgentRuntime:
             device_lease_service=device_lease_service,
             cost_ledger=cost_ledger,
             settings_provider=settings_provider,
+            skill_registry=self.skill_registry,
         )
 
     async def _persist_message(
