@@ -178,6 +178,11 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     # ---- 运行心跳与失联判定（M66 规格 §4.4）：运维阈值，只从 config.yaml / 环境变量来 ----
     "agent.run_heartbeat_seconds": ("agent", "run_heartbeat_seconds"),
     "agent.run_stale_seconds": ("agent", "run_stale_seconds"),
+    # ---- 总控与 Worker（M70 规格 §4.4）：合并窗口、并发闸与并行委派上限。三者都不是
+    # config-only，服务层每次唤醒 / acquire / 委派时现读，改完立即生效。----
+    "orchestrator.batch_window_ms": ("orchestrator", "batch_window_ms"),
+    "worker.max_concurrent": ("worker", "max_concurrent"),
+    "delegation.max_parallel": ("delegation", "max_parallel"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -466,6 +471,32 @@ class AgentSettings(BaseModel):
     run_stale_seconds: int = Field(default=90, ge=30, le=600)
 
 
+class OrchestratorSettings(BaseModel):
+    """总控的合并窗口（M70 规格 §4.4）：新消息到达后等这么久再处理。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: 窗口内到达的消息合并成一轮；服务每次唤醒现读，0 表示不等待。
+    batch_window_ms: int = Field(default=800, ge=0, le=5000)
+
+
+class WorkerSettings(BaseModel):
+    """Worker 并发闸（M70 规格 §4.4）：同时运行的 Worker 上限，每次 acquire 现读。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    max_concurrent: int = Field(default=4, ge=1, le=16)
+
+
+class DelegationSettings(BaseModel):
+    """委派并行度（M70 规格 §4.4）：一批调用里同时执行的只读子代理个数。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: 每次委派现读，改完立即生效。
+    max_parallel: int = Field(default=3, ge=1, le=8)
+
+
 class DeploymentSettings(BaseModel):
     """反向代理与浏览器来源白名单（M15，docs/09 §12.4）。
 
@@ -577,6 +608,10 @@ class Settings(BaseModel):
     log: LogSettings = Field(default_factory=LogSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    #: M70 总控与 Worker 的合并窗口、并发闸与并行委派上限（都不是 config-only）。
+    orchestrator: OrchestratorSettings = Field(default_factory=OrchestratorSettings)
+    worker: WorkerSettings = Field(default_factory=WorkerSettings)
+    delegation: DelegationSettings = Field(default_factory=DelegationSettings)
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
     channel: ChannelSettings = Field(default_factory=ChannelSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)

@@ -965,9 +965,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             depot=getattr(app.state, "depot_service", None),
         )
         app.state.upgrade_plan_service = upgrade_plans
+        # 流水线终态钩子只有一个槽位（M27 的养成计划最初独占它）；M70 的话题路由也要
+        # 订阅，所以槽位绑定扇出器，订阅者挂在扇出器上（规格 §4.2.1）。订阅者之间互不
+        # 影响，一个失败只记日志。`getattr` 兼容测试替身：没有槽位的 runner 照旧跳过。
+        from maa_api.agent.hooks_fanout import FinishHookFanout
+
+        finish_hooks = FinishHookFanout()
+        finish_hooks.add("upgrade_plans", upgrade_plans.on_pipeline_finished)
+        app.state.finish_hooks = finish_hooks
         bind_finish_hook = getattr(pipeline_runner, "bind_finish_hook", None)
         if callable(bind_finish_hook):
-            bind_finish_hook(upgrade_plans.on_pipeline_finished)
+            bind_finish_hook(finish_hooks)
         # 任务终态留档截图的日志附件（docs/12 §3.10）：stdlib 日志渠道只搬运
         # pipeline/task/request 上下文，**不搬运 attachment**，附件只能走 hub 的
         # ``offer``，所以这里把 hub 后置注入给 runner（同 bind_notify_service）。
@@ -1505,6 +1513,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "inbox_service",
             "boot_id",
             "agent_runtime",
+            "finish_hooks",
             "agent_incident_service",
             "agent_ops_service",
             "resource_service",
@@ -1593,6 +1602,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "inbox_service",
             "boot_id",
             "agent_runtime",
+            "finish_hooks",
             "agent_incident_service",
             "agent_ops_service",
             "resource_service",

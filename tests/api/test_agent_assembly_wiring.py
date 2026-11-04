@@ -72,6 +72,23 @@ def test_lifespan_wires_ticket_services(tmp_settings, isolated_db) -> None:
         assert ticket_service._inbox_service is inbox_service
 
 
+def test_lifespan_wires_finish_hook_fanout(tmp_settings, isolated_db) -> None:
+    """M70：终态钩子槽位绑的是扇出器，养成计划是第一个（也是当前唯一）订阅者。
+
+    T13 装配话题路由后会多一个 ``ticket_threads``，届时这里改成两项。
+    """
+
+    from maa_api.agent.hooks_fanout import FinishHookFanout
+
+    app = create_app()
+    with _lifespan(app):
+        fanout = getattr(app.state, "finish_hooks", None)
+        assert isinstance(fanout, FinishHookFanout), (
+            "lifespan 没有设置 app.state.finish_hooks"
+        )
+        assert fanout.names == ("upgrade_plans",)
+
+
 def _lifespan(app):
     """进入/退出应用 lifespan 的上下文（不依赖 TestClient 的 HTTP 栈）。"""
 

@@ -418,6 +418,10 @@ def test_env_mapping_names_are_pinned() -> None:
         # M66：运行心跳与失联判定（config-only 的运维阈值）。
         "agent.run_heartbeat_seconds": "MAA_AGENT_RUN_HEARTBEAT_SECONDS",
         "agent.run_stale_seconds": "MAA_AGENT_RUN_STALE_SECONDS",
+        # M70：总控合并窗口、Worker 并发闸与并行委派上限（都不是 config-only）。
+        "orchestrator.batch_window_ms": "MAA_ORCHESTRATOR_BATCH_WINDOW_MS",
+        "worker.max_concurrent": "MAA_WORKER_MAX_CONCURRENT",
+        "delegation.max_parallel": "MAA_DELEGATION_MAX_PARALLEL",
     }
 
 
@@ -610,6 +614,95 @@ def test_copilot_research_settings_have_documented_defaults_and_bounds() -> None
     assert template_agent["copilot_grant_minutes"] == 60
     assert template_agent["copilot_attempt_timeout_minutes"] == 20
     assert template_agent["copilot_retention_days"] == 7
+
+
+def test_orchestrator_worker_delegation_settings_have_documented_defaults_and_bounds() -> None:
+    """M70 总控与 Worker：合并窗口、并发闸与并行委派上限（规格 §4.4）。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+
+    default = resolve_settings(env={})
+    assert default.orchestrator.batch_window_ms == 800
+    assert default.worker.max_concurrent == 4
+    assert default.delegation.max_parallel == 3
+
+    configured = resolve_settings(
+        {
+            "orchestrator": {"batch_window_ms": 1500},
+            "worker": {"max_concurrent": 16},
+            "delegation": {"max_parallel": 8},
+        },
+        env={},
+    )
+    assert configured.orchestrator.batch_window_ms == 1500
+    assert configured.worker.max_concurrent == 16
+    assert configured.delegation.max_parallel == 8
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_ORCHESTRATOR_BATCH_WINDOW_MS": "0",
+            "MAA_WORKER_MAX_CONCURRENT": "6",
+            "MAA_DELEGATION_MAX_PARALLEL": "2",
+        }
+    )
+    assert env_layer.orchestrator.batch_window_ms == 0
+    assert env_layer.worker.max_concurrent == 6
+    assert env_layer.delegation.max_parallel == 2
+
+    # 越界拒绝：每项各试下界 -1 与上界 +1（orchestrator 的下界是 0，所以用 -1）。
+    for section, field, value in (
+        ("orchestrator", "batch_window_ms", -1),
+        ("orchestrator", "batch_window_ms", 5001),
+        ("worker", "max_concurrent", 0),
+        ("worker", "max_concurrent", 17),
+        ("delegation", "max_parallel", 0),
+        ("delegation", "max_parallel", 9),
+    ):
+        with pytest.raises(ValidationError):
+            resolve_settings({section: {field: value}}, env={})
+
+    # 设置 API：三项都登记、分组 Agent、无热更新动作，并带上界面上的上下限与说明。
+    keys = {row["key"] for row in SETTINGS_SCHEMA}
+    assert {
+        "orchestrator.batch_window_ms",
+        "worker.max_concurrent",
+        "delegation.max_parallel",
+    } <= keys
+    orchestrator_row = schema_for("orchestrator.batch_window_ms")
+    assert (
+        orchestrator_row["type"],
+        orchestrator_row["minimum"],
+        orchestrator_row["maximum"],
+    ) == ("integer", 0, 5000)
+    assert orchestrator_row["label"] == "总控合并窗口（毫秒）"
+    assert orchestrator_row["description"] == (
+        "新消息到达后等这么久再处理，窗口内的消息合并成一轮"
+    )
+    worker_row = schema_for("worker.max_concurrent")
+    assert (
+        worker_row["type"],
+        worker_row["minimum"],
+        worker_row["maximum"],
+    ) == ("integer", 1, 16)
+    delegation_row = schema_for("delegation.max_parallel")
+    assert (
+        delegation_row["type"],
+        delegation_row["minimum"],
+        delegation_row["maximum"],
+    ) == ("integer", 1, 8)
+    assert delegation_row["description"] == "一批调用里同时执行的只读子代理个数"
+    for key in (
+        "orchestrator.batch_window_ms",
+        "worker.max_concurrent",
+        "delegation.max_parallel",
+    ):
+        assert schema_for(key)["group"] == "Agent"
+        assert schema_for(key)["hot_action"] == "none"
+
+    # 文档一致性：模板里的三个值就是代码默认值。
+    template = YAML(typ="safe").load(TEMPLATE_PATH.read_text(encoding="utf8"))
+    assert template["orchestrator"]["batch_window_ms"] == 800
+    assert template["worker"]["max_concurrent"] == 4
+    assert template["delegation"]["max_parallel"] == 3
 
 
 def test_gamedata_settings_have_documented_defaults_and_bounds() -> None:
