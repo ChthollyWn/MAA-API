@@ -36,7 +36,7 @@ export function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
   return <ToolCallBar tool={entry.tool} />
 }
 
-function TypingIndicator() {
+export function TypingIndicator() {
   return (
     <div aria-hidden="true" className="flex h-6 items-center gap-1 pl-0.5">
       {[0, 150, 300].map((delay) => (
