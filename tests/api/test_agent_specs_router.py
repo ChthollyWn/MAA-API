@@ -46,6 +46,7 @@ SPEC_NAMES = [
     "general",
     "legacy_chat",
     "legacy_incident",
+    "memory_curator",
     "navigator",
     "ops",
     "orchestrator",
@@ -59,14 +60,15 @@ SPEC_NAMES = [
 #: 各定义的版本号；M71 给 ``general`` 加了设备租约工具与通用 Worker 提示，升到 2。
 #: M75 §4.7：七个 Worker 各加三个工作记忆工具，``general`` 升到 3、其余升到 2。
 #: M78 §4.7：八个总控与 Worker 定义各加两个技能工具，版本再 +1。
+#: M79 §4.2：总控与 general 加 ``remember``、diagnose 加 ``search_knowledge``，版本再 +1。
 EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
     "analyst": 3,
     "copilot": 3,
     "daily_ops": 3,
-    "diagnose": 3,
-    "general": 5,
+    "diagnose": 4,
+    "general": 6,
     "ops": 3,
-    "orchestrator": 4,
+    "orchestrator": 5,
     "planner": 3,
     "researcher": 2,
 }
@@ -91,7 +93,7 @@ def _error(response):
 # ---------------------------------------------------------------------------
 # 成功路径
 # ---------------------------------------------------------------------------
-def test_list_specs_returns_the_sixteen_builtin_definitions(make_client, tmp_settings):
+def test_list_specs_returns_the_seventeen_builtin_definitions(make_client, tmp_settings):
     client = _specs_client(make_client)
 
     response = client.get("/api/agent/specs")

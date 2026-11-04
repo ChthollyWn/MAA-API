@@ -26,6 +26,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.knowledge import register_tools as register_knowledge_tools
     from maa_api.agent.tools.lease import lease_tools as build_lease_tools
     from maa_api.agent.tools.media import register_tools as register_media_tools
+    from maa_api.agent.tools.memory import register_tools as register_memory_tools
     from maa_api.agent.tools.ops import register_tools as register_ops_tools
     from maa_api.agent.tools.delegate import register_tools as register_delegate_tools
     from maa_api.agent.tools.pipeline import register_tools as register_pipeline_tools
@@ -62,6 +63,8 @@ def build_registry() -> ToolRegistry:
         register_knowledge_tools,
         # M78：技能工具接在知识工具之后（规格 §4.2）。
         register_skills_tools,
+        # M79：记忆工具接在技能工具之后（规格 §4.5）；可见性由代理定义的 tools 决定。
+        register_memory_tools,
         register_interaction_tools,
         # M48：只读探索三件套 + 侦察委派（规格 §4.2/§4.3）。
         register_recon_tools,

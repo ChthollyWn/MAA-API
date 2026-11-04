@@ -447,6 +447,11 @@ def test_env_mapping_names_are_pinned() -> None:
         "rag.refresh_cron": "MAA_RAG_REFRESH_CRON",
         # M78：技能总开关（不是 config-only）。
         "skills.enabled": "MAA_SKILLS_ENABLED",
+        # M79：长期记忆四项（都不是 config-only）。
+        "memory.enabled": "MAA_MEMORY_ENABLED",
+        "memory.auto_extract": "MAA_MEMORY_AUTO_EXTRACT",
+        "memory.require_review": "MAA_MEMORY_REQUIRE_REVIEW",
+        "memory.max_injection_tokens": "MAA_MEMORY_MAX_INJECTION_TOKENS",
     }
 
 
@@ -1155,6 +1160,96 @@ def test_skills_settings_have_documented_default_and_metadata() -> None:
     template = YAML(typ="safe").load(template_text)
     assert template["skills"] == {"enabled": True}
     assert "# 关闭后 Agent 看不到技能索引，也不能加载技能" in template_text
+
+
+def test_memory_settings_have_documented_defaults_and_metadata() -> None:
+    """M79 长期记忆四项：默认值、范围、环境层与设置 API 元数据（spec §4.4）。"""
+    from pydantic import ValidationError
+
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, MemorySettings
+
+    default = resolve_settings(env={})
+    assert default.memory == MemorySettings()
+    assert default.memory.enabled is True
+    assert default.memory.auto_extract is True
+    assert default.memory.require_review is True
+    assert default.memory.max_injection_tokens == 1500
+
+    configured = resolve_settings(
+        {
+            "memory": {
+                "enabled": False,
+                "auto_extract": False,
+                "require_review": False,
+                "max_injection_tokens": 0,
+            }
+        },
+        env={},
+    )
+    assert configured.memory.enabled is False
+    assert configured.memory.auto_extract is False
+    assert configured.memory.require_review is False
+    assert configured.memory.max_injection_tokens == 0
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_MEMORY_ENABLED": "false",
+            "MAA_MEMORY_AUTO_EXTRACT": "false",
+            "MAA_MEMORY_REQUIRE_REVIEW": "false",
+            "MAA_MEMORY_MAX_INJECTION_TOKENS": "8000",
+        }
+    )
+    assert env_layer.memory.enabled is False
+    assert env_layer.memory.auto_extract is False
+    assert env_layer.memory.require_review is False
+    assert env_layer.memory.max_injection_tokens == 8000
+
+    # 0–8000 之外直接拒（注入预算）。
+    for bad in (-1, 8001):
+        with pytest.raises(ValidationError):
+            resolve_settings({"memory": {"max_injection_tokens": bad}}, env={})
+    with pytest.raises(ValidationError):
+        MemorySettings(max_injection_tokens=8001)
+
+    # 设置 API：四个键都登记、分组 Agent、不是 config-only。
+    keys = {row["key"] for row in SETTINGS_SCHEMA}
+    memory_keys = {
+        "memory.enabled",
+        "memory.auto_extract",
+        "memory.require_review",
+        "memory.max_injection_tokens",
+    }
+    assert memory_keys <= keys
+    assert not (memory_keys & CONFIG_ONLY_SETTING_KEYS)
+    assert (
+        schema_for("memory.enabled")["label"],
+        schema_for("memory.enabled")["group"],
+        schema_for("memory.enabled")["type"],
+        schema_for("memory.enabled")["hot_action"],
+    ) == ("启用长期记忆", "Agent", "boolean", "none")
+    budget = schema_for("memory.max_injection_tokens")
+    assert (
+        budget["label"], budget["group"], budget["type"],
+        budget["minimum"], budget["maximum"], budget["hot_action"],
+    ) == ("记忆注入上限（token）", "Agent", "integer", 0, 8000, "none")
+
+    # 文档一致性：模板里的值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["memory"] == {
+        "enabled": True,
+        "auto_extract": True,
+        "require_review": True,
+        "max_injection_tokens": 1500,
+    }
+    for comment in (
+        "# 关闭后不抽取、不注入，remember 返回工具错误 memory_disabled",
+        "# 关闭后只保留 remember 入口",
+        "# 关闭后提议直接生效，审核人记 auto，仍发 memory_proposed",
+        "# 注入预算，0–8000，用 M67 的 token 估算",
+    ):
+        assert comment in template_text
 
 
 def test_rag_refresh_cron_rejects_garbage() -> None:

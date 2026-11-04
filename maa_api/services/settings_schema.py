@@ -156,6 +156,11 @@ _FIELDS: dict[str, dict[str, Any]] = {
         description="五段 cron，按本机时区；改完重启服务生效"),
     # M78 技能：总开关，中间件与 load_skill 每次现读。
     "skills.enabled": dict(label="启用技能", group="Agent", type="boolean", hot_action="none"),
+    # M79 长期记忆：四项都由抽取、注入与 remember 每次现读，改完立即生效。
+    "memory.enabled": dict(label="启用长期记忆", group="Agent", type="boolean", hot_action="none"),
+    "memory.auto_extract": dict(label="自动抽取记忆", group="Agent", type="boolean", hot_action="none"),
+    "memory.require_review": dict(label="记忆须经审核", group="Agent", type="boolean", hot_action="none"),
+    "memory.max_injection_tokens": dict(label="记忆注入上限（token）", group="Agent", type="integer", minimum=0, maximum=8000, hot_action="none"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

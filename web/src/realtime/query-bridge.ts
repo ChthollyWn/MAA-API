@@ -136,6 +136,10 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
         // M75 §4.6：载荷只有 session_id、没有 ticket_id（04 §4.2），按工单分段的
         // 列表没法精确定位，只能失效所有已挂载的产物列表。
         invalidateBatched(queryClient, keys.agent.artifactsAll())
+      } else if (event.data.event === 'memory_proposed') {
+        // M79 §4.6：待你处理的「N 条记忆待审核」与记忆页共用同一个查询前缀，
+        // 一次失效两处；不碰消息窗口与工单。
+        invalidateBatched(queryClient, keys.agent.memories())
       } else if (event.data.event === 'lease_changed') {
         // 设备租约（M71 §4.3）：租约条与持有者工单的详情各取各的。payload.lease 在
         // 释放/过期时可能是 null，所以只有拿得到 ticket_id 才顺带失效工单详情。

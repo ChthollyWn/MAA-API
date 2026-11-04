@@ -1,4 +1,4 @@
-"""SQLModel 表定义：45 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：46 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -58,6 +58,7 @@ from maa_api.domain.enums import (
     ConfirmationStatus,
     DynamicContextPosition,
     InboxStatus,
+    MemoryStatus,
     ModelProfileKind,
     ModelProvider,
     PipelineStatus,
@@ -1546,6 +1547,77 @@ class AgentSkill(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+# ---------------------------------------------------------------------------
+# M79 长期记忆：memory_item（v3 specs/m79 §4.1、docs/v3/03 §10.2）
+# ---------------------------------------------------------------------------
+class MemoryItem(SQLModel, table=True):
+    """一条长期记忆（07 §5）。用户审核过的内容才注入，``status`` 是状态机。
+
+    三个来源字段与 ``supersedes_id`` 都按 ``SET NULL`` 处理：工单、会话、运行或
+    被取代的旧记忆被清理时，记忆本身仍要留着（03 §14 不自动删）。``content`` 上限
+    500 字由服务层检查；表只负责存。``episodic`` 默认 90 天过期，``proposed``
+    30 天未审过期，两者都在服务读取前的扫描里改状态，不建定时任务。
+    """
+
+    __tablename__ = "memory_item"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    kind: str = Field(max_length=16)
+    subject: str | None = Field(default=None, max_length=64)
+    content: str = Field(sa_column=text_column("content", nullable=False))
+    status: str = Field(default=MemoryStatus.PROPOSED, max_length=16)
+    confidence: float | None = Field(default=None)
+    source_ticket_id: str | None = Field(
+        default=None,
+        foreign_key="ticket.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    source_session_id: str | None = Field(
+        default=None,
+        foreign_key="agent_session.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    source_run_id: str | None = Field(
+        default=None,
+        foreign_key="agent_run.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    #: 这条记忆取代的旧记忆；旧记忆被清理时只解除关联。
+    supersedes_id: str | None = Field(
+        default=None,
+        foreign_key="memory_item.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    expires_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("expires_at", nullable=True)
+    )
+    last_used_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("last_used_at", nullable=True)
+    )
+    use_count: int = Field(default=0)
+    reviewed_by: str | None = Field(default=None, max_length=32)
+    reviewed_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("reviewed_at", nullable=True)
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+    __table_args__ = (
+        # 列表按状态过滤、同状态内按种类过滤（03 §10.2）。
+        Index("ix_memory_item_status_kind", "status", "kind"),
+        # 按分类键过滤与去重。
+        Index("ix_memory_item_subject", "subject"),
     )
 
 

@@ -9,6 +9,7 @@ import {
   heldStream,
   json,
   makeConfirmation,
+  makeMemory,
   makeQuestion,
   makeTicket,
   makeV3Message,
@@ -1042,6 +1043,24 @@ describe('M72 指挥台', () => {
     const ids = Array.from(document.querySelectorAll('[data-attention-id]'))
       .map((node) => node.getAttribute('data-attention-id'))
     expect(ids).toEqual(['confirm-1', 'q-1', 't-blocked', 't-waiting'])
+  })
+
+  it('lists pending memories as one attention entry (M79)', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      memories: [
+        makeMemory({ id: 'm1', content: '刷图不要用源石恢复理智' }),
+        makeMemory({ id: 'm2', content: 'ADB 掉线先重连一次' }),
+        makeMemory({ id: 'm3', status: 'active', content: '已生效的记忆' }),
+      ],
+    })
+    renderConsole(api)
+
+    const link = await screen.findByRole('link', { name: /2 条记忆待审核/ })
+    expect(link).toHaveAttribute('href', '/more/memories')
+    expect(screen.getByText('刷图不要用源石恢复理智')).toBeInTheDocument()
+    expect(screen.queryByText('已生效的记忆')).not.toBeInTheDocument()
   })
 
   it('opens the attention sheet from the summary bar on phones', async () => {

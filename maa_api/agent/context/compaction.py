@@ -632,6 +632,10 @@ class Compactor:
         self._broadcast = broadcast
         self._locks: dict[str, asyncio.Lock] = {}
         self._local_layout: ContextLayout | None = None
+        #: 压缩后记忆抽取的后台任务；持有引用避免任务被回收（M79 §4.2、§8）。
+        self._memory_tasks: set[asyncio.Task[Any]] = set()
+        #: 检查点写 ``history`` 来源的后台任务（M79 §4.5、07 §6）。
+        self._history_tasks: set[asyncio.Task[Any]] = set()
 
     # ---- 延迟解析的装配依赖 ------------------------------------------------ #
     def _lazy(self, name: str) -> Any:
@@ -948,6 +952,117 @@ class Compactor:
         if inspect.isawaitable(result):
             await result
 
+    def _schedule_memory_extraction(
+        self,
+        *,
+        session_id: str,
+        session_kind: str,
+        ticket_id: str | None,
+        compacted: Sequence[AgentMessage],
+        upto_seq: int,
+        parent_run_id: str | None,
+    ) -> None:
+        """检查点提交并广播后，后台抽取 ``seq ≤ upto_seq`` 的那一段（M79 §4.2）。
+
+        只对总控生效：Worker 的压缩段属于工单过程，终态时已经整体抽过一次。取不到
+        记忆服务、模型路由或账本时静默跳过；抽取本身失败由后台任务吞掉。
+        """
+        if session_kind != "orchestrator":
+            return
+        memory_service = self._lazy("memory_service")
+        router = self._router
+        ledger = self._ledger
+        if memory_service is None or router is None or ledger is None:
+            return
+        archive = [
+            {
+                "role": str(_field(message, "role") or ""),
+                "content": _content_text(_field(message, "content")),
+            }
+            for message in compacted
+            if _role(message) in ("user", "assistant")
+        ]
+        if not archive:
+            return
+        try:
+            task = asyncio.create_task(
+                self._run_memory_extraction(
+                    memory_service=memory_service,
+                    router=router,
+                    ledger=ledger,
+                    session_id=session_id,
+                    ticket_id=ticket_id,
+                    archive=archive,
+                    parent_run_id=parent_run_id,
+                ),
+                name=f"memory-extract-{session_id}-{upto_seq}",
+            )
+        except RuntimeError:  # pragma: no cover - 正常压缩总在事件循环里
+            logger.warning("压缩后记忆抽取没有事件循环：session=%s", session_id)
+            return
+        self._memory_tasks.add(task)
+        task.add_done_callback(self._memory_tasks.discard)
+
+    async def _run_memory_extraction(
+        self,
+        *,
+        memory_service: Any,
+        router: Any,
+        ledger: Any,
+        session_id: str,
+        ticket_id: str | None,
+        archive: Sequence[dict[str, Any]],
+        parent_run_id: str | None,
+    ) -> None:
+        """后台执行压缩段抽取；失败只记日志，不改变检查点。"""
+        from maa_api.agent.memory.extract import extract_candidates
+
+        try:
+            await extract_candidates(
+                memory_service,
+                session_factory=self._session_factory,
+                router=router,
+                ledger=ledger,
+                run_service=self._run_service,
+                ticket_id=ticket_id,
+                session_id=session_id,
+                parent_run_id=parent_run_id,
+                archive=archive,
+                knowledge_service=self._lazy("knowledge_service"),
+                spec_registry=self._spec_registry,
+                trigger="compaction",
+            )
+        except Exception:  # noqa: BLE001 - 压缩结果不受抽取失败影响
+            logger.warning(
+                "压缩后记忆抽取失败：session=%s", session_id, exc_info=True
+            )
+
+    def _invalidate_memory_cache(self, session_id: str) -> None:
+        """压缩后让 ``MemoryInjectionMiddleware`` 下一轮重新选择（07 §5.4）。"""
+        cache = self._lazy("memory_injection_cache")
+        if cache is None:
+            return
+        try:
+            cache.invalidate(session_id)
+        except Exception:  # noqa: BLE001 - 失效失败不能影响压缩
+            logger.warning("失效记忆注入缓存失败：session=%s", session_id, exc_info=True)
+
+    def _schedule_history_index(self, checkpoint_id: str) -> None:
+        """检查点提交后异步写 ``checkpoint:<id>`` 文档；失败只记日志。"""
+        history_indexer = self._lazy("history_indexer")
+        if history_indexer is None:
+            return
+        try:
+            task = asyncio.create_task(
+                history_indexer.index_checkpoint(checkpoint_id),
+                name=f"history-index-checkpoint-{checkpoint_id}",
+            )
+        except RuntimeError:  # pragma: no cover - 正常压缩总在事件循环里
+            logger.warning("检查点历史索引没有事件循环：checkpoint=%s", checkpoint_id)
+            return
+        self._history_tasks.add(task)
+        task.add_done_callback(self._history_tasks.discard)
+
     async def compact(
         self,
         *,
@@ -1078,6 +1193,18 @@ class Compactor:
                 upto_seq=upto_seq,
                 degraded=degraded,
             )
+            self._schedule_memory_extraction(
+                session_id=session_id,
+                session_kind=session_kind,
+                ticket_id=ticket_id,
+                compacted=compacted,
+                upto_seq=upto_seq,
+                parent_run_id=run_id,
+            )
+            # M79：检查点换掉之后总控的记忆选择必须重选（07 §5.4）；检查点正文
+            # 异步写进 ``history`` 来源。两者失败都不影响压缩结果。
+            self._invalidate_memory_cache(session_id)
+            self._schedule_history_index(checkpoint_id)
             return CompactionResult(
                 checkpoint_id=checkpoint_id,
                 skipped=False,

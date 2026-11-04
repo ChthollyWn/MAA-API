@@ -175,6 +175,12 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "rag.refresh_cron": ("rag", "refresh_cron"),
     # ---- 技能（M78 规格 §4.4）：总开关，中间件与 load_skill 每次现读。----
     "skills.enabled": ("skills", "enabled"),
+    # ---- 长期记忆（M79 规格 §4.4）：四项都不是 config-only，抽取、注入与
+    # remember 每次现读，改完立即生效。----
+    "memory.enabled": ("memory", "enabled"),
+    "memory.auto_extract": ("memory", "auto_extract"),
+    "memory.require_review": ("memory", "require_review"),
+    "memory.max_injection_tokens": ("memory", "max_injection_tokens"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -418,6 +424,24 @@ class SkillsSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     enabled: bool = True
+
+
+class MemorySettings(BaseModel):
+    """长期记忆（M79 规格 §4.4）。
+
+    ``enabled=false`` 时不抽取、不注入，``remember`` 返回工具错误
+    ``memory_disabled``；``auto_extract=false`` 时只保留 ``remember`` 入口；
+    ``require_review=false`` 时提议直接生效（``reviewed_by=auto``），仍发
+    ``memory_proposed``；``max_injection_tokens`` 是注入预算（0–8000，默认 1500）。
+    四项都由抽取、注入与 ``remember`` 每次现读，改完立即生效。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    auto_extract: bool = True
+    require_review: bool = True
+    max_injection_tokens: int = Field(default=1500, ge=0, le=8000)
 
 
 class TraceSettings(BaseModel):
@@ -742,6 +766,8 @@ class Settings(BaseModel):
     rag: RagSettings = Field(default_factory=RagSettings)
     #: M78 技能总开关（不是 config-only，中间件与 load_skill 每次现读）。
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
+    #: M79 长期记忆四项（都不是 config-only，抽取/注入/remember 每次现读）。
+    memory: MemorySettings = Field(default_factory=MemorySettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

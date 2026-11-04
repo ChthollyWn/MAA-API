@@ -482,6 +482,8 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
     assert runtime.build_chain("worker").names == (
         "trace",
         "context_layout",
+        # M79：记忆注入在布局之后、技能之前（技能未装配时链上只有它）。
+        "memory_inject",
         "durable_context",
         "compaction",
         "tool_result_clearing",
@@ -513,6 +515,7 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
     assert runtime.build_chain("orchestrator").names == (
         "trace",
         "context_layout",
+        "memory_inject",
         "durable_context",
         "compaction",
         "tool_result_clearing",

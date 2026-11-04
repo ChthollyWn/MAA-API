@@ -112,8 +112,9 @@ def test_sources_list_shows_external_corpora(tmp_settings, isolated_db) -> None:
         }
         settings = get_settings()
 
-    assert len(payload["items"]) == 6, sorted(items)
-    assert set(items) == {"builtin", "user", *_EXTERNAL_IDS}
+    # M79 起另有 history/memory 两个推送式来源（默认不参与检索）。
+    assert len(payload["items"]) == 8, sorted(items)
+    assert set(items) == {"builtin", "user", *_EXTERNAL_IDS, "history", "memory"}
     # 默认 copilot_site_enabled=false：首次同步任务只给另外三个开关为真的来源；
     # 关闭的来源由 never_indexed() 过滤（不是晚点再排）。
     assert first_sync_ids == {

@@ -83,6 +83,7 @@ from maa_api.agent.llm.profiles import (
     probe_tool_calling,
     probe_vision,
 )
+from maa_api.agent.memory.inject import MemoryInjectionMiddleware
 from maa_api.agent.redaction import redact_remote_data
 from maa_api.agent.recon.runner import (
     ReconDeps,
@@ -244,6 +245,8 @@ def build_agent_chain(
     「收集 durable」之后、「清理」之前（压缩阈值按清理后的请求估算，06 §5.2）。
     M75 的 ``plan`` 与 ``spill`` 紧接清理之后（第 9、10 位）：计划先做批准前的
     工具过滤并写尾部，``spill`` 再把新的大结果外置。
+    M79 的 ``memory_inject`` 紧接 ``context_layout`` 之后、``skills`` 之前（第 4 位）：
+    它只写 system 的 ``memory`` 槽，其他中间件的相对顺序不变。
     """
     registry = confirmation_service.registry
     middlewares: list[Middleware] = [TraceMiddleware()]
@@ -254,6 +257,12 @@ def build_agent_chain(
     middlewares.extend(
         [
             ContextLayoutMiddleware(),
+            # M79：记忆注入紧接布局之后、技能之前；写 system 第 4 段的 ``memory``
+            # 槽。app.state 里没有 memory_service 时本中间件直通（回放、局部测试）。
+            MemoryInjectionMiddleware(
+                session_factory=session_factory,
+                settings_provider=settings_provider or get_settings,
+            ),
             # M78：技能索引与补回正文紧接布局之后；第 5 位，Durable 之前（05 §5.2）。
             # 没有注册表（回放、局部测试）时跳过，链的其余位置不变。
             *(

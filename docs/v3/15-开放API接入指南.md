@@ -244,6 +244,8 @@ curl -X POST http://<host>:8002/api/snippets \
 | `ARTIFACT_TOO_LARGE` | 413 | 产物超过 16 MiB 上限（M75） |
 | `PLAN_NOT_FOUND` | 404 | 没有进行中的计划（M75） |
 | `PLAN_NOT_AWAITING_APPROVAL` | 409 | 计划不在待批准状态（M75） |
+| `MEMORY_NOT_FOUND` | 404 | 记忆 id 不存在；更新、删除、审核都按这个码（M79） |
+| `MEMORY_NOT_PROPOSED` | 409 | 审核只接受 `proposed`；已生效、已拒绝、被取代或已过期都按这个码（M79） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->

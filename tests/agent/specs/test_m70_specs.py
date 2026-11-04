@@ -1,6 +1,6 @@
 """M70 T5：六份代理定义与三个结构化 schema（规格 §4.7、§6）。
 
-四条用例覆盖：十六份定义加载与一致规则、``general`` 的工具集合、四个子代理的
+四条用例覆盖：十七份定义加载与一致规则、``general`` 的工具集合、四个子代理的
 输出 schema 与正数步数、正文身份标记唯一。T6 注册七个工具之后才能通过加载校验。
 """
 
@@ -36,6 +36,8 @@ WORKSPACE_TOOLS = {"update_plan", "write_note", "read_artifact"}
 KNOWLEDGE_TOOLS = {"search_knowledge"}
 #: M78 §4.7：八个总控与 Worker 定义末尾追加的技能工具。
 SKILL_TOOLS = {"load_skill", "read_skill_file"}
+#: M79 §4.7：``general`` 追加的记忆工具；总控另算，不在这条用例里。
+MEMORY_TOOLS = {"remember"}
 TICKET_TOOLS = {
     "create_ticket",
     "send_to_ticket",
@@ -51,6 +53,7 @@ BUILTIN_SPEC_NAMES = [
     "general",
     "legacy_chat",
     "legacy_incident",
+    "memory_curator",
     "navigator",
     "ops",
     "orchestrator",
@@ -96,6 +99,7 @@ def test_general_tools_equal_legacy_chat_minus_delegate_recon_plus_worker_tools(
         | WORKSPACE_TOOLS
         | KNOWLEDGE_TOOLS
         | SKILL_TOOLS
+        | MEMORY_TOOLS
     )
     assert set(general.tools) == expected
     assert "delegate_recon" not in general.tools

@@ -71,7 +71,7 @@ WORKERS = {
             "get_queue", "list_pipelines", "get_drop_stats", "read_knowledge", "stop_pipeline",
             "reconnect_device", "back_to_home", "get_versions", "send_screenshot",
             "annotate_screenshot", "update_plan", "write_note", "read_artifact", "report", "delegate",
-            "load_skill", "read_skill_file",
+            "load_skill", "read_skill_file", "search_knowledge",
         ),
     },
     "analyst": {
@@ -133,17 +133,18 @@ def test_six_workers_match_contract():
         assert spec.risk_ceiling == expected["risk_ceiling"]
         assert spec.delegates == expected["delegates"]
         assert spec.tools == expected["tools"]
-        # M78 §4.7：八个总控与 Worker 定义各加两个技能工具，版本 +1。
-        assert spec.version == 3
+        # M78 §4.7 各加两个技能工具、M79 §4.2 给 diagnose 加检索工具，版本 +1。
+        assert spec.version == (4 if name == "diagnose" else 3)
         assert spec.max_steps == 0
         assert spec.output_schema is None
         assert spec.budget.max_cost_per_run == 0
 
-    # diagnose 的前 12 个与 v2 诊断会话是同一份工具名单；M78 的技能工具在最后。
+    # diagnose 的前 12 个与 v2 诊断会话是同一份工具名单；M78 的技能工具与
+    # M79 的检索工具在最后。
     diagnose = specs["diagnose"]
     assert set(diagnose.tools) == set(runtime.INCIDENT_ALLOWED_TOOLS) | set(
         DIAGNOSE_EXTRA_TOOLS
-    ) | {"load_skill", "read_skill_file"}
+    ) | {"load_skill", "read_skill_file", "search_knowledge"}
     assert (
         diagnose.tools[
             len(runtime.INCIDENT_ALLOWED_TOOLS) : len(runtime.INCIDENT_ALLOWED_TOOLS)
@@ -151,7 +152,7 @@ def test_six_workers_match_contract():
         ]
         == DIAGNOSE_EXTRA_TOOLS
     )
-    assert diagnose.tools[-2:] == ("load_skill", "read_skill_file")
+    assert diagnose.tools[-3:] == ("load_skill", "read_skill_file", "search_knowledge")
 
 
 def test_worker_tools_exist_in_registry():

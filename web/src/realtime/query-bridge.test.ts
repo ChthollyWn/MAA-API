@@ -464,6 +464,39 @@ describe('compaction marks the checkpoint list stale', () => {
   })
 })
 
+describe('memory proposals refresh the attention and memory queries', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('invalidates the memory prefix on memory_proposed', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: 'main',
+          event: 'memory_proposed',
+          payload: { id: 'm-1', kind: 'semantic', preview: '刷图不要用源石恢复理智' },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    // 待你处理的待审核清单与记忆页在同一个前缀下，一次失效两处（M79 §4.6）。
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.memories(),
+      refetchType: 'active',
+    })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.all(), refetchType: 'active' })
+  })
+})
+
 describe('workspace events refresh the plan and artifact queries', () => {
   afterEach(() => {
     vi.useRealTimers()

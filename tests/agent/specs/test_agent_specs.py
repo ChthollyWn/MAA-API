@@ -65,6 +65,8 @@ M75_TOOLS = frozenset({"read_artifact", "write_note", "update_plan"})
 M76_TOOLS = frozenset({"search_knowledge"})
 #: M78 的技能工具：注册表里有，v2 会话不加载（M78 §4.2）。
 M78_TOOLS = frozenset({"load_skill", "read_skill_file"})
+#: M79 的记忆工具：注册表里有，v2 会话不加载（M79 §4.5）。
+M79_TOOLS = frozenset({"remember"})
 BUILTIN_SPEC_NAMES = [
     "analyst",
     "copilot",
@@ -73,6 +75,7 @@ BUILTIN_SPEC_NAMES = [
     "general",
     "legacy_chat",
     "legacy_incident",
+    "memory_curator",
     "navigator",
     "ops",
     "orchestrator",
@@ -87,7 +90,7 @@ BUILTIN_SPEC_NAMES = [
 BUILTIN_DIR = resources.files(BUILTIN_PACKAGE).joinpath(BUILTIN_DIRNAME)
 
 
-def test_builtin_specs_load_sixteen_definitions_sorted_by_name():
+def test_builtin_specs_load_seventeen_definitions_sorted_by_name():
     specs = builtin_specs()
 
     assert list(specs) == BUILTIN_SPEC_NAMES
@@ -135,12 +138,12 @@ def test_legacy_chat_lists_every_v2_registered_tool_in_registration_order():
     spec = builtin_spec("legacy_chat")
     definitions = build_registry().list()
 
-    assert len(definitions) == 99
+    assert len(definitions) == 100
     assert spec.tools == tuple(
         definition.name
         for definition in definitions
         if definition.name
-        not in M70_TOOLS | M71_TOOLS | M75_TOOLS | M76_TOOLS | M78_TOOLS
+        not in M70_TOOLS | M71_TOOLS | M75_TOOLS | M76_TOOLS | M78_TOOLS | M79_TOOLS
     )
     assert spec.deferred_groups == tuple(sorted(DEFERRED_TOOL_GROUPS))
     assert set(DEFERRED_TOOL_GROUPS) <= set(spec.deferred_groups)

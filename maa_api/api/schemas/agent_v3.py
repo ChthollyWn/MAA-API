@@ -16,13 +16,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from maa_api.agent.runs import RunNode
-from maa_api.db.models import AgentMessage, AgentRun, Artifact, RunPlan
+from maa_api.db.models import AgentMessage, AgentRun, Artifact, MemoryItem, RunPlan
 from maa_api.domain.enums import (
     AgentRunKind,
     AgentRunStatus,
     ArtifactKind,
     ArtifactStorage,
     InboxKind,
+    MemoryKind,
+    MemoryStatus,
     PlanItemStatus,
     PlanStatus,
 )
@@ -35,6 +37,10 @@ __all__ = [
     "ArtifactOut",
     "ArtifactPage",
     "ArtifactPinRequest",
+    "MemoryOut",
+    "MemoryPage",
+    "MemoryReviewRequest",
+    "MemoryUpdateRequest",
     "Mention",
     "OrchestratorInterruptResult",
     "OrchestratorStateModel",
@@ -49,6 +55,7 @@ __all__ = [
     "agent_message_item",
     "artifact_detail_out",
     "artifact_out",
+    "memory_out",
     "plan_out",
     "run_detail",
     "run_summary",
@@ -383,6 +390,95 @@ class PlanApprovalRequest(BaseModel):
 
     approved: bool
     reason: str | None = Field(default=None, max_length=200)
+
+
+# ----------------------------------------------------------------------
+# M79 记忆端点（规格 §4.3、03 §10.2）：MemoryOut / MemoryPage / 两个请求体
+# ----------------------------------------------------------------------
+class MemoryOut(BaseModel):
+    """一条长期记忆的全部列（03 §10.2）；时间统一渲染成 ``...Z``。
+
+    没有 ``pinned`` 列，不要加（规格 §4.3）。
+    """
+
+    id: str
+    kind: MemoryKind
+    subject: str | None
+    content: str
+    status: MemoryStatus
+    confidence: float | None
+    source_ticket_id: str | None
+    source_session_id: str | None
+    source_run_id: str | None
+    supersedes_id: str | None
+    expires_at: datetime | None = Field(json_schema_extra={"format": "date-time"})
+    last_used_at: datetime | None = Field(json_schema_extra={"format": "date-time"})
+    use_count: int
+    reviewed_by: str | None
+    reviewed_at: datetime | None = Field(json_schema_extra={"format": "date-time"})
+    created_at: datetime = Field(json_schema_extra={"format": "date-time"})
+    updated_at: datetime = Field(json_schema_extra={"format": "date-time"})
+
+    @field_serializer(
+        "expires_at", "last_used_at", "reviewed_at", "created_at", "updated_at"
+    )
+    def _serialize_time(self, value: datetime | None) -> str | None:
+        return _utc_z(value)
+
+
+class MemoryPage(BaseModel):
+    """记忆分页信封，与 04 §1 的统一分页形状一致。"""
+
+    items: list[MemoryOut]
+    total: int
+    page: int
+    size: int
+
+
+class MemoryReviewRequest(BaseModel):
+    """``POST .../review`` 的入参：批准可顺手改写正文，拒绝只改状态。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool
+    content: str | None = None
+
+
+class MemoryUpdateRequest(BaseModel):
+    """``PUT`` 的入参：三项都可选，但至少要改一项（服务层报参数错误）。
+
+    ``subject`` 与 ``expires_at`` 显式传 ``null`` 表示清空；路由用
+    ``model_fields_set`` 区分「没传」与「传了 null」。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str | None = None
+    subject: str | None = None
+    expires_at: datetime | None = None
+
+
+def memory_out(memory: MemoryItem) -> MemoryOut:
+    """``memory_item`` 行 → 对外模型；时间由字段序列化器补 ``Z``。"""
+    return MemoryOut(
+        id=str(memory.id),
+        kind=MemoryKind(str(memory.kind)),
+        subject=memory.subject,
+        content=memory.content,
+        status=MemoryStatus(str(memory.status)),
+        confidence=memory.confidence,
+        source_ticket_id=memory.source_ticket_id,
+        source_session_id=memory.source_session_id,
+        source_run_id=memory.source_run_id,
+        supersedes_id=memory.supersedes_id,
+        expires_at=memory.expires_at,
+        last_used_at=memory.last_used_at,
+        use_count=int(memory.use_count or 0),
+        reviewed_by=memory.reviewed_by,
+        reviewed_at=memory.reviewed_at,
+        created_at=memory.created_at,
+        updated_at=memory.updated_at,
+    )
 
 
 def plan_out(plan: RunPlan) -> PlanOut:

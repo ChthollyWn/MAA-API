@@ -895,7 +895,7 @@ def run(*, keep_temp: bool = False) -> None:
         )
         spec_names = [item["name"] for item in spec_list["items"]]
         _require(
-            # M74 起共十六份定义：M70 的九份 + 六份专职 Worker + 摘要代理，按 name 排序。
+            # M79 起共十七份定义：M70 的九份 + 六份专职 Worker + 摘要代理 + 记忆整理，按 name 排序。
             spec_names
             == [
                 "analyst",
@@ -905,6 +905,7 @@ def run(*, keep_temp: bool = False) -> None:
                 "general",
                 "legacy_chat",
                 "legacy_incident",
+                "memory_curator",
                 "navigator",
                 "ops",
                 "orchestrator",

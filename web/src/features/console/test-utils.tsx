@@ -86,6 +86,8 @@ export interface ConsoleApiState {
   plans: Record<string, Json | null>
   artifacts: Json[]
   artifactDetails: Record<string, Json>
+  /** 长期记忆（M79）：待你处理只读 `status=proposed` 的那一段。 */
+  memories: Json[]
 }
 
 export interface OverrideContext {
@@ -124,6 +126,8 @@ export interface ConsoleApiOptions {
   /** 产物列表（M75）；`artifactDetails` 提供抽屉正文，缺省时回落到列表项。 */
   artifacts?: Json[]
   artifactDetails?: Record<string, Json>
+  /** 长期记忆（M79）；待你处理按 `status=proposed` 过滤。 */
+  memories?: Json[]
   /** 返回 Promise 时，计划批准/退回要等它完成才响应（锁「请求中禁用」）。 */
   holdPlanApproval?: () => Promise<void> | undefined
   knowledge?: Json[]
@@ -173,6 +177,7 @@ function makeState(options: ConsoleApiOptions): ConsoleApiState {
     plans: { ...(options.plans ?? {}) },
     artifacts: options.artifacts ?? [],
     artifactDetails: { ...(options.artifactDetails ?? {}) },
+    memories: options.memories ?? [],
   }
 }
 
@@ -372,6 +377,12 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
           selection: selected,
         })
       }
+    }
+
+    if (url.pathname === '/api/agent/memories' && request.method === 'GET') {
+      const status = url.searchParams.get('status')
+      const items = state.memories.filter((memory) => !status || memory.status === status)
+      return pageOf(items, page, size)
     }
 
     if (url.pathname === '/api/confirmations' && request.method === 'GET') {
@@ -586,6 +597,30 @@ export function makeConfirmation(overrides: Json = {}): Json {
     caller: { kind: 'internal', name: 'orchestrator', session_id: 'main' },
     origin: null,
     expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+    ...overrides,
+  }
+}
+
+/** 一条长期记忆（M79）：默认是待审核的语义记忆，时间按接口的 `...Z` 口径。 */
+export function makeMemory(overrides: Json = {}): Json {
+  return {
+    id: 'memory-1',
+    kind: 'semantic',
+    subject: 'preference',
+    content: '以后刷图不要用源石恢复理智',
+    status: 'proposed',
+    confidence: 0.9,
+    source_ticket_id: null,
+    source_session_id: 'main',
+    source_run_id: null,
+    supersedes_id: null,
+    expires_at: null,
+    last_used_at: null,
+    use_count: 0,
+    reviewed_by: null,
+    reviewed_at: null,
+    created_at: '2026-11-05T04:00:00Z',
+    updated_at: '2026-11-05T04:00:00Z',
     ...overrides,
   }
 }

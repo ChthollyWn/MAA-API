@@ -507,6 +507,13 @@ class ErrorCode(StrEnum):
     # 计划不在待批准状态
     PLAN_NOT_AWAITING_APPROVAL = "PLAN_NOT_AWAITING_APPROVAL"
 
+    # ---- M79 长期记忆 ----
+    # 没有这条记忆（更新、删除、审核都按这个码）
+    MEMORY_NOT_FOUND = "MEMORY_NOT_FOUND"
+
+    # 审核只接受 proposed；已生效、已拒绝、被取代或已过期都是 409
+    MEMORY_NOT_PROPOSED = "MEMORY_NOT_PROPOSED"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
 #: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 145 条。
@@ -679,6 +686,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.ARTIFACT_TOO_LARGE: 413,
     ErrorCode.PLAN_NOT_FOUND: 404,
     ErrorCode.PLAN_NOT_AWAITING_APPROVAL: 409,
+    # M79 长期记忆：没有这条记忆是 404；不在待审核状态是 409。
+    ErrorCode.MEMORY_NOT_FOUND: 404,
+    ErrorCode.MEMORY_NOT_PROPOSED: 409,
 }
 
 
