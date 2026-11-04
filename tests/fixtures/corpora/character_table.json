@@ -1,0 +1,54 @@
+{
+  "char_1001_alpha": {
+    "name": "阿尔法",
+    "appellation": "Alpha",
+    "rarity": "TIER_5",
+    "profession": "WARRIOR",
+    "subProfessionId": "sub_warrior_1",
+    "position": "MELEE",
+    "tagList": ["近战位", "输出"],
+    "description": "<@ba.alpha>可以阻挡两个敌人</>",
+    "itemObtainApproach": "公开招募、关卡掉落",
+    "itemUsage": "用途第一行\\n用途第二行",
+    "isNotObtainable": false,
+    "phases": [{"attributesKeyFrames": [{"level": 1, "maxHp": 1500}]}]
+  },
+  "char_1002_beta": {
+    "name": "贝塔",
+    "appellation": "",
+    "rarity": "TIER_4",
+    "profession": "SNIPER",
+    "subProfessionId": "",
+    "position": "RANGED",
+    "tagList": [],
+    "description": "<@ba.beta>优先攻击空中单位</>",
+    "itemObtainApproach": "",
+    "itemUsage": "简介只有一行",
+    "isNotObtainable": false,
+    "phases": [{"attributesKeyFrames": [{"level": 1, "maxHp": 900}]}]
+  },
+  "char_1003_gamma": {
+    "name": "伽马",
+    "appellation": "Gamma",
+    "rarity": "TIER_6",
+    "profession": "CASTER",
+    "subProfessionId": "sub_caster_1",
+    "position": "RANGED",
+    "tagList": ["远程位", "输出"],
+    "description": "",
+    "itemObtainApproach": "仅限活动",
+    "itemUsage": "",
+    "isNotObtainable": false,
+    "phases": [{"attributesKeyFrames": [{"level": 1, "maxHp": 1200}]}]
+  },
+  "char_1004_hidden": {
+    "name": "隐藏干员",
+    "appellation": "Hidden",
+    "rarity": "TIER_5",
+    "profession": "MEDIC",
+    "position": "RANGED",
+    "tagList": ["治疗"],
+    "description": "不应出现在卡片里",
+    "isNotObtainable": true
+  }
+}

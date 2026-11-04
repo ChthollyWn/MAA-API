@@ -1,0 +1,47 @@
+{
+  "enemyData": {
+    "enemy_1001_slime": {
+      "name": "源石虫",
+      "enemyIndex": "01",
+      "enemyLevel": "NORMAL",
+      "attackType": "MELEE",
+      "damageType": ["PHYSIC"],
+      "abilityList": [
+        {"text": "<@ba.ability>缓慢移动</>"},
+        {"text": "受到伤害时分裂"}
+      ],
+      "description": "常见的源石虫。",
+      "hideInHandbook": false
+    },
+    "enemy_1002_mage": {
+      "name": "术师",
+      "enemyIndex": "02",
+      "enemyLevel": "ELITE",
+      "attackType": "RANGED",
+      "damageType": ["MAGIC", "NO_DAMAGE"],
+      "abilityList": [{"text": "远程法术攻击"}],
+      "description": "会释放法术的敌人。",
+      "hideInHandbook": false
+    },
+    "enemy_1003_boss": {
+      "name": "领袖",
+      "enemyIndex": "03",
+      "enemyLevel": "BOSS",
+      "attackType": "MELEE",
+      "damageType": ["PHYSIC", "MAGIC", "HEAL"],
+      "abilityList": [],
+      "description": "",
+      "hideInHandbook": false
+    },
+    "enemy_1004_hidden": {
+      "name": "隐藏敌人",
+      "enemyIndex": "04",
+      "enemyLevel": "NORMAL",
+      "attackType": "MELEE",
+      "damageType": ["PHYSIC"],
+      "abilityList": [{"text": "不应出现在卡片里"}],
+      "description": "不应出现在卡片里",
+      "hideInHandbook": true
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "status_code": 200,
+  "data": {
+    "has_next": false,
+    "page": 1,
+    "total": 2,
+    "limit": 10,
+    "data": [
+      {
+        "id": 9001,
+        "type": "PRTS",
+        "upload_time": "2026-10-01T12:00:00",
+        "uploader_id": "1001",
+        "uploader": "作业作者甲",
+        "views": 1234,
+        "hot_score": 9.5,
+        "available": true,
+        "rating_level": 9,
+        "not_enough_rating": false,
+        "rating_ratio": 0.98,
+        "rating_type": 0,
+        "comments_count": 2,
+        "content": "{\"stage_name\":\"act1_01\",\"doc\":{\"title\":\"低配 3 人\",\"details\":\"先放先锋，再放狙击。\\n末尾开技能。\"},\"opers\":[{\"name\":\"先锋甲\",\"skill\":1},{\"name\":\"狙击乙\",\"skill\":2}],\"groups\":[{\"name\":\"高台组\",\"opers\":[{\"name\":\"术师丙\",\"skill\":3}]}],\"actions\":[{\"type\":\"Deploy\",\"name\":\"先锋甲\",\"location\":[1,2]},{\"type\":\"SpeedUp\"}]}",
+        "like": 20,
+        "dislike": 1
+      },
+      {
+        "id": 9002,
+        "type": "PRTS",
+        "upload_time": "2026-10-02T08:30:00",
+        "uploader_id": "1002",
+        "uploader": "作业作者乙",
+        "views": 5678,
+        "hot_score": 3.25,
+        "available": true,
+        "rating_level": 8,
+        "not_enough_rating": false,
+        "rating_ratio": 0.87,
+        "rating_type": 0,
+        "comments_count": 0,
+        "content": "{\"stage_name\":\"act1_01\",\"doc\":{},\"opers\":[],\"groups\":[],\"actions\":[{\"type\":\"SkillDaemon\"}]}",
+        "like": 8,
+        "dislike": 2
+      }
+    ]
+  }
+}

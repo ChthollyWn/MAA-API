@@ -1,0 +1,36 @@
+{
+  "items": {
+    "3001": {
+      "name": "固源岩",
+      "rarity": "TIER_2",
+      "classifyType": "MATERIAL",
+      "usage": "<@ba.usage>基础材料\\n用于合成</>",
+      "description": "常见的矿石材料。",
+      "obtainApproach": "关卡掉落"
+    },
+    "3002": {
+      "name": "应急理智顶液",
+      "rarity": "TIER_4",
+      "classifyType": "CONSUME",
+      "usage": "恢复理智",
+      "description": "",
+      "obtainApproach": "采购中心"
+    },
+    "3003": {
+      "name": "源岩",
+      "rarity": "NONE",
+      "classifyType": "MATERIAL",
+      "usage": "",
+      "description": "",
+      "obtainApproach": ""
+    },
+    "3004": {
+      "name": "未收录信物",
+      "rarity": "TIER_3",
+      "classifyType": "NONE",
+      "usage": "不应出现在卡片里",
+      "description": "",
+      "obtainApproach": ""
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "sha": "tree-zh-cn",
+  "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/trees/tree-zh-cn",
+  "truncated": false,
+  "tree": [
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "blob-readme",
+      "size": 98,
+      "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/blobs/blob-readme"
+    },
+    {
+      "path": "manual/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "blob-manual-readme",
+      "size": 98,
+      "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/blobs/blob-manual-readme"
+    },
+    {
+      "path": "manual/faq.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "blob-faq",
+      "size": 412,
+      "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/blobs/blob-faq"
+    },
+    {
+      "path": "manual/connect.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "blob-connect",
+      "size": 532,
+      "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/blobs/blob-connect"
+    },
+    {
+      "path": "manual/only-title.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "blob-title",
+      "size": 54,
+      "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/blobs/blob-title"
+    },
+    {
+      "path": "manual/exact.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "blob-exact",
+      "size": 200,
+      "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/blobs/blob-exact"
+    },
+    {
+      "path": "manual/pic.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "blob-png",
+      "size": 1024,
+      "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/blobs/blob-png"
+    },
+    {
+      "path": "manual",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "subtree-manual",
+      "url": "https://api.github.com/repos/MaaAssistantArknights/MaaAssistantArknights/git/trees/subtree-manual"
+    }
+  ]
+}
