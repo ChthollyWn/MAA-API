@@ -92,6 +92,7 @@ class RunService:
         run_id: str | None = None,
         spec_version: str | None = None,
         trigger_seq: int | None = None,
+        ticket_id: str | None = None,
         model: str | None = None,
         meta: dict[str, Any] | None = None,
     ) -> AgentRun:
@@ -135,6 +136,7 @@ class RunService:
                             kind=kind,
                             status=AgentRunStatus.RUNNING,
                             trigger_seq=trigger_seq,
+                            ticket_id=ticket_id,
                             model=model,
                             meta=meta,
                             boot_id=self.boot_id,
