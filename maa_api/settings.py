@@ -153,6 +153,11 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "context.compaction_ratio": ("context", "compaction_ratio"),
     "context.keep_recent_turns": ("context", "keep_recent_turns"),
     "context.clear_tool_results_after": ("context", "clear_tool_results_after"),
+    # ---- 工作记忆（M75 规格 §4.4）：外置阈值与计划批准策略。都不是 config-only，
+    # 外置每次工具返回、计划每次提交时现读，改完立即生效。----
+    "context.spill_threshold_chars": ("context", "spill_threshold_chars"),
+    "plan.approval_mode": ("plan", "approval_mode"),
+    "plan.complex_min_steps": ("plan", "complex_min_steps"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -332,6 +337,22 @@ class ContextSettings(BaseModel):
     keep_recent_turns: int = Field(default=2, ge=1, le=10)
     #: 最近几个工具往返的结果保留原文，更早的可重新获取的结果成批换成占位（M74）。
     clear_tool_results_after: int = Field(default=3, ge=1, le=20)
+    #: 工具输出超过这个字符数就外置成产物（M75）。
+    spill_threshold_chars: int = Field(default=8000, ge=1000, le=100000)
+
+
+class PlanSettings(BaseModel):
+    """计划模式的批准策略（M75 规格 §4.4、04 §6）。
+
+    ``approval_mode=always`` 恒要批准，``never`` 恒不批准，``complex``（默认）在
+    步骤数达到 ``complex_min_steps`` 时要批准。两项都不是 config-only，计划每次
+    提交时现读，改完立即生效。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    approval_mode: Literal["always", "complex", "never"] = "complex"
+    complex_min_steps: int = Field(default=4, ge=2, le=20)
 
 
 class TraceSettings(BaseModel):
@@ -650,6 +671,8 @@ class Settings(BaseModel):
     #: M67 成本预算与上下文窗口兜底值（都不是 config-only，可在设置页改）。
     budget: BudgetSettings = Field(default_factory=BudgetSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
+    #: M75 计划模式的批准策略（不是 config-only，计划提交时现读）。
+    plan: PlanSettings = Field(default_factory=PlanSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

@@ -8,7 +8,7 @@ tools: [get_system_status, get_versions, get_logs, get_screenshot, get_device_st
   list_devices, list_task_types, resolve_stage, get_pipeline, wait_pipeline, list_pipelines, get_queue,
   submit_pipeline, stop_pipeline, set_task_params, cancel_queued, get_drop_stats, back_to_home,
   list_schedules, list_infrast_plans, read_knowledge, get_activity_stages, get_stage, get_drop_rates,
-  send_screenshot, send_chart, check_confirmation, ask_user, report, delegate, hold_device, release_device]
+  send_screenshot, send_chart, check_confirmation, ask_user, update_plan, write_note, read_artifact, report, delegate, hold_device, release_device]
 deferred_groups: []
 device: exclusive
 risk_ceiling: consume
@@ -17,7 +17,7 @@ delegates: [navigator, verifier]
 skills: []
 output_schema: null
 budget: {max_cost_per_run: 0}
-version: 1
+version: 2
 ---
 你在一张工单里工作。委托范围、风险上限写在工单卡上，超出就停下来汇报 blocked，不要试探。
 每轮结束调用 report。有结果用 ready，要用户决定用 waiting，做不下去用 blocked，执行中用 progress。

@@ -472,9 +472,22 @@ class ErrorCode(StrEnum):
     # 单文件超过只读探索的上限（2 MiB）：改用 search_code 定位后再读片段
     WORKSPACE_FILE_TOO_LARGE = "WORKSPACE_FILE_TOO_LARGE"
 
+    # ---- M75 产物与计划 ----
+    # 没有这个产物，或读取范围越出工单
+    ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
+
+    # 写入产物超过 16 MiB 上限
+    ARTIFACT_TOO_LARGE = "ARTIFACT_TOO_LARGE"
+
+    # 没有进行中的计划
+    PLAN_NOT_FOUND = "PLAN_NOT_FOUND"
+
+    # 计划不在待批准状态
+    PLAN_NOT_AWAITING_APPROVAL = "PLAN_NOT_AWAITING_APPROVAL"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 140 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 145 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -631,6 +644,11 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.WORKSPACE_FILE_TOO_LARGE: 400,
     # M74 压缩：手动压缩拿不到可用摘要时是「下游答复了但不能用」，用 502。
     ErrorCode.COMPACTION_FAILED: 502,
+    # M75 产物与计划：产物过大是「请求本身不对」用 413；计划状态不匹配用 409。
+    ErrorCode.ARTIFACT_NOT_FOUND: 404,
+    ErrorCode.ARTIFACT_TOO_LARGE: 413,
+    ErrorCode.PLAN_NOT_FOUND: 404,
+    ErrorCode.PLAN_NOT_AWAITING_APPROVAL: 409,
 }
 
 

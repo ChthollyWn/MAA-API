@@ -194,6 +194,15 @@ context:
   keep_recent_turns: 2
   # 最近几个工具往返的结果保留原文，更早的可重新获取的结果成批换成占位
   clear_tool_results_after: 3
+  # 工具输出超过这个字符数就外置成产物，上下文里只留指针
+  spill_threshold_chars: 8000
+
+# 计划模式：多步工作先写计划，满足条件时要用户批准
+plan:
+  # always 都要批准、complex 只对复杂计划、never 都不批准
+  approval_mode: complex
+  # 步骤数达到这个值算复杂计划
+  complex_min_steps: 4
 
 # 运行追踪：每次代理调用的步骤、耗时与用量
 trace:

@@ -23,6 +23,7 @@ import { ticketEndpoints, useConversation } from '@/features/console/conversatio
 import { checkpointsQueryOptions } from '@/features/compaction/api'
 import { DESKTOP_QUERY, useMediaQuery } from '@/lib/media'
 import { ActivityTree } from './ActivityTree'
+import { ArtifactList } from './ArtifactList'
 import {
   attentionQuestionsQuery,
   deviceLeaseQuery,
@@ -32,6 +33,7 @@ import {
 } from './api'
 import { LeaseIndicator } from './LeaseIndicator'
 import { MandateCard } from './MandateCard'
+import { PlanPanel } from './PlanPanel'
 import { ReportTimeline } from './ReportTimeline'
 import type { TicketStatusValue } from './format'
 import { TicketStatusBadge } from './TicketStatusBadge'
@@ -369,6 +371,8 @@ function TicketDetail({ ticketId }: { ticketId: string }) {
           <aside aria-label="工单侧栏" className="flex min-h-0 flex-col gap-6 overflow-y-auto">
             <TicketSummaryCard detail={detail.data} specTitles={specTitles}>{leftovers}</TicketSummaryCard>
             {leaseIndicator}
+            <PlanPanel workerSessionId={workerSessionId} />
+            <ArtifactList ticketId={ticketId} />
             <ReportTimeline ticketId={ticketId} onCompose={focusComposer} />
             <ActivityTree ticketId={ticketId} specTitles={specTitles} />
             {detail.data.mandate ? <MandateCard mandate={detail.data.mandate} /> : null}

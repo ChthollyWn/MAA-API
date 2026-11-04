@@ -126,6 +126,16 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
         if (typeof sessionId === 'string' && sessionId) {
           invalidateBatched(queryClient, keys.agent.checkpoints(sessionId))
         }
+      } else if (event.data.event === 'plan_updated') {
+        // M75 §4.6：计划只随该会话的 plan 查询失效；工单详情与消息窗口不动。
+        const sessionId = event.data.session_id
+        if (typeof sessionId === 'string' && sessionId) {
+          invalidateBatched(queryClient, keys.agent.plan(sessionId))
+        }
+      } else if (event.data.event === 'artifact_created') {
+        // M75 §4.6：载荷只有 session_id、没有 ticket_id（04 §4.2），按工单分段的
+        // 列表没法精确定位，只能失效所有已挂载的产物列表。
+        invalidateBatched(queryClient, keys.agent.artifactsAll())
       } else if (event.data.event === 'lease_changed') {
         // 设备租约（M71 §4.3）：租约条与持有者工单的详情各取各的。payload.lease 在
         // 释放/过期时可能是 null，所以只有拿得到 ticket_id 才顺带失效工单详情。

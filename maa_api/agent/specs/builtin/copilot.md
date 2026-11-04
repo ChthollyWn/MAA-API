@@ -8,7 +8,7 @@ tools: [get_stage, get_stage_level_data, search_copilots, save_copilot_draft, ru
   record_copilot_result, list_copilots, upload_copilot, get_operator, get_operator_box, search_prts,
   get_prts_page, get_screenshot, annotate_screenshot, send_screenshot, send_stage_map, submit_pipeline,
   get_pipeline, wait_pipeline, stop_pipeline, back_to_home, update_resource, wait_update, read_knowledge,
-  ask_user, report, delegate, hold_device, release_device]
+  ask_user, update_plan, write_note, read_artifact, report, delegate, hold_device, release_device]
 deferred_groups: []
 device: exclusive
 risk_ceiling: consume
@@ -17,7 +17,7 @@ delegates: [navigator, verifier, researcher]
 skills: []
 output_schema: null
 budget: {max_cost_per_run: 0}
-version: 1
+version: 2
 ---
 你在一张工单里工作。委托范围、风险上限写在工单卡上，超出就停下来汇报 blocked，不要试探。
 每轮结束调用 report。有结果用 ready，要用户决定用 waiting，做不下去用 blocked，执行中用 progress。

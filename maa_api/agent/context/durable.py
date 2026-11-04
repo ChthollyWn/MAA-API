@@ -38,6 +38,7 @@ __all__ = [
     "DurableState",
     "collect_durable_state",
     "render_durable",
+    "render_notes",
     "render_open_tickets",
 ]
 
@@ -124,6 +125,19 @@ def render_open_tickets(items: Sequence[Mapping[str, Any]]) -> str:
         if prompt:
             line += f"，需要你：{prompt}"
         lines.append(line)
+    return "\n".join(lines)
+
+
+def render_notes(notes: Sequence[Mapping[str, Any]]) -> str:
+    """「本工单的笔记」块（尾部 ``notes`` 段）；只列 id 与标题，最多 20 条。
+
+    id 用完整值而不是截短值：模型要拿它调用 ``read_artifact``，截短后对不上。
+    """
+    if not notes:
+        return ""
+    lines = ["本工单的笔记（要看正文时用 read_artifact）："]
+    for item in notes[:DURABLE_ITEM_LIMIT]:
+        lines.append(f"- 「{item.get('title', '')}」（{item.get('id', '')}）")
     return "\n".join(lines)
 
 
@@ -329,10 +343,11 @@ def _layout_service(ctx: RunContext) -> ContextLayout:
 
 
 class DurableContextMiddleware(Middleware):
-    """每轮开始收集 durable 状态；总控的动态尾部带「进行中的工单」段（M74 §4.2.2）。
+    """每轮开始收集 durable 状态；动态尾部带工单与笔记段（M74 §4.2.2、M75 §4.5）。
 
-    legacy 定义直接返回：v2 的布局与请求字节不变。``before_model`` 只给总控加段，
-    Worker 的 durable 状态只供压缩使用。
+    legacy 定义直接返回：v2 的布局与请求字节不变。``before_model`` 给总控加
+    ``tickets`` 段，给有笔记的代理（Worker）加 ``notes`` 段；``plan`` 段由
+    ``PlanMiddleware`` 负责，这里不重复插。
     """
 
     name = "durable_context"
@@ -358,13 +373,16 @@ class DurableContextMiddleware(Middleware):
     async def before_model(self, ctx: RunContext, req: ModelRequest) -> ModelRequest:
         if ctx.spec.name in LEGACY_SPEC_NAMES:
             return req
-        if ctx.spec.kind != "orchestrator":
-            return req
         durable = ctx.state.get("durable")
         if not isinstance(durable, DurableState):
             return req
-        text = render_open_tickets(durable.open_tickets)
-        if not text:
+        tickets = (
+            render_open_tickets(durable.open_tickets)
+            if ctx.spec.kind == "orchestrator"
+            else ""
+        )
+        notes = render_notes(durable.notes)
+        if not tickets and not notes:
             return req
         parts = req.meta.get("layout_parts")
         if parts is None:
@@ -376,5 +394,8 @@ class DurableContextMiddleware(Middleware):
                 profile = model_state.get("profile")
         if profile is None:
             return req
-        put_segment(parts.tail, Segment("tickets", text), TAIL_SEGMENT_ORDER)
+        if tickets:
+            put_segment(parts.tail, Segment("tickets", tickets), TAIL_SEGMENT_ORDER)
+        if notes:
+            put_segment(parts.tail, Segment("notes", notes), TAIL_SEGMENT_ORDER)
         return _layout_service(ctx).apply(ctx, req, parts, profile=profile)

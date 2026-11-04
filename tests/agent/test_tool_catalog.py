@@ -73,6 +73,10 @@ EXPECTED_TOOLS = {
     # M71：设备租约工具，不进 REST 目录。
     "hold_device",
     "release_device",
+    # M75：工作记忆工具，不进 REST 目录（update_plan 在 T3 加入）。
+    "read_artifact",
+    "write_note",
+    "update_plan",
 }
 
 #: M74 §5 T3：旧上下文里可以换成占位、需要时重新调用的工具（06 §5.1）。
@@ -105,9 +109,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # M61 加宿主机代理通道发现 ``scan_proxy_channels`` → 84，其中对模型可见的 83
     # （少一个隐藏工具 ``trigger_screencap``）。M70 加七个 Worker 与工单工具 → 91，
     # 模型可见 90（七个都可见，只是不进 REST 目录）。M71 加两个设备租约工具 → 93，
-    # 模型可见 92（同样都可见，只是不进 REST 目录）。
-    assert len(actual) == 93
-    assert sum(1 for item in registry.list() if item.model_visible) == 92
+    # 模型可见 92（同样都可见，只是不进 REST 目录）。M75 T2 加续读与笔记两个工具
+    # → 95，模型可见 94；T3 的 ``update_plan`` 再各加一 → 96 / 95。
+    assert len(actual) == 96
+    assert sum(1 for item in registry.list() if item.model_visible) == 95
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
@@ -631,6 +636,10 @@ def test_extension_fields_keep_v2_defaults() -> None:
         # M71 的设备租约工具同样只在代理运行里可用。
         "hold_device",
         "release_device",
+        # M75 的工作记忆工具同样只在代理运行里可用。
+        "read_artifact",
+        "write_note",
+        "update_plan",
     }
     assert all(
         definition.rest_visible

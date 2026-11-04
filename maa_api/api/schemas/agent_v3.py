@@ -16,22 +16,40 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from maa_api.agent.runs import RunNode
-from maa_api.db.models import AgentMessage, AgentRun
-from maa_api.domain.enums import AgentRunKind, AgentRunStatus, InboxKind
+from maa_api.db.models import AgentMessage, AgentRun, Artifact, RunPlan
+from maa_api.domain.enums import (
+    AgentRunKind,
+    AgentRunStatus,
+    ArtifactKind,
+    ArtifactStorage,
+    InboxKind,
+    PlanItemStatus,
+    PlanStatus,
+)
 
 __all__ = [
     "AgentMessageCreate",
     "AgentMessageItem",
     "AgentMessagePage",
+    "ArtifactDetailOut",
+    "ArtifactOut",
+    "ArtifactPage",
+    "ArtifactPinRequest",
     "Mention",
     "OrchestratorInterruptResult",
     "OrchestratorStateModel",
+    "PlanApprovalRequest",
+    "PlanItemOut",
+    "PlanOut",
     "RunDetail",
     "RunPage",
     "RunSummary",
     "TicketCancelRequest",
     "TicketInterruptResult",
     "agent_message_item",
+    "artifact_detail_out",
+    "artifact_out",
+    "plan_out",
     "run_detail",
     "run_summary",
 ]
@@ -261,4 +279,133 @@ def agent_message_item(
         inbox_id=message.inbox_id,
         inbox_kind=InboxKind(inbox[0]) if inbox is not None else None,
         inbox_thread_key=inbox[1] if inbox is not None else None,
+    )
+
+
+# ----------------------------------------------------------------------
+# M75 产物端点（规格 §4.3）：ArtifactOut / ArtifactDetailOut / ArtifactPage
+# ----------------------------------------------------------------------
+class ArtifactOut(BaseModel):
+    """产物元数据；列表不返回正文。"""
+
+    id: str
+    ticket_id: str | None
+    session_id: str | None
+    kind: ArtifactKind
+    title: str
+    mime: str
+    size_bytes: int
+    storage: ArtifactStorage
+    pinned: bool
+    created_at: str
+
+
+class ArtifactDetailOut(ArtifactOut):
+    """产物详情：正文最多 64 KiB，超出时 ``truncated=true``。"""
+
+    content: str
+    truncated: bool
+
+
+class ArtifactPage(BaseModel):
+    """产物分页信封，与 04 §1 的统一分页形状一致。"""
+
+    items: list[ArtifactOut]
+    total: int
+    page: int
+    size: int
+
+
+class ArtifactPinRequest(BaseModel):
+    """置顶或取消置顶（规格 §4.3）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pinned: bool
+
+
+def artifact_out(artifact: Artifact) -> ArtifactOut:
+    """``artifact`` 行 → 列表/置顶端点的对外模型。"""
+    return ArtifactOut(
+        id=str(artifact.id),
+        ticket_id=artifact.ticket_id,
+        session_id=artifact.session_id,
+        kind=ArtifactKind(str(artifact.kind)),
+        title=artifact.title,
+        mime=artifact.mime,
+        size_bytes=artifact.size_bytes,
+        storage=ArtifactStorage(str(artifact.storage)),
+        pinned=bool(artifact.pinned),
+        created_at=_utc_z(artifact.created_at) or "",
+    )
+
+
+def artifact_detail_out(
+    artifact: Artifact, *, content: str, truncated: bool
+) -> ArtifactDetailOut:
+    """详情端点：元数据 + 截断后的正文。"""
+    return ArtifactDetailOut(
+        **artifact_out(artifact).model_dump(),
+        content=content,
+        truncated=truncated,
+    )
+
+
+# ----------------------------------------------------------------------
+# M75 计划端点（规格 §4.3）：PlanOut 与批准请求
+# ----------------------------------------------------------------------
+class PlanItemOut(BaseModel):
+    """计划里的一步；``id`` 是 8 位十六进制、同计划唯一。"""
+
+    id: str
+    title: str
+    status: PlanItemStatus
+    note: str | None = None
+
+
+class PlanOut(BaseModel):
+    """``GET .../plan`` 与批准端点的响应（spec §4.3）。"""
+
+    id: str
+    session_id: str
+    ticket_id: str | None
+    title: str
+    items: list[PlanItemOut]
+    status: PlanStatus
+    approved_by: str | None
+    approved_at: str | None
+
+
+class PlanApprovalRequest(BaseModel):
+    """批准或退回一份待批准计划；退回可带原因。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool
+    reason: str | None = Field(default=None, max_length=200)
+
+
+def plan_out(plan: RunPlan) -> PlanOut:
+    """``run_plan`` 行 → 对外模型；步骤按库里的顺序输出。"""
+    items: list[PlanItemOut] = []
+    for raw in plan.items or ():
+        if not isinstance(raw, Mapping):
+            continue
+        items.append(
+            PlanItemOut(
+                id=str(raw.get("id") or ""),
+                title=str(raw.get("title") or ""),
+                status=PlanItemStatus(str(raw.get("status") or "pending")),
+                note=raw.get("note"),
+            )
+        )
+    return PlanOut(
+        id=str(plan.id),
+        session_id=str(plan.session_id),
+        ticket_id=plan.ticket_id,
+        title=plan.title,
+        items=items,
+        status=PlanStatus(str(plan.status)),
+        approved_by=plan.approved_by,
+        approved_at=_utc_z(plan.approved_at),
     )

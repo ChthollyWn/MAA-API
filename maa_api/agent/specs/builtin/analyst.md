@@ -5,7 +5,7 @@ kind: worker
 description: 用历史流水线、掉落与账号数据写报告。用户要「这周掉了什么」「理智花在哪」时用它。
 model_role: worker
 tools: [list_pipelines, get_pipeline, get_drop_stats, get_logs, get_drop_rates, get_item, get_stage,
-  get_operator_box, get_depot, list_upgrade_plans, send_chart, send_item_icons, read_knowledge, report,
+  get_operator_box, get_depot, list_upgrade_plans, send_chart, send_item_icons, read_knowledge, update_plan, write_note, read_artifact, report,
   delegate]
 deferred_groups: []
 device: none
@@ -15,7 +15,7 @@ delegates: [researcher]
 skills: []
 output_schema: null
 budget: {max_cost_per_run: 0}
-version: 1
+version: 2
 ---
 你在一张工单里工作。委托范围、风险上限写在工单卡上，超出就停下来汇报 blocked，不要试探。
 每轮结束调用 report。有结果用 ready，要用户决定用 waiting，做不下去用 blocked，执行中用 progress。

@@ -81,6 +81,9 @@ BUSINESS_TABLES = {
     "device_lease",
     # M74：压缩检查点（v3 M74 规格 §4.1）。
     "compaction_checkpoint",
+    # M75：产物与计划（v3 docs/03 §8.2、§8.3）。
+    "artifact",
+    "run_plan",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -103,6 +106,9 @@ UUID_PK_TABLES = [
     "mandate",
     # M74：检查点 id 对外暴露（SSE / WS 都带它）。
     "compaction_checkpoint",
+    # M75：产物与计划 id 对外暴露，是 36 字符 UUID。
+    "artifact",
+    "run_plan",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -278,6 +284,18 @@ EXPECTED_INDEXES = {
         ("session_id", "created_at"),
         False,
     ),
+    # M75：产物按工单/会话时间线列出；计划的部分唯一索引保证同会话只有一条未结束计划。
+    "ix_artifact_ticket_id_created_at": (
+        "artifact",
+        ("ticket_id", "created_at"),
+        False,
+    ),
+    "ix_artifact_session_id_created_at": (
+        "artifact",
+        ("session_id", "created_at"),
+        False,
+    ),
+    "uq_run_plan_session_id_active": ("run_plan", ("session_id",), True),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -323,6 +341,8 @@ EXPECTED_FK_CASCADE = {
     ("agent_inbox", "session_id"),
     # M74：会话删了，它的检查点一起删（检查点没有独立存在的意义）。
     ("compaction_checkpoint", "session_id"),
+    # M75：会话删了，它的计划一起删。
+    ("run_plan", "session_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -377,6 +397,11 @@ EXPECTED_FK_SET_NULL = {
     ("agent_audit", "ticket_id"),
     # M74：产出摘要的运行被清理时检查点仍要留着，只解除关联。
     ("compaction_checkpoint", "run_id"),
+    # M75：产物比会话/工单/运行活得久；计划比工单活得久。
+    ("artifact", "session_id"),
+    ("artifact", "ticket_id"),
+    ("artifact", "run_id"),
+    ("run_plan", "ticket_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -408,6 +433,8 @@ EXPECTED_TEXT_COLUMNS = {
     ("ticket_report", "summary"),
     # M74：渲染后的摘要长度不定，用 TEXT。
     ("compaction_checkpoint", "summary"),
+    # M75：产物正文长度不定（<=256 KiB 直接进库），用 TEXT。
+    ("artifact", "content"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -461,6 +488,9 @@ EXPECTED_JSON_COLUMNS = {
     # M74：结构性摘要与压缩时收集的 durable 状态。
     ("compaction_checkpoint", "summary_json"),
     ("compaction_checkpoint", "durable"),
+    # M75：产物的自由结构元数据与计划的步骤列表。
+    ("artifact", "meta"),
+    ("run_plan", "items"),
 }
 
 

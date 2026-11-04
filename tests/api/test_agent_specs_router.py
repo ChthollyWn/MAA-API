@@ -57,7 +57,17 @@ SPEC_NAMES = [
     "verifier",
 ]
 #: 各定义的版本号；M71 给 ``general`` 加了设备租约工具与通用 Worker 提示，升到 2。
-EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {"general": 2, "orchestrator": 2}
+#: M75 §4.7：七个 Worker 各加三个工作记忆工具，``general`` 升到 3、其余升到 2。
+EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
+    "analyst": 2,
+    "copilot": 2,
+    "daily_ops": 2,
+    "diagnose": 2,
+    "general": 3,
+    "ops": 2,
+    "orchestrator": 2,
+    "planner": 2,
+}
 
 
 def _specs_client(make_client, *, with_registry: bool = True):

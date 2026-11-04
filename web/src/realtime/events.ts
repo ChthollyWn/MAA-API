@@ -65,6 +65,30 @@ export interface AgentRunEvent {
   }
 }
 
+// M75 §4.6：agent_event 里与计划、产物有关的两条消息。载荷与 04 §4.2 一致；
+// `artifact_created` 不带 ticket_id，列表只能按整片前缀失效。
+export interface PlanUpdatedEvent {
+  event: 'plan_updated'
+  session_id: string
+  payload: {
+    run_id: string | null
+    plan_id: string
+    status: string
+    items: { id: string; title: string; status: string; note?: string | null }[]
+  }
+}
+
+export interface ArtifactCreatedEvent {
+  event: 'artifact_created'
+  session_id: string | null
+  payload: {
+    run_id: string | null
+    artifact_id: string
+    kind: string
+    title: string
+  }
+}
+
 export type ServerEvent =
   | WsEnvelope<'log', LogRecord>
   | WsEnvelope<'log_batch', LogBatch>

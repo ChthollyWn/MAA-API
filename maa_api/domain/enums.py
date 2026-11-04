@@ -383,3 +383,45 @@ class CheckpointStatus(StrEnum):
     ACTIVE = "active"
     SUPERSEDED = "superseded"
     INVALIDATED = "invalidated"
+
+
+# ---- M75 产物与计划（v3 specs/m75 §4.1） ----
+
+
+class ArtifactKind(StrEnum):
+    """产物的种类；本里程碑只写 note / spill / report / file。"""
+
+    NOTE = "note"
+    SPILL = "spill"
+    REPORT = "report"
+    CHART = "chart"
+    TABLE = "table"
+    FILE = "file"
+    FORM = "form"
+    DASHBOARD = "dashboard"
+
+
+class ArtifactStorage(StrEnum):
+    """产物的存储方式：小正文进库，大正文落 resource/artifacts/。"""
+
+    DB = "db"
+    FILE = "file"
+
+
+class PlanStatus(StrEnum):
+    """计划的状态机（v3 spec §4.5）。"""
+
+    DRAFT = "draft"
+    AWAITING_APPROVAL = "awaiting_approval"
+    ACTIVE = "active"
+    DONE = "done"
+    ABANDONED = "abandoned"
+
+
+class PlanItemStatus(StrEnum):
+    """计划步骤的状态。"""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+    CANCELLED = "cancelled"

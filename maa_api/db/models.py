@@ -1840,3 +1840,100 @@ class CompactionCheckpoint(SQLModel, table=True):
     __table_args__ = (
         Index("ix_compaction_checkpoint_session_id_created_at", "session_id", "created_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 5.27 artifact — 产物（M75 规格 §4.1、v3 docs/03 §8.2）
+# ---------------------------------------------------------------------------
+class Artifact(SQLModel, table=True):
+    """工具输出外置、笔记与报告（v3 docs/03 §8.2）。
+
+    正文不超过 256 KiB 时 ``storage='db'`` 且字节解码进 ``content``；超过时
+    ``storage='file'`` 且写到 ``resource/artifacts/<id>``，``content`` 为空。
+    三个关联字段都按 SET NULL 处理：产物比会话、工单与运行活得久。
+    """
+
+    __tablename__ = "artifact"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    session_id: str | None = Field(
+        default=None, foreign_key="agent_session.id", ondelete="SET NULL", max_length=36
+    )
+    ticket_id: str | None = Field(
+        default=None, foreign_key="ticket.id", ondelete="SET NULL", max_length=36
+    )
+    run_id: str | None = Field(
+        default=None, foreign_key="agent_run.id", ondelete="SET NULL", max_length=36
+    )
+    kind: str = Field(max_length=24)
+    title: str = Field(max_length=120)
+    mime: str = Field(default="text/markdown", max_length=64)
+    size_bytes: int
+    storage: str = Field(max_length=16)
+    content: str | None = Field(default=None, sa_column=text_column("content"))
+    #: 相对 ``resource/`` 的路径，只有 file 存储有值。
+    path: str | None = Field(default=None, max_length=255)
+    sha256: str = Field(max_length=64)
+    meta: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("meta", nullable=False, server_default="'{}'"),
+    )
+    #: 置顶的产物不被保留策略删除。
+    pinned: bool = Field(default=False)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+    __table_args__ = (
+        # 工单详情按时间列出产物。
+        Index("ix_artifact_ticket_id_created_at", "ticket_id", "created_at"),
+        # 会话回放按时间列出产物。
+        Index("ix_artifact_session_id_created_at", "session_id", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5.28 run_plan — 多步计划（M75 规格 §4.1、v3 docs/03 §8.3）
+# ---------------------------------------------------------------------------
+class RunPlan(SQLModel, table=True):
+    """多步计划；同一会话同时最多一条未结束计划（v3 docs/03 §8.3）。"""
+
+    __tablename__ = "run_plan"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    session_id: str = Field(
+        foreign_key="agent_session.id", ondelete="CASCADE", max_length=36
+    )
+    ticket_id: str | None = Field(
+        default=None, foreign_key="ticket.id", ondelete="SET NULL", max_length=36
+    )
+    title: str = Field(max_length=120)
+    #: ``[{id, title, status: PlanItemStatus, note}]``，id 由服务生成。
+    items: list[dict[str, Any]] = Field(
+        default_factory=list,
+        sa_column=json_column("items", nullable=False, server_default="'[]'"),
+    )
+    status: str = Field(max_length=16)
+    approved_by: str | None = Field(default=None, max_length=32)
+    approved_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("approved_at", nullable=True)
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+    __table_args__ = (
+        # 部分唯一索引：终态的历史计划不受限，同一会话同时最多一条未结束计划。
+        Index(
+            "uq_run_plan_session_id_active",
+            "session_id",
+            unique=True,
+            sqlite_where=text("status IN ('draft','awaiting_approval','active')"),
+        ),
+    )

@@ -48,6 +48,17 @@ export const keys = {
     /** 压缩检查点（M74 §4.6）：只随 `compaction` / `compaction_created` 失效。 */
     checkpoints: (sessionId: string) =>
       [...root, 'agent', 'checkpoints', sessionId] as const,
+    /** Worker 当前未结束的计划（M75 §4.6）：只随该会话的 `plan_updated` 失效。 */
+    plan: (sessionId: string) =>
+      [...root, 'agent', 'plan', sessionId] as const,
+    /** 一个工单的产物列表（M75 §4.6）。 */
+    artifacts: (ticketId: string) =>
+      [...root, 'agent', 'artifacts', 'ticket', ticketId] as const,
+    /** 产物列表的公共前缀；`artifact_created` 载荷没有 ticket_id，只能整片失效。 */
+    artifactsAll: () => [...root, 'agent', 'artifacts'] as const,
+    /** 单个产物的详情正文（拉开抽屉时才读）。 */
+    artifact: (artifactId: string) =>
+      [...root, 'agent', 'artifact', artifactId] as const,
     capabilities: () => [...root, 'agent', 'capabilities'] as const,
     tools: () => [...root, 'agent', 'tools'] as const,
     audits: () => [...root, 'agent', 'audits'] as const,

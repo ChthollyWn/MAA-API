@@ -187,6 +187,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出产物元数据
+         * @description 按创建时间倒序分页；列表只返回元数据，不带正文。
+         */
+        get: operations["agent_list_artifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取产物元数据与正文
+         * @description 正文最多 64 KiB；超出时只返回开头并置 ``truncated=true``。
+         */
+        get: operations["agent_get_artifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/artifacts/{artifact_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 下载产物原始字节
+         * @description 原样返回字节；``Content-Type`` 取产物的 ``mime``。
+         */
+        get: operations["agent_download_artifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/artifacts/{artifact_id}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 置顶或取消置顶产物
+         * @description 置顶的 ``spill`` 不会被每天 04:00 的保留任务删除。
+         */
+        put: operations["agent_pin_artifact"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/audits": {
         parameters: {
             query?: never;
@@ -710,6 +790,46 @@ export interface paths {
         get: operations["agent_list_session_messages"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/sessions/{session_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读 Worker 会话当前未结束的计划
+         * @description 当前计划；没有未结束计划时返回 ``null``。
+         */
+        get: operations["agent_get_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/sessions/{session_id}/plan/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 批准或退回待批准的计划
+         * @description ``approved=true`` 转 ``active``，``false`` 退回 ``draft``；都写收件箱并唤醒。
+         */
+        post: operations["agent_approve_plan"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2578,6 +2698,92 @@ export interface components {
             };
         };
         /**
+         * ArtifactDetailOut
+         * @description 产物详情：正文最多 64 KiB，超出时 ``truncated=true``。
+         */
+        ArtifactDetailOut: {
+            /** Content */
+            content: string;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["ArtifactKind"];
+            /** Mime */
+            mime: string;
+            /** Pinned */
+            pinned: boolean;
+            /** Session Id */
+            session_id: string | null;
+            /** Size Bytes */
+            size_bytes: number;
+            storage: components["schemas"]["ArtifactStorage"];
+            /** Ticket Id */
+            ticket_id: string | null;
+            /** Title */
+            title: string;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
+         * ArtifactKind
+         * @description 产物的种类；本里程碑只写 note / spill / report / file。
+         * @enum {string}
+         */
+        ArtifactKind: "note" | "spill" | "report" | "chart" | "table" | "file" | "form" | "dashboard";
+        /**
+         * ArtifactOut
+         * @description 产物元数据；列表不返回正文。
+         */
+        ArtifactOut: {
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["ArtifactKind"];
+            /** Mime */
+            mime: string;
+            /** Pinned */
+            pinned: boolean;
+            /** Session Id */
+            session_id: string | null;
+            /** Size Bytes */
+            size_bytes: number;
+            storage: components["schemas"]["ArtifactStorage"];
+            /** Ticket Id */
+            ticket_id: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * ArtifactPage
+         * @description 产物分页信封，与 04 §1 的统一分页形状一致。
+         */
+        ArtifactPage: {
+            /** Items */
+            items: components["schemas"]["ArtifactOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * ArtifactPinRequest
+         * @description 置顶或取消置顶（规格 §4.3）。
+         */
+        ArtifactPinRequest: {
+            /** Pinned */
+            pinned: boolean;
+        };
+        /**
+         * ArtifactStorage
+         * @description 产物的存储方式：小正文进库，大正文落 resource/artifacts/。
+         * @enum {string}
+         */
+        ArtifactStorage: "db" | "file";
+        /**
          * AuditStatus
          * @enum {string}
          */
@@ -3985,6 +4191,62 @@ export interface components {
             /** Title */
             title?: string | null;
         };
+        /**
+         * PlanApprovalRequest
+         * @description 批准或退回一份待批准计划；退回可带原因。
+         */
+        PlanApprovalRequest: {
+            /** Approved */
+            approved: boolean;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * PlanItemOut
+         * @description 计划里的一步；``id`` 是 8 位十六进制、同计划唯一。
+         */
+        PlanItemOut: {
+            /** Id */
+            id: string;
+            /** Note */
+            note?: string | null;
+            status: components["schemas"]["PlanItemStatus"];
+            /** Title */
+            title: string;
+        };
+        /**
+         * PlanItemStatus
+         * @description 计划步骤的状态。
+         * @enum {string}
+         */
+        PlanItemStatus: "pending" | "in_progress" | "done" | "cancelled";
+        /**
+         * PlanOut
+         * @description ``GET .../plan`` 与批准端点的响应（spec §4.3）。
+         */
+        PlanOut: {
+            /** Approved At */
+            approved_at: string | null;
+            /** Approved By */
+            approved_by: string | null;
+            /** Id */
+            id: string;
+            /** Items */
+            items: components["schemas"]["PlanItemOut"][];
+            /** Session Id */
+            session_id: string;
+            status: components["schemas"]["PlanStatus"];
+            /** Ticket Id */
+            ticket_id: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * PlanStatus
+         * @description 计划的状态机（v3 spec §4.5）。
+         * @enum {string}
+         */
+        PlanStatus: "draft" | "awaiting_approval" | "active" | "done" | "abandoned";
         /** PriorityRequest */
         PriorityRequest: {
             /** Priority */
@@ -6134,6 +6396,368 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_list_artifacts: {
+        parameters: {
+            query?: {
+                /** @description 只看这个工单的产物 */
+                ticket_id?: string | null;
+                /** @description 只看这个会话的产物 */
+                session_id?: string | null;
+                /** @description 只看这种产物 */
+                kind?: components["schemas"]["ArtifactKind"] | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 产物 id */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactDetailOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：ARTIFACT_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "ARTIFACT_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_download_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 产物 id */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：ARTIFACT_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "ARTIFACT_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_pin_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 产物 id */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactPinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：ARTIFACT_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "ARTIFACT_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };
@@ -9041,6 +9665,204 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_get_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Worker 会话 id */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"] | null;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_approve_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Worker 会话 id */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND、PLAN_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：PLAN_NOT_AWAITING_APPROVAL */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "PLAN_NOT_AWAITING_APPROVAL",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

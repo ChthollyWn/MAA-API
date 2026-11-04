@@ -27,11 +27,13 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from maa_api.agent.artifacts.service import DB_STORAGE_MAX_BYTES, ArtifactService
 from maa_api.db import session as db_session_module
 from maa_api.db.models import (
     AgentInbox,
     AgentRun,
     AgentSession,
+    Artifact,
     CostLedgerEntry,
     LogEntry,
     Pipeline,
@@ -603,5 +605,48 @@ def test_agent_inbox_purged_after_30_days(retention_session_factory) -> None:
         assert rows[0].consumed_at is not None
         assert rows[0].consumed_at > now - timedelta(days=30)
         assert rows[1].consumed_at is None
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# 产物（M75）
+# ---------------------------------------------------------------------------
+def test_spill_artifacts_purged_after_30_days(
+    retention_session_factory, resource_root
+) -> None:
+    """只删 30 天前、未置顶的 spill（行 + 文件）；笔记与最近/置顶的保留。"""
+    now = utcnow()
+
+    async def scenario():
+        service = ArtifactService(
+            retention_session_factory, resource_root=resource_root
+        )
+        old = await service.put(
+            kind="spill",
+            title="旧的大输出",
+            body=b"x" * (DB_STORAGE_MAX_BYTES + 1),
+        )
+        pinned = await service.put(kind="spill", title="置顶输出", body=b"keep")
+        await service.pin(str(pinned.id), pinned=True)
+        recent = await service.put(kind="spill", title="最近输出", body=b"keep")
+        note = await service.put(kind="note", title="笔记", body=b"keep")
+
+        async with retention_session_factory() as db:
+            row = await db.get(Artifact, old.id)
+            assert row is not None
+            row.created_at = now - timedelta(days=31)
+            await db.commit()
+
+        assert old.path is not None
+        old_file = resource_root / old.path
+        assert old_file.is_file()
+
+        out = await r.run_retention(session_factory=retention_session_factory)
+        assert out["artifacts_deleted"] == 1, out
+        assert isinstance(out["artifacts_deleted"], int)
+        assert not old_file.exists()
+        rows = await _all(retention_session_factory, Artifact)
+        assert {row.id for row in rows} == {pinned.id, recent.id, note.id}
 
     asyncio.run(scenario())
