@@ -25,6 +25,7 @@ from maa_api.agent.harness.context import (
 )
 from maa_api.agent.harness.middleware import CallNext, Middleware
 from maa_api.agent.registry import ToolContext, ToolRegistry
+from maa_api.agent.tickets.mandates import ceiling_risk
 from maa_api.agent.tickets.reports import HumanAction, ReportInput
 from maa_api.agent.workers.cards import RISK_RANK
 from maa_api.domain.enums import CallerType, ReportStatus, TicketStatus
@@ -107,7 +108,9 @@ class MandateMiddleware(Middleware):
         decision = await self._evaluate(ctx, definition, params)
         if decision is None:
             return await call_next(call)
-        risk = str(decision.risk)
+        # `grant_atomic_ops` 确认的是消耗类操作（09 §2.3）：上限比较按 consume 计，
+        # 不能拿 decision.risk 的 none 直接放行（M71 修 M70 的缺口，spec §0 #10）。
+        risk = str(ceiling_risk(decision.risk, decision.confirmation_action))
         risk_rank = RISK_RANK.get(risk)
         if risk_rank is None or risk_rank <= ceiling_rank:
             return await call_next(call)

@@ -138,7 +138,7 @@ def test_mandate_blocks_consumption_under_none_ceiling(tmp_path) -> None:
         engine.sync_engine.dispose()
 
 
-def test_mandate_allows_atomic_grant_under_none_ceiling(tmp_path) -> None:
+def test_mandate_blocks_atomic_grant_under_none_ceiling(tmp_path) -> None:
     engine, factory = asyncio.run(make_session_factory(tmp_path / "atomic.db"))
     try:
 
@@ -162,9 +162,14 @@ def test_mandate_allows_atomic_grant_under_none_ceiling(tmp_path) -> None:
             outcome = await middleware.wrap_tool(
                 ctx, _call("click-1", "click", {"x": 10, "y": 20}), inner
             )
-            # 原子操作的风险是 none（确认由内层弹出），上限 none 放行。
-            assert outcome.status == "ok"
-            assert invoked == ["click"]
+            # M71 §0 #10：原子授权的风险虽记 none，但要按 consume 参与上限比较；
+            # 上限 none 的工单不能借「弹出授权」绕过上限。
+            assert outcome.status == "error"
+            assert outcome.error["code"] == "MANDATE_SCOPE_EXCEEDED"
+            assert "消耗类确认" in outcome.error["message"]
+            assert outcome.error["details"]["risk"] == "consume"
+            assert invoked == []
+            assert await _counts(factory) == (0, 0)
 
             definition = registry.get("click")
             params = registry.validate("click", {"x": 10, "y": 20})
@@ -180,8 +185,10 @@ def test_mandate_allows_atomic_grant_under_none_ceiling(tmp_path) -> None:
                         db,
                     ),
                 )
+            # 策略层本身仍给出 none + grant_atomic_ops；差别在上限比较的口径。
             assert decision.requires_confirmation is True
             assert decision.risk == RiskLevel.NONE
+            assert decision.confirmation_action == "grant_atomic_ops"
 
         asyncio.run(scenario())
     finally:
