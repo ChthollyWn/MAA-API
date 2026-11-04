@@ -20,6 +20,7 @@ interface CapabilityResult {
 export function AgentCapabilityCheck() {
   const check = useMutation({
     mutationFn: async () => {
+      // @ts-expect-error M72 T11：v2 能力检查端点已删除，组件在 T11 改走模型档案探测。
       const { data, error, response } = await api.POST('/api/agent/capabilities/check')
       if (error) throw toApiError(error, response)
       return data as unknown as CapabilityResult

@@ -131,25 +131,61 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
           ? (lease as Record<string, unknown>).ticket_id
           : null
         if (typeof ticketId === 'string' && ticketId) {
-          invalidateBatched(queryClient, keys.agent.ticket(ticketId))
+          invalidateBatched(queryClient, keys.agent.tickets.detail(ticketId))
         }
       }
       break
     // 工单状态：列表、详情、汇报三段各取各的；不整片失效 `keys.agent.all()`。
     case 'ticket_status':
-      invalidateBatched(queryClient, keys.agent.tickets())
-      invalidateBatched(queryClient, keys.agent.ticket(event.data.ticket_id))
-      invalidateBatched(queryClient, keys.agent.ticketReports(event.data.ticket_id))
+      invalidateBatched(queryClient, keys.agent.tickets.lists())
+      // 新建工单时列表里还没有详情缓存；其余两个事件都可能改摘要与汇报。
+      if (event.data.event !== 'ticket_created') {
+        invalidateBatched(queryClient, keys.agent.tickets.detail(event.data.ticket_id))
+      }
+      if (event.data.event === 'report_created') {
+        invalidateBatched(queryClient, keys.agent.tickets.reports(event.data.ticket_id))
+      }
       break
-    // Agent 运行事件（M70 §4.6）：界面在 M72，这一层先只同步类型，不失效任何查询。
-    case 'agent_run':
+    // Agent 运行事件（M72 §4.5.7）：总控会话与工单两套页面各自只看自己的那段。
+    case 'agent_run': {
+      const data = event.data
+      const orchestrator = queryClient.getQueryData<{ session_id?: string }>(
+        keys.agent.orchestrator.state(),
+      )
+      // `kind` 可能是 null（路由写的用户消息）；这时靠缓存里的总控 session_id 认。
+      const isOrchestrator = data.kind === 'orchestrator_turn'
+        || (Boolean(data.session_id) && data.session_id === orchestrator?.session_id)
+      if (isOrchestrator) {
+        // message_created 只改消息窗口，不动状态；run_started 不刷新消息（避免刚发出的
+        // 用户消息被历史重取回来，与乐观气泡重复）。
+        if (data.event !== 'message_created') {
+          invalidateBatched(queryClient, keys.agent.orchestrator.state())
+        }
+        if (data.event !== 'run_started') {
+          invalidateBatched(queryClient, keys.agent.orchestrator.messages())
+        }
+      }
+      if (data.ticket_id) {
+        if (data.event !== 'message_created') {
+          invalidateBatched(queryClient, keys.agent.tickets.detail(data.ticket_id))
+          invalidateBatched(queryClient, keys.agent.tickets.runs(data.ticket_id))
+        }
+        if (data.event !== 'run_started') {
+          invalidateBatched(queryClient, keys.agent.tickets.messagesAll(data.ticket_id))
+        }
+      }
       break
+    }
     case 'subscribed':
       // Reconnect acknowledgement follows a possible WS gap; reload persisted
       // approval/audit state so missed terminal events cannot leave stale cards.
       invalidateBatched(queryClient, keys.agent.pendingConfirmations())
       invalidateBatched(queryClient, keys.agent.pendingQuestions())
       invalidateBatched(queryClient, keys.agent.audits())
+      // M72：v3 会话状态与工单列表、设备租约也靠 WS，断线期间的终态要补读。
+      invalidateBatched(queryClient, keys.agent.orchestrator.all())
+      invalidateBatched(queryClient, keys.agent.tickets.lists())
+      invalidateBatched(queryClient, keys.agent.deviceLease())
       break
     case 'server_shutdown':
     case 'pong':

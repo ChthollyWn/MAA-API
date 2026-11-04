@@ -25,10 +25,16 @@ export interface ComposerProps {
   textareaRef: RefObject<HTMLTextAreaElement | null>
   /** 浮在输入栏上方的内容，例如「回到底部」。 */
   overlay?: ReactNode
+  /** 输入框占位文案；缺省沿用 v2 文案。 */
+  placeholder?: string
+  /** 输入框读屏标签；缺省沿用 v2 文案。 */
+  label?: string
+  /** 先于发送/换行逻辑处理按键；返回 true 表示已消费，不再发送。 */
+  interceptKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean
 }
 
 /** 对话输入栏：随内容增高（最多约 6 行）；非触屏 Enter 发送、Shift+Enter 换行，触屏 Enter 只换行。 */
-export function Composer({ value, onValueChange, onSend, busy, onStop, stopping = false, status, docked, textareaRef, overlay }: ComposerProps) {
+export function Composer({ value, onValueChange, onSend, busy, onStop, stopping = false, status, docked, textareaRef, overlay, placeholder = '给 Agent 发消息', label = '发送给 Agent', interceptKeyDown }: ComposerProps) {
   const inputId = useId()
   const formRef = useRef<HTMLFormElement | null>(null)
   const [dockHeight, setDockHeight] = useState(0)
@@ -55,6 +61,7 @@ export function Composer({ value, onValueChange, onSend, busy, onStop, stopping 
   }, [docked])
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (interceptKeyDown?.(event)) return
     // 输入法组字时的 Enter 用来上屏；Safari 在 compositionend 之后才派发它，只能靠 keyCode 229 认出。
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
     if (isCoarsePointer()) return
@@ -84,14 +91,14 @@ export function Composer({ value, onValueChange, onSend, busy, onStop, stopping 
             {status ? <p className="mb-2 flex items-center gap-2 text-footnote text-muted-foreground">{status}</p> : null}
           </div>
           <div className="flex items-end gap-2">
-            <label htmlFor={inputId} className="sr-only">发送给 Agent</label>
+            <label htmlFor={inputId} className="sr-only">{label}</label>
             <Textarea
               id={inputId}
               ref={textareaRef}
               rows={1}
               maxLength={32_000}
               value={value}
-              placeholder="给 Agent 发消息"
+              placeholder={placeholder}
               onChange={(event) => onValueChange(event.target.value)}
               onKeyDown={onKeyDown}
               className="max-h-[10.5rem] min-h-11 resize-none rounded-[1.375rem] bg-surface-2/60 px-4 py-2.5 leading-6"

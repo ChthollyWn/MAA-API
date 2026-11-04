@@ -184,6 +184,16 @@ const TOOL_LABELS: Record<string, string> = {
   save_copilot_draft: '保存作业草稿',
   run_copilot_attempt: '执行作业尝试',
   record_copilot_result: '记录作业结果',
+  // M72 的指挥台工具（规格 §4.6.7）。
+  report: '提交汇报',
+  delegate: '委派子代理',
+  create_ticket: '新建工单',
+  send_to_ticket: '补充工单说明',
+  list_tickets: '列出工单',
+  get_ticket: '读取工单',
+  cancel_ticket: '取消工单',
+  hold_device: '占用设备',
+  release_device: '释放设备',
 }
 
 export function toolLabel(name: string): string | undefined {

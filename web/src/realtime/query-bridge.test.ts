@@ -2,9 +2,26 @@ import '@testing-library/jest-dom/vitest'
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { keys } from '@/api/keys'
+import type { AgentRunEvent, ServerEvent } from '@/realtime/events'
 import { handleServerEvent } from '@/realtime/query-bridge'
 import { useLogBuffer } from '@/stores/log-buffer'
 import { formatLogTime } from '@/features/logs/format'
+
+/** 一条 `agent_run` 事件；字段默认值对应总控的一轮，按用例覆盖。 */
+function agentRunEvent(data: Partial<AgentRunEvent> & Pick<AgentRunEvent, 'event'>): ServerEvent {
+  return {
+    type: 'agent_run',
+    data: {
+      run_id: 'run-1',
+      session_id: 'session-1',
+      ticket_id: null,
+      agent: 'orchestrator',
+      kind: 'orchestrator_turn',
+      status: 'running',
+      ...data,
+    },
+  }
+}
 
 /** 只保留列表真正渲染的字段，避免把缓冲区内部状态写进断言。 */
 function bufferRows(source: string) {
@@ -151,38 +168,68 @@ describe('ticket events keep the ticket queries fresh', () => {
     vi.restoreAllMocks()
   })
 
-  it('invalidates ticket list, detail and reports on ticket_status', () => {
+  it('refreshes ticket lists, detail and reports on ticket_status events', () => {
     vi.useFakeTimers()
-    const queryClient = new QueryClient()
-    const spy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    handleServerEvent(
-      {
-        type: 'ticket_status',
-        data: {
-          event: 'report_created',
-          ticket_id: 'ticket-1',
-          title: '日常',
-          kind: 'daily_ops',
-          status: 'done',
-          last_report_status: 'ready',
-          summary: '日常做完了',
-          human_action: null,
+    const run = (event: 'ticket_created' | 'ticket_updated' | 'report_created') => {
+      const queryClient = new QueryClient()
+      const spy = vi.spyOn(queryClient, 'invalidateQueries')
+      handleServerEvent(
+        {
+          type: 'ticket_status',
+          data: {
+            event,
+            ticket_id: 'ticket-1',
+            title: '日常',
+            kind: 'daily_ops',
+            status: 'done',
+            last_report_status: 'ready',
+            summary: '日常做完了',
+            human_action: null,
+          },
         },
-      },
-      queryClient,
-    )
-    // 失效是攒批的（250ms 窗口），推进计时器才会真正发出。
-    vi.advanceTimersByTime(300)
+        queryClient,
+      )
+      // 失效是攒批的（250ms 窗口），推进计时器才会真正发出。
+      vi.advanceTimersByTime(300)
+      return spy
+    }
 
-    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.tickets(), refetchType: 'active' })
-    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.ticket('ticket-1'), refetchType: 'active' })
-    expect(spy).toHaveBeenCalledWith({
-      queryKey: keys.agent.ticketReports('ticket-1'),
+    const created = run('ticket_created')
+    expect(created).toHaveBeenCalledWith({ queryKey: keys.agent.tickets.lists(), refetchType: 'active' })
+    // 列表回应能拼出摘要，新建工单时还没有详情缓存可刷。
+    expect(created).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.detail('ticket-1'),
+      refetchType: 'active',
+    })
+    expect(created).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.reports('ticket-1'),
+      refetchType: 'active',
+    })
+
+    const updated = run('ticket_updated')
+    expect(updated).toHaveBeenCalledWith({ queryKey: keys.agent.tickets.lists(), refetchType: 'active' })
+    expect(updated).toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.detail('ticket-1'),
+      refetchType: 'active',
+    })
+    expect(updated).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.reports('ticket-1'),
+      refetchType: 'active',
+    })
+
+    const report = run('report_created')
+    expect(report).toHaveBeenCalledWith({ queryKey: keys.agent.tickets.lists(), refetchType: 'active' })
+    expect(report).toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.detail('ticket-1'),
+      refetchType: 'active',
+    })
+    expect(report).toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.reports('ticket-1'),
       refetchType: 'active',
     })
     // 工单事件不进确认链路。
-    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.pendingConfirmations(), refetchType: 'active' })
+    expect(report).not.toHaveBeenCalledWith({ queryKey: keys.agent.pendingConfirmations(), refetchType: 'active' })
   })
 })
 
@@ -192,7 +239,7 @@ describe('agent lease events refresh the device lease', () => {
     vi.restoreAllMocks()
   })
 
-  it('invalidates the device lease and the holder ticket on lease_changed', () => {
+  it('refreshes the device lease on lease_changed', () => {
     vi.useFakeTimers()
     const queryClient = new QueryClient()
     const spy = vi.spyOn(queryClient, 'invalidateQueries')
@@ -223,7 +270,10 @@ describe('agent lease events refresh the device lease', () => {
     vi.advanceTimersByTime(300)
 
     expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.deviceLease(), refetchType: 'active' })
-    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.ticket('ticket-1'), refetchType: 'active' })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.detail('ticket-1'),
+      refetchType: 'active',
+    })
   })
 
   it('only invalidates the lease when the release carries no ticket', () => {
@@ -245,49 +295,125 @@ describe('agent lease events refresh the device lease', () => {
     vi.advanceTimersByTime(300)
 
     expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.deviceLease(), refetchType: 'active' })
-    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.ticket('ticket-1'), refetchType: 'active' })
-    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.tickets(), refetchType: 'active' })
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.detail('ticket-1'),
+      refetchType: 'active',
+    })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.tickets.lists(), refetchType: 'active' })
   })
 })
 
-describe('agent run events are typed but do not touch queries (M70)', () => {
+describe('agent run events refresh the conversation they belong to', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
-  it('收到 agent_run 不抛错、不失效任何查询', () => {
+  it('invalidates the orchestrator state and messages when an orchestrator run finishes', () => {
     vi.useFakeTimers()
     const queryClient = new QueryClient()
     const spy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    expect(() =>
-      handleServerEvent(
-        {
-          type: 'agent_run',
-          data: {
-            event: 'message_created',
-            run_id: 'run-1',
-            session_id: 'session-1',
-            ticket_id: null,
-            agent: 'orchestrator',
-            kind: 'orchestrator_turn',
-            status: 'running',
-            message: {
-              id: 1,
-              seq: 1,
-              role: 'assistant',
-              inbox_id: null,
-              preview: '已建工单',
-            },
-          },
-        },
-        queryClient,
-      ),
-    ).not.toThrow()
-    // 这条事件不安排任何攒批失效；推进计时器也不该有查询被重取。
+    handleServerEvent(
+      agentRunEvent({ event: 'run_finished', kind: 'orchestrator_turn', status: 'completed' }),
+      queryClient,
+    )
     vi.advanceTimersByTime(300)
 
-    expect(spy).not.toHaveBeenCalled()
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.orchestrator.state(),
+      refetchType: 'active',
+    })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.orchestrator.messages(),
+      refetchType: 'active',
+    })
+  })
+
+  it('routes message_created by the cached orchestrator session id', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    // 路由写的用户消息没有运行，`kind` 是 null，只能靠总控状态里的 session_id 认。
+    queryClient.setQueryData(keys.agent.orchestrator.state(), { session_id: 'orch-1' })
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      agentRunEvent({ event: 'message_created', kind: null, session_id: 'orch-1' }),
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.orchestrator.messages(),
+      refetchType: 'active',
+    })
+    // message_created 不改变总控状态。
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.orchestrator.state(),
+      refetchType: 'active',
+    })
+  })
+
+  it('invalidates the ticket scope queries for worker runs', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      agentRunEvent({
+        event: 'run_finished',
+        kind: 'worker',
+        agent: 'worker',
+        session_id: 'worker-session',
+        ticket_id: 'ticket-1',
+      }),
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.detail('ticket-1'),
+      refetchType: 'active',
+    })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.runs('ticket-1'),
+      refetchType: 'active',
+    })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.messagesAll('ticket-1'),
+      refetchType: 'active',
+    })
+    // 工单详情与消息各取各的，不整片失效工单 scope，也不碰总控会话。
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.tickets.scope('ticket-1'),
+      refetchType: 'active',
+    })
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: keys.agent.orchestrator.messages(),
+      refetchType: 'active',
+    })
+  })
+})
+
+describe('reconnect reloads the v3 conversation state', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('reloads v3 conversation state after a reconnect', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      { type: 'subscribed', data: { channels: ['agent_run', 'ticket_status'], backfilled: 3 } },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.orchestrator.all(), refetchType: 'active' })
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.tickets.lists(), refetchType: 'active' })
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.deviceLease(), refetchType: 'active' })
   })
 })

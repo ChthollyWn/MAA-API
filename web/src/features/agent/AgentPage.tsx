@@ -22,7 +22,7 @@ import { SessionList } from './SessionList'
 import { CapabilityAlert, ErrorAlert, GrantBar } from './StatusAlerts'
 import type { CopilotGrantOptions } from '@/features/copilots/CopilotGrantCard'
 import { formatTokenCount, grantRemainingLabel, isRecord, parseQuestionOptions, sessionTitle, stringValue, toShownError } from './format'
-import { requestId, streamMessage } from './stream'
+import { requestId, streamSse } from './stream'
 import { buildTranscript } from './transcript'
 import type {
   AgentConfirmation,
@@ -175,6 +175,7 @@ export default function AgentPage() {
 
   const createSession = useMutation({
     mutationFn: async () => {
+      // @ts-expect-error M72 T11：v2 建会话端点已删除，整页在 T11 移除。
       const { data, error, response } = await api.POST('/api/agent/sessions', { body: {} })
       if (error) throw toApiError(error, response)
       return data as unknown as AgentSession
@@ -222,6 +223,7 @@ export default function AgentPage() {
   })
   const checkCapabilities = useMutation({
     mutationFn: async () => {
+      // @ts-expect-error M72 T11：v2 能力检查端点已删除，整页在 T11 移除。
       const { data, error, response } = await api.POST('/api/agent/capabilities/check')
       if (error) throw toApiError(error, response)
       return data as unknown as CapabilityResult
@@ -299,6 +301,7 @@ export default function AgentPage() {
    */
   const stopTurn = useMutation({
     mutationFn: async (sessionId: string) => {
+      // @ts-expect-error M72 T11：v2 中断端点已删除，整页在 T11 移除。
       const { data, error, response } = await api.POST('/api/agent/sessions/{session_id}/interrupt', {
         params: { path: { session_id: sessionId } },
       })
@@ -541,7 +544,12 @@ export default function AgentPage() {
       }
     }
     try {
-      await streamMessage(sessionId, content, controller.signal, handleEvent)
+      await streamSse(
+        `/api/agent/sessions/${encodeURIComponent(sessionId)}/messages`,
+        { content },
+        controller.signal,
+        handleEvent,
+      )
       setTurn((current) => current ? { ...current, running: false } : current)
     } catch (error) {
       if (controller.signal.aborted) return
