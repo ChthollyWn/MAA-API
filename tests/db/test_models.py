@@ -88,6 +88,8 @@ BUSINESS_TABLES = {
     "knowledge_source",
     "knowledge_document",
     "knowledge_chunk",
+    # M78：技能覆盖层（v3 specs/m78 §4.1）。
+    "agent_skill",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -465,6 +467,8 @@ EXPECTED_TEXT_COLUMNS = {
     # M76：来源错误描述与分块正文长度不定，用 TEXT。
     ("knowledge_source", "error"),
     ("knowledge_chunk", "text"),
+    # M78：技能正文长度不定，用 TEXT。
+    ("agent_skill", "body"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -524,6 +528,9 @@ EXPECTED_JSON_COLUMNS = {
     # M76：来源的配置与文档的自由结构元数据（服务层定义键）。
     ("knowledge_source", "config"),
     ("knowledge_document", "meta"),
+    # M78：技能的工具与适用代理白名单。
+    ("agent_skill", "tools"),
+    ("agent_skill", "agents"),
 }
 
 # FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
@@ -604,8 +611,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_44_business_tables():
-    """44 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_45_business_tables():
+    """45 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES

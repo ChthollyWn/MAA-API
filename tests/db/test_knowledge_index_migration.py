@@ -68,7 +68,8 @@ def test_upgrade_adds_tables_fts_and_keeps_rows(alembic_cfg, db_path):
         conn.commit()
     assert _object_types(db_path, set(FTS_OBJECTS)) == {}
 
-    command.upgrade(alembic_cfg, "head")
+    # 钉在 0030：M78 的 0031 是 head 之后，这里只验收 M76 自己的迁移。
+    command.upgrade(alembic_cfg, "0030_knowledge_index")
 
     assert {"knowledge_source", "knowledge_document", "knowledge_chunk"} <= _table_names(
         db_path
