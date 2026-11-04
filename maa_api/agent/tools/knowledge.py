@@ -77,6 +77,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=search_knowledge,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
             rest_visible=True,
         )
     )
@@ -132,6 +133,8 @@ async def search_knowledge(
             for hit in result.hits
         ],
     }
+    # M80 §4.2：全部命中来自可信来源时显式写 False，让防护中间件免包装；否则为 True。
+    payload["untrusted"] = any(not hit.trusted for hit in result.hits)
     refs: list[SourceRef] = []
     seen: set[str] = set()
     for hit in result.hits:

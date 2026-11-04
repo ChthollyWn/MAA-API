@@ -161,6 +161,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "memory.auto_extract": dict(label="自动抽取记忆", group="Agent", type="boolean", hot_action="none"),
     "memory.require_review": dict(label="记忆须经审核", group="Agent", type="boolean", hot_action="none"),
     "memory.max_injection_tokens": dict(label="记忆注入上限（token）", group="Agent", type="integer", minimum=0, maximum=8000, hot_action="none"),
+    # M80 提示注入防护：两项都由扫描与降权每次现读，改完立即生效。
+    "guard.injection_detection": dict(label="提示注入检测", group="Agent", type="string", enum=["off", "rules", "rules_llm"], hot_action="none", description="off 只打标不检测；rules 用规则检测；rules_llm 在规则命中或内容出自他人时再请便宜模型复核"),
+    "guard.block_on_detect": dict(label="检测到可疑指令时整段拦截", group="Agent", type="boolean", hot_action="none", description="关闭时只打标，之后的写操作逐次确认"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

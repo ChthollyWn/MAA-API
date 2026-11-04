@@ -225,6 +225,12 @@ export default function ConsolePage() {
       }}
       error={shownError}
       emptyState={showQuickStart ? <QuickStart onPick={(text) => setSeed({ text, nonce: Date.now() })} /> : undefined}
+      actions={{
+        kind: 'orchestrator',
+        running: Boolean(state.data?.turn_running),
+        sessionId,
+        onResend: (text) => controller.send({ content: text, mentions: [] }),
+      }}
     />
   )
 

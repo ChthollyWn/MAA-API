@@ -285,8 +285,16 @@ class TicketService:
         rule_id: str | None = None,
         priority: int = 1,
         orchestrator_session_id: str | None = None,
+        write_brief: bool = True,
     ) -> tuple[Ticket, Mandate]:
-        """校验代理定义与委托后，把工单和委托写进同一事务（§4.5.3）。"""
+        """校验代理定义与委托后，把工单和委托写进同一事务（§4.5.3）。
+
+        ``write_brief`` 是 M80 §4.5.8 给分叉留的开关：分叉把历史整段复制过来，
+        传 ``False`` 表示不要给新 Worker 写任务说明。本入口自身不写收件箱——任务
+        说明由 :meth:`attach_worker_session` 在 Worker 会话建好之后写入，所以这里
+        只保留参数，不改变任何既有行为。
+        """
+        del write_brief  # 见 docstring：收件箱写入在 attach_worker_session。
         title_text = title.strip() if isinstance(title, str) else ""
         if not 1 <= len(title_text) <= _MAX_TITLE_CHARS:
             raise _invalid(f"title 去首尾空白后必须是 1–{_MAX_TITLE_CHARS} 字")

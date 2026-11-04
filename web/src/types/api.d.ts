@@ -985,6 +985,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/sessions/{session_id}/rewind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 回到指定消息
+         * @description 取代目标之后的消息、作废之后的检查点与计划；副作用逐条列出。
+         */
+        post: operations["agent_rewind_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/skills": {
         parameters: {
             query?: never;
@@ -1115,6 +1135,26 @@ export interface paths {
          * @description 停掉 Worker 与子代理（已提交的流水线不停），返回取消后的工单详情。
          */
         post: operations["agent_cancel_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/tickets/{ticket_id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 从这条消息分叉工单
+         * @description 复制到 ``at_seq`` 为止的历史与同一份委托，新工单从 ``open`` 开始。
+         */
+        post: operations["agent_fork_ticket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2779,6 +2819,8 @@ export interface components {
             seq: number;
             /** Session Id */
             session_id: string;
+            /** Superseded At */
+            superseded_at?: string | null;
             /** Tool Call Id */
             tool_call_id: string | null;
             /** Tool Calls */
@@ -3638,6 +3680,29 @@ export interface components {
              * @default false
              */
             force: boolean;
+        };
+        /**
+         * ForkRequest
+         * @description 分叉请求：在 ``at_seq`` 这条消息（含）处分叉出新工单。
+         */
+        ForkRequest: {
+            /**
+             * At Seq
+             * @description 分叉处的消息 seq（含）
+             */
+            at_seq: number;
+        };
+        /**
+         * ForkedFrom
+         * @description 分叉来源：源工单与分叉处的消息 seq（由 Worker 会话的两列反查）。
+         */
+        ForkedFrom: {
+            /** At Seq */
+            at_seq: number;
+            /** Ticket Id */
+            ticket_id: string;
+            /** Title */
+            title: string;
         };
         /** GameUpdateRequest */
         GameUpdateRequest: {
@@ -5035,6 +5100,63 @@ export interface components {
             priority?: number | null;
         };
         /**
+         * RewindRequest
+         * @description 回溯请求：保留到 ``to_seq``（含）。
+         */
+        RewindRequest: {
+            /**
+             * Dry Run
+             * @description 只计算影响，不写库
+             * @default false
+             */
+            dry_run: boolean;
+            /**
+             * To Seq
+             * @description 保留到这条消息（含）；-1 只用于总控会话
+             */
+            to_seq: number;
+        };
+        /**
+         * RewindResultOut
+         * @description 一次回溯的结果（``dry_run`` 时只报告不写库）。
+         */
+        RewindResultOut: {
+            /** Checkpoint Reactivated */
+            checkpoint_reactivated: string | null;
+            /** Checkpoints Invalidated */
+            checkpoints_invalidated: number;
+            /** Dry Run */
+            dry_run: boolean;
+            /** Notice Message Id */
+            notice_message_id: number | null;
+            /** Plan Abandoned */
+            plan_abandoned: boolean;
+            /** Session Id */
+            session_id: string;
+            /** Side Effects */
+            side_effects: components["schemas"]["RewindSideEffectOut"][];
+            /** Superseded */
+            superseded: number;
+            /** Superseded Events */
+            superseded_events: number;
+            /** To Seq */
+            to_seq: number;
+        };
+        /**
+         * RewindSideEffectOut
+         * @description 回溯范围内已经发生、不会被撤销的一次工具调用。
+         */
+        RewindSideEffectOut: {
+            /** Audit Id */
+            audit_id: number | null;
+            /** Detail */
+            detail: string | null;
+            /** Seq */
+            seq: number;
+            /** Tool Name */
+            tool_name: string;
+        };
+        /**
          * RiskLevel
          * @enum {string}
          */
@@ -6339,6 +6461,7 @@ export interface components {
          * @description 工单详情：摘要、结果、委托、订阅、最近 5 条汇报与 Worker 是否在跑。
          */
         TicketDetail: {
+            forked_from?: components["schemas"]["ForkedFrom"] | null;
             lease: components["schemas"]["DeviceLeaseOut"] | null;
             mandate: components["schemas"]["MandateOut"];
             /** Recent Reports */
@@ -11094,6 +11217,132 @@ export interface operations {
             };
         };
     };
+    agent_rewind_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 会话 id */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RewindRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RewindResultOut"];
+                };
+            };
+            /** @description 请求不成立：REWIND_TARGET_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "REWIND_TARGET_INVALID",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：TICKET_ENDED、RUN_ALREADY_ACTIVE */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "TICKET_ENDED",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：AGENT_DISABLED */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     agent_list_skills: {
         parameters: {
             query?: never;
@@ -11755,6 +12004,116 @@ export interface operations {
                      *         "code": "TICKET_ENDED",
                      *         "details": {},
                      *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：AGENT_DISABLED */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_fork_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 源工单 id */
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    /** @description 新工单的 URI */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+            /** @description 请求不成立：REWIND_TARGET_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "REWIND_TARGET_INVALID",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：TICKET_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "TICKET_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
                      *       }
                      *     }
                      */

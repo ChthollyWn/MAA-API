@@ -148,11 +148,11 @@ def test_untrusted_hits_add_envelope() -> None:
     assert payload["sources"][0]["url"] == "https://example.test/history/2"
     assert [hit["trusted"] for hit in payload["hits"]] == [False, False]
 
-    # 全可信时没有信封，避免给模型制造没有依据的「不可信」提示。
+    # 全可信时没有信封，但顶层显式写 untrusted=false 让 M80 的防护中间件免包装。
     trusted_payload = asyncio.run(
         _invoke(_Retriever(_result(_hit())), {"query": "怎么刷固源岩"})
     )
-    assert "untrusted" not in trusted_payload
+    assert trusted_payload["untrusted"] is False
     assert "sources" not in trusted_payload
 
 

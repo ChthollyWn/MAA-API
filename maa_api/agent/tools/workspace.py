@@ -172,7 +172,7 @@ async def read_artifact(
     next_offset = offset + len(content)
     if next_offset >= total_chars:
         next_offset = None
-    return {
+    result: dict[str, Any] = {
         "artifact_id": artifact.id,
         "title": artifact.title,
         "kind": artifact.kind,
@@ -182,6 +182,10 @@ async def read_artifact(
         "content": content,
         "next_offset": next_offset,
     }
+    # M80 §4.2：外置的不可信输出在产物 meta 里留了标记，读回来时必须继续声明它是外部数据。
+    if (artifact.meta or {}).get("untrusted"):
+        result["untrusted"] = True
+    return result
 
 
 async def write_note(

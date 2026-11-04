@@ -52,6 +52,14 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+#: SSE / WS ``tool_result`` 里带出的 guard 摘要字段（M80 §4.3）。
+_GUARD_SUMMARY_KEYS = ("action", "categories", "excerpt")
+
+
+def _guard_summary(guard: Mapping[str, Any]) -> dict[str, Any]:
+    """只保留前端工具卡需要的三个键；``excerpt`` 缺省时不补空串。"""
+    return {key: guard[key] for key in _GUARD_SUMMARY_KEYS if key in guard}
+
 #: 用户主动中断一轮时的收尾（规格 §3.1）。
 #: ``finish_reason`` 的新取值；落库列宽 24 够用，且该列没有枚举约束。
 INTERRUPTED_FINISH_REASON = "interrupted"
@@ -444,6 +452,9 @@ class AgentLoop:
                 }
                 if ctx.emits_v3_events:
                     result["run_id"] = ctx.run_id
+                if outcome.guard is not None:
+                    # SSE / WS 只带摘要（§4.3）；落库的 tool 消息保留完整标记。
+                    result["guard"] = _guard_summary(outcome.guard)
                 await ctx.emit("tool_result", result)
             stop = select_stop(outcomes, ctx.pending_stop)
             if stop is not None:

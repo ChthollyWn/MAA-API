@@ -452,6 +452,9 @@ def test_env_mapping_names_are_pinned() -> None:
         "memory.auto_extract": "MAA_MEMORY_AUTO_EXTRACT",
         "memory.require_review": "MAA_MEMORY_REQUIRE_REVIEW",
         "memory.max_injection_tokens": "MAA_MEMORY_MAX_INJECTION_TOKENS",
+        # M80：提示注入防护两项（都不是 config-only）。
+        "guard.injection_detection": "MAA_GUARD_INJECTION_DETECTION",
+        "guard.block_on_detect": "MAA_GUARD_BLOCK_ON_DETECT",
     }
 
 
@@ -1248,6 +1251,77 @@ def test_memory_settings_have_documented_defaults_and_metadata() -> None:
         "# 关闭后只保留 remember 入口",
         "# 关闭后提议直接生效，审核人记 auto，仍发 memory_proposed",
         "# 注入预算，0–8000，用 M67 的 token 估算",
+    ):
+        assert comment in template_text
+
+
+def test_guard_settings_have_documented_defaults_and_metadata() -> None:
+    """M80 防护两项：默认值、枚举校验、环境层与设置 API 元数据（spec §4.4）。"""
+    from pydantic import ValidationError
+
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, GuardSettings
+
+    default = resolve_settings(env={})
+    assert default.guard == GuardSettings()
+    assert default.guard.injection_detection == "rules"
+    assert default.guard.block_on_detect is False
+
+    configured = resolve_settings(
+        {"guard": {"injection_detection": "rules_llm", "block_on_detect": True}},
+        env={},
+    )
+    assert configured.guard.injection_detection == "rules_llm"
+    assert configured.guard.block_on_detect is True
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_GUARD_INJECTION_DETECTION": "off",
+            "MAA_GUARD_BLOCK_ON_DETECT": "true",
+        }
+    )
+    assert env_layer.guard.injection_detection == "off"
+    assert env_layer.guard.block_on_detect is True
+
+    # 枚举三值之外直接拒。
+    for bad in ("detect", "", "rules-llm"):
+        with pytest.raises(ValidationError):
+            resolve_settings({"guard": {"injection_detection": bad}}, env={})
+    with pytest.raises(ValidationError):
+        GuardSettings(injection_detection="always")
+
+    # 设置 API：两个键都登记、分组 Agent、不是 config-only。
+    keys = {"guard.injection_detection", "guard.block_on_detect"}
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+    detection = schema_for("guard.injection_detection")
+    assert (
+        detection["label"],
+        detection["group"],
+        detection["type"],
+        detection["enum"],
+        detection["hot_action"],
+    ) == ("提示注入检测", "Agent", "string", ["off", "rules", "rules_llm"], "none")
+    assert detection["description"] == (
+        "off 只打标不检测；rules 用规则检测；rules_llm 在规则命中或内容出自他人时"
+        "再请便宜模型复核"
+    )
+    block = schema_for("guard.block_on_detect")
+    assert (
+        block["label"], block["group"], block["type"], block["hot_action"],
+    ) == ("检测到可疑指令时整段拦截", "Agent", "boolean", "none")
+    assert block["description"] == "关闭时只打标，之后的写操作逐次确认"
+
+    # 文档一致性：模板里的值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["guard"] == {
+        "injection_detection": "rules",
+        "block_on_detect": False,
+    }
+    for comment in (
+        "# 提示注入防护：off 只打标不检测，rules 用规则检测，rules_llm 在规则命中或内容出自他人时再请便宜模型复核",
+        "# true：检测到可疑指令就整段拦截，Agent 看不到这段内容；false：只打标，之后的写操作逐次确认",
     ):
         assert comment in template_text
 

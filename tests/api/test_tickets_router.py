@@ -47,7 +47,7 @@ SUMMARY_FIELDS = {
     "updated_at",
     "ended_at",
 }
-#: ``TicketDetail`` 的 8 个字段（M71 §4.3 加 ``lease``）。
+#: ``TicketDetail`` 的 9 个字段（M71 §4.3 加 ``lease``，M80 加 ``forked_from``）。
 DETAIL_FIELDS = {
     "ticket",
     "result",
@@ -57,6 +57,7 @@ DETAIL_FIELDS = {
     "worker_session_id",
     "turn_running",
     "lease",
+    "forked_from",
 }
 #: ``MandateOut`` 的 9 个字段。
 MANDATE_FIELDS = {

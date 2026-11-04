@@ -68,6 +68,7 @@ from maa_api.api.routers import (
     queue,
     questions,
     resources,
+    rewind,
     runs,
     screenshots,
     snippets,
@@ -1325,6 +1326,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.ticket_service = ticket_service
         await ticket_service.forward_pending_reports()
 
+        # M80：回溯与分叉服务紧跟工单服务装配（规格 §4.2）：它只读工单与历史，
+        # 副作用清单要按工具注册表区分读写，广播走同一个 ws_manager。
+        from maa_api.agent.context.rewind import RewindService
+
+        app.state.rewind_service = RewindService(
+            db_session.session_factory,
+            registry=tool_registry,
+            ticket_service=ticket_service,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+        )
+
         # M75：产物服务与计划服务在工单服务之后装配。``artifact_service`` 由
         # ``SpillMiddleware``、``write_note`` / ``read_artifact`` 与产物端点共用；
         # ``plan_service`` 由 ``update_plan`` 工具、``PlanMiddleware`` 与计划端点共用。
@@ -1846,6 +1860,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "question_service",
             "run_service",
             "ticket_service",
+            "rewind_service",
             "artifact_service",
             "plan_service",
             "knowledge_index_service",
@@ -1969,6 +1984,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "question_service",
             "run_service",
             "ticket_service",
+            "rewind_service",
             "artifact_service",
             "plan_service",
             "knowledge_index_service",
@@ -2081,6 +2097,7 @@ def create_app() -> FastAPI:
     app.include_router(confirmations.router)
     app.include_router(questions.router)
     app.include_router(tickets.router)
+    app.include_router(rewind.router)
     app.include_router(device_lease.router)
     app.include_router(ws_router)
 

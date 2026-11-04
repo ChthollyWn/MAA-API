@@ -504,6 +504,11 @@ class AgentSession(SQLModel, table=True):
     parent_session_id: str | None = Field(
         default=None, foreign_key="agent_session.id", ondelete="SET NULL", max_length=36
     )
+    #: 分叉来源（M80）：从哪个会话的哪条消息分叉出来；来源会话被删只解除关联。
+    forked_from_session_id: str | None = Field(
+        default=None, foreign_key="agent_session.id", ondelete="SET NULL", max_length=36
+    )
+    forked_from_seq: int | None = Field(default=None)
     archived_at: datetime | None = Field(
         default=None, sa_column=datetime_column("archived_at", nullable=True)
     )
@@ -563,6 +568,10 @@ class AgentMessage(SQLModel, table=True):
     )
     inbox_id: int | None = Field(
         default=None, foreign_key="agent_inbox.id", ondelete="SET NULL"
+    )
+    #: 回溯后被取代的时刻；非空的消息不进上下文，前端默认折叠（03 §10.3）。
+    superseded_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("superseded_at", nullable=True)
     )
 
     __table_args__ = (

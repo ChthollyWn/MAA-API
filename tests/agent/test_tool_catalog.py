@@ -104,6 +104,32 @@ EXPECTED_REFETCHABLE = frozenset({
     "list_tickets", "get_ticket", "search_knowledge", "read_skill_file",
 })
 
+#: M80 §5 T4：结果属于不可信输入的工具，整集等于规格附录 A（22 个）。
+UNTRUSTED_OUTPUT_TOOLS = frozenset({
+    # v2：PRTS 与企鹅物流的页面、拆包关卡文件、工作区文件、作业站作者内容、子代理报告。
+    "get_stage", "search_prts", "get_operator", "get_enemy", "get_item",
+    "get_drop_rates", "get_prts_page", "get_gacha_pools", "get_story",
+    "get_building_skills", "get_infrast_candidates", "list_infrast_plans",
+    "get_activity_stages", "get_roguelike_info", "get_stage_level_data",
+    "search_copilots", "save_copilot_draft",
+    "read_file", "search_code", "delegate_recon",
+    # v3：子代理结论与知识检索命中可能转述外部内容。
+    "delegate", "search_knowledge",
+})
+
+
+def test_untrusted_output_tools_are_pinned() -> None:
+    """M80 §4.2、§6：untrusted_output 的整集等于附录 A，总数与模型可见数不变。"""
+
+    definitions = build_registry().list()
+    untrusted = {definition.name for definition in definitions if definition.untrusted_output}
+
+    assert len(UNTRUSTED_OUTPUT_TOOLS) == 22
+    assert untrusted == UNTRUSTED_OUTPUT_TOOLS
+    assert untrusted <= EXPECTED_TOOLS
+    assert len(definitions) == 100
+    assert sum(1 for definition in definitions if definition.model_visible) == 99
+
 
 def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner():
     registry = build_registry()
@@ -664,7 +690,12 @@ def test_extension_fields_keep_v2_defaults() -> None:
     assert {
         definition.name for definition in definitions if not definition.rest_visible
     } == v3_only
-    assert all(definition.untrusted_output is False for definition in definitions)
+    # M80：附录 A 的 22 个工具单独打标，其余仍是默认关闭。
+    assert all(
+        definition.untrusted_output is False
+        for definition in definitions
+        if definition.name not in UNTRUSTED_OUTPUT_TOOLS
+    )
 
 
 def test_refetchable_tools_are_pinned() -> None:

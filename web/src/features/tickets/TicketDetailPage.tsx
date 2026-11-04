@@ -278,6 +278,13 @@ function TicketDetail({ ticketId }: { ticketId: string }) {
       }}
       error={shownError}
       leftovers={desktop ? undefined : leftovers}
+      actions={{
+        kind: 'worker',
+        running: detail.data?.turnRunning === true,
+        sessionId: workerSessionId,
+        ticketId,
+        onResend: (text) => controller.send({ content: text, mentions: [] }),
+      }}
     />
   )
 

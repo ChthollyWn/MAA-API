@@ -12,6 +12,7 @@ import { ErrorState, LoadingState } from '@/components/ui/states'
 import { AccountActionDetails, isAccountTool } from '@/features/agent/ConfirmationCard'
 import { originLabel, useAgentTitle } from '@/features/agent/origin'
 import type { AgentOrigin } from '@/features/agent/types'
+import { ConfirmationGuardAlert } from '@/features/rewind/GuardBadge'
 import { cn } from '@/lib/utils'
 
 export interface Confirmation {
@@ -202,6 +203,8 @@ export function ConfirmationsPanel({ showHeading = true, emptyFallback = null }:
           >
             <article className="overflow-hidden rounded-xl border bg-card shadow-card">
               <div className="space-y-3 p-4">
+                {/* 降权期间的强制确认（M80 §4.6）：与确认卡同一段来源提示。 */}
+                <ConfirmationGuardAlert guard={item.payload.guard} />
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
                     <h3 className="break-words text-[0.9375rem] font-semibold leading-6">{grant ? '授权会话操作游戏界面' : item.payload.tool_name ?? item.action}</h3>

@@ -590,6 +590,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=_read_file,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -606,6 +607,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=_search_code,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
 

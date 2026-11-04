@@ -140,6 +140,29 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
         // M79 §4.6：待你处理的「N 条记忆待审核」与记忆页共用同一个查询前缀，
         // 一次失效两处；不碰消息窗口与工单。
         invalidateBatched(queryClient, keys.agent.memories())
+      } else if (event.data.event === 'session_rewound') {
+        // M80 §4.6：回溯已经提交，其他标签页重拉该会话的消息窗口。回溯只在没有活动
+        // 运行、没有待确认时成功（§4.5.7），所以不会与直播中的实时副本重复渲染（M59）。
+        const sessionId = event.data.session_id
+        if (typeof sessionId === 'string' && sessionId) {
+          invalidateBatched(queryClient, keys.agent.messages(sessionId))
+          const orchestrator = queryClient.getQueryData<{ session_id?: string }>(
+            keys.agent.orchestrator.state(),
+          )
+          if (orchestrator?.session_id === sessionId) {
+            invalidateBatched(queryClient, keys.agent.orchestrator.messages())
+            invalidateBatched(queryClient, keys.agent.orchestrator.state())
+          }
+          // 工单消息窗口的 key 是工单 id，不是会话 id：从已缓存的工单详情反查。
+          for (const [queryKey, data] of queryClient.getQueriesData<{ workerSessionId?: string | null }>({
+            queryKey: keys.agent.tickets.all(),
+          })) {
+            if (data?.workerSessionId !== sessionId) continue
+            if (queryKey[3] !== 'detail' || typeof queryKey[4] !== 'string') continue
+            invalidateBatched(queryClient, keys.agent.tickets.messagesAll(queryKey[4]))
+            invalidateBatched(queryClient, keys.agent.tickets.detail(queryKey[4]))
+          }
+        }
       } else if (event.data.event === 'lease_changed') {
         // 设备租约（M71 §4.3）：租约条与持有者工单的详情各取各的。payload.lease 在
         // 释放/过期时可能是 null，所以只有拿得到 ticket_id 才顺带失效工单详情。

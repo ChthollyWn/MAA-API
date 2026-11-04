@@ -3,6 +3,7 @@ import { ChevronDown, LoaderCircle, Wrench } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { formatFetchedAt, isRecord, parseToolSources, pretty, toolLabel, toolRegionNote, type ToolSource } from './format'
+import { GuardBadge } from '@/features/rewind/GuardBadge'
 import { MediaCards } from './MediaCards'
 import { ToolAttachmentView } from './ToolAttachment'
 import { mediaCardsOf, toolScreenshotAttachment } from './media'
@@ -97,10 +98,17 @@ export function ToolCallBar({ tool }: { tool: ToolView }) {
   // 来源标签同理（规格 §4.2）：它回答「这话是谁说的」，折叠起来就失去了意义。
   const sources = useMemo(() => parseToolSources(tool.result), [tool.result])
   const regionNote = useMemo(() => toolRegionNote(tool.result), [tool.result])
+  const guard = tool.guard
   return (
     <div className="space-y-2">
       {cards.length > 0 ? <MediaCards cards={cards} /> : null}
       <SourceTags sources={sources} regionNote={regionNote} />
+      {/* 注入标记（M80 §4.6）放在折叠条外：信息量小但不该收进默认折叠的 details。 */}
+      {guard && (guard.action === 'flagged' || guard.action === 'blocked') ? (
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          <GuardBadge guard={guard} />
+        </div>
+      ) : null}
       <details className="group rounded-xl border bg-card">
         <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2.5 rounded-xl px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
           <Wrench aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />

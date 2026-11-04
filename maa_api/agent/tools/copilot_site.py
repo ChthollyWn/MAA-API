@@ -117,6 +117,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=search_copilots,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         ),
         ToolDefinition(
             name="save_copilot_draft",
@@ -128,6 +129,7 @@ def register_tools(registry: ToolRegistry) -> None:
             ),
             params_model=SaveCopilotDraftParams,
             handler=save_copilot_draft,
+            untrusted_output=True,
         ),
     )
     for definition in definitions:

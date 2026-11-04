@@ -47,7 +47,11 @@ from maa_api.db.models import (
     Ticket,
     TicketReport,
 )
-from maa_api.db.repositories.agent import AgentMessageRepository, load_inbox_meta
+from maa_api.db.repositories.agent import (
+    AgentMessageRepository,
+    AgentSessionRepository,
+    load_inbox_meta,
+)
 from maa_api.db.repositories.ticket import TicketRepository
 from maa_api.domain.enums import (
     EventSource,
@@ -60,6 +64,7 @@ from maa_api.domain.enums import (
 from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = [
+    "ForkedFrom",
     "HumanActionOut",
     "MandateOut",
     "SSE_HEADERS",
@@ -69,7 +74,9 @@ __all__ = [
     "TicketReportOut",
     "TicketReportPage",
     "TicketSummary",
+    "forked_from_of",
     "router",
+    "ticket_detail_out",
 ]
 
 #: 两条 SSE 端点共用的响应头（与 v2 的 ``stream_session_message`` 一致）。
@@ -142,6 +149,14 @@ class TicketReportOut(BaseModel):
     created_at: str
 
 
+class ForkedFrom(BaseModel):
+    """分叉来源：源工单与分叉处的消息 seq（由 Worker 会话的两列反查）。"""
+
+    ticket_id: str
+    title: str
+    at_seq: int
+
+
 class TicketDetail(BaseModel):
     """工单详情：摘要、结果、委托、订阅、最近 5 条汇报与 Worker 是否在跑。"""
 
@@ -154,6 +169,8 @@ class TicketDetail(BaseModel):
     turn_running: bool
     #: 当前设备租约属于本工单时填，否则为 ``null``（M71 §4.3）。
     lease: DeviceLeaseOut | None
+    #: 由哪个工单的哪条消息分叉出来（M80 §4.3）；不是分叉出来的为 ``null``。
+    forked_from: ForkedFrom | None = None
 
 
 class TicketPage(BaseModel):
@@ -271,8 +288,37 @@ def _report_out(report: TicketReport) -> TicketReportOut:
     )
 
 
-def _ticket_detail(
-    data: TicketDetailData, *, lease: DeviceLeaseOut | None = None
+async def forked_from_of(
+    session: AsyncSession, worker_session_id: str | None
+) -> ForkedFrom | None:
+    """由 Worker 会话的 ``forked_from_session_id`` / ``forked_from_seq`` 反查来源。"""
+    if not worker_session_id:
+        return None
+    worker = await AgentSessionRepository(session).get(worker_session_id)
+    if (
+        worker is None
+        or not worker.forked_from_session_id
+        or worker.forked_from_seq is None
+    ):
+        return None
+    source = await AgentSessionRepository(session).get(worker.forked_from_session_id)
+    if source is None or not source.ticket_id:
+        return None
+    ticket = await TicketRepository(session).get(source.ticket_id)
+    if ticket is None:
+        return None
+    return ForkedFrom(
+        ticket_id=str(ticket.id),
+        title=ticket.title,
+        at_seq=int(worker.forked_from_seq),
+    )
+
+
+def ticket_detail_out(
+    data: TicketDetailData,
+    *,
+    lease: DeviceLeaseOut | None = None,
+    forked_from: ForkedFrom | None = None,
 ) -> TicketDetail:
     return TicketDetail(
         ticket=_ticket_summary(data.ticket),
@@ -283,6 +329,7 @@ def _ticket_detail(
         worker_session_id=data.ticket.worker_session_id,
         turn_running=data.turn_running,
         lease=lease,
+        forked_from=forked_from,
     )
 
 
@@ -333,6 +380,7 @@ async def list_tickets(
 async def get_ticket(
     request: Request,
     ticket_id: str = Path(min_length=1, max_length=36, description="工单 id"),
+    session: AsyncSession = Depends(get_session),
 ) -> TicketDetail:
     data = await _service(request).detail(ticket_id)
     lease: DeviceLeaseOut | None = None
@@ -341,7 +389,11 @@ async def get_ticket(
         row = await lease_service.current()
         if row is not None and row.ticket_id == ticket_id:
             lease = DeviceLeaseOut.model_validate(await lease_service.wire(row))
-    return _ticket_detail(data, lease=lease)
+    return ticket_detail_out(
+        data,
+        lease=lease,
+        forked_from=await forked_from_of(session, data.ticket.worker_session_id),
+    )
 
 
 @router.get(
@@ -526,9 +578,13 @@ async def cancel_ticket(
     payload: TicketCancelRequest,
     request: Request,
     ticket_id: str = Path(min_length=1, max_length=36, description="工单 id"),
+    session: AsyncSession = Depends(get_session),
 ) -> TicketDetail:
     """停掉 Worker 与子代理（已提交的流水线不停），返回取消后的工单详情。"""
     data = await _worker_service(request).cancel(
         ticket_id, reason=payload.reason, actor="user"
     )
-    return _ticket_detail(data)
+    return ticket_detail_out(
+        data,
+        forked_from=await forked_from_of(session, data.ticket.worker_session_id),
+    )

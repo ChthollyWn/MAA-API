@@ -514,9 +514,16 @@ class ErrorCode(StrEnum):
     # 审核只接受 proposed；已生效、已拒绝、被取代或已过期都是 409
     MEMORY_NOT_PROPOSED = "MEMORY_NOT_PROPOSED"
 
+    # ---- M80 提示注入防护与会话回溯 ----
+    # 回溯位置不合法
+    REWIND_TARGET_INVALID = "REWIND_TARGET_INVALID"
+
+    # 内容含可疑指令，已拦截
+    PROMPT_INJECTION_BLOCKED = "PROMPT_INJECTION_BLOCKED"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 145 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 156 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -689,6 +696,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     # M79 长期记忆：没有这条记忆是 404；不在待审核状态是 409。
     ErrorCode.MEMORY_NOT_FOUND: 404,
     ErrorCode.MEMORY_NOT_PROPOSED: 409,
+    # M80 回溯与注入防护：目标位置不合法是 400；内容被拦截是 403。
+    ErrorCode.REWIND_TARGET_INVALID: 400,
+    ErrorCode.PROMPT_INJECTION_BLOCKED: 403,
 }
 
 

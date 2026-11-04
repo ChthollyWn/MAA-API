@@ -215,6 +215,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_stage,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -231,6 +232,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=search_prts,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -248,6 +250,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_operator,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -264,6 +267,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_enemy,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -280,6 +284,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_item,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -296,6 +301,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_drop_rates,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -312,6 +318,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_prts_page,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -328,6 +335,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_gacha_pools,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
     registry.register(
@@ -345,6 +353,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_story,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
 

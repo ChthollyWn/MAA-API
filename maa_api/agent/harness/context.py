@@ -132,9 +132,16 @@ class ToolOutcome:
     stop_text: str | None = None
     #: tool 消息正文；``None`` 时 loop 用 ``json_text(body())``。
     content: str | None = None
+    #: 注入防护标记（M80 §4.5）：非空时落库的 tool 消息与 SSE 都带 ``guard`` 键。
+    guard: dict[str, Any] | None = None
 
     def body(self) -> dict[str, Any]:
-        return {"error": self.error} if self.error is not None else {"result": self.result}
+        body: dict[str, Any] = (
+            {"error": self.error} if self.error is not None else {"result": self.result}
+        )
+        if self.guard is not None:
+            body["guard"] = self.guard
+        return body
 
 
 @dataclass(slots=True)

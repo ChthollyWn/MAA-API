@@ -72,6 +72,7 @@ def register_tools(registry: ToolRegistry) -> None:
             handler=get_activity_stages,
             read_only=True,
             refetchable=True,
+            untrusted_output=True,
         )
     )
 

@@ -411,6 +411,8 @@ EXPECTED_FK_SET_NULL = {
     ("agent_session", "parent_session_id"),
     ("agent_run", "parent_run_id"),
     ("agent_message", "run_id"),
+    # M80：分叉来源会话被删只解除关联，分叉出的会话留着。
+    ("agent_session", "forked_from_session_id"),
     # M67：运行与会话删了，成本账本仍要留着（预算与历史汇总）。
     ("cost_ledger", "run_id"),
     ("cost_ledger", "session_id"),

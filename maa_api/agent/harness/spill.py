@@ -156,6 +156,12 @@ class SpillMiddleware(Middleware):
         service = _artifact_service(ctx)
         if service is None:
             return outcome
+        # M80 §4.5.9：不可信结果外置后，产物要带着标记，read_artifact 读回来时继续声明。
+        guard = outcome.guard
+        untrusted = isinstance(guard, Mapping) and guard.get("untrusted") is True
+        meta: dict[str, Any] = {"tool": call.name, "total_chars": len(text)}
+        if untrusted:
+            meta["untrusted"] = True
         try:
             artifact = await service.put(
                 kind="spill",
@@ -165,7 +171,7 @@ class SpillMiddleware(Middleware):
                 session_id=ctx.session_id,
                 ticket_id=ctx.ticket_id,
                 run_id=ctx.run_id,
-                meta={"tool": call.name, "total_chars": len(text)},
+                meta=meta,
             )
         except Exception:  # noqa: BLE001 - 外置失败不能盖过已经成功的工具调用
             logger.warning(
@@ -180,5 +186,8 @@ class SpillMiddleware(Middleware):
         )
         # 审计在内层、替换之前完成（测试锁顺序）；这里只改给模型与 SSE 的副本。
         outcome.result = pointer
-        outcome.content = _json_text(pointer)
+        # M80：guard 标记跟着指针一起落库；有标记时正文用 body 形状，渲染包装才认得出。
+        outcome.content = (
+            _json_text(outcome.body()) if outcome.guard is not None else _json_text(pointer)
+        )
         return outcome
