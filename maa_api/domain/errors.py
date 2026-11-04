@@ -331,6 +331,12 @@ class ErrorCode(StrEnum):
     # 删除未修改过的内置条目，或修改内置条目的 kind
     KNOWLEDGE_BUILTIN_READONLY = "KNOWLEDGE_BUILTIN_READONLY"
 
+    # 向量服务不可用
+    EMBEDDING_UNAVAILABLE = "EMBEDDING_UNAVAILABLE"
+
+    # 检索词不合法
+    RETRIEVAL_QUERY_INVALID = "RETRIEVAL_QUERY_INVALID"
+
     # ---- Agent 主动提问 ----
     # 提问 id 不存在
     QUESTION_NOT_FOUND = "QUESTION_NOT_FOUND"
@@ -587,6 +593,8 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.BUDGET_EXCEEDED: 429,
     ErrorCode.KNOWLEDGE_NOT_FOUND: 404,
     ErrorCode.KNOWLEDGE_BUILTIN_READONLY: 409,
+    ErrorCode.EMBEDDING_UNAVAILABLE: 503,
+    ErrorCode.RETRIEVAL_QUERY_INVALID: 400,
     ErrorCode.QUESTION_NOT_FOUND: 404,
     ErrorCode.QUESTION_ALREADY_ANSWERED: 409,
     ErrorCode.QUESTION_EXPIRED: 409,
