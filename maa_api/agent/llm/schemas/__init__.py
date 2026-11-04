@@ -5,6 +5,10 @@ schema 一个 pydantic 模型文件，模块末尾调用 ``register_schema``，�
 注册。导入本包即完成注册，``complete_structured`` 按名字取到模型。
 """
 
+from maa_api.agent.llm.schemas.memory_proposals import (  # noqa: F401
+    MemoryProposal,
+    MemoryProposals,
+)
 from maa_api.agent.llm.schemas.subagent_report import (  # noqa: F401
     SubagentFinding,
     SubagentReport,
@@ -14,4 +18,11 @@ from maa_api.agent.llm.schemas.verifier_verdict import VerifierVerdict  # noqa: 
 
 from maa_api.agent.llm.schemas import compaction_summary  # noqa: F401
 
-__all__ = ["SubagentFinding", "SubagentReport", "Title", "VerifierVerdict"]
+__all__ = [
+    "MemoryProposal",
+    "MemoryProposals",
+    "SubagentFinding",
+    "SubagentReport",
+    "Title",
+    "VerifierVerdict",
+]

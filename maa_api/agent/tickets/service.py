@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping
@@ -64,6 +65,7 @@ __all__ = [
     "BLOCKED_AFTER_RESTART_SUMMARY",
     "OrchestratorResolver",
     "ReportOutcome",
+    "MemoryExtractor",
     "TicketDetailData",
     "TicketEndListener",
     "TicketEnded",
@@ -96,6 +98,8 @@ _PRIORITIES = (0, 1, 2)
 
 
 TicketEndListener = Callable[["TicketEnded"], Awaitable[None] | None]
+#: 记忆抽取回调：M79 装配方注入 ``extract_candidates`` 的偏函数，终态提交后后台执行。
+MemoryExtractor = Callable[["TicketEnded"], Awaitable[Any] | None]
 #: 汇报转发目标的解析函数：返回「当前活动的总控会话」id（M70 §3.3）。
 OrchestratorResolver = Callable[[], Awaitable[str | None]]
 
@@ -184,10 +188,57 @@ class TicketService:
         self._clock = clock
         self._end_listeners: list[TicketEndListener] = []
         self._orchestrator_resolver: OrchestratorResolver | None = None
+        self._memory_extractor: MemoryExtractor | None = None
+        #: 终态后起的记忆抽取后台任务；持有引用避免任务被回收，测试可等它们收尾。
+        self._memory_tasks: set[asyncio.Task[Any]] = set()
 
     def add_end_listener(self, listener: TicketEndListener) -> None:
         """注册工单结束监听者；按注册顺序在广播之后调用。"""
         self._end_listeners.append(listener)
+
+    def bind_memory_extractor(self, extractor: MemoryExtractor) -> None:
+        """绑定终态记忆抽取回调；作为结束监听者注册一次，提交后放到后台任务里。
+
+        抽取自己起 ``memory_extract`` 运行、失败只记日志（规格 §4.5、§8）。装配方
+        传 ``extract_candidates`` 的偏函数；测试可传任意协程替身。重复绑定时只换
+        回调，不会重复注册监听者。
+        """
+        if self._memory_extractor is None:
+            self.add_end_listener(self._extract_memory_after_end)
+        self._memory_extractor = extractor
+
+    async def _extract_memory_after_end(self, ended: TicketEnded) -> None:
+        """终态监听者：调度后台抽取后立刻返回，接口不等模型。"""
+        extractor = self._memory_extractor
+        if extractor is None:
+            return
+        try:
+            task = asyncio.create_task(
+                self._run_memory_extraction(extractor, ended),
+                name=f"memory-extract-{ended.ticket_id}",
+            )
+        except RuntimeError:  # pragma: no cover - 正常调用总在事件循环里
+            logger.warning("工单结束记忆抽取没有事件循环：ticket=%s", ended.ticket_id)
+            return
+        self._memory_tasks.add(task)
+        task.add_done_callback(self._memory_tasks.discard)
+
+    @staticmethod
+    async def _run_memory_extraction(
+        extractor: MemoryExtractor, ended: TicketEnded
+    ) -> None:
+        """跑抽取回调；任何失败只记日志，不改变已提交的工单终态。"""
+        try:
+            result = extractor(ended)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # noqa: BLE001 - 后台任务失败不能扩散到调用方
+            logger.warning(
+                "工单终态记忆抽取失败：ticket=%s status=%s",
+                ended.ticket_id,
+                ended.status,
+                exc_info=True,
+            )
 
     def bind_orchestrator_resolver(self, resolver: OrchestratorResolver) -> None:
         """注入汇报转发的目标解析函数（M70 §3.3）：解析函数优先于工单上的会话 id。
