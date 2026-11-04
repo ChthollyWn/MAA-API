@@ -246,6 +246,8 @@ curl -X POST http://<host>:8002/api/snippets \
 | `PLAN_NOT_AWAITING_APPROVAL` | 409 | 计划不在待批准状态（M75） |
 | `MEMORY_NOT_FOUND` | 404 | 记忆 id 不存在；更新、删除、审核都按这个码（M79） |
 | `MEMORY_NOT_PROPOSED` | 409 | 审核只接受 `proposed`；已生效、已拒绝、被取代或已过期都按这个码（M79） |
+| `REWIND_TARGET_INVALID` | 400 | 回溯位置不合法（M80）：`details.reason` 取 `session_kind`、`archived`、`not_found`、`superseded`、`splits_tool_batch`、`session_start`；分叉另有 `no_worker_session` |
+| `PROMPT_INJECTION_BLOCKED` | 403 | 内容含可疑指令，已拦截（M80） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->
