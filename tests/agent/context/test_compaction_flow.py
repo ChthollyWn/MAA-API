@@ -1,9 +1,10 @@
-"""M74 T6：压缩在运行里的行为（spec §4.5.2、§6 的前四条用例）。
+"""M74 T6：压缩在运行里的行为（spec §4.5.2、§6 的前五条用例）。
 
 自动压缩用真临时库 + 假摘要模型，钉住「运行内发一次 SSE compaction、之后的请求
 从摘要消息开始、WS 广播 compaction_created」；降级用例钉住「摘要失败写机械摘要
 检查点，运行继续」；第三条钉住 token 预算替换字符预算；第四条钉住 legacy 的布局
-逐字节不变。
+逐字节不变；第五条用真实总控服务跑 200 条用户消息与 20 条汇报的长会话，钉住
+16 000 窗口下每次请求都在溢出线下、摘要保留全部工单 ID、工具声明不丢。
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.context.compaction import CompactionMiddleware, Compactor
 from maa_api.agent.context.layout import ContextLayout, parts_of
 from maa_api.agent.context.tokens import TokenEstimator, budget_for
@@ -28,12 +30,20 @@ from maa_api.agent.harness.context import (
 from maa_api.agent.harness.loop import AgentLoop, MemoryTranscript
 from maa_api.agent.harness.middleware import MiddlewareChain
 from maa_api.agent.llm.profiles import ResolvedProfile
-from maa_api.agent.llm.schemas.compaction_summary import CompactionSummary
+from maa_api.agent.llm.schemas.compaction_summary import CompactionSummary, Ref
+from maa_api.agent.orchestrator.service import OrchestratorService
 from maa_api.agent.registry import ToolRegistry
-from maa_api.agent.specs.registry import builtin_spec
+from maa_api.agent.runtime import AgentRuntime
+from maa_api.agent.runs.service import RunService
+from maa_api.agent.specs.registry import AgentSpecRegistry, builtin_spec
+from maa_api.agent.tickets.inbox import InboxService
+from maa_api.agent.tools import build_registry
+from maa_api.agent.workers.pump import TurnHandle
 from maa_api.db.repositories.agent import AgentMessageRepository
 from maa_api.db.repositories.compaction import CompactionCheckpointRepository
+from maa_api.domain.enums import InboxKind
 from maa_api.domain.errors import AppError, ErrorCode
+from tests.fakes.fake_llm import FakeLLM, text_response
 from tests.fakes.v3_db import make_session_factory, seed_session
 
 _WORKER_PROFILE = ResolvedProfile(
@@ -48,6 +58,27 @@ _WORKER_PROFILE = ResolvedProfile(
     supports_vision=None,
     supports_tools=True,
     supports_json_schema=None,
+    dynamic_context_position="tail_system",
+    price_input=None,
+    price_cached_input=None,
+    price_output=None,
+    currency="CNY",
+    embedding_dim=None,
+    local_model_path=None,
+    readonly=False,
+)
+_ORCHESTRATOR_PROFILE = ResolvedProfile(
+    name="orchestrator",
+    kind="chat",
+    provider="openai_compatible",
+    base_url="https://llm.test/v1",
+    api_key="sk-test",
+    model="orchestrator-model",
+    context_window=16_000,
+    max_output_tokens=None,
+    supports_vision=True,
+    supports_tools=True,
+    supports_json_schema=True,
     dynamic_context_position="tail_system",
     price_input=None,
     price_cached_input=None,
@@ -489,3 +520,222 @@ def test_legacy_specs_keep_the_v2_layout() -> None:
     )
     assert updated.messages == expected
     assert "【压缩摘要】" not in json.dumps(updated.messages, ensure_ascii=False)
+
+
+def test_orchestrator_long_session_stays_within_budget(tmp_path, monkeypatch) -> None:
+    """总控窗口 16 000 的长会话：200 条消息与 20 条汇报压缩后仍在预算内。
+
+    用真实总控服务与真实中间件链跑若干轮；直接调 ``_run_turn`` 而不经过泵的批
+    处理窗口，用例不等真实时间。收件箱一次最多领 50 条：第一条领走 20 条汇报与
+    30 条用户消息，之后每股 50 条，最后 20 条收尾。
+    """
+    engine, factory = asyncio.run(
+        make_session_factory(tmp_path / "long-session.db")
+    )
+
+    async def scenario() -> None:
+        tool_registry = build_registry()
+        spec_registry = AgentSpecRegistry(tool_registry)
+        spec_registry.load()
+        confirmations = ConfirmationService(factory, tool_registry)
+        runtime = AgentRuntime(
+            factory,
+            confirmations,
+            settings_provider=lambda _request: SimpleNamespace(channel=None),
+        )
+        run_service = RunService(factory, boot_id="m74-t9a")
+        inbox = InboxService(factory)
+        layout = ContextLayout(TokenEstimator())
+        llm = FakeLLM([text_response("收到，继续。") for _ in range(10)])
+        orchestrator_profile = _ORCHESTRATOR_PROFILE
+
+        class _LongSessionRouter:
+            async def resolve(self, role: object) -> ResolvedProfile:
+                if str(role) == "summarizer":
+                    return _SUMMARIZER_PROFILE
+                return orchestrator_profile
+
+            async def resolve_for_spec(
+                self, spec: object, **_: object
+            ) -> ResolvedProfile:
+                return orchestrator_profile
+
+            def client_for(self, _profile: ResolvedProfile) -> object:
+                class _Handle:
+                    def __init__(self, client: FakeLLM) -> None:
+                        self.client = client
+
+                    async def aclose(self) -> None:
+                        return None
+
+                return _Handle(llm)
+
+        router = _LongSessionRouter()
+        state = SimpleNamespace(
+            agent_runtime=runtime,
+            model_router=router,
+            run_event_bus=None,
+            run_service=run_service,
+            session_factory=factory,
+            context_layout=layout,
+            agent_spec_registry=spec_registry,
+            confirmation_service=confirmations,
+            knowledge_service=None,
+            ticket_service=SimpleNamespace(),
+        )
+        app = SimpleNamespace(state=state)
+        compactor = Compactor(state, factory)
+        state.compactor = compactor
+        orchestrator = OrchestratorService(
+            app=app,
+            session_factory=factory,
+            spec_registry=spec_registry,
+            run_service=run_service,
+            inbox_service=inbox,
+            ticket_service=SimpleNamespace(),
+            question_service=None,
+            confirmation_service=confirmations,
+            model_router=router,
+            event_bus=None,
+        )
+        try:
+            session = await orchestrator.ensure_session()
+            session_id = str(session.id)
+
+            ticket_ids = [f"ticket-{index:02d}" for index in range(20)]
+            for index, ticket_id in enumerate(ticket_ids):
+                await inbox.put(
+                    session_id,
+                    InboxKind.REPORT,
+                    payload={
+                        "ticket_id": ticket_id,
+                        "ticket_title": f"工单 {index}",
+                        "ticket_kind": "general",
+                        "status": "succeeded",
+                        "summary": (
+                            f"第 {index} 个工单完成，结果可以按 ID 查询。"
+                            + "细节" * 20
+                        ),
+                    },
+                )
+
+            async def post_user_messages(start: int, count: int) -> None:
+                for index in range(start, start + count):
+                    await orchestrator.post_user_message(
+                        f"第 {index} 条用户消息："
+                        + "请记录这条长会话信息。" * 10,
+                        [],
+                    )
+
+            settings = _settings()
+            monkeypatch.setattr(
+                "maa_api.agent.context.compaction.get_settings",
+                lambda: settings,
+            )
+            monkeypatch.setattr(
+                "maa_api.agent.workers.pump.get_settings",
+                lambda: settings,
+            )
+
+            summary_calls: list[dict[str, object]] = []
+
+            async def fake_complete_structured(**kwargs: object) -> object:
+                summary_calls.append(kwargs)
+                # 只引用摘要输入里真的出现过的工单 ID：20 条汇报必须都在
+                # 被压缩的区间里，最后一条检查点才可能列全。
+                prompt = "\n".join(
+                    str(message.get("content") or "")
+                    for message in kwargs["messages"]
+                )
+                found = [ticket_id for ticket_id in ticket_ids if ticket_id in prompt]
+                return SimpleNamespace(
+                    value=CompactionSummary(
+                        summary="较早的消息已压缩，工单结果可按 ID 重新查询。",
+                        refs=[
+                            Ref(
+                                kind="ticket",
+                                id=ticket_id,
+                                label="create_ticket",
+                            )
+                            for ticket_id in found
+                        ],
+                    )
+                )
+
+            monkeypatch.setattr(
+                "maa_api.agent.context.compaction.complete_structured",
+                fake_complete_structured,
+            )
+
+            observed: list[tuple[int, set[str], bool]] = []
+            original_init = AgentLoop.__init__
+
+            def capture_init(self: AgentLoop, *, call_model, **kwargs):
+                """在中间件处理完之后、真正调模型之前记下最终请求。"""
+
+                def wrapped(ctx: RunContext, request: ModelRequest):
+                    tool_names = {
+                        str(tool.get("function", {}).get("name"))
+                        for tool in request.tools
+                        if isinstance(tool, dict)
+                    }
+                    has_summary = any(
+                        isinstance(message.get("content"), str)
+                        and message["content"].startswith("【压缩摘要】")
+                        for message in request.messages
+                    )
+                    observed.append(
+                        (request.estimated_tokens, tool_names, has_summary)
+                    )
+                    return call_model(ctx, request)
+
+                original_init(self, call_model=wrapped, **kwargs)
+
+            monkeypatch.setattr(AgentLoop, "__init__", capture_init)
+
+            async def run_turn() -> None:
+                handle = TurnHandle()
+                assert await orchestrator._run_turn(handle)
+                assert handle.run_id is not None
+
+            await post_user_messages(0, 30)
+            await run_turn()
+            for start in (30, 80, 130):
+                await post_user_messages(start, 50)
+                await run_turn()
+            await post_user_messages(180, 20)
+            await run_turn()
+
+            assert await inbox.pending_count(session_id) == 0
+            budget = budget_for(orchestrator_profile, settings)
+            assert budget.window == 16_000
+            assert observed
+            assert all(
+                estimated < budget.overflow_tokens
+                for estimated, _tools, _summary in observed
+            )
+            assert all(
+                "get_ticket" in tools for _estimated, tools, _summary in observed
+            )
+            assert any(has_summary for _estimated, _tools, has_summary in observed)
+
+            async with factory() as db:
+                repo = CompactionCheckpointRepository(db)
+                checkpoints = await repo.list_for_session(session_id)
+                active = await repo.active_for_session(session_id)
+            assert len(checkpoints) >= 1
+            assert active is not None
+            assert [tid for tid in ticket_ids if tid not in active.summary] == []
+            assert summary_calls
+            assert all(
+                call["schema_name"] == "compaction_summary"
+                for call in summary_calls
+            )
+        finally:
+            await orchestrator.close()
+            await run_service.close()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        engine.sync_engine.dispose()
