@@ -22,7 +22,6 @@ from sqlmodel import SQLModel
 import maa_api.db.models  # noqa: F401 - 建表需要全部模型进 metadata
 from maa_api.agent.confirmation import ConfirmationService
 from maa_api.agent.harness.builtin_middleware import build_model_context
-from maa_api.agent.incidents import AgentIncidentService
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.agent.runs.recovery import RECOVERY_FINISH_REASON
@@ -34,7 +33,6 @@ from maa_api.db.models import (
     AgentMessage,
     AgentRun,
     AgentSession,
-    Pipeline,
     new_uuid,
     utcnow,
 )
@@ -292,39 +290,35 @@ def test_incident_turn_records_legacy_incident_run() -> None:
         harness = await _harness([text_response("看过了，是内核没启动。")])
         try:
             async with harness.factory() as session:
-                session.add(
-                    Pipeline(
-                        id="pipeline-1",
-                        core_id="default",
-                        source="manual",
-                        priority=0,
-                        status="failed",
-                        title="失败的流水线",
-                        task_count=1,
-                        error_code="TASK_FAILED",
-                        error_message="MaaCore stopped unexpectedly",
+                stored_session = await session.get(AgentSession, SESSION_ID)
+                stored_session.kind = AgentSessionKind.INCIDENT
+                stored_session.title = "自动诊断"
+                stored_session.incident_key = "pipeline:pipeline-1"
+                await session.flush()
+                await AgentMessageRepository(session).create(
+                    AgentMessage(
+                        session_id=SESSION_ID,
+                        seq=0,
+                        role="user",
+                        content='{"incident_type":"pipeline_failure"}',
                     )
                 )
                 await session.commit()
-            service = AgentIncidentService(
-                harness.factory,
-                harness.runtime,
-                settings_provider=lambda: harness.settings,
+            result = await harness.runtime.run_incident(
+                SESSION_ID, None, {"get_pipeline"}
             )
-            result = await service.pipeline_failed("pipeline-1")
-            assert result.session_id is not None
-            assert result.status == "completed"
+            assert result == {"status": "completed"}
 
             async with harness.factory() as session:
                 run = (
                     await session.execute(
-                        select(AgentRun).where(AgentRun.session_id == result.session_id)
+                        select(AgentRun).where(AgentRun.session_id == SESSION_ID)
                     )
                 ).scalars().one()
                 messages = await AgentMessageRepository(session).list_by_session(
-                    result.session_id
+                    SESSION_ID
                 )
-                stored = await AgentSessionRepository(session).get(result.session_id)
+                stored = await AgentSessionRepository(session).get(SESSION_ID)
             trigger = next(message for message in messages if message.role == "user")
             assert run.kind == AgentRunKind.LEGACY_TURN
             assert run.agent_name == "legacy_incident"

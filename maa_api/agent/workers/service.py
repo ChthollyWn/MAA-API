@@ -286,11 +286,14 @@ class WorkerService:
         priority: int = 1,
         orchestrator_session_id: str | None = None,
         incident_key: str | None = None,
+        brief_header: str = "总控交给你的任务：",
     ) -> OpenedTicket:
         """建工单、Worker 会话与任务说明（§4.5.3）。
 
         ``strength`` 只作形状校验：委托强度与上限由 ``TicketService.create`` 按
         ``origin`` 推导（M69 的 ``build_mandate``），这里不重复传。
+        ``brief_header`` 是任务说明的抬头：总控建单用默认值，自动诊断建单用
+        「自动诊断：」（M73 规格 §4.5），让模型一眼看出不是用户原话。
         """
         spec = self._worker_spec(kind)
         expected_strength = "explicit" if str(origin) == "user" else "inferred"
@@ -335,7 +338,7 @@ class WorkerService:
             thread_key=f"ticket:{ticket.id}",
             ref_id=f"brief:{ticket.id}",
             payload={
-                "text": f"总控交给你的任务：\n{brief}",
+                "text": f"{brief_header}\n{brief}",
                 "passive": False,
                 "origin": "orchestrator",
                 "ticket_id": ticket.id,
