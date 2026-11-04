@@ -1,0 +1,5 @@
+{"type": "header", "format": 1, "scenario": "v2-875-reasoning-last-only", "source": "handwritten", "recorded_at": "2026-11-04T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "v2 13 §8.75"}
+{"type": "call", "channel": "agent", "reply": {"reasoning": "先确认设备是否连接。", "tool_calls": [{"id": "call-r-1", "name": "get_device_status", "arguments": {}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"reasoning": "看看画面在哪一屏。", "tool_calls": [{"id": "call-r-2", "name": "get_screenshot", "arguments": {}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"reasoning": "确认队列是否空闲。", "tool_calls": [{"id": "call-r-3", "name": "get_system_status", "arguments": {}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "设备已连接，画面正常，现在可以刷 1-7。"}}

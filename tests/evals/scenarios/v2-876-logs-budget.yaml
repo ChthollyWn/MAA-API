@@ -1,0 +1,139 @@
+{
+  "id": "v2-876-logs-budget",
+  "title": "查日志定位上次失败原因",
+  "suite": "capability",
+  "agent": "legacy_chat",
+  "source": "v2 13 §8.76/§8.77",
+  "tags": [
+    "logs"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "world": {
+    "seed": {
+      "pipelines": [
+        {
+          "title": "1-7 刷图",
+          "status": "failed",
+          "minutes_ago": 5,
+          "error_code": "CORE_COMMAND_FAILED",
+          "error_message": "AsstAppendTask 返回 0：参数不被内核接受",
+          "tasks": [
+            {
+              "type_name": "StartUp",
+              "status": "completed",
+              "params": {
+                "start_game_enabled": true
+              }
+            },
+            {
+              "type_name": "Fight",
+              "status": "failed",
+              "params": {
+                "stage": "1-7",
+                "series": 0
+              },
+              "error_code": "CORE_COMMAND_FAILED"
+            }
+          ],
+          "logs": [
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 1 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 2 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 3 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 4 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 5 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 6 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 7 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 8 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 9 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 10 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 11 行：任务参数不被内核接受"
+            },
+            {
+              "task": 1,
+              "level": "error",
+              "content": "第 12 行：任务参数不被内核接受"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "turns": [
+    {
+      "user": "上次那条流水线为什么失败了？"
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "get_logs"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "pipelines": {
+        "count": 1,
+        "last": {
+          "status": "failed"
+        }
+      }
+    },
+    {
+      "grader": "llm_judge",
+      "rubric": "回答要说明失败与任务参数有关，并建议先看现场截图再决定是否重试。",
+      "pass_score": 0.6
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 8
+  }
+}

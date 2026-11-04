@@ -1,0 +1,4 @@
+{"type": "header", "format": 1, "scenario": "legacy-daily-submit", "source": "handwritten", "recorded_at": "2026-11-04T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "v2 复盘"}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-submit-1", "name": "submit_pipeline", "arguments": {"title": "日常", "tasks": [{"name": "StartUp", "start_game_enabled": true}, {"name": "Fight", "stage": "1-7", "series": 0}, {"name": "Award"}]}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-wait-1", "name": "wait_pipeline", "arguments": {"pipeline_id": "{{result:call-submit-1:pipeline_id}}", "timeout_seconds": 60}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "做完了：日常都跑完了，理智药没动。"}}

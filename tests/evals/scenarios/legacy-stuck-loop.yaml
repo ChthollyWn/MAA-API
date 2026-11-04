@@ -1,0 +1,42 @@
+{
+  "id": "legacy-stuck-loop",
+  "title": "连续相同调用被判定原地打转",
+  "suite": "regression",
+  "agent": "legacy_chat",
+  "source": "v2 复盘",
+  "tags": [
+    "guard"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "turns": [
+    {
+      "user": "看看现在服务什么情况。"
+    }
+  ],
+  "expect": [
+    {
+      "grader": "outcome_state",
+      "runs": {
+        "count": 1,
+        "last": {
+          "finish_reason": "stuck_loop"
+        }
+      },
+      "messages": {
+        "orphan_tool_calls": 0
+      }
+    },
+    {
+      "grader": "text_contains",
+      "any_of": [
+        "一样的工具调用"
+      ]
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 30,
+    "max_model_calls": 8
+  }
+}

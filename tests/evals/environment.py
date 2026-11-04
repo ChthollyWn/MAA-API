@@ -24,6 +24,7 @@ from maa_api.agent.evals.scenario import Scenario
 from maa_api.agent.llm.client import OpenAICompatibleClient
 from maa_api.db import session as db_session
 from maa_api.db.models import LogEntry, Pipeline, Task, utcnow
+from maa_api.domain.enums import PipelineStatus
 from maa_api.services.external import http as external_http
 from tests.fakes.fake_asst import FakeAsst
 from tests.fakes.fake_core import fake_core_factories
@@ -102,8 +103,6 @@ def _open_world(
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
     from sqlalchemy.pool import NullPool
 
-    from maa_api.domain.enums import PipelineStatus
-
     db_path = resource_path / "maa_api.db"
     async_url = f"sqlite+aiosqlite:///{db_path}"
     sync_url = f"sqlite:///{db_path}"
@@ -176,7 +175,6 @@ def _open_world(
 
         if scenario.world.seed.pipelines:
             client.portal.call(_seed_world, app, scenario)
-        del PipelineStatus
         yield EvalApp(
             app=app,
             client=client,

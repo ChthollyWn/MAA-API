@@ -1,0 +1,56 @@
+{
+  "id": "legacy-interrupt-wait",
+  "title": "等待流水线时被中断",
+  "suite": "regression",
+  "agent": "legacy_chat",
+  "source": "v2 复盘",
+  "tags": [
+    "interrupt"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "turns": [
+    {
+      "user": "跑一下 1-7，然后等它结束。",
+      "human": {
+        "interrupt": {
+          "on": "tool_start",
+          "tool": "wait_pipeline",
+          "delay_seconds": 0.3
+        }
+      }
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "submit_pipeline"
+        },
+        {
+          "tool": "wait_pipeline",
+          "status": "error",
+          "error_code": "AGENT_TURN_INTERRUPTED"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "runs": {
+        "count": 1,
+        "last": {
+          "finish_reason": "interrupted"
+        }
+      },
+      "messages": {
+        "orphan_tool_calls": 0
+      }
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 6
+  }
+}

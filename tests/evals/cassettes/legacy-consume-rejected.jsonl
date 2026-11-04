@@ -1,0 +1,2 @@
+{"type": "header", "format": 1, "scenario": "legacy-consume-rejected", "source": "handwritten", "recorded_at": "2026-11-04T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "v2 复盘"}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-submit-2", "name": "submit_pipeline", "arguments": {"title": "刷 1-7", "tasks": [{"name": "StartUp", "start_game_enabled": true}, {"name": "Fight", "stage": "1-7", "medicine": 1}]}}], "finish_reason": "tool_calls"}}

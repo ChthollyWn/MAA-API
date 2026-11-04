@@ -1,0 +1,54 @@
+{
+  "id": "v2-875-reasoning-last-only",
+  "title": "历史里的思考内容只保留最后一条",
+  "suite": "capability",
+  "agent": "legacy_chat",
+  "source": "v2 13 §8.75",
+  "tags": [
+    "reasoning"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "turns": [
+    {
+      "user": "先看设备状态，再截图确认，最后告诉我能不能刷。"
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "get_device_status"
+        },
+        {
+          "tool": "get_screenshot"
+        },
+        {
+          "tool": "get_system_status"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "model_calls": 4,
+      "requests": {
+        "max_reasoning_messages": {
+          "lte": 1
+        }
+      }
+    },
+    {
+      "grader": "text_contains",
+      "any_of": [
+        "可以刷",
+        "能刷"
+      ]
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 10
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "id": "v2-877-failure-hint-startup",
+  "title": "失败后先看现场再补 StartUp",
+  "suite": "capability",
+  "agent": "legacy_chat",
+  "source": "v2 13 §8.77",
+  "tags": [
+    "vision"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "world": {
+    "screen": "desktop"
+  },
+  "turns": [
+    {
+      "user": "刚才启动失败了，接下来怎么办？"
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "get_screenshot"
+        },
+        {
+          "tool": "submit_pipeline"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "pipelines": {
+        "count": 1
+      }
+    },
+    {
+      "grader": "llm_judge",
+      "rubric": "回答要依据截图说明游戏不在主界面，并建议补一条 StartUp 后再跑。",
+      "pass_score": 0.6
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 8
+  }
+}

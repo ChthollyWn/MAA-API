@@ -1,0 +1,3 @@
+{"type": "header", "format": 1, "scenario": "v2-876-logs-budget", "source": "handwritten", "recorded_at": "2026-11-04T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "v2 13 §8.76/§8.77"}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-b3-1", "name": "get_logs", "arguments": {"source": ["task"], "level": "ERROR", "limit": 20}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "上次失败是内核拒绝了任务参数。建议先截图看现场，确认游戏在主界面后再重试，不要原样重跑。"}}

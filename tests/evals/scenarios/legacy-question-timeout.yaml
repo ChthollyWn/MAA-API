@@ -1,0 +1,53 @@
+{
+  "id": "legacy-question-timeout",
+  "title": "提问无人回答超时收尾",
+  "suite": "regression",
+  "agent": "legacy_chat",
+  "source": "v2 复盘",
+  "tags": [
+    "question"
+  ],
+  "entry": {
+    "kind": "legacy_session"
+  },
+  "settings": {
+    "agent.question_timeout_seconds": 1
+  },
+  "turns": [
+    {
+      "user": "帮我看看该刷哪个关。",
+      "human": {
+        "questions": "ignore"
+      }
+    }
+  ],
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "steps": [
+        {
+          "tool": "ask_user"
+        }
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "questions": {
+        "count": 1,
+        "statuses": [
+          "expired"
+        ]
+      }
+    },
+    {
+      "grader": "text_contains",
+      "any_of": [
+        "提问超时了"
+      ]
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 30,
+    "max_model_calls": 6
+  }
+}

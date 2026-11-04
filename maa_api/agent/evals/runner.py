@@ -38,7 +38,7 @@ from maa_api.agent.evals.graders import (
     case_status,
     grade_case,
 )
-from maa_api.agent.evals.scenario import Scenario, Suite
+from maa_api.agent.evals.scenario import AnswerSpec, Scenario, Suite
 from maa_api.agent.llm.client import OpenAICompatibleClient
 from maa_api.db.models import AgentMessage, AgentRun, AgentSession
 from maa_api.db.repositories.agent import AgentSessionRepository

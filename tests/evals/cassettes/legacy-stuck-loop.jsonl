@@ -1,0 +1,4 @@
+{"type": "header", "format": 1, "scenario": "legacy-stuck-loop", "source": "handwritten", "recorded_at": "2026-11-04T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "v2 复盘"}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-stuck-1", "name": "get_device_status", "arguments": {}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-stuck-2", "name": "get_device_status", "arguments": {}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-stuck-3", "name": "get_device_status", "arguments": {}}], "finish_reason": "tool_calls"}}
