@@ -45,6 +45,26 @@ export interface TicketStatusEvent {
   human_action?: { type: string; prompt: string; ref_id?: string | null } | null
 }
 
+// M70 §4.3.3：agent_run 频道的三种消息。没有运行的消息（路由写的用户消息）
+// run_id、kind、status 为 null；run_finished 额外带 finish_reason。
+export interface AgentRunEvent {
+  event: 'run_started' | 'run_finished' | 'message_created'
+  run_id: string | null
+  session_id: string
+  ticket_id: string | null
+  agent: string | null
+  kind: string | null
+  status: string | null
+  finish_reason?: string | null
+  message?: {
+    id: number | null
+    seq: number | null
+    role: string | null
+    inbox_id: number | null
+    preview: string
+  }
+}
+
 export type ServerEvent =
   | WsEnvelope<'log', LogRecord>
   | WsEnvelope<'log_batch', LogBatch>
@@ -60,6 +80,7 @@ export type ServerEvent =
   | WsEnvelope<'update_progress', Record<string, unknown> & { update_id: string }>
   | WsEnvelope<'update_available', Record<string, unknown>>
   | WsEnvelope<'agent_event', Record<string, unknown>>
+  | WsEnvelope<'agent_run', AgentRunEvent>
   | WsEnvelope<'ticket_status', TicketStatusEvent>
   | WsEnvelope<'server_shutdown', Record<string, unknown>>
   | WsEnvelope<'subscribed', { channels?: string[]; backfilled?: number; truncated?: boolean; stream_id?: string | null }>
@@ -79,6 +100,7 @@ export const REALTIME_STATE_CHANNELS = [
   'update_progress',
   'update_available',
   'agent_event',
+  'agent_run',
   'ticket_status',
 ] as const
 

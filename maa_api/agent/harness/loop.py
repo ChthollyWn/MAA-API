@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Protocol
 
 from maa_api.agent.harness.chunks import parse_tool_call
@@ -34,10 +34,13 @@ from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = [
     "BUDGET_EXCEEDED_FINISH_REASON",
+    "CANCELLED_FINISH_REASON",
+    "CANCELLED_STATUS",
     "INTERRUPTED_FINISH_REASON",
     "INTERRUPTED_NOTICE",
     "INTERRUPTED_TOOL_STUB",
     "INVALID_TOOL_CALL_TEXT",
+    "MESSAGE_PERSISTED_EVENT",
     "AgentLoop",
     "MemoryTranscript",
     "ModelCall",
@@ -51,6 +54,11 @@ logger = logging.getLogger(__name__)
 #: 用户主动中断一轮时的收尾（规格 §3.1）。
 #: ``finish_reason`` 的新取值；落库列宽 24 够用，且该列没有枚举约束。
 INTERRUPTED_FINISH_REASON = "interrupted"
+#: 工单取消时的运行终态与收尾原因（M70 §4.5.1、05 §2.3）。
+CANCELLED_STATUS = "cancelled"
+CANCELLED_FINISH_REASON = "cancelled"
+#: 总线内部事件：每条助手 / 工具消息落库后发出，只给 WS 广播器用（M70 §4.5.8）。
+MESSAGE_PERSISTED_EVENT = "message_persisted"
 #: 预算超限时的收尾（M67 规格 §4.2.5）：``agent_run.finish_reason`` 的取值。
 BUDGET_EXCEEDED_FINISH_REASON = "budget_exceeded"
 #: 中断时追加到部分文本之后的标记；没有部分文本时它就是全部内容。
@@ -172,16 +180,53 @@ class AgentLoop:
         # 成本账本：显式注入优先（测试），否则每次模型调用后从 ctx.app.state 取。
         self._cost_ledger = cost_ledger
 
-    async def run(self, ctx: RunContext) -> RunOutcome:
+    async def run(
+        self,
+        ctx: RunContext,
+        *,
+        run: Any = None,
+        inbox_items: Sequence[Any] | None = None,
+        state: Mapping[str, Any] | None = None,
+        cancel_event: asyncio.Event | None = None,
+    ) -> RunOutcome:
+        """跑一轮运行。
+
+        M70 的调用方可以把自己建好的运行行（``run``）、本轮领取的收件箱项与初始
+        ``state``、``cancel_event`` 直接传进来；不传时全部用 ``ctx`` 上已有的值，
+        M65 的 ``run(ctx)`` 调用方式不变。
+        """
+        if run is not None:
+            ctx.run = run
+        if inbox_items is not None:
+            ctx.inbox_items = list(inbox_items)
+        if state:
+            ctx.state.update(state)
+        if cancel_event is not None:
+            ctx.cancel_event = cancel_event
         await self._chain.on_run_start(ctx)
+        if ctx.emits_v3_events:
+            await ctx.emit("run_start", self._run_start_data(ctx))
         try:
             outcome = await self._steps(ctx)
         except asyncio.CancelledError:
-            # 只有用户主动中断才补历史；服务关闭等取消原样抛出，不在关闭路径上写库。
-            if not ctx.interrupted_now():
+            # 只有用户主动中断或工单取消才补历史；服务关闭等取消原样抛出，不在关闭
+            # 路径上写库。M70 的泵用 ``cancel_reason`` 区分两者（§4.5.1）。
+            reason = self._cancel_reason(ctx)
+            if reason is None:
+                raise
+            if reason == CANCELLED_FINISH_REASON:
+                await self._finish_cancelled(ctx)
+                await self._safe_run_end(
+                    ctx, RunOutcome(CANCELLED_STATUS, CANCELLED_FINISH_REASON)
+                )
+                await self._emit_run_end(
+                    ctx, RunOutcome(CANCELLED_STATUS, CANCELLED_FINISH_REASON)
+                )
                 raise
             await self._finish_interrupted(ctx)
-            await self._safe_run_end(ctx, RunOutcome("interrupted", INTERRUPTED_FINISH_REASON))
+            outcome = RunOutcome("interrupted", INTERRUPTED_FINISH_REASON)
+            await self._safe_run_end(ctx, outcome)
+            await self._emit_run_end(ctx, outcome)
             raise
         except AppError as exc:
             # 预算超限要单独标记收尾原因（规格 §4.2.5）；门面照常按 AppError 发
@@ -197,12 +242,68 @@ class AgentLoop:
             await self._safe_run_end(ctx, RunOutcome("failed", "error"))
             raise
         await self._chain.on_run_end(ctx, outcome)
+        await self._emit_run_end(ctx, outcome)
         return outcome
+
+    def _cancel_reason(self, ctx: RunContext) -> str | None:
+        """``cancel_event`` 已置位或有主动中断标记时给出原因，否则 ``None``。"""
+        if ctx.cancel_event.is_set():
+            return ctx.cancel_reason()
+        if ctx.interrupted_now():
+            return INTERRUPTED_FINISH_REASON
+        return None
+
+    @staticmethod
+    def _run_start_data(ctx: RunContext) -> dict[str, Any]:
+        return {
+            "run_id": ctx.run_id,
+            "parent_run_id": ctx.parent_run_id,
+            "session_id": ctx.session_id,
+            "ticket_id": ctx.ticket_id,
+            "agent": ctx.spec.name,
+            "kind": ctx.run_kind,
+            "consumed_inbox_ids": [
+                int(item.id)
+                for item in ctx.inbox_items
+                if getattr(item, "id", None) is not None
+            ],
+        }
+
+    async def _emit_run_end(self, ctx: RunContext, outcome: RunOutcome) -> None:
+        """v3 运行结束发 ``run_end``；v2 的 ``message_end`` 仍由各个收尾点发。"""
+        if not ctx.emits_v3_events:
+            return
+        await ctx.emit(
+            "run_end",
+            {
+                "run_id": ctx.run_id,
+                "finish_reason": outcome.finish_reason,
+                "usage": {
+                    "prompt_tokens": outcome.usage.prompt_tokens,
+                    "completion_tokens": outcome.usage.completion_tokens,
+                    "cached_tokens": outcome.usage.cached_tokens,
+                },
+            },
+        )
+
+    async def _emit_message_end(self, ctx: RunContext, finish_reason: str) -> None:
+        """v2 的收尾事件；v3 运行改由 ``run_end`` 收尾。"""
+        if ctx.emits_v3_events:
+            return
+        await ctx.emit(
+            "message_end",
+            {"session_id": ctx.session_id, "finish_reason": finish_reason},
+        )
 
     async def _steps(self, ctx: RunContext) -> RunOutcome:
         usage = Usage()
         while True:
             if ctx.cancel_event.is_set():
+                if ctx.cancel_reason() == CANCELLED_FINISH_REASON:
+                    await self._finish_cancelled(ctx)
+                    return RunOutcome(
+                        CANCELLED_STATUS, CANCELLED_FINISH_REASON, usage=usage
+                    )
                 await self._finish_interrupted(ctx)
                 return RunOutcome("interrupted", INTERRUPTED_FINISH_REASON, usage=usage)
             # 每次模型调用都是一条独立的 assistant 消息：草稿必须从空白开始，否则第
@@ -227,7 +328,7 @@ class AgentLoop:
                     except AppError:
                         # 缺 id / 名字不合法的调用存不成 OpenAI 的 tool_calls：把伴随文本
                         # 落成普通 assistant 消息，再让门面发 error 事件。
-                        await self._transcript.append(
+                        await self._persist(
                             ctx,
                             role="assistant",
                             content=response.text or INVALID_TOOL_CALL_TEXT,
@@ -249,7 +350,7 @@ class AgentLoop:
             usage = usage + response.usage
 
             if not response.tool_calls:
-                await self._transcript.append(
+                await self._persist(
                     ctx,
                     role="assistant",
                     content=response.text,
@@ -262,13 +363,10 @@ class AgentLoop:
                     latency_ms=response.latency_ms,
                 )
                 reason = response.upstream_finish_reason or "stop"
-                await ctx.emit(
-                    "message_end",
-                    {"session_id": ctx.session_id, "finish_reason": reason},
-                )
+                await self._emit_message_end(ctx, reason)
                 return RunOutcome("succeeded", reason, response.text, usage=usage)
 
-            await self._transcript.append(
+            await self._persist(
                 ctx,
                 role="assistant",
                 content=response.text or None,
@@ -293,29 +391,29 @@ class AgentLoop:
                 # 某个调用的参数 JSON 坏了会中止整批。每个调用都补一条 error tool
                 # 消息，保持 OpenAI 消息序列完整，也避免它被重试。
                 for call in response.tool_calls:
-                    stored = await self._transcript.append(
+                    stored = await self._persist(
                         ctx,
                         role="tool",
                         content=json_text({"error": app_error_wire(exc)}),
                         tool_call_id=call.id,
                         tool_name=call.name,
                     )
-                    await ctx.emit(
-                        "tool_result",
-                        {
-                            "tool_call_id": call.id,
-                            "name": call.name,
-                            "message_id": getattr(stored, "id", None),
-                            "error": app_error_wire(exc),
-                        },
-                    )
+                    result = {
+                        "tool_call_id": call.id,
+                        "name": call.name,
+                        "message_id": getattr(stored, "id", None),
+                        "error": app_error_wire(exc),
+                    }
+                    if ctx.emits_v3_events:
+                        result["run_id"] = ctx.run_id
+                    await ctx.emit("tool_result", result)
                 ctx.draft.pending_tool_calls = []
                 raise
             for index, (call, outcome) in enumerate(
                 zip(response.tool_calls, outcomes, strict=True)
             ):
                 body = outcome.body()
-                stored = await self._transcript.append(
+                stored = await self._persist(
                     ctx,
                     role="tool",
                     content=(
@@ -329,16 +427,16 @@ class AgentLoop:
                 # 这一条已经落库，从「待补桩」里去掉：中断正好落在这一条与下一条
                 # 之间时，只补还没写的那几条。
                 ctx.draft.pending_tool_calls = list(response.tool_calls[index + 1 :])
-                await ctx.emit(
-                    "tool_result",
-                    {
-                        "tool_call_id": call.id,
-                        "name": call.name,
-                        "message_id": outcome.message_id,
-                        "audit_id": outcome.audit_id,
-                        **body,
-                    },
-                )
+                result = {
+                    "tool_call_id": call.id,
+                    "name": call.name,
+                    "message_id": outcome.message_id,
+                    "audit_id": outcome.audit_id,
+                    **body,
+                }
+                if ctx.emits_v3_events:
+                    result["run_id"] = ctx.run_id
+                await ctx.emit("tool_result", result)
             stop = select_stop(outcomes, ctx.pending_stop)
             if stop is not None:
                 await self._finish_stop(ctx, stop[0], stop[1])
@@ -380,14 +478,59 @@ class AgentLoop:
     ) -> None:
         """以一句助手正文收尾：先落库、再推 ``text_delta``，最后 ``message_end``。"""
         if text is not None:
-            await self._transcript.append(
+            await self._persist(
                 ctx, role="assistant", content=text, finish_reason=reason
             )
-            await ctx.emit("text_delta", {"text": text})
-        await ctx.emit(
-            "message_end",
-            {"session_id": ctx.session_id, "finish_reason": reason},
-        )
+            delta: dict[str, Any] = {"text": text}
+            if ctx.emits_v3_events:
+                delta["run_id"] = ctx.run_id
+            await ctx.emit("text_delta", delta)
+        await self._emit_message_end(ctx, reason)
+
+    async def _persist(self, ctx: RunContext, *, role: str, **fields: Any) -> Any:
+        """落一条消息；v3 运行在落库后补发总线内部事件 ``message_persisted``。"""
+        stored = await self._transcript.append(ctx, role=role, **fields)
+        if ctx.emits_v3_events:
+            await ctx.emit(
+                MESSAGE_PERSISTED_EVENT,
+                {
+                    "session_id": ctx.session_id,
+                    "ticket_id": ctx.ticket_id,
+                    "agent": ctx.spec.name,
+                    "kind": ctx.run_kind,
+                    "message": {
+                        "id": self._field(stored, "id"),
+                        "seq": self._field(stored, "seq"),
+                        "role": role,
+                        "inbox_id": self._field(stored, "inbox_id"),
+                        "preview": self._preview(role, fields),
+                    },
+                },
+            )
+        return stored
+
+    @staticmethod
+    def _field(stored: Any, name: str) -> Any:
+        if isinstance(stored, Mapping):
+            return stored.get(name)
+        return getattr(stored, name, None)
+
+    @staticmethod
+    def _preview(role: str, fields: Mapping[str, Any]) -> str:
+        """WS ``message_created`` 的预览（M70 §4.3.3）：正文前 200 字或工具摘要。"""
+        content = fields.get("content")
+        if role == "tool":
+            return f"{fields.get('tool_name') or '工具'} 的结果"
+        if content:
+            return str(content)[:200]
+        calls = fields.get("tool_calls") or []
+        names = [
+            str((call.get("function") or {}).get("name") or "")
+            for call in calls
+            if isinstance(call, Mapping)
+        ]
+        names = [name for name in names if name]
+        return "调用 " + "、".join(names) if names else ""
 
     async def _finish_interrupted(self, ctx: RunContext) -> None:
         """用户中断后的收尾：补历史 → 发 SSE（v2 ``_finish_interrupted_turn`` 原样）。
@@ -407,7 +550,7 @@ class AgentLoop:
                 # tool_call_id 出现两条 tool 消息。
                 continue
             try:
-                await self._transcript.append(
+                await self._persist(
                     ctx,
                     role="tool",
                     content=json_text(INTERRUPTED_TOOL_STUB),
@@ -425,7 +568,7 @@ class AgentLoop:
         partial = "".join(ctx.draft.text).strip()
         content = f"{partial}\n\n{INTERRUPTED_NOTICE}" if partial else INTERRUPTED_NOTICE
         try:
-            await self._transcript.append(
+            await self._persist(
                 ctx,
                 role="assistant",
                 content=content,
@@ -436,14 +579,41 @@ class AgentLoop:
             logger.warning(
                 "中断收尾：写入中断消息失败 session=%s", ctx.session_id, exc_info=True
             )
-        await ctx.emit(
-            "interrupted",
-            {"session_id": ctx.session_id, "finish_reason": INTERRUPTED_FINISH_REASON},
-        )
-        await ctx.emit(
-            "message_end",
-            {"session_id": ctx.session_id, "finish_reason": INTERRUPTED_FINISH_REASON},
-        )
+        interrupted: dict[str, Any] = {
+            "session_id": ctx.session_id,
+            "finish_reason": INTERRUPTED_FINISH_REASON,
+        }
+        if ctx.emits_v3_events:
+            interrupted["run_id"] = ctx.run_id
+        await ctx.emit("interrupted", interrupted)
+        await self._emit_message_end(ctx, INTERRUPTED_FINISH_REASON)
+
+    async def _finish_cancelled(self, ctx: RunContext) -> None:
+        """工单取消后的收尾：补未落库的 tool 桩消息，保住 OpenAI 消息序列。
+
+        取消不是用户中断，不写「本轮已被你中断」那句话；已落库的汇报原样保留
+        （M70 §4.5.7），运行终态由调用方按 ``cancelled`` 写。
+        """
+        persisted = await self._transcript.persisted_tool_call_ids(ctx)
+        for call in ctx.draft.pending_tool_calls:
+            if call.id in persisted:
+                continue
+            try:
+                await self._persist(
+                    ctx,
+                    role="tool",
+                    content=json_text(INTERRUPTED_TOOL_STUB),
+                    tool_call_id=call.id,
+                    tool_name=call.name,
+                )
+            except Exception:  # noqa: BLE001 - 与中断收尾同口径
+                logger.warning(
+                    "取消收尾：补 tool 桩消息失败 session=%s call=%s",
+                    ctx.session_id,
+                    call.id,
+                    exc_info=True,
+                )
+        ctx.draft.pending_tool_calls.clear()
 
     async def _safe_run_end(self, ctx: RunContext, outcome: RunOutcome) -> None:
         """失败与中断路径上的 ``on_run_end``：自身异常只记日志，不盖过原因。"""

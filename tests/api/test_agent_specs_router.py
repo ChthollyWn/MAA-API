@@ -38,7 +38,17 @@ DETAIL_FIELDS = LIST_FIELDS | {
     "budget",
     "body",
 }
-SPEC_NAMES = ["legacy_chat", "legacy_incident", "recon"]
+SPEC_NAMES = [
+    "general",
+    "legacy_chat",
+    "legacy_incident",
+    "navigator",
+    "orchestrator",
+    "recon",
+    "researcher",
+    "titler",
+    "verifier",
+]
 
 
 def _specs_client(make_client, *, with_registry: bool = True):
@@ -60,7 +70,7 @@ def _error(response):
 # ---------------------------------------------------------------------------
 # 成功路径
 # ---------------------------------------------------------------------------
-def test_list_specs_returns_the_three_builtin_definitions(make_client, tmp_settings):
+def test_list_specs_returns_the_nine_builtin_definitions(make_client, tmp_settings):
     client = _specs_client(make_client)
 
     response = client.get("/api/agent/specs")

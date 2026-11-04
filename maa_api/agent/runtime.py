@@ -86,7 +86,12 @@ from maa_api.agent.recon.runner import (
 )
 from maa_api.agent.registry import ToolRegistry
 from maa_api.agent.runs import RunService
-from maa_api.agent.specs.registry import builtin_spec
+from maa_api.agent.specs.registry import builtin_spec, builtin_specs
+from maa_api.agent.workers.middleware import (
+    DeviceGateMiddleware,
+    MandateMiddleware,
+    ReportMiddleware,
+)
 from maa_api.db.models import AgentMessage, AgentRun, new_uuid, utcnow
 from maa_api.db.repositories.agent import (
     AgentMessageRepository,
@@ -103,6 +108,7 @@ __all__ = [
     "INCIDENT_ALLOWED_TOOLS",
     "KNOWLEDGE_UNAVAILABLE",
     "SYSTEM_PROMPT",
+    "build_agent_chain",
     "build_model_context",
     "call_runtime_factory",
     "merge_tool_call_deltas",
@@ -175,6 +181,14 @@ INCIDENT_FAILED_FINISH_REASON = "incident_error"
 _SSE_END = object()
 
 SYSTEM_PROMPT = builtin_spec("legacy_chat").body
+#: 只属于 v3 代理定义（orchestrator/worker/subagent/background）、不能进 v2 会话声明
+#: 的工具（M70 §4.5.12）：交集之外的自定义工具（测试/嵌入的最小注册表）照旧可用。
+V3_ONLY_TOOL_NAMES = frozenset(
+    name
+    for spec in builtin_specs().values()
+    if not spec.name.startswith("legacy_")
+    for name in spec.tools
+) - frozenset(builtin_spec(LEGACY_CHAT_AGENT).tools)
 
 
 def call_runtime_factory(
@@ -200,6 +214,55 @@ def call_runtime_factory(
     if accepts_keyword:
         return factory(confirmation_service, question_service=question_service)
     return factory(confirmation_service)
+
+
+def build_agent_chain(
+    kind: str,
+    *,
+    confirmation_service: ConfirmationService,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+    question_service: Any = None,
+    confirmation_poll_seconds: float = DEFAULT_CONFIRMATION_POLL_SECONDS,
+    device_gate: Any = None,
+    cost_ledger: Any = None,
+    settings_provider: Callable[[], Any] | None = None,
+) -> MiddlewareChain:
+    """v3 运行（总控 / Worker / 子代理）的中间件链（05 §5.2）。
+
+    在 legacy 五元链的基础位置上按序插入 M70 的三个：14 ``MandateMiddleware``、
+    16 ``DeviceGateMiddleware``、18 ``ReportMiddleware``。三个都声明了
+    ``applies_to``，``MiddlewareChain.for_kind`` 会把它们从总控链裁掉。
+    ``cost_ledger`` 存在时 ``BudgetMiddleware`` 仍在第 2 位（与门面一致）。
+    """
+    registry = confirmation_service.registry
+    middlewares: list[Middleware] = [TraceMiddleware()]
+    if cost_ledger is not None:
+        middlewares.append(
+            BudgetMiddleware(ledger=cost_ledger, settings_provider=settings_provider)
+        )
+    middlewares.extend(
+        [
+            ContextLayoutMiddleware(),
+            LoopGuardMiddleware(),
+            MandateMiddleware(
+                registry=registry,
+                confirmation_service=confirmation_service,
+                session_factory=session_factory,
+            ),
+            DeviceGateMiddleware(registry=registry, device_gate=device_gate),
+            ClarificationMiddleware(
+                question_service=question_service,
+                registry=registry,
+            ),
+            ReportMiddleware(),
+            PolicyMiddleware(
+                confirmation_service=confirmation_service,
+                session_factory=session_factory,
+                poll_seconds=confirmation_poll_seconds,
+            ),
+        ]
+    )
+    return MiddlewareChain.for_kind(kind, middlewares)
 
 
 class _LegacyRunTracker:
@@ -1224,6 +1287,26 @@ class AgentRuntime:
         )
         return MiddlewareChain.for_kind("worker", middlewares)
 
+    def build_chain(
+        self,
+        kind: str,
+        *,
+        device_gate: Any = None,
+        cost_ledger: Any = None,
+        settings_provider: Callable[[], Any] | None = None,
+    ) -> MiddlewareChain:
+        """v3 运行的链（总控 / Worker / 子代理）：总控链里没有 14/16/18。"""
+        return build_agent_chain(
+            kind,
+            confirmation_service=self.confirmation_service,
+            session_factory=self.session_factory,
+            question_service=self.question_service,
+            confirmation_poll_seconds=self.confirmation_poll_seconds,
+            device_gate=device_gate,
+            cost_ledger=cost_ledger,
+            settings_provider=settings_provider,
+        )
+
     async def _persist_message(
         self,
         session_id: str,
@@ -1476,6 +1559,7 @@ class AgentRuntime:
             definition.name
             for definition in registry.list()
             if definition.model_visible
+            and definition.name not in V3_ONLY_TOOL_NAMES
             and (
                 definition.group not in DEFERRED_TOOL_GROUPS
                 or definition.group in enabled
@@ -1491,6 +1575,9 @@ class AgentRuntime:
         core_groups: set[str] = set()
         for definition in registry.list():
             if not definition.model_visible:
+                continue
+            # v2 会话的目录不列 v3 专属工具（M70 §4.5.12）。
+            if definition.name in V3_ONLY_TOOL_NAMES:
                 continue
             if definition.group in DEFERRED_TOOL_GROUPS:
                 deferred.setdefault(definition.group, []).append(definition.name)

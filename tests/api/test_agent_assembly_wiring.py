@@ -72,6 +72,53 @@ def test_lifespan_wires_ticket_services(tmp_settings, isolated_db) -> None:
         assert ticket_service._inbox_service is inbox_service
 
 
+def test_lifespan_wires_finish_hook_fanout(tmp_settings, isolated_db) -> None:
+    """M70：终态钩子槽位绑的是扇出器，养成计划与话题路由各一个订阅者。"""
+
+    from maa_api.agent.hooks_fanout import FinishHookFanout
+
+    app = create_app()
+    with _lifespan(app):
+        fanout = getattr(app.state, "finish_hooks", None)
+        assert isinstance(fanout, FinishHookFanout), (
+            "lifespan 没有设置 app.state.finish_hooks"
+        )
+        assert fanout.names == ("upgrade_plans", "ticket_threads")
+
+
+def test_lifespan_wires_m70_orchestrator_and_worker_services(
+    tmp_settings, isolated_db
+) -> None:
+    """M70 第 8 步：hub、设备门、委派、Worker、总控与广播器都要挂上并对齐。"""
+
+    from maa_api.agent.harness.events import RunEventBus
+    from maa_api.agent.orchestrator.service import OrchestratorService
+    from maa_api.agent.orchestrator.stream import AgentRunBroadcaster
+    from maa_api.agent.workers.delegation import DelegationService
+    from maa_api.agent.workers.device_gate import DeviceGate
+    from maa_api.agent.workers.service import WorkerService
+    from maa_api.agent.workers.titler import TicketTitler
+
+    app = create_app()
+    with _lifespan(app):
+        hub = app.state.run_event_bus
+        assert isinstance(hub, RunEventBus), "lifespan 没有设置 app.state.run_event_bus"
+        # hub 只做分发，不带运行归属；每轮运行自己建带 run_id 的 per-run 总线。
+        assert hub.run_id is None
+        assert isinstance(app.state.device_gate, DeviceGate)
+        assert isinstance(app.state.ticket_titler, TicketTitler)
+        assert isinstance(app.state.delegation_service, DelegationService)
+        assert isinstance(app.state.worker_service, WorkerService)
+        assert isinstance(app.state.orchestrator_service, OrchestratorService)
+        assert isinstance(app.state.agent_run_broadcaster, AgentRunBroadcaster)
+        assert app.state.worker_service._orchestrator is app.state.orchestrator_service
+        assert app.state.ticket_service._orchestrator_resolver is not None
+        assert app.state.finish_hooks.names == (
+            "upgrade_plans",
+            "ticket_threads",
+        )
+
+
 def _lifespan(app):
     """进入/退出应用 lifespan 的上下文（不依赖 TestClient 的 HTTP 栈）。"""
 

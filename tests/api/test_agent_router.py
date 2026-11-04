@@ -1004,3 +1004,118 @@ def test_rest_hidden_tools_are_absent_from_the_catalog_and_not_invocable():
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_v2_session_routes_ignore_v3_sessions(tmp_path):
+    """M70 §4.5.12 第 3 条：v2 会话路由只认 chat / incident。
+
+    列表不列总控 / Worker / 子代理会话；对它们发消息、中断、删除按 404 处理；
+    读详情、读消息、撤销授权不过滤（M73 要用 Worker 会话 id 调它们）。
+    """
+
+    async def scenario():
+        engine = db_session.make_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'v2-filter.sqlite3'}"
+        )
+        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(SQLModel.metadata.create_all)
+        async with factory() as session:
+            session.add_all(
+                [
+                    AgentSession(id="v2-chat", model="m", kind="chat"),
+                    AgentSession(id="v2-incident", model="m", kind="incident"),
+                    AgentSession(id="v3-orchestrator", model="m", kind="orchestrator"),
+                    AgentSession(id="v3-worker", model="m", kind="worker"),
+                    AgentSession(id="v3-subagent", model="m", kind="subagent"),
+                ]
+            )
+            await session.commit()
+
+        class _Runtime:
+            session_factory = factory
+
+            async def acquire_session(self, _session_id):
+                return True
+
+            def release_session(self, _session_id):
+                return None
+
+            def turn_running(self, _session_id):
+                return False
+
+            async def interrupt_turn(self, _session_id):
+                return False
+
+        class _Confirmation:
+            session_factory = factory
+
+            def __init__(self):
+                self.revoked: list[str] = []
+
+            async def revoke_session_grant(self, session_id):
+                self.revoked.append(session_id)
+
+        confirmation = _Confirmation()
+        app = FastAPI()
+        register_exception_handlers(app)
+        from maa_api.api.routers import agent
+
+        app.include_router(agent.router)
+        app.state.agent_runtime = _Runtime()
+        app.state.confirmation_service = confirmation
+        app.state.session_factory = factory
+
+        async def get_test_session():
+            async with factory() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = get_test_session
+        set_settings(Settings())
+        client = TestClient(app, raise_server_exceptions=False)
+        client.__enter__()
+        try:
+            listed = client.get("/api/agent/sessions?size=50")
+            assert listed.status_code == 200, listed.text
+            payload = listed.json()
+            assert payload["total"] == 2
+            assert {item["session_id"] for item in payload["items"]} == {
+                "v2-chat",
+                "v2-incident",
+            }
+
+            for session_id in ("v3-orchestrator", "v3-worker", "v3-subagent"):
+                message = client.post(
+                    f"/api/agent/sessions/{session_id}/messages",
+                    json={"content": "你好"},
+                )
+                assert message.status_code == 404, message.text
+                assert message.json()["error"]["code"] == "AGENT_SESSION_NOT_FOUND"
+                assert message.json()["error"]["message"] == "会话不存在或不是旧版会话"
+
+                interrupt = client.post(f"/api/agent/sessions/{session_id}/interrupt")
+                assert interrupt.status_code == 404, interrupt.text
+                assert interrupt.json()["error"]["code"] == "AGENT_SESSION_NOT_FOUND"
+
+                deleted = client.delete(f"/api/agent/sessions/{session_id}")
+                assert deleted.status_code == 404, deleted.text
+                assert deleted.json()["error"]["code"] == "AGENT_SESSION_NOT_FOUND"
+
+            # 读详情、读消息、撤销授权不过滤：Worker 会话照常可用。
+            detail = client.get("/api/agent/sessions/v3-worker")
+            assert detail.status_code == 200, detail.text
+            assert detail.json()["session_id"] == "v3-worker"
+
+            messages = client.get("/api/agent/sessions/v3-worker/messages")
+            assert messages.status_code == 200, messages.text
+            assert messages.json()["items"] == []
+
+            revoked = client.delete("/api/agent/sessions/v3-worker/atomic-grant")
+            assert revoked.status_code == 204, revoked.text
+            assert confirmation.revoked == ["v3-worker"]
+        finally:
+            client.__exit__(None, None, None)
+            set_settings(None)
+            await engine.dispose()
+
+    asyncio.run(scenario())

@@ -12,7 +12,6 @@ ConfirmationService、ResourceService 和临时 SQLite。MaaCore、ADB 与外部
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import shutil
@@ -25,8 +24,10 @@ from typing import Any
 
 from maa_api.agent.runtime import INCIDENT_ALLOWED_TOOLS, SYSTEM_PROMPT
 from maa_api.core.enums import Message
-from maa_api.services.pipeline_runner import PipelineRunner
-from tests.fakes.fake_asst import FakeAsst, SUCCESS_SCRIPT
+from tests.fakes.lifespan import (
+    FAKE_LIFESPAN_STATE_NAMES,
+    install_fake_lifespan,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -141,127 +142,6 @@ def _snapshot_repo_artifacts() -> dict[str, tuple[int, int]]:
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise SmokeFailure(message)
-
-
-class _SmokeCoreSupervisor:
-    """Lifespan adapter that reports READY without loading MaaCore."""
-
-    def __init__(self, _config: Any, *, on_crash: Any, on_state_change: Any) -> None:
-        del on_crash
-        from maa_api.core.supervisor import CoreState
-
-        self.state = CoreState.READY
-        self.generation = 1
-        self.pid = 11011
-        self._on_state_change = on_state_change
-
-    async def start(self, **_kwargs: Any) -> None:
-        self._on_state_change(self.state)
-
-    async def stop(self, **_kwargs: Any) -> None:
-        return None
-
-    class _Maintenance:
-        async def __aenter__(self) -> None:
-            return None
-
-        async def __aexit__(self, *_exc: Any) -> None:
-            return None
-
-    def acquire_maintenance(self) -> _Maintenance:
-        return self._Maintenance()
-
-    async def restart(self) -> None:
-        return None
-
-
-class _SmokeCoreClient:
-    def __init__(self, _supervisor: Any, **_kwargs: Any) -> None:
-        self.handlers: dict[str, list[Any]] = {}
-        self.loop = asyncio.get_running_loop()
-        self.asst = FakeAsst(script=SUCCESS_SCRIPT, delay_scale=0)
-        self.copilot_call: dict[str, Any] | None = None
-        self.copilot_calls: list[dict[str, Any]] = []
-        self.asst.set_callback(self._on_asst_callback)
-
-    def on(self, event: str, handler: Any) -> None:
-        self.handlers.setdefault(event, []).append(handler)
-
-    def _on_asst_callback(self, message: int, details: bytes, _arg: Any) -> None:
-        payload = {"msg": message, "details": json.loads(details)}
-        for handler in self.handlers.get("CALLBACK", []):
-            self.loop.call_soon_threadsafe(handler, payload)
-
-    def start_consumer(self) -> None:
-        return None
-
-    async def _send(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return {"ret": 0}
-
-    async def append_task(self, type_name: str, params: dict[str, Any]) -> int:
-        if type_name == "Copilot":
-            filename = Path(params["filename"])
-            self.copilot_call = {
-                "type_name": type_name,
-                "params": dict(params),
-                "path": filename,
-                "content": json.loads(filename.read_text(encoding="utf-8")),
-                "existed_at_append": filename.is_file(),
-            }
-            self.copilot_calls.append(self.copilot_call)
-        task_id = self.asst.append_task(type_name, params)
-        if task_id <= 0:
-            raise RuntimeError("FakeAsst rejected task")
-        return task_id
-
-    async def start(self) -> bool:
-        return self.asst.start()
-
-    async def stop(self) -> bool:
-        return self.asst.stop()
-
-    def close(self) -> None:
-        self.asst.stop()
-
-
-class _SmokeDeviceManager:
-    def __init__(self, _settings: Any, _client: Any, *, broadcast: Any, core_id: str) -> None:
-        self.broadcast = broadcast
-        self.core_id = core_id
-        self.address = "smoke:5555"
-        self.common_ports: list[int] = []
-        self.reconnect_retry_attempts = 1
-        self.clicks: list[tuple[int, int]] = []
-        self.closed = False
-
-    async def connect_with_retry(self, **_kwargs: Any) -> bool:
-        return False
-
-    async def ensure_available(self, *, timeout: float = 10.0) -> bool:
-        del timeout
-        return True
-
-    def on_core_connection_event(self, _what: str, _details: dict[str, Any]) -> None:
-        return None
-
-    def snapshot(self) -> dict[str, Any]:
-        return {"core_id": self.core_id, "state": "disconnected", "address": self.address}
-
-    async def click(self, x: int, y: int) -> None:
-        self.clicks.append((x, y))
-
-    async def close(self) -> None:
-        self.closed = True
-
-
-class _SmokePipelineRunner(PipelineRunner):
-    """Production queue/runner path backed by FakeAsst instead of MaaCore."""
-
-    async def publish_pipeline(self, _pipeline_id: str) -> None:
-        return None
-
-    async def publish_queue_changed(self) -> None:
-        return None
 
 
 def _install_internal_invoke_probe(app: Any) -> None:
@@ -777,14 +657,9 @@ def run(*, keep_temp: bool = False) -> None:
         resource_service_module.ResourceService = SmokeResourceService
         settings_module.set_settings(settings_module.load_settings(config_path))
 
-        for name, value in {
-            "core_supervisor_factory": _SmokeCoreSupervisor,
-            "core_client_factory": _SmokeCoreClient,
-            "device_manager_factory": _SmokeDeviceManager,
-            "pipeline_runner_factory": _SmokePipelineRunner,
-        }.items():
+        for name in FAKE_LIFESPAN_STATE_NAMES:
             old_state[name] = getattr(main_module.app.state, name, None)
-            setattr(main_module.app.state, name, value)
+        install_fake_lifespan(main_module.app)
 
         _install_internal_invoke_probe(main_module.app)
         client = TestClient(main_module.app, raise_server_exceptions=False)
@@ -871,7 +746,19 @@ def run(*, keep_temp: bool = False) -> None:
         )
         spec_names = [item["name"] for item in spec_list["items"]]
         _require(
-            spec_names == ["legacy_chat", "legacy_incident", "recon"],
+            # M70 起共九份定义：v2 的三份 + 总控 / Worker / 四个子代理 / 标题。
+            spec_names
+            == [
+                "general",
+                "legacy_chat",
+                "legacy_incident",
+                "navigator",
+                "orchestrator",
+                "recon",
+                "researcher",
+                "titler",
+                "verifier",
+            ],
             f"代理定义列表不匹配：{spec_names!r}",
         )
         chat_spec = _check_response(

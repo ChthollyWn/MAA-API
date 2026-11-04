@@ -18,7 +18,12 @@ from dataclasses import replace
 from typing import Any
 
 from maa_api.agent.harness.chunks import parse_arguments
-from maa_api.agent.harness.context import RunContext, ToolCall, ToolOutcome
+from maa_api.agent.harness.context import (
+    CURRENT_RUN,
+    RunContext,
+    ToolCall,
+    ToolOutcome,
+)
 from maa_api.agent.harness.middleware import MiddlewareChain
 from maa_api.agent.registry import ToolRegistry
 from maa_api.domain.errors import AppError, ErrorCode
@@ -124,14 +129,14 @@ async def execute_batch(
         raise RuntimeError(f"中间件链里没有执行器：{call.name}")
 
     async def run(call: ToolCall) -> ToolOutcome:
-        await ctx.emit(
-            "tool_start",
-            {
-                "tool_call_id": call.id,
-                "name": call.name,
-                "arguments": call.arguments,
-            },
-        )
+        event: dict[str, Any] = {
+            "tool_call_id": call.id,
+            "name": call.name,
+            "arguments": call.arguments,
+        }
+        if ctx.emits_v3_events:
+            event["run_id"] = ctx.run_id
+        await ctx.emit("tool_start", event)
         hidden_tool = False
         try:
             hidden_tool = not registry.get(call.name).model_visible
@@ -157,7 +162,13 @@ async def execute_batch(
                     "message": vision_disabled_message(call.name),
                 },
             )
-        return await chain.wrap_tool(ctx, call, innermost)
+        # 工具 handler 经 ``require_run`` 取当前运行（M70 §4.2.2）。在调链之前 set、
+        # 之后 reset：只读批的每个 ``run`` 都是独立任务，各自的 ContextVar 互不可见。
+        token = CURRENT_RUN.set(ctx)
+        try:
+            return await chain.wrap_tool(ctx, call, innermost)
+        finally:
+            CURRENT_RUN.reset(token)
 
     if parallel:
         outcomes = list(await asyncio.gather(*(run(call) for call in parsed)))

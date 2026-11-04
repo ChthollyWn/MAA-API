@@ -254,6 +254,15 @@ class ErrorCode(StrEnum):
     # 工单已结束，不能再改
     TICKET_ENDED = "TICKET_ENDED"
 
+    # Worker 或子代理的工具调用超出工单委托的风险上限
+    MANDATE_SCOPE_EXCEEDED = "MANDATE_SCOPE_EXCEEDED"
+
+    # 调用方的代理定义里没有这个子代理
+    DELEGATION_NOT_ALLOWED = "DELEGATION_NOT_ALLOWED"
+
+    # 子代理不能再委派
+    DELEGATION_DEPTH_EXCEEDED = "DELEGATION_DEPTH_EXCEEDED"
+
     # 没有这个代理定义
     AGENT_SPEC_NOT_FOUND = "AGENT_SPEC_NOT_FOUND"
 
@@ -453,7 +462,7 @@ class ErrorCode(StrEnum):
 
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 134 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 137 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -529,6 +538,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.RUN_ALREADY_ACTIVE: 409,
     ErrorCode.TICKET_NOT_FOUND: 404,
     ErrorCode.TICKET_ENDED: 409,
+    ErrorCode.MANDATE_SCOPE_EXCEEDED: 403,
+    ErrorCode.DELEGATION_NOT_ALLOWED: 403,
+    ErrorCode.DELEGATION_DEPTH_EXCEEDED: 409,
     ErrorCode.AGENT_SPEC_NOT_FOUND: 404,
     ErrorCode.TOOL_NOT_FOUND: 404,
     ErrorCode.TOOL_ARGS_INVALID: 422,

@@ -171,6 +171,47 @@ class ThreadRouter:
             await session.commit()
             return deactivated
 
+    async def deliver(
+        self,
+        thread_key: str,
+        *,
+        kind: InboxKind = InboxKind.THREAD_EVENT,
+        payload: Mapping[str, Any] | None = None,
+        ref_id: str | None = None,
+    ) -> list[str]:
+        """只投给 active 订阅的工单，返回投到的会话 id；**不回落总控**（M70 §3.3）。
+
+        与 :meth:`publish` 的差别只有一条：没有 active 订阅（订阅已随工单结束置为
+        inactive、工单已结束或还没有 Worker 会话）时返回空列表，不写总控收件箱。
+        「没订阅时交总控」留给需要它的调用方（``publish`` / ``to_orchestrator``）。
+        """
+        parse_thread_key(thread_key)
+        async with self._session_factory() as session:
+            subscribed = await ThreadSubscriptionRepository(
+                session
+            ).active_ticket_ids(thread_key)
+            ticket_repo = TicketRepository(session)
+            targets: list[str] = []
+            for ticket_id in subscribed:
+                ticket = await ticket_repo.get(ticket_id)
+                if (
+                    ticket is not None
+                    and not _ticket_is_terminal(ticket)
+                    and ticket.worker_session_id
+                ):
+                    targets.append(ticket.worker_session_id)
+        delivered: list[str] = []
+        for session_id in dict.fromkeys(targets):
+            await self._inbox_service.put(
+                session_id,
+                kind,
+                thread_key=thread_key,
+                ref_id=ref_id,
+                payload=payload,
+            )
+            delivered.append(session_id)
+        return delivered
+
     async def publish(
         self,
         thread_key: str,

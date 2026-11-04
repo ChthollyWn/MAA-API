@@ -71,6 +71,18 @@ agent:
   run_heartbeat_seconds: 15
   run_stale_seconds: 90
 
+# 总控：新消息到达后等这么久再开始处理，窗口内到达的消息合并成一轮（毫秒，0-5000）
+orchestrator:
+  batch_window_ms: 800
+
+# Worker：同时运行的 Worker 上限（1-16）
+worker:
+  max_concurrent: 4
+
+# 委派：一批调用里同时执行的只读子代理上限（1-8）
+delegation:
+  max_parallel: 3
+
 # OpenAI 兼容模型；密钥建议通过环境变量或设置页录入，数据库里的密钥由 MAA_LLM_ENCRYPTION_KEY 加密
 llm:
   base_url: https://api.deepseek.com

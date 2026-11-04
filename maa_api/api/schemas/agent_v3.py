@@ -10,15 +10,30 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from maa_api.agent.runs import RunNode
-from maa_api.db.models import AgentRun
+from maa_api.db.models import AgentMessage, AgentRun
 from maa_api.domain.enums import AgentRunKind, AgentRunStatus
 
-__all__ = ["RunDetail", "RunPage", "RunSummary", "run_detail", "run_summary"]
+__all__ = [
+    "AgentMessageCreate",
+    "AgentMessageItem",
+    "AgentMessagePage",
+    "Mention",
+    "OrchestratorInterruptResult",
+    "OrchestratorStateModel",
+    "RunDetail",
+    "RunPage",
+    "RunSummary",
+    "TicketCancelRequest",
+    "TicketInterruptResult",
+    "agent_message_item",
+    "run_detail",
+    "run_summary",
+]
 
 
 def _utc_z(value: datetime | None) -> str | None:
@@ -121,4 +136,112 @@ def run_detail(node: RunNode) -> RunDetail:
         boot_id=run.boot_id,
         meta=run.meta,
         children=[run_detail(child) for child in node.children],
+    )
+
+
+# ----------------------------------------------------------------------
+# M70 总控 / 工单消息端点（规格 §4.3.1）
+# ----------------------------------------------------------------------
+class Mention(BaseModel):
+    """一条 @ 引用；``type`` 决定前端去哪类对象里跳转。"""
+
+    type: Literal["knowledge", "operator", "stage", "pipeline", "ticket"]
+    id: str = Field(min_length=1, max_length=128)
+    label: str = Field(min_length=1, max_length=64)
+
+
+class AgentMessageCreate(BaseModel):
+    """两条 SSE 端点共用的消息请求体。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=32_000)
+    mentions: list[Mention] | None = Field(default=None, max_length=20)
+
+
+class TicketCancelRequest(BaseModel):
+    """取消工单的请求体；不写原因时服务层用「用户取消」。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=200)
+
+
+class OrchestratorStateModel(BaseModel):
+    """总控会话的对外状态（``GET /api/agent/orchestrator``）。"""
+
+    session_id: str
+    status: str
+    turn_running: bool
+    pending_inbox: int
+    archived_count: int
+
+
+class OrchestratorInterruptResult(BaseModel):
+    """中断总控当前一轮的结果；没有活动轮次时 ``interrupted=false``。"""
+
+    session_id: str
+    interrupted: bool
+    turn_running: bool
+
+
+class TicketInterruptResult(BaseModel):
+    """中断工单当前一轮的结果；幂等。"""
+
+    ticket_id: str
+    interrupted: bool
+    turn_running: bool
+
+
+class AgentMessageItem(BaseModel):
+    """v2 ``message_wire`` 的全部字段 + M70 的运行 / 收件箱归属。"""
+
+    id: int
+    session_id: str
+    seq: int
+    role: str
+    content: str | None
+    reasoning_content: str | None
+    tool_calls: list[dict[str, Any]] | None
+    tool_call_id: str | None
+    tool_name: str | None
+    audit_id: int | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    finish_reason: str | None
+    latency_ms: int | None
+    created_at: str
+    run_id: str | None
+    inbox_id: int | None
+
+
+class AgentMessagePage(BaseModel):
+    """消息分页信封；按 ``seq``（总控）或 ``id``（工单含子代理）升序。"""
+
+    items: list[AgentMessageItem]
+    total: int
+    page: int
+    size: int
+
+
+def agent_message_item(message: AgentMessage) -> AgentMessageItem:
+    """``agent_message`` 行 → 对外模型；时间统一成 ``...Z``。"""
+    return AgentMessageItem(
+        id=int(message.id or 0),
+        session_id=message.session_id,
+        seq=int(message.seq or 0),
+        role=str(message.role),
+        content=message.content,
+        reasoning_content=message.reasoning_content,
+        tool_calls=message.tool_calls,
+        tool_call_id=message.tool_call_id,
+        tool_name=message.tool_name,
+        audit_id=message.audit_id,
+        prompt_tokens=message.prompt_tokens,
+        completion_tokens=message.completion_tokens,
+        finish_reason=message.finish_reason,
+        latency_ms=message.latency_ms,
+        created_at=_utc_z(message.created_at) or "",
+        run_id=message.run_id,
+        inbox_id=message.inbox_id,
     )

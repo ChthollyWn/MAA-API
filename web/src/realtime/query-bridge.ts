@@ -127,6 +127,9 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
       invalidateBatched(queryClient, keys.agent.ticket(event.data.ticket_id))
       invalidateBatched(queryClient, keys.agent.ticketReports(event.data.ticket_id))
       break
+    // Agent 运行事件（M70 §4.6）：界面在 M72，这一层先只同步类型，不失效任何查询。
+    case 'agent_run':
+      break
     case 'subscribed':
       // Reconnect acknowledgement follows a possible WS gap; reload persisted
       // approval/audit state so missed terminal events cannot leave stale cards.

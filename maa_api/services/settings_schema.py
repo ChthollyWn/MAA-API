@@ -151,6 +151,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "agent.copilot_retention_days": dict(label="作业草稿保留天数", group="Agent", type="integer", minimum=1, maximum=365, hot_action="none"),
     "agent.copilot_grant_minutes": dict(label="作业授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=1440, hot_action="none"),
     "agent.copilot_attempt_timeout_minutes": dict(label="单次作业尝试超时（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
+    # M70 总控与 Worker：合并窗口、并发闸与并行委派上限，服务层每次现读，改完立即生效。
+    "orchestrator.batch_window_ms": dict(label="总控合并窗口（毫秒）", group="Agent", type="integer", minimum=0, maximum=5000, hot_action="none", description="新消息到达后等这么久再处理，窗口内的消息合并成一轮"),
+    "worker.max_concurrent": dict(label="同时运行的 Worker 上限", group="Agent", type="integer", minimum=1, maximum=16, hot_action="none"),
+    "delegation.max_parallel": dict(label="并行委派上限", group="Agent", type="integer", minimum=1, maximum=8, hot_action="none", description="一批调用里同时执行的只读子代理个数"),
     # 下面两项只从 config.yaml 提供，不出现在设置 API 的响应里（见 CONFIG_ONLY_SETTING_KEYS）。
     # 这里保留元数据是为了让这张表覆盖全部 key，加 key 时不会漏掉归属与说明。
     "notify.vapid_private_key": dict(label="Web Push VAPID 私钥", group="通知", type="string", sensitive=True, hot_action="restart_required"),
