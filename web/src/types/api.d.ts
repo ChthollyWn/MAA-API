@@ -637,6 +637,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/sessions/{session_id}/checkpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出会话的压缩检查点
+         * @description 按 ``created_at`` 降序返回会话的全部检查点（含已被取代的）。
+         */
+        get: operations["agent_list_checkpoints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/sessions/{session_id}/compact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 手动压缩会话的较早消息
+         * @description 压缩一次会话；摘要不可用时 502 ``COMPACTION_FAILED``，不写检查点。
+         */
+        post: operations["agent_compact_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/sessions/{session_id}/copilot-grant": {
         parameters: {
             query?: never;
@@ -2621,6 +2661,51 @@ export interface components {
          * @enum {string}
          */
         CallerType: "rest" | "internal";
+        /**
+         * CheckpointList
+         * @description 检查点列表；按 ``created_at`` 降序，最新的在最前。
+         */
+        CheckpointList: {
+            /** Items */
+            items: components["schemas"]["CheckpointView"][];
+        };
+        /**
+         * CheckpointStatus
+         * @description 检查点的状态：生效、被更新的检查点取代，或因会话重写而失效。
+         * @enum {string}
+         */
+        CheckpointStatus: "active" | "superseded" | "invalidated";
+        /**
+         * CheckpointView
+         * @description 一个压缩检查点的对外形状。
+         *
+         *     ``summary`` 是读历史时原样塞回第一条 user 消息的正文；``degraded`` 为真表示
+         *     摘要模型不可用、内容由规则生成；``model`` 为空同样表示机械摘要。
+         */
+        CheckpointView: {
+            /** Created At */
+            created_at: string;
+            /** Degraded */
+            degraded: boolean;
+            /** Id */
+            id: string;
+            /** Model */
+            model: string | null;
+            /** Run Id */
+            run_id: string | null;
+            /** Session Id */
+            session_id: string;
+            status: components["schemas"]["CheckpointStatus"];
+            /** Summary */
+            summary: string;
+            /** Tokens After */
+            tokens_after: number;
+            /** Tokens Before */
+            tokens_before: number;
+            trigger: components["schemas"]["CompactionTrigger"];
+            /** Upto Seq */
+            upto_seq: number;
+        };
         /** ClickRequest */
         ClickRequest: {
             /**
@@ -2659,6 +2744,26 @@ export interface components {
              */
             name: "CloseDown";
         };
+        /**
+         * CompactResultView
+         * @description 手动压缩的结果；``skipped`` 为真时没有新检查点，前后估算相同。
+         */
+        CompactResultView: {
+            /** Checkpoint Id */
+            checkpoint_id: string | null;
+            /** Skipped */
+            skipped: boolean;
+            /** Tokens After */
+            tokens_after: number;
+            /** Tokens Before */
+            tokens_before: number;
+        };
+        /**
+         * CompactionTrigger
+         * @description 检查点的触发方式：运行内自动压缩或用户手动压缩。
+         * @enum {string}
+         */
+        CompactionTrigger: "auto" | "manual";
         /**
          * ConfirmationStatus
          * @enum {string}
@@ -8570,6 +8675,214 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_list_checkpoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 会话 id */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckpointList"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_compact_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 会话 id */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompactResultView"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_SESSION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：RUN_ALREADY_ACTIVE */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RUN_ALREADY_ACTIVE",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 请求过于频繁：BUDGET_EXCEEDED */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "BUDGET_EXCEEDED",
+                     *         "details": {},
+                     *         "message": "请求过于频繁"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 下游依赖失败：COMPACTION_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "COMPACTION_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };

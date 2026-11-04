@@ -1031,6 +1031,114 @@
         "title": "CallerType",
         "type": "string"
       },
+      "CheckpointList": {
+        "description": "检查点列表；按 ``created_at`` 降序，最新的在最前。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CheckpointView"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CheckpointList",
+        "type": "object"
+      },
+      "CheckpointStatus": {
+        "description": "检查点的状态：生效、被更新的检查点取代，或因会话重写而失效。",
+        "enum": [
+          "active",
+          "superseded",
+          "invalidated"
+        ],
+        "title": "CheckpointStatus",
+        "type": "string"
+      },
+      "CheckpointView": {
+        "description": "一个压缩检查点的对外形状。\n\n``summary`` 是读历史时原样塞回第一条 user 消息的正文；``degraded`` 为真表示\n摘要模型不可用、内容由规则生成；``model`` 为空同样表示机械摘要。",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "degraded": {
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CheckpointStatus"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "tokens_after": {
+            "title": "Tokens After",
+            "type": "integer"
+          },
+          "tokens_before": {
+            "title": "Tokens Before",
+            "type": "integer"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/CompactionTrigger"
+          },
+          "upto_seq": {
+            "title": "Upto Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "run_id",
+          "upto_seq",
+          "trigger",
+          "status",
+          "tokens_before",
+          "tokens_after",
+          "model",
+          "degraded",
+          "summary",
+          "created_at"
+        ],
+        "title": "CheckpointView",
+        "type": "object"
+      },
       "ClickRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1125,6 +1233,51 @@
         },
         "title": "CloseDownInput",
         "type": "object"
+      },
+      "CompactResultView": {
+        "description": "手动压缩的结果；``skipped`` 为真时没有新检查点，前后估算相同。",
+        "properties": {
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "boolean"
+          },
+          "tokens_after": {
+            "title": "Tokens After",
+            "type": "integer"
+          },
+          "tokens_before": {
+            "title": "Tokens Before",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "checkpoint_id",
+          "skipped",
+          "tokens_before",
+          "tokens_after"
+        ],
+        "title": "CompactResultView",
+        "type": "object"
+      },
+      "CompactionTrigger": {
+        "description": "检查点的触发方式：运行内自动压缩或用户手动压缩。",
+        "enum": [
+          "auto",
+          "manual"
+        ],
+        "title": "CompactionTrigger",
+        "type": "string"
       },
       "ConfirmationStatus": {
         "enum": [
@@ -11911,6 +12064,208 @@
           }
         },
         "summary": "撤销 Agent 会话的原子操作授权",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/sessions/{session_id}/checkpoints": {
+      "get": {
+        "description": "按 ``created_at`` 降序返回会话的全部检查点（含已被取代的）。",
+        "operationId": "agent_list_checkpoints",
+        "parameters": [
+          {
+            "description": "会话 id",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "会话 id",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckpointList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SESSION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：AGENT_SESSION_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "列出会话的压缩检查点",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/sessions/{session_id}/compact": {
+      "post": {
+        "description": "压缩一次会话；摘要不可用时 502 ``COMPACTION_FAILED``，不写检查点。",
+        "operationId": "agent_compact_session",
+        "parameters": [
+          {
+            "description": "会话 id",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "description": "会话 id",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactResultView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_SESSION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：AGENT_SESSION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RUN_ALREADY_ACTIVE",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：RUN_ALREADY_ACTIVE"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "BUDGET_EXCEEDED",
+                    "details": {},
+                    "message": "请求过于频繁"
+                  }
+                }
+              }
+            },
+            "description": "请求过于频繁：BUDGET_EXCEEDED"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "COMPACTION_FAILED",
+                    "details": {},
+                    "message": "下游依赖失败"
+                  }
+                }
+              }
+            },
+            "description": "下游依赖失败：COMPACTION_FAILED"
+          }
+        },
+        "summary": "手动压缩会话的较早消息",
         "tags": [
           "agent"
         ]
