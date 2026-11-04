@@ -186,6 +186,70 @@ describe('ticket events keep the ticket queries fresh', () => {
   })
 })
 
+describe('agent lease events refresh the device lease', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('invalidates the device lease and the holder ticket on lease_changed', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: null,
+          event: 'lease_changed',
+          payload: {
+            change: 'acquired',
+            reason: null,
+            held: true,
+            lease: {
+              lease_id: 'lease-1',
+              device_id: 'device-1',
+              ticket_id: 'ticket-1',
+              ticket_title: '日常清理',
+              holder_agent: 'worker',
+              explicit: true,
+            },
+          },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.deviceLease(), refetchType: 'active' })
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.ticket('ticket-1'), refetchType: 'active' })
+  })
+
+  it('only invalidates the lease when the release carries no ticket', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: null,
+          event: 'lease_changed',
+          payload: { change: 'released', reason: 'user', held: false, lease: null },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: keys.agent.deviceLease(), refetchType: 'active' })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.ticket('ticket-1'), refetchType: 'active' })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.tickets(), refetchType: 'active' })
+  })
+})
+
 describe('agent run events are typed but do not touch queries (M70)', () => {
   afterEach(() => {
     vi.useRealTimers()

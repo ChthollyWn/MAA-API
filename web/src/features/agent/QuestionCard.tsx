@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { cn } from '@/lib/utils'
 import { questionRemainingLabel } from './format'
+import { originLabel, useAgentTitle } from './origin'
 import type { AgentQuestionPrompt } from './types'
 
 /** 卡片的终态：用户答的、跳过的，或「已经结束」（本地超时 / 后端已终结）。 */
@@ -45,6 +46,8 @@ export function QuestionCard({ question, onResolved }: QuestionCardProps) {
   const [outcome, setOutcome] = useState<QuestionOutcome | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  // 有来源的提问才需要代理定义；没有来源时不发 /api/agent/specs。
+  const agentTitle = useAgentTitle(Boolean(question.origin))
 
   const deadline = Date.parse(question.expires_at)
   const hasDeadline = Number.isFinite(deadline)
@@ -110,6 +113,7 @@ export function QuestionCard({ question, onResolved }: QuestionCardProps) {
   // 必须选中才能提交；跳过不需要选。整卡在终态一律禁用。
   const canSubmit = !closed && !busy && selected.length > 0
   const remainingLabel = questionRemainingLabel(question.expires_at, now)
+  const sourceLabel = originLabel(question.origin, agentTitle)
 
   return (
     <article aria-labelledby={titleId} className="overflow-hidden rounded-xl border bg-card shadow-card">
@@ -128,6 +132,7 @@ export function QuestionCard({ question, onResolved }: QuestionCardProps) {
               )}
             </div>
             <p id={questionId} className="break-words text-body text-foreground">{question.question}</p>
+            {sourceLabel ? <p className="text-footnote text-muted-foreground">{sourceLabel}</p> : null}
           </div>
         </div>
 

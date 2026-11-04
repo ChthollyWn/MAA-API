@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { ErrorState, LoadingState } from '@/components/ui/states'
 import { AccountActionDetails, isAccountTool } from '@/features/agent/ConfirmationCard'
+import { originLabel, useAgentTitle } from '@/features/agent/origin'
+import type { AgentOrigin } from '@/features/agent/types'
 import { cn } from '@/lib/utils'
 
 export interface Confirmation {
@@ -21,6 +23,8 @@ export interface Confirmation {
   requested_by?: string
   expires_at: string
   caller?: { kind?: string; name?: string | null; session_id?: string | null }
+  /** 代理运行发起的确认带来源（M71）；REST 直接发起的没有这个字段。 */
+  origin?: AgentOrigin | null
   payload: { tool_name?: string; arguments?: Record<string, unknown>; [key: string]: unknown }
 }
 
@@ -96,6 +100,8 @@ export function ConfirmationsPanel({ showHeading = true, emptyFallback = null }:
   const targetConfirmationId = searchParams.get('confirm')
   const targetRef = useRef<HTMLDivElement | null>(null)
   const pending = useQuery(pendingConfirmationsQuery)
+  // 有来源的卡片才需要代理定义；没有来源时不发 /api/agent/specs，渲染与之前一致。
+  const agentTitle = useAgentTitle(Boolean(pending.data?.items.some((item) => item.origin)))
 
   useEffect(() => {
     if (!pending.data?.items.length) return
@@ -208,7 +214,9 @@ export function ConfirmationsPanel({ showHeading = true, emptyFallback = null }:
                     {expired ? '已过期' : formatRemaining(remaining)}
                   </Badge>
                 </div>
-                <p className="text-footnote text-muted-foreground">调用方：{callerLabel(item)}</p>
+                <p className="text-footnote text-muted-foreground">
+                  {originLabel(item.origin, agentTitle) ?? <>调用方：{callerLabel(item)}</>}
+                </p>
                 {grant ? (
                   <p className="text-sm">
                     授权目标会话：<code className="break-all rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.8125rem]">{grantSessionId ?? '无法识别目标会话'}</code>。批准后，该会话获得 {grantWindow > 0 ? `${Math.floor(grantWindow / 60)} 分钟` : '限时'}授权；点击、滑动、长按、输入和按键操作都会记入审计。

@@ -75,5 +75,6 @@ export const keys = {
     ticket: (ticketId: string) => [...root, 'agent', 'tickets', 'detail', ticketId] as const,
     ticketReports: (ticketId: string, filters?: Readonly<Record<string, unknown>>) =>
       [...root, 'agent', 'tickets', ticketId, 'reports', filters ?? {}] as const,
+    deviceLease: () => [...root, 'agent', 'device-lease'] as const,
   },
 } as const
