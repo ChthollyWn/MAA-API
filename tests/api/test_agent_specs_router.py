@@ -63,10 +63,11 @@ EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
     "copilot": 2,
     "daily_ops": 2,
     "diagnose": 2,
-    "general": 3,
+    "general": 4,
     "ops": 2,
-    "orchestrator": 2,
+    "orchestrator": 3,
     "planner": 2,
+    "researcher": 2,
 }
 
 

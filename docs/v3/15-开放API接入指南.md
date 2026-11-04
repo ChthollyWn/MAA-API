@@ -188,6 +188,10 @@ curl -X POST http://<host>:8002/api/snippets \
 | `COMPACTION_FAILED` | 502 | 手动压缩拿不到可用的摘要，检查点没有写入（M74） |
 | `KNOWLEDGE_NOT_FOUND` | 404 | 知识条目 id 不存在，或（`read_knowledge`）已被停用 |
 | `KNOWLEDGE_BUILTIN_READONLY` | 409 | 删除未修改过的内置条目，或修改内置条目的 `kind` |
+| `KNOWLEDGE_SOURCE_NOT_FOUND` | 404 | 没有这个检索来源（M76） |
+| `KNOWLEDGE_SOURCE_BUSY` | 409 | 来源正在建立索引，不能再次触发重建（M76） |
+| `EMBEDDING_UNAVAILABLE` | 503 | 向量服务不可用（M76）：没有可用的 embedding 档案、缺本地依赖或模型文件，或远端拒绝、超时、限流。检索内部捕获它并降级为只走全文，端点不因此报错 |
+| `RETRIEVAL_QUERY_INVALID` | 400 | 检索词不合法（M76）：去掉首尾空白后为空或超过 500 字，`top_k` 不在 1–30，或 `sources` 里有未注册的来源。`details` 带 `field` 与 `reason`，未知来源另带 `unknown` |
 | `QUESTION_NOT_FOUND` | 404 | 提问 id 不存在 |
 | `QUESTION_ALREADY_ANSWERED` | 409 | 重复回答已 answered / skipped 的提问 |
 | `QUESTION_EXPIRED` | 409 | 回答已过期的提问 |
