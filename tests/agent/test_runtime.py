@@ -3329,8 +3329,8 @@ def test_system_prompt_says_copilot_execution_needs_the_stage_in_the_kernel_reso
     说清「搜索不需要更新、执行需要内核认识关卡」，才不会先跑失败一次。
     """
 
-    from maa_api.agent.knowledge import builtin_entries
     from maa_api.agent.runtime import SYSTEM_PROMPT
+    from maa_api.agent.skills import builtin_skills
     from maa_api.agent.tools import build_registry
 
     assert "执行需要内核资源认识这一关" in SYSTEM_PROMPT
@@ -3343,7 +3343,7 @@ def test_system_prompt_says_copilot_execution_needs_the_stage_in_the_kernel_reso
     assert "Not support stage" in description
     assert "wait_update" in description
 
-    body = builtin_entries()["playbook-stage-clear"].body
+    body = builtin_skills()["playbook-stage-clear"].body
     assert "执行需要内核资源认识这一关" in body
     assert "Not support stage" in body
     assert "不需要更新资源" in body  # 搜索这一步确实不需要，保留了

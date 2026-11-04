@@ -26,14 +26,15 @@ from maa_api.api.routers import knowledge as knowledge_router
 from maa_api.db import session as db_session
 from maa_api.db.models import AgentAudit
 
+#: 25 条内置条目：M18 的 5 条 + M19 的 26 条 + M24 的 1 条 + M32 的 1 条 + M49 的 1 条，
+#: 再去掉 M78 迁成技能的 9 条。
 BUILTIN_IDS = {
-    # M18 的 5 条
-    "account-resources",
+    # M18 的 4 条（account-resources 已迁成技能）
     "screen-home",
     "screen-depot",
     "gacha-conversion",
     "glossary",
-    # M19 新增的 26 条
+    # M19 的 20 条（6 条 playbook 已迁成技能）
     "annihilation-weekly",
     "certificate-shops",
     "currency-sources",
@@ -44,13 +45,6 @@ BUILTIN_IDS = {
     "infrast-mechanics",
     "operator-classes",
     "operator-progression",
-    "playbook-daily-weekly",
-    "playbook-drop-lookup",
-    "playbook-infrast-shift",
-    "playbook-promotion-planning",
-    "playbook-recruit",
-    "playbook-sanity-planning",
-    "playbook-stage-clear",
     "recruit-tags",
     "sanity-system",
     "screen-headhunt",
@@ -61,23 +55,12 @@ BUILTIN_IDS = {
     "screen-terminal",
     "stage-rules",
     "trust-and-potential",
-    # M24 新增的 1 条
+    # M24 的 1 条
     "activity-stage-codes",
-    # M32 新增的 1 条
-    "task-preconditions",
 }
-#: 33 条内置条目在列表里的顺序（M32 起；M24 起为 32 条）：先 kind（playbook/screen/rule/glossary/profile），
-#: 同 kind 按 id。
+#: 25 条内置条目在列表里的顺序：先 kind（screen/rule/glossary/profile；playbook 已全部
+#: 迁成技能），同 kind 按 id。
 BUILTIN_LIST_ORDER = [
-    "account-resources",
-    "playbook-daily-weekly",
-    "playbook-drop-lookup",
-    "playbook-infrast-shift",
-    "playbook-promotion-planning",
-    "playbook-recruit",
-    "playbook-sanity-planning",
-    "playbook-stage-clear",
-    "task-preconditions",
     "screen-depot",
     "screen-headhunt",
     "screen-home",
@@ -186,15 +169,15 @@ def test_knowledge_detail_includes_the_body_and_the_builtin_snapshot(
 ):
     client = _knowledge_client(isolated_db, make_client)
 
-    response = client.get("/api/agent/knowledge/account-resources")
+    response = client.get("/api/agent/knowledge/screen-home")
     assert response.status_code == 200
     payload = response.json()
     assert set(payload) == DETAIL_FIELDS
-    assert payload["kind"] == "playbook"
-    assert payload["title"] == "查询账号资源"
-    assert payload["body"].startswith("## 前置判断")
+    assert payload["kind"] == "screen"
+    assert payload["title"] == "首页布局"
+    assert payload["body"].startswith("位置用占截图宽、高的比例表示")
     # 内置条目另附原文，供界面对比与恢复；未被修改时与生效值一致。
-    assert payload["builtin"]["id"] == "account-resources"
+    assert payload["builtin"]["id"] == "screen-home"
     assert payload["builtin"]["body"] == payload["body"]
 
     missing = client.get("/api/agent/knowledge/no-such-entry")

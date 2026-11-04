@@ -25,7 +25,7 @@ WORKERS = {
             "list_infrast_plans", "read_knowledge", "get_activity_stages", "get_stage",
             "get_drop_rates", "send_screenshot", "send_chart", "check_confirmation", "ask_user",
             "update_plan", "write_note", "read_artifact", "report", "delegate",
-            "hold_device", "release_device",
+            "hold_device", "release_device", "load_skill", "read_skill_file",
         ),
     },
     "copilot": {
@@ -41,7 +41,7 @@ WORKERS = {
             "get_pipeline", "wait_pipeline", "stop_pipeline", "back_to_home", "update_resource",
             "wait_update", "read_knowledge", "ask_user", "update_plan", "write_note",
             "read_artifact", "report", "delegate", "hold_device",
-            "release_device",
+            "release_device", "load_skill", "read_skill_file",
         ),
     },
     "planner": {
@@ -58,6 +58,7 @@ WORKERS = {
             "create_schedule", "update_schedule", "delete_schedule", "update_user_profile",
             "get_operator", "read_knowledge", "send_chart", "send_item_icons", "ask_user",
             "update_plan", "write_note", "read_artifact", "report", "delegate",
+            "load_skill", "read_skill_file",
         ),
     },
     "diagnose": {
@@ -70,6 +71,7 @@ WORKERS = {
             "get_queue", "list_pipelines", "get_drop_stats", "read_knowledge", "stop_pipeline",
             "reconnect_device", "back_to_home", "get_versions", "send_screenshot",
             "annotate_screenshot", "update_plan", "write_note", "read_artifact", "report", "delegate",
+            "load_skill", "read_skill_file",
         ),
     },
     "analyst": {
@@ -81,7 +83,7 @@ WORKERS = {
             "list_pipelines", "get_pipeline", "get_drop_stats", "get_logs", "get_drop_rates",
             "get_item", "get_stage", "get_operator_box", "get_depot", "list_upgrade_plans",
             "send_chart", "send_item_icons", "read_knowledge", "update_plan", "write_note",
-            "read_artifact", "report", "delegate",
+            "read_artifact", "report", "delegate", "load_skill", "read_skill_file",
         ),
     },
     "ops": {
@@ -94,6 +96,7 @@ WORKERS = {
             "update_game", "wait_update", "restart_core", "get_versions", "get_system_status",
             "get_device_status", "reconnect_device", "list_devices", "get_logs", "read_knowledge",
             "ask_user", "update_plan", "write_note", "read_artifact", "report",
+            "load_skill", "read_skill_file",
         ),
     },
 }
@@ -130,17 +133,25 @@ def test_six_workers_match_contract():
         assert spec.risk_ceiling == expected["risk_ceiling"]
         assert spec.delegates == expected["delegates"]
         assert spec.tools == expected["tools"]
-        assert spec.version == 2
+        # M78 §4.7：八个总控与 Worker 定义各加两个技能工具，版本 +1。
+        assert spec.version == 3
         assert spec.max_steps == 0
         assert spec.output_schema is None
         assert spec.budget.max_cost_per_run == 0
 
-    # diagnose 的前 12 个与 v2 诊断会话是同一份工具名单。
+    # diagnose 的前 12 个与 v2 诊断会话是同一份工具名单；M78 的技能工具在最后。
     diagnose = specs["diagnose"]
     assert set(diagnose.tools) == set(runtime.INCIDENT_ALLOWED_TOOLS) | set(
         DIAGNOSE_EXTRA_TOOLS
+    ) | {"load_skill", "read_skill_file"}
+    assert (
+        diagnose.tools[
+            len(runtime.INCIDENT_ALLOWED_TOOLS) : len(runtime.INCIDENT_ALLOWED_TOOLS)
+            + len(DIAGNOSE_EXTRA_TOOLS)
+        ]
+        == DIAGNOSE_EXTRA_TOOLS
     )
-    assert diagnose.tools[-len(DIAGNOSE_EXTRA_TOOLS) :] == DIAGNOSE_EXTRA_TOOLS
+    assert diagnose.tools[-2:] == ("load_skill", "read_skill_file")
 
 
 def test_worker_tools_exist_in_registry():

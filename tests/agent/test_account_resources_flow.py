@@ -6,11 +6,15 @@
 进程边界换成假件：模型（`FakeLLM`）、MaaCore（`FakeAsst`）、设备（返回 16:9 图片的
 `_FakeDeviceManager`）。不联网、不加载内核、不碰真机。
 
+M78 起 `account-resources` 是技能而不是知识条目：这一轮用 `general` 定义跑（它有这个
+技能），第 4 段是技能索引，剧本第一步改成 `load_skill`。v2 SSE 驱动保留，链上补一个
+`SkillsMiddleware`（与 `build_agent_chain` 同位置），其余断言不变。
+
 剧本断言（缺一不可）：
 - 五个工具按 §4.6 的顺序执行，全程没有 `confirmation_required`；
 - `wait_pipeline` 返回 `finished: true`，流水线是 `agent` 来源并关联本会话；
 - 最后一次模型请求带 `image_url`；
-- 每次模型请求的 system 消息里都有 `account-resources` 的索引行与 `now`。
+- 每次模型请求的 system 消息里都有 `account-resources` 的技能索引行与 `now`。
 """
 
 from __future__ import annotations
@@ -31,9 +35,20 @@ from sqlmodel import SQLModel
 import maa_api.db.models  # noqa: F401  # 注册全部表到 SQLModel.metadata
 from maa_api import settings as settings_module
 from maa_api.agent.confirmation import ConfirmationService
+from maa_api.agent.harness.builtin_middleware import (
+    ClarificationMiddleware,
+    ContextLayoutMiddleware,
+    LoopGuardMiddleware,
+    PolicyMiddleware,
+    TraceMiddleware,
+)
+from maa_api.agent.harness.middleware import MiddlewareChain
 from maa_api.agent.knowledge import KnowledgeService
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.runtime import AgentRuntime
+from maa_api.agent.skills import SkillRegistry
+from maa_api.agent.skills.middleware import SkillsMiddleware
+from maa_api.agent.specs.registry import builtin_spec, builtin_specs
 from maa_api.agent.tools import build_registry
 from maa_api.core.enums import Message
 from maa_api.core.registry import DEFAULT_CORE_ID, CoreRegistry
@@ -141,6 +156,19 @@ class _FakeDeviceManager:
         return True
 
 
+class _ModelRouter:
+    """ContextLayout 的非 legacy 路径要一个模型档案；这里只给布局与估算用。"""
+
+    profile = SimpleNamespace(
+        key=("default", MODEL),
+        model=MODEL,
+        dynamic_context_position="tail_system",
+    )
+
+    async def resolve_for_spec(self, _spec: Any, **_kwargs: Any) -> Any:
+        return self.profile
+
+
 @dataclass(slots=True)
 class _Flow:
     """一次完整场景跑完之后的现场。"""
@@ -186,7 +214,7 @@ def _flow_responses() -> list[FakeResponse]:
     return [
         tool_response(
             tool_call(
-                "call-knowledge", "read_knowledge", {"entry_id": "account-resources"}
+                "call-knowledge", "load_skill", {"skill_id": "account-resources"}
             )
         ),
         tool_response(
@@ -241,6 +269,12 @@ async def _run_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Flow:
         # CONFIRMATION_TIMEOUT_SECONDS 后收流并让断言失败，而不是把用例挂住。
         await confirmations.start(scan_interval_seconds=0.05)
         knowledge = KnowledgeService(factory)
+        skill_registry = SkillRegistry(
+            factory,
+            tool_names={definition.name for definition in registry.list()},
+            agent_kinds={spec.name: spec.kind for spec in builtin_specs().values()},
+            settings_provider=lambda: settings,
+        )
 
         device = _FakeDeviceManager(Image.new("RGB", IMAGE_SIZE, (32, 64, 128)))
         queue_service = QueueService(factory)
@@ -263,6 +297,8 @@ async def _run_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Flow:
             pipeline_runner=runner,
             queue_service=queue_service,
             knowledge_service=knowledge,
+            skill_registry=skill_registry,
+            model_router=_ModelRouter(),
         )
         request = SimpleNamespace(app=SimpleNamespace(state=state))
 
@@ -274,7 +310,37 @@ async def _run_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Flow:
             confirmations,
             settings_provider=lambda _request: settings,
             client_factory=lambda _settings: llm,
+            skill_registry=skill_registry,
         )
+
+        # M78：这一轮用 general 定义跑，并在 legacy 五元链的布局之后补 SkillsMiddleware
+        # （与 runtime.build_agent_chain 的第 5 位一致）。只改测试驱动，不动生产语义。
+        def chain_with_skills(**_kwargs: Any) -> MiddlewareChain:
+            return MiddlewareChain.for_kind(
+                "worker",
+                [
+                    TraceMiddleware(),
+                    ContextLayoutMiddleware(),
+                    SkillsMiddleware(skill_registry, session_factory=factory),
+                    LoopGuardMiddleware(),
+                    ClarificationMiddleware(question_service=None, registry=registry),
+                    PolicyMiddleware(
+                        confirmation_service=confirmations,
+                        session_factory=factory,
+                        poll_seconds=runtime.confirmation_poll_seconds,
+                    ),
+                ],
+            )
+
+        runtime._legacy_chain = chain_with_skills  # type: ignore[method-assign]
+        original_run_turn = runtime._run_turn
+
+        async def run_general_turn(*args: Any, **kwargs: Any) -> None:
+            kwargs["spec_name"] = "general"
+            kwargs["allowed_tools"] = set(builtin_spec("general").tools)
+            await original_run_turn(*args, **kwargs)
+
+        runtime._run_turn = run_general_turn  # type: ignore[method-assign]
         # 能力探测（一次真实上游往返）与视觉能力在本用例里直接给定：探测本身已有
         # 专门用例，场景测试关心的是拿到视觉能力之后的链路。
         runtime._capability_cache[(MODEL, BASE_URL)] = {
@@ -402,7 +468,7 @@ def test_account_resources_flow_reads_the_playbook_then_reports_home_currencies(
 
     # 2. §4.6 的五个步骤按顺序执行，每一步都成功。
     assert [data["name"] for event, data in events if event == "tool_start"] == [
-        "read_knowledge",
+        "load_skill",
         "submit_pipeline",
         "wait_pipeline",
         "back_to_home",
@@ -412,12 +478,13 @@ def test_account_resources_flow_reads_the_playbook_then_reports_home_currencies(
         None
     ] * 5
 
-    # 3. read_knowledge 真的读回了内置剧本全文。
-    knowledge = _tool_result(events, "read_knowledge")
+    # 3. load_skill 真的读回了内置技能全文。
+    knowledge = _tool_result(events, "load_skill")
     assert knowledge["id"] == "account-resources"
-    assert knowledge["source"] == "builtin"
+    assert knowledge["title"] == "查询账号资源"
     assert knowledge["body"].startswith("## 前置判断")
     assert "wait_pipeline" in knowledge["body"]
+    assert "wait_pipeline" in knowledge["tools"]
 
     # 4. StartUp 真的下到了内核边界（FakeAsst）并正常完成。
     assert [call[1][0] for call in flow.asst.calls_of("append_task")] == ["StartUp"]
@@ -439,7 +506,11 @@ def test_account_resources_flow_reads_the_playbook_then_reports_home_currencies(
         system = messages[0]
         assert system["role"] == "system"
         assert "- account-resources｜查询账号资源：" in system["content"]
-        assert '"now":' in system["content"]
+        # v3 布局把状态摘要放在尾部 system 消息里（legacy 放在第一条 system）。
+        assert any(
+            message.get("role") == "system" and '"now":' in message["content"]
+            for message in messages
+        )
 
     # 7. 最后一次请求带 16:9 截图；之前的请求都没有图。
     assert [_image_urls(turn[1]) for turn in turns[:-1]] == [[]] * (len(turns) - 1)
