@@ -1,6 +1,6 @@
 """M70 T5：六份代理定义与三个结构化 schema（规格 §4.7、§6）。
 
-四条用例覆盖：九份定义加载与一致规则、``general`` 的工具集合、四个子代理的
+四条用例覆盖：十五份定义加载与一致规则、``general`` 的工具集合、四个子代理的
 输出 schema 与正数步数、正文身份标记唯一。T6 注册七个工具之后才能通过加载校验。
 """
 
@@ -38,11 +38,17 @@ TICKET_TOOLS = {
     "cancel_ticket",
 }
 BUILTIN_SPEC_NAMES = [
+    "analyst",
+    "copilot",
+    "daily_ops",
+    "diagnose",
     "general",
     "legacy_chat",
     "legacy_incident",
     "navigator",
+    "ops",
     "orchestrator",
+    "planner",
     "recon",
     "researcher",
     "titler",

@@ -60,11 +60,17 @@ M70_TOOLS = frozenset(
 #: M71 的两个设备租约工具：注册表里有，但不属于 v2 会话（M71 §4.2）。
 M71_TOOLS = frozenset({"hold_device", "release_device"})
 BUILTIN_SPEC_NAMES = [
+    "analyst",
+    "copilot",
+    "daily_ops",
+    "diagnose",
     "general",
     "legacy_chat",
     "legacy_incident",
     "navigator",
+    "ops",
     "orchestrator",
+    "planner",
     "recon",
     "researcher",
     "titler",
@@ -74,7 +80,7 @@ BUILTIN_SPEC_NAMES = [
 BUILTIN_DIR = resources.files(BUILTIN_PACKAGE).joinpath(BUILTIN_DIRNAME)
 
 
-def test_builtin_specs_load_nine_definitions_sorted_by_name():
+def test_builtin_specs_load_fifteen_definitions_sorted_by_name():
     specs = builtin_specs()
 
     assert list(specs) == BUILTIN_SPEC_NAMES

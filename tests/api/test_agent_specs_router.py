@@ -39,11 +39,17 @@ DETAIL_FIELDS = LIST_FIELDS | {
     "body",
 }
 SPEC_NAMES = [
+    "analyst",
+    "copilot",
+    "daily_ops",
+    "diagnose",
     "general",
     "legacy_chat",
     "legacy_incident",
     "navigator",
+    "ops",
     "orchestrator",
+    "planner",
     "recon",
     "researcher",
     "titler",
@@ -72,7 +78,7 @@ def _error(response):
 # ---------------------------------------------------------------------------
 # 成功路径
 # ---------------------------------------------------------------------------
-def test_list_specs_returns_the_nine_builtin_definitions(make_client, tmp_settings):
+def test_list_specs_returns_the_fifteen_builtin_definitions(make_client, tmp_settings):
     client = _specs_client(make_client)
 
     response = client.get("/api/agent/specs")
