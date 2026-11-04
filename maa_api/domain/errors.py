@@ -343,6 +343,16 @@ class ErrorCode(StrEnum):
     # 检索词不合法
     RETRIEVAL_QUERY_INVALID = "RETRIEVAL_QUERY_INVALID"
 
+    # ---- M78 技能 ----
+    # 技能 id 不存在、已停用、草稿，或不对当前代理开放（含 skills.enabled 关闭）
+    SKILL_NOT_FOUND = "SKILL_NOT_FOUND"
+
+    # 内置技能没有覆盖行可删（删除即恢复默认，没改过就没有可恢复的内容）
+    SKILL_BUILTIN_READONLY = "SKILL_BUILTIN_READONLY"
+
+    # 技能内容不合法：id / 标题 / 说明 / 正文越界，或引用了未知工具与代理
+    SKILL_INVALID = "SKILL_INVALID"
+
     # ---- Agent 主动提问 ----
     # 提问 id 不存在
     QUESTION_NOT_FOUND = "QUESTION_NOT_FOUND"
@@ -603,6 +613,10 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.KNOWLEDGE_SOURCE_BUSY: 409,
     ErrorCode.EMBEDDING_UNAVAILABLE: 503,
     ErrorCode.RETRIEVAL_QUERY_INVALID: 400,
+    # M78 技能：未知 id / 已停用 / 不对代理开放是 404；没覆盖可删是 409；内容不合法是 400。
+    ErrorCode.SKILL_NOT_FOUND: 404,
+    ErrorCode.SKILL_BUILTIN_READONLY: 409,
+    ErrorCode.SKILL_INVALID: 400,
     ErrorCode.QUESTION_NOT_FOUND: 404,
     ErrorCode.QUESTION_ALREADY_ANSWERED: 409,
     ErrorCode.QUESTION_EXPIRED: 409,
