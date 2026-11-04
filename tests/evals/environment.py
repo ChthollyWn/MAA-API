@@ -115,6 +115,7 @@ def _open_world(
     )
     old_default_config = settings_module.DEFAULT_CONFIG_PATH
     old_main_root = main_module.REPO_ROOT
+    old_settings = settings_module.get_settings()
     old_env: dict[str, str | None] = {}
     old_external = external_http._DEFAULT
     engine = None
@@ -194,6 +195,7 @@ def _open_world(
                     pass
         external_http._DEFAULT = old_external
         settings_module.DEFAULT_CONFIG_PATH = old_default_config
+        settings_module.set_settings(old_settings)
         main_module.REPO_ROOT = old_main_root
         for name, value in old_env.items():
             if value is None:
