@@ -70,6 +70,7 @@ from maa_api.agent.harness.loop import (
     AgentLoop,
 )
 from maa_api.agent.harness.middleware import Middleware, MiddlewareChain
+from maa_api.agent.harness.spill import SpillMiddleware
 from maa_api.agent.harness.toolexec import SCREEN_TOOL_NAMES
 from maa_api.agent.lease import LeaseMiddleware
 from maa_api.agent.llm import OpenAICompatibleClient
@@ -238,6 +239,7 @@ def build_agent_chain(
 
     M74 把 durable、压缩与工具结果清理放到第 6、7、8 位：压缩必须落在
     「收集 durable」之后、「清理」之前（压缩阈值按清理后的请求估算，06 §5.2）。
+    M75 的 ``spill`` 紧接清理之后：先清理旧结果，再把新的大结果外置。
     """
     registry = confirmation_service.registry
     middlewares: list[Middleware] = [TraceMiddleware()]
@@ -253,6 +255,9 @@ def build_agent_chain(
             ToolResultClearingMiddleware(
                 registry=registry, settings_provider=settings_provider
             ),
+            # M75：外置在清理之后、打转检测之前；工具结果先由内层 Policy 落审计，
+            # 这里只改给模型与 SSE 的副本。
+            SpillMiddleware(settings_provider=settings_provider),
             LoopGuardMiddleware(),
             MandateMiddleware(
                 registry=registry,

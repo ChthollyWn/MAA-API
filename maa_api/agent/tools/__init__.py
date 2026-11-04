@@ -38,6 +38,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.stage_level import register_tools as register_stage_level_tools
     from maa_api.agent.tools.status import register_tools as register_status_tools
     from maa_api.agent.tools.tickets import register_tools as register_ticket_tools
+    from maa_api.agent.tools.workspace import register_tools as register_workspace_tools
 
     registry = ToolRegistry()
     for register in (
@@ -72,6 +73,8 @@ def build_registry() -> ToolRegistry:
     # M71：设备租约工具（规格 §4.2），接在 M70 新工具之后，不进 REST 目录。
     for definition in build_lease_tools():
         registry.register(definition)
+    # M75：工作记忆工具（续读与笔记），接在租约工具之后，不进 REST 目录。
+    register_workspace_tools(registry)
     registry.register(
         ToolDefinition(
             name="check_confirmation",

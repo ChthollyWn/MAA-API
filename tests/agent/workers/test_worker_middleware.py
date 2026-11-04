@@ -485,6 +485,8 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "durable_context",
         "compaction",
         "tool_result_clearing",
+        # M75：外置紧接清理之后（G3 的 plan 会插在两者之间）。
+        "spill",
         "loop_guard",
         "mandate",
         "lease",
@@ -493,11 +495,12 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "policy",
     )
     # 子代理没有 durable 与压缩（只给总控与 Worker）与 report（18 号只给 Worker），
-    # 但清理（8 号）与 14/16 号都在。
+    # 但清理（8 号）与 14/16 号都在；spill 挂上但因定义里没有 read_artifact 而不外置。
     assert runtime.build_chain("subagent").names == (
         "trace",
         "context_layout",
         "tool_result_clearing",
+        "spill",
         "loop_guard",
         "mandate",
         "lease",
@@ -510,6 +513,7 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "durable_context",
         "compaction",
         "tool_result_clearing",
+        "spill",
         "loop_guard",
         "clarification",
         "policy",
