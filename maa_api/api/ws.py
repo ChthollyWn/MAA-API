@@ -38,6 +38,8 @@ CHANNELS = frozenset(
         "update_progress",
         "update_available",
         "agent_event",
+        # M70 §4.3.3：AgentRunBroadcaster 的出口；由 T13 在 lifespan 里装配。
+        "agent_run",
         "ticket_status",
         "server_shutdown",
     }

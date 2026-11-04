@@ -185,3 +185,45 @@ describe('ticket events keep the ticket queries fresh', () => {
     expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.pendingConfirmations(), refetchType: 'active' })
   })
 })
+
+describe('agent run events are typed but do not touch queries (M70)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('收到 agent_run 不抛错、不失效任何查询', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    expect(() =>
+      handleServerEvent(
+        {
+          type: 'agent_run',
+          data: {
+            event: 'message_created',
+            run_id: 'run-1',
+            session_id: 'session-1',
+            ticket_id: null,
+            agent: 'orchestrator',
+            kind: 'orchestrator_turn',
+            status: 'running',
+            message: {
+              id: 1,
+              seq: 1,
+              role: 'assistant',
+              inbox_id: null,
+              preview: '已建工单',
+            },
+          },
+        },
+        queryClient,
+      ),
+    ).not.toThrow()
+    // 这条事件不安排任何攒批失效；推进计时器也不该有查询被重取。
+    vi.advanceTimersByTime(300)
+
+    expect(spy).not.toHaveBeenCalled()
+  })
+})
