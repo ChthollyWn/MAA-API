@@ -22,6 +22,7 @@ MaaCore 与设备边界换成 ``tests/fakes/lifespan.py`` 的适配器、模型�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
@@ -99,6 +100,16 @@ def e2e(tmp_settings, isolated_db, make_client, monkeypatch) -> Any:
     monkeypatch.setenv("MAA_LLM_API_KEY", "sk-test")
     monkeypatch.setenv("MAA_LLM_MODEL", "test-model")
     client.portal.call(app.state.setting_service.refresh)
+
+    # M76：知识索引在启动后后台同步 builtin/user 来源。等它结束后再跑本用例，
+    # 避免后台写与测试/关闭抢 SQLite 写锁（满载下偶发 database is locked）。
+    async def _wait_initial_index() -> None:
+        service = getattr(app.state, "knowledge_index_service", None)
+        tasks = tuple(getattr(service, "_tasks", ())) if service is not None else ()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    client.portal.call(_wait_initial_index)
 
     async def _empty_dynamic() -> str:
         return ""
