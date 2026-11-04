@@ -67,8 +67,9 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: `SKILL_INVALID`；代码由 G3 预置，本卡登记计数与文档）。
 #: M79 在 §4.11 加记忆两条（`MEMORY_NOT_FOUND`、`MEMORY_NOT_PROPOSED`；代码由 G1 预置）。
 #: M80 在 §4.11 加回溯与注入防护两条（`REWIND_TARGET_INVALID`、`PROMPT_INJECTION_BLOCKED`）。
-ALL_CODE_COUNT = 157
-HTTP_BOUND_CODE_COUNT = 156
+#: M81 在 §4.11 加事件规则两条与观察记录一条（`TRIGGER_RULE_*`、`OBSERVATION_NOT_FOUND`）。
+ALL_CODE_COUNT = 160
+HTTP_BOUND_CODE_COUNT = 159
 SECTION_COUNT = 20
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。

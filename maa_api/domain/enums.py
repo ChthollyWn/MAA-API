@@ -473,3 +473,42 @@ class MemoryStatus(StrEnum):
     REJECTED = "rejected"
     SUPERSEDED = "superseded"
     EXPIRED = "expired"
+
+
+# ---- M81 事件源与两级过滤（v3 specs/m81 §4.1、v3 docs/08 §2） ----
+
+
+class TriggerAdmission(StrEnum):
+    """事件进入系统后的准入结论：接受、忽略、不合法。"""
+
+    ACCEPTED = "accepted"
+    IGNORED = "ignored"
+    REJECTED = "rejected"
+
+
+class TriggerEvalStatus(StrEnum):
+    """事件研判的状态；pending 表示还没研判完，其余是终值。"""
+
+    PENDING = "pending"
+    ACCEPT = "accept"
+    STOP = "stop"
+    IGNORE = "ignore"
+    UNAVAILABLE = "unavailable"
+    SKIPPED = "skipped"
+
+
+class TriggerMode(StrEnum):
+    """事件规则的档位：关闭、只记录本来会做什么、直接建工单。"""
+
+    OFF = "off"
+    OBSERVE = "observe"
+    AUTO = "auto"
+
+
+class TriggerRoute(StrEnum):
+    """事件处理后的去向：交总控、建工单、写观察记录、只记录。"""
+
+    ORCHESTRATOR = "orchestrator"
+    TICKET = "ticket"
+    OBSERVATION = "observation"
+    NONE = "none"

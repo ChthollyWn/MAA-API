@@ -185,6 +185,11 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     # 每次现读，改完立即生效。----
     "guard.injection_detection": ("guard", "injection_detection"),
     "guard.block_on_detect": ("guard", "block_on_detect"),
+    # ---- 主动工作（M81 规格 §4.4）：三项都不是 config-only，事件处理与规则
+    # 服务每次现读，改完立即生效。----
+    "triggers.enabled": ("triggers", "enabled"),
+    "triggers.default_mode": ("triggers", "default_mode"),
+    "triggers.eval_daily_limit": ("triggers", "eval_daily_limit"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -455,6 +460,22 @@ class GuardSettings(BaseModel):
 
     injection_detection: Literal["off", "rules", "rules_llm"] = "rules"
     block_on_detect: bool = False
+
+
+class TriggersSettings(BaseModel):
+    """主动工作（M81 规格 §4.4）：总开关、新规则默认档位与每日研判上限。
+
+    ``enabled=false`` 时事件仍然入表、订阅它的工单照常收到，只是不按规则研判、
+    不主动建工单；``default_mode`` 是新建事件规则没写档位时的取值；``eval_daily_limit``
+    是每天最多调用研判模型的次数（0 表示不研判）。三项都不是 config-only，事件
+    处理与规则服务每次现读，改完立即生效。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    default_mode: Literal["off", "observe", "auto"] = "observe"
+    eval_daily_limit: int = Field(default=200, ge=0, le=5000)
 
 
 class TraceSettings(BaseModel):
@@ -783,6 +804,8 @@ class Settings(BaseModel):
     memory: MemorySettings = Field(default_factory=MemorySettings)
     #: M80 提示注入防护两项（都不是 config-only，扫描与降权每次现读）。
     guard: GuardSettings = Field(default_factory=GuardSettings)
+    #: M81 主动工作三项（都不是 config-only，事件处理与规则服务每次现读）。
+    triggers: TriggersSettings = Field(default_factory=TriggersSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

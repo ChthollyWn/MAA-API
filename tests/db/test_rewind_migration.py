@@ -80,7 +80,7 @@ def test_upgrade_adds_rewind_columns(tmp_path: Path) -> None:
     finally:
         conn.close()
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
 
     conn = _connect(db_path)
     try:
@@ -132,7 +132,7 @@ def test_downgrade_removes_rewind_columns(tmp_path: Path) -> None:
     finally:
         conn.close()
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
 
     conn = _connect(db_path)
     try:
@@ -170,7 +170,7 @@ def test_downgrade_removes_rewind_columns(tmp_path: Path) -> None:
         conn.close()
 
     # 降到底再升级一次：可重放。
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     conn = _connect(db_path)
     try:
         assert _revision(conn) == HEAD_REVISION
@@ -182,7 +182,7 @@ def test_downgrade_removes_rewind_columns(tmp_path: Path) -> None:
 def test_forked_from_session_is_set_null_when_source_deleted(tmp_path: Path) -> None:
     db_path = tmp_path / "rewind_set_null.db"
     cfg = _config(db_path)
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
 
     conn = _connect(db_path)
     try:

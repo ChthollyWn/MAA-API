@@ -92,6 +92,10 @@ BUSINESS_TABLES = {
     "agent_skill",
     # M79：长期记忆（v3 specs/m79 §4.1、docs/v3/03 §10.2）。
     "memory_item",
+    # M81：事件源三表（v3 specs/m81 §4.1、docs/v3/03 §11）。
+    "agent_trigger",
+    "trigger_rule",
+    "trigger_observation",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -135,6 +139,9 @@ AUTOINCREMENT_TABLES = [
     "agent_inbox",
     # M76：分块的 id 同时是 FTS5 的 rowid，清理后不能复用。
     "knowledge_chunk",
+    # M81：事件与观察记录都是高频追加表。
+    "agent_trigger",
+    "trigger_observation",
 ]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
@@ -324,6 +331,19 @@ EXPECTED_INDEXES = {
     # M79：记忆列表按状态/种类过滤、按分类键过滤去重（v3 docs/03 §10.2）。
     "ix_memory_item_status_kind": ("memory_item", ("status", "kind"), False),
     "ix_memory_item_subject": ("memory_item", ("subject",), False),
+    # M81：事件去重（部分唯一）、话题近期事件、清理扫描；观察按规则与时间列。
+    "uq_agent_trigger_dedupe_key": ("agent_trigger", ("dedupe_key",), True),
+    "ix_agent_trigger_thread_key_created_at": (
+        "agent_trigger",
+        ("thread_key", "created_at"),
+        False,
+    ),
+    "ix_agent_trigger_created_at": ("agent_trigger", ("created_at",), False),
+    "ix_trigger_observation_rule_id_created_at": (
+        "trigger_observation",
+        ("rule_id", "created_at"),
+        False,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -379,6 +399,8 @@ EXPECTED_FK_CASCADE = {
     # M76：来源删了文档一起删，文档删了分块一起删。
     ("knowledge_document", "source_id"),
     ("knowledge_chunk", "document_id"),
+    # M81：事件删了，它的观察记录一起删。
+    ("trigger_observation", "trigger_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -445,6 +467,10 @@ EXPECTED_FK_SET_NULL = {
     ("memory_item", "source_session_id"),
     ("memory_item", "source_run_id"),
     ("memory_item", "supersedes_id"),
+    # M81：运行/工单/事件被清理时只解除关联；ticket 与 agent_trigger 是循环外键。
+    ("agent_trigger", "eval_run_id"),
+    ("agent_trigger", "ticket_id"),
+    ("ticket", "source_trigger_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -485,6 +511,9 @@ EXPECTED_TEXT_COLUMNS = {
     ("agent_skill", "body"),
     # M79：记忆正文不超过 500 字，但长度按内容变化，用 TEXT（03 §10.2）。
     ("memory_item", "content"),
+    # M81：事件的不合法原因与规则研判提示长度不定，用 TEXT。
+    ("agent_trigger", "eval_reason"),
+    ("trigger_rule", "policy"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -547,6 +576,10 @@ EXPECTED_JSON_COLUMNS = {
     # M78：技能的工具与适用代理白名单。
     ("agent_skill", "tools"),
     ("agent_skill", "agents"),
+    # M81：事件载荷、规则条件与观察记录里的判定草稿。
+    ("agent_trigger", "payload"),
+    ("trigger_rule", "conditions"),
+    ("trigger_observation", "decision"),
 }
 
 # FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
@@ -627,8 +660,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_46_business_tables():
-    """46 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_49_business_tables():
+    """49 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
@@ -784,7 +817,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """54 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """58 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
@@ -1237,10 +1270,13 @@ def test_no_sa_enum_columns():
 
 
 # 按表的列宽例外：docs/v3/03 §3.2 给 ``agent_run.finish_reason`` 定的是 32，
-# §4.2 给 ``cost_ledger.role`` 定的是 24；其余表的同名列仍按上面的通用宽度。
+# §4.2 给 ``cost_ledger.role`` 定的是 24；M81 规格 §4.1 给事件来源定的是 24，
+# 其余表的同名列仍按上面的通用宽度。
 COLUMN_WIDTH_OVERRIDES: dict[tuple[str, str], int] = {
     ("agent_run", "finish_reason"): 32,
     ("cost_ledger", "role"): 24,
+    ("agent_trigger", "source"): 24,
+    ("trigger_rule", "source"): 24,
 }
 
 

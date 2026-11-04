@@ -1,4 +1,4 @@
-"""SQLModel 表定义：46 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：49 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -67,6 +67,8 @@ from maa_api.domain.enums import (
     RiskLevel,
     TaskStatus,
     TicketStatus,
+    TriggerAdmission,
+    TriggerEvalStatus,
     UpdateStatus,
 )
 
@@ -799,6 +801,11 @@ class Ticket(SQLModel, table=True):
     )
     ended_at: datetime | None = Field(
         default=None, sa_column=datetime_column("ended_at", nullable=True)
+    )
+    #: M81：这张工单由哪条事件建出来。与 ``agent_trigger.ticket_id`` 构成循环外键，
+    #: 处理方式与 M69 的 ``agent_session.ticket_id`` ↔ ``ticket.worker_session_id`` 一致。
+    source_trigger_id: int | None = Field(
+        default=None, foreign_key="agent_trigger.id", ondelete="SET NULL"
     )
 
     __table_args__ = (
@@ -2178,4 +2185,114 @@ class RunPlan(SQLModel, table=True):
             unique=True,
             sqlite_where=text("status IN ('draft','awaiting_approval','active')"),
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5.29 agent_trigger / trigger_rule / trigger_observation — 事件源与两级过滤
+#（M81 规格 §4.1、v3 docs/03 §11.1–§11.3）
+# ---------------------------------------------------------------------------
+class AgentTrigger(SQLModel, table=True):
+    """进入系统的一条事件：先入表，再准入、研判、路由（docs/v3/08 §2、§4）。"""
+
+    __tablename__ = "agent_trigger"
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(max_length=24)
+    kind: str = Field(max_length=48)
+    thread_key: str = Field(max_length=160)
+    sender: str | None = Field(default=None, max_length=128)
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("payload", nullable=False, server_default="'{}'"),
+    )
+    dedupe_key: str | None = Field(default=None, max_length=160)
+    #: 处理中先记 accepted，处理完改写成终值；processed_at 为空表示还没处理完。
+    admission: str = Field(default=TriggerAdmission.ACCEPTED, max_length=16)
+    rule_id: str | None = Field(default=None, max_length=48)
+    eval_status: str = Field(default=TriggerEvalStatus.PENDING, max_length=16)
+    eval_reason: str | None = Field(default=None, sa_column=text_column("eval_reason"))
+    eval_run_id: str | None = Field(
+        default=None,
+        foreign_key="agent_run.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    ticket_id: str | None = Field(
+        default=None, foreign_key="ticket.id", ondelete="SET NULL", max_length=36
+    )
+    routed_to: str | None = Field(default=None, max_length=16)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    processed_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("processed_at", nullable=True)
+    )
+
+    __table_args__ = (
+        # 部分唯一索引：只有带 dedupe_key 的事件互斥，未带键的事件可以重复入表。
+        Index(
+            "uq_agent_trigger_dedupe_key",
+            "dedupe_key",
+            unique=True,
+            sqlite_where=text("dedupe_key IS NOT NULL"),
+        ),
+        # 事件卡取同一话题的近期事件；清理按时间扫。
+        Index("ix_agent_trigger_thread_key_created_at", "thread_key", "created_at"),
+        Index("ix_agent_trigger_created_at", "created_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+class TriggerRule(SQLModel, table=True):
+    """事件规则的覆盖层：内置规则在 builtin_rules.py，表里只存覆盖与用户规则（照 AgentKnowledge）。"""
+
+    __tablename__ = "trigger_rule"
+
+    id: str = Field(primary_key=True, max_length=48)
+    title: str | None = Field(default=None, max_length=64)
+    source: str | None = Field(default=None, max_length=24)
+    kind_pattern: str | None = Field(default=None, max_length=64)
+    conditions: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("conditions")
+    )
+    mode: str | None = Field(default=None, max_length=16)
+    worker: str | None = Field(default=None, max_length=32)
+    policy: str | None = Field(default=None, sa_column=text_column("policy"))
+    cooldown_seconds: int | None = Field(default=None)
+    cron: str | None = Field(default=None, max_length=64)
+    enabled: bool = Field(default=True)
+    #: "override"（覆盖内置规则，只写与内置不同的列）/ "user"（用户自建，各列必填）。
+    origin: str = Field(max_length=16)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+class TriggerObservation(SQLModel, table=True):
+    """observe 档下「本来会做什么」的记录，等用户审阅。"""
+
+    __tablename__ = "trigger_observation"
+
+    id: int | None = Field(default=None, primary_key=True)
+    trigger_id: int = Field(foreign_key="agent_trigger.id", ondelete="CASCADE")
+    rule_id: str = Field(max_length=48)
+    #: ``{decision: "accept" | "stop", worker, title, brief, scope, reason}``。
+    decision: dict[str, Any] = Field(
+        sa_column=json_column("decision", nullable=False)
+    )
+    verdict: str | None = Field(default=None, max_length=16)
+    reviewed_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("reviewed_at", nullable=True)
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_trigger_observation_rule_id_created_at", "rule_id", "created_at"),
+        {"sqlite_autoincrement": True},
     )

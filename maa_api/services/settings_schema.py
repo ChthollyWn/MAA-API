@@ -164,6 +164,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     # M80 提示注入防护：两项都由扫描与降权每次现读，改完立即生效。
     "guard.injection_detection": dict(label="提示注入检测", group="Agent", type="string", enum=["off", "rules", "rules_llm"], hot_action="none", description="off 只打标不检测；rules 用规则检测；rules_llm 在规则命中或内容出自他人时再请便宜模型复核"),
     "guard.block_on_detect": dict(label="检测到可疑指令时整段拦截", group="Agent", type="boolean", hot_action="none", description="关闭时只打标，之后的写操作逐次确认"),
+    # M81 主动工作：三项都由事件处理与规则服务现读，改完立即生效。
+    "triggers.enabled": dict(label="启用主动工作", group="Agent", type="boolean", hot_action="none"),
+    "triggers.default_mode": dict(label="新事件规则的默认档位", group="Agent", type="string", enum=["off", "observe", "auto"], hot_action="none"),
+    "triggers.eval_daily_limit": dict(label="每日事件研判次数上限", group="Agent", type="integer", minimum=0, maximum=5000, hot_action="none"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),
@@ -171,7 +175,7 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "agent.grant_confirmation_timeout_seconds": dict(label="屏幕操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.question_timeout_seconds": dict(label="Agent 提问等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.atomic_grant_minutes": dict(label="屏幕操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
-    "agent.auto_diagnose_failures": dict(label="自动诊断流水线与内核故障", group="Agent", type="boolean", hot_action="none"),
+    "agent.auto_diagnose_failures": dict(label="自动诊断流水线与内核故障（两条诊断规则的总开关）", group="Agent", type="boolean", hot_action="none"),
     # M27 账号数据的过期阈值：概要接口与注入段现读设置，改完立即生效。
     "agent.box_stale_days": dict(label="干员数据过期天数（距上次森空岛同步）", group="Agent", type="integer", minimum=1, maximum=365, hot_action="none"),
     "agent.depot_stale_days": dict(label="仓库识别过期天数", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
