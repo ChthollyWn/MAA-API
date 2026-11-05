@@ -19,7 +19,7 @@ from maa_api.agent.events.kinds import (
 )
 from maa_api.domain.enums import EventSource
 
-#: 08 §2.2 的 12 种事件：kind → (source, 03 §15 前缀, 08 §2.4 摘要模板)。
+#: 08 §2.2 的 15 种事件：kind → (source, 03 §15 前缀, 08 §2.4 摘要模板)。
 EXPECTED = [
     (
         "pipeline.completed",
@@ -78,12 +78,30 @@ EXPECTED = [
         "system:sanity",
         "理智估计已满（{estimated}/{max_sanity}）",
     ),
+    (
+        "goal.review_due",
+        "goal",
+        "goal:",
+        "目标「{title}」到了复盘时间",
+    ),
+    (
+        "goal.completed",
+        "goal",
+        "goal:",
+        "目标「{title}」已完成",
+    ),
+    (
+        "goal.deadline_passed",
+        "goal",
+        "goal:",
+        "目标「{title}」过了截止还没完成",
+    ),
 ]
 
 
 def test_every_known_kind_matches_thread_prefix_table():
     assert list(KNOWN_KINDS) == [kind for kind, *_ in EXPECTED]
-    assert len(KNOWN_KINDS) == 12
+    assert len(KNOWN_KINDS) == 15
 
     event_sources = {source.value for source in EventSource}
     for kind, source, prefix, template in EXPECTED:
@@ -152,10 +170,18 @@ def test_summary_fills_missing_fields_with_unknown():
     assert summarize("no.such.kind", {}) == "no.such.kind"
 
 
-def test_attention_only_for_core_failed_and_device_unavailable():
-    assert ATTENTION_KINDS == {"core.failed", "device.unavailable"}
+def test_attention_kinds_are_core_failed_device_unavailable_and_two_goal_kinds():
+    assert ATTENTION_KINDS == {
+        "core.failed",
+        "device.unavailable",
+        "goal.completed",
+        "goal.deadline_passed",
+    }
     assert needs_attention("core.failed", {})
     assert needs_attention("device.unavailable", {"retry_attempt": 3})
+    assert needs_attention("goal.completed", {"title": "银灰精二"})
+    assert needs_attention("goal.deadline_passed", {"title": "银灰精二"})
+    assert not needs_attention("goal.review_due", {"title": "银灰精二"})
     assert not needs_attention("core.crashed", {})
     assert not needs_attention("pipeline.failed", {})
     assert not needs_attention("no.such.kind", {})

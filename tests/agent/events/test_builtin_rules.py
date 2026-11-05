@@ -1,4 +1,4 @@
-"""五条内置事件规则与诊断草稿（M81 规格 §4.2、08 §3.2/§4.7）。
+"""六条内置事件规则与诊断草稿（M81 规格 §4.2、M82 规格 §4.7、08 §3.2/§4.7）。
 
 覆盖 §6 的两条：内置规则与 08 §3.2 逐列一致；流水线诊断草稿带 v2 诊断上下文
 （``failure_object`` 与失败任务都在说明里）。
@@ -14,6 +14,7 @@ from maa_api.agent.events.builtin_rules import (
     BUILTIN_RULES,
     DEVICE_UNAVAILABLE_POLICY,
     DIAGNOSE_SCOPE,
+    GOAL_REVIEW_POLICY,
     SANITY_FULL_POLICY,
     UPDATE_AVAILABLE_POLICY,
     diagnose_core_draft,
@@ -23,7 +24,8 @@ from maa_api.agent.events.rules import merge_rules
 from maa_api.db.models import AgentTrigger, utcnow
 from maa_api.domain.enums import TriggerMode
 
-#: 08 §3.2 中里程碑为 M81 的五条：id、来源、种类、条件、档位、Worker、冷却、总开关。
+#: 08 §3.2 中里程碑为 M81 的五条与 M82 的一条：id、来源、种类、条件、档位、
+#: Worker、冷却、总开关。
 EXPECTED = [
     (
         "diagnose-pipeline-failure",
@@ -75,6 +77,16 @@ EXPECTED = [
         86400,
         None,
     ),
+    (
+        "goal-review",
+        "goal",
+        "goal.review_due",
+        {},
+        TriggerMode.AUTO,
+        "planner",
+        0,
+        None,
+    ),
 ]
 
 
@@ -85,9 +97,9 @@ def _rule(rule_id: str):
 
 
 def test_builtin_rules_match_doc_table():
-    assert len(BUILTIN_RULES) == 5
+    assert len(BUILTIN_RULES) == 6
     assert [rule.id for rule in BUILTIN_RULES] == [row[0] for row in EXPECTED]
-    assert len({rule.title for rule in BUILTIN_RULES}) == 5
+    assert len({rule.title for rule in BUILTIN_RULES}) == 6
 
     for rule, expected in zip(BUILTIN_RULES, EXPECTED, strict=True):
         (
@@ -117,14 +129,18 @@ def test_builtin_rules_match_doc_table():
         assert rule.policy == ""
         assert rule.draft is not None
         assert rule.gate_setting == "agent.auto_diagnose_failures"
-    # 三条研判规则的提示全文照 08 §4.7。
+    # 四条研判规则的提示全文照 08 §3.2/M82 §4.7。
     by_id = {rule.id: rule for rule in BUILTIN_RULES}
     assert by_id["sanity-full"].policy == SANITY_FULL_POLICY
     assert by_id["device-unavailable"].policy == DEVICE_UNAVAILABLE_POLICY
     assert by_id["update-available"].policy == UPDATE_AVAILABLE_POLICY
+    assert by_id["goal-review"].policy == GOAL_REVIEW_POLICY
     assert "ignore" in SANITY_FULL_POLICY
     assert "accept" in DEVICE_UNAVAILABLE_POLICY
     assert "ignore" in UPDATE_AVAILABLE_POLICY
+    assert "ignore" in GOAL_REVIEW_POLICY
+    assert "accept" in GOAL_REVIEW_POLICY
+    assert by_id["goal-review"].draft is not None
 
 
 class _IncidentService:

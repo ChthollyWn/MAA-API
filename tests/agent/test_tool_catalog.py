@@ -84,6 +84,11 @@ EXPECTED_TOOLS = {
     "read_skill_file",
     # M79：候选记忆提交，只在代理运行里可用（规格 §4.5）。
     "remember",
+    # M82：目标工具，不进 REST 目录，但对总控模型可见（规格 §4.2）。
+    "create_goal",
+    "list_goals",
+    "get_goal",
+    "update_goal",
 }
 
 #: M74 §5 T3：旧上下文里可以换成占位、需要时重新调用的工具（06 §5.1）。
@@ -127,8 +132,8 @@ def test_untrusted_output_tools_are_pinned() -> None:
     assert len(UNTRUSTED_OUTPUT_TOOLS) == 22
     assert untrusted == UNTRUSTED_OUTPUT_TOOLS
     assert untrusted <= EXPECTED_TOOLS
-    assert len(definitions) == 100
-    assert sum(1 for definition in definitions if definition.model_visible) == 99
+    assert len(definitions) == 104
+    assert sum(1 for definition in definitions if definition.model_visible) == 103
 
 
 def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner():
@@ -145,9 +150,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # 模型可见 92（同样都可见，只是不进 REST 目录）。M75 T2 加续读与笔记两个工具
     # → 95，模型可见 94；T3 的 ``update_plan`` 再各加一 → 96 / 95。M76 加
     # ``search_knowledge`` → 97 / 96。M78 加技能两个工具 → 99 / 98。M79 加
-    # ``remember`` → 100 / 99（不进 REST 目录，但对模型可见）。
-    assert len(actual) == 100
-    assert sum(1 for item in registry.list() if item.model_visible) == 99
+    # ``remember`` → 100 / 99（不进 REST 目录，但对模型可见）。M82 加四个目标工具
+    # → 104 / 103（同样不进 REST 目录，但对总控模型可见）。
+    assert len(actual) == 104
+    assert sum(1 for item in registry.list() if item.model_visible) == 103
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "skills" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
@@ -681,6 +687,11 @@ def test_extension_fields_keep_v2_defaults() -> None:
         "read_skill_file",
         # M79 的记忆工具同样只在代理运行里可用。
         "remember",
+        # M82 的目标工具同样只在代理运行里可用。
+        "create_goal",
+        "list_goals",
+        "get_goal",
+        "update_goal",
     }
     assert all(
         definition.rest_visible

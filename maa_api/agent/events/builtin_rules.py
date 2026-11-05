@@ -1,4 +1,4 @@
-"""五条内置事件规则与工单草稿（M81 规格 §4.2、08 §3.2/§4.7）。
+"""六条内置事件规则与工单草稿（M81 规格 §4.2、M82 规格 §4.7、08 §3.2/§4.7）。
 
 内置规则是代码里的常量，表 ``trigger_rule`` 只存用户对它们的覆盖与用户自建规则。
 声明顺序即 08 §3.2 的顺序，也是 :meth:`RuleSet.match` 优先取内置规则的顺序。
@@ -8,7 +8,7 @@
 （``AgentIncidentService._pipeline_context`` / ``_core_context``），与 v2 自动诊断
 看到的是同一份现场。
 
-其余三条规则的 ``policy`` 是给 ``trigger_evaluator`` 的研判提示，全文照 §4.7。
+其余四条规则的 ``policy`` 是给 ``trigger_evaluator`` 的研判提示，全文照 §4.7。
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ __all__ = [
     "default_draft",
     "diagnose_core_draft",
     "diagnose_pipeline_draft",
+    "goal_review_draft",
 ]
 
 #: 工单草稿三段的上限（与 ``TicketService.create`` / ``attach_worker_session`` 一致）。
@@ -242,10 +243,71 @@ UPDATE_AVAILABLE_POLICY = (
     "更新本身需要确认，这张工单不要尝试更新。有流水线在运行时 ignore。"
 )
 
+#: 复盘规则的研判提示，逐字照 M82 规格 §4.7。
+GOAL_REVIEW_POLICY = (
+    "这是一个目标的定时复盘，payload.snapshot 是程序算好的进度。\n"
+    "进度正常、没有新逾期的里程碑、养成计划在跑、定时任务都在时 ignore。\n"
+    "有新逾期的里程碑、养成计划已完成或已取消、定时任务被删或停用、截止前不到 3 天而里程碑没过半时 accept：\n"
+    "建复盘工单，brief 写清哪里不对，scope 写「复盘目标「标题」并调整为它建立的计划与定时任务，只做不需要确认的操作」。"
+)
+
+#: 复盘草稿的固定一段：推断委托边界与 ``details.goal_review`` 格式（M82 §4.7）。
+GOAL_REVIEW_BRIEF_TAIL = (
+    "这是推断委托的复盘工单：只能做不需要确认的操作（查询、重算、建或停用不用理智药与源石的定时任务）；需要用户决定的事写进汇报的 human_action。\n"
+    "目标 id：{goal_id}。完成后 report 汇报 ready，details 写：\n"
+    '{"goal_review": {"milestones": [{"ord": 1, "status": "done", "note": "…"}], "summary": "…", "goal_status": null}}\n'
+    '目标已经全部达成时 goal_status 写 "done"。没有需要告诉用户的变化时汇报 dropped。'
+)
+
+#: 研判没给范围时复盘工单的默认范围。
+GOAL_REVIEW_SCOPE = (
+    "复盘目标「{title}」并调整为它建立的计划与定时任务，只做不需要确认的操作"
+)
+
 #: 两条诊断规则的总开关（v2 键，默认开）。
 DIAGNOSE_GATE_SETTING = "agent.auto_diagnose_failures"
 
-#: 08 §3.2 中里程碑为 M81 的五条，顺序即声明顺序。
+
+async def goal_review_draft(ctx: DraftContext) -> TicketDraft:
+    """复盘草稿：研判的标题/说明/范围，末尾附固定的一段汇报格式（M82 §4.7）。"""
+    trigger = ctx.trigger
+    payload = trigger.payload
+    decision = ctx.decision
+    goal_title = str(payload.get("title") or "未知")
+
+    title = (
+        decision.title
+        if decision is not None and decision.title
+        else f"复盘：{goal_title}"
+    )
+    if decision is not None and decision.brief:
+        brief = decision.brief
+    else:
+        # 研判没给说明（或规则不研判）时用事件摘要与程序算好的快照。
+        brief = (
+            f"{summarize(trigger.kind, payload)}\n"
+            f"复盘快照：{_json(payload.get('snapshot'), 3000)}"
+        )
+    tail = GOAL_REVIEW_BRIEF_TAIL.replace(
+        "{goal_id}", str(payload.get("goal_id") or "未知")
+    )
+    scope = (
+        decision.scope
+        if decision is not None and decision.scope
+        else GOAL_REVIEW_SCOPE.format(title=goal_title)
+    )
+    # 固定的汇报格式必须留在末尾：先给前文让出位置，再拼尾巴。
+    separator = "\n\n"
+    lead_limit = max(0, MAX_DRAFT_BRIEF_CHARS - len(tail) - len(separator))
+    brief = _truncate(brief, lead_limit)
+    return TicketDraft(
+        title=_truncate(title, MAX_DRAFT_TITLE_CHARS),
+        brief=_truncate(f"{brief}{separator}{tail}", MAX_DRAFT_BRIEF_CHARS),
+        scope=_truncate(scope, MAX_DRAFT_SCOPE_CHARS),
+    )
+
+
+#: 08 §3.2 中里程碑为 M81 的五条与 M82 的一条，顺序即声明顺序。
 BUILTIN_RULES: tuple[BuiltinRule, ...] = (
     BuiltinRule(
         id="diagnose-pipeline-failure",
@@ -305,5 +367,17 @@ BUILTIN_RULES: tuple[BuiltinRule, ...] = (
         worker="ops",
         policy=UPDATE_AVAILABLE_POLICY,
         cooldown_seconds=86400,
+    ),
+    BuiltinRule(
+        id="goal-review",
+        title="目标复盘",
+        source="goal",
+        kind_pattern="goal.review_due",
+        conditions={},
+        mode=TriggerMode.AUTO,
+        worker="planner",
+        policy=GOAL_REVIEW_POLICY,
+        cooldown_seconds=0,
+        draft=goal_review_draft,
     ),
 )

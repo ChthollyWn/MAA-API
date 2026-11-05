@@ -251,6 +251,8 @@ curl -X POST http://<host>:8002/api/snippets \
 | `TRIGGER_RULE_NOT_FOUND` | 404 | 没有这条事件规则（M81）：删除的内置规则没有覆盖行，或规则 id 既不是内置也不是用户规则 |
 | `TRIGGER_RULE_INVALID` | 400 | 事件规则不合法（M81）：执行代理不存在、条件形状不对、cron 解析不了等；`details.field` 标出字段 |
 | `OBSERVATION_NOT_FOUND` | 404 | 没有这条观察记录（M81） |
+| `GOAL_NOT_FOUND` | 404 | 没有这个目标（M82） |
+| `GOAL_ENDED` | 409 | 目标已结束（done / failed / cancelled），不能再改（M82） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->

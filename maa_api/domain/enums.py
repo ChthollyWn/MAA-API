@@ -512,3 +512,26 @@ class TriggerRoute(StrEnum):
     TICKET = "ticket"
     OBSERVATION = "observation"
     NONE = "none"
+
+
+# ---- M82 后台工单与目标模式（v3 specs/m82 §4.1、v3 docs/03 §11.4） ----
+
+
+class GoalStatus(StrEnum):
+    """长程目标的状态机：进行中、暂停、完成、失败、取消。"""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class MilestoneStatus(StrEnum):
+    """目标里程碑的状态：待开始、进行中、完成、逾期未完成、跳过。"""
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    DONE = "done"
+    MISSED = "missed"
+    SKIPPED = "skipped"

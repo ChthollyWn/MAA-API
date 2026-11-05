@@ -345,6 +345,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/goals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 分页读取目标
+         * @description 按状态过滤分页，``updated_at`` 倒序；不传 ``status`` 时返回全部状态。
+         */
+        get: operations["agent_list_goals"];
+        put?: never;
+        /**
+         * 新建目标
+         * @description 建目标、规划工单与复盘 job；成功时带 ``Location`` 指向新目标。
+         */
+        post: operations["agent_create_goal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/goals/{goal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取目标详情
+         * @description 目标本体、里程碑与最近 20 张相关工单；不存在报 404 ``GOAL_NOT_FOUND``。
+         */
+        get: operations["agent_get_goal"];
+        /**
+         * 修改目标
+         * @description 改标题、截止或状态（暂停 / 恢复 / 取消）；已结束的目标报 409 ``GOAL_ENDED``。
+         *
+         *     恢复不做确认：REST 是用户本人在操作（规格 §4.3）。
+         */
+        put: operations["agent_update_goal"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/knowledge": {
         parameters: {
             query?: never;
@@ -3823,6 +3873,154 @@ export interface components {
              */
             force_interrupt: boolean;
         };
+        /**
+         * GoalCreate
+         * @description 新建目标的请求体（REST 与 ``create_goal`` 工具共用）。
+         */
+        GoalCreate: {
+            /** Deadline */
+            deadline?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Review Cron */
+            review_cron?: string | null;
+            target: components["schemas"]["GoalTarget"];
+            /** Title */
+            title: string;
+        };
+        /**
+         * GoalDetail
+         * @description 目标详情：本体 + 里程碑 + 最近 20 张目标工单。
+         */
+        GoalDetail: {
+            /** Created At */
+            created_at: string | null;
+            /** Deadline */
+            deadline?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Id */
+            id: string;
+            /** Last Review At */
+            last_review_at?: string | null;
+            /** Milestones */
+            milestones?: components["schemas"]["MilestoneOut"][];
+            /** Next Review At */
+            next_review_at?: string | null;
+            /** Planning Ticket Id */
+            planning_ticket_id?: string | null;
+            /** Progress */
+            progress?: {
+                [key: string]: unknown;
+            };
+            /** Review Cron */
+            review_cron: string;
+            /** Schedule Ids */
+            schedule_ids?: string[];
+            /** Status */
+            status: string;
+            target: components["schemas"]["GoalTarget"];
+            /** Tickets */
+            tickets?: components["schemas"]["GoalTicketOut"][];
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
+            /** Upgrade Plan Id */
+            upgrade_plan_id?: string | null;
+        };
+        /**
+         * GoalPage
+         * @description 目标分页响应。
+         */
+        GoalPage: {
+            /** Items */
+            items: components["schemas"]["GoalSummary"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * GoalStatus
+         * @description 长程目标的状态机：进行中、暂停、完成、失败、取消。
+         * @enum {string}
+         */
+        GoalStatus: "active" | "paused" | "done" | "failed" | "cancelled";
+        /**
+         * GoalSummary
+         * @description 目标列表的一行。
+         */
+        GoalSummary: {
+            /** Deadline */
+            deadline?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Milestones Done
+             * @default 0
+             */
+            milestones_done: number;
+            /**
+             * Milestones Total
+             * @default 0
+             */
+            milestones_total: number;
+            /** Next Review At */
+            next_review_at?: string | null;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /**
+         * GoalTarget
+         * @description 结构化目标：用户原话、可选练度目标与养成计划的运行时刻。
+         */
+        GoalTarget: {
+            /** Operators */
+            operators?: components["schemas"]["UpgradeTarget"][];
+            /** Run Times */
+            run_times?: string[];
+            /** Text */
+            text: string;
+        };
+        /**
+         * GoalTicketOut
+         * @description 目标详情里的一张相关工单（至多 20 张）。
+         */
+        GoalTicketOut: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Last Report Status */
+            last_report_status?: string | null;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /**
+         * GoalUpdate
+         * @description 改目标：用 ``model_fields_set`` 区分「没传」与「传 null」。
+         */
+        GoalUpdate: {
+            /** Deadline */
+            deadline?: string | null;
+            /** Status */
+            status?: ("active" | "paused" | "cancelled") | null;
+            /** Title */
+            title?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -4344,6 +4542,26 @@ export interface components {
              * @enum {string}
              */
             type: "knowledge" | "operator" | "stage" | "pipeline" | "ticket";
+        };
+        /**
+         * MilestoneOut
+         * @description 一个里程碑的对外形状。
+         */
+        MilestoneOut: {
+            /** Due At */
+            due_at?: string | null;
+            /** Id */
+            id: string;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            };
+            /** Ord */
+            ord: number;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
         };
         /**
          * ModelProfileCreate
@@ -6953,6 +7171,26 @@ export interface components {
             /** Worker */
             worker?: string | null;
         };
+        /** UpgradeTarget */
+        UpgradeTarget: {
+            /** Elite */
+            elite?: number | null;
+            /** Masteries */
+            masteries?: {
+                [key: string]: number;
+            } | null;
+            /**
+             * Modules
+             * @description 模组目标：[{"type": "X", "level": 2}]。
+             */
+            modules?: {
+                [key: string]: unknown;
+            }[] | null;
+            /** Operator */
+            operator: string;
+            /** Skill Level */
+            skill_level?: number | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -8205,6 +8443,405 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_goals: {
+        parameters: {
+            query?: {
+                /** @description 只看这些状态，可重复表示并集 */
+                status?: components["schemas"]["GoalStatus"][] | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_create_goal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoalCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    /** @description 新目标的 URI */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalDetail"];
+                };
+            };
+            /** @description 请求不成立：SCHEDULE_CRON_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SCHEDULE_CRON_INVALID",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：AGENT_DISABLED、SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_goal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 目标 id */
+                goal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalDetail"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：GOAL_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "GOAL_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_update_goal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 目标 id */
+                goal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoalUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalDetail"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：GOAL_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "GOAL_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：GOAL_ENDED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "GOAL_ENDED",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }

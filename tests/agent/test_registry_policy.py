@@ -16,6 +16,7 @@ from sqlmodel import SQLModel
 
 from maa_api.agent.policy import PolicyEngine, ToolRisk
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry
+from maa_api.agent.tools import build_registry
 from maa_api.db.models import AgentSession, Confirmation, Pipeline, Task, utcnow
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.session import make_engine
@@ -164,6 +165,20 @@ def test_ordinary_dangerous_tool_requires_confirmation() -> None:
     assert decision.requires_confirmation is True
     assert decision.confirmation_action == "update_core"
     assert decision.risk == RiskLevel.DESTRUCTIVE
+
+
+def test_update_goal_fails_closed_without_goal_service() -> None:
+    """M82 §4.2：取不到目标服务时 ``update_goal`` 按需要确认处理。"""
+    decision = _evaluate(
+        build_registry().get("update_goal"),
+        {"goal_id": "goal-1", "status": "active"},
+        _context(),
+    )
+
+    assert decision.requires_confirmation is True
+    assert decision.risk == RiskLevel.CONSUME
+    assert decision.confirmation_action == "update_goal"
+    assert decision.reasons
 
 
 def test_copilot_upload_is_exempt_from_confirmation() -> None:

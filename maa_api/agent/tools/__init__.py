@@ -22,6 +22,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.device import register_tools as register_device_tools
     from maa_api.agent.tools.estate import register_tools as register_estate_tools
     from maa_api.agent.tools.game import register_tools as register_game_tools
+    from maa_api.agent.tools.goals import register_tools as register_goal_tools
     from maa_api.agent.tools.interaction import register_tools as register_interaction_tools
     from maa_api.agent.tools.knowledge import register_tools as register_knowledge_tools
     from maa_api.agent.tools.lease import lease_tools as build_lease_tools
@@ -81,6 +82,8 @@ def build_registry() -> ToolRegistry:
         registry.register(definition)
     # M75：工作记忆工具（续读与笔记），接在租约工具之后，不进 REST 目录。
     register_workspace_tools(registry)
+    # M82：目标工具（规格 §4.2），接在最后一组之后，不进 REST 目录。
+    register_goal_tools(registry)
     registry.register(
         ToolDefinition(
             name="check_confirmation",

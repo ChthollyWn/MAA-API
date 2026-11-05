@@ -80,6 +80,13 @@ triggers:
   # 每天最多调用多少次事件研判；用完后只按规则处理，0 表示不研判
   eval_daily_limit: 200
 
+# 目标模式（M82）：长程目标按复盘时间检查里程碑，规划与复盘各建一张工单
+goals:
+  # 目标模式开关。关掉后不能新建目标，已有目标停止复盘
+  enabled: true
+  # 新目标的默认复盘时间，五段 cron，按北京时间
+  default_review_cron: "0 22 * * *"
+
 # 提示注入防护：off 只打标不检测，rules 用规则检测，rules_llm 在规则命中或内容出自他人时再请便宜模型复核
 guard:
   injection_detection: rules

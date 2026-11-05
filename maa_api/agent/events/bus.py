@@ -137,6 +137,14 @@ def _origin_for(source: str) -> TicketOrigin:
     return TicketOrigin.TRIGGER
 
 
+def _goal_id_for(row: AgentTrigger) -> str | None:
+    """目标事件建出的工单要指回目标（M82 §4.2）；其他来源不带。"""
+    if row.source != EventSource.GOAL.value:
+        return None
+    value = row.payload.get("goal_id")
+    return str(value) if value else None
+
+
 def _route(value: str | None) -> TriggerRoute:
     return TriggerRoute(value) if value else TriggerRoute.NONE
 
@@ -560,6 +568,7 @@ class TriggerService:
                 risk_ceiling=RiskLevel.NONE,
                 policy_version=version,
                 source_trigger_id=int(row.id),
+                goal_id=_goal_id_for(row),
             )
         try:
             await self._thread_router.subscribe(ticket.id, row.thread_key)

@@ -171,6 +171,13 @@ class PolicyEngine:
         ):
             return await self._evaluate_copilot_attempt(name, arguments, context)
 
+        if name == "create_goal":
+            # 建目标本身不建定时任务；恢复目标时的消耗由 ``update_goal`` 规则确认。
+            return PolicyDecision(False, RiskLevel.NONE)
+
+        if name == "update_goal":
+            return await self._evaluate_update_goal(arguments, context)
+
         if name in {
             "submit_pipeline",
             "set_task_params",
@@ -206,6 +213,48 @@ class PolicyEngine:
             RiskLevel.DESTRUCTIVE,
             reasons=(f"{name} 尚未配置参数风险规则",),
             confirmation_action=name,
+        )
+
+    async def _evaluate_update_goal(
+        self, arguments: Any, context: ToolContext
+    ) -> PolicyDecision:
+        """恢复目标会重新启用暂停的定时任务；有消耗项时按 v2 定时任务口径确认。
+
+        服务还没装配（或预检失败）时 fail closed：宁可多弹一张确认卡，也不要静默
+        重新启用会用理智药或源石的定时任务。
+        """
+        value = _as_json_value(arguments)
+        goal_id = value.get("goal_id") if isinstance(value, Mapping) else None
+        service = getattr(
+            getattr(getattr(context.request, "app", None), "state", None),
+            "goal_service",
+            None,
+        )
+        if service is None:
+            return PolicyDecision(
+                True,
+                RiskLevel.CONSUME,
+                reasons=("目标服务尚未启动，无法预检恢复会重新启用哪些消耗类定时任务",),
+                confirmation_action="update_goal",
+            )
+        try:
+            reasons = await service.resume_consumption_reasons(
+                str(goal_id or ""), context=context
+            )
+        except Exception:  # noqa: BLE001 - 预检失败按 fail closed 走确认
+            return PolicyDecision(
+                True,
+                RiskLevel.CONSUME,
+                reasons=("无法预检恢复会重新启用哪些消耗类定时任务",),
+                confirmation_action="update_goal",
+            )
+        if not reasons:
+            return PolicyDecision(False, RiskLevel.NONE)
+        return PolicyDecision(
+            True,
+            RiskLevel.CONSUME,
+            reasons=tuple(str(reason) for reason in reasons),
+            confirmation_action="update_goal",
         )
 
     async def _evaluate_copilot_attempt(
