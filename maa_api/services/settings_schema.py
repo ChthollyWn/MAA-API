@@ -171,6 +171,13 @@ _FIELDS: dict[str, dict[str, Any]] = {
     # M82 目标模式：两项都由 GoalService 每次现读，改完立即生效。
     "goals.enabled": dict(label="启用目标模式", group="Agent", type="boolean", hot_action="none"),
     "goals.default_review_cron": dict(label="目标默认复盘时间", group="Agent", type="string", description="五段 cron，按北京时间", hot_action="none"),
+    # M83 值守：六项都由 WatchdogService 每轮现读，改完立即生效。
+    "watchdog.enabled": dict(label="启用值守", group="Agent", type="boolean", hot_action="none"),
+    "watchdog.interval_seconds": dict(label="值守巡检间隔（秒）", group="Agent", type="integer", minimum=60, maximum=3600, description="两次真正执行的最小间隔；定时任务每 60 秒触发，间隔未到就跳过", hot_action="none"),
+    "watchdog.mode": dict(label="值守模式", group="Agent", type="string", enum=["record", "auto"], description="record 只记录告警；auto 才执行有限的自愈动作", hot_action="none"),
+    "watchdog.allow_core_restart": dict(label="允许值守重启内核", group="Agent", type="boolean", description="auto 模式下是否允许重启内核", hot_action="none"),
+    "watchdog.ticket_stale_minutes": dict(label="工单停滞判定（分钟）", group="Agent", type="integer", minimum=5, maximum=1440, description="工单超过这个时长没有活动即视为停滞", hot_action="none"),
+    "watchdog.device_frozen_minutes": dict(label="流水线无回调判定（分钟）", group="Agent", type="integer", minimum=2, maximum=120, description="正在执行的流水线超过这个时长没有内核回调即视为冻结", hot_action="none"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

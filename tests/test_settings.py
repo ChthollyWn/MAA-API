@@ -462,6 +462,13 @@ def test_env_mapping_names_are_pinned() -> None:
         # M82：目标模式两项（都不是 config-only）。
         "goals.enabled": "MAA_GOALS_ENABLED",
         "goals.default_review_cron": "MAA_GOALS_DEFAULT_REVIEW_CRON",
+        # M83：值守六项（都不是 config-only）。
+        "watchdog.enabled": "MAA_WATCHDOG_ENABLED",
+        "watchdog.mode": "MAA_WATCHDOG_MODE",
+        "watchdog.interval_seconds": "MAA_WATCHDOG_INTERVAL_SECONDS",
+        "watchdog.allow_core_restart": "MAA_WATCHDOG_ALLOW_CORE_RESTART",
+        "watchdog.ticket_stale_minutes": "MAA_WATCHDOG_TICKET_STALE_MINUTES",
+        "watchdog.device_frozen_minutes": "MAA_WATCHDOG_DEVICE_FROZEN_MINUTES",
     }
 
 
@@ -1972,3 +1979,140 @@ def test_import_has_no_side_effects(tmp_path: Path) -> None:
 
     assert proc.returncode == 0, proc.stderr
     assert os.listdir(tmp_path) == []
+
+
+def test_watchdog_settings_have_documented_defaults_and_bounds() -> None:
+    """M83 值守六项：默认 300 / record / false / 30 / 10，范围照 spec §4.4。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, WatchdogSettings
+
+    default = resolve_settings(env={})
+    assert default.watchdog == WatchdogSettings()
+    assert default.watchdog.enabled is True
+    assert default.watchdog.mode == "record"
+    assert default.watchdog.interval_seconds == 300
+    assert default.watchdog.allow_core_restart is False
+    assert default.watchdog.ticket_stale_minutes == 30
+    assert default.watchdog.device_frozen_minutes == 10
+
+    configured = resolve_settings(
+        {
+            "watchdog": {
+                "enabled": False,
+                "mode": "auto",
+                "interval_seconds": 60,
+                "allow_core_restart": True,
+                "ticket_stale_minutes": 5,
+                "device_frozen_minutes": 120,
+            }
+        },
+        env={},
+    )
+    assert configured.watchdog.enabled is False
+    assert configured.watchdog.mode == "auto"
+    assert configured.watchdog.interval_seconds == 60
+    assert configured.watchdog.allow_core_restart is True
+    assert configured.watchdog.ticket_stale_minutes == 5
+    assert configured.watchdog.device_frozen_minutes == 120
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_WATCHDOG_ENABLED": "false",
+            "MAA_WATCHDOG_MODE": "auto",
+            "MAA_WATCHDOG_INTERVAL_SECONDS": "3600",
+            "MAA_WATCHDOG_ALLOW_CORE_RESTART": "true",
+            "MAA_WATCHDOG_TICKET_STALE_MINUTES": "1440",
+            "MAA_WATCHDOG_DEVICE_FROZEN_MINUTES": "2",
+        }
+    )
+    assert env_layer.watchdog.enabled is False
+    assert env_layer.watchdog.mode == "auto"
+    assert env_layer.watchdog.interval_seconds == 3600
+    assert env_layer.watchdog.allow_core_restart is True
+    assert env_layer.watchdog.ticket_stale_minutes == 1440
+    assert env_layer.watchdog.device_frozen_minutes == 2
+
+    # 边界值合法，越界一格拒绝。
+    for section, field, values in (
+        ("watchdog", "interval_seconds", (60, 3600)),
+        ("watchdog", "ticket_stale_minutes", (5, 1440)),
+        ("watchdog", "device_frozen_minutes", (2, 120)),
+    ):
+        for value in values:
+            assert resolve_settings({section: {field: value}}, env={}).watchdog.model_dump()[field] == value
+    for section, field, value in (
+        ("watchdog", "interval_seconds", 59),
+        ("watchdog", "interval_seconds", 3601),
+        ("watchdog", "ticket_stale_minutes", 4),
+        ("watchdog", "ticket_stale_minutes", 1441),
+        ("watchdog", "device_frozen_minutes", 1),
+        ("watchdog", "device_frozen_minutes", 121),
+        ("watchdog", "mode", "act"),
+    ):
+        with pytest.raises(ValidationError):
+            resolve_settings({section: {field: value}}, env={})
+
+    # 设置 API：六个键都登记、分组 Agent、没有热更新动作、不是 config-only。
+    keys = {
+        "watchdog.enabled",
+        "watchdog.mode",
+        "watchdog.interval_seconds",
+        "watchdog.allow_core_restart",
+        "watchdog.ticket_stale_minutes",
+        "watchdog.device_frozen_minutes",
+    }
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+
+    interval = schema_for("watchdog.interval_seconds")
+    assert (
+        interval["label"], interval["group"], interval["type"],
+        interval["minimum"], interval["maximum"], interval["hot_action"],
+    ) == ("值守巡检间隔（秒）", "Agent", "integer", 60, 3600, "none")
+    mode = schema_for("watchdog.mode")
+    assert (
+        mode["label"], mode["group"], mode["type"], mode["enum"],
+        mode["description"], mode["hot_action"],
+    ) == (
+        "值守模式", "Agent", "string", ["record", "auto"],
+        "record 只记录告警；auto 才执行有限的自愈动作", "none",
+    )
+    allow = schema_for("watchdog.allow_core_restart")
+    assert (
+        allow["label"], allow["group"], allow["type"],
+        allow["description"], allow["hot_action"],
+    ) == (
+        "允许值守重启内核", "Agent", "boolean",
+        "auto 模式下是否允许重启内核", "none",
+    )
+    stale = schema_for("watchdog.ticket_stale_minutes")
+    assert (
+        stale["label"], stale["group"], stale["type"],
+        stale["minimum"], stale["maximum"], stale["hot_action"],
+    ) == ("工单停滞判定（分钟）", "Agent", "integer", 5, 1440, "none")
+    frozen = schema_for("watchdog.device_frozen_minutes")
+    assert (
+        frozen["label"], frozen["group"], frozen["type"],
+        frozen["minimum"], frozen["maximum"], frozen["hot_action"],
+    ) == ("流水线无回调判定（分钟）", "Agent", "integer", 2, 120, "none")
+
+    # 文档一致性：模板里的值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["watchdog"] == {
+        "enabled": True,
+        "interval_seconds": 300,
+        "mode": "record",
+        "allow_core_restart": False,
+        "ticket_stale_minutes": 30,
+        "device_frozen_minutes": 10,
+    }
+    for comment in (
+        "# 值守总开关。关掉后周期任务直接返回",
+        "# 两次真正执行的最小间隔（秒，60-3600）；定时任务每 60 秒触发，间隔未到就跳过",
+        "# record 只记录告警；auto 才执行有限的自愈动作",
+        "# auto 模式下是否允许重启内核",
+        "# 工单停滞判定（分钟，5-1440）",
+        "# 流水线无回调判定（分钟，2-120）",
+    ):
+        assert comment in template_text

@@ -42,6 +42,7 @@ from maa_api.db.models import (
     Ticket,
     TraceSpan,
     TriggerObservation,
+    WatchdogAlert,
     utcnow,
 )
 from maa_api.db.repositories import log as log_repo_module
@@ -758,5 +759,39 @@ def test_retention_keeps_triggers_with_ticket_or_recent_observation(
         assert [int(row.trigger_id) for row in observations] == [
             ids["kept_by_observation"]
         ]
+
+    asyncio.run(scenario())
+
+
+def test_watchdog_alerts_purged_after_90_days(retention_session_factory) -> None:
+    """M83 / 03 §14：``watchdog_alert`` 超过 90 天删除，已解除的也一视同仁。"""
+
+    async def scenario() -> None:
+        now = utcnow()
+
+        def alert(target_id: str, created_at: datetime, *, resolved: bool) -> WatchdogAlert:
+            return WatchdogAlert(
+                check="run_heartbeat_stale",
+                severity="warn",
+                target_kind="run",
+                target_id=target_id,
+                message="运行心跳超时",
+                evidence={},
+                action="interrupt_run",
+                action_status="recorded",
+                created_at=created_at,
+                resolved_at=now if resolved else None,
+            )
+
+        async with retention_session_factory() as db:
+            db.add(alert("old", now - timedelta(days=91), resolved=False))
+            db.add(alert("old-resolved", now - timedelta(days=100), resolved=True))
+            db.add(alert("recent", now - timedelta(days=10), resolved=False))
+            await db.commit()
+
+        out = await r.run_retention(session_factory=retention_session_factory)
+        assert out["watchdog_alerts_deleted"] == 2, out
+        rows = await _all(retention_session_factory, WatchdogAlert)
+        assert [row.target_id for row in rows] == ["recent"]
 
     asyncio.run(scenario())

@@ -207,6 +207,8 @@ class CoreClient:
             kind: [] for kind in EVENT_TYPES
         }
         self._note_event: Optional[Callable[[dict], Any]] = None
+        # M83 值守记录器：CALLBACK 分发出口打一个进程内时间戳；未绑定时无副作用。
+        self._watchdog_recorder: Any = None
         self._register_supervisor_handlers()
 
         # 消费线程状态。
@@ -268,6 +270,23 @@ class CoreClient:
                 handler(payload)
             except Exception:  # noqa: BLE001 - 处理器异常不能打断消费循环
                 logger.exception("处理内核事件 %s 时出错，事件已忽略，消费继续", event_type)
+
+    def bind_watchdog_recorder(self, recorder: Any) -> None:
+        """M83：绑定值守记录器（``WatchdogRecorder``）。
+
+        记录点放在 :meth:`_handle_event` 的分发出口，与 ``CoreClient.on("CALLBACK", ...)``
+        是同一个回调出口；记录器只写一个进程内时间戳，不碰数据库、不阻塞消费线程。
+        """
+        self._watchdog_recorder = recorder
+
+    def _note_watchdog_callback(self) -> None:
+        recorder = self._watchdog_recorder
+        if recorder is None:
+            return
+        try:
+            recorder.note_core_callback()
+        except Exception:  # noqa: BLE001 - 值守记录失败不能打断内核事件分发
+            logger.exception("值守记录器记录内核回调失败")
 
     # ------------------------------------------------------------------
     # 消费线程：启动 / 循环 / 关闭
@@ -417,6 +436,8 @@ class CoreClient:
             except Exception:  # noqa: BLE001 - 崩溃现场记录不能打断分派
                 logger.exception("记录内核事件现场失败，已忽略")
         self._call_handlers(event_type, payload)
+        if event_type == "CALLBACK":
+            self._note_watchdog_callback()
 
     def _handle_cmd_result(self, payload: dict) -> None:
         """把 ``CMD_RESULT`` 兑现到对应 Future；迟到结果丢弃并记 warning。"""

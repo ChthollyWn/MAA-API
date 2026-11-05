@@ -15,6 +15,11 @@ from typing import Any, Callable
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.watchdog.recorder import (
+    PIPELINE_FINISHED,
+    PIPELINE_PROGRESS,
+    PIPELINE_STARTED,
+)
 from maa_api.core.enums import Message
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
 from maa_api.db.models import Pipeline, Screenshot, Task, utcnow
@@ -246,6 +251,9 @@ class PipelineRunner:
         # 留档截图的日志附件只能走 ``LogHub.offer``：stdlib 日志渠道不搬运
         # ``attachment``。绑定是后置且可选的（同 ``bind_notify_service``）。
         self._log_hub: Any = None
+        #: M83 值守记录器：任务开始 / 进度回调 / 任务结束各打一个进程内时间戳；
+        #: 未绑定时无副作用（测试替身与旧装配不受影响）。
+        self._watchdog_recorder: Any = None
         self._recovered_pipeline_ids: list[str] = []
         self._incident_tasks: set[asyncio.Task[Any]] = set()
         self._notify_tasks: set[asyncio.Task[Any]] = set()
@@ -362,6 +370,27 @@ class PipelineRunner:
         ``LogHub.offer``, so the runner needs the hub itself.
         """
         self._log_hub = hub
+
+    def bind_watchdog_recorder(self, recorder: Any) -> None:
+        """M83：绑定值守记录器，在任务开始 / 进度回调 / 任务结束三处打点。
+
+        与 ``bind_notify_service`` 一样是后置、可选的绑定；记录器只写进程内时间戳，
+        失败只记日志，绝不改写流水线状态。
+        """
+        self._watchdog_recorder = recorder
+
+    def _note_watchdog(self, pipeline_id: str, phase: str) -> None:
+        recorder = self._watchdog_recorder
+        if recorder is None:
+            return
+        try:
+            recorder.note_pipeline(pipeline_id, phase)
+        except Exception:  # noqa: BLE001 - 值守打点不能打断流水线执行
+            logger.exception(
+                "值守记录器记录流水线状态失败（pipeline_id=%s，phase=%s）",
+                pipeline_id,
+                phase,
+            )
 
     def _schedule_pipeline_notification(
         self, pipeline_id: str, status: PipelineStatus
@@ -1068,6 +1097,7 @@ class PipelineRunner:
         if pending_crash is not None:
             active.crash_event.set()
         self._active = active
+        self._note_watchdog(pipeline.id, PIPELINE_STARTED)
         log_context = current_pipeline_id.set(pipeline.id)
         had_failures = False
         last_task_error: AppError | None = None
@@ -1206,6 +1236,7 @@ class PipelineRunner:
             active.copilot_snapshots.clear()
             if active.core_crashed:
                 await self._record_core_crash_terminal(pipeline.id)
+            self._note_watchdog(pipeline.id, PIPELINE_FINISHED)
             self._active = None
             if (
                 self._claimed_pipeline is not None
@@ -1849,6 +1880,10 @@ class PipelineRunner:
                     pass
 
     def _on_callback(self, payload: dict[str, Any]) -> None:
+        active = self._active
+        if active is not None:
+            # 进度回调出口（spec §4.2）：任何内核回调都算这条流水线的采样。
+            self._note_watchdog(active.pipeline_id, PIPELINE_PROGRESS)
         if not isinstance(payload, dict):
             return
         try:

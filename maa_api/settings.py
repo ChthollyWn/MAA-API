@@ -194,6 +194,14 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     # 每次现读，改完立即生效。----
     "goals.enabled": ("goals", "enabled"),
     "goals.default_review_cron": ("goals", "default_review_cron"),
+    # ---- 值守（M83 规格 §4.4）：六项都不是 config-only，WatchdogService
+    # 每轮现读，改完立即生效。----
+    "watchdog.enabled": ("watchdog", "enabled"),
+    "watchdog.mode": ("watchdog", "mode"),
+    "watchdog.interval_seconds": ("watchdog", "interval_seconds"),
+    "watchdog.allow_core_restart": ("watchdog", "allow_core_restart"),
+    "watchdog.ticket_stale_minutes": ("watchdog", "ticket_stale_minutes"),
+    "watchdog.device_frozen_minutes": ("watchdog", "device_frozen_minutes"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -495,6 +503,27 @@ class GoalsSettings(BaseModel):
 
     enabled: bool = True
     default_review_cron: str = "0 22 * * *"
+
+
+class WatchdogSettings(BaseModel):
+    """值守（M83 规格 §4.4）：总开关、模式、巡检间隔与三项阈值。
+
+    ``enabled=false`` 时周期任务直接返回；``mode=record``（默认）只写告警，
+    ``mode=auto`` 才执行 08 §6.2 的有限动作。``interval_seconds`` 是两次真正执行的
+    最小间隔，job 仍每 60 秒触发；``allow_core_restart=false`` 时 ``restart_core``
+    恒为 skipped。运行心跳复用 ``agent.run_stale_seconds``，队列卡住、内核不就绪与
+    ``ticket_churn`` 的窗口按 08 §6.1 写死。六项都由 WatchdogService 每轮现读，
+    改完立即生效。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    mode: Literal["record", "auto"] = "record"
+    interval_seconds: int = Field(default=300, ge=60, le=3600)
+    allow_core_restart: bool = False
+    ticket_stale_minutes: int = Field(default=30, ge=5, le=1440)
+    device_frozen_minutes: int = Field(default=10, ge=2, le=120)
 
 
 class TraceSettings(BaseModel):
@@ -827,6 +856,8 @@ class Settings(BaseModel):
     triggers: TriggersSettings = Field(default_factory=TriggersSettings)
     #: M82 目标模式两项（都不是 config-only，GoalService 每次现读）。
     goals: GoalsSettings = Field(default_factory=GoalsSettings)
+    #: M83 值守六项（都不是 config-only，WatchdogService 每轮现读）。
+    watchdog: WatchdogSettings = Field(default_factory=WatchdogSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

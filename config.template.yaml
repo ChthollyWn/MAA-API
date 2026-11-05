@@ -87,6 +87,21 @@ goals:
   # 新目标的默认复盘时间，五段 cron，按北京时间
   default_review_cron: "0 22 * * *"
 
+# 值守（M83）：确定性巡检 + 少量语义检查 + 有限自愈；record 只记告警，auto 才动作
+watchdog:
+  # 值守总开关。关掉后周期任务直接返回
+  enabled: true
+  # 两次真正执行的最小间隔（秒，60-3600）；定时任务每 60 秒触发，间隔未到就跳过
+  interval_seconds: 300
+  # record 只记录告警；auto 才执行有限的自愈动作
+  mode: record
+  # auto 模式下是否允许重启内核
+  allow_core_restart: false
+  # 工单停滞判定（分钟，5-1440）
+  ticket_stale_minutes: 30
+  # 流水线无回调判定（分钟，2-120）
+  device_frozen_minutes: 10
+
 # 提示注入防护：off 只打标不检测，rules 用规则检测，rules_llm 在规则命中或内容出自他人时再请便宜模型复核
 guard:
   injection_detection: rules

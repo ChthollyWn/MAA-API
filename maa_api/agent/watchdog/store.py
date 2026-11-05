@@ -11,6 +11,9 @@ T1 只提供两个不依赖服务编排的数据库操作，G2 的 ``WatchdogSer
 
 去重靠查询实现而不是部分唯一索引：``resolved_at`` 非空的历史行允许同目标重复，
 部分唯一索引会把历史行一起挡住。
+
+同步版本给同步 SQLite 测试库；生产服务的 ``async_sessionmaker`` 用
+``upsert_open_alert_async`` / ``resolve_condition_gone_async``，两套语义逐字一致。
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Collection, TypeAlias
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Session, select
 
 from maa_api.agent.watchdog.checks import AlertDraft
@@ -114,4 +118,87 @@ def resolve_condition_gone(
         session.commit()
         for alert in resolved:
             session.refresh(alert)
+    return resolved
+
+
+# ---------------------------------------------------------------------------
+# 异步变体：生产服务用 async_sessionmaker 的 AsyncSession；同步版本留给
+# ``tests/agent/test_watchdog_checks.py`` 的同步 SQLite 库。两边语义逐字一致。
+# ---------------------------------------------------------------------------
+async def upsert_open_alert_async(
+    session: AsyncSession,
+    draft: AlertDraft,
+    *,
+    now: datetime | None = None,
+) -> tuple[WatchdogAlert, bool]:
+    """:func:`upsert_open_alert` 的异步版本；去重键与 evidence 更新规则相同。"""
+    stamp = now or utcnow()
+    existing = (
+        await session.execute(
+            select(WatchdogAlert)
+            .where(
+                WatchdogAlert.check == draft.check,
+                WatchdogAlert.target_kind == str(draft.target_kind),
+                WatchdogAlert.target_id == draft.target_id,
+                WatchdogAlert.resolved_at.is_(None),
+            )
+            .order_by(WatchdogAlert.id)
+        )
+    ).scalars().first()
+    if existing is not None:
+        evidence = dict(existing.evidence or {})
+        evidence["latest"] = dict(draft.evidence)
+        evidence["last_seen_at"] = stamp.isoformat()
+        existing.evidence = evidence
+        session.add(existing)
+        await session.commit()
+        await session.refresh(existing)
+        return existing, False
+
+    alert = WatchdogAlert(
+        check=draft.check,
+        severity=str(draft.severity),
+        target_kind=str(draft.target_kind),
+        target_id=draft.target_id,
+        message=draft.message,
+        evidence=dict(draft.evidence),
+        created_at=stamp,
+    )
+    session.add(alert)
+    await session.commit()
+    await session.refresh(alert)
+    return alert, True
+
+
+async def resolve_condition_gone_async(
+    session: AsyncSession,
+    *,
+    checked_checks: Collection[str],
+    active_keys: Collection[AlertKey],
+    now: datetime | None = None,
+) -> list[WatchdogAlert]:
+    """:func:`resolve_condition_gone` 的异步版本。"""
+    stamp = now or utcnow()
+    if not checked_checks:
+        return []
+    active = set(active_keys)
+    alerts = (
+        await session.execute(
+            select(WatchdogAlert).where(
+                WatchdogAlert.resolved_at.is_(None),
+                WatchdogAlert.check.in_(list(checked_checks)),
+            )
+        )
+    ).scalars().all()
+    resolved: list[WatchdogAlert] = []
+    for alert in alerts:
+        if condition_key(alert.check, alert.target_kind, alert.target_id) in active:
+            continue
+        alert.resolved_at = stamp
+        session.add(alert)
+        resolved.append(alert)
+    if resolved:
+        await session.commit()
+        for alert in resolved:
+            await session.refresh(alert)
     return resolved

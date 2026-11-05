@@ -1,12 +1,11 @@
-"""M83 Watchdog 的值守件：进程内记录器、确定性检查与告警落库助手。
-
-T1 只放不依赖服务的部分（spec §5 T1）：
+"""M83 Watchdog 的值守件：记录器、确定性检查、告警落库与服务编排。
 
 - :mod:`.checks`：六项确定性检查，纯函数，输入 :class:`WatchdogSnapshot`；
 - :mod:`.recorder`：内核回调与流水线生命周期的进程内标记，重启清空；
-- :mod:`.store`：未解除告警的去重 upsert 与「条件消失」的自动解除。
+- :mod:`.store`：未解除告警的去重 upsert 与「条件消失」的自动解除；
+- :mod:`.service`：G2 的 :class:`WatchdogService`：周期巡检、动作与通知。
 
-服务、动作、端点与语义检查在 G2–G5（T2–T4）。
+语义检查在 G3（T3），端点与前端在 G4–G5（T4）。
 """
 
 from maa_api.agent.watchdog.checks import (
@@ -22,8 +21,10 @@ from maa_api.agent.watchdog.checks import (
     deterministic_checks,
 )
 from maa_api.agent.watchdog.recorder import RecorderSnapshot, WatchdogRecorder
+from maa_api.agent.watchdog.service import ActionResult, WatchdogService
 
 __all__ = [
+    "ActionResult",
     "AlertDraft",
     "CoreSample",
     "PipelineSample",
@@ -33,6 +34,7 @@ __all__ = [
     "RunSample",
     "TicketSample",
     "WatchdogRecorder",
+    "WatchdogService",
     "WatchdogSnapshot",
     "WatchdogThresholds",
     "deterministic_checks",
