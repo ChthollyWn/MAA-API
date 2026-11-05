@@ -254,6 +254,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `GOAL_NOT_FOUND` | 404 | 没有这个目标（M82） |
 | `GOAL_ENDED` | 409 | 目标已结束（done / failed / cancelled），不能再改（M82） |
 | `WATCHDOG_ALERT_NOT_FOUND` | 404 | 没有这条值守告警（M83）：解除一条不存在的告警 |
+| `SPEND_CAP_EXCEEDED` | 403 | 超过今日消耗上限（M84）：代理或定时任务的提交会让今天的理智药、源石或加急许可用量超过设置里的上限。`details` 带 `kind`、`limit`、`used`、`requested`、`source`、`violations`、`day_start` |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->
