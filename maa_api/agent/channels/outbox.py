@@ -12,10 +12,10 @@
 - ``dedupe_key`` 唯一：enqueue 冲突时返回旧行、不重复插入。enqueue **不提交**，
   与业务状态共用调用方的同一个事务（spec §8 风险与回滚）。
 
-适配器协议在 G1 只定义最小面：``adapter_for(channel)`` 返回带
-``async send(chat_id, text) -> dict`` 的对象，失败抛
+适配器协议在 G2 移到 :mod:`maa_api.agent.channels.adapter`（``platform`` +
+``start`` / ``stop`` / ``send``）；这里仍从原位置再导出 ``ChannelAdapter``，
+G1 的 ``adapter_for`` 注入点与测试不变。失败抛
 :class:`~maa_api.agent.channels.errors.OutboxRetry` 或 ``OutboxFatal``。
-G2 会在 ``adapter.py`` 扩展成含 ``platform`` / ``start`` / ``stop`` 的完整协议。
 """
 
 from __future__ import annotations
@@ -25,12 +25,13 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Protocol
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.channels.adapter import ChannelAdapter
 from maa_api.agent.channels.errors import OutboxFatal, OutboxRetry
 from maa_api.db.models import Outbox, utcnow
 from maa_api.domain.enums import OutboxChannel, OutboxKind, OutboxStatus
@@ -56,14 +57,6 @@ BACKOFF_CAP_SECONDS = 3600
 
 #: 可领取的状态；``sending`` 不在内，避免两个 worker 重复领取同一行。
 _DUE_STATUSES = (OutboxStatus.PENDING.value, OutboxStatus.FAILED.value)
-
-
-class ChannelAdapter(Protocol):
-    """G1 的最小适配器协议；G2 的 ``adapter.py`` 会扩展为完整协议。"""
-
-    async def send(self, chat_id: str, text: str) -> dict[str, Any]:
-        """发送一条文本，成功返回平台回执；失败抛 ``OutboxRetry`` / ``OutboxFatal``。"""
-        ...
 
 
 #: 按 ``outbox.channel`` 取适配器；未知渠道返回 ``None`` 时按致命失败处理。
