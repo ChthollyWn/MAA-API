@@ -242,6 +242,15 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     # 服务每次取租约 / 续期时现读，改完立即生效。----
     "lease.ttl_seconds": ("lease", "ttl_seconds"),
     "lease.wait_seconds": ("lease", "wait_seconds"),
+    # ---- 每日简报与消耗护栏（M84 规格 §4.4）：七项都不是 config-only，简报与
+    # SpendGuard 每次现读；``brief.cron`` 在启动时注册任务，改完要重启。----
+    "brief.enabled": ("brief", "enabled"),
+    "brief.cron": ("brief", "cron"),
+    "brief.push_web": ("brief", "push_web"),
+    "brief.push_im": ("brief", "push_im"),
+    "spend.daily_medicine_limit": ("spend", "daily_medicine_limit"),
+    "spend.daily_stone_limit": ("spend", "daily_stone_limit"),
+    "spend.daily_expedite_limit": ("spend", "daily_expedite_limit"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -524,6 +533,45 @@ class WatchdogSettings(BaseModel):
     allow_core_restart: bool = False
     ticket_stale_minutes: int = Field(default=30, ge=5, le=1440)
     device_frozen_minutes: int = Field(default=10, ge=2, le=120)
+
+
+class BriefSettings(BaseModel):
+    """每日简报（M84 规格 §4.4）：开关、生成时间与两条推送通道。
+
+    ``enabled=false`` 时到点不建简报工单；``cron`` 是五段 cron、按北京时间，
+    启动时注册任务，改完要重启；``push_web`` / ``push_im`` 分别控制浏览器推送
+    与 IM 推送，每次推送时现读。``cron`` 只校验是五段，能否被 APScheduler 解析
+    在注册时检查（``schedule_service.cron_trigger``）。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    cron: str = "0 8 * * *"
+    push_web: bool = True
+    push_im: bool = True
+
+    @field_validator("cron")
+    @classmethod
+    def _five_fields(cls, value: str) -> str:
+        """只校验是五段；能否被 APScheduler 解析在注册时检查（schedule_service.cron_trigger）。"""
+        if len(value.split()) != 5:
+            raise ValueError("brief.cron 必须是五段 cron 表达式")
+        return value
+
+
+class SpendSettings(BaseModel):
+    """消耗上限（M84 规格 §4.4）：三类资源各一个每日上限（北京时间 04:00 分日）。
+
+    ``-1`` 不限、``0`` 禁止、``1–999`` 是当日允许的计划量；只限制代理与定时任务，
+    手动提交计入用量但不拦（裁决 R1）。SpendGuard 每次判定时现读，改完立即生效。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    daily_medicine_limit: int = Field(default=-1, ge=-1, le=999)
+    daily_stone_limit: int = Field(default=-1, ge=-1, le=999)
+    daily_expedite_limit: int = Field(default=-1, ge=-1, le=999)
 
 
 class TraceSettings(BaseModel):
@@ -858,6 +906,10 @@ class Settings(BaseModel):
     goals: GoalsSettings = Field(default_factory=GoalsSettings)
     #: M83 值守六项（都不是 config-only，WatchdogService 每轮现读）。
     watchdog: WatchdogSettings = Field(default_factory=WatchdogSettings)
+    #: M84 每日简报四项（都不是 config-only，简报服务每次现读；cron 改完要重启）。
+    brief: BriefSettings = Field(default_factory=BriefSettings)
+    #: M84 三类每日消耗上限（都不是 config-only，SpendGuard 每次判定时现读）。
+    spend: SpendSettings = Field(default_factory=SpendSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

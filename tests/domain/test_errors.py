@@ -70,8 +70,9 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: M81 在 §4.11 加事件规则两条与观察记录一条（`TRIGGER_RULE_*`、`OBSERVATION_NOT_FOUND`）。
 #: M82 在 §4.11 加目标模式两条（`GOAL_NOT_FOUND`、`GOAL_ENDED`）。
 #: M83 在 §4.11 加值守一条（`WATCHDOG_ALERT_NOT_FOUND`）。
-ALL_CODE_COUNT = 163
-HTTP_BOUND_CODE_COUNT = 162
+#: M84 在 §4.11 加消耗护栏一条（`SPEND_CAP_EXCEEDED`）。
+ALL_CODE_COUNT = 164
+HTTP_BOUND_CODE_COUNT = 163
 SECTION_COUNT = 20
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。

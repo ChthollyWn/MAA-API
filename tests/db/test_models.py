@@ -101,6 +101,8 @@ BUSINESS_TABLES = {
     "goal_milestone",
     # M83：值守告警（v3 specs/m83 §4.1、docs/v3/03 §11.5）。
     "watchdog_alert",
+    # M84：每日消耗账本（v3 specs/m84 §4.1、docs/v3/03 §11.6）。
+    "spend_ledger",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -152,6 +154,8 @@ AUTOINCREMENT_TABLES = [
     "trigger_observation",
     # M83：告警是高频追加表，重复命中只更新证据、不换行（spec §4.1）。
     "watchdog_alert",
+    # M84：消耗账本只增不删，整数自增主键（spec §4.1）。
+    "spend_ledger",
 ]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
@@ -364,6 +368,12 @@ EXPECTED_INDEXES = {
         ("target_kind", "target_id"),
         False,
     ),
+    # M84：按种类在消耗日窗口内汇总用量（spec §4.1）。
+    "ix_spend_ledger_kind_created_at": (
+        "spend_ledger",
+        ("kind", "created_at"),
+        False,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -497,6 +507,10 @@ EXPECTED_FK_SET_NULL = {
     ("goal", "planning_ticket_id"),
     ("goal", "upgrade_plan_id"),
     ("ticket", "goal_id"),
+    # M84：流水线、任务、工单被清理时账本行留着，用量汇总不断（spec §4.1）。
+    ("spend_ledger", "pipeline_id"),
+    ("spend_ledger", "task_id"),
+    ("spend_ledger", "ticket_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -697,8 +711,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_52_business_tables():
-    """52 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_53_business_tables():
+    """53 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
@@ -854,7 +868,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """62 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """63 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
