@@ -578,3 +578,42 @@ def test_start_sweeps_pending_items_and_ensure_ready(tmp_path, monkeypatch) -> N
     finally:
         engine.sync_engine.dispose()
 
+
+
+def test_im_source_reply_is_written_to_outbox(tmp_path) -> None:
+    """M85 §4.5：本轮 user 消息 payload 有 platform 时写 ``reply:<run_id>``。"""
+
+    async def scenario() -> None:
+        engine, factory = await make_session_factory(tmp_path / "im-reply.db")
+        calls: list[tuple] = []
+
+        async def enqueue_reply_for_run(*args, **kwargs):
+            calls.append((args, kwargs))
+
+        try:
+            harness = _Harness(factory)
+            harness.state.channel_service = SimpleNamespace(
+                enqueue_reply_for_run=enqueue_reply_for_run
+            )
+            item = SimpleNamespace(
+                payload={"platform": "telegram", "external_chat_id": "chat-1"}
+            )
+            await harness.service._enqueue_im_reply(
+                SimpleNamespace(id="run-1"), [item], final_text="已经处理好了"
+            )
+            assert len(calls) == 1
+            args, kwargs = calls[0]
+            assert args == ("run-1", "chat-1", "telegram", "已经处理好了")
+            assert kwargs["ref_run_id"] == "run-1"
+
+            # 网页来源没有 platform：不写发件箱。
+            await harness.service._enqueue_im_reply(
+                SimpleNamespace(id="run-2"),
+                [SimpleNamespace(payload={"source": "web"})],
+                final_text="网页回复",
+            )
+            assert len(calls) == 1
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())

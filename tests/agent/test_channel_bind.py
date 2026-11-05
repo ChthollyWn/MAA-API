@@ -43,6 +43,7 @@ from maa_api.db.models import (
     AgentTrigger,
     ChannelBinding,
     Outbox,
+    Ticket,
 )
 from maa_api.db.repositories.channels import (
     ChannelBindCodeRepository,
@@ -120,6 +121,7 @@ class _Harness:
             thread_router=self.router,
             inbox_service=self.inbox,
             settings_provider=lambda: self.settings,
+            adapters={ChannelPlatform.TELEGRAM: self.adapter},
             clock=lambda: self.now,
         )
 
@@ -545,9 +547,7 @@ def test_channel_data_methods(tmp_path) -> None:
             assert channels["telegram"]["configured"] is True
 
             assert await harness.service.test_channel("telegram") == 1
-            async with factory() as session:
-                due = await OutboxRepository(session).due(harness.now)
-            assert any(row.payload["text"] == TEST_TEXT for row in due)
+            assert harness.adapter.sent[-1] == (CHAT, TEST_TEXT)
 
             bindings = await harness.service.list_bindings()
             assert [binding.external_chat_id for binding in bindings] == [CHAT]
@@ -560,6 +560,66 @@ def test_channel_data_methods(tmp_path) -> None:
                 assert exc.code == ErrorCode.CHANNEL_BINDING_NOT_FOUND
             else:  # pragma: no cover
                 raise AssertionError("重复撤销应报 404 口径")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_channel_outbound_report_and_confirmation(tmp_path) -> None:
+    """G4 出站：汇报与确认按 active 绑定各写一条，progress 与无绑定不写。"""
+
+    async def scenario() -> None:
+        engine, factory = await _factory(tmp_path / "outbound.db")
+        try:
+            harness = _Harness(factory)
+            ticket = SimpleNamespace(id="ticket-1", title="日常")
+            report = SimpleNamespace(status="ready", summary="刷完了")
+            async with factory() as session:
+                session.add(
+                    Ticket(
+                        id="ticket-1",
+                        title="日常",
+                        kind="daily_ops",
+                        origin="user",
+                    )
+                )
+                await session.commit()
+            await harness.service.on_ticket_report(ticket, report)
+            assert await _outbox(factory) == []
+
+            await _bind(harness)
+            binding_id = (await harness.service.list_bindings())[0].id
+            await harness.service.on_ticket_report(ticket, report)
+            rows = await _outbox(factory)
+            confirmation_row = next(
+                row for row in rows if row.kind == OutboxKind.REPORT.value
+            )
+            assert confirmation_row.dedupe_key == (
+                f"report:ticket-1:ready:{binding_id}"
+            )
+            assert confirmation_row.payload["text"] == "日常：刷完了"
+
+            # progress 不发（08 §1.5）。
+            await harness.service.on_ticket_report(
+                ticket, SimpleNamespace(status="progress", summary="进行中")
+            )
+            assert len(await _outbox(factory)) == len(rows)
+
+            confirmation = SimpleNamespace(
+                id="abcd1234-1111-4000-8000-000000000001",
+                risk_level="consume",
+                reason="要用理智药",
+            )
+            await harness.service.on_confirmation_created(confirmation, "use_medicine")
+            rows = await _outbox(factory)
+            row = next(
+                item
+                for item in rows
+                if item.kind == OutboxKind.CONFIRMATION.value
+            )
+            assert row.dedupe_key.startswith("confirmation:abcd1234-")
+            assert "同意 abcd1234" in row.payload["text"]
         finally:
             await engine.dispose()
 

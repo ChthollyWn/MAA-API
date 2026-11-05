@@ -322,3 +322,45 @@ def test_batch_size_is_twenty_and_claim_marks_sending(db_session_factory):
         assert pending_seen[BATCH_SIZE:] == [0] * 5
 
     asyncio.run(scenario())
+
+
+def test_webpush_channel_uses_registered_sender(db_session_factory):
+    """M85 G4：``webpush`` 行不经平台适配器，走注册的 Web Push 发送器。"""
+
+    async def scenario() -> None:
+        from maa_api.agent.channels.outbox import WebPushOutbox
+
+        payloads: list[dict[str, Any]] = []
+
+        async def sender(payload: dict[str, Any]) -> dict[str, Any]:
+            payloads.append(payload)
+            return {"attempted": 2, "delivered": 2, "failed": 0}
+
+        worker = OutboxWorker(
+            db_session_factory,
+            lambda _channel: None,
+            senders={OutboxChannel.WEBPUSH.value: sender},
+            clock=lambda: NOW,
+        )
+        outbox = WebPushOutbox(worker, db_session_factory)
+        row = await outbox.enqueue(
+            {"title": "每日简报", "body": "今天状态不错"},
+            kind=OutboxKind.BRIEF,
+            dedupe_key="brief:artifact-1",
+            ref_ticket_id=None,
+        )
+        duplicate = await outbox.enqueue(
+            {"title": "每日简报", "body": "不该覆盖"},
+            kind=OutboxKind.BRIEF,
+            dedupe_key="brief:artifact-1",
+        )
+        assert int(duplicate.id) == int(row.id)
+
+        assert await worker.run_once(now=NOW) == 1
+        stored = await _read(db_session_factory, int(row.id))
+        assert stored["status"] == OutboxStatus.SENT.value
+        assert stored["receipt"] == {"attempted": 2, "delivered": 2, "failed": 0}
+        assert payloads == [{"title": "每日简报", "body": "今天状态不错"}]
+        assert stored["payload"]["title"] == "每日简报"
+
+    asyncio.run(scenario())

@@ -53,6 +53,7 @@ from maa_api.api.routers import (
     agent_specs,
     artifacts,
     atomic,
+    channels,
     confirmations,
     device,
     device_lease,
@@ -506,6 +507,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     watchdog_service = None
     spend_guard = None
     brief_service = None
+    outbox_worker = None
+    outbox_task: asyncio.Task[Any] | None = None
+    webpush_outbox = None
+    channel_service = None
+    channel_adapters: dict[Any, Any] | None = None
     pipeline_event_publisher = None
     span_recorder = None
     worker_service = None
@@ -1647,6 +1653,86 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings_provider=get_settings,
         )
         app.state.trigger_service = trigger_service
+
+        # M85 §4.5：IM 通道装配。适配器先构造（入站回调查 ``app.state``，避免与
+        # ChannelService 循环依赖），再建发件箱、通道服务与 Web Push 发送器。
+        # 四个适配器未启用/未配置/缺 extra 时 ``start`` 自己跳过，不影响其它平台。
+        from maa_api.agent.channels.adapter import build_adapters
+        from maa_api.agent.channels.outbox import OutboxWorker, WebPushOutbox
+        from maa_api.agent.channels.service import ChannelService
+        from maa_api.domain.enums import ChannelPlatform, OutboxChannel
+
+        channel_settings = get_settings().channels
+        channel_config = {
+            f"channels.{key}": value
+            for key, value in channel_settings.model_dump().items()
+        }
+        channel_config["app.proxy"] = get_settings().proxy
+
+        async def channel_inbound(inbound: Any) -> None:
+            service = getattr(app.state, "channel_service", None)
+            if service is not None:
+                await service.handle_inbound(inbound)
+
+        channel_adapters = build_adapters(
+            channel_config, on_inbound=channel_inbound
+        )
+        app.state.channel_adapters = channel_adapters
+
+        def adapter_for(channel: str) -> Any:
+            if not str(channel).startswith("im_"):
+                return None
+            try:
+                platform = ChannelPlatform(str(channel)[3:])
+            except ValueError:
+                return None
+            return channel_adapters.get(platform)
+
+        outbox_worker = OutboxWorker(
+            db_session.session_factory,
+            adapter_for,
+            # Web Push 不走平台适配器，直接调已装配的广播服务（spec §4.5）。
+            senders={
+                OutboxChannel.WEBPUSH.value: webpush_service.broadcast,
+            },
+        )
+        webpush_outbox = WebPushOutbox(
+            outbox_worker, db_session.session_factory
+        )
+        channel_service = ChannelService(
+            db_session.session_factory,
+            outbox_worker=outbox_worker,
+            trigger_service=trigger_service,
+            thread_router=thread_router,
+            inbox_service=inbox_service,
+            settings_provider=get_settings,
+            adapters=channel_adapters,
+            confirmation_service=confirmation_service,
+        )
+        app.state.outbox_worker = outbox_worker
+        app.state.webpush_outbox = webpush_outbox
+        app.state.channel_service = channel_service
+        if confirmation_service is not None:
+            bind_channel_outbound = getattr(
+                confirmation_service, "bind_channel_outbound", None
+            )
+            if callable(bind_channel_outbound):
+                bind_channel_outbound(channel_service)
+        ticket_service.add_report_listener(channel_service.on_ticket_report)
+        for adapter in channel_adapters.values():
+            try:
+                await adapter.start()
+            except Exception:  # noqa: BLE001 - 单个平台启动失败不拦其它平台
+                logger.warning(
+                    "IM 适配器启动失败：platform=%s",
+                    getattr(adapter, "platform", "unknown"),
+                    exc_info=True,
+                )
+        await outbox_worker.reset_sending()
+        outbox_task = track_lifecycle_task(
+            outbox_worker.run_forever(), name="maa-outbox-worker"
+        )
+
         # M82 §4.5.7：目标服务在事件服务之后装配。复盘 job 依赖定时任务服务（本函数
         # 后段才构造），所以传惰性取值；后台推送只在没有可见页面时发。两个监听器
         # 都挂在工单汇报落库之后，监听器自己抛错只记日志、不影响汇报。
@@ -1669,7 +1755,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.goal_service = goal_service
         ticket_push_notifier = TicketPushNotifier(
-            webpush=webpush_service,
+            outbox=webpush_outbox,
             has_visible_client=ws_manager.has_visible_client,
         )
         app.state.ticket_push_notifier = ticket_push_notifier
@@ -1820,7 +1906,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             worker_service=worker_service,
             orchestrator_service=orchestrator_service,
             thread_router=thread_router,
-            webpush_service=webpush_service,
+            webpush_outbox=webpush_outbox,
             has_visible_client=ws_manager.has_visible_client,
             restart_core=_restart_core_and_reconnect,
             broadcast=lambda message_type, data: ws_manager.broadcast(
@@ -2044,6 +2130,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M84 §4.5.9：简报巡检任务同样在调度器 shutdown 之前停。
         if brief_service is not None:
             await brief_service.stop()
+        # M85：先停发件箱循环，再停平台接收，避免关停期间继续领取新行。
+        if outbox_task is not None and not outbox_task.done():
+            outbox_task.cancel()
+            await asyncio.gather(outbox_task, return_exceptions=True)
+        if channel_adapters is not None:
+            for adapter in channel_adapters.values():
+                try:
+                    await adapter.stop()
+                except Exception:  # noqa: BLE001 - 关停阶段只记日志
+                    logger.warning(
+                        "IM 适配器停止失败：platform=%s",
+                        getattr(adapter, "platform", "unknown"),
+                        exc_info=True,
+                    )
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -2113,6 +2213,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "spend_guard",
             "brief_service",
             "ticket_push_notifier",
+            "channel_adapters",
+            "channel_service",
+            "outbox_worker",
+            "webpush_outbox",
             "pipeline_event_publisher",
             "agent_ops_service",
             "resource_service",
@@ -2179,6 +2283,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M84 §4.5.9：简报巡检任务同样在调度器 shutdown 之前停。
         if brief_service is not None:
             await brief_service.stop()
+        # M85：先停发件箱循环，再停平台接收，避免关停期间继续领取新行。
+        if outbox_task is not None and not outbox_task.done():
+            outbox_task.cancel()
+            await asyncio.gather(outbox_task, return_exceptions=True)
+        if channel_adapters is not None:
+            for adapter in channel_adapters.values():
+                try:
+                    await adapter.stop()
+                except Exception:  # noqa: BLE001 - 关停阶段只记日志
+                    logger.warning(
+                        "IM 适配器停止失败：platform=%s",
+                        getattr(adapter, "platform", "unknown"),
+                        exc_info=True,
+                    )
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -2256,6 +2374,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "spend_guard",
             "brief_service",
             "ticket_push_notifier",
+            "channel_adapters",
+            "channel_service",
+            "outbox_worker",
+            "webpush_outbox",
             "pipeline_event_publisher",
             "agent_ops_service",
             "resource_service",
@@ -2355,6 +2477,7 @@ def create_app() -> FastAPI:
     app.include_router(triggers.router)
     app.include_router(goals.router)
     app.include_router(watchdog.router)
+    app.include_router(channels.router)
     app.include_router(spend.router)
     app.include_router(rewind.router)
     app.include_router(device_lease.router)

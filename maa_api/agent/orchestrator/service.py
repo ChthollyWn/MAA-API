@@ -35,7 +35,7 @@ from maa_api.agent.workers.pump import (
     run_agent,
 )
 from maa_api.agent.workers.service import PostedMessage
-from maa_api.db.models import AgentInbox, AgentSession, utcnow
+from maa_api.db.models import AgentInbox, AgentMessage, AgentSession, utcnow
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.domain.enums import (
     AgentRunKind,
@@ -356,8 +356,9 @@ class OrchestratorService:
             run.id,
             items,
         )
+        outcome = None
         try:
-            await run_agent(
+            outcome = await run_agent(
                 self._app,
                 spec,
                 session,
@@ -374,7 +375,68 @@ class OrchestratorService:
                 await self._run_service.finish(
                     run.id, status=AgentRunStatus.FAILED, finish_reason="error"
                 )
+        # M85 §4.5「出站」：本轮 user 消息来自 IM 时，把最后一段正文写回复发件箱。
+        if outcome is not None and str(outcome.status) == "succeeded":
+            await self._enqueue_im_reply(
+                run, items, final_text=getattr(outcome, "final_text", None)
+            )
         return True
+
+    async def _enqueue_im_reply(
+        self, run: Any, items: Any, *, final_text: str | None = None
+    ) -> None:
+        """按本轮 user 消息的 payload 找 IM 来源，写 ``reply:<run_id>`` 发件箱。
+
+        优先用 ``RunOutcome.final_text``；它是本轮真正给用户的正文。没有时再回查
+        该运行最后一条有正文的 assistant 消息（兼容旧调用方）。
+        """
+        source = None
+        for item in reversed(list(items)):
+            payload = getattr(item, "payload", None) or {}
+            if not isinstance(payload, Mapping):
+                continue
+            platform = str(payload.get("platform") or "").strip()
+            chat_id = str(payload.get("external_chat_id") or "").strip()
+            if platform and chat_id:
+                source = (platform, chat_id)
+                break
+        if source is None:
+            return
+        channel_service = getattr(
+            getattr(self._app, "state", None), "channel_service", None
+        )
+        if channel_service is None:
+            return
+        try:
+            text = str(final_text or "").strip()
+            if not text:
+                async with self._session_factory() as session:
+                    message = await session.scalar(
+                        select(AgentMessage)
+                        .where(
+                            AgentMessage.run_id == str(run.id),
+                            AgentMessage.role == "assistant",
+                            AgentMessage.content.is_not(None),
+                        )
+                        .order_by(AgentMessage.seq.desc())
+                        .limit(1)
+                    )
+                text = str(getattr(message, "content", "") or "").strip()
+            if not text:
+                return
+            await channel_service.enqueue_reply_for_run(
+                str(run.id),
+                source[1],
+                source[0],
+                text,
+                ref_run_id=str(run.id),
+            )
+        except Exception:  # noqa: BLE001 - 回复出站失败不能把已完成的运行算失败
+            logger.warning(
+                "总控 IM 回复写发件箱失败：run=%s",
+                getattr(run, "id", None),
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # 唤醒、中断与重置

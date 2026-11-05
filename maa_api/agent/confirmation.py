@@ -105,6 +105,12 @@ class ConfirmationService:
         self._expiry_task: asyncio.Task[None] | None = None
         self._grant_locks: dict[str, asyncio.Lock] = {}
         self._grant_revocation_epochs: dict[str, int] = {}
+        #: M85：确认 pending 后给 IM 绑定写发件箱；由 main 在通道服务装配后注入。
+        self._channel_outbound: Any = None
+
+    def bind_channel_outbound(self, service: Any) -> None:
+        """注入 IM 出站服务（M85 G4）；不注入时确认流程行为不变。"""
+        self._channel_outbound = service
 
     async def invoke(
         self,
@@ -982,6 +988,15 @@ class ConfirmationService:
             ),
         }
         self.broadcast("confirm_request", event)
+        # M85：IM 绑定各写一条 confirmation 发件箱；失败只记日志，不影响等待。
+        outbound = self._channel_outbound
+        if outbound is not None:
+            try:
+                await outbound.on_confirmation_created(confirmation, name)
+            except Exception:  # noqa: BLE001 - 出站失败不能影响确认本身
+                logger.warning(
+                    "确认 %s 写 IM 发件箱失败", confirmation.id, exc_info=True
+                )
         await self._push_confirmation(confirmation, name, dict(arguments))
         if self.notify is not None:
             try:

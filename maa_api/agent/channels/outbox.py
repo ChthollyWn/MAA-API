@@ -21,8 +21,9 @@ G1 的 ``adapter_for`` 注入点与测试不变。失败抛
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -43,6 +44,8 @@ __all__ = [
     "POLL_INTERVAL_SECONDS",
     "ChannelAdapter",
     "OutboxWorker",
+    "WebPushOutbox",
+    "WebPushSender",
 ]
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,8 @@ _DUE_STATUSES = (OutboxStatus.PENDING.value, OutboxStatus.FAILED.value)
 
 #: 按 ``outbox.channel`` 取适配器；未知渠道返回 ``None`` 时按致命失败处理。
 AdapterFactory = Callable[[str], ChannelAdapter | None]
+#: 不经过平台适配器的出口（目前只有 Web Push）：收完整 payload，返回回执。
+WebPushSender = Callable[[dict[str, Any]], Awaitable[Any]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +84,60 @@ def _error_text(exc: BaseException) -> str:
     return detail or type(exc).__name__
 
 
+def _receipt_dict(value: Any) -> dict[str, Any]:
+    """把发送器返回的回执收敛成 JSON 列能存的字典。"""
+    if isinstance(value, Mapping):
+        return dict(value)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return dataclasses.asdict(value)
+    if value is None:
+        return {}
+    return {"result": str(value)}
+
+
+class WebPushOutbox:
+    """Web Push 的发件箱入口（M85 §4.5「发件箱」）。
+
+    只负责把 ``payload`` 写进 ``outbox``（``channel=webpush``、``target=all``）
+    并提交；真正的 ``WebPushService.broadcast(payload)`` 由
+    :class:`OutboxWorker` 注册的发送器执行。业务方不直接触达推送服务。
+    """
+
+    def __init__(
+        self,
+        worker: OutboxWorker,
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        self._worker = worker
+        self._session_factory = session_factory
+
+    async def enqueue(
+        self,
+        payload: dict[str, Any],
+        *,
+        kind: OutboxKind | str,
+        dedupe_key: str,
+        ref_ticket_id: str | None = None,
+        ref_run_id: str | None = None,
+        now: datetime | None = None,
+    ) -> Outbox:
+        """写一条待发 Web Push 并提交；``dedupe_key`` 已存在时返回旧行。"""
+        async with self._session_factory() as session:
+            row = await self._worker.enqueue(
+                session,
+                channel=OutboxChannel.WEBPUSH,
+                target="all",
+                kind=kind,
+                payload=dict(payload),
+                dedupe_key=str(dedupe_key),
+                ref_ticket_id=ref_ticket_id,
+                ref_run_id=ref_run_id,
+                now=now,
+            )
+            await session.commit()
+        return row
+
+
 class OutboxWorker:
     """发件箱的发件循环；本身不创建引擎，会话工厂由调用方注入。"""
 
@@ -91,15 +150,24 @@ class OutboxWorker:
         max_attempts: int = MAX_ATTEMPTS,
         interval: float = POLL_INTERVAL_SECONDS,
         backoff_cap: int = BACKOFF_CAP_SECONDS,
+        senders: Mapping[str, WebPushSender] | None = None,
         clock: Callable[[], datetime] = utcnow,
     ) -> None:
         self._session_factory = session_factory
         self._adapter_for = adapter_for
+        #: ``outbox.channel`` → 非适配器发送器；目前只有 ``webpush``。
+        self._senders: dict[str, WebPushSender] = dict(senders or {})
         self.batch_size = batch_size
         self.max_attempts = max_attempts
         self.interval = interval
         self.backoff_cap = backoff_cap
         self._clock = clock
+
+    def register_sender(
+        self, channel: OutboxChannel | str, sender: WebPushSender
+    ) -> None:
+        """注册非适配器出口（G4 的 Web Push）；重复注册以后者为准。"""
+        self._senders[str(channel)] = sender
 
     # ------------------------------------------------------------------
     # 入队
@@ -265,13 +333,21 @@ class OutboxWorker:
     async def _deliver(self, claim: _Claim, now: datetime) -> None:
         """发送一条并落库结果；异常分类只由 ``OutboxRetry`` / ``OutboxFatal`` 决定。"""
         try:
-            adapter = self._adapter_for(claim.channel)
-            if adapter is None:
-                raise OutboxFatal(f"没有 {claim.channel} 的适配器")
-            text = claim.payload.get("text")
-            if not isinstance(text, str) or not text:
-                raise OutboxFatal("outbox.payload.text 缺失或为空")
-            receipt = await adapter.send(claim.target, text)
+            if claim.channel == OutboxChannel.WEBPUSH.value:
+                # Web Push 的发送器收完整 payload，不经过平台适配器的 text 形状。
+                sender = self._senders.get(claim.channel)
+                if sender is None:
+                    raise OutboxFatal("没有 webpush 的发送器")
+                raw = await sender(dict(claim.payload))
+                receipt = _receipt_dict(raw)
+            else:
+                adapter = self._adapter_for(claim.channel)
+                if adapter is None:
+                    raise OutboxFatal(f"没有 {claim.channel} 的适配器")
+                text = claim.payload.get("text")
+                if not isinstance(text, str) or not text:
+                    raise OutboxFatal("outbox.payload.text 缺失或为空")
+                receipt = await adapter.send(claim.target, text)
         except OutboxFatal as exc:
             await self._mark_dead(claim.id, _error_text(exc))
         except OutboxRetry as exc:

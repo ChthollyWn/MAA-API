@@ -251,6 +251,25 @@ class ConfirmationRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
+    async def list_pending_by_prefix(
+        self, prefix: str, *, limit: int = 2
+    ) -> list[Confirmation]:
+        """按确认 id 前缀找 pending 行（M85 的 IM「同意 <前 8 位>」）。
+
+        ``LIMIT 2`` 让调用方能区分「唯一命中」与「前缀歧义」；按 ``created_at``
+        倒序让测试与用户看到最近创建的那条排在前面。
+        """
+        result = await self.session.execute(
+            select(Confirmation)
+            .where(
+                Confirmation.status == ConfirmationStatus.PENDING,
+                Confirmation.id.like(f"{prefix}%"),
+            )
+            .order_by(Confirmation.created_at.desc(), Confirmation.id.desc())
+            .limit(max(int(limit), 1))
+        )
+        return list(result.scalars().all())
+
     async def list(
         self,
         *,

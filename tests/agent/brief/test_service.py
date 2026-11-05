@@ -76,11 +76,18 @@ class _Visible:
 
 
 class _WebPush:
-    """记录推送 payload；``error`` 非空时模拟投递失败。"""
+    """发件箱替身：M85 起简报先写 outbox，``enqueue`` 记录 payload。"""
 
     def __init__(self) -> None:
         self.payloads: list[dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
         self.error: Exception | None = None
+
+    async def enqueue(self, payload: dict[str, Any], **kwargs: Any) -> None:
+        if self.error is not None:
+            raise self.error
+        self.payloads.append(payload)
+        self.calls.append({"payload": payload, **kwargs})
 
     async def broadcast(self, payload: dict[str, Any]) -> None:
         if self.error is not None:
@@ -145,7 +152,7 @@ class _Harness:
                 artifact_service=self.artifacts,
                 ticket_service=self.ticket_service,
                 worker_service=self.worker_service,
-                webpush_service=self.webpush,
+                webpush_outbox=self.webpush,
             )
         )
         self.service = BriefService(
@@ -341,6 +348,8 @@ def test_watch_finalizes_on_ready_report(factory, tmp_path) -> None:
                 "url": f"/tickets/{ticket.id}",
             },
         }
+        assert harness.webpush.calls[0]["kind"].value == "brief"
+        assert harness.webpush.calls[0]["dedupe_key"] == f"brief:{artifact.id}"
 
     asyncio.run(scenario())
 

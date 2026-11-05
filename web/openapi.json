@@ -1385,6 +1385,117 @@
         "title": "AwardInput",
         "type": "object"
       },
+      "BindCodeOut": {
+        "description": "一次性绑定码；``expires_at`` 是 UTC 时间。",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "expires_at"
+        ],
+        "title": "BindCodeOut",
+        "type": "object"
+      },
+      "BindingListOut": {
+        "description": "绑定列表（不分页；数量由真实绑定数决定）。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BindingOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "BindingListOut",
+        "type": "object"
+      },
+      "BindingOut": {
+        "description": "一条通道绑定；外部身份与会话 id 是数据，不是凭据。",
+        "properties": {
+          "bound_at": {
+            "format": "date-time",
+            "title": "Bound At",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "external_chat_id": {
+            "title": "External Chat Id",
+            "type": "string"
+          },
+          "external_user_id": {
+            "title": "External User Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/ChannelPlatform"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "platform",
+          "external_user_id",
+          "external_chat_id",
+          "status",
+          "bound_at"
+        ],
+        "title": "BindingOut",
+        "type": "object"
+      },
       "BriefRunResult": {
         "description": "``POST /api/agent/brief/run`` 的响应体（§4.3、§4.5.9）。",
         "properties": {
@@ -1439,6 +1550,62 @@
           "internal"
         ],
         "title": "CallerType",
+        "type": "string"
+      },
+      "ChannelOut": {
+        "description": "一个平台的开关、配置与连接状态；不含密钥、不含绑定列表。",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "connected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/ChannelPlatform"
+          }
+        },
+        "required": [
+          "platform",
+          "enabled",
+          "configured"
+        ],
+        "title": "ChannelOut",
+        "type": "object"
+      },
+      "ChannelPlatform": {
+        "description": "IM 平台；``channel_binding.platform`` 与绑定码上的平台用它。",
+        "enum": [
+          "telegram",
+          "feishu",
+          "dingtalk",
+          "qq"
+        ],
+        "title": "ChannelPlatform",
         "type": "string"
       },
       "CheckpointList": {
@@ -5595,6 +5762,190 @@
         ],
         "title": "OrchestratorStateModel",
         "type": "object"
+      },
+      "OutboxChannel": {
+        "description": "发件箱的出口：四个 IM 平台与 Web Push（docs/03 §11.7）。",
+        "enum": [
+          "im_telegram",
+          "im_feishu",
+          "im_dingtalk",
+          "im_qq",
+          "webpush"
+        ],
+        "title": "OutboxChannel",
+        "type": "string"
+      },
+      "OutboxKind": {
+        "description": "发件箱消息的种类；决定去重键的前缀（spec §4.5 出站）。",
+        "enum": [
+          "reply",
+          "report",
+          "confirmation",
+          "brief",
+          "alert"
+        ],
+        "title": "OutboxKind",
+        "type": "string"
+      },
+      "OutboxOut": {
+        "description": "发件箱的一行；``payload`` 原样返回，``receipt`` 为平台回执。",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/OutboxChannel"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dedupe_key": {
+            "title": "Dedupe Key",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OutboxKind"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "next_attempt_at": {
+            "format": "date-time",
+            "title": "Next Attempt At",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt"
+          },
+          "ref_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Run Id"
+          },
+          "ref_ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Ticket Id"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OutboxStatus"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "target",
+          "kind",
+          "payload",
+          "dedupe_key",
+          "status",
+          "attempts",
+          "next_attempt_at",
+          "created_at"
+        ],
+        "title": "OutboxOut",
+        "type": "object"
+      },
+      "OutboxPage": {
+        "description": "发件箱分页信封（§4.3 / 04 §1）。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OutboxOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "OutboxPage",
+        "type": "object"
+      },
+      "OutboxStatus": {
+        "description": "发件箱状态机：待发、发送中、已发、失败待重试、死信。",
+        "enum": [
+          "pending",
+          "sending",
+          "sent",
+          "failed",
+          "dead"
+        ],
+        "title": "OutboxStatus",
+        "type": "string"
       },
       "OverridesRequest": {
         "additionalProperties": false,
@@ -10862,6 +11213,20 @@
         "title": "TaskValidateRequest",
         "type": "object"
       },
+      "TestChannelOut": {
+        "description": "测试消息同步发送的结果：发给了几条 active 绑定。",
+        "properties": {
+          "sent": {
+            "title": "Sent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sent"
+        ],
+        "title": "TestChannelOut",
+        "type": "object"
+      },
       "TicketCancelRequest": {
         "additionalProperties": false,
         "description": "取消工单的请求体；不写原因时服务层用「用户取消」。",
@@ -13351,6 +13716,425 @@
           }
         },
         "summary": "立即生成每日简报",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/channels": {
+      "get": {
+        "description": "四个平台的启用、配置与连接状态；不含密钥与绑定。",
+        "operationId": "agent_list_channels",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChannelOut"
+                  },
+                  "title": "Response Agent List Channels",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取 IM 通道状态",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/channels/bindings": {
+      "get": {
+        "description": "active 绑定列表；不含密钥。",
+        "operationId": "agent_list_channel_bindings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindingListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取通道绑定",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/channels/bindings/{binding_id}": {
+      "delete": {
+        "description": "置为 revoked；不存在或已撤销回 404 ``CHANNEL_BINDING_NOT_FOUND``。",
+        "operationId": "agent_revoke_channel_binding",
+        "parameters": [
+          {
+            "description": "绑定 id",
+            "in": "path",
+            "name": "binding_id",
+            "required": true,
+            "schema": {
+              "description": "绑定 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Binding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "CHANNEL_BINDING_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：CHANNEL_BINDING_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "解除通道绑定",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/channels/{platform}/bind-codes": {
+      "post": {
+        "description": "写一条 10 分钟有效的绑定码；非法平台回 400 ``BIND_CODE_INVALID``。",
+        "operationId": "agent_create_bind_code",
+        "parameters": [
+          {
+            "description": "telegram / feishu / dingtalk / qq",
+            "in": "path",
+            "name": "platform",
+            "required": true,
+            "schema": {
+              "description": "telegram / feishu / dingtalk / qq",
+              "title": "Platform",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindCodeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "BIND_CODE_INVALID",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：BIND_CODE_INVALID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "生成一次性绑定码",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/channels/{platform}/test": {
+      "post": {
+        "description": "同步发给该平台全部 active 绑定；未配置 503、发送失败 502。",
+        "operationId": "agent_test_channel",
+        "parameters": [
+          {
+            "description": "telegram / feishu / dingtalk / qq",
+            "in": "path",
+            "name": "platform",
+            "required": true,
+            "schema": {
+              "description": "telegram / feishu / dingtalk / qq",
+              "title": "Platform",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestChannelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "BIND_CODE_INVALID",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：BIND_CODE_INVALID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "CHANNEL_SEND_FAILED",
+                    "details": {},
+                    "message": "下游依赖失败"
+                  }
+                }
+              }
+            },
+            "description": "下游依赖失败：CHANNEL_SEND_FAILED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "CHANNEL_NOT_CONFIGURED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：CHANNEL_NOT_CONFIGURED、SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "发送通道测试消息",
         "tags": [
           "agent"
         ]
@@ -16069,6 +16853,151 @@
           }
         },
         "summary": "重新开始总控会话",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/outbox": {
+      "get": {
+        "description": "``created_at`` 倒序分页；``status`` / ``channel`` 都可选。",
+        "operationId": "agent_list_outbox",
+        "parameters": [
+          {
+            "description": "按发送状态过滤",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OutboxStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按发送状态过滤",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "按出口过滤（im_* 或 webpush）",
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OutboxChannel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按出口过滤（im_* 或 webpush）",
+              "title": "Channel"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–200",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–200",
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboxPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PAGINATION",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PAGINATION"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "分页读取发件箱",
         "tags": [
           "agent"
         ]
