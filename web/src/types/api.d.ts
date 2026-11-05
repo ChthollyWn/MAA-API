@@ -321,6 +321,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取 IM 通道状态
+         * @description 四个平台的启用、配置与连接状态；不含密钥与绑定。
+         */
+        get: operations["agent_list_channels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/channels/bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取通道绑定
+         * @description active 绑定列表；不含密钥。
+         */
+        get: operations["agent_list_channel_bindings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/channels/bindings/{binding_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 解除通道绑定
+         * @description 置为 revoked；不存在或已撤销回 404 ``CHANNEL_BINDING_NOT_FOUND``。
+         */
+        delete: operations["agent_revoke_channel_binding"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/channels/{platform}/bind-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 生成一次性绑定码
+         * @description 写一条 10 分钟有效的绑定码；非法平台回 400 ``BIND_CODE_INVALID``。
+         */
+        post: operations["agent_create_bind_code"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/channels/{platform}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 发送通道测试消息
+         * @description 同步发给该平台全部 active 绑定；未配置 503、发送失败 502。
+         */
+        post: operations["agent_test_channel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/costs": {
         parameters: {
             query?: never;
@@ -735,6 +835,26 @@ export interface paths {
          * @description 换一个新会话；运行中或还有未处理消息时 409。
          */
         post: operations["agent_reset_orchestrator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 分页读取发件箱
+         * @description ``created_at`` 倒序分页；``status`` / ``channel`` 都可选。
+         */
+        get: operations["agent_list_outbox"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3402,6 +3522,53 @@ export interface components {
             specialaccess: boolean | null;
         };
         /**
+         * BindCodeOut
+         * @description 一次性绑定码；``expires_at`` 是 UTC 时间。
+         */
+        BindCodeOut: {
+            /** Code */
+            code: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /**
+         * BindingListOut
+         * @description 绑定列表（不分页；数量由真实绑定数决定）。
+         */
+        BindingListOut: {
+            /** Items */
+            items: components["schemas"]["BindingOut"][];
+        };
+        /**
+         * BindingOut
+         * @description 一条通道绑定；外部身份与会话 id 是数据，不是凭据。
+         */
+        BindingOut: {
+            /**
+             * Bound At
+             * Format: date-time
+             */
+            bound_at: string;
+            /** Display Name */
+            display_name?: string | null;
+            /** External Chat Id */
+            external_chat_id: string;
+            /** External User Id */
+            external_user_id: string;
+            /** Id */
+            id: string;
+            /** Last Seen At */
+            last_seen_at?: string | null;
+            platform: components["schemas"]["ChannelPlatform"];
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Status */
+            status: string;
+        };
+        /**
          * BriefRunResult
          * @description ``POST /api/agent/brief/run`` 的响应体（§4.3、§4.5.9）。
          */
@@ -3432,6 +3599,27 @@ export interface components {
          * @enum {string}
          */
         CallerType: "rest" | "internal";
+        /**
+         * ChannelOut
+         * @description 一个平台的开关、配置与连接状态；不含密钥、不含绑定列表。
+         */
+        ChannelOut: {
+            /** Configured */
+            configured: boolean;
+            /** Connected */
+            connected?: boolean | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Last Error */
+            last_error?: string | null;
+            platform: components["schemas"]["ChannelPlatform"];
+        };
+        /**
+         * ChannelPlatform
+         * @description IM 平台；``channel_binding.platform`` 与绑定码上的平台用它。
+         * @enum {string}
+         */
+        ChannelPlatform: "telegram" | "feishu" | "dingtalk" | "qq";
         /**
          * CheckpointList
          * @description 检查点列表；按 ``created_at`` 降序，最新的在最前。
@@ -5044,6 +5232,81 @@ export interface components {
             /** Turn Running */
             turn_running: boolean;
         };
+        /**
+         * OutboxChannel
+         * @description 发件箱的出口：四个 IM 平台与 Web Push（docs/03 §11.7）。
+         * @enum {string}
+         */
+        OutboxChannel: "im_telegram" | "im_feishu" | "im_dingtalk" | "im_qq" | "webpush";
+        /**
+         * OutboxKind
+         * @description 发件箱消息的种类；决定去重键的前缀（spec §4.5 出站）。
+         * @enum {string}
+         */
+        OutboxKind: "reply" | "report" | "confirmation" | "brief" | "alert";
+        /**
+         * OutboxOut
+         * @description 发件箱的一行；``payload`` 原样返回，``receipt`` 为平台回执。
+         */
+        OutboxOut: {
+            /** Attempts */
+            attempts: number;
+            channel: components["schemas"]["OutboxChannel"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dedupe Key */
+            dedupe_key: string;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["OutboxKind"];
+            /** Last Error */
+            last_error?: string | null;
+            /**
+             * Next Attempt At
+             * Format: date-time
+             */
+            next_attempt_at: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Receipt */
+            receipt?: {
+                [key: string]: unknown;
+            } | null;
+            /** Ref Run Id */
+            ref_run_id?: string | null;
+            /** Ref Ticket Id */
+            ref_ticket_id?: string | null;
+            /** Sent At */
+            sent_at?: string | null;
+            status: components["schemas"]["OutboxStatus"];
+            /** Target */
+            target: string;
+        };
+        /**
+         * OutboxPage
+         * @description 发件箱分页信封（§4.3 / 04 §1）。
+         */
+        OutboxPage: {
+            /** Items */
+            items: components["schemas"]["OutboxOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * OutboxStatus
+         * @description 发件箱状态机：待发、发送中、已发、失败待重试、死信。
+         * @enum {string}
+         */
+        OutboxStatus: "pending" | "sending" | "sent" | "failed" | "dead";
         /**
          * OverridesRequest
          * @description ``grant_copilot_attempts`` 卡片上可以改的三项（规格 §9.6）。
@@ -7124,6 +7387,14 @@ export interface components {
             tasks: (components["schemas"]["StartUpInput"] | components["schemas"]["CloseDownInput"] | components["schemas"]["FightInput"] | components["schemas"]["RecruitInput"] | components["schemas"]["InfrastInput"] | components["schemas"]["MallInput"] | components["schemas"]["AwardInput"] | components["schemas"]["RoguelikeInput"] | components["schemas"]["ReclamationInput"] | components["schemas"]["DepotInput"] | components["schemas"]["CustomInput"] | components["schemas"]["CopilotInput"])[];
         };
         /**
+         * TestChannelOut
+         * @description 测试消息同步发送的结果：发给了几条 active 绑定。
+         */
+        TestChannelOut: {
+            /** Sent */
+            sent: number;
+        };
+        /**
          * TicketCancelRequest
          * @description 取消工单的请求体；不写原因时服务层用「用户取消」。
          */
@@ -8563,6 +8834,402 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_channels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelOut"][];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_channel_bindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingListOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_revoke_channel_binding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 绑定 id */
+                binding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：CHANNEL_BINDING_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "CHANNEL_BINDING_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_create_bind_code: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description telegram / feishu / dingtalk / qq */
+                platform: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindCodeOut"];
+                };
+            };
+            /** @description 请求不成立：BIND_CODE_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "BIND_CODE_INVALID",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_test_channel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description telegram / feishu / dingtalk / qq */
+                platform: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestChannelOut"];
+                };
+            };
+            /** @description 请求不成立：BIND_CODE_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "BIND_CODE_INVALID",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 下游依赖失败：CHANNEL_SEND_FAILED */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "CHANNEL_SEND_FAILED",
+                     *         "details": {},
+                     *         "message": "下游依赖失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：CHANNEL_NOT_CONFIGURED、SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "CHANNEL_NOT_CONFIGURED",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }
@@ -11053,6 +11720,100 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_outbox: {
+        parameters: {
+            query?: {
+                /** @description 按发送状态过滤 */
+                status?: components["schemas"]["OutboxStatus"] | null;
+                /** @description 按出口过滤（im_* 或 webpush） */
+                channel?: components["schemas"]["OutboxChannel"] | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }

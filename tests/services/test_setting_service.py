@@ -16,7 +16,7 @@ import maa_api.db.models  # noqa: F401
 from maa_api.db.session import make_engine
 from maa_api.db.repositories.setting import SettingRepository
 from maa_api.domain.errors import AppError, ErrorCode
-from maa_api.services.setting_service import SettingService
+from maa_api.services.setting_service import ENCRYPTED_SETTING_KEYS, SettingService
 from maa_api.settings import get_settings, set_settings
 
 
@@ -396,6 +396,139 @@ def test_refresh_disables_legacy_database_llm_key_until_master_key_is_configured
         assert type(service.llm_encryption_error).__name__ == "LLMEncryptionKeyInvalid"
         async with db_session_factory() as session:
             assert await SettingRepository(session).get("llm.api_key") == "legacy-secret"
+
+    asyncio.run(scenario())
+
+
+def test_channel_secrets_share_the_llm_key_encryption_path(db_session_factory):
+    """M85 §4.4：四个通道密钥与 llm.api_key 同一套 Fernet 与掩码规则。"""
+    assert ENCRYPTED_SETTING_KEYS == {
+        "llm.api_key",
+        "channels.telegram_bot_token",
+        "channels.feishu_app_secret",
+        "channels.dingtalk_client_secret",
+        "channels.qq_app_secret",
+    }
+    encryption_key = Fernet.generate_key().decode("ascii")
+
+    async def scenario():
+        service = SettingService(
+            db_session_factory, env={"MAA_LLM_ENCRYPTION_KEY": encryption_key}
+        )
+        await service.update(
+            {
+                "channels.telegram_bot_token": "tg-secret",
+                "channels.feishu_app_secret": "fs-secret",
+                "channels.dingtalk_client_secret": "dt-secret",
+                "channels.qq_app_secret": "qq-secret",
+                "channels.feishu_app_id": "cli_public",
+            }
+        )
+        items = {item["key"]: item for item in (await service.get())["items"]}
+        for key, plaintext in (
+            ("channels.telegram_bot_token", "tg-secret"),
+            ("channels.feishu_app_secret", "fs-secret"),
+            ("channels.dingtalk_client_secret", "dt-secret"),
+            ("channels.qq_app_secret", "qq-secret"),
+        ):
+            assert items[key]["value"] == "***"
+            assert items[key]["source"] == "db"
+            assert plaintext not in str(items[key])
+        # 非密钥的平台标识照常回显。
+        assert items["channels.feishu_app_id"]["value"] == "cli_public"
+
+        async with db_session_factory() as session:
+            repository = SettingRepository(session)
+            stored = {
+                key: await repository.get(key)
+                for key in (
+                    "channels.telegram_bot_token",
+                    "channels.feishu_app_secret",
+                    "channels.dingtalk_client_secret",
+                    "channels.qq_app_secret",
+                )
+            }
+        for key, plaintext in (
+            ("channels.telegram_bot_token", "tg-secret"),
+            ("channels.feishu_app_secret", "fs-secret"),
+            ("channels.dingtalk_client_secret", "dt-secret"),
+            ("channels.qq_app_secret", "qq-secret"),
+        ):
+            assert stored[key].startswith("enc:v1:")
+            assert plaintext not in stored[key]
+            token = stored[key].removeprefix("enc:v1:").encode("ascii")
+            assert Fernet(encryption_key.encode("ascii")).decrypt(token).decode() == plaintext
+
+        settings = await service.refresh()
+        assert settings.channels.telegram_bot_token == "tg-secret"
+        assert settings.channels.feishu_app_secret == "fs-secret"
+        assert settings.channels.dingtalk_client_secret == "dt-secret"
+        assert settings.channels.qq_app_secret == "qq-secret"
+        assert service.llm_encryption_error is None
+
+    asyncio.run(scenario())
+
+
+def test_refresh_migrates_legacy_plaintext_channel_secret(db_session_factory):
+    encryption_key = Fernet.generate_key().decode("ascii")
+
+    async def scenario():
+        async with db_session_factory() as session:
+            await SettingRepository(session).set("channels.qq_app_secret", "legacy")
+            await session.commit()
+        service = SettingService(
+            db_session_factory, env={"MAA_LLM_ENCRYPTION_KEY": encryption_key}
+        )
+
+        settings = await service.refresh()
+
+        assert settings.channels.qq_app_secret == "legacy"
+        async with db_session_factory() as session:
+            stored = await SettingRepository(session).get("channels.qq_app_secret")
+            assert stored.startswith("enc:v1:")
+            assert "legacy" not in stored
+            token = stored.removeprefix("enc:v1:").encode("ascii")
+            assert Fernet(encryption_key.encode("ascii")).decrypt(token) == b"legacy"
+
+    asyncio.run(scenario())
+
+
+def test_channel_secret_write_needs_master_key_and_unreadable_value_skips_llm_status(
+    db_session_factory,
+):
+    async def scenario():
+        no_key = SettingService(db_session_factory, env={})
+        with pytest.raises(AppError) as exc:
+            await no_key.update({"channels.telegram_bot_token": "tg-secret"})
+        assert exc.value.code == ErrorCode.LLM_ENCRYPTION_KEY_INVALID
+        async with db_session_factory() as session:
+            assert await SettingRepository(session).get(
+                "channels.telegram_bot_token"
+            ) is None
+
+        # 用旧主密钥写入的通道密钥在新主密钥下读不出：按空处理，但不影响 LLM 的错误状态。
+        original = Fernet.generate_key().decode("ascii")
+        replacement = Fernet.generate_key().decode("ascii")
+        async with db_session_factory() as session:
+            await SettingRepository(session).set(
+                "channels.telegram_bot_token",
+                _fernet_db_value("tg-secret", original),
+            )
+            await session.commit()
+        service = SettingService(
+            db_session_factory, env={"MAA_LLM_ENCRYPTION_KEY": replacement}
+        )
+
+        settings = await service.refresh()
+
+        assert settings.channels.telegram_bot_token == ""
+        assert service.llm_encryption_error is None
+        async with db_session_factory() as session:
+            stored = await SettingRepository(session).get(
+                "channels.telegram_bot_token"
+            )
+            assert stored.startswith("enc:v1:")
+            assert "tg-secret" not in stored
 
     asyncio.run(scenario())
 

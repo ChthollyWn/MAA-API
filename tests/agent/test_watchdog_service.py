@@ -110,8 +110,15 @@ class _TicketService:
 
 
 class _WebPush:
+    """发件箱替身：M85 起 critical 只写 outbox，不再直接广播。"""
+
     def __init__(self) -> None:
         self.payloads: list[dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
+
+    async def enqueue(self, payload: dict[str, Any], **kwargs: Any) -> None:
+        self.payloads.append(payload)
+        self.calls.append({"payload": payload, **kwargs})
 
     async def broadcast(self, payload: dict[str, Any]) -> None:
         self.payloads.append(payload)
@@ -149,7 +156,7 @@ class _Harness:
             worker_service=self.worker,
             orchestrator_service=self.orchestrator,
             thread_router=self.thread_router,
-            webpush_service=self.webpush,
+            webpush_outbox=self.webpush,
             has_visible_client=lambda: self.has_visible_client,
             restart_core=restart_core,
             broadcast=lambda kind, data: self.broadcasts.append((kind, data)),
@@ -640,9 +647,11 @@ def test_critical_notifies_once_and_warn_stays_in_list(tmp_path) -> None:
             assert inbox[0].payload["alert_id"] == critical.id
             assert f"#{critical.id}" in inbox[0].payload["text"]
             assert critical.message in inbox[0].payload["text"]
-            # 3) 无可见页面 → Web Push。
+            # 3) 无可见页面 → 写 Web Push 发件箱（kind=alert）。
             assert len(harness.webpush.payloads) == 1
             assert harness.webpush.payloads[0]["tag"] == f"watchdog:{critical.id}"
+            assert harness.webpush.calls[0]["kind"].value == "alert"
+            assert harness.webpush.calls[0]["dedupe_key"] == f"watchdog:{critical.id}"
             # 4) 第二轮回合告警已存在：不重复通知。
             await service.run_once(NOW + timedelta(seconds=301))
             assert len(harness.broadcasts) == 1

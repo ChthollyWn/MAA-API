@@ -413,6 +413,34 @@ EXPECTED_VALUES = {
         "STONE": "stone",
         "EXPEDITE": "expedite",
     },
+    # M85：IM 通道四枚举（v3 specs/m85 §4.1、docs/v3/03 §11.7）。
+    "ChannelPlatform": {
+        "TELEGRAM": "telegram",
+        "FEISHU": "feishu",
+        "DINGTALK": "dingtalk",
+        "QQ": "qq",
+    },
+    "OutboxChannel": {
+        "IM_TELEGRAM": "im_telegram",
+        "IM_FEISHU": "im_feishu",
+        "IM_DINGTALK": "im_dingtalk",
+        "IM_QQ": "im_qq",
+        "WEBPUSH": "webpush",
+    },
+    "OutboxKind": {
+        "REPLY": "reply",
+        "REPORT": "report",
+        "CONFIRMATION": "confirmation",
+        "BRIEF": "brief",
+        "ALERT": "alert",
+    },
+    "OutboxStatus": {
+        "PENDING": "pending",
+        "SENDING": "sending",
+        "SENT": "sent",
+        "FAILED": "failed",
+        "DEAD": "dead",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。

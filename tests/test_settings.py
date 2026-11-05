@@ -477,6 +477,23 @@ def test_env_mapping_names_are_pinned() -> None:
         "spend.daily_medicine_limit": "MAA_SPEND_DAILY_MEDICINE_LIMIT",
         "spend.daily_stone_limit": "MAA_SPEND_DAILY_STONE_LIMIT",
         "spend.daily_expedite_limit": "MAA_SPEND_DAILY_EXPEDITE_LIMIT",
+        # M85：IM 通道十六项（都不是 config-only；四个密钥敏感）。
+        "channels.max_reply_chars": "MAA_CHANNELS_MAX_REPLY_CHARS",
+        "channels.allow_destructive_approval": "MAA_CHANNELS_ALLOW_DESTRUCTIVE_APPROVAL",
+        "channels.telegram_enabled": "MAA_CHANNELS_TELEGRAM_ENABLED",
+        "channels.feishu_enabled": "MAA_CHANNELS_FEISHU_ENABLED",
+        "channels.dingtalk_enabled": "MAA_CHANNELS_DINGTALK_ENABLED",
+        "channels.qq_enabled": "MAA_CHANNELS_QQ_ENABLED",
+        "channels.telegram_bot_token": "MAA_CHANNELS_TELEGRAM_BOT_TOKEN",
+        "channels.feishu_app_secret": "MAA_CHANNELS_FEISHU_APP_SECRET",
+        "channels.dingtalk_client_secret": "MAA_CHANNELS_DINGTALK_CLIENT_SECRET",
+        "channels.qq_app_secret": "MAA_CHANNELS_QQ_APP_SECRET",
+        "channels.feishu_app_id": "MAA_CHANNELS_FEISHU_APP_ID",
+        "channels.dingtalk_client_id": "MAA_CHANNELS_DINGTALK_CLIENT_ID",
+        "channels.qq_app_id": "MAA_CHANNELS_QQ_APP_ID",
+        "channels.feishu_domain": "MAA_CHANNELS_FEISHU_DOMAIN",
+        "channels.telegram_proxy": "MAA_CHANNELS_TELEGRAM_PROXY",
+        "channels.qq_sandbox": "MAA_CHANNELS_QQ_SANDBOX",
     }
 
 
@@ -2269,5 +2286,160 @@ def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
     for comment in (
         "# 每日简报：到点建一张分析工单，结果落成报告产物并推送；cron 按北京时间，改完重启生效",
         "# 消耗上限（北京时间 04:00 分日）：-1 不限，0 禁止；只拦代理与定时任务，手动提交计入用量但不拦",
+    ):
+        assert comment in template_text
+
+
+def test_channels_settings_have_documented_defaults_and_bounds() -> None:
+    """M85 §4.4：16 个 IM 通道键的默认值、范围、分组与敏感标记。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import ChannelsSettings, CONFIG_ONLY_SETTING_KEYS
+
+    default = resolve_settings(env={}).channels
+    assert default == ChannelsSettings()
+    assert default.max_reply_chars == 300
+    assert default.allow_destructive_approval is False
+    assert default.telegram_enabled is False
+    assert default.feishu_enabled is False
+    assert default.dingtalk_enabled is False
+    assert default.qq_enabled is False
+    assert default.telegram_bot_token == ""
+    assert default.feishu_app_secret == ""
+    assert default.dingtalk_client_secret == ""
+    assert default.qq_app_secret == ""
+    assert default.feishu_app_id == ""
+    assert default.dingtalk_client_id == ""
+    assert default.qq_app_id == ""
+    assert default.feishu_domain == "https://open.feishu.cn"
+    assert default.telegram_proxy == ""
+    assert default.qq_sandbox is False
+
+    # 范围：80 与 4000 是合法端点，越界一格拒绝。
+    for value in (80, 4000):
+        assert resolve_settings(
+            {"channels": {"max_reply_chars": value}}, env={}
+        ).channels.max_reply_chars == value
+    for value in (79, 4001):
+        with pytest.raises(ValidationError):
+            resolve_settings({"channels": {"max_reply_chars": value}}, env={})
+
+    # 环境变量层十六项都能覆盖。
+    env_layer = resolve_settings(
+        env={
+            "MAA_CHANNELS_MAX_REPLY_CHARS": "600",
+            "MAA_CHANNELS_ALLOW_DESTRUCTIVE_APPROVAL": "true",
+            "MAA_CHANNELS_TELEGRAM_ENABLED": "true",
+            "MAA_CHANNELS_FEISHU_ENABLED": "true",
+            "MAA_CHANNELS_DINGTALK_ENABLED": "true",
+            "MAA_CHANNELS_QQ_ENABLED": "true",
+            "MAA_CHANNELS_TELEGRAM_BOT_TOKEN": "tg-token",
+            "MAA_CHANNELS_FEISHU_APP_SECRET": "fs-secret",
+            "MAA_CHANNELS_DINGTALK_CLIENT_SECRET": "dt-secret",
+            "MAA_CHANNELS_QQ_APP_SECRET": "qq-secret",
+            "MAA_CHANNELS_FEISHU_APP_ID": "cli_x",
+            "MAA_CHANNELS_DINGTALK_CLIENT_ID": "ding_x",
+            "MAA_CHANNELS_QQ_APP_ID": "1024",
+            "MAA_CHANNELS_FEISHU_DOMAIN": "https://open.larksuite.com",
+            "MAA_CHANNELS_TELEGRAM_PROXY": "http://127.0.0.1:7890",
+            "MAA_CHANNELS_QQ_SANDBOX": "true",
+        }
+    ).channels
+    assert env_layer.max_reply_chars == 600
+    assert env_layer.allow_destructive_approval is True
+    assert env_layer.telegram_enabled is True
+    assert env_layer.feishu_enabled is True
+    assert env_layer.dingtalk_enabled is True
+    assert env_layer.qq_enabled is True
+    assert env_layer.telegram_bot_token == "tg-token"
+    assert env_layer.feishu_app_secret == "fs-secret"
+    assert env_layer.dingtalk_client_secret == "dt-secret"
+    assert env_layer.qq_app_secret == "qq-secret"
+    assert env_layer.feishu_app_id == "cli_x"
+    assert env_layer.dingtalk_client_id == "ding_x"
+    assert env_layer.qq_app_id == "1024"
+    assert env_layer.feishu_domain == "https://open.larksuite.com"
+    assert env_layer.telegram_proxy == "http://127.0.0.1:7890"
+    assert env_layer.qq_sandbox is True
+
+    # 设置 API：十六个键都登记、分组「IM 通道」、都不是 config-only。
+    keys = {
+        "channels.max_reply_chars",
+        "channels.allow_destructive_approval",
+        "channels.telegram_enabled",
+        "channels.feishu_enabled",
+        "channels.dingtalk_enabled",
+        "channels.qq_enabled",
+        "channels.telegram_bot_token",
+        "channels.feishu_app_secret",
+        "channels.dingtalk_client_secret",
+        "channels.qq_app_secret",
+        "channels.feishu_app_id",
+        "channels.dingtalk_client_id",
+        "channels.qq_app_id",
+        "channels.feishu_domain",
+        "channels.telegram_proxy",
+        "channels.qq_sandbox",
+    }
+    assert len(keys) == 16
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+    assert {row["key"] for row in SETTINGS_SCHEMA if row["key"].startswith("channels.")} == keys
+    for key in keys:
+        assert schema_for(key)["group"] == "IM 通道"
+
+    reply_chars = schema_for("channels.max_reply_chars")
+    assert (
+        reply_chars["label"], reply_chars["type"],
+        reply_chars["minimum"], reply_chars["maximum"],
+        reply_chars["description"],
+    ) == ("单条 IM 回复最大字数", "integer", 80, 4000, "超出时先给结论再附网页链接")
+    assert schema_for("channels.allow_destructive_approval")["type"] == "boolean"
+    assert schema_for("channels.qq_sandbox")["type"] == "boolean"
+    assert schema_for("channels.feishu_domain")["type"] == "string"
+    for key, label in (
+        ("channels.telegram_bot_token", "Telegram Bot Token"),
+        ("channels.feishu_app_secret", "飞书应用密钥"),
+        ("channels.dingtalk_client_secret", "钉钉客户端密钥"),
+        ("channels.qq_app_secret", "QQ 机器人密钥"),
+    ):
+        entry = schema_for(key)
+        assert (entry["label"], entry["type"], entry["sensitive"]) == (
+            label, "string", True
+        )
+    # 非密钥项不是敏感项：设置 API 回显真实值，只有四个密钥被掩码。
+    assert {
+        key for key in keys if schema_for(key).get("sensitive")
+    } == {
+        "channels.telegram_bot_token",
+        "channels.feishu_app_secret",
+        "channels.dingtalk_client_secret",
+        "channels.qq_app_secret",
+    }
+
+    # 文档一致性：模板的 channels 段与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["channels"] == {
+        "max_reply_chars": 300,
+        "allow_destructive_approval": False,
+        "telegram_enabled": False,
+        "feishu_enabled": False,
+        "dingtalk_enabled": False,
+        "qq_enabled": False,
+        "telegram_bot_token": None,
+        "feishu_app_secret": None,
+        "dingtalk_client_secret": None,
+        "qq_app_secret": None,
+        "feishu_app_id": None,
+        "dingtalk_client_id": None,
+        "qq_app_id": None,
+        "feishu_domain": "https://open.feishu.cn",
+        "telegram_proxy": None,
+        "qq_sandbox": False,
+    }
+    for comment in (
+        "# IM 通道：四个平台默认关闭；启用前安装对应 extra 并在设置页填写应用凭证。",
+        "# 四个 *_secret / *_token 是敏感项，落库时加密，接口只回显 ***；忘掉主密钥后需要重新录入。",
+        "# 绑定码只在网页上生成；破坏类确认默认只能在网页上批准。改启用开关与凭证后重启服务生效。",
     ):
         assert comment in template_text

@@ -144,4 +144,10 @@ export const keys = {
     },
     deviceLease: () => [...root, 'agent', 'device-lease'] as const,
   },
+  /** IM 通道（M85 §4.6）：四平台状态与绑定列表各自一段缓存。 */
+  channels: {
+    all: () => [...root, 'channels'] as const,
+    list: () => [...root, 'channels', 'list'] as const,
+    bindings: () => [...root, 'channels', 'bindings'] as const,
+  },
 } as const

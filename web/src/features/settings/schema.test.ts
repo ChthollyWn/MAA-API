@@ -144,6 +144,8 @@ describe('settings sections', () => {
     expect(sectionForGroup('渠道')).toBe('device')
     expect(sectionForGroup('LLM')).toBe('agent')
     expect(sectionForGroup('Agent')).toBe('agent')
+    // M85 §4.6：IM 通道是独立分区，字段来自设置 schema 的「IM 通道」分组。
+    expect(sectionForGroup('IM 通道')).toBe('channels')
     expect(sectionForGroup('外部数据源')).toBe('sources')
     expect(sectionForGroup('更新')).toBe('maintenance')
     expect(sectionForGroup('日志')).toBe('maintenance')
@@ -156,6 +158,7 @@ describe('settings sections', () => {
   it('finds known sections only', () => {
     expect(findSection('device')?.title).toBe('设备与渠道')
     expect(findSection('appearance')?.title).toBe('外观')
+    expect(findSection('channels')?.title).toBe('IM 通道')
     expect(findSection('sources')?.title).toBe('外部数据源')
     expect(findSection('nope')).toBeUndefined()
     expect(findSection(undefined)).toBeUndefined()

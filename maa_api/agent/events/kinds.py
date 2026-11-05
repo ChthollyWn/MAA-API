@@ -69,13 +69,20 @@ _DEVICE = _sources(EventSource.DEVICE)
 _SCHEDULE = _sources(EventSource.SCHEDULE)
 _SYSTEM = _sources(EventSource.SYSTEM)
 _GOAL = _sources(EventSource.GOAL)
+#: IM 消息来自四个平台；08 §2.2 用 ``im_*`` 表示这一族来源。
+_IM = _sources(
+    EventSource.IM_TELEGRAM,
+    EventSource.IM_FEISHU,
+    EventSource.IM_DINGTALK,
+    EventSource.IM_QQ,
+)
 
 
 def _always(_payload: Mapping[str, Any]) -> bool:
     return True
 
 
-#: M81 登记的 12 种事件与 M82 追加的 3 种，顺序照 08 §2.2 的表。
+#: M81 登记的 12 种事件、M82 追加的 3 种与 M85 追加的 1 种，顺序照 08 §2.2 的表。
 KNOWN_KINDS: dict[str, EventKind] = {
     "pipeline.completed": EventKind(
         kind="pipeline.completed",
@@ -171,6 +178,14 @@ KNOWN_KINDS: dict[str, EventKind] = {
         thread_prefix="goal:",
         summary="目标「{title}」过了截止还没完成",
         attention=_always,
+    ),
+    # M85：IM 消息是用户的原话，不是需要研判的事件；``attention=None`` 因为它走
+    # 08 §2.3 的第 3 步时按 user_message 入收件箱，由事件总线单独处理（见 bus）。
+    "im.message": EventKind(
+        kind="im.message",
+        sources=_IM,
+        thread_prefix="im:",
+        summary="IM 消息：{text}",
     ),
 }
 

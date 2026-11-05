@@ -172,6 +172,8 @@ class _SmokeLLM:
             _text_response("收到设备不可用通知。"),
             # M82：规划工单汇报 ready 会转发进总控收件箱，再唤醒一轮。
             _text_response("规划已完成，目标已更新。"),
+            # M85：IM 普通文本进总控后再唤醒一轮，回复要短并写进发件箱。
+            _text_response("今天先刷糖本，理智够两次。"),
         ]
         # M80：Worker 先取一次关卡情报（假 stage_service 返回带注入文本的外部数据），
         # 下一步返回主界面时进入强制确认；确认被拒后收尾，之后两轮各给一条文本。
@@ -504,6 +506,24 @@ async def _ticket_source_trigger(service: Any, ticket_id: str) -> int | None:
     async with service.session_factory() as session:
         ticket = await session.get(Ticket, ticket_id)
         return None if ticket is None else ticket.source_trigger_id
+
+
+async def _orchestrator_user_inbox(service: Any, session_id: str) -> list[Any]:
+    """总控收件箱里的 ``user_message`` 项，按 id 升序；M85 断言 IM 入站。"""
+    from sqlalchemy import select
+
+    from maa_api.db.models import AgentInbox
+
+    async with service.session_factory() as session:
+        result = await session.execute(
+            select(AgentInbox)
+            .where(
+                AgentInbox.session_id == session_id,
+                AgentInbox.kind == "user_message",
+            )
+            .order_by(AgentInbox.id.asc())
+        )
+        return list(result.scalars().all())
 
 
 async def _goal_review_events(service: Any, goal_id: str) -> list[Any]:
@@ -1219,6 +1239,126 @@ def run(*, keep_temp: bool = False) -> None:
         print(
             "[ok] goals（建目标 → 规划工单带 goal_id → 汇报写里程碑 → "
             "复盘发 goal.review_due）"
+        )
+
+        # 10. M85 IM 通道（T5）：生成绑定码 → FakeAdapter 入站 /bind → 普通文本 →
+        # 总控收件箱与发件箱 sent。适配器在两条注入路径上一起替换。
+        from maa_api.agent.channels.adapter import Inbound
+        from maa_api.agent.channels.fake import FakeAdapter
+        from maa_api.agent.channels.service import BIND_OK_TEXT
+        from maa_api.domain.enums import ChannelPlatform
+
+        channel_service = main_module.app.state.channel_service
+        _require(
+            channel_service is not None,
+            "应用没有装配 IM 通道服务（app.state.channel_service）",
+        )
+        fake_adapter = FakeAdapter(
+            ChannelPlatform.TELEGRAM, on_inbound=channel_service.handle_inbound
+        )
+        # 发件箱 worker 的 adapter_for 闭包读 app.state.channel_adapters；
+        # ChannelService 自己另存一份平台映射，两处一起换。
+        main_module.app.state.channel_adapters[ChannelPlatform.TELEGRAM] = fake_adapter
+        channel_service.register_adapter(ChannelPlatform.TELEGRAM, fake_adapter)
+
+        bind_code = _check_response(
+            client.post("/api/agent/channels/telegram/bind-codes", headers=headers),
+            201,
+            "生成 Telegram 绑定码",
+        ).get("code")
+        _require(
+            isinstance(bind_code, str) and len(bind_code) == 8,
+            f"绑定码形状不对：{bind_code!r}",
+        )
+
+        im_user = "smoke-tg-user"
+        im_chat = "smoke-tg-chat"
+        client.portal.call(
+            fake_adapter.inject,
+            Inbound(
+                platform=ChannelPlatform.TELEGRAM,
+                external_user_id=im_user,
+                external_chat_id=im_chat,
+                text=f"/bind {bind_code}",
+                message_id="m1",
+            ),
+        )
+        binding_list = _check_response(
+            client.get("/api/agent/channels/bindings", headers=headers),
+            200,
+            "通道绑定列表",
+        )
+        bound = [
+            item
+            for item in binding_list.get("items", [])
+            if item.get("external_user_id") == im_user
+        ]
+        _require(
+            len(bound) == 1
+            and bound[0].get("status") == "active"
+            and bound[0].get("external_chat_id") == im_chat,
+            f"绑定没有生效：{binding_list!r}",
+        )
+        _wait_for(
+            lambda: (im_chat, BIND_OK_TEXT) in fake_adapter.sent,
+            label="绑定回执发出",
+        )
+
+        reply_text = "今天先刷糖本，理智够两次。"
+        client.portal.call(
+            fake_adapter.inject,
+            Inbound(
+                platform=ChannelPlatform.TELEGRAM,
+                external_user_id=im_user,
+                external_chat_id=im_chat,
+                text="今天体力怎么安排",
+                message_id="m2",
+            ),
+        )
+        im_items = _wait_for(
+            lambda: [
+                item
+                for item in client.portal.call(
+                    _orchestrator_user_inbox, incident_service, session_id
+                )
+                if (item.payload or {}).get("source") == "im_telegram"
+            ],
+            label="IM 消息进入总控收件箱",
+        )
+        _require(
+            len(im_items) == 1
+            and str(im_items[0].kind) == "user_message"
+            and (im_items[0].payload or {}).get("platform") == "telegram"
+            and (im_items[0].payload or {}).get("external_chat_id") == im_chat
+            and "今天体力怎么安排" in str((im_items[0].payload or {}).get("text") or ""),
+            f"总控收件箱的 IM 消息不对：{[item.payload for item in im_items]!r}",
+        )
+
+        def _sent_reply_rows() -> list[dict[str, Any]]:
+            page = _check_response(
+                client.get(
+                    "/api/agent/outbox",
+                    params={"channel": "im_telegram", "size": 50},
+                    headers=headers,
+                ),
+                200,
+                "IM 发件箱",
+            )
+            return [
+                item
+                for item in page.get("items", [])
+                if item.get("payload", {}).get("text") == reply_text
+                and item.get("status") == "sent"
+            ]
+
+        _wait_for(
+            lambda: (im_chat, reply_text) in fake_adapter.sent
+            and bool(_sent_reply_rows()),
+            label="IM 回复写进发件箱并发送",
+        )
+        print(
+            "[ok] channels（生成绑定码 → FakeAdapter 入站 /bind → 绑定 active 与"
+            "回执 sent → 普通文本进总控收件箱 → 回复 sent）"
         )
 
         _require(

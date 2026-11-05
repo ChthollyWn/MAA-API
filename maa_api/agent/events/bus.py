@@ -209,6 +209,10 @@ class TriggerService:
         if callable(bind):
             bind(lambda: getattr(getattr(app, "state", None), "worker_service", None))
 
+    def bind_orchestrator_service(self, service: Any) -> None:
+        """绑定晚装配的总控服务（M85 的 IM 入站需要走用户消息入库路径）。"""
+        self._orchestrator_service = service
+
     # ------------------------------------------------------------------
     # 发布
     # ------------------------------------------------------------------
@@ -509,7 +513,9 @@ class TriggerService:
     ) -> PublishResult:
         """没有建单/写观察时的去处：需要的话交总控，否则只记录（§4.5.2）。"""
         reason_text = eval_reason if eval_reason is not None else reason
-        if needs_attention(row.kind, row.payload):
+        # 08 §2.3 第 3 步：im.message 固定交总控（写成 user_message），不受
+        # 「attention 集合」限制；这也是 IM 消息在无规则命中时的默认去处。
+        if row.kind == "im.message" or needs_attention(row.kind, row.payload):
             await self.forward_to_orchestrator(row, reason=reason, rule_id=rule_id)
             return await self._finish(
                 row,
@@ -599,6 +605,34 @@ class TriggerService:
         async with self._session_factory() as session:
             if await AgentInboxRepository(session).exists(inbox_kind, ref_id):
                 return None
+        post_user_message = getattr(
+            self._orchestrator_service, "post_user_message", None
+        )
+        if row.kind == "im.message" and callable(post_user_message):
+            # M85 §4.5：IM 消息是用户对总控说的话，必须落 ``agent_message`` 再进
+            # 收件箱，否则总控模型看不到正文。事件行的 dedupe_key 已保证同一
+            # message_id 只处理一次。
+            text = str(row.payload.get("text") or "").strip()
+            if not text:
+                return None
+            await post_user_message(
+                text,
+                [],
+                source=str(row.source),
+                sender=str(row.sender or row.source),
+                payload={
+                    key: row.payload.get(key)
+                    for key in (
+                        "binding_id",
+                        "message_id",
+                        "reply_to",
+                        "platform",
+                        "external_chat_id",
+                    )
+                    if row.payload.get(key) is not None
+                },
+            )
+            return None
         payload = {
             "trigger_id": row.id,
             "source": row.source,
@@ -609,6 +643,13 @@ class TriggerService:
             "rule_id": rule_id,
             "reason": reason,
         }
+        if row.kind == "im.message":
+            # M85 §4.5：IM 来源的回复要按平台与对话写回发件箱，把这两个字段
+            # 连同原话提到收件箱顶层（嵌套的 ``payload`` 仍留给模型看）。
+            for key in ("platform", "external_chat_id", "text"):
+                value = row.payload.get(key)
+                if value is not None:
+                    payload[key] = value
         return await self._thread_router.to_orchestrator(
             kind=inbox_kind,
             thread_key=row.thread_key,

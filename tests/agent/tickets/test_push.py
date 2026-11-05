@@ -17,10 +17,15 @@ from maa_api.domain.enums import ReportStatus
 
 
 class _WebPush:
-    """记录推载荷的投递替身。"""
+    """记录推载荷的发件箱替身；``enqueue`` 是 M85 的生产路径。"""
 
     def __init__(self) -> None:
         self.payloads: list[dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
+
+    async def enqueue(self, payload: dict[str, Any], **kwargs: Any) -> None:
+        self.payloads.append(payload)
+        self.calls.append({"payload": payload, **kwargs})
 
     async def broadcast(self, payload: dict[str, Any]) -> None:
         self.payloads.append(payload)
@@ -67,7 +72,7 @@ def _notifier(
     sink = webpush or _WebPush()
     return (
         TicketPushNotifier(
-            webpush=sink,
+            outbox=sink,
             has_visible_client=lambda: visible,
             clock=clock or _Clock(),
         ),
@@ -108,6 +113,10 @@ def test_pushes_ready_blocked_failed_when_no_visible_client() -> None:
                 "tag": f"ticket:t-{index}",
                 "data": {"url": f"/tickets/t-{index}", "ticketId": f"t-{index}"},
             }
+            call = webpush.calls[index]
+            assert call["kind"].value == "report"
+            assert call["dedupe_key"].startswith(f"ticket:t-{index}:")
+            assert call["ref_ticket_id"] == f"t-{index}"
 
     asyncio.run(scenario())
 

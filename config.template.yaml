@@ -115,6 +115,35 @@ spend:
   daily_stone_limit: -1
   daily_expedite_limit: -1
 
+# IM 通道：四个平台默认关闭；启用前安装对应 extra 并在设置页填写应用凭证。
+# 四个 *_secret / *_token 是敏感项，落库时加密，接口只回显 ***；忘掉主密钥后需要重新录入。
+# 绑定码只在网页上生成；破坏类确认默认只能在网页上批准。改启用开关与凭证后重启服务生效。
+channels:
+  # 单条回复的最大字数（80-4000），超出时先给结论再附网页链接
+  max_reply_chars: 300
+  # 是否允许在 IM 里批准破坏类确认（默认 false，破坏类只在网页批准）
+  allow_destructive_approval: false
+  # 四个平台开关；未填凭证时即使为 true 也不会启动
+  telegram_enabled: false
+  feishu_enabled: false
+  dingtalk_enabled: false
+  qq_enabled: false
+  # 平台凭证（敏感）：留空表示未配置
+  telegram_bot_token:
+  feishu_app_secret:
+  dingtalk_client_secret:
+  qq_app_secret:
+  # 非密钥的平台标识
+  feishu_app_id:
+  dingtalk_client_id:
+  qq_app_id:
+  # 飞书开放平台地址（海外版或代理网关填别的值）
+  feishu_domain: "https://open.feishu.cn"
+  # Telegram 专用代理；留空表示沿用 app.proxy
+  telegram_proxy:
+  # QQ 官方机器人沙箱环境
+  qq_sandbox: false
+
 # 提示注入防护：off 只打标不检测，rules 用规则检测，rules_llm 在规则命中或内容出自他人时再请便宜模型复核
 guard:
   injection_detection: rules

@@ -103,6 +103,10 @@ BUSINESS_TABLES = {
     "watchdog_alert",
     # M84：每日消耗账本（v3 specs/m84 §4.1、docs/v3/03 §11.6）。
     "spend_ledger",
+    # M85：IM 通道三表（v3 specs/m85 §4.1、docs/v3/03 §11.7）。
+    "channel_binding",
+    "channel_bind_code",
+    "outbox",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -135,6 +139,8 @@ UUID_PK_TABLES = [
     # M82：目标与里程碑 id 都对外暴露（详情页与复盘汇报都按它引用）。
     "goal",
     "goal_milestone",
+    # M85：绑定 id 对外暴露（解绑端点路径里带它）；绑定码是 16 字符短码。
+    "channel_binding",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -156,6 +162,8 @@ AUTOINCREMENT_TABLES = [
     "watchdog_alert",
     # M84：消耗账本只增不删，整数自增主键（spec §4.1）。
     "spend_ledger",
+    # M85：发件箱只增不删，整数自增主键（spec §4.1）。
+    "outbox",
 ]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
@@ -374,6 +382,17 @@ EXPECTED_INDEXES = {
         ("kind", "created_at"),
         False,
     ),
+    # M85：同一平台上的同一用户与同一会话只绑定一次；发件箱按状态与到期时间取件。
+    "uq_channel_binding_platform_external_user_id_external_chat_id": (
+        "channel_binding",
+        ("platform", "external_user_id", "external_chat_id"),
+        True,
+    ),
+    "ix_outbox_status_next_attempt_at": (
+        "outbox",
+        ("status", "next_attempt_at"),
+        False,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -405,6 +424,8 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
         "knowledge_document",
         ("source_id", "external_id"),
     ),
+    # M85：发件箱按去重键唯一，重复入队返回旧行（spec §4.5）。
+    "uq_outbox_dedupe_key": ("outbox", ("dedupe_key",)),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -511,6 +532,9 @@ EXPECTED_FK_SET_NULL = {
     ("spend_ledger", "pipeline_id"),
     ("spend_ledger", "task_id"),
     ("spend_ledger", "ticket_id"),
+    # M85：运行/工单被清理时发件箱行留着，供审计与续发（spec §4.1）。
+    ("outbox", "ref_run_id"),
+    ("outbox", "ref_ticket_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -558,6 +582,8 @@ EXPECTED_TEXT_COLUMNS = {
     ("goal", "description"),
     # M83：告警正文长度不定，用 TEXT。
     ("watchdog_alert", "message"),
+    # M85：发件箱最后一次失败原因长度不定，用 TEXT。
+    ("outbox", "last_error"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -631,6 +657,9 @@ EXPECTED_JSON_COLUMNS = {
     ("goal_milestone", "metrics"),
     # M83：告警的判定证据（重复命中时写 evidence.latest）。
     ("watchdog_alert", "evidence"),
+    # M85：发件箱的发送内容与平台回执。
+    ("outbox", "payload"),
+    ("outbox", "receipt"),
 }
 
 # FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
@@ -711,8 +740,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_53_business_tables():
-    """53 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_56_business_tables():
+    """56 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
@@ -1328,6 +1357,8 @@ COLUMN_WIDTH_OVERRIDES: dict[tuple[str, str], int] = {
     ("cost_ledger", "role"): 24,
     ("agent_trigger", "source"): 24,
     ("trigger_rule", "source"): 24,
+    # M85 规格 §4.1：发件箱的 target 是外部 chat id / 订阅标识，定宽 255。
+    ("outbox", "target"): 255,
 }
 
 

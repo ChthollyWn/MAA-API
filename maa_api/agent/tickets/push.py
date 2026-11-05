@@ -1,8 +1,8 @@
 """后台工单推送：用户不在页面上时推一条 Web Push（M82 规格 §4.5.6、08 §1.5）。
 
-本模块只做「一条汇报值不值得推、推什么、隔多久再推」的判断，投递交给注入的
-``WebPushService.broadcast``；不涉及 v2 的确认、养成计划完成等既有通知，也不写
-发件箱（M85 接手时替换投递实现）。
+本模块只做「一条汇报值不值得推、推什么、隔多久再推」的判断，投递从 M85 起写进
+``outbox``（``channel=webpush``、``kind=report``），由 ``OutboxWorker`` 调
+``WebPushService.broadcast``；不涉及 v2 的确认、养成计划完成等既有通知。
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from maa_api.domain.enums import ReportStatus
+from maa_api.domain.enums import OutboxKind, ReportStatus
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +51,13 @@ class TicketPushNotifier:
     def __init__(
         self,
         *,
-        webpush: Any,
+        outbox: Any,
         has_visible_client: Callable[[], bool],
         clock: Callable[[], float] = time.monotonic,
         min_interval_seconds: float = 600.0,
     ) -> None:
-        self._webpush = webpush
+        #: ``WebPushOutbox``：写 outbox，不直接触达推送服务。
+        self._outbox = outbox
         self._has_visible_client = has_visible_client
         self._clock = clock
         self._min_interval_seconds = min_interval_seconds
@@ -95,7 +96,17 @@ class TicketPushNotifier:
             "data": {"url": f"/tickets/{ticket.id}", "ticketId": ticket.id},
         }
         try:
-            await self._webpush.broadcast(payload)
+            # source 用 report id；监听器拿到的是 ReportInput（无 id）时退回
+            # 状态 + ref + 摘要指纹，同一事件重复回调不会重复入队。
+            source = getattr(report, "id", None)
+            if source is None:
+                source = f"{status.value}:{ref_id or ''}:{summary[:40]}"
+            await self._outbox.enqueue(
+                payload,
+                kind=OutboxKind.REPORT,
+                dedupe_key=f"ticket:{ticket.id}:{source}"[:160],
+                ref_ticket_id=ticket.id,
+            )
         except Exception:  # noqa: BLE001 - 推送失败不能影响已落库的汇报
             logger.warning(
                 "工单推送失败：ticket=%s status=%s",

@@ -222,3 +222,28 @@ def test_lifespan_wires_spend_guard_and_brief_service(
         assert scheduler.get_job("maa-brief-daily") is not None
         assert service._watch_task is not None
         assert not service._watch_task.done()
+
+
+def test_lifespan_wires_channels_and_outbox(tmp_settings, isolated_db) -> None:
+    """M85：通道服务、发件箱、四个适配器与确认/汇报接线都要挂上。"""
+
+    from maa_api.agent.channels.outbox import OutboxWorker, WebPushOutbox
+    from maa_api.agent.channels.service import ChannelService
+
+    app = create_app()
+    with _lifespan(app):
+        service = getattr(app.state, "channel_service", None)
+        worker = getattr(app.state, "outbox_worker", None)
+        assert isinstance(service, ChannelService), (
+            "lifespan 没有设置 app.state.channel_service"
+        )
+        assert isinstance(worker, OutboxWorker), (
+            "lifespan 没有设置 app.state.outbox_worker"
+        )
+        assert isinstance(app.state.webpush_outbox, WebPushOutbox)
+        assert len(app.state.channel_adapters) == 4
+        # 确认 pending 后写 IM 发件箱；汇报落库后写 IM 发件箱。
+        assert app.state.confirmation_service._channel_outbound is service
+        assert service._confirmation_service is app.state.confirmation_service
+        assert service.on_ticket_report in app.state.ticket_service._report_listeners
+        assert worker._senders.get("webpush") is not None

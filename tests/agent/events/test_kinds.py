@@ -19,7 +19,7 @@ from maa_api.agent.events.kinds import (
 )
 from maa_api.domain.enums import EventSource
 
-#: 08 §2.2 的 15 种事件：kind → (source, 03 §15 前缀, 08 §2.4 摘要模板)。
+#: 08 §2.2 的 16 种事件：kind → (source 或 sources, 03 §15 前缀, 08 §2.4 摘要模板)。
 EXPECTED = [
     (
         "pipeline.completed",
@@ -96,22 +96,33 @@ EXPECTED = [
         "goal:",
         "目标「{title}」过了截止还没完成",
     ),
+    (
+        "im.message",
+        ("im_telegram", "im_feishu", "im_dingtalk", "im_qq"),
+        "im:",
+        "IM 消息：{text}",
+    ),
 ]
 
 
 def test_every_known_kind_matches_thread_prefix_table():
     assert list(KNOWN_KINDS) == [kind for kind, *_ in EXPECTED]
-    assert len(KNOWN_KINDS) == 15
+    assert len(KNOWN_KINDS) == 16
 
     event_sources = {source.value for source in EventSource}
     for kind, source, prefix, template in EXPECTED:
         entry = KNOWN_KINDS[kind]
         assert entry.kind == kind
-        assert entry.sources == frozenset({source})
-        assert source in event_sources
-        # 03 §15：前缀属于该来源的领域，且 kind 是 <领域>.<动作>。
-        assert entry.thread_prefix.startswith(f"{source}:")
-        assert prefix == entry.thread_prefix
+        sources = (source,) if isinstance(source, str) else tuple(source)
+        assert entry.sources == frozenset(sources)
+        assert set(sources) <= event_sources
+        if kind == "im.message":
+            # 四个 im_* 共用 ``im:`` 前缀（08 §2.2 的 ``im_*`` 来源族）。
+            assert prefix == entry.thread_prefix == "im:"
+        else:
+            # 03 §15：前缀属于该来源的领域，且 kind 是 <领域>.<动作>。
+            assert entry.thread_prefix.startswith(f"{sources[0]}:")
+            assert prefix == entry.thread_prefix
         assert re.fullmatch(r"[a-z]+\.[a-z_]+", kind)
         assert len(kind) <= 48
         assert entry.summary == template
@@ -151,6 +162,16 @@ def test_validate_rejects_unknown_kind_mismatch_and_oversize():
         )
         is None
     )
+    # im.message 接受四个 im_* 来源与 ``im:`` 话题前缀（08 §2.2）。
+    for source in ("im_telegram", "im_feishu", "im_dingtalk", "im_qq"):
+        assert (
+            validate_event(source, "im.message", f"im:{source}:chat-1", {"text": "你好"})
+            is None
+        )
+    assert (
+        validate_event("web", "im.message", "im:telegram:chat-1", {})
+        == "source_mismatch"
+    )
 
 
 def test_summary_fills_missing_fields_with_unknown():
@@ -168,6 +189,8 @@ def test_summary_fills_missing_fields_with_unknown():
     assert len(long_summary) == MAX_SUMMARY_CHARS
     assert long_summary.startswith("流水线「日日")
     assert summarize("no.such.kind", {}) == "no.such.kind"
+    assert summarize("im.message", {"text": "帮我刷个理智"}) == "IM 消息：帮我刷个理智"
+    assert summarize("im.message", {}) == "IM 消息：未知"
 
 
 def test_attention_kinds_are_core_failed_device_unavailable_and_two_goal_kinds():
@@ -184,4 +207,6 @@ def test_attention_kinds_are_core_failed_device_unavailable_and_two_goal_kinds()
     assert not needs_attention("goal.review_due", {"title": "银灰精二"})
     assert not needs_attention("core.crashed", {})
     assert not needs_attention("pipeline.failed", {})
+    # im.message 固定交总控，但不算「attention」种类（08 §2.3 的 kind=user 分支）。
+    assert not needs_attention("im.message", {"text": "你好"})
     assert not needs_attention("no.such.kind", {})

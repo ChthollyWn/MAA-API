@@ -255,6 +255,11 @@ curl -X POST http://<host>:8002/api/snippets \
 | `GOAL_ENDED` | 409 | 目标已结束（done / failed / cancelled），不能再改（M82） |
 | `WATCHDOG_ALERT_NOT_FOUND` | 404 | 没有这条值守告警（M83）：解除一条不存在的告警 |
 | `SPEND_CAP_EXCEEDED` | 403 | 超过今日消耗上限（M84）：代理或定时任务的提交会让今天的理智药、源石或加急许可用量超过设置里的上限。`details` 带 `kind`、`limit`、`used`、`requested`、`source`、`violations`、`day_start` |
+| `CHANNEL_NOT_CONFIGURED` | 503 | 该平台未启用或缺少凭证（Telegram Bot Token、飞书 App ID + Secret、钉钉 Client ID + Secret、QQ App ID + Secret），却要发测试消息或启动适配器 |
+| `CHANNEL_SEND_FAILED` | 502 | 同步发送路径下平台拒绝或不可达；发件箱内部的重试与死信仍用 `outbox.status`，不抛这个码 |
+| `CHANNEL_BINDING_NOT_FOUND` | 404 | 要解除的通道绑定不存在或已经是 revoked |
+| `BIND_CODE_INVALID` | 400 | 绑定码不存在、已使用、已过期或与平台不符；对应 `POST /api/agent/channels/{platform}/bind-codes` 的平台参数非法时也用它 |
+| `CHANNEL_APPROVAL_NOT_ALLOWED` | 403 | 破坏类确认默认只能在网页上批准，IM 文本不能代替确认卡（`channels.allow_destructive_approval=false`） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->

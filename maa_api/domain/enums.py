@@ -576,3 +576,45 @@ class SpendKind(StrEnum):
     MEDICINE = "medicine"  # 理智药（不含 48 小时内过期的药，裁决 R2）
     STONE = "stone"  # 源石
     EXPEDITE = "expedite"  # 加急许可
+
+
+# ---- M85 IM 通道与发件箱（v3 specs/m85 §4.1、v3 docs/03 §11.7） ----
+
+
+class ChannelPlatform(StrEnum):
+    """IM 平台；``channel_binding.platform`` 与绑定码上的平台用它。"""
+
+    TELEGRAM = "telegram"
+    FEISHU = "feishu"
+    DINGTALK = "dingtalk"
+    QQ = "qq"
+
+
+class OutboxChannel(StrEnum):
+    """发件箱的出口：四个 IM 平台与 Web Push（docs/03 §11.7）。"""
+
+    IM_TELEGRAM = "im_telegram"
+    IM_FEISHU = "im_feishu"
+    IM_DINGTALK = "im_dingtalk"
+    IM_QQ = "im_qq"
+    WEBPUSH = "webpush"
+
+
+class OutboxKind(StrEnum):
+    """发件箱消息的种类；决定去重键的前缀（spec §4.5 出站）。"""
+
+    REPLY = "reply"
+    REPORT = "report"
+    CONFIRMATION = "confirmation"
+    BRIEF = "brief"
+    ALERT = "alert"
+
+
+class OutboxStatus(StrEnum):
+    """发件箱状态机：待发、发送中、已发、失败待重试、死信。"""
+
+    PENDING = "pending"
+    SENDING = "sending"
+    SENT = "sent"
+    FAILED = "failed"
+    DEAD = "dead"

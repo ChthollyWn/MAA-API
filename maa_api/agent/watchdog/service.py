@@ -95,6 +95,7 @@ from maa_api.domain.enums import (
     InboxKind,
     InboxStatus,
     ModelRole,
+    OutboxKind,
     PipelineStatus,
     ReportStatus,
     TicketStatus,
@@ -221,7 +222,7 @@ class WatchdogService:
         worker_service: Any = None,
         orchestrator_service: Any = None,
         thread_router: Any = None,
-        webpush_service: Any = None,
+        webpush_outbox: Any = None,
         has_visible_client: Callable[[], bool] | None = None,
         restart_core: Callable[[], Awaitable[Any]] | None = None,
         broadcast: Callable[[str, dict[str, Any]], Any] | None = None,
@@ -244,7 +245,8 @@ class WatchdogService:
         self._worker_service = worker_service
         self._orchestrator_service = orchestrator_service
         self._thread_router = thread_router
-        self._webpush_service = webpush_service
+        #: M85：critical 的 Web Push 先写 outbox（channel=webpush、kind=alert）。
+        self._webpush_outbox = webpush_outbox
         self._has_visible_client = has_visible_client
         self._restart_core_callback = restart_core
         self._broadcast = broadcast
@@ -1244,10 +1246,14 @@ class WatchdogService:
             )
 
     async def _push_alert(self, alert: WatchdogAlert) -> None:
-        """没有可见页面时才推送；warn / info 不走这里。"""
-        webpush = self._webpush_service
+        """没有可见页面时才推送；warn / info 不走这里。
+
+        M85 起写发件箱（``channel=webpush``、``kind=alert``），由
+        ``OutboxWorker`` 的注册发送器调 ``WebPushService.broadcast``。
+        """
+        outbox = self._webpush_outbox
         visible = self._has_visible_client
-        if webpush is None or visible is None or visible():
+        if outbox is None or visible is None or visible():
             return
         payload = {
             "title": f"值守告警：{alert.message}"[:40],
@@ -1256,7 +1262,11 @@ class WatchdogService:
             "data": {"url": "/more/watchdog", "alertId": alert.id},
         }
         try:
-            await webpush.broadcast(payload)
+            await outbox.enqueue(
+                payload,
+                kind=OutboxKind.ALERT,
+                dedupe_key=f"watchdog:{alert.id}",
+            )
         except Exception:  # noqa: BLE001 - 推送失败不能影响已落库的告警
             logger.warning("值守告警推送失败：alert=%s", alert.id, exc_info=True)
 

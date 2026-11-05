@@ -40,6 +40,7 @@ from maa_api.db.models import Artifact, Ticket, utcnow
 from maa_api.domain.enums import (
     EventSource,
     MandateStrength,
+    OutboxKind,
     RiskLevel,
     TicketOrigin,
 )
@@ -426,23 +427,19 @@ class BriefService:
         meta["status"] = status
         meta["ticket_id"] = ticket_id
         await artifact_service.update(artifact_id, content=body, meta=meta)
-        if not (
-            push
-            and self._settings_provider().brief.push_web
-            and not self._has_visible_client()
-        ):
+        if not push:
             return
-        webpush = getattr(getattr(self._app, "state", None), "webpush_service", None)
-        if webpush is None:
-            return
+        settings = self._settings_provider()
+        state = getattr(self._app, "state", None)
+        push_body = (
+            _FACTS_ONLY_PUSH_BODY
+            if status == "facts_only"
+            else str(summary or "")[:120]
+        )
         payload = {
             "type": "notification",
             "title": "每日简报",
-            "body": (
-                _FACTS_ONLY_PUSH_BODY
-                if status == "facts_only"
-                else str(summary or "")[:120]
-            ),
+            "body": push_body,
             "data": {
                 "kind": "brief",
                 "artifact_id": artifact_id,
@@ -450,10 +447,44 @@ class BriefService:
                 "url": f"/tickets/{ticket_id}" if ticket_id else "/",
             },
         }
-        try:
-            await webpush.broadcast(payload)
-        except Exception:  # noqa: BLE001 - 推送失败不影响产物收尾
-            logger.warning("简报推送失败：artifact=%s", artifact_id, exc_info=True)
+        if settings.brief.push_web and not self._has_visible_client():
+            # M85：先写 outbox，投递由 OutboxWorker 的 webpush 发送器完成。
+            outbox = getattr(state, "webpush_outbox", None)
+            if outbox is not None:
+                try:
+                    await outbox.enqueue(
+                        payload,
+                        kind=OutboxKind.BRIEF,
+                        dedupe_key=f"brief:{artifact_id}",
+                        ref_ticket_id=str(ticket_id) if ticket_id else None,
+                    )
+                except Exception:  # noqa: BLE001 - 推送失败不影响产物收尾
+                    logger.warning(
+                        "简报推送失败：artifact=%s", artifact_id, exc_info=True
+                    )
+        if settings.brief.push_im:
+            channel_service = getattr(state, "channel_service", None)
+            if channel_service is not None:
+                if ticket_id:
+                    text = f"每日简报\n{push_body}\n/tickets/{ticket_id}"
+                else:
+                    text = f"每日简报\n{push_body}"
+                try:
+                    await channel_service.enqueue_for_bindings(
+                        OutboxKind.BRIEF,
+                        artifact_id,
+                        text,
+                        {
+                            "artifact_id": artifact_id,
+                            "ticket_id": str(ticket_id) if ticket_id else None,
+                            "url": f"/tickets/{ticket_id}" if ticket_id else "/",
+                        },
+                        ref_ticket_id=str(ticket_id) if ticket_id else None,
+                    )
+                except Exception:  # noqa: BLE001 - 出站失败不影响产物收尾
+                    logger.warning(
+                        "简报写 IM 发件箱失败：artifact=%s", artifact_id, exc_info=True
+                    )
 
     async def _recover_stale(self) -> None:
         """启动恢复：pending 且超过 30 分钟的简报标 facts_only，不推送。"""
