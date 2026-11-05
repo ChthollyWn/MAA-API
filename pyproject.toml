@@ -49,16 +49,10 @@ tokenizers = { version = ">=0.20", optional = true }
 # IM 通道平台 SDK（M85，docs/v3/specs/m85 §4.2）：不放进默认安装集，按平台装
 # `im-feishu` / `im-dingtalk` / `im-qq`。适配器在 start/send 时延迟导入，缺包只记
 # 「未安装」，不影响服务启动与其他平台。Telegram 用已有 httpx，不需要 extra。
-lark-oapi = { version = "^1.7.5", optional = true }
-dingtalk-stream = { version = "^0.24.3", optional = true }
-qq-botpy = { version = "^1.2.1", optional = true }
 
 [tool.poetry.extras]
 otlp = ["opentelemetry-sdk", "opentelemetry-exporter-otlp-proto-http"]
 embed-local = ["onnxruntime", "tokenizers"]
-im-feishu = ["lark-oapi"]
-im-dingtalk = ["dingtalk-stream"]
-im-qq = ["qq-botpy"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8"
