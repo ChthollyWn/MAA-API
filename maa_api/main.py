@@ -83,6 +83,7 @@ from maa_api.api.routers import (
     tickets,
     triggers,
     updates,
+    watchdog,
 )
 from maa_api.api.ws import manager as ws_manager
 from maa_api.api.ws import router as ws_router
@@ -2314,6 +2315,7 @@ def create_app() -> FastAPI:
     app.include_router(tickets.router)
     app.include_router(triggers.router)
     app.include_router(goals.router)
+    app.include_router(watchdog.router)
     app.include_router(rewind.router)
     app.include_router(device_lease.router)
     app.include_router(ws_router)
