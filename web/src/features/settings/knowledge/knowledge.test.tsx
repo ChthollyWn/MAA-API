@@ -183,7 +183,9 @@ describe('knowledge settings section', () => {
     const link = await screen.findByRole('link', { name: /^Agent 知识库/ })
     expect(link).toHaveAttribute('href', '/more/settings/knowledge')
     const hrefs = screen.getAllByRole('link').map((item) => item.getAttribute('href'))
-    expect(hrefs.indexOf('/more/settings/models')).toBe(hrefs.indexOf('/more/settings/agent') + 1)
+    // M85：IM 通道插在 Agent 与模型档案之间。
+    expect(hrefs.indexOf('/more/settings/channels')).toBe(hrefs.indexOf('/more/settings/agent') + 1)
+    expect(hrefs.indexOf('/more/settings/models')).toBe(hrefs.indexOf('/more/settings/channels') + 1)
     expect(hrefs.indexOf('/more/settings/knowledge')).toBe(hrefs.indexOf('/more/settings/models') + 1)
   })
 

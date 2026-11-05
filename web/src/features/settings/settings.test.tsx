@@ -139,6 +139,16 @@ function installApi(options: ApiOptions = {}) {
     if (url.pathname === '/api/system/health') return json({ status: 'ok', auth_enabled: true, version: 'test' })
     if (url.pathname === '/api/notifications/channels') return json({ items: [], total: 0 })
     if (url.pathname === '/api/notifications/push-subscriptions') return json({ items: [], total: 0 })
+    // M85：IM 通道分区的四平台状态与绑定列表。
+    if (url.pathname === '/api/agent/channels') {
+      return json([
+        { platform: 'telegram', enabled: true, configured: true, connected: true },
+        { platform: 'feishu', enabled: false, configured: false, connected: false },
+        { platform: 'dingtalk', enabled: false, configured: false, connected: null },
+        { platform: 'qq', enabled: false, configured: false, connected: null },
+      ])
+    }
+    if (url.pathname === '/api/agent/channels/bindings') return json({ items: [] })
     return json({ error: { code: 'NOT_FOUND', message: 'not found' } }, 404)
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -202,6 +212,7 @@ describe('settings index', () => {
       [/^访问 token/, 'access'],
       [/^设备与渠道/, 'device'],
       [/^LLM 与 Agent/, 'agent'],
+      [/^IM 通道/, 'channels'],
       [/^模型档案/, 'models'],
       [/^通知/, 'notifications'],
       [/^更新与日志/, 'maintenance'],
@@ -283,6 +294,34 @@ describe('schema-driven sections', () => {
     renderSettings(['/more/settings/agent'])
     expect(await screen.findByLabelText('LLM API 密钥')).toHaveValue('')
     expect(screen.getByText('已配置，已脱敏')).toBeInTheDocument()
+  })
+
+  it('renders the IM channels section with the four platform states and masked secrets (M85)', async () => {
+    installApi({
+      extraSchema: [
+        { key: 'channels.telegram_enabled', label: '启用 Telegram 通道', group: 'IM 通道', type: 'boolean', hot_action: 'restart_required' },
+        { key: 'channels.max_reply_chars', label: '单条 IM 回复最大字数', group: 'IM 通道', type: 'integer', minimum: 80, maximum: 4000, hot_action: 'none' },
+        { key: 'channels.telegram_bot_token', label: 'Telegram Bot Token', group: 'IM 通道', type: 'string', sensitive: true, hot_action: 'restart_required' },
+      ],
+      values: [
+        ...VALUES,
+        { key: 'channels.telegram_enabled', value: true, source: 'default' },
+        { key: 'channels.max_reply_chars', value: 300, source: 'default' },
+        { key: 'channels.telegram_bot_token', value: '***', source: 'db' },
+      ],
+    })
+    renderSettings(['/more/settings/channels'])
+
+    expect(await screen.findByRole('heading', { name: 'IM 通道', level: 1 })).toBeInTheDocument()
+    expect(await screen.findByText('已启用，已连接')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '生成绑定码' })).toHaveLength(4)
+    expect(await screen.findByText('还没有绑定')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: '启用 Telegram 通道' })).toHaveAttribute('aria-checked', 'true')
+    const secret = screen.getByLabelText('Telegram Bot Token')
+    expect(secret).toHaveAttribute('type', 'password')
+    expect(secret).toHaveValue('')
+    expect(screen.getByText('已配置，已脱敏')).toBeInTheDocument()
+    expect(screen.getByLabelText('单条 IM 回复最大字数')).toHaveValue('300')
   })
 
   it('saves only the edited device address and refreshes its source in place (P3)', async () => {

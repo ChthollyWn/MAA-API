@@ -611,6 +611,13 @@ class TriggerService:
             "rule_id": rule_id,
             "reason": reason,
         }
+        if row.kind == "im.message":
+            # M85 §4.5：IM 来源的回复要按平台与对话写回发件箱，把这两个字段
+            # 连同原话提到收件箱顶层（嵌套的 ``payload`` 仍留给模型看）。
+            for key in ("platform", "external_chat_id", "text"):
+                value = row.payload.get(key)
+                if value is not None:
+                    payload[key] = value
         return await self._thread_router.to_orchestrator(
             kind=inbox_kind,
             thread_key=row.thread_key,

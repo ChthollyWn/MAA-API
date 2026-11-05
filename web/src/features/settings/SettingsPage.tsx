@@ -10,6 +10,7 @@ import { useUiStore } from '@/stores/ui'
 import { ModelsSection } from '@/features/models/ModelsSection'
 import { AgentCapabilityCheck } from './AgentCapabilityCheck'
 import { BriefControl } from './BriefControl'
+import { ChannelSection } from './ChannelSection'
 import { KnowledgePartition } from './knowledge/KnowledgePartition'
 import { AccessSection, AppearanceSection, themeLabel } from './LocalSections'
 import { NotificationChannels } from './NotificationChannels'
@@ -105,6 +106,9 @@ function SectionPage({ section }: { section: SettingsSection }) {
     case 'sources':
       // 状态面板与 schema 驱动的开关同页：面板在上，字段在下（规格 §5.11）。
       return <SchemaSection section={section} intro={<SourcesStatus />} />
+    case 'channels':
+      // 平台状态、绑定码与绑定列表在上，16 个 schema 字段在下；密钥由 schema 统一脱敏（M85 §4.6）。
+      return <SchemaSection section={section} intro={<ChannelSection />} />
     case 'knowledge':
       // 知识库不是设置项：它有自己的列表与整页编辑器，不走设置 schema。
       return (

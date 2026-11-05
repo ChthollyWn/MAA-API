@@ -1,7 +1,7 @@
-import { Bell, BookOpen, Bot, Cpu, Globe, KeyRound, Palette, Server, SlidersHorizontal, Smartphone, Wrench, type LucideIcon } from 'lucide-react'
+import { Bell, BookOpen, Bot, Cpu, Globe, KeyRound, MessagesSquare, Palette, Server, SlidersHorizontal, Smartphone, Wrench, type LucideIcon } from 'lucide-react'
 import type { SettingField } from './schema'
 
-export type SettingsSectionId = 'appearance' | 'access' | 'device' | 'agent' | 'models' | 'knowledge' | 'notifications' | 'sources' | 'maintenance' | 'system' | 'other'
+export type SettingsSectionId = 'appearance' | 'access' | 'device' | 'agent' | 'channels' | 'models' | 'knowledge' | 'notifications' | 'sources' | 'maintenance' | 'system' | 'other'
 
 export interface SettingsSection {
   id: SettingsSectionId
@@ -17,6 +17,8 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'access', title: '访问 token', summary: '替换或清除保存的 token', icon: KeyRound, scope: 'local' },
   { id: 'device', title: '设备与渠道', summary: '设备地址、连接方式与默认渠道', icon: Smartphone, scope: 'server' },
   { id: 'agent', title: 'LLM 与 Agent', summary: '模型接口、确认时限与自动诊断、简报与消耗上限', icon: Bot, scope: 'server' },
+  // M85 §4.6：IM 通道只看绑定与发件箱，不在指挥台另做入口。
+  { id: 'channels', title: 'IM 通道', summary: 'Telegram、飞书、钉钉与 QQ 的绑定与发件箱', icon: MessagesSquare, scope: 'server' },
   { id: 'models', title: '模型档案', summary: '模型接口、角色分配与价格', icon: Cpu, scope: 'server' },
   { id: 'knowledge', title: 'Agent 知识库', summary: '知识条目、检索来源与用户档案', icon: BookOpen, scope: 'server' },
   { id: 'notifications', title: '通知', summary: 'Web 推送与通知通道', icon: Bell, scope: 'server' },
@@ -37,6 +39,8 @@ const GROUP_SECTIONS = new Map<string, SettingsSectionId>([
   ['渠道', 'device'],
   ['LLM', 'agent'],
   ['Agent', 'agent'],
+  // M85 §4.6：设置 schema 的「IM 通道」分组进独立分区。
+  ['IM 通道', 'channels'],
   // M25：来源开关与状态面板同属「外部数据源」分区（规格 §5.11）。
   ['外部数据源', 'sources'],
   ['更新', 'maintenance'],

@@ -680,6 +680,16 @@ class ChannelService:
         """装配晚于构造时补注入确认服务。"""
         self._confirmation_service = service
 
+    def register_adapter(
+        self, platform: ChannelPlatform | str, adapter: ChannelAdapter
+    ) -> None:
+        """替换某个平台的适配器（测试与冒烟的注入点，不改路由契约）。
+
+        发件箱的 ``adapter_for`` 由装配层闭包持有同一个适配器字典，调用方在
+        替换本服务的映射时也要替换 ``app.state.channel_adapters``。
+        """
+        self._adapters[_platform(platform).value] = adapter
+
     # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
