@@ -1,4 +1,4 @@
-"""SQLModel 表定义：51 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：52 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -2386,3 +2386,41 @@ class GoalMilestone(SQLModel, table=True):
     )
 
     __table_args__ = (Index("ix_goal_milestone_goal_id_ord", "goal_id", "ord"),)
+
+
+# ---------------------------------------------------------------------------
+# 5.28 watchdog_alert — 值守告警（v3 specs/m83 §4.1、docs/v3/03 §11.5）
+# ---------------------------------------------------------------------------
+class WatchdogAlert(SQLModel, table=True):
+    """一条值守告警；同一 ``check`` + 目标未解除时不重复插入（M83 spec §4.1）。"""
+
+    __tablename__ = "watchdog_alert"
+
+    # 自增主键：与 agent_message 写法相同（03 §11.5、docs/04 §3.1）。
+    id: int | None = Field(default=None, primary_key=True)
+    #: 检查名与 ``maa_api.agent.watchdog.checks`` 的函数名相同；语义检查为
+    #: ``ticket_no_progress`` / ``ticket_drift``。
+    check: str = Field(max_length=48)
+    severity: str = Field(max_length=16)
+    target_kind: str = Field(max_length=16)
+    target_id: str | None = Field(default=None, max_length=64)
+    message: str = Field(sa_column=text_column("message", nullable=False))
+    #: 判定证据；重复命中时更新为首次证据 + ``latest`` 最新证据（spec §4.1）。
+    evidence: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("evidence", nullable=False, server_default="'{}'"),
+    )
+    action: str | None = Field(default=None, max_length=32)
+    action_status: str | None = Field(default=None, max_length=16)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    resolved_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("resolved_at", nullable=True)
+    )
+
+    __table_args__ = (
+        Index("ix_watchdog_alert_created_at", "created_at"),
+        Index("ix_watchdog_alert_target_kind_target_id", "target_kind", "target_id"),
+        {"sqlite_autoincrement": True},
+    )

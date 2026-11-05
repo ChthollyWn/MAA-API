@@ -535,3 +535,33 @@ class MilestoneStatus(StrEnum):
     DONE = "done"
     MISSED = "missed"
     SKIPPED = "skipped"
+
+
+# ---- M83 值守告警（v3 specs/m83 §4.1、v3 docs/03 §11.5） ----
+
+
+class AlertSeverity(StrEnum):
+    """值守告警的级别：信息、警告、严重。"""
+
+    INFO = "info"
+    WARN = "warn"
+    CRITICAL = "critical"
+
+
+class AlertTargetKind(StrEnum):
+    """告警目标种类：运行、工单、设备、内核、队列。"""
+
+    RUN = "run"
+    TICKET = "ticket"
+    DEVICE = "device"
+    CORE = "core"
+    QUEUE = "queue"
+
+
+class AlertActionStatus(StrEnum):
+    """告警动作的执行结果：只记录、已执行、失败、条件不满足跳过。"""
+
+    RECORDED = "recorded"
+    DONE = "done"
+    FAILED = "failed"
+    SKIPPED = "skipped"
