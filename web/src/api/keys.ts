@@ -110,6 +110,13 @@ export const keys = {
     /** 事件记录列表；过滤条件进 key。 */
     triggers: (f?: Readonly<Record<string, unknown>>) =>
       [...root, 'agent', 'triggers', f ?? {}] as const,
+    /** 值守概况（M83 §4.6）：模式、上次巡检时间与未解除告警数。 */
+    watchdogStatus: () => [...root, 'agent', 'watchdog'] as const,
+    /** 值守告警列表；`resolved` / `severity` 等过滤条件进 key。 */
+    watchdogAlerts: (f?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'watchdog', 'alerts', f ?? {}] as const,
+    /** 告警列表的整片前缀：广播不带过滤条件，一次失效页面与待你处理两份缓存。 */
+    watchdogAlertsAll: () => [...root, 'agent', 'watchdog', 'alerts'] as const,
     orchestrator: {
       all: () => [...root, 'agent', 'orchestrator'] as const,
       state: () => [...root, 'agent', 'orchestrator', 'state'] as const,

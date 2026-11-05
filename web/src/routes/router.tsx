@@ -38,6 +38,7 @@ const MemoryPage = lazy(() => import('@/routes/memory'))
 const GoalsPage = lazy(() => import('@/features/goals/GoalsPage'))
 const GoalDetailPage = lazy(() => import('@/features/goals/GoalDetailPage'))
 const TriggersPage = lazy(() => import('@/features/triggers/TriggersPage'))
+const WatchdogPage = lazy(() => import('@/features/watchdog/WatchdogPage'))
 const LegacySessionsPage = lazy(() => import('@/features/agent/LegacySessionsPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
 
@@ -160,6 +161,7 @@ export const routeConfig: RouteObject[] = [
       { path: 'more/goals', element: page(<GoalsPage />) },
       { path: 'more/goals/:goalId', element: page(<GoalDetailPage />) },
       { path: 'more/triggers', element: page(<TriggersPage />) },
+      { path: 'more/watchdog', element: page(<WatchdogPage />) },
       { path: 'more/schedules/*', element: <SchedulesRedirect /> },
       { path: 'more/api-console/guide', element: page(<ApiConsolePage />) },
       { path: 'more/api-console', element: page(<ApiConsolePage />) },

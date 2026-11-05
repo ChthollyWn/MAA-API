@@ -638,6 +638,49 @@ describe('session_rewound refreshes the rewound session messages', () => {
   })
 })
 
+describe('watchdog_alert refreshes the watchdog alert lists', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('invalidates the watchdog alerts prefix', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: null,
+          event: 'watchdog_alert',
+          payload: {
+            alert_id: 7,
+            check: 'pipeline_no_callback',
+            severity: 'critical',
+            target_kind: 'device',
+            target_id: 'pipeline-1',
+            message: '流水线 3 分钟没有回调',
+            action: 'stop_pipeline',
+            action_status: 'recorded',
+            created_at: '2026-11-05T04:00:00Z',
+          },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    // M83 §4.6：值守页与待你处理的严重告警共用这个前缀。
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.watchdogAlertsAll(),
+      refetchType: 'active',
+    })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.all(), refetchType: 'active' })
+  })
+})
+
 describe('observation_created refreshes observations and trigger rules', () => {
   afterEach(() => {
     vi.useRealTimers()

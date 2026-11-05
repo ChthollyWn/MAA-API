@@ -101,6 +101,24 @@ export interface MemoryProposedEvent {
   }
 }
 
+// M83 §4.5：critical 新插入时广播的值守告警。只用于让告警列表失效，卡片正文
+// 由 `GET /api/agent/watchdog/alerts` 重新读取。
+export interface WatchdogAlertEvent {
+  event: 'watchdog_alert'
+  session_id: null
+  payload: {
+    alert_id: number
+    check: string
+    severity: 'info' | 'warn' | 'critical'
+    target_kind: 'run' | 'ticket' | 'device' | 'core' | 'queue'
+    target_id: string | null
+    message: string
+    action: string | null
+    action_status: 'recorded' | 'done' | 'failed' | 'skipped' | null
+    created_at: string
+  }
+}
+
 // M80 §4.3：回溯提交后广播，其他标签页据此重拉该会话的消息窗口。
 export interface SessionRewoundEvent {
   event: 'session_rewound'

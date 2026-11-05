@@ -1,7 +1,13 @@
 import { Link } from 'react-router'
 import { toApiError } from '@/api/errors'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { ErrorState, LoadingState } from '@/components/ui/states'
+import {
+  ALERT_SEVERITY_LABELS,
+  ALERT_TARGET_LABELS,
+  formatWatchdogTime,
+} from '@/features/watchdog/api'
 import { ConfirmationCard } from '@/features/agent/ConfirmationCard'
 import { QuestionCard } from '@/features/agent/QuestionCard'
 import { ErrorAlert } from '@/features/agent/StatusAlerts'
@@ -38,6 +44,9 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
     <div className="space-y-3">
       {attention.resolver.error ? (
         <ErrorAlert error={attention.resolver.error} onDismiss={attention.resolver.clearError} />
+      ) : null}
+      {attention.alertResolver.error ? (
+        <ErrorAlert error={attention.alertResolver.error} onDismiss={attention.alertResolver.clearError} />
       ) : null}
       <ol aria-label="待你处理" className="space-y-3">
         {attention.items.map((item) => {
@@ -88,6 +97,38 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
                     </span>
                   ))}
                 </Link>
+              </li>
+            )
+          }
+          if (item.kind === 'alert') {
+            const alert = item.alert
+            return (
+              <li
+                key={`alert-${item.id}`}
+                data-attention-kind="alert"
+                data-attention-id={item.id}
+                className="rounded-xl border border-danger/25 bg-card px-3.5 py-3 shadow-card"
+              >
+                <span className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 break-words text-sm font-medium text-foreground">{alert.message}</span>
+                  <Badge variant="danger">
+                    {ALERT_SEVERITY_LABELS[alert.severity] ?? alert.severity}
+                  </Badge>
+                </span>
+                <span className="mt-1 block break-words text-footnote text-muted-foreground">
+                  对象：{ALERT_TARGET_LABELS[alert.target_kind] ?? alert.target_kind}
+                  {alert.target_id ? `「${alert.target_id}」` : ''} · 时间：{formatWatchdogTime(alert.created_at)}
+                </span>
+                <div className="mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    loading={attention.alertResolver.busyFor(alert.id)}
+                    onClick={() => attention.alertResolver.resolve(alert.id)}
+                  >
+                    标记已处理
+                  </Button>
+                </div>
               </li>
             )
           }

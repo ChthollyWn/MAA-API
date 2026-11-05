@@ -1,6 +1,7 @@
 import type { AgentQuestion } from '@/features/agent/types'
 import type { Confirmation } from '@/features/confirmations/ConfirmationsPanel'
 import type { MemoryItem } from '@/features/memory/api'
+import type { AlertOut } from '@/features/watchdog/api'
 import type { TicketView } from './api'
 import type { Origin } from './conversation/types'
 
@@ -9,6 +10,8 @@ export type AttentionItem =
   | { kind: 'question'; id: string; question: AgentQuestion; origin: Origin | null }
   /** 待审核记忆合成一项，文案「N 条记忆待审核」（M79 规格 §4.5）。 */
   | { kind: 'memory'; id: string; count: number; previews: string[] }
+  /** 未解除的严重值守告警（M83 §4.5）；动作是「标记已处理」。 */
+  | { kind: 'alert'; id: string; alert: AlertOut }
   | { kind: 'ticket'; id: string; ticket: TicketView }
 
 function originOf(value: unknown): Origin | null {
@@ -42,8 +45,8 @@ type SortedItem = { group: number; item: AttentionItem; expires: number; updated
  * 1. 工单已经被一张确认/提问覆盖（`human_action.ref_id` 命中、或它的 id 就是卡片来源的
  *    `origin.ticket_id`）就不再单列；被 `excludeIds` 排除的卡片仍然参与覆盖计算，
  *    否则实时副本里的卡会让同一张卡在侧栏里再出现一次。
- * 2. 顺序：确认 → 提问 → 待审核记忆 → blocked 工单 → waiting 工单；确认与提问按
- *    过期时间升序（读不出的排最后），工单按更新时间降序。
+ * 2. 顺序：确认 → 提问 → 待审核记忆 → 严重告警 → blocked 工单 → waiting 工单；
+ *    确认与提问按过期时间升序（读不出的排最后），告警与工单按更新时间降序。
  */
 export function buildAttentionItems(input: {
   confirmations: readonly Confirmation[]
@@ -51,9 +54,11 @@ export function buildAttentionItems(input: {
   tickets: readonly TicketView[]
   /** 待审核（proposed）的记忆；合成一项入口，不逐条列卡片（M79 §4.5）。 */
   memories?: readonly MemoryItem[]
+  /** 严重且未解除的值守告警（M83 §4.5）；调用方已按接口过滤，这里再兜一层。 */
+  alerts?: readonly AlertOut[]
   excludeIds?: ReadonlySet<string>
 }): AttentionItem[] {
-  const { confirmations, questions, tickets, memories = [], excludeIds } = input
+  const { confirmations, questions, tickets, memories = [], alerts = [], excludeIds } = input
   const coveredRefs = new Set<string>()
   const coveredTickets = new Set<string>()
   for (const confirmation of confirmations) {
@@ -114,13 +119,23 @@ export function buildAttentionItems(input: {
     })
   }
 
+  for (const alert of alerts) {
+    if (alert.severity !== 'critical' || alert.resolved_at !== null) continue
+    sorted.push({
+      group: 3,
+      item: { kind: 'alert', id: String(alert.id), alert },
+      expires: Number.POSITIVE_INFINITY,
+      updated: updatedAt(alert.created_at),
+    })
+  }
+
   for (const ticket of tickets) {
     if (ticket.status !== 'blocked' && ticket.status !== 'waiting') continue
     if (coveredTickets.has(ticket.id)) continue
     const refId = ticket.humanAction?.ref_id
     if (refId && coveredRefs.has(refId)) continue
     sorted.push({
-      group: ticket.status === 'blocked' ? 3 : 4,
+      group: ticket.status === 'blocked' ? 4 : 5,
       item: { kind: 'ticket', id: ticket.id, ticket },
       expires: Number.POSITIVE_INFINITY,
       updated: updatedAt(ticket.updatedAt),

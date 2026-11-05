@@ -88,6 +88,8 @@ export interface ConsoleApiState {
   artifactDetails: Record<string, Json>
   /** 长期记忆（M79）：待你处理只读 `status=proposed` 的那一段。 */
   memories: Json[]
+  /** 值守告警（M83）：待你处理只读未解除的 critical 那一段。 */
+  watchdogAlerts: Json[]
 }
 
 export interface OverrideContext {
@@ -128,6 +130,8 @@ export interface ConsoleApiOptions {
   artifactDetails?: Record<string, Json>
   /** 长期记忆（M79）；待你处理按 `status=proposed` 过滤。 */
   memories?: Json[]
+  /** 值守告警（M83）；默认未解除，待你处理按 `severity=critical` 再过滤。 */
+  watchdogAlerts?: Json[]
   /** 返回 Promise 时，计划批准/退回要等它完成才响应（锁「请求中禁用」）。 */
   holdPlanApproval?: () => Promise<void> | undefined
   knowledge?: Json[]
@@ -178,6 +182,7 @@ function makeState(options: ConsoleApiOptions): ConsoleApiState {
     artifacts: options.artifacts ?? [],
     artifactDetails: { ...(options.artifactDetails ?? {}) },
     memories: options.memories ?? [],
+    watchdogAlerts: options.watchdogAlerts ?? [],
   }
 }
 
@@ -385,6 +390,25 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       return pageOf(items, page, size)
     }
 
+    if (url.pathname === '/api/agent/watchdog/alerts' && request.method === 'GET') {
+      const resolved = url.searchParams.get('resolved') === 'true'
+      const severity = url.searchParams.get('severity')
+      const items = state.watchdogAlerts
+        .filter((alert) => (resolved ? alert.resolved_at != null : alert.resolved_at == null))
+        .filter((alert) => !severity || alert.severity === severity)
+      return pageOf(items, page, size)
+    }
+
+    const watchdogAlertMatch = /^\/api\/agent\/watchdog\/alerts\/(\d+)\/resolve$/.exec(url.pathname)
+    if (watchdogAlertMatch && request.method === 'POST') {
+      const alert = state.watchdogAlerts.find((item) => item.id === Number(watchdogAlertMatch[1]))
+      if (!alert) {
+        return json({ error: { code: 'WATCHDOG_ALERT_NOT_FOUND', message: '告警不存在' } }, 404)
+      }
+      alert.resolved_at = '2026-11-05T05:00:00Z'
+      return json(alert)
+    }
+
     if (url.pathname === '/api/confirmations' && request.method === 'GET') {
       const status = url.searchParams.get('status')
       const items = state.confirmations.filter((item) => !status || item.status === status)
@@ -507,6 +531,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
     confirmationPosts: () => requests.filter((item) => item.method === 'POST' && item.path.startsWith('/api/confirmations/')),
     questionPosts: () => requests.filter((item) => item.method === 'POST' && item.path.startsWith('/api/agent/questions/')),
     ticketListQueries: () => requests.filter((item) => item.method === 'GET' && item.path === '/api/agent/tickets'),
+    watchdogAlertQueries: () => requests.filter((item) => item.method === 'GET' && item.path === '/api/agent/watchdog/alerts'),
+    watchdogAlertResolves: () => requests.filter((item) => item.method === 'POST' && item.path.endsWith('/resolve') && item.path.startsWith('/api/agent/watchdog/alerts/')),
   }
 }
 
@@ -597,6 +623,24 @@ export function makeConfirmation(overrides: Json = {}): Json {
     caller: { kind: 'internal', name: 'orchestrator', session_id: 'main' },
     origin: null,
     expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+    ...overrides,
+  }
+}
+
+/** 一条值守告警（M83）：默认是未解除的 critical 设备告警。 */
+export function makeWatchdogAlert(overrides: Json = {}): Json {
+  return {
+    id: 1,
+    check: 'pipeline_no_callback',
+    severity: 'critical',
+    target_kind: 'device',
+    target_id: 'pipeline-1',
+    message: '流水线 3 分钟没有回调',
+    evidence: {},
+    action: 'stop_pipeline',
+    action_status: 'recorded',
+    created_at: '2026-11-05T04:00:00Z',
+    resolved_at: null,
     ...overrides,
   }
 }

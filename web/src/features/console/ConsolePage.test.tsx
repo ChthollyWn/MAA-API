@@ -13,6 +13,7 @@ import {
   makeQuestion,
   makeTicket,
   makeV3Message,
+  makeWatchdogAlert,
   renderAt,
   sse,
   stubMedia,
@@ -1061,6 +1062,32 @@ describe('M72 指挥台', () => {
     expect(link).toHaveAttribute('href', '/more/memories')
     expect(screen.getByText('刷图不要用源石恢复理智')).toBeInTheDocument()
     expect(screen.queryByText('已生效的记忆')).not.toBeInTheDocument()
+  })
+
+  it('lists unresolved critical watchdog alerts and resolves them (M83)', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      watchdogAlerts: [
+        makeWatchdogAlert({ id: 7, message: '流水线 3 分钟没有回调' }),
+        // 警告与已解除的告警不进待你处理。
+        makeWatchdogAlert({ id: 8, severity: 'warn', message: '只是警告' }),
+        makeWatchdogAlert({ id: 9, message: '已经处理过', resolved_at: '2026-11-05T05:00:00Z' }),
+      ],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('流水线 3 分钟没有回调')).toBeInTheDocument()
+    expect(screen.getByText(/对象：设备「pipeline-1」 · 时间：/)).toBeInTheDocument()
+    expect(screen.queryByText('只是警告')).not.toBeInTheDocument()
+    expect(screen.queryByText('已经处理过')).not.toBeInTheDocument()
+    // 待你处理只读 critical 列表。
+    expect(api.watchdogAlertQueries().every((request) => request.query.get('severity') === 'critical'))
+      .toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: '标记已处理' }))
+    await waitFor(() => expect(api.watchdogAlertResolves()).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByText('流水线 3 分钟没有回调')).not.toBeInTheDocument())
   })
 
   it('opens the attention sheet from the summary bar on phones', async () => {
