@@ -53,7 +53,8 @@ class EventKind:
     thread_prefix: str
     #: 08 §2.4 的摘要模板，用 ``str.format_map`` 填 payload 字段。
     summary: str
-    #: 无工单处理时是否交总控；M81 只有 ``core.failed``、``device.unavailable`` 恒为真。
+    #: 无工单处理时是否交总控；M81 有 ``core.failed``、``device.unavailable``，
+    #: M82 追加 ``goal.completed``、``goal.deadline_passed`` 恒为真。
     attention: Callable[[Mapping[str, Any]], bool] | None = None
 
 
@@ -67,13 +68,14 @@ _CORE = _sources(EventSource.CORE)
 _DEVICE = _sources(EventSource.DEVICE)
 _SCHEDULE = _sources(EventSource.SCHEDULE)
 _SYSTEM = _sources(EventSource.SYSTEM)
+_GOAL = _sources(EventSource.GOAL)
 
 
 def _always(_payload: Mapping[str, Any]) -> bool:
     return True
 
 
-#: M81 登记的 12 种事件，顺序照 08 §2.2 的表。
+#: M81 登记的 12 种事件与 M82 追加的 3 种，顺序照 08 §2.2 的表。
 KNOWN_KINDS: dict[str, EventKind] = {
     "pipeline.completed": EventKind(
         kind="pipeline.completed",
@@ -149,9 +151,30 @@ KNOWN_KINDS: dict[str, EventKind] = {
         thread_prefix="system:sanity",
         summary="理智估计已满（{estimated}/{max_sanity}）",
     ),
+    # M82：目标只记录复盘、完成与过截止；后两种无论如何都交总控（08 §2.2）。
+    "goal.review_due": EventKind(
+        kind="goal.review_due",
+        sources=_GOAL,
+        thread_prefix="goal:",
+        summary="目标「{title}」到了复盘时间",
+    ),
+    "goal.completed": EventKind(
+        kind="goal.completed",
+        sources=_GOAL,
+        thread_prefix="goal:",
+        summary="目标「{title}」已完成",
+        attention=_always,
+    ),
+    "goal.deadline_passed": EventKind(
+        kind="goal.deadline_passed",
+        sources=_GOAL,
+        thread_prefix="goal:",
+        summary="目标「{title}」过了截止还没完成",
+        attention=_always,
+    ),
 }
 
-#: 「交总控」集合里 M81 就已登记的种类（08 §2.3；M82/M83/M85 各自追加）。
+#: 「交总控」集合：attention 始终为真的已登记种类（08 §2.3；M82/M83/M85 各自追加）。
 ATTENTION_KINDS: frozenset[str] = frozenset(
     kind for kind, entry in KNOWN_KINDS.items() if entry.attention is not None
 )

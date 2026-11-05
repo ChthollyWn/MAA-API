@@ -64,6 +64,7 @@ __all__ = [
     "BLOCKED_AFTER_RESTART_PROMPT",
     "BLOCKED_AFTER_RESTART_SUMMARY",
     "OrchestratorResolver",
+    "ReportListener",
     "ReportOutcome",
     "MemoryExtractor",
     "TicketDetailData",
@@ -100,6 +101,8 @@ _PRIORITIES = (0, 1, 2)
 TicketEndListener = Callable[["TicketEnded"], Awaitable[None] | None]
 #: 记忆抽取回调：M79 装配方注入 ``extract_candidates`` 的偏函数，终态提交后后台执行。
 MemoryExtractor = Callable[["TicketEnded"], Awaitable[Any] | None]
+#: 汇报监听回调：收到 ``(ticket, report)``，在汇报提交后各自起一个后台任务（M82 §4.2）。
+ReportListener = Callable[[Any, Any], Awaitable[None]]
 #: 汇报转发目标的解析函数：返回「当前活动的总控会话」id（M70 §3.3）。
 OrchestratorResolver = Callable[[], Awaitable[str | None]]
 
@@ -187,11 +190,13 @@ class TicketService:
         self._broadcast = broadcast
         self._clock = clock
         self._end_listeners: list[TicketEndListener] = []
+        #: M82：汇报提交后各自起后台任务的监听者（目标、后台推送）。
+        self._report_listeners: list[ReportListener] = []
         self._orchestrator_resolver: OrchestratorResolver | None = None
         self._memory_extractor: MemoryExtractor | None = None
         #: M81 T5：事件管线建单时按需解析 Worker 服务（建 Worker 会话 + 写任务说明）。
         self._worker_service_provider: Callable[[], Any] | None = None
-        #: 终态后起的记忆抽取后台任务；持有引用避免任务被回收，测试可等它们收尾。
+        #: 终态后的记忆抽取与汇报监听后台任务；持有引用避免任务被回收，测试可等它们收尾。
         self._memory_tasks: set[asyncio.Task[Any]] = set()
 
     def bind_worker_service(self, provider: Callable[[], Any]) -> None:
@@ -206,6 +211,10 @@ class TicketService:
     def add_end_listener(self, listener: TicketEndListener) -> None:
         """注册工单结束监听者；按注册顺序在广播之后调用。"""
         self._end_listeners.append(listener)
+
+    def add_report_listener(self, listener: ReportListener) -> None:
+        """注册汇报监听者；每次汇报提交后按注册顺序各起一个后台任务（M82 §4.2）。"""
+        self._report_listeners.append(listener)
 
     def bind_memory_extractor(self, extractor: MemoryExtractor) -> None:
         """绑定终态记忆抽取回调；作为结束监听者注册一次，提交后放到后台任务里。
@@ -248,6 +257,41 @@ class TicketService:
                 "工单终态记忆抽取失败：ticket=%s status=%s",
                 ended.ticket_id,
                 ended.status,
+                exc_info=True,
+            )
+
+    def _spawn_report_listeners(self, ticket: Ticket, report: Any) -> None:
+        """汇报提交后为每个监听器起一个被跟踪的后台任务（M82 §4.2）。"""
+        for listener in tuple(self._report_listeners):
+            try:
+                task = asyncio.create_task(
+                    self._run_report_listener(listener, ticket, report),
+                    name=f"report-listener-{ticket.id}",
+                )
+            except RuntimeError:  # pragma: no cover - 正常调用总在事件循环里
+                logger.warning(
+                    "汇报监听器没有事件循环：ticket=%s listener=%s",
+                    ticket.id,
+                    getattr(listener, "__name__", listener),
+                )
+                continue
+            self._memory_tasks.add(task)
+            task.add_done_callback(self._memory_tasks.discard)
+
+    @staticmethod
+    async def _run_report_listener(
+        listener: ReportListener, ticket: Ticket, report: Any
+    ) -> None:
+        """跑汇报监听器；任何失败只记日志，不影响已提交的汇报与转发。"""
+        try:
+            result = listener(ticket, report)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # noqa: BLE001 - 后台任务失败不能扩散到调用方
+            logger.warning(
+                "汇报监听器失败：ticket=%s listener=%s",
+                ticket.id,
+                getattr(listener, "__name__", listener),
                 exc_info=True,
             )
 
@@ -608,6 +652,9 @@ class TicketService:
                     )
             ticket = await tickets.get(ticket_id)
             await session.commit()
+
+        # M82：汇报已落库，监听器在转发之前各自起后台任务，失败不影响转发。
+        self._spawn_report_listeners(ticket, report)
 
         forwarded_inbox_id: int | None = None
         if should_forward(report.status, ticket.origin):
