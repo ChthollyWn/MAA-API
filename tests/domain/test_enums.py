@@ -389,6 +389,25 @@ EXPECTED_VALUES = {
         "MISSED": "missed",
         "SKIPPED": "skipped",
     },
+    # M83：值守告警三枚举（v3 specs/m83 §4.1、docs/v3/03 §11.5）。
+    "AlertSeverity": {
+        "INFO": "info",
+        "WARN": "warn",
+        "CRITICAL": "critical",
+    },
+    "AlertTargetKind": {
+        "RUN": "run",
+        "TICKET": "ticket",
+        "DEVICE": "device",
+        "CORE": "core",
+        "QUEUE": "queue",
+    },
+    "AlertActionStatus": {
+        "RECORDED": "recorded",
+        "DONE": "done",
+        "FAILED": "failed",
+        "SKIPPED": "skipped",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。

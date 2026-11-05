@@ -177,6 +177,10 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
         if (typeof ticketId === 'string' && ticketId) {
           invalidateBatched(queryClient, keys.agent.tickets.detail(ticketId))
         }
+      } else if (event.data.event === 'watchdog_alert') {
+        // M83 §4.6：新告警同时改值守页与待你处理的严重告警两处；两者共用
+        // `watchdogAlerts` 前缀，一次失效即可。状态里的模式与上次巡检时间不跟着动。
+        invalidateBatched(queryClient, keys.agent.watchdogAlertsAll())
       } else if (event.data.event === 'observation_created') {
         // M81 §4.6：新观察记录同时改「待审阅」列表与规则行的 30 天统计。载荷不带
         // reviewed，两份观察记录缓存都失效；规则整片失效一次即可。

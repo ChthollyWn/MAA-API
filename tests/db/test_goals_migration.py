@@ -194,7 +194,7 @@ def test_upgrade_adds_goal_tables_and_ticket_goal_id(tmp_path: Path) -> None:
     finally:
         conn.close()
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
 
     conn = _connect(db_path)
     try:
@@ -286,7 +286,7 @@ def test_downgrade_removes_them(tmp_path: Path) -> None:
     finally:
         conn.close()
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
 
     conn = _connect(db_path)
     try:
@@ -338,7 +338,7 @@ def test_downgrade_removes_them(tmp_path: Path) -> None:
         conn.close()
 
     # 降到底再升级一次：可重放，两张表是空的（没有假装回填历史目标）。
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     conn = _connect(db_path)
     try:
         assert _revision(conn) == HEAD_REVISION

@@ -83,6 +83,7 @@ from maa_api.api.routers import (
     tickets,
     triggers,
     updates,
+    watchdog,
 )
 from maa_api.api.ws import manager as ws_manager
 from maa_api.api.ws import router as ws_router
@@ -501,6 +502,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     trigger_rule_service = None
     trigger_service = None
     goal_service = None
+    watchdog_service = None
     pipeline_event_publisher = None
     span_recorder = None
     worker_service = None
@@ -771,6 +773,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.device_manager = device_manager
         app.state.pipeline_runner = pipeline_runner
         app.state.queue_service = queue_service
+        # M83 值守记录器：内核 CALLBACK 与流水线生命周期的进程内时间戳。装配在这里
+        # （内核消费者启动之前）完成绑定，记录器本身不落库、不阻塞回调线程。
+        from maa_api.agent.watchdog.recorder import WatchdogRecorder
+
+        watchdog_recorder = WatchdogRecorder()
+        for bindable in (core_client, pipeline_runner):
+            bind_recorder = getattr(bindable, "bind_watchdog_recorder", None)
+            if callable(bind_recorder):
+                bind_recorder(watchdog_recorder)
 
         def schedule_connection() -> None:
             """Retry device connection asynchronously for each READY generation."""
@@ -1773,10 +1784,43 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await worker_service.start()
         await orchestrator_service.start()
 
+        # M83 值守：确定性巡检 + 有限自愈。依赖全部注入，服务不自行构造设备/内核；
+        # 周期 job 在调度器起来后注册，任务内部再按 watchdog.interval_seconds 自闸。
+        from maa_api.agent.watchdog.service import (
+            WATCHDOG_JOB_ID,
+            WATCHDOG_JOB_INTERVAL_SECONDS,
+            WatchdogService,
+        )
+
+        watchdog_service = WatchdogService(
+            db_session.session_factory,
+            recorder=watchdog_recorder,
+            pipeline_runner=pipeline_runner,
+            queue_service=queue_service,
+            core_supervisor=core_supervisor,
+            device_manager=device_manager,
+            run_service=run_service,
+            model_router=app.state.model_router,
+            cost_ledger=app.state.cost_ledger,
+            ticket_service=ticket_service,
+            worker_service=worker_service,
+            orchestrator_service=orchestrator_service,
+            thread_router=thread_router,
+            webpush_service=webpush_service,
+            has_visible_client=ws_manager.has_visible_client,
+            restart_core=_restart_core_and_reconnect,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+            settings_provider=get_settings,
+        )
+        app.state.watchdog_service = watchdog_service
+
         # One local-time scheduler owns both daily availability checks and the
         # existing retention jobs. Checks never download or block pipeline work.
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
 
         async def check_updates_at_configured_hour() -> None:
             # Poll the active setting each hour so changing updates.check_hour
@@ -1864,6 +1908,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         update_scheduler.start()
         app.state.update_scheduler = update_scheduler
+
+        # M83 §4.5：job 每 60 秒触发；任务内部按 watchdog.interval_seconds 自闸，
+        # 所以改间隔不用重启。异常只记日志，下一轮重试。
+        async def run_watchdog_job() -> None:
+            service = getattr(app.state, "watchdog_service", None)
+            if service is None:
+                return
+            try:
+                await service.run_once()
+            except Exception:  # noqa: BLE001 - 巡检失败不能拖垮调度器
+                logger.warning("值守巡检失败，下一轮重试", exc_info=True)
+
+        update_scheduler.add_job(
+            run_watchdog_job,
+            IntervalTrigger(seconds=WATCHDOG_JOB_INTERVAL_SECONDS),
+            id=WATCHDOG_JOB_ID,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+
         # M81 §4.5.4：调度器起来后再注册事件 job（理智估算与定时规则，§4.5.5）。
         if trigger_service is not None:
             trigger_service.start_jobs(update_scheduler)
@@ -1944,6 +2009,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M82 §4.5.7：目标服务同样在调度器关闭之前移除自己的复盘 job。
         if goal_service is not None:
             await goal_service.close()
+        # M83 §4.5：值守服务在调度器 shutdown 之前收尾，避免关闭后再起一轮。
+        if watchdog_service is not None:
+            await watchdog_service.close()
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -2009,6 +2077,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "trigger_rule_service",
             "trigger_service",
             "goal_service",
+            "watchdog_service",
             "ticket_push_notifier",
             "pipeline_event_publisher",
             "agent_ops_service",
@@ -2070,6 +2139,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M82 §4.5.7：目标服务同样在调度器关闭之前移除自己的复盘 job。
         if goal_service is not None:
             await goal_service.close()
+        # M83 §4.5：值守服务在调度器 shutdown 之前收尾，避免关闭后再起一轮。
+        if watchdog_service is not None:
+            await watchdog_service.close()
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -2143,6 +2215,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "trigger_rule_service",
             "trigger_service",
             "goal_service",
+            "watchdog_service",
             "ticket_push_notifier",
             "pipeline_event_publisher",
             "agent_ops_service",
@@ -2242,6 +2315,7 @@ def create_app() -> FastAPI:
     app.include_router(tickets.router)
     app.include_router(triggers.router)
     app.include_router(goals.router)
+    app.include_router(watchdog.router)
     app.include_router(rewind.router)
     app.include_router(device_lease.router)
     app.include_router(ws_router)

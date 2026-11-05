@@ -73,7 +73,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.artifacts.service import ArtifactService
@@ -84,6 +84,7 @@ from maa_api.db.models import (
     Schedule,
     Screenshot,
     Task,
+    WatchdogAlert,
     utcnow,
 )
 from maa_api.db.repositories.cost import CostLedgerRepository
@@ -179,6 +180,10 @@ TRIGGER_RETENTION_DAYS = 30
 #: 观察记录的保留天数；比事件长，留着让用户审阅。
 TRIGGER_OBSERVATION_RETENTION_DAYS = 90
 
+# --- 值守告警（M83，03 §14）----------------------------------------------
+#: ``watchdog_alert`` 保留 90 天（含已解除的历史）；按 ``created_at`` 清理。
+WATCHDOG_ALERT_RETENTION_DAYS = 90
+
 
 async def run_retention(
     *,
@@ -200,7 +205,8 @@ async def run_retention(
     收件箱项），M75 起多一个 ``artifacts_deleted``（超过 30 天的未置顶 spill），
     M81 起多 ``observations_deleted``（超过 :data:`TRIGGER_OBSERVATION_RETENTION_DAYS`
     的观察记录）与 ``triggers_deleted``（超过 :data:`TRIGGER_RETENTION_DAYS` 且没有
-    工单、也没有保留期内观察记录的事件），既有八个 key 的语义不变。
+    工单、也没有保留期内观察记录的事件），M83 起多 ``watchdog_alerts_deleted``
+    （超过 :data:`WATCHDOG_ALERT_RETENTION_DAYS` 的值守告警），既有八个 key 的语义不变。
     其中 ``screenshots_deleted`` 计的是
     **文件被清理并打了 ``deleted_at``** 的截图条数，不含随后按 90 天口径删掉的
     记录条数（后者只进日志）。异常原样抛出，不在本层吞掉。
@@ -220,6 +226,7 @@ async def run_retention(
         "artifacts_deleted": 0,
         "observations_deleted": 0,
         "triggers_deleted": 0,
+        "watchdog_alerts_deleted": 0,
     }
 
     async with factory() as db:
@@ -370,10 +377,24 @@ async def run_retention(
             await asyncio.sleep(BATCH_PAUSE_SECONDS)
         await _incremental_vacuum(db)
 
+        # 11) 值守告警（M83，03 §14）：超过 90 天的行删除；已解除与未解除一视同仁。
+        watchdog_cutoff = now - timedelta(days=WATCHDOG_ALERT_RETENTION_DAYS)
+        deleted = await db.execute(
+            delete(WatchdogAlert).where(WatchdogAlert.created_at < watchdog_cutoff)
+        )
+        result["watchdog_alerts_deleted"] = max(int(deleted.rowcount or 0), 0)
+        await db.commit()
+        logger.info(
+            "保留策略：已删除 %d 条值守告警（超过 %d 天）",
+            result["watchdog_alerts_deleted"],
+            WATCHDOG_ALERT_RETENTION_DAYS,
+        )
+        await _incremental_vacuum(db)
+
     logger.info(
         "保留策略执行完成：日志 %s 条、流水线 %s 条、截图 %s 个、临时文件 %s 个、"
         "作业 %s 份、成本账本 %s 条、追踪 span %s 条、收件箱项 %s 条、产物 %s 份、"
-        "观察记录 %s 条、事件 %s 条",
+        "观察记录 %s 条、事件 %s 条、值守告警 %s 条",
         result["logs_deleted"],
         result["pipelines_deleted"],
         result["screenshots_deleted"],
@@ -385,6 +406,7 @@ async def run_retention(
         result["artifacts_deleted"],
         result["observations_deleted"],
         result["triggers_deleted"],
+        result["watchdog_alerts_deleted"],
     )
     return result
 

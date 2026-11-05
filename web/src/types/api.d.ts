@@ -1410,6 +1410,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/watchdog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取值守概况
+         * @description 模式取设置、上次巡检取服务属性、未解除数现查（§4.3）。
+         */
+        get: operations["agent_get_watchdog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/watchdog/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 分页读取值守告警
+         * @description 按解除状态与级别过滤，``created_at`` 倒序分页（§4.3）。
+         */
+        get: operations["agent_list_watchdog_alerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/watchdog/alerts/{alert_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 解除一条值守告警
+         * @description 写入 ``resolved_at``；重复解除保留首次时间，不存在的 id 报 404（§4.3）。
+         */
+        post: operations["agent_resolve_watchdog_alert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/confirmations": {
         parameters: {
             query?: never;
@@ -3008,6 +3068,68 @@ export interface components {
          * @enum {string}
          */
         AgentRunStatus: "running" | "waiting_human" | "succeeded" | "failed" | "interrupted" | "cancelled";
+        /**
+         * AlertActionStatus
+         * @description 告警动作的执行结果：只记录、已执行、失败、条件不满足跳过。
+         * @enum {string}
+         */
+        AlertActionStatus: "recorded" | "done" | "failed" | "skipped";
+        /**
+         * AlertOut
+         * @description 一条值守告警（§4.3）；``evidence`` 保留检查写入的判定证据。
+         */
+        AlertOut: {
+            /** Action */
+            action: string | null;
+            action_status: components["schemas"]["AlertActionStatus"] | null;
+            /** Check */
+            check: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Evidence */
+            evidence: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: number;
+            /** Message */
+            message: string;
+            /** Resolved At */
+            resolved_at: string | null;
+            severity: components["schemas"]["AlertSeverity"];
+            /** Target Id */
+            target_id: string | null;
+            target_kind: components["schemas"]["AlertTargetKind"];
+        };
+        /**
+         * AlertPage
+         * @description 告警的分页信封（§4.3 / 04 §1）。
+         */
+        AlertPage: {
+            /** Items */
+            items: components["schemas"]["AlertOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * AlertSeverity
+         * @description 值守告警的级别：信息、警告、严重。
+         * @enum {string}
+         */
+        AlertSeverity: "info" | "warn" | "critical";
+        /**
+         * AlertTargetKind
+         * @description 告警目标种类：运行、工单、设备、内核、队列。
+         * @enum {string}
+         */
+        AlertTargetKind: "run" | "ticket" | "device" | "core" | "queue";
         /**
          * AnswerRequest
          * @description ``POST /api/agent/questions/{id}`` 的入参。
@@ -7203,6 +7325,21 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * WatchdogStatusOut
+         * @description 值守概况（§4.3）：模式、进程内上次巡检时间与未解除告警数。
+         */
+        WatchdogStatusOut: {
+            /** Last Run At */
+            last_run_at: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "record" | "auto";
+            /** Open Count */
+            open_count: number;
         };
     };
     responses: never;
@@ -14274,6 +14411,246 @@ export interface operations {
                      *         "code": "UNAUTHORIZED",
                      *         "details": {},
                      *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_watchdog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchdogStatusOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_watchdog_alerts: {
+        parameters: {
+            query?: {
+                /** @description false（默认）只看未解除；true 只看已解除 */
+                resolved?: boolean;
+                /** @description 按级别过滤：info / warn / critical */
+                severity?: components["schemas"]["AlertSeverity"] | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_resolve_watchdog_alert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 告警 id */
+                alert_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：WATCHDOG_ALERT_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "WATCHDOG_ALERT_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
                      *       }
                      *     }
                      */

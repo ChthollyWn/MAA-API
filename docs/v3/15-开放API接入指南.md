@@ -253,6 +253,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `OBSERVATION_NOT_FOUND` | 404 | 没有这条观察记录（M81） |
 | `GOAL_NOT_FOUND` | 404 | 没有这个目标（M82） |
 | `GOAL_ENDED` | 409 | 目标已结束（done / failed / cancelled），不能再改（M82） |
+| `WATCHDOG_ALERT_NOT_FOUND` | 404 | 没有这条值守告警（M83）：解除一条不存在的告警 |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->

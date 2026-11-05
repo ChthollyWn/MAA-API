@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { AgentQuestion } from '@/features/agent/types'
 import type { Confirmation } from '@/features/confirmations/ConfirmationsPanel'
 import type { MemoryItem } from '@/features/memory/api'
+import type { AlertOut } from '@/features/watchdog/api'
 import { buildAttentionItems, originLabel } from './attention'
 import { toTicketView } from './api'
-import { makeConfirmation, makeMemory, makeQuestion, makeTicket } from './test-utils'
+import { makeConfirmation, makeMemory, makeQuestion, makeTicket, makeWatchdogAlert } from './test-utils'
 
 const NOW = Date.parse('2026-09-27T10:00:00Z')
 
@@ -146,6 +147,28 @@ describe('M72 待你处理', () => {
       questions: [],
       tickets: [],
     }).some((item) => item.kind === 'memory')).toBe(false)
+  })
+
+  it('lists only unresolved critical watchdog alerts, newest first', () => {
+    const alert = (overrides: Record<string, unknown>) =>
+      makeWatchdogAlert(overrides) as unknown as AlertOut
+    const items = buildAttentionItems({
+      confirmations: [],
+      questions: [],
+      alerts: [
+        alert({ id: 7, created_at: '2026-11-05T04:00:00Z' }),
+        alert({ id: 8, created_at: '2026-11-05T05:00:00Z' }),
+        // 警告由页面读取告警列表，不进待你处理。
+        alert({ id: 9, severity: 'warn' }),
+        // 已解除的不出现。
+        alert({ id: 10, resolved_at: '2026-11-05T06:00:00Z' }),
+      ],
+      tickets: [ticket({ id: 't-blocked', status: 'blocked' })],
+    })
+
+    expect(items.map((item) => item.kind)).toEqual(['alert', 'alert', 'ticket'])
+    expect(items.filter((item) => item.kind === 'alert').map((item) => item.id))
+      .toEqual(['8', '7'])
   })
 
   it('labels the origin of a card', () => {

@@ -99,6 +99,8 @@ BUSINESS_TABLES = {
     # M82：目标与里程碑（v3 specs/m82 §4.1、docs/v3/03 §11.4）。
     "goal",
     "goal_milestone",
+    # M83：值守告警（v3 specs/m83 §4.1、docs/v3/03 §11.5）。
+    "watchdog_alert",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -148,6 +150,8 @@ AUTOINCREMENT_TABLES = [
     # M81：事件与观察记录都是高频追加表。
     "agent_trigger",
     "trigger_observation",
+    # M83：告警是高频追加表，重复命中只更新证据、不换行（spec §4.1）。
+    "watchdog_alert",
 ]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
@@ -353,6 +357,13 @@ EXPECTED_INDEXES = {
     # M82：目标列表按状态+更新时间；里程碑按目标与序号取。
     "ix_goal_status_updated_at": ("goal", ("status", "updated_at"), False),
     "ix_goal_milestone_goal_id_ord": ("goal_milestone", ("goal_id", "ord"), False),
+    # M83：告警列表按时间倒序；未解除告警按目标去重（spec §4.1）。
+    "ix_watchdog_alert_created_at": ("watchdog_alert", ("created_at",), False),
+    "ix_watchdog_alert_target_kind_target_id": (
+        "watchdog_alert",
+        ("target_kind", "target_id"),
+        False,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -531,6 +542,8 @@ EXPECTED_TEXT_COLUMNS = {
     ("trigger_rule", "policy"),
     # M82：目标描述长度不定（目标本身最多 2000 字），用 TEXT。
     ("goal", "description"),
+    # M83：告警正文长度不定，用 TEXT。
+    ("watchdog_alert", "message"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -602,6 +615,8 @@ EXPECTED_JSON_COLUMNS = {
     ("goal", "schedule_ids"),
     ("goal", "progress"),
     ("goal_milestone", "metrics"),
+    # M83：告警的判定证据（重复命中时写 evidence.latest）。
+    ("watchdog_alert", "evidence"),
 }
 
 # FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
@@ -682,8 +697,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_51_business_tables():
-    """51 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_52_business_tables():
+    """52 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
@@ -839,7 +854,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """60 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """62 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
