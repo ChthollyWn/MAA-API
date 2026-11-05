@@ -46,7 +46,7 @@
 
 | 门禁 | 结果 |
 |---|---|
-| `.venv/bin/python -m pytest`（全量） | **3 failed / 5292 passed**；与基线同一组真资源失败，无新增 |
+| `.venv/bin/python -m pytest`（全量，合并后 dev 干净重跑） | **4 failed / 5291 passed**：3 条真资源数据漂移（与基线同组）+ `test_incidents` 的 60 秒调度停顿已知 flake（13 §8.26/§8.44 记录）；该 flake 单跑与整文件重跑均通过（1.95s） |
 | `scripts/dump_openapi.py --check` | 0（187 operations） |
 | `scripts/generate_api_guide.py --check` | 0（新端点后重新生成） |
 | 前端五步 | 0；vitest 112 文件 **970** 用例；build 正常 |
@@ -96,9 +96,11 @@
 - `NotifyService.notify()` 不存在导致养成计划完成通知从未发出（Q7=A 保持原样，仅记录）。
 - 三个 IM SDK 的 poetry extras 未声明（离线环境无法更新 lock），需要时手动安装；平台协议日后变化需按常量旁的文档链接更新。
 - `outbox` 的 30/90 天保留清理未实现（03 §14）。
+- 全量测试的 `test_incidents::test_incident_allowed_action_still_uses_confirmation_service` 偶发 60 秒调度停顿（既有 flake，完整测试套在高负载下出现；单跑/整文件重跑通过）。
 
 ## v3 路线完成（M63–M85）
 
 - 标签 `v3-m63` … `v3-m85` 全部就位；`dev` 上累计 23 个里程碑的合并提交。
 - 每个里程碑均由 spec → plan → 子代理 TDD → 主 agent 全量验收（pytest/OpenAPI/前端五步/四冒烟/评测/断链/diff）→ `merge --no-ff` → tag → 台账 + 13 §8 偏离。
-- 最终全量测试：**3 failed / 5292 passed**（仅 3 条真资源数据漂移的既有失败）；前端 **970** 用例；端点 187、错误码 169/168、业务表 56、迁移 head 0038。
+- 最终全量测试：**4 failed / 5291 passed**（3 条真资源数据漂移 + 1 条已记录的 60 秒调度 flake；flake 重跑通过）；前端 **970** 用例；端点 187、错误码 169/168、业务表 56、迁移 head 0038。
+- 关停与遗留见 M85 台账正文；四个 v3 冒烟（frontend/agent/orchestrator/brief_spend）在合并后顺序重跑均 `SMOKE OK`。
