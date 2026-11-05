@@ -4723,6 +4723,137 @@
         "title": "NotifyTestRequest",
         "type": "object"
       },
+      "ObservationOut": {
+        "description": "观察记录的一条（§4.3）；``trigger_*`` 来自关联事件。",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "additionalProperties": true,
+            "title": "Decision",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "thread_key": {
+            "title": "Thread Key",
+            "type": "string"
+          },
+          "trigger_id": {
+            "title": "Trigger Id",
+            "type": "integer"
+          },
+          "trigger_kind": {
+            "title": "Trigger Kind",
+            "type": "string"
+          },
+          "trigger_summary": {
+            "title": "Trigger Summary",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "good",
+                  "bad"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          }
+        },
+        "required": [
+          "id",
+          "trigger_id",
+          "rule_id",
+          "decision",
+          "verdict",
+          "reviewed_at",
+          "created_at",
+          "trigger_kind",
+          "trigger_summary",
+          "thread_key"
+        ],
+        "title": "ObservationOut",
+        "type": "object"
+      },
+      "ObservationPage": {
+        "description": "观察记录的分页信封（§4.3）。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "ObservationPage",
+        "type": "object"
+      },
+      "ObservationVerdictIn": {
+        "additionalProperties": false,
+        "description": "``POST .../verdict`` 的入参：只能标 good / bad，可改判。",
+        "properties": {
+          "verdict": {
+            "enum": [
+              "good",
+              "bad"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "title": "ObservationVerdictIn",
+        "type": "object"
+      },
       "OrchestratorInterruptResult": {
         "description": "中断总控当前一轮的结果；没有活动轮次时 ``interrupted=false``。",
         "properties": {
@@ -7337,6 +7468,53 @@
           }
         },
         "title": "RoguelikeInput",
+        "type": "object"
+      },
+      "RuleStats": {
+        "description": "规则列表附带的 30 天统计与升降档建议（§4.5.6）。",
+        "properties": {
+          "bad_30d": {
+            "default": 0,
+            "title": "Bad 30D",
+            "type": "integer"
+          },
+          "good_30d": {
+            "default": 0,
+            "title": "Good 30D",
+            "type": "integer"
+          },
+          "observations_30d": {
+            "default": 0,
+            "title": "Observations 30D",
+            "type": "integer"
+          },
+          "reviewed_30d": {
+            "default": 0,
+            "title": "Reviewed 30D",
+            "type": "integer"
+          },
+          "suggest_auto": {
+            "default": false,
+            "title": "Suggest Auto",
+            "type": "boolean"
+          },
+          "suggest_observe": {
+            "default": false,
+            "title": "Suggest Observe",
+            "type": "boolean"
+          },
+          "tickets_30d": {
+            "default": 0,
+            "title": "Tickets 30D",
+            "type": "integer"
+          },
+          "tickets_bad_30d": {
+            "default": 0,
+            "title": "Tickets Bad 30D",
+            "type": "integer"
+          }
+        },
+        "title": "RuleStats",
         "type": "object"
       },
       "RunDetail": {
@@ -10191,6 +10369,478 @@
           "ended_at"
         ],
         "title": "TicketSummary",
+        "type": "object"
+      },
+      "TriggerAdmission": {
+        "description": "事件进入系统后的准入结论：接受、忽略、不合法。",
+        "enum": [
+          "accepted",
+          "ignored",
+          "rejected"
+        ],
+        "title": "TriggerAdmission",
+        "type": "string"
+      },
+      "TriggerEvalStatus": {
+        "description": "事件研判的状态；pending 表示还没研判完，其余是终值。",
+        "enum": [
+          "pending",
+          "accept",
+          "stop",
+          "ignore",
+          "unavailable",
+          "skipped"
+        ],
+        "title": "TriggerEvalStatus",
+        "type": "string"
+      },
+      "TriggerMode": {
+        "description": "事件规则的档位：关闭、只记录本来会做什么、直接建工单。",
+        "enum": [
+          "off",
+          "observe",
+          "auto"
+        ],
+        "title": "TriggerMode",
+        "type": "string"
+      },
+      "TriggerOut": {
+        "description": "事件记录的一条（§4.3）。",
+        "properties": {
+          "admission": {
+            "$ref": "#/components/schemas/TriggerAdmission"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dedupe_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dedupe Key"
+          },
+          "eval_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eval Reason"
+          },
+          "eval_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eval Run Id"
+          },
+          "eval_status": {
+            "$ref": "#/components/schemas/TriggerEvalStatus"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "processed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processed At"
+          },
+          "routed_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TriggerRoute"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          },
+          "sender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "thread_key": {
+            "title": "Thread Key",
+            "type": "string"
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Id"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "kind",
+          "thread_key",
+          "sender",
+          "summary",
+          "payload",
+          "dedupe_key",
+          "admission",
+          "rule_id",
+          "eval_status",
+          "eval_reason",
+          "eval_run_id",
+          "ticket_id",
+          "routed_to",
+          "created_at",
+          "processed_at"
+        ],
+        "title": "TriggerOut",
+        "type": "object"
+      },
+      "TriggerPage": {
+        "description": "事件记录的分页信封（§4.3）。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "TriggerPage",
+        "type": "object"
+      },
+      "TriggerRoute": {
+        "description": "事件处理后的去向：交总控、建工单、写观察记录、只记录。",
+        "enum": [
+          "orchestrator",
+          "ticket",
+          "observation",
+          "none"
+        ],
+        "title": "TriggerRoute",
+        "type": "string"
+      },
+      "TriggerRuleList": {
+        "description": "规则列表：全部生效规则 + 规则集版本哈希（§4.3）。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerRuleOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "version"
+        ],
+        "title": "TriggerRuleList",
+        "type": "object"
+      },
+      "TriggerRuleOut": {
+        "description": "规则列表 / 写入返回的一条生效规则（§4.3）。",
+        "properties": {
+          "conditions": {
+            "additionalProperties": true,
+            "title": "Conditions",
+            "type": "object"
+          },
+          "cooldown_seconds": {
+            "title": "Cooldown Seconds",
+            "type": "integer"
+          },
+          "cron": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron"
+          },
+          "effective_mode": {
+            "$ref": "#/components/schemas/TriggerMode"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "gated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gated By"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind_pattern": {
+            "title": "Kind Pattern",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/TriggerMode"
+          },
+          "modified": {
+            "title": "Modified",
+            "type": "boolean"
+          },
+          "next_fire_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Fire At"
+          },
+          "origin": {
+            "enum": [
+              "builtin",
+              "override",
+              "user"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "policy": {
+            "title": "Policy",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/RuleStats"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "source",
+          "kind_pattern",
+          "conditions",
+          "mode",
+          "effective_mode",
+          "worker",
+          "policy",
+          "cooldown_seconds",
+          "cron",
+          "enabled",
+          "origin",
+          "modified",
+          "gated_by",
+          "next_fire_at",
+          "stats"
+        ],
+        "title": "TriggerRuleOut",
+        "type": "object"
+      },
+      "TriggerRuleWrite": {
+        "additionalProperties": false,
+        "description": "``PUT /api/agent/trigger-rules/{rule_id}`` 的入参：写完整的生效内容。",
+        "properties": {
+          "conditions": {
+            "additionalProperties": true,
+            "title": "Conditions",
+            "type": "object"
+          },
+          "cooldown_seconds": {
+            "default": 0,
+            "maximum": 604800.0,
+            "minimum": 0.0,
+            "title": "Cooldown Seconds",
+            "type": "integer"
+          },
+          "cron": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "kind_pattern": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Kind Pattern",
+            "type": "string"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TriggerMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Policy",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker"
+          }
+        },
+        "required": [
+          "title",
+          "kind_pattern"
+        ],
+        "title": "TriggerRuleWrite",
         "type": "object"
       },
       "ValidationError": {
@@ -13301,6 +13951,261 @@
           }
         },
         "summary": "读取角色到模型档案的绑定",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/observations": {
+      "get": {
+        "description": "按规则 / 是否已审阅过滤，``created_at`` 倒序分页（§4.3）。",
+        "operationId": "agent_list_observations",
+        "parameters": [
+          {
+            "description": "按规则 id 过滤",
+            "in": "query",
+            "name": "rule_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按规则 id 过滤",
+              "title": "Rule Id"
+            }
+          },
+          {
+            "description": "是否已审阅",
+            "in": "query",
+            "name": "reviewed",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "是否已审阅",
+              "title": "Reviewed"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–200",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–200",
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PAGINATION",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PAGINATION"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "分页读取观察记录",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/observations/{observation_id}/verdict": {
+      "post": {
+        "description": "标记「判断对了 / 不该处理」；再次提交即改判（§4.3）。",
+        "operationId": "agent_review_observation",
+        "parameters": [
+          {
+            "description": "观察记录 id",
+            "in": "path",
+            "name": "observation_id",
+            "required": true,
+            "schema": {
+              "description": "观察记录 id",
+              "title": "Observation Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservationVerdictIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "OBSERVATION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：OBSERVATION_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "审阅一条观察记录",
         "tags": [
           "agent"
         ]
@@ -17310,6 +18215,427 @@
           }
         },
         "summary": "调用 Agent 工具",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/trigger-rules": {
+      "get": {
+        "description": "全部规则（内置 + 覆盖 + 用户），附 30 天统计与升降档建议（§4.5.6）。",
+        "operationId": "agent_list_trigger_rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerRuleList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取事件规则列表",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/trigger-rules/{rule_id}": {
+      "delete": {
+        "description": "删除用户规则；内置规则只删覆盖行（幂等），其余 404（§4.3）。",
+        "operationId": "agent_delete_trigger_rule",
+        "parameters": [
+          {
+            "description": "规则 id（2–48 位小写字母、数字与连字符）",
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "description": "规则 id（2–48 位小写字母、数字与连字符）",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,47}$",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TRIGGER_RULE_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：TRIGGER_RULE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "删除事件规则",
+        "tags": [
+          "agent"
+        ]
+      },
+      "put": {
+        "description": "写入完整的生效内容：覆盖内置规则，或新建 / 修改用户规则（§4.3）。",
+        "operationId": "agent_put_trigger_rule",
+        "parameters": [
+          {
+            "description": "规则 id（2–48 位小写字母、数字与连字符）",
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "description": "规则 id（2–48 位小写字母、数字与连字符）",
+              "pattern": "^[a-z0-9][a-z0-9-]{1,47}$",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerRuleWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerRuleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TRIGGER_RULE_INVALID",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：TRIGGER_RULE_INVALID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "写入事件规则",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/triggers": {
+      "get": {
+        "description": "按来源 / 种类 / 规则过滤，``id`` 倒序分页（§4.3）。",
+        "operationId": "agent_list_triggers",
+        "parameters": [
+          {
+            "description": "按来源过滤",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按来源过滤",
+              "title": "Source"
+            }
+          },
+          {
+            "description": "按事件种类过滤",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按事件种类过滤",
+              "title": "Kind"
+            }
+          },
+          {
+            "description": "按命中的规则 id 过滤",
+            "in": "query",
+            "name": "rule_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按命中的规则 id 过滤",
+              "title": "Rule Id"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–200",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–200",
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PAGINATION",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PAGINATION"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "分页读取事件记录",
         "tags": [
           "agent"
         ]

@@ -33,12 +33,15 @@ from maa_api.db.models import (
     AgentInbox,
     AgentRun,
     AgentSession,
+    AgentTrigger,
     Artifact,
     CostLedgerEntry,
     LogEntry,
     Pipeline,
     Screenshot,
+    Ticket,
     TraceSpan,
+    TriggerObservation,
     utcnow,
 )
 from maa_api.db.repositories import log as log_repo_module
@@ -648,5 +651,112 @@ def test_spill_artifacts_purged_after_30_days(
         assert not old_file.exists()
         rows = await _all(retention_session_factory, Artifact)
         assert {row.id for row in rows} == {pinned.id, recent.id, note.id}
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# 事件与观察记录（M81）
+# ---------------------------------------------------------------------------
+def test_retention_keeps_triggers_with_ticket_or_recent_observation(
+    retention_session_factory,
+) -> None:
+    """事件保留 30 天：有工单、或有 90 天内观察记录的不删；观察记录自己保留 90 天。"""
+    now = utcnow()
+
+    async def scenario():
+        ticket = Ticket(
+            title="诊断：流水线失败",
+            kind="diagnose",
+            origin="user",
+            created_at=now,
+        )
+        await _insert(retention_session_factory, [ticket])
+        await _insert(
+            retention_session_factory,
+            [
+                # 有工单：即使很旧也留着（工单历史要能点回事件）。
+                AgentTrigger(
+                    source="pipeline",
+                    kind="pipeline.failed",
+                    thread_key="pipeline:ticket",
+                    payload={"title": "日常"},
+                    ticket_id=ticket.id,
+                    created_at=now - timedelta(days=40),
+                ),
+                # 没有工单，但挂着 90 天内的观察记录：留着让用户审阅。
+                AgentTrigger(
+                    source="device",
+                    kind="device.unavailable",
+                    thread_key="device:observation",
+                    payload={},
+                    created_at=now - timedelta(days=40),
+                ),
+                # 没有工单、观察记录也过期：删。
+                AgentTrigger(
+                    source="device",
+                    kind="device.unavailable",
+                    thread_key="device:expired",
+                    payload={},
+                    created_at=now - timedelta(days=40),
+                ),
+                # 30 天内的事件：不删。
+                AgentTrigger(
+                    source="system",
+                    kind="system.sanity_full",
+                    thread_key="system:sanity",
+                    payload={},
+                    created_at=now - timedelta(days=10),
+                ),
+            ],
+        )
+        async with retention_session_factory() as db:
+            rows = list(
+                (
+                    await db.execute(
+                        select(AgentTrigger).order_by(AgentTrigger.id.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            kept_by_ticket, kept_by_observation, expired, recent = rows
+            db.add(
+                TriggerObservation(
+                    trigger_id=int(kept_by_observation.id),
+                    rule_id="device-unavailable",
+                    decision={"decision": "accept"},
+                    created_at=now - timedelta(days=10),
+                )
+            )
+            db.add(
+                TriggerObservation(
+                    trigger_id=int(expired.id),
+                    rule_id="device-unavailable",
+                    decision={"decision": "accept"},
+                    created_at=now - timedelta(days=100),
+                )
+            )
+            await db.commit()
+            ids = {
+                "kept_by_ticket": int(kept_by_ticket.id),
+                "kept_by_observation": int(kept_by_observation.id),
+                "expired": int(expired.id),
+                "recent": int(recent.id),
+            }
+
+        out = await r.run_retention(session_factory=retention_session_factory)
+        assert out["triggers_deleted"] == 1, out
+        assert out["observations_deleted"] == 1, out
+        triggers = await _all(retention_session_factory, AgentTrigger)
+        assert {int(row.id) for row in triggers} == {
+            ids["kept_by_ticket"],
+            ids["kept_by_observation"],
+            ids["recent"],
+        }
+        observations = await _all(retention_session_factory, TriggerObservation)
+        assert [int(row.trigger_id) for row in observations] == [
+            ids["kept_by_observation"]
+        ]
 
     asyncio.run(scenario())

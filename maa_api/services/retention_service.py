@@ -92,6 +92,10 @@ from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.repositories.resource import ResourceAssetRepository
 from maa_api.db.repositories.ticket import AgentInboxRepository
 from maa_api.db.repositories.trace import TRACE_PURGE_BATCH_SIZE, TraceSpanRepository
+from maa_api.db.repositories.triggers import (
+    TriggerObservationRepository,
+    TriggerRepository,
+)
 from maa_api.domain.enums import (
     LogSource,
     PipelineStatus,
@@ -169,6 +173,12 @@ TRACE_RETENTION_DAYS = 14
 #: 已处理（consumed / dropped）收件箱项的保留天数；pending 项不按时间清理。
 INBOX_RETENTION_DAYS = 30
 
+# --- 事件与观察记录（M81，规格 §4.5.8）------------------------------------
+#: 事件本身的保留天数；有工单、或还挂着保留期内观察记录的事件不删。
+TRIGGER_RETENTION_DAYS = 30
+#: 观察记录的保留天数；比事件长，留着让用户审阅。
+TRIGGER_OBSERVATION_RETENTION_DAYS = 90
+
 
 async def run_retention(
     *,
@@ -188,7 +198,9 @@ async def run_retention(
     M68 起多一个 ``trace_spans_deleted``（超过 ``trace.retention_days`` 的追踪行），
     M69 起多一个 ``agent_inbox_deleted``（超过 :data:`INBOX_RETENTION_DAYS` 的已处理
     收件箱项），M75 起多一个 ``artifacts_deleted``（超过 30 天的未置顶 spill），
-    既有八个 key 的语义不变。
+    M81 起多 ``observations_deleted``（超过 :data:`TRIGGER_OBSERVATION_RETENTION_DAYS`
+    的观察记录）与 ``triggers_deleted``（超过 :data:`TRIGGER_RETENTION_DAYS` 且没有
+    工单、也没有保留期内观察记录的事件），既有八个 key 的语义不变。
     其中 ``screenshots_deleted`` 计的是
     **文件被清理并打了 ``deleted_at``** 的截图条数，不含随后按 90 天口径删掉的
     记录条数（后者只进日志）。异常原样抛出，不在本层吞掉。
@@ -206,6 +218,8 @@ async def run_retention(
         "trace_spans_deleted": 0,
         "agent_inbox_deleted": 0,
         "artifacts_deleted": 0,
+        "observations_deleted": 0,
+        "triggers_deleted": 0,
     }
 
     async with factory() as db:
@@ -336,9 +350,30 @@ async def run_retention(
             await asyncio.sleep(BATCH_PAUSE_SECONDS)
         await _incremental_vacuum(db)
 
+        # 10) 事件与观察记录（M81 规格 §4.5.8）：观察记录保留 90 天，先删；事件
+        #     保留 30 天，但有工单、或还挂着保留期内观察记录的事件要一起留着。
+        observation_cutoff = now - timedelta(days=TRIGGER_OBSERVATION_RETENTION_DAYS)
+        result["observations_deleted"] = await TriggerObservationRepository(db).purge(
+            observation_cutoff
+        )
+        result["triggers_deleted"] = await TriggerRepository(db).purge(
+            before=now - timedelta(days=TRIGGER_RETENTION_DAYS),
+            keep_observed_since=observation_cutoff,
+        )
+        await db.commit()
+        logger.info(
+            "保留策略：已删除 %d 条观察记录、%d 条事件",
+            result["observations_deleted"],
+            result["triggers_deleted"],
+        )
+        if result["observations_deleted"] or result["triggers_deleted"]:
+            await asyncio.sleep(BATCH_PAUSE_SECONDS)
+        await _incremental_vacuum(db)
+
     logger.info(
         "保留策略执行完成：日志 %s 条、流水线 %s 条、截图 %s 个、临时文件 %s 个、"
-        "作业 %s 份、成本账本 %s 条、追踪 span %s 条、收件箱项 %s 条、产物 %s 份",
+        "作业 %s 份、成本账本 %s 条、追踪 span %s 条、收件箱项 %s 条、产物 %s 份、"
+        "观察记录 %s 条、事件 %s 条",
         result["logs_deleted"],
         result["pipelines_deleted"],
         result["screenshots_deleted"],
@@ -348,6 +383,8 @@ async def run_retention(
         result["trace_spans_deleted"],
         result["agent_inbox_deleted"],
         result["artifacts_deleted"],
+        result["observations_deleted"],
+        result["triggers_deleted"],
     )
     return result
 

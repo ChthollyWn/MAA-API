@@ -80,6 +80,7 @@ from maa_api.api.routers import (
     system,
     tasks,
     tickets,
+    triggers,
     updates,
 )
 from maa_api.api.ws import manager as ws_manager
@@ -1833,7 +1834,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         update_scheduler.start()
         app.state.update_scheduler = update_scheduler
-        # M81 §4.5.4：调度器起来后再注册事件 job（T7 补实现，当前为空壳）。
+        # M81 §4.5.4：调度器起来后再注册事件 job（理智估算与定时规则，§4.5.5）。
         if trigger_service is not None:
             trigger_service.start_jobs(update_scheduler)
         from maa_api.services.schedule_service import ScheduleService
@@ -2196,6 +2197,7 @@ def create_app() -> FastAPI:
     app.include_router(confirmations.router)
     app.include_router(questions.router)
     app.include_router(tickets.router)
+    app.include_router(triggers.router)
     app.include_router(rewind.router)
     app.include_router(device_lease.router)
     app.include_router(ws_router)

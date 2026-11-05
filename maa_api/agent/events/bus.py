@@ -14,7 +14,10 @@
 
 本模块只做编排：规则合并与匹配在 :mod:`maa_api.agent.events.rules`，研判在
 :mod:`maa_api.agent.events.evaluator`，建单、订阅与收件箱分别归 M69/M70 的服务。
-定时 job（``start_jobs`` / ``_fire_rule``）由 M81 T7 补齐，本任务只留不失败的空壳。
+
+定时 job 归本模块（§4.5.5）：``start_jobs`` 注册理智估算 job（``maa-trigger-sanity``）
+与当前启用的定时规则 job（``maa-trigger-rule-<rule_id>``），并订阅规则变化重排；
+``close`` 只移除自己注册过的 job。
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -39,7 +43,11 @@ from maa_api.agent.events.builtin_rules import (
 )
 from maa_api.agent.events.evaluator import EvalOutcome
 from maa_api.agent.events.kinds import needs_attention, summarize, validate_event
-from maa_api.agent.events.rules import EffectiveRule
+from maa_api.agent.events.rules import (
+    RULE_CRON_TIMEZONE,
+    EffectiveRule,
+    RuleSet,
+)
 from maa_api.db.models import AgentInbox, AgentTrigger, TriggerObservation, utcnow
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.repositories.ticket import AgentInboxRepository, TicketRepository
@@ -59,6 +67,7 @@ from maa_api.domain.enums import (
     TriggerRoute,
 )
 from maa_api.domain.errors import AppError, ErrorCode
+from maa_api.services.schedule_service import cron_trigger
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +79,18 @@ EVAL_CONCURRENCY = 2
 RESTART_WINDOW = timedelta(hours=24)
 #: 交总控时 payload 字段的 JSON 上限（§4.5.2 ``forward_to_orchestrator``）。
 FORWARD_PAYLOAD_CHARS = 2000
+#: 理智估算 job 的 id 与间隔（§4.5.5）。
+SANITY_JOB_ID = "maa-trigger-sanity"
+SANITY_INTERVAL_MINUTES = 30
+#: 定时规则 job 的 id 前缀；完整 id 是 ``maa-trigger-rule-<rule_id>``（§4.5.5）。
+RULE_JOB_PREFIX = "maa-trigger-rule-"
+#: 定时规则 job 的 misfire 宽限（秒，§4.5.5）。
+RULE_MISFIRE_GRACE_SECONDS = 300
+
+
+def _rule_job_id(rule_id: str) -> str:
+    """``maa-trigger-rule-<rule_id>``。"""
+    return f"{RULE_JOB_PREFIX}{rule_id}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +189,10 @@ class TriggerService:
         #: G5 的定时 job：只移除自己注册过的 id（照 ``ScheduleService``）。
         self._scheduler: Any = None
         self._owned_job_ids: set[str] = set()
+        #: 已注册定时规则 job 的 cron，用于规则改了 cron 时重排（§4.5.5）。
+        self._job_crons: dict[str, str] = {}
+        #: ``start_jobs`` 首次按库里的规则集注册 job 的任务；测试可 await 它以消除竞态。
+        self._jobs_ready: asyncio.Task[Any] | None = None
         self._closed = False
 
         # 事件管线建单时要建 Worker 会话；Worker 服务装配在本服务之后，传惰性解析
@@ -658,12 +683,141 @@ class TriggerService:
         return handled
 
     def start_jobs(self, scheduler: Any) -> None:
-        """注册理智估算与定时规则 job（M81 T7 实现）。
+        """注册理智估算 job 与定时规则 job，并订阅规则变化（§4.5.5）。
 
-        本任务只记下调度器，不注册 job：``_fire_rule`` 与规则监听都在 T7，届时
-        在这里补齐；先留可调用的空壳，保证装配与关闭流程能跑通。
+        ``maa-trigger-sanity`` 立即注册；定时规则要先读库里的规则集，所以首次注册
+        放到一个被跟踪的任务里（``_jobs_ready``），不阻塞 lifespan 的启动流程。
+        规则写入 / 删除后，``TriggerRuleService`` 会同步调用 :meth:`_sync_rule_jobs`
+        增删 job。
         """
+        if self._closed:
+            return
         self._scheduler = scheduler
+        # 局部导入：``wiring`` 只在类型检查时引用本模块，避免包内互相拖入。
+        from maa_api.agent.events.wiring import SanityWatcher
+
+        watcher = SanityWatcher(self, self._session_factory, clock=self._clock)
+        self._add_sanity_job(watcher)
+        self._rules.add_listener(self._sync_rule_jobs)
+        self._jobs_ready = self._spawn_jobs_sync()
+
+    def _add_sanity_job(self, watcher: Any) -> None:
+        """注册 30 分钟一次的理智估算 job（``max_instances=1``、``coalesce=True``）。"""
+        try:
+            self._scheduler.add_job(
+                watcher.tick,
+                "interval",
+                minutes=SANITY_INTERVAL_MINUTES,
+                id=SANITY_JOB_ID,
+                name="事件：理智估算",
+                max_instances=1,
+                coalesce=True,
+                replace_existing=True,
+            )
+        except Exception:  # noqa: BLE001 - 调度器已关闭时不能拖垮启动
+            logger.warning("注册理智估算 job 失败", exc_info=True)
+            return
+        self._owned_job_ids.add(SANITY_JOB_ID)
+
+    def _spawn_jobs_sync(self) -> asyncio.Task[Any] | None:
+        """起一个任务按当前规则集注册 job；没有事件循环时记日志跳过。"""
+        try:
+            task = asyncio.create_task(self._sync_jobs_quiet(), name="trigger-rule-jobs")
+        except RuntimeError:
+            logger.warning("事件服务没有事件循环，跳过首次定时规则注册")
+            return None
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
+    async def _sync_jobs_quiet(self) -> None:
+        try:
+            await self.sync_jobs()
+        except Exception:  # noqa: BLE001 - 启动期规则读取失败只记日志
+            logger.exception("首次注册定时规则 job 失败")
+
+    async def sync_jobs(self) -> None:
+        """按当前规则集重排定时规则 job（``start_jobs`` 首次调用）。"""
+        if self._closed or self._scheduler is None:
+            return
+        rule_set = await self._rules.rule_set()
+        self._sync_rule_jobs(rule_set)
+
+    def _sync_rule_jobs(self, rule_set: RuleSet) -> None:
+        """规则变化后增删定时规则 job；只动自己注册过的 id（§4.5.5）。"""
+        if self._closed or self._scheduler is None:
+            return
+        settings = self._settings_provider()
+        desired: dict[str, EffectiveRule] = {}
+        for rule in rule_set.all():
+            if rule.source != EventSource.SCHEDULE.value or not rule.cron:
+                continue
+            if rule.effective_mode(settings) == TriggerMode.OFF:
+                continue
+            desired[_rule_job_id(rule.id)] = rule
+
+        for job_id in tuple(self._owned_job_ids):
+            if job_id == SANITY_JOB_ID or job_id in desired:
+                continue
+            self._remove_job(job_id)
+        for job_id, rule in desired.items():
+            if (
+                job_id in self._owned_job_ids
+                and self._job_crons.get(job_id) == rule.cron
+            ):
+                continue
+            self._add_rule_job(job_id, rule)
+
+    def _add_rule_job(self, job_id: str, rule: EffectiveRule) -> None:
+        """注册（或按新 cron 替换）一条定时规则 job。"""
+        try:
+            trigger = cron_trigger(rule.cron or "", RULE_CRON_TIMEZONE)
+        except (ValueError, TypeError):
+            logger.warning("定时规则 cron 解析失败，跳过注册：%s", rule.cron)
+            return
+        try:
+            self._scheduler.add_job(
+                self._fire_rule,
+                trigger=trigger,
+                args=[rule.id],
+                id=job_id,
+                name=f"事件规则：{rule.title}",
+                misfire_grace_time=RULE_MISFIRE_GRACE_SECONDS,
+                coalesce=True,
+                max_instances=1,
+                replace_existing=True,
+            )
+        except Exception:  # noqa: BLE001 - 调度器已关闭时不能打断规则写入
+            logger.warning("注册定时规则 job 失败：%s", job_id, exc_info=True)
+            return
+        self._owned_job_ids.add(job_id)
+        self._job_crons[job_id] = rule.cron or ""
+
+    async def _fire_rule(self, rule_id: str) -> None:
+        """定时规则到点：发一条 ``schedule.fired``（§4.5.5）。"""
+        now = self._clock()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        scheduled = now.astimezone(ZoneInfo(RULE_CRON_TIMEZONE)).replace(
+            second=0, microsecond=0
+        )
+        scheduled_for = scheduled.isoformat()
+        await self.publish(
+            source=EventSource.SCHEDULE,
+            kind="schedule.fired",
+            thread_key=f"schedule:{rule_id}",
+            payload={"rule_id": rule_id, "scheduled_for": scheduled_for},
+            dedupe_key=f"schedule:{rule_id}:{scheduled_for}",
+        )
+
+    def _remove_job(self, job_id: str) -> None:
+        """移除一个自己注册的 job，并忘记它的 cron。"""
+        try:
+            self._scheduler.remove_job(job_id)
+        except Exception:  # noqa: BLE001 - job 可能已被调度器清理
+            logger.debug("移除事件 job 失败：%s", job_id)
+        self._owned_job_ids.discard(job_id)
+        self._job_crons.pop(job_id, None)
 
     async def close(self) -> None:
         """移除自己的 job，取消并等待 ``publish_nowait`` 起的任务。"""
@@ -675,12 +829,14 @@ class TriggerService:
                 except Exception:  # noqa: BLE001 - job 可能已被调度器清理
                     logger.debug("移除事件 job 失败：%s", job_id)
             self._owned_job_ids.clear()
+            self._job_crons.clear()
         pending = [task for task in self._tasks if not task.done()]
         for task in pending:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
         self._tasks.clear()
+        self._jobs_ready = None
 
     # ------------------------------------------------------------------
     # 内部：入表、收尾、锁与计数
