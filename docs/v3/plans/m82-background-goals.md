@@ -12,15 +12,16 @@
 
 - 分支 `background-goals`，基点 `dev` = `561ef13`（M81 合并）；tag `v3-m81`；迁移 head `0034_triggers`，下一号 `0035`。
 - §0 1–14 符合：M81 事件服务/登记表/规则常量在；建单入口已有 `source_trigger_id`；`TicketService` 有 `create`/`attach_worker_session`/`update_result`；`planner` 带养成计划工具；总控 v5；`UpgradePlan.id` 为 str36；养成计划服务 `start/list_plans/refresh/cancel`；`ScheduleService.get/patch/delete`；`WebPushService.broadcast`、`ConnectionManager.has_visible_client`；工具 100/99；v2 错误码 `AGENT_DISABLED`/`SCHEDULE_CRON_INVALID` 在。基线见台账（预期 3 条真资源失败）。
-- **待确认（spec §10 / 与 docs/v3/13 V3-D14 冲突）**：
-  1. 规划工单用**显式委托**（`strength=explicit`，可发起需要确认的操作）——与 V3-D14「目标推断」不同；被问到时按用户答复执行，否则按 spec 并在台账/13 记「按 spec 执行、用户未另行确认」。
+- **已确认（用户 2026-11-05 选择「按 spec」）**：
+  1. 规划工单用**显式委托**（`strength=explicit`，可发起需要确认的操作）——与 V3-D14「目标推断」不同，记 13 §8。
   2. 内置规则 `goal-review` 默认 **auto**（可自动建复盘工单、花研判调用）。
 - **接缝裁决（待落地后记 13 §8.132–8.142）**：
   1. `ThreadRouter`/`TriggerService`/汇报监听都要求真实服务；测试用真实实例接临时库。
-  2. 汇报落库入口在 `TicketService.update_result`/report 流程中，加 `add_report_listener` 与后台跟踪任务（异常只日志）。
+  2. 汇报落库入口实际是 `TicketService.record_report`（不是 `update_result`）；在 commit 之后、转发之前对 `_report_listeners` 起后台跟踪任务（异常只日志），加 `add_report_listener`。
   3. `GoalService.get_schedule_service` 惰性取 `app.state.schedule_service`（main 后段才建）。
   4. 拆分 `pytest` 文件按 spec §6；工具注册后计数 104/103；总控定义 version 6。
-  5. 盘点：错误码 +2（`GOAL_NOT_FOUND`/`GOAL_ENDED`，162/161）；端点 +4（176，agent 73）；业务表 +2（51）；工具 +4（104/103）；配置键 +2；迁移 head 0035；总控定义 version +1。
+  5. 盘点：错误码 +2（`GOAL_NOT_FOUND`/`GOAL_ENDED`，162/161）；端点 +4（176，agent 73）；业务表 +2（51）；工具 +4（104/103）；配置键 +2；迁移 head 0035；总控定义 version 6。
+  6. 更正 spec 形状：`TicketService.create` 返回 `(Ticket, Mandate)` 二元组（须解包）；`report.human_action` 是 Pydantic 模型（用 `.ref_id`/`.type`，不是 dict）；`TicketService.cancel(ticket_id, reason=...)` 可由服务调用（spec §10 第 3 条风险不成立）。
 
 ## Global Constraints
 
