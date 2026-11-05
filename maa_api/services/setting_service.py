@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.secrets import (
     LLMEncryptionKeyInvalid,
-    decrypt_api_key,
-    encrypt_api_key,
+    decrypt_secret,
+    encrypt_secret,
 )
 from maa_api.db.repositories.setting import SettingRepository
 from maa_api.domain.errors import AppError, ErrorCode
@@ -32,7 +32,21 @@ from maa_api.settings import (
     set_settings,
 )
 
-__all__ = ["SettingService"]
+__all__ = ["ENCRYPTED_SETTING_KEYS", "SettingService"]
+
+#: 落库前必须加密的敏感项（09 §8.2）。显式集合而不是只看 ``sensitive`` 元数据：
+#: ``app.access_token`` 是设置 API 只读（保持既有部署兼容），
+#: ``notify.vapid_private_key`` 是 config-only，两者都不落库；四个 IM 通道密钥
+#: 与 ``llm.api_key`` 走同一个主密钥与同一种 ``enc:v1:`` 格式。
+ENCRYPTED_SETTING_KEYS: frozenset[str] = frozenset(
+    {
+        "llm.api_key",
+        "channels.telegram_bot_token",
+        "channels.feishu_app_secret",
+        "channels.dingtalk_client_secret",
+        "channels.qq_app_secret",
+    }
+)
 
 _SCHEMA_BY_KEY = {entry["key"]: entry for entry in SETTINGS_SCHEMA}
 
@@ -78,38 +92,43 @@ class SettingService:
         async with self._session_factory() as session:
             repository = SettingRepository(session)
             self._db_overrides = await repository.all()
-            stored_api_key = self._db_overrides.get("llm.api_key")
-            if stored_api_key not in (None, ""):
+            for key in ENCRYPTED_SETTING_KEYS:
+                stored = self._db_overrides.get(key)
+                if stored in (None, ""):
+                    continue
                 try:
                     if not encryption_key:
                         raise LLMEncryptionKeyInvalid(
                             "LLM encryption key is missing or invalid"
                         )
-                    api_key = decrypt_api_key(stored_api_key, encryption_key)
-                    if not stored_api_key.startswith("enc:v1:"):
+                    plaintext = decrypt_secret(stored, encryption_key)
+                    if not stored.startswith("enc:v1:"):
                         # Migrate legacy plaintext at the first refresh with a master key.
                         await repository.set(
-                            "llm.api_key",
-                            encrypt_api_key(api_key, encryption_key),
+                            key,
+                            encrypt_secret(plaintext, encryption_key),
                             updated_by="system",
                         )
                         await session.commit()
-                    self._db_overrides["llm.api_key"] = api_key
+                    self._db_overrides[key] = plaintext
                 except (LLMEncryptionKeyInvalid, TypeError) as exc:
-                    # Keep the unusable DB value above YAML, while an explicit env key
+                    # Keep the unusable DB value above YAML, while an explicit env value
                     # remains the highest-priority source.
-                    self._db_overrides["llm.api_key"] = ""
-                    # This status describes the stored ciphertext and remains even if
-                    # MAA_LLM_API_KEY supplies a usable request credential.
-                    self.llm_encryption_error = (
+                    self._db_overrides[key] = ""
+                    error = (
                         exc
                         if isinstance(exc, LLMEncryptionKeyInvalid)
                         else LLMEncryptionKeyInvalid(
-                            "Stored LLM API key is invalid"
+                            "Stored sensitive setting is invalid"
                         )
                     )
+                    # This flag drives the orchestrator's "reconfigure the LLM key"
+                    # path; a broken channel credential must not disable the LLM.
+                    if key == "llm.api_key":
+                        self.llm_encryption_error = error
                     _LOGGER.error(
-                        "Stored LLM API key is unreadable: %s",
+                        "Stored sensitive setting %s is unreadable: %s",
+                        key,
                         ErrorCode.LLM_ENCRYPTION_KEY_INVALID.value,
                     )
         settings, sources = resolve_settings_with_sources(
@@ -192,19 +211,23 @@ class SettingService:
 
         if changes:
             encrypted_changes = dict(changes)
-            if "llm.api_key" in encrypted_changes:
+            secret_changes = [
+                key for key in changes if key in ENCRYPTED_SETTING_KEYS
+            ]
+            if secret_changes:
                 env = os.environ if self._env is None else self._env
-                encryption_key = env.get("MAA_LLM_ENCRYPTION_KEY")
-                try:
-                    encrypted_changes["llm.api_key"] = encrypt_api_key(
-                        encrypted_changes["llm.api_key"], encryption_key or ""
-                    )
-                except LLMEncryptionKeyInvalid as exc:
-                    raise AppError(
-                        ErrorCode.LLM_ENCRYPTION_KEY_INVALID,
-                        "缺少或无效的 LLM 加密密钥，"
-                        "请在 config.yaml 或环境变量 MAA_LLM_ENCRYPTION_KEY 里配置",
-                    ) from exc
+                encryption_key = env.get("MAA_LLM_ENCRYPTION_KEY") or ""
+                for key in secret_changes:
+                    try:
+                        encrypted_changes[key] = encrypt_secret(
+                            encrypted_changes[key], encryption_key
+                        )
+                    except LLMEncryptionKeyInvalid as exc:
+                        raise AppError(
+                            ErrorCode.LLM_ENCRYPTION_KEY_INVALID,
+                            "缺少或无效的 LLM 加密密钥，"
+                            "请在 config.yaml 或环境变量 MAA_LLM_ENCRYPTION_KEY 里配置",
+                        ) from exc
             async with self._session_factory() as session:
                 repository = SettingRepository(session)
                 for key, value in encrypted_changes.items():

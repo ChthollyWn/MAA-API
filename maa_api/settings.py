@@ -251,6 +251,24 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "spend.daily_medicine_limit": ("spend", "daily_medicine_limit"),
     "spend.daily_stone_limit": ("spend", "daily_stone_limit"),
     "spend.daily_expedite_limit": ("spend", "daily_expedite_limit"),
+    # ---- IM 通道（M85 规格 §4.4）：十六项都不是 config-only；四个密钥是敏感项，
+    # 落库前加密（09 §8.2），其余由 ChannelService 每次现读。----
+    "channels.max_reply_chars": ("channels", "max_reply_chars"),
+    "channels.allow_destructive_approval": ("channels", "allow_destructive_approval"),
+    "channels.telegram_enabled": ("channels", "telegram_enabled"),
+    "channels.feishu_enabled": ("channels", "feishu_enabled"),
+    "channels.dingtalk_enabled": ("channels", "dingtalk_enabled"),
+    "channels.qq_enabled": ("channels", "qq_enabled"),
+    "channels.telegram_bot_token": ("channels", "telegram_bot_token"),
+    "channels.feishu_app_secret": ("channels", "feishu_app_secret"),
+    "channels.dingtalk_client_secret": ("channels", "dingtalk_client_secret"),
+    "channels.qq_app_secret": ("channels", "qq_app_secret"),
+    "channels.feishu_app_id": ("channels", "feishu_app_id"),
+    "channels.dingtalk_client_id": ("channels", "dingtalk_client_id"),
+    "channels.qq_app_id": ("channels", "qq_app_id"),
+    "channels.feishu_domain": ("channels", "feishu_domain"),
+    "channels.telegram_proxy": ("channels", "telegram_proxy"),
+    "channels.qq_sandbox": ("channels", "qq_sandbox"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -572,6 +590,42 @@ class SpendSettings(BaseModel):
     daily_medicine_limit: int = Field(default=-1, ge=-1, le=999)
     daily_stone_limit: int = Field(default=-1, ge=-1, le=999)
     daily_expedite_limit: int = Field(default=-1, ge=-1, le=999)
+
+
+class ChannelsSettings(BaseModel):
+    """IM 通道（M85 规格 §4.4）：四个平台的开关与凭证、回复长度与确认策略。
+
+    四个 ``*_enabled`` 默认关闭；四个密钥是敏感项，落库前与 ``llm.api_key``
+    走同一条 Fernet 路径（09 §8.2），设置接口回显 ``***``。``telegram_proxy``
+    为空表示沿用 ``app.proxy``；``feishu_domain`` 是飞书开放平台地址；绑定码
+    与发件箱的轮询参数写死在服务里，不进设置。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: 单条 IM 回复的最大字数；超出时先给结论再附网页链接（08 §1.2）。
+    max_reply_chars: int = Field(default=300, ge=80, le=4000)
+    #: 破坏类确认是否允许在 IM 里批准；默认只在网页上批准（V3-D25）。
+    allow_destructive_approval: bool = False
+    telegram_enabled: bool = False
+    feishu_enabled: bool = False
+    dingtalk_enabled: bool = False
+    qq_enabled: bool = False
+    #: 四个平台的密钥；空串表示未配置（敏感项，落库加密）。
+    telegram_bot_token: str = ""
+    feishu_app_secret: str = ""
+    dingtalk_client_secret: str = ""
+    qq_app_secret: str = ""
+    #: 非密钥的平台标识。
+    feishu_app_id: str = ""
+    dingtalk_client_id: str = ""
+    qq_app_id: str = ""
+    #: 飞书开放平台地址；海外版或代理网关填别的值。
+    feishu_domain: str = "https://open.feishu.cn"
+    #: Telegram 专用代理；空串表示用 ``app.proxy``。
+    telegram_proxy: str = ""
+    #: QQ 官方机器人沙箱环境开关。
+    qq_sandbox: bool = False
 
 
 class TraceSettings(BaseModel):
@@ -910,6 +964,8 @@ class Settings(BaseModel):
     brief: BriefSettings = Field(default_factory=BriefSettings)
     #: M84 三类每日消耗上限（都不是 config-only，SpendGuard 每次判定时现读）。
     spend: SpendSettings = Field(default_factory=SpendSettings)
+    #: M85 IM 通道：四个平台开关与凭证、回复长度与确认策略（都不是 config-only）。
+    channels: ChannelsSettings = Field(default_factory=ChannelsSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

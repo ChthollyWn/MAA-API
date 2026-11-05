@@ -546,9 +546,25 @@ class ErrorCode(StrEnum):
     # 超过今日消耗上限
     SPEND_CAP_EXCEEDED = "SPEND_CAP_EXCEEDED"
 
+    # ---- M85 IM 通道 ----
+    # 该平台未启用或没有填写凭证，不能发送测试消息
+    CHANNEL_NOT_CONFIGURED = "CHANNEL_NOT_CONFIGURED"
+
+    # 适配器发送失败（同步路径；发件箱内部另有 failed / dead 状态）
+    CHANNEL_SEND_FAILED = "CHANNEL_SEND_FAILED"
+
+    # 没有这条通道绑定
+    CHANNEL_BINDING_NOT_FOUND = "CHANNEL_BINDING_NOT_FOUND"
+
+    # 绑定码不存在、已使用、已过期或平台不符
+    BIND_CODE_INVALID = "BIND_CODE_INVALID"
+
+    # 这类确认只能在网页上批准（默认不允许在 IM 里批准破坏类确认）
+    CHANNEL_APPROVAL_NOT_ALLOWED = "CHANNEL_APPROVAL_NOT_ALLOWED"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 163 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 168 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -736,6 +752,11 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     # M84 消耗护栏：代理/定时任务超过当日上限是「你不许继续」，用 403
     # （与 MANDATE_SCOPE_EXCEEDED 同口径）。
     ErrorCode.SPEND_CAP_EXCEEDED: 403,
+    ErrorCode.CHANNEL_NOT_CONFIGURED: 503,
+    ErrorCode.CHANNEL_SEND_FAILED: 502,
+    ErrorCode.CHANNEL_BINDING_NOT_FOUND: 404,
+    ErrorCode.BIND_CODE_INVALID: 400,
+    ErrorCode.CHANNEL_APPROVAL_NOT_ALLOWED: 403,
 }
 
 

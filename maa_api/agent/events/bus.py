@@ -509,7 +509,9 @@ class TriggerService:
     ) -> PublishResult:
         """没有建单/写观察时的去处：需要的话交总控，否则只记录（§4.5.2）。"""
         reason_text = eval_reason if eval_reason is not None else reason
-        if needs_attention(row.kind, row.payload):
+        # 08 §2.3 第 3 步：im.message 固定交总控（写成 user_message），不受
+        # 「attention 集合」限制；这也是 IM 消息在无规则命中时的默认去处。
+        if row.kind == "im.message" or needs_attention(row.kind, row.payload):
             await self.forward_to_orchestrator(row, reason=reason, rule_id=rule_id)
             return await self._finish(
                 row,
