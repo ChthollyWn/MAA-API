@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { attentionMemoriesQuery } from '@/features/memory/api'
+import { spendQueryOptions } from '@/features/spend/api'
 import {
   invalidateWatchdogAlerts,
   resolveWatchdogAlert,
@@ -49,7 +50,8 @@ function useResolveWatchdogAlert(): WatchdogAlertResolver {
 
 /**
  * 「待你处理」的数据源（M72 §4.6.4）：确认、全局待答提问、待审核记忆、
- * 严重且未解除的值守告警（M83 §4.5）与 waiting/blocked 工单合并。
+ * 严重且未解除的值守告警（M83 §4.5）、消耗护栏汇总（M84 §4.6）与
+ * waiting/blocked 工单合并。
  *
  * `excludeIds` 是实时副本里已经就地展示的卡片；它们不在这里重复出现，但仍参与
  * 工单覆盖计算（§4.5.5）。待审核记忆合成一项「N 条记忆待审核」（M79 §4.5）。
@@ -63,6 +65,7 @@ export function useAttention(options: {
   const tickets = useQuery(attentionTicketsQuery)
   const memories = useQuery(attentionMemoriesQuery)
   const alerts = useQuery(criticalWatchdogAlertsQuery)
+  const spend = useQuery(spendQueryOptions())
 
   const resolver = useResolveConfirmation()
   const alertResolver = useResolveWatchdogAlert()
@@ -75,6 +78,7 @@ export function useAttention(options: {
       tickets: tickets.data?.items ?? [],
       memories: memories.data ?? [],
       alerts: alerts.data?.items ?? [],
+      spend: spend.data,
       excludeIds: options.excludeIds,
     }),
     [
@@ -83,6 +87,7 @@ export function useAttention(options: {
       tickets.data?.items,
       memories.data,
       alerts.data?.items,
+      spend.data,
       options.excludeIds,
     ],
   )
@@ -93,13 +98,15 @@ export function useAttention(options: {
     void tickets.refetch()
     void memories.refetch()
     void alerts.refetch()
+    void spend.refetch()
   }
 
   return {
     items,
     isPending: confirmations.isPending || questions.isPending || tickets.isPending || memories.isPending
-      || alerts.isPending,
-    error: confirmations.error ?? questions.error ?? tickets.error ?? memories.error ?? alerts.error ?? null,
+      || alerts.isPending || spend.isPending,
+    error: confirmations.error ?? questions.error ?? tickets.error ?? memories.error ?? alerts.error
+      ?? spend.error ?? null,
     refetch,
     resolver,
     alertResolver,

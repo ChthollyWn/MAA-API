@@ -1,6 +1,7 @@
 import type { AgentQuestion } from '@/features/agent/types'
 import type { Confirmation } from '@/features/confirmations/ConfirmationsPanel'
 import type { MemoryItem } from '@/features/memory/api'
+import type { SpendKindUsage, SpendSummary } from '@/features/spend/api'
 import type { AlertOut } from '@/features/watchdog/api'
 import type { TicketView } from './api'
 import type { Origin } from './conversation/types'
@@ -12,6 +13,8 @@ export type AttentionItem =
   | { kind: 'memory'; id: string; count: number; previews: string[] }
   /** 未解除的严重值守告警（M83 §4.5）；动作是「标记已处理」。 */
   | { kind: 'alert'; id: string; alert: AlertOut }
+  /** 消耗护栏的汇总行（M84 §4.6）：有拦截或某一种用量接近上限时出现。 */
+  | { kind: 'spend'; id: string; attention: SpendAttention }
   | { kind: 'ticket'; id: string; ticket: TicketView }
 
 function originOf(value: unknown): Origin | null {
@@ -39,14 +42,47 @@ function updatedAt(value: string | null): number {
 
 type SortedItem = { group: number; item: AttentionItem; expires: number; updated: number }
 
+/** 消耗护栏进入「待你处理」的两种情形（M84 §4.6）：有拦截，或用量接近上限。 */
+export type SpendAttention =
+  | { kind: 'blocked'; count: number }
+  | { kind: 'usage'; usage: SpendKindUsage }
+
+/** 用量达到上限八成（向上取整）就算「接近上限」；与页面进度条的 warning 同口径。 */
+export const SPEND_ATTENTION_RATIO = 0.8
+
+/** 判定是否该出现消耗汇总行；不该出现时返回 null。 */
+export function spendAttention(summary: SpendSummary | undefined): SpendAttention | null {
+  if (!summary) return null
+  // 有拦截时优先说拦截次数，这是用户最需要知道的一件事。
+  if (summary.blocked_today.length > 0) {
+    return { kind: 'blocked', count: summary.blocked_today.length }
+  }
+  let highest: SpendKindUsage | null = null
+  for (const item of summary.today) {
+    if (item.limit <= 0) continue
+    if (item.used < Math.ceil(item.limit * SPEND_ATTENTION_RATIO)) continue
+    // 并列时保留接口顺序里的前一种（理智药 → 源石 → 加急许可）。
+    if (!highest || item.used / item.limit > highest.used / highest.limit) highest = item
+  }
+  return highest ? { kind: 'usage', usage: highest } : null
+}
+
+/** 汇总行文案：有拦截说次数，否则说比例最高的一种用了多少。 */
+export function spendAttentionText(attention: SpendAttention): string {
+  if (attention.kind === 'blocked') return `今天有 ${attention.count} 次提交被消耗上限拦下`
+  return `${attention.usage.label}今天已用 ${attention.usage.used} / ${attention.usage.limit}`
+}
+
 /**
  * 「待你处理」的合并与排序（M72 §4.5.5）。
  *
  * 1. 工单已经被一张确认/提问覆盖（`human_action.ref_id` 命中、或它的 id 就是卡片来源的
  *    `origin.ticket_id`）就不再单列；被 `excludeIds` 排除的卡片仍然参与覆盖计算，
  *    否则实时副本里的卡会让同一张卡在侧栏里再出现一次。
- * 2. 顺序：确认 → 提问 → 待审核记忆 → 严重告警 → blocked 工单 → waiting 工单；
- *    确认与提问按过期时间升序（读不出的排最后），告警与工单按更新时间降序。
+ * 2. 顺序：确认 → 提问 → 待审核记忆 → 严重告警 → blocked 工单 → waiting 工单 →
+ *    消耗汇总；确认与提问按过期时间升序（读不出的排最后），告警与工单按更新时间降序。
+ *    消耗汇总排在最后：规格 §4.6 要求它跟在观察记录汇总行之后，而观察记录汇总行
+ *    目前还没有接入「待你处理」。
  */
 export function buildAttentionItems(input: {
   confirmations: readonly Confirmation[]
@@ -56,9 +92,11 @@ export function buildAttentionItems(input: {
   memories?: readonly MemoryItem[]
   /** 严重且未解除的值守告警（M83 §4.5）；调用方已按接口过滤，这里再兜一层。 */
   alerts?: readonly AlertOut[]
+  /** 消耗汇总（M84 §4.6）；进入条件见 `spendAttention`。 */
+  spend?: SpendSummary
   excludeIds?: ReadonlySet<string>
 }): AttentionItem[] {
-  const { confirmations, questions, tickets, memories = [], alerts = [], excludeIds } = input
+  const { confirmations, questions, tickets, memories = [], alerts = [], spend, excludeIds } = input
   const coveredRefs = new Set<string>()
   const coveredTickets = new Set<string>()
   for (const confirmation of confirmations) {
@@ -139,6 +177,16 @@ export function buildAttentionItems(input: {
       item: { kind: 'ticket', id: ticket.id, ticket },
       expires: Number.POSITIVE_INFINITY,
       updated: updatedAt(ticket.updatedAt),
+    })
+  }
+
+  const spendEntry = spendAttention(spend)
+  if (spendEntry) {
+    sorted.push({
+      group: 6,
+      item: { kind: 'spend', id: 'spend-today', attention: spendEntry },
+      expires: Number.POSITIVE_INFINITY,
+      updated: 0,
     })
   }
 
