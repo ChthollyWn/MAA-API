@@ -781,8 +781,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.agent.spend import SpendGuard
 
         spend_guard = SpendGuard(db_session.session_factory)
-        queue_service.bind_spend_guard(spend_guard)
-        pipeline_runner.bind_spend_guard(spend_guard)
+        # 测试与替身可能替换队列/执行器实现；绑定是可选的扩展点，不要求每个实现都有。
+        for bindable in (queue_service, pipeline_runner):
+            bind_guard = getattr(bindable, "bind_spend_guard", None)
+            if callable(bind_guard):
+                bind_guard(spend_guard)
         app.state.spend_guard = spend_guard
         # M83 值守记录器：内核 CALLBACK 与流水线生命周期的进程内时间戳。装配在这里
         # （内核消费者启动之前）完成绑定，记录器本身不落库、不阻塞回调线程。
