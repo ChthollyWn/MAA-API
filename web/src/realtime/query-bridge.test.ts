@@ -197,6 +197,8 @@ describe('ticket events keep the ticket queries fresh', () => {
 
     const created = run('ticket_created')
     expect(created).toHaveBeenCalledWith({ queryKey: keys.agent.tickets.lists(), refetchType: 'active' })
+    // M82：工单变化也可能改目标列表里的规划状态与里程碑进度。
+    expect(created).toHaveBeenCalledWith({ queryKey: keys.agent.goals(), refetchType: 'active' })
     // 列表回应能拼出摘要，新建工单时还没有详情缓存可刷。
     expect(created).not.toHaveBeenCalledWith({
       queryKey: keys.agent.tickets.detail('ticket-1'),

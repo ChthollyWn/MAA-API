@@ -16,6 +16,7 @@ import {
   ScrollText,
   Settings2,
   Swords,
+  Target,
   Ticket,
   type LucideIcon,
 } from 'lucide-react'
@@ -48,6 +49,7 @@ export const secondaryNav: readonly (NavItem & { description: string; group: Nav
   { to: '/more/sessions', label: '旧会话', icon: History, description: '指挥台上线前的会话与归档的总控会话', group: 'agent' },
   { to: '/more/runs', label: '运行追踪', icon: Activity, description: '每次代理调用的步骤、耗时与用量', group: 'agent' },
   { to: '/more/costs', label: '成本', icon: Coins, description: '按天、代理、模型统计模型费用', group: 'agent' },
+  { to: '/more/goals', label: '目标', icon: Target, description: '长期目标、里程碑与复盘', group: 'agent' },
   { to: '/more/triggers', label: '事件规则', icon: Radar, description: '事件怎么处理，观察记录审阅', group: 'agent' },
   { to: '/more/status', label: '运行状态', icon: Activity, description: '设备、内核、队列与设备画面', group: 'ops' },
   { to: '/more/updates', label: '热更新', icon: Download, description: '内核、活动资源与游戏版本', group: 'ops' },

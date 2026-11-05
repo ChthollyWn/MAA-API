@@ -187,6 +187,9 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
     // 工单状态：列表、详情、汇报三段各取各的；不整片失效 `keys.agent.all()`。
     case 'ticket_status':
       invalidateBatched(queryClient, keys.agent.tickets.lists())
+      // M82 §4.6：工单状态变化可能改目标的规划状态与进度，列表整片失效；
+      // 详情页有自己的 30 秒轮询，不在这里额外重取。
+      invalidateBatched(queryClient, keys.agent.goals())
       // 新建工单时列表里还没有详情缓存；其余两个事件都可能改摘要与汇报。
       if (event.data.event !== 'ticket_created') {
         invalidateBatched(queryClient, keys.agent.tickets.detail(event.data.ticket_id))

@@ -95,6 +95,11 @@ export const keys = {
     /** @ 提及的干员候选；query 进 key，防抖后的不同查询各有一份缓存。 */
     mentionCandidates: (type: string, query: string) =>
       [...root, 'agent', 'mentions', type, query] as const,
+    /** 目标列表（M82 §4.6）：过滤的状态进 key；`ticket_status` 整片失效。 */
+    goals: (f?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'goals', f ?? {}] as const,
+    /** 目标详情（M82 §4.6）：详情页 30 秒轮询。 */
+    goal: (goalId: string) => [...root, 'agent', 'goals', 'detail', goalId] as const,
     /** 事件规则（M81 §4.6）：内置规则、覆盖与用户规则合成后的列表。 */
     triggerRules: () => [...root, 'agent', 'trigger-rules'] as const,
     /** 观察记录列表；带 `reviewed` 筛选，`observation_created` 走下面的整片前缀。 */
