@@ -62,6 +62,7 @@ SPEC_NAMES = [
 #: M75 §4.7：七个 Worker 各加三个工作记忆工具，``general`` 升到 3、其余升到 2。
 #: M78 §4.7：八个总控与 Worker 定义各加两个技能工具，版本再 +1。
 #: M79 §4.2：总控与 general 加 ``remember``、diagnose 加 ``search_knowledge``，版本再 +1。
+#: M82 §4.7：总控加四个目标工具与一段目标提示，``orchestrator`` 升到 6。
 EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
     "analyst": 3,
     "copilot": 3,
@@ -69,7 +70,7 @@ EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
     "diagnose": 4,
     "general": 6,
     "ops": 3,
-    "orchestrator": 5,
+    "orchestrator": 6,
     "planner": 3,
     "researcher": 2,
 }
