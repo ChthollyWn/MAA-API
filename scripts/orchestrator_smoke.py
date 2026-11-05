@@ -34,7 +34,11 @@ from tests.fakes.lifespan import (
 
 TOKEN = "m73-orchestrator-smoke-token"
 TEMP_PREFIX = "maa-api-orchestrator-smoke-"
-FAILED_PIPELINE_ID = "m73-smoke-failed-pipeline"
+FAILED_PIPELINE_ID = "77777777-7777-4777-8777-777777777777"
+#: M81 事件步骤用的第二条失败流水线，与 M73 步骤的流水线区分去重键。
+TRIGGER_FAILED_PIPELINE_ID = "88888888-8888-4888-8888-888888888888"
+#: 研判代理系统提示的身份标记（``trigger_evaluator`` 定义正文首句）。
+_TRIGGER_EVALUATOR_MARKER = "你负责判断进入系统的一条事件要不要主动处理"
 
 #: M67 自动能力探查的固定请求文本（与 ``maa_api/agent/llm/profiles.py`` 一致）。
 _JSON_SCHEMA_PROBE_PROMPT = "Return a JSON object with ok set to true."
@@ -72,7 +76,14 @@ def _caller(messages: list[dict[str, Any]]) -> str:
     if "你是 MAA-API 的总控" in text:
         return "orchestrator"
     if "## 工单卡" in text:
-        return "diagnose" if "自动诊断" in text else "worker"
+        # M73 的诊断说明带「自动诊断」；M81 事件规则建的诊断工单说明以
+        # 「【诊断上下文】」开头，两种都算诊断。
+        diagnose = (
+            "自动诊断" in text
+            or "【诊断上下文】" in text
+            or "只诊断 brief 里的这一次" in text
+        )
+        return "diagnose" if diagnose else "worker"
     raise SmokeFailure(
         "无法从系统提示识别调用方："
         f"第一条 system={_content_text((messages[0] or {}).get('content'))[:160]!r}"
@@ -149,6 +160,8 @@ class _SmokeLLM:
                 },
             ),
             _text_response("日常的工单已经交给执行官。", prompt_tokens=11, completion_tokens=6),
+            # M81：事件通知写进总控收件箱后会唤醒一轮，这里补一条收尾文本。
+            _text_response("收到设备不可用通知。"),
         ]
         # M80：Worker 先取一次关卡情报（假 stage_service 返回带注入文本的外部数据），
         # 下一步返回主界面时进入强制确认；确认被拒后收尾，之后两轮各给一条文本。
@@ -158,6 +171,23 @@ class _SmokeLLM:
             _text_response("已停在当前界面，没有返回主界面。"),
             _text_response("收到，稍后继续。"),
             _text_response("这是回溯之后的一轮。"),
+        ]
+        # M81：研判代理按结构化输出作答；设备不可用且有待执行的工作时 accept。
+        self.trigger_eval = [
+            _text_response(
+                json.dumps(
+                    {
+                        "decision": "accept",
+                        "worker": "ops",
+                        "title": "设备不可用：检查模拟器",
+                        "brief": "设备重连 3 次都失败；检查设备状态与模拟器，"
+                        "只做不需要确认的操作。",
+                        "scope": "检查设备与模拟器并汇报；不重启内核。",
+                        "reason": "设备重连多次失败，有排队的流水线需要执行。",
+                    },
+                    ensure_ascii=False,
+                )
+            )
         ]
         self.tool_probe_response = [
             {
@@ -230,6 +260,12 @@ class _SmokeLLM:
             if isinstance(tool, dict)
         }
         text = "\n".join(_content_text(message.get("content")) for message in messages)
+        # M81：研判也走结构化输出（带 response_format），必须排在通用探针之前，
+        # 否则会被 JSON Schema 探针的固定应答截走。
+        if _TRIGGER_EVALUATOR_MARKER in text:
+            if not self.trigger_eval:
+                raise SmokeFailure("研判的 Fake LLM 脚本已用完")
+            return self.trigger_eval.pop(0)
         if "capability_probe" in tool_names:
             return self.tool_probe_response
         if any(
@@ -415,6 +451,48 @@ def _diagnose_total(client: Any, headers: dict[str, str]) -> int:
     return int(page.get("total", 0))
 
 
+async def _inbox_trigger_items(service: Any, session_id: str) -> list[Any]:
+    """总控收件箱里的 ``trigger`` 项，按 id 升序；M81 冒烟断言条数与指向。"""
+    from sqlalchemy import select
+
+    from maa_api.db.models import AgentInbox
+
+    async with service.session_factory() as session:
+        result = await session.execute(
+            select(AgentInbox)
+            .where(
+                AgentInbox.session_id == session_id,
+                AgentInbox.kind == "trigger",
+            )
+            .order_by(AgentInbox.id.asc())
+        )
+        return list(result.scalars().all())
+
+
+async def _ticket_source_trigger(service: Any, ticket_id: str) -> int | None:
+    """工单指回的事件 id；M81 断言 ``ticket.source_trigger_id``。"""
+    from maa_api.db.models import Ticket
+
+    async with service.session_factory() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        return None if ticket is None else ticket.source_trigger_id
+
+
+async def _publish_device_unavailable(service: Any) -> Any:
+    """发一条 ``device.unavailable`` 并同步等完整条管线处理完。"""
+    return await service.publish(
+        source="device",
+        kind="device.unavailable",
+        thread_key="device:smoke-device",
+        payload={
+            "address": "smoke:5555",
+            "retry_attempt": 3,
+            "error_message": "冒烟：设备重连三次都失败",
+        },
+        dedupe_key="smoke:device:unavailable",
+    )
+
+
 def run(*, keep_temp: bool = False) -> None:
     before = _snapshot_repo_artifacts()
     temp_dir = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX)).resolve()
@@ -598,7 +676,7 @@ def run(*, keep_temp: bool = False) -> None:
         )
         print("[ok] diagnose")
 
-        # 5. 同一 pipeline 再失败：不新建工单，只在 Worker 收件箱追加一条。
+        # 5. 同一 pipeline 再失败：事件按 dedupe_key 去重，工单与收件箱都不变。
         before_tickets = _diagnose_total(client, headers)
         before_inbox = int(
             client.portal.call(_inbox_count, incident_service, diagnose_worker_session)
@@ -619,8 +697,8 @@ def run(*, keep_temp: bool = False) -> None:
             f"诊断工单数变化：{before_tickets} → {after_tickets}",
         )
         _require(
-            after_inbox == before_inbox + 1,
-            f"Worker 收件箱应只多一条：{before_inbox} → {after_inbox}",
+            after_inbox == before_inbox,
+            f"同一流水线重复失败不应再追加收件箱：{before_inbox} → {after_inbox}",
         )
         print("[ok] dedupe")
 
@@ -800,6 +878,148 @@ def run(*, keep_temp: bool = False) -> None:
             f"分叉来源不对：{new_detail.get('forked_from')!r}",
         )
         print("[ok] 会话回溯与工单分叉")
+
+        # 8. M81 事件（T10）：设备不可用经规则研判 accept 后写观察记录并把事件交
+        #    总控；再让一条流水线失败，诊断规则建工单且工单指回触发它的事件。
+        trigger_service = main_module.app.state.trigger_service
+        _require(
+            trigger_service is not None,
+            "应用没有装配事件服务（app.state.trigger_service）",
+        )
+        published = client.portal.call(_publish_device_unavailable, trigger_service)
+        _require(
+            str(published.eval_status) == "accept"
+            and published.observation_id is not None
+            and str(published.routed_to) == "orchestrator",
+            f"设备不可用事件没有研判为 accept 并交总控：{published!r}",
+        )
+        events = _check_response(
+            client.get(
+                "/api/agent/triggers",
+                params={"kind": "device.unavailable", "size": 10},
+                headers=headers,
+            ),
+            200,
+            "事件记录",
+        )
+        _require(
+            int(events.get("total", 0)) == 1,
+            f"设备不可用事件应恰好一条：{events!r}",
+        )
+        device_event = events["items"][0]
+        _require(
+            device_event.get("rule_id") == "device-unavailable"
+            and device_event.get("eval_status") == "accept"
+            and device_event.get("routed_to") == "orchestrator"
+            and bool(device_event.get("eval_run_id")),
+            f"设备不可用事件的路由或研判状态不对：{device_event!r}",
+        )
+        observations = _check_response(
+            client.get(
+                "/api/agent/observations",
+                params={"rule_id": "device-unavailable"},
+                headers=headers,
+            ),
+            200,
+            "观察记录",
+        )
+        _require(
+            int(observations.get("total", 0)) == 1,
+            f"研判 accept 应写一条观察记录：{observations!r}",
+        )
+        decision = observations["items"][0].get("decision") or {}
+        _require(
+            decision.get("decision") == "accept"
+            and decision.get("worker") == "ops"
+            and decision.get("title") == "设备不可用：检查模拟器",
+            f"观察记录的研判草稿不对：{decision!r}",
+        )
+        inbox_items = client.portal.call(
+            _inbox_trigger_items, incident_service, session_id
+        )
+        _require(
+            len(inbox_items) == 1
+            and inbox_items[0].ref_id == str(published.trigger_id),
+            f"总控收件箱应恰好一条 trigger 项并指回事件："
+            f"{[(item.ref_id, item.payload) for item in inbox_items]!r}",
+        )
+        inbox_payload = inbox_items[0].payload or {}
+        _require(
+            inbox_payload.get("kind") == "device.unavailable"
+            and inbox_payload.get("rule_id") == "device-unavailable"
+            and bool(inbox_payload.get("reason")),
+            f"收件箱 trigger 项的 payload 不完整：{inbox_payload!r}",
+        )
+        # 事件通知会唤醒总控一轮；用追加的脚本应答消化掉，避免退出时留后台轮次。
+        _wait_for(
+            lambda: sum(
+                1 for caller, _messages, _tools in fake_llm.requests
+                if caller == "orchestrator"
+            )
+            >= 3
+            and not _check_response(
+                client.get("/api/agent/orchestrator", headers=headers),
+                200,
+                "总控状态",
+            ).get("turn_running"),
+            label="总控处理事件通知",
+        )
+
+        client.portal.call(
+            _insert_failed_pipeline,
+            incident_service,
+            TRIGGER_FAILED_PIPELINE_ID,
+        )
+        diagnosed_by_trigger = client.portal.call(
+            incident_service.pipeline_failed, TRIGGER_FAILED_PIPELINE_ID
+        )
+        _require(
+            diagnosed_by_trigger.created is True
+            and isinstance(diagnosed_by_trigger.session_id, str)
+            and bool(diagnosed_by_trigger.session_id),
+            f"事件规则没有开出诊断工单：{diagnosed_by_trigger!r}",
+        )
+        trigger_ticket_id = diagnosed_by_trigger.session_id
+        pipeline_events = _check_response(
+            client.get(
+                "/api/agent/triggers",
+                params={"kind": "pipeline.failed", "size": 20},
+                headers=headers,
+            ),
+            200,
+            "流水线失败事件",
+        )
+        pipeline_event = next(
+            (
+                item
+                for item in pipeline_events.get("items", [])
+                if (item.get("payload") or {}).get("pipeline_id")
+                == TRIGGER_FAILED_PIPELINE_ID
+            ),
+            None,
+        )
+        _require(
+            pipeline_event is not None,
+            f"没有找到第二条流水线的失败事件：{pipeline_events!r}",
+        )
+        _require(
+            pipeline_event.get("rule_id") == "diagnose-pipeline-failure"
+            and pipeline_event.get("routed_to") == "ticket"
+            and pipeline_event.get("ticket_id") == trigger_ticket_id,
+            f"流水线失败事件没有建出诊断工单：{pipeline_event!r}",
+        )
+        source_trigger_id = client.portal.call(
+            _ticket_source_trigger, incident_service, trigger_ticket_id
+        )
+        _require(
+            source_trigger_id == pipeline_event.get("id"),
+            f"诊断工单没有指回事件：ticket.source_trigger_id={source_trigger_id!r}，"
+            f"event.id={pipeline_event.get('id')!r}",
+        )
+        print(
+            "[ok] triggers（研判 accept → 观察记录与总控收件箱 trigger 项；"
+            "流水线失败 → diagnose 工单并指回事件）"
+        )
 
         _require(
             db_path.exists() and db_path.is_relative_to(temp_dir),

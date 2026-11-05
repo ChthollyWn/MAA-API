@@ -580,34 +580,39 @@ def _check_failure_incident(
     deadline = time.monotonic() + 8.0
     diagnose: dict[str, Any] | None = None
     while time.monotonic() < deadline:
-        tickets = _check_response(
+        # M81 起诊断工单由内置规则建：先找指回本次失败的 pipeline.failed 事件，
+        # 再从事件上的 ticket_id 取工单（诊断规则不研判，不调用模型）。
+        triggers = _check_response(
             client.get(
-                "/api/agent/tickets",
-                params={"kind": "diagnose", "size": 50},
+                "/api/agent/triggers",
+                params={"kind": "pipeline.failed", "size": 50},
                 headers=headers,
             ),
             200,
-            "诊断工单列表",
+            "事件记录",
         )
-        for item in tickets.get("items", []):
+        for item in triggers.get("items", []):
+            payload = item.get("payload") or {}
+            if payload.get("pipeline_id") != failed["pipeline_id"]:
+                continue
+            if not item.get("ticket_id"):
+                continue
             detail = _check_response(
-                client.get(f"/api/agent/tickets/{item['id']}", headers=headers),
+                client.get(f"/api/agent/tickets/{item['ticket_id']}", headers=headers),
                 200,
                 "诊断工单详情",
             )
-            if (detail.get("result") or {}).get("incident_key") == (
-                f"pipeline:{failed['pipeline_id']}"
-            ):
-                diagnose = detail
-                break
-        if diagnose is not None and len(fake_llm.requests) - before >= 1:
+            diagnose = detail
+            break
+        if diagnose is not None:
             break
         time.sleep(0.05)
     _require(diagnose is not None, "流水线失败没有创建 diagnose 工单")
     ticket = diagnose.get("ticket", {})
     _require(
         ticket.get("kind") == "diagnose"
-        and ticket.get("origin") == "system"
+        # M81 起诊断工单由事件规则建，来源记 TRIGGER（v2 的 system 语义并入 trigger）。
+        and ticket.get("origin") in {"system", "trigger"}
         and diagnose.get("mandate", {}).get("strength") == "inferred"
         and diagnose.get("mandate", {}).get("risk_ceiling") == "none",
         f"诊断工单来源/委托/上限不匹配：{diagnose!r}",
@@ -617,23 +622,33 @@ def _check_failure_incident(
         isinstance(worker_session_id, str) and bool(worker_session_id),
         f"诊断工单没有 Worker 会话：{diagnose!r}",
     )
-    history = _check_response(
-        client.get(
-            f"/api/agent/tickets/{ticket['id']}/messages",
-            params={"page": 1, "size": 20},
-            headers=headers,
-        ),
-        200,
-        "诊断工单消息回查",
-    )
-    context = "\n".join(
-        str(item.get("content") or "") for item in history.get("items", [])
-    )
+    # M81 起工单由事件规则异步创建，Worker 的回合也异步起跑：轮询到诊断消息与
+    # Fake LLM 往返都出现为止。
+    deadline = time.monotonic() + 10.0
+    history: dict[str, Any] = {}
+    context = ""
+    new_requests = 0
+    while time.monotonic() < deadline:
+        history = _check_response(
+            client.get(
+                f"/api/agent/tickets/{ticket['id']}/messages",
+                params={"page": 1, "size": 20},
+                headers=headers,
+            ),
+            200,
+            "诊断工单消息回查",
+        )
+        context = "\n".join(
+            str(item.get("content") or "") for item in history.get("items", [])
+        )
+        new_requests = len(fake_llm.requests) - before
+        if "RESOURCE_ASSET_NOT_FOUND" in context and new_requests >= 1:
+            break
+        time.sleep(0.05)
     _require(
         "RESOURCE_ASSET_NOT_FOUND" in context,
         f"诊断工单消息未包含稳定错误码：{history!r}",
     )
-    new_requests = len(fake_llm.requests) - before
     _require(
         new_requests >= 1 and bool(fake_llm.requests[-1][2]),
         "自动诊断没有调用诊断工具集的 Fake LLM 往返："
@@ -895,7 +910,7 @@ def run(*, keep_temp: bool = False) -> None:
         )
         spec_names = [item["name"] for item in spec_list["items"]]
         _require(
-            # M79 起共十七份定义：M70 的九份 + 六份专职 Worker + 摘要代理 + 记忆整理，按 name 排序。
+            # M81 起共十八份定义：M79 的十七份 + 事件研判代理，按 name 排序。
             spec_names
             == [
                 "analyst",
@@ -914,6 +929,7 @@ def run(*, keep_temp: bool = False) -> None:
                 "researcher",
                 "summarizer",
                 "titler",
+                "trigger_evaluator",
                 "verifier",
             ],
             f"代理定义列表不匹配：{spec_names!r}",

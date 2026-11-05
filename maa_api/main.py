@@ -80,6 +80,7 @@ from maa_api.api.routers import (
     system,
     tasks,
     tickets,
+    triggers,
     updates,
 )
 from maa_api.api.ws import manager as ws_manager
@@ -496,6 +497,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     run_service = None
     agent_runtime = None
     incident_service = None
+    trigger_rule_service = None
+    trigger_service = None
+    pipeline_event_publisher = None
     span_recorder = None
     worker_service = None
     orchestrator_service = None
@@ -524,6 +528,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         task.add_done_callback(forget)
         return task
     try:
+        from maa_api.agent.events.wiring import (
+            DeviceStatePublisher,
+            PipelineEventPublisher,
+            on_update_broadcast,
+            publish_core_failed,
+        )
         from maa_api.core.client import CoreClient
         from maa_api.core.enums import Message
         from maa_api.core.depot_overlay import remove_stale_depot_tasks
@@ -585,6 +595,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         }
         loop = asyncio.get_running_loop()
         runtime: dict[str, Any] = {}
+
+        def current_trigger_service() -> Any:
+            """事件服务晚于设备/更新服务装配；接缝统一用它惰性取（M81 §4.5.4）。"""
+            return getattr(app.state, "trigger_service", None)
 
         def on_core_crash(record: dict[str, Any]) -> None:
             supervisor = runtime.get("supervisor")
@@ -648,6 +662,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     task.add_done_callback(lifecycle_tasks.discard)
             elif device_start_task is not None and not device_start_task.done():
                 device_start_task.cancel()
+            # M81 §4.5.4：自动重启次数用完时发 core.failed（交总控）。
+            if value == CoreState.FAILED.value and core is not None:
+                publish_core_failed(
+                    current_trigger_service,
+                    supervisor=core,
+                    boot_id=getattr(app.state, "boot_id", "unknown"),
+                )
 
         def on_core_state_change(state: Any) -> None:
             try:
@@ -672,8 +693,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         core_registry = CoreRegistry()
         core_registry.register(DEFAULT_CORE_ID, core_client)
 
+        # M81 §4.5.4：设备状态只在变化时进事件表；服务未装配前 getter 返回 None。
+        device_state_publisher = DeviceStatePublisher(current_trigger_service)
+
         def publish_device_status(_message_type: str, data: dict[str, Any]) -> None:
             ws_manager.broadcast("device_status", data)
+            device_state_publisher.on_device_status(data)
 
         device_manager_factory = getattr(
             app.state, "device_manager_factory", DeviceManager
@@ -942,13 +967,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # 代理；下载阶段用返回的客户端，检查请求仍走共享 update_http_client。
             return await resolve_update_network(options, settings=get_settings())
 
+        # M81 §4.5.4：更新广播先照旧推给前端，再按目标发 system.update_available。
+        def broadcast_update(kind: str, data: dict[str, Any]) -> None:
+            ws_manager.broadcast(kind, data)
+            on_update_broadcast(current_trigger_service, kind, data)
+
         update_service_factory = getattr(app.state, "update_service_factory", UpdateService)
         update_service = update_service_factory(
             db_session.session_factory,
             core_workflow=core_workflow,
             resource_workflow=resource_workflow,
             game_workflow=game_update_service,
-            broadcast=lambda kind, data: ws_manager.broadcast(kind, data),
+            broadcast=broadcast_update,
             notify=notify_service,
             prepare_update=authorize_preparation,
             resource_layers_loaded=resource_layers_loaded,
@@ -987,6 +1017,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         finish_hooks = FinishHookFanout()
         finish_hooks.add("upgrade_plans", upgrade_plans.on_pipeline_finished)
         app.state.finish_hooks = finish_hooks
+
+        async def finished_to_triggers(pipeline_id: str, status: Any = None) -> None:
+            # M81 §4.5.4：订阅者惰性取事件发布器；装配晚于扇出器创建。
+            publisher = getattr(app.state, "pipeline_event_publisher", None)
+            if publisher is not None:
+                await publisher.on_pipeline_finished(pipeline_id, status)
         bind_finish_hook = getattr(pipeline_runner, "bind_finish_hook", None)
         if callable(bind_finish_hook):
             bind_finish_hook(finish_hooks)
@@ -1532,6 +1568,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ),
             "request": SimpleNamespace(app=app),
             "core_id": DEFAULT_CORE_ID,
+            # M81 §4.5.4：core.crashed 的 dedupe 键要能区分进程启动。
+            "boot_id": app.state.boot_id,
         }
         incident_service = (
             incident_factory(db_session.session_factory, agent_runtime, **incident_options)
@@ -1545,6 +1583,55 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bind_incident_service = getattr(pipeline_runner, "bind_incident_service", None)
         if callable(bind_incident_service):
             bind_incident_service(incident_service)
+
+        # M81 §4.5.4：事件服务在 P2 记忆服务之后、内核消费者启动之前装配。
+        # 规则与研判先建，事件服务把订阅直通/规则/建单串起来；诊断适配器随后绑定
+        # 事件服务与流水线事件发布器，启动补处理也在消费内核回调之前完成。
+        from maa_api.agent.events.bus import TriggerService
+        from maa_api.agent.events.evaluator import TriggerEvaluator
+        from maa_api.agent.events.rules import TriggerRuleService
+
+        trigger_rule_service = TriggerRuleService(
+            db_session.session_factory,
+            spec_registry=app.state.agent_spec_registry,
+            settings_provider=get_settings,
+        )
+        app.state.trigger_rule_service = trigger_rule_service
+        trigger_evaluator = TriggerEvaluator(
+            app=app,
+            session_factory=db_session.session_factory,
+            spec_registry=app.state.agent_spec_registry,
+            run_service=run_service,
+            model_router=app.state.model_router,
+        )
+        trigger_service = TriggerService(
+            db_session.session_factory,
+            app=app,
+            rules=trigger_rule_service,
+            evaluator=trigger_evaluator,
+            ticket_service=ticket_service,
+            thread_router=thread_router,
+            # 转发总控走 thread_router.to_orchestrator；总控服务晚于本服务装配，
+            # 构造参数保留但不用（见 bus.TriggerService.__init__）。
+            orchestrator_service=orchestrator_service,
+            broadcast=lambda message_type, data: ws_manager.broadcast(
+                message_type, data
+            ),
+            settings_provider=get_settings,
+        )
+        app.state.trigger_service = trigger_service
+        pipeline_event_publisher = PipelineEventPublisher(
+            trigger_service,
+            db_session.session_factory,
+            thread_router=thread_router,
+        )
+        app.state.pipeline_event_publisher = pipeline_event_publisher
+        bind_trigger_adapter = getattr(incident_service, "bind_trigger_service", None)
+        if callable(bind_trigger_adapter):
+            bind_trigger_adapter(trigger_service, pipeline_event_publisher)
+        recovered_triggers = await trigger_service.recover()
+        if recovered_triggers:
+            logger.warning("服务重启：补处理了 %d 条未完成事件", recovered_triggers)
 
         # A successful READY means the worker loaded the base and each present
         # incremental layer. Let UpdateService clear a deferred reload marker.
@@ -1646,9 +1733,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 workers=worker_service,
             )
         )
-        app.state.finish_hooks.add(
-            "ticket_threads", worker_service.on_pipeline_finished
-        )
+        app.state.finish_hooks.add("triggers", finished_to_triggers)
         agent_run_broadcaster = AgentRunBroadcaster(
             run_event_bus,
             lambda message_type, data: ws_manager.broadcast(message_type, data),
@@ -1749,6 +1834,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         update_scheduler.start()
         app.state.update_scheduler = update_scheduler
+        # M81 §4.5.4：调度器起来后再注册事件 job（理智估算与定时规则，§4.5.5）。
+        if trigger_service is not None:
+            trigger_service.start_jobs(update_scheduler)
         from maa_api.services.schedule_service import ScheduleService
 
         schedule_service_factory = getattr(
@@ -1817,6 +1905,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await knowledge_index_service.close()
         if schedule_service is not None:
             await schedule_service.close()
+        # M81 §4.5.4：事件服务要在调度器关闭之前退订自己的 job 并收尾任务。
+        if trigger_service is not None:
+            await trigger_service.close()
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -1879,6 +1970,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent_runtime",
             "finish_hooks",
             "agent_incident_service",
+            "trigger_rule_service",
+            "trigger_service",
+            "pipeline_event_publisher",
             "agent_ops_service",
             "resource_service",
             "copilot_service",
@@ -1932,6 +2026,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await knowledge_index_service.close()
         if schedule_service is not None:
             await schedule_service.close()
+        # M81 §4.5.4：事件服务要在调度器关闭之前退订自己的 job 并收尾任务。
+        if trigger_service is not None:
+            await trigger_service.close()
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -2002,6 +2099,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent_runtime",
             "finish_hooks",
             "agent_incident_service",
+            "trigger_rule_service",
+            "trigger_service",
+            "pipeline_event_publisher",
             "agent_ops_service",
             "resource_service",
             "copilot_service",
@@ -2097,6 +2197,7 @@ def create_app() -> FastAPI:
     app.include_router(confirmations.router)
     app.include_router(questions.router)
     app.include_router(tickets.router)
+    app.include_router(triggers.router)
     app.include_router(rewind.router)
     app.include_router(device_lease.router)
     app.include_router(ws_router)

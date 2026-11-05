@@ -71,6 +71,15 @@ agent:
   run_heartbeat_seconds: 15
   run_stale_seconds: 90
 
+# 主动工作（M81）：事件入表后按规则研判与路由；总开关关掉不丢事件
+triggers:
+  # 主动工作总开关。关掉后事件仍会入表，订阅它的工单照常收到，只是不按规则研判、不主动建工单
+  enabled: true
+  # 新建事件规则没写档位时用它：off（关闭）、observe（只记录本来会做什么）、auto（直接建工单）
+  default_mode: observe
+  # 每天最多调用多少次事件研判；用完后只按规则处理，0 表示不研判
+  eval_daily_limit: 200
+
 # 提示注入防护：off 只打标不检测，rules 用规则检测，rules_llm 在规则命中或内容出自他人时再请便宜模型复核
 guard:
   injection_detection: rules

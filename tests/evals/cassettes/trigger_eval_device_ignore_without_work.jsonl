@@ -1,0 +1,2 @@
+{"type": "header", "format": 1, "scenario": "trigger_eval_device_ignore_without_work", "source": "handwritten", "recorded_at": "2026-11-05T00:00:00Z", "model": "eval-model", "agent": "trigger_evaluator", "spec_version": null, "notes": "手写回放：设备不可用但没有待执行的工作，研判 ignore"}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"decision\": \"ignore\", \"reason\": \"设备不可用，但没有排队或运行中的流水线，一小时内也没有会用设备的定时任务；不主动建单打扰用户。\"}"}}

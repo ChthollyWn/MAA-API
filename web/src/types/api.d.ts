@@ -550,6 +550,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 分页读取观察记录
+         * @description 按规则 / 是否已审阅过滤，``created_at`` 倒序分页（§4.3）。
+         */
+        get: operations["agent_list_observations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/observations/{observation_id}/verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 审阅一条观察记录
+         * @description 标记「判断对了 / 不该处理」；再次提交即改判（§4.3）。
+         */
+        post: operations["agent_review_observation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/orchestrator": {
         parameters: {
             query?: never;
@@ -1250,6 +1290,70 @@ export interface paths {
         put?: never;
         /** 调用 Agent 工具 */
         post: operations["agent_invoke_tool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/trigger-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取事件规则列表
+         * @description 全部规则（内置 + 覆盖 + 用户），附 30 天统计与升降档建议（§4.5.6）。
+         */
+        get: operations["agent_list_trigger_rules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/trigger-rules/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 写入事件规则
+         * @description 写入完整的生效内容：覆盖内置规则，或新建 / 修改用户规则（§4.3）。
+         */
+        put: operations["agent_put_trigger_rule"];
+        post?: never;
+        /**
+         * 删除事件规则
+         * @description 删除用户规则；内置规则只删覆盖行（幂等），其余 404（§4.3）。
+         */
+        delete: operations["agent_delete_trigger_rule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 分页读取事件记录
+         * @description 按来源 / 种类 / 规则过滤，``id`` 倒序分页（§4.3）。
+         */
+        get: operations["agent_list_triggers"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4467,6 +4571,62 @@ export interface components {
             event: components["schemas"]["NotifyEvent"];
         };
         /**
+         * ObservationOut
+         * @description 观察记录的一条（§4.3）；``trigger_*`` 来自关联事件。
+         */
+        ObservationOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decision */
+            decision: {
+                [key: string]: unknown;
+            };
+            /** Id */
+            id: number;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Rule Id */
+            rule_id: string;
+            /** Thread Key */
+            thread_key: string;
+            /** Trigger Id */
+            trigger_id: number;
+            /** Trigger Kind */
+            trigger_kind: string;
+            /** Trigger Summary */
+            trigger_summary: string;
+            /** Verdict */
+            verdict: ("good" | "bad") | null;
+        };
+        /**
+         * ObservationPage
+         * @description 观察记录的分页信封（§4.3）。
+         */
+        ObservationPage: {
+            /** Items */
+            items: components["schemas"]["ObservationOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * ObservationVerdictIn
+         * @description ``POST .../verdict`` 的入参：只能标 good / bad，可改判。
+         */
+        ObservationVerdictIn: {
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "good" | "bad";
+        };
+        /**
          * OrchestratorInterruptResult
          * @description 中断总控当前一轮的结果；没有活动轮次时 ``interrupted=false``。
          */
@@ -5482,6 +5642,52 @@ export interface components {
              * @default false
              */
             use_support: boolean | null;
+        };
+        /**
+         * RuleStats
+         * @description 规则列表附带的 30 天统计与升降档建议（§4.5.6）。
+         */
+        RuleStats: {
+            /**
+             * Bad 30D
+             * @default 0
+             */
+            bad_30d: number;
+            /**
+             * Good 30D
+             * @default 0
+             */
+            good_30d: number;
+            /**
+             * Observations 30D
+             * @default 0
+             */
+            observations_30d: number;
+            /**
+             * Reviewed 30D
+             * @default 0
+             */
+            reviewed_30d: number;
+            /**
+             * Suggest Auto
+             * @default false
+             */
+            suggest_auto: boolean;
+            /**
+             * Suggest Observe
+             * @default false
+             */
+            suggest_observe: boolean;
+            /**
+             * Tickets 30D
+             * @default 0
+             */
+            tickets_30d: number;
+            /**
+             * Tickets Bad 30D
+             * @default 0
+             */
+            tickets_bad_30d: number;
         };
         /**
          * RunDetail
@@ -6579,6 +6785,173 @@ export interface components {
             title: string;
             /** Updated At */
             updated_at: string;
+        };
+        /**
+         * TriggerAdmission
+         * @description 事件进入系统后的准入结论：接受、忽略、不合法。
+         * @enum {string}
+         */
+        TriggerAdmission: "accepted" | "ignored" | "rejected";
+        /**
+         * TriggerEvalStatus
+         * @description 事件研判的状态；pending 表示还没研判完，其余是终值。
+         * @enum {string}
+         */
+        TriggerEvalStatus: "pending" | "accept" | "stop" | "ignore" | "unavailable" | "skipped";
+        /**
+         * TriggerMode
+         * @description 事件规则的档位：关闭、只记录本来会做什么、直接建工单。
+         * @enum {string}
+         */
+        TriggerMode: "off" | "observe" | "auto";
+        /**
+         * TriggerOut
+         * @description 事件记录的一条（§4.3）。
+         */
+        TriggerOut: {
+            admission: components["schemas"]["TriggerAdmission"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dedupe Key */
+            dedupe_key: string | null;
+            /** Eval Reason */
+            eval_reason: string | null;
+            /** Eval Run Id */
+            eval_run_id: string | null;
+            eval_status: components["schemas"]["TriggerEvalStatus"];
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Processed At */
+            processed_at: string | null;
+            routed_to: components["schemas"]["TriggerRoute"] | null;
+            /** Rule Id */
+            rule_id: string | null;
+            /** Sender */
+            sender: string | null;
+            /** Source */
+            source: string;
+            /** Summary */
+            summary: string;
+            /** Thread Key */
+            thread_key: string;
+            /** Ticket Id */
+            ticket_id: string | null;
+        };
+        /**
+         * TriggerPage
+         * @description 事件记录的分页信封（§4.3）。
+         */
+        TriggerPage: {
+            /** Items */
+            items: components["schemas"]["TriggerOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * TriggerRoute
+         * @description 事件处理后的去向：交总控、建工单、写观察记录、只记录。
+         * @enum {string}
+         */
+        TriggerRoute: "orchestrator" | "ticket" | "observation" | "none";
+        /**
+         * TriggerRuleList
+         * @description 规则列表：全部生效规则 + 规则集版本哈希（§4.3）。
+         */
+        TriggerRuleList: {
+            /** Items */
+            items: components["schemas"]["TriggerRuleOut"][];
+            /** Version */
+            version: string;
+        };
+        /**
+         * TriggerRuleOut
+         * @description 规则列表 / 写入返回的一条生效规则（§4.3）。
+         */
+        TriggerRuleOut: {
+            /** Conditions */
+            conditions: {
+                [key: string]: unknown;
+            };
+            /** Cooldown Seconds */
+            cooldown_seconds: number;
+            /** Cron */
+            cron: string | null;
+            effective_mode: components["schemas"]["TriggerMode"];
+            /** Enabled */
+            enabled: boolean;
+            /** Gated By */
+            gated_by: string | null;
+            /** Id */
+            id: string;
+            /** Kind Pattern */
+            kind_pattern: string;
+            mode: components["schemas"]["TriggerMode"];
+            /** Modified */
+            modified: boolean;
+            /** Next Fire At */
+            next_fire_at: string | null;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "builtin" | "override" | "user";
+            /** Policy */
+            policy: string;
+            /** Source */
+            source: string | null;
+            stats: components["schemas"]["RuleStats"];
+            /** Title */
+            title: string;
+            /** Worker */
+            worker: string | null;
+        };
+        /**
+         * TriggerRuleWrite
+         * @description ``PUT /api/agent/trigger-rules/{rule_id}`` 的入参：写完整的生效内容。
+         */
+        TriggerRuleWrite: {
+            /** Conditions */
+            conditions?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Cooldown Seconds
+             * @default 0
+             */
+            cooldown_seconds: number;
+            /** Cron */
+            cron?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Kind Pattern */
+            kind_pattern: string;
+            mode?: components["schemas"]["TriggerMode"] | null;
+            /**
+             * Policy
+             * @default
+             */
+            policy: string;
+            source?: components["schemas"]["EventSource"] | null;
+            /** Title */
+            title: string;
+            /** Worker */
+            worker?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -9150,6 +9523,201 @@ export interface operations {
                      *         "code": "UNAUTHORIZED",
                      *         "details": {},
                      *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_observations: {
+        parameters: {
+            query?: {
+                /** @description 按规则 id 过滤 */
+                rule_id?: string | null;
+                /** @description 是否已审阅 */
+                reviewed?: boolean | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_review_observation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 观察记录 id */
+                observation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObservationVerdictIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：OBSERVATION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "OBSERVATION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
                      *       }
                      *     }
                      */
@@ -12757,6 +13325,347 @@ export interface operations {
                      *         "code": "TOOL_ARGS_INVALID",
                      *         "details": {},
                      *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_trigger_rules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerRuleList"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_put_trigger_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 规则 id（2–48 位小写字母、数字与连字符） */
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerRuleWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerRuleOut"];
+                };
+            };
+            /** @description 请求不成立：TRIGGER_RULE_INVALID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "TRIGGER_RULE_INVALID",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_delete_trigger_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 规则 id（2–48 位小写字母、数字与连字符） */
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：TRIGGER_RULE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "TRIGGER_RULE_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_triggers: {
+        parameters: {
+            query?: {
+                /** @description 按来源过滤 */
+                source?: string | null;
+                /** @description 按事件种类过滤 */
+                kind?: string | null;
+                /** @description 按命中的规则 id 过滤 */
+                rule_id?: string | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–200 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
                      *       }
                      *     }
                      */

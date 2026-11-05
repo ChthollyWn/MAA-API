@@ -455,6 +455,10 @@ def test_env_mapping_names_are_pinned() -> None:
         # M80：提示注入防护两项（都不是 config-only）。
         "guard.injection_detection": "MAA_GUARD_INJECTION_DETECTION",
         "guard.block_on_detect": "MAA_GUARD_BLOCK_ON_DETECT",
+        # M81：主动工作三项（都不是 config-only）。
+        "triggers.enabled": "MAA_TRIGGERS_ENABLED",
+        "triggers.default_mode": "MAA_TRIGGERS_DEFAULT_MODE",
+        "triggers.eval_daily_limit": "MAA_TRIGGERS_EVAL_DAILY_LIMIT",
     }
 
 
@@ -1322,6 +1326,96 @@ def test_guard_settings_have_documented_defaults_and_metadata() -> None:
     for comment in (
         "# 提示注入防护：off 只打标不检测，rules 用规则检测，rules_llm 在规则命中或内容出自他人时再请便宜模型复核",
         "# true：检测到可疑指令就整段拦截，Agent 看不到这段内容；false：只打标，之后的写操作逐次确认",
+    ):
+        assert comment in template_text
+
+
+def test_triggers_settings_have_documented_defaults_and_metadata() -> None:
+    """M81 主动工作三项：默认值、范围、枚举、环境层与设置 API 元数据（spec §4.4）。"""
+    from pydantic import ValidationError
+
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, TriggersSettings
+
+    default = resolve_settings(env={})
+    assert default.triggers == TriggersSettings()
+    assert default.triggers.enabled is True
+    assert default.triggers.default_mode == "observe"
+    assert default.triggers.eval_daily_limit == 200
+
+    configured = resolve_settings(
+        {
+            "triggers": {
+                "enabled": False,
+                "default_mode": "auto",
+                "eval_daily_limit": 0,
+            }
+        },
+        env={},
+    )
+    assert configured.triggers.enabled is False
+    assert configured.triggers.default_mode == "auto"
+    assert configured.triggers.eval_daily_limit == 0
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_TRIGGERS_ENABLED": "false",
+            "MAA_TRIGGERS_DEFAULT_MODE": "off",
+            "MAA_TRIGGERS_EVAL_DAILY_LIMIT": "5000",
+        }
+    )
+    assert env_layer.triggers.enabled is False
+    assert env_layer.triggers.default_mode == "off"
+    assert env_layer.triggers.eval_daily_limit == 5000
+
+    # 档位三值之外、每日上限 0–5000 之外直接拒。
+    for bad in ("on", "", "OBSERVE"):
+        with pytest.raises(ValidationError):
+            resolve_settings({"triggers": {"default_mode": bad}}, env={})
+    for bad in (-1, 5001):
+        with pytest.raises(ValidationError):
+            resolve_settings({"triggers": {"eval_daily_limit": bad}}, env={})
+    with pytest.raises(ValidationError):
+        TriggersSettings(default_mode="auto2")
+
+    # 设置 API：三个键都登记、分组 Agent、不是 config-only。
+    keys = {
+        "triggers.enabled",
+        "triggers.default_mode",
+        "triggers.eval_daily_limit",
+    }
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+    enabled = schema_for("triggers.enabled")
+    assert (
+        enabled["label"], enabled["group"], enabled["type"], enabled["hot_action"],
+    ) == ("启用主动工作", "Agent", "boolean", "none")
+    mode = schema_for("triggers.default_mode")
+    assert (
+        mode["label"], mode["group"], mode["type"], mode["enum"], mode["hot_action"],
+    ) == ("新事件规则的默认档位", "Agent", "string", ["off", "observe", "auto"], "none")
+    limit = schema_for("triggers.eval_daily_limit")
+    assert (
+        limit["label"], limit["group"], limit["type"],
+        limit["minimum"], limit["maximum"], limit["hot_action"],
+    ) == ("每日事件研判次数上限", "Agent", "integer", 0, 5000, "none")
+    # M81 只改 label，键与取值不变：两条诊断规则的总开关。
+    assert schema_for("agent.auto_diagnose_failures")["label"] == (
+        "自动诊断流水线与内核故障（两条诊断规则的总开关）"
+    )
+
+    # 文档一致性：模板里的值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["triggers"] == {
+        "enabled": True,
+        "default_mode": "observe",
+        "eval_daily_limit": 200,
+    }
+    for comment in (
+        "# 主动工作总开关。关掉后事件仍会入表，订阅它的工单照常收到，只是不按规则研判、不主动建工单",
+        "# 新建事件规则没写档位时用它：off（关闭）、observe（只记录本来会做什么）、auto（直接建工单）",
+        "# 每天最多调用多少次事件研判；用完后只按规则处理，0 表示不研判",
     ):
         assert comment in template_text
 

@@ -177,6 +177,11 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
         if (typeof ticketId === 'string' && ticketId) {
           invalidateBatched(queryClient, keys.agent.tickets.detail(ticketId))
         }
+      } else if (event.data.event === 'observation_created') {
+        // M81 §4.6：新观察记录同时改「待审阅」列表与规则行的 30 天统计。载荷不带
+        // reviewed，两份观察记录缓存都失效；规则整片失效一次即可。
+        invalidateBatched(queryClient, keys.agent.observationsAll())
+        invalidateBatched(queryClient, keys.agent.triggerRules())
       }
       break
     // 工单状态：列表、详情、汇报三段各取各的；不整片失效 `keys.agent.all()`。

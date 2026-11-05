@@ -349,6 +349,31 @@ EXPECTED_VALUES = {
         "SUPERSEDED": "superseded",
         "EXPIRED": "expired",
     },
+    # M81：事件源与两级过滤（v3 specs/m81 §4.1）。
+    "TriggerAdmission": {
+        "ACCEPTED": "accepted",
+        "IGNORED": "ignored",
+        "REJECTED": "rejected",
+    },
+    "TriggerEvalStatus": {
+        "PENDING": "pending",
+        "ACCEPT": "accept",
+        "STOP": "stop",
+        "IGNORE": "ignore",
+        "UNAVAILABLE": "unavailable",
+        "SKIPPED": "skipped",
+    },
+    "TriggerMode": {
+        "OFF": "off",
+        "OBSERVE": "observe",
+        "AUTO": "auto",
+    },
+    "TriggerRoute": {
+        "ORCHESTRATOR": "orchestrator",
+        "TICKET": "ticket",
+        "OBSERVATION": "observation",
+        "NONE": "none",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。

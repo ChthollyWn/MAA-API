@@ -189,8 +189,19 @@ class TicketService:
         self._end_listeners: list[TicketEndListener] = []
         self._orchestrator_resolver: OrchestratorResolver | None = None
         self._memory_extractor: MemoryExtractor | None = None
+        #: M81 T5：事件管线建单时按需解析 Worker 服务（建 Worker 会话 + 写任务说明）。
+        self._worker_service_provider: Callable[[], Any] | None = None
         #: 终态后起的记忆抽取后台任务；持有引用避免任务被回收，测试可等它们收尾。
         self._memory_tasks: set[asyncio.Task[Any]] = set()
+
+    def bind_worker_service(self, provider: Callable[[], Any]) -> None:
+        """注入 Worker 服务的惰性解析函数（M81 事件管线用）。
+
+        ``create(brief=...)`` 需要建 Worker 会话时用它；装配顺序上 Worker 服务晚于
+        本服务，所以传进来的是无参函数而不是实例。没绑定时带 ``brief`` 建单报
+        ``SERVICE_UNAVAILABLE``，不带 ``brief`` 的既有调用不受影响。
+        """
+        self._worker_service_provider = provider
 
     def add_end_listener(self, listener: TicketEndListener) -> None:
         """注册工单结束监听者；按注册顺序在广播之后调用。"""
@@ -286,6 +297,11 @@ class TicketService:
         priority: int = 1,
         orchestrator_session_id: str | None = None,
         write_brief: bool = True,
+        brief: str | None = None,
+        strength: str | None = None,
+        risk_ceiling: str | None = None,
+        policy_version: str | None = None,
+        source_trigger_id: int | None = None,
     ) -> tuple[Ticket, Mandate]:
         """校验代理定义与委托后，把工单和委托写进同一事务（§4.5.3）。
 
@@ -293,6 +309,12 @@ class TicketService:
         传 ``False`` 表示不要给新 Worker 写任务说明。本入口自身不写收件箱——任务
         说明由 :meth:`attach_worker_session` 在 Worker 会话建好之后写入，所以这里
         只保留参数，不改变任何既有行为。
+
+        M81 T5 的五个可选参数（默认 ``None``，不带时与 M69 完全一致）：
+        ``source_trigger_id`` 写进 ``ticket.source_trigger_id``；``strength`` /
+        ``risk_ceiling`` / ``policy_version`` 交给 :func:`build_mandate`
+        （强度必须与 origin 一致、上限只能收紧）；``brief`` 非空时在建单之后用
+        ``bind_worker_service`` 注入的 Worker 服务建会话并把说明写进它的收件箱。
         """
         del write_brief  # 见 docstring：收件箱写入在 attach_worker_session。
         title_text = title.strip() if isinstance(title, str) else ""
@@ -300,6 +322,13 @@ class TicketService:
             raise _invalid(f"title 去首尾空白后必须是 1–{_MAX_TITLE_CHARS} 字")
         if priority not in _PRIORITIES:
             raise _invalid("priority 只能是 0、1、2")
+        brief_text: str | None = None
+        if brief is not None:
+            brief_text = brief.strip() if isinstance(brief, str) else ""
+            if not 1 <= len(brief_text) <= _MAX_BRIEF_CHARS:
+                raise _invalid(
+                    f"brief 去首尾空白后必须是 1–{_MAX_BRIEF_CHARS} 字"
+                )
 
         spec = self._spec_registry.get(kind)
         if spec.kind != "worker":
@@ -315,6 +344,9 @@ class TicketService:
             sender=sender,
             rule_id=rule_id,
             spec_ceiling=spec.risk_ceiling,
+            strength=strength,
+            risk_ceiling=risk_ceiling,
+            policy_version_value=policy_version,
         )
         ticket = Ticket(
             id=ticket_id,
@@ -324,6 +356,7 @@ class TicketService:
             origin=str(TicketOrigin(origin)),
             priority=priority,
             orchestrator_session_id=orchestrator_session_id,
+            source_trigger_id=source_trigger_id,
             created_at=now,
             updated_at=now,
         )
@@ -333,7 +366,41 @@ class TicketService:
             await session.commit()
 
         self._publish_ticket("ticket_created", stored_ticket)
+        if brief_text is not None:
+            stored_ticket = await self._start_worker(stored_ticket, brief_text)
         return stored_ticket, stored_mandate
+
+    async def _start_worker(self, ticket: Ticket, brief: str) -> Ticket:
+        """建 Worker 会话、记到工单上，并写一条渲染认得的 ``system`` 任务说明。
+
+        与 ``WorkerService.open_ticket`` 的收尾同口径：``attach_worker_session`` 写的
+        M69 ``ticket_brief``（只有 ``event/title/brief``，没有 ``text``）渲染出来是
+        空的，所以先丢掉它，再按 M70 §4.5.9 的 ``system`` 形状写一条带 ``text`` 的。
+        """
+        provider = self._worker_service_provider
+        worker_service = provider() if provider is not None else None
+        if worker_service is None:
+            raise AppError(
+                ErrorCode.SERVICE_UNAVAILABLE,
+                "Worker 服务还没就绪，暂时不能创建工单",
+            )
+        session = await worker_service.ensure_worker_session(ticket)
+        session_id = str(session.id)
+        updated = await self.attach_worker_session(ticket.id, session_id, brief=brief)
+        await self._inbox_service.drop_pending(session_id)
+        await self._inbox_service.put(
+            session_id,
+            InboxKind.SYSTEM,
+            thread_key=f"ticket:{ticket.id}",
+            ref_id=f"brief:{ticket.id}",
+            payload={
+                "text": f"事件处理任务：\n{brief}",
+                "passive": False,
+                "origin": "trigger",
+                "ticket_id": ticket.id,
+            },
+        )
+        return updated
 
     async def attach_worker_session(
         self, ticket_id: str, worker_session_id: str, *, brief: str

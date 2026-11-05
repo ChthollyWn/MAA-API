@@ -17,6 +17,11 @@ from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
 from maa_api.agent.confirmation import ConfirmationService
+from maa_api.agent.events.builtin_rules import DIAGNOSE_SCOPE
+from maa_api.agent.events.bus import TriggerService
+from maa_api.agent.events.evaluator import EvalOutcome
+from maa_api.agent.events.rules import TriggerRuleService
+from maa_api.agent.events.wiring import PipelineEventPublisher
 from maa_api.agent.harness.events import RunEventBus
 from maa_api.agent.incidents import AgentIncidentService, INCIDENT_ALLOWED_TOOLS
 from maa_api.agent.policy import PolicyEngine
@@ -35,6 +40,7 @@ from maa_api.db.models import (
     AgentInbox,
     AgentMessage,
     AgentSession,
+    AgentTrigger,
     Confirmation,
     LogEntry,
     Mandate,
@@ -45,10 +51,17 @@ from maa_api.db.models import (
 )
 from maa_api.db.repositories.agent import AgentMessageRepository, AgentSessionRepository
 from maa_api.db.repositories.ticket import MandateRepository, TicketRepository
-from maa_api.domain.enums import TicketStatus
+from maa_api.db.repositories.triggers import TriggerRepository
+from maa_api.domain.enums import TicketStatus, TriggerEvalStatus
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.settings import LLMSettings, Settings
 from tests.fakes.legacy_turn import stream_legacy_turn
+
+#: 话题键里的 pipeline id 必须是 UUID（03 §15 / ThreadRouter.parse_thread_key）。
+_PIPELINE = "11111111-1111-4111-8111-111111111111"
+_CRASHED_PIPELINE = "22222222-2222-4222-8222-222222222222"
+_LATE_PIPELINE = "33333333-3333-4333-8333-333333333333"
+_OLD_BOOT_PIPELINE = "44444444-4444-4444-8444-444444444444"
 
 
 class ActiveRunner:
@@ -238,19 +251,52 @@ class _ModelRouter:
         return _ModelHandle(self.llm)
 
 
-class _Harness:
-    """诊断链路的临时装配：真实工单 / Worker 服务 + FakeLLM。"""
+class _Evaluator:
+    """两条诊断规则不研判；记录调用次数，任何一次调用都算回归。"""
 
-    def __init__(self, *, engine, factory, service, llm, router, worker_service):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def evaluate(self, trigger, rule):
+        self.calls += 1
+        return EvalOutcome(
+            status=TriggerEvalStatus.ACCEPT,
+            decision=None,
+            reason="no_policy",
+            run_id=None,
+        )
+
+
+class _Harness:
+    """诊断链路的临时装配：真实工单 / Worker / 事件服务 + FakeLLM。"""
+
+    def __init__(
+        self,
+        *,
+        engine,
+        factory,
+        service,
+        llm,
+        router,
+        worker_service,
+        trigger_service,
+        publisher,
+        evaluator,
+    ):
         self.engine = engine
         self.factory = factory
         self.service = service
         self.llm = llm
         self.router = router
         self.worker_service = worker_service
+        self.trigger_service = trigger_service
+        self.publisher = publisher
+        self.evaluator = evaluator
         self.events: list[tuple[str, dict[str, Any]]] = []
+        self.ticket_events: list[tuple[str, dict[str, Any]]] = []
 
     async def close(self) -> None:
+        await self.trigger_service.close()
         await self.worker_service.close()
         await self.engine.dispose()
 
@@ -275,11 +321,13 @@ async def _incident_harness(
     registry.load()
     inbox_service = InboxService(factory)
     thread_router = ThreadRouter(factory, inbox_service)
+    ticket_events: list[tuple[str, dict[str, Any]]] = []
     ticket_service = TicketService(
         factory,
         inbox_service=inbox_service,
         thread_router=thread_router,
         spec_registry=registry,
+        broadcast=lambda kind, data: ticket_events.append((kind, data)),
     )
     confirmations = ConfirmationService(factory, build_registry())
     runtime = AgentRuntime(factory, confirmations, question_service=None)
@@ -310,6 +358,7 @@ async def _incident_harness(
         event_bus=event_bus,
     )
     state.worker_service = worker_service
+    ticket_service.bind_worker_service(lambda: state.worker_service)
 
     def settings_provider():
         agent = Settings().agent.model_copy(
@@ -317,6 +366,27 @@ async def _incident_harness(
         )
         return Settings().model_copy(update={"agent": agent})
 
+    trigger_events: list[tuple[str, dict[str, Any]]] = []
+    trigger_rule_service = TriggerRuleService(
+        factory,
+        spec_registry=registry,
+        settings_provider=settings_provider,
+    )
+    evaluator = _Evaluator()
+    trigger_service = TriggerService(
+        factory,
+        app=app,
+        rules=trigger_rule_service,
+        evaluator=evaluator,
+        ticket_service=ticket_service,
+        thread_router=thread_router,
+        orchestrator_service=SimpleNamespace(),
+        broadcast=lambda kind, data: trigger_events.append((kind, data)),
+        settings_provider=settings_provider,
+    )
+    publisher = PipelineEventPublisher(
+        trigger_service, factory, thread_router=thread_router
+    )
     service = AgentIncidentService(
         factory,
         runtime,
@@ -326,6 +396,10 @@ async def _incident_harness(
         core_id=core_id,
         boot_id=boot_id,
     )
+    service.bind_trigger_service(trigger_service, publisher)
+    state.agent_incident_service = service
+    state.trigger_service = trigger_service
+    state.pipeline_event_publisher = publisher
     harness = _Harness(
         engine=engine,
         factory=factory,
@@ -333,8 +407,12 @@ async def _incident_harness(
         llm=llm,
         router=model_router,
         worker_service=worker_service,
+        trigger_service=trigger_service,
+        publisher=publisher,
+        evaluator=evaluator,
     )
-    service.broadcast = lambda kind, payload: harness.events.append((kind, payload))
+    harness.events = trigger_events
+    harness.ticket_events = ticket_events
     return harness
 
 
@@ -345,7 +423,7 @@ def _disable_worker_wake(harness: _Harness) -> None:
 
 async def _seed_failed_pipeline(
     factory,
-    pipeline_id: str = "pipeline-1",
+    pipeline_id: str = _PIPELINE,
     *,
     core_epoch=None,
     error_code: str = "TASK_FAILED",
@@ -470,49 +548,65 @@ async def _wait_for_ticket(
 
 
 def test_pipeline_failure_opens_one_diagnose_ticket(tmp_path):
-    """一次失败只开一张诊断工单；同一键重放只追加收件箱，不重复诊断。"""
+    """一次失败只开一张诊断工单；同一键重放只入表一次，不重复诊断。"""
 
     async def scenario():
         harness = await _incident_harness(
-            tmp_path, llm_responses=[_diagnose_turn("pipeline-1")]
+            tmp_path, llm_responses=[_diagnose_turn(_PIPELINE)]
         )
         try:
             await _seed_failed_pipeline(harness.factory)
 
             first, second = await asyncio.gather(
-                harness.service.pipeline_failed("pipeline-1"),
-                harness.service.pipeline_failed("pipeline-1"),
+                harness.service.pipeline_failed(_PIPELINE),
+                harness.service.pipeline_failed(_PIPELINE),
             )
 
             assert first.session_id == second.session_id
-            assert first.incident_key == "pipeline:pipeline-1"
+            assert first.incident_key == f"pipeline:{_PIPELINE}"
             assert {first.created, second.created} == {True, False}
-            # 建单阶段不调用模型；失败先落成一张可见的工单。
+            assert {first.status, second.status} == {"created", "existing"}
+            # 建单阶段不调用模型；失败先落成事件、再落成一张可见的工单。
             assert harness.llm.requests == []
             assert await _ticket_count(harness.factory) == 1
+
+            async with harness.factory() as session:
+                rows = (
+                    (
+                        await session.execute(
+                            select(AgentTrigger).where(
+                                AgentTrigger.kind == "pipeline.failed"
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            assert len(rows) == 1
+            trigger = rows[0]
+            assert trigger.dedupe_key == f"pipeline:{_PIPELINE}:failed"
+            assert trigger.routed_to == "ticket"
 
             ticket = await _ticket(harness.factory, first.session_id)
             assert ticket is not None
             assert ticket.kind == "diagnose"
-            assert ticket.origin == "system"
-            assert ticket.result is not None
-            assert ticket.result["incident_key"] == "pipeline:pipeline-1"
+            # M81 §4.5.2：事件来源 pipeline 对应 TicketOrigin.TRIGGER（不再是 system）。
+            assert ticket.origin == "trigger"
+            assert ticket.source_trigger_id == trigger.id
             mandate = await _mandate(harness.factory, ticket.id)
             assert mandate is not None
             assert str(mandate.strength) == "inferred"
             assert str(mandate.risk_ceiling) == "none"
-            assert mandate.scope == (
-                "只诊断这一次故障并给出下一步。不提交消耗类任务，不改设置，不重装内核。"
-            )
+            assert mandate.scope == DIAGNOSE_SCOPE
 
             system_texts = await _system_texts(harness.factory, ticket.worker_session_id)
-            assert len(system_texts) == 2
-            assert system_texts[0].startswith("自动诊断：")
-            assert "pipeline-1" in system_texts[0]
-            assert "终态: failed" in system_texts[0]
-            assert "错误码: TASK_FAILED" in system_texts[0]
-            assert "crash-shot-pipeline-1" in system_texts[0]
-            assert "pipeline-1" in system_texts[1]
+            assert len(system_texts) == 1
+            assert system_texts[0].startswith("事件处理任务：")
+            assert "【诊断上下文】" in system_texts[0]
+            assert _PIPELINE in system_texts[0]
+            assert '"status": "failed"' in system_texts[0]
+            assert '"error_code": "TASK_FAILED"' in system_texts[0]
+            assert f"crash-shot-{_PIPELINE}" in system_texts[0]
 
             # 诊断 Worker 真跑一轮：get_pipeline 后 report(ready)。
             harness.worker_service.wake(ticket.worker_session_id)
@@ -536,14 +630,15 @@ def test_pipeline_failure_opens_one_diagnose_ticket(tmp_path):
                 "report",
             ]
             payload = json.loads(tool_messages[0].content)
-            assert payload["result"]["id"] == "pipeline-1"
-            # 终态汇报不得删掉建单时写入的 incident_key（规格 §4.1）。
-            assert done.result is not None
-            assert done.result["incident_key"] == "pipeline:pipeline-1"
-            report_events = [
-                data for kind, data in harness.events if kind == "agent_event"
+            assert payload["result"]["id"] == _PIPELINE
+            # 终态汇报不得弄丢事件归属（M73 的 incident_key 由 source_trigger_id 接替）。
+            assert done.source_trigger_id == trigger.id
+            created_events = [
+                data
+                for kind, data in harness.ticket_events
+                if kind == "ticket_status" and data.get("event") == "ticket_created"
             ]
-            assert [event["event"] for event in report_events] == ["incident_created"]
+            assert [event["ticket_id"] for event in created_events] == [ticket.id]
         finally:
             await harness.close()
 
@@ -551,7 +646,12 @@ def test_pipeline_failure_opens_one_diagnose_ticket(tmp_path):
 
 
 def test_same_key_appends_inbox(tmp_path):
-    """同一 pipeline 再失败一次：工单数不变，Worker 收件箱多一条 system。"""
+    """同一 pipeline 再失败一次：事件去重，工单与 Worker 收件箱都不变。
+
+    M73 的「往同一张工单追加一条 system 说明」被 M81 §4.5.1 的去重替代：同一个
+    ``dedupe_key`` 第二次发布只返回既有行、不再处理，因此收件箱不会多出条目，
+    诊断工单也不会重复。
+    """
 
     async def scenario():
         harness = await _incident_harness(tmp_path)
@@ -559,26 +659,33 @@ def test_same_key_appends_inbox(tmp_path):
         try:
             await _seed_failed_pipeline(harness.factory)
 
-            first = await harness.service.pipeline_failed("pipeline-1")
+            first = await harness.service.pipeline_failed(_PIPELINE)
             first_ticket = await _ticket(harness.factory, first.session_id)
             first_items = _pending_items(
                 await _inbox_items(harness.factory, first_ticket.worker_session_id)
             )
             assert len(first_items) == 1
 
-            replay = await harness.service.pipeline_failed("pipeline-1")
+            replay = await harness.service.pipeline_failed(_PIPELINE)
 
             assert replay.created is False
+            assert replay.status == "existing"
             assert replay.session_id == first.session_id
             assert await _ticket_count(harness.factory) == 1
             ticket = await _ticket(harness.factory, first.session_id)
             items = _pending_items(
                 await _inbox_items(harness.factory, ticket.worker_session_id)
             )
-            assert len(items) == len(first_items) + 1
-            assert str(items[-1].kind) == "system"
-            assert "pipeline-1" in items[-1].payload["text"]
-            assert "错误码: TASK_FAILED" in items[-1].payload["text"]
+            assert len(items) == len(first_items)
+            async with harness.factory() as session:
+                trigger_count = int(
+                    (
+                        await session.execute(
+                            select(func.count()).select_from(AgentTrigger)
+                        )
+                    ).scalar_one()
+                )
+            assert trigger_count == 1
             async with harness.factory() as session:
                 sessions = await AgentSessionRepository(session).list_recent()
             assert len([item for item in sessions if str(item.kind) == "worker"]) == 1
@@ -589,7 +696,7 @@ def test_same_key_appends_inbox(tmp_path):
 
 
 def test_late_core_crash_updates_the_existing_pipeline_ticket(tmp_path):
-    """迟到的 CORE_CRASHED 补进同一张诊断工单的收件箱，不再开新单。"""
+    """迟到的 CORE_CRASHED 发关联事件直通同一张诊断工单，不再开新单。"""
 
     async def scenario():
         harness = await _incident_harness(tmp_path)
@@ -598,52 +705,69 @@ def test_late_core_crash_updates_the_existing_pipeline_ticket(tmp_path):
             async with harness.factory() as session:
                 session.add(
                     _make_pipeline(
-                        "pipeline-late-core",
+                        _LATE_PIPELINE,
                         core_epoch=4,
                         error_code=ErrorCode.INTERNAL_ERROR.value,
                     )
                 )
                 await session.commit()
 
-            first = await harness.service.pipeline_failed("pipeline-late-core")
+            first = await harness.service.pipeline_failed(_LATE_PIPELINE)
             async with harness.factory() as session:
-                pipeline = await session.get(Pipeline, "pipeline-late-core")
+                pipeline = await session.get(Pipeline, _LATE_PIPELINE)
                 pipeline.error_code = ErrorCode.CORE_CRASHED.value
                 pipeline.error_message = "MaaCore 子进程在 claim 清理期间崩溃"
                 await session.commit()
 
-            replay = await harness.service.pipeline_failed("pipeline-late-core")
-            third = await harness.service.pipeline_failed("pipeline-late-core")
+            replay = await harness.service.pipeline_failed(_LATE_PIPELINE)
+            third = await harness.service.pipeline_failed(_LATE_PIPELINE)
 
             assert replay.session_id == first.session_id
             assert replay.created is False
             assert third.session_id == first.session_id
             assert await _ticket_count(harness.factory) == 1
+            async with harness.factory() as session:
+                rows = (
+                    (
+                        await session.execute(
+                            select(AgentTrigger).order_by(AgentTrigger.id.asc())
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            assert [row.kind for row in rows] == [
+                "pipeline.failed",
+                "pipeline.core_crash_linked",
+            ]
+            linked = rows[1]
+            assert linked.dedupe_key == f"pipeline:{_LATE_PIPELINE}:core:4"
+            assert linked.payload["core_generation"] == 4
+            assert linked.routed_to == "ticket"
+
             ticket = await _ticket(harness.factory, first.session_id)
+            assert linked.ticket_id == ticket.id
             items = _pending_items(
                 await _inbox_items(harness.factory, ticket.worker_session_id)
             )
-            update_key = "pipeline:pipeline-late-core:core:4"
-            updates = [item for item in items if item.ref_id == update_key]
-            assert len(updates) == 1
-            update = updates[0].payload["text"]
-            assert "pipeline-late-core" in update
-            assert "CORE_CRASHED" in update
-            assert update_key in update
-            # 重放本身也追加一条「这条流水线又失败了」的说明。
-            generic = [
+            updates = [
                 item
                 for item in items
-                if item.ref_id == f"incident:{ticket.id}"
+                if item.ref_id == str(linked.id)
             ]
-            assert len(items) == 4
-            assert len(generic) == 2
-            events = [
-                data["event"] for _kind, data in harness.events
-                if _kind == "agent_event"
+            assert len(updates) == 1
+            assert str(updates[0].kind) == "thread_event"
+            summary = updates[0].payload["summary"]
+            assert _LATE_PIPELINE in summary
+            assert "第 4 代" in summary
+            # 重放不再追加说明（M81 §4.5.1 去重），事件表也只有两行。
+            assert len(rows) == 2
+            created_events = [
+                data
+                for kind, data in harness.ticket_events
+                if kind == "ticket_status" and data.get("event") == "ticket_created"
             ]
-            assert events.count("incident_created") == 1
-            assert events.count("incident_context_updated") == 1
+            assert len(created_events) == 1
         finally:
             await harness.close()
 
@@ -660,12 +784,18 @@ def test_idle_core_generation_is_deduplicated_and_active_pipeline_is_coalesced(t
             assert first.session_id == second.session_id
             assert first.session_id is not None
             assert first.created is True and second.created is False
+            assert first.status == "created" and second.status == "existing"
             assert await _ticket_count(harness.factory) == 1
             ticket = await _ticket(harness.factory, first.session_id)
             assert ticket.kind == "diagnose"
-            assert ticket.result["incident_key"] == (
-                f"core:default:{harness.service.boot_id}:17"
-            )
+            dedupe_key = f"core:default:{harness.service.boot_id}:17"
+            async with harness.factory() as session:
+                row = await TriggerRepository(session).get_by_dedupe_key(dedupe_key)
+            assert row is not None
+            assert row.kind == "core.crashed"
+            assert row.ticket_id == ticket.id
+            assert row.payload["generation"] == 17
+            assert second.incident_key == dedupe_key
 
             harness.service.pipeline_runner.active_pipeline_id = "pipeline-active"
             harness.service.pipeline_runner.active_pipeline_epoch = 18
@@ -686,12 +816,12 @@ def test_idle_core_crash_uses_current_boot_same_generation_pipeline_incident(tmp
         try:
             await _seed_failed_pipeline(
                 harness.factory,
-                "pipeline-crashed",
+                _CRASHED_PIPELINE,
                 core_epoch=23,
                 error_code=ErrorCode.CORE_CRASHED.value,
             )
             harness.service.pipeline_runner.crashed_pipeline_ids[23] = {
-                "pipeline-crashed"
+                _CRASHED_PIPELINE
             }
 
             result = await harness.service.core_crashed(23, {"reason": "process_exit"})
@@ -699,7 +829,13 @@ def test_idle_core_crash_uses_current_boot_same_generation_pipeline_incident(tmp
             assert await _ticket_count(harness.factory) == 1
             ticket = await _ticket(harness.factory, result.session_id)
             assert ticket.kind == "diagnose"
-            assert ticket.result["incident_key"] == "pipeline:pipeline-crashed"
+            async with harness.factory() as session:
+                row = await TriggerRepository(session).get_by_dedupe_key(
+                    f"pipeline:{_CRASHED_PIPELINE}:failed"
+                )
+            assert row is not None
+            assert row.kind == "pipeline.failed"
+            assert ticket.source_trigger_id == row.id
         finally:
             await harness.close()
 
@@ -710,7 +846,7 @@ def test_core_incident_key_separates_service_boots_but_replays_within_one_boot(t
     async def scenario():
         harness = await _incident_harness(tmp_path)
         _disable_worker_wake(harness)
-        other_boot = "22222222-2222-4222-8222-222222222222"
+        other_boot = "99999999-9999-4999-8999-999999999999"
         service_two = AgentIncidentService(
             harness.factory,
             harness.service.runtime,
@@ -719,23 +855,42 @@ def test_core_incident_key_separates_service_boots_but_replays_within_one_boot(t
             request=harness.service.request,
             boot_id=other_boot,
         )
+        service_two.bind_trigger_service(harness.trigger_service, harness.publisher)
         try:
             assert UUID(harness.service.boot_id) != UUID(service_two.boot_id)
             first = await harness.service.core_crashed(17, {"reason": "process_exit"})
             replay = await harness.service.core_crashed(17, {"reason": "process_exit"})
-            after_restart = await service_two.core_crashed(17, {"reason": "process_exit"})
+            after_restart = await service_two.core_crashed(
+                17, {"reason": "process_exit"}
+            )
 
             assert first.session_id == replay.session_id
-            assert after_restart.session_id != first.session_id
             assert first.incident_key == (
                 f"core:default:{harness.service.boot_id}:17"
             )
             assert after_restart.incident_key == f"core:default:{other_boot}:17"
-            assert await _ticket_count(harness.factory) == 2
-            first_ticket = await _ticket(harness.factory, first.session_id)
-            second_ticket = await _ticket(harness.factory, after_restart.session_id)
-            assert first_ticket.result["incident_key"] == first.incident_key
-            assert second_ticket.result["incident_key"] == after_restart.incident_key
+            assert after_restart.incident_key != first.incident_key
+            async with harness.factory() as session:
+                rows = (
+                    (
+                        await session.execute(
+                            select(AgentTrigger).order_by(AgentTrigger.id.asc())
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            assert [row.dedupe_key for row in rows] == [
+                first.incident_key,
+                after_restart.incident_key,
+            ]
+            # 上一代诊断工单还订阅 core:default；新事件按 §4.5.2 第 1 步直通它，
+            # 所以两张事件行对应同一张还开着的诊断工单。
+            assert after_restart.session_id == first.session_id
+            assert await _ticket_count(harness.factory) == 1
+            ticket = await _ticket(harness.factory, first.session_id)
+            assert ticket.kind == "diagnose"
+            assert ticket.source_trigger_id == rows[0].id
         finally:
             await harness.close()
 
@@ -748,16 +903,23 @@ def test_new_boot_does_not_coalesce_old_core_epoch_pipeline(tmp_path):
         _disable_worker_wake(harness)
         try:
             await _seed_failed_pipeline(
-                harness.factory, "pipeline-old-boot", core_epoch=17
+                harness.factory, _OLD_BOOT_PIPELINE, core_epoch=17
             )
 
             result = await harness.service.core_crashed(17, {"reason": "process_exit"})
 
             assert result.session_id is not None
             assert result.incident_key == f"core:default:{harness.service.boot_id}:17"
+            async with harness.factory() as session:
+                row = await TriggerRepository(session).get_by_dedupe_key(
+                    result.incident_key
+                )
+            assert row is not None
+            assert row.kind == "core.crashed"
+            assert row.source == "core"
+            assert row.dedupe_key != f"pipeline:{_OLD_BOOT_PIPELINE}:failed"
             ticket = await _ticket(harness.factory, result.session_id)
-            assert ticket.result["incident_key"] == result.incident_key
-            assert ticket.result["incident_key"] != "pipeline:pipeline-old-boot"
+            assert ticket.source_trigger_id == row.id
         finally:
             await harness.close()
 
@@ -769,13 +931,26 @@ def test_auto_diagnose_off_opens_nothing(tmp_path):
         harness = await _incident_harness(tmp_path, enabled=False)
         try:
             await _seed_failed_pipeline(harness.factory)
-            pipeline_result = await harness.service.pipeline_failed("pipeline-1")
+            pipeline_result = await harness.service.pipeline_failed(_PIPELINE)
             core_result = await harness.service.core_crashed(3, {"reason": "process_exit"})
 
             assert pipeline_result.session_id is None
             assert pipeline_result.status == "disabled"
             assert core_result.session_id is None
             assert core_result.status == "disabled"
+            # M81：诊断规则关掉只影响建单，事件仍要入表。
+            async with harness.factory() as session:
+                rows = (
+                    (
+                        await session.execute(
+                            select(AgentTrigger).order_by(AgentTrigger.id.asc())
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            assert [row.kind for row in rows] == ["pipeline.failed", "core.crashed"]
+            assert all(row.routed_to == "none" for row in rows)
             assert await _ticket_count(harness.factory) == 0
             assert harness.llm.requests == []
             async with harness.factory() as session:
@@ -833,7 +1008,7 @@ def test_inferred_mandate_blocks_consumption(tmp_path):
         )
         try:
             await _seed_failed_pipeline(harness.factory)
-            result = await harness.service.pipeline_failed("pipeline-1")
+            result = await harness.service.pipeline_failed(_PIPELINE)
             ticket = await _ticket(harness.factory, result.session_id)
             harness.worker_service.wake(ticket.worker_session_id)
 
