@@ -426,7 +426,8 @@ async def list_tools(
     summary="调用 Agent 工具",
     responses=error_responses(
         "TOOL_NOT_FOUND", "TOOL_ARGS_INVALID", "CONFIRMATION_REJECTED",
-        "CONFIRMATION_EXPIRED", "IDEMPOTENCY_KEY_CONFLICT", "UNAUTHORIZED",
+        "CONFIRMATION_EXPIRED", "IDEMPOTENCY_KEY_CONFLICT", "SPEND_CAP_EXCEEDED",
+        "UNAUTHORIZED",
     ),
     dependencies=[Depends(require_auth)],
 )
@@ -440,6 +441,13 @@ async def invoke_tool(
 ) -> dict[str, Any]:
     service = _confirmation_service(request)
     _ensure_rest_visible(service, name)
+    # M84 §4.5.6：确认之前的只读预检。守卫自身写 rejected 审计并抛
+    # SPEND_CAP_EXCEEDED（403）；这里直接让统一错误处理器返回，不建确认卡。
+    spend_guard = getattr(request.app.state, "spend_guard", None)
+    if spend_guard is not None:
+        await spend_guard.precheck_tool_call(
+            name, payload.arguments, agent_session_id=None
+        )
     context = ToolContext(CallerType.REST, None, current_request_id.get(), request, session)
     before_execute = _rest_preempt_hook(service, name, request)
     if idempotency_key is None:

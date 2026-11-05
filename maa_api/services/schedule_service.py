@@ -528,6 +528,25 @@ class ScheduleService:
         except Exception:
             logger.exception("定时任务 %s 执行失败", schedule_id)
 
+    async def _record_submission_result(
+        self,
+        schedule_id: str,
+        *,
+        fired_at: datetime,
+        next_run_at: datetime | None,
+        result: str,
+    ) -> None:
+        """回写一次「没有对应流水线」的触发结果（failed / skipped）。"""
+        async with self.session_factory() as session:
+            await ScheduleRepository(session).record_run(
+                schedule_id,
+                last_run_at=fired_at,
+                next_run_at=next_run_at,
+                pipeline_id=None,
+                result=result,
+            )
+            await session.commit()
+
     async def _submit_schedule(
         self,
         schedule: Schedule,
@@ -560,18 +579,40 @@ class ScheduleService:
                 source=PipelineSource.SCHEDULED,
                 schedule_id=schedule.id,
             )
+        except AppError as exc:
+            if exc.code != ErrorCode.SPEND_CAP_EXCEEDED:
+                if propagate_error:
+                    raise
+                await self._record_submission_result(
+                    schedule.id,
+                    fired_at=fired_at,
+                    next_run_at=next_run_at or schedule.next_run_at,
+                    result="failed",
+                )
+                logger.exception("定时任务 %s 未能提交到队列", schedule.id)
+                return None
+            if propagate_error:
+                # 「立即执行」把 403 SPEND_CAP_EXCEEDED 原样交给调用方。
+                raise
+            await self._record_submission_result(
+                schedule.id,
+                fired_at=fired_at,
+                next_run_at=next_run_at or schedule.next_run_at,
+                result="skipped",
+            )
+            logger.warning(
+                "定时任务 %s 超过今日消耗上限，本次跳过", schedule.id
+            )
+            return None
         except Exception:
             if propagate_error:
                 raise
-            async with self.session_factory() as session:
-                await ScheduleRepository(session).record_run(
-                    schedule.id,
-                    last_run_at=fired_at,
-                    next_run_at=next_run_at or schedule.next_run_at,
-                    pipeline_id=None,
-                    result="failed",
-                )
-                await session.commit()
+            await self._record_submission_result(
+                schedule.id,
+                fired_at=fired_at,
+                next_run_at=next_run_at or schedule.next_run_at,
+                result="failed",
+            )
             logger.exception("定时任务 %s 未能提交到队列", schedule.id)
             return None
 

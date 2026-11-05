@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -248,6 +249,8 @@ class PipelineRunner:
         self.notify_service: Any = None
         #: 设备租约闸门（M71 §4.5.4）；未绑定时行为与 v2 完全一致。
         self._lease_gate: Any = None
+        #: 消耗守卫（M84 §4.5.6）：运行中改参预留；未绑定时行为与 v2 一致。
+        self._spend_guard: Any = None
         # 留档截图的日志附件只能走 ``LogHub.offer``：stdlib 日志渠道不搬运
         # ``attachment``。绑定是后置且可选的（同 ``bind_notify_service``）。
         self._log_hub: Any = None
@@ -361,6 +364,16 @@ class PipelineRunner:
         coroutine methods ``claim_gate()`` and ``preempt(reason, detail=...)``.
         """
         self._lease_gate = gate
+
+    def bind_spend_guard(self, guard: Any) -> None:
+        """绑定消耗守卫（M84 §4.5.6）。
+
+        后置、可选的绑定：未绑定时 ``set_task_params`` 的行为与 v2 完全一致；
+        绑定后运行中改参在 ``operation_lock`` 内先预留调高的差额，内核调用与
+        ``update_params`` / ``commit`` 都在 ``reserve_patch`` 块内，内核拒绝时
+        账本改动随会话一起回滚。
+        """
+        self._spend_guard = guard
 
     def bind_log_hub(self, hub: Any) -> None:
         """Bind the log hub so task snapshots can carry log attachments.
@@ -628,12 +641,21 @@ class PipelineRunner:
                     active.stop_complete.set()
                 self.wake()
 
-    async def set_task_params(self, task_id: str, params: dict[str, Any]) -> Task:
+    async def set_task_params(
+        self,
+        task_id: str,
+        params: dict[str, Any],
+        *,
+        spend_source: PipelineSource = PipelineSource.MANUAL,
+    ) -> Task:
         """Validate and apply a supported live task parameter patch.
 
         Persist only after MaaCore acknowledges the patch. The operation lock
         prevents a cancellation or new queue claim from changing the active
         attempt between validation and the native command.
+
+        M84 §4.5.6：绑定了消耗守卫时，在 ``operation_lock`` 内先按调高的差额
+        预留额度；内核调用与落库都在预留块内，内核拒绝时账本随会话回滚。
         """
         if not params or "name" in params:
             raise AppError(
@@ -703,34 +725,49 @@ class PipelineRunner:
                     include=supplied_fields,
                     exclude={"name"}, exclude_unset=True, by_alias=True
                 )
-                accepted = await self.registry.get(self.core_id).set_task_params(
-                    int(active.attempt.maa_task_id), normalized_patch
+                # 守卫锁始终在 operation_lock 之内拿（M84 §4.2）；未绑定时用
+                # nullcontext 保持 v2 的调用顺序与异常语义。
+                spend_scope = (
+                    nullcontext()
+                    if self._spend_guard is None
+                    else self._spend_guard.reserve_patch(
+                        session,
+                        task=task,
+                        merged_params=validated.model_dump(
+                            mode="python", by_alias=True, exclude_unset=False
+                        ),
+                        source=spend_source,
+                    )
                 )
-                if not accepted:
-                    raise AppError(
-                        ErrorCode.CORE_COMMAND_FAILED,
-                        "内核拒绝修改运行中任务的参数，请等任务结束后再改",
-                        {"task_id": task_id, "maa_task_id": active.attempt.maa_task_id},
+                async with spend_scope:
+                    accepted = await self.registry.get(self.core_id).set_task_params(
+                        int(active.attempt.maa_task_id), normalized_patch
                     )
-                stored_params = {**dict(task.params or {}), **normalized_patch}
-                stored_raw_params = {
-                    **dict(task.raw_params or {}),
-                    **normalized_patch,
-                }
-                if not await repository.update_params(
-                    task_id,
-                    params=stored_params,
-                    raw_params=stored_raw_params,
-                ):
-                    raise AppError(
-                        ErrorCode.INVALID_PARAMETER,
-                        "任务已结束，不能再更新参数；请刷新列表",
-                        {"task_id": task_id},
-                    )
-                await session.commit()
-                updated = await repository.get(task_id)
-                if active.task is not None:
-                    active.task.params = dict(stored_params)
+                    if not accepted:
+                        raise AppError(
+                            ErrorCode.CORE_COMMAND_FAILED,
+                            "内核拒绝修改运行中任务的参数，请等任务结束后再改",
+                            {"task_id": task_id, "maa_task_id": active.attempt.maa_task_id},
+                        )
+                    stored_params = {**dict(task.params or {}), **normalized_patch}
+                    stored_raw_params = {
+                        **dict(task.raw_params or {}),
+                        **normalized_patch,
+                    }
+                    if not await repository.update_params(
+                        task_id,
+                        params=stored_params,
+                        raw_params=stored_raw_params,
+                    ):
+                        raise AppError(
+                            ErrorCode.INVALID_PARAMETER,
+                            "任务已结束，不能再更新参数；请刷新列表",
+                            {"task_id": task_id},
+                        )
+                    await session.commit()
+                    updated = await repository.get(task_id)
+                    if active.task is not None:
+                        active.task.params = dict(stored_params)
 
         if updated is None:
             raise AppError(
