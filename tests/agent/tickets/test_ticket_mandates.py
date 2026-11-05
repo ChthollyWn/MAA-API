@@ -175,6 +175,22 @@ def test_build_mandate_validation() -> None:
     )
     assert goal.risk_ceiling == RiskLevel.NONE
 
+    # M82 §4.5.1：目标规划工单是用户这次明确请求的直接执行，允许显式委托；
+    # 目标复盘工单（不传 strength/risk_ceiling）仍是推断委托、上限 none。
+    planning = build_mandate(
+        ticket_id="ticket-4",
+        scope="为目标「银灰精二」做规划",
+        origin=TicketOrigin.GOAL,
+        source=EventSource.GOAL,
+        sender="web",
+        rule_id=None,
+        spec_ceiling=RiskLevel.CONSUME,
+        strength=MandateStrength.EXPLICIT,
+        risk_ceiling=RiskLevel.CONSUME,
+    )
+    assert planning.strength == MandateStrength.EXPLICIT
+    assert planning.risk_ceiling == RiskLevel.CONSUME
+
     invalid_cases = [
         ("空 scope", {"scope": "   "}),
         ("scope 超长", {"scope": "字" * 2001}),

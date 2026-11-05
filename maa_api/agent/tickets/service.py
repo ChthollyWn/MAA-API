@@ -302,6 +302,7 @@ class TicketService:
         risk_ceiling: str | None = None,
         policy_version: str | None = None,
         source_trigger_id: int | None = None,
+        goal_id: str | None = None,
     ) -> tuple[Ticket, Mandate]:
         """校验代理定义与委托后，把工单和委托写进同一事务（§4.5.3）。
 
@@ -313,8 +314,12 @@ class TicketService:
         M81 T5 的五个可选参数（默认 ``None``，不带时与 M69 完全一致）：
         ``source_trigger_id`` 写进 ``ticket.source_trigger_id``；``strength`` /
         ``risk_ceiling`` / ``policy_version`` 交给 :func:`build_mandate`
-        （强度必须与 origin 一致、上限只能收紧）；``brief`` 非空时在建单之后用
+        （强度必须与 origin 一致、上限只能收紧；唯一例外是 M82 的
+        ``origin=goal`` 规划工单可显式传 ``explicit``）；``brief`` 非空时在建单之后用
         ``bind_worker_service`` 注入的 Worker 服务建会话并把说明写进它的收件箱。
+
+        M82 T3 加 ``goal_id``（默认 ``None``）：写进 ``ticket.goal_id``，把目标与
+        它的规划/复盘工单关联起来（spec §4.2、§4.5.1）。
         """
         del write_brief  # 见 docstring：收件箱写入在 attach_worker_session。
         title_text = title.strip() if isinstance(title, str) else ""
@@ -357,6 +362,7 @@ class TicketService:
             priority=priority,
             orchestrator_session_id=orchestrator_session_id,
             source_trigger_id=source_trigger_id,
+            goal_id=goal_id,
             created_at=now,
             updated_at=now,
         )

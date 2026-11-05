@@ -234,6 +234,7 @@ def build_mandate(
         raise _invalid("origin=trigger 时 rule_id 必填")
 
     derived_strength = strength_for(origin_value)
+    effective_strength = derived_strength
     if strength is not None:
         try:
             requested_strength = MandateStrength(strength)
@@ -241,13 +242,20 @@ def build_mandate(
             raise _invalid(f"未知的委托强度：{strength}") from None
         if requested_strength != derived_strength:
             # 与 ``WorkerService.open_ticket`` 同口径：强度由来源推导，调用方不能
-            # 借参数把推断委托写成显式授权。
-            raise _invalid(
-                f"委托强度 {requested_strength.value} 与工单来源 "
-                f"{origin_value.value} 不一致"
-            )
+            # 借参数把推断委托写成显式授权。唯一例外是 M82 的目标规划工单：
+            # ``origin=goal`` 的规划工单是用户这一次明确请求的直接执行（spec §4.5.1），
+            # 由 ``GoalService`` 显式传 ``explicit``；目标复盘工单仍按推断委托建。
+            if not (
+                origin_value == TicketOrigin.GOAL
+                and requested_strength == MandateStrength.EXPLICIT
+            ):
+                raise _invalid(
+                    f"委托强度 {requested_strength.value} 与工单来源 "
+                    f"{origin_value.value} 不一致"
+                )
+            effective_strength = requested_strength
 
-    derived_ceiling = ceiling_for(derived_strength, spec_ceiling)
+    derived_ceiling = ceiling_for(effective_strength, spec_ceiling)
     if risk_ceiling is not None:
         try:
             requested_ceiling = RiskLevel(risk_ceiling)
@@ -273,7 +281,7 @@ def build_mandate(
     return Mandate(
         ticket_id=ticket_id,
         scope=scope_text,
-        strength=derived_strength.value,
+        strength=effective_strength.value,
         source=source_value.value,
         sender=sender,
         rule_id=rule_id,
