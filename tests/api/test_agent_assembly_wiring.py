@@ -145,6 +145,31 @@ def test_lifespan_wires_trigger_services(tmp_settings, isolated_db) -> None:
         assert incident.boot_id == app.state.boot_id
 
 
+def test_lifespan_wires_goal_services(tmp_settings, isolated_db) -> None:
+    """M82 §4.5.7：目标服务与后台推送监听器挂到 ``app.state`` 并注册为汇报监听器。"""
+
+    from maa_api.agent.goals.service import GoalService
+    from maa_api.agent.tickets.push import TicketPushNotifier
+
+    app = create_app()
+    with _lifespan(app):
+        goal_service = getattr(app.state, "goal_service", None)
+        notifier = getattr(app.state, "ticket_push_notifier", None)
+        assert isinstance(goal_service, GoalService), (
+            "lifespan 没有设置 app.state.goal_service"
+        )
+        assert isinstance(notifier, TicketPushNotifier), (
+            "lifespan 没有设置 app.state.ticket_push_notifier"
+        )
+        ticket_service = app.state.ticket_service
+        assert goal_service._ticket_service is ticket_service
+        # 复盘 job 要注册在同一个调度器上（schedule_service 构造之后才 start_jobs）。
+        assert goal_service.scheduler is app.state.update_scheduler
+        listeners = ticket_service._report_listeners
+        assert goal_service.on_ticket_report in listeners
+        assert notifier.on_report in listeners
+
+
 def _lifespan(app):
     """进入/退出应用 lifespan 的上下文（不依赖 TestClient 的 HTTP 栈）。"""
 

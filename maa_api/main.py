@@ -56,6 +56,7 @@ from maa_api.api.routers import (
     confirmations,
     device,
     device_lease,
+    goals,
     knowledge,
     knowledge_index,
     logs,
@@ -499,6 +500,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     incident_service = None
     trigger_rule_service = None
     trigger_service = None
+    goal_service = None
     pipeline_event_publisher = None
     span_recorder = None
     worker_service = None
@@ -1620,6 +1622,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings_provider=get_settings,
         )
         app.state.trigger_service = trigger_service
+        # M82 §4.5.7：目标服务在事件服务之后装配。复盘 job 依赖定时任务服务（本函数
+        # 后段才构造），所以传惰性取值；后台推送只在没有可见页面时发。两个监听器
+        # 都挂在工单汇报落库之后，监听器自己抛错只记日志、不影响汇报。
+        from maa_api.agent.goals.service import GoalService
+        from maa_api.agent.tickets.push import TicketPushNotifier
+
+        goal_service = GoalService(
+            db_session.session_factory,
+            app=app,
+            ticket_service=ticket_service,
+            thread_router=thread_router,
+            trigger_service=trigger_service,
+            upgrade_plan_service=getattr(
+                app.state, "upgrade_plan_service", None
+            ),
+            get_schedule_service=lambda: getattr(
+                app.state, "schedule_service", None
+            ),
+            settings_provider=get_settings,
+        )
+        app.state.goal_service = goal_service
+        ticket_push_notifier = TicketPushNotifier(
+            webpush=webpush_service,
+            has_visible_client=ws_manager.has_visible_client,
+        )
+        app.state.ticket_push_notifier = ticket_push_notifier
+        ticket_service.add_report_listener(goal_service.on_ticket_report)
+        ticket_service.add_report_listener(ticket_push_notifier.on_report)
         pipeline_event_publisher = PipelineEventPublisher(
             trigger_service,
             db_session.session_factory,
@@ -1850,6 +1880,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         await schedule_service.load_enabled()
         app.state.schedule_service = schedule_service
+        # M82 §4.5.7：定时任务服务就绪后，给 active / paused 目标注册复盘 job。
+        if goal_service is not None:
+            goal_service.start_jobs(update_scheduler)
         # 养成计划的装配依赖（M31）：计划服务在本函数前段就建好了（那时定时任务
         # 服务还不存在），这里补上绑定；同一处把「定时任务被删除」的回调接回计划
         # 服务（规格 §7.7 第 4 条：用户在定时任务页删掉任务时计划同步标为已取消）。
@@ -1908,6 +1941,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M81 §4.5.4：事件服务要在调度器关闭之前退订自己的 job 并收尾任务。
         if trigger_service is not None:
             await trigger_service.close()
+        # M82 §4.5.7：目标服务同样在调度器关闭之前移除自己的复盘 job。
+        if goal_service is not None:
+            await goal_service.close()
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -1972,6 +2008,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent_incident_service",
             "trigger_rule_service",
             "trigger_service",
+            "goal_service",
+            "ticket_push_notifier",
             "pipeline_event_publisher",
             "agent_ops_service",
             "resource_service",
@@ -2029,6 +2067,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M81 §4.5.4：事件服务要在调度器关闭之前退订自己的 job 并收尾任务。
         if trigger_service is not None:
             await trigger_service.close()
+        # M82 §4.5.7：目标服务同样在调度器关闭之前移除自己的复盘 job。
+        if goal_service is not None:
+            await goal_service.close()
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -2101,6 +2142,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "agent_incident_service",
             "trigger_rule_service",
             "trigger_service",
+            "goal_service",
+            "ticket_push_notifier",
             "pipeline_event_publisher",
             "agent_ops_service",
             "resource_service",
@@ -2198,6 +2241,7 @@ def create_app() -> FastAPI:
     app.include_router(questions.router)
     app.include_router(tickets.router)
     app.include_router(triggers.router)
+    app.include_router(goals.router)
     app.include_router(rewind.router)
     app.include_router(device_lease.router)
     app.include_router(ws_router)

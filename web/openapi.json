@@ -2630,6 +2630,469 @@
         "title": "GameUpdateRequest",
         "type": "object"
       },
+      "GoalCreate": {
+        "additionalProperties": false,
+        "description": "新建目标的请求体（REST 与 ``create_goal`` 工具共用）。",
+        "properties": {
+          "deadline": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "review_cron": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Cron"
+          },
+          "target": {
+            "$ref": "#/components/schemas/GoalTarget"
+          },
+          "title": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "target"
+        ],
+        "title": "GoalCreate",
+        "type": "object"
+      },
+      "GoalDetail": {
+        "description": "目标详情：本体 + 里程碑 + 最近 20 张目标工单。",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_review_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Review At"
+          },
+          "milestones": {
+            "items": {
+              "$ref": "#/components/schemas/MilestoneOut"
+            },
+            "title": "Milestones",
+            "type": "array"
+          },
+          "next_review_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Review At"
+          },
+          "planning_ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planning Ticket Id"
+          },
+          "progress": {
+            "additionalProperties": true,
+            "title": "Progress",
+            "type": "object"
+          },
+          "review_cron": {
+            "title": "Review Cron",
+            "type": "string"
+          },
+          "schedule_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Schedule Ids",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/GoalTarget"
+          },
+          "tickets": {
+            "items": {
+              "$ref": "#/components/schemas/GoalTicketOut"
+            },
+            "title": "Tickets",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "upgrade_plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upgrade Plan Id"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "target",
+          "review_cron",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "GoalDetail",
+        "type": "object"
+      },
+      "GoalPage": {
+        "description": "目标分页响应。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GoalSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "GoalPage",
+        "type": "object"
+      },
+      "GoalStatus": {
+        "description": "长程目标的状态机：进行中、暂停、完成、失败、取消。",
+        "enum": [
+          "active",
+          "paused",
+          "done",
+          "failed",
+          "cancelled"
+        ],
+        "title": "GoalStatus",
+        "type": "string"
+      },
+      "GoalSummary": {
+        "description": "目标列表的一行。",
+        "properties": {
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "milestones_done": {
+            "default": 0,
+            "title": "Milestones Done",
+            "type": "integer"
+          },
+          "milestones_total": {
+            "default": 0,
+            "title": "Milestones Total",
+            "type": "integer"
+          },
+          "next_review_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Review At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "updated_at"
+        ],
+        "title": "GoalSummary",
+        "type": "object"
+      },
+      "GoalTarget": {
+        "additionalProperties": false,
+        "description": "结构化目标：用户原话、可选练度目标与养成计划的运行时刻。",
+        "properties": {
+          "operators": {
+            "items": {
+              "$ref": "#/components/schemas/UpgradeTarget"
+            },
+            "maxItems": 10,
+            "title": "Operators",
+            "type": "array"
+          },
+          "run_times": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Run Times",
+            "type": "array"
+          },
+          "text": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "GoalTarget",
+        "type": "object"
+      },
+      "GoalTicketOut": {
+        "description": "目标详情里的一张相关工单（至多 20 张）。",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_report_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Report Status"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "kind",
+          "status",
+          "updated_at"
+        ],
+        "title": "GoalTicketOut",
+        "type": "object"
+      },
+      "GoalUpdate": {
+        "additionalProperties": false,
+        "description": "改目标：用 ``model_fields_set`` 区分「没传」与「传 null」。",
+        "properties": {
+          "deadline": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "paused",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "GoalUpdate",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3934,6 +4397,51 @@
           "label"
         ],
         "title": "Mention",
+        "type": "object"
+      },
+      "MilestoneOut": {
+        "description": "一个里程碑的对外形状。",
+        "properties": {
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "title": "Metrics",
+            "type": "object"
+          },
+          "ord": {
+            "title": "Ord",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ord",
+          "title",
+          "status"
+        ],
+        "title": "MilestoneOut",
         "type": "object"
       },
       "ModelProfileCreate": {
@@ -10843,6 +11351,85 @@
         "title": "TriggerRuleWrite",
         "type": "object"
       },
+      "UpgradeTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "elite": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elite"
+          },
+          "masteries": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "propertyNames": {
+                  "enum": [
+                    "1",
+                    "2",
+                    "3"
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masteries"
+          },
+          "modules": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "模组目标：[{\"type\": \"X\", \"level\": 2}]。",
+            "title": "Modules"
+          },
+          "operator": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Operator",
+            "type": "string"
+          },
+          "skill_level": {
+            "anyOf": [
+              {
+                "maximum": 7.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Level"
+          }
+        },
+        "required": [
+          "operator"
+        ],
+        "title": "UpgradeTarget",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -12546,6 +13133,461 @@
           }
         },
         "summary": "读取设备租约",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/goals": {
+      "get": {
+        "description": "按状态过滤分页，``updated_at`` 倒序；不传 ``status`` 时返回全部状态。",
+        "operationId": "agent_list_goals",
+        "parameters": [
+          {
+            "description": "只看这些状态，可重复表示并集",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/GoalStatus"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只看这些状态，可重复表示并集",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–200",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–200",
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PAGINATION",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PAGINATION"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "分页读取目标",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "description": "建目标、规划工单与复盘 job；成功时带 ``Location`` 指向新目标。",
+        "operationId": "agent_create_goal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalDetail"
+                }
+              }
+            },
+            "description": "Created",
+            "headers": {
+              "Location": {
+                "description": "新目标的 URI",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SCHEDULE_CRON_INVALID",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：SCHEDULE_CRON_INVALID"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "AGENT_DISABLED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：AGENT_DISABLED、SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "新建目标",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/goals/{goal_id}": {
+      "get": {
+        "description": "目标本体、里程碑与最近 20 张相关工单；不存在报 404 ``GOAL_NOT_FOUND``。",
+        "operationId": "agent_get_goal",
+        "parameters": [
+          {
+            "description": "目标 id",
+            "in": "path",
+            "name": "goal_id",
+            "required": true,
+            "schema": {
+              "description": "目标 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Goal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "GOAL_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：GOAL_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取目标详情",
+        "tags": [
+          "agent"
+        ]
+      },
+      "put": {
+        "description": "改标题、截止或状态（暂停 / 恢复 / 取消）；已结束的目标报 409 ``GOAL_ENDED``。\n\n恢复不做确认：REST 是用户本人在操作（规格 §4.3）。",
+        "operationId": "agent_update_goal",
+        "parameters": [
+          {
+            "description": "目标 id",
+            "in": "path",
+            "name": "goal_id",
+            "required": true,
+            "schema": {
+              "description": "目标 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Goal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "GOAL_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：GOAL_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "GOAL_ENDED",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：GOAL_ENDED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "修改目标",
         "tags": [
           "agent"
         ]
