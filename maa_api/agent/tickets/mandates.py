@@ -54,6 +54,8 @@ MAX_SCOPE_CHARS = 2000
 _MAX_SENDER_CHARS = 128
 #: 触发规则的字符上限。
 _MAX_RULE_ID_CHARS = 48
+#: ``policy_version`` 列的字符上限（``Mandate.policy_version`` 是 ``String(16)``）。
+_MAX_POLICY_VERSION_CHARS = 16
 
 _IM_SOURCES = frozenset(
     {
@@ -184,12 +186,19 @@ def build_mandate(
     sender: str | None,
     rule_id: str | None,
     spec_ceiling: RiskLevel | str,
+    strength: MandateStrength | str | None = None,
+    risk_ceiling: RiskLevel | str | None = None,
+    policy_version_value: str | None = None,
 ) -> Mandate:
     """校验并返回一个未落库的 Mandate；校验失败抛 ``AppError(INVALID_PARAMETER)``。
 
     scope 去首尾空白后 1–2000 字；source 必须属于 :data:`ORIGIN_SOURCES[origin]`；
     origin=user 时 sender 必填且为 ``web`` 或以 ``im:`` 开头；origin=trigger 时
     rule_id 必填；sender 不超过 128 字且不含空白；rule_id 不超过 48 字。
+
+    ``strength`` / ``risk_ceiling`` / ``policy_version_value`` 是 M81 T5 给事件管线
+    加的可选覆盖（默认 ``None`` 表示按 M69 的推导，行为不变）：强度必须与 ``origin``
+    推出的一致，风险上限只能收紧不能放宽，策略版本原样写库（≤16 字）。
     """
     origin_value = _normalize_origin(origin)
     source_value = _normalize_source(source)
@@ -224,14 +233,50 @@ def build_mandate(
     if origin_value == TicketOrigin.TRIGGER and not (rule_id and rule_id.strip()):
         raise _invalid("origin=trigger 时 rule_id 必填")
 
-    strength = strength_for(origin_value)
+    derived_strength = strength_for(origin_value)
+    if strength is not None:
+        try:
+            requested_strength = MandateStrength(strength)
+        except ValueError:
+            raise _invalid(f"未知的委托强度：{strength}") from None
+        if requested_strength != derived_strength:
+            # 与 ``WorkerService.open_ticket`` 同口径：强度由来源推导，调用方不能
+            # 借参数把推断委托写成显式授权。
+            raise _invalid(
+                f"委托强度 {requested_strength.value} 与工单来源 "
+                f"{origin_value.value} 不一致"
+            )
+
+    derived_ceiling = ceiling_for(derived_strength, spec_ceiling)
+    if risk_ceiling is not None:
+        try:
+            requested_ceiling = RiskLevel(risk_ceiling)
+        except ValueError:
+            raise _invalid(f"未知的风险上限：{risk_ceiling}") from None
+        if RISK_ORDER[requested_ceiling] > RISK_ORDER[derived_ceiling]:
+            raise _invalid(
+                f"风险上限 {requested_ceiling.value} 高于委托允许的 "
+                f"{derived_ceiling.value}"
+            )
+    else:
+        requested_ceiling = derived_ceiling
+
+    if policy_version_value is None:
+        version = policy_version()
+    else:
+        version = str(policy_version_value)
+        if len(version) > _MAX_POLICY_VERSION_CHARS:
+            raise _invalid(
+                f"policy_version 不能超过 {_MAX_POLICY_VERSION_CHARS} 字"
+            )
+
     return Mandate(
         ticket_id=ticket_id,
         scope=scope_text,
-        strength=strength.value,
+        strength=derived_strength.value,
         source=source_value.value,
         sender=sender,
         rule_id=rule_id,
-        risk_ceiling=ceiling_for(strength, spec_ceiling).value,
-        policy_version=policy_version(),
+        risk_ceiling=requested_ceiling.value,
+        policy_version=version,
     )

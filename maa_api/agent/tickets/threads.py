@@ -186,22 +186,8 @@ class ThreadRouter:
         「没订阅时交总控」留给需要它的调用方（``publish`` / ``to_orchestrator``）。
         """
         parse_thread_key(thread_key)
-        async with self._session_factory() as session:
-            subscribed = await ThreadSubscriptionRepository(
-                session
-            ).active_ticket_ids(thread_key)
-            ticket_repo = TicketRepository(session)
-            targets: list[str] = []
-            for ticket_id in subscribed:
-                ticket = await ticket_repo.get(ticket_id)
-                if (
-                    ticket is not None
-                    and not _ticket_is_terminal(ticket)
-                    and ticket.worker_session_id
-                ):
-                    targets.append(ticket.worker_session_id)
         delivered: list[str] = []
-        for session_id in dict.fromkeys(targets):
+        for _ticket_id, session_id in await self._subscribed_targets(thread_key):
             await self._inbox_service.put(
                 session_id,
                 kind,
@@ -211,6 +197,51 @@ class ThreadRouter:
             )
             delivered.append(session_id)
         return delivered
+
+    async def deliver_to_subscribers(
+        self,
+        thread_key: str,
+        *,
+        inbox_kind: InboxKind,
+        ref_id: str,
+        payload: Mapping[str, Any],
+    ) -> list[str]:
+        """把事件写进所有活跃订阅工单的 Worker 收件箱，返回投到的**工单 id**。
+
+        M81 §4.5.2 第 1 步：只投订阅者，没有订阅时返回空列表、不交总控（与
+        :meth:`deliver` 同口径）。内部复用同一套订阅者解析，只是把返回值从会话 id
+        换成工单 id，供事件表记 ``ticket_id`` 与 ``routed_to=ticket``。
+        """
+        parse_thread_key(thread_key)
+        delivered: list[str] = []
+        for ticket_id, session_id in await self._subscribed_targets(thread_key):
+            await self._inbox_service.put(
+                session_id,
+                inbox_kind,
+                thread_key=thread_key,
+                ref_id=ref_id,
+                payload=payload,
+            )
+            delivered.append(ticket_id)
+        return list(dict.fromkeys(delivered))
+
+    async def _subscribed_targets(self, thread_key: str) -> list[tuple[str, str]]:
+        """active 订阅里「工单未结束且已有 Worker 会话」的 ``(工单 id, 会话 id)``。"""
+        async with self._session_factory() as session:
+            subscribed = await ThreadSubscriptionRepository(
+                session
+            ).active_ticket_ids(thread_key)
+            ticket_repo = TicketRepository(session)
+            targets: list[tuple[str, str]] = []
+            for ticket_id in subscribed:
+                ticket = await ticket_repo.get(ticket_id)
+                if (
+                    ticket is not None
+                    and not _ticket_is_terminal(ticket)
+                    and ticket.worker_session_id
+                ):
+                    targets.append((ticket.id, ticket.worker_session_id))
+        return targets
 
     async def publish(
         self,

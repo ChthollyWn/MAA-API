@@ -106,6 +106,20 @@ class TicketRepository(BaseRepository):
         )
         return result.rowcount > 0
 
+    async def get_by_source_trigger(self, trigger_id: int) -> Ticket | None:
+        """取由某条事件建出的工单；恢复时用它避免重复建单（M81 §4.5.2）。
+
+        一条事件至多建一张工单，但历史数据可能没有唯一索引兜底，这里按
+        ``id ASC`` 取第一条，不因多行报错。
+        """
+        result = await self.session.execute(
+            select(Ticket)
+            .where(Ticket.source_trigger_id == int(trigger_id))
+            .order_by(Ticket.id.asc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
     async def titles(self, ticket_ids: Iterable[str]) -> dict[str, str]:
         """批量取 ``id → title``；不存在的 id 不出现，空入参返回空 dict。"""
         ids = [str(ticket_id) for ticket_id in ticket_ids]
@@ -311,6 +325,27 @@ class AgentInboxRepository(BaseRepository):
         stored = await self.session.merge(item)
         await self.session.flush()
         return stored
+
+    async def find_ref(self, kind: str, ref_id: str) -> AgentInbox | None:
+        """按 ``kind + ref_id`` 取最早的一条收件箱项；M81 的幂等检查用它。
+
+        ``ref_id`` 在收件箱里不唯一（同一事件会投给多个订阅工单），调用方只关心
+        「有没有写过、写给了哪个会话」，因此按 ``id ASC`` 取第一条。
+        """
+        result = await self.session.execute(
+            select(AgentInbox)
+            .where(
+                AgentInbox.kind == str(kind),
+                AgentInbox.ref_id == str(ref_id),
+            )
+            .order_by(AgentInbox.id.asc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+    async def exists(self, kind: str, ref_id: str) -> bool:
+        """是否已有 ``kind + ref_id`` 的收件箱项（M81 的幂等闸门）。"""
+        return await self.find_ref(kind, ref_id) is not None
 
     async def pending_ids(self, session_id: str, *, limit: int) -> list[int]:
         """该会话最早的 ``limit`` 条 pending 项 id，``id ASC``。"""

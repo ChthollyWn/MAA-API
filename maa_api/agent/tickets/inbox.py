@@ -312,10 +312,20 @@ class InboxService:
                 )
                 text += f"\n需要用户处理（{action_type}）：{action.get('prompt') or ''}"
             return text
-        if kind in (InboxKind.THREAD_EVENT, InboxKind.TRIGGER):
+        if kind == InboxKind.THREAD_EVENT:
             return (
                 f"【事件】{item.thread_key or ''}：{payload.get('summary') or ''}"
             )
+        if kind == InboxKind.TRIGGER:
+            # M81 §4.2：一条事件三行；研判理由只在规则真的给了理由时出现。
+            lines = [f"【事件】{payload.get('summary') or ''}"]
+            lines.append(
+                f"话题 {item.thread_key or ''}，事件 #{payload.get('trigger_id')}"
+            )
+            reason = payload.get("reason")
+            if reason:
+                lines.append(f"研判：{reason}")
+            return "\n".join(lines)
         if kind == InboxKind.SYSTEM:
             return f"【系统】{payload.get('text') or ''}"
         return None
