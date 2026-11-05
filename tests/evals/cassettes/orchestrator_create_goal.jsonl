@@ -1,0 +1,5 @@
+{"type": "header", "format": 1, "scenario": "orchestrator_create_goal", "source": "handwritten", "recorded_at": "2026-11-05T00:00:00Z", "model": "eval-model", "agent": "orchestrator", "spec_version": null, "notes": "手写回放：用户要在一段时间内练到某个练度，总控建目标，不再建同名工单。前两条是档案首次使用时的尾部位置探查（请求带 system，被 M68 归到 agent 通道）"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call_create_goal", "name": "create_goal", "arguments": {"title": "月底前把银灰练到精二", "target": {"text": "月底前把银灰练到精二"}, "deadline": "2026-12-31T23:59:59+08:00"}}]}}
+{"type": "call", "channel": "agent", "reply": {"text": "目标已经建好，规划工单马上开始拆解。"}}

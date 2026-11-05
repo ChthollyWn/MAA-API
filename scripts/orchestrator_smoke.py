@@ -39,6 +39,10 @@ FAILED_PIPELINE_ID = "77777777-7777-4777-8777-777777777777"
 TRIGGER_FAILED_PIPELINE_ID = "88888888-8888-4888-8888-888888888888"
 #: 研判代理系统提示的身份标记（``trigger_evaluator`` 定义正文首句）。
 _TRIGGER_EVALUATOR_MARKER = "你负责判断进入系统的一条事件要不要主动处理"
+#: 规划工单任务说明的固定开头（``GoalService.planning_brief``），用来识别规划 Worker。
+_PLANNING_BRIEF_MARKER = "刚建立，由你做规划"
+#: 记忆整理代理系统提示的身份标记（``memory_curator`` 定义正文首句）。
+_MEMORY_CURATOR_MARKER = "只抽出用户明确说过"
 
 #: M67 自动能力探查的固定请求文本（与 ``maa_api/agent/llm/profiles.py`` 一致）。
 _JSON_SCHEMA_PROBE_PROMPT = "Return a JSON object with ok set to true."
@@ -73,6 +77,10 @@ def _system_text(messages: list[dict[str, Any]]) -> str:
 def _caller(messages: list[dict[str, Any]]) -> str:
     """按系统提示里的身份标记区分总控、诊断 Worker 与其他 Worker。"""
     text = _system_text(messages)
+    body = "\n".join(_content_text(message.get("content")) for message in messages)
+    if _PLANNING_BRIEF_MARKER in body:
+        # M82：建目标会立刻给规划工单的 Worker 写一条系统任务说明并唤醒它。
+        return "planner"
     if "你是 MAA-API 的总控" in text:
         return "orchestrator"
     if "## 工单卡" in text:
@@ -162,6 +170,8 @@ class _SmokeLLM:
             _text_response("日常的工单已经交给执行官。", prompt_tokens=11, completion_tokens=6),
             # M81：事件通知写进总控收件箱后会唤醒一轮，这里补一条收尾文本。
             _text_response("收到设备不可用通知。"),
+            # M82：规划工单汇报 ready 会转发进总控收件箱，再唤醒一轮。
+            _text_response("规划已完成，目标已更新。"),
         ]
         # M80：Worker 先取一次关卡情报（假 stage_service 返回带注入文本的外部数据），
         # 下一步返回主界面时进入强制确认；确认被拒后收尾，之后两轮各给一条文本。
@@ -187,7 +197,18 @@ class _SmokeLLM:
                     },
                     ensure_ascii=False,
                 )
-            )
+            ),
+            # M82：规划工单结束后复盘事件走 ``goal-review`` 自动规则；冒烟只断言
+            # 事件入表，让研判直接 ignore，不额外建复盘工单。
+            _text_response(
+                json.dumps(
+                    {
+                        "decision": "ignore",
+                        "reason": "复盘快照显示里程碑都没逾期，进度正常，不需要建复盘工单。",
+                    },
+                    ensure_ascii=False,
+                )
+            ),
         ]
         self.tool_probe_response = [
             {
@@ -247,6 +268,8 @@ class _SmokeLLM:
             },
             {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
         ]
+        # M82：汇报落库会触发记忆抽取；空数组表示没有值得记的候选。
+        self.memory_proposal_response = _text_response('{"items": []}')
 
     def _probe(
         self,
@@ -266,6 +289,8 @@ class _SmokeLLM:
             if not self.trigger_eval:
                 raise SmokeFailure("研判的 Fake LLM 脚本已用完")
             return self.trigger_eval.pop(0)
+        if _MEMORY_CURATOR_MARKER in text:
+            return self.memory_proposal_response
         if "capability_probe" in tool_names:
             return self.tool_probe_response
         if any(
@@ -301,6 +326,9 @@ class _SmokeLLM:
             chunks = self.orchestrator.pop(0)
         elif caller == "diagnose":
             chunks = _text_response("已按冒烟脚本结束这次诊断。")
+        elif caller == "planner":
+            # M82：规划 Worker 的回合不影响本步骤断言（计划汇报由脚本直接落库）。
+            chunks = _text_response("规划工单已收到，稍后按目标拆解。")
         else:
             if not self.worker:
                 raise SmokeFailure("Worker 的 Fake LLM 脚本已用完")
@@ -476,6 +504,16 @@ async def _ticket_source_trigger(service: Any, ticket_id: str) -> int | None:
     async with service.session_factory() as session:
         ticket = await session.get(Ticket, ticket_id)
         return None if ticket is None else ticket.source_trigger_id
+
+
+async def _goal_review_events(service: Any, goal_id: str) -> list[Any]:
+    """这条目标的 ``goal.review_due`` 事件行（M82 T9 断言事件入表）。"""
+    from maa_api.db.repositories.triggers import TriggerRepository
+
+    async with service.session_factory() as session:
+        page = await TriggerRepository(session).page(kind="goal.review_due", size=50)
+    thread_key = f"goal:{goal_id}"
+    return [row for row in page.items if row.thread_key == thread_key]
 
 
 async def _publish_device_unavailable(service: Any) -> Any:
@@ -1019,6 +1057,168 @@ def run(*, keep_temp: bool = False) -> None:
         print(
             "[ok] triggers（研判 accept → 观察记录与总控收件箱 trigger 项；"
             "流水线失败 → diagnose 工单并指回事件）"
+        )
+
+        # 9. M82 目标（T9）：建目标 → 规划工单指回目标 → 汇报写里程碑 → 复盘发事件。
+        from datetime import UTC, datetime, timedelta
+
+        from maa_api.agent.tickets.reports import ReportInput
+        from maa_api.domain.enums import ReportStatus
+
+        goal_service = main_module.app.state.goal_service
+        ticket_service = main_module.app.state.ticket_service
+        _require(
+            goal_service is not None,
+            "应用没有装配目标服务（app.state.goal_service）",
+        )
+        goal_title = "月底前把银灰练到精二"
+        now = datetime.now(UTC)
+        created_goal = _check_response(
+            client.post(
+                "/api/agent/goals",
+                json={
+                    "title": goal_title,
+                    "target": {"text": goal_title},
+                    "deadline": (now + timedelta(days=30)).isoformat(),
+                },
+                headers=headers,
+            ),
+            201,
+            "新建目标",
+        )
+        goal_id = created_goal.get("id")
+        planning_ticket_id = created_goal.get("planning_ticket_id")
+        _require(
+            isinstance(goal_id, str) and bool(goal_id),
+            f"新建目标没有 id：{created_goal!r}",
+        )
+        _require(
+            isinstance(planning_ticket_id, str) and bool(planning_ticket_id),
+            f"新建目标没有建出规划工单：{created_goal!r}",
+        )
+        planning_detail = _check_response(
+            client.get(f"/api/agent/tickets/{planning_ticket_id}", headers=headers),
+            200,
+            "规划工单详情",
+        )
+        _require(
+            planning_detail.get("ticket", {}).get("kind") == "planner"
+            and planning_detail.get("mandate", {}).get("strength") == "explicit",
+            f"规划工单的种类或委托不对：{planning_detail!r}",
+        )
+        goal_detail = _check_response(
+            client.get(f"/api/agent/goals/{goal_id}", headers=headers),
+            200,
+            "目标详情",
+        )
+        linked_ticket_ids = [item.get("id") for item in goal_detail.get("tickets", [])]
+        _require(
+            planning_ticket_id in linked_ticket_ids,
+            f"规划工单没有记到目标的 goal_id 上：goal.tickets={linked_ticket_ids!r}",
+        )
+
+        first_due = (now + timedelta(days=10)).isoformat()
+        second_due = (now + timedelta(days=25)).isoformat()
+        planning_summary = "先精一满级再精二，按里程碑推进。"
+        report = ReportInput(
+            status=ReportStatus.READY,
+            summary="规划完成：两个里程碑，先精一满级再精二。",
+            details={
+                "goal_plan": {
+                    "milestones": [
+                        {
+                            "title": "银灰精一满级",
+                            "due_at": first_due,
+                            "metrics": {"how": "等级与技能等级达标"},
+                        },
+                        {
+                            "title": "银灰精二",
+                            "due_at": second_due,
+                            "metrics": {"how": "完成精二并确认面板"},
+                        },
+                    ],
+                    "schedule_ids": [],
+                    "summary": planning_summary,
+                }
+            },
+        )
+        client.portal.call(
+            ticket_service.record_report, planning_ticket_id, report
+        )
+
+        def _goal_with_milestones() -> dict[str, Any] | None:
+            detail = _check_response(
+                client.get(f"/api/agent/goals/{goal_id}", headers=headers),
+                200,
+                "目标详情",
+            )
+            if len(detail.get("milestones") or []) != 2:
+                return None
+            return detail
+
+        applied = _wait_for(_goal_with_milestones, label="规划结果写入里程碑")
+        milestone_titles = [item.get("title") for item in applied["milestones"]]
+        _require(
+            milestone_titles == ["银灰精一满级", "银灰精二"],
+            f"里程碑没有按规划写入：{milestone_titles!r}",
+        )
+        _require(
+            applied["milestones"][0].get("status") == "active"
+            and applied["milestones"][1].get("status") == "pending",
+            f"里程碑初始状态不对：{applied['milestones']!r}",
+        )
+        _require(
+            (applied.get("progress") or {}).get("planning") == "done"
+            and (applied.get("progress") or {}).get("summary") == planning_summary,
+            f"目标的规划进度没有落库：{applied.get('progress')!r}",
+        )
+        # 规划汇报 ready 会转发进总控收件箱并唤醒一轮。
+        _wait_for(
+            lambda: sum(
+                1 for caller, _messages, _tools in fake_llm.requests
+                if caller == "orchestrator"
+            )
+            >= 4
+            and not _check_response(
+                client.get("/api/agent/orchestrator", headers=headers),
+                200,
+                "总控状态",
+            ).get("turn_running"),
+            label="总控转述规划汇报",
+        )
+
+        client.portal.call(goal_service.review, goal_id)
+        review_events = client.portal.call(
+            _goal_review_events, incident_service, goal_id
+        )
+        _require(
+            len(review_events) == 1,
+            f"复盘应恰好写一行 goal.review_due 事件："
+            f"{[(row.kind, row.thread_key) for row in review_events]!r}",
+        )
+        review_event = review_events[0]
+        _require(
+            review_event.kind == "goal.review_due"
+            and review_event.rule_id == "goal-review"
+            and str(review_event.eval_status) == "ignore"
+            and (review_event.payload or {}).get("goal_id") == goal_id,
+            f"复盘事件的内容不对：kind={review_event.kind!r} "
+            f"rule_id={review_event.rule_id!r} "
+            f"eval_status={review_event.eval_status!r} "
+            f"payload={review_event.payload!r}",
+        )
+        reviewed = _check_response(
+            client.get(f"/api/agent/goals/{goal_id}", headers=headers),
+            200,
+            "复盘后的目标详情",
+        )
+        _require(
+            reviewed.get("last_review_at") is not None,
+            f"复盘没有记 last_review_at：{reviewed!r}",
+        )
+        print(
+            "[ok] goals（建目标 → 规划工单带 goal_id → 汇报写里程碑 → "
+            "复盘发 goal.review_due）"
         )
 
         _require(
