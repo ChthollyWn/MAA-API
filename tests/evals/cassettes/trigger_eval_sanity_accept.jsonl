@@ -1,0 +1,2 @@
+{"type": "header", "format": 1, "scenario": "trigger_eval_sanity_accept", "source": "handwritten", "recorded_at": "2026-11-05T00:00:00Z", "model": "eval-model", "agent": "trigger_evaluator", "spec_version": null, "notes": "手写回放：理智已满且没有待执行工作，研判 accept"}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"decision\": \"accept\", \"worker\": \"daily_ops\", \"title\": \"理智已满：提交一条刷图流水线\", \"brief\": \"理智估计已满（135/135），提交一条只用现有理智的刷图流水线，沿用最近一次刷的关卡；不用理智药，不碎石。\", \"scope\": \"提交刷图流水线并盯到结束；不用理智药，不碎石。\", \"reason\": \"理智已满且没有排队或运行中的流水线。\"}"}}
