@@ -73,7 +73,7 @@ def test_lifespan_wires_ticket_services(tmp_settings, isolated_db) -> None:
 
 
 def test_lifespan_wires_finish_hook_fanout(tmp_settings, isolated_db) -> None:
-    """M70：终态钩子槽位绑的是扇出器，养成计划与话题路由各一个订阅者。"""
+    """M70/M81：终态钩子槽位绑的是扇出器，养成计划与事件发布各一个订阅者。"""
 
     from maa_api.agent.hooks_fanout import FinishHookFanout
 
@@ -83,7 +83,7 @@ def test_lifespan_wires_finish_hook_fanout(tmp_settings, isolated_db) -> None:
         assert isinstance(fanout, FinishHookFanout), (
             "lifespan 没有设置 app.state.finish_hooks"
         )
-        assert fanout.names == ("upgrade_plans", "ticket_threads")
+        assert fanout.names == ("upgrade_plans", "triggers")
 
 
 def test_lifespan_wires_m70_orchestrator_and_worker_services(
@@ -113,8 +113,36 @@ def test_lifespan_wires_m70_orchestrator_and_worker_services(
         assert app.state.ticket_service._orchestrator_resolver is not None
         assert app.state.finish_hooks.names == (
             "upgrade_plans",
-            "ticket_threads",
+            "triggers",
         )
+
+
+def test_lifespan_wires_trigger_services(tmp_settings, isolated_db) -> None:
+    """M81：规则/事件/发布器三件套挂到 ``app.state``，并绑定诊断适配器。"""
+
+    from maa_api.agent.events.bus import TriggerService
+    from maa_api.agent.events.rules import TriggerRuleService
+    from maa_api.agent.events.wiring import PipelineEventPublisher
+
+    app = create_app()
+    with _lifespan(app):
+        rule_service = getattr(app.state, "trigger_rule_service", None)
+        service = getattr(app.state, "trigger_service", None)
+        publisher = getattr(app.state, "pipeline_event_publisher", None)
+        assert isinstance(rule_service, TriggerRuleService), (
+            "lifespan 没有设置 app.state.trigger_rule_service"
+        )
+        assert isinstance(service, TriggerService), (
+            "lifespan 没有设置 app.state.trigger_service"
+        )
+        assert isinstance(publisher, PipelineEventPublisher), (
+            "lifespan 没有设置 app.state.pipeline_event_publisher"
+        )
+        assert service._rules is rule_service
+        incident = app.state.agent_incident_service
+        assert incident._trigger_service is service
+        assert incident._publisher is publisher
+        assert incident.boot_id == app.state.boot_id
 
 
 def _lifespan(app):

@@ -34,7 +34,7 @@ from tests.fakes.lifespan import (
 
 TOKEN = "m73-orchestrator-smoke-token"
 TEMP_PREFIX = "maa-api-orchestrator-smoke-"
-FAILED_PIPELINE_ID = "m73-smoke-failed-pipeline"
+FAILED_PIPELINE_ID = "77777777-7777-4777-8777-777777777777"
 
 #: M67 自动能力探查的固定请求文本（与 ``maa_api/agent/llm/profiles.py`` 一致）。
 _JSON_SCHEMA_PROBE_PROMPT = "Return a JSON object with ok set to true."
@@ -598,7 +598,7 @@ def run(*, keep_temp: bool = False) -> None:
         )
         print("[ok] diagnose")
 
-        # 5. 同一 pipeline 再失败：不新建工单，只在 Worker 收件箱追加一条。
+        # 5. 同一 pipeline 再失败：事件按 dedupe_key 去重，工单与收件箱都不变。
         before_tickets = _diagnose_total(client, headers)
         before_inbox = int(
             client.portal.call(_inbox_count, incident_service, diagnose_worker_session)
@@ -619,8 +619,8 @@ def run(*, keep_temp: bool = False) -> None:
             f"诊断工单数变化：{before_tickets} → {after_tickets}",
         )
         _require(
-            after_inbox == before_inbox + 1,
-            f"Worker 收件箱应只多一条：{before_inbox} → {after_inbox}",
+            after_inbox == before_inbox,
+            f"同一流水线重复失败不应再追加收件箱：{before_inbox} → {after_inbox}",
         )
         print("[ok] dedupe")
 

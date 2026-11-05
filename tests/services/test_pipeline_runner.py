@@ -17,6 +17,10 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
+from maa_api.agent.events.bus import TriggerService
+from maa_api.agent.events.evaluator import EvalOutcome
+from maa_api.agent.events.rules import TriggerRuleService
+from maa_api.agent.events.wiring import PipelineEventPublisher
 from maa_api.agent.incidents import AgentIncidentService
 from maa_api.agent.lease import ClaimGate
 from maa_api.agent.specs.registry import AgentSpecRegistry
@@ -30,6 +34,7 @@ from maa_api.db import session as db_session
 from maa_api.db.models import (
     AgentInbox,
     AgentSession,
+    AgentTrigger,
     Pipeline,
     ResourceAsset,
     Task,
@@ -47,6 +52,7 @@ from maa_api.domain.enums import (
     ResourceAssetKind,
     ScreenshotTrigger,
     TaskStatus,
+    TriggerEvalStatus,
 )
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services import pipeline_runner as pipeline_runner_module
@@ -180,8 +186,20 @@ class _TicketTitler:
         return "自动标题"
 
 
+class _NoEval:
+    """两条诊断规则不研判；这里只在意外命中研判规则时暴露回归。"""
+
+    async def evaluate(self, trigger, rule):
+        return EvalOutcome(
+            status=TriggerEvalStatus.ACCEPT,
+            decision=None,
+            reason="no_policy",
+            run_id=None,
+        )
+
+
 def _build_incident_service(factory, runner) -> AgentIncidentService:
-    """按生产装配的最小形状构造诊断工单服务（真实工单 / 收件箱 / Worker 会话）。"""
+    """按生产装配的最小形状构造诊断服务（真实事件 / 工单 / 收件箱 / Worker）。"""
     registry = AgentSpecRegistry(build_registry())
     registry.load()
     inbox_service = InboxService(factory)
@@ -212,20 +230,64 @@ def _build_incident_service(factory, runner) -> AgentIncidentService:
     state.worker_service = worker_service
     # 这些用例只验证建单与收件箱，不让诊断 Worker 真跑一轮。
     worker_service.wake = lambda _session_id: None  # type: ignore[method-assign]
-    return AgentIncidentService(
+    ticket_service.bind_worker_service(lambda: state.worker_service)
+
+    def settings_provider():
+        return Settings()
+
+    trigger_rule_service = TriggerRuleService(
+        factory,
+        spec_registry=registry,
+        settings_provider=settings_provider,
+    )
+    trigger_service = TriggerService(
+        factory,
+        app=app,
+        rules=trigger_rule_service,
+        evaluator=_NoEval(),
+        ticket_service=ticket_service,
+        thread_router=thread_router,
+        orchestrator_service=SimpleNamespace(),
+        broadcast=None,
+        settings_provider=settings_provider,
+    )
+    publisher = PipelineEventPublisher(
+        trigger_service, factory, thread_router=thread_router
+    )
+    service = AgentIncidentService(
         factory,
         None,
-        settings_provider=lambda: Settings(),
+        settings_provider=settings_provider,
         pipeline_runner=runner,
         request=SimpleNamespace(app=app),
         boot_id=BOOT_ID,
     )
+    service.bind_trigger_service(trigger_service, publisher)
+    state.agent_incident_service = service
+    state.trigger_service = trigger_service
+    state.pipeline_event_publisher = publisher
+    return service
 
 
 async def _assert_diagnose_ticket(
     factory, incident_key: str, *, brief_contains: tuple[str, ...] = ()
 ) -> Ticket:
-    """断言该事件键只对应一张 diagnose 工单，且委托与任务说明符合 M73 规格。"""
+    """断言事件入表且只对应一张 diagnose 工单（M81 起建单由内置规则完成）。"""
+    dedupe_keys = (incident_key, f"{incident_key}:failed")
+    async with factory() as session:
+        trigger = (
+            (
+                await session.execute(
+                    select(AgentTrigger).where(
+                        AgentTrigger.dedupe_key.in_(dedupe_keys)
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+    assert trigger is not None, incident_key
+    assert str(trigger.kind) in ("pipeline.failed", "core.crashed")
     async with factory() as session:
         result = await session.execute(
             select(Ticket)
@@ -236,9 +298,9 @@ async def _assert_diagnose_ticket(
     assert len(tickets) == 1, [ticket.result for ticket in tickets]
     ticket = tickets[0]
     assert ticket.kind == "diagnose"
-    assert ticket.origin == "system"
-    assert ticket.result is not None
-    assert ticket.result["incident_key"] == incident_key
+    # M81 §4.5.2：来源 pipeline/core 对应 TicketOrigin.TRIGGER。
+    assert ticket.origin == "trigger"
+    assert ticket.source_trigger_id == trigger.id
     async with factory() as session:
         mandate = await MandateRepository(session).get_by_ticket(ticket.id)
         result = await session.execute(
@@ -255,7 +317,8 @@ async def _assert_diagnose_ticket(
         for item in items
         if str(item.kind) == "system" and (item.payload or {}).get("text")
     ]
-    assert texts and texts[0].startswith("自动诊断：")
+    assert texts and texts[0].startswith("事件处理任务：")
+    assert "【诊断上下文】" in texts[0]
     for expected in brief_contains:
         assert any(expected in text for text in texts), (expected, texts)
     return ticket
@@ -274,7 +337,8 @@ async def _seed_copilot(
     external: bool = False,
 ):
     pipeline = Pipeline(
-        id="pipeline-copilot",
+        # 话题键里的 pipeline id 必须是 UUID（03 §15）；M81 的事件直通会解析它。
+        id="55555555-5555-4555-8555-555555555555",
         source=PipelineSource.AGENT,
         priority=Priority.AGENT,
         status=PipelineStatus.RUNNING,
@@ -508,7 +572,7 @@ def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline
     async def scenario() -> None:
         async with factory() as session:
             pipeline = Pipeline(
-                id="pipeline-claimed-crash",
+                id="66666666-6666-4666-8666-666666666666",
                 source=PipelineSource.MANUAL,
                 priority=Priority.MANUAL,
                 status=PipelineStatus.PENDING,
@@ -580,7 +644,7 @@ def test_core_crash_after_claim_before_active_is_coalesced_into_claimed_pipeline
             commit_armed=True,
         )
         claimed, tasks = await runner._claim_next()
-        assert claimed is not None and claimed.id == "pipeline-claimed-crash"
+        assert claimed is not None and claimed.id == "66666666-6666-4666-8666-666666666666"
         assert runner.active_pipeline_id == claimed.id
         assert event_state["claim_result"].session_id is None
         assert event_state["core_result"].session_id is None
@@ -665,7 +729,7 @@ def test_core_crash_staged_during_empty_claim_becomes_idle_incident(
         await _assert_diagnose_ticket(
             factory,
             f"core:default:{BOOT_ID}:1",
-            brief_contains=("MaaCore 崩溃",),
+            brief_contains=("process_exit",),
         )
         await runner.stop()
         asst.stop()
@@ -791,7 +855,7 @@ def test_claim_commit_applied_before_error_uses_pipeline_incident_if_release_fai
         await _assert_diagnose_ticket(
             factory,
             f"pipeline:{pipeline.id}",
-            brief_contains=("错误码: CORE_CRASHED",),
+            brief_contains=("CORE_CRASHED",),
         )
         await runner.stop()
         asst.stop()
