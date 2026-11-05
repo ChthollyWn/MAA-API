@@ -635,3 +635,46 @@ describe('session_rewound refreshes the rewound session messages', () => {
     })
   })
 })
+
+describe('observation_created refreshes observations and trigger rules', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('invalidates the observations prefix and the rule list', () => {
+    vi.useFakeTimers()
+    const queryClient = new QueryClient()
+    const spy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    handleServerEvent(
+      {
+        type: 'agent_event',
+        data: {
+          session_id: null,
+          event: 'observation_created',
+          payload: {
+            observation_id: 12,
+            trigger_id: 345,
+            rule_id: 'sanity-full',
+            summary: '理智估计已满（135/135）',
+            created_at: '2026-11-20T01:00:00Z',
+          },
+        },
+      },
+      queryClient,
+    )
+    vi.advanceTimersByTime(300)
+
+    // M81 §4.6：待审阅与已审阅两份观察记录缓存都在这个前缀下，规则统计也要重取。
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.observationsAll(),
+      refetchType: 'active',
+    })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: keys.agent.triggerRules(),
+      refetchType: 'active',
+    })
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: keys.agent.all(), refetchType: 'active' })
+  })
+})

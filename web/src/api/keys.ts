@@ -95,6 +95,16 @@ export const keys = {
     /** @ 提及的干员候选；query 进 key，防抖后的不同查询各有一份缓存。 */
     mentionCandidates: (type: string, query: string) =>
       [...root, 'agent', 'mentions', type, query] as const,
+    /** 事件规则（M81 §4.6）：内置规则、覆盖与用户规则合成后的列表。 */
+    triggerRules: () => [...root, 'agent', 'trigger-rules'] as const,
+    /** 观察记录列表；带 `reviewed` 筛选，`observation_created` 走下面的整片前缀。 */
+    observations: (f?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'observations', f ?? {}] as const,
+    /** 观察记录的整片前缀：广播载荷不带 `reviewed`，一次失效待审阅与已审阅两份缓存。 */
+    observationsAll: () => [...root, 'agent', 'observations'] as const,
+    /** 事件记录列表；过滤条件进 key。 */
+    triggers: (f?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'triggers', f ?? {}] as const,
     orchestrator: {
       all: () => [...root, 'agent', 'orchestrator'] as const,
       state: () => [...root, 'agent', 'orchestrator', 'state'] as const,
