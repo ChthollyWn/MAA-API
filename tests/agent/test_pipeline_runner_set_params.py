@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
+from maa_api.agent.spend import SpendGuard
 from maa_api.core.registry import CoreRegistry, DEFAULT_CORE_ID
-from maa_api.db.models import Pipeline, Task
+from maa_api.db.models import Pipeline, SpendLedger, Task
 from maa_api.db.repositories.pipeline import TaskRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import PipelineSource, PipelineStatus, Priority, TaskStatus
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.pipeline_runner import PipelineRunner, _ActivePipeline, _Attempt
+from maa_api.settings import Settings, SpendSettings
 
 
 async def _create_schema(engine) -> None:
@@ -285,5 +289,172 @@ def test_task_repository_does_not_change_completed_task_params(runner_env) -> No
 
         assert changed is False
         assert stored.params == {"stage": "1-7", "times": 5}
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# M84 §4.5.6：运行中改参的消耗预留
+# ---------------------------------------------------------------------------
+#: 北京 2026-11-05 20:00（naive UTC），消耗日 2026-11-05。
+NOW = datetime(2026, 11, 5, 12, 0)
+
+
+class _SpendLimits:
+    def __init__(self, *, medicine: int = -1) -> None:
+        self.medicine = medicine
+
+    def __call__(self) -> Settings:
+        return Settings(
+            spend=SpendSettings(daily_medicine_limit=self.medicine)
+        )
+
+
+def _bind_spend_guard(
+    runner: PipelineRunner,
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    medicine: int,
+) -> SpendGuard:
+    guard = SpendGuard(
+        factory,
+        settings_provider=_SpendLimits(medicine=medicine),
+        clock=lambda: NOW,
+    )
+    runner.bind_spend_guard(guard)
+    return guard
+
+
+async def _seed_medicine_ledger(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    pipeline_id: str,
+    task_id: str | None,
+    planned: int,
+    source: PipelineSource = PipelineSource.AGENT,
+) -> None:
+    async with factory() as session:
+        session.add(
+            SpendLedger(
+                pipeline_id=pipeline_id,
+                task_id=task_id,
+                kind="medicine",
+                planned=planned,
+                source=source.value,
+                created_at=NOW,
+            )
+        )
+        await session.commit()
+
+
+async def _medicine_ledger_rows(
+    factory: async_sessionmaker[AsyncSession],
+) -> list[SpendLedger]:
+    async with factory() as session:
+        return list(
+            (
+                await session.execute(
+                    select(SpendLedger).order_by(SpendLedger.id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+
+def test_agent_patch_over_cap_is_rejected_before_core(runner_env) -> None:
+    runner, factory, core = runner_env
+
+    async def scenario() -> None:
+        pipeline_id, task_id = await _seed_task(factory)
+        _activate_current_task(runner, pipeline_id, task_id)
+        _bind_spend_guard(runner, factory, medicine=5)
+        # 本任务原先计划 2 瓶；别处（manual）今天已用 3 瓶。2 → 5 的差额 3，
+        # 已计 5 + 3 > 上限 5，拦下。
+        await _seed_medicine_ledger(
+            factory, pipeline_id=pipeline_id, task_id=task_id, planned=2
+        )
+        await _seed_medicine_ledger(
+            factory,
+            pipeline_id=pipeline_id,
+            task_id=None,
+            planned=3,
+            source=PipelineSource.MANUAL,
+        )
+
+        with pytest.raises(AppError) as exc_info:
+            await runner.set_task_params(
+                task_id, {"medicine": 5}, spend_source=PipelineSource.AGENT
+            )
+
+        assert exc_info.value.code is ErrorCode.SPEND_CAP_EXCEEDED
+        assert exc_info.value.details["requested"] == 3
+        assert core.calls == []
+        rows = await _medicine_ledger_rows(factory)
+        assert [(row.task_id, row.planned) for row in rows] == [
+            (task_id, 2),
+            (None, 3),
+        ]
+        async with factory() as session:
+            stored = await session.get(Task, task_id)
+            assert stored.params == {"stage": "1-7", "times": 5}
+
+    asyncio.run(scenario())
+
+
+def test_core_rejection_rolls_back_the_reserved_patch(runner_env) -> None:
+    """守卫已按差额改账本并 flush；内核拒绝时随会话回滚（spec §4.2）。"""
+
+    runner, factory, core = runner_env
+    core.accept = False
+
+    async def scenario() -> None:
+        pipeline_id, task_id = await _seed_task(factory)
+        _activate_current_task(runner, pipeline_id, task_id)
+        _bind_spend_guard(runner, factory, medicine=999)
+        await _seed_medicine_ledger(
+            factory, pipeline_id=pipeline_id, task_id=task_id, planned=2
+        )
+
+        with pytest.raises(AppError) as exc_info:
+            await runner.set_task_params(
+                task_id, {"medicine": 5}, spend_source=PipelineSource.AGENT
+            )
+
+        assert exc_info.value.code is ErrorCode.CORE_COMMAND_FAILED
+        assert core.calls == [(42, {"medicine": 5})]
+        rows = await _medicine_ledger_rows(factory)
+        assert [(row.task_id, row.planned) for row in rows] == [(task_id, 2)]
+
+    asyncio.run(scenario())
+
+
+def test_manual_patch_over_cap_is_allowed_and_updates_ledger(runner_env) -> None:
+    """R1：manual 来源不受限，但预留照常把账本改到新的计划量。"""
+
+    runner, factory, core = runner_env
+
+    async def scenario() -> None:
+        pipeline_id, task_id = await _seed_task(factory)
+        _activate_current_task(runner, pipeline_id, task_id)
+        _bind_spend_guard(runner, factory, medicine=0)
+        await _seed_medicine_ledger(
+            factory,
+            pipeline_id=pipeline_id,
+            task_id=task_id,
+            planned=2,
+            source=PipelineSource.MANUAL,
+        )
+
+        updated = await runner.set_task_params(
+            task_id, {"medicine": 5}, spend_source=PipelineSource.MANUAL
+        )
+
+        assert core.calls == [(42, {"medicine": 5})]
+        assert updated.params["medicine"] == 5
+        rows = await _medicine_ledger_rows(factory)
+        assert [(row.task_id, row.planned, row.source) for row in rows] == [
+            (task_id, 5, PipelineSource.MANUAL.value)
+        ]
 
     asyncio.run(scenario())

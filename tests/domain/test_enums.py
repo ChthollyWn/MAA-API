@@ -408,6 +408,11 @@ EXPECTED_VALUES = {
         "FAILED": "failed",
         "SKIPPED": "skipped",
     },
+    "SpendKind": {
+        "MEDICINE": "medicine",
+        "STONE": "stone",
+        "EXPEDITE": "expedite",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。

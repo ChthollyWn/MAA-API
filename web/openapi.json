@@ -1385,6 +1385,25 @@
         "title": "AwardInput",
         "type": "object"
       },
+      "BriefRunResult": {
+        "description": "``POST /api/agent/brief/run`` 的响应体（§4.3、§4.5.9）。",
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "artifact_id"
+        ],
+        "title": "BriefRunResult",
+        "type": "object"
+      },
       "CacheClearResponse": {
         "additionalProperties": false,
         "description": "清空缓存的结果。",
@@ -10366,6 +10385,197 @@
         "title": "SpecSummary",
         "type": "object"
       },
+      "SpendBlock": {
+        "description": "今天被上限拦下的一次提交（§4.3）；``at`` 为 ISO 8601 带 ``Z``。",
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "medicine",
+              "stone",
+              "expedite"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "requested": {
+            "title": "Requested",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "agent",
+              "scheduled"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at",
+          "source",
+          "kind",
+          "requested",
+          "used",
+          "limit",
+          "ref"
+        ],
+        "title": "SpendBlock",
+        "type": "object"
+      },
+      "SpendDayRow": {
+        "description": "某一消耗日的三种资源用量（§4.3）；日期为 ``YYYY-MM-DD``。",
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "expedite": {
+            "title": "Expedite",
+            "type": "integer"
+          },
+          "medicine": {
+            "title": "Medicine",
+            "type": "integer"
+          },
+          "stone": {
+            "title": "Stone",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "medicine",
+          "stone",
+          "expedite"
+        ],
+        "title": "SpendDayRow",
+        "type": "object"
+      },
+      "SpendKindUsage": {
+        "description": "今日一种资源的用量与上限（§4.3）；``limit=-1`` 时 ``remaining`` 为 null。",
+        "properties": {
+          "kind": {
+            "enum": [
+              "medicine",
+              "stone",
+              "expedite"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "used",
+          "limit",
+          "remaining"
+        ],
+        "title": "SpendKindUsage",
+        "type": "object"
+      },
+      "SpendSummary": {
+        "description": "``GET /api/agent/spend`` 的响应体（§4.3）。",
+        "properties": {
+          "blocked_today": {
+            "items": {
+              "$ref": "#/components/schemas/SpendBlock"
+            },
+            "title": "Blocked Today",
+            "type": "array"
+          },
+          "capped_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capped Sources",
+            "type": "array"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "day_end": {
+            "title": "Day End",
+            "type": "string"
+          },
+          "day_start": {
+            "title": "Day Start",
+            "type": "string"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/SpendDayRow"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "today": {
+            "items": {
+              "$ref": "#/components/schemas/SpendKindUsage"
+            },
+            "title": "Today",
+            "type": "array"
+          }
+        },
+        "required": [
+          "date",
+          "day_start",
+          "day_end",
+          "today",
+          "days",
+          "blocked_today",
+          "capped_sources"
+        ],
+        "title": "SpendSummary",
+        "type": "object"
+      },
       "StartUpInput": {
         "additionalProperties": false,
         "description": "开始唤醒：启动客户端并进入游戏。",
@@ -13082,6 +13292,65 @@
           }
         },
         "summary": "读取单条 Agent 工具审计",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/brief/run": {
+      "post": {
+        "description": "建一份简报产物与 analyst 工单并返回两个 id（202，不受一天一张限制）。",
+        "operationId": "agent_run_brief",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefRunResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "立即生成每日简报",
         "tags": [
           "agent"
         ]
@@ -18275,6 +18544,110 @@
         ]
       }
     },
+    "/api/agent/spend": {
+      "get": {
+        "description": "今日三项用量、``since`` 起按日用量、今天拦下的提交与受限来源。",
+        "operationId": "agent_summarize_spend",
+        "parameters": [
+          {
+            "description": "起始消耗日（YYYY-MM-DD），缺省今天往前 6 天；含今天最多 90 天",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "起始消耗日（YYYY-MM-DD），缺省今天往前 6 天；含今天最多 90 天",
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取消耗汇总",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/agent/tickets": {
       "get": {
         "operationId": "agent_list_tickets",
@@ -19404,7 +19777,7 @@
                 }
               }
             },
-            "description": "身份有效但动作被拒绝：CONFIRMATION_REJECTED"
+            "description": "身份有效但动作被拒绝：CONFIRMATION_REJECTED、SPEND_CAP_EXCEEDED"
           },
           "404": {
             "content": {

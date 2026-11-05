@@ -495,13 +495,15 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "injection_guard",
         "loop_guard",
         "mandate",
+        # M84：消耗预检在委托上限之后、设备租约之前（第 15 位）。
+        "spend",
         "lease",
         "clarification",
         "report",
         "policy",
     )
     # 子代理没有 durable、压缩、计划（plan 只给 Worker）与 report（18 号只给
-    # Worker），但清理（8 号）与 14/16 号都在；spill 挂上但因定义里没有
+    # Worker），但清理（8 号）、14/15/16 号都在；spill 挂上但因定义里没有
     # read_artifact 而不外置。
     assert runtime.build_chain("subagent").names == (
         "trace",
@@ -511,10 +513,11 @@ def test_v3_chain_puts_worker_middlewares_at_14_16_18_and_not_in_orchestrator() 
         "injection_guard",
         "loop_guard",
         "mandate",
+        "spend",
         "lease",
         "policy",
     )
-    # 总控链里没有 Worker 的三个（14/16/18），但 6/7/8 号都在。
+    # 总控链里没有 Worker 的四个（14/15/16/18），但 6/7/8 号都在。
     assert runtime.build_chain("orchestrator").names == (
         "trace",
         "context_layout",

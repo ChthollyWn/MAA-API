@@ -542,9 +542,13 @@ class ErrorCode(StrEnum):
     # 没有这条值守告警
     WATCHDOG_ALERT_NOT_FOUND = "WATCHDOG_ALERT_NOT_FOUND"
 
+    # ---- M84 每日简报与消耗护栏 ----
+    # 超过今日消耗上限
+    SPEND_CAP_EXCEEDED = "SPEND_CAP_EXCEEDED"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 162 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 163 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -729,6 +733,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.GOAL_ENDED: 409,
     # M83 值守：解除一条不存在的告警是 404。
     ErrorCode.WATCHDOG_ALERT_NOT_FOUND: 404,
+    # M84 消耗护栏：代理/定时任务超过当日上限是「你不许继续」，用 403
+    # （与 MANDATE_SCOPE_EXCEEDED 同口径）。
+    ErrorCode.SPEND_CAP_EXCEEDED: 403,
 }
 
 

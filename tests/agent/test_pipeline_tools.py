@@ -325,9 +325,12 @@ def test_stop_pipeline_targets_the_current_running_pipeline(monkeypatch) -> None
 
 def test_set_task_params_delegates_to_the_runner_and_returns_updated_params() -> None:
     class Runner:
-        async def set_task_params(self, task_id: str, params: dict):
+        async def set_task_params(
+            self, task_id: str, params: dict, *, spend_source: PipelineSource
+        ):
             assert task_id == "task-1"
             assert params == {"times": 7}
+            assert spend_source is PipelineSource.AGENT
             return Task(
                 id=task_id,
                 pipeline_id="pipeline-1",

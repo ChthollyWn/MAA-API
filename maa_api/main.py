@@ -78,6 +78,7 @@ from maa_api.api.routers import (
     skland,
     skills,
     sources,
+    spend,
     system,
     tasks,
     tickets,
@@ -503,6 +504,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     trigger_service = None
     goal_service = None
     watchdog_service = None
+    spend_guard = None
+    brief_service = None
     pipeline_event_publisher = None
     span_recorder = None
     worker_service = None
@@ -773,6 +776,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.device_manager = device_manager
         app.state.pipeline_runner = pipeline_runner
         app.state.queue_service = queue_service
+        # M84 §4.5.6：消耗护栏在队列与执行器之后装配，绑定到两条受限入口（agent /
+        # scheduled）；未绑定时两条路径保持 v2 行为。守卫自己持锁，永远是最内层。
+        from maa_api.agent.spend import SpendGuard
+
+        spend_guard = SpendGuard(db_session.session_factory)
+        # 测试与替身可能替换队列/执行器实现；绑定是可选的扩展点，不要求每个实现都有。
+        for bindable in (queue_service, pipeline_runner):
+            bind_guard = getattr(bindable, "bind_spend_guard", None)
+            if callable(bind_guard):
+                bind_guard(spend_guard)
+        app.state.spend_guard = spend_guard
         # M83 值守记录器：内核 CALLBACK 与流水线生命周期的进程内时间戳。装配在这里
         # （内核消费者启动之前）完成绑定，记录器本身不落库、不阻塞回调线程。
         from maa_api.agent.watchdog.recorder import WatchdogRecorder
@@ -1831,6 +1845,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await update_service.daily_check()
 
         update_scheduler = AsyncIOScheduler()
+        # M84 §4.5.9：简报服务只依赖 app、会话工厂与「有没有可见页面」；产物与
+        # 工单服务在调用时再经 app.state 取。周期 job 在 start() 之前注册。
+        from maa_api.agent.brief.service import BriefService
+
+        brief_service = BriefService(
+            app,
+            session_factory=db_session.session_factory,
+            has_visible_client=ws_manager.has_visible_client,
+        )
+        app.state.brief_service = brief_service
         update_scheduler.add_job(
             check_updates_at_configured_hour,
             CronTrigger(minute=0),
@@ -1906,8 +1930,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 coalesce=True,
             )
 
+        # M84 §4.5.9：cron 解析失败只记 error、不拦启动；job 与其它周期任务共用
+        # 这个调度器，替换已有注册以兼容 create_app() 的重复调用。
+        brief_service.attach_scheduler(update_scheduler)
         update_scheduler.start()
         app.state.update_scheduler = update_scheduler
+        # M84 §4.5.9：调度器起来后恢复上次遗留的 pending 简报并开始 30 秒巡检。
+        await brief_service.start()
 
         # M83 §4.5：job 每 60 秒触发；任务内部按 watchdog.interval_seconds 自闸，
         # 所以改间隔不用重启。异常只记日志，下一轮重试。
@@ -2012,6 +2041,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M83 §4.5：值守服务在调度器 shutdown 之前收尾，避免关闭后再起一轮。
         if watchdog_service is not None:
             await watchdog_service.close()
+        # M84 §4.5.9：简报巡检任务同样在调度器 shutdown 之前停。
+        if brief_service is not None:
+            await brief_service.stop()
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -2078,6 +2110,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "trigger_service",
             "goal_service",
             "watchdog_service",
+            "spend_guard",
+            "brief_service",
             "ticket_push_notifier",
             "pipeline_event_publisher",
             "agent_ops_service",
@@ -2142,6 +2176,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # M83 §4.5：值守服务在调度器 shutdown 之前收尾，避免关闭后再起一轮。
         if watchdog_service is not None:
             await watchdog_service.close()
+        # M84 §4.5.9：简报巡检任务同样在调度器 shutdown 之前停。
+        if brief_service is not None:
+            await brief_service.stop()
         if update_scheduler is not None and update_scheduler.running:
             update_scheduler.shutdown(wait=False)
         if update_service is not None:
@@ -2216,6 +2253,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "trigger_service",
             "goal_service",
             "watchdog_service",
+            "spend_guard",
+            "brief_service",
             "ticket_push_notifier",
             "pipeline_event_publisher",
             "agent_ops_service",
@@ -2316,6 +2355,7 @@ def create_app() -> FastAPI:
     app.include_router(triggers.router)
     app.include_router(goals.router)
     app.include_router(watchdog.router)
+    app.include_router(spend.router)
     app.include_router(rewind.router)
     app.include_router(device_lease.router)
     app.include_router(ws_router)

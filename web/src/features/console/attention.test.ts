@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { AgentQuestion } from '@/features/agent/types'
 import type { Confirmation } from '@/features/confirmations/ConfirmationsPanel'
 import type { MemoryItem } from '@/features/memory/api'
+import type { SpendSummary } from '@/features/spend/api'
 import type { AlertOut } from '@/features/watchdog/api'
-import { buildAttentionItems, originLabel } from './attention'
+import { buildAttentionItems, originLabel, spendAttentionText, type AttentionItem } from './attention'
 import { toTicketView } from './api'
 import { makeConfirmation, makeMemory, makeQuestion, makeTicket, makeWatchdogAlert } from './test-utils'
 
@@ -23,6 +24,30 @@ function ticket(overrides: Record<string, unknown> = {}) {
 
 function origin(ticketId: string) {
   return { ticket_id: ticketId, ticket_title: '日常', agent: 'general', run_id: 'run-1' }
+}
+
+/** 消耗汇总（M84 §4.6）：默认用量都在阈值以下，测试按需覆盖。 */
+function spendSummary(overrides: Partial<SpendSummary> = {}): SpendSummary {
+  return {
+    date: '2026-11-05',
+    day_start: '2026-11-04T20:00:00Z',
+    day_end: '2026-11-05T20:00:00Z',
+    today: [
+      { kind: 'medicine', label: '理智药', used: 1, limit: 5, remaining: 4 },
+      { kind: 'stone', label: '源石', used: 0, limit: -1, remaining: null },
+      { kind: 'expedite', label: '加急许可', used: 0, limit: 0, remaining: 0 },
+    ],
+    days: [],
+    blocked_today: [],
+    capped_sources: ['agent', 'scheduled'],
+    ...overrides,
+  }
+}
+
+type SpendItem = Extract<AttentionItem, { kind: 'spend' }>
+
+function spendEntry(items: AttentionItem[]): SpendItem | undefined {
+  return items.find((item): item is SpendItem => item.kind === 'spend')
 }
 
 describe('M72 待你处理', () => {
@@ -169,6 +194,77 @@ describe('M72 待你处理', () => {
     expect(items.map((item) => item.kind)).toEqual(['alert', 'alert', 'ticket'])
     expect(items.filter((item) => item.kind === 'alert').map((item) => item.id))
       .toEqual(['8', '7'])
+  })
+
+  it('adds a spend entry after every existing source, preferring the blocked copy', () => {
+    const items = buildAttentionItems({
+      confirmations: [confirmation({ confirmation_id: 'confirm-1' })],
+      questions: [question({ question_id: 'q-1' })],
+      tickets: [ticket({ id: 't-blocked', status: 'blocked' }), ticket({ id: 't-waiting', status: 'waiting' })],
+      spend: spendSummary({
+        blocked_today: [
+          { at: '2026-11-05T12:00:00Z', source: 'scheduled', kind: 'medicine', requested: 3, used: 4, limit: 5, ref: null },
+          { at: '2026-11-05T11:00:00Z', source: 'agent', kind: 'expedite', requested: 2, used: 1, limit: 1, ref: 'tool:submit_pipeline' },
+        ],
+      }),
+    })
+
+    expect(items.map((item) => item.kind)).toEqual(['confirmation', 'question', 'ticket', 'ticket', 'spend'])
+    const entry = spendEntry(items)
+    expect(entry).toMatchObject({ kind: 'spend', id: 'spend-today', attention: { kind: 'blocked', count: 2 } })
+    expect(entry && spendAttentionText(entry.attention)).toBe('今天有 2 次提交被消耗上限拦下')
+  })
+
+  it('enters on the highest usage ratio when nothing was blocked', () => {
+    const items = buildAttentionItems({
+      confirmations: [],
+      questions: [],
+      tickets: [],
+      spend: spendSummary({
+        today: [
+          { kind: 'medicine', label: '理智药', used: 4, limit: 5, remaining: 1 },
+          { kind: 'stone', label: '源石', used: 3, limit: 3, remaining: 0 },
+          { kind: 'expedite', label: '加急许可', used: 1, limit: 10, remaining: 9 },
+        ],
+      }),
+    })
+
+    const entry = spendEntry(items)
+    expect(entry).toMatchObject({ kind: 'spend', attention: { kind: 'usage', usage: { kind: 'stone' } } })
+    expect(entry && spendAttentionText(entry.attention)).toBe('源石今天已用 3 / 3')
+
+    const medicine = buildAttentionItems({
+      confirmations: [],
+      questions: [],
+      tickets: [],
+      spend: spendSummary({
+        today: [
+          { kind: 'medicine', label: '理智药', used: 4, limit: 5, remaining: 1 },
+          { kind: 'stone', label: '源石', used: 0, limit: -1, remaining: null },
+          { kind: 'expedite', label: '加急许可', used: 0, limit: 0, remaining: 0 },
+        ],
+      }),
+    })
+    const medicineEntry = spendEntry(medicine)
+    expect(medicineEntry && spendAttentionText(medicineEntry.attention)).toBe('理智药今天已用 4 / 5')
+  })
+
+  it('ignores spend below the ratio and unlimited kinds', () => {
+    const below = buildAttentionItems({
+      confirmations: [],
+      questions: [],
+      tickets: [],
+      // 3 / 5 = 60%，低于八成阈值；不限与 0 上限都不参与判定。
+      spend: spendSummary({
+        today: [
+          { kind: 'medicine', label: '理智药', used: 3, limit: 5, remaining: 2 },
+          { kind: 'stone', label: '源石', used: 999, limit: -1, remaining: null },
+          { kind: 'expedite', label: '加急许可', used: 0, limit: 0, remaining: 0 },
+        ],
+      }),
+    })
+    expect(spendEntry(below)).toBeUndefined()
+    expect(buildAttentionItems({ confirmations: [], questions: [], tickets: [] })).toHaveLength(0)
   })
 
   it('labels the origin of a card', () => {

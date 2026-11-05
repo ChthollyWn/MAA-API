@@ -102,6 +102,19 @@ watchdog:
   # 流水线无回调判定（分钟，2-120）
   device_frozen_minutes: 10
 
+# 每日简报：到点建一张分析工单，结果落成报告产物并推送；cron 按北京时间，改完重启生效
+brief:
+  enabled: true
+  cron: "0 8 * * *"
+  push_web: true
+  push_im: true
+
+# 消耗上限（北京时间 04:00 分日）：-1 不限，0 禁止；只拦代理与定时任务，手动提交计入用量但不拦
+spend:
+  daily_medicine_limit: -1
+  daily_stone_limit: -1
+  daily_expedite_limit: -1
+
 # 提示注入防护：off 只打标不检测，rules 用规则检测，rules_llm 在规则命中或内容出自他人时再请便宜模型复核
 guard:
   injection_detection: rules

@@ -9,6 +9,7 @@ import { useAuth } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { ModelsSection } from '@/features/models/ModelsSection'
 import { AgentCapabilityCheck } from './AgentCapabilityCheck'
+import { BriefControl } from './BriefControl'
 import { KnowledgePartition } from './knowledge/KnowledgePartition'
 import { AccessSection, AppearanceSection, themeLabel } from './LocalSections'
 import { NotificationChannels } from './NotificationChannels'
@@ -83,7 +84,18 @@ function SectionPage({ section }: { section: SettingsSection }) {
         </Page>
       )
     case 'agent':
-      return <SchemaSection section={section} intro={<AgentCapabilityCheck />} />
+      // 模型能力检查之后是「每日简报」入口（M84 §4.6），字段仍由 schema 驱动。
+      return (
+        <SchemaSection
+          section={section}
+          intro={(
+            <div className="space-y-8">
+              <AgentCapabilityCheck />
+              <BriefControl />
+            </div>
+          )}
+        />
+      )
     case 'models':
       return (
         <Page title={section.title} back={SETTINGS_INDEX_PATH} width="narrow">

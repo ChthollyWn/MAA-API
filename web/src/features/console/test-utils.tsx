@@ -90,6 +90,8 @@ export interface ConsoleApiState {
   memories: Json[]
   /** 值守告警（M83）：待你处理只读未解除的 critical 那一段。 */
   watchdogAlerts: Json[]
+  /** 消耗汇总（M84）：待你处理按拦截与用量阈值判定。 */
+  spend: Json
 }
 
 export interface OverrideContext {
@@ -132,6 +134,8 @@ export interface ConsoleApiOptions {
   memories?: Json[]
   /** 值守告警（M83）；默认未解除，待你处理按 `severity=critical` 再过滤。 */
   watchdogAlerts?: Json[]
+  /** 消耗汇总（M84）；缺省没有拦截、用量也在阈值以下。 */
+  spend?: Json
   /** 返回 Promise 时，计划批准/退回要等它完成才响应（锁「请求中禁用」）。 */
   holdPlanApproval?: () => Promise<void> | undefined
   knowledge?: Json[]
@@ -183,6 +187,19 @@ function makeState(options: ConsoleApiOptions): ConsoleApiState {
     artifactDetails: { ...(options.artifactDetails ?? {}) },
     memories: options.memories ?? [],
     watchdogAlerts: options.watchdogAlerts ?? [],
+    spend: options.spend ?? {
+      date: '2026-11-05',
+      day_start: '2026-11-04T20:00:00Z',
+      day_end: '2026-11-05T20:00:00Z',
+      today: [
+        { kind: 'medicine', label: '理智药', used: 0, limit: 5, remaining: 5 },
+        { kind: 'stone', label: '源石', used: 0, limit: -1, remaining: null },
+        { kind: 'expedite', label: '加急许可', used: 0, limit: 0, remaining: 0 },
+      ],
+      days: [],
+      blocked_today: [],
+      capped_sources: ['agent', 'scheduled'],
+    },
   }
 }
 
@@ -397,6 +414,10 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
         .filter((alert) => (resolved ? alert.resolved_at != null : alert.resolved_at == null))
         .filter((alert) => !severity || alert.severity === severity)
       return pageOf(items, page, size)
+    }
+
+    if (url.pathname === '/api/agent/spend' && request.method === 'GET') {
+      return json(state.spend)
     }
 
     const watchdogAlertMatch = /^\/api\/agent\/watchdog\/alerts\/(\d+)\/resolve$/.exec(url.pathname)

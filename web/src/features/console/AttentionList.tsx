@@ -12,7 +12,7 @@ import { ConfirmationCard } from '@/features/agent/ConfirmationCard'
 import { QuestionCard } from '@/features/agent/QuestionCard'
 import { ErrorAlert } from '@/features/agent/StatusAlerts'
 import { TICKET_STATUS_LABELS } from './api'
-import { originLabel } from './attention'
+import { originLabel, spendAttentionText } from './attention'
 import type { AttentionState } from './use-attention'
 
 export interface AttentionListProps {
@@ -129,6 +129,23 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
                     标记已处理
                   </Button>
                 </div>
+              </li>
+            )
+          }
+          if (item.kind === 'spend') {
+            return (
+              <li key={`spend-${item.id}`} data-attention-kind="spend" data-attention-id={item.id}>
+                <Link
+                  to="/more/spend"
+                  className="block rounded-xl border bg-card px-3.5 py-3 shadow-card transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 break-words text-sm font-medium text-foreground">
+                      {spendAttentionText(item.attention)}
+                    </span>
+                    <Badge variant={item.attention.kind === 'blocked' ? 'danger' : 'warning'}>消耗</Badge>
+                  </span>
+                </Link>
               </li>
             )
           }
