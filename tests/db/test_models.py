@@ -96,6 +96,9 @@ BUSINESS_TABLES = {
     "agent_trigger",
     "trigger_rule",
     "trigger_observation",
+    # M82：目标与里程碑（v3 specs/m82 §4.1、docs/v3/03 §11.4）。
+    "goal",
+    "goal_milestone",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -125,6 +128,9 @@ UUID_PK_TABLES = [
     "knowledge_document",
     # M79：记忆 id 对外暴露（审核/更新/删除端点都在路径里）。
     "memory_item",
+    # M82：目标与里程碑 id 都对外暴露（详情页与复盘汇报都按它引用）。
+    "goal",
+    "goal_milestone",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -344,6 +350,9 @@ EXPECTED_INDEXES = {
         ("rule_id", "created_at"),
         False,
     ),
+    # M82：目标列表按状态+更新时间；里程碑按目标与序号取。
+    "ix_goal_status_updated_at": ("goal", ("status", "updated_at"), False),
+    "ix_goal_milestone_goal_id_ord": ("goal_milestone", ("goal_id", "ord"), False),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -401,6 +410,8 @@ EXPECTED_FK_CASCADE = {
     ("knowledge_chunk", "document_id"),
     # M81：事件删了，它的观察记录一起删。
     ("trigger_observation", "trigger_id"),
+    # M82：目标删了，它的里程碑一起删。
+    ("goal_milestone", "goal_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -471,6 +482,10 @@ EXPECTED_FK_SET_NULL = {
     ("agent_trigger", "eval_run_id"),
     ("agent_trigger", "ticket_id"),
     ("ticket", "source_trigger_id"),
+    # M82：规划工单/养成计划被清理时只解除关联；ticket 与 goal 是循环外键。
+    ("goal", "planning_ticket_id"),
+    ("goal", "upgrade_plan_id"),
+    ("ticket", "goal_id"),
 }
 
 EXPECTED_TEXT_COLUMNS = {
@@ -514,6 +529,8 @@ EXPECTED_TEXT_COLUMNS = {
     # M81：事件的不合法原因与规则研判提示长度不定，用 TEXT。
     ("agent_trigger", "eval_reason"),
     ("trigger_rule", "policy"),
+    # M82：目标描述长度不定（目标本身最多 2000 字），用 TEXT。
+    ("goal", "description"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -580,6 +597,11 @@ EXPECTED_JSON_COLUMNS = {
     ("agent_trigger", "payload"),
     ("trigger_rule", "conditions"),
     ("trigger_observation", "decision"),
+    # M82：目标的练度目标与复盘快照、关联的定时任务、里程碑指标。
+    ("goal", "target"),
+    ("goal", "schedule_ids"),
+    ("goal", "progress"),
+    ("goal_milestone", "metrics"),
 }
 
 # FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
@@ -660,8 +682,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_49_business_tables():
-    """49 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_51_business_tables():
+    """51 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
@@ -817,7 +839,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """58 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """60 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:

@@ -120,6 +120,19 @@ class TicketRepository(BaseRepository):
         )
         return result.scalars().first()
 
+    async def list_by_goal(self, goal_id: str, *, limit: int = 20) -> list[Ticket]:
+        """某个目标下的工单，``created_at DESC, id DESC`` 最多 ``limit`` 张（M82 §4.1）。
+
+        目标的详情页只列最近 20 张：目标工单会随复盘累积，翻旧账不是详情页的职责。
+        """
+        result = await self.session.execute(
+            select(Ticket)
+            .where(Ticket.goal_id == goal_id)
+            .order_by(Ticket.created_at.desc(), Ticket.id.desc())
+            .limit(max(int(limit), 1))
+        )
+        return list(result.scalars().all())
+
     async def titles(self, ticket_ids: Iterable[str]) -> dict[str, str]:
         """批量取 ``id → title``；不存在的 id 不出现，空入参返回空 dict。"""
         ids = [str(ticket_id) for ticket_id in ticket_ids]

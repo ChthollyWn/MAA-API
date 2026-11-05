@@ -374,6 +374,21 @@ EXPECTED_VALUES = {
         "OBSERVATION": "observation",
         "NONE": "none",
     },
+    # M82：目标与里程碑的状态（v3 specs/m82 §4.1）。
+    "GoalStatus": {
+        "ACTIVE": "active",
+        "PAUSED": "paused",
+        "DONE": "done",
+        "FAILED": "failed",
+        "CANCELLED": "cancelled",
+    },
+    "MilestoneStatus": {
+        "PENDING": "pending",
+        "ACTIVE": "active",
+        "DONE": "done",
+        "MISSED": "missed",
+        "SKIPPED": "skipped",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。

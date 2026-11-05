@@ -1,4 +1,4 @@
-"""SQLModel 表定义：49 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：51 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -57,8 +57,10 @@ from maa_api.domain.enums import (
     CheckpointStatus,
     ConfirmationStatus,
     DynamicContextPosition,
+    GoalStatus,
     InboxStatus,
     MemoryStatus,
+    MilestoneStatus,
     ModelProfileKind,
     ModelProvider,
     PipelineStatus,
@@ -806,6 +808,11 @@ class Ticket(SQLModel, table=True):
     #: 处理方式与 M69 的 ``agent_session.ticket_id`` ↔ ``ticket.worker_session_id`` 一致。
     source_trigger_id: int | None = Field(
         default=None, foreign_key="agent_trigger.id", ondelete="SET NULL"
+    )
+    #: M82：这张工单为哪个目标服务。与 ``goal.planning_ticket_id`` 构成循环外键，
+    #: 处理方式同上（模型里双向声明，迁移先建 ``goal`` 再 batch 给 ``ticket`` 加列）。
+    goal_id: str | None = Field(
+        default=None, foreign_key="goal.id", ondelete="SET NULL", max_length=36
     )
 
     __table_args__ = (
@@ -2296,3 +2303,86 @@ class TriggerObservation(SQLModel, table=True):
         Index("ix_trigger_observation_rule_id_created_at", "rule_id", "created_at"),
         {"sqlite_autoincrement": True},
     )
+
+
+# ---------------------------------------------------------------------------
+# 5.27 goal / goal_milestone — 长程目标与里程碑（v3 specs/m82 §4.1、docs/v3/03 §11.4）
+# ---------------------------------------------------------------------------
+class Goal(SQLModel, table=True):
+    """长程目标：拆成里程碑，执行靠养成计划与定时任务（docs/v3/08 §5）。"""
+
+    __tablename__ = "goal"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    title: str = Field(max_length=64)
+    description: str | None = Field(default=None, sa_column=text_column("description"))
+    #: 结构化目标：``text`` 为整理过的用户原话，``operators`` 复用练度目标，``run_times`` 给养成计划。
+    target: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("target", nullable=False, server_default="'{}'"),
+    )
+    deadline: datetime | None = Field(
+        default=None, sa_column=datetime_column("deadline", nullable=True)
+    )
+    status: str = Field(default=GoalStatus.ACTIVE, max_length=16)
+    #: 与 ``ticket.goal_id`` 构成循环外键（M82 §4.1，处理方式同 M69、M81）。
+    planning_ticket_id: str | None = Field(
+        default=None, foreign_key="ticket.id", ondelete="SET NULL", max_length=36
+    )
+    upgrade_plan_id: str | None = Field(
+        default=None,
+        foreign_key="upgrade_plan.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    schedule_ids: list[str] = Field(
+        default_factory=list,
+        sa_column=json_column("schedule_ids", nullable=False, server_default="'[]'"),
+    )
+    review_cron: str = Field(default="0 22 * * *", max_length=64)
+    last_review_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("last_review_at", nullable=True)
+    )
+    #: 复盘快照与处理说明（键由 GoalService 定义，表不做约束，见 spec §4.1）。
+    progress: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("progress", nullable=False, server_default="'{}'"),
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+    ended_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("ended_at", nullable=True)
+    )
+
+    __table_args__ = (Index("ix_goal_status_updated_at", "status", "updated_at"),)
+
+
+class GoalMilestone(SQLModel, table=True):
+    """目标的里程碑；``ord`` 从 1 开始，整体替换而不单条增删（spec §4.5.2）。"""
+
+    __tablename__ = "goal_milestone"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    goal_id: str = Field(foreign_key="goal.id", ondelete="CASCADE", max_length=36)
+    ord: int
+    title: str = Field(max_length=120)
+    due_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("due_at", nullable=True)
+    )
+    status: str = Field(default=MilestoneStatus.PENDING, max_length=16)
+    metrics: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("metrics", nullable=False, server_default="'{}'"),
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+    __table_args__ = (Index("ix_goal_milestone_goal_id_ord", "goal_id", "ord"),)

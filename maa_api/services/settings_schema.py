@@ -168,6 +168,9 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "triggers.enabled": dict(label="启用主动工作", group="Agent", type="boolean", hot_action="none"),
     "triggers.default_mode": dict(label="新事件规则的默认档位", group="Agent", type="string", enum=["off", "observe", "auto"], hot_action="none"),
     "triggers.eval_daily_limit": dict(label="每日事件研判次数上限", group="Agent", type="integer", minimum=0, maximum=5000, hot_action="none"),
+    # M82 目标模式：两项都由 GoalService 每次现读，改完立即生效。
+    "goals.enabled": dict(label="启用目标模式", group="Agent", type="boolean", hot_action="none"),
+    "goals.default_review_cron": dict(label="目标默认复盘时间", group="Agent", type="string", description="五段 cron，按北京时间", hot_action="none"),
     # M68 运行追踪：开关与保留天数在设置页可改；导出两项是 config-only，不在这里。
     "trace.enabled": dict(label="记录运行追踪", group="Agent", type="boolean", hot_action="none"),
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),

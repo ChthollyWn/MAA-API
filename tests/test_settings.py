@@ -459,6 +459,9 @@ def test_env_mapping_names_are_pinned() -> None:
         "triggers.enabled": "MAA_TRIGGERS_ENABLED",
         "triggers.default_mode": "MAA_TRIGGERS_DEFAULT_MODE",
         "triggers.eval_daily_limit": "MAA_TRIGGERS_EVAL_DAILY_LIMIT",
+        # M82：目标模式两项（都不是 config-only）。
+        "goals.enabled": "MAA_GOALS_ENABLED",
+        "goals.default_review_cron": "MAA_GOALS_DEFAULT_REVIEW_CRON",
     }
 
 
@@ -1416,6 +1419,60 @@ def test_triggers_settings_have_documented_defaults_and_metadata() -> None:
         "# 主动工作总开关。关掉后事件仍会入表，订阅它的工单照常收到，只是不按规则研判、不主动建工单",
         "# 新建事件规则没写档位时用它：off（关闭）、observe（只记录本来会做什么）、auto（直接建工单）",
         "# 每天最多调用多少次事件研判；用完后只按规则处理，0 表示不研判",
+    ):
+        assert comment in template_text
+
+
+def test_goals_settings_have_documented_defaults_and_metadata() -> None:
+    """M82 目标模式两项：默认值、环境层与设置 API 元数据（spec §4.4）。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, GoalsSettings
+
+    default = resolve_settings(env={})
+    assert default.goals == GoalsSettings()
+    assert default.goals.enabled is True
+    assert default.goals.default_review_cron == "0 22 * * *"
+
+    configured = resolve_settings(
+        {"goals": {"enabled": False, "default_review_cron": "30 7 * * *"}},
+        env={},
+    )
+    assert configured.goals.enabled is False
+    assert configured.goals.default_review_cron == "30 7 * * *"
+
+    env_layer = resolve_settings(
+        env={
+            "MAA_GOALS_ENABLED": "false",
+            "MAA_GOALS_DEFAULT_REVIEW_CRON": "15 21 * * *",
+        }
+    )
+    assert env_layer.goals.enabled is False
+    assert env_layer.goals.default_review_cron == "15 21 * * *"
+
+    # 设置 API：两个键都登记、分组 Agent、不是 config-only。
+    keys = {"goals.enabled", "goals.default_review_cron"}
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+    enabled = schema_for("goals.enabled")
+    assert (
+        enabled["label"], enabled["group"], enabled["type"], enabled["hot_action"],
+    ) == ("启用目标模式", "Agent", "boolean", "none")
+    cron = schema_for("goals.default_review_cron")
+    assert (
+        cron["label"], cron["group"], cron["type"],
+        cron["description"], cron["hot_action"],
+    ) == ("目标默认复盘时间", "Agent", "string", "五段 cron，按北京时间", "none")
+
+    # 文档一致性：模板里的值与注释逐字照 spec §4.4。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    assert template["goals"] == {
+        "enabled": True,
+        "default_review_cron": "0 22 * * *",
+    }
+    for comment in (
+        "# 目标模式开关。关掉后不能新建目标，已有目标停止复盘",
+        "# 新目标的默认复盘时间，五段 cron，按北京时间",
     ):
         assert comment in template_text
 

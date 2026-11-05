@@ -195,7 +195,7 @@ def test_upgrade_adds_tables_and_ticket_column(tmp_path: Path) -> None:
     finally:
         conn.close()
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
 
     conn = _connect(db_path)
     try:
@@ -312,7 +312,7 @@ def test_downgrade_restores_ticket(tmp_path: Path) -> None:
     finally:
         conn.close()
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
 
     conn = _connect(db_path)
     try:
@@ -360,7 +360,7 @@ def test_downgrade_restores_ticket(tmp_path: Path) -> None:
         conn.close()
 
     # 降到底再升级一次：可重放，三张表是空的（没有假装回填历史事件）。
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     conn = _connect(db_path)
     try:
         assert _revision(conn) == HEAD_REVISION

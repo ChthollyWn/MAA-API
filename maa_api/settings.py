@@ -190,6 +190,10 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "triggers.enabled": ("triggers", "enabled"),
     "triggers.default_mode": ("triggers", "default_mode"),
     "triggers.eval_daily_limit": ("triggers", "eval_daily_limit"),
+    # ---- 目标模式（M82 规格 §4.4）：两项都不是 config-only，GoalService
+    # 每次现读，改完立即生效。----
+    "goals.enabled": ("goals", "enabled"),
+    "goals.default_review_cron": ("goals", "default_review_cron"),
     # ---- 运行追踪（M68 规格 §4.4）：开关与保留天数在设置页可改；导出地址与请求头
     # 只从 config.yaml / 环境变量来（列进 CONFIG_ONLY_SETTING_KEYS）。----
     "trace.enabled": ("trace", "enabled"),
@@ -476,6 +480,21 @@ class TriggersSettings(BaseModel):
     enabled: bool = True
     default_mode: Literal["off", "observe", "auto"] = "observe"
     eval_daily_limit: int = Field(default=200, ge=0, le=5000)
+
+
+class GoalsSettings(BaseModel):
+    """目标模式（M82 规格 §4.4）：总开关与新目标的默认复盘时间。
+
+    ``enabled=false`` 时不能新建目标，已有目标停止复盘；``default_review_cron``
+    是新目标没写 ``review_cron`` 时的取值，五段 cron、按北京时间。两项都不是
+    config-only，GoalService 每次现读，改完立即生效；cron 解析不了时 GoalService
+    退回 ``0 22 * * *`` 并记一条 warning。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    default_review_cron: str = "0 22 * * *"
 
 
 class TraceSettings(BaseModel):
@@ -806,6 +825,8 @@ class Settings(BaseModel):
     guard: GuardSettings = Field(default_factory=GuardSettings)
     #: M81 主动工作三项（都不是 config-only，事件处理与规则服务每次现读）。
     triggers: TriggersSettings = Field(default_factory=TriggersSettings)
+    #: M82 目标模式两项（都不是 config-only，GoalService 每次现读）。
+    goals: GoalsSettings = Field(default_factory=GoalsSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

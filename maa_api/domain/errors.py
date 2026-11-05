@@ -531,9 +531,16 @@ class ErrorCode(StrEnum):
     # 没有这条观察记录
     OBSERVATION_NOT_FOUND = "OBSERVATION_NOT_FOUND"
 
+    # ---- M82 目标模式 ----
+    # 没有这个目标
+    GOAL_NOT_FOUND = "GOAL_NOT_FOUND"
+
+    # 目标已结束（done / failed / cancelled），不能再改
+    GOAL_ENDED = "GOAL_ENDED"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 159 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 161 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -713,6 +720,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.TRIGGER_RULE_NOT_FOUND: 404,
     ErrorCode.TRIGGER_RULE_INVALID: 400,
     ErrorCode.OBSERVATION_NOT_FOUND: 404,
+    # M82 目标模式：没有这个目标是 404；目标已结束不能再改是 409。
+    ErrorCode.GOAL_NOT_FOUND: 404,
+    ErrorCode.GOAL_ENDED: 409,
 }
 
 
