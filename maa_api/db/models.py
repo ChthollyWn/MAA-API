@@ -1,4 +1,4 @@
-"""SQLModel 表定义：53 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：56 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -63,6 +63,7 @@ from maa_api.domain.enums import (
     MilestoneStatus,
     ModelProfileKind,
     ModelProvider,
+    OutboxStatus,
     PipelineStatus,
     Priority,
     QuestionStatus,
@@ -2462,5 +2463,116 @@ class SpendLedger(SQLModel, table=True):
 
     __table_args__ = (
         Index("ix_spend_ledger_kind_created_at", "kind", "created_at"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5.30 通道三表：channel_binding / channel_bind_code / outbox
+# （v3 specs/m85 §4.1、docs/v3/03 §11.7）
+# ---------------------------------------------------------------------------
+class ChannelBinding(SQLModel, table=True):
+    """一条 IM 绑定：外部用户与 chat 的组合决定谁能给总控发消息。"""
+
+    __tablename__ = "channel_binding"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    #: ``ChannelPlatform`` 的值：telegram / feishu / dingtalk / qq。
+    platform: str = Field(max_length=16)
+    external_user_id: str = Field(max_length=128)
+    external_chat_id: str = Field(max_length=128)
+    display_name: str | None = Field(default=None, max_length=64)
+    #: 只用 active / revoked 两个字符串，不另造枚举（spec §4.1）。
+    status: str = Field(default="active", max_length=16)
+    bound_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("bound_at")
+    )
+    revoked_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("revoked_at", nullable=True)
+    )
+    last_seen_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("last_seen_at", nullable=True)
+    )
+
+    __table_args__ = (
+        # 唯一索引：同一平台上的同一用户与同一会话只能绑定一次（03 §11.7）。
+        Index(
+            "uq_channel_binding_platform_external_user_id_external_chat_id",
+            "platform",
+            "external_user_id",
+            "external_chat_id",
+            unique=True,
+        ),
+    )
+
+
+class ChannelBindCode(SQLModel, table=True):
+    """网页生成的绑定码；10 分钟有效、用过即废（spec §4.5 绑定）。"""
+
+    __tablename__ = "channel_bind_code"
+
+    code: str = Field(primary_key=True, max_length=16)
+    #: 生成时所在平台；为空表示不限平台（两边都非空时才比对，spec §4.5 绑定）。
+    platform: str | None = Field(default=None, max_length=16)
+    expires_at: datetime = Field(sa_column=datetime_column("expires_at"))
+    used_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("used_at", nullable=True)
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+
+class Outbox(SQLModel, table=True):
+    """发件箱：一条待发消息；``dedupe_key`` 唯一，重复入队返回旧行（spec §4.5）。"""
+
+    __tablename__ = "outbox"
+
+    #: 自增主键：与 agent_message 写法相同（03 §11.7、docs/04 §3.1）。
+    id: int | None = Field(default=None, primary_key=True)
+    #: ``OutboxChannel`` 的值：im_telegram / im_feishu / im_dingtalk / im_qq / webpush。
+    channel: str = Field(max_length=24)
+    #: IM 的 external_chat_id，或 Web Push 订阅标识。
+    target: str = Field(max_length=255)
+    #: ``OutboxKind`` 的值：reply / report / confirmation / brief / alert。
+    kind: str = Field(max_length=24)
+    #: 发送内容；IM 适配器读 ``payload["text"]``（spec §4.5 适配器只收 chat_id/text）。
+    payload: dict[str, Any] = Field(
+        default_factory=dict, sa_column=json_column("payload", nullable=False)
+    )
+    dedupe_key: str = Field(max_length=160)
+    #: ``OutboxStatus`` 的值：pending / sending / sent / failed / dead。
+    status: str = Field(default=OutboxStatus.PENDING, max_length=16)
+    attempts: int = Field(default=0)
+    next_attempt_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("next_attempt_at")
+    )
+    last_error: str | None = Field(default=None, sa_column=text_column("last_error"))
+    receipt: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("receipt")
+    )
+    ref_run_id: str | None = Field(
+        default=None,
+        foreign_key="agent_run.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    ref_ticket_id: str | None = Field(
+        default=None,
+        foreign_key="ticket.id",
+        ondelete="SET NULL",
+        max_length=36,
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    sent_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("sent_at", nullable=True)
+    )
+
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_outbox_dedupe_key"),
+        # 轮询取件：status IN (pending, failed) AND next_attempt_at <= now。
+        Index("ix_outbox_status_next_attempt_at", "status", "next_attempt_at"),
         {"sqlite_autoincrement": True},
     )
