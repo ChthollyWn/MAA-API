@@ -266,6 +266,57 @@ class ArtifactService:
             await db.commit()
             return artifact
 
+    async def update(
+        self,
+        artifact_id: str,
+        *,
+        content: str,
+        meta: dict[str, Any],
+    ) -> Artifact:
+        """整体替换正文与 meta，重算大小与 sha256，并写 ``updated_at``。
+
+        M84 的简报产物先以 ``pending`` 建出来，收尾时把建议与摘要写回同一行；
+        与 :meth:`put` 同口径地按 256 KiB 在库内正文和文件存储之间切换。
+        """
+        body = content.encode("utf-8")
+        if len(body) > MAX_ARTIFACT_BYTES:
+            raise AppError(
+                ErrorCode.ARTIFACT_TOO_LARGE,
+                f"产物超过 {MAX_ARTIFACT_BYTES // (1024 * 1024)} MiB 上限",
+                {"size_bytes": len(body), "limit": MAX_ARTIFACT_BYTES},
+            )
+        async with self._session_factory() as db:
+            artifact = await db.get(Artifact, artifact_id)
+            if artifact is None:
+                raise _not_found()
+            old_path = artifact.path
+            written: Path | None = None
+            if len(body) <= DB_STORAGE_MAX_BYTES:
+                artifact.storage = _storage_value(ArtifactStorage.DB)
+                artifact.content = content
+                artifact.path = None
+            else:
+                artifact.storage = _storage_value(ArtifactStorage.FILE)
+                artifact.content = None
+                artifact.path = f"{ARTIFACTS_DIR}/{artifact.id}"
+                written = self._write_file(artifact.id, body)
+            artifact.size_bytes = len(body)
+            artifact.sha256 = hashlib.sha256(body).hexdigest()
+            artifact.meta = dict(meta)
+            artifact.updated_at = utcnow()
+            try:
+                await db.commit()
+            except BaseException:
+                if written is not None:
+                    written.unlink(missing_ok=True)
+                raise
+            if old_path and old_path != artifact.path:
+                # 从文件存储换成库内存储时清掉旧文件；路径相同则已被覆盖。
+                path = self._resolve_path(old_path)
+                if path is not None:
+                    path.unlink(missing_ok=True)
+            return artifact
+
     async def update_note(
         self,
         artifact_id: str,
