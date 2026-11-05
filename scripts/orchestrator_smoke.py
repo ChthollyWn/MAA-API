@@ -1329,8 +1329,8 @@ def run(*, keep_temp: bool = False) -> None:
             len(im_items) == 1
             and str(im_items[0].kind) == "user_message"
             and (im_items[0].payload or {}).get("platform") == "telegram"
-            and "今天体力怎么安排" in str((im_items[0].payload or {}).get("payload") or "")
-            and '"platform": "telegram"' in str((im_items[0].payload or {}).get("payload") or ""),
+            and (im_items[0].payload or {}).get("external_chat_id") == im_chat
+            and "今天体力怎么安排" in str((im_items[0].payload or {}).get("text") or ""),
             f"总控收件箱的 IM 消息不对：{[item.payload for item in im_items]!r}",
         )
 

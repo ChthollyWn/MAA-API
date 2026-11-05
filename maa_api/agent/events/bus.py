@@ -209,6 +209,10 @@ class TriggerService:
         if callable(bind):
             bind(lambda: getattr(getattr(app, "state", None), "worker_service", None))
 
+    def bind_orchestrator_service(self, service: Any) -> None:
+        """绑定晚装配的总控服务（M85 的 IM 入站需要走用户消息入库路径）。"""
+        self._orchestrator_service = service
+
     # ------------------------------------------------------------------
     # 发布
     # ------------------------------------------------------------------
@@ -601,6 +605,34 @@ class TriggerService:
         async with self._session_factory() as session:
             if await AgentInboxRepository(session).exists(inbox_kind, ref_id):
                 return None
+        post_user_message = getattr(
+            self._orchestrator_service, "post_user_message", None
+        )
+        if row.kind == "im.message" and callable(post_user_message):
+            # M85 §4.5：IM 消息是用户对总控说的话，必须落 ``agent_message`` 再进
+            # 收件箱，否则总控模型看不到正文。事件行的 dedupe_key 已保证同一
+            # message_id 只处理一次。
+            text = str(row.payload.get("text") or "").strip()
+            if not text:
+                return None
+            await post_user_message(
+                text,
+                [],
+                source=str(row.source),
+                sender=str(row.sender or row.source),
+                payload={
+                    key: row.payload.get(key)
+                    for key in (
+                        "binding_id",
+                        "message_id",
+                        "reply_to",
+                        "platform",
+                        "external_chat_id",
+                    )
+                    if row.payload.get(key) is not None
+                },
+            )
+            return None
         payload = {
             "trigger_id": row.id,
             "source": row.source,

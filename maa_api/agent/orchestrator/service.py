@@ -268,15 +268,22 @@ class OrchestratorService:
         *,
         source: str = "web",
         sender: str = "web",
+        payload: Mapping[str, Any] | None = None,
     ) -> PostedMessage:
-        """用户对总控说话：落消息与收件箱项，再给挂起的提问让位（§4.5.2）。"""
+        """用户对总控说话：落消息与收件箱项，再给挂起的提问让位（§4.5.2）。
+
+        ``payload`` 用于 M85 的 IM 来源：把平台、会话与回执字段带进收件箱，
+        本轮回复据此写回发件箱。
+        """
         await self.ensure_ready()
         session = await self.ensure_session()
+        extra = dict(payload or {})
         item, message = await self._inbox.put_user_message(
             str(session.id),
             content=content,
             thread_key=_THREAD_KEY,
             payload={
+                **extra,
                 "mentions": list(mentions or []),
                 "source": source,
                 "sender": sender,

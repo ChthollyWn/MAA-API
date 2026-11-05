@@ -1863,6 +1863,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             event_bus=run_event_bus,
         )
         app.state.orchestrator_service = orchestrator_service
+        trigger_service.bind_orchestrator_service(orchestrator_service)
         worker_service.bind_orchestrator(orchestrator_service)
         ticket_service.bind_orchestrator_resolver(
             orchestrator_service.current_session_id
