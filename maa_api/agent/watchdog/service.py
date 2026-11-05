@@ -6,10 +6,14 @@
    （job 仍每 60 秒触发，见 :data:`WATCHDOG_JOB_INTERVAL_SECONDS`）；
 2. 组装 :class:`WatchdogSnapshot`（只读数据库与进程内记录器，不调模型、不碰设备）；
 3. 跑 08 §6.1 的六项确定性检查；
-4. 逐条 ``upsert_open_alert``；重复命中只更新 ``evidence``（G1 的 store 语义）；
-5. ``mode=auto`` 才执行 08 §6.2 的动作，``mode=record`` 只写 ``action_status=recorded``；
-6. 条件消失的未解除告警自动写 ``resolved_at``；
-7. ``last_run_at`` 只在整轮成功后更新，供 G4 的概况端点读取。
+4. 对其中 ``ticket_stale`` / ``ticket_churn`` 挑中的工单跑语义检查（每轮至多 2 张、
+   每张每小时至多 1 次）：建 ``kind=watchdog_check`` 运行，用 ``complete_structured``
+   向 ``watchdog`` 定义要 ``watchdog_findings``；模型失败跳过该工单；
+5. 逐条 ``upsert_open_alert``；重复命中只更新 ``evidence``（G1 的 store 语义）；
+6. ``mode=auto`` 才执行 08 §6.2 的动作，``mode=record`` 只写 ``action_status=recorded``；
+   语义检查的 ``mark_blocked`` 还要求该工单本轮被确定性检查挑中；
+7. 条件消失的未解除告警自动写 ``resolved_at``；
+8. ``last_run_at`` 只在整轮成功后更新，供 G4 的概况端点读取。
 
 动作失败只写 ``action_status=failed`` 与 ``evidence.error``，不向外抛；critical
 新插入时按 spec §4.5 的四条通知：WebSocket ``agent_event`` / ``watchdog_alert``、
@@ -23,12 +27,15 @@ import asyncio
 import inspect
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Awaitable, Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.llm.schemas.watchdog_findings import WatchdogFindings
+from maa_api.agent.llm.structured import complete_structured
+from maa_api.agent.specs.registry import builtin_spec
 from maa_api.agent.tickets.reports import (
     MAX_SUMMARY_CHARS,
     HumanAction,
@@ -73,7 +80,9 @@ from maa_api.db.repositories.agent import (
 )
 from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.repositories.ticket import (
+    MandateRepository,
     ThreadSubscriptionRepository,
+    TicketReportRepository,
     TicketRepository,
 )
 from maa_api.domain.enums import (
@@ -82,12 +91,15 @@ from maa_api.domain.enums import (
     AgentSessionKind,
     AlertActionStatus,
     AlertSeverity,
+    AlertTargetKind,
     InboxKind,
     InboxStatus,
+    ModelRole,
     PipelineStatus,
     ReportStatus,
     TicketStatus,
 )
+from maa_api.domain.errors import AppError
 from maa_api.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -95,6 +107,10 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ACTION_BY_CHECK",
     "INTERRUPT_GRACE_SECONDS",
+    "SEMANTIC_MAX_TICKETS_PER_ROUND",
+    "SEMANTIC_MIN_INTERVAL_SECONDS",
+    "WATCHDOG_AGENT",
+    "WATCHDOG_FINDINGS_SCHEMA",
     "WATCHDOG_JOB_ID",
     "WATCHDOG_JOB_INTERVAL_SECONDS",
     "ActionResult",
@@ -123,6 +139,21 @@ ACTION_BY_CHECK: dict[str, str] = {
     "queue_stuck": "wake_queue",
 }
 
+#: 语义检查的代理名与输出 schema（spec §4.5、§4.7）。
+WATCHDOG_AGENT = "watchdog"
+WATCHDOG_FINDINGS_SCHEMA = "watchdog_findings"
+
+#: 语义检查的确定性来源：只有被这两项挑中的工单才调模型（spec §4.5）。
+SEMANTIC_SOURCE_CHECKS = frozenset({"ticket_stale", "ticket_churn"})
+#: 每轮至多 2 张、每张每小时至多 1 次（spec §4.5；不做成配置）。
+SEMANTIC_MAX_TICKETS_PER_ROUND = 2
+SEMANTIC_MIN_INTERVAL_SECONDS = 3600
+
+#: 工单快照卡里最多带几条最近汇报、委托与汇报摘要的截断长度。
+MAX_CARD_REPORTS = 5
+MAX_CARD_MANDATE_CHARS = 2000
+MAX_CARD_REPORT_CHARS = 300
+
 #: 判定「Worker 还有活动运行」的状态；与 AgentRunRepository 的活动态一致。
 ACTIVE_RUN_STATUSES = (
     AgentRunStatus.RUNNING.value,
@@ -150,6 +181,15 @@ def _error_payload(exc: BaseException) -> dict[str, str]:
     }
 
 
+def _local_time(value: datetime | None) -> str:
+    """数据库里的 UTC-naive 时间转本地时区的可读写法；卡片给模型看。"""
+    if value is None:
+        return "未知"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
 @dataclass(frozen=True)
 class ActionResult:
     """一次动作的结果；``status`` 直接写 ``watchdog_alert.action_status``。"""
@@ -175,6 +215,8 @@ class WatchdogService:
         core_supervisor: Any = None,
         device_manager: Any = None,
         run_service: Any = None,
+        model_router: Any = None,
+        cost_ledger: Any = None,
         ticket_service: Any = None,
         worker_service: Any = None,
         orchestrator_service: Any = None,
@@ -196,6 +238,8 @@ class WatchdogService:
         self._core_supervisor = core_supervisor
         self._device_manager = device_manager
         self._run_service = run_service
+        self._model_router = model_router
+        self._cost_ledger = cost_ledger
         self._ticket_service = ticket_service
         self._worker_service = worker_service
         self._orchestrator_service = orchestrator_service
@@ -215,6 +259,8 @@ class WatchdogService:
         #: 内核状态与进入该状态的时刻；CoreSupervisor 本身不记持续时间。
         self._core_status: str | None = None
         self._core_state_since: datetime | None = None
+        #: 每张工单上次语义检查的时刻；进程内字典，重启后清空可接受（spec §4.5）。
+        self._semantic_last_at: dict[str, datetime] = {}
         self._closed = False
 
     # ------------------------------------------------------------------
@@ -244,9 +290,10 @@ class WatchdogService:
             return []
 
         snapshot = await self.snapshot(stamp)
-        drafts = deterministic_checks(snapshot)
+        deterministic = deterministic_checks(snapshot)
+        semantic = await self._semantic_checks(deterministic, stamp)
         processed: list[WatchdogAlert] = []
-        for draft in drafts:
+        for draft in [*deterministic, *semantic]:
             alert, inserted = await self._upsert(draft, stamp)
             result = await self._apply_for_mode(draft, alert, mode=watchdog.mode)
             stored = await self._store_action(alert.id, result)
@@ -256,7 +303,7 @@ class WatchdogService:
                 await self._notify_critical(alert)
             processed.append(alert)
 
-        await self._resolve_conditions(drafts, stamp)
+        await self._resolve_conditions(deterministic, stamp)
         self._last_run_at = stamp
         return processed
 
@@ -283,6 +330,255 @@ class WatchdogService:
             core=self._core_sample(stamp),
             queue=queue,
         )
+
+    # ------------------------------------------------------------------
+    # 语义检查
+    # ------------------------------------------------------------------
+    def _semantic_ready(self) -> bool:
+        """语义检查依赖是否齐备；缺依赖只记 debug，不影响确定性巡检。"""
+        if self._model_router is None or self._cost_ledger is None:
+            return False
+        runner = self._run_service
+        return callable(getattr(runner, "start", None)) and callable(
+            getattr(runner, "finish", None)
+        )
+
+    @staticmethod
+    def _semantic_hits(drafts: list[AlertDraft]) -> list[AlertDraft]:
+        """本轮被 ``ticket_stale`` / ``ticket_churn`` 挑中的工单，按确定性顺序去重。"""
+        hits: list[AlertDraft] = []
+        seen: set[str] = set()
+        for draft in drafts:
+            if draft.check not in SEMANTIC_SOURCE_CHECKS or not draft.target_id:
+                continue
+            if draft.target_id in seen:
+                continue
+            seen.add(draft.target_id)
+            hits.append(draft)
+        return hits
+
+    async def _semantic_checks(
+        self, drafts: list[AlertDraft], now: datetime
+    ) -> list[AlertDraft]:
+        """对确定性检查挑中的工单跑语义检查；每轮至多 2 张、每张每小时至多 1 次。"""
+        if not self._semantic_ready():
+            logger.debug(
+                "跳过值守语义检查：未注入 model_router、run_service 或 cost_ledger"
+            )
+            return []
+        selected: list[tuple[str, AlertDraft]] = []
+        for hit in self._semantic_hits(drafts):
+            ticket_id = str(hit.target_id)
+            last = self._semantic_last_at.get(ticket_id)
+            if last is not None and now - last < timedelta(
+                seconds=SEMANTIC_MIN_INTERVAL_SECONDS
+            ):
+                continue
+            selected.append((ticket_id, hit))
+            if len(selected) >= SEMANTIC_MAX_TICKETS_PER_ROUND:
+                break
+
+        findings: list[AlertDraft] = []
+        for ticket_id, hit in selected:
+            # 先记时刻：模型失败也占用这张工单本小时的额度，避免失败后每轮重试。
+            self._semantic_last_at[ticket_id] = now
+            findings.extend(await self._run_semantic_check(ticket_id, hit, now))
+        return findings
+
+    async def _run_semantic_check(
+        self, ticket_id: str, hit: AlertDraft, now: datetime
+    ) -> list[AlertDraft]:
+        """对一张工单调一次模型；失败只跳过该工单，不写告警、不建诊断工单。"""
+        try:
+            spec = builtin_spec(WATCHDOG_AGENT)
+        except Exception:  # noqa: BLE001 - 定义缺失属于装配问题，跳过语义检查
+            logger.debug("跳过值守语义检查：读不到 watchdog 定义", exc_info=True)
+            return []
+        card = await self._semantic_card(ticket_id, hit, now)
+        if card is None:
+            logger.debug("跳过值守语义检查：工单 %s 已不存在", ticket_id)
+            return []
+        try:
+            run = await self._run_service.start(
+                agent_name=WATCHDOG_AGENT,
+                kind=AgentRunKind.WATCHDOG_CHECK,
+                session_id=None,
+                ticket_id=ticket_id,
+                spec_version=spec.spec_version,
+            )
+        except Exception:  # noqa: BLE001 - 建不了运行就跳过这张工单
+            logger.warning(
+                "值守语义检查建运行失败：ticket=%s", ticket_id, exc_info=True
+            )
+            return []
+
+        messages = [
+            {"role": "system", "content": spec.body},
+            {"role": "user", "content": card},
+        ]
+        try:
+            result = await complete_structured(
+                router=self._model_router,
+                ledger=self._cost_ledger,
+                role=ModelRole.WORKER,
+                schema_name=WATCHDOG_FINDINGS_SCHEMA,
+                messages=messages,
+                agent_name=WATCHDOG_AGENT,
+                run_id=run.id,
+                session_id=None,
+            )
+        except AppError as exc:
+            await self._finish_semantic_run(
+                run.id,
+                AgentRunStatus.FAILED,
+                error_code=str(exc.code),
+                error_message=str(exc),
+            )
+            logger.warning(
+                "值守语义检查失败，跳过工单 %s：%s", ticket_id, exc.code
+            )
+            return []
+        except Exception as exc:  # noqa: BLE001 - 语义检查失败不能打断整轮巡检
+            await self._finish_semantic_run(
+                run.id,
+                AgentRunStatus.FAILED,
+                error_code="SEMANTIC_CHECK_FAILED",
+                error_message=str(exc),
+            )
+            logger.warning(
+                "值守语义检查异常，跳过工单 %s", ticket_id, exc_info=True
+            )
+            return []
+
+        await self._finish_semantic_run(run.id, AgentRunStatus.SUCCEEDED)
+        return self._semantic_drafts(result.value, ticket_id, hit, run.id)
+
+    async def _finish_semantic_run(
+        self,
+        run_id: str,
+        status: AgentRunStatus,
+        *,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """收尾语义检查的运行；收尾失败只告警，不影响已得到的结论。"""
+        finish_reason = "stop" if status == AgentRunStatus.SUCCEEDED else "error"
+        try:
+            await self._run_service.finish(
+                run_id,
+                status=status,
+                finish_reason=finish_reason,
+                error_code=error_code,
+                error_message=error_message,
+            )
+        except Exception:  # noqa: BLE001 - 运行收尾失败不向外抛
+            logger.warning(
+                "值守语义检查收尾运行失败：run=%s", run_id, exc_info=True
+            )
+
+    def _semantic_drafts(
+        self,
+        value: WatchdogFindings,
+        ticket_id: str,
+        hit: AlertDraft,
+        run_id: str,
+    ) -> list[AlertDraft]:
+        """把模型结论折算成告警草稿；只认本轮这张工单，同一 check 去重。"""
+        drafts: list[AlertDraft] = []
+        seen: set[str] = set()
+        for item in value.items:
+            check = str(item.check)
+            target = str(item.target_id).strip()
+            if target != ticket_id:
+                logger.debug(
+                    "语义检查返回了别的工单 %r（本轮 %s），忽略", target, ticket_id
+                )
+                continue
+            if check in seen:
+                continue
+            seen.add(check)
+            suggested = (
+                item.suggested_action
+                if item.suggested_action == "mark_blocked"
+                else None
+            )
+            evidence: dict[str, Any] = {
+                "ticket_id": ticket_id,
+                "run_id": run_id,
+                "source": "semantic",
+                "deterministic_check": hit.check,
+                # 供 ``_apply_for_mode`` 判定「本轮也被确定性检查挑中」。
+                "deterministic_match": True,
+            }
+            if suggested is not None:
+                evidence["suggested_action"] = suggested
+            drafts.append(
+                AlertDraft(
+                    check=check,
+                    severity=AlertSeverity(str(item.severity)),
+                    target_kind=AlertTargetKind.TICKET,
+                    target_id=ticket_id,
+                    message=item.message,
+                    evidence=evidence,
+                    suggested_action=suggested,
+                )
+            )
+        return drafts
+
+    async def _semantic_card(
+        self, ticket_id: str, hit: AlertDraft, now: datetime
+    ) -> str | None:
+        """工单快照卡：标题、委托、状态、最近活动与最近汇报（spec §4.5）。"""
+        async with self._session_factory() as session:
+            ticket = await TicketRepository(session).get(ticket_id)
+            if ticket is None:
+                return None
+            mandate = await MandateRepository(session).get_by_ticket(ticket_id)
+            reports = await TicketReportRepository(session).recent(
+                ticket_id, limit=MAX_CARD_REPORTS
+            )
+        activity = self._card_last_activity(ticket, reports, hit)
+        lines = [
+            f"【工单】{ticket.id}「{ticket.title}」",
+            f"状态：{_str(ticket.status)}　类型：{ticket.kind}　来源：{ticket.origin}",
+            f"最近活动：{_local_time(activity)}（巡检时刻 {_local_time(now)}）",
+        ]
+        if mandate is not None:
+            scope = (mandate.scope or "").strip()[:MAX_CARD_MANDATE_CHARS]
+            lines.append(f"【委托】{scope or '（无）'}")
+            lines.append(
+                f"委托强度：{mandate.strength}　风险上限：{mandate.risk_ceiling}"
+            )
+        else:
+            lines.append("【委托】（无）")
+        lines.append(f"【本轮确定性检查】{hit.check}：{hit.message}")
+        lines.append(f"【最近汇报】（最新在前，至多 {MAX_CARD_REPORTS} 条）")
+        if reports:
+            for report in reports:
+                summary = (report.summary or "")[:MAX_CARD_REPORT_CHARS]
+                lines.append(
+                    f"- {_local_time(report.created_at)} "
+                    f"{_str(report.status)}：{summary}"
+                )
+        else:
+            lines.append("（无）")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _card_last_activity(
+        ticket: Ticket, reports: list[TicketReport], hit: AlertDraft
+    ) -> datetime | None:
+        """卡片的「最近活动」：工单更新时间、确定性命中的活动时间与最新汇报取最大。"""
+        candidates: list[datetime] = [ticket.updated_at]
+        last_activity = hit.evidence.get("last_activity_at")
+        if isinstance(last_activity, str):
+            try:
+                candidates.append(datetime.fromisoformat(last_activity))
+            except ValueError:
+                pass
+        if reports:
+            candidates.append(reports[0].created_at)
+        return max((item for item in candidates if item is not None), default=None)
 
     # ------------------------------------------------------------------
     # 快照：运行 / 工单 / 流水线 / 内核 / 队列
@@ -603,17 +899,38 @@ class WatchdogService:
     async def _apply_for_mode(
         self, draft: AlertDraft, alert: WatchdogAlert, *, mode: str
     ) -> ActionResult:
-        """record 档只记；auto 档才把草稿映射成动作。"""
+        """record 档只记；auto 档才把草稿映射成动作。
+
+        语义草稿的动作来自模型的 ``suggested_action``；``mark_blocked`` 仅在
+        ``mode=auto`` 且这张工单本轮也被确定性检查挑中时执行（spec §4.5）。
+        """
         action = ACTION_BY_CHECK.get(draft.check)
+        if action is None:
+            action = draft.suggested_action
         if mode != "auto" or action is None:
             return ActionResult(action, AlertActionStatus.RECORDED)
-        return await self.apply_action(draft, alert=alert)
+        if draft.suggested_action is not None and not draft.evidence.get(
+            "deterministic_match"
+        ):
+            return ActionResult(
+                action,
+                AlertActionStatus.RECORDED,
+                {"reason": "ticket_not_flagged_deterministically"},
+            )
+        return await self.apply_action(draft, alert=alert, action=action)
 
     async def apply_action(
-        self, draft: AlertDraft, *, alert: WatchdogAlert | None = None
+        self,
+        draft: AlertDraft,
+        *,
+        alert: WatchdogAlert | None = None,
+        action: str | None = None,
     ) -> ActionResult:
-        """执行一条草稿对应的动作；异常收敛成 ``failed``，绝不向外抛。"""
-        action = ACTION_BY_CHECK.get(draft.check)
+        """执行一条草稿对应的动作；异常收敛成 ``failed``，绝不向外抛。
+
+        ``action`` 为空时按确定性检查映射；语义草稿显式传入模型建议的动作。
+        """
+        action = action or ACTION_BY_CHECK.get(draft.check)
         if action is None:
             return ActionResult(None, AlertActionStatus.RECORDED)
         try:

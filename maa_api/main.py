@@ -1799,6 +1799,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             core_supervisor=core_supervisor,
             device_manager=device_manager,
             run_service=run_service,
+            model_router=app.state.model_router,
+            cost_ledger=app.state.cost_ledger,
             ticket_service=ticket_service,
             worker_service=worker_service,
             orchestrator_service=orchestrator_service,

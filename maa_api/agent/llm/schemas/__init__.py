@@ -21,6 +21,10 @@ from maa_api.agent.llm.schemas.trigger_decision import (  # noqa: F401
     TriggerDecision,
 )
 from maa_api.agent.llm.schemas.verifier_verdict import VerifierVerdict  # noqa: F401
+from maa_api.agent.llm.schemas.watchdog_findings import (  # noqa: F401
+    WatchdogFinding,
+    WatchdogFindings,
+)
 
 from maa_api.agent.llm.schemas import compaction_summary  # noqa: F401
 
@@ -33,4 +37,6 @@ __all__ = [
     "Title",
     "TriggerDecision",
     "VerifierVerdict",
+    "WatchdogFinding",
+    "WatchdogFindings",
 ]

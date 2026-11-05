@@ -168,6 +168,9 @@ class AlertDraft:
     target_id: str | None
     message: str
     evidence: dict[str, Any] = field(default_factory=dict)
+    #: 语义检查（G3）给出的动作建议；确定性草稿恒为 ``None``。模型只给建议，
+    #: 是否执行由 ``WatchdogService`` 按 mode 与确定性命中判定。
+    suggested_action: str | None = None
 
 
 def run_heartbeat_stale(snapshot: WatchdogSnapshot) -> list[AlertDraft]:
