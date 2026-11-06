@@ -699,6 +699,38 @@ describe('M72 指挥台', () => {
     expect(api.sentMessages()[0]!.body).toEqual({ content: '第一行', mentions: [] })
   })
 
+  it('手机端轻点发送按钮一次就发出，不依赖可能被键盘收起吞掉的合成 click', async () => {
+    stubMedia((query) => query === '(pointer: coarse)')
+    const api = createConsoleApi({
+      messages: [],
+      stream: () => sse([delta('好的。'), runEnd()]),
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('你可以这样开始')).toBeInTheDocument()
+    const box = await composerBox()
+    fireEvent.change(box, { target: { value: '手机端发一条' } })
+    act(() => box.focus())
+    expect(box).toHaveFocus()
+
+    // 真机第一下轻点会先收起键盘：贴底输入栏随键盘和视口变化位移，浏览器随后就不再把这个
+    // 轻点的合成 click 派发到按钮。这里只派发 touch 事件并在中间让输入框失焦，模拟被吞掉
+    // 的那一次轻点；jsdom 没有 TouchEvent 触点，事件本身即可。
+    const button = screen.getByRole('button', { name: '发送' })
+    fireEvent(button, new Event('touchstart', { bubbles: true, cancelable: true }))
+    act(() => box.blur())
+    expect(box).not.toHaveFocus()
+    const touchEnd = new Event('touchend', { bubbles: true, cancelable: true })
+    fireEvent(button, touchEnd)
+
+    await waitFor(() => expect(api.sentMessages()).toHaveLength(1))
+    expect(api.sentMessages()[0]!.body).toEqual({ content: '手机端发一条', mentions: [] })
+    // 同一次轻点只发一条：真机上合成 click 被 preventDefault 拦掉，这里人为补发验证第二道防线。
+    expect(touchEnd.defaultPrevented).toBe(true)
+    fireEvent.click(button)
+    await waitFor(() => expect(api.sentMessages()).toHaveLength(1))
+  })
+
   it('turns the send button into a stop button during a turn and wraps the turn up after stopping', async () => {
     let held: ReturnType<typeof heldStream> | null = null
     let holdHistory = false
