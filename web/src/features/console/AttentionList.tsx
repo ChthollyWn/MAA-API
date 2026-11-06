@@ -11,6 +11,7 @@ import {
 import { ConfirmationCard } from '@/features/agent/ConfirmationCard'
 import { QuestionCard } from '@/features/agent/QuestionCard'
 import { ErrorAlert } from '@/features/agent/StatusAlerts'
+import { PlanApprovalCard } from './PlanApprovalCard'
 import { TICKET_STATUS_LABELS } from './api'
 import { originLabel, spendAttentionText } from './attention'
 import type { AttentionState } from './use-attention'
@@ -25,6 +26,25 @@ export interface AttentionListProps {
  * 每项上方一行来源文案；顺序由 `buildAttentionItems` 决定。
  */
 export function AttentionList({ attention, specTitles }: AttentionListProps) {
+  // 决定类的错误要能独立于列表存活：处理掉最后一张卡（含 409 已过期）后列表会空，
+  // 提示不能跟着消失（spec `console-plan-approval` §4.1、11 §3.2）。
+  const resolverErrors = (
+    <>
+      {attention.resolver.error ? (
+        <ErrorAlert error={attention.resolver.error} onDismiss={attention.resolver.clearError} />
+      ) : null}
+      {attention.planResolver.error ? (
+        <ErrorAlert
+          error={{ ...attention.planResolver.error, message: `处理计划失败：${attention.planResolver.error.message}` }}
+          onDismiss={attention.planResolver.clearError}
+        />
+      ) : null}
+      {attention.alertResolver.error ? (
+        <ErrorAlert error={attention.alertResolver.error} onDismiss={attention.alertResolver.clearError} />
+      ) : null}
+    </>
+  )
+
   if (attention.isPending && attention.items.length === 0) {
     return <LoadingState label="正在读取…" />
   }
@@ -37,17 +57,17 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
     )
   }
   if (attention.items.length === 0) {
-    return <p className="px-1 py-4 text-center text-footnote text-muted-foreground">还没有要你处理的事</p>
+    return (
+      <div className="space-y-3">
+        {resolverErrors}
+        <p className="px-1 py-4 text-center text-footnote text-muted-foreground">还没有要你处理的事</p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-3">
-      {attention.resolver.error ? (
-        <ErrorAlert error={attention.resolver.error} onDismiss={attention.resolver.clearError} />
-      ) : null}
-      {attention.alertResolver.error ? (
-        <ErrorAlert error={attention.alertResolver.error} onDismiss={attention.alertResolver.clearError} />
-      ) : null}
+      {resolverErrors}
       <ol aria-label="待你处理" className="space-y-3">
         {attention.items.map((item) => {
           if (item.kind === 'confirmation') {
@@ -60,6 +80,27 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
                   confirmationId={item.confirmation.confirmation_id}
                   busy={attention.resolver.busyFor(item.confirmation.confirmation_id)}
                   onResolve={attention.resolver.resolve}
+                />
+              </li>
+            )
+          }
+          if (item.kind === 'plan') {
+            return (
+              <li
+                key={`plan-${item.plan.id}`}
+                data-attention-kind="plan"
+                data-attention-id={item.id}
+                className="space-y-1.5"
+              >
+                <p className="text-footnote text-muted-foreground">
+                  来自工单「{item.ticket.title}」· {specTitles.get(item.ticket.kind) ?? item.ticket.kind}
+                </p>
+                <PlanApprovalCard
+                  ticket={item.ticket}
+                  plan={item.plan}
+                  workerSessionId={item.workerSessionId}
+                  busy={attention.planResolver.busyFor(item.workerSessionId)}
+                  onResolve={attention.planResolver.resolve}
                 />
               </li>
             )

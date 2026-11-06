@@ -2,13 +2,17 @@ import type { AgentQuestion } from '@/features/agent/types'
 import type { Confirmation } from '@/features/confirmations/ConfirmationsPanel'
 import type { MemoryItem } from '@/features/memory/api'
 import type { SpendKindUsage, SpendSummary } from '@/features/spend/api'
+import type { PlanView } from '@/features/tickets/workspace-api'
 import type { AlertOut } from '@/features/watchdog/api'
 import type { TicketView } from './api'
 import type { Origin } from './conversation/types'
+import type { PlanAttentionView } from './use-attention-plans'
 
 export type AttentionItem =
   | { kind: 'confirmation'; id: string; confirmation: Confirmation; origin: Origin | null }
   | { kind: 'question'; id: string; question: AgentQuestion; origin: Origin | null }
+  /** 待批准的计划（spec `console-plan-approval` §4.1）：指挥台就地批准/退回。 */
+  | { kind: 'plan'; id: string; ticket: TicketView; plan: PlanView; workerSessionId: string }
   /** 待审核记忆合成一项，文案「N 条记忆待审核」（M79 规格 §4.5）。 */
   | { kind: 'memory'; id: string; count: number; previews: string[] }
   /** 未解除的严重值守告警（M83 §4.5）；动作是「标记已处理」。 */
@@ -74,13 +78,16 @@ export function spendAttentionText(attention: SpendAttention): string {
 }
 
 /**
- * 「待你处理」的合并与排序（M72 §4.5.5）。
+ * 「待你处理」的合并与排序（M72 §4.5.5 + 计划批准补丁）。
  *
  * 1. 工单已经被一张确认/提问覆盖（`human_action.ref_id` 命中、或它的 id 就是卡片来源的
  *    `origin.ticket_id`）就不再单列；被 `excludeIds` 排除的卡片仍然参与覆盖计算，
  *    否则实时副本里的卡会让同一张卡在侧栏里再出现一次。
- * 2. 顺序：确认 → 提问 → 待审核记忆 → 严重告警 → blocked 工单 → waiting 工单 →
- *    消耗汇总；确认与提问按过期时间升序（读不出的排最后），告警与工单按更新时间降序。
+ * 2. 待批准计划（`plans`）压掉同一工单的工单卡；计划刚批准/退回、Worker 还没清
+ *    `human_action` 的工单由 `suppressedTicketIds` 暂时压掉，避免出现点了就 409 的死卡。
+ * 3. 顺序：确认 → 提问 → 待审核记忆 → 严重告警 → blocked 工单 → 计划待批准 →
+ *    waiting 工单 → 消耗汇总；确认与提问按过期时间升序（读不出的排最后），
+ *    告警、计划与工单按更新时间降序，同一时刻按 id 兜底。
  *    消耗汇总排在最后：规格 §4.6 要求它跟在观察记录汇总行之后，而观察记录汇总行
  *    目前还没有接入「待你处理」。
  */
@@ -88,6 +95,10 @@ export function buildAttentionItems(input: {
   confirmations: readonly Confirmation[]
   questions: readonly AgentQuestion[]
   tickets: readonly TicketView[]
+  /** 待批准计划（spec `console-plan-approval` §4.1）；与工单卡互斥。 */
+  plans?: readonly PlanAttentionView[]
+  /** 计划已不再待批准、但工单 `human_action` 还没清掉的工单 id。 */
+  suppressedTicketIds?: ReadonlySet<string>
   /** 待审核（proposed）的记忆；合成一项入口，不逐条列卡片（M79 §4.5）。 */
   memories?: readonly MemoryItem[]
   /** 严重且未解除的值守告警（M83 §4.5）；调用方已按接口过滤，这里再兜一层。 */
@@ -96,7 +107,17 @@ export function buildAttentionItems(input: {
   spend?: SpendSummary
   excludeIds?: ReadonlySet<string>
 }): AttentionItem[] {
-  const { confirmations, questions, tickets, memories = [], alerts = [], spend, excludeIds } = input
+  const {
+    confirmations,
+    questions,
+    tickets,
+    plans = [],
+    suppressedTicketIds,
+    memories = [],
+    alerts = [],
+    spend,
+    excludeIds,
+  } = input
   const coveredRefs = new Set<string>()
   const coveredTickets = new Set<string>()
   for (const confirmation of confirmations) {
@@ -109,6 +130,7 @@ export function buildAttentionItems(input: {
     const ticketId = question.origin?.ticket_id
     if (ticketId) coveredTickets.add(ticketId)
   }
+  const plannedTickets = new Set(plans.map((entry) => entry.ticket.id))
 
   const sorted: SortedItem[] = []
 
@@ -167,13 +189,30 @@ export function buildAttentionItems(input: {
     })
   }
 
+  for (const entry of plans) {
+    sorted.push({
+      group: 5,
+      item: {
+        kind: 'plan',
+        id: `plan-${entry.plan.id}`,
+        ticket: entry.ticket,
+        plan: entry.plan,
+        workerSessionId: entry.workerSessionId,
+      },
+      expires: Number.POSITIVE_INFINITY,
+      updated: updatedAt(entry.ticket.updatedAt),
+    })
+  }
+
   for (const ticket of tickets) {
     if (ticket.status !== 'blocked' && ticket.status !== 'waiting') continue
     if (coveredTickets.has(ticket.id)) continue
+    if (plannedTickets.has(ticket.id)) continue
+    if (suppressedTicketIds?.has(ticket.id)) continue
     const refId = ticket.humanAction?.ref_id
     if (refId && coveredRefs.has(refId)) continue
     sorted.push({
-      group: ticket.status === 'blocked' ? 4 : 5,
+      group: ticket.status === 'blocked' ? 4 : 6,
       item: { kind: 'ticket', id: ticket.id, ticket },
       expires: Number.POSITIVE_INFINITY,
       updated: updatedAt(ticket.updatedAt),
@@ -183,7 +222,7 @@ export function buildAttentionItems(input: {
   const spendEntry = spendAttention(spend)
   if (spendEntry) {
     sorted.push({
-      group: 6,
+      group: 7,
       item: { kind: 'spend', id: 'spend-today', attention: spendEntry },
       expires: Number.POSITIVE_INFINITY,
       updated: 0,

@@ -89,10 +89,10 @@ export default function ConsolePage() {
     onQuestionResolved: controller.onQuestionResolved,
   })
 
-  // 处理完最后一张时手机面板自动收起（§4.6.4）。
+  // 处理完最后一张时手机面板自动收起（§4.6.4）；审批失败时保留面板，错误才看得见。
   useEffect(() => {
-    if (sheetOpen && attention.items.length === 0) setSheetOpen(false)
-  }, [sheetOpen, attention.items.length])
+    if (sheetOpen && attention.items.length === 0 && !attention.planResolver.error) setSheetOpen(false)
+  }, [sheetOpen, attention.items.length, attention.planResolver.error])
 
   // 服务端用 SSE error 事件回的错误在实时副本里；副本让位给历史后仍要留在页面上。
   const [liveError, setLiveError] = useState<ShownError | null>(null)

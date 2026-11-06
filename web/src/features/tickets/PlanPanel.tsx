@@ -11,42 +11,16 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/toaster'
 import { formatDateTime } from './format'
 import {
+  ITEM_STATUS_TONES,
+  PLAN_ITEM_STATUS_LABELS,
+  PLAN_STATUS_LABELS,
+  PLAN_STATUS_TONES,
+} from './plan-format'
+import {
   planQueryOptions,
   submitPlanApproval,
   type PlanApprovalInput,
 } from './workspace-api'
-
-/** 计划状态的中文（M75 §4.6）。未知取值原样显示，避免把新枚举写丢。 */
-export const PLAN_STATUS_LABELS: Record<string, string> = {
-  draft: '草稿',
-  awaiting_approval: '待批准',
-  active: '进行中',
-  done: '已完成',
-  abandoned: '已放弃',
-}
-
-/** 步骤状态的中文（M75 §4.6）。 */
-export const PLAN_ITEM_STATUS_LABELS: Record<string, string> = {
-  pending: '待开始',
-  in_progress: '进行中',
-  done: '已完成',
-  cancelled: '已取消',
-}
-
-const PLAN_STATUS_TONES: Record<string, 'neutral' | 'primary' | 'success' | 'warning' | 'danger'> = {
-  draft: 'neutral',
-  awaiting_approval: 'warning',
-  active: 'primary',
-  done: 'success',
-  abandoned: 'neutral',
-}
-
-const ITEM_STATUS_TONES: Record<string, 'neutral' | 'primary' | 'success' | 'warning' | 'danger'> = {
-  pending: 'neutral',
-  in_progress: 'primary',
-  done: 'success',
-  cancelled: 'neutral',
-}
 
 export interface PlanPanelProps {
   /** 工单的 Worker 会话 id；没有会话时整块不渲染。 */

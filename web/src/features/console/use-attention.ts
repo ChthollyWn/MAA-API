@@ -12,6 +12,11 @@ import type { ShownError } from '@/features/agent/types'
 import { useResolveConfirmation, useResolveQuestion, type ConfirmationResolver } from './conversation/card-resolvers'
 import { attentionQuestionsQuery, attentionTicketsQuery, pendingConfirmationsQuery } from './api'
 import { buildAttentionItems, type AttentionItem } from './attention'
+import {
+  useAttentionPlans,
+  usePlanApprovalResolver,
+  type PlanResolver,
+} from './use-attention-plans'
 
 /** 严重告警卡上的「标记已处理」（M83 §4.5）：解除后整片重取告警列表。 */
 export interface WatchdogAlertResolver {
@@ -27,6 +32,8 @@ export interface AttentionState {
   error: unknown
   refetch: () => void
   resolver: ConfirmationResolver
+  /** 计划待批准的决定出口（spec `console-plan-approval` §4.3）。 */
+  planResolver: PlanResolver
   alertResolver: WatchdogAlertResolver
   onQuestionResolved: (questionId: string) => void
 }
@@ -66,8 +73,10 @@ export function useAttention(options: {
   const memories = useQuery(attentionMemoriesQuery)
   const alerts = useQuery(criticalWatchdogAlertsQuery)
   const spend = useQuery(spendQueryOptions())
+  const plans = useAttentionPlans(tickets.data?.items ?? [])
 
   const resolver = useResolveConfirmation()
+  const planResolver = usePlanApprovalResolver()
   const alertResolver = useResolveWatchdogAlert()
   const onQuestionResolved = useResolveQuestion(options.onQuestionResolved)
 
@@ -76,6 +85,8 @@ export function useAttention(options: {
       confirmations: confirmations.data?.items ?? [],
       questions: questions.data ?? [],
       tickets: tickets.data?.items ?? [],
+      plans: plans.items,
+      suppressedTicketIds: plans.suppressedTicketIds,
       memories: memories.data ?? [],
       alerts: alerts.data?.items ?? [],
       spend: spend.data,
@@ -85,6 +96,8 @@ export function useAttention(options: {
       confirmations.data?.items,
       questions.data,
       tickets.data?.items,
+      plans.items,
+      plans.suppressedTicketIds,
       memories.data,
       alerts.data?.items,
       spend.data,
@@ -96,6 +109,7 @@ export function useAttention(options: {
     void confirmations.refetch()
     void questions.refetch()
     void tickets.refetch()
+    plans.refetch()
     void memories.refetch()
     void alerts.refetch()
     void spend.refetch()
@@ -103,12 +117,13 @@ export function useAttention(options: {
 
   return {
     items,
-    isPending: confirmations.isPending || questions.isPending || tickets.isPending || memories.isPending
-      || alerts.isPending || spend.isPending,
+    isPending: confirmations.isPending || questions.isPending || tickets.isPending
+      || plans.isPending || memories.isPending || alerts.isPending || spend.isPending,
     error: confirmations.error ?? questions.error ?? tickets.error ?? memories.error ?? alerts.error
       ?? spend.error ?? null,
     refetch,
     resolver,
+    planResolver,
     alertResolver,
     onQuestionResolved,
   }
