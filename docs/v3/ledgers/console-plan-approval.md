@@ -1,6 +1,6 @@
 # 计划批准上指挥台（维护性补丁台账）
 
-- 分支：`console-plan-approval`；基点：`dev` = `175401e`；合并：`dev` 上的 `merge: 计划批准上指挥台（维护性补丁，见 docs/v3/13 §8.173）`；tag：无（维护性补丁，不新增里程碑）
+- 分支：`console-plan-approval`；基点：`dev` = `175401e`；合并：`d4cc796`（`dev` 上的 `merge: 计划批准上指挥台（维护性补丁，见 docs/v3/13 §8.173）`）；tag：无（维护性补丁，不新增里程碑）
 - spec：[console-plan-approval](../specs/console-plan-approval.md)
 - 计划：[console-plan-approval](../plans/console-plan-approval.md)
 - 决策记录：[docs/v3/13 §8.173](../13-决策记录.md)
@@ -42,6 +42,8 @@
 | `git diff --check` | 干净（无输出） |
 
 补充检查（不作硬性验证）：桌面与 375px 宽度各走一遍「plan awaiting → 指挥台批准/退回」——本次用 jsdom 集成用例覆盖桌面侧栏与手机 Sheet 的批准/退回/失败路径，未做真机手动检查。
+
+合并后 `dev` 复验：`pnpm gen:api:check && pnpm typecheck && pnpm test --run && pnpm build` 全绿（114 files / 993 tests）；`scripts/frontend_smoke.py` → `SMOKE OK`；`check_doc_links.py` → `BROKEN 0`；`git diff --check` 干净。
 
 ## Final review（独立复审与修复）
 
