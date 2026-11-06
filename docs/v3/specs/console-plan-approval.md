@@ -55,7 +55,7 @@ M71/M72 把 Worker 与子代理发起的确认、提问冒泡到指挥台「待�
 新 hook `useAttentionPlans(tickets)` 接收「待你处理」里的 waiting/blocked 工单，产出计划项与被抑制的工单 id：
 
 1. 候选：`ticket.status === 'waiting'` 且 `ticket.humanAction?.type === 'decision'` 且 `ticket.humanAction.ref_id` 非空。
-2. 对每个候选读 `ticketDetailQuery(ticket.id)`（指挥台已有查询，10 秒轮询、WS 失效）取 `workerSessionId`；没有会话就停在这一步。
+2. 对每个候选读 `ticketDetailQuery(ticket.id)`（与工单页同一个查询 key，10 秒轮询、WS 失效；指挥台此前只在工单页用过它）取 `workerSessionId`；没有会话就停在这一步。
 3. 对每个 `workerSessionId` 读 `planQueryOptions(workerSessionId)`（M75，只随 `plan_updated` 失效）。
 4. 计划项：`plan !== null` 且 `plan.status === 'awaiting_approval'` 且 `plan.id === ticket.humanAction.ref_id`。
 5. 抑制：`plan !== null` 且 `plan.id === ticket.humanAction.ref_id` 但状态不是 `awaiting_approval`（刚批准/退回，Worker 还没汇报清 `human_action`）时，把该工单 id 放进 `suppressedTicketIds`，避免出现一张点了就 409 的死卡。
@@ -201,6 +201,14 @@ export interface PlanApprovalCardProps {
 | 同上 | `opens the plan card in the phone attention sheet` | 手机汇总行 → Sheet 内计划卡可操作 |
 | 同上 | `falls back to the ticket card when the plan cannot be read` | 计划 404/详情无会话时仍出工单卡 |
 | 同上 | `shows an error when the approval request fails` | 500 时顶部错误「处理计划失败：…」 |
+| 同上 | `keeps the plan error visible after the last item disappears` | 409 后计划卡消失、列表空，错误仍可见 |
+| 同上 | `keeps the phone attention sheet open when the plan approval fails` | 手机面板因错误不自动收起 |
+| 同上 | `falls back to the ticket card when the plan request fails` | 计划 404 时回落工单卡 |
+| 同上 | `falls back to the ticket card when the plan does not match the decision` | ref 不匹配时回落工单卡 |
+| 同上 | `falls back to the ticket card when there is no plan` | plan 为 null 时回落工单卡 |
+| 同上 | `lets the user retry after an approval failure` | 失败后再次点击会重新 POST |
+| 同上 | `suppresses the ticket card after approving the plan` | 批准后同一工单不出 ticket 卡、列表回到空态 |
+| 同上 | `does not stay pending when a decision ticket has no worker session` | 无会话的 disabled 计划查询不计入 loading |
 
 既有用例不改仍通过（`ConsolePage.test.tsx`、`PlanPanel.test.tsx`、`attention.test.ts`）。
 

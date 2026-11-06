@@ -1,7 +1,11 @@
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConsolePage from './ConsolePage'
+import { toTicketView } from './api'
+import { useAttentionPlans } from './use-attention-plans'
 import {
   createConsoleApi,
   json,
@@ -175,4 +179,161 @@ describe('指挥台计划待批准', () => {
     // 失败后计划卡保留，用户可以重试。
     expect(screen.getByRole('heading', { name: '计划待批准' })).toBeInTheDocument()
   })
+
+  it('keeps the plan error visible after the last item disappears', async () => {
+    stubMedia((query) => query === DESKTOP)
+    createConsoleApi({
+      messages: [],
+      attentionTickets: [decisionTicket()],
+      ticketDetails: { t1: workerDetail() },
+      plans: { w1: plan() },
+      overrides: [({ method, path, state }) => {
+        if (method === 'POST' && path.endsWith('/plan/approval')) {
+          state.plans.w1 = plan({ status: 'active' })
+          return json({ error: { code: 'PLAN_NOT_AWAITING_APPROVAL', message: '计划不在待批准状态' } }, 409)
+        }
+        return undefined
+      }],
+    })
+    renderConsole()
+
+    fireEvent.click(await screen.findByRole('button', { name: '批准计划' }))
+
+    expect(await screen.findByText('处理计划失败：计划不在待批准状态')).toBeInTheDocument()
+    expect(await screen.findByText('还没有要你处理的事')).toBeInTheDocument()
+  })
+
+  it('keeps the phone attention sheet open when the plan approval fails', async () => {
+    createConsoleApi({
+      messages: [],
+      attentionTickets: [decisionTicket()],
+      ticketDetails: { t1: workerDetail() },
+      plans: { w1: plan() },
+      overrides: [({ method, path, state }) => {
+        if (method === 'POST' && path.endsWith('/plan/approval')) {
+          state.plans.w1 = plan({ status: 'active' })
+          return json({ error: { code: 'PLAN_NOT_AWAITING_APPROVAL', message: '计划不在待批准状态' } }, 409)
+        }
+        return undefined
+      }],
+    })
+    renderConsole()
+
+    fireEvent.click(await screen.findByRole('button', { name: '1 件事等你处理' }))
+    const sheet = await screen.findByRole('dialog', { name: '待你处理' })
+    fireEvent.click(await within(sheet).findByRole('button', { name: '批准计划' }))
+
+    expect(await within(sheet).findByText('处理计划失败：计划不在待批准状态')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '待你处理' })).toBeInTheDocument()
+  })
+
+  it('falls back to the ticket card when the plan request fails', async () => {
+    stubMedia((query) => query === DESKTOP)
+    createConsoleApi({
+      messages: [],
+      attentionTickets: [decisionTicket()],
+      ticketDetails: { t1: workerDetail() },
+      overrides: [({ method, path }) => (
+        method === 'GET' && path.endsWith('/plan')
+          ? json({ error: { code: 'PLAN_NOT_FOUND', message: '计划不存在' } }, 404)
+          : undefined
+      )],
+    })
+    renderConsole()
+
+    expect(await screen.findByText('清日常')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '计划待批准' })).not.toBeInTheDocument()
+  })
+
+  it('falls back to the ticket card when the plan does not match the decision', async () => {
+    stubMedia((query) => query === DESKTOP)
+    createConsoleApi({
+      messages: [],
+      attentionTickets: [decisionTicket()],
+      ticketDetails: { t1: workerDetail() },
+      plans: { w1: plan({ id: 'p2' }) },
+    })
+    renderConsole()
+
+    expect(await screen.findByText('清日常')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '计划待批准' })).not.toBeInTheDocument()
+  })
+
+  it('falls back to the ticket card when there is no plan', async () => {
+    stubMedia((query) => query === DESKTOP)
+    createConsoleApi({
+      messages: [],
+      attentionTickets: [decisionTicket()],
+      ticketDetails: { t1: workerDetail() },
+      plans: { w1: null },
+    })
+    renderConsole()
+
+    expect(await screen.findByText('清日常')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '计划待批准' })).not.toBeInTheDocument()
+  })
+
+  it('lets the user retry after an approval failure', async () => {
+    stubMedia((query) => query === DESKTOP)
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [decisionTicket()],
+      ticketDetails: { t1: workerDetail() },
+      plans: { w1: plan() },
+      overrides: [({ method, path }) => (
+        method === 'POST' && path.endsWith('/plan/approval')
+          ? json({ error: { code: 'SERVICE_UNAVAILABLE', message: '计划服务暂不可用' } }, 500)
+          : undefined
+      )],
+    })
+    renderConsole()
+
+    fireEvent.click(await screen.findByRole('button', { name: '批准计划' }))
+    expect(await screen.findByText('处理计划失败：计划服务暂不可用')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '批准计划' }))
+    await waitFor(() => expect(approvalPosts(api)).toHaveLength(2))
+  })
+
+  it('suppresses the ticket card after approving the plan', async () => {
+    stubMedia((query) => query === DESKTOP)
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [decisionTicket()],
+      ticketDetails: { t1: workerDetail() },
+      plans: { w1: plan() },
+    })
+    renderConsole()
+
+    fireEvent.click(await screen.findByRole('button', { name: '批准计划' }))
+    await waitFor(() => expect(approvalPosts(api)).toHaveLength(1))
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: '计划待批准' })).not.toBeInTheDocument()
+    })
+    // 计划批准后工单还挂着旧 human_action 时，不能再出现一张点了就 409 的工单卡。
+    expect(document.querySelector('[data-attention-kind="ticket"]')).not.toBeInTheDocument()
+    expect(await screen.findByText('还没有要你处理的事')).toBeInTheDocument()
+  })
+
+  it('does not stay pending when a decision ticket has no worker session', async () => {
+    stubMedia((query) => query === DESKTOP)
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [decisionTicket()],
+      ticketDetails: { t1: makeTicketDetail({ ticket: decisionTicket(), worker_session_id: null }) },
+    })
+    function Wrapper({ children }: { children: ReactNode }) {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    }
+    const { result } = renderHook(
+      () => useAttentionPlans([toTicketView(decisionTicket())]),
+      { wrapper: Wrapper },
+    )
+
+    await waitFor(() => expect(api.requests.some((item) => item.path === '/api/agent/tickets/t1')).toBe(true))
+    await waitFor(() => expect(result.current.isPending).toBe(false))
+    expect(result.current.items).toEqual([])
+    expect(result.current.suppressedTicketIds.size).toBe(0)
+  })
+
 })

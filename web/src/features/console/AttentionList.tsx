@@ -26,23 +26,10 @@ export interface AttentionListProps {
  * 每项上方一行来源文案；顺序由 `buildAttentionItems` 决定。
  */
 export function AttentionList({ attention, specTitles }: AttentionListProps) {
-  if (attention.isPending && attention.items.length === 0) {
-    return <LoadingState label="正在读取…" />
-  }
-  if (attention.error) {
-    return (
-      <ErrorState
-        message={`读取待你处理的事项失败：${toApiError(attention.error).message}`}
-        onRetry={attention.refetch}
-      />
-    )
-  }
-  if (attention.items.length === 0) {
-    return <p className="px-1 py-4 text-center text-footnote text-muted-foreground">还没有要你处理的事</p>
-  }
-
-  return (
-    <div className="space-y-3">
+  // 决定类的错误要能独立于列表存活：处理掉最后一张卡（含 409 已过期）后列表会空，
+  // 提示不能跟着消失（spec `console-plan-approval` §4.1、11 §3.2）。
+  const resolverErrors = (
+    <>
       {attention.resolver.error ? (
         <ErrorAlert error={attention.resolver.error} onDismiss={attention.resolver.clearError} />
       ) : null}
@@ -55,6 +42,32 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
       {attention.alertResolver.error ? (
         <ErrorAlert error={attention.alertResolver.error} onDismiss={attention.alertResolver.clearError} />
       ) : null}
+    </>
+  )
+
+  if (attention.isPending && attention.items.length === 0) {
+    return <LoadingState label="正在读取…" />
+  }
+  if (attention.error) {
+    return (
+      <ErrorState
+        message={`读取待你处理的事项失败：${toApiError(attention.error).message}`}
+        onRetry={attention.refetch}
+      />
+    )
+  }
+  if (attention.items.length === 0) {
+    return (
+      <div className="space-y-3">
+        {resolverErrors}
+        <p className="px-1 py-4 text-center text-footnote text-muted-foreground">还没有要你处理的事</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {resolverErrors}
       <ol aria-label="待你处理" className="space-y-3">
         {attention.items.map((item) => {
           if (item.kind === 'confirmation') {

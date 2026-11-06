@@ -30,20 +30,27 @@
 
 ## 验证证据
 
-（合并前由主 agent 亲自重跑，最终结果见下次提交）
-
 | 命令 | 结果 |
 |---|---|
-| `cd web && pnpm gen:api:check` | 待跑 |
-| `cd web && pnpm typecheck` | 待跑 |
-| `cd web && pnpm test --run` | 待跑 |
-| `cd web && pnpm build` | 待跑 |
-| `.venv/bin/python scripts/frontend_smoke.py` | 待跑 |
-| `.venv/bin/python -m pytest -q` | 待跑（无后端改动，回归确认） |
-| `.venv/bin/python scripts/check_doc_links.py` | 待跑 |
-| `git diff --check` | 待跑 |
+| `cd web && pnpm gen:api:check` | `OpenAPI types are up to date.`（exit 0） |
+| `cd web && pnpm typecheck` | 通过（exit 0） |
+| `cd web && pnpm test --run` | **114 files / 993 tests passed**（本次新增 14 条计划用例，含复审后补的失败路径） |
+| `cd web && pnpm build` | `built in ~0.5s`（exit 0） |
+| `.venv/bin/python scripts/frontend_smoke.py` | 末行 `SMOKE OK` |
+| `.venv/bin/python -m pytest -q` | **3 failed / 其余通过**：`test_activity_index` 2 条 + `test_stage_layout` 1 条，均为真资源数据漂移的**既有基线**（M85 台账记录「3 条真资源数据漂移」）；`git diff 175401e..HEAD -- maa_api tests` 为空，无新增失败 |
+| `.venv/bin/python scripts/check_doc_links.py` | 末行 `BROKEN 0` |
+| `git diff --check` | 干净（无输出） |
 
-补充检查（不作硬性验证）：桌面与 375px 宽度各走一遍「plan awaiting → 指挥台批准/退回」。
+补充检查（不作硬性验证）：桌面与 375px 宽度各走一遍「plan awaiting → 指挥台批准/退回」——本次用 jsdom 集成用例覆盖桌面侧栏与手机 Sheet 的批准/退回/失败路径，未做真机手动检查。
+
+## Final review（独立复审与修复）
+
+独立 reviewer（fresh context）复审 `175401e..610c0b9` 后结论 **With fixes**；已按意见做一轮修复，先 RED 后 GREEN：
+
+- Important 1：409 时计划卡消失会让列表变空、手机 Sheet 自动收起，错误提示丢失。修复：`AttentionList` 的 resolver 错误块提到空态之前；`ConsolePage` 的 Sheet 自动收起排除 `planResolver.error`。测试 `keeps the plan error visible after the last item disappears`、`keeps the phone attention sheet open when the plan approval fails` RED→GREEN。
+- Important 2：失败路径测试不足。补：计划 404、plan 为 null、ref 不匹配三种回落；审批 500 后重试；批准成功后同一工单不出 ticket 卡（死卡不变量）；409 提示可见性（上条）。
+- Minor：无会话候选的 disabled 计划查询不再计入 `isPending`（测试 `does not stay pending when a decision ticket has no worker session` RED→GREEN）；去掉不会命中的 `useMemo` 与多余类型断言；11 与 spec 的失败提示措辞同步。
+- 复审列出但本次不改的（记遗留）：初始加载先显示工单卡再切计划卡（失败与加载都回退，不丢事项）；计划进入 done/abandoned 后 GET 返回 null 时回退工单卡（spec §4.1 的取舍，等后端计划接口语义变化再处理）；来源行工单标题不可点（确认/提问同样，既有偏差）；PlanPanel 退回原因无 200 上限（本次要求 PlanPanel 行为不变，后端 `max_length=200` 兜底）；多张计划卡共享一个 mutation（与既有确认 resolver 同构）。
 
 ## 偏离（已记 13 §8.173）
 

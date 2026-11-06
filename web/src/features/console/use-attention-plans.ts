@@ -64,11 +64,10 @@ interface PlanCandidate {
  */
 export function useAttentionPlans(tickets: readonly TicketView[]): PlanAttentionSource {
   const candidates = useMemo<PlanCandidate[]>(
-    () => tickets.flatMap((ticket) => (
-      isPlanCandidate(ticket)
-        ? [{ ticket, planRefId: ticket.humanAction?.ref_id as string }]
-        : []
-    )),
+    () => tickets.flatMap((ticket) => {
+      const planRefId = ticket.humanAction?.ref_id
+      return isPlanCandidate(ticket) && planRefId ? [{ ticket, planRefId }] : []
+    }),
     [tickets],
   )
   const details = useQueries({
@@ -81,27 +80,26 @@ export function useAttentionPlans(tickets: readonly TicketView[]): PlanAttention
     queries: sessionIds.map((sessionId) => planQueryOptions(sessionId)),
   })
 
-  const { items, suppressedTicketIds } = useMemo(() => {
-    const nextItems: PlanAttentionView[] = []
-    const suppressed = new Set<string>()
-    candidates.forEach((candidate, index) => {
-      const workerSessionId = details[index]?.data?.workerSessionId
-      const plan = plans[index]?.data
-      if (!workerSessionId || !plan) return
-      // 只认当前 human_action 指向的这份计划；对不上时仍按现状显示工单卡。
-      if (plan.id !== candidate.planRefId) return
-      if (plan.status === 'awaiting_approval') {
-        nextItems.push({ ticket: candidate.ticket, plan, workerSessionId })
-      } else {
-        suppressed.add(candidate.ticket.id)
-      }
-    })
-    return { items: nextItems, suppressedTicketIds: suppressed as ReadonlySet<string> }
-  }, [candidates, details, plans])
+  // `useQueries` 每次 render 都返回新数组，这段不做 memo：数据量很小，且 memo 不会命中。
+  const items: PlanAttentionView[] = []
+  const suppressedTicketIds = new Set<string>()
+  candidates.forEach((candidate, index) => {
+    const workerSessionId = details[index]?.data?.workerSessionId
+    const plan = plans[index]?.data
+    if (!workerSessionId || !plan) return
+    // 只认当前 human_action 指向的这份计划；对不上时仍按现状显示工单卡。
+    if (plan.id !== candidate.planRefId) return
+    if (plan.status === 'awaiting_approval') {
+      items.push({ ticket: candidate.ticket, plan, workerSessionId })
+    } else {
+      suppressedTicketIds.add(candidate.ticket.id)
+    }
+  })
 
-  const isPending = candidates.length > 0 && (
-    details.some((query) => query.isPending) || plans.some((query) => query.isPending)
-  )
+  // disabled 查询（`planQueryOptions(null)`）的 `isPending` 恒为 true，不能算加载中，
+  // 否则没有 Worker 会话的 decision 工单会让「待你处理」永远停在「正在读取…」。
+  const isPending = candidates.length > 0
+    && [...details, ...plans].some((query) => query.isPending && query.fetchStatus !== 'idle')
   const refetch = useCallback(() => {
     for (const query of details) void query.refetch()
     for (const query of plans) void query.refetch()
