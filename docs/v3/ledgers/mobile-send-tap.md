@@ -1,6 +1,6 @@
 # 手机端发送按钮首次轻点被吞（维护性补丁台账）
 
-- 分支：`mobile-send-tap`；基点：`dev` = `5209442`；合并：待合并后回填（`dev` 上的 `merge: 手机端发送一次轻点即发出（维护性补丁，见 docs/v3/13 §8.174）`）；tag：无（维护性补丁，不新增里程碑）
+- 分支：`mobile-send-tap`；基点：`dev` = `5209442`；合并：`e7845bc`（`dev` 上的 `merge: 手机端发送一次轻点即发出（维护性补丁，见 docs/v3/13 §8.174）`）；tag：无（维护性补丁，不新增里程碑）
 - 决策记录：[docs/v3/13 §8.174](../13-决策记录.md)
 - 本任务无 spec/plan（bugfix）、无迁移、无后端改动、无接口/错误码/配置变化。
 
@@ -41,6 +41,9 @@
 | `.venv/bin/python scripts/frontend_smoke.py` | 末行 `SMOKE OK` |
 | `.venv/bin/python scripts/check_doc_links.py` | 末行 `BROKEN 0`（合并前在分支上跑） |
 | `git diff --check` | 干净 |
+| `.venv/bin/python -m pytest -o addopts= -q`（后端全量，合并前跑） | **3 failed / 5292 passed / 5 skipped / 2 xfailed**，496s；3 条失败是既有真资源用例（`test_activity_index` 2 条、`test_stage_layout` 1 条），与 M85 台账记录一致，与本次纯前端改动无关 |
+
+合并后 `dev` 复验（`e7845bc`）：`pnpm gen:api:check && pnpm typecheck && pnpm test --run` 全绿（114 files / 994 tests）；`pnpm build` → `[sw_harness] SERVICE WORKER OK`；`scripts/frontend_smoke.py` → `SMOKE OK`；`check_doc_links.py` → `BROKEN 0`；`git diff --check` 干净。
 
 ## 未覆盖
 
