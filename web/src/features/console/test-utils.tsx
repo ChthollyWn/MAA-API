@@ -608,6 +608,21 @@ export function makeTicketDetail(overrides: Json = {}): Json {
   }
 }
 
+/** 一份计划（M75）：默认是待批准、属于工单 t1 的会话 w1。 */
+export function makePlan(overrides: Json = {}): Json {
+  return {
+    id: 'p1',
+    session_id: 'w1',
+    ticket_id: 't1',
+    title: '清日常',
+    items: [],
+    status: 'awaiting_approval',
+    approved_by: null,
+    approved_at: null,
+    ...overrides,
+  }
+}
+
 export function makeRun(overrides: Json = {}): Json {
   return {
     run_id: 'run-1',

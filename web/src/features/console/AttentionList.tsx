@@ -11,6 +11,7 @@ import {
 import { ConfirmationCard } from '@/features/agent/ConfirmationCard'
 import { QuestionCard } from '@/features/agent/QuestionCard'
 import { ErrorAlert } from '@/features/agent/StatusAlerts'
+import { PlanApprovalCard } from './PlanApprovalCard'
 import { TICKET_STATUS_LABELS } from './api'
 import { originLabel, spendAttentionText } from './attention'
 import type { AttentionState } from './use-attention'
@@ -45,6 +46,12 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
       {attention.resolver.error ? (
         <ErrorAlert error={attention.resolver.error} onDismiss={attention.resolver.clearError} />
       ) : null}
+      {attention.planResolver.error ? (
+        <ErrorAlert
+          error={{ ...attention.planResolver.error, message: `处理计划失败：${attention.planResolver.error.message}` }}
+          onDismiss={attention.planResolver.clearError}
+        />
+      ) : null}
       {attention.alertResolver.error ? (
         <ErrorAlert error={attention.alertResolver.error} onDismiss={attention.alertResolver.clearError} />
       ) : null}
@@ -60,6 +67,27 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
                   confirmationId={item.confirmation.confirmation_id}
                   busy={attention.resolver.busyFor(item.confirmation.confirmation_id)}
                   onResolve={attention.resolver.resolve}
+                />
+              </li>
+            )
+          }
+          if (item.kind === 'plan') {
+            return (
+              <li
+                key={`plan-${item.plan.id}`}
+                data-attention-kind="plan"
+                data-attention-id={item.id}
+                className="space-y-1.5"
+              >
+                <p className="text-footnote text-muted-foreground">
+                  来自工单「{item.ticket.title}」· {specTitles.get(item.ticket.kind) ?? item.ticket.kind}
+                </p>
+                <PlanApprovalCard
+                  ticket={item.ticket}
+                  plan={item.plan}
+                  workerSessionId={item.workerSessionId}
+                  busy={attention.planResolver.busyFor(item.workerSessionId)}
+                  onResolve={attention.planResolver.resolve}
                 />
               </li>
             )
