@@ -367,7 +367,7 @@ Expected: `BROKEN 0`；无输出
 
 - [ ] **Step 5: 独立复审**
 
-派一个 fresh subagent 按 [requesting-code-review](../../../.dsh/skills) 的口径复审本分支 diff（重点：失败回退、计划卡与工单卡互斥、手机路径、测试是否真的会失败过），把意见处理完。
+派一个 fresh subagent 按 superpowers 的 requesting-code-review 口径复审本分支 diff（重点：失败回退、计划卡与工单卡互斥、手机路径、测试是否真的会失败过），把意见处理完。
 
 - [ ] **Step 6: 合并**
 

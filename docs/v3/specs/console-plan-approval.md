@@ -118,7 +118,7 @@ export interface PlanAttentionSource {
   refetch: () => void
 }
 export interface PlanResolver {
-  resolve: (workerSessionId: string, input: PlanApprovalInput) => void
+  resolve: (workerSessionId: string, ticketId: string, input: PlanApprovalInput) => void
   busyFor: (workerSessionId: string) => 'approve' | 'reject' | null
   error: ShownError | null
   clearError: () => void
@@ -148,7 +148,7 @@ export interface PlanApprovalCardProps {
   plan: PlanView
   workerSessionId: string
   busy: 'approve' | 'reject' | null
-  onResolve: (workerSessionId: string, input: PlanApprovalInput) => void
+  onResolve: (workerSessionId: string, ticketId: string, input: PlanApprovalInput) => void
 }
 ```
 
@@ -159,8 +159,8 @@ export interface PlanApprovalCardProps {
 | 概念 | 写法 |
 |---|---|
 | 卡片标题 | `计划待批准` |
-| 来源行 | `来自工单「{标题}」· {Worker 中文名}`（标题可点，打开工单） |
-| 按钮 | `批准计划`、`退回计划`、`提交退回`、`取消`、`打开工单` |
+| 来源行 | `来自工单「{标题}」· {Worker 中文名}`（由 AttentionList 统一渲染，与确认/提问同做法） |
+| 按钮 | `批准计划`、`退回计划`、`提交退回`、`取消`；卡片右上角 `打开工单` |
 | 退回原因 | 标签 `退回原因`，占位 `写清要改哪一步、改成什么`，最多 200 字 |
 | Toast | `已批准计划`、`已退回计划` |
 | 错误 | `处理计划失败：{原因}` |
