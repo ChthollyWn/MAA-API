@@ -3,6 +3,7 @@ import type { AgentQuestion } from '@/features/agent/types'
 import type { Confirmation } from '@/features/confirmations/ConfirmationsPanel'
 import type { MemoryItem } from '@/features/memory/api'
 import type { SpendSummary } from '@/features/spend/api'
+import type { PlanView } from '@/features/tickets/workspace-api'
 import type { AlertOut } from '@/features/watchdog/api'
 import { buildAttentionItems, originLabel, spendAttentionText, type AttentionItem } from './attention'
 import { toTicketView } from './api'
@@ -282,5 +283,66 @@ describe('M72 待你处理', () => {
     expect(originLabel(null, { kind: 'rest' }, titles)).toBe('来自 REST 调用')
     expect(originLabel(null, { kind: 'internal' }, titles)).toBe('来自旧会话')
     expect(originLabel(null, undefined, titles)).toBe('来自旧会话')
+  })
+})
+
+describe('计划待批准', () => {
+  const decisionTicket = (overrides: Record<string, unknown> = {}) => ticket({
+    id: 't-plan',
+    status: 'waiting',
+    human_action: { type: 'decision', prompt: '批准计划「清日常」？', ref_id: 'p1' },
+    ...overrides,
+  })
+
+  const plan = (overrides: Partial<PlanView> = {}): PlanView => ({
+    id: 'p1',
+    session_id: 'w1',
+    ticket_id: 't-plan',
+    title: '清日常',
+    items: [{ id: 'a1', title: '提交剿灭', status: 'in_progress', note: '先看体力' }],
+    status: 'awaiting_approval',
+    approved_by: null,
+    approved_at: null,
+    ...overrides,
+  })
+
+  it('turns a waiting ticket with a pending plan into a plan item', () => {
+    const items = buildAttentionItems({
+      confirmations: [],
+      questions: [],
+      tickets: [decisionTicket(), ticket({ id: 't-waiting', status: 'waiting' })],
+      plans: [{ ticket: decisionTicket(), plan: plan(), workerSessionId: 'w1' }],
+    })
+
+    expect(items.map((item) => item.kind)).toEqual(['plan', 'ticket'])
+    const planItem = items[0]
+    if (planItem?.kind !== 'plan') throw new Error('expected a plan item')
+    expect(planItem.id).toContain('p1')
+    expect(planItem.workerSessionId).toBe('w1')
+    expect(planItem.plan.title).toBe('清日常')
+    expect(planItem.ticket.id).toBe('t-plan')
+  })
+
+  it('hides a ticket whose plan already left awaiting approval', () => {
+    const items = buildAttentionItems({
+      confirmations: [],
+      questions: [],
+      tickets: [decisionTicket()],
+      suppressedTicketIds: new Set(['t-plan']),
+    })
+
+    expect(items).toEqual([])
+  })
+
+  it('keeps the ticket card when no plan data is available', () => {
+    const items = buildAttentionItems({
+      confirmations: [],
+      questions: [],
+      tickets: [decisionTicket({
+        human_action: { type: 'decision', prompt: '需要你决定', ref_id: 'watchdog:1' },
+      })],
+    })
+
+    expect(items.map((item) => item.kind)).toEqual(['ticket'])
   })
 })
