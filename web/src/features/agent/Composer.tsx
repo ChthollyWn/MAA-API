@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject, type TouchEvent } from 'react'
 import { ArrowUp, CircleStop, LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -60,6 +60,18 @@ export function Composer({ value, onValueChange, onSend, busy, onStop, stopping 
     return () => observer.disconnect()
   }, [docked])
 
+  /**
+   * 触屏轻点发送：浏览器合成 click 之前，这次轻点会先让输入框失焦、键盘收起，贴底输入栏
+   * 随键盘和视口变化位移，合成 click 可能不再落到按钮上（iOS 也有首次轻点只用来收键盘的
+   * 情形），表现得像要点两下。touch 事件按 touchstart 的目标派发、touchend 一定到达按钮，
+   * 所以触屏上在 touchend 直接发送；拦掉随后的合成 click，避免一次轻点发两条。
+   */
+  const onSendTouchEnd = (event: TouchEvent<HTMLButtonElement>) => {
+    if (!canSend) return
+    event.preventDefault()
+    onSend()
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (interceptKeyDown?.(event)) return
     // 输入法组字时的 Enter 用来上屏；Safari 在 compositionend 之后才派发它，只能靠 keyCode 229 认出。
@@ -119,7 +131,7 @@ export function Composer({ value, onValueChange, onSend, busy, onStop, stopping 
                   : <CircleStop aria-hidden="true" />}
               </Button>
             ) : (
-              <Button type="submit" size="icon" aria-label="发送" disabled={!canSend} className="rounded-full">
+              <Button type="submit" size="icon" aria-label="发送" disabled={!canSend} className="rounded-full" onTouchEnd={onSendTouchEnd}>
                 {busy ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <ArrowUp aria-hidden="true" />}
               </Button>
             )}
