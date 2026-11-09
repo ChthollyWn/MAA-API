@@ -44,6 +44,7 @@ from maa_api.agent.workers.pump import (
     WorkerSlots,
     run_agent,
 )
+from maa_api.agent.workers.verification import VerificationGate, merge_verification
 from maa_api.db.models import AgentSession, Pipeline, Ticket, utcnow
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.repositories.pipeline import PipelineRepository
@@ -519,11 +520,27 @@ class WorkerService:
             )
 
         status = ReportStatus(params.status)
+        details = getattr(params, "details", None)
+        if (
+            status is ReportStatus.READY
+            and bool(getattr(ctx.spec, "verify_before_ready", False))
+            and ticket_id
+        ):
+            # 完成闸门（M87 §4.5.3）：被拒时返回工具结果，不落汇报、不结束运行。
+            decision = await VerificationGate(self._session_factory).check(
+                ticket_id=ticket_id,
+                worker_session_id=ctx.session_id or "",
+                claim=params.summary,
+                details=details,
+            )
+            if not decision.accepted:
+                return decision.tool_result()
+            details = merge_verification(details, decision.report_details())
         report = ReportInput(
             status=status,
             summary=params.summary,
             human_action=_human_action(params.human_action),
-            details=getattr(params, "details", None),
+            details=details,
         )
         outcome = await self._ticket_service.record_report(
             ticket_id, report, run_id=ctx.run_id

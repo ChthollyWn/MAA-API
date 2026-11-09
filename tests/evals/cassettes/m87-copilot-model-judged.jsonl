@@ -1,0 +1,10 @@
+{"type": "header", "format": 1, "scenario": "m87-copilot-model-judged", "source": "handwritten", "recorded_at": "2026-11-09T00:00:00Z", "model": "eval-model", "agent": "copilot", "spec_version": null, "notes": "M87 T7：模型补判三星，验证员复核后放行"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-attempt-1", "name": "run_copilot_attempt", "arguments": {"copilot_id": "cp-eval-1-7", "support": "none"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-record-1", "name": "record_copilot_result", "arguments": {"attempt_id": "{{result:call-attempt-1:attempt_id}}", "outcome": "three_star", "evidence": "结算截图显示三星"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-report-1", "name": "report", "arguments": {"status": "ready", "summary": "1-7 三星达成：作业 cp-eval-1-7 一次过，内核没识别出星级，按结算截图补判三星。"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-delegate-1", "name": "delegate", "arguments": {"agent": "verifier", "task": "核对工单「用作业打 1-7」是否完成：作业 cp-eval-1-7 一次过，按结算截图补判三星。", "context": "执行记录：\n- 作业尝试 #1 关卡 1-7：three_star，判定方 model，计次\n- 原子操作 run_copilot_attempt × 1\n核对方法：get_screenshot 看关卡页上这一关的通关标记与星数"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"passed\": true, \"confidence\": 0.9, \"evidence\": [\"截图显示三星\"], \"notes\": \"\"}"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-report-2", "name": "report", "arguments": {"status": "ready", "summary": "1-7 三星达成：作业 cp-eval-1-7 一次过，验证员按现拍截图确认三星。"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"items\": []}"}}

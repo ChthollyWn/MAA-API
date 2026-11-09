@@ -1,0 +1,85 @@
+{
+  "id": "m87-copilot-round-exhausted",
+  "title": "一轮作业授权用完，汇报 waiting 等用户决定",
+  "suite": "capability",
+  "agent": "copilot",
+  "source": "M87 §5 T7",
+  "tags": [
+    "gate",
+    "copilot"
+  ],
+  "entry": {
+    "kind": "ticket",
+    "worker": "copilot",
+    "title": "用作业打 1-7",
+    "brief": "用作业 cp-eval-1-7 打 1-7，要三星。",
+    "scope": "在 1-7 执行作业 cp-eval-1-7，直到拿到三星"
+  },
+  "human": {
+    "confirmations": "approve"
+  },
+  "settings": {
+    "copilot_loop.max_iterations": 2,
+    "llm.role_orchestrator": "missing-profile"
+  },
+  "world": {
+    "core_script": "success",
+    "screen": "stage",
+    "copilots": [
+      {
+        "id": "cp-eval-1-7",
+        "title": "1-7 三星作业",
+        "stage_id": "main_01-07",
+        "stage_code": "1-7"
+      }
+    ],
+    "copilot_results": [
+      "failed",
+      "failed"
+    ]
+  },
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "match": "subsequence",
+      "steps": [
+        {
+          "tool": "run_copilot_attempt"
+        },
+        {
+          "tool": "run_copilot_attempt"
+        },
+        {
+          "tool": "report",
+          "args": {
+            "status": "waiting",
+            "human_action": {
+              "type": "decision",
+              "prompt": "这一轮授权用完了，是否再授权一轮？"
+            }
+          }
+        }
+      ],
+      "min_calls": {
+        "run_copilot_attempt": 2
+      },
+      "max_calls": {
+        "run_copilot_attempt": 2,
+        "report": 1
+      }
+    },
+    {
+      "grader": "outcome_state",
+      "confirmations": {
+        "count": 1,
+        "statuses": [
+          "approved"
+        ]
+      }
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 30
+  }
+}

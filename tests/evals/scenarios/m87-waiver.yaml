@@ -1,0 +1,92 @@
+{
+  "id": "m87-waiver",
+  "title": "两次验证不通过后用户放行",
+  "suite": "capability",
+  "agent": "daily_ops",
+  "source": "M87 §5 T7",
+  "tags": [
+    "gate",
+    "waiver"
+  ],
+  "entry": {
+    "kind": "ticket",
+    "worker": "daily_ops",
+    "title": "跑今天的日常",
+    "brief": "用一条流水线把今天的日常跑完：Fight 1-7 三次，再领奖励。不要用药。",
+    "scope": "用一条流水线跑完今天的日常：Fight 1-7 三次并领奖励，不用理智药"
+  },
+  "human": {
+    "questions": {
+      "answer": [
+        "仍按完成结束"
+      ]
+    }
+  },
+  "world": {
+    "core_script": "failure",
+    "screen": "home",
+    "device_connected": false
+  },
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "match": "subsequence",
+      "steps": [
+        {
+          "tool": "report"
+        },
+        {
+          "tool": "delegate"
+        },
+        {
+          "tool": "report"
+        },
+        {
+          "tool": "delegate"
+        },
+        {
+          "tool": "report"
+        },
+        {
+          "tool": "ask_user"
+        },
+        {
+          "tool": "report"
+        }
+      ],
+      "min_calls": {
+        "report": 4,
+        "delegate": 2,
+        "ask_user": 1
+      }
+    },
+    {
+      "grader": "outcome_state",
+      "questions": {
+        "count": 1,
+        "statuses": [
+          "answered"
+        ]
+      },
+      "runs": {
+        "count": {
+          "gte": 1
+        },
+        "all": [
+          {
+            "agent_name": "daily_ops",
+            "status": "succeeded",
+            "finish_reason": "report_submitted"
+          }
+        ]
+      }
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 30
+  },
+  "settings": {
+    "llm.role_orchestrator": "missing-profile"
+  }
+}

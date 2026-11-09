@@ -11,12 +11,14 @@ from pydantic import BaseModel, ValidationError
 
 from maa_api.agent.preconditions import missing_start_up_warning
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRisk
+from maa_api.db.models import AgentSession
 from maa_api.db.repositories.agent import AgentSessionRepository
 from maa_api.db.repositories.audit import ConfirmationRepository
 from maa_api.db.repositories.pipeline import TaskRepository
 from maa_api.domain.enums import AgentSessionStatus, CallerType, RiskLevel
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.domain.task import RISK_FIELDS, TASK_MODELS
+from maa_api.settings import get_settings
 
 DEFAULT_ATOMIC_GRANT_MINUTES = 15
 MAX_ATOMIC_GRANT_MINUTES = 60
@@ -272,32 +274,11 @@ class PolicyEngine:
         value = _as_json_value(value)
         grant = await _active_copilot_grant(context)
         if grant is None:
-            attempts = value.get("grant_attempts") if isinstance(value, Mapping) else None
-            success = value.get("success") if isinstance(value, Mapping) else None
-            support = value.get("support") if isinstance(value, Mapping) else None
-            attempts = int(attempts) if isinstance(attempts, int) and not isinstance(attempts, bool) else 3
-            success = str(success or "three_star")
-            stage_id, stage_code = await _copilot_stage(
-                value.get("copilot_id") if isinstance(value, Mapping) else None, context
-            )
-            payload: dict[str, Any] = {
-                "attempts": max(1, min(attempts, 10)),
-                "success": success if success in {"three_star", "clear"} else "three_star",
-                "support": str(support) if support in {"fill_one", "none"} else "fill_one",
-                "tool_name": name,
-                "target_kind": "copilot",
-                # 确认接口批准时要写进授权行，所以关卡与会话必须在 payload 里（§9.6）。
-                "session_id": context.session_id,
-                "stage_id": stage_id,
-                "stage_code": stage_code,
-            }
-            return PolicyDecision(
-                True,
-                RiskLevel.CONSUME,
-                reasons=(f"执行作业尝试需要授权：{payload['attempts']} 次以内",),
-                confirmation_action="grant_copilot_attempts",
-                extra_payload=payload,
-            )
+            # M87 §4.5.5：工单 Worker 会话里预填次数按 copilot_loop.max_iterations 夹住。
+            limit = None
+            if await _ticket_worker_session(context) is not None:
+                limit = get_settings().copilot_loop.max_iterations
+            return await _copilot_grant_card(context, name, value, limit=limit)
         stage_id = value.get("stage_id") if isinstance(value, Mapping) else None
         if stage_id and str(stage_id) != str(grant.get("stage_id")):
             raise AppError(
@@ -308,6 +289,15 @@ class PolicyEngine:
             )
         remaining = int(grant.get("attempts") or 0) - int(grant.get("used") or 0)
         if remaining <= 0:
+            # M87 §4.5.5：工单会话先把旧授权落 exhausted，再走「没有授权」弹新卡；
+            # v2 聊天会话保持抛错（旧行仍 active）。
+            worker_session_id = await _ticket_worker_session(context)
+            if worker_session_id is not None:
+                await _grant_service(context).mark_exhausted(worker_session_id)
+                limit = get_settings().copilot_loop.max_iterations
+                return await _copilot_grant_card(
+                    context, name, value, limit=limit
+                )
             raise AppError(
                 ErrorCode.COPILOT_GRANT_EXHAUSTED,
                 "本次作业授权的尝试次数已用完，需要重新申请",
@@ -636,6 +626,79 @@ async def _copilot_stage(
         )
     except Exception:  # noqa: BLE001 - 关卡只是确认卡片的附加信息
         return None, None
+
+
+async def _copilot_grant_card(
+    context: ToolContext,
+    name: str,
+    value: Any,
+    *,
+    limit: int | None = None,
+) -> PolicyDecision:
+    """没有授权时的确认卡决策（M87 §4.5.5 抽出；``limit`` 只给工单会话）。"""
+    attempts = value.get("grant_attempts") if isinstance(value, Mapping) else None
+    success = value.get("success") if isinstance(value, Mapping) else None
+    support = value.get("support") if isinstance(value, Mapping) else None
+    attempts = int(attempts) if isinstance(attempts, int) and not isinstance(attempts, bool) else 3
+    success = str(success or "three_star")
+    stage_id, stage_code = await _copilot_stage(
+        value.get("copilot_id") if isinstance(value, Mapping) else None, context
+    )
+    checked = max(1, min(attempts, 10))
+    payload: dict[str, Any] = {
+        "attempts": checked,
+        "success": success if success in {"three_star", "clear"} else "three_star",
+        "support": str(support) if support in {"fill_one", "none"} else "fill_one",
+        "tool_name": name,
+        "target_kind": "copilot",
+        # 确认接口批准时要写进授权行，所以关卡与会话必须在 payload 里（§9.6）。
+        "session_id": context.session_id,
+        "stage_id": stage_id,
+        "stage_code": stage_code,
+    }
+    if limit is not None:
+        payload["attempts"] = min(checked, limit)
+        # 前端授权卡按它限制下拉框；用户 overrides 里不允许出现这个键。
+        payload["max_attempts"] = limit
+    return PolicyDecision(
+        True,
+        RiskLevel.CONSUME,
+        reasons=(f"执行作业尝试需要授权：{payload['attempts']} 次以内",),
+        confirmation_action="grant_copilot_attempts",
+        extra_payload=payload,
+    )
+
+
+async def _ticket_worker_session(context: ToolContext) -> str | None:
+    """工单 Worker 会话的 id：``kind=worker``、没有父会话、``ticket_id`` 非空。"""
+    if context.db_session is None or not context.session_id:
+        return None
+    try:
+        row = await context.db_session.get(AgentSession, context.session_id)
+    except Exception:  # noqa: BLE001 - 读不到会话按 v2 聊天会话处理
+        return None
+    if row is None or str(row.kind) != "worker" or row.parent_session_id is not None:
+        return None
+    return str(row.id) if row.ticket_id else None
+
+
+def _grant_service(context: ToolContext) -> Any:
+    """作业授权服务：复用调用方已有的会话，不另开连接（M87 §4.5.5）。"""
+    from maa_api.services.copilot.grant import CopilotGrantService
+
+    session = context.db_session
+
+    def factory():  # pragma: no cover - 复用调用方已有的会话
+        class _Existing:
+            async def __aenter__(self_inner):
+                return session
+
+            async def __aexit__(self_inner, *exc):
+                return False
+
+        return _Existing()
+
+    return CopilotGrantService(factory)
 
 
 async def _active_copilot_grant(context: ToolContext) -> dict[str, Any] | None:

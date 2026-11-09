@@ -1,0 +1,78 @@
+{
+  "id": "m87-daily-machine-pass",
+  "title": "日常流水线全成功，机器证据放行",
+  "suite": "capability",
+  "agent": "daily_ops",
+  "source": "M87 §5 T7",
+  "tags": [
+    "gate",
+    "daily"
+  ],
+  "entry": {
+    "kind": "ticket",
+    "worker": "daily_ops",
+    "title": "跑今天的日常",
+    "brief": "用一条流水线把今天的日常跑完：Fight 1-7 三次，再领奖励。不要用药。",
+    "scope": "用一条流水线跑完今天的日常：Fight 1-7 三次并领奖励，不用理智药"
+  },
+  "world": {
+    "core_script": "success",
+    "screen": "home"
+  },
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "match": "subsequence",
+      "steps": [
+        {
+          "tool": "submit_pipeline"
+        },
+        {
+          "tool": "wait_pipeline"
+        },
+        {
+          "tool": "report"
+        }
+      ],
+      "forbid": [
+        "delegate"
+      ],
+      "max_calls": {
+        "report": 1
+      }
+    },
+    {
+      "grader": "outcome_state",
+      "runs": {
+        "count": {
+          "gte": 1
+        },
+        "all": [
+          {
+            "agent_name": "daily_ops",
+            "status": "succeeded",
+            "finish_reason": "report_submitted"
+          }
+        ]
+      },
+      "pipelines": {
+        "count": {
+          "gte": 1
+        },
+        "last": {
+          "status": "completed"
+        }
+      },
+      "model_calls": {
+        "lte": 6
+      }
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 30
+  },
+  "settings": {
+    "llm.role_orchestrator": "missing-profile"
+  }
+}

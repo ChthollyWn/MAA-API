@@ -30,12 +30,20 @@ def _options(tmp_path: Path) -> EvalOptions:
 
 def test_every_scenario_loads_and_has_a_cassette() -> None:
     scenarios = load_scenarios(SCENARIOS_DIR)
-    assert len(scenarios) == 13
+    assert len(scenarios) == 19
     ids = {scenario.id for scenario in scenarios}
-    assert len(ids) == 13
+    assert len(ids) == 19
     for scenario in scenarios:
         path = CASSETTES_DIR / scenario.cassette_name()
         assert path.is_file(), f"{scenario.id} 缺少录制文件 {path}"
+
+
+def test_every_scenario_has_a_driver() -> None:
+    from maa_api.agent.evals.runner import DRIVERS
+
+    for scenario in load_scenarios(SCENARIOS_DIR):
+        assert scenario.entry.kind in DRIVERS
+    assert "ticket" in DRIVERS
 
 
 @pytest.mark.parametrize(

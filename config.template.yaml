@@ -309,6 +309,10 @@ memory:
   # 注入预算，0–8000，用 M67 的 token 估算
   max_injection_tokens: 1500
 
+# 作业研究闭环（M87）：工单里每份作业授权最多试几次；用完后由用户决定要不要再授权一轮。
+copilot_loop:
+  max_iterations: 3
+
 # 运行追踪：每次代理调用的步骤、耗时与用量
 trace:
   enabled: true

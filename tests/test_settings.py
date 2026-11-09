@@ -451,6 +451,8 @@ def test_env_mapping_names_are_pinned() -> None:
         "memory.auto_extract": "MAA_MEMORY_AUTO_EXTRACT",
         "memory.require_review": "MAA_MEMORY_REQUIRE_REVIEW",
         "memory.max_injection_tokens": "MAA_MEMORY_MAX_INJECTION_TOKENS",
+        # M87：作业研究闭环每轮最多尝试次数（不是 config-only）。
+        "copilot_loop.max_iterations": "MAA_COPILOT_LOOP_MAX_ITERATIONS",
         # M80：提示注入防护两项（都不是 config-only）。
         "guard.injection_detection": "MAA_GUARD_INJECTION_DETECTION",
         "guard.block_on_detect": "MAA_GUARD_BLOCK_ON_DETECT",
@@ -2448,3 +2450,35 @@ def test_nav_fields_schema() -> None:
         max_steps["maximum"],
         max_steps["hot_action"],
     ) == ("一次导航最多步数", "Agent", "integer", 1, 50, "none")
+
+
+def test_copilot_loop_max_iterations_defaults_and_bounds() -> None:
+    """M87 §4.4：作业研究每轮最多尝试次数，默认 3，范围 1–10。"""
+    from maa_api.services.settings_schema import schema_for
+    from maa_api.settings import CopilotLoopSettings
+
+    default = Settings()
+    assert isinstance(default.copilot_loop, CopilotLoopSettings)
+    assert default.copilot_loop.max_iterations == 3
+    assert resolve_settings(env={}).copilot_loop.max_iterations == 3
+    assert (
+        resolve_settings(
+            {"copilot_loop": {"max_iterations": 5}}, env={}
+        ).copilot_loop.max_iterations
+        == 5
+    )
+    assert (
+        resolve_settings(env={"MAA_COPILOT_LOOP_MAX_ITERATIONS": "7"})
+        .copilot_loop.max_iterations
+        == 7
+    )
+
+    for bad in (0, 11):
+        with pytest.raises(ValidationError):
+            Settings(copilot_loop={"max_iterations": bad})
+
+    row = schema_for("copilot_loop.max_iterations")
+    assert (
+        row["label"], row["group"], row["type"],
+        row["minimum"], row["maximum"], row["hot_action"],
+    ) == ("作业研究每轮最多尝试次数", "Agent", "integer", 1, 10, "none")

@@ -1,0 +1,8 @@
+{"type": "header", "format": 1, "scenario": "m87-copilot-two-rounds", "source": "handwritten", "recorded_at": "2026-11-09T00:00:00Z", "model": "eval-model", "agent": "copilot", "spec_version": null, "notes": "M87 T7：作业两次尝试后三星，机器证据放行"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-shot-1", "name": "get_screenshot", "arguments": {}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-attempt-1", "name": "run_copilot_attempt", "arguments": {"copilot_id": "cp-eval-1-7", "support": "none"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-attempt-2", "name": "run_copilot_attempt", "arguments": {"copilot_id": "cp-eval-1-7", "support": "none"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-report-1", "name": "report", "arguments": {"status": "ready", "summary": "1-7 三星达成：用作业 cp-eval-1-7 试了两次，第二次三星。"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"items\": []}"}}

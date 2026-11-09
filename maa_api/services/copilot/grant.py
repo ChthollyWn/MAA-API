@@ -336,6 +336,7 @@ class CopilotGrantService:
         window_minutes: Any = None,
         grant_id: str | None = None,
         overrides: Mapping[str, Any] | None = None,
+        max_attempts: Any = None,
     ) -> dict[str, Any]:
         """批准一次作业授权（用户可改尝试次数 / 成功标准 / 是否允许助战）。
 
@@ -354,6 +355,11 @@ class CopilotGrantService:
             if support is None and "support" in overrides:
                 support = overrides["support"]
         resolved_attempts = _require_attempts(attempts)
+        if max_attempts is not None:
+            # M87 §4.5.5：用户在卡上改得再大也夹到当时的 copilot_loop.max_iterations。
+            resolved_attempts = min(
+                resolved_attempts, _require_attempts(max_attempts)
+            )
         resolved_success = _require_choice(success, SUCCESS_CRITERIA, "success")
         resolved_support = _require_choice(support, SUPPORT_MODES, "support")
         minutes = self._window_minutes(window_minutes) or self.window_minutes()
@@ -509,6 +515,14 @@ class CopilotGrantService:
     async def stop(self, session_id: str | None, reason: str = "") -> dict[str, Any] | None:
         """停止授权：用户中断本轮（M22），或理智不足（规格 §9.7）。"""
         return await self._terminate(session_id, "stopped", reason=reason)
+
+    async def mark_exhausted(
+        self, session_id: str | None
+    ) -> dict[str, Any] | None:
+        """工单会话的次数用完：旧授权落 ``exhausted``，用户可批准新一轮（M87 §4.5.5）。"""
+        return await self._terminate(
+            session_id, "exhausted", reason="次数用完，用户可批准新一轮"
+        )
 
     async def finish(self, session_id: str | None, status: str) -> dict[str, Any] | None:
         """把授权落成一个终态（``succeeded`` / ``exhausted`` …）。"""

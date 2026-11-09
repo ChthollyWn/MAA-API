@@ -34,6 +34,7 @@ from maa_api.agent.llm.structured import complete_structured, get_schema
 from maa_api.agent.trace.spans import current_span, reset_span, use_span
 from maa_api.agent.workers.cards import effective_ceiling, task_card
 from maa_api.agent.workers.pump import run_agent
+from maa_api.agent.workers.verification import VerificationGate
 from maa_api.db.models import AgentMessage, AgentSession, utcnow
 from maa_api.db.repositories.agent import (
     AgentMessageRepository,
@@ -228,6 +229,18 @@ class DelegationService:
 
             result = await self.finalize_output(spec, session, run, outcome)
             await self._finish_run(run, outcome)
+            if str(getattr(spec, "name", "")) == "verifier":
+                # §4.5.4：验证员结论落进 agent_run.meta，失败只记 warning。
+                try:
+                    await VerificationGate(self._session_factory).record_verdict(
+                        run_id=run.id,
+                        verdict=result,
+                        degraded=bool(result.get("degraded")),
+                    )
+                except Exception:  # noqa: BLE001 - 写结论不能影响委派结果
+                    logger.warning(
+                        "验证员结论没有落库：run=%s", run.id, exc_info=True
+                    )
             await self._set_session_status(session.id, AgentSessionStatus.FINISHED)
             await parent.emit(
                 "subagent_end",

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, update
@@ -80,6 +80,31 @@ _ATTEMPT_WRITABLE_FIELDS = frozenset(
         "note",
     }
 )
+
+
+def _started_at(value: Any) -> datetime | None:
+    """尝试记录里的 ``started_at`` 是 ISO 字符串（``attempt.py`` 的 ``_iso``）。
+
+    统一成 naive UTC 再比较，避免同一份资源里混进带时区偏移的写法。
+    """
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, str):
+        try:
+            moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
+    return moment
+
+
+def _attempt_order(item: Mapping[str, Any]) -> tuple[bool, datetime]:
+    """按 ``started_at`` 升序；缺失或写坏的排最后（稳定排序保留资源里的顺序）。"""
+    moment = _started_at(item.get("started_at"))
+    return (moment is None, moment or datetime.min)
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,3 +316,25 @@ class CopilotAttemptRepository(BaseRepository):
                 if str(item.get("id")) == attempt_id:
                     return AttemptRecord(asset_id=str(row.id), data=item)
         return None
+
+    async def list_for_session(self, session_id: str) -> list[dict[str, Any]]:
+        """某个会话的全部作业尝试（M87 闸门用），``started_at`` 升序。
+
+        照 :meth:`find` 的扫法：``kind=copilot`` 的资源各读一份 ``meta["attempts"]``，
+        按 ``session_id`` 过滤；每项保持资源里存的键，不改名也不补默认值。
+        """
+        if not session_id:
+            return []
+        result = await self.session.execute(
+            select(ResourceAsset).where(
+                ResourceAsset.kind == ResourceAssetKind.COPILOT.value
+            )
+        )
+        rows = [
+            item
+            for row in result.scalars().all()
+            for item in self._attempts(self._meta(row))
+            if str(item.get("session_id") or "") == session_id
+        ]
+        rows.sort(key=_attempt_order)
+        return rows

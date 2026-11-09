@@ -35,6 +35,7 @@ from maa_api.agent.tools import build_registry
 from maa_api.agent.workers.middleware import (
     MISSING_MANDATE_MESSAGE,
     REPORT_NOT_LAST_MESSAGE,
+    SUBMITTED_KEY,
     MandateMiddleware,
     ReportMiddleware,
     ensure_report,
@@ -298,6 +299,40 @@ class _ReportExecutor(Middleware):
         self, ctx: RunContext, call: ToolCall, call_next
     ) -> ToolOutcome:
         return ToolOutcome(status="ok", result={"report_id": 7})
+
+
+def test_rejected_report_does_not_stop_the_run() -> None:
+    """M87 §4.5.3：``accepted=false`` 是工具结果，不是本轮的收尾。"""
+    async def scenario() -> None:
+        middleware = ReportMiddleware()
+        ctx = _context()
+        await middleware.on_run_start(ctx)
+
+        async def rejected(call: ToolCall) -> ToolOutcome:
+            return ToolOutcome(
+                status="ok",
+                result={
+                    "accepted": False,
+                    "reason": "verification_required",
+                    "message": "先委派验证员",
+                    "evidence": [],
+                    "delegate": {"agent": "verifier"},
+                },
+            )
+
+        outcome = await middleware.wrap_tool(
+            ctx,
+            _call("report-1", "report", {"status": "ready", "summary": "做完了"}),
+            rejected,
+        )
+
+        assert outcome.status == "ok"
+        assert outcome.result["accepted"] is False
+        assert outcome.stop_run is False
+        assert outcome.stop_reason is None
+        assert ctx.state[SUBMITTED_KEY] is None
+
+    asyncio.run(scenario())
 
 
 def test_report_stops_the_run_with_report_submitted() -> None:
