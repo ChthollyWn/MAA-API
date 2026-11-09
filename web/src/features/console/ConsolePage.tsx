@@ -18,9 +18,7 @@ import { DESKTOP_QUERY, useMediaQuery } from '@/lib/media'
 import { ActiveTicketsPanel } from './ActiveTicketsPanel'
 import { ActiveTicketsStrip } from './ActiveTicketsStrip'
 import { activeTicketsQuery, deviceLeaseQuery, orchestratorStateQuery, useSpecTitles } from './api'
-import { AttentionPanel } from './AttentionPanel'
-import { AttentionSheet } from './AttentionSheet'
-import { AttentionSummaryBar } from './AttentionSummaryBar'
+import { AttentionFeed } from './AttentionFeed'
 import { ConversationComposer } from './conversation/ConversationComposer'
 import { ConversationView } from './conversation/ConversationView'
 import { orchestratorEndpoints, useConversation } from './conversation/use-conversation'
@@ -55,7 +53,6 @@ export default function ConsolePage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [confirm, confirmElement] = useConfirm()
-  const [sheetOpen, setSheetOpen] = useState(false)
   const [seed, setSeed] = useState<{ text: string; nonce: number } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
@@ -88,11 +85,6 @@ export default function ConsolePage() {
     excludeIds,
     onQuestionResolved: controller.onQuestionResolved,
   })
-
-  // 处理完最后一张时手机面板自动收起（§4.6.4）；审批失败时保留面板，错误才看得见。
-  useEffect(() => {
-    if (sheetOpen && attention.items.length === 0 && !attention.planResolver.error) setSheetOpen(false)
-  }, [sheetOpen, attention.items.length, attention.planResolver.error])
 
   // 服务端用 SSE error 事件回的错误在实时副本里；副本让位给历史后仍要留在页面上。
   const [liveError, setLiveError] = useState<ShownError | null>(null)
@@ -174,12 +166,15 @@ export default function ConsolePage() {
         live.running,
       ].join(':')
     : 'idle'
+  // 待办项签名进 tailKey：新增或处理掉一张卡时，停在底部的话继续贴底。
+  const attentionKey = attention.items.map((item) => item.id).join(',')
   const tailKey = [
     controller.visible.at(-1)?.id ?? 'none',
     liveKey,
     controller.queued.length,
     shownError?.message ?? '',
     controller.query.status,
+    attentionKey,
   ].join('|')
 
   const scroll = useConversationScroll({
@@ -205,32 +200,35 @@ export default function ConsolePage() {
   )
 
   const conversation = (
-    <ConversationView
-      scope={{ kind: 'orchestrator' }}
-      history={controller.visible}
-      mainSessionId={state.data?.session_id ?? null}
-      specTitles={specTitles}
-      checkpoints={checkpoints.data ?? []}
-      live={controller.live}
-      showOptimisticUser={controller.showOptimisticUser}
-      queued={controller.queued}
-      resolver={controller.confirmationResolver}
-      onQuestionResolved={controller.onQuestionResolved}
-      earlier={{
-        hasEarlier: controller.hasEarlier,
-        loading: controller.loadingEarlier,
-        error: controller.earlierError,
-        onLoad: () => controller.loadEarlier(scroll.rememberPositionBeforePrepend),
-      }}
-      error={shownError}
-      emptyState={showQuickStart ? <QuickStart onPick={(text) => setSeed({ text, nonce: Date.now() })} /> : undefined}
-      actions={{
-        kind: 'orchestrator',
-        running: Boolean(state.data?.turn_running),
-        sessionId,
-        onResend: (text) => controller.send({ content: text, mentions: [] }),
-      }}
-    />
+    <>
+      <ConversationView
+        scope={{ kind: 'orchestrator' }}
+        history={controller.visible}
+        mainSessionId={state.data?.session_id ?? null}
+        specTitles={specTitles}
+        checkpoints={checkpoints.data ?? []}
+        live={controller.live}
+        showOptimisticUser={controller.showOptimisticUser}
+        queued={controller.queued}
+        resolver={controller.confirmationResolver}
+        onQuestionResolved={controller.onQuestionResolved}
+        earlier={{
+          hasEarlier: controller.hasEarlier,
+          loading: controller.loadingEarlier,
+          error: controller.earlierError,
+          onLoad: () => controller.loadEarlier(scroll.rememberPositionBeforePrepend),
+        }}
+        error={shownError}
+        emptyState={showQuickStart ? <QuickStart onPick={(text) => setSeed({ text, nonce: Date.now() })} /> : undefined}
+        actions={{
+          kind: 'orchestrator',
+          running: Boolean(state.data?.turn_running),
+          sessionId,
+          onResend: (text) => controller.send({ content: text, mentions: [] }),
+        }}
+      />
+      <AttentionFeed attention={attention} specTitles={specTitles} />
+    </>
   )
 
   const composer = (
@@ -271,7 +269,6 @@ export default function ConsolePage() {
             {composer}
           </section>
           <aside aria-label="指挥台侧栏" className="flex min-h-0 flex-col gap-6 overflow-y-auto">
-            <AttentionPanel attention={attention} specTitles={specTitles} />
             <ActiveTicketsPanel
               tickets={tickets}
               leaseTicketId={leaseTicketId}
@@ -288,11 +285,8 @@ export default function ConsolePage() {
     )
   }
 
-  const toolbar = attention.items.length > 0 || tickets.length > 0 ? (
+  const toolbar = tickets.length > 0 ? (
     <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-      {attention.items.length > 0 ? (
-        <AttentionSummaryBar count={attention.items.length} onOpen={() => setSheetOpen(true)} />
-      ) : null}
       <ActiveTicketsStrip
         tickets={tickets}
         leaseTicketId={leaseTicketId}
@@ -311,12 +305,6 @@ export default function ConsolePage() {
         <section aria-label="总控会话" className="pb-4">{conversation}</section>
         {composer}
       </div>
-      <AttentionSheet
-        open={sheetOpen}
-        onOpenChange={setSheetOpen}
-        attention={attention}
-        specTitles={specTitles}
-      />
       {confirmElement}
     </Page>
   )

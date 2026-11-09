@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, renderHook, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ConsolePage from './ConsolePage'
 import { toTicketView } from './api'
@@ -110,7 +110,7 @@ describe('指挥台计划待批准', () => {
     expect(await screen.findByText('已退回计划')).toBeInTheDocument()
   })
 
-  it('opens the plan card in the phone attention sheet', async () => {
+  it('shows the plan card in the main session on phones', async () => {
     const api = createConsoleApi({
       messages: [],
       attentionTickets: [decisionTicket()],
@@ -119,10 +119,8 @@ describe('指挥台计划待批准', () => {
     })
     renderConsole()
 
-    fireEvent.click(await screen.findByRole('button', { name: '1 件事等你处理' }))
-    const sheet = await screen.findByRole('dialog', { name: '待你处理' })
-    expect(await within(sheet).findByRole('heading', { name: '计划待批准' })).toBeInTheDocument()
-    fireEvent.click(within(sheet).getByRole('button', { name: '批准计划' }))
+    expect(await screen.findByRole('heading', { name: '计划待批准' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '批准计划' }))
 
     await waitFor(() => expect(approvalPosts(api)).toHaveLength(1))
     expect(approvalPosts(api)[0]?.body).toEqual({ approved: true })
@@ -200,10 +198,10 @@ describe('指挥台计划待批准', () => {
     fireEvent.click(await screen.findByRole('button', { name: '批准计划' }))
 
     expect(await screen.findByText('处理计划失败：计划不在待批准状态')).toBeInTheDocument()
-    expect(await screen.findByText('还没有要你处理的事')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument())
   })
 
-  it('keeps the phone attention sheet open when the plan approval fails', async () => {
+  it('keeps the plan error visible on phones after the list empties', async () => {
     createConsoleApi({
       messages: [],
       attentionTickets: [decisionTicket()],
@@ -219,12 +217,10 @@ describe('指挥台计划待批准', () => {
     })
     renderConsole()
 
-    fireEvent.click(await screen.findByRole('button', { name: '1 件事等你处理' }))
-    const sheet = await screen.findByRole('dialog', { name: '待你处理' })
-    fireEvent.click(await within(sheet).findByRole('button', { name: '批准计划' }))
+    fireEvent.click(await screen.findByRole('button', { name: '批准计划' }))
 
-    expect(await within(sheet).findByText('处理计划失败：计划不在待批准状态')).toBeInTheDocument()
-    expect(screen.getByRole('dialog', { name: '待你处理' })).toBeInTheDocument()
+    expect(await screen.findByText('处理计划失败：计划不在待批准状态')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument())
   })
 
   it('falls back to the ticket card when the plan request fails', async () => {
@@ -311,7 +307,7 @@ describe('指挥台计划待批准', () => {
     })
     // 计划批准后工单还挂着旧 human_action 时，不能再出现一张点了就 409 的工单卡。
     expect(document.querySelector('[data-attention-kind="ticket"]')).not.toBeInTheDocument()
-    expect(await screen.findByText('还没有要你处理的事')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument())
   })
 
   it('does not stay pending when a decision ticket has no worker session', async () => {
