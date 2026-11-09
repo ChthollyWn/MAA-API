@@ -1,6 +1,6 @@
 # M88 资源策略师（台账）
 
-- 分支：`economist`（未合并、未 push；合并与 tag 由主 agent 复核后执行）；基点：`dev` = `e19071a`（M87 合并 + 台账提交）；合并：待补；tag：`v3-m88`（待主 agent）
+- 分支：`economist`（已合并并删除，未 push）；基点：`dev` = `e19071a`（M87 合并 + 台账提交）；合并：`941d0f3`（`merge: 资源策略师（M88，见 docs/v3/13 §8.182）`）；tag：`v3-m88`
 - spec：[m88-economist](../specs/m88-economist.md)；计划：[m88-economist](../plans/m88-economist.md)
 - 决策记录：[docs/v3/13 §8.182](../13-决策记录.md)
 - 迁移：无（head 保持 `0041_nav_graph`）
@@ -123,6 +123,13 @@
 7. 评测 seam 只替换 optimizer，两个场景各 5 次模型调用；cassette 口径沿用 M87 维护性补丁。
 8. T8 brief 的 `debug/plans/m88-economist.md` 路径不存在，按 `docs/v3/plans/m88-economist.md` 核对。
 9. REST 完成判据没有提交端点用例，只有手工脚本证据。
+
+## 最终验证（主 agent，合并前）
+
+- 全量 pytest：3 failed / 5487 passed / 5 skipped / 2 xfailed（539.96s）；3 条均为基线既有真资源失败，新增 0。
+- `dump_openapi.py --check` 0；前端五步 0（113 文件 / 994 用例、build 含 SW）；frontend/agent/orchestrator/nav 四冒烟末行 `SMOKE OK`；regression 与 capability `EVAL OK`（capability 16/16）；`check_doc_links.py` BROKEN 0；`git diff --check` 0。
+- 整支审查 REQUEST CHANGES（05 §6.1 缺五个类型名）→ 修复 `8755fbb` + 复审残留 `160c2ac`（FarmingInputs 定义位置）→ scoped re-review 通过。
+- 合并：`941d0f3`；tag `v3-m88`；删除 `economist` 分支。
 
 ## 遗留
 
