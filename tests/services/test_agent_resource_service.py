@@ -936,3 +936,64 @@ def test_register_custom_task_requires_exactly_one_shape(
         )
     assert exc_info.value.code == "CUSTOM_TASK_INVALID"
     assert _custom_task_rows(retention_session_factory) == []
+
+
+def test_register_bundle_rolls_back_on_midway_uniqueness_conflict(
+    resource_root, retention_session_factory, monkeypatch
+):
+    """M89 §4.5：预检之后、写入时撞 UNIQUE —— 整条链回滚，不留部分资产。
+
+    预检与写入之间别人注册了同名节点是真实的竞态（服务注释写明由 UNIQUE 转
+    409）。这里让预检看不到既有节点来复现该竞态，断言已插入的前置节点随事务
+    一起回滚、不写文件、不重载。
+    """
+    service_module = importlib.import_module("maa_api.services.resource_service")
+    Service = _service_type()
+    reloaded: list[bool] = []
+
+    async def reload_resources():
+        reloaded.append(True)
+
+    service = Service(
+        retention_session_factory,
+        resource_root=resource_root,
+        reload_resources=reload_resources,
+    )
+    # 先单独注册链的第二个节点；正常预检会发现它，这里模拟竞态让它漏掉。
+    asyncio.run(
+        service.register_custom_task(
+            name="Custom_Demo_ab12_2",
+            description=None,
+            content={"action": "DoNothing"},
+        )
+    )
+    reloads_before = len(reloaded)
+    task_file = resource_root / "maa-layers" / "custom" / "resource" / "tasks.json"
+    file_before = task_file.read_bytes()
+
+    async def racing_precheck(self, kind, name):
+        del self, kind, name
+        return None
+
+    monkeypatch.setattr(
+        service_module.ResourceAssetRepository, "get_by_kind_name", racing_precheck
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.register_custom_task(
+                name="Custom_Demo_ab12_1",
+                description=None,
+                tasks=_custom_task_bundle(),
+            )
+        )
+
+    assert exc_info.value.code == "RESOURCE_ASSET_CONFLICT"
+    assert exc_info.value.details == {"name": "Custom_Demo_ab12_2"}
+    # 冲突前的节点没有留下行/文件，tasks.json 不变，也没有触发重载。
+    rows = _custom_task_rows(retention_session_factory)
+    assert [row.name for row in rows] == ["Custom_Demo_ab12_2"]
+    assert task_file.read_bytes() == file_before
+    assert len(reloaded) == reloads_before
+    external = resource_root / "agent-assets" / "custom_task"
+    assert not list(external.glob("*.json"))

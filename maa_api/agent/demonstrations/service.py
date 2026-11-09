@@ -54,6 +54,10 @@ MAX_DEMONSTRATION_STEPS = 100
 #: ``delay_ms`` 的上下界（spec §4.1）。
 MAX_STEP_DELAY_MS = 10_000
 
+#: 设备连接状态的后台轮询间隔（spec §4.5 状态表：设备断开 → ``discarded``）。
+#: 只在录制期间运行；测试把它压小以免等待两秒。
+DEVICE_WATCH_INTERVAL_SECONDS = 2.0
+
 #: 步骤里与动作无关的整数字段；不适用的写 ``None``。
 _POINT_FIELDS = ("x", "y", "x1", "y1", "x2", "y2")
 
@@ -82,6 +86,8 @@ class DemonstrationService:
         #: 串行转换：重读行、编译、预检与注册在锁内完成（spec §4.5「转换」）。
         self._convert_lock = asyncio.Lock()
         self._active_id: str | None = None
+        #: 录制期间每 ``DEVICE_WATCH_INTERVAL_SECONDS`` 查一次设备；断开即 ``abort``。
+        self._watch_task: asyncio.Task[None] | None = None
 
     # ---------------------------------------------------------------- 状态读取
 
@@ -119,6 +125,7 @@ class DemonstrationService:
                     await session.commit()
                 changed = len(rows)
             self._active_id = None
+            self._cancel_watcher()
             await self._lease.set_recording(False)
             if changed:
                 logger.info("启动清理丢弃了 %d 条未结束的示教录制", changed)
@@ -171,6 +178,7 @@ class DemonstrationService:
                 raise
 
             self._active_id = row.id
+            self._start_watcher(row.id)
             try:
                 await self._lease.preempt(
                     "rest_atomic", detail="用户开始示教录制"
@@ -182,7 +190,11 @@ class DemonstrationService:
     async def stop(
         self, demonstration_id: str, *, discard: bool = False
     ) -> dict[str, Any]:
-        """停止录制：有步骤置 ``recorded``，零步或 ``discard`` 置 ``discarded``。"""
+        """停止录制：有步骤置 ``recorded``，零步或 ``discard`` 置 ``discarded``。
+
+        只释放仍属于这条示教的闸门：``stop(A)`` 与 ``start(B)`` 交错时不能清掉
+        ``B`` 刚打开的闸门，此时按状态冲突返回 409（spec §4.5 边界）。
+        """
         async with self._append_lock:
             async with self._session_factory() as session:
                 row = await session.get(Demonstration, demonstration_id)
@@ -198,29 +210,104 @@ class DemonstrationService:
                 row.updated_at = utcnow()
                 await session.commit()
                 data = self._wire(row)
-            if self._active_id == demonstration_id:
-                self._active_id = None
-            await self._lease.set_recording(False)
+            if not await self._release_gate(demonstration_id):
+                raise self._stale_recording(
+                    demonstration_id, data["status"], "stop"
+                )
             return data
 
-    async def abort(self, reason: str) -> None:
-        """丢弃当前活动录制（设备断开等）；没有活动录制时只释放闸门。"""
+    async def abort(
+        self, reason: str, *, demonstration_id: str | None = None
+    ) -> bool:
+        """丢弃当前活动录制（设备断开等），返回是否释放了录制闸门。
+
+        ``demonstration_id`` 给定时只处理这一条：它与当前活动录制不一致时不动
+        闸门、返回 ``False``（慢一步的 ``abort`` 不能清掉新录制刚打开的闸门）。
+        没有活动录制时同样不动闸门；闸门的兜底释放由 ``stop``/``recover`` 负责。
+        """
         async with self._append_lock:
-            target = self._active_id
-            async with self._session_factory() as session:
-                row = (
-                    await session.get(Demonstration, target)
-                    if target is not None
-                    else await self._find_recording(session)
+            target = (
+                demonstration_id
+                if demonstration_id is not None
+                else self._active_id
+            )
+            if target is None:
+                return False
+            if self._active_id != target:
+                logger.info(
+                    "示教录制已切换，忽略过期的 abort（%s） id=%s", reason, target
                 )
+                return False
+            async with self._session_factory() as session:
+                row = await session.get(Demonstration, target)
                 if row is not None and row.status == DemonstrationStatus.RECORDING:
                     row.status = DemonstrationStatus.DISCARDED
                     row.updated_at = utcnow()
                     await session.commit()
-                    if self._active_id == row.id:
-                        self._active_id = None
                     logger.info("示教录制中止（%s），已丢弃 id=%s", reason, row.id)
-            await self._lease.set_recording(False)
+            return await self._release_gate(target)
+
+    # ---------------------------------------------------------------- 闸门与监视
+
+    async def _release_gate(self, demonstration_id: str) -> bool:
+        """只释放属于该示教的录制闸门，返回是否真的释放了。
+
+        活动录制已经换人时不动闸门、也不取消对方的监视任务——这是
+        ``stop(A)`` 与 ``start(B)`` 交错时的保护（spec §4.5 边界）。
+        """
+        if self._active_id != demonstration_id:
+            return False
+        self._active_id = None
+        self._cancel_watcher()
+        await self._lease.set_recording(False)
+        return True
+
+    def _start_watcher(self, demonstration_id: str) -> None:
+        """起一个后台任务，在录制期间盯着设备连接状态（spec §4.5 状态表）。"""
+        self._cancel_watcher()
+        self._watch_task = asyncio.create_task(
+            self._watch_device(demonstration_id),
+            name="maa-demonstration-device-watch",
+        )
+
+    def _cancel_watcher(self) -> None:
+        """取消设备监视任务；从监视任务自身调用时只清引用，避免取消自己。"""
+        task = self._watch_task
+        self._watch_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
+    async def _watch_device(self, demonstration_id: str) -> None:
+        """录制期间轮询设备连接；断开就 ``abort("device_lost")`` 置 ``discarded``。
+
+        进程内闸门没有租约行的过期扫描兜底，设备拔掉后必须由这里主动收尾，
+        否则行会一直停在 ``recording``（spec §4.5 状态表、§7 第 5 条）。
+        """
+        while True:
+            await asyncio.sleep(DEVICE_WATCH_INTERVAL_SECONDS)
+            if self._active_id != demonstration_id:
+                return
+            try:
+                snapshot = self._device_manager.snapshot()
+            except Exception:  # noqa: BLE001 - 读连接状态失败不能结束监视
+                logger.warning("示教设备连接监视读取失败", exc_info=True)
+                continue
+            if snapshot.get("state") == "connected":
+                continue
+            logger.info("示教录制期间设备断开，丢弃 id=%s", demonstration_id)
+            try:
+                await self.abort(
+                    "device_lost", demonstration_id=demonstration_id
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - 后台任务不能把异常抛给事件循环
+                logger.exception(
+                    "设备断开时丢弃示教录制失败 id=%s", demonstration_id
+                )
+                # 下一轮再试；abort 成功或录制已换人时上面的 return 会收尾。
+                continue
+            return
 
     # ---------------------------------------------------------------- 采集追加
 
@@ -276,8 +363,13 @@ class DemonstrationService:
                 data = self._wire(row)
 
             if finished:
-                self._active_id = None
-                await self._lease.set_recording(False)
+                # 第 100 步自动停止；录制已切到别的示教时不能清掉对方的闸门。
+                if not await self._release_gate(demonstration_id):
+                    logger.info(
+                        "第 %d 步落库时录制已切换到其它示教 id=%s",
+                        MAX_DEMONSTRATION_STEPS,
+                        demonstration_id,
+                    )
             return data
 
     # ---------------------------------------------------------------- 列表
@@ -564,6 +656,21 @@ class DemonstrationService:
             {
                 "id": row.id,
                 "status": DemonstrationStatus(row.status),
+                "action": action,
+            },
+        )
+
+    @staticmethod
+    def _stale_recording(
+        demonstration_id: str, status: DemonstrationStatus | str, action: str
+    ) -> AppError:
+        """``stop(A)`` 与 ``start(B)`` 交错：A 已不是当前活动录制（spec §4.5 边界）。"""
+        return AppError(
+            ErrorCode.DEMONSTRATION_STATE_INVALID,
+            f"示教 {demonstration_id} 已不是当前录制的示教，不能执行 {action}",
+            {
+                "id": demonstration_id,
+                "status": status,
                 "action": action,
             },
         )

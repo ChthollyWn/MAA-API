@@ -25,6 +25,25 @@ function image(): Response {
   })
 }
 
+/** jsdom 没有 PointerEvent；pointer 事件用 MouseEvent 派发，React 仍按事件类型分派。 */
+function pointer(type: string, clientX: number, clientY: number): MouseEvent {
+  return new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0 })
+}
+
+function mockCanvasRect(): void {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    left: 0,
+    top: 0,
+    width: 1280,
+    height: 720,
+    right: 1280,
+    bottom: 720,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  } as DOMRect)
+}
+
 function step(seq: number, overrides: Json = {}): Json {
   return {
     seq,
@@ -88,6 +107,8 @@ interface ApiOptions {
   device?: Json
   compile?: Json
   expired?: string[]
+  /** 模拟 convert 的 422：details 里的错误数组。 */
+  compileError?: Json
 }
 
 function installApi(options: ApiOptions = {}) {
@@ -149,6 +170,18 @@ function installApi(options: ApiOptions = {}) {
     }
     const convertMatch = /^\/api\/agent\/demonstrations\/([^/]+)\/convert$/.exec(path)
     if (convertMatch && method === 'POST') {
+      if (options.compileError) {
+        return json(
+          {
+            error: {
+              code: 'CUSTOM_TASK_INVALID',
+              message: '自定义任务链校验失败',
+              details: options.compileError,
+            },
+          },
+          422,
+        )
+      }
       const row = demos.find((item) => item.id === convertMatch[1])
       if (!row) return json({ error: { code: 'DEMONSTRATION_NOT_FOUND', message: '示教不存在' } }, 404)
       const register = Boolean((body as Json | undefined)?.register)
@@ -280,25 +313,12 @@ describe('M89 示教页面', () => {
     const api = installApi({
       demos: [demonstration({ id: 'demo-live', status: 'recording', steps: [], title: '示教 11-10 02:00' })],
     })
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 1280,
-      height: 720,
-      right: 1280,
-      bottom: 720,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect)
+    mockCanvasRect()
     renderPage()
 
     const canvas = await screen.findByTestId('live-canvas')
     // 等设备状态与第一帧画面就绪：分辨率未知时画布不接收手势。
     await screen.findByRole('img', { name: '设备画面' })
-    // jsdom 没有 PointerEvent；pointer 事件用 MouseEvent 派发，React 仍按事件类型分派。
-    const pointer = (type: string, clientX: number, clientY: number) =>
-      new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0 })
 
     fireEvent(canvas, pointer('pointerdown', 640, 360))
     fireEvent(canvas, pointer('pointerup', 640, 360))
@@ -328,6 +348,45 @@ describe('M89 示教页面', () => {
     await new Promise((resolve) => setTimeout(resolve, 80))
 
     expect(api.gestureCalls('click')).toHaveLength(1)
+  })
+
+  it('cancels_pending_long_press_when_unmounted', async () => {
+    const api = installApi({
+      demos: [demonstration({ id: 'demo-live', status: 'recording', steps: [], title: '示教 11-10 02:10' })],
+    })
+    mockCanvasRect()
+    const view = renderPage()
+
+    const canvas = await screen.findByTestId('live-canvas')
+    await screen.findByRole('img', { name: '设备画面' })
+    fireEvent(canvas, pointer('pointerdown', 320, 180))
+    // 长按定时器还没到点就离开页面：不能再发 long_press。
+    view.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 800))
+
+    expect(api.gestureCalls('long_press')).toHaveLength(0)
+  })
+
+  it('shows_convert_errors_in_preview_and_disables_register', async () => {
+    installApi({
+      demos: [demonstration({ id: 'demo-bad', steps: [step(1)] })],
+      compileError: {
+        errors: [
+          { task: 'Custom_Demo_demo-bad_1', field: 'specificRect', reason: '矩形超出 1280×720' },
+        ],
+        chain_errors: [
+          { field: 'chain', reason: '任务链没有 Stop 出口' },
+        ],
+      },
+    })
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: '预览任务' }))
+
+    expect(await screen.findByText('校验未通过')).toBeInTheDocument()
+    expect(screen.getByText(/矩形超出 1280×720/)).toBeInTheDocument()
+    expect(screen.getByText(/任务链没有 Stop 出口/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '注册任务' })).toBeDisabled()
   })
 
   it('shows_expired_screenshot_placeholder', async () => {

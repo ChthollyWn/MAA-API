@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,12 +17,13 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
+from maa_api.agent.demonstrations.service import DemonstrationService
 from maa_api.agent.events.bus import TriggerService
 from maa_api.agent.events.evaluator import EvalOutcome
 from maa_api.agent.events.rules import TriggerRuleService
 from maa_api.agent.events.wiring import PipelineEventPublisher
 from maa_api.agent.incidents import AgentIncidentService
-from maa_api.agent.lease import ClaimGate
+from maa_api.agent.lease import ClaimGate, DeviceLeaseService
 from maa_api.agent.specs.registry import AgentSpecRegistry
 from maa_api.agent.tickets.inbox import InboxService
 from maa_api.agent.tickets.service import TicketService
@@ -46,6 +47,7 @@ from maa_api.db.repositories.pipeline import PipelineRepository
 from maa_api.db.repositories.ticket import MandateRepository
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import (
+    DemonstrationStatus,
     PipelineSource,
     PipelineStatus,
     Priority,
@@ -64,7 +66,7 @@ from maa_api.services.pipeline_runner import (
     build_pipeline_notification,
 )
 from maa_api.services.resource_service import ResourceService
-from maa_api.settings import Settings, set_settings
+from maa_api.settings import LeaseSettings, Settings, set_settings
 from maa_api.services import resource_service as resource_service_module
 from tests.fakes.fake_asst import (
     FAILURE_SCRIPT,
@@ -2347,6 +2349,107 @@ def test_manual_claim_resumes_after_recording_stops(runner_env) -> None:
             assert pipeline.id == "pipeline-manual-resume"
             assert pipeline.status == PipelineStatus.RUNNING
             assert tasks == []
+        finally:
+            await runner.stop()
+            asst.stop()
+
+    asyncio.run(scenario())
+
+
+class _DemoDevice:
+    """``DemonstrationService.start`` 只需要设备快照；本用例不执行设备动作。"""
+
+    def snapshot(self) -> dict:
+        return {
+            "state": "connected",
+            "resolution": {"width": 1280, "height": 720},
+        }
+
+
+def test_runner_loop_claims_manual_pipeline_after_recording_stops(
+    runner_env, monkeypatch
+) -> None:
+    """M89 §4.5/§7：录制中入队的手动流水线，停止录制后由真实循环领取并执行。
+
+    把 ``CORE_POLL_SECONDS`` 拉长到 30 秒，只有 ``set_recording(False)`` 触发的
+    租约释放通知能唤醒 runner；因此用例验证的是通知路径本身，不是轮询兜底。
+    """
+    factory, _resource_root, make = runner_env
+    monkeypatch.setattr(pipeline_runner_module, "CORE_POLL_SECONDS", 30.0)
+
+    async def scenario() -> None:
+        runner, asst, _core = make()
+        lease = DeviceLeaseService(
+            factory,
+            boot_id=BOOT_ID,
+            settings_provider=lambda: SimpleNamespace(
+                lease=LeaseSettings(wait_seconds=0)
+            ),
+            on_released=runner.wake,
+            poll_seconds=0.02,
+        )
+        runner.bind_lease_gate(lease)
+        service = DemonstrationService(
+            factory,
+            device_manager=_DemoDevice(),
+            lease=lease,
+            resource_service=SimpleNamespace(),  # 本用例只走录制状态机
+        )
+        # ``make()`` 已把 ``_running`` 置真；start() 需要自己起消费循环。
+        runner._running = False
+        await runner.start()
+        try:
+            started = await service.start(title="录制中")
+            await service.note_step(
+                started["id"],
+                action="click",
+                points={"x": 10, "y": 20},
+                duration_ms=None,
+                started_at=datetime(2026, 11, 10, 8, 0, 0, tzinfo=UTC),
+                before=None,
+                after=None,
+                backend="adb",
+            )
+            assert lease.recording() is True
+
+            async with factory() as session:
+                session.add(
+                    Pipeline(
+                        id="pipeline-manual-wake",
+                        source=PipelineSource.MANUAL,
+                        priority=Priority.MANUAL,
+                        status=PipelineStatus.PENDING,
+                        task_count=0,
+                    )
+                )
+                await session.commit()
+
+            # 录制闸门期间循环不领取：给调度几轮机会，行仍然是 pending。
+            await asyncio.sleep(0.2)
+            async with factory() as session:
+                stored = await session.get(Pipeline, "pipeline-manual-wake")
+            assert stored is not None
+            assert stored.status == PipelineStatus.PENDING
+
+            stopped = await service.stop(started["id"])
+            assert stopped["status"] == DemonstrationStatus.RECORDED
+            assert lease.recording() is False
+
+            # 停止录制后的释放通知唤醒循环，按队列领取并执行到终态。
+            async with asyncio.timeout(5):
+                while True:
+                    async with factory() as session:
+                        stored = await session.get(
+                            Pipeline, "pipeline-manual-wake"
+                        )
+                    if (
+                        stored is not None
+                        and PipelineStatus(stored.status).is_terminal
+                    ):
+                        break
+                    await asyncio.sleep(0.02)
+            assert stored is not None
+            assert stored.status == PipelineStatus.COMPLETED
         finally:
             await runner.stop()
             asst.stop()

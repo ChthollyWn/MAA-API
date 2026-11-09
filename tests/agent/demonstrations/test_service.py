@@ -11,7 +11,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import pytest
 from PIL import Image
@@ -158,6 +158,51 @@ async def _note(
         after=None,
         backend="adb",
     )
+
+
+class _CommitHookedFactory:
+    """测试专用会话工厂：下一次 ``commit`` 落库后先跑完 hook，再让调用方继续。
+
+    用来稳定复现 ``stop(A)`` 已提交、释放闸门前 ``start(B)`` 已经开录的交错。
+    """
+
+    def __init__(self, factory: Factory) -> None:
+        self._factory = factory
+        self._hook: Callable[[], Awaitable[None]] | None = None
+
+    def arm(self, hook: Callable[[], Awaitable[None]]) -> None:
+        self._hook = hook
+
+    def __call__(self) -> "_CommitHookedSession":
+        return _CommitHookedSession(self._factory(), self)
+
+    async def fire(self) -> None:
+        hook = self._hook
+        self._hook = None
+        if hook is not None:
+            await hook()
+
+
+class _CommitHookedSession:
+    """只在 ``commit`` 之后插 hook 的 ``AsyncSession`` 包装。"""
+
+    def __init__(self, session: AsyncSession, owner: _CommitHookedFactory) -> None:
+        self._session = session
+        self._owner = owner
+
+    async def __aenter__(self) -> "_CommitHookedSession":
+        await self._session.__aenter__()
+        return self
+
+    async def __aexit__(self, *exc_info: Any) -> Any:
+        return await self._session.__aexit__(*exc_info)
+
+    async def commit(self) -> None:
+        await self._session.commit()
+        await self._owner.fire()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
 
 
 def test_start_conflicts_with_existing_recording(demo_env) -> None:
@@ -366,9 +411,121 @@ def test_recover_and_abort_discard(demo_env) -> None:
         # 设备在录制中断开：abort 丢弃活动行并释放闸门。
         out = await service.start(title="设备断开")
         await _note(service, out["id"], started_at=started_at)
-        await service.abort("device_lost")
+        assert await service.abort("device_lost") is True
         by_id = {row.id: row for row in await _rows(factory)}
         assert by_id[out["id"]].status == DemonstrationStatus.DISCARDED
+        assert lease.recording() is False
+        assert service.active_id is None
+
+    asyncio.run(scenario())
+
+
+def test_device_disconnect_is_discarded_by_background_watch(
+    demo_env, monkeypatch
+) -> None:
+    """M89 §4.5/§7：录制中拔设备，后台监视置 ``discarded`` 并释放闸门。"""
+    factory, device, lease, service = demo_env
+    monkeypatch.setattr(
+        demonstration_service_module, "DEVICE_WATCH_INTERVAL_SECONDS", 0.02
+    )
+
+    async def scenario() -> None:
+        out = await service.start(title="设备断开")
+        watcher = service._watch_task
+        assert watcher is not None
+
+        device.state = "disconnected"
+        # 不等下一次设备动作：后台任务自己发现断连并收尾。
+        await asyncio.wait_for(watcher, timeout=2)
+
+        rows = await _rows(factory)
+        assert [row.id for row in rows] == [out["id"]]
+        assert rows[0].status == DemonstrationStatus.DISCARDED
+        assert lease.recording() is False
+        assert service.active_id is None
+        assert service._watch_task is None
+        assert watcher.done() is True and watcher.cancelled() is False
+
+    asyncio.run(scenario())
+
+
+def test_stop_cancels_device_watch(demo_env) -> None:
+    """停止录制要取消后台设备监视，不能继续轮询。"""
+    _factory, _device, _lease, service = demo_env
+
+    async def scenario() -> None:
+        out = await service.start(title="停止")
+        watcher = service._watch_task
+        assert watcher is not None
+
+        stopped = await service.stop(out["id"])
+        assert stopped["status"] == DemonstrationStatus.DISCARDED
+        assert service._watch_task is None
+        with pytest.raises(asyncio.CancelledError):
+            await watcher
+
+    asyncio.run(scenario())
+
+
+def test_abort_with_stale_id_keeps_current_recording(demo_env) -> None:
+    """M89 §4.5：慢一步的 abort 不能丢弃并放掉已经开始的另一条录制。"""
+    factory, _device, lease, service = demo_env
+
+    async def scenario() -> None:
+        out = await service.start(title="当前")
+
+        assert (
+            await service.abort("device_lost", demonstration_id="stale-id")
+            is False
+        )
+
+        assert service.active_id == out["id"]
+        assert lease.recording() is True
+        rows = await _rows(factory)
+        assert [row.status for row in rows] == [DemonstrationStatus.RECORDING]
+
+    asyncio.run(scenario())
+
+
+def test_stop_does_not_release_gate_of_concurrent_start(demo_env) -> None:
+    """M89 §4.5：stop(A) 提交后、释放闸门前 start(B) 已开录，不能清 B 的闸门。
+
+    用会话工厂的 commit 钩子稳定复现交错：A 的状态已落库为 ``recorded``，
+    B 趁 ``stop`` 尚未释放闸门时完成 ``start``。此时 ``stop(A)`` 必须报 409 且
+    保留 B 的录制闸门与活动标记。
+    """
+    factory, _device, lease, service = demo_env
+
+    async def scenario() -> None:
+        out_a = await service.start(title="甲")
+        await _note(service, out_a["id"], started_at=datetime(2026, 11, 10, 8, 0, 0))
+
+        hook_factory = _CommitHookedFactory(factory)
+        service._session_factory = hook_factory  # type: ignore[attr-defined]
+        started_b: dict[str, Any] = {}
+
+        async def start_b() -> None:
+            started_b.update(await service.start(title="乙"))
+
+        hook_factory.arm(start_b)
+        with pytest.raises(AppError) as caught:
+            await service.stop(out_a["id"])
+
+        assert caught.value.code == ErrorCode.DEMONSTRATION_STATE_INVALID
+        assert caught.value.details == {
+            "id": out_a["id"],
+            "status": DemonstrationStatus.RECORDED,
+            "action": "stop",
+        }
+        # B 的活动标记、录制行与闸门都还在。
+        assert service.active_id == started_b["id"]
+        assert lease.recording() is True
+        by_id = {row.id: row for row in await _rows(factory)}
+        assert by_id[out_a["id"]].status == DemonstrationStatus.RECORDED
+        assert by_id[started_b["id"]].status == DemonstrationStatus.RECORDING
+
+        # 清理：B 仍是活动录制，正常停止后闸门释放。
+        await service.stop(started_b["id"])
         assert lease.recording() is False
         assert service.active_id is None
 

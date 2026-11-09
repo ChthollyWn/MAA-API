@@ -58,6 +58,13 @@ export function LiveCanvas({ recording, connected, resolution, overlay }: LiveCa
   }, [])
 
   useEffect(() => () => {
+    // 离开页面时取消待触发的长按：否则定时器到点仍会发 long_press。
+    const state = gestureRef.current
+    if (state && state.timer !== null) {
+      clearTimeout(state.timer)
+      state.timer = null
+    }
+    gestureRef.current = null
     if (urlRef.current) {
       URL.revokeObjectURL(urlRef.current)
       urlRef.current = null

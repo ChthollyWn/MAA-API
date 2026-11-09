@@ -23,6 +23,7 @@ import {
   useStartDemonstration,
   useStopDemonstration,
   type DemonstrationConvertOut,
+  type DemonstrationOut,
   type DemonstrationStatus,
 } from './useDemonstrations'
 
@@ -41,6 +42,49 @@ const STATUS_TONES: Record<DemonstrationStatus, StatusTone> = {
 }
 
 const card = 'rounded-xl border bg-card shadow-card'
+
+/** 422 `CUSTOM_TASK_INVALID` 的 details.errors / details.chain_errors 是数组。 */
+function compileIssues(value: unknown): Record<string, string>[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const issue: Record<string, string> = {}
+    for (const key of ['task', 'field', 'reason'] as const) {
+      if (typeof record[key] === 'string') issue[key] = record[key] as string
+    }
+    return Object.keys(issue).length > 0 ? [issue] : []
+  })
+}
+
+/**
+ * 编译或链级校验失败时 `convert` 返回 422，错误在 `details` 里而不是响应体；
+ * 把它还原成预览面板能显示的形状并禁用「注册任务」（spec §4.6）。
+ */
+function previewFromCompileError(
+  demonstration: DemonstrationOut,
+  error: unknown,
+): DemonstrationConvertOut | null {
+  const details = toApiError(error).details
+  if (!details || typeof details !== 'object') return null
+  const record = details as Record<string, unknown>
+  const errors = compileIssues(record.errors)
+  const chainErrors = compileIssues(record.chain_errors)
+  if (errors.length === 0 && chainErrors.length === 0) return null
+  return {
+    ...demonstration,
+    compile: {
+      entry: '',
+      tasks: {},
+      chain: [],
+      valid: false,
+      errors,
+      chain_errors: chainErrors,
+      register: false,
+      registered: [],
+    },
+  }
+}
 
 export default function DemonstrationsPage() {
   const demonstrations = useDemonstrations(DEMONSTRATION_FILTERS)
@@ -107,6 +151,8 @@ export default function DemonstrationsPage() {
       const data = await convert.mutateAsync({ id: selected.id, register: false })
       setPreview({ id: data.id, data })
     } catch (error) {
+      const failure = previewFromCompileError(selected, error)
+      if (failure) setPreview({ id: selected.id, data: failure })
       toast.error(`预览任务失败：${toApiError(error).message}`)
     }
   }

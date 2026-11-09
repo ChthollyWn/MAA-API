@@ -589,3 +589,28 @@ def test_recording_gate_releases_manual_after_stop(lease_env, lease_world) -> No
         assert await service.claim_gate() is None
 
     asyncio.run(scenario())
+
+
+def test_set_recording_false_notifies_released_once(lease_env, lease_world) -> None:
+    """M89 §4.5/§7：录制闸门从 ``True`` 翻到 ``False`` 时唤醒队列消费者一次。
+
+    录制期间入队的手动流水线靠这条通知出队；开闸（``False → True``）不是释放，
+    状态没变化的重复调用也不重复通知。
+    """
+    _factory, service, _events, _published = lease_env
+    world = lease_world
+
+    async def scenario() -> None:
+        await service.set_recording(True)
+        # 开闸不是「设备空出来了」：不唤醒 runner，避免空转。
+        assert world.wake_calls == []
+        await service.set_recording(True)
+        assert world.wake_calls == []
+
+        await service.set_recording(False)
+        assert world.wake_calls == ["released"]
+        # 重复关闭不重复通知。
+        await service.set_recording(False)
+        assert world.wake_calls == ["released"]
+
+    asyncio.run(scenario())

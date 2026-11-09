@@ -446,10 +446,21 @@ class DeviceLeaseService:
         return self._recording
 
     async def set_recording(self, active: bool) -> None:
-        """开关录制闸门；唤醒排队者，让它们尽快按新状态得到 ``DEVICE_LEASE_BUSY``。"""
+        """开关录制闸门；唤醒排队者，让它们尽快按新状态得到 ``DEVICE_LEASE_BUSY``。
+
+        录制结束也是一次「设备空出来了」：状态真的从 ``True`` 翻到 ``False`` 时
+        复用租约释放的 ``on_released`` 回调唤醒队列消费者（M89 §4.5、§7），
+        录制期间入队的手动流水线才能按队列顺序立即出队，不必等下一次轮询。
+        """
+        active = bool(active)
+        released = False
         async with self._cond:
-            self._recording = bool(active)
+            released = self._recording and not active
+            self._recording = active
             self._cond.notify_all()
+        if released:
+            # 回调在锁外调用，与 ``release`` / ``expire_due`` / ``preempt`` 一致。
+            self._notify_released()
 
     async def expire_due(self) -> int:
         """删到期的与孤儿隐式租约，返回删除数；每条删行各广播一次原因。"""
