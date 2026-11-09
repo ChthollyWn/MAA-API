@@ -75,6 +75,8 @@ M86_TOOLS = frozenset({"where_am_i", "remember_screen", "navigate_to"})
 M88_TOOLS = frozenset({"optimize_farming"})
 #: M89 的自定义任务起草与校验工具：注册表里有，v2 会话不加载（M89 §4.7）。
 M89_TOOLS = frozenset({"draft_custom_task", "validate_custom_task"})
+#: M90 的产物视图工具：注册表里有，v2 会话不加载（M90 §4.3.2）。
+M90_TOOLS = frozenset({"create_view"})
 BUILTIN_SPEC_NAMES = [
     "analyst",
     "copilot",
@@ -148,7 +150,7 @@ def test_legacy_chat_lists_every_v2_registered_tool_in_registration_order():
     spec = builtin_spec("legacy_chat")
     definitions = build_registry().list()
 
-    assert len(definitions) == 110
+    assert len(definitions) == 111
     assert spec.tools == tuple(
         definition.name
         for definition in definitions
@@ -163,6 +165,7 @@ def test_legacy_chat_lists_every_v2_registered_tool_in_registration_order():
         | M86_TOOLS
         | M88_TOOLS
         | M89_TOOLS
+        | M90_TOOLS
     )
     assert spec.deferred_groups == tuple(sorted(DEFERRED_TOOL_GROUPS))
     assert set(DEFERRED_TOOL_GROUPS) <= set(spec.deferred_groups)
