@@ -53,3 +53,9 @@
 | 文件 | 来源与抓取方式 | 抓取日期 |
 |---|---|---|
 | `page_titles.json` | 内置知识条目 `get_prts_page(title=…)` 引用的 26 个页面标题白名单（T1 复核实测结论，抓取用 `action=query&formatversion=2&redirects=1&prop=info&titles=…`，同源但不打网；`tests/services/test_knowledge_page_pointers.py` 用它守「改写稿只指向真实页面」） | 2026-10-10 |
+
+## M88 追加（2026-11-09）
+
+| 文件 | 来源与抓取方式 | 抓取日期 |
+|---|---|---|
+| `activity_zuori_shop.wikitext` | `GET https://prts.wiki/w/昨日海?action=raw`（HTTP 200，15 684 字节）；裁剪范围：`{{活动信息}}` 七字段（类型、名称、名称缩短、活动开始时间、活动结束时间、兑换结束时间、理智本消耗）；主关 `YW-1`–`YW-8` 与 `YW-EX-1` 一行；`==劳工配给所==` 的 `{{#invoke:EventShopList|list}}` 整段原样；剪掉 `YW-ST-*`、其余 EX 关与突袭模式报酬表的其余行 | 2026-11-09 |
