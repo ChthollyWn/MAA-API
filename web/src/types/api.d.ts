@@ -720,6 +720,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/nav/edges/{edge_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 新建或修改导航跳转
+         * @description 不存在时按 from_node/to_node/action 新建（id 取路径里的 UUID）；存在时只能改 enabled、action 与 cost_ms，改端点要删旧建新。
+         */
+        put: operations["agent_update_nav_edge"];
+        post?: never;
+        /**
+         * 删除导航跳转
+         * @description 物理删除一条跳转；种子跳转删掉后不会在重启时自动写回。
+         */
+        delete: operations["agent_delete_nav_edge"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/nav/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取界面导航图
+         * @description 返回全部界面与跳转、导航开关以及当前是否有可用的视觉模型。
+         */
+        get: operations["agent_get_nav_graph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/nav/nodes/{node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 新建或修改导航界面
+         * @description 新建界面时 origin 记为 user，修改已有界面不改 origin；可以同时替换特征 rois、标记当前画面为样本或按截图 id 加样本。
+         */
+        put: operations["agent_put_nav_node"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/observations": {
         parameters: {
             query?: never;
@@ -5043,6 +5107,157 @@ export interface components {
         ModelRolesView: {
             /** Items */
             items: components["schemas"]["ModelRoleItem"][];
+        };
+        /**
+         * NavEdgeOut
+         * @description 一条跳转；``action`` 是原始动作 JSON，``action_hash`` 是规范哈希。
+         */
+        NavEdgeOut: {
+            /** Action */
+            action: {
+                [key: string]: unknown;
+            };
+            /** Action Hash */
+            action_hash: string;
+            /** Cost Ms */
+            cost_ms: number | null;
+            /** Created At */
+            created_at: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Fail Count */
+            fail_count: number;
+            /** From Node */
+            from_node: string;
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Origin */
+            origin: string;
+            /** Success Count */
+            success_count: number;
+            /** To Node */
+            to_node: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /**
+         * NavEdgePut
+         * @description ``PUT /api/agent/nav/edges/{edge_id}`` 的入参（§4.3.2）。
+         *
+         *     不存在时 ``from_node``/``to_node``/``action`` 必须给全；存在时只有
+         *     ``enabled``/``action``/``cost_ms`` 生效，端点与现值不同是 400。
+         */
+        NavEdgePut: {
+            /** Action */
+            action?: {
+                [key: string]: unknown;
+            } | null;
+            /** Cost Ms */
+            cost_ms?: number | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** From Node */
+            from_node?: string | null;
+            /** To Node */
+            to_node?: string | null;
+        };
+        /**
+         * NavExemplarOut
+         * @description 一个识别样本；``thumb_url`` 在截图已被清理或查不到时为 ``None``。
+         */
+        NavExemplarOut: {
+            /** Added At */
+            added_at: string | null;
+            /** Phash */
+            phash: string;
+            /** Screenshot Id */
+            screenshot_id: string | null;
+            /** Source */
+            source: string;
+            /** Thumb Url */
+            thumb_url: string | null;
+        };
+        /**
+         * NavGraphOut
+         * @description 整张导航图与三个运行时开关（``vision_available`` 现解析视觉档案）。
+         */
+        NavGraphOut: {
+            /** Edges */
+            edges: components["schemas"]["NavEdgeOut"][];
+            /** Enabled */
+            enabled: boolean;
+            /** Learn */
+            learn: boolean;
+            /** Nodes */
+            nodes: components["schemas"]["NavNodeOut"][];
+            /** Vision Available */
+            vision_available: boolean;
+        };
+        /**
+         * NavNodeOut
+         * @description 一个界面节点；时间统一渲染成 ``...Z``。
+         */
+        NavNodeOut: {
+            /** Created At */
+            created_at: string;
+            /** Exemplars */
+            exemplars: components["schemas"]["NavExemplarOut"][];
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Origin */
+            origin: string;
+            recognizer: components["schemas"]["NavRecognizerModel"];
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /**
+         * NavNodePut
+         * @description ``PUT /api/agent/nav/nodes/{node_id}`` 的入参（§4.3.2）。
+         */
+        NavNodePut: {
+            /** Add Exemplar */
+            add_exemplar?: "current" | null;
+            /** Add Exemplar Screenshot Id */
+            add_exemplar_screenshot_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "screen" | "stage" | "menu" | "dialog";
+            recognizer?: components["schemas"]["NavRecognizerModel"] | null;
+            /** Remove Exemplars */
+            remove_exemplars?: string[];
+            /** Title */
+            title: string;
+        };
+        /**
+         * NavRecognizerModel
+         * @description 节点的识别配置（§4.2）；请求里 ``extra="forbid"``。
+         */
+        NavRecognizerModel: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Generic
+             * @default false
+             */
+            generic: boolean;
+            /**
+             * Max Distance
+             * @default 10
+             */
+            max_distance: number;
+            /** Rois */
+            rois?: number[][];
         };
         /** NotifyChannelRequest */
         NotifyChannelRequest: {
@@ -11018,6 +11233,348 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_update_nav_edge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 跳转 id（UUID） */
+                edge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NavEdgePut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NavEdgeOut"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：NOT_FOUND、NAV_NODE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_delete_nav_edge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 跳转 id */
+                edge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_get_nav_graph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NavGraphOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_put_nav_node: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 界面 id（短 slug 或 stage:<关卡代号>） */
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NavNodePut"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NavNodeOut"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：SCREENSHOT_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SCREENSHOT_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源已永久移除：SCREENSHOT_EXPIRED */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SCREENSHOT_EXPIRED",
+                     *         "details": {},
+                     *         "message": "资源已永久移除"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：DEVICE_NOT_CONNECTED、SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "DEVICE_NOT_CONNECTED",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }

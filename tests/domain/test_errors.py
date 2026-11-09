@@ -71,10 +71,12 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: M82 在 §4.11 加目标模式两条（`GOAL_NOT_FOUND`、`GOAL_ENDED`）。
 #: M83 在 §4.11 加值守一条（`WATCHDOG_ALERT_NOT_FOUND`）。
 #: M85 在 §4.21 加 IM 通道五条（`CHANNEL_*`、`BIND_CODE_INVALID`）。
+#: M86 在 §4.22 加界面导航图三条（`NAV_NODE_NOT_FOUND`、`NAV_PATH_NOT_FOUND`、
+#: `NAV_STEP_FAILED`；码已在 W2 提前加入 `errors.py`，本卡补文档与计数）。
 #: 维护性补丁删除消耗护栏错误码一条（v3 specs/remove-spend-legacy-sessions §4.1）。
-ALL_CODE_COUNT = 168
-HTTP_BOUND_CODE_COUNT = 167
-SECTION_COUNT = 21
+ALL_CODE_COUNT = 171
+HTTP_BOUND_CODE_COUNT = 170
+SECTION_COUNT = 22
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。
 KERNEL_HTTP_STATUS = {

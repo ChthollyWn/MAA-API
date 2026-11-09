@@ -259,6 +259,9 @@ curl -X POST http://<host>:8002/api/snippets \
 | `CHANNEL_BINDING_NOT_FOUND` | 404 | 要解除的通道绑定不存在或已经是 revoked |
 | `BIND_CODE_INVALID` | 400 | 绑定码不存在、已使用、已过期或与平台不符；对应 `POST /api/agent/channels/{platform}/bind-codes` 的平台参数非法时也用它 |
 | `CHANNEL_APPROVAL_NOT_ALLOWED` | 403 | 破坏类确认默认只能在网页上批准，IM 文本不能代替确认卡（`channels.allow_destructive_approval=false`） |
+| `NAV_NODE_NOT_FOUND` | 404 | 导航目标不在图里；`details` 带 `target` 与 `nearest`，`nearest` 是建议先去的容器界面（`stage:` 主线关卡给 `main_episode`，其他活动关卡给 `activity_hub`，其余给 `home`） |
+| `NAV_PATH_NOT_FOUND` | 409 | 当前界面到目标没有可走的路径；`details` 带 `from`、`to`、`reason`，`reason` 取 `no_edges`（一条路都没有）或 `needs_vision`（只剩按描述定位的跳转而当前没有可用视觉模型） |
+| `NAV_STEP_FAILED` | 409 | 走到一半画面不符且无法恢复；`details` 带 `reason`（`max_steps`、`unknown_screen`、`home_failed`）、`current`、`trail` 与 `screenshot_id`（只有 `unknown_screen` 非空） |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->
