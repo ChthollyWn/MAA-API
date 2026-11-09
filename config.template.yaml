@@ -318,3 +318,9 @@ trace:
   otlp_endpoint:
   # 导出请求头，写成 k=v,k=v；值里的逗号写成 %2C
   otlp_headers:
+
+# 界面导航图（M86）：常用界面与跳转存成图，navigate_to 一次走完。
+nav:
+  enabled: true
+  learn: true      # 导航时把新走通的跳转、新确认的画面样本记进图里
+  max_steps: 12    # 一次 navigate_to 最多执行多少个动作

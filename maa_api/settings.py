@@ -41,6 +41,7 @@ __all__ = [
     "CoreSettings",
     "DeploymentSettings",
     "LeaseSettings",
+    "NavSettings",
     "NotifySettings",
     "RagSettings",
     "Settings",
@@ -265,6 +266,11 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "channels.feishu_domain": ("channels", "feishu_domain"),
     "channels.telegram_proxy": ("channels", "telegram_proxy"),
     "channels.qq_sandbox": ("channels", "qq_sandbox"),
+    # ---- 界面导航图（M86 规格 §4.4）：三项都不是 config-only，导航工具与执行器
+    # 每次现读，改完立即生效。----
+    "nav.enabled": ("nav", "enabled"),
+    "nav.learn": ("nav", "learn"),
+    "nav.max_steps": ("nav", "max_steps"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -895,6 +901,21 @@ class WorkspaceSettings(BaseModel):
     root: str = ""
 
 
+class NavSettings(BaseModel):
+    """界面导航图（M86 规格 §4.4）：开关、自动学习与单次导航步数上限。
+
+    三项都不是 config-only：导航工具每次调用现读 ``enabled`` 与 ``learn``，执行器
+    用 ``max_steps`` 兜住一次 ``navigate_to`` 的动作数；``max_steps`` 只能由请求参数
+    调小，不能调大。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    learn: bool = True
+    max_steps: int = Field(default=12, ge=1, le=50)
+
+
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -944,6 +965,8 @@ class Settings(BaseModel):
     brief: BriefSettings = Field(default_factory=BriefSettings)
     #: M85 IM 通道：四个平台开关与凭证、回复长度与确认策略（都不是 config-only）。
     channels: ChannelsSettings = Field(default_factory=ChannelsSettings)
+    #: M86 界面导航图：开关、自动学习与单次导航步数上限（都不是 config-only）。
+    nav: NavSettings = Field(default_factory=NavSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)
