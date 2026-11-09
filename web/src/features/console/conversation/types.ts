@@ -7,8 +7,8 @@ export type ConversationScope = { kind: 'orchestrator' } | { kind: 'ticket'; tic
 export type InboxKind = 'user_message' | 'report' | 'thread_event' | 'system' | 'trigger'
 
 /**
- * v3 消息：v2 消息窗口的 `AgentMessage` 加上收件箱与运行的 wire 字段。
- * 四个新字段都可选，所以 v2 消息窗口（旧会话查看器）的数据可以直接传进来。
+ * v3 消息：v2 消息的 `AgentMessage` 加上收件箱与运行的 wire 字段。
+ * 四个新字段都可选，所以 v2 消息形状可以直接传进来。
  */
 export interface V3Message extends AgentMessage {
   run_id?: string | null

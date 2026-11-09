@@ -100,26 +100,7 @@ export function handleServerEvent(event: ServerEvent, queryClient: QueryClient):
       invalidateBatched(queryClient, keys.updates.status())
       break
     case 'agent_event':
-      if (event.data.event === 'atomic_grant_changed' || event.data.event === 'copilot_grant_changed') {
-        // 授权条的数据只在会话详情里。整片失效 `keys.agent.all()` 会连消息窗口一起重取，
-        // 直播中把本轮已落库的消息带回历史，与实时副本重复渲染（M59，见 09 §6.4）。
-        const sessionId = event.data.session_id
-        invalidateBatched(
-          queryClient,
-          typeof sessionId === 'string' && sessionId ? keys.agent.session(sessionId) : keys.agent.sessions(),
-        )
-      } else if (
-        event.data.event === 'incident_created'
-        || event.data.event === 'incident_finished'
-        || event.data.event === 'incident_context_updated'
-      ) {
-        invalidateBatched(queryClient, keys.agent.sessions())
-        const sessionId = event.data.session_id
-        if (typeof sessionId === 'string' && sessionId) {
-          invalidateBatched(queryClient, keys.agent.session(sessionId))
-          invalidateBatched(queryClient, keys.agent.messages(sessionId))
-        }
-      } else if (event.data.event === 'compaction_created') {
+      if (event.data.event === 'compaction_created') {
         // M74 §4.6：压缩只影响检查点标记。不失效消息窗口——直播中整片失效会把本轮
         // 已落库的消息带回历史，与实时副本重复渲染（M59，见 09 §6.4）。
         const sessionId = event.data.session_id

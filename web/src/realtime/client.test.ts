@@ -358,22 +358,6 @@ describe('RealtimeClient', () => {
     queryClient.clear()
   })
 
-  it('refreshes session history when automatic incident sessions arrive', () => {
-    vi.useFakeTimers()
-    const queryClient = new QueryClient()
-    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
-
-    handleServerEvent({
-      type: 'agent_event',
-      data: { session_id: 'incident-1', event: 'incident_created', payload: { incident_key: 'pipeline:p1' } },
-    }, queryClient)
-    act(() => vi.advanceTimersByTime(250))
-
-    expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: keys.agent.sessions() }))
-    expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: keys.agent.session('incident-1') }))
-    expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: keys.agent.messages('incident-1') }))
-    queryClient.clear()
-  })
 })
 
 describe('page visibility reporting', () => {

@@ -39,14 +39,11 @@ const GoalsPage = lazy(() => import('@/features/goals/GoalsPage'))
 const GoalDetailPage = lazy(() => import('@/features/goals/GoalDetailPage'))
 const TriggersPage = lazy(() => import('@/features/triggers/TriggersPage'))
 const WatchdogPage = lazy(() => import('@/features/watchdog/WatchdogPage'))
-const SpendPage = lazy(() => import('@/features/spend/SpendPage'))
-const LegacySessionsPage = lazy(() => import('@/features/agent/LegacySessionsPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
 
-/** v2 的 /agent 深链（含 ?session_id=）落到只读查看器。 */
+/** v2 的 /agent 深链（含 ?session_id=）已没有查看器，旧书签发回指挥台。 */
 function AgentRedirect() {
-  const location = useLocation()
-  return <Navigate to={{ pathname: '/more/sessions', search: location.search, hash: location.hash }} replace />
+  return <Navigate to="/" replace />
 }
 
 /** 定时任务从「更多」迁到了「任务」下；旧地址重定向，并保留 API 调试台带来的预填 state。 */
@@ -146,12 +143,12 @@ export const routeConfig: RouteObject[] = [
       { path: 'tasks/schedules/new', element: page(<ScheduleEditorPage />) },
       { path: 'tasks/schedules/:scheduleId', element: page(<ScheduleEditorPage />) },
       { path: 'logs/*', element: page(<LogsPage />) },
+      { path: 'agent', element: <AgentRedirect /> },
       { path: 'agent/*', element: <AgentRedirect /> },
       { path: 'more', element: page(<MorePage />) },
       { path: 'more/status', element: page(<DashboardPage />) },
       { path: 'more/agents', element: page(<AgentsPage />) },
       { path: 'more/agents/:name', element: page(<AgentDetailPage />) },
-      { path: 'more/sessions', element: page(<LegacySessionsPage />) },
       { path: 'more/account', element: page(<AccountPage />) },
       { path: 'more/account/depot', element: page(<AccountPage />) },
       { path: 'more/copilots', element: page(<CopilotsPage />) },
@@ -163,7 +160,6 @@ export const routeConfig: RouteObject[] = [
       { path: 'more/goals/:goalId', element: page(<GoalDetailPage />) },
       { path: 'more/triggers', element: page(<TriggersPage />) },
       { path: 'more/watchdog', element: page(<WatchdogPage />) },
-      { path: 'more/spend', element: page(<SpendPage />) },
       { path: 'more/schedules/*', element: <SchedulesRedirect /> },
       { path: 'more/api-console/guide', element: page(<ApiConsolePage />) },
       { path: 'more/api-console', element: page(<ApiConsolePage />) },

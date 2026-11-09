@@ -37,7 +37,6 @@ function installApiMock(options: { includeDeepLinkInHistory?: boolean } = {}) {
     if (pathname === '/api/updates') return json({ items: [], total: 0, page: 1, size: 20 })
     if (pathname === '/api/settings/schema') return json({ items: [] })
     if (pathname === '/api/settings') return json({ items: {} })
-    if (pathname === '/api/agent/sessions') return json({ items: [], total: 0, page: 1, size: 50 })
     if (pathname === '/api/agent/specs') return json({ items: [] })
     return json({ error: { code: 'NOT_FOUND', message: 'not found' } }, 404)
   })
@@ -94,13 +93,16 @@ describe('more page', () => {
       expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
     }
     expect(screen.getByRole('link', { name: /代理定义/ })).toHaveAttribute('href', '/more/agents')
-    expect(screen.getByRole('link', { name: /旧会话/ })).toHaveAttribute('href', '/more/sessions')
+    expect(screen.getByRole('link', { name: /运行追踪/ })).toHaveAttribute('href', '/more/runs')
     expect(screen.getByRole('link', { name: /运行状态/ })).toHaveAttribute('href', '/more/status')
     expect(screen.getByRole('link', { name: /热更新/ })).toHaveAttribute('href', '/more/updates')
     expect(screen.getByRole('link', { name: /Agent 审计/ })).toHaveAttribute('href', '/more/audit')
     expect(screen.getByRole('link', { name: /API 调试台/ })).toHaveAttribute('href', '/more/api-console')
     expect(screen.getByRole('link', { name: /设置/ })).toHaveAttribute('href', '/more/settings')
     expect(screen.queryByRole('link', { name: /定时任务/ })).not.toBeInTheDocument()
+    // 旧会话查看器与消耗护栏两块页面已删除（remove-spend-legacy-sessions）。
+    expect(screen.queryByRole('link', { name: /旧会话/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /消耗护栏/ })).not.toBeInTheDocument()
     expect(await screen.findByText('test')).toBeInTheDocument()
   })
 
@@ -188,11 +190,14 @@ describe('more routes and task deep links', () => {
     expect(await screen.findByRole('heading', { name: '热更新', level: 1 })).toBeInTheDocument()
   })
 
-  it('redirects the old agent address to the read-only sessions page', async () => {
-    const { router } = renderAt('/agent?session_id=s1')
+  it('redirects the old agent deep links to the console and drops the session id', async () => {
+    const first = renderAt('/agent?session_id=s1')
+    await waitFor(() => expect(first.router.state.location.pathname).toBe('/'))
+    expect(first.router.state.location.search).toBe('')
 
-    await waitFor(() => expect(router.state.location.pathname).toBe('/more/sessions'))
-    expect(router.state.location.search).toBe('?session_id=s1')
+    cleanup()
+    const second = renderAt('/agent/legacy-message/path')
+    await waitFor(() => expect(second.router.state.location.pathname).toBe('/'))
   })
 
   it('redirects the old schedules address into the task area and keeps the navigation state', async () => {

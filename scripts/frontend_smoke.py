@@ -109,9 +109,7 @@ def main() -> int:
         deep_links = (
             "/logs/task",
             "/tickets/smoke-ticket",
-            "/more/sessions",
             "/more/agents/orchestrator",
-            "/agent?session_id=x",
         )
         deep_responses = [
             client.get(path, headers={"Accept": "text/html"}) for path in deep_links
@@ -124,7 +122,6 @@ def main() -> int:
         docs = client.get("/docs", headers={"Accept": "text/html"})
         removed_capability = client.post("/api/agent/capabilities/check")
         removed_interrupt = client.post("/api/agent/sessions/smoke/interrupt")
-        removed_session_create = client.post("/api/agent/sessions")
 
         def error_code(response) -> object:
             try:
@@ -155,10 +152,6 @@ def main() -> int:
             removed_interrupt.status_code == 404
             and error_code(removed_interrupt) == "NOT_FOUND",
             "removed v2 session interrupt stays a JSON 404",
-        )
-        check(
-            removed_session_create.status_code == 405,
-            "removed v2 session creation returns 405",
         )
         check(
             missing_asset.status_code == 404
