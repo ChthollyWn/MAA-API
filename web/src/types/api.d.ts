@@ -1044,41 +1044,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/agent/sessions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 分页读取 Agent 会话 */
-        get: operations["agent_list_sessions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent/sessions/{session_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 读取 Agent 会话详情 */
-        get: operations["agent_get_session_detail"];
-        put?: never;
-        post?: never;
-        /** 删除 Agent 会话 */
-        delete: operations["agent_delete_session"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/agent/sessions/{session_id}/atomic-grant": {
         parameters: {
             query?: never;
@@ -1153,23 +1118,6 @@ export interface paths {
          *     幂等：没有生效中的授权同样返回 204。
          */
         delete: operations["agent_revoke_copilot_grant"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent/sessions/{session_id}/messages": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 按序读取 Agent 会话消息 */
-        get: operations["agent_list_session_messages"];
-        put?: never;
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1309,26 +1257,6 @@ export interface paths {
         };
         /** 读取代理定义详情 */
         get: operations["agent_get_spec"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent/spend": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * 读取消耗汇总
-         * @description 今日三项用量、``since`` 起按日用量、今天拦下的提交与受限来源。
-         */
-        get: operations["agent_summarize_spend"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7195,85 +7123,6 @@ export interface components {
             version: number;
         };
         /**
-         * SpendBlock
-         * @description 今天被上限拦下的一次提交（§4.3）；``at`` 为 ISO 8601 带 ``Z``。
-         */
-        SpendBlock: {
-            /** At */
-            at: string;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "medicine" | "stone" | "expedite";
-            /** Limit */
-            limit: number;
-            /** Ref */
-            ref: string | null;
-            /** Requested */
-            requested: number;
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "agent" | "scheduled";
-            /** Used */
-            used: number;
-        };
-        /**
-         * SpendDayRow
-         * @description 某一消耗日的三种资源用量（§4.3）；日期为 ``YYYY-MM-DD``。
-         */
-        SpendDayRow: {
-            /** Date */
-            date: string;
-            /** Expedite */
-            expedite: number;
-            /** Medicine */
-            medicine: number;
-            /** Stone */
-            stone: number;
-        };
-        /**
-         * SpendKindUsage
-         * @description 今日一种资源的用量与上限（§4.3）；``limit=-1`` 时 ``remaining`` 为 null。
-         */
-        SpendKindUsage: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "medicine" | "stone" | "expedite";
-            /** Label */
-            label: string;
-            /** Limit */
-            limit: number;
-            /** Remaining */
-            remaining: number | null;
-            /** Used */
-            used: number;
-        };
-        /**
-         * SpendSummary
-         * @description ``GET /api/agent/spend`` 的响应体（§4.3）。
-         */
-        SpendSummary: {
-            /** Blocked Today */
-            blocked_today: components["schemas"]["SpendBlock"][];
-            /** Capped Sources */
-            capped_sources: string[];
-            /** Date */
-            date: string;
-            /** Day End */
-            day_end: string;
-            /** Day Start */
-            day_start: string;
-            /** Days */
-            days: components["schemas"]["SpendDayRow"][];
-            /** Today */
-            today: components["schemas"]["SpendKindUsage"][];
-        };
-        /**
          * StartUpInput
          * @description 开始唤醒：启动客户端并进入游戏。
          * @example {
@@ -12690,194 +12539,6 @@ export interface operations {
             };
         };
     };
-    agent_list_sessions: {
-        parameters: {
-            query?: {
-                page?: number;
-                size?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    agent_get_session_detail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_SESSION_NOT_FOUND",
-                     *         "details": {},
-                     *         "message": "资源不存在"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
-            503: {
-                headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "SERVICE_UNAVAILABLE",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    agent_delete_session: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_SESSION_NOT_FOUND",
-                     *         "details": {},
-                     *         "message": "资源不存在"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     agent_revoke_atomic_grant: {
         parameters: {
             query?: never;
@@ -13232,79 +12893,6 @@ export interface operations {
                      *     }
                      */
                     "application/json": unknown;
-                };
-            };
-        };
-    };
-    agent_list_session_messages: {
-        parameters: {
-            query?: {
-                after_seq?: number | null;
-                page?: number;
-                size?: number;
-            };
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description 资源不存在：AGENT_SESSION_NOT_FOUND */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "AGENT_SESSION_NOT_FOUND",
-                     *         "details": {},
-                     *         "message": "资源不存在"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -14004,94 +13592,6 @@ export interface operations {
                      *         "code": "AGENT_SPEC_NOT_FOUND",
                      *         "details": {},
                      *         "message": "资源不存在"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
-            503: {
-                headers: {
-                    /** @description 建议的重试等待秒数（整数） */
-                    "Retry-After"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "SERVICE_UNAVAILABLE",
-                     *         "details": {},
-                     *         "message": "服务暂时不可用"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    agent_summarize_spend: {
-        parameters: {
-            query?: {
-                /** @description 起始消耗日（YYYY-MM-DD），缺省今天往前 6 天；含今天最多 90 天 */
-                since?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SpendSummary"];
-                };
-            };
-            /** @description 请求不成立：INVALID_PARAMETER */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "INVALID_PARAMETER",
-                     *         "details": {},
-                     *         "message": "请求不成立"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description token 缺失或不匹配：UNAUTHORIZED */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "code": "UNAUTHORIZED",
-                     *         "details": {},
-                     *         "message": "token 缺失或不匹配"
                      *       }
                      *     }
                      */
@@ -15069,7 +14569,7 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
-            /** @description 身份有效但动作被拒绝：CONFIRMATION_REJECTED、SPEND_CAP_EXCEEDED */
+            /** @description 身份有效但动作被拒绝：CONFIRMATION_REJECTED */
             403: {
                 headers: {
                     [name: string]: unknown;
