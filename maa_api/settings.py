@@ -38,6 +38,7 @@ __all__ = [
     "REPO_ROOT",
     "SETTING_KEYS",
     "AdbSettings",
+    "CopilotLoopSettings",
     "CoreSettings",
     "DeploymentSettings",
     "LeaseSettings",
@@ -181,6 +182,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "memory.auto_extract": ("memory", "auto_extract"),
     "memory.require_review": ("memory", "require_review"),
     "memory.max_injection_tokens": ("memory", "max_injection_tokens"),
+    # ---- 作业研究闭环（M87 规格 §4.4）：工单会话里每份作业授权的最多尝试次数。
+    # 不是 config-only，策略每次弹授权卡时现读，改完立即生效。----
+    "copilot_loop.max_iterations": ("copilot_loop", "max_iterations"),
     # ---- 提示注入防护（M80 规格 §4.4）：两项都不是 config-only，扫描与降权
     # 每次现读，改完立即生效。----
     "guard.injection_detection": ("guard", "injection_detection"),
@@ -492,6 +496,14 @@ class MemorySettings(BaseModel):
     auto_extract: bool = True
     require_review: bool = True
     max_injection_tokens: int = Field(default=1500, ge=0, le=8000)
+
+
+class CopilotLoopSettings(BaseModel):
+    """作业研究闭环（M87）：工单会话里每份作业授权的最多尝试次数。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    max_iterations: int = Field(default=3, ge=1, le=10)
 
 
 class GuardSettings(BaseModel):
@@ -953,6 +965,8 @@ class Settings(BaseModel):
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
     #: M79 长期记忆四项（都不是 config-only，抽取/注入/remember 每次现读）。
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    #: M87 作业研究闭环：每份作业授权的最多尝试次数（不是 config-only，弹卡时现读）。
+    copilot_loop: CopilotLoopSettings = Field(default_factory=CopilotLoopSettings)
     #: M80 提示注入防护两项（都不是 config-only，扫描与降权每次现读）。
     guard: GuardSettings = Field(default_factory=GuardSettings)
     #: M81 主动工作三项（都不是 config-only，事件处理与规则服务每次现读）。

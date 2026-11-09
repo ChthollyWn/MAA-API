@@ -463,6 +463,8 @@ class ConfirmationService:
             support=params.get("support"),
             window_minutes=params.get("window_minutes"),
             grant_id=row.id,
+            # M87 §4.5.5：服务端写进 payload 的轮次上限；用户 overrides 不含它。
+            max_attempts=_pick("max_attempts"),
         )
         self.broadcast(
             "agent_event",
