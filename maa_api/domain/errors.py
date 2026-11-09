@@ -571,9 +571,16 @@ class ErrorCode(StrEnum):
     # 走到一半画面不符且无法恢复；details.reason 取 max_steps / unknown_screen / home_failed
     NAV_STEP_FAILED = "NAV_STEP_FAILED"
 
+    # ---- docs/05 §4.23 示教与自定义任务（M89） ----
+    # 示教 id 不存在；details.id 回显请求的 id
+    DEMONSTRATION_NOT_FOUND = "DEMONSTRATION_NOT_FOUND"
+
+    # 状态机不允许该操作（例如停止已停止的示教）；details 带 id、status 与 action
+    DEMONSTRATION_STATE_INVALID = "DEMONSTRATION_STATE_INVALID"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 171 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 172 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -766,6 +773,8 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.NAV_NODE_NOT_FOUND: 404,
     ErrorCode.NAV_PATH_NOT_FOUND: 409,
     ErrorCode.NAV_STEP_FAILED: 409,
+    ErrorCode.DEMONSTRATION_NOT_FOUND: 404,
+    ErrorCode.DEMONSTRATION_STATE_INVALID: 409,
 }
 
 

@@ -448,6 +448,13 @@ EXPECTED_VALUES = {
         "LEARNED": "learned",
         "USER": "user",
     },
+    # M89：示教录制的四个状态。
+    "DemonstrationStatus": {
+        "RECORDING": "recording",
+        "RECORDED": "recorded",
+        "CONVERTED": "converted",
+        "DISCARDED": "discarded",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。

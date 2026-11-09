@@ -627,3 +627,15 @@ class NavOrigin(StrEnum):
     SEED = "seed"
     LEARNED = "learned"
     USER = "user"
+
+
+# ---- M89 示教录制（v3 specs/m89 §4.1） ----
+
+
+class DemonstrationStatus(StrEnum):
+    """一次示教的生命周期：录制中、已停止可转换、已转换与已丢弃。"""
+
+    RECORDING = "recording"      # 正在录制，进程内闸门占用设备
+    RECORDED = "recorded"        # 已停止，至少一步，可转换
+    CONVERTED = "converted"      # 已注册成自定义任务，终态
+    DISCARDED = "discarded"      # 零步、用户丢弃、重启或设备断开，终态

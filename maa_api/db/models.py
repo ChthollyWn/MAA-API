@@ -1,4 +1,4 @@
-"""SQLModel 表定义：57 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：58 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -56,6 +56,7 @@ from maa_api.domain.enums import (
     AgentSessionStatus,
     CheckpointStatus,
     ConfirmationStatus,
+    DemonstrationStatus,
     DynamicContextPosition,
     GoalStatus,
     InboxStatus,
@@ -2608,4 +2609,29 @@ class NavEdge(SQLModel, table=True):
             "action_hash",
             unique=True,
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M89 demonstration：网页示教录制（v3 specs/m89 §4.1、03 §12）
+# ---------------------------------------------------------------------------
+class Demonstration(SQLModel, table=True):
+    """一次示教：steps 是 JSON 数组，元素形状见 §4.1；不建索引（03 §12 不列索引）。"""
+
+    __tablename__ = "demonstration"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    title: str = Field(max_length=64)
+    status: str = Field(default=DemonstrationStatus.RECORDING, max_length=16)
+    steps: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=json_column("steps", nullable=False)
+    )
+    converted_to: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("converted_to")
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
     )

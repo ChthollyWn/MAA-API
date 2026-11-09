@@ -108,6 +108,8 @@ BUSINESS_TABLES = {
     # M86：界面导航图两表（v3 specs/m86 §4.1、docs/v3/03 §12）。
     "nav_node",
     "nav_edge",
+    # M89：示教录制一行一次（v3 specs/m89 §4.1、docs/v3/03 §12）。
+    "demonstration",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -144,6 +146,8 @@ UUID_PK_TABLES = [
     "channel_binding",
     # M86：边 id 是对外暴露的 UUID；节点 id 是短 slug（短到 48 字符），不在此列。
     "nav_edge",
+    # M89：示教 id 是对外暴露的 UUID（端点路径里带它）。
+    "demonstration",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -659,6 +663,9 @@ EXPECTED_JSON_COLUMNS = {
     ("nav_node", "exemplars"),
     ("nav_node", "recognizer"),
     ("nav_edge", "action"),
+    # M89：示教步骤数组与转换后的自定义任务链记录（spec §4.1）。
+    ("demonstration", "steps"),
+    ("demonstration", "converted_to"),
 }
 
 # FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
@@ -739,8 +746,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_57_business_tables():
-    """57 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_58_business_tables():
+    """58 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
