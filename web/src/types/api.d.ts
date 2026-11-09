@@ -441,6 +441,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/demonstrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取示教列表
+         * @description 按 ``created_at DESC, id DESC`` 分页；列表项带完整 ``steps``。
+         */
+        get: operations["agent_list_demonstrations"];
+        put?: never;
+        /**
+         * 开始示教录制
+         * @description 开始一次网页示教；同一时刻只允许一条 ``recording``，返回 ``screen``。
+         */
+        post: operations["agent_start_demonstration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/demonstrations/{id}/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 转换示教
+         * @description 默认只编译并校验；``register=true`` 时一次性注册整条链并置 ``converted``。
+         */
+        post: operations["agent_convert_demonstration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/demonstrations/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 停止示教录制
+         * @description 有步骤置 ``recorded``，零步或 ``discard=true`` 置 ``discarded``。
+         */
+        post: operations["agent_stop_demonstration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/device-lease": {
         parameters: {
             query?: never;
@@ -3716,6 +3780,41 @@ export interface components {
          */
         CompactionTrigger: "auto" | "manual";
         /**
+         * CompiledTaskOut
+         * @description 一次转换的编译结果与（可选的）注册结果。
+         */
+        CompiledTaskOut: {
+            /** Chain */
+            chain: string[];
+            /** Chain Errors */
+            chain_errors: {
+                [key: string]: string;
+            }[];
+            /** Entry */
+            entry: string;
+            /** Errors */
+            errors: {
+                [key: string]: string;
+            }[];
+            /**
+             * Register
+             * @description 本次请求是否要求注册
+             */
+            register: boolean;
+            /** Registered */
+            registered: {
+                [key: string]: string;
+            }[];
+            /** Tasks */
+            tasks: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** Valid */
+            valid: boolean;
+        };
+        /**
          * ConfirmationStatus
          * @enum {string}
          */
@@ -3945,6 +4044,177 @@ export interface components {
              * @description 内核 tasks.json 里的任务名列表，执行第一个匹配上的
              */
             task_names: string[];
+        };
+        /**
+         * DemonstrationConvert
+         * @description 转换的 body；``register=true`` 才写资源。
+         */
+        DemonstrationConvert: {
+            /**
+             * Register
+             * @default false
+             */
+            register: boolean;
+        };
+        /**
+         * DemonstrationConvertOut
+         * @description 转换响应：示教本体 + 编译结果。
+         */
+        DemonstrationConvertOut: {
+            compile: components["schemas"]["CompiledTaskOut"];
+            /** Converted To */
+            converted_to?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            status: components["schemas"]["DemonstrationStatus"];
+            /** Steps */
+            steps: components["schemas"]["DemonstrationStepOut"][];
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * DemonstrationCreate
+         * @description 开始录制的 body；整个 body 可省略，``title`` 为空时用服务端本地时间。
+         */
+        DemonstrationCreate: {
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * DemonstrationOut
+         * @description 一次示教的完整状态（列表项与停止响应共用）。
+         */
+        DemonstrationOut: {
+            /** Converted To */
+            converted_to?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            status: components["schemas"]["DemonstrationStatus"];
+            /** Steps */
+            steps: components["schemas"]["DemonstrationStepOut"][];
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * DemonstrationPage
+         * @description 分页列表；``items`` 带完整 ``steps``。
+         */
+        DemonstrationPage: {
+            /** Items */
+            items: components["schemas"]["DemonstrationOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * DemonstrationStartOut
+         * @description 开始录制时多返回当前设备像素分辨率。
+         */
+        DemonstrationStartOut: {
+            /** Converted To */
+            converted_to?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Screen */
+            screen: number[];
+            status: components["schemas"]["DemonstrationStatus"];
+            /** Steps */
+            steps: components["schemas"]["DemonstrationStepOut"][];
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * DemonstrationStatus
+         * @description 一次示教的生命周期：录制中、已停止可转换、已转换与已丢弃。
+         * @enum {string}
+         */
+        DemonstrationStatus: "recording" | "recorded" | "converted" | "discarded";
+        /**
+         * DemonstrationStepOut
+         * @description 一条步骤；``at`` 原样透传服务写入的结尾 ``Z`` 的 UTC 字符串。
+         */
+        DemonstrationStepOut: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "click" | "swipe" | "long_press";
+            /** At */
+            at: string;
+            /** Delay Ms */
+            delay_ms: number;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Result Screenshot Id */
+            result_screenshot_id?: string | null;
+            /** Screen */
+            screen: number[];
+            /** Screenshot Id */
+            screenshot_id?: string | null;
+            /** Seq */
+            seq: number;
+            /** X */
+            x?: number | null;
+            /** X1 */
+            x1?: number | null;
+            /** X2 */
+            x2?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Y1 */
+            y1?: number | null;
+            /** Y2 */
+            y2?: number | null;
+        };
+        /**
+         * DemonstrationStop
+         * @description 停止录制的 body；``discard=true`` 直接丢弃步骤。
+         */
+        DemonstrationStop: {
+            /**
+             * Discard
+             * @default false
+             */
+            discard: boolean;
         };
         /**
          * DepotInput
@@ -9374,6 +9644,461 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_demonstrations: {
+        parameters: {
+            query?: {
+                /** @description 只看该状态；取 recording/recorded/converted/discarded */
+                status?: string | null;
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–50 */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemonstrationPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_start_demonstration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DemonstrationCreate"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemonstrationStartOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：DEMONSTRATION_STATE_INVALID、PIPELINE_ALREADY_RUNNING */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "DEMONSTRATION_STATE_INVALID",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：DEVICE_NOT_CONNECTED、SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "DEVICE_NOT_CONNECTED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_convert_demonstration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 示教 id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DemonstrationConvert"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemonstrationConvertOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：DEMONSTRATION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "DEMONSTRATION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：DEMONSTRATION_STATE_INVALID、RESOURCE_ASSET_CONFLICT */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "DEMONSTRATION_STATE_INVALID",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：CUSTOM_TASK_INVALID、VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "CUSTOM_TASK_INVALID",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务端内部错误：RESOURCE_LOAD_FAILED */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RESOURCE_LOAD_FAILED",
+                     *         "details": {},
+                     *         "message": "服务端内部错误"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_stop_demonstration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 示教 id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DemonstrationStop"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemonstrationOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：DEMONSTRATION_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "DEMONSTRATION_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：DEMONSTRATION_STATE_INVALID */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "DEMONSTRATION_STATE_INVALID",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
             /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */

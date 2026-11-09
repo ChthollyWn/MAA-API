@@ -1856,6 +1856,81 @@
         "title": "CompactionTrigger",
         "type": "string"
       },
+      "CompiledTaskOut": {
+        "description": "一次转换的编译结果与（可选的）注册结果。",
+        "properties": {
+          "chain": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Chain",
+            "type": "array"
+          },
+          "chain_errors": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Chain Errors",
+            "type": "array"
+          },
+          "entry": {
+            "title": "Entry",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "register": {
+            "description": "本次请求是否要求注册",
+            "title": "Register",
+            "type": "boolean"
+          },
+          "registered": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Registered",
+            "type": "array"
+          },
+          "tasks": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tasks",
+            "type": "object"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entry",
+          "tasks",
+          "chain",
+          "valid",
+          "errors",
+          "chain_errors",
+          "register",
+          "registered"
+        ],
+        "title": "CompiledTaskOut",
+        "type": "object"
+      },
       "ConfirmationStatus": {
         "enum": [
           "pending",
@@ -2262,6 +2337,413 @@
           "task_names"
         ],
         "title": "CustomInput",
+        "type": "object"
+      },
+      "DemonstrationConvert": {
+        "additionalProperties": false,
+        "description": "转换的 body；``register=true`` 才写资源。",
+        "properties": {
+          "register": {
+            "default": false,
+            "title": "Register",
+            "type": "boolean"
+          }
+        },
+        "title": "DemonstrationConvert",
+        "type": "object"
+      },
+      "DemonstrationConvertOut": {
+        "description": "转换响应：示教本体 + 编译结果。",
+        "properties": {
+          "compile": {
+            "$ref": "#/components/schemas/CompiledTaskOut"
+          },
+          "converted_to": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Converted To"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DemonstrationStatus"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/DemonstrationStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "steps",
+          "created_at",
+          "updated_at",
+          "compile"
+        ],
+        "title": "DemonstrationConvertOut",
+        "type": "object"
+      },
+      "DemonstrationCreate": {
+        "additionalProperties": false,
+        "description": "开始录制的 body；整个 body 可省略，``title`` 为空时用服务端本地时间。",
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "DemonstrationCreate",
+        "type": "object"
+      },
+      "DemonstrationOut": {
+        "description": "一次示教的完整状态（列表项与停止响应共用）。",
+        "properties": {
+          "converted_to": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Converted To"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DemonstrationStatus"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/DemonstrationStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "steps",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DemonstrationOut",
+        "type": "object"
+      },
+      "DemonstrationPage": {
+        "description": "分页列表；``items`` 带完整 ``steps``。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DemonstrationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "DemonstrationPage",
+        "type": "object"
+      },
+      "DemonstrationStartOut": {
+        "description": "开始录制时多返回当前设备像素分辨率。",
+        "properties": {
+          "converted_to": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Converted To"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "screen": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Screen",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DemonstrationStatus"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/DemonstrationStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "steps",
+          "created_at",
+          "updated_at",
+          "screen"
+        ],
+        "title": "DemonstrationStartOut",
+        "type": "object"
+      },
+      "DemonstrationStatus": {
+        "description": "一次示教的生命周期：录制中、已停止可转换、已转换与已丢弃。",
+        "enum": [
+          "recording",
+          "recorded",
+          "converted",
+          "discarded"
+        ],
+        "title": "DemonstrationStatus",
+        "type": "string"
+      },
+      "DemonstrationStepOut": {
+        "description": "一条步骤；``at`` 原样透传服务写入的结尾 ``Z`` 的 UTC 字符串。",
+        "properties": {
+          "action": {
+            "enum": [
+              "click",
+              "swipe",
+              "long_press"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "delay_ms": {
+            "title": "Delay Ms",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "result_screenshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Screenshot Id"
+          },
+          "screen": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Screen",
+            "type": "array"
+          },
+          "screenshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screenshot Id"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "x1": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X1"
+          },
+          "x2": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X2"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "y1": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y1"
+          },
+          "y2": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y2"
+          }
+        },
+        "required": [
+          "seq",
+          "action",
+          "delay_ms",
+          "screen",
+          "at"
+        ],
+        "title": "DemonstrationStepOut",
+        "type": "object"
+      },
+      "DemonstrationStop": {
+        "additionalProperties": false,
+        "description": "停止录制的 body；``discard=true`` 直接丢弃步骤。",
+        "properties": {
+          "discard": {
+            "default": false,
+            "title": "Discard",
+            "type": "boolean"
+          }
+        },
+        "title": "DemonstrationStop",
         "type": "object"
       },
       "DepotInput": {
@@ -14506,6 +14988,522 @@
           }
         },
         "summary": "汇总模型调用成本",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/demonstrations": {
+      "get": {
+        "description": "按 ``created_at DESC, id DESC`` 分页；列表项带完整 ``steps``。",
+        "operationId": "agent_list_demonstrations",
+        "parameters": [
+          {
+            "description": "只看该状态；取 recording/recorded/converted/discarded",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只看该状态；取 recording/recorded/converted/discarded",
+              "title": "Status"
+            }
+          },
+          {
+            "description": "页码，从 1 开始",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "页码，从 1 开始",
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "每页条数，1–50",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "每页条数，1–50",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemonstrationPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取示教列表",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "description": "开始一次网页示教；同一时刻只允许一条 ``recording``，返回 ``screen``。",
+        "operationId": "agent_start_demonstration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DemonstrationCreate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemonstrationStartOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "DEMONSTRATION_STATE_INVALID",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：DEMONSTRATION_STATE_INVALID、PIPELINE_ALREADY_RUNNING"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "DEVICE_NOT_CONNECTED",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：DEVICE_NOT_CONNECTED、SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "开始示教录制",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/demonstrations/{id}/convert": {
+      "post": {
+        "description": "默认只编译并校验；``register=true`` 时一次性注册整条链并置 ``converted``。",
+        "operationId": "agent_convert_demonstration",
+        "parameters": [
+          {
+            "description": "示教 id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "示教 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DemonstrationConvert"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemonstrationConvertOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "DEMONSTRATION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：DEMONSTRATION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "DEMONSTRATION_STATE_INVALID",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：DEMONSTRATION_STATE_INVALID、RESOURCE_ASSET_CONFLICT"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "CUSTOM_TASK_INVALID",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：CUSTOM_TASK_INVALID、VALIDATION_ERROR"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RESOURCE_LOAD_FAILED",
+                    "details": {},
+                    "message": "服务端内部错误"
+                  }
+                }
+              }
+            },
+            "description": "服务端内部错误：RESOURCE_LOAD_FAILED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "转换示教",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/demonstrations/{id}/stop": {
+      "post": {
+        "description": "有步骤置 ``recorded``，零步或 ``discard=true`` 置 ``discarded``。",
+        "operationId": "agent_stop_demonstration",
+        "parameters": [
+          {
+            "description": "示教 id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "示教 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DemonstrationStop"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemonstrationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "DEMONSTRATION_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：DEMONSTRATION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "DEMONSTRATION_STATE_INVALID",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：DEMONSTRATION_STATE_INVALID"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "停止示教录制",
         "tags": [
           "agent"
         ]

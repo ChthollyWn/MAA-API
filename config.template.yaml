@@ -328,3 +328,7 @@ nav:
   enabled: true
   learn: true      # 导航时把新走通的跳转、新确认的画面样本记进图里
   max_steps: 12    # 一次 navigate_to 最多执行多少个动作
+
+demonstration:
+  # 示教录制；关闭后 /more/demonstrations 与四个端点返回 503
+  enabled: true

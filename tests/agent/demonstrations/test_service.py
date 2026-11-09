@@ -24,7 +24,7 @@ from maa_api.agent.demonstrations.service import (
     DemonstrationService,
 )
 from maa_api.agent.lease import DeviceLeaseService
-from maa_api.db.models import Demonstration, Pipeline
+from maa_api.db.models import Demonstration, Pipeline, ResourceAsset
 from maa_api.domain.enums import (
     DemonstrationStatus,
     PipelineSource,
@@ -63,6 +63,47 @@ class FakeDeviceManager:
         }
 
 
+class FakeResources:
+    """``convert`` 的资源服务替身：结构校验可控，注册记录调用并可注入错误。"""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.content_errors: list[dict[str, str]] = []
+        self.error: Exception | None = None
+
+    def validate_custom_task_content(self, content: Any) -> list[dict[str, str]]:
+        del content
+        return [dict(item) for item in self.content_errors]
+
+    async def register_custom_task(
+        self,
+        *,
+        name: str,
+        description: str | None,
+        content: dict[str, Any] | None = None,
+        tasks: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "name": name,
+                "description": description,
+                "content": content,
+                "tasks": tasks,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        names = list(tasks) if tasks is not None else [name]
+        return {
+            "entry": name,
+            "task_names": names,
+            "items": [
+                {"id": f"asset-{index}", "name": item}
+                for index, item in enumerate(names)
+            ],
+        }
+
+
 @pytest.fixture
 def demo_env(tmp_path: Path):
     """``(factory, device, lease, service)``；用例结束销毁同步引擎。"""
@@ -87,7 +128,7 @@ def demo_env(tmp_path: Path):
         factory,
         device_manager=device,
         lease=lease,
-        resource_service=SimpleNamespace(),
+        resource_service=FakeResources(),
     )
     yield factory, device, lease, service
     engines[0].sync_engine.dispose()
@@ -493,5 +534,112 @@ def test_list_filters_and_paginates(demo_env) -> None:
         with pytest.raises(AppError) as caught:
             await service.list(status="unknown", page=1, size=20)
         assert caught.value.code == ErrorCode.INVALID_PARAMETER
+
+    asyncio.run(scenario())
+
+
+# --------------------------------------------------------------------------- convert
+
+
+async def _recorded(service: DemonstrationService, *, title: str = "示教") -> str:
+    """起一条有一格步骤的 ``recorded`` 示教，返回 id。"""
+    out = await service.start(title=title)
+    await _note(service, out["id"], started_at=datetime(2026, 11, 10, 8, 0, 0))
+    await service.stop(out["id"])
+    return out["id"]
+
+
+async def _assets(factory: Factory) -> list[ResourceAsset]:
+    async with factory() as db:
+        result = await db.execute(select(ResourceAsset))
+        return list(result.scalars().all())
+
+
+def test_service_convert_preview_keeps_recorded(demo_env) -> None:
+    """``register=false``：编译并返回，状态仍是 recorded，不写资产、不写 converted_to。"""
+    factory, _device, _lease, service = demo_env
+
+    async def scenario() -> None:
+        demonstration_id = await _recorded(service)
+
+        result = await service.convert(demonstration_id, register=False)
+
+        assert result["status"] == DemonstrationStatus.RECORDED
+        assert result["converted_to"] is None
+        compiled = result["compile"]
+        assert compiled["valid"] is True
+        assert compiled["register"] is False
+        assert compiled["registered"] == []
+        assert compiled["entry"] == f"Custom_Demo_{demonstration_id[:8]}_1"
+        assert compiled["chain"][-1].endswith("_Done")
+        assert "action" in compiled["tasks"][compiled["chain"][-1]]
+
+        rows = await _rows(factory)
+        assert rows[0].status == DemonstrationStatus.RECORDED
+        assert rows[0].converted_to is None
+        assert await _assets(factory) == []
+
+    asyncio.run(scenario())
+
+
+def test_service_convert_register_marks_converted(demo_env) -> None:
+    """``register=true``：一次注册整条链，写 converted_to 四个键并置 converted。"""
+    factory, _device, lease, service = demo_env
+
+    async def scenario() -> None:
+        demonstration_id = await _recorded(service, title="新活动示教")
+        resources = service._resource_service
+
+        result = await service.convert(demonstration_id, register=True)
+
+        assert result["status"] == DemonstrationStatus.CONVERTED
+        converted = result["converted_to"]
+        assert set(converted) == {"entry", "task_names", "asset_ids", "registered_at"}
+        assert converted["entry"] == result["compile"]["entry"]
+        assert converted["entry"] == f"Custom_Demo_{demonstration_id[:8]}_1"
+        assert len(converted["task_names"]) == len(converted["asset_ids"]) == 2
+        assert converted["asset_ids"] == ["asset-0", "asset-1"]
+        assert converted["registered_at"].endswith("Z")
+        assert result["compile"]["registered"] == [
+            {"id": "asset-0", "name": converted["task_names"][0]},
+            {"id": "asset-1", "name": converted["task_names"][1]},
+        ]
+        # 服务只调一次注册，name 是入口、tasks 是整条链、描述取自标题。
+        assert len(resources.calls) == 1
+        assert resources.calls[0]["name"] == converted["entry"]
+        assert resources.calls[0]["tasks"] == result["compile"]["tasks"]
+        assert resources.calls[0]["description"] == "示教 新活动示教"
+
+        rows = await _rows(factory)
+        assert rows[0].status == DemonstrationStatus.CONVERTED
+        assert lease.recording() is False
+
+        # 已转换是终态：再转 409。
+        with pytest.raises(AppError) as caught:
+            await service.convert(demonstration_id, register=True)
+        assert caught.value.code == ErrorCode.DEMONSTRATION_STATE_INVALID
+
+    asyncio.run(scenario())
+
+
+def test_service_convert_register_failure_keeps_recorded(demo_env) -> None:
+    """注册抛 ``RESOURCE_LOAD_FAILED``：行保持 recorded，converted_to 为空，无部分资产。"""
+    factory, _device, _lease, service = demo_env
+
+    async def scenario() -> None:
+        demonstration_id = await _recorded(service)
+        resources = service._resource_service
+        resources.error = AppError(
+            ErrorCode.RESOURCE_LOAD_FAILED, "自定义任务链已回滚"
+        )
+
+        with pytest.raises(AppError) as caught:
+            await service.convert(demonstration_id, register=True)
+
+        assert caught.value.code == ErrorCode.RESOURCE_LOAD_FAILED
+        rows = await _rows(factory)
+        assert rows[0].status == DemonstrationStatus.RECORDED
+        assert rows[0].converted_to is None
+        assert await _assets(factory) == []
 
     asyncio.run(scenario())

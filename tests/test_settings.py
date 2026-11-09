@@ -496,6 +496,8 @@ def test_env_mapping_names_are_pinned() -> None:
         "nav.enabled": "MAA_NAV_ENABLED",
         "nav.learn": "MAA_NAV_LEARN",
         "nav.max_steps": "MAA_NAV_MAX_STEPS",
+        # M89：示教录制开关（不是 config-only）。
+        "demonstration.enabled": "MAA_DEMONSTRATION_ENABLED",
     }
 
 

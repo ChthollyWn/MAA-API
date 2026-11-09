@@ -8,8 +8,8 @@
 - ``stop`` 有步骤置 ``recorded``，零步或显式丢弃置 ``discarded``；
 - 进程启动清理与设备断开都走 ``discarded``；``converted`` / ``discarded`` 是终态。
 
-``convert`` 依赖 M89 的编译器与批量注册，不属本模块的 Task 2 范围，由后续任务
-在同一个类上补实现。
+``convert`` 把 ``recorded`` 示教编译成 ``Custom_*`` 链（默认只预览）；``register``
+为真时在 ``_convert_lock`` 内一次性注册整条链并置 ``converted``。
 """
 
 from __future__ import annotations
@@ -23,11 +23,20 @@ from typing import TYPE_CHECKING, Any
 from PIL import Image
 from sqlalchemy import func, select
 
+from maa_api.agent.custom_task.rules import check_bundle
+from maa_api.agent.demonstrations.compiler import (
+    CompileError,
+    Compiled,
+    compile_steps,
+    parse_step,
+)
 from maa_api.agent.lease import DeviceLeaseService
 from maa_api.db.models import Demonstration, utcnow
 from maa_api.db.repositories.pipeline import PipelineRepository
+from maa_api.db.repositories.resource import ResourceAssetRepository
 from maa_api.domain.enums import (
     DemonstrationStatus,
+    ResourceAssetKind,
     ScreenshotBackend,
     ScreenshotTrigger,
 )
@@ -70,6 +79,8 @@ class DemonstrationService:
         self._start_lock = asyncio.Lock()
         #: 串行步骤追加，并让 stop/abort/recover 与追加互斥。
         self._append_lock = asyncio.Lock()
+        #: 串行转换：重读行、编译、预检与注册在锁内完成（spec §4.5「转换」）。
+        self._convert_lock = asyncio.Lock()
         self._active_id: str | None = None
 
     # ---------------------------------------------------------------- 状态读取
@@ -300,6 +311,155 @@ class DemonstrationService:
             )
             items = [self._wire(row) for row in result.scalars().all()]
         return {"items": items, "total": total, "page": page, "size": size}
+
+    # ---------------------------------------------------------------- 转换
+
+    async def convert(
+        self, demonstration_id: str, *, register: bool
+    ) -> dict[str, Any]:
+        """把 ``recorded`` 示教编译成 ``Custom_*`` 链（spec §4.5「转换」）。
+
+        默认只编译并返回（不改状态、不写资源）；``register=True`` 时一次性注册整条
+        链，成功后置 ``converted`` 并写 ``converted_to``。编译、结构/链级校验或注册
+        失败时行保持 ``recorded``，不写 ``converted_to``，也不留下部分资产。
+        """
+        async with self._convert_lock:
+            async with self._session_factory() as session:
+                row = await session.get(Demonstration, demonstration_id)
+                if row is None:
+                    raise self._not_found(demonstration_id)
+                if row.status != DemonstrationStatus.RECORDED:
+                    raise self._state_invalid(row, "convert")
+                data = self._wire(row)
+                title = row.title
+                raw_steps = list(row.steps or [])
+
+            try:
+                compiled = compile_steps(
+                    prefix=f"Custom_Demo_{demonstration_id[:8]}",
+                    steps=[parse_step(raw) for raw in raw_steps],
+                )
+            except CompileError as exc:
+                raise AppError(
+                    ErrorCode.CUSTOM_TASK_INVALID,
+                    "示教步骤无法编译成自定义任务，请检查步骤后重试",
+                    {"errors": exc.errors, "chain_errors": []},
+                ) from exc
+
+            errors, chain_errors = self._chain_errors(compiled)
+            if errors or chain_errors:
+                raise AppError(
+                    ErrorCode.CUSTOM_TASK_INVALID,
+                    "自定义任务链校验失败，请按 errors 与 chain_errors 修正后重试",
+                    {"errors": errors, "chain_errors": chain_errors},
+                )
+
+            async with self._session_factory() as session:
+                conflicts = await self._conflicting_task_names(
+                    session, compiled.tasks
+                )
+            if conflicts:
+                raise AppError(
+                    ErrorCode.CUSTOM_TASK_INVALID,
+                    "已存在同名自定义任务，注册一定失败；先删掉旧任务或改用新名字",
+                    {
+                        "errors": [
+                            {
+                                "task": name,
+                                "field": "name",
+                                "reason": "已存在同名自定义任务",
+                            }
+                            for name in conflicts
+                        ],
+                        "chain_errors": [],
+                    },
+                )
+
+            compiled_wire: dict[str, Any] = {
+                "entry": compiled.entry,
+                "tasks": compiled.tasks,
+                "chain": list(compiled.chain),
+                "valid": True,
+                "errors": [],
+                "chain_errors": [],
+                "register": register,
+                "registered": [],
+            }
+            if not register:
+                return {**data, "compile": compiled_wire}
+
+            result = await self._resource_service.register_custom_task(
+                name=compiled.entry,
+                description=f"示教 {title[:48]}",
+                tasks=compiled.tasks,
+            )
+            items = list(result.get("items") or [])
+            now = utcnow()
+            converted_to = {
+                "entry": str(result.get("entry") or compiled.entry),
+                "task_names": [str(name) for name in result.get("task_names") or []],
+                "asset_ids": [str(item.get("id")) for item in items],
+                "registered_at": self._utc_iso(now),
+            }
+            compiled_wire["registered"] = [
+                {"id": str(item.get("id")), "name": str(item.get("name"))}
+                for item in items
+            ]
+
+            async with self._session_factory() as session:
+                row = await session.get(Demonstration, demonstration_id)
+                if row is None:
+                    raise self._not_found(demonstration_id)
+                if row.status != DemonstrationStatus.RECORDED:
+                    raise self._state_invalid(row, "convert")
+                row.status = DemonstrationStatus.CONVERTED
+                row.converted_to = converted_to
+                row.updated_at = now
+                await session.commit()
+                data = self._wire(row)
+            return {**data, "compile": compiled_wire}
+
+    def _chain_errors(
+        self, compiled: Compiled
+    ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+        """逐节点结构校验 + 链级校验；错误统一成 ``{task, field, reason}``。"""
+        errors: list[dict[str, str]] = []
+        for task_name, node in compiled.tasks.items():
+            for issue in self._resource_service.validate_custom_task_content(node):
+                errors.append(
+                    {
+                        "task": task_name,
+                        "field": str(issue.get("field") or "content"),
+                        "reason": str(issue.get("reason") or "结构校验失败"),
+                    }
+                )
+        bundle_errors, chain_errors, _chain = check_bundle(
+            compiled.tasks, compiled.entry
+        )
+        errors.extend(issue.as_dict() for issue in bundle_errors)
+        return errors, [issue.as_dict() for issue in chain_errors]
+
+    @staticmethod
+    async def _conflicting_task_names(
+        session: Any, tasks: Mapping[str, Any]
+    ) -> list[str]:
+        """注册前逐个比对现有 ``custom_task`` 资产名（写入竞态由 UNIQUE 约束兜住）。"""
+        repository = ResourceAssetRepository(session)
+        conflicts: list[str] = []
+        for task_name in tasks:
+            existing = await repository.get_by_kind_name(
+                ResourceAssetKind.CUSTOM_TASK, task_name
+            )
+            if existing is not None:
+                conflicts.append(str(task_name))
+        return conflicts
+
+    @staticmethod
+    def _utc_iso(value: datetime) -> str:
+        """``converted_to.registered_at`` 用结尾 ``Z`` 的 UTC ISO 时间。"""
+        if value.tzinfo is None:
+            return f"{value.isoformat()}Z"
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
     # ---------------------------------------------------------------- 内部工具
 
