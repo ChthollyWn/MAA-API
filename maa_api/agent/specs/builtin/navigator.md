@@ -7,7 +7,7 @@ model_role: subagent
 tools: [get_screenshot, click, swipe, long_press, input_text, key_event, back_to_home, annotate_screenshot, where_am_i, remember_screen, navigate_to]
 deferred_groups: []
 device: exclusive
-risk_ceiling: none
+risk_ceiling: consume
 max_steps: 30
 delegates: []
 skills: []

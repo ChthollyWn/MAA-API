@@ -432,5 +432,8 @@ def test_navigator_exposes_nav_tools():
     navigator = builtin_spec("navigator")
     assert {"where_am_i", "remember_screen", "navigate_to"} <= set(navigator.tools)
     assert set(navigator.tools) >= {"get_screenshot", "click", "swipe", "back_to_home"}
+    # 导航工具走原子操作授权，风险按 consume 计（spec §4.5.5）；上限 none 会在
+    # MandateMiddleware 就被 MANDATE_SCOPE_EXCEEDED 拦下。
+    assert navigator.risk_ceiling == "consume"
     general = builtin_spec("general")
     assert not {"where_am_i", "remember_screen", "navigate_to"} & set(general.tools)
