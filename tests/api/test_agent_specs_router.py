@@ -69,15 +69,15 @@ SPEC_NAMES = [
 #: M87 §4.7：``daily_ops``、``copilot`` 开启 ``verify_before_ready`` 并升到 4，
 #: ``verifier`` 补核对完成证据的提示，升到 2；``general`` 不动，保持 6。
 EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
-    "analyst": 3,
+    "analyst": 4,
     "copilot": 4,
     "daily_ops": 4,
     "diagnose": 4,
-    "general": 6,
+    "general": 7,
     "navigator": 2,
     "ops": 3,
     "orchestrator": 7,
-    "planner": 3,
+    "planner": 4,
     "researcher": 2,
     "verifier": 2,
 }

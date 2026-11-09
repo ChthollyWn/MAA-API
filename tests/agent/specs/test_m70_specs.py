@@ -38,6 +38,8 @@ KNOWLEDGE_TOOLS = {"search_knowledge"}
 SKILL_TOOLS = {"load_skill", "read_skill_file"}
 #: M79 §4.7：``general`` 追加的记忆工具；总控另算，不在这条用例里。
 MEMORY_TOOLS = {"remember"}
+#: M88 §4.7：``general`` 追加的刷图方案工具。
+ECONOMY_TOOLS = {"optimize_farming"}
 TICKET_TOOLS = {
     "create_ticket",
     "send_to_ticket",
@@ -102,6 +104,7 @@ def test_general_tools_equal_legacy_chat_minus_delegate_recon_plus_worker_tools(
         | KNOWLEDGE_TOOLS
         | SKILL_TOOLS
         | MEMORY_TOOLS
+        | ECONOMY_TOOLS
     )
     assert set(general.tools) == expected
     assert "delegate_recon" not in general.tools

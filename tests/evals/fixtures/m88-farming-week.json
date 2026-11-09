@@ -1,0 +1,126 @@
+{
+  "status": "complete",
+  "fits_window": true,
+  "requirements": {
+    "异铁块": 20,
+    "聚酸酯组": 10
+  },
+  "stages": [
+    {
+      "stage_id": "act52side_06",
+      "stage_code": "YW-6",
+      "runs": 38,
+      "sanity_per_run": 21,
+      "sanity": 798,
+      "event": true,
+      "activity": "昨日海",
+      "deadline": "2026-10-23T03:59:00+08:00",
+      "navigable": true,
+      "tokens_per_run": 21,
+      "items": [
+        {
+          "item_id": "30012",
+          "item_name": "异铁块",
+          "rate": 1.06,
+          "sanity_per_item": 19.8,
+          "times": 512,
+          "started_at": "2026-10-09T04:00:00+08:00",
+          "ended_at": "2026-10-20T04:00:00+08:00"
+        }
+      ]
+    },
+    {
+      "stage_id": "act52side_03",
+      "stage_code": "YW-3",
+      "runs": 10,
+      "sanity_per_run": 12,
+      "sanity": 120,
+      "event": true,
+      "activity": "昨日海",
+      "deadline": "2026-10-23T03:59:00+08:00",
+      "navigable": true,
+      "tokens_per_run": null,
+      "items": [
+        {
+          "item_id": "30062",
+          "item_name": "聚酸酯组",
+          "rate": 0.71,
+          "sanity_per_item": 16.9,
+          "times": 347,
+          "started_at": "2026-10-09T04:00:00+08:00",
+          "ended_at": "2026-10-20T04:00:00+08:00"
+        }
+      ]
+    }
+  ],
+  "synthesis": [],
+  "shop": [
+    {
+      "activity": "昨日海",
+      "item": "异铁块",
+      "quantity": 10,
+      "bundle": 1,
+      "price": 40,
+      "tokens": 400,
+      "stock": 10,
+      "section": "金色阶段",
+      "value_sanity": 198.0
+    }
+  ],
+  "tokens": [
+    {
+      "activity": "昨日海",
+      "token": "“未来瞻望镜”",
+      "owned": 0,
+      "earned": 798,
+      "spent": 400,
+      "left": 398
+    }
+  ],
+  "sanity": {
+    "needed": 918,
+    "current": 0,
+    "medicine": 0,
+    "natural_per_day": 240,
+    "window_days": 7
+  },
+  "days_estimated": 3.9,
+  "days_estimated_full": 3.9,
+  "medicine": {
+    "use": false,
+    "scope": "no_expiry_data",
+    "items": [],
+    "owned_sanity": 0,
+    "counted_sanity": 0,
+    "expiring_medicine": 0,
+    "max_days_saved": 0.0,
+    "note": "仓库里没有理智药，方案不计用药"
+  },
+  "coverage": {
+    "异铁块": 1.0,
+    "聚酸酯组": 1.0
+  },
+  "unobtainable": [],
+  "notes": [
+    "按每天自然恢复 240 理智估算，不含月卡与活动赠送",
+    "活动「昨日海」的商店计入方案"
+  ],
+  "explanation": "凑齐需要 918 理智，按当前理智 0 与每天 240 的自然恢复约 3.9 天。主要刷 YW-6 ×38、YW-3 ×10；昨日海 的 YW-6 每次还给 21 个代币。代币先换 异铁块 ×10，按掉率折合约 198 理智。",
+  "sources": [
+    {
+      "kind": "penguin",
+      "label": "企鹅物流"
+    },
+    {
+      "kind": "prts",
+      "label": "PRTS",
+      "url": "https://prts.wiki/w/昨日海?action=raw"
+    },
+    {
+      "kind": "gamedata",
+      "label": "拆包数据",
+      "file": "item_table.json"
+    }
+  ],
+  "report_artifact_id": null
+}

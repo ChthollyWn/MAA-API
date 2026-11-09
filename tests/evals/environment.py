@@ -8,6 +8,7 @@ HTTP；区别是这里的参数来自场景（world.seed / world.http / world.sc
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import tempfile
@@ -296,6 +297,27 @@ class ScriptedCopilotAttempt:
         }
 
 
+class FakeFarmingOptimizer:
+    """``optimize_farming`` 的假刷图服务（M88 规格 §4.5.9）。
+
+    直接返回夹具里的结果：不联网、不写报告产物，``report_artifact_id`` 保持 null。
+    """
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    async def optimize(
+        self,
+        request: Any,
+        *,
+        write_report: bool,
+        session_id: str | None,
+        ticket_id: str | None,
+    ) -> dict[str, Any]:
+        del request, write_report, session_id, ticket_id
+        return copy.deepcopy(self._payload)
+
+
 async def _seed_copilots(app: Any, scenario: Scenario) -> None:
     """把 world.copilots 写成 kind=copilot 的 ResourceAsset 行。"""
     async with app.state.session_factory() as session:
@@ -411,6 +433,12 @@ def _open_world(
         )
 
         app = main_module.create_app()
+        # M88 §4.5.9：在 client 进入前替换刷图服务，评测不碰真实 PRTS/企鹅物流/拆包。
+        if scenario.world.farming_optimizer:
+            payload = json.loads(
+                _read_fixture(fixtures_dir, scenario.world.farming_optimizer)
+            )
+            app.state.farming_optimizer = FakeFarmingOptimizer(payload)
         for name, value in fake_core_factories(
             script=scenario.world.core_script,
             device_connected=scenario.world.device_connected,
@@ -598,6 +626,7 @@ def make_workdir(prefix: str = "eval-") -> Path:
 
 __all__ = [
     "EVAL_TOKEN",
+    "FakeFarmingOptimizer",
     "FakeWorldEnvironment",
     "build_default_environment",
     "make_workdir",

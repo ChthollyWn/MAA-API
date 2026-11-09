@@ -438,13 +438,7 @@ class UpgradePlanService:
         requirements = plan.get("requirements") or {}
         if not requirements:
             return plan
-        depot = await self._depot_counts()
-        missing = {
-            name: max(int(need) - int(depot.get(str(name), 0)), 0)
-            for name, need in requirements.items()
-            if str(name) not in _REPORT_ONLY_NAMES
-        }
-        missing = {name: count for name, count in missing.items() if count > 0}
+        missing = await self._missing_from_plan(plan)
         progress = {**plan.get("progress", {}), "missing": missing}
         if missing:
             progress = await self._replan(plan, missing=missing, progress=progress)
@@ -455,6 +449,26 @@ class UpgradePlanService:
             plan_id,
             {"status": "completed", "progress": progress, "completed_at": _now()},
         )
+
+    async def _missing_from_plan(self, plan: Mapping[str, Any]) -> dict[str, int]:
+        """计划需求 − 当前仓库，只留大于 0 的；按 refresh 既有口径只排除龙门币。"""
+        requirements = plan.get("requirements") or {}
+        depot = await self._depot_counts()
+        missing = {
+            name: max(int(need) - int(depot.get(str(name), 0)), 0)
+            for name, need in requirements.items()
+            if str(name) not in _REPORT_ONLY_NAMES
+        }
+        return {name: count for name, count in missing.items() if count > 0}
+
+    async def missing_needs(self, plan_id: str) -> dict[str, int]:
+        """计划的剩余缺口（显示名 → 数量）；计划不存在抛 ``UPGRADE_PLAN_NOT_FOUND``。
+
+        与 :meth:`refresh` 同一口径：只排除龙门币，**保留作战记录**（v2 的
+        ``refresh`` 行为）；作战记录由 ``farming_inputs`` 在规划入口去掉。
+        """
+        plan = await self._get_plan(plan_id)
+        return await self._missing_from_plan(plan)
 
     async def _replan(
         self,

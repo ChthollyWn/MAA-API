@@ -218,6 +218,8 @@ class World(BaseModel):
     copilots: list[dict[str, Any]] = Field(default_factory=list)
     #: 每次 ``run_copilot_attempt`` 的结果，按尝试顺序消费。
     copilot_results: list[CopilotResult] = Field(default_factory=list)
+    #: M88：``tests/evals/fixtures/`` 下的刷图方案夹具文件名；非空时替换刷图服务。
+    farming_optimizer: str | None = None
 
     @field_validator("copilots")
     @classmethod

@@ -1,0 +1,6 @@
+{"type": "header", "format": 1, "scenario": "m88-analyst-shop", "source": "handwritten", "recorded_at": "2026-11-09T00:00:00Z", "model": "eval-model", "agent": "analyst", "spec_version": null, "notes": "M88 T7：分析师用 optimize_farming 算活动商店兑换"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-farming-1", "name": "optimize_farming", "arguments": {"materials": {"异铁块": 10, "聚酸酯组": 15}}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-report-1", "name": "report", "arguments": {"status": "ready", "summary": "活动商店先换聚酸酯组 15 份和异铁块 10 份，合计 520 代币；按掉率折合约 452 理智，已有代币 600 够用。"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"items\": []}"}}

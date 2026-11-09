@@ -1,0 +1,12 @@
+{
+  "items": {
+    "ap_supply_lt_60": {"itemId": "ap_supply_lt_60", "name": "应急理智合剂", "itemType": "AP_SUPPLY"},
+    "ap_supply_lt_100": {"itemId": "ap_supply_lt_100", "name": "应急理智顶液", "itemType": "AP_SUPPLY"},
+    "ap_supply_lt_010": {"itemId": "ap_supply_lt_010", "name": "应急理智小样", "itemType": "AP_SUPPLY"}
+  },
+  "apSupplies": {
+    "ap_supply_lt_60": {"id": "ap_supply_lt_60", "ap": 60, "hasTs": true},
+    "ap_supply_lt_100": {"id": "ap_supply_lt_100", "ap": 100, "hasTs": true},
+    "ap_supply_lt_010": {"id": "ap_supply_lt_010", "ap": 10, "hasTs": true}
+  }
+}

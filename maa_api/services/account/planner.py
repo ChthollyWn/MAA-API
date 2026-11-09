@@ -84,6 +84,9 @@ from maa_api.settings import Settings, get_settings
 
 __all__ = [
     "SANITY_PER_DAY",
+    "FarmingInputs",
+    "Recipe",
+    "StageOption",
     "UpgradePlan",
     "UpgradePlanner",
     "UpgradeTarget",
@@ -426,6 +429,34 @@ class _StageOption:
     ap_cost: int
     rates: dict[str, float] = field(default_factory=dict)
     details: list[dict[str, Any]] = field(default_factory=list)
+
+
+#: 公开别名，供 ``economy`` 复用 v2 的候选关与配方形状（字段不变）。
+StageOption = _StageOption
+Recipe = _Recipe
+
+
+@dataclass(slots=True)
+class FarmingInputs:
+    """``farming_inputs`` 的产物：与 ``plan_needs`` 同一套入口归一与取数，但不求解。"""
+
+    needs: dict[str, int]
+    display: dict[str, str]
+    options: list[StageOption]
+    recipes: list[Recipe]
+    rate_status: dict[str, str]
+    notes: list[str]
+    server: str
+
+
+@dataclass(slots=True)
+class _Prepared:
+    """``_prepare`` 的产物：配方闭包、材料元信息、候选关与取不到的原因。"""
+
+    recipes: dict[str, _Recipe]
+    meta: dict[str, dict[str, Any]]
+    options: list[_StageOption]
+    status: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1168,38 +1199,13 @@ class UpgradePlanner:
         缺省时直接用 ``needs`` 的键。继续走「配方闭包 → 掉率 → 候选关 → 线性
         规划」，掉率按 ``include_closed=False`` 取，所以已关闭的关卡天然被剔除。
         """
-        settings = self._settings_provider()
-        default_server = getattr(getattr(settings, "channel", None), "server", None) or "CN"
-        server_name = str(server or default_server).upper()
-
+        server_name = self._server_name(server)
         names: dict[str, str] = {}
         for raw_key, raw_name in (display or {}).items():
             names[_key(str(raw_key))] = str(raw_name)
 
-        notes: list[str] = []
-        farm_needs: dict[str, int] = {}
-        for raw_name, raw_amount in (needs or {}).items():
-            try:
-                amount = int(raw_amount)
-            except (TypeError, ValueError):
-                continue
-            if amount <= 0:
-                continue
-            name = str(raw_name)
-            names.setdefault(_key(name), name)
-            key = _key(name)
-            farm_needs[key] = farm_needs.get(key, 0) + amount
-
-        report_only = {key for key in farm_needs if _is_report_only(names.get(key, key))}
-        if report_only:
-            notes.append(
-                "龙门币与作战记录只报需求、不参与刷关规划（仓库识别不含这两项，规格 §7.3）"
-            )
-            farm_needs = {
-                key: value for key, value in farm_needs.items() if key not in report_only
-            }
+        farm_needs, notes = self._normalize_needs(needs, display=names)
         if not farm_needs:
-            notes.append("没有剩余需求：不需要刷关")
             return UpgradePlan(notes=tuple(notes), server=server_name)
 
         solved = await self._solve(
@@ -1221,6 +1227,119 @@ class UpgradePlanner:
             server=server_name,
         )
 
+    def _server_name(self, server: str | None) -> str:
+        """服务器归一：显式 ``server`` > 设置里的渠道 > ``CN``，统一大写。"""
+        settings = self._settings_provider()
+        default_server = getattr(getattr(settings, "channel", None), "server", None) or "CN"
+        return str(server or default_server).upper()
+
+    def _normalize_needs(
+        self, needs: Mapping[str, int], *, display: dict[str, str]
+    ) -> tuple[dict[str, int], list[str]]:
+        """入口归一：去非正数、``_key`` 去重、剔龙门币与作战记录；空需求只写 note。
+
+        ``display`` 就地补全（材料键 → 显示名）。不提前返回：空需求交给
+        ``plan_needs`` / ``farming_inputs`` 各自处理（前者返回空计划，后者返回空输入）。
+        """
+        notes: list[str] = []
+        farm_needs: dict[str, int] = {}
+        for raw_name, raw_amount in (needs or {}).items():
+            try:
+                amount = int(raw_amount)
+            except (TypeError, ValueError):
+                continue
+            if amount <= 0:
+                continue
+            name = str(raw_name)
+            display.setdefault(_key(name), name)
+            key = _key(name)
+            farm_needs[key] = farm_needs.get(key, 0) + amount
+
+        report_only = {key for key in farm_needs if _is_report_only(display.get(key, key))}
+        if report_only:
+            notes.append(
+                "龙门币与作战记录只报需求、不参与刷关规划（仓库识别不含这两项，规格 §7.3）"
+            )
+            farm_needs = {
+                key: value for key, value in farm_needs.items() if key not in report_only
+            }
+        if not farm_needs:
+            notes.append("没有剩余需求：不需要刷关")
+        return farm_needs, notes
+
+    async def _prepare(
+        self,
+        farm_needs: Mapping[str, int],
+        *,
+        display: dict[str, str],
+        server_name: str,
+        notes: list[str],
+    ) -> _Prepared:
+        """配方闭包 → universe → 取掉率 → 候选关 → 补 status；``_solve`` 与 ``farming_inputs`` 共用。"""
+        recipes, meta, closure_notes = await self._load_recipes(
+            list(farm_needs), display=display
+        )
+        notes.extend(closure_notes)
+
+        universe = set(farm_needs)
+        for recipe in recipes.values():
+            universe.add(recipe.product)
+            universe.update(key for key, _ in recipe.materials)
+        for key in universe:
+            display.setdefault(key, key)
+
+        rates, status = await self._load_rates(
+            sorted(universe), display=display, server=server_name, notes=notes
+        )
+        options, stage_notes = self._candidate_stages(rates, display=display)
+        notes.extend(stage_notes)
+        covered = {key for stage in options for key in stage.rates}
+        for key, rows in rates.items():
+            if rows and key not in covered and key not in status:
+                status[key] = (
+                    "掉率行都不满足候选条件（关卡开放、理智消耗 > 0、样本数 ≥ "
+                    f"{MIN_SAMPLE}、MAA 能导航）"
+                )
+        return _Prepared(recipes=recipes, meta=meta, options=options, status=status)
+
+    async def farming_inputs(
+        self,
+        needs: Mapping[str, int],
+        *,
+        server: str | None = None,
+        display: Mapping[str, str] | None = None,
+    ) -> FarmingInputs:
+        """与 :meth:`plan_needs` 同一套入口归一与取数，但不求解（供 ``economy`` 复用）。"""
+        server_name = self._server_name(server)
+        names: dict[str, str] = {}
+        for raw_key, raw_name in (display or {}).items():
+            names[_key(str(raw_key))] = str(raw_name)
+
+        farm_needs, notes = self._normalize_needs(needs, display=names)
+        if not farm_needs:
+            return FarmingInputs(
+                needs={},
+                display=names,
+                options=[],
+                recipes=[],
+                rate_status={},
+                notes=notes,
+                server=server_name,
+            )
+
+        prepared = await self._prepare(
+            farm_needs, display=names, server_name=server_name, notes=notes
+        )
+        return FarmingInputs(
+            needs=dict(farm_needs),
+            display=names,
+            options=prepared.options,
+            recipes=list(prepared.recipes.values()),
+            rate_status=prepared.status,
+            notes=notes,
+            server=server_name,
+        )
+
     async def _solve(
         self,
         farm_needs: Mapping[str, int],
@@ -1235,29 +1354,13 @@ class UpgradePlanner:
         只依赖 ``farm_needs``（已归一并扣过仓库），不重算目标增量；``display``
         缺的键补成键本身，``notes`` 就地追加解释。
         """
-        recipes, meta, closure_notes = await self._load_recipes(
-            list(farm_needs), display=display
+        prepared = await self._prepare(
+            farm_needs, display=display, server_name=server_name, notes=notes
         )
-        notes.extend(closure_notes)
-
-        universe = set(farm_needs)
-        for recipe in recipes.values():
-            universe.add(recipe.product)
-            universe.update(key for key, _ in recipe.materials)
-        for key in universe:
-            display.setdefault(key, key)
-
-        rates, status = await self._load_rates(sorted(universe), display=display,
-                                               server=server_name, notes=notes)
-        options, stage_notes = self._candidate_stages(rates, display=display)
-        notes.extend(stage_notes)
-        covered = {key for stage in options for key in stage.rates}
-        for key, rows in rates.items():
-            if rows and key not in covered and key not in status:
-                status[key] = (
-                    "掉率行都不满足候选条件（关卡开放、理智消耗 > 0、样本数 ≥ "
-                    f"{MIN_SAMPLE}、MAA 能导航）"
-                )
+        recipes = prepared.recipes
+        meta = prepared.meta
+        options = prepared.options
+        status = prepared.status
 
         has_stage: dict[str, bool] = {}
         for stage in options:

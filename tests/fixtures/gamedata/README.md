@@ -13,6 +13,7 @@
 | `copilot_22311.json` | `GET https://prts.maa.plus/copilot/get/22311`（HTTP 200） | 保留 `id`、`uploader`、`views`、`rating_*`、`available` 与 **`content` 原文**（作业 JSON 是坐标探针的输入）；裁掉站点的时间戳副本等长字段 |
 | `gamedata_const.json` | `GET …/zh_CN/gamedata/excel/gamedata_const.json`（HTTP 200，57 KB） | 只留 `characterExpMap`、`characterUpgradeCostMap`、`evolveGoldCost`、`maxLevel` |
 | `item_table.json` | `GET …/zh_CN/gamedata/excel/item_table.json`（HTTP 200，1.8 MB） | `items` 只留四张作战记录（`2001`–`2004`，各留 7 个字段）＋完整的 `expItems` |
+| `item_table_ap_supplies.json` | `GET https://fastly.jsdelivr.net/gh/Kengxxiao/ArknightsGameData@master/zh_CN/gamedata/excel/item_table.json`（抓取日期 **2026-11-09**） | 只留 `ap_supply_lt_60`/`lt_010`/`lt_100` 三条与对应 `items` 三条（M88 的理智药恢复量） |
 
 ## 坐标探针结论（2026-10-10 实测）
 

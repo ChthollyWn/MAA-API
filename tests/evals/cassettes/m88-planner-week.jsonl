@@ -1,0 +1,6 @@
+{"type": "header", "format": 1, "scenario": "m88-planner-week", "source": "handwritten", "recorded_at": "2026-11-09T00:00:00Z", "model": "eval-model", "agent": "planner", "spec_version": null, "notes": "M88 T7：规划师用 optimize_farming 算本周材料"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-farming-1", "name": "optimize_farming", "arguments": {"materials": {"异铁块": 20, "聚酸酯组": 10}, "window_days": 7}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-report-1", "name": "report", "arguments": {"status": "ready", "summary": "按当前理智 0 算，凑齐 20 个异铁块和 10 个聚酸酯组约需 3.9 天；主要刷 YW-6 38 次、YW-3 10 次，活动商店先换异铁块 10 份。"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"items\": []}"}}

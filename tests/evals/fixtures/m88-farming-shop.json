@@ -1,0 +1,90 @@
+{
+  "status": "complete",
+  "fits_window": null,
+  "requirements": {
+    "异铁块": 10,
+    "聚酸酯组": 15
+  },
+  "stages": [],
+  "synthesis": [],
+  "shop": [
+    {
+      "activity": "昨日海",
+      "item": "聚酸酯组",
+      "quantity": 15,
+      "bundle": 1,
+      "price": 8,
+      "tokens": 120,
+      "stock": 15,
+      "section": "紫色阶段",
+      "value_sanity": 253.5
+    },
+    {
+      "activity": "昨日海",
+      "item": "异铁块",
+      "quantity": 10,
+      "bundle": 1,
+      "price": 40,
+      "tokens": 400,
+      "stock": 10,
+      "section": "金色阶段",
+      "value_sanity": 198.0
+    }
+  ],
+  "tokens": [
+    {
+      "activity": "昨日海",
+      "token": "“未来瞻望镜”",
+      "owned": 600,
+      "earned": 0,
+      "spent": 520,
+      "left": 80
+    }
+  ],
+  "sanity": {
+    "needed": 0,
+    "current": 0,
+    "medicine": 0,
+    "natural_per_day": 240,
+    "window_days": null
+  },
+  "days_estimated": 0.0,
+  "days_estimated_full": 0.0,
+  "medicine": {
+    "use": false,
+    "scope": "no_expiry_data",
+    "items": [],
+    "owned_sanity": 0,
+    "counted_sanity": 0,
+    "expiring_medicine": 0,
+    "max_days_saved": 0.0,
+    "note": "仓库里没有理智药，方案不计用药"
+  },
+  "coverage": {
+    "异铁块": 1.0,
+    "聚酸酯组": 1.0
+  },
+  "unobtainable": [],
+  "notes": [
+    "按每天自然恢复 240 理智估算，不含月卡与活动赠送",
+    "需求全部由活动商店覆盖"
+  ],
+  "explanation": "商店先换 聚酸酯组 ×15、异铁块 ×10，按掉率折合约 452 理智；已有代币 600，花 520 后还剩 80。",
+  "sources": [
+    {
+      "kind": "penguin",
+      "label": "企鹅物流"
+    },
+    {
+      "kind": "prts",
+      "label": "PRTS",
+      "url": "https://prts.wiki/w/昨日海?action=raw"
+    },
+    {
+      "kind": "gamedata",
+      "label": "拆包数据",
+      "file": "item_table.json"
+    }
+  ],
+  "report_artifact_id": null
+}

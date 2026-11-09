@@ -1,0 +1,79 @@
+{
+  "id": "m88-planner-week",
+  "title": "本周材料要几天",
+  "suite": "capability",
+  "agent": "planner",
+  "source": "M88 spec §5 T7",
+  "tags": [
+    "farming",
+    "planner"
+  ],
+  "entry": {
+    "kind": "ticket",
+    "worker": "planner",
+    "title": "本周材料",
+    "brief": "这周想凑 20 个异铁块和 10 个聚酸酯组，来得及吗",
+    "scope": "用 optimize_farming 算这周来不来得及"
+  },
+  "world": {
+    "farming_optimizer": "m88-farming-week.json"
+  },
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "match": "subsequence",
+      "steps": [
+        {
+          "tool": "optimize_farming",
+          "args": {
+            "materials": {
+              "异铁块": 20,
+              "聚酸酯组": 10
+            },
+            "window_days": 7
+          }
+        },
+        {
+          "tool": "report",
+          "args": {
+            "status": "ready",
+            "summary": {
+              "re": "(?s)(天.*异铁块|异铁块.*天)"
+            }
+          }
+        }
+      ],
+      "forbid": [
+        "start_upgrade_plan"
+      ],
+      "max_calls": {
+        "optimize_farming": 1
+      }
+    },
+    {
+      "grader": "outcome_state",
+      "runs": {
+        "count": {
+          "gte": 1
+        },
+        "all": [
+          {
+            "agent_name": "planner",
+            "status": "succeeded",
+            "finish_reason": "report_submitted"
+          }
+        ]
+      },
+      "model_calls": {
+        "lte": 10
+      }
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 120,
+    "max_model_calls": 10
+  },
+  "settings": {
+    "llm.role_orchestrator": "missing-profile"
+  }
+}

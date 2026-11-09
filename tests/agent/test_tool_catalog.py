@@ -93,6 +93,8 @@ EXPECTED_TOOLS = {
     "where_am_i",
     "remember_screen",
     "navigate_to",
+    # M88：刷图方案（规格 §4.3.1）。
+    "optimize_farming",
 }
 
 #: M74 §5 T3：旧上下文里可以换成占位、需要时重新调用的工具（06 §5.1）。
@@ -113,9 +115,11 @@ EXPECTED_REFETCHABLE = frozenset({
     "list_tickets", "get_ticket", "search_knowledge", "read_skill_file",
     # M86：只看当前画面，不写库。
     "where_am_i",
+    # M88：同一请求重算结果相同，可以重新取回（规格 §4.3.1）。
+    "optimize_farming",
 })
 
-#: M80 §5 T4：结果属于不可信输入的工具，整集等于规格附录 A（22 个）。
+#: M80 §5 T4：结果属于不可信输入的工具，整集等于规格附录 A（23 个）。
 UNTRUSTED_OUTPUT_TOOLS = frozenset({
     # v2：PRTS 与企鹅物流的页面、拆包关卡文件、工作区文件、作业站作者内容、子代理报告。
     "get_stage", "search_prts", "get_operator", "get_enemy", "get_item",
@@ -126,6 +130,8 @@ UNTRUSTED_OUTPUT_TOOLS = frozenset({
     "read_file", "search_code", "delegate_recon",
     # v3：子代理结论与知识检索命中可能转述外部内容。
     "delegate", "search_knowledge",
+    # M88：刷图方案里有 PRTS 活动页、企鹅物流掉率与拆包数据。
+    "optimize_farming",
 })
 
 
@@ -135,11 +141,11 @@ def test_untrusted_output_tools_are_pinned() -> None:
     definitions = build_registry().list()
     untrusted = {definition.name for definition in definitions if definition.untrusted_output}
 
-    assert len(UNTRUSTED_OUTPUT_TOOLS) == 22
+    assert len(UNTRUSTED_OUTPUT_TOOLS) == 23
     assert untrusted == UNTRUSTED_OUTPUT_TOOLS
     assert untrusted <= EXPECTED_TOOLS
-    assert len(definitions) == 107
-    assert sum(1 for definition in definitions if definition.model_visible) == 106
+    assert len(definitions) == 108
+    assert sum(1 for definition in definitions if definition.model_visible) == 107
 
 
 def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner():
@@ -159,8 +165,9 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # ``remember`` → 100 / 99（不进 REST 目录，但对模型可见）。M82 加四个目标工具
     # → 104 / 103（同样不进 REST 目录，但对总控模型可见）。M86 加三个导航工具
     # → 107 / 106（``remember_screen`` 不进 REST 目录，三个都对模型可见）。
-    assert len(actual) == 107
-    assert sum(1 for item in registry.list() if item.model_visible) == 106
+    # M88 加 ``optimize_farming`` → 108 / 107（进 REST 目录，对模型可见）。
+    assert len(actual) == 108
+    assert sum(1 for item in registry.list() if item.model_visible) == 107
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "skills" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
@@ -723,14 +730,14 @@ def test_extension_fields_keep_v2_defaults() -> None:
 
 
 def test_refetchable_tools_are_pinned() -> None:
-    """M74 §5 T3：可重取工具恰为清单里的 51 个（M86 加 ``where_am_i``），且都是只读。"""
+    """M74 §5 T3：可重取工具恰为清单里的 52 个（M86 加 ``where_am_i``、M88 加 ``optimize_farming``），且都是只读。"""
 
     definitions = build_registry().list()
     refetchable = {
         definition.name for definition in definitions if definition.refetchable
     }
 
-    assert len(EXPECTED_REFETCHABLE) == 51
+    assert len(EXPECTED_REFETCHABLE) == 52
     assert refetchable == EXPECTED_REFETCHABLE
     assert refetchable <= EXPECTED_TOOLS
     assert all(
