@@ -8,9 +8,11 @@ from maa_api.services.economy.model import (
     MedicinePool,
     ShopGood,
 )
+from maa_api.services.economy.service import FarmingOptimizer
 
 __all__ = [
     "FarmingModel",
+    "FarmingOptimizer",
     "FarmingRequest",
     "MedicinePool",
     "ShopGood",
