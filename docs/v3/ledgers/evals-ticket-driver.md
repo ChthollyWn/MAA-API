@@ -1,6 +1,6 @@
 # 评测 ticket 驱动（维护性补丁台账）
 
-- 分支：`evals-ticket-driver`（待主 agent 合并后删除）；基点：`dev` = `e41ad72`（M86–M90 升格已合入）；合并：待主 agent 合并；tag：无（维护性补丁，不新增里程碑）
+- 分支：`evals-ticket-driver`（已合并并删除）；基点：`dev` = `e41ad72`（M86–M90 升格已合入）；合并：`0f16dc4`；tag：无（维护性补丁，不新增里程碑）
 - spec：[evals-ticket-driver](../specs/evals-ticket-driver.md)
 - 计划：[evals-ticket-driver](../plans/evals-ticket-driver.md)
 - 决策记录：[docs/v3/13 §8.179](../13-决策记录.md)
@@ -85,6 +85,12 @@
 - `ScriptedCopilotAttempt.record` 没有 spec §6 的独立用例；`run` 的 `success` 参数不参与判定（照 spec §4.4 伪代码）。M87 若要用 `record_copilot_result`，需要在 M87 自己的场景里覆盖。
 - 假尝试不消耗授权、不提交真实流水线，是评测设施与生产语义的已知差距；真实授权次数、轮次上限与闸门由 M87 单元测试覆盖。
 - `run_case` 的「先报 transport.error、再 check_unused」没有直接单测（只有回放用例间接覆盖）；ticket 驱动只覆盖 `approve`/`answer`，`reject`/`skip`/`pending` 三种人工策略未覆盖，后续需要时补。
+
+## 最终验证（dev 上，2026-11-09）
+
+- 主 agent 独立全量：`.venv/bin/python -m pytest -o addopts= -q` → 3 failed / 5261 passed / 5 skipped / 2 xfailed（563s）；3 条失败均为起点已有的真资源失败（`test_activity_index` ×2、`test_stage_layout` ×1），无新增。
+- `tests/evals` 69 passed；`scripts/agent_eval.py --suite all --mode replay` 末行 `EVAL OK`（regression 5/5、capability 6/6）；`scripts/dump_openapi.py --check` 退出 0；`scripts/check_doc_links.py` 末行 `BROKEN 0`。
+- 整支复审：REQUEST CHANGES（记忆抽取 cassette 口径矛盾）→ 修复 `45d94a2`/`d6167c7` → scoped re-review 通过后合并。
 
 ## 备注
 
