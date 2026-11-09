@@ -703,7 +703,7 @@ navigate(target):
         elapsed = now() - t0
         if rec.node_id == step.to_node:
             if step.edge_id: graph.record_success(step.edge_id, elapsed_ms=elapsed)
-            learned_exemplars += learn_exemplar(step.to_node, image, source="edge")
+            if learn: learned_exemplars += learn_exemplar(step.to_node, image, source="edge")
             if step.action.type == "locate" and learn:
                 edge, created = graph.upsert_edge(
                     from_node=step.from_node, to_node=step.to_node,
