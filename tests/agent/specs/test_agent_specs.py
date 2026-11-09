@@ -426,3 +426,11 @@ def test_invalid_definition_fails_loudly(
 
 def test_device_levels_are_the_same_in_both_modules():
     assert schema.DEVICE_LEVELS == TOOL_DEVICE_LEVELS
+
+
+def test_navigator_exposes_nav_tools():
+    navigator = builtin_spec("navigator")
+    assert {"where_am_i", "remember_screen", "navigate_to"} <= set(navigator.tools)
+    assert set(navigator.tools) >= {"get_screenshot", "click", "swipe", "back_to_home"}
+    general = builtin_spec("general")
+    assert not {"where_am_i", "remember_screen", "navigate_to"} & set(general.tools)

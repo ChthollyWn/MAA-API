@@ -65,12 +65,14 @@ SPEC_NAMES = [
 #: M79 §4.2：总控与 general 加 ``remember``、diagnose 加 ``search_knowledge``，版本再 +1。
 #: M82 §4.7：总控加四个目标工具与一段目标提示，``orchestrator`` 升到 6。
 #: M85 §4.7：总控加一段 IM 来源与短回复提示，``orchestrator`` 升到 7。
+#: M86 §4.7：导航员加三个导航工具与「界面导航图」提示，``navigator`` 升到 2。
 EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
     "analyst": 3,
     "copilot": 3,
     "daily_ops": 3,
     "diagnose": 4,
     "general": 6,
+    "navigator": 2,
     "ops": 3,
     "orchestrator": 7,
     "planner": 3,
