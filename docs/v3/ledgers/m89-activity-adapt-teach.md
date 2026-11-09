@@ -1,6 +1,6 @@
 # M89 新活动自适应与示教录制（台账）
 
-- 分支：`activity-adapt-teach`；基点：`dev` = `e0ce1c6`（M88 合并 + 台账提交）；合并：待主 agent 复核后执行（本波不合并）；tag：`v3-m89`（待主 agent）
+- 分支：`activity-adapt-teach`（已合并并删除，未 push）；基点：`dev` = `e0ce1c6`（M88 合并 + 台账提交）；合并：`3aae17a`（`merge: 新活动自适应与示教录制（M89，见 docs/v3/13 §8.183）`）；tag：`v3-m89`
 - spec：[m89-activity-adapt-teach](../specs/m89-activity-adapt-teach.md)；计划：[m89-activity-adapt-teach](../plans/m89-activity-adapt-teach.md)
 
 ## §0 结果
@@ -96,6 +96,12 @@
 
 - 整支审查 REQUEST CHANGES（队列唤醒缺失、设备断开不自动丢弃、stop(A)/start(B) 竞态、前端长按定时器与 convert 错误分支、批量注册冲突回滚用例）→ 修复 `508d28d`；scoped re-review 又复现「`_release_gate` 与 `start` 的在途交错」→ 修复 `_release_gate` 持 `_start_lock` 并补确定性用例（红证据：无锁时该用例 `stop(A)` 提前完成、C 的闸门被关）。
 - `abort(demonstration_id=…)` 的 id 不匹配选择返回 `False`（内部方法、无 REST 面），不再抛 409；`stop` 不匹配仍抛 `DEMONSTRATION_STATE_INVALID`。
+
+## 最终验证（主 agent，合并前）
+
+- 全量 pytest：3 failed / 5550 passed / 5 skipped / 2 xfailed（569.99s）；3 条均为基线既有真资源失败，新增 0；另 `test_orchestrator_e2e...ready_report` 为既有时间敏感 flake（单跑 1 passed，已记遗留）。
+- `dump_openapi.py --check` 0；`generate_api_guide.py --check` 0；前端五步 0；frontend/agent/orchestrator/nav/demonstration 五冒烟末行 `SMOKE OK`；regression 与 capability `EVAL OK`（capability 18/18）；`check_doc_links.py` BROKEN 0；`git diff --check` 0。
+- 整支审查 REQUEST CHANGES → 修复 `508d28d` → scoped re-review 复现闸门锁竞态 → 修复 `607ce96`（相关套件 99/54 passed，确定性红/绿证据）→ 合并 `3aae17a`。
 
 ## 遗留
 
