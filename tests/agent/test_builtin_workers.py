@@ -47,7 +47,7 @@ WORKERS = {
         ),
     },
     "planner": {
-        "version": 3,
+        "version": 4,
         "title": "规划师",
         "device": "none",
         "risk_ceiling": "consume",
@@ -61,7 +61,7 @@ WORKERS = {
             "create_schedule", "update_schedule", "delete_schedule", "update_user_profile",
             "get_operator", "read_knowledge", "send_chart", "send_item_icons", "ask_user",
             "update_plan", "write_note", "read_artifact", "report", "delegate",
-            "load_skill", "read_skill_file",
+            "load_skill", "read_skill_file", "optimize_farming",
         ),
     },
     "diagnose": {
@@ -79,7 +79,7 @@ WORKERS = {
         ),
     },
     "analyst": {
-        "version": 3,
+        "version": 4,
         "title": "分析师",
         "device": "none",
         "risk_ceiling": "none",
@@ -89,6 +89,7 @@ WORKERS = {
             "get_item", "get_stage", "get_operator_box", "get_depot", "list_upgrade_plans",
             "send_chart", "send_item_icons", "read_knowledge", "update_plan", "write_note",
             "read_artifact", "report", "delegate", "load_skill", "read_skill_file",
+            "optimize_farming",
         ),
     },
     "ops": {
@@ -140,7 +141,8 @@ def test_six_workers_match_contract():
         assert spec.delegates == expected["delegates"]
         assert spec.tools == expected["tools"]
         # M78 §4.7 各加两个技能工具、M79 §4.2 给 diagnose 加检索工具，版本 +1；
-        # M87 §4.7：daily_ops、copilot 开启 verify_before_ready 并升到 4。
+        # M87 §4.7：daily_ops、copilot 开启 verify_before_ready 并升到 4；
+        # M88 §4.7：planner、analyst 加 optimize_farming 并升到 4。
         assert spec.version == expected["version"]
         assert spec.max_steps == 0
         assert spec.output_schema is None
