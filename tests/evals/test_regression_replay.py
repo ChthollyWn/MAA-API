@@ -30,9 +30,9 @@ def _options(tmp_path: Path) -> EvalOptions:
 
 def test_every_scenario_loads_and_has_a_cassette() -> None:
     scenarios = load_scenarios(SCENARIOS_DIR)
-    assert len(scenarios) == 21
+    assert len(scenarios) == 23
     ids = {scenario.id for scenario in scenarios}
-    assert len(ids) == 21
+    assert len(ids) == 23
     for scenario in scenarios:
         path = CASSETTES_DIR / scenario.cassette_name()
         assert path.is_file(), f"{scenario.id} 缺少录制文件 {path}"

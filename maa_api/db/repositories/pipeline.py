@@ -135,6 +135,7 @@ class PipelineRepository(BaseRepository):
         self,
         core_id: str,
         allowed_session_ids: frozenset[str] | None = None,
+        allow_manual: bool = True,
     ) -> str | None:
         """取下一个候选流水线 id：``core_id + status='pending'``，按
         ``priority ASC, created_at ASC``（复用 ``ix_pipeline_dequeue``）。
@@ -143,7 +144,8 @@ class PipelineRepository(BaseRepository):
 
         ``allowed_session_ids`` 是设备租约闸门（M71 §4.5.4）：不为 ``None`` 时只
         领手动提交与这些会话的流水线（集合为空就只剩手动提交）；``None`` 表示
-        没有租约，条件与排序和 v2 完全一致。
+        没有租约，条件与排序和 v2 完全一致。``allow_manual=False`` 是 M89 录制
+        闸门：不再并上 ``source='manual'``，候选只剩允许会话的流水线。
         """
         conditions: list[Any] = [
             Pipeline.core_id == core_id,
@@ -151,12 +153,17 @@ class PipelineRepository(BaseRepository):
             (Pipeline.deferred_until.is_(None)) | (Pipeline.deferred_until <= utcnow()),
         ]
         if allowed_session_ids is not None:
-            conditions.append(
-                or_(
-                    Pipeline.source == PipelineSource.MANUAL,
-                    Pipeline.agent_session_id.in_(allowed_session_ids),
+            if allow_manual:
+                conditions.append(
+                    or_(
+                        Pipeline.source == PipelineSource.MANUAL,
+                        Pipeline.agent_session_id.in_(allowed_session_ids),
+                    )
                 )
-            )
+            else:
+                conditions.append(
+                    Pipeline.agent_session_id.in_(allowed_session_ids)
+                )
         result = await self.session.execute(
             select(Pipeline.id)
             .where(*conditions)
@@ -171,6 +178,7 @@ class PipelineRepository(BaseRepository):
         *,
         core_epoch: int | None = None,
         allowed_session_ids: frozenset[str] | None = None,
+        allow_manual: bool = True,
     ) -> Pipeline | None:
         """原子地领取下一条待执行流水线；没有可领的返回 ``None``。
 
@@ -187,14 +195,14 @@ class PipelineRepository(BaseRepository):
         领取时传入，缺省不写（NULL）。
 
         ``allowed_session_ids`` 原样透传给 :meth:`_next_pending_id`（设备租约
-        闸门，M71 §4.5.4）；缺省 ``None`` 时不加来源过滤。
+        闸门，M71 §4.5.4）；缺省 ``None`` 时不加来源过滤。``allow_manual``
+        同理透传：M89 录制期间为 ``False``，手动提交的流水线保持 ``pending``。
         """
-        if allowed_session_ids is None:
-            candidate_id = await self._next_pending_id(core_id)
-        else:
-            candidate_id = await self._next_pending_id(
-                core_id, allowed_session_ids=allowed_session_ids
-            )
+        candidate_id = await self._next_pending_id(
+            core_id,
+            allowed_session_ids=allowed_session_ids,
+            allow_manual=allow_manual,
+        )
         if candidate_id is None:
             return None
 

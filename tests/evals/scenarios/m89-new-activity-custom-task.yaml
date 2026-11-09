@@ -1,0 +1,95 @@
+{
+  "id": "m89-new-activity-custom-task",
+  "title": "新活动没有作业，走一遍并注册自定义任务",
+  "suite": "capability",
+  "agent": "general",
+  "source": "M89 spec §5 T8",
+  "tags": [
+    "custom_task",
+    "demonstration"
+  ],
+  "entry": {
+    "kind": "ticket",
+    "worker": "general",
+    "title": "新活动没有作业",
+    "brief": "这期新活动没有现成作业。帮我在游戏里走到「开始行动」页，把这段操作注册成自定义任务，再提交 Custom 流水线试跑。",
+    "scope": "新活动没有作业，走一遍并注册自定义任务"
+  },
+  "human": {
+    "confirmations": "approve"
+  },
+  "world": {
+    "core_script": "success",
+    "screen": "stage"
+  },
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "match": "subsequence",
+      "steps": [
+        {
+          "tool": "draft_custom_task"
+        },
+        {
+          "tool": "validate_custom_task"
+        },
+        {
+          "tool": "register_custom_task",
+          "args": {
+            "name": {
+              "re": "^Custom_"
+            },
+            "tasks": {
+              "len": {
+                "gte": 3
+              }
+            }
+          }
+        },
+        {
+          "tool": "submit_pipeline"
+        }
+      ],
+      "max_calls": {
+        "register_custom_task": 1
+      }
+    },
+    {
+      "grader": "outcome_state",
+      "runs": {
+        "count": {
+          "gte": 1
+        },
+        "all": [
+          {
+            "agent_name": "general",
+            "status": "succeeded",
+            "finish_reason": "report_submitted"
+          }
+        ]
+      },
+      "pipelines": {
+        "count": {
+          "gte": 1
+        },
+        "last": {
+          "status": "completed"
+        }
+      }
+    },
+    {
+      "grader": "text_contains",
+      "all_of": [
+        "Custom_",
+        "开始行动"
+      ]
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 90,
+    "max_model_calls": 12
+  },
+  "settings": {
+    "llm.role_orchestrator": "missing-profile"
+  }
+}

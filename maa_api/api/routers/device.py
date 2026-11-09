@@ -12,6 +12,7 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from maa_api.agent.demonstrations import capture
 from maa_api.api.deps import get_pipeline_runner, get_session, require_auth
 from maa_api.api.errors import error_responses
 from maa_api.api.routers.device_lease import preempt_device
@@ -374,15 +375,34 @@ async def swipe_device(
     runner: Any = Depends(get_pipeline_runner),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    result = await _run_atomic(
+    manager = _device_manager(request)
+    pending = await capture.begin(request, manager)
+    try:
+        result = await _run_atomic(
+            request,
+            runner,
+            session,
+            operation="swipe",
+            force=payload.force,
+            call=lambda manager: manager.swipe(
+                payload.x1, payload.y1, payload.x2, payload.y2, payload.duration_ms
+            ),
+        )
+    except BaseException:
+        await capture.cancel(pending)
+        raise
+    await capture.finish(
         request,
-        runner,
-        session,
-        operation="swipe",
-        force=payload.force,
-        call=lambda manager: manager.swipe(
-            payload.x1, payload.y1, payload.x2, payload.y2, payload.duration_ms
-        ),
+        pending,
+        manager,
+        action="swipe",
+        points={
+            "x1": payload.x1,
+            "y1": payload.y1,
+            "x2": payload.x2,
+            "y2": payload.y2,
+        },
+        duration_ms=payload.duration_ms,
     )
     return {
         **result,
@@ -409,15 +429,29 @@ async def long_press_device(
     runner: Any = Depends(get_pipeline_runner),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    result = await _run_atomic(
+    manager = _device_manager(request)
+    pending = await capture.begin(request, manager)
+    try:
+        result = await _run_atomic(
+            request,
+            runner,
+            session,
+            operation="long_press",
+            force=payload.force,
+            call=lambda manager: manager.long_press(
+                payload.x, payload.y, payload.duration_ms
+            ),
+        )
+    except BaseException:
+        await capture.cancel(pending)
+        raise
+    await capture.finish(
         request,
-        runner,
-        session,
-        operation="long_press",
-        force=payload.force,
-        call=lambda manager: manager.long_press(
-            payload.x, payload.y, payload.duration_ms
-        ),
+        pending,
+        manager,
+        action="long_press",
+        points={"x": payload.x, "y": payload.y},
+        duration_ms=payload.duration_ms,
     )
     return {
         **result,

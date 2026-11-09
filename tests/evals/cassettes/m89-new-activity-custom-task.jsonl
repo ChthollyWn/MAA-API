@@ -1,0 +1,9 @@
+{"type": "header", "format": 1, "scenario": "m89-new-activity-custom-task", "source": "handwritten", "recorded_at": "2026-11-10T00:00:00Z", "model": "eval-model", "agent": "general", "spec_version": null, "notes": "M89 T8：新活动没有作业，起草、校验、注册并提交 Custom 流水线"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-draft", "name": "draft_custom_task", "arguments": {"stage_code": "act-25", "steps": [{"action": "click", "x": 1180, "y": 640, "screen": [1280, 720]}, {"action": "click", "x": 900, "y": 640, "screen": [1280, 720]}, {"action": "click", "x": 900, "y": 600, "screen": [1280, 720]}]}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-validate", "name": "validate_custom_task", "arguments": {"entry": "{{result:call-draft:entry}}", "tasks": "{{result:call-draft:tasks}}"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-register", "name": "register_custom_task", "arguments": {"name": "{{result:call-draft:entry}}", "description": "新活动开始行动页", "tasks": "{{result:call-draft:tasks}}"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-submit", "name": "submit_pipeline", "arguments": {"title": "新活动 Custom", "tasks": [{"name": "Custom", "task_names": ["{{result:call-register:entry}}"]}]}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "已注册 Custom_act-25_1，Custom 流水线也已提交；队伍停在「开始行动」页，点开始就能打。", "tool_calls": [{"id": "call-report", "name": "report", "arguments": {"status": "ready", "summary": "已注册 Custom_act-25_1 并提交 Custom 流水线，停在开始行动页。"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"items\": []}"}}

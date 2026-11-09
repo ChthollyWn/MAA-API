@@ -240,6 +240,8 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "nav.enabled": dict(label="界面导航图", group="Agent", type="boolean", hot_action="none"),
     "nav.learn": dict(label="导航时学习新跳转", group="Agent", type="boolean", hot_action="none"),
     "nav.max_steps": dict(label="一次导航最多步数", group="Agent", type="integer", minimum=1, maximum=50, hot_action="none"),
+    # M89 示教录制：四端点与设备端点采集每次现读，关闭后返回 503。
+    "demonstration.enabled": dict(label="示教录制", group="Agent", type="boolean", description="关闭后示教页与四个端点都不可用", hot_action="none"),
 }
 
 #: 只从 ``config.yaml`` / 环境变量提供的 key 不出现在设置 API 里（见 settings.py 的说明）。

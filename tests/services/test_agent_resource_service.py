@@ -673,3 +673,327 @@ def test_infrast_plan_rejects_invalid_nested_room_and_operator_shapes(
         )
 
     assert exc_info.value.code == "INFRAST_PLAN_INVALID"
+
+
+# ---------------------------------------------------------------------------
+# M89 T4：自定义任务链的一次性批量注册（spec §4.5 批量注册）
+# ---------------------------------------------------------------------------
+
+
+def _custom_task_bundle() -> dict[str, dict]:
+    """入口 → 中间节点 → Stop 的三节点链。"""
+    return {
+        "Custom_Demo_ab12_1": {
+            "algorithm": "JustReturn",
+            "action": "ClickRect",
+            "specificRect": [640, 360, 10, 10],
+            "postDelay": 800,
+            "next": ["Custom_Demo_ab12_2"],
+        },
+        "Custom_Demo_ab12_2": {
+            "algorithm": "JustReturn",
+            "action": "DoNothing",
+            "next": ["Custom_Demo_ab12_Done"],
+        },
+        "Custom_Demo_ab12_Done": {"algorithm": "JustReturn", "action": "Stop"},
+    }
+
+
+def _custom_task_rows(session_factory) -> list:
+    from maa_api.db.repositories.resource import ResourceAssetRepository
+
+    async def read():
+        async with session_factory() as session:
+            return await ResourceAssetRepository(session).list_by_kind(
+                ResourceAssetKind.CUSTOM_TASK
+            )
+
+    return asyncio.run(read())
+
+
+def test_register_bundle_writes_all_nodes_once(
+    resource_root, retention_session_factory
+):
+    Service = _service_type()
+    reloaded = []
+
+    async def reload_resources():
+        reloaded.append(True)
+
+    service = Service(
+        retention_session_factory,
+        resource_root=resource_root,
+        reload_resources=reload_resources,
+    )
+    tasks = _custom_task_bundle()
+
+    result = asyncio.run(
+        service.register_custom_task(
+            name="Custom_Demo_ab12_1",
+            description="示教链",
+            tasks=tasks,
+        )
+    )
+
+    assert result["entry"] == "Custom_Demo_ab12_1"
+    assert result["task_names"] == list(tasks)
+    assert [item["name"] for item in result["items"]] == list(tasks)
+    assert all(item["kind"] == "custom_task" for item in result["items"])
+    assert [
+        item["content"] for item in result["items"]
+    ] == list(tasks.values())
+    assert reloaded == [True]
+
+    path = resource_root / "maa-layers" / "custom" / "resource" / "tasks.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == tasks
+    rows = _custom_task_rows(retention_session_factory)
+    assert [row.name for row in rows] == list(tasks)
+    assert all(row.description == "示教链" for row in rows)
+    assert all(row.enabled for row in rows)
+
+
+def test_register_bundle_rolls_back_on_reload_failure(
+    resource_root, retention_session_factory
+):
+    Service = _service_type()
+    custom_dir = resource_root / "maa-layers" / "custom" / "resource"
+    custom_dir.mkdir(parents=True)
+    task_file = custom_dir / "tasks.json"
+    original = b'{"Custom_Existing":{"action":"DoNothing"}}\n'
+    task_file.write_bytes(original)
+    attempts = 0
+
+    async def reload_resources():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("core rejected task resource")
+
+    service = Service(
+        retention_session_factory,
+        resource_root=resource_root,
+        reload_resources=reload_resources,
+    )
+    tasks = _custom_task_bundle()
+    # 超过 64 KB 的节点走大文件存储，回滚必须把它删掉。
+    tasks["Custom_Demo_ab12_2"] = {
+        "algorithm": "JustReturn",
+        "action": "DoNothing",
+        "doc": "x" * (70 * 1024),
+        "next": ["Custom_Demo_ab12_Done"],
+    }
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.register_custom_task(
+                name="Custom_Demo_ab12_1",
+                description="示教链",
+                tasks=tasks,
+            )
+        )
+
+    assert exc_info.value.code == "RESOURCE_LOAD_FAILED"
+    assert attempts == 2
+    assert task_file.read_bytes() == original
+    assert _custom_task_rows(retention_session_factory) == []
+    external = resource_root / "agent-assets" / "custom_task"
+    assert not list(external.glob("*.json"))
+
+
+def test_register_bundle_rejects_conflict_before_write(
+    resource_root, retention_session_factory
+):
+    Service = _service_type()
+    reloaded = []
+
+    async def reload_resources():
+        reloaded.append(True)
+
+    service = Service(
+        retention_session_factory,
+        resource_root=resource_root,
+        reload_resources=reload_resources,
+    )
+    asyncio.run(
+        service.register_custom_task(
+            name="Custom_Demo_ab12_2",
+            description=None,
+            content={"action": "DoNothing"},
+        )
+    )
+    task_file = resource_root / "maa-layers" / "custom" / "resource" / "tasks.json"
+    file_before = task_file.read_text(encoding="utf-8")
+    reloads_before = len(reloaded)
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.register_custom_task(
+                name="Custom_Demo_ab12_1",
+                description=None,
+                tasks=_custom_task_bundle(),
+            )
+        )
+
+    assert exc_info.value.code == "RESOURCE_ASSET_CONFLICT"
+    assert exc_info.value.details == {"name": "Custom_Demo_ab12_2"}
+    # 冲突在写之前发现：没有新行、tasks.json 不变、不重载。
+    assert [row.name for row in _custom_task_rows(retention_session_factory)] == [
+        "Custom_Demo_ab12_2"
+    ]
+    assert task_file.read_text(encoding="utf-8") == file_before
+    assert len(reloaded) == reloads_before
+
+
+def test_register_single_call_shape_unchanged(
+    resource_root, retention_session_factory
+):
+    Service = _service_type()
+    reloaded = []
+
+    async def reload_resources():
+        reloaded.append(True)
+
+    service = Service(
+        retention_session_factory,
+        resource_root=resource_root,
+        reload_resources=reload_resources,
+    )
+
+    saved = asyncio.run(
+        service.register_custom_task(
+            name="Custom_EventPanel",
+            description="event panel",
+            content={"action": "ClickSelf"},
+        )
+    )
+
+    assert saved["kind"] == "custom_task"
+    assert saved["name"] == "Custom_EventPanel"
+    assert saved["content"] == {"action": "ClickSelf"}
+    assert saved["id"]
+    assert reloaded == [True]
+    path = resource_root / "maa-layers" / "custom" / "resource" / "tasks.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "Custom_EventPanel": {"action": "ClickSelf"}
+    }
+
+
+def test_register_bundle_rejects_invalid_chain(
+    resource_root, retention_session_factory
+):
+    Service = _service_type()
+    service = Service(
+        retention_session_factory,
+        resource_root=resource_root,
+        reload_resources=lambda: None,
+    )
+    cyclic = {
+        "Custom_A": {"action": "DoNothing", "next": ["Custom_B"]},
+        "Custom_B": {"action": "DoNothing", "next": ["Custom_A"]},
+    }
+
+    for name, tasks in (
+        ("Custom_Missing", _custom_task_bundle()),
+        ("Custom_Demo_ab12_1", {**_custom_task_bundle(), "Bad_1": {"action": "Stop"}}),
+        ("Custom_A", cyclic),
+    ):
+        with pytest.raises(AppError) as exc_info:
+            asyncio.run(
+                service.register_custom_task(
+                    name=name, description=None, tasks=tasks
+                )
+            )
+        assert exc_info.value.code == "CUSTOM_TASK_INVALID"
+    assert _custom_task_rows(retention_session_factory) == []
+
+
+def test_register_custom_task_requires_exactly_one_shape(
+    resource_root, retention_session_factory
+):
+    Service = _service_type()
+    service = Service(
+        retention_session_factory,
+        resource_root=resource_root,
+        reload_resources=lambda: None,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.register_custom_task(
+                name="Custom_Demo_ab12_1", description=None
+            )
+        )
+    assert exc_info.value.code == "CUSTOM_TASK_INVALID"
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.register_custom_task(
+                name="Custom_Demo_ab12_1",
+                description=None,
+                content={"action": "DoNothing"},
+                tasks=_custom_task_bundle(),
+            )
+        )
+    assert exc_info.value.code == "CUSTOM_TASK_INVALID"
+    assert _custom_task_rows(retention_session_factory) == []
+
+
+def test_register_bundle_rolls_back_on_midway_uniqueness_conflict(
+    resource_root, retention_session_factory, monkeypatch
+):
+    """M89 §4.5：预检之后、写入时撞 UNIQUE —— 整条链回滚，不留部分资产。
+
+    预检与写入之间别人注册了同名节点是真实的竞态（服务注释写明由 UNIQUE 转
+    409）。这里让预检看不到既有节点来复现该竞态，断言已插入的前置节点随事务
+    一起回滚、不写文件、不重载。
+    """
+    service_module = importlib.import_module("maa_api.services.resource_service")
+    Service = _service_type()
+    reloaded: list[bool] = []
+
+    async def reload_resources():
+        reloaded.append(True)
+
+    service = Service(
+        retention_session_factory,
+        resource_root=resource_root,
+        reload_resources=reload_resources,
+    )
+    # 先单独注册链的第二个节点；正常预检会发现它，这里模拟竞态让它漏掉。
+    asyncio.run(
+        service.register_custom_task(
+            name="Custom_Demo_ab12_2",
+            description=None,
+            content={"action": "DoNothing"},
+        )
+    )
+    reloads_before = len(reloaded)
+    task_file = resource_root / "maa-layers" / "custom" / "resource" / "tasks.json"
+    file_before = task_file.read_bytes()
+
+    async def racing_precheck(self, kind, name):
+        del self, kind, name
+        return None
+
+    monkeypatch.setattr(
+        service_module.ResourceAssetRepository, "get_by_kind_name", racing_precheck
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        asyncio.run(
+            service.register_custom_task(
+                name="Custom_Demo_ab12_1",
+                description=None,
+                tasks=_custom_task_bundle(),
+            )
+        )
+
+    assert exc_info.value.code == "RESOURCE_ASSET_CONFLICT"
+    assert exc_info.value.details == {"name": "Custom_Demo_ab12_2"}
+    # 冲突前的节点没有留下行/文件，tasks.json 不变，也没有触发重载。
+    rows = _custom_task_rows(retention_session_factory)
+    assert [row.name for row in rows] == ["Custom_Demo_ab12_2"]
+    assert task_file.read_bytes() == file_before
+    assert len(reloaded) == reloads_before
+    external = resource_root / "agent-assets" / "custom_task"
+    assert not list(external.glob("*.json"))

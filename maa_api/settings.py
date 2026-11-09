@@ -40,6 +40,7 @@ __all__ = [
     "AdbSettings",
     "CopilotLoopSettings",
     "CoreSettings",
+    "DemonstrationSettings",
     "DeploymentSettings",
     "LeaseSettings",
     "NavSettings",
@@ -275,6 +276,9 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "nav.enabled": ("nav", "enabled"),
     "nav.learn": ("nav", "learn"),
     "nav.max_steps": ("nav", "max_steps"),
+    # ---- 示教录制（M89 规格 §4.4）：唯一的新键，不是 config-only；四端点与采集
+    # 每次现读，关闭后都返回 503。----
+    "demonstration.enabled": ("demonstration", "enabled"),
 }
 
 #: 只允许从 ``config.yaml`` / 环境变量提供的 key：**不进设置 API、不落库**。
@@ -928,6 +932,18 @@ class NavSettings(BaseModel):
     max_steps: int = Field(default=12, ge=1, le=50)
 
 
+class DemonstrationSettings(BaseModel):
+    """示教录制（M89 规格 §4.4）：关闭后四个端点与 ``/more/demonstrations`` 都不可用。
+
+    不是 config-only：端点与设备端点采集每次现读 ``enabled``，改完立即生效；关闭
+    不会自动停止正在进行的录制，先停止再关闭。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+
+
 class Settings(BaseModel):
     """全量运行配置（env > DB > YAML > code defaults）。
 
@@ -981,6 +997,10 @@ class Settings(BaseModel):
     channels: ChannelsSettings = Field(default_factory=ChannelsSettings)
     #: M86 界面导航图：开关、自动学习与单次导航步数上限（都不是 config-only）。
     nav: NavSettings = Field(default_factory=NavSettings)
+    #: M89 示教录制开关（不是 config-only，四个端点与采集每次现读）。
+    demonstration: DemonstrationSettings = Field(
+        default_factory=DemonstrationSettings
+    )
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。
     trace: TraceSettings = Field(default_factory=TraceSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)

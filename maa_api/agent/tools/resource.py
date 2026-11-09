@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from maa_api.agent.registry import ToolContext, ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.domain.errors import AppError, ErrorCode
 
 __all__ = ["register_tools"]
+
+#: M89：工具层一次注册的节点上限（服务层 128）；确认卡要能一次读完。
+MAX_TOOL_BUNDLE_TASKS = 32
 
 
 class EmptyParams(BaseModel):
@@ -32,8 +35,29 @@ class UploadAssetParams(BaseModel):
     content: dict[str, Any]
 
 
-class RegisterCustomTaskParams(UploadAssetParams):
-    pass
+class RegisterCustomTaskParams(BaseModel):
+    """注册自定义任务：``content``（v2 单任务）与 ``tasks``（M89 整条链）二选一。
+
+    ``tasks`` 走 M89 的批量注册，1–32 个节点，``name`` 必须是入口；``content``
+    路径的签名与返回形状与 v2 完全一致。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=4096)
+    content: dict[str, Any] | None = None
+    tasks: dict[str, dict[str, Any]] | None = Field(
+        default=None, min_length=1, max_length=MAX_TOOL_BUNDLE_TASKS
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one_shape(self) -> "RegisterCustomTaskParams":
+        if (self.content is None) == (self.tasks is None):
+            raise ValueError("content 与 tasks 必须恰好给一个")
+        if self.tasks is not None and self.name not in self.tasks:
+            raise ValueError("用 tasks 注册时 name 必须是入口任务")
+        return self
 
 
 class RemoveCustomTaskParams(BaseModel):
@@ -145,6 +169,7 @@ async def register_custom_task(
         name=params.name,
         description=params.description,
         content=params.content,
+        tasks=params.tasks,
     )
 
 

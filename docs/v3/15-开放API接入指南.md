@@ -262,6 +262,8 @@ curl -X POST http://<host>:8002/api/snippets \
 | `NAV_NODE_NOT_FOUND` | 404 | 导航目标不在图里；`details` 带 `target` 与 `nearest`，`nearest` 是建议先去的容器界面（`stage:` 主线关卡给 `main_episode`，其他活动关卡给 `activity_hub`，其余给 `home`） |
 | `NAV_PATH_NOT_FOUND` | 409 | 当前界面到目标没有可走的路径；`details` 带 `from`、`to`、`reason`，`reason` 取 `no_edges`（一条路都没有）或 `needs_vision`（只剩按描述定位的跳转而当前没有可用视觉模型） |
 | `NAV_STEP_FAILED` | 409 | 走到一半画面不符且无法恢复；`details` 带 `reason`（`max_steps`、`unknown_screen`、`home_failed`）、`current`、`trail` 与 `screenshot_id`（只有 `unknown_screen` 非空） |
+| `DEMONSTRATION_NOT_FOUND` | 404 | 示教 id 不存在；`details` 带 `id`（回显请求值） |
+| `DEMONSTRATION_STATE_INVALID` | 409 | 状态机不允许该操作（如停止已停止的示教、转换未停止的示教、第二次 `start`）；`details` 带 `id`、`status` 与 `action` |
 <!-- GENERATED:ERROR-CODES:END -->
 
 <!-- GENERATED:OPENAPI-TAGS:START -->

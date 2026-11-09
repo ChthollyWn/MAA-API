@@ -13,7 +13,7 @@ import pytest
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolContext, ToolRegistry, ToolRisk
 from maa_api.domain.enums import CallerType, ResourceChannel, RiskLevel
-from maa_api.domain.errors import AppError
+from maa_api.domain.errors import AppError, ErrorCode
 
 
 def _module(name: str):
@@ -52,6 +52,65 @@ def test_resource_group_registers_upload_and_custom_task_but_no_copilot_runner()
     assert "run_copilot" not in {item.name for item in registry.list()}
     assert definitions["upload_copilot"].risk is ToolRisk.SAFE
     assert definitions["register_custom_task"].risk is ToolRisk.DANGEROUS
+
+
+def test_register_custom_task_accepts_content_or_tasks_but_never_both() -> None:
+    """M89 §4.7：``content`` 与 ``tasks`` 恰好一个；旧 content 调用原样透传。"""
+
+    module = _module("resource")
+    registry = ToolRegistry()
+    module.register_tools(registry)
+
+    class Resources:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def register_custom_task(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"entry": kwargs["name"], "task_names": list(kwargs["tasks"] or {}), "items": []}
+
+    resources = Resources()
+    context = _context(SimpleNamespace(resource_service=resources))
+    tasks = {"Custom_A_1": {"algorithm": "JustReturn", "action": "Stop"}}
+
+    result = asyncio.run(
+        registry.execute(
+            "register_custom_task",
+            {"name": "Custom_A_1", "tasks": tasks},
+            context,
+        )
+    )
+
+    assert result["entry"] == "Custom_A_1"
+    assert resources.calls[-1]["tasks"] == tasks
+    assert resources.calls[-1]["content"] is None
+
+    # 旧调用不变：只给 content。
+    asyncio.run(
+        registry.execute(
+            "register_custom_task",
+            {"name": "Custom_Old", "content": {"action": "Stop"}},
+            context,
+        )
+    )
+    assert resources.calls[-1]["content"] == {"action": "Stop"}
+    assert resources.calls[-1]["tasks"] is None
+
+    # 两个都给、都不给、超过工具层 32 个节点的 tasks 都是参数错误。
+    for arguments in (
+        {"name": "Custom_A_1", "content": {"action": "Stop"}, "tasks": tasks},
+        {"name": "Custom_A_1"},
+        {
+            "name": "Custom_X_0",
+            "tasks": {
+                f"Custom_X_{index}": {"algorithm": "JustReturn", "action": "Stop"}
+                for index in range(33)
+            },
+        },
+    ):
+        with pytest.raises(AppError) as caught:
+            registry.validate("register_custom_task", arguments)
+        assert caught.value.code == ErrorCode.TOOL_ARGS_INVALID
 
 
 def test_resource_tool_uploads_only_validated_copilot_json() -> None:
