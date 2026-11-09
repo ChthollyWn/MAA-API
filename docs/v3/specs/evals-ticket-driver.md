@@ -290,7 +290,7 @@ DRIVERS: dict[str, DriveFn] = {
        status=ConfirmationStatus.PENDING, size=50)
    对 page["items"] 每一条：
        await app.state.confirmation_service.resolve(
-           str(item["id"]),
+           str(item["confirmation_id"]),
            approved=confirmations == "approve",
            resolved_by="eval",
            reason="评测脚本的裁决",
