@@ -1,18 +1,29 @@
 """ticket 入口的场景解析、驱动与多会话回放（M86/M87 评测前置补丁）。
 
-T1 只有场景 schema 的解析用例：场景级 ``human``、``world.copilots``、
-``world.copilot_results`` 与 seed 流水线的 ``agent_session_id``。后续任务在同一
-文件里追加 ``drive_ticket`` 与 cassette 回放用例。
+T1 是场景 schema 的解析用例：场景级 ``human``、``world.copilots``、
+``world.copilot_results`` 与 seed 流水线的 ``agent_session_id``；T2 追加
+``CassetteTransport`` 的多会话工具结果回放用例。后续任务在同一文件里追加
+``drive_ticket`` 用例。
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
+import httpx
 import pytest
 
-from maa_api.agent.evals import ScenarioError, load_scenario
+from maa_api.agent.evals import (
+    Cassette,
+    CassetteCall,
+    CassetteHeader,
+    CassetteTransport,
+    ScenarioError,
+    load_scenario,
+)
 
 
 def _write(tmp_path: Path, stem: str, data: dict) -> Path:
@@ -121,3 +132,94 @@ def test_copilot_result_value_is_validated(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert str(path) in message
     assert "victory" in message
+
+
+# --------------------------------------------------------------------------- #
+# 多会话回放
+# --------------------------------------------------------------------------- #
+
+
+def _cassette_header() -> CassetteHeader:
+    return CassetteHeader(
+        scenario="ticket-driver",
+        source="handwritten",
+        recorded_at="2026-11-09T00:00:00Z",
+        model="eval-model",
+        agent="legacy_chat",
+        notes="多会话交错的回放",
+    )
+
+
+def _agent_messages() -> list[dict[str, Any]]:
+    return [
+        {"role": "system", "content": "你是代理。"},
+        {"role": "user", "content": "先委派子代理，再汇报。"},
+    ]
+
+
+def _replay_request(messages: list[dict[str, Any]]) -> httpx.Request:
+    return httpx.Request(
+        "POST",
+        "https://llm.invalid/v1/chat/completions",
+        json={"model": "eval-model", "messages": messages, "tools": []},
+    )
+
+
+def _replay(
+    messages: list[dict[str, Any]], transport: CassetteTransport
+) -> httpx.Response:
+    return asyncio.run(transport.handle_async_request(_replay_request(messages)))
+
+
+def _multi_session_cassette() -> Cassette:
+    """Worker 发出 call-a、另一个会话纯文本应答、Worker 再发出 call-b。"""
+    cassette = Cassette.new(_cassette_header())
+    cassette.append(
+        CassetteCall(
+            channel="agent",
+            reply={
+                "tool_calls": [
+                    {"id": "call-a", "name": "delegate", "arguments": {}}
+                ]
+            },
+        )
+    )
+    cassette.append(CassetteCall(channel="agent", reply={"text": "子代理先自己干活。"}))
+    cassette.append(
+        CassetteCall(
+            channel="agent",
+            reply={
+                "tool_calls": [
+                    {"id": "call-b", "name": "report", "arguments": {}}
+                ]
+            },
+        )
+    )
+    return cassette
+
+
+def test_cassette_tool_result_from_earlier_reply_passes() -> None:
+    transport = CassetteTransport(_multi_session_cassette(), max_calls=5)
+
+    assert _replay(_agent_messages(), transport).status_code == 200
+    assert _replay(_agent_messages(), transport).status_code == 200
+    with_tool_result = [
+        *_agent_messages(),
+        {"role": "tool", "tool_call_id": "call-a", "content": "{}"},
+    ]
+    assert _replay(with_tool_result, transport).status_code == 200
+    assert transport.error is None
+
+
+def test_cassette_unknown_tool_result_is_mismatch() -> None:
+    transport = CassetteTransport(_multi_session_cassette(), max_calls=5)
+
+    assert _replay(_agent_messages(), transport).status_code == 200
+    assert _replay(_agent_messages(), transport).status_code == 200
+    with_unknown_result = [
+        *_agent_messages(),
+        {"role": "tool", "tool_call_id": "call-x", "content": "{}"},
+    ]
+    assert _replay(with_unknown_result, transport).status_code == 400
+    assert transport.error is not None
+    assert transport.error.code == "mismatch"

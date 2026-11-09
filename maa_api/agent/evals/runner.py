@@ -745,9 +745,9 @@ class EvalRunner:
                 usage, run_ids = eval_app.portal.call(_aggregate_usage, eval_app)
                 detail = self._detail(scenario, observation)
                 if isinstance(transport, CassetteTransport):
-                    transport.check_unused()
                     if transport.error is not None:
                         raise transport.error
+                    transport.check_unused()
                     warnings.extend(transport.warnings)
         except CassetteError as exc:
             return self._error_case(
