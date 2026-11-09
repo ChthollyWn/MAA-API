@@ -1263,8 +1263,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.agent.questions import QuestionService
         from maa_api.agent.runtime import AgentRuntime, call_runtime_factory
 
-        # 提问与确认是两个独立的交互（规格 §2.2）：独立的表、独立的服务、
-        # 独立的超时配置，这里只是并排装配。question_service_factory 与
+        # 提问与确认是两个独立的交互（规格 §2.2）：独立的表、独立的服务，
+        # 这里只是并排装配。question_service_factory 与
         # confirmation_service_factory 同一用途：测试/冒烟脚本可替换成替身。
         question_factory = getattr(
             app.state, "question_service_factory", QuestionService
