@@ -43,6 +43,8 @@ from maa_api.agent.legacy_turn import stream_legacy_turn
 from maa_api.agent.llm.client import OpenAICompatibleClient
 from maa_api.db.models import AgentMessage, AgentRun, AgentSession
 from maa_api.db.repositories.agent import AgentSessionRepository
+from maa_api.domain.enums import ConfirmationStatus, QuestionStatus
+from maa_api.domain.errors import AppError
 from maa_api.settings import get_settings
 
 EvalMode = Literal["replay", "record", "live"]
@@ -50,6 +52,25 @@ RESULT_FORMAT = 1
 INDEX_FILE_NAME = "index.jsonl"
 EVAL_TOKEN = "eval-token"
 EVAL_LLM_TIMEOUT_SECONDS = 120.0
+
+#: 人工策略轮询间隔；确认与提问都按这个节奏检查。
+POLL_SECONDS = 0.05
+
+#: 驱动自己的超时比场景上限早这么多秒，先给出带工单信息的失败。
+DRIVE_TIMEOUT_MARGIN_SECONDS = 2.0
+
+#: 运行终态；``waiting_human`` 不算终态。
+TERMINAL_RUN_STATUSES = frozenset(
+    {"succeeded", "failed", "interrupted", "cancelled"}
+)
+
+
+class TicketNotOpened(RuntimeError):
+    """建单失败；消息以 ``ticket_not_opened：`` 开头。"""
+
+
+class TicketRunTimeout(RuntimeError):
+    """根运行在驱动期限内没有到终态；消息以 ``run_timeout：`` 开头。"""
 
 
 @dataclass(frozen=True)
@@ -353,7 +374,140 @@ async def _interrupt_later(runtime: Any, session_id: str, delay_seconds: float) 
     await runtime.interrupt_turn(session_id)
 
 
-DRIVERS: dict[str, DriveFn] = {"legacy_session": drive_legacy_session}
+async def drive_ticket(
+    eval_app: EvalApp, scenario: Scenario, recorder: CaseRecorder
+) -> None:
+    """建一张 ticket 工单，轮询 Worker 根运行到终态，并收集子代理会话。"""
+    app = eval_app.app
+    entry = scenario.entry
+    try:
+        opened = await app.state.worker_service.open_ticket(
+            kind=str(entry.worker),
+            title=str(entry.title),
+            brief=str(entry.brief),
+            scope=str(entry.scope),
+            origin="user",
+            strength="explicit",
+            source="web",
+            sender="web",
+        )
+    except AppError as exc:
+        raise TicketNotOpened(
+            f"ticket_not_opened：工单没有建成：{exc.code} {exc.message or ''}"
+        ) from exc
+    recorder.session_ids.append(opened.worker_session_id)
+    recorder.turns.append(str(entry.brief))
+
+    deadline = time.monotonic() + max(
+        scenario.limits.timeout_seconds - DRIVE_TIMEOUT_MARGIN_SECONDS, 1.0
+    )
+    last_status = "none"
+    answered: set[str] = set()
+    while True:
+        await _apply_human_policy(
+            app,
+            ticket_id=opened.ticket_id,
+            confirmations=scenario.human.confirmations,
+            questions=scenario.human.questions,
+            answered=answered,
+        )
+        run = await _latest_root_run(app, opened.worker_session_id)
+        if run is not None:
+            last_status = str(run.status)
+        if run is not None and last_status in TERMINAL_RUN_STATUSES:
+            break
+        if time.monotonic() >= deadline:
+            raise TicketRunTimeout(
+                f"run_timeout：工单 {opened.ticket_id} 在 "
+                f"{scenario.limits.timeout_seconds:g} 秒内没有跑到终态"
+                f"（最后运行状态：{last_status}）"
+            )
+        await asyncio.sleep(POLL_SECONDS)
+
+    child_ids = await _child_session_ids(app, opened.worker_session_id)
+    for child_id in child_ids:
+        if child_id not in recorder.session_ids:
+            recorder.session_ids.append(child_id)
+
+
+async def _apply_human_policy(
+    app: Any,
+    *,
+    ticket_id: str,
+    confirmations: str,
+    questions: Literal["ignore", "skip"] | AnswerSpec,
+    answered: set[str],
+) -> None:
+    """按场景策略批准确认、回答提问；已处理的提问 id 记进 ``answered``。"""
+    if confirmations in ("approve", "reject"):
+        page = await app.state.confirmation_service.list(
+            status=ConfirmationStatus.PENDING, size=50
+        )
+        for item in page["items"]:
+            await app.state.confirmation_service.resolve(
+                str(item["confirmation_id"]),
+                approved=confirmations == "approve",
+                resolved_by="eval",
+                reason="评测脚本的裁决",
+            )
+    if questions == "ignore":
+        return
+    page = await app.state.question_service.list(
+        status=QuestionStatus.PENDING, size=50
+    )
+    for item in page["items"]:
+        origin = item.get("origin") or {}
+        # 同一次运行里可能还有总控或其它来源的提问，不能替用户回答。
+        if origin.get("ticket_id") != ticket_id:
+            continue
+        question_id = str(item["question_id"])
+        if question_id in answered:
+            continue
+        if isinstance(questions, AnswerSpec):
+            await app.state.question_service.answer(
+                question_id,
+                selected=list(questions.answer),
+                answered_by="eval",
+            )
+        else:
+            await app.state.question_service.skip(question_id, answered_by="eval")
+        answered.add(question_id)
+
+
+async def _latest_root_run(app: Any, session_id: str) -> AgentRun | None:
+    """该会话最近一条 ``parent_run_id IS NULL`` 的运行。"""
+    from sqlalchemy import select
+
+    async with app.state.session_factory() as session:
+        result = await session.execute(
+            select(AgentRun)
+            .where(
+                AgentRun.session_id == session_id,
+                AgentRun.parent_run_id.is_(None),
+            )
+            .order_by(AgentRun.started_at.desc(), AgentRun.id.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+
+async def _child_session_ids(app: Any, parent_session_id: str) -> list[str]:
+    """``parent_session_id = 父会话`` 的子代理会话 id，按创建时间升序。"""
+    from sqlalchemy import select
+
+    async with app.state.session_factory() as session:
+        result = await session.execute(
+            select(AgentSession.id)
+            .where(AgentSession.parent_session_id == parent_session_id)
+            .order_by(AgentSession.created_at, AgentSession.id)
+        )
+        return [str(row) for row in result.scalars()]
+
+
+DRIVERS: dict[str, DriveFn] = {
+    "legacy_session": drive_legacy_session,
+    "ticket": drive_ticket,
+}
 
 
 async def _run_with_timeout(
@@ -412,7 +566,7 @@ async def collect_observation(
         "SELECT session_id, seq, role, content, tool_calls, tool_call_id, tool_name, "
         "finish_reason FROM agent_message WHERE session_id IN ("
         + session_filter
-        + ") ORDER BY session_id, seq",
+        + ") ORDER BY id",
         placeholders,
     )
     run_rows = await _fetch_rows(
@@ -675,7 +829,7 @@ class EvalRunner:
                 run_ids=[],
                 warnings=[],
                 error=None,
-                detail={"reason": "这个入口还没有实现"},
+                detail={"reason": "missing_driver：这个入口还没有实现"},
             )
 
         cassette_path = options.cassette_dir / scenario.cassette_name()
@@ -749,6 +903,12 @@ class EvalRunner:
                         raise transport.error
                     transport.check_unused()
                     warnings.extend(transport.warnings)
+        except (TicketNotOpened, TicketRunTimeout) as exc:
+            # §4.7 的失败文本是稳定的对外口径：保留异常自己带的前缀，
+            # 不再叠加类名。
+            return self._error_case(
+                scenario, attempt, variant, started, str(exc), warnings
+            )
         except CassetteError as exc:
             return self._error_case(
                 scenario, attempt, variant, started, f"{exc.code}：{exc}", warnings
@@ -972,10 +1132,13 @@ def write_result(result: SuiteResult, out_dir: Path) -> Path:
 
 __all__ = [
     "DRIVERS",
+    "DRIVE_TIMEOUT_MARGIN_SECONDS",
     "EVAL_TOKEN",
     "INDEX_FILE_NAME",
+    "POLL_SECONDS",
     "REPLAY_ENDPOINT",
     "RESULT_FORMAT",
+    "TERMINAL_RUN_STATUSES",
     "CaseRecorder",
     "CaseResult",
     "DriveFn",
@@ -987,8 +1150,11 @@ __all__ = [
     "EvalVariant",
     "LlmEndpoint",
     "SuiteResult",
+    "TicketNotOpened",
+    "TicketRunTimeout",
     "collect_observation",
     "drive_legacy_session",
+    "drive_ticket",
     "git_info",
     "write_result",
 ]
