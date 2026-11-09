@@ -11,16 +11,19 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
+from sqlmodel import select
 
 from maa_api.agent.evals import (
     Cassette,
     CassetteCall,
     CassetteHeader,
     CassetteTransport,
+    Scenario,
     ScenarioError,
     load_scenario,
     load_scenarios,
@@ -34,7 +37,9 @@ from maa_api.agent.evals.runner import (
     TicketRunTimeout,
     drive_ticket,
 )
-from tests.evals.environment import FakeWorldEnvironment
+from maa_api.db.models import AgentSession, Pipeline
+from tests.evals.environment import FakeWorldEnvironment, _seed_world
+from tests.fakes.v3_db import make_session_factory
 
 
 def _write(tmp_path: Path, stem: str, data: dict) -> Path:
@@ -614,3 +619,200 @@ def test_missing_driver_is_skipped_with_reason(tmp_path: Path) -> None:
 
     assert case.status == "skipped"
     assert case.detail["reason"].startswith("missing_driver：")
+
+
+# --------------------------------------------------------------------------- #
+# 假世界：作业站、作业尝试与 seed 会话
+# --------------------------------------------------------------------------- #
+
+
+def _copilot_entry(title: str, brief: str, scope: str) -> dict[str, Any]:
+    return {
+        "kind": "ticket",
+        "worker": "copilot",
+        "title": title,
+        "brief": brief,
+        "scope": scope,
+    }
+
+
+def _copilot_world(**extra: Any) -> dict[str, Any]:
+    world: dict[str, Any] = {
+        "copilots": [
+            {
+                "id": "cp-eval-1-7",
+                "title": "1-7 三星作业",
+                "stage_id": "main_01-07",
+                "stage_code": "1-7",
+            }
+        ]
+    }
+    world.update(extra)
+    return world
+
+
+def _seed_scenario(tmp_path: Path, stem: str) -> Scenario:
+    """带 ``agent_session_id`` 的 seed 流水线场景；只给 ``_seed_world`` 用。"""
+    data = _ticket(stem)
+    data["world"] = {
+        "seed": {
+            "pipelines": [
+                {
+                    "title": "旧流水线",
+                    "status": "completed",
+                    "agent_session_id": "eval-seed-session",
+                    "tasks": [{"type_name": "Fight"}],
+                }
+            ]
+        }
+    }
+    return load_scenario(_write(tmp_path, stem, data))
+
+
+def test_copilot_search_uses_world_rows(tmp_path: Path) -> None:
+    data = _ticket_case(
+        "ticket-copilot-search",
+        entry=_copilot_entry(
+            "搜 1-7 作业", "帮我找一份 1-7 的作业。", "搜索 1-7 的自动战斗作业"
+        ),
+        world=_copilot_world(),
+        expect=[
+            {
+                "grader": "tool_sequence",
+                "steps": [{"tool": "search_copilots"}, {"tool": "report"}],
+            }
+        ],
+    )
+
+    case = _run(
+        data,
+        [
+            _tool("call-search-1", "search_copilots", {"stage": "1-7"}),
+            _tool("call-report-1", "report", {"status": "ready", "summary": "找到一份"}),
+            _MEMORY_REPLY,
+        ],
+        tmp_path,
+    )
+
+    assert case.status == "passed", case.error or case.graders
+    payloads = [
+        json.loads(message["content"])["result"]
+        for message in case.detail["messages"]
+        if message["role"] == "tool" and message["tool_call_id"] == "call-search-1"
+    ]
+    assert payloads, "search_copilots 没有工具结果"
+    assert payloads[0]["results"][0]["site_id"] == "cp-eval-1-7"
+    assert payloads[0]["results"][0]["stage_name"] == "1-7"
+
+
+def test_copilot_results_drive_attempts(tmp_path: Path) -> None:
+    data = _ticket_case(
+        "ticket-copilot-attempts",
+        human={"confirmations": "approve"},
+        entry=_copilot_entry(
+            "刷 1-7", "用 1-7 的作业刷到三星。", "在 1-7 执行自动战斗作业"
+        ),
+        world=_copilot_world(copilot_results=["failed", "three_star"]),
+        expect=[
+            {
+                "grader": "tool_sequence",
+                "steps": [
+                    {"tool": "run_copilot_attempt"},
+                    {"tool": "run_copilot_attempt"},
+                    {"tool": "report"},
+                ],
+            },
+            {
+                "grader": "outcome_state",
+                "confirmations": {"count": 1, "statuses": ["approved"]},
+            },
+        ],
+    )
+
+    case = _run(
+        data,
+        [
+            _tool(
+                "call-attempt-1",
+                "run_copilot_attempt",
+                {"copilot_id": "cp-eval-1-7"},
+            ),
+            _tool(
+                "call-attempt-2",
+                "run_copilot_attempt",
+                {"copilot_id": "cp-eval-1-7"},
+            ),
+            _tool("call-report-1", "report", {"status": "ready", "summary": "两次成了"}),
+            _MEMORY_REPLY,
+        ],
+        tmp_path,
+    )
+
+    assert case.status == "passed", case.error or case.graders
+    attempt_ids = {"call-attempt-1", "call-attempt-2"}
+    attempts = [
+        json.loads(message["content"])["result"]
+        for message in case.detail["messages"]
+        if message["role"] == "tool" and message["tool_call_id"] in attempt_ids
+    ]
+    assert [item["outcome"] for item in attempts] == ["failed", "three_star"]
+    assert [item["attempt_number"] for item in attempts] == [1, 2]
+    assert attempts[1]["success"] is True
+
+
+def test_seed_pipelines_keep_agent_session_id(tmp_path: Path) -> None:
+    scenario = _seed_scenario(tmp_path, "ticket-seed-session")
+    engine, factory = asyncio.run(make_session_factory(tmp_path / "seed.db"))
+    app = SimpleNamespace(state=SimpleNamespace(session_factory=factory))
+    try:
+        asyncio.run(_seed_world(app, scenario))
+
+        async def read() -> tuple[str | None, AgentSession | None]:
+            async with factory() as session:
+                pipeline = (await session.execute(select(Pipeline))).scalars().first()
+                placeholder = await session.get(AgentSession, "eval-seed-session")
+                return (
+                    pipeline.agent_session_id if pipeline is not None else None,
+                    placeholder,
+                )
+
+        agent_session_id, placeholder = asyncio.run(read())
+    finally:
+        engine.sync_engine.dispose()
+
+    assert agent_session_id == "eval-seed-session"
+    assert placeholder is not None
+    assert placeholder.id == "eval-seed-session"
+
+
+def test_seed_creates_placeholder_session(tmp_path: Path) -> None:
+    scenario = _seed_scenario(tmp_path, "ticket-seed-placeholder")
+    engine, factory = asyncio.run(
+        make_session_factory(tmp_path / "seed-placeholder.db")
+    )
+    app = SimpleNamespace(state=SimpleNamespace(session_factory=factory))
+    try:
+        asyncio.run(_seed_world(app, scenario))
+        # 重复 seed 不能因为占位会话已存在而多写一行。
+        asyncio.run(_seed_world(app, scenario))
+
+        async def read() -> list[tuple[str, str | None]]:
+            async with factory() as session:
+                rows = (
+                    (
+                        await session.execute(
+                            select(AgentSession).where(
+                                AgentSession.id == "eval-seed-session"
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                return [(str(row.kind), row.title) for row in rows]
+
+        rows = asyncio.run(read())
+    finally:
+        engine.sync_engine.dispose()
+
+    assert rows == [("worker", "评测种子会话")]

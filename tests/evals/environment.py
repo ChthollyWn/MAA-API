@@ -12,9 +12,10 @@ import json
 import os
 import tempfile
 from contextlib import contextmanager
-from datetime import timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
+from uuid import uuid4
 
 import httpx
 from PIL import Image  # noqa: F401 - 保证假截图依赖在导入期可见
@@ -23,9 +24,29 @@ from maa_api.agent.evals.runner import EvalApp, EvalEnvironment, EvalOptions, Ll
 from maa_api.agent.evals.scenario import Scenario
 from maa_api.agent.llm.client import OpenAICompatibleClient
 from maa_api.db import session as db_session
-from maa_api.db.models import LogEntry, Pipeline, Task, utcnow
-from maa_api.domain.enums import PipelineStatus
+from maa_api.db.models import (
+    AgentSession,
+    LogEntry,
+    Pipeline,
+    ResourceAsset,
+    Task,
+    utcnow,
+)
+from maa_api.db.repositories.copilot import CopilotAttemptRepository
+from maa_api.domain.enums import (
+    AgentSessionKind,
+    PipelineStatus,
+    ResourceAssetKind,
+)
+from maa_api.services.copilot.attempt import (
+    COUNTED_OUTCOMES,
+    RECORDABLE_OUTCOMES,
+    _GOAL_HINTS,
+)
+from maa_api.services.copilot.grant import CopilotGrantService, is_success
 from maa_api.services.external import http as external_http
+from maa_api.services.game.copilots import TIERS
+from maa_api.settings import get_settings
 from tests.fakes.fake_asst import FakeAsst
 from tests.fakes.fake_core import fake_core_factories
 
@@ -73,6 +94,238 @@ def _read_fixture(fixtures_dir: Path, name: str) -> bytes:
     if not path.is_file():
         raise FileNotFoundError(f"评测 fixture 不存在：{path}")
     return path.read_bytes()
+
+
+class ScriptedCopilotSearch:
+    """``search_copilots`` 的假作业站：返回场景里写死的作业，不访问网络。"""
+
+    def __init__(self, copilots: list[dict[str, Any]]) -> None:
+        self._copilots = [dict(row) for row in copilots]
+
+    async def search(
+        self,
+        *,
+        stage: str,
+        limit: int = 10,
+        order: str = "hot",
+        only_feasible: bool = True,
+        include_content: bool = True,
+        compact: bool = False,
+    ) -> dict[str, Any]:
+        """返回 ``CopilotService.search`` 的紧凑投影；只取前 ``limit`` 条。"""
+        rows = [
+            {
+                "site_id": str(row["id"]),
+                "title": str(row.get("title") or row["id"]),
+                "uploader": "eval",
+                "views": 0,
+                "rating_level": None,
+                "upload_time": None,
+                "stage_name": str(row.get("stage_code") or row["stage_id"]),
+                "difficulty": None,
+                "feasible": True,
+                "tier": "ok",
+                "missing_count": 0,
+                "missing": [],
+                "note": None,
+                "link": None,
+                "operators": [],
+            }
+            for row in self._copilots[: max(int(limit), 0)]
+        ]
+        total = len(self._copilots)
+        return {
+            "query": {
+                "stage": stage,
+                "stage_id": None,
+                "stage_code": stage,
+                "matched_by": "eval",
+                "order": order,
+                "only_feasible": only_feasible,
+                "limit": limit,
+                "include_content": include_content,
+                "compact": compact,
+            },
+            "results": rows,
+            "total": total,
+            "candidates": total,
+            "site_total": total,
+            "site_page": 1,
+            "has_next": False,
+            "tiers": {tier: (total if tier == "ok" else 0) for tier in TIERS},
+            "note": None,
+            "hint": None,
+            "sources": [],
+            "untrusted": True,
+            "unavailable": [],
+            "region_note": None,
+        }
+
+
+class ScriptedCopilotAttempt:
+    """``run_copilot_attempt`` / ``record_copilot_result`` 的假实现。
+
+    结果按 ``world.copilot_results`` 顺序消费；不提交流水线、不消耗授权（``remaining``
+    固定 ``None``）。每条尝试仍写进作业资源的 ``meta["attempts"]``，让
+    ``record_copilot_result`` 能按 id 找回。
+    """
+
+    def __init__(
+        self,
+        session_factory: Any,
+        copilots: list[dict[str, Any]],
+        results: list[str],
+    ) -> None:
+        self._session_factory = session_factory
+        self._copilots = [dict(row) for row in copilots]
+        self._results = list(results)
+        self._used = 0
+
+    async def run(
+        self,
+        *,
+        copilot_id: str,
+        session_id: str | None = None,
+        support: str | None = None,
+        stage_id: str | None = None,
+        stage_code: str | None = None,
+        grant_attempts: int | None = None,
+        success: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        del grant_attempts, success, timeout_seconds
+        if self._used >= len(self._results):
+            raise RuntimeError(
+                f"copilot_results 用完了：第 {len(self._results) + 1} 次 run_copilot_attempt"
+            )
+        row = next(
+            (item for item in self._copilots if str(item["id"]) == copilot_id), None
+        )
+        if row is None:
+            raise RuntimeError(f"world.copilots 里没有作业 {copilot_id}")
+        outcome = str(self._results[self._used])
+        self._used += 1
+
+        grant = await CopilotGrantService(self._session_factory).get_active(session_id)
+        criterion = str((grant or {}).get("success") or "three_star")
+        counted = outcome in COUNTED_OUTCOMES
+        attempt_id = str(uuid4())
+        now = datetime.now(UTC).isoformat()
+        resolved_stage_id = stage_id or str(row["stage_id"])
+        resolved_stage_code = stage_code or str(
+            row.get("stage_code") or row["stage_id"]
+        )
+        attempt = {
+            "id": attempt_id,
+            "copilot_id": copilot_id,
+            "grant_id": (grant or {}).get("id"),
+            "session_id": session_id,
+            "pipeline_id": None,
+            "recognition_pipeline_id": None,
+            "exit_pipeline_id": None,
+            "outcome": outcome,
+            "judged_by": None if outcome == "unknown" else "core",
+            "counted": counted,
+            "success": counted and is_success(outcome, criterion),
+            "screenshot_id": None,
+            "evidence": "",
+            "support": support or "none",
+            "attempt_number": 0,
+            "stage_id": resolved_stage_id,
+            "stage_code": resolved_stage_code,
+            "pipeline_status": "completed",
+            "started_at": now,
+            "finished_at": now,
+        }
+        async with self._session_factory() as session:
+            repo = CopilotAttemptRepository(session)
+            prior = await repo.list_for_asset(copilot_id)
+            attempt["attempt_number"] = 1 + sum(
+                1
+                for item in prior
+                if str(item.get("session_id")) == str(session_id)
+            )
+            await repo.append(copilot_id, attempt)
+            await session.commit()
+        return {
+            **attempt,
+            "attempt_id": attempt_id,
+            "remaining": None,
+            "grant": grant,
+            "grant_status": (grant or {}).get("status"),
+            "actions": [],
+            "action_count": 0,
+            "hint": _GOAL_HINTS.get(outcome, ""),
+        }
+
+    async def record(
+        self, attempt_id: str, outcome: str, evidence: str = ""
+    ) -> dict[str, Any]:
+        if outcome not in RECORDABLE_OUTCOMES:
+            raise RuntimeError(
+                f"只能记录 {' / '.join(RECORDABLE_OUTCOMES)} 之一，收到 {outcome}"
+            )
+        async with self._session_factory() as session:
+            repo = CopilotAttemptRepository(session)
+            found = await repo.find(str(attempt_id or ""))
+            if found is None:
+                raise RuntimeError(f"找不到这次尝试：{attempt_id}")
+            if str(found.data.get("outcome")) != "unknown":
+                raise RuntimeError(
+                    "只能记录 outcome=unknown 的尝试："
+                    f"这次已经是 {found.data.get('outcome')}"
+                )
+            updated = await repo.update(
+                found.asset_id,
+                attempt_id,
+                outcome=str(outcome),
+                judged_by="model",
+                counted=True,
+                evidence=str(evidence or ""),
+                finished_at=datetime.now(UTC).isoformat(),
+            )
+            await session.commit()
+        data = dict(updated.data if updated is not None else found.data)
+        return {
+            "attempt": data,
+            "counted": True,
+            "success": is_success(str(outcome), "three_star"),
+            "grant": None,
+            "remaining": None,
+            "hint": "",
+        }
+
+
+async def _seed_copilots(app: Any, scenario: Scenario) -> None:
+    """把 world.copilots 写成 kind=copilot 的 ResourceAsset 行。"""
+    async with app.state.session_factory() as session:
+        for row in scenario.world.copilots:
+            session.add(
+                ResourceAsset(
+                    id=str(row["id"]),
+                    kind=ResourceAssetKind.COPILOT.value,
+                    name=str(row.get("title") or row["id"]),
+                    content={"actions": []},
+                    meta={
+                        "stage_id": str(row["stage_id"]),
+                        "stage_code": str(row.get("stage_code") or row["stage_id"]),
+                        "source": "eval",
+                    },
+                    enabled=True,
+                )
+            )
+        await session.commit()
+
+
+def _install_copilot_fakes(app: Any, scenario: Scenario) -> None:
+    """按 world 字段替换 app.state.copilot_service / copilot_attempt_service。"""
+    world = scenario.world
+    if world.copilots:
+        app.state.copilot_service = ScriptedCopilotSearch(world.copilots)
+    if world.copilot_results:
+        app.state.copilot_attempt_service = ScriptedCopilotAttempt(
+            app.state.session_factory, world.copilots, world.copilot_results
+        )
 
 
 @contextmanager
@@ -173,6 +426,10 @@ def _open_world(
         )
         app.state.agent_runtime.client_factory = lambda _settings: eval_client
 
+        if scenario.world.copilots:
+            client.portal.call(_seed_copilots, app, scenario)
+        _install_copilot_fakes(app, scenario)
+
         if scenario.world.seed.pipelines:
             client.portal.call(_seed_world, app, scenario)
         yield EvalApp(
@@ -218,7 +475,24 @@ async def _seed_world(app: Any, scenario: Scenario) -> None:
     seed = scenario.world.seed
     now = utcnow()
     async with app.state.session_factory() as session:
+        ensured_sessions: set[str] = set()
         for spec in seed.pipelines:
+            # 流水线的 agent_session_id 是外键；YAML 里的固定 id 没有现成会话时先补一条
+            # 占位会话（外键开着，不补 seed 会直接失败）。重复 seed 不新增第二行。
+            session_id = spec.agent_session_id
+            if session_id and session_id not in ensured_sessions:
+                ensured_sessions.add(session_id)
+                if await session.get(AgentSession, session_id) is None:
+                    session.add(
+                        AgentSession(
+                            id=session_id,
+                            title="评测种子会话",
+                            kind=AgentSessionKind.WORKER.value,
+                            model=get_settings().llm.model,
+                            base_url=get_settings().llm.base_url or None,
+                        )
+                    )
+                    await session.flush()
             created_at = now - timedelta(minutes=spec.minutes_ago)
             terminal = spec.status in (
                 PipelineStatus.COMPLETED,
@@ -233,6 +507,7 @@ async def _seed_world(app: Any, scenario: Scenario) -> None:
                 task_count=len(spec.tasks),
                 error_code=spec.error_code,
                 error_message=spec.error_message,
+                agent_session_id=session_id,
                 created_at=created_at,
                 started_at=created_at,
                 finished_at=now if terminal else None,
