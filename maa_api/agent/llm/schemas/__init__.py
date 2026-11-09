@@ -12,6 +12,8 @@ from maa_api.agent.llm.schemas.memory_proposals import (  # noqa: F401
     MemoryProposal,
     MemoryProposals,
 )
+from maa_api.agent.llm.schemas.nav_classification import NavClassification  # noqa: F401
+from maa_api.agent.llm.schemas.nav_locate import NavLocate  # noqa: F401
 from maa_api.agent.llm.schemas.subagent_report import (  # noqa: F401
     SubagentFinding,
     SubagentReport,
@@ -32,6 +34,8 @@ __all__ = [
     "InjectionVerdict",
     "MemoryProposal",
     "MemoryProposals",
+    "NavClassification",
+    "NavLocate",
     "SubagentFinding",
     "SubagentReport",
     "Title",
