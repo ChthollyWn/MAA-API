@@ -1,0 +1,11 @@
+{"type":"header","format":1,"scenario":"nav-unknown-stage-remember","source":"handwritten","recorded_at":"2026-11-09T00:00:00Z","model":"eval-model","agent":"general","spec_version":null,"notes":"M86：ticket 驱动记下未知关卡界面"}
+{"type":"call","channel":"agent","reply":{"text":"OK"}}
+{"type":"call","channel":"agent","reply":{"text":"OK"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-delegate","name":"delegate","arguments":{"agent":"navigator","task":"记下 1-7 界面","context":"导航图里没有 stage:1-7；先 where_am_i，再 navigate_to，认不出就 remember_screen。"}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-where-1","name":"where_am_i","arguments":{}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-navigate","name":"navigate_to","arguments":{"target":"stage:1-7"}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-remember","name":"remember_screen","arguments":{"node_id":"stage:1-7","title":"1-7"}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-where-2","name":"where_am_i","arguments":{}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"text":"{\"summary\": \"已记下 1-7\", \"findings\": [{\"title\": \"已记下界面\", \"detail\": \"导航图里没有 stage:1-7，remember_screen 把当前画面记成了它\", \"evidence\": [\"remember_screen 结果\"]}], \"uncertainties\": [], \"artifacts\": []}"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-report","name":"report","arguments":{"status":"ready","summary":"已记下 1-7 界面。"}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"text":"{\"items\": []}"}}

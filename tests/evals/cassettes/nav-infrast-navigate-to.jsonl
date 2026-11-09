@@ -1,0 +1,10 @@
+{"type":"header","format":1,"scenario":"nav-infrast-navigate-to","source":"handwritten","recorded_at":"2026-11-09T00:00:00Z","model":"eval-model","agent":"general","spec_version":null,"notes":"M86：ticket 驱动导航到基建"}
+{"type":"call","channel":"agent","reply":{"text":"OK"}}
+{"type":"call","channel":"agent","reply":{"text":"OK"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-delegate","name":"delegate","arguments":{"agent":"navigator","task":"导航到基建","context":"目标界面：infrast（基建）。先 where_am_i，再 navigate_to。"}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-where-1","name":"where_am_i","arguments":{}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-navigate","name":"navigate_to","arguments":{"target":"infrast"}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"text":"工单在等确认，先不打扰。"}}
+{"type":"call","channel":"agent","reply":{"text":"{\"summary\": \"已到基建\", \"findings\": [{\"title\": \"导航完成\", \"detail\": \"navigate_to 两步到达基建\", \"evidence\": [\"navigate_to 结果\"]}], \"uncertainties\": [], \"artifacts\": []}"}}
+{"type":"call","channel":"agent","reply":{"tool_calls":[{"id":"call-report","name":"report","arguments":{"status":"ready","summary":"已到基建，导航员完成。"}}],"finish_reason":"tool_calls"}}
+{"type":"call","channel":"agent","reply":{"text":"{\"items\": []}"}}

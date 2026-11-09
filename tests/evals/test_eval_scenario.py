@@ -275,3 +275,39 @@ def test_http_fixture_needs_exactly_one_body(tmp_path: Path) -> None:
     )
     assert fixture.body_file == "body.json"
     assert fixture.json_body is None
+
+
+def _nav_ticket_scenario(stem: str) -> dict[str, Any]:
+    """ticket 入口 + 假导航世界的最小场景。"""
+    return {
+        "id": stem,
+        "title": "假导航世界",
+        "suite": "capability",
+        "agent": "general",
+        "entry": {
+            "kind": "ticket",
+            "worker": "general",
+            "title": "导航到基建",
+            "brief": "导航到基建，到了告诉我。",
+            "scope": "在游戏界面里导航到基建",
+        },
+        "world": {"nav": {"start": "home", "transitions": {"tap:1045,630": "infrast"}}},
+        "expect": [{"grader": "text_contains", "any_of": ["基建"]}],
+    }
+
+
+def test_nav_world_parses(tmp_path: Path) -> None:
+    scenario = _load(tmp_path, "nav-world", _nav_ticket_scenario("nav-world"))
+
+    assert scenario.world.nav is not None
+    assert scenario.world.nav.start == "home"
+    assert scenario.world.nav.transitions["tap:1045,630"] == "infrast"
+
+    unknown = _nav_ticket_scenario("nav-world-unknown")
+    unknown["world"] = {"nav": {"start": "home", "unknown": True}}
+    path = _write(tmp_path / "nav-world-unknown.yaml", unknown)
+    with pytest.raises(ScenarioError) as excinfo:
+        load_scenario(path)
+    message = str(excinfo.value)
+    assert str(path) in message
+    assert "unknown" in message

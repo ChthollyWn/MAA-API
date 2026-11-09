@@ -1,0 +1,49 @@
+id: nav-unknown-stage-remember
+title: 记下未知关卡界面
+suite: capability
+agent: general
+source: M86 §1 目标 4
+tags:
+  - nav
+entry:
+  kind: ticket
+  worker: general
+  title: 记下 1-7 界面
+  brief: 导航到 1-7；导航图里没有就把当前界面记成 stage:1-7，标题写 1-7。
+  scope: 记下一个关卡界面
+human:
+  confirmations: approve
+settings:
+  nav.enabled: true
+  nav.learn: true
+world:
+  screen: stage
+  nav:
+    start: "stage:1-7"
+    transitions: {}
+expect:
+  - grader: tool_sequence
+    match: subsequence
+    steps:
+      - tool: where_am_i
+      - tool: navigate_to
+        status: error
+        error_code: NAV_NODE_NOT_FOUND
+      - tool: remember_screen
+      - tool: where_am_i
+  - grader: outcome_state
+    runs:
+      count:
+        gte: 2
+      all:
+        - agent_name: navigator
+          status: succeeded
+    model_calls:
+      lte: 14
+  - grader: text_contains
+    any_of:
+      - 1-7
+      - 记下
+limits:
+  timeout_seconds: 90
+  max_model_calls: 18

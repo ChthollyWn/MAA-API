@@ -38,6 +38,7 @@ __all__ = [
     "InterruptSpec",
     "Limits",
     "LlmJudgeSpec",
+    "NavWorld",
     "OutcomeStateSpec",
     "Scenario",
     "ScenarioError",
@@ -191,6 +192,18 @@ class WorldSeed(BaseModel):
     pipelines: list[SeedPipeline] = Field(default_factory=list)
 
 
+class NavWorld(BaseModel):
+    """假导航世界（M86 §5 T11）：起始画面与「动作键 → 目标画面」的跳转表。
+
+    动作键与 ``tests.fakes.nav.FakeNavDevice`` 一致（``tap:x,y`` 是设备像素）。
+    """
+
+    model_config = _MODEL_CONFIG
+
+    start: str = "home"
+    transitions: dict[str, str] = Field(default_factory=dict)
+
+
 class World(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -199,6 +212,8 @@ class World(BaseModel):
     screen: Literal["home", "desktop", "stage", "battle", "settlement"] = "home"
     http: list[HttpFixture] = Field(default_factory=list)
     seed: WorldSeed = Field(default_factory=WorldSeed)
+    #: 导航图的假设备（M86）；为空时不替换 ``app.state.nav_service.device_factory``。
+    nav: NavWorld | None = None
     #: 作业站作业；同时决定 ``search_copilots`` 的返回与可执行的作业资源。
     copilots: list[dict[str, Any]] = Field(default_factory=list)
     #: 每次 ``run_copilot_attempt`` 的结果，按尝试顺序消费。
