@@ -155,6 +155,28 @@ def test_detail_truncates_body_to_64kib(workspace_env, make_client) -> None:
         assert complete.json()["truncated"] is False
 
 
+def test_detail_returns_meta_and_list_does_not(workspace_env, make_client) -> None:
+    """M90 §4.3.4：详情原样返回整列 ``meta``，列表项不加。"""
+    artifact = _put(
+        workspace_env,
+        kind="report",
+        title="带 meta 的报告",
+        body="正文".encode(),
+        meta={"facts_markdown": "x"},
+    )
+
+    with make_client(workspace_env.app) as client:
+        detail = client.get(f"/api/agent/artifacts/{artifact.id}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["meta"] == {"facts_markdown": "x"}
+
+        listed = client.get("/api/agent/artifacts")
+        assert listed.status_code == 200, listed.text
+        item = listed.json()["items"][0]
+        assert item["id"] == str(artifact.id)
+        assert "meta" not in item
+
+
 def test_download_returns_raw_bytes_and_mime(workspace_env, make_client) -> None:
     """下载返回原始字节，``Content-Type`` 取产物 ``mime``。"""
     body = b"y" * (DB_STORAGE_MAX_BYTES + 1)

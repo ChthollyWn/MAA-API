@@ -389,7 +389,7 @@ class CheckpointStatus(StrEnum):
 
 
 class ArtifactKind(StrEnum):
-    """产物的种类；本里程碑只写 note / spill / report / file。"""
+    """产物的种类：`note`、`spill`、`report`、`chart`、`table`、`file`、`form`、`dashboard`。"""
 
     NOTE = "note"
     SPILL = "spill"
