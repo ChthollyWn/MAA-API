@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from maa_api.agent.demonstrations import capture
 from maa_api.api.deps import (
     get_core_registry,
     get_pipeline_runner,
@@ -95,12 +96,26 @@ async def click_device(
     # 设备像素经 DeviceManager.click 换算成 MaaCore 基准坐标：不再直接调用内核
     # 客户端，坐标系与越界校验的唯一归属是设备管理器。
     manager = _device_manager(request)
-    await preempt_device(request, "rest_atomic")
-    async with runner.operation_lock:
-        await _ensure_atomic_allowed(
-            operation="click", force=payload.force, session=session
-        )
-        await manager.click(payload.x, payload.y)
+    # 示教采集：begin 在抢占之前取快照与操作前截图，finish 在操作锁之外补步骤。
+    pending = await capture.begin(request, manager)
+    try:
+        await preempt_device(request, "rest_atomic")
+        async with runner.operation_lock:
+            await _ensure_atomic_allowed(
+                operation="click", force=payload.force, session=session
+            )
+            await manager.click(payload.x, payload.y)
+    except BaseException:
+        await capture.cancel(pending)
+        raise
+    await capture.finish(
+        request,
+        pending,
+        manager,
+        action="click",
+        points={"x": payload.x, "y": payload.y},
+        duration_ms=None,
+    )
     return {"ok": True, "backend": "core", "x": payload.x, "y": payload.y}
 
 
