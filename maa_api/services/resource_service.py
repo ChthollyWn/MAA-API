@@ -24,6 +24,7 @@ from typing import Any, Callable, Mapping
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from maa_api.agent.custom_task.rules import MAX_BUNDLE_TASKS, check_bundle
 from maa_api.db.models import ResourceAsset, utcnow
 from maa_api.db.repositories.resource import ResourceAssetRepository
 from maa_api.domain.enums import ResourceAssetKind
@@ -504,14 +505,50 @@ class ResourceService:
         *,
         name: str,
         description: str | None,
-        content: Mapping[str, Any],
+        content: Mapping[str, Any] | None = None,
+        tasks: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        """注册一个自定义任务，或一次注册整条 ``tasks`` 链。
+
+        ``content`` 与 ``tasks`` 必须恰好给一个：``content`` 走 v2 的单任务路径，
+        签名与返回形状不变；``tasks`` 是 M89 的批量注册，返回
+        ``{"entry", "task_names", "items"}``。
+        """
+        if (content is None) == (tasks is None):
+            raise _invalid_json(
+                ErrorCode.CUSTOM_TASK_INVALID,
+                "content 与 tasks 必须恰好给一个",
+            )
         async with self._custom_task_lock:
-            return await self._register_custom_task(
+            if tasks is None:
+                return await self._register_custom_task(
+                    name=name,
+                    description=description,
+                    content=content,
+                )
+            return await self._register_custom_task_bundle(
                 name=name,
                 description=description,
-                content=content,
+                tasks=tasks,
             )
+
+    def validate_custom_task_content(
+        self, content: Mapping[str, Any]
+    ) -> list[dict[str, str]]:
+        """``_validate_custom_task`` 的公开包装：返回错误列表，不抛 ``AppError``。
+
+        M89 的 ``validate_custom_task`` 工具与 ``convert`` 共用；v2 的抛错口径不变。
+        """
+        try:
+            self._validate_custom_task(content)
+        except AppError as exc:
+            return [
+                {
+                    "field": "content",
+                    "reason": exc.message or "资源内容不符合自定义任务结构",
+                }
+            ]
+        return []
 
     async def _register_custom_task(
         self,
@@ -553,6 +590,111 @@ class ResourceService:
                 {"task": normalized_name},
             ) from exc
         return created
+
+    async def _register_custom_task_bundle(
+        self,
+        *,
+        name: str,
+        description: str | None,
+        tasks: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """一次注册整条 ``tasks`` 链（M89 spec §4.5 批量注册）。
+
+        写前做结构校验、链级校验与同名预检；写时单会话单提交，提交后按需写大文件、
+        只写一次 ``tasks.json``、只重载一次。失败时删全部新行、删新文件、恢复
+        ``tasks.json`` 快照并再重载一次，不留下部分资产。
+        """
+        self._require_reloader()
+        entry = self._custom_task_name(name)
+        if not 1 <= len(tasks) <= MAX_BUNDLE_TASKS:
+            raise _invalid_json(
+                ErrorCode.CUSTOM_TASK_INVALID,
+                f"自定义任务链的节点数必须在 1 至 {MAX_BUNDLE_TASKS} 之间",
+            )
+        stored: dict[str, dict[str, Any]] = {}
+        for task_name, node in tasks.items():
+            normalized_name = self._custom_task_name(task_name)
+            stored[normalized_name] = self._validate_custom_task(node)
+        if entry not in stored:
+            raise _invalid_json(
+                ErrorCode.CUSTOM_TASK_INVALID,
+                f"入口任务 {entry} 不在 tasks 里",
+            )
+        errors, chain_errors, _chain = check_bundle(stored, entry)
+        if errors or chain_errors:
+            raise AppError(
+                ErrorCode.CUSTOM_TASK_INVALID,
+                "自定义任务链校验失败，请按 errors 与 chain_errors 修正后重试",
+                {
+                    "errors": [issue.as_dict() for issue in errors],
+                    "chain_errors": [issue.as_dict() for issue in chain_errors],
+                },
+            )
+
+        # 冲突在写之前逐个预检；写入竞态由 UNIQUE 约束转 409。
+        async with self.session_factory() as session:
+            repo = ResourceAssetRepository(session)
+            for task_name in stored:
+                existing = await repo.get_by_kind_name(
+                    ResourceAssetKind.CUSTOM_TASK, task_name
+                )
+                if existing is not None:
+                    raise _asset_conflict(task_name)
+
+        file_snapshot = self._snapshot_custom_file()
+        created: list[tuple[str, dict[str, Any], str | None]] = []
+        items: list[dict[str, Any]] = []
+        async with self.session_factory() as session:
+            repo = ResourceAssetRepository(session)
+            for task_name, content in stored.items():
+                asset_id = uuid.uuid4().hex
+                inline_content, relative_path = self._storage_shape(
+                    ResourceAssetKind.CUSTOM_TASK, asset_id, content
+                )
+                asset = ResourceAsset(
+                    id=asset_id,
+                    kind=ResourceAssetKind.CUSTOM_TASK,
+                    name=task_name,
+                    description=_description(description),
+                    content=inline_content,
+                    path=relative_path,
+                    meta={"task_name": task_name},
+                    checksum=_checksum(content),
+                )
+                try:
+                    saved = await repo.create(asset)
+                except IntegrityError as exc:
+                    await session.rollback()
+                    raise _asset_conflict(task_name) from exc
+                # 一次提交全部节点：此时还没有写任何文件。
+                created.append((task_name, content, relative_path))
+                items.append(saved)
+            await session.commit()
+
+        try:
+            for _task_name, content, relative_path in created:
+                if relative_path:
+                    _atomic_write_json(self.resource_root / relative_path, content)
+            await self._write_enabled_custom_tasks()
+            await self._reload()
+        except Exception as exc:
+            await self._rollback_created_custom_task_bundle(
+                [str(item.id) for item in items], file_snapshot, created
+            )
+            raise AppError(
+                ErrorCode.RESOURCE_LOAD_FAILED,
+                "自定义任务链已回滚，但内核资源重新加载失败；请到日志页查看原因",
+                {"task": entry},
+            ) from exc
+
+        return {
+            "entry": entry,
+            "task_names": [task_name for task_name, _content, _path in created],
+            "items": [
+                _asset_wire(item, include_content=True, content=content)
+                for item, (_task_name, content, _path) in zip(items, created)
+            ],
+        }
 
     async def list_custom_tasks(
         self, *, page: int = 1, size: int = 20, q: str | None = None
@@ -671,6 +813,27 @@ class ResourceService:
             await self._reload()
         except Exception:
             logger.exception("回滚自定义 task %s 后的资源恢复重载失败", asset_id)
+
+    async def _rollback_created_custom_task_bundle(
+        self,
+        asset_ids: list[str],
+        file_snapshot: bytes | None,
+        created: list[tuple[str, dict[str, Any], str | None]],
+    ) -> None:
+        """批量注册失败：删全部新行、删新文件、恢复 ``tasks.json`` 并再重载一次。"""
+        try:
+            async with self.session_factory() as session:
+                repo = ResourceAssetRepository(session)
+                for asset_id in asset_ids:
+                    await repo.delete(asset_id)
+                await session.commit()
+            for _task_name, _content, relative_path in created:
+                if relative_path:
+                    (self.resource_root / relative_path).unlink(missing_ok=True)
+            self._restore_custom_file(file_snapshot)
+            await self._reload()
+        except Exception:
+            logger.exception("回滚自定义任务链后的资源恢复重载失败")
 
     async def _restore_custom_task(
         self, snapshot: ResourceAsset, file_snapshot: bytes | None
