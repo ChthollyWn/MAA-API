@@ -1,0 +1,5 @@
+{"type": "header", "format": 1, "scenario": "m89-demonstration-is-user-operation", "source": "handwritten", "recorded_at": "2026-11-10T00:00:00Z", "model": "eval-model", "agent": "general", "spec_version": null, "notes": "M89 T8：示教是用户自己在页面里完成的操作，Agent 不替用户开始、停止或转换"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "示教是用户自己在页面里完成的操作（/more/demonstrations）。录完可以点「预览任务」看编译结果，确认后再点「注册任务」；开始、停止和转换都由用户自己做，我不替你操作。", "tool_calls": [{"id": "call-report", "name": "report", "arguments": {"status": "ready", "summary": "说明示教是用户自己在 /more/demonstrations 页面里完成的操作，没有替用户开始、停止或转换。"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"items\": []}"}}

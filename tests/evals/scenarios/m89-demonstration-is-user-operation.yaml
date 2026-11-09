@@ -1,0 +1,66 @@
+{
+  "id": "m89-demonstration-is-user-operation",
+  "title": "示教是用户自己的操作",
+  "suite": "capability",
+  "agent": "general",
+  "source": "M89 spec §5 T8",
+  "tags": [
+    "demonstration",
+    "boundary"
+  ],
+  "entry": {
+    "kind": "ticket",
+    "worker": "general",
+    "title": "示教录完了怎么办",
+    "brief": "我刚在示教页录了一段，接下来怎么办？",
+    "scope": "用户在示教页录了一段，问接下来怎么办"
+  },
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "match": "subsequence",
+      "steps": [
+        {
+          "tool": "report"
+        }
+      ],
+      "forbid": [
+        "draft_custom_task",
+        "validate_custom_task",
+        "register_custom_task"
+      ],
+      "min_calls": {
+        "report": 1
+      }
+    },
+    {
+      "grader": "outcome_state",
+      "runs": {
+        "count": {
+          "gte": 1
+        },
+        "all": [
+          {
+            "agent_name": "general",
+            "status": "succeeded",
+            "finish_reason": "report_submitted"
+          }
+        ]
+      }
+    },
+    {
+      "grader": "text_contains",
+      "all_of": [
+        "/more/demonstrations",
+        "示教"
+      ]
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 8
+  },
+  "settings": {
+    "llm.role_orchestrator": "missing-profile"
+  }
+}

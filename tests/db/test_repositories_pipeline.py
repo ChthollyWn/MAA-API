@@ -314,7 +314,13 @@ def test_claim_next_returns_none_when_candidate_was_taken(db_session_factory):
             assert (await repo.claim_next()).id == taken.id  # 已被别人领走，现在是 running
 
             class _StaleCandidateRepository(PipelineRepository):
-                async def _next_pending_id(self, core_id: str) -> str | None:
+                async def _next_pending_id(
+                    self,
+                    core_id: str,
+                    allowed_session_ids: frozenset[str] | None = None,
+                    allow_manual: bool = True,
+                ) -> str | None:
+                    del allowed_session_ids, allow_manual
                     return taken.id  # SELECT 看到的还是 pending 快照
 
             stale = _StaleCandidateRepository(session)
