@@ -30,7 +30,7 @@ WORKERS = {
         ),
     },
     "copilot": {
-        "version": 4,
+        "version": 5,
         "title": "作战参谋",
         "device": "exclusive",
         "risk_ceiling": "consume",
@@ -43,11 +43,11 @@ WORKERS = {
             "get_pipeline", "wait_pipeline", "stop_pipeline", "back_to_home", "update_resource",
             "wait_update", "read_knowledge", "ask_user", "update_plan", "write_note",
             "read_artifact", "report", "delegate", "hold_device",
-            "release_device", "load_skill", "read_skill_file",
+            "release_device", "load_skill", "read_skill_file", "create_view",
         ),
     },
     "planner": {
-        "version": 4,
+        "version": 5,
         "title": "规划师",
         "device": "none",
         "risk_ceiling": "consume",
@@ -61,7 +61,7 @@ WORKERS = {
             "create_schedule", "update_schedule", "delete_schedule", "update_user_profile",
             "get_operator", "read_knowledge", "send_chart", "send_item_icons", "ask_user",
             "update_plan", "write_note", "read_artifact", "report", "delegate",
-            "load_skill", "read_skill_file", "optimize_farming",
+            "load_skill", "read_skill_file", "optimize_farming", "create_view",
         ),
     },
     "diagnose": {
@@ -79,7 +79,7 @@ WORKERS = {
         ),
     },
     "analyst": {
-        "version": 4,
+        "version": 5,
         "title": "分析师",
         "device": "none",
         "risk_ceiling": "none",
@@ -89,7 +89,7 @@ WORKERS = {
             "get_item", "get_stage", "get_operator_box", "get_depot", "list_upgrade_plans",
             "send_chart", "send_item_icons", "read_knowledge", "update_plan", "write_note",
             "read_artifact", "report", "delegate", "load_skill", "read_skill_file",
-            "optimize_farming",
+            "optimize_farming", "create_view",
         ),
     },
     "ops": {
@@ -142,7 +142,8 @@ def test_six_workers_match_contract():
         assert spec.tools == expected["tools"]
         # M78 §4.7 各加两个技能工具、M79 §4.2 给 diagnose 加检索工具，版本 +1；
         # M87 §4.7：daily_ops、copilot 开启 verify_before_ready 并升到 4；
-        # M88 §4.7：planner、analyst 加 optimize_farming 并升到 4。
+        # M88 §4.7：planner、analyst 加 optimize_farming 并升到 4；
+        # M90 §4.7：copilot、planner、analyst 加 create_view 并升到 5。
         assert spec.version == expected["version"]
         assert spec.max_steps == 0
         assert spec.output_schema is None
@@ -162,6 +163,26 @@ def test_six_workers_match_contract():
         == DIAGNOSE_EXTRA_TOOLS
     )
     assert diagnose.tools[-3:] == ("load_skill", "read_skill_file", "search_knowledge")
+
+
+def test_workers_with_create_view_bump_version():
+    """M90 §4.7：四个 Worker 末尾加 ``create_view``，版本各 +1；其余不变。"""
+    specs = _load_specs()
+    workers = {
+        "general": 9,
+        "analyst": 5,
+        "planner": 5,
+        "copilot": 5,
+    }
+
+    for name, version in workers.items():
+        assert "create_view" in specs[name].tools
+        assert specs[name].tools[-1] == "create_view"
+        assert specs[name].version == version
+
+    for name in ("daily_ops", "diagnose", "ops"):
+        assert "create_view" not in specs[name].tools
+        assert specs[name].version == WORKERS[name]["version"]
 
 
 def test_worker_tools_exist_in_registry():
