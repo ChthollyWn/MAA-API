@@ -1,29 +1,33 @@
 """Agent 主动提问：带选项的卡片、挂起等待与用户裁决（规格 §3.3）。
 
 与 :class:`~maa_api.agent.confirmation.ConfirmationService` 同构但**独立**：两者
-都是「落库先行 + 进程内 :class:`asyncio.Event` 只做唤醒 + 重启清理」，但这条链路
-处理的是「在若干选项里取一个答案」，不是「授权一次有风险的操作」。因此它没有策略
-引擎、没有风险等级、不推送通知，也**不占「待确认」计数**（规格 §2.2）。
+都是「落库先行 + 进程内 :class:`asyncio.Event` 只做唤醒」，但这条链路处理的是
+「在若干选项里取一个答案」，不是「授权一次有风险的操作」。因此它没有策略引擎、
+没有风险等级、不推送通知，也**不占「待确认」计数**（规格 §2.2）。
 
 三条实现纪律：
 
-- **落库先行**：提问先落 ``agent_question``（``pending`` + ``expires_at``），内存里
-  的 Event 只是让等待方**尽快**醒来的加速器。等待方每轮都会重新读一次库，因此就算
-  事件在别的路径上丢了（跨进程、REST 直接回答、扫描任务置过期），
-  :meth:`wait` 仍会按 ``expires_at`` 收敛到终态而不是永久挂起。
-- **不抛异常表示「用户没答」**：超时与跳过都是正常的终态，由调用方（runtime）读
+- **落库先行**：提问先落 ``agent_question``（``pending``），内存里的 Event 只是让
+  等待方**尽快**醒来的加速器。等待方每轮都会重新读一次库，因此就算事件在别的路径
+  上丢了（跨进程、REST 直接回答、会话中断），:meth:`wait` 仍会收敛到终态。
+- **不抛异常表示「用户没答」**：跳过与取消都是正常的终态，由调用方（runtime）读
   wire 里的 ``status`` 决定怎么收尾；只有「找不到 / 已经处理过 / 选择不合法」这类
   调用方用错了的路径才抛 :class:`~maa_api.domain.errors.AppError`。
 - **广播失败不影响主流程**：``question_request`` / ``question_resolved`` 只是给前端
   失效查询用的信号，WebSocket 挂了不能把一次已经落库的提问变成失败。
+
+**提问没有时间失效**（维护性补丁 `questions-no-expiry`）：pending 提问一直保留到被
+回答、跳过，或被生命周期收尾取消（会话中断 / 工单结束 / 总控重新开始）。服务重启
+不再清理 pending；若提问的来源运行已经不在，:meth:`answer` 会把答案交给装配层注入
+的投递回调（工单 → Worker、总控 → 总控会话），由新的一轮接着办。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -31,10 +35,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.origin import origin_wire, ticket_titles
 from maa_api.agent.registry import ToolOrigin
-from maa_api.db.models import AgentAudit, AgentQuestion, utcnow
+from maa_api.db.models import AgentAudit, AgentQuestion, AgentRun, utcnow
 from maa_api.db.repositories.audit import AuditRepository
 from maa_api.db.repositories.question import AgentQuestionRepository
 from maa_api.domain.enums import (
+    AgentRunStatus,
     AuditStatus,
     CallerType,
     QuestionStatus,
@@ -44,40 +49,49 @@ from maa_api.domain.errors import AppError, ErrorCode
 
 logger = logging.getLogger(__name__)
 
-#: 默认等待时长，与 ``agent.question_timeout_seconds`` 的默认值一致（规格 §1.3）。
-DEFAULT_QUESTION_TIMEOUT_SECONDS = 10 * 60
 #: 等待方重新读库的节奏；事件先到就立刻返回，用不到这个间隔。
 DEFAULT_QUESTION_POLL_SECONDS = 0.25
 #: ``ask_user`` 在审计里的工具名：提问也是工具调用，审计页要能按名字筛出来。
 ASK_USER_TOOL_NAME = "ask_user"
-#: 三条「没答成」的收尾文案；过期同时落审计的 result_summary。
-EXPIRED_SUMMARY = "提问超时，本轮已结束"
-RESTART_SUMMARY = "服务重启，未回答的提问已失效"
-SHUTDOWN_SUMMARY = "服务关闭，未回答的提问已失效"
+#: 两条「没答成」的收尾文案；过期只存在于历史数据，不再产生新的。
 SKIPPED_SUMMARY = "用户跳过了提问"
 #: 本轮被用户中断时撤回挂起提问的收尾文案（规格 §3.3）。
 CANCELLED_SUMMARY = "本轮已被中断，提问已取消"
+#: 工单结束时撤回该工单挂起提问的收尾文案（维护性补丁 §4.3）。
+TICKET_ENDED_SUMMARY = "工单已结束，提问已取消"
+#: 运行处于这些状态时，等待方仍在进程内等答案，不需要投递。
+TERMINAL_RUN_STATUSES = frozenset(
+    {
+        AgentRunStatus.SUCCEEDED,
+        AgentRunStatus.FAILED,
+        AgentRunStatus.INTERRUPTED,
+        AgentRunStatus.CANCELLED,
+    }
+)
+
+#: 答案投递回调：输入是终态提问 wire（含 selection 与 origin）。
+AnswerDelivery = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class QuestionService:
-    """Agent 提问的创建、等待、裁决与过期收敛（规格 §3.3）。"""
+    """Agent 提问的创建、等待、裁决与生命周期收尾（规格 §3.3）。"""
 
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
         *,
         broadcast: Callable[[str, dict[str, Any]], None] | None = None,
-        timeout_seconds: int = DEFAULT_QUESTION_TIMEOUT_SECONDS,
         clock: Callable[[], datetime] = utcnow,
     ) -> None:
-        if timeout_seconds < 1:
-            raise ValueError("question timeout must be positive")
         self.session_factory = session_factory
         self.broadcast = broadcast or (lambda _kind, _data: None)
-        self.timeout_seconds = int(timeout_seconds)
         self.clock = clock
         self._resolution_events: dict[str, asyncio.Event] = {}
-        self._expiry_task: asyncio.Task[None] | None = None
+        self._answer_delivery: AnswerDelivery | None = None
+
+    def set_answer_delivery(self, delivery: AnswerDelivery | None) -> None:
+        """注入「来源运行已经结束」时的答案投递回调（装配层实现路由）。"""
+        self._answer_delivery = delivery
 
     async def create(
         self,
@@ -94,12 +108,11 @@ class QuestionService:
 
         审计行在同一事务里创建，``status=pending``、``risk_level=none``：提问不授权
         任何东西（没有风险等级），但「问过什么、用户答了什么」必须和普通工具调用一样
-        可审计。答案落定后由 :meth:`answer` / :meth:`skip` / :meth:`expire_due` 把这一
-        行推到终态，因此不存在「提问已 answered 而审计还 pending」的中间态。
+        可审计。答案落定后由 :meth:`answer` / :meth:`skip` / :meth:`cancel_pending_for_*`
+        把这一行推到终态，因此不存在「提问已 answered 而审计还 pending」的中间态。
         ``origin`` 是发起提问的代理运行（M71 §4.2）；REST 直接提问时为空。
         """
         now = self.clock()
-        expires_at = now + timedelta(seconds=self.timeout_seconds)
         normalized = _normalize_options(options)
         origin_run_id = origin.run_id if origin is not None else None
         origin_ticket_id = origin.ticket_id if origin is not None else None
@@ -113,7 +126,6 @@ class QuestionService:
                     options=normalized,
                     multiple=bool(multiple),
                     status=QuestionStatus.PENDING,
-                    expires_at=expires_at,
                     created_at=now,
                     origin_run_id=origin_run_id,
                     origin_ticket_id=origin_ticket_id,
@@ -183,28 +195,24 @@ class QuestionService:
     async def wait(
         self, question_id: str, *, poll_seconds: float = DEFAULT_QUESTION_POLL_SECONDS
     ) -> dict[str, Any]:
-        """等这条提问进入终态并返回终态 wire；超时自己收敛，**不抛异常**。
+        """等这条提问进入终态并返回终态 wire；没有时间上限，**不抛异常**。
 
-        等待事件与轮询两路并行（规格 §3.3）：事件负责「尽快」，轮询负责「不漏」：由 REST 直接回答、或由后台扫描任务置过期的提问不会经过本进程的事件字典。
-        到 ``expires_at`` 仍未答就自己走 :meth:`_expire_now` 兜底（扫描间隔可能配置得
-        比超时还长），然后返回 ``expired`` 的 wire。
+        等待事件与轮询两路并行（规格 §3.3）：事件负责「尽快」，轮询负责「不漏」：
+        由 REST 直接回答、或由收尾路径取消的提问不会经过本进程的事件字典。提问没有
+        超时（维护性补丁 `questions-no-expiry`），所以只有等待方被取消（中断）时才退出。
         """
         row = await self._load(question_id)
         if row.status != QuestionStatus.PENDING:
             return await self.get(question_id)
-        deadline = _as_utc(row.expires_at)
         event = self._resolution_events.get(question_id)
         if event is None:
             event = asyncio.Event()
             self._resolution_events[question_id] = event
         try:
             while True:
-                remaining = (deadline - _as_utc(self.clock())).total_seconds()
-                if remaining <= 0:
-                    break
                 try:
                     await asyncio.wait_for(
-                        event.wait(), timeout=min(max(poll_seconds, 0.001), remaining)
+                        event.wait(), timeout=max(poll_seconds, 0.001)
                     )
                 except TimeoutError:
                     pass
@@ -213,10 +221,6 @@ class QuestionService:
                 current = await self._load(question_id)
                 if current.status != QuestionStatus.PENDING:
                     return await self.get(question_id)
-            # 事件没等到、时间也用完了：置过期；CAS 失败说明别人抢先处理，读回真值即可。
-            expired = await self._expire_now(question_id)
-            if expired is not None:
-                return expired
             return await self.get(question_id)
         finally:
             self._resolution_events.pop(question_id, None)
@@ -230,15 +234,13 @@ class QuestionService:
     ) -> dict[str, Any]:
         """提交用户的选择：CAS ``pending → answered``，冲突时按当前状态报 409。
 
-        校验顺序是刻意的：先 404、再终态（已答 / 已跳过 / 已过期），最后才校验选择
-        内容。对一个已经处理过的提问回 400，会把「你来晚了」说成「你选错了」。
+        校验顺序是刻意的：先 404、再终态（已答 / 已跳过 / 已取消；历史 ``expired``
+        行报 ``QUESTION_EXPIRED``），最后才校验选择内容。对一个已经处理过的提问回
+        400，会把「你来晚了」说成「你选错了」。
         """
         row = await self._load(question_id)
         if row.status != QuestionStatus.PENDING:
             raise _terminal_error(row)
-        if _is_overdue(row, self.clock()):
-            await self._expire_now(question_id)
-            raise AppError(ErrorCode.QUESTION_EXPIRED, "提问已过期")
         labels = _validate_selection(row, selected)
         async with self.session_factory() as session:
             repo = AgentQuestionRepository(session)
@@ -250,7 +252,7 @@ class QuestionService:
                 answered_at=self.clock(),
             )
             if not changed:
-                # CAS 失败只可能是并发抢答/抢过期：读回真值按状态报错。
+                # CAS 失败只可能是并发抢答/抢收尾：读回真值按状态报错。
                 await session.rollback()
                 current = await repo.get(question_id)
                 if current is None:
@@ -265,6 +267,7 @@ class QuestionService:
             await session.commit()
         wire = await self.get(question_id)
         self._broadcast_resolved(wire, "answered")
+        await self._deliver_if_orphaned(wire)
         return wire
 
     async def skip(
@@ -274,9 +277,6 @@ class QuestionService:
         row = await self._load(question_id)
         if row.status != QuestionStatus.PENDING:
             raise _terminal_error(row)
-        if _is_overdue(row, self.clock()):
-            await self._expire_now(question_id)
-            raise AppError(ErrorCode.QUESTION_EXPIRED, "提问已过期")
         async with self.session_factory() as session:
             repo = AgentQuestionRepository(session)
             changed = await repo.resolve(
@@ -306,7 +306,7 @@ class QuestionService:
         """撤回该会话仍挂起的提问：CAS ``pending → cancelled`` 并唤醒等待方（§3.3）。
 
         中断必须让卡片进入终态而不是留着 pending：等待那一轮的协程马上会被取消，
-        留下的 pending 卡片会一直挂着直到超时，前端刷新后还会把它当成可提交的提问。
+        留下的 pending 卡片会一直挂着，前端刷新后还会把它当成可提交的提问。
         审计置 ``rejected`` 与「跳过」同口径：提问没有得到答案，但也不是超时。
         返回被撤回的提问 id 列表；没有挂起提问时返回空列表（幂等）。
         """
@@ -332,70 +332,64 @@ class QuestionService:
             self._broadcast_resolved(wire, "cancelled")
         return [str(wire["question_id"]) for wire in wires]
 
-    async def reset_after_restart(self) -> None:
-        """把重启前遗留的 pending 提问置 ``expired``。
-
-        进程重启后等待那一轮的协程已经不存在了，没超时的提问也不可能再被回答
-        （规格 §3.3）：留着 pending 只会让前端刷新后看到一张永远提交不了的卡片。
-        """
-        rows = await self._expire_all(RESTART_SUMMARY)
-        self._broadcast_expired(rows)
-
-    async def expire_due(self) -> list[str]:
-        """把 ``expires_at`` 已过的待答提问置 ``expired``，返回其 id 列表。
-
-        后台扫描与 :meth:`wait` 的超时兜底共用同一条落库路径：终态、审计与广播三件
-        事必须完全一致，不能有两条「过期」的实现。
-        """
+    async def cancel_pending_for_ticket(self, ticket_id: str) -> list[str]:
+        """撤回某个工单仍挂起的提问（工单结束时由结束监听器调用，维护性补丁 §4.3）。"""
         now = self.clock()
         async with self.session_factory() as session:
             repo = AgentQuestionRepository(session)
-            ids = await repo.expire_overdue(now)
+            ids = await repo.cancel_pending_for_ticket(ticket_id, now)
             rows = await _rows_by_ids(session, ids)
             for row in rows:
                 await self._finish_audit(
                     session,
                     row.audit_id,
-                    AuditStatus.EXPIRED,
-                    error_code=str(ErrorCode.QUESTION_EXPIRED),
-                    result_summary=EXPIRED_SUMMARY,
+                    AuditStatus.REJECTED,
+                    result_summary=TICKET_ENDED_SUMMARY,
                 )
             titles = await ticket_titles(
                 session, [row.origin_ticket_id for row in rows]
             )
             await session.commit()
             wires = [self._wire(row, titles) for row in rows]
-        self._broadcast_expired(wires)
-        return ids
+        for wire in wires:
+            self._broadcast_resolved(wire, "cancelled")
+        return [str(wire["question_id"]) for wire in wires]
 
-    async def start(self, *, scan_interval_seconds: float = 10.0) -> None:
-        """清理重启遗留的 pending，并启动超时扫描（重复调用是空操作）。"""
-        if self._expiry_task is not None and not self._expiry_task.done():
+    async def _deliver_if_orphaned(self, wire: Mapping[str, Any]) -> None:
+        """来源运行已结束、且本进程没有等待者时，把答案投递给来源会话（§4.2）。
+
+        判定分两步：
+        1. 本进程有等待者（``_resolution_events``）→ 等待轮会自己醒来，不投递。
+        2. 来源运行仍是 running / waiting_human → 运行会读到已答状态，不投递；
+           这覆盖「用户抢在 ``wait`` 注册事件之前作答」的竞态。
+        只有来源运行已终态 / 不存在 / 没有 run_id 时才回调装配层，把答案交回会话。
+        """
+        delivery = self._answer_delivery
+        if delivery is None:
             return
-        await self.reset_after_restart()
-        self._expiry_task = asyncio.create_task(
-            self._expiry_loop(max(float(scan_interval_seconds), 0.05)),
-            name="agent-question-expiry-scan",
-        )
+        question_id = str(wire.get("question_id") or "")
+        if not question_id or question_id in self._resolution_events:
+            return
+        origin = wire.get("origin")
+        run_id = origin.get("run_id") if isinstance(origin, Mapping) else None
+        if isinstance(run_id, str) and run_id and await self._run_active(run_id):
+            return
+        try:
+            await delivery(dict(wire))
+        except Exception:  # noqa: BLE001 - 投递失败不能让已经落库的回答变成错误
+            logger.exception("提问答案投递失败：question=%s", question_id)
 
-    async def close(self) -> None:
-        """停扫描，并把还挂着的 pending 置 ``expired``（它们的等待方已经没了）。"""
-        if self._expiry_task is not None:
-            self._expiry_task.cancel()
-            await asyncio.gather(self._expiry_task, return_exceptions=True)
-            self._expiry_task = None
-        rows = await self._expire_all(SHUTDOWN_SUMMARY)
-        self._broadcast_expired(rows)
-
-    async def _expiry_loop(self, interval: float) -> None:
-        while True:
-            await asyncio.sleep(interval)
-            try:
-                await self.expire_due()
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001 - 扫描失败不能打死后台任务
-                logger.exception("Agent 提问过期扫描失败")
+    async def _run_active(self, run_id: str) -> bool:
+        """来源运行是否还在（running / waiting_human）；查不到按已结束处理。"""
+        async with self.session_factory() as session:
+            row = await session.get(AgentRun, run_id)
+        if row is None:
+            return False
+        try:
+            status = AgentRunStatus(row.status)
+        except ValueError:  # 未知状态按已结束处理，宁可投递也不要丢答案
+            return False
+        return status not in TERMINAL_RUN_STATUSES
 
     async def _load(self, question_id: str) -> AgentQuestion:
         async with self.session_factory() as session:
@@ -403,59 +397,6 @@ class QuestionService:
             if row is None:
                 raise AppError(ErrorCode.QUESTION_NOT_FOUND, "提问不存在")
             return row
-
-    async def _expire_now(self, question_id: str) -> dict[str, Any] | None:
-        """把单条超时提问置 ``expired`` 并广播，返回终态 wire。
-
-        ``None`` 表示 CAS 没改到行（别人已经答了或已经置过期）：调用方读回真值即可。
-        """
-        now = self.clock()
-        async with self.session_factory() as session:
-            repo = AgentQuestionRepository(session)
-            row = await repo.get(question_id)
-            if row is None or row.status != QuestionStatus.PENDING:
-                return None
-            changed = await repo.resolve(
-                row.id,
-                QuestionStatus.EXPIRED,
-                answered_by="system",
-                answered_at=now,
-            )
-            if not changed:
-                await session.rollback()
-                return None
-            await self._finish_audit(
-                session,
-                row.audit_id,
-                AuditStatus.EXPIRED,
-                error_code=str(ErrorCode.QUESTION_EXPIRED),
-                result_summary=EXPIRED_SUMMARY,
-            )
-            await session.commit()
-        wire = await self.get(question_id)
-        self._broadcast_resolved(wire, "expired")
-        return wire
-
-    async def _expire_all(self, summary: str) -> list[dict[str, Any]]:
-        """把所有 pending 提问置终态（重启清理与服务关闭共用），返回终态 wire 列表。"""
-        now = self.clock()
-        async with self.session_factory() as session:
-            repo = AgentQuestionRepository(session)
-            ids = await repo.expire_all_pending(now)
-            rows = await _rows_by_ids(session, ids)
-            for row in rows:
-                await self._finish_audit(
-                    session,
-                    row.audit_id,
-                    AuditStatus.EXPIRED,
-                    error_code=str(ErrorCode.QUESTION_EXPIRED),
-                    result_summary=summary,
-                )
-            titles = await ticket_titles(
-                session, [row.origin_ticket_id for row in rows]
-            )
-            await session.commit()
-            return [self._wire(row, titles) for row in rows]
 
     async def _finish_audit(
         self,
@@ -491,15 +432,14 @@ class QuestionService:
         if event is not None:
             event.set()
 
-    def _broadcast_expired(self, wires: Sequence[Mapping[str, Any]]) -> None:
-        for wire in wires:
-            self._broadcast_resolved(wire, "expired")
-
     @staticmethod
     def _wire(
         row: AgentQuestion, titles: Mapping[str, str] | None = None
     ) -> dict[str, Any]:
-        """REST 与 SSE 共用的提问形状（规格 §3.3；origin 自 M71 §4.2）。"""
+        """REST 与 SSE 共用的提问形状（规格 §3.3；origin 自 M71 §4.2）。
+
+        维护性补丁 `questions-no-expiry` 起不再有 ``expires_at``：提问没有有效期。
+        """
         return {
             "question_id": row.id,
             "session_id": row.session_id,
@@ -517,7 +457,6 @@ class QuestionService:
             "status": row.status,
             "selection": row.selection,
             "created_at": _wire_time(row.created_at),
-            "expires_at": _wire_time(row.expires_at),
             "answered_at": _wire_time(row.answered_at),
             "answered_by": row.answered_by,
             "origin": origin_wire(
@@ -613,14 +552,10 @@ def _selection_error(
 
 
 def _terminal_error(row: AgentQuestion) -> AppError:
-    """按终态给出 409：已过期是 ``QUESTION_EXPIRED``，已答/已跳过是 ``QUESTION_ALREADY_ANSWERED``。"""
+    """按终态给出 409：历史过期是 ``QUESTION_EXPIRED``，其余是「已经处理」。"""
     if row.status == QuestionStatus.EXPIRED:
         return AppError(ErrorCode.QUESTION_EXPIRED, "提问已过期")
     return AppError(ErrorCode.QUESTION_ALREADY_ANSWERED, "提问已经处理")
-
-
-def _is_overdue(row: AgentQuestion, now: datetime) -> bool:
-    return _as_utc(row.expires_at) <= _as_utc(now)
 
 
 def _as_utc(value: datetime) -> datetime:

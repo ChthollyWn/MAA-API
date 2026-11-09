@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Check, CircleHelp, SkipForward } from 'lucide-react'
 import { api } from '@/api/client'
@@ -7,24 +7,21 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { cn } from '@/lib/utils'
-import { questionRemainingLabel } from './format'
 import { originLabel, useAgentTitle } from './origin'
 import type { AgentQuestionPrompt } from './types'
 
-/** 卡片的终态：用户答的、跳过的，或「已经结束」（本地超时 / 后端已终结）。 */
-type QuestionOutcome = 'answered' | 'skipped' | 'expired' | 'stale'
+/** 卡片的终态：用户答的、跳过的，或「已经结束」（历史过期 / 在别处处理）。 */
+type QuestionOutcome = 'answered' | 'skipped' | 'stale'
 
 const TERMINAL_TEXT: Record<QuestionOutcome, string> = {
   answered: '已提交选择，Agent 正在继续本轮。',
   skipped: '已跳过这次提问，本轮已结束。',
-  expired: '提问已超时，本轮已结束。',
   stale: '这次提问已经结束（可能已在其他页面处理），本轮不再等待。',
 }
 
-const TERMINAL_BADGE: Record<QuestionOutcome, { label: string; variant: 'success' | 'neutral' | 'danger' }> = {
+const TERMINAL_BADGE: Record<QuestionOutcome, { label: string; variant: 'success' | 'neutral' }> = {
   answered: { label: '已提交', variant: 'success' },
   skipped: { label: '已跳过', variant: 'neutral' },
-  expired: { label: '已超时', variant: 'danger' },
   stale: { label: '已结束', variant: 'neutral' },
 }
 
@@ -38,33 +35,19 @@ export interface QuestionCardProps {
   onResolved: (questionId: string) => void
 }
 
-/** 对话里的提问卡：Agent 就若干选项征求裁决，选完本轮继续，跳过或超时本轮结束。 */
+/** 对话里的提问卡：Agent 就若干选项征求裁决，选完本轮继续，跳过本轮结束。提问没有超时。 */
 export function QuestionCard({ question, onResolved }: QuestionCardProps) {
   const titleId = useId()
   const questionId = useId()
   const [selected, setSelected] = useState<string[]>([])
   const [outcome, setOutcome] = useState<QuestionOutcome | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  const [now, setNow] = useState(() => Date.now())
   // 有来源的提问才需要代理定义；没有来源时不发 /api/agent/specs。
   const agentTitle = useAgentTitle(Boolean(question.origin))
 
-  const deadline = Date.parse(question.expires_at)
-  const hasDeadline = Number.isFinite(deadline)
-  // 没有有效期（字段缺失或读不出来）就当作不会本地超时：宁可让后端来判终态，
-  // 也不要凭一个坏时间戳把还能答的卡禁用掉。
-  const expired = outcome === null && hasDeadline && deadline - now <= 0
-  const open = outcome === null && !expired
-  const terminal = outcome ?? (expired ? 'expired' : null)
+  // 提问没有有效期（维护性补丁 questions-no-expiry）：只有用户作答/跳过或后端终结。
+  const terminal = outcome
   const closed = terminal !== null
-
-  // 跟确认卡不同，提问有 10 分钟的死线：每秒重算一次剩余时间，到点自动切超时态，
-  // 之后计时器自己停掉（终态不再需要走秒）。
-  useEffect(() => {
-    if (!open) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [open])
 
   const settle = (next: QuestionOutcome) => {
     setOutcome(next)
@@ -74,9 +57,9 @@ export function QuestionCard({ question, onResolved }: QuestionCardProps) {
 
   const fail = (error: unknown) => {
     const apiError = toApiError(error)
-    // 这张卡已经过期或已被处理不是错误：切成终态，别给用户一条红色报错。
-    if (apiError.code === 'QUESTION_EXPIRED') return setOutcome('expired')
-    if (apiError.code === 'QUESTION_ALREADY_ANSWERED' || apiError.code === 'QUESTION_NOT_FOUND') {
+    // 这张卡已经结束（历史过期 / 已在别处处理）不是错误：切成终态，别给红色报错。
+    if (apiError.code === 'QUESTION_ALREADY_ANSWERED' || apiError.code === 'QUESTION_NOT_FOUND'
+      || apiError.code === 'QUESTION_EXPIRED') {
       return settle('stale')
     }
     setFailure(apiError.message || '提交失败，请重试。')
@@ -112,7 +95,6 @@ export function QuestionCard({ question, onResolved }: QuestionCardProps) {
   const skipping = busy && resolve.variables?.action === 'skip'
   // 必须选中才能提交；跳过不需要选。整卡在终态一律禁用。
   const canSubmit = !closed && !busy && selected.length > 0
-  const remainingLabel = questionRemainingLabel(question.expires_at, now)
   const sourceLabel = originLabel(question.origin, agentTitle)
 
   return (
@@ -128,7 +110,7 @@ export function QuestionCard({ question, onResolved }: QuestionCardProps) {
               {terminal ? (
                 <Badge variant={TERMINAL_BADGE[terminal].variant}>{TERMINAL_BADGE[terminal].label}</Badge>
               ) : (
-                <Badge variant="warning" className="tabular-nums">{remainingLabel ?? '等待回答'}</Badge>
+                <Badge variant="warning">等待回答</Badge>
               )}
             </div>
             <p id={questionId} className="break-words text-body text-foreground">{question.question}</p>
@@ -181,7 +163,7 @@ export function QuestionCard({ question, onResolved }: QuestionCardProps) {
         </div>
 
         {failure ? <InlineAlert tone="danger">提交失败：{failure}</InlineAlert> : null}
-        {/* 终态文案挂在 aria-live 上：倒计时每秒都在变，整卡做 live region 会把读屏器刷爆。 */}
+        {/* 终态文案挂在 aria-live 上：状态变化要被读屏器播报，但整卡做 live region 会太吵。 */}
         <p role="status" aria-live="polite" className="text-footnote text-muted-foreground">
           {terminal
             ? TERMINAL_TEXT[terminal]

@@ -1263,8 +1263,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from maa_api.agent.questions import QuestionService
         from maa_api.agent.runtime import AgentRuntime, call_runtime_factory
 
-        # 提问与确认是两个独立的交互（规格 §2.2）：独立的表、独立的服务、
-        # 独立的超时配置，这里只是并排装配。question_service_factory 与
+        # 提问与确认是两个独立的交互（规格 §2.2）：独立的表、独立的服务，
+        # 这里只是并排装配。question_service_factory 与
         # confirmation_service_factory 同一用途：测试/冒烟脚本可替换成替身。
         question_factory = getattr(
             app.state, "question_service_factory", QuestionService
@@ -1272,13 +1272,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         question_service = question_factory(
             db_session.session_factory,
             broadcast=lambda message_type, data: ws_manager.broadcast(message_type, data),
-            timeout_seconds=current_settings.agent.question_timeout_seconds,
         )
         app.state.question_service = question_service
-        # start() 内部已经清理过一次重启遗留（幂等），这里显式写出来是为了让两个
-        # 服务的启动顺序在 lifespan 里一眼可见：先清遗留，再起扫描。
-        await question_service.reset_after_restart()
-        await question_service.start()
+        # 提问没有超时、也没有重启清理（维护性补丁 questions-no-expiry）：pending
+        # 提问跨重启保留，作答时由下面的 answer_delivery 投递给来源会话。
 
         agent_runtime_factory = getattr(app.state, "agent_runtime_factory", None)
         agent_runtime = (
@@ -1851,6 +1848,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             event_bus=run_event_bus,
         )
         app.state.orchestrator_service = orchestrator_service
+
+        async def deliver_question_answer(wire: dict) -> None:
+            """来源运行已经结束时把提问答案交回会话（维护性补丁 §4.2）。
+
+            工单提问 → 该工单的一条用户消息（唤醒 Worker）；总控提问 → 总控会话。
+            投递失败只记 warning：回答已经落库，不能因为会话不可用变成错误。
+            """
+            origin = wire.get("origin") or {}
+            question = str(wire.get("question") or "")
+            selected = [str(item) for item in (wire.get("selection") or [])]
+            text = f"用户回答了之前的提问「{question}」：{'、'.join(selected)}"
+            ticket_id = origin.get("ticket_id") if isinstance(origin, dict) else None
+            try:
+                if ticket_id:
+                    await worker_service.post_user_message(
+                        str(ticket_id), text, [], notify_content=text
+                    )
+                else:
+                    await orchestrator_service.post_user_message(text, [])
+            except Exception:  # noqa: BLE001 - 投递失败不影响已落库的答案
+                logger.warning(
+                    "提问答案投递失败（question=%s）", wire.get("question_id"), exc_info=True
+                )
+
+        question_service.set_answer_delivery(deliver_question_answer)
+        ticket_service.add_end_listener(
+            lambda ended: question_service.cancel_pending_for_ticket(ended.ticket_id)
+        )
         trigger_service.bind_orchestrator_service(orchestrator_service)
         worker_service.bind_orchestrator(orchestrator_service)
         ticket_service.bind_orchestrator_resolver(
@@ -2096,8 +2121,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             agent_run_broadcaster.stop()
         if device_lease_service is not None:
             await device_lease_service.close()
-        if question_service is not None:
-            await question_service.close()
         if confirmation_service is not None:
             await confirmation_service.close()
         if run_service is not None:
@@ -2248,8 +2271,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await worker_service.close()
         if agent_run_broadcaster is not None:
             agent_run_broadcaster.stop()
-        if question_service is not None:
-            await question_service.close()
         if confirmation_service is not None:
             await confirmation_service.close()
         if run_service is not None:

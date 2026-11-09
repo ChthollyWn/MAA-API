@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toApiError } from '@/api/errors'
 import { keys } from '@/api/keys'
 import { Badge } from '@/components/ui/badge'
@@ -8,22 +8,51 @@ import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/components/ui/toaster'
+import type { AgentQuestion } from '@/features/agent/types'
 import { streamSse } from '@/features/agent/stream'
-import { TICKET_STATUS_LABELS, type TicketView } from './api'
+import { TICKET_STATUS_LABELS, expiredQuestionsQuery, type TicketView } from './api'
 
 export interface AttentionTicketCardProps {
   ticket: TicketView
 }
 
+interface ChoiceOption {
+  label: string
+  description?: string | null
+}
+
 /**
- * 「待你处理」里的工单条目（spec `console-attention-inline` §4.4）：
- * 标题可点开工单；有 `human_action.prompt` 时就地回复（写成工单消息，发给 Worker），
- * 回复走 SSE 但本端不读流（detach），发送结果由 Worker 下一轮汇报与 WS 失效刷新。
+ * 工单卡上的固定选项：`human_action.type` 能确定「确认/拒绝」语义时直接给按钮，
+ * 免得让用户在输入框里自己组织一句裁决（维护性补丁 questions-no-expiry §4.6）。
+ */
+function quickOptions(type: string | null | undefined): ChoiceOption[] {
+  if (type === 'confirmation') return [{ label: '批准' }, { label: '拒绝' }]
+  if (type === 'decision') return [{ label: '同意' }, { label: '不同意' }]
+  return []
+}
+
+/** 与该工单关联的最近一条历史失效提问的选项（按创建时间取最新的一条）。 */
+function questionOptions(ticket: TicketView, questions: readonly AgentQuestion[]): ChoiceOption[] {
+  if (ticket.status === 'waiting' || ticket.status === 'blocked') {
+    const related = questions
+      .filter((question) => question.origin?.ticket_id === ticket.id)
+      .filter((question) => question.multiple === false && question.options.length > 0)
+      .sort((left, right) => (right.created_at ?? '').localeCompare(left.created_at ?? ''))[0]
+    if (related) return related.options
+  }
+  return []
+}
+
+/**
+ * 「待你处理」里的工单条目（spec `console-attention-inline` §4.4、`questions-no-expiry` §4.6）：
+ * 选项优先——先用关联历史提问的选项或 `human_action.type` 的固定按钮，再退到自由文本；
+ * 所有答复都写成工单消息发给 Worker（SSE 只受理不读流），结果由 Worker 下一轮汇报刷新。
  */
 export function AttentionTicketCard({ ticket }: AttentionTicketCardProps) {
-  const [open, setOpen] = useState(false)
+  const [formOpen, setFormOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const queryClient = useQueryClient()
+  const expired = useQuery(expiredQuestionsQuery)
   const send = useMutation({
     mutationFn: async (content: string) => {
       await streamSse(
@@ -36,7 +65,7 @@ export function AttentionTicketCard({ ticket }: AttentionTicketCardProps) {
     },
     onSuccess: async () => {
       setDraft('')
-      setOpen(false)
+      setFormOpen(false)
       toast.success('已发给工单')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: keys.agent.tickets.lists() }),
@@ -53,6 +82,14 @@ export function AttentionTicketCard({ ticket }: AttentionTicketCardProps) {
   const failure = send.error ? toApiError(send.error) : null
   const prompt = ticket.humanAction?.prompt ?? ticket.summary
   const canReply = Boolean(ticket.humanAction?.prompt)
+  const questionChoices = questionOptions(ticket, expired.data ?? [])
+  const choices = questionChoices.length > 0 ? questionChoices : quickOptions(ticket.humanAction?.type)
+  const showForm = formOpen || (choices.length === 0 && canReply)
+
+  const sendChoice = (label: string) => {
+    if (send.isPending) return
+    send.mutate(label)
+  }
 
   return (
     <article className="rounded-xl border bg-card px-3.5 py-3 shadow-card">
@@ -71,7 +108,28 @@ export function AttentionTicketCard({ ticket }: AttentionTicketCardProps) {
         <p className="mt-1 whitespace-pre-wrap break-words text-footnote text-muted-foreground">{prompt}</p>
       ) : null}
       {failure ? <InlineAlert tone="danger" className="mt-2">发送消息失败：{failure.message}</InlineAlert> : null}
-      {open ? (
+      {choices.length > 0 ? (
+        <ul aria-label="工单选项" className="mt-2 space-y-1.5">
+          {choices.map((option) => (
+            <li key={option.label}>
+              <button
+                type="button"
+                disabled={send.isPending}
+                onClick={() => sendChoice(option.label)}
+                className="flex w-full items-start gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words text-sm font-medium">{option.label}</span>
+                  {option.description ? (
+                    <span className="mt-0.5 block break-words text-footnote text-muted-foreground">{option.description}</span>
+                  ) : null}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {showForm ? (
         <div className="mt-2 space-y-2">
           <Textarea
             aria-label="回复工单"
@@ -91,26 +149,27 @@ export function AttentionTicketCard({ ticket }: AttentionTicketCardProps) {
             >
               发送
             </Button>
-            <Button size="sm" variant="outline" disabled={send.isPending} onClick={() => setOpen(false)}>
-              取消
-            </Button>
+            {choices.length > 0 ? (
+              <Button size="sm" variant="outline" disabled={send.isPending} onClick={() => setFormOpen(false)}>
+                取消
+              </Button>
+            ) : null}
           </div>
         </div>
-      ) : (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {canReply ? (
-            <Button size="sm" variant="soft" onClick={() => setOpen(true)}>
-              回复
-            </Button>
-          ) : null}
-          <Link
-            to={`/tickets/${ticket.id}`}
-            className="text-footnote text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            打开工单
-          </Link>
-        </div>
-      )}
+      ) : null}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {choices.length > 0 && canReply ? (
+          <Button size="sm" variant="soft" disabled={send.isPending} onClick={() => setFormOpen((value) => !value)}>
+            其他回复
+          </Button>
+        ) : null}
+        <Link
+          to={`/tickets/${ticket.id}`}
+          className="text-footnote text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          打开工单
+        </Link>
+      </div>
     </article>
   )
 }

@@ -57,7 +57,6 @@ function toQuestion(data: Record<string, unknown>): AgentQuestionPrompt {
     question: stringValue(data.question),
     options: parseQuestionOptions(data.options),
     multiple: data.multiple === true,
-    expires_at: stringValue(data.expires_at),
   }
 }
 

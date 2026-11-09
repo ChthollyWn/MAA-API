@@ -36,8 +36,9 @@ describe('M72 待你处理', () => {
         confirmation({ confirmation_id: 'confirm-bad', expires_at: '不是时间' }),
       ],
       questions: [
-        question({ question_id: 'q-later', expires_at: new Date(NOW + 200_000).toISOString() }),
-        question({ question_id: 'q-sooner', expires_at: new Date(NOW + 10_000).toISOString() }),
+        // 提问没有有效期：按创建时间升序，最早的在最前面。
+        question({ question_id: 'q-later', created_at: '2026-09-27T10:01:00Z' }),
+        question({ question_id: 'q-sooner', created_at: '2026-09-27T10:00:00Z' }),
       ],
       tickets: [
         ticket({ id: 't-waiting', status: 'waiting', updated_at: '2026-09-27T10:03:00Z' }),

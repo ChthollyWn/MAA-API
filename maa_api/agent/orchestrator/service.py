@@ -529,6 +529,13 @@ class OrchestratorService:
                 await db.commit()
                 new_id = str(new.id)
             self._session_id = new_id
+            # 旧会话归档后它的 pending 提问已经没人能答（等待轮随会话关闭），撤回它们，
+            # 免得不迁移却一直挂在「待你处理」里（维护性补丁 questions-no-expiry §4.3）。
+            if self._question_service is not None:
+                try:
+                    await self._question_service.cancel_pending_for_session(old_id)
+                except Exception:  # noqa: BLE001 - 撤回失败不影响重新开始
+                    logger.exception("重新开始总控会话时撤回旧会话提问失败：%s", old_id)
             await self._close_pump(old_id)
         # 搬来的项里有非 passive 的（或重置后又有新消息）就唤醒新会话。
         if self._session_id is not None and await self._inbox.has_active_pending(

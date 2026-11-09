@@ -44,7 +44,6 @@ function makeQuestion(overrides: Partial<AgentQuestionPrompt> = {}): AgentQuesti
       { label: '源石', description: '不推荐' },
     ],
     multiple: false,
-    expires_at: new Date(Date.now() + 120_000).toISOString(),
     ...overrides,
   }
 }
@@ -148,42 +147,31 @@ describe('agent question card', () => {
     expect(onResolved).toHaveBeenCalledWith('q-1')
   })
 
-  it('disables the whole card once the deadline has passed (M21)', () => {
-    const onResolved = renderCard(makeQuestion({ expires_at: new Date(Date.now() - 1000).toISOString() }))
+  it('stays answerable without any deadline (questions never expire)', () => {
+    renderCard(makeQuestion())
 
-    expect(screen.getByText('已超时')).toBeInTheDocument()
-    expect(screen.getByText('提问已超时，本轮已结束。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '提交' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '跳过' })).toBeDisabled()
-    expect(screen.getByRole('radio', { name: /理智药/ })).toBeDisabled()
-    // 超时不回调：这张卡留在原位显示超时文案，直到本轮结束。
-    expect(onResolved).not.toHaveBeenCalled()
-  })
-
-  it('counts the deadline down and flips to the expired state on its own (M21)', () => {
-    vi.useFakeTimers()
-    renderCard(makeQuestion({ expires_at: new Date(Date.now() + 2000).toISOString() }))
-
-    expect(screen.getByText('剩余 2 秒')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '提交' })).toBeDisabled()
+    // 维护性补丁 questions-no-expiry：卡片没有倒计时，也没有本地超时。
+    expect(screen.getByText('等待回答')).toBeInTheDocument()
+    expect(screen.queryByText(/剩余/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '跳过' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '提交' })).toBeDisabled()
 
-    act(() => { vi.advanceTimersByTime(2500) })
-
-    expect(screen.getByText('提问已超时，本轮已结束。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '跳过' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('radio', { name: /理智药/ }))
+    expect(screen.getByRole('button', { name: '提交' })).toBeEnabled()
   })
 
-  it('turns a server-side expiry into the terminal state instead of a red error (M21)', async () => {
-    installApi(() => json({ error: { code: 'QUESTION_EXPIRED', message: '提问已超时' } }, 409))
+  it('turns a historical server-side expiry into the finished state instead of a red error', async () => {
+    installApi(() => json({ error: { code: 'QUESTION_EXPIRED', message: '提问已过期' } }, 409))
     const onResolved = renderCard(makeQuestion())
 
     fireEvent.click(screen.getByRole('radio', { name: /理智药/ }))
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
 
-    expect(await screen.findByText('提问已超时，本轮已结束。')).toBeInTheDocument()
+    expect(await screen.findByText(/这次提问已经结束/)).toBeInTheDocument()
+    expect(screen.getByText('已结束')).toBeInTheDocument()
     expect(screen.queryByText(/提交失败/)).not.toBeInTheDocument()
-    expect(onResolved).not.toHaveBeenCalled()
+    // 历史过期行不能留在待你处理里，交给调用方把卡撤下。
+    expect(onResolved).toHaveBeenCalledWith('q-1')
   })
 
   it('treats an already answered question as finished and hands the card back (M21)', async () => {

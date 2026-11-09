@@ -293,6 +293,20 @@ export const attentionTicketsQuery = queryOptions({
   retry: false,
 })
 
+/** 历史已失效提问：工单卡回填选项用（维护性补丁 questions-no-expiry §4.6）。 */
+export const expiredQuestionsQuery = queryOptions({
+  queryKey: keys.agent.expiredQuestions(),
+  queryFn: async (): Promise<AgentQuestion[]> => {
+    const { data, error, response } = await api.GET('/api/agent/questions', {
+      params: { query: { status: 'expired', page: 1, size: 50 } },
+    })
+    if (error) throw toApiError(error, response)
+    return (data as unknown as PageEnvelope<AgentQuestion>).items ?? []
+  },
+  staleTime: 60_000,
+  retry: false,
+})
+
 /** 全局待答提问：10 秒轮询 + WS；缓存形状是数组，`useResolveQuestion` 直接摘项。 */
 export const attentionQuestionsQuery = queryOptions({
   queryKey: keys.agent.attentionQuestions(),

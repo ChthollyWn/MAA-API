@@ -82,6 +82,8 @@ export const keys = {
     pendingQuestions: () => [...root, 'agent', 'questions', 'pending'] as const,
     /** 指挥台上「待你处理」的全局待答提问。 */
     attentionQuestions: () => [...root, 'agent', 'questions', 'pending', 'all'] as const,
+    /** 历史已失效提问：工单卡按 `origin.ticket_id` 回填选项（维护性补丁 questions-no-expiry）。 */
+    expiredQuestions: () => [...root, 'agent', 'questions', 'expired'] as const,
     /** 长期记忆（M79 §4.6）：整片前缀，`memory_proposed` 一次失效本页与待审核清单。 */
     memories: () => [...root, 'agent', 'memories'] as const,
     /** 记忆页的完整列表（不传 status，客户端分三组）。 */

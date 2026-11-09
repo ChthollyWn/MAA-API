@@ -428,7 +428,6 @@ describe('M72 指挥台', () => {
             question: question.question,
             options: question.options,
             multiple: false,
-            expires_at: question.expires_at,
           }),
         ])
         return held.response
@@ -482,10 +481,10 @@ describe('M72 指挥台', () => {
     expect(screen.queryByText('请先回答等待中的提问')).not.toBeInTheDocument()
   })
 
-  it('ends the turn with the server closing text when the question times out', async () => {
+  it('ends the turn with the server closing text when the question is left unanswered', async () => {
     let held: ReturnType<typeof heldStream> | null = null
     const expiredText = '提问超时未得到回答，本轮结束。你可以重新描述需求，我会重新发起提问。'
-    const question = makeQuestion({ expires_at: new Date(Date.now() - 1000).toISOString() })
+    const question = makeQuestion()
     const api = createConsoleApi({
       messages: [],
       stream: () => {
@@ -500,7 +499,6 @@ describe('M72 指挥台', () => {
             question: question.question,
             options: question.options,
             multiple: false,
-            expires_at: question.expires_at,
           }),
         ])
         return held.response
@@ -512,9 +510,9 @@ describe('M72 指挥台', () => {
     await sendText('刷一次 1-7')
 
     expect(await screen.findByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
-    expect(await screen.findByText('提问已超时，本轮已结束。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '提交' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '跳过' })).toBeDisabled()
+    expect(screen.getByText('等待回答')).toBeInTheDocument()
+    // 提问没有本地倒计时：卡片一直可操作，终态由服务端收尾（历史 expired / 跳过 / 取消）。
+    expect(screen.getByRole('button', { name: '跳过' })).toBeEnabled()
 
     api.state.questions = []
     api.state.messages = [
@@ -569,7 +567,6 @@ describe('M72 指挥台', () => {
             question: question.question,
             options: question.options,
             multiple: false,
-            expires_at: question.expires_at,
           }),
         ])
         return held.response
@@ -1203,8 +1200,8 @@ describe('M72 指挥台', () => {
     })
     renderConsole(api)
 
+    // question 类型没有候选：直接给自由文本（选项优先，不是唯一入口）。
     expect(await screen.findByText('请确认是否批准验证流水线？')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '回复' }))
     fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '批准，明早 04:00 跑' } })
     fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
 
@@ -1212,7 +1209,7 @@ describe('M72 指挥台', () => {
     expect(api.ticketMessagePosts()[0]?.path).toBe('/api/agent/tickets/t-waiting/messages')
     expect(api.ticketMessagePosts()[0]?.body).toEqual({ content: '批准，明早 04:00 跑' })
     expect(await screen.findByText('已发给工单')).toBeInTheDocument()
-    expect(screen.queryByLabelText('回复工单')).not.toBeInTheDocument()
+    expect((screen.getByLabelText('回复工单') as HTMLTextAreaElement).value).toBe('')
   })
 
   it('keeps the ticket reply failure visible and retryable', async () => {
@@ -1233,8 +1230,7 @@ describe('M72 指挥台', () => {
     })
     renderConsole(api)
 
-    fireEvent.click(await screen.findByRole('button', { name: '回复' }))
-    fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '批准' } })
+    fireEvent.change(await screen.findByLabelText('回复工单'), { target: { value: '批准' } })
     fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
 
     expect(await screen.findByText('发送消息失败：服务暂时不可用')).toBeInTheDocument()
@@ -1262,8 +1258,7 @@ describe('M72 指挥台', () => {
     })
     renderConsole(api)
 
-    fireEvent.click(await screen.findByRole('button', { name: '回复' }))
-    fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '已开放' } })
+    fireEvent.change(await screen.findByLabelText('回复工单'), { target: { value: '已开放' } })
     fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
 
     expect(await screen.findByText('发送消息失败：工单已结束，不能再发消息')).toBeInTheDocument()
@@ -1279,7 +1274,83 @@ describe('M72 指挥台', () => {
 
     expect(await screen.findByText('卡在缺少工具')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /更新活动资源/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '回复' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('回复工单')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '批准' })).not.toBeInTheDocument()
+  })
+
+  it('offers approve/reject buttons for a confirmation human action', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-pull',
+        title: '每日免费单抽没领到',
+        status: 'waiting',
+        human_action: { type: 'confirmation', prompt: '是否批准验证流水线？', ref_id: null },
+      })],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByRole('button', { name: '批准' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '拒绝' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '批准' }))
+
+    await waitFor(() => expect(api.ticketMessagePosts()).toHaveLength(1))
+    expect(api.ticketMessagePosts()[0]?.body).toEqual({ content: '批准' })
+    expect(await screen.findByText('已发给工单')).toBeInTheDocument()
+  })
+
+  it('offers agree/disagree buttons for a decision human action', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-ops',
+        title: '更新活动资源',
+        status: 'blocked',
+        human_action: { type: 'decision', prompt: '是否另开一条工单？', ref_id: null },
+      })],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByRole('button', { name: '同意' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '不同意' }))
+
+    await waitFor(() => expect(api.ticketMessagePosts()).toHaveLength(1))
+    expect(api.ticketMessagePosts()[0]?.body).toEqual({ content: '不同意' })
+  })
+
+  it('uses the options of a related expired question on the ticket card', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-ex',
+        title: '通关活动 EX 关',
+        status: 'waiting',
+        human_action: { type: 'question', prompt: '请把游戏开到活动选关页…', ref_id: null },
+      })],
+      questions: [makeQuestion({
+        question_id: 'q-expired',
+        status: 'expired',
+        created_at: '2026-11-08T13:43:26Z',
+        origin: { ticket_id: 't-ex', ticket_title: '通关活动 EX 关', agent: 'copilot', run_id: 'r-1' },
+        options: [
+          { label: '我去游戏里看选关页', description: '看一眼 TL-EX 段' },
+          { label: '先搁置，等 EX 开放', description: null },
+          { label: '取消这张工单', description: null },
+        ],
+      })],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByRole('button', { name: /我去游戏里看选关页/ })).toBeInTheDocument()
+    // 历史提问的选项优先于自由文本。
+    expect(screen.queryByLabelText('回复工单')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /先搁置，等 EX 开放/ }))
+
+    await waitFor(() => expect(api.ticketMessagePosts()).toHaveLength(1))
+    expect(api.ticketMessagePosts()[0]?.body).toEqual({ content: '先搁置，等 EX 开放' })
   })
 
   it('shows a retryable error when attention cannot be read', async () => {

@@ -81,7 +81,6 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "updates.check_hour": ("updates", "check_hour"),
     "agent.confirmation_timeout_seconds": ("agent", "confirmation_timeout_seconds"),
     "agent.grant_confirmation_timeout_seconds": ("agent", "grant_confirmation_timeout_seconds"),
-    "agent.question_timeout_seconds": ("agent", "question_timeout_seconds"),
     "agent.atomic_grant_minutes": ("agent", "atomic_grant_minutes"),
     "agent.auto_diagnose_failures": ("agent", "auto_diagnose_failures"),
     # 账号数据的过期阈值（M27，规格 §7.3、附录 B）：识别结果超过这些天数即提示重新识别。
@@ -700,15 +699,13 @@ class SourcesSettings(BaseModel):
 
 
 class AgentSettings(BaseModel):
-    """Confirmation/question timeouts and the bounded internal atomic-operation grant."""
+    """Confirmation timeouts and the bounded internal atomic-operation grant."""
 
     model_config = ConfigDict(extra="ignore")
 
     confirmation_timeout_seconds: int = Field(default=600, ge=1)
     grant_confirmation_timeout_seconds: int = Field(default=120, ge=1)
-    #: 提问的等待时长（规格 §1.3）：到点未回答就置 expired 并结束本轮。
-    #: 与确认超时分开配：确认是「等你授权一次有风险的操作」，提问只是「等你选一个」。
-    question_timeout_seconds: int = Field(default=600, ge=1)
+    # 提问没有超时（维护性补丁 questions-no-expiry）：等待轮一直挂到回答/跳过/收尾。
     atomic_grant_minutes: int = Field(default=15, ge=1, le=60)
     auto_diagnose_failures: bool = True
     #: 账号数据（M27，规格 §7.3）：干员 / 仓库识别结果超过这些天数即「已过期」，

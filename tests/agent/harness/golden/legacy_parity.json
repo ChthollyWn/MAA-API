@@ -298,7 +298,6 @@
    [
     "question_required",
     {
-     "expires_at": "<ts>",
      "multiple": false,
      "options": [
       {
@@ -553,7 +552,6 @@
    [
     "question_required",
     {
-     "expires_at": "<ts>",
      "multiple": false,
      "options": [
       {

@@ -64,7 +64,6 @@ def test_all_fields_round_trip(tmp_path: Path) -> None:
             "scope": "委托范围",
         },
         "settings": {
-            "agent.question_timeout_seconds": 3,
             "agent.confirmation_timeout_seconds": 4,
             "llm.base_url": "https://llm.invalid/v1",
         },
@@ -163,7 +162,6 @@ def test_all_fields_round_trip(tmp_path: Path) -> None:
     assert scenario.entry.worker == "worker"
     assert scenario.entry.brief == "任务说明"
     assert scenario.entry.scope == "委托范围"
-    assert scenario.settings["agent.question_timeout_seconds"] == 3
     assert scenario.world.core_script == "failure"
     assert scenario.world.device_connected is False
     assert scenario.world.screen == "desktop"
