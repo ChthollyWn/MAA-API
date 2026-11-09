@@ -105,7 +105,7 @@ async def _check_pipeline_idle(
         )
 
 
-async def _run_atomic(context: ToolContext, operation: str, call: Any) -> Any:
+async def run_atomic(context: ToolContext, operation: str, call: Any) -> Any:
     runner = _pipeline_runner(context)
     async with runner.operation_lock:
         await _check_pipeline_idle(context, runner, operation)
@@ -138,7 +138,7 @@ async def _trigger_screencap(
 
 
 async def _click(params: ClickParams, context: ToolContext) -> dict[str, Any]:
-    await _run_atomic(
+    await run_atomic(
         context, "click", lambda manager: manager.click(params.x, params.y)
     )
     # 点击后界面切换有动画：模型紧接着 get_screenshot 时经常拍到过渡帧，会误判成
@@ -148,7 +148,7 @@ async def _click(params: ClickParams, context: ToolContext) -> dict[str, Any]:
 
 
 async def _swipe(params: SwipeParams, context: ToolContext) -> dict[str, Any]:
-    await _run_atomic(
+    await run_atomic(
         context,
         "swipe",
         lambda manager: manager.swipe(
@@ -167,7 +167,7 @@ async def _swipe(params: SwipeParams, context: ToolContext) -> dict[str, Any]:
 
 
 async def _long_press(params: LongPressParams, context: ToolContext) -> dict[str, Any]:
-    await _run_atomic(
+    await run_atomic(
         context,
         "long_press",
         lambda manager: manager.long_press(params.x, params.y, params.duration_ms),
@@ -182,21 +182,21 @@ async def _long_press(params: LongPressParams, context: ToolContext) -> dict[str
 
 
 async def _input_text(params: InputTextParams, context: ToolContext) -> dict[str, Any]:
-    await _run_atomic(
+    await run_atomic(
         context, "input_text", lambda manager: manager.input_text(params.text)
     )
     return {"ok": True, "backend": "adb", "text": params.text}
 
 
 async def _key_event(params: KeyEventParams, context: ToolContext) -> dict[str, Any]:
-    await _run_atomic(
+    await run_atomic(
         context, "key_event", lambda manager: manager.key_event(params.key)
     )
     return {"ok": True, "backend": "adb", "key": params.key}
 
 
 async def _back_to_home(_params: EmptyParams, context: ToolContext) -> dict[str, Any]:
-    ok = await _run_atomic(
+    ok = await run_atomic(
         context, "back_to_home", lambda manager: manager.back_to_home()
     )
     return {"ok": bool(ok), "backend": "core"}

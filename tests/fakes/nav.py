@@ -101,3 +101,60 @@ class FakeNavDevice:
     ) -> None:
         self.transitions = dict(transitions or {})
         self.current = start
+
+#: ``unknown_once`` 时返回的图；任何种子/学习节点都不应匹配它。
+UNKNOWN_SCREEN = "__unknown__"
+
+
+class FakeNavDevice:
+    """假导航设备（M86 spec §5 T4）：按动作键在界面上跳转。
+
+    动作键是 ``tap:x,y``（设备像素）、``swipe:x1,y1,x2,y2,duration``、
+    ``key:BACK`` 与 ``home``；命中 ``transitions`` 时把当前界面改成目标界面，未登记
+    的动作停在原地。``unknown_once`` 只影响下一次 ``screenshot()``：返回一张认不出
+    的图，随后自动复位。
+    """
+
+    def __init__(
+        self,
+        transitions: dict[str, str] | None = None,
+        start: str = "home",
+        home_result: bool = True,
+        resolution: tuple[int, int] = (1280, 720),
+    ) -> None:
+        self.transitions = dict(transitions or {})
+        self.screen = start
+        self.home_result = home_result
+        self.unknown_once = False
+        self._resolution = resolution
+        self.calls: list[tuple[Any, ...]] = []
+
+    async def screenshot(self) -> Image.Image:
+        self.calls.append(("screenshot",))
+        if self.unknown_once:
+            self.unknown_once = False
+            return make_screen(UNKNOWN_SCREEN)
+        return make_screen(self.screen)
+
+    async def resolution(self) -> tuple[int, int]:
+        return self._resolution
+
+    def _act(self, key: str) -> None:
+        self.calls.append((key,))
+        self.screen = self.transitions.get(key, self.screen)
+
+    async def tap(self, x: int, y: int) -> None:
+        self._act(f"tap:{x},{y}")
+
+    async def swipe(
+        self, x1: int, y1: int, x2: int, y2: int, duration_ms: int
+    ) -> None:
+        self._act(f"swipe:{x1},{y1},{x2},{y2},{duration_ms}")
+
+    async def key(self, key: str) -> None:
+        self._act(f"key:{key}")
+
+    async def home(self) -> bool:
+        self.calls.append(("home",))
+        self.screen = "home"
+        return self.home_result

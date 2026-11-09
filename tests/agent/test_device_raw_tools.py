@@ -17,6 +17,7 @@ from sqlmodel import SQLModel
 
 from maa_api.agent.registry import ToolContext, ToolRegistry
 from maa_api.agent.policy import PolicyEngine
+from maa_api.agent.tools import raw
 from maa_api.db.models import Pipeline, utcnow
 from maa_api.db.session import make_engine
 from maa_api.domain.enums import CallerType, PipelineSource, PipelineStatus
@@ -496,6 +497,56 @@ def test_trigger_screencap_requires_a_connected_device() -> None:
         assert device.calls == []
 
     asyncio.run(scenario())
+
+
+def test_device_tools_use_run_atomic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """设备工具必须经 ``raw.run_atomic`` 拿 operation_lock 并检查流水线空闲。"""
+    calls: list[str] = []
+
+    class RecordingManager:
+        async def click(self, x: int, y: int) -> None:
+            calls.append(f"click:{x},{y}")
+
+        async def swipe(
+            self, x1: int, y1: int, x2: int, y2: int, duration_ms: int
+        ) -> None:
+            calls.append(f"swipe:{x1},{y1},{x2},{y2},{duration_ms}")
+
+        async def key_event(self, key: str) -> None:
+            calls.append(f"key_event:{key}")
+
+        async def back_to_home(self) -> bool:
+            calls.append("back_to_home")
+            return True
+
+    async def fake_run_atomic(context: ToolContext, operation: str, call: Any) -> Any:
+        calls.append(operation)
+        return await call(RecordingManager())
+
+    monkeypatch.setattr(raw, "run_atomic", fake_run_atomic)
+
+    async def scenario() -> None:
+        await raw._click(raw.ClickParams(x=1, y=2), _context())
+        await raw._swipe(
+            raw.SwipeParams(x1=1, y1=2, x2=3, y2=4, duration_ms=250), _context()
+        )
+        await raw._key_event(raw.KeyEventParams(key="BACK"), _context())
+        assert await raw._back_to_home(raw.EmptyParams(), _context()) == {
+            "ok": True,
+            "backend": "core",
+        }
+
+    asyncio.run(scenario())
+    assert calls == [
+        "click",
+        "click:1,2",
+        "swipe",
+        "swipe:1,2,3,4,250",
+        "key_event",
+        "key_event:BACK",
+        "back_to_home",
+        "back_to_home",
+    ]
 
 
 def test_raw_coordinate_tools_document_the_screenshot_pixel_frame() -> None:
