@@ -82,7 +82,6 @@ describe('M72 SSE v3 归一', () => {
       question: '刷哪一关？',
       options: [{ label: '1-7' }, { label: 'CE-6', description: '龙门币' }, { nope: true }],
       multiple: false,
-      expires_at: '2026-11-02T08:10:00Z',
       origin: null,
     })).toEqual({
       type: 'question_required',
@@ -93,7 +92,6 @@ describe('M72 SSE v3 归一', () => {
         question: '刷哪一关？',
         options: [{ label: '1-7', description: null }, { label: 'CE-6', description: '龙门币' }],
         multiple: false,
-        expires_at: '2026-11-02T08:10:00Z',
       },
       origin: null,
     })

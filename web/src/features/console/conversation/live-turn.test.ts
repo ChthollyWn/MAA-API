@@ -102,7 +102,7 @@ describe('M72 实时副本 reducer', () => {
         type: 'question_required',
         runId: 'r1',
         toolCallId: 'c2',
-        question: { question_id: 'q1', question: '刷哪关？', options: [], multiple: false, expires_at: '' },
+        question: { question_id: 'q1', question: '刷哪关？', options: [], multiple: false },
         origin: null,
       },
     ])

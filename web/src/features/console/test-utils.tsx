@@ -715,7 +715,6 @@ export function makeQuestion(overrides: Json = {}): Json {
     status: 'pending',
     selection: null,
     created_at: '2026-09-29T10:00:00Z',
-    expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
     answered_at: null,
     answered_by: null,
     ...overrides,

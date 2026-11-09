@@ -35,6 +35,13 @@ function expiry(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY
 }
 
+/** 提问没有有效期（维护性补丁 questions-no-expiry）：按创建时间升序排，读不出排最后。 */
+function createdAt(value: string | null | undefined): number {
+  if (typeof value !== 'string') return Number.POSITIVE_INFINITY
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY
+}
+
 function updatedAt(value: string | null): number {
   if (!value) return 0
   const parsed = Date.parse(value)
@@ -52,7 +59,7 @@ type SortedItem = { group: number; item: AttentionItem; expires: number; updated
  * 2. 待批准计划（`plans`）压掉同一工单的工单卡；计划刚批准/退回、Worker 还没清
  *    `human_action` 的工单由 `suppressedTicketIds` 暂时压掉，避免出现点了就 409 的死卡。
  * 3. 顺序：确认 → 提问 → 待审核记忆 → 严重告警 → blocked 工单 → 计划待批准 →
- *    waiting 工单；确认与提问按过期时间升序（读不出的排最后），
+ *    waiting 工单；确认按过期时间升序、提问按创建时间升序（读不出的排最后），
  *    告警、计划与工单按更新时间降序，同一时刻按 id 兜底。
  */
 export function buildAttentionItems(input: {
@@ -120,7 +127,8 @@ export function buildAttentionItems(input: {
         question,
         origin: originOf(question.origin),
       },
-      expires: expiry(question.expires_at),
+      // 提问没有有效期：同一组内按创建时间升序（最老的先处理）。
+      expires: createdAt(question.created_at),
       updated: 0,
     })
   }

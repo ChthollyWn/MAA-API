@@ -81,21 +81,6 @@ export function grantRemainingLabel(expiresAt: string | null | undefined, now: n
   return rest ? `剩余 ${hours} 小时 ${rest} 分钟` : `剩余 ${hours} 小时`
 }
 
-/**
- * 提问卡的剩余时间：秒级倒计时（用户要在 10 分钟内点完，只给「分钟」看不出在走）。
- * 已经过期或没有有效期时返回 null，由调用方切换成超时态。
- */
-export function questionRemainingLabel(expiresAt: string | null | undefined, now: number): string | null {
-  if (!expiresAt) return null
-  const expires = Date.parse(expiresAt)
-  if (!Number.isFinite(expires)) return null
-  const remaining = expires - now
-  if (remaining <= 0) return null
-  const seconds = Math.ceil(remaining / 1000)
-  const minutes = Math.floor(seconds / 60)
-  return minutes > 0 ? `剩余 ${minutes} 分 ${seconds % 60} 秒` : `剩余 ${seconds} 秒`
-}
-
 /** SSE 的 options 来自模型给的 JSON：进卡片前收敛成 label/description 两个字符串。 */
 export function parseQuestionOptions(value: unknown): AgentQuestionOption[] {
   if (!Array.isArray(value)) return []

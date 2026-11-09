@@ -82,12 +82,11 @@ export interface AgentQuestionPrompt {
   question: string
   options: AgentQuestionOption[]
   multiple: boolean
-  expires_at: string
   /** 发起这次提问的代理运行（M71）；REST 直接提问时没有这个字段。 */
   origin?: AgentOrigin | null
 }
 
-/** 服务端落库的提问 wire（REST 与 SSE 共用，13 个字段）。 */
+/** 服务端落库的提问 wire（REST 与 SSE 共用，12 个字段；提问没有有效期）。 */
 export interface AgentQuestion extends AgentQuestionPrompt {
   session_id: string
   tool_call_id: string
