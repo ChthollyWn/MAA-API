@@ -105,6 +105,9 @@ BUSINESS_TABLES = {
     "channel_binding",
     "channel_bind_code",
     "outbox",
+    # M86：界面导航图两表（v3 specs/m86 §4.1、docs/v3/03 §12）。
+    "nav_node",
+    "nav_edge",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -139,6 +142,8 @@ UUID_PK_TABLES = [
     "goal_milestone",
     # M85：绑定 id 对外暴露（解绑端点路径里带它）；绑定码是 16 字符短码。
     "channel_binding",
+    # M86：边 id 是对外暴露的 UUID；节点 id 是短 slug（短到 48 字符），不在此列。
+    "nav_edge",
 ]
 AUTOINCREMENT_TABLES = [
     "log_entry",
@@ -378,6 +383,12 @@ EXPECTED_INDEXES = {
         ("status", "next_attempt_at"),
         False,
     ),
+    # M86：同一对界面的同一动作只落一条跳转（spec §4.1）。
+    "uq_nav_edge_from_node_to_node_action_hash": (
+        "nav_edge",
+        ("from_node", "to_node", "action_hash"),
+        True,
+    ),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -439,6 +450,9 @@ EXPECTED_FK_CASCADE = {
     ("trigger_observation", "trigger_id"),
     # M82：目标删了，它的里程碑一起删。
     ("goal_milestone", "goal_id"),
+    # M86：节点删了，挂在它两端的跳转一起删（spec §4.1）。
+    ("nav_edge", "from_node"),
+    ("nav_edge", "to_node"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -641,6 +655,10 @@ EXPECTED_JSON_COLUMNS = {
     # M85：发件箱的发送内容与平台回执。
     ("outbox", "payload"),
     ("outbox", "receipt"),
+    # M86：界面的样本与识别参数、跳转的动作（spec §4.1）。
+    ("nav_node", "exemplars"),
+    ("nav_node", "recognizer"),
+    ("nav_edge", "action"),
 }
 
 # FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
@@ -721,8 +739,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_56_business_tables():
-    """56 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_57_business_tables():
+    """57 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
@@ -878,7 +896,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """63 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """64 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:
