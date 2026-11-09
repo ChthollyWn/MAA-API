@@ -91,17 +91,6 @@ class FakeVision:
         return self.locate_result
 
 
-class FakeNavDevice:
-    """假导航设备；T4 在它上面补 ``screenshot`` / ``home`` 等动作实现。"""
-
-    def __init__(
-        self,
-        transitions: dict[str, str] | None = None,
-        start: str = "home",
-    ) -> None:
-        self.transitions = dict(transitions or {})
-        self.current = start
-
 #: ``unknown_once`` 时返回的图；任何种子/学习节点都不应匹配它。
 UNKNOWN_SCREEN = "__unknown__"
 
