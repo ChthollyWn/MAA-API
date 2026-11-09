@@ -84,6 +84,7 @@
 - `tests/evals/test_ticket_driver.py` 模块级改 `DRIVERS` 后用 `try/finally` 恢复，xdist 并行下不安全；当前 `tests/evals` 不用 xdist，后续并行跑要先改测试设施。
 - `ScriptedCopilotAttempt.record` 没有 spec §6 的独立用例；`run` 的 `success` 参数不参与判定（照 spec §4.4 伪代码）。M87 若要用 `record_copilot_result`，需要在 M87 自己的场景里覆盖。
 - 假尝试不消耗授权、不提交真实流水线，是评测设施与生产语义的已知差距；真实授权次数、轮次上限与闸门由 M87 单元测试覆盖。
+- `run_case` 的「先报 transport.error、再 check_unused」没有直接单测（只有回放用例间接覆盖）；ticket 驱动只覆盖 `approve`/`answer`，`reject`/`skip`/`pending` 三种人工策略未覆盖，后续需要时补。
 
 ## 备注
 

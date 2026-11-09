@@ -107,7 +107,7 @@ _COPILOT_FIELDS = ("id", "title", "stage_id", "stage_code")
 class HumanPolicy(BaseModel):
     model_config = _MODEL_CONFIG
 
-    #: ``pending`` 与 ``ignore`` 都是「不处理」，前者是 M86/M87 场景的写法。
+    #: ``pending`` 与 ``ignore`` 都是「不处理」；M86/M87 的场景显式写 ``approve``。
     confirmations: Literal["approve", "reject", "ignore", "pending"] = "reject"
     questions: Literal["ignore", "skip"] | AnswerSpec = "ignore"
     interrupt: InterruptSpec | None = None
