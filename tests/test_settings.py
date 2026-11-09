@@ -469,14 +469,11 @@ def test_env_mapping_names_are_pinned() -> None:
         "watchdog.allow_core_restart": "MAA_WATCHDOG_ALLOW_CORE_RESTART",
         "watchdog.ticket_stale_minutes": "MAA_WATCHDOG_TICKET_STALE_MINUTES",
         "watchdog.device_frozen_minutes": "MAA_WATCHDOG_DEVICE_FROZEN_MINUTES",
-        # M84：每日简报与消耗上限七项（都不是 config-only）。
+        # M84：每日简报四项（都不是 config-only）。
         "brief.enabled": "MAA_BRIEF_ENABLED",
         "brief.cron": "MAA_BRIEF_CRON",
         "brief.push_web": "MAA_BRIEF_PUSH_WEB",
         "brief.push_im": "MAA_BRIEF_PUSH_IM",
-        "spend.daily_medicine_limit": "MAA_SPEND_DAILY_MEDICINE_LIMIT",
-        "spend.daily_stone_limit": "MAA_SPEND_DAILY_STONE_LIMIT",
-        "spend.daily_expedite_limit": "MAA_SPEND_DAILY_EXPEDITE_LIMIT",
         # M85：IM 通道十六项（都不是 config-only；四个密钥敏感）。
         "channels.max_reply_chars": "MAA_CHANNELS_MAX_REPLY_CHARS",
         "channels.allow_destructive_approval": "MAA_CHANNELS_ALLOW_DESTRUCTIVE_APPROVAL",
@@ -2143,10 +2140,10 @@ def test_watchdog_settings_have_documented_defaults_and_bounds() -> None:
         assert comment in template_text
 
 
-def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
-    """M84 简报四项与消耗上限三项：默认值、范围、五段 cron 与模板（spec §4.4）。"""
+def test_brief_settings_have_documented_defaults_and_bounds() -> None:
+    """M84 简报四项：默认值、五段 cron 与模板（spec §4.4，消耗上限已随补丁删除）。"""
     from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
-    from maa_api.settings import BriefSettings, CONFIG_ONLY_SETTING_KEYS, SpendSettings
+    from maa_api.settings import BriefSettings, CONFIG_ONLY_SETTING_KEYS
 
     default = resolve_settings(env={})
     assert default.brief == BriefSettings()
@@ -2154,10 +2151,6 @@ def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
     assert default.brief.cron == "0 8 * * *"
     assert default.brief.push_web is True
     assert default.brief.push_im is True
-    assert default.spend == SpendSettings()
-    assert default.spend.daily_medicine_limit == -1
-    assert default.spend.daily_stone_limit == -1
-    assert default.spend.daily_expedite_limit == -1
 
     configured = resolve_settings(
         {
@@ -2167,11 +2160,6 @@ def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
                 "push_web": False,
                 "push_im": False,
             },
-            "spend": {
-                "daily_medicine_limit": 0,
-                "daily_stone_limit": 5,
-                "daily_expedite_limit": 999,
-            },
         },
         env={},
     )
@@ -2179,9 +2167,6 @@ def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
     assert configured.brief.cron == "30 7 * * 1-5"
     assert configured.brief.push_web is False
     assert configured.brief.push_im is False
-    assert configured.spend.daily_medicine_limit == 0
-    assert configured.spend.daily_stone_limit == 5
-    assert configured.spend.daily_expedite_limit == 999
 
     env_layer = resolve_settings(
         env={
@@ -2189,32 +2174,12 @@ def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
             "MAA_BRIEF_CRON": "0 9 * * *",
             "MAA_BRIEF_PUSH_WEB": "false",
             "MAA_BRIEF_PUSH_IM": "false",
-            "MAA_SPEND_DAILY_MEDICINE_LIMIT": "0",
-            "MAA_SPEND_DAILY_STONE_LIMIT": "999",
-            "MAA_SPEND_DAILY_EXPEDITE_LIMIT": "-1",
         }
     )
     assert env_layer.brief.enabled is False
     assert env_layer.brief.cron == "0 9 * * *"
     assert env_layer.brief.push_web is False
     assert env_layer.brief.push_im is False
-    assert env_layer.spend.daily_medicine_limit == 0
-    assert env_layer.spend.daily_stone_limit == 999
-    assert env_layer.spend.daily_expedite_limit == -1
-
-    # 上限：-1 与 999 是合法端点，越界一格拒绝。
-    for field in (
-        "daily_medicine_limit",
-        "daily_stone_limit",
-        "daily_expedite_limit",
-    ):
-        for value in (-1, 999):
-            assert getattr(
-                resolve_settings({"spend": {field: value}}, env={}).spend, field
-            ) == value
-        for value in (-2, 1000):
-            with pytest.raises(ValidationError):
-                resolve_settings({"spend": {field: value}}, env={})
 
     # brief.cron 只校验段数：解析不了的五段留给注册时检查（schedule_service）。
     assert resolve_settings(
@@ -2224,15 +2189,12 @@ def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
         with pytest.raises(ValidationError):
             resolve_settings({"brief": {"cron": bad}}, env={})
 
-    # 设置 API：七个键都登记、分组 Agent、不是 config-only。
+    # 设置 API：四个键都登记、分组 Agent、不是 config-only。
     keys = {
         "brief.enabled",
         "brief.cron",
         "brief.push_web",
         "brief.push_im",
-        "spend.daily_medicine_limit",
-        "spend.daily_stone_limit",
-        "spend.daily_expedite_limit",
     }
     assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
     assert not (keys & CONFIG_ONLY_SETTING_KEYS)
@@ -2254,20 +2216,6 @@ def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
     assert (
         push_im["label"], push_im["group"], push_im["type"], push_im["hot_action"],
     ) == ("简报推送到 IM", "Agent", "boolean", "none")
-    for key, label in (
-        ("spend.daily_medicine_limit", "每日理智药上限"),
-        ("spend.daily_stone_limit", "每日源石上限"),
-        ("spend.daily_expedite_limit", "每日加急许可上限"),
-    ):
-        limit = schema_for(key)
-        assert (
-            limit["label"], limit["group"], limit["type"],
-            limit["minimum"], limit["maximum"],
-            limit["description"], limit["hot_action"],
-        ) == (
-            label, "Agent", "integer", -1, 999,
-            "-1 不限，0 禁止；只限制代理与定时任务", "none",
-        )
 
     # 文档一致性：模板里的值与注释逐字照 spec §4.4。
     template_text = TEMPLATE_PATH.read_text(encoding="utf8")
@@ -2278,14 +2226,8 @@ def test_brief_and_spend_settings_have_documented_defaults_and_bounds() -> None:
         "push_web": True,
         "push_im": True,
     }
-    assert template["spend"] == {
-        "daily_medicine_limit": -1,
-        "daily_stone_limit": -1,
-        "daily_expedite_limit": -1,
-    }
     for comment in (
         "# 每日简报：到点建一张分析工单，结果落成报告产物并推送；cron 按北京时间，改完重启生效",
-        "# 消耗上限（北京时间 04:00 分日）：-1 不限，0 禁止；只拦代理与定时任务，手动提交计入用量但不拦",
     ):
         assert comment in template_text
 

@@ -3,9 +3,9 @@
 
 使用生产 ``create_app()`` 装配与应用 lifespan、真实 REST routers、ToolRegistry、
 ConfirmationService、ResourceService 和临时 SQLite。MaaCore、ADB 与外部网络不启动；
-测试用生命周期适配器只替代 MaaCore 与设备边界。两个仅在本脚本注册且不进入 OpenAPI
-的路由分别用于验证内部原子工具授权、以及 v2 写端点删除后创建旧会话；总控对话与
-自动诊断由 Fake LLM 驱动。
+测试用生命周期适配器只替代 MaaCore 与设备边界。一个仅在本脚本注册且不进入 OpenAPI
+的路由用于验证内部原子工具授权（v2 只读会话端点删除后，会话改由仓储直连创建/回读）；
+总控对话与自动诊断由 Fake LLM 驱动。
 
 成功时最后一行严格为 ``SMOKE OK``；失败返回非零并输出 ``[FAIL]``。
 """
@@ -13,6 +13,7 @@ ConfirmationService、ResourceService 和临时 SQLite。MaaCore、ADB 与外部
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import shutil
 import sys
@@ -224,10 +225,6 @@ def _install_internal_invoke_probe(app: Any) -> None:
         arguments: dict[str, Any]
         mode: str = "async"
 
-    class ProbeLegacySessionRequest(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-        title: str
-
     async def invoke_internal(
         session_id: str,
         name: str,
@@ -251,24 +248,6 @@ def _install_internal_invoke_probe(app: Any) -> None:
             response.status_code = status.HTTP_202_ACCEPTED
         return result
 
-    async def create_legacy_session(
-        payload: ProbeLegacySessionRequest,
-        response: Response,
-        session: Any = Depends(get_session),
-        _authenticated: Any = Depends(require_auth),
-    ) -> dict[str, str]:
-        del _authenticated
-        stored = await AgentSessionRepository(session).create(
-            AgentSession(
-                title=payload.title,
-                model="smoke",
-                base_url="http://smoke.invalid",
-            )
-        )
-        await session.commit()
-        response.status_code = status.HTTP_201_CREATED
-        return {"session_id": stored.id}
-
     # With postponed annotations, locally defined request/model types are not
     # resolvable through FastAPI's module-global namespace. Bind their concrete
     # types before the endpoint is registered.
@@ -282,26 +261,57 @@ def _install_internal_invoke_probe(app: Any) -> None:
         "_authenticated": Any,
         "return": dict[str, Any],
     }
-    create_legacy_session.__annotations__ = {
-        "payload": ProbeLegacySessionRequest,
-        "response": Response,
-        "session": Any,
-        "_authenticated": Any,
-        "return": dict[str, str],
-    }
-
     app.add_api_route(
         "/__smoke/internal-sessions/{session_id}/tools/{name}/invoke",
         invoke_internal,
         methods=["POST"],
         include_in_schema=False,
     )
-    app.add_api_route(
-        "/__smoke/legacy-sessions",
-        create_legacy_session,
-        methods=["POST"],
-        include_in_schema=False,
-    )
+
+
+def _create_smoke_session() -> str:
+    """直连仓储建一个 INTERNAL 调用要用的会话（v2 只读端点已删除，不再有冒烟路由）。"""
+
+    async def create() -> str:
+        from maa_api.db import session as db_session
+        from maa_api.db.models import AgentSession
+        from maa_api.db.repositories.agent import AgentSessionRepository
+
+        async with db_session.session_factory() as db:
+            stored = await AgentSessionRepository(db).create(
+                AgentSession(
+                    title="M11 smoke authorization",
+                    model="smoke",
+                    base_url="http://smoke.invalid",
+                )
+            )
+            await db.commit()
+            return stored.id
+
+    return asyncio.run(create())
+
+
+def _read_smoke_session(session_id: str) -> dict[str, Any]:
+    """直连仓储读会话的原子授权（原 v2 会话详情端点的断言口径）。"""
+
+    async def read() -> dict[str, Any]:
+        from maa_api.db import session as db_session
+        from maa_api.db.repositories.agent import AgentSessionRepository
+
+        async with db_session.session_factory() as db:
+            stored = await AgentSessionRepository(db).get(session_id)
+            _require(stored is not None, f"冒烟会话不存在：{session_id}")
+            return {
+                "atomic_grant": {
+                    "granted": bool(
+                        stored.atomic_grant_id is not None
+                        and stored.atomic_grant_expires_at is not None
+                    ),
+                    "grant_id": stored.atomic_grant_id,
+                }
+            }
+
+    return asyncio.run(read())
 
 
 def _wait_for_audit(client: Any, audit_id: int, *, timeout: float = 8.0) -> dict[str, Any]:
@@ -949,17 +959,8 @@ def run(*, keep_temp: bool = False) -> None:
         )
         print("[ok] 代理定义列表、legacy_chat 正文与未知名字的 404")
 
-        # 2. v2 写端点已删除；用冒烟专用路由经同一 session factory 建旧会话。
-        session_body = _check_response(
-            client.post(
-                "/__smoke/legacy-sessions",
-                json={"title": "M11 smoke authorization"},
-                headers=headers,
-            ),
-            201,
-            "旧会话创建",
-        )
-        session_id = session_body["session_id"]
+        # 2. v2 写端点已删除；直连仓储建一个内部调用要用的会话。
+        session_id = _create_smoke_session()
 
         # The initial internal atomic call requests a session grant. Approval still
         # travels through the actual confirmations REST endpoint.
@@ -1001,11 +1002,7 @@ def run(*, keep_temp: bool = False) -> None:
             and granted_audit.get("confirmation_id") is None,
             f"授权后的首个 atomic audit 未记录授权来源：{granted_audit!r}",
         )
-        granted_session = _check_response(
-            client.get(f"/api/agent/sessions/{session_id}", headers=headers),
-            200,
-            "已授权会话详情",
-        )
+        granted_session = _read_smoke_session(session_id)
         _require(
             granted_session.get("atomic_grant", {}).get("granted") is True
             and granted_session["atomic_grant"].get("grant_id") == grant_id,

@@ -1262,12 +1262,12 @@ describe('M72 指挥台', () => {
     expect(await screen.findByText('你可以这样开始')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '指挥台操作' }))
     const menu = await screen.findByRole('dialog', { name: '指挥台操作' })
-    expect(within(menu).getByRole('button', { name: '旧会话' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('button', { name: '旧会话' })).not.toBeInTheDocument()
     expect(within(menu).getByRole('button', { name: '运行状态' })).toBeInTheDocument()
     fireEvent.click(within(menu).getByRole('button', { name: '重新开始会话' }))
 
     const dialog = await screen.findByRole('alertdialog', { name: '重新开始总控会话？' })
-    expect(within(dialog).getByText('当前会话会归档，只能在旧会话里查看；进行中的工单不受影响。')).toBeInTheDocument()
+    expect(within(dialog).getByText('当前会话会归档；进行中的工单不受影响。')).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: '重新开始' }))
 
     await waitFor(() => expect(api.resetCalls()).toHaveLength(1))

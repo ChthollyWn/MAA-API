@@ -54,8 +54,6 @@ class QueueService:
         self._admission_lock = asyncio.Lock()
         self._operation_lock: asyncio.Lock | None = None
         self._paused = False
-        #: 消耗守卫（M84 §4.5.6）；未绑定时入队行为与 v2 完全一致。
-        self._spend_guard: Any = None
 
     @property
     def paused(self) -> bool:
@@ -68,15 +66,6 @@ class QueueService:
     ) -> None:
         self._wake_runner = wake_runner
         self._operation_lock = operation_lock
-
-    def bind_spend_guard(self, guard: Any) -> None:
-        """绑定消耗守卫（M84 §4.5.6）。
-
-        后置、可选的绑定：未绑定时 ``submit`` 与 v2 完全一致；绑定后只在
-        ``repo.create`` 之后、``commit`` 之前预留额度，幂等键命中返回旧行的
-        路径不经过预留，不会重复记账。
-        """
-        self._spend_guard = guard
 
     def _wake(self) -> None:
         if self._wake_runner is not None:
@@ -200,19 +189,7 @@ class QueueService:
                 ]
                 try:
                     stored = await repo.create(pipeline, tasks)
-                    if self._spend_guard is None:
-                        await session.commit()
-                    else:
-                        # 账本行与流水线同一事务；会话提交后才放守卫锁（M84 §4.5.6）。
-                        ref = f"schedule:{schedule_id}" if schedule_id else None
-                        async with self._spend_guard.reserve_submission(
-                            session,
-                            source=source,
-                            tasks=tasks,
-                            agent_session_id=agent_session_id,
-                            ref=ref,
-                        ):
-                            await session.commit()
+                    await session.commit()
                 except IntegrityError:
                     await session.rollback()
                     # A second process is outside the supported deployment

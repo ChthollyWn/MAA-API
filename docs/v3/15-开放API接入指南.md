@@ -254,7 +254,6 @@ curl -X POST http://<host>:8002/api/snippets \
 | `GOAL_NOT_FOUND` | 404 | 没有这个目标（M82） |
 | `GOAL_ENDED` | 409 | 目标已结束（done / failed / cancelled），不能再改（M82） |
 | `WATCHDOG_ALERT_NOT_FOUND` | 404 | 没有这条值守告警（M83）：解除一条不存在的告警 |
-| `SPEND_CAP_EXCEEDED` | 403 | 超过今日消耗上限（M84）：代理或定时任务的提交会让今天的理智药、源石或加急许可用量超过设置里的上限。`details` 带 `kind`、`limit`、`used`、`requested`、`source`、`violations`、`day_start` |
 | `CHANNEL_NOT_CONFIGURED` | 503 | 该平台未启用或缺少凭证（Telegram Bot Token、飞书 App ID + Secret、钉钉 Client ID + Secret、QQ App ID + Secret），却要发测试消息或启动适配器 |
 | `CHANNEL_SEND_FAILED` | 502 | 同步发送路径下平台拒绝或不可达；发件箱内部的重试与死信仍用 `outbox.status`，不抛这个码 |
 | `CHANNEL_BINDING_NOT_FOUND` | 404 | 要解除的通道绑定不存在或已经是 revoked |

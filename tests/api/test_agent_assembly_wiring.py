@@ -192,26 +192,15 @@ def test_lifespan_wires_device_lease_service(tmp_settings, isolated_db) -> None:
         assert getattr(runner, "_lease_gate", None) is service
 
 
-def test_lifespan_wires_spend_guard_and_brief_service(
+def test_lifespan_wires_brief_service(
     tmp_settings, isolated_db
 ) -> None:
-    """M84：消耗守卫挂上并绑到队列/执行器，简报服务挂上并注册到调度器。"""
+    """M84：简报服务挂上并注册到调度器（消耗护栏已随补丁删除）。"""
 
     from maa_api.agent.brief.service import BriefService
-    from maa_api.agent.spend import SpendGuard
-    from maa_api.db import session as db_session
 
     app = create_app()
     with _lifespan(app):
-        guard = getattr(app.state, "spend_guard", None)
-        assert isinstance(guard, SpendGuard), (
-            "lifespan 没有设置 app.state.spend_guard"
-        )
-        # 两条受限入口拿到的必须是同一个守卫，否则预留与判定不在同一把锁下。
-        assert app.state.queue_service._spend_guard is guard
-        assert app.state.pipeline_runner._spend_guard is guard
-        assert guard._session_factory is db_session.session_factory
-
         service = getattr(app.state, "brief_service", None)
         assert isinstance(service, BriefService), (
             "lifespan 没有设置 app.state.brief_service"

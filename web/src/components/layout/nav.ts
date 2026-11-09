@@ -8,8 +8,6 @@ import {
   Coins,
   CodeXml,
   Download,
-  Gauge,
-  History,
   LayoutGrid,
   ListChecks,
   Network,
@@ -48,13 +46,11 @@ export const primaryNav: readonly NavItem[] = [
 /** 「更多」里的次级入口；桌面侧边栏按组分开展示。 */
 export const secondaryNav: readonly (NavItem & { description: string; group: NavGroup })[] = [
   { to: '/more/agents', label: '代理定义', icon: Network, description: '各代理的提示词、工具、模型与风险上限', group: 'agent' },
-  { to: '/more/sessions', label: '旧会话', icon: History, description: '指挥台上线前的会话与归档的总控会话', group: 'agent' },
   { to: '/more/runs', label: '运行追踪', icon: Activity, description: '每次代理调用的步骤、耗时与用量', group: 'agent' },
   { to: '/more/costs', label: '成本', icon: Coins, description: '按天、代理、模型统计模型费用', group: 'agent' },
   { to: '/more/goals', label: '目标', icon: Target, description: '长期目标、里程碑与复盘', group: 'agent' },
   { to: '/more/triggers', label: '事件规则', icon: Radar, description: '事件怎么处理，观察记录审阅', group: 'agent' },
   { to: '/more/watchdog', label: '值守', icon: ShieldAlert, description: '巡检告警、自动处理与解除', group: 'agent' },
-  { to: '/more/spend', label: '消耗护栏', icon: Gauge, description: '理智药、源石、加急许可的每日用量与上限', group: 'agent' },
   { to: '/more/status', label: '运行状态', icon: Activity, description: '设备、内核、队列与设备画面', group: 'ops' },
   { to: '/more/updates', label: '热更新', icon: Download, description: '内核、活动资源与游戏版本', group: 'ops' },
   { to: '/more/account', label: '账号数据', icon: Boxes, description: '森空岛练度同步、仓库识别与养成计划', group: 'ops' },

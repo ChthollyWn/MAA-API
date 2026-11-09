@@ -1,6 +1,6 @@
 """M85：``0038_channels`` 迁移验收（spec §4.1、§5 T1、§6）。
 
-测试纪律与 ``tests/db/test_spend_ledger_migration.py`` 一致：全程用 ``tmp_path``
+测试纪律与其它迁移验收用例一致：全程用 ``tmp_path``
 的临时库，只用 Alembic 的 ``upgrade`` / ``downgrade`` 建库与演进，绝不碰
 ``resource/maa_api.db``。
 

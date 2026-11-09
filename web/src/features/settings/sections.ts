@@ -16,7 +16,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'appearance', title: '外观', summary: '浅色、深色或跟随系统', icon: Palette, scope: 'local' },
   { id: 'access', title: '访问 token', summary: '替换或清除保存的 token', icon: KeyRound, scope: 'local' },
   { id: 'device', title: '设备与渠道', summary: '设备地址、连接方式与默认渠道', icon: Smartphone, scope: 'server' },
-  { id: 'agent', title: 'LLM 与 Agent', summary: '模型接口、确认时限与自动诊断、简报与消耗上限', icon: Bot, scope: 'server' },
+  { id: 'agent', title: 'LLM 与 Agent', summary: '模型接口、确认时限与自动诊断、简报', icon: Bot, scope: 'server' },
   // M85 §4.6：IM 通道只看绑定与发件箱，不在指挥台另做入口。
   { id: 'channels', title: 'IM 通道', summary: 'Telegram、飞书、钉钉与 QQ 的绑定与发件箱', icon: MessagesSquare, scope: 'server' },
   { id: 'models', title: '模型档案', summary: '模型接口、角色分配与价格', icon: Cpu, scope: 'server' },

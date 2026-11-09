@@ -567,17 +567,6 @@ class AlertActionStatus(StrEnum):
     SKIPPED = "skipped"
 
 
-# ---- M84 每日简报与消耗护栏（v3 specs/m84 §4.1、v3 docs/03 §11.6） ----
-
-
-class SpendKind(StrEnum):
-    """消耗的种类（09 §6）：理智药、源石、加急许可。"""
-
-    MEDICINE = "medicine"  # 理智药（不含 48 小时内过期的药，裁决 R2）
-    STONE = "stone"  # 源石
-    EXPEDITE = "expedite"  # 加急许可
-
-
 # ---- M85 IM 通道与发件箱（v3 specs/m85 §4.1、v3 docs/03 §11.7） ----
 
 

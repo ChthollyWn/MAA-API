@@ -2428,46 +2428,6 @@ class WatchdogAlert(SQLModel, table=True):
 
 
 # ---------------------------------------------------------------------------
-# 5.29 spend_ledger — 每日消耗账本（v3 specs/m84 §4.1、docs/v3/03 §11.6）
-# ---------------------------------------------------------------------------
-class SpendLedger(SQLModel, table=True):
-    """每日消耗账本：一行是一个任务计划消耗的一种资源（docs/v3/03 §11.6）。"""
-
-    __tablename__ = "spend_ledger"
-
-    #: 自增主键：与 agent_message 写法相同（03 §11.6、docs/04 §3.1）。
-    id: int | None = Field(default=None, primary_key=True)
-    pipeline_id: str | None = Field(
-        default=None,
-        foreign_key="pipeline.id",
-        ondelete="SET NULL",
-        max_length=36,
-    )
-    task_id: str | None = Field(
-        default=None, foreign_key="task.id", ondelete="SET NULL", max_length=36
-    )
-    #: ``SpendKind`` 的值：medicine / stone / expedite。
-    kind: str = Field(max_length=16)
-    #: 按任务参数里的上限计（R3），不是实际用量。
-    planned: int
-    #: 实际用量；M84 不写，留空表示按 planned 计。
-    actual: int | None = Field(default=None)
-    #: ``PipelineSource`` 的值：manual / agent / scheduled。
-    source: str = Field(max_length=16)
-    ticket_id: str | None = Field(
-        default=None, foreign_key="ticket.id", ondelete="SET NULL", max_length=36
-    )
-    created_at: datetime = Field(
-        default_factory=utcnow, sa_column=datetime_column("created_at")
-    )
-
-    __table_args__ = (
-        Index("ix_spend_ledger_kind_created_at", "kind", "created_at"),
-        {"sqlite_autoincrement": True},
-    )
-
-
-# ---------------------------------------------------------------------------
 # 5.30 通道三表：channel_binding / channel_bind_code / outbox
 # （v3 specs/m85 §4.1、docs/v3/03 §11.7）
 # ---------------------------------------------------------------------------

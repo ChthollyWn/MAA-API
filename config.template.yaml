@@ -109,12 +109,6 @@ brief:
   push_web: true
   push_im: true
 
-# 消耗上限（北京时间 04:00 分日）：-1 不限，0 禁止；只拦代理与定时任务，手动提交计入用量但不拦
-spend:
-  daily_medicine_limit: -1
-  daily_stone_limit: -1
-  daily_expedite_limit: -1
-
 # IM 通道：四个平台默认关闭；启用前安装对应 extra 并在设置页填写应用凭证。
 # 四个 *_secret / *_token 是敏感项，落库时加密，接口只回显 ***；忘掉主密钥后需要重新录入。
 # 绑定码只在网页上生成；破坏类确认默认只能在网页上批准。改启用开关与凭证后重启服务生效。

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""M84 简报与消耗护栏端到端硬验收（spec §5 T10）。
+"""M84 每日简报端到端硬验收（spec §5 T10；消耗护栏已随维护性补丁删除）。
 
 使用生产 ``create_app()`` 装配与应用 lifespan、真实 REST routers、真实
-``SpendGuard`` / ``BriefService`` / 队列与临时 SQLite；MaaCore、ADB 与外部网络不
-启动。总控与 analyst 的模型调用换成脚本化 Fake LLM（注入
+``BriefService`` / 工单服务与临时 SQLite；MaaCore、ADB 与外部网络不启动。
+总控与 analyst 的模型调用换成脚本化 Fake LLM（注入
 ``AgentRuntime.client_factory``）：analyst 从工单说明里取出产物 id，回一条
 ``report(ready, details={brief_artifact_id, suggestions})``。简报收尾靠真实的
 30 秒巡检任务，所以脚本最多等 60 秒，产物 ``meta.status`` 直接只读临时 SQLite。
 
-成功时最后一行严格为 ``SMOKE OK``；失败输出
-``[brief_spend_smoke][FAIL]`` 并返回 1。
+只验简报：``POST /api/agent/brief/run`` 返回 202 与两个 id，产物 60 秒内收尾成
+``ready``，analyst 从工单说明取到的产物 id 与响应一致。成功时最后一行严格为
+``SMOKE OK``；失败输出 ``[brief_smoke][FAIL]`` 并返回 1。
 """
 
 from __future__ import annotations
@@ -37,9 +38,8 @@ from tests.fakes.lifespan import (
     install_fake_lifespan,
 )
 
-TOKEN = "m84-brief-spend-smoke-token"
-TEMP_PREFIX = "maa-api-brief-spend-smoke-"
-MEDICINE_LIMIT = 2
+TOKEN = "m84-brief-smoke-token"
+TEMP_PREFIX = "maa-api-brief-smoke-"
 BRIEF_READY_TIMEOUT_SECONDS = 60.0
 
 #: M67 自动探查的固定请求文本（与 ``maa_api/agent/llm/profiles.py`` 一致）。
@@ -194,14 +194,14 @@ class _SmokeLLM:
                     {
                         "status": "ready",
                         "summary": (
-                            "今日简报已生成：理智药已计 3，手动提交成功；"
-                            "代理与定时任务都被消耗上限拦下。"
+                            "今日简报已生成：昨日流水线与掉落已汇总，"
+                            "今天没有需要你额外处理的事。"
                         ),
                         "details": {
                             "brief_artifact_id": artifact_id,
                             "suggestions": [
                                 "先把今日日常做完，理智药留给活动。",
-                                "明早再决定是否调高理智药上限。",
+                                "今晚再刷新理智，避免溢出。",
                             ],
                         },
                     },
@@ -251,29 +251,6 @@ def _check_response(response: Any, status_code: int, label: str) -> dict[str, An
         f"{label} 应返回 {status_code}，实际 {response.status_code}: {response.text[:400]}",
     )
     return response.json() if response.content else {}
-
-
-def _check_error(
-    response: Any,
-    status_code: int,
-    code: str,
-    label: str,
-) -> dict[str, Any]:
-    """断言 HTTP 状态与统一错误码，返回 ``error`` 对象。"""
-    body = _check_response(response, status_code, label)
-    error = body.get("error") or {}
-    _require(
-        error.get("code") == code,
-        f"{label} 错误码应为 {code}，实际 {error.get('code')!r}：{response.text[:400]}",
-    )
-    return error
-
-
-def _settings_value(payload: dict[str, Any], key: str) -> Any:
-    for item in payload.get("items", []):
-        if item.get("key") == key:
-            return item.get("value")
-    raise SmokeFailure(f"设置响应里没有 {key}：{payload!r}")
 
 
 def _read_artifact_meta(db_path: Path, artifact_id: str) -> dict[str, Any] | None:
@@ -410,138 +387,8 @@ def run(*, keep_temp: bool = False) -> None:
         main_module.app.state.gacha_service = None
 
         headers = {"X-Token": TOKEN}
-        pipeline_body = {
-            "title": "M84 冒烟：三瓶理智药",
-            "tasks": [{"name": "Fight", "stage": "1-7", "medicine": 3}],
-        }
 
-        # 1. 设置页把理智药上限设为 2（hot_action=none，立即生效）。
-        updated = _check_response(
-            client.put(
-                "/api/settings",
-                json={"items": {"spend.daily_medicine_limit": MEDICINE_LIMIT}},
-                headers=headers,
-            ),
-            200,
-            "修改理智药上限",
-        )
-        _require(
-            _settings_value(updated, "spend.daily_medicine_limit") == MEDICINE_LIMIT,
-            f"设置没有写进生效配置：{updated.get('items')!r}",
-        )
-        print(f"[ok] 设置 spend.daily_medicine_limit={MEDICINE_LIMIT}")
-
-        # 2. REST 调 submit_pipeline：确认之前就被 403 拦下，不建确认卡，审计 rejected。
-        invoked = client.post(
-            "/api/agent/tools/submit_pipeline/invoke",
-            json={"arguments": pipeline_body, "mode": "sync"},
-            headers=headers,
-        )
-        error = _check_error(
-            invoked, 403, "SPEND_CAP_EXCEEDED", "REST 调用 submit_pipeline"
-        )
-        details = error.get("details") or {}
-        _require(
-            details.get("limit") == MEDICINE_LIMIT
-            and details.get("requested") == 3
-            and details.get("used") == 0
-            and details.get("source") == "agent",
-            f"拦截详情不对：{details!r}",
-        )
-        pending = _check_response(
-            client.get(
-                "/api/confirmations",
-                params={"status": "pending"},
-                headers=headers,
-            ),
-            200,
-            "待确认列表",
-        )
-        _require(
-            int(pending.get("total", -1)) == 0,
-            f"超额预检不应建确认卡：{pending!r}",
-        )
-        audits = _check_response(
-            client.get("/api/agent/audits", params={"size": 1}, headers=headers),
-            200,
-            "审计列表",
-        )
-        latest = (audits.get("items") or [None])[0]
-        _require(
-            latest is not None
-            and latest.get("status") == "rejected"
-            and latest.get("error_code") == "SPEND_CAP_EXCEEDED"
-            and latest.get("tool_name") == "submit_pipeline"
-            and latest.get("caller") == "rest",
-            f"最新一条审计不是消耗拦截：{latest!r}",
-        )
-        print(
-            "[ok] REST 调 submit_pipeline 403 SPEND_CAP_EXCEEDED；"
-            "确认面板 0，审计 rejected"
-        )
-
-        # 3. 同一条流水线手动提交：manual 不设限但计入用量。
-        submitted = _check_response(
-            client.post("/api/pipelines", json=pipeline_body, headers=headers),
-            202,
-            "手动提交流水线",
-        )
-        _require(
-            isinstance(submitted.get("pipeline_id"), str)
-            and bool(submitted.get("pipeline_id")),
-            f"手动提交没有流水线 id：{submitted!r}",
-        )
-        spend = _check_response(
-            client.get("/api/agent/spend", headers=headers), 200, "消耗汇总"
-        )
-        medicine = next(
-            (row for row in spend.get("today", []) if row.get("kind") == "medicine"),
-            None,
-        )
-        _require(
-            medicine is not None
-            and medicine.get("used") == 3
-            and medicine.get("limit") == MEDICINE_LIMIT,
-            f"手动提交后理智药用量不对：{spend.get('today')!r}",
-        )
-        print("[ok] 手动提交同样流水线成功；GET /api/agent/spend 理智药 used=3")
-
-        # 4. 定时任务「立即执行」：scheduled 来源，已计 3 再加 1 瓶，入队时被拦。
-        schedule = _check_response(
-            client.post(
-                "/api/schedules",
-                json={
-                    "name": "M84 冒烟：一瓶理智药",
-                    "cron": "0 7 * * *",
-                    "timezone": "UTC",
-                    "enabled": False,
-                    "template": [
-                        {"name": "Fight", "stage": "1-7", "medicine": 1}
-                    ],
-                },
-                headers=headers,
-            ),
-            201,
-            "新建定时任务",
-        )
-        schedule_id = schedule.get("id")
-        _require(
-            isinstance(schedule_id, str) and bool(schedule_id),
-            f"新建定时任务没有 id：{schedule!r}",
-        )
-        scheduled = client.post(
-            f"/api/schedules/{schedule_id}/run", json={}, headers=headers
-        )
-        scheduled_error = _check_error(
-            scheduled, 403, "SPEND_CAP_EXCEEDED", "定时任务立即执行"
-        )
-        _require(
-            (scheduled_error.get("details") or {}).get("source") == "scheduled",
-            f"定时任务拦截来源不对：{scheduled_error.get('details')!r}",
-        )
-        print("[ok] 定时任务「立即执行」403 SPEND_CAP_EXCEEDED")
-
-        # 5. 手动简报：202，analyst 经 Fake LLM 回 ready，真实巡检在 60 秒内收尾。
+        # 1. 手动简报：202，analyst 经 Fake LLM 回 ready，真实巡检在 60 秒内收尾。
         brief = _check_response(
             client.post("/api/agent/brief/run", headers=headers),
             202,
@@ -583,7 +430,7 @@ def run(*, keep_temp: bool = False) -> None:
 
     except BaseException as exc:
         failure = exc
-        print(f"[brief_spend_smoke][FAIL] {type(exc).__name__}: {exc}", flush=True)
+        print(f"[brief_smoke][FAIL] {type(exc).__name__}: {exc}", flush=True)
         traceback.print_exc()
     finally:
         if client is not None:
@@ -593,7 +440,7 @@ def run(*, keep_temp: bool = False) -> None:
                 if failure is None:
                     failure = exc
                 print(
-                    f"[brief_spend_smoke][FAIL] 退出 app lifespan 异常："
+                    f"[brief_smoke][FAIL] 退出 app lifespan 异常："
                     f"{type(exc).__name__}: {exc}",
                     flush=True,
                 )
@@ -631,11 +478,11 @@ def run(*, keep_temp: bool = False) -> None:
                 "冒烟退出时仓库 DB/config 产物指纹发生变化"
             )
             print(
-                f"[brief_spend_smoke][FAIL] 仓库 DB/config 产物发生变化：{after!r}",
+                f"[brief_smoke][FAIL] 仓库 DB/config 产物发生变化：{after!r}",
                 flush=True,
             )
         if keep_temp or failure is not None:
-            print(f"[brief_spend_smoke] 临时现场：{temp_dir}", flush=True)
+            print(f"[brief_smoke] 临时现场：{temp_dir}", flush=True)
         else:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -645,8 +492,8 @@ def run(*, keep_temp: bool = False) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="brief_spend_smoke.py",
-        description="M84 消耗护栏与每日简报端到端硬验收（spec §5 T10）。",
+        prog="brief_smoke.py",
+        description="M84 每日简报端到端硬验收（spec §5 T10）。",
     )
     parser.add_argument(
         "--keep-temp", action="store_true", help="通过时保留临时库与资源目录"
@@ -659,7 +506,7 @@ def main() -> int:
     try:
         run(keep_temp=args.keep_temp)
     except SmokeFailure as exc:
-        print(f"[brief_spend_smoke][FAIL] {exc}", flush=True)
+        print(f"[brief_smoke][FAIL] {exc}", flush=True)
         return 1
     print("SMOKE OK", flush=True)
     return 0

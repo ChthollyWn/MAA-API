@@ -76,8 +76,16 @@ def tables_created_by_head() -> set[str]:
     head = scripts.get_current_head()
     path = Path(scripts.get_revision(head).path)
     tree = ast.parse(path.read_text(encoding="utf8"))
+    # 只看 ``upgrade()``：``downgrade()`` 里的 ``create_table`` 是回滚 DDL，
+    # 不代表 head 自己新建了这张表（例如 0039 的 downgrade 重建已删的账本表）。
+    upgrade_fn = next(
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "upgrade"
+    )
     created: set[str] = set()
-    for node in ast.walk(tree):
+    for node in ast.walk(upgrade_fn):
         if not isinstance(node, ast.Call):
             continue
         func = node.func

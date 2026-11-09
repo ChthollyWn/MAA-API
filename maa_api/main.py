@@ -53,6 +53,7 @@ from maa_api.api.routers import (
     agent_specs,
     artifacts,
     atomic,
+    brief,
     channels,
     confirmations,
     device,
@@ -79,7 +80,6 @@ from maa_api.api.routers import (
     skland,
     skills,
     sources,
-    spend,
     system,
     tasks,
     tickets,
@@ -505,7 +505,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     trigger_service = None
     goal_service = None
     watchdog_service = None
-    spend_guard = None
     brief_service = None
     outbox_worker = None
     outbox_task: asyncio.Task[Any] | None = None
@@ -782,17 +781,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.device_manager = device_manager
         app.state.pipeline_runner = pipeline_runner
         app.state.queue_service = queue_service
-        # M84 §4.5.6：消耗护栏在队列与执行器之后装配，绑定到两条受限入口（agent /
-        # scheduled）；未绑定时两条路径保持 v2 行为。守卫自己持锁，永远是最内层。
-        from maa_api.agent.spend import SpendGuard
-
-        spend_guard = SpendGuard(db_session.session_factory)
-        # 测试与替身可能替换队列/执行器实现；绑定是可选的扩展点，不要求每个实现都有。
-        for bindable in (queue_service, pipeline_runner):
-            bind_guard = getattr(bindable, "bind_spend_guard", None)
-            if callable(bind_guard):
-                bind_guard(spend_guard)
-        app.state.spend_guard = spend_guard
         # M83 值守记录器：内核 CALLBACK 与流水线生命周期的进程内时间戳。装配在这里
         # （内核消费者启动之前）完成绑定，记录器本身不落库、不阻塞回调线程。
         from maa_api.agent.watchdog.recorder import WatchdogRecorder
@@ -2211,7 +2199,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "trigger_service",
             "goal_service",
             "watchdog_service",
-            "spend_guard",
             "brief_service",
             "ticket_push_notifier",
             "channel_adapters",
@@ -2372,7 +2359,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "trigger_service",
             "goal_service",
             "watchdog_service",
-            "spend_guard",
             "brief_service",
             "ticket_push_notifier",
             "channel_adapters",
@@ -2479,7 +2465,7 @@ def create_app() -> FastAPI:
     app.include_router(goals.router)
     app.include_router(watchdog.router)
     app.include_router(channels.router)
-    app.include_router(spend.router)
+    app.include_router(brief.router)
     app.include_router(rewind.router)
     app.include_router(device_lease.router)
     app.include_router(ws_router)

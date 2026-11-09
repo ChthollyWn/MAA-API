@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
-import { ArrowDown, Gauge, History, RotateCcw } from 'lucide-react'
+import { ArrowDown, Gauge, RotateCcw } from 'lucide-react'
 import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
 import { keys } from '@/api/keys'
@@ -137,7 +137,7 @@ export default function ConsolePage() {
     if (resetSession.isPending) return
     const accepted = await confirm({
       title: '重新开始总控会话？',
-      description: '当前会话会归档，只能在旧会话里查看；进行中的工单不受影响。',
+      description: '当前会话会归档；进行中的工单不受影响。',
       confirmText: '重新开始',
     })
     if (accepted) resetSession.mutate()
@@ -155,7 +155,6 @@ export default function ConsolePage() {
           disabled: resetSession.isPending,
           onSelect: () => void confirmReset(),
         },
-        { label: '旧会话', icon: History, onSelect: () => void navigate('/more/sessions') },
         { label: '运行状态', icon: Gauge, onSelect: () => void navigate('/more/status') },
       ]}
     />

@@ -39,10 +39,6 @@ export const keys = {
   },
   agent: {
     all: () => [...root, 'agent'] as const,
-    sessions: (filters?: Readonly<Record<string, unknown>>) =>
-      [...root, 'agent', 'sessions', filters ?? {}] as const,
-    session: (sessionId: string) =>
-      [...root, 'agent', 'sessions', 'detail', sessionId] as const,
     messages: (sessionId: string) =>
       [...root, 'agent', 'sessions', sessionId, 'messages'] as const,
     /** 压缩检查点（M74 §4.6）：只随 `compaction` / `compaction_created` 失效。 */
@@ -117,8 +113,6 @@ export const keys = {
       [...root, 'agent', 'watchdog', 'alerts', f ?? {}] as const,
     /** 告警列表的整片前缀：广播不带过滤条件，一次失效页面与待你处理两份缓存。 */
     watchdogAlertsAll: () => [...root, 'agent', 'watchdog', 'alerts'] as const,
-    /** 消耗汇总（M84 §4.6）：`since` 决定近 7 天还是近 30 天，缺省即近 7 天。 */
-    spend: (since?: string) => [...root, 'agent', 'spend', since ?? 'default'] as const,
     orchestrator: {
       all: () => [...root, 'agent', 'orchestrator'] as const,
       state: () => [...root, 'agent', 'orchestrator', 'state'] as const,

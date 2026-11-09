@@ -101,8 +101,6 @@ BUSINESS_TABLES = {
     "goal_milestone",
     # M83：值守告警（v3 specs/m83 §4.1、docs/v3/03 §11.5）。
     "watchdog_alert",
-    # M84：每日消耗账本（v3 specs/m84 §4.1、docs/v3/03 §11.6）。
-    "spend_ledger",
     # M85：IM 通道三表（v3 specs/m85 §4.1、docs/v3/03 §11.7）。
     "channel_binding",
     "channel_bind_code",
@@ -160,8 +158,6 @@ AUTOINCREMENT_TABLES = [
     "trigger_observation",
     # M83：告警是高频追加表，重复命中只更新证据、不换行（spec §4.1）。
     "watchdog_alert",
-    # M84：消耗账本只增不删，整数自增主键（spec §4.1）。
-    "spend_ledger",
     # M85：发件箱只增不删，整数自增主键（spec §4.1）。
     "outbox",
 ]
@@ -376,12 +372,6 @@ EXPECTED_INDEXES = {
         ("target_kind", "target_id"),
         False,
     ),
-    # M84：按种类在消耗日窗口内汇总用量（spec §4.1）。
-    "ix_spend_ledger_kind_created_at": (
-        "spend_ledger",
-        ("kind", "created_at"),
-        False,
-    ),
     # M85：同一平台上的同一用户与同一会话只绑定一次；发件箱按状态与到期时间取件。
     "uq_channel_binding_platform_external_user_id_external_chat_id": (
         "channel_binding",
@@ -528,10 +518,6 @@ EXPECTED_FK_SET_NULL = {
     ("goal", "planning_ticket_id"),
     ("goal", "upgrade_plan_id"),
     ("ticket", "goal_id"),
-    # M84：流水线、任务、工单被清理时账本行留着，用量汇总不断（spec §4.1）。
-    ("spend_ledger", "pipeline_id"),
-    ("spend_ledger", "task_id"),
-    ("spend_ledger", "ticket_id"),
     # M85：运行/工单被清理时发件箱行留着，供审计与续发（spec §4.1）。
     ("outbox", "ref_run_id"),
     ("outbox", "ref_ticket_id"),

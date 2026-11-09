@@ -2,7 +2,7 @@ import { FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Section } from '@/components/ui/section'
 import { toast } from '@/components/ui/toaster'
-import { useRunBrief } from '@/features/spend/api'
+import { useRunBrief } from '@/features/brief/api'
 import { errorText } from './format'
 
 /**
