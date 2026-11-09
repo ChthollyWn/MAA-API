@@ -1282,6 +1282,22 @@ describe('M72 指挥台', () => {
     expect(screen.queryByRole('button', { name: '回复' })).not.toBeInTheDocument()
   })
 
+  it('shows a retryable error when attention cannot be read', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      overrides: [({ method, path }) => (
+        method === 'GET' && path === '/api/agent/memories'
+          ? json({ error: { code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用' } }, 500)
+          : undefined
+      )],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('读取待你处理的事项失败：服务暂时不可用')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+  })
+
   it('hides the attention section when nothing is pending', async () => {
     const api = createConsoleApi({ messages: [] })
     renderConsole(api)
