@@ -1082,7 +1082,7 @@ describe('M72 指挥台', () => {
     expect(ids).toEqual(['confirm-1', 'q-1', 't-blocked', 't-waiting'])
   })
 
-  it('lists pending memories as one attention entry (M79)', async () => {
+  it('reviews pending memories in place (M79)', async () => {
     stubMedia((query) => query === '(min-width: 1024px)')
     const api = createConsoleApi({
       messages: [],
@@ -1094,10 +1094,49 @@ describe('M72 指挥台', () => {
     })
     renderConsole(api)
 
-    const link = await screen.findByRole('link', { name: /2 条记忆待审核/ })
-    expect(link).toHaveAttribute('href', '/more/memories')
+    expect(await screen.findByText('2 条记忆待审核')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '去记忆页' })).toHaveAttribute('href', '/more/memories')
+    fireEvent.click(screen.getByRole('button', { name: '展开审核' }))
     expect(screen.getByText('刷图不要用源石恢复理智')).toBeInTheDocument()
     expect(screen.queryByText('已生效的记忆')).not.toBeInTheDocument()
+
+    const first = document.querySelector('[data-memory-id="m1"]') as HTMLElement
+    fireEvent.click(within(first).getByRole('button', { name: '批准' }))
+    await waitFor(() => expect(api.memoryReviews()).toHaveLength(1))
+    expect(api.memoryReviews()[0]?.body).toEqual({ approved: true })
+    await waitFor(() => expect(screen.queryByText('刷图不要用源石恢复理智')).not.toBeInTheDocument())
+
+    const second = document.querySelector('[data-memory-id="m2"]') as HTMLElement
+    fireEvent.click(within(second).getByRole('button', { name: '拒绝' }))
+    await waitFor(() => expect(api.memoryReviews()).toHaveLength(2))
+    expect(api.memoryReviews()[1]?.body).toEqual({ approved: false })
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument())
+  })
+
+  it('shows the memory review error without breaking the other rows', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      memories: [
+        makeMemory({ id: 'm1', content: '刷图不要用源石恢复理智' }),
+        makeMemory({ id: 'm2', content: 'ADB 掉线先重连一次' }),
+      ],
+      overrides: [({ method, path }) => (
+        method === 'POST' && path === '/api/agent/memories/m1/review'
+          ? json({ error: { code: 'MEMORY_NOT_PROPOSED', message: '这条记忆已经不在待审核状态，刷新后再试。' } }, 409)
+          : undefined
+      )],
+    })
+    renderConsole(api)
+
+    fireEvent.click(await screen.findByRole('button', { name: '展开审核' }))
+    const first = document.querySelector('[data-memory-id="m1"]') as HTMLElement
+    fireEvent.click(within(first).getByRole('button', { name: '批准' }))
+    expect(await screen.findByText('这条记忆已经不在待审核状态，刷新后再试。')).toBeInTheDocument()
+
+    // 其它行不受影响，仍可处理。
+    const second = document.querySelector('[data-memory-id="m2"]') as HTMLElement
+    expect(within(second).getByRole('button', { name: '拒绝' })).toBeEnabled()
   })
 
   it('lists unresolved critical watchdog alerts and resolves them (M83)', async () => {
