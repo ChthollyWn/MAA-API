@@ -1,6 +1,6 @@
 # 提问不再过期与工单卡选项优先（维护性补丁台账）
 
-- 分支：`questions-no-expiry`（合并后删除）；基点：`dev` = `26d61b7`；合并：待填；tag：无（维护性补丁，不新增里程碑）
+- 分支：`questions-no-expiry`（合并后删除）；基点：`dev` = `26d61b7`；合并：`766658e`（`dev` 上的 `merge: 提问不再过期与工单卡选项优先（维护性补丁，见 docs/v3/13 §8.177）`）；tag：无（维护性补丁，不新增里程碑）
 - spec：[questions-no-expiry](../specs/questions-no-expiry.md)
 - 计划：[questions-no-expiry](../plans/questions-no-expiry.md)
 - 决策记录：[docs/v3/13 §8.177](../13-决策记录.md)
@@ -43,7 +43,7 @@
 | `cd web && pnpm gen:api:check` | 0 |
 | `scripts/check_doc_links.py` | 末行 `BROKEN 0` |
 | 残留 grep（`question_timeout_seconds`、提问相关 `expires_at`） | 代码零残留；`docs/v3/09`、`14` 各一处是「已删除」说明；`types.ts` 剩下的 `expires_at` 属于确认卡与原子授权 |
-| 合并 | 待填 |
+| 合并 | `dev` 上 `git merge --no-ff` = `766658e`；合并后工作区干净、分支已删除 |
 
 已知失败（非本补丁引入）：
 
