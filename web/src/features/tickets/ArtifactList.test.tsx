@@ -103,4 +103,35 @@ describe('M75 产物列表', () => {
 
     expect(await screen.findByText('还没有产物')).toBeInTheDocument()
   })
+
+  it('labels dashboards as 看板 and pinned as 已置顶', async () => {
+    createConsoleApi({
+      artifacts: [artifact({ kind: 'dashboard', title: '本周看板', pinned: true })],
+    })
+    renderArtifacts()
+
+    expect(await screen.findByText('本周看板')).toBeInTheDocument()
+    expect(screen.getByText('看板')).toBeInTheDocument()
+    expect(screen.getByText('已置顶')).toBeInTheDocument()
+  })
+
+  it('opens view artifacts in the artifact page', async () => {
+    const view = artifact({ kind: 'form', title: '这周刷哪一关', mime: 'application/vnd.maa.view+json' })
+    createConsoleApi({
+      artifacts: [view],
+      artifactDetails: {
+        a1: artifactDetail({
+          ...view,
+          content: JSON.stringify({ version: 1, title: '这周刷哪一关', components: [] }),
+          meta: { view_version: 1, submissions: [], last_submitted_at: null },
+        }),
+      },
+    })
+    renderArtifacts()
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看产物 这周刷哪一关' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByRole('link', { name: '在产物页打开' })).toHaveAttribute('href', '/more/artifacts/a1')
+    expect(dialog.querySelector('pre')).toBeNull()
+  })
 })

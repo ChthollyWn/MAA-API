@@ -179,6 +179,7 @@ const TOOL_LABELS: Record<string, string> = {
   cancel_ticket: '取消工单',
   hold_device: '占用设备',
   release_device: '释放设备',
+  create_view: '生成视图',
 }
 
 export function toolLabel(name: string): string | undefined {

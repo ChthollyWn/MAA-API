@@ -3,12 +3,14 @@ import { ConfirmationCard } from '@/features/agent/ConfirmationCard'
 import { AssistantText, TypingIndicator } from '@/features/agent/MessageViews'
 import { QuestionCard } from '@/features/agent/QuestionCard'
 import { liveToolView } from '@/features/agent/transcript'
+import { ViewArtifactCard } from '@/features/artifacts/ViewArtifactCard'
 import { ToolCallBar } from '@/features/agent/ToolCallBar'
 import type { ConfirmationResolver } from './card-resolvers'
 import { DelegateToolBar } from './DelegateToolBar'
 import type { LiveRun, LiveTurn } from './live-turn'
 import { ReportCallout } from './ReportCallout'
 import { TicketLinkChip } from './TicketLinkChip'
+import { artifactIdOf } from './transcript-v3'
 import type { Origin } from './types'
 import { UserMessage } from './UserMessage'
 
@@ -19,6 +21,8 @@ export interface LiveTurnViewProps {
   specTitles: ReadonlyMap<string, string>
   resolver: ConfirmationResolver
   onQuestionResolved: (questionId: string) => void
+  /** 工单已结束：视图卡里的表单只读（M90 §4.6.4）。 */
+  ticketEnded?: boolean
 }
 
 /** 来源行（M72 §4.6.3）：确认卡自己没有来源，由实时副本在卡片上方补一行。 */
@@ -29,10 +33,11 @@ function originText(origin: Origin, specTitles: ReadonlyMap<string, string>): st
     : `来自${agent}`
 }
 
-function LiveRunView({ run, turn, specTitles }: {
+function LiveRunView({ run, turn, specTitles, ticketEnded }: {
   run: LiveRun
   turn: LiveTurn
   specTitles: ReadonlyMap<string, string>
+  ticketEnded: boolean
 }) {
   return (
     <div className="space-y-3">
@@ -68,11 +73,17 @@ function LiveRunView({ run, turn, specTitles }: {
               agentTitle={child.agent ? specTitles.get(child.agent) ?? child.agent : null}
               messageCount={child.segments.length}
             >
-              <LiveRunView run={child} turn={turn} specTitles={specTitles} />
+              <LiveRunView run={child} turn={turn} specTitles={specTitles} ticketEnded={ticketEnded} />
             </DelegateToolBar>
           )
         }
-        return <ToolCallBar key={`tool-${segment.toolCallId}`} tool={view} />
+        const artifactId = artifactIdOf(view)
+        return (
+          <div key={`tool-${segment.toolCallId}`} className="space-y-2">
+            <ToolCallBar tool={view} />
+            {artifactId ? <ViewArtifactCard artifactId={artifactId} ticketEnded={ticketEnded} /> : null}
+          </div>
+        )
       })}
     </div>
   )
@@ -82,13 +93,13 @@ function LiveRunView({ run, turn, specTitles }: {
  * 实时副本（M72 §4.6.3）：乐观气泡 → 根运行（中途加入的先写一行「接着处理之前的消息」）
  * → 挂起的确认卡 → 提问卡 → 运行中且没有挂起卡时的打字指示。
  */
-export function LiveTurnView({ turn, showUser, specTitles, resolver, onQuestionResolved }: LiveTurnViewProps) {
+export function LiveTurnView({ turn, showUser, specTitles, resolver, onQuestionResolved, ticketEnded = false }: LiveTurnViewProps) {
   return (
     <section aria-label="本轮消息" aria-busy={turn.running} className="space-y-3">
       {showUser ? <UserMessage text={turn.userText} references={[]} /> : null}
       {turn.rootOrder.map((runId) => {
         const run = turn.runs[runId]
-        return run ? <LiveRunView key={runId} run={run} turn={turn} specTitles={specTitles} /> : null
+        return run ? <LiveRunView key={runId} run={run} turn={turn} specTitles={specTitles} ticketEnded={ticketEnded} /> : null
       })}
       {turn.pendingConfirmation ? (
         <div className="space-y-2">

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router'
 import { Download, FileText } from 'lucide-react'
 import { toApiError } from '@/api/errors'
 import { Badge } from '@/components/ui/badge'
@@ -7,9 +8,11 @@ import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { ListGroup, ListItem } from '@/components/ui/list'
 import { Section } from '@/components/ui/section'
+import { VIEW_MIME } from '@/features/artifacts/view/schema'
 import { ResponsiveSheet } from '@/components/ui/sheet'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states'
 import { toast } from '@/components/ui/toaster'
+import { ARTIFACT_KIND_LABELS, formatArtifactSize } from '@/features/artifacts/format'
 import { formatDateTime } from './format'
 import {
   artifactDetailQueryOptions,
@@ -18,31 +21,6 @@ import {
   type ArtifactDetailView,
   type ArtifactView,
 } from './workspace-api'
-
-/** 产物种类的中文（M75 §4.6）；未知取值原样显示。 */
-export const ARTIFACT_KIND_LABELS: Record<string, string> = {
-  note: '笔记',
-  spill: '外置输出',
-  report: '报告',
-  chart: '图表',
-  table: '表格',
-  file: '文件',
-  form: '表单',
-  dashboard: '仪表盘',
-}
-
-/** 字节数 → 人读的大小；列表里只做粗略展示。 */
-export function formatArtifactSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
-}
 
 function kindLabel(kind: string): string {
   return ARTIFACT_KIND_LABELS[kind] ?? kind
@@ -85,7 +63,7 @@ export function ArtifactList({ ticketId }: ArtifactListProps) {
               trailing={(
                 <>
                   <Badge variant="outline">{kindLabel(artifact.kind)}</Badge>
-                  {artifact.pinned ? <Badge variant="primary">置顶</Badge> : null}
+                  {artifact.pinned ? <Badge variant="primary">已置顶</Badge> : null}
                 </>
               )}
               onClick={() => setSelected(artifact)}
@@ -110,7 +88,7 @@ function ArtifactDrawer({
   const download = useMutation({
     mutationFn: (value: ArtifactDetailView) => saveArtifactFile(value),
     onSuccess: (filename) => toast.success(`已下载 ${filename}`),
-    onError: (error) => toast.error(`下载失败：${toApiError(error).message}`),
+    onError: (error) => toast.error(`下载产物失败：${toApiError(error).message}`),
   })
 
   return (
@@ -133,11 +111,17 @@ function ArtifactDrawer({
           onRetry={() => void detail.refetch()}
           retrying={detail.isFetching}
         />
+      ) : detail.data && detail.data.mime === VIEW_MIME ? (
+        <div className="pb-4">
+          <Button asChild variant="outline" size="sm">
+            <Link to={`/more/artifacts/${detail.data.id}`}>在产物页打开</Link>
+          </Button>
+        </div>
       ) : detail.data ? (
         <div className="space-y-3 pb-4">
           {detail.data.truncated ? (
             <InlineAlert tone="warning">
-              正文超过 64 KiB，这里只显示前 64 KiB。
+              内容较长，只显示前 64 KiB
             </InlineAlert>
           ) : null}
           <pre className="whitespace-pre-wrap break-words rounded-lg bg-surface-2 px-3 py-2.5 text-sm leading-relaxed">

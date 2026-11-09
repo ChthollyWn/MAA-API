@@ -98,6 +98,8 @@ EXPECTED_TOOLS = {
     # M89：自定义任务起草与校验（规格 §4.7、§5 T5）。
     "draft_custom_task",
     "validate_custom_task",
+    # M90：产物视图工具（规格 §4.3.2），不进 REST 目录。
+    "create_view",
 }
 
 #: M74 §5 T3：旧上下文里可以换成占位、需要时重新调用的工具（06 §5.1）。
@@ -150,8 +152,8 @@ def test_untrusted_output_tools_are_pinned() -> None:
     assert len(UNTRUSTED_OUTPUT_TOOLS) == 23
     assert untrusted == UNTRUSTED_OUTPUT_TOOLS
     assert untrusted <= EXPECTED_TOOLS
-    assert len(definitions) == 110
-    assert sum(1 for definition in definitions if definition.model_visible) == 109
+    assert len(definitions) == 111
+    assert sum(1 for definition in definitions if definition.model_visible) == 110
 
 
 def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner():
@@ -173,10 +175,12 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # → 107 / 106（``remember_screen`` 不进 REST 目录，三个都对模型可见）。
     # M88 加 ``optimize_farming`` → 108 / 107（进 REST 目录，对模型可见）。
     # M89 加 ``draft_custom_task``、``validate_custom_task`` → 110 / 109
-    # （都进 REST 目录，都对模型可见）。
-    assert len(actual) == 110
-    assert sum(1 for item in registry.list() if item.model_visible) == 109
+    # （都进 REST 目录，都对模型可见）。M90 加 ``create_view`` → 111 / 110
+    # （不进 REST 目录，对模型可见）。
+    assert len(actual) == 111
+    assert sum(1 for item in registry.list() if item.model_visible) == 110
     assert "knowledge" in {definition.group for definition in registry.list()}
+    assert "artifacts" in {definition.group for definition in registry.list()}
     assert "skills" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
     assert "media" in {definition.group for definition in registry.list()}
@@ -202,8 +206,9 @@ def test_model_side_tool_schemas_use_compact_task_objects_and_stay_small():
     schemas = AgentRuntime(None, None)._tool_schemas(registry)  # type: ignore[arg-type]
     by_name = {item["function"]["name"]: item["function"] for item in schemas}
     total = len(json.dumps(schemas, ensure_ascii=False))
-    # 紧凑化之前是 159 598 字符；留出余量后仍应远低于此。
-    assert total < 70_000
+    # 紧凑化之前是 159 598 字符；留出余量后仍应远低于此。M90 的 create_view
+    # 声明约 0.9 KB（69 482 → 70 373），上限相应放到 72 000。
+    assert total < 72_000
     for name in ("submit_pipeline", "create_schedule", "update_schedule"):
         parameters = by_name[name]["parameters"]
         assert "$defs" not in parameters
@@ -720,6 +725,8 @@ def test_extension_fields_keep_v2_defaults() -> None:
         "update_goal",
         # M86 的 remember_screen 同样只在代理运行里可用（REST 不列）。
         "remember_screen",
+        # M90 的 create_view 同样只在代理运行里可用（REST 不列）。
+        "create_view",
     }
     assert all(
         definition.rest_visible

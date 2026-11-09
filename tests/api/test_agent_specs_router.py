@@ -70,16 +70,18 @@ SPEC_NAMES = [
 #: ``verifier`` 补核对完成证据的提示，升到 2；``general`` 不动，保持 6。
 #: M88 §4.7：``general`` 加 ``optimize_farming`` 与「刷图方案」段，升到 7。
 #: M89 §4.7：``general`` 加两个自定义任务工具与「新活动」段，升到 8。
+#: M90 §4.7：四个 Worker 加 ``create_view`` 与视图提示，``general`` 升到 9，
+#: ``analyst``、``planner``、``copilot`` 升到 5。
 EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
-    "analyst": 4,
-    "copilot": 4,
+    "analyst": 5,
+    "copilot": 5,
     "daily_ops": 4,
     "diagnose": 4,
-    "general": 8,
+    "general": 9,
     "navigator": 2,
     "ops": 3,
     "orchestrator": 7,
-    "planner": 4,
+    "planner": 5,
     "researcher": 2,
     "verifier": 2,
 }
@@ -145,6 +147,18 @@ def test_get_spec_returns_the_prompt_body(make_client, tmp_settings):
     assert payload["skills"] == []
     assert payload["output_schema"] is None
     assert payload["budget"] == {"max_cost_per_run": 0.0}
+
+
+def test_worker_specs_expose_create_view_and_versions(make_client, tmp_settings):
+    """M90 §4.7：四个 Worker 的详情都带 ``create_view``，版本是实测值 +1。"""
+    client = _specs_client(make_client)
+
+    for name in ("general", "analyst", "planner", "copilot"):
+        response = client.get(f"/api/agent/specs/{name}")
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert "create_view" in payload["tools"]
+        assert payload["version"] == EXPECTED_VERSIONS[name]
 
 
 # ---------------------------------------------------------------------------

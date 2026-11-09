@@ -1023,7 +1023,7 @@
         "type": "object"
       },
       "ArtifactDetailOut": {
-        "description": "产物详情：正文最多 64 KiB，超出时 ``truncated=true``。",
+        "description": "产物详情：正文最多 64 KiB，超出时 ``truncated=true``；``meta`` 原样返回整列。",
         "properties": {
           "content": {
             "title": "Content",
@@ -1039,6 +1039,11 @@
           },
           "kind": {
             "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "title": "Meta",
+            "type": "object"
           },
           "mime": {
             "title": "Mime",
@@ -1098,13 +1103,51 @@
           "pinned",
           "created_at",
           "content",
-          "truncated"
+          "truncated",
+          "meta"
         ],
         "title": "ArtifactDetailOut",
         "type": "object"
       },
+      "ArtifactFormSubmit": {
+        "additionalProperties": false,
+        "description": "提交生成式表单的答案（M90 规格 §4.3.3）。",
+        "properties": {
+          "values": {
+            "additionalProperties": true,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "title": "ArtifactFormSubmit",
+        "type": "object"
+      },
+      "ArtifactFormSubmitResult": {
+        "description": "一次成功提交的受理结果（M90 规格 §4.3.3）。",
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "submitted_at": {
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "ticket_id",
+          "submitted_at"
+        ],
+        "title": "ArtifactFormSubmitResult",
+        "type": "object"
+      },
       "ArtifactKind": {
-        "description": "产物的种类；本里程碑只写 note / spill / report / file。",
+        "description": "产物的种类：`note`、`spill`、`report`、`chart`、`table`、`file`、`form`、`dashboard`。",
         "enum": [
           "note",
           "spill",
@@ -14105,6 +14148,146 @@
           }
         },
         "summary": "置顶或取消置顶产物",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/artifacts/{artifact_id}/submit": {
+      "post": {
+        "description": "按视图定义校验提交值，写成一条【表单提交】用户消息，并记进 ``meta``。\n\n顺序固定为「校验视图与值 → 写 Worker 消息 → 写回 ``meta``」：被拒绝的提交\n不会留下消息或记录。并发提交同一张表单是读改写，后写覆盖先写。",
+        "operationId": "agent_submit_artifact_form",
+        "parameters": [
+          {
+            "description": "产物 id",
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "description": "产物 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactFormSubmit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactFormSubmitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "ARTIFACT_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：ARTIFACT_NOT_FOUND、TICKET_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "TICKET_ENDED",
+                    "details": {},
+                    "message": "与当前状态冲突"
+                  }
+                }
+              }
+            },
+            "description": "与当前状态冲突：TICKET_ENDED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE、AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "提交生成式表单",
         "tags": [
           "agent"
         ]

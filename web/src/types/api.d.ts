@@ -267,6 +267,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/artifacts/{artifact_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 提交生成式表单
+         * @description 按视图定义校验提交值，写成一条【表单提交】用户消息，并记进 ``meta``。
+         *
+         *     顺序固定为「校验视图与值 → 写 Worker 消息 → 写回 ``meta``」：被拒绝的提交
+         *     不会留下消息或记录。并发提交同一张表单是读改写，后写覆盖先写。
+         */
+        post: operations["agent_submit_artifact_form"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/audits": {
         parameters: {
             query?: never;
@@ -3430,7 +3453,7 @@ export interface components {
         };
         /**
          * ArtifactDetailOut
-         * @description 产物详情：正文最多 64 KiB，超出时 ``truncated=true``。
+         * @description 产物详情：正文最多 64 KiB，超出时 ``truncated=true``；``meta`` 原样返回整列。
          */
         ArtifactDetailOut: {
             /** Content */
@@ -3440,6 +3463,10 @@ export interface components {
             /** Id */
             id: string;
             kind: components["schemas"]["ArtifactKind"];
+            /** Meta */
+            meta: {
+                [key: string]: unknown;
+            };
             /** Mime */
             mime: string;
             /** Pinned */
@@ -3457,8 +3484,30 @@ export interface components {
             truncated: boolean;
         };
         /**
+         * ArtifactFormSubmit
+         * @description 提交生成式表单的答案（M90 规格 §4.3.3）。
+         */
+        ArtifactFormSubmit: {
+            /** Values */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * ArtifactFormSubmitResult
+         * @description 一次成功提交的受理结果（M90 规格 §4.3.3）。
+         */
+        ArtifactFormSubmitResult: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Submitted At */
+            submitted_at: string;
+            /** Ticket Id */
+            ticket_id: string;
+        };
+        /**
          * ArtifactKind
-         * @description 产物的种类；本里程碑只写 note / spill / report / file。
+         * @description 产物的种类：`note`、`spill`、`report`、`chart`、`table`、`file`、`form`、`dashboard`。
          * @enum {string}
          */
         ArtifactKind: "note" | "spill" | "report" | "chart" | "table" | "file" | "form" | "dashboard";
@@ -8954,6 +9003,143 @@ export interface operations {
                 };
             };
             /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_submit_artifact_form: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 产物 id */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactFormSubmit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactFormSubmitResult"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：ARTIFACT_NOT_FOUND、TICKET_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "ARTIFACT_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 与当前状态冲突：TICKET_ENDED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "TICKET_ENDED",
+                     *         "details": {},
+                     *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE、AGENT_DISABLED、LLM_NOT_CONFIGURED、LLM_ENCRYPTION_KEY_INVALID */
             503: {
                 headers: {
                     /** @description 建议的重试等待秒数（整数） */

@@ -16,6 +16,7 @@ def build_registry() -> ToolRegistry:
     # parameter/context helpers without creating a package initialization cycle.
     from maa_api.agent.tools.account import register_tools as register_account_tools
     from maa_api.agent.tools.activity import register_tools as register_activity_tools
+    from maa_api.agent.tools.artifacts import register_tools as register_artifacts_tools
     from maa_api.agent.tools.catalog import register_tools as register_catalog_tools
     from maa_api.agent.tools.copilot_attempt import register_tools as register_copilot_attempt_tools
     from maa_api.agent.tools.copilot_site import register_tools as register_copilot_site_tools
@@ -93,6 +94,8 @@ def build_registry() -> ToolRegistry:
     register_workspace_tools(registry)
     # M82：目标工具（规格 §4.2），接在最后一组之后，不进 REST 目录。
     register_goal_tools(registry)
+    # M90：产物视图工具（规格 §4.2），接在目标工具之后，不进 REST 目录。
+    register_artifacts_tools(registry)
     registry.register(
         ToolDefinition(
             name="check_confirmation",

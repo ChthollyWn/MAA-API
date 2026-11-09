@@ -55,6 +55,9 @@ export const keys = {
     /** 单个产物的详情正文（拉开抽屉时才读）。 */
     artifact: (artifactId: string) =>
       [...root, 'agent', 'artifact', artifactId] as const,
+    /** 全部产物的分页列表（M90 §4.6）：挂在 artifactsAll 前缀下。 */
+    artifactsList: (filters?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'artifacts', 'list', filters ?? {}] as const,
     capabilities: () => [...root, 'agent', 'capabilities'] as const,
     tools: () => [...root, 'agent', 'tools'] as const,
     /** 界面导航图（M86 §4.6）：一次 GET 拿全部界面、跳转与三个开关。 */

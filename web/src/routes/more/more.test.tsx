@@ -95,6 +95,7 @@ describe('more page', () => {
     expect(screen.getByRole('link', { name: /代理定义/ })).toHaveAttribute('href', '/more/agents')
     expect(screen.getByRole('link', { name: /界面导航图/ })).toHaveAttribute('href', '/more/nav')
     expect(screen.getByRole('link', { name: /运行追踪/ })).toHaveAttribute('href', '/more/runs')
+    expect(screen.getByRole('link', { name: /产物/ })).toHaveAttribute('href', '/more/artifacts')
     expect(screen.getByRole('link', { name: /运行状态/ })).toHaveAttribute('href', '/more/status')
     expect(screen.getByRole('link', { name: /热更新/ })).toHaveAttribute('href', '/more/updates')
     expect(screen.getByRole('link', { name: /Agent 审计/ })).toHaveAttribute('href', '/more/audit')
@@ -112,6 +113,8 @@ describe('more page', () => {
     expect(children.some((route) => route.path === 'more/api-console')).toBe(true)
     expect(children.some((route) => route.path === 'more/audit')).toBe(true)
     expect(children.some((route) => route.path === 'more/nav')).toBe(true)
+    expect(children.some((route) => route.path === 'more/artifacts')).toBe(true)
+    expect(children.some((route) => route.path === 'more/artifacts/:artifactId')).toBe(true)
   })
 
   it('persists the appearance choice and synchronizes the document theme and browser chrome color', () => {

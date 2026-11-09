@@ -34,6 +34,8 @@ __all__ = [
     "AgentMessageItem",
     "AgentMessagePage",
     "ArtifactDetailOut",
+    "ArtifactFormSubmit",
+    "ArtifactFormSubmitResult",
     "ArtifactOut",
     "ArtifactPage",
     "ArtifactPinRequest",
@@ -367,10 +369,11 @@ class ArtifactOut(BaseModel):
 
 
 class ArtifactDetailOut(ArtifactOut):
-    """产物详情：正文最多 64 KiB，超出时 ``truncated=true``。"""
+    """产物详情：正文最多 64 KiB，超出时 ``truncated=true``；``meta`` 原样返回整列。"""
 
     content: str
     truncated: bool
+    meta: dict[str, Any]
 
 
 class ArtifactPage(BaseModel):
@@ -388,6 +391,22 @@ class ArtifactPinRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pinned: bool
+
+
+class ArtifactFormSubmit(BaseModel):
+    """提交生成式表单的答案（M90 规格 §4.3.3）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    values: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArtifactFormSubmitResult(BaseModel):
+    """一次成功提交的受理结果（M90 规格 §4.3.3）。"""
+
+    artifact_id: str
+    ticket_id: str
+    submitted_at: str
 
 
 def artifact_out(artifact: Artifact) -> ArtifactOut:
@@ -409,11 +428,12 @@ def artifact_out(artifact: Artifact) -> ArtifactOut:
 def artifact_detail_out(
     artifact: Artifact, *, content: str, truncated: bool
 ) -> ArtifactDetailOut:
-    """详情端点：元数据 + 截断后的正文。"""
+    """详情端点：元数据 + 截断后的正文 + 整列 ``meta``。"""
     return ArtifactDetailOut(
         **artifact_out(artifact).model_dump(),
         content=content,
         truncated=truncated,
+        meta=dict(artifact.meta or {}),
     )
 
 

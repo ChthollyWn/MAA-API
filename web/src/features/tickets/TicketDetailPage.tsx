@@ -35,7 +35,7 @@ import { LeaseIndicator } from './LeaseIndicator'
 import { MandateCard } from './MandateCard'
 import { PlanPanel } from './PlanPanel'
 import { ReportTimeline } from './ReportTimeline'
-import type { TicketStatusValue } from './format'
+import { ENDED_STATUSES } from './format'
 import { TicketStatusBadge } from './TicketStatusBadge'
 import { TicketSummaryCard } from './TicketSummaryCard'
 
@@ -47,7 +47,6 @@ const TAB_OPTIONS: readonly SegmentedOption<TicketTab>[] = [
   { value: 'activity', label: '活动' },
 ]
 
-const ENDED_STATUSES: readonly TicketStatusValue[] = ['done', 'failed', 'cancelled']
 const ENDED_REASON = '工单已结束，不能再发消息'
 
 function tabOf(value: string | null): TicketTab {
@@ -277,6 +276,7 @@ function TicketDetail({ ticketId }: { ticketId: string }) {
         onLoad: () => controller.loadEarlier(scroll.rememberPositionBeforePrepend),
       }}
       error={shownError}
+      ticketEnded={ended}
       leftovers={desktop ? undefined : leftovers}
       actions={{
         kind: 'worker',

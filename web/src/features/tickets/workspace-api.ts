@@ -3,6 +3,7 @@ import { api } from '@/api/client'
 import { toApiError } from '@/api/errors'
 import { keys } from '@/api/keys'
 import type { components } from '@/types/api'
+import { downloadName } from '@/features/artifacts/format'
 
 /**
  * M75 §4.6 的计划与产物查询。
@@ -89,18 +90,6 @@ export function artifactDetailQueryOptions(artifactId: string | null | undefined
   })
 }
 
-function extensionOf(mime: string): string {
-  if (mime.includes('markdown')) return 'md'
-  if (mime.includes('json')) return 'json'
-  if (mime.startsWith('text/')) return 'txt'
-  return 'bin'
-}
-
-function filenameOf(artifact: Pick<ArtifactDetailView, 'title' | 'mime'>): string {
-  const stem = artifact.title.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 64) || 'artifact'
-  return `${stem}.${extensionOf(artifact.mime)}`
-}
-
 /**
  * 下载原始字节（`GET .../content`）。鉴权走 `api` 客户端，所以不能换成裸
  * `<a href>`；取到 Blob 后在前端拼一个对象 URL 存成文件。
@@ -114,7 +103,7 @@ export async function saveArtifactFile(
   })
   if (error || !data) throw toApiError(error, response)
   const blob = data as unknown as Blob
-  const filename = filenameOf(artifact)
+  const filename = downloadName(artifact.title, artifact.mime)
   const url = URL.createObjectURL(blob)
   try {
     const anchor = document.createElement('a')

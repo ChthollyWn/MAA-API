@@ -42,6 +42,8 @@ MEMORY_TOOLS = {"remember"}
 ECONOMY_TOOLS = {"optimize_farming"}
 #: M89 §4.7：``general`` 追加的自定义任务起草与校验工具。
 CUSTOM_TASK_TOOLS = {"draft_custom_task", "validate_custom_task"}
+#: M90 §4.7：四个 Worker 末尾追加的视图工具。
+VIEW_TOOLS = {"create_view"}
 TICKET_TOOLS = {
     "create_ticket",
     "send_to_ticket",
@@ -108,12 +110,23 @@ def test_general_tools_equal_legacy_chat_minus_delegate_recon_plus_worker_tools(
         | MEMORY_TOOLS
         | ECONOMY_TOOLS
         | CUSTOM_TASK_TOOLS
+        | VIEW_TOOLS
     )
     assert set(general.tools) == expected
     assert "delegate_recon" not in general.tools
     assert TICKET_TOOLS.isdisjoint(general.tools)
     assert set(general.deferred_groups) == set(DEFERRED_TOOL_GROUPS)
     assert general.delegates == ("researcher", "navigator", "verifier", "recon")
+
+
+def test_only_the_four_workers_get_create_view():
+    """M90 §4.7：``create_view`` 只给四个 Worker，总控与子代理不加载。"""
+    specs = builtin_specs()
+
+    for name in ("general", "analyst", "planner", "copilot"):
+        assert "create_view" in specs[name].tools
+    for name in ("orchestrator", "navigator", "researcher", "verifier", "recon"):
+        assert "create_view" not in specs[name].tools
 
 
 def test_subagents_have_schema_and_positive_max_steps():

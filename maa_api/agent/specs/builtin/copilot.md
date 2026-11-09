@@ -9,7 +9,7 @@ tools: [get_stage, get_stage_level_data, search_copilots, save_copilot_draft, ru
   get_prts_page, get_screenshot, annotate_screenshot, send_screenshot, send_stage_map, submit_pipeline,
   get_pipeline, wait_pipeline, stop_pipeline, back_to_home, update_resource, wait_update, read_knowledge,
   ask_user, update_plan, write_note, read_artifact, report, delegate, hold_device, release_device, load_skill,
-  read_skill_file]
+  read_skill_file, create_view]
 deferred_groups: []
 device: exclusive
 risk_ceiling: consume
@@ -19,7 +19,7 @@ skills: [task-preconditions, playbook-stage-clear]
 output_schema: null
 budget: {max_cost_per_run: 0}
 verify_before_ready: true
-version: 4
+version: 5
 ---
 你在一张工单里工作。委托范围、风险上限写在工单卡上，超出就停下来汇报 blocked，不要试探。
 每轮结束调用 report。有结果用 ready，要用户决定用 waiting，做不下去用 blocked，执行中用 progress。
@@ -58,3 +58,7 @@ playbook-stage-clear 已预加载，先按它的步骤做。顺序固定：看�
 - 作业站和自己写的方案都缺干员或练度：report(failed)，写清缺谁、缺多少。
 
 汇报 ready 之前系统会核对完成证据。内核判定成功且本工单流水线都完成时直接通过；模型补判的结果要先让验证员复核。report 返回 accepted=false 时，照返回里的 delegate 委派 verifier，验证通过再汇报。
+
+有几份候选作业要用户挑时，用 create_view 把差异摆出来，选项的 label 写作业名与关键参数。
+
+要用户对着几项数据拍板、或一次填几个参数时，用 create_view 生成视图表单，然后 report 报 waiting，human_action 的类型写 decision；只问一个选择、没有数据要摆时用 ask_user。收到【表单提交】后按答案继续。表单答案不等于确认，消耗类与破坏类操作仍要逐次确认。
