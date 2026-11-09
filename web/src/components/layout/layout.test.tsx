@@ -82,7 +82,7 @@ describe('App shell navigation', () => {
     const navigations = screen.getAllByRole('navigation', { name: '主导航' })
     expect(navigations).toHaveLength(1)
     const sidebar = navigations[0]!
-    for (const label of ['指挥台', '工单', '任务', '日志', '更多', '代理定义', '运行状态', '热更新', '技能', 'Agent 审计', 'API 调试台', '设置']) {
+    for (const label of ['指挥台', '工单', '任务', '日志', '更多', '代理定义', '产物', '运行状态', '热更新', '技能', 'Agent 审计', 'API 调试台', '设置']) {
       expect(within(sidebar).getByRole('link', { name: label })).toBeInTheDocument()
     }
     expect(screen.getByRole('link', { name: 'MAA-API 首页' })).toHaveAttribute('href', '/')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConversationEntries, isInboxEvent } from './transcript-v3'
+import { artifactIdOf, buildConversationEntries, isInboxEvent } from './transcript-v3'
 import type { V3Message } from './types'
 
 function message(overrides: Partial<V3Message> & Pick<V3Message, 'id' | 'role'>): V3Message {
@@ -125,5 +125,48 @@ describe('M72 会话条目', () => {
       summary: '1-7 刷完了',
       humanAction: { type: 'decision', prompt: '要不要继续刷', ref_id: null },
     })
+  })
+
+  it('attaches the artifact id to create_view calls', () => {
+    const { entries } = buildConversationEntries([
+      message({
+        id: 1,
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: 'cv1', function: { name: 'create_view', arguments: '{}' } }],
+      }),
+      message({
+        id: 2,
+        role: 'tool',
+        tool_name: 'create_view',
+        tool_call_id: 'cv1',
+        content: '{"status":"ok","result":{"artifact_id":"artifact-1"}}',
+      }),
+    ], { mainSessionId: 'main' })
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ kind: 'tool', artifactId: 'artifact-1' })
+    if (entries[0]?.kind !== 'tool') throw new Error('不是工具条目')
+    expect(artifactIdOf(entries[0].tool)).toBe('artifact-1')
+
+    const missing = buildConversationEntries([
+      message({
+        id: 1,
+        role: 'tool',
+        tool_name: 'create_view',
+        content: '{"result":{}}',
+      }),
+    ], { mainSessionId: 'main' })
+    expect(missing.entries[0]).toMatchObject({ kind: 'tool', artifactId: null })
+
+    const wrongType = buildConversationEntries([
+      message({
+        id: 1,
+        role: 'tool',
+        tool_name: 'create_view',
+        content: '{"result":{"artifact_id":42}}',
+      }),
+    ], { mainSessionId: 'main' })
+    expect(wrongType.entries[0]).toMatchObject({ kind: 'tool', artifactId: null })
   })
 })

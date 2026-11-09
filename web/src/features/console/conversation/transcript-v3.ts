@@ -15,7 +15,7 @@ export type ConversationEntry =
   | { kind: 'user'; key: string; message: V3Message; text: string; references: string[] }
   | { kind: 'event'; key: string; message: V3Message; eventKind: EventKind; body: string; link: EventLink | null }
   | { kind: 'assistant'; key: string; message: V3Message }
-  | { kind: 'tool'; key: string; tool: ToolView; subRunId: string | null }
+  | { kind: 'tool'; key: string; tool: ToolView; subRunId: string | null; artifactId: string | null }
   | { kind: 'report'; key: string; status: string; summary: string; humanAction: HumanAction | null }
 
 const EVENT_KINDS: ReadonlySet<string> = new Set(['report', 'thread_event', 'system', 'trigger'])
@@ -23,6 +23,13 @@ const EVENT_KINDS: ReadonlySet<string> = new Set(['report', 'thread_event', 'sys
 /** 收件箱转出的消息（不是用户本人说的话）：有 `inbox_id` 且不是 `user_message`。 */
 export function isInboxEvent(message: Pick<V3Message, 'inbox_id' | 'inbox_kind'>): boolean {
   return message.inbox_id != null && message.inbox_kind !== 'user_message'
+}
+
+/** `create_view` 的结果里带着新产物的 id；历史与实时共用这一条取值规则（M90 §4.6.4）。 */
+export function artifactIdOf(tool: ToolView): string | null {
+  const body = tool.result
+  const value = isRecord(body) && isRecord(body.result) ? body.result.artifact_id : null
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 const EVENT_PREFIXES: ReadonlyArray<[string, EventKind]> = [
@@ -98,7 +105,7 @@ function toEntry(entry: TranscriptEntry, currentTicketId?: string): Conversation
     const runId = tool.result.result.run_id
     if (typeof runId === 'string') subRunId = runId
   }
-  return { kind: 'tool', key: entry.key, tool, subRunId }
+  return { kind: 'tool', key: entry.key, tool, subRunId, artifactId: artifactIdOf(tool) }
 }
 
 /**

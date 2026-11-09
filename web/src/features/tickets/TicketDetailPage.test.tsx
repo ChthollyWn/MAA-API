@@ -77,6 +77,66 @@ function workerMessage(id: number, content: string | null, overrides: Json = {})
   return makeV3Message({ id, session_id: 'w1', seq: id, role: 'assistant', content, run_id: 'r1', ...overrides })
 }
 
+/** 一张视图产物的列表项与详情（M90）：视图卡从 `create_view` 的工具结果挂出来。 */
+function viewArtifact(overrides: Json = {}): Json {
+  return {
+    id: 'view1',
+    ticket_id: 't1',
+    session_id: 'w1',
+    kind: 'form',
+    title: '这周刷哪一关',
+    mime: 'application/vnd.maa.view+json',
+    size_bytes: 512,
+    storage: 'db',
+    pinned: false,
+    created_at: '2026-10-01T09:30:00Z',
+    content: JSON.stringify({
+      version: 1,
+      title: '这周刷哪一关',
+      components: [
+        {
+          type: 'field',
+          field: 'select',
+          name: 'stage',
+          label: '关卡',
+          required: true,
+          options: [{ value: '1-7', label: '1-7' }],
+          multiple: false,
+          default: '1-7',
+        },
+        { type: 'submit', label: '提交' },
+      ],
+    }),
+    truncated: false,
+    meta: { view_version: 1, submissions: [], last_submitted_at: null },
+    ...overrides,
+  }
+}
+
+function createViewMessages(): Json[] {
+  return [
+    makeV3Message({
+      id: 1,
+      session_id: 'w1',
+      seq: 1,
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'cv1', type: 'function', function: { name: 'create_view', arguments: '{}' } }],
+      run_id: 'r1',
+    }),
+    makeV3Message({
+      id: 2,
+      session_id: 'w1',
+      seq: 2,
+      role: 'tool',
+      tool_name: 'create_view',
+      tool_call_id: 'cv1',
+      content: JSON.stringify({ status: 'ok', result: { artifact_id: 'view1' } }),
+      run_id: 'r1',
+    }),
+  ]
+}
+
 describe('M72 工单页', () => {
   beforeEach(() => {
     document.documentElement.scrollTop = 0
@@ -453,5 +513,66 @@ describe('M72 工单页', () => {
     expect(await within(sidebar).findByText('清日常')).toBeInTheDocument()
     expect(within(sidebar).getByRole('button', { name: '批准' })).toBeInTheDocument()
     expect(await within(sidebar).findByText('作战笔记')).toBeInTheDocument()
+  })
+
+  it('renders a view card under the create_view call', async () => {
+    const artifact = viewArtifact()
+    const api = createConsoleApi({
+      ticketDetails: { t1: baseDetail({ ticket: baseTicket({ status: 'open' }) }) },
+      ticketMessages: { t1: createViewMessages() },
+      artifacts: [artifact],
+      artifactDetails: { view1: artifact },
+    })
+    renderDetail()
+
+    const card = await screen.findByRole('region', { name: '视图 这周刷哪一关' })
+    expect(screen.getByText('生成视图')).toBeInTheDocument()
+    expect(within(card).getByLabelText('关卡')).toHaveValue('1-7')
+
+    fireEvent.click(within(card).getByRole('button', { name: '提交' }))
+    await waitFor(() => expect(api.requests.find(
+      (request) => request.method === 'POST' && request.path === '/api/agent/artifacts/view1/submit',
+    )).toBeDefined())
+    expect(await screen.findByText('已提交表单')).toBeInTheDocument()
+  })
+
+  it('renders a view card from a live create_view result', async () => {
+    let held: ReturnType<typeof heldStream> | null = null
+    const artifact = viewArtifact()
+    createConsoleApi({
+      ticketDetails: { t1: baseDetail({ ticket: baseTicket({ status: 'open' }) }) },
+      ticketMessages: { t1: [] },
+      artifacts: [artifact],
+      artifactDetails: { view1: artifact },
+      stream: () => {
+        held = heldStream([
+          event('run_start', { run_id: 'r1', parent_run_id: null, agent: 'general', kind: 'worker_turn', ticket_id: 't1' }),
+        ])
+        return held.response
+      },
+    })
+    renderDetail()
+
+    const box = await screen.findByRole('textbox', { name: '发送给 Worker' })
+    fireEvent.change(box, { target: { value: '给个表单' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(screen.getByRole('region', { name: '本轮消息' })).toBeInTheDocument())
+
+    act(() => {
+      held?.push([
+        event('tool_start', { run_id: 'r1', tool_call_id: 'cv1', name: 'create_view', arguments: {} }),
+        event('tool_result', {
+          run_id: 'r1',
+          tool_call_id: 'cv1',
+          name: 'create_view',
+          audit_id: null,
+          result: { artifact_id: 'view1' },
+        }),
+      ])
+    })
+
+    const card = await screen.findByRole('region', { name: '视图 这周刷哪一关' })
+    expect(within(card).getByLabelText('关卡')).toHaveValue('1-7')
+    expect(within(card).getByRole('button', { name: '提交' })).toBeInTheDocument()
   })
 })

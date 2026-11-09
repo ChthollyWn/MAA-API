@@ -86,6 +86,8 @@ export interface ConsoleApiState {
   plans: Record<string, Json | null>
   artifacts: Json[]
   artifactDetails: Record<string, Json>
+  /** 表单提交的请求体（M90）：卡片与详情页断言规整后的值。 */
+  artifactSubmissions: Json[]
   /** 长期记忆（M79）：待你处理只读 `status=proposed` 的那一段。 */
   memories: Json[]
   /** 值守告警（M83）：待你处理只读未解除的 critical 那一段。 */
@@ -181,6 +183,7 @@ function makeState(options: ConsoleApiOptions): ConsoleApiState {
     plans: { ...(options.plans ?? {}) },
     artifacts: options.artifacts ?? [],
     artifactDetails: { ...(options.artifactDetails ?? {}) },
+    artifactSubmissions: [],
     memories: options.memories ?? [],
     watchdogAlerts: options.watchdogAlerts ?? [],
   }
@@ -485,7 +488,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       return pageOf(items, page, size)
     }
 
-    const artifactMatch = /^\/api\/agent\/artifacts\/([^/]+?)(\/content|\/pin)?$/.exec(url.pathname)
+    const artifactMatch = /^\/api\/agent\/artifacts\/([^/]+?)(\/content|\/pin|\/submit)?$/.exec(url.pathname)
     if (artifactMatch) {
       const artifactId = decodeURIComponent(artifactMatch[1]!)
       const sub = artifactMatch[2]
@@ -507,6 +510,15 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
         state.artifacts = state.artifacts.map((item) => (item.id === artifactId ? next : item))
         state.artifactDetails[artifactId] = next
         return json(next)
+      }
+      if (sub === '/submit' && request.method === 'POST') {
+        const payload = (body ?? {}) as Json
+        state.artifactSubmissions.push(payload)
+        return json({
+          artifact_id: artifactId,
+          ticket_id: detail.ticket_id ?? '',
+          submitted_at: '2026-10-03T10:00:00Z',
+        })
       }
     }
 

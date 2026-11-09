@@ -23,6 +23,7 @@ import { TicketLinkChip, toolTicketLink } from './TicketLinkChip'
 import { buildConversationEntries, type ConversationEntry } from './transcript-v3'
 import type { ConversationScope, V3Message } from './types'
 import { UserMessage } from './UserMessage'
+import { ViewArtifactCard } from '@/features/artifacts/ViewArtifactCard'
 import type { ShownError } from '@/features/agent/types'
 
 /** 消息上的四个回溯动作（M80 §4.6）由页面注入；不传时消息列表与 M79 一致。 */
@@ -58,6 +59,8 @@ export interface ConversationViewProps {
   leftovers?: ReactNode
   /** M80：消息旁的四个动作；不传时不渲染动作菜单，也不折叠被取代的消息。 */
   actions?: ConversationActionsConfig
+  /** 工单已结束：视图卡里的表单只读（M90 §4.6.4）。 */
+  ticketEnded?: boolean
 }
 
 const noop = () => {}
@@ -67,13 +70,14 @@ function entryAgentName(tool: ToolView): string | null {
   return tool.arguments.agent
 }
 
-function ConversationEntryView({ entry, subRuns, specTitles, currentTicketId, actions, messages }: {
+function ConversationEntryView({ entry, subRuns, specTitles, currentTicketId, actions, messages, ticketEnded }: {
   entry: ConversationEntry
   subRuns: ReadonlyMap<string, V3Message[]>
   specTitles: ReadonlyMap<string, string>
   currentTicketId?: string
   actions?: ConversationActionsConfig
   messages?: readonly V3Message[]
+  ticketEnded: boolean
 }): ReactNode {
   const withActions = (message: V3Message, node: ReactNode): ReactNode => (
     actions && messages
@@ -125,6 +129,7 @@ function ConversationEntryView({ entry, subRuns, specTitles, currentTicketId, ac
             subRuns={subRuns}
             specTitles={specTitles}
             currentTicketId={currentTicketId}
+            ticketEnded={ticketEnded}
           />
         ))}
       </DelegateToolBar>
@@ -136,6 +141,9 @@ function ConversationEntryView({ entry, subRuns, specTitles, currentTicketId, ac
     <div className="space-y-2">
       <ToolCallBar tool={entry.tool} />
       {link ? <TicketLinkChip ticketId={link.ticketId} title={link.title} /> : null}
+      {entry.artifactId ? (
+        <ViewArtifactCard artifactId={entry.artifactId} ticketEnded={ticketEnded} />
+      ) : null}
     </div>
   )
 }
@@ -170,6 +178,7 @@ export function ConversationView({
   emptyState,
   leftovers,
   actions,
+  ticketEnded,
 }: ConversationViewProps) {
   const currentTicketId = scope.kind === 'ticket' ? scope.ticketId : undefined
   const { blocks, subRuns, mainMessages } = useMemo(() => {
@@ -254,6 +263,7 @@ export function ConversationView({
                   subRuns={subRuns}
                   specTitles={specTitles}
                   currentTicketId={currentTicketId}
+                  ticketEnded={ticketEnded ?? false}
                 />
               ))}
             </SupersededFold>
@@ -268,6 +278,7 @@ export function ConversationView({
                   currentTicketId={currentTicketId}
                   actions={actions}
                   messages={mainMessages}
+                  ticketEnded={ticketEnded ?? false}
                 />
               ))}
             </Fragment>
@@ -282,6 +293,7 @@ export function ConversationView({
           specTitles={specTitles}
           resolver={resolver}
           onQuestionResolved={onQuestionResolved ?? noop}
+          ticketEnded={ticketEnded}
         />
       ) : null}
       {queued?.map((item) => (

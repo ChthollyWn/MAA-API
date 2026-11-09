@@ -10,6 +10,9 @@ export type { HumanAction } from '@/features/console/conversation/types'
  */
 export type TicketStatusValue = 'open' | 'waiting' | 'blocked' | 'done' | 'failed' | 'cancelled'
 
+/** 工单的终态：会话输入框与表单提交都只读（M90 §4.6.3）。 */
+export const ENDED_STATUSES: readonly TicketStatusValue[] = ['done', 'failed', 'cancelled']
+
 export interface TicketView {
   id: string
   title: string
