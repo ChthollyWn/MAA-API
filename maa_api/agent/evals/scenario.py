@@ -26,8 +26,10 @@ from ruamel.yaml.error import YAMLError
 from maa_api.settings import SETTING_KEYS
 
 __all__ = [
+    "COPILOT_RESULTS",
     "SCENARIO_ID_RE",
     "AnswerSpec",
+    "CopilotResult",
     "Entry",
     "EntryKind",
     "GraderSpec",
@@ -56,6 +58,29 @@ __all__ = [
 SCENARIO_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,63}$")
 Suite = Literal["regression", "capability"]
 EntryKind = Literal["legacy_session", "orchestrator", "ticket"]
+
+#: ``World.copilot_results`` 的合法取值（M87 §4.5 的尝试结果集合）。
+COPILOT_RESULTS = (
+    "three_star",
+    "two_star",
+    "clear",
+    "failed",
+    "sanity_insufficient",
+    "not_started",
+    "unknown",
+)
+CopilotResult = Literal[
+    "three_star",
+    "two_star",
+    "clear",
+    "failed",
+    "sanity_insufficient",
+    "not_started",
+    "unknown",
+]
+
+#: ``World.copilots[*]`` 允许的键；其它键在加载期报错。
+_COPILOT_FIELDS = ("id", "title", "stage_id", "stage_code")
 
 #: 所有场景模型的公共配置：未知字段一律报错，避免拼错的字段被静默忽略。
 _MODEL_CONFIG = ConfigDict(extra="forbid")
@@ -98,7 +123,8 @@ class InterruptSpec(BaseModel):
 class HumanPolicy(BaseModel):
     model_config = _MODEL_CONFIG
 
-    confirmations: Literal["approve", "reject", "ignore"] = "reject"
+    #: ``pending`` 与 ``ignore`` 都是「不处理」，前者是 M86/M87 场景的写法。
+    confirmations: Literal["approve", "reject", "ignore", "pending"] = "reject"
     questions: Literal["ignore", "skip"] | AnswerSpec = "ignore"
     interrupt: InterruptSpec | None = None
 
@@ -153,6 +179,8 @@ class SeedPipeline(BaseModel):
     minutes_ago: int = 10
     error_code: str | None = None
     error_message: str | None = None
+    #: 流水线归属的会话；为空时不写这一列（M87 的 seed 需要）。
+    agent_session_id: str | None = None
     tasks: list[SeedTask]
     logs: list[SeedLog] = Field(default_factory=list)
 
@@ -171,6 +199,47 @@ class World(BaseModel):
     screen: Literal["home", "desktop", "stage", "battle", "settlement"] = "home"
     http: list[HttpFixture] = Field(default_factory=list)
     seed: WorldSeed = Field(default_factory=WorldSeed)
+    #: 作业站作业；同时决定 ``search_copilots`` 的返回与可执行的作业资源。
+    copilots: list[dict[str, Any]] = Field(default_factory=list)
+    #: 每次 ``run_copilot_attempt`` 的结果，按尝试顺序消费。
+    copilot_results: list[CopilotResult] = Field(default_factory=list)
+
+    @field_validator("copilots")
+    @classmethod
+    def _check_copilot_rows(
+        cls, value: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        for index, row in enumerate(value):
+            unknown = sorted(set(row) - set(_COPILOT_FIELDS))
+            if unknown:
+                raise ValueError(
+                    f"copilots[{index}] 未知字段：{', '.join(unknown)}"
+                )
+            if not str(row.get("id") or "").strip():
+                raise ValueError(f"copilots[{index}] 缺少 id")
+            if not str(row.get("stage_id") or "").strip():
+                raise ValueError(f"copilots[{index}] 缺少 stage_id")
+        return value
+
+    @field_validator("copilot_results", mode="before")
+    @classmethod
+    def _known_copilot_results(cls, value: Any) -> Any:
+        """把非法结果连同取值写进错误消息：Literal 的默认消息不带输入值。"""
+        if isinstance(value, list):
+            unknown = [
+                str(result) for result in value if result not in COPILOT_RESULTS
+            ]
+            if unknown:
+                raise ValueError(
+                    f"copilot_results 含未知结果：{', '.join(unknown)}"
+                )
+        return value
+
+    @model_validator(mode="after")
+    def _copilot_results_need_copilots(self) -> World:
+        if self.copilot_results and not self.copilots:
+            raise ValueError("copilot_results 需要同时给 copilots")
+        return self
 
 
 class Limits(BaseModel):
@@ -255,6 +324,8 @@ class Scenario(BaseModel):
     settings: dict[str, Any] = Field(default_factory=dict)
     world: World = Field(default_factory=World)
     turns: list[Turn] = Field(default_factory=list)
+    #: ticket 入口的人工策略；legacy_session 入口仍读 ``turns[].human``。
+    human: HumanPolicy = Field(default_factory=HumanPolicy)
     expect: list[GraderSpec] = Field(min_length=1)
     cassette: str | None = None
     limits: Limits = Field(default_factory=Limits)
