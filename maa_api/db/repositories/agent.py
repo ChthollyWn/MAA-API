@@ -23,7 +23,7 @@ Chat Completions（docs/04 §5.8），重建上下文只需要 ``SELECT`` 后改
 from collections.abc import Collection
 from datetime import datetime
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from maa_api.db.models import (
@@ -115,12 +115,10 @@ class AgentSessionRepository(BaseRepository):
         *,
         page: int = 1,
         size: int = 20,
-        legacy_only: bool = False,
     ) -> Page[AgentSession]:
-        """分页读会话；``legacy_only=True`` 时只列旧会话（M72 规格 §4.2）。
+        """分页读会话（``last_message_at`` 倒序，从未发过消息的排最后）。
 
-        旧会话是 chat、incident 两类，加上已归档的 orchestrator（``archived_at``
-        非空）。排序不变；计数语句带同样的条件，``total`` 是过滤后的总数。
+        排序与 ``list_recent`` 同一口径；计数语句不带过滤，``total`` 是全部会话数。
         """
         stmt = select(AgentSession).order_by(
             AgentSession.last_message_at.is_(None).asc(),
@@ -129,16 +127,6 @@ class AgentSessionRepository(BaseRepository):
             AgentSession.id.desc(),
         )
         count_stmt = select(func.count()).select_from(AgentSession)
-        if legacy_only:
-            conditions = or_(
-                AgentSession.kind.in_(["chat", "incident"]),
-                and_(
-                    AgentSession.kind == "orchestrator",
-                    AgentSession.archived_at.is_not(None),
-                ),
-            )
-            stmt = stmt.where(conditions)
-            count_stmt = count_stmt.where(conditions)
         return await self.paginate(stmt, count_stmt, page=page, size=size)
 
     async def delete(self, session_id: str) -> bool:

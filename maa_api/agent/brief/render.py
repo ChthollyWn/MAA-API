@@ -33,11 +33,6 @@ NO_SANITY_TEXT = "没有理智记录（跑过一次刷理智后才有）"
 SUGGESTION_PENDING = "生成中"
 SUGGESTION_FACTS_ONLY = "这次没有生成建议"
 
-_SPEND_ORDER: tuple[tuple[str, str], ...] = (
-    ("medicine", "理智药"),
-    ("stone", "源石"),
-    ("expedite", "加急许可"),
-)
 _CURRENCY_UNITS: dict[str, str] = {"CNY": "元"}
 
 
@@ -221,42 +216,6 @@ def _yesterday_section(facts: BriefFacts) -> str | None:
     return "## 昨天\n" + "\n".join(lines)
 
 
-def _today_spend_text(item: dict[str, Any]) -> str:
-    kind = str(item.get("kind") or "")
-    label = str(item.get("label") or "")
-    for key, name in _SPEND_ORDER:
-        if key == kind:
-            label = label or name
-            break
-    label = label or kind
-    used = int(item.get("used") or 0)
-    limit = item.get("limit")
-    limit = -1 if limit is None else int(limit)
-    if limit == -1:
-        return f"{label} {used}（不限）"
-    return f"{label} {used}/{limit}"
-
-
-def _spend_section(facts: BriefFacts) -> str | None:
-    today = facts.spend_today or []
-    if not today:
-        return None
-    lines = [
-        "## 消耗（按任务参数上限计）",
-        "- 今日：" + "，".join(_today_spend_text(item) for item in today),
-    ]
-    yesterday = facts.spend_yesterday or {}
-    if yesterday:
-        lines.append(
-            "- 昨日："
-            + "，".join(
-                f"{name} {int(yesterday.get(key) or 0)}"
-                for key, name in _SPEND_ORDER
-            )
-        )
-    return "\n".join(lines)
-
-
 def _pending_section(facts: BriefFacts) -> str | None:
     pending = facts.pending or {}
     count_parts: list[str] = []
@@ -302,7 +261,6 @@ _SECTION_BUILDERS = (
     _gacha_section,
     _plans_goals_section,
     _yesterday_section,
-    _spend_section,
     _pending_section,
 )
 

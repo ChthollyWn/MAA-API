@@ -1,10 +1,13 @@
-"""REST contract for M11 tool invocations, audit lookup, sessions and approvals."""
+"""REST contract for M11 tool invocations, audit lookup and approvals.
+
+v2 会话的四个只读端点（列表、详情、删除、消息分页）已随旧会话查看器删除，
+本文件不再覆盖它们；保留的授权撤销端点与工具/审计契约照旧。
+"""
 
 from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -16,8 +19,6 @@ import maa_api.db.models  # noqa: F401
 from maa_api.db.models import (
     AgentAudit,
     AgentIdempotency,
-    AgentInbox,
-    AgentMessage,
     AgentRun,
     AgentSession,
     Ticket,
@@ -41,7 +42,7 @@ class Args(SQLModel):
     value: int
 
 
-def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messages(monkeypatch):
+def test_agent_rest_contract_includes_tools_confirmations_and_atomic_grant(monkeypatch):
     async def scenario():
         engine = db_session.make_engine(
             "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
@@ -108,11 +109,6 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
         app.dependency_overrides[get_session] = get_test_session
         set_settings(Settings(llm=LLMSettings(base_url="https://llm.test/v1", api_key="k", model="m")))
 
-        class LockedRuntime:
-            def turn_running(self, _session_id):
-                return False
-
-        app.state.agent_runtime = LockedRuntime()
         client = TestClient(app, raise_server_exceptions=False)
         client.__enter__()
         try:
@@ -128,12 +124,6 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
                 )
                 await db.commit()
             session_id = stored.id
-            assert client.get("/api/agent/sessions").json()["total"] == 1
-            session_detail = client.get(f"/api/agent/sessions/{session_id}")
-            assert session_detail.status_code == 200
-            assert session_detail.json()["incident_key"] is None
-            messages = client.get(f"/api/agent/sessions/{session_id}/messages")
-            assert messages.status_code == 200 and messages.json()["items"] == []
 
             accepted = client.post(
                 "/api/agent/tools/dangerous_action/invoke",
@@ -217,9 +207,8 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
             assert invoked == [8]
             assert client.get("/api/agent/audits?caller=rest").json()["total"] == 2
 
+            # 授权撤销与删除会话脱钩：撤销原子授权仍在，会话本身不再有删除端点。
             assert client.delete(f"/api/agent/sessions/{session_id}/atomic-grant").status_code == 204
-            assert client.delete(f"/api/agent/sessions/{session_id}").status_code == 204
-            assert client.get(f"/api/agent/sessions/{session_id}").status_code == 404
 
             sync_first = client.post(
                 "/api/agent/tools/safe_action/invoke",
@@ -297,8 +286,12 @@ def test_agent_rest_contract_includes_sessions_confirmations_and_read_only_messa
     asyncio.run(scenario())
 
 
-def test_removed_v2_session_write_routes():
-    """M72 §4.3：四个 v2 写端点删除后的状态码与 OpenAPI 路径。"""
+def test_removed_v2_session_routes_and_read_only_viewer():
+    """M72 + 维护性补丁：四个 v2 只读端点与旧写端点都不再注册。
+
+    只读端点（列表、详情、删除、消息分页）随旧会话查看器一起删除；旧的 v2 写端点
+    （消息、中断、能力自检）此前已删。保留的原子/作业授权撤销仍在 OpenAPI 里。
+    """
 
     app = FastAPI()
     register_exception_handlers(app)
@@ -308,13 +301,19 @@ def test_removed_v2_session_write_routes():
     client = TestClient(app, raise_server_exceptions=False)
     client.__enter__()
     try:
-        # 同路径 GET 还在：POST 落到 405，不是 404。
+        # 删干净之后没有同路径的其它 method：POST 列表路径直接 404，而不是 405。
         created = client.post("/api/agent/sessions", json={"title": "test"})
-        assert created.status_code == 405
-        message = client.post(
-            "/api/agent/sessions/x/messages", json={"content": "hi"}
-        )
-        assert message.status_code == 405
+        assert created.status_code == 404
+        assert created.json()["error"]["code"] == "NOT_FOUND"
+        for method, path in (
+            ("get", "/api/agent/sessions"),
+            ("get", "/api/agent/sessions/x"),
+            ("delete", "/api/agent/sessions/x"),
+            ("get", "/api/agent/sessions/x/messages"),
+        ):
+            response = getattr(client, method)(path)
+            assert response.status_code == 404, (method, path, response.text)
+            assert response.json()["error"]["code"] == "NOT_FOUND"
 
         interrupted = client.post("/api/agent/sessions/x/interrupt")
         assert interrupted.status_code == 404
@@ -324,9 +323,20 @@ def test_removed_v2_session_write_routes():
         assert capabilities.json()["error"]["code"] == "NOT_FOUND"
 
         paths = set(app.openapi()["paths"])
+        # 维护性补丁删掉的三个只读路径（删除会话复用 {session_id}，不再单列）。
+        for path in (
+            "/api/agent/sessions",
+            "/api/agent/sessions/{session_id}",
+            "/api/agent/sessions/{session_id}/messages",
+        ):
+            assert path not in paths, path
         assert "/api/agent/sessions/{session_id}/interrupt" not in paths
         assert "/api/agent/capabilities/check" not in paths
-        assert "post" not in app.openapi()["paths"]["/api/agent/sessions"]
+        # 保留的授权撤销与 v3 会话端点仍在。
+        assert {
+            "/api/agent/sessions/{session_id}/atomic-grant",
+            "/api/agent/sessions/{session_id}/copilot-grant",
+        } <= paths
     finally:
         client.__exit__(None, None, None)
 
@@ -379,46 +389,6 @@ def test_idempotency_loser_returns_explicit_in_progress_with_linked_audit(monkey
             "retry_after_seconds": 1,
         }
         await engine.dispose()
-
-    asyncio.run(scenario())
-
-
-def test_session_detail_reports_false_turn_running_without_a_mounted_runtime(tmp_path):
-    """没装配 runtime 的部署里详情照样可用：``turn_running`` 只报 false。"""
-
-    async def scenario():
-        engine = db_session.make_engine(
-            f"sqlite+aiosqlite:///{tmp_path / 'no-runtime.sqlite3'}"
-        )
-        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-        async with engine.begin() as connection:
-            await connection.run_sync(SQLModel.metadata.create_all)
-        async with factory() as session:
-            session.add(AgentSession(id="plain", model="m", base_url="https://llm.test/v1"))
-            await session.commit()
-
-        app = FastAPI()
-        register_exception_handlers(app)
-        from maa_api.api.routers import agent
-
-        app.include_router(agent.router)
-        app.state.session_factory = factory
-        async def get_test_session():
-            async with factory() as session:
-                yield session
-
-        app.dependency_overrides[get_session] = get_test_session
-        set_settings(Settings())
-        client = TestClient(app, raise_server_exceptions=False)
-        client.__enter__()
-        try:
-            detail = client.get("/api/agent/sessions/plain")
-            assert detail.status_code == 200
-            assert detail.json()["turn_running"] is False
-        finally:
-            client.__exit__(None, None, None)
-            set_settings(None)
-            await engine.dispose()
 
     asyncio.run(scenario())
 
@@ -488,100 +458,6 @@ def test_rest_hidden_tools_are_absent_from_the_catalog_and_not_invocable():
             assert response.status_code == 404
             assert response.json()["error"]["code"] == "TOOL_NOT_FOUND"
             assert invoked == []
-        finally:
-            client.__exit__(None, None, None)
-            set_settings(None)
-            await engine.dispose()
-
-    asyncio.run(scenario())
-
-
-def test_v2_session_routes_ignore_v3_sessions(tmp_path):
-    """M70 §4.5.12 第 3 条：v2 会话路由只认 chat / incident。
-
-    列表不列总控 / Worker / 子代理会话；对它们删除按 404 处理；
-    读详情、读消息、撤销授权不过滤（M73 要用 Worker 会话 id 调它们）。
-    """
-
-    async def scenario():
-        engine = db_session.make_engine(
-            f"sqlite+aiosqlite:///{tmp_path / 'v2-filter.sqlite3'}"
-        )
-        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-        async with engine.begin() as connection:
-            await connection.run_sync(SQLModel.metadata.create_all)
-        async with factory() as session:
-            session.add_all(
-                [
-                    AgentSession(id="v2-chat", model="m", kind="chat"),
-                    AgentSession(id="v2-incident", model="m", kind="incident"),
-                    AgentSession(id="v3-orchestrator", model="m", kind="orchestrator"),
-                    AgentSession(id="v3-worker", model="m", kind="worker"),
-                    AgentSession(id="v3-subagent", model="m", kind="subagent"),
-                ]
-            )
-            await session.commit()
-
-        class _Runtime:
-            session_factory = factory
-
-            def turn_running(self, _session_id):
-                return False
-
-        class _Confirmation:
-            session_factory = factory
-
-            def __init__(self):
-                self.revoked: list[str] = []
-
-            async def revoke_session_grant(self, session_id):
-                self.revoked.append(session_id)
-
-        confirmation = _Confirmation()
-        app = FastAPI()
-        register_exception_handlers(app)
-        from maa_api.api.routers import agent
-
-        app.include_router(agent.router)
-        app.state.agent_runtime = _Runtime()
-        app.state.confirmation_service = confirmation
-        app.state.session_factory = factory
-
-        async def get_test_session():
-            async with factory() as session:
-                yield session
-
-        app.dependency_overrides[get_session] = get_test_session
-        set_settings(Settings())
-        client = TestClient(app, raise_server_exceptions=False)
-        client.__enter__()
-        try:
-            listed = client.get("/api/agent/sessions?size=50")
-            assert listed.status_code == 200, listed.text
-            payload = listed.json()
-            assert payload["total"] == 2
-            assert {item["session_id"] for item in payload["items"]} == {
-                "v2-chat",
-                "v2-incident",
-            }
-
-            for session_id in ("v3-orchestrator", "v3-worker", "v3-subagent"):
-                deleted = client.delete(f"/api/agent/sessions/{session_id}")
-                assert deleted.status_code == 404, deleted.text
-                assert deleted.json()["error"]["code"] == "AGENT_SESSION_NOT_FOUND"
-
-            # 读详情、读消息、撤销授权不过滤：Worker 会话照常可用。
-            detail = client.get("/api/agent/sessions/v3-worker")
-            assert detail.status_code == 200, detail.text
-            assert detail.json()["session_id"] == "v3-worker"
-
-            messages = client.get("/api/agent/sessions/v3-worker/messages")
-            assert messages.status_code == 200, messages.text
-            assert messages.json()["items"] == []
-
-            revoked = client.delete("/api/agent/sessions/v3-worker/atomic-grant")
-            assert revoked.status_code == 204, revoked.text
-            assert confirmation.revoked == ["v3-worker"]
         finally:
             client.__exit__(None, None, None)
             set_settings(None)
@@ -690,179 +566,6 @@ def test_list_audits_filters_by_ticket_and_returns_origin_columns():
             ]
             assert len(nulls) == 1
             assert (nulls[0]["run_id"], nulls[0]["agent_name"]) == (None, None)
-        finally:
-            client.__exit__(None, None, None)
-            set_settings(None)
-            await engine.dispose()
-
-    asyncio.run(scenario())
-
-
-def test_legacy_session_list_hides_v3_sessions():
-    """M72 §4.2：旧会话列表只列 chat、incident 与已归档的总控。"""
-
-    async def scenario():
-        engine = db_session.make_engine(
-            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
-        )
-        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-        async with engine.begin() as connection:
-            await connection.run_sync(SQLModel.metadata.create_all)
-        async with factory() as db:
-            db.add_all(
-                [
-                    AgentSession(id="legacy-chat", model="m", kind="chat"),
-                    AgentSession(id="legacy-incident", model="m", kind="incident"),
-                    AgentSession(
-                        id="active-orchestrator", model="m", kind="orchestrator"
-                    ),
-                    AgentSession(
-                        id="archived-orchestrator",
-                        model="m",
-                        kind="orchestrator",
-                        archived_at=datetime(2026, 11, 1, 12, 0, 0),
-                    ),
-                    AgentSession(id="worker-session", model="m", kind="worker"),
-                    AgentSession(id="subagent-session", model="m", kind="subagent"),
-                ]
-            )
-            await db.commit()
-
-        app = FastAPI()
-        register_exception_handlers(app)
-        from maa_api.api.routers import agent
-
-        app.include_router(agent.router)
-
-        async def get_test_session():
-            async with factory() as session:
-                yield session
-
-        app.dependency_overrides[get_session] = get_test_session
-        set_settings(Settings())
-        client = TestClient(app, raise_server_exceptions=False)
-        client.__enter__()
-        try:
-            listed = client.get("/api/agent/sessions?size=50")
-            assert listed.status_code == 200, listed.text
-            payload = listed.json()
-            assert payload["total"] == 3
-            items = {item["session_id"]: item for item in payload["items"]}
-            assert set(items) == {
-                "legacy-chat",
-                "legacy-incident",
-                "archived-orchestrator",
-            }
-            for item in items.values():
-                assert "kind" in item
-                assert "archived_at" in item
-            assert (items["legacy-chat"]["kind"], items["legacy-chat"]["archived_at"]) == (
-                "chat",
-                None,
-            )
-            assert items["legacy-incident"]["kind"] == "incident"
-            archived = items["archived-orchestrator"]
-            assert archived["kind"] == "orchestrator"
-            assert archived["archived_at"].endswith("Z")
-        finally:
-            client.__exit__(None, None, None)
-            set_settings(None)
-            await engine.dispose()
-
-    asyncio.run(scenario())
-
-
-def test_message_wire_exposes_run_and_inbox_fields():
-    """M72 §4.1：v2 消息 wire 带运行与收件箱归属四个字段。"""
-
-    async def scenario():
-        engine = db_session.make_engine(
-            "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
-        )
-        factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-        async with engine.begin() as connection:
-            await connection.run_sync(SQLModel.metadata.create_all)
-        async with factory() as db:
-            db.add(AgentSession(id="wire-session", model="m"))
-            await db.commit()
-            db.add(
-                AgentRun(
-                    id="wire-run",
-                    root_run_id="wire-run",
-                    session_id="wire-session",
-                    agent_name="orchestrator",
-                    kind="orchestrator_turn",
-                    boot_id="boot-test",
-                )
-            )
-            inbox = AgentInbox(
-                session_id="wire-session",
-                kind="report",
-                thread_key="ticket:t1",
-                payload={"text": "汇报"},
-            )
-            db.add(inbox)
-            await db.commit()
-            inbox_id = int(inbox.id)
-            db.add_all(
-                [
-                    AgentMessage(
-                        session_id="wire-session",
-                        seq=0,
-                        role="user",
-                        content="普通消息",
-                        run_id="wire-run",
-                    ),
-                    AgentMessage(
-                        session_id="wire-session",
-                        seq=1,
-                        role="user",
-                        content="【工单汇报】做完了",
-                        inbox_id=inbox_id,
-                    ),
-                ]
-            )
-            await db.commit()
-
-        app = FastAPI()
-        register_exception_handlers(app)
-        from maa_api.api.routers import agent
-
-        app.include_router(agent.router)
-
-        async def get_test_session():
-            async with factory() as session:
-                yield session
-
-        app.dependency_overrides[get_session] = get_test_session
-        set_settings(Settings())
-        client = TestClient(app, raise_server_exceptions=False)
-        client.__enter__()
-        try:
-            response = client.get("/api/agent/sessions/wire-session/messages")
-            assert response.status_code == 200, response.text
-            items = response.json()["items"]
-            assert [item["seq"] for item in items] == [0, 1]
-            for item in items:
-                assert {
-                    "run_id",
-                    "inbox_id",
-                    "inbox_kind",
-                    "inbox_thread_key",
-                } <= set(item)
-            plain = items[0]
-            assert (
-                plain["run_id"],
-                plain["inbox_id"],
-                plain["inbox_kind"],
-                plain["inbox_thread_key"],
-            ) == ("wire-run", None, None, None)
-            report = items[1]
-            assert (
-                report["inbox_id"],
-                report["inbox_kind"],
-                report["inbox_thread_key"],
-            ) == (inbox_id, "report", "ticket:t1")
         finally:
             client.__exit__(None, None, None)
             set_settings(None)

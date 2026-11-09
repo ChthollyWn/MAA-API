@@ -408,11 +408,6 @@ EXPECTED_VALUES = {
         "FAILED": "failed",
         "SKIPPED": "skipped",
     },
-    "SpendKind": {
-        "MEDICINE": "medicine",
-        "STONE": "stone",
-        "EXPEDITE": "expedite",
-    },
     # M85：IM 通道四枚举（v3 specs/m85 §4.1、docs/v3/03 §11.7）。
     "ChannelPlatform": {
         "TELEGRAM": "telegram",

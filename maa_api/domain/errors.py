@@ -544,7 +544,6 @@ class ErrorCode(StrEnum):
 
     # ---- M84 每日简报与消耗护栏 ----
     # 超过今日消耗上限
-    SPEND_CAP_EXCEEDED = "SPEND_CAP_EXCEEDED"
 
     # ---- M85 IM 通道 ----
     # 该平台未启用或没有填写凭证，不能发送测试消息
@@ -749,9 +748,6 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.GOAL_ENDED: 409,
     # M83 值守：解除一条不存在的告警是 404。
     ErrorCode.WATCHDOG_ALERT_NOT_FOUND: 404,
-    # M84 消耗护栏：代理/定时任务超过当日上限是「你不许继续」，用 403
-    # （与 MANDATE_SCOPE_EXCEEDED 同口径）。
-    ErrorCode.SPEND_CAP_EXCEEDED: 403,
     ErrorCode.CHANNEL_NOT_CONFIGURED: 503,
     ErrorCode.CHANNEL_SEND_FAILED: 502,
     ErrorCode.CHANNEL_BINDING_NOT_FOUND: 404,

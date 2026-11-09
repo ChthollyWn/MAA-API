@@ -242,15 +242,12 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     # 服务每次取租约 / 续期时现读，改完立即生效。----
     "lease.ttl_seconds": ("lease", "ttl_seconds"),
     "lease.wait_seconds": ("lease", "wait_seconds"),
-    # ---- 每日简报与消耗护栏（M84 规格 §4.4）：七项都不是 config-only，简报与
-    # SpendGuard 每次现读；``brief.cron`` 在启动时注册任务，改完要重启。----
+    # ---- 每日简报（M84 规格 §4.4）：四项都不是 config-only，简报服务每次现读；
+    # ``brief.cron`` 在启动时注册任务，改完要重启。----
     "brief.enabled": ("brief", "enabled"),
     "brief.cron": ("brief", "cron"),
     "brief.push_web": ("brief", "push_web"),
     "brief.push_im": ("brief", "push_im"),
-    "spend.daily_medicine_limit": ("spend", "daily_medicine_limit"),
-    "spend.daily_stone_limit": ("spend", "daily_stone_limit"),
-    "spend.daily_expedite_limit": ("spend", "daily_expedite_limit"),
     # ---- IM 通道（M85 规格 §4.4）：十六项都不是 config-only；四个密钥是敏感项，
     # 落库前加密（09 §8.2），其余由 ChannelService 每次现读。----
     "channels.max_reply_chars": ("channels", "max_reply_chars"),
@@ -576,20 +573,6 @@ class BriefSettings(BaseModel):
         if len(value.split()) != 5:
             raise ValueError("brief.cron 必须是五段 cron 表达式")
         return value
-
-
-class SpendSettings(BaseModel):
-    """消耗上限（M84 规格 §4.4）：三类资源各一个每日上限（北京时间 04:00 分日）。
-
-    ``-1`` 不限、``0`` 禁止、``1–999`` 是当日允许的计划量；只限制代理与定时任务，
-    手动提交计入用量但不拦（裁决 R1）。SpendGuard 每次判定时现读，改完立即生效。
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    daily_medicine_limit: int = Field(default=-1, ge=-1, le=999)
-    daily_stone_limit: int = Field(default=-1, ge=-1, le=999)
-    daily_expedite_limit: int = Field(default=-1, ge=-1, le=999)
 
 
 class ChannelsSettings(BaseModel):
@@ -962,8 +945,6 @@ class Settings(BaseModel):
     watchdog: WatchdogSettings = Field(default_factory=WatchdogSettings)
     #: M84 每日简报四项（都不是 config-only，简报服务每次现读；cron 改完要重启）。
     brief: BriefSettings = Field(default_factory=BriefSettings)
-    #: M84 三类每日消耗上限（都不是 config-only，SpendGuard 每次判定时现读）。
-    spend: SpendSettings = Field(default_factory=SpendSettings)
     #: M85 IM 通道：四个平台开关与凭证、回复长度与确认策略（都不是 config-only）。
     channels: ChannelsSettings = Field(default_factory=ChannelsSettings)
     #: M68 运行追踪；导出两项是 config-only，见 TraceSettings。

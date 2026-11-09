@@ -6,8 +6,8 @@
 
 口径：
 
-- 「今日」与「昨日」都按消耗日（北京时间 04:00 分日，:func:`spend_day_window`），
-  与消耗账本同一天界。
+- 「今日」与「昨日」都按简报日（北京时间 04:00 分日，:func:`brief_day_window`），
+  与国服每日刷新同一日界。
 - 跨里程碑的表（``ticket`` / ``goal`` / ``goal_milestone`` / ``cost_ledger`` /
   ``watchdog_alert`` / ``memory_item`` / ``trigger_observation``）只用
   ``sqlalchemy.text()`` 读 03 定死的表名列名，不 import 它们的模型类。
@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -27,20 +27,32 @@ from sqlalchemy import DateTime, String, bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from maa_api.agent.knowledge import render_activity_section, render_gacha_lines
-from maa_api.agent.spend import SPEND_TIMEZONE, spend_day_window
 from maa_api.db.models import (
     Pipeline,
     SanityObservation,
     Schedule,
     StageDrop,
     UpgradePlan,
+    utcnow,
 )
 from maa_api.domain.enums import PipelineStatus
 from maa_api.services.game.activities import report_from_snapshot
 
-__all__ = ["BriefFacts", "collect_facts"]
+__all__ = [
+    "BRIEF_DAY_RESET_HOUR",
+    "BRIEF_TIMEZONE",
+    "BriefFacts",
+    "brief_day_window",
+    "collect_facts",
+]
 
 logger = logging.getLogger(__name__)
+
+#: 简报日按国服每日刷新时刻切分（与历史消耗口径一致，裁决 R4）。
+BRIEF_TIMEZONE = "Asia/Shanghai"
+BRIEF_DAY_RESET_HOUR = 4
+
+_TZ = ZoneInfo(BRIEF_TIMEZONE)
 
 WEEKDAYS: tuple[str, ...] = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -131,8 +143,6 @@ class BriefFacts:
     drops_yesterday: list[dict[str, Any]]
     tickets_yesterday: dict[str, Any]
     cost_yesterday: dict[str, int]
-    spend_today: list[dict[str, Any]]
-    spend_yesterday: dict[str, int]
     pending: dict[str, Any]
 
 
@@ -149,8 +159,30 @@ def _naive_utc(moment: datetime) -> datetime:
 def _to_local(moment: datetime) -> datetime:
     """naive UTC → 北京时间（简报的「local」按国服口径）。"""
     return _naive_utc(moment).replace(tzinfo=UTC).astimezone(
-        ZoneInfo(SPEND_TIMEZONE)
+        ZoneInfo(BRIEF_TIMEZONE)
     )
+
+
+def _day_start(day: date) -> datetime:
+    """某个简报日在北京时间 04:00 的 naive UTC 时刻。"""
+    local = datetime.combine(day, time(BRIEF_DAY_RESET_HOUR), tzinfo=_TZ)
+    return local.astimezone(UTC).replace(tzinfo=None)
+
+
+def brief_day_window(
+    now: datetime | None = None,
+) -> tuple[datetime, datetime, date]:
+    """当前简报日的 ``[start, end)``（naive UTC）与日期标签（规格 §4.5.2）。
+
+    ``now`` 是 naive UTC；先换成北京时间，减掉 4 小时后取日期 ``d``，窗口就是
+    北京时间 ``d`` 04:00 到次日 04:00。因此 ``19:59Z``（北京 03:59）属于前一天，
+    ``20:00Z``（北京 04:00）属于当天。
+    """
+    moment = _naive_utc(now if now is not None else utcnow())
+    local = moment.replace(tzinfo=UTC).astimezone(_TZ)
+    day = (local - timedelta(hours=BRIEF_DAY_RESET_HOUR)).date()
+    start = _day_start(day)
+    return start, start + timedelta(days=1), day
 
 
 def _state(app: Any) -> Any:
@@ -163,9 +195,9 @@ def _factory(app: Any) -> async_sessionmaker[AsyncSession] | None:
 
 def _zone(name: Any) -> ZoneInfo:
     try:
-        return ZoneInfo(str(name or SPEND_TIMEZONE))
+        return ZoneInfo(str(name or BRIEF_TIMEZONE))
     except Exception:  # noqa: BLE001 - 非法时区退化到国服口径，不拖垮整块
-        return ZoneInfo(SPEND_TIMEZONE)
+        return ZoneInfo(BRIEF_TIMEZONE)
 
 
 def _clip(value: Any, limit: int) -> str:
@@ -491,29 +523,6 @@ async def _cost_block(
     }
 
 
-async def _spend_block(
-    app: Any, now: datetime
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """今日 ``summary()["today"]`` 与昨日 ``usage()``（规格 §4.5.10）。"""
-    guard = getattr(_state(app), "spend_guard", None)
-    if guard is None:
-        return [], {}
-    summary = await guard.summary()
-    today = list(summary.get("today") or [])
-    yesterday: dict[str, int] = {}
-    factory = _factory(app)
-    if factory is not None:
-        start, _, _ = spend_day_window(now)
-        async with factory() as session:
-            used = await guard.usage(
-                session,
-                start=start - timedelta(days=1),
-                end=start,
-            )
-        yesterday = {kind.value: _number(value) for kind, value in used.items()}
-    return today, yesterday
-
-
 async def _pending_block(app: Any) -> dict[str, Any]:
     """待处理六类；每一类单独 try，某一类失败只丢该类。"""
     factory = _factory(app)
@@ -562,7 +571,7 @@ async def _pending_block(app: Any) -> dict[str, Any]:
 async def collect_facts(app: Any, now: datetime) -> BriefFacts:
     """收集一份简报的全部事实；每块单独降级（规格 §4.5.10）。"""
     moment = _naive_utc(now)
-    today_start, today_end, day = spend_day_window(moment)
+    today_start, today_end, day = brief_day_window(moment)
     yesterday_start = today_start - timedelta(days=1)
     yesterday_end = today_start
 
@@ -611,13 +620,6 @@ async def collect_facts(app: Any, now: datetime) -> BriefFacts:
         yesterday_end,
         default=dict,
     )
-    spend_today, spend_yesterday = await _block(
-        "消耗",
-        _spend_block,
-        app,
-        moment,
-        default=lambda: ([], {}),
-    )
     pending = await _block(
         "待处理", _pending_block, app, default=dict
     )
@@ -635,7 +637,5 @@ async def collect_facts(app: Any, now: datetime) -> BriefFacts:
         drops_yesterday=drops,
         tickets_yesterday=tickets,
         cost_yesterday=cost,
-        spend_today=spend_today,
-        spend_yesterday=spend_yesterday,
         pending=pending,
     )

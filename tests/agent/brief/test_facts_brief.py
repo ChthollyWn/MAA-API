@@ -1,7 +1,8 @@
 """M84 T6：简报事实（spec §4.5.10、§6）。
 
 临时库与 ``tests/fakes/v3_db.make_session_factory`` 同口径；固定 naive UTC 时钟，
-「昨日」按消耗日（北京时间 04:00 分日）取上一窗口，不随机器时区或跑测日期漂移。
+「昨日」按简报日（北京时间 04:00 分日）取上一窗口，不随机器时区或跑测日期漂移。
+消耗护栏已随维护性补丁删除，简报不再有消耗小节。
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from maa_api.agent.brief import BriefFacts, collect_facts
-from maa_api.agent.spend import SpendGuard
 from maa_api.db.models import (
     AgentQuestion,
     AgentTrigger,
@@ -24,19 +24,17 @@ from maa_api.db.models import (
     Pipeline,
     SanityObservation,
     Schedule,
-    SpendLedger,
     StageDrop,
     Ticket,
     TriggerObservation,
     UpgradePlan,
     WatchdogAlert,
 )
-from maa_api.settings import Settings, SpendSettings
 from tests.fakes.v3_db import make_session_factory, seed_session
 
-#: 北京 2026-11-05 20:00（naive UTC），消耗日 2026-11-05。
+#: 北京 2026-11-05 20:00（naive UTC），简报日 2026-11-05。
 NOW = datetime(2026, 11, 5, 12, 0)
-#: 上一个消耗日窗口（北京 11-04 04:00 到 11-05 04:00）。
+#: 上一个简报日窗口（北京 11-04 04:00 到 11-05 04:00）。
 YESTERDAY = NOW - timedelta(days=1, hours=2)
 #: 昨天窗口外的「今天」。
 TODAY = NOW - timedelta(hours=1)
@@ -46,14 +44,6 @@ def _app(factory, **state) -> SimpleNamespace:
     values = {"session_factory": factory}
     values.update(state)
     return SimpleNamespace(state=SimpleNamespace(**values))
-
-
-class _Limits:
-    def __init__(self) -> None:
-        pass
-
-    def __call__(self) -> Settings:
-        return Settings(spend=SpendSettings(daily_medicine_limit=5))
 
 
 class _BrokenIndex:
@@ -129,7 +119,7 @@ def test_missing_sources_leave_sections_empty(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_yesterday_blocks_use_previous_spend_day(tmp_path: Path) -> None:
+def test_yesterday_blocks_use_previous_brief_day(tmp_path: Path) -> None:
     async def scenario() -> None:
         engine, factory = await make_session_factory(tmp_path / "facts-yesterday.db")
         try:
@@ -340,7 +330,7 @@ def test_pending_counts_from_contract_tables(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_schedule_plans_goals_and_spend_blocks(tmp_path: Path) -> None:
+def test_schedule_plans_and_goals_blocks(tmp_path: Path) -> None:
     async def scenario() -> None:
         engine, factory = await make_session_factory(tmp_path / "facts-more.db")
         try:
@@ -396,28 +386,11 @@ def test_schedule_plans_goals_and_spend_blocks(tmp_path: Path) -> None:
                         GoalMilestone(
                             goal_id=goal.id, ord=3, title="第三步", status="pending"
                         ),
-                        SpendLedger(
-                            kind="medicine",
-                            planned=2,
-                            source="manual",
-                            created_at=YESTERDAY,
-                        ),
-                        SpendLedger(
-                            kind="medicine",
-                            planned=1,
-                            source="manual",
-                            created_at=TODAY,
-                        ),
                     ]
                 )
                 await session.commit()
 
-            guard = SpendGuard(
-                factory, settings_provider=_Limits(), clock=lambda: NOW
-            )
-            facts = await collect_facts(
-                _app(factory, spend_guard=guard), NOW
-            )
+            facts = await collect_facts(_app(factory), NOW)
 
             assert facts.schedules_today == [
                 {"name": "日常", "at_local": "21:00", "fight": True}
@@ -438,16 +411,6 @@ def test_schedule_plans_goals_and_spend_blocks(tmp_path: Path) -> None:
                     "total": 3,
                 }
             ]
-            assert [item["kind"] for item in facts.spend_today] == [
-                "medicine",
-                "stone",
-                "expedite",
-            ]
-            medicine = next(
-                item for item in facts.spend_today if item["kind"] == "medicine"
-            )
-            assert medicine["used"] == 1 and medicine["limit"] == 5
-            assert facts.spend_yesterday["medicine"] == 2
         finally:
             engine.sync_engine.dispose()
 

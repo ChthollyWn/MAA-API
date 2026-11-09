@@ -1,13 +1,14 @@
-"""作业授权的 HTTP 面（M29，规格 §9.6、§9.10）：撤销、会话 wire、确认接口的 overrides。
+"""作业授权的 HTTP 面（M29，规格 §9.6、§9.10）：撤销与确认接口的 overrides。
 
-三件事各一组用例：
+两件事各一组用例：
 
 1. ``DELETE /api/agent/sessions/{id}/copilot-grant`` → 204，授权落 ``revoked``，并广播
    与 ``atomic_grant`` 撤销一致形状的事件；
-2. ``GET /api/agent/sessions/{id}`` 的 ``copilot_grant``（与 ``atomic_grant`` 并列的
-   形状，前端 ``normalizeCopilotGrant`` 按它渲染授权条）；
-3. ``POST /api/confirmations/{id}`` 带 ``overrides`` 批准 ``grant_copilot_attempts`` 时，
+2. ``POST /api/confirmations/{id}`` 带 ``overrides`` 批准 ``grant_copilot_attempts`` 时，
    三项覆盖写进授权记录；非法 overrides 是 422 且不落授权。
+
+会话详情端点 ``GET /api/agent/sessions/{id}`` 已随旧会话查看器删除，授权形状改由
+仓储断言（``_active_grant``）。
 """
 
 from __future__ import annotations
@@ -206,8 +207,6 @@ def test_revoke_copilot_grant_returns_204_and_broadcasts(grant_app, client) -> N
         "expires_at": None,
         "status": "revoked",
     }
-    # 撤销授权不等于删除会话。
-    assert client.get(f"/api/agent/sessions/{session_id}").status_code == 200
 
 
 def test_revoke_is_idempotent_without_active_grant(grant_app, client) -> None:
@@ -226,61 +225,7 @@ def test_revoke_unknown_session_is_404(grant_app, client) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. 会话 wire 的 copilot_grant
-# ---------------------------------------------------------------------------
-
-
-def test_session_detail_exposes_copilot_grant_beside_atomic_grant(grant_app, client) -> None:
-    factory = grant_app[1]
-    session_id = _seed_session(factory)
-
-    empty = client.get(f"/api/agent/sessions/{session_id}")
-    assert empty.status_code == 200, empty.text
-    assert empty.json()["copilot_grant"] is None
-    assert empty.json()["atomic_grant"] is None
-
-    confirmation_id = _seed_confirmation(factory, session_id=session_id)
-    assert (
-        client.post(
-            f"/api/confirmations/{confirmation_id}", json={"approved": True}
-        ).status_code
-        == 200
-    )
-
-    detail = client.get(f"/api/agent/sessions/{session_id}")
-    assert detail.status_code == 200, detail.text
-    grant = detail.json()["copilot_grant"]
-    assert grant == {
-        "grant_id": confirmation_id,
-        "stage_id": "main_01-07",
-        "stage_code": "1-7",
-        "attempts_total": 3,
-        "attempts_used": 0,
-        "remaining_attempts": 3,
-        "success": "three_star",
-        "support": "fill_one",
-        "status": "active",
-        "expires_at": grant["expires_at"],
-    }
-    assert grant["expires_at"] and grant["expires_at"].endswith("Z")
-    # 与 atomic_grant 并列，互不影响。
-    assert detail.json()["atomic_grant"] is None
-
-
-def test_session_detail_drops_copilot_grant_after_revoke(grant_app, client) -> None:
-    factory = grant_app[1]
-    session_id = _seed_session(factory)
-    confirmation_id = _seed_confirmation(factory, session_id=session_id)
-    client.post(f"/api/confirmations/{confirmation_id}", json={"approved": True})
-    assert client.get(f"/api/agent/sessions/{session_id}").json()["copilot_grant"] is not None
-
-    assert client.delete(REVOKE_PATH.format(session_id=session_id)).status_code == 204
-
-    assert client.get(f"/api/agent/sessions/{session_id}").json()["copilot_grant"] is None
-
-
-# ---------------------------------------------------------------------------
-# 3. 确认接口的 overrides
+# 2. 确认接口的 overrides
 # ---------------------------------------------------------------------------
 
 

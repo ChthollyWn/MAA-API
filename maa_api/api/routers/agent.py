@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 import json
 import logging
-from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,18 +22,14 @@ from maa_api.api.routers.device_lease import preempt_device
 from maa_api.db.models import (
     AgentAudit,
     AgentIdempotency,
-    AgentMessage,
-    AgentSession,
     utcnow,
 )
 from maa_api.db.repositories.agent import (
     AgentIdempotencyRepository,
-    AgentMessageRepository,
     AgentSessionRepository,
-    load_inbox_meta,
 )
 from maa_api.db.repositories.audit import AuditRepository, ConfirmationRepository
-from maa_api.domain.enums import AgentSessionKind, AuditStatus, CallerType, RiskLevel
+from maa_api.domain.enums import AuditStatus, CallerType, RiskLevel
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.log_hub import current_request_id
 
@@ -44,14 +39,6 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 _IDEMPOTENCY_LOCKS: dict[tuple[int, str], tuple[asyncio.Lock, int]] = {}
 IDEMPOTENCY_WAIT_POLLS = 200
 IDEMPOTENCY_POLL_SECONDS = 0.05
-#: v2 门面只认这两种会话（M70 规格 §4.5.12 第 3 条）：其余种类是 M70 之后
-#: 的 v3 会话，列表不列，发消息 / 中断 / 删除按「不存在」处理；读详情、读消息与
-#: 撤销授权不过滤（M73 要用 Worker 会话 id 调）。
-_V2_SESSION_KINDS = frozenset(
-    {AgentSessionKind.CHAT.value, AgentSessionKind.INCIDENT.value}
-)
-#: 非 v2 会话的固定 404 文案（规格 §4.5.12 第 3 条）。
-_V2_SESSION_NOT_FOUND_MESSAGE = "会话不存在或不是旧版会话"
 
 
 class InvokeRequest(BaseModel):
@@ -205,17 +192,6 @@ def _page(page: int, size: int) -> None:
         raise AppError(ErrorCode.INVALID_PAGINATION, "page 不能小于 1，size 需在 1–200 之间")
 
 
-def _v2_session_or_404(stored: AgentSession | None) -> AgentSession:
-    """v2 路由只认 chat / incident；其它种类与不存在一样返回 404（M70 §4.5.12）。"""
-    if stored is None:
-        raise AppError(
-            ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试"
-        )
-    if str(stored.kind) not in _V2_SESSION_KINDS:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, _V2_SESSION_NOT_FOUND_MESSAGE)
-    return stored
-
-
 def _iso(value: datetime | None) -> str | None:
     if value is None:
         return None
@@ -235,116 +211,6 @@ def _grant_service(request: Request) -> Any:
     from maa_api.services.copilot.grant import CopilotGrantService
 
     return CopilotGrantService(factory)
-
-
-def copilot_grant_wire(grant: Mapping[str, Any]) -> dict[str, Any]:
-    """作业授权 wire → 会话详情里的 ``copilot_grant``（规格 §9.6，与 ``atomic_grant`` 并列）。
-
-    键名沿用 ``services/copilot/grant.grant_wire`` 的 ``attempts`` / ``used``，前端
-    ``normalizeCopilotGrant`` 按 ``attempts_total`` / ``attempts_used`` 读（两种都认）；
-    这里额外给出规格点名的两个名字，免得前端只认一种。
-    """
-    attempts = int(grant.get("attempts") or 0)
-    used = int(grant.get("used") or 0)
-    expires_at = grant.get("expires_at")
-    if isinstance(expires_at, str):
-        try:
-            expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-        except ValueError:
-            expires_at = None
-    return {
-        "grant_id": grant.get("id"),
-        "stage_id": grant.get("stage_id"),
-        "stage_code": grant.get("stage_code"),
-        "attempts_total": attempts,
-        "attempts_used": used,
-        "remaining_attempts": max(attempts - used, 0),
-        "success": grant.get("success"),
-        "support": grant.get("support"),
-        "status": grant.get("status"),
-        # 与 ``atomic_grant.expires_at`` 一样统一成 ``...Z``：前端 Date.parse 两种都认，
-        # 但同一个响应里两种写法看着像两套约定。
-        "expires_at": _iso(expires_at),
-    }
-
-
-async def active_copilot_grant_wire(request: Request, session_id: str) -> dict[str, Any] | None:
-    """该会话当前生效的作业授权；没有 active（或已过期）时为 ``None``。"""
-    try:
-        grant = await _grant_service(request).get_active(session_id)
-    except AppError:
-        raise
-    except Exception:  # noqa: BLE001 - 授权读不到不该让会话详情整体 500
-        logger.warning("读取会话的作业授权失败：%s", session_id, exc_info=True)
-        return None
-    return copilot_grant_wire(grant) if grant else None
-
-
-def session_wire(session: AgentSession) -> dict[str, Any]:
-    grant_active = bool(
-        session.atomic_grant_id
-        and session.atomic_grant_expires_at
-        and session.atomic_grant_expires_at > datetime.now(UTC).replace(tzinfo=None)
-    )
-    return {
-        "session_id": session.id,
-        "title": session.title,
-        "status": str(session.status),
-        "incident_key": session.incident_key,
-        "model": session.model,
-        "base_url": session.base_url,
-        "message_count": session.message_count,
-        "prompt_tokens": session.prompt_tokens,
-        "completion_tokens": session.completion_tokens,
-        "total_tokens": session.prompt_tokens + session.completion_tokens,
-        "atomic_grant": (
-            {
-                "granted": grant_active,
-                "expires_at": _iso(session.atomic_grant_expires_at),
-                "grant_id": session.atomic_grant_id,
-            }
-            if session.atomic_grant_id is not None
-            else None
-        ),
-        # 作业授权（M29，规格 §9.6）：与 atomic_grant 并列；列表接口不带这个字段
-        # （每行都去查一次授权表不值当），前端在会话详情里补。
-        "copilot_grant": None,
-        "created_at": _iso(session.created_at),
-        "updated_at": _iso(session.updated_at),
-        "last_message_at": _iso(session.last_message_at),
-        # M72 §4.1：旧会话查看器区分「旧会话」与「已归档的总控」。
-        "kind": str(session.kind),
-        "archived_at": _iso(session.archived_at),
-    }
-
-
-def message_wire(
-    message: AgentMessage, inbox: tuple[str, str | None] | None = None
-) -> dict[str, Any]:
-    return {
-        "id": message.id,
-        "session_id": message.session_id,
-        "seq": message.seq,
-        "role": str(message.role),
-        "content": message.content,
-        # 思考模式模型的思考内容。不展示给用户，但必须持久化并在下一轮回传，
-        # 否则上游以 400 拒绝；这里一并读出，便于排查与审计。
-        "reasoning_content": message.reasoning_content,
-        "tool_calls": message.tool_calls,
-        "tool_call_id": message.tool_call_id,
-        "tool_name": message.tool_name,
-        "audit_id": message.audit_id,
-        "prompt_tokens": message.prompt_tokens,
-        "completion_tokens": message.completion_tokens,
-        "finish_reason": message.finish_reason,
-        "latency_ms": message.latency_ms,
-        "created_at": _iso(message.created_at),
-        # M72 §4.1：运行归属与收件箱归属；收件箱元信息由调用方批量预取。
-        "run_id": message.run_id,
-        "inbox_id": message.inbox_id,
-        "inbox_kind": inbox[0] if inbox is not None else None,
-        "inbox_thread_key": inbox[1] if inbox is not None else None,
-    }
 
 
 def audit_wire(audit: AgentAudit) -> dict[str, Any]:
@@ -426,8 +292,7 @@ async def list_tools(
     summary="调用 Agent 工具",
     responses=error_responses(
         "TOOL_NOT_FOUND", "TOOL_ARGS_INVALID", "CONFIRMATION_REJECTED",
-        "CONFIRMATION_EXPIRED", "IDEMPOTENCY_KEY_CONFLICT", "SPEND_CAP_EXCEEDED",
-        "UNAUTHORIZED",
+        "CONFIRMATION_EXPIRED", "IDEMPOTENCY_KEY_CONFLICT", "UNAUTHORIZED",
     ),
     dependencies=[Depends(require_auth)],
 )
@@ -441,13 +306,6 @@ async def invoke_tool(
 ) -> dict[str, Any]:
     service = _confirmation_service(request)
     _ensure_rest_visible(service, name)
-    # M84 §4.5.6：确认之前的只读预检。守卫自身写 rejected 审计并抛
-    # SPEND_CAP_EXCEEDED（403）；这里直接让统一错误处理器返回，不建确认卡。
-    spend_guard = getattr(request.app.state, "spend_guard", None)
-    if spend_guard is not None:
-        await spend_guard.precheck_tool_call(
-            name, payload.arguments, agent_session_id=None
-        )
     context = ToolContext(CallerType.REST, None, current_request_id.get(), request, session)
     before_execute = _rest_preempt_hook(service, name, request)
     if idempotency_key is None:
@@ -658,110 +516,6 @@ async def invoke_tool(
         return result
 
 
-@router.get(
-    "/sessions",
-    summary="分页读取 Agent 会话",
-    dependencies=[Depends(require_auth)],
-)
-async def list_sessions(
-    page: int = Query(default=1),
-    size: int = Query(default=20),
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    _page(page, size)
-    result = await AgentSessionRepository(session).list_page(
-        page=page, size=size, legacy_only=True
-    )
-    return {
-        "items": [session_wire(item) for item in result.items],
-        "total": result.total,
-        "page": result.page,
-        "size": result.size,
-    }
-
-
-@router.get(
-    "/sessions/{session_id}",
-    summary="读取 Agent 会话详情",
-    responses=error_responses(
-        "AGENT_SESSION_NOT_FOUND", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
-    ),
-    dependencies=[Depends(require_auth)],
-)
-async def get_session_detail(
-    session_id: str,
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    stored = await AgentSessionRepository(session).get(session_id)
-    if stored is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
-    wire = session_wire(stored)
-    # 作业授权（M29，规格 §9.6）：与 atomic_grant 并列，前端授权条按它渲染。
-    wire["copilot_grant"] = await active_copilot_grant_wire(request, session_id)
-    # ``turn_running`` 是「刷新后仍能停」的真相源（规格 §3.4）。刻意直接读
-    # ``app.state.agent_runtime``：为了一个只读字段去现场构造 runtime 会在没装配
-    # runtime 的部署里凭空造出一个空运行时（那不是这个端点该做的事）。列表接口不带
-    # 这个字段，省得为每一行都去问一次进程内状态。
-    runtime = getattr(request.app.state, "agent_runtime", None)
-    wire["turn_running"] = bool(runtime is not None and runtime.turn_running(session_id))
-    return wire
-
-
-
-@router.delete(
-    "/sessions/{session_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="删除 Agent 会话",
-    responses=error_responses("AGENT_SESSION_NOT_FOUND", "UNAUTHORIZED"),
-    dependencies=[Depends(require_auth)],
-)
-async def delete_session(session_id: str, request: Request) -> Response:
-    service = _confirmation_service(request)
-    async with service.session_factory() as session:
-        exists = await AgentSessionRepository(session).get(session_id)
-    _v2_session_or_404(exists)
-    await service.revoke_session_grant(session_id)
-    async with service.session_factory() as session:
-        await AgentSessionRepository(session).delete(session_id)
-        await session.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.get(
-    "/sessions/{session_id}/messages",
-    summary="按序读取 Agent 会话消息",
-    responses=error_responses("AGENT_SESSION_NOT_FOUND", "UNAUTHORIZED"),
-    dependencies=[Depends(require_auth)],
-)
-async def list_session_messages(
-    session_id: str,
-    after_seq: int | None = Query(default=None, ge=-1),
-    page: int = Query(default=1),
-    size: int = Query(default=20),
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    _page(page, size)
-    if await AgentSessionRepository(session).get(session_id) is None:
-        raise AppError(ErrorCode.AGENT_SESSION_NOT_FOUND, "Agent 会话不存在，请刷新列表后重试")
-    result = await AgentMessageRepository(session).list_page(
-        session_id, after_seq=after_seq, page=page, size=size
-    )
-    inbox_meta = await load_inbox_meta(
-        session,
-        {item.inbox_id for item in result.items if item.inbox_id is not None},
-    )
-    return {
-        "items": [
-            message_wire(item, inbox_meta.get(item.inbox_id))
-            for item in result.items
-        ],
-        "total": result.total,
-        "page": result.page,
-        "size": result.size,
-    }
-
-
 @router.delete(
     "/sessions/{session_id}/atomic-grant",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -796,7 +550,6 @@ async def revoke_copilot_grant(session_id: str, request: Request) -> Response:
     await _grant_service(request).revoke(session_id)
     _broadcast_grant_change(request, session_id, "copilot_grant_changed")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
 
 
 @router.get(

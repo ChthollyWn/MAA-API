@@ -1,7 +1,8 @@
 """M84 T6：简报渲染（spec §4.5.11、§6）。
 
 钉住四件事：空小节整节省略（只剩「理智」与「今日建议」）、模板逐字、成本与
-状态文案、analyst 工单说明 ≤4000 字且从尾部截断事实。渲染结果不含感叹号。
+状态文案、analyst 工单说明 ≤4000 字且从尾部截断事实。消耗小节已随维护性补丁
+删除。渲染结果不含感叹号。
 """
 
 from __future__ import annotations
@@ -48,8 +49,6 @@ def _facts(**overrides) -> BriefFacts:
         drops_yesterday=[],
         tickets_yesterday={"done": 0, "failed": 0, "cancelled": 0, "titles": []},
         cost_yesterday={},
-        spend_today=[],
-        spend_yesterday={},
         pending={
             "confirmations": 0,
             "questions": 0,
@@ -80,7 +79,6 @@ def test_empty_sections_are_omitted() -> None:
         "## 卡池",
         "## 养成与目标",
         "## 昨天",
-        "## 消耗",
         "## 待处理",
     ):
         assert marker not in text
@@ -137,30 +135,6 @@ def test_full_template_and_status_texts() -> None:
             "titles": ["清理智"],
         },
         cost_yesterday={"CNY": 1_320_000},
-        spend_today=[
-            {
-                "kind": "medicine",
-                "label": "理智药",
-                "used": 0,
-                "limit": 5,
-                "remaining": 5,
-            },
-            {
-                "kind": "stone",
-                "label": "源石",
-                "used": 0,
-                "limit": -1,
-                "remaining": None,
-            },
-            {
-                "kind": "expedite",
-                "label": "加急许可",
-                "used": 1,
-                "limit": 3,
-                "remaining": 2,
-            },
-        ],
-        spend_yesterday={"medicine": 2, "stone": 0, "expedite": 1},
         pending={
             "confirmations": 2,
             "questions": 1,
@@ -185,11 +159,6 @@ def test_full_template_and_status_texts() -> None:
         "- 掉落：固源岩 ×42\n"
         "- 工单完成 2 张、失败 1 张：「清理智」\n"
         "- 模型花费 1.32 元"
-    ) in text
-    assert (
-        "## 消耗（按任务参数上限计）\n"
-        "- 今日：理智药 0/5，源石 0（不限），加急许可 1/3\n"
-        "- 昨日：理智药 2，源石 0，加急许可 1"
     ) in text
     assert "## 待处理\n- 2 条确认、1 个提问；工单「批准计划」在等你决定；1 条严重告警" in text
     assert "## 今日建议\n1. 先刷 1-7\n2. 再补材料" in text

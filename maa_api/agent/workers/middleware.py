@@ -1,14 +1,10 @@
-"""Worker 与子代理的三个中间件（M70 规格 §4.5.5、§4.5.11；M84 §4.2）。
+"""Worker 与子代理的两个中间件（M70 规格 §4.5.5、§4.5.11）。
 
-链上的位置见 05 §5.2：14 ``MandateMiddleware``、15 ``SpendMiddleware``（M84）、
-18 ``ReportMiddleware``；第 16 位在 M71 改成了 ``maa_api.agent.lease.LeaseMiddleware``
-（设备租约，确认通过后才取）。总控链不挂这些（``applies_to`` 已排除）。
+链上的位置见 05 §5.2：14 ``MandateMiddleware``、15 ``LeaseMiddleware``（M71 取代
+M70 临时的设备门）、17 ``ReportMiddleware``。总控链不挂这些（``applies_to`` 已排除）。
 
 - ``MandateMiddleware``：委托的风险上限。策略引擎给出的 ``PolicyDecision.risk``
   高于上限就拒绝，被拦的调用不进 ``ConfirmationService``，不建确认与审计行。
-- ``SpendMiddleware``：消耗上限的确认前预检（M84）。超额的调用返回
-  ``SPEND_CAP_EXCEEDED`` 且不调内层，因此不建确认、不弹卡；拦截审计由
-  ``SpendGuard.precheck_tool_call`` 自己写一条，本中间件不重复写。
 - ``ReportMiddleware``：``report`` 必须是一批调用的最后一个且一批只有一个；成功时
   以 ``report_submitted`` 收尾本轮。``ensure_report`` 是「一轮结束却没有汇报」的
   兜底：计划待批准时补 ``waiting``（``human_action`` 指向计划），失败补 ``blocked``，
@@ -31,7 +27,6 @@ from maa_api.agent.harness.context import (
 from maa_api.agent.harness.middleware import CallNext, Middleware
 from maa_api.agent.harness.plan import PENDING_HUMAN_ACTION_KEY
 from maa_api.agent.registry import ToolContext, ToolRegistry
-from maa_api.agent.spend import SPEND_TOOLS
 from maa_api.agent.tickets.mandates import ceiling_risk
 from maa_api.agent.tickets.reports import HumanAction, ReportInput
 from maa_api.agent.workers.cards import RISK_RANK
@@ -48,7 +43,6 @@ __all__ = [
     "WAITING_PLAN_SUMMARY",
     "MandateMiddleware",
     "ReportMiddleware",
-    "SpendMiddleware",
     "ensure_report",
 ]
 
@@ -157,48 +151,8 @@ class MandateMiddleware(Middleware):
             return None
 
 
-class SpendMiddleware(Middleware):
-    """消耗上限的确认前预检（05 §5.2 第 15 位，M84 spec §4.2）。
-
-    只检查 :data:`~maa_api.agent.spend.SPEND_TOOLS`，且应用里没有装配
-    ``app.state.spend_guard`` 时整条直通（最小应用与局部测试）。守卫的
-    ``precheck_tool_call`` 是只读预检、超额时自己写一条 ``rejected`` 审计并抛
-    ``SPEND_CAP_EXCEEDED``；这里只把它变成 ``ToolOutcome(status="error")``，
-    **不调用内层**，所以不会进 ``PolicyMiddleware`` 建确认。其他异常（含其他
-    ``AppError``）不拦，交给内层按既有口径处理。
-    """
-
-    name = "spend"
-    applies_to = frozenset({"worker", "subagent"})
-
-    async def wrap_tool(
-        self, ctx: RunContext, call: ToolCall, call_next: CallNext
-    ) -> ToolOutcome:
-        guard = getattr(getattr(ctx.app, "state", None), "spend_guard", None)
-        if call.name not in SPEND_TOOLS or guard is None:
-            return await call_next(call)
-        try:
-            await guard.precheck_tool_call(
-                call.name,
-                call.arguments or {},
-                agent_session_id=ctx.session_id,
-            )
-        except AppError as exc:
-            if exc.code is not ErrorCode.SPEND_CAP_EXCEEDED:
-                return await call_next(call)
-            # 审计已由 precheck_tool_call 写过一条，这里不再写第二条。
-            return _error(
-                exc.code,
-                exc.message or "超过今日消耗上限",
-                exc.details,
-            )
-        except Exception:  # noqa: BLE001 - 预检异常不拦，交给内层按 v2 口径执行
-            logger.warning("消耗预检异常，本次交给内层处理", exc_info=True)
-        return await call_next(call)
-
-
 class ReportMiddleware(Middleware):
-    """``report`` 的位置校验与收尾（05 §5.2 第 18 位，spec §4.5.11）。"""
+    """``report`` 的位置校验与收尾（05 §5.2 第 17 位，spec §4.5.11）。"""
 
     name = "report"
     applies_to = frozenset({"worker"})

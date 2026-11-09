@@ -178,14 +178,11 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "watchdog.allow_core_restart": dict(label="允许值守重启内核", group="Agent", type="boolean", description="auto 模式下是否允许重启内核", hot_action="none"),
     "watchdog.ticket_stale_minutes": dict(label="工单停滞判定（分钟）", group="Agent", type="integer", minimum=5, maximum=1440, description="工单超过这个时长没有活动即视为停滞", hot_action="none"),
     "watchdog.device_frozen_minutes": dict(label="流水线无回调判定（分钟）", group="Agent", type="integer", minimum=2, maximum=120, description="正在执行的流水线超过这个时长没有内核回调即视为冻结", hot_action="none"),
-    # M84 每日简报与消耗上限：七项都由简报服务/SpendGuard 现读；brief.cron 启动时注册任务。
+    # M84 每日简报：四项都由简报服务现读；brief.cron 启动时注册任务。
     "brief.enabled": dict(label="每日简报", group="Agent", type="boolean", hot_action="none"),
     "brief.cron": dict(label="简报生成时间", group="Agent", type="string", description="五段 cron，按北京时间", hot_action="restart_required"),
     "brief.push_web": dict(label="简报推送到浏览器", group="Agent", type="boolean", hot_action="none"),
     "brief.push_im": dict(label="简报推送到 IM", group="Agent", type="boolean", hot_action="none"),
-    "spend.daily_medicine_limit": dict(label="每日理智药上限", group="Agent", type="integer", minimum=-1, maximum=999, description="-1 不限，0 禁止；只限制代理与定时任务", hot_action="none"),
-    "spend.daily_stone_limit": dict(label="每日源石上限", group="Agent", type="integer", minimum=-1, maximum=999, description="-1 不限，0 禁止；只限制代理与定时任务", hot_action="none"),
-    "spend.daily_expedite_limit": dict(label="每日加急许可上限", group="Agent", type="integer", minimum=-1, maximum=999, description="-1 不限，0 禁止；只限制代理与定时任务", hot_action="none"),
     # M85 IM 通道：四个平台默认关闭；启用、凭证与地址在装配适配器时读取，改完要重启；
     # 回复长度与确认策略由 ChannelService 每次现读。四个密钥是敏感项（09 §8.2）。
     "channels.max_reply_chars": dict(label="单条 IM 回复最大字数", group="IM 通道", type="integer", minimum=80, maximum=4000, description="超出时先给结论再附网页链接", hot_action="none"),

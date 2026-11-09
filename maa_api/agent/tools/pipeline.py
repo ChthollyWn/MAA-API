@@ -350,9 +350,8 @@ async def stop_pipeline(_params: EmptyParams, ctx: ToolContext) -> dict[str, Any
 
 
 async def set_task_params(params: SetTaskParams, ctx: ToolContext) -> dict[str, Any]:
-    # M84 §4.5.5：工具层固定按 agent 来源计入用量并受上限约束。
     task = await _required_service(_app_state(ctx), "pipeline_runner").set_task_params(
-        params.task_id, params.params, spend_source=PipelineSource.AGENT
+        params.task_id, params.params
     )
     return {"task_id": task.id, "params": task.params, "status": str(task.status)}
 

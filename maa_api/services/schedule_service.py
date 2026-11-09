@@ -579,31 +579,6 @@ class ScheduleService:
                 source=PipelineSource.SCHEDULED,
                 schedule_id=schedule.id,
             )
-        except AppError as exc:
-            if exc.code != ErrorCode.SPEND_CAP_EXCEEDED:
-                if propagate_error:
-                    raise
-                await self._record_submission_result(
-                    schedule.id,
-                    fired_at=fired_at,
-                    next_run_at=next_run_at or schedule.next_run_at,
-                    result="failed",
-                )
-                logger.exception("定时任务 %s 未能提交到队列", schedule.id)
-                return None
-            if propagate_error:
-                # 「立即执行」把 403 SPEND_CAP_EXCEEDED 原样交给调用方。
-                raise
-            await self._record_submission_result(
-                schedule.id,
-                fired_at=fired_at,
-                next_run_at=next_run_at or schedule.next_run_at,
-                result="skipped",
-            )
-            logger.warning(
-                "定时任务 %s 超过今日消耗上限，本次跳过", schedule.id
-            )
-            return None
         except Exception:
             if propagate_error:
                 raise

@@ -1,16 +1,15 @@
-"""M84：``0037_spend_ledger`` 迁移验收（spec §4.1、§5 T1、§6）。
+"""维护性补丁：``0039_drop_spend_ledger`` 迁移验收。
 
-测试纪律与 ``tests/db/test_watchdog_migration.py`` 一致：全程用 ``tmp_path`` 的临时库，
-只用 Alembic 的 ``upgrade`` / ``downgrade`` 建库与演进，绝不碰
+测试纪律与 ``tests/db/test_channels_migration.py`` 一致：全程用 ``tmp_path`` 的
+临时库，只用 Alembic 的 ``upgrade`` / ``downgrade`` 建库与演进，绝不碰
 ``resource/maa_api.db``。
 
-覆盖四件事：
+覆盖三件事：
 
-1. 空库升级到 head，``spend_ledger`` 的 9 列、可空性、索引与三条 ``SET NULL`` 外键
-   与 §4.1 逐项一致；``id`` 在 DDL 里真的是 ``INTEGER PRIMARY KEY AUTOINCREMENT``；
-2. 可以只写必填列插入账本行，``actual`` 与三个外键可空；
-3. 降级回到 0036 的形状：表与索引消失，再升级可重放且是空表；
-4. 离线 ``--sql`` 能渲染升级与降级，且不建库文件。
+1. 空库升级到 head：``spend_ledger`` 与它的索引都消失，其它业务表还在；
+2. 降级回到 0038：表、9 列、可空性、索引与三条 ``SET NULL`` 外键按
+   ``0037_spend_ledger.py`` 的 DDL 原样重建，可插入账本行；再升级可重放并再次删表；
+3. 离线 ``--sql`` 能渲染升级与降级，且不建库文件。
 """
 
 from __future__ import annotations
@@ -26,11 +25,11 @@ from alembic.config import Config
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"
 MIGRATIONS_DIR = REPO_ROOT / "maa_api" / "db" / "migrations"
-PREVIOUS_REVISION = "0036_watchdog"
-HEAD_REVISION = "0037_spend_ledger"
-TIMESTAMP = "2026-11-05 08:00:00"
+PREVIOUS_REVISION = "0038_channels"
+HEAD_REVISION = "0039_drop_spend_ledger"
+TIMESTAMP = "2026-11-09 10:00:00"
 
-#: 列名 → (DDL 类型, 是否 NOT NULL)。顺序与 03 §11.6 一致。
+#: 列名 → (DDL 类型, 是否 NOT NULL)。顺序与 0037 的 DDL 一致。
 EXPECTED_COLUMNS = {
     "id": ("INTEGER", True),
     "pipeline_id": ("VARCHAR(36)", False),
@@ -112,6 +111,13 @@ def _table_names(conn: sqlite3.Connection) -> set[str]:
     }
 
 
+def _index_names(conn: sqlite3.Connection) -> set[str]:
+    return {
+        row["name"]
+        for row in conn.execute("select name from sqlite_master where type='index'")
+    }
+
+
 def _table_sql(conn: sqlite3.Connection, table: str) -> str:
     row = conn.execute(
         "select sql from sqlite_master where type='table' and name=?", (table,)
@@ -120,121 +126,89 @@ def _table_sql(conn: sqlite3.Connection, table: str) -> str:
     return row["sql"].upper()
 
 
-def _insert_ledger(
-    conn: sqlite3.Connection,
-    *,
-    kind: str = "medicine",
-    planned: int = 2,
-    source: str = "agent",
-    pipeline_id: str | None = None,
-    task_id: str | None = None,
-    ticket_id: str | None = None,
-    actual: int | None = None,
-) -> None:
+def _insert_ledger(conn: sqlite3.Connection) -> None:
     conn.execute(
-        'insert into spend_ledger'
-        ' (pipeline_id, task_id, kind, planned, actual, source, ticket_id, created_at)'
-        " values (?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            pipeline_id,
-            task_id,
-            kind,
-            planned,
-            actual,
-            source,
-            ticket_id,
-            TIMESTAMP,
-        ),
+        "insert into spend_ledger"
+        " (kind, planned, actual, source, created_at)"
+        " values (?, ?, ?, ?, ?)",
+        ("medicine", 2, None, "agent", TIMESTAMP),
     )
 
 
-def test_upgrade_creates_spend_ledger(tmp_path: Path) -> None:
-    db_path = tmp_path / "spend_upgrade.db"
+def test_upgrade_drops_table_and_index(tmp_path: Path) -> None:
+    db_path = tmp_path / "drop_spend_upgrade.db"
     cfg = _config(db_path)
     command.upgrade(cfg, HEAD_REVISION)
 
     conn = _connect(db_path)
     try:
         assert _revision(conn) == HEAD_REVISION
-        assert "spend_ledger" in _table_names(conn)
-        assert _columns(conn, "spend_ledger") == EXPECTED_COLUMNS
-        assert _indexes(conn, "spend_ledger") == EXPECTED_INDEXES
-        assert _foreign_keys(conn, "spend_ledger") == EXPECTED_FOREIGN_KEYS
-        table_sql = _table_sql(conn, "spend_ledger")
-        assert "AUTOINCREMENT" in table_sql
-        assert "PRIMARY KEY" in table_sql
-        # 命名约定与模型一致（docs/04 §3.2）；SQLite 的整数主键是行内写法，
-        # 不落命名约束，主键名只在模型元数据里。
-        for name in (
-            "FK_SPEND_LEDGER_PIPELINE_ID_PIPELINE",
-            "FK_SPEND_LEDGER_TASK_ID_TASK",
-            "FK_SPEND_LEDGER_TICKET_ID_TICKET",
-        ):
-            assert name in table_sql
-
-        # 三个外键与 actual 都可空；必填列齐了就能插。
-        _insert_ledger(conn)
-        _insert_ledger(conn, kind="stone", planned=1, source="scheduled", actual=1)
-        conn.commit()
-        rows = conn.execute(
-            "select id, pipeline_id, task_id, kind, planned, actual, source,"
-            " ticket_id from spend_ledger order by id"
-        ).fetchall()
-        assert [row["id"] for row in rows] == [1, 2]
-        assert rows[0]["pipeline_id"] is None
-        assert rows[0]["task_id"] is None
-        assert rows[0]["ticket_id"] is None
-        assert rows[0]["actual"] is None
-        assert rows[0]["kind"] == "medicine"
-        assert rows[0]["planned"] == 2
-        assert rows[0]["source"] == "agent"
-        assert rows[1]["actual"] == 1
-        assert rows[1]["source"] == "scheduled"
+        assert "spend_ledger" not in _table_names(conn)
+        assert "ix_spend_ledger_kind_created_at" not in _index_names(conn)
+        # 只删本表：其它业务表（含 0038 新建的三张）都还在。
+        assert {
+            "pipeline",
+            "task",
+            "ticket",
+            "watchdog_alert",
+            "channel_binding",
+            "outbox",
+        } <= _table_names(conn)
     finally:
         conn.close()
 
 
-def test_downgrade_drops_table_and_upgrade_replays(tmp_path: Path) -> None:
-    db_path = tmp_path / "spend_downgrade.db"
+def test_downgrade_rebuilds_table_and_upgrade_replays(tmp_path: Path) -> None:
+    db_path = tmp_path / "drop_spend_downgrade.db"
     cfg = _config(db_path)
     command.upgrade(cfg, HEAD_REVISION)
-
-    conn = _connect(db_path)
-    try:
-        _insert_ledger(conn, kind="expedite", planned=4, source="manual")
-        conn.commit()
-    finally:
-        conn.close()
 
     command.downgrade(cfg, PREVIOUS_REVISION)
 
     conn = _connect(db_path)
     try:
         assert _revision(conn) == PREVIOUS_REVISION
-        assert "spend_ledger" not in _table_names(conn)
-        # 0036 的表还在，降级只删本迁移的表。
-        assert {"watchdog_alert", "goal", "ticket", "pipeline", "task"} <= (
-            _table_names(conn)
-        )
+        # 按 0037 的 DDL 原样重建：列、索引、外键、自增主键都一致。
+        assert _columns(conn, "spend_ledger") == EXPECTED_COLUMNS
+        assert _indexes(conn, "spend_ledger") == EXPECTED_INDEXES
+        assert _foreign_keys(conn, "spend_ledger") == EXPECTED_FOREIGN_KEYS
+        table_sql = _table_sql(conn, "spend_ledger")
+        assert "AUTOINCREMENT" in table_sql
+        assert "PRIMARY KEY" in table_sql
+        for name in (
+            "FK_SPEND_LEDGER_PIPELINE_ID_PIPELINE",
+            "FK_SPEND_LEDGER_TASK_ID_TASK",
+            "FK_SPEND_LEDGER_TICKET_ID_TICKET",
+        ):
+            assert name in table_sql
+        # 降级后可以插入账本行（表结构真的可用）。
+        _insert_ledger(conn)
+        conn.commit()
+        assert conn.execute("select count(*) from spend_ledger").fetchone()[0] == 1
     finally:
         conn.close()
 
+    # 再升级：表又被删掉；重复升降级可重放。
     command.upgrade(cfg, HEAD_REVISION)
     conn = _connect(db_path)
     try:
         assert _revision(conn) == HEAD_REVISION
+        assert "spend_ledger" not in _table_names(conn)
+    finally:
+        conn.close()
+
+    command.downgrade(cfg, PREVIOUS_REVISION)
+    conn = _connect(db_path)
+    try:
+        assert _revision(conn) == PREVIOUS_REVISION
         assert "spend_ledger" in _table_names(conn)
         assert conn.execute("select count(*) from spend_ledger").fetchone()[0] == 0
-        # 纯新增：重放不假装回填历史流水线的消耗。
-        _insert_ledger(conn)
-        conn.commit()
-        assert conn.execute("select id from spend_ledger").fetchone()["id"] == 1
     finally:
         conn.close()
 
 
 def test_offline_render(tmp_path: Path) -> None:
-    db_path = tmp_path / "spend_offline.db"
+    db_path = tmp_path / "drop_spend_offline.db"
     cfg = _config(db_path)
 
     upgrade_sql = io.StringIO()
@@ -242,12 +216,8 @@ def test_offline_render(tmp_path: Path) -> None:
         command.upgrade(cfg, f"{PREVIOUS_REVISION}:{HEAD_REVISION}", sql=True)
     upgrade_text = upgrade_sql.getvalue()
 
-    assert "CREATE TABLE spend_ledger" in upgrade_text
-    assert "AUTOINCREMENT" in upgrade_text
-    assert "kind VARCHAR(16) NOT NULL" in upgrade_text
-    assert "planned INTEGER NOT NULL" in upgrade_text
-    assert "ix_spend_ledger_kind_created_at" in upgrade_text
-    assert "ON DELETE SET NULL" in upgrade_text
+    assert "DROP INDEX ix_spend_ledger_kind_created_at" in upgrade_text
+    assert "DROP TABLE spend_ledger" in upgrade_text
     assert not db_path.exists(), "离线模式不应创建数据库文件"
 
     downgrade_sql = io.StringIO()
@@ -255,6 +225,10 @@ def test_offline_render(tmp_path: Path) -> None:
         command.downgrade(cfg, f"{HEAD_REVISION}:{PREVIOUS_REVISION}", sql=True)
     downgrade_text = downgrade_sql.getvalue()
 
-    assert "DROP INDEX ix_spend_ledger_kind_created_at" in downgrade_text
-    assert "DROP TABLE spend_ledger" in downgrade_text
+    assert "CREATE TABLE spend_ledger" in downgrade_text
+    assert "AUTOINCREMENT" in downgrade_text
+    assert "kind VARCHAR(16) NOT NULL" in downgrade_text
+    assert "planned INTEGER NOT NULL" in downgrade_text
+    assert "ix_spend_ledger_kind_created_at" in downgrade_text
+    assert "ON DELETE SET NULL" in downgrade_text
     assert not db_path.exists(), "离线模式不应创建数据库文件"

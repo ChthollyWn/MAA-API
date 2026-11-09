@@ -642,7 +642,7 @@ class DeviceLeaseService:
 
 
 class LeaseMiddleware(Middleware):
-    """写设备工具的执行前取租约（M71 §4.5.5，05 §5.2 第 16 位）。
+    """写设备工具的执行前取租约（M71 §4.5.5，05 §5.2 第 15 位）。
 
     链上位于 ``ClarificationMiddleware`` 之前、``PolicyMiddleware`` 外侧：它不是
     执行器，只往 ``ctx.state["policy.before_execute"]`` 登记本调用的回调，由

@@ -98,7 +98,6 @@ from maa_api.agent.specs.registry import builtin_spec, builtin_specs
 from maa_api.agent.workers.middleware import (
     MandateMiddleware,
     ReportMiddleware,
-    SpendMiddleware,
 )
 from maa_api.db.models import AgentMessage, AgentRun, new_uuid, utcnow
 from maa_api.db.repositories.agent import (
@@ -239,9 +238,10 @@ def build_agent_chain(
     """v3 运行（总控 / Worker / 子代理）的中间件链（05 §5.2）。
 
     在 legacy 五元链的基础位置上按序插入 M70 的三个：14 ``MandateMiddleware``、
-    16 ``LeaseMiddleware``（M71 取代 M70 临时的设备门）、18 ``ReportMiddleware``。
-    M84 的 15 ``SpendMiddleware`` 在 14 之后、16 之前。
-    四个都声明了 ``applies_to``，``MiddlewareChain.for_kind`` 会把它们从总控链裁掉。
+    15 ``LeaseMiddleware``（M71 取代 M70 临时的设备门）、17 ``ReportMiddleware``；
+    16 ``ClarificationMiddleware`` 与 18 ``PolicyMiddleware`` 分别是 M65 移植的
+    提问链路与最内层策略层。三个 M70 中间件都声明了 ``applies_to``，
+    ``MiddlewareChain.for_kind`` 会把它们从总控链裁掉。
     ``cost_ledger`` 存在时 ``BudgetMiddleware`` 仍在第 2 位（与门面一致）。
 
     M74 把 durable、压缩与工具结果清理放到第 6、7、8 位：压缩必须落在
@@ -300,9 +300,6 @@ def build_agent_chain(
                 confirmation_service=confirmation_service,
                 session_factory=session_factory,
             ),
-            # M84：消耗预检在委托上限之后、设备租约之前（第 15 位）。放在这里
-            # 的原因与委托上限相同：被拦的调用不该进入租约与确认链路。
-            SpendMiddleware(),
             LeaseMiddleware(
                 lease_service=device_lease_service,
                 registry=registry,
