@@ -131,6 +131,7 @@
 - 合并前全量 pytest：3 failed / 5590 passed / 5 skipped / 2 xfailed；3 条均为基线既有真资源失败，新增 0（`test_orchestrator_e2e...ready_report` 为既有 flake，单跑通过）。
 - `dump_openapi.py --check` 0、`gen:api:check` 0、`generate_api_guide.py --check` 0；前端五步 0（121 files/1042 tests，build + SW）；五冒烟末行 `SMOKE OK`；regression 与 capability `EVAL OK`（18/18）；`check_doc_links.py` BROKEN 0；`git diff --check` 0；视图渲染器安全扫描无输出（退出 1）。
 - 整支审查 APPROVE（无 Critical/Important）→ Minor 修复 `08a3793`（values 缺省、空文本渲染）+ `16e6a65`（OpenAPI/类型重生成）→ 合并 `c07272b`、tag `v3-m90`。
+- **合并后 dev 最终复跑（2026-11-10）**：全量 pytest **4 failed / 5590 passed / 5 skipped / 2 xfailed**（607.84s）；4 条 = 3 条基线既有真资源失败 + `tests/agent/test_incidents.py::test_incident_allowed_action_still_uses_confirmation_service`（既有时间敏感 flake，单跑 1 passed）。无里程碑新增失败。`dump_openapi.py --check` 0、`pnpm gen:api:check` 0、`check_doc_links.py` BROKEN 0。P4（M86–M90）五个里程碑全部完成，tag `v3-m86`–`v3-m90`。
 
 ## 遗留
 
