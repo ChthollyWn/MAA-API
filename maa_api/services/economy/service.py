@@ -430,6 +430,8 @@ def _explanation(
 ) -> str:
     if not model.needs:
         return "没有剩余需求：不需要刷关"
+    if full.status is not None:
+        return f"求解不可用，无法给完整方案：{full.status.rstrip('。')}。"
 
     parts = [
         f"凑齐需要 {full.total_sanity} 理智，按当前理智 {request.current_sanity} "

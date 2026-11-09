@@ -7,6 +7,9 @@ import json
 from types import SimpleNamespace
 from typing import Any, Mapping
 
+import pytest
+
+from maa_api.services.account import planner
 from maa_api.services.account.planner import FarmingInputs, StageOption
 from maa_api.services.economy.model import FarmingRequest
 from maa_api.services.economy.service import FarmingOptimizer
@@ -56,6 +59,30 @@ def empty_inputs() -> FarmingInputs:
         recipes=[],
         rate_status={},
         notes=["没有剩余需求：不需要刷关"],
+        server="CN",
+    )
+
+
+SHOP_ITEM = "聚酸酯组"
+
+
+def shop_service_inputs() -> FarmingInputs:
+    """活动商店更划算的场景：1-7 单刷 30 理智/件，商店 8 代币/件。"""
+    return FarmingInputs(
+        needs={SHOP_ITEM: 15},
+        display={SHOP_ITEM: SHOP_ITEM},
+        options=[
+            StageOption(
+                stage_id="main_01-07",
+                stage_code="1-7",
+                ap_cost=30,
+                rates={SHOP_ITEM: 1.0},
+                details=[{"item_name": SHOP_ITEM, "sanity_per_item": 30.0}],
+            )
+        ],
+        recipes=[],
+        rate_status={},
+        notes=[],
         server="CN",
     )
 
@@ -263,6 +290,41 @@ def test_result_is_deterministic() -> None:
     assert json.dumps(first, ensure_ascii=False, sort_keys=True) == json.dumps(
         second, ensure_ascii=False, sort_keys=True
     )
+
+
+def test_result_is_deterministic_with_events_shop_and_tokens() -> None:
+    service = FakeOptimizerDeps(
+        inputs=shop_service_inputs(),
+        activities=appendix_activities(),
+        prts=appendix_prts(),
+    ).build()
+    request = farming_request(materials={SHOP_ITEM: 15})
+
+    first = run(service, request)
+    second = run(service, request)
+
+    assert any(row["event"] for row in first["stages"])
+    assert first["shop"]
+    assert first["tokens"]
+    assert set(first) == set(second)
+    for field in first:
+        assert first[field] == second[field], field
+
+
+def test_solver_failure_explanation_is_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(**kwargs: Any) -> None:
+        raise RuntimeError("scipy 不在")
+
+    monkeypatch.setattr(planner, "_linprog_call", boom)
+
+    result = run(FakeOptimizerDeps().build(), farming_request(materials={WORD: 10}))
+
+    assert result["status"] == "unobtainable"
+    assert result["explanation"] == (
+        "求解不可用，无法给完整方案：线性规划不可用（RuntimeError: scipy 不在）。"
+    )
+    assert "0 理智" not in result["explanation"]
+    assert any("线性规划不可用" in note for note in result["notes"])
 
 
 def test_include_events_false_skips_events() -> None:

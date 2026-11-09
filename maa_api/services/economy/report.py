@@ -71,7 +71,7 @@ def render_report(result: Mapping[str, Any], *, generated_at: datetime) -> str:
             stock = row.get("stock")
             value = row.get("value_sanity")
             lines.append(
-                f"| {row.get('item')} | {row.get('quantity')} | {row.get('bundle')} "
+                f"| {row.get('item')} | {_portions(row)} | {row.get('bundle')} "
                 f"| {row.get('price')} | {row.get('tokens')} "
                 f"| {'∞' if stock is None else stock} "
                 f"| {'—' if value is None else _number(value)} |"
@@ -116,6 +116,15 @@ def render_report(result: Mapping[str, Any], *, generated_at: datetime) -> str:
 def _first_sentence(text: str) -> str:
     head = text.split("。", 1)[0].strip()
     return head + "。" if head else ""
+
+
+def _portions(row: Mapping[str, Any]) -> Any:
+    """商店「份数」列：``quantity`` 是份数 × ``bundle``，这里除回份数。"""
+    quantity = row.get("quantity")
+    try:
+        return int(quantity) // max(int(row.get("bundle") or 1), 1)
+    except (TypeError, ValueError):
+        return quantity
 
 
 def _number(value: Any) -> str:

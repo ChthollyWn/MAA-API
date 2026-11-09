@@ -86,6 +86,28 @@ def test_empty_sections_are_omitted() -> None:
     assert "合成" not in body
 
 
+def test_shop_portions_divide_total_quantity_by_bundle() -> None:
+    result = sample_result()
+    result["shop"] = [
+        {
+            "activity": "昨日海",
+            "item": "异铁块",
+            "quantity": 20,
+            "bundle": 10,
+            "price": 40,
+            "tokens": 80,
+            "stock": 2,
+            "section": "金色阶段",
+            "value_sanity": 600.0,
+        }
+    ]
+
+    body = render_report(result, generated_at=NOW)
+
+    row = next(line for line in body.splitlines() if line.startswith("| 异铁块 |"))
+    assert row == "| 异铁块 | 2 | 10 | 40 | 80 | 2 | 600 |"
+
+
 def test_empty_needs_title() -> None:
     assert report_title({"requirements": {}}) == "刷图方案：没有剩余需求"
     assert report_title({"requirements": {"异铁块": 10}}) == "刷图方案：异铁块"
