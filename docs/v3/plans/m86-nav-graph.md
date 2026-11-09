@@ -744,7 +744,7 @@ if nav is not None:
 `nav-infrast-navigate-to.yaml` 与 `nav-unknown-stage-remember.yaml` 逐字照 spec §5 T11 的 JSON 内容（`id/title/suite/agent/source/tags/entry/human/settings/world/expect/limits` 全字段）；场景一 `world.nav.start="home"`、`transitions={"tap:1045,630":"infrast","tap:90,40":"home"}`；场景二 `world.screen="stage"`、`world.nav.start="stage:1-7"`、`transitions={}`。
 
 - [ ] **Step 5: 写两条 cassette**
-注意 spec §5 T11 的「7/9 条」是补丁前口径；`evals-ticket-driver` 的 R7 要求以 `ready` 结束的 ticket 场景末尾再有一条记忆抽取应答，所以本计划按 8/10 条写，回放时以 cassette 实际消费顺序为准。第一行 header：
+注意 spec §5 T11 的「7/9 条」是补丁前口径；`evals-ticket-driver` 的 R7 要求以 `ready` 结束的 ticket 场景末尾再有一条记忆抽取应答，所以本计划按 9/10 条写，回放时以 cassette 实际消费顺序为准。场景一比最初估计多一条：`navigate_to` 的 `grant_atomic_ops` 确认会经 `bubble_human_request` 给总控投一条 system 观察消息并起一轮模型调用，这一轮必然在导航员的下一次请求前完成，必须在 cassette 里给它一条文本应答（见下表第 6 行）。第一行 header：
 
 ```json
 {"type":"header","format":1,"scenario":"nav-infrast-navigate-to","source":"handwritten","recorded_at":"2026-11-09T00:00:00Z","model":"eval-model","agent":"general","spec_version":null,"notes":"M86：ticket 驱动导航到基建"}
@@ -765,11 +765,12 @@ if nav is not None:
 | 3 | Worker | `delegate` | `call-delegate` |
 | 4 | 导航员 | `where_am_i` | `call-where-1` |
 | 5 | 导航员 | `navigate_to` | `call-navigate` |
-| 6 | 导航员 | 最终正文 JSON（无 tool_calls） | — |
-| 7 | Worker | `report` | `call-report` |
-| 8 | memory_curator | 记忆抽取文本 `{"text":"{\"items\": []}"}` | — |
+| 6 | 总控 | 文本 `{"text":"工单在等确认，先不打扰。"}`（system 观察轮） | — |
+| 7 | 导航员 | 最终正文 JSON（无 tool_calls） | — |
+| 8 | Worker | `report` | `call-report` |
+| 9 | memory_curator | 记忆抽取文本 `{"text":"{\"items\": []}"}` | — |
 
-场景一其余应答的 arguments：4 `{}`；5 `{"target":"infrast"}`；6 的 `text` 是 JSON 字符串 `{"summary":"已到基建","findings":[{"title":"导航完成","detail":"navigate_to 两步到达基建","evidence":["navigate_to 结果"]}],"uncertainties":[],"artifacts":[]}`；7 `{"status":"ready","summary":"已到基建，导航员完成。"}`。场景以 `ready` 结束，末尾必须有第 8 条记忆抽取应答 `{"type":"call","channel":"agent","reply":{"text":"{\"items\": []}"}}`，漏写会 `exhausted`、多写会 `unused`。
+场景一其余应答的 arguments：4 `{}`；5 `{"target":"infrast"}`；6 是总控对 `grant_atomic_ops` 确认的观察应答 `{"type":"call","channel":"agent","reply":{"text":"工单在等确认，先不打扰。"}}`（没有它会在第 8 条就 `exhausted`）；7 的 `text` 是 JSON 字符串 `{"summary":"已到基建","findings":[{"title":"导航完成","detail":"navigate_to 两步到达基建","evidence":["navigate_to 结果"]}],"uncertainties":[],"artifacts":[]}`；8 `{"status":"ready","summary":"已到基建，导航员完成。"}`。场景以 `ready` 结束，末尾必须有第 9 条记忆抽取应答 `{"type":"call","channel":"agent","reply":{"text":"{\"items\": []}"}}`，漏写会 `exhausted`、多写会 `unused`。
 
 场景二的 header `scenario`/`notes` 换成 `nav-unknown-stage-remember`；10 条应答依次为：探查 OK ×2、`delegate`（`call-delegate`，task「记下 1-7 界面」）、`where_am_i`（`call-where-1`）、`navigate_to`（`call-navigate`，`{"target":"stage:1-7"}`，返回错误 `NAV_NODE_NOT_FOUND` 由工具真实执行，不在 cassette 里写错误）、`remember_screen`（`call-remember`，`{"node_id":"stage:1-7","title":"1-7"}`）、第二次 `where_am_i`（`call-where-2`）、导航员最终正文 JSON（`summary` 写「已记下 1-7」）、Worker `report`（`{"status":"ready","summary":"已记下 1-7 界面。"}`）、记忆抽取 `{"text":"{\"items\": []}"}`。tool id 顺序为 `call-delegate` → `call-where-1` → `call-navigate` → `call-remember` → `call-where-2` → `call-report`，同样按请求到达顺序写，不重排。
 
