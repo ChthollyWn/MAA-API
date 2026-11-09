@@ -959,7 +959,8 @@ class CassetteTransport(_BaseEvalTransport):
         super().__init__(max_calls=max_calls, channel_override=channel_override)
         self.cassette = cassette
         self.strict = strict
-        self._last_reply_ids: dict[Channel, set[str]] = {}
+        #: tool call id → 发出它的那条应答的 id 集合（同一批多个调用共享同一个集合）。
+        self._issued: dict[str, set[str]] = {}
         self._seq = 0
 
     def _warn_drift(
@@ -997,15 +998,19 @@ class CassetteTransport(_BaseEvalTransport):
             if isinstance(call_id, str):
                 trailing.append(call_id)
         if trailing:
-            previous = self._last_reply_ids.get(channel, set())
-            if set(trailing) != previous:
+            expected: set[str] = set()
+            for call_id in trailing:
+                expected |= self._issued.get(call_id, set())
+            if expected != set(trailing):
                 message = (
                     f"{channel} 请求的工具结果 id {sorted(set(trailing))} "
-                    f"与上一条应答 {sorted(previous)} 不一致"
+                    f"与已发出的调用 {sorted(expected)} 不一致"
                 )
                 self._fail("mismatch", message)
                 return _error_response(message, "eval_mismatch")
-        self._last_reply_ids[channel] = _message_tool_ids(call)
+        reply_ids = _message_tool_ids(call)
+        for call_id in reply_ids:
+            self._issued[call_id] = set(reply_ids)
         return None
 
     def _default_reply(
