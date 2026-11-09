@@ -88,6 +88,31 @@ describe('M29 作业授权卡片', () => {
     expect(screen.getByLabelText('尝试次数')).toHaveValue('7')
   })
 
+  it('parses max_attempts and clamps prefill', async () => {
+    expect(parseCopilotGrantPayload({ ...GRANT_PAYLOAD, max_attempts: 2, attempts: 5 })).toMatchObject({
+      attempts: 2,
+      maxAttempts: 2,
+    })
+  })
+
+  it('limits attempts to max_attempts', async () => {
+    const grant = request({ maxAttempts: 3 })
+    render(<CopilotGrantCard request={grant} value={grant} onChange={vi.fn()} />)
+
+    const select = screen.getByLabelText('尝试次数')
+    expect(within(select).getAllByRole('option')).toHaveLength(3)
+    expect(screen.getByText(/每轮最多试 3 次/)).toBeInTheDocument()
+    expect(screen.getByText(/可以再授权一轮/)).toBeInTheDocument()
+  })
+
+  it('keeps ten options without max_attempts', async () => {
+    render(<Harness />)
+
+    const select = screen.getByLabelText('尝试次数')
+    expect(within(select).getAllByRole('option')).toHaveLength(10)
+    expect(screen.getByText('最多 3 次；次数用完授权就结束，需要重新申请。')).toBeInTheDocument()
+  })
+
   it('成功标准在「必须三星」与「通关即可」之间切换', async () => {
     render(<Harness />)
 

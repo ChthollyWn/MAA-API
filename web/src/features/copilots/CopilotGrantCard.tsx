@@ -37,6 +37,8 @@ export interface CopilotGrantRequest extends CopilotGrantOptions {
   windowMinutes: number | null
   /** 触发这次授权的工具：`run_copilot_attempt` 或 `submit_pipeline`。 */
   toolName: string | null
+  /** 这张工单每一轮授权的最多尝试次数；载荷里没有时等于 `MAX_ATTEMPTS`。 */
+  maxAttempts: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,10 +51,11 @@ function text(value: unknown): string | null {
   return null
 }
 
-function attemptsOf(value: unknown, fallback = DEFAULT_ATTEMPTS): number {
+function attemptsOf(value: unknown, fallback = DEFAULT_ATTEMPTS, upper = MAX_ATTEMPTS): number {
   const parsed = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(parsed)) return fallback
-  return Math.min(Math.max(Math.trunc(parsed), MIN_ATTEMPTS), MAX_ATTEMPTS)
+  const ceiling = Math.min(Math.max(Math.trunc(Number(upper)), MIN_ATTEMPTS), MAX_ATTEMPTS)
+  return Math.min(Math.max(Math.trunc(parsed), MIN_ATTEMPTS), ceiling)
 }
 
 function successOf(value: unknown): CopilotSuccessStandard {
@@ -67,7 +70,7 @@ function supportOf(value: unknown): CopilotSupportMode {
  * 确认详情里的授权 payload → 卡片输入（§9.6）。
  *
  * 字段以 policy 写进 `extra_payload` 的为准（`attempts` / `success` / `support` /
- * `tool_name`），`session_id`、`stage_id`、`stage_code`、`window_minutes` 由确认层补；
+ * `tool_name` / `max_attempts`），`session_id`、`stage_id`、`stage_code`、`window_minutes` 由确认层补；
  * 缺项退回 `payload.arguments`（模型调用工具时给的预填值），再缺就用默认值。
  * 认不出的字段一律忽略，永不抛异常。
  */
@@ -79,8 +82,10 @@ export function parseCopilotGrantPayload(payload: Record<string, unknown>): Copi
     : Number.isFinite(seconds) && seconds > 0
       ? Math.round(seconds / 60)
       : null
+  const maxAttempts = attemptsOf(payload.max_attempts, MAX_ATTEMPTS)
   return {
-    attempts: attemptsOf(payload.attempts ?? args.grant_attempts),
+    attempts: Math.min(attemptsOf(payload.attempts ?? args.grant_attempts), maxAttempts),
+    maxAttempts,
     success: successOf(payload.success ?? args.success),
     support: supportOf(payload.support ?? args.support),
     sessionId: text(payload.session_id) ?? text(args.session_id),
@@ -130,16 +135,20 @@ export function CopilotGrantCard({ request, value, onChange, disabled = false }:
       <Field
         label="尝试次数"
         htmlFor="copilot-grant-attempts"
-        description={`最多 ${value.attempts} 次；次数用完授权就结束，需要重新申请。`}
+        description={
+          request.maxAttempts < MAX_ATTEMPTS
+            ? `最多 ${value.attempts} 次；这张工单每轮最多试 ${request.maxAttempts} 次，用完后可以再授权一轮。`
+            : `最多 ${value.attempts} 次；次数用完授权就结束，需要重新申请。`
+        }
       >
         <NativeSelect
           id="copilot-grant-attempts"
           aria-label="尝试次数"
           disabled={disabled}
           value={String(value.attempts)}
-          onChange={(event) => set('attempts', attemptsOf(event.currentTarget.value))}
+          onChange={(event) => set('attempts', attemptsOf(event.currentTarget.value, DEFAULT_ATTEMPTS, request.maxAttempts))}
         >
-          {ATTEMPT_OPTIONS.map((count) => (
+          {ATTEMPT_OPTIONS.filter((count) => count <= request.maxAttempts).map((count) => (
             <option key={count} value={count}>{count} 次</option>
           ))}
         </NativeSelect>
