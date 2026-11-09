@@ -183,6 +183,12 @@ class ReportMiddleware(Middleware):
             return _error(ErrorCode.INVALID_PARAMETER, REPORT_NOT_LAST_MESSAGE)
         outcome = await call_next(call)
         if outcome.status == "ok" and outcome.error is None:
+            if (
+                isinstance(outcome.result, Mapping)
+                and outcome.result.get("accepted") is False
+            ):
+                # 完成闸门的拒绝是工具结果（§4.5.3）：不写 SUBMITTED_KEY、不结束本轮。
+                return outcome
             ctx.state[SUBMITTED_KEY] = (
                 outcome.result if outcome.result is not None else True
             )
