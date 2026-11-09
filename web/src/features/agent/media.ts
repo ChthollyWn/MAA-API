@@ -345,7 +345,7 @@ function parseSeries(value: unknown): ChartSeries[] | null {
   return series
 }
 
-function parseChartCard(card: Record<string, unknown>): ChartCardData | null {
+export function parseChartCard(card: Record<string, unknown>): ChartCardData | null {
   const chart = isRecord(card.chart) ? card.chart : null
   if (!chart) return null
   const chartType = chart.chart_type
