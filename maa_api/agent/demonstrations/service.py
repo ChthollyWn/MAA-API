@@ -254,13 +254,17 @@ class DemonstrationService:
 
         活动录制已经换人时不动闸门、也不取消对方的监视任务——这是
         ``stop(A)`` 与 ``start(B)`` 交错时的保护（spec §4.5 边界）。
+        ``start`` 持 ``_start_lock`` 直到 ``_active_id`` 就位，这里也持同一把锁，
+        否则 ``stop(A)`` 可能在 ``start(C)`` 刚打开闸门、还没置活动标记时把 C 的
+        闸门关掉（复审复现的 D12 竞态）。
         """
-        if self._active_id != demonstration_id:
-            return False
-        self._active_id = None
-        self._cancel_watcher()
-        await self._lease.set_recording(False)
-        return True
+        async with self._start_lock:
+            if self._active_id != demonstration_id:
+                return False
+            self._active_id = None
+            self._cancel_watcher()
+            await self._lease.set_recording(False)
+            return True
 
     def _start_watcher(self, demonstration_id: str) -> None:
         """起一个后台任务，在录制期间盯着设备连接状态（spec §4.5 状态表）。"""

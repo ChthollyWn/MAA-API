@@ -532,6 +532,69 @@ def test_stop_does_not_release_gate_of_concurrent_start(demo_env) -> None:
     asyncio.run(scenario())
 
 
+def test_stop_waits_for_concurrent_start_before_releasing_gate(demo_env) -> None:
+    """M89 §4.5：stop(A) 不能清掉 start(C) 刚打开、尚未置活动标记的闸门。
+
+    与上一条的区别：上一条让 ``start(B)`` 在 ``stop`` 的提交钩子里完整跑完；这条让
+    ``start(C)`` 先拿到 ``_start_lock``、刚 ``set_recording(True)`` 就被暂停，
+    此时 ``stop(A)`` 必须等锁（不能提前释放闸门）。``_release_gate`` 与 ``start``
+    共用 ``_start_lock``，否则 ``stop(A)`` 会在 C 置活动标记前把 C 的闸门关掉。
+    """
+    factory, _device, lease, service = demo_env
+
+    async def scenario() -> None:
+        out_a = await service.start(title="甲")
+        await _note(service, out_a["id"], started_at=datetime(2026, 11, 10, 8, 0, 0))
+
+        opened = asyncio.Event()
+        resume = asyncio.Event()
+        original = lease.set_recording
+        pause = {"armed": True}
+
+        async def paused_set_recording(value: bool) -> None:
+            if value and pause["armed"]:
+                pause["armed"] = False
+                opened.set()
+                await resume.wait()
+            await original(value)
+
+        lease.set_recording = paused_set_recording  # type: ignore[method-assign]
+        hook_factory = _CommitHookedFactory(factory)
+        service._session_factory = hook_factory  # type: ignore[attr-defined]
+        task_c: dict[str, asyncio.Task[dict[str, Any]]] = {}
+
+        async def launch_start_c() -> None:
+            # 在 A 的状态提交之后启动 C；等 C 刚开闸（持 `_start_lock`）再返回。
+            task_c["task"] = asyncio.create_task(service.start(title="丙"))
+            await asyncio.wait_for(opened.wait(), timeout=2)
+
+        hook_factory.arm(launch_start_c)
+        try:
+            stop_task = asyncio.create_task(service.stop(out_a["id"]))
+            await asyncio.sleep(0.1)
+            assert not stop_task.done(), (
+                "stop(A) 必须在 start(C) 持锁期间等待，不能提前释放闸门"
+            )
+            resume.set()
+            started_c = await task_c["task"]
+            with pytest.raises(AppError) as caught:
+                await stop_task
+            assert caught.value.code == ErrorCode.DEMONSTRATION_STATE_INVALID
+            assert service.active_id == started_c["id"]
+            assert lease.recording() is True
+            by_id = {row.id: row for row in await _rows(factory)}
+            assert by_id[started_c["id"]].status == DemonstrationStatus.RECORDING
+
+            pause["armed"] = False
+            await service.stop(started_c["id"])
+            assert lease.recording() is False
+            assert service.active_id is None
+        finally:
+            lease.set_recording = original  # type: ignore[method-assign]
+
+    asyncio.run(scenario())
+
+
 def test_note_step_sets_at_utc_z(demo_env) -> None:
     _factory, _device, _lease, service = demo_env
     base = datetime(2026, 11, 10, 8, 30, 0)

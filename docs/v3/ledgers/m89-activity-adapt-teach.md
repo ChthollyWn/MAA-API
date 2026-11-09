@@ -92,6 +92,11 @@
 - 15 生成块在 T1/T6 后未更新，T8 补跑；16 补 §24 部署说明；`test_m70_specs.py` 实测只有一处 `general` 集合。
 - 真机 6 项、滑动/长按可靠性、物理输入 `getevent`、画布只录页面内操作、截图 7 天过期后的真实时钟行为均**未验证**。
 
+## 整支审查修复
+
+- 整支审查 REQUEST CHANGES（队列唤醒缺失、设备断开不自动丢弃、stop(A)/start(B) 竞态、前端长按定时器与 convert 错误分支、批量注册冲突回滚用例）→ 修复 `508d28d`；scoped re-review 又复现「`_release_gate` 与 `start` 的在途交错」→ 修复 `_release_gate` 持 `_start_lock` 并补确定性用例（红证据：无锁时该用例 `stop(A)` 提前完成、C 的闸门被关）。
+- `abort(demonstration_id=…)` 的 id 不匹配选择返回 `False`（内部方法、无 REST 面），不再抛 409；`stop` 不匹配仍抛 `DEMONSTRATION_STATE_INVALID`。
+
 ## 遗留
 
 1. spec §7 的 6 项真机验收**未执行**：真机点击/滑动/长按与截图对齐、预览 chain 顺序、注册后 `Custom` 试跑、录制中刷新与重开页面、拔设备与 `discarded`、连续 20 次点击的截图时差。本任务只用假设备、回放与临时库验证，如实记「未验证」。
