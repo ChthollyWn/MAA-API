@@ -1,0 +1,7 @@
+{"type": "header", "format": 1, "scenario": "m87-daily-machine-pass", "source": "handwritten", "recorded_at": "2026-11-09T00:00:00Z", "model": "eval-model", "agent": "daily_ops", "spec_version": null, "notes": "M87 T7：日常流水线全成功，机器证据放行"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-submit-1", "name": "submit_pipeline", "arguments": {"title": "日常", "tasks": [{"name": "StartUp", "start_game_enabled": true}, {"name": "Fight", "stage": "1-7", "series": 3}, {"name": "Award"}]}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-wait-1", "name": "wait_pipeline", "arguments": {"pipeline_id": "{{result:call-submit-1:pipeline_id}}", "timeout_seconds": 60}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-report-1", "name": "report", "arguments": {"status": "ready", "summary": "日常跑完了：Fight 1-7 三次、奖励已领，理智药没动。"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"text": "{\"items\": []}"}}

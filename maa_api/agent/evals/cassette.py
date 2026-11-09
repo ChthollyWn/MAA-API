@@ -62,6 +62,8 @@ VISION_PROBE_REPLY = "blue"
 _PROBE_CALL_ID = "eval-probe"
 #: ``expand_reply`` 里工具参数序列化后的默认值。
 _EMPTY_ARGUMENTS = "{}"
+#: 工具结果正文完全解析不出 JSON 时的哨兵（正文值本身可以是任意 JSON 值）。
+_UNPARSEABLE = object()
 
 
 class CassetteError(RuntimeError):
@@ -550,6 +552,29 @@ def expand_reply(
     return chunks
 
 
+def _loads_tool_content(content: Any) -> Any:
+    """解析工具结果正文；解析不了返回 ``_UNPARSEABLE``。
+
+    请求里的 tool 消息不一定只有一段 JSON：动态尾部可能并进最后一条工具结果
+    （``tail_user``），带截图的工具结果后面还会追加「截图图像当前不可用」这类系统
+    观察。占位符只关心前面的结构化结果，所以解析失败时再按「取开头那个 JSON 值」
+    回退一次。
+    """
+    if not isinstance(content, str):
+        return content
+    try:
+        return json.loads(content)
+    except (TypeError, ValueError):
+        pass
+    for candidate in (content, content.lstrip()):
+        try:
+            payload, _end = json.JSONDecoder().raw_decode(candidate)
+        except (TypeError, ValueError):
+            continue
+        return payload
+    return _UNPARSEABLE
+
+
 def _tool_results(messages: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """把请求里的 tool 消息解析成 ``{tool_call_id: result}``。"""
     results: dict[str, Any] = {}
@@ -559,10 +584,8 @@ def _tool_results(messages: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         call_id = message.get("tool_call_id")
         if not isinstance(call_id, str):
             continue
-        content = message.get("content")
-        try:
-            payload = json.loads(content) if isinstance(content, str) else content
-        except (TypeError, ValueError):
+        payload = _loads_tool_content(message.get("content"))
+        if payload is _UNPARSEABLE:
             continue
         if isinstance(payload, Mapping) and "result" in payload:
             payload = payload["result"]

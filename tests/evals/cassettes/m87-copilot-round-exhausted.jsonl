@@ -1,0 +1,6 @@
+{"type": "header", "format": 1, "scenario": "m87-copilot-round-exhausted", "source": "handwritten", "recorded_at": "2026-11-09T00:00:00Z", "model": "eval-model", "agent": "copilot", "spec_version": null, "notes": "M87 T7：一轮授权用完，汇报 waiting"}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"text": "OK"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-attempt-1", "name": "run_copilot_attempt", "arguments": {"copilot_id": "cp-eval-1-7", "support": "none"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-attempt-2", "name": "run_copilot_attempt", "arguments": {"copilot_id": "cp-eval-1-7", "support": "none"}}], "finish_reason": "tool_calls"}}
+{"type": "call", "channel": "agent", "reply": {"tool_calls": [{"id": "call-report-1", "name": "report", "arguments": {"status": "waiting", "summary": "这一轮两次都失败了：试了 cp-eval-1-7 的两版，都卡在开局费用上；下一版准备换起手顺序，要不要再授权一轮？", "human_action": {"type": "decision", "prompt": "这一轮授权用完了，是否再授权一轮？"}}}], "finish_reason": "tool_calls"}}

@@ -1,0 +1,82 @@
+{
+  "id": "m87-copilot-two-rounds",
+  "title": "作业两次尝试后三星，机器证据放行",
+  "suite": "capability",
+  "agent": "copilot",
+  "source": "M87 §5 T7",
+  "tags": [
+    "gate",
+    "copilot"
+  ],
+  "entry": {
+    "kind": "ticket",
+    "worker": "copilot",
+    "title": "用作业打 1-7",
+    "brief": "用作业 cp-eval-1-7 打 1-7，要三星。",
+    "scope": "在 1-7 执行作业 cp-eval-1-7，直到拿到三星"
+  },
+  "human": {
+    "confirmations": "approve"
+  },
+  "world": {
+    "core_script": "success",
+    "screen": "stage",
+    "copilots": [
+      {
+        "id": "cp-eval-1-7",
+        "title": "1-7 三星作业",
+        "stage_id": "main_01-07",
+        "stage_code": "1-7"
+      }
+    ],
+    "copilot_results": [
+      "failed",
+      "three_star"
+    ]
+  },
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "min_calls": {
+        "run_copilot_attempt": 2
+      },
+      "max_calls": {
+        "report": 1
+      },
+      "forbid": [
+        "delegate"
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "runs": {
+        "count": {
+          "gte": 1
+        },
+        "all": [
+          {
+            "agent_name": "copilot",
+            "status": "succeeded",
+            "finish_reason": "report_submitted"
+          }
+        ]
+      },
+      "confirmations": {
+        "count": 1,
+        "statuses": [
+          "approved"
+        ]
+      },
+      "model_calls": {
+        "lte": 8
+      }
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 60,
+    "max_model_calls": 30
+  },
+  "settings": {
+    "llm.role_orchestrator": "missing-profile"
+  }
+}
