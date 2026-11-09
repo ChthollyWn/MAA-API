@@ -297,6 +297,34 @@ def test_put_node_removes_exemplar_by_phash(
     assert response.json()["exemplars"] == []
 
 
+def test_put_node_removes_exemplar_when_rois_change(
+    make_client, isolated_db, tmp_settings
+) -> None:
+    """同时改 rois：先按旧 phash 删，再按新 rois 重算（spec §4.3.2 的样本移除）。"""
+
+    _app, client = _build_app(make_client, isolated_db)
+    first = client.put(
+        "/api/agent/nav/nodes/home",
+        json={"title": "主界面", "kind": "screen", "add_exemplar": "current"},
+    )
+    phash = first.json()["exemplars"][0]["phash"]
+
+    response = client.put(
+        "/api/agent/nav/nodes/home",
+        json={
+            "title": "主界面",
+            "kind": "screen",
+            "recognizer": {"rois": [[0, 0, 1, 1], [0.5, 0.5, 0.25, 0.25]]},
+            "remove_exemplars": [phash],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["recognizer"]["rois"]) == 2
+    assert payload["exemplars"] == []
+
+
 def test_put_node_add_exemplar_rejects_expired_screenshot(
     make_client, isolated_db, tmp_settings
 ) -> None:
@@ -334,6 +362,39 @@ def test_put_node_add_exemplar_missing_screenshot_is_404(
     assert _error(response)["code"] == "SCREENSHOT_NOT_FOUND"
 
 
+def test_put_node_screenshot_404_does_not_create_or_modify_node(
+    make_client, isolated_db, tmp_settings
+) -> None:
+    """先校验截图再写节点：404 不留下新建节点，也不改已有节点（spec §4.3.2）。"""
+
+    _app, client = _build_app(make_client, isolated_db)
+
+    create = client.put(
+        "/api/agent/nav/nodes/new_screen",
+        json={
+            "title": "新界面",
+            "kind": "screen",
+            "add_exemplar_screenshot_id": UUID_A,
+        },
+    )
+    assert create.status_code == 404, create.text
+    graph = client.get("/api/agent/nav/graph").json()
+    assert all(item["id"] != "new_screen" for item in graph["nodes"])
+
+    modify = client.put(
+        "/api/agent/nav/nodes/home",
+        json={
+            "title": "改过的标题",
+            "kind": "menu",
+            "add_exemplar_screenshot_id": UUID_A,
+        },
+    )
+    assert modify.status_code == 404, modify.text
+    home = _node(client, "home")
+    assert home["title"] == "主界面"
+    assert home["kind"] == "screen"
+
+
 def test_put_node_add_current_exemplar_device_not_connected(
     make_client, isolated_db, tmp_settings
 ) -> None:
@@ -342,13 +403,21 @@ def test_put_node_add_current_exemplar_device_not_connected(
         ErrorCode.DEVICE_NOT_CONNECTED, "设备当前未连接"
     )
 
-    response = client.put(
-        "/api/agent/nav/nodes/home",
-        json={"title": "主界面", "kind": "screen", "add_exemplar": "current"},
+    served = client.put(
+        "/api/agent/nav/nodes/new_screen",
+        json={"title": "新界面", "kind": "screen", "add_exemplar": "current"},
     )
+    assert served.status_code == 503, served.text
+    graph = client.get("/api/agent/nav/graph").json()
+    assert all(item["id"] != "new_screen" for item in graph["nodes"])
 
-    assert response.status_code == 503, response.text
-    assert _error(response)["code"] == "DEVICE_NOT_CONNECTED"
+    modified = client.put(
+        "/api/agent/nav/nodes/home",
+        json={"title": "改过的标题", "kind": "screen", "add_exemplar": "current"},
+    )
+    assert modified.status_code == 503, modified.text
+    assert _node(client, "home")["title"] == "主界面"
+    assert _error(served)["code"] == "DEVICE_NOT_CONNECTED"
 
 
 # ----------------------------------------------------------------------

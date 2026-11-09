@@ -20,7 +20,7 @@ from maa_api.agent.nav.graph import NavGraphService
 from maa_api.agent.nav.navigator import Navigator
 from maa_api.agent.nav.recognizer import Recognizer, signature
 from maa_api.db import session as db_session
-from maa_api.db.models import AgentAudit, NavEdge
+from maa_api.db.models import AgentAudit, NavEdge, Screenshot
 from maa_api.domain.errors import AppError, ErrorCode
 from tests.fakes.nav import FakeNavDevice, FakeVision, make_screen
 from tests.fakes.v3_db import make_session_factory, seed_session
@@ -152,6 +152,45 @@ def test_navigate_one_hop_records_success(tmp_path: Path) -> None:
     _run(tmp_path, scenario)
 
 
+@pytest.mark.parametrize("learn", [False, True])
+def test_edge_exemplar_respects_learning_switch(
+    tmp_path: Path, learn: bool
+) -> None:
+    """hash 命中但签名超出重复距离时，只有 nav.learn=true 才归档并加样本。"""
+
+    async def scenario(
+        service: NavGraphService,
+        factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        await _node(service, "home")
+        await _node(service, "target")
+        await _edge(service, "home", "target", TAP_A)
+        await _exemplar(service, "home", "home")
+        # target 的旧样本与当前画面距离 4：过 max_distance=10（算到达），
+        # 但超过 DUPLICATE_DISTANCE=3（需要新样本）。
+        await _exemplar(service, "target", "s11")
+        device = FakeNavDevice({_tap_key(0.8, 0.89): "s92"}, start="home")
+
+        async with factory() as session:
+            result = await _nav(service, device, learn=learn, db=session).navigate(
+                "target"
+            )
+
+        assert result.arrived is True
+        assert result.learned_exemplars == (1 if learn else 0)
+        node = await service.get_node("target")
+        assert node is not None
+        assert len(node.exemplars) == (2 if learn else 1)
+        async with factory() as session:
+            archived = await session.scalar(select(func.count(Screenshot.id)))
+        assert archived == (1 if learn else 0)
+        if learn:
+            assert node.exemplars[-1]["source"] == "edge"
+            assert node.exemplars[-1]["screenshot_id"]
+
+    _run(tmp_path, scenario)
+
+
 def test_already_there_does_nothing(tmp_path: Path) -> None:
     async def scenario(service: NavGraphService, _factory) -> None:
         await _node(service, "home")
@@ -248,6 +287,46 @@ def test_wrong_landing_learns_edge_and_replans(tmp_path: Path) -> None:
         assert len(learned) == 1
         assert learned[0].origin == "learned"
         assert (learned[0].action["type"], learned[0].action["x"]) == ("tap", 0.8)
+
+    _run(tmp_path, scenario)
+
+
+def test_existing_learned_edge_records_success_and_updates_cost(
+    tmp_path: Path,
+) -> None:
+    """走错后学到的边已存在（同 action_hash）时只记一次成功，不新建、不重复计数。"""
+
+    async def scenario(service: NavGraphService, _factory) -> None:
+        for node in ("home", "target", "depot"):
+            await _node(service, node)
+        original = await _edge(service, "home", "target", TAP_A)
+        await _edge(service, "depot", "target", TAP_B)
+        for node in ("home", "target", "depot"):
+            await _exemplar(service, node, node)
+        transitions = {
+            _tap_key(0.8, 0.89): "depot",
+            _tap_key(0.5, 0.5): "target",
+        }
+
+        await _nav(service, FakeNavDevice(transitions, start="home")).navigate(
+            "target"
+        )
+        learned = (await _between(service, "home", "depot"))[0]
+        # 第二次仍走便宜的原始边：先失败、再按已有 learned 边记成功。
+        await service.update_edge(original.id, cost_ms=100)
+        await service.update_edge(learned.id, cost_ms=60000)
+
+        result = await _nav(
+            service, FakeNavDevice(transitions, start="home")
+        ).navigate("target")
+
+        assert result.arrived is True
+        assert result.learned_edges == 0
+        assert result.trail[0]["ok"] is False
+        stored = await service.get_edge(learned.id)
+        assert stored is not None
+        assert stored.success_count == 1
+        assert stored.cost_ms == round(0.7 * 60000 + 0.3 * result.trail[0]["ms"])
 
     _run(tmp_path, scenario)
 
@@ -424,6 +503,49 @@ def test_locate_edge_learns_tap_edge(tmp_path: Path) -> None:
         learned = [edge for edge in edges if edge.origin == "learned"]
         assert len(learned) == 1
         assert learned[0].action == {"type": "tap", "x": 0.5, "y": 0.5}
+
+    _run(tmp_path, scenario)
+
+
+def test_existing_learned_locate_tap_records_success(tmp_path: Path) -> None:
+    """locate 走通时学到的 tap 边已存在：只 +1 次成功，cost_ms 按 record_success 规则。"""
+
+    async def scenario(service: NavGraphService, _factory) -> None:
+        await _node(service, "home")
+        await _node(service, "target")
+        locate = await _edge(
+            service,
+            "home",
+            "target",
+            {"type": "locate", "query": "右下角的开始行动按钮"},
+        )
+        # 让第二次仍选 locate 边（1000 < learned tap 的默认 1500）。
+        await service.update_edge(locate.id, cost_ms=1000)
+        await _exemplar(service, "home", "home")
+        transitions = {_tap_key(0.5, 0.5): "target"}
+        vision = FakeVision(available_result=True, locate_result=(0.5, 0.5, 0.9))
+
+        first = await _nav(
+            service, FakeNavDevice(transitions, start="home"), vision=vision
+        ).navigate("target")
+        assert first.learned_edges == 1
+        learned = next(
+            edge
+            for edge in await _between(service, "home", "target")
+            if edge.origin == "learned"
+        )
+        assert learned.success_count == 0
+
+        second = await _nav(
+            service, FakeNavDevice(transitions, start="home"), vision=vision
+        ).navigate("target")
+
+        assert second.arrived is True
+        assert second.learned_edges == 0
+        stored = await service.get_edge(learned.id)
+        assert stored is not None
+        assert stored.success_count == 1
+        assert stored.cost_ms == second.trail[-1]["ms"]
 
     _run(tmp_path, scenario)
 

@@ -230,17 +230,21 @@ async def _recompute_exemplars(
     return recomputed
 
 
+async def _current_image(request: Request) -> Image.Image:
+    """写节点前先截图：设备未连接时 503，不留下半成品节点（spec §4.3.2）。"""
+    manager = _device_manager(request)
+    result = await manager.screenshot(backend="adb")
+    return result.image
+
+
 async def _add_current_exemplar(
-    request: Request,
     session: AsyncSession,
     service: NavGraphService,
     node_id: str,
     recognizer: Mapping[str, Any],
+    image: Image.Image,
 ) -> None:
-    """现截一张图（只读设备、不取租约），归档并提交后写成 user 样本。"""
-    manager = _device_manager(request)
-    result = await manager.screenshot(backend="adb")
-    image = result.image
+    """归档并提交后写成 user 样本；截图由调用方在写节点前取好。"""
     _row, stored = await archive_screenshot(
         session,
         image,
@@ -257,14 +261,10 @@ async def _add_current_exemplar(
     )
 
 
-async def _add_screenshot_exemplar(
-    service: NavGraphService,
-    repository: ScreenshotRepository,
-    node_id: str,
-    screenshot_id: str,
-    recognizer: Mapping[str, Any],
-) -> None:
-    """用已归档的截图加样本；不重新归档，404/410 照截图归档的规则报。"""
+async def _load_exemplar_screenshot(
+    repository: ScreenshotRepository, screenshot_id: str
+) -> tuple[Image.Image, str]:
+    """写节点前校验已归档截图；404/410 照截图归档的规则报，避免节点半成品。"""
     screenshot = await repository.get(screenshot_id)
     if screenshot is None:
         raise AppError(
@@ -285,10 +285,21 @@ async def _add_screenshot_exemplar(
             "截图文件已清理",
             {"screenshot_id": screenshot_id},
         )
+    return image, str(screenshot.id)
+
+
+async def _add_screenshot_exemplar(
+    service: NavGraphService,
+    node_id: str,
+    screenshot_id: str,
+    recognizer: Mapping[str, Any],
+    image: Image.Image,
+) -> None:
+    """用已校验的归档截图加样本；不重新归档。"""
     await service.add_exemplar(
         node_id,
         phash=signature(image, _rois(recognizer)),
-        screenshot_id=str(screenshot.id),
+        screenshot_id=screenshot_id,
         source="user",
     )
 
@@ -345,6 +356,17 @@ async def put_nav_node(
         and _rois(existing.recognizer) != [list(item) for item in payload.recognizer.rois]
     )
 
+    repository = ScreenshotRepository(session)
+    exemplar_image: Image.Image | None = None
+    exemplar_screenshot_id: str | None = None
+    if payload.add_exemplar == "current":
+        # 先截图再写库：设备未连接时 503，节点不被创建/修改（spec §4.3.2）。
+        exemplar_image = await _current_image(request)
+    elif payload.add_exemplar_screenshot_id:
+        exemplar_image, exemplar_screenshot_id = await _load_exemplar_screenshot(
+            repository, payload.add_exemplar_screenshot_id
+        )
+
     node = await service.upsert_node(
         node_id,
         title=payload.title,
@@ -352,13 +374,8 @@ async def put_nav_node(
         origin=origin,
         recognizer=recognizer,
     )
-    repository = ScreenshotRepository(session)
-    if rois_changed:
-        node = await service.set_exemplars(
-            node_id,
-            await _recompute_exemplars(repository, node, payload.recognizer.rois),
-        )
     if payload.remove_exemplars:
+        # 先按旧 phash 删样本，再按新 rois 重算；反过来同时改 rois 时旧 phash 已不存在。
         removed = set(payload.remove_exemplars)
         current = await service.get_node(node_id)
         current_items = list(current.exemplars or []) if current is not None else []
@@ -369,17 +386,24 @@ async def put_nav_node(
             and str(item.get("phash") or "") not in removed
         ]
         node = await service.set_exemplars(node_id, kept)
-    if payload.add_exemplar == "current":
-        await _add_current_exemplar(
-            request, session, service, node_id, recognizer
+    if rois_changed:
+        node = await service.set_exemplars(
+            node_id,
+            await _recompute_exemplars(repository, node, payload.recognizer.rois),
         )
-    elif payload.add_exemplar_screenshot_id:
+    if payload.add_exemplar == "current":
+        assert exemplar_image is not None
+        await _add_current_exemplar(
+            session, service, node_id, recognizer, exemplar_image
+        )
+    elif exemplar_screenshot_id is not None:
+        assert exemplar_image is not None
         await _add_screenshot_exemplar(
             service,
-            repository,
             node_id,
-            payload.add_exemplar_screenshot_id,
+            exemplar_screenshot_id,
             recognizer,
+            exemplar_image,
         )
     node = await service.get_node(node_id)
     assert node is not None  # upsert 之后一定存在

@@ -409,11 +409,15 @@ class Navigator:
                     await self._graph.record_success(
                         step.edge_id, elapsed_ms=elapsed
                     )
-                added, _screenshot_id = await self._add_exemplar_from_image(
-                    step.to_node, image, source="edge"
+                # 自动学样本只在 nav.learn=true 时发生（spec §4.5.2）。
+                if self._learn:
+                    added, _screenshot_id = await self._add_exemplar_from_image(
+                        step.to_node, image, source="edge"
+                    )
+                    state.learned_exemplars += added
+                await self._learn_locate_tap(
+                    step, performed, state, elapsed_ms=elapsed
                 )
-                state.learned_exemplars += added
-                await self._learn_locate_tap(step, performed, state)
                 state.trail.append(
                     _trail_item(
                         step, actual=step.to_node, ok=True, ms=elapsed
@@ -432,7 +436,9 @@ class Navigator:
                 )
                 state.learned_exemplars += added
                 # 首达信任也是一次「走通」：locate 跳转同样学成 tap（spec §4.5.6）。
-                await self._learn_locate_tap(step, performed, state)
+                await self._learn_locate_tap(
+                    step, performed, state, elapsed_ms=elapsed
+                )
                 state.trail.append(
                     _trail_item(step, actual=step.to_node, ok=True, ms=elapsed)
                 )
@@ -452,13 +458,18 @@ class Navigator:
                     and str(step.action.get("type"))
                     in {"tap", "swipe", "key", "sequence"}
                 ):
-                    _learned, created = await self._graph.upsert_edge(
+                    learned, created = await self._graph.upsert_edge(
                         from_node=current,
                         to_node=recognition.node_id,
                         action=step.action,
                         origin="learned",
                     )
                     state.learned_edges += int(created)
+                    if not created:
+                        # 同 action_hash 已存在时只记一次成功，不新建（spec §4.5.4）。
+                        await self._graph.record_success(
+                            learned.id, elapsed_ms=elapsed
+                        )
                 current = recognition.node_id
                 continue
 
@@ -513,20 +524,28 @@ class Navigator:
         return HOME_NODE_ID
 
     async def _learn_locate_tap(
-        self, step: PathStep, performed: Performed, state: _RunState
+        self,
+        step: PathStep,
+        performed: Performed,
+        state: _RunState,
+        *,
+        elapsed_ms: int,
     ) -> None:
         """``locate`` 走通后学成一条 tap 跳转（spec §4.5.6）。"""
         if not self._learn or str(step.action.get("type")) != "locate":
             return
         if performed.tap_action is None:
             return
-        _learned, created = await self._graph.upsert_edge(
+        learned, created = await self._graph.upsert_edge(
             from_node=step.from_node,
             to_node=step.to_node,
             action={"type": "tap", **performed.tap_action},
             origin="learned",
         )
         state.learned_edges += int(created)
+        if not created:
+            # 学到的 tap 已存在时只记一次成功，不新建（spec §4.5.4）。
+            await self._graph.record_success(learned.id, elapsed_ms=elapsed_ms)
 
     async def _first_arrival_trust(
         self, step: PathStep, recognition: Recognition
