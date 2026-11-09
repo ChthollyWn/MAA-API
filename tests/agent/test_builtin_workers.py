@@ -13,6 +13,7 @@ from maa_api.agent.tools import build_registry
 #: 05 §3.2 的六行：title、device、风险上限、委派与工具顺序。
 WORKERS = {
     "daily_ops": {
+        "version": 4,
         "title": "执行官",
         "device": "exclusive",
         "risk_ceiling": "consume",
@@ -29,6 +30,7 @@ WORKERS = {
         ),
     },
     "copilot": {
+        "version": 4,
         "title": "作战参谋",
         "device": "exclusive",
         "risk_ceiling": "consume",
@@ -45,6 +47,7 @@ WORKERS = {
         ),
     },
     "planner": {
+        "version": 3,
         "title": "规划师",
         "device": "none",
         "risk_ceiling": "consume",
@@ -62,6 +65,7 @@ WORKERS = {
         ),
     },
     "diagnose": {
+        "version": 4,
         "title": "诊断员",
         "device": "exclusive",
         "risk_ceiling": "none",
@@ -75,6 +79,7 @@ WORKERS = {
         ),
     },
     "analyst": {
+        "version": 3,
         "title": "分析师",
         "device": "none",
         "risk_ceiling": "none",
@@ -87,6 +92,7 @@ WORKERS = {
         ),
     },
     "ops": {
+        "version": 3,
         "title": "运维",
         "device": "exclusive",
         "risk_ceiling": "destructive",
@@ -133,8 +139,9 @@ def test_six_workers_match_contract():
         assert spec.risk_ceiling == expected["risk_ceiling"]
         assert spec.delegates == expected["delegates"]
         assert spec.tools == expected["tools"]
-        # M78 §4.7 各加两个技能工具、M79 §4.2 给 diagnose 加检索工具，版本 +1。
-        assert spec.version == (4 if name == "diagnose" else 3)
+        # M78 §4.7 各加两个技能工具、M79 §4.2 给 diagnose 加检索工具，版本 +1；
+        # M87 §4.7：daily_ops、copilot 开启 verify_before_ready 并升到 4。
+        assert spec.version == expected["version"]
         assert spec.max_steps == 0
         assert spec.output_schema is None
         assert spec.budget.max_cost_per_run == 0

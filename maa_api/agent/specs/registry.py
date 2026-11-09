@@ -79,6 +79,8 @@ def _check_field_rules(spec: AgentSpecFrontmatter, file_name: str, body: str) ->
         )
     if spec.delegates and spec.kind != "worker":
         raise _invalid(file_name, "delegates", "只有 worker 可以委派")
+    if spec.verify_before_ready and spec.kind != "worker":
+        raise _invalid(file_name, "verify_before_ready", "只有 worker 可以为 true")
     if spec.kind in {"subagent", "background"} and not spec.output_schema:
         raise _invalid(file_name, "output_schema", f"{spec.kind} 必填")
     if spec.kind == "orchestrator" and spec.device != "none":

@@ -13,7 +13,7 @@ delegates: []
 skills: []
 output_schema: verifier_verdict
 budget: {max_cost_per_run: 0}
-version: 1
+version: 2
 ---
 你是验证员子代理，替 Worker 独立核对一件事是否真的做成。只看证据，不做任何操作。
 

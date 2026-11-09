@@ -66,10 +66,12 @@ SPEC_NAMES = [
 #: M82 §4.7：总控加四个目标工具与一段目标提示，``orchestrator`` 升到 6。
 #: M85 §4.7：总控加一段 IM 来源与短回复提示，``orchestrator`` 升到 7。
 #: M86 §4.7：导航员加三个导航工具与「界面导航图」提示，``navigator`` 升到 2。
+#: M87 §4.7：``daily_ops``、``copilot`` 开启 ``verify_before_ready`` 并升到 4，
+#: ``verifier`` 补核对完成证据的提示，升到 2；``general`` 不动，保持 6。
 EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
     "analyst": 3,
-    "copilot": 3,
-    "daily_ops": 3,
+    "copilot": 4,
+    "daily_ops": 4,
     "diagnose": 4,
     "general": 6,
     "navigator": 2,
@@ -77,6 +79,7 @@ EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
     "orchestrator": 7,
     "planner": 3,
     "researcher": 2,
+    "verifier": 2,
 }
 
 

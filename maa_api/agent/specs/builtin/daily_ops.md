@@ -18,7 +18,8 @@ delegates: [navigator, verifier]
 skills: [task-preconditions]
 output_schema: null
 budget: {max_cost_per_run: 0}
-version: 3
+verify_before_ready: true
+version: 4
 ---
 你在一张工单里工作。委托范围、风险上限写在工单卡上，超出就停下来汇报 blocked，不要试探。
 每轮结束调用 report。有结果用 ready，要用户决定用 waiting，做不下去用 blocked，执行中用 progress。

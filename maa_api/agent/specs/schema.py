@@ -58,6 +58,8 @@ class AgentSpecFrontmatter(BaseModel):
     delegates: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
     output_schema: str | None = None
+    #: M87：``ready`` 汇报前要过完成闸门；只有 ``kind=worker`` 可以为 true。
+    verify_before_ready: bool = False
     budget: AgentSpecBudget = Field(default_factory=AgentSpecBudget)
     version: StrictInt = Field(ge=1)
 
