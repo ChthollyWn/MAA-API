@@ -29,7 +29,7 @@ v3 把 MAA-API 从「带一个对话式 Agent 的自动化服务」改成「以 
 | [14-现行接口清单](./14-现行接口清单.md) | 现行的错误码表（§4）与全量路由清单（§6），由测试逐行比对 | 动接口或错误码的执行者 |
 | [15-开放API接入指南](./15-开放API接入指南.md) | REST / WebSocket 的调用、鉴权与错误处理；由脚本生成、前端内嵌 | 改开放 API 的执行者 |
 | [16-部署指南](./16-部署指南.md) | Tailscale Serve、HTTPS、Web Push、v3 新配置（IM 通道、embedding、沙箱）与故障排查 | 改部署或配置的执行者 |
-| [specs/](./specs/README.md) | M63–M85 的可执行规格。M86–M98 在 [specs/todo/](./specs/todo/README.md)，标为 TODO | 执行者 |
+| [specs/](./specs/README.md) | M63–M90 的可执行规格。M91–M98 在 [specs/todo/](./specs/todo/README.md)，标为 TODO | 执行者 |
 
 M64 起另有三份活文档，由 M64 从 v2 复制建立，此后随实现更新：`14-现行接口清单.md`（错误码表与全量路由清单，由测试逐行比对）、`15-开放API接入指南.md`（由脚本生成、前端内嵌）、`16-部署指南.md`（v3 新增的 IM 通道、embedding、沙箱等配置都写在这里）。
 
