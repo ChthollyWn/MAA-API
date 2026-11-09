@@ -69,6 +69,8 @@ M78_TOOLS = frozenset({"load_skill", "read_skill_file"})
 M79_TOOLS = frozenset({"remember"})
 #: M82 的目标工具：注册表里有，v2 会话不加载（M82 §4.2）。
 M82_TOOLS = frozenset({"create_goal", "list_goals", "get_goal", "update_goal"})
+#: M86 的三个导航工具：注册表里有，v2 会话不加载（M86 §4.3.1）。
+M86_TOOLS = frozenset({"where_am_i", "remember_screen", "navigate_to"})
 BUILTIN_SPEC_NAMES = [
     "analyst",
     "copilot",
@@ -142,12 +144,19 @@ def test_legacy_chat_lists_every_v2_registered_tool_in_registration_order():
     spec = builtin_spec("legacy_chat")
     definitions = build_registry().list()
 
-    assert len(definitions) == 104
+    assert len(definitions) == 107
     assert spec.tools == tuple(
         definition.name
         for definition in definitions
         if definition.name
-        not in M70_TOOLS | M71_TOOLS | M75_TOOLS | M76_TOOLS | M78_TOOLS | M79_TOOLS | M82_TOOLS
+        not in M70_TOOLS
+        | M71_TOOLS
+        | M75_TOOLS
+        | M76_TOOLS
+        | M78_TOOLS
+        | M79_TOOLS
+        | M82_TOOLS
+        | M86_TOOLS
     )
     assert spec.deferred_groups == tuple(sorted(DEFERRED_TOOL_GROUPS))
     assert set(DEFERRED_TOOL_GROUPS) <= set(spec.deferred_groups)
@@ -417,3 +426,14 @@ def test_invalid_definition_fails_loudly(
 
 def test_device_levels_are_the_same_in_both_modules():
     assert schema.DEVICE_LEVELS == TOOL_DEVICE_LEVELS
+
+
+def test_navigator_exposes_nav_tools():
+    navigator = builtin_spec("navigator")
+    assert {"where_am_i", "remember_screen", "navigate_to"} <= set(navigator.tools)
+    assert set(navigator.tools) >= {"get_screenshot", "click", "swipe", "back_to_home"}
+    # 导航工具走原子操作授权，风险按 consume 计（spec §4.5.5）；上限 none 会在
+    # MandateMiddleware 就被 MANDATE_SCOPE_EXCEEDED 拦下。
+    assert navigator.risk_ceiling == "consume"
+    general = builtin_spec("general")
+    assert not {"where_am_i", "remember_screen", "navigate_to"} & set(general.tools)

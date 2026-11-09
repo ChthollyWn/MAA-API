@@ -234,6 +234,10 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "deployment.forwarded_allow_ips": dict(label="信任的代理来源", group="部署", type="string", hot_action="restart_required"),
     "deployment.cors_origins": dict(label="附加浏览器来源白名单", group="部署", type="string[]", hot_action="restart_required"),
     "deployment.cors_origin_regex": dict(label="附加来源正则", group="部署", type="string", hot_action="restart_required"),
+    # M86 界面导航图：导航工具与执行器每次现读，改完立即生效。
+    "nav.enabled": dict(label="界面导航图", group="Agent", type="boolean", hot_action="none"),
+    "nav.learn": dict(label="导航时学习新跳转", group="Agent", type="boolean", hot_action="none"),
+    "nav.max_steps": dict(label="一次导航最多步数", group="Agent", type="integer", minimum=1, maximum=50, hot_action="none"),
 }
 
 #: 只从 ``config.yaml`` / 环境变量提供的 key 不出现在设置 API 里（见 settings.py 的说明）。

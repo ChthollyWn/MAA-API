@@ -490,6 +490,10 @@ def test_env_mapping_names_are_pinned() -> None:
         "channels.feishu_domain": "MAA_CHANNELS_FEISHU_DOMAIN",
         "channels.telegram_proxy": "MAA_CHANNELS_TELEGRAM_PROXY",
         "channels.qq_sandbox": "MAA_CHANNELS_QQ_SANDBOX",
+        # M86：界面导航图三项（都不是 config-only）。
+        "nav.enabled": "MAA_NAV_ENABLED",
+        "nav.learn": "MAA_NAV_LEARN",
+        "nav.max_steps": "MAA_NAV_MAX_STEPS",
     }
 
 
@@ -2378,3 +2382,69 @@ def test_channels_settings_have_documented_defaults_and_bounds() -> None:
         "# 绑定码只在网页上生成；破坏类确认默认只能在网页上批准。改启用开关与凭证后重启服务生效。",
     ):
         assert comment in template_text
+
+
+def test_nav_settings_defaults() -> None:
+    """M86 §4.4：导航图三个键的代码内默认值。"""
+    settings = Settings()
+
+    assert settings.nav.enabled is True
+    assert settings.nav.learn is True
+    assert settings.nav.max_steps == 12
+
+    # 文档一致性：模板的 nav 段与 NavSettings 默认值一致（spec §4.4）。
+    template = YAML(typ="safe").load(TEMPLATE_PATH.read_text(encoding="utf8"))
+    assert template["nav"] == {"enabled": True, "learn": True, "max_steps": 12}
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    assert "# 界面导航图（M86）：常用界面与跳转存成图，navigate_to 一次走完。" in template_text
+
+
+def test_nav_env_overrides() -> None:
+    """``MAA_NAV_*`` 由 ``ENV_OVERRIDES`` 自动派生（env > yaml > default）。"""
+    settings = resolve_settings(
+        env={
+            "MAA_NAV_ENABLED": "false",
+            "MAA_NAV_LEARN": "false",
+            "MAA_NAV_MAX_STEPS": "30",
+        }
+    )
+
+    assert settings.nav.enabled is False
+    assert settings.nav.learn is False
+    assert settings.nav.max_steps == 30
+
+
+def test_nav_fields_schema() -> None:
+    """三个键都在设置 API 的 schema 里，分组 Agent，范围与 spec §4.4 一致。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS
+
+    keys = {"nav.enabled", "nav.learn", "nav.max_steps"}
+    assert keys <= {row["key"] for row in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+
+    enabled = schema_for("nav.enabled")
+    assert (
+        enabled["label"],
+        enabled["group"],
+        enabled["type"],
+        enabled["hot_action"],
+    ) == ("界面导航图", "Agent", "boolean", "none")
+
+    learn = schema_for("nav.learn")
+    assert (
+        learn["label"],
+        learn["group"],
+        learn["type"],
+        learn["hot_action"],
+    ) == ("导航时学习新跳转", "Agent", "boolean", "none")
+
+    max_steps = schema_for("nav.max_steps")
+    assert (
+        max_steps["label"],
+        max_steps["group"],
+        max_steps["type"],
+        max_steps["minimum"],
+        max_steps["maximum"],
+        max_steps["hot_action"],
+    ) == ("一次导航最多步数", "Agent", "integer", 1, 50, "none")

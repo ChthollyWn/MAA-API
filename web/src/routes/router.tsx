@@ -32,6 +32,7 @@ const TicketsPage = lazy(() => import('@/features/tickets/TicketsPage'))
 const TicketDetailPage = lazy(() => import('@/features/tickets/TicketDetailPage'))
 const AgentsPage = lazy(() => import('@/features/agents/AgentsPage'))
 const AgentDetailPage = lazy(() => import('@/features/agents/AgentDetailPage'))
+const NavGraphPage = lazy(() => import('@/features/nav/NavGraphPage'))
 const SkillsPage = lazy(() => import('@/routes/skills'))
 const SkillEditorPage = lazy(() => import('@/routes/skills/editor'))
 const MemoryPage = lazy(() => import('@/routes/memory'))
@@ -149,6 +150,7 @@ export const routeConfig: RouteObject[] = [
       { path: 'more/status', element: page(<DashboardPage />) },
       { path: 'more/agents', element: page(<AgentsPage />) },
       { path: 'more/agents/:name', element: page(<AgentDetailPage />) },
+      { path: 'more/nav', element: page(<NavGraphPage />) },
       { path: 'more/account', element: page(<AccountPage />) },
       { path: 'more/account/depot', element: page(<AccountPage />) },
       { path: 'more/copilots', element: page(<CopilotsPage />) },

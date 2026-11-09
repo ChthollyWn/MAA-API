@@ -28,6 +28,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.lease import lease_tools as build_lease_tools
     from maa_api.agent.tools.media import register_tools as register_media_tools
     from maa_api.agent.tools.memory import register_tools as register_memory_tools
+    from maa_api.agent.tools.nav import register_tools as register_nav_tools
     from maa_api.agent.tools.ops import register_tools as register_ops_tools
     from maa_api.agent.tools.delegate import register_tools as register_delegate_tools
     from maa_api.agent.tools.pipeline import register_tools as register_pipeline_tools
@@ -58,6 +59,8 @@ def build_registry() -> ToolRegistry:
         register_pipeline_tools,
         register_device_tools,
         register_raw_tools,
+        # M86：界面导航图三个工具接在原语工具之后（规格 §4.2、§4.3.1）。
+        register_nav_tools,
         register_resource_tools,
         register_ops_tools,
         register_schedule_tools,

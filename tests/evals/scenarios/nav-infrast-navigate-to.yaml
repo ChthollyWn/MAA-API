@@ -1,0 +1,48 @@
+id: nav-infrast-navigate-to
+title: 导航到基建
+suite: capability
+agent: general
+source: M86 §1 目标 2/3
+tags:
+  - nav
+entry:
+  kind: ticket
+  worker: general
+  title: 导航到基建
+  brief: 导航到基建，到了告诉我。
+  scope: 在游戏界面里导航到基建
+human:
+  confirmations: approve
+settings:
+  nav.enabled: true
+  nav.learn: true
+world:
+  screen: home
+  nav:
+    start: home
+    transitions:
+      "tap:1045,630": infrast
+      "tap:90,40": home
+expect:
+  - grader: tool_sequence
+    match: subsequence
+    steps:
+      - tool: delegate
+      - tool: where_am_i
+      - tool: navigate_to
+  - grader: outcome_state
+    runs:
+      count:
+        gte: 2
+      all:
+        - agent_name: navigator
+          status: succeeded
+    model_calls:
+      lte: 12
+  - grader: text_contains
+    any_of:
+      - 基建
+      - 到了
+limits:
+  timeout_seconds: 90
+  max_model_calls: 15

@@ -12,6 +12,7 @@ import {
   ListChecks,
   Network,
   Radar,
+  Route,
   ScrollText,
   Settings2,
   ShieldAlert,
@@ -46,6 +47,7 @@ export const primaryNav: readonly NavItem[] = [
 /** 「更多」里的次级入口；桌面侧边栏按组分开展示。 */
 export const secondaryNav: readonly (NavItem & { description: string; group: NavGroup })[] = [
   { to: '/more/agents', label: '代理定义', icon: Network, description: '各代理的提示词、工具、模型与风险上限', group: 'agent' },
+  { to: '/more/nav', label: '界面导航图', icon: Route, description: '常用界面与跳转，导航员按它一步走到', group: 'agent' },
   { to: '/more/runs', label: '运行追踪', icon: Activity, description: '每次代理调用的步骤、耗时与用量', group: 'agent' },
   { to: '/more/costs', label: '成本', icon: Coins, description: '按天、代理、模型统计模型费用', group: 'agent' },
   { to: '/more/goals', label: '目标', icon: Target, description: '长期目标、里程碑与复盘', group: 'agent' },

@@ -33,7 +33,8 @@ CONSUMPTION_UNDETERMINED_REASON = (
 )
 
 ATOMIC_TOOL_NAMES = frozenset(
-    {"click", "swipe", "long_press", "input_text", "key_event"}
+    # M86：navigate_to 一次导航内部的多个点击不再逐个过策略（spec §4.5.5）。
+    {"click", "swipe", "long_press", "input_text", "key_event", "navigate_to"}
 )
 #: 每次调用都要人工确认的账号写入（规格 §7.4、§7.7）：风险是 NONE，但要用户看见改动。
 ACCOUNT_WRITE_TOOLS = frozenset(

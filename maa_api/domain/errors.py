@@ -561,9 +561,19 @@ class ErrorCode(StrEnum):
     # 这类确认只能在网页上批准（默认不允许在 IM 里批准破坏类确认）
     CHANNEL_APPROVAL_NOT_ALLOWED = "CHANNEL_APPROVAL_NOT_ALLOWED"
 
+    # ---- docs/05 §4.22 界面导航图（M86） ----
+    # 导航目标不在图里；details.nearest 给出建议先去的容器界面
+    NAV_NODE_NOT_FOUND = "NAV_NODE_NOT_FOUND"
+
+    # 当前界面到目标没有可走的路径；details.reason 取 no_edges / needs_vision
+    NAV_PATH_NOT_FOUND = "NAV_PATH_NOT_FOUND"
+
+    # 走到一半画面不符且无法恢复；details.reason 取 max_steps / unknown_screen / home_failed
+    NAV_STEP_FAILED = "NAV_STEP_FAILED"
+
 
 #: 错误码 → 固定 HTTP 状态码。与 :class:`ErrorCode` 一一对应，**唯一例外**是
-#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 168 条。
+#: ``UPDATE_INTERRUPTED``（只落库不返回，见模块文档字符串），故此处 171 条。
 #: 新增错误码必须同时登记到 ``ErrorCode`` 与这里；未登记的错误码在 ``AppError``
 #: 构造时 fail loud。状态码分界见 docs/05 §2：400/422 看 Pydantic 能不能表达，
 #: 409/422 看「这个请求本身不对」还是「这个请求现在不行」，502/504 看下游有没有答复。
@@ -753,6 +763,9 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.CHANNEL_BINDING_NOT_FOUND: 404,
     ErrorCode.BIND_CODE_INVALID: 400,
     ErrorCode.CHANNEL_APPROVAL_NOT_ALLOWED: 403,
+    ErrorCode.NAV_NODE_NOT_FOUND: 404,
+    ErrorCode.NAV_PATH_NOT_FOUND: 409,
+    ErrorCode.NAV_STEP_FAILED: 409,
 }
 
 

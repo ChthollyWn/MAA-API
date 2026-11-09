@@ -57,6 +57,8 @@ export const keys = {
       [...root, 'agent', 'artifact', artifactId] as const,
     capabilities: () => [...root, 'agent', 'capabilities'] as const,
     tools: () => [...root, 'agent', 'tools'] as const,
+    /** 界面导航图（M86 §4.6）：一次 GET 拿全部界面、跳转与三个开关。 */
+    navGraph: () => [...root, 'agent', 'nav', 'graph'] as const,
     audits: () => [...root, 'agent', 'audits'] as const,
     auditList: (filters?: Readonly<Record<string, unknown>>) =>
       [...root, 'agent', 'audits', filters ?? {}] as const,

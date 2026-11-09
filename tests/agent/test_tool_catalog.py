@@ -89,6 +89,10 @@ EXPECTED_TOOLS = {
     "list_goals",
     "get_goal",
     "update_goal",
+    # M86：界面导航图三个工具（规格 §4.3.1），只给 navigator。
+    "where_am_i",
+    "remember_screen",
+    "navigate_to",
 }
 
 #: M74 §5 T3：旧上下文里可以换成占位、需要时重新调用的工具（06 §5.1）。
@@ -107,6 +111,8 @@ EXPECTED_REFETCHABLE = frozenset({
     "wait_update", "list_schedules", "read_knowledge", "list_files",
     "read_file", "search_code", "list_tool_groups", "check_confirmation",
     "list_tickets", "get_ticket", "search_knowledge", "read_skill_file",
+    # M86：只看当前画面，不写库。
+    "where_am_i",
 })
 
 #: M80 §5 T4：结果属于不可信输入的工具，整集等于规格附录 A（22 个）。
@@ -132,8 +138,8 @@ def test_untrusted_output_tools_are_pinned() -> None:
     assert len(UNTRUSTED_OUTPUT_TOOLS) == 22
     assert untrusted == UNTRUSTED_OUTPUT_TOOLS
     assert untrusted <= EXPECTED_TOOLS
-    assert len(definitions) == 104
-    assert sum(1 for definition in definitions if definition.model_visible) == 103
+    assert len(definitions) == 107
+    assert sum(1 for definition in definitions if definition.model_visible) == 106
 
 
 def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner():
@@ -151,9 +157,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # → 95，模型可见 94；T3 的 ``update_plan`` 再各加一 → 96 / 95。M76 加
     # ``search_knowledge`` → 97 / 96。M78 加技能两个工具 → 99 / 98。M79 加
     # ``remember`` → 100 / 99（不进 REST 目录，但对模型可见）。M82 加四个目标工具
-    # → 104 / 103（同样不进 REST 目录，但对总控模型可见）。
-    assert len(actual) == 104
-    assert sum(1 for item in registry.list() if item.model_visible) == 103
+    # → 104 / 103（同样不进 REST 目录，但对总控模型可见）。M86 加三个导航工具
+    # → 107 / 106（``remember_screen`` 不进 REST 目录，三个都对模型可见）。
+    assert len(actual) == 107
+    assert sum(1 for item in registry.list() if item.model_visible) == 106
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "skills" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
@@ -651,16 +658,20 @@ def test_device_levels_follow_the_contract() -> None:
         "back_to_home",
         "run_copilot_attempt",
         "update_game",
+        # M86 §4.3.1：navigate_to 独占设备。
+        "navigate_to",
     }
     assert set(by_device["read"]) == {
         "trigger_screencap",
         "get_screenshot",
         "send_screenshot",
         "annotate_screenshot",
+        # M86 §4.3.1：where_am_i 只截图识别。
+        "where_am_i",
     }
-    assert len(by_device["exclusive"]) == 8
-    assert len(by_device["read"]) == 4
-    assert len(by_device["none"]) == len(registry.list()) - 12
+    assert len(by_device["exclusive"]) == 9
+    assert len(by_device["read"]) == 5
+    assert len(by_device["none"]) == len(registry.list()) - 14
 
 
 def test_extension_fields_keep_v2_defaults() -> None:
@@ -692,6 +703,8 @@ def test_extension_fields_keep_v2_defaults() -> None:
         "list_goals",
         "get_goal",
         "update_goal",
+        # M86 的 remember_screen 同样只在代理运行里可用（REST 不列）。
+        "remember_screen",
     }
     assert all(
         definition.rest_visible
@@ -710,14 +723,14 @@ def test_extension_fields_keep_v2_defaults() -> None:
 
 
 def test_refetchable_tools_are_pinned() -> None:
-    """M74 §5 T3：可重取工具恰为清单里的 50 个（M78 加 ``read_skill_file``），且都是只读。"""
+    """M74 §5 T3：可重取工具恰为清单里的 51 个（M86 加 ``where_am_i``），且都是只读。"""
 
     definitions = build_registry().list()
     refetchable = {
         definition.name for definition in definitions if definition.refetchable
     }
 
-    assert len(EXPECTED_REFETCHABLE) == 50
+    assert len(EXPECTED_REFETCHABLE) == 51
     assert refetchable == EXPECTED_REFETCHABLE
     assert refetchable <= EXPECTED_TOOLS
     assert all(

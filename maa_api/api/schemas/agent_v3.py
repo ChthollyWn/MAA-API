@@ -43,6 +43,13 @@ __all__ = [
     "MemoryReviewRequest",
     "MemoryUpdateRequest",
     "Mention",
+    "NavEdgeOut",
+    "NavEdgePut",
+    "NavExemplarOut",
+    "NavGraphOut",
+    "NavNodeOut",
+    "NavNodePut",
+    "NavRecognizerModel",
     "OrchestratorInterruptResult",
     "OrchestratorStateModel",
     "PlanApprovalRequest",
@@ -557,3 +564,99 @@ def plan_out(plan: RunPlan) -> PlanOut:
         approved_by=plan.approved_by,
         approved_at=_utc_z(plan.approved_at),
     )
+
+
+# ----------------------------------------------------------------------
+# M86 界面导航图端点（规格 §4.3.2）：七个请求与响应模型
+# ----------------------------------------------------------------------
+class NavExemplarOut(BaseModel):
+    """一个识别样本；``thumb_url`` 在截图已被清理或查不到时为 ``None``。"""
+
+    phash: str
+    screenshot_id: str | None
+    source: str
+    added_at: str | None
+    thumb_url: str | None
+
+
+class NavRecognizerModel(BaseModel):
+    """节点的识别配置（§4.2）；请求里 ``extra="forbid"``。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rois: list[list[float]] = Field(
+        default_factory=lambda: [[0, 0, 1, 1]], min_length=1, max_length=4
+    )
+    max_distance: int = Field(default=10, ge=1, le=32)
+    description: str = Field(default="", max_length=200)
+    generic: bool = False
+
+
+class NavNodeOut(BaseModel):
+    """一个界面节点；时间统一渲染成 ``...Z``。"""
+
+    id: str
+    title: str
+    kind: str
+    origin: str
+    recognizer: NavRecognizerModel
+    exemplars: list[NavExemplarOut]
+    created_at: str
+    updated_at: str
+
+
+class NavEdgeOut(BaseModel):
+    """一条跳转；``action`` 是原始动作 JSON，``action_hash`` 是规范哈希。"""
+
+    id: str
+    from_node: str
+    to_node: str
+    action: dict[str, Any]
+    action_hash: str
+    cost_ms: int | None
+    success_count: int
+    fail_count: int
+    last_used_at: str | None
+    origin: str
+    enabled: bool
+    created_at: str
+    updated_at: str
+
+
+class NavGraphOut(BaseModel):
+    """整张导航图与三个运行时开关（``vision_available`` 现解析视觉档案）。"""
+
+    nodes: list[NavNodeOut]
+    edges: list[NavEdgeOut]
+    enabled: bool
+    learn: bool
+    vision_available: bool
+
+
+class NavNodePut(BaseModel):
+    """``PUT /api/agent/nav/nodes/{node_id}`` 的入参（§4.3.2）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=64)
+    kind: Literal["screen", "stage", "menu", "dialog"]
+    recognizer: NavRecognizerModel | None = None
+    add_exemplar: Literal["current"] | None = None
+    add_exemplar_screenshot_id: str | None = Field(default=None, max_length=36)
+    remove_exemplars: list[str] = Field(default_factory=list, max_length=8)
+
+
+class NavEdgePut(BaseModel):
+    """``PUT /api/agent/nav/edges/{edge_id}`` 的入参（§4.3.2）。
+
+    不存在时 ``from_node``/``to_node``/``action`` 必须给全；存在时只有
+    ``enabled``/``action``/``cost_ms`` 生效，端点与现值不同是 400。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_node: str | None = None
+    to_node: str | None = None
+    action: dict[str, Any] | None = None
+    enabled: bool | None = None
+    cost_ms: int | None = Field(default=None, ge=0, le=60000)

@@ -430,6 +430,19 @@ def _open_world(
             client.portal.call(_seed_copilots, app, scenario)
         _install_copilot_fakes(app, scenario)
 
+        # M86 §5 T11：world.nav 换成假导航设备；导航服务由启动装配写入 app.state。
+        nav = scenario.world.nav
+        if nav is not None:
+            from tests.fakes.nav import FakeNavDevice
+
+            nav_service = getattr(app.state, "nav_service", None)
+            if nav_service is None:
+                raise RuntimeError(
+                    "world.nav 需要启动装配提供的 app.state.nav_service，但找不到它"
+                )
+            device = FakeNavDevice(transitions=dict(nav.transitions), start=nav.start)
+            nav_service.device_factory = lambda _context: device
+
         if scenario.world.seed.pipelines:
             client.portal.call(_seed_world, app, scenario)
         yield EvalApp(

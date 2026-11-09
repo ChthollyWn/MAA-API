@@ -607,3 +607,23 @@ class OutboxStatus(StrEnum):
     SENT = "sent"
     FAILED = "failed"
     DEAD = "dead"
+
+
+# ---- M86 界面导航图（v3 specs/m86 §4.1） ----
+
+
+class NavNodeKind(StrEnum):
+    """导航图节点的界面种类：普通界面、关卡页、菜单、对话框。"""
+
+    SCREEN = "screen"
+    STAGE = "stage"
+    MENU = "menu"
+    DIALOG = "dialog"
+
+
+class NavOrigin(StrEnum):
+    """导航图节点与边的来源：种子、学到的、用户手动建的。"""
+
+    SEED = "seed"
+    LEARNED = "learned"
+    USER = "user"

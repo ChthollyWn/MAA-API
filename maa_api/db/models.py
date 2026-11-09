@@ -1,4 +1,4 @@
-"""SQLModel 表定义：56 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：57 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -63,6 +63,7 @@ from maa_api.domain.enums import (
     MilestoneStatus,
     ModelProfileKind,
     ModelProvider,
+    NavNodeKind,
     OutboxStatus,
     PipelineStatus,
     Priority,
@@ -2536,4 +2537,75 @@ class Outbox(SQLModel, table=True):
         # 轮询取件：status IN (pending, failed) AND next_attempt_at <= now。
         Index("ix_outbox_status_next_attempt_at", "status", "next_attempt_at"),
         {"sqlite_autoincrement": True},
+    )
+
+
+# ---------------------------------------------------------------------------
+# M86 nav_node / nav_edge：界面导航图（v3 03 §12）
+# ---------------------------------------------------------------------------
+class NavNode(SQLModel, table=True):
+    """一个可识别的游戏界面。
+
+    ``exemplars`` 每项 ``{phash, screenshot_id, source, added_at}``：``phash`` 是按
+    ``recognizer["rois"]`` 顺序拼接的 dHash 十六进制串，改了 rois 就要用截图重算。
+    ``source`` 取 ``agent``、``edge``、``user``、``anchor`` 之一。
+    """
+
+    __tablename__ = "nav_node"
+
+    id: str = Field(primary_key=True, max_length=48)
+    title: str = Field(max_length=64)
+    kind: str = Field(default=NavNodeKind.SCREEN, max_length=24)
+    exemplars: list[dict[str, Any]] = Field(
+        default_factory=list,
+        sa_column=json_column("exemplars", nullable=False, server_default="'[]'"),
+    )
+    recognizer: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=json_column("recognizer", nullable=False, server_default="'{}'"),
+    )
+    origin: str = Field(max_length=16)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+class NavEdge(SQLModel, table=True):
+    """两个界面之间的一种跳转；同一对界面可以有多条动作不同的跳转。"""
+
+    __tablename__ = "nav_edge"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True, max_length=36)
+    from_node: str = Field(
+        foreign_key="nav_node.id", ondelete="CASCADE", max_length=48
+    )
+    to_node: str = Field(foreign_key="nav_node.id", ondelete="CASCADE", max_length=48)
+    action: dict[str, Any] = Field(sa_column=json_column("action", nullable=False))
+    action_hash: str = Field(max_length=64)
+    cost_ms: int | None = Field(default=None)
+    success_count: int = Field(default=0)
+    fail_count: int = Field(default=0)
+    last_used_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("last_used_at", nullable=True)
+    )
+    origin: str = Field(max_length=16)
+    enabled: bool = Field(default=True)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_nav_edge_from_node_to_node_action_hash",
+            "from_node",
+            "to_node",
+            "action_hash",
+            unique=True,
+        ),
     )

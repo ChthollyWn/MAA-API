@@ -703,7 +703,7 @@ navigate(target):
         elapsed = now() - t0
         if rec.node_id == step.to_node:
             if step.edge_id: graph.record_success(step.edge_id, elapsed_ms=elapsed)
-            learned_exemplars += learn_exemplar(step.to_node, image, source="edge")
+            if learn: learned_exemplars += learn_exemplar(step.to_node, image, source="edge")
             if step.action.type == "locate" and learn:
                 edge, created = graph.upsert_edge(
                     from_node=step.from_node, to_node=step.to_node,
@@ -845,7 +845,7 @@ navigate(target):
 
 ### 4.7 提示词与代理定义
 
-`navigator.md`：frontmatter 的 `tools` 末尾加 `where_am_i`、`remember_screen`、`navigate_to`，`version` 改成 `2`；正文末尾追加：
+`navigator.md`：frontmatter 的 `tools` 末尾加 `where_am_i`、`remember_screen`、`navigate_to`，`version` 改成 `2`；`risk_ceiling` 从 `none` 改成 `consume`（否则首次 `navigate_to` 在 `MandateMiddleware` 被 `MANDATE_SCOPE_EXCEEDED` 拒绝，与 §4.5.5 的原子操作会话授权矛盾；实施偏离，见 [13 §8.180](../13-决策记录.md)）；正文末尾追加：
 
 ```markdown
 ## 界面导航图
@@ -945,7 +945,7 @@ navigate(target):
 - 步骤：
   1. `scenario.py`：`World` 加 `nav: NavWorld | None = None`；`NavWorld` 字段 `start: str = "home"`、`transitions: dict[str, str] = {}`，`extra="forbid"`。`Scenario.human` 与 `HumanPolicy` 由补丁提供，本任务只读用。
   2. `tests/evals/environment.py`：`_open_world` 在 TestClient 进入后，若 `scenario.world.nav` 非空，用 T4 的 `FakeNavDevice(transitions=..., start=...)` 建假设备，并设 `app.state.nav_service.device_factory = lambda _context: device`。
-  3. 两个场景的 YAML 按下面写死；cassette 是手写的 JSONL，第一行 header（`"source": "handwritten"`，`"agent": "general"`），之后是 8/10 条 agent 通道应答（含 `ready` 结束后的记忆抽取 1 条，按维护性补丁 `evals-ticket-driver` 的口径；7/9 是补丁前口径）。前两条是档案首次使用时的动态上下文落点探查（system 开头、没有 tools，按 M68 归到 agent 通道），应答 `{"text":"OK"}`；后面依次是 Worker 的 `delegate`、导航员的 `where_am_i`/`navigate_to`/（第二个场景的 `remember_screen` 与第二次 `where_am_i`）、Worker 的 `report`。工具调用 id 用 `call-delegate`、`call-where-1`、`call-navigate`、`call-remember`、`call-where-2`、`call-report`；`report` 成功后 `ReportMiddleware` 结束 Worker 运行，不再有下一条 Worker 工具调用应答；`ready` 结束的场景末尾还有一条记忆抽取应答（见上）。
+  3. 两个场景的 YAML 按下面写死；cassette 是手写的 JSONL，第一行 header（`"source": "handwritten"`，`"agent": "general"`），之后是 9/10 条 agent 通道应答（含 `ready` 结束后的记忆抽取 1 条，按维护性补丁 `evals-ticket-driver` 的口径；7/9 是补丁前口径）。前两条是档案首次使用时的动态上下文落点探查（system 开头、没有 tools，按 M68 归到 agent 通道），应答 `{"text":"OK"}`；后面依次是 Worker 的 `delegate`、导航员的 `where_am_i`/`navigate_to`、场景一的 1 条总控 system 观察应答（`navigate_to` 的 `grant_atomic_ops` 确认会经 `bubble_human_request` 给总控投一条观察消息并起一轮模型调用）、场景二的 `remember_screen` 与第二次 `where_am_i`、Worker 的 `report`。工具调用 id 用 `call-delegate`、`call-where-1`、`call-navigate`、`call-remember`、`call-where-2`、`call-report`；`report` 成功后 `ReportMiddleware` 结束 Worker 运行，不再有下一条 Worker 工具调用应答；`ready` 结束的场景末尾还有一条记忆抽取应答（见上）。场景一实际消费顺序是「探查 ×2 → `delegate` → `where_am_i` → `navigate_to` → 总控文本 → 导航员最终正文 → `report` → 记忆抽取」共 9 条，场景二 10 条（见 [13 §8.180](../13-决策记录.md)）。
   4. `test_regression_replay.py` 的场景数 11→13；`test_eval_scenario.py` 加一条解析用例，确认 `world.nav.start/transitions` 能读入，未知字段报错。
 - 场景一 `tests/evals/scenarios/nav-infrast-navigate-to.yaml`：
 

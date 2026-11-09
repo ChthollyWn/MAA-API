@@ -436,6 +436,18 @@ EXPECTED_VALUES = {
         "FAILED": "failed",
         "DEAD": "dead",
     },
+    # M86：导航图两枚举（v3 specs/m86 §4.1）。
+    "NavNodeKind": {
+        "SCREEN": "screen",
+        "STAGE": "stage",
+        "MENU": "menu",
+        "DIALOG": "dialog",
+    },
+    "NavOrigin": {
+        "SEED": "seed",
+        "LEARNED": "learned",
+        "USER": "user",
+    },
 }
 
 # 运行期内存状态，只在日志与响应体里以字符串出现（docs/04 §4）。
