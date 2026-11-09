@@ -1,6 +1,6 @@
 # 移除消耗护栏与旧会话查看器（维护性补丁台账）
 
-- 分支：`remove-spend-legacy`；基点：`dev` = `02b5ae7`；合并：待回填（`dev` 上的 `merge: 移除消耗护栏与旧会话（维护性补丁，见 docs/v3/13 §8.175）`）；tag：无（维护性补丁，不新增里程碑）
+- 分支：`remove-spend-legacy`（合并后删除）；基点：`dev` = `02b5ae7`；合并：`ea28a6e`（`dev` 上的 `merge: 移除消耗护栏与旧会话（维护性补丁，见 docs/v3/13 §8.175）`）；tag：无（维护性补丁，不新增里程碑）
 - spec：[remove-spend-legacy-sessions](../specs/remove-spend-legacy-sessions.md)
 - 计划：[remove-spend-legacy-sessions](../plans/remove-spend-legacy-sessions.md)
 - 决策记录：[docs/v3/13 §8.175](../13-决策记录.md)
