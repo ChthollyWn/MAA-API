@@ -268,11 +268,6 @@ EXPECTED_INDEXES = {
     ),
     "ix_resource_asset_kind_enabled": ("resource_asset", ("kind", "enabled"), False),
     "ix_api_snippet_updated_at": ("api_snippet", ("updated_at",), False),
-    "ix_agent_question_status_expires_at": (
-        "agent_question",
-        ("status", "expires_at"),
-        False,
-    ),
     "ix_agent_question_session_status_created_at": (
         "agent_question",
         ("session_id", "status", "created_at"),
