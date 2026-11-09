@@ -1,6 +1,6 @@
 # M90 产物与生成式 UI（台账）
 
-- 分支：`artifacts-genui`；基点：`dev` = `09d8d6c`（M89 合并 + 台账提交）；合并：待主 agent 复核后 `git merge --no-ff`（本任务不合并、不 tag、不切分支）；tag：`v3-m90`（合并后打）
+- 分支：`artifacts-genui`（已合并并删除，未 push）；基点：`dev` = `09d8d6c`（M89 合并 + 台账提交）；合并：`c07272b`（`merge: 产物与生成式 UI（M90，见 docs/v3/13 §8.184）`）；tag：`v3-m90`
 - spec：[m90-artifacts-genui](../specs/m90-artifacts-genui.md)；计划：[m90-artifacts-genui](../plans/m90-artifacts-genui.md)
 
 ## §0 结果
@@ -125,6 +125,12 @@
 
 - 整支审查 APPROVE（无 Critical/Important）：修复两处 Minor —— `ArtifactFormSubmit.values` 按 spec §4.2 改为 `Field(default_factory=dict)`（缺省空字典按必填项报 400 字段错误，不是 422）并补 API 用例；`render_submission` 对显式空串的可选文本渲染「（未填）」（§4.5.3）并补用例。
 - README 的「M90 已合入 dev 并打 v3-m90 tag」在合并与 tag 后成立（本台账记录合并提交后核对）。
+
+## 最终验证（主 agent）
+
+- 合并前全量 pytest：3 failed / 5590 passed / 5 skipped / 2 xfailed；3 条均为基线既有真资源失败，新增 0（`test_orchestrator_e2e...ready_report` 为既有 flake，单跑通过）。
+- `dump_openapi.py --check` 0、`gen:api:check` 0、`generate_api_guide.py --check` 0；前端五步 0（121 files/1042 tests，build + SW）；五冒烟末行 `SMOKE OK`；regression 与 capability `EVAL OK`（18/18）；`check_doc_links.py` BROKEN 0；`git diff --check` 0；视图渲染器安全扫描无输出（退出 1）。
+- 整支审查 APPROVE（无 Critical/Important）→ Minor 修复 `08a3793`（values 缺省、空文本渲染）+ `16e6a65`（OpenAPI/类型重生成）→ 合并 `c07272b`、tag `v3-m90`。
 
 ## 遗留
 
