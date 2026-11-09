@@ -1,6 +1,6 @@
 # 指挥台「待你处理」进主会话（维护性补丁台账）
 
-- 分支：`console-attention-inline`（合并后删除）；基点：`dev` = `121a3d6`；合并：待填；tag：无（维护性补丁，不新增里程碑）
+- 分支：`console-attention-inline`（合并后删除）；基点：`dev` = `121a3d6`；合并：`7e433ec`（`dev` 上的 `merge: 指挥台待你处理进主会话（维护性补丁，见 docs/v3/13 §8.176）`）；tag：无（维护性补丁，不新增里程碑）
 - spec：[console-attention-inline](../specs/console-attention-inline.md)
 - 计划：[console-attention-inline](../plans/console-attention-inline.md)
 - 决策记录：[docs/v3/13 §8.176](../13-决策记录.md)
@@ -42,7 +42,7 @@
 | 后端全量 `pytest -o addopts= -q` | **3 failed / 5243 passed / 5 skipped / 2 xfailed**（514.48s）；3 条失败是既有真资源用例基线（见下） |
 | `scripts/check_doc_links.py` | 末行 `BROKEN 0` |
 | 残留 grep | `AttentionPanel\|AttentionSheet\|AttentionSummaryBar` 在 `web/src` 零命中；`件事等你处理` 仅剩 ConsolePage.test 里一条「不存在」断言 |
-| 合并 | `dev` 上 `git merge --no-ff`（提交待填） |
+| 合并 | `dev` 上 `git merge --no-ff` = `7e433ec`；合并后工作区干净、分支已删除 |
 
 已知失败（非本补丁引入）：`tests/services/test_activity_index.py` 2 条 + `tests/services/test_stage_layout.py` 1 条，依赖 `resource/` 真资源数据，m63 起的既有基线。
 
