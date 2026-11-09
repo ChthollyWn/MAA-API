@@ -20,6 +20,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.copilot_attempt import register_tools as register_copilot_attempt_tools
     from maa_api.agent.tools.copilot_site import register_tools as register_copilot_site_tools
     from maa_api.agent.tools.device import register_tools as register_device_tools
+    from maa_api.agent.tools.economy import register_tools as register_economy_tools
     from maa_api.agent.tools.estate import register_tools as register_estate_tools
     from maa_api.agent.tools.game import register_tools as register_game_tools
     from maa_api.agent.tools.goals import register_tools as register_goal_tools
@@ -51,6 +52,8 @@ def build_registry() -> ToolRegistry:
         register_activity_tools,
         register_game_tools,
         register_account_tools,
+        # M88：刷图方案接在账号工具之后（规格 §4.3.1、T5）。
+        register_economy_tools,
         register_estate_tools,
         register_copilot_site_tools,
         register_copilot_attempt_tools,
