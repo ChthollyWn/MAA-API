@@ -945,7 +945,7 @@ navigate(target):
 - 步骤：
   1. `scenario.py`：`World` 加 `nav: NavWorld | None = None`；`NavWorld` 字段 `start: str = "home"`、`transitions: dict[str, str] = {}`，`extra="forbid"`。`Scenario.human` 与 `HumanPolicy` 由补丁提供，本任务只读用。
   2. `tests/evals/environment.py`：`_open_world` 在 TestClient 进入后，若 `scenario.world.nav` 非空，用 T4 的 `FakeNavDevice(transitions=..., start=...)` 建假设备，并设 `app.state.nav_service.device_factory = lambda _context: device`。
-  3. 两个场景的 YAML 按下面写死；cassette 是手写的 JSONL，第一行 header（`"source": "handwritten"`，`"agent": "general"`），之后是 8/10 条 agent 通道应答（含 `ready` 结束后的记忆抽取 1 条，按维护性补丁 `evals-ticket-driver` 的口径；7/9 是补丁前口径）。前两条是档案首次使用时的动态上下文落点探查（system 开头、没有 tools，按 M68 归到 agent 通道），应答 `{"text":"OK"}`；后面依次是 Worker 的 `delegate`、导航员的 `where_am_i`/`navigate_to`/（第二个场景的 `remember_screen` 与第二次 `where_am_i`）、Worker 的 `report`。工具调用 id 用 `call-delegate`、`call-where-1`、`call-navigate`、`call-remember`、`call-where-2`、`call-report`；`report` 成功后 `ReportMiddleware` 结束 Worker 运行，不再有下一条模型应答。
+  3. 两个场景的 YAML 按下面写死；cassette 是手写的 JSONL，第一行 header（`"source": "handwritten"`，`"agent": "general"`），之后是 8/10 条 agent 通道应答（含 `ready` 结束后的记忆抽取 1 条，按维护性补丁 `evals-ticket-driver` 的口径；7/9 是补丁前口径）。前两条是档案首次使用时的动态上下文落点探查（system 开头、没有 tools，按 M68 归到 agent 通道），应答 `{"text":"OK"}`；后面依次是 Worker 的 `delegate`、导航员的 `where_am_i`/`navigate_to`/（第二个场景的 `remember_screen` 与第二次 `where_am_i`）、Worker 的 `report`。工具调用 id 用 `call-delegate`、`call-where-1`、`call-navigate`、`call-remember`、`call-where-2`、`call-report`；`report` 成功后 `ReportMiddleware` 结束 Worker 运行，不再有下一条 Worker 工具调用应答；`ready` 结束的场景末尾还有一条记忆抽取应答（见上）。
   4. `test_regression_replay.py` 的场景数 11→13；`test_eval_scenario.py` 加一条解析用例，确认 `world.nav.start/transitions` 能读入，未知字段报错。
 - 场景一 `tests/evals/scenarios/nav-infrast-navigate-to.yaml`：
 

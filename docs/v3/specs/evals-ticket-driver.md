@@ -321,7 +321,7 @@ DRIVERS: dict[str, DriveFn] = {
 - 提问在 Worker 本轮内是阻塞的（`ask_user` 等到答案才返回），所以正常路径不存在「作答后另起一轮」；若来源运行已经结束、`answer()` 触发投递并启动新一轮，驱动不额外等待这一轮，M86/M87 的场景不依赖这种时序。
 - 作答的 label 必须在选项里。`QuestionService.answer` 抛 `QUESTION_SELECTION_INVALID` 时不要吞掉，让 `run_case` 记成 `error`，场景作者据此修 cassette 或 `human.questions`。
 - 超时先由驱动自己触发，早于 `_run_with_timeout`；外层超时仍保留，用来中断卡住的运行。
-- 驱动不等待工单结束后的记忆抽取，也不等待转发给总控的回复轮；它们可能在本例判分之后发生，不能进入 cassette 的必需应答。
+- 驱动不等待工单结束后的记忆抽取，也不等待转发给总控的回复轮。但记忆抽取会在 `ready`/`failed`/`dropped` 之后由结束监听再发一次模型请求，实测它在 `run_case` 收尾（`check_unused`）之前到达，因此 ticket cassette 末尾按 R7 必须准备一条 `{"text": "{\"items\": []}"}`；转发给总控的回复轮实测不在本例内发出，不为它准备应答。若将来时序变化，症状是 `exhausted`（少一条）或 `unused`（多一条），按 R7 与 10 §6.6 调整 cassette。
 
 ### 4.3 录制回放的多会话工具结果校验
 
