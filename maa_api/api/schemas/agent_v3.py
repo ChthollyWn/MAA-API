@@ -398,7 +398,7 @@ class ArtifactFormSubmit(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    values: dict[str, Any]
+    values: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactFormSubmitResult(BaseModel):

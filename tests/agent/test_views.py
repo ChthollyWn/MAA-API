@@ -557,3 +557,15 @@ def test_render_submission_uses_labels_and_values() -> None:
         "  第二行\n"
         "- 空的：（未填）"
     )
+
+    explicit_empty = validate_submission(
+        extra,
+        {"tags": ["a"], "ratio": 1, "comment": "  ", "empty": ""},
+    )
+    assert render_submission(extra, explicit_empty, artifact_id="abcdefgh123") == (
+        "【表单提交】补充（产物 abcdefgh）\n"
+        "- 标签：甲（a）\n"
+        "- 比例：1%\n"
+        "- 说明：（未填）\n"
+        "- 空的：（未填）"
+    )

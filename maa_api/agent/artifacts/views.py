@@ -629,7 +629,10 @@ def _render_value(
         return f"{_number_text(value)}{unit}"
     if isinstance(field, ToggleField):
         return "是" if value else "否"
-    return str(value).replace("\n", "\n  ")
+    text = str(value)
+    if not text.strip():
+        return "（未填）"
+    return text.replace("\n", "\n  ")
 
 
 def render_submission(spec: ViewSpec, values: Mapping[str, Any], *, artifact_id: str) -> str:

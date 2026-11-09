@@ -121,6 +121,11 @@
 - 测试实现层面的偏离：T1 测试路径、604 点边界（spec §6 写 601）、`test_agent_specs.py` 提前到 T2、`test_tool_catalog.py` 阈值、`test_submit_route_is_in_agent_group` 的 `custom_operation_id` 装配。
 - 未新增依赖（不引入 `jsonschema`）、配置、错误码、表、迁移、SSE 事件或 `submit` 之外的端点；M75 其它端点语义未动。
 
+## 整支审查修复
+
+- 整支审查 APPROVE（无 Critical/Important）：修复两处 Minor —— `ArtifactFormSubmit.values` 按 spec §4.2 改为 `Field(default_factory=dict)`（缺省空字典按必填项报 400 字段错误，不是 422）并补 API 用例；`render_submission` 对显式空串的可选文本渲染「（未填）」（§4.5.3）并补用例。
+- README 的「M90 已合入 dev 并打 v3-m90 tag」在合并与 tag 后成立（本台账记录合并提交后核对）。
+
 ## 遗留
 
 1. spec §7 的两项补充检查**未执行**：配好 LLM 后在指挥台真实对话出表单、选完提交、Worker 收到【表单提交】并继续；作业研究场景跑一次 copilot 候选作业表单。需要真实 LLM 与浏览器，本任务只用回放、自动化测试与假世界验证，如实记「未验证」。

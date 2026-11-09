@@ -356,6 +356,25 @@ def test_submit_writes_user_message_into_worker_inbox(submit_env, make_client):
 # ---------------------------------------------------------------------------
 # 校验失败：不写消息、不记 meta
 # ---------------------------------------------------------------------------
+def test_submit_missing_values_defaults_to_empty_dict(submit_env, make_client):
+    """M90 §4.2：``values`` 缺省是空 dict，不是 422；按表单必填项返回 400 字段错误。"""
+    ticket = _create_ticket(submit_env)
+    artifact = _put_form(
+        submit_env, ticket_id=ticket.id, meta={"view_version": 1, "submissions": []}
+    )
+
+    with make_client(submit_env.app) as client:
+        response = client.post(
+            f"/api/agent/artifacts/{artifact.id}/submit", json={}
+        )
+
+    assert response.status_code == 400, response.text
+    error = _error(response)
+    assert error["code"] == "INVALID_PARAMETER"
+    assert "fields" in error["details"]
+    assert _worker_messages(submit_env, ticket.id) == []
+
+
 def test_submit_rejects_invalid_values_with_field_errors(submit_env, make_client):
     ticket = _create_ticket(submit_env)
     artifact = _put_form(
