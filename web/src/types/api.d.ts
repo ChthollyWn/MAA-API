@@ -3489,7 +3489,7 @@ export interface components {
          */
         ArtifactFormSubmit: {
             /** Values */
-            values: {
+            values?: {
                 [key: string]: unknown;
             };
         };
