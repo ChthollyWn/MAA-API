@@ -86,6 +86,9 @@
 
 ## 遗留
 
+- `tests/evals/scenarios/m87-copilot-round-exhausted.yaml` 的 `copilot_loop.max_iterations=2` 在假尝试不消耗授权的前提下不生效，该场景只验模型行为；授权换卡状态机由单元测试覆盖（见「Rulings」与 13 §8.181 偏离 3）。
+
+
 - 真机补充验证（spec §7.2）**未验证**，见下节。
 - `m87-copilot-round-exhausted` 的授权换卡只由单测覆盖，评测场景不覆盖；如果未来维护性补丁让假尝试消耗授权，可改回端到端验证。
 - 文案 AI 腔回潮是旧基线下的既有漂移（`lint-baseline.json` 未重设）；本里程碑没有改 `docs/copy-audit`，后续如需收敛另起任务。
